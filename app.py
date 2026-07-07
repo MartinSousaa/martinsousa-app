@@ -10,10 +10,11 @@ from parametros_oficiais import (
 
 st.set_page_config(page_title="MartinSousa - Analise de Viabilidade", layout="wide")
 
-API_KEY_CLAUDE  = st.secrets.get("ANTHROPIC_API_KEY", "")
-ML_CLIENT_ID    = st.secrets.get("ML_CLIENT_ID", "")
+API_KEY_CLAUDE   = st.secrets.get("ANTHROPIC_API_KEY", "")
+ML_CLIENT_ID     = st.secrets.get("ML_CLIENT_ID", "")
 ML_CLIENT_SECRET = st.secrets.get("ML_CLIENT_SECRET", "")
-SERPAPI_KEY     = st.secrets.get("SERPAPI_KEY", "")
+SERPAPI_KEY      = st.secrets.get("SERPAPI_KEY", "")
+ML_ACCESS_TOKEN  = st.secrets.get("ML_ACCESS_TOKEN", "")
 
 # ── CÁLCULO ────────────────────────────────────────────────────────────────────
 
@@ -110,6 +111,9 @@ def filtrar_por_plataforma(visual_matches):
 # ── MERCADO LIVRE API ──────────────────────────────────────────────────────────
 
 def obter_token_ml():
+    # Usa o token OAuth do usuario se disponivel (retorna sold_quantity real)
+    if ML_ACCESS_TOKEN:
+        return ML_ACCESS_TOKEN
     resp = requests.post(
         "https://api.mercadolibre.com/oauth/token",
         data={"grant_type": "client_credentials",
@@ -212,9 +216,6 @@ def processar_anuncios_ml(ml_links, token, dims_ref, qtd_ref):
         medidas = extrair_medidas(anuncio)
         preco   = preco_promocional(anuncio)
         vendas  = anuncio.get("sold_quantity", 0)
-        # Se vendas vier zerado, tenta busca publica
-        if vendas == 0:
-            vendas = buscar_vendas_publico(item_id)
         titulo  = anuncio.get("title", "")
         qtd     = extrair_quantidade(anuncio)
         tem_dims = any(d > 0 for d in dims_ref)
