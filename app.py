@@ -236,10 +236,10 @@ def processar_anuncios_ml(ml_links, token, dims_ref, qtd_ref):
             continue
         medidas = extrair_medidas(anuncio)
         preco   = preco_promocional(anuncio)
+        titulo  = anuncio.get("title", "")
         vendas  = anuncio.get("sold_quantity", 0)
         if vendas == 0 and titulo:
             vendas = buscar_vendas_por_titulo(titulo, item_id)
-        titulo  = anuncio.get("title", "")
         qtd     = extrair_quantidade(anuncio)
         tem_dims = any(d > 0 for d in dims_ref)
         if tem_dims:
@@ -347,7 +347,7 @@ st.markdown("---")
 
 with st.sidebar:
     st.header("MartinSousa App")
-    st.caption("v4.3")
+    st.caption("v4.4")
     st.markdown("---")
     modalidade = st.selectbox("Modalidade ML", ["Premium", "Classico"])
     st.markdown("---")
