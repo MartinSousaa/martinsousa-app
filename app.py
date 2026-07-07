@@ -157,21 +157,22 @@ def buscar_anuncio(item_id, token):
     except:
         return None
 
-def buscar_vendas_por_titulo(titulo, item_id):
-    """Busca sold_quantity via pesquisa por titulo — mesmo metodo que o site ML usa."""
+def buscar_engajamento(item_id, token):
+    """
+    Usa reviews (avaliacoes) como proxy de vendas.
+    Produtos com avaliacoes = tiveram vendas reais.
+    Retorna numero de avaliacoes como indicador de demanda.
+    """
     try:
-        # Pega as primeiras palavras significativas do titulo para busca
-        palavras = " ".join(titulo.split()[:6])
+        headers = {"Authorization": f"Bearer {token}"}
         r = requests.get(
-            "https://api.mercadolibre.com/sites/MLB/search",
-            params={"q": palavras, "limit": 50},
-            timeout=15
+            f"https://api.mercadolibre.com/reviews/item/{item_id}",
+            headers=headers,
+            timeout=10
         )
         data = r.json()
-        for item in data.get("results", []):
-            if item.get("id") == item_id:
-                return item.get("sold_quantity", 0)
-        return 0
+        total = data.get("paging", {}).get("total", 0)
+        return total
     except:
         return 0
 
@@ -238,8 +239,11 @@ def processar_anuncios_ml(ml_links, token, dims_ref, qtd_ref):
         preco   = preco_promocional(anuncio)
         titulo  = anuncio.get("title", "")
         vendas  = anuncio.get("sold_quantity", 0)
-        if vendas == 0 and titulo:
-            vendas = buscar_vendas_por_titulo(titulo, item_id)
+        # Usa avaliacoes como proxy de vendas (sold_quantity nao disponivel via API publica)
+        avaliacoes = buscar_engajamento(item_id, token)
+        # Converte avaliacoes em estimativa de vendas (media: 1 avaliacao para cada 20-30 vendas)
+        if vendas == 0 and avaliacoes > 0:
+            vendas = avaliacoes * 25  # estimativa conservadora
         qtd     = extrair_quantidade(anuncio)
         tem_dims = any(d > 0 for d in dims_ref)
         if tem_dims:
@@ -293,8 +297,9 @@ Custo: R${custo:.2f}
 Modalidade: {modalidade}
 LPV necessario: R${LPV_OFICIAL:.2f}
 
-ANUNCIOS COM VENDAS ({len(com_vendas)} encontrados):
-{"Faixa: R$" + f"{min(precos_com):.2f}" + " a R$" + f"{max(precos_com):.2f}" if precos_com else "Nenhum com vendas registradas"}
+ANUNCIOS COM INDICADOR DE DEMANDA ({len(com_vendas)} encontrados):
+{"Faixa: R$" + f"{min(precos_com):.2f}" + " a R$" + f"{max(precos_com):.2f}" if precos_com else "Nenhum com demanda registrada"}
+NOTA: vendas estimadas com base em avaliacoes dos anuncios (1 avaliacao ~ 25 vendas estimadas)
 
 CALCULO POR FAIXA:
 {faixas_str}
@@ -347,7 +352,7 @@ st.markdown("---")
 
 with st.sidebar:
     st.header("MartinSousa App")
-    st.caption("v4.4")
+    st.caption("v4.6")
     st.markdown("---")
     modalidade = st.selectbox("Modalidade ML", ["Premium", "Classico"])
     st.markdown("---")
