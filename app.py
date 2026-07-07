@@ -69,70 +69,40 @@ def hospedar_imgur(imagem_bytes):
     except Exception as e:
         return None, str(e)
 
-# ── GOOGLE LENS ────────────────────────────────────────────────────────────────
+# ── GOOGLE LENS (apenas outros canais) ────────────────────────────────────────
 
-def buscar_por_foto(url_imagem):
+def buscar_outros_canais(url_imagem):
+    MARKETPLACES_ACEITOS = {
+        "shopee": "Shopee", "amazon": "Amazon",
+        "magazineluiza": "Magazine Luiza", "magazinevoce": "Magazine Luiza",
+        "carrefour": "Carrefour", "casasbahia": "Casas Bahia",
+        "americanas": "Americanas", "submarino": "Americanas",
+        "extra": "Extra", "pontofrio": "Ponto Frio",
+    }
     try:
         resp = requests.get(
             "https://serpapi.com/search",
-            params={
-                "engine": "google_lens",
-                "api_key": SERPAPI_KEY,
-                "url": url_imagem,
-                "country": "br",
-                "hl": "pt",
-                "type": "visual_matches"
-            },
+            params={"engine": "google_lens", "api_key": SERPAPI_KEY,
+                    "url": url_imagem, "country": "br", "hl": "pt",
+                    "type": "visual_matches"},
             timeout=30
         )
-        data = resp.json()
-        if "error" in data:
-            return [], data["error"]
-        return data.get("visual_matches", []), None
-    except Exception as e:
-        return [], str(e)
-
-MARKETPLACES_ACEITOS = {
-    "shopee": "Shopee",
-    "amazon": "Amazon",
-    "magazineluiza": "Magazine Luiza",
-    "magazinevoce": "Magazine Luiza",
-    "carrefour": "Carrefour",
-    "casasbahia": "Casas Bahia",
-    "americanas": "Americanas",
-    "submarino": "Americanas",
-    "shoptime": "Americanas",
-    "extra": "Extra",
-    "pontofrio": "Ponto Frio",
-}
-
-def separar_resultados(visual_matches):
-    ml_resultados, outros = [], {}
-    for item in visual_matches:
-        source = item.get("source", "").lower()
-        link   = item.get("link", "")
-        titulo = item.get("title", "")
-        thumb  = item.get("thumbnail", "")
-        price  = item.get("price", {})
-        preco  = price.get("extracted_value") if price else None
-
-        if "mercadolivre.com.br" in source or "mercadolivre.com.br" in link.lower():
-            match = re.search(r'MLB-?(\d+)', link)
-            if match:
-                item_id = f"MLB{match.group(1)}"
-                ml_resultados.append({
-                    "item_id": item_id,
-                    "titulo": titulo,
-                    "thumbnail": thumb,
-                    "link": link,
-                    "preco_lens": preco
-                })
-        elif preco:
-            for dominio, nome in MARKETPLACES_ACEITOS.items():
-                if dominio in source or dominio in link.lower():
-                    outros.setdefault(nome, []).append(preco)
-                    break
-    return ml_resultados, outros
+        outros = {}
+        for item in resp.json().get("visual_matches", []):
+            source = item.get("source", "").lower()
+            link   = item.get("link", "").lower()
+            price  = item.get("price", {})
+            preco  = price.get("extracted_value") if price else None
+            if "mercadolivre.com.br" in source or "mercadolivre.com.br" in link:
+                continue
+            if preco:
+                for dominio, nome in MARKETPLACES_ACEITOS.items():
+                    if dominio in source or dominio in link:
+                        outros.setdefault(nome, []).append(preco)
+                        break
+        return outros
+    except:
+        return {}
 
 # ── MERCADO LIVRE API ──────────────────────────────────────────────────────────
 
@@ -147,36 +117,96 @@ def obter_token_ml():
     )
     return resp.json().get("access_token")
 
-def buscar_anuncio_ativo(item_id, token):
-    """Busca anuncio pelo ID. Se retornar erro, tenta busca por titulo no ML."""
+def buscar_anuncios_ml(query, token, limit=30):
     try:
-        headers = {"Authorization": f"Bearer {token}"}
-        r = requests.get(
-            f"https://api.mercadolibre.com/items/{item_id}",
-            headers=headers,
-            params={"include_attributes": "all"},
-            timeout=10
-        )
-        data = r.json()
-        if "error" in data or data.get("status") in [404, 403]:
-            return None
-        return data
-    except:
-        return None
-
-def buscar_anuncios_ativos_por_texto(query, token, limit=20):
-    """Busca anuncios ATIVOS no ML por texto — retorna sold_quantity real."""
-    try:
-        headers = {"Authorization": f"Bearer {token}"}
         r = requests.get(
             "https://api.mercadolibre.com/sites/MLB/search",
-            params={"q": query, "limit": limit, "status": "active"},
-            headers=headers,
+            params={"q": query, "limit": limit},
+            headers={"Authorization": f"Bearer {token}"},
             timeout=15
         )
         return r.json().get("results", [])
     except:
         return []
+
+def buscar_detalhes_anuncio(item_id, token):
+    try:
+        r = requests.get(
+            f"https://api.mercadolibre.com/items/{item_id}",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"include_attributes": "all"},
+            timeout=10
+        )
+        data = r.json()
+        if "error" in data:
+            return None
+        return data
+    except:
+        return None
+
+def extrair_medidas_texto(texto):
+    """Extrai medidas de qualquer texto (titulo, descricao, atributos)."""
+    medidas = []
+    for m in re.findall(r'(\d+[.,]?\d*)\s*[xX×]\s*(\d+[.,]?\d*)', texto):
+        medidas.append((float(m[0].replace(',','.')), float(m[1].replace(',','.'))))
+    return medidas
+
+def medida_compativel(medidas, dims_ref, tolerancia=2.0):
+    if not dims_ref or all(d == 0 for d in dims_ref):
+        return True, "sem_filtro"
+    dims_validas = [d for d in dims_ref if d > 0]
+    if not medidas:
+        return False, "sem_medida"
+    ref = sorted(dims_validas[:2])
+    for m in medidas:
+        ms = sorted(m[:2])
+        if len(ref) >= 2:
+            if abs(ms[0]-ref[0]) <= tolerancia and abs(ms[1]-ref[1]) <= tolerancia:
+                return True, "compativel"
+        elif len(ref) == 1:
+            if any(abs(v-ref[0]) <= tolerancia for v in ms):
+                return True, "compativel"
+    return False, "incompativel"
+
+def verificar_medidas_anuncio(anuncio, dims_ref):
+    """Verifica medidas em titulo, atributos e descricao."""
+    titulo = anuncio.get("title", "")
+    descricao = anuncio.get("description", "") or ""
+
+    # 1. Titulo
+    medidas = extrair_medidas_texto(titulo)
+    ok, status = medida_compativel(medidas, dims_ref)
+    if status == "compativel":
+        return True, "titulo"
+    if status == "incompativel":
+        return False, "titulo_incompativel"
+
+    # 2. Atributos
+    for attr in anuncio.get("attributes", []):
+        nome  = attr.get("name", "").lower()
+        valor = attr.get("value_name", "") or ""
+        if any(p in nome for p in ["comprimento", "largura", "dimensao", "tamanho", "medida", "altura"]):
+            medidas = extrair_medidas_texto(valor)
+            if not medidas:
+                nums = re.findall(r'\d+[.,]?\d*', valor)
+                if nums:
+                    medidas = [(float(nums[0].replace(',','.')), float(nums[0].replace(',','.')))]
+            ok, status = medida_compativel(medidas, dims_ref)
+            if status == "compativel":
+                return True, "atributos"
+            if status == "incompativel":
+                return False, "atributos_incompativel"
+
+    # 3. Descricao
+    if descricao:
+        medidas = extrair_medidas_texto(descricao)
+        ok, status = medida_compativel(medidas, dims_ref)
+        if status == "compativel":
+            return True, "descricao"
+        if status == "incompativel":
+            return False, "descricao_incompativel"
+
+    return False, "sem_medida_encontrada"
 
 def preco_promocional(anuncio):
     sp = anuncio.get("sale_price")
@@ -184,11 +214,67 @@ def preco_promocional(anuncio):
         return float(sp["amount"])
     return float(anuncio.get("price", 0))
 
+# ── ANALISE VISUAL CLAUDE ──────────────────────────────────────────────────────
+
+def confirmar_produto_visualmente(fotos_referencia_b64, fotos_anuncio_urls, titulo_anuncio):
+    """Claude compara fotos de referencia com todas as fotos do anuncio."""
+    try:
+        content = []
+
+        # Fotos de referencia
+        content.append({"type": "text", "text": f"FOTOS DE REFERENCIA DO PRODUTO ({len(fotos_referencia_b64)} imagens):"})
+        for i, img_b64 in enumerate(fotos_referencia_b64[:4]):
+            content.append({
+                "type": "image",
+                "source": {"type": "base64", "media_type": "image/jpeg", "data": img_b64}
+            })
+
+        # Fotos do anuncio
+        content.append({"type": "text", "text": f"\nFOTOS DO ANUNCIO ML '{titulo_anuncio}' ({len(fotos_anuncio_urls)} imagens):"})
+        for url in fotos_anuncio_urls[:6]:
+            try:
+                r = requests.get(url, timeout=8)
+                if r.status_code == 200:
+                    img_data = base64.b64encode(r.content).decode()
+                    content.append({
+                        "type": "image",
+                        "source": {"type": "base64", "media_type": "image/jpeg", "data": img_data}
+                    })
+            except:
+                pass
+
+        content.append({"type": "text", "text": """
+Analise as imagens e responda APENAS com JSON no formato:
+{"confirmado": true/false, "motivo": "explicacao curta"}
+
+Confirme como o MESMO PRODUTO se:
+- Tipo/categoria identico (ex: album de fotos = album de fotos, nao caderno)
+- Material visualmente compativel (capa dura, espiral metalico, etc)
+- Estilo geral compativel
+
+Rejeite se:
+- Tipo diferente (caderno, sketchbook, agenda vs album de fotos)
+- Material claramente diferente
+- Produto completamente diferente
+"""})
+
+        client = anthropic.Anthropic(api_key=API_KEY_CLAUDE)
+        msg = client.messages.create(
+            model="claude-sonnet-4-6", max_tokens=100,
+            messages=[{"role": "user", "content": content}]
+        )
+        texto = msg.content[0].text.strip()
+        import json
+        resultado = json.loads(texto)
+        return resultado.get("confirmado", False), resultado.get("motivo", "")
+    except:
+        return True, "erro na analise visual - incluido por precaucao"
+
 # ── VEREDICTO IA ───────────────────────────────────────────────────────────────
 
-def gerar_veredicto(anuncios_selecionados, outros_precos, custo, peso_taxado, categoria, modalidade, nome, dims_ref, qtd_ref):
-    com_vendas = [a for a in anuncios_selecionados if a.get("vendas", 0) > 0]
-    sem_vendas = [a for a in anuncios_selecionados if a.get("vendas", 0) == 0]
+def gerar_veredicto(anuncios, outros_precos, custo, peso_taxado, categoria, modalidade, nome, dims_ref, qtd_ref):
+    com_vendas = [a for a in anuncios if a.get("vendas", 0) > 0]
+    sem_vendas = [a for a in anuncios if a.get("vendas", 0) == 0]
     precos_com = sorted([a["preco"] for a in com_vendas])
     precos_sem = sorted([a["preco"] for a in sem_vendas])
 
@@ -205,7 +291,7 @@ def gerar_veredicto(anuncios_selecionados, outros_precos, custo, peso_taxado, ca
     if precos_com and len(precos_com) > 1:
         variacao = max(precos_com) / min(precos_com)
         if variacao > 1.5:
-            alerta_variacao = f"ATENCAO: variacao de preco de {((variacao-1)*100):.0f}% detectada. Investigue se ha tamanhos ou quantidades diferentes misturados."
+            alerta_variacao = f"ATENCAO: variacao de preco elevada ({((variacao-1)*100):.0f}%). Verifique se ha tamanhos diferentes misturados."
 
     dims_str = f"{dims_ref[0]}x{dims_ref[1]}x{dims_ref[2]}cm" if any(d > 0 for d in dims_ref) else "nao informado"
 
@@ -218,31 +304,31 @@ Custo: R${custo:.2f}
 Modalidade: {modalidade}
 LPV necessario: R${LPV_OFICIAL:.2f}
 
-ANUNCIOS COM VENDAS ({len(com_vendas)} selecionados e confirmados):
-{"Faixa: R$" + f"{min(precos_com):.2f}" + " a R$" + f"{max(precos_com):.2f}" if precos_com else "Nenhum com vendas"}
+ANUNCIOS COM VENDAS ({len(com_vendas)} confirmados por medida e visao):
+{"Faixa: R$" + f"{min(precos_com):.2f}" + " a R$" + f"{max(precos_com):.2f}" if precos_com else "Nenhum"}
 
 CALCULO POR FAIXA:
 {faixas_str}
 
-ANUNCIOS SEM VENDAS ({len(sem_vendas)} selecionados):
+ANUNCIOS SEM VENDAS ({len(sem_vendas)} confirmados):
 {f'Faixa: R${min(precos_sem):.2f} a R${max(precos_sem):.2f}' if precos_sem else 'Nenhum'}
 
-OUTROS CANAIS:
+OUTROS CANAIS (referencia):
 {outros_str}
 
 {alerta_variacao}
 
 REGRAS RIGIDAS:
-1. UC MINIMO ABSOLUTO: 6/1. Se UC abaixo de 6/1, veredicto e INVIAVEL sem excecao.
-2. So sugira preco com UC >= 6/1. Se impossivel no mercado, declare INVIAVEL.
-3. Margem para promocao: acima 10% OTIMO, 3-10% OK, abaixo 3% SEM MARGEM.
-4. Se margem abaixo 10%, alerte sobre esforco operacional.
-5. Se inviavel unitario mas kits possiveis, sugira kit.
+1. UC MINIMO: 6/1. Abaixo disso = INVIAVEL sem excecao.
+2. So sugira preco com UC >= 6/1.
+3. Margem promocao: >10% OTIMO, 3-10% OK, <3% SEM MARGEM.
+4. Se margem <10%, alerte sobre esforco operacional.
+5. Seja honesto. Nao salve produto inviavel.
 
 CENARIOS:
-- VIAVEL: UC >= 6/1 + margem promocao acima 10%
-- VIAVEL COM RESSALVAS: UC 6/1 a 8/1 OU promocao 3-10%
-- INVIAVEL: UC abaixo 6/1 em qualquer preco do mercado
+- VIAVEL: UC >= 6/1 + margem >10%
+- VIAVEL COM RESSALVAS: UC 6/1-8/1 OU margem 3-10%
+- INVIAVEL: UC < 6/1
 
 ESTRUTURE ASSIM:
 1. VEREDICTO: [VIAVEL / VIAVEL COM RESSALVAS / INVIAVEL]
@@ -268,7 +354,7 @@ st.markdown("---")
 
 with st.sidebar:
     st.header("MartinSousa App")
-    st.caption("v5.0")
+    st.caption("v6.0")
     st.markdown("---")
     modalidade = st.selectbox("Modalidade ML", ["Premium", "Classico"])
     st.markdown("---")
@@ -277,8 +363,10 @@ with st.sidebar:
 col1, col2 = st.columns(2)
 with col1:
     st.subheader("Dados do Produto")
-    foto         = st.file_uploader("Foto do produto", type=["jpg","jpeg","png","webp"])
-    nome_produto = st.text_input("Nome do produto")
+    fotos = st.file_uploader("Fotos do produto (pode enviar varias)", 
+                              type=["jpg","jpeg","png","webp"], 
+                              accept_multiple_files=True)
+    nome_produto = st.text_input("Nome do produto (para busca no ML)")
     custo        = st.number_input("Preco de custo (R$)", min_value=0.0, value=None, step=0.50, format="%.2f", placeholder="0,00")
     qtd_ref      = st.number_input("Quantidade por unidade/kit", min_value=1, step=1, value=1)
     categoria    = st.selectbox("Categoria no ML", sorted(ML_COMISSAO_POR_CATEGORIA.keys()))
@@ -294,107 +382,123 @@ with col2:
     dim2 = st.number_input("Medida 2 (cm)", min_value=0.0, value=None, step=0.5, format="%.1f", placeholder="ex: 30")
     dim3 = st.number_input("Medida 3 (cm)", min_value=0.0, value=None, step=0.5, format="%.1f", placeholder="ex: 2")
     dims_ref = [dim1 or 0, dim2 or 0, dim3 or 0]
-    if foto:
-        st.image(foto, caption="Foto enviada", use_container_width=True)
+    if fotos:
+        cols_f = st.columns(min(len(fotos), 3))
+        for i, f in enumerate(fotos[:3]):
+            cols_f[i].image(f, use_container_width=True)
 
 st.markdown("---")
+analisar = st.button("Analisar Viabilidade", type="primary", use_container_width=True)
 
-# ETAPA 1: Buscar por foto
-if "ml_resultados" not in st.session_state:
-    st.session_state.ml_resultados = []
-if "outros_precos" not in st.session_state:
-    st.session_state.outros_precos = {}
-if "etapa" not in st.session_state:
-    st.session_state.etapa = 1
+if analisar:
+    erros = []
+    if not fotos:        erros.append("Pelo menos 1 foto do produto")
+    if not nome_produto: erros.append("Nome do produto")
+    if not custo:        erros.append("Preco de custo")
+    if erros:
+        st.warning(f"Preencha: {', '.join(erros)}")
+        st.stop()
 
-buscar = st.button("🔍 Buscar por foto", type="primary", use_container_width=True)
+    peso_taxado = calcular_peso_taxado(peso_kg, dim1 or 0, dim2 or 0, dim3 or 0)
 
-if buscar:
-    if not foto or not nome_produto or not custo:
-        st.warning("Preencha foto, nome do produto e custo.")
-    else:
-        with st.spinner("Hospedando imagem..."):
-            imagem_bytes = foto.read()
-            url_imagem, erro = hospedar_imgur(imagem_bytes)
+    # Converte fotos para base64
+    fotos_b64 = []
+    for f in fotos:
+        fotos_b64.append(base64.b64encode(f.read()).decode())
+
+    # Hospeda primeira foto para o Lens
+    url_imagem = None
+    with st.spinner("Hospedando imagem..."):
+        url_imagem, erro = hospedar_imgur(base64.b64decode(fotos_b64[0]))
         if erro:
-            st.error(f"Erro Imgur: {erro}")
-            st.stop()
+            st.warning(f"Imgur indisponivel: {erro} — continuando sem outros canais")
 
-        with st.spinner("Buscando no Google Lens..."):
-            matches, erro = buscar_por_foto(url_imagem)
-        if erro:
-            st.error(f"Erro Google Lens: {erro}")
-            st.stop()
+    # Busca outros canais via Lens (em paralelo)
+    outros_precos = {}
+    if url_imagem:
+        with st.spinner("Buscando precos em outros canais..."):
+            outros_precos = buscar_outros_canais(url_imagem)
 
-        ml_resultados, outros_precos = separar_resultados(matches)
-        st.session_state.ml_resultados = ml_resultados
-        st.session_state.outros_precos = outros_precos
-        st.session_state.etapa = 2
-        st.rerun()
+    # Busca anuncios ativos no ML por nome
+    token = obter_token_ml()
+    with st.spinner(f"Buscando anuncios ativos no ML para '{nome_produto}'..."):
+        resultados_busca = buscar_anuncios_ml(nome_produto, token, limit=30)
 
-# ETAPA 2: Confirmacao visual
-if st.session_state.etapa >= 2 and st.session_state.ml_resultados:
-    st.markdown("---")
-    st.subheader("Selecione os anuncios que sao o mesmo produto")
-    st.caption(f"{len(st.session_state.ml_resultados)} anuncios encontrados no ML — marque apenas os corretos")
+    st.info(f"ML: {len(resultados_busca)} anuncios encontrados na busca")
 
-    selecionados_ids = []
-    cols_por_linha = 4
-    resultados = st.session_state.ml_resultados[:20]
+    # Filtra por medida e analise visual
+    confirmados = []
+    descartados_medida = []
+    descartados_visual = []
+    sem_medida = []
 
-    for i in range(0, len(resultados), cols_por_linha):
-        cols = st.columns(cols_por_linha)
-        for j, item in enumerate(resultados[i:i+cols_por_linha]):
-            with cols[j]:
-                if item["thumbnail"]:
-                    st.image(item["thumbnail"], use_container_width=True)
-                preco_str = f"R${item['preco_lens']:.2f}" if item['preco_lens'] else "Sem preço"
-                titulo_curto = item["titulo"][:50] + "..." if len(item["titulo"]) > 50 else item["titulo"]
-                selecionado = st.checkbox(
-                    f"{titulo_curto}\n{preco_str}",
-                    key=f"sel_{item['item_id']}"
-                )
-                if selecionado:
-                    selecionados_ids.append(item["item_id"])
+    progress = st.progress(0, text="Analisando anuncios...")
+    total = len(resultados_busca)
 
-    st.markdown("---")
-    analisar = st.button(
-        f"📊 Analisar {len(selecionados_ids)} anuncio(s) selecionado(s)",
-        type="primary",
-        use_container_width=True,
-        disabled=len(selecionados_ids) == 0
-    )
+    for idx, resultado in enumerate(resultados_busca):
+        progress.progress((idx+1)/total, text=f"Analisando {idx+1}/{total}...")
+        item_id = resultado.get("id")
+        if not item_id:
+            continue
 
-    if analisar and selecionados_ids:
-        peso_taxado = calcular_peso_taxado(peso_kg, dim1 or 0, dim2 or 0, dim3 or 0)
-        token = obter_token_ml()
+        # Busca detalhes completos
+        anuncio = buscar_detalhes_anuncio(item_id, token)
+        if not anuncio:
+            continue
 
-        with st.spinner("Buscando dados dos anuncios selecionados..."):
-            anuncios_dados = []
-            for item_id in selecionados_ids:
-                anuncio = buscar_anuncio_ativo(item_id, token)
-                if anuncio:
-                    preco  = preco_promocional(anuncio)
-                    vendas = anuncio.get("sold_quantity", 0)
-                    titulo = anuncio.get("title", "")
-                    anuncios_dados.append({
-                        "item_id": item_id,
-                        "titulo": titulo,
-                        "preco": preco,
-                        "vendas": vendas
-                    })
+        # Filtra por medida
+        tem_dims = any(d > 0 for d in dims_ref)
+        if tem_dims:
+            medida_ok, onde = verificar_medidas_anuncio(anuncio, dims_ref)
+            if not medida_ok:
+                if onde == "sem_medida_encontrada":
+                    sem_medida.append(anuncio.get("title", ""))
+                else:
+                    descartados_medida.append(anuncio.get("title", ""))
+                continue
 
-        if st.session_state.outros_precos:
-            st.subheader("Outros canais (referencia)")
-            cols = st.columns(len(st.session_state.outros_precos))
-            for i, (plat, precos) in enumerate(st.session_state.outros_precos.items()):
-                cols[i].metric(plat, f"R${sum(precos)/len(precos):.2f}", f"{len(precos)} anuncio(s)")
+        # Analise visual pelo Claude
+        fotos_anuncio = [p.get("secure_url", p.get("url", ""))
+                         for p in anuncio.get("pictures", [])]
 
-        with st.spinner("Gerando analise com IA..."):
+        if fotos_anuncio:
+            confirmado, motivo = confirmar_produto_visualmente(
+                fotos_b64, fotos_anuncio, anuncio.get("title", "")
+            )
+            if not confirmado:
+                descartados_visual.append(f"{anuncio.get('title', '')} ({motivo})")
+                continue
+
+        preco  = preco_promocional(anuncio)
+        vendas = anuncio.get("sold_quantity", 0) or resultado.get("sold_quantity", 0)
+        confirmados.append({
+            "item_id": item_id,
+            "titulo": anuncio.get("title", ""),
+            "preco": preco,
+            "vendas": vendas
+        })
+
+    progress.empty()
+
+    # Resumo
+    col_a, col_b, col_c, col_d = st.columns(4)
+    col_a.metric("Confirmados", len(confirmados))
+    col_b.metric("Descartados medida", len(descartados_medida))
+    col_c.metric("Descartados visual", len(descartados_visual))
+    col_d.metric("Sem medida", len(sem_medida))
+
+    if outros_precos:
+        st.markdown("---")
+        st.subheader("Outros canais (referencia)")
+        cols = st.columns(len(outros_precos))
+        for i, (plat, precos) in enumerate(outros_precos.items()):
+            cols[i].metric(plat, f"R${sum(precos)/len(precos):.2f}", f"{len(precos)} anuncio(s)")
+
+    if confirmados:
+        with st.spinner("Gerando veredicto com IA..."):
             veredicto = gerar_veredicto(
-                anuncios_dados, st.session_state.outros_precos,
-                custo, peso_taxado, categoria, modalidade,
-                nome_produto, dims_ref, qtd_ref
+                confirmados, outros_precos, custo, peso_taxado,
+                categoria, modalidade, nome_produto, dims_ref, qtd_ref
             )
 
         st.markdown("---")
@@ -406,6 +510,26 @@ if st.session_state.etapa >= 2 and st.session_state.ml_resultados:
         else:
             st.success(veredicto)
 
-        with st.expander("Ver anuncios analisados"):
-            for a in anuncios_dados:
-                st.write(f"- {a['titulo']} — R${a['preco']:.2f} | {a['vendas']} vendas")
+        with st.expander("Ver anuncios confirmados"):
+            com = [a for a in confirmados if a["vendas"] > 0]
+            sem = [a for a in confirmados if a["vendas"] == 0]
+            if com:
+                st.markdown("**Com vendas:**")
+                for a in com:
+                    st.write(f"- {a['titulo']} — R${a['preco']:.2f} | {a['vendas']} vendas")
+            if sem:
+                st.markdown("**Sem vendas registradas:**")
+                for a in sem:
+                    st.write(f"- {a['titulo']} — R${a['preco']:.2f}")
+
+        with st.expander("Ver descartados"):
+            if descartados_medida:
+                st.markdown("**Medida diferente:**")
+                for t in descartados_medida:
+                    st.write(f"- {t}")
+            if descartados_visual:
+                st.markdown("**Produto diferente (analise visual):**")
+                for t in descartados_visual:
+                    st.write(f"- {t}")
+    else:
+        st.warning("Nenhum anuncio confirmado. Tente um nome de produto mais especifico ou ajuste as medidas.")
