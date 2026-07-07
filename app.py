@@ -55,14 +55,17 @@ def calcular_resultado(preco_venda, custo, peso_taxado_kg, categoria, modalidade
 
 def buscar_por_foto(imagem_bytes):
     try:
-        img_b64 = base64.b64encode(imagem_bytes).decode()
         resp = requests.post(
             "https://serpapi.com/search",
             data={"engine": "google_lens", "api_key": SERPAPI_KEY,
-                  "image_content": img_b64, "country": "br", "hl": "pt"},
+                  "country": "br", "hl": "pt"},
+            files={"image": ("produto.jpg", imagem_bytes, "image/jpeg")},
             timeout=30
         )
-        return resp.json().get("visual_matches", []), None
+        data = resp.json()
+        if "error" in data:
+            return [], data["error"]
+        return data.get("visual_matches", []), None
     except Exception as e:
         return [], str(e)
 
@@ -120,7 +123,6 @@ def extrair_medidas(anuncio):
     return medidas
 
 def medida_compativel(medidas, dims_ref, tolerancia=2.0):
-    """Testa todas as combinacoes possiveis das dimensoes para evitar erro de preenchimento."""
     if not dims_ref or all(d == 0 for d in dims_ref):
         return True
     dims_validas = [d for d in dims_ref if d > 0]
@@ -171,7 +173,6 @@ def processar_anuncios_ml(ml_links, token, dims_ref, qtd_ref):
         titulo  = anuncio.get("title", "")
         qtd     = extrair_quantidade(anuncio)
 
-        # verifica medida
         tem_dims = any(d > 0 for d in dims_ref)
         if tem_dims:
             if not medidas:
@@ -181,7 +182,6 @@ def processar_anuncios_ml(ml_links, token, dims_ref, qtd_ref):
                 descartados.append({"titulo": titulo, "preco": preco})
                 continue
 
-        # verifica quantidade
         if qtd_ref > 1 and qtd != qtd_ref:
             kits.append({"titulo": titulo, "preco": preco, "vendas": vendas, "qtd": qtd})
             continue
@@ -247,14 +247,14 @@ OUTROS CANAIS:
 {alerta_variacao}
 
 REGRAS:
-1. Sugira o melhor preco: nem o mais barato nem o mais caro — o melhor equilibrio entre VENDER e DAR LUCRO. Se os precos medios tambem vendem bem, prefira eles ao minimo.
+1. Sugira o melhor preco: nem o mais barato nem o mais caro — o melhor equilibrio entre VENDER e DAR LUCRO.
 2. Analise margem para promocao:
-   - Acima de 10% entre preco viavel e media de mercado: OTIMO
+   - Acima de 10%: OTIMO
    - Entre 3% e 10%: OK com atencao
-   - Abaixo de 3%: SEM MARGEM para promocao
+   - Abaixo de 3%: SEM MARGEM
 3. UC minimo aceitavel: 6/1. Abaixo disso e inviavel.
-4. Se margem abaixo de 10%, alerte: "Considere o esforco operacional de embalagem — pode nao valer a pena."
-5. Se unitario inviavel mas kits encontrados, sugira anunciar em kit.
+4. Se margem abaixo de 10%, alerte sobre esforco operacional.
+5. Se unitario inviavel mas kits encontrados, sugira kit.
 6. Seja honesto: se inviavel, diga claramente.
 
 CENARIOS:
@@ -286,7 +286,7 @@ st.markdown("---")
 
 with st.sidebar:
     st.header("MartinSousa App")
-    st.caption("v4.0")
+    st.caption("v4.1")
     st.markdown("---")
     modalidade = st.selectbox("Modalidade ML", ["Premium", "Classico"])
     st.markdown("---")
@@ -369,30 +369,4 @@ if analisar:
                 )
 
             st.markdown("---")
-            st.subheader("Resultado da Analise")
-
-            if "INVIAVEL" in veredicto.upper():
-                st.error(veredicto)
-            elif "RESSALVAS" in veredicto.upper():
-                st.warning(veredicto)
-            else:
-                st.success(veredicto)
-
-            with st.expander("Ver todos os anuncios analisados"):
-                if validos:
-                    com = [a for a in validos if a["vendas"] > 0]
-                    sem = [a for a in validos if a["vendas"] == 0]
-                    if com:
-                        st.markdown("**Com vendas:**")
-                        for a in com:
-                            st.write(f"- {a['titulo']} — R${a['preco']:.2f} | {a['vendas']} vendas | {a['qtd']} un")
-                    if sem:
-                        st.markdown("**Sem vendas:**")
-                        for a in sem:
-                            st.write(f"- {a['titulo']} — R${a['preco']:.2f} | {a['qtd']} un")
-                if kits:
-                    st.markdown("**Kits (quantidade diferente):**")
-                    for k in kits:
-                        st.write(f"- {k['titulo']} — R${k['preco']:.2f} | {k['qtd']} un | {k['vendas']} vendas")
-        else:
-            st.warning("Nenhum anuncio encontrado. Tente outra foto ou ajuste as dimensoes/quantidade.")
+            st.subheader("Resultado da
