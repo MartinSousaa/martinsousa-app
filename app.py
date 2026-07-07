@@ -196,16 +196,14 @@ def processar_anuncios_ml(ml_links, token, dims_ref, qtd_ref):
         qtd     = extrair_quantidade(anuncio)
         tem_dims = any(d > 0 for d in dims_ref)
         if tem_dims:
-            if not medidas:
-                sem_medida.append({"titulo": titulo, "preco": preco, "qtd": qtd})
-                continue
-            if not medida_compativel(medidas, dims_ref):
+            if medidas and not medida_compativel(medidas, dims_ref):
                 descartados.append({"titulo": titulo, "preco": preco})
                 continue
         if qtd_ref > 1 and qtd != qtd_ref:
             kits.append({"titulo": titulo, "preco": preco, "vendas": vendas, "qtd": qtd})
             continue
-        validos.append({"titulo": titulo, "preco": preco, "vendas": vendas, "qtd": qtd})
+        medida_ok = bool(medidas) and (not tem_dims or medida_compativel(medidas, dims_ref))
+        validos.append({"titulo": titulo, "preco": preco, "vendas": vendas, "qtd": qtd, "medida_ok": medida_ok})
     return validos, sem_medida, descartados, kits
 
 # ── VEREDICTO IA ───────────────────────────────────────────────────────────────
