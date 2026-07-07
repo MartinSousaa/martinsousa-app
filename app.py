@@ -116,9 +116,10 @@ def resolver_produto_catalogo(product_id, token):
 
 def buscar_outros_canais(url_imagem):
     """Busca via Google Lens (SerpApi). Retorna precos de outros canais
-    e, separadamente, os links do Mercado Livre encontrados (para
-    verificacao posterior via API oficial, ja que a busca por texto
-    do ML esta bloqueada para a maioria dos desenvolvedores)."""
+    e os concorrentes do Mercado Livre encontrados -- usando titulo, preco
+    e foto que o proprio Lens ja devolve, sem depender da API do ML (que
+    esta bloqueando busca por texto e consulta de item/produto para a
+    maioria dos apps de terceiros)."""
     MARKETPLACES_ACEITOS = {
         "shopee": "Shopee", "amazon": "Amazon",
         "magazineluiza": "Magazine Luiza", "magazinevoce": "Magazine Luiza",
@@ -135,25 +136,29 @@ def buscar_outros_canais(url_imagem):
             timeout=30
         )
         outros = {}
-        ml_candidatos = []
+        ml_resultados = []
         for item in resp.json().get("visual_matches", []):
-            source = item.get("source", "").lower()
-            link   = item.get("link", "").lower()
-            price  = item.get("price", {})
-            preco  = price.get("extracted_value") if price else None
+            source    = item.get("source", "").lower()
+            link      = item.get("link", "")
+            price     = item.get("price", {})
+            preco     = price.get("extracted_value") if price else None
+            titulo    = item.get("title", "")
+            thumbnail = item.get("thumbnail", "")
 
-            if "mercadolivre.com.br" in source or "mercadolivre.com.br" in link:
-                candidato = extrair_ml_candidato(link)
-                if candidato:
-                    ml_candidatos.append(candidato)
+            if "mercadolivre.com.br" in source or "mercadolivre.com.br" in link.lower():
+                if preco and titulo:
+                    ml_resultados.append({
+                        "titulo": titulo, "preco": preco,
+                        "link": link, "thumbnail": thumbnail,
+                    })
                 continue
 
             if preco:
                 for dominio, nome in MARKETPLACES_ACEITOS.items():
-                    if dominio in source or dominio in link:
+                    if dominio in source or dominio in link.lower():
                         outros.setdefault(nome, []).append(preco)
                         break
-        return outros, ml_candidatos
+        return outros, ml_resultados
     except:
         return {}, []
 
@@ -403,7 +408,7 @@ st.markdown("---")
 
 with st.sidebar:
     st.header("MartinSousa App")
-    st.caption("v6.1")
+    st.caption("v6.2")
     st.markdown("---")
     modalidade = st.selectbox("Modalidade ML", ["Premium", "Classico"])
     st.markdown("---")
@@ -462,117 +467,68 @@ if analisar:
         if erro:
             st.warning(f"Imgur indisponivel: {erro} — continuando sem outros canais")
 
-    # Busca outros canais + links do ML via Lens (a busca por texto do ML
-    # esta bloqueada pela plataforma para a maioria dos desenvolvedores,
-    # entao usamos o Lens pra descobrir os anuncios e confirmamos cada um
-    # individualmente pela API oficial do ML)
+    # Busca outros canais + concorrentes do ML via Lens. A API do ML esta
+    # bloqueando busca por texto e consulta de item/produto pra apps de
+    # terceiros, entao usamos os dados que o proprio Lens ja devolve
+    # (titulo, preco, foto) -- o mesmo jeito que ja funciona pra Shopee.
     outros_precos = {}
-    ml_candidatos = []
+    ml_resultados = []
     if url_imagem:
         with st.spinner("Buscando concorrentes (Lens)..."):
-            outros_precos, ml_candidatos = buscar_outros_canais(url_imagem)
+            outros_precos, ml_resultados = buscar_outros_canais(url_imagem)
 
-    token = obter_token_ml()
-
-    # Tenta tambem a busca por texto do ML, caso o endpoint volte a funcionar
-    with st.spinner(f"Verificando busca direta no ML..."):
-        resultados_busca_texto = buscar_anuncios_ml(nome_produto, token, limit=30)
-        for r in resultados_busca_texto:
-            if r.get("id"):
-                ml_candidatos.append(("item", r["id"]))
-
-    # Resolve paginas de catalogo (/p/MLBxxxx) para o item_id do anuncio vencedor
-    ml_item_ids = set()
-    erros_resolucao = []
-    with st.spinner("Resolvendo paginas de catalogo..."):
-        for tipo, valor in ml_candidatos:
-            if tipo == "item":
-                ml_item_ids.add(valor)
-            else:  # produto de catalogo
-                item_id, erro = resolver_produto_catalogo(valor, token)
-                if item_id:
-                    ml_item_ids.add(item_id)
-                else:
-                    erros_resolucao.append(f"{valor} (produto): {erro}")
-
-    st.info(f"ML: {len(ml_item_ids)} anuncios candidatos encontrados (Lens + busca)")
-    with st.expander("Ver IDs encontrados (debug)"):
-        st.write(list(ml_item_ids))
-        if erros_resolucao:
-            st.write("Erros ao resolver produtos de catalogo:")
-            for e in erros_resolucao:
-                st.write(f"- {e}")
+    st.info(f"ML: {len(ml_resultados)} anuncios candidatos encontrados (Lens)")
 
     # Filtra por medida e analise visual
     confirmados = []
     descartados_medida = []
     descartados_visual = []
     sem_medida = []
-    descartados_inativos = 0
-    erros_busca = []
 
     progress = st.progress(0, text="Analisando anuncios...")
-    ml_item_ids = list(ml_item_ids)
-    total = len(ml_item_ids)
+    total = len(ml_resultados)
 
-    for idx, item_id in enumerate(ml_item_ids):
+    for idx, resultado in enumerate(ml_resultados):
         if total:
             progress.progress((idx+1)/total, text=f"Analisando {idx+1}/{total}...")
 
-        # Busca detalhes completos e confirma que o anuncio esta ativo
-        anuncio, erro = buscar_detalhes_anuncio(item_id, token)
-        if not anuncio:
-            erros_busca.append(f"{item_id}: {erro}")
-            continue
-        if anuncio.get("status") != "active":
-            descartados_inativos += 1
-            continue
+        titulo = resultado["titulo"]
 
-        # Filtra por medida
+        # Filtra por medida (usando o titulo que o Lens devolveu)
         tem_dims = any(d > 0 for d in dims_ref)
         if tem_dims:
-            medida_ok, onde = verificar_medidas_anuncio(anuncio, dims_ref)
+            medidas = extrair_medidas_texto(titulo)
+            medida_ok, status = medida_compativel(medidas, dims_ref)
             if not medida_ok:
-                if onde == "sem_medida_encontrada":
-                    sem_medida.append(anuncio.get("title", ""))
+                if status == "sem_medida":
+                    sem_medida.append(titulo)
                 else:
-                    descartados_medida.append(anuncio.get("title", ""))
+                    descartados_medida.append(titulo)
                 continue
 
-        # Analise visual pelo Claude
-        fotos_anuncio = [p.get("secure_url", p.get("url", ""))
-                         for p in anuncio.get("pictures", [])]
-
-        if fotos_anuncio:
+        # Analise visual pelo Claude (usando a miniatura que o Lens devolveu)
+        if resultado["thumbnail"]:
             confirmado, motivo = confirmar_produto_visualmente(
-                fotos_b64, fotos_anuncio, anuncio.get("title", "")
+                fotos_b64, [resultado["thumbnail"]], titulo
             )
             if not confirmado:
-                descartados_visual.append(f"{anuncio.get('title', '')} ({motivo})")
+                descartados_visual.append(f"{titulo} ({motivo})")
                 continue
 
-        preco = preco_promocional(anuncio)
         confirmados.append({
-            "item_id": item_id,
-            "titulo": anuncio.get("title", ""),
-            "preco": preco,
+            "titulo": titulo,
+            "preco": resultado["preco"],
+            "link": resultado["link"],
         })
 
     progress.empty()
 
     # Resumo
-    col_a, col_b, col_c, col_d, col_e, col_f = st.columns(6)
+    col_a, col_b, col_c, col_d = st.columns(4)
     col_a.metric("Confirmados", len(confirmados))
     col_b.metric("Descartados medida", len(descartados_medida))
     col_c.metric("Descartados visual", len(descartados_visual))
     col_d.metric("Sem medida", len(sem_medida))
-    col_e.metric("Inativos", descartados_inativos)
-    col_f.metric("Erro na busca", len(erros_busca))
-
-    if erros_busca:
-        with st.expander("Ver erros na busca de detalhes (debug)"):
-            for e in erros_busca:
-                st.write(f"- {e}")
 
     if outros_precos:
         st.markdown("---")
