@@ -177,7 +177,8 @@ def processar_anuncios_ml(ml_links, token, dims_ref, qtd_ref):
             kits.append({"titulo": titulo, "preco": preco, "vendas": vendas, "qtd": qtd})
             continue
         validos.append({"titulo": titulo, "preco": preco, "vendas": vendas, "qtd": qtd})
-    return validos, sem_medida, descartados, kitsdef gerar_veredicto(anuncios, kits, outros_precos, custo, peso_taxado, categoria, modalidade, nome, dims_ref, qtd_ref):
+    return validos, sem_medida, descartados, kits
+    def gerar_veredicto(anuncios, kits, outros_precos, custo, peso_taxado, categoria, modalidade, nome, dims_ref, qtd_ref):
     com_vendas = [a for a in anuncios if a["vendas"] > 0]
     sem_vendas = [a for a in anuncios if a["vendas"] == 0]
     precos_com = sorted([a["preco"] for a in com_vendas])
