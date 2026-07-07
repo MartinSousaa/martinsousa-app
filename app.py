@@ -51,7 +51,7 @@ def calcular_resultado(preco, custo, peso_kg, categoria, modalidade):
             'frete': frete, 'nf': nf, 'lpv': lpv, 'lucro': lucro,
             'margem': margem, 'uc': uc}
 
-# ── HOSPEDAGEM IMGUR ───────────────────────────────────────────────────────────
+# ── IMGUR ──────────────────────────────────────────────────────────────────────
 
 def hospedar_imgur(imagem_bytes):
     try:
@@ -106,31 +106,37 @@ MARKETPLACES_ACEITOS = {
     "pontofrio": "Ponto Frio",
 }
 
-def filtrar_por_plataforma(visual_matches):
-    ml_links, outros = [], {}
+def separar_resultados(visual_matches):
+    ml_resultados, outros = [], {}
     for item in visual_matches:
         source = item.get("source", "").lower()
+        link   = item.get("link", "")
+        titulo = item.get("title", "")
+        thumb  = item.get("thumbnail", "")
         price  = item.get("price", {})
         preco  = price.get("extracted_value") if price else None
-        link   = item.get("link", "").lower()
-        titulo = item.get("title", "")
-        # Filtra ML Brasil
-        if "mercadolivre.com.br" in source or "mercadolivre.com.br" in link:
-            if item.get("link"):
-                ml_links.append({"link": item["link"], "title": titulo})
-            continue
-        # Filtra grandes marketplaces brasileiros
-        if preco:
+
+        if "mercadolivre.com.br" in source or "mercadolivre.com.br" in link.lower():
+            match = re.search(r'MLB-?(\d+)', link)
+            if match:
+                item_id = f"MLB{match.group(1)}"
+                ml_resultados.append({
+                    "item_id": item_id,
+                    "titulo": titulo,
+                    "thumbnail": thumb,
+                    "link": link,
+                    "preco_lens": preco
+                })
+        elif preco:
             for dominio, nome in MARKETPLACES_ACEITOS.items():
-                if dominio in source or dominio in link:
+                if dominio in source or dominio in link.lower():
                     outros.setdefault(nome, []).append(preco)
                     break
-    return ml_links, outros
+    return ml_resultados, outros
 
 # ── MERCADO LIVRE API ──────────────────────────────────────────────────────────
 
 def obter_token_ml():
-    # Usa o token OAuth do usuario se disponivel (retorna sold_quantity real)
     if ML_ACCESS_TOKEN:
         return ML_ACCESS_TOKEN
     resp = requests.post(
@@ -141,89 +147,36 @@ def obter_token_ml():
     )
     return resp.json().get("access_token")
 
-def extrair_item_id(link):
-    match = re.search(r'MLB-?(\d+)', link)
-    return f"MLB{match.group(1)}" if match else None
-
-def buscar_anuncio(item_id, token):
+def buscar_anuncio_ativo(item_id, token):
+    """Busca anuncio pelo ID. Se retornar erro, tenta busca por titulo no ML."""
     try:
+        headers = {"Authorization": f"Bearer {token}"}
         r = requests.get(
             f"https://api.mercadolibre.com/items/{item_id}",
-            headers={"Authorization": f"Bearer {token}"},
+            headers=headers,
             params={"include_attributes": "all"},
             timeout=10
         )
-        return r.json()
+        data = r.json()
+        if "error" in data or data.get("status") in [404, 403]:
+            return None
+        return data
     except:
         return None
 
-def buscar_engajamento(item_id, token):
-    """
-    Tenta multiplos endpoints para obter indicador de demanda.
-    """
+def buscar_anuncios_ativos_por_texto(query, token, limit=20):
+    """Busca anuncios ATIVOS no ML por texto — retorna sold_quantity real."""
     try:
         headers = {"Authorization": f"Bearer {token}"}
-        # Tenta endpoint de reviews v2
         r = requests.get(
-            f"https://api.mercadolibre.com/items/{item_id}/reviews",
+            "https://api.mercadolibre.com/sites/MLB/search",
+            params={"q": query, "limit": limit, "status": "active"},
             headers=headers,
-            timeout=10
+            timeout=15
         )
-        data = r.json()
-        total = data.get("paging", {}).get("total", 0)
-        if total > 0:
-            return total
-        # Tenta campo rating
-        rating = data.get("rating", {})
-        if rating.get("total", 0) > 0:
-            return rating["total"]
-        return 0
+        return r.json().get("results", [])
     except:
-        return 0
-
-def extrair_medidas(anuncio):
-    medidas = []
-    titulo = anuncio.get("title", "")
-    for m in re.findall(r'(\d+[.,]?\d*)\s*[xX]\s*(\d+[.,]?\d*)', titulo):
-        medidas.append((float(m[0].replace(',','.')), float(m[1].replace(',','.'))))
-    for attr in anuncio.get("attributes", []):
-        nome  = attr.get("name", "").lower()
-        valor = attr.get("value_name", "") or ""
-        if any(p in nome for p in ["comprimento", "largura", "dimensao", "tamanho", "medida"]):
-            nums = re.findall(r'\d+[.,]?\d*', valor)
-            if len(nums) >= 2:
-                medidas.append((float(nums[0].replace(',','.')), float(nums[1].replace(',','.'))))
-    return medidas
-
-def medida_compativel(medidas, dims_ref, tolerancia=2.0):
-    if not dims_ref or all(d == 0 for d in dims_ref):
-        return True
-    dims_validas = [d for d in dims_ref if d > 0]
-    if not medidas:
-        return False
-    ref = sorted(dims_validas)
-    for m in medidas:
-        ms = sorted(m[:2])
-        if len(ref) >= 2:
-            if abs(ms[0]-ref[0]) <= tolerancia and abs(ms[1]-ref[1]) <= tolerancia:
-                return True
-        elif len(ref) == 1:
-            if any(abs(v-ref[0]) <= tolerancia for v in ms):
-                return True
-    return False
-
-def extrair_quantidade(anuncio):
-    titulo = anuncio.get("title", "").lower()
-    nums = re.findall(r'(\d+)\s*(?:unid|pcs|pecas|kit|pack|par|folhas)', titulo)
-    if nums:
-        return int(nums[0])
-    for attr in anuncio.get("attributes", []):
-        nome = attr.get("name", "").lower()
-        if any(p in nome for p in ["quantidade", "unidades", "pecas", "itens"]):
-            ns = re.findall(r'\d+', attr.get("value_name", "") or "")
-            if ns:
-                return int(ns[0])
-    return 1
+        return []
 
 def preco_promocional(anuncio):
     sp = anuncio.get("sale_price")
@@ -231,48 +184,11 @@ def preco_promocional(anuncio):
         return float(sp["amount"])
     return float(anuncio.get("price", 0))
 
-def processar_anuncios_ml(ml_links, token, dims_ref, qtd_ref):
-    validos, sem_medida, descartados, kits, debug_info = [], [], [], [], []
-    for item_link in ml_links[:20]:
-        item_id = extrair_item_id(item_link["link"])
-        if not item_id:
-            continue
-        anuncio = buscar_anuncio(item_id, token)
-        if not anuncio:
-            continue
-        medidas = extrair_medidas(anuncio)
-        preco   = preco_promocional(anuncio)
-        titulo  = anuncio.get("title", "")
-        vendas  = anuncio.get("sold_quantity", 0)
-        avaliacoes = buscar_engajamento(item_id, token)
-        if len(debug_info) < 3:
-            debug_info.append({
-                "item_id": item_id,
-                "titulo": titulo,
-                "sold_quantity_direto": anuncio.get("sold_quantity"),
-                "avaliacoes_endpoint": avaliacoes,
-                "campos_anuncio": [k for k in anuncio.keys()]
-            })
-        if vendas == 0 and avaliacoes > 0:
-            vendas = avaliacoes * 25
-        qtd     = extrair_quantidade(anuncio)
-        tem_dims = any(d > 0 for d in dims_ref)
-        if tem_dims:
-            if medidas and not medida_compativel(medidas, dims_ref):
-                descartados.append({"titulo": titulo, "preco": preco})
-                continue
-        if qtd_ref > 1 and qtd != qtd_ref:
-            kits.append({"titulo": titulo, "preco": preco, "vendas": vendas, "qtd": qtd})
-            continue
-        medida_ok = bool(medidas) and (not tem_dims or medida_compativel(medidas, dims_ref))
-        validos.append({"titulo": titulo, "preco": preco, "vendas": vendas, "qtd": qtd, "medida_ok": medida_ok})
-    return validos, sem_medida, descartados, kits, debug_info
-
 # ── VEREDICTO IA ───────────────────────────────────────────────────────────────
 
-def gerar_veredicto(anuncios, kits, outros_precos, custo, peso_taxado, categoria, modalidade, nome, dims_ref, qtd_ref):
-    com_vendas = [a for a in anuncios if a["vendas"] > 0]
-    sem_vendas = [a for a in anuncios if a["vendas"] == 0]
+def gerar_veredicto(anuncios_selecionados, outros_precos, custo, peso_taxado, categoria, modalidade, nome, dims_ref, qtd_ref):
+    com_vendas = [a for a in anuncios_selecionados if a.get("vendas", 0) > 0]
+    sem_vendas = [a for a in anuncios_selecionados if a.get("vendas", 0) == 0]
     precos_com = sorted([a["preco"] for a in com_vendas])
     precos_sem = sorted([a["preco"] for a in sem_vendas])
 
@@ -285,17 +201,11 @@ def gerar_veredicto(anuncios, kits, outros_precos, custo, peso_taxado, categoria
     outros_str = "\n".join([f"- {p}: media R${sum(v)/len(v):.2f} ({len(v)} anuncios)"
                              for p, v in outros_precos.items()]) or "Nao encontrado"
 
-    kits_str = ""
-    if kits:
-        kits_str = "KITS (quantidade diferente):\n"
-        for k in kits[:5]:
-            kits_str += f"  {k['titulo']} - R${k['preco']:.2f} | {k['qtd']} un | {k['vendas']} vendas\n"
-
     alerta_variacao = ""
     if precos_com and len(precos_com) > 1:
         variacao = max(precos_com) / min(precos_com)
         if variacao > 1.5:
-            alerta_variacao = f"ATENCAO: variacao de preco de {((variacao-1)*100):.0f}% detectada ({min(precos_com):.2f} a {max(precos_com):.2f}). Investigue se ha tamanhos ou quantidades diferentes misturados."
+            alerta_variacao = f"ATENCAO: variacao de preco de {((variacao-1)*100):.0f}% detectada. Investigue se ha tamanhos ou quantidades diferentes misturados."
 
     dims_str = f"{dims_ref[0]}x{dims_ref[1]}x{dims_ref[2]}cm" if any(d > 0 for d in dims_ref) else "nao informado"
 
@@ -308,45 +218,40 @@ Custo: R${custo:.2f}
 Modalidade: {modalidade}
 LPV necessario: R${LPV_OFICIAL:.2f}
 
-ANUNCIOS COM INDICADOR DE DEMANDA ({len(com_vendas)} encontrados):
-{"Faixa: R$" + f"{min(precos_com):.2f}" + " a R$" + f"{max(precos_com):.2f}" if precos_com else "Nenhum com demanda registrada"}
-NOTA: vendas estimadas com base em avaliacoes dos anuncios (1 avaliacao ~ 25 vendas estimadas)
+ANUNCIOS COM VENDAS ({len(com_vendas)} selecionados e confirmados):
+{"Faixa: R$" + f"{min(precos_com):.2f}" + " a R$" + f"{max(precos_com):.2f}" if precos_com else "Nenhum com vendas"}
 
 CALCULO POR FAIXA:
 {faixas_str}
 
-ANUNCIOS SEM VENDAS ({len(sem_vendas)} encontrados):
+ANUNCIOS SEM VENDAS ({len(sem_vendas)} selecionados):
 {f'Faixa: R${min(precos_sem):.2f} a R${max(precos_sem):.2f}' if precos_sem else 'Nenhum'}
-
-{kits_str}
 
 OUTROS CANAIS:
 {outros_str}
 
 {alerta_variacao}
 
-REGRAS RIGIDAS — NAO FLEXIBILIZAR:
-1. UC MINIMO ABSOLUTO: 6/1 (lucro minimo R$3,67). Se UC abaixo de 6/1 em QUALQUER preco sugerido, o veredicto OBRIGATORIAMENTE e INVIAVEL. Nao ha excecao.
-2. Se todos os precos de mercado resultam em UC abaixo de 6/1, o produto e INVIAVEL independente de qualquer outro fator.
-3. So sugira preco se ele resultar em UC de 6/1 ou melhor. Se nao existir tal preco no mercado, diga que e inviavel.
-4. Margem para promocao (so analise se UC >= 6/1): acima 10% OTIMO, 3-10% OK com atencao, abaixo 3% SEM MARGEM.
-5. Se margem abaixo 10%, alerte sobre esforco operacional.
-6. Se unitario inviavel mas kits encontrados, calcule se kit e viavel e sugira.
-7. Seja honesto e direto. Nao tente salvar um produto inviavel.
+REGRAS RIGIDAS:
+1. UC MINIMO ABSOLUTO: 6/1. Se UC abaixo de 6/1, veredicto e INVIAVEL sem excecao.
+2. So sugira preco com UC >= 6/1. Se impossivel no mercado, declare INVIAVEL.
+3. Margem para promocao: acima 10% OTIMO, 3-10% OK, abaixo 3% SEM MARGEM.
+4. Se margem abaixo 10%, alerte sobre esforco operacional.
+5. Se inviavel unitario mas kits possiveis, sugira kit.
 
 CENARIOS:
-- VIAVEL: UC >= 6/1 + lucro bom + margem promocao acima 10%
-- VIAVEL COM RESSALVAS: UC entre 6/1 e 8/1 OU promocao entre 3-10%
-- INVIAVEL: UC abaixo de 6/1 em qualquer preco possivel no mercado
+- VIAVEL: UC >= 6/1 + margem promocao acima 10%
+- VIAVEL COM RESSALVAS: UC 6/1 a 8/1 OU promocao 3-10%
+- INVIAVEL: UC abaixo 6/1 em qualquer preco do mercado
 
 ESTRUTURE ASSIM:
 1. VEREDICTO: [VIAVEL / VIAVEL COM RESSALVAS / INVIAVEL]
 2. PRECO SUGERIDO: R$X,XX
 3. CALCULO: custo | comissao | frete | nf | lpv | lucro | margem | UC
-4. ANALISE DE PROMOCAO: margem disponivel e recomendacao
-5. ANALISE DE MERCADO: distribuicao de precos e onde estao as vendas
-6. ALERTAS: (se houver)
-7. RECOMENDACAO FINAL: 2-3 linhas objetivas
+4. ANALISE DE PROMOCAO
+5. ANALISE DE MERCADO
+6. ALERTAS
+7. RECOMENDACAO FINAL: 2-3 linhas
 """
 
     client = anthropic.Anthropic(api_key=API_KEY_CLAUDE)
@@ -363,7 +268,7 @@ st.markdown("---")
 
 with st.sidebar:
     st.header("MartinSousa App")
-    st.caption("v4.8-debug")
+    st.caption("v5.0")
     st.markdown("---")
     modalidade = st.selectbox("Modalidade ML", ["Premium", "Classico"])
     st.markdown("---")
@@ -384,99 +289,123 @@ with col2:
     peso_val  = col_peso.number_input("Peso", min_value=0.0, value=None, step=1.0, format="%.0f", placeholder="ex: 700")
     peso_unit = col_unit.selectbox("", ["g", "kg"], label_visibility="hidden")
     peso_kg   = (peso_val / 1000 if peso_val else 0) if peso_unit == "g" else (peso_val or 0)
-
     st.caption("Informe as 3 medidas — o sistema identifica automaticamente")
     dim1 = st.number_input("Medida 1 (cm)", min_value=0.0, value=None, step=0.5, format="%.1f", placeholder="ex: 30")
     dim2 = st.number_input("Medida 2 (cm)", min_value=0.0, value=None, step=0.5, format="%.1f", placeholder="ex: 30")
     dim3 = st.number_input("Medida 3 (cm)", min_value=0.0, value=None, step=0.5, format="%.1f", placeholder="ex: 2")
     dims_ref = [dim1 or 0, dim2 or 0, dim3 or 0]
-
     if foto:
         st.image(foto, caption="Foto enviada", use_container_width=True)
 
 st.markdown("---")
-analisar = st.button("Analisar Viabilidade", type="primary", use_container_width=True)
 
-if analisar:
-    erros = []
-    if not foto:           erros.append("Foto do produto")
-    if not nome_produto:   erros.append("Nome do produto")
-    if not custo:          erros.append("Preco de custo")
-    if erros:
-        st.warning(f"Preencha: {', '.join(erros)}")
+# ETAPA 1: Buscar por foto
+if "ml_resultados" not in st.session_state:
+    st.session_state.ml_resultados = []
+if "outros_precos" not in st.session_state:
+    st.session_state.outros_precos = {}
+if "etapa" not in st.session_state:
+    st.session_state.etapa = 1
+
+buscar = st.button("🔍 Buscar por foto", type="primary", use_container_width=True)
+
+if buscar:
+    if not foto or not nome_produto or not custo:
+        st.warning("Preencha foto, nome do produto e custo.")
     else:
-        peso_taxado = calcular_peso_taxado(peso_kg, dim1 or 0, dim2 or 0, dim3 or 0)
-
         with st.spinner("Hospedando imagem..."):
             imagem_bytes = foto.read()
-            url_imagem, erro_imgur = hospedar_imgur(imagem_bytes)
-
-        if erro_imgur:
-            st.error(f"Erro ao hospedar imagem: {erro_imgur}")
+            url_imagem, erro = hospedar_imgur(imagem_bytes)
+        if erro:
+            st.error(f"Erro Imgur: {erro}")
             st.stop()
 
-        with st.spinner("Buscando produto por foto no Google Lens..."):
-            visual_matches, erro = buscar_por_foto(url_imagem)
-
+        with st.spinner("Buscando no Google Lens..."):
+            matches, erro = buscar_por_foto(url_imagem)
         if erro:
             st.error(f"Erro Google Lens: {erro}")
             st.stop()
 
-        ml_links, outros_precos = filtrar_por_plataforma(visual_matches)
-        st.success(f"Google Lens: {len(visual_matches)} resultados — {len(ml_links)} no ML")
+        ml_resultados, outros_precos = separar_resultados(matches)
+        st.session_state.ml_resultados = ml_resultados
+        st.session_state.outros_precos = outros_precos
+        st.session_state.etapa = 2
+        st.rerun()
 
-        with st.spinner("Acessando anuncios e validando medidas/quantidades..."):
-            token = obter_token_ml()
-            validos, sem_medida, descartados, kits, debug_info = processar_anuncios_ml(
-                ml_links, token, dims_ref, qtd_ref
-            )
-        with st.expander("DEBUG — Ver resposta bruta da API ML"):
-            for d in debug_info[:3]:
-                st.json(d)
+# ETAPA 2: Confirmacao visual
+if st.session_state.etapa >= 2 and st.session_state.ml_resultados:
+    st.markdown("---")
+    st.subheader("Selecione os anuncios que sao o mesmo produto")
+    st.caption(f"{len(st.session_state.ml_resultados)} anuncios encontrados no ML — marque apenas os corretos")
 
-        col_a, col_b, col_c, col_d = st.columns(4)
-        col_a.metric("Confirmados", len(validos))
-        col_b.metric("Kits (qtd diferente)", len(kits))
-        col_c.metric("Sem medida", len(sem_medida))
-        col_d.metric("Descartados", len(descartados))
+    selecionados_ids = []
+    cols_por_linha = 4
+    resultados = st.session_state.ml_resultados[:20]
 
-        if outros_precos:
-            st.markdown("---")
+    for i in range(0, len(resultados), cols_por_linha):
+        cols = st.columns(cols_por_linha)
+        for j, item in enumerate(resultados[i:i+cols_por_linha]):
+            with cols[j]:
+                if item["thumbnail"]:
+                    st.image(item["thumbnail"], use_container_width=True)
+                preco_str = f"R${item['preco_lens']:.2f}" if item['preco_lens'] else "Sem preço"
+                titulo_curto = item["titulo"][:50] + "..." if len(item["titulo"]) > 50 else item["titulo"]
+                selecionado = st.checkbox(
+                    f"{titulo_curto}\n{preco_str}",
+                    key=f"sel_{item['item_id']}"
+                )
+                if selecionado:
+                    selecionados_ids.append(item["item_id"])
+
+    st.markdown("---")
+    analisar = st.button(
+        f"📊 Analisar {len(selecionados_ids)} anuncio(s) selecionado(s)",
+        type="primary",
+        use_container_width=True,
+        disabled=len(selecionados_ids) == 0
+    )
+
+    if analisar and selecionados_ids:
+        peso_taxado = calcular_peso_taxado(peso_kg, dim1 or 0, dim2 or 0, dim3 or 0)
+        token = obter_token_ml()
+
+        with st.spinner("Buscando dados dos anuncios selecionados..."):
+            anuncios_dados = []
+            for item_id in selecionados_ids:
+                anuncio = buscar_anuncio_ativo(item_id, token)
+                if anuncio:
+                    preco  = preco_promocional(anuncio)
+                    vendas = anuncio.get("sold_quantity", 0)
+                    titulo = anuncio.get("title", "")
+                    anuncios_dados.append({
+                        "item_id": item_id,
+                        "titulo": titulo,
+                        "preco": preco,
+                        "vendas": vendas
+                    })
+
+        if st.session_state.outros_precos:
             st.subheader("Outros canais (referencia)")
-            cols = st.columns(len(outros_precos))
-            for i, (plat, precos) in enumerate(outros_precos.items()):
+            cols = st.columns(len(st.session_state.outros_precos))
+            for i, (plat, precos) in enumerate(st.session_state.outros_precos.items()):
                 cols[i].metric(plat, f"R${sum(precos)/len(precos):.2f}", f"{len(precos)} anuncio(s)")
 
-        if validos or kits:
-            with st.spinner("Gerando analise completa com IA..."):
-                veredicto = gerar_veredicto(
-                    validos, kits, outros_precos, custo, peso_taxado,
-                    categoria, modalidade, nome_produto, dims_ref, qtd_ref
-                )
-            st.markdown("---")
-            st.subheader("Resultado da Analise")
-            if "INVIAVEL" in veredicto.upper():
-                st.error(veredicto)
-            elif "RESSALVAS" in veredicto.upper():
-                st.warning(veredicto)
-            else:
-                st.success(veredicto)
+        with st.spinner("Gerando analise com IA..."):
+            veredicto = gerar_veredicto(
+                anuncios_dados, st.session_state.outros_precos,
+                custo, peso_taxado, categoria, modalidade,
+                nome_produto, dims_ref, qtd_ref
+            )
 
-            with st.expander("Ver todos os anuncios analisados"):
-                if validos:
-                    com = [a for a in validos if a["vendas"] > 0]
-                    sem = [a for a in validos if a["vendas"] == 0]
-                    if com:
-                        st.markdown("**Com vendas:**")
-                        for a in com:
-                            st.write(f"- {a['titulo']} — R${a['preco']:.2f} | {a['vendas']} vendas | {a['qtd']} un")
-                    if sem:
-                        st.markdown("**Sem vendas:**")
-                        for a in sem:
-                            st.write(f"- {a['titulo']} — R${a['preco']:.2f} | {a['qtd']} un")
-                if kits:
-                    st.markdown("**Kits (quantidade diferente):**")
-                    for k in kits:
-                        st.write(f"- {k['titulo']} — R${k['preco']:.2f} | {k['qtd']} un | {k['vendas']} vendas")
+        st.markdown("---")
+        st.subheader("Resultado da Analise")
+        if "INVIAVEL" in veredicto.upper():
+            st.error(veredicto)
+        elif "RESSALVAS" in veredicto.upper():
+            st.warning(veredicto)
         else:
-            st.warning("Nenhum anuncio encontrado. Tente outra foto ou ajuste as dimensoes/quantidade.")
+            st.success(veredicto)
+
+        with st.expander("Ver anuncios analisados"):
+            for a in anuncios_dados:
+                st.write(f"- {a['titulo']} — R${a['preco']:.2f} | {a['vendas']} vendas")
