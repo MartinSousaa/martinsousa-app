@@ -159,20 +159,25 @@ def buscar_anuncio(item_id, token):
 
 def buscar_engajamento(item_id, token):
     """
-    Usa reviews (avaliacoes) como proxy de vendas.
-    Produtos com avaliacoes = tiveram vendas reais.
-    Retorna numero de avaliacoes como indicador de demanda.
+    Tenta multiplos endpoints para obter indicador de demanda.
     """
     try:
         headers = {"Authorization": f"Bearer {token}"}
+        # Tenta endpoint de reviews v2
         r = requests.get(
-            f"https://api.mercadolibre.com/reviews/item/{item_id}",
+            f"https://api.mercadolibre.com/items/{item_id}/reviews",
             headers=headers,
             timeout=10
         )
         data = r.json()
         total = data.get("paging", {}).get("total", 0)
-        return total
+        if total > 0:
+            return total
+        # Tenta campo rating
+        rating = data.get("rating", {})
+        if rating.get("total", 0) > 0:
+            return rating["total"]
+        return 0
     except:
         return 0
 
@@ -352,7 +357,7 @@ st.markdown("---")
 
 with st.sidebar:
     st.header("MartinSousa App")
-    st.caption("v4.6")
+    st.caption("v4.7")
     st.markdown("---")
     modalidade = st.selectbox("Modalidade ML", ["Premium", "Classico"])
     st.markdown("---")
