@@ -166,11 +166,11 @@ def buscar_detalhes_anuncio(item_id, token):
             timeout=10
         )
         data = r.json()
-        if "error" in data:
-            return None
-        return data
-    except:
-        return None
+        if "error" in data or r.status_code != 200:
+            return None, f"HTTP {r.status_code} - {data.get('message', data.get('error', 'erro desconhecido'))}"
+        return data, None
+    except Exception as e:
+        return None, str(e)
 
 def extrair_medidas_texto(texto):
     """Extrai medidas de qualquer texto (titulo, descricao, atributos)."""
@@ -457,6 +457,8 @@ if analisar:
                 ml_item_ids.add(r["id"])
 
     st.info(f"ML: {len(ml_item_ids)} anuncios candidatos encontrados (Lens + busca)")
+    with st.expander("Ver IDs encontrados (debug)"):
+        st.write(list(ml_item_ids))
 
     # Filtra por medida e analise visual
     confirmados = []
@@ -464,6 +466,7 @@ if analisar:
     descartados_visual = []
     sem_medida = []
     descartados_inativos = 0
+    erros_busca = []
 
     progress = st.progress(0, text="Analisando anuncios...")
     ml_item_ids = list(ml_item_ids)
@@ -474,8 +477,9 @@ if analisar:
             progress.progress((idx+1)/total, text=f"Analisando {idx+1}/{total}...")
 
         # Busca detalhes completos e confirma que o anuncio esta ativo
-        anuncio = buscar_detalhes_anuncio(item_id, token)
+        anuncio, erro = buscar_detalhes_anuncio(item_id, token)
         if not anuncio:
+            erros_busca.append(f"{item_id}: {erro}")
             continue
         if anuncio.get("status") != "active":
             descartados_inativos += 1
@@ -514,12 +518,18 @@ if analisar:
     progress.empty()
 
     # Resumo
-    col_a, col_b, col_c, col_d, col_e = st.columns(5)
+    col_a, col_b, col_c, col_d, col_e, col_f = st.columns(6)
     col_a.metric("Confirmados", len(confirmados))
     col_b.metric("Descartados medida", len(descartados_medida))
     col_c.metric("Descartados visual", len(descartados_visual))
     col_d.metric("Sem medida", len(sem_medida))
     col_e.metric("Inativos", descartados_inativos)
+    col_f.metric("Erro na busca", len(erros_busca))
+
+    if erros_busca:
+        with st.expander("Ver erros na busca de detalhes (debug)"):
+            for e in erros_busca:
+                st.write(f"- {e}")
 
     if outros_precos:
         st.markdown("---")
