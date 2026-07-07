@@ -10,13 +10,10 @@ from parametros_oficiais import (
 
 st.set_page_config(page_title="MartinSousa - Analise de Viabilidade", layout="wide")
 
-# ── CHAVES AUTOMATICAS ─────────────────────────────────────────────────────────
 API_KEY_CLAUDE = st.secrets.get("ANTHROPIC_API_KEY", "")
 ML_CLIENT_ID   = st.secrets.get("ML_CLIENT_ID", "")
 ML_CLIENT_SECRET = st.secrets.get("ML_CLIENT_SECRET", "")
 SERPAPI_KEY    = st.secrets.get("SERPAPI_KEY", "")
-
-# ── CÁLCULO ────────────────────────────────────────────────────────────────────
 
 def calcular_peso_taxado(peso_kg, altura_cm, largura_cm, comprimento_cm):
     peso_cubado = (altura_cm * largura_cm * comprimento_cm) / 6000
@@ -51,8 +48,6 @@ def calcular_resultado(preco_venda, custo, peso_taxado_kg, categoria, modalidade
     return {'preco': preco_venda, 'custo': custo, 'comissao': comissao,
             'frete': frete, 'nf': nf, 'lpv': lpv, 'lucro': lucro, 'margem': margem, 'uc': uc}
 
-# ── GOOGLE LENS ────────────────────────────────────────────────────────────────
-
 def buscar_por_foto(imagem_bytes):
     try:
         resp = requests.post(
@@ -84,8 +79,6 @@ def filtrar_por_plataforma(visual_matches):
             plat = source.split(".")[0].capitalize()
             outros.setdefault(plat, []).append(preco)
     return ml_links, outros
-
-# ── MERCADO LIVRE API ──────────────────────────────────────────────────────────
 
 def obter_token_ml():
     resp = requests.post(
@@ -172,7 +165,6 @@ def processar_anuncios_ml(ml_links, token, dims_ref, qtd_ref):
         vendas  = anuncio.get("sold_quantity", 0)
         titulo  = anuncio.get("title", "")
         qtd     = extrair_quantidade(anuncio)
-
         tem_dims = any(d > 0 for d in dims_ref)
         if tem_dims:
             if not medidas:
@@ -181,105 +173,76 @@ def processar_anuncios_ml(ml_links, token, dims_ref, qtd_ref):
             if not medida_compativel(medidas, dims_ref):
                 descartados.append({"titulo": titulo, "preco": preco})
                 continue
-
         if qtd_ref > 1 and qtd != qtd_ref:
             kits.append({"titulo": titulo, "preco": preco, "vendas": vendas, "qtd": qtd})
             continue
-
         validos.append({"titulo": titulo, "preco": preco, "vendas": vendas, "qtd": qtd})
-
-    return validos, sem_medida, descartados, kits
-
-# ── VEREDICTO IA ───────────────────────────────────────────────────────────────
-
-def gerar_veredicto(anuncios, kits, outros_precos, custo, peso_taxado, categoria, modalidade, nome, dims_ref, qtd_ref):
+    return validos, sem_medida, descartados, kitsdef gerar_veredicto(anuncios, kits, outros_precos, custo, peso_taxado, categoria, modalidade, nome, dims_ref, qtd_ref):
     com_vendas = [a for a in anuncios if a["vendas"] > 0]
     sem_vendas = [a for a in anuncios if a["vendas"] == 0]
     precos_com = sorted([a["preco"] for a in com_vendas])
     precos_sem = sorted([a["preco"] for a in sem_vendas])
-
     faixas_str = ""
     if precos_com:
         for p in sorted(set([round(p, 2) for p in precos_com])):
             r = calcular_resultado(p, custo, peso_taxado, categoria, modalidade)
-            faixas_str += f"  R${p:.2f} → lucro R${r['lucro']:.2f} | margem {r['margem']:.1f}% | UC 1/{r['uc']}\n"
-
+            faixas_str += f"  R${p:.2f} -> lucro R${r['lucro']:.2f} | margem {r['margem']:.1f}% | UC 1/{r['uc']}\n"
     outros_str = "\n".join([f"- {p}: media R${sum(v)/len(v):.2f} ({len(v)} anuncios)"
                              for p, v in outros_precos.items()]) or "Nao encontrado"
-
     kits_str = ""
     if kits:
         kits_str = "KITS (quantidade diferente):\n"
         for k in kits[:5]:
             kits_str += f"  {k['titulo']} - R${k['preco']:.2f} | {k['qtd']} un | {k['vendas']} vendas\n"
-
     alerta_variacao = ""
     if precos_com and len(precos_com) > 1:
         variacao = max(precos_com) / min(precos_com)
         if variacao > 1.5:
-            alerta_variacao = f"ATENCAO: variacao de preco de {((variacao-1)*100):.0f}% detectada ({min(precos_com):.2f} a {max(precos_com):.2f}). Investigue se ha tamanhos ou quantidades diferentes misturados nos resultados."
-
+            alerta_variacao = f"ATENCAO: variacao de preco de {((variacao-1)*100):.0f}% detectada ({min(precos_com):.2f} a {max(precos_com):.2f}). Investigue se ha tamanhos ou quantidades diferentes misturados."
     dims_str = f"{dims_ref[0]}x{dims_ref[1]}x{dims_ref[2]}cm" if any(d > 0 for d in dims_ref) else "nao informado"
-
     prompt = f"""Voce e um especialista em viabilidade de produtos para Mercado Livre.
-
 PRODUTO: {nome}
 Quantidade: {qtd_ref} unidade(s)
 Medidas: {dims_str}
 Custo: R${custo:.2f}
 Modalidade: {modalidade}
 LPV necessario: R${LPV_OFICIAL:.2f}
-
 ANUNCIOS COM VENDAS ({len(com_vendas)} encontrados):
 Faixa: R${min(precos_com):.2f} a R${max(precos_com):.2f}
-
 CALCULO POR FAIXA:
 {faixas_str}
-
 ANUNCIOS SEM VENDAS ({len(sem_vendas)} encontrados):
 {f'Faixa: R${min(precos_sem):.2f} a R${max(precos_sem):.2f}' if precos_sem else 'Nenhum'}
-
 {kits_str}
-
 OUTROS CANAIS:
 {outros_str}
-
 {alerta_variacao}
-
 REGRAS:
-1. Sugira o melhor preco: nem o mais barato nem o mais caro — o melhor equilibrio entre VENDER e DAR LUCRO.
-2. Analise margem para promocao:
-   - Acima de 10%: OTIMO
-   - Entre 3% e 10%: OK com atencao
-   - Abaixo de 3%: SEM MARGEM
-3. UC minimo aceitavel: 6/1. Abaixo disso e inviavel.
-4. Se margem abaixo de 10%, alerte sobre esforco operacional.
+1. Sugira o melhor preco: equilibrio entre VENDER e DAR LUCRO.
+2. Margem para promocao: acima 10% OTIMO, 3-10% OK, abaixo 3% SEM MARGEM.
+3. UC minimo: 6/1. Abaixo disso inviavel.
+4. Se margem abaixo 10%, alerte sobre esforco operacional.
 5. Se unitario inviavel mas kits encontrados, sugira kit.
-6. Seja honesto: se inviavel, diga claramente.
-
+6. Se inviavel, diga claramente.
 CENARIOS:
-- VIAVEL: lucro bom + margem promocao acima de 10%
-- VIAVEL COM RESSALVAS: lucro ok + promocao entre 3-10% OU UC entre 6/1 e 8/1
-- INVIAVEL: margem baixa + sem promocao + UC abaixo de 6/1
-
+- VIAVEL: lucro bom + margem promocao acima 10%
+- VIAVEL COM RESSALVAS: lucro ok + promocao 3-10% OU UC 6/1 a 8/1
+- INVIAVEL: margem baixa + sem promocao + UC abaixo 6/1
 ESTRUTURE ASSIM:
 1. VEREDICTO: [VIAVEL / VIAVEL COM RESSALVAS / INVIAVEL]
 2. PRECO SUGERIDO: R$X,XX
 3. CALCULO: custo | comissao | frete | nf | lpv | lucro | margem | UC
 4. ANALISE DE PROMOCAO: margem disponivel e recomendacao
-5. ANALISE DE MERCADO: onde estao as vendas, distribuicao de precos
+5. ANALISE DE MERCADO: distribuicao de precos e onde estao as vendas
 6. ALERTAS: (se houver)
 7. RECOMENDACAO FINAL: 2-3 linhas objetivas
 """
-
     client = anthropic.Anthropic(api_key=API_KEY_CLAUDE)
     msg = client.messages.create(
         model="claude-sonnet-4-6", max_tokens=1000,
         messages=[{"role": "user", "content": prompt}]
     )
     return msg.content[0].text
-
-# ── INTERFACE ──────────────────────────────────────────────────────────────────
 
 st.title("Analise de Viabilidade - Mercado Livre")
 st.markdown("---")
@@ -307,13 +270,11 @@ with col2:
     peso_val  = col_peso.number_input("Peso", min_value=0.0, step=0.001, format="%.3f")
     peso_unit = col_unit.selectbox("", ["kg", "g"], label_visibility="hidden")
     peso_kg   = peso_val / 1000 if peso_unit == "g" else peso_val
-
     st.caption("Informe as 3 medidas — o sistema identifica automaticamente altura, largura e comprimento")
     dim1 = st.number_input("Medida 1 (cm)", min_value=0.0, step=0.5, format="%.1f")
     dim2 = st.number_input("Medida 2 (cm)", min_value=0.0, step=0.5, format="%.1f")
     dim3 = st.number_input("Medida 3 (cm)", min_value=0.0, step=0.5, format="%.1f")
     dims_ref = [dim1, dim2, dim3]
-
     if foto:
         st.image(foto, caption="Foto enviada", use_container_width=True)
 
@@ -325,48 +286,63 @@ if analisar:
     if not foto:         erros.append("Foto do produto")
     if not nome_produto: erros.append("Nome do produto")
     if not custo:        erros.append("Preco de custo")
-
     if erros:
         st.warning(f"Preencha: {', '.join(erros)}")
     else:
         peso_taxado = calcular_peso_taxado(peso_kg, dim1, dim2, dim3)
-
         with st.spinner("Buscando produto por foto no Google Lens..."):
             imagem_bytes = foto.read()
             visual_matches, erro = buscar_por_foto(imagem_bytes)
-
         if erro:
             st.error(f"Erro Google Lens: {erro}")
             st.stop()
-
         ml_links, outros_precos = filtrar_por_plataforma(visual_matches)
         st.success(f"Google Lens: {len(visual_matches)} resultados — {len(ml_links)} no ML")
-
         with st.spinner("Acessando anuncios e validando medidas/quantidades..."):
             token = obter_token_ml()
             validos, sem_medida, descartados, kits = processar_anuncios_ml(
                 ml_links, token, dims_ref, qtd_ref
             )
-
         col_a, col_b, col_c, col_d = st.columns(4)
         col_a.metric("Confirmados", len(validos))
         col_b.metric("Kits (qtd diferente)", len(kits))
         col_c.metric("Sem medida", len(sem_medida))
         col_d.metric("Descartados", len(descartados))
-
         if outros_precos:
             st.markdown("---")
             st.subheader("Outros canais (referencia)")
             cols = st.columns(len(outros_precos))
             for i, (plat, precos) in enumerate(outros_precos.items()):
                 cols[i].metric(plat, f"R${sum(precos)/len(precos):.2f}", f"{len(precos)} anuncio(s)")
-
         if validos or kits:
             with st.spinner("Gerando analise completa com IA..."):
                 veredicto = gerar_veredicto(
                     validos, kits, outros_precos, custo, peso_taxado,
                     categoria, modalidade, nome_produto, dims_ref, qtd_ref
                 )
-
             st.markdown("---")
-            st.subheader("Resultado da
+            st.subheader("Resultado da Analise")
+            if "INVIAVEL" in veredicto.upper():
+                st.error(veredicto)
+            elif "RESSALVAS" in veredicto.upper():
+                st.warning(veredicto)
+            else:
+                st.success(veredicto)
+            with st.expander("Ver todos os anuncios analisados"):
+                if validos:
+                    com = [a for a in validos if a["vendas"] > 0]
+                    sem = [a for a in validos if a["vendas"] == 0]
+                    if com:
+                        st.markdown("**Com vendas:**")
+                        for a in com:
+                            st.write(f"- {a['titulo']} — R${a['preco']:.2f} | {a['vendas']} vendas | {a['qtd']} un")
+                    if sem:
+                        st.markdown("**Sem vendas:**")
+                        for a in sem:
+                            st.write(f"- {a['titulo']} — R${a['preco']:.2f} | {a['qtd']} un")
+                if kits:
+                    st.markdown("**Kits (quantidade diferente):**")
+                    for k in kits:
+                        st.write(f"- {k['titulo']} — R${k['preco']:.2f} | {k['qtd']} un | {k['vendas']} vendas")
+        else:
+            st.warning("Nenhum anuncio encontrado. Tente outra foto ou ajuste as dimensoes/quantidade.")
