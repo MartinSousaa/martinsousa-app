@@ -232,7 +232,7 @@ def preco_promocional(anuncio):
     return float(anuncio.get("price", 0))
 
 def processar_anuncios_ml(ml_links, token, dims_ref, qtd_ref):
-    validos, sem_medida, descartados, kits = [], [], [], []
+    validos, sem_medida, descartados, kits, debug_info = [], [], [], [], []
     for item_link in ml_links[:20]:
         item_id = extrair_item_id(item_link["link"])
         if not item_id:
@@ -244,11 +244,17 @@ def processar_anuncios_ml(ml_links, token, dims_ref, qtd_ref):
         preco   = preco_promocional(anuncio)
         titulo  = anuncio.get("title", "")
         vendas  = anuncio.get("sold_quantity", 0)
-        # Usa avaliacoes como proxy de vendas (sold_quantity nao disponivel via API publica)
         avaliacoes = buscar_engajamento(item_id, token)
-        # Converte avaliacoes em estimativa de vendas (media: 1 avaliacao para cada 20-30 vendas)
+        if len(debug_info) < 3:
+            debug_info.append({
+                "item_id": item_id,
+                "titulo": titulo,
+                "sold_quantity_direto": anuncio.get("sold_quantity"),
+                "avaliacoes_endpoint": avaliacoes,
+                "campos_anuncio": [k for k in anuncio.keys()]
+            })
         if vendas == 0 and avaliacoes > 0:
-            vendas = avaliacoes * 25  # estimativa conservadora
+            vendas = avaliacoes * 25
         qtd     = extrair_quantidade(anuncio)
         tem_dims = any(d > 0 for d in dims_ref)
         if tem_dims:
@@ -260,7 +266,7 @@ def processar_anuncios_ml(ml_links, token, dims_ref, qtd_ref):
             continue
         medida_ok = bool(medidas) and (not tem_dims or medida_compativel(medidas, dims_ref))
         validos.append({"titulo": titulo, "preco": preco, "vendas": vendas, "qtd": qtd, "medida_ok": medida_ok})
-    return validos, sem_medida, descartados, kits
+    return validos, sem_medida, descartados, kits, debug_info
 
 # ── VEREDICTO IA ───────────────────────────────────────────────────────────────
 
@@ -357,7 +363,7 @@ st.markdown("---")
 
 with st.sidebar:
     st.header("MartinSousa App")
-    st.caption("v4.7")
+    st.caption("v4.8-debug")
     st.markdown("---")
     modalidade = st.selectbox("Modalidade ML", ["Premium", "Classico"])
     st.markdown("---")
@@ -421,9 +427,12 @@ if analisar:
 
         with st.spinner("Acessando anuncios e validando medidas/quantidades..."):
             token = obter_token_ml()
-            validos, sem_medida, descartados, kits = processar_anuncios_ml(
+            validos, sem_medida, descartados, kits, debug_info = processar_anuncios_ml(
                 ml_links, token, dims_ref, qtd_ref
             )
+        with st.expander("DEBUG — Ver resposta bruta da API ML"):
+            for d in debug_info[:3]:
+                st.json(d)
 
         col_a, col_b, col_c, col_d = st.columns(4)
         col_a.metric("Confirmados", len(validos))
