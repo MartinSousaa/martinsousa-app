@@ -82,12 +82,37 @@ def hospedar_imgur(imagem_bytes):
 
 # ── GOOGLE LENS (apenas outros canais) ────────────────────────────────────────
 
-def extrair_item_id_ml(link):
-    """Extrai o ID do anuncio (ex: MLB1234567890) de uma URL do Mercado Livre."""
-    m = re.search(r'(MLB-?\d{8,12})', link, re.IGNORECASE)
-    if not m:
-        return None
-    return m.group(1).upper().replace("-", "")
+def extrair_ml_candidato(link):
+    """Identifica se o link do ML e uma pagina de catalogo (/p/MLB...) ou
+    um anuncio direto (permalink .../MLB-123456789-titulo...), e extrai o ID certo.
+    Retorna ('produto', id) ou ('item', id) ou None."""
+    m_produto = re.search(r'/p/(MLB\d{6,15})', link, re.IGNORECASE)
+    if m_produto:
+        return ("produto", m_produto.group(1).upper())
+    m_item = re.search(r'(MLB-\d{9,15})-', link, re.IGNORECASE)
+    if m_item:
+        return ("item", m_item.group(1).upper().replace("-", ""))
+    return None
+
+def resolver_produto_catalogo(product_id, token):
+    """Dado um ID de produto de catalogo, retorna o item_id do anuncio
+    vencedor (buy_box_winner) daquela pagina."""
+    try:
+        r = requests.get(
+            f"https://api.mercadolibre.com/products/{product_id}",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10
+        )
+        data = r.json()
+        if r.status_code != 200:
+            return None, f"HTTP {r.status_code} - {data.get('message', data.get('error', 'erro'))}"
+        winner = data.get("buy_box_winner") or {}
+        item_id = winner.get("item_id")
+        if not item_id:
+            return None, "sem buy_box_winner (produto sem anuncio ganhador no momento)"
+        return item_id, None
+    except Exception as e:
+        return None, str(e)
 
 def buscar_outros_canais(url_imagem):
     """Busca via Google Lens (SerpApi). Retorna precos de outros canais
@@ -110,7 +135,7 @@ def buscar_outros_canais(url_imagem):
             timeout=30
         )
         outros = {}
-        ml_item_ids = set()
+        ml_candidatos = []
         for item in resp.json().get("visual_matches", []):
             source = item.get("source", "").lower()
             link   = item.get("link", "").lower()
@@ -118,9 +143,9 @@ def buscar_outros_canais(url_imagem):
             preco  = price.get("extracted_value") if price else None
 
             if "mercadolivre.com.br" in source or "mercadolivre.com.br" in link:
-                item_id = extrair_item_id_ml(link)
-                if item_id:
-                    ml_item_ids.add(item_id)
+                candidato = extrair_ml_candidato(link)
+                if candidato:
+                    ml_candidatos.append(candidato)
                 continue
 
             if preco:
@@ -128,9 +153,9 @@ def buscar_outros_canais(url_imagem):
                     if dominio in source or dominio in link:
                         outros.setdefault(nome, []).append(preco)
                         break
-        return outros, ml_item_ids
+        return outros, ml_candidatos
     except:
-        return {}, set()
+        return {}, []
 
 # ── MERCADO LIVRE API ──────────────────────────────────────────────────────────
 
@@ -442,10 +467,10 @@ if analisar:
     # entao usamos o Lens pra descobrir os anuncios e confirmamos cada um
     # individualmente pela API oficial do ML)
     outros_precos = {}
-    ml_item_ids = set()
+    ml_candidatos = []
     if url_imagem:
         with st.spinner("Buscando concorrentes (Lens)..."):
-            outros_precos, ml_item_ids = buscar_outros_canais(url_imagem)
+            outros_precos, ml_candidatos = buscar_outros_canais(url_imagem)
 
     token = obter_token_ml()
 
@@ -454,11 +479,29 @@ if analisar:
         resultados_busca_texto = buscar_anuncios_ml(nome_produto, token, limit=30)
         for r in resultados_busca_texto:
             if r.get("id"):
-                ml_item_ids.add(r["id"])
+                ml_candidatos.append(("item", r["id"]))
+
+    # Resolve paginas de catalogo (/p/MLBxxxx) para o item_id do anuncio vencedor
+    ml_item_ids = set()
+    erros_resolucao = []
+    with st.spinner("Resolvendo paginas de catalogo..."):
+        for tipo, valor in ml_candidatos:
+            if tipo == "item":
+                ml_item_ids.add(valor)
+            else:  # produto de catalogo
+                item_id, erro = resolver_produto_catalogo(valor, token)
+                if item_id:
+                    ml_item_ids.add(item_id)
+                else:
+                    erros_resolucao.append(f"{valor} (produto): {erro}")
 
     st.info(f"ML: {len(ml_item_ids)} anuncios candidatos encontrados (Lens + busca)")
     with st.expander("Ver IDs encontrados (debug)"):
         st.write(list(ml_item_ids))
+        if erros_resolucao:
+            st.write("Erros ao resolver produtos de catalogo:")
+            for e in erros_resolucao:
+                st.write(f"- {e}")
 
     # Filtra por medida e analise visual
     confirmados = []
