@@ -124,11 +124,31 @@ def extrair_item_id(link):
 
 def buscar_anuncio(item_id, token):
     try:
-        r = requests.get(f"https://api.mercadolibre.com/items/{item_id}",
-                         headers={"Authorization": f"Bearer {token}"}, timeout=10)
+        r = requests.get(
+            f"https://api.mercadolibre.com/items/{item_id}",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"include_attributes": "all"},
+            timeout=10
+        )
         return r.json()
     except:
         return None
+
+def buscar_vendas_publico(item_id):
+    """Busca sold_quantity via API publica sem autenticacao."""
+    try:
+        r = requests.get(
+            "https://api.mercadolibre.com/sites/MLB/search",
+            params={"iids": item_id},
+            timeout=10
+        )
+        data = r.json()
+        resultados = data.get("results", [])
+        if resultados:
+            return resultados[0].get("sold_quantity", 0)
+        return 0
+    except:
+        return 0
 
 def extrair_medidas(anuncio):
     medidas = []
@@ -192,6 +212,9 @@ def processar_anuncios_ml(ml_links, token, dims_ref, qtd_ref):
         medidas = extrair_medidas(anuncio)
         preco   = preco_promocional(anuncio)
         vendas  = anuncio.get("sold_quantity", 0)
+        # Se vendas vier zerado, tenta busca publica
+        if vendas == 0:
+            vendas = buscar_vendas_publico(item_id)
         titulo  = anuncio.get("title", "")
         qtd     = extrair_quantidade(anuncio)
         tem_dims = any(d > 0 for d in dims_ref)
@@ -247,7 +270,7 @@ Modalidade: {modalidade}
 LPV necessario: R${LPV_OFICIAL:.2f}
 
 ANUNCIOS COM VENDAS ({len(com_vendas)} encontrados):
-Faixa: R${min(precos_com):.2f} a R${max(precos_com):.2f}
+{"Faixa: R$" + f"{min(precos_com):.2f}" + " a R$" + f"{max(precos_com):.2f}" if precos_com else "Nenhum com vendas registradas"}
 
 CALCULO POR FAIXA:
 {faixas_str}
