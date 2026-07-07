@@ -157,18 +157,20 @@ def buscar_anuncio(item_id, token):
     except:
         return None
 
-def buscar_vendas_por_id(item_id):
-    """Busca sold_quantity via search publico do ML — retorna dado real do site."""
+def buscar_vendas_por_titulo(titulo, item_id):
+    """Busca sold_quantity via pesquisa por titulo — mesmo metodo que o site ML usa."""
     try:
+        # Pega as primeiras palavras significativas do titulo para busca
+        palavras = " ".join(titulo.split()[:6])
         r = requests.get(
             "https://api.mercadolibre.com/sites/MLB/search",
-            params={"iids": item_id, "attributes": "id,title,price,sold_quantity,sale_price"},
-            timeout=10
+            params={"q": palavras, "limit": 50},
+            timeout=15
         )
         data = r.json()
-        resultados = data.get("results", [])
-        if resultados:
-            return resultados[0].get("sold_quantity", 0)
+        for item in data.get("results", []):
+            if item.get("id") == item_id:
+                return item.get("sold_quantity", 0)
         return 0
     except:
         return 0
@@ -235,8 +237,8 @@ def processar_anuncios_ml(ml_links, token, dims_ref, qtd_ref):
         medidas = extrair_medidas(anuncio)
         preco   = preco_promocional(anuncio)
         vendas  = anuncio.get("sold_quantity", 0)
-        if vendas == 0:
-            vendas = buscar_vendas_por_id(item_id)
+        if vendas == 0 and titulo:
+            vendas = buscar_vendas_por_titulo(titulo, item_id)
         titulo  = anuncio.get("title", "")
         qtd     = extrair_quantidade(anuncio)
         tem_dims = any(d > 0 for d in dims_ref)
@@ -345,7 +347,7 @@ st.markdown("---")
 
 with st.sidebar:
     st.header("MartinSousa App")
-    st.caption("v4.2")
+    st.caption("v4.3")
     st.markdown("---")
     modalidade = st.selectbox("Modalidade ML", ["Premium", "Classico"])
     st.markdown("---")
