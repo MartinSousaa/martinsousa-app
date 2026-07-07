@@ -1,4 +1,0 @@
-streamlit
-anthropic
-requests
-Pillow
