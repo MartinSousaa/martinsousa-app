@@ -408,7 +408,7 @@ st.markdown("---")
 
 with st.sidebar:
     st.header("MartinSousa App")
-    st.caption("v6.2")
+    st.caption("v6.3")
     st.markdown("---")
     modalidade = st.selectbox("Modalidade ML", ["Premium", "Classico"])
     st.markdown("---")
@@ -494,16 +494,18 @@ if analisar:
 
         titulo = resultado["titulo"]
 
-        # Filtra por medida (usando o titulo que o Lens devolveu)
+        # Filtra por medida (usando o titulo que o Lens devolveu).
+        # So descarta quando acha uma medida ESCRITA e ela bate errado --
+        # titulo sem nenhuma medida (comum no Lens, que traz titulo curto)
+        # nao e descartado, vai pra analise visual decidir.
         tem_dims = any(d > 0 for d in dims_ref)
         if tem_dims:
             medidas = extrair_medidas_texto(titulo)
             medida_ok, status = medida_compativel(medidas, dims_ref)
-            if not medida_ok:
-                if status == "sem_medida":
-                    sem_medida.append(titulo)
-                else:
-                    descartados_medida.append(titulo)
+            if status == "sem_medida":
+                sem_medida.append(titulo)
+            elif not medida_ok:
+                descartados_medida.append(titulo)
                 continue
 
         # Analise visual pelo Claude (usando a miniatura que o Lens devolveu)
