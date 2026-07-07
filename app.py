@@ -273,14 +273,11 @@ Rejeite se:
 # ── VEREDICTO IA ───────────────────────────────────────────────────────────────
 
 def gerar_veredicto(anuncios, outros_precos, custo, peso_taxado, categoria, modalidade, nome, dims_ref, qtd_ref):
-    com_vendas = [a for a in anuncios if a.get("vendas", 0) > 0]
-    sem_vendas = [a for a in anuncios if a.get("vendas", 0) == 0]
-    precos_com = sorted([a["preco"] for a in com_vendas])
-    precos_sem = sorted([a["preco"] for a in sem_vendas])
+    precos = sorted([a["preco"] for a in anuncios])
 
     faixas_str = ""
-    if precos_com:
-        for p in sorted(set([round(p, 2) for p in precos_com])):
+    if precos:
+        for p in sorted(set([round(p, 2) for p in precos])):
             r = calcular_resultado(p, custo, peso_taxado, categoria, modalidade)
             faixas_str += f"  R${p:.2f} -> lucro R${r['lucro']:.2f} | margem {r['margem']:.1f}% | UC 1/{r['uc']}\n"
 
@@ -288,8 +285,8 @@ def gerar_veredicto(anuncios, outros_precos, custo, peso_taxado, categoria, moda
                              for p, v in outros_precos.items()]) or "Nao encontrado"
 
     alerta_variacao = ""
-    if precos_com and len(precos_com) > 1:
-        variacao = max(precos_com) / min(precos_com)
+    if precos and len(precos) > 1:
+        variacao = max(precos) / min(precos)
         if variacao > 1.5:
             alerta_variacao = f"ATENCAO: variacao de preco elevada ({((variacao-1)*100):.0f}%). Verifique se ha tamanhos diferentes misturados."
 
@@ -304,14 +301,13 @@ Custo: R${custo:.2f}
 Modalidade: {modalidade}
 LPV necessario: R${LPV_OFICIAL:.2f}
 
-ANUNCIOS COM VENDAS ({len(com_vendas)} confirmados por medida e visao):
-{"Faixa: R$" + f"{min(precos_com):.2f}" + " a R$" + f"{max(precos_com):.2f}" if precos_com else "Nenhum"}
+ANUNCIOS CONCORRENTES CONFIRMADOS ({len(anuncios)} confirmados por medida e visao):
+{"Faixa: R$" + f"{min(precos):.2f}" + " a R$" + f"{max(precos):.2f}" if precos else "Nenhum"}
+
+OBS: numero de vendas de concorrentes nao esta disponivel (API do Mercado Livre nao libera esse dado para anuncios de terceiros). A analise abaixo considera apenas preco de mercado, nao volume de vendas.
 
 CALCULO POR FAIXA:
 {faixas_str}
-
-ANUNCIOS SEM VENDAS ({len(sem_vendas)} confirmados):
-{f'Faixa: R${min(precos_sem):.2f} a R${max(precos_sem):.2f}' if precos_sem else 'Nenhum'}
 
 OUTROS CANAIS (referencia):
 {outros_str}
@@ -354,7 +350,7 @@ st.markdown("---")
 
 with st.sidebar:
     st.header("MartinSousa App")
-    st.caption("v6.0")
+    st.caption("v6.1")
     st.markdown("---")
     modalidade = st.selectbox("Modalidade ML", ["Premium", "Classico"])
     st.markdown("---")
@@ -469,13 +465,11 @@ if analisar:
                 descartados_visual.append(f"{anuncio.get('title', '')} ({motivo})")
                 continue
 
-        preco  = preco_promocional(anuncio)
-        vendas = anuncio.get("sold_quantity", 0) or resultado.get("sold_quantity", 0)
+        preco = preco_promocional(anuncio)
         confirmados.append({
             "item_id": item_id,
             "titulo": anuncio.get("title", ""),
             "preco": preco,
-            "vendas": vendas
         })
 
     progress.empty()
@@ -510,17 +504,9 @@ if analisar:
         else:
             st.success(veredicto)
 
-        with st.expander("Ver anuncios confirmados"):
-            com = [a for a in confirmados if a["vendas"] > 0]
-            sem = [a for a in confirmados if a["vendas"] == 0]
-            if com:
-                st.markdown("**Com vendas:**")
-                for a in com:
-                    st.write(f"- {a['titulo']} — R${a['preco']:.2f} | {a['vendas']} vendas")
-            if sem:
-                st.markdown("**Sem vendas registradas:**")
-                for a in sem:
-                    st.write(f"- {a['titulo']} — R${a['preco']:.2f}")
+        with st.expander("Ver anuncios concorrentes confirmados"):
+            for a in sorted(confirmados, key=lambda x: x["preco"]):
+                st.write(f"- {a['titulo']} — R${a['preco']:.2f}")
 
         with st.expander("Ver descartados"):
             if descartados_medida:
