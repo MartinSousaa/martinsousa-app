@@ -92,20 +92,39 @@ def buscar_por_foto(url_imagem):
     except Exception as e:
         return [], str(e)
 
+MARKETPLACES_ACEITOS = {
+    "shopee": "Shopee",
+    "amazon": "Amazon",
+    "magazineluiza": "Magazine Luiza",
+    "magazinevoce": "Magazine Luiza",
+    "carrefour": "Carrefour",
+    "casasbahia": "Casas Bahia",
+    "americanas": "Americanas",
+    "submarino": "Americanas",
+    "shoptime": "Americanas",
+    "extra": "Extra",
+    "pontofrio": "Ponto Frio",
+}
+
 def filtrar_por_plataforma(visual_matches):
     ml_links, outros = [], {}
     for item in visual_matches:
         source = item.get("source", "").lower()
         price  = item.get("price", {})
         preco  = price.get("extracted_value") if price else None
-        link   = item.get("link", "")
+        link   = item.get("link", "").lower()
         titulo = item.get("title", "")
-        if ("mercadolivre.com.br" in source or "mercadolivre.com.br" in link):
-            if link:
-                ml_links.append({"link": link, "title": titulo})
-        elif preco:
-            plat = source.split(".")[0].capitalize()
-            outros.setdefault(plat, []).append(preco)
+        # Filtra ML Brasil
+        if "mercadolivre.com.br" in source or "mercadolivre.com.br" in link:
+            if item.get("link"):
+                ml_links.append({"link": item["link"], "title": titulo})
+            continue
+        # Filtra grandes marketplaces brasileiros
+        if preco:
+            for dominio, nome in MARKETPLACES_ACEITOS.items():
+                if dominio in source or dominio in link:
+                    outros.setdefault(nome, []).append(preco)
+                    break
     return ml_links, outros
 
 # ── MERCADO LIVRE API ──────────────────────────────────────────────────────────
@@ -138,14 +157,12 @@ def buscar_anuncio(item_id, token):
     except:
         return None
 
-def buscar_vendas_publico(item_id, token=""):
-    """Busca sold_quantity via endpoint de busca do ML."""
+def buscar_vendas_por_id(item_id):
+    """Busca sold_quantity via search publico do ML — retorna dado real do site."""
     try:
-        headers = {"Authorization": f"Bearer {token}"} if token else {}
         r = requests.get(
             "https://api.mercadolibre.com/sites/MLB/search",
-            params={"iids": item_id},
-            headers=headers,
+            params={"iids": item_id, "attributes": "id,title,price,sold_quantity,sale_price"},
             timeout=10
         )
         data = r.json()
@@ -219,7 +236,7 @@ def processar_anuncios_ml(ml_links, token, dims_ref, qtd_ref):
         preco   = preco_promocional(anuncio)
         vendas  = anuncio.get("sold_quantity", 0)
         if vendas == 0:
-            vendas = buscar_vendas_publico(item_id, token)
+            vendas = buscar_vendas_por_id(item_id)
         titulo  = anuncio.get("title", "")
         qtd     = extrair_quantidade(anuncio)
         tem_dims = any(d > 0 for d in dims_ref)
@@ -290,18 +307,19 @@ OUTROS CANAIS:
 
 {alerta_variacao}
 
-REGRAS:
-1. Sugira o melhor preco: equilibrio entre VENDER e DAR LUCRO.
-2. Margem para promocao: acima 10% OTIMO, 3-10% OK, abaixo 3% SEM MARGEM.
-3. UC minimo: 6/1. Abaixo disso inviavel.
-4. Se margem abaixo 10%, alerte sobre esforco operacional.
-5. Se unitario inviavel mas kits encontrados, sugira kit.
-6. Se inviavel, diga claramente.
+REGRAS RIGIDAS — NAO FLEXIBILIZAR:
+1. UC MINIMO ABSOLUTO: 6/1 (lucro minimo R$3,67). Se UC abaixo de 6/1 em QUALQUER preco sugerido, o veredicto OBRIGATORIAMENTE e INVIAVEL. Nao ha excecao.
+2. Se todos os precos de mercado resultam em UC abaixo de 6/1, o produto e INVIAVEL independente de qualquer outro fator.
+3. So sugira preco se ele resultar em UC de 6/1 ou melhor. Se nao existir tal preco no mercado, diga que e inviavel.
+4. Margem para promocao (so analise se UC >= 6/1): acima 10% OTIMO, 3-10% OK com atencao, abaixo 3% SEM MARGEM.
+5. Se margem abaixo 10%, alerte sobre esforco operacional.
+6. Se unitario inviavel mas kits encontrados, calcule se kit e viavel e sugira.
+7. Seja honesto e direto. Nao tente salvar um produto inviavel.
 
 CENARIOS:
-- VIAVEL: lucro bom + margem promocao acima 10%
-- VIAVEL COM RESSALVAS: lucro ok + promocao 3-10% OU UC 6/1 a 8/1
-- INVIAVEL: margem baixa + sem promocao + UC abaixo 6/1
+- VIAVEL: UC >= 6/1 + lucro bom + margem promocao acima 10%
+- VIAVEL COM RESSALVAS: UC entre 6/1 e 8/1 OU promocao entre 3-10%
+- INVIAVEL: UC abaixo de 6/1 em qualquer preco possivel no mercado
 
 ESTRUTURE ASSIM:
 1. VEREDICTO: [VIAVEL / VIAVEL COM RESSALVAS / INVIAVEL]
