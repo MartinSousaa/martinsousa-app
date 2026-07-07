@@ -100,7 +100,7 @@ def filtrar_por_plataforma(visual_matches):
         preco  = price.get("extracted_value") if price else None
         link   = item.get("link", "")
         titulo = item.get("title", "")
-        if "mercadolivre" in source or "mercado livre" in source:
+        if ("mercadolivre.com.br" in source or "mercadolivre.com.br" in link):
             if link:
                 ml_links.append({"link": link, "title": titulo})
         elif preco:
@@ -138,12 +138,14 @@ def buscar_anuncio(item_id, token):
     except:
         return None
 
-def buscar_vendas_publico(item_id):
-    """Busca sold_quantity via API publica sem autenticacao."""
+def buscar_vendas_publico(item_id, token=""):
+    """Busca sold_quantity via endpoint de busca do ML."""
     try:
+        headers = {"Authorization": f"Bearer {token}"} if token else {}
         r = requests.get(
             "https://api.mercadolibre.com/sites/MLB/search",
             params={"iids": item_id},
+            headers=headers,
             timeout=10
         )
         data = r.json()
@@ -216,6 +218,8 @@ def processar_anuncios_ml(ml_links, token, dims_ref, qtd_ref):
         medidas = extrair_medidas(anuncio)
         preco   = preco_promocional(anuncio)
         vendas  = anuncio.get("sold_quantity", 0)
+        if vendas == 0:
+            vendas = buscar_vendas_publico(item_id, token)
         titulo  = anuncio.get("title", "")
         qtd     = extrair_quantidade(anuncio)
         tem_dims = any(d > 0 for d in dims_ref)
