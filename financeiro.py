@@ -138,7 +138,12 @@ def calcular_mes(row):
     ou None se faltar algum dos 4 campos necessarios (mes incompleto e
     ignorado nos calculos, nunca inventa numero).
     OBS: a coluna 'lucro_bruto' guarda a MARGEM BRUTA em % (ex: 78.03),
-    informada diretamente pelo usuario -- nao e mais um valor em R$."""
+    informada diretamente pelo usuario -- nao e mais um valor em R$.
+
+    Formula (conforme definido pelo usuario):
+    Ponto de Equilibrio = Custos totais / Margem Bruta
+    LPV = Ponto de Equilibrio / Numero de vendas
+    """
     custos = row.get("custos_totais")
     fat = row.get("faturamento")
     vendas = row.get("vendas")
@@ -150,7 +155,7 @@ def calcular_mes(row):
 
     margem_bruta = margem_bruta_pct / 100
     ponto_equilibrio = custos / margem_bruta if margem_bruta else None
-    lpv = custos / vendas
+    lpv = ponto_equilibrio / vendas if ponto_equilibrio else None
 
     return {"margem_bruta": margem_bruta, "ponto_equilibrio": ponto_equilibrio, "lpv": lpv}
 
@@ -196,14 +201,18 @@ def lpv_vigente(df, hoje=None):
 
 
 def aliquota_vigente(df, ano=None):
-    """Aliquota do ano informado; se nao tiver, usa a mais recente disponivel."""
+    """Aliquota do ano informado; se nao tiver (ou for um valor absurdo,
+    fora de 0-100), usa a mais recente disponivel que seja valida."""
     ano = ano or date.today().year
+
+    def valida(v):
+        return pd.notna(v) and v and 0 < v <= 100
+
     linha = df[df["ano"] == ano]
-    if not linha.empty and pd.notna(linha.iloc[0].get("aliquota")) and linha.iloc[0].get("aliquota"):
+    if not linha.empty and valida(linha.iloc[0].get("aliquota")):
         return float(linha.iloc[0]["aliquota"]), linha.iloc[0].get("regime_tributario")
 
-    com_aliquota = df.dropna(subset=["aliquota"]) if "aliquota" in df.columns else pd.DataFrame()
-    com_aliquota = com_aliquota[com_aliquota["aliquota"] != 0] if not com_aliquota.empty else com_aliquota
+    com_aliquota = df[df["aliquota"].apply(valida)] if "aliquota" in df.columns else pd.DataFrame()
     if com_aliquota.empty:
         return None, None
     linha_recente = com_aliquota.sort_values("ano", ascending=False).iloc[0]
@@ -263,6 +272,11 @@ def pagina_financeiro():
                                     value=(f"{aliquota_atual:.2f}".replace(".", ",") if aliquota_atual else ""),
                                     placeholder="ex: 10")
     aliquota = parse_numero_br(txt_aliquota) or 0.0
+    if aliquota > 100 or aliquota < 0:
+        st.error(f"Alíquota de {aliquota:.1f}% não faz sentido (tem que estar entre 0 e 100). Confira o valor digitado -- não vai salvar assim.")
+        aliquota_invalida = True
+    else:
+        aliquota_invalida = False
 
     st.markdown("---")
     st.caption("Preencha o que tiver de cada mês. Pode deixar em branco (0) o que ainda não tem.")
@@ -324,7 +338,7 @@ def pagina_financeiro():
             "lucro_bruto": margem,
         })
 
-    if st.button(f"Salvar dados de {ano}", type="primary", use_container_width=True):
+    if st.button(f"Salvar dados de {ano}", type="primary", use_container_width=True, disabled=aliquota_invalida):
         with st.spinner("Salvando na planilha..."):
             salvar_ano(ano, regime, aliquota, dados_meses)
         st.success("Salvo!")
