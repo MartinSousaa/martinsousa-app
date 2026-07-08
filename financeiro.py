@@ -48,6 +48,8 @@ def carregar_dados():
     if df.empty:
         df = pd.DataFrame(columns=COLUNAS)
         return df
+    # Normaliza nomes de coluna (maiuscula/minuscula e espacos nao importam)
+    df.columns = [str(c).strip().lower() for c in df.columns]
     for col in ["ano", "mes", "custos_totais", "faturamento", "vendas", "lucro_bruto", "aliquota"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -198,6 +200,16 @@ def pagina_financeiro():
         df = carregar_dados()
     except Exception as e:
         st.error(f"Não consegui conectar com a planilha: {e}")
+        return
+
+    if not df.empty and "ano" not in df.columns:
+        st.error(
+            "A planilha está conectada, mas o cabeçalho da aba 'financeiro' não está "
+            "com os nomes de coluna esperados. Confirme que a linha 1 tem, cada um numa "
+            "célula separada (A1, B1, C1...): ano, mes, custos_totais, faturamento, "
+            "vendas, lucro_bruto, regime_tributario, aliquota.\n\n"
+            f"Colunas encontradas agora: {list(df.columns)}"
+        )
         return
 
     ano_atual = date.today().year
