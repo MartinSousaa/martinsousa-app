@@ -21,6 +21,40 @@ COLUNAS = ["ano", "mes", "custos_totais", "faturamento", "vendas",
            "lucro_bruto", "regime_tributario", "aliquota"]
 
 
+def parse_numero_br(texto):
+    """Converte texto colado (com virgula ou ponto decimal, com ou sem
+    separador de milhar) em float. Retorna None se vazio/invalido."""
+    if texto is None:
+        return None
+    texto = str(texto).strip().replace("R$", "").replace(" ", "")
+    if not texto:
+        return None
+    if "," in texto and "." in texto:
+        # assume ponto = milhar, virgula = decimal (padrao BR: 1.234,56)
+        texto = texto.replace(".", "").replace(",", ".")
+    elif "," in texto:
+        texto = texto.replace(",", ".")
+    try:
+        return float(texto)
+    except ValueError:
+        return None
+
+
+def parse_inteiro_br(texto):
+    """Converte texto de QUANTIDADE (sem casas decimais -- ex: numero de
+    vendas) em int. Aqui ponto e virgula so podem ser separador de milhar
+    (2.088 = dois mil e oitenta e oito), nunca decimal."""
+    if texto is None:
+        return None
+    texto = str(texto).strip().replace(" ", "").replace(".", "").replace(",", "")
+    if not texto:
+        return None
+    try:
+        return int(texto)
+    except ValueError:
+        return None
+
+
 # ── CONEXAO COM A PLANILHA ──────────────────────────────────────────────────
 
 def _cliente():
@@ -102,17 +136,19 @@ def salvar_ano(ano, regime, aliquota, dados_meses):
 def calcular_mes(row):
     """Retorna dict com margem_bruta, ponto_equilibrio e lpv pra um mes,
     ou None se faltar algum dos 4 campos necessarios (mes incompleto e
-    ignorado nos calculos, nunca inventa numero)."""
+    ignorado nos calculos, nunca inventa numero).
+    OBS: a coluna 'lucro_bruto' guarda a MARGEM BRUTA em % (ex: 78.03),
+    informada diretamente pelo usuario -- nao e mais um valor em R$."""
     custos = row.get("custos_totais")
     fat = row.get("faturamento")
     vendas = row.get("vendas")
-    lucro_bruto = row.get("lucro_bruto")
+    margem_bruta_pct = row.get("lucro_bruto")
 
-    valores = [custos, fat, vendas, lucro_bruto]
+    valores = [custos, fat, vendas, margem_bruta_pct]
     if any(v is None or (isinstance(v, float) and pd.isna(v)) or v == 0 for v in valores):
         return None
 
-    margem_bruta = lucro_bruto / fat
+    margem_bruta = margem_bruta_pct / 100
     ponto_equilibrio = custos / margem_bruta if margem_bruta else None
     lpv = custos / vendas
 
@@ -223,7 +259,10 @@ def pagina_financeiro():
 
     col1, col2 = st.columns(2)
     regime = col1.text_input("Regime tributário", value=regime_atual or "")
-    aliquota = col2.number_input("Alíquota (%)", min_value=0.0, max_value=100.0, value=aliquota_atual, step=0.1)
+    txt_aliquota = col2.text_input("Alíquota (%)",
+                                    value=(f"{aliquota_atual:.2f}".replace(".", ",") if aliquota_atual else ""),
+                                    placeholder="ex: 10")
+    aliquota = parse_numero_br(txt_aliquota) or 0.0
 
     st.markdown("---")
     st.caption("Preencha o que tiver de cada mês. Pode deixar em branco (0) o que ainda não tem.")
@@ -241,24 +280,37 @@ def pagina_financeiro():
 
         with st.expander(nome_mes):
             c1, c2, c3, c4 = st.columns(4)
-            custos = c1.number_input("Custos totais (R$)", min_value=0.0,
-                                      value=float(v_custos) if pd.notna(v_custos) else 0.0,
-                                      step=100.0, key=f"custos_{ano}_{i}")
-            fat = c2.number_input("Faturamento (R$)", min_value=0.0,
-                                   value=float(v_fat) if pd.notna(v_fat) else 0.0,
-                                   step=100.0, key=f"fat_{ano}_{i}")
-            vendas = c3.number_input("Vendas (qtd)", min_value=0.0,
-                                      value=float(v_vendas) if pd.notna(v_vendas) else 0.0,
-                                      step=1.0, key=f"vendas_{ano}_{i}")
-            lucro = c4.number_input("Lucro Bruto (R$)", min_value=0.0,
-                                     value=float(v_lucro) if pd.notna(v_lucro) else 0.0,
-                                     step=100.0, key=f"lucro_{ano}_{i}")
+            txt_custos = c1.text_input("Custos totais (R$)",
+                                        value=(f"{v_custos:.2f}".replace(".", ",") if pd.notna(v_custos) else ""),
+                                        key=f"custos_{ano}_{i}", placeholder="ex: 45.737,34")
+            txt_fat = c2.text_input("Faturamento (R$)",
+                                     value=(f"{v_fat:.2f}".replace(".", ",") if pd.notna(v_fat) else ""),
+                                     key=f"fat_{ano}_{i}", placeholder="ex: 219.124,82")
+            txt_vendas = c3.text_input("Vendas (qtd)",
+                                        value=(f"{v_vendas:.0f}" if pd.notna(v_vendas) else ""),
+                                        key=f"vendas_{ano}_{i}", placeholder="ex: 1954")
+            txt_margem = c4.text_input("Margem Bruta (%)",
+                                        value=(f"{v_lucro:.2f}".replace(".", ",") if pd.notna(v_lucro) else ""),
+                                        key=f"lucro_{ano}_{i}", placeholder="ex: 78,03")
+
+            custos = parse_numero_br(txt_custos)
+            fat    = parse_numero_br(txt_fat)
+            vendas = parse_inteiro_br(txt_vendas)
+            margem = parse_numero_br(txt_margem)
+
+            if custos is None and txt_custos:
+                st.error("Custos totais: valor não reconhecido.")
+            if fat is None and txt_fat:
+                st.error("Faturamento: valor não reconhecido.")
+            if vendas is None and txt_vendas:
+                st.error("Vendas: valor não reconhecido.")
+            if margem is None and txt_margem:
+                st.error("Margem Bruta: valor não reconhecido.")
 
             calc = calcular_mes({"custos_totais": custos, "faturamento": fat,
-                                  "vendas": vendas, "lucro_bruto": lucro})
+                                  "vendas": vendas, "lucro_bruto": margem})
             if calc:
                 st.caption(
-                    f"Margem bruta: {calc['margem_bruta']*100:.1f}% · "
                     f"Ponto de equilíbrio: R${calc['ponto_equilibrio']:.2f} · "
                     f"LPV: R${calc['lpv']:.2f}"
                 )
@@ -266,10 +318,10 @@ def pagina_financeiro():
                 st.caption("Mês incompleto — preencha os 4 campos pra esse mês entrar nos cálculos.")
 
         dados_meses.append({
-            "custos_totais": custos or None,
-            "faturamento": fat or None,
-            "vendas": vendas or None,
-            "lucro_bruto": lucro or None,
+            "custos_totais": custos,
+            "faturamento": fat,
+            "vendas": vendas,
+            "lucro_bruto": margem,
         })
 
     if st.button(f"Salvar dados de {ano}", type="primary", use_container_width=True):
