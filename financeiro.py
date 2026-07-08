@@ -25,7 +25,10 @@ COLUNAS = ["ano", "mes", "custos_totais", "faturamento", "vendas",
 
 def _cliente():
     creds_dict = dict(st.secrets["gcp_service_account"])
-    scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive.readonly",
+    ]
     creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
     return gspread.authorize(creds)
 
