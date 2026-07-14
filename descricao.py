@@ -164,40 +164,41 @@ def pagina_descricao(usuario_logado):
     if confirmar:
         if not nome_produto:
             st.warning("Preencha pelo menos o Nome do produto.")
-            return
+        else:
+            st.session_state["desc_dados_pendentes"] = {
+                "nome_produto": nome_produto, "categoria": categoria, "medidas": medidas, "peso": peso,
+                "material": material, "cor": cor, "uso": uso, "caracteristicas": caracteristicas,
+                "diferenciais": diferenciais, "palavras_chave": palavras_chave_txt,
+            }
 
-        dados = {
-            "nome_produto": nome_produto, "categoria": categoria, "medidas": medidas, "peso": peso,
-            "material": material, "cor": cor, "uso": uso, "caracteristicas": caracteristicas,
-            "diferenciais": diferenciais, "palavras_chave": palavras_chave_txt,
-        }
+    if "desc_dados_pendentes" in st.session_state:
+        dados = st.session_state["desc_dados_pendentes"]
 
-        # Resumo de confirmacao -- especificamente pra Descricao, porque um dado
-        # desatualizado fica mais dificil de notar dentro de um texto corrido do
-        # que numa lista curta como em Titulo/Palavra-chave.
         st.markdown("---")
         st.markdown("##### Confirme os dados antes de gerar")
         st.markdown(
-            f"- **Produto:** {nome_produto}\n"
-            f"- **Categoria:** {categoria}\n"
-            f"- **Medidas:** {medidas or '_(vazio)_'}\n"
-            f"- **Peso:** {peso or '_(vazio)_'}\n"
-            f"- **Material:** {material or '_(vazio)_'}\n"
-            f"- **Cor:** {cor or '_(vazio)_'}\n"
-            f"- **Uso/ocasião:** {uso or '_(vazio)_'}\n"
-            f"- **Características:** {caracteristicas or '_(vazio)_'}\n"
-            f"- **Diferenciais:** {diferenciais or '_(vazio)_'}"
+            f"- **Produto:** {dados['nome_produto']}\n"
+            f"- **Categoria:** {dados['categoria']}\n"
+            f"- **Medidas:** {dados['medidas'] or '_(vazio)_'}\n"
+            f"- **Peso:** {dados['peso'] or '_(vazio)_'}\n"
+            f"- **Material:** {dados['material'] or '_(vazio)_'}\n"
+            f"- **Cor:** {dados['cor'] or '_(vazio)_'}\n"
+            f"- **Uso/ocasião:** {dados['uso'] or '_(vazio)_'}\n"
+            f"- **Características:** {dados['caracteristicas'] or '_(vazio)_'}\n"
+            f"- **Diferenciais:** {dados['diferenciais'] or '_(vazio)_'}"
         )
-        st.caption("Se algo estiver errado ou desatualizado, ajusta no formulário acima antes de confirmar.")
+        st.caption("Se algo estiver errado ou desatualizado, ajusta no formulário acima e clica em 'Conferir dados e gerar' de novo.")
 
         if st.button("✅ Está tudo certo, gerar descrição", type="primary", use_container_width=True):
             with st.spinner("Gerando descrição..."):
                 descricao = gerar_descricao(dados)
 
             import atividades
-            atividades.registrar_atividade(usuario_logado, "Descrição", nome_produto, f"{len(descricao)} caracteres")
+            atividades.registrar_atividade(usuario_logado, "Descrição", dados["nome_produto"], f"{len(descricao)} caracteres")
+
+            del st.session_state["desc_dados_pendentes"]
 
             st.markdown("---")
-            st.markdown(f"#### Descrição — {nome_produto}")
+            st.markdown(f"#### Descrição — {dados['nome_produto']}")
             st.text_area("Pronta pra copiar", value=descricao, height=350, key="desc_resultado")
             st.caption(f"{len(descricao)}/10.000 caracteres (limite do Mercado Livre pra descrição)")
