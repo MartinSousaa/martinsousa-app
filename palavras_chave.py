@@ -9,11 +9,9 @@ CAMPOS_TRIAGEM = ["nome_comercial", "categoria", "material", "variacao_cores",
 
 
 def obter_token_ml():
-    """Reaproveita as credenciais do ML ja configuradas nas Secrets
-    (mesmas usadas antigamente pra busca de concorrencia, hoje sem uso)."""
-    access_token = st.secrets.get("ML_ACCESS_TOKEN", "")
-    if access_token:
-        return access_token
+    """Sempre gera um token novo via client_credentials -- o ML_ACCESS_TOKEN
+    fixo (se ainda estiver nas Secrets de uma configuracao antiga) expira em
+    poucas horas e nao deve ser usado aqui."""
     client_id = st.secrets.get("ML_CLIENT_ID", "")
     client_secret = st.secrets.get("ML_CLIENT_SECRET", "")
     if not client_id or not client_secret:
