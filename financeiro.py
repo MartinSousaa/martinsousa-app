@@ -55,6 +55,16 @@ def parse_inteiro_br(texto):
         return None
 
 
+def formatar_br(valor, casas=2):
+    """Formata numero pro padrao brasileiro (1.234.567,89), com separador
+    de milhar de verdade -- NUNCA usar so .replace('.', ',') direto, isso
+    nao adiciona separador de milhar e confunde valores grandes."""
+    if valor is None or (isinstance(valor, float) and pd.isna(valor)):
+        return ""
+    txt = f"{valor:,.{casas}f}"  # formato US: 1,234,567.89
+    return txt.replace(",", "X").replace(".", ",").replace("X", ".")
+
+
 # ── CONEXAO COM A PLANILHA ──────────────────────────────────────────────────
 
 def _cliente():
@@ -269,7 +279,7 @@ def pagina_financeiro():
     col1, col2 = st.columns(2)
     regime = col1.text_input("Regime tributário", value=regime_atual or "")
     txt_aliquota = col2.text_input("Alíquota (%)",
-                                    value=(f"{aliquota_atual:.2f}".replace(".", ",") if aliquota_atual else ""),
+                                    value=(formatar_br(aliquota_atual) if aliquota_atual else ""),
                                     placeholder="ex: 10")
     aliquota = parse_numero_br(txt_aliquota) or 0.0
     if aliquota > 100 or aliquota < 0:
@@ -295,16 +305,16 @@ def pagina_financeiro():
         with st.expander(nome_mes):
             c1, c2, c3, c4 = st.columns(4)
             txt_custos = c1.text_input("Custos totais (R$)",
-                                        value=(f"{v_custos:.2f}".replace(".", ",") if pd.notna(v_custos) else ""),
+                                        value=(formatar_br(v_custos) if pd.notna(v_custos) else ""),
                                         key=f"custos_{ano}_{i}", placeholder="ex: 45.737,34")
             txt_fat = c2.text_input("Faturamento (R$)",
-                                     value=(f"{v_fat:.2f}".replace(".", ",") if pd.notna(v_fat) else ""),
+                                     value=(formatar_br(v_fat) if pd.notna(v_fat) else ""),
                                      key=f"fat_{ano}_{i}", placeholder="ex: 219.124,82")
             txt_vendas = c3.text_input("Vendas (qtd)",
                                         value=(f"{v_vendas:.0f}" if pd.notna(v_vendas) else ""),
                                         key=f"vendas_{ano}_{i}", placeholder="ex: 1954")
             txt_margem = c4.text_input("Margem Bruta (%)",
-                                        value=(f"{v_lucro:.2f}".replace(".", ",") if pd.notna(v_lucro) else ""),
+                                        value=(formatar_br(v_lucro) if pd.notna(v_lucro) else ""),
                                         key=f"lucro_{ano}_{i}", placeholder="ex: 78,03")
 
             custos = parse_numero_br(txt_custos)
@@ -320,6 +330,15 @@ def pagina_financeiro():
                 st.error("Vendas: valor não reconhecido.")
             if margem is None and txt_margem:
                 st.error("Margem Bruta: valor não reconhecido.")
+
+            # Preview do que o sistema entendeu -- pra conferir ANTES de salvar
+            partes_preview = []
+            if custos is not None: partes_preview.append(f"Custos: R${formatar_br(custos)}")
+            if fat is not None: partes_preview.append(f"Faturamento: R${formatar_br(fat)}")
+            if vendas is not None: partes_preview.append(f"Vendas: {vendas}")
+            if margem is not None: partes_preview.append(f"Margem: {formatar_br(margem)}%")
+            if partes_preview:
+                st.caption("Entendido como -> " + " · ".join(partes_preview))
 
             calc = calcular_mes({"custos_totais": custos, "faturamento": fat,
                                   "vendas": vendas, "lucro_bruto": margem})
@@ -348,6 +367,6 @@ def pagina_financeiro():
     st.subheader("LPV vigente (calculado)")
     lpv, origem = lpv_vigente(df)
     if lpv:
-        st.success(f"LPV vigente: R${lpv:.2f}  \nCalculado com base em: {origem}")
+        st.success(f"LPV vigente: R${formatar_br(lpv)}  \nCalculado com base em: {origem}")
     else:
         st.warning(f"Ainda não há meses completos suficientes pra calcular o LPV automático ({origem}).")
