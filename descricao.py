@@ -96,29 +96,72 @@ Responda SOMENTE com o texto da descrição, pronta pra colar no anúncio, sem c
 
 def pagina_descricao(usuario_logado):
     st.subheader("Descrição")
-    st.caption("Formulário sempre novo (não puxa Triagem salva) -- garante que a descrição usa dados atuais do produto, sem risco de informação desatualizada.")
+    st.caption("Busca a Triagem do produto automaticamente (editável). Antes de gerar, você confere um resumo dos dados que serão usados.")
+
+    import triagem
+
+    busca = st.text_input("Nome do produto", key="desc_busca_nome")
+
+    dados_iniciais = {"nome_produto": "", "categoria": "", "medidas": "", "peso": "",
+                       "material": "", "cor": "", "uso": "", "caracteristicas": "",
+                       "diferenciais": ""}
+    aviso = None
+
+    if busca:
+        encontrados = triagem.buscar_triagens_por_trecho(busca)
+        if len(encontrados) == 1:
+            t = encontrados[0]
+            dados_iniciais.update({
+                "nome_produto": t.get("nome_comercial", ""), "categoria": t.get("categoria", ""),
+                "medidas": t.get("medidas", ""), "peso": t.get("peso", ""),
+                "material": t.get("material", ""), "cor": t.get("variacao_cores", ""),
+                "uso": t.get("uso", ""), "caracteristicas": t.get("caracteristicas", ""),
+                "diferenciais": t.get("diferenciais", ""),
+            })
+            aviso = ("info", f"Triagem encontrada: **{t['nome_comercial']}**. Confira os dados abaixo -- pode editar antes de gerar.")
+        elif len(encontrados) > 1:
+            nomes = [e["nome_comercial"] for e in encontrados]
+            escolha = st.selectbox("Mais de um produto encontrado com esse nome -- qual é?", nomes, key="desc_escolha")
+            t = next(e for e in encontrados if e["nome_comercial"] == escolha)
+            dados_iniciais.update({
+                "nome_produto": t.get("nome_comercial", ""), "categoria": t.get("categoria", ""),
+                "medidas": t.get("medidas", ""), "peso": t.get("peso", ""),
+                "material": t.get("material", ""), "cor": t.get("variacao_cores", ""),
+                "uso": t.get("uso", ""), "caracteristicas": t.get("caracteristicas", ""),
+                "diferenciais": t.get("diferenciais", ""),
+            })
+            aviso = ("info", "Confira os dados abaixo -- pode editar antes de gerar.")
+        else:
+            dados_iniciais["nome_produto"] = busca
+            aviso = ("warning", "Nenhuma triagem encontrada pra esse produto ainda -- preencha os campos abaixo.")
+
+    if aviso:
+        getattr(st, aviso[0])(aviso[1])
 
     with st.form("form_descricao"):
         col1, col2 = st.columns(2)
-        nome_produto = col1.text_input("Nome do produto", key="desc_nome_produto")
-        categoria = col2.selectbox("Categoria no ML", sorted(ML_COMISSAO_POR_CATEGORIA.keys()), key="desc_categoria")
+        nome_produto = col1.text_input("Nome do produto", value=dados_iniciais["nome_produto"], key="desc_nome_produto")
+        categorias = sorted(ML_COMISSAO_POR_CATEGORIA.keys())
+        cat_atual = dados_iniciais["categoria"]
+        idx_cat = categorias.index(cat_atual) if cat_atual in categorias else 0
+        categoria = col2.selectbox("Categoria no ML", categorias, index=idx_cat, key="desc_categoria")
 
         col1, col2 = st.columns(2)
-        medidas = col1.text_input("Medidas (AxLxP, cm)", placeholder="ex: 33x33x6")
-        peso = col2.text_input("Peso", placeholder="ex: 700g")
+        medidas = col1.text_input("Medidas (AxLxP, cm)", value=dados_iniciais["medidas"], placeholder="ex: 33x33x6")
+        peso = col2.text_input("Peso", value=dados_iniciais["peso"], placeholder="ex: 700g")
 
         col1, col2 = st.columns(2)
-        material = col1.text_input("Material")
-        cor = col2.text_input("Cor / variação de cores")
+        material = col1.text_input("Material", value=dados_iniciais["material"])
+        cor = col2.text_input("Cor / variação de cores", value=dados_iniciais["cor"])
 
-        uso = st.text_input("Uso / ocasião", key="desc_uso")
-        caracteristicas = st.text_area("Características adicionais")
-        diferenciais = st.text_area("Diferenciais", key="desc_diferenciais")
+        uso = st.text_input("Uso / ocasião", value=dados_iniciais["uso"], key="desc_uso")
+        caracteristicas = st.text_area("Características adicionais", value=dados_iniciais["caracteristicas"])
+        diferenciais = st.text_area("Diferenciais", value=dados_iniciais["diferenciais"], key="desc_diferenciais")
         palavras_chave_txt = st.text_area("Palavras-chave pra usar com naturalidade (opcional -- cola aqui as que já geramos, se quiser)")
 
-        gerar = st.form_submit_button("Gerar Descrição", type="primary", use_container_width=True)
+        confirmar = st.form_submit_button("Conferir dados e gerar", type="primary", use_container_width=True)
 
-    if gerar:
+    if confirmar:
         if not nome_produto:
             st.warning("Preencha pelo menos o Nome do produto.")
             return
@@ -128,13 +171,33 @@ def pagina_descricao(usuario_logado):
             "material": material, "cor": cor, "uso": uso, "caracteristicas": caracteristicas,
             "diferenciais": diferenciais, "palavras_chave": palavras_chave_txt,
         }
-        with st.spinner("Gerando descrição..."):
-            descricao = gerar_descricao(dados)
 
-        import atividades
-        atividades.registrar_atividade(usuario_logado, "Descrição", nome_produto, f"{len(descricao)} caracteres")
-
+        # Resumo de confirmacao -- especificamente pra Descricao, porque um dado
+        # desatualizado fica mais dificil de notar dentro de um texto corrido do
+        # que numa lista curta como em Titulo/Palavra-chave.
         st.markdown("---")
-        st.markdown(f"#### Descrição — {nome_produto}")
-        st.text_area("Pronta pra copiar", value=descricao, height=350, key="desc_resultado")
-        st.caption(f"{len(descricao)}/10.000 caracteres (limite do Mercado Livre pra descrição)")
+        st.markdown("##### Confirme os dados antes de gerar")
+        st.markdown(
+            f"- **Produto:** {nome_produto}\n"
+            f"- **Categoria:** {categoria}\n"
+            f"- **Medidas:** {medidas or '_(vazio)_'}\n"
+            f"- **Peso:** {peso or '_(vazio)_'}\n"
+            f"- **Material:** {material or '_(vazio)_'}\n"
+            f"- **Cor:** {cor or '_(vazio)_'}\n"
+            f"- **Uso/ocasião:** {uso or '_(vazio)_'}\n"
+            f"- **Características:** {caracteristicas or '_(vazio)_'}\n"
+            f"- **Diferenciais:** {diferenciais or '_(vazio)_'}"
+        )
+        st.caption("Se algo estiver errado ou desatualizado, ajusta no formulário acima antes de confirmar.")
+
+        if st.button("✅ Está tudo certo, gerar descrição", type="primary", use_container_width=True):
+            with st.spinner("Gerando descrição..."):
+                descricao = gerar_descricao(dados)
+
+            import atividades
+            atividades.registrar_atividade(usuario_logado, "Descrição", nome_produto, f"{len(descricao)} caracteres")
+
+            st.markdown("---")
+            st.markdown(f"#### Descrição — {nome_produto}")
+            st.text_area("Pronta pra copiar", value=descricao, height=350, key="desc_resultado")
+            st.caption(f"{len(descricao)}/10.000 caracteres (limite do Mercado Livre pra descrição)")
