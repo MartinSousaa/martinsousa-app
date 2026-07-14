@@ -97,44 +97,87 @@ def classificar_uc(uc):
     return "VIAVEL"
 
 
-def buscar_desconto_maximo(preco_base, custo, peso_kg, categoria, modalidade, nf_pct, custo_op, lpv):
-    """Testa descontos de 5 em 5% e acha o maior que ainda mantem UC >= UC_MINIMO."""
-    testados = []
-    desconto_maximo = None
-    for pct in [5, 10, 15, 20, 25, 30]:
-        preco_teste = round(preco_base * (1 - pct/100), 2)
-        r = calcular_resultado(preco_teste, custo, peso_kg, categoria, modalidade, nf_pct, custo_op, lpv)
-        ok = r['uc'] is not None and r['uc'] >= UC_MINIMO
-        testados.append((pct, preco_teste, r, ok))
-        if ok:
-            desconto_maximo = pct
-    return desconto_maximo, testados
+def resolver_preco_para_uc(uc_alvo, custo, peso_kg, categoria, modalidade, nf_pct, custo_op, lpv, preco_max=None):
+    """Acha por bissecao o preco de anuncio que resulta exatamente no UC alvo.
+    Assume que UC cresce com o preco (verdade nesse modelo de custos)."""
+    if not lpv:
+        return None
+    preco_max = preco_max or max(custo * 20, 2000)
+    lo, hi = 0.01, preco_max
+    for _ in range(80):
+        mid = (lo + hi) / 2
+        r = calcular_resultado(mid, custo, peso_kg, categoria, modalidade, nf_pct, custo_op, lpv)
+        uc = r['uc'] if r['uc'] is not None else -999
+        if uc < uc_alvo:
+            lo = mid
+        else:
+            hi = mid
+    return round(hi, 2)
 
 
-def buscar_teto_preco(preco_base, custo, peso_kg, categoria, modalidade, nf_pct, custo_op, lpv):
-    """Quando nao ha margem pra desconto: mostra o efeito de precificar mais
-    alto, ate atingir uma UC saudavel de referencia (1,5/1)."""
-    testados = []
-    preco_referencia = None
-    for pct in [5, 10, 15, 20, 25, 30]:
-        preco_teste = round(preco_base * (1 + pct/100), 2)
-        r = calcular_resultado(preco_teste, custo, peso_kg, categoria, modalidade, nf_pct, custo_op, lpv)
-        testados.append((pct, preco_teste, r))
-        if preco_referencia is None and r['uc'] is not None and r['uc'] >= 1.5:
-            preco_referencia = preco_teste
-    return preco_referencia, testados
-
-
-def montar_tabela_horizontal_pct(testados, coluna_pct_label):
-    linhas = [
-        f"| {coluna_pct_label} | Preço | Lucro | UC |",
-        "|---|---|---|---|",
+def montar_tabela_horizontal_completa(cenarios):
+    """cenarios: lista de (nome, resultado_dict)"""
+    campos = [
+        ("Valor do anúncio", lambda r: f"R${r['preco']:.2f}"),
+        ("Taxa da plataforma", lambda r: f"R${r['comissao']:.2f}"),
+        ("Frete", lambda r: f"R${r['frete']:.2f}"),
+        ("NF", lambda r: f"R${r['nf']:.2f}"),
+        ("Custos operacionais", lambda r: f"R${r['custo_operacional']:.2f}"),
+        ("Custo do produto", lambda r: f"R${r['custo']:.2f}"),
+        ("**Lucro**", lambda r: f"**R${r['lucro_liquido']:.2f}**"),
+        ("Margem", lambda r: f"{r['margem']:.1f}%"),
+        ("**UC**", lambda r: f"**{r['uc']}/1**" if r['uc'] is not None else "**sem lucro**"),
     ]
-    for item in testados:
-        pct, preco_teste, r = item[0], item[1], item[2]
-        uc_str = f"{r['uc']}/1" if r['uc'] is not None else "sem lucro"
-        linhas.append(f"| {pct}% | R${preco_teste:.2f} | R${r['lucro_liquido']:.2f} | {uc_str} |")
+    header = "| Item | " + " | ".join(nome for nome, _ in cenarios) + " |"
+    sep = "|---" * (len(cenarios) + 1) + "|"
+    linhas = [header, sep]
+    for label, fn in campos:
+        linhas.append(f"| {label} | " + " | ".join(fn(r) for _, r in cenarios) + " |")
     return "\n".join(linhas)
+
+
+def analisar_promocao(preco_mercado, uc_mercado, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv):
+    """Regra definida pelo usuario (14/07/2026):
+    - Teto de promocao recomendado: 10% de desconto.
+    - Mas nunca deixar o UC final cair abaixo de 1/1: se 10% de desconto
+      derrubasse o UC pra menos de 1/1, o desconto sugerido fica menor
+      (o suficiente pra tocar o UC exatamente em 1/1).
+    - Se o produto tiver margem de sobra (10% de desconto ainda deixa UC > 1/1),
+      mostra tambem, so como informacao, ate quanto daria pra descontar no
+      limite teorico de UC=1/1 (sem recomendar aplicar tudo isso)."""
+    if uc_mercado is None or uc_mercado < 1.0:
+        return None  # sem margem nenhuma pra promocao nesse preco -- ver alerta separado
+
+    preco_10pct = round(preco_mercado * 0.9, 2)
+    r_10pct = calcular_resultado(preco_10pct, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv)
+
+    preco_uc1 = resolver_preco_para_uc(1.0, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv)
+    desconto_teorico_uc1 = round(100 * (preco_mercado - preco_uc1) / preco_mercado, 1) if preco_uc1 else 0
+
+    if r_10pct['uc'] is not None and r_10pct['uc'] >= 1.0:
+        # 10% de desconto ainda mantem UC >= 1/1 -> pode aplicar os 10% cheios
+        desconto_recomendado = 10.0
+        preco_recomendado = preco_10pct
+        r_recomendado = r_10pct
+        nota_extra = (f"Isso ainda deixa a UC em {r_10pct['uc']}/1. Se quiser ir além, o limite pra não cair "
+                      f"abaixo de 1/1 é **{desconto_teorico_uc1}%** de desconto (informativo, não é a sugestão).") \
+                      if desconto_teorico_uc1 > 10 else ""
+        texto = f"✅ Dá pra promover em até **10%** de desconto (o teto padrão da empresa)."
+    else:
+        # 10% de desconto derrubaria o UC abaixo de 1/1 -> usa o teto exato do 1/1
+        desconto_recomendado = desconto_teorico_uc1
+        preco_recomendado = preco_uc1
+        r_recomendado = calcular_resultado(preco_uc1, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv)
+        nota_extra = ""
+        texto = (f"⚠️ 10% de desconto derrubaria a UC abaixo de 1/1. O desconto máximo recomendado pra manter "
+                 f"UC ≥ 1/1 é **{desconto_recomendado}%**.")
+
+    tabela = montar_tabela_horizontal_completa([
+        ("Preço de mercado", calcular_resultado(preco_mercado, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv)),
+        (f"Promoção ({desconto_recomendado}% off)", r_recomendado),
+    ])
+
+    return {"texto": texto, "nota_extra": nota_extra, "tabela": tabela}
 
 
 def gerar_analise(preco_mercado, custo, peso_taxado, categoria, modalidade,
@@ -149,28 +192,29 @@ def gerar_analise(preco_mercado, custo, peso_taxado, categoria, modalidade,
     }
     resumo = RESUMOS[tag]
 
-    tabela_principal = montar_tabela_vertical(r_base)
+    # 3 cenarios fixos: preco de risco (UC 0.7), preco de mercado informado, preco de equilibrio perfeito (UC 1.0)
+    preco_uc07 = resolver_preco_para_uc(0.7, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv)
+    preco_uc10 = resolver_preco_para_uc(1.0, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv)
+    r_uc07 = calcular_resultado(preco_uc07, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv) if preco_uc07 else None
+    r_uc10 = calcular_resultado(preco_uc10, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv) if preco_uc10 else None
 
-    # Analise de promocao
-    desconto_max, testados_desc = buscar_desconto_maximo(
-        preco_mercado, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv)
+    cenarios = [("Risco (UC 0,7/1)", r_uc07), ("Preço de mercado", r_base), ("Equilíbrio (UC 1,0/1)", r_uc10)]
+    cenarios = [(n, r) for n, r in cenarios if r is not None]
+    tabela_cenarios = montar_tabela_horizontal_completa(cenarios)
 
-    if desconto_max:
-        texto_promo = f"✅ Dá pra promover em até **{desconto_max}%** de desconto e ainda manter o UC mínimo ({UC_MINIMO}/1)."
-        tabela_promo = montar_tabela_horizontal_pct(
-            [t for t in testados_desc if t[0] <= desconto_max], "Desconto")
-    else:
-        preco_ref, testados_alta = buscar_teto_preco(
-            preco_mercado, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv)
-        if preco_ref:
-            texto_promo = (
-                f"⚠️ Não tem margem pra dar desconto nesse preço. Vale checar o mercado: se der pra anunciar um "
-                f"pouco mais caro e ainda ficar competitivo, o teto sugerido (pra abrir espaço de promoção depois) "
-                f"é em torno de **R${preco_ref:.2f}** — confirme se esse valor ainda compete bem antes de aplicar."
-            )
+    # Promocao
+    promo = analisar_promocao(preco_mercado, r_base['uc'], custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv)
+    if promo is None:
+        if tag == "INVIAVEL":
+            texto_promo = "⚠️ Não tem margem pra promoção nesse preço — o produto já está abaixo do UC mínimo. Considere revisar custo ou anunciar mais caro (veja o cenário de Equilíbrio acima)."
         else:
-            texto_promo = "⚠️ Não tem margem pra desconto nesse preço, e mesmo subindo o preço em até 30% a margem continua apertada. Vale revisar o custo do produto ou o custo operacional antes de anunciar."
-        tabela_promo = montar_tabela_horizontal_pct(testados_alta, "Aumento")
+            texto_promo = f"⚠️ Margem apertada (UC entre {UC_MINIMO}/1 e 1/1) — não recomendamos promoção nesse preço, só se aproximar do valor de Equilíbrio (UC 1,0/1) mostrado acima."
+        tabela_promo = ""
+        nota_extra_promo = ""
+    else:
+        texto_promo = promo["texto"]
+        tabela_promo = promo["tabela"]
+        nota_extra_promo = promo["nota_extra"]
 
     # Alerta de cubagem (so mostra se o peso volumetrico for o que decidiu o frete)
     alerta_cubagem = ""
@@ -182,9 +226,10 @@ def gerar_analise(preco_mercado, custo, peso_taxado, categoria, modalidade,
     return {
         "tag": tag,
         "resumo": resumo,
-        "tabela_principal": tabela_principal,
+        "tabela_cenarios": tabela_cenarios,
         "texto_promo": texto_promo,
         "tabela_promo": tabela_promo,
+        "nota_extra_promo": nota_extra_promo,
         "alerta_cubagem": alerta_cubagem,
         "preco_sugerido": preco_mercado,
     }
@@ -296,12 +341,15 @@ with aba_viabilidade:
         """, unsafe_allow_html=True)
         st.markdown(resultado["resumo"])
 
-        st.markdown("#### Conta detalhada")
-        st.markdown(resultado["tabela_principal"])
+        st.markdown("#### Cenários (risco / mercado / equilíbrio)")
+        st.markdown(resultado["tabela_cenarios"])
 
         st.markdown("#### Viabilidade de promoção")
         st.markdown(resultado["texto_promo"])
-        st.markdown(resultado["tabela_promo"])
+        if resultado["tabela_promo"]:
+            st.markdown(resultado["tabela_promo"])
+        if resultado["nota_extra_promo"]:
+            st.caption(resultado["nota_extra_promo"])
 
         if resultado["alerta_cubagem"]:
             st.markdown("---")
