@@ -1,5 +1,4 @@
 import streamlit as st
-import anthropic
 from datetime import date
 from params_oficiais import (
     LPV_OFICIAL, NF_OFICIAL,
@@ -17,8 +16,6 @@ st.markdown("""
     td { background-color: #0e0e0e !important; }
 </style>
 """, unsafe_allow_html=True)
-
-API_KEY_CLAUDE = st.secrets.get("ANTHROPIC_API_KEY", "")
 
 # UC minimo pra aprovar produto -- definido pelo Léo em 14/07/2026,
 # provisorio ate ele analisar as UCs reais da operacao.
@@ -71,77 +68,124 @@ def calcular_resultado(preco, custo, peso_kg, categoria, modalidade, nf_pct, cus
             'lucro_bruto': lucro_bruto, 'lucro_liquido': lucro_liq,
             'margem': margem, 'uc': uc}
 
-# ── VEREDICTO IA ───────────────────────────────────────────────────────────────
+# ── VEREDICTO (100% Python, sem chamada de IA -- mais rapido e sem custo) ──────
 
-def montar_tabela_cenarios(pontos, resultados):
-    """Monta a tabela markdown com os 3 cenarios de preco -- pura
-    formatacao em Python, sem gastar tokens de IA pra isso."""
+def montar_tabela_vertical(r):
+    """Tabela vertical (Item | Valor) na ordem pedida pelo usuario."""
+    uc_str = f"{r['uc']}/1" if r['uc'] is not None else "sem lucro"
     linhas = [
-        "| Cenário | Preço | Custo produto | Operacional | Comissão | Frete | NF | Lucro líquido | Margem | UC |",
-        "|---|---|---|---|---|---|---|---|---|---|",
+        "| Item | Valor |",
+        "|---|---|",
+        f"| Valor do anúncio | R${r['preco']:.2f} |",
+        f"| Taxa da plataforma (comissão) | R${r['comissao']:.2f} |",
+        f"| Frete | R${r['frete']:.2f} |",
+        f"| NF | R${r['nf']:.2f} |",
+        f"| Custos operacionais | R${r['custo_operacional']:.2f} |",
+        f"| Custo do produto | R${r['custo']:.2f} |",
+        f"| **Lucro** | **R${r['lucro_liquido']:.2f}** |",
+        f"| Margem | {r['margem']:.1f}% |",
+        f"| **UC** | **{uc_str}** |",
     ]
-    nomes = {0: "-10%", 1: "Preço atual", 2: "+10%"}
-    for i, p in enumerate(pontos):
-        r = resultados[p]
-        uc_str = f"{r['uc']}/1" if r['uc'] is not None else "sem lucro"
-        linhas.append(
-            f"| {nomes.get(i, '')} | R${p:.2f} | R${r['custo']:.2f} | R${r['custo_operacional']:.2f} | "
-            f"R${r['comissao']:.2f} | R${r['frete']:.2f} | R${r['nf']:.2f} | "
-            f"**R${r['lucro_liquido']:.2f}** | {r['margem']:.1f}% | **{uc_str}** |"
-        )
     return "\n".join(linhas)
 
 
-def gerar_veredicto(preco_mercado, custo, peso_taxado, categoria, modalidade,
-                     nome, dims_ref, qtd_ref, nf_pct, custo_operacional, lpv, lpv_origem):
-    pontos = sorted(set([
-        round(preco_mercado * 0.9, 2),
-        round(preco_mercado, 2),
-        round(preco_mercado * 1.1, 2),
-    ]))
+def classificar_uc(uc):
+    if uc is None or uc < UC_MINIMO:
+        return "INVIAVEL"
+    elif uc < 1.0:
+        return "RESSALVAS"
+    return "VIAVEL"
 
-    resultados = {}
-    for p in pontos:
-        resultados[p] = calcular_resultado(p, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv)
 
-    tabela_md = montar_tabela_cenarios(pontos, resultados)
+def buscar_desconto_maximo(preco_base, custo, peso_kg, categoria, modalidade, nf_pct, custo_op, lpv):
+    """Testa descontos de 5 em 5% e acha o maior que ainda mantem UC >= UC_MINIMO."""
+    testados = []
+    desconto_maximo = None
+    for pct in [5, 10, 15, 20, 25, 30]:
+        preco_teste = round(preco_base * (1 - pct/100), 2)
+        r = calcular_resultado(preco_teste, custo, peso_kg, categoria, modalidade, nf_pct, custo_op, lpv)
+        ok = r['uc'] is not None and r['uc'] >= UC_MINIMO
+        testados.append((pct, preco_teste, r, ok))
+        if ok:
+            desconto_maximo = pct
+    return desconto_maximo, testados
 
-    # Veredicto e decidido em Python, direto pela regra -- nao depende da IA
+
+def buscar_teto_preco(preco_base, custo, peso_kg, categoria, modalidade, nf_pct, custo_op, lpv):
+    """Quando nao ha margem pra desconto: mostra o efeito de precificar mais
+    alto, ate atingir uma UC saudavel de referencia (1,5/1)."""
+    testados = []
+    preco_referencia = None
+    for pct in [5, 10, 15, 20, 25, 30]:
+        preco_teste = round(preco_base * (1 + pct/100), 2)
+        r = calcular_resultado(preco_teste, custo, peso_kg, categoria, modalidade, nf_pct, custo_op, lpv)
+        testados.append((pct, preco_teste, r))
+        if preco_referencia is None and r['uc'] is not None and r['uc'] >= 1.5:
+            preco_referencia = preco_teste
+    return preco_referencia, testados
+
+
+def montar_tabela_horizontal_pct(testados, coluna_pct_label):
+    linhas = [
+        f"| {coluna_pct_label} | Preço | Lucro | UC |",
+        "|---|---|---|---|",
+    ]
+    for item in testados:
+        pct, preco_teste, r = item[0], item[1], item[2]
+        uc_str = f"{r['uc']}/1" if r['uc'] is not None else "sem lucro"
+        linhas.append(f"| {pct}% | R${preco_teste:.2f} | R${r['lucro_liquido']:.2f} | {uc_str} |")
+    return "\n".join(linhas)
+
+
+def gerar_analise(preco_mercado, custo, peso_taxado, categoria, modalidade,
+                   nome, dims_ref, qtd_ref, nf_pct, custo_operacional, lpv):
     r_base = calcular_resultado(preco_mercado, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv)
-    uc_base = r_base['uc']
-    if uc_base is None or uc_base < UC_MINIMO:
-        veredicto_tag = "INVIAVEL"
-    elif uc_base < 1.0:
-        veredicto_tag = "RESSALVAS"
+    tag = classificar_uc(r_base['uc'])
+
+    RESUMOS = {
+        "VIAVEL": f"Esse anúncio sobra R${r_base['lucro_liquido']:.2f} de lucro por venda (margem de {r_base['margem']:.1f}%), cobrindo a meta de lucro com folga.",
+        "RESSALVAS": f"Esse anúncio sobra R${r_base['lucro_liquido']:.2f} de lucro por venda (margem de {r_base['margem']:.1f}%) — ajuda a pagar as contas, mas não cobre a meta sozinho.",
+        "INVIAVEL": f"Esse anúncio {'dá prejuízo' if r_base['lucro_liquido'] < 0 else 'sobra pouco lucro'} (R${r_base['lucro_liquido']:.2f} por venda) — fica abaixo do mínimo aceitável pra empresa.",
+    }
+    resumo = RESUMOS[tag]
+
+    tabela_principal = montar_tabela_vertical(r_base)
+
+    # Analise de promocao
+    desconto_max, testados_desc = buscar_desconto_maximo(
+        preco_mercado, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv)
+
+    if desconto_max:
+        texto_promo = f"✅ Dá pra promover em até **{desconto_max}%** de desconto e ainda manter o UC mínimo ({UC_MINIMO}/1)."
+        tabela_promo = montar_tabela_horizontal_pct(
+            [t for t in testados_desc if t[0] <= desconto_max], "Desconto")
     else:
-        veredicto_tag = "VIAVEL"
+        preco_ref, testados_alta = buscar_teto_preco(
+            preco_mercado, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv)
+        if preco_ref:
+            texto_promo = (
+                f"⚠️ Não tem margem pra dar desconto nesse preço. Vale checar o mercado: se der pra anunciar um "
+                f"pouco mais caro e ainda ficar competitivo, o teto sugerido (pra abrir espaço de promoção depois) "
+                f"é em torno de **R${preco_ref:.2f}** — confirme se esse valor ainda compete bem antes de aplicar."
+            )
+        else:
+            texto_promo = "⚠️ Não tem margem pra desconto nesse preço, e mesmo subindo o preço em até 30% a margem continua apertada. Vale revisar o custo do produto ou o custo operacional antes de anunciar."
+        tabela_promo = montar_tabela_horizontal_pct(testados_alta, "Aumento")
 
-    dims_str = f"{dims_ref[0]}x{dims_ref[1]}x{dims_ref[2]}cm (embalado)" if any(d > 0 for d in dims_ref) else "nao informado"
-    lpv_str = f"R${lpv:.2f}" if lpv else "reserva (sem dado financeiro ainda)"
-    uc_str_base = f"{uc_base}/1" if uc_base is not None else "sem lucro"
-
-    # Prompt curto: a IA so escreve o texto de recomendacao/alerta, nao repete
-    # numeros nem monta tabela -- isso economiza bastante token de saida.
-    prompt = f"""Produto: {nome} | Medidas embaladas: {dims_str} | LPV: {lpv_str}
-Preco de mercado: R${preco_mercado:.2f} | UC nesse preco: {uc_str_base} | Veredicto: {veredicto_tag} (corte minimo {UC_MINIMO}/1)
-
-Em no MAXIMO 4 linhas curtas, escreva pra um colaborador que nao entende de financeiro:
-1. Uma frase dizendo se pode vender ou nao e por que (em linguagem simples, sem repetir os numeros da tabela que ele ja vai ver)
-2. Se tiver algo de risco a avisar (ex: medida embalada pode ser reavaliada pelo ML e mudar o frete), 1 linha de alerta
-Nao repita valores em R$ que ja aparecem em tabela. Seja direto, sem enrolação, sem explicar conceito de UC/margem de novo.
-"""
-
-    client = anthropic.Anthropic(api_key=API_KEY_CLAUDE)
-    msg = client.messages.create(
-        model="claude-sonnet-4-6", max_tokens=250,
-        messages=[{"role": "user", "content": prompt}]
-    )
-    texto_ia = msg.content[0].text.strip()
+    # Alerta de cubagem (so mostra se o peso volumetrico for o que decidiu o frete)
+    alerta_cubagem = ""
+    if any(d > 0 for d in dims_ref):
+        peso_cubado = (dims_ref[0] * dims_ref[1] * dims_ref[2]) / 6000
+        if peso_cubado > peso_taxado - 0.001 and peso_cubado > 0:
+            alerta_cubagem = f"⚠️ **Atenção:** o frete foi calculado pelo volume da embalagem ({dims_ref[0]:.0f}x{dims_ref[1]:.0f}x{dims_ref[2]:.0f}cm), não pelo peso — o Mercado Livre pode reconferir essa medida depois e mudar o custo."
 
     return {
-        "tag": veredicto_tag,
-        "tabela_md": tabela_md,
-        "texto_ia": texto_ia,
+        "tag": tag,
+        "resumo": resumo,
+        "tabela_principal": tabela_principal,
+        "texto_promo": texto_promo,
+        "tabela_promo": tabela_promo,
+        "alerta_cubagem": alerta_cubagem,
         "preco_sugerido": preco_mercado,
     }
 
@@ -151,7 +195,7 @@ st.title("MartinSousa App")
 
 with st.sidebar:
     st.header("MartinSousa App")
-    st.caption("v9.1")
+    st.caption("v10.0")
     st.markdown("---")
     modalidade = st.selectbox("Modalidade ML", ["Premium", "Classico"])
     st.markdown("---")
@@ -224,33 +268,41 @@ with aba_viabilidade:
         peso_taxado = calcular_peso_taxado(peso_kg, dim1 or 0, dim2 or 0, dim3 or 0)
 
         with st.spinner("Calculando viabilidade..."):
-            resultado = gerar_veredicto(
+            resultado = gerar_analise(
                 preco_mercado, custo, peso_taxado, categoria, modalidade,
                 nome_produto, dims_ref, qtd_ref, nf_pct_usado, custo_operacional,
-                lpv_usado, lpv_origem_usada,
+                lpv_usado,
             )
 
         st.markdown("---")
 
         SELOS = {
-            "VIAVEL":    ("🟢", "VIÁVEL — pode vender", "#1e4620", "#4ade80"),
-            "RESSALVAS": ("🟡", "VIÁVEL COM RESSALVAS", "#4d3a10", "#facc15"),
-            "INVIAVEL":  ("🔴", "INVIÁVEL — não vender nesse preço", "#4a1414", "#f87171"),
+            "VIAVEL":    ("🟢", "VIÁVEL", "#1e4620", "#4ade80"),
+            "RESSALVAS": ("🟡", "VIÁVEL COM ATENÇÃO", "#4d3a10", "#facc15"),
+            "INVIAVEL":  ("🔴", "INVIÁVEL", "#4a1414", "#f87171"),
         }
         emoji, texto_selo, cor_fundo, cor_borda = SELOS[resultado["tag"]]
 
         st.markdown(f"""
         <div style="background-color:{cor_fundo}; border-left: 5px solid {cor_borda};
-                    border-radius: 8px; padding: 14px 18px; margin-bottom: 18px;">
+                    border-radius: 8px; padding: 14px 18px; margin-bottom: 10px;">
             <span style="font-size: 20px; font-weight: 700; color: {cor_borda};">
                 {emoji} {texto_selo}
             </span><br>
             <span style="color: #e5e5e5; font-size: 15px;">
-                {nome_produto} · Preço sugerido: <b>R${resultado['preco_sugerido']:.2f}</b>
+                {nome_produto} · R${resultado['preco_sugerido']:.2f}
             </span>
         </div>
         """, unsafe_allow_html=True)
+        st.markdown(resultado["resumo"])
 
-        st.markdown(resultado["tabela_md"])
-        st.markdown("")
-        st.markdown(resultado["texto_ia"])
+        st.markdown("#### Conta detalhada")
+        st.markdown(resultado["tabela_principal"])
+
+        st.markdown("#### Viabilidade de promoção")
+        st.markdown(resultado["texto_promo"])
+        st.markdown(resultado["tabela_promo"])
+
+        if resultado["alerta_cubagem"]:
+            st.markdown("---")
+            st.markdown(resultado["alerta_cubagem"])
