@@ -65,7 +65,7 @@ def carregar_dados():
     """Le todos os dados da planilha. Cache de 60s pra nao bater na API
     do Google toda hora que a tela recarrega."""
     aba = _aba()
-    registros = aba.get_all_records()
+    registros = aba.get_all_records(value_render_option="UNFORMATTED_VALUE")
     df = pd.DataFrame(registros)
     if df.empty:
         df = pd.DataFrame(columns=COLUNAS)
@@ -85,7 +85,7 @@ def salvar_ano(ano, regime, aliquota, lpv_meses):
     valores_existentes = aba.get_all_values()
 
     if not valores_existentes:
-        aba.append_row(COLUNAS)
+        aba.append_row(COLUNAS, value_input_option="RAW")
         valores_existentes = [COLUNAS]
 
     linhas_existentes = valores_existentes[1:] if len(valores_existentes) > 1 else []
@@ -108,9 +108,9 @@ def salvar_ano(ano, regime, aliquota, lpv_meses):
         chave = (ano, mes_num)
         if chave in mapa_linha:
             num_linha = mapa_linha[chave]
-            aba.update(f"A{num_linha}:E{num_linha}", [linha_valores])
+            aba.update(f"A{num_linha}:E{num_linha}", [linha_valores], value_input_option="RAW")
         else:
-            aba.append_row(linha_valores)
+            aba.append_row(linha_valores, value_input_option="RAW")
 
     carregar_dados.clear()
 
