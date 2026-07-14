@@ -9,7 +9,7 @@ PLANILHA_NOME = "MartinSousa - Financeiro"
 ABA_NOME = "triagens"
 
 COLUNAS = [
-    "data_hora", "usuario", "sku", "nome_comercial", "categoria", "material", "cor",
+    "data_hora", "usuario", "nome_comercial", "categoria", "material", "variacao_cores",
     "medidas", "peso", "caracteristicas", "diferenciais", "uso",
     "termos_busca", "termos_evitar",
 ]
@@ -59,12 +59,12 @@ def carregar_triagens():
     return df
 
 
-def buscar_triagem_por_sku(sku):
-    """Retorna a triagem mais recente daquele SKU como dict, ou None."""
+def buscar_triagem_por_nome(nome_comercial):
+    """Retorna a triagem mais recente daquele nome comercial como dict, ou None."""
     df = carregar_triagens()
-    if df.empty or "sku" not in df.columns:
+    if df.empty or "nome_comercial" not in df.columns:
         return None
-    linhas = df[df["sku"].astype(str).str.strip() == str(sku).strip()]
+    linhas = df[df["nome_comercial"].astype(str).str.strip().str.lower() == str(nome_comercial).strip().lower()]
     if linhas.empty:
         return None
     return linhas.iloc[-1].to_dict()
@@ -77,21 +77,18 @@ def pagina_triagem(usuario_logado):
     with st.form("form_triagem", clear_on_submit=False):
         st.markdown("#### Dados do produto")
         col1, col2 = st.columns(2)
-        sku = col1.text_input("SKU (do Controle_MS)")
-        nome_comercial = col2.text_input("Nome comercial")
+        nome_comercial = col1.text_input("Nome comercial")
+        categoria = col2.selectbox("Categoria no ML", sorted(ML_COMISSAO_POR_CATEGORIA.keys()))
 
         col1, col2 = st.columns(2)
-        categoria = col1.selectbox("Categoria no ML", sorted(ML_COMISSAO_POR_CATEGORIA.keys()))
-        material = col2.text_input("Material")
-
-        col1, col2 = st.columns(2)
-        cor = col1.text_input("Cor")
-        uso = col2.text_input("Uso / ocasião (ex: presente, uso pessoal, infantil)")
+        material = col1.text_input("Material", placeholder="ex: Plástico e Metal (o predominante primeiro)")
+        variacao_cores = col2.text_input("Variação de cores", placeholder="ex: Preto, Vermelho, Azul (só uma se não tiver variação)")
 
         col1, col2 = st.columns(2)
         medidas = col1.text_input("Medidas (AxLxP, cm)", placeholder="ex: 33x33x6")
         peso = col2.text_input("Peso", placeholder="ex: 700g")
 
+        uso = st.text_input("Uso / ocasião (ex: presente, uso pessoal, infantil)")
         caracteristicas = st.text_area("Características técnicas (specs além de material/cor)")
         diferenciais = st.text_area("Diferenciais (o que separa esse produto de um genérico)")
 
@@ -102,28 +99,28 @@ def pagina_triagem(usuario_logado):
         enviar = st.form_submit_button("Salvar Triagem", type="primary", use_container_width=True)
 
     if enviar:
-        if not sku or not nome_comercial:
-            st.warning("Preencha pelo menos SKU e Nome comercial.")
+        if not nome_comercial:
+            st.warning("Preencha pelo menos o Nome comercial.")
             return
 
         dados = {
-            "sku": sku, "nome_comercial": nome_comercial, "categoria": categoria,
-            "material": material, "cor": cor, "medidas": medidas, "peso": peso,
+            "nome_comercial": nome_comercial, "categoria": categoria,
+            "material": material, "variacao_cores": variacao_cores, "medidas": medidas, "peso": peso,
             "caracteristicas": caracteristicas, "diferenciais": diferenciais, "uso": uso,
             "termos_busca": termos_busca, "termos_evitar": termos_evitar,
         }
         with st.spinner("Salvando..."):
             salvar_triagem(usuario_logado, dados)
         import atividades
-        atividades.registrar_atividade(usuario_logado, "Triagem de Produto", nome_comercial, f"SKU {sku}")
-        st.success(f"Triagem de '{nome_comercial}' (SKU {sku}) salva!")
+        atividades.registrar_atividade(usuario_logado, "Triagem de Produto", nome_comercial, categoria)
+        st.success(f"Triagem de '{nome_comercial}' salva!")
 
     st.markdown("---")
     st.markdown("#### Buscar triagem existente")
-    sku_busca = st.text_input("Digite o SKU pra ver a triagem já salva", key="busca_sku")
-    if sku_busca:
-        encontrada = buscar_triagem_por_sku(sku_busca)
+    nome_busca = st.text_input("Digite o nome comercial pra ver a triagem já salva", key="busca_nome")
+    if nome_busca:
+        encontrada = buscar_triagem_por_nome(nome_busca)
         if encontrada:
             st.json(encontrada)
         else:
-            st.info("Nenhuma triagem encontrada pra esse SKU ainda.")
+            st.info("Nenhuma triagem encontrada com esse nome ainda.")
