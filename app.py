@@ -9,6 +9,15 @@ import financeiro
 
 st.set_page_config(page_title="MartinSousa - Analise de Viabilidade", layout="wide")
 
+st.markdown("""
+<style>
+    .stApp { background-color: #0e0e0e; color: #f5f5f5; }
+    table { color: #f5f5f5 !important; }
+    th { background-color: #1a1a1a !important; color: #ffffff !important; }
+    td { background-color: #0e0e0e !important; }
+</style>
+""", unsafe_allow_html=True)
+
 API_KEY_CLAUDE = st.secrets.get("ANTHROPIC_API_KEY", "")
 
 # UC minimo pra aprovar produto -- definido pelo Léo em 14/07/2026,
@@ -64,6 +73,25 @@ def calcular_resultado(preco, custo, peso_kg, categoria, modalidade, nf_pct, cus
 
 # ── VEREDICTO IA ───────────────────────────────────────────────────────────────
 
+def montar_tabela_cenarios(pontos, resultados):
+    """Monta a tabela markdown com os 3 cenarios de preco -- pura
+    formatacao em Python, sem gastar tokens de IA pra isso."""
+    linhas = [
+        "| Cenário | Preço | Custo produto | Operacional | Comissão | Frete | NF | Lucro líquido | Margem | UC |",
+        "|---|---|---|---|---|---|---|---|---|---|",
+    ]
+    nomes = {0: "-10%", 1: "Preço atual", 2: "+10%"}
+    for i, p in enumerate(pontos):
+        r = resultados[p]
+        uc_str = f"{r['uc']}/1" if r['uc'] is not None else "sem lucro"
+        linhas.append(
+            f"| {nomes.get(i, '')} | R${p:.2f} | R${r['custo']:.2f} | R${r['custo_operacional']:.2f} | "
+            f"R${r['comissao']:.2f} | R${r['frete']:.2f} | R${r['nf']:.2f} | "
+            f"**R${r['lucro_liquido']:.2f}** | {r['margem']:.1f}% | **{uc_str}** |"
+        )
+    return "\n".join(linhas)
+
+
 def gerar_veredicto(preco_mercado, custo, peso_taxado, categoria, modalidade,
                      nome, dims_ref, qtd_ref, nf_pct, custo_operacional, lpv, lpv_origem):
     pontos = sorted(set([
@@ -72,83 +100,50 @@ def gerar_veredicto(preco_mercado, custo, peso_taxado, categoria, modalidade,
         round(preco_mercado * 1.1, 2),
     ]))
 
-    # Calcula tudo em Python (numeros exatos) e manda pronto pra IA --
-    # ela NAO deve recalcular comissao/frete/nf por conta propria.
-    faixas_str = ""
     resultados = {}
     for p in pontos:
-        r = calcular_resultado(p, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv)
-        resultados[p] = r
-        uc_str = f"{r['uc']}/1" if r['uc'] is not None else "sem lucro"
-        faixas_str += (
-            f"  Preco R${p:.2f}:\n"
-            f"    Custo do produto: R${custo:.2f}\n"
-            f"    Custo operacional: R${custo_operacional:.2f}\n"
-            f"    Comissao do Mercado Livre ({modalidade}): R${r['comissao']:.2f}\n"
-            f"    Frete (peso taxado {peso_taxado:.2f}kg): R${r['frete']:.2f}\n"
-            f"    Nota fiscal ({nf_pct*100:.1f}%): R${r['nf']:.2f}\n"
-            f"    Lucro bruto (preco - comissao - frete): R${r['lucro_bruto']:.2f}\n"
-            f"    Lucro liquido (depois de TODOS os custos acima): R${r['lucro_liquido']:.2f}\n"
-            f"    Margem liquida: {r['margem']:.1f}%\n"
-            f"    UC (lucro liquido / LPV): {uc_str}\n\n"
-        )
+        resultados[p] = calcular_resultado(p, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv)
 
-    dims_str = f"{dims_ref[0]}x{dims_ref[1]}x{dims_ref[2]}cm (produto embalado)" if any(d > 0 for d in dims_ref) else "nao informado"
-    lpv_str = f"R${lpv:.2f} (origem: {lpv_origem})" if lpv else "nao disponivel (sem dados financeiros ainda)"
+    tabela_md = montar_tabela_cenarios(pontos, resultados)
 
-    prompt = f"""Voce e um especialista em viabilidade de produtos para Mercado Livre, escrevendo
-para a equipe operacional de uma empresa (colaboradores que NAO sao da area financeira).
+    # Veredicto e decidido em Python, direto pela regra -- nao depende da IA
+    r_base = calcular_resultado(preco_mercado, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv)
+    uc_base = r_base['uc']
+    if uc_base is None or uc_base < UC_MINIMO:
+        veredicto_tag = "INVIAVEL"
+    elif uc_base < 1.0:
+        veredicto_tag = "RESSALVAS"
+    else:
+        veredicto_tag = "VIAVEL"
 
-PRODUTO: {nome}
-Quantidade: {qtd_ref} unidade(s)
-Medidas (produto embalado): {dims_str}
-Custo do produto: R${custo:.2f}
-Custo operacional (embalagem/logistica/ADS/cross docking): R${custo_operacional:.2f}
-Modalidade: {modalidade}
-Nota fiscal: {nf_pct*100:.1f}% (aliquota vigente da empresa)
-LPV (meta de lucro por venda pra cobrir custo fixo): {lpv_str}
-Preco de mercado informado pelo usuario (pesquisa manual): R${preco_mercado:.2f}
+    dims_str = f"{dims_ref[0]}x{dims_ref[1]}x{dims_ref[2]}cm (embalado)" if any(d > 0 for d in dims_ref) else "nao informado"
+    lpv_str = f"R${lpv:.2f}" if lpv else "reserva (sem dado financeiro ainda)"
+    uc_str_base = f"{uc_base}/1" if uc_base is not None else "sem lucro"
 
-CALCULO EXATO JA FEITO (use estes numeros EXATAMENTE como estao -- nao recalcule
-nem estime comissao, frete, NF ou qualquer valor por conta propria; eles ja vieram
-calculados certos, inclusive o frete, que segue a regra oficial do Mercado Livre
--- maior valor entre peso fisico e peso cubado (altura x largura x profundidade / 6000)):
+    # Prompt curto: a IA so escreve o texto de recomendacao/alerta, nao repete
+    # numeros nem monta tabela -- isso economiza bastante token de saida.
+    prompt = f"""Produto: {nome} | Medidas embaladas: {dims_str} | LPV: {lpv_str}
+Preco de mercado: R${preco_mercado:.2f} | UC nesse preco: {uc_str_base} | Veredicto: {veredicto_tag} (corte minimo {UC_MINIMO}/1)
 
-{faixas_str}
-
-REGRA DE APROVACAO (definida pela empresa, USE COMO CORTE RIGIDO):
-UC minimo para aprovar o produto = {UC_MINIMO}/1
-- VIAVEL: UC >= 1,0/1 (a venda cobre a meta de lucro com folga)
-- VIAVEL COM RESSALVAS: UC entre {UC_MINIMO}/1 e 1,0/1 (a venda ajuda mas nao cobre tudo sozinha)
-- INVIAVEL: UC abaixo de {UC_MINIMO}/1 (nao aprova)
-
-LINGUAGEM -- MUITO IMPORTANTE:
-Escreva em portugues simples e direto, como se estivesse explicando pra um colega de
-equipe que nunca trabalhou com financeiro. NAO use jargao sem explicar. Toda vez que
-usar um termo tecnico (UC, margem, LPV), explique em 1 frase simples o que ele significa
-na pratica, tipo "essa venda ajuda a pagar X% da meta do mes" em vez de so falar "UC de
-0,8/1". O objetivo e que a pessoa ENTENDA o motivo da decisao, nao so veja um veredicto
-e concorde sem saber por que. Evite tabelas cheias de termos financeiros sem contexto --
-prefira frases curtas explicando cada numero.
-
-ESTRUTURE ASSIM:
-1. VEREDICTO: [VIAVEL / VIAVEL COM RESSALVAS / INVIAVEL] -- 1 frase simples explicando o motivo
-2. PRECO SUGERIDO: R$X,XX -- por que esse preco
-3. DETALHAMENTO DOS CUSTOS: liste cada custo SEPARADO (produto, operacional, comissao ML,
-   frete, nota fiscal) em linguagem simples, cada um numa linha, explicando o que e
-4. LUCRO E O QUE ISSO SIGNIFICA: quanto sobra por venda e se isso e suficiente pra ajudar
-   a pagar as contas da empresa (explicando o UC de forma simples, sem so citar o numero)
-5. E SE PRECISAR DAR DESCONTO: o que acontece nos cenarios de -10% e +10%, em linguagem simples
-6. ALERTAS: qualquer risco (ex: frete pode mudar se a medida embalada estiver errada)
-7. RECOMENDACAO FINAL: 2-3 linhas resumindo pra quem só quer saber "pode vender ou não"
+Em no MAXIMO 4 linhas curtas, escreva pra um colaborador que nao entende de financeiro:
+1. Uma frase dizendo se pode vender ou nao e por que (em linguagem simples, sem repetir os numeros da tabela que ele ja vai ver)
+2. Se tiver algo de risco a avisar (ex: medida embalada pode ser reavaliada pelo ML e mudar o frete), 1 linha de alerta
+Nao repita valores em R$ que ja aparecem em tabela. Seja direto, sem enrolação, sem explicar conceito de UC/margem de novo.
 """
 
     client = anthropic.Anthropic(api_key=API_KEY_CLAUDE)
     msg = client.messages.create(
-        model="claude-sonnet-4-6", max_tokens=1200,
+        model="claude-sonnet-4-6", max_tokens=250,
         messages=[{"role": "user", "content": prompt}]
     )
-    return msg.content[0].text
+    texto_ia = msg.content[0].text.strip()
+
+    return {
+        "tag": veredicto_tag,
+        "tabela_md": tabela_md,
+        "texto_ia": texto_ia,
+        "preco_sugerido": preco_mercado,
+    }
 
 # ── INTERFACE ──────────────────────────────────────────────────────────────────
 
@@ -156,7 +151,7 @@ st.title("MartinSousa App")
 
 with st.sidebar:
     st.header("MartinSousa App")
-    st.caption("v9.0")
+    st.caption("v9.1")
     st.markdown("---")
     modalidade = st.selectbox("Modalidade ML", ["Premium", "Classico"])
     st.markdown("---")
@@ -229,17 +224,33 @@ with aba_viabilidade:
         peso_taxado = calcular_peso_taxado(peso_kg, dim1 or 0, dim2 or 0, dim3 or 0)
 
         with st.spinner("Calculando viabilidade..."):
-            veredicto = gerar_veredicto(
+            resultado = gerar_veredicto(
                 preco_mercado, custo, peso_taxado, categoria, modalidade,
                 nome_produto, dims_ref, qtd_ref, nf_pct_usado, custo_operacional,
                 lpv_usado, lpv_origem_usada,
             )
 
         st.markdown("---")
-        st.subheader("Resultado da Analise")
-        if "INVIAVEL" in veredicto.upper() and "RESSALVAS" not in veredicto.upper():
-            st.error(veredicto)
-        elif "RESSALVAS" in veredicto.upper():
-            st.warning(veredicto)
-        else:
-            st.success(veredicto)
+
+        SELOS = {
+            "VIAVEL":    ("🟢", "VIÁVEL — pode vender", "#1e4620", "#4ade80"),
+            "RESSALVAS": ("🟡", "VIÁVEL COM RESSALVAS", "#4d3a10", "#facc15"),
+            "INVIAVEL":  ("🔴", "INVIÁVEL — não vender nesse preço", "#4a1414", "#f87171"),
+        }
+        emoji, texto_selo, cor_fundo, cor_borda = SELOS[resultado["tag"]]
+
+        st.markdown(f"""
+        <div style="background-color:{cor_fundo}; border-left: 5px solid {cor_borda};
+                    border-radius: 8px; padding: 14px 18px; margin-bottom: 18px;">
+            <span style="font-size: 20px; font-weight: 700; color: {cor_borda};">
+                {emoji} {texto_selo}
+            </span><br>
+            <span style="color: #e5e5e5; font-size: 15px;">
+                {nome_produto} · Preço sugerido: <b>R${resultado['preco_sugerido']:.2f}</b>
+            </span>
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.markdown(resultado["tabela_md"])
+        st.markdown("")
+        st.markdown(resultado["texto_ia"])
