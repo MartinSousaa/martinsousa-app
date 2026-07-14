@@ -10,6 +10,7 @@ import auth
 import triagem
 import palavras_chave
 import tit_ml as titulo
+import descricao
 
 st.set_page_config(page_title="MartinSousa - Analise de Viabilidade", layout="wide")
 
@@ -248,7 +249,7 @@ st.title("MartinSousa App")
 
 with st.sidebar:
     st.header("MartinSousa App")
-    st.caption("v14.0")
+    st.caption("v15.0")
     st.markdown("---")
     st.caption(f"Logado como **{usuario_logado}**")
     if st.button("Sair"):
@@ -259,8 +260,8 @@ with st.sidebar:
     st.markdown("---")
     st.caption("Chaves configuradas automaticamente")
 
-aba_viabilidade, aba_triagem, aba_palavras, aba_titulo, aba_financeiro, aba_historico = st.tabs(
-    ["Análise de Viabilidade", "Triagem", "Palavras-chave", "Título", "Financeiro", "Histórico"])
+aba_viabilidade, aba_triagem, aba_palavras, aba_titulo, aba_descricao, aba_financeiro, aba_historico = st.tabs(
+    ["Análise de Viabilidade", "Triagem", "Palavras-chave", "Título", "Descrição", "Financeiro", "Histórico"])
 
 with aba_financeiro:
     financeiro.pagina_financeiro(usuario_logado)
@@ -276,6 +277,9 @@ with aba_palavras:
 
 with aba_titulo:
     titulo.pagina_titulo(usuario_logado)
+
+with aba_descricao:
+    descricao.pagina_descricao(usuario_logado)
 
 with aba_viabilidade:
     # Busca LPV e aliquota calculados a partir dos dados financeiros reais.
