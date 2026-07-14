@@ -10,15 +10,9 @@ ABA_NOME = "financeiro"
 MESES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
           "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
 
-# Blocos sazonais fixos definidos pelo Léo (em vez de média móvel)
-BLOCOS_SAZONAIS = {
-    "Baixa temporada (Jan-Mar)": [1, 2, 3],
-    "Normal (Abr-Set)": [4, 5, 6, 7, 8, 9],
-    "Alta temporada (Out-Dez)": [10, 11, 12],
-}
+REGIMES_TRIBUTARIOS = ["Simples Nacional", "Lucro Presumido", "Lucro Real", "MEI"]
 
-COLUNAS = ["ano", "mes", "custos_totais", "faturamento", "vendas",
-           "lucro_bruto", "regime_tributario", "aliquota"]
+COLUNAS = ["ano", "mes", "lpv", "regime_tributario", "aliquota"]
 
 
 def parse_numero_br(texto):
@@ -40,28 +34,12 @@ def parse_numero_br(texto):
         return None
 
 
-def parse_inteiro_br(texto):
-    """Converte texto de QUANTIDADE (sem casas decimais -- ex: numero de
-    vendas) em int. Aqui ponto e virgula so podem ser separador de milhar
-    (2.088 = dois mil e oitenta e oito), nunca decimal."""
-    if texto is None:
-        return None
-    texto = str(texto).strip().replace(" ", "").replace(".", "").replace(",", "")
-    if not texto:
-        return None
-    try:
-        return int(texto)
-    except ValueError:
-        return None
-
-
 def formatar_br(valor, casas=2):
     """Formata numero pro padrao brasileiro (1.234.567,89), com separador
-    de milhar de verdade -- NUNCA usar so .replace('.', ',') direto, isso
-    nao adiciona separador de milhar e confunde valores grandes."""
+    de milhar de verdade."""
     if valor is None or (isinstance(valor, float) and pd.isna(valor)):
         return ""
-    txt = f"{valor:,.{casas}f}"  # formato US: 1,234,567.89
+    txt = f"{valor:,.{casas}f}"
     return txt.replace(",", "X").replace(".", ",").replace("X", ".")
 
 
@@ -92,18 +70,17 @@ def carregar_dados():
     if df.empty:
         df = pd.DataFrame(columns=COLUNAS)
         return df
-    # Normaliza nomes de coluna (maiuscula/minuscula e espacos nao importam)
     df.columns = [str(c).strip().lower() for c in df.columns]
-    for col in ["ano", "mes", "custos_totais", "faturamento", "vendas", "lucro_bruto", "aliquota"]:
+    for col in ["ano", "mes", "lpv", "aliquota"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
     return df
 
 
-def salvar_ano(ano, regime, aliquota, dados_meses):
+def salvar_ano(ano, regime, aliquota, lpv_meses):
     """Grava (atualiza ou cria) as 12 linhas de um ano na planilha.
-    dados_meses: lista de 12 dicts (mes 1 a 12) com custos_totais,
-    faturamento, vendas, lucro_bruto (podem ser None)."""
+    lpv_meses: lista de 12 valores (mes 1 a 12), cada um o LPV informado
+    manualmente (ou None se nao preenchido)."""
     aba = _aba()
     valores_existentes = aba.get_all_values()
 
@@ -117,24 +94,21 @@ def salvar_ano(ano, regime, aliquota, dados_meses):
         if len(linha) >= 2 and linha[0] and linha[1]:
             try:
                 chave = (int(float(linha[0])), int(float(linha[1])))
-                mapa_linha[chave] = i + 2  # +2: cabecalho ocupa a linha 1, planilha e 1-indexed
+                mapa_linha[chave] = i + 2
             except ValueError:
                 pass
 
-    for mes_num, dados in enumerate(dados_meses, start=1):
+    for mes_num, lpv_valor in enumerate(lpv_meses, start=1):
         linha_valores = [
             ano, mes_num,
-            dados.get("custos_totais") if dados.get("custos_totais") else "",
-            dados.get("faturamento") if dados.get("faturamento") else "",
-            dados.get("vendas") if dados.get("vendas") else "",
-            dados.get("lucro_bruto") if dados.get("lucro_bruto") else "",
+            lpv_valor if lpv_valor else "",
             regime or "",
             aliquota if aliquota else "",
         ]
         chave = (ano, mes_num)
         if chave in mapa_linha:
             num_linha = mapa_linha[chave]
-            aba.update(f"A{num_linha}:H{num_linha}", [linha_valores])
+            aba.update(f"A{num_linha}:E{num_linha}", [linha_valores])
         else:
             aba.append_row(linha_valores)
 
@@ -143,71 +117,30 @@ def salvar_ano(ano, regime, aliquota, dados_meses):
 
 # ── CALCULOS ─────────────────────────────────────────────────────────────────
 
-def calcular_mes(row):
-    """Retorna dict com margem_bruta, ponto_equilibrio e lpv pra um mes,
-    ou None se faltar algum dos 4 campos necessarios (mes incompleto e
-    ignorado nos calculos, nunca inventa numero).
-    OBS: a coluna 'lucro_bruto' guarda a MARGEM BRUTA em % (ex: 78.03),
-    informada diretamente pelo usuario -- nao e mais um valor em R$.
-
-    Formula (conforme definido pelo usuario):
-    Ponto de Equilibrio = Custos totais / Margem Bruta
-    LPV = Ponto de Equilibrio / Numero de vendas
-    """
-    custos = row.get("custos_totais")
-    fat = row.get("faturamento")
-    vendas = row.get("vendas")
-    margem_bruta_pct = row.get("lucro_bruto")
-
-    valores = [custos, fat, vendas, margem_bruta_pct]
-    if any(v is None or (isinstance(v, float) and pd.isna(v)) or v == 0 for v in valores):
-        return None
-
-    margem_bruta = margem_bruta_pct / 100
-    ponto_equilibrio = custos / margem_bruta if margem_bruta else None
-    lpv = ponto_equilibrio / vendas if ponto_equilibrio else None
-
-    return {"margem_bruta": margem_bruta, "ponto_equilibrio": ponto_equilibrio, "lpv": lpv}
-
-
-def bloco_do_mes(mes):
-    for nome, meses in BLOCOS_SAZONAIS.items():
-        if mes in meses:
-            return nome
-    return None
-
-
 def lpv_vigente(df, hoje=None):
-    """LPV do bloco sazonal vigente: usa os meses ja fechados do bloco atual
-    no ano corrente; se nenhum mes fechado tiver dado completo, cai pro
-    mesmo bloco do ano anterior (bloco inteiro)."""
+    """LPV do mes mais recente ja preenchido (olhando pra tras a partir do
+    mes/ano atual). O site nao calcula mais o LPV -- so usa o que o
+    usuario informou manualmente."""
     hoje = hoje or date.today()
-    bloco_atual = bloco_do_mes(hoje.month)
-    meses_bloco = BLOCOS_SAZONAIS[bloco_atual]
-    meses_fechados_ano = [m for m in meses_bloco if m < hoje.month]
+    if df.empty or "lpv" not in df.columns:
+        return None, "nenhum LPV informado ainda"
 
-    def lpvs_de(ano, meses):
-        valores = []
-        for m in meses:
-            linha = df[(df["ano"] == ano) & (df["mes"] == m)]
-            if linha.empty:
-                continue
-            calc = calcular_mes(linha.iloc[0].to_dict())
-            if calc:
-                valores.append(calc["lpv"])
-        return valores
+    candidatos = df.dropna(subset=["lpv"])
+    candidatos = candidatos[candidatos["lpv"] > 0]
+    if candidatos.empty:
+        return None, "nenhum LPV informado ainda"
 
-    valores = lpvs_de(hoje.year, meses_fechados_ano)
-    origem = f"{bloco_atual}, {hoje.year} (meses ja fechados)"
+    # so considera meses ja fechados (ano, mes) <= (hoje.ano, hoje.mes)
+    candidatos = candidatos[
+        (candidatos["ano"] < hoje.year) |
+        ((candidatos["ano"] == hoje.year) & (candidatos["mes"] <= hoje.month))
+    ]
+    if candidatos.empty:
+        return None, "nenhum LPV informado ainda pra este periodo"
 
-    if not valores:
-        valores = lpvs_de(hoje.year - 1, meses_bloco)
-        origem = f"{bloco_atual}, {hoje.year - 1} (ano anterior, sem dado suficiente no ano atual)"
-
-    if not valores:
-        return None, "sem dados suficientes pra calcular"
-
-    return sum(valores) / len(valores), origem
+    linha = candidatos.sort_values(["ano", "mes"], ascending=False).iloc[0]
+    origem = f"{MESES[int(linha['mes'])-1]}/{int(linha['ano'])}"
+    return float(linha["lpv"]), origem
 
 
 def aliquota_vigente(df, ano=None):
@@ -218,11 +151,11 @@ def aliquota_vigente(df, ano=None):
     def valida(v):
         return pd.notna(v) and v and 0 < v <= 100
 
-    linha = df[df["ano"] == ano]
+    linha = df[df["ano"] == ano] if not df.empty else pd.DataFrame()
     if not linha.empty and valida(linha.iloc[0].get("aliquota")):
         return float(linha.iloc[0]["aliquota"]), linha.iloc[0].get("regime_tributario")
 
-    com_aliquota = df[df["aliquota"].apply(valida)] if "aliquota" in df.columns else pd.DataFrame()
+    com_aliquota = df[df["aliquota"].apply(valida)] if "aliquota" in df.columns and not df.empty else pd.DataFrame()
     if com_aliquota.empty:
         return None, None
     linha_recente = com_aliquota.sort_values("ano", ascending=False).iloc[0]
@@ -261,8 +194,7 @@ def pagina_financeiro():
         st.error(
             "A planilha está conectada, mas o cabeçalho da aba 'financeiro' não está "
             "com os nomes de coluna esperados. Confirme que a linha 1 tem, cada um numa "
-            "célula separada (A1, B1, C1...): ano, mes, custos_totais, faturamento, "
-            "vendas, lucro_bruto, regime_tributario, aliquota.\n\n"
+            "célula separada (A1, B1, C1...): ano, mes, lpv, regime_tributario, aliquota.\n\n"
             f"Colunas encontradas agora: {list(df.columns)}"
         )
         return
@@ -277,7 +209,8 @@ def pagina_financeiro():
     aliquota_atual = float(aliquota_val) if pd.notna(aliquota_val) else 0.0
 
     col1, col2 = st.columns(2)
-    regime = col1.text_input("Regime tributário", value=regime_atual or "")
+    indice_regime = REGIMES_TRIBUTARIOS.index(regime_atual) if regime_atual in REGIMES_TRIBUTARIOS else 0
+    regime = col1.selectbox("Regime tributário", REGIMES_TRIBUTARIOS, index=indice_regime)
     txt_aliquota = col2.text_input("Alíquota (%)",
                                     value=(formatar_br(aliquota_atual) if aliquota_atual else ""),
                                     placeholder="ex: 10")
@@ -289,84 +222,36 @@ def pagina_financeiro():
         aliquota_invalida = False
 
     st.markdown("---")
-    st.caption("Preencha o que tiver de cada mês. Pode deixar em branco (0) o que ainda não tem.")
+    st.caption("Informe o LPV que você já calculou internamente pra cada mês. Pode deixar em branco o que ainda não tem.")
 
-    dados_meses = []
+    lpv_meses = []
     for i, nome_mes in enumerate(MESES, start=1):
         linha_mes = df[(df["ano"] == ano) & (df["mes"] == i)] if not df.empty else pd.DataFrame()
-        v_custos = v_fat = v_vendas = v_lucro = None
+        v_lpv = None
         if not linha_mes.empty:
-            r = linha_mes.iloc[0]
-            v_custos, v_fat, v_vendas, v_lucro = (
-                r.get("custos_totais"), r.get("faturamento"),
-                r.get("vendas"), r.get("lucro_bruto"),
-            )
+            v_lpv = linha_mes.iloc[0].get("lpv")
 
-        with st.expander(nome_mes):
-            c1, c2, c3, c4 = st.columns(4)
-            txt_custos = c1.text_input("Custos totais (R$)",
-                                        value=(formatar_br(v_custos) if pd.notna(v_custos) else ""),
-                                        key=f"custos_{ano}_{i}", placeholder="ex: 45.737,34")
-            txt_fat = c2.text_input("Faturamento (R$)",
-                                     value=(formatar_br(v_fat) if pd.notna(v_fat) else ""),
-                                     key=f"fat_{ano}_{i}", placeholder="ex: 219.124,82")
-            txt_vendas = c3.text_input("Vendas (qtd)",
-                                        value=(f"{v_vendas:.0f}" if pd.notna(v_vendas) else ""),
-                                        key=f"vendas_{ano}_{i}", placeholder="ex: 1954")
-            txt_margem = c4.text_input("Margem Bruta (%)",
-                                        value=(formatar_br(v_lucro) if pd.notna(v_lucro) else ""),
-                                        key=f"lucro_{ano}_{i}", placeholder="ex: 78,03")
+        txt_lpv = st.text_input(f"LPV de {nome_mes} (R$)",
+                                 value=(formatar_br(v_lpv) if pd.notna(v_lpv) else ""),
+                                 key=f"lpv_{ano}_{i}", placeholder="ex: 22,00")
+        lpv = parse_numero_br(txt_lpv)
+        if lpv is None and txt_lpv:
+            st.error(f"{nome_mes}: valor não reconhecido.")
+        elif lpv is not None:
+            st.caption(f"Entendido como -> R${formatar_br(lpv)}")
 
-            custos = parse_numero_br(txt_custos)
-            fat    = parse_numero_br(txt_fat)
-            vendas = parse_inteiro_br(txt_vendas)
-            margem = parse_numero_br(txt_margem)
-
-            if custos is None and txt_custos:
-                st.error("Custos totais: valor não reconhecido.")
-            if fat is None and txt_fat:
-                st.error("Faturamento: valor não reconhecido.")
-            if vendas is None and txt_vendas:
-                st.error("Vendas: valor não reconhecido.")
-            if margem is None and txt_margem:
-                st.error("Margem Bruta: valor não reconhecido.")
-
-            # Preview do que o sistema entendeu -- pra conferir ANTES de salvar
-            partes_preview = []
-            if custos is not None: partes_preview.append(f"Custos: R${formatar_br(custos)}")
-            if fat is not None: partes_preview.append(f"Faturamento: R${formatar_br(fat)}")
-            if vendas is not None: partes_preview.append(f"Vendas: {vendas}")
-            if margem is not None: partes_preview.append(f"Margem: {formatar_br(margem)}%")
-            if partes_preview:
-                st.caption("Entendido como -> " + " · ".join(partes_preview))
-
-            calc = calcular_mes({"custos_totais": custos, "faturamento": fat,
-                                  "vendas": vendas, "lucro_bruto": margem})
-            if calc:
-                st.caption(
-                    f"Ponto de equilíbrio: R${calc['ponto_equilibrio']:.2f} · "
-                    f"LPV: R${calc['lpv']:.2f}"
-                )
-            else:
-                st.caption("Mês incompleto — preencha os 4 campos pra esse mês entrar nos cálculos.")
-
-        dados_meses.append({
-            "custos_totais": custos,
-            "faturamento": fat,
-            "vendas": vendas,
-            "lucro_bruto": margem,
-        })
+        lpv_meses.append(lpv)
 
     if st.button(f"Salvar dados de {ano}", type="primary", use_container_width=True, disabled=aliquota_invalida):
         with st.spinner("Salvando na planilha..."):
-            salvar_ano(ano, regime, aliquota, dados_meses)
+            salvar_ano(ano, regime, aliquota, lpv_meses)
         st.success("Salvo!")
         st.rerun()
 
     st.markdown("---")
-    st.subheader("LPV vigente (calculado)")
+    st.subheader("LPV vigente")
     lpv, origem = lpv_vigente(df)
     if lpv:
-        st.success(f"LPV vigente: R${formatar_br(lpv)}  \nCalculado com base em: {origem}")
+        st.success(f"LPV vigente: R${formatar_br(lpv)}  \nÚltimo mês informado: {origem}")
     else:
-        st.warning(f"Ainda não há meses completos suficientes pra calcular o LPV automático ({origem}).")
+        st.warning(f"Ainda não há LPV informado ({origem}).")
