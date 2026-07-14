@@ -7,6 +7,7 @@ from params_oficiais import (
 import financeiro
 import atividades
 import auth
+import triagem
 
 st.set_page_config(page_title="MartinSousa - Analise de Viabilidade", layout="wide")
 
@@ -245,7 +246,7 @@ st.title("MartinSousa App")
 
 with st.sidebar:
     st.header("MartinSousa App")
-    st.caption("v11.0")
+    st.caption("v12.0")
     st.markdown("---")
     st.caption(f"Logado como **{usuario_logado}**")
     if st.button("Sair"):
@@ -256,13 +257,17 @@ with st.sidebar:
     st.markdown("---")
     st.caption("Chaves configuradas automaticamente")
 
-aba_viabilidade, aba_financeiro, aba_historico = st.tabs(["Análise de Viabilidade", "Financeiro", "Histórico"])
+aba_viabilidade, aba_triagem, aba_financeiro, aba_historico = st.tabs(
+    ["Análise de Viabilidade", "Triagem", "Financeiro", "Histórico"])
 
 with aba_financeiro:
     financeiro.pagina_financeiro(usuario_logado)
 
 with aba_historico:
     atividades.pagina_historico()
+
+with aba_triagem:
+    triagem.pagina_triagem(usuario_logado)
 
 with aba_viabilidade:
     # Busca LPV e aliquota calculados a partir dos dados financeiros reais.
