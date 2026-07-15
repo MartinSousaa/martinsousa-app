@@ -581,6 +581,7 @@ def pagina_descricao(usuario_logado):
 
             del st.session_state["desc_dados_pendentes"]
             st.session_state["desc_texto_atual"] = descricao
+            st.session_state["desc_resultado"] = descricao
             st.session_state["desc_nome_atual"] = dados["nome_produto"]
             st.session_state["desc_chat_log"] = []
 
@@ -613,6 +614,7 @@ def pagina_descricao(usuario_logado):
                 origem = "ia"
 
             st.session_state["desc_texto_atual"] = novo_texto
+            st.session_state["desc_resultado"] = novo_texto
 
             alerta_verificacao = verificar_remocao_caracteres(instrucao, novo_texto)
             if alerta_verificacao:
