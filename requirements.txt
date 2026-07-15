@@ -3,3 +3,6 @@ anthropic
 gspread
 google-auth
 pandas
+requests
+google-api-python-client
+Pillow
