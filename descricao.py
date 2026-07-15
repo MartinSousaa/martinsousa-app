@@ -190,7 +190,7 @@ def pesquisar_usos_produto(nome_produto):
         resp = requests.get("https://serpapi.com/search", params={
             "engine": "google", "q": f"{nome_produto} para que serve usado",
             "hl": "pt-br", "gl": "br", "num": 5, "api_key": api_key,
-        }, timeout=15)
+        }, timeout=30)
         if resp.status_code != 200:
             return None, f"Busca indisponível agora (HTTP {resp.status_code})."
         dados = resp.json()
