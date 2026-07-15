@@ -581,7 +581,6 @@ def pagina_descricao(usuario_logado):
 
             del st.session_state["desc_dados_pendentes"]
             st.session_state["desc_texto_atual"] = descricao
-            st.session_state.pop("desc_resultado", None)
             st.session_state["desc_nome_atual"] = dados["nome_produto"]
             st.session_state["desc_chat_log"] = []
 
@@ -590,7 +589,7 @@ def pagina_descricao(usuario_logado):
     if "desc_texto_atual" in st.session_state:
         st.markdown("---")
         st.markdown(f"#### Descrição — {st.session_state['desc_nome_atual']}")
-        st.text_area("Pronta pra copiar", value=st.session_state["desc_texto_atual"], height=350, key="desc_resultado")
+        st.code(st.session_state["desc_texto_atual"], language=None)
         st.caption(f"{len(st.session_state['desc_texto_atual'])}/10.000 caracteres (limite do Mercado Livre pra descrição)")
 
         st.markdown("##### Precisa ajustar algo pontual?")
@@ -614,7 +613,6 @@ def pagina_descricao(usuario_logado):
                 origem = "ia"
 
             st.session_state["desc_texto_atual"] = novo_texto
-            st.session_state.pop("desc_resultado", None)
 
             alerta_verificacao = verificar_remocao_caracteres(instrucao, novo_texto)
             if alerta_verificacao:
