@@ -162,6 +162,10 @@ def pagina_imagem(usuario_logado):
 
         st.session_state["img_gerada"] = imagem_bytes
         st.session_state["img_nome_produto"] = nome_produto or "produto"
+        st.session_state["img_chat_log"] = []
+
+        import atividades
+        atividades.registrar_atividade(usuario_logado, "Imagem", st.session_state["img_nome_produto"], tipo)
 
     if "img_gerada" in st.session_state:
         st.markdown("---")
@@ -183,4 +187,38 @@ def pagina_imagem(usuario_logado):
             else:
                 st.success(f"Salvo! [Abrir no Drive]({link})")
                 import atividades
-                atividades.registrar_atividade(usuario_logado, "Imagem", st.session_state["img_nome_produto"], tipo)
+                atividades.registrar_atividade(usuario_logado, "Imagem (salva no Drive)", st.session_state["img_nome_produto"], tipo)
+
+        st.markdown("##### Precisa ajustar algo pontual?")
+        st.caption("Ex: 'troca a foto da direita por uma cena de presente', 'deixa o fundo mais escuro', 'aumenta o título' -- a IA edita em cima da imagem atual, sem começar do zero.")
+
+        for autor, conteudo in st.session_state.get("img_chat_log", []):
+            with st.chat_message(autor):
+                if isinstance(conteudo, bytes):
+                    st.image(conteudo, use_container_width=True)
+                else:
+                    st.markdown(conteudo)
+
+        instrucao_img = st.chat_input("Digite o ajuste que precisa...")
+        if instrucao_img:
+            st.session_state["img_chat_log"].append(("user", instrucao_img))
+
+            prompt_ajuste = (
+                f"Ajuste essa imagem exatamente assim: {instrucao_img}\n\n"
+                f"Mantenha tudo o resto da imagem igual (mesmo layout, mesmas fotos, mesmo texto), "
+                f"só aplique o que foi pedido. Continue com a paleta azul e branco, texto sempre "
+                f"correto em português do Brasil."
+            )
+            with st.spinner("Ajustando imagem..."):
+                nova_imagem, erro_ajuste = gerar_imagem_ia(prompt_ajuste, [st.session_state["img_gerada"]])
+
+            if erro_ajuste:
+                st.session_state["img_chat_log"].append(("assistant", f"⚠️ Não consegui ajustar: {erro_ajuste}"))
+            else:
+                st.session_state["img_gerada"] = nova_imagem
+                st.session_state["img_chat_log"].append(("assistant", nova_imagem))
+
+                import atividades
+                atividades.registrar_atividade(usuario_logado, "Ajuste de Imagem", st.session_state["img_nome_produto"], instrucao_img[:100])
+
+            st.rerun()
