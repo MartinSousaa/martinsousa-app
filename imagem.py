@@ -123,81 +123,165 @@ def upload_imagem_drive(imagem_bytes, nome_arquivo):
 
 def pagina_imagem(usuario_logado):
     st.subheader("Imagem")
-    st.caption("Sobe a foto real do produto, escolhe o tipo de imagem e a IA gera a peça completa (texto, layout e fotos juntos).")
+    st.caption("Sobe a foto real do produto. Você pode gerar 1 imagem por vez, ou as 7 do padrão de uma vez (cada uma é uma geração separada, não uma imagem só com tudo junto).")
 
     nome_produto = st.text_input("Nome do produto", key="img_nome_produto_input")
 
     foto_produto = st.file_uploader("Foto real do produto (referência)", type=["jpg", "jpeg", "png", "webp"])
 
-    tipo = st.selectbox("Tipo de imagem", list(PRESETS.keys()))
-    prompt_base = PRESETS[tipo]
+    modo = st.radio("O que gerar?", ["1 imagem específica", "As 7 imagens do padrão (separadas)"], horizontal=True)
 
-    instrucoes = st.text_area(
-        "Descreva o que você quer nessa imagem (textos, cenas, destaque)",
-        value=prompt_base,
-        height=140,
-        placeholder="ex: título 'Guarda suas memórias com estilo', 3 benefícios: durabilidade, capa dura, folhas pretas...",
+    INSTRUCAO_VARIACAO = (
+        "IMPORTANTE: use a imagem de referência anexada só pra manter o PRODUTO reconhecível e fiel "
+        "ao original (mesma cor, mesmo formato, mesmos detalhes) -- mas componha uma cena/imagem "
+        "NOVA e apropriada pra esse pedido específico, não reaproveite a foto de referência literalmente "
+        "sem mudança nenhuma. Paleta de cores: azul e branco. Texto sempre correto, sem erro de "
+        "ortografia, em português do Brasil."
     )
 
-    st.caption("Paleta: azul + branco (padrão da empresa) -- já incluída automaticamente no pedido.")
+    if modo == "1 imagem específica":
+        tipo = st.selectbox("Tipo de imagem", list(PRESETS.keys()))
+        prompt_base = PRESETS[tipo]
 
-    gerar = st.button("Gerar Imagem", type="primary", use_container_width=True)
-
-    if gerar:
-        if not foto_produto:
-            st.warning("Sobe a foto real do produto -- é a referência que garante que o produto gerado é reconhecível.")
-            return
-        if not instrucoes:
-            st.warning("Descreve o que você quer na imagem.")
-            return
-
-        prompt_final = (
-            f"{instrucoes}\n\n"
-            f"IMPORTANTE: use a imagem de referência anexada como base real do produto -- mantenha o "
-            f"produto reconhecível e fiel ao original, não invente um produto diferente. "
-            f"Paleta de cores: azul e branco (fundo/detalhes em azul, texto e áreas neutras em branco). "
-            f"Texto sempre correto, sem erro de ortografia, em português do Brasil."
+        instrucoes = st.text_area(
+            "Descreva o que você quer nessa imagem (textos, cenas, destaque)",
+            value=prompt_base, height=140, key=f"img_instrucoes_{tipo}",
+            placeholder="ex: título 'Guarda suas memórias com estilo', 3 benefícios: durabilidade, capa dura, folhas pretas...",
         )
 
-        foto_bytes = foto_produto.read()
+        conferir = st.button("Conferir pedido antes de gerar", type="primary", use_container_width=True)
 
-        with st.spinner("Gerando imagem (pode levar alguns segundos)..."):
-            imagem_bytes, erro = gerar_imagem_ia(prompt_final, [foto_bytes])
+        if conferir:
+            if not foto_produto:
+                st.warning("Sobe a foto real do produto -- é a referência que garante que o produto gerado é reconhecível.")
+            elif not instrucoes:
+                st.warning("Descreve o que você quer na imagem.")
+            else:
+                st.session_state["img_pedido_pendente"] = {
+                    "modo": "unico", "tipo": tipo, "instrucoes": instrucoes,
+                    "foto_bytes": foto_produto.getvalue(), "nome_produto": nome_produto or "produto",
+                }
 
-        if erro:
-            st.error(f"Não consegui gerar a imagem: {erro}")
-            return
+    else:
+        st.caption("Gera as 7 imagens do padrão, uma por vez -- cada uma é uma peça separada, não um grid único.")
+        conferir_todas = st.button("Conferir pedido antes de gerar", type="primary", use_container_width=True)
 
-        st.session_state["img_gerada"] = imagem_bytes
-        st.session_state["img_nome_produto"] = nome_produto or "produto"
-        st.session_state["img_chat_log"] = []
+        if conferir_todas:
+            if not foto_produto:
+                st.warning("Sobe a foto real do produto -- é a referência que garante que o produto gerado é reconhecível.")
+            else:
+                st.session_state["img_pedido_pendente"] = {
+                    "modo": "lote", "foto_bytes": foto_produto.getvalue(),
+                    "nome_produto": nome_produto or "produto",
+                }
 
-        import atividades
-        atividades.registrar_atividade(usuario_logado, "Imagem", st.session_state["img_nome_produto"], tipo)
-
-    if "img_gerada" in st.session_state:
+    # ── ETAPA DE CONFERENCIA -- mostra em TEXTO o que vai ser pedido, sem gastar
+    # nada com a IA ainda. So depois de confirmar aqui e que a chamada paga acontece.
+    if "img_pedido_pendente" in st.session_state:
+        pedido = st.session_state["img_pedido_pendente"]
         st.markdown("---")
-        st.image(st.session_state["img_gerada"], caption="Imagem gerada", use_container_width=True)
+        st.markdown("##### Confira antes de gerar (essa etapa não gasta nada)")
+        st.image(pedido["foto_bytes"], caption="Foto de referência que será usada", width=200)
+
+        if pedido["modo"] == "unico":
+            n_imagens = 1
+            st.markdown(f"**Tipo de imagem:** {pedido['tipo']}")
+            st.markdown("**Instrução que será enviada pra IA:**")
+            st.info(pedido["instrucoes"])
+        else:
+            tipos_reais = [t for t in PRESETS.keys() if t != "Personalizado (descrevo o que quero)"]
+            n_imagens = len(tipos_reais)
+            st.markdown(f"**{n_imagens} imagens serão geradas, uma por vez:**")
+            for t in tipos_reais:
+                with st.expander(t):
+                    st.write(PRESETS[t])
+
+        custo_estimado = n_imagens * 1.0  # ~R$1,00 por imagem em 2K (aproximado, varia com cambio)
+        st.warning(f"💰 Isso vai gerar {n_imagens} imagem(ns) de verdade, com custo estimado de **~R${custo_estimado:.2f}** (aproximado). Confirma?")
 
         col1, col2 = st.columns(2)
-        col1.download_button("⬇️ Baixar imagem", data=st.session_state["img_gerada"],
-                              file_name=f"{st.session_state['img_nome_produto']}.png", mime="image/png",
-                              use_container_width=True)
+        cancelar = col1.button("❌ Cancelar", use_container_width=True)
+        confirmar_gerar = col2.button("✅ Confirmar e gerar", type="primary", use_container_width=True)
 
-        if col2.button("☁️ Salvar no Google Drive", use_container_width=True):
+        if cancelar:
+            del st.session_state["img_pedido_pendente"]
+            st.rerun()
+
+        if confirmar_gerar:
+            if pedido["modo"] == "unico":
+                prompt_final = f"{pedido['instrucoes']}\n\n{INSTRUCAO_VARIACAO}"
+                with st.spinner("Gerando imagem (pode levar alguns segundos)..."):
+                    imagem_bytes, erro = gerar_imagem_ia(prompt_final, [pedido["foto_bytes"]])
+
+                if erro:
+                    st.error(f"Não consegui gerar a imagem: {erro}")
+                else:
+                    st.session_state["img_galeria"] = [{"tipo": pedido["tipo"], "bytes": imagem_bytes}]
+                    st.session_state["img_nome_produto"] = pedido["nome_produto"]
+                    st.session_state["img_chat_log"] = []
+                    import atividades
+                    atividades.registrar_atividade(usuario_logado, "Imagem", pedido["nome_produto"], pedido["tipo"])
+                    del st.session_state["img_pedido_pendente"]
+                    st.rerun()
+            else:
+                tipos_reais = [t for t in PRESETS.keys() if t != "Personalizado (descrevo o que quero)"]
+                galeria = []
+                barra = st.progress(0.0, text="Gerando imagens...")
+                for i, t in enumerate(tipos_reais):
+                    prompt_final = f"{PRESETS[t]}\n\n{INSTRUCAO_VARIACAO}"
+                    barra.progress(i / len(tipos_reais), text=f"Gerando: {t}")
+                    img_bytes, erro = gerar_imagem_ia(prompt_final, [pedido["foto_bytes"]])
+                    if erro:
+                        st.warning(f"Falhou em '{t}': {erro}")
+                        continue
+                    galeria.append({"tipo": t, "bytes": img_bytes})
+                barra.progress(1.0, text="Concluído!")
+
+                st.session_state["img_galeria"] = galeria
+                st.session_state["img_nome_produto"] = pedido["nome_produto"]
+                st.session_state["img_chat_log"] = []
+                import atividades
+                atividades.registrar_atividade(usuario_logado, "Imagem (lote de 7)", pedido["nome_produto"], f"{len(galeria)} imagens geradas")
+                del st.session_state["img_pedido_pendente"]
+                st.rerun()
+
+    if "img_galeria" in st.session_state and st.session_state["img_galeria"]:
+        st.markdown("---")
+        galeria = st.session_state["img_galeria"]
+
+        if len(galeria) == 1:
+            idx_ativo = 0
+            st.image(galeria[0]["bytes"], caption=galeria[0]["tipo"], use_container_width=True)
+        else:
+            nomes_galeria = [g["tipo"] for g in galeria]
+            escolha_galeria = st.selectbox("Qual imagem ver/ajustar/salvar?", nomes_galeria, key="img_escolha_galeria")
+            idx_ativo = nomes_galeria.index(escolha_galeria)
+            cols = st.columns(len(galeria))
+            for i, g in enumerate(galeria):
+                with cols[i]:
+                    st.image(g["bytes"], caption=g["tipo"][:12], use_container_width=True)
+
+        imagem_ativa = galeria[idx_ativo]["bytes"]
+        tipo_ativo = galeria[idx_ativo]["tipo"]
+
+        col1, col2 = st.columns(2)
+        col1.download_button("⬇️ Baixar essa imagem", data=imagem_ativa,
+                              file_name=f"{st.session_state['img_nome_produto']}_{tipo_ativo[:20]}.png", mime="image/png",
+                              use_container_width=True, key=f"download_{idx_ativo}")
+
+        if col2.button("☁️ Salvar no Google Drive", use_container_width=True, key=f"salvar_drive_{idx_ativo}"):
             with st.spinner("Enviando pro Drive..."):
                 link, erro_drive = upload_imagem_drive(
-                    st.session_state["img_gerada"],
-                    f"{st.session_state['img_nome_produto']}_{tipo[:20]}.png",
+                    imagem_ativa, f"{st.session_state['img_nome_produto']}_{tipo_ativo[:20]}.png",
                 )
             if erro_drive:
                 st.error(f"Não consegui salvar no Drive: {erro_drive}")
             else:
                 st.success(f"Salvo! [Abrir no Drive]({link})")
                 import atividades
-                atividades.registrar_atividade(usuario_logado, "Imagem (salva no Drive)", st.session_state["img_nome_produto"], tipo)
+                atividades.registrar_atividade(usuario_logado, "Imagem (salva no Drive)", st.session_state["img_nome_produto"], tipo_ativo)
 
-        st.markdown("##### Precisa ajustar algo pontual?")
+        st.markdown("##### Precisa ajustar algo pontual? (na imagem selecionada acima)")
         st.caption("Ex: 'troca a foto da direita por uma cena de presente', 'deixa o fundo mais escuro', 'aumenta o título' -- a IA edita em cima da imagem atual, sem começar do zero.")
 
         for autor, conteudo in st.session_state.get("img_chat_log", []):
@@ -218,12 +302,12 @@ def pagina_imagem(usuario_logado):
                 f"correto em português do Brasil."
             )
             with st.spinner("Ajustando imagem..."):
-                nova_imagem, erro_ajuste = gerar_imagem_ia(prompt_ajuste, [st.session_state["img_gerada"]])
+                nova_imagem, erro_ajuste = gerar_imagem_ia(prompt_ajuste, [imagem_ativa])
 
             if erro_ajuste:
                 st.session_state["img_chat_log"].append(("assistant", f"⚠️ Não consegui ajustar: {erro_ajuste}"))
             else:
-                st.session_state["img_gerada"] = nova_imagem
+                st.session_state["img_galeria"][idx_ativo]["bytes"] = nova_imagem
                 st.session_state["img_chat_log"].append(("assistant", nova_imagem))
 
                 import atividades
