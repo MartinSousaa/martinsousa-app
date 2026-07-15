@@ -309,6 +309,34 @@ Responda SOMENTE com o texto da descrição, pronta pra colar no anúncio, sem c
     return msg.content[0].text.strip()
 
 
+def editar_descricao(descricao_atual, instrucao):
+    """Ajuste pontual em cima do texto ja gerado -- recebe o texto completo atual
+    e devolve o texto completo ja ajustado, sem regerar do zero."""
+    api_key = st.secrets.get("ANTHROPIC_API_KEY", "")
+    prompt = f"""Esta é a descrição atual de um anúncio de e-commerce:
+
+=== DESCRIÇÃO ATUAL ===
+{descricao_atual}
+=== FIM DA DESCRIÇÃO ATUAL ===
+
+O colaborador pediu este ajuste pontual: "{instrucao}"
+
+Aplique SOMENTE esse ajuste, mantendo o resto do texto exatamente como está (mesma estrutura,
+mesmo estilo, mesmos blocos). Não regere a descrição do zero, apenas edite o que foi pedido.
+
+Continue seguindo as regras do Mercado Livre: sem link externo, sem contato, sem informação de
+frete/entrega, sem condição do produto, sem caixa alta, sem termo promocional.
+
+Responda SOMENTE com o texto completo da descrição já ajustada, sem comentário extra.
+"""
+    client = anthropic.Anthropic(api_key=api_key)
+    msg = client.messages.create(
+        model="claude-sonnet-4-6", max_tokens=900,
+        messages=[{"role": "user", "content": prompt}]
+    )
+    return msg.content[0].text.strip()
+
+
 def pagina_descricao(usuario_logado):
     st.subheader("Descrição")
     st.caption("Busca a Triagem do produto automaticamente (editável). Antes de gerar, você confere um resumo dos dados que serão usados.")
@@ -473,8 +501,34 @@ def pagina_descricao(usuario_logado):
             atividades.registrar_atividade(usuario_logado, "Descrição", dados["nome_produto"], f"{len(descricao)} caracteres")
 
             del st.session_state["desc_dados_pendentes"]
+            st.session_state["desc_texto_atual"] = descricao
+            st.session_state["desc_nome_atual"] = dados["nome_produto"]
+            st.session_state["desc_chat_log"] = []
 
-            st.markdown("---")
-            st.markdown(f"#### Descrição — {dados['nome_produto']}")
-            st.text_area("Pronta pra copiar", value=descricao, height=350, key="desc_resultado")
-            st.caption(f"{len(descricao)}/10.000 caracteres (limite do Mercado Livre pra descrição)")
+    # Resultado + chat de ajuste pontual -- fica fora do "if confirmar" pra
+    # sobreviver aos reruns disparados pelo proprio chat_input
+    if "desc_texto_atual" in st.session_state:
+        st.markdown("---")
+        st.markdown(f"#### Descrição — {st.session_state['desc_nome_atual']}")
+        st.text_area("Pronta pra copiar", value=st.session_state["desc_texto_atual"], height=350, key="desc_resultado")
+        st.caption(f"{len(st.session_state['desc_texto_atual'])}/10.000 caracteres (limite do Mercado Livre pra descrição)")
+
+        st.markdown("##### Precisa ajustar algo pontual?")
+        st.caption("Ex: 'deixa mais curto', 'troca X por Y', 'tira o parágrafo sobre Z' -- ajusta só o que pedir, sem regerar do zero.")
+
+        for autor, texto in st.session_state.get("desc_chat_log", []):
+            with st.chat_message(autor):
+                st.markdown(texto)
+
+        instrucao = st.chat_input("Digite o ajuste que precisa...")
+        if instrucao:
+            st.session_state["desc_chat_log"].append(("user", instrucao))
+            with st.spinner("Ajustando..."):
+                novo_texto = editar_descricao(st.session_state["desc_texto_atual"], instrucao)
+            st.session_state["desc_texto_atual"] = novo_texto
+            st.session_state["desc_chat_log"].append(("assistant", "Ajustado! ✅ (confira o texto atualizado acima)"))
+
+            import atividades
+            atividades.registrar_atividade(usuario_logado, "Ajuste de Descrição", st.session_state["desc_nome_atual"], instrucao[:100])
+
+            st.rerun()
