@@ -325,6 +325,11 @@ PRIORIDADE: o pedido acima é uma ordem direta e tem prioridade sobre qualquer o
 inclusive sobre manter a formatação original. Se ele pediu pra tirar marcadores, caixa alta,
 algum símbolo ou palavra específica, aplique isso em TODO o texto, incluindo dentro de listas
 e blocos técnicos (ex: capacidade de fotos, medidas) -- não deixe nenhuma ocorrência de fora.
+ATENÇÃO A AMBIGUIDADE: existem 2 caracteres parecidos que costumam ser confundidos -- o traço
+curto "-" (usado como marcador de item de lista) e o travessão longo "—" (usado no meio de
+frases como pontuação). Se o pedido for genérico tipo "tira os traços" ou "tira os -", trate
+como pedido pra remover AMBOS os tipos em todo o texto, a menos que o colaborador tenha
+especificado claramente que quer manter um deles.
 Fora do que foi pedido, mantenha o resto do texto igual (mesmo conteúdo, mesma ordem de blocos).
 Não regere a descrição do zero, apenas edite o que foi pedido.
 
@@ -339,6 +344,24 @@ Responda SOMENTE com o texto completo da descrição já ajustada, sem comentár
         messages=[{"role": "user", "content": prompt}]
     )
     return msg.content[0].text.strip()
+
+
+def verificar_remocao_caracteres(instrucao, texto_novo):
+    """Checagem deterministica (nao depende da IA 'confirmar' nada): se o pedido
+    menciona um caractere especifico pra remover (-, –, —, *, #), confere de
+    verdade se ele ainda aparece no texto resultante."""
+    CARACTERES_VIGIADOS = ["-", "–", "—", "*", "#"]
+    pedidos_remocao = any(p in instrucao.lower() for p in ["remov", "tir", "exclu", "apag", "delet"])
+    if not pedidos_remocao:
+        return None
+    ainda_presentes = []
+    for c in CARACTERES_VIGIADOS:
+        if c in instrucao and texto_novo.count(c) > 0:
+            ainda_presentes.append((c, texto_novo.count(c)))
+    if not ainda_presentes:
+        return None
+    detalhes = ", ".join(f"'{c}' aparece {n}x" for c, n in ainda_presentes)
+    return f"⚠️ Conferi o texto e ainda encontrei o que você pediu pra tirar: {detalhes}. Pode pedir de novo, ou me diga se algum desses era proposital (ex: travessão de pontuação normal, não lista)."
 
 
 def pagina_descricao(usuario_logado):
@@ -530,7 +553,13 @@ def pagina_descricao(usuario_logado):
             with st.spinner("Ajustando..."):
                 novo_texto = editar_descricao(st.session_state["desc_texto_atual"], instrucao)
             st.session_state["desc_texto_atual"] = novo_texto
-            st.session_state["desc_chat_log"].append(("assistant", "Feito — confira o texto atualizado acima. Se não ficou do jeito que você pediu, me fala de novo especificando melhor."))
+
+            alerta_verificacao = verificar_remocao_caracteres(instrucao, novo_texto)
+            if alerta_verificacao:
+                resposta = alerta_verificacao
+            else:
+                resposta = "Ajuste aplicado -- confira o texto atualizado acima."
+            st.session_state["desc_chat_log"].append(("assistant", resposta))
 
             import atividades
             atividades.registrar_atividade(usuario_logado, "Ajuste de Descrição", st.session_state["desc_nome_atual"], instrucao[:100])
