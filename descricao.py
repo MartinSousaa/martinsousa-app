@@ -321,8 +321,12 @@ def editar_descricao(descricao_atual, instrucao):
 
 O colaborador pediu este ajuste pontual: "{instrucao}"
 
-Aplique SOMENTE esse ajuste, mantendo o resto do texto exatamente como está (mesma estrutura,
-mesmo estilo, mesmos blocos). Não regere a descrição do zero, apenas edite o que foi pedido.
+PRIORIDADE: o pedido acima é uma ordem direta e tem prioridade sobre qualquer outra coisa --
+inclusive sobre manter a formatação original. Se ele pediu pra tirar marcadores, caixa alta,
+algum símbolo ou palavra específica, aplique isso em TODO o texto, incluindo dentro de listas
+e blocos técnicos (ex: capacidade de fotos, medidas) -- não deixe nenhuma ocorrência de fora.
+Fora do que foi pedido, mantenha o resto do texto igual (mesmo conteúdo, mesma ordem de blocos).
+Não regere a descrição do zero, apenas edite o que foi pedido.
 
 Continue seguindo as regras do Mercado Livre: sem link externo, sem contato, sem informação de
 frete/entrega, sem condição do produto, sem caixa alta, sem termo promocional.
@@ -526,7 +530,7 @@ def pagina_descricao(usuario_logado):
             with st.spinner("Ajustando..."):
                 novo_texto = editar_descricao(st.session_state["desc_texto_atual"], instrucao)
             st.session_state["desc_texto_atual"] = novo_texto
-            st.session_state["desc_chat_log"].append(("assistant", "Ajustado! ✅ (confira o texto atualizado acima)"))
+            st.session_state["desc_chat_log"].append(("assistant", "Feito — confira o texto atualizado acima. Se não ficou do jeito que você pediu, me fala de novo especificando melhor."))
 
             import atividades
             atividades.registrar_atividade(usuario_logado, "Ajuste de Descrição", st.session_state["desc_nome_atual"], instrucao[:100])
