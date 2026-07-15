@@ -6,32 +6,40 @@ MODELO_IMAGEM = "gemini-3-pro-image-preview"  # Nano Banana Pro -- melhor render
 
 PRESETS = {
     "Personalizado (descrevo o que quero)": "",
-    "Imagem 1 -- Foto principal do produto": (
+    "1 -- Produto com fundo branco": (
         "Foto de produto limpa e profissional, fundo branco liso, produto centralizado, "
         "iluminação de estúdio, sem texto sobreposto."
     ),
-    "Imagem 2 -- Três benefícios do produto": (
+    "2 -- Benefícios do produto": (
         "Peça de marketing com título curto no topo destacando o principal benefício do produto, "
-        "abaixo 3 blocos lado a lado, cada um com um ícone simples, um título curto e uma frase "
-        "explicando um benefício diferente do produto. Fundo azul e branco, visual limpo e moderno."
+        "abaixo blocos lado a lado, cada um com um ícone simples, um título curto e uma frase "
+        "explicando um benefício diferente que o produto agrega. Fundo azul e branco, visual "
+        "limpo e moderno."
     ),
-    "Imagem 3 -- Benefícios no cenário": (
-        "Peça de marketing mostrando o produto sendo usado em cenários reais (ex: por um estudante, "
-        "um profissional, ou como presente), com frases curtas de destaque sobre cada cena. "
+    "3 -- Benefícios no cenário de uso": (
+        "Peça de marketing mostrando o produto sendo usado em cenários reais do dia a dia, com "
+        "frases curtas de destaque explicando o que o produto agrega na prática em cada cena. "
         "Fundo azul e branco, visual limpo e moderno."
     ),
-    "Imagem 4 -- Detalhes de zoom": (
-        "Imagem em zoom aproximado mostrando os detalhes de acabamento e qualidade do produto, "
+    "4 -- Close nos detalhes do produto": (
+        "Imagem em zoom aproximado valorizando os detalhes de acabamento e qualidade do produto, "
         "com pequenas legendas apontando pra cada detalhe importante. Fundo azul e branco."
     ),
-    "Imagem 5 -- Ambientação realista": (
-        "Foto realista do produto em uso, em um ambiente real (cena do dia a dia condizente com o "
-        "uso do produto), iluminação natural, sem texto sobreposto -- só a cena."
-    ),
-    "Imagem 6 -- Medidas exatas": (
+    "5 -- Características (medidas/peso/material)": (
         "Imagem técnica do produto com linhas de medida (estilo desenho técnico) mostrando altura, "
-        "largura e profundidade exatas, com os números das medidas anotados. Fundo branco, visual "
-        "limpo e técnico."
+        "largura e profundidade exatas, além de peso e material, com os dados anotados de forma "
+        "clara. Fundo branco, visual limpo e técnico."
+    ),
+    "6 -- Quebra de objeção": (
+        "Peça de marketing respondendo de forma direta e visual as principais dúvidas que um "
+        "cliente teria antes de comprar esse produto (ex: qualidade, durabilidade, garantia, "
+        "funcionamento) -- formato de perguntas curtas com respostas objetivas ao lado. Fundo "
+        "azul e branco, visual limpo, transmitindo confiança."
+    ),
+    "7 -- Presenteie": (
+        "Peça de marketing emocional incentivando a compra do produto como presente, com frase "
+        "impactante de destaque e uma cena mostrando o momento de presentear (entrega/reação "
+        "positiva). Fundo azul e branco, visual acolhedor."
     ),
 }
 
