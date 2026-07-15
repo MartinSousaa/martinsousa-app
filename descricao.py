@@ -241,6 +241,14 @@ produto (ignore o que não se aplicar):
 {dados['usos_pesquisados']}
 """
 
+    bloco_calculo_personalizado = ""
+    if dados.get("calculo_personalizado"):
+        bloco_calculo_personalizado = f"""
+CÁLCULO/INFORMAÇÃO JÁ PRONTA FORNECIDA PELO COLABORADOR (NÃO recalcule nem questione o número --
+só formate e encaixe na descrição de forma natural, no estilo dos exemplos):
+{dados['calculo_personalizado']}
+"""
+
     bloco_observacoes = ""
     if dados.get("observacoes"):
         bloco_observacoes = f"""
@@ -291,7 +299,7 @@ Diferenciais: {dados.get('diferenciais','')}
 Uso/ocasião: {dados.get('uso','')}
 Características adicionais: {dados.get('caracteristicas','')}
 Palavras-chave pra usar com naturalidade (sem forçar todas): {dados.get('palavras_chave','') or 'nenhuma informada'}
-{bloco_capacidade}{bloco_capacidade_argola}{bloco_usos_pesquisados}{bloco_observacoes}
+{bloco_capacidade}{bloco_capacidade_argola}{bloco_calculo_personalizado}{bloco_usos_pesquisados}{bloco_observacoes}
 REGRAS OBRIGATÓRIAS (política oficial do Mercado Livre):
 - NÃO inclua links externos, nome de loja, telefone, e-mail ou qualquer contato fora da plataforma
 - NÃO inclua informações de entrega/frete (isso é campo separado do anúncio)
@@ -344,6 +352,35 @@ Responda SOMENTE com o texto completo da descrição já ajustada, sem comentár
         messages=[{"role": "user", "content": prompt}]
     )
     return msg.content[0].text.strip()
+
+
+def tentar_edicao_deterministica(texto_atual, instrucao):
+    """Pra pedidos simples de REMOVER um caractere/simbolo especifico, faz a
+    edicao direto em Python (garantido 100%), sem depender da IA -- que ja
+    mostrou nao ser confiavel nesse tipo de tarefa mecanica. Retorna o texto
+    editado, ou None se o pedido nao se encaixar nesse padrao (aí cai pra IA)."""
+    import re
+    instrucao_l = instrucao.lower()
+    pede_remocao = any(p in instrucao_l for p in ["remov", "tir", "exclu", "apag", "delet"])
+    if not pede_remocao:
+        return None
+
+    caracteres_alvo = [c for c in ["—", "–", "-", "*", "#"] if c in instrucao]
+    if not caracteres_alvo:
+        return None
+
+    novo = texto_atual
+    for c in caracteres_alvo:
+        if c in ("-", "–", "—"):
+            novo = re.sub(rf"^[ \t]*{re.escape(c)}[ \t]*", "", novo, flags=re.MULTILINE)  # marcador de lista no inicio da linha
+            novo = re.sub(rf"\s*{re.escape(c)}\s*", " ", novo)  # travessao/traço no meio da frase vira espaço
+        else:
+            novo = novo.replace(c, "")
+
+    novo = re.sub(r"[ \t]{2,}", " ", novo)
+    novo = re.sub(r"\n{3,}", "\n\n", novo)
+    novo = "\n".join(linha.strip() for linha in novo.split("\n"))
+    return novo.strip()
 
 
 def verificar_remocao_caracteres(instrucao, texto_novo):
@@ -433,12 +470,14 @@ def pagina_descricao(usuario_logado):
         st.markdown("##### Cálculo auxiliar (opcional)")
         modo_calculo = st.selectbox(
             "Esse produto precisa de algum cálculo de capacidade na descrição?",
-            ["Nenhum", "Álbum de fotos (capacidade de fotos por página)", "Argola/espiral (capacidade de folhas)"],
+            ["Nenhum", "Álbum de fotos (capacidade de fotos por página)",
+             "Argola/espiral (capacidade de folhas)", "Outro cálculo (eu já fiz a conta)"],
             key="desc_modo_calculo",
         )
 
         num_folhas = tam_polaroid = tam_padrao = ""
         medida_interna_mm = espessuras_texto = ""
+        calculo_personalizado_texto = ""
 
         if modo_calculo.startswith("Álbum"):
             st.caption("Tamanhos clássicos/padrão de mercado -- ajusta se o seu fornecedor usar outro tamanho.")
@@ -451,6 +490,12 @@ def pagina_descricao(usuario_logado):
             col1, col2 = st.columns(2)
             medida_interna_mm = col1.text_input("Medida interna da argola/espiral (mm)", placeholder="ex: 29")
             espessuras_texto = col2.text_input("Espessuras de folha a calcular (mm)", value="1, 1.5, 2")
+        elif modo_calculo.startswith("Outro"):
+            st.caption("A IA NÃO recalcula nada aqui -- só formata e encaixa na descrição o que você colar. Se esse tipo de produto virar comum, me avisa depois que eu construo uma calculadora própria pra ele.")
+            calculo_personalizado_texto = st.text_area(
+                "Cole aqui a conta já pronta (com o resultado)",
+                placeholder="ex: A caixa tem 40cm de largura, cada compartimento tem 5cm -- cabem até 8 compartimentos lado a lado."
+            )
 
         observacoes = st.text_area("Observações (peça aqui o que quiser destacar na descrição)",
                                      placeholder="ex: Quero que ressalte os diferenciais e o que o produto oferece ao comprador, com um parágrafo curto sobre durabilidade da capa dura...")
@@ -465,11 +510,14 @@ def pagina_descricao(usuario_logado):
         else:
             capacidade_texto = formula_texto = erro_capacidade = None
             capacidade_argola_texto = erro_capacidade_argola = None
+            calculo_personalizado = None
 
             if modo_calculo.startswith("Álbum") and (num_folhas or (medidas and (tam_polaroid or tam_padrao))):
                 capacidade_texto, formula_texto, erro_capacidade = calcular_capacidade(medidas, num_folhas, tam_polaroid, tam_padrao)
             elif modo_calculo.startswith("Argola") and (medida_interna_mm or espessuras_texto):
                 capacidade_argola_texto, erro_capacidade_argola = calcular_capacidade_argola(medida_interna_mm, espessuras_texto)
+            elif modo_calculo.startswith("Outro") and calculo_personalizado_texto:
+                calculo_personalizado = calculo_personalizado_texto
 
             usos_pesquisados = erro_pesquisa = None
             if pesquisar_usos:
@@ -483,6 +531,7 @@ def pagina_descricao(usuario_logado):
                 "observacoes": observacoes, "capacidade_texto": capacidade_texto,
                 "formula_texto": formula_texto, "erro_capacidade": erro_capacidade,
                 "capacidade_argola_texto": capacidade_argola_texto, "erro_capacidade_argola": erro_capacidade_argola,
+                "calculo_personalizado": calculo_personalizado,
                 "usos_pesquisados": usos_pesquisados, "erro_pesquisa": erro_pesquisa,
             }
 
@@ -512,6 +561,9 @@ def pagina_descricao(usuario_logado):
             st.success("Capacidade de folhas calculada:\n\n" + dados["capacidade_argola_texto"])
         elif dados.get("erro_capacidade_argola"):
             st.warning(f"Capacidade de folhas não incluída: {dados['erro_capacidade_argola']}")
+
+        if dados.get("calculo_personalizado"):
+            st.success("Cálculo personalizado que será incluído:\n\n" + dados["calculo_personalizado"])
 
         if dados.get("usos_pesquisados"):
             st.info("Usos encontrados na pesquisa (a IA vai considerar incluir se fizer sentido):\n\n" + dados["usos_pesquisados"])
@@ -550,13 +602,23 @@ def pagina_descricao(usuario_logado):
         instrucao = st.chat_input("Digite o ajuste que precisa...")
         if instrucao:
             st.session_state["desc_chat_log"].append(("user", instrucao))
-            with st.spinner("Ajustando..."):
-                novo_texto = editar_descricao(st.session_state["desc_texto_atual"], instrucao)
+
+            novo_texto_determ = tentar_edicao_deterministica(st.session_state["desc_texto_atual"], instrucao)
+            if novo_texto_determ is not None:
+                novo_texto = novo_texto_determ
+                origem = "determinística"
+            else:
+                with st.spinner("Ajustando..."):
+                    novo_texto = editar_descricao(st.session_state["desc_texto_atual"], instrucao)
+                origem = "ia"
+
             st.session_state["desc_texto_atual"] = novo_texto
 
             alerta_verificacao = verificar_remocao_caracteres(instrucao, novo_texto)
             if alerta_verificacao:
                 resposta = alerta_verificacao
+            elif origem == "determinística":
+                resposta = "Ajuste aplicado (removido por busca exata no texto, sem depender da IA) -- confira acima."
             else:
                 resposta = "Ajuste aplicado -- confira o texto atualizado acima."
             st.session_state["desc_chat_log"].append(("assistant", resposta))
