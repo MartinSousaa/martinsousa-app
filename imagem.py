@@ -119,39 +119,32 @@ DADOS DA DESCRIÇÃO DO PRODUTO (vinculados pelo código):
 - Uso: {dados_descricao.get('uso', 'não informado')}
 """
 
-    prompt = f"""Você é um especialista em criação de imagens para anúncios de e-commerce no Mercado Livre.
+    prompt = f"""Você é especialista em imagens para e-commerce no Mercado Livre. Seja BREVE e DIRETO.
 
 PRODUTO: {nome_produto}
 {contexto_descricao}
-NÚMERO DE FOTOS DE REFERÊNCIA ENVIADAS: {len(fotos_bytes)}
-{f"INSTRUÇÕES EXTRAS DO COLABORADOR: {instrucoes_extras}" if instrucoes_extras else ""}
+FOTOS ENVIADAS: {len(fotos_bytes)}
+{f"INSTRUÇÕES EXTRAS: {instrucoes_extras}" if instrucoes_extras else ""}
 
-TIPOS DE IMAGEM A CRIAR:
+TIPOS A CRIAR:
 {tipos_str}
 
-{PADRAO_VISUAL}
+TAREFA: Para cada tipo, informe em 1-2 frases curtas o que será criado (composição principal e textos).
+Só inclua flag ⚠️ se faltar uma informação CRÍTICA que vai comprometer a fidelidade da imagem. Máximo 1 flag por tipo.
 
-TAREFA: Para cada tipo de imagem listado, descreva em detalhe o que você criaria.
-Seja específico sobre: composição, posição do produto, textos que aparecerão na imagem,
-cores usadas, ícones, cenas ou cenários.
-
-SE ALGUMA INFORMAÇÃO ESTIVER FALTANDO para criar um tipo de imagem com fidelidade
-(ex: ângulo não visível nas fotos, medida não informada, cor não confirmada),
-sinalize claramente com ⚠️ e explique o que falta.
-
-Responda em JSON com este formato exato:
+Responda SOMENTE com JSON válido, sem texto antes ou depois:
 {{
   "plano": [
     {{
       "tipo": "nome do tipo",
       "numero": 1,
-      "composicao": "descrição detalhada do que será criado",
-      "textos": ["texto 1 que aparecerá", "texto 2"],
-      "flags": ["⚠️ aviso 1 se houver"],
+      "composicao": "1-2 frases curtas descrevendo a imagem",
+      "textos": ["texto 1", "texto 2"],
+      "flags": ["⚠️ aviso crítico apenas se necessário"],
       "viavel": true
     }}
   ],
-  "observacao_geral": "qualquer comentário geral sobre o conjunto de imagens"
+  "observacao_geral": "uma frase resumindo o conjunto, ou string vazia"
 }}
 """
 
@@ -274,7 +267,7 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia):
 
 def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto):
     """Monta o prompt completo para geração, incorporando identidade visual e dados do produto."""
-    base = PRESETS.get(tipo, instrucoes_extras or "")
+    base = PRESETS.get(tipo, "")
 
     contexto_produto = f"PRODUTO: {nome_produto}\n"
     if dados_descricao:
@@ -285,9 +278,15 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto)
         if dados_descricao.get("diferenciais"):
             contexto_produto += f"Diferenciais principais: {dados_descricao['diferenciais'][:200]}\n"
 
+    bloco_instrucoes = (
+        f"\nINSTRUÇÕES ADICIONAIS DO COLABORADOR (prioridade máxima — aplique antes de tudo):\n{instrucoes_extras}"
+        if instrucoes_extras else ""
+    )
+
     return f"""{contexto_produto}
 TIPO DE IMAGEM: {tipo}
 {base}
+{bloco_instrucoes}
 
 {PADRAO_VISUAL}
 {INSTRUCAO_FIDELIDADE}
@@ -539,17 +538,20 @@ def pagina_imagem(usuario_logado):
         tem_flags = any(item.get("flags") for item in itens_plano)
 
         for item in itens_plano:
-            viavel = item.get("viavel", True)
             flags = item.get("flags", [])
-            cor_borda = "#f87171" if flags else "#4ade80"
             with st.container(border=True):
-                st.markdown(f"**{item.get('numero', '')}. {item.get('tipo', '')}**")
-                st.markdown(item.get("composicao", ""))
+                col_title, col_flag = st.columns([5, 1])
+                col_title.markdown(f"**{item.get('numero', '')}. {item.get('tipo', '')}**")
+                if flags:
+                    col_flag.caption("⚠️ aviso")
+                st.caption(item.get("composicao", ""))
                 textos = item.get("textos", [])
                 if textos:
-                    st.caption("Textos previstos: " + " · ".join(f'"{t}"' for t in textos))
-                for flag in flags:
-                    st.warning(flag)
+                    st.caption("Textos: " + " · ".join(f'"{t}"' for t in textos[:4]))
+                # Mostra no máximo 1 flag, colapsada
+                if flags:
+                    with st.expander("Ver aviso", expanded=False):
+                        st.warning(flags[0])
 
         if plano.get("observacao_geral"):
             st.info(plano["observacao_geral"])
@@ -686,10 +688,10 @@ def pagina_imagem(usuario_logado):
                             st.success(f"Salvo! [Abrir no Drive]({link})")
 
         # ── CHAT DE AJUSTE ────────────────────────────────────────────────────
-        st.markdown("##### Precisa ajustar algo nessa imagem?")
+        st.markdown("##### Ajustar imagens")
         st.caption(
-            "Ex: 'fundo totalmente branco', 'álbum centralizado e maior', 'remova os textos'. "
-            "A IA vai regenerar do zero usando suas fotos originais + o ajuste pedido."
+            "Use o número da foto para indicar qual ajustar. "
+            "Pode dar vários comandos de uma vez: **foto 1: fundo branco · foto 3: remova os textos**"
         )
 
         for autor, conteudo in st.session_state.get("img_chat_log", []):
@@ -699,32 +701,60 @@ def pagina_imagem(usuario_logado):
                 else:
                     st.markdown(conteudo)
 
-        instrucao_img = st.chat_input("Descreva o que mudar...")
-        if instrucao_img:
-            st.session_state["img_chat_log"].append(("user", instrucao_img))
+        instrucao_img = st.chat_input(
+            "Ex: foto 1: fundo branco · foto 2: destaque os benefícios · foto 5: remova o texto do topo"
+        )
 
-            # Usa fotos originais do produto para regenerar (muito mais fiel do que editar a gerada)
+        if instrucao_img:
+            import re as _re
+
+            def _parsear_comandos(texto):
+                """Extrai pares (numero, instrucao) quando o usuário usa 'foto N:' ou 'imagem N:'."""
+                padrao = r'(?:foto|imagem)\s*(\d+)\s*[:\-]\s*(.+?)(?=(?:foto|imagem)\s*\d+\s*[:\-]|$)'
+                matches = _re.findall(padrao, texto, _re.IGNORECASE | _re.DOTALL)
+                if matches:
+                    return [(int(n), inst.strip().rstrip('·,').strip()) for n, inst in matches]
+                return None
+
+            comandos = _parsear_comandos(instrucao_img)
             fotos_ref = st.session_state.get("img_fotos_originais") or [imagem_ativa]
             dados_desc_aj = st.session_state.get("img_dados_descricao")
             instr_orig = st.session_state.get("img_instrucoes_originais", "")
 
-            prompt_ajuste = montar_prompt_imagem(
-                tipo_ativo,
-                instr_orig,
-                dados_desc_aj,
-                nome_gal,
-            ) + f"\n\nCORREÇÃO OBRIGATÓRIA (aplique antes de tudo):\n{instrucao_img}"
+            st.session_state["img_chat_log"].append(("user", instrucao_img))
 
-            with st.spinner("Regenerando com o ajuste..."):
-                nova_img, err_aj = gerar_imagem_ia(prompt_ajuste, fotos_ref)
+            if comandos:
+                # ── Modo multi-foto: processa cada comando separadamente ──────
+                msgs = []
+                for num_foto, instrucao in comandos:
+                    idx_alvo = num_foto - 1
+                    if idx_alvo < 0 or idx_alvo >= len(galeria):
+                        msgs.append(f"⚠️ Foto {num_foto} não existe na galeria ({len(galeria)} imagens geradas).")
+                        continue
+                    tipo_alvo = galeria[idx_alvo]["tipo"]
+                    prompt_aj = montar_prompt_imagem(tipo_alvo, instr_orig, dados_desc_aj, nome_gal) \
+                        + f"\n\nCORREÇÃO OBRIGATÓRIA (aplique antes de tudo):\n{instrucao}"
+                    with st.spinner(f"Regenerando foto {num_foto} ({tipo_alvo[:30]})..."):
+                        nova_img, err_aj = gerar_imagem_ia(prompt_aj, fotos_ref)
+                    if err_aj:
+                        msgs.append(f"⚠️ Foto {num_foto}: não consegui gerar — {err_aj}")
+                    else:
+                        st.session_state["img_galeria"][idx_alvo]["bytes"] = nova_img
+                        msgs.append(f"✅ Foto {num_foto} ({tipo_alvo[:25]}) atualizada.")
+                st.session_state["img_chat_log"].append(("assistant", "\n\n".join(msgs)))
 
-            if err_aj:
-                st.session_state["img_chat_log"].append(("assistant", f"⚠️ Não consegui gerar: {err_aj}"))
             else:
-                st.session_state["img_galeria"][idx_ativo]["bytes"] = nova_img
-                st.session_state["img_chat_log"].append(("assistant", nova_img))
-                # Ajustes intermediários não são registrados no histórico —
-                # somente a aprovação final (APROVAR E SALVAR) é registrada.
+                # ── Modo foto ativa (sem número informado) ───────────────────
+                prompt_aj = montar_prompt_imagem(tipo_ativo, instr_orig, dados_desc_aj, nome_gal) \
+                    + f"\n\nCORREÇÃO OBRIGATÓRIA (aplique antes de tudo):\n{instrucao_img}"
+                with st.spinner(f"Regenerando {tipo_ativo[:40]}..."):
+                    nova_img, err_aj = gerar_imagem_ia(prompt_aj, fotos_ref)
+                if err_aj:
+                    st.session_state["img_chat_log"].append(("assistant", f"⚠️ Não consegui gerar: {err_aj}"))
+                else:
+                    st.session_state["img_galeria"][idx_ativo]["bytes"] = nova_img
+                    st.session_state["img_chat_log"].append(("assistant", nova_img))
+
             st.rerun()
 
         st.markdown("---")
