@@ -159,46 +159,68 @@ Responda em JSON com este formato exato:
     try:
         msg = client.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=4096,
+            max_tokens=8192,
             messages=[{"role": "user", "content": prompt}]
         )
         texto = msg.content[0].text.strip()
 
-        # Extrai JSON mesmo se vier com markdown ```json
-        if "```" in texto:
-            partes = texto.split("```")
-            for parte in partes:
-                if parte.startswith("json"):
-                    texto = parte[4:].strip()
-                    break
-                elif parte.strip().startswith("{"):
-                    texto = parte.strip()
-                    break
+        # Se a resposta foi cortada (max_tokens atingido), avisa mas tenta salvar
+        truncado = msg.stop_reason == "max_tokens"
 
-        try:
-            return json.loads(texto), None
-        except json.JSONDecodeError:
-            # Fallback: monta plano básico a partir dos tipos solicitados
-            # para não bloquear o colaborador quando a IA retornar JSON malformado
-            plano_fallback = {
-                "plano": [
-                    {
-                        "tipo": t,
-                        "numero": i + 1,
-                        "composicao": PRESETS.get(t, ""),
-                        "textos": [],
-                        "flags": [],
-                        "viavel": True,
-                    }
-                    for i, t in enumerate(tipos_selecionados)
-                ],
-                "observacao_geral": (
-                    "⚠️ A triagem detalhada não pôde ser gerada (resposta da IA incompleta). "
-                    "O plano abaixo usa os presets padrão de cada tipo. "
-                    "Revise as instruções antes de confirmar a geração."
-                ),
-            }
-            return plano_fallback, None
+        # ── Extração robusta de JSON ───────────────────────────────────────────
+        import re as _re
+
+        def _tentar_parse(s):
+            try:
+                return json.loads(s)
+            except Exception:
+                return None
+
+        resultado = None
+
+        # 1. Texto direto
+        resultado = _tentar_parse(texto)
+
+        # 2. Bloco ```json ... ``` (regex, mais confiável que split)
+        if resultado is None:
+            m = _re.search(r"```(?:json)?\s*(\{.*?\})\s*```", texto, _re.DOTALL)
+            if m:
+                resultado = _tentar_parse(m.group(1))
+
+        # 3. Primeiro { até o último }
+        if resultado is None:
+            start = texto.find("{")
+            end = texto.rfind("}")
+            if start != -1 and end > start:
+                resultado = _tentar_parse(texto[start:end + 1])
+
+        if resultado is not None:
+            return resultado, None
+
+        # ── Fallback: plano básico com presets ────────────────────────────────
+        motivo = (
+            "resposta da IA truncada (max_tokens atingido)" if truncado
+            else "resposta da IA não estava em formato JSON válido"
+        )
+        plano_fallback = {
+            "plano": [
+                {
+                    "tipo": t,
+                    "numero": i + 1,
+                    "composicao": PRESETS.get(t, ""),
+                    "textos": [],
+                    "flags": [],
+                    "viavel": True,
+                }
+                for i, t in enumerate(tipos_selecionados)
+            ],
+            "observacao_geral": (
+                f"⚠️ A triagem detalhada não pôde ser gerada ({motivo}). "
+                "O plano abaixo usa os presets padrão de cada tipo. "
+                "Revise as instruções antes de confirmar a geração."
+            ),
+        }
+        return plano_fallback, None
 
     except Exception as e:
         return None, str(e)
@@ -585,6 +607,9 @@ def pagina_imagem(usuario_logado):
                 st.session_state["img_galeria"] = galeria
                 st.session_state["img_nome_produto"] = cfg["nome_produto"]
                 st.session_state["img_codigo"] = cfg.get("codigo", "")
+                st.session_state["img_fotos_originais"] = cfg["fotos_bytes"]
+                st.session_state["img_dados_descricao"] = cfg.get("dados_descricao")
+                st.session_state["img_instrucoes_originais"] = cfg.get("instrucoes_extras", "")
                 st.session_state["img_chat_log"] = []
                 import atividades
                 atividades.registrar_atividade(
@@ -662,7 +687,10 @@ def pagina_imagem(usuario_logado):
 
         # ── CHAT DE AJUSTE ────────────────────────────────────────────────────
         st.markdown("##### Precisa ajustar algo nessa imagem?")
-        st.caption("Ex: 'troca o texto do título', 'fundo mais escuro', 'aumenta o produto' — a IA edita em cima da atual.")
+        st.caption(
+            "Ex: 'fundo totalmente branco', 'álbum centralizado e maior', 'remova os textos'. "
+            "A IA vai regenerar do zero usando suas fotos originais + o ajuste pedido."
+        )
 
         for autor, conteudo in st.session_state.get("img_chat_log", []):
             with st.chat_message(autor):
@@ -671,19 +699,27 @@ def pagina_imagem(usuario_logado):
                 else:
                     st.markdown(conteudo)
 
-        instrucao_img = st.chat_input("Digite o ajuste...")
+        instrucao_img = st.chat_input("Descreva o que mudar...")
         if instrucao_img:
             st.session_state["img_chat_log"].append(("user", instrucao_img))
-            prompt_ajuste = (
-                f"Ajuste esta imagem exatamente assim: {instrucao_img}\n\n"
-                f"Mantenha todo o resto igual (mesmo layout, mesmos textos restantes, mesma composição). "
-                f"Aplique apenas o que foi pedido.\n\n{PADRAO_VISUAL}"
-            )
-            with st.spinner("Ajustando..."):
-                nova_img, err_aj = gerar_imagem_ia(prompt_ajuste, [imagem_ativa])
+
+            # Usa fotos originais do produto para regenerar (muito mais fiel do que editar a gerada)
+            fotos_ref = st.session_state.get("img_fotos_originais") or [imagem_ativa]
+            dados_desc_aj = st.session_state.get("img_dados_descricao")
+            instr_orig = st.session_state.get("img_instrucoes_originais", "")
+
+            prompt_ajuste = montar_prompt_imagem(
+                tipo_ativo,
+                instr_orig,
+                dados_desc_aj,
+                nome_gal,
+            ) + f"\n\nCORREÇÃO OBRIGATÓRIA (aplique antes de tudo):\n{instrucao_img}"
+
+            with st.spinner("Regenerando com o ajuste..."):
+                nova_img, err_aj = gerar_imagem_ia(prompt_ajuste, fotos_ref)
 
             if err_aj:
-                st.session_state["img_chat_log"].append(("assistant", f"⚠️ Não consegui ajustar: {err_aj}"))
+                st.session_state["img_chat_log"].append(("assistant", f"⚠️ Não consegui gerar: {err_aj}"))
             else:
                 st.session_state["img_galeria"][idx_ativo]["bytes"] = nova_img
                 st.session_state["img_chat_log"].append(("assistant", nova_img))
