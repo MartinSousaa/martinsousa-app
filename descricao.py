@@ -626,22 +626,16 @@ def pagina_descricao(usuario_logado):
         if "desc_codigo_atual" in st.session_state:
             codigo_exibir = st.session_state["desc_codigo_atual"]
             st.markdown(
-                f"""<div style="background:#1A3A6B; border-radius:8px; padding:12px 18px; margin-bottom:12px;">
+                f"""<div style="background:#1A3A6B; border-radius:8px; padding:12px 18px; margin-bottom:4px;">
                 <span style="color:#E8EEF5; font-size:13px; font-weight:600; letter-spacing:1px;">
                 CÓDIGO DA DESCRIÇÃO</span><br>
-                <span style="color:#FFFFFF; font-size:22px; font-weight:700; font-family:monospace; letter-spacing:2px;">
-                {codigo_exibir}</span><br>
                 <span style="color:#9BB5D9; font-size:12px;">
-                Use este código no módulo de Imagem para vincular as informações desta descrição.</span>
+                Use no módulo de Imagem para vincular as informações desta descrição.
+                Clique no ícone de cópia à direita do código abaixo.</span>
                 </div>""",
                 unsafe_allow_html=True,
             )
-            col_cod1, col_cod2 = st.columns([3, 1])
-            col_cod1.text_input("Código (clique para copiar)", value=codigo_exibir,
-                                key="desc_codigo_copy", label_visibility="collapsed")
-            if col_cod2.button("📋 Copiar código", use_container_width=True):
-                st.session_state["clipboard_codigo"] = codigo_exibir
-                st.toast(f"Código {codigo_exibir} copiado!")
+            st.code(codigo_exibir, language=None)
 
         st.code(st.session_state["desc_texto_atual"], language=None)
         st.caption(f"{len(st.session_state['desc_texto_atual'])}/10.000 caracteres (limite do Mercado Livre pra descrição)")
