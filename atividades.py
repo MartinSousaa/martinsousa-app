@@ -111,7 +111,10 @@ def pagina_historico():
 
     # ── FILTROS ────────────────────────────────────────────────────────────────
     col_busca, col_filtro = st.columns([3, 1])
-    busca = col_busca.text_input("🔍 Buscar por produto ou código", placeholder="ex: Bengala, MS-BENG-...")
+    busca = col_busca.text_input(
+        "🔍 Buscar por produto ou código",
+        placeholder="ex: Bengala, MS-BENG-..."
+    )
     usuarios_disponiveis = ["Todos"] + sorted(df["usuario"].dropna().unique().tolist())
     filtro_usuario = col_filtro.selectbox("Usuário", usuarios_disponiveis)
 
@@ -126,44 +129,100 @@ def pagina_historico():
         )
         df_exibir = df_exibir[mask]
 
-    # mais recente primeiro
-    df_exibir = df_exibir.iloc[::-1].reset_index(drop=True)
-
     if df_exibir.empty:
         st.info("Nenhum resultado para essa busca.")
         return
 
-    # ── CARDS (quando há código + pelo menos 1 campo de produto) ──────────────
-    tem_codigo = "codigo" in df_exibir.columns
-    linhas_com_codigo = df_exibir[tem_codigo & df_exibir["codigo"].astype(str).str.strip().ne("")]
+    # mais recente primeiro
+    df_exibir = df_exibir.iloc[::-1].reset_index(drop=True)
 
-    if not linhas_com_codigo.empty and busca:
-        st.markdown("##### Resultados encontrados")
-        for _, row in linhas_com_codigo.iterrows():
-            with st.container(border=True):
-                col_info, col_thumb, col_btn = st.columns([4, 1, 1])
-                with col_info:
-                    st.markdown(f"**{row.get('produto', '')}**")
-                    detalhes = []
-                    if row.get("codigo"): detalhes.append(f"📋 `{row['codigo']}`")
-                    if row.get("cor"):    detalhes.append(f"🎨 {row['cor']}")
-                    if row.get("medidas"): detalhes.append(f"📐 {row['medidas']}")
-                    if detalhes:
-                        st.caption("  ·  ".join(detalhes))
-                    st.caption(f"{row.get('data_hora','')}  ·  {row.get('usuario','')}  ·  {row.get('tipo','')}")
-                with col_thumb:
-                    link_capa = row.get("link_capa", "")
-                    if link_capa:
-                        st.markdown(f"[🖼️ Capa]({link_capa})")
-                with col_btn:
-                    if st.button("Usar este código", key=f"usar_cod_{row.name}",
-                                 help=f"Copia o código {row.get('codigo','')} para o módulo de Imagem"):
-                        st.session_state["img_codigo_importado"] = row.get("codigo", "")
-                        st.session_state["img_nome_importado"] = row.get("produto", "")
-                        st.success(f"Código **{row.get('codigo','')}** copiado! Vá para a aba Imagem.")
-        st.markdown("---")
+    # ── AGRUPAMENTO POR PRODUTO + CÓDIGO ──────────────────────────────────────
+    # Chave de grupo: código (se tiver) ou nome do produto
+    def _chave_grupo(row):
+        cod = str(row.get("codigo", "")).strip()
+        prod = str(row.get("produto", "sem produto")).strip()
+        return f"{prod}__{cod}" if cod else prod
 
-    # ── TABELA COMPLETA ────────────────────────────────────────────────────────
-    colunas_visiveis = [c for c in ["data_hora", "usuario", "tipo", "produto", "resumo", "codigo"]
-                        if c in df_exibir.columns]
-    st.dataframe(df_exibir[colunas_visiveis], use_container_width=True, hide_index=True)
+    df_exibir["_grupo"] = df_exibir.apply(_chave_grupo, axis=1)
+
+    # Ordem dos grupos: pelo timestamp mais recente de cada grupo
+    ordem_grupos = df_exibir.groupby("_grupo")["data_hora"].max().sort_values(ascending=False).index.tolist()
+
+    for chave in ordem_grupos:
+        grupo = df_exibir[df_exibir["_grupo"] == chave].copy()
+
+        # Metadados do grupo
+        produto_nome = grupo["produto"].dropna().iloc[0] if not grupo["produto"].dropna().empty else "—"
+        codigos = grupo["codigo"].astype(str).str.strip().replace("", None).dropna().unique().tolist()
+        codigo_principal = codigos[0] if codigos else ""
+        usuarios_grupo = sorted(grupo["usuario"].dropna().unique().tolist())
+        data_ultima = grupo["data_hora"].max()
+        n_atividades = len(grupo)
+
+        # ── Label de tipo de atividade (ícones por etapa)
+        tipos_presentes = grupo["tipo"].dropna().unique().tolist()
+        icones = []
+        for t in tipos_presentes:
+            tl = t.lower()
+            if "descriç" in tl:  icones.append("📝")
+            elif "imagem" in tl: icones.append("🖼️")
+            elif "ajuste" in tl: icones.append("✏️")
+            elif "título" in tl: icones.append("🔤")
+            elif "palavra" in tl: icones.append("🔍")
+            elif "viab" in tl:   icones.append("📊")
+            else:                icones.append("📌")
+        etapas_str = " ".join(dict.fromkeys(icones))  # sem duplicatas, mantém ordem
+
+        # ── Link do Drive (mais recente)
+        link_pasta_vals = grupo["link_pasta"].astype(str).str.strip().replace("", None).dropna()
+        link_pasta = link_pasta_vals.iloc[-1] if not link_pasta_vals.empty else ""
+
+        # ── Detalhes rápidos (cor, medidas)
+        cor_val   = grupo["cor"].astype(str).str.strip().replace("", None).dropna()
+        med_val   = grupo["medidas"].astype(str).str.strip().replace("", None).dropna()
+
+        # ── Header do card ────────────────────────────────────────────────────
+        label_expander = (
+            f"{etapas_str}  **{produto_nome}**"
+            + (f"  ·  `{codigo_principal}`" if codigo_principal else "")
+            + f"  ·  {n_atividades} etapa(s)"
+            + f"  ·  {', '.join(usuarios_grupo)}"
+            + f"  ·  {data_ultima}"
+        )
+
+        with st.expander(label_expander, expanded=False):
+            # Metadados do produto
+            meta = []
+            if cor_val.any():   meta.append(f"🎨 **Cor:** {cor_val.iloc[0]}")
+            if med_val.any():   meta.append(f"📐 **Medidas:** {med_val.iloc[0]}")
+            if codigo_principal: meta.append(f"📋 **Código:** `{codigo_principal}`")
+            if meta:
+                st.caption("  ·  ".join(meta))
+
+            st.markdown("---")
+
+            # Lista de etapas (mais recente primeiro)
+            for _, row in grupo.iterrows():
+                resumo_txt = str(row.get("resumo", "")).strip()
+                resumo_curto = resumo_txt[:120] + ("…" if len(resumo_txt) > 120 else "")
+                col_d, col_u, col_t, col_r = st.columns([2, 1, 2, 4])
+                col_d.caption(str(row.get("data_hora", "")))
+                col_u.caption(str(row.get("usuario", "")))
+                col_t.markdown(f"**{row.get('tipo', '')}**")
+                col_r.caption(resumo_curto or "—")
+
+            st.markdown("---")
+
+            # Ações do card
+            col_drive, col_btn = st.columns([1, 1])
+            if link_pasta:
+                col_drive.markdown(f"[📁 Abrir pasta no Drive]({link_pasta})")
+            if codigo_principal:
+                if col_btn.button(
+                    "📋 Usar este código na aba Imagem",
+                    key=f"usar_cod_{chave}",
+                    use_container_width=True,
+                ):
+                    st.session_state["img_codigo_importado"] = codigo_principal
+                    st.session_state["img_nome_importado"] = produto_nome
+                    st.success(f"Código **{codigo_principal}** copiado! Vá para a aba Imagem.")
