@@ -1,52 +1,184 @@
 import streamlit as st
 import requests
 import base64
+import io
+import zipfile
+import json
+import anthropic
 
-MODELO_IMAGEM = "gemini-3-pro-image-preview"  # Nano Banana Pro -- melhor renderização de texto em imagem
+MODELO_IMAGEM = "gemini-3-pro-image-preview"  # Nano Banana Pro
+
+# ── PADRÃO VISUAL MARTINSOUSA (hardcoded em todos os prompts) ──────────────────
+PADRAO_VISUAL = """
+PADRÃO VISUAL OBRIGATÓRIO DA EMPRESA (aplique em todas as peças de marketing):
+- Fundo: #E8EEF5 (azul-cinza claro suave)
+- Cor principal / texto e elementos gráficos: #1A3A6B (azul marinho)
+- Cor de destaque secundária: #4A7EC7 (azul médio)
+- Fonte: Montserrat ou Poppins — nunca fontes serifadas
+- Ícones: estilo line-art clean, traço fino, monocromáticos em azul marinho
+- Elementos decorativos: círculos ou manchas suaves em azul marinho ou azul médio,
+  usados como moldura ou destaque atrás do produto ou dos ícones
+- Texto sempre em português do Brasil, sem erros ortográficos, sem caixa alta excessiva
+- Visual limpo, arejado, profissional — sem poluição visual
+- NÃO use marrom, laranja, vermelho ou verde como cores principais
+"""
+
+INSTRUCAO_FIDELIDADE = """
+REGRA DE FIDELIDADE AO PRODUTO (não negocie):
+- Reproduza o produto EXATAMENTE como aparece nas imagens de referência: mesma cor,
+  mesmo formato, mesmas proporções, mesmos detalhes visíveis
+- Se uma característica do produto não estiver visível nas fotos de referência e for
+  necessária para a composição, SINALIZE ISSO no plano em vez de inventar
+- Nunca deforme, alongue, encurte ou altere qualquer parte do produto
+- Nunca crie detalhes que não aparecem nas fotos de referência
+"""
+
+INSTRUCAO_COMPOSICAO = """
+INSTRUÇÃO DE COMPOSIÇÃO:
+- Use as imagens de referência APENAS para manter o produto reconhecível e fiel
+- Componha uma cena/layout NOVO e apropriado para o tipo de imagem solicitado
+- Não reaproveite a foto de referência literalmente — crie uma peça nova
+"""
+
+# ── PRESETS ATUALIZADOS COM IDENTIDADE VISUAL ─────────────────────────────────
+TIPOS_PADRAO = [
+    "1 — Produto com fundo branco",
+    "2 — Benefícios do produto",
+    "3 — Benefícios no cenário de uso",
+    "4 — Close nos detalhes",
+    "5 — Características técnicas (medidas/peso/material)",
+    "6 — Quebra de objeção",
+    "7 — Presenteie",
+]
 
 PRESETS = {
     "Personalizado (descrevo o que quero)": "",
-    "1 -- Produto com fundo branco": (
-        "Foto de produto limpa e profissional, fundo branco liso, produto centralizado, "
-        "iluminação de estúdio, sem texto sobreposto."
+    "1 — Produto com fundo branco": (
+        "Foto de produto limpa e profissional, fundo branco liso, produto centralizado e bem iluminado, "
+        "iluminação de estúdio suave sem sombras duras, sem texto sobreposto, sem elementos extras. "
+        "O produto deve ocupar 70-80% do frame."
     ),
-    "2 -- Benefícios do produto": (
-        "Peça de marketing com título curto no topo destacando o principal benefício do produto, "
-        "abaixo blocos lado a lado, cada um com um ícone simples, um título curto e uma frase "
-        "explicando um benefício diferente que o produto agrega. Fundo azul e branco, visual "
-        "limpo e moderno."
+    "2 — Benefícios do produto": (
+        "Peça de marketing mostrando os principais benefícios do produto. "
+        "Layout: produto em destaque no centro ou à esquerda, à direita blocos verticais empilhados "
+        "com ícone line-art + título curto (2-3 palavras) + frase explicativa (1 linha). "
+        "Máximo 4 benefícios. Título principal em destaque no topo."
     ),
-    "3 -- Benefícios no cenário de uso": (
-        "Peça de marketing mostrando o produto sendo usado em cenários reais do dia a dia, com "
-        "frases curtas de destaque explicando o que o produto agrega na prática em cada cena. "
-        "Fundo azul e branco, visual limpo e moderno."
+    "3 — Benefícios no cenário de uso": (
+        "Peça de marketing mostrando o produto sendo usado em um cenário real do dia a dia. "
+        "Cena realista e aspiracional com iluminação natural. "
+        "Frases curtas de destaque flutuando sobre ou ao lado do produto, explicando o benefício "
+        "daquele momento de uso específico. Tom acolhedor e moderno."
     ),
-    "4 -- Close nos detalhes do produto": (
-        "Imagem em zoom aproximado valorizando os detalhes de acabamento e qualidade do produto, "
-        "com pequenas legendas apontando pra cada detalhe importante. Fundo azul e branco."
+    "4 — Close nos detalhes": (
+        "Imagem em zoom aproximado valorizando os acabamentos e qualidade do produto. "
+        "Pequenas setas ou linhas finas apontando para cada detalhe, com legenda curta ao lado. "
+        "Foco em textura, material, costuras, encaixe, ou qualquer acabamento que diferencie o produto. "
+        "Máximo 4 pontos de destaque."
     ),
-    "5 -- Características (medidas/peso/material)": (
-        "Imagem técnica do produto com linhas de medida (estilo desenho técnico) mostrando altura, "
-        "largura e profundidade exatas, além de peso e material, com os dados anotados de forma "
-        "clara. Fundo branco, visual limpo e técnico."
+    "5 — Características técnicas (medidas/peso/material)": (
+        "Imagem técnica do produto com linhas de medida estilo desenho técnico, mostrando as dimensões "
+        "exatas (altura, largura, profundidade). Peso e material indicados com ícones técnicos. "
+        "Dados anotados de forma clara e legível. Fundo claro, visual limpo e técnico."
     ),
-    "6 -- Quebra de objeção": (
-        "Peça de marketing respondendo de forma direta e visual as principais dúvidas que um "
-        "cliente teria antes de comprar esse produto (ex: qualidade, durabilidade, garantia, "
-        "funcionamento) -- formato de perguntas curtas com respostas objetivas ao lado. Fundo "
-        "azul e branco, visual limpo, transmitindo confiança."
+    "6 — Quebra de objeção": (
+        "Peça de marketing respondendo as principais dúvidas de quem está prestes a comprar. "
+        "Formato: 3 a 4 blocos, cada um com uma objeção comum em forma de pergunta curta e a "
+        "resposta direta e tranquilizadora ao lado ou abaixo. Ícone de check ou escudo. "
+        "Tom de confiança e credibilidade."
     ),
-    "7 -- Presenteie": (
-        "Peça de marketing emocional incentivando a compra do produto como presente, com frase "
-        "impactante de destaque e uma cena mostrando o momento de presentear (entrega/reação "
-        "positiva). Fundo azul e branco, visual acolhedor."
+    "7 — Presenteie": (
+        "Peça de marketing emocional incentivando a compra do produto como presente. "
+        "Frase principal de impacto emocional em destaque (ex: 'O presente certo para quem você ama'). "
+        "Composição com laço, embrulho ou contexto de presente. Tom acolhedor e especial. "
+        "Cena mostrando a entrega ou o momento de surpresa com reação positiva."
     ),
 }
 
 
+# ── TRIAGEM POR IA (análise textual, sem gastar com geração) ──────────────────
+
+def gerar_triagem_ia(nome_produto, tipos_selecionados, dados_descricao, instrucoes_extras, fotos_bytes):
+    """Pede para a IA analisar o que ela criaria para cada tipo de imagem,
+    ANTES de gastar com a geração real. Retorna lista de dicts com o plano."""
+    api_key = st.secrets.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        return None, "ANTHROPIC_API_KEY não configurada."
+
+    tipos_str = "\n".join(f"- {t}: {PRESETS.get(t,'')[:120]}..." for t in tipos_selecionados)
+
+    contexto_descricao = ""
+    if dados_descricao:
+        contexto_descricao = f"""
+DADOS DA DESCRIÇÃO DO PRODUTO (vinculados pelo código):
+- Cor: {dados_descricao.get('cor', 'não informada')}
+- Medidas: {dados_descricao.get('medidas', 'não informadas')}
+- Categoria: {dados_descricao.get('categoria', 'não informada')}
+- Diferenciais: {dados_descricao.get('diferenciais', 'não informados')}
+- Características: {dados_descricao.get('caracteristicas', 'não informadas')}
+- Uso: {dados_descricao.get('uso', 'não informado')}
+"""
+
+    prompt = f"""Você é um especialista em criação de imagens para anúncios de e-commerce no Mercado Livre.
+
+PRODUTO: {nome_produto}
+{contexto_descricao}
+NÚMERO DE FOTOS DE REFERÊNCIA ENVIADAS: {len(fotos_bytes)}
+{f"INSTRUÇÕES EXTRAS DO COLABORADOR: {instrucoes_extras}" if instrucoes_extras else ""}
+
+TIPOS DE IMAGEM A CRIAR:
+{tipos_str}
+
+{PADRAO_VISUAL}
+
+TAREFA: Para cada tipo de imagem listado, descreva em detalhe o que você criaria.
+Seja específico sobre: composição, posição do produto, textos que aparecerão na imagem,
+cores usadas, ícones, cenas ou cenários.
+
+SE ALGUMA INFORMAÇÃO ESTIVER FALTANDO para criar um tipo de imagem com fidelidade
+(ex: ângulo não visível nas fotos, medida não informada, cor não confirmada),
+sinalize claramente com ⚠️ e explique o que falta.
+
+Responda em JSON com este formato exato:
+{{
+  "plano": [
+    {{
+      "tipo": "nome do tipo",
+      "numero": 1,
+      "composicao": "descrição detalhada do que será criado",
+      "textos": ["texto 1 que aparecerá", "texto 2"],
+      "flags": ["⚠️ aviso 1 se houver"],
+      "viavel": true
+    }}
+  ],
+  "observacao_geral": "qualquer comentário geral sobre o conjunto de imagens"
+}}
+"""
+
+    client = anthropic.Anthropic(api_key=api_key)
+    try:
+        msg = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=2000,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        texto = msg.content[0].text.strip()
+        # Extrai JSON mesmo se vier com markdown ```json
+        if "```" in texto:
+            texto = texto.split("```")[1]
+            if texto.startswith("json"):
+                texto = texto[4:]
+        return json.loads(texto), None
+    except json.JSONDecodeError as e:
+        return None, f"Resposta da IA não veio em formato válido: {e}"
+    except Exception as e:
+        return None, str(e)
+
+
+# ── GERAÇÃO DE IMAGEM (Gemini) ─────────────────────────────────────────────────
+
 def gerar_imagem_ia(prompt_texto, imagens_referencia):
-    """imagens_referencia: lista de bytes de imagem (a foto real do produto, e/ou
-    outras referencias). Retorna (imagem_bytes, erro)."""
+    """imagens_referencia: lista de bytes. Retorna (imagem_bytes, erro)."""
     api_key = st.secrets.get("GEMINI_API_KEY", "")
     if not api_key:
         return None, "GEMINI_API_KEY não configurada nas Secrets."
@@ -72,7 +204,7 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia):
         resp = requests.post(
             f"https://generativelanguage.googleapis.com/v1beta/models/{MODELO_IMAGEM}:generateContent",
             headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
-            json=body, timeout=60,
+            json=body, timeout=90,
         )
         if resp.status_code != 200:
             return None, f"Erro da API (HTTP {resp.status_code}): {resp.text[:300]}"
@@ -84,205 +216,424 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia):
             inline = parte.get("inlineData") or parte.get("inline_data")
             if inline and inline.get("data"):
                 return base64.b64decode(inline["data"]), None
-        return None, "A IA respondeu, mas não veio nenhuma imagem no resultado (pode ter bloqueado o pedido)."
+        return None, "A IA respondeu, mas não veio nenhuma imagem (pode ter bloqueado o pedido)."
     except Exception as e:
         return None, str(e)
 
 
-# ── UPLOAD PRO GOOGLE DRIVE ─────────────────────────────────────────────────
+def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto):
+    """Monta o prompt completo para geração, incorporando identidade visual e dados do produto."""
+    base = PRESETS.get(tipo, instrucoes_extras or "")
+
+    contexto_produto = f"PRODUTO: {nome_produto}\n"
+    if dados_descricao:
+        if dados_descricao.get("cor"):
+            contexto_produto += f"Cor: {dados_descricao['cor']}\n"
+        if dados_descricao.get("medidas"):
+            contexto_produto += f"Medidas: {dados_descricao['medidas']}\n"
+        if dados_descricao.get("diferenciais"):
+            contexto_produto += f"Diferenciais principais: {dados_descricao['diferenciais'][:200]}\n"
+
+    return f"""{contexto_produto}
+TIPO DE IMAGEM: {tipo}
+{base}
+
+{PADRAO_VISUAL}
+{INSTRUCAO_FIDELIDADE}
+{INSTRUCAO_COMPOSICAO}
+"""
+
+
+# ── GOOGLE DRIVE — GESTÃO DE PASTAS ───────────────────────────────────────────
 
 def _drive_service():
     from googleapiclient.discovery import build
     from google.oauth2.service_account import Credentials
     creds_dict = dict(st.secrets["gcp_service_account"])
-    scopes = ["https://www.googleapis.com/auth/drive"]
-    creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+    creds = Credentials.from_service_account_info(
+        creds_dict, scopes=["https://www.googleapis.com/auth/drive"]
+    )
     return build("drive", "v3", credentials=creds)
 
 
-def upload_imagem_drive(imagem_bytes, nome_arquivo):
-    """Sobe a imagem pra pasta do Drive configurada e devolve o link publico
-    de visualizacao. Retorna (link, erro)."""
-    from googleapiclient.http import MediaInMemoryUpload
+def buscar_pasta_produto(nome_produto, codigo, pasta_pai_id):
+    """Busca pasta exata '[Nome] - [Código]' ou pelo nome aproximado.
+    Retorna lista de (id, name) encontrados."""
+    try:
+        service = _drive_service()
+        nome_exato = f"{nome_produto} - {codigo}".strip(" -")
 
-    pasta_id = st.secrets.get("DRIVE_PASTA_IMAGENS_ID", "")
-    if not pasta_id:
-        return None, "DRIVE_PASTA_IMAGENS_ID não configurada nas Secrets."
+        # Tenta nome exato primeiro
+        q = (f"'{pasta_pai_id}' in parents and mimeType='application/vnd.google-apps.folder' "
+             f"and name='{nome_exato}' and trashed=false")
+        res = service.files().list(q=q, fields="files(id,name)").execute()
+        if res.get("files"):
+            return [(f["id"], f["name"]) for f in res["files"]]
+
+        # Busca por trecho do nome do produto (fuzzy)
+        if nome_produto:
+            palavras = nome_produto.split()[:2]  # primeiras 2 palavras
+            for palavra in palavras:
+                if len(palavra) < 3:
+                    continue
+                q2 = (f"'{pasta_pai_id}' in parents and mimeType='application/vnd.google-apps.folder' "
+                      f"and name contains '{palavra}' and trashed=false")
+                res2 = service.files().list(q=q2, fields="files(id,name)").execute()
+                if res2.get("files"):
+                    return [(f["id"], f["name"]) for f in res2["files"]]
+        return []
+    except Exception:
+        return []
+
+
+def criar_pasta_produto(nome_pasta, pasta_pai_id):
+    """Cria nova pasta no Drive. Retorna (id, erro)."""
+    try:
+        service = _drive_service()
+        metadata = {
+            "name": nome_pasta,
+            "mimeType": "application/vnd.google-apps.folder",
+            "parents": [pasta_pai_id],
+        }
+        pasta = service.files().create(body=metadata, fields="id").execute()
+        return pasta["id"], None
+    except Exception as e:
+        return None, str(e)
+
+
+def upload_para_pasta(imagem_bytes, nome_arquivo, pasta_id):
+    """Faz upload de imagem para pasta específica. Retorna (link, erro)."""
+    from googleapiclient.http import MediaInMemoryUpload
     try:
         service = _drive_service()
         metadata = {"name": nome_arquivo, "parents": [pasta_id]}
         media = MediaInMemoryUpload(imagem_bytes, mimetype="image/png")
-        arquivo = service.files().create(body=metadata, media_body=media, fields="id, webViewLink").execute()
-        service.permissions().create(fileId=arquivo["id"], body={"role": "reader", "type": "anyone"}).execute()
+        arquivo = service.files().create(
+            body=metadata, media_body=media, fields="id, webViewLink"
+        ).execute()
+        service.permissions().create(
+            fileId=arquivo["id"],
+            body={"role": "reader", "type": "anyone"}
+        ).execute()
         return arquivo.get("webViewLink"), None
     except Exception as e:
         return None, str(e)
 
 
-# ── INTERFACE ──────────────────────────────────────────────────────────────────
+def criar_zip_galeria(galeria, nome_produto):
+    """Cria ZIP em memória com todas as imagens da galeria. Retorna bytes."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for g in galeria:
+            nome_arquivo = f"{nome_produto}_{g['tipo'][:30]}.png"
+            nome_arquivo = "".join(c if c.isalnum() or c in "._- " else "_" for c in nome_arquivo)
+            zf.writestr(nome_arquivo, g["bytes"])
+    buf.seek(0)
+    return buf.read()
+
+
+# ── INTERFACE PRINCIPAL ────────────────────────────────────────────────────────
 
 def pagina_imagem(usuario_logado):
     st.subheader("Imagem")
-    st.caption("Sobe a foto real do produto. Você pode gerar 1 imagem por vez, ou as 7 do padrão de uma vez (cada uma é uma geração separada, não uma imagem só com tudo junto).")
+    st.caption("Gere imagens profissionais para o anúncio. A IA mostra o que vai criar antes de gastar com a geração.")
 
-    nome_produto = st.text_input("Nome do produto", key="img_nome_produto_input")
-
-    foto_produto = st.file_uploader("Foto real do produto (referência)", type=["jpg", "jpeg", "png", "webp"])
-
-    modo = st.radio("O que gerar?", ["1 imagem específica", "As 7 imagens do padrão (separadas)"], horizontal=True)
-
-    INSTRUCAO_VARIACAO = (
-        "IMPORTANTE: use a imagem de referência anexada só pra manter o PRODUTO reconhecível e fiel "
-        "ao original (mesma cor, mesmo formato, mesmos detalhes) -- mas componha uma cena/imagem "
-        "NOVA e apropriada pra esse pedido específico, não reaproveite a foto de referência literalmente "
-        "sem mudança nenhuma. Paleta de cores: azul e branco. Texto sempre correto, sem erro de "
-        "ortografia, em português do Brasil."
-    )
-
-    if modo == "1 imagem específica":
-        tipo = st.selectbox("Tipo de imagem", list(PRESETS.keys()))
-        prompt_base = PRESETS[tipo]
-
-        instrucoes = st.text_area(
-            "Descreva o que você quer nessa imagem (textos, cenas, destaque)",
-            value=prompt_base, height=140, key=f"img_instrucoes_{tipo}",
-            placeholder="ex: título 'Guarda suas memórias com estilo', 3 benefícios: durabilidade, capa dura, folhas pretas...",
+    # ── LINHA 1: Nome + Código ─────────────────────────────────────────────────
+    col_nome, col_cod = st.columns(2)
+    with col_nome:
+        nome_produto = st.text_input(
+            "Nome do produto",
+            value=st.session_state.pop("img_nome_importado", ""),
+            key="img_nome_produto_input",
+        )
+    with col_cod:
+        codigo_input = st.text_input(
+            "Código da descrição (opcional)",
+            value=st.session_state.pop("img_codigo_importado", ""),
+            key="img_codigo_input",
+            placeholder="ex: MS-BENG-07174K2",
+            help="Cole o código gerado na aba Descrição para vincular as informações do produto.",
         )
 
-        conferir = st.button("Conferir pedido antes de gerar", type="primary", use_container_width=True)
-
-        if conferir:
-            if not foto_produto:
-                st.warning("Sobe a foto real do produto -- é a referência que garante que o produto gerado é reconhecível.")
-            elif not instrucoes:
-                st.warning("Descreve o que você quer na imagem.")
-            else:
-                st.session_state["img_pedido_pendente"] = {
-                    "modo": "unico", "tipo": tipo, "instrucoes": instrucoes,
-                    "foto_bytes": foto_produto.getvalue(), "nome_produto": nome_produto or "produto",
-                }
-
-    else:
-        st.caption("Gera as 7 imagens do padrão, uma por vez -- cada uma é uma peça separada, não um grid único.")
-        conferir_todas = st.button("Conferir pedido antes de gerar", type="primary", use_container_width=True)
-
-        if conferir_todas:
-            if not foto_produto:
-                st.warning("Sobe a foto real do produto -- é a referência que garante que o produto gerado é reconhecível.")
-            else:
-                st.session_state["img_pedido_pendente"] = {
-                    "modo": "lote", "foto_bytes": foto_produto.getvalue(),
-                    "nome_produto": nome_produto or "produto",
-                }
-
-    # ── ETAPA DE CONFERENCIA -- mostra em TEXTO o que vai ser pedido, sem gastar
-    # nada com a IA ainda. So depois de confirmar aqui e que a chamada paga acontece.
-    if "img_pedido_pendente" in st.session_state:
-        pedido = st.session_state["img_pedido_pendente"]
-        st.markdown("---")
-        st.markdown("##### Confira antes de gerar (essa etapa não gasta nada)")
-        st.image(pedido["foto_bytes"], caption="Foto de referência que será usada", width=200)
-
-        if pedido["modo"] == "unico":
-            n_imagens = 1
-            st.markdown(f"**Tipo de imagem:** {pedido['tipo']}")
-            st.markdown("**Instrução que será enviada pra IA:**")
-            st.info(pedido["instrucoes"])
+    # Busca dados da descrição pelo código
+    dados_descricao = None
+    if codigo_input:
+        import atividades as _atv
+        dados_descricao = _atv.buscar_por_codigo(codigo_input)
+        if dados_descricao:
+            st.success(
+                f"✅ Descrição encontrada: **{dados_descricao.get('nome_produto','')}** · "
+                f"Cor: {dados_descricao.get('cor') or '—'} · "
+                f"Medidas: {dados_descricao.get('medidas') or '—'}"
+            )
         else:
-            tipos_reais = [t for t in PRESETS.keys() if t != "Personalizado (descrevo o que quero)"]
-            n_imagens = len(tipos_reais)
-            st.markdown(f"**{n_imagens} imagens serão geradas, uma por vez:**")
-            for t in tipos_reais:
-                with st.expander(t):
-                    st.write(PRESETS[t])
+            st.warning("Código não encontrado no histórico. Pode continuar — só não haverá vínculo com a descrição.")
 
-        custo_estimado = n_imagens * 1.0  # ~R$1,00 por imagem em 2K (aproximado, varia com cambio)
-        st.warning(f"💰 Isso vai gerar {n_imagens} imagem(ns) de verdade, com custo estimado de **~R${custo_estimado:.2f}** (aproximado). Confirma?")
+    # Também usa dados do session_state do módulo de descrição se o usuário
+    # acabou de gerar na mesma sessão e ainda não copiou o código
+    if not dados_descricao and st.session_state.get("desc_codigo_atual") == codigo_input and codigo_input:
+        dados_descricao = st.session_state.get("desc_dados_atual")
 
-        col1, col2 = st.columns(2)
-        cancelar = col1.button("❌ Cancelar", use_container_width=True)
-        confirmar_gerar = col2.button("✅ Confirmar e gerar", type="primary", use_container_width=True)
+    # ── FOTOS DE REFERÊNCIA ────────────────────────────────────────────────────
+    st.markdown("**Fotos de referência do produto**")
+    st.caption("Suba quantas fotos quiser — ângulos diferentes ajudam a IA a ser mais fiel.")
+    fotos_upload = st.file_uploader(
+        "Fotos do produto (JPG, PNG, WebP)",
+        type=["jpg", "jpeg", "png", "webp"],
+        accept_multiple_files=True,
+        key="img_fotos_upload",
+    )
+    fotos_bytes = [f.getvalue() for f in fotos_upload] if fotos_upload else []
 
-        if cancelar:
-            del st.session_state["img_pedido_pendente"]
+    if fotos_bytes:
+        cols_prev = st.columns(min(len(fotos_bytes), 5))
+        for i, fb in enumerate(fotos_bytes[:5]):
+            cols_prev[i].image(fb, use_container_width=True)
+        if len(fotos_bytes) > 5:
+            st.caption(f"+ {len(fotos_bytes) - 5} foto(s) adicionais carregadas.")
+
+    # ── O QUE GERAR ───────────────────────────────────────────────────────────
+    st.markdown("---")
+    modo = st.radio(
+        "O que gerar?",
+        ["1 imagem específica", "Selecionar tipos", "As 7 imagens do padrão"],
+        horizontal=True,
+        key="img_modo",
+    )
+
+    tipos_selecionados = []
+    instrucoes_extras = ""
+
+    if modo == "1 imagem específica":
+        tipo_unico = st.selectbox("Tipo de imagem", list(PRESETS.keys()), key="img_tipo_unico")
+        instrucoes_extras = st.text_area(
+            "Descreva o que você quer nessa imagem (textos, cenas, destaque)",
+            value=PRESETS[tipo_unico],
+            height=120,
+            key=f"img_instr_{tipo_unico}",
+            placeholder="ex: título 'Guarda suas memórias com estilo', 3 benefícios: durabilidade, capa dura, folhas pretas...",
+        )
+        tipos_selecionados = [tipo_unico]
+
+    elif modo == "Selecionar tipos":
+        tipos_selecionados = st.multiselect(
+            "Quais imagens gerar?",
+            TIPOS_PADRAO,
+            default=TIPOS_PADRAO[:3],
+            key="img_tipos_multi",
+        )
+        instrucoes_extras = st.text_area(
+            "Observações gerais (aplicadas a todas as imagens selecionadas)",
+            height=80,
+            placeholder="ex: produto tem versão preta e branca, foca nos dois no fundo branco",
+            key="img_instr_multi",
+        )
+
+    else:  # As 7 imagens do padrão
+        tipos_selecionados = TIPOS_PADRAO
+        instrucoes_extras = st.text_area(
+            "Observações gerais (aplicadas a todas as 7 imagens)",
+            height=80,
+            placeholder="ex: produto vem em 3 cores, destaque a vermelha nas peças de marketing",
+            key="img_instr_lote",
+        )
+
+    # ── BOTÃO DE TRIAGEM ──────────────────────────────────────────────────────
+    st.markdown("---")
+    iniciar_triagem = st.button(
+        "🔍 Analisar e mostrar plano antes de gerar",
+        type="primary",
+        use_container_width=True,
+        disabled=not tipos_selecionados,
+    )
+
+    if iniciar_triagem:
+        if not nome_produto:
+            st.warning("Informe o nome do produto.")
+            st.stop()
+        if not fotos_bytes:
+            st.warning("Suba pelo menos uma foto do produto — é ela que garante fidelidade.")
+            st.stop()
+
+        with st.spinner("Analisando produto e montando o plano de criação..."):
+            plano, erro_triagem = gerar_triagem_ia(
+                nome_produto, tipos_selecionados, dados_descricao,
+                instrucoes_extras, fotos_bytes,
+            )
+
+        if erro_triagem:
+            st.error(f"Não consegui montar a triagem: {erro_triagem}")
+        else:
+            st.session_state["img_triagem_plano"] = plano
+            st.session_state["img_triagem_config"] = {
+                "nome_produto": nome_produto,
+                "codigo": codigo_input,
+                "tipos": tipos_selecionados,
+                "instrucoes_extras": instrucoes_extras,
+                "fotos_bytes": fotos_bytes,
+                "dados_descricao": dados_descricao,
+            }
             st.rerun()
 
-        if confirmar_gerar:
-            if pedido["modo"] == "unico":
-                prompt_final = f"{pedido['instrucoes']}\n\n{INSTRUCAO_VARIACAO}"
-                with st.spinner("Gerando imagem (pode levar alguns segundos)..."):
-                    imagem_bytes, erro = gerar_imagem_ia(prompt_final, [pedido["foto_bytes"]])
+    # ── EXIBIÇÃO DA TRIAGEM ───────────────────────────────────────────────────
+    if "img_triagem_plano" in st.session_state and "img_triagem_config" in st.session_state:
+        plano = st.session_state["img_triagem_plano"]
+        cfg = st.session_state["img_triagem_config"]
 
-                if erro:
-                    st.error(f"Não consegui gerar a imagem: {erro}")
-                else:
-                    st.session_state["img_galeria"] = [{"tipo": pedido["tipo"], "bytes": imagem_bytes}]
-                    st.session_state["img_nome_produto"] = pedido["nome_produto"]
-                    st.session_state["img_chat_log"] = []
-                    import atividades
-                    atividades.registrar_atividade(usuario_logado, "Imagem", pedido["nome_produto"], pedido["tipo"])
-                    del st.session_state["img_pedido_pendente"]
-                    st.rerun()
-            else:
-                tipos_reais = [t for t in PRESETS.keys() if t != "Personalizado (descrevo o que quero)"]
-                galeria = []
-                barra = st.progress(0.0, text="Gerando imagens...")
-                for i, t in enumerate(tipos_reais):
-                    prompt_final = f"{PRESETS[t]}\n\n{INSTRUCAO_VARIACAO}"
-                    barra.progress(i / len(tipos_reais), text=f"Gerando: {t}")
-                    img_bytes, erro = gerar_imagem_ia(prompt_final, [pedido["foto_bytes"]])
-                    if erro:
-                        st.warning(f"Falhou em '{t}': {erro}")
-                        continue
-                    galeria.append({"tipo": t, "bytes": img_bytes})
-                barra.progress(1.0, text="Concluído!")
+        st.markdown("---")
+        st.markdown("### 🗂️ Plano de criação — confira antes de gastar")
+        st.caption("Esta etapa não custou nada. Corrija o que precisar antes de confirmar a geração.")
 
+        itens_plano = plano.get("plano", [])
+        tem_flags = any(item.get("flags") for item in itens_plano)
+
+        for item in itens_plano:
+            viavel = item.get("viavel", True)
+            flags = item.get("flags", [])
+            cor_borda = "#f87171" if flags else "#4ade80"
+            with st.container(border=True):
+                st.markdown(f"**{item.get('numero', '')}. {item.get('tipo', '')}**")
+                st.markdown(item.get("composicao", ""))
+                textos = item.get("textos", [])
+                if textos:
+                    st.caption("Textos previstos: " + " · ".join(f'"{t}"' for t in textos))
+                for flag in flags:
+                    st.warning(flag)
+
+        if plano.get("observacao_geral"):
+            st.info(plano["observacao_geral"])
+
+        correcao = st.text_area(
+            "✏️ Correção ou instrução adicional (opcional — a IA aplicará antes de gerar)",
+            placeholder="ex: O produto é azul, não branco. Nas imagens de cenário, use ambiente externo, não doméstico.",
+            key="img_correcao_triagem",
+            height=80,
+        )
+
+        n_imagens = len(itens_plano)
+        custo_est = n_imagens * 1.0
+        st.warning(
+            f"💰 Isso vai gerar **{n_imagens} imagem(ns)** com custo estimado de **~R${custo_est:.2f}**. "
+            f"Confirma?"
+        )
+
+        col_cancelar, col_confirmar = st.columns(2)
+        if col_cancelar.button("❌ Cancelar", use_container_width=True):
+            del st.session_state["img_triagem_plano"]
+            del st.session_state["img_triagem_config"]
+            st.rerun()
+
+        if col_confirmar.button("✅ Confirmar e gerar", type="primary", use_container_width=True):
+            # Aplica correção ao config se houver
+            if correcao:
+                cfg["instrucoes_extras"] = (cfg.get("instrucoes_extras", "") + "\n\nCORREÇÃO DO COLABORADOR:\n" + correcao).strip()
+                st.session_state["img_triagem_config"] = cfg
+
+            galeria = []
+            barra = st.progress(0.0, text="Iniciando geração...")
+            tipos = cfg["tipos"]
+
+            for i, tipo in enumerate(tipos):
+                barra.progress(i / len(tipos), text=f"Gerando: {tipo[:50]}...")
+                prompt_final = montar_prompt_imagem(
+                    tipo,
+                    cfg.get("instrucoes_extras", ""),
+                    cfg.get("dados_descricao"),
+                    cfg["nome_produto"],
+                )
+                if correcao and tipo in cfg.get("instrucoes_extras", ""):
+                    pass  # já incorporado acima
+
+                img_bytes, erro_gen = gerar_imagem_ia(prompt_final, cfg["fotos_bytes"])
+                if erro_gen:
+                    st.warning(f"Falhou em '{tipo}': {erro_gen}")
+                    continue
+                galeria.append({"tipo": tipo, "bytes": img_bytes, "aprovado": False})
+
+            barra.progress(1.0, text="Concluído!")
+
+            if galeria:
                 st.session_state["img_galeria"] = galeria
-                st.session_state["img_nome_produto"] = pedido["nome_produto"]
+                st.session_state["img_nome_produto"] = cfg["nome_produto"]
+                st.session_state["img_codigo"] = cfg.get("codigo", "")
                 st.session_state["img_chat_log"] = []
                 import atividades
-                atividades.registrar_atividade(usuario_logado, "Imagem (lote de 7)", pedido["nome_produto"], f"{len(galeria)} imagens geradas")
-                del st.session_state["img_pedido_pendente"]
+                atividades.registrar_atividade(
+                    usuario_logado,
+                    f"Imagem ({len(galeria)} geradas)",
+                    cfg["nome_produto"],
+                    ", ".join(t[:20] for t in tipos[:3]) + ("..." if len(tipos) > 3 else ""),
+                    codigo=cfg.get("codigo", ""),
+                    cor=cfg.get("dados_descricao", {}).get("cor", "") if cfg.get("dados_descricao") else "",
+                    medidas=cfg.get("dados_descricao", {}).get("medidas", "") if cfg.get("dados_descricao") else "",
+                )
+                del st.session_state["img_triagem_plano"]
+                del st.session_state["img_triagem_config"]
                 st.rerun()
+            else:
+                st.error("Nenhuma imagem foi gerada com sucesso.")
 
+    # ── GALERIA ───────────────────────────────────────────────────────────────
     if "img_galeria" in st.session_state and st.session_state["img_galeria"]:
         st.markdown("---")
         galeria = st.session_state["img_galeria"]
+        nome_gal = st.session_state.get("img_nome_produto", "produto")
+        codigo_gal = st.session_state.get("img_codigo", "")
 
-        if len(galeria) == 1:
-            idx_ativo = 0
-            st.image(galeria[0]["bytes"], caption=galeria[0]["tipo"], use_container_width=True)
-        else:
-            nomes_galeria = [g["tipo"] for g in galeria]
-            escolha_galeria = st.selectbox("Qual imagem ver/ajustar/salvar?", nomes_galeria, key="img_escolha_galeria")
-            idx_ativo = nomes_galeria.index(escolha_galeria)
-            cols = st.columns(len(galeria))
-            for i, g in enumerate(galeria):
-                with cols[i]:
-                    st.image(g["bytes"], caption=g["tipo"][:12], use_container_width=True)
+        # Miniaturas clicáveis
+        nomes_galeria = [g["tipo"] for g in galeria]
+        n_cols = min(len(galeria), 4)
+        cols_gal = st.columns(n_cols)
+        for i, g in enumerate(galeria):
+            with cols_gal[i % n_cols]:
+                st.image(g["bytes"], caption=g["tipo"][:20], use_container_width=True)
 
+        # Seleção da imagem ativa
+        escolha = st.selectbox("Imagem ativa (para ajustar ou baixar individualmente)", nomes_galeria, key="img_escolha")
+        idx_ativo = nomes_galeria.index(escolha)
         imagem_ativa = galeria[idx_ativo]["bytes"]
         tipo_ativo = galeria[idx_ativo]["tipo"]
 
-        col1, col2 = st.columns(2)
-        col1.download_button("⬇️ Baixar essa imagem", data=imagem_ativa,
-                              file_name=f"{st.session_state['img_nome_produto']}_{tipo_ativo[:20]}.png", mime="image/png",
-                              use_container_width=True, key=f"download_{idx_ativo}")
+        # Exibe imagem ativa grande
+        st.image(imagem_ativa, use_container_width=True)
 
-        if col2.button("☁️ Salvar no Google Drive", use_container_width=True, key=f"salvar_drive_{idx_ativo}"):
-            with st.spinner("Enviando pro Drive..."):
-                link, erro_drive = upload_imagem_drive(
-                    imagem_ativa, f"{st.session_state['img_nome_produto']}_{tipo_ativo[:20]}.png",
-                )
-            if erro_drive:
-                st.error(f"Não consegui salvar no Drive: {erro_drive}")
+        # Ações individuais
+        col_dl, col_drive_ind = st.columns(2)
+        col_dl.download_button(
+            "⬇️ Baixar esta imagem",
+            data=imagem_ativa,
+            file_name=f"{nome_gal}_{tipo_ativo[:20]}.png",
+            mime="image/png",
+            use_container_width=True,
+            key=f"dl_{idx_ativo}",
+        )
+        if col_drive_ind.button("☁️ Salvar esta no Drive", use_container_width=True, key=f"drive_ind_{idx_ativo}"):
+            pasta_pai = st.secrets.get("DRIVE_PASTA_IMAGENS_ID", "")
+            if not pasta_pai:
+                st.error("DRIVE_PASTA_IMAGENS_ID não configurada.")
             else:
-                st.success(f"Salvo! [Abrir no Drive]({link})")
-                import atividades
-                atividades.registrar_atividade(usuario_logado, "Imagem (salva no Drive)", st.session_state["img_nome_produto"], tipo_ativo)
+                with st.spinner("Enviando..."):
+                    nome_pasta = f"{nome_gal} - {codigo_gal}".strip(" -")
+                    pastas = buscar_pasta_produto(nome_gal, codigo_gal, pasta_pai)
+                    if pastas:
+                        pasta_id = pastas[0][0]
+                    else:
+                        pasta_id, err_pasta = criar_pasta_produto(nome_pasta, pasta_pai)
+                        if err_pasta:
+                            st.error(f"Erro ao criar pasta: {err_pasta}")
+                            pasta_id = None
+                    if pasta_id:
+                        link, err_up = upload_para_pasta(
+                            imagem_ativa, f"{tipo_ativo[:20]}.png", pasta_id
+                        )
+                        if err_up:
+                            st.error(f"Erro no upload: {err_up}")
+                        else:
+                            st.success(f"Salvo! [Abrir no Drive]({link})")
 
-        st.markdown("##### Precisa ajustar algo pontual? (na imagem selecionada acima)")
-        st.caption("Ex: 'troca a foto da direita por uma cena de presente', 'deixa o fundo mais escuro', 'aumenta o título' -- a IA edita em cima da imagem atual, sem começar do zero.")
+        # ── CHAT DE AJUSTE ────────────────────────────────────────────────────
+        st.markdown("##### Precisa ajustar algo nessa imagem?")
+        st.caption("Ex: 'troca o texto do título', 'fundo mais escuro', 'aumenta o produto' — a IA edita em cima da atual.")
 
         for autor, conteudo in st.session_state.get("img_chat_log", []):
             with st.chat_message(autor):
@@ -291,26 +642,111 @@ def pagina_imagem(usuario_logado):
                 else:
                     st.markdown(conteudo)
 
-        instrucao_img = st.chat_input("Digite o ajuste que precisa...")
+        instrucao_img = st.chat_input("Digite o ajuste...")
         if instrucao_img:
             st.session_state["img_chat_log"].append(("user", instrucao_img))
-
             prompt_ajuste = (
-                f"Ajuste essa imagem exatamente assim: {instrucao_img}\n\n"
-                f"Mantenha tudo o resto da imagem igual (mesmo layout, mesmas fotos, mesmo texto), "
-                f"só aplique o que foi pedido. Continue com a paleta azul e branco, texto sempre "
-                f"correto em português do Brasil."
+                f"Ajuste esta imagem exatamente assim: {instrucao_img}\n\n"
+                f"Mantenha todo o resto igual (mesmo layout, mesmos textos restantes, mesma composição). "
+                f"Aplique apenas o que foi pedido.\n\n{PADRAO_VISUAL}"
             )
-            with st.spinner("Ajustando imagem..."):
-                nova_imagem, erro_ajuste = gerar_imagem_ia(prompt_ajuste, [imagem_ativa])
+            with st.spinner("Ajustando..."):
+                nova_img, err_aj = gerar_imagem_ia(prompt_ajuste, [imagem_ativa])
 
-            if erro_ajuste:
-                st.session_state["img_chat_log"].append(("assistant", f"⚠️ Não consegui ajustar: {erro_ajuste}"))
+            if err_aj:
+                st.session_state["img_chat_log"].append(("assistant", f"⚠️ Não consegui ajustar: {err_aj}"))
             else:
-                st.session_state["img_galeria"][idx_ativo]["bytes"] = nova_imagem
-                st.session_state["img_chat_log"].append(("assistant", nova_imagem))
+                st.session_state["img_galeria"][idx_ativo]["bytes"] = nova_img
+                st.session_state["img_chat_log"].append(("assistant", nova_img))
+                import atividades
+                atividades.registrar_atividade(
+                    usuario_logado, "Ajuste de Imagem", nome_gal, instrucao_img[:100],
+                    codigo=codigo_gal,
+                )
+            st.rerun()
+
+        st.markdown("---")
+
+        # ── APROVAÇÃO E SALVAMENTO ─────────────────────────────────────────────
+        st.markdown("### ✅ Aprovar e salvar todas as imagens")
+        pasta_pai = st.secrets.get("DRIVE_PASTA_IMAGENS_ID", "")
+
+        # Busca pasta existente para mostrar ao colaborador
+        pastas_encontradas = []
+        if pasta_pai and nome_gal:
+            with st.spinner("Verificando pasta no Drive..."):
+                pastas_encontradas = buscar_pasta_produto(nome_gal, codigo_gal, pasta_pai)
+
+        nome_pasta_novo = f"{nome_gal} - {codigo_gal}".strip(" -") if codigo_gal else nome_gal
+
+        if pastas_encontradas:
+            st.info(
+                f"📁 Pasta encontrada no Drive: **{pastas_encontradas[0][1]}**\n\n"
+                f"As imagens serão adicionadas a essa pasta (sem apagar o que já está lá)."
+            )
+            pasta_destino_id = pastas_encontradas[0][0]
+            if len(pastas_encontradas) > 1:
+                escolha_pasta = st.selectbox(
+                    "Mais de uma pasta encontrada — qual usar?",
+                    [p[1] for p in pastas_encontradas],
+                    key="img_escolha_pasta",
+                )
+                pasta_destino_id = next(p[0] for p in pastas_encontradas if p[1] == escolha_pasta)
+        else:
+            st.info(f"📁 Será criada uma nova pasta no Drive: **{nome_pasta_novo}**")
+            pasta_destino_id = None  # será criada no momento do clique
+
+        col_aprovar, col_zip = st.columns(2)
+
+        if col_aprovar.button(
+            f"☁️ APROVAR E SALVAR no Drive ({len(galeria)} imagens)",
+            type="primary",
+            use_container_width=True,
+        ):
+            if not pasta_pai:
+                st.error("DRIVE_PASTA_IMAGENS_ID não configurada nas Secrets.")
+            else:
+                if pasta_destino_id is None:
+                    with st.spinner("Criando pasta..."):
+                        pasta_destino_id, err_pasta = criar_pasta_produto(nome_pasta_novo, pasta_pai)
+                    if err_pasta:
+                        st.error(f"Erro ao criar pasta: {err_pasta}")
+                        st.stop()
+
+                links_salvos = []
+                barra_salvar = st.progress(0.0, text="Salvando imagens...")
+                for i, g in enumerate(galeria):
+                    barra_salvar.progress(i / len(galeria), text=f"Salvando: {g['tipo'][:30]}...")
+                    nome_arq = f"{g['tipo'][:30]}.png"
+                    link, err_up = upload_para_pasta(g["bytes"], nome_arq, pasta_destino_id)
+                    if err_up:
+                        st.warning(f"Falhou '{g['tipo']}': {err_up}")
+                    else:
+                        links_salvos.append(link)
+
+                barra_salvar.progress(1.0, text="Concluído!")
+                link_pasta = f"https://drive.google.com/drive/folders/{pasta_destino_id}"
 
                 import atividades
-                atividades.registrar_atividade(usuario_logado, "Ajuste de Imagem", st.session_state["img_nome_produto"], instrucao_img[:100])
+                atividades.registrar_atividade(
+                    usuario_logado, "Imagem (aprovada e salva)",
+                    nome_gal,
+                    f"{len(links_salvos)} imagens salvas na pasta {nome_pasta_novo}",
+                    codigo=codigo_gal,
+                    link_pasta=link_pasta,
+                )
 
-            st.rerun()
+                st.success(
+                    f"✅ {len(links_salvos)} imagem(ns) salvas no Drive! "
+                    f"[Abrir pasta]({link_pasta})"
+                )
+
+        # ZIP sempre disponível
+        zip_bytes = criar_zip_galeria(galeria, nome_gal)
+        col_zip.download_button(
+            f"⬇️ Baixar todas em ZIP ({len(galeria)} imagens)",
+            data=zip_bytes,
+            file_name=f"{nome_gal}_imagens.zip",
+            mime="application/zip",
+            use_container_width=True,
+        )
