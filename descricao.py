@@ -1,7 +1,22 @@
 import streamlit as st
 import anthropic
 import math
+import re
+import random
+import string
+from datetime import datetime
 from params_oficiais import ML_COMISSAO_POR_CATEGORIA
+
+
+def gerar_codigo(nome_produto):
+    """Gera um código legível e único para vincular Descrição → Imagem.
+    Formato: MS-[ABREV]-[MMDD][3 chars aleatórios]
+    Ex: MS-BENG-07174K2"""
+    abrev = re.sub(r"[^A-Za-z]", "", nome_produto or "PROD").upper()[:4] or "PROD"
+    sufixo = datetime.now().strftime("%m%d") + "".join(
+        random.choices(string.ascii_uppercase + string.digits, k=3)
+    )
+    return f"MS-{abrev}-{sufixo}"
 
 
 EXEMPLO_1 = """A Bengala 3 Pontas com Apoio foi desenvolvida para auxiliar pessoas com mobilidade reduzida, proporcionando apoio e estabilidade para prevenir quedas durante a caminhada.
@@ -576,12 +591,29 @@ def pagina_descricao(usuario_logado):
             with st.spinner("Gerando descrição..."):
                 descricao = gerar_descricao(dados)
 
+            codigo = gerar_codigo(dados["nome_produto"])
+
             import atividades
-            atividades.registrar_atividade(usuario_logado, "Descrição", dados["nome_produto"], f"{len(descricao)} caracteres")
+            atividades.registrar_atividade(
+                usuario_logado, "Descrição", dados["nome_produto"],
+                f"{len(descricao)} caracteres",
+                codigo=codigo,
+                cor=dados.get("cor", ""),
+                medidas=dados.get("medidas", ""),
+            )
 
             del st.session_state["desc_dados_pendentes"]
             st.session_state["desc_texto_atual"] = descricao
             st.session_state["desc_nome_atual"] = dados["nome_produto"]
+            st.session_state["desc_codigo_atual"] = codigo
+            st.session_state["desc_dados_atual"] = {
+                "cor": dados.get("cor", ""),
+                "medidas": dados.get("medidas", ""),
+                "categoria": dados.get("categoria", ""),
+                "diferenciais": dados.get("diferenciais", ""),
+                "caracteristicas": dados.get("caracteristicas", ""),
+                "uso": dados.get("uso", ""),
+            }
             st.session_state["desc_chat_log"] = []
 
     # Resultado + chat de ajuste pontual -- fica fora do "if confirmar" pra
@@ -589,6 +621,28 @@ def pagina_descricao(usuario_logado):
     if "desc_texto_atual" in st.session_state:
         st.markdown("---")
         st.markdown(f"#### Descrição — {st.session_state['desc_nome_atual']}")
+
+        # ── CÓDIGO DA DESCRIÇÃO ────────────────────────────────────────────────
+        if "desc_codigo_atual" in st.session_state:
+            codigo_exibir = st.session_state["desc_codigo_atual"]
+            st.markdown(
+                f"""<div style="background:#1A3A6B; border-radius:8px; padding:12px 18px; margin-bottom:12px;">
+                <span style="color:#E8EEF5; font-size:13px; font-weight:600; letter-spacing:1px;">
+                CÓDIGO DA DESCRIÇÃO</span><br>
+                <span style="color:#FFFFFF; font-size:22px; font-weight:700; font-family:monospace; letter-spacing:2px;">
+                {codigo_exibir}</span><br>
+                <span style="color:#9BB5D9; font-size:12px;">
+                Use este código no módulo de Imagem para vincular as informações desta descrição.</span>
+                </div>""",
+                unsafe_allow_html=True,
+            )
+            col_cod1, col_cod2 = st.columns([3, 1])
+            col_cod1.text_input("Código (clique para copiar)", value=codigo_exibir,
+                                key="desc_codigo_copy", label_visibility="collapsed")
+            if col_cod2.button("📋 Copiar código", use_container_width=True):
+                st.session_state["clipboard_codigo"] = codigo_exibir
+                st.toast(f"Código {codigo_exibir} copiado!")
+
         st.code(st.session_state["desc_texto_atual"], language=None)
         st.caption(f"{len(st.session_state['desc_texto_atual'])}/10.000 caracteres (limite do Mercado Livre pra descrição)")
 
@@ -624,6 +678,10 @@ def pagina_descricao(usuario_logado):
             st.session_state["desc_chat_log"].append(("assistant", resposta))
 
             import atividades
-            atividades.registrar_atividade(usuario_logado, "Ajuste de Descrição", st.session_state["desc_nome_atual"], instrucao[:100])
+            atividades.registrar_atividade(
+                usuario_logado, "Ajuste de Descrição",
+                st.session_state["desc_nome_atual"], instrucao[:100],
+                codigo=st.session_state.get("desc_codigo_atual", ""),
+            )
 
             st.rerun()
