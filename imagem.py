@@ -159,18 +159,47 @@ Responda em JSON com este formato exato:
     try:
         msg = client.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=2000,
+            max_tokens=4096,
             messages=[{"role": "user", "content": prompt}]
         )
         texto = msg.content[0].text.strip()
+
         # Extrai JSON mesmo se vier com markdown ```json
         if "```" in texto:
-            texto = texto.split("```")[1]
-            if texto.startswith("json"):
-                texto = texto[4:]
-        return json.loads(texto), None
-    except json.JSONDecodeError as e:
-        return None, f"Resposta da IA não veio em formato válido: {e}"
+            partes = texto.split("```")
+            for parte in partes:
+                if parte.startswith("json"):
+                    texto = parte[4:].strip()
+                    break
+                elif parte.strip().startswith("{"):
+                    texto = parte.strip()
+                    break
+
+        try:
+            return json.loads(texto), None
+        except json.JSONDecodeError:
+            # Fallback: monta plano básico a partir dos tipos solicitados
+            # para não bloquear o colaborador quando a IA retornar JSON malformado
+            plano_fallback = {
+                "plano": [
+                    {
+                        "tipo": t,
+                        "numero": i + 1,
+                        "composicao": PRESETS.get(t, ""),
+                        "textos": [],
+                        "flags": [],
+                        "viavel": True,
+                    }
+                    for i, t in enumerate(tipos_selecionados)
+                ],
+                "observacao_geral": (
+                    "⚠️ A triagem detalhada não pôde ser gerada (resposta da IA incompleta). "
+                    "O plano abaixo usa os presets padrão de cada tipo. "
+                    "Revise as instruções antes de confirmar a geração."
+                ),
+            }
+            return plano_fallback, None
+
     except Exception as e:
         return None, str(e)
 
@@ -351,8 +380,8 @@ def pagina_imagem(usuario_logado):
             "Código da descrição (opcional)",
             value=st.session_state.pop("img_codigo_importado", ""),
             key="img_codigo_input",
-            placeholder="ex: MS-BENG-07174K2",
-            help="Cole o código gerado na aba Descrição para vincular as informações do produto.",
+            placeholder="ex: MS-BENG-07174K2  (gerado na aba Descrição)",
+            help="Gere uma descrição na aba Descrição — o código aparece num bloco azul no final. Copie e cole aqui. O nome do produto não é o código.",
         )
 
     # Busca dados da descrição pelo código
