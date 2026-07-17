@@ -723,11 +723,8 @@ def pagina_imagem(usuario_logado):
             else:
                 st.session_state["img_galeria"][idx_ativo]["bytes"] = nova_img
                 st.session_state["img_chat_log"].append(("assistant", nova_img))
-                import atividades
-                atividades.registrar_atividade(
-                    usuario_logado, "Ajuste de Imagem", nome_gal, instrucao_img[:100],
-                    codigo=codigo_gal,
-                )
+                # Ajustes intermediários não são registrados no histórico —
+                # somente a aprovação final (APROVAR E SALVAR) é registrada.
             st.rerun()
 
         st.markdown("---")
