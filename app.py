@@ -7,6 +7,7 @@ from params_oficiais import (
 import financeiro
 import atividades
 import auth
+import admin
 import triagem
 import palavras_chave
 import tit_ml as titulo
@@ -261,14 +262,25 @@ with st.sidebar:
     st.markdown("---")
     st.caption("Chaves configuradas automaticamente")
 
-aba_viabilidade, aba_triagem, aba_palavras, aba_titulo, aba_descricao, aba_imagem, aba_financeiro, aba_historico = st.tabs(
-    ["Análise de Viabilidade", "Triagem", "Palavras-chave", "Título", "Descrição", "Imagem", "Financeiro", "Histórico"])
+_eh_admin = auth.is_admin(usuario_logado)
+_nomes_abas = ["Análise de Viabilidade", "Triagem", "Palavras-chave", "Título",
+               "Descrição", "Imagem", "Financeiro", "Histórico"]
+if _eh_admin:
+    _nomes_abas.append("Administrativo")
+
+_abas = st.tabs(_nomes_abas)
+(aba_viabilidade, aba_triagem, aba_palavras, aba_titulo,
+ aba_descricao, aba_imagem, aba_financeiro, aba_historico) = _abas[:8]
 
 with aba_financeiro:
     financeiro.pagina_financeiro(usuario_logado)
 
 with aba_historico:
     atividades.pagina_historico()
+
+if _eh_admin:
+    with _abas[8]:
+        admin.pagina_admin(usuario_logado)
 
 with aba_triagem:
     triagem.pagina_triagem(usuario_logado)
