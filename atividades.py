@@ -7,7 +7,7 @@ from datetime import datetime
 PLANILHA_NOME = "MartinSousa - Financeiro"
 ABA_NOME = "atividades"
 COLUNAS = ["data_hora", "usuario", "tipo", "produto", "resumo",
-           "codigo", "cor", "medidas", "link_capa", "link_pasta"]
+           "codigo", "cor", "medidas", "peso", "link_capa", "link_pasta"]
 
 
 def _cliente():
@@ -41,7 +41,7 @@ def _aba():
 
 
 def registrar_atividade(usuario, tipo, produto, resumo,
-                        codigo="", cor="", medidas="",
+                        codigo="", cor="", medidas="", peso="",
                         link_capa="", link_pasta=""):
     """Grava uma linha no historico. Nunca deixa um erro aqui quebrar a
     tela principal -- se a gravacao falhar, so ignora silenciosamente."""
@@ -50,7 +50,7 @@ def registrar_atividade(usuario, tipo, produto, resumo,
         aba.append_row([
             datetime.now().strftime("%d/%m/%Y %H:%M"),
             usuario, tipo, produto, resumo,
-            codigo, cor, medidas, link_capa, link_pasta,
+            codigo, cor, medidas, peso, link_capa, link_pasta,
         ], value_input_option="RAW")
         carregar_atividades.clear()
     except Exception:
@@ -89,6 +89,7 @@ def buscar_por_codigo(codigo):
             "codigo": ultimo.get("codigo", ""),
             "cor": ultimo.get("cor", ""),
             "medidas": ultimo.get("medidas", ""),
+            "peso": ultimo.get("peso", ""),
             "link_capa": ultimo.get("link_capa", ""),
             "resumo": ultimo.get("resumo", ""),
         }
