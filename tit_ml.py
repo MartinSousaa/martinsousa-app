@@ -7,7 +7,9 @@ from params_oficiais import ML_COMISSAO_POR_CATEGORIA
 LIMITE_CARACTERES = 60  # limite do Mercado Livre -- o mais apertado entre as plataformas,
                          # usado como regra unica pra garantir que o titulo sirva em todas
 
-CAMPOS_TRIAGEM = ["nome_comercial", "categoria", "material", "variacao_cores", "diferenciais"]
+# Inclui todos os campos relevantes da triagem (inclusive uso e termos)
+CAMPOS_TRIAGEM = ["nome_comercial", "categoria", "material", "variacao_cores",
+                   "diferenciais", "uso", "termos_busca", "termos_evitar"]
 
 
 def gerar_titulos(dados, palavras_lista):
@@ -33,6 +35,7 @@ PRODUTO: {dados.get('nome_comercial','')}
 Categoria: {dados.get('categoria','')}
 Material: {dados.get('material','')}
 Diferenciais: {dados.get('diferenciais','')}
+Uso/ocasião: {dados.get('uso','')}
 
 PALAVRAS-CHAVE DISPONÍVEIS (use as mais relevantes, não precisa usar todas):
 {chr(10).join('- ' + p for p in palavras_lista)}
@@ -40,13 +43,61 @@ PALAVRAS-CHAVE DISPONÍVEIS (use as mais relevantes, não precisa usar todas):
 Responda SOMENTE com os 2 títulos, um por linha, sem numeração, sem aspas, sem explicação.
 """
     client = anthropic.Anthropic(api_key=api_key)
-    msg = client.messages.create(
-        model="claude-sonnet-4-6", max_tokens=300,
-        messages=[{"role": "user", "content": prompt}]
-    )
-    texto = msg.content[0].text.strip()
-    linhas = [l.strip("-•* \t\"") for l in texto.split("\n") if l.strip()]
-    return linhas[:2]
+    try:
+        msg = client.messages.create(
+            model="claude-sonnet-4-6", max_tokens=300,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        texto = msg.content[0].text.strip()
+        linhas = [l.strip("-•* \t\"") for l in texto.split("\n") if l.strip()]
+        return linhas[:2], None
+    except Exception as e:
+        return [], str(e)
+
+
+def ajustar_titulos(titulos_atuais, instrucao, dados, palavras_lista):
+    """Recebe os títulos atuais e uma instrução. Retorna 2 títulos ajustados."""
+    api_key = st.secrets.get("ANTHROPIC_API_KEY", "")
+    titulos_str = "\n".join(f"{i+1}. {t}" for i, t in enumerate(titulos_atuais))
+    prompt = f"""Você gerou os seguintes títulos para o produto "{dados.get('nome_comercial','')}":
+
+{titulos_str}
+
+O colaborador pediu o seguinte ajuste:
+"{instrucao}"
+
+Regras que continuam valendo:
+- Máximo {LIMITE_CARACTERES} caracteres cada (conte os espaços)
+- Os 2 títulos devem ser diferentes entre si
+- Sem "novo", "frete grátis", "promoção" ou termos de venda
+{"- NÃO inclua a cor (produto com variação de cor)" if "," in (dados.get("variacao_cores") or "") else ""}
+
+Retorne SOMENTE os 2 títulos ajustados, um por linha, sem numeração, sem aspas, sem explicação.
+"""
+    client = anthropic.Anthropic(api_key=api_key)
+    try:
+        msg = client.messages.create(
+            model="claude-sonnet-4-6", max_tokens=300,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        texto = msg.content[0].text.strip()
+        linhas = [l.strip("-•* \t\"") for l in texto.split("\n") if l.strip()]
+        return linhas[:2], None
+    except Exception as e:
+        return titulos_atuais, str(e)
+
+
+def _exibir_titulos(titulos):
+    """Renderiza os títulos com contador de caracteres colorido."""
+    for i, t in enumerate(titulos, start=1):
+        n_chars = len(t)
+        cor = "#4ade80" if n_chars <= LIMITE_CARACTERES else "#f87171"
+        st.markdown(f"**Opção {i}:** {t}")
+        st.markdown(
+            f"<span style='color:{cor}; font-size:13px;'>{n_chars}/{LIMITE_CARACTERES} caracteres</span>",
+            unsafe_allow_html=True,
+        )
+        st.markdown("")
 
 
 def pagina_titulo(usuario_logado):
@@ -88,6 +139,7 @@ def pagina_titulo(usuario_logado):
         material = col1.text_input("Material", value=dados_iniciais.get("material", ""))
         variacao_cores = col2.text_input("Variação de cores", value=dados_iniciais.get("variacao_cores", ""))
 
+        uso = st.text_input("Uso / ocasião", value=dados_iniciais.get("uso", ""))
         diferenciais = st.text_area("Diferenciais", value=dados_iniciais.get("diferenciais", ""))
 
         gerar = st.form_submit_button("Gerar Título", type="primary", use_container_width=True)
@@ -100,25 +152,77 @@ def pagina_titulo(usuario_logado):
         dados = {
             "nome_comercial": nome_comercial, "categoria": categoria, "material": material,
             "variacao_cores": variacao_cores, "diferenciais": diferenciais,
+            "uso": uso,
         }
 
         with st.spinner("Gerando palavras-chave de apoio..."):
-            palavras_lista = palavras_chave.gerar_palavras_chave(dados)
+            palavras_lista, erro_pc = palavras_chave.gerar_palavras_chave(dados)
+
+        if erro_pc:
+            st.error(f"Erro ao gerar palavras-chave: {erro_pc}")
+            return
 
         with st.spinner("Montando títulos..."):
-            titulos = gerar_titulos(dados, palavras_lista)
+            titulos, erro_tit = gerar_titulos(dados, palavras_lista)
+
+        if erro_tit:
+            st.error(f"Erro ao gerar títulos: {erro_tit}")
+            return
 
         import atividades
         atividades.registrar_atividade(usuario_logado, "Título", nome_comercial, f"{len(titulos)} títulos gerados")
 
-        st.markdown("---")
-        st.markdown(f"#### Títulos — {nome_comercial}")
-        for i, t in enumerate(titulos, start=1):
-            n_chars = len(t)
-            cor = "#4ade80" if n_chars <= LIMITE_CARACTERES else "#f87171"
-            st.markdown(f"**Opção {i}:** {t}")
-            st.markdown(f"<span style='color:{cor}; font-size:13px;'>{n_chars}/{LIMITE_CARACTERES} caracteres</span>", unsafe_allow_html=True)
-            st.markdown("")
+        # Persiste no session_state para não perder ao trocar de aba
+        st.session_state["tt_titulos_gerados"] = titulos
+        st.session_state["tt_palavras_usadas"] = palavras_lista
+        st.session_state["tt_dados_produto"] = dados
+        st.session_state["tt_chat_log"] = []
+        st.rerun()
 
-        with st.expander("Ver palavras-chave usadas como base"):
-            st.write(palavras_lista)
+    # ── RESULTADO E CHAT ──────────────────────────────────────────────────────
+    titulos_salvos = st.session_state.get("tt_titulos_gerados")
+    if not titulos_salvos:
+        return
+
+    palavras_salvas = st.session_state.get("tt_palavras_usadas", [])
+    dados_produto = st.session_state.get("tt_dados_produto", {})
+    nome_exibir = dados_produto.get("nome_comercial", "produto")
+
+    st.markdown("---")
+    st.markdown(f"#### Títulos — {nome_exibir}")
+    _exibir_titulos(titulos_salvos)
+
+    with st.expander("Ver palavras-chave usadas como base"):
+        st.write(palavras_salvas)
+
+    # ── CHAT DE AJUSTE ────────────────────────────────────────────────────────
+    st.markdown("##### Ajustar títulos")
+    st.caption("Peça para reformular, mudar o foco ou ajustar o tamanho. Ex: *coloque o material no início* ou *versão mais focada no uso como presente*.")
+
+    for autor, mensagem in st.session_state.get("tt_chat_log", []):
+        with st.chat_message(autor):
+            st.markdown(mensagem)
+
+    instrucao_tt = st.chat_input("Ex: coloque o material no início · foco em presente · tente ficar abaixo de 55 caracteres")
+
+    if instrucao_tt:
+        st.session_state["tt_chat_log"].append(("user", instrucao_tt))
+
+        with st.spinner("Ajustando títulos..."):
+            novos_titulos, erro_aj = ajustar_titulos(
+                titulos_salvos, instrucao_tt, dados_produto, palavras_salvas
+            )
+
+        if erro_aj:
+            st.session_state["tt_chat_log"].append(("assistant", f"⚠️ Erro ao ajustar: {erro_aj}"))
+        else:
+            st.session_state["tt_titulos_gerados"] = novos_titulos
+            # Monta mensagem de resposta com os títulos atualizados
+            linhas_resp = ["✅ Títulos atualizados:"]
+            for i, t in enumerate(novos_titulos, 1):
+                n = len(t)
+                status = "✅" if n <= LIMITE_CARACTERES else "⚠️ acima do limite"
+                linhas_resp.append(f"**Opção {i}:** {t}  ·  *{n} chars {status}*")
+            st.session_state["tt_chat_log"].append(("assistant", "\n\n".join(linhas_resp)))
+
+        st.rerun()
