@@ -349,9 +349,9 @@ with aba_viabilidade:
 
     if analisar:
         erros = []
-        if not nome_produto:  erros.append("Nome do produto")
-        if not custo:         erros.append("Preco de custo")
-        if not preco_mercado: erros.append("Preco de mercado")
+        if not nome_produto:      erros.append("Nome do produto")
+        if custo is None:         erros.append("Preco de custo")
+        if preco_mercado is None: erros.append("Preco de mercado")
         if erros:
             st.warning(f"Preencha: {', '.join(erros)}")
             st.stop()
