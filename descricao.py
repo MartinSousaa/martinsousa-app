@@ -223,6 +223,8 @@ def pesquisar_usos_produto(nome_produto):
 
 def gerar_descricao(dados):
     api_key = st.secrets.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        raise ValueError("ANTHROPIC_API_KEY não configurada nas Secrets.")
 
     bloco_capacidade = ""
     if dados.get("capacidade_texto"):
@@ -325,17 +327,25 @@ REGRAS OBRIGATÓRIAS (política oficial do Mercado Livre):
 Responda SOMENTE com o texto da descrição, pronta pra colar no anúncio, sem comentário extra.
 """
     client = anthropic.Anthropic(api_key=api_key)
-    msg = client.messages.create(
-        model="claude-sonnet-4-6", max_tokens=1500,
-        messages=[{"role": "user", "content": prompt}]
-    )
-    return msg.content[0].text.strip()
+    try:
+        msg = client.messages.create(
+            model="claude-sonnet-4-6", max_tokens=3000,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        texto = msg.content[0].text.strip()
+        if not texto:
+            raise ValueError("A IA retornou uma resposta vazia.")
+        return texto
+    except Exception as e:
+        raise RuntimeError(f"Erro ao gerar descrição: {e}") from e
 
 
 def editar_descricao(descricao_atual, instrucao):
     """Ajuste pontual em cima do texto ja gerado -- recebe o texto completo atual
-    e devolve o texto completo ja ajustado, sem regerar do zero."""
+    e devolve (texto_ajustado, erro). Nunca retorna texto vazio sem avisar."""
     api_key = st.secrets.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        return descricao_atual, "ANTHROPIC_API_KEY não configurada nas Secrets."
     prompt = f"""Esta é a descrição atual de um anúncio de e-commerce:
 
 === DESCRIÇÃO ATUAL ===
@@ -362,11 +372,19 @@ frete/entrega, sem condição do produto, sem caixa alta, sem termo promocional.
 Responda SOMENTE com o texto completo da descrição já ajustada, sem comentário extra.
 """
     client = anthropic.Anthropic(api_key=api_key)
-    msg = client.messages.create(
-        model="claude-sonnet-4-6", max_tokens=1500,
-        messages=[{"role": "user", "content": prompt}]
-    )
-    return msg.content[0].text.strip()
+    try:
+        msg = client.messages.create(
+            model="claude-sonnet-4-6", max_tokens=3000,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        novo_texto = msg.content[0].text.strip()
+        if not novo_texto:
+            return descricao_atual, "A IA retornou uma resposta vazia — o ajuste não foi aplicado."
+        if novo_texto == descricao_atual:
+            return descricao_atual, "A IA devolveu o texto sem nenhuma alteração. Tente reformular o pedido."
+        return novo_texto, None
+    except Exception as e:
+        return descricao_atual, f"Erro ao ajustar descrição: {e}"
 
 
 def tentar_edicao_deterministica(texto_atual, instrucao):
@@ -590,7 +608,11 @@ def pagina_descricao(usuario_logado):
 
         if st.button("✅ Está tudo certo, gerar descrição", type="primary", use_container_width=True):
             with st.spinner("Gerando descrição..."):
-                descricao = gerar_descricao(dados)
+                try:
+                    descricao = gerar_descricao(dados)
+                except Exception as e:
+                    st.error(f"Não consegui gerar a descrição: {e}")
+                    st.stop()
 
             codigo = gerar_codigo(dados["nome_produto"])
 
@@ -660,22 +682,22 @@ def pagina_descricao(usuario_logado):
 
             novo_texto_determ = tentar_edicao_deterministica(st.session_state["desc_texto_atual"], instrucao)
             if novo_texto_determ is not None:
-                novo_texto = novo_texto_determ
-                origem = "determinística"
+                st.session_state["desc_texto_atual"] = novo_texto_determ
+                alerta_verificacao = verificar_remocao_caracteres(instrucao, novo_texto_determ)
+                if alerta_verificacao:
+                    resposta = alerta_verificacao
+                else:
+                    resposta = "✅ Ajuste aplicado (remoção por busca exata, sem IA) — confira o texto acima."
             else:
                 with st.spinner("Ajustando..."):
-                    novo_texto = editar_descricao(st.session_state["desc_texto_atual"], instrucao)
-                origem = "ia"
-
-            st.session_state["desc_texto_atual"] = novo_texto
-
-            alerta_verificacao = verificar_remocao_caracteres(instrucao, novo_texto)
-            if alerta_verificacao:
-                resposta = alerta_verificacao
-            elif origem == "determinística":
-                resposta = "Ajuste aplicado (removido por busca exata no texto, sem depender da IA) -- confira acima."
-            else:
-                resposta = "Ajuste aplicado -- confira o texto atualizado acima."
+                    novo_texto, erro_edicao = editar_descricao(st.session_state["desc_texto_atual"], instrucao)
+                if erro_edicao:
+                    resposta = f"⚠️ {erro_edicao}"
+                    # Não atualiza o texto — mantém o original
+                else:
+                    st.session_state["desc_texto_atual"] = novo_texto
+                    alerta_verificacao = verificar_remocao_caracteres(instrucao, novo_texto)
+                    resposta = alerta_verificacao if alerta_verificacao else "✅ Ajuste aplicado — confira o texto acima."
             st.session_state["desc_chat_log"].append(("assistant", resposta))
 
             import atividades
