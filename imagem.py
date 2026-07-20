@@ -1,844 +1,688 @@
 import streamlit as st
-import requests
-import base64
-import io
-import zipfile
-import json
 import anthropic
-
-MODELO_IMAGEM = "gemini-3-pro-image-preview"  # Nano Banana Pro
-
-# ── PADRÃO VISUAL MARTINSOUSA (hardcoded em todos os prompts) ──────────────────
-PADRAO_VISUAL = """
-PADRÃO VISUAL OBRIGATÓRIO DA EMPRESA (aplique em todas as peças de marketing):
-- Fundo: #E8EEF5 (azul-cinza claro suave)
-- Cor principal / texto e elementos gráficos: #1A3A6B (azul marinho)
-- Cor de destaque secundária: #4A7EC7 (azul médio)
-- Fonte: Montserrat ou Poppins — nunca fontes serifadas
-- Ícones: estilo line-art clean, traço fino, monocromáticos em azul marinho
-- Elementos decorativos: círculos ou manchas suaves em azul marinho ou azul médio,
-  usados como moldura ou destaque atrás do produto ou dos ícones
-- Texto sempre em português do Brasil, sem erros ortográficos, sem caixa alta excessiva
-- Visual limpo, arejado, profissional — sem poluição visual
-- NÃO use marrom, laranja, vermelho ou verde como cores principais
-"""
-
-INSTRUCAO_FIDELIDADE = """
-REGRA DE FIDELIDADE AO PRODUTO (não negocie):
-- Reproduza o produto EXATAMENTE como aparece nas imagens de referência: mesma cor,
-  mesmo formato, mesmas proporções, mesmos detalhes visíveis
-- Se uma característica do produto não estiver visível nas fotos de referência e for
-  necessária para a composição, SINALIZE ISSO no plano em vez de inventar
-- Nunca deforme, alongue, encurte ou altere qualquer parte do produto
-- Nunca crie detalhes que não aparecem nas fotos de referência
-"""
-
-INSTRUCAO_COMPOSICAO = """
-INSTRUÇÃO DE COMPOSIÇÃO:
-- Use as imagens de referência APENAS para manter o produto reconhecível e fiel
-- Componha uma cena/layout NOVO e apropriado para o tipo de imagem solicitado
-- Não reaproveite a foto de referência literalmente — crie uma peça nova
-"""
-
-# ── PRESETS ATUALIZADOS COM IDENTIDADE VISUAL ─────────────────────────────────
-TIPOS_PADRAO = [
-    "1 — Produto com fundo branco",
-    "2 — Benefícios do produto",
-    "3 — Benefícios no cenário de uso",
-    "4 — Close nos detalhes",
-    "5 — Características técnicas (medidas/peso/material)",
-    "6 — Quebra de objeção",
-    "7 — Presenteie",
-]
-
-PRESETS = {
-    "Personalizado (descrevo o que quero)": "",
-    "1 — Produto com fundo branco": (
-        "Foto de produto limpa e profissional, fundo branco liso, produto centralizado e bem iluminado, "
-        "iluminação de estúdio suave sem sombras duras, sem texto sobreposto, sem elementos extras. "
-        "O produto deve ocupar 70-80% do frame."
-    ),
-    "2 — Benefícios do produto": (
-        "Peça de marketing mostrando os principais benefícios do produto. "
-        "Layout: produto em destaque no centro ou à esquerda, à direita blocos verticais empilhados "
-        "com ícone line-art + título curto (2-3 palavras) + frase explicativa (1 linha). "
-        "Máximo 4 benefícios. Título principal em destaque no topo."
-    ),
-    "3 — Benefícios no cenário de uso": (
-        "Peça de marketing mostrando o produto sendo usado em um cenário real do dia a dia. "
-        "Cena realista e aspiracional com iluminação natural. "
-        "Frases curtas de destaque flutuando sobre ou ao lado do produto, explicando o benefício "
-        "daquele momento de uso específico. Tom acolhedor e moderno."
-    ),
-    "4 — Close nos detalhes": (
-        "Imagem em zoom aproximado valorizando os acabamentos e qualidade do produto. "
-        "Pequenas setas ou linhas finas apontando para cada detalhe, com legenda curta ao lado. "
-        "Foco em textura, material, costuras, encaixe, ou qualquer acabamento que diferencie o produto. "
-        "Máximo 4 pontos de destaque."
-    ),
-    "5 — Características técnicas (medidas/peso/material)": (
-        "Imagem técnica do produto com linhas de medida estilo desenho técnico, mostrando as dimensões "
-        "exatas (altura, largura, profundidade). Peso e material indicados com ícones técnicos. "
-        "Dados anotados de forma clara e legível. Fundo claro, visual limpo e técnico."
-    ),
-    "6 — Quebra de objeção": (
-        "Peça de marketing respondendo as principais dúvidas de quem está prestes a comprar. "
-        "Formato: 3 a 4 blocos, cada um com uma objeção comum em forma de pergunta curta e a "
-        "resposta direta e tranquilizadora ao lado ou abaixo. Ícone de check ou escudo. "
-        "Tom de confiança e credibilidade."
-    ),
-    "7 — Presenteie": (
-        "Peça de marketing emocional incentivando a compra do produto como presente. "
-        "Frase principal de impacto emocional em destaque (ex: 'O presente certo para quem você ama'). "
-        "Composição com laço, embrulho ou contexto de presente. Tom acolhedor e especial. "
-        "Cena mostrando a entrega ou o momento de surpresa com reação positiva."
-    ),
-}
+import math
+import re
+import random
+import string
+from datetime import datetime
+from params_oficiais import ML_COMISSAO_POR_CATEGORIA
 
 
-# ── TRIAGEM POR IA (análise textual, sem gastar com geração) ──────────────────
+def gerar_codigo(nome_produto):
+    """Gera um código legível e único para vincular Descrição → Imagem.
+    Formato: MS-[ABREV]-[MMDD][3 chars aleatórios]
+    Ex: MS-BENG-07174K2"""
+    abrev = re.sub(r"[^A-Za-z]", "", nome_produto or "PROD").upper()[:4] or "PROD"
+    sufixo = datetime.now().strftime("%m%d") + "".join(
+        random.choices(string.ascii_uppercase + string.digits, k=3)
+    )
+    return f"MS-{abrev}-{sufixo}"
 
-def gerar_triagem_ia(nome_produto, tipos_selecionados, dados_descricao, instrucoes_extras, fotos_bytes):
-    """Pede para a IA analisar o que ela criaria para cada tipo de imagem,
-    ANTES de gastar com a geração real. Retorna lista de dicts com o plano."""
-    api_key = st.secrets.get("ANTHROPIC_API_KEY", "")
-    if not api_key:
-        return None, "ANTHROPIC_API_KEY não configurada."
 
-    tipos_str = "\n".join(f"- {t}: {PRESETS.get(t,'')[:120]}..." for t in tipos_selecionados)
+EXEMPLO_1 = """A Bengala 3 Pontas com Apoio foi desenvolvida para auxiliar pessoas com mobilidade reduzida, proporcionando apoio e estabilidade para prevenir quedas durante a caminhada.
 
-    contexto_descricao = ""
-    if dados_descricao:
-        contexto_descricao = f"""
-DADOS DA DESCRIÇÃO DO PRODUTO (vinculados pelo código):
-- Cor: {dados_descricao.get('cor', 'não informada')}
-- Medidas: {dados_descricao.get('medidas', 'não informadas')}
-- Categoria: {dados_descricao.get('categoria', 'não informada')}
-- Diferenciais: {dados_descricao.get('diferenciais', 'não informados')}
-- Características: {dados_descricao.get('caracteristicas', 'não informadas')}
-- Uso: {dados_descricao.get('uso', 'não informado')}
-"""
+O recurso é resistente, leve e possui apoio de mão com cantos arredondados e design ergonômico, que contribui para melhor distribuição da pressão palmar e proporciona conforto durante o uso.
 
-    prompt = f"""Você é especialista em imagens para e-commerce no Mercado Livre. Seja BREVE e DIRETO.
+O dispositivo conta com 10 níveis de ajuste de altura.
 
-PRODUTO: {nome_produto}
-{contexto_descricao}
-FOTOS ENVIADAS: {len(fotos_bytes)}
-{f"INSTRUÇÕES EXTRAS: {instrucoes_extras}" if instrucoes_extras else ""}
+A bengala contém base de apoio ampliada, com 3 ponteiras que oferecem melhor aderência ao solo, gerando estabilidade e segurança ao caminhar.
 
-TIPOS A CRIAR:
-{tipos_str}
+Tamanho único ajustável.
+Produto compatível com usuários que tenham altura de 1,50m a 2mt
 
-TAREFA: Para cada tipo, informe em 1-2 frases curtas o que será criado (composição principal e textos).
-Só inclua flag ⚠️ se faltar uma informação CRÍTICA que vai comprometer a fidelidade da imagem. Máximo 1 flag por tipo.
+Composição:
+- Parte metálica: Alumínio
+- Apoio de mão: Polipropileno
+- Ponteira: Borracha
 
-Responda SOMENTE com JSON válido, sem texto antes ou depois:
-{{
-  "plano": [
-    {{
-      "tipo": "nome do tipo",
-      "numero": 1,
-      "composicao": "1-2 frases curtas descrevendo a imagem",
-      "textos": ["texto 1", "texto 2"],
-      "flags": ["⚠️ aviso crítico apenas se necessário"],
-      "viavel": true
-    }}
-  ],
-  "observacao_geral": "uma frase resumindo o conjunto, ou string vazia"
-}}
-"""
+MEDIDAS DO PRODUTO;
+Altura mínima: 64 cm
+Altura máxima: 101,50 cm
 
-    client = anthropic.Anthropic(api_key=api_key)
+Contém; 1 peça"""
+
+EXEMPLO_2 = """Benefícios da viseira: Ao contrário de um boné, a viseira apresenta materiais mais leves e que permitem transpiração adequada, sem deixar de lado a proteção. Os raios ultravioletas podem causar grande desconforto quando em contato direto com os olhos, além dos danos à visão.
+
+DIMENSÕES:
+- Modelo: Adulto
+- Aba: 7cm X 18cm
+- Ajuste de tamanho traseiro em velcro
+
+- Onde usar minha viseira?
+Em corridas ou atividades mais longas a viseira tende a ser a melhor opção porque protege o rosto como o boné, porém, ao contrário dele, a viseira deixa os fios de cabelo da parte superior da cabeça livres para transpirarem. Com isso, a sensação de calor diminui.
+
+- Como conservar minha viseira
+- Use sabão neutro
+- Produtos de limpeza com aromatizantes e corantes costumam ser agressivos com tecidos mais leves. Por isso, o sabão neutro é o mais indicado
+- Amaciantes e alvejantes são dispensáveis
+- Deixe secando na sombra"""
+
+
+# ── CALCULO DE CAPACIDADE DE FOTOS (deterministico, em Python -- nunca a IA "chutando") ──
+
+def parse_dimensoes(texto):
+    """Aceita '30x30x2', '30,5 x 30,5', '8.6x10.7' etc. Retorna lista de floats ou None."""
+    if not texto:
+        return None
+    texto = texto.strip().lower().replace(",", ".").replace(" ", "")
+    partes = [p for p in texto.replace("cm", "").split("x") if p]
     try:
-        msg = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=8192,
-            messages=[{"role": "user", "content": prompt}]
-        )
-        texto = msg.content[0].text.strip()
-
-        # Se a resposta foi cortada (max_tokens atingido), avisa mas tenta salvar
-        truncado = msg.stop_reason == "max_tokens"
-
-        # ── Extração robusta de JSON ───────────────────────────────────────────
-        import re as _re
-
-        def _tentar_parse(s):
-            try:
-                return json.loads(s)
-            except Exception:
-                return None
-
-        resultado = None
-
-        # 1. Texto direto
-        resultado = _tentar_parse(texto)
-
-        # 2. Bloco ```json ... ``` (regex, mais confiável que split)
-        if resultado is None:
-            m = _re.search(r"```(?:json)?\s*(\{.*?\})\s*```", texto, _re.DOTALL)
-            if m:
-                resultado = _tentar_parse(m.group(1))
-
-        # 3. Primeiro { até o último }
-        if resultado is None:
-            start = texto.find("{")
-            end = texto.rfind("}")
-            if start != -1 and end > start:
-                resultado = _tentar_parse(texto[start:end + 1])
-
-        if resultado is not None:
-            return resultado, None
-
-        # ── Fallback: plano básico com presets ────────────────────────────────
-        motivo = (
-            "resposta da IA truncada (max_tokens atingido)" if truncado
-            else "resposta da IA não estava em formato JSON válido"
-        )
-        plano_fallback = {
-            "plano": [
-                {
-                    "tipo": t,
-                    "numero": i + 1,
-                    "composicao": PRESETS.get(t, ""),
-                    "textos": [],
-                    "flags": [],
-                    "viavel": True,
-                }
-                for i, t in enumerate(tipos_selecionados)
-            ],
-            "observacao_geral": (
-                f"⚠️ A triagem detalhada não pôde ser gerada ({motivo}). "
-                "O plano abaixo usa os presets padrão de cada tipo. "
-                "Revise as instruções antes de confirmar a geração."
-            ),
-        }
-        return plano_fallback, None
-
-    except Exception as e:
-        return None, str(e)
+        return [float(p) for p in partes]
+    except ValueError:
+        return None
 
 
-# ── GERAÇÃO DE IMAGEM (Gemini) ─────────────────────────────────────────────────
+def fotos_por_pagina(pagina_w, pagina_h, foto_w, foto_h):
+    """Maior encaixe entre as 2 orientacoes possiveis da foto na pagina."""
+    opcao1 = math.floor(pagina_w / foto_w) * math.floor(pagina_h / foto_h)
+    opcao2 = math.floor(pagina_w / foto_h) * math.floor(pagina_h / foto_w)
+    return max(opcao1, opcao2)
 
-def gerar_imagem_ia(prompt_texto, imagens_referencia):
-    """imagens_referencia: lista de bytes. Retorna (imagem_bytes, erro)."""
-    api_key = st.secrets.get("GEMINI_API_KEY", "")
-    if not api_key:
-        return None, "GEMINI_API_KEY não configurada nas Secrets."
 
-    parts = [{"text": prompt_texto}]
-    for img_bytes in imagens_referencia:
-        parts.append({
-            "inline_data": {
-                "mime_type": "image/jpeg",
-                "data": base64.b64encode(img_bytes).decode("utf-8"),
-            }
-        })
-
-    body = {
-        "contents": [{"parts": parts}],
-        "generationConfig": {
-            "responseModalities": ["TEXT", "IMAGE"],
-            "imageConfig": {"aspectRatio": "1:1", "imageSize": "2K"},
-        },
-    }
-
+def calcular_capacidade(medidas_album, num_folhas, tam_polaroid, tam_padrao):
+    """Retorna (texto_capacidade, formula_explicativa, erro)."""
+    dims_album = parse_dimensoes(medidas_album)
+    if not dims_album or len(dims_album) < 2:
+        return None, None, "Preencha as Medidas do produto (AxL) pra eu calcular a capacidade de fotos."
+    if not num_folhas:
+        return None, None, "Informe o Número de folhas do álbum pra eu calcular a capacidade de fotos."
     try:
-        resp = requests.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/{MODELO_IMAGEM}:generateContent",
-            headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
-            json=body, timeout=90,
+        num_folhas_val = float(str(num_folhas).replace(",", "."))
+    except ValueError:
+        return None, None, "Número de folhas inválido -- use só números."
+
+    pagina_w, pagina_h = dims_album[0], dims_album[1]
+    bullets = []
+    dados_padrao_para_formula = None
+    for nome, tam_txt in [("Polaroid clássica", tam_polaroid), ("Foto padrão", tam_padrao)]:
+        dims_foto = parse_dimensoes(tam_txt)
+        if not dims_foto or len(dims_foto) < 2:
+            continue
+        foto_w, foto_h = dims_foto[0], dims_foto[1]
+        por_pagina = fotos_por_pagina(pagina_w, pagina_h, foto_w, foto_h)
+        if por_pagina <= 0:
+            bullets.append(f"- {nome} ({tam_foto_str(foto_w, foto_h)}cm): não cabe nessa página.")
+            continue
+        total_1_lado = int(por_pagina * num_folhas_val)
+        total_2_lados = total_1_lado * 2
+        bullets.append(
+            f"- {nome} ({tam_foto_str(foto_w, foto_h)}cm): até {total_1_lado} fotos "
+            f"(até {total_2_lados} usando frente e verso)"
         )
+        if nome == "Foto padrão":
+            dados_padrao_para_formula = (foto_w, foto_h, por_pagina)
+
+    if not bullets:
+        return None, None, "Não consegui calcular -- confira o formato dos tamanhos de foto (ex: 8,6x10,7)."
+
+    texto_capacidade = "Capacidade de fotos:\n" + "\n".join(bullets)
+
+    # Formula explicativa pro cliente calcular outro tamanho de foto -- usa a
+    # foto padrao como exemplo concreto, com os numeros reais desse produto.
+    formula = None
+    if dados_padrao_para_formula:
+        fw, fh, ppag = dados_padrao_para_formula
+        formula = (
+            f"Para saber até quantas fotos de outro tamanho cabem, basta fazer a conta abaixo:\n\n"
+            f"Tamanho da folha: {tam_foto_str(pagina_w, pagina_h)}cm\n"
+            f"Conta: divida a largura da folha pela largura da foto, e a altura da folha pela "
+            f"altura da foto (arredondando pra baixo). Multiplique os dois resultados -- esse é "
+            f"o total de fotos que cabem por página.\n"
+            f"Exemplo com a foto padrão ({tam_foto_str(fw, fh)}cm): "
+            f"{tam_foto_str(pagina_w, pagina_h)} ÷ {tam_foto_str(fw, fh)} = {int(pagina_w//fw)} x {int(pagina_h//fh)} = {ppag} fotos por página"
+        )
+
+    return texto_capacidade, formula, None
+
+
+def tam_foto_str(w, h):
+    def fmt(v):
+        return str(int(v)) if v == int(v) else str(v).replace(".", ",")
+    return f"{fmt(w)}x{fmt(h)}"
+
+
+# ── CALCULO DE CAPACIDADE DE FOLHAS POR ARGOLA/ESPIRAL (deterministico) ──
+
+def parse_lista_numeros(texto):
+    """Aceita '1, 1.5, 2' ou '1;1,5;2' etc -- retorna lista de floats."""
+    if not texto:
+        return []
+    texto = texto.replace(";", ",")
+    partes = [p.strip() for p in texto.split(",") if p.strip()]
+    resultado = []
+    for p in partes:
+        try:
+            resultado.append(float(p.replace(",", ".") if p.count(",") == 1 and "." not in p else p))
+        except ValueError:
+            continue
+    return resultado
+
+
+def calcular_capacidade_argola(medida_interna_mm, espessuras_texto):
+    """Retorna (texto_capacidade, erro). Formula: medida_interna / espessura_folha,
+    arredondando pra baixo -- mesmo padrao usado pela empresa (imagem de referencia)."""
+    if not medida_interna_mm:
+        return None, "Informe a medida interna da argola/espiral (mm) pra eu calcular a capacidade de folhas."
+    try:
+        medida_val = float(str(medida_interna_mm).replace(",", "."))
+    except ValueError:
+        return None, "Medida interna inválida -- use só números."
+
+    espessuras = parse_lista_numeros(espessuras_texto) or [1.0, 1.5, 2.0]
+    linhas = []
+    for esp in espessuras:
+        if esp <= 0:
+            continue
+        qtd = int(medida_val // esp)
+        esp_str = str(esp) if esp != int(esp) else str(int(esp))
+        esp_str = esp_str.replace(".", ",")
+        med_str = str(medida_val) if medida_val != int(medida_val) else str(int(medida_val))
+        med_str = med_str.replace(".", ",")
+        linhas.append(f"- Espessura {esp_str}mm: {med_str}÷{esp_str} = {qtd} folhas")
+
+    if not linhas:
+        return None, "Informe pelo menos uma espessura de folha válida."
+
+    texto = (
+        f"Para saber quantas folhas cabem, divida a medida interna ({str(medida_val).replace('.', ',') if medida_val != int(medida_val) else int(medida_val)}mm) "
+        f"pela espessura de cada folha em milímetros:\n" + "\n".join(linhas) +
+        "\n\n*Cálculo aproximado. A quantidade pode variar ligeiramente conforme o tipo de papel."
+    )
+    return texto, None
+
+
+# ── PESQUISA DE USOS DO PRODUTO NA INTERNET (opcional, via SerpAPI) ──
+
+def pesquisar_usos_produto(nome_produto):
+    """Busca real na internet pra encontrar usos comuns desse tipo de produto que o
+    colaborador pode ter esquecido de mencionar no campo Uso/ocasião. Retorna
+    (resumo_para_ia, erro)."""
+    import requests
+    api_key = st.secrets.get("SERPAPI_KEY", "")
+    if not api_key:
+        return None, "SERPAPI_KEY não configurada nas Secrets."
+    try:
+        resp = requests.get("https://serpapi.com/search", params={
+            "engine": "google", "q": f"{nome_produto} para que serve usado",
+            "hl": "pt-br", "gl": "br", "num": 5, "api_key": api_key,
+        }, timeout=30)
         if resp.status_code != 200:
-            return None, f"Erro da API (HTTP {resp.status_code}): {resp.text[:300]}"
+            return None, f"Busca indisponível agora (HTTP {resp.status_code})."
         dados = resp.json()
-        candidatos = dados.get("candidates", [])
-        if not candidatos:
-            return None, "A IA não retornou nenhuma imagem (resposta vazia)."
-        for parte in candidatos[0].get("content", {}).get("parts", []):
-            inline = parte.get("inlineData") or parte.get("inline_data")
-            if inline and inline.get("data"):
-                return base64.b64decode(inline["data"]), None
-        return None, "A IA respondeu, mas não veio nenhuma imagem (pode ter bloqueado o pedido)."
+        snippets = []
+        for r in dados.get("organic_results", [])[:5]:
+            s = r.get("snippet", "")
+            if s:
+                snippets.append(f"- {s}")
+        if not snippets:
+            return None, "Nenhum resultado relevante encontrado pra esse produto."
+        return "\n".join(snippets), None
     except Exception as e:
         return None, str(e)
 
 
-def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto):
-    """Monta o prompt completo para geração, incorporando identidade visual e dados do produto."""
-    base = PRESETS.get(tipo, "")
+def gerar_descricao(dados):
+    api_key = st.secrets.get("ANTHROPIC_API_KEY", "")
 
-    contexto_produto = f"PRODUTO: {nome_produto}\n"
-    if dados_descricao:
-        if dados_descricao.get("cor"):
-            contexto_produto += f"Cor: {dados_descricao['cor']}\n"
-        if dados_descricao.get("medidas"):
-            contexto_produto += f"Medidas: {dados_descricao['medidas']}\n"
-        if dados_descricao.get("diferenciais"):
-            contexto_produto += f"Diferenciais principais: {dados_descricao['diferenciais'][:200]}\n"
+    bloco_capacidade = ""
+    if dados.get("capacidade_texto"):
+        bloco_capacidade = f"""
+CAPACIDADE DE FOTOS JÁ CALCULADA (use estes números EXATAMENTE como estão, não recalcule
+nem estime por conta própria -- inclua esse bloco na descrição, com o cabeçalho "Capacidade de
+fotos:" e os itens em lista, exatamente como estruturado abaixo):
+{dados['capacidade_texto']}
 
-    bloco_instrucoes = (
-        f"\nINSTRUÇÕES ADICIONAIS DO COLABORADOR (prioridade máxima — aplique antes de tudo):\n{instrucoes_extras}"
-        if instrucoes_extras else ""
-    )
-
-    return f"""{contexto_produto}
-TIPO DE IMAGEM: {tipo}
-{base}
-{bloco_instrucoes}
-
-{PADRAO_VISUAL}
-{INSTRUCAO_FIDELIDADE}
-{INSTRUCAO_COMPOSICAO}
+Logo depois, inclua também esta explicação (em suas próprias palavras, mas mantendo a conta exata)
+pra o cliente conseguir calcular sozinho quantas fotos de OUTRO tamanho cabem:
+{dados.get('formula_texto','')}
 """
 
+    bloco_capacidade_argola = ""
+    if dados.get("capacidade_argola_texto"):
+        bloco_capacidade_argola = f"""
+CAPACIDADE DE FOLHAS JÁ CALCULADA (use estes números EXATAMENTE como estão, não recalcule --
+inclua esse bloco na descrição, com um cabeçalho tipo "Capacidade:" e o conteúdo abaixo,
+adaptando a linguagem ao tom da descrição mas mantendo a conta exata):
+{dados['capacidade_argola_texto']}
+"""
 
-# ── GOOGLE DRIVE — GESTÃO DE PASTAS ───────────────────────────────────────────
+    bloco_usos_pesquisados = ""
+    if dados.get("usos_pesquisados"):
+        bloco_usos_pesquisados = f"""
+CONTEXTO ENCONTRADO EM PESQUISA REAL NA INTERNET sobre esse tipo de produto (pode revelar usos
+que o colaborador esqueceu de mencionar no campo Uso/ocasião acima). NÃO copie trechos literalmente
+-- reescreva com suas próprias palavras, e só incorpore na descrição se fizer sentido real pro
+produto (ignore o que não se aplicar):
+{dados['usos_pesquisados']}
+"""
 
-def _drive_service():
-    from googleapiclient.discovery import build
-    from google.oauth2.service_account import Credentials
-    creds_dict = dict(st.secrets["gcp_service_account"])
-    creds = Credentials.from_service_account_info(
-        creds_dict, scopes=["https://www.googleapis.com/auth/drive"]
+    bloco_calculo_personalizado = ""
+    if dados.get("calculo_personalizado"):
+        bloco_calculo_personalizado = f"""
+CÁLCULO/INFORMAÇÃO JÁ PRONTA FORNECIDA PELO COLABORADOR (NÃO recalcule nem questione o número --
+só formate e encaixe na descrição de forma natural, no estilo dos exemplos):
+{dados['calculo_personalizado']}
+"""
+
+    bloco_observacoes = ""
+    if dados.get("observacoes"):
+        bloco_observacoes = f"""
+INSTRUÇÃO ESPECÍFICA DO COLABORADOR PRA ESSA DESCRIÇÃO (siga isso com prioridade, incorporando
+na estrutura acima -- se pedir pra enfatizar algo, dedica um parágrafo curto e específico a isso):
+{dados['observacoes']}
+"""
+
+    prompt = f"""Crie a descrição de anúncio para o produto abaixo, seguindo EXATAMENTE o padrão de
+estilo e estrutura da empresa, mostrado nos 2 exemplos reais abaixo (mesma voz, mesmo jeito de
+organizar em blocos com cabeçalho, mesmo tom direto e técnico).
+
+=== EXEMPLO REAL 1 (produto: bengala) ===
+{EXEMPLO_1}
+
+=== EXEMPLO REAL 2 (produto: viseira) ===
+{EXEMPLO_2}
+
+=== PADRÃO A SEGUIR ===
+- Abre com 1-2 frases ligando produto + benefício/uso principal (sem repetir o título literalmente)
+- Parágrafos curtos descrevendo características e o que elas proporcionam na prática
+- Usa cabeçalho em blocos quando fizer sentido pro produto, no estilo dos exemplos (ex: "DIMENSÕES:",
+  "MEDIDAS DO PRODUTO;", "Composição:", "Contém;") -- só inclua os blocos que fizerem sentido pra
+  esse produto especificamente, não force bloco que não se aplica
+- Se o produto se beneficiar de explicar "onde usar" ou "como conservar/cuidar", pode usar o formato
+  de pergunta como nos exemplos ("- Onde usar...", "- Como conservar...") -- só se fizer sentido,
+  não é obrigatório em todo produto
+- Frases objetivas, sem enrolação, tom técnico mas acessível
+- IMPORTANTE -- ANTECIPE DÚVIDAS: pense em qualquer dúvida prática que o cliente teria e que, se não
+  respondida, faria ele hesitar na compra ou procurar em outro anúncio. Baseado nos atributos
+  específicos desse produto, responda proativamente coisas como:
+  * Se a cor/material de uma superfície de escrita não for branca ou clara (ex: folhas pretas),
+    oriente qual tipo de caneta/material funciona bem nela (ex: folha preta pede caneta gel branca,
+    marcador metálico ou paint pen -- caneta comum não aparece)
+  * Se o produto usa energia (pilha, bateria recarregável, tomada), informe a fonte de energia e,
+    se souber, a autonomia
+  * Se o material pede cuidado especial de limpeza/conservação, oriente como cuidar
+  Só inclua esses pontos se fizerem sentido pro produto em questão -- não force pergunta que não
+  se aplica
+
+PRODUTO: {dados.get('nome_produto','')}
+Categoria: {dados.get('categoria','')}
+Medidas: {dados.get('medidas','')}
+Peso: {dados.get('peso','')}
+Material: {dados.get('material','')}
+Cor: {dados.get('cor','')}
+Diferenciais: {dados.get('diferenciais','')}
+Uso/ocasião: {dados.get('uso','')}
+Características adicionais: {dados.get('caracteristicas','')}
+Palavras-chave pra usar com naturalidade (sem forçar todas): {dados.get('palavras_chave','') or 'nenhuma informada'}
+{bloco_capacidade}{bloco_capacidade_argola}{bloco_calculo_personalizado}{bloco_usos_pesquisados}{bloco_observacoes}
+REGRAS OBRIGATÓRIAS (política oficial do Mercado Livre):
+- NÃO inclua links externos, nome de loja, telefone, e-mail ou qualquer contato fora da plataforma
+- NÃO inclua informações de entrega/frete (isso é campo separado do anúncio)
+- NÃO inclua condição do produto (novo/usado) -- isso já é campo separado
+- NÃO use texto em caixa alta pra frases inteiras, nem promoção/desconto/frete grátis
+- NÃO force todas as palavras-chave no texto -- use as que fizerem sentido natural
+
+Responda SOMENTE com o texto da descrição, pronta pra colar no anúncio, sem comentário extra.
+"""
+    client = anthropic.Anthropic(api_key=api_key)
+    msg = client.messages.create(
+        model="claude-sonnet-4-6", max_tokens=1500,
+        messages=[{"role": "user", "content": prompt}]
     )
-    return build("drive", "v3", credentials=creds)
+    return msg.content[0].text.strip()
 
 
-def buscar_pasta_produto(nome_produto, codigo, pasta_pai_id):
-    """Busca pasta exata '[Nome] - [Código]' ou pelo nome aproximado.
-    Retorna lista de (id, name) encontrados."""
-    try:
-        service = _drive_service()
-        nome_exato = f"{nome_produto} - {codigo}".strip(" -")
+def editar_descricao(descricao_atual, instrucao):
+    """Ajuste pontual em cima do texto ja gerado -- recebe o texto completo atual
+    e devolve o texto completo ja ajustado, sem regerar do zero."""
+    api_key = st.secrets.get("ANTHROPIC_API_KEY", "")
+    prompt = f"""Esta é a descrição atual de um anúncio de e-commerce:
 
-        # Tenta nome exato primeiro
-        q = (f"'{pasta_pai_id}' in parents and mimeType='application/vnd.google-apps.folder' "
-             f"and name='{nome_exato}' and trashed=false")
-        res = service.files().list(q=q, fields="files(id,name)").execute()
-        if res.get("files"):
-            return [(f["id"], f["name"]) for f in res["files"]]
+=== DESCRIÇÃO ATUAL ===
+{descricao_atual}
+=== FIM DA DESCRIÇÃO ATUAL ===
 
-        # Busca por trecho do nome do produto (fuzzy)
-        if nome_produto:
-            palavras = nome_produto.split()[:2]  # primeiras 2 palavras
-            for palavra in palavras:
-                if len(palavra) < 3:
-                    continue
-                q2 = (f"'{pasta_pai_id}' in parents and mimeType='application/vnd.google-apps.folder' "
-                      f"and name contains '{palavra}' and trashed=false")
-                res2 = service.files().list(q=q2, fields="files(id,name)").execute()
-                if res2.get("files"):
-                    return [(f["id"], f["name"]) for f in res2["files"]]
-        return []
-    except Exception:
-        return []
+O colaborador pediu este ajuste pontual: "{instrucao}"
 
+PRIORIDADE: o pedido acima é uma ordem direta e tem prioridade sobre qualquer outra coisa --
+inclusive sobre manter a formatação original. Se ele pediu pra tirar marcadores, caixa alta,
+algum símbolo ou palavra específica, aplique isso em TODO o texto, incluindo dentro de listas
+e blocos técnicos (ex: capacidade de fotos, medidas) -- não deixe nenhuma ocorrência de fora.
+ATENÇÃO A AMBIGUIDADE: existem 2 caracteres parecidos que costumam ser confundidos -- o traço
+curto "-" (usado como marcador de item de lista) e o travessão longo "—" (usado no meio de
+frases como pontuação). Se o pedido for genérico tipo "tira os traços" ou "tira os -", trate
+como pedido pra remover AMBOS os tipos em todo o texto, a menos que o colaborador tenha
+especificado claramente que quer manter um deles.
+Fora do que foi pedido, mantenha o resto do texto igual (mesmo conteúdo, mesma ordem de blocos).
+Não regere a descrição do zero, apenas edite o que foi pedido.
 
-def criar_pasta_produto(nome_pasta, pasta_pai_id):
-    """Cria nova pasta no Drive. Retorna (id, erro)."""
-    try:
-        service = _drive_service()
-        metadata = {
-            "name": nome_pasta,
-            "mimeType": "application/vnd.google-apps.folder",
-            "parents": [pasta_pai_id],
-        }
-        pasta = service.files().create(body=metadata, fields="id").execute()
-        return pasta["id"], None
-    except Exception as e:
-        return None, str(e)
+Continue seguindo as regras do Mercado Livre: sem link externo, sem contato, sem informação de
+frete/entrega, sem condição do produto, sem caixa alta, sem termo promocional.
+
+Responda SOMENTE com o texto completo da descrição já ajustada, sem comentário extra.
+"""
+    client = anthropic.Anthropic(api_key=api_key)
+    msg = client.messages.create(
+        model="claude-sonnet-4-6", max_tokens=1500,
+        messages=[{"role": "user", "content": prompt}]
+    )
+    return msg.content[0].text.strip()
 
 
-def upload_para_pasta(imagem_bytes, nome_arquivo, pasta_id):
-    """Faz upload de imagem para pasta específica. Retorna (link, erro)."""
-    from googleapiclient.http import MediaInMemoryUpload
-    try:
-        service = _drive_service()
-        metadata = {"name": nome_arquivo, "parents": [pasta_id]}
-        media = MediaInMemoryUpload(imagem_bytes, mimetype="image/png")
-        arquivo = service.files().create(
-            body=metadata, media_body=media, fields="id, webViewLink"
-        ).execute()
-        service.permissions().create(
-            fileId=arquivo["id"],
-            body={"role": "reader", "type": "anyone"}
-        ).execute()
-        return arquivo.get("webViewLink"), None
-    except Exception as e:
-        return None, str(e)
+def tentar_edicao_deterministica(texto_atual, instrucao):
+    """Pra pedidos simples de REMOVER um caractere/simbolo especifico, faz a
+    edicao direto em Python (garantido 100%), sem depender da IA -- que ja
+    mostrou nao ser confiavel nesse tipo de tarefa mecanica. Retorna o texto
+    editado, ou None se o pedido nao se encaixar nesse padrao (aí cai pra IA)."""
+    import re
+    instrucao_l = instrucao.lower()
+    pede_remocao = any(p in instrucao_l for p in ["remov", "tir", "exclu", "apag", "delet"])
+    if not pede_remocao:
+        return None
 
+    caracteres_alvo = [c for c in ["—", "–", "-", "*", "#"] if c in instrucao]
+    if not caracteres_alvo:
+        return None
 
-def criar_zip_galeria(galeria, nome_produto):
-    """Cria ZIP em memória com todas as imagens da galeria. Retorna bytes."""
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for g in galeria:
-            nome_arquivo = f"{nome_produto}_{g['tipo'][:30]}.png"
-            nome_arquivo = "".join(c if c.isalnum() or c in "._- " else "_" for c in nome_arquivo)
-            zf.writestr(nome_arquivo, g["bytes"])
-    buf.seek(0)
-    return buf.read()
-
-
-# ── INTERFACE PRINCIPAL ────────────────────────────────────────────────────────
-
-def pagina_imagem(usuario_logado):
-    st.subheader("Imagem")
-    st.caption("Gere imagens profissionais para o anúncio. A IA mostra o que vai criar antes de gastar com a geração.")
-
-    # ── LINHA 1: Nome + Código ─────────────────────────────────────────────────
-    col_nome, col_cod = st.columns(2)
-    with col_nome:
-        nome_produto = st.text_input(
-            "Nome do produto",
-            value=st.session_state.pop("img_nome_importado", ""),
-            key="img_nome_produto_input",
-        )
-    with col_cod:
-        codigo_input = st.text_input(
-            "Código da descrição (opcional)",
-            value=st.session_state.pop("img_codigo_importado", ""),
-            key="img_codigo_input",
-            placeholder="ex: MS-BENG-07174K2  (gerado na aba Descrição)",
-            help="Gere uma descrição na aba Descrição — o código aparece num bloco azul no final. Copie e cole aqui. O nome do produto não é o código.",
-        )
-
-    # Busca dados da descrição pelo código
-    dados_descricao = None
-    if codigo_input:
-        import atividades as _atv
-        dados_descricao = _atv.buscar_por_codigo(codigo_input)
-        if dados_descricao:
-            st.success(
-                f"✅ Descrição encontrada: **{dados_descricao.get('nome_produto','')}** · "
-                f"Cor: {dados_descricao.get('cor') or '—'} · "
-                f"Medidas: {dados_descricao.get('medidas') or '—'}"
-            )
+    novo = texto_atual
+    for c in caracteres_alvo:
+        if c in ("-", "–", "—"):
+            novo = re.sub(rf"^[ \t]*{re.escape(c)}[ \t]*", "", novo, flags=re.MULTILINE)  # marcador de lista no inicio da linha
+            novo = re.sub(rf"\s*{re.escape(c)}\s*", " ", novo)  # travessao/traço no meio da frase vira espaço
         else:
-            st.warning("Código não encontrado no histórico. Pode continuar — só não haverá vínculo com a descrição.")
+            novo = novo.replace(c, "")
 
-    # Também usa dados do session_state do módulo de descrição se o usuário
-    # acabou de gerar na mesma sessão e ainda não copiou o código
-    if not dados_descricao and st.session_state.get("desc_codigo_atual") == codigo_input and codigo_input:
-        dados_descricao = st.session_state.get("desc_dados_atual")
+    novo = re.sub(r"[ \t]{2,}", " ", novo)
+    novo = re.sub(r"\n{3,}", "\n\n", novo)
+    novo = "\n".join(linha.strip() for linha in novo.split("\n"))
+    return novo.strip()
 
-    # ── FOTOS DE REFERÊNCIA ────────────────────────────────────────────────────
-    st.markdown("**Fotos de referência do produto**")
-    st.caption("Suba quantas fotos quiser — ângulos diferentes ajudam a IA a ser mais fiel.")
-    fotos_upload = st.file_uploader(
-        "Fotos do produto (JPG, PNG, WebP)",
-        type=["jpg", "jpeg", "png", "webp"],
-        accept_multiple_files=True,
-        key="img_fotos_upload",
-    )
-    fotos_bytes = [f.getvalue() for f in fotos_upload] if fotos_upload else []
 
-    if fotos_bytes:
-        cols_prev = st.columns(min(len(fotos_bytes), 5))
-        for i, fb in enumerate(fotos_bytes[:5]):
-            cols_prev[i].image(fb, use_container_width=True)
-        if len(fotos_bytes) > 5:
-            st.caption(f"+ {len(fotos_bytes) - 5} foto(s) adicionais carregadas.")
+def verificar_remocao_caracteres(instrucao, texto_novo):
+    """Checagem deterministica (nao depende da IA 'confirmar' nada): se o pedido
+    menciona um caractere especifico pra remover (-, –, —, *, #), confere de
+    verdade se ele ainda aparece no texto resultante."""
+    CARACTERES_VIGIADOS = ["-", "–", "—", "*", "#"]
+    pedidos_remocao = any(p in instrucao.lower() for p in ["remov", "tir", "exclu", "apag", "delet"])
+    if not pedidos_remocao:
+        return None
+    ainda_presentes = []
+    for c in CARACTERES_VIGIADOS:
+        if c in instrucao and texto_novo.count(c) > 0:
+            ainda_presentes.append((c, texto_novo.count(c)))
+    if not ainda_presentes:
+        return None
+    detalhes = ", ".join(f"'{c}' aparece {n}x" for c, n in ainda_presentes)
+    return f"⚠️ Conferi o texto e ainda encontrei o que você pediu pra tirar: {detalhes}. Pode pedir de novo, ou me diga se algum desses era proposital (ex: travessão de pontuação normal, não lista)."
 
-    # ── O QUE GERAR ───────────────────────────────────────────────────────────
-    st.markdown("---")
-    modo = st.radio(
-        "O que gerar?",
-        ["1 imagem específica", "Selecionar tipos", "As 7 imagens do padrão"],
-        horizontal=True,
-        key="img_modo",
-    )
 
-    tipos_selecionados = []
-    instrucoes_extras = ""
+def pagina_descricao(usuario_logado):
+    st.subheader("Descrição")
+    st.caption("Busca a Triagem do produto automaticamente (editável). Antes de gerar, você confere um resumo dos dados que serão usados.")
 
-    if modo == "1 imagem específica":
-        tipo_unico = st.selectbox("Tipo de imagem", list(PRESETS.keys()), key="img_tipo_unico")
-        instrucoes_extras = st.text_area(
-            "Descreva o que você quer nessa imagem (textos, cenas, destaque)",
-            value=PRESETS[tipo_unico],
-            height=120,
-            key=f"img_instr_{tipo_unico}",
-            placeholder="ex: título 'Guarda suas memórias com estilo', 3 benefícios: durabilidade, capa dura, folhas pretas...",
+    import triagem
+
+    busca = st.text_input("Nome do produto", key="desc_busca_nome")
+
+    dados_iniciais = {"nome_produto": "", "categoria": "", "medidas": "", "peso": "",
+                       "material": "", "cor": "", "uso": "", "caracteristicas": "",
+                       "diferenciais": ""}
+    aviso = None
+
+    if busca:
+        encontrados = triagem.buscar_triagens_por_trecho(busca)
+        if len(encontrados) == 1:
+            t = encontrados[0]
+            dados_iniciais.update({
+                "nome_produto": t.get("nome_comercial", ""), "categoria": t.get("categoria", ""),
+                "medidas": t.get("medidas", ""), "peso": t.get("peso", ""),
+                "material": t.get("material", ""), "cor": t.get("variacao_cores", ""),
+                "uso": t.get("uso", ""), "caracteristicas": t.get("caracteristicas", ""),
+                "diferenciais": t.get("diferenciais", ""),
+            })
+            aviso = ("info", f"Triagem encontrada: **{t['nome_comercial']}**. Confira os dados abaixo -- pode editar antes de gerar.")
+        elif len(encontrados) > 1:
+            nomes = [e["nome_comercial"] for e in encontrados]
+            escolha = st.selectbox("Mais de um produto encontrado com esse nome -- qual é?", nomes, key="desc_escolha")
+            t = next(e for e in encontrados if e["nome_comercial"] == escolha)
+            dados_iniciais.update({
+                "nome_produto": t.get("nome_comercial", ""), "categoria": t.get("categoria", ""),
+                "medidas": t.get("medidas", ""), "peso": t.get("peso", ""),
+                "material": t.get("material", ""), "cor": t.get("variacao_cores", ""),
+                "uso": t.get("uso", ""), "caracteristicas": t.get("caracteristicas", ""),
+                "diferenciais": t.get("diferenciais", ""),
+            })
+            aviso = ("info", "Confira os dados abaixo -- pode editar antes de gerar.")
+        else:
+            dados_iniciais["nome_produto"] = busca
+            aviso = ("warning", "Nenhuma triagem encontrada pra esse produto ainda -- preencha os campos abaixo.")
+
+    if aviso:
+        getattr(st, aviso[0])(aviso[1])
+
+    with st.form("form_descricao"):
+        col1, col2 = st.columns(2)
+        nome_produto = col1.text_input("Nome do produto", value=dados_iniciais["nome_produto"], key="desc_nome_produto")
+        categorias = sorted(ML_COMISSAO_POR_CATEGORIA.keys())
+        # Usa categoria da triagem, senão a última usada na sessão, senão a primeira da lista
+        cat_atual = dados_iniciais["categoria"] or st.session_state.get("ultima_categoria", "")
+        idx_cat = categorias.index(cat_atual) if cat_atual in categorias else 0
+        categoria = col2.selectbox("Categoria no ML", categorias, index=idx_cat, key="desc_categoria")
+
+        col1, col2 = st.columns(2)
+        medidas = col1.text_input("Medidas (AxLxP, cm)", value=dados_iniciais["medidas"], placeholder="ex: 33x33x6")
+        peso = col2.text_input("Peso", value=dados_iniciais["peso"], placeholder="ex: 700g")
+
+        col1, col2 = st.columns(2)
+        material = col1.text_input("Material", value=dados_iniciais["material"])
+        cor = col2.text_input("Cor / variação de cores", value=dados_iniciais["cor"])
+
+        uso = st.text_input("Uso / ocasião", value=dados_iniciais["uso"], key="desc_uso")
+        caracteristicas = st.text_area("Características adicionais", value=dados_iniciais["caracteristicas"])
+        diferenciais = st.text_area("Diferenciais", value=dados_iniciais["diferenciais"], key="desc_diferenciais")
+        palavras_chave_txt = st.text_area("Palavras-chave pra usar com naturalidade (opcional -- cola aqui as que já geramos, se quiser)")
+
+        st.markdown("---")
+        st.markdown("##### Cálculo auxiliar (opcional)")
+        modo_calculo = st.selectbox(
+            "Esse produto precisa de algum cálculo de capacidade na descrição?",
+            ["Nenhum", "Álbum de fotos (capacidade de fotos por página)",
+             "Argola/espiral (capacidade de folhas)", "Outro cálculo (eu já fiz a conta)"],
+            key="desc_modo_calculo",
         )
-        tipos_selecionados = [tipo_unico]
 
-    elif modo == "Selecionar tipos":
-        tipos_selecionados = st.multiselect(
-            "Quais imagens gerar?",
-            TIPOS_PADRAO,
-            default=TIPOS_PADRAO[:3],
-            key="img_tipos_multi",
-        )
-        instrucoes_extras = st.text_area(
-            "Observações gerais (aplicadas a todas as imagens selecionadas)",
-            height=80,
-            placeholder="ex: produto tem versão preta e branca, foca nos dois no fundo branco",
-            key="img_instr_multi",
-        )
+        num_folhas = tam_polaroid = tam_padrao = ""
+        medida_interna_mm = espessuras_texto = ""
+        calculo_personalizado_texto = ""
 
-    else:  # As 7 imagens do padrão
-        tipos_selecionados = TIPOS_PADRAO
-        instrucoes_extras = st.text_area(
-            "Observações gerais (aplicadas a todas as 7 imagens)",
-            height=80,
-            placeholder="ex: produto vem em 3 cores, destaque a vermelha nas peças de marketing",
-            key="img_instr_lote",
-        )
+        if modo_calculo.startswith("Álbum"):
+            st.caption("Tamanhos clássicos/padrão de mercado -- ajusta se o seu fornecedor usar outro tamanho.")
+            col1, col2, col3 = st.columns(3)
+            num_folhas = col1.text_input("Número de folhas do álbum", placeholder="ex: 20")
+            tam_polaroid = col2.text_input("Tamanho Polaroid clássica (cm)", value="10x11")
+            tam_padrao = col3.text_input("Tamanho foto padrão (cm)", value="10x15")
+        elif modo_calculo.startswith("Argola"):
+            st.caption("Use a medida INTERNA real (meça com régua) -- o tamanho vendido/nominal (ex: '30mm') costuma ser maior que o espaço útil de verdade.")
+            col1, col2 = st.columns(2)
+            medida_interna_mm = col1.text_input("Medida interna da argola/espiral (mm)", placeholder="ex: 29")
+            espessuras_texto = col2.text_input("Espessuras de folha a calcular (mm)", value="1, 1.5, 2")
+        elif modo_calculo.startswith("Outro"):
+            st.caption("A IA NÃO recalcula nada aqui -- só formata e encaixa na descrição o que você colar. Se esse tipo de produto virar comum, me avisa depois que eu construo uma calculadora própria pra ele.")
+            calculo_personalizado_texto = st.text_area(
+                "Cole aqui a conta já pronta (com o resultado)",
+                placeholder="ex: A caixa tem 40cm de largura, cada compartimento tem 5cm -- cabem até 8 compartimentos lado a lado."
+            )
 
-    # ── BOTÃO DE TRIAGEM ──────────────────────────────────────────────────────
-    st.markdown("---")
-    iniciar_triagem = st.button(
-        "🔍 Analisar e mostrar plano antes de gerar",
-        type="primary",
-        use_container_width=True,
-        disabled=not tipos_selecionados,
-    )
+        observacoes = st.text_area("Observações (peça aqui o que quiser destacar na descrição)",
+                                     placeholder="ex: Quero que ressalte os diferenciais e o que o produto oferece ao comprador, com um parágrafo curto sobre durabilidade da capa dura...")
 
-    if iniciar_triagem:
+        pesquisar_usos = st.checkbox("🔎 Pesquisar usos possíveis desse produto na internet (opcional -- adiciona tempo, útil se o campo Uso/ocasião pode estar incompleto)")
+
+        confirmar = st.form_submit_button("Conferir dados e gerar", type="primary", use_container_width=True)
+
+    if confirmar:
         if not nome_produto:
-            st.warning("Informe o nome do produto.")
-            st.stop()
-        if not fotos_bytes:
-            st.warning("Suba pelo menos uma foto do produto — é ela que garante fidelidade.")
-            st.stop()
-
-        with st.spinner("Analisando produto e montando o plano de criação..."):
-            plano, erro_triagem = gerar_triagem_ia(
-                nome_produto, tipos_selecionados, dados_descricao,
-                instrucoes_extras, fotos_bytes,
-            )
-
-        if erro_triagem:
-            st.error(f"Não consegui montar a triagem: {erro_triagem}")
+            st.warning("Preencha pelo menos o Nome do produto.")
         else:
-            st.session_state["img_triagem_plano"] = plano
-            st.session_state["img_triagem_config"] = {
-                "nome_produto": nome_produto,
-                "codigo": codigo_input,
-                "tipos": tipos_selecionados,
-                "instrucoes_extras": instrucoes_extras,
-                "fotos_bytes": fotos_bytes,
-                "dados_descricao": dados_descricao,
+            capacidade_texto = formula_texto = erro_capacidade = None
+            capacidade_argola_texto = erro_capacidade_argola = None
+            calculo_personalizado = None
+
+            if modo_calculo.startswith("Álbum") and (num_folhas or (medidas and (tam_polaroid or tam_padrao))):
+                capacidade_texto, formula_texto, erro_capacidade = calcular_capacidade(medidas, num_folhas, tam_polaroid, tam_padrao)
+            elif modo_calculo.startswith("Argola") and (medida_interna_mm or espessuras_texto):
+                capacidade_argola_texto, erro_capacidade_argola = calcular_capacidade_argola(medida_interna_mm, espessuras_texto)
+            elif modo_calculo.startswith("Outro") and calculo_personalizado_texto:
+                calculo_personalizado = calculo_personalizado_texto
+
+            usos_pesquisados = erro_pesquisa = None
+            if pesquisar_usos:
+                with st.spinner("Pesquisando usos possíveis na internet..."):
+                    usos_pesquisados, erro_pesquisa = pesquisar_usos_produto(nome_produto)
+
+            st.session_state["desc_dados_pendentes"] = {
+                "nome_produto": nome_produto, "categoria": categoria, "medidas": medidas, "peso": peso,
+                "material": material, "cor": cor, "uso": uso, "caracteristicas": caracteristicas,
+                "diferenciais": diferenciais, "palavras_chave": palavras_chave_txt,
+                "observacoes": observacoes, "capacidade_texto": capacidade_texto,
+                "formula_texto": formula_texto, "erro_capacidade": erro_capacidade,
+                "capacidade_argola_texto": capacidade_argola_texto, "erro_capacidade_argola": erro_capacidade_argola,
+                "calculo_personalizado": calculo_personalizado,
+                "usos_pesquisados": usos_pesquisados, "erro_pesquisa": erro_pesquisa,
             }
-            st.rerun()
 
-    # ── EXIBIÇÃO DA TRIAGEM ───────────────────────────────────────────────────
-    if "img_triagem_plano" in st.session_state and "img_triagem_config" in st.session_state:
-        plano = st.session_state["img_triagem_plano"]
-        cfg = st.session_state["img_triagem_config"]
+    if "desc_dados_pendentes" in st.session_state:
+        dados = st.session_state["desc_dados_pendentes"]
 
         st.markdown("---")
-        st.markdown("### 🗂️ Plano de criação — confira antes de gastar")
-        st.caption("Esta etapa não custou nada. Corrija o que precisar antes de confirmar a geração.")
-
-        itens_plano = plano.get("plano", [])
-        tem_flags = any(item.get("flags") for item in itens_plano)
-
-        for item in itens_plano:
-            flags = item.get("flags", [])
-            with st.container(border=True):
-                col_title, col_flag = st.columns([5, 1])
-                col_title.markdown(f"**{item.get('numero', '')}. {item.get('tipo', '')}**")
-                if flags:
-                    col_flag.caption("⚠️ aviso")
-                st.caption(item.get("composicao", ""))
-                textos = item.get("textos", [])
-                if textos:
-                    st.caption("Textos: " + " · ".join(f'"{t}"' for t in textos[:4]))
-                # Mostra no máximo 1 flag, colapsada
-                if flags:
-                    with st.expander("Ver aviso", expanded=False):
-                        st.warning(flags[0])
-
-        if plano.get("observacao_geral"):
-            st.info(plano["observacao_geral"])
-
-        correcao = st.text_area(
-            "✏️ Correção ou instrução adicional (opcional — a IA aplicará antes de gerar)",
-            placeholder="ex: O produto é azul, não branco. Nas imagens de cenário, use ambiente externo, não doméstico.",
-            key="img_correcao_triagem",
-            height=80,
+        st.markdown("##### Confirme os dados antes de gerar")
+        st.markdown(
+            f"- **Produto:** {dados['nome_produto']}\n"
+            f"- **Categoria:** {dados['categoria']}\n"
+            f"- **Medidas:** {dados['medidas'] or '_(vazio)_'}\n"
+            f"- **Peso:** {dados['peso'] or '_(vazio)_'}\n"
+            f"- **Material:** {dados['material'] or '_(vazio)_'}\n"
+            f"- **Cor:** {dados['cor'] or '_(vazio)_'}\n"
+            f"- **Uso/ocasião:** {dados['uso'] or '_(vazio)_'}\n"
+            f"- **Características:** {dados['caracteristicas'] or '_(vazio)_'}\n"
+            f"- **Diferenciais:** {dados['diferenciais'] or '_(vazio)_'}\n"
+            f"- **Observações:** {dados['observacoes'] or '_(vazio)_'}"
         )
+        if dados["capacidade_texto"]:
+            st.success("Capacidade de fotos calculada:\n\n" + dados["capacidade_texto"])
+        elif dados["erro_capacidade"]:
+            st.warning(f"Capacidade de fotos não incluída: {dados['erro_capacidade']}")
 
-        n_imagens = len(itens_plano)
-        custo_est = n_imagens * 1.0
-        st.warning(
-            f"💰 Isso vai gerar **{n_imagens} imagem(ns)** com custo estimado de **~R${custo_est:.2f}**. "
-            f"Confirma?"
-        )
+        if dados.get("capacidade_argola_texto"):
+            st.success("Capacidade de folhas calculada:\n\n" + dados["capacidade_argola_texto"])
+        elif dados.get("erro_capacidade_argola"):
+            st.warning(f"Capacidade de folhas não incluída: {dados['erro_capacidade_argola']}")
 
-        col_cancelar, col_confirmar = st.columns(2)
-        if col_cancelar.button("❌ Cancelar", use_container_width=True):
-            del st.session_state["img_triagem_plano"]
-            del st.session_state["img_triagem_config"]
-            st.rerun()
+        if dados.get("calculo_personalizado"):
+            st.success("Cálculo personalizado que será incluído:\n\n" + dados["calculo_personalizado"])
 
-        if col_confirmar.button("✅ Confirmar e gerar", type="primary", use_container_width=True):
-            # Aplica correção ao config se houver
-            if correcao:
-                cfg["instrucoes_extras"] = (cfg.get("instrucoes_extras", "") + "\n\nCORREÇÃO DO COLABORADOR:\n" + correcao).strip()
-                st.session_state["img_triagem_config"] = cfg
+        if dados.get("usos_pesquisados"):
+            st.info("Usos encontrados na pesquisa (a IA vai considerar incluir se fizer sentido):\n\n" + dados["usos_pesquisados"])
+        elif dados.get("erro_pesquisa"):
+            st.warning(f"Pesquisa de usos não incluída: {dados['erro_pesquisa']}")
 
-            galeria = []
-            barra = st.progress(0.0, text="Iniciando geração...")
-            tipos = cfg["tipos"]
+        st.caption("Se algo estiver errado ou desatualizado, ajusta no formulário acima e clica em 'Conferir dados e gerar' de novo.")
 
-            for i, tipo in enumerate(tipos):
-                barra.progress(i / len(tipos), text=f"Gerando: {tipo[:50]}...")
-                prompt_final = montar_prompt_imagem(
-                    tipo,
-                    cfg.get("instrucoes_extras", ""),
-                    cfg.get("dados_descricao"),
-                    cfg["nome_produto"],
-                )
-                if correcao and tipo in cfg.get("instrucoes_extras", ""):
-                    pass  # já incorporado acima
+        if st.button("✅ Está tudo certo, gerar descrição", type="primary", use_container_width=True):
+            with st.spinner("Gerando descrição..."):
+                descricao = gerar_descricao(dados)
 
-                img_bytes, erro_gen = gerar_imagem_ia(prompt_final, cfg["fotos_bytes"])
-                if erro_gen:
-                    st.warning(f"Falhou em '{tipo}': {erro_gen}")
-                    continue
-                galeria.append({"tipo": tipo, "bytes": img_bytes, "aprovado": False})
+            codigo = gerar_codigo(dados["nome_produto"])
 
-            barra.progress(1.0, text="Concluído!")
-
-            if galeria:
-                st.session_state["img_galeria"] = galeria
-                st.session_state["img_nome_produto"] = cfg["nome_produto"]
-                st.session_state["img_codigo"] = cfg.get("codigo", "")
-                st.session_state["img_fotos_originais"] = cfg["fotos_bytes"]
-                st.session_state["img_dados_descricao"] = cfg.get("dados_descricao")
-                st.session_state["img_instrucoes_originais"] = cfg.get("instrucoes_extras", "")
-                st.session_state["img_chat_log"] = []
-                import atividades
-                atividades.registrar_atividade(
-                    usuario_logado,
-                    f"Imagem ({len(galeria)} geradas)",
-                    cfg["nome_produto"],
-                    ", ".join(t[:20] for t in tipos[:3]) + ("..." if len(tipos) > 3 else ""),
-                    codigo=cfg.get("codigo", ""),
-                    cor=cfg.get("dados_descricao", {}).get("cor", "") if cfg.get("dados_descricao") else "",
-                    medidas=cfg.get("dados_descricao", {}).get("medidas", "") if cfg.get("dados_descricao") else "",
-                )
-                del st.session_state["img_triagem_plano"]
-                del st.session_state["img_triagem_config"]
-                st.rerun()
-            else:
-                st.error("Nenhuma imagem foi gerada com sucesso.")
-
-    # ── GALERIA ───────────────────────────────────────────────────────────────
-    if "img_galeria" in st.session_state and st.session_state["img_galeria"]:
-        st.markdown("---")
-        galeria = st.session_state["img_galeria"]
-        nome_gal = st.session_state.get("img_nome_produto", "produto")
-        codigo_gal = st.session_state.get("img_codigo", "")
-
-        # Miniaturas clicáveis
-        nomes_galeria = [g["tipo"] for g in galeria]
-        n_cols = min(len(galeria), 4)
-        cols_gal = st.columns(n_cols)
-        for i, g in enumerate(galeria):
-            with cols_gal[i % n_cols]:
-                st.image(g["bytes"], caption=g["tipo"][:20], use_container_width=True)
-
-        # Seleção da imagem ativa
-        escolha = st.selectbox("Imagem ativa (para ajustar ou baixar individualmente)", nomes_galeria, key="img_escolha")
-        idx_ativo = nomes_galeria.index(escolha)
-        imagem_ativa = galeria[idx_ativo]["bytes"]
-        tipo_ativo = galeria[idx_ativo]["tipo"]
-
-        # Exibe imagem ativa grande
-        st.image(imagem_ativa, use_container_width=True)
-
-        # Ações individuais
-        col_dl, col_drive_ind = st.columns(2)
-        col_dl.download_button(
-            "⬇️ Baixar esta imagem",
-            data=imagem_ativa,
-            file_name=f"{nome_gal}_{tipo_ativo[:20]}.png",
-            mime="image/png",
-            use_container_width=True,
-            key=f"dl_{idx_ativo}",
-        )
-        if col_drive_ind.button("☁️ Salvar esta no Drive", use_container_width=True, key=f"drive_ind_{idx_ativo}"):
-            pasta_pai = st.secrets.get("DRIVE_PASTA_IMAGENS_ID", "")
-            if not pasta_pai:
-                st.error("DRIVE_PASTA_IMAGENS_ID não configurada.")
-            else:
-                with st.spinner("Enviando..."):
-                    nome_pasta = f"{nome_gal} - {codigo_gal}".strip(" -")
-                    pastas = buscar_pasta_produto(nome_gal, codigo_gal, pasta_pai)
-                    if pastas:
-                        pasta_id = pastas[0][0]
-                    else:
-                        pasta_id, err_pasta = criar_pasta_produto(nome_pasta, pasta_pai)
-                        if err_pasta:
-                            st.error(f"Erro ao criar pasta: {err_pasta}")
-                            pasta_id = None
-                    if pasta_id:
-                        link, err_up = upload_para_pasta(
-                            imagem_ativa, f"{tipo_ativo[:20]}.png", pasta_id
-                        )
-                        if err_up:
-                            st.error(f"Erro no upload: {err_up}")
-                        else:
-                            st.success(f"Salvo! [Abrir no Drive]({link})")
-
-        # ── CHAT DE AJUSTE ────────────────────────────────────────────────────
-        st.markdown("##### Ajustar imagens")
-        st.caption(
-            "Use o número da foto para indicar qual ajustar. "
-            "Pode dar vários comandos de uma vez: **foto 1: fundo branco · foto 3: remova os textos**"
-        )
-
-        for autor, conteudo in st.session_state.get("img_chat_log", []):
-            with st.chat_message(autor):
-                if isinstance(conteudo, bytes):
-                    st.image(conteudo, use_container_width=True)
-                else:
-                    st.markdown(conteudo)
-
-        instrucao_img = st.chat_input(
-            "Ex: foto 1: fundo branco · foto 2: destaque os benefícios · foto 5: remova o texto do topo"
-        )
-
-        if instrucao_img:
-            import re as _re
-
-            def _parsear_comandos(texto):
-                """Extrai pares (numero, instrucao) quando o usuário usa 'foto N:' ou 'imagem N:'."""
-                padrao = r'(?:foto|imagem)\s*(\d+)\s*[:\-]\s*(.+?)(?=(?:foto|imagem)\s*\d+\s*[:\-]|$)'
-                matches = _re.findall(padrao, texto, _re.IGNORECASE | _re.DOTALL)
-                if matches:
-                    return [(int(n), inst.strip().rstrip('·,').strip()) for n, inst in matches]
-                return None
-
-            comandos = _parsear_comandos(instrucao_img)
-            fotos_ref = st.session_state.get("img_fotos_originais") or [imagem_ativa]
-            dados_desc_aj = st.session_state.get("img_dados_descricao")
-            instr_orig = st.session_state.get("img_instrucoes_originais", "")
-
-            st.session_state["img_chat_log"].append(("user", instrucao_img))
-
-            if comandos:
-                # ── Modo multi-foto: processa cada comando separadamente ──────
-                msgs = []
-                for num_foto, instrucao in comandos:
-                    idx_alvo = num_foto - 1
-                    if idx_alvo < 0 or idx_alvo >= len(galeria):
-                        msgs.append(f"⚠️ Foto {num_foto} não existe na galeria ({len(galeria)} imagens geradas).")
-                        continue
-                    tipo_alvo = galeria[idx_alvo]["tipo"]
-                    prompt_aj = montar_prompt_imagem(tipo_alvo, instr_orig, dados_desc_aj, nome_gal) \
-                        + f"\n\nCORREÇÃO OBRIGATÓRIA (aplique antes de tudo):\n{instrucao}"
-                    with st.spinner(f"Regenerando foto {num_foto} ({tipo_alvo[:30]})..."):
-                        nova_img, err_aj = gerar_imagem_ia(prompt_aj, fotos_ref)
-                    if err_aj:
-                        msgs.append(f"⚠️ Foto {num_foto}: não consegui gerar — {err_aj}")
-                    else:
-                        st.session_state["img_galeria"][idx_alvo]["bytes"] = nova_img
-                        msgs.append(f"✅ Foto {num_foto} ({tipo_alvo[:25]}) atualizada.")
-                st.session_state["img_chat_log"].append(("assistant", "\n\n".join(msgs)))
-
-            else:
-                # ── Modo foto ativa (sem número informado) ───────────────────
-                prompt_aj = montar_prompt_imagem(tipo_ativo, instr_orig, dados_desc_aj, nome_gal) \
-                    + f"\n\nCORREÇÃO OBRIGATÓRIA (aplique antes de tudo):\n{instrucao_img}"
-                with st.spinner(f"Regenerando {tipo_ativo[:40]}..."):
-                    nova_img, err_aj = gerar_imagem_ia(prompt_aj, fotos_ref)
-                if err_aj:
-                    st.session_state["img_chat_log"].append(("assistant", f"⚠️ Não consegui gerar: {err_aj}"))
-                else:
-                    st.session_state["img_galeria"][idx_ativo]["bytes"] = nova_img
-                    st.session_state["img_chat_log"].append(("assistant", nova_img))
-
-            st.rerun()
-
-        st.markdown("---")
-
-        # ── APROVAÇÃO E SALVAMENTO ─────────────────────────────────────────────
-        st.markdown("### ✅ Aprovar e salvar todas as imagens")
-        pasta_pai = st.secrets.get("DRIVE_PASTA_IMAGENS_ID", "")
-
-        # Busca pasta existente para mostrar ao colaborador
-        pastas_encontradas = []
-        if pasta_pai and nome_gal:
-            with st.spinner("Verificando pasta no Drive..."):
-                pastas_encontradas = buscar_pasta_produto(nome_gal, codigo_gal, pasta_pai)
-
-        nome_pasta_novo = f"{nome_gal} - {codigo_gal}".strip(" -") if codigo_gal else nome_gal
-
-        if pastas_encontradas:
-            st.info(
-                f"📁 Pasta encontrada no Drive: **{pastas_encontradas[0][1]}**\n\n"
-                f"As imagens serão adicionadas a essa pasta (sem apagar o que já está lá)."
+            import atividades
+            atividades.registrar_atividade(
+                usuario_logado, "Descrição", dados["nome_produto"],
+                f"{len(descricao)} caracteres",
+                codigo=codigo,
+                cor=dados.get("cor", ""),
+                medidas=dados.get("medidas", ""),
+                peso=dados.get("peso", ""),
             )
-            pasta_destino_id = pastas_encontradas[0][0]
-            if len(pastas_encontradas) > 1:
-                escolha_pasta = st.selectbox(
-                    "Mais de uma pasta encontrada — qual usar?",
-                    [p[1] for p in pastas_encontradas],
-                    key="img_escolha_pasta",
-                )
-                pasta_destino_id = next(p[0] for p in pastas_encontradas if p[1] == escolha_pasta)
-        else:
-            st.info(f"📁 Será criada uma nova pasta no Drive: **{nome_pasta_novo}**")
-            pasta_destino_id = None  # será criada no momento do clique
 
-        col_aprovar, col_zip = st.columns(2)
+            # Persiste categoria para uso nos outros módulos
+            if dados.get("categoria"):
+                st.session_state["ultima_categoria"] = dados["categoria"]
 
-        if col_aprovar.button(
-            f"☁️ APROVAR E SALVAR no Drive ({len(galeria)} imagens)",
-            type="primary",
-            use_container_width=True,
-        ):
-            if not pasta_pai:
-                st.error("DRIVE_PASTA_IMAGENS_ID não configurada nas Secrets.")
+            del st.session_state["desc_dados_pendentes"]
+            st.session_state["desc_texto_atual"] = descricao
+            st.session_state["desc_nome_atual"] = dados["nome_produto"]
+            st.session_state["desc_codigo_atual"] = codigo
+            st.session_state["desc_dados_atual"] = {
+                "cor": dados.get("cor", ""),
+                "medidas": dados.get("medidas", ""),
+                "peso": dados.get("peso", ""),
+                "categoria": dados.get("categoria", ""),
+                "diferenciais": dados.get("diferenciais", ""),
+                "caracteristicas": dados.get("caracteristicas", ""),
+                "uso": dados.get("uso", ""),
+            }
+            st.session_state["desc_chat_log"] = []
+
+    # Resultado + chat de ajuste pontual -- fica fora do "if confirmar" pra
+    # sobreviver aos reruns disparados pelo proprio chat_input
+    if "desc_texto_atual" in st.session_state:
+        st.markdown("---")
+        st.markdown(f"#### Descrição — {st.session_state['desc_nome_atual']}")
+
+        # ── CÓDIGO DA DESCRIÇÃO ────────────────────────────────────────────────
+        if "desc_codigo_atual" in st.session_state:
+            codigo_exibir = st.session_state["desc_codigo_atual"]
+            st.markdown(
+                f"""<div style="background:#1A3A6B; border-radius:8px; padding:12px 18px; margin-bottom:4px;">
+                <span style="color:#E8EEF5; font-size:13px; font-weight:600; letter-spacing:1px;">
+                CÓDIGO DA DESCRIÇÃO</span><br>
+                <span style="color:#9BB5D9; font-size:12px;">
+                Use no módulo de Imagem para vincular as informações desta descrição.
+                Clique no ícone de cópia à direita do código abaixo.</span>
+                </div>""",
+                unsafe_allow_html=True,
+            )
+            st.code(codigo_exibir, language=None)
+
+        st.code(st.session_state["desc_texto_atual"], language=None)
+        st.caption(f"{len(st.session_state['desc_texto_atual'])}/10.000 caracteres (limite do Mercado Livre pra descrição)")
+
+        st.markdown("##### Precisa ajustar algo pontual?")
+        st.caption("Ex: 'deixa mais curto', 'troca X por Y', 'tira o parágrafo sobre Z' -- ajusta só o que pedir, sem regerar do zero.")
+
+        for autor, texto in st.session_state.get("desc_chat_log", []):
+            with st.chat_message(autor):
+                st.markdown(texto)
+
+        instrucao = st.chat_input("Digite o ajuste que precisa...")
+        if instrucao:
+            st.session_state["desc_chat_log"].append(("user", instrucao))
+
+            novo_texto_determ = tentar_edicao_deterministica(st.session_state["desc_texto_atual"], instrucao)
+            if novo_texto_determ is not None:
+                novo_texto = novo_texto_determ
+                origem = "determinística"
             else:
-                if pasta_destino_id is None:
-                    with st.spinner("Criando pasta..."):
-                        pasta_destino_id, err_pasta = criar_pasta_produto(nome_pasta_novo, pasta_pai)
-                    if err_pasta:
-                        st.error(f"Erro ao criar pasta: {err_pasta}")
-                        st.stop()
+                with st.spinner("Ajustando..."):
+                    novo_texto = editar_descricao(st.session_state["desc_texto_atual"], instrucao)
+                origem = "ia"
 
-                links_salvos = []
-                barra_salvar = st.progress(0.0, text="Salvando imagens...")
-                for i, g in enumerate(galeria):
-                    barra_salvar.progress(i / len(galeria), text=f"Salvando: {g['tipo'][:30]}...")
-                    nome_arq = f"{g['tipo'][:30]}.png"
-                    link, err_up = upload_para_pasta(g["bytes"], nome_arq, pasta_destino_id)
-                    if err_up:
-                        st.warning(f"Falhou '{g['tipo']}': {err_up}")
-                    else:
-                        links_salvos.append(link)
+            st.session_state["desc_texto_atual"] = novo_texto
 
-                barra_salvar.progress(1.0, text="Concluído!")
-                link_pasta = f"https://drive.google.com/drive/folders/{pasta_destino_id}"
+            alerta_verificacao = verificar_remocao_caracteres(instrucao, novo_texto)
+            if alerta_verificacao:
+                resposta = alerta_verificacao
+            elif origem == "determinística":
+                resposta = "Ajuste aplicado (removido por busca exata no texto, sem depender da IA) -- confira acima."
+            else:
+                resposta = "Ajuste aplicado -- confira o texto atualizado acima."
+            st.session_state["desc_chat_log"].append(("assistant", resposta))
 
-                import atividades
-                atividades.registrar_atividade(
-                    usuario_logado, "Imagem (aprovada e salva)",
-                    nome_gal,
-                    f"{len(links_salvos)} imagens salvas na pasta {nome_pasta_novo}",
-                    codigo=codigo_gal,
-                    link_pasta=link_pasta,
-                )
+            import atividades
+            atividades.registrar_atividade(
+                usuario_logado, "Ajuste de Descrição",
+                st.session_state["desc_nome_atual"], instrucao[:100],
+                codigo=st.session_state.get("desc_codigo_atual", ""),
+            )
 
-                st.success(
-                    f"✅ {len(links_salvos)} imagem(ns) salvas no Drive! "
-                    f"[Abrir pasta]({link_pasta})"
-                )
-
-        # ZIP sempre disponível
-        zip_bytes = criar_zip_galeria(galeria, nome_gal)
-        col_zip.download_button(
-            f"⬇️ Baixar todas em ZIP ({len(galeria)} imagens)",
-            data=zip_bytes,
-            file_name=f"{nome_gal}_imagens.zip",
-            mime="application/zip",
-            use_container_width=True,
-        )
+            st.rerun()
