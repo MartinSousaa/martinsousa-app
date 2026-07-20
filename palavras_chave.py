@@ -77,13 +77,44 @@ Termos a evitar: {dados.get('termos_evitar','') or 'nenhum'}
 Responda SOMENTE com a lista de palavras-chave, uma por linha, sem numeração, sem marcador, sem explicação.
 """
     client = anthropic.Anthropic(api_key=api_key)
-    msg = client.messages.create(
-        model="claude-sonnet-4-6", max_tokens=400,
-        messages=[{"role": "user", "content": prompt}]
-    )
-    texto = msg.content[0].text.strip()
-    linhas = [l.strip("-•* \t") for l in texto.split("\n") if l.strip()]
-    return linhas
+    try:
+        msg = client.messages.create(
+            model="claude-sonnet-4-6", max_tokens=600,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        texto = msg.content[0].text.strip()
+        linhas = [l.strip("-•* \t") for l in texto.split("\n") if l.strip()]
+        return linhas, None
+    except Exception as e:
+        return [], str(e)
+
+
+def ajustar_palavras_chave(palavras_atuais, instrucao, dados):
+    """Recebe a lista atual e uma instrução de ajuste. Retorna nova lista."""
+    api_key = st.secrets.get("ANTHROPIC_API_KEY", "")
+    lista_str = "\n".join(f"- {p}" for p in palavras_atuais)
+    prompt = f"""Você gerou as seguintes palavras-chave para o produto "{dados.get('nome_comercial','')}":
+
+{lista_str}
+
+O colaborador pediu o seguinte ajuste:
+"{instrucao}"
+
+Retorne a lista COMPLETA e ATUALIZADA de palavras-chave incorporando o ajuste.
+Mantenha as que estão boas, remova, adicione ou altere conforme solicitado.
+Responda SOMENTE com a lista, uma palavra-chave por linha, sem numeração, sem marcador, sem explicação.
+"""
+    client = anthropic.Anthropic(api_key=api_key)
+    try:
+        msg = client.messages.create(
+            model="claude-sonnet-4-6", max_tokens=600,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        texto = msg.content[0].text.strip()
+        linhas = [l.strip("-•* \t") for l in texto.split("\n") if l.strip()]
+        return linhas, None
+    except Exception as e:
+        return palavras_atuais, str(e)
 
 
 def pagina_palavras_chave(usuario_logado):
@@ -144,8 +175,13 @@ def pagina_palavras_chave(usuario_logado):
             "variacao_cores": variacao_cores, "uso": uso, "diferenciais": diferenciais,
             "termos_busca": termos_busca, "termos_evitar": termos_evitar,
         }
+
         with st.spinner("Gerando palavras-chave..."):
-            palavras = gerar_palavras_chave(dados)
+            palavras, erro_gen = gerar_palavras_chave(dados)
+
+        if erro_gen:
+            st.error(f"Erro ao gerar palavras-chave: {erro_gen}")
+            return
 
         with st.spinner("Conferindo tendências oficiais do Mercado Livre..."):
             tendencias, erro_tendencia = buscar_tendencias_ml()
@@ -153,16 +189,63 @@ def pagina_palavras_chave(usuario_logado):
         import atividades
         atividades.registrar_atividade(usuario_logado, "Palavras-chave", nome_comercial, f"{len(palavras)} termos gerados")
 
-        st.markdown("---")
-        st.markdown(f"#### Palavras-chave — {nome_comercial}")
+        # Persiste no session_state para não perder ao trocar de aba
+        st.session_state["pc_palavras_geradas"] = palavras
+        st.session_state["pc_tendencias"] = tendencias
+        st.session_state["pc_erro_tendencia"] = erro_tendencia
+        st.session_state["pc_dados_produto"] = dados
+        st.session_state["pc_chat_log"] = []
+        st.rerun()
 
-        if erro_tendencia:
-            st.caption(f"⚠️ Não consegui comparar com as Tendências oficiais do ML agora ({erro_tendencia}). Lista abaixo é só a sugestão da IA, sem confirmação de tendência.")
-            st.code("\n".join(palavras), language=None)
+    # ── RESULTADO E CHAT ──────────────────────────────────────────────────────
+    palavras_salvas = st.session_state.get("pc_palavras_geradas")
+    if not palavras_salvas:
+        return
+
+    tendencias_salvas = st.session_state.get("pc_tendencias")
+    erro_tend_salvo = st.session_state.get("pc_erro_tendencia")
+    dados_produto = st.session_state.get("pc_dados_produto", {})
+    nome_exibir = dados_produto.get("nome_comercial", "produto")
+
+    st.markdown("---")
+    st.markdown(f"#### Palavras-chave — {nome_exibir}")
+
+    if erro_tend_salvo:
+        st.caption(f"⚠️ Não consegui comparar com as Tendências oficiais do ML agora ({erro_tend_salvo}). Lista abaixo é só a sugestão da IA, sem confirmação de tendência.")
+        st.code("\n".join(palavras_salvas), language=None)
+    else:
+        st.caption("🔥 = esse termo bate com algo que está de fato em alta agora na API oficial de Tendências do Mercado Livre. Os demais são sugestão da IA, sem dado de volume real.")
+        linhas_marcadas = []
+        for p in palavras_salvas:
+            marca = "🔥 " if tendencias_salvas and bate_com_tendencia(p, tendencias_salvas) else "   "
+            linhas_marcadas.append(f"{marca}{p}")
+        st.code("\n".join(linhas_marcadas), language=None)
+
+    # ── CHAT DE AJUSTE ────────────────────────────────────────────────────────
+    st.markdown("##### Ajustar palavras-chave")
+    st.caption("Peça para adicionar, remover ou reformular termos. Ex: *adicione termos voltados para presente* ou *remova os termos em inglês*.")
+
+    for autor, mensagem in st.session_state.get("pc_chat_log", []):
+        with st.chat_message(autor):
+            st.markdown(mensagem)
+
+    instrucao_pc = st.chat_input("Ex: adicione termos de presente · remova os termos em inglês · inclua variação de tamanho P/M/G")
+
+    if instrucao_pc:
+        st.session_state["pc_chat_log"].append(("user", instrucao_pc))
+
+        with st.spinner("Ajustando lista..."):
+            nova_lista, erro_aj = ajustar_palavras_chave(
+                palavras_salvas, instrucao_pc, dados_produto
+            )
+
+        if erro_aj:
+            st.session_state["pc_chat_log"].append(("assistant", f"⚠️ Erro ao ajustar: {erro_aj}"))
         else:
-            st.caption("🔥 = esse termo bate com algo que está de fato em alta agora na API oficial de Tendências do Mercado Livre. Os demais são sugestão da IA, sem dado de volume real.")
-            linhas_marcadas = []
-            for p in palavras:
-                marca = "🔥 " if bate_com_tendencia(p, tendencias) else "   "
-                linhas_marcadas.append(f"{marca}{p}")
-            st.code("\n".join(linhas_marcadas), language=None)
+            st.session_state["pc_palavras_geradas"] = nova_lista
+            n_antes = len(palavras_salvas)
+            n_depois = len(nova_lista)
+            msg = f"✅ Lista atualizada ({n_antes} → {n_depois} termos)."
+            st.session_state["pc_chat_log"].append(("assistant", msg))
+
+        st.rerun()
