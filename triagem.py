@@ -40,23 +40,29 @@ def salvar_triagem(usuario, dados):
     """dados: dict com as chaves de COLUNAS (exceto data_hora/usuario, que
     a funcao preenche sozinha). Cada triagem vira uma linha nova -- se o
     mesmo SKU for triado de novo, fica um historico, e buscar_triagem_por_sku
-    sempre pega a mais recente."""
-    aba = _aba()
-    linha = [datetime.now().strftime("%d/%m/%Y %H:%M"), usuario] + [
-        dados.get(c, "") for c in COLUNAS if c not in ("data_hora", "usuario")
-    ]
-    aba.append_row(linha, value_input_option="RAW")
-    carregar_triagens.clear()
+    sempre pega a mais recente. Lança RuntimeError se a gravação falhar."""
+    try:
+        aba = _aba()
+        linha = [datetime.now().strftime("%d/%m/%Y %H:%M"), usuario] + [
+            dados.get(c, "") for c in COLUNAS if c not in ("data_hora", "usuario")
+        ]
+        aba.append_row(linha, value_input_option="RAW")
+        carregar_triagens.clear()
+    except Exception as e:
+        raise RuntimeError(f"Não consegui salvar a triagem no Google Sheets: {e}") from e
 
 
 @st.cache_data(ttl=30)
 def carregar_triagens():
-    aba = _aba()
-    registros = aba.get_all_records(value_render_option="UNFORMATTED_VALUE")
-    df = pd.DataFrame(registros)
-    if not df.empty:
-        df.columns = [str(c).strip().lower() for c in df.columns]
-    return df
+    try:
+        aba = _aba()
+        registros = aba.get_all_records(value_render_option="UNFORMATTED_VALUE")
+        df = pd.DataFrame(registros)
+        if not df.empty:
+            df.columns = [str(c).strip().lower() for c in df.columns]
+        return df
+    except Exception as e:
+        raise RuntimeError(f"Não consegui carregar as triagens do Google Sheets: {e}") from e
 
 
 def buscar_triagens_por_trecho(trecho):
@@ -127,11 +133,14 @@ def pagina_triagem(usuario_logado):
             "caracteristicas": caracteristicas, "diferenciais": diferenciais, "uso": uso,
             "termos_busca": termos_busca, "termos_evitar": termos_evitar,
         }
-        with st.spinner("Salvando..."):
-            salvar_triagem(usuario_logado, dados)
-        import atividades
-        atividades.registrar_atividade(usuario_logado, "Triagem de Produto", nome_comercial, categoria)
-        st.success(f"Triagem de '{nome_comercial}' salva!")
+        try:
+            with st.spinner("Salvando..."):
+                salvar_triagem(usuario_logado, dados)
+            import atividades
+            atividades.registrar_atividade(usuario_logado, "Triagem de Produto", nome_comercial, categoria)
+            st.success(f"Triagem de '{nome_comercial}' salva!")
+        except RuntimeError as e:
+            st.error(str(e))
 
     st.markdown("---")
     st.markdown("#### Buscar triagem existente")
