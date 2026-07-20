@@ -326,7 +326,7 @@ Responda SOMENTE com o texto da descrição, pronta pra colar no anúncio, sem c
 """
     client = anthropic.Anthropic(api_key=api_key)
     msg = client.messages.create(
-        model="claude-sonnet-4-6", max_tokens=900,
+        model="claude-sonnet-4-6", max_tokens=1500,
         messages=[{"role": "user", "content": prompt}]
     )
     return msg.content[0].text.strip()
@@ -363,7 +363,7 @@ Responda SOMENTE com o texto completo da descrição já ajustada, sem comentár
 """
     client = anthropic.Anthropic(api_key=api_key)
     msg = client.messages.create(
-        model="claude-sonnet-4-6", max_tokens=900,
+        model="claude-sonnet-4-6", max_tokens=1500,
         messages=[{"role": "user", "content": prompt}]
     )
     return msg.content[0].text.strip()
@@ -464,7 +464,8 @@ def pagina_descricao(usuario_logado):
         col1, col2 = st.columns(2)
         nome_produto = col1.text_input("Nome do produto", value=dados_iniciais["nome_produto"], key="desc_nome_produto")
         categorias = sorted(ML_COMISSAO_POR_CATEGORIA.keys())
-        cat_atual = dados_iniciais["categoria"]
+        # Usa categoria da triagem, senão a última usada na sessão, senão a primeira da lista
+        cat_atual = dados_iniciais["categoria"] or st.session_state.get("ultima_categoria", "")
         idx_cat = categorias.index(cat_atual) if cat_atual in categorias else 0
         categoria = col2.selectbox("Categoria no ML", categorias, index=idx_cat, key="desc_categoria")
 
@@ -600,7 +601,12 @@ def pagina_descricao(usuario_logado):
                 codigo=codigo,
                 cor=dados.get("cor", ""),
                 medidas=dados.get("medidas", ""),
+                peso=dados.get("peso", ""),
             )
+
+            # Persiste categoria para uso nos outros módulos
+            if dados.get("categoria"):
+                st.session_state["ultima_categoria"] = dados["categoria"]
 
             del st.session_state["desc_dados_pendentes"]
             st.session_state["desc_texto_atual"] = descricao
@@ -609,6 +615,7 @@ def pagina_descricao(usuario_logado):
             st.session_state["desc_dados_atual"] = {
                 "cor": dados.get("cor", ""),
                 "medidas": dados.get("medidas", ""),
+                "peso": dados.get("peso", ""),
                 "categoria": dados.get("categoria", ""),
                 "diferenciais": dados.get("diferenciais", ""),
                 "caracteristicas": dados.get("caracteristicas", ""),
