@@ -152,8 +152,12 @@ def aliquota_vigente(df, ano=None):
         return pd.notna(v) and v and 0 < v <= 100
 
     linha = df[df["ano"] == ano] if not df.empty else pd.DataFrame()
-    if not linha.empty and valida(linha.iloc[0].get("aliquota")):
-        return float(linha.iloc[0]["aliquota"]), linha.iloc[0].get("regime_tributario")
+    # Pega a linha mais recente do ano com alíquota válida (não necessariamente janeiro)
+    if not linha.empty:
+        com_aliquota_ano = linha[linha["aliquota"].apply(valida)] if "aliquota" in linha.columns else pd.DataFrame()
+        if not com_aliquota_ano.empty:
+            melhor = com_aliquota_ano.sort_values("mes", ascending=False).iloc[0]
+            return float(melhor["aliquota"]), melhor.get("regime_tributario")
 
     com_aliquota = df[df["aliquota"].apply(valida)] if "aliquota" in df.columns and not df.empty else pd.DataFrame()
     if com_aliquota.empty:
