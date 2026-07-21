@@ -277,41 +277,38 @@ def verificar_login():
 
     # ── PAINEL DIREITO ─────────────────────────────────────────────────────────
     with col_right:
-        logo_b64 = _logo_b64()
-        if logo_b64:
-            logo_html = (
-                f'<img src="data:image/png;base64,{logo_b64}" '
-                f'style="width:min(280px,80%); display:block; margin:0 auto 32px;" alt="MS Studio"/>'
-            )
-        else:
-            logo_html = ""
-        st.markdown(f"""
-        <div style="width:100%; max-width:340px; margin:0 auto;">
-            {logo_html}
-            <div style="
-                font-family: Arial, sans-serif;
-                font-size: 26px;
-                font-weight: 700;
-                color: #f0f0f0;
-                letter-spacing: 1px;
-                margin-bottom: 6px;
-            ">MS Studio</div>
-            <div style="
-                font-family: Arial, sans-serif;
-                font-size: 13px;
-                color: #555;
-                letter-spacing: 0.3px;
-                margin-bottom: 24px;
-            ">Conecte-se para continuar</div>
-        </div>
-        """, unsafe_allow_html=True)
-
         if not tem_alguem:
             st.warning(
                 "Nenhum usuário configurado ainda. "
                 "Adicione pelo menos um usuário no bloco [usuarios] das Secrets do Streamlit."
             )
             st.stop()
+
+        logo_b64 = _logo_b64()
+        logo_html = (
+            f'<img src="data:image/png;base64,{logo_b64}" '
+            f'style="width:min(220px,65%); display:block; margin:0 0 28px 0;" alt="MS Studio"/>'
+            if logo_b64 else ""
+        )
+
+        st.markdown(f"""
+        <div style="width:100%; max-width:340px; margin:0 auto 0px;">
+            {logo_html}
+            <div style="
+                font-family: Arial, sans-serif;
+                font-size: 26px;
+                font-weight: 700;
+                color: #f0f0f0;
+                margin-bottom: 4px;
+            ">MS Studio</div>
+            <div style="
+                font-family: Arial, sans-serif;
+                font-size: 13px;
+                color: #555;
+                margin-bottom: 20px;
+            ">Conecte-se para continuar</div>
+        </div>
+        """, unsafe_allow_html=True)
 
         with st.form("login_form"):
             login = st.text_input("Usuário")
