@@ -22,55 +22,116 @@ st.set_page_config(page_title="MS Studio", layout="wide")
 st.markdown("""
 <style>
 /* ══════════════════════════════════════════════════════════════════════════
-   PALETA CINZA — 5 camadas
-   #3c3c3c  fundo principal
-   #515151  sidebar / cards / inputs
-   #666666  bordas / divisores / placeholder
-   #b8b8b8  texto secundário / labels / captions
+   PALETA CINZA
+   #3c3c3c  fundo base do app
+   #515151  conteúdo central / cards / inputs
+   #666666  sidebar esquerdo / chat / bordas
+   #b8b8b8  texto secundário / labels
    #e0e0e0  texto principal
    ══════════════════════════════════════════════════════════════════════════ */
 
-/* ── FUNDO E TEXTO BASE ─────────────────────────────────────────────────── */
+/* ── REMOVE BARRA PRETA DO TOPO ─────────────────────────────────────────── */
+[data-testid="stHeader"] {
+    background-color: #3c3c3c !important;
+    border-bottom: none !important;
+}
+#stDecoration { display: none !important; }
+[data-testid="stToolbar"] { background-color: #3c3c3c !important; }
+
+/* ── FUNDO BASE ─────────────────────────────────────────────────────────── */
 .stApp { background-color: #3c3c3c !important; color: #e0e0e0 !important; }
 
-/* ── SIDEBAR ────────────────────────────────────────────────────────────── */
+/* ── SIDEBAR ESQUERDO — #666666 ─────────────────────────────────────────── */
 [data-testid="stSidebar"] {
-    background-color: #515151 !important;
-    border-right: 1px solid #666666 !important;
+    background-color: #666666 !important;
+    border-right: 1px solid #515151 !important;
 }
 [data-testid="stSidebar"] * { color: #e0e0e0 !important; }
 [data-testid="stSidebar"] h1,
 [data-testid="stSidebar"] h2,
 [data-testid="stSidebar"] h3 { color: #e0e0e0 !important; }
 
-/* ── ÁREA PRINCIPAL ─────────────────────────────────────────────────────── */
-.main .block-container { color: #e0e0e0 !important; }
+/* ── CONTEÚDO CENTRAL — #515151 ─────────────────────────────────────────── */
+.main, [data-testid="stMain"] {
+    background-color: #515151 !important;
+}
+.main .block-container,
+[data-testid="stMainBlockContainer"] {
+    background-color: #515151 !important;
+    color: #e0e0e0 !important;
+    /* Margem direita reservada pro chat quando aberto */
+    transition: padding-right 0.22s ease !important;
+}
+body.chat-aberto .main .block-container,
+body.chat-aberto [data-testid="stMainBlockContainer"] {
+    padding-right: 296px !important;
+}
 h1, h2, h3, h4, h5, h6 { color: #e0e0e0 !important; }
 p, span, label, div { color: #e0e0e0 !important; }
 
-/* ── INPUTS E SELECTS ───────────────────────────────────────────────────── */
+/* ── INPUTS E SELECTS — COMPACTOS ───────────────────────────────────────── */
 .stTextInput input,
 .stNumberInput input {
-    background-color: #515151 !important;
-    border: 1px solid #666666 !important;
+    background-color: #666666 !important;
+    border: 1px solid #888888 !important;
     color: #e0e0e0 !important;
-    border-radius: 6px !important;
+    border-radius: 5px !important;
+    font-size: 13px !important;
+    padding: 5px 10px !important;
+    height: 34px !important;
+    min-height: unset !important;
 }
 .stTextInput input::placeholder,
-.stNumberInput input::placeholder { color: #666666 !important; }
+.stNumberInput input::placeholder { color: #aaaaaa !important; font-size: 12px !important; }
 .stTextInput input:focus,
 .stNumberInput input:focus {
     border-color: #b8b8b8 !important;
     box-shadow: none !important;
 }
+/* Labels menores */
 .stTextInput label,
 .stNumberInput label,
-.stSelectbox label { color: #b8b8b8 !important; font-size: 13px !important; }
-
+.stSelectbox label,
+.stRadio label,
+[data-testid="stWidgetLabel"] p {
+    color: #b8b8b8 !important;
+    font-size: 12px !important;
+    margin-bottom: 2px !important;
+}
+/* Select compacto */
 .stSelectbox > div > div {
-    background-color: #515151 !important;
-    border: 1px solid #666666 !important;
+    background-color: #666666 !important;
+    border: 1px solid #888888 !important;
     color: #e0e0e0 !important;
+    font-size: 13px !important;
+    min-height: 34px !important;
+}
+.stSelectbox [data-baseweb="select"] > div {
+    padding-top: 4px !important;
+    padding-bottom: 4px !important;
+    min-height: 34px !important;
+}
+/* Botões +/- do number input */
+.stNumberInput [data-testid="stNumberInputStepUp"],
+.stNumberInput [data-testid="stNumberInputStepDown"] {
+    height: 34px !important;
+    width: 28px !important;
+    font-size: 14px !important;
+}
+/* Espaçamento entre campos */
+.stTextInput, .stNumberInput, .stSelectbox {
+    margin-bottom: 2px !important;
+}
+[data-testid="stVerticalBlock"] > [data-testid="stVerticalBlockBorderWrapper"],
+.element-container {
+    margin-bottom: 4px !important;
+}
+/* Subheaders menores */
+[data-testid="stHeadingWithActionElements"] h2,
+[data-testid="stHeadingWithActionElements"] h3 {
+    font-size: 16px !important;
+    margin-bottom: 6px !important;
+    margin-top: 4px !important;
 }
 
 /* ── TABELAS — SÓ LINHAS HORIZONTAIS ───────────────────────────────────── */
@@ -96,19 +157,19 @@ th {
 td {
     background-color: transparent !important;
     border: none !important;
-    border-bottom: 1px solid #515151 !important;
+    border-bottom: 1px solid #666666 !important;
     padding: 8px 12px !important;
     color: #e0e0e0 !important;
 }
 tr:last-child td { border-bottom: none !important; }
-tr:hover td { background-color: #484848 !important; }
+tr:hover td { background-color: #5c5c5c !important; }
 
 /* ── MÉTRICAS ───────────────────────────────────────────────────────────── */
 [data-testid="stMetric"] {
-    background-color: #515151 !important;
+    background-color: #666666 !important;
     border-radius: 8px !important;
     padding: 12px 16px !important;
-    border: 1px solid #666666 !important;
+    border: 1px solid #888888 !important;
 }
 [data-testid="stMetricLabel"] p { color: #b8b8b8 !important; font-size: 12px !important; }
 [data-testid="stMetricValue"]   { color: #e0e0e0 !important; }
@@ -131,16 +192,16 @@ tr:hover td { background-color: #484848 !important; }
 
 /* ── BOTÃO PRIMÁRIO ─────────────────────────────────────────────────────── */
 .stButton > button[kind="primary"] {
-    background-color: #515151 !important;
+    background-color: #666666 !important;
     color: #e0e0e0 !important;
-    border: 1px solid #666666 !important;
+    border: 1px solid #888888 !important;
     border-radius: 6px !important;
     font-weight: 600 !important;
     letter-spacing: 0.4px !important;
     transition: all 0.15s ease !important;
 }
 .stButton > button[kind="primary"]:hover {
-    background-color: #666666 !important;
+    background-color: #777777 !important;
     color: #e0e0e0 !important;
     border-color: #b8b8b8 !important;
 }
@@ -149,7 +210,7 @@ tr:hover td { background-color: #484848 !important; }
 .stButton > button:not([kind="primary"]) {
     background-color: transparent !important;
     color: #b8b8b8 !important;
-    border: 1px solid #666666 !important;
+    border: 1px solid #888888 !important;
     border-radius: 6px !important;
 }
 .stButton > button:not([kind="primary"]):hover {
@@ -160,8 +221,8 @@ tr:hover td { background-color: #484848 !important; }
 /* ── CAPTION / TEXTO AUXILIAR ───────────────────────────────────────────── */
 .stCaption, [data-testid="stCaptionContainer"] p { color: #b8b8b8 !important; }
 
-/* ── WARNING / INFO MESSAGES ────────────────────────────────────────────── */
-[data-testid="stAlert"] { background-color: #515151 !important; border-color: #666666 !important; }
+/* ── ALERTAS ────────────────────────────────────────────────────────────── */
+[data-testid="stAlert"] { background-color: #666666 !important; border-color: #888888 !important; }
 
 /* ── DIVISORES ──────────────────────────────────────────────────────────── */
 hr { border-color: #666666 !important; margin: 16px 0 !important; }
@@ -587,23 +648,24 @@ with st.sidebar:
 
 _eh_admin = auth.is_admin(usuario_logado)
 _nomes_abas = ["Análise de Viabilidade", "Triagem", "Palavras-chave", "Título",
-               "Descrição", "Imagem", "Financeiro", "Histórico"]
+               "Descrição", "Imagem", "Histórico"]
 if _eh_admin:
     _nomes_abas.append("Administrativo")
 
 _abas = st.tabs(_nomes_abas)
 (aba_viabilidade, aba_triagem, aba_palavras, aba_titulo,
- aba_descricao, aba_imagem, aba_financeiro, aba_historico) = _abas[:8]
-
-with aba_financeiro:
-    financeiro.pagina_financeiro(usuario_logado)
+ aba_descricao, aba_imagem, aba_historico) = _abas[:7]
 
 with aba_historico:
     atividades.pagina_historico()
 
 if _eh_admin:
-    with _abas[8]:
-        admin.pagina_admin(usuario_logado)
+    with _abas[7]:
+        _sub_admin, _sub_financeiro = st.tabs(["⚙️ Administrativo", "💰 Financeiro"])
+        with _sub_admin:
+            admin.pagina_admin(usuario_logado)
+        with _sub_financeiro:
+            financeiro.pagina_financeiro(usuario_logado)
 
 with aba_triagem:
     triagem.pagina_triagem(usuario_logado)
@@ -696,6 +758,12 @@ with aba_viabilidade:
             erros.append("Peso do produto (necessário para calcular o frete da Shein)")
         if erros:
             st.warning(f"Preencha: {', '.join(erros)}")
+            # Abre o chat automaticamente com orientação sobre o que falta
+            msg_chat = f"Atenção! Faltam informações para calcular a viabilidade:\n\n"
+            for e in erros:
+                msg_chat += f"• {e}\n"
+            msg_chat += "\nMe fala o que não sabe preencher que te explico."
+            chat_assistente.iniciar_conversa(msg_chat)
             st.stop()
 
         peso_taxado_ml = calcular_peso_taxado(peso_kg, dim1 or 0, dim2 or 0, dim3 or 0)
