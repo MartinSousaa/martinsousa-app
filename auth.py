@@ -287,12 +287,12 @@ def verificar_login():
         logo_b64 = _logo_b64()
         logo_html = (
             f'<img src="data:image/png;base64,{logo_b64}" '
-            f'style="width:min(220px,65%); display:block; margin:0 0 28px 0;" alt="MS Studio"/>'
+            f'style="width:min(380px,85%); display:block; margin:0 auto 28px auto;" alt="MS Studio"/>'
             if logo_b64 else ""
         )
 
         st.markdown(f"""
-        <div style="width:100%; max-width:340px; margin:0 auto 0px;">
+        <div style="width:100%; max-width:420px; margin:0 auto 0px; text-align:center;">
             {logo_html}
             <div style="
                 font-family: Arial, sans-serif;
