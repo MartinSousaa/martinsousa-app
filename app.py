@@ -680,6 +680,10 @@ with st.sidebar:
     st.markdown("---")
     st.caption(f"Logado como **{usuario_logado}**")
     if st.button("Sair"):
+        # Limpa confirmação de admin junto com o login
+        chave_admin = f"admin_confirmado_{usuario_logado}"
+        for k in [k for k in st.session_state if k == chave_admin]:
+            del st.session_state[k]
         del st.session_state["usuario_logado"]
         st.rerun()
     st.markdown("---")
