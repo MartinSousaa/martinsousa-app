@@ -232,6 +232,93 @@ body.tema-claro .stNumberInput [data-testid="stNumberInputStepDown"] {
   transition: opacity 0.15s !important; line-height: 1 !important; padding: 0 !important;
 }
 #ms-tema-toggle:hover { opacity: 0.75 !important; }
+
+/* ══ RESPONSIVO — MOBILE (max 768px) ═══════════════════════════════════════ */
+@media screen and (max-width: 768px) {
+
+  /* Colunas empilham verticalmente */
+  [data-testid="stHorizontalBlock"] {
+    flex-direction: column !important;
+    gap: 0 !important;
+  }
+  [data-testid="column"] {
+    width: 100% !important;
+    min-width: 100% !important;
+    flex: none !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+
+  /* Padding reduzido no conteúdo principal */
+  .main .block-container,
+  [data-testid="stMainBlockContainer"] {
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+    padding-top: 8px !important;
+    max-width: 100% !important;
+  }
+
+  /* Abas: rolagem horizontal sem quebrar */
+  .stTabs [data-baseweb="tab-list"] {
+    overflow-x: auto !important;
+    flex-wrap: nowrap !important;
+    -webkit-overflow-scrolling: touch !important;
+    scrollbar-width: none !important;
+  }
+  .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar { display: none !important; }
+  .stTabs [data-baseweb="tab"] {
+    font-size: 12px !important;
+    white-space: nowrap !important;
+    padding: 8px 10px !important;
+    min-width: fit-content !important;
+  }
+
+  /* Títulos menores */
+  h1, h2 { font-size: 20px !important; }
+  h3      { font-size: 17px !important; }
+  h4, h5  { font-size: 15px !important; }
+
+  /* Métricas compactas */
+  [data-testid="stMetric"] { padding: 8px 10px !important; }
+  [data-testid="stMetricValue"] { font-size: 20px !important; }
+  [data-testid="stMetricLabel"] p { font-size: 11px !important; }
+
+  /* Inputs: fonte mínima 16px evita zoom automático no iOS */
+  .stTextInput input,
+  .stNumberInput input,
+  .stSelectbox input,
+  textarea {
+    font-size: 16px !important;
+  }
+
+  /* Botão "Analisar Viabilidade" */
+  .stButton > button { font-size: 14px !important; padding: 10px !important; }
+
+  /* Botão do chat: menor e mais pra dentro */
+  #ms-chat-btn {
+    bottom: 14px !important;
+    left: 12px !important;
+    width: 40px !important;
+    height: 40px !important;
+    font-size: 16px !important;
+  }
+
+  /* Painel do chat: largura total no celular */
+  #ms-chat-painel {
+    width: 100% !important;
+    transform: translateX(-100%) !important;
+  }
+  #ms-chat-painel.aberto { transform: translateX(0) !important; }
+
+  /* Toggle de tema: afasta do botão nativo do Streamlit */
+  #ms-tema-toggle {
+    top: 10px !important;
+    right: 54px !important;
+    width: 38px !important;
+    height: 38px !important;
+    font-size: 15px !important;
+  }
+}
 </style>
 """, unsafe_allow_html=True)
 
