@@ -60,8 +60,8 @@ def renderizar_chat():
   right: 20px !important;
   width: 46px !important;
   height: 46px !important;
-  background: #666666 !important;
-  border: 1.5px solid #888888 !important;
+  background: var(--ms-chat-bg, #666666) !important;
+  border: 1.5px solid var(--ms-borda, #888888) !important;
   border-radius: 50% !important;
   cursor: pointer !important;
   font-size: 18px !important;
@@ -69,13 +69,13 @@ def renderizar_chat():
   align-items: center !important;
   justify-content: center !important;
   z-index: 999999 !important;
-  box-shadow: 0 3px 14px rgba(0,0,0,0.5) !important;
-  color: #e0e0e0 !important;
-  transition: background 0.15s !important;
+  box-shadow: 0 3px 14px rgba(0,0,0,0.4) !important;
+  color: var(--ms-texto, #e0e0e0) !important;
+  transition: opacity 0.15s !important;
   line-height: 1 !important;
   padding: 0 !important;
 }}
-#ms-chat-btn:hover {{ background: #777777 !important; }}
+#ms-chat-btn:hover {{ opacity: 0.8 !important; }}
 
 /* ── PAINEL LATERAL ───────────────────────────────────────── */
 #ms-chat-painel {{
@@ -84,14 +84,14 @@ def renderizar_chat():
   right: 0 !important;
   width: 280px !important;
   height: 100vh !important;
-  background: #666666 !important;
-  border-left: 1px solid #888888 !important;
+  background: var(--ms-chat-bg, #666666) !important;
+  border-left: 1px solid var(--ms-borda, #888888) !important;
   display: flex !important;
   flex-direction: column !important;
   z-index: 999998 !important;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
   transition: transform 0.22s ease !important;
-  box-shadow: -4px 0 20px rgba(0,0,0,0.35) !important;
+  box-shadow: -4px 0 20px rgba(0,0,0,0.25) !important;
   transform: translateX(280px) !important;
 }}
 #ms-chat-painel.aberto {{
@@ -101,8 +101,8 @@ def renderizar_chat():
 /* ── CABEÇALHO ────────────────────────────────────────────── */
 #ms-chat-header {{
   padding: 13px 14px 12px !important;
-  background: #515151 !important;
-  border-bottom: 1px solid #888888 !important;
+  background: var(--ms-chat-header, #515151) !important;
+  border-bottom: 1px solid var(--ms-divisor, #888888) !important;
   display: flex !important;
   align-items: center !important;
   justify-content: space-between !important;
@@ -114,17 +114,17 @@ def renderizar_chat():
   margin: 0 !important;
   font-size: 13px !important;
   font-weight: 600 !important;
-  color: #e0e0e0 !important;
+  color: var(--ms-texto, #e0e0e0) !important;
 }}
 #ms-chat-subtitulo {{
   font-size: 10px !important;
-  color: #b8b8b8 !important;
+  color: var(--ms-texto-sec, #b8b8b8) !important;
   margin-top: 2px !important;
 }}
 #ms-chat-fechar {{
   background: none !important;
   border: none !important;
-  color: #b8b8b8 !important;
+  color: var(--ms-texto-sec, #b8b8b8) !important;
   cursor: pointer !important;
   font-size: 18px !important;
   padding: 4px 7px !important;
@@ -135,7 +135,7 @@ def renderizar_chat():
   align-items: center !important;
   justify-content: center !important;
 }}
-#ms-chat-fechar:hover {{ color: #e0e0e0 !important; background: #777777 !important; }}
+#ms-chat-fechar:hover {{ color: var(--ms-texto, #e0e0e0) !important; background: var(--ms-hover, #777777) !important; }}
 
 /* ── MENSAGENS ────────────────────────────────────────────── */
 #ms-chat-msgs {{
@@ -149,14 +149,14 @@ def renderizar_chat():
 }}
 #ms-chat-msgs::-webkit-scrollbar {{ width: 3px !important; }}
 #ms-chat-msgs::-webkit-scrollbar-track {{ background: transparent !important; }}
-#ms-chat-msgs::-webkit-scrollbar-thumb {{ background: #888 !important; border-radius: 2px !important; }}
+#ms-chat-msgs::-webkit-scrollbar-thumb {{ background: var(--ms-borda, #888) !important; border-radius: 2px !important; }}
 
 .ms-msg-wrapper {{ display: flex !important; flex-direction: column !important; }}
 .ms-msg-wrapper.user {{ align-items: flex-end !important; }}
 .ms-msg-wrapper.ia   {{ align-items: flex-start !important; }}
 .ms-msg-label {{
   font-size: 10px !important;
-  color: #b8b8b8 !important;
+  color: var(--ms-texto-sec, #b8b8b8) !important;
   margin-bottom: 3px !important;
   font-weight: 500 !important;
 }}
@@ -170,18 +170,18 @@ def renderizar_chat():
   max-width: 93% !important;
 }}
 .ms-msg.user {{
-  background: #515151 !important;
-  color: #e0e0e0 !important;
+  background: var(--ms-msg-user, #515151) !important;
+  color: var(--ms-texto, #e0e0e0) !important;
   border-bottom-right-radius: 3px !important;
 }}
 .ms-msg.ia {{
-  background: #5a5a5a !important;
-  color: #e0e0e0 !important;
-  border: 1px solid #888888 !important;
+  background: var(--ms-msg-ia, #5a5a5a) !important;
+  color: var(--ms-texto, #e0e0e0) !important;
+  border: 1px solid var(--ms-msg-ia-bd, #888888) !important;
   border-bottom-left-radius: 3px !important;
 }}
 .ms-typing {{
-  color: #b8b8b8 !important;
+  color: var(--ms-texto-sec, #b8b8b8) !important;
   font-size: 11.5px !important;
   font-style: italic !important;
   align-self: flex-start !important;
@@ -191,17 +191,17 @@ def renderizar_chat():
 /* ── RODAPÉ ───────────────────────────────────────────────── */
 #ms-chat-rodape {{
   padding: 10px 12px !important;
-  background: #5a5a5a !important;
-  border-top: 1px solid #888888 !important;
+  background: var(--ms-chat-footer, #5a5a5a) !important;
+  border-top: 1px solid var(--ms-divisor, #888888) !important;
   flex-shrink: 0 !important;
   box-sizing: border-box !important;
 }}
 #ms-chat-area {{
   width: 100% !important;
-  background: #666666 !important;
-  border: 1px solid #888888 !important;
+  background: var(--ms-chat-input, #666666) !important;
+  border: 1px solid var(--ms-borda, #888888) !important;
   border-radius: 7px !important;
-  color: #e0e0e0 !important;
+  color: var(--ms-texto, #e0e0e0) !important;
   font-size: 12.5px !important;
   padding: 9px 11px !important;
   resize: none !important;
@@ -211,27 +211,27 @@ def renderizar_chat():
   box-sizing: border-box !important;
   transition: border-color 0.15s !important;
 }}
-#ms-chat-area::placeholder {{ color: #aaaaaa !important; }}
-#ms-chat-area:focus {{ border-color: #b8b8b8 !important; }}
+#ms-chat-area::placeholder {{ color: var(--ms-texto-sec, #aaaaaa) !important; }}
+#ms-chat-area:focus {{ border-color: var(--ms-texto, #b8b8b8) !important; }}
 #ms-chat-rodape-acoes {{
   display: flex !important;
   align-items: center !important;
   justify-content: space-between !important;
   margin-top: 7px !important;
 }}
-.ms-hint {{ font-size: 10px !important; color: #b8b8b8 !important; }}
+.ms-hint {{ font-size: 10px !important; color: var(--ms-texto-sec, #b8b8b8) !important; }}
 #ms-chat-enviar {{
-  background: #515151 !important;
-  border: 1px solid #888888 !important;
+  background: var(--ms-chat-header, #515151) !important;
+  border: 1px solid var(--ms-borda, #888888) !important;
   border-radius: 6px !important;
-  color: #e0e0e0 !important;
+  color: var(--ms-texto, #e0e0e0) !important;
   font-size: 12px !important;
   font-weight: 600 !important;
   padding: 5px 13px !important;
   cursor: pointer !important;
   transition: background 0.15s !important;
 }}
-#ms-chat-enviar:hover {{ background: #626262 !important; }}
+#ms-chat-enviar:hover {{ background: var(--ms-hover, #626262) !important; }}
 #ms-chat-enviar:disabled {{ opacity: 0.45 !important; cursor: default !important; }}
 </style>
 
