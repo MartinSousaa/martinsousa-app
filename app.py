@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 from datetime import date
 from params_oficiais import (
     LPV_OFICIAL, NF_OFICIAL,
@@ -204,82 +205,70 @@ hr { border-color: var(--ms-divisor) !important; margin: 16px 0 !important; }
 }
 #ms-tema-toggle:hover { opacity: 0.75 !important; }
 </style>
+""", unsafe_allow_html=True)
 
+# ── TEMA JS — via components.html p/ garantir execução real do script ──────────
+components.html("""
 <script>
 (function() {
-  if (window._msTemaIniciado) {
-    // Já rodou — só re-aplica o tema ao body (survive Streamlit rerun)
-    var t = sessionStorage.getItem('ms_tema');
-    var d = sessionStorage.getItem('ms_tema_dia');
-    if (t && d === new Date().toDateString()) {
-      document.body.classList.remove('tema-claro','tema-escuro');
-      document.body.classList.add(t);
-    } else {
-      document.body.classList.remove('tema-claro','tema-escuro');
-      document.body.classList.add(new Date().getHours() >= 18 ? 'tema-escuro' : 'tema-claro');
-    }
-    _atualizarIcone();
-    return;
-  }
-  window._msTemaIniciado = true;
+  var P = window.parent;
 
-  function temaAuto() {
-    return new Date().getHours() >= 18 ? 'tema-escuro' : 'tema-claro';
-  }
+  function temaAuto() { return new Date().getHours() >= 18 ? 'tema-escuro' : 'tema-claro'; }
 
   function aplicarTema(tema, salvar) {
-    document.body.classList.remove('tema-claro','tema-escuro');
-    document.body.classList.add(tema);
-    _atualizarIcone();
+    P.document.body.classList.remove('tema-claro','tema-escuro');
+    P.document.body.classList.add(tema);
+    var btn = P.document.getElementById('ms-tema-toggle');
+    if (btn) {
+      btn.textContent = tema === 'tema-escuro' ? '☀️' : '🌙';
+      btn.title = tema === 'tema-escuro' ? 'Mudar para tema claro' : 'Mudar para tema escuro';
+    }
     if (salvar) {
-      sessionStorage.setItem('ms_tema', tema);
-      sessionStorage.setItem('ms_tema_dia', new Date().toDateString());
+      P.sessionStorage.setItem('ms_tema', tema);
+      P.sessionStorage.setItem('ms_tema_dia', new Date().toDateString());
     }
   }
 
-  window._atualizarIcone = function() {
-    var btn = document.getElementById('ms-tema-toggle');
-    if (!btn) return;
-    var claro = document.body.classList.contains('tema-claro');
-    btn.textContent = claro ? '🌙' : '☀️';
-    btn.title = claro ? 'Mudar para tema escuro' : 'Mudar para tema claro';
-  };
+  if (P._msTemaIniciado) {
+    // Streamlit rerender — re-aplica o tema salvo (botão já existe no body)
+    var t = P.sessionStorage.getItem('ms_tema');
+    var d = P.sessionStorage.getItem('ms_tema_dia');
+    aplicarTema((t && d === new Date().toDateString()) ? t : temaAuto(), false);
+    return;
+  }
+  P._msTemaIniciado = true;
 
   // Aplica tema inicial
-  var temaSalvo = sessionStorage.getItem('ms_tema');
-  var diaSalvo  = sessionStorage.getItem('ms_tema_dia');
+  var temaSalvo = P.sessionStorage.getItem('ms_tema');
+  var diaSalvo  = P.sessionStorage.getItem('ms_tema_dia');
   if (temaSalvo && diaSalvo === new Date().toDateString()) {
     aplicarTema(temaSalvo, false);
   } else {
-    sessionStorage.removeItem('ms_tema');
-    sessionStorage.removeItem('ms_tema_dia');
+    P.sessionStorage.removeItem('ms_tema');
+    P.sessionStorage.removeItem('ms_tema_dia');
     aplicarTema(temaAuto(), false);
   }
 
-  // Injeta botão (uma única vez)
-  if (!document.getElementById('ms-tema-toggle')) {
-    var btn = document.createElement('button');
+  // Injeta botão toggle (uma única vez, direto no body — sobrevive rerenders)
+  if (!P.document.getElementById('ms-tema-toggle')) {
+    var btn = P.document.createElement('button');
     btn.id = 'ms-tema-toggle';
-    document.body.appendChild(btn);
-    _atualizarIcone();
+    btn.onclick = function() {
+      var claro = P.document.body.classList.contains('tema-claro');
+      aplicarTema(claro ? 'tema-escuro' : 'tema-claro', true);
+    };
+    P.document.body.appendChild(btn);
+    // Ícone inicial
+    aplicarTema(P.document.body.classList.contains('tema-claro') ? 'tema-claro' : 'tema-escuro', false);
   }
 
-  // Auto-switch ao cruzar 18h (sem override manual)
+  // Auto-switch ao cruzar 18h (só se não houver override manual)
   setInterval(function() {
-    if (!sessionStorage.getItem('ms_tema')) aplicarTema(temaAuto(), false);
+    if (!P.sessionStorage.getItem('ms_tema')) aplicarTema(temaAuto(), false);
   }, 60000);
-
-  // Click no toggle
-  document.addEventListener('click', function(e) {
-    var t = e.target;
-    if (t.id === 'ms-tema-toggle' || (t.closest && t.closest('#ms-tema-toggle'))) {
-      var claro = document.body.classList.contains('tema-claro');
-      aplicarTema(claro ? 'tema-escuro' : 'tema-claro', true);
-    }
-  }, true);
 })();
 </script>
-""", unsafe_allow_html=True)
+""", height=0)
 
 usuario_logado = auth.verificar_login()
 
