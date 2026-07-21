@@ -196,9 +196,9 @@ def verificar_login():
         padding: 60px 40px;
     }}
 
-    /* ── PAINEL DIREITO: escuro limpo ── */
+    /* ── PAINEL DIREITO: preto igual ao fundo da logo ── */
     [data-testid="stColumn"]:last-child > div {{
-        background-color: #111111;
+        background-color: #000000;
         min-height: 100vh !important;
         display: flex !important;
         flex-direction: column !important;
