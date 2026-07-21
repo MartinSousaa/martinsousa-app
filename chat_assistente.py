@@ -71,16 +71,16 @@ def renderizar_chat():
 #ms-chat-btn:hover { opacity: 0.8 !important; }
 
 #ms-chat-painel {
-  position: fixed !important; top: 0 !important; right: 0 !important;
+  position: fixed !important; top: 0 !important; left: 0 !important;
   width: 280px !important; height: 100vh !important;
   background: var(--ms-chat-bg, #666666) !important;
-  border-left: 1px solid var(--ms-borda, #888888) !important;
+  border-right: 1px solid var(--ms-borda, #888888) !important;
   display: flex !important; flex-direction: column !important;
   z-index: 999998 !important;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
   transition: transform 0.22s ease !important;
-  box-shadow: -4px 0 20px rgba(0,0,0,0.25) !important;
-  transform: translateX(280px) !important;
+  box-shadow: 4px 0 20px rgba(0,0,0,0.25) !important;
+  transform: translateX(-280px) !important;
 }
 #ms-chat-painel.aberto { transform: translateX(0) !important; }
 
