@@ -264,155 +264,161 @@ def renderizar_chat():
   const SS_EST  = "ms_chat_estado";
 
   let mensagens = [];
+  let iniciado  = false;
   try {{ const s = sessionStorage.getItem(SS_HIST); if (s) mensagens = JSON.parse(s); }} catch(e) {{}}
 
-  // Aguarda DOM estar pronto (Streamlit pode injetar o HTML antes do React terminar)
+  // ── Helpers de estado ─────────────────────────────────────────────────────
+  function g(id) {{ return document.getElementById(id); }}
+
+  function abrirChat() {{
+    const p = g('ms-chat-painel'), b = g('ms-chat-btn');
+    if (p) p.classList.add('aberto');
+    if (b) b.textContent = '✕';
+    document.body.classList.add('chat-aberto');
+    sessionStorage.setItem(SS_EST, 'aberto');
+    rolar();
+  }}
+
+  function fecharChat() {{
+    const p = g('ms-chat-painel'), b = g('ms-chat-btn');
+    if (p) p.classList.remove('aberto');
+    if (b) b.textContent = '💬';
+    document.body.classList.remove('chat-aberto');
+    sessionStorage.setItem(SS_EST, 'fechado');
+  }}
+
+  function addMsgRaw(tipo, texto) {{
+    const msgs = g('ms-chat-msgs');
+    if (!msgs) return;
+    const w = document.createElement('div');
+    w.className = 'ms-msg-wrapper ' + tipo;
+    const label = tipo === 'user' ? 'Você' : 'Assistente';
+    const safe = texto.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    w.innerHTML = '<div class="ms-msg-label">' + label + '</div>' +
+                  '<div class="ms-msg ' + tipo + '">' + safe + '</div>';
+    msgs.appendChild(w);
+  }}
+
+  function addMsg(tipo, texto) {{ addMsgRaw(tipo, texto); rolar(); }}
+
+  function rolar() {{
+    setTimeout(function() {{
+      const msgs = g('ms-chat-msgs');
+      if (msgs) msgs.scrollTop = msgs.scrollHeight;
+    }}, 40);
+  }}
+
+  function salvar() {{
+    try {{ sessionStorage.setItem(SS_HIST, JSON.stringify(mensagens)); }} catch(e) {{}}
+  }}
+
+  async function enviarMsg() {{
+    const area   = g('ms-chat-area');
+    const enviar = g('ms-chat-enviar');
+    const msgs   = g('ms-chat-msgs');
+    if (!area || !enviar || !msgs) return;
+
+    const texto = area.value.trim();
+    if (!texto) return;
+    area.value = '';
+
+    addMsg('user', texto);
+    mensagens.push({{ role: 'user', content: texto }});
+    salvar();
+
+    const typing = document.createElement('div');
+    typing.className = 'ms-typing';
+    typing.id = 'ms-typing';
+    typing.textContent = 'Assistente digitando...';
+    msgs.appendChild(typing);
+    rolar();
+    enviar.disabled = true;
+
+    try {{
+      if (!API_KEY) throw new Error('ANTHROPIC_API_KEY não configurada no Railway.');
+      const resp = await fetch('https://api.anthropic.com/v1/messages', {{
+        method: 'POST',
+        headers: {{
+          'Content-Type': 'application/json',
+          'x-api-key': API_KEY,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true'
+        }},
+        body: JSON.stringify({{
+          model: 'claude-haiku-4-5',
+          max_tokens: 800,
+          system: SYSTEM,
+          messages: mensagens
+        }})
+      }});
+      if (!resp.ok) {{
+        const err = await resp.json().catch(() => ({{}}));
+        throw new Error(err.error?.message || 'Erro ' + resp.status);
+      }}
+      const data = await resp.json();
+      const resposta = data.content[0]?.text || '(sem resposta)';
+      mensagens.push({{ role: 'assistant', content: resposta }});
+      salvar();
+      g('ms-typing')?.remove();
+      addMsg('ia', resposta);
+    }} catch(err) {{
+      g('ms-typing')?.remove();
+      addMsg('ia', '⚠️ ' + err.message);
+    }}
+
+    if (enviar) enviar.disabled = false;
+    rolar();
+  }}
+
+  // ── Delegação no document — funciona mesmo após re-render do Streamlit ───
+  document.addEventListener('click', function(e) {{
+    const t = e.target;
+    if (t.id === 'ms-chat-btn' || (t.closest && t.closest('#ms-chat-btn'))) {{
+      const p = g('ms-chat-painel');
+      if (p && p.classList.contains('aberto')) fecharChat();
+      else abrirChat();
+    }}
+    if (t.id === 'ms-chat-fechar' || (t.closest && t.closest('#ms-chat-fechar'))) {{
+      fecharChat();
+    }}
+    if (t.id === 'ms-chat-enviar' || (t.closest && t.closest('#ms-chat-enviar'))) {{
+      enviarMsg();
+    }}
+  }}, true);
+
+  document.addEventListener('keydown', function(e) {{
+    if (e.key === 'Enter' && !e.shiftKey && e.target.id === 'ms-chat-area') {{
+      e.preventDefault();
+      enviarMsg();
+    }}
+  }}, true);
+
+  // ── Inicialização do histórico (roda uma vez) ─────────────────────────────
   function init() {{
-    const painel = document.getElementById('ms-chat-painel');
-    const btn    = document.getElementById('ms-chat-btn');
-    const msgs   = document.getElementById('ms-chat-msgs');
-    const area   = document.getElementById('ms-chat-area');
-    const enviar = document.getElementById('ms-chat-enviar');
-    const fechar = document.getElementById('ms-chat-fechar');
+    if (iniciado) return;
+    if (!g('ms-chat-msgs')) {{ setTimeout(init, 150); return; }}
+    iniciado = true;
 
-    if (!painel || !btn || !msgs || !area || !enviar || !fechar) {{
-      setTimeout(init, 100); // tenta de novo em 100ms
-      return;
-    }}
-
-    // ── Estado: começa FECHADO ───────────────────────────────
-    const estadoSalvo = sessionStorage.getItem(SS_EST);
-    if (estadoSalvo === 'aberto') {{
-      abrirChat();
-    }}
-
-    // Renderiza histórico
     if (mensagens.length === 0) {{
-      addMsg('ia', 'Olá! Estou aqui para ajudar com qualquer campo ou dúvida sobre viabilidade, ML, Shopee e Shein. O que precisa?');
+      addMsgRaw('ia', 'Olá! Estou aqui para ajudar com qualquer campo ou dúvida sobre viabilidade, ML, Shopee e Shein. O que precisa?');
     }} else {{
-      mensagens.forEach(m => addMsgRaw(m.role === 'user' ? 'user' : 'ia', m.content));
+      mensagens.forEach(function(m) {{ addMsgRaw(m.role === 'user' ? 'user' : 'ia', m.content); }});
     }}
     rolar();
 
-    // ── Toggle abrir/fechar ──────────────────────────────────
-    btn.addEventListener('click', function() {{
-      if (painel.classList.contains('aberto')) fecharChat();
-      else abrirChat();
-    }});
-
-    fechar.addEventListener('click', function() {{ fecharChat(); }});
-
-    // ── Envio de mensagem ────────────────────────────────────
-    area.addEventListener('keydown', function(e) {{
-      if (e.key === 'Enter' && !e.shiftKey) {{ e.preventDefault(); enviar.click(); }}
-    }});
-
-    enviar.addEventListener('click', async function() {{
-      const texto = area.value.trim();
-      if (!texto) return;
-
-      area.value = '';
-      addMsg('user', texto);
-      mensagens.push({{ role: 'user', content: texto }});
-      salvar();
-
-      const typing = document.createElement('div');
-      typing.className = 'ms-typing';
-      typing.id = 'ms-typing';
-      typing.textContent = 'Assistente digitando...';
-      msgs.appendChild(typing);
-      rolar();
-      enviar.disabled = true;
-
-      try {{
-        if (!API_KEY) throw new Error('ANTHROPIC_API_KEY não configurada no Railway.');
-        const resp = await fetch('https://api.anthropic.com/v1/messages', {{
-          method: 'POST',
-          headers: {{
-            'Content-Type': 'application/json',
-            'x-api-key': API_KEY,
-            'anthropic-version': '2023-06-01',
-            'anthropic-dangerous-direct-browser-access': 'true'
-          }},
-          body: JSON.stringify({{
-            model: 'claude-haiku-4-5',
-            max_tokens: 800,
-            system: SYSTEM,
-            messages: mensagens
-          }})
-        }});
-        if (!resp.ok) {{
-          const err = await resp.json().catch(() => ({{}}));
-          throw new Error(err.error?.message || 'Erro ' + resp.status);
-        }}
-        const data = await resp.json();
-        const resposta = data.content[0]?.text || '(sem resposta)';
-        mensagens.push({{ role: 'assistant', content: resposta }});
-        salvar();
-        document.getElementById('ms-typing')?.remove();
-        addMsg('ia', resposta);
-      }} catch(e) {{
-        document.getElementById('ms-typing')?.remove();
-        addMsg('ia', '⚠️ ' + e.message);
-      }}
-
-      enviar.disabled = false;
-      rolar();
-    }});
-
-    // ── Funções públicas expostas para o app Python ──────────
-    // Uso: st.markdown('<script>window.msChatAbrir("msg")<\/script>', unsafe_allow_html=True)
-    window.msChatAbrir = function(msgInicial) {{
-      abrirChat();
-      if (msgInicial) {{
-        addMsg('ia', msgInicial);
-        mensagens.push({{ role: 'assistant', content: msgInicial }});
-        salvar();
-        rolar();
-      }}
-    }};
-
-    // ── Helpers ──────────────────────────────────────────────
-    function abrirChat() {{
-      painel.classList.add('aberto');
-      btn.textContent = '✕';
-      document.body.classList.add('chat-aberto');
-      sessionStorage.setItem(SS_EST, 'aberto');
-    }}
-
-    function fecharChat() {{
-      painel.classList.remove('aberto');
-      btn.textContent = '💬';
-      document.body.classList.remove('chat-aberto');
-      sessionStorage.setItem(SS_EST, 'fechado');
-    }}
-
-    function addMsg(tipo, texto) {{
-      addMsgRaw(tipo, texto);
-      rolar();
-    }}
-
-    function addMsgRaw(tipo, texto) {{
-      const w = document.createElement('div');
-      w.className = 'ms-msg-wrapper ' + tipo;
-      const label = tipo === 'user' ? 'Você' : 'Assistente';
-      const safe = texto.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-      w.innerHTML = '<div class="ms-msg-label">' + label + '</div>' +
-                    '<div class="ms-msg ' + tipo + '">' + safe + '</div>';
-      msgs.appendChild(w);
-    }}
-
-    function rolar() {{
-      setTimeout(function() {{ msgs.scrollTop = msgs.scrollHeight; }}, 30);
-    }}
-
-    function salvar() {{
-      try {{ sessionStorage.setItem(SS_HIST, JSON.stringify(mensagens)); }} catch(e) {{}}
-    }}
+    if (sessionStorage.getItem(SS_EST) === 'aberto') abrirChat();
   }}
+  setTimeout(init, 300);
 
-  // Inicia após um pequeno delay para garantir que o DOM do Streamlit está pronto
-  setTimeout(init, 200);
+  // ── API pública para o app Python abrir o chat ────────────────────────────
+  window.msChatAbrir = function(msgInicial) {{
+    abrirChat();
+    if (msgInicial) {{
+      addMsg('ia', msgInicial);
+      mensagens.push({{ role: 'assistant', content: msgInicial }});
+      salvar();
+    }}
+  }};
 }})();
 </script>
 """
