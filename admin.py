@@ -36,6 +36,23 @@ def pagina_admin(usuario_logado):
         st.error("Acesso restrito a administradores.")
         return
 
+    # ── CONFIRMAÇÃO DE SENHA (segunda camada de segurança) ────────────────────
+    chave = f"admin_confirmado_{usuario_logado}"
+    if not st.session_state.get(chave):
+        st.markdown("### 🔒 Confirmação necessária")
+        st.caption("Digite sua senha para acessar a área administrativa.")
+        with st.form("form_confirm_admin"):
+            senha_confirm = st.text_input("Sua senha", type="password")
+            ok_btn = st.form_submit_button("Confirmar", type="primary")
+        if ok_btn:
+            autenticado, _ = auth._verificar_credencial(usuario_logado, senha_confirm)
+            if autenticado:
+                st.session_state[chave] = True
+                st.rerun()
+            else:
+                st.error("Senha incorreta.")
+        return
+
     st.subheader("Administrativo — Gestão de Usuários")
 
     # ── USUÁRIOS DAS SECRETS (somente leitura) ────────────────────────────────
