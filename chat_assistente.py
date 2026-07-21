@@ -57,7 +57,7 @@ def renderizar_chat():
     st.markdown("""
 <style>
 #ms-chat-btn {
-  position: fixed !important; bottom: 20px !important; right: 20px !important;
+  position: fixed !important; bottom: 20px !important; left: 20px !important;
   width: 46px !important; height: 46px !important;
   background: var(--ms-chat-bg, #666666) !important;
   border: 1.5px solid var(--ms-borda, #888888) !important;
@@ -259,11 +259,9 @@ def renderizar_chat():
     if (P.sessionStorage.getItem(SS_EST) === 'aberto') {{
       if (p) p.classList.add('aberto');
       if (b) b.innerHTML = '&#x2715;';
-      P.document.body.classList.add('chat-aberto');
     }} else {{
       if (p) p.classList.remove('aberto');
       if (b) b.innerHTML = '&#x1F4AC;';
-      P.document.body.classList.remove('chat-aberto');
     }}
   }}
 
@@ -286,7 +284,6 @@ def renderizar_chat():
     var p = g('ms-chat-painel'), b = g('ms-chat-btn');
     if (p) p.classList.add('aberto');
     if (b) b.innerHTML = '&#x2715;';
-    P.document.body.classList.add('chat-aberto');
     P.sessionStorage.setItem(SS_EST, 'aberto');
     rolar();
   }}
@@ -295,7 +292,6 @@ def renderizar_chat():
     var p = g('ms-chat-painel'), b = g('ms-chat-btn');
     if (p) p.classList.remove('aberto');
     if (b) b.innerHTML = '&#x1F4AC;';
-    P.document.body.classList.remove('chat-aberto');
     P.sessionStorage.setItem(SS_EST, 'fechado');
   }}
 
