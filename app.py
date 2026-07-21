@@ -15,15 +15,156 @@ import palavras_chave
 import tit_ml as titulo
 import descricao
 import imagem
+import chat_assistente
 
 st.set_page_config(page_title="MS Studio", layout="wide")
 
 st.markdown("""
 <style>
-    .stApp { background-color: #0e0e0e; color: #f5f5f5; }
-    table { color: #f5f5f5 !important; }
-    th { background-color: #1a1a1a !important; color: #ffffff !important; }
-    td { background-color: #0e0e0e !important; }
+/* ══════════════════════════════════════════════════════════════════════════
+   PALETA CINZA — 5 camadas
+   #3c3c3c  fundo principal
+   #515151  sidebar / cards / inputs
+   #666666  bordas / divisores / placeholder
+   #b8b8b8  texto secundário / labels / captions
+   #e0e0e0  texto principal
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── FUNDO E TEXTO BASE ─────────────────────────────────────────────────── */
+.stApp { background-color: #3c3c3c !important; color: #e0e0e0 !important; }
+
+/* ── SIDEBAR ────────────────────────────────────────────────────────────── */
+[data-testid="stSidebar"] {
+    background-color: #515151 !important;
+    border-right: 1px solid #666666 !important;
+}
+[data-testid="stSidebar"] * { color: #e0e0e0 !important; }
+[data-testid="stSidebar"] h1,
+[data-testid="stSidebar"] h2,
+[data-testid="stSidebar"] h3 { color: #e0e0e0 !important; }
+
+/* ── ÁREA PRINCIPAL ─────────────────────────────────────────────────────── */
+.main .block-container { color: #e0e0e0 !important; }
+h1, h2, h3, h4, h5, h6 { color: #e0e0e0 !important; }
+p, span, label, div { color: #e0e0e0 !important; }
+
+/* ── INPUTS E SELECTS ───────────────────────────────────────────────────── */
+.stTextInput input,
+.stNumberInput input {
+    background-color: #515151 !important;
+    border: 1px solid #666666 !important;
+    color: #e0e0e0 !important;
+    border-radius: 6px !important;
+}
+.stTextInput input::placeholder,
+.stNumberInput input::placeholder { color: #666666 !important; }
+.stTextInput input:focus,
+.stNumberInput input:focus {
+    border-color: #b8b8b8 !important;
+    box-shadow: none !important;
+}
+.stTextInput label,
+.stNumberInput label,
+.stSelectbox label { color: #b8b8b8 !important; font-size: 13px !important; }
+
+.stSelectbox > div > div {
+    background-color: #515151 !important;
+    border: 1px solid #666666 !important;
+    color: #e0e0e0 !important;
+}
+
+/* ── TABELAS — SÓ LINHAS HORIZONTAIS ───────────────────────────────────── */
+table {
+    color: #e0e0e0 !important;
+    border-collapse: collapse !important;
+    width: 100% !important;
+    border: none !important;
+    background: transparent !important;
+}
+th {
+    background-color: transparent !important;
+    color: #b8b8b8 !important;
+    font-size: 11px !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.07em !important;
+    text-transform: uppercase !important;
+    border: none !important;
+    border-bottom: 1px solid #666666 !important;
+    padding: 8px 12px !important;
+    text-align: left !important;
+}
+td {
+    background-color: transparent !important;
+    border: none !important;
+    border-bottom: 1px solid #515151 !important;
+    padding: 8px 12px !important;
+    color: #e0e0e0 !important;
+}
+tr:last-child td { border-bottom: none !important; }
+tr:hover td { background-color: #484848 !important; }
+
+/* ── MÉTRICAS ───────────────────────────────────────────────────────────── */
+[data-testid="stMetric"] {
+    background-color: #515151 !important;
+    border-radius: 8px !important;
+    padding: 12px 16px !important;
+    border: 1px solid #666666 !important;
+}
+[data-testid="stMetricLabel"] p { color: #b8b8b8 !important; font-size: 12px !important; }
+[data-testid="stMetricValue"]   { color: #e0e0e0 !important; }
+
+/* ── TABS ───────────────────────────────────────────────────────────────── */
+.stTabs [data-baseweb="tab-list"] {
+    background-color: transparent !important;
+    border-bottom: 1px solid #666666 !important;
+    gap: 4px !important;
+}
+.stTabs [data-baseweb="tab"] {
+    color: #b8b8b8 !important;
+    background: transparent !important;
+    font-size: 14px !important;
+}
+.stTabs [aria-selected="true"] {
+    color: #e0e0e0 !important;
+    border-bottom-color: #e0e0e0 !important;
+}
+
+/* ── BOTÃO PRIMÁRIO ─────────────────────────────────────────────────────── */
+.stButton > button[kind="primary"] {
+    background-color: #515151 !important;
+    color: #e0e0e0 !important;
+    border: 1px solid #666666 !important;
+    border-radius: 6px !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.4px !important;
+    transition: all 0.15s ease !important;
+}
+.stButton > button[kind="primary"]:hover {
+    background-color: #666666 !important;
+    color: #e0e0e0 !important;
+    border-color: #b8b8b8 !important;
+}
+
+/* ── BOTÃO SECUNDÁRIO ───────────────────────────────────────────────────── */
+.stButton > button:not([kind="primary"]) {
+    background-color: transparent !important;
+    color: #b8b8b8 !important;
+    border: 1px solid #666666 !important;
+    border-radius: 6px !important;
+}
+.stButton > button:not([kind="primary"]):hover {
+    color: #e0e0e0 !important;
+    border-color: #b8b8b8 !important;
+}
+
+/* ── CAPTION / TEXTO AUXILIAR ───────────────────────────────────────────── */
+.stCaption, [data-testid="stCaptionContainer"] p { color: #b8b8b8 !important; }
+
+/* ── WARNING / INFO MESSAGES ────────────────────────────────────────────── */
+[data-testid="stAlert"] { background-color: #515151 !important; border-color: #666666 !important; }
+
+/* ── DIVISORES ──────────────────────────────────────────────────────────── */
+hr { border-color: #666666 !important; margin: 16px 0 !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -393,19 +534,20 @@ def gerar_analise(preco_mercado, custo, peso_taxado, categoria, modalidade,
 
 def _mostrar_resultado(resultado, nome_produto):
     SELOS = {
-        "VIAVEL":    ("🟢", "VIÁVEL", "#1e4620", "#4ade80"),
-        "RESSALVAS": ("🟡", "VIÁVEL COM ATENÇÃO", "#4d3a10", "#facc15"),
-        "INVIAVEL":  ("🔴", "INVIÁVEL", "#4a1414", "#f87171"),
+        "VIAVEL":    ("✅", "VIÁVEL",            "#0d2b1a", "#34d399"),
+        "RESSALVAS": ("⚠️", "VIÁVEL COM ATENÇÃO", "#2b1f06", "#fbbf24"),
+        "INVIAVEL":  ("🚫", "INVIÁVEL",           "#2b0d0d", "#f87171"),
     }
     emoji, texto_selo, cor_fundo, cor_borda = SELOS[resultado["tag"]]
 
     st.markdown(f"""
-    <div style="background-color:{cor_fundo}; border-left: 5px solid {cor_borda};
-                border-radius: 8px; padding: 14px 18px; margin-bottom: 10px;">
-        <span style="font-size: 20px; font-weight: 700; color: {cor_borda};">
+    <div style="background-color:{cor_fundo}; border-left: 4px solid {cor_borda};
+                border-radius: 6px; padding: 12px 16px; margin-bottom: 12px;">
+        <span style="font-size: 14px; font-weight: 700; color: {cor_borda};
+                     letter-spacing: 0.05em; text-transform: uppercase;">
             {emoji} {texto_selo}
         </span><br>
-        <span style="color: #e5e5e5; font-size: 15px;">
+        <span style="color: #aaaaaa; font-size: 13px; margin-top: 2px; display:block;">
             {nome_produto} · R${resultado['preco_sugerido']:.2f}
         </span>
     </div>
@@ -592,10 +734,11 @@ with aba_viabilidade:
         # ── RESULTADO LADO A LADO ──────────────────────────────────────────────
         st.markdown("---")
 
-        CORES_PLATAFORMA = {
-            "ml":  ("#f5f5f5", "Mercado Livre"),
-            "sp":  ("#ee4d2d", "Shopee"),
-            "sh":  ("#fe4a7b", "Shein"),
+        # cores de marca de cada plataforma
+        PLATAFORMAS = {
+            "ml": ("#e8e8e8", "#ffe600", "Mercado Livre"),   # texto branco, borda amarela ML
+            "sp": ("#ee4d2d", "#ee4d2d", "Shopee"),           # laranja Shopee
+            "sh": ("#fe4a7b", "#fe4a7b", "Shein"),            # rosa Shein
         }
 
         col_r1, col_r2, col_r3 = st.columns(3)
@@ -605,17 +748,22 @@ with aba_viabilidade:
             (col_r2, "sp", res_sp, preco_sp),
             (col_r3, "sh", res_sh, preco_sh),
         ]:
-            cor_texto, nome_plataforma = CORES_PLATAFORMA[chave]
+            cor_texto, cor_borda, nome_plataforma = PLATAFORMAS[chave]
             with col:
                 st.markdown(
-                    f'<h2 style="color:{cor_texto}; border-bottom: 2px solid {cor_texto}; '
-                    f'padding-bottom: 6px; margin-bottom: 16px;">{nome_plataforma}</h2>',
+                    f'<h2 style="color:{cor_texto}; border-bottom: 2px solid {cor_borda}; '
+                    f'padding-bottom: 8px; margin-bottom: 20px; font-size: 20px; '
+                    f'font-weight: 600; letter-spacing: 0.02em;">{nome_plataforma}</h2>',
                     unsafe_allow_html=True,
                 )
                 if resultado is not None:
                     _mostrar_resultado(resultado, nome_produto)
                 else:
                     st.markdown(
-                        '<div style="color:#555; font-style:italic; padding: 20px 0;">Preço não informado</div>',
+                        '<div style="color:#444; font-style:italic; font-size:13px; '
+                        'padding: 16px 0;">Preço não informado</div>',
                         unsafe_allow_html=True,
                     )
+
+# ── ASSISTENTE IA FLUTUANTE ────────────────────────────────────────────────────
+chat_assistente.renderizar_chat()
