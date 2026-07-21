@@ -3,11 +3,12 @@ chat_assistente.py
 Painel flutuante de chat com IA — lateral direita, 280px.
 - Começa FECHADO; botão 💬 abre/fecha
 - Quando aberto, o conteúdo principal encolhe (classe chat-aberto no body)
-- Chama API Anthropic direto do browser (JS fetch)
-- window.msChatAbrir(msg) permite que o app Python abra o chat com uma msg automática
+- Chama API Anthropic direto do browser (JS fetch via components.html)
+- window.parent.msChatAbrir(msg) permite que o app Python abra o chat com msg automática
 """
 import os
 import streamlit as st
+import streamlit.components.v1 as components
 
 
 SYSTEM_PROMPT = """Você é o Assistente do MS Studio, aplicativo interno da MartinSousa para gestão de produtos em marketplaces.
@@ -46,14 +47,14 @@ def renderizar_chat():
 
     system_escaped = (SYSTEM_PROMPT
                       .replace("\\", "\\\\")
-                      .replace("`", "'")
-                      .replace("${", "\\${")
+                      .replace('"', '\\"')
                       .replace("\n", "\\n"))
 
-    html = f"""
+    # ── HTML + CSS (style tags executam normalmente via st.markdown) ──────────
+    html = """
 <style>
 /* ── BOTÃO FLUTUANTE ──────────────────────────────────────── */
-#ms-chat-btn {{
+#ms-chat-btn {
   position: fixed !important;
   bottom: 20px !important;
   right: 20px !important;
@@ -73,11 +74,11 @@ def renderizar_chat():
   transition: opacity 0.15s !important;
   line-height: 1 !important;
   padding: 0 !important;
-}}
-#ms-chat-btn:hover {{ opacity: 0.8 !important; }}
+}
+#ms-chat-btn:hover { opacity: 0.8 !important; }
 
 /* ── PAINEL LATERAL ───────────────────────────────────────── */
-#ms-chat-painel {{
+#ms-chat-painel {
   position: fixed !important;
   top: 0 !important;
   right: 0 !important;
@@ -92,13 +93,11 @@ def renderizar_chat():
   transition: transform 0.22s ease !important;
   box-shadow: -4px 0 20px rgba(0,0,0,0.25) !important;
   transform: translateX(280px) !important;
-}}
-#ms-chat-painel.aberto {{
-  transform: translateX(0) !important;
-}}
+}
+#ms-chat-painel.aberto { transform: translateX(0) !important; }
 
-/* ── CABEÇALHO ────────────────────────────────────────────── */
-#ms-chat-header {{
+/* ── CABECALHO ────────────────────────────────────────────── */
+#ms-chat-header {
   padding: 13px 14px 12px !important;
   background: var(--ms-chat-header, #515151) !important;
   border-bottom: 1px solid var(--ms-divisor, #888888) !important;
@@ -108,19 +107,19 @@ def renderizar_chat():
   flex-shrink: 0 !important;
   min-height: 56px !important;
   box-sizing: border-box !important;
-}}
-#ms-chat-titulo {{
+}
+#ms-chat-titulo {
   margin: 0 !important;
   font-size: 13px !important;
   font-weight: 600 !important;
   color: var(--ms-texto, #e0e0e0) !important;
-}}
-#ms-chat-subtitulo {{
+}
+#ms-chat-subtitulo {
   font-size: 10px !important;
   color: var(--ms-texto-sec, #b8b8b8) !important;
   margin-top: 2px !important;
-}}
-#ms-chat-fechar {{
+}
+#ms-chat-fechar {
   background: none !important;
   border: none !important;
   color: var(--ms-texto-sec, #b8b8b8) !important;
@@ -133,11 +132,11 @@ def renderizar_chat():
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-}}
-#ms-chat-fechar:hover {{ color: var(--ms-texto, #e0e0e0) !important; background: var(--ms-hover, #777777) !important; }}
+}
+#ms-chat-fechar:hover { color: var(--ms-texto, #e0e0e0) !important; background: var(--ms-hover, #777777) !important; }
 
 /* ── MENSAGENS ────────────────────────────────────────────── */
-#ms-chat-msgs {{
+#ms-chat-msgs {
   flex: 1 !important;
   overflow-y: auto !important;
   padding: 14px 12px !important;
@@ -145,21 +144,21 @@ def renderizar_chat():
   flex-direction: column !important;
   gap: 10px !important;
   box-sizing: border-box !important;
-}}
-#ms-chat-msgs::-webkit-scrollbar {{ width: 3px !important; }}
-#ms-chat-msgs::-webkit-scrollbar-track {{ background: transparent !important; }}
-#ms-chat-msgs::-webkit-scrollbar-thumb {{ background: var(--ms-borda, #888) !important; border-radius: 2px !important; }}
+}
+#ms-chat-msgs::-webkit-scrollbar { width: 3px !important; }
+#ms-chat-msgs::-webkit-scrollbar-track { background: transparent !important; }
+#ms-chat-msgs::-webkit-scrollbar-thumb { background: var(--ms-borda, #888) !important; border-radius: 2px !important; }
 
-.ms-msg-wrapper {{ display: flex !important; flex-direction: column !important; }}
-.ms-msg-wrapper.user {{ align-items: flex-end !important; }}
-.ms-msg-wrapper.ia   {{ align-items: flex-start !important; }}
-.ms-msg-label {{
+.ms-msg-wrapper { display: flex !important; flex-direction: column !important; }
+.ms-msg-wrapper.user { align-items: flex-end !important; }
+.ms-msg-wrapper.ia   { align-items: flex-start !important; }
+.ms-msg-label {
   font-size: 10px !important;
   color: var(--ms-texto-sec, #b8b8b8) !important;
   margin-bottom: 3px !important;
   font-weight: 500 !important;
-}}
-.ms-msg {{
+}
+.ms-msg {
   padding: 9px 12px !important;
   border-radius: 10px !important;
   font-size: 12.5px !important;
@@ -167,35 +166,35 @@ def renderizar_chat():
   white-space: pre-wrap !important;
   word-break: break-word !important;
   max-width: 93% !important;
-}}
-.ms-msg.user {{
+}
+.ms-msg.user {
   background: var(--ms-msg-user, #515151) !important;
   color: var(--ms-texto, #e0e0e0) !important;
   border-bottom-right-radius: 3px !important;
-}}
-.ms-msg.ia {{
+}
+.ms-msg.ia {
   background: var(--ms-msg-ia, #5a5a5a) !important;
   color: var(--ms-texto, #e0e0e0) !important;
   border: 1px solid var(--ms-msg-ia-bd, #888888) !important;
   border-bottom-left-radius: 3px !important;
-}}
-.ms-typing {{
+}
+.ms-typing {
   color: var(--ms-texto-sec, #b8b8b8) !important;
   font-size: 11.5px !important;
   font-style: italic !important;
   align-self: flex-start !important;
   padding: 4px 0 !important;
-}}
+}
 
-/* ── RODAPÉ ───────────────────────────────────────────────── */
-#ms-chat-rodape {{
+/* ── RODAPE ───────────────────────────────────────────────── */
+#ms-chat-rodape {
   padding: 10px 12px !important;
   background: var(--ms-chat-footer, #5a5a5a) !important;
   border-top: 1px solid var(--ms-divisor, #888888) !important;
   flex-shrink: 0 !important;
   box-sizing: border-box !important;
-}}
-#ms-chat-area {{
+}
+#ms-chat-area {
   width: 100% !important;
   background: var(--ms-chat-input, #666666) !important;
   border: 1px solid var(--ms-borda, #888888) !important;
@@ -209,17 +208,17 @@ def renderizar_chat():
   line-height: 1.45 !important;
   box-sizing: border-box !important;
   transition: border-color 0.15s !important;
-}}
-#ms-chat-area::placeholder {{ color: var(--ms-texto-sec, #aaaaaa) !important; }}
-#ms-chat-area:focus {{ border-color: var(--ms-texto, #b8b8b8) !important; }}
-#ms-chat-rodape-acoes {{
+}
+#ms-chat-area::placeholder { color: var(--ms-texto-sec, #aaaaaa) !important; }
+#ms-chat-area:focus { border-color: var(--ms-texto, #b8b8b8) !important; }
+#ms-chat-rodape-acoes {
   display: flex !important;
   align-items: center !important;
   justify-content: space-between !important;
   margin-top: 7px !important;
-}}
-.ms-hint {{ font-size: 10px !important; color: var(--ms-texto-sec, #b8b8b8) !important; }}
-#ms-chat-enviar {{
+}
+.ms-hint { font-size: 10px !important; color: var(--ms-texto-sec, #b8b8b8) !important; }
+#ms-chat-enviar {
   background: var(--ms-chat-header, #515151) !important;
   border: 1px solid var(--ms-borda, #888888) !important;
   border-radius: 6px !important;
@@ -229,15 +228,15 @@ def renderizar_chat():
   padding: 5px 13px !important;
   cursor: pointer !important;
   transition: background 0.15s !important;
-}}
-#ms-chat-enviar:hover {{ background: var(--ms-hover, #626262) !important; }}
-#ms-chat-enviar:disabled {{ opacity: 0.45 !important; cursor: default !important; }}
+}
+#ms-chat-enviar:hover { background: var(--ms-hover, #626262) !important; }
+#ms-chat-enviar:disabled { opacity: 0.45 !important; cursor: default !important; }
 </style>
 
 <div id="ms-chat-widget">
   <button id="ms-chat-btn"
           onclick="window._msChat&&window._msChat.toggle()"
-          title="Assistente MS">💬</button>
+          title="Assistente MS">&#x1F4AC;</button>
   <div id="ms-chat-painel">
     <div id="ms-chat-header">
       <div>
@@ -246,96 +245,109 @@ def renderizar_chat():
       </div>
       <button id="ms-chat-fechar"
               onclick="window._msChat&&window._msChat.fechar()"
-              title="Fechar">✕</button>
+              title="Fechar">&#x2715;</button>
     </div>
     <div id="ms-chat-msgs"></div>
     <div id="ms-chat-rodape">
       <textarea id="ms-chat-area" rows="3"
-                placeholder="Digite sua dúvida..."
-                onkeydown="if(event.key==='Enter'&&!event.shiftKey){{event.preventDefault();window._msChat&&window._msChat.enviar()}}"></textarea>
+                placeholder="Digite sua duvida..."
+                onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();window._msChat&&window._msChat.enviar()}"></textarea>
       <div id="ms-chat-rodape-acoes">
-        <span class="ms-hint">Enter envia · Shift+Enter nova linha</span>
+        <span class="ms-hint">Enter envia &middot; Shift+Enter nova linha</span>
         <button id="ms-chat-enviar"
                 onclick="window._msChat&&window._msChat.enviar()">Enviar</button>
       </div>
     </div>
   </div>
 </div>
+"""
+    st.markdown(html, unsafe_allow_html=True)
 
-<script>
+    # ── JS via components.html() — scripts executam de verdade aqui ──────────
+    # window.parent acessa a pagina principal do Streamlit a partir do iframe
+    js = f"""<script>
 (function() {{
-  const API_KEY = "{api_key}";
-  const SYSTEM  = `{system_escaped}`;
-  const SS_HIST = "ms_chat_hist";
-  const SS_EST  = "ms_chat_estado";
+  var P = window.parent;
+  var API_KEY = "{api_key}";
+  var SYSTEM  = "{system_escaped}";
+  var SS_HIST = "ms_chat_hist";
+  var SS_EST  = "ms_chat_estado";
 
-  // ── Já inicializado? Restaura só o estado visual e sai ────────────────────
-  if (window._msChat) {{
-    var p = document.getElementById('ms-chat-painel');
-    var b = document.getElementById('ms-chat-btn');
-    if (sessionStorage.getItem(SS_EST) === 'aberto' && p) {{
-      p.classList.add('aberto');
-      if (b) b.textContent = '✕';
-      document.body.classList.add('chat-aberto');
-    }}
-    return;
-  }}
+  var mensagens = [];
+  try {{ var s = P.sessionStorage.getItem(SS_HIST); if (s) mensagens = JSON.parse(s); }} catch(e) {{}}
 
-  // ── Estado ────────────────────────────────────────────────────────────────
-  let mensagens = [];
-  try {{ const s = sessionStorage.getItem(SS_HIST); if (s) mensagens = JSON.parse(s); }} catch(e) {{}}
-
-  function g(id) {{ return document.getElementById(id); }}
-
-  function abrirChat() {{
-    const p = g('ms-chat-painel'), b = g('ms-chat-btn');
-    if (p) p.classList.add('aberto');
-    if (b) b.textContent = '✕';
-    document.body.classList.add('chat-aberto');
-    sessionStorage.setItem(SS_EST, 'aberto');
-    rolar();
-  }}
-
-  function fecharChat() {{
-    const p = g('ms-chat-painel'), b = g('ms-chat-btn');
-    if (p) p.classList.remove('aberto');
-    if (b) b.textContent = '💬';
-    document.body.classList.remove('chat-aberto');
-    sessionStorage.setItem(SS_EST, 'fechado');
-  }}
+  function g(id) {{ return P.document.getElementById(id); }}
 
   function addMsgRaw(tipo, texto) {{
-    const msgs = g('ms-chat-msgs');
+    var msgs = g('ms-chat-msgs');
     if (!msgs) return;
-    const w = document.createElement('div');
+    var w = P.document.createElement('div');
     w.className = 'ms-msg-wrapper ' + tipo;
-    const label = tipo === 'user' ? 'Você' : 'Assistente';
-    const safe = texto.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    var label = tipo === 'user' ? 'Voce' : 'Assistente';
+    var safe = texto.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     w.innerHTML = '<div class="ms-msg-label">' + label + '</div>' +
                   '<div class="ms-msg ' + tipo + '">' + safe + '</div>';
     msgs.appendChild(w);
   }}
 
-  function addMsg(tipo, texto) {{ addMsgRaw(tipo, texto); rolar(); }}
-
   function rolar() {{
     setTimeout(function() {{
-      const msgs = g('ms-chat-msgs');
+      var msgs = g('ms-chat-msgs');
       if (msgs) msgs.scrollTop = msgs.scrollHeight;
     }}, 40);
   }}
 
-  function salvar() {{
-    try {{ sessionStorage.setItem(SS_HIST, JSON.stringify(mensagens)); }} catch(e) {{}}
+  // Streamlit rerender — re-popula o DOM (HTML foi reinjetado) e restaura estado
+  if (P._msChat) {{
+    var msgs = g('ms-chat-msgs');
+    if (msgs) {{
+      if (mensagens.length === 0) {{
+        addMsgRaw('ia', 'Ola! Estou aqui para ajudar com qualquer campo ou duvida sobre viabilidade, ML, Shopee e Shein. O que precisa?');
+      }} else {{
+        mensagens.forEach(function(m) {{ addMsgRaw(m.role === 'user' ? 'user' : 'ia', m.content); }});
+      }}
+      rolar();
+    }}
+    if (P.sessionStorage.getItem(SS_EST) === 'aberto') {{
+      var p = g('ms-chat-painel'), b = g('ms-chat-btn');
+      if (p) p.classList.add('aberto');
+      if (b) b.textContent = String.fromCodePoint(0x2715);
+      P.document.body.classList.add('chat-aberto');
+    }}
+    return;
   }}
 
-  async function enviarMsg() {{
-    const area   = g('ms-chat-area');
-    const enviar = g('ms-chat-enviar');
-    const msgs   = g('ms-chat-msgs');
-    if (!area || !enviar || !msgs) return;
+  // --- Primeira execucao: inicializacao completa ---
 
-    const texto = area.value.trim();
+  function addMsg(tipo, texto) {{ addMsgRaw(tipo, texto); rolar(); }}
+
+  function salvar() {{
+    try {{ P.sessionStorage.setItem(SS_HIST, JSON.stringify(mensagens)); }} catch(e) {{}}
+  }}
+
+  function abrirChat() {{
+    var p = g('ms-chat-painel'), b = g('ms-chat-btn');
+    if (p) p.classList.add('aberto');
+    if (b) b.textContent = String.fromCodePoint(0x2715);
+    P.document.body.classList.add('chat-aberto');
+    P.sessionStorage.setItem(SS_EST, 'aberto');
+    rolar();
+  }}
+
+  function fecharChat() {{
+    var p = g('ms-chat-painel'), b = g('ms-chat-btn');
+    if (p) p.classList.remove('aberto');
+    if (b) b.textContent = String.fromCodePoint(0x1F4AC);
+    P.document.body.classList.remove('chat-aberto');
+    P.sessionStorage.setItem(SS_EST, 'fechado');
+  }}
+
+  function enviarMsg() {{
+    var area   = g('ms-chat-area');
+    var enviar = g('ms-chat-enviar');
+    var msgs   = g('ms-chat-msgs');
+    if (!area || !enviar || !msgs) return;
+    var texto = area.value.trim();
     if (!texto) return;
     area.value = '';
 
@@ -343,7 +355,7 @@ def renderizar_chat():
     mensagens.push({{ role: 'user', content: texto }});
     salvar();
 
-    const typing = document.createElement('div');
+    var typing = P.document.createElement('div');
     typing.className = 'ms-typing';
     typing.id = 'ms-typing';
     typing.textContent = 'Assistente digitando...';
@@ -351,55 +363,55 @@ def renderizar_chat():
     rolar();
     enviar.disabled = true;
 
-    try {{
-      if (!API_KEY) throw new Error('ANTHROPIC_API_KEY não configurada.');
-      const resp = await fetch('https://api.anthropic.com/v1/messages', {{
-        method: 'POST',
-        headers: {{
-          'Content-Type': 'application/json',
-          'x-api-key': API_KEY,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true'
-        }},
-        body: JSON.stringify({{
-          model: 'claude-haiku-4-5',
-          max_tokens: 800,
-          system: SYSTEM,
-          messages: mensagens
-        }})
+    fetch('https://api.anthropic.com/v1/messages', {{
+      method: 'POST',
+      headers: {{
+        'Content-Type': 'application/json',
+        'x-api-key': API_KEY,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      }},
+      body: JSON.stringify({{
+        model: 'claude-haiku-4-5',
+        max_tokens: 800,
+        system: SYSTEM,
+        messages: mensagens
+      }})
+    }})
+    .then(function(resp) {{
+      if (!resp.ok) return resp.json().then(function(e) {{
+        throw new Error((e.error && e.error.message) || 'Erro ' + resp.status);
       }});
-      if (!resp.ok) {{
-        const err = await resp.json().catch(() => ({{}}));
-        throw new Error(err.error?.message || 'Erro ' + resp.status);
-      }}
-      const data = await resp.json();
-      const resposta = data.content[0]?.text || '(sem resposta)';
+      return resp.json();
+    }})
+    .then(function(data) {{
+      var resposta = (data.content && data.content[0] && data.content[0].text) || '(sem resposta)';
       mensagens.push({{ role: 'assistant', content: resposta }});
       salvar();
-      g('ms-typing')?.remove();
+      var t = g('ms-typing'); if (t) t.remove();
       addMsg('ia', resposta);
-    }} catch(err) {{
-      g('ms-typing')?.remove();
-      addMsg('ia', '⚠️ ' + err.message);
-    }}
-
-    if (enviar) enviar.disabled = false;
-    rolar();
+    }})
+    .catch(function(err) {{
+      var t = g('ms-typing'); if (t) t.remove();
+      addMsg('ia', String.fromCodePoint(0x26A0) + ' ' + (err.message || String(err)));
+    }})
+    .finally(function() {{
+      var e = g('ms-chat-enviar'); if (e) e.disabled = false;
+      rolar();
+    }});
   }}
 
-  // ── API pública para onclick e para o Python abrir o chat ─────────────────
-  window._msChat = {{
+  // API publica no window pai (referenciada pelos onclick no HTML e pelo Python)
+  P._msChat = {{
     toggle: function() {{
-      const p = g('ms-chat-painel');
-      if (p && p.classList.contains('aberto')) fecharChat();
-      else abrirChat();
+      var p = g('ms-chat-painel');
+      if (p && p.classList.contains('aberto')) fecharChat(); else abrirChat();
     }},
-    fechar:  function() {{ fecharChat(); }},
-    enviar:  function() {{ enviarMsg(); }}
+    fechar: function() {{ fecharChat(); }},
+    enviar: function() {{ enviarMsg(); }}
   }};
 
-  // API pública para o Python abrir o chat com mensagem automática
-  window.msChatAbrir = function(msgInicial) {{
+  P.msChatAbrir = function(msgInicial) {{
     abrirChat();
     if (msgInicial) {{
       addMsg('ia', msgInicial);
@@ -408,37 +420,34 @@ def renderizar_chat():
     }}
   }};
 
-  // ── Inicialização: carrega histórico e estado ─────────────────────────────
+  // Inicializacao: carrega historico e restaura estado aberto/fechado
   function init() {{
-    const msgs = g('ms-chat-msgs');
+    var msgs = g('ms-chat-msgs');
     if (!msgs) {{ setTimeout(init, 150); return; }}
-
     if (mensagens.length === 0) {{
-      addMsgRaw('ia', 'Olá! Estou aqui para ajudar com qualquer campo ou dúvida sobre viabilidade, ML, Shopee e Shein. O que precisa?');
+      addMsgRaw('ia', 'Ola! Estou aqui para ajudar com qualquer campo ou duvida sobre viabilidade, ML, Shopee e Shein. O que precisa?');
     }} else {{
       mensagens.forEach(function(m) {{ addMsgRaw(m.role === 'user' ? 'user' : 'ia', m.content); }});
     }}
     rolar();
-
-    if (sessionStorage.getItem(SS_EST) === 'aberto') abrirChat();
+    if (P.sessionStorage.getItem(SS_EST) === 'aberto') abrirChat();
   }}
   setTimeout(init, 300);
 }})();
-</script>
-"""
-    st.markdown(html, unsafe_allow_html=True)
+</script>"""
+    components.html(js, height=0)
 
 
 def iniciar_conversa(mensagem: str):
     """
     Abre o chat automaticamente com uma mensagem do assistente.
-    Chamar após renderizar_chat() quando o app detectar campo faltando.
+    Chamar apos renderizar_chat() quando o app detectar campo faltando.
     """
     msg_escaped = (mensagem
                    .replace("\\", "\\\\")
                    .replace('"', '\\"')
                    .replace("\n", "\\n"))
-    st.markdown(
-        f'<script>setTimeout(function(){{ if(window.msChatAbrir) window.msChatAbrir("{msg_escaped}"); }}, 400);</script>',
-        unsafe_allow_html=True
+    components.html(
+        f'<script>setTimeout(function(){{ if(window.parent.msChatAbrir) window.parent.msChatAbrir("{msg_escaped}"); }}, 500);</script>',
+        height=0
     )
