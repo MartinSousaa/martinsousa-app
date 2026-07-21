@@ -189,6 +189,22 @@ tr:hover td      { background-color: var(--ms-hover) !important; }
 [data-testid="stAlert"] { background-color: var(--ms-metric-bg) !important; border-color: var(--ms-metric-bd) !important; }
 hr { border-color: var(--ms-divisor) !important; margin: 16px 0 !important; }
 
+/* ── TEMA CLARO: logo invertida + bordas dos campos invisíveis ──────────── */
+body.tema-claro [data-testid="stSidebar"] [data-testid="stImage"] img {
+    filter: invert(1) !important;
+}
+body.tema-claro .stTextInput input,
+body.tema-claro .stNumberInput input {
+    border-color: var(--ms-input) !important;
+}
+body.tema-claro .stSelectbox > div > div {
+    border-color: var(--ms-input) !important;
+}
+body.tema-claro .stNumberInput [data-testid="stNumberInputStepUp"],
+body.tema-claro .stNumberInput [data-testid="stNumberInputStepDown"] {
+    border-color: var(--ms-input) !important;
+}
+
 /* ── BOTÃO TOGGLE DE TEMA ───────────────────────────────────────────────── */
 #ms-tema-toggle {
   position: fixed !important; top: 14px !important; right: 16px !important;
