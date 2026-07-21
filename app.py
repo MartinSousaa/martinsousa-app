@@ -30,8 +30,8 @@ body, body.tema-escuro {
   --ms-chat-footer:   #5a5a5a;
   --ms-chat-input:    #666666;
   --ms-divisor:       #666666;
-  --ms-input:         #8c8c8c;
-  --ms-borda:         #aaaaaa;
+  --ms-input:         #666666;
+  --ms-borda:         #888888;
   --ms-texto:         #e0e0e0;
   --ms-texto-sec:     #b8b8b8;
   --ms-hover:         #5c5c5c;
@@ -50,7 +50,7 @@ body.tema-claro {
   --ms-chat-footer:   #E8E8E8;
   --ms-chat-input:    #E0E0E0;
   --ms-divisor:       #BDBDBD;
-  --ms-input:         #BDBDBD;
+  --ms-input:         #EEEEEE;
   --ms-borda:         #9E9E9E;
   --ms-texto:         #212121;
   --ms-texto-sec:     #424242;
@@ -192,14 +192,14 @@ hr { border-color: var(--ms-divisor) !important; margin: 16px 0 !important; }
 
 /* ── BOTÃO TOGGLE DE TEMA ───────────────────────────────────────────────── */
 #ms-tema-toggle {
-  position: fixed !important; top: 12px !important; right: 56px !important;
+  position: fixed !important; bottom: 74px !important; right: 20px !important;
   z-index: 999997 !important;
   background: var(--ms-sidebar) !important;
-  border: 1px solid var(--ms-borda) !important;
-  border-radius: 50% !important; width: 34px !important; height: 34px !important;
-  font-size: 16px !important; cursor: pointer !important;
+  border: 1.5px solid var(--ms-borda) !important;
+  border-radius: 50% !important; width: 46px !important; height: 46px !important;
+  font-size: 18px !important; cursor: pointer !important;
   display: flex !important; align-items: center !important; justify-content: center !important;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.25) !important;
+  box-shadow: 0 3px 12px rgba(0,0,0,0.35) !important;
   transition: opacity 0.15s !important; line-height: 1 !important; padding: 0 !important;
 }
 #ms-tema-toggle:hover { opacity: 0.75 !important; }
