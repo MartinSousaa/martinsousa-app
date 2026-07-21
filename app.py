@@ -21,212 +21,264 @@ st.set_page_config(page_title="MS Studio", layout="wide")
 
 st.markdown("""
 <style>
-/* ══════════════════════════════════════════════════════════════════════════
-   PALETA CINZA
-   #3c3c3c  fundo base do app
-   #515151  conteúdo central / cards / inputs
-   #666666  sidebar esquerdo / chat / bordas
-   #b8b8b8  texto secundário / labels
-   #e0e0e0  texto principal
-   ══════════════════════════════════════════════════════════════════════════ */
-
-/* ── REMOVE BARRA PRETA DO TOPO ─────────────────────────────────────────── */
-[data-testid="stHeader"] {
-    background-color: #3c3c3c !important;
-    border-bottom: none !important;
+/* ══ TEMA ESCURO — padrão / após 18h ═══════════════════════════════════════ */
+body, body.tema-escuro {
+  --ms-fundo:         #3c3c3c;
+  --ms-sidebar:       #515151;
+  --ms-chat-bg:       #666666;
+  --ms-chat-header:   #515151;
+  --ms-chat-footer:   #5a5a5a;
+  --ms-chat-input:    #666666;
+  --ms-divisor:       #666666;
+  --ms-input:         #8c8c8c;
+  --ms-borda:         #aaaaaa;
+  --ms-texto:         #e0e0e0;
+  --ms-texto-sec:     #b8b8b8;
+  --ms-hover:         #5c5c5c;
+  --ms-metric-bg:     #666666;
+  --ms-metric-bd:     #888888;
+  --ms-msg-user:      #515151;
+  --ms-msg-ia:        #5a5a5a;
+  --ms-msg-ia-bd:     #888888;
 }
-#stDecoration { display: none !important; }
-[data-testid="stToolbar"] { background-color: #3c3c3c !important; }
-
-/* ── FUNDO BASE ─────────────────────────────────────────────────────────── */
-.stApp { background-color: #3c3c3c !important; color: #e0e0e0 !important; }
-
-/* ── SIDEBAR ESQUERDO — #666666 ─────────────────────────────────────────── */
-[data-testid="stSidebar"] {
-    background-color: #666666 !important;
-    border-right: 1px solid #515151 !important;
+/* ══ TEMA CLARO — diurno / antes das 18h ═══════════════════════════════════ */
+body.tema-claro {
+  --ms-fundo:         #E0E0E0;
+  --ms-sidebar:       #EEEEEE;
+  --ms-chat-bg:       #EEEEEE;
+  --ms-chat-header:   #E8E8E8;
+  --ms-chat-footer:   #E8E8E8;
+  --ms-chat-input:    #E0E0E0;
+  --ms-divisor:       #BDBDBD;
+  --ms-input:         #BDBDBD;
+  --ms-borda:         #9E9E9E;
+  --ms-texto:         #212121;
+  --ms-texto-sec:     #424242;
+  --ms-hover:         #D0D0D0;
+  --ms-metric-bg:     #EEEEEE;
+  --ms-metric-bd:     #BDBDBD;
+  --ms-msg-user:      #D0D0D0;
+  --ms-msg-ia:        #F5F5F5;
+  --ms-msg-ia-bd:     #BDBDBD;
 }
-[data-testid="stSidebar"] * { color: #e0e0e0 !important; }
-[data-testid="stSidebar"] h1,
-[data-testid="stSidebar"] h2,
-[data-testid="stSidebar"] h3 { color: #e0e0e0 !important; }
 
-/* ── CONTEÚDO CENTRAL — #515151 ─────────────────────────────────────────── */
-.main, [data-testid="stMain"] {
-    background-color: #515151 !important;
-}
+/* ── REMOVE BARRA DO TOPO ───────────────────────────────────────────────── */
+[data-testid="stHeader"]  { background-color: var(--ms-fundo) !important; border-bottom: none !important; }
+[data-testid="stToolbar"] { background-color: var(--ms-fundo) !important; }
+#stDecoration             { display: none !important; }
+
+/* ── FUNDO GERAL ────────────────────────────────────────────────────────── */
+.stApp { background-color: var(--ms-fundo) !important; color: var(--ms-texto) !important; }
+.main, [data-testid="stMain"] { background-color: var(--ms-fundo) !important; }
 .main .block-container,
 [data-testid="stMainBlockContainer"] {
-    background-color: #515151 !important;
-    color: #e0e0e0 !important;
-    /* Margem direita reservada pro chat quando aberto */
+    background-color: var(--ms-fundo) !important;
+    color: var(--ms-texto) !important;
     transition: padding-right 0.22s ease !important;
 }
 body.chat-aberto .main .block-container,
-body.chat-aberto [data-testid="stMainBlockContainer"] {
-    padding-right: 296px !important;
-}
-h1, h2, h3, h4, h5, h6 { color: #e0e0e0 !important; }
-p, span, label, div { color: #e0e0e0 !important; }
+body.chat-aberto [data-testid="stMainBlockContainer"] { padding-right: 296px !important; }
+h1, h2, h3, h4, h5, h6 { color: var(--ms-texto) !important; }
+p, span, label, div     { color: var(--ms-texto) !important; }
 
-/* ── INPUTS E SELECTS — COMPACTOS ───────────────────────────────────────── */
-.stTextInput input,
-.stNumberInput input {
-    background-color: #666666 !important;
-    border: 1px solid #888888 !important;
-    color: #e0e0e0 !important;
+/* ── SIDEBAR ESQUERDO ───────────────────────────────────────────────────── */
+[data-testid="stSidebar"] {
+    background-color: var(--ms-sidebar) !important;
+    border-right: 1px solid var(--ms-divisor) !important;
+}
+[data-testid="stSidebar"] * { color: var(--ms-texto) !important; }
+
+/* ── INPUTS ─────────────────────────────────────────────────────────────── */
+.stTextInput input, .stNumberInput input {
+    background-color: var(--ms-input) !important;
+    border: 1px solid var(--ms-borda) !important;
+    color: var(--ms-texto) !important;
     border-radius: 5px !important;
-    font-size: 13px !important;
-    padding: 5px 10px !important;
-    height: 34px !important;
+    font-size: 14px !important;
+    padding: 6px 10px !important;
+    height: 36px !important;
     min-height: unset !important;
 }
 .stTextInput input::placeholder,
-.stNumberInput input::placeholder { color: #aaaaaa !important; font-size: 12px !important; }
+.stNumberInput input::placeholder { color: var(--ms-texto-sec) !important; font-size: 13px !important; }
 .stTextInput input:focus,
-.stNumberInput input:focus {
-    border-color: #b8b8b8 !important;
-    box-shadow: none !important;
-}
-/* Labels menores */
-.stTextInput label,
-.stNumberInput label,
-.stSelectbox label,
-.stRadio label,
+.stNumberInput input:focus { border-color: var(--ms-texto) !important; box-shadow: none !important; }
+
+/* Labels */
+.stTextInput label, .stNumberInput label, .stSelectbox label,
 [data-testid="stWidgetLabel"] p {
-    color: #b8b8b8 !important;
-    font-size: 12px !important;
-    margin-bottom: 2px !important;
-}
-/* Select compacto */
-.stSelectbox > div > div {
-    background-color: #666666 !important;
-    border: 1px solid #888888 !important;
-    color: #e0e0e0 !important;
+    color: var(--ms-texto-sec) !important;
     font-size: 13px !important;
-    min-height: 34px !important;
-}
-.stSelectbox [data-baseweb="select"] > div {
-    padding-top: 4px !important;
-    padding-bottom: 4px !important;
-    min-height: 34px !important;
-}
-/* Botões +/- do number input */
-.stNumberInput [data-testid="stNumberInputStepUp"],
-.stNumberInput [data-testid="stNumberInputStepDown"] {
-    height: 34px !important;
-    width: 28px !important;
-    font-size: 14px !important;
-}
-/* Espaçamento entre campos */
-.stTextInput, .stNumberInput, .stSelectbox {
-    margin-bottom: 2px !important;
-}
-[data-testid="stVerticalBlock"] > [data-testid="stVerticalBlockBorderWrapper"],
-.element-container {
-    margin-bottom: 4px !important;
-}
-/* Subheaders menores */
-[data-testid="stHeadingWithActionElements"] h2,
-[data-testid="stHeadingWithActionElements"] h3 {
-    font-size: 16px !important;
-    margin-bottom: 6px !important;
-    margin-top: 4px !important;
+    margin-bottom: 3px !important;
 }
 
-/* ── TABELAS — SÓ LINHAS HORIZONTAIS ───────────────────────────────────── */
-table {
-    color: #e0e0e0 !important;
-    border-collapse: collapse !important;
-    width: 100% !important;
-    border: none !important;
-    background: transparent !important;
+/* Select */
+.stSelectbox > div > div {
+    background-color: var(--ms-input) !important;
+    border: 1px solid var(--ms-borda) !important;
+    color: var(--ms-texto) !important;
+    font-size: 14px !important;
+    min-height: 36px !important;
 }
-th {
-    background-color: transparent !important;
-    color: #b8b8b8 !important;
-    font-size: 11px !important;
-    font-weight: 600 !important;
-    letter-spacing: 0.07em !important;
-    text-transform: uppercase !important;
-    border: none !important;
-    border-bottom: 1px solid #666666 !important;
-    padding: 8px 12px !important;
-    text-align: left !important;
+.stSelectbox [data-baseweb="select"] > div {
+    padding-top: 4px !important; padding-bottom: 4px !important; min-height: 36px !important;
 }
-td {
-    background-color: transparent !important;
-    border: none !important;
-    border-bottom: 1px solid #666666 !important;
-    padding: 8px 12px !important;
-    color: #e0e0e0 !important;
+/* Botões +/- */
+.stNumberInput [data-testid="stNumberInputStepUp"],
+.stNumberInput [data-testid="stNumberInputStepDown"] {
+    height: 36px !important; width: 30px !important; font-size: 15px !important;
+    background-color: var(--ms-input) !important;
+    color: var(--ms-texto) !important;
+    border-color: var(--ms-borda) !important;
 }
+/* Espaçamento */
+.stTextInput, .stNumberInput, .stSelectbox { margin-bottom: 4px !important; }
+.element-container { margin-bottom: 6px !important; }
+
+/* ── TABELAS ────────────────────────────────────────────────────────────── */
+table { color: var(--ms-texto) !important; border-collapse: collapse !important;
+        width: 100% !important; border: none !important; background: transparent !important; }
+th    { background-color: transparent !important; color: var(--ms-texto-sec) !important;
+        font-size: 11px !important; font-weight: 600 !important; letter-spacing: 0.07em !important;
+        text-transform: uppercase !important; border: none !important;
+        border-bottom: 1px solid var(--ms-divisor) !important; padding: 8px 12px !important; text-align: left !important; }
+td    { background-color: transparent !important; border: none !important;
+        border-bottom: 1px solid var(--ms-divisor) !important; padding: 8px 12px !important; color: var(--ms-texto) !important; }
 tr:last-child td { border-bottom: none !important; }
-tr:hover td { background-color: #5c5c5c !important; }
+tr:hover td      { background-color: var(--ms-hover) !important; }
 
 /* ── MÉTRICAS ───────────────────────────────────────────────────────────── */
 [data-testid="stMetric"] {
-    background-color: #666666 !important;
-    border-radius: 8px !important;
-    padding: 12px 16px !important;
-    border: 1px solid #888888 !important;
+    background-color: var(--ms-metric-bg) !important;
+    border-radius: 8px !important; padding: 12px 16px !important;
+    border: 1px solid var(--ms-metric-bd) !important;
 }
-[data-testid="stMetricLabel"] p { color: #b8b8b8 !important; font-size: 12px !important; }
-[data-testid="stMetricValue"]   { color: #e0e0e0 !important; }
+[data-testid="stMetricLabel"] p { color: var(--ms-texto-sec) !important; font-size: 12px !important; }
+[data-testid="stMetricValue"]   { color: var(--ms-texto) !important; }
 
 /* ── TABS ───────────────────────────────────────────────────────────────── */
 .stTabs [data-baseweb="tab-list"] {
     background-color: transparent !important;
-    border-bottom: 1px solid #666666 !important;
-    gap: 4px !important;
+    border-bottom: 1px solid var(--ms-divisor) !important; gap: 4px !important;
 }
 .stTabs [data-baseweb="tab"] {
-    color: #b8b8b8 !important;
-    background: transparent !important;
-    font-size: 14px !important;
+    color: var(--ms-texto-sec) !important; background: transparent !important; font-size: 14px !important;
 }
 .stTabs [aria-selected="true"] {
-    color: #e0e0e0 !important;
-    border-bottom-color: #e0e0e0 !important;
+    color: var(--ms-texto) !important; border-bottom-color: var(--ms-texto) !important;
 }
 
-/* ── BOTÃO PRIMÁRIO ─────────────────────────────────────────────────────── */
+/* ── BOTÕES ─────────────────────────────────────────────────────────────── */
 .stButton > button[kind="primary"] {
-    background-color: #666666 !important;
-    color: #e0e0e0 !important;
-    border: 1px solid #888888 !important;
-    border-radius: 6px !important;
-    font-weight: 600 !important;
-    letter-spacing: 0.4px !important;
-    transition: all 0.15s ease !important;
+    background-color: var(--ms-metric-bg) !important; color: var(--ms-texto) !important;
+    border: 1px solid var(--ms-metric-bd) !important; border-radius: 6px !important;
+    font-weight: 600 !important; letter-spacing: 0.4px !important; transition: all 0.15s ease !important;
 }
 .stButton > button[kind="primary"]:hover {
-    background-color: #777777 !important;
-    color: #e0e0e0 !important;
-    border-color: #b8b8b8 !important;
+    background-color: var(--ms-hover) !important; border-color: var(--ms-texto-sec) !important;
 }
-
-/* ── BOTÃO SECUNDÁRIO ───────────────────────────────────────────────────── */
 .stButton > button:not([kind="primary"]) {
-    background-color: transparent !important;
-    color: #b8b8b8 !important;
-    border: 1px solid #888888 !important;
-    border-radius: 6px !important;
+    background-color: transparent !important; color: var(--ms-texto-sec) !important;
+    border: 1px solid var(--ms-metric-bd) !important; border-radius: 6px !important;
 }
 .stButton > button:not([kind="primary"]):hover {
-    color: #e0e0e0 !important;
-    border-color: #b8b8b8 !important;
+    color: var(--ms-texto) !important; border-color: var(--ms-texto-sec) !important;
 }
 
-/* ── CAPTION / TEXTO AUXILIAR ───────────────────────────────────────────── */
-.stCaption, [data-testid="stCaptionContainer"] p { color: #b8b8b8 !important; }
+/* ── CAPTION / ALERTAS / DIVISORES ─────────────────────────────────────── */
+.stCaption, [data-testid="stCaptionContainer"] p { color: var(--ms-texto-sec) !important; }
+[data-testid="stAlert"] { background-color: var(--ms-metric-bg) !important; border-color: var(--ms-metric-bd) !important; }
+hr { border-color: var(--ms-divisor) !important; margin: 16px 0 !important; }
 
-/* ── ALERTAS ────────────────────────────────────────────────────────────── */
-[data-testid="stAlert"] { background-color: #666666 !important; border-color: #888888 !important; }
-
-/* ── DIVISORES ──────────────────────────────────────────────────────────── */
-hr { border-color: #666666 !important; margin: 16px 0 !important; }
+/* ── BOTÃO TOGGLE DE TEMA ───────────────────────────────────────────────── */
+#ms-tema-toggle {
+  position: fixed !important; top: 12px !important; right: 56px !important;
+  z-index: 999997 !important;
+  background: var(--ms-sidebar) !important;
+  border: 1px solid var(--ms-borda) !important;
+  border-radius: 50% !important; width: 34px !important; height: 34px !important;
+  font-size: 16px !important; cursor: pointer !important;
+  display: flex !important; align-items: center !important; justify-content: center !important;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.25) !important;
+  transition: opacity 0.15s !important; line-height: 1 !important; padding: 0 !important;
+}
+#ms-tema-toggle:hover { opacity: 0.75 !important; }
 </style>
+
+<script>
+(function() {
+  if (window._msTemaIniciado) {
+    // Já rodou — só re-aplica o tema ao body (survive Streamlit rerun)
+    var t = sessionStorage.getItem('ms_tema');
+    var d = sessionStorage.getItem('ms_tema_dia');
+    if (t && d === new Date().toDateString()) {
+      document.body.classList.remove('tema-claro','tema-escuro');
+      document.body.classList.add(t);
+    } else {
+      document.body.classList.remove('tema-claro','tema-escuro');
+      document.body.classList.add(new Date().getHours() >= 18 ? 'tema-escuro' : 'tema-claro');
+    }
+    _atualizarIcone();
+    return;
+  }
+  window._msTemaIniciado = true;
+
+  function temaAuto() {
+    return new Date().getHours() >= 18 ? 'tema-escuro' : 'tema-claro';
+  }
+
+  function aplicarTema(tema, salvar) {
+    document.body.classList.remove('tema-claro','tema-escuro');
+    document.body.classList.add(tema);
+    _atualizarIcone();
+    if (salvar) {
+      sessionStorage.setItem('ms_tema', tema);
+      sessionStorage.setItem('ms_tema_dia', new Date().toDateString());
+    }
+  }
+
+  window._atualizarIcone = function() {
+    var btn = document.getElementById('ms-tema-toggle');
+    if (!btn) return;
+    var claro = document.body.classList.contains('tema-claro');
+    btn.textContent = claro ? '🌙' : '☀️';
+    btn.title = claro ? 'Mudar para tema escuro' : 'Mudar para tema claro';
+  };
+
+  // Aplica tema inicial
+  var temaSalvo = sessionStorage.getItem('ms_tema');
+  var diaSalvo  = sessionStorage.getItem('ms_tema_dia');
+  if (temaSalvo && diaSalvo === new Date().toDateString()) {
+    aplicarTema(temaSalvo, false);
+  } else {
+    sessionStorage.removeItem('ms_tema');
+    sessionStorage.removeItem('ms_tema_dia');
+    aplicarTema(temaAuto(), false);
+  }
+
+  // Injeta botão (uma única vez)
+  if (!document.getElementById('ms-tema-toggle')) {
+    var btn = document.createElement('button');
+    btn.id = 'ms-tema-toggle';
+    document.body.appendChild(btn);
+    _atualizarIcone();
+  }
+
+  // Auto-switch ao cruzar 18h (sem override manual)
+  setInterval(function() {
+    if (!sessionStorage.getItem('ms_tema')) aplicarTema(temaAuto(), false);
+  }, 60000);
+
+  // Click no toggle
+  document.addEventListener('click', function(e) {
+    var t = e.target;
+    if (t.id === 'ms-tema-toggle' || (t.closest && t.closest('#ms-tema-toggle'))) {
+      var claro = document.body.classList.contains('tema-claro');
+      aplicarTema(claro ? 'tema-escuro' : 'tema-claro', true);
+    }
+  }, true);
+})();
+</script>
 """, unsafe_allow_html=True)
 
 usuario_logado = auth.verificar_login()
