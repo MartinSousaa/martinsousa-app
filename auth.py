@@ -196,9 +196,9 @@ def verificar_login():
         padding: 60px 40px;
     }}
 
-    /* ── PAINEL DIREITO: preto igual ao fundo da logo ── */
+    /* ── PAINEL DIREITO: escuro limpo ── */
     [data-testid="stColumn"]:last-child > div {{
-        background-color: #000000;
+        background-color: #111111;
         min-height: 100vh !important;
         display: flex !important;
         flex-direction: column !important;
@@ -254,61 +254,92 @@ def verificar_login():
     .stFormSubmitButton button:hover {{
         background-color: #A93226 !important;
     }}
+
+    /* ── MOBILE: esconde painel da imagem, login ocupa tela toda ── */
+    @media screen and (max-width: 768px) {{
+        [data-testid="stColumn"]:first-child {{
+            display: none !important;
+        }}
+        [data-testid="stColumn"]:last-child {{
+            width: 100% !important;
+            min-width: 100% !important;
+            flex: none !important;
+        }}
+        [data-testid="stColumn"]:last-child > div {{
+            background-image: linear-gradient(rgba(0,0,0,0.72), rgba(0,0,0,0.72)),
+                              url('data:image/jpeg;base64,{bg_data}') !important;
+            background-size: cover !important;
+            background-position: center !important;
+            padding: 60px 28px !important;
+        }}
+        .stTextInput input {{
+            font-size: 16px !important;
+            background-color: rgba(30,30,30,0.9) !important;
+        }}
+        .stTextInput input:focus {{
+            border-color: #666 !important;
+        }}
+    }}
     </style>
     """, unsafe_allow_html=True)
 
     col_left, col_right = st.columns([3, 2])
 
-    # ── PAINEL ESQUERDO: apenas fundo (logo vem do bg.jpg que o usuário fornece) ──
+    # ── PAINEL ESQUERDO ────────────────────────────────────────────────────────
     with col_left:
-        st.markdown("""
-        <div style="
-            font-family: Arial, sans-serif;
-            font-size: 10px;
-            letter-spacing: 5px;
-            color: rgba(255,255,255,0.20);
-            text-transform: uppercase;
-            text-align: center;
-            position: absolute;
-            bottom: 32px;
-            left: 0; right: 0;
-        ">v17.0 &nbsp;·&nbsp; MS Studio</div>
+        logo_b64 = _logo_b64()
+        logo_html = (
+            f'<img src="data:image/png;base64,{logo_b64}" '
+            f'style="width:300px; max-width:80%; display:block; margin:0 auto;" alt="MS Studio"/>'
+            if logo_b64 else
+            '<div style="font-family:Georgia,serif;font-size:80px;color:#fff;letter-spacing:-2px;">MS</div>'
+            '<div style="font-family:Arial,sans-serif;font-size:11px;letter-spacing:10px;color:rgba(255,255,255,0.5);margin-top:6px;">MARTINSOUSA</div>'
+        )
+        st.markdown(f"""
+        <div style="text-align:center; padding: 40px 20px;">
+            {logo_html}
+            <div style="
+                width: 40px; height: 1px;
+                background: rgba(255,255,255,0.2);
+                margin: 28px auto 14px;
+            "></div>
+            <div style="
+                font-family: Arial, sans-serif;
+                font-size: 10px;
+                letter-spacing: 4px;
+                color: rgba(255,255,255,0.3);
+                text-transform: uppercase;
+            ">v17.0 · MS Studio</div>
+        </div>
         """, unsafe_allow_html=True)
 
     # ── PAINEL DIREITO ─────────────────────────────────────────────────────────
     with col_right:
-        if not tem_alguem:
-            st.warning(
-                "Nenhum usuário configurado ainda. "
-                "Adicione pelo menos um usuário no bloco [usuarios] das Secrets do Streamlit."
-            )
-            st.stop()
-
-        logo_b64 = _logo_b64()
-        logo_html = (
-            f'<img src="data:image/png;base64,{logo_b64}" '
-            f'style="width:min(380px,85%); display:block; margin:0 auto 28px auto;" alt="MS Studio"/>'
-            if logo_b64 else ""
-        )
-
-        st.markdown(f"""
-        <div style="width:100%; max-width:420px; margin:0 auto 0px; text-align:center;">
-            {logo_html}
+        st.markdown("""
+        <div style="width:100%; max-width:340px; margin:0 auto 24px;">
             <div style="
-                font-family: Arial, sans-serif;
-                font-size: 26px;
-                font-weight: 700;
+                font-family: 'Cormorant Garamond', 'Annai MN', Georgia, serif;
+                font-size: 28px;
+                font-weight: 300;
                 color: #f0f0f0;
+                letter-spacing: 0.5px;
                 margin-bottom: 4px;
             ">MS Studio</div>
             <div style="
                 font-family: Arial, sans-serif;
                 font-size: 13px;
                 color: #555;
-                margin-bottom: 20px;
+                letter-spacing: 0.3px;
             ">Conecte-se para continuar</div>
         </div>
         """, unsafe_allow_html=True)
+
+        if not tem_alguem:
+            st.warning(
+                "Nenhum usuário configurado ainda. "
+                "Adicione pelo menos um usuário no bloco [usuarios] das Secrets do Streamlit."
+            )
+            st.stop()
 
         with st.form("login_form"):
             login = st.text_input("Usuário")
