@@ -75,10 +75,8 @@ body.tema-claro {
 [data-testid="stMainBlockContainer"] {
     background-color: var(--ms-fundo) !important;
     color: var(--ms-texto) !important;
-    transition: padding-right 0.22s ease !important;
+    padding-top: 16px !important;
 }
-body.chat-aberto .main .block-container,
-body.chat-aberto [data-testid="stMainBlockContainer"] { padding-right: 296px !important; }
 h1, h2, h3, h4, h5, h6 { color: var(--ms-texto) !important; }
 p, span, label, div     { color: var(--ms-texto) !important; }
 
@@ -193,7 +191,7 @@ hr { border-color: var(--ms-divisor) !important; margin: 16px 0 !important; }
 
 /* ── BOTÃO TOGGLE DE TEMA ───────────────────────────────────────────────── */
 #ms-tema-toggle {
-  position: fixed !important; bottom: 74px !important; right: 20px !important;
+  position: fixed !important; top: 14px !important; right: 16px !important;
   z-index: 999997 !important;
   background: var(--ms-sidebar) !important;
   border: 1.5px solid var(--ms-borda) !important;
@@ -672,10 +670,8 @@ def _mostrar_resultado(resultado, nome_produto):
 
 # ── INTERFACE ──────────────────────────────────────────────────────────────────
 
-st.title("MS Studio")
-
 with st.sidebar:
-    st.header("MS Studio")
+    st.image("logo.png", use_container_width=True)
     st.caption("v17.0")
     st.markdown("---")
     st.caption(f"Logado como **{usuario_logado}**")
