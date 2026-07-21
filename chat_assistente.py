@@ -30,12 +30,12 @@ Regras do negócio que você conhece:
 - Custo operacional padrão inclui embalagem, logística, ADS e cross docking
 - Peso e dimensões devem ser do produto JA EMBALADO
 
-Se o colaborador não souber o que colocar em algum campo, explique com um exemplo prático.
+Se o colaborador não souber o que colocar em algum campo, explique o campo com um exemplo prático.
 Seja objetivo, use linguagem informal mas profissional. Responda em português."""
 
 
 def renderizar_chat():
-    """Injeta o painel de chat flutuante no app. Chamar uma vez por página."""
+    """Injeta o painel de chat flutuante lateral direito no app."""
     api_key = ""
     try:
         api_key = st.secrets.get("ANTHROPIC_API_KEY", "")
@@ -48,8 +48,7 @@ def renderizar_chat():
                       .replace("\\", "\\\\")
                       .replace("`", "'")
                       .replace("${", "\\${")
-                      .replace("\n", "\\n")
-                      .replace('"', '\\"'))
+                      .replace("\n", "\\n"))
 
     html = f"""
 <style>
@@ -236,21 +235,28 @@ def renderizar_chat():
 </style>
 
 <div id="ms-chat-widget">
-  <button id="ms-chat-btn" title="Assistente MS">💬</button>
+  <button id="ms-chat-btn"
+          onclick="window._msChat&&window._msChat.toggle()"
+          title="Assistente MS">💬</button>
   <div id="ms-chat-painel">
     <div id="ms-chat-header">
       <div>
         <div id="ms-chat-titulo">Assistente MS</div>
         <div id="ms-chat-subtitulo">Pergunte sobre qualquer campo</div>
       </div>
-      <button id="ms-chat-fechar" title="Fechar">✕</button>
+      <button id="ms-chat-fechar"
+              onclick="window._msChat&&window._msChat.fechar()"
+              title="Fechar">✕</button>
     </div>
     <div id="ms-chat-msgs"></div>
     <div id="ms-chat-rodape">
-      <textarea id="ms-chat-area" rows="3" placeholder="Digite sua dúvida..."></textarea>
+      <textarea id="ms-chat-area" rows="3"
+                placeholder="Digite sua dúvida..."
+                onkeydown="if(event.key==='Enter'&&!event.shiftKey){{event.preventDefault();window._msChat&&window._msChat.enviar()}}"></textarea>
       <div id="ms-chat-rodape-acoes">
         <span class="ms-hint">Enter envia · Shift+Enter nova linha</span>
-        <button id="ms-chat-enviar">Enviar</button>
+        <button id="ms-chat-enviar"
+                onclick="window._msChat&&window._msChat.enviar()">Enviar</button>
       </div>
     </div>
   </div>
@@ -259,15 +265,26 @@ def renderizar_chat():
 <script>
 (function() {{
   const API_KEY = "{api_key}";
-  const SYSTEM  = "{system_escaped}";
+  const SYSTEM  = `{system_escaped}`;
   const SS_HIST = "ms_chat_hist";
   const SS_EST  = "ms_chat_estado";
 
+  // ── Já inicializado? Restaura só o estado visual e sai ────────────────────
+  if (window._msChat) {{
+    var p = document.getElementById('ms-chat-painel');
+    var b = document.getElementById('ms-chat-btn');
+    if (sessionStorage.getItem(SS_EST) === 'aberto' && p) {{
+      p.classList.add('aberto');
+      if (b) b.textContent = '✕';
+      document.body.classList.add('chat-aberto');
+    }}
+    return;
+  }}
+
+  // ── Estado ────────────────────────────────────────────────────────────────
   let mensagens = [];
-  let iniciado  = false;
   try {{ const s = sessionStorage.getItem(SS_HIST); if (s) mensagens = JSON.parse(s); }} catch(e) {{}}
 
-  // ── Helpers de estado ─────────────────────────────────────────────────────
   function g(id) {{ return document.getElementById(id); }}
 
   function abrirChat() {{
@@ -335,7 +352,7 @@ def renderizar_chat():
     enviar.disabled = true;
 
     try {{
-      if (!API_KEY) throw new Error('ANTHROPIC_API_KEY não configurada no Railway.');
+      if (!API_KEY) throw new Error('ANTHROPIC_API_KEY não configurada.');
       const resp = await fetch('https://api.anthropic.com/v1/messages', {{
         method: 'POST',
         headers: {{
@@ -370,34 +387,31 @@ def renderizar_chat():
     rolar();
   }}
 
-  // ── Delegação no document — funciona mesmo após re-render do Streamlit ───
-  document.addEventListener('click', function(e) {{
-    const t = e.target;
-    if (t.id === 'ms-chat-btn' || (t.closest && t.closest('#ms-chat-btn'))) {{
+  // ── API pública para onclick e para o Python abrir o chat ─────────────────
+  window._msChat = {{
+    toggle: function() {{
       const p = g('ms-chat-painel');
       if (p && p.classList.contains('aberto')) fecharChat();
       else abrirChat();
-    }}
-    if (t.id === 'ms-chat-fechar' || (t.closest && t.closest('#ms-chat-fechar'))) {{
-      fecharChat();
-    }}
-    if (t.id === 'ms-chat-enviar' || (t.closest && t.closest('#ms-chat-enviar'))) {{
-      enviarMsg();
-    }}
-  }}, true);
+    }},
+    fechar:  function() {{ fecharChat(); }},
+    enviar:  function() {{ enviarMsg(); }}
+  }};
 
-  document.addEventListener('keydown', function(e) {{
-    if (e.key === 'Enter' && !e.shiftKey && e.target.id === 'ms-chat-area') {{
-      e.preventDefault();
-      enviarMsg();
+  // API pública para o Python abrir o chat com mensagem automática
+  window.msChatAbrir = function(msgInicial) {{
+    abrirChat();
+    if (msgInicial) {{
+      addMsg('ia', msgInicial);
+      mensagens.push({{ role: 'assistant', content: msgInicial }});
+      salvar();
     }}
-  }}, true);
+  }};
 
-  // ── Inicialização do histórico (roda uma vez) ─────────────────────────────
+  // ── Inicialização: carrega histórico e estado ─────────────────────────────
   function init() {{
-    if (iniciado) return;
-    if (!g('ms-chat-msgs')) {{ setTimeout(init, 150); return; }}
-    iniciado = true;
+    const msgs = g('ms-chat-msgs');
+    if (!msgs) {{ setTimeout(init, 150); return; }}
 
     if (mensagens.length === 0) {{
       addMsgRaw('ia', 'Olá! Estou aqui para ajudar com qualquer campo ou dúvida sobre viabilidade, ML, Shopee e Shein. O que precisa?');
@@ -409,16 +423,6 @@ def renderizar_chat():
     if (sessionStorage.getItem(SS_EST) === 'aberto') abrirChat();
   }}
   setTimeout(init, 300);
-
-  // ── API pública para o app Python abrir o chat ────────────────────────────
-  window.msChatAbrir = function(msgInicial) {{
-    abrirChat();
-    if (msgInicial) {{
-      addMsg('ia', msgInicial);
-      mensagens.push({{ role: 'assistant', content: msgInicial }});
-      salvar();
-    }}
-  }};
 }})();
 </script>
 """
@@ -428,9 +432,7 @@ def renderizar_chat():
 def iniciar_conversa(mensagem: str):
     """
     Abre o chat automaticamente com uma mensagem do assistente.
-    Chamar após renderizar_chat() quando o app detectar campo faltando ou quiser guiar o usuário.
-    Exemplo:
-        chat_assistente.iniciar_conversa("Percebi que você preencheu o preço da Shein mas não informou o peso. Qual é o peso do produto embalado?")
+    Chamar após renderizar_chat() quando o app detectar campo faltando.
     """
     msg_escaped = (mensagem
                    .replace("\\", "\\\\")
