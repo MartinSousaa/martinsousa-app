@@ -501,186 +501,121 @@ with aba_viabilidade:
     st.caption(f"LPV calculado com base em: {lpv_origem_usada}")
     st.markdown("---")
 
-    # ── SUB-ABAS POR PLATAFORMA ────────────────────────────────────────────────
-    tab_ml, tab_shopee, tab_shein = st.tabs(["🛒 Mercado Livre", "🛍️ Shopee", "👗 Shein"])
+    # ── FORMULÁRIO ÚNICO ───────────────────────────────────────────────────────
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("Dados do Produto")
+        nome_produto      = st.text_input("Nome do produto")
+        custo             = st.number_input("Preço de custo (R$)", min_value=0.0, value=None, step=0.50, format="%.2f", placeholder="0,00")
+        qtd_ref           = st.number_input("Quantidade por unidade/kit", min_value=1, step=1, value=1)
+        categoria         = st.selectbox("Categoria no ML", sorted(ML_COMISSAO_POR_CATEGORIA.keys()), key="viab_categoria")
+        custo_operacional = st.number_input("Custo operacional (embalagem/logística/ADS/cross docking)",
+                                             min_value=0.0, value=8.13, step=0.50, format="%.2f")
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # MERCADO LIVRE
-    # ══════════════════════════════════════════════════════════════════════════
-    with tab_ml:
-        col1, col2 = st.columns(2)
-        with col1:
-            st.subheader("Dados do Produto")
-            nome_produto  = st.text_input("Nome do produto", key="ml_nome")
-            custo         = st.number_input("Preco de custo (R$)", min_value=0.0, value=None, step=0.50, format="%.2f", placeholder="0,00", key="ml_custo")
-            preco_mercado = st.number_input("Preco de mercado (pesquisado por voce)", min_value=0.0, value=None, step=0.50, format="%.2f", placeholder="0,00", key="ml_preco")
-            qtd_ref       = st.number_input("Quantidade por unidade/kit", min_value=1, step=1, value=1, key="ml_qtd")
-            categoria     = st.selectbox("Categoria no ML", sorted(ML_COMISSAO_POR_CATEGORIA.keys()), key="ml_categoria")
-            custo_operacional = st.number_input("Custo operacional (embalagem/logistica/ADS/cross docking)",
-                                                 min_value=0.0, value=8.13, step=0.50, format="%.2f", key="ml_custo_op")
+    with col2:
+        st.subheader("Dimensões e Peso (produto EMBALADO)")
+        st.caption("Peso e medidas do pacote pronto pra envio — usados no cálculo de frete do ML (cubagem) e da Shein (por peso).")
+        col_peso, col_unit = st.columns([3, 1])
+        peso_val  = col_peso.number_input("Peso embalado", min_value=0.0, value=None, step=1.0, format="%.0f", placeholder="ex: 700")
+        peso_unit = col_unit.selectbox("", ["g", "kg"], label_visibility="hidden")
+        peso_kg   = (peso_val / 1000 if peso_val else 0) if peso_unit == "g" else (peso_val or 0)
+        st.caption("Medidas da embalagem — usadas no cálculo de peso cubado do ML")
+        dim1 = st.number_input("Medida 1 (cm)", min_value=0.0, value=None, step=0.5, format="%.1f", placeholder="ex: 30")
+        dim2 = st.number_input("Medida 2 (cm)", min_value=0.0, value=None, step=0.5, format="%.1f", placeholder="ex: 30")
+        dim3 = st.number_input("Medida 3 (cm)", min_value=0.0, value=None, step=0.5, format="%.1f", placeholder="ex: 2")
+        dims_ref = [dim1 or 0, dim2 or 0, dim3 or 0]
 
-        with col2:
-            st.subheader("Dimensões e Peso (produto EMBALADO)")
-            st.caption("Use o peso e as medidas do pacote pronto pra envio, não só do produto — é isso que o Mercado Livre mede de verdade.")
-            col_peso, col_unit = st.columns([3, 1])
-            peso_val  = col_peso.number_input("Peso embalado", min_value=0.0, value=None, step=1.0, format="%.0f", placeholder="ex: 700", key="ml_peso_val")
-            peso_unit = col_unit.selectbox("", ["g", "kg"], label_visibility="hidden", key="ml_peso_unit")
-            peso_kg   = (peso_val / 1000 if peso_val else 0) if peso_unit == "g" else (peso_val or 0)
-            st.caption("Informe as 3 medidas da embalagem (usadas no cálculo de frete por peso cubado)")
-            dim1 = st.number_input("Medida 1 (cm)", min_value=0.0, value=None, step=0.5, format="%.1f", placeholder="ex: 30", key="ml_dim1")
-            dim2 = st.number_input("Medida 2 (cm)", min_value=0.0, value=None, step=0.5, format="%.1f", placeholder="ex: 30", key="ml_dim2")
-            dim3 = st.number_input("Medida 3 (cm)", min_value=0.0, value=None, step=0.5, format="%.1f", placeholder="ex: 2", key="ml_dim3")
-            dims_ref = [dim1 or 0, dim2 or 0, dim3 or 0]
+    # ── PREÇOS DE MERCADO POR PLATAFORMA ──────────────────────────────────────
+    st.markdown("---")
+    st.subheader("Preço de mercado por plataforma")
+    st.caption("Preencha o preço pesquisado em cada plataforma. Deixe em branco as que não forem analisar.")
 
-        st.markdown("---")
-        analisar_ml = st.button("Analisar Viabilidade ML", type="primary", use_container_width=True, key="btn_ml")
+    col_p1, col_p2, col_p3 = st.columns(3)
+    with col_p1:
+        preco_ml = st.number_input("🛒 Mercado Livre", min_value=0.0, value=None, step=0.50,
+                                    format="%.2f", placeholder="0,00", key="preco_ml")
+    with col_p2:
+        preco_sp = st.number_input("🛍️ Shopee", min_value=0.0, value=None, step=0.50,
+                                    format="%.2f", placeholder="0,00", key="preco_sp")
+    with col_p3:
+        preco_sh = st.number_input("👗 Shein", min_value=0.0, value=None, step=0.50,
+                                    format="%.2f", placeholder="0,00", key="preco_sh")
 
-        if analisar_ml:
-            erros = []
-            if not nome_produto:      erros.append("Nome do produto")
-            if custo is None:         erros.append("Preco de custo")
-            if preco_mercado is None: erros.append("Preco de mercado")
-            if erros:
-                st.warning(f"Preencha: {', '.join(erros)}")
-                st.stop()
+    st.markdown("---")
+    analisar = st.button("Analisar Viabilidade", type="primary", use_container_width=True)
 
-            peso_taxado = calcular_peso_taxado(peso_kg, dim1 or 0, dim2 or 0, dim3 or 0)
+    if analisar:
+        erros = []
+        if not nome_produto: erros.append("Nome do produto")
+        if custo is None:    erros.append("Preço de custo")
+        if not any([preco_ml, preco_sp, preco_sh]):
+            erros.append("Pelo menos um preço de mercado (ML, Shopee ou Shein)")
+        if preco_sh and peso_kg == 0:
+            erros.append("Peso do produto (necessário para calcular o frete da Shein)")
+        if erros:
+            st.warning(f"Preencha: {', '.join(erros)}")
+            st.stop()
 
-            with st.spinner("Calculando viabilidade..."):
-                resultado = gerar_analise(
-                    preco_mercado, custo, peso_taxado, categoria, modalidade,
-                    nome_produto, dims_ref, qtd_ref, nf_pct_usado, custo_operacional,
-                    lpv_usado,
+        peso_taxado_ml = calcular_peso_taxado(peso_kg, dim1 or 0, dim2 or 0, dim3 or 0)
+
+        # ── CALCULA AS 3 PLATAFORMAS ───────────────────────────────────────────
+        with st.spinner("Calculando viabilidade nas plataformas..."):
+            res_ml, res_sp, res_sh = None, None, None
+
+            if preco_ml:
+                res_ml = gerar_analise(
+                    preco_ml, custo, peso_taxado_ml, categoria, modalidade,
+                    nome_produto, dims_ref, qtd_ref, nf_pct_usado, custo_operacional, lpv_usado,
                 )
 
-            atividades.registrar_atividade(
-                usuario_logado, "Análise de Viabilidade — ML", nome_produto,
-                f"{resultado['tag']} · R${preco_mercado:.2f} · custo R${custo:.2f}"
-            )
+            if preco_sp:
+                calc_sp = lambda p: calcular_resultado_shopee(p, custo, nf_pct_usado, custo_operacional, lpv_usado)
+                res_sp = gerar_analise_fn(preco_sp, custo, nome_produto, nf_pct_usado,
+                                          custo_operacional, lpv_usado, calc_sp)
 
-            st.markdown("---")
-            _mostrar_resultado(resultado, nome_produto)
+            if preco_sh:
+                calc_sh = lambda p: calcular_resultado_shein(p, custo, peso_kg, nf_pct_usado, custo_operacional, lpv_usado)
+                res_sh = gerar_analise_fn(preco_sh, custo, nome_produto, nf_pct_usado,
+                                          custo_operacional, lpv_usado, calc_sh)
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # SHOPEE
-    # ══════════════════════════════════════════════════════════════════════════
-    with tab_shopee:
-        st.caption("Comissão por faixa de preço · Frete Grátis obrigatório (vendedor paga R$0,00 de frete)")
+        # registra no histórico
+        plataformas_log = " / ".join(
+            f"{p}: {r['tag']} R${pr:.2f}"
+            for p, r, pr in [("ML", res_ml, preco_ml or 0), ("Shopee", res_sp, preco_sp or 0), ("Shein", res_sh, preco_sh or 0)]
+            if r is not None
+        )
+        atividades.registrar_atividade(
+            usuario_logado, "Análise de Viabilidade", nome_produto,
+            f"custo R${custo:.2f} · {plataformas_log}"
+        )
 
-        col1, col2 = st.columns(2)
-        with col1:
-            st.subheader("Dados do Produto")
-            sp_nome     = st.text_input("Nome do produto", key="sp_nome")
-            sp_custo    = st.number_input("Preco de custo (R$)", min_value=0.0, value=None, step=0.50, format="%.2f", placeholder="0,00", key="sp_custo")
-            sp_preco    = st.number_input("Preco de mercado (pesquisado por voce)", min_value=0.0, value=None, step=0.50, format="%.2f", placeholder="0,00", key="sp_preco")
-            sp_custo_op = st.number_input("Custo operacional (embalagem/logistica/ADS/cross docking)",
-                                           min_value=0.0, value=8.13, step=0.50, format="%.2f", key="sp_custo_op")
-
-        with col2:
-            st.subheader("Tabela de comissões Shopee")
-            st.markdown("""
-| Faixa de preço | Comissão | Adicional fixo |
-|---|---|---|
-| R$8,00 – R$79,99 | 20% | + R$4,00 |
-| R$80,00 – R$159,99 | 18% | — |
-| R$160,00 em diante | 15% | — |
-""")
-            st.caption("Frete líquido do vendedor: R$0,00 · Não há cubagem nem dimensões para informar")
-
+        # ── RESULTADO LADO A LADO ──────────────────────────────────────────────
         st.markdown("---")
-        analisar_sp = st.button("Analisar Viabilidade Shopee", type="primary", use_container_width=True, key="btn_sp")
 
-        if analisar_sp:
-            erros = []
-            if not sp_nome:      erros.append("Nome do produto")
-            if sp_custo is None: erros.append("Preco de custo")
-            if sp_preco is None: erros.append("Preco de mercado")
-            if erros:
-                st.warning(f"Preencha: {', '.join(erros)}")
-                st.stop()
+        CORES_PLATAFORMA = {
+            "ml":  ("#f5f5f5", "Mercado Livre"),
+            "sp":  ("#ee4d2d", "Shopee"),
+            "sh":  ("#fe4a7b", "Shein"),
+        }
 
-            calc_fn_sp = lambda p: calcular_resultado_shopee(p, sp_custo, nf_pct_usado, sp_custo_op, lpv_usado)
+        col_r1, col_r2, col_r3 = st.columns(3)
 
-            with st.spinner("Calculando viabilidade Shopee..."):
-                resultado_sp = gerar_analise_fn(
-                    sp_preco, sp_custo, sp_nome, nf_pct_usado, sp_custo_op,
-                    lpv_usado, calc_fn_sp,
+        for col, chave, resultado, preco in [
+            (col_r1, "ml", res_ml, preco_ml),
+            (col_r2, "sp", res_sp, preco_sp),
+            (col_r3, "sh", res_sh, preco_sh),
+        ]:
+            cor_texto, nome_plataforma = CORES_PLATAFORMA[chave]
+            with col:
+                st.markdown(
+                    f'<h2 style="color:{cor_texto}; border-bottom: 2px solid {cor_texto}; '
+                    f'padding-bottom: 6px; margin-bottom: 16px;">{nome_plataforma}</h2>',
+                    unsafe_allow_html=True,
                 )
-
-            atividades.registrar_atividade(
-                usuario_logado, "Análise de Viabilidade — Shopee", sp_nome,
-                f"{resultado_sp['tag']} · R${sp_preco:.2f} · custo R${sp_custo:.2f}"
-            )
-
-            st.markdown("---")
-            _mostrar_resultado(resultado_sp, sp_nome)
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # SHEIN
-    # ══════════════════════════════════════════════════════════════════════════
-    with tab_shein:
-        st.caption("Comissão 18% flat · Frete pago pelo vendedor (tabela por peso)")
-
-        col1, col2 = st.columns(2)
-        with col1:
-            st.subheader("Dados do Produto")
-            sh_nome     = st.text_input("Nome do produto", key="sh_nome")
-            sh_custo    = st.number_input("Preco de custo (R$)", min_value=0.0, value=None, step=0.50, format="%.2f", placeholder="0,00", key="sh_custo")
-            sh_preco    = st.number_input("Preco de mercado (pesquisado por voce)", min_value=0.0, value=None, step=0.50, format="%.2f", placeholder="0,00", key="sh_preco")
-            sh_custo_op = st.number_input("Custo operacional (embalagem/logistica/ADS/cross docking)",
-                                           min_value=0.0, value=8.13, step=0.50, format="%.2f", key="sh_custo_op")
-
-            st.markdown("---")
-            st.subheader("Peso do Produto Embalado")
-            st.caption("Na Shein o vendedor paga o frete — o custo varia conforme o peso do pacote.")
-            col_peso_sh, col_unit_sh = st.columns([3, 1])
-            sh_peso_val  = col_peso_sh.number_input("Peso embalado", min_value=0.0, value=None, step=1.0, format="%.0f", placeholder="ex: 700", key="sh_peso_val")
-            sh_peso_unit = col_unit_sh.selectbox("", ["g", "kg"], label_visibility="hidden", key="sh_peso_unit")
-            sh_peso_kg   = (sh_peso_val / 1000 if sh_peso_val else 0) if sh_peso_unit == "g" else (sh_peso_val or 0)
-
-        with col2:
-            st.subheader("Tabela de frete Shein")
-            st.markdown("""
-| Peso máximo | Frete (vendedor paga) |
-|---|---|
-| até 300 g | R$4,00 |
-| até 500 g | R$5,00 |
-| até 1 kg | R$7,00 |
-| até 2 kg | R$10,00 |
-| até 3 kg | R$13,00 |
-| até 5 kg | R$18,00 |
-| até 7 kg | R$23,00 |
-| até 10 kg | R$31,00 |
-| até 15 kg | R$44,00 |
-| até 23 kg | R$62,00 |
-| acima de 23 kg | R$106,00 |
-""")
-
-        st.markdown("---")
-        analisar_sh = st.button("Analisar Viabilidade Shein", type="primary", use_container_width=True, key="btn_sh")
-
-        if analisar_sh:
-            erros = []
-            if not sh_nome:      erros.append("Nome do produto")
-            if sh_custo is None: erros.append("Preco de custo")
-            if sh_preco is None: erros.append("Preco de mercado")
-            if sh_peso_kg == 0:  erros.append("Peso do produto (necessário para calcular o frete)")
-            if erros:
-                st.warning(f"Preencha: {', '.join(erros)}")
-                st.stop()
-
-            calc_fn_sh = lambda p: calcular_resultado_shein(p, sh_custo, sh_peso_kg, nf_pct_usado, sh_custo_op, lpv_usado)
-
-            with st.spinner("Calculando viabilidade Shein..."):
-                resultado_sh = gerar_analise_fn(
-                    sh_preco, sh_custo, sh_nome, nf_pct_usado, sh_custo_op,
-                    lpv_usado, calc_fn_sh,
-                )
-
-            atividades.registrar_atividade(
-                usuario_logado, "Análise de Viabilidade — Shein", sh_nome,
-                f"{resultado_sh['tag']} · R${sh_preco:.2f} · custo R${sh_custo:.2f}"
-            )
-
-            st.markdown("---")
-            _mostrar_resultado(resultado_sh, sh_nome)
+                if resultado is not None:
+                    _mostrar_resultado(resultado, nome_produto)
+                else:
+                    st.markdown(
+                        '<div style="color:#555; font-style:italic; padding: 20px 0;">Preço não informado</div>',
+                        unsafe_allow_html=True,
+                    )
