@@ -1,6 +1,15 @@
 import streamlit as st
 import streamlit.components.v1 as components
+import base64
 from datetime import date
+
+@st.cache_data
+def _logo_b64(path):
+    try:
+        with open(path, "rb") as f:
+            return base64.b64encode(f.read()).decode()
+    except Exception:
+        return ""
 from params_oficiais import (
     LPV_OFICIAL, NF_OFICIAL,
     ML_FAIXAS_PRECO, ML_FRETE_TABELA, ML_COMISSAO_POR_CATEGORIA,
@@ -189,10 +198,15 @@ tr:hover td      { background-color: var(--ms-hover) !important; }
 [data-testid="stAlert"] { background-color: var(--ms-metric-bg) !important; border-color: var(--ms-metric-bd) !important; }
 hr { border-color: var(--ms-divisor) !important; margin: 16px 0 !important; }
 
-/* ── TEMA CLARO: logo invertida + bordas dos campos invisíveis ──────────── */
-body.tema-claro [data-testid="stSidebar"] [data-testid="stImage"] img {
-    filter: invert(1) !important;
-}
+/* ── LOGOS POR TEMA ─────────────────────────────────────────────────────── */
+/* Padrão (escuro): mostra logo branca */
+#ms-logo-preto { display: none !important; }
+#ms-logo-branco { display: block !important; }
+/* Tema claro: mostra logo preta */
+body.tema-claro #ms-logo-preto { display: block !important; }
+body.tema-claro #ms-logo-branco { display: none !important; }
+
+/* ── TEMA CLARO: bordas dos campos invisíveis ───────────────────────────── */
 body.tema-claro .stTextInput input,
 body.tema-claro .stNumberInput input {
     border-color: var(--ms-input) !important;
@@ -687,7 +701,13 @@ def _mostrar_resultado(resultado, nome_produto):
 # ── INTERFACE ──────────────────────────────────────────────────────────────────
 
 with st.sidebar:
-    st.image("logo.png", use_container_width=True)
+    _lp = _logo_b64("logo_preto.png")
+    _lb = _logo_b64("logo_branco.png")
+    st.markdown(
+        f'<img id="ms-logo-preto" src="data:image/png;base64,{_lp}" style="width:100%;margin-bottom:4px;"/>'
+        f'<img id="ms-logo-branco" src="data:image/png;base64,{_lb}" style="width:100%;margin-bottom:4px;"/>',
+        unsafe_allow_html=True
+    )
     st.caption("v17.0")
     st.markdown("---")
     st.caption(f"Logado como **{usuario_logado}**")
