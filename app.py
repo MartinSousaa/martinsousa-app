@@ -90,13 +90,6 @@ h1, h2, h3, h4, h5, h6 { color: var(--ms-texto) !important; }
 p, span, label, div     { color: var(--ms-texto) !important; }
 
 /* ── SIDEBAR ESQUERDO ───────────────────────────────────────────────────── */
-section[data-testid="stSidebar"],
-section[data-testid="stSidebar"] > div,
-section[data-testid="stSidebar"] > div:first-child {
-    min-width: 360px !important;
-    max-width: 360px !important;
-    width: 360px !important;
-}
 [data-testid="stSidebar"] {
     background-color: var(--ms-sidebar) !important;
     border-right: 1px solid var(--ms-divisor) !important;
@@ -399,6 +392,60 @@ body.tema-claro [data-testid="stFileUploaderDropzone"] button {
 }
 #ms-tema-toggle:hover { opacity: 0.75 !important; }
 
+/* ── SELOS DE RESULTADO (tema-aware) ─────────────────────────────────────── */
+.ms-selo { border-radius: 6px; padding: 12px 16px; margin-bottom: 12px;
+           border-left-width: 4px; border-left-style: solid; }
+.ms-selo-viavel    { background: #0d2b1a; border-left-color: #34d399; }
+.ms-selo-ressalvas { background: #2b1f06; border-left-color: #fbbf24; }
+.ms-selo-inviavel  { background: #2b0d0d; border-left-color: #f87171; }
+body.tema-claro .ms-selo-viavel    { background: #d1fae5 !important; }
+body.tema-claro .ms-selo-ressalvas { background: #fef3c7 !important; }
+body.tema-claro .ms-selo-inviavel  { background: #fee2e2 !important; }
+.ms-selo-titulo { font-size: 14px; font-weight: 700; letter-spacing: 0.05em;
+                  text-transform: uppercase; display: block; }
+.ms-selo-viavel .ms-selo-titulo    { color: #34d399; }
+.ms-selo-ressalvas .ms-selo-titulo { color: #fbbf24; }
+.ms-selo-inviavel .ms-selo-titulo  { color: #f87171; }
+body.tema-claro .ms-selo-viavel .ms-selo-titulo    { color: #065f46 !important; }
+body.tema-claro .ms-selo-ressalvas .ms-selo-titulo { color: #92400e !important; }
+body.tema-claro .ms-selo-inviavel .ms-selo-titulo  { color: #b91c1c !important; }
+.ms-selo-sub { font-size: 13px; display: block; margin-top: 2px; color: #aaa; }
+body.tema-claro .ms-selo-sub { color: #555 !important; }
+
+/* ── CARDS UC (tema-aware) ────────────────────────────────────────────────── */
+.ms-card-uc { border-radius: 8px; padding: 14px 18px; margin-bottom: 10px;
+              border-left-width: 4px; border-left-style: solid; }
+.ms-card-08 { background: #2b0d0d; border-left-color: #f87171; }
+.ms-card-10 { background: #2b1f06; border-left-color: #fbbf24; }
+.ms-card-15 { background: #0d2b1a; border-left-color: #34d399; }
+body.tema-claro .ms-card-08 { background: #fee2e2 !important; }
+body.tema-claro .ms-card-10 { background: #fef3c7 !important; }
+body.tema-claro .ms-card-15 { background: #d1fae5 !important; }
+.ms-card-uc-label { font-size: 12px; font-weight: 700; letter-spacing: 0.07em;
+                    text-transform: uppercase; margin-bottom: 10px; display: block; }
+.ms-card-08 .ms-card-uc-label { color: #f87171; }
+.ms-card-10 .ms-card-uc-label { color: #fbbf24; }
+.ms-card-15 .ms-card-uc-label { color: #34d399; }
+body.tema-claro .ms-card-08 .ms-card-uc-label { color: #b91c1c !important; }
+body.tema-claro .ms-card-10 .ms-card-uc-label { color: #92400e !important; }
+body.tema-claro .ms-card-15 .ms-card-uc-label { color: #065f46 !important; }
+.ms-card-plat-prices { display: flex; gap: 40px; flex-wrap: wrap; }
+.ms-card-plat-name  { font-size: 11px; color: #aaa; margin-bottom: 2px; }
+.ms-card-plat-price { font-size: 22px; font-weight: 700; color: #fff; }
+body.tema-claro .ms-card-plat-name  { color: #555 !important; }
+body.tema-claro .ms-card-plat-price { color: #111 !important; }
+
+/* ══ SIDEBAR — somente desktop (>=769px) ════════════════════════════════════ */
+@media screen and (min-width: 769px) {
+  section[data-testid="stSidebar"],
+  section[data-testid="stSidebar"] > div,
+  section[data-testid="stSidebar"] > div:first-child {
+      min-width: 360px !important;
+      max-width: 360px !important;
+      width: 360px !important;
+  }
+}
+
 /* ══ RESPONSIVO — MOBILE (max 768px) ═══════════════════════════════════════ */
 @media screen and (max-width: 768px) {
 
@@ -548,8 +595,9 @@ components.html("""
     if (!P.sessionStorage.getItem('ms_tema')) aplicarTema(temaAuto(), false);
   }, 60000);
 
-  // Força largura do sidebar (override do resize do Streamlit)
+  // Força largura do sidebar (override do resize do Streamlit) — só desktop
   function forceSidebarWidth() {
+    if (P.innerWidth <= 768) return;
     var sb = P.document.querySelector('section[data-testid="stSidebar"]');
     if (!sb) return;
     sb.style.setProperty('width', '360px', 'important');
@@ -931,22 +979,16 @@ def gerar_analise(preco_mercado, custo, peso_taxado, categoria, modalidade,
 
 def _mostrar_resultado(resultado, nome_produto):
     SELOS = {
-        "VIAVEL":    ("✅", "VIÁVEL",            "#0d2b1a", "#34d399"),
-        "RESSALVAS": ("⚠️", "VIÁVEL COM ATENÇÃO", "#2b1f06", "#fbbf24"),
-        "INVIAVEL":  ("🚫", "INVIÁVEL",           "#2b0d0d", "#f87171"),
+        "VIAVEL":    ("✅", "VIÁVEL",            "ms-selo-viavel"),
+        "RESSALVAS": ("⚠️", "VIÁVEL COM ATENÇÃO", "ms-selo-ressalvas"),
+        "INVIAVEL":  ("🚫", "INVIÁVEL",           "ms-selo-inviavel"),
     }
-    emoji, texto_selo, cor_fundo, cor_borda = SELOS[resultado["tag"]]
+    emoji, texto_selo, classe = SELOS[resultado["tag"]]
 
     st.markdown(f"""
-    <div style="background-color:{cor_fundo}; border-left: 4px solid {cor_borda};
-                border-radius: 6px; padding: 12px 16px; margin-bottom: 12px;">
-        <span style="font-size: 14px; font-weight: 700; color: {cor_borda};
-                     letter-spacing: 0.05em; text-transform: uppercase;">
-            {emoji} {texto_selo}
-        </span><br>
-        <span style="color: #aaaaaa; font-size: 13px; margin-top: 2px; display:block;">
-            {nome_produto} · R${resultado['preco_sugerido']:.2f}
-        </span>
+    <div class="ms-selo {classe}">
+        <span class="ms-selo-titulo">{emoji} {texto_selo}</span>
+        <span class="ms-selo-sub">{nome_produto} · R${resultado['preco_sugerido']:.2f}</span>
     </div>
     """, unsafe_allow_html=True)
     st.markdown(resultado["resumo"])
@@ -1058,14 +1100,14 @@ with aba_analise_venda:
             peso_taxado_av = calcular_peso_taxado(peso_kg_av, dim1_av or 0, dim2_av or 0, dim3_av or 0)
 
             UC_ALVOS_AV = [
-                (0.8, "0,8/1", "Mínimo viável",  "#f87171", "#2b0d0d"),
-                (1.0, "1,0/1", "Equilíbrio",     "#fbbf24", "#2b1f06"),
-                (1.5, "1,5/1", "Confortável",    "#34d399", "#0d2b1a"),
+                (0.8, "0,8/1", "Mínimo viável", "ms-card-08"),
+                (1.0, "1,0/1", "Equilíbrio",    "ms-card-10"),
+                (1.5, "1,5/1", "Confortável",   "ms-card-15"),
             ]
 
             with st.spinner("Calculando preços mínimos..."):
                 linhas_av = []
-                for uc_val, uc_label, uc_desc, cor_bd, cor_bg in UC_ALVOS_AV:
+                for uc_val, uc_label, uc_desc, classe_card in UC_ALVOS_AV:
                     # ML
                     p_ml_av = resolver_preco_para_uc(
                         uc_val, custo_av, peso_taxado_av, categoria_av, modalidade_av,
@@ -1080,33 +1122,29 @@ with aba_analise_venda:
                         return calcular_resultado_shein(p, _c, _pk, _n, _o, _l)
                     p_sh_av = resolver_preco_para_uc_fn(uc_val, _sh, _lpv_av)
 
-                    linhas_av.append((uc_label, uc_desc, cor_bd, cor_bg, p_ml_av, p_sp_av, p_sh_av))
+                    linhas_av.append((uc_label, uc_desc, classe_card, p_ml_av, p_sp_av, p_sh_av))
 
             st.markdown("### Preços mínimos para anunciar")
-            st.caption(f"LPV: R${_lpv_av:.2f} · NF: {_nf_av*100:.1f}% · Custo operacional: R${custo_op_av:.2f}")
+            st.caption(f"LPV: R${_lpv_av:.2f} · NF: {_nf_av*100:.1f}% · Op: R${custo_op_av:.2f}")
             st.markdown("")
 
-            for uc_label, uc_desc, cor_bd, cor_bg, p_ml, p_sp, p_sh in linhas_av:
+            for uc_label, uc_desc, classe_card, p_ml, p_sp, p_sh in linhas_av:
                 fmt = lambda v: f"R${v:.2f}" if v else "—"
                 st.markdown(f"""
-                <div style="background-color:{cor_bg}; border-left:4px solid {cor_bd};
-                            border-radius:8px; padding:14px 18px; margin-bottom:10px;">
-                  <div style="font-size:12px; font-weight:700; color:{cor_bd};
-                              letter-spacing:0.07em; text-transform:uppercase; margin-bottom:10px;">
-                    UC {uc_label} — {uc_desc}
-                  </div>
-                  <div style="display:flex; gap:40px; flex-wrap:wrap;">
+                <div class="ms-card-uc {classe_card}">
+                  <div class="ms-card-uc-label">UC {uc_label} — {uc_desc}</div>
+                  <div class="ms-card-plat-prices">
                     <div>
-                      <div style="font-size:11px; color:#aaa; margin-bottom:2px;">🛒 Mercado Livre</div>
-                      <div style="font-size:22px; font-weight:700; color:#fff;">{fmt(p_ml)}</div>
+                      <div class="ms-card-plat-name">🛒 Mercado Livre</div>
+                      <div class="ms-card-plat-price">{fmt(p_ml)}</div>
                     </div>
                     <div>
-                      <div style="font-size:11px; color:#aaa; margin-bottom:2px;">🛍️ Shopee</div>
-                      <div style="font-size:22px; font-weight:700; color:#fff;">{fmt(p_sp)}</div>
+                      <div class="ms-card-plat-name">🛍️ Shopee</div>
+                      <div class="ms-card-plat-price">{fmt(p_sp)}</div>
                     </div>
                     <div>
-                      <div style="font-size:11px; color:#aaa; margin-bottom:2px;">👗 Shein</div>
-                      <div style="font-size:22px; font-weight:700; color:#fff;">{fmt(p_sh)}</div>
+                      <div class="ms-card-plat-name">👗 Shein</div>
+                      <div class="ms-card-plat-price">{fmt(p_sh)}</div>
                     </div>
                   </div>
                 </div>
@@ -1256,9 +1294,9 @@ with aba_viabilidade:
 
         # cores de marca de cada plataforma
         PLATAFORMAS = {
-            "ml": ("#e8e8e8", "#ffe600", "Mercado Livre"),   # texto branco, borda amarela ML
-            "sp": ("#ee4d2d", "#ee4d2d", "Shopee"),           # laranja Shopee
-            "sh": ("#fe4a7b", "#fe4a7b", "Shein"),            # rosa Shein
+            "ml": ("var(--ms-texto)", "#ffe600", "Mercado Livre"),  # texto do tema, borda amarela ML
+            "sp": ("#ee4d2d", "#ee4d2d", "Shopee"),                 # laranja Shopee
+            "sh": ("#fe4a7b", "#fe4a7b", "Shein"),                  # rosa Shein
         }
 
         col_r1, col_r2, col_r3 = st.columns(3)
@@ -1280,7 +1318,7 @@ with aba_viabilidade:
                     _mostrar_resultado(resultado, nome_produto)
                 else:
                     st.markdown(
-                        '<div style="color:#444; font-style:italic; font-size:13px; '
+                        '<div style="color:var(--ms-texto-sec); font-style:italic; font-size:13px; '
                         'padding: 16px 0;">Preço não informado</div>',
                         unsafe_allow_html=True,
                     )
