@@ -90,6 +90,12 @@ h1, h2, h3, h4, h5, h6 { color: var(--ms-texto) !important; }
 p, span, label, div     { color: var(--ms-texto) !important; }
 
 /* ── SIDEBAR ESQUERDO ───────────────────────────────────────────────────── */
+section[data-testid="stSidebar"],
+section[data-testid="stSidebar"] > div:first-child {
+    min-width: 280px !important;
+    max-width: 280px !important;
+    width: 280px !important;
+}
 [data-testid="stSidebar"] {
     background-color: var(--ms-sidebar) !important;
     border-right: 1px solid var(--ms-divisor) !important;
@@ -230,22 +236,36 @@ hr { border-color: var(--ms-divisor) !important; margin: 16px 0 !important; }
 body.tema-claro #ms-logo-preto { display: block !important; }
 body.tema-claro #ms-logo-branco { display: none !important; }
 
-/* ── TEMA CLARO: bordas dos campos invisíveis ───────────────────────────── */
+/* ── TEMA CLARO: bordas dos campos removidas ────────────────────────────── */
 body.tema-claro .stTextInput input,
 body.tema-claro .stNumberInput input {
-    border-color: var(--ms-input) !important;
+    border: none !important;
+    box-shadow: none !important;
 }
 body.tema-claro .stSelectbox > div > div {
-    border-color: var(--ms-input) !important;
+    border: none !important;
+    box-shadow: none !important;
 }
 body.tema-claro .stNumberInput [data-testid="stNumberInputStepUp"],
 body.tema-claro .stNumberInput [data-testid="stNumberInputStepDown"] {
-    border-color: var(--ms-input) !important;
+    border: none !important;
 }
 body.tema-claro textarea,
 body.tema-claro .stTextArea textarea {
-    border-color: var(--ms-input) !important;
+    border: none !important;
+    box-shadow: none !important;
 }
+
+/* ── TEMA CLARO: todas as escritas pretas ───────────────────────────────── */
+body.tema-claro [data-baseweb] * { color: var(--ms-texto) !important; }
+body.tema-claro .stSelectbox * { color: var(--ms-texto) !important; }
+body.tema-claro .stNumberInput * { color: var(--ms-texto) !important; }
+body.tema-claro .stTextInput * { color: var(--ms-texto) !important; }
+body.tema-claro [role="option"] * { color: var(--ms-texto) !important; }
+body.tema-claro [data-testid="stWidgetLabel"] * { color: var(--ms-texto-sec) !important; }
+body.tema-claro .stTextInput label *,
+body.tema-claro .stNumberInput label *,
+body.tema-claro .stSelectbox label * { color: var(--ms-texto-sec) !important; }
 
 /* ── SELECTBOX: texto do valor selecionado e dropdown ───────────────────── */
 .stSelectbox [data-baseweb="select"] span,
@@ -280,20 +300,50 @@ body.tema-claro [data-testid="stFileUploaderDropzone"] button {
 }
 
 /* ── CHAT SIDEBAR — AVATAR E BALÃO ─────────────────────────────────────── */
-/* Remove avatar laranja do assistente */
-[data-testid="stSidebar"] [data-testid="chatAvatarIcon-assistant"] {
+/* Remove avatar laranja do assistente (seletor amplo) */
+[data-testid="stSidebar"] [data-testid^="chatAvatarIcon"] {
     display: none !important;
 }
-/* Balão cinza para mensagens da IA */
-[data-testid="stSidebar"] [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) [data-testid="stChatMessageContent"] {
+[data-testid="stSidebar"] [data-testid="stChatMessage"] > div:first-child {
+    display: none !important;
+}
+/* Balão cinza para mensagens da IA — seletor de irmão (sem :has) */
+[data-testid="stSidebar"] [data-testid="chatAvatarIcon-assistant"] ~ [data-testid="stChatMessageContent"],
+[data-testid="stSidebar"] [data-testid="stChatMessage"][data-message-author-role="assistant"] [data-testid="stChatMessageContent"] {
     background-color: var(--ms-msg-ia) !important;
     border-radius: 10px !important;
     padding: 8px 12px !important;
     border: 1px solid var(--ms-msg-ia-bd) !important;
+    margin-left: 0 !important;
 }
-/* Esconde botão de enviar (Enter faz o submit) */
+/* Botão de enviar fora da tela (não display:none — precisa ser clicável pelo JS) */
 [data-testid="stSidebar"] [data-testid="stForm"] .stFormSubmitButton {
-    display: none !important;
+    height: 0 !important;
+    overflow: hidden !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+[data-testid="stSidebar"] [data-testid="stForm"] .stFormSubmitButton button {
+    position: absolute !important;
+    left: -9999px !important;
+    opacity: 0 !important;
+}
+/* Textarea do chat: auto-expande como o Claude */
+[data-testid="stSidebar"] [data-testid="stForm"] textarea {
+    min-height: 40px !important;
+    max-height: 150px !important;
+    field-sizing: content !important;
+    resize: none !important;
+    overflow-y: auto !important;
+}
+/* Remove padding extra abaixo do file uploader no chat */
+[data-testid="stSidebar"] [data-testid="stForm"] {
+    padding-bottom: 0 !important;
+    margin-bottom: 0 !important;
+}
+[data-testid="stSidebar"] [data-testid="stFileUploader"] {
+    margin-bottom: 0 !important;
+    padding-bottom: 0 !important;
 }
 /* File uploader do chat — compact, só clip */
 [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] {
@@ -888,12 +938,14 @@ with st.sidebar:
     _lp = _logo_b64("logo_preto.png")
     _lb = _logo_b64("logo_branco.png")
     st.markdown(
-        f'<img id="ms-logo-preto" src="data:image/png;base64,{_lp}" style="width:100%;margin-bottom:6px;"/>'
-        f'<img id="ms-logo-branco" src="data:image/png;base64,{_lb}" style="width:100%;margin-bottom:6px;"/>',
+        f'<img id="ms-logo-preto" src="data:image/png;base64,{_lp}" style="width:100%;margin-top:-16px;margin-bottom:2px;"/>'
+        f'<img id="ms-logo-branco" src="data:image/png;base64,{_lb}" style="width:100%;margin-top:-16px;margin-bottom:2px;"/>',
         unsafe_allow_html=True
     )
-    st.caption(f"Logado como **{usuario_logado}**")
-    if st.button("Sair"):
+    _col_user, _col_sair = st.columns([3, 1])
+    _col_user.caption(f"Logado como **{usuario_logado}**")
+    _sair_clicked = _col_sair.button("Sair", key="btn_sair")
+    if _sair_clicked:
         chave_admin = f"admin_confirmado_{usuario_logado}"
         for k in [k for k in st.session_state if k == chave_admin]:
             del st.session_state[k]
@@ -975,7 +1027,7 @@ with aba_viabilidade:
         st.subheader("Dimensões e Peso (produto EMBALADO)")
         st.caption("Peso e medidas do pacote pronto pra envio — usados no cálculo de frete do ML (cubagem) e da Shein (por peso).")
         col_peso, col_unit = st.columns([3, 1])
-        peso_val  = col_peso.number_input("Peso embalado", min_value=0.0, value=None, step=1.0, format="%.0f", placeholder="ex: 700")
+        peso_val  = col_peso.number_input("Peso Embalado para Envio", min_value=0.0, value=None, step=1.0, format="%.0f", placeholder="ex: 700")
         peso_unit = col_unit.selectbox("", ["g", "kg"], label_visibility="hidden")
         peso_kg   = (peso_val / 1000 if peso_val else 0) if peso_unit == "g" else (peso_val or 0)
         st.caption("Medidas da embalagem — usadas no cálculo de peso cubado do ML")
