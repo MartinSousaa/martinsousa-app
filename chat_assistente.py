@@ -234,7 +234,7 @@ def _chamar_ia(historico: list, mensagem_usuario: str, imagens_bytes: list = Non
         return f"⚠️ Erro ao conectar com o assistente: {e}", None
 
 
-def renderizar_chat():
+def renderizar_chat(usuario_logado=""):
     """
     Renderiza o chat IA no sidebar.
     Chamar dentro de `with st.sidebar:` (já no contexto certo).
@@ -251,19 +251,17 @@ def renderizar_chat():
         unsafe_allow_html=True,
     )
 
+    # Nome de exibição: primeiro nome em maiúscula
+    nome_exib = usuario_logado.split()[0].capitalize() if usuario_logado else "você"
+
     # ── Área de mensagens com scroll ─────────────────────────────────────────
-    with st.container(height=300, border=False):
+    with st.container(height=340, border=False):
         if not hist:
             with st.chat_message("assistant"):
-                st.markdown(
-                    "Olá! Posso tirar dúvidas, ajustar títulos, descrições e "
-                    "orientar sobre imagens. Você também pode **enviar uma foto** "
-                    "para mostrar um exemplo. O que precisa?"
-                )
+                st.markdown(f"Olá **{nome_exib}**, como posso ajudar?")
         else:
             for msg in hist:
                 with st.chat_message(msg["role"]):
-                    # Exibe imagens anexadas (guardadas no histórico)
                     if msg.get("img_bytes"):
                         for ib in msg["img_bytes"]:
                             st.image(ib, use_container_width=True)
@@ -271,25 +269,19 @@ def renderizar_chat():
 
     # ── Formulário de envio ───────────────────────────────────────────────────
     with st.form("ms_chat_form", clear_on_submit=True):
-        user_input = st.text_area(
+        user_input = st.text_input(
             "msg",
-            height=60,
-            placeholder="Dúvida ou pedido de ajuste...",
+            placeholder="Mensagem… (Enter para enviar)",
             label_visibility="collapsed",
         )
         img_chat = st.file_uploader(
-            "📎 Imagem (opcional — para mostrar exemplo ou dúvida visual)",
+            "📎 Anexo",
             type=["jpg", "jpeg", "png", "webp"],
             accept_multiple_files=False,
             key="chat_img_upload",
         )
-        col_limpar, col_enviar = st.columns([1, 2])
-        limpar  = col_limpar.form_submit_button("Limpar", use_container_width=True)
-        enviar  = col_enviar.form_submit_button("Enviar →", use_container_width=True)
-
-    if limpar:
-        st.session_state["ms_chat_hist"] = []
-        st.rerun()
+        # Submit oculto via CSS — Enter no text_input aciona
+        enviar = st.form_submit_button("Enviar", use_container_width=False)
 
     if enviar and (user_input.strip() or img_chat):
         msg_user = user_input.strip() or "Veja a imagem que enviei."
