@@ -57,7 +57,12 @@ def _cliente():
 def _aba():
     cliente = _cliente()
     planilha = cliente.open(PLANILHA_NOME)
-    return planilha.worksheet(ABA_NOME)
+    try:
+        return planilha.worksheet(ABA_NOME)
+    except gspread.exceptions.WorksheetNotFound:
+        aba = planilha.add_worksheet(title=ABA_NOME, rows=500, cols=len(COLUNAS))
+        aba.append_row(COLUNAS, value_input_option="RAW")
+        return aba
 
 
 @st.cache_data(ttl=60)
