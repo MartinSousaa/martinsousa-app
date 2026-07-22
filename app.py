@@ -111,13 +111,16 @@ section[data-testid="stSidebar"] > div:first-child {
     padding-top: 0.25rem !important;
 }
 
-/* Caixa visual do chat */
-[data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"] {
-    background-color: var(--ms-chat-bg) !important;
+/* Caixa visual do chat — via :has(#ms-chat-topo) no container mais interno */
+#ms-chat-topo { display: none !important; }
+/* :not(:has(...)) garante que só o stVerticalBlock mais interno é estilizado */
+[data-testid="stSidebar"] [data-testid="stVerticalBlock"]:has(#ms-chat-topo):not(:has([data-testid="stVerticalBlock"]:has(#ms-chat-topo))) {
     border: 1px solid var(--ms-divisor) !important;
     border-radius: 10px !important;
-    padding: 6px 8px !important;
-    margin-top: 6px !important;
+    background-color: var(--ms-chat-bg) !important;
+    padding: 8px 10px 6px !important;
+    margin-top: 4px !important;
+    overflow: hidden !important;
 }
 
 /* ── INPUTS ─────────────────────────────────────────────────────────────── */
@@ -553,6 +556,20 @@ components.html("""
   setInterval(function() {
     if (!P.sessionStorage.getItem('ms_tema')) aplicarTema(temaAuto(), false);
   }, 60000);
+
+  // Força largura do sidebar (override do resize do Streamlit)
+  function forceSidebarWidth() {
+    var sb = P.document.querySelector('section[data-testid="stSidebar"]');
+    if (!sb) return;
+    sb.style.setProperty('width', '360px', 'important');
+    sb.style.setProperty('min-width', '360px', 'important');
+    sb.style.setProperty('max-width', '360px', 'important');
+    // Remove o handle de resize para não atrapalhar
+    var rz = P.document.querySelector('[data-testid="stSidebarResizeHandle"]');
+    if (rz) rz.style.display = 'none';
+  }
+  forceSidebarWidth();
+  setInterval(forceSidebarWidth, 1500);
 })();
 </script>
 """, height=0)
