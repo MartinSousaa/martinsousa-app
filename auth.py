@@ -153,7 +153,6 @@ def verificar_login():
 
     st.markdown(f"""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;600&display=swap');
 
     header[data-testid="stHeader"]  {{ display: none !important; }}
     [data-testid="stSidebar"]        {{ display: none !important; }}
@@ -289,48 +288,43 @@ def verificar_login():
 
     # ── PAINEL ESQUERDO ────────────────────────────────────────────────────────
     with col_left:
-        logo_b64 = _logo_b64()
-        logo_html = (
-            f'<img src="data:image/png;base64,{logo_b64}" '
-            f'style="width:300px; max-width:80%; display:block; margin:0 auto;" alt="MS Studio"/>'
-            if logo_b64 else
-            '<div style="font-family:Georgia,serif;font-size:80px;color:#fff;letter-spacing:-2px;">MS</div>'
-            '<div style="font-family:Arial,sans-serif;font-size:11px;letter-spacing:10px;color:rgba(255,255,255,0.5);margin-top:6px;">MARTINSOUSA</div>'
-        )
-        st.markdown(f"""
-        <div style="text-align:center; padding: 40px 20px;">
-            {logo_html}
-            <div style="
-                width: 40px; height: 1px;
-                background: rgba(255,255,255,0.2);
-                margin: 28px auto 14px;
-            "></div>
-            <div style="
-                font-family: Arial, sans-serif;
-                font-size: 10px;
-                letter-spacing: 4px;
-                color: rgba(255,255,255,0.3);
-                text-transform: uppercase;
-            ">v17.0 · MS Studio</div>
-        </div>
+        st.markdown("""
+        <div style="
+            text-align: center;
+            font-family: Arial, sans-serif;
+            font-size: 10px;
+            letter-spacing: 4px;
+            color: rgba(255,255,255,0.3);
+            text-transform: uppercase;
+            margin-top: auto;
+            padding-top: 80vh;
+        ">v17.0 · MS Studio</div>
         """, unsafe_allow_html=True)
 
     # ── PAINEL DIREITO ─────────────────────────────────────────────────────────
     with col_right:
-        st.markdown("""
+        logo_b64 = _logo_b64()
+        logo_html = (
+            f'<img src="data:image/png;base64,{logo_b64}" '
+            f'style="width:160px; max-width:65%; display:block; margin:0 auto 20px;" alt="MS Studio"/>'
+            if logo_b64 else
+            '<div style="font-family:Georgia,serif;font-size:52px;color:#fff;letter-spacing:-2px;text-align:center;margin-bottom:16px;">MS</div>'
+        )
+        st.markdown(f"""
         <div style="width:100%; max-width:340px; margin:0 auto 24px;">
+            {logo_html}
             <div style="
-                font-family: 'Cormorant Garamond', 'Annai MN', Georgia, serif;
-                font-size: 28px;
+                font-family: Georgia, 'Times New Roman', serif;
+                font-size: 26px;
                 font-weight: 300;
                 color: #f0f0f0;
-                letter-spacing: 0.5px;
-                margin-bottom: 4px;
+                letter-spacing: 1px;
+                margin-bottom: 6px;
             ">MS Studio</div>
             <div style="
                 font-family: Arial, sans-serif;
                 font-size: 13px;
-                color: #555;
+                color: #888888;
                 letter-spacing: 0.3px;
             ">Conecte-se para continuar</div>
         </div>
