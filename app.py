@@ -111,17 +111,8 @@ section[data-testid="stSidebar"] > div:first-child {
     padding-top: 0.25rem !important;
 }
 
-/* Caixa visual do chat — via :has(#ms-chat-topo) no container mais interno */
+/* Caixa visual do chat — estilizada via JS (id ms-chat-box-dynamic) */
 #ms-chat-topo { display: none !important; }
-/* :not(:has(...)) garante que só o stVerticalBlock mais interno é estilizado */
-[data-testid="stSidebar"] [data-testid="stVerticalBlock"]:has(#ms-chat-topo):not(:has([data-testid="stVerticalBlock"]:has(#ms-chat-topo))) {
-    border: 1px solid var(--ms-divisor) !important;
-    border-radius: 10px !important;
-    background-color: var(--ms-chat-bg) !important;
-    padding: 8px 10px 6px !important;
-    margin-top: 4px !important;
-    overflow: hidden !important;
-}
 
 /* ── INPUTS ─────────────────────────────────────────────────────────────── */
 .stTextInput input, .stNumberInput input {
@@ -980,8 +971,8 @@ with st.sidebar:
     _lp = _logo_b64("logo_preto.png")
     _lb = _logo_b64("logo_branco.png")
     st.markdown(
-        f'<img id="ms-logo-preto" src="data:image/png;base64,{_lp}" style="width:100%;margin-top:-16px;margin-bottom:2px;"/>'
-        f'<img id="ms-logo-branco" src="data:image/png;base64,{_lb}" style="width:100%;margin-top:-16px;margin-bottom:2px;"/>',
+        f'<img id="ms-logo-preto" src="data:image/png;base64,{_lp}" style="width:100%;margin-top:-32px;margin-bottom:2px;display:block;"/>'
+        f'<img id="ms-logo-branco" src="data:image/png;base64,{_lb}" style="width:100%;margin-top:-32px;margin-bottom:2px;display:block;"/>',
         unsafe_allow_html=True
     )
     _col_user, _col_sair = st.columns([3, 1])
