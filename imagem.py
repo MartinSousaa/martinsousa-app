@@ -24,11 +24,16 @@ PADRÃO VISUAL OBRIGATÓRIO DA EMPRESA (aplique em todas as peças de marketing)
 """
 
 INSTRUCAO_FIDELIDADE = """
-REGRA DE FIDELIDADE AO PRODUTO (não negocie):
+REGRA DE FIDELIDADE AO PRODUTO (a mais importante de todas — sem exceções):
 - Reproduza o produto EXATAMENTE como aparece nas imagens de referência: mesma cor,
   mesmo formato, mesmas proporções, mesmos detalhes visíveis
+- PROIBIÇÃO ABSOLUTA: JAMAIS substitua o produto das fotos de referência por um
+  produto diferente, inventado ou genérico. Se não conseguir reproduzir o produto
+  num ângulo específico, use o ângulo disponível nas fotos — mas NUNCA crie outro
+  produto. Gerar um produto diferente é o erro mais grave possível nesta tarefa.
 - Se uma característica do produto não estiver visível nas fotos de referência e for
-  necessária para a composição, SINALIZE ISSO no plano em vez de inventar
+  necessária para a composição, adapte a cena para evitar mostrar esse ângulo —
+  não invente como o produto seria naquele ângulo
 - Nunca deforme, alongue, encurte ou altere qualquer parte do produto
 - Nunca crie detalhes que não aparecem nas fotos de referência
 - NÃO copie nem reproduza nenhum texto, palavra ou rótulo que apareça escrito
@@ -528,32 +533,39 @@ def pagina_imagem(usuario_logado):
     )
 
     if iniciar_triagem:
-        if not nome_produto:
-            st.warning("Informe o nome do produto.")
-            st.stop()
-        if not fotos_bytes:
-            st.warning("Suba pelo menos uma foto do produto — é ela que garante fidelidade.")
-            st.stop()
+        try:
+            if not nome_produto:
+                st.warning("Informe o nome do produto.")
+                st.stop()
+            if not fotos_bytes:
+                st.warning("Suba pelo menos uma foto do produto — é ela que garante fidelidade.")
+                st.stop()
 
-        with st.spinner("Analisando produto e montando o plano de criação..."):
-            plano, erro_triagem = gerar_triagem_ia(
-                nome_produto, tipos_selecionados, dados_descricao,
-                instrucoes_extras, fotos_bytes,
+            with st.spinner("Analisando produto e montando o plano de criação..."):
+                plano, erro_triagem = gerar_triagem_ia(
+                    nome_produto, tipos_selecionados, dados_descricao,
+                    instrucoes_extras, fotos_bytes,
+                )
+
+            if erro_triagem:
+                st.error(f"Não consegui montar a triagem: {erro_triagem}")
+            else:
+                st.session_state["img_triagem_plano"] = plano
+                st.session_state["img_triagem_config"] = {
+                    "nome_produto": nome_produto,
+                    "codigo": codigo_input,
+                    "tipos": tipos_selecionados,
+                    "instrucoes_extras": instrucoes_extras,
+                    "fotos_bytes": fotos_bytes,
+                    "dados_descricao": dados_descricao,
+                }
+                st.rerun()
+        except Exception as _e_triagem:
+            st.error(
+                f"❌ Ocorreu um erro ao montar a prévia: {_e_triagem}\n\n"
+                "Verifique se o nome do produto está preenchido e tente novamente. "
+                "Se o erro persistir, reduza o tamanho das fotos ou escolha menos tipos de imagem."
             )
-
-        if erro_triagem:
-            st.error(f"Não consegui montar a triagem: {erro_triagem}")
-        else:
-            st.session_state["img_triagem_plano"] = plano
-            st.session_state["img_triagem_config"] = {
-                "nome_produto": nome_produto,
-                "codigo": codigo_input,
-                "tipos": tipos_selecionados,
-                "instrucoes_extras": instrucoes_extras,
-                "fotos_bytes": fotos_bytes,
-                "dados_descricao": dados_descricao,
-            }
-            st.rerun()
 
     # ── EXIBIÇÃO DA TRIAGEM ───────────────────────────────────────────────────
     if "img_triagem_plano" in st.session_state and "img_triagem_config" in st.session_state:
@@ -607,60 +619,68 @@ def pagina_imagem(usuario_logado):
             st.rerun()
 
         if col_confirmar.button("✅ Confirmar e gerar", type="primary", use_container_width=True):
-            # Aplica correção ao config se houver
-            if correcao:
-                cfg["instrucoes_extras"] = (cfg.get("instrucoes_extras", "") + "\n\nCORREÇÃO DO COLABORADOR:\n" + correcao).strip()
-                st.session_state["img_triagem_config"] = cfg
+            try:
+                # Aplica correção ao config se houver
+                if correcao:
+                    cfg["instrucoes_extras"] = (cfg.get("instrucoes_extras", "") + "\n\nCORREÇÃO DO COLABORADOR:\n" + correcao).strip()
+                    st.session_state["img_triagem_config"] = cfg
 
-            galeria = []
-            barra = st.progress(0.0, text="Iniciando geração...")
-            tipos = cfg["tipos"]
+                galeria = []
+                barra = st.progress(0.0, text="Iniciando geração...")
+                tipos = cfg["tipos"]
 
-            for i, tipo in enumerate(tipos):
-                barra.progress(i / len(tipos), text=f"Gerando: {tipo[:50]}...")
-                prompt_final = montar_prompt_imagem(
-                    tipo,
-                    cfg.get("instrucoes_extras", ""),
-                    cfg.get("dados_descricao"),
-                    cfg["nome_produto"],
+                for i, tipo in enumerate(tipos):
+                    barra.progress(i / len(tipos), text=f"Gerando: {tipo[:50]}...")
+                    try:
+                        prompt_final = montar_prompt_imagem(
+                            tipo,
+                            cfg.get("instrucoes_extras", ""),
+                            cfg.get("dados_descricao"),
+                            cfg["nome_produto"],
+                        )
+                        img_bytes, erro_gen = gerar_imagem_ia(prompt_final, cfg["fotos_bytes"])
+                        if erro_gen:
+                            st.warning(f"⚠️ Falhou em '{tipo}': {erro_gen}")
+                            continue
+                        galeria.append({"tipo": tipo, "bytes": img_bytes, "aprovado": False})
+                    except Exception as _e_img:
+                        st.warning(f"⚠️ Erro inesperado em '{tipo}': {_e_img}")
+                        continue
+
+                barra.progress(1.0, text="Concluído!")
+
+                if galeria:
+                    for k in [k for k in st.session_state if k.startswith("_pasta_")]:
+                        del st.session_state[k]
+                    st.session_state["img_galeria"] = galeria
+                    st.session_state["img_nome_produto"] = cfg["nome_produto"]
+                    st.session_state["img_codigo"] = cfg.get("codigo", "")
+                    st.session_state["img_fotos_originais"] = cfg["fotos_bytes"]
+                    st.session_state["img_dados_descricao"] = cfg.get("dados_descricao") or {}
+                    if st.session_state["img_dados_descricao"] and not st.session_state["img_dados_descricao"].get("peso"):
+                        st.session_state["img_dados_descricao"]["peso"] = st.session_state.get("desc_dados_atual", {}).get("peso", "")
+                    st.session_state["img_instrucoes_originais"] = cfg.get("instrucoes_extras", "")
+                    st.session_state["img_chat_log"] = []
+                    import atividades
+                    atividades.registrar_atividade(
+                        usuario_logado,
+                        f"Imagem ({len(galeria)} geradas)",
+                        cfg["nome_produto"],
+                        ", ".join(t[:20] for t in tipos[:3]) + ("..." if len(tipos) > 3 else ""),
+                        codigo=cfg.get("codigo", ""),
+                        cor=cfg.get("dados_descricao", {}).get("cor", "") if cfg.get("dados_descricao") else "",
+                        medidas=cfg.get("dados_descricao", {}).get("medidas", "") if cfg.get("dados_descricao") else "",
+                    )
+                    del st.session_state["img_triagem_plano"]
+                    del st.session_state["img_triagem_config"]
+                    st.rerun()
+                else:
+                    st.error("❌ Nenhuma imagem foi gerada com sucesso. Verifique os avisos acima e tente novamente.")
+            except Exception as _e_gerar:
+                st.error(
+                    f"❌ Erro durante a geração: {_e_gerar}\n\n"
+                    "Suas sessões e dados estão preservados. Tente novamente ou reduza o número de imagens."
                 )
-                img_bytes, erro_gen = gerar_imagem_ia(prompt_final, cfg["fotos_bytes"])
-                if erro_gen:
-                    st.warning(f"Falhou em '{tipo}': {erro_gen}")
-                    continue
-                galeria.append({"tipo": tipo, "bytes": img_bytes, "aprovado": False})
-
-            barra.progress(1.0, text="Concluído!")
-
-            if galeria:
-                # Limpa cache de pasta para forçar nova busca com os dados do produto atual
-                for k in [k for k in st.session_state if k.startswith("_pasta_")]:
-                    del st.session_state[k]
-                st.session_state["img_galeria"] = galeria
-                st.session_state["img_nome_produto"] = cfg["nome_produto"]
-                st.session_state["img_codigo"] = cfg.get("codigo", "")
-                st.session_state["img_fotos_originais"] = cfg["fotos_bytes"]
-                st.session_state["img_dados_descricao"] = cfg.get("dados_descricao") or {}
-                # Garante que peso do session_state de descrição também está disponível
-                if st.session_state["img_dados_descricao"] and not st.session_state["img_dados_descricao"].get("peso"):
-                    st.session_state["img_dados_descricao"]["peso"] = st.session_state.get("desc_dados_atual", {}).get("peso", "")
-                st.session_state["img_instrucoes_originais"] = cfg.get("instrucoes_extras", "")
-                st.session_state["img_chat_log"] = []
-                import atividades
-                atividades.registrar_atividade(
-                    usuario_logado,
-                    f"Imagem ({len(galeria)} geradas)",
-                    cfg["nome_produto"],
-                    ", ".join(t[:20] for t in tipos[:3]) + ("..." if len(tipos) > 3 else ""),
-                    codigo=cfg.get("codigo", ""),
-                    cor=cfg.get("dados_descricao", {}).get("cor", "") if cfg.get("dados_descricao") else "",
-                    medidas=cfg.get("dados_descricao", {}).get("medidas", "") if cfg.get("dados_descricao") else "",
-                )
-                del st.session_state["img_triagem_plano"]
-                del st.session_state["img_triagem_config"]
-                st.rerun()
-            else:
-                st.error("Nenhuma imagem foi gerada com sucesso.")
 
     # ── GALERIA ───────────────────────────────────────────────────────────────
     if "img_galeria" in st.session_state and st.session_state["img_galeria"]:
