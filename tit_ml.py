@@ -91,10 +91,10 @@ def _exibir_titulos(titulos):
     """Renderiza os títulos com contador de caracteres colorido."""
     for i, t in enumerate(titulos, start=1):
         n_chars = len(t)
-        cor = "#16a34a" if n_chars <= LIMITE_CARACTERES else "#dc2626"
+        classe_cor = "ms-char-ok" if n_chars <= LIMITE_CARACTERES else "ms-char-over"
         st.markdown(f"**Opção {i}:** {t}")
         st.markdown(
-            f"<span style='color:{cor}; font-size:13px;'>{n_chars}/{LIMITE_CARACTERES} caracteres</span>",
+            f"<span class='{classe_cor}'>{n_chars}/{LIMITE_CARACTERES} caracteres</span>",
             unsafe_allow_html=True,
         )
         st.markdown("")
