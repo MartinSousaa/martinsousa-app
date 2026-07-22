@@ -306,26 +306,26 @@ def verificar_login():
         logo_b64 = _logo_b64()
         logo_html = (
             f'<img src="data:image/png;base64,{logo_b64}" '
-            f'style="width:160px; max-width:65%; display:block; margin:0 auto 20px;" alt="MS Studio"/>'
+            f'style="width:320px; max-width:85%; display:block; margin:0 auto 28px;" alt="MS Studio"/>'
             if logo_b64 else
-            '<div style="font-family:Georgia,serif;font-size:52px;color:#fff;letter-spacing:-2px;text-align:center;margin-bottom:16px;">MS</div>'
+            '<div style="font-family:Georgia,serif;font-size:72px;color:#fff;letter-spacing:-2px;text-align:center;margin-bottom:20px;">MS</div>'
         )
         st.markdown(f"""
-        <div style="width:100%; max-width:340px; margin:0 auto 24px;">
+        <div style="width:100%; max-width:380px; margin:0 auto 24px; text-align:center;">
             {logo_html}
             <div style="
                 font-family: Georgia, 'Times New Roman', serif;
-                font-size: 26px;
-                font-weight: 300;
-                color: #f0f0f0;
-                letter-spacing: 1px;
-                margin-bottom: 6px;
+                font-size: 28px;
+                font-weight: 400;
+                color: #ffffff;
+                letter-spacing: 2px;
+                margin-bottom: 8px;
             ">MS Studio</div>
             <div style="
                 font-family: Arial, sans-serif;
                 font-size: 13px;
-                color: #888888;
-                letter-spacing: 0.3px;
+                color: #cccccc;
+                letter-spacing: 0.5px;
             ">Conecte-se para continuar</div>
         </div>
         """, unsafe_allow_html=True)
