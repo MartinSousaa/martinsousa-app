@@ -247,6 +247,75 @@ body.tema-claro .stTextArea textarea {
     border-color: var(--ms-input) !important;
 }
 
+/* ── SELECTBOX: texto do valor selecionado e dropdown ───────────────────── */
+.stSelectbox [data-baseweb="select"] span,
+.stSelectbox [data-baseweb="select"] div {
+    color: var(--ms-texto) !important;
+}
+/* Dropdown popover — tema claro */
+body.tema-claro [data-baseweb="popover"] [data-baseweb="menu"],
+body.tema-claro [data-baseweb="list"],
+body.tema-claro ul[role="listbox"] {
+    background-color: var(--ms-input) !important;
+}
+body.tema-claro [role="option"] {
+    background-color: var(--ms-input) !important;
+    color: var(--ms-texto) !important;
+}
+body.tema-claro [role="option"]:hover,
+body.tema-claro [aria-selected="true"][role="option"] {
+    background-color: var(--ms-hover) !important;
+    color: var(--ms-texto) !important;
+}
+
+/* ── FILE UPLOADER — TEMA CLARO ─────────────────────────────────────────── */
+body.tema-claro [data-testid="stFileUploaderDropzone"] {
+    background-color: var(--ms-input) !important;
+    border-color: var(--ms-borda) !important;
+}
+body.tema-claro [data-testid="stFileUploaderDropzoneInstructions"] span,
+body.tema-claro [data-testid="stFileUploaderDropzoneInstructions"] small,
+body.tema-claro [data-testid="stFileUploaderDropzone"] button {
+    color: var(--ms-texto) !important;
+}
+
+/* ── CHAT SIDEBAR — AVATAR E BALÃO ─────────────────────────────────────── */
+/* Remove avatar laranja do assistente */
+[data-testid="stSidebar"] [data-testid="chatAvatarIcon-assistant"] {
+    display: none !important;
+}
+/* Balão cinza para mensagens da IA */
+[data-testid="stSidebar"] [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) [data-testid="stChatMessageContent"] {
+    background-color: var(--ms-msg-ia) !important;
+    border-radius: 10px !important;
+    padding: 8px 12px !important;
+    border: 1px solid var(--ms-msg-ia-bd) !important;
+}
+/* Esconde botão de enviar (Enter faz o submit) */
+[data-testid="stSidebar"] [data-testid="stForm"] .stFormSubmitButton {
+    display: none !important;
+}
+/* File uploader do chat — compact, só clip */
+[data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] {
+    background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+    min-height: unset !important;
+}
+[data-testid="stSidebar"] [data-testid="stFileUploaderDropzoneInstructions"] > div:first-child,
+[data-testid="stSidebar"] [data-testid="stFileUploaderDropzoneInstructions"] small {
+    display: none !important;
+}
+[data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] button {
+    background: transparent !important;
+    border: none !important;
+    padding: 2px 4px !important;
+    font-size: 14px !important;
+    color: var(--ms-texto-sec) !important;
+    text-decoration: underline !important;
+    cursor: pointer !important;
+}
+
 /* ── BOTÃO TOGGLE DE TEMA ───────────────────────────────────────────────── */
 #ms-tema-toggle {
   position: fixed !important; top: 14px !important; right: 16px !important;
@@ -819,25 +888,18 @@ with st.sidebar:
     _lp = _logo_b64("logo_preto.png")
     _lb = _logo_b64("logo_branco.png")
     st.markdown(
-        f'<img id="ms-logo-preto" src="data:image/png;base64,{_lp}" style="width:100%;margin-bottom:4px;"/>'
-        f'<img id="ms-logo-branco" src="data:image/png;base64,{_lb}" style="width:100%;margin-bottom:4px;"/>',
+        f'<img id="ms-logo-preto" src="data:image/png;base64,{_lp}" style="width:100%;margin-bottom:6px;"/>'
+        f'<img id="ms-logo-branco" src="data:image/png;base64,{_lb}" style="width:100%;margin-bottom:6px;"/>',
         unsafe_allow_html=True
     )
-    st.caption("v17.0")
-    st.markdown("---")
     st.caption(f"Logado como **{usuario_logado}**")
     if st.button("Sair"):
-        # Limpa confirmação de admin junto com o login
         chave_admin = f"admin_confirmado_{usuario_logado}"
         for k in [k for k in st.session_state if k == chave_admin]:
             del st.session_state[k]
         del st.session_state["usuario_logado"]
         st.rerun()
-    st.markdown("---")
-    modalidade = st.selectbox("Modalidade ML", ["Premium", "Classico"])
-    st.markdown("---")
-    st.caption("Chaves configuradas automaticamente")
-    chat_assistente.renderizar_chat()
+    chat_assistente.renderizar_chat(usuario_logado)
 
 _eh_admin = auth.is_admin(usuario_logado)
 _nomes_abas = ["Análise de Viabilidade", "Triagem", "Palavras-chave", "Título",
@@ -924,7 +986,11 @@ with aba_viabilidade:
 
     # ── PREÇOS DE MERCADO POR PLATAFORMA ──────────────────────────────────────
     st.markdown("---")
-    st.subheader("Preço de mercado por plataforma")
+    col_sub, col_mod = st.columns([3, 1])
+    col_sub.subheader("Preço de mercado por plataforma")
+    with col_mod:
+        st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
+        modalidade = st.selectbox("Modalidade ML", ["Premium", "Classico"], key="viab_modalidade")
     st.caption("Preencha o preço pesquisado em cada plataforma. Deixe em branco as que não forem analisar.")
 
     col_p1, col_p2, col_p3 = st.columns(3)
