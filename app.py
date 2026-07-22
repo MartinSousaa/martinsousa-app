@@ -336,9 +336,10 @@ body.tema-claro [data-testid="stFileUploaderDropzone"] button {
     padding: 0 !important;
 }
 [data-testid="stSidebar"] [data-testid="stForm"] .stFormSubmitButton button {
-    position: absolute !important;
+    position: fixed !important;
     left: -9999px !important;
     opacity: 0 !important;
+    pointer-events: none !important;
 }
 /* Textarea do chat: auto-expande como o Claude */
 [data-testid="stSidebar"] [data-testid="stForm"] textarea {
@@ -409,7 +410,7 @@ body.tema-claro .ms-selo-inviavel  { background: #fee2e2 !important; }
 body.tema-claro .ms-selo-viavel .ms-selo-titulo    { color: #065f46 !important; }
 body.tema-claro .ms-selo-ressalvas .ms-selo-titulo { color: #92400e !important; }
 body.tema-claro .ms-selo-inviavel .ms-selo-titulo  { color: #b91c1c !important; }
-.ms-selo-sub { font-size: 13px; display: block; margin-top: 2px; color: #aaa; }
+.ms-selo-sub { font-size: 13px; display: block; margin-top: 2px; color: #aaa !important; }
 body.tema-claro .ms-selo-sub { color: #555 !important; }
 
 /* ── CARDS UC (tema-aware) ────────────────────────────────────────────────── */
@@ -430,9 +431,8 @@ body.tema-claro .ms-card-08 .ms-card-uc-label { color: #b91c1c !important; }
 body.tema-claro .ms-card-10 .ms-card-uc-label { color: #92400e !important; }
 body.tema-claro .ms-card-15 .ms-card-uc-label { color: #065f46 !important; }
 .ms-card-plat-prices { display: flex; gap: 40px; flex-wrap: wrap; }
-.ms-card-plat-name  { font-size: 11px; color: #aaa; margin-bottom: 2px; }
-.ms-card-plat-price { font-size: 22px; font-weight: 700; color: #fff; }
-body.tema-claro .ms-card-plat-name  { color: #555 !important; }
+.ms-card-plat-name  { font-size: 11px; color: var(--ms-texto-sec) !important; margin-bottom: 2px; }
+.ms-card-plat-price { font-size: 22px; font-weight: 700; color: #fff !important; }
 body.tema-claro .ms-card-plat-price { color: #111 !important; }
 
 /* ══ SIDEBAR — somente desktop (>=769px) ════════════════════════════════════ */
@@ -449,14 +449,15 @@ body.tema-claro .ms-card-plat-price { color: #111 !important; }
 /* ══ RESPONSIVO — MOBILE (max 768px) ═══════════════════════════════════════ */
 @media screen and (max-width: 768px) {
 
-  /* Colunas empilham verticalmente */
+  /* ── COLUNAS: empilham verticalmente — selector correto (stColumn) ── */
   [data-testid="stHorizontalBlock"] {
     flex-direction: column !important;
     gap: 0 !important;
   }
-  [data-testid="column"] {
+  [data-testid="stColumn"] {
     width: 100% !important;
     min-width: 100% !important;
+    max-width: 100% !important;
     flex: none !important;
     padding-left: 0 !important;
     padding-right: 0 !important;
@@ -494,7 +495,19 @@ body.tema-claro .ms-card-plat-price { color: #111 !important; }
   /* Métricas compactas */
   [data-testid="stMetric"] { padding: 8px 10px !important; }
   [data-testid="stMetricValue"] { font-size: 20px !important; }
-  [data-testid="stMetricLabel"] p { font-size: 11px !important; }
+  [data-testid="stMetricLabel"] p { font-size: 12px !important; }
+
+  /* Tabelas markdown: scroll horizontal em vez de transbordar */
+  [data-testid="stMarkdownContainer"] table {
+    display: block !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    max-width: 100% !important;
+    white-space: nowrap !important;
+  }
+  /* Cabeçalhos de tabela: legíveis no celular */
+  th { font-size: 12px !important; }
+  td { font-size: 13px !important; }
 
   /* Inputs: fonte mínima 16px evita zoom automático no iOS */
   .stTextInput input,
@@ -503,33 +516,31 @@ body.tema-claro .ms-card-plat-price { color: #111 !important; }
   textarea {
     font-size: 16px !important;
   }
-
-  /* Botão "Analisar Viabilidade" */
-  .stButton > button { font-size: 14px !important; padding: 10px !important; }
-
-  /* Botão do chat: menor e mais pra dentro */
-  #ms-chat-btn {
-    bottom: 14px !important;
-    left: 12px !important;
-    width: 40px !important;
-    height: 40px !important;
+  /* Placeholder também em 16px para consistência e evitar zoom no iOS */
+  .stTextInput input::placeholder,
+  .stNumberInput input::placeholder,
+  textarea::placeholder {
     font-size: 16px !important;
   }
 
-  /* Painel do chat: largura total no celular */
-  #ms-chat-painel {
-    width: 100% !important;
-    transform: translateX(-100%) !important;
-  }
-  #ms-chat-painel.aberto { transform: translateX(0) !important; }
+  /* Botão principal */
+  .stButton > button { font-size: 14px !important; padding: 10px !important; }
 
-  /* Toggle de tema: afasta do botão nativo do Streamlit */
+  /* Logo no sidebar: sem margem negativa no mobile */
+  [data-testid="stSidebar"] img { margin-top: 4px !important; }
+
+  /* Cards UC: gap menor em telas pequenas */
+  .ms-card-plat-prices { gap: 20px !important; }
+  .ms-card-plat-name   { font-size: 12px !important; }
+  .ms-card-plat-price  { font-size: 18px !important; }
+
+  /* Toggle de tema: escondido no mobile (hambúrguer do Streamlit ocupa o espaço) */
   #ms-tema-toggle {
-    top: 10px !important;
-    right: 54px !important;
-    width: 38px !important;
-    height: 38px !important;
-    font-size: 15px !important;
+    top: 8px !important;
+    right: 60px !important;
+    width: 34px !important;
+    height: 34px !important;
+    font-size: 14px !important;
   }
 }
 </style>
@@ -1080,7 +1091,7 @@ with aba_analise_venda:
         col_p_av, col_u_av = st.columns([3, 1])
         peso_val_av  = col_p_av.number_input("Peso Embalado para Envio", min_value=0.0, value=None,
                                               step=1.0, format="%.0f", placeholder="ex: 700", key="av_peso")
-        peso_unit_av = col_u_av.selectbox("", ["g", "kg"], label_visibility="hidden", key="av_peso_unit")
+        peso_unit_av = col_u_av.selectbox("Unidade", ["g", "kg"], key="av_peso_unit")
         peso_kg_av   = (peso_val_av / 1000 if peso_val_av else 0) if peso_unit_av == "g" else (peso_val_av or 0)
         st.caption("Medidas da embalagem — usadas no cálculo de peso cubado do ML")
         dim1_av = st.number_input("Medida 1 (cm)", min_value=0.0, value=None, step=0.5, format="%.1f", placeholder="ex: 30", key="av_d1")
@@ -1207,7 +1218,7 @@ with aba_viabilidade:
         st.caption("Peso e medidas do pacote pronto pra envio — usados no cálculo de frete do ML (cubagem) e da Shein (por peso).")
         col_peso, col_unit = st.columns([3, 1])
         peso_val  = col_peso.number_input("Peso Embalado para Envio", min_value=0.0, value=None, step=1.0, format="%.0f", placeholder="ex: 700")
-        peso_unit = col_unit.selectbox("", ["g", "kg"], label_visibility="hidden")
+        peso_unit = col_unit.selectbox("Unidade", ["g", "kg"])
         peso_kg   = (peso_val / 1000 if peso_val else 0) if peso_unit == "g" else (peso_val or 0)
         st.caption("Medidas da embalagem — usadas no cálculo de peso cubado do ML")
         dim1 = st.number_input("Medida 1 (cm)", min_value=0.0, value=None, step=0.5, format="%.1f", placeholder="ex: 30")
@@ -1217,11 +1228,8 @@ with aba_viabilidade:
 
     # ── PREÇOS DE MERCADO POR PLATAFORMA ──────────────────────────────────────
     st.markdown("---")
-    col_sub, col_mod = st.columns([3, 1])
-    col_sub.subheader("Preço de mercado por plataforma")
-    with col_mod:
-        st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
-        modalidade = st.selectbox("Modalidade ML", ["Premium", "Classico"], key="viab_modalidade")
+    st.subheader("Preço de mercado por plataforma")
+    modalidade = st.selectbox("Modalidade ML", ["Premium", "Classico"], key="viab_modalidade")
     st.caption("Preencha o preço pesquisado em cada plataforma. Deixe em branco as que não forem analisar.")
 
     col_p1, col_p2, col_p3 = st.columns(3)
