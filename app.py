@@ -809,6 +809,7 @@ with st.sidebar:
     modalidade = st.selectbox("Modalidade ML", ["Premium", "Classico"])
     st.markdown("---")
     st.caption("Chaves configuradas automaticamente")
+    chat_assistente.renderizar_chat()
 
 _eh_admin = auth.is_admin(usuario_logado)
 _nomes_abas = ["Análise de Viabilidade", "Triagem", "Palavras-chave", "Título",
@@ -996,6 +997,3 @@ with aba_viabilidade:
                         'padding: 16px 0;">Preço não informado</div>',
                         unsafe_allow_html=True,
                     )
-
-# ── ASSISTENTE IA FLUTUANTE ────────────────────────────────────────────────────
-chat_assistente.renderizar_chat()
