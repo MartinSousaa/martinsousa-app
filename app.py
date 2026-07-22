@@ -955,24 +955,132 @@ with st.sidebar:
 
 _eh_admin = auth.is_admin(usuario_logado)
 _nomes_abas = ["Análise de Viabilidade", "Triagem", "Palavras-chave", "Título",
-               "Descrição", "Imagem", "Histórico"]
+               "Descrição", "Imagem", "Histórico", "Análise de Venda"]
 if _eh_admin:
     _nomes_abas.append("Administrativo")
 
 _abas = st.tabs(_nomes_abas)
 (aba_viabilidade, aba_triagem, aba_palavras, aba_titulo,
- aba_descricao, aba_imagem, aba_historico) = _abas[:7]
+ aba_descricao, aba_imagem, aba_historico, aba_analise_venda) = _abas[:8]
 
 with aba_historico:
     atividades.pagina_historico()
 
 if _eh_admin:
-    with _abas[7]:
+    with _abas[8]:
         _sub_admin, _sub_financeiro = st.tabs(["⚙️ Administrativo", "💰 Financeiro"])
         with _sub_admin:
             admin.pagina_admin(usuario_logado)
         with _sub_financeiro:
             financeiro.pagina_financeiro(usuario_logado)
+
+with aba_analise_venda:
+    # LPV e NF vigentes
+    _lpv_av, _nf_av = LPV_OFICIAL, NF_OFICIAL
+    try:
+        _df_av = financeiro.carregar_dados()
+        _lpv_d_av, _ = financeiro.lpv_vigente(_df_av)
+        _aliq_d_av, _ = financeiro.aliquota_vigente(_df_av)
+        if _lpv_d_av: _lpv_av = _lpv_d_av
+        if _aliq_d_av: _nf_av = _aliq_d_av / 100
+    except Exception:
+        pass
+
+    st.subheader("Calculadora de Preço Mínimo")
+    st.caption("Informe o custo e as características do produto para descobrir qual preço mínimo anunciar em cada plataforma antes de pesquisar o mercado.")
+    st.markdown("---")
+
+    col_av1, col_av2 = st.columns(2)
+    with col_av1:
+        st.markdown("**Produto**")
+        custo_av        = st.number_input("Custo do produto (R$)", min_value=0.0, value=None,
+                                           step=0.50, format="%.2f", placeholder="0,00", key="av_custo")
+        categoria_av    = st.selectbox("Categoria no ML", sorted(ML_COMISSAO_POR_CATEGORIA.keys()), key="av_categoria")
+        modalidade_av   = st.selectbox("Modalidade ML", ["Premium", "Classico"], key="av_modalidade")
+        custo_op_av     = st.number_input("Custo operacional (embalagem/logística/ADS/cross docking)",
+                                           min_value=0.0, value=8.13, step=0.50, format="%.2f", key="av_custo_op")
+
+    with col_av2:
+        st.markdown("**Dimensões e Peso (produto embalado)**")
+        col_p_av, col_u_av = st.columns([3, 1])
+        peso_val_av  = col_p_av.number_input("Peso Embalado para Envio", min_value=0.0, value=None,
+                                              step=1.0, format="%.0f", placeholder="ex: 700", key="av_peso")
+        peso_unit_av = col_u_av.selectbox("", ["g", "kg"], label_visibility="hidden", key="av_peso_unit")
+        peso_kg_av   = (peso_val_av / 1000 if peso_val_av else 0) if peso_unit_av == "g" else (peso_val_av or 0)
+        st.caption("Medidas da embalagem — usadas no cálculo de peso cubado do ML")
+        dim1_av = st.number_input("Medida 1 (cm)", min_value=0.0, value=None, step=0.5, format="%.1f", placeholder="ex: 30", key="av_d1")
+        dim2_av = st.number_input("Medida 2 (cm)", min_value=0.0, value=None, step=0.5, format="%.1f", placeholder="ex: 20", key="av_d2")
+        dim3_av = st.number_input("Medida 3 (cm)", min_value=0.0, value=None, step=0.5, format="%.1f", placeholder="ex: 5",  key="av_d3")
+
+    st.markdown("---")
+    calcular_av = st.button("Calcular Preços Mínimos", type="primary", use_container_width=True, key="av_calcular")
+
+    if calcular_av:
+        erros_av = []
+        if custo_av is None: erros_av.append("Custo do produto")
+        if peso_kg_av == 0:  erros_av.append("Peso do produto")
+        if erros_av:
+            st.warning(f"Preencha: {', '.join(erros_av)}")
+        else:
+            peso_taxado_av = calcular_peso_taxado(peso_kg_av, dim1_av or 0, dim2_av or 0, dim3_av or 0)
+
+            UC_ALVOS_AV = [
+                (0.8, "0,8/1", "Mínimo viável",  "#f87171", "#2b0d0d"),
+                (1.0, "1,0/1", "Equilíbrio",     "#fbbf24", "#2b1f06"),
+                (1.5, "1,5/1", "Confortável",    "#34d399", "#0d2b1a"),
+            ]
+
+            with st.spinner("Calculando preços mínimos..."):
+                linhas_av = []
+                for uc_val, uc_label, uc_desc, cor_bd, cor_bg in UC_ALVOS_AV:
+                    # ML
+                    p_ml_av = resolver_preco_para_uc(
+                        uc_val, custo_av, peso_taxado_av, categoria_av, modalidade_av,
+                        _nf_av, custo_op_av, _lpv_av
+                    )
+                    # Shopee
+                    def _sp(p, _c=custo_av, _n=_nf_av, _o=custo_op_av, _l=_lpv_av):
+                        return calcular_resultado_shopee(p, _c, _n, _o, _l)
+                    p_sp_av = resolver_preco_para_uc_fn(uc_val, _sp, _lpv_av)
+                    # Shein
+                    def _sh(p, _c=custo_av, _pk=peso_kg_av, _n=_nf_av, _o=custo_op_av, _l=_lpv_av):
+                        return calcular_resultado_shein(p, _c, _pk, _n, _o, _l)
+                    p_sh_av = resolver_preco_para_uc_fn(uc_val, _sh, _lpv_av)
+
+                    linhas_av.append((uc_label, uc_desc, cor_bd, cor_bg, p_ml_av, p_sp_av, p_sh_av))
+
+            st.markdown("### Preços mínimos para anunciar")
+            st.caption(f"LPV: R${_lpv_av:.2f} · NF: {_nf_av*100:.1f}% · Custo operacional: R${custo_op_av:.2f}")
+            st.markdown("")
+
+            for uc_label, uc_desc, cor_bd, cor_bg, p_ml, p_sp, p_sh in linhas_av:
+                fmt = lambda v: f"R${v:.2f}" if v else "—"
+                st.markdown(f"""
+                <div style="background-color:{cor_bg}; border-left:4px solid {cor_bd};
+                            border-radius:8px; padding:14px 18px; margin-bottom:10px;">
+                  <div style="font-size:12px; font-weight:700; color:{cor_bd};
+                              letter-spacing:0.07em; text-transform:uppercase; margin-bottom:10px;">
+                    UC {uc_label} — {uc_desc}
+                  </div>
+                  <div style="display:flex; gap:40px; flex-wrap:wrap;">
+                    <div>
+                      <div style="font-size:11px; color:#aaa; margin-bottom:2px;">🛒 Mercado Livre</div>
+                      <div style="font-size:22px; font-weight:700; color:#fff;">{fmt(p_ml)}</div>
+                    </div>
+                    <div>
+                      <div style="font-size:11px; color:#aaa; margin-bottom:2px;">🛍️ Shopee</div>
+                      <div style="font-size:22px; font-weight:700; color:#fff;">{fmt(p_sp)}</div>
+                    </div>
+                    <div>
+                      <div style="font-size:11px; color:#aaa; margin-bottom:2px;">👗 Shein</div>
+                      <div style="font-size:22px; font-weight:700; color:#fff;">{fmt(p_sh)}</div>
+                    </div>
+                  </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+            st.markdown("---")
+            st.caption("Pesquise se há produtos ativos nessas faixas de preço. Se sim, o produto é viável — use a aba **Análise de Viabilidade** para confirmar os números com o preço real encontrado.")
 
 with aba_triagem:
     triagem.pagina_triagem(usuario_logado)
