@@ -91,16 +91,34 @@ p, span, label, div     { color: var(--ms-texto) !important; }
 
 /* ── SIDEBAR ESQUERDO ───────────────────────────────────────────────────── */
 section[data-testid="stSidebar"],
+section[data-testid="stSidebar"] > div,
 section[data-testid="stSidebar"] > div:first-child {
-    min-width: 280px !important;
-    max-width: 280px !important;
-    width: 280px !important;
+    min-width: 360px !important;
+    max-width: 360px !important;
+    width: 360px !important;
 }
 [data-testid="stSidebar"] {
     background-color: var(--ms-sidebar) !important;
     border-right: 1px solid var(--ms-divisor) !important;
 }
 [data-testid="stSidebar"] * { color: var(--ms-texto) !important; }
+
+/* Logo rente ao topo — remove padding do sidebar */
+section[data-testid="stSidebar"] > div:first-child {
+    padding-top: 0 !important;
+}
+[data-testid="stSidebarContent"] {
+    padding-top: 0.25rem !important;
+}
+
+/* Caixa visual do chat */
+[data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"] {
+    background-color: var(--ms-chat-bg) !important;
+    border: 1px solid var(--ms-divisor) !important;
+    border-radius: 10px !important;
+    padding: 6px 8px !important;
+    margin-top: 6px !important;
+}
 
 /* ── INPUTS ─────────────────────────────────────────────────────────────── */
 .stTextInput input, .stNumberInput input {
@@ -316,6 +334,13 @@ body.tema-claro [data-testid="stFileUploaderDropzone"] button {
     border: 1px solid var(--ms-msg-ia-bd) !important;
     margin-left: 0 !important;
 }
+/* Remove hint "Press ⌘+Enter to submit form" do Streamlit */
+[data-testid="stSidebar"] [data-testid="InputInstructions"],
+[data-testid="stSidebar"] [data-testid="stForm"] small,
+[data-testid="stSidebar"] [data-testid="stForm"] [data-testid="stFormSubmitButton"] ~ div small {
+    display: none !important;
+}
+
 /* Botão de enviar fora da tela (não display:none — precisa ser clicável pelo JS) */
 [data-testid="stSidebar"] [data-testid="stForm"] .stFormSubmitButton {
     height: 0 !important;
