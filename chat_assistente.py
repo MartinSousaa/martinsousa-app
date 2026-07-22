@@ -10,6 +10,7 @@ import anthropic
 import os
 import re
 import json
+import base64
 
 
 # ── PROMPT DO SISTEMA ─────────────────────────────────────────────────────────
@@ -38,6 +39,17 @@ Regras de negócio que você conhece:
 
 Tom: objetivo, informal mas profissional. Responda sempre em português do Brasil.
 Quando não souber algo, diga claramente em vez de inventar."""
+
+
+def _mime_tipo(data: bytes) -> str:
+    """Detecta o MIME type pelos magic bytes."""
+    if data[:8] == b'\x89PNG\r\n\x1a\n':
+        return "image/png"
+    if data[:2] == b'\xff\xd8':
+        return "image/jpeg"
+    if data[:4] == b'RIFF' and data[8:12] == b'WEBP':
+        return "image/webp"
+    return "image/jpeg"
 
 
 def _api_key():
@@ -169,16 +181,32 @@ def _executar_comando(cmd: dict) -> str | None:
     return None
 
 
-def _chamar_ia(historico: list, mensagem_usuario: str) -> tuple:
-    """Chama a API Anthropic. Retorna (texto_resposta, comando_ou_None)."""
+def _chamar_ia(historico: list, mensagem_usuario: str, imagens_bytes: list = None) -> tuple:
+    """Chama a API Anthropic. Retorna (texto_resposta, comando_ou_None).
+    imagens_bytes: lista de bytes de imagens para envio via visão (opcional)."""
     api_key = _api_key()
     if not api_key:
         return "⚠️ ANTHROPIC_API_KEY não configurada no Railway/Secrets.", None
 
-    # Janela de contexto: últimas 14 mensagens (7 trocas)
+    # Janela de contexto: últimas 14 mensagens (7 trocas) — sem imagens no histórico
     msgs_hist = historico[-14:]
     msgs = [{"role": m["role"], "content": m["content"]} for m in msgs_hist]
-    msgs.append({"role": "user", "content": mensagem_usuario})
+
+    # Monta conteúdo da mensagem atual (texto + imagens opcionais)
+    if imagens_bytes:
+        content = [{"type": "text", "text": mensagem_usuario}]
+        for img_b in imagens_bytes:
+            content.append({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": _mime_tipo(img_b),
+                    "data": base64.b64encode(img_b).decode(),
+                },
+            })
+        msgs.append({"role": "user", "content": content})
+    else:
+        msgs.append({"role": "user", "content": mensagem_usuario})
 
     try:
         client = anthropic.Anthropic(api_key=api_key)
@@ -228,21 +256,32 @@ def renderizar_chat():
         if not hist:
             with st.chat_message("assistant"):
                 st.markdown(
-                    "Olá! Posso tirar dúvidas, ajustar títulos, "
-                    "descrições e orientar sobre imagens. O que precisa?"
+                    "Olá! Posso tirar dúvidas, ajustar títulos, descrições e "
+                    "orientar sobre imagens. Você também pode **enviar uma foto** "
+                    "para mostrar um exemplo. O que precisa?"
                 )
         else:
             for msg in hist:
                 with st.chat_message(msg["role"]):
+                    # Exibe imagens anexadas (guardadas no histórico)
+                    if msg.get("img_bytes"):
+                        for ib in msg["img_bytes"]:
+                            st.image(ib, use_container_width=True)
                     st.markdown(msg["content"])
 
     # ── Formulário de envio ───────────────────────────────────────────────────
     with st.form("ms_chat_form", clear_on_submit=True):
         user_input = st.text_area(
             "msg",
-            height=70,
+            height=60,
             placeholder="Dúvida ou pedido de ajuste...",
             label_visibility="collapsed",
+        )
+        img_chat = st.file_uploader(
+            "📎 Imagem (opcional — para mostrar exemplo ou dúvida visual)",
+            type=["jpg", "jpeg", "png", "webp"],
+            accept_multiple_files=False,
+            key="chat_img_upload",
         )
         col_limpar, col_enviar = st.columns([1, 2])
         limpar  = col_limpar.form_submit_button("Limpar", use_container_width=True)
@@ -252,12 +291,18 @@ def renderizar_chat():
         st.session_state["ms_chat_hist"] = []
         st.rerun()
 
-    if enviar and user_input.strip():
-        msg_user = user_input.strip()
-        hist.append({"role": "user", "content": msg_user})
+    if enviar and (user_input.strip() or img_chat):
+        msg_user = user_input.strip() or "Veja a imagem que enviei."
+        imagens_bytes = [img_chat.getvalue()] if img_chat else []
+
+        # Guarda no histórico — incluindo bytes para exibição
+        entry = {"role": "user", "content": msg_user}
+        if imagens_bytes:
+            entry["img_bytes"] = imagens_bytes
+        hist.append(entry)
 
         with st.spinner("Assistente digitando…"):
-            resposta, cmd = _chamar_ia(hist[:-1], msg_user)
+            resposta, cmd = _chamar_ia(hist[:-1], msg_user, imagens_bytes)
 
         feedback = _executar_comando(cmd) if cmd else None
 
