@@ -6,6 +6,7 @@ descrição atual e galeria de imagens. Detecta intenção (Q&A vs comando)
 e executa ações diretamente no session_state.
 """
 import streamlit as st
+import streamlit.components.v1 as components
 import anthropic
 import os
 import re
@@ -269,10 +270,11 @@ def renderizar_chat(usuario_logado=""):
 
     # ── Formulário de envio ───────────────────────────────────────────────────
     with st.form("ms_chat_form", clear_on_submit=True):
-        user_input = st.text_input(
+        user_input = st.text_area(
             "msg",
-            placeholder="Mensagem… (Enter para enviar)",
+            placeholder="",
             label_visibility="collapsed",
+            height=60,
         )
         img_chat = st.file_uploader(
             "📎 Anexo",
@@ -280,8 +282,42 @@ def renderizar_chat(usuario_logado=""):
             accept_multiple_files=False,
             key="chat_img_upload",
         )
-        # Submit oculto via CSS — Enter no text_input aciona
+        # Submit fora da tela — acionado pelo JS quando Enter pressionado
         enviar = st.form_submit_button("Enviar", use_container_width=False)
+
+    # JS: Enter envia o form; Shift+Enter quebra linha; textarea auto-expande
+    components.html("""
+    <script>
+    (function() {
+      var P = window.parent;
+      function setup() {
+        var sidebar = P.document.querySelector('[data-testid="stSidebar"]');
+        if (!sidebar) return;
+        var form = sidebar.querySelector('[data-testid="stForm"]');
+        if (!form) return;
+        var ta = form.querySelector('textarea');
+        if (!ta || ta._msChat) return;
+        ta._msChat = true;
+        // Auto-expande
+        function resize() {
+          ta.style.height = 'auto';
+          ta.style.height = Math.min(ta.scrollHeight, 150) + 'px';
+        }
+        ta.addEventListener('input', resize);
+        // Enter envia; Shift+Enter quebra linha
+        ta.addEventListener('keydown', function(e) {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            var btn = form.querySelector('.stFormSubmitButton button');
+            if (btn) { btn.click(); }
+          }
+        });
+      }
+      setup();
+      setInterval(setup, 800);
+    })();
+    </script>
+    """, height=0)
 
     if enviar and (user_input.strip() or img_chat):
         msg_user = user_input.strip() or "Veja a imagem que enviei."
