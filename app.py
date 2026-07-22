@@ -120,6 +120,30 @@ p, span, label, div     { color: var(--ms-texto) !important; }
     margin-bottom: 3px !important;
 }
 
+/* TextArea */
+textarea, .stTextArea textarea {
+    background-color: var(--ms-input) !important;
+    border: 1px solid var(--ms-borda) !important;
+    color: var(--ms-texto) !important;
+    border-radius: 5px !important;
+    font-size: 14px !important;
+    padding: 8px 10px !important;
+}
+textarea:focus, .stTextArea textarea:focus {
+    border-color: var(--ms-texto) !important;
+    box-shadow: none !important;
+    outline: none !important;
+}
+textarea::placeholder, .stTextArea textarea::placeholder {
+    color: var(--ms-texto-sec) !important;
+    font-size: 13px !important;
+}
+.stTextArea label {
+    color: var(--ms-texto-sec) !important;
+    font-size: 13px !important;
+    margin-bottom: 3px !important;
+}
+
 /* Select */
 .stSelectbox > div > div {
     background-color: var(--ms-input) !important;
@@ -216,6 +240,10 @@ body.tema-claro .stSelectbox > div > div {
 }
 body.tema-claro .stNumberInput [data-testid="stNumberInputStepUp"],
 body.tema-claro .stNumberInput [data-testid="stNumberInputStepDown"] {
+    border-color: var(--ms-input) !important;
+}
+body.tema-claro textarea,
+body.tema-claro .stTextArea textarea {
     border-color: var(--ms-input) !important;
 }
 
