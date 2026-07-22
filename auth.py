@@ -109,12 +109,14 @@ def is_admin(usuario_logado):
 # ── LOGIN ──────────────────────────────────────────────────────────────────────
 
 def _logo_b64():
-    """Lê a logo do arquivo logo.png (inclua no repositório ao lado de auth.py)."""
+    """Lê a logo branca (para painel escuro da tela de login)."""
     import os, base64
-    path = os.path.join(os.path.dirname(__file__), "logo.png")
-    if os.path.exists(path):
-        with open(path, "rb") as f:
-            return base64.b64encode(f.read()).decode()
+    # Tenta logo_branco.png primeiro (criado para fundo escuro), depois logo.png como fallback
+    for nome in ("logo_branco.png", "logo.png"):
+        path = os.path.join(os.path.dirname(__file__), nome)
+        if os.path.exists(path):
+            with open(path, "rb") as f:
+                return base64.b64encode(f.read()).decode()
     return ""
 
 
