@@ -288,26 +288,61 @@ def renderizar_chat(usuario_logado=""):
             # Submit fora da tela — acionado pelo JS quando Enter pressionado
             enviar = st.form_submit_button("Enviar", use_container_width=False)
 
-        # JS: Enter envia o form; Shift+Enter quebra linha; textarea auto-expande
+        # JS: Enter envia o form; textarea auto-expande; caixa visual do chat
         components.html("""
     <script>
     (function() {
       var P = window.parent;
+
+      // ── Injeta estilo da caixa visual uma única vez no head do pai ────────────
+      if (!P.document.getElementById('ms-chat-box-style')) {
+        var st = P.document.createElement('style');
+        st.id = 'ms-chat-box-style';
+        st.textContent = [
+          '#ms-chat-box-dynamic {',
+          '  border: 1px solid var(--ms-divisor) !important;',
+          '  border-radius: 10px !important;',
+          '  background-color: var(--ms-chat-bg) !important;',
+          '  padding: 8px 10px 6px !important;',
+          '  margin-top: 4px !important;',
+          '  overflow: hidden !important;',
+          '}'
+        ].join('');
+        P.document.head.appendChild(st);
+      }
+
       function setup() {
         var sidebar = P.document.querySelector('[data-testid="stSidebar"]');
         if (!sidebar) return;
+
+        // ── Caixa visual: remove ID anterior e re-aplica no container certo ─────
+        var old = P.document.getElementById('ms-chat-box-dynamic');
+        if (old) old.removeAttribute('id');
+
+        var topoEl = sidebar.querySelector('#ms-chat-topo');
+        if (topoEl) {
+          // Sobe pelo DOM até o primeiro stVerticalBlock que contenha o #ms-chat-topo
+          var el = topoEl.parentElement;
+          while (el && el !== sidebar) {
+            if (el.getAttribute && el.getAttribute('data-testid') === 'stVerticalBlock') {
+              el.id = 'ms-chat-box-dynamic';
+              break;
+            }
+            el = el.parentElement;
+          }
+        }
+
+        // ── Enter para enviar; auto-expande textarea ───────────────────────────
         var form = sidebar.querySelector('[data-testid="stForm"]');
         if (!form) return;
         var ta = form.querySelector('textarea');
         if (!ta || ta._msChat) return;
         ta._msChat = true;
-        // Auto-expande
         function resize() {
           ta.style.height = 'auto';
           ta.style.height = Math.min(ta.scrollHeight, 150) + 'px';
         }
         ta.addEventListener('input', resize);
-        // Enter envia; Shift+Enter quebra linha
         ta.addEventListener('keydown', function(e) {
           if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
@@ -316,6 +351,7 @@ def renderizar_chat(usuario_logado=""):
           }
         });
       }
+
       setup();
       setInterval(setup, 800);
     })();
