@@ -731,76 +731,36 @@ def pagina_imagem(usuario_logado):
                             )
                             st.success(f"Salvo! [Abrir no Drive]({link})")
 
-        # ── CHAT DE AJUSTE ────────────────────────────────────────────────────
-        st.markdown("##### Ajustar imagens")
-        st.caption(
-            "Use o número da foto para indicar qual ajustar. "
-            "Pode dar vários comandos de uma vez: **foto 1: fundo branco · foto 3: remova os textos**"
-        )
-
-        for autor, conteudo in st.session_state.get("img_chat_log", []):
-            with st.chat_message(autor):
-                if isinstance(conteudo, bytes):
-                    st.image(conteudo, use_container_width=True)
-                else:
-                    st.markdown(conteudo)
-
-        instrucao_img = st.chat_input(
-            "Ex: foto 1: fundo branco · foto 2: destaque os benefícios · foto 5: remova o texto do topo"
-        )
-
-        if instrucao_img:
-            import re as _re
-
-            def _parsear_comandos(texto):
-                """Extrai pares (numero, instrucao) quando o usuário usa 'foto N:' ou 'imagem N:'."""
-                padrao = r'(?:foto|imagem)\s*(\d+)\s*[:\-]\s*(.+?)(?=(?:foto|imagem)\s*\d+\s*[:\-]|$)'
-                matches = _re.findall(padrao, texto, _re.IGNORECASE | _re.DOTALL)
-                if matches:
-                    return [(int(n), inst.strip().rstrip('·,').strip()) for n, inst in matches]
-                return None
-
-            comandos = _parsear_comandos(instrucao_img)
-            fotos_ref = st.session_state.get("img_fotos_originais") or [imagem_ativa]
+        # ── COMANDOS PENDENTES DO ASSISTENTE IA ──────────────────────────────
+        cmds_pendentes = st.session_state.pop("chat_img_pendente", [])
+        if cmds_pendentes:
+            fotos_ref_aj = st.session_state.get("img_fotos_originais") or []
             dados_desc_aj = st.session_state.get("img_dados_descricao")
-            instr_orig = st.session_state.get("img_instrucoes_originais", "")
-
-            st.session_state["img_chat_log"].append(("user", instrucao_img))
-
-            if comandos:
-                # ── Modo multi-foto: processa cada comando separadamente ──────
-                msgs = []
-                for num_foto, instrucao in comandos:
-                    idx_alvo = num_foto - 1
-                    if idx_alvo < 0 or idx_alvo >= len(galeria):
-                        msgs.append(f"⚠️ Foto {num_foto} não existe na galeria ({len(galeria)} imagens geradas).")
-                        continue
-                    tipo_alvo = galeria[idx_alvo]["tipo"]
-                    prompt_aj = montar_prompt_imagem(tipo_alvo, instr_orig, dados_desc_aj, nome_gal) \
-                        + f"\n\nCORREÇÃO OBRIGATÓRIA (aplique antes de tudo):\n{instrucao}"
-                    with st.spinner(f"Regenerando foto {num_foto} ({tipo_alvo[:30]})..."):
-                        nova_img, err_aj = gerar_imagem_ia(prompt_aj, fotos_ref)
-                    if err_aj:
-                        msgs.append(f"⚠️ Foto {num_foto}: não consegui gerar — {err_aj}")
-                    else:
-                        st.session_state["img_galeria"][idx_alvo]["bytes"] = nova_img
-                        msgs.append(f"✅ Foto {num_foto} ({tipo_alvo[:25]}) atualizada.")
-                st.session_state["img_chat_log"].append(("assistant", "\n\n".join(msgs)))
-
-            else:
-                # ── Modo foto ativa (sem número informado) ───────────────────
-                prompt_aj = montar_prompt_imagem(tipo_ativo, instr_orig, dados_desc_aj, nome_gal) \
-                    + f"\n\nCORREÇÃO OBRIGATÓRIA (aplique antes de tudo):\n{instrucao_img}"
-                with st.spinner(f"Regenerando {tipo_ativo[:40]}..."):
-                    nova_img, err_aj = gerar_imagem_ia(prompt_aj, fotos_ref)
+            instr_orig_aj = st.session_state.get("img_instrucoes_originais", "")
+            msgs_result = []
+            for cmd in cmds_pendentes:
+                num_foto  = cmd.get("num", 1)
+                instrucao = cmd.get("instrucao", "")
+                idx_alvo  = num_foto - 1
+                if idx_alvo < 0 or idx_alvo >= len(galeria):
+                    msgs_result.append(f"⚠️ Foto {num_foto} não existe na galeria.")
+                    continue
+                tipo_alvo  = galeria[idx_alvo]["tipo"]
+                prompt_aj  = (
+                    montar_prompt_imagem(tipo_alvo, instr_orig_aj, dados_desc_aj, nome_gal)
+                    + f"\n\nCORREÇÃO OBRIGATÓRIA (aplique antes de tudo):\n{instrucao}"
+                )
+                with st.spinner(f"Assistente IA: regenerando foto {num_foto} ({tipo_alvo[:30]})…"):
+                    nova_img, err_aj = gerar_imagem_ia(prompt_aj, fotos_ref_aj)
                 if err_aj:
-                    st.session_state["img_chat_log"].append(("assistant", f"⚠️ Não consegui gerar: {err_aj}"))
+                    msgs_result.append(f"⚠️ Foto {num_foto}: erro ao gerar — {err_aj}")
                 else:
-                    st.session_state["img_galeria"][idx_ativo]["bytes"] = nova_img
-                    st.session_state["img_chat_log"].append(("assistant", nova_img))
+                    st.session_state["img_galeria"][idx_alvo]["bytes"] = nova_img
+                    msgs_result.append(f"✅ Foto {num_foto} ({tipo_alvo[:25]}) atualizada pelo Assistente IA.")
+            if msgs_result:
+                st.info("\n\n".join(msgs_result))
 
-            st.rerun()
-
+        st.caption("💬 Para ajustar imagens, use o **Assistente IA** no menu lateral.")
         st.markdown("---")
 
         # ── APROVAÇÃO E SALVAMENTO ─────────────────────────────────────────────
