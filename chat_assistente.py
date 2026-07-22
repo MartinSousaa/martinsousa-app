@@ -246,7 +246,8 @@ def renderizar_chat(usuario_logado=""):
     hist = st.session_state["ms_chat_hist"]
 
     # Nome de exibição: primeiro nome em maiúscula
-    nome_exib = usuario_logado.split()[0].capitalize() if usuario_logado else "você"
+    partes = usuario_logado.split() if usuario_logado else []
+    nome_exib = partes[0].capitalize() if partes else "você"
 
     # ── Container que agrupa visualmente todo o chat (box com borda via CSS :has) ──
     with st.container():
@@ -353,7 +354,10 @@ def renderizar_chat(usuario_logado=""):
       }
 
       setup();
-      setInterval(setup, 800);
+      // Guard: registra o setInterval uma única vez — sem acumular a cada st.rerun()
+      if (!P._msChatIntervalId) {
+        P._msChatIntervalId = setInterval(setup, 800);
+      }
     })();
     </script>
     """, height=0)
