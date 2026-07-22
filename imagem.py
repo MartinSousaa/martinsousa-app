@@ -6,7 +6,7 @@ import zipfile
 import json
 import anthropic
 
-MODELO_IMAGEM = "gemini-3-pro-image-preview"  # Nano Banana Pro
+MODELO_IMAGEM = "gemini-2.0-flash-preview-image-generation"  # modelo de geração de imagens via generateContent
 
 # ── PADRÃO VISUAL MARTINSOUSA (hardcoded em todos os prompts) ──────────────────
 PADRAO_VISUAL = """
@@ -646,7 +646,7 @@ def pagina_imagem(usuario_logado):
                 with st.container(border=True):
                     st.markdown(
                         f"<div style='padding:2px 0'>"
-                        f"<span style='color:#e74c3c;font-weight:700;'>🚫 BLOQUEADA</span> &nbsp; "
+                        f"<span class='ms-bloqueada'>🚫 BLOQUEADA</span> &nbsp; "
                         f"<strong>{item.get('numero', '')}. {item.get('tipo', '')}</strong>"
                         f"</div>",
                         unsafe_allow_html=True,
