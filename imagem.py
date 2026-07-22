@@ -38,8 +38,12 @@ REGRA DE FIDELIDADE AO PRODUTO (a mais importante de todas — sem exceções):
 - Nunca crie detalhes que não aparecem nas fotos de referência
 - NÃO copie nem reproduza nenhum texto, palavra ou rótulo que apareça escrito
   nas fotos de referência — ignore completamente qualquer texto visível nas imagens
-- Se medidas e peso forem informados nos dados do produto, use EXATAMENTE esses
-  números na imagem — nunca invente ou estime dimensões por conta própria
+- PROIBIÇÃO ABSOLUTA DE INVENTAR DADOS TÉCNICOS: JAMAIS crie, estime ou invente
+  medidas, dimensões, peso ou material do produto. Se esses dados não foram
+  fornecidos nos campos do produto, NÃO os coloque na imagem sob nenhuma hipótese.
+  Imagem com dados inventados é pior do que imagem sem dados.
+- Só use medidas e peso na imagem se eles estiverem EXPLICITAMENTE informados
+  nos dados do produto fornecidos — nunca estime por conta própria
 """
 
 INSTRUCAO_COMPOSICAO = """
@@ -128,18 +132,49 @@ DADOS DA DESCRIÇÃO DO PRODUTO (vinculados pelo código):
 - Uso: {dados_descricao.get('uso', 'não informado')}
 """
 
+    # Verifica quais dados técnicos estão disponíveis para informar a IA
+    dados_disponiveis = []
+    dados_faltantes = []
+    if dados_descricao:
+        if dados_descricao.get("medidas"): dados_disponiveis.append(f"medidas: {dados_descricao['medidas']}")
+        else: dados_faltantes.append("medidas (altura × largura × profundidade)")
+        if dados_descricao.get("peso"): dados_disponiveis.append(f"peso: {dados_descricao['peso']}")
+        else: dados_faltantes.append("peso")
+        if dados_descricao.get("cor"): dados_disponiveis.append(f"cor: {dados_descricao['cor']}")
+        if dados_descricao.get("material") or dados_descricao.get("caracteristicas"):
+            dados_disponiveis.append("material/características informados")
+        else: dados_faltantes.append("material")
+    else:
+        dados_faltantes = ["medidas", "peso", "material"]
+
+    resumo_dados = ""
+    if dados_disponiveis:
+        resumo_dados += f"Dados disponíveis: {', '.join(dados_disponiveis)}\n"
+    if dados_faltantes:
+        resumo_dados += f"Dados NÃO informados (não inventar): {', '.join(dados_faltantes)}\n"
+
     prompt = f"""Você é especialista em imagens para e-commerce no Mercado Livre. Seja BREVE e DIRETO.
 
 PRODUTO: {nome_produto}
 {contexto_descricao}
-FOTOS ENVIADAS: {len(fotos_bytes)}
+{resumo_dados}
+FOTOS ENVIADAS: {len(fotos_bytes)} foto(s) de referência
 {f"INSTRUÇÕES EXTRAS: {instrucoes_extras}" if instrucoes_extras else ""}
 
 TIPOS A CRIAR:
 {tipos_str}
 
-TAREFA: Para cada tipo, informe em 1-2 frases curtas o que será criado (composição principal e textos).
-Só inclua flag ⚠️ se faltar uma informação CRÍTICA que vai comprometer a fidelidade da imagem. Máximo 1 flag por tipo.
+TAREFA: Para cada tipo, analise se é VIÁVEL gerar com as informações e fotos disponíveis.
+
+REGRAS DE VIABILIDADE — CRÍTICO:
+1. "Características técnicas (medidas/peso/material)" → SOMENTE viável se medidas E peso estiverem nos dados disponíveis acima. Se qualquer um faltar, marque viavel: false e peça os dados exatos.
+2. "Close nos detalhes" ou qualquer tipo que exija ângulo do produto NÃO disponível nas fotos → viavel: false, peça a foto naquele ângulo.
+3. Qualquer tipo que necessite de informação específica ausente (ex: cores disponíveis, voltagem, compatibilidade) → viavel: false, peça a informação.
+4. NUNCA marque como viável se for necessário INVENTAR qualquer dado técnico, dimensão ou característica.
+
+Quando viavel: false, preencha "pergunta_info" com pergunta direta e específica ao colaborador explicando exatamente o que falta e por quê é necessário. Essa imagem será DESCARTADA até a informação ser fornecida.
+
+Quando viavel: true, descreva em 1-2 frases o que será criado.
 
 Responda SOMENTE com JSON válido, sem texto antes ou depois:
 {{
@@ -147,10 +182,11 @@ Responda SOMENTE com JSON válido, sem texto antes ou depois:
     {{
       "tipo": "nome do tipo",
       "numero": 1,
-      "composicao": "1-2 frases curtas descrevendo a imagem",
+      "composicao": "1-2 frases curtas descrevendo a imagem (só se viavel: true)",
       "textos": ["texto 1", "texto 2"],
-      "flags": ["⚠️ aviso crítico apenas se necessário"],
-      "viavel": true
+      "flags": [],
+      "viavel": true,
+      "pergunta_info": ""
     }}
   ],
   "observacao_geral": "uma frase resumindo o conjunto, ou string vazia"
@@ -213,6 +249,7 @@ Responda SOMENTE com JSON válido, sem texto antes ou depois:
                     "textos": [],
                     "flags": [],
                     "viavel": True,
+                    "pergunta_info": "",
                 }
                 for i, t in enumerate(tipos_selecionados)
             ],
@@ -577,9 +614,11 @@ def pagina_imagem(usuario_logado):
         st.caption("Esta etapa não custou nada. Corrija o que precisar antes de confirmar a geração.")
 
         itens_plano = plano.get("plano", [])
-        tem_flags = any(item.get("flags") for item in itens_plano)
+        itens_viaveis   = [item for item in itens_plano if item.get("viavel", True)]
+        itens_bloqueados = [item for item in itens_plano if not item.get("viavel", True)]
 
-        for item in itens_plano:
+        # ── Itens viáveis ─────────────────────────────────────────────────────
+        for item in itens_viaveis:
             flags = item.get("flags", [])
             with st.container(border=True):
                 col_title, col_flag = st.columns([5, 1])
@@ -590,10 +629,33 @@ def pagina_imagem(usuario_logado):
                 textos = item.get("textos", [])
                 if textos:
                     st.caption("Textos: " + " · ".join(f'"{t}"' for t in textos[:4]))
-                # Mostra no máximo 1 flag, colapsada
                 if flags:
                     with st.expander("Ver aviso", expanded=False):
                         st.warning(flags[0])
+
+        # ── Itens bloqueados (informação faltante) ────────────────────────────
+        if itens_bloqueados:
+            st.markdown("---")
+            st.markdown(
+                "### 🚫 Imagens bloqueadas — informação insuficiente\n"
+                "As imagens abaixo **não serão geradas** porque falta alguma informação essencial. "
+                "Responda as perguntas no **Assistente IA** (menu lateral) ou preencha os dados e "
+                "clique em **Analisar novamente**."
+            )
+            for item in itens_bloqueados:
+                with st.container(border=True):
+                    st.markdown(
+                        f"<div style='padding:2px 0'>"
+                        f"<span style='color:#e74c3c;font-weight:700;'>🚫 BLOQUEADA</span> &nbsp; "
+                        f"<strong>{item.get('numero', '')}. {item.get('tipo', '')}</strong>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+                    pergunta = item.get("pergunta_info", "").strip()
+                    if pergunta:
+                        st.error(f"**O que falta:** {pergunta}")
+                    else:
+                        st.error("Informação necessária não fornecida. Forneça os dados e analise novamente.")
 
         if plano.get("observacao_geral"):
             st.info(plano["observacao_geral"])
@@ -605,12 +667,24 @@ def pagina_imagem(usuario_logado):
             height=80,
         )
 
-        n_imagens = len(itens_plano)
-        custo_est = n_imagens * 1.0
-        st.warning(
-            f"💰 Isso vai gerar **{n_imagens} imagem(ns)** com custo estimado de **~R${custo_est:.2f}**. "
-            f"Confirma?"
-        )
+        n_viaveis = len(itens_viaveis)
+        n_bloqueadas = len(itens_bloqueados)
+        custo_est = n_viaveis * 1.0
+
+        if n_viaveis == 0:
+            st.error(
+                "⛔ Nenhuma imagem pode ser gerada agora — todas estão bloqueadas por falta de informação. "
+                "Forneça os dados solicitados e clique em **Analisar novamente**."
+            )
+        else:
+            aviso_bloqueadas = (
+                f" ({n_bloqueadas} bloqueada(s) por dados insuficientes — serão ignoradas)"
+                if n_bloqueadas else ""
+            )
+            st.warning(
+                f"💰 Isso vai gerar **{n_viaveis} imagem(ns)**{aviso_bloqueadas} "
+                f"com custo estimado de **~R${custo_est:.2f}**. Confirma?"
+            )
 
         col_cancelar, col_confirmar = st.columns(2)
         if col_cancelar.button("❌ Cancelar", use_container_width=True):
@@ -618,7 +692,13 @@ def pagina_imagem(usuario_logado):
             del st.session_state["img_triagem_config"]
             st.rerun()
 
-        if col_confirmar.button("✅ Confirmar e gerar", type="primary", use_container_width=True):
+        confirmar_disabled = n_viaveis == 0
+        if col_confirmar.button(
+            "✅ Confirmar e gerar",
+            type="primary",
+            use_container_width=True,
+            disabled=confirmar_disabled,
+        ):
             try:
                 # Aplica correção ao config se houver
                 if correcao:
@@ -627,7 +707,10 @@ def pagina_imagem(usuario_logado):
 
                 galeria = []
                 barra = st.progress(0.0, text="Iniciando geração...")
-                tipos = cfg["tipos"]
+
+                # Gera APENAS os tipos viáveis aprovados na triagem
+                tipos_viaveis = [item["tipo"] for item in itens_viaveis]
+                tipos = tipos_viaveis if tipos_viaveis else cfg["tipos"]
 
                 for i, tipo in enumerate(tipos):
                     barra.progress(i / len(tipos), text=f"Gerando: {tipo[:50]}...")
@@ -666,7 +749,7 @@ def pagina_imagem(usuario_logado):
                         usuario_logado,
                         f"Imagem ({len(galeria)} geradas)",
                         cfg["nome_produto"],
-                        ", ".join(t[:20] for t in tipos[:3]) + ("..." if len(tipos) > 3 else ""),
+                        ", ".join(t[:20] for t in tipos_viaveis[:3]) + ("..." if len(tipos_viaveis) > 3 else ""),
                         codigo=cfg.get("codigo", ""),
                         cor=cfg.get("dados_descricao", {}).get("cor", "") if cfg.get("dados_descricao") else "",
                         medidas=cfg.get("dados_descricao", {}).get("medidas", "") if cfg.get("dados_descricao") else "",
