@@ -195,34 +195,4 @@ def pagina_titulo(usuario_logado):
     with st.expander("Ver palavras-chave usadas como base"):
         st.write(palavras_salvas)
 
-    # ── CHAT DE AJUSTE ────────────────────────────────────────────────────────
-    st.markdown("##### Ajustar títulos")
-    st.caption("Peça para reformular, mudar o foco ou ajustar o tamanho. Ex: *coloque o material no início* ou *versão mais focada no uso como presente*.")
-
-    for autor, mensagem in st.session_state.get("tt_chat_log", []):
-        with st.chat_message(autor):
-            st.markdown(mensagem)
-
-    instrucao_tt = st.chat_input("Ex: coloque o material no início · foco em presente · tente ficar abaixo de 55 caracteres")
-
-    if instrucao_tt:
-        st.session_state["tt_chat_log"].append(("user", instrucao_tt))
-
-        with st.spinner("Ajustando títulos..."):
-            novos_titulos, erro_aj = ajustar_titulos(
-                titulos_salvos, instrucao_tt, dados_produto, palavras_salvas
-            )
-
-        if erro_aj:
-            st.session_state["tt_chat_log"].append(("assistant", f"⚠️ Erro ao ajustar: {erro_aj}"))
-        else:
-            st.session_state["tt_titulos_gerados"] = novos_titulos
-            # Monta mensagem de resposta com os títulos atualizados
-            linhas_resp = ["✅ Títulos atualizados:"]
-            for i, t in enumerate(novos_titulos, 1):
-                n = len(t)
-                status = "✅" if n <= LIMITE_CARACTERES else "⚠️ acima do limite"
-                linhas_resp.append(f"**Opção {i}:** {t}  ·  *{n} chars {status}*")
-            st.session_state["tt_chat_log"].append(("assistant", "\n\n".join(linhas_resp)))
-
-        st.rerun()
+    st.caption("💬 Para ajustar os títulos, use o **Assistente IA** no menu lateral.")
