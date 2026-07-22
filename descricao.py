@@ -656,10 +656,8 @@ def pagina_descricao(usuario_logado):
             codigo_exibir = st.session_state["desc_codigo_atual"]
             st.markdown(
                 f"""<div style="background:#1A3A6B; border-radius:8px; padding:12px 18px; margin-bottom:4px;">
-                <span style="color:#E8EEF5; font-size:13px; font-weight:600; letter-spacing:1px;">
-                CÓDIGO DA DESCRIÇÃO</span><br>
-                <span style="color:#9BB5D9; font-size:12px;">
-                Use no módulo de Imagem para vincular as informações desta descrição.
+                <span class="ms-desc-code-titulo">CÓDIGO DA DESCRIÇÃO</span><br>
+                <span class="ms-desc-code-sub">Use no módulo de Imagem para vincular as informações desta descrição.
                 Clique no ícone de cópia à direita do código abaixo.</span>
                 </div>""",
                 unsafe_allow_html=True,
