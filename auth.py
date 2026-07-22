@@ -159,17 +159,29 @@ def verificar_login():
     .stDeployButton                  {{ display: none !important; }}
     #MainMenu                        {{ display: none !important; }}
     footer                           {{ display: none !important; }}
+    #stDecoration                    {{ display: none !important; }}
 
-    /* Remove todo padding da área principal */
-    .main {{ padding: 0 !important; }}
+    /* ── TELA INTEIRA: zera TODOS os paddings/margens/backgrounds ── */
+    .stApp,
+    [data-testid="stAppViewContainer"],
+    [data-testid="stAppViewBlockContainer"],
+    .main,
+    [data-testid="stMain"],
+    [data-testid="stMainBlockContainer"],
     .main .block-container {{
         padding: 0 !important;
+        margin: 0 !important;
         max-width: 100% !important;
-        min-height: 100vh;
+        background-color: #0d0d0d !important;
     }}
-
-    /* App ocupa tela inteira */
-    .stApp {{ min-height: 100vh; }}
+    /* Em qualquer tema, o fundo da tela de login é sempre escuro */
+    body.tema-claro .stApp,
+    body.tema-claro [data-testid="stMain"],
+    body.tema-claro [data-testid="stMainBlockContainer"],
+    body.tema-claro [data-testid="stAppViewContainer"],
+    body.tema-claro .main {{
+        background-color: #0d0d0d !important;
+    }}
 
     /* Linha de colunas ocupa a altura toda e não tem gap */
     [data-testid="stHorizontalBlock"] {{
@@ -186,7 +198,7 @@ def verificar_login():
         padding: 0 !important;
     }}
 
-    /* ── PAINEL ESQUERDO: textura do fundo real ── */
+    /* ── PAINEL ESQUERDO: imagem de fundo ── */
     [data-testid="stColumn"]:first-child > div {{
         {bg_css}
         min-height: 100vh !important;
@@ -197,9 +209,9 @@ def verificar_login():
         padding: 60px 40px;
     }}
 
-    /* ── PAINEL DIREITO: escuro limpo ── */
+    /* ── PAINEL DIREITO: sempre escuro ── */
     [data-testid="stColumn"]:last-child > div {{
-        background-color: #111111;
+        background-color: #111111 !important;
         min-height: 100vh !important;
         display: flex !important;
         flex-direction: column !important;
@@ -218,20 +230,38 @@ def verificar_login():
         width: 100% !important;
     }}
 
-    /* ── INPUTS ── */
-    .stTextInput input {{
+    /* ── PAINEL DIREITO: força texto claro em qualquer tema ──────────────── */
+    /* Anula o CSS global que força texto escuro no tema claro                */
+    [data-testid="stColumn"]:last-child *,
+    body.tema-claro [data-testid="stColumn"]:last-child,
+    body.tema-claro [data-testid="stColumn"]:last-child * {{
+        color: #f0f0f0 !important;
+    }}
+
+    /* ── INPUTS: sempre escuros no painel de login ── */
+    [data-testid="stColumn"]:last-child .stTextInput input,
+    body.tema-claro [data-testid="stColumn"]:last-child .stTextInput input,
+    body.tema-claro [data-testid="stColumn"]:last-child [data-baseweb="input"] input {{
         background-color: #1c1c1c !important;
         border: 1px solid #2e2e2e !important;
         color: #f0f0f0 !important;
         font-family: Arial, sans-serif !important;
         border-radius: 6px !important;
         padding: 10px 14px !important;
+        box-shadow: none !important;
     }}
-    .stTextInput input:focus {{
+    [data-testid="stColumn"]:last-child .stTextInput input:focus,
+    body.tema-claro [data-testid="stColumn"]:last-child .stTextInput input:focus {{
         border-color: #555 !important;
         box-shadow: 0 0 0 2px rgba(255,255,255,0.06) !important;
     }}
-    .stTextInput label {{
+
+    /* Labels dos inputs: cinza suave */
+    [data-testid="stColumn"]:last-child .stTextInput label,
+    [data-testid="stColumn"]:last-child [data-testid="stWidgetLabel"] p,
+    body.tema-claro [data-testid="stColumn"]:last-child .stTextInput label,
+    body.tema-claro [data-testid="stColumn"]:last-child [data-testid="stWidgetLabel"] p,
+    body.tema-claro [data-testid="stColumn"]:last-child [data-testid="stWidgetLabel"] * {{
         color: #888 !important;
         font-family: Arial, sans-serif !important;
         font-size: 12px !important;
@@ -273,12 +303,10 @@ def verificar_login():
             background-position: center !important;
             padding: 60px 28px !important;
         }}
-        .stTextInput input {{
+        [data-testid="stColumn"]:last-child .stTextInput input,
+        body.tema-claro [data-testid="stColumn"]:last-child .stTextInput input {{
             font-size: 16px !important;
             background-color: rgba(30,30,30,0.9) !important;
-        }}
-        .stTextInput input:focus {{
-            border-color: #666 !important;
         }}
     }}
     </style>
