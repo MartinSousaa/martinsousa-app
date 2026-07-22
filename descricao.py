@@ -669,42 +669,4 @@ def pagina_descricao(usuario_logado):
         st.code(st.session_state["desc_texto_atual"], language=None)
         st.caption(f"{len(st.session_state['desc_texto_atual'])}/10.000 caracteres (limite do Mercado Livre pra descrição)")
 
-        st.markdown("##### Precisa ajustar algo pontual?")
-        st.caption("Ex: 'deixa mais curto', 'troca X por Y', 'tira o parágrafo sobre Z' -- ajusta só o que pedir, sem regerar do zero.")
-
-        for autor, texto in st.session_state.get("desc_chat_log", []):
-            with st.chat_message(autor):
-                st.markdown(texto)
-
-        instrucao = st.chat_input("Digite o ajuste que precisa...")
-        if instrucao:
-            st.session_state["desc_chat_log"].append(("user", instrucao))
-
-            novo_texto_determ = tentar_edicao_deterministica(st.session_state["desc_texto_atual"], instrucao)
-            if novo_texto_determ is not None:
-                st.session_state["desc_texto_atual"] = novo_texto_determ
-                alerta_verificacao = verificar_remocao_caracteres(instrucao, novo_texto_determ)
-                if alerta_verificacao:
-                    resposta = alerta_verificacao
-                else:
-                    resposta = "✅ Ajuste aplicado (remoção por busca exata, sem IA) — confira o texto acima."
-            else:
-                with st.spinner("Ajustando..."):
-                    novo_texto, erro_edicao = editar_descricao(st.session_state["desc_texto_atual"], instrucao)
-                if erro_edicao:
-                    resposta = f"⚠️ {erro_edicao}"
-                    # Não atualiza o texto — mantém o original
-                else:
-                    st.session_state["desc_texto_atual"] = novo_texto
-                    alerta_verificacao = verificar_remocao_caracteres(instrucao, novo_texto)
-                    resposta = alerta_verificacao if alerta_verificacao else "✅ Ajuste aplicado — confira o texto acima."
-            st.session_state["desc_chat_log"].append(("assistant", resposta))
-
-            import atividades
-            atividades.registrar_atividade(
-                usuario_logado, "Ajuste de Descrição",
-                st.session_state["desc_nome_atual"], instrucao[:100],
-                codigo=st.session_state.get("desc_codigo_atual", ""),
-            )
-
-            st.rerun()
+        st.caption("💬 Para ajustar a descrição, use o **Assistente IA** no menu lateral.")
