@@ -6,7 +6,7 @@ import zipfile
 import json
 import anthropic
 
-MODELO_IMAGEM = "gemini-2.0-flash-preview-image-generation"  # modelo de geração de imagens via generateContent
+MODELO_IMAGEM = "gemini-3.1-flash-image"  # modelo de geração de imagens via generateContent (v1)
 
 # ── PADRÃO VISUAL MARTINSOUSA (hardcoded em todos os prompts) ──────────────────
 PADRAO_VISUAL = """
@@ -297,13 +297,14 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia):
         "contents": [{"parts": parts}],
         "generationConfig": {
             "responseModalities": ["TEXT", "IMAGE"],
-            "imageConfig": {"aspectRatio": "1:1", "imageSize": "2K"},
+            # imageConfig (aspectRatio/imageSize) não é suportado no generateContent —
+            # é parâmetro do Imagen (endpoint /predict). Remover evita erros silenciosos.
         },
     }
 
     try:
         resp = requests.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/{MODELO_IMAGEM}:generateContent",
+            f"https://generativelanguage.googleapis.com/v1/models/{MODELO_IMAGEM}:generateContent",
             headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
             json=body, timeout=90,
         )
