@@ -644,6 +644,7 @@ def pagina_descricao(usuario_logado):
                 "uso": dados.get("uso", ""),
             }
             st.session_state["desc_chat_log"] = []
+            st.rerun()
 
     # Resultado + chat de ajuste pontual -- fica fora do "if confirmar" pra
     # sobreviver aos reruns disparados pelo proprio chat_input
@@ -654,15 +655,24 @@ def pagina_descricao(usuario_logado):
         # ── CÓDIGO DA DESCRIÇÃO ────────────────────────────────────────────────
         if "desc_codigo_atual" in st.session_state:
             codigo_exibir = st.session_state["desc_codigo_atual"]
+            nome_exibir_cod = st.session_state.get("desc_nome_atual", "")
             st.markdown(
                 f"""<div style="background:#1A3A6B; border-radius:8px; padding:12px 18px; margin-bottom:4px;">
                 <span class="ms-desc-code-titulo">CÓDIGO DA DESCRIÇÃO</span><br>
-                <span class="ms-desc-code-sub">Use no módulo de Imagem para vincular as informações desta descrição.
-                Clique no ícone de cópia à direita do código abaixo.</span>
+                <span class="ms-desc-code-sub">Cole esse código na aba Imagem para vincular medidas, peso e cor.
+                Clique no ícone de cópia à direita ou use o botão abaixo.</span>
                 </div>""",
                 unsafe_allow_html=True,
             )
             st.code(codigo_exibir, language=None)
+            if st.button(
+                "📋 Pré-preencher aba Imagem com este código",
+                key="desc_btn_enviar_img",
+                use_container_width=True,
+            ):
+                st.session_state["img_codigo_importado"] = codigo_exibir
+                st.session_state["img_nome_importado"] = nome_exibir_cod
+                st.info("✅ Código enviado! Vá até a aba **Imagem** — os campos já estarão preenchidos.")
 
         st.code(st.session_state["desc_texto_atual"], language=None)
         st.caption(f"{len(st.session_state['desc_texto_atual'])}/10.000 caracteres (limite do Mercado Livre pra descrição)")
