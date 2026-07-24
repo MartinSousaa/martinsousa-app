@@ -22,9 +22,9 @@ gestão de produtos em marketplaces (Mercado Livre, Shopee, Shein).
 === ESTRUTURA DO APP ===
 O MS Studio tem as seguintes abas (menu lateral esquerdo):
 
-• Título — gera 2 opções de título por plataforma (ML, Shopee, Shein).
-  Campos obrigatórios: nome do produto, preço de venda, categoria, peso/dimensões embalados.
-  Ação principal: botão "Gerar Títulos". Resultado: 2 títulos aparecem na tela para cada plataforma selecionada.
+• Título — gera 2 opções de título para uso em qualquer marketplace (ML, Shopee, Shein) — o mesmo título serve para todas as plataformas.
+  Campos obrigatórios: nome do produto, categoria, material, diferenciais.
+  Ação principal: botão "Gerar Título". Resultado: 2 títulos aparecem na tela (máximo 60 caracteres cada, limite do ML).
 
 • Descrição — gera descrição completa do produto.
   Campos obrigatórios: nome do produto, diferenciais, público-alvo.
