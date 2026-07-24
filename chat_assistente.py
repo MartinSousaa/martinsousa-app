@@ -30,10 +30,35 @@ O MS Studio tem as seguintes abas (menu lateral esquerdo):
   Campos obrigatórios: nome do produto, diferenciais, público-alvo.
   Ação principal: botão "Gerar Descrição".
 
-• Imagem — gera imagens tratadas do produto (fundo removido, artes para marketplace).
-  Campos obrigatórios: upload de foto(s) do produto, nome, peso/dimensões.
-  Ação principal: botão "Gerar Imagens". Para refazer uma imagem já gerada: botão "Regenerar" abaixo de cada foto.
-  BLOQUEADA aparece quando falta peso ou gramatura — preencher esses campos e regenerar.
+• Imagem — gera imagens profissionais 1200x1200 para o anúncio (todas as plataformas).
+  CAMPOS:
+    - Nome do produto (obrigatório)
+    - Código da descrição (opcional) — gerado na aba Descrição; ao informar aqui, a IA usa
+      automaticamente as medidas, peso e cor da descrição vinculada
+    - Fotos de referência: upload de quantas fotos o colaborador quiser (obrigatório para gerar)
+    - "Descreva o que você quer nessa imagem": campo de texto livre onde o colaborador pode
+      especificar textos, cenas, ângulos, cores, destaque — aparece quando o modo for
+      "1 imagem específica" (para um tipo só) ou "Selecionar tipos" / "As 7 imagens do padrão"
+      (observações gerais que se aplicam a todas as imagens)
+  FLUXO (2 etapas obrigatórias — não tem como pular):
+    1. Clicar em "🔍 Analisar e mostrar plano antes de gerar" → a IA mostra o plano de cada
+       imagem (o que vai criar, textos, aviso se faltar informação). Imagens com dado faltante
+       ficam marcadas como BLOQUEADAS e não são geradas.
+    2. Revisar o plano → clicar "✅ Confirmar e gerar" para iniciar a geração.
+  BLOQUEADA: aparece no PLANO quando um TIPO ESPECÍFICO de imagem precisa de dado que não foi
+  fornecido. Exemplo: "Características técnicas" bloqueia se medidas e peso não estiverem no
+  código de descrição vinculado. Solução: informar o código da descrição (que tem medidas/peso)
+  ou escolher outro tipo de imagem.
+  AJUSTE PÓS-GERAÇÃO: não há botão "Regenerar" — o colaborador pede ajuste aqui no chat.
+  Ex: "refaça a Foto 2 com fundo azul". O assistente envia o comando para a aba Imagem.
+  TODAS as imagens geradas têm 1200x1200 px (padrão da empresa).
+
+• Vídeo — gera o prompt de texto otimizado para o gerador de vídeo do Envato Elements.
+  Campos obrigatórios: nome do produto e descrição da ação ("o que acontece no vídeo").
+  Opcional mas recomendado: upload do frame inicial e frame final do vídeo.
+  Ação principal: botão "Gerar Prompt". Resultado: prompt curto (2–4 frases) que o colaborador
+  copia e cola manualmente no Envato Elements junto com as imagens dos frames.
+  Após gerar, é possível pedir ajustes via chat de ajuste inline ou aqui mesmo no assistente.
 
 • Financeiro — configuração de LPV (custo fixo por venda) e alíquota tributária, mês a mês por ano.
   O LPV informado aqui alimenta os cálculos de viabilidade (UC) em Título.
@@ -100,7 +125,8 @@ def _contexto_atual() -> str:
     nome = (
         (st.session_state.get("tt_dados_produto") or {}).get("nome_comercial")
         or st.session_state.get("desc_nome_atual")
-        or st.session_state.get("img_nome_atual")
+        or st.session_state.get("img_nome_produto")
+        or st.session_state.get("img_nome_produto_input")
         or None
     )
     if nome:
@@ -112,13 +138,37 @@ def _contexto_atual() -> str:
         linhas = "\n".join(f"  Opção {i+1}: {t}" for i, t in enumerate(titulos))
         partes.append(f"TÍTULOS ATUAIS:\n{linhas}")
 
-    # Descrição
+    # Descrição — inclui código para referência
+    desc_codigo = st.session_state.get("desc_codigo_atual", "")
     desc = st.session_state.get("desc_texto_atual", "")
     if desc:
         trecho = desc[:500] + ("…" if len(desc) > 500 else "")
-        partes.append(f"DESCRIÇÃO ATUAL (trecho):\n{trecho}")
+        codigo_info = f" (código: {desc_codigo})" if desc_codigo else ""
+        partes.append(f"DESCRIÇÃO ATUAL{codigo_info} (trecho):\n{trecho}")
 
-    # Galeria de imagens
+    # Estado atual do formulário de imagem (o que o colaborador está configurando)
+    img_nome_form = st.session_state.get("img_nome_produto_input", "")
+    img_codigo_form = st.session_state.get("img_codigo_input", "")
+    img_triagem = st.session_state.get("img_triagem_plano")
+    img_triagem_cfg = st.session_state.get("img_triagem_config", {})
+
+    if img_nome_form or img_codigo_form or img_triagem:
+        info_img = []
+        if img_nome_form:
+            info_img.append(f"  Produto no formulário: {img_nome_form}")
+        if img_codigo_form:
+            info_img.append(f"  Código da descrição informado: {img_codigo_form}")
+        if img_triagem:
+            plano = img_triagem.get("plano", [])
+            bloqueadas = [i for i in plano if not i.get("viavel", True)]
+            viaveis = [i for i in plano if i.get("viavel", True)]
+            info_img.append(f"  Plano de triagem: {len(viaveis)} imagem(ns) viável(is), {len(bloqueadas)} bloqueada(s)")
+            for b in bloqueadas:
+                info_img.append(f"    BLOQUEADA: {b.get('tipo','')} — {b.get('pergunta_info','')}")
+        if info_img:
+            partes.append("CONFIGURAÇÃO DE IMAGEM EM ANDAMENTO:\n" + "\n".join(info_img))
+
+    # Galeria de imagens geradas
     galeria = st.session_state.get("img_galeria")
     if galeria:
         tipos = [f"  Foto {i+1}: {g.get('tipo','?')}" for i, g in enumerate(galeria)]
