@@ -317,7 +317,19 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia):
         for parte in candidatos[0].get("content", {}).get("parts", []):
             inline = parte.get("inlineData") or parte.get("inline_data")
             if inline and inline.get("data"):
-                return base64.b64decode(inline["data"]), None
+                img_bytes = base64.b64decode(inline["data"])
+                # Redimensiona para 1200x1200 (padrão MartinSousa para marketplace)
+                try:
+                    from PIL import Image as _PILImage
+                    import io as _io
+                    pil = _PILImage.open(_io.BytesIO(img_bytes)).convert("RGBA")
+                    pil = pil.resize((1200, 1200), _PILImage.LANCZOS)
+                    buf = _io.BytesIO()
+                    pil.save(buf, format="PNG")
+                    img_bytes = buf.getvalue()
+                except Exception:
+                    pass  # se PIL não estiver disponível, retorna o tamanho original
+                return img_bytes, None
         return None, "A IA respondeu, mas não veio nenhuma imagem (pode ter bloqueado o pedido)."
     except Exception as e:
         return None, str(e)
