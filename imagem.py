@@ -53,6 +53,40 @@ INSTRUÇÃO DE COMPOSIÇÃO:
 - Não reaproveite a foto de referência literalmente — crie uma peça nova
 """
 
+# ── MODO PERSONALIZADO — sem branding automático ──────────────────────────────
+INSTRUCAO_PERSONALIZADO = """
+MODO PERSONALIZADO — REGRAS ABSOLUTAS:
+- Execute EXATAMENTE e SOMENTE o que o colaborador descreveu nas instruções
+- NÃO adicione texto, legenda, título, rótulo ou qualquer elemento escrito
+  que não tenha sido pedido explicitamente nas instruções
+- NÃO aplique cores da empresa, fontes específicas, ícones ou branding
+  a não ser que as instruções peçam explicitamente por isso
+- NÃO crie uma composição "nova" ou "melhorada" por conta própria —
+  siga a instrução, nada mais
+- NÃO invente diferenciais, características ou frases de marketing
+- As instruções do colaborador são a ÚNICA fonte de verdade para
+  o que deve aparecer nesta imagem
+"""
+
+# ── MODO AJUSTE FINO — edição cirúrgica, sem alterar nada além do pedido ─────
+INSTRUCAO_AJUSTE_FINO = """
+MODO AJUSTE FINO — EDIÇÃO CIRÚRGICA — REGRAS ABSOLUTAS E INVIOLÁVEIS:
+
+1. Faça SOMENTE a modificação descrita na instrução — absolutamente nada mais
+2. Preserve a composição inteira: fundo, cenário, iluminação, cores, perspectiva,
+   todos os objetos e todos os detalhes visuais
+3. Preserve exatamente todos os textos que já existem na imagem
+   (não adicione nem remova nenhum texto)
+4. Preserve a aparência exata do produto: mesma cor, mesmos detalhes,
+   mesmos elementos visíveis (furos, padrões, logotipos na embalagem, etc.)
+5. NÃO "melhore", "enriqueça", "atualize" ou "harmonize" nada além do pedido
+6. NÃO aplique identidade visual, branding, cores ou fontes da empresa
+7. NÃO adicione nenhum objeto, efeito, texto ou elemento não mencionado
+8. Se a instrução pedir redimensionar o produto: altere APENAS o tamanho relativo
+   do produto dentro da cena — todo o resto permanece pixel-a-pixel idêntico
+9. Se não tiver certeza de algo que não foi mencionado, mantenha como está
+"""
+
 # ── PRESETS ATUALIZADOS COM IDENTIDADE VISUAL ─────────────────────────────────
 TIPOS_PADRAO = [
     "1 — Produto com fundo branco",
@@ -336,7 +370,14 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia):
 
 
 def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto):
-    """Monta o prompt completo para geração, incorporando identidade visual e dados do produto."""
+    """Monta o prompt completo para geração.
+
+    Para os tipos padrão (1-7): aplica PADRAO_VISUAL + INSTRUCAO_COMPOSICAO
+    (imagens de marketing com identidade visual).
+
+    Para 'Personalizado': aplica INSTRUCAO_PERSONALIZADO sem branding automático
+    — a instrução do colaborador é a única fonte de verdade.
+    """
     base = PRESETS.get(tipo, "")
 
     contexto_produto = f"PRODUTO: {nome_produto}\n"
@@ -351,11 +392,25 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto)
             contexto_produto += f"Diferenciais principais: {dados_descricao['diferenciais'][:200]}\n"
 
     bloco_instrucoes = (
-        f"\nINSTRUÇÕES ADICIONAIS DO COLABORADOR (prioridade máxima — aplique antes de tudo):\n{instrucoes_extras}"
+        f"\nINSTRUÇÕES DO COLABORADOR (siga com precisão):\n{instrucoes_extras}"
         if instrucoes_extras else ""
     )
 
-    return f"""{contexto_produto}
+    eh_personalizado = (tipo == "Personalizado (descrevo o que quero)")
+
+    if eh_personalizado:
+        # Modo personalizado: SEM branding automático, SEM nova composição forçada
+        # A instrução do colaborador define tudo.
+        return f"""{contexto_produto}
+TIPO DE IMAGEM: Personalizado
+{bloco_instrucoes}
+
+{INSTRUCAO_PERSONALIZADO}
+{INSTRUCAO_FIDELIDADE}
+"""
+    else:
+        # Tipos padrão (1-7): imagens de marketing com identidade visual completa
+        return f"""{contexto_produto}
 TIPO DE IMAGEM: {tipo}
 {base}
 {bloco_instrucoes}
@@ -363,6 +418,26 @@ TIPO DE IMAGEM: {tipo}
 {PADRAO_VISUAL}
 {INSTRUCAO_FIDELIDADE}
 {INSTRUCAO_COMPOSICAO}
+"""
+
+
+def montar_prompt_ajuste_fino(instrucao):
+    """Monta prompt para edição cirúrgica de uma imagem existente.
+
+    NÃO aplica PADRAO_VISUAL, NÃO aplica INSTRUCAO_COMPOSICAO.
+    Instrui a IA a fazer SOMENTE a modificação descrita, preservando tudo o mais.
+    """
+    return f"""MODO AJUSTE FINO — EDIÇÃO CIRÚRGICA DE IMAGEM EXISTENTE
+
+A imagem fornecida é a imagem atual que deve ser editada.
+
+MODIFICAÇÃO SOLICITADA — o único e exclusivo ponto a alterar:
+{instrucao}
+
+{INSTRUCAO_AJUSTE_FINO}
+
+Reproduza a imagem fornecida com fidelidade absoluta, aplicando APENAS a modificação acima.
+Trate qualquer elemento que não foi mencionado na instrução como intocável.
 """
 
 
@@ -496,126 +571,210 @@ def pagina_imagem(usuario_logado):
     if not dados_descricao and st.session_state.get("desc_codigo_atual") == codigo_input and codigo_input:
         dados_descricao = st.session_state.get("desc_dados_atual")
 
-    # ── FOTOS DE REFERÊNCIA ────────────────────────────────────────────────────
-    st.markdown("**Fotos de referência do produto**")
-    st.caption("Suba quantas fotos quiser — ângulos diferentes ajudam a IA a ser mais fiel.")
-    fotos_upload = st.file_uploader(
-        "Fotos do produto (JPG, PNG, WebP)",
-        type=["jpg", "jpeg", "png", "webp"],
-        accept_multiple_files=True,
-        key="img_fotos_upload",
-    )
-    fotos_bytes = [f.getvalue() for f in fotos_upload] if fotos_upload else []
-
-    if fotos_bytes:
-        LIMITE_MB = 10
-        fotos_grandes = [
-            (fotos_upload[i].name, len(b) / 1_048_576)
-            for i, b in enumerate(fotos_bytes)
-            if len(b) > LIMITE_MB * 1_048_576
-        ]
-        if fotos_grandes:
-            nomes = ", ".join(f"{n} ({s:.1f}MB)" for n, s in fotos_grandes)
-            st.warning(
-                f"⚠️ {len(fotos_grandes)} foto(s) com mais de {LIMITE_MB}MB: {nomes}. "
-                f"Fotos muito grandes podem causar timeout — considere reduzir a resolução antes de enviar."
-            )
-
-        cols_prev = st.columns(min(len(fotos_bytes), 5))
-        for i, fb in enumerate(fotos_bytes[:5]):
-            cols_prev[i].image(fb, use_container_width=True)
-        if len(fotos_bytes) > 5:
-            st.caption(f"+ {len(fotos_bytes) - 5} foto(s) adicionais carregadas.")
-
-    # ── O QUE GERAR ───────────────────────────────────────────────────────────
+    # ── O QUE GERAR — escolha antes de ver opções específicas ─────────────────
     st.markdown("---")
     modo = st.radio(
         "O que gerar?",
-        ["1 imagem específica", "Selecionar tipos", "As 7 imagens do padrão"],
+        ["1 imagem específica", "Selecionar tipos", "As 7 imagens do padrão", "✏️ Ajuste Fino"],
         horizontal=True,
         key="img_modo",
     )
 
-    tipos_selecionados = []
-    instrucoes_extras = ""
+    # ══════════════════════════════════════════════════════════════════════════
+    # MODO AJUSTE FINO — edição cirúrgica de imagem existente
+    # ══════════════════════════════════════════════════════════════════════════
+    if modo == "✏️ Ajuste Fino":
+        st.info(
+            "**✏️ Ajuste Fino** — envie a imagem que deseja modificar e descreva "
+            "**somente** o que deve mudar. A IA preservará tudo o mais exatamente igual."
+        )
 
-    if modo == "1 imagem específica":
-        tipo_unico = st.selectbox("Tipo de imagem", list(PRESETS.keys()), key="img_tipo_unico")
-        instrucoes_extras = st.text_area(
-            "Descreva o que você quer nessa imagem (textos, cenas, destaque)",
-            value=PRESETS[tipo_unico],
+        fotos_ajuste_upload = st.file_uploader(
+            "Imagem a ajustar (JPG, PNG, WebP)",
+            type=["jpg", "jpeg", "png", "webp"],
+            accept_multiple_files=True,
+            key="img_ajuste_upload",
+            help="Suba a(s) imagem(ns) que deseja editar. Pode enviar mais de uma variante ao mesmo tempo.",
+        )
+        fotos_bytes_ajuste = [f.getvalue() for f in fotos_ajuste_upload] if fotos_ajuste_upload else []
+
+        if fotos_bytes_ajuste:
+            cols_aj = st.columns(min(len(fotos_bytes_ajuste), 4))
+            for i, fb in enumerate(fotos_bytes_ajuste[:4]):
+                cols_aj[i].image(fb, use_container_width=True)
+            if len(fotos_bytes_ajuste) > 4:
+                st.caption(f"+ {len(fotos_bytes_ajuste) - 4} imagem(ns) adicional(is) carregada(s).")
+
+        instrucao_ajuste = st.text_area(
+            "O que você quer modificar? (descreva SOMENTE o que deve mudar — não explique o que deve ficar igual)",
             height=120,
-            key=f"img_instr_{tipo_unico}",
-            placeholder="ex: título 'Guarda suas memórias com estilo', 3 benefícios: durabilidade, capa dura, folhas pretas...",
-        )
-        tipos_selecionados = [tipo_unico]
-
-    elif modo == "Selecionar tipos":
-        tipos_selecionados = st.multiselect(
-            "Quais imagens gerar?",
-            TIPOS_PADRAO,
-            default=TIPOS_PADRAO[:3],
-            key="img_tipos_multi",
-        )
-        instrucoes_extras = st.text_area(
-            "Observações gerais (aplicadas a todas as imagens selecionadas)",
-            height=80,
-            placeholder="ex: produto tem versão preta e branca, foca nos dois no fundo branco",
-            key="img_instr_multi",
+            placeholder=(
+                "ex: Diminua o tamanho do produto para que fique em proporção realista ao cenário. "
+                "O produto mede aproximadamente 18cm.\n\n"
+                "NÃO descreva o que já está certo — a IA vai preservar tudo que você não mencionar."
+            ),
+            key="img_instrucao_ajuste",
         )
 
-    else:  # As 7 imagens do padrão
-        tipos_selecionados = TIPOS_PADRAO
-        instrucoes_extras = st.text_area(
-            "Observações gerais (aplicadas a todas as 7 imagens)",
-            height=80,
-            placeholder="ex: produto vem em 3 cores, destaque a vermelha nas peças de marketing",
-            key="img_instr_lote",
-        )
-
-    # ── BOTÃO DE TRIAGEM ──────────────────────────────────────────────────────
-    st.markdown("---")
-    iniciar_triagem = st.button(
-        "🔍 Analisar e mostrar plano antes de gerar",
-        type="primary",
-        use_container_width=True,
-        disabled=not tipos_selecionados,
-    )
-
-    if iniciar_triagem:
-        try:
-            if not nome_produto:
-                st.warning("Informe o nome do produto.")
+        st.markdown("---")
+        if st.button(
+            "✏️ Aplicar Ajuste Fino",
+            type="primary",
+            use_container_width=True,
+            disabled=(not fotos_bytes_ajuste or not instrucao_ajuste.strip()),
+        ):
+            if not fotos_bytes_ajuste:
+                st.warning("Suba a imagem que deseja ajustar.")
                 st.stop()
-            if not fotos_bytes:
-                st.warning("Suba pelo menos uma foto do produto — é ela que garante fidelidade.")
+            if not instrucao_ajuste.strip():
+                st.warning("Descreva o que você quer modificar.")
                 st.stop()
 
-            with st.spinner("Analisando produto e montando o plano de criação..."):
-                plano, erro_triagem = gerar_triagem_ia(
-                    nome_produto, tipos_selecionados, dados_descricao,
-                    instrucoes_extras, fotos_bytes,
+            with st.spinner("Aplicando ajuste fino... (pode levar até 1 minuto)"):
+                prompt_af = montar_prompt_ajuste_fino(instrucao_ajuste.strip())
+                img_bytes_af, erro_af = gerar_imagem_ia(prompt_af, fotos_bytes_ajuste)
+
+            if erro_af:
+                st.error(f"❌ Erro ao aplicar ajuste: {erro_af}")
+            else:
+                galeria_atual = st.session_state.get("img_galeria", [])
+                galeria_atual.append({
+                    "tipo": f"Ajuste Fino — {instrucao_ajuste[:40]}...",
+                    "bytes": img_bytes_af,
+                    "aprovado": False,
+                })
+                st.session_state["img_galeria"] = galeria_atual
+                st.session_state["img_nome_produto"] = nome_produto or "produto-ajustado"
+                st.session_state["img_codigo"] = codigo_input
+                st.session_state["img_fotos_originais"] = fotos_bytes_ajuste
+                st.session_state["img_dados_descricao"] = dados_descricao or {}
+                st.session_state["img_instrucoes_originais"] = instrucao_ajuste
+                import atividades
+                atividades.registrar_atividade(
+                    usuario_logado,
+                    "Imagem (ajuste fino)",
+                    nome_produto or "produto",
+                    instrucao_ajuste[:80],
+                    codigo=codigo_input,
+                )
+                st.rerun()
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # MODOS PADRÃO — fotos de referência + triagem + geração
+    # ══════════════════════════════════════════════════════════════════════════
+    else:
+        # ── FOTOS DE REFERÊNCIA ───────────────────────────────────────────────
+        st.markdown("**Fotos de referência do produto**")
+        st.caption("Suba quantas fotos quiser — ângulos diferentes ajudam a IA a ser mais fiel.")
+        fotos_upload = st.file_uploader(
+            "Fotos do produto (JPG, PNG, WebP)",
+            type=["jpg", "jpeg", "png", "webp"],
+            accept_multiple_files=True,
+            key="img_fotos_upload",
+        )
+        fotos_bytes = [f.getvalue() for f in fotos_upload] if fotos_upload else []
+
+        if fotos_bytes:
+            LIMITE_MB = 10
+            fotos_grandes = [
+                (fotos_upload[i].name, len(b) / 1_048_576)
+                for i, b in enumerate(fotos_bytes)
+                if len(b) > LIMITE_MB * 1_048_576
+            ]
+            if fotos_grandes:
+                nomes = ", ".join(f"{n} ({s:.1f}MB)" for n, s in fotos_grandes)
+                st.warning(
+                    f"⚠️ {len(fotos_grandes)} foto(s) com mais de {LIMITE_MB}MB: {nomes}. "
+                    f"Fotos muito grandes podem causar timeout — considere reduzir a resolução antes de enviar."
                 )
 
-            if erro_triagem:
-                st.error(f"Não consegui montar a triagem: {erro_triagem}")
-            else:
-                st.session_state["img_triagem_plano"] = plano
-                st.session_state["img_triagem_config"] = {
-                    "nome_produto": nome_produto,
-                    "codigo": codigo_input,
-                    "tipos": tipos_selecionados,
-                    "instrucoes_extras": instrucoes_extras,
-                    "fotos_bytes": fotos_bytes,
-                    "dados_descricao": dados_descricao,
-                }
-                st.rerun()
-        except Exception as _e_triagem:
-            st.error(
-                f"❌ Ocorreu um erro ao montar a prévia: {_e_triagem}\n\n"
-                "Verifique se o nome do produto está preenchido e tente novamente. "
-                "Se o erro persistir, reduza o tamanho das fotos ou escolha menos tipos de imagem."
+            cols_prev = st.columns(min(len(fotos_bytes), 5))
+            for i, fb in enumerate(fotos_bytes[:5]):
+                cols_prev[i].image(fb, use_container_width=True)
+            if len(fotos_bytes) > 5:
+                st.caption(f"+ {len(fotos_bytes) - 5} foto(s) adicionais carregadas.")
+
+        # ── TIPOS ─────────────────────────────────────────────────────────────
+        tipos_selecionados = []
+        instrucoes_extras = ""
+
+        if modo == "1 imagem específica":
+            tipo_unico = st.selectbox("Tipo de imagem", list(PRESETS.keys()), key="img_tipo_unico")
+            instrucoes_extras = st.text_area(
+                "Descreva o que você quer nessa imagem (textos, cenas, destaque)",
+                value=PRESETS[tipo_unico],
+                height=120,
+                key=f"img_instr_{tipo_unico}",
+                placeholder="ex: título 'Guarda suas memórias com estilo', 3 benefícios: durabilidade, capa dura, folhas pretas...",
             )
+            tipos_selecionados = [tipo_unico]
+
+        elif modo == "Selecionar tipos":
+            tipos_selecionados = st.multiselect(
+                "Quais imagens gerar?",
+                TIPOS_PADRAO,
+                default=TIPOS_PADRAO[:3],
+                key="img_tipos_multi",
+            )
+            instrucoes_extras = st.text_area(
+                "Observações gerais (aplicadas a todas as imagens selecionadas)",
+                height=80,
+                placeholder="ex: produto tem versão preta e branca, foca nos dois no fundo branco",
+                key="img_instr_multi",
+            )
+
+        else:  # As 7 imagens do padrão
+            tipos_selecionados = TIPOS_PADRAO
+            instrucoes_extras = st.text_area(
+                "Observações gerais (aplicadas a todas as 7 imagens)",
+                height=80,
+                placeholder="ex: produto vem em 3 cores, destaque a vermelha nas peças de marketing",
+                key="img_instr_lote",
+            )
+
+        # ── BOTÃO DE TRIAGEM ──────────────────────────────────────────────────
+        st.markdown("---")
+        iniciar_triagem = st.button(
+            "🔍 Analisar e mostrar plano antes de gerar",
+            type="primary",
+            use_container_width=True,
+            disabled=not tipos_selecionados,
+        )
+
+        if iniciar_triagem:
+            try:
+                if not nome_produto:
+                    st.warning("Informe o nome do produto.")
+                    st.stop()
+                if not fotos_bytes:
+                    st.warning("Suba pelo menos uma foto do produto — é ela que garante fidelidade.")
+                    st.stop()
+
+                with st.spinner("Analisando produto e montando o plano de criação..."):
+                    plano, erro_triagem = gerar_triagem_ia(
+                        nome_produto, tipos_selecionados, dados_descricao,
+                        instrucoes_extras, fotos_bytes,
+                    )
+
+                if erro_triagem:
+                    st.error(f"Não consegui montar a triagem: {erro_triagem}")
+                else:
+                    st.session_state["img_triagem_plano"] = plano
+                    st.session_state["img_triagem_config"] = {
+                        "nome_produto": nome_produto,
+                        "codigo": codigo_input,
+                        "tipos": tipos_selecionados,
+                        "instrucoes_extras": instrucoes_extras,
+                        "fotos_bytes": fotos_bytes,
+                        "dados_descricao": dados_descricao,
+                    }
+                    st.rerun()
+            except Exception as _e_triagem:
+                st.error(
+                    f"❌ Ocorreu um erro ao montar a prévia: {_e_triagem}\n\n"
+                    "Verifique se o nome do produto está preenchido e tente novamente. "
+                    "Se o erro persistir, reduza o tamanho das fotos ou escolha menos tipos de imagem."
+                )
 
     # ── EXIBIÇÃO DA TRIAGEM ───────────────────────────────────────────────────
     if "img_triagem_plano" in st.session_state and "img_triagem_config" in st.session_state:
@@ -847,12 +1006,49 @@ def pagina_imagem(usuario_logado):
                             )
                             st.success(f"Salvo! [Abrir no Drive]({link})")
 
+        # ── AJUSTE FINO NA GALERIA ────────────────────────────────────────────
+        with st.expander("✏️ Ajuste Fino — modificar somente algo específico nesta imagem", expanded=False):
+            st.caption(
+                "Descreva **somente o que deve mudar** — a IA vai preservar tudo o mais "
+                "exatamente igual (fundo, cores, cena, textos existentes, detalhes do produto)."
+            )
+            instrucao_af_gal = st.text_area(
+                "O que você quer modificar?",
+                placeholder=(
+                    "ex: Diminua o tamanho do produto para que fique em proporção realista ao cenário. "
+                    "O produto mede aproximadamente 18cm.\n\n"
+                    "ex: Remova a sombra embaixo do produto.\n\n"
+                    "ex: Mude o fundo para branco puro, mantendo o produto igual."
+                ),
+                height=120,
+                key=f"img_af_gal_{idx_ativo}",
+            )
+            if st.button(
+                "✏️ Aplicar Ajuste Fino nesta imagem",
+                key=f"img_af_btn_{idx_ativo}",
+                type="primary",
+                use_container_width=True,
+                disabled=not instrucao_af_gal.strip(),
+            ):
+                if not instrucao_af_gal.strip():
+                    st.warning("Descreva o que deseja modificar.")
+                else:
+                    # Usa a imagem ATUAL da galeria como referência para o ajuste
+                    prompt_af_gal = montar_prompt_ajuste_fino(instrucao_af_gal.strip())
+                    with st.spinner("Aplicando ajuste fino... (pode levar até 1 minuto)"):
+                        nova_img_af, err_af_gal = gerar_imagem_ia(prompt_af_gal, [imagem_ativa])
+                    if err_af_gal:
+                        st.error(f"❌ Erro: {err_af_gal}")
+                    else:
+                        st.session_state["img_galeria"][idx_ativo]["bytes"] = nova_img_af
+                        st.rerun()
+
         # ── COMANDOS PENDENTES DO ASSISTENTE IA ──────────────────────────────
+        # O Assistente IA envia comandos de correção. Tratamos sempre como
+        # Ajuste Fino (NÃO aplica PADRAO_VISUAL nem INSTRUCAO_COMPOSICAO).
         cmds_pendentes = st.session_state.pop("chat_img_pendente", [])
         if cmds_pendentes:
             fotos_ref_aj = st.session_state.get("img_fotos_originais") or []
-            dados_desc_aj = st.session_state.get("img_dados_descricao")
-            instr_orig_aj = st.session_state.get("img_instrucoes_originais", "")
             msgs_result = []
             for cmd in cmds_pendentes:
                 num_foto  = cmd.get("num", 1)
@@ -861,13 +1057,12 @@ def pagina_imagem(usuario_logado):
                 if idx_alvo < 0 or idx_alvo >= len(galeria):
                     msgs_result.append(f"⚠️ Foto {num_foto} não existe na galeria.")
                     continue
-                tipo_alvo  = galeria[idx_alvo]["tipo"]
-                prompt_aj  = (
-                    montar_prompt_imagem(tipo_alvo, instr_orig_aj, dados_desc_aj, nome_gal)
-                    + f"\n\nCORREÇÃO OBRIGATÓRIA (aplique antes de tudo):\n{instrucao}"
-                )
-                with st.spinner(f"Assistente IA: regenerando foto {num_foto} ({tipo_alvo[:30]})…"):
-                    nova_img, err_aj = gerar_imagem_ia(prompt_aj, fotos_ref_aj)
+                tipo_alvo = galeria[idx_alvo]["tipo"]
+                # Usa a imagem ATUAL como referência + prompt de ajuste fino
+                img_ref_cmd = [galeria[idx_alvo]["bytes"]] if galeria[idx_alvo]["bytes"] else fotos_ref_aj
+                prompt_aj = montar_prompt_ajuste_fino(instrucao)
+                with st.spinner(f"Assistente IA: ajuste fino na foto {num_foto} ({tipo_alvo[:30]})…"):
+                    nova_img, err_aj = gerar_imagem_ia(prompt_aj, img_ref_cmd)
                 if err_aj:
                     msgs_result.append(f"⚠️ Foto {num_foto}: erro ao gerar — {err_aj}")
                 else:
@@ -876,7 +1071,7 @@ def pagina_imagem(usuario_logado):
             if msgs_result:
                 st.info("\n\n".join(msgs_result))
 
-        st.caption("💬 Para ajustar imagens, use o **Assistente IA** no menu lateral.")
+        st.caption("💬 Para ajustar imagens, use o **Assistente IA** no menu lateral ou o painel **✏️ Ajuste Fino** acima.")
         st.markdown("---")
 
         # ── APROVAÇÃO E SALVAMENTO ─────────────────────────────────────────────
