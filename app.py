@@ -613,6 +613,17 @@ components.html("""
   }
   P._msTemaIniciado = true;
 
+  // Desativa tradução automática do navegador (evita "Shein" → "Ela", etc.)
+  P.document.documentElement.setAttribute('lang', 'pt-BR');
+  P.document.documentElement.setAttribute('translate', 'no');
+  var metaNotranslate = P.document.querySelector('meta[name="google"]');
+  if (!metaNotranslate) {
+    metaNotranslate = P.document.createElement('meta');
+    metaNotranslate.name = 'google';
+    metaNotranslate.content = 'notranslate';
+    P.document.head.appendChild(metaNotranslate);
+  }
+
   // Aplica tema inicial
   var temaSalvo = P.sessionStorage.getItem('ms_tema');
   var diaSalvo  = P.sessionStorage.getItem('ms_tema_dia');
