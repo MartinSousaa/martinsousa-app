@@ -183,13 +183,17 @@ textarea::placeholder, .stTextArea textarea::placeholder {
 table { color: var(--ms-texto) !important; border-collapse: collapse !important;
         width: 100% !important; border: none !important; background: transparent !important; }
 th    { background-color: transparent !important; color: var(--ms-texto-sec) !important;
-        font-size: 11px !important; font-weight: 600 !important; letter-spacing: 0.07em !important;
+        font-size: 10px !important; font-weight: 600 !important; letter-spacing: 0.07em !important;
         text-transform: uppercase !important; border: none !important;
-        border-bottom: 1px solid var(--ms-divisor) !important; padding: 8px 12px !important; text-align: left !important; }
+        border-bottom: 1px solid var(--ms-divisor) !important; padding: 4px 6px !important; text-align: left !important; }
 td    { background-color: transparent !important; border: none !important;
-        border-bottom: 1px solid var(--ms-divisor) !important; padding: 8px 12px !important; color: var(--ms-texto) !important; }
+        border-bottom: 1px solid var(--ms-divisor) !important; padding: 4px 6px !important;
+        color: var(--ms-texto) !important; font-size: 12px !important; }
 tr:last-child td { border-bottom: none !important; }
-tr:hover td      { background-color: var(--ms-hover) !important; }
+/* Destaque sutil nas últimas 3 linhas: Lucro, Margem e UC */
+tr:nth-last-child(-n+3) td { background-color: rgba(255,255,255,0.07) !important; }
+tr:nth-last-child(-n+3):last-child td { border-bottom: none !important; }
+tr:hover td { background-color: var(--ms-hover) !important; }
 
 /* ── MÉTRICAS ───────────────────────────────────────────────────────────── */
 [data-testid="stMetric"] {
@@ -395,7 +399,7 @@ body.tema-claro [data-testid="stFileUploaderDropzone"] button {
 #ms-tema-toggle:hover { opacity: 0.75 !important; }
 
 /* ── SELOS DE RESULTADO (tema-aware) ─────────────────────────────────────── */
-.ms-selo { border-radius: 6px; padding: 12px 16px; margin-bottom: 12px;
+.ms-selo { border-radius: 6px; padding: 8px 12px; margin-bottom: 8px;
            border-left-width: 4px; border-left-style: solid; }
 .ms-selo-viavel    { background: #0d2b1a; border-left-color: #34d399; }
 .ms-selo-ressalvas { background: #2b1f06; border-left-color: #fbbf24; }
@@ -436,10 +440,19 @@ body.tema-claro .ms-card-15 .ms-card-uc-label { color: #065f46 !important; }
 .ms-card-plat-price { font-size: 22px; font-weight: 700; color: #fff !important; }
 body.tema-claro .ms-card-plat-price { color: #111 !important; }
 
+/* ── TEXTO DE RESUMO ABAIXO DO SELO ──────────────────────────────────────── */
+.ms-resumo { font-size: 13px !important; line-height: 1.4 !important;
+             margin: 4px 0 8px 0 !important; color: var(--ms-texto) !important; }
+
+/* ── TÍTULOS DE SEÇÃO DO RESULTADO ──────────────────────────────────────── */
+.ms-section-title { font-size: 14px !important; font-weight: 600 !important;
+                    margin: 6px 0 3px 0 !important; padding: 0 !important;
+                    color: var(--ms-texto) !important; display: block; }
+
 /* ── CABEÇALHOS DE PLATAFORMA ────────────────────────────────────────────── */
 .ms-plat-header {
-  font-size: 20px; font-weight: 600; letter-spacing: 0.02em;
-  padding-bottom: 8px; margin-bottom: 20px;
+  font-size: 16px; font-weight: 600; letter-spacing: 0.02em;
+  padding-bottom: 4px; margin-bottom: 10px;
   border-bottom-width: 2px; border-bottom-style: solid;
   display: block;
 }
@@ -575,7 +588,7 @@ components.html("""
 (function() {
   var P = window.parent;
 
-  function temaAuto() { return new Date().getHours() >= 18 ? 'tema-escuro' : 'tema-claro'; }
+  function temaAuto() { return 'tema-escuro'; } // padrão fixo: sempre noite
 
   function aplicarTema(tema, salvar) {
     P.document.body.classList.remove('tema-claro','tema-escuro');
@@ -1025,12 +1038,15 @@ def _mostrar_resultado(resultado, nome_produto):
         <span class="ms-selo-sub">{nome_produto} · R${resultado['preco_sugerido']:.2f}</span>
     </div>
     """, unsafe_allow_html=True)
-    st.markdown(resultado["resumo"])
+    st.markdown(
+        f'<p class="ms-resumo">{resultado["resumo"]}</p>',
+        unsafe_allow_html=True,
+    )
 
-    st.markdown("#### Cenários (risco / mercado / equilíbrio)")
+    st.markdown('<span class="ms-section-title">Cenários</span>', unsafe_allow_html=True)
     st.markdown(resultado["tabela_cenarios"])
 
-    st.markdown("#### Viabilidade de promoção")
+    st.markdown('<span class="ms-section-title">Viabilidade de promoção</span>', unsafe_allow_html=True)
     st.markdown(resultado["texto_promo"])
     if resultado["tabela_promo"]:
         st.markdown(resultado["tabela_promo"])
