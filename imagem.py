@@ -575,7 +575,7 @@ def pagina_imagem(usuario_logado):
     st.markdown("---")
     modo = st.radio(
         "O que gerar?",
-        ["1 imagem específica", "Selecionar tipos", "As 7 imagens do padrão", "✏️ Ajuste Fino"],
+        ["1 imagem específica", "Selecionar", "As 7 imagens do padrão", "✏️ Ajuste Fino"],
         horizontal=True,
         key="img_modo",
     )
@@ -709,7 +709,7 @@ def pagina_imagem(usuario_logado):
             )
             tipos_selecionados = [tipo_unico]
 
-        elif modo == "Selecionar tipos":
+        elif modo == "Selecionar":
             tipos_selecionados = st.multiselect(
                 "Quais imagens gerar?",
                 TIPOS_PADRAO,
