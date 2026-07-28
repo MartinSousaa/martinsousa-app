@@ -27,6 +27,7 @@ import descricao
 import imagem
 import video
 import chat_assistente
+import placar
 
 st.set_page_config(page_title="MS Studio", layout="wide")
 
@@ -1091,13 +1092,13 @@ with st.sidebar:
 
 _eh_admin = auth.is_admin(usuario_logado)
 _nomes_abas = ["Análise de Viabilidade", "Triagem", "Palavras-chave", "Título",
-               "Descrição", "Imagem", "Vídeo", "Histórico", "Análise de Venda"]
+               "Descrição", "Imagem", "Vídeo", "Histórico", "Análise de Venda", "🏆 Placar"]
 if _eh_admin:
     _nomes_abas.append("Administrativo")
 
 _abas = st.tabs(_nomes_abas)
 (aba_viabilidade, aba_triagem, aba_palavras, aba_titulo,
- aba_descricao, aba_imagem, aba_video, aba_historico, aba_analise_venda) = _abas[:9]
+ aba_descricao, aba_imagem, aba_video, aba_historico, aba_analise_venda, aba_placar) = _abas[:10]
 
 with aba_video:
     video.pagina_video(usuario_logado)
@@ -1105,8 +1106,11 @@ with aba_video:
 with aba_historico:
     atividades.pagina_historico()
 
+with aba_placar:
+    placar.pagina_placar(usuario_logado)
+
 if _eh_admin:
-    with _abas[9]:
+    with _abas[10]:
         _sub_admin, _sub_financeiro = st.tabs(["⚙️ Administrativo", "💰 Financeiro"])
         with _sub_admin:
             admin.pagina_admin(usuario_logado)
