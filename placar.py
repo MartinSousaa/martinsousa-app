@@ -279,7 +279,7 @@ def _status_card(label, valor, badge, cor_num, cor_badge_bg, cor_badge_txt):
 </div>"""
 
 def pagina_placar(usuario_logado):
-    eh_master = usuario_logado in MASTERS
+    eh_master = usuario_logado.lower() in {m.lower() for m in MASTERS}
     eh_membro = usuario_logado in MEMBROS_ATIVOS
 
     if not TRELLO_KEY:
@@ -363,7 +363,7 @@ def pagina_placar(usuario_logado):
         r2[2].markdown(_card_html("Faltam p/ Maxx", f"{faltam_maxx:,.0f}", "pts para bônus", cor="#2a78d6" if faltam_maxx>0 else "#1baf7a"), unsafe_allow_html=True)
 
     # ══ BLOCO 2: STATUS DOS CARTÕES ══
-    st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
+    st.markdown('<hr style="border:none;border-top:1px solid var(--ms-divisor);margin:12px 0 8px 0;"/>', unsafe_allow_html=True)
 
     pend_total = sum(d["pend_lista"].values())
     status_items = [
@@ -386,7 +386,7 @@ def pagina_placar(usuario_logado):
             st.markdown(_status_card(lbl, val, badge, cor_n, bg_b, txt_b), unsafe_allow_html=True)
 
     # ══ BLOCO 3: EM ANDAMENTO + DESEMPENHO ══
-    st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
+    st.markdown('<hr style="border:none;border-top:1px solid var(--ms-divisor);margin:12px 0 8px 0;"/>', unsafe_allow_html=True)
     col_and, col_colab = st.columns([3,2])
 
     with col_and:
@@ -425,7 +425,7 @@ def pagina_placar(usuario_logado):
             st.markdown(html_barra, unsafe_allow_html=True)
 
     # ══ BLOCO 4: TEMPO MÉDIO POR COLUNA ══
-    st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
+    st.markdown('<hr style="border:none;border-top:1px solid var(--ms-divisor);margin:12px 0 8px 0;"/>', unsafe_allow_html=True)
     st.markdown('<div class="pm-label" style="margin-bottom:6px;">⏱️ TEMPO MÉDIO POR COLUNA</div>', unsafe_allow_html=True)
 
     listas_tempo = [nl for nl in set(listas.values())
