@@ -10,9 +10,14 @@ import math
 
 # ── CONFIGURAÇÕES ─────────────────────────────────────────────────────────────
 
-TRELLO_KEY   = st.secrets.get("trello", {}).get("api_key", "")
-TRELLO_TOKEN = st.secrets.get("trello", {}).get("token", "")
-BOARD_ID     = st.secrets.get("trello", {}).get("board_id", "")
+try:
+    TRELLO_KEY   = st.secrets["trello"]["api_key"]
+    TRELLO_TOKEN = st.secrets["trello"]["token"]
+    BOARD_ID     = st.secrets["trello"]["board_id"]
+except Exception:
+    TRELLO_KEY   = ""
+    TRELLO_TOKEN = ""
+    BOARD_ID     = ""
 
 # Membros que pontuam (mapeamento username → nome de exibição)
 MEMBROS_ATIVOS = {
