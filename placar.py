@@ -132,8 +132,8 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_interr, filtro_mes=Non
 CSS = """
 <style>
 .pm-card {
-    background: #2a2a2a;
-    border: 1px solid #3a3a3a;
+    background: var(--ms-metric-bg);
+    border: 1px solid var(--ms-metric-bd);
     border-radius: 12px;
     padding: 14px 16px;
     height: 100%;
@@ -144,7 +144,7 @@ CSS = """
 }
 .pm-label {
     font-size: 10px;
-    color: #888;
+    color: var(--ms-texto-sec);
     text-transform: uppercase;
     letter-spacing: .7px;
     margin-bottom: 4px;
@@ -156,12 +156,12 @@ CSS = """
 }
 .pm-sub {
     font-size: 10px;
-    color: #666;
+    color: var(--ms-texto-sec);
     margin-top: 3px;
 }
 .pm-status-card {
-    background: #1e1e1e;
-    border: 1px solid #333;
+    background: var(--ms-metric-bg);
+    border: 1px solid var(--ms-metric-bd);
     border-radius: 10px;
     padding: 12px 10px;
     text-align: center;
@@ -179,7 +179,7 @@ CSS = """
 }
 .pm-status-label {
     font-size: 9px;
-    color: #888;
+    color: var(--ms-texto-sec);
     text-transform: uppercase;
     letter-spacing: .5px;
 }
@@ -192,8 +192,8 @@ CSS = """
     display: inline-block;
 }
 .pm-andamento-card {
-    background: #1e1e1e;
-    border: 1px solid #333;
+    background: var(--ms-metric-bg);
+    border: 1px solid var(--ms-metric-bd);
     border-radius: 8px;
     padding: 8px 12px;
     margin-bottom: 5px;
@@ -206,7 +206,7 @@ CSS = """
     margin-bottom: 3px;
 }
 .pm-barra-track {
-    background: #333;
+    background: var(--ms-metric-bd);
     border-radius: 4px;
     height: 6px;
     overflow: hidden;
@@ -250,19 +250,19 @@ def _velocimetro(pct, meta_eq, saldo_eq, faltam, pct_maxx=130):
   <path d="M20,115 A100,100 0 0 1 220,115" fill="none" stroke="#1baf7a" stroke-width="16" stroke-linecap="round"
         stroke-dasharray="{dash_verde:.1f} {perim:.1f}"/>
   <!-- Ticks laterais -->
-  <text x="13" y="132" text-anchor="middle" font-size="9" fill="#555">0</text>
-  <text x="227" y="132" text-anchor="middle" font-size="9" fill="#555">META</text>
+  <text x="13" y="132" text-anchor="middle" font-size="9" fill="var(--ms-texto-sec)">0</text>
+  <text x="227" y="132" text-anchor="middle" font-size="9" fill="var(--ms-texto-sec)">META</text>
   <!-- Ponteiro -->
-  <line x1="{cx}" y1="{cy}" x2="{px:.1f}" y2="{py:.1f}" stroke="#e0e0e0" stroke-width="2.5" stroke-linecap="round"/>
-  <circle cx="{cx}" cy="{cy}" r="6" fill="#e0e0e0"/>
-  <circle cx="{cx}" cy="{cy}" r="2.5" fill="#1e1e1e"/>
+  <line x1="{cx}" y1="{cy}" x2="{px:.1f}" y2="{py:.1f}" stroke="var(--ms-texto)" stroke-width="2.5" stroke-linecap="round"/>
+  <circle cx="{cx}" cy="{cy}" r="6" fill="var(--ms-texto)"/>
+  <circle cx="{cx}" cy="{cy}" r="2.5" fill="var(--ms-metric-bg)"/>
   <!-- % abaixo do ponteiro, sutil -->
-  <text x="{cx}" y="{cy+22}" text-anchor="middle" font-size="20" font-weight="700" fill="#e0e0e0">{pct_show:.0f}%</text>
+  <text x="{cx}" y="{cy+22}" text-anchor="middle" font-size="20" font-weight="700" fill="var(--ms-texto)">{pct_show:.0f}%</text>
 </svg>
 <div style="font-size:10px;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-top:2px;">Meta da Equipe</div>
 </div>"""
 
-def _card_html(label, valor, sub=None, cor="#e0e0e0", badge=None, badge_cor=None):
+def _card_html(label, valor, sub=None, cor="var(--ms-texto)", badge=None, badge_cor=None):
     sub_h = f'<div class="pm-sub">{sub}</div>' if sub else ""
     badge_h = f'<span class="pm-badge" style="background:{badge_cor}20;color:{badge_cor};">{badge}</span>' if badge else ""
     return f"""<div class="pm-card">
@@ -312,20 +312,22 @@ def pagina_placar(usuario_logado):
     k_ind = f"meta_ind_{filtro_mes[0]}_{filtro_mes[1]}"
     k_mx  = f"meta_maxx_{filtro_mes[0]}_{filtro_mes[1]}"
 
+    if k_eq not in st.session_state: st.session_state[k_eq] = 5000
+    if k_ind not in st.session_state: st.session_state[k_ind] = 1500
+    if k_mx not in st.session_state: st.session_state[k_mx] = 130
+
     with st.expander(f"⚙️ Configurar Metas — {sel}", expanded=False):
         if eh_master:
             c1,c2,c3 = st.columns(3)
-            meta_eq  = c1.number_input("Meta equipe (pts)", min_value=0, value=st.session_state.get(k_eq,5000), step=100, key=k_eq)
-            meta_ind = c2.number_input("Meta individual (pts)", min_value=0, value=st.session_state.get(k_ind,1500), step=100, key=k_ind)
-            maxx_pct = c3.number_input("Meta Maxx (%)", min_value=100, max_value=300, value=st.session_state.get(k_mx,130), step=5, key=k_mx)
+            st.session_state[k_eq]  = c1.number_input("Meta equipe (pts)", min_value=0, value=st.session_state[k_eq], step=100)
+            st.session_state[k_ind] = c2.number_input("Meta individual (pts)", min_value=0, value=st.session_state[k_ind], step=100)
+            st.session_state[k_mx]  = c3.number_input("Meta Maxx (%)", min_value=100, max_value=300, value=st.session_state[k_mx], step=5)
         else:
-            meta_eq  = st.session_state.get(k_eq,5000)
-            meta_ind = st.session_state.get(k_ind,1500)
-            maxx_pct = st.session_state.get(k_mx,130)
+            st.info("Metas configuradas pelo gestor.")
 
-    meta_eq   = st.session_state.get(k_eq,5000)
-    meta_ind  = st.session_state.get(k_ind,1500)
-    maxx_pct  = st.session_state.get(k_mx,130)
+    meta_eq   = st.session_state[k_eq]
+    meta_ind  = st.session_state[k_ind]
+    maxx_pct  = st.session_state[k_mx]
     meta_maxx_pts = meta_eq * maxx_pct / 100
 
     # Dados
@@ -365,12 +367,12 @@ def pagina_placar(usuario_logado):
 
     pend_total = sum(d["pend_lista"].values())
     status_items = [
-        ("Cartões Pendentes", pend_total,            "Pendente",      "#e0e0e0", "#eda10030", "#eda100"),
+        ("Cartões Pendentes", pend_total,            "Pendente",      "var(--ms-texto)", "#eda10030", "#eda100"),
         ("Pts Pendentes",     f"{d['pts_pendentes']:.0f}", "Aberto", "#eda100", "#eda10020", "#eda100"),
-        ("Em Andamento",      d["em_andamento"],     "Ativo",         "#e0e0e0", "#1baf7a20", "#1baf7a"),
+        ("Em Andamento",      d["em_andamento"],     "Ativo",         "var(--ms-texto)", "#1baf7a20", "#1baf7a"),
         ("Atrasados",         d["atrasados"],        "Atenção",       "#e34948", "#e3494820", "#e34948"),
-        ("Desativar",         d["desativar"],        "Prioritário",   "#e0e0e0", "#2a78d620", "#2a78d6"),
-        ("Reativar",          d["reativar"],         "Normal",        "#e0e0e0", "#33333350", "#888"),
+        ("Desativar",         d["desativar"],        "Prioritário",   "var(--ms-texto)", "#2a78d620", "#2a78d6"),
+        ("Reativar",          d["reativar"],         "Normal",        "var(--ms-texto)", "#33333350", "#888"),
         ("Urgentes",          d["urgentes"],         "Crítico",       "#e34948", "#e3494830", "#e34948"),
         ("Falta Info",        d["falta_info"],       "Pendente",      "#eda100", "#eda10020", "#eda100"),
         ("Falta Pontuação",   d["falta_pts"],        "Revisar",       "#eda100", "#eda10020", "#eda100"),
@@ -393,11 +395,11 @@ def pagina_placar(usuario_logado):
             for c in d["andamento_lista"][:6]:
                 ms = ", ".join(MEMBROS_ATIVOS.get(u,u) for u in c["membros"]) or "—"
                 st.markdown(f"""<div class="pm-andamento-card">
-                  <div style="font-size:12px;font-weight:600;color:#e0e0e0;">{c['card'][:55]}</div>
-                  <div style="font-size:10px;color:#666;margin-top:2px;">{c['lista'][:35]} · <span style="color:#1baf7a;">{ms}</span></div>
+                  <div style="font-size:12px;font-weight:600;color:var(--ms-texto);">{c['card'][:55]}</div>
+                  <div style="font-size:10px;color:var(--ms-texto-sec);margin-top:2px;">{c['lista'][:35]} · <span style="color:#1baf7a;">{ms}</span></div>
                 </div>""", unsafe_allow_html=True)
         else:
-            st.markdown('<div style="color:#555;font-size:12px;padding:8px 0;">Nenhum cartão em andamento.</div>', unsafe_allow_html=True)
+            st.markdown('<div style="color:var(--ms-texto-sec);font-size:12px;padding:8px 0;">Nenhum cartão em andamento.</div>', unsafe_allow_html=True)
 
     with col_colab:
         st.markdown('<div class="pm-label" style="margin-bottom:6px;">👥 DESEMPENHO POR COLABORADOR</div>', unsafe_allow_html=True)
@@ -407,16 +409,20 @@ def pagina_placar(usuario_logado):
             saldo_i = pts-pen
             pct_i = min((saldo_i/meta_ind*100),100) if meta_ind>0 else 0
             cor_i = "#1baf7a" if pct_i>=100 else ("#eda100" if pct_i>=50 else "#e34948")
-            st.markdown(f"""<div style="margin-bottom:8px;">
-              <div class="pm-barra-label">
-                <span style="color:#e0e0e0;font-weight:600;">{nome}</span>
-                <span style="color:{cor_i};">{saldo_i:.0f} / {meta_ind:.0f} pts · {pct_i:.0f}%</span>
-              </div>
-              <div class="pm-barra-track">
-                <div style="background:{cor_i};width:{pct_i:.1f}%;height:100%;border-radius:4px;"></div>
-              </div>
-              {"" if pen==0 else f'<div style="font-size:9px;color:#e34948;">⚠ -{pen:.0f} pts penalidades</div>'}
-            </div>""", unsafe_allow_html=True)
+            pen_txt = f'<div style="font-size:9px;color:#e34948;margin-top:2px;">⚠ -{pen:.0f} pts penalidades</div>' if pen > 0 else ""
+            html_barra = (
+                '<div style="margin-bottom:10px;">' +
+                '<div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px;">' +
+                f'<span style="color:var(--ms-texto);font-weight:600;">{nome}</span>' +
+                f'<span style="color:{cor_i};">{saldo_i:.0f} / {meta_ind:.0f} pts · {pct_i:.0f}%</span>' +
+                '</div>' +
+                '<div style="background:var(--ms-metric-bd);border-radius:4px;height:8px;overflow:hidden;">' +
+                f'<div style="background:{cor_i};width:{pct_i:.1f}%;height:100%;border-radius:4px;"></div>' +
+                '</div>' +
+                pen_txt +
+                '</div>'
+            )
+            st.markdown(html_barra, unsafe_allow_html=True)
 
     # ══ BLOCO 4: TEMPO MÉDIO POR COLUNA ══
     st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
@@ -436,17 +442,17 @@ def pagina_placar(usuario_logado):
                 media = sum(tempos)/len(tempos)
                 val = f"{media:.0f} min"
                 sub = f"{len(tempos)} demandas"
-                cor = "#e0e0e0"
+                cor = "var(--ms-texto)"
             else:
                 val = "— min"
                 sub = "sem dados"
-                cor = "#444"
+                cor = "var(--ms-texto-sec)"
             with cols_t[i%6]:
-                st.markdown(f"""<div style="background:#1e1e1e;border:1px solid #2a2a2a;border-radius:8px;
+                st.markdown(f"""<div style="background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);border-radius:8px;
                     padding:8px 10px;margin-bottom:6px;">
-                  <div style="font-size:9px;color:#555;text-transform:uppercase;letter-spacing:.4px;margin-bottom:2px;">{nl[:22]}</div>
+                  <div style="font-size:9px;color:var(--ms-texto-sec);text-transform:uppercase;letter-spacing:.4px;margin-bottom:2px;">{nl[:22]}</div>
                   <div style="font-size:16px;font-weight:700;color:{cor};">{val}</div>
-                  <div style="font-size:9px;color:#444;">{sub}</div>
+                  <div style="font-size:9px;color:var(--ms-texto-sec);">{sub}</div>
                 </div>""", unsafe_allow_html=True)
 
     st.markdown(f'<div style="font-size:9px;color:#333;text-align:right;margin-top:8px;">{sel} · {agora.strftime("%d/%m/%Y %H:%M")} · atualiza a cada 2 min</div>', unsafe_allow_html=True)
