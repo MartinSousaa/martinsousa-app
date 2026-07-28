@@ -1092,7 +1092,7 @@ with st.sidebar:
 
 _eh_admin = auth.is_admin(usuario_logado)
 _nomes_abas = ["Análise de Viabilidade", "Triagem", "Palavras-chave", "Título",
-               "Descrição", "Imagem", "Vídeo", "Histórico", "Análise de Venda", "🏆 Placar"]
+               "Descrição", "Imagem", "Vídeo", "Histórico", "Análise de Venda", "🏆 Painel de Meta"]
 if _eh_admin:
     _nomes_abas.append("Administrativo")
 
