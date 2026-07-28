@@ -8,7 +8,6 @@ import requests
 from datetime import datetime
 import math
 import base64, os
-from capivara import get_capivara_html
 
 # ── CREDENCIAIS ────────────────────────────────────────────────────────────────
 try:
@@ -596,8 +595,7 @@ def pagina_placar(usuario_logado):
 
     agora = datetime.now()
     logo_b64 = _logo_b64()
-    from capivara import get_capivara_html
-
+    
     # ── CABEÇALHO ──────────────────────────────────────────────────────────────
     col_tit, col_mes, col_att = st.columns([3,2,1])
     with col_tit:
@@ -671,7 +669,10 @@ def pagina_placar(usuario_logado):
     col_capi, col_vel, col_metricas = st.columns([1, 2, 3])
 
     with col_capi:
-        st.markdown(get_capivara_html(estado_capi, logo_b64), unsafe_allow_html=True)
+        estado_emoji = "🏋️" if estado_capi == "treino" else ("🎉" if estado_capi == "meta" else "🕺")
+        st.markdown(f"""<div style="display:flex;align-items:center;justify-content:center;height:260px;
+            background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);border-radius:12px;
+            font-size:80px;">{estado_emoji}</div>""", unsafe_allow_html=True)
 
     with col_vel:
         st.markdown(_velocimetro_premium(pct_eq, meta_eq, saldo_eq, faltam, pct_maxx_vel), unsafe_allow_html=True)
