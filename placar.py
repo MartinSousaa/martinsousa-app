@@ -222,22 +222,22 @@ CSS="""
 def _vel_meta(pct, meta_eq, saldo_eq, faltam):
     pct_clip=min(max(pct,0),110)
     ang=math.radians(-180+min(pct_clip/100,1)*180)
-    cx,cy,r=110,105,88
+    cx,cy,r=130,125,105
     px=cx+r*math.cos(ang); py=cy+r*math.sin(ang)
-    cor="#1BAF7A"  # sempre verde
+    cor="#1BAF7A"
     perim=math.pi*r; dash=min(pct_clip/100,1)*perim
     return f"""
 <div style="text-align:center;">
-<svg viewBox="0 0 260 155" width="100%" style="display:block;margin:0 auto;overflow:visible;">
-  <path d="M18,105 A92,92 0 0 1 202,105" fill="none" stroke="var(--ms-metric-bd)" stroke-width="16" stroke-linecap="round"/>
-  <path d="M18,105 A92,92 0 0 1 202,105" fill="none" stroke="{cor}" stroke-width="16" stroke-linecap="round" stroke-dasharray="{dash:.1f} {perim:.1f}"/>
-  <line x1="{cx}" y1="{cy}" x2="{px:.1f}" y2="{py:.1f}" stroke="var(--ms-texto)" stroke-width="2.5" stroke-linecap="round"/>
-  <circle cx="{cx}" cy="{cy}" r="6" fill="var(--ms-texto)"/>
-  <circle cx="{cx}" cy="{cy}" r="2.5" fill="var(--ms-metric-bg)"/>
-  <text x="12" y="122" text-anchor="middle" font-size="8" fill="var(--ms-texto-sec)">0</text>
-  <text x="208" y="122" text-anchor="middle" font-size="8" fill="var(--ms-texto-sec)">META</text>
-  <text x="{cx}" y="{cy+8}" text-anchor="middle" font-size="28" font-weight="700" fill="{cor}">{min(pct,999):.0f}%</text>
+<svg viewBox="0 0 260 150" width="100%" style="display:block;margin:0 auto;overflow:visible;">
+  <path d="M20,120 A110,110 0 0 1 240,120" fill="none" stroke="var(--ms-metric-bd)" stroke-width="18" stroke-linecap="round"/>
+  <path d="M20,120 A110,110 0 0 1 240,120" fill="none" stroke="{cor}" stroke-width="18" stroke-linecap="round" stroke-dasharray="{dash:.1f} {perim:.1f}"/>
+  <line x1="{cx}" y1="{cy}" x2="{px:.1f}" y2="{py:.1f}" stroke="var(--ms-texto)" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="{cx}" cy="{cy}" r="7" fill="var(--ms-texto)"/>
+  <circle cx="{cx}" cy="{cy}" r="3" fill="var(--ms-metric-bg)"/>
+  <text x="13" y="142" text-anchor="middle" font-size="9" fill="var(--ms-texto-sec)">0</text>
+  <text x="247" y="142" text-anchor="middle" font-size="9" fill="var(--ms-texto-sec)">META</text>
 </svg>
+<div style="font-size:36px;font-weight:700;color:{cor};margin-top:2px;line-height:1;">{min(pct,999):.0f}%</div>
 <div class="vel-label">🏆 Meta Mensal</div>
 </div>"""
 
