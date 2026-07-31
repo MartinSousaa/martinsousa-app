@@ -497,7 +497,7 @@ def pagina_placar(usuario_logado):
     total_cards_ativos = max(d["em_andamento"] + sum(d["pend_lista"].values()), 1)
     pct_com_membro = max(0, min(100, 100 - (d["sem_membro"] / total_cards_ativos * 100)))
     pct_pen_normal = max(0, min(100, (1 - d["pen_total"]/5)*100)) if d["pen_total"] < 5 else 0
-    pct_pen_maxx = max(0, min(100, (1 - d["pen_total"]/2)*100)) if d["pen_total"] < 2 else 0
+
 
     def _barra_meta(nome, pct, desc, cor_barra):
         pct_c = min(max(pct,0),100)
