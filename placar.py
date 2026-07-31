@@ -495,8 +495,18 @@ def pagina_placar(usuario_logado):
     # Cálculos para as barras
     pct_prioritarios_ok = 100 if d["atrasados"] == 0 else max(0, 100 - d["atrasados"]*20)
     total_cards_ativos = max(d["em_andamento"] + sum(d["pend_lista"].values()), 1)
-    pct_com_membro = max(0, min(100, 100 - (d["sem_membro"] / total_cards_ativos * 100)))
-    pct_pen_normal = max(0, min(100, (1 - d["pen_total"]/5)*100)) if d["pen_total"] < 5 else 0
+    # Meta: Em Andamento e Concluídos com membro — apenas de 01/07/2026 em diante
+    from datetime import timezone as _tz
+    _corte = datetime(2026, 7, 1, tzinfo=_tz.utc)
+    _elegivel = [
+        card for card in cards
+        if _data_card(card) >= _corte
+        and ("EM ANDAMENTO" in _labels(card) or card.get("dueComplete", False))
+    ]
+    _sem_mb_novo = sum(1 for card in _elegivel if not _users(card, membros_map))
+    _total_novo = max(len(_elegivel), 1)
+    pct_com_membro = max(0, min(100, 100 - (_sem_mb_novo / _total_novo * 100)))
+
 
 
     def _barra_meta(nome, pct, desc, cor_barra):
