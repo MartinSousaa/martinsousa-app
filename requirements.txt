@@ -6,3 +6,4 @@ pandas
 requests
 google-api-python-client
 Pillow
+streamlit-autorefresh
