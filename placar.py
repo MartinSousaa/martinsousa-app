@@ -245,7 +245,7 @@ def _vel_maxx(pct_maxx, meta_maxx_pts, saldo_eq):
     """Velocímetro dourado para Meta Maxx."""
     pct_clip=min(max(pct_maxx,0),115)
     ang=math.radians(-180+min(pct_clip/100,1)*180)
-    cx,cy,r=110,105,88
+    cx,cy,r=130,125,105
     px=cx+r*math.cos(ang); py=cy+r*math.sin(ang)
     perim=math.pi*r; dash=min(pct_clip/100,1)*perim
     atingiu=saldo_eq>=meta_maxx_pts
@@ -408,14 +408,12 @@ def pagina_placar(usuario_logado):
     col_cm, col_vm, col_vx, col_cx = st.columns([2, 2, 2, 2])
 
     with col_cm:
-        st.markdown('<div style="font-size:11px;font-weight:600;color:#1BAF7A;text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px;">🏆 Meta Mensal</div>', unsafe_allow_html=True)
-        st.markdown(_card("Meta",f"{meta_eq:,}","pts/mês"), unsafe_allow_html=True)
-        st.markdown("<div style='margin-top:6px'></div>", unsafe_allow_html=True)
-        st.markdown(_card("Pontuação Atual",f"{saldo_eq:,.0f}",f"{pct_eq:.0f}% da meta",cor=cor_pts,icone="🏆"), unsafe_allow_html=True)
-        st.markdown("<div style='margin-top:6px'></div>", unsafe_allow_html=True)
-        st.markdown(_card("Faltam para Meta",f"{faltam:,.0f}","pts restantes",cor="#EDA100" if faltam>0 else "#1BAF7A"), unsafe_allow_html=True)
-        st.markdown("<div style='margin-top:6px'></div>", unsafe_allow_html=True)
-        st.markdown(_card("Pts em Aberto",f"{d['pts_pendentes']:,.0f}","cartões pendentes",cor="#EDA100",icone="🟠"), unsafe_allow_html=True)
+        st.markdown('<div style="font-size:10px;font-weight:600;color:#1BAF7A;text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px;">🏆 Meta Mensal</div>', unsafe_allow_html=True)
+        r1c=st.columns(2); r2c=st.columns(2)
+        r1c[0].markdown(_card("Meta",f"{meta_eq:,}","pts/mês"),unsafe_allow_html=True)
+        r1c[1].markdown(_card("Atual",f"{saldo_eq:,.0f}",f"{pct_eq:.0f}%",cor=cor_pts,icone="🏆"),unsafe_allow_html=True)
+        r2c[0].markdown(_card("Faltam",f"{faltam:,.0f}","pts",cor="#EDA100" if faltam>0 else "#1BAF7A"),unsafe_allow_html=True)
+        r2c[1].markdown(_card("Em aberto",f"{d['pts_pendentes']:,.0f}","pendentes",cor="#EDA100",icone="🟠"),unsafe_allow_html=True)
 
     with col_vm:
         st.markdown(_vel_meta(pct_eq, meta_eq, saldo_eq, faltam), unsafe_allow_html=True)
@@ -424,14 +422,12 @@ def pagina_placar(usuario_logado):
         st.markdown(_vel_maxx(pct_maxx, meta_maxx_pts, saldo_eq), unsafe_allow_html=True)
 
     with col_cx:
-        st.markdown('<div style="font-size:11px;font-weight:600;color:#FFD700;text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px;">⭐ Meta Maxx</div>', unsafe_allow_html=True)
-        st.markdown(_card("Meta Maxx",f"{meta_maxx_pts:,.0f}",f"{maxx_pct}% da meta normal",cor="#FFD700"), unsafe_allow_html=True)
-        st.markdown("<div style='margin-top:6px'></div>", unsafe_allow_html=True)
-        st.markdown(_card("Pontuação Atual",f"{saldo_eq:,.0f}",f"{pct_maxx:.0f}% da Maxx",cor="#FFD700" if pct_maxx>=100 else "#EDA100",icone="⭐"), unsafe_allow_html=True)
-        st.markdown("<div style='margin-top:6px'></div>", unsafe_allow_html=True)
-        st.markdown(_card("Faltam p/ Maxx",f"{faltam_maxx:,.0f}","pts para bônus",cor="#FFD700" if faltam_maxx==0 else "#EDA100"), unsafe_allow_html=True)
-        st.markdown("<div style='margin-top:6px'></div>", unsafe_allow_html=True)
-        st.markdown(_card("Bônus Maxx","+30%","remuneração total",cor="#FFD700"), unsafe_allow_html=True)
+        st.markdown('<div style="font-size:10px;font-weight:600;color:#FFD700;text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px;">⭐ Meta Maxx</div>', unsafe_allow_html=True)
+        r1x=st.columns(2); r2x=st.columns(2)
+        r1x[0].markdown(_card("Maxx",f"{meta_maxx_pts:,.0f}",f"{maxx_pct}%",cor="#FFD700"),unsafe_allow_html=True)
+        r1x[1].markdown(_card("Atual",f"{saldo_eq:,.0f}",f"{pct_maxx:.0f}%",cor="#FFD700" if pct_maxx>=100 else "#EDA100",icone="⭐"),unsafe_allow_html=True)
+        r2x[0].markdown(_card("Faltam",f"{faltam_maxx:,.0f}","pts bônus",cor="#FFD700" if faltam_maxx==0 else "#EDA100"),unsafe_allow_html=True)
+        r2x[1].markdown(_card("Bônus","+30%","remuneração",cor="#FFD700"),unsafe_allow_html=True)
 
     # ══ BLOCO 2 — STATUS ══
     st.markdown('<hr style="border:none;border-top:1px solid var(--ms-divisor);margin:10px 0 8px 0;"/>',unsafe_allow_html=True)
@@ -486,7 +482,7 @@ def pagina_placar(usuario_logado):
 
     # ══ BLOCO 4 — PENDENTES + TEMPO MÉDIO ══
     st.markdown('<hr style="border:none;border-top:1px solid var(--ms-divisor);margin:10px 0 8px 0;"/>',unsafe_allow_html=True)
-    col_pend,col_tempo=st.columns(2)
+    col_pend,col_tempo=st.columns([1,1])
 
     with col_pend:
         st.markdown("**🟠 Pendentes por Coluna**")
@@ -494,9 +490,9 @@ def pagina_placar(usuario_logado):
             max_q=max(d["pend_lista"].values())
             for nl,qtd in sorted(d["pend_lista"].items(),key=lambda x:-x[1]):
                 pct_b=qtd/max_q*100
-                st.markdown(f"""<div style="margin-bottom:7px;">
+                st.markdown(f"""<div style="margin-bottom:6px;">
                   <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--ms-texto);margin-bottom:2px;">
-                    <span>{nl[:40]}</span><span style="font-weight:700;">{qtd}</span></div>
+                    <span>{nl[:38]}</span><span style="font-weight:700;">{qtd}</span></div>
                   <div style="background:var(--ms-metric-bd);border-radius:3px;height:5px;">
                     <div style="background:#EDA100;width:{pct_b:.0f}%;height:100%;border-radius:3px;"></div>
                   </div></div>""",unsafe_allow_html=True)
@@ -508,22 +504,24 @@ def pagina_placar(usuario_logado):
         listas_t=[nl for nl in set(listas.values())
                   if nl not in LISTAS_PENALIDADE and nl!="TABELA DE PONTUAÇÃO"
                   and nl not in LISTAS_SEM_PONTUACAO]
-        cols_t=st.columns(2)
-        for i,nl in enumerate(sorted(listas_t)[:12]):
+        listas_ord=sorted(listas_t)
+        cols_t=st.columns(3)
+        for i,nl in enumerate(listas_ord[:18]):
             tempos=d["tempo_lista"].get(nl,[])
             cfg=COLUNAS_CONFIG.get(nl)
             if tempos:
                 media=sum(tempos)/len(tempos)
-                val=f"{media:.0f} min"; sub=f"{len(tempos)} demandas reais"; cor="var(--ms-texto)"
+                val=f"{media:.0f}min"; sub=f"{len(tempos)} reais"; cor="var(--ms-texto)"
             elif cfg:
-                val=f"~{cfg['tempo_min']} min"; sub="estimativa inicial"; cor="var(--ms-texto-sec)"
+                val=f"~{cfg['tempo_min']}min"; sub="estimativa"; cor="var(--ms-texto-sec)"
             else:
-                val="— min"; sub="sem dados"; cor="var(--ms-texto-sec)"
-            with cols_t[i%2]:
-                st.markdown(f"""<div style="background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);border-radius:8px;padding:8px 10px;margin-bottom:5px;">
-                  <div style="font-size:8px;color:var(--ms-texto-sec);text-transform:uppercase;margin-bottom:2px;">{nl[:24]}</div>
-                  <div style="font-size:15px;font-weight:700;color:{cor};">{val}</div>
-                  <div style="font-size:8px;color:var(--ms-texto-sec);">{sub}</div>
+                val="—"; sub="sem dados"; cor="var(--ms-texto-sec)"
+            nl_curto=nl[:20]+"…" if len(nl)>20 else nl
+            with cols_t[i%3]:
+                st.markdown(f"""<div style="background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);border-radius:6px;padding:6px 8px;margin-bottom:4px;">
+                  <div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;margin-bottom:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{nl_curto}</div>
+                  <div style="font-size:13px;font-weight:700;color:{cor};">{val}</div>
+                  <div style="font-size:7px;color:var(--ms-texto-sec);">{sub}</div>
                 </div>""",unsafe_allow_html=True)
 
     # ══ BLOCO 5 — META INDIVIDUAL ══
