@@ -525,6 +525,11 @@ def pagina_placar(usuario_logado):
   <div style="font-size:8px;color:var(--ms-texto-sec);margin-top:2px;">{desc}</div>
 </div>"""
 
+    # Cálculos penalidades — fora dos with para evitar NameError
+    qtd_pen = len(d[pen_cards])
+    pct_pen_normal = max(0, min(100, (1 - qtd_pen/4)*100))
+    pct_pen_maxx   = max(0, min(100, (1 - qtd_pen/1)*100))
+
     with col_meta_n:
         b = ""
         b += f'<div style="font-size:10px;font-weight:600;color:#1BAF7A;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">📋 Meta Coletiva</div>'
