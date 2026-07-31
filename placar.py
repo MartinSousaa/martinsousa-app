@@ -222,22 +222,22 @@ CSS="""
 def _vel_meta(pct, meta_eq, saldo_eq, faltam):
     pct_clip=min(max(pct,0),110)
     ang=math.radians(-180+min(pct_clip/100,1)*180)
-    cx,cy,r=130,125,105
+    cx,cy,r=110,105,88
     px=cx+r*math.cos(ang); py=cy+r*math.sin(ang)
-    cor="#1BAF7A"
+    cor="#1BAF7A"  # sempre verde
     perim=math.pi*r; dash=min(pct_clip/100,1)*perim
     return f"""
 <div style="text-align:center;">
-<svg viewBox="0 0 260 150" width="100%" style="display:block;margin:0 auto;overflow:visible;">
-  <path d="M20,120 A110,110 0 0 1 240,120" fill="none" stroke="var(--ms-metric-bd)" stroke-width="18" stroke-linecap="round"/>
-  <path d="M20,120 A110,110 0 0 1 240,120" fill="none" stroke="{cor}" stroke-width="18" stroke-linecap="round" stroke-dasharray="{dash:.1f} {perim:.1f}"/>
-  <line x1="{cx}" y1="{cy}" x2="{px:.1f}" y2="{py:.1f}" stroke="var(--ms-texto)" stroke-width="3" stroke-linecap="round"/>
-  <circle cx="{cx}" cy="{cy}" r="7" fill="var(--ms-texto)"/>
-  <circle cx="{cx}" cy="{cy}" r="3" fill="var(--ms-metric-bg)"/>
-  <text x="13" y="142" text-anchor="middle" font-size="9" fill="var(--ms-texto-sec)">0</text>
-  <text x="247" y="142" text-anchor="middle" font-size="9" fill="var(--ms-texto-sec)">META</text>
+<svg viewBox="0 0 260 155" width="100%" style="display:block;margin:0 auto;overflow:visible;">
+  <path d="M18,105 A92,92 0 0 1 202,105" fill="none" stroke="var(--ms-metric-bd)" stroke-width="16" stroke-linecap="round"/>
+  <path d="M18,105 A92,92 0 0 1 202,105" fill="none" stroke="{cor}" stroke-width="16" stroke-linecap="round" stroke-dasharray="{dash:.1f} {perim:.1f}"/>
+  <line x1="{cx}" y1="{cy}" x2="{px:.1f}" y2="{py:.1f}" stroke="var(--ms-texto)" stroke-width="2.5" stroke-linecap="round"/>
+  <circle cx="{cx}" cy="{cy}" r="6" fill="var(--ms-texto)"/>
+  <circle cx="{cx}" cy="{cy}" r="2.5" fill="var(--ms-metric-bg)"/>
+  <text x="12" y="122" text-anchor="middle" font-size="8" fill="var(--ms-texto-sec)">0</text>
+  <text x="208" y="122" text-anchor="middle" font-size="8" fill="var(--ms-texto-sec)">META</text>
+  <text x="{cx}" y="{cy+8}" text-anchor="middle" font-size="28" font-weight="700" fill="{cor}">{min(pct,999):.0f}%</text>
 </svg>
-<div style="font-size:36px;font-weight:700;color:{cor};margin-top:2px;line-height:1;">{min(pct,999):.0f}%</div>
 <div class="vel-label">🏆 Meta Mensal</div>
 </div>"""
 
@@ -408,29 +408,11 @@ def pagina_placar(usuario_logado):
     col_cm, col_vm, col_vx, col_cx = st.columns([2, 2, 2, 2])
 
     with col_cm:
-        st.markdown(f'''<div style="font-size:10px;font-weight:600;color:#1BAF7A;text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px;">🏆 Meta Mensal</div>
-<div style="display:flex;flex-direction:column;gap:5px;">
-  <div style="background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);border-radius:7px;padding:6px 10px;">
-    <div style="font-size:8px;color:var(--ms-texto-sec);text-transform:uppercase;letter-spacing:.4px;">Meta</div>
-    <div style="font-size:16px;font-weight:700;color:var(--ms-texto);">{meta_eq:,}</div>
-    <div style="font-size:8px;color:var(--ms-texto-sec);">pts/mês</div>
-  </div>
-  <div style="background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);border-radius:7px;padding:6px 10px;">
-    <div style="font-size:8px;color:var(--ms-texto-sec);text-transform:uppercase;letter-spacing:.4px;">🏆 Atual</div>
-    <div style="font-size:16px;font-weight:700;color:{cor_pts};">{saldo_eq:,.0f}</div>
-    <div style="font-size:8px;color:var(--ms-texto-sec);">{pct_eq:.0f}% da meta</div>
-  </div>
-  <div style="background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);border-radius:7px;padding:6px 10px;">
-    <div style="font-size:8px;color:var(--ms-texto-sec);text-transform:uppercase;letter-spacing:.4px;">Faltam</div>
-    <div style="font-size:16px;font-weight:700;color:{"#EDA100" if faltam>0 else "#1BAF7A"};">{faltam:,.0f}</div>
-    <div style="font-size:8px;color:var(--ms-texto-sec);">pts restantes</div>
-  </div>
-  <div style="background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);border-radius:7px;padding:6px 10px;">
-    <div style="font-size:8px;color:var(--ms-texto-sec);text-transform:uppercase;letter-spacing:.4px;">🟠 Em Aberto</div>
-    <div style="font-size:16px;font-weight:700;color:#EDA100;">{d["pts_pendentes"]:,.0f}</div>
-    <div style="font-size:8px;color:var(--ms-texto-sec);">cartões pendentes</div>
-  </div>
-</div>''', unsafe_allow_html=True)
+        st.markdown('<div style="font-size:10px;font-weight:600;color:#1BAF7A;text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px;">🏆 Meta Mensal</div>', unsafe_allow_html=True)
+        st.markdown(_card("Meta",f"{meta_eq:,}","pts/mês"),unsafe_allow_html=True)
+        st.markdown(_card("Atual",f"{saldo_eq:,.0f}",f"{pct_eq:.0f}% da meta",cor=cor_pts,icone="🏆"),unsafe_allow_html=True)
+        st.markdown(_card("Faltam",f"{faltam:,.0f}","pts restantes",cor="#EDA100" if faltam>0 else "#1BAF7A"),unsafe_allow_html=True)
+        st.markdown(_card("Em aberto",f"{d['pts_pendentes']:,.0f}","cartões pendentes",cor="#EDA100",icone="🟠"),unsafe_allow_html=True)
 
     with col_vm:
         st.markdown(_vel_meta(pct_eq, meta_eq, saldo_eq, faltam), unsafe_allow_html=True)
@@ -439,29 +421,11 @@ def pagina_placar(usuario_logado):
         st.markdown(_vel_maxx(pct_maxx, meta_maxx_pts, saldo_eq), unsafe_allow_html=True)
 
     with col_cx:
-        st.markdown(f'''<div style="font-size:10px;font-weight:600;color:#FFD700;text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px;">⭐ Meta Maxx</div>
-<div style="display:flex;flex-direction:column;gap:5px;">
-  <div style="background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);border-radius:7px;padding:6px 10px;">
-    <div style="font-size:8px;color:var(--ms-texto-sec);text-transform:uppercase;letter-spacing:.4px;">Maxx</div>
-    <div style="font-size:16px;font-weight:700;color:#FFD700;">{meta_maxx_pts:,.0f}</div>
-    <div style="font-size:8px;color:var(--ms-texto-sec);">{maxx_pct}% da meta normal</div>
-  </div>
-  <div style="background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);border-radius:7px;padding:6px 10px;">
-    <div style="font-size:8px;color:var(--ms-texto-sec);text-transform:uppercase;letter-spacing:.4px;">⭐ Atual</div>
-    <div style="font-size:16px;font-weight:700;color:{"#FFD700" if pct_maxx>=100 else "#EDA100"};">{saldo_eq:,.0f}</div>
-    <div style="font-size:8px;color:var(--ms-texto-sec);">{pct_maxx:.0f}% da Maxx</div>
-  </div>
-  <div style="background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);border-radius:7px;padding:6px 10px;">
-    <div style="font-size:8px;color:var(--ms-texto-sec);text-transform:uppercase;letter-spacing:.4px;">Faltam p/ Maxx</div>
-    <div style="font-size:16px;font-weight:700;color:{"#FFD700" if faltam_maxx==0 else "#EDA100"};">{faltam_maxx:,.0f}</div>
-    <div style="font-size:8px;color:var(--ms-texto-sec);">pts para bônus</div>
-  </div>
-  <div style="background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);border-radius:7px;padding:6px 10px;">
-    <div style="font-size:8px;color:var(--ms-texto-sec);text-transform:uppercase;letter-spacing:.4px;">Bônus Maxx</div>
-    <div style="font-size:16px;font-weight:700;color:#FFD700;">+30%</div>
-    <div style="font-size:8px;color:var(--ms-texto-sec);">remuneração total</div>
-  </div>
-</div>''', unsafe_allow_html=True)
+        st.markdown('<div style="font-size:10px;font-weight:600;color:#FFD700;text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px;">⭐ Meta Maxx</div>', unsafe_allow_html=True)
+        st.markdown(_card("Maxx",f"{meta_maxx_pts:,.0f}",f"{maxx_pct}% da meta normal",cor="#FFD700"),unsafe_allow_html=True)
+        st.markdown(_card("Atual",f"{saldo_eq:,.0f}",f"{pct_maxx:.0f}% da Maxx",cor="#FFD700" if pct_maxx>=100 else "#EDA100",icone="⭐"),unsafe_allow_html=True)
+        st.markdown(_card("Faltam p/ Maxx",f"{faltam_maxx:,.0f}","pts para bônus",cor="#FFD700" if faltam_maxx==0 else "#EDA100"),unsafe_allow_html=True)
+        st.markdown(_card("Bônus Maxx","+30%","remuneração total",cor="#FFD700"),unsafe_allow_html=True)
 
     # ══ BLOCO 2 — STATUS ══
     st.markdown('<hr style="border:none;border-top:1px solid var(--ms-divisor);margin:10px 0 8px 0;"/>',unsafe_allow_html=True)
@@ -597,17 +561,26 @@ def pagina_placar(usuario_logado):
             cor="#1BAF7A"
         ), unsafe_allow_html=True)
 
+    # Mapeia login do MS Studio → username do Trello
+    LOGIN_MAP = {
+        "Myrella": "myrelladesouza",
+        "Beatriz": "beatriz51",
+        "Gabriel": "gabriel_borges",
+        "MartinSousa": "martinsousa",
+    }
+    username_logado = LOGIN_MAP.get(usuario_logado, usuario_logado)
+
     if eh_master:
         cols_mi=st.columns(len(MEMBROS_ATIVOS))
         for i,(u,nome) in enumerate(MEMBROS_ATIVOS.items()):
             with cols_mi[i]:
                 pts=d["pts_membro"].get(u,0); pen=d["pen_membro"].get(u,0)
                 _render_meta_ind(u, nome, pts, pen, meta_ind)
-    elif eh_membro:
-        pts=d["pts_membro"].get(usuario_logado,0)
-        pen=d["pen_membro"].get(usuario_logado,0)
-        nome=MEMBROS_ATIVOS.get(usuario_logado,usuario_logado)
-        _render_meta_ind(usuario_logado, nome, pts, pen, meta_ind)
+    elif username_logado in MEMBROS_ATIVOS:
+        pts=d["pts_membro"].get(username_logado,0)
+        pen=d["pen_membro"].get(username_logado,0)
+        nome=MEMBROS_ATIVOS.get(username_logado,usuario_logado)
+        _render_meta_ind(username_logado, nome, pts, pen, meta_ind)
     else:
         st.caption("Meta individual disponível apenas para colaboradores.")
 
