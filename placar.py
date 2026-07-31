@@ -228,7 +228,7 @@ def _vel_meta(pct, meta_eq, saldo_eq, faltam):
     perim=math.pi*r; dash=min(pct_clip/100,1)*perim
     return f"""
 <div style="text-align:center;">
-<svg viewBox="0 0 260 150" width="100%" style="display:block;margin:0 auto;overflow:visible;">
+<svg viewBox="0 0 260 150" width="75%" style="display:block;margin:0 auto;overflow:visible;">
   <path d="M20,120 A110,110 0 0 1 240,120" fill="none" stroke="var(--ms-metric-bd)" stroke-width="18" stroke-linecap="round"/>
   <path d="M20,120 A110,110 0 0 1 240,120" fill="none" stroke="{cor}" stroke-width="18" stroke-linecap="round" stroke-dasharray="{dash:.1f} {perim:.1f}"/>
   <line x1="{cx}" y1="{cy}" x2="{px:.1f}" y2="{py:.1f}" stroke="var(--ms-texto)" stroke-width="3" stroke-linecap="round"/>
@@ -252,7 +252,7 @@ def _vel_maxx(pct_maxx, meta_maxx_pts, saldo_eq):
     # Gradiente dourado brilhante
     return f"""
 <div style="text-align:center;">
-<svg viewBox="0 0 260 150" width="100%" style="display:block;margin:0 auto;overflow:visible;">
+<svg viewBox="0 0 260 150" width="75%" style="display:block;margin:0 auto;overflow:visible;">
   <defs>
     <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="0%">
       <stop offset="0%" style="stop-color:#B8860B;stop-opacity:1"/>
@@ -405,33 +405,33 @@ def pagina_placar(usuario_logado):
     cor_pts="#1BAF7A" if pct_eq>=100 else ("#EDA100" if pct_eq>=50 else "#E34948")
 
     # ══ BLOCO 1 — cards meta | vel meta | vel maxx | cards maxx ══
-    col_cm, col_vm, col_vx, col_cx = st.columns([0.65, 3.85, 3.85, 0.65])
+    col_cm, col_vm, col_vx, col_cx = st.columns([1.8, 2.0, 2.0, 1.8])
 
     with col_cm:
         faltam_cor="#EDA100" if faltam>0 else "#1BAF7A"
         faltam_maxx_cor="#FFD700" if faltam_maxx==0 else "#EDA100"
         atual_maxx_cor="#FFD700" if pct_maxx>=100 else "#EDA100"
-        st.markdown(f"""<div style="font-size:10px;font-weight:600;color:#1BAF7A;text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px;">🏆 Meta Mensal</div>
+        st.markdown(f"""<div style="font-size:9px;font-weight:600;color:#1BAF7A;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px;">🏆 Meta Mensal</div>
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;">
-  <div style="background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);border-radius:6px;padding:5px 7px;">
-    <div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;">Meta</div>
-    <div style="font-size:13px;font-weight:700;color:var(--ms-texto);">{meta_eq:,}</div>
-    <div style="font-size:7px;color:var(--ms-texto-sec);">pts/mês</div>
+  <div style="background:#0d2e1f;border:1px solid #1BAF7A;border-radius:6px;padding:6px 8px;">
+    <div style="font-size:7px;color:#1BAF7A;text-transform:uppercase;">Meta</div>
+    <div style="font-size:13px;font-weight:700;color:#e0f5ec;">{meta_eq:,}</div>
+    <div style="font-size:7px;color:#1BAF7A;">pts/mês</div>
   </div>
-  <div style="background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);border-radius:6px;padding:5px 7px;">
-    <div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;">Atual</div>
-    <div style="font-size:13px;font-weight:700;color:{cor_pts};">{saldo_eq:,.0f}</div>
-    <div style="font-size:7px;color:var(--ms-texto-sec);">{pct_eq:.0f}% meta</div>
+  <div style="background:#2a1e05;border:1px solid #EDA100;border-radius:6px;padding:6px 8px;">
+    <div style="font-size:7px;color:#EDA100;text-transform:uppercase;">Atual</div>
+    <div style="font-size:13px;font-weight:700;color:#fae8b0;">{saldo_eq:,.0f}</div>
+    <div style="font-size:7px;color:#EDA100;">{pct_eq:.0f}% meta</div>
   </div>
-  <div style="background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);border-radius:6px;padding:5px 7px;">
-    <div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;">Faltam</div>
-    <div style="font-size:13px;font-weight:700;color:{faltam_cor};">{faltam:,.0f}</div>
-    <div style="font-size:7px;color:var(--ms-texto-sec);">pts</div>
+  <div style="background:#2a1e05;border:1px solid #EDA100;border-radius:6px;padding:6px 8px;">
+    <div style="font-size:7px;color:#EDA100;text-transform:uppercase;">Faltam</div>
+    <div style="font-size:13px;font-weight:700;color:#fae8b0;">{faltam:,.0f}</div>
+    <div style="font-size:7px;color:#EDA100;">pts</div>
   </div>
-  <div style="background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);border-radius:6px;padding:5px 7px;">
-    <div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;">Em Aberto</div>
-    <div style="font-size:13px;font-weight:700;color:#EDA100;">{d["pts_pendentes"]:,.0f}</div>
-    <div style="font-size:7px;color:var(--ms-texto-sec);">pendentes</div>
+  <div style="background:#2a1e05;border:1px solid #EDA100;border-radius:6px;padding:6px 8px;">
+    <div style="font-size:7px;color:#EDA100;text-transform:uppercase;">Em Aberto</div>
+    <div style="font-size:13px;font-weight:700;color:#fae8b0;">{d["pts_pendentes"]:,.0f}</div>
+    <div style="font-size:7px;color:#EDA100;">pendentes</div>
   </div>
 </div>""", unsafe_allow_html=True)
 
@@ -445,27 +445,27 @@ def pagina_placar(usuario_logado):
         faltam_cor="#EDA100" if faltam>0 else "#1BAF7A"
         faltam_maxx_cor="#FFD700" if faltam_maxx==0 else "#EDA100"
         atual_maxx_cor="#FFD700" if pct_maxx>=100 else "#EDA100"
-        st.markdown(f"""<div style="font-size:10px;font-weight:600;color:#FFD700;text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px;">⭐ Meta Maxx</div>
+        st.markdown(f"""<div style="font-size:9px;font-weight:600;color:#FFD700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px;">⭐ Meta Maxx</div>
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;">
-  <div style="background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);border-radius:6px;padding:5px 7px;">
-    <div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;">Maxx</div>
-    <div style="font-size:13px;font-weight:700;color:#FFD700;">{meta_maxx_pts:,.0f}</div>
-    <div style="font-size:7px;color:var(--ms-texto-sec);">{maxx_pct}% meta</div>
+  <div style="background:#2a2000;border:1px solid #FFD700;border-radius:6px;padding:6px 8px;">
+    <div style="font-size:7px;color:#FFD700;text-transform:uppercase;">Maxx</div>
+    <div style="font-size:13px;font-weight:700;color:#fff5cc;">{meta_maxx_pts:,.0f}</div>
+    <div style="font-size:7px;color:#FFD700;">{maxx_pct}% meta</div>
   </div>
-  <div style="background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);border-radius:6px;padding:5px 7px;">
-    <div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;">Atual</div>
-    <div style="font-size:13px;font-weight:700;color:{atual_maxx_cor};">{saldo_eq:,.0f}</div>
-    <div style="font-size:7px;color:var(--ms-texto-sec);">{pct_maxx:.0f}% Maxx</div>
+  <div style="background:#2a1e05;border:1px solid #EDA100;border-radius:6px;padding:6px 8px;">
+    <div style="font-size:7px;color:#EDA100;text-transform:uppercase;">Atual</div>
+    <div style="font-size:13px;font-weight:700;color:#fae8b0;">{saldo_eq:,.0f}</div>
+    <div style="font-size:7px;color:#EDA100;">{pct_maxx:.0f}% Maxx</div>
   </div>
-  <div style="background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);border-radius:6px;padding:5px 7px;">
-    <div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;">Faltam</div>
-    <div style="font-size:13px;font-weight:700;color:{faltam_maxx_cor};">{faltam_maxx:,.0f}</div>
-    <div style="font-size:7px;color:var(--ms-texto-sec);">p/ bônus</div>
+  <div style="background:#2a1e05;border:1px solid #EDA100;border-radius:6px;padding:6px 8px;">
+    <div style="font-size:7px;color:#EDA100;text-transform:uppercase;">Faltam</div>
+    <div style="font-size:13px;font-weight:700;color:#fae8b0;">{faltam_maxx:,.0f}</div>
+    <div style="font-size:7px;color:#EDA100;">p/ bônus</div>
   </div>
-  <div style="background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);border-radius:6px;padding:5px 7px;">
-    <div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;">Bônus</div>
-    <div style="font-size:13px;font-weight:700;color:#FFD700;">+30%</div>
-    <div style="font-size:7px;color:var(--ms-texto-sec);">remuneração</div>
+  <div style="background:#2a2000;border:1px solid #FFD700;border-radius:6px;padding:6px 8px;">
+    <div style="font-size:7px;color:#FFD700;text-transform:uppercase;">Bônus</div>
+    <div style="font-size:13px;font-weight:700;color:#fff5cc;">+30%</div>
+    <div style="font-size:7px;color:#FFD700;">remuneração</div>
   </div>
 </div>""", unsafe_allow_html=True)
 
