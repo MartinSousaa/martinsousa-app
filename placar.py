@@ -392,7 +392,7 @@ def pagina_placar(usuario_logado):
     with col_and:
         st.markdown('<div class="pm-label" style="margin-bottom:6px;">▶️ EM ANDAMENTO AGORA</div>', unsafe_allow_html=True)
         if d["andamento_lista"]:
-            for c in d["andamento_lista"][:6]:
+            for c in d["andamento_lista"]:
                 ms = ", ".join(MEMBROS_ATIVOS.get(u,u) for u in c["membros"]) or "—"
                 st.markdown(f"""<div class="pm-andamento-card">
                   <div style="font-size:12px;font-weight:600;color:var(--ms-texto);">{c['card'][:55]}</div>
