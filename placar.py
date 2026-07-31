@@ -252,7 +252,7 @@ def _vel_maxx(pct_maxx, meta_maxx_pts, saldo_eq):
     # Gradiente dourado brilhante
     return f"""
 <div style="text-align:center;">
-<svg viewBox="0 0 260 155" width="100%" style="display:block;margin:0 auto;overflow:visible;">
+<svg viewBox="0 0 260 150" width="100%" style="display:block;margin:0 auto;overflow:visible;">
   <defs>
     <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="0%">
       <stop offset="0%" style="stop-color:#B8860B;stop-opacity:1"/>
@@ -266,14 +266,14 @@ def _vel_maxx(pct_maxx, meta_maxx_pts, saldo_eq):
       <feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
   </defs>
-  <path d="M20,125 A110,110 0 0 1 240,125" fill="none" stroke="var(--ms-metric-bd)" stroke-width="18" stroke-linecap="round"/>
-  <path d="M20,125 A110,110 0 0 1 240,125" fill="none" stroke="url(#goldGrad)" stroke-width="18" stroke-linecap="round"
+  <path d="M20,120 A110,110 0 0 1 240,120" fill="none" stroke="var(--ms-metric-bd)" stroke-width="18" stroke-linecap="round"/>
+  <path d="M20,120 A110,110 0 0 1 240,120" fill="none" stroke="url(#goldGrad)" stroke-width="18" stroke-linecap="round"
         stroke-dasharray="{dash:.1f} {perim:.1f}" filter="url(#glow)"/>
   <line x1="{cx}" y1="{cy}" x2="{px:.1f}" y2="{py:.1f}" stroke="#FFD700" stroke-width="3" stroke-linecap="round" filter="url(#glow)"/>
   <circle cx="{cx}" cy="{cy}" r="7" fill="#FFD700" filter="url(#glow)"/>
   <circle cx="{cx}" cy="{cy}" r="3" fill="var(--ms-metric-bg)"/>
-  <text x="13" y="148" text-anchor="middle" font-size="9" fill="#B8860B">0</text>
-  <text x="247" y="148" text-anchor="middle" font-size="9" fill="#B8860B">MAXX</text>
+  <text x="13" y="142" text-anchor="middle" font-size="9" fill="#B8860B">0</text>
+  <text x="247" y="142" text-anchor="middle" font-size="9" fill="#B8860B">MAXX</text>
 </svg>
 <div style="font-size:36px;font-weight:700;color:#FFD700;margin-top:2px;line-height:1;filter:drop-shadow(0 0 8px #FFD700);">{min(pct_maxx,999):.0f}%</div>
 <div class="vel-label" style="color:#FFD700;">{"⭐ META MAXX ATINGIDA!" if atingiu else "⭐ Meta Maxx"}</div>
@@ -409,11 +409,10 @@ def pagina_placar(usuario_logado):
 
     with col_cm:
         st.markdown('<div style="font-size:10px;font-weight:600;color:#1BAF7A;text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px;">🏆 Meta Mensal</div>', unsafe_allow_html=True)
-        r1c=st.columns(2); r2c=st.columns(2)
-        r1c[0].markdown(_card("Meta",f"{meta_eq:,}","pts/mês"),unsafe_allow_html=True)
-        r1c[1].markdown(_card("Atual",f"{saldo_eq:,.0f}",f"{pct_eq:.0f}%",cor=cor_pts,icone="🏆"),unsafe_allow_html=True)
-        r2c[0].markdown(_card("Faltam",f"{faltam:,.0f}","pts",cor="#EDA100" if faltam>0 else "#1BAF7A"),unsafe_allow_html=True)
-        r2c[1].markdown(_card("Em aberto",f"{d['pts_pendentes']:,.0f}","pendentes",cor="#EDA100",icone="🟠"),unsafe_allow_html=True)
+        st.markdown(_card("Meta",f"{meta_eq:,}","pts/mês"),unsafe_allow_html=True)
+        st.markdown(_card("Atual",f"{saldo_eq:,.0f}",f"{pct_eq:.0f}% da meta",cor=cor_pts,icone="🏆"),unsafe_allow_html=True)
+        st.markdown(_card("Faltam",f"{faltam:,.0f}","pts restantes",cor="#EDA100" if faltam>0 else "#1BAF7A"),unsafe_allow_html=True)
+        st.markdown(_card("Em aberto",f"{d['pts_pendentes']:,.0f}","cartões pendentes",cor="#EDA100",icone="🟠"),unsafe_allow_html=True)
 
     with col_vm:
         st.markdown(_vel_meta(pct_eq, meta_eq, saldo_eq, faltam), unsafe_allow_html=True)
@@ -423,11 +422,10 @@ def pagina_placar(usuario_logado):
 
     with col_cx:
         st.markdown('<div style="font-size:10px;font-weight:600;color:#FFD700;text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px;">⭐ Meta Maxx</div>', unsafe_allow_html=True)
-        r1x=st.columns(2); r2x=st.columns(2)
-        r1x[0].markdown(_card("Maxx",f"{meta_maxx_pts:,.0f}",f"{maxx_pct}%",cor="#FFD700"),unsafe_allow_html=True)
-        r1x[1].markdown(_card("Atual",f"{saldo_eq:,.0f}",f"{pct_maxx:.0f}%",cor="#FFD700" if pct_maxx>=100 else "#EDA100",icone="⭐"),unsafe_allow_html=True)
-        r2x[0].markdown(_card("Faltam",f"{faltam_maxx:,.0f}","pts bônus",cor="#FFD700" if faltam_maxx==0 else "#EDA100"),unsafe_allow_html=True)
-        r2x[1].markdown(_card("Bônus","+30%","remuneração",cor="#FFD700"),unsafe_allow_html=True)
+        st.markdown(_card("Maxx",f"{meta_maxx_pts:,.0f}",f"{maxx_pct}% da meta normal",cor="#FFD700"),unsafe_allow_html=True)
+        st.markdown(_card("Atual",f"{saldo_eq:,.0f}",f"{pct_maxx:.0f}% da Maxx",cor="#FFD700" if pct_maxx>=100 else "#EDA100",icone="⭐"),unsafe_allow_html=True)
+        st.markdown(_card("Faltam p/ Maxx",f"{faltam_maxx:,.0f}","pts para bônus",cor="#FFD700" if faltam_maxx==0 else "#EDA100"),unsafe_allow_html=True)
+        st.markdown(_card("Bônus Maxx","+30%","remuneração total",cor="#FFD700"),unsafe_allow_html=True)
 
     # ══ BLOCO 2 — STATUS ══
     st.markdown('<hr style="border:none;border-top:1px solid var(--ms-divisor);margin:10px 0 8px 0;"/>',unsafe_allow_html=True)
@@ -518,10 +516,12 @@ def pagina_placar(usuario_logado):
                 val="—"; sub="sem dados"; cor="var(--ms-texto-sec)"
             nl_curto=nl[:20]+"…" if len(nl)>20 else nl
             with cols_t[i%3]:
-                st.markdown(f"""<div style="background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);border-radius:6px;padding:6px 8px;margin-bottom:4px;">
-                  <div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;margin-bottom:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{nl_curto}</div>
-                  <div style="font-size:13px;font-weight:700;color:{cor};">{val}</div>
-                  <div style="font-size:7px;color:var(--ms-texto-sec);">{sub}</div>
+                st.markdown(f"""<div style="background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);border-radius:6px;padding:6px 8px;margin-bottom:4px;display:flex;align-items:center;justify-content:space-between;gap:4px;">
+                  <div style="flex:1;min-width:0;">
+                    <div style="font-size:8px;color:var(--ms-texto-sec);text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{nl_curto}</div>
+                    <div style="font-size:7px;color:var(--ms-texto-sec);margin-top:1px;">{sub}</div>
+                  </div>
+                  <div style="font-size:14px;font-weight:700;color:{cor};white-space:nowrap;text-align:right;">{val}</div>
                 </div>""",unsafe_allow_html=True)
 
     # ══ BLOCO 5 — META INDIVIDUAL ══
