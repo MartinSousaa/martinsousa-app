@@ -198,10 +198,10 @@ def _processar(listas,cards,membros_map,id_p,id_t,id_i,filtro_mes=None):
 # ── CSS ────────────────────────────────────────────────────────────────────────
 CSS="""
 <style>
-.pm-card{background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;justify-content:center;min-height:72px;}
-.pm-label{font-size:9px;color:var(--ms-texto-sec);text-transform:uppercase;letter-spacing:.6px;margin-bottom:3px;}
-.pm-value{font-size:22px;font-weight:700;line-height:1.1;}
-.pm-sub{font-size:9px;color:var(--ms-texto-sec);margin-top:2px;}
+.pm-card{background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);border-radius:8px;padding:8px 12px;display:flex;flex-direction:column;justify-content:center;min-height:48px;}
+.pm-label{font-size:8px;color:var(--ms-texto-sec);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px;}
+.pm-value{font-size:16px;font-weight:700;line-height:1.1;}
+.pm-sub{font-size:8px;color:var(--ms-texto-sec);margin-top:1px;}
 .pm-sc{background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);border-radius:10px;padding:8px 6px;text-align:center;min-height:80px;display:flex;flex-direction:column;justify-content:center;align-items:center;}
 .pm-badge{font-size:8px;font-weight:600;padding:2px 6px;border-radius:3px;margin-top:3px;display:inline-block;}
 .fila-card{border-left:4px solid;border-radius:0 8px 8px 0;padding:9px 12px;margin-bottom:5px;display:flex;align-items:center;gap:10px;background:var(--ms-metric-bg);}
@@ -228,7 +228,7 @@ def _vel_meta(pct, meta_eq, saldo_eq, faltam):
     perim=math.pi*r; dash=min(pct_clip/100,1)*perim
     return f"""
 <div style="text-align:center;">
-<svg viewBox="0 0 220 140" width="100%" style="max-width:260px;display:block;margin:0 auto;overflow:visible;">
+<svg viewBox="0 0 260 155" width="100%" style="display:block;margin:0 auto;overflow:visible;">
   <path d="M18,105 A92,92 0 0 1 202,105" fill="none" stroke="var(--ms-metric-bd)" stroke-width="16" stroke-linecap="round"/>
   <path d="M18,105 A92,92 0 0 1 202,105" fill="none" stroke="{cor}" stroke-width="16" stroke-linecap="round" stroke-dasharray="{dash:.1f} {perim:.1f}"/>
   <line x1="{cx}" y1="{cy}" x2="{px:.1f}" y2="{py:.1f}" stroke="var(--ms-texto)" stroke-width="2.5" stroke-linecap="round"/>
@@ -252,7 +252,7 @@ def _vel_maxx(pct_maxx, meta_maxx_pts, saldo_eq):
     # Gradiente dourado brilhante
     return f"""
 <div style="text-align:center;">
-<svg viewBox="0 0 220 140" width="100%" style="max-width:260px;display:block;margin:0 auto;overflow:visible;">
+<svg viewBox="0 0 260 155" width="100%" style="display:block;margin:0 auto;overflow:visible;">
   <defs>
     <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="0%">
       <stop offset="0%" style="stop-color:#B8860B;stop-opacity:1"/>
@@ -266,16 +266,16 @@ def _vel_maxx(pct_maxx, meta_maxx_pts, saldo_eq):
       <feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
   </defs>
-  <path d="M18,105 A92,92 0 0 1 202,105" fill="none" stroke="var(--ms-metric-bd)" stroke-width="16" stroke-linecap="round"/>
-  <path d="M18,105 A92,92 0 0 1 202,105" fill="none" stroke="url(#goldGrad)" stroke-width="16" stroke-linecap="round"
+  <path d="M20,125 A110,110 0 0 1 240,125" fill="none" stroke="var(--ms-metric-bd)" stroke-width="18" stroke-linecap="round"/>
+  <path d="M20,125 A110,110 0 0 1 240,125" fill="none" stroke="url(#goldGrad)" stroke-width="18" stroke-linecap="round"
         stroke-dasharray="{dash:.1f} {perim:.1f}" filter="url(#glow)"/>
-  <line x1="{cx}" y1="{cy}" x2="{px:.1f}" y2="{py:.1f}" stroke="#FFD700" stroke-width="2.5" stroke-linecap="round" filter="url(#glow)"/>
-  <circle cx="{cx}" cy="{cy}" r="6" fill="#FFD700" filter="url(#glow)"/>
-  <circle cx="{cx}" cy="{cy}" r="2.5" fill="var(--ms-metric-bg)"/>
-  <text x="12" y="122" text-anchor="middle" font-size="8" fill="#B8860B">0</text>
-  <text x="208" y="122" text-anchor="middle" font-size="8" fill="#B8860B">MAXX</text>
-  <text x="{cx}" y="{cy+8}" text-anchor="middle" font-size="28" font-weight="700" fill="#FFD700" filter="url(#glow)">{min(pct_maxx,999):.0f}%</text>
+  <line x1="{cx}" y1="{cy}" x2="{px:.1f}" y2="{py:.1f}" stroke="#FFD700" stroke-width="3" stroke-linecap="round" filter="url(#glow)"/>
+  <circle cx="{cx}" cy="{cy}" r="7" fill="#FFD700" filter="url(#glow)"/>
+  <circle cx="{cx}" cy="{cy}" r="3" fill="var(--ms-metric-bg)"/>
+  <text x="13" y="148" text-anchor="middle" font-size="9" fill="#B8860B">0</text>
+  <text x="247" y="148" text-anchor="middle" font-size="9" fill="#B8860B">MAXX</text>
 </svg>
+<div style="font-size:36px;font-weight:700;color:#FFD700;margin-top:2px;line-height:1;filter:drop-shadow(0 0 8px #FFD700);">{min(pct_maxx,999):.0f}%</div>
 <div class="vel-label" style="color:#FFD700;">{"⭐ META MAXX ATINGIDA!" if atingiu else "⭐ Meta Maxx"}</div>
 </div>"""
 
