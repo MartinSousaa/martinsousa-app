@@ -526,7 +526,7 @@ def pagina_placar(usuario_logado):
 </div>"""
 
     # Cálculos penalidades — fora dos with para evitar NameError
-    qtd_pen = len(d[pen_cards])
+    qtd_pen = len(d["pen_cards"])
     pct_pen_normal = max(0, min(100, (1 - qtd_pen/4)*100))
     pct_pen_maxx   = max(0, min(100, (1 - qtd_pen/1)*100))
 
