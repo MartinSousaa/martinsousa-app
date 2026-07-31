@@ -437,53 +437,9 @@ def pagina_placar(usuario_logado):
 
     with col_vm:
         st.markdown(_vel_meta(pct_eq, meta_eq, saldo_eq, faltam), unsafe_allow_html=True)
-        # Metas coletivas com barra de progresso
-        pct_retrabalho = max(0, 100 - (d["falta_conf"] / max(d["abertos"],1) * 100))
-        pct_pen = max(0, 100 - (d["pen_total"] / 5 * 100)) if d["pen_total"] < 5 else 0
-        pct_com_membro = max(0, 100 - (d["sem_membro"] / max(d["abertos"],1) * 100))
-        pct_prioritarios = 100 if d["atrasados"] == 0 else max(0, 100 - d["atrasados"]*20)
-        metas_col = [
-            ("Pontuação do mês", pct_eq, f"{saldo_eq:,.0f} / {meta_eq:,} pts"),
-            ("Sem atraso em prioritários P8-P10", pct_prioritarios, "0 atrasados = 100%"),
-            ("Retrabalho < 10%", min(pct_retrabalho,100), "Coluna Correção de Fotos"),
-            ("Menos de 5 penalidades", pct_pen if d["pen_total"]<5 else 0, f"{len(d['pen_cards'])} ocorrências / máx 4"),
-            ("Cartões com membro atribuído", min(pct_com_membro,100), "Em andamento e concluídos"),
-        ]
-        blocos = ""
-        for titulo, pct, desc in metas_col:
-            pct_c = min(max(pct,0),100)
-            cor = "#1BAF7A" if pct_c>=100 else ("#EDA100" if pct_c>=50 else "#E34948")
-            blocos += f"""<div style="margin-bottom:7px;">
-  <div style="display:flex;justify-content:space-between;font-size:10px;margin-bottom:2px;">
-    <span style="color:var(--ms-texto);font-weight:500;">{titulo}</span>
-    <span style="color:{cor};font-weight:700;">{pct_c:.0f}%</span>
-  </div>
-  <div style="background:var(--ms-metric-bd);border-radius:3px;height:5px;overflow:hidden;">
-    <div style="background:{cor};width:{pct_c:.1f}%;height:100%;border-radius:3px;"></div>
-  </div>
-  <div style="font-size:8px;color:var(--ms-texto-sec);margin-top:1px;">{desc}</div>
-</div>"""
-        st.markdown(f'<div style="margin-top:10px;padding:10px 12px;background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);border-radius:8px;"><div style="font-size:9px;font-weight:600;color:#1BAF7A;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">📋 Metas Coletivas</div>{blocos}</div>', unsafe_allow_html=True)
 
     with col_vx:
         st.markdown(_vel_maxx(pct_maxx, meta_maxx_pts, saldo_eq), unsafe_allow_html=True)
-        # Metas individuais — somente informativo
-        metas_ind = [
-            ("Superar pontuação do mês anterior", "Meta: bater os pts do mês passado"),
-            ("Ociosidade abaixo de 10%", "Cruzamento com relógio de ponto"),
-            ("Tempo médio abaixo do estimado", "IA calcula com base no histórico"),
-            ("Pontualidade: máx 15 tolerâncias e 10 atrasos", "Contagem mensal de ponto"),
-        ]
-        blocos_ind = ""
-        for titulo, desc in metas_ind:
-            blocos_ind += f"""<div style="margin-bottom:7px;">
-  <div style="font-size:10px;color:var(--ms-texto);font-weight:500;margin-bottom:2px;">{titulo}</div>
-  <div style="background:var(--ms-metric-bd);border-radius:3px;height:5px;overflow:hidden;">
-    <div style="background:#2A78D6;width:100%;height:100%;border-radius:3px;opacity:.4;"></div>
-  </div>
-  <div style="font-size:8px;color:var(--ms-texto-sec);margin-top:1px;">{desc}</div>
-</div>"""
-        st.markdown(f'<div style="margin-top:10px;padding:10px 12px;background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);border-radius:8px;"><div style="font-size:9px;font-weight:600;color:#FFD700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">🎯 Metas Individuais</div>{blocos_ind}</div>', unsafe_allow_html=True)
 
     with col_cx:
         faltam_cor="#EDA100" if faltam>0 else "#1BAF7A"
