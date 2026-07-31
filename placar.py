@@ -437,9 +437,53 @@ def pagina_placar(usuario_logado):
 
     with col_vm:
         st.markdown(_vel_meta(pct_eq, meta_eq, saldo_eq, faltam), unsafe_allow_html=True)
+        # Metas coletivas com barra de progresso
+        pct_retrabalho = max(0, 100 - (d["falta_conf"] / max(d["abertos"],1) * 100))
+        pct_pen = max(0, 100 - (d["pen_total"] / 5 * 100)) if d["pen_total"] < 5 else 0
+        pct_com_membro = max(0, 100 - (d["sem_membro"] / max(d["abertos"],1) * 100))
+        pct_prioritarios = 100 if d["atrasados"] == 0 else max(0, 100 - d["atrasados"]*20)
+        metas_col = [
+            ("Pontuação do mês", pct_eq, f"{saldo_eq:,.0f} / {meta_eq:,} pts"),
+            ("Sem atraso em prioritários P8-P10", pct_prioritarios, "0 atrasados = 100%"),
+            ("Retrabalho < 10%", min(pct_retrabalho,100), "Coluna Correção de Fotos"),
+            ("Menos de 5 penalidades", pct_pen if d["pen_total"]<5 else 0, f"{len(d['pen_cards'])} ocorrências / máx 4"),
+            ("Cartões com membro atribuído", min(pct_com_membro,100), "Em andamento e concluídos"),
+        ]
+        blocos = ""
+        for titulo, pct, desc in metas_col:
+            pct_c = min(max(pct,0),100)
+            cor = "#1BAF7A" if pct_c>=100 else ("#EDA100" if pct_c>=50 else "#E34948")
+            blocos += f"""<div style="margin-bottom:7px;">
+  <div style="display:flex;justify-content:space-between;font-size:10px;margin-bottom:2px;">
+    <span style="color:var(--ms-texto);font-weight:500;">{titulo}</span>
+    <span style="color:{cor};font-weight:700;">{pct_c:.0f}%</span>
+  </div>
+  <div style="background:var(--ms-metric-bd);border-radius:3px;height:5px;overflow:hidden;">
+    <div style="background:{cor};width:{pct_c:.1f}%;height:100%;border-radius:3px;"></div>
+  </div>
+  <div style="font-size:8px;color:var(--ms-texto-sec);margin-top:1px;">{desc}</div>
+</div>"""
+        st.markdown(f'<div style="margin-top:10px;padding:10px 12px;background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);border-radius:8px;"><div style="font-size:9px;font-weight:600;color:#1BAF7A;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">📋 Metas Coletivas</div>{blocos}</div>', unsafe_allow_html=True)
 
     with col_vx:
         st.markdown(_vel_maxx(pct_maxx, meta_maxx_pts, saldo_eq), unsafe_allow_html=True)
+        # Metas individuais — somente informativo
+        metas_ind = [
+            ("Superar pontuação do mês anterior", "Meta: bater os pts do mês passado"),
+            ("Ociosidade abaixo de 10%", "Cruzamento com relógio de ponto"),
+            ("Tempo médio abaixo do estimado", "IA calcula com base no histórico"),
+            ("Pontualidade: máx 15 tolerâncias e 10 atrasos", "Contagem mensal de ponto"),
+        ]
+        blocos_ind = ""
+        for titulo, desc in metas_ind:
+            blocos_ind += f"""<div style="margin-bottom:7px;">
+  <div style="font-size:10px;color:var(--ms-texto);font-weight:500;margin-bottom:2px;">{titulo}</div>
+  <div style="background:var(--ms-metric-bd);border-radius:3px;height:5px;overflow:hidden;">
+    <div style="background:#2A78D6;width:100%;height:100%;border-radius:3px;opacity:.4;"></div>
+  </div>
+  <div style="font-size:8px;color:var(--ms-texto-sec);margin-top:1px;">{desc}</div>
+</div>"""
+        st.markdown(f'<div style="margin-top:10px;padding:10px 12px;background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);border-radius:8px;"><div style="font-size:9px;font-weight:600;color:#FFD700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">🎯 Metas Individuais</div>{blocos_ind}</div>', unsafe_allow_html=True)
 
     with col_cx:
         faltam_cor="#EDA100" if faltam>0 else "#1BAF7A"
@@ -487,6 +531,76 @@ def pagina_placar(usuario_logado):
     cols_st=st.columns(11)
     for i,(lbl,val,badge,cn,bb,bt) in enumerate(status_items):
         with cols_st[i]: st.markdown(_sc(lbl,val,badge,cn,bb,bt),unsafe_allow_html=True)
+
+    # ══ BLOCO METAS — ponta a ponta ══
+    st.markdown('<hr style="border:none;border-top:1px solid var(--ms-divisor);margin:10px 0 8px 0;"/>',unsafe_allow_html=True)
+    col_meta_n, col_meta_x = st.columns(2)
+
+    # Cálculos para as barras
+    pct_prioritarios_ok = 100 if d["atrasados"] == 0 else max(0, 100 - d["atrasados"]*20)
+    total_cards_ativos = max(d["em_andamento"] + sum(d["pend_lista"].values()), 1)
+    pct_com_membro = max(0, min(100, 100 - (d["sem_membro"] / total_cards_ativos * 100)))
+    pct_pen_normal = max(0, min(100, (1 - d["pen_total"]/5)*100)) if d["pen_total"] < 5 else 0
+    pct_pen_maxx = max(0, min(100, (1 - d["pen_total"]/2)*100)) if d["pen_total"] < 2 else 0
+
+    def _barra_meta(nome, pct, desc, cor_barra):
+        pct_c = min(max(pct,0),100)
+        return f"""<div style="margin-bottom:8px;">
+  <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px;">
+    <span style="color:var(--ms-texto);">{nome}</span>
+    <span style="color:{cor_barra};font-weight:700;">{pct_c:.0f}%</span>
+  </div>
+  <div style="background:var(--ms-metric-bd);border-radius:3px;height:5px;overflow:hidden;">
+    <div style="background:{cor_barra};width:{pct_c:.1f}%;height:100%;border-radius:3px;"></div>
+  </div>
+  <div style="font-size:8px;color:var(--ms-texto-sec);margin-top:2px;">{desc}</div>
+</div>"""
+
+    def _barra_aguardando(nome, desc, cor_barra):
+        return f"""<div style="margin-bottom:8px;">
+  <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px;">
+    <span style="color:var(--ms-texto);">{nome}</span>
+    <span style="color:#555;font-weight:700;">—</span>
+  </div>
+  <div style="background:var(--ms-metric-bd);border-radius:3px;height:5px;overflow:hidden;">
+    <div style="background:{cor_barra};width:100%;height:100%;border-radius:3px;opacity:.2;"></div>
+  </div>
+  <div style="font-size:8px;color:var(--ms-texto-sec);margin-top:2px;">{desc}</div>
+</div>"""
+
+    with col_meta_n:
+        b = ""
+        b += f'<div style="font-size:10px;font-weight:600;color:#1BAF7A;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">📋 Meta Coletiva</div>'
+        b += _barra_meta("Pontuação do mês", pct_eq, f"{saldo_eq:,.0f} / {meta_eq:,} pts", "#1BAF7A")
+        b += _barra_meta("Sem atraso em prioritários P8-P10", pct_prioritarios_ok, "Nenhum cartão prioritário atrasado", "#1BAF7A")
+        b += _barra_meta("Retrabalho abaixo de 10%", 100, "Coluna Correção de Fotos", "#1BAF7A")
+        cor_pen_n = "#E34948" if len(d["pen_cards"]) > 0 else "#1BAF7A"
+        b += _barra_meta("Menos de 5 penalidades", pct_pen_normal, f"{len(d['pen_cards'])} ocorrências / máx 4", cor_pen_n)
+        b += _barra_meta("Cartões com membro atribuído", pct_com_membro, "Em andamento e concluídos", "#1BAF7A")
+        b += f'<div style="font-size:10px;font-weight:600;color:#1BAF7A;text-transform:uppercase;letter-spacing:.5px;margin:10px 0 8px 0;border-top:1px solid var(--ms-divisor);padding-top:8px;">🎯 Meta Individual</div>'
+        b += _barra_aguardando("Superar pontuação do mês anterior", "Aguardando dados do mês anterior", "#1BAF7A")
+        b += _barra_aguardando("Ociosidade abaixo de 10%", "Aguardando relógio de ponto", "#1BAF7A")
+        b += _barra_aguardando("Tempo médio abaixo do estimado", "Aguardando histórico de execução", "#1BAF7A")
+        b += _barra_meta("Pontualidade: máx 15 tolerâncias", 100, "0 tolerâncias usadas este mês", "#1BAF7A")
+        b += _barra_meta("Pontualidade: máx 10 atrasos", 100, "0 atrasos registrados este mês", "#1BAF7A")
+        st.markdown(f'<div style="background:var(--ms-metric-bg);border:1px solid #1BAF7A22;border-radius:8px;padding:12px 14px;">{b}</div>', unsafe_allow_html=True)
+
+    with col_meta_x:
+        b = ""
+        b += f'<div style="font-size:10px;font-weight:600;color:#FFD700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">⭐ Meta Maxx Coletiva</div>'
+        b += _barra_meta("Pontuação +10% acima da meta", pct_maxx, f"{saldo_eq:,.0f} / {meta_maxx_pts:,.0f} pts", "#FFD700")
+        b += _barra_meta("Zero prioritários em atraso", pct_prioritarios_ok, "Nenhum cartão prioritário atrasado", "#FFD700")
+        b += _barra_meta("Retrabalho abaixo de 5%", 100, "Coluna Correção de Fotos", "#FFD700")
+        cor_pen_x = "#E34948" if len(d["pen_cards"]) > 0 else "#FFD700"
+        b += _barra_meta("Menos de 2 penalidades", pct_pen_maxx, f"{len(d['pen_cards'])} ocorrências / máx 1", cor_pen_x)
+        b += f'<div style="height:32px;"></div>'
+        b += f'<div style="font-size:10px;font-weight:600;color:#FFD700;text-transform:uppercase;letter-spacing:.5px;margin:10px 0 8px 0;border-top:1px solid var(--ms-divisor);padding-top:8px;">⭐ Meta Maxx Individual</div>'
+        b += _barra_aguardando("Superar pontuação do mês anterior", "Aguardando dados do mês anterior", "#FFD700")
+        b += _barra_aguardando("Ociosidade abaixo de 5%", "Aguardando relógio de ponto", "#FFD700")
+        b += _barra_aguardando("Tempo médio abaixo do estimado", "Aguardando histórico de execução", "#FFD700")
+        b += _barra_meta("Pontualidade: máx 7 tolerâncias", 100, "0 tolerâncias usadas este mês", "#FFD700")
+        b += _barra_meta("Pontualidade: máx 5 atrasos", 100, "0 atrasos registrados este mês", "#FFD700")
+        st.markdown(f'<div style="background:var(--ms-metric-bg);border:1px solid #FFD70022;border-radius:8px;padding:12px 14px;">{b}</div>', unsafe_allow_html=True)
 
     # ══ BLOCO 3 — EM ANDAMENTO | FILA | DESEMPENHO ══
     st.markdown('<hr style="border:none;border-top:1px solid var(--ms-divisor);margin:10px 0 8px 0;"/>',unsafe_allow_html=True)
@@ -602,6 +716,36 @@ def pagina_placar(usuario_logado):
             100, "0 atrasos registrados — Aguardando integração do ponto",
             cor="#1BAF7A"
         ), unsafe_allow_html=True)
+
+        # Calculadora de ganhos no rodapé
+        saldo_i = pts - pen
+        pct_i = min((saldo_i / meta_ind * 100), 100) if meta_ind > 0 else 0
+        st.markdown('<div style="margin-top:4px;"></div>', unsafe_allow_html=True)
+        salario = st.number_input(
+            "💰 Informe seu salário base para calcular seus ganhos mensais até o momento:",
+            min_value=0.0, value=0.0, step=100.0,
+            format="%.2f", key=f"salario_{username}",
+            label_visibility="visible"
+        )
+        if salario > 0:
+            # Meta Normal: coletiva 12%, individual 8%
+            bonus_col = salario * 0.12 * (pct_eq / 100)
+            bonus_ind = salario * 0.08 * (pct_i / 100)
+            # Meta Maxx: coletiva +5%, individual +5%
+            bonus_maxx_col = salario * 0.05 * (pct_maxx / 100)
+            bonus_maxx_ind = salario * 0.05 * (pct_i / 100) * (pct_maxx / 100)
+            total = salario + bonus_col + bonus_ind + bonus_maxx_col + bonus_maxx_ind
+            cor_total = "#FFD700" if pct_maxx > 0 else "#1BAF7A"
+            st.markdown(f"""<div style="background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);border-radius:8px;padding:10px 12px;margin-top:6px;">
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr 1fr;gap:6px;">
+    <div><div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;">Salário Base</div><div style="font-size:13px;font-weight:700;color:var(--ms-texto);">R$ {salario:,.2f}</div></div>
+    <div><div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;">Bônus Coletivo</div><div style="font-size:13px;font-weight:700;color:#1BAF7A;">+R$ {bonus_col:,.2f}</div><div style="font-size:7px;color:var(--ms-texto-sec);">{pct_eq:.0f}% de 12%</div></div>
+    <div><div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;">Bônus Individual</div><div style="font-size:13px;font-weight:700;color:#1BAF7A;">+R$ {bonus_ind:,.2f}</div><div style="font-size:7px;color:var(--ms-texto-sec);">{pct_i:.0f}% de 8%</div></div>
+    <div><div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;">Maxx Coletivo</div><div style="font-size:13px;font-weight:700;color:#FFD700;">+R$ {bonus_maxx_col:,.2f}</div><div style="font-size:7px;color:var(--ms-texto-sec);">{pct_maxx:.0f}% de 5%</div></div>
+    <div><div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;">Maxx Individual</div><div style="font-size:13px;font-weight:700;color:#FFD700;">+R$ {bonus_maxx_ind:,.2f}</div><div style="font-size:7px;color:var(--ms-texto-sec);">{pct_maxx:.0f}% de 5%</div></div>
+    <div><div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;">Total a Receber</div><div style="font-size:16px;font-weight:700;color:{cor_total};">R$ {total:,.2f}</div></div>
+  </div>
+</div>""", unsafe_allow_html=True)
 
     # Mapeia login do MS Studio → username do Trello
     LOGIN_MAP = {
