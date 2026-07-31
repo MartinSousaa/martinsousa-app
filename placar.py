@@ -501,6 +501,7 @@ def pagina_placar(usuario_logado):
 
     def _barra_meta(nome, pct, desc, cor_barra):
         pct_c = min(max(pct,0),100)
+        # % sempre na cor da barra
         return f"""<div style="margin-bottom:8px;">
   <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px;">
     <span style="color:var(--ms-texto);">{nome}</span>
@@ -509,7 +510,7 @@ def pagina_placar(usuario_logado):
   <div style="background:var(--ms-metric-bd);border-radius:3px;height:5px;overflow:hidden;">
     <div style="background:{cor_barra};width:{pct_c:.1f}%;height:100%;border-radius:3px;"></div>
   </div>
-  <div style="font-size:8px;color:var(--ms-texto-sec);margin-top:2px;">{desc}</div>
+  <div style="font-size:8px;color:{cor_barra};margin-top:2px;opacity:.8;">{desc}</div>
 </div>"""
 
     def _barra_aguardando(nome, desc, cor_barra):
@@ -530,8 +531,8 @@ def pagina_placar(usuario_logado):
         b += _barra_meta("Pontuação do mês", pct_eq, f"{saldo_eq:,.0f} / {meta_eq:,} pts", "#1BAF7A")
         b += _barra_meta("Sem atraso em prioritários P8-P10", pct_prioritarios_ok, "Nenhum cartão prioritário atrasado", "#1BAF7A")
         b += _barra_meta("Retrabalho abaixo de 10%", 100, "Coluna Correção de Fotos", "#1BAF7A")
-        cor_pen_n = "#E34948" if len(d["pen_cards"]) > 0 else "#1BAF7A"
-        b += _barra_meta("Menos de 5 penalidades", pct_pen_normal, f"{len(d['pen_cards'])} ocorrências / máx 4", cor_pen_n)
+        cor_pen_n = "#E34948" if qtd_pen > 0 else "#1BAF7A"
+        b += _barra_meta("Menos de 5 penalidades", pct_pen_normal, f"{qtd_pen} ocorrências / máx 4", cor_pen_n)
         b += _barra_meta("Cartões com membro atribuído", pct_com_membro, "Em andamento e concluídos", "#1BAF7A")
         b += f'<div style="font-size:10px;font-weight:600;color:#1BAF7A;text-transform:uppercase;letter-spacing:.5px;margin:10px 0 8px 0;border-top:1px solid var(--ms-divisor);padding-top:8px;">🎯 Meta Individual</div>'
         b += _barra_aguardando("Superar pontuação do mês anterior", "Aguardando dados do mês anterior", "#1BAF7A")
@@ -547,8 +548,8 @@ def pagina_placar(usuario_logado):
         b += _barra_meta("Pontuação +10% acima da meta", pct_maxx, f"{saldo_eq:,.0f} / {meta_maxx_pts:,.0f} pts", "#FFD700")
         b += _barra_meta("Zero prioritários em atraso", pct_prioritarios_ok, "Nenhum cartão prioritário atrasado", "#FFD700")
         b += _barra_meta("Retrabalho abaixo de 5%", 100, "Coluna Correção de Fotos", "#FFD700")
-        cor_pen_x = "#E34948" if len(d["pen_cards"]) > 0 else "#FFD700"
-        b += _barra_meta("Menos de 2 penalidades", pct_pen_maxx, f"{len(d['pen_cards'])} ocorrências / máx 1", cor_pen_x)
+        cor_pen_x = "#E34948" if qtd_pen > 0 else "#FFD700"
+        b += _barra_meta("Menos de 2 penalidades", pct_pen_maxx, f"{qtd_pen} ocorrências / máx 1", cor_pen_x)
         b += f'<div style="height:32px;"></div>'
         b += f'<div style="font-size:10px;font-weight:600;color:#FFD700;text-transform:uppercase;letter-spacing:.5px;margin:10px 0 8px 0;border-top:1px solid var(--ms-divisor);padding-top:8px;">⭐ Meta Maxx Individual</div>'
         b += _barra_aguardando("Superar pontuação do mês anterior", "Aguardando dados do mês anterior", "#FFD700")
