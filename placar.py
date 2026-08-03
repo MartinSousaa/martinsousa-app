@@ -1,1393 +1,880 @@
+"""
+placar.py — Painel de Meta · MS Studio v5
+Layout: cards resumo | vel. meta | vel. maxx | cards resumo maxx
++ Fila com urgentes em vermelho
++ Meta individual detalhada
++ Modo TV
+"""
 import streamlit as st
-import streamlit.components.v1 as components
-import base64
-from datetime import date
+import streamlit.components.v1 as _components
+import requests
+from datetime import datetime, timezone
+import math
 
-@st.cache_data
-def _logo_b64(path):
-    try:
-        with open(path, "rb") as f:
-            return base64.b64encode(f.read()).decode()
-    except Exception:
-        return ""
-from params_oficiais import (
-    LPV_OFICIAL, NF_OFICIAL,
-    ML_FAIXAS_PRECO, ML_FRETE_TABELA, ML_COMISSAO_POR_CATEGORIA,
-    SHOPEE_FAIXAS, SHOPEE_FRETE_LIQUIDO,
-    SHEIN_COMISSAO, SHEIN_FRETE_TABELA,
-)
-import financeiro
-import atividades
-import auth
-import admin
-import triagem
-import palavras_chave
-import tit_ml as titulo
-import descricao
-import imagem
-import video
-import chat_assistente
-import analise_metas
+try:
+    TRELLO_KEY   = st.secrets["trello"]["api_key"]
+    TRELLO_TOKEN = st.secrets["trello"]["token"]
+    BOARD_ID     = st.secrets["trello"]["board_id"]
+except Exception:
+    TRELLO_KEY = TRELLO_TOKEN = BOARD_ID = ""
 
-st.set_page_config(page_title="MS Studio", layout="wide")
+MEMBROS_ATIVOS = {
+    "myrelladesouza": "Myrella",
+    "beatriz51":      "Beatriz",
+    "gabriel_borges": "Gabriel",
+}
+MASTERS = {"martinsousa", "renan"}
+LISTAS_SEM_PONTUACAO = {
+    "TABELA DE PONTUAÇÃO","TRIAGEM","CORREÇÃO DE FOTOS: 0 PONTOS",
+    "RENAN","GUSTAVO","MYRELLA","URGENTES!!!!","Vídeos pendentes",
+    "CRIAR ANÚNCIO","CRIAR ANÚNCIO DO ZERO",
+}
+LISTAS_PENALIDADE = {"PENALIDADES"}
+MESES_PT = {1:"Janeiro",2:"Fevereiro",3:"Março",4:"Abril",5:"Maio",
+            6:"Junho",7:"Julho",8:"Agosto",9:"Setembro",10:"Outubro",
+            11:"Novembro",12:"Dezembro"}
 
-st.markdown("""
+COLUNAS_CONFIG = {
+    "DESATIVAR (50)":                                  {"prioridade":10,"tempo_min":50},
+    "AJUSTE DE PREÇO (MS-20)":                        {"prioridade":9, "tempo_min":120},
+    "AJUSTE DE PREÇO (EQ-70)":                        {"prioridade":9, "tempo_min":60},
+    "URGENTES!!!!":                                   {"prioridade":8, "tempo_min":210},
+    "REATIVAR (20)":                                  {"prioridade":7, "tempo_min":150},
+    "CORREÇÃO DE FOTOS: 0 PONTOS":                    {"prioridade":7, "tempo_min":120},
+    "CRIATIVO VÍDEO (80)":                            {"prioridade":7, "tempo_min":180},
+    "RETIRADA DE ETIQUETAS (30)":                     {"prioridade":7, "tempo_min":90},
+    "CRIATIVO VARIAÇÃO (50)":                         {"prioridade":6, "tempo_min":120},
+    "CRIATIVO DO ZERO: (FINALIZAR NO INTEGRAÇÃO!!!)": {"prioridade":6, "tempo_min":240},
+    "INTEGRAÇÃO NOVOS ANÚNCIOS (100)":                {"prioridade":6, "tempo_min":60},
+    "CRIATIVO FOTOS (NOVAS: 10/VAR.:2)":              {"prioridade":6, "tempo_min":180},
+    "INTEGRAÇÃO VÍDEO (PONTUA NA CONFERIENCIA)":      {"prioridade":6, "tempo_min":60},
+    "CONFERENCIA VÍDEO (10)":                         {"prioridade":6, "tempo_min":60},
+    "TÍTULO/DESCRIÇÃO/EDIÇÃO (10)":                   {"prioridade":6, "tempo_min":60},
+    "ANÚNCIAR DE CATÁLOGO (10)":                      {"prioridade":6, "tempo_min":60},
+    "ESPELHAMENTO DE ANÚNCIO (30)":                   {"prioridade":5, "tempo_min":120},
+    "CHAT (PROBLEMAS-30)":                            {"prioridade":5, "tempo_min":120},
+    "DEMANDAS BLING":                                 {"prioridade":5, "tempo_min":150},
+    "VARIAÇÃO DE ANÚNCIO (20)":                       {"prioridade":4, "tempo_min":120},
+}
+COLUNAS_SKIP = {
+    "TABELA DE PONTUAÇÃO","TRIAGEM","PENALIDADES",
+    "RENAN","GUSTAVO","MYRELLA","Vídeos pendentes",
+    "CRIAR ANÚNCIO","CRIAR ANÚNCIO DO ZERO",
+}
+CAPACIDADE_MIN = 390
+
+# ── API ────────────────────────────────────────────────────────────────────────
+@st.cache_data(ttl=30)
+def _buscar_board():
+    if not TRELLO_KEY: return None,None,None,None,None,None
+    base = "https://api.trello.com/1"
+    auth = {"key":TRELLO_KEY,"token":TRELLO_TOKEN}
+    r_l = requests.get(f"{base}/boards/{BOARD_ID}/lists",params={**auth,"fields":"id,name"})
+    listas = {l["id"]:l["name"] for l in r_l.json()} if r_l.ok else {}
+    r_c = requests.get(f"{base}/boards/{BOARD_ID}/cards",params={
+        **auth,"fields":"id,name,idList,idMembers,labels,dueComplete,customFieldItems,dateLastActivity",
+        "customFieldItems":"true"})
+    cards = r_c.json() if r_c.ok else []
+    r_m = requests.get(f"{base}/boards/{BOARD_ID}/members",params={**auth,"fields":"id,username"})
+    membros_map = {m["id"]:m["username"] for m in r_m.json()} if r_m.ok else {}
+    r_cf = requests.get(f"{base}/boards/{BOARD_ID}/customFields",params=auth)
+    campos = r_cf.json() if r_cf.ok else []
+    id_p = next((c["id"] for c in campos if c.get("name","").upper()=="PONTOS"),None)
+    id_t = next((c["id"] for c in campos if "TEMPO ACUMULADO" in c.get("name","").upper()),None)
+    id_i = next((c["id"] for c in campos if "INTERROMPIDO" in c.get("name","").upper()),None)
+    return listas,cards,membros_map,id_p,id_t,id_i
+
+def _num(card,id_c):
+    if not id_c: return None
+    for cf in card.get("customFieldItems",[]):
+        if cf.get("idCustomField")==id_c:
+            n=cf.get("value",{}).get("number")
+            if n is not None:
+                try: return float(n)
+                except: pass
+    return None
+
+def _labels(card): return {lb.get("name","").upper() for lb in card.get("labels",[])}
+def _users(card,mm): return [mm.get(mid,mid) for mid in card.get("idMembers",[])]
+
+def _data_card(card):
+    d=card.get("dateLastActivity","")
+    if d:
+        try: return datetime.fromisoformat(d.replace("Z","+00:00"))
+        except: pass
+    return datetime.now(timezone.utc)
+
+def _mes_card(card):
+    d=card.get("dateLastActivity","")
+    if d:
+        try:
+            dt=datetime.fromisoformat(d.replace("Z","+00:00"))
+            return (dt.year,dt.month)
+        except: pass
+    return None
+
+# ── FILA ───────────────────────────────────────────────────────────────────────
+def _calcular_fila(listas,cards,membros_map):
+    pendentes=[]
+    for card in cards:
+        nl=listas.get(card["idList"],"")
+        if nl in COLUNAS_SKIP or nl not in COLUNAS_CONFIG: continue
+        if card.get("dueComplete",False): continue
+        lb=_labels(card)
+        if "EM ANDAMENTO" in lb: continue
+        cfg=COLUNAS_CONFIG[nl]
+        us=_users(card,membros_map)
+        pendentes.append({
+            "nome":card["name"],"lista":nl,
+            "prioridade":cfg["prioridade"],"tempo_min":cfg["tempo_min"],
+            "data":_data_card(card),
+            "membros":", ".join(MEMBROS_ATIVOS.get(u,u) for u in us) or "—",
+            "is_urgente": cfg["prioridade"]>=10 or "URGENTE" in nl.upper(),
+        })
+    pendentes.sort(key=lambda x:(-x["prioridade"],x["data"]))
+    acum=0
+    for i,p in enumerate(pendentes):
+        p["posicao"]=i+1; acum+=p["tempo_min"]; p["eta_min"]=acum
+    return pendentes
+
+def _fmt_tempo(m):
+    if m<60: return f"{int(m)}min"
+    h=int(m//60); mm=int(m%60)
+    return f"{h}h{mm:02d}" if mm>0 else f"{h}h"
+
+# ── PROCESSAMENTO ──────────────────────────────────────────────────────────────
+def _processar(listas,cards,membros_map,id_p,id_t,id_i,filtro_mes=None):
+    """
+    filtro_mes=(year,month) filtra APENAS:
+      - pontuação de cartões concluídos  (pts_equipe / pts_membro)
+      - penalidades
+    Cartões abertos/pendentes são exibidos SEMPRE, independente do mês.
+    """
+    d={
+        "pts_equipe":0.0,"pen_total":0.0,
+        "pts_membro":{u:0.0 for u in MEMBROS_ATIVOS},
+        "pen_membro":{u:0.0 for u in MEMBROS_ATIVOS},
+        "abertos":0,"urgentes":0,"atrasados":0,"em_andamento":0,
+        "falta_conf":0,"falta_info":0,"sem_membro":0,"falta_pts":0,
+        "pts_pendentes":0.0,"pen_cards":[],"andamento_lista":[],
+        "tempo_lista":{},"desativar":0,"reativar":0,"pend_lista":{},
+    }
+    for card in cards:
+        nl=listas.get(card["idList"],"")
+        if nl=="TABELA DE PONTUAÇÃO": continue
+        lb=_labels(card); us=_users(card,membros_map)
+        ok=card.get("dueComplete",False)
+        pt=_num(card,id_p); tempo=_num(card,id_t); interr=_num(card,id_i) or 0
+
+        # ── PENALIDADES: contam só no mês em que foram registradas ─────────────
+        if nl in LISTAS_PENALIDADE:
+            if filtro_mes:
+                mc=_mes_card(card)
+                if mc and mc!=filtro_mes: continue
+            if pt:
+                v=abs(pt); d["pen_total"]+=v
+                d["pen_cards"].append({"card":card["name"],"valor":v,"membros":us})
+                for u in us:
+                    if u in d["pen_membro"]: d["pen_membro"][u]+=v
+            continue
+
+        # ── EM ANDAMENTO: sempre visível, sem filtro de mês ────────────────────
+        if "EM ANDAMENTO" in lb:
+            d["em_andamento"]+=1
+            d["andamento_lista"].append({"card":card["name"],"lista":nl,"membros":us})
+
+        # ── CARTÕES ABERTOS/PENDENTES: nunca filtrados por mês ─────────────────
+        if not ok:
+            d["abertos"]+=1
+            if "URGENTE" in lb or "URGENTES" in nl.upper(): d["urgentes"]+=1
+            if "ATRASADO" in lb: d["atrasados"]+=1
+            if "FALTA CONFERÊNCIA" in lb: d["falta_conf"]+=1
+            if "FALTA INFORMAÇÃO" in lb: d["falta_info"]+=1
+            if not us: d["sem_membro"]+=1
+            if pt is None: d["falta_pts"]+=1
+            if "PENDENTE" in lb:
+                d["pend_lista"][nl]=d["pend_lista"].get(nl,0)+1
+                if pt: d["pts_pendentes"]+=pt
+            if "DESATIVAR" in nl.upper(): d["desativar"]+=1
+            if "REATIVAR" in nl.upper(): d["reativar"]+=1
+            continue  # cartão aberto não pontua — próximo card
+
+        # ── A partir daqui: cartão concluído (ok=True) ─────────────────────────
+        # Aplica filtro de mês somente para concluídos
+        if filtro_mes:
+            mc=_mes_card(card)
+            if mc and mc!=filtro_mes: continue
+
+        if tempo and tempo>0:
+            d["tempo_lista"].setdefault(nl,[]).append(max(tempo-interr,0))
+
+        # ── PONTUAÇÃO: somente concluídos no mês selecionado ───────────────────
+        if pt is None: continue
+        if nl in LISTAS_SEM_PONTUACAO: continue
+        d["pts_equipe"]+=pt
+        ma=[u for u in us if u in MEMBROS_ATIVOS]
+        if ma:
+            cada=pt/len(ma)
+            for u in ma: d["pts_membro"][u]+=cada
+    return d
+
+# ── CSS ────────────────────────────────────────────────────────────────────────
+CSS="""
 <style>
-/* ══ TEMA ESCURO — padrão / após 18h ═══════════════════════════════════════ */
-body, body.tema-escuro {
-  --ms-fundo:         #3c3c3c;
-  --ms-sidebar:       #515151;
-  --ms-chat-bg:       #666666;
-  --ms-chat-header:   #515151;
-  --ms-chat-footer:   #5a5a5a;
-  --ms-chat-input:    #666666;
-  --ms-divisor:       #666666;
-  --ms-input:         #666666;
-  --ms-borda:         #888888;
-  --ms-texto:         #e0e0e0;
-  --ms-texto-sec:     #b8b8b8;
-  --ms-hover:         #5c5c5c;
-  --ms-metric-bg:     #666666;
-  --ms-metric-bd:     #888888;
-  --ms-msg-user:      #515151;
-  --ms-msg-ia:        #5a5a5a;
-  --ms-msg-ia-bd:     #888888;
-}
-/* ══ TEMA CLARO — diurno / antes das 18h ═══════════════════════════════════ */
-body.tema-claro {
-  --ms-fundo:         #E0E0E0;
-  --ms-sidebar:       #EEEEEE;
-  --ms-chat-bg:       #EEEEEE;
-  --ms-chat-header:   #E8E8E8;
-  --ms-chat-footer:   #E8E8E8;
-  --ms-chat-input:    #E0E0E0;
-  --ms-divisor:       #BDBDBD;
-  --ms-input:         #EEEEEE;
-  --ms-borda:         #9E9E9E;
-  --ms-texto:         #212121;
-  --ms-texto-sec:     #424242;
-  --ms-hover:         #D0D0D0;
-  --ms-metric-bg:     #EEEEEE;
-  --ms-metric-bd:     #BDBDBD;
-  --ms-msg-user:      #D0D0D0;
-  --ms-msg-ia:        #F5F5F5;
-  --ms-msg-ia-bd:     #BDBDBD;
-}
-
-/* ── REMOVE BARRA DO TOPO ───────────────────────────────────────────────── */
-[data-testid="stHeader"]  { background-color: var(--ms-fundo) !important; border-bottom: none !important; }
-[data-testid="stToolbar"] { background-color: var(--ms-fundo) !important; }
-#stDecoration             { display: none !important; }
-
-/* ── FUNDO GERAL ────────────────────────────────────────────────────────── */
-.stApp { background-color: var(--ms-fundo) !important; color: var(--ms-texto) !important; }
-.main, [data-testid="stMain"] { background-color: var(--ms-fundo) !important; }
-.main .block-container,
-[data-testid="stMainBlockContainer"] {
-    background-color: var(--ms-fundo) !important;
-    color: var(--ms-texto) !important;
-    padding-top: 16px !important;
-}
-h1, h2, h3, h4, h5, h6 { color: var(--ms-texto) !important; }
-p, span, label, div     { color: var(--ms-texto) !important; }
-
-/* ── SIDEBAR ESQUERDO ───────────────────────────────────────────────────── */
-[data-testid="stSidebar"] {
-    background-color: var(--ms-sidebar) !important;
-    border-right: 1px solid var(--ms-divisor) !important;
-}
-[data-testid="stSidebar"] * { color: var(--ms-texto) !important; }
-
-/* Logo rente ao topo — remove padding do sidebar */
-section[data-testid="stSidebar"] > div:first-child {
-    padding-top: 0 !important;
-}
-[data-testid="stSidebarContent"] {
-    padding-top: 0.25rem !important;
-}
-
-/* Caixa visual do chat — estilizada via JS (id ms-chat-box-dynamic) */
-#ms-chat-topo { display: none !important; }
-
-/* ── INPUTS ─────────────────────────────────────────────────────────────── */
-.stTextInput input, .stNumberInput input {
-    background-color: var(--ms-input) !important;
-    border: 1px solid var(--ms-borda) !important;
-    color: var(--ms-texto) !important;
-    border-radius: 5px !important;
-    font-size: 14px !important;
-    padding: 6px 10px !important;
-    height: 36px !important;
-    min-height: unset !important;
-}
-.stTextInput input::placeholder,
-.stNumberInput input::placeholder { color: var(--ms-texto-sec) !important; font-size: 13px !important; }
-.stTextInput input:focus,
-.stNumberInput input:focus { border-color: var(--ms-texto) !important; box-shadow: none !important; }
-
-/* Labels */
-.stTextInput label, .stNumberInput label, .stSelectbox label,
-[data-testid="stWidgetLabel"] p {
-    color: var(--ms-texto-sec) !important;
-    font-size: 13px !important;
-    margin-bottom: 3px !important;
-}
-
-/* TextArea */
-textarea, .stTextArea textarea {
-    background-color: var(--ms-input) !important;
-    border: 1px solid var(--ms-borda) !important;
-    color: var(--ms-texto) !important;
-    border-radius: 5px !important;
-    font-size: 14px !important;
-    padding: 8px 10px !important;
-}
-textarea:focus, .stTextArea textarea:focus {
-    border-color: var(--ms-texto) !important;
-    box-shadow: none !important;
-    outline: none !important;
-}
-textarea::placeholder, .stTextArea textarea::placeholder {
-    color: var(--ms-texto-sec) !important;
-    font-size: 13px !important;
-}
-.stTextArea label {
-    color: var(--ms-texto-sec) !important;
-    font-size: 13px !important;
-    margin-bottom: 3px !important;
-}
-
-/* Select */
-.stSelectbox > div > div {
-    background-color: var(--ms-input) !important;
-    border: 1px solid var(--ms-borda) !important;
-    color: var(--ms-texto) !important;
-    font-size: 14px !important;
-    min-height: 36px !important;
-}
-.stSelectbox [data-baseweb="select"] > div {
-    padding-top: 4px !important; padding-bottom: 4px !important; min-height: 36px !important;
-}
-/* Botões +/- */
-.stNumberInput [data-testid="stNumberInputStepUp"],
-.stNumberInput [data-testid="stNumberInputStepDown"] {
-    height: 36px !important; width: 30px !important; font-size: 15px !important;
-    background-color: var(--ms-input) !important;
-    color: var(--ms-texto) !important;
-    border-color: var(--ms-borda) !important;
-}
-/* Espaçamento */
-.stTextInput, .stNumberInput, .stSelectbox { margin-bottom: 4px !important; }
-.element-container { margin-bottom: 6px !important; }
-
-/* ── TABELAS ────────────────────────────────────────────────────────────── */
-table { color: var(--ms-texto) !important; border-collapse: collapse !important;
-        width: 100% !important; border: none !important; background: transparent !important; }
-th    { background-color: transparent !important; color: var(--ms-texto-sec) !important;
-        font-size: 10px !important; font-weight: 600 !important; letter-spacing: 0.07em !important;
-        text-transform: uppercase !important; border: none !important;
-        border-bottom: 1px solid var(--ms-divisor) !important; padding: 4px 6px !important; text-align: left !important; }
-td    { background-color: transparent !important; border: none !important;
-        border-bottom: 1px solid var(--ms-divisor) !important; padding: 4px 6px !important;
-        color: var(--ms-texto) !important; font-size: 12px !important; }
-tr:last-child td { border-bottom: none !important; }
-/* Destaque sutil nas últimas 3 linhas: Lucro, Margem e UC */
-tr:nth-last-child(-n+3) td { background-color: rgba(255,255,255,0.07) !important; }
-tr:nth-last-child(-n+3):last-child td { border-bottom: none !important; }
-tr:hover td { background-color: var(--ms-hover) !important; }
-
-/* ── MÉTRICAS ───────────────────────────────────────────────────────────── */
-[data-testid="stMetric"] {
-    background-color: var(--ms-metric-bg) !important;
-    border-radius: 8px !important; padding: 12px 16px !important;
-    border: 1px solid var(--ms-metric-bd) !important;
-}
-[data-testid="stMetricLabel"] p { color: var(--ms-texto-sec) !important; font-size: 12px !important; }
-[data-testid="stMetricValue"]   { color: var(--ms-texto) !important; }
-
-/* ── TABS ───────────────────────────────────────────────────────────────── */
-.stTabs [data-baseweb="tab-list"] {
-    background-color: transparent !important;
-    border-bottom: 1px solid var(--ms-divisor) !important; gap: 4px !important;
-}
-.stTabs [data-baseweb="tab"] {
-    color: var(--ms-texto-sec) !important; background: transparent !important; font-size: 14px !important;
-}
-.stTabs [aria-selected="true"] {
-    color: var(--ms-texto) !important; border-bottom-color: var(--ms-texto) !important;
-}
-
-/* ── BOTÕES ─────────────────────────────────────────────────────────────── */
-.stButton > button[kind="primary"] {
-    background-color: var(--ms-metric-bg) !important; color: var(--ms-texto) !important;
-    border: 1px solid var(--ms-metric-bd) !important; border-radius: 6px !important;
-    font-weight: 600 !important; letter-spacing: 0.4px !important; transition: all 0.15s ease !important;
-}
-.stButton > button[kind="primary"]:hover {
-    background-color: var(--ms-hover) !important; border-color: var(--ms-texto-sec) !important;
-}
-.stButton > button:not([kind="primary"]) {
-    background-color: transparent !important; color: var(--ms-texto-sec) !important;
-    border: 1px solid var(--ms-metric-bd) !important; border-radius: 6px !important;
-}
-.stButton > button:not([kind="primary"]):hover {
-    color: var(--ms-texto) !important; border-color: var(--ms-texto-sec) !important;
-}
-
-/* ── CAPTION / ALERTAS / DIVISORES ─────────────────────────────────────── */
-.stCaption, [data-testid="stCaptionContainer"] p { color: var(--ms-texto-sec) !important; }
-[data-testid="stAlert"] { background-color: var(--ms-metric-bg) !important; border-color: var(--ms-metric-bd) !important; }
-hr { border-color: var(--ms-divisor) !important; margin: 16px 0 !important; }
-
-/* ── LOGOS POR TEMA ─────────────────────────────────────────────────────── */
-/* Padrão (escuro): mostra logo branca */
-#ms-logo-preto { display: none !important; }
-#ms-logo-branco { display: block !important; }
-/* Tema claro: mostra logo preta */
-body.tema-claro #ms-logo-preto { display: block !important; }
-body.tema-claro #ms-logo-branco { display: none !important; }
-
-/* ── TEMA CLARO: bordas dos campos removidas ────────────────────────────── */
-body.tema-claro .stTextInput input,
-body.tema-claro .stNumberInput input {
-    border: none !important;
-    box-shadow: none !important;
-}
-body.tema-claro .stSelectbox > div > div {
-    border: none !important;
-    box-shadow: none !important;
-}
-body.tema-claro .stNumberInput [data-testid="stNumberInputStepUp"],
-body.tema-claro .stNumberInput [data-testid="stNumberInputStepDown"] {
-    border: none !important;
-}
-body.tema-claro textarea,
-body.tema-claro .stTextArea textarea {
-    border: none !important;
-    box-shadow: none !important;
-}
-
-/* ── TEMA CLARO: todas as escritas pretas ───────────────────────────────── */
-body.tema-claro [data-baseweb] * { color: var(--ms-texto) !important; }
-body.tema-claro .stSelectbox * { color: var(--ms-texto) !important; }
-body.tema-claro .stNumberInput * { color: var(--ms-texto) !important; }
-body.tema-claro .stTextInput * { color: var(--ms-texto) !important; }
-body.tema-claro [role="option"] * { color: var(--ms-texto) !important; }
-body.tema-claro [data-testid="stWidgetLabel"] * { color: var(--ms-texto-sec) !important; }
-body.tema-claro .stTextInput label *,
-body.tema-claro .stNumberInput label *,
-body.tema-claro .stSelectbox label * { color: var(--ms-texto-sec) !important; }
-
-/* ── SELECTBOX: texto do valor selecionado e dropdown ───────────────────── */
-.stSelectbox [data-baseweb="select"] span,
-.stSelectbox [data-baseweb="select"] div {
-    color: var(--ms-texto) !important;
-}
-/* Dropdown popover — tema claro */
-body.tema-claro [data-baseweb="popover"] [data-baseweb="menu"],
-body.tema-claro [data-baseweb="list"],
-body.tema-claro ul[role="listbox"] {
-    background-color: var(--ms-input) !important;
-}
-body.tema-claro [role="option"] {
-    background-color: var(--ms-input) !important;
-    color: var(--ms-texto) !important;
-}
-body.tema-claro [role="option"]:hover,
-body.tema-claro [aria-selected="true"][role="option"] {
-    background-color: var(--ms-hover) !important;
-    color: var(--ms-texto) !important;
-}
-
-/* ── FILE UPLOADER — TEMA CLARO ─────────────────────────────────────────── */
-body.tema-claro [data-testid="stFileUploaderDropzone"] {
-    background-color: var(--ms-input) !important;
-    border-color: var(--ms-borda) !important;
-}
-body.tema-claro [data-testid="stFileUploaderDropzoneInstructions"] span,
-body.tema-claro [data-testid="stFileUploaderDropzoneInstructions"] small,
-body.tema-claro [data-testid="stFileUploaderDropzone"] button {
-    color: var(--ms-texto) !important;
-}
-
-/* ── CHAT SIDEBAR — AVATAR E BALÃO ─────────────────────────────────────── */
-/* Remove avatar laranja do assistente (seletor amplo) */
-[data-testid="stSidebar"] [data-testid^="chatAvatarIcon"] {
-    display: none !important;
-}
-[data-testid="stSidebar"] [data-testid="stChatMessage"] > div:first-child {
-    display: none !important;
-}
-/* Balão cinza para mensagens da IA — seletor de irmão (sem :has) */
-[data-testid="stSidebar"] [data-testid="chatAvatarIcon-assistant"] ~ [data-testid="stChatMessageContent"],
-[data-testid="stSidebar"] [data-testid="stChatMessage"][data-message-author-role="assistant"] [data-testid="stChatMessageContent"] {
-    background-color: var(--ms-msg-ia) !important;
-    border-radius: 10px !important;
-    padding: 8px 12px !important;
-    border: 1px solid var(--ms-msg-ia-bd) !important;
-    margin-left: 0 !important;
-}
-/* Remove hint "Press ⌘+Enter to submit form" do Streamlit */
-[data-testid="stSidebar"] [data-testid="InputInstructions"],
-[data-testid="stSidebar"] [data-testid="stForm"] small,
-[data-testid="stSidebar"] [data-testid="stForm"] [data-testid="stFormSubmitButton"] ~ div small {
-    display: none !important;
-}
-
-/* Botão de enviar fora da tela (não display:none — precisa ser clicável pelo JS) */
-[data-testid="stSidebar"] [data-testid="stForm"] .stFormSubmitButton {
-    height: 0 !important;
-    overflow: hidden !important;
-    margin: 0 !important;
-    padding: 0 !important;
-}
-[data-testid="stSidebar"] [data-testid="stForm"] .stFormSubmitButton button {
-    position: fixed !important;
-    left: -9999px !important;
-    opacity: 0 !important;
-    pointer-events: none !important;
-}
-/* Textarea do chat: auto-expande como o Claude */
-[data-testid="stSidebar"] [data-testid="stForm"] textarea {
-    min-height: 40px !important;
-    max-height: 150px !important;
-    field-sizing: content !important;
-    resize: none !important;
-    overflow-y: auto !important;
-}
-/* Remove padding extra abaixo do file uploader no chat */
-[data-testid="stSidebar"] [data-testid="stForm"] {
-    padding-bottom: 0 !important;
-    margin-bottom: 0 !important;
-}
-[data-testid="stSidebar"] [data-testid="stFileUploader"] {
-    margin-bottom: 0 !important;
-    padding-bottom: 0 !important;
-}
-/* File uploader do chat — compact, só clip */
-[data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] {
-    background: transparent !important;
-    border: none !important;
-    padding: 0 !important;
-    min-height: unset !important;
-}
-[data-testid="stSidebar"] [data-testid="stFileUploaderDropzoneInstructions"] > div:first-child,
-[data-testid="stSidebar"] [data-testid="stFileUploaderDropzoneInstructions"] small {
-    display: none !important;
-}
-[data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] button {
-    background: transparent !important;
-    border: none !important;
-    padding: 2px 4px !important;
-    font-size: 14px !important;
-    color: var(--ms-texto-sec) !important;
-    text-decoration: underline !important;
-    cursor: pointer !important;
-}
-
-/* ── BOTÃO TOGGLE DE TEMA ───────────────────────────────────────────────── */
-#ms-tema-toggle {
-  position: fixed !important; top: 14px !important; right: 16px !important;
-  z-index: 999997 !important;
-  background: var(--ms-sidebar) !important;
-  border: 1.5px solid var(--ms-borda) !important;
-  border-radius: 50% !important; width: 46px !important; height: 46px !important;
-  font-size: 18px !important; cursor: pointer !important;
-  display: flex !important; align-items: center !important; justify-content: center !important;
-  box-shadow: 0 3px 12px rgba(0,0,0,0.35) !important;
-  transition: opacity 0.15s !important; line-height: 1 !important; padding: 0 !important;
-}
-#ms-tema-toggle:hover { opacity: 0.75 !important; }
-
-/* ── SELOS DE RESULTADO (tema-aware) ─────────────────────────────────────── */
-.ms-selo { border-radius: 6px; padding: 8px 12px; margin-bottom: 8px;
-           border-left-width: 4px; border-left-style: solid; }
-.ms-selo-viavel    { background: #0d2b1a; border-left-color: #34d399; }
-.ms-selo-ressalvas { background: #2b1f06; border-left-color: #fbbf24; }
-.ms-selo-inviavel  { background: #2b0d0d; border-left-color: #f87171; }
-body.tema-claro .ms-selo-viavel    { background: #d1fae5 !important; }
-body.tema-claro .ms-selo-ressalvas { background: #fef3c7 !important; }
-body.tema-claro .ms-selo-inviavel  { background: #fee2e2 !important; }
-.ms-selo-titulo { font-size: 14px; font-weight: 700; letter-spacing: 0.05em;
-                  text-transform: uppercase; display: block; }
-.ms-selo-viavel .ms-selo-titulo    { color: #34d399 !important; }
-.ms-selo-ressalvas .ms-selo-titulo { color: #fbbf24 !important; }
-.ms-selo-inviavel .ms-selo-titulo  { color: #f87171 !important; }
-body.tema-claro .ms-selo-viavel .ms-selo-titulo    { color: #065f46 !important; }
-body.tema-claro .ms-selo-ressalvas .ms-selo-titulo { color: #92400e !important; }
-body.tema-claro .ms-selo-inviavel .ms-selo-titulo  { color: #b91c1c !important; }
-.ms-selo-sub { font-size: 13px; display: block; margin-top: 2px; color: #aaa !important; }
-body.tema-claro .ms-selo-sub { color: #555 !important; }
-
-/* ── CARDS UC (tema-aware) ────────────────────────────────────────────────── */
-.ms-card-uc { border-radius: 8px; padding: 14px 18px; margin-bottom: 10px;
-              border-left-width: 4px; border-left-style: solid; }
-.ms-card-08 { background: #2b0d0d; border-left-color: #f87171; }
-.ms-card-10 { background: #2b1f06; border-left-color: #fbbf24; }
-.ms-card-15 { background: #0d2b1a; border-left-color: #34d399; }
-body.tema-claro .ms-card-08 { background: #fee2e2 !important; }
-body.tema-claro .ms-card-10 { background: #fef3c7 !important; }
-body.tema-claro .ms-card-15 { background: #d1fae5 !important; }
-.ms-card-uc-label { font-size: 12px; font-weight: 700; letter-spacing: 0.07em;
-                    text-transform: uppercase; margin-bottom: 10px; display: block; }
-.ms-card-08 .ms-card-uc-label { color: #f87171 !important; }
-.ms-card-10 .ms-card-uc-label { color: #fbbf24 !important; }
-.ms-card-15 .ms-card-uc-label { color: #34d399 !important; }
-body.tema-claro .ms-card-08 .ms-card-uc-label { color: #b91c1c !important; }
-body.tema-claro .ms-card-10 .ms-card-uc-label { color: #92400e !important; }
-body.tema-claro .ms-card-15 .ms-card-uc-label { color: #065f46 !important; }
-.ms-card-plat-prices { display: flex; gap: 40px; flex-wrap: wrap; }
-.ms-card-plat-name  { font-size: 11px; color: var(--ms-texto-sec) !important; margin-bottom: 2px; }
-.ms-card-plat-price { font-size: 22px; font-weight: 700; color: #fff !important; }
-body.tema-claro .ms-card-plat-price { color: #111 !important; }
-
-/* ── TEXTO DE RESUMO ABAIXO DO SELO ──────────────────────────────────────── */
-.ms-resumo { font-size: 13px !important; line-height: 1.4 !important;
-             margin: 4px 0 8px 0 !important; color: var(--ms-texto) !important; }
-
-/* ── TÍTULOS DE SEÇÃO DO RESULTADO ──────────────────────────────────────── */
-.ms-section-title { font-size: 14px !important; font-weight: 600 !important;
-                    margin: 6px 0 3px 0 !important; padding: 0 !important;
-                    color: var(--ms-texto) !important; display: block; }
-
-/* ── CABEÇALHOS DE PLATAFORMA ────────────────────────────────────────────── */
-.ms-plat-header {
-  font-size: 16px; font-weight: 600; letter-spacing: 0.02em;
-  padding-bottom: 4px; margin-bottom: 10px;
-  border-bottom-width: 2px; border-bottom-style: solid;
-  display: block;
-}
-.ms-plat-ml { color: var(--ms-texto) !important; border-bottom-color: #ffe600 !important; }
-.ms-plat-sp { color: #ee4d2d !important;          border-bottom-color: #ee4d2d !important; }
-.ms-plat-sh { color: #fe4a7b !important;          border-bottom-color: #fe4a7b !important; }
-
-/* ── CONTADOR DE CARACTERES DO TÍTULO ───────────────────────────────────── */
-.ms-char-ok   { color: #16a34a !important; font-size: 13px; }
-.ms-char-over { color: #dc2626 !important; font-size: 13px; }
-
-/* ── TAG BLOQUEADA (imagem) ─────────────────────────────────────────────── */
-.ms-bloqueada { color: #e74c3c !important; font-weight: 700; }
-
-/* ── CÓDIGO DA DESCRIÇÃO ─────────────────────────────────────────────────── */
-.ms-desc-code-titulo { color: #E8EEF5 !important; font-size: 13px; font-weight: 600; letter-spacing: 1px; }
-.ms-desc-code-sub    { color: #9BB5D9 !important; font-size: 12px; }
-
-/* ══ SIDEBAR — somente desktop (>=769px) ════════════════════════════════════ */
-@media screen and (min-width: 769px) {
-  section[data-testid="stSidebar"],
-  section[data-testid="stSidebar"] > div,
-  section[data-testid="stSidebar"] > div:first-child {
-      min-width: 360px !important;
-      max-width: 360px !important;
-      width: 360px !important;
-  }
-}
-
-/* ══ RESPONSIVO — MOBILE (max 768px) ═══════════════════════════════════════ */
-@media screen and (max-width: 768px) {
-
-  /* ── COLUNAS: empilham verticalmente — selector correto (stColumn) ── */
-  [data-testid="stHorizontalBlock"] {
-    flex-direction: column !important;
-    gap: 0 !important;
-  }
-  [data-testid="stColumn"] {
-    width: 100% !important;
-    min-width: 100% !important;
-    max-width: 100% !important;
-    flex: none !important;
-    padding-left: 0 !important;
-    padding-right: 0 !important;
-  }
-
-  /* Padding reduzido no conteúdo principal */
-  .main .block-container,
-  [data-testid="stMainBlockContainer"] {
-    padding-left: 12px !important;
-    padding-right: 12px !important;
-    padding-top: 8px !important;
-    max-width: 100% !important;
-  }
-
-  /* Abas: rolagem horizontal sem quebrar */
-  .stTabs [data-baseweb="tab-list"] {
-    overflow-x: auto !important;
-    flex-wrap: nowrap !important;
-    -webkit-overflow-scrolling: touch !important;
-    scrollbar-width: none !important;
-  }
-  .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar { display: none !important; }
-  .stTabs [data-baseweb="tab"] {
-    font-size: 12px !important;
-    white-space: nowrap !important;
-    padding: 8px 10px !important;
-    min-width: fit-content !important;
-  }
-
-  /* Títulos menores */
-  h1, h2 { font-size: 20px !important; }
-  h3      { font-size: 17px !important; }
-  h4, h5  { font-size: 15px !important; }
-
-  /* Métricas compactas */
-  [data-testid="stMetric"] { padding: 8px 10px !important; }
-  [data-testid="stMetricValue"] { font-size: 20px !important; }
-  [data-testid="stMetricLabel"] p { font-size: 12px !important; }
-
-  /* Tabelas markdown: scroll horizontal em vez de transbordar */
-  [data-testid="stMarkdownContainer"] table {
-    display: block !important;
-    overflow-x: auto !important;
-    -webkit-overflow-scrolling: touch !important;
-    max-width: 100% !important;
-    white-space: nowrap !important;
-  }
-  /* Cabeçalhos de tabela: legíveis no celular */
-  th { font-size: 12px !important; }
-  td { font-size: 13px !important; }
-
-  /* Inputs: fonte mínima 16px evita zoom automático no iOS */
-  .stTextInput input,
-  .stNumberInput input,
-  .stSelectbox input,
-  textarea {
-    font-size: 16px !important;
-  }
-  /* Placeholder também em 16px para consistência e evitar zoom no iOS */
-  .stTextInput input::placeholder,
-  .stNumberInput input::placeholder,
-  textarea::placeholder {
-    font-size: 16px !important;
-  }
-
-  /* Botão principal */
-  .stButton > button { font-size: 14px !important; padding: 10px !important; }
-
-  /* Logo no sidebar: sem margem negativa no mobile */
-  [data-testid="stSidebar"] img { margin-top: 4px !important; }
-
-  /* Cards UC: gap menor em telas pequenas */
-  .ms-card-plat-prices { gap: 20px !important; }
-  .ms-card-plat-name   { font-size: 12px !important; }
-  .ms-card-plat-price  { font-size: 18px !important; }
-
-  /* Toggle de tema: escondido no mobile (hambúrguer do Streamlit ocupa o espaço) */
-  #ms-tema-toggle {
-    top: 8px !important;
-    right: 60px !important;
-    width: 34px !important;
-    height: 34px !important;
-    font-size: 14px !important;
-  }
-}
+.pm-card{background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);border-radius:8px;padding:8px 12px;display:flex;flex-direction:column;justify-content:center;min-height:48px;}
+.pm-label{font-size:8px;color:var(--ms-texto-sec);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px;}
+.pm-value{font-size:16px;font-weight:700;line-height:1.1;}
+.pm-sub{font-size:8px;color:var(--ms-texto-sec);margin-top:1px;}
+.pm-sc{background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);border-radius:10px;padding:8px 6px;text-align:center;min-height:80px;display:flex;flex-direction:column;justify-content:center;align-items:center;}
+.pm-badge{font-size:8px;font-weight:600;padding:2px 6px;border-radius:3px;margin-top:3px;display:inline-block;}
+.fila-card{border-left:4px solid;border-radius:0 8px 8px 0;padding:9px 12px;margin-bottom:5px;display:flex;align-items:center;gap:10px;background:var(--ms-metric-bg);}
+.fila-card-urgente{border-left:4px solid #E34948!important;background:rgba(227,73,72,0.07)!important;}
+.fila-pos{font-size:20px;font-weight:700;min-width:28px;text-align:center;}
+.fila-info{flex:1;}
+.fila-nome{font-size:12px;font-weight:600;color:var(--ms-texto);}
+.fila-meta{font-size:9px;color:var(--ms-texto-sec);}
+.fila-eta{font-size:11px;font-weight:600;min-width:50px;text-align:right;}
+.meta-ind-card{background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);border-radius:10px;padding:14px 16px;margin-bottom:8px;}
+.meta-ind-titulo{font-size:12px;font-weight:600;color:var(--ms-texto);margin-bottom:6px;}
+.meta-ind-barra-bg{background:var(--ms-metric-bd);border-radius:4px;height:8px;overflow:hidden;margin-bottom:3px;}
+.vel-label{font-size:9px;color:var(--ms-texto-sec);text-transform:uppercase;letter-spacing:.6px;text-align:center;margin-top:4px;}
 </style>
-""", unsafe_allow_html=True)
+"""
 
-# ── TEMA JS — via components.html p/ garantir execução real do script ──────────
-components.html("""
+# ── VELOCÍMETROS ───────────────────────────────────────────────────────────────
+def _vel_meta(pct, meta_eq, saldo_eq, faltam):
+    pct_clip=min(max(pct,0),110)
+    ang=math.radians(-180+min(pct_clip/100,1)*180)
+    cx,cy,r=130,125,105
+    px=cx+r*math.cos(ang); py=cy+r*math.sin(ang)
+    cor="#1BAF7A"
+    perim=math.pi*r; dash=min(pct_clip/100,1)*perim
+    return f"""
+<div style="text-align:center;">
+<svg viewBox="0 0 260 150" width="75%" style="display:block;margin:0 auto;overflow:visible;">
+  <path d="M20,120 A110,110 0 0 1 240,120" fill="none" stroke="var(--ms-metric-bd)" stroke-width="18" stroke-linecap="round"/>
+  <path d="M20,120 A110,110 0 0 1 240,120" fill="none" stroke="{cor}" stroke-width="18" stroke-linecap="round" stroke-dasharray="{dash:.1f} {perim:.1f}"/>
+  <line x1="{cx}" y1="{cy}" x2="{px:.1f}" y2="{py:.1f}" stroke="var(--ms-texto)" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="{cx}" cy="{cy}" r="7" fill="var(--ms-texto)"/>
+  <circle cx="{cx}" cy="{cy}" r="3" fill="var(--ms-metric-bg)"/>
+  <text x="13" y="142" text-anchor="middle" font-size="9" fill="var(--ms-texto-sec)">0</text>
+  <text x="247" y="142" text-anchor="middle" font-size="9" fill="var(--ms-texto-sec)">META</text>
+</svg>
+<div style="font-size:36px;font-weight:700;color:{cor};margin-top:2px;line-height:1;">{min(pct,999):.0f}%</div>
+<div class="vel-label">🏆 Meta Mensal</div>
+</div>"""
+
+def _vel_maxx(pct_maxx, meta_maxx_pts, saldo_eq):
+    """Velocímetro dourado para Meta Maxx."""
+    pct_clip=min(max(pct_maxx,0),115)
+    ang=math.radians(-180+min(pct_clip/100,1)*180)
+    cx,cy,r=130,125,105
+    px=cx+r*math.cos(ang); py=cy+r*math.sin(ang)
+    perim=math.pi*r; dash=min(pct_clip/100,1)*perim
+    atingiu=saldo_eq>=meta_maxx_pts
+    # Gradiente dourado brilhante
+    return f"""
+<div style="text-align:center;">
+<svg viewBox="0 0 260 150" width="75%" style="display:block;margin:0 auto;overflow:visible;">
+  <defs>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#B8860B;stop-opacity:1"/>
+      <stop offset="30%" style="stop-color:#FFD700;stop-opacity:1"/>
+      <stop offset="60%" style="stop-color:#FFF8DC;stop-opacity:1"/>
+      <stop offset="80%" style="stop-color:#FFD700;stop-opacity:1"/>
+      <stop offset="100%" style="stop-color:#B8860B;stop-opacity:1"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2.5" result="coloredBlur"/>
+      <feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <path d="M20,120 A110,110 0 0 1 240,120" fill="none" stroke="var(--ms-metric-bd)" stroke-width="18" stroke-linecap="round"/>
+  <path d="M20,120 A110,110 0 0 1 240,120" fill="none" stroke="url(#goldGrad)" stroke-width="18" stroke-linecap="round"
+        stroke-dasharray="{dash:.1f} {perim:.1f}" filter="url(#glow)"/>
+  <line x1="{cx}" y1="{cy}" x2="{px:.1f}" y2="{py:.1f}" stroke="#FFD700" stroke-width="3" stroke-linecap="round" filter="url(#glow)"/>
+  <circle cx="{cx}" cy="{cy}" r="7" fill="#FFD700" filter="url(#glow)"/>
+  <circle cx="{cx}" cy="{cy}" r="3" fill="var(--ms-metric-bg)"/>
+  <text x="13" y="142" text-anchor="middle" font-size="9" fill="#B8860B">0</text>
+  <text x="247" y="142" text-anchor="middle" font-size="9" fill="#B8860B">MAXX</text>
+</svg>
+<div style="font-size:36px;font-weight:700;color:#FFD700;margin-top:2px;line-height:1;filter:drop-shadow(0 0 8px #FFD700);">{min(pct_maxx,999):.0f}%</div>
+<div class="vel-label" style="color:#FFD700;">{"⭐ META MAXX ATINGIDA!" if atingiu else "⭐ Meta Maxx"}</div>
+</div>"""
+
+def _card(label,valor,sub=None,cor="var(--ms-texto)",icone=""):
+    s=f'<div class="pm-sub">{sub}</div>' if sub else ""
+    return f'<div class="pm-card"><div class="pm-label">{icone} {label}</div><div class="pm-value" style="color:{cor};">{valor}</div>{s}</div>'
+
+def _sc(label,valor,badge,cn,bb,bt):
+    return f"""<div class="pm-sc">
+  <div style="font-size:8px;color:var(--ms-texto-sec);text-transform:uppercase;letter-spacing:.4px;">{label}</div>
+  <div style="font-size:24px;font-weight:700;color:{cn};line-height:1.1;margin:2px 0;">{valor}</div>
+  <span class="pm-badge" style="background:{bb};color:{bt};">{badge}</span>
+</div>"""
+
+def _barra(nome,pts,meta,pen):
+    saldo=pts-pen; pct=min(saldo/meta*100,100) if meta>0 else 0
+    cor="#1BAF7A" if pct>=100 else ("#EDA100" if pct>=50 else "#E34948")
+    pen_h=f'<div style="font-size:9px;color:#E34948;margin-top:2px;">⚠ -{pen:.0f} pts penalidades</div>' if pen>0 else ""
+    return (f'<div style="margin-bottom:10px;">'
+            f'<div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px;">'
+            f'<span style="color:var(--ms-texto);font-weight:600;">{nome}</span>'
+            f'<span style="color:{cor};">{saldo:,.0f} / {meta:,.0f} · {pct:.0f}%</span></div>'
+            f'<div style="background:var(--ms-metric-bd);border-radius:4px;height:8px;overflow:hidden;">'
+            f'<div style="background:{cor};width:{pct:.1f}%;height:100%;border-radius:4px;"></div></div>'
+            f'{pen_h}</div>')
+
+def _fila_html(item):
+    p=item["prioridade"]; urg=item.get("is_urgente",False) or p>=10
+    cor="#E34948" if p>=10 else ("#EDA100" if p>=8 else ("#1BAF7A" if p>=6 else "#888"))
+    extra_class="fila-card-urgente" if urg else ""
+    urg_badge='<span style="font-size:8px;font-weight:700;color:#E34948;background:rgba(227,73,72,0.15);padding:1px 5px;border-radius:3px;margin-left:6px;">🚨 URGENTE</span>' if urg else ""
+    nome=item["nome"][:50]+"..." if len(item["nome"])>50 else item["nome"]
+    lista=item["lista"][:32]+"..." if len(item["lista"])>32 else item["lista"]
+    return f"""<div class="fila-card {extra_class}" style="border-left-color:{cor};">
+  <div class="fila-pos" style="color:{cor};">{item['posicao']}°</div>
+  <div class="fila-info">
+    <div class="fila-nome">{nome}{urg_badge}</div>
+    <div class="fila-meta">{lista} · {item['membros']} · P{p}</div>
+  </div>
+  <div class="fila-eta" style="color:{cor};">~{_fmt_tempo(item['eta_min'])}</div>
+</div>"""
+
+def _meta_ind_item(titulo, pct, descricao, cor=None, aguardando=False):
+    if aguardando:
+        return f"""<div class="meta-ind-card">
+  <div class="meta-ind-titulo">{titulo}</div>
+  <div style="font-size:10px;color:var(--ms-texto-sec);font-style:italic;">⏳ Aguardando integração do relógio de ponto</div>
+</div>"""
+    c=cor or ("#1BAF7A" if pct>=80 else ("#EDA100" if pct>=50 else "#E34948"))
+    return f"""<div class="meta-ind-card">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+    <div class="meta-ind-titulo" style="margin:0;">{titulo}</div>
+    <div style="font-size:16px;font-weight:700;color:{c};">{pct:.0f}%</div>
+  </div>
+  <div class="meta-ind-barra-bg">
+    <div style="background:{c};width:{min(pct,100):.1f}%;height:100%;border-radius:4px;"></div>
+  </div>
+  <div style="font-size:9px;color:var(--ms-texto-sec);margin-top:3px;">{descricao}</div>
+</div>"""
+
+# ── PÁGINA ─────────────────────────────────────────────────────────────────────
+def pagina_placar(usuario_logado):
+    eh_master=usuario_logado.lower() in {m.lower() for m in MASTERS}
+    eh_membro=usuario_logado in MEMBROS_ATIVOS
+    if not TRELLO_KEY:
+        st.error("Credenciais do Trello não configuradas."); return
+
+    st.markdown(CSS,unsafe_allow_html=True)
+    agora=datetime.now()
+    params=st.query_params
+    modo_tv=params.get("tv","")=="1"
+
+    # Cabeçalho
+    col_tit,col_mes,col_att=st.columns([3,2,1])
+    with col_tit: st.markdown("### 🏆 Painel de Meta")
+    with col_mes:
+        meses=[(agora.year,agora.month)]
+        m,a=agora.month,agora.year
+        for _ in range(5):
+            m-=1
+            if m==0: m=12; a-=1
+            meses.append((a,m))
+        labels=[f"{MESES_PT[mm]} {aa}" for aa,mm in meses]
+        sel=st.selectbox("Mês",labels,index=0,key="placar_mes",label_visibility="collapsed")
+        filtro_mes=meses[labels.index(sel)]
+    with col_att:
+        if st.button("🔄",use_container_width=True,help="Atualizar"):
+            _buscar_board.clear(); st.rerun()
+
+    # ── Botão gatilho para auto-refresh via JS (sem location.reload) ──────────
+    # O texto "__ar_placar__" é único — o JS abaixo localiza, esconde e clica
+    if st.button("__ar_placar__", key="btn_placar_auto_refresh"):
+        st.rerun()
+
+    # JS: localiza o botão pelo texto, o esconde visualmente e agenda cliques
+    _components.html("""
 <script>
 (function() {
-  var P = window.parent;
-
-  function temaAuto() { return 'tema-escuro'; } // padrão fixo: sempre noite
-
-  function aplicarTema(tema, salvar) {
-    P.document.body.classList.remove('tema-claro','tema-escuro');
-    P.document.body.classList.add(tema);
-    var btn = P.document.getElementById('ms-tema-toggle');
-    if (btn) {
-      btn.textContent = tema === 'tema-escuro' ? '☀️' : '🌙';
-      btn.title = tema === 'tema-escuro' ? 'Mudar para tema claro' : 'Mudar para tema escuro';
+    var _intervalo = null;
+    var _TARGET = '__ar_placar__';
+    function _findBtn() {
+        try {
+            var btns = window.parent.document.querySelectorAll('button');
+            for (var i = 0; i < btns.length; i++) {
+                if (btns[i].innerText.trim() === _TARGET) return btns[i];
+            }
+        } catch(e) {}
+        return null;
     }
-    if (salvar) {
-      P.sessionStorage.setItem('ms_tema', tema);
-      P.sessionStorage.setItem('ms_tema_dia', new Date().toDateString());
+    function _setup() {
+        var btn = _findBtn();
+        if (!btn) { setTimeout(_setup, 600); return; }
+        // Esconde o botão e seu container imediato
+        var wrap = btn.closest('div[data-testid="stButton"]') || btn.parentElement;
+        if (wrap) wrap.style.cssText = 'display:none!important;width:0;height:0;overflow:hidden;';
+        // Agenda cliques periódicos a cada 30s
+        if (_intervalo) clearInterval(_intervalo);
+        _intervalo = setInterval(function() {
+            var b = _findBtn();
+            if (b) b.click();
+        }, 30000);
     }
-  }
-
-  if (P._msTemaIniciado) {
-    // Streamlit rerender — re-aplica o tema salvo (botão já existe no body)
-    var t = P.sessionStorage.getItem('ms_tema');
-    var d = P.sessionStorage.getItem('ms_tema_dia');
-    aplicarTema((t && d === new Date().toDateString()) ? t : temaAuto(), false);
-    return;
-  }
-  P._msTemaIniciado = true;
-
-  // Desativa tradução automática do navegador (evita "Shein" → "Ela", etc.)
-  P.document.documentElement.setAttribute('lang', 'pt-BR');
-  P.document.documentElement.setAttribute('translate', 'no');
-  var metaNotranslate = P.document.querySelector('meta[name="google"]');
-  if (!metaNotranslate) {
-    metaNotranslate = P.document.createElement('meta');
-    metaNotranslate.name = 'google';
-    metaNotranslate.content = 'notranslate';
-    P.document.head.appendChild(metaNotranslate);
-  }
-
-  // Aplica tema inicial
-  var temaSalvo = P.sessionStorage.getItem('ms_tema');
-  var diaSalvo  = P.sessionStorage.getItem('ms_tema_dia');
-  if (temaSalvo && diaSalvo === new Date().toDateString()) {
-    aplicarTema(temaSalvo, false);
-  } else {
-    P.sessionStorage.removeItem('ms_tema');
-    P.sessionStorage.removeItem('ms_tema_dia');
-    aplicarTema(temaAuto(), false);
-  }
-
-  // Injeta botão toggle (uma única vez, direto no body — sobrevive rerenders)
-  if (!P.document.getElementById('ms-tema-toggle')) {
-    var btn = P.document.createElement('button');
-    btn.id = 'ms-tema-toggle';
-    btn.onclick = function() {
-      var claro = P.document.body.classList.contains('tema-claro');
-      aplicarTema(claro ? 'tema-escuro' : 'tema-claro', true);
-    };
-    P.document.body.appendChild(btn);
-    // Ícone inicial
-    aplicarTema(P.document.body.classList.contains('tema-claro') ? 'tema-claro' : 'tema-escuro', false);
-  }
-
-  // Auto-switch ao cruzar 18h (só se não houver override manual)
-  setInterval(function() {
-    if (!P.sessionStorage.getItem('ms_tema')) aplicarTema(temaAuto(), false);
-  }, 60000);
-
-  // Força largura do sidebar (override do resize do Streamlit) — só desktop
-  function forceSidebarWidth() {
-    if (P.innerWidth <= 768) return;
-    var sb = P.document.querySelector('section[data-testid="stSidebar"]');
-    if (!sb) return;
-    sb.style.setProperty('width', '360px', 'important');
-    sb.style.setProperty('min-width', '360px', 'important');
-    sb.style.setProperty('max-width', '360px', 'important');
-    // Remove o handle de resize para não atrapalhar
-    var rz = P.document.querySelector('[data-testid="stSidebarResizeHandle"]');
-    if (rz) rz.style.display = 'none';
-  }
-  forceSidebarWidth();
-  setInterval(forceSidebarWidth, 1500);
+    setTimeout(_setup, 800);
 })();
 </script>
 """, height=0)
 
-usuario_logado = auth.verificar_login()
+    st.caption(f"Exibindo: {sel} · atualiza automaticamente a cada 30s · {agora.strftime('%d/%m/%Y %H:%M')}")
 
-# UC minimo pra aprovar produto -- definido pelo Léo em 14/07/2026,
-# provisorio ate ele analisar as UCs reais da operacao.
-UC_MINIMO = 0.8
-
-# ── CÁLCULO MERCADO LIVRE ──────────────────────────────────────────────────────
-
-def calcular_peso_taxado(peso_kg, d1, d2, d3):
-    """Peso taxado = maior entre peso fisico e peso cubado (altura x largura
-    x profundidade / 6000), conforme politica oficial do Mercado Livre.
-    IMPORTANTE: peso e dimensoes devem ser do produto JA EMBALADO."""
-    peso_cubado = (d1 * d2 * d3) / 6000
-    return max(peso_kg, peso_cubado)
-
-def calcular_frete_ml(preco, peso_kg):
-    """Tabela oficial do Mercado Livre pos-reforma de marco/2026
-    (MercadoLider / reputacao verde / sem reputacao)."""
-    if preco < 19:
-        valor_tabela = ML_FRETE_TABELA[-1][1][0]
-        for peso_lim, vals in ML_FRETE_TABELA:
-            if peso_kg <= peso_lim:
-                valor_tabela = vals[0]
-                break
-        return min(valor_tabela, preco * 0.5)
-    idx = len(ML_FAIXAS_PRECO) - 1
-    for i, lim in enumerate(ML_FAIXAS_PRECO):
-        if preco <= lim:
-            idx = i
-            break
-    for peso_lim, vals in ML_FRETE_TABELA:
-        if peso_kg <= peso_lim:
-            return vals[idx]
-    return ML_FRETE_TABELA[-1][1][idx]
-
-def calcular_comissao_ml(preco, categoria, modalidade="Premium"):
-    taxas = ML_COMISSAO_POR_CATEGORIA.get(categoria, ML_COMISSAO_POR_CATEGORIA['Outros'])
-    return preco * taxas[1 if modalidade == "Premium" else 0]
-
-def calcular_resultado(preco, custo, peso_kg, categoria, modalidade, nf_pct, custo_operacional, lpv):
-    comissao     = calcular_comissao_ml(preco, categoria, modalidade)
-    frete        = calcular_frete_ml(preco, peso_kg)
-    nf           = preco * nf_pct
-    lucro_bruto  = preco - (comissao + frete)
-    lucro_liq    = preco - (custo + comissao + frete + nf + custo_operacional)
-    margem       = (lucro_liq / preco * 100) if preco > 0 else 0
-    uc           = round(lucro_liq / lpv, 2) if lpv else None
-    return {'preco': preco, 'custo': custo, 'comissao': comissao, 'frete': frete,
-            'nf': nf, 'custo_operacional': custo_operacional, 'lpv': lpv,
-            'lucro_bruto': lucro_bruto, 'lucro_liquido': lucro_liq,
-            'margem': margem, 'uc': uc}
-
-# ── CÁLCULO SHOPEE ─────────────────────────────────────────────────────────────
-
-def calcular_comissao_shopee(preco):
-    """Retorna (comissao_valor, adicional_fixo) conforme tabela SHOPEE_FAIXAS.
-    Formato: (preco_min, preco_max, comissao_pct, adicional_fixo, frete_liquido)."""
-    for pmin, pmax, pct, adicional, _ in SHOPEE_FAIXAS:
-        if pmin <= preco <= pmax:
-            return preco * pct, adicional
-    # fallback: ultima faixa
-    _, _, pct, adicional, _ = SHOPEE_FAIXAS[-1]
-    return preco * pct, adicional
-
-def calcular_resultado_shopee(preco, custo, nf_pct, custo_operacional, lpv):
-    comissao_pct, adicional = calcular_comissao_shopee(preco)
-    comissao_total = comissao_pct + adicional
-    frete     = SHOPEE_FRETE_LIQUIDO  # R$0,00 — Frete Gratis obrigatorio, vendedor nao paga
-    nf        = preco * nf_pct
-    lucro_liq = preco - (custo + comissao_total + frete + nf + custo_operacional)
-    margem    = (lucro_liq / preco * 100) if preco > 0 else 0
-    uc        = round(lucro_liq / lpv, 2) if lpv else None
-    return {
-        'preco': preco, 'custo': custo, 'comissao': comissao_total, 'frete': frete,
-        'nf': nf, 'custo_operacional': custo_operacional, 'lpv': lpv,
-        'lucro_bruto': preco - (comissao_total + frete),
-        'lucro_liquido': lucro_liq, 'margem': margem, 'uc': uc,
-    }
-
-# ── CÁLCULO SHEIN ──────────────────────────────────────────────────────────────
-
-def calcular_frete_shein(peso_kg):
-    """Frete da Shein por peso (tabela oficial do vendedor).
-    Formato: (peso_maximo_kg, valor_frete_reais)."""
-    for peso_lim, valor in SHEIN_FRETE_TABELA:
-        if peso_kg <= peso_lim:
-            return valor
-    return SHEIN_FRETE_TABELA[-1][1]
-
-def calcular_resultado_shein(preco, custo, peso_kg, nf_pct, custo_operacional, lpv):
-    comissao  = preco * SHEIN_COMISSAO  # 18% flat
-    frete     = calcular_frete_shein(peso_kg)
-    nf        = preco * nf_pct
-    lucro_liq = preco - (custo + comissao + frete + nf + custo_operacional)
-    margem    = (lucro_liq / preco * 100) if preco > 0 else 0
-    uc        = round(lucro_liq / lpv, 2) if lpv else None
-    return {
-        'preco': preco, 'custo': custo, 'comissao': comissao, 'frete': frete,
-        'nf': nf, 'custo_operacional': custo_operacional, 'lpv': lpv,
-        'lucro_bruto': preco - (comissao + frete),
-        'lucro_liquido': lucro_liq, 'margem': margem, 'uc': uc,
-    }
-
-# ── VEREDICTO (100% Python, sem chamada de IA -- mais rapido e sem custo) ──────
-
-def montar_tabela_vertical(r):
-    """Tabela vertical (Item | Valor) na ordem pedida pelo usuario."""
-    uc_str = f"{r['uc']}/1" if r['uc'] is not None else "sem lucro"
-    linhas = [
-        "| Item | Valor |",
-        "|---|---|",
-        f"| Valor do anúncio | R${r['preco']:.2f} |",
-        f"| Taxa da plataforma (comissão) | R${r['comissao']:.2f} |",
-        f"| Frete | R${r['frete']:.2f} |",
-        f"| NF | R${r['nf']:.2f} |",
-        f"| Custos operacionais | R${r['custo_operacional']:.2f} |",
-        f"| Custo do produto | R${r['custo']:.2f} |",
-        f"| **Lucro** | **R${r['lucro_liquido']:.2f}** |",
-        f"| Margem | {r['margem']:.1f}% |",
-        f"| **UC** | **{uc_str}** |",
-    ]
-    return "\n".join(linhas)
-
-
-def classificar_uc(uc):
-    if uc is None or uc < UC_MINIMO:
-        return "INVIAVEL"
-    elif uc < 1.0:
-        return "RESSALVAS"
-    return "VIAVEL"
-
-
-def montar_tabela_horizontal_completa(cenarios):
-    """cenarios: lista de (nome, resultado_dict)"""
-    campos = [
-        ("Valor do anúncio", lambda r: f"R${r['preco']:.2f}"),
-        ("Taxa da plataforma", lambda r: f"R${r['comissao']:.2f}"),
-        ("Frete", lambda r: f"R${r['frete']:.2f}"),
-        ("NF", lambda r: f"R${r['nf']:.2f}"),
-        ("Custos operacionais", lambda r: f"R${r['custo_operacional']:.2f}"),
-        ("Custo do produto", lambda r: f"R${r['custo']:.2f}"),
-        ("**Lucro**", lambda r: f"**R${r['lucro_liquido']:.2f}**"),
-        ("Margem", lambda r: f"{r['margem']:.1f}%"),
-        ("**UC**", lambda r: f"**{r['uc']}/1**" if r['uc'] is not None else "**sem lucro**"),
-    ]
-    header = "| Item | " + " | ".join(nome for nome, _ in cenarios) + " |"
-    sep = "|---" * (len(cenarios) + 1) + "|"
-    linhas = [header, sep]
-    for label, fn in campos:
-        linhas.append(f"| {label} | " + " | ".join(fn(r) for _, r in cenarios) + " |")
-    return "\n".join(linhas)
-
-# ── RESOLVER E PROMOÇÃO GENÉRICOS (funciona pra ML, Shopee e Shein) ───────────
-
-def resolver_preco_para_uc_fn(uc_alvo, calc_fn, lpv, preco_max=2000.0):
-    """Bissecao generica: acha preco que resulta exatamente em uc_alvo
-    dado um calc_fn(preco) -> resultado_dict."""
-    if not lpv:
-        return None
-    lo, hi = 0.01, float(preco_max)
-    for _ in range(80):
-        mid = (lo + hi) / 2
-        r = calc_fn(mid)
-        uc = r['uc'] if r['uc'] is not None else -999
-        if uc < uc_alvo:
-            lo = mid
-        else:
-            hi = mid
-    return round(hi, 2)
-
-def analisar_promocao_fn(preco_mercado, uc_mercado, calc_fn, lpv):
-    """Analise de promocao generica usando calc_fn(preco) -> resultado_dict."""
-    if uc_mercado is None or uc_mercado < 1.0:
-        return None
-
-    preco_10pct = round(preco_mercado * 0.9, 2)
-    r_10pct = calc_fn(preco_10pct)
-
-    preco_uc1 = resolver_preco_para_uc_fn(1.0, calc_fn, lpv, preco_max=preco_mercado * 2)
-    desconto_teorico_uc1 = round(100 * (preco_mercado - preco_uc1) / preco_mercado, 1) if preco_uc1 else 0
-
-    if r_10pct['uc'] is not None and r_10pct['uc'] >= 1.0:
-        desconto_recomendado = 10.0
-        r_recomendado = r_10pct
-        nota_extra = (
-            f"Isso ainda deixa a UC em {r_10pct['uc']}/1. Se quiser ir além, o limite pra não cair "
-            f"abaixo de 1/1 é **{desconto_teorico_uc1}%** de desconto (informativo, não é a sugestão)."
-        ) if desconto_teorico_uc1 > 10 else ""
-        texto = "✅ Dá pra promover em até **10%** de desconto (o teto padrão da empresa)."
-    else:
-        desconto_recomendado = desconto_teorico_uc1
-        r_recomendado = calc_fn(preco_uc1) if preco_uc1 else None
-        nota_extra = ""
-        texto = (
-            f"⚠️ 10% de desconto derrubaria a UC abaixo de 1/1. O desconto máximo recomendado pra manter "
-            f"UC ≥ 1/1 é **{desconto_recomendado}%**."
-        )
-
-    if r_recomendado is None:
-        return None
-
-    tabela = montar_tabela_horizontal_completa([
-        ("Preço de mercado", calc_fn(preco_mercado)),
-        (f"Promoção ({desconto_recomendado}% off)", r_recomendado),
-    ])
-
-    return {"texto": texto, "nota_extra": nota_extra, "tabela": tabela}
-
-def gerar_analise_fn(preco_mercado, custo, nome, nf_pct, custo_op, lpv, calc_fn,
-                     preco_max_busca=None, alerta_cubagem=""):
-    """Motor de analise generico. Recebe calc_fn(preco)->resultado e produz
-    o mesmo dicionario de saida que gerar_analise() (ML-especifico)."""
-    r_base = calc_fn(preco_mercado)
-    tag = classificar_uc(r_base['uc'])
-    preco_max = preco_max_busca or max(custo * 20, 2000)
-
-    RESUMOS = {
-        "VIAVEL":    f"Esse anúncio sobra R${r_base['lucro_liquido']:.2f} de lucro por venda (margem de {r_base['margem']:.1f}%), cobrindo a meta de lucro com folga.",
-        "RESSALVAS": f"Esse anúncio sobra R${r_base['lucro_liquido']:.2f} de lucro por venda (margem de {r_base['margem']:.1f}%) — ajuda a pagar as contas, mas não cobre a meta sozinho.",
-        "INVIAVEL":  f"Esse anúncio {'dá prejuízo' if r_base['lucro_liquido'] < 0 else 'sobra pouco lucro'} (R${r_base['lucro_liquido']:.2f} por venda) — fica abaixo do mínimo aceitável pra empresa.",
-    }
-
-    preco_uc07 = resolver_preco_para_uc_fn(0.7, calc_fn, lpv, preco_max)
-    preco_uc10 = resolver_preco_para_uc_fn(1.0, calc_fn, lpv, preco_max)
-    r_uc07 = calc_fn(preco_uc07) if preco_uc07 else None
-    r_uc10 = calc_fn(preco_uc10) if preco_uc10 else None
-
-    cenarios = [("Risco (UC 0,7/1)", r_uc07), ("Preço de mercado", r_base), ("Equilíbrio (UC 1,0/1)", r_uc10)]
-    cenarios = [(n, r) for n, r in cenarios if r is not None]
-    tabela_cenarios = montar_tabela_horizontal_completa(cenarios)
-
-    promo = analisar_promocao_fn(preco_mercado, r_base['uc'], calc_fn, lpv)
-    if promo is None:
-        if tag == "INVIAVEL":
-            texto_promo = "⚠️ Não tem margem pra promoção nesse preço — o produto já está abaixo do UC mínimo. Considere revisar custo ou anunciar mais caro (veja o cenário de Equilíbrio acima)."
-        else:
-            texto_promo = f"⚠️ Margem apertada (UC entre {UC_MINIMO}/1 e 1/1) — não recomendamos promoção nesse preço, só se aproximar do valor de Equilíbrio (UC 1,0/1) mostrado acima."
-        tabela_promo = ""
-        nota_extra_promo = ""
-    else:
-        texto_promo = promo["texto"]
-        tabela_promo = promo["tabela"]
-        nota_extra_promo = promo["nota_extra"]
-
-    return {
-        "tag": tag,
-        "resumo": RESUMOS[tag],
-        "tabela_cenarios": tabela_cenarios,
-        "texto_promo": texto_promo,
-        "tabela_promo": tabela_promo,
-        "nota_extra_promo": nota_extra_promo,
-        "alerta_cubagem": alerta_cubagem,
-        "preco_sugerido": preco_mercado,
-    }
-
-# ── FUNÇÕES ML LEGADAS (mantidas intactas) ────────────────────────────────────
-
-def resolver_preco_para_uc(uc_alvo, custo, peso_kg, categoria, modalidade, nf_pct, custo_op, lpv, preco_max=None):
-    """Acha por bissecao o preco de anuncio que resulta exatamente no UC alvo."""
-    if not lpv:
-        return None
-    preco_max = preco_max or max(custo * 20, 2000)
-    lo, hi = 0.01, preco_max
-    for _ in range(80):
-        mid = (lo + hi) / 2
-        r = calcular_resultado(mid, custo, peso_kg, categoria, modalidade, nf_pct, custo_op, lpv)
-        uc = r['uc'] if r['uc'] is not None else -999
-        if uc < uc_alvo:
-            lo = mid
-        else:
-            hi = mid
-    return round(hi, 2)
-
-
-def analisar_promocao(preco_mercado, uc_mercado, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv):
-    """Regra definida pelo usuario (14/07/2026):
-    - Teto de promocao recomendado: 10% de desconto.
-    - Mas nunca deixar o UC final cair abaixo de 1/1."""
-    if uc_mercado is None or uc_mercado < 1.0:
-        return None
-
-    preco_10pct = round(preco_mercado * 0.9, 2)
-    r_10pct = calcular_resultado(preco_10pct, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv)
-
-    preco_uc1 = resolver_preco_para_uc(1.0, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv)
-    desconto_teorico_uc1 = round(100 * (preco_mercado - preco_uc1) / preco_mercado, 1) if preco_uc1 else 0
-
-    if r_10pct['uc'] is not None and r_10pct['uc'] >= 1.0:
-        desconto_recomendado = 10.0
-        preco_recomendado = preco_10pct
-        r_recomendado = r_10pct
-        nota_extra = (f"Isso ainda deixa a UC em {r_10pct['uc']}/1. Se quiser ir além, o limite pra não cair "
-                      f"abaixo de 1/1 é **{desconto_teorico_uc1}%** de desconto (informativo, não é a sugestão).") \
-                      if desconto_teorico_uc1 > 10 else ""
-        texto = f"✅ Dá pra promover em até **10%** de desconto (o teto padrão da empresa)."
-    else:
-        desconto_recomendado = desconto_teorico_uc1
-        preco_recomendado = preco_uc1
-        r_recomendado = calcular_resultado(preco_uc1, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv)
-        nota_extra = ""
-        texto = (f"⚠️ 10% de desconto derrubaria a UC abaixo de 1/1. O desconto máximo recomendado pra manter "
-                 f"UC ≥ 1/1 é **{desconto_recomendado}%**.")
-
-    tabela = montar_tabela_horizontal_completa([
-        ("Preço de mercado", calcular_resultado(preco_mercado, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv)),
-        (f"Promoção ({desconto_recomendado}% off)", r_recomendado),
-    ])
-
-    return {"texto": texto, "nota_extra": nota_extra, "tabela": tabela}
-
-
-def gerar_analise(preco_mercado, custo, peso_taxado, categoria, modalidade,
-                   nome, dims_ref, qtd_ref, nf_pct, custo_operacional, lpv):
-    r_base = calcular_resultado(preco_mercado, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv)
-    tag = classificar_uc(r_base['uc'])
-
-    RESUMOS = {
-        "VIAVEL": f"Esse anúncio sobra R${r_base['lucro_liquido']:.2f} de lucro por venda (margem de {r_base['margem']:.1f}%), cobrindo a meta de lucro com folga.",
-        "RESSALVAS": f"Esse anúncio sobra R${r_base['lucro_liquido']:.2f} de lucro por venda (margem de {r_base['margem']:.1f}%) — ajuda a pagar as contas, mas não cobre a meta sozinho.",
-        "INVIAVEL": f"Esse anúncio {'dá prejuízo' if r_base['lucro_liquido'] < 0 else 'sobra pouco lucro'} (R${r_base['lucro_liquido']:.2f} por venda) — fica abaixo do mínimo aceitável pra empresa.",
-    }
-    resumo = RESUMOS[tag]
-
-    preco_uc07 = resolver_preco_para_uc(0.7, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv)
-    preco_uc10 = resolver_preco_para_uc(1.0, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv)
-    r_uc07 = calcular_resultado(preco_uc07, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv) if preco_uc07 else None
-    r_uc10 = calcular_resultado(preco_uc10, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv) if preco_uc10 else None
-
-    cenarios = [("Risco (UC 0,7/1)", r_uc07), ("Preço de mercado", r_base), ("Equilíbrio (UC 1,0/1)", r_uc10)]
-    cenarios = [(n, r) for n, r in cenarios if r is not None]
-    tabela_cenarios = montar_tabela_horizontal_completa(cenarios)
-
-    promo = analisar_promocao(preco_mercado, r_base['uc'], custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv)
-    if promo is None:
-        if tag == "INVIAVEL":
-            texto_promo = "⚠️ Não tem margem pra promoção nesse preço — o produto já está abaixo do UC mínimo. Considere revisar custo ou anunciar mais caro (veja o cenário de Equilíbrio acima)."
-        else:
-            texto_promo = f"⚠️ Margem apertada (UC entre {UC_MINIMO}/1 e 1/1) — não recomendamos promoção nesse preço, só se aproximar do valor de Equilíbrio (UC 1,0/1) mostrado acima."
-        tabela_promo = ""
-        nota_extra_promo = ""
-    else:
-        texto_promo = promo["texto"]
-        tabela_promo = promo["tabela"]
-        nota_extra_promo = promo["nota_extra"]
-
-    alerta_cubagem = ""
-    if any(d > 0 for d in dims_ref):
-        peso_cubado = (dims_ref[0] * dims_ref[1] * dims_ref[2]) / 6000
-        if peso_cubado > peso_taxado - 0.001 and peso_cubado > 0:
-            alerta_cubagem = f"⚠️ **Atenção:** o frete foi calculado pelo volume da embalagem ({dims_ref[0]:.0f}x{dims_ref[1]:.0f}x{dims_ref[2]:.0f}cm), não pelo peso — o Mercado Livre pode reconferir essa medida depois e mudar o custo."
-
-    return {
-        "tag": tag,
-        "resumo": resumo,
-        "tabela_cenarios": tabela_cenarios,
-        "texto_promo": texto_promo,
-        "tabela_promo": tabela_promo,
-        "nota_extra_promo": nota_extra_promo,
-        "alerta_cubagem": alerta_cubagem,
-        "preco_sugerido": preco_mercado,
-    }
-
-# ── RENDERIZAÇÃO DE RESULTADO (compartilhada pelas 3 plataformas) ──────────────
-
-def _mostrar_resultado(resultado, nome_produto):
-    SELOS = {
-        "VIAVEL":    ("✅", "VIÁVEL",            "ms-selo-viavel"),
-        "RESSALVAS": ("⚠️", "VIÁVEL COM ATENÇÃO", "ms-selo-ressalvas"),
-        "INVIAVEL":  ("🚫", "INVIÁVEL",           "ms-selo-inviavel"),
-    }
-    emoji, texto_selo, classe = SELOS[resultado["tag"]]
-
-    st.markdown(f"""
-    <div class="ms-selo {classe}">
-        <span class="ms-selo-titulo">{emoji} {texto_selo}</span>
-        <span class="ms-selo-sub">{nome_produto} · R${resultado['preco_sugerido']:.2f}</span>
-    </div>
-    """, unsafe_allow_html=True)
-    st.markdown(
-        f'<p class="ms-resumo">{resultado["resumo"]}</p>',
-        unsafe_allow_html=True,
-    )
-
-    st.markdown('<span class="ms-section-title">Cenários</span>', unsafe_allow_html=True)
-    st.markdown(resultado["tabela_cenarios"])
-
-    st.markdown('<span class="ms-section-title">Viabilidade de promoção</span>', unsafe_allow_html=True)
-    st.markdown(resultado["texto_promo"])
-    if resultado["tabela_promo"]:
-        st.markdown(resultado["tabela_promo"])
-    if resultado["nota_extra_promo"]:
-        st.caption(resultado["nota_extra_promo"])
-
-    if resultado.get("alerta_cubagem"):
-        st.markdown("---")
-        st.markdown(resultado["alerta_cubagem"])
-
-# ── INTERFACE ──────────────────────────────────────────────────────────────────
-
-with st.sidebar:
-    _lp = _logo_b64("logo_preto.png")
-    _lb = _logo_b64("logo_branco.png")
-    st.markdown(
-        f'<img id="ms-logo-preto" src="data:image/png;base64,{_lp}" style="width:100%;margin-top:-32px;margin-bottom:2px;display:block;"/>'
-        f'<img id="ms-logo-branco" src="data:image/png;base64,{_lb}" style="width:100%;margin-top:-32px;margin-bottom:2px;display:block;"/>',
-        unsafe_allow_html=True
-    )
-    _col_user, _col_sair = st.columns([3, 1])
-    _col_user.caption(f"Logado como **{usuario_logado}**")
-    _sair_clicked = _col_sair.button("Sair", key="btn_sair")
-    if _sair_clicked:
-        chave_admin = f"admin_confirmado_{usuario_logado}"
-        for k in [k for k in st.session_state if k == chave_admin]:
-            del st.session_state[k]
-        del st.session_state["usuario_logado"]
-        st.rerun()
-    chat_assistente.renderizar_chat(usuario_logado)
-
-_eh_admin        = auth.is_admin(usuario_logado)
-_eh_martinsousa  = usuario_logado.lower() == "martinsousa"
-
-_nomes_abas = ["Análise de Viabilidade", "Triagem", "Palavras-chave", "Título",
-               "Descrição", "Imagem", "Vídeo", "Histórico", "Análise de Venda"]
-if _eh_admin:
-    _nomes_abas.append("Administrativo")
-_idx_analise_metas = len(_nomes_abas)   # guarda posição antes de inserir
-if _eh_martinsousa:
-    _nomes_abas.append("📊 Análise de Metas")
-
-_abas = st.tabs(_nomes_abas)
-(aba_viabilidade, aba_triagem, aba_palavras, aba_titulo,
- aba_descricao, aba_imagem, aba_video, aba_historico, aba_analise_venda) = _abas[:9]
-
-with aba_video:
-    video.pagina_video(usuario_logado)
-
-with aba_historico:
-    atividades.pagina_historico()
-
-if _eh_admin:
-    with _abas[9]:
-        _sub_admin, _sub_financeiro = st.tabs(["⚙️ Administrativo", "💰 Financeiro"])
-        with _sub_admin:
-            admin.pagina_admin(usuario_logado)
-        with _sub_financeiro:
-            financeiro.pagina_financeiro(usuario_logado)
-
-if _eh_martinsousa:
-    with _abas[_idx_analise_metas]:
-        analise_metas.pagina_analise_metas(usuario_logado)
-
-with aba_analise_venda:
-    # LPV e NF vigentes
-    _lpv_av, _nf_av = LPV_OFICIAL, NF_OFICIAL
+    # ── Carrega configuração persistida (ou usa defaults) ──────────────────────
     try:
-        _df_av = financeiro.carregar_dados()
-        _lpv_d_av, _ = financeiro.lpv_vigente(_df_av)
-        _aliq_d_av, _ = financeiro.aliquota_vigente(_df_av)
-        if _lpv_d_av: _lpv_av = _lpv_d_av
-        if _aliq_d_av: _nf_av = _aliq_d_av / 100
+        import metas_config as _mc
+        cfg_mes = _mc.carregar_config(filtro_mes[0], filtro_mes[1])
     except Exception:
-        pass
-
-    st.subheader("Calculadora de Preço Mínimo")
-    st.caption("Informe o custo e as características do produto para descobrir qual preço mínimo anunciar em cada plataforma antes de pesquisar o mercado.")
-    st.markdown("---")
-
-    col_av1, col_av2 = st.columns(2)
-    with col_av1:
-        st.markdown("**Produto**")
-        custo_av        = st.number_input("Custo do produto (R$)", min_value=0.0, value=None,
-                                           step=0.50, format="%.2f", placeholder="0,00", key="av_custo")
-        categoria_av    = st.selectbox("Categoria no ML", sorted(ML_COMISSAO_POR_CATEGORIA.keys()), key="av_categoria")
-        modalidade_av   = st.selectbox("Modalidade ML", ["Premium", "Classico"], key="av_modalidade")
-        custo_op_av     = st.number_input("Custo operacional (embalagem/logística/ADS/cross docking)",
-                                           min_value=0.0, value=8.13, step=0.50, format="%.2f", key="av_custo_op")
-
-    with col_av2:
-        st.markdown("**Dimensões e Peso (produto embalado)**")
-        col_p_av, col_u_av = st.columns([3, 1])
-        peso_val_av  = col_p_av.number_input("Peso Embalado para Envio", min_value=0.0, value=None,
-                                              step=1.0, format="%.0f", placeholder="ex: 700", key="av_peso")
-        peso_unit_av = col_u_av.selectbox("Unidade", ["g", "kg"], key="av_peso_unit")
-        peso_kg_av   = (peso_val_av / 1000 if peso_val_av else 0) if peso_unit_av == "g" else (peso_val_av or 0)
-        st.caption("Medidas da embalagem — usadas no cálculo de peso cubado do ML")
-        dim1_av = st.number_input("Medida 1 (cm)", min_value=0.0, value=None, step=0.5, format="%.1f", placeholder="ex: 30", key="av_d1")
-        dim2_av = st.number_input("Medida 2 (cm)", min_value=0.0, value=None, step=0.5, format="%.1f", placeholder="ex: 20", key="av_d2")
-        dim3_av = st.number_input("Medida 3 (cm)", min_value=0.0, value=None, step=0.5, format="%.1f", placeholder="ex: 5",  key="av_d3")
-
-    st.markdown("---")
-    calcular_av = st.button("Calcular Preços Mínimos", type="primary", use_container_width=True, key="av_calcular")
-
-    if calcular_av:
-        erros_av = []
-        if custo_av is None: erros_av.append("Custo do produto")
-        if peso_kg_av == 0:  erros_av.append("Peso do produto")
-        if erros_av:
-            st.warning(f"Preencha: {', '.join(erros_av)}")
-        else:
-            peso_taxado_av = calcular_peso_taxado(peso_kg_av, dim1_av or 0, dim2_av or 0, dim3_av or 0)
-
-            UC_ALVOS_AV = [
-                (0.8, "0,8/1", "Mínimo viável", "ms-card-08"),
-                (1.0, "1,0/1", "Equilíbrio",    "ms-card-10"),
-                (1.5, "1,5/1", "Confortável",   "ms-card-15"),
-            ]
-
-            with st.spinner("Calculando preços mínimos..."):
-                linhas_av = []
-                for uc_val, uc_label, uc_desc, classe_card in UC_ALVOS_AV:
-                    # ML
-                    p_ml_av = resolver_preco_para_uc(
-                        uc_val, custo_av, peso_taxado_av, categoria_av, modalidade_av,
-                        _nf_av, custo_op_av, _lpv_av
-                    )
-                    # Shopee
-                    def _sp(p, _c=custo_av, _n=_nf_av, _o=custo_op_av, _l=_lpv_av):
-                        return calcular_resultado_shopee(p, _c, _n, _o, _l)
-                    p_sp_av = resolver_preco_para_uc_fn(uc_val, _sp, _lpv_av)
-                    # Shein
-                    def _sh(p, _c=custo_av, _pk=peso_kg_av, _n=_nf_av, _o=custo_op_av, _l=_lpv_av):
-                        return calcular_resultado_shein(p, _c, _pk, _n, _o, _l)
-                    p_sh_av = resolver_preco_para_uc_fn(uc_val, _sh, _lpv_av)
-
-                    linhas_av.append((uc_label, uc_desc, classe_card, p_ml_av, p_sp_av, p_sh_av))
-
-            st.markdown("### Preços mínimos para anunciar")
-            st.caption(f"LPV: R${_lpv_av:.2f} · NF: {_nf_av*100:.1f}% · Op: R${custo_op_av:.2f}")
-            st.markdown("")
-
-            for uc_label, uc_desc, classe_card, p_ml, p_sp, p_sh in linhas_av:
-                fmt = lambda v: f"R${v:.2f}" if v else "—"
-                st.markdown(f"""
-                <div class="ms-card-uc {classe_card}">
-                  <div class="ms-card-uc-label">UC {uc_label} — {uc_desc}</div>
-                  <div class="ms-card-plat-prices">
-                    <div>
-                      <div class="ms-card-plat-name">🛒 Mercado Livre</div>
-                      <div class="ms-card-plat-price">{fmt(p_ml)}</div>
-                    </div>
-                    <div>
-                      <div class="ms-card-plat-name">🛍️ Shopee</div>
-                      <div class="ms-card-plat-price">{fmt(p_sp)}</div>
-                    </div>
-                    <div>
-                      <div class="ms-card-plat-name">👗 Shein</div>
-                      <div class="ms-card-plat-price">{fmt(p_sh)}</div>
-                    </div>
-                  </div>
-                </div>
-                """, unsafe_allow_html=True)
-
-            st.markdown("---")
-            st.caption("Pesquise se há produtos ativos nessas faixas de preço. Se sim, o produto é viável — use a aba **Análise de Viabilidade** para confirmar os números com o preço real encontrado.")
-
-with aba_triagem:
-    triagem.pagina_triagem(usuario_logado)
-
-with aba_palavras:
-    palavras_chave.pagina_palavras_chave(usuario_logado)
-
-with aba_titulo:
-    titulo.pagina_titulo(usuario_logado)
-
-with aba_imagem:
-    imagem.pagina_imagem(usuario_logado)
-
-with aba_descricao:
-    descricao.pagina_descricao(usuario_logado)
-
-with aba_viabilidade:
-    # Busca LPV e aliquota calculados a partir dos dados financeiros reais.
-    # Se ainda nao houver dado suficiente, cai pros valores fixos antigos
-    # (params_oficiais.py) so como reserva, deixando isso claro na tela.
-    lpv_dinamico, lpv_origem, aliquota_dinamica = None, None, None
-    try:
-        df_financeiro = financeiro.carregar_dados()
-        lpv_dinamico, lpv_origem = financeiro.lpv_vigente(df_financeiro)
-        aliquota_dinamica, _ = financeiro.aliquota_vigente(df_financeiro)
-    except Exception:
-        pass
-
-    lpv_usado = lpv_dinamico if lpv_dinamico else LPV_OFICIAL
-    lpv_origem_usada = lpv_origem if lpv_dinamico else "valor fixo de reserva (sem dados financeiros ainda)"
-    nf_pct_usado = (aliquota_dinamica / 100) if aliquota_dinamica else NF_OFICIAL
-
-    col_info1, col_info2, col_info3 = st.columns(3)
-    col_info1.metric("LPV vigente", f"R${lpv_usado:.2f}")
-    col_info2.metric("NF (alíquota)", f"{nf_pct_usado*100:.1f}%")
-    col_info3.metric("UC mínimo p/ aprovar", f"{UC_MINIMO}/1")
-    st.caption(f"LPV calculado com base em: {lpv_origem_usada}")
-    st.markdown("---")
-
-    # ── FORMULÁRIO ÚNICO ───────────────────────────────────────────────────────
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("Dados do Produto")
-        nome_produto      = st.text_input("Nome do produto")
-        custo             = st.number_input("Preço de custo (R$)", min_value=0.0, value=None, step=0.50, format="%.2f", placeholder="0,00")
-        qtd_ref           = st.number_input("Quantidade por unidade/kit", min_value=1, step=1, value=1)
-        categoria         = st.selectbox("Categoria no ML", sorted(ML_COMISSAO_POR_CATEGORIA.keys()), key="viab_categoria")
-        custo_operacional = st.number_input("Custo operacional (embalagem/logística/ADS/cross docking)",
-                                             min_value=0.0, value=8.13, step=0.50, format="%.2f")
-
-    with col2:
-        st.subheader("Dimensões e Peso (produto EMBALADO)")
-        st.caption("Peso e medidas do pacote pronto pra envio — usados no cálculo de frete do ML (cubagem) e da Shein (por peso).")
-        col_peso, col_unit = st.columns([3, 1])
-        peso_val  = col_peso.number_input("Peso Embalado para Envio", min_value=0.0, value=None, step=1.0, format="%.0f", placeholder="ex: 700")
-        peso_unit = col_unit.selectbox("Unidade", ["g", "kg"])
-        peso_kg   = (peso_val / 1000 if peso_val else 0) if peso_unit == "g" else (peso_val or 0)
-        st.caption("Medidas da embalagem — usadas no cálculo de peso cubado do ML")
-        dim1 = st.number_input("Medida 1 (cm)", min_value=0.0, value=None, step=0.5, format="%.1f", placeholder="ex: 30")
-        dim2 = st.number_input("Medida 2 (cm)", min_value=0.0, value=None, step=0.5, format="%.1f", placeholder="ex: 30")
-        dim3 = st.number_input("Medida 3 (cm)", min_value=0.0, value=None, step=0.5, format="%.1f", placeholder="ex: 2")
-        dims_ref = [dim1 or 0, dim2 or 0, dim3 or 0]
-
-    # ── PREÇOS DE MERCADO POR PLATAFORMA ──────────────────────────────────────
-    st.markdown("---")
-    st.subheader("Preço de mercado por plataforma")
-    modalidade = st.selectbox("Modalidade ML", ["Premium", "Classico"], key="viab_modalidade")
-    st.caption("Preencha o preço pesquisado em cada plataforma. Deixe em branco as que não forem analisar.")
-
-    col_p1, col_p2, col_p3 = st.columns(3)
-    with col_p1:
-        preco_ml = st.number_input("🛒 Mercado Livre", min_value=0.0, value=None, step=0.50,
-                                    format="%.2f", placeholder="0,00", key="preco_ml")
-    with col_p2:
-        preco_sp = st.number_input("🛍️ Shopee", min_value=0.0, value=None, step=0.50,
-                                    format="%.2f", placeholder="0,00", key="preco_sp")
-    with col_p3:
-        preco_sh = st.number_input("👗 Shein", min_value=0.0, value=None, step=0.50,
-                                    format="%.2f", placeholder="0,00", key="preco_sh")
-
-    st.markdown("---")
-    analisar = st.button("Analisar Viabilidade", type="primary", use_container_width=True)
-
-    if analisar:
-        erros = []
-        if not nome_produto: erros.append("Nome do produto")
-        if custo is None:    erros.append("Preço de custo")
-        if all(p is None for p in [preco_ml, preco_sp, preco_sh]):
-            erros.append("Pelo menos um preço de mercado (ML, Shopee ou Shein)")
-        if preco_sh and peso_kg == 0:
-            erros.append("Peso do produto (necessário para calcular o frete da Shein)")
-        if erros:
-            st.warning(f"Preencha: {', '.join(erros)}")
-            # Abre o chat automaticamente com orientação sobre o que falta
-            msg_chat = f"Atenção! Faltam informações para calcular a viabilidade:\n\n"
-            for e in erros:
-                msg_chat += f"• {e}\n"
-            msg_chat += "\nMe fala o que não sabe preencher que te explico."
-            chat_assistente.iniciar_conversa(msg_chat)
-            st.stop()
-
-        peso_taxado_ml = calcular_peso_taxado(peso_kg, dim1 or 0, dim2 or 0, dim3 or 0)
-
-        # ── CALCULA AS 3 PLATAFORMAS ───────────────────────────────────────────
-        with st.spinner("Calculando viabilidade nas plataformas..."):
-            res_ml, res_sp, res_sh = None, None, None
-
-            if preco_ml:
-                res_ml = gerar_analise(
-                    preco_ml, custo, peso_taxado_ml, categoria, modalidade,
-                    nome_produto, dims_ref, qtd_ref, nf_pct_usado, custo_operacional, lpv_usado,
-                )
-
-            if preco_sp:
-                calc_sp = lambda p: calcular_resultado_shopee(p, custo, nf_pct_usado, custo_operacional, lpv_usado)
-                res_sp = gerar_analise_fn(preco_sp, custo, nome_produto, nf_pct_usado,
-                                          custo_operacional, lpv_usado, calc_sp)
-
-            if preco_sh:
-                calc_sh = lambda p: calcular_resultado_shein(p, custo, peso_kg, nf_pct_usado, custo_operacional, lpv_usado)
-                res_sh = gerar_analise_fn(preco_sh, custo, nome_produto, nf_pct_usado,
-                                          custo_operacional, lpv_usado, calc_sh)
-
-        # registra no histórico
-        plataformas_log = " / ".join(
-            f"{p}: {r['tag']} R${pr:.2f}"
-            for p, r, pr in [("ML", res_ml, preco_ml or 0), ("Shopee", res_sp, preco_sp or 0), ("Shein", res_sh, preco_sh or 0)]
-            if r is not None
-        )
-        atividades.registrar_atividade(
-            usuario_logado, "Análise de Viabilidade", nome_produto,
-            f"custo R${custo:.2f} · {plataformas_log}"
-        )
-
-        # ── RESULTADO LADO A LADO ──────────────────────────────────────────────
-        st.markdown("---")
-
-        # classe CSS de cada plataforma (evita inline style que é ignorado pelo CSS global)
-        PLATAFORMAS = {
-            "ml": ("ms-plat-ml", "Mercado Livre"),
-            "sp": ("ms-plat-sp", "Shopee"),
-            "sh": ("ms-plat-sh", "Shein"),
+        cfg_mes = {
+            "meta_equipe": 5000, "meta_maxx_pct": 110,
+            "meta_myrelladesouza": 1500, "meta_beatriz51": 1500,
+            "meta_gabriel_borges": 1500,
+            "max_pen_normal": 4, "max_pen_maxx": 1,
+            "max_tol_normal": 15, "max_tol_maxx": 7,
+            "max_atr_normal": 10, "max_atr_maxx": 5,
         }
 
-        col_r1, col_r2, col_r3 = st.columns(3)
+    # Chaves de sessão por mês (para sobrescritas rápidas no expander)
+    k_eq  = f"meta_eq_{filtro_mes[0]}_{filtro_mes[1]}"
+    k_mx  = f"meta_maxx_{filtro_mes[0]}_{filtro_mes[1]}"
+    k_myr = f"meta_myr_{filtro_mes[0]}_{filtro_mes[1]}"
+    k_bea = f"meta_bea_{filtro_mes[0]}_{filtro_mes[1]}"
+    k_gab = f"meta_gab_{filtro_mes[0]}_{filtro_mes[1]}"
 
-        for col, chave, resultado, preco in [
-            (col_r1, "ml", res_ml, preco_ml),
-            (col_r2, "sp", res_sp, preco_sp),
-            (col_r3, "sh", res_sh, preco_sh),
-        ]:
-            classe_plat, nome_plataforma = PLATAFORMAS[chave]
-            with col:
-                st.markdown(
-                    f'<div class="ms-plat-header {classe_plat}">{nome_plataforma}</div>',
-                    unsafe_allow_html=True,
-                )
-                if resultado is not None:
-                    _mostrar_resultado(resultado, nome_produto)
-                else:
-                    st.markdown(
-                        '<div style="color:var(--ms-texto-sec); font-style:italic; font-size:13px; '
-                        'padding: 16px 0;">Preço não informado</div>',
-                        unsafe_allow_html=True,
-                    )
+    if k_eq  not in st.session_state: st.session_state[k_eq]  = int(cfg_mes["meta_equipe"])
+    if k_mx  not in st.session_state: st.session_state[k_mx]  = int(cfg_mes["meta_maxx_pct"])
+    if k_myr not in st.session_state: st.session_state[k_myr] = int(cfg_mes["meta_myrelladesouza"])
+    if k_bea not in st.session_state: st.session_state[k_bea] = int(cfg_mes["meta_beatriz51"])
+    if k_gab not in st.session_state: st.session_state[k_gab] = int(cfg_mes["meta_gabriel_borges"])
+
+    with st.expander(f"⚙️ Configurar Metas — {sel}", expanded=False):
+        if eh_master:
+            c1, c2 = st.columns(2)
+            st.session_state[k_eq] = c1.number_input(
+                "Meta equipe (pts)", min_value=0, value=st.session_state[k_eq], step=100)
+            st.session_state[k_mx] = c2.number_input(
+                "Meta MAXX (% da meta mensal)", min_value=100, max_value=300,
+                value=st.session_state[k_mx], step=5,
+                help="110 = 10% acima da meta mensal")
+            st.markdown("**Meta individual por colaborador:**")
+            ci1, ci2, ci3 = st.columns(3)
+            st.session_state[k_myr] = ci1.number_input(
+                "Myrella (pts)", min_value=0, value=st.session_state[k_myr], step=100)
+            st.session_state[k_bea] = ci2.number_input(
+                "Beatriz (pts)", min_value=0, value=st.session_state[k_bea], step=100)
+            st.session_state[k_gab] = ci3.number_input(
+                "Gabriel (pts)", min_value=0, value=st.session_state[k_gab], step=100)
+            if st.button("💾 Salvar configuração do mês", key="placar_salvar_cfg"):
+                try:
+                    _mc.salvar_config(filtro_mes[0], filtro_mes[1], {
+                        "meta_equipe": st.session_state[k_eq],
+                        "meta_maxx_pct": st.session_state[k_mx],
+                        "meta_myrelladesouza": st.session_state[k_myr],
+                        "meta_beatriz51": st.session_state[k_bea],
+                        "meta_gabriel_borges": st.session_state[k_gab],
+                    })
+                    st.success("Configuração salva!")
+                except Exception as _e:
+                    st.warning(f"Não foi possível salvar: {_e}")
+        else:
+            st.info("Metas configuradas pelo gestor.")
+
+    meta_eq   = st.session_state[k_eq]
+    maxx_pct  = st.session_state[k_mx]
+    meta_maxx_pts = meta_eq * maxx_pct / 100
+    # Meta individual por colaborador
+    meta_ind_map = {
+        "myrelladesouza": st.session_state[k_myr],
+        "beatriz51":      st.session_state[k_bea],
+        "gabriel_borges": st.session_state[k_gab],
+    }
+    # Compatibilidade: meta_ind = média para barras genéricas
+    meta_ind = sum(meta_ind_map.values()) // max(len(meta_ind_map), 1)
+
+    with st.spinner(""):
+        dados=_buscar_board()
+    if not dados or not dados[0]:
+        st.error("Não foi possível conectar ao Trello."); return
+
+    listas,cards,membros_map,id_p,id_t,id_i=dados
+    d=_processar(listas,cards,membros_map,id_p,id_t,id_i,filtro_mes)
+    fila=_calcular_fila(listas,cards,membros_map)
+
+    saldo_eq=d["pts_equipe"]-d["pen_total"]
+    pct_eq=(saldo_eq/meta_eq*100) if meta_eq>0 else 0
+    pct_maxx=(saldo_eq/meta_maxx_pts*100) if meta_maxx_pts>0 else 0
+    faltam=max(meta_eq-saldo_eq,0)
+    faltam_maxx=max(meta_maxx_pts-saldo_eq,0)
+    cor_pts="#1BAF7A" if pct_eq>=100 else ("#EDA100" if pct_eq>=50 else "#E34948")
+
+    # ══ BLOCO 1 — cards meta | vel meta | vel maxx | cards maxx ══
+    col_cm, col_vm, col_vx, col_cx = st.columns([1.8, 2.0, 2.0, 1.8])
+
+    with col_cm:
+        faltam_cor="#EDA100" if faltam>0 else "#1BAF7A"
+        faltam_maxx_cor="#FFD700" if faltam_maxx==0 else "#EDA100"
+        atual_maxx_cor="#FFD700" if pct_maxx>=100 else "#EDA100"
+        st.markdown(f"""<div style="font-size:9px;font-weight:600;color:#1BAF7A;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px;">🏆 Meta Mensal</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;">
+  <div style="background:#0d2e1f;border:1px solid #1BAF7A;border-radius:6px;padding:6px 8px;">
+    <div style="font-size:7px;color:#1BAF7A;text-transform:uppercase;">Meta</div>
+    <div style="font-size:13px;font-weight:700;color:#e0f5ec;">{meta_eq:,}</div>
+    <div style="font-size:7px;color:#1BAF7A;">pts/mês</div>
+  </div>
+  <div style="background:#2a1e05;border:1px solid #EDA100;border-radius:6px;padding:6px 8px;">
+    <div style="font-size:7px;color:#EDA100;text-transform:uppercase;">Atual</div>
+    <div style="font-size:13px;font-weight:700;color:#fae8b0;">{saldo_eq:,.0f}</div>
+    <div style="font-size:7px;color:#EDA100;">{pct_eq:.0f}% meta</div>
+  </div>
+  <div style="background:#2a1e05;border:1px solid #EDA100;border-radius:6px;padding:6px 8px;">
+    <div style="font-size:7px;color:#EDA100;text-transform:uppercase;">Faltam</div>
+    <div style="font-size:13px;font-weight:700;color:#fae8b0;">{faltam:,.0f}</div>
+    <div style="font-size:7px;color:#EDA100;">pts</div>
+  </div>
+  <div style="background:#2a1e05;border:1px solid #EDA100;border-radius:6px;padding:6px 8px;">
+    <div style="font-size:7px;color:#EDA100;text-transform:uppercase;">Em Aberto</div>
+    <div style="font-size:13px;font-weight:700;color:#fae8b0;">{d["pts_pendentes"]:,.0f}</div>
+    <div style="font-size:7px;color:#EDA100;">pendentes</div>
+  </div>
+</div>""", unsafe_allow_html=True)
+
+    with col_vm:
+        st.markdown(_vel_meta(pct_eq, meta_eq, saldo_eq, faltam), unsafe_allow_html=True)
+
+    with col_vx:
+        st.markdown(_vel_maxx(pct_maxx, meta_maxx_pts, saldo_eq), unsafe_allow_html=True)
+
+    with col_cx:
+        cor_pen_maxx_card="#E34948" if d["pen_total"]>0 else "#FFD700"
+        st.markdown(f"""<div style="font-size:9px;font-weight:600;color:#FFD700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px;">⭐ Meta Maxx</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;">
+  <div style="background:#2a2000;border:1px solid #FFD700;border-radius:6px;padding:6px 8px;">
+    <div style="font-size:7px;color:#FFD700;text-transform:uppercase;">Maxx</div>
+    <div style="font-size:13px;font-weight:700;color:#fff5cc;">{meta_maxx_pts:,.0f}</div>
+    <div style="font-size:7px;color:#FFD700;">+{maxx_pct-100}% da meta</div>
+  </div>
+  <div style="background:#2a1e05;border:1px solid #EDA100;border-radius:6px;padding:6px 8px;">
+    <div style="font-size:7px;color:#EDA100;text-transform:uppercase;">Saldo (c/ pen.)</div>
+    <div style="font-size:13px;font-weight:700;color:#fae8b0;">{saldo_eq:,.0f}</div>
+    <div style="font-size:7px;color:#EDA100;">{pct_maxx:.0f}% Maxx</div>
+  </div>
+  <div style="background:#2a1e05;border:1px solid #EDA100;border-radius:6px;padding:6px 8px;">
+    <div style="font-size:7px;color:#EDA100;text-transform:uppercase;">Faltam</div>
+    <div style="font-size:13px;font-weight:700;color:#fae8b0;">{faltam_maxx:,.0f}</div>
+    <div style="font-size:7px;color:#EDA100;">p/ bônus</div>
+  </div>
+  <div style="background:#2a1500;border:1px solid {cor_pen_maxx_card};border-radius:6px;padding:6px 8px;">
+    <div style="font-size:7px;color:{cor_pen_maxx_card};text-transform:uppercase;">Penalidades</div>
+    <div style="font-size:13px;font-weight:700;color:#fae8b0;">-{d["pen_total"]:,.0f}</div>
+    <div style="font-size:7px;color:{cor_pen_maxx_card};">{len(d["pen_cards"])} ocorrências</div>
+  </div>
+</div>""", unsafe_allow_html=True)
+
+    # ══ BLOCO 2 — STATUS ══
+    st.markdown('<hr style="border:none;border-top:1px solid var(--ms-divisor);margin:10px 0 8px 0;"/>',unsafe_allow_html=True)
+    status_items=[
+        ("Cartões Pendentes",sum(d["pend_lista"].values()),"Pendente","var(--ms-texto)","#EDA10030","#EDA100"),
+        ("Pts Pendentes",f"{d['pts_pendentes']:.0f}","Aberto","#EDA100","#EDA10020","#EDA100"),
+        ("Em Andamento",d["em_andamento"],"Ativo","var(--ms-texto)","#1BAF7A20","#1BAF7A"),
+        ("Atrasados",d["atrasados"],"Atenção","var(--ms-texto)","#E3494820","#E34948"),
+        ("Desativar",d["desativar"],"Prioritário","var(--ms-texto)","#E3494820","#E34948"),
+        ("Reativar",d["reativar"],"Normal","var(--ms-texto)","#33333340","#888"),
+        ("Urgentes",d["urgentes"],"Crítico","#E34948","#E3494830","#E34948"),
+        ("Falta Info",d["falta_info"],"Pendente","#EDA100","#EDA10020","#EDA100"),
+        ("Falta Pontuação",d["falta_pts"],"Revisar","#EDA100","#EDA10020","#EDA100"),
+        ("Penalidades",f"-{d['pen_total']:.0f}","Ocorrências","#E34948","#E3494820","#E34948"),
+        ("Sem Membro",d["sem_membro"],"Revisar","#EDA100","#EDA10020","#EDA100"),
+    ]
+    cols_st=st.columns(11)
+    for i,(lbl,val,badge,cn,bb,bt) in enumerate(status_items):
+        with cols_st[i]: st.markdown(_sc(lbl,val,badge,cn,bb,bt),unsafe_allow_html=True)
+
+    # ══ BLOCO METAS — ponta a ponta ══
+    st.markdown('<hr style="border:none;border-top:1px solid var(--ms-divisor);margin:10px 0 8px 0;"/>',unsafe_allow_html=True)
+    col_meta_n, col_meta_x = st.columns(2)
+
+    # Cálculos para as barras
+    pct_prioritarios_ok = 100 if d["atrasados"] == 0 else max(0, 100 - d["atrasados"]*20)
+    total_cards_ativos = max(d["em_andamento"] + sum(d["pend_lista"].values()), 1)
+    # Meta: Em Andamento e Concluídos com membro — apenas de 01/07/2026 em diante
+    from datetime import timezone as _tz
+    _corte = datetime(2026, 7, 1, tzinfo=_tz.utc)
+    _elegivel = [
+        card for card in cards
+        if _data_card(card) >= _corte
+        and ("EM ANDAMENTO" in _labels(card) or card.get("dueComplete", False))
+    ]
+    _sem_mb_novo = sum(1 for card in _elegivel if not _users(card, membros_map))
+    _total_novo = max(len(_elegivel), 1)
+    pct_com_membro = max(0, min(100, 100 - (_sem_mb_novo / _total_novo * 100)))
+
+
+
+    def _barra_meta(nome, pct, desc, cor_barra):
+        pct_c = min(max(pct,0),100)
+        # % sempre na cor da barra
+        return f"""<div style="margin-bottom:8px;">
+  <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px;">
+    <span style="color:var(--ms-texto);">{nome}</span>
+    <span style="color:{cor_barra};font-weight:700;">{pct_c:.0f}%</span>
+  </div>
+  <div style="background:var(--ms-metric-bd);border-radius:3px;height:5px;overflow:hidden;">
+    <div style="background:{cor_barra};width:{pct_c:.1f}%;height:100%;border-radius:3px;"></div>
+  </div>
+  <div style="font-size:8px;color:{cor_barra};margin-top:2px;opacity:.8;">{desc}</div>
+</div>"""
+
+    def _barra_aguardando(nome, desc, cor_barra):
+        return f"""<div style="margin-bottom:8px;">
+  <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px;">
+    <span style="color:var(--ms-texto);">{nome}</span>
+    <span style="color:#555;font-weight:700;">—</span>
+  </div>
+  <div style="background:var(--ms-metric-bd);border-radius:3px;height:5px;overflow:hidden;">
+    <div style="background:{cor_barra};width:100%;height:100%;border-radius:3px;opacity:.2;"></div>
+  </div>
+  <div style="font-size:8px;color:var(--ms-texto-sec);margin-top:2px;">{desc}</div>
+</div>"""
+
+    # Cálculos penalidades com limites da configuração persistida
+    qtd_pen       = len(d["pen_cards"])
+    max_pen_n     = int(cfg_mes.get("max_pen_normal", 4))
+    max_pen_x     = int(cfg_mes.get("max_pen_maxx", 1))
+    max_tol_n     = int(cfg_mes.get("max_tol_normal", 15))
+    max_tol_x     = int(cfg_mes.get("max_tol_maxx", 7))
+    max_atr_n     = int(cfg_mes.get("max_atr_normal", 10))
+    max_atr_x     = int(cfg_mes.get("max_atr_maxx", 5))
+    max_retrab_n  = int(cfg_mes.get("max_retrab_normal", 10))
+    max_retrab_x  = int(cfg_mes.get("max_retrab_maxx", 5))
+
+    # % da meta de penalidades (base: max+1 → % vai a 0 ao atingir o limite)
+    pct_pen_normal = max(0, min(100, (1 - qtd_pen / (max_pen_n + 1)) * 100))
+    pct_pen_maxx   = max(0, min(100, (1 - qtd_pen / (max_pen_x + 1)) * 100))
+
+    with col_meta_n:
+        b = ""
+        b += f'<div style="font-size:10px;font-weight:600;color:#1BAF7A;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">📋 Meta Coletiva</div>'
+        b += _barra_meta("Pontuação do mês", pct_eq, f"{saldo_eq:,.0f} / {meta_eq:,} pts (inclui -{d['pen_total']:.0f} penalidades)", "#1BAF7A")
+        b += _barra_meta("Sem atraso em prioritários P8-P10", pct_prioritarios_ok, "Nenhum cartão prioritário atrasado", "#1BAF7A")
+        b += _barra_meta(f"Retrabalho abaixo de {max_retrab_n}%", 100, "Coluna Correção de Fotos", "#1BAF7A")
+        cor_pen_n = "#E34948" if qtd_pen > max_pen_n else "#1BAF7A"
+        b += _barra_meta(f"Menos de {max_pen_n+1} penalidades", pct_pen_normal, f"{qtd_pen} ocorrências / máx {max_pen_n}", cor_pen_n)
+        b += _barra_meta("Cartões com membro atribuído", pct_com_membro, "Em andamento e concluídos", "#1BAF7A")
+        b += f'<div style="font-size:10px;font-weight:600;color:#1BAF7A;text-transform:uppercase;letter-spacing:.5px;margin:10px 0 8px 0;border-top:1px solid var(--ms-divisor);padding-top:8px;">🎯 Meta Individual</div>'
+        b += _barra_aguardando("Pontuação Individual", "Veja abaixo o desempenho por colaborador", "#1BAF7A")
+        b += _barra_aguardando("Ociosidade abaixo de 10%", "Aguardando relógio de ponto", "#1BAF7A")
+        b += _barra_aguardando("Tempo médio abaixo do estimado", "Aguardando histórico de execução", "#1BAF7A")
+        b += _barra_meta(f"Pontualidade: máx {max_tol_n} tolerâncias", 100, f"0 tolerâncias usadas este mês", "#1BAF7A")
+        b += _barra_meta(f"Pontualidade: máx {max_atr_n} atrasos", 100, f"0 atrasos registrados este mês", "#1BAF7A")
+        st.markdown(f'<div style="background:var(--ms-metric-bg);border:1px solid #1BAF7A22;border-radius:8px;padding:12px 14px;">{b}</div>', unsafe_allow_html=True)
+
+    with col_meta_x:
+        b = ""
+        b += f'<div style="font-size:10px;font-weight:600;color:#FFD700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">⭐ Meta Maxx Coletiva</div>'
+        b += _barra_meta(f"Pontuação +{maxx_pct-100}% acima da meta", pct_maxx, f"{saldo_eq:,.0f} / {meta_maxx_pts:,.0f} pts (c/ penalidades -{ d['pen_total']:.0f})", "#FFD700")
+        b += _barra_meta("Zero prioritários em atraso", pct_prioritarios_ok, "Nenhum cartão prioritário atrasado", "#FFD700")
+        b += _barra_meta(f"Retrabalho abaixo de {max_retrab_x}%", 100, "Coluna Correção de Fotos", "#FFD700")
+        cor_pen_x = "#E34948" if qtd_pen > max_pen_x else "#FFD700"
+        b += _barra_meta(f"Menos de {max_pen_x+1} penalidades", pct_pen_maxx, f"{qtd_pen} ocorrências / máx {max_pen_x}", cor_pen_x)
+        b += f'<div style="height:32px;"></div>'
+        b += f'<div style="font-size:10px;font-weight:600;color:#FFD700;text-transform:uppercase;letter-spacing:.5px;margin:10px 0 8px 0;border-top:1px solid var(--ms-divisor);padding-top:8px;">⭐ Meta Maxx Individual</div>'
+        b += _barra_aguardando("Pontuação Individual", "Veja abaixo o desempenho por colaborador", "#FFD700")
+        b += _barra_aguardando("Ociosidade abaixo de 5%", "Aguardando relógio de ponto", "#FFD700")
+        b += _barra_aguardando("Tempo médio abaixo do estimado", "Aguardando histórico de execução", "#FFD700")
+        b += _barra_meta(f"Pontualidade: máx {max_tol_x} tolerâncias", 100, f"0 tolerâncias usadas este mês", "#FFD700")
+        b += _barra_meta(f"Pontualidade: máx {max_atr_x} atrasos", 100, f"0 atrasos registrados este mês", "#FFD700")
+        st.markdown(f'<div style="background:var(--ms-metric-bg);border:1px solid #FFD70022;border-radius:8px;padding:12px 14px;">{b}</div>', unsafe_allow_html=True)
+
+    # ══ BLOCO 3 — EM ANDAMENTO | FILA | DESEMPENHO ══
+    st.markdown('<hr style="border:none;border-top:1px solid var(--ms-divisor);margin:10px 0 8px 0;"/>',unsafe_allow_html=True)
+    col_and,col_fila,col_colab=st.columns([3,3,3])
+
+    with col_and:
+        st.markdown("**▶️ Em Andamento Agora**")
+        if d["andamento_lista"]:
+            for c in d["andamento_lista"]:
+                ms=", ".join(MEMBROS_ATIVOS.get(u,u) for u in c["membros"]) or "—"
+                st.markdown(f"""<div style="background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);border-radius:8px;padding:8px 12px;margin-bottom:5px;">
+                  <div style="font-size:12px;font-weight:600;color:var(--ms-texto);">{c['card'][:48]}</div>
+                  <div style="font-size:10px;color:var(--ms-texto-sec);margin-top:1px;">{c['lista'][:35]} · <span style="color:#1BAF7A;">{ms}</span></div>
+                </div>""",unsafe_allow_html=True)
+        else:
+            st.caption("Nenhum cartão em andamento.")
+
+    with col_fila:
+        st.markdown("**📋 Próximas Demandas na Fila**")
+        if fila:
+            for item in fila[:4]:
+                st.markdown(_fila_html(item),unsafe_allow_html=True)
+        else:
+            st.caption("Fila vazia 🎉")
+
+    with col_colab:
+        st.markdown("**👥 Desempenho por Colaborador**")
+        barras=""
+        for u,nome in MEMBROS_ATIVOS.items():
+            pts=d["pts_membro"].get(u,0); pen=d["pen_membro"].get(u,0)
+            barras+=_barra(nome,pts,meta_ind_map.get(u,1500),pen)
+        st.markdown(f'<div style="padding:4px 0">{barras}</div>',unsafe_allow_html=True)
+
+    # ══ BLOCO 4 — PENDENTES + TEMPO MÉDIO ══
+    st.markdown('<hr style="border:none;border-top:1px solid var(--ms-divisor);margin:10px 0 8px 0;"/>',unsafe_allow_html=True)
+    col_pend,col_tempo=st.columns([1,1])
+
+    with col_pend:
+        st.markdown("**🟠 Pendentes por Coluna**")
+        if d["pend_lista"]:
+            max_q=max(d["pend_lista"].values())
+            for nl,qtd in sorted(d["pend_lista"].items(),key=lambda x:-x[1]):
+                pct_b=qtd/max_q*100
+                st.markdown(f"""<div style="margin-bottom:6px;">
+                  <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--ms-texto);margin-bottom:2px;">
+                    <span>{nl[:38]}</span><span style="font-weight:700;">{qtd}</span></div>
+                  <div style="background:var(--ms-metric-bd);border-radius:3px;height:5px;">
+                    <div style="background:#EDA100;width:{pct_b:.0f}%;height:100%;border-radius:3px;"></div>
+                  </div></div>""",unsafe_allow_html=True)
+        else:
+            st.caption("Nenhum cartão pendente 🎉")
+
+    with col_tempo:
+        st.markdown("**⏱️ Tempo Médio por Coluna**")
+        listas_t=[nl for nl in set(listas.values())
+                  if nl not in LISTAS_PENALIDADE and nl!="TABELA DE PONTUAÇÃO"
+                  and nl not in LISTAS_SEM_PONTUACAO]
+        listas_ord=sorted(listas_t)
+        cols_t=st.columns(3)
+        for i,nl in enumerate(listas_ord[:18]):
+            tempos=d["tempo_lista"].get(nl,[])
+            cfg=COLUNAS_CONFIG.get(nl)
+            if tempos:
+                media=sum(tempos)/len(tempos)
+                val=f"{media:.0f}min"; sub=f"{len(tempos)} reais"; cor="var(--ms-texto)"
+            elif cfg:
+                val=f"~{cfg['tempo_min']}min"; sub="estimativa"; cor="var(--ms-texto-sec)"
+            else:
+                val="—"; sub="sem dados"; cor="var(--ms-texto-sec)"
+            nl_curto=nl[:20]+"…" if len(nl)>20 else nl
+            with cols_t[i%3]:
+                st.markdown(f"""<div style="background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);border-radius:6px;padding:6px 8px;margin-bottom:4px;display:flex;align-items:center;justify-content:space-between;gap:4px;">
+                  <div style="flex:1;min-width:0;">
+                    <div style="font-size:8px;color:var(--ms-texto-sec);text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{nl_curto}</div>
+                    <div style="font-size:7px;color:var(--ms-texto-sec);margin-top:1px;">{sub}</div>
+                  </div>
+                  <div style="font-size:14px;font-weight:700;color:{cor};white-space:nowrap;text-align:right;">{val}</div>
+                </div>""",unsafe_allow_html=True)
+
+    # ══ BLOCO 5 — META INDIVIDUAL ══
+    st.markdown('<hr style="border:none;border-top:1px solid var(--ms-divisor);margin:10px 0 8px 0;"/>',unsafe_allow_html=True)
+    st.markdown("**🎯 Meta Individual**")
+
+    def _render_meta_ind(username, nome_exib, pts, pen, meta_ind):
+        saldo_i=pts-pen
+        pct_pts=min((saldo_i/meta_ind*100),100) if meta_ind>0 else 0
+        cor_pts_i="#1BAF7A" if pct_pts>=100 else ("#EDA100" if pct_pts>=50 else "#E34948")
+
+        st.markdown(f"##### {nome_exib}")
+        st.markdown(_meta_ind_item(
+            "📈 Pontuação Individual",
+            pct_pts,
+            f"{saldo_i:,.0f} / {meta_ind:,.0f} pts · {'✅ Meta atingida!' if pct_pts>=100 else f'Faltam {meta_ind-saldo_i:,.0f} pts'}",
+            cor=cor_pts_i
+        ), unsafe_allow_html=True)
+        st.markdown(_meta_ind_item(
+            "⏱️ Ociosidade abaixo de 10%",
+            100, "Aguardando integração do relógio de ponto",
+            aguardando=True
+        ), unsafe_allow_html=True)
+        st.markdown(_meta_ind_item(
+            "⚡ Tempo médio de execução abaixo do estimado",
+            100, "Aguardando dados suficientes de execução",
+            aguardando=True
+        ), unsafe_allow_html=True)
+        st.markdown(_meta_ind_item(
+            "🕐 Tolerâncias de pontualidade (15/mês)",
+            100, "0 tolerâncias usadas — Aguardando integração do ponto",
+            cor="#1BAF7A"
+        ), unsafe_allow_html=True)
+        st.markdown(_meta_ind_item(
+            "⏰ Atrasos de pontualidade (10/mês)",
+            100, "0 atrasos registrados — Aguardando integração do ponto",
+            cor="#1BAF7A"
+        ), unsafe_allow_html=True)
+
+        # Calculadora de ganhos no rodapé
+        saldo_i = pts - pen
+        pct_i = min((saldo_i / meta_ind * 100), 100) if meta_ind > 0 else 0
+        st.markdown('<div style="margin-top:4px;"></div>', unsafe_allow_html=True)
+        salario = st.number_input(
+            "💰 Informe seu salário base para calcular seus ganhos mensais até o momento:",
+            min_value=0.0, value=0.0, step=100.0,
+            format="%.2f", key=f"salario_{username}",
+            label_visibility="visible"
+        )
+        if salario > 0:
+            # Meta Normal: coletiva 12%, individual 8%
+            bonus_col = salario * 0.12 * (pct_eq / 100)
+            bonus_ind = salario * 0.08 * (pct_i / 100)
+            # Meta Maxx: coletiva +5%, individual +5%
+            bonus_maxx_col = salario * 0.05 * (pct_maxx / 100)
+            bonus_maxx_ind = salario * 0.05 * (pct_i / 100) * (pct_maxx / 100)
+            total = salario + bonus_col + bonus_ind + bonus_maxx_col + bonus_maxx_ind
+            cor_total = "#FFD700" if pct_maxx > 0 else "#1BAF7A"
+            st.markdown(f"""<div style="background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);border-radius:8px;padding:10px 12px;margin-top:6px;">
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr 1fr;gap:6px;">
+    <div><div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;">Salário Base</div><div style="font-size:13px;font-weight:700;color:var(--ms-texto);">R$ {salario:,.2f}</div></div>
+    <div><div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;">Bônus Coletivo</div><div style="font-size:13px;font-weight:700;color:#1BAF7A;">+R$ {bonus_col:,.2f}</div><div style="font-size:7px;color:var(--ms-texto-sec);">{pct_eq:.0f}% de 12%</div></div>
+    <div><div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;">Bônus Individual</div><div style="font-size:13px;font-weight:700;color:#1BAF7A;">+R$ {bonus_ind:,.2f}</div><div style="font-size:7px;color:var(--ms-texto-sec);">{pct_i:.0f}% de 8%</div></div>
+    <div><div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;">Maxx Coletivo</div><div style="font-size:13px;font-weight:700;color:#FFD700;">+R$ {bonus_maxx_col:,.2f}</div><div style="font-size:7px;color:var(--ms-texto-sec);">{pct_maxx:.0f}% de 5%</div></div>
+    <div><div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;">Maxx Individual</div><div style="font-size:13px;font-weight:700;color:#FFD700;">+R$ {bonus_maxx_ind:,.2f}</div><div style="font-size:7px;color:var(--ms-texto-sec);">{pct_maxx:.0f}% de 5%</div></div>
+    <div><div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;">Total a Receber</div><div style="font-size:16px;font-weight:700;color:{cor_total};">R$ {total:,.2f}</div></div>
+  </div>
+</div>""", unsafe_allow_html=True)
+
+    # Mapeia login do MS Studio → username do Trello
+    LOGIN_MAP = {
+        "Myrella": "myrelladesouza",
+        "Beatriz": "beatriz51",
+        "Gabriel": "gabriel_borges",
+        "MartinSousa": "martinsousa",
+    }
+    username_logado = LOGIN_MAP.get(usuario_logado, usuario_logado)
+
+    if eh_master:
+        cols_mi=st.columns(len(MEMBROS_ATIVOS))
+        for i,(u,nome) in enumerate(MEMBROS_ATIVOS.items()):
+            with cols_mi[i]:
+                pts=d["pts_membro"].get(u,0); pen=d["pen_membro"].get(u,0)
+                _render_meta_ind(u, nome, pts, pen, meta_ind_map.get(u,1500))
+    elif username_logado in MEMBROS_ATIVOS:
+        pts=d["pts_membro"].get(username_logado,0)
+        pen=d["pen_membro"].get(username_logado,0)
+        nome=MEMBROS_ATIVOS.get(username_logado,usuario_logado)
+        _render_meta_ind(username_logado, nome, pts, pen, meta_ind_map.get(username_logado,1500))
+    else:
+        st.caption("Meta individual disponível apenas para colaboradores.")
+
+    # Penalidades (master)
+    if eh_master and d["pen_cards"]:
+        st.markdown('<hr style="border:none;border-top:1px solid var(--ms-divisor);margin:10px 0 8px 0;"/>',unsafe_allow_html=True)
+        st.markdown("**⚠️ Penalidades Registradas**")
+        for p in d["pen_cards"]:
+            ms=", ".join(MEMBROS_ATIVOS.get(u,u) for u in p["membros"]) or "Sem membro"
+            st.markdown(f"""<div style="background:var(--ms-metric-bg);border:1px solid #E34948;border-radius:8px;padding:10px 14px;margin-bottom:5px;">
+              <div style="display:flex;justify-content:space-between;">
+                <span style="font-size:12px;font-weight:600;color:var(--ms-texto);">{p['card'][:55]}</span>
+                <span style="font-size:13px;font-weight:700;color:#E34948;">-{p['valor']:.0f} pts</span>
+              </div>
+              <div style="font-size:10px;color:var(--ms-texto-sec);margin-top:2px;">{ms}</div>
+            </div>""",unsafe_allow_html=True)
+
+    # Link TV
+    st.markdown('<hr style="border:none;border-top:1px solid var(--ms-divisor);margin:10px 0 4px 0;"/>',unsafe_allow_html=True)
+    st.caption(f"📺 Para TV: adicione **?tv=1** no final da URL · {agora.strftime('%d/%m/%Y %H:%M')}")
