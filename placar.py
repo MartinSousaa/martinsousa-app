@@ -388,29 +388,40 @@ def pagina_placar(usuario_logado):
         if st.button("🔄",use_container_width=True,help="Atualizar"):
             _buscar_board.clear(); st.rerun()
 
-    # ── Botão oculto para auto-refresh via JS (não recarrega a página) ─────────
-    if st.button("__auto_refresh_placar__", key="btn_placar_auto_refresh", label_visibility="collapsed"):
+    # ── Botão gatilho para auto-refresh via JS (sem location.reload) ──────────
+    # O texto "__ar_placar__" é único — o JS abaixo localiza, esconde e clica
+    if st.button("__ar_placar__", key="btn_placar_auto_refresh"):
         st.rerun()
 
-    # JS: clica o botão oculto a cada 30 segundos, sem location.reload()
+    # JS: localiza o botão pelo texto, o esconde visualmente e agenda cliques
     _components.html("""
 <script>
 (function() {
     var _intervalo = null;
-    function _clickRefresh() {
+    var _TARGET = '__ar_placar__';
+    function _findBtn() {
         try {
-            var doc = window.parent.document;
-            var btns = doc.querySelectorAll('button');
+            var btns = window.parent.document.querySelectorAll('button');
             for (var i = 0; i < btns.length; i++) {
-                if (btns[i].innerText.trim() === '__auto_refresh_placar__') {
-                    btns[i].click();
-                    return;
-                }
+                if (btns[i].innerText.trim() === _TARGET) return btns[i];
             }
         } catch(e) {}
+        return null;
     }
-    if (_intervalo) clearInterval(_intervalo);
-    _intervalo = setInterval(_clickRefresh, 30000);
+    function _setup() {
+        var btn = _findBtn();
+        if (!btn) { setTimeout(_setup, 600); return; }
+        // Esconde o botão e seu container imediato
+        var wrap = btn.closest('div[data-testid="stButton"]') || btn.parentElement;
+        if (wrap) wrap.style.cssText = 'display:none!important;width:0;height:0;overflow:hidden;';
+        // Agenda cliques periódicos a cada 30s
+        if (_intervalo) clearInterval(_intervalo);
+        _intervalo = setInterval(function() {
+            var b = _findBtn();
+            if (b) b.click();
+        }, 30000);
+    }
+    setTimeout(_setup, 800);
 })();
 </script>
 """, height=0)
