@@ -795,7 +795,7 @@ def _pizza_svg(segmentos, box_pct, box_label, box_cor="#4A90D9"):
             f'<div style="width:22px;height:22px;border-radius:50%;background:{cor};opacity:0.85;flex-shrink:0;'
             f'display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;color:#fff;">{i+1:02d}</div>'
             f'<div style="font-size:10px;color:var(--ms-texto,#ccc);line-height:1.3;">'
-            f'{nome[:26]}{"…" if len(nome)>26 else ""}</div></div>'
+            f'{nome}</div></div>'
         )
     # Box menor (metade do tamanho original)
     box_html = (
@@ -1282,6 +1282,8 @@ def _chart_resumo_colabs(dados):
 def _desempenho_individual(dados, username, nome):
     """Renderiza os 4 gráficos HTML/SVG de desempenho para um colaborador."""
     meses = _ind_extrair_meses(dados, username)
+    # Remove meses sem meta individual configurada (meta == 0)
+    meses = [m for m in meses if m["meta"] > 0]
 
     row1a, row1b = st.columns(2)
     with row1a:
@@ -1298,7 +1300,7 @@ def _desempenho_individual(dados, username, nome):
     row2a, row2b = st.columns(2)
 
     with row2a:
-        st.markdown("#### 🍩 Participação nas Colunas")
+        st.markdown("#### 🍕 Participação nas Colunas")
         st.caption("Top 5 colunas mais pontuadas pela equipe · % central = contribuição individual no total.")
         st.markdown(_chart_ind_participacao(dados, username), unsafe_allow_html=True)
 
@@ -1606,26 +1608,6 @@ def pagina_analise_metas(usuario_logado):
         )
         st.markdown(_chart_resumo_colabs(dados), unsafe_allow_html=True)
 
-        # ── Desempenho Individual com filtro ──────────────────────────────
-        st.markdown("---")
-        st.markdown("#### 📈 Desempenho Individual")
-
-        # Selector visível para masters; colaboradores veem apenas o próprio
-        _mb_opcoes   = list(_pc.MEMBROS_ATIVOS.keys())
-        _mb_nomes    = [_pc.MEMBROS_ATIVOS[u] for u in _mb_opcoes]
-
-        if _eh_master_am:
-            _mb_nome_sel = st.selectbox(
-                "👤 Selecionar colaborador:", _mb_nomes, key="am_ind_graf_sel"
-            )
-            _mb_u_sel = _mb_opcoes[_mb_nomes.index(_mb_nome_sel)]
-        else:
-            _mb_u_sel    = _username_logado
-            _mb_nome_sel = _pc.MEMBROS_ATIVOS.get(_mb_u_sel, _mb_u_sel)
-            st.info(f"Exibindo seus dados: **{_mb_nome_sel}**")
-
-        if _mb_u_sel:
-            _desempenho_individual(dados, _mb_u_sel, _mb_nome_sel)
 
     with tab_des:
         _aba_desempenho(dados, dados_ano_full)
