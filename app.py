@@ -80,10 +80,18 @@ body.tema-claro {
 [data-testid="stToolbar"] { background-color: var(--ms-fundo) !important; }
 #stDecoration             { display: none !important; }
 /* Esconde o overlay de "running" que escurece a tela no auto-refresh */
-[data-testid="stStatusWidget"]          { display: none !important; }
-div[class*="StatusWidget"]              { display: none !important; }
-.stApp > header [data-testid="stStatus"]{ display: none !important; }
-iframe[title="st_autorefresh"]          { display: none !important; }
+[data-testid="stStatusWidget"]                  { display: none !important; }
+div[class*="StatusWidget"]                      { display: none !important; }
+.stApp > header [data-testid="stStatus"]        { display: none !important; }
+iframe[title="st_autorefresh"]                  { display: none !important; }
+[data-testid="stAppRunningIndicator"]           { display: none !important; }
+div[class*="AppRunningIndicator"]               { display: none !important; }
+/* Impede o escurecimento do conteúdo durante o rerun */
+.stApp, .main, [data-testid="stMain"],
+[data-testid="stMainBlockContainer"],
+[data-testid="stAppViewBlockContainer"]         { opacity: 1 !important; }
+/* Remove pseudo-elemento de overlay que alguns temas Streamlit usam */
+.stApp::after, .main::after                    { display: none !important; }
 
 /* ── FUNDO GERAL ────────────────────────────────────────────────────────── */
 .stApp { background-color: var(--ms-fundo) !important; color: var(--ms-texto) !important; }
@@ -659,6 +667,39 @@ components.html("""
   setInterval(function() {
     if (!P.sessionStorage.getItem('ms_tema')) aplicarTema(temaAuto(), false);
   }, 60000);
+
+  // Impede o Streamlit de escurecer a tela no auto-refresh:
+  // monitora qualquer mudança de opacidade nos containers principais e força opacity:1
+  (function() {
+    function fixOpacity() {
+      var sels = [
+        '.stApp', '.main', '[data-testid="stMain"]',
+        '[data-testid="stMainBlockContainer"]',
+        '[data-testid="stAppViewBlockContainer"]',
+        '[data-testid="stApp"]'
+      ];
+      sels.forEach(function(sel) {
+        var els = P.document.querySelectorAll(sel);
+        els.forEach(function(el) {
+          if (el.style.opacity && el.style.opacity !== '1') {
+            el.style.setProperty('opacity', '1', 'important');
+          }
+        });
+      });
+      // Esconde o indicador de loading
+      ['[data-testid="stStatusWidget"]', '[data-testid="stAppRunningIndicator"]',
+       'div[class*="StatusWidget"]', 'div[class*="AppRunningIndicator"]'].forEach(function(sel) {
+        try {
+          P.document.querySelectorAll(sel).forEach(function(el) {
+            el.style.setProperty('display', 'none', 'important');
+          });
+        } catch(e) {}
+      });
+    }
+    fixOpacity();
+    var obs = new MutationObserver(fixOpacity);
+    obs.observe(P.document.body, { subtree: true, attributes: true, attributeFilter: ['style', 'class'] });
+  })();
 
   // Força largura do sidebar (override do resize do Streamlit) — só desktop
   function forceSidebarWidth() {
