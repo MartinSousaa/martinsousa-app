@@ -624,6 +624,11 @@ def pagina_descricao(usuario_logado):
                 cor=dados.get("cor", ""),
                 medidas=dados.get("medidas", ""),
                 peso=dados.get("peso", ""),
+                material=dados.get("material", ""),
+                caracteristicas=dados.get("caracteristicas", ""),
+                diferenciais=dados.get("diferenciais", ""),
+                uso=dados.get("uso", ""),
+                categoria=dados.get("categoria", ""),
             )
 
             # Persiste categoria para uso nos outros módulos
