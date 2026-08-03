@@ -1,17 +1,23 @@
 """
 analise_metas.py — Página de Análise de Metas (exclusiva MartinSousa)
 Permite visualizar desempenho histórico e configurar metas por mês.
+
+NOTA: NÃO importa `placar` no nível de módulo — o import é feito de forma
+lazy dentro de pagina_analise_metas() para evitar circular import, já que
+placar.py pode importar analise_metas.
 """
 import streamlit as st
 import pandas as pd
 from datetime import datetime
 
 import metas_config as mc
-from placar import (
-    _buscar_board, _processar,
-    MEMBROS_ATIVOS, MESES_PT, _mes_card,
-    LISTAS_SEM_PONTUACAO, LISTAS_PENALIDADE,
-)
+
+# MESES_PT definido localmente para não depender do import de placar no nível de módulo
+MESES_PT = {
+    1: "Janeiro", 2: "Fevereiro", 3: "Março",    4: "Abril",
+    5: "Maio",    6: "Junho",     7: "Julho",     8: "Agosto",
+    9: "Setembro",10: "Outubro",  11: "Novembro", 12: "Dezembro",
+}
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -70,14 +76,14 @@ def _tabela(cabecalhos, linhas_html):
 
 # ── Construção dos dados de análise ───────────────────────────────────────────
 
-def _analisar_meses(listas, cards, membros_map, id_p, id_t, id_i, meses_lista):
+def _analisar_meses(listas, cards, membros_map, id_p, id_t, id_i, meses_lista, processar_fn):
     """
     Para cada mês retorna um dict com dados processados + config de meta.
-    Também acumula totais.
+    processar_fn = placar._processar (passado como parâmetro para evitar import circular)
     """
     resultado = []
     for (ano, mes) in meses_lista:
-        d = _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=(ano, mes))
+        d = processar_fn(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=(ano, mes))
         cfg = mc.carregar_config(ano, mes)
         meta_eq  = cfg["meta_equipe"]
         maxx_pct = cfg["meta_maxx_pct"]
@@ -121,27 +127,6 @@ def _secao_coletiva(dados):
     labels = [r["label"] for r in dados]
     cab = ["Métrica"] + labels + (["Total", "Média/mês"] if len(dados) > 1 else [])
 
-    # ── Linha helper
-    def linha(nome, vals, fmt=lambda v: v, cor_fn=None, total_fn=None):
-        valores = [fmt(r[nome]) for r in dados]
-        td_nome = f'<td style="padding:5px 10px;font-size:10px;color:var(--ms-texto);white-space:nowrap;">{nome.replace("_"," ").title()}</td>'
-        tds = ""
-        for i, v in enumerate(valores):
-            cor = cor_fn(dados[i]) if cor_fn else "var(--ms-texto)"
-            tds += _celula(fmt(dados[i][nome]) if isinstance(nome, str) else v, cor)
-        if len(dados) > 1:
-            if total_fn:
-                tot = total_fn(dados)
-                tds += _celula(fmt(tot), bold=True)
-                med = tot / len(dados)
-                tds += _celula(fmt(med))
-            else:
-                tds += _celula("—") + _celula("—")
-        return f'<tr style="border-bottom:1px solid var(--ms-divisor)30;">{td_nome}{tds}</tr>'
-
-    linhas = []
-
-    # Meta alvo
     def _ln(nome_label, vals_fn, fmt=lambda v: f"{v:,.0f}", cor_fn=None, total=None):
         tds = ""
         td_nome = f'<td style="padding:5px 10px;font-size:10px;color:var(--ms-texto);white-space:nowrap;">{nome_label}</td>'
@@ -159,6 +144,8 @@ def _secao_coletiva(dados):
             else:
                 tds += _celula("—") + _celula("—")
         return f'<tr style="border-bottom:1px solid var(--ms-divisor)30;">{td_nome}{tds}</tr>'
+
+    linhas = []
 
     linhas.append(
         f'<tr style="background:var(--ms-metric-bg);border-bottom:1px solid var(--ms-divisor);">'
@@ -205,13 +192,14 @@ def _secao_coletiva(dados):
 
 # ── Seção: desempenho por colaborador ─────────────────────────────────────────
 
-def _secao_colaboradores(dados):
+def _secao_colaboradores(dados, membros_ativos):
+    """membros_ativos: dict {username: nome_exib} — passado por parâmetro (evita import circular)."""
     if not dados: return
     labels = [r["label"] for r in dados]
     cab = ["Colaborador"] + labels + (["Total", "Média/mês"] if len(dados) > 1 else [])
     linhas = []
 
-    for u, nome in MEMBROS_ATIVOS.items():
+    for u, nome in membros_ativos.items():
         tds = ""
         td_nome = f'<td style="padding:5px 10px;font-size:10px;color:var(--ms-texto);">{nome}</td>'
         pts_list = []
@@ -243,7 +231,8 @@ def _secao_colaboradores(dados):
             tds_pen += _celula(f"-{pen:.0f}" if pen > 0 else "—", cor)
         if len(dados) > 1:
             tot_p = sum(pen_list)
-            tds_pen += _celula(f"-{tot_p:.0f}" if tot_p > 0 else "—", "#E34948" if tot_p > 0 else "var(--ms-texto-sec)", bold=True)
+            tds_pen += _celula(f"-{tot_p:.0f}" if tot_p > 0 else "—",
+                               "#E34948" if tot_p > 0 else "var(--ms-texto-sec)", bold=True)
             tds_pen += _celula(f"-{tot_p/len(pen_list):.0f}" if tot_p > 0 else "—")
         linhas.append(f'<tr style="border-bottom:1px solid var(--ms-divisor)20;">{td_pen}{tds_pen}</tr>')
 
@@ -254,8 +243,10 @@ def _secao_colaboradores(dados):
 
 def _secao_tempos(dados):
     """Tempo médio por coluna agregado do período."""
-    from placar import COLUNAS_CONFIG as _CC
-    # Agrega tempos de todos os meses
+    # Import lazy — placar já está carregado nesse ponto (chamado de dentro de pagina_analise_metas)
+    import placar as _pl
+    _CC = _pl.COLUNAS_CONFIG
+
     tempo_agg = {}
     for r in dados:
         for nl, tempos in r["tempo_lista"].items():
@@ -290,8 +281,7 @@ def _secao_tempos(dados):
 # ── Seção: pendentes por coluna ────────────────────────────────────────────────
 
 def _secao_pendentes(dados):
-    """Pendentes por coluna (do mês mais recente do período, pois é estado atual)."""
-    # Usa os dados do último mês/todos
+    """Pendentes por coluna (agregado do período)."""
     pend_agg = {}
     for r in dados:
         for nl, qtd in r["pend_lista"].items():
@@ -330,11 +320,11 @@ def _secao_configuracao():
     ano_cfg = col_a.selectbox("Ano", anos_disp, index=1, key="am_cfg_ano")
     mes_cfg = col_m.selectbox(
         "Mês",
-        [f"{MESES_PT[m]}" for m in range(1, 13)],
+        [MESES_PT[m] for m in range(1, 13)],
         index=agora.month - 1,
         key="am_cfg_mes"
     )
-    mes_cfg_num = list(range(1, 13))[[f"{MESES_PT[m]}" for m in range(1, 13)].index(mes_cfg)]
+    mes_cfg_num = list(range(1, 13))[[MESES_PT[m] for m in range(1, 13)].index(mes_cfg)]
 
     cfg_atual = mc.carregar_config(ano_cfg, mes_cfg_num)
 
@@ -417,6 +407,10 @@ def pagina_analise_metas(usuario_logado):
         st.warning("🔒 Acesso restrito ao gestor.")
         return
 
+    # ── LAZY IMPORT: importa placar aqui, dentro da função, para evitar circular import
+    # (placar.py pode importar analise_metas, então nunca importamos placar no nível de módulo)
+    import placar as _pl
+
     agora = datetime.now()
     st.markdown("### 📊 Análise de Metas")
 
@@ -442,7 +436,7 @@ def pagina_analise_metas(usuario_logado):
         col_a, col_m, _ = st.columns([1, 2, 3])
         anos = list(range(agora.year + 1, agora.year - 3, -1))
         ano_sel = col_a.selectbox("Ano", anos, index=1, key="am_ano_sel")
-        mes_opts = [f"{MESES_PT[m]}" for m in range(1, 13)]
+        mes_opts = [MESES_PT[m] for m in range(1, 13)]
         mes_sel = col_m.selectbox("Mês", mes_opts, index=agora.month - 1, key="am_mes_sel")
         mes_num = mes_opts.index(mes_sel) + 1
         meses_lista = [(ano_sel, mes_num)]
@@ -463,14 +457,13 @@ def pagina_analise_metas(usuario_logado):
     else:  # Personalizado
         col_a1, col_m1, col_a2, col_m2, _ = st.columns([1, 2, 1, 2, 2])
         anos = list(range(agora.year + 1, agora.year - 3, -1))
-        mes_opts = [f"{MESES_PT[m]}" for m in range(1, 13)]
+        mes_opts = [MESES_PT[m] for m in range(1, 13)]
         ano_ini = col_a1.selectbox("Ano início", anos, index=1, key="am_ano_ini")
         mes_ini_s = col_m1.selectbox("Mês início", mes_opts, index=0, key="am_mes_ini")
         ano_fim = col_a2.selectbox("Ano fim", anos, index=1, key="am_ano_fim")
         mes_fim_s = col_m2.selectbox("Mês fim", mes_opts, index=agora.month - 1, key="am_mes_fim")
         mes_ini_n = mes_opts.index(mes_ini_s) + 1
         mes_fim_n = mes_opts.index(mes_fim_s) + 1
-        # Gera range
         a, m = ano_ini, mes_ini_n
         while (a, m) <= (ano_fim, mes_fim_n):
             meses_lista.append((a, m))
@@ -483,7 +476,7 @@ def pagina_analise_metas(usuario_logado):
 
     # ── CARREGA DADOS ──────────────────────────────────────────────────────
     with st.spinner("Carregando dados do Trello e configurações..."):
-        dados_board = _buscar_board()
+        dados_board = _pl._buscar_board()
 
     if not dados_board or not dados_board[0]:
         st.error("Não foi possível conectar ao Trello."); return
@@ -491,7 +484,10 @@ def pagina_analise_metas(usuario_logado):
     listas, cards, membros_map, id_p, id_t, id_i = dados_board
 
     with st.spinner(f"Processando {len(meses_lista)} mês(es)..."):
-        dados = _analisar_meses(listas, cards, membros_map, id_p, id_t, id_i, meses_lista)
+        dados = _analisar_meses(
+            listas, cards, membros_map, id_p, id_t, id_i,
+            meses_lista, _pl._processar
+        )
 
     # ── CABEÇALHO DO PERÍODO ───────────────────────────────────────────────
     total_saldo = sum(r["saldo"] for r in dados)
@@ -524,9 +520,8 @@ def pagina_analise_metas(usuario_logado):
         _secao_coletiva(dados)
 
     with tab_ind:
-        _secao_colaboradores(dados)
+        _secao_colaboradores(dados, _pl.MEMBROS_ATIVOS)
 
-        # Informações indisponíveis (aguardam integrações)
         st.markdown("---")
         st.markdown(
             '<div style="background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);'
