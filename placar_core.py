@@ -192,6 +192,7 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
         "falta_conf": 0, "falta_info": 0, "sem_membro": 0, "falta_pts": 0,
         "pts_pendentes": 0.0, "pen_cards": [], "andamento_lista": [],
         "tempo_lista": {}, "desativar": 0, "reativar": 0, "pend_lista": {},
+        "qtd_membro": {u: 0 for u in MEMBROS_ATIVOS},  # cartões concluídos por membro
         "pts_lista": {},   # pontos por coluna (cartões concluídos com pontuação)
         "qtd_lista": {},   # quantidade de cartões concluídos por coluna
         "correcao_concl": 0,  # cartões "CORREÇÃO DE FOTOS" concluídos no mês (retrabalho)
@@ -284,4 +285,5 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
             cada = pt / len(ma)
             for u in ma:
                 d["pts_membro"][u] += cada
+                d["qtd_membro"][u] = d["qtd_membro"].get(u, 0) + 1
     return d
