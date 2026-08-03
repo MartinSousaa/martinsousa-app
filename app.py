@@ -86,12 +86,14 @@ div[class*="StatusWidget"]                      { display: none !important; }
 iframe[title="st_autorefresh"]                  { display: none !important; }
 [data-testid="stAppRunningIndicator"]           { display: none !important; }
 div[class*="AppRunningIndicator"]               { display: none !important; }
-/* Impede o escurecimento do conteúdo durante o rerun */
-.stApp, .main, [data-testid="stMain"],
+/* Impede o escurecimento do conteúdo durante o rerun — cobre TODOS os filhos */
+.stApp, .stApp *, .main, .main *,
+[data-testid="stMain"], [data-testid="stMain"] *,
 [data-testid="stMainBlockContainer"],
 [data-testid="stAppViewBlockContainer"]         { opacity: 1 !important; }
 /* Remove pseudo-elemento de overlay que alguns temas Streamlit usam */
-.stApp::after, .main::after                    { display: none !important; }
+.stApp::after, .stApp::before,
+.main::after,  .main::before                   { display: none !important; }
 
 /* ── FUNDO GERAL ────────────────────────────────────────────────────────── */
 .stApp { background-color: var(--ms-fundo) !important; color: var(--ms-texto) !important; }
@@ -620,27 +622,38 @@ components.html("""
   }
 
   // ── Anti-escurecimento no auto-refresh ─────────────────────────────────────
-  // Armazenado em P para sobreviver a reruns do Streamlit (o iframe recria,
-  // mas window.parent não — então o interval persiste entre reruns).
-  if (!P._msAntiDimInterval) {
-    P._msAntiDimInterval = setInterval(function() {
-      var sels = [
-        '.stApp', '.main',
-        '[data-testid="stMain"]',
-        '[data-testid="stAppViewBlockContainer"]',
-        '[data-testid="stApp"]'
-      ];
-      sels.forEach(function(sel) {
-        try {
-          P.document.querySelectorAll(sel).forEach(function(el) {
-            // Remove qualquer opacity inline que o Streamlit injete durante o rerun
-            if (el.style.opacity && parseFloat(el.style.opacity) < 1) {
-              el.style.removeProperty('opacity');
-            }
-          });
-        } catch(e) {}
-      });
-    }, 80);
+  // MutationObserver no body do parent: dispara IMEDIATAMENTE quando o Streamlit
+  // injeta opacity inline em qualquer elemento, eliminando o flash de escurecimento.
+  // Armazenado em P._msAntiDimObs para sobreviver a reruns (o iframe recria,
+  // mas window.parent persiste).
+  if (!P._msAntiDimObs) {
+    var _fixOpacity = function(el) {
+      try {
+        if (el && el.style && el.style.opacity !== '' && parseFloat(el.style.opacity) < 1) {
+          el.style.setProperty('opacity', '1', 'important');
+        }
+      } catch(e) {}
+    };
+    var _obs = new P.MutationObserver(function(muts) {
+      for (var i = 0; i < muts.length; i++) {
+        var m = muts[i];
+        if (m.type === 'attributes') {
+          _fixOpacity(m.target);
+        } else if (m.type === 'childList') {
+          for (var j = 0; j < m.addedNodes.length; j++) {
+            var n = m.addedNodes[j];
+            if (n.nodeType === 1) { _fixOpacity(n); }
+          }
+        }
+      }
+    });
+    _obs.observe(P.document.body, {
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['style'],
+      childList: true
+    });
+    P._msAntiDimObs = _obs;
   }
 
   if (P._msTemaIniciado) {
