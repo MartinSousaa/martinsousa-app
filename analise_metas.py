@@ -931,7 +931,11 @@ def _chart_indices_meta(dados):
     pct_atras  = sum(r["atrasados"] for r in dados) / max(tc, 1) * 100
     retrab_l   = [r["pct_retrab"] for r in dados if r["pct_retrab"] is not None]
     pct_retrab = sum(retrab_l) / len(retrab_l) if retrab_l else 0
-    pct_pen    = sum(r["pen_qtd"] for r in dados) / max(tc, 1) * 100
+    # Quando não há cartões concluídos, a divisão por 1 distorce a conformidade
+    # (ex: 2 penalidades / 0 concluídos = 200% → vermelho indevido).
+    # Só calcula a taxa quando há ao menos 1 cartão concluído.
+    pen_qtd_total = sum(r["pen_qtd"] for r in dados)
+    pct_pen    = (pen_qtd_total / tc * 100) if tc > 0 else 0
     pct_no_prazo = max(0, 100 - pct_atras)
 
     # Cores dinâmicas
@@ -1631,7 +1635,9 @@ def pagina_analise_metas(usuario_logado):
             st.info(f"Exibindo seus dados: **{_mb_nome_des}**")
 
         if _mb_u_des:
-            _desempenho_individual(dados_ano_full if dados_ano_full else dados, _mb_u_des, _mb_nome_des)
+            # Usa o período selecionado (dados) — não o ano completo —
+            # para evitar mostrar meses sem meta individual configurada.
+            _desempenho_individual(dados, _mb_u_des, _mb_nome_des)
 
     with tab_cfg:
         _secao_configuracao()
