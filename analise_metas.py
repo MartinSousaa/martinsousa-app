@@ -684,341 +684,309 @@ def _secao_tempos_individual(dados):
             st.markdown(html, unsafe_allow_html=True)
 
 
-# ── Aba Desempenho — helpers matplotlib ──────────────────────────────────────
+# ── Aba Desempenho — Gráficos HTML/SVG ───────────────────────────────────────
 
-def _mpl_bg():
-    """Retorna dicionário com cores do tema escuro para matplotlib."""
-    return {
-        "bg": "#1a1a1a", "ax": "#1e1e1e", "text": "#cccccc",
-        "grid": "#2e2e2e", "orange": "#EDA100", "blue": "#4A90D9",
-        "green": "#1BAF7A", "red": "#E34948", "gray": "#555555",
-        "cores_mb": ["#4A90D9", "#E34948", "#1BAF7A"],
-    }
+_CORES = ["#4A90D9", "#E34948", "#1BAF7A", "#EDA100"]
+
+
+def _gauge_svg(pct, cor, titulo, sub=""):
+    """Velocímetro semicircular SVG inline com traço colorido abaixo (igual ao template)."""
+    p = max(0.1, min(99.9, float(pct)))
+    cx, cy, r = 50, 52, 40
+    def _pt(a): return cx + r * math.cos(a), cy - r * math.sin(a)
+    sx, sy = _pt(math.pi); ex, ey = _pt(0)
+    af = math.pi * (1 - p / 100); fx, fy = _pt(af)
+    lg = 1 if p > 50 else 0
+    return (
+        f'<div style="text-align:center;">'
+        f'<svg viewBox="0 0 100 82" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:130px;">'
+        f'<path d="M{sx:.2f},{sy:.2f} A{r},{r} 0 0,1 {ex:.2f},{ey:.2f}" fill="none" '
+        f'stroke="var(--ms-metric-bd,#2e2e2e)" stroke-width="9" stroke-linecap="round"/>'
+        f'<path d="M{sx:.2f},{sy:.2f} A{r},{r} 0 {lg},1 {fx:.2f},{fy:.2f}" fill="none" '
+        f'stroke="{cor}" stroke-width="9" stroke-linecap="round"/>'
+        f'<text x="50" y="42" text-anchor="middle" font-size="14" font-weight="700" fill="{cor}">{p:.0f}%</text>'
+        f'<text x="50" y="59" text-anchor="middle" font-size="6.5" font-weight="600" '
+        f'fill="var(--ms-texto,#ccc)">{titulo}</text>'
+        f'<text x="50" y="69" text-anchor="middle" font-size="5.5" '
+        f'fill="var(--ms-texto-sec,#888)">{sub}</text>'
+        f'<rect x="14" y="75" width="72" height="3" rx="1.5" fill="{cor}"/>'
+        f'</svg></div>'
+    )
+
+
+def _pizza_svg(segmentos, box_pct, box_label, box_cor="#4A90D9"):
+    """Pizza chart SVG (pizza CHEIA) com % dentro das fatias + legenda numerada + box destaque.
+    segmentos = [(cor, val, nome)]  — val absoluto, % calculado internamente.
+    Layout: pizza à esquerda | bolinhas numeradas + box à direita (igual ao template)."""
+    cx, cy, r = 82, 82, 70
+    total = sum(s[1] for s in segmentos) or 1
+    slices, labels_svg = [], []
+    ang = -math.pi / 2  # começa do topo
+    for i, (cor, val, nome) in enumerate(segmentos):
+        if val <= 0:
+            continue
+        frac = val / total
+        ae = ang + 2 * math.pi * frac
+        x1 = cx + r * math.cos(ang);  y1 = cy + r * math.sin(ang)
+        x2 = cx + r * math.cos(ae);   y2 = cy + r * math.sin(ae)
+        lg = 1 if frac > 0.5 else 0
+        slices.append(
+            f'<path d="M{cx},{cy} L{x1:.2f},{y1:.2f} A{r},{r} 0 {lg},1 {x2:.2f},{y2:.2f} Z" '
+            f'fill="{cor}" stroke="var(--ms-bg,#111)" stroke-width="2"/>'
+        )
+        # % dentro da fatia (só mostra se fatia >= 6%)
+        if frac >= 0.06:
+            mid = (ang + ae) / 2
+            lx = cx + r * 0.62 * math.cos(mid)
+            ly = cy + r * 0.62 * math.sin(mid)
+            labels_svg.append(
+                f'<text x="{lx:.1f}" y="{ly:.1f}" text-anchor="middle" dominant-baseline="middle" '
+                f'font-size="10" font-weight="700" fill="white">{frac*100:.0f}%</text>'
+            )
+        ang = ae
+    svg = (
+        f'<svg viewBox="0 0 164 164" xmlns="http://www.w3.org/2000/svg" style="width:150px;flex-shrink:0;">'
+        + "".join(slices) + "".join(labels_svg) + '</svg>'
+    )
+    # Legenda numerada (bolinhas 01-05)
+    leg_html = ""
+    for i, (cor, val, nome) in enumerate(segmentos):
+        leg_html += (
+            f'<div style="display:flex;align-items:center;gap:7px;margin-bottom:6px;">'
+            f'<div style="width:22px;height:22px;border-radius:50%;background:{cor};flex-shrink:0;'
+            f'display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;color:#fff;">{i+1:02d}</div>'
+            f'<div style="font-size:10px;color:var(--ms-texto,#ccc);line-height:1.3;">'
+            f'{nome[:24]}{"…" if len(nome)>24 else ""}</div></div>'
+        )
+    # Box destaque colorido (como o "72% Informação importante" do template)
+    box_html = (
+        f'<div style="margin-top:10px;background:{box_cor};border-radius:8px;padding:10px 14px;'
+        f'display:flex;align-items:center;gap:10px;">'
+        f'<div style="font-size:26px;font-weight:800;color:#fff;white-space:nowrap;">{box_pct}</div>'
+        f'<div style="font-size:10px;color:rgba(255,255,255,0.92);line-height:1.4;">{box_label}</div>'
+        f'</div>'
+    )
+    return (
+        f'<div style="display:flex;align-items:flex-start;gap:14px;padding:8px 0;">'
+        + svg
+        + f'<div style="flex:1;padding-top:6px;">{leg_html}{box_html}</div>'
+        + '</div>'
+    )
+
+
+def _grafico_barras_svg(labels, vals1, vals2=None, label1="Meta", label2="Realizado",
+                         line_vals=None, cor1="#4A90D9", cor2_fn=None,
+                         melhor_idx=None, melhor_txt=None):
+    """SVG bar chart (1 ou 2 barras/mês) + linha de delta opcional. Retorna HTML."""
+    n = len(labels)
+    if n == 0:
+        return '<div style="padding:20px;text-align:center;color:var(--ms-texto-sec);">Sem dados</div>'
+    W, H = 560, 195
+    ml, mr, mt, mb_m = 54, 38, 28, 46
+    cw = W - ml - mr; ch = H - mt - mb_m
+    all_v = list(vals1) + (list(vals2) if vals2 else [])
+    max_v = max(all_v + [1])
+    def bary(v): return mt + ch - max(0, v / max_v * ch)
+    def barh(v): return max(1, v / max_v * ch)
+    col_w = cw / n
+    bw = col_w * 0.30 if vals2 is not None else col_w * 0.55
+    parts = []
+    # Grid / eixo Y
+    for i in range(5):
+        yg = mt + i * ch / 4
+        vg = max_v * (4 - i) / 4
+        parts += [
+            f'<line x1="{ml}" y1="{yg:.0f}" x2="{W-mr}" y2="{yg:.0f}" stroke="var(--ms-divisor,#2a2a2a)" stroke-width="0.5"/>',
+            f'<text x="{ml-4}" y="{yg+3:.0f}" text-anchor="end" font-size="7.5" fill="var(--ms-texto-sec,#888)">{vg:,.0f}</text>',
+        ]
+    line_pts = []
+    for i in range(n):
+        cx_c = ml + (i + 0.5) * col_w
+        v1 = vals1[i]
+        x1 = cx_c - bw - 1 if vals2 is not None else cx_c - bw / 2
+        parts.append(f'<rect x="{x1:.1f}" y="{bary(v1):.1f}" width="{bw:.1f}" height="{barh(v1):.1f}" fill="{cor1}" opacity="0.55" rx="2"/>')
+        if vals2 is not None:
+            v2 = vals2[i]; c2 = cor2_fn(i) if cor2_fn else "#1BAF7A"
+            parts.append(f'<rect x="{cx_c+1:.1f}" y="{bary(v2):.1f}" width="{bw:.1f}" height="{barh(v2):.1f}" fill="{c2}" opacity="0.9" rx="2"/>')
+        if line_vals is not None:
+            max_d = max(abs(v) for v in line_vals) or 1
+            ly = mt + ch / 2 - (line_vals[i] / max_d * (ch / 2))
+            line_pts.append((cx_c, ly))
+        ry = H - mb_m + 10
+        parts.append(
+            f'<text x="{cx_c:.1f}" y="{ry}" text-anchor="end" font-size="7.5" fill="var(--ms-texto-sec,#888)" '
+            f'transform="rotate(-35,{cx_c:.1f},{ry})">{labels[i]}</text>'
+        )
+    # Linha de delta
+    if line_pts and line_vals is not None:
+        max_d = max(abs(v) for v in line_vals) or 1
+        y0 = mt + ch / 2
+        parts.append(f'<line x1="{ml}" y1="{y0:.0f}" x2="{W-mr}" y2="{y0:.0f}" stroke="#555" stroke-width="0.7" stroke-dasharray="3,3"/>')
+        for step, lbl_d in [(-1, f"{-max_d:+,.0f}"), (0, "0"), (1, f"+{max_d:,.0f}")]:
+            yd = y0 - step * ch / 2
+            parts.append(f'<text x="{W-mr+3}" y="{yd+3:.0f}" font-size="6.5" fill="#FF6B6B">{lbl_d}</text>')
+        pts_str = " ".join(f"{x:.1f},{y:.1f}" for x, y in line_pts)
+        parts.append(f'<polyline points="{pts_str}" fill="none" stroke="#FF6B6B" stroke-width="1.8"/>')
+        parts += [f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3" fill="#FF6B6B"/>' for x, y in line_pts]
+    # Callout melhor mês
+    if melhor_idx is not None and melhor_txt and 0 <= melhor_idx < n:
+        cx_c = ml + (melhor_idx + 0.5) * col_w
+        v_pk = max(vals1[melhor_idx], (vals2[melhor_idx] if vals2 else 0))
+        ytop = bary(v_pk) - 6; ytxt = max(mt + 2, ytop - 20)
+        tw = min(len(melhor_txt) * 4.8 + 8, 110)
+        parts += [
+            f'<line x1="{cx_c:.1f}" y1="{ytop:.1f}" x2="{cx_c:.1f}" y2="{ytxt+12:.1f}" stroke="#EDA100" stroke-width="0.8"/>',
+            f'<rect x="{cx_c-tw/2:.1f}" y="{ytxt:.1f}" width="{tw:.1f}" height="13" rx="3" fill="var(--ms-metric-bg,#1a1a1a)" stroke="#EDA100" stroke-width="0.8"/>',
+            f'<text x="{cx_c:.1f}" y="{ytxt+9:.1f}" text-anchor="middle" font-size="6.5" fill="#EDA100" font-weight="700">{melhor_txt}</text>',
+        ]
+    # Legenda
+    lx = ml
+    parts += [
+        f'<rect x="{lx}" y="8" width="9" height="9" fill="{cor1}" opacity="0.55" rx="1"/>',
+        f'<text x="{lx+11}" y="15.5" font-size="7" fill="var(--ms-texto-sec,#888)">{label1}</text>',
+    ]
+    if vals2 is not None:
+        parts += [
+            f'<rect x="{lx+62}" y="8" width="9" height="9" fill="#1BAF7A" rx="1"/>',
+            f'<text x="{lx+73}" y="15.5" font-size="7" fill="var(--ms-texto-sec,#888)">{label2}</text>',
+        ]
+    if line_vals is not None:
+        lx3 = lx + 130
+        parts += [
+            f'<line x1="{lx3}" y1="12.5" x2="{lx3+14}" y2="12.5" stroke="#FF6B6B" stroke-width="1.5"/>',
+            f'<circle cx="{lx3+7}" cy="12.5" r="2.5" fill="#FF6B6B"/>',
+            f'<text x="{lx3+18}" y="15.5" font-size="7" fill="var(--ms-texto-sec,#888)">Delta</text>',
+        ]
+    return (
+        f'<div style="width:100%;overflow:hidden;padding:4px 0;">'
+        f'<svg viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;">'
+        + "".join(parts) + f'</svg></div>'
+    )
 
 
 def _chart_pontuacao_meta(dados):
-    """
-    Gráfico combinado: barras agrupadas (meta vs realizado) + linha de delta.
-    Destaque do mês com melhor % acima da meta.
-    """
-    import matplotlib.pyplot as plt
-    import numpy as np
-
-    C = _mpl_bg()
-    labels  = [r["label"] for r in dados]
-    metas   = [r["meta_eq"] for r in dados]
-    saldos  = [r["saldo"]   for r in dados]
-    deltas  = [r["saldo"] - r["meta_eq"] for r in dados]
-    pcts    = [r["pct_mensal"] for r in dados]
-    n       = len(dados)
-
-    x     = np.arange(n)
-    w     = 0.35
-    cores = [C["green"] if s >= m else C["red"] for s, m in zip(saldos, metas)]
-
-    fig, ax1 = plt.subplots(figsize=(6, 3.2))
-    fig.patch.set_facecolor(C["bg"])
-    ax1.set_facecolor(C["ax"])
-
-    ax1.bar(x - w / 2, metas,  w, color=C["blue"], alpha=0.50, label="Meta",      zorder=2)
-    ax1.bar(x + w / 2, saldos, w, color=cores,      alpha=0.90, label="Realizado", zorder=2)
-
-    # Linha delta (eixo secundário)
-    ax2 = ax1.twinx()
-    ax2.plot(x, deltas, color="#FF6B6B", linewidth=1.8, marker="o", markersize=4,
-             zorder=3, label="Delta")
-    ax2.axhline(0, color="#555", linewidth=0.7, linestyle="--")
-    ax2.set_facecolor("none")
-    ax2.tick_params(axis="y", colors="#FF6B6B", labelsize=6)
-    ax2.spines["right"].set_color("#FF6B6B")
-    ax2.spines["top"].set_visible(False)
-    ax2.spines["bottom"].set_visible(False)
-    ax2.spines["left"].set_visible(False)
-
-    # Destaque mês com maior %
-    if n > 0:
-        bi = max(range(n), key=lambda i: pcts[i])
-        max_y = max(max(metas), max(saldos)) if metas else 1
-        ax1.annotate(
-            f"{pcts[bi]:.1f}%\n{labels[bi]}",
-            xy=(bi, max(metas[bi], saldos[bi])),
-            xytext=(bi, max_y * 1.12),
-            ha="center", fontsize=7, color=C["orange"], fontweight="bold",
-            arrowprops=dict(arrowstyle="->", color=C["orange"], lw=0.8),
-            bbox=dict(boxstyle="round,pad=0.3", facecolor=C["bg"],
-                      edgecolor=C["orange"], linewidth=0.8),
-        )
-
-    ax1.set_xticks(x)
-    ax1.set_xticklabels(labels, rotation=40, ha="right", fontsize=7, color=C["text"])
-    ax1.tick_params(axis="y", colors=C["text"], labelsize=7)
-    ax1.set_ylabel("Pontos", color=C["text"], fontsize=7)
-    ax2.set_ylabel("Delta (pts)", color="#FF6B6B", fontsize=6)
-    for sp in ["top", "right"]:
-        ax1.spines[sp].set_visible(False)
-    for sp in ["bottom", "left"]:
-        ax1.spines[sp].set_color(C["grid"])
-    ax1.grid(axis="y", color=C["grid"], linewidth=0.5, zorder=1)
-
-    lines1, lbl1 = ax1.get_legend_handles_labels()
-    lines2, lbl2 = ax2.get_legend_handles_labels()
-    ax1.legend(lines1 + lines2, lbl1 + lbl2,
-               fontsize=6, facecolor=C["bg"], edgecolor=C["grid"],
-               labelcolor=C["text"], loc="upper left")
-
-    # Média do período no canto
+    """HTML/SVG: barras meta vs realizado + linha de delta."""
+    labels = [r["label"] for r in dados]
+    metas  = [r["meta_eq"] for r in dados]
+    saldos = [r["saldo"]   for r in dados]
+    deltas = [s - m for s, m in zip(saldos, metas)]
+    pcts   = [r["pct_mensal"] for r in dados]
+    bi = max(range(len(pcts)), key=lambda i: pcts[i]) if pcts else None
+    sinal = "+" if bi is not None and pcts[bi] >= 100 else ""
+    melhor_txt = f"{sinal}{pcts[bi]:.1f}% · {labels[bi]}" if bi is not None else None
     avg_pct = sum(pcts) / len(pcts) if pcts else 0
-    fig.text(0.99, 0.97, f"Média período: {avg_pct:.1f}%",
-             ha="right", va="top", fontsize=7, color=C["orange"])
-
-    fig.tight_layout(rect=[0, 0, 1, 0.93])
-    return fig
+    html = _grafico_barras_svg(
+        labels, metas, saldos, label1="Meta", label2="Realizado",
+        line_vals=deltas, cor1="#4A90D9",
+        cor2_fn=lambda i: "#1BAF7A" if saldos[i] >= metas[i] else "#E34948",
+        melhor_idx=bi, melhor_txt=melhor_txt,
+    )
+    return html + f'<div style="text-align:right;font-size:9px;color:#EDA100;padding:0 4px 4px;">Média período: {avg_pct:.1f}%</div>'
 
 
 def _chart_indices_meta(dados):
-    """
-    4 velocímetros semicirculares: alcance MAXX, pontualidade, qualidade, conformidade.
-    """
-    import matplotlib.pyplot as plt
-    import numpy as np
-
-    C  = _mpl_bg()
+    """HTML/SVG: 4 velocímetros semicirculares."""
     n  = len(dados)
     tc = sum(r["total_concl"] for r in dados)
-
-    pct_maxx   = sum(min(r["pct_maxx"], 100) for r in dados) / n
+    pct_maxx   = sum(min(r["pct_maxx"], 100) for r in dados) / n if n > 0 else 0
     pct_atras  = sum(r["atrasados"] for r in dados) / max(tc, 1) * 100
     retrab_l   = [r["pct_retrab"] for r in dados if r["pct_retrab"] is not None]
     pct_retrab = sum(retrab_l) / len(retrab_l) if retrab_l else 0
     pct_pen    = sum(r["pen_qtd"] for r in dados) / max(tc, 1) * 100
-
-    # (valor_exibido, cor, titulo, subtítulo)
     indices = [
-        (min(pct_maxx, 100),       C["blue"],   "Alcance MAXX",   f"{pct_maxx:.0f}% da meta MAXX"),
-        (max(0, 100 - pct_atras),  "#2C6BAF",   "Pontualidade",   f"{pct_atras:.1f}% atrasados"),
-        (max(0, 100 - pct_retrab), C["red"],     "Qualidade",      f"{pct_retrab:.1f}% retrabalho"),
-        (max(0, 100 - pct_pen),    C["orange"],  "Conformidade",   f"{pct_pen:.1f}% c/ penalidade"),
+        (min(pct_maxx, 100),       "#4A90D9", "Alcance MAXX",  f"{pct_maxx:.0f}% da meta MAXX"),
+        (max(0, 100 - pct_atras),  "#2C6BAF", "Pontualidade",  f"{pct_atras:.1f}% atrasados"),
+        (max(0, 100 - pct_retrab), "#E34948", "Qualidade",     f"{pct_retrab:.1f}% retrabalho"),
+        (max(0, 100 - pct_pen),    "#EDA100", "Conformidade",  f"{pct_pen:.1f}% c/ penalidade"),
     ]
-
-    fig, axes = plt.subplots(1, 4, figsize=(8, 2.6))
-    fig.patch.set_facecolor(C["bg"])
-
-    for ax, (pct, cor, titulo, sub) in zip(axes, indices):
-        ax.set_facecolor(C["bg"])
-        pct_c = max(1.0, min(99.0, pct))
-
-        # Arco cinza de fundo (semicírculo completo: π→0)
-        theta_bg = np.linspace(math.pi, 0, 200)
-        ax.plot(np.cos(theta_bg), np.sin(theta_bg),
-                color="#2e2e2e", linewidth=11, solid_capstyle="round")
-
-        # Arco colorido (preenchimento proporcional ao pct)
-        theta_end  = math.pi - (pct_c / 100.0 * math.pi)
-        theta_fill = np.linspace(math.pi, theta_end, max(2, int(pct_c * 2)))
-        ax.plot(np.cos(theta_fill), np.sin(theta_fill),
-                color=cor, linewidth=11, solid_capstyle="round")
-
-        # Textos
-        ax.text(0,  0.10, f"{pct_c:.0f}%", ha="center", va="center",
-                fontsize=13, fontweight="bold", color=cor)
-        ax.text(0, -0.35, titulo, ha="center", va="center",
-                fontsize=6.5, fontweight="700", color=C["text"])
-        ax.text(0, -0.65, sub, ha="center", va="center",
-                fontsize=5.5, color="#888888")
-
-        ax.set_xlim(-1.4, 1.4)
-        ax.set_ylim(-0.9, 1.3)
-        ax.axis("off")
-
-    fig.tight_layout(pad=0.3)
-    return fig
+    gauges = "".join(_gauge_svg(pct, cor, titulo, sub) for pct, cor, titulo, sub in indices)
+    return f'<div style="display:flex;justify-content:space-around;align-items:center;gap:4px;padding:8px 0;">{gauges}</div>'
 
 
 def _chart_tempo_execucao(dados):
-    """
-    Donut chart: top 5 colunas por tempo médio de execução.
-    Mostra % que o top 5 representa do tempo total.
-    """
-    import matplotlib.pyplot as plt
-    import numpy as np
-
-    C = _mpl_bg()
-    CORES5 = [C["blue"], "#2C6BAF", C["red"], C["orange"], C["green"]]
-
-    # Agregar tempo por coluna
-    tempo_agg = {}
+    """HTML/SVG: pizza top 5 colunas por tempo médio de execução.
+    Fatias = % do tempo de cada coluna no total. Box = % dessas demandas no total de demandas."""
+    CORES5 = ["#4A90D9", "#2C6BAF", "#E34948", "#EDA100", "#1BAF7A"]
+    tempo_agg = {}; qtd_agg = {}
     for r in dados:
         for nl, tempos in r["tempo_lista"].items():
             tempo_agg.setdefault(nl, []).extend(tempos)
-
+        for nl, q in r.get("qtd_lista", {}).items():
+            qtd_agg[nl] = qtd_agg.get(nl, 0) + q
     if not tempo_agg:
-        fig, ax = plt.subplots(figsize=(5.5, 3.5))
-        fig.patch.set_facecolor(C["bg"]); ax.set_facecolor(C["bg"])
-        ax.text(0.5, 0.5, "Sem dados de tempo no período", ha="center", va="center",
-                color="#888", fontsize=8); ax.axis("off")
-        return fig
-
-    medias    = {nl: sum(t) / len(t) for nl, t in tempo_agg.items()}
-    total_t   = sum(medias.values())
-    top5      = sorted(medias.items(), key=lambda x: -x[1])[:5]
-    top5_soma = sum(v for _, v in top5)
-    pct_top5  = top5_soma / total_t * 100 if total_t > 0 else 0
-
-    fig = plt.figure(figsize=(6, 3.5))
-    fig.patch.set_facecolor(C["bg"])
-
-    # Donut (eixo esquerdo)
-    ax_d = fig.add_axes([0.02, 0.08, 0.48, 0.88])
-    ax_d.set_facecolor(C["bg"])
-    vals5  = [v for _, v in top5]
-    outros = max(0, total_t - top5_soma)
-    pie_vals  = vals5 + ([outros] if outros > 0 else [])
-    pie_cores = CORES5[:len(top5)] + (["#2a2a2a"] if outros > 0 else [])
-
-    ax_d.pie(pie_vals, colors=pie_cores, startangle=90,
-             wedgeprops=dict(width=0.48, edgecolor=C["bg"], linewidth=2),
-             counterclock=False)
-
-    # Centro do donut
-    ax_d.text(0,  0.12, f"{pct_top5:.0f}%", ha="center", va="center",
-              fontsize=15, fontweight="bold", color=C["orange"])
-    ax_d.text(0, -0.18, "do total", ha="center", va="center",
-              fontsize=7, color="#888")
-
-    # Legenda (eixo direito)
-    ax_l = fig.add_axes([0.52, 0.02, 0.46, 0.96])
-    ax_l.set_facecolor(C["bg"]); ax_l.axis("off")
-
+        return '<div style="padding:24px;text-align:center;color:var(--ms-texto-sec);font-size:11px;">Sem dados de tempo no período</div>'
+    medias = {nl: sum(t) / len(t) for nl, t in tempo_agg.items()}
+    top5   = sorted(medias.items(), key=lambda x: -x[1])[:5]
+    # % de demandas (por qtd) que as top 5 colunas representam
+    top5_qtd   = sum(qtd_agg.get(nl, 0) for nl, _ in top5)
+    total_qtd  = sum(qtd_agg.values()) or 1
+    pct_demandas = top5_qtd / total_qtd * 100
+    # segmentos para a pizza
+    segs = []
     for i, (nl, v) in enumerate(top5):
-        y    = 0.90 - i * 0.18
-        pct  = v / total_t * 100
-        mins = int(v)
-        h, m = divmod(mins, 60)
+        mins = int(v); h, m = divmod(mins, 60)
         t_str = f"{h}h{m:02d}" if h else f"{m}min"
-
-        # Bolinha numerada
-        circ = plt.Circle((0.07, y), 0.055, color=CORES5[i],
-                           transform=ax_l.transAxes, zorder=5, clip_on=False)
-        ax_l.add_patch(circ)
-        ax_l.text(0.07, y, f"{i+1:02d}", ha="center", va="center",
-                  fontsize=6, fontweight="bold", color="white",
-                  transform=ax_l.transAxes, zorder=6)
-
-        # Nome + dados
-        nl_s = (nl[:24] + "…") if len(nl) > 24 else nl
-        ax_l.text(0.16, y + 0.04, nl_s, ha="left", va="center",
-                  fontsize=6.5, color=C["text"], transform=ax_l.transAxes)
-        ax_l.text(0.16, y - 0.06, f"{pct:.1f}%  ·  ~{t_str} avg",
-                  ha="left", va="center", fontsize=5.5,
-                  color="#888", transform=ax_l.transAxes)
-
-    return fig
+        label = f"{nl[:20]}{'…' if len(nl)>20 else ''} · ~{t_str}"
+        segs.append((CORES5[i], v, label))
+    return _pizza_svg(
+        segs,
+        box_pct=f"{pct_demandas:.0f}%",
+        box_label="das demandas totais\nestão nessas 5 colunas",
+        box_cor="#4A90D9",
+    )
 
 
 def _chart_pontuacoes(dados):
-    """
-    4 mini gráficos horizontais lado a lado:
-    pts/colaborador · cartões/colaborador · top 4 cols por qtd · top 4 cols por pts.
-    """
-    import matplotlib.pyplot as plt
-    import numpy as np
-
-    C  = _mpl_bg()
-    MB = _pc.MEMBROS_ATIVOS  # {username: nome_display}
-
-    # Agregar por membro
+    """HTML: 4 mini gráficos de barras (pts/membro, cartões/membro, top4 cols qtd, top4 cols pts)."""
+    MB = _pc.MEMBROS_ATIVOS
+    CORES_MB = ["#4A90D9", "#E34948", "#1BAF7A", "#EDA100"]
     pts_mb = {}; qtd_mb = {}
     for r in dados:
-        for u, p in r["pts_membro"].items():
-            pts_mb[u] = pts_mb.get(u, 0) + p
-        for u, q in r.get("qtd_membro", {}).items():
-            qtd_mb[u] = qtd_mb.get(u, 0) + q
-
-    # Agregar por coluna
+        for u, p in r["pts_membro"].items(): pts_mb[u] = pts_mb.get(u, 0) + p
+        for u, q in r.get("qtd_membro", {}).items(): qtd_mb[u] = qtd_mb.get(u, 0) + q
     pts_col = {}; qtd_col = {}
     for r in dados:
-        for nl, p in r["pts_lista"].items():
-            pts_col[nl] = pts_col.get(nl, 0) + p
-        for nl, q in r["qtd_lista"].items():
-            qtd_col[nl] = qtd_col.get(nl, 0) + q
-
+        for nl, p in r["pts_lista"].items(): pts_col[nl] = pts_col.get(nl, 0) + p
+        for nl, q in r["qtd_lista"].items(): qtd_col[nl] = qtd_col.get(nl, 0) + q
     top4_qtd = sorted(qtd_col.items(), key=lambda x: -x[1])[:4]
     top4_pts = sorted(pts_col.items(), key=lambda x: -x[1])[:4]
 
-    fig, axes = plt.subplots(1, 4, figsize=(10, 3.2))
-    fig.patch.set_facecolor(C["bg"])
+    def _titulo(t):
+        return f'<div style="font-size:9px;font-weight:700;color:var(--ms-texto-sec);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">{t}</div>'
 
-    def _estilizar(ax, titulo):
-        ax.set_facecolor(C["ax"])
-        ax.tick_params(colors=C["text"], labelsize=6)
-        for sp in ax.spines.values():
-            sp.set_color(C["grid"])
-        ax.spines["top"].set_visible(False)
-        ax.spines["right"].set_visible(False)
-        ax.grid(axis="x", color=C["grid"], linewidth=0.4, zorder=0)
-        ax.set_title(titulo, fontsize=7, color=C["text"], pad=5, fontweight="600")
+    def _card(html):
+        return f'<div style="background:var(--ms-metric-bg);border-radius:8px;padding:12px 14px;border:1px solid var(--ms-divisor);">{html}</div>'
 
-    def _rotulo_barra_h(ax, bars, vals, fmt="{:.0f}"):
-        if not vals: return
-        mx = max(v for v in vals if v is not None) or 1
-        for bar, val in zip(bars, vals):
-            ax.text(bar.get_width() + mx * 0.03,
-                    bar.get_y() + bar.get_height() / 2,
-                    fmt.format(val), va="center", ha="left",
-                    fontsize=6, color=C["text"])
+    # A: pts/membro
+    max_p = max(pts_mb.values(), default=1)
+    a = _titulo("Pts / Colaborador")
+    for i, u in enumerate([u for u in MB if pts_mb.get(u, 0) > 0]):
+        a += _barra_std(MB[u], f"{pts_mb[u]:,.0f} pts", pts_mb[u] / max_p * 100, CORES_MB[i % 4])
 
-    # --- A: Pontos por colaborador ---
-    ax = axes[0]
-    mb_nomes = [MB.get(u, u) for u in MB if pts_mb.get(u, 0) > 0]
-    mb_pts_v = [pts_mb.get(u, 0) for u in MB if pts_mb.get(u, 0) > 0]
-    if mb_nomes:
-        bars = ax.barh(mb_nomes, mb_pts_v,
-                       color=C["cores_mb"][:len(mb_nomes)], alpha=0.90, zorder=2)
-        _rotulo_barra_h(ax, bars, mb_pts_v, "{:,.0f}")
-    else:
-        ax.text(0.5, 0.5, "Sem dados", ha="center", va="center",
-                color="#888", fontsize=7, transform=ax.transAxes)
-    ax.set_xlabel("Pontos", fontsize=6, color="#888")
-    _estilizar(ax, "Pts/Colaborador")
-
-    # --- B: Cartões por colaborador ---
-    ax = axes[1]
+    # B: cartões/membro
+    b = _titulo("Cartões / Colaborador")
     if qtd_mb:
-        mb_nomes_q = [MB.get(u, u) for u in MB if qtd_mb.get(u, 0) > 0]
-        mb_qtd_v   = [qtd_mb.get(u, 0) for u in MB if qtd_mb.get(u, 0) > 0]
-        bars = ax.barh(mb_nomes_q, mb_qtd_v,
-                       color=C["cores_mb"][:len(mb_nomes_q)], alpha=0.90, zorder=2)
-        _rotulo_barra_h(ax, bars, mb_qtd_v, "{:.0f}")
+        max_q = max(qtd_mb.values(), default=1)
+        for i, u in enumerate([u for u in MB if qtd_mb.get(u, 0) > 0]):
+            b += _barra_std(MB[u], f"{qtd_mb[u]:.0f} cartões", qtd_mb[u] / max_q * 100, CORES_MB[i % 4])
     else:
-        ax.text(0.5, 0.5, "Aguardando\ndados Trello", ha="center", va="center",
-                color="#888", fontsize=6.5, transform=ax.transAxes)
-    ax.set_xlabel("Cartões", fontsize=6, color="#888")
-    _estilizar(ax, "Cartões/Colaborador")
+        b += '<div style="font-size:10px;color:var(--ms-texto-sec);font-style:italic;padding:6px 0;">Aguardando dados Trello</div>'
 
-    # --- C: Top 4 colunas por quantidade ---
-    ax = axes[2]
+    # C: top4 qtd
+    c = _titulo("Top 4 Colunas · Cartões")
     if top4_qtd:
-        nls_q = [(nl[:15] + "…") if len(nl) > 15 else nl for nl, _ in top4_qtd]
-        vs_q  = [v for _, v in top4_qtd]
-        cores_q = [C["orange"]] + [C["blue"]] * (len(vs_q) - 1)
-        bars = ax.barh(nls_q, vs_q, color=cores_q, alpha=0.90, zorder=2)
-        _rotulo_barra_h(ax, bars, vs_q, "{:.0f}")
-    ax.set_xlabel("Qtd", fontsize=6, color="#888")
-    _estilizar(ax, "Top 4 Cols · Cartões")
+        max_q2 = top4_qtd[0][1]
+        for i, (nl, v) in enumerate(top4_qtd):
+            c += _barra_std(nl[:22] + ("…" if len(nl) > 22 else ""), f"{v:.0f}", v / max_q2 * 100, "#EDA100" if i == 0 else "#4A90D9")
 
-    # --- D: Top 4 colunas por pontos ---
-    ax = axes[3]
+    # D: top4 pts
+    d = _titulo("Top 4 Colunas · Pontos")
     if top4_pts:
-        nls_p = [(nl[:15] + "…") if len(nl) > 15 else nl for nl, _ in top4_pts]
-        vs_p  = [v for _, v in top4_pts]
-        cores_p = [C["orange"]] + [C["blue"]] * (len(vs_p) - 1)
-        bars = ax.barh(nls_p, vs_p, color=cores_p, alpha=0.90, zorder=2)
-        _rotulo_barra_h(ax, bars, vs_p, "{:,.0f}")
-    ax.set_xlabel("Pts", fontsize=6, color="#888")
-    _estilizar(ax, "Top 4 Cols · Pontos")
+        max_p2 = top4_pts[0][1]
+        for i, (nl, v) in enumerate(top4_pts):
+            d += _barra_std(nl[:22] + ("…" if len(nl) > 22 else ""), f"{v:,.0f} pts", v / max_p2 * 100, "#EDA100" if i == 0 else "#4A90D9")
 
-    fig.tight_layout(pad=0.8, w_pad=1.2)
-    return fig
+    return f'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">' + _card(a) + _card(b) + _card(c) + _card(d) + '</div>'
 
 
 # ── Desempenho Individual — helpers ───────────────────────────────────────────
@@ -1045,94 +1013,34 @@ def _ind_extrair_meses(dados, username):
     return resultado
 
 
-def _chart_ind_pts(meses, C):
-    """Barras: meta individual vs realizado + linha de delta."""
-    import matplotlib.pyplot as plt
-    import numpy as np
-
-    n = len(meses)
-    if n == 0:
-        return None
-
+def _chart_ind_pts(meses, C=None):
+    """HTML/SVG: meta vs realizado individual + linha de delta."""
+    if not meses:
+        return '<div style="padding:20px;text-align:center;color:var(--ms-texto-sec);">Sem dados</div>'
     labels = [m["label"] for m in meses]
     metas  = [m["meta"]  for m in meses]
     pts    = [m["pts"]   for m in meses]
     deltas = [m["delta"] for m in meses]
     pcts   = [m["pct"]   for m in meses]
-
-    x = np.arange(n)
-    w = 0.35
-    cores = [C["green"] if p >= me else C["red"] for p, me in zip(pts, metas)]
-
-    fig, ax1 = plt.subplots(figsize=(6, 3.2))
-    fig.patch.set_facecolor(C["bg"])
-    ax1.set_facecolor(C["ax"])
-
-    ax1.bar(x - w / 2, metas, w, color=C["blue"], alpha=0.50, label="Meta", zorder=2)
-    ax1.bar(x + w / 2, pts,   w, color=cores,     alpha=0.90, label="Realizado", zorder=2)
-
-    ax2 = ax1.twinx()
-    ax2.plot(x, deltas, color="#FF6B6B", lw=1.8, marker="o", ms=4, zorder=3, label="Delta")
-    ax2.axhline(0, color="#555", lw=0.7, ls="--")
-    ax2.set_facecolor("none")
-    ax2.tick_params(axis="y", colors="#FF6B6B", labelsize=6)
-    ax2.spines["right"].set_color("#FF6B6B")
-    ax2.spines["top"].set_visible(False)
-    ax2.spines["bottom"].set_visible(False)
-    ax2.spines["left"].set_visible(False)
-
-    if n > 0:
-        bi = max(range(n), key=lambda i: pcts[i])
-        max_y = max(max(metas or [1]), max(pts or [1]))
-        sinal = "+" if pcts[bi] >= 100 else ""
-        ax1.annotate(
-            f"{sinal}{pcts[bi]:.1f}%\n{labels[bi]}",
-            xy=(bi, max(metas[bi], pts[bi])),
-            xytext=(bi, max_y * 1.12),
-            ha="center", fontsize=7, color=C["orange"], fontweight="bold",
-            arrowprops=dict(arrowstyle="->", color=C["orange"], lw=0.8),
-            bbox=dict(boxstyle="round,pad=0.3", facecolor=C["bg"],
-                      edgecolor=C["orange"], lw=0.8),
-        )
-
-    ax1.set_xticks(x)
-    ax1.set_xticklabels(labels, rotation=40, ha="right", fontsize=7, color=C["text"])
-    ax1.tick_params(axis="y", colors=C["text"], labelsize=7)
-    ax1.set_ylabel("Pontos", color=C["text"], fontsize=7)
-    ax2.set_ylabel("Delta (pts)", color="#FF6B6B", fontsize=6)
-    for sp in ["top", "right"]:
-        ax1.spines[sp].set_visible(False)
-    for sp in ["bottom", "left"]:
-        ax1.spines[sp].set_color(C["grid"])
-    ax1.grid(axis="y", color=C["grid"], lw=0.5, zorder=1)
-
-    l1, n1 = ax1.get_legend_handles_labels()
-    l2, n2 = ax2.get_legend_handles_labels()
-    ax1.legend(l1 + l2, n1 + n2, fontsize=6, facecolor=C["bg"],
-               edgecolor=C["grid"], labelcolor=C["text"], loc="upper left")
-
+    bi = max(range(len(pcts)), key=lambda i: pcts[i]) if pcts else None
+    sinal = "+" if bi is not None and pcts[bi] >= 100 else ""
+    melhor_txt = f"{sinal}{pcts[bi]:.1f}% · {labels[bi]}" if bi is not None else None
     avg_pct = sum(pcts) / len(pcts) if pcts else 0
-    fig.text(0.99, 0.97, f"Média: {avg_pct:.1f}%", ha="right", va="top",
-             fontsize=7, color=C["orange"])
-    fig.tight_layout(rect=[0, 0, 1, 0.93])
-    return fig
+    html = _grafico_barras_svg(
+        labels, metas, pts, label1="Meta", label2="Realizado",
+        line_vals=deltas, cor1="#4A90D9",
+        cor2_fn=lambda i: "#1BAF7A" if pts[i] >= metas[i] else "#E34948",
+        melhor_idx=bi, melhor_txt=melhor_txt,
+    )
+    return html + f'<div style="text-align:right;font-size:9px;color:#EDA100;padding:0 4px 4px;">Média: {avg_pct:.1f}%</div>'
 
 
-def _chart_ind_indices(meses, C):
-    """5 velocímetros individuais."""
-    import matplotlib.pyplot as plt
-    import numpy as np
-
+def _chart_ind_indices(meses, C=None):
+    """HTML/SVG: 5 velocímetros individuais."""
     n = len(meses)
+    batidos = sum(1 for m in meses if m["pct"] >= 100)
+    pct_bat = (batidos / n * 100) if n > 0 else 0
 
-    # 1. Pontuação batida
-    batidos   = sum(1 for m in meses if m["pct"] >= 100)
-    pct_bat   = (batidos / n * 100) if n > 0 else 0
-
-    # 2. Ociosidade — aguardando relógio de ponto
-    pct_ocio  = 0
-
-    # 3. Diminuição tempo médio (equipe como proxy)
     def _med_global(tl):
         vals = [sum(t) / len(t) for t in tl.values() if t]
         return sum(vals) / len(vals) if vals else None
@@ -1140,430 +1048,183 @@ def _chart_ind_indices(meses, C):
     if n >= 2:
         t0 = _med_global(meses[0]["tempo_lista"])
         tf = _med_global(meses[-1]["tempo_lista"])
-        if t0 and tf and t0 > 0:
-            melhora = (t0 - tf) / t0 * 100
-            pct_tempo = max(0, min(100, 50 + melhora))
-        else:
-            pct_tempo = 0
+        pct_tempo = max(0, min(100, 50 + (t0 - tf) / t0 * 100)) if t0 and tf and t0 > 0 else 0
     else:
         pct_tempo = 0
 
-    # 4. Tolerâncias — aguardando ponto
-    pct_tol   = 100
-
-    # 5. Atraso (equipe como proxy)
-    tc        = sum(m["total_concl"] for m in meses)
-    ta        = sum(m["atrasados"]   for m in meses)
-    pct_pont  = max(0, 100 - (ta / max(tc, 1) * 100))
+    tc = sum(m["total_concl"] for m in meses)
+    ta = sum(m["atrasados"]   for m in meses)
+    pct_pont = max(0, 100 - (ta / max(tc, 1) * 100))
 
     indices = [
-        (min(pct_bat,  100), C["blue"],   "Pontuação\nBatida",     f"{batidos}/{n} meses"),
-        (pct_ocio,           "#2C6BAF",   "Ociosidade",            "Aguardando ponto"),
-        (pct_tempo,          C["green"],  "Redução\nTempo Médio",  "1º vs último mês"),
-        (pct_tol,            C["orange"], "Tolerâncias",           "Aguardando ponto"),
-        (min(pct_pont, 100), C["red"],    "Pontualidade\nTarefa",  f"{ta} atras./{max(tc,1)} concl."),
+        (min(pct_bat, 100),  "#4A90D9", "Pontuação Batida",   f"{batidos}/{n} meses"),
+        (0,                  "#2C6BAF", "Ociosidade",          "Aguardando ponto"),
+        (pct_tempo,          "#1BAF7A", "Redução Tempo Médio", "1º vs último mês"),
+        (100,                "#EDA100", "Tolerâncias",         "Aguardando ponto"),
+        (min(pct_pont, 100), "#E34948", "Pontualidade Tarefa", f"{ta}/{max(tc,1)} concl."),
     ]
-
-    fig, axes = plt.subplots(1, 5, figsize=(10, 2.6))
-    fig.patch.set_facecolor(C["bg"])
-
-    for ax, (pct, cor, titulo, sub) in zip(axes, indices):
-        ax.set_facecolor(C["bg"])
-        pct_c = max(1.0, min(99.0, pct))
-
-        theta_bg = np.linspace(math.pi, 0, 200)
-        ax.plot(np.cos(theta_bg), np.sin(theta_bg),
-                color="#2e2e2e", lw=10, solid_capstyle="round")
-
-        theta_end  = math.pi - (pct_c / 100.0 * math.pi)
-        theta_fill = np.linspace(math.pi, theta_end, max(2, int(pct_c * 2)))
-        ax.plot(np.cos(theta_fill), np.sin(theta_fill),
-                color=cor, lw=10, solid_capstyle="round")
-
-        ax.text(0,  0.10, f"{pct_c:.0f}%", ha="center", va="center",
-                fontsize=11, fontweight="bold", color=cor)
-        ax.text(0, -0.35, titulo, ha="center", va="center",
-                fontsize=6, fontweight="700", color=C["text"])
-        ax.text(0, -0.70, sub, ha="center", va="center",
-                fontsize=5, color="#888888")
-
-        ax.set_xlim(-1.4, 1.4)
-        ax.set_ylim(-0.95, 1.3)
-        ax.axis("off")
-
-    fig.tight_layout(pad=0.3)
-    return fig
+    gauges = "".join(_gauge_svg(pct, cor, titulo, sub) for pct, cor, titulo, sub in indices)
+    return f'<div style="display:flex;justify-content:space-around;gap:4px;padding:8px 0;">{gauges}</div>'
 
 
-def _chart_ind_participacao(dados, username, C):
-    """Donut: participação nas top 5 colunas + % de contribuição no total da equipe."""
-    import matplotlib.pyplot as plt
-
-    CORES5 = [C["blue"], "#2C6BAF", C["red"], C["orange"], C["green"]]
-
-    pts_col_team = {}
-    pts_total_team = 0
-    pts_mb_total   = 0
-
+def _chart_ind_participacao(dados, username, C=None):
+    """HTML/SVG: pizza participação nas top 5 colunas + % contribuição individual.
+    Fatias = % de pontos de cada coluna no total da equipe. Box = % do colaborador no total geral."""
+    CORES5 = ["#4A90D9", "#2C6BAF", "#E34948", "#EDA100", "#1BAF7A"]
+    pts_col_team = {}; pts_total_team = 0; pts_mb_total = 0
     for r in dados:
-        for nl, p in r["pts_lista"].items():
-            pts_col_team[nl] = pts_col_team.get(nl, 0) + p
+        for nl, p in r["pts_lista"].items(): pts_col_team[nl] = pts_col_team.get(nl, 0) + p
         pts_total_team += sum(r["pts_lista"].values())
         pts_mb_total   += r["pts_membro"].get(username, 0)
-
+    if not pts_col_team:
+        return '<div style="padding:20px;text-align:center;color:var(--ms-texto-sec);">Sem dados de pontuação</div>'
     pct_contrib = (pts_mb_total / max(pts_total_team, 1)) * 100
-    top5        = sorted(pts_col_team.items(), key=lambda x: -x[1])[:5]
-    top5_soma   = sum(v for _, v in top5)
-    total_t     = sum(pts_col_team.values())
-
-    if not top5:
-        fig, ax = plt.subplots(figsize=(5.5, 3.5))
-        fig.patch.set_facecolor(C["bg"]); ax.set_facecolor(C["bg"])
-        ax.text(0.5, 0.5, "Sem dados de pontuação", ha="center", va="center",
-                color="#888", fontsize=8); ax.axis("off")
-        return fig
-
-    fig = plt.figure(figsize=(6, 3.5))
-    fig.patch.set_facecolor(C["bg"])
-
-    ax_d = fig.add_axes([0.02, 0.08, 0.48, 0.88])
-    ax_d.set_facecolor(C["bg"])
-    vals5  = [v for _, v in top5]
-    outros = max(0, total_t - top5_soma)
-    pie_vals  = vals5 + ([outros] if outros > 0 else [])
-    pie_cores = CORES5[:len(top5)] + (["#2a2a2a"] if outros > 0 else [])
-
-    ax_d.pie(pie_vals, colors=pie_cores, startangle=90,
-             wedgeprops=dict(width=0.48, edgecolor=C["bg"], lw=2), counterclock=False)
-
-    ax_d.text(0,  0.15, f"{pct_contrib:.0f}%", ha="center", va="center",
-              fontsize=14, fontweight="bold", color=C["orange"])
-    ax_d.text(0, -0.18, "do total\nda equipe", ha="center", va="center",
-              fontsize=6.5, color="#888")
-
-    ax_l = fig.add_axes([0.52, 0.02, 0.46, 0.96])
-    ax_l.set_facecolor(C["bg"]); ax_l.axis("off")
-
+    top5 = sorted(pts_col_team.items(), key=lambda x: -x[1])[:5]
+    segs = []
     for i, (nl, v) in enumerate(top5):
-        y   = 0.90 - i * 0.18
-        pct = v / total_t * 100
-        circ = plt.Circle((0.07, y), 0.055, color=CORES5[i],
-                           transform=ax_l.transAxes, zorder=5, clip_on=False)
-        ax_l.add_patch(circ)
-        ax_l.text(0.07, y, f"{i+1:02d}", ha="center", va="center",
-                  fontsize=6, fontweight="bold", color="white",
-                  transform=ax_l.transAxes, zorder=6)
-        nl_s = (nl[:22] + "…") if len(nl) > 22 else nl
-        ax_l.text(0.16, y + 0.04, nl_s, ha="left", va="center",
-                  fontsize=6.5, color=C["text"], transform=ax_l.transAxes)
-        ax_l.text(0.16, y - 0.06, f"{pct:.1f}%  ·  {v:,.0f} pts",
-                  ha="left", va="center", fontsize=5.5, color="#888",
-                  transform=ax_l.transAxes)
-
-    return fig
+        label = f"{nl[:20]}{'…' if len(nl)>20 else ''} · {v:,.0f} pts"
+        segs.append((CORES5[i], v, label))
+    return _pizza_svg(
+        segs,
+        box_pct=f"{pct_contrib:.0f}%",
+        box_label="contribuição individual\nno total de pontos da equipe",
+        box_cor="#4A90D9",
+    )
 
 
-def _chart_ind_destaques(meses, dados, username, C):
-    """
-    Top 4 meses por pontuação individual (mini barras + número grande)
-    + Top 4 colunas por pontuação (barras horizontais).
-    """
-    import matplotlib.pyplot as plt
-    import numpy as np
-
-    n = len(meses)
-    CORES4 = [C["orange"], C["blue"], C["green"], C["red"]]
-
-    # Top 4 meses
+def _chart_ind_destaques(meses, dados, username, C=None):
+    """HTML: top 4 meses individuais + top 4 colunas da equipe."""
+    CORES4 = ["#EDA100", "#4A90D9", "#1BAF7A", "#E34948"]
     top4_m = sorted(meses, key=lambda m: -m["pts"])[:4]
-
-    # Top 4 colunas (equipe)
     pts_col = {}
     for r in dados:
-        for nl, p in r["pts_lista"].items():
-            pts_col[nl] = pts_col.get(nl, 0) + p
+        for nl, p in r["pts_lista"].items(): pts_col[nl] = pts_col.get(nl, 0) + p
     top4_c = sorted(pts_col.items(), key=lambda x: -x[1])[:4]
 
-    fig = plt.figure(figsize=(10, 4.2))
-    fig.patch.set_facecolor(C["bg"])
-
-    # ── Linha de cima: mini barras + número ──────────────────────────────────
+    cards = []
     for i in range(4):
-        ax_bar = fig.add_subplot(2, 4, i + 1)
-        ax_bar.set_facecolor("#1a1a1a")
-
         if i < len(top4_m):
-            m = top4_m[i]
-            all_pts = [md["pts"] for md in meses]
-            this_lbl = m["label"]
-            bar_colors = [CORES4[i] if md["label"] == this_lbl else "#333"
-                          for md in meses]
-            ax_bar.bar(range(n), all_pts, color=bar_colors, width=0.8, zorder=2)
-            if m["meta"] > 0:
-                ax_bar.axhline(m["meta"], color="#555", lw=0.8, ls="--")
-            # Rótulo do mês destacado
-            ax_bar.set_title(m["label"], fontsize=7, color=CORES4[i],
-                             fontweight="700", pad=3)
-        else:
-            ax_bar.text(0.5, 0.5, "—", ha="center", va="center",
-                        color="#444", fontsize=14, transform=ax_bar.transAxes)
-
-        for sp in ax_bar.spines.values():
-            sp.set_color("#2e2e2e")
-        ax_bar.spines["top"].set_visible(False)
-        ax_bar.spines["right"].set_visible(False)
-        ax_bar.tick_params(labelbottom=False, labelleft=False,
-                           colors="#555", length=2)
-        ax_bar.grid(axis="y", color="#2e2e2e", lw=0.4, zorder=1)
-
-    # ── Linha de baixo: número grande + descrição ──────────────────────────
-    for i in range(4):
-        ax_txt = fig.add_subplot(2, 4, i + 5)
-        ax_txt.set_facecolor(C["bg"]); ax_txt.axis("off")
-
-        if i < len(top4_m):
-            m    = top4_m[i]
-            cor  = CORES4[i]
+            m = top4_m[i]; cor = CORES4[i]
             sinal = "+" if m["delta"] >= 0 else ""
-            pct   = m["pct"]
-            ax_txt.text(0.5, 0.82, f"{m['pts']:,.0f}", ha="center", va="top",
-                        fontsize=15, fontweight="bold", color=cor,
-                        transform=ax_txt.transAxes)
-            ax_txt.text(0.5, 0.40, "pts alcançados", ha="center", va="center",
-                        fontsize=6.5, fontweight="600", color=C["text"],
-                        transform=ax_txt.transAxes)
-            ax_txt.text(0.5, 0.08,
-                        f"{pct:.0f}% da meta · {sinal}{m['delta']:,.0f} pts",
-                        ha="center", va="center", fontsize=5.5, color="#888",
-                        transform=ax_txt.transAxes)
-
-    # ── Divider + Top 4 Colunas ──────────────────────────────────────────────
-    # Adiciona texto de rodapé com top 4 colunas
+            cards.append(
+                f'<div style="background:var(--ms-metric-bg);border-radius:8px;padding:12px 10px;'
+                f'border:1px solid var(--ms-divisor);text-align:center;">'
+                f'<div style="font-size:10px;font-weight:700;color:{cor};margin-bottom:4px;">🏆 {m["label"]}</div>'
+                f'<div style="font-size:22px;font-weight:700;color:{cor};">{m["pts"]:,.0f}</div>'
+                f'<div style="font-size:9px;color:var(--ms-texto);margin-top:2px;">pts alcançados</div>'
+                f'<div style="font-size:8px;color:var(--ms-texto-sec);margin-top:4px;">{m["pct"]:.0f}% da meta · {sinal}{m["delta"]:,.0f} pts</div>'
+                f'</div>'
+            )
+        else:
+            cards.append(
+                f'<div style="background:var(--ms-metric-bg);border-radius:8px;padding:12px;'
+                f'border:1px solid var(--ms-divisor);text-align:center;">'
+                f'<div style="font-size:18px;color:var(--ms-divisor);">—</div></div>'
+            )
+    rodape = ""
     if top4_c:
         cols_txt = "  ·  ".join(
-            f"#{i+1} {(nl[:18]+'…') if len(nl)>18 else nl} ({v:,.0f}pts)"
+            f"#{i+1} {(nl[:16]+'…') if len(nl)>16 else nl} ({v:,.0f}pts)"
             for i, (nl, v) in enumerate(top4_c)
         )
-        fig.text(0.5, 0.01,
-                 f"🏆 Top 4 colunas da equipe: {cols_txt}",
-                 ha="center", va="bottom", fontsize=6,
-                 color="#888", style="italic")
-
-    fig.suptitle("🏆 Melhores Meses — Pontuação Individual",
-                 fontsize=8.5, color=C["text"], fontweight="600", y=0.99)
-    fig.tight_layout(rect=[0, 0.06, 1, 0.97], h_pad=0.1, w_pad=0.5)
-    return fig
+        rodape = f'<div style="font-size:9px;color:var(--ms-texto-sec);text-align:center;margin-top:8px;font-style:italic;">🏆 Top 4 colunas da equipe: {cols_txt}</div>'
+    return (
+        f'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;">'
+        + "".join(cards) + f'</div>{rodape}'
+    )
 
 
 def _chart_resumo_colabs(dados):
-    """
-    Painel comparativo de todos os colaboradores.
-    Gráfico sugerido: grade de barras horizontais por métrica —
-    cada mini-gráfico mostra todos os membros em uma dimensão diferente,
-    facilitando a comparação rápida sem sobrecarregar a tela.
-    """
-    import matplotlib.pyplot as plt
-    import numpy as np
-
-    C  = _mpl_bg()
-    MB = _pc.MEMBROS_ATIVOS
+    """HTML: 2×4 grade comparativa de todos os colaboradores."""
+    MB    = _pc.MEMBROS_ATIVOS
     users = list(MB.keys())
-    nomes = [MB[u] for u in users]
-    n     = len(users)
-    CORES = [C["blue"], C["red"], C["green"], C["orange"]][:n]
+    CORES = ["#4A90D9", "#E34948", "#1BAF7A", "#EDA100"][:len(users)]
 
-    # ── Métricas disponíveis ──────────────────────────────────────────────────
-    pts_mb = {u: sum(r["pts_membro"].get(u, 0) for r in dados) for u in users}
-    meta_mb = {}
-    for u in users:
-        mk = f"meta_{u}"
-        meta_mb[u] = sum(r["cfg"].get(mk, r["cfg"].get("meta_equipe", 0)) for r in dados)
-
+    pts_mb  = {u: sum(r["pts_membro"].get(u, 0) for r in dados) for u in users}
+    meta_mb = {u: sum(r["cfg"].get(f"meta_{u}", r["cfg"].get("meta_equipe", 0)) for r in dados) for u in users}
     total_pts   = sum(pts_mb.values()) or 1
     pct_contrib = {u: pts_mb[u] / total_pts * 100 for u in users}
     pct_meta    = {u: pts_mb[u] / max(meta_mb[u], 1) * 100 for u in users}
 
-    # Média execução global (equipe — individual não disponível ainda)
-    tempo_flat = []
-    for r in dados:
-        for ts in r["tempo_lista"].values():
-            tempo_flat.extend(ts)
+    tempo_flat = [t for r in dados for ts in r["tempo_lista"].values() for t in ts]
     med_global = sum(tempo_flat) / len(tempo_flat) if tempo_flat else 0
-    exec_mb    = {u: med_global for u in users}   # mesmo valor até ter por membro
+    exec_mb    = {u: med_global for u in users}
 
-    # Atraso (equipe como proxy — individual aguardando)
-    tc_total   = sum(r["total_concl"] for r in dados)
-    ta_total   = sum(r["atrasados"]   for r in dados)
-    atr_pct    = ta_total / max(tc_total, 1) * 100
-    atraso_mb  = {u: atr_pct for u in users}
+    tc_total  = sum(r["total_concl"] for r in dados)
+    ta_total  = sum(r["atrasados"]   for r in dados)
+    atraso_mb = {u: ta_total / max(tc_total, 1) * 100 for u in users}
 
-    # Placeholder — aguardando relógio de ponto
-    ocio_mb    = {u: 0 for u in users}
-    tol_mb     = {u: 0 for u in users}
+    def _cor_meta(v):   return "#1BAF7A" if v >= 100 else ("#EDA100" if v >= 75 else "#E34948")
+    def _cor_atraso(v): return "#1BAF7A" if v < 5   else ("#EDA100" if v < 15  else "#E34948")
 
-    # ── Layout: 2 linhas × 4 colunas ─────────────────────────────────────────
-    fig, axes = plt.subplots(2, 4, figsize=(13, 5.0))
-    fig.patch.set_facecolor(C["bg"])
+    def _titulo(t):
+        return f'<div style="font-size:9px;font-weight:700;color:var(--ms-texto-sec);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">{t}</div>'
 
-    def _mini(ax, titulo, vals_dict, fmt="{:.0f}", unidade="", aguardando=False,
-               cor_fn=None, limite_ref=None):
-        """Mini gráfico horizontal de barras para uma métrica."""
-        ax.set_facecolor(C["ax"])
-        ax.tick_params(colors=C["text"], labelsize=6.5)
-        for sp in ax.spines.values():
-            sp.set_color(C["grid"])
-        ax.spines["top"].set_visible(False)
-        ax.spines["right"].set_visible(False)
-        ax.grid(axis="x", color=C["grid"], lw=0.4, zorder=0)
-        ax.set_title(titulo, fontsize=7, color=C["text"], fontweight="600", pad=4)
-
+    def _mini(titulo, vals_dict, fmt="{:.0f}", unidade="", cor_fn=None, aguardando=False):
+        t = _titulo(titulo)
         if aguardando:
-            ax.text(0.5, 0.5, "Aguardando\nrelógio de ponto",
-                    ha="center", va="center", fontsize=6.5,
-                    color="#666", style="italic", transform=ax.transAxes)
-            ax.set_yticks([])
-            return
-
-        # Ordena por valor decrescente
+            return t + '<div style="font-size:9px;color:var(--ms-texto-sec);font-style:italic;padding:6px 0;">Aguardando relógio de ponto</div>'
         sorted_items = sorted(vals_dict.items(), key=lambda x: -x[1])
-        s_users = [u for u, _ in sorted_items]
-        s_vals  = [v for _, v in sorted_items]
-        s_nomes = [MB.get(u, u) for u in s_users]
-        s_cores = [CORES[users.index(u)] if u in users else C["gray"] for u in s_users]
+        max_v = max((v for _, v in sorted_items), default=1) or 1
+        rows = ""
+        for idx, (u, v) in enumerate(sorted_items):
+            cor = CORES[users.index(u)] if u in users else "#555"
+            if cor_fn: cor = cor_fn(v)
+            rows += _barra_std(MB.get(u, u), fmt.format(v) + unidade, v / max_v * 100, cor)
+        return t + rows
 
-        if cor_fn:
-            s_cores = [cor_fn(v) for v in s_vals]
+    def _card(html):
+        return f'<div style="background:var(--ms-metric-bg);border-radius:8px;padding:12px 14px;border:1px solid var(--ms-divisor);">{html}</div>'
 
-        bars = ax.barh(s_nomes, s_vals, color=s_cores, alpha=0.9,
-                       height=0.55, zorder=2)
-
-        if limite_ref is not None:
-            ax.axvline(limite_ref, color="#555", lw=0.8, ls="--")
-
-        mx = max(s_vals) if s_vals else 1
-        for bar, val in zip(bars, s_vals):
-            label = fmt.format(val) + unidade
-            ax.text(bar.get_width() + mx * 0.03,
-                    bar.get_y() + bar.get_height() / 2,
-                    label, va="center", ha="left", fontsize=6.5, color=C["text"])
-
-        ax.set_xlim(0, max(mx * 1.35, 1))
-
-    def _cor_meta(v):
-        return C["green"] if v >= 100 else (C["orange"] if v >= 75 else C["red"])
-
-    def _cor_atraso(v):
-        return C["green"] if v < 5 else (C["orange"] if v < 15 else C["red"])
-
-    # Linha 1
-    _mini(axes[0][0], "🏆 Ranking — Pontuação",
-          pts_mb, fmt="{:,.0f}", unidade=" pts")
-
-    _mini(axes[0][1], "🎯 % de Contribuição",
-          pct_contrib, fmt="{:.1f}", unidade="%")
-
-    _mini(axes[0][2], "📈 % da Meta Individual",
-          pct_meta, fmt="{:.0f}", unidade="%",
-          cor_fn=_cor_meta, limite_ref=100)
-
-    _mini(axes[0][3], "⏱️ Média de Execução",
-          exec_mb, fmt="{:.0f}", unidade=" min",
-          cor_fn=lambda v: C["green"] if v <= 60 else (C["orange"] if v <= 120 else C["red"]))
-
-    # Linha 2
-    _mini(axes[1][0], "💤 Ociosidade",
-          ocio_mb, aguardando=True)
-
-    _mini(axes[1][1], "🕐 Tolerâncias Utilizadas",
-          tol_mb, aguardando=True)
-
-    _mini(axes[1][2], "⏰ Índice de Atraso",
-          atraso_mb, fmt="{:.1f}", unidade="%",
-          cor_fn=_cor_atraso,
-          limite_ref=10)
-
-    # Célula extra: ociosidade detalhada (placeholder)
-    ax_oci = axes[1][3]
-    ax_oci.set_facecolor(C["ax"])
-    ax_oci.set_title("💤 Ociosidade — Detalhamento", fontsize=7,
-                     color=C["text"], fontweight="600", pad=4)
-    ax_oci.axis("off")
-    linhas_oci = [
-        ("% médio/dia",    "—"),
-        ("Total no mês",   "—  h"),
-        ("Média diária",   "—  min/dia"),
-        ("% representa",   "—"),
+    cells = [
+        _mini("🏆 Ranking — Pontuação",     pts_mb,     fmt="{:,.0f}", unidade=" pts"),
+        _mini("🎯 % de Contribuição",        pct_contrib, fmt="{:.1f}", unidade="%"),
+        _mini("📈 % da Meta Individual",      pct_meta,   fmt="{:.0f}", unidade="%", cor_fn=_cor_meta),
+        _mini("⏱️ Média de Execução",         exec_mb,    fmt="{:.0f}", unidade=" min",
+              cor_fn=lambda v: "#1BAF7A" if v <= 60 else ("#EDA100" if v <= 120 else "#E34948")),
+        _mini("💤 Ociosidade",               {u: 0 for u in users}, aguardando=True),
+        _mini("🕐 Tolerâncias Utilizadas",    {u: 0 for u in users}, aguardando=True),
+        _mini("⏰ Índice de Atraso",          atraso_mb,  fmt="{:.1f}", unidade="%", cor_fn=_cor_atraso),
+        _titulo("💤 Ociosidade — Detalhe") + '<div style="font-size:9px;color:var(--ms-texto-sec);font-style:italic;padding:6px 0;">Aguardando relógio de ponto</div>',
     ]
-    for j, (lbl, val) in enumerate(linhas_oci):
-        y = 0.78 - j * 0.20
-        ax_oci.text(0.05, y, lbl, ha="left", va="center",
-                    fontsize=6.5, color=C["text"], transform=ax_oci.transAxes)
-        ax_oci.text(0.95, y, val, ha="right", va="center",
-                    fontsize=6.5, color="#666", transform=ax_oci.transAxes,
-                    style="italic")
-    ax_oci.text(0.5, 0.02, "Aguardando relógio de ponto",
-                ha="center", va="bottom", fontsize=5.5,
-                color="#555", transform=ax_oci.transAxes, style="italic")
-    ax_oci.patch.set_visible(True)
-    ax_oci.spines["bottom"].set_color(C["grid"])
-
-    fig.suptitle("📋 Resumo Comparativo — Todos os Colaboradores",
-                 fontsize=9, color=C["text"], fontweight="700", y=1.01)
-    fig.tight_layout(pad=0.8, h_pad=1.2, w_pad=0.8)
-    return fig
+    return (
+        f'<div style="margin-bottom:8px;font-size:11px;font-weight:700;color:var(--ms-texto);">📋 Resumo Comparativo — Todos os Colaboradores</div>'
+        f'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;">'
+        + "".join(_card(c) for c in cells) + '</div>'
+    )
 
 
 def _desempenho_individual(dados, username, nome):
-    """Renderiza os 4 gráficos de desempenho para um colaborador."""
-    import matplotlib.pyplot as plt
-
-    C    = _mpl_bg()
+    """Renderiza os 4 gráficos HTML/SVG de desempenho para um colaborador."""
     meses = _ind_extrair_meses(dados, username)
 
     row1a, row1b = st.columns(2)
-
     with row1a:
         st.markdown(f"#### 📊 Pontuação — {nome}")
         st.caption("Meta individual vs. realizado · linha de delta · destaque do melhor mês.")
-        fig = _chart_ind_pts(meses, C)
-        if fig:
-            st.pyplot(fig, use_container_width=True)
-            plt.close(fig)
-        else:
-            st.caption("Sem dados suficientes.")
+        st.markdown(_chart_ind_pts(meses), unsafe_allow_html=True)
 
     with row1b:
         st.markdown("#### 🎯 Índices Individuais")
-        st.caption("Pontuação batida · ociosidade · tempo médio · tolerâncias · pontualidade de tarefa.")
-        fig = _chart_ind_indices(meses, C)
-        st.pyplot(fig, use_container_width=True)
-        plt.close(fig)
+        st.caption("Pontuação batida · ociosidade · tempo médio · tolerâncias · pontualidade.")
+        st.markdown(_chart_ind_indices(meses), unsafe_allow_html=True)
 
     st.markdown("---")
     row2a, row2b = st.columns(2)
 
     with row2a:
         st.markdown("#### 🍩 Participação nas Colunas")
-        st.caption(
-            "Top 5 colunas mais pontuadas pela equipe · % central = contribuição individual "
-            "no total de pontos do período."
-        )
-        fig = _chart_ind_participacao(dados, username, C)
-        st.pyplot(fig, use_container_width=True)
-        plt.close(fig)
+        st.caption("Top 5 colunas mais pontuadas pela equipe · % central = contribuição individual no total.")
+        st.markdown(_chart_ind_participacao(dados, username), unsafe_allow_html=True)
 
     with row2b:
         st.markdown("#### 🏆 Destaques do Período")
-        st.caption("4 melhores meses individuais com pontos alcançados, % da meta e delta · top 4 colunas da equipe no rodapé.")
-        fig = _chart_ind_destaques(meses, dados, username, C)
-        st.pyplot(fig, use_container_width=True)
-        plt.close(fig)
+        st.caption("4 melhores meses individuais · top 4 colunas da equipe.")
+        st.markdown(_chart_ind_destaques(meses, dados, username), unsafe_allow_html=True)
 
 
 def _aba_desempenho(dados):
     """Aba Desempenho — 4 gráficos anuais de performance coletiva."""
-    import matplotlib.pyplot as plt
-
     if not dados:
         st.caption("Sem dados para exibir no período selecionado.")
         return
@@ -1573,16 +1234,12 @@ def _aba_desempenho(dados):
     with row1_col1:
         st.markdown("#### 📊 Pontuação Meta Coletiva")
         st.caption("Meta de pontuação vs. realizado mês a mês · linha de delta · destaque do melhor mês.")
-        fig = _chart_pontuacao_meta(dados)
-        st.pyplot(fig, use_container_width=True)
-        plt.close(fig)
+        st.markdown(_chart_pontuacao_meta(dados), unsafe_allow_html=True)
 
     with row1_col2:
         st.markdown("#### 🎯 Índices Meta Coletiva")
         st.caption("Quatro indicadores percentuais de desempenho coletivo no período selecionado.")
-        fig = _chart_indices_meta(dados)
-        st.pyplot(fig, use_container_width=True)
-        plt.close(fig)
+        st.markdown(_chart_indices_meta(dados), unsafe_allow_html=True)
 
     st.markdown("---")
 
@@ -1591,16 +1248,12 @@ def _aba_desempenho(dados):
     with row2_col1:
         st.markdown("#### ⏱️ Tempo de Execução")
         st.caption("Top 5 colunas com maior tempo médio de execução e a representatividade de cada uma no total do período.")
-        fig = _chart_tempo_execucao(dados)
-        st.pyplot(fig, use_container_width=True)
-        plt.close(fig)
+        st.markdown(_chart_tempo_execucao(dados), unsafe_allow_html=True)
 
     with row2_col2:
         st.markdown("#### 🟠 Pontuações")
         st.caption("Pontos e cartões por colaborador · top 4 colunas mais ativas por quantidade e por pontuação.")
-        fig = _chart_pontuacoes(dados)
-        st.pyplot(fig, use_container_width=True)
-        plt.close(fig)
+        st.markdown(_chart_pontuacoes(dados), unsafe_allow_html=True)
 
 
 # ── Seção: configuração de metas ──────────────────────────────────────────────
@@ -1855,10 +1508,7 @@ def pagina_analise_metas(usuario_logado):
             "os colaboradores em uma dimensão. Métricas que dependem do relógio de "
             "ponto serão preenchidas automaticamente após a integração."
         )
-        import matplotlib.pyplot as plt
-        _fig_res = _chart_resumo_colabs(dados)
-        st.pyplot(_fig_res, use_container_width=True)
-        plt.close(_fig_res)
+        st.markdown(_chart_resumo_colabs(dados), unsafe_allow_html=True)
 
         # ── Desempenho Individual com filtro ──────────────────────────────
         st.markdown("---")
