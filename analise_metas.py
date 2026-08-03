@@ -108,6 +108,12 @@ def _analisar_meses(listas, cards, membros_map, id_p, id_t, id_i, meses_lista, p
         total_concl = d.get("total_concl", 0)
         corr_concl  = d.get("correcao_concl", 0)
         pct_retrab  = (corr_concl / total_concl * 100) if total_concl > 0 else None
+        # Cartões com membro: em andamento + concluídos
+        _and_sem_mb  = sum(1 for c in d["andamento_lista"] if not c["membros"])
+        _concl_sem_mb = len(d.get("concluido_sem_membro", []))
+        _total_ativos = d["em_andamento"] + total_concl
+        _ativos_sem_mb = _and_sem_mb + _concl_sem_mb
+        pct_com_membro_m = max(0.0, min(100.0, 100 - (_ativos_sem_mb / max(_total_ativos, 1) * 100)))
         resultado.append({
             "ano": ano, "mes": mes,
             "label": _label_mes(ano, mes),
@@ -135,6 +141,7 @@ def _analisar_meses(listas, cards, membros_map, id_p, id_t, id_i, meses_lista, p
             "pen_cards": d["pen_cards"],
             "pct_retrab": pct_retrab,   # None se sem dados
             "total_concl": total_concl,
+            "pct_com_membro": pct_com_membro_m,
         })
     return resultado
 
@@ -189,6 +196,7 @@ def _secao_metas_card(dados):
     max_retrab_x = int(cfg.get("max_retrab_maxx", 5))
 
     pct_prioritarios = 100 if atrasados == 0 else max(0, 100 - atrasados * 20)
+    pct_com_membro   = r.get("pct_com_membro", 100.0)
 
     # Penalidades: acumulam de 0% a 100% (vermelho)
     pct_pen_n = min(pen_qtd / (max_pen_n + 1) * 100, 100) if max_pen_n >= 0 else 0
@@ -217,12 +225,8 @@ def _secao_metas_card(dados):
         b += _barra_painel(f"Retrabalho abaixo de {max_retrab_n}%", pct_retrab_n, desc_retrab, "#E34948")
         b += _barra_painel(f"Menos de {max_pen_n+1} penalidades", pct_pen_n,
                             f"{pen_qtd} ocorrência(s) / máx {max_pen_n}", "#E34948")
-        b += f'<div style="border-top:1px solid var(--ms-divisor);margin:8px 0 8px 0;padding-top:8px;font-size:10px;font-weight:600;color:#1BAF7A;text-transform:uppercase;letter-spacing:.5px;">🎯 Meta Individual</div>'
-        b += _barra_painel_dash("Pontuação Individual", "Veja a aba Individual")
-        b += _barra_painel_dash("Ociosidade abaixo de 10%", "Aguardando relógio de ponto")
-        b += _barra_painel_dash("Tempo médio abaixo do estimado", "Aguardando histórico de execução")
-        b += _barra_painel_dash(f"Pontualidade: máx {int(cfg.get('max_tol_normal',15))} tolerâncias", "Aguardando integração do ponto")
-        b += _barra_painel_dash(f"Pontualidade: máx {int(cfg.get('max_atr_normal',10))} atrasos", "Aguardando integração do ponto")
+        b += _barra_painel("Cartões com membro atribuído", pct_com_membro,
+                            "Em andamento e concluídos no período", "#1BAF7A")
         st.markdown(f'<div style="background:var(--ms-metric-bg);border:1px solid #1BAF7A22;border-radius:8px;padding:12px 14px;">{b}</div>', unsafe_allow_html=True)
 
     with col_x:
@@ -234,13 +238,8 @@ def _secao_metas_card(dados):
         b += _barra_painel(f"Retrabalho abaixo de {max_retrab_x}%", pct_retrab_x, desc_retrab_x, "#E34948")
         b += _barra_painel(f"Menos de {max_pen_x+1} penalidades", pct_pen_x,
                             f"{pen_qtd} ocorrência(s) / máx {max_pen_x}", "#E34948")
-        b += f'<div style="height:32px;"></div>'
-        b += f'<div style="border-top:1px solid var(--ms-divisor);margin:8px 0 8px 0;padding-top:8px;font-size:10px;font-weight:600;color:#FFD700;text-transform:uppercase;letter-spacing:.5px;">⭐ Meta Maxx Individual</div>'
-        b += _barra_painel_dash("Pontuação Individual", "Veja a aba Individual")
-        b += _barra_painel_dash("Ociosidade abaixo de 5%", "Aguardando relógio de ponto")
-        b += _barra_painel_dash("Tempo médio abaixo do estimado", "Aguardando histórico de execução")
-        b += _barra_painel_dash(f"Pontualidade: máx {int(cfg.get('max_tol_maxx',7))} tolerâncias", "Aguardando integração do ponto")
-        b += _barra_painel_dash(f"Pontualidade: máx {int(cfg.get('max_atr_maxx',5))} atrasos", "Aguardando integração do ponto")
+        b += _barra_painel("Cartões com membro atribuído", pct_com_membro,
+                            "Em andamento e concluídos no período", "#FFD700")
         st.markdown(f'<div style="background:var(--ms-metric-bg);border:1px solid #FFD70022;border-radius:8px;padding:12px 14px;">{b}</div>', unsafe_allow_html=True)
 
 
@@ -445,36 +444,80 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
 # ── Seção: tempo médio por coluna ─────────────────────────────────────────────
 
 def _secao_tempos(dados):
-    """Tempo médio por coluna com barras horizontais estilo Pendentes."""
+    """Tempo médio por coluna — sempre exibe todas as colunas configuradas.
+    Com dados reais: mostra média real + delta vs estimativa (min e %).
+    Sem dados reais ainda: exibe a estimativa de referência em cinza."""
     _CC = _pc.COLUNAS_CONFIG
-
-    tempo_agg = {}
-    for r in dados:
-        for nl, tempos in r["tempo_lista"].items():
-            tempo_agg.setdefault(nl, []).extend(tempos)
-
-    if not tempo_agg:
-        st.caption("Nenhum dado de tempo de execução para o período.")
-        return
 
     def _fmt(m):
         if m < 60: return f"{m:.0f}min"
         h = int(m // 60); mm = int(m % 60)
         return f"{h}h{mm:02d}" if mm else f"{h}h"
 
-    medias = {nl: sum(t) / len(t) for nl, t in tempo_agg.items()}
-    max_med = max(medias.values()) if medias else 1
+    # Agrega tempo real por coluna (todos os meses do período)
+    tempo_agg = {}
+    for r in dados:
+        for nl, tempos in r["tempo_lista"].items():
+            tempo_agg.setdefault(nl, []).extend(tempos)
+
+    # Calcula médias reais
+    medias_reais = {nl: sum(t) / len(t) for nl, t in tempo_agg.items()}
+
+    # Referência máxima para escala das barras (considera real OU estimado)
+    valores_ref = []
+    for nl, cfg in _CC.items():
+        real = medias_reais.get(nl)
+        est  = cfg.get("tempo_min", 0)
+        valores_ref.append(real if real is not None else est)
+    max_ref = max(valores_ref) if valores_ref else 1
 
     html = ""
-    for nl, media in sorted(medias.items(), key=lambda x: -x[1]):
-        estimado = _CC.get(nl, {}).get("tempo_min", None)
-        cor = "#1BAF7A" if (estimado and media <= estimado) else "#EDA100"
-        sub = (f"Estimado: ~{estimado}min · {len(tempo_agg[nl])} concluído(s)"
-               if estimado else f"{len(tempo_agg[nl])} concluído(s)")
-        pct = media / max_med * 100
-        html += _barra_std(nl, _fmt(media), pct, cor=cor, sub=sub)
+    # Ordena por prioridade desc (mesma lógica do COLUNAS_CONFIG)
+    for nl, cfg in sorted(_CC.items(), key=lambda x: -x[1]["prioridade"]):
+        estimado = cfg.get("tempo_min")
+        real     = medias_reais.get(nl)
+        n_concl  = len(tempo_agg.get(nl, []))
 
-    st.markdown(html, unsafe_allow_html=True)
+        if real is not None:
+            # — Tem dados reais —
+            pct_barra = real / max_ref * 100
+            valor_str = _fmt(real)
+            if estimado and estimado > 0:
+                delta_min = real - estimado
+                delta_pct = (delta_min / estimado) * 100
+                if delta_min <= 0:
+                    sinal = f'↑ {abs(delta_min):.0f}min mais rápido ({abs(delta_pct):.0f}% ↓)'
+                    delta_cor = "#1BAF7A"
+                    cor_barra = "#1BAF7A"
+                else:
+                    sinal = f'↓ {delta_min:.0f}min mais lento (+{delta_pct:.0f}%)'
+                    delta_cor = "#E34948"
+                    cor_barra = "#E34948"
+                sub = (f"Estimado: ~{estimado}min · {n_concl} concluído(s) · "
+                       f'<span style="color:{delta_cor};font-weight:600;">{sinal}</span>')
+            else:
+                cor_barra = "#EDA100"
+                sub = f"{n_concl} concluído(s) · sem estimativa de referência"
+            html += _barra_std(nl, valor_str, pct_barra, cor=cor_barra, sub=sub)
+        else:
+            # — Só estimativa (nenhum dado real ainda) —
+            pct_barra = (estimado / max_ref * 100) if estimado else 0
+            valor_str = f"~{estimado}min" if estimado else "—"
+            sub = "Referência — sem dados reais no período"
+            html += _barra_std(nl, valor_str, pct_barra, cor="#555555", sub=sub)
+
+    if html:
+        st.markdown(
+            f'<div style="margin-bottom:4px;display:flex;gap:16px;font-size:9px;color:var(--ms-texto-sec);">'
+            f'<span>🟢 mais rápido que o estimado</span>'
+            f'<span>🔴 mais lento que o estimado</span>'
+            f'<span style="color:#555;">⬜ apenas estimativa (sem dados reais)</span>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+        st.markdown(html, unsafe_allow_html=True)
+    else:
+        st.caption("Nenhuma coluna configurada.")
 
 
 # ── Seção: pendentes por coluna ────────────────────────────────────────────────
@@ -842,9 +885,6 @@ def pagina_analise_metas(usuario_logado):
 
     with tab_col:
         _secao_metas_card(dados)
-
-        st.markdown("---")
-        _secao_coletiva(dados)
 
         st.markdown("---")
         st.markdown("#### ⏱️ Tempo Médio de Execução por Coluna")
