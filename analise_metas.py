@@ -551,7 +551,8 @@ def _secao_pendentes(dados):
 # ── Seção: pontuação por coluna ───────────────────────────────────────────────
 
 def _secao_pontuacao_coluna(dados):
-    """Pontuação e quantidade de cartões concluídos por coluna."""
+    """Pontuação por coluna — exibe TODAS as colunas configuradas, zeradas se sem dados."""
+    _CC = _pc.COLUNAS_CONFIG
     pts_agg = {}
     qtd_agg = {}
     for r in dados:
@@ -560,33 +561,36 @@ def _secao_pontuacao_coluna(dados):
         for nl, qtd in r["qtd_lista"].items():
             qtd_agg[nl] = qtd_agg.get(nl, 0) + qtd
 
-    if not pts_agg:
-        st.caption("Nenhum dado de pontuação por coluna no período.")
-        return
-
-    total_pts = sum(pts_agg.values())
+    total_pts = sum(pts_agg.values()) if pts_agg else 0
     max_pts = max(pts_agg.values()) if pts_agg else 1
 
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        html = ""
-        for nl, pts in sorted(pts_agg.items(), key=lambda x: -x[1]):
-            qtd = qtd_agg.get(nl, 0)
-            pct = pts / max_pts * 100
+    st.markdown(
+        f'<div style="font-size:9px;color:var(--ms-texto-sec);margin-bottom:6px;">'
+        f'Total do período: <span style="font-weight:700;color:#EDA100;">{total_pts:,.0f} pts</span></div>',
+        unsafe_allow_html=True
+    )
+
+    html = ""
+    # Ordenação: com pontos primeiro (desc), depois zeradas (por prioridade desc)
+    def _sort_key(nl):
+        return (-pts_agg.get(nl, 0), -_CC.get(nl, {}).get("prioridade", 0))
+
+    for nl in sorted(_CC.keys(), key=_sort_key):
+        pts = pts_agg.get(nl, 0.0)
+        qtd = qtd_agg.get(nl, 0)
+        pct = pts / max_pts * 100 if max_pts > 0 and pts > 0 else 0
+        if pts > 0:
             sub = f"{qtd} cartão(ões) concluído(s)"
-            html += _barra_std(nl, f"{pts:,.0f} pts", pct, cor="#EDA100", sub=sub)
+            cor = "#EDA100"
+        else:
+            sub = "sem pontuação no período"
+            cor = "#444444"
+        html += _barra_std(nl, f"{pts:,.0f} pts", pct, cor=cor, sub=sub)
+
+    if html:
         st.markdown(html, unsafe_allow_html=True)
-    with col2:
-        st.markdown(
-            f'<div style="background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);'
-            f'border-radius:8px;padding:12px 14px;text-align:center;">'
-            f'<div style="font-size:9px;color:var(--ms-texto-sec);text-transform:uppercase;margin-bottom:4px;">'
-            f'Total do Período</div>'
-            f'<div style="font-size:28px;font-weight:700;color:#EDA100;">{total_pts:,.0f}</div>'
-            f'<div style="font-size:10px;color:var(--ms-texto-sec);">pontos</div>'
-            f'</div>',
-            unsafe_allow_html=True
-        )
+    else:
+        st.caption("Nenhuma coluna configurada.")
 
 
 # ── Seção: em andamento na virada do mês ──────────────────────────────────────
@@ -599,7 +603,7 @@ def _secao_em_andamento_virada(dados):
             andamento.append({**card, "mes_label": r["label"]})
 
     if not andamento:
-        st.caption("Nenhum cartão estava em andamento na virada do mês.")
+        st.caption("Nenhum cartão em andamento no período.")
         return
 
     html = ""
@@ -626,7 +630,7 @@ def _secao_em_andamento_virada(dados):
         f'<div style="background:#EDA10010;border:1px solid #EDA10040;border-radius:8px;'
         f'padding:10px 12px;margin-bottom:8px;">'
         f'<div style="font-size:9px;font-weight:700;color:#EDA100;text-transform:uppercase;'
-        f'letter-spacing:.5px;margin-bottom:8px;">⏳ {len(andamento)} demanda(s) em andamento na virada do mês</div>'
+        f'letter-spacing:.5px;margin-bottom:8px;">⏳ {len(andamento)} demanda(s) em andamento no período</div>'
         f'{html}</div>',
         unsafe_allow_html=True
     )
@@ -887,22 +891,26 @@ def pagina_analise_metas(usuario_logado):
         _secao_metas_card(dados)
 
         st.markdown("---")
-        st.markdown("#### ⏱️ Tempo Médio de Execução por Coluna")
-        _secao_tempos(dados)
+        col_t, col_p = st.columns(2)
+        with col_t:
+            st.markdown("#### ⏱️ Tempo Médio de Execução por Coluna")
+            _secao_tempos(dados)
+        with col_p:
+            st.markdown("#### 🟠 Pontuação por Coluna")
+            _secao_pontuacao_coluna(dados)
 
         st.markdown("---")
-        st.markdown("#### 🟠 Pontuação por Coluna")
-        _secao_pontuacao_coluna(dados)
-
-        st.markdown("---")
-        st.markdown("#### 📋 Demandas Pendentes por Coluna")
-        _secao_pendentes(dados)
-
-        _andamento_total = sum(len(r.get("andamento_lista", [])) for r in dados)
-        if _andamento_total > 0:
-            st.markdown("---")
-            st.markdown("#### ⏳ Em Andamento na Virada do Mês")
-            _secao_em_andamento_virada(dados)
+        col_pend, col_and = st.columns(2)
+        with col_pend:
+            st.markdown("#### 📋 Demandas Pendentes por Coluna")
+            _secao_pendentes(dados)
+        with col_and:
+            st.markdown("#### ⏳ Em Andamento")
+            _andamento_total = sum(len(r.get("andamento_lista", [])) for r in dados)
+            if _andamento_total > 0:
+                _secao_em_andamento_virada(dados)
+            else:
+                st.caption("Nenhum cartão em andamento no período.")
 
     with tab_ind:
         _eh_master_am = usuario_logado.lower() in {m.lower() for m in _pc.MASTERS}
