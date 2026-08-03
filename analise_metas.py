@@ -1320,14 +1320,20 @@ def _aba_desempenho(dados, dados_ano_full=None):
         st.caption("Sem dados para exibir no período selecionado.")
         return
 
-    # Gráfico coletivo: sempre Jan → mês atual (meses sem dado aparecem zerados)
+    # Gráfico coletivo: exibe a partir do primeiro mês com atividade real
     dados_ano = dados_ano_full if dados_ano_full else _extend_dados_ano(dados)
+    primeiro = next(
+        (i for i, r in enumerate(dados_ano)
+         if r.get("saldo", 0) > 0 or r.get("total_concl", 0) > 0 or r.get("pts_equipe", 0) > 0),
+        0
+    )
+    dados_ano = dados_ano[primeiro:]
 
     row1_col1, row1_col2 = st.columns(2)
 
     with row1_col1:
         st.markdown("#### 📊 Pontuação Meta Coletiva")
-        st.caption("Meta de pontuação vs. realizado · Jan até o mês atual · meses sem dado aparecem zerados.")
+        st.caption("Meta de pontuação vs. realizado · a partir do primeiro mês com atividade registrada.")
         st.markdown(_chart_pontuacao_meta(dados_ano), unsafe_allow_html=True)
 
     with row1_col2:
@@ -1342,7 +1348,7 @@ def _aba_desempenho(dados, dados_ano_full=None):
     with row2_col1:
         st.markdown("#### ⏱️ Tempo de Execução")
         st.caption("Top 5 colunas com maior tempo médio de execução · visão anual.")
-        st.markdown(_chart_tempo_execucao(dados_ano), unsafe_allow_html=True)
+        st.markdown(_chart_tempo_execucao(dados_ano if dados_ano else dados), unsafe_allow_html=True)
 
     with row2_col2:
         st.markdown("#### 🟠 Pontuações")
