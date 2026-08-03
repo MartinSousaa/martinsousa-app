@@ -619,6 +619,30 @@ components.html("""
     }
   }
 
+  // ── Anti-escurecimento no auto-refresh ─────────────────────────────────────
+  // Armazenado em P para sobreviver a reruns do Streamlit (o iframe recria,
+  // mas window.parent não — então o interval persiste entre reruns).
+  if (!P._msAntiDimInterval) {
+    P._msAntiDimInterval = setInterval(function() {
+      var sels = [
+        '.stApp', '.main',
+        '[data-testid="stMain"]',
+        '[data-testid="stAppViewBlockContainer"]',
+        '[data-testid="stApp"]'
+      ];
+      sels.forEach(function(sel) {
+        try {
+          P.document.querySelectorAll(sel).forEach(function(el) {
+            // Remove qualquer opacity inline que o Streamlit injete durante o rerun
+            if (el.style.opacity && parseFloat(el.style.opacity) < 1) {
+              el.style.removeProperty('opacity');
+            }
+          });
+        } catch(e) {}
+      });
+    }, 80);
+  }
+
   if (P._msTemaIniciado) {
     // Streamlit rerender — re-aplica o tema salvo (botão já existe no body)
     var t = P.sessionStorage.getItem('ms_tema');
@@ -668,38 +692,6 @@ components.html("""
     if (!P.sessionStorage.getItem('ms_tema')) aplicarTema(temaAuto(), false);
   }, 60000);
 
-  // Impede o Streamlit de escurecer a tela no auto-refresh:
-  // monitora qualquer mudança de opacidade nos containers principais e força opacity:1
-  (function() {
-    function fixOpacity() {
-      var sels = [
-        '.stApp', '.main', '[data-testid="stMain"]',
-        '[data-testid="stMainBlockContainer"]',
-        '[data-testid="stAppViewBlockContainer"]',
-        '[data-testid="stApp"]'
-      ];
-      sels.forEach(function(sel) {
-        var els = P.document.querySelectorAll(sel);
-        els.forEach(function(el) {
-          if (el.style.opacity && el.style.opacity !== '1') {
-            el.style.setProperty('opacity', '1', 'important');
-          }
-        });
-      });
-      // Esconde o indicador de loading
-      ['[data-testid="stStatusWidget"]', '[data-testid="stAppRunningIndicator"]',
-       'div[class*="StatusWidget"]', 'div[class*="AppRunningIndicator"]'].forEach(function(sel) {
-        try {
-          P.document.querySelectorAll(sel).forEach(function(el) {
-            el.style.setProperty('display', 'none', 'important');
-          });
-        } catch(e) {}
-      });
-    }
-    fixOpacity();
-    var obs = new MutationObserver(fixOpacity);
-    obs.observe(P.document.body, { subtree: true, attributes: true, attributeFilter: ['style', 'class'] });
-  })();
 
   // Força largura do sidebar (override do resize do Streamlit) — só desktop
   function forceSidebarWidth() {
