@@ -192,6 +192,10 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
         "falta_conf": 0, "falta_info": 0, "sem_membro": 0, "falta_pts": 0,
         "pts_pendentes": 0.0, "pen_cards": [], "andamento_lista": [],
         "tempo_lista": {}, "desativar": 0, "reativar": 0, "pend_lista": {},
+        "pts_lista": {},   # pontos por coluna (cartões concluídos com pontuação)
+        "qtd_lista": {},   # quantidade de cartões concluídos por coluna
+        "correcao_concl": 0,  # cartões "CORREÇÃO DE FOTOS" concluídos no mês (retrabalho)
+        "total_concl": 0,     # total de cartões concluídos no mês
     }
     for card in cards:
         nl = listas.get(card["idList"], "")
@@ -258,11 +262,18 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
         if tempo and tempo > 0:
             d["tempo_lista"].setdefault(nl, []).append(max(tempo - interr, 0))
 
+        # Contagem de concluídos para retrabalho
+        d["total_concl"] += 1
+        if nl == "CORREÇÃO DE FOTOS: 0 PONTOS":
+            d["correcao_concl"] += 1
+
         if pt is None:
             continue
         if nl in LISTAS_SEM_PONTUACAO:
             continue
         d["pts_equipe"] += pt
+        d["pts_lista"][nl]  = d["pts_lista"].get(nl, 0.0)  + pt
+        d["qtd_lista"][nl]  = d["qtd_lista"].get(nl, 0)    + 1
         ma = [u for u in us if u in MEMBROS_ATIVOS]
         if ma:
             cada = pt / len(ma)
