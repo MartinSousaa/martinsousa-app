@@ -27,6 +27,7 @@ import descricao
 import imagem
 import video
 import chat_assistente
+import placar
 import analise_metas
 
 st.set_page_config(page_title="MS Studio", layout="wide")
@@ -1092,11 +1093,15 @@ with st.sidebar:
 
 _eh_admin        = auth.is_admin(usuario_logado)
 _eh_martinsousa  = usuario_logado.lower() == "martinsousa"
+_eh_painel       = usuario_logado.lower() in placar.MASTERS or usuario_logado in placar.MEMBROS_ATIVOS
 
 _nomes_abas = ["Análise de Viabilidade", "Triagem", "Palavras-chave", "Título",
                "Descrição", "Imagem", "Vídeo", "Histórico", "Análise de Venda"]
 if _eh_admin:
     _nomes_abas.append("Administrativo")
+_idx_painel = len(_nomes_abas) if _eh_painel else None
+if _eh_painel:
+    _nomes_abas.append("🏆 Painel de Metas")
 _idx_analise_metas = len(_nomes_abas)   # guarda posição antes de inserir
 if _eh_martinsousa:
     _nomes_abas.append("📊 Análise de Metas")
@@ -1118,6 +1123,10 @@ if _eh_admin:
             admin.pagina_admin(usuario_logado)
         with _sub_financeiro:
             financeiro.pagina_financeiro(usuario_logado)
+
+if _eh_painel and _idx_painel is not None:
+    with _abas[_idx_painel]:
+        placar.pagina_placar(usuario_logado)
 
 if _eh_martinsousa:
     with _abas[_idx_analise_metas]:
