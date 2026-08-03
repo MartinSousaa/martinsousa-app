@@ -8,6 +8,11 @@ Layout: cards resumo | vel. meta | vel. maxx | cards resumo maxx
 import streamlit as st
 import streamlit.components.v1 as _components
 import requests
+try:
+    from streamlit_autorefresh import st_autorefresh as _st_autorefresh
+    _AUTOREFRESH_OK = True
+except ImportError:
+    _AUTOREFRESH_OK = False
 from datetime import datetime, timezone
 import math
 
@@ -159,6 +164,7 @@ def _processar(listas,cards,membros_map,id_p,id_t,id_i,filtro_mes=None):
         "pts_pendentes":0.0,"pen_cards":[],"andamento_lista":[],
         "tempo_lista":{},"desativar":0,"reativar":0,"pend_lista":{},
         "correcao_concl":0,"total_concl":0,
+        "concluido_sem_membro":[],
     }
     for card in cards:
         nl=listas.get(card["idList"],"")
@@ -213,6 +219,9 @@ def _processar(listas,cards,membros_map,id_p,id_t,id_i,filtro_mes=None):
         d["total_concl"]+=1
         if nl=="CORREÇÃO DE FOTOS: 0 PONTOS": d["correcao_concl"]+=1
 
+        # Alerta: concluído sem membro atribuído
+        if not us: d["concluido_sem_membro"].append({"card":card["name"],"lista":nl})
+
         # ── PONTUAÇÃO: somente concluídos no mês selecionado ───────────────────
         if pt is None: continue
         if nl in LISTAS_SEM_PONTUACAO: continue
@@ -265,7 +274,7 @@ def _vel_meta(pct, meta_eq, saldo_eq, faltam):
   <text x="13" y="142" text-anchor="middle" font-size="9" fill="var(--ms-texto-sec)">0</text>
   <text x="247" y="142" text-anchor="middle" font-size="9" fill="var(--ms-texto-sec)">META</text>
 </svg>
-<div style="font-size:36px;font-weight:700;color:{cor};margin-top:2px;line-height:1;">{min(pct,999):.0f}%</div>
+<div style="font-size:36px;font-weight:700;color:{cor};margin-top:2px;line-height:1;">{"%.1f%%" % min(pct,999) if pct < 10 else "%.0f%%" % min(pct,999)}</div>
 <div class="vel-label">🏆 Meta Mensal</div>
 </div>"""
 
@@ -303,7 +312,7 @@ def _vel_maxx(pct_maxx, meta_maxx_pts, saldo_eq):
   <text x="13" y="142" text-anchor="middle" font-size="9" fill="#B8860B">0</text>
   <text x="247" y="142" text-anchor="middle" font-size="9" fill="#B8860B">MAXX</text>
 </svg>
-<div style="font-size:36px;font-weight:700;color:#FFD700;margin-top:2px;line-height:1;filter:drop-shadow(0 0 8px #FFD700);">{min(pct_maxx,999):.0f}%</div>
+<div style="font-size:36px;font-weight:700;color:#FFD700;margin-top:2px;line-height:1;filter:drop-shadow(0 0 8px #FFD700);">{"%.1f%%" % min(pct_maxx,999) if pct_maxx < 10 else "%.0f%%" % min(pct_maxx,999)}</div>
 <div class="vel-label" style="color:#FFD700;">{"⭐ META MAXX ATINGIDA!" if atingiu else "⭐ Meta Maxx"}</div>
 </div>"""
 
@@ -393,43 +402,9 @@ def pagina_placar(usuario_logado):
         if st.button("🔄",use_container_width=True,help="Atualizar"):
             _buscar_board.clear(); st.rerun()
 
-    # ── Botão gatilho para auto-refresh via JS (sem location.reload) ──────────
-    # O texto "__ar_placar__" é único — o JS abaixo localiza, esconde e clica
-    if st.button("__ar_placar__", key="btn_placar_auto_refresh"):
-        st.rerun()
-
-    # JS: localiza o botão pelo texto, o esconde visualmente e agenda cliques
-    _components.html("""
-<script>
-(function() {
-    var _intervalo = null;
-    var _TARGET = '__ar_placar__';
-    function _findBtn() {
-        try {
-            var btns = window.parent.document.querySelectorAll('button');
-            for (var i = 0; i < btns.length; i++) {
-                if (btns[i].innerText.trim() === _TARGET) return btns[i];
-            }
-        } catch(e) {}
-        return null;
-    }
-    function _setup() {
-        var btn = _findBtn();
-        if (!btn) { setTimeout(_setup, 600); return; }
-        // Esconde o botão e seu container imediato
-        var wrap = btn.closest('div[data-testid="stButton"]') || btn.parentElement;
-        if (wrap) wrap.style.cssText = 'display:none!important;width:0;height:0;overflow:hidden;';
-        // Agenda cliques periódicos a cada 30s
-        if (_intervalo) clearInterval(_intervalo);
-        _intervalo = setInterval(function() {
-            var b = _findBtn();
-            if (b) b.click();
-        }, 30000);
-    }
-    setTimeout(_setup, 800);
-})();
-</script>
-""", height=0)
+    # ── Auto-refresh a cada 30s (streamlit-autorefresh) ──────────────────────
+    if _AUTOREFRESH_OK:
+        _st_autorefresh(interval=30_000, limit=None, key="placar_autorefresh")
 
     st.caption(f"Exibindo: {sel} · atualiza automaticamente a cada 30s · {agora.strftime('%d/%m/%Y %H:%M')}")
 
@@ -482,6 +457,36 @@ def pagina_placar(usuario_logado):
     d=_processar(listas,cards,membros_map,id_p,id_t,id_i,filtro_mes)
     fila=_calcular_fila(listas,cards,membros_map)
 
+    # ── ALERTA: cartões em andamento ou concluídos sem membro ─────────────────
+    _and_sem_mb = [
+        {"card": c["card"], "lista": c["lista"], "tipo": "em andamento"}
+        for c in d["andamento_lista"] if not c["membros"]
+    ]
+    _concl_sem_mb = [
+        {**c, "tipo": "concluído"} for c in d.get("concluido_sem_membro", [])
+    ]
+    _alertas_sem_mb = _and_sem_mb + _concl_sem_mb
+    if _alertas_sem_mb:
+        _itens = "".join(
+            f'<div style="display:flex;align-items:center;gap:8px;padding:4px 0;'
+            f'border-bottom:1px solid #E3494830;">'
+            f'<span style="font-size:10px;font-weight:600;color:#E34948;min-width:80px;">'
+            f'{"⏳ em andamento" if a["tipo"]=="em andamento" else "✅ concluído"}</span>'
+            f'<span style="font-size:10px;color:var(--ms-texto);flex:1;">{a["card"][:55]}</span>'
+            f'<span style="font-size:9px;color:var(--ms-texto-sec);">{a["lista"][:30]}</span>'
+            f'</div>'
+            for a in _alertas_sem_mb
+        )
+        st.markdown(
+            f'<div style="background:#E3494815;border:2px solid #E34948;border-radius:8px;'
+            f'padding:10px 14px;margin-bottom:12px;">'
+            f'<div style="font-size:11px;font-weight:700;color:#E34948;margin-bottom:8px;">'
+            f'🚨 {len(_alertas_sem_mb)} cartão(ões) sem membro atribuído — '
+            f'atribua o responsável antes de continuar!</div>'
+            f'{_itens}</div>',
+            unsafe_allow_html=True
+        )
+
     saldo_eq=d["pts_equipe"]-d["pen_total"]
     pct_eq=(saldo_eq/meta_eq*100) if meta_eq>0 else 0
     pct_maxx=(saldo_eq/meta_maxx_pts*100) if meta_maxx_pts>0 else 0
@@ -506,7 +511,7 @@ def pagina_placar(usuario_logado):
   <div style="background:#2a1e05;border:1px solid #EDA100;border-radius:6px;padding:6px 8px;">
     <div style="font-size:7px;color:#EDA100;text-transform:uppercase;">Atual</div>
     <div style="font-size:13px;font-weight:700;color:#fae8b0;">{saldo_eq:,.0f}</div>
-    <div style="font-size:7px;color:#EDA100;">{pct_eq:.0f}% meta</div>
+    <div style="font-size:7px;color:#EDA100;">{"%.1f" % pct_eq if pct_eq < 10 else "%.0f" % pct_eq}% meta</div>
   </div>
   <div style="background:#2a1e05;border:1px solid #EDA100;border-radius:6px;padding:6px 8px;">
     <div style="font-size:7px;color:#EDA100;text-transform:uppercase;">Faltam</div>
@@ -538,7 +543,7 @@ def pagina_placar(usuario_logado):
   <div style="background:#2a1e05;border:1px solid #EDA100;border-radius:6px;padding:6px 8px;">
     <div style="font-size:7px;color:#EDA100;text-transform:uppercase;">Saldo (c/ pen.)</div>
     <div style="font-size:13px;font-weight:700;color:#fae8b0;">{saldo_eq:,.0f}</div>
-    <div style="font-size:7px;color:#EDA100;">{pct_maxx:.0f}% Maxx</div>
+    <div style="font-size:7px;color:#EDA100;">{"%.1f" % pct_maxx if pct_maxx < 10 else "%.0f" % pct_maxx}% Maxx</div>
   </div>
   <div style="background:#2a1e05;border:1px solid #EDA100;border-radius:6px;padding:6px 8px;">
     <div style="font-size:7px;color:#EDA100;text-transform:uppercase;">Faltam</div>
@@ -651,12 +656,6 @@ def pagina_placar(usuario_logado):
         b += _barra_meta(f"Retrabalho abaixo de {max_retrab_n}%", pct_retrab_barra_n, _desc_retrab, "#E34948")
         b += _barra_meta(f"Menos de {max_pen_n+1} penalidades", pct_pen_normal, f"{qtd_pen} ocorrência(s) / máx {max_pen_n}", "#E34948")
         b += _barra_meta("Cartões com membro atribuído", pct_com_membro, "Em andamento e concluídos", "#1BAF7A")
-        b += f'<div style="font-size:10px;font-weight:600;color:#1BAF7A;text-transform:uppercase;letter-spacing:.5px;margin:10px 0 8px 0;border-top:1px solid var(--ms-divisor);padding-top:8px;">🎯 Meta Individual</div>'
-        b += _barra_aguardando("Pontuação Individual", "Veja abaixo o desempenho por colaborador", "#1BAF7A")
-        b += _barra_aguardando("Ociosidade abaixo de 10%", "Aguardando relógio de ponto", "#1BAF7A")
-        b += _barra_aguardando("Tempo médio abaixo do estimado", "Aguardando histórico de execução", "#1BAF7A")
-        b += _barra_aguardando(f"Pontualidade: máx {max_tol_n} tolerâncias", "Aguardando integração do relógio de ponto", "#1BAF7A")
-        b += _barra_aguardando(f"Pontualidade: máx {max_atr_n} atrasos", "Aguardando integração do relógio de ponto", "#1BAF7A")
         st.markdown(f'<div style="background:var(--ms-metric-bg);border:1px solid #1BAF7A22;border-radius:8px;padding:12px 14px;">{b}</div>', unsafe_allow_html=True)
 
     with col_meta_x:
@@ -666,13 +665,7 @@ def pagina_placar(usuario_logado):
         b += _barra_meta("Zero prioritários em atraso", pct_prioritarios_ok, "Nenhum cartão prioritário atrasado", "#FFD700")
         b += _barra_meta(f"Retrabalho abaixo de {max_retrab_x}%", pct_retrab_barra_x, _desc_retrab, "#E34948")
         b += _barra_meta(f"Menos de {max_pen_x+1} penalidades", pct_pen_maxx, f"{qtd_pen} ocorrência(s) / máx {max_pen_x}", "#E34948")
-        b += f'<div style="height:32px;"></div>'
-        b += f'<div style="font-size:10px;font-weight:600;color:#FFD700;text-transform:uppercase;letter-spacing:.5px;margin:10px 0 8px 0;border-top:1px solid var(--ms-divisor);padding-top:8px;">⭐ Meta Maxx Individual</div>'
-        b += _barra_aguardando("Pontuação Individual", "Veja abaixo o desempenho por colaborador", "#FFD700")
-        b += _barra_aguardando("Ociosidade abaixo de 5%", "Aguardando relógio de ponto", "#FFD700")
-        b += _barra_aguardando("Tempo médio abaixo do estimado", "Aguardando histórico de execução", "#FFD700")
-        b += _barra_aguardando(f"Pontualidade: máx {max_tol_x} tolerâncias", "Aguardando integração do relógio de ponto", "#FFD700")
-        b += _barra_aguardando(f"Pontualidade: máx {max_atr_x} atrasos", "Aguardando integração do relógio de ponto", "#FFD700")
+        b += _barra_meta("Cartões com membro atribuído", pct_com_membro, "Em andamento e concluídos", "#FFD700")
         st.markdown(f'<div style="background:var(--ms-metric-bg);border:1px solid #FFD70022;border-radius:8px;padding:12px 14px;">{b}</div>', unsafe_allow_html=True)
 
     # ══ BLOCO 3 — EM ANDAMENTO | FILA | DESEMPENHO ══
