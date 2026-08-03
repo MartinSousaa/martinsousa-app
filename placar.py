@@ -455,38 +455,7 @@ def pagina_placar(usuario_logado):
     if k_bea not in st.session_state: st.session_state[k_bea] = int(cfg_mes["meta_beatriz51"])
     if k_gab not in st.session_state: st.session_state[k_gab] = int(cfg_mes["meta_gabriel_borges"])
 
-    with st.expander(f"⚙️ Configurar Metas — {sel}", expanded=False):
-        if eh_master:
-            c1, c2 = st.columns(2)
-            st.session_state[k_eq] = c1.number_input(
-                "Meta equipe (pts)", min_value=0, value=st.session_state[k_eq], step=100)
-            st.session_state[k_mx] = c2.number_input(
-                "Meta MAXX (% da meta mensal)", min_value=100, max_value=300,
-                value=st.session_state[k_mx], step=5,
-                help="110 = 10% acima da meta mensal")
-            st.markdown("**Meta individual por colaborador:**")
-            ci1, ci2, ci3 = st.columns(3)
-            st.session_state[k_myr] = ci1.number_input(
-                "Myrella (pts)", min_value=0, value=st.session_state[k_myr], step=100)
-            st.session_state[k_bea] = ci2.number_input(
-                "Beatriz (pts)", min_value=0, value=st.session_state[k_bea], step=100)
-            st.session_state[k_gab] = ci3.number_input(
-                "Gabriel (pts)", min_value=0, value=st.session_state[k_gab], step=100)
-            if st.button("💾 Salvar configuração do mês", key="placar_salvar_cfg"):
-                try:
-                    _mc.salvar_config(filtro_mes[0], filtro_mes[1], {
-                        "meta_equipe": st.session_state[k_eq],
-                        "meta_maxx_pct": st.session_state[k_mx],
-                        "meta_myrelladesouza": st.session_state[k_myr],
-                        "meta_beatriz51": st.session_state[k_bea],
-                        "meta_gabriel_borges": st.session_state[k_gab],
-                    })
-                    st.success("Configuração salva!")
-                except Exception as _e:
-                    st.warning(f"Não foi possível salvar: {_e}")
-        else:
-            st.info("Metas configuradas pelo gestor.")
-
+    # Configuração de metas foi movida para a aba "📊 Análise de Metas"
     meta_eq   = st.session_state[k_eq]
     maxx_pct  = st.session_state[k_mx]
     meta_maxx_pts = meta_eq * maxx_pct / 100
@@ -771,97 +740,8 @@ def pagina_placar(usuario_logado):
                   <div style="font-size:14px;font-weight:700;color:{cor};white-space:nowrap;text-align:right;">{val}</div>
                 </div>""",unsafe_allow_html=True)
 
-    # ══ BLOCO 5 — META INDIVIDUAL ══
-    st.markdown('<hr style="border:none;border-top:1px solid var(--ms-divisor);margin:10px 0 8px 0;"/>',unsafe_allow_html=True)
-    st.markdown("**🎯 Meta Individual**")
-
-    def _render_meta_ind(username, nome_exib, pts, pen, meta_ind):
-        saldo_i=pts-pen
-        pct_pts=min((saldo_i/meta_ind*100),100) if meta_ind>0 else 0
-        cor_pts_i="#1BAF7A" if pct_pts>=100 else ("#EDA100" if pct_pts>=50 else "#E34948")
-
-        st.markdown(f"##### {nome_exib}")
-        st.markdown(_meta_ind_item(
-            "📈 Pontuação Individual",
-            pct_pts,
-            f"{saldo_i:,.0f} / {meta_ind:,.0f} pts · {'✅ Meta atingida!' if pct_pts>=100 else f'Faltam {meta_ind-saldo_i:,.0f} pts'}",
-            cor=cor_pts_i
-        ), unsafe_allow_html=True)
-        st.markdown(_meta_ind_item(
-            "⏱️ Ociosidade abaixo de 10%",
-            100, "Aguardando integração do relógio de ponto",
-            aguardando=True
-        ), unsafe_allow_html=True)
-        st.markdown(_meta_ind_item(
-            "⚡ Tempo médio de execução abaixo do estimado",
-            100, "Aguardando dados suficientes de execução",
-            aguardando=True
-        ), unsafe_allow_html=True)
-        st.markdown(_meta_ind_item(
-            "🕐 Tolerâncias de pontualidade (15/mês)",
-            100, "0 tolerâncias usadas — Aguardando integração do ponto",
-            cor="#1BAF7A"
-        ), unsafe_allow_html=True)
-        st.markdown(_meta_ind_item(
-            "⏰ Atrasos de pontualidade (10/mês)",
-            100, "0 atrasos registrados — Aguardando integração do ponto",
-            cor="#1BAF7A"
-        ), unsafe_allow_html=True)
-
-        # Calculadora de ganhos no rodapé
-        saldo_i = pts - pen
-        pct_i = min((saldo_i / meta_ind * 100), 100) if meta_ind > 0 else 0
-        st.markdown('<div style="margin-top:4px;"></div>', unsafe_allow_html=True)
-        salario = st.number_input(
-            "💰 Informe seu salário base para calcular seus ganhos mensais até o momento:",
-            min_value=0.0, value=0.0, step=100.0,
-            format="%.2f", key=f"salario_{username}",
-            label_visibility="visible"
-        )
-        if salario > 0:
-            # Meta Normal: coletiva 12%, individual 8%
-            bonus_col = salario * 0.12 * (pct_eq / 100)
-            bonus_ind = salario * 0.08 * (pct_i / 100)
-            # Meta Maxx: coletiva +5%, individual +5%
-            bonus_maxx_col = salario * 0.05 * (pct_maxx / 100)
-            bonus_maxx_ind = salario * 0.05 * (pct_i / 100) * (pct_maxx / 100)
-            total = salario + bonus_col + bonus_ind + bonus_maxx_col + bonus_maxx_ind
-            cor_total = "#FFD700" if pct_maxx > 0 else "#1BAF7A"
-            st.markdown(f"""<div style="background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);border-radius:8px;padding:10px 12px;margin-top:6px;">
-  <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr 1fr;gap:6px;">
-    <div><div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;">Salário Base</div><div style="font-size:13px;font-weight:700;color:var(--ms-texto);">R$ {salario:,.2f}</div></div>
-    <div><div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;">Bônus Coletivo</div><div style="font-size:13px;font-weight:700;color:#1BAF7A;">+R$ {bonus_col:,.2f}</div><div style="font-size:7px;color:var(--ms-texto-sec);">{pct_eq:.0f}% de 12%</div></div>
-    <div><div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;">Bônus Individual</div><div style="font-size:13px;font-weight:700;color:#1BAF7A;">+R$ {bonus_ind:,.2f}</div><div style="font-size:7px;color:var(--ms-texto-sec);">{pct_i:.0f}% de 8%</div></div>
-    <div><div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;">Maxx Coletivo</div><div style="font-size:13px;font-weight:700;color:#FFD700;">+R$ {bonus_maxx_col:,.2f}</div><div style="font-size:7px;color:var(--ms-texto-sec);">{pct_maxx:.0f}% de 5%</div></div>
-    <div><div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;">Maxx Individual</div><div style="font-size:13px;font-weight:700;color:#FFD700;">+R$ {bonus_maxx_ind:,.2f}</div><div style="font-size:7px;color:var(--ms-texto-sec);">{pct_maxx:.0f}% de 5%</div></div>
-    <div><div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;">Total a Receber</div><div style="font-size:16px;font-weight:700;color:{cor_total};">R$ {total:,.2f}</div></div>
-  </div>
-</div>""", unsafe_allow_html=True)
-
-    # Mapeia login do MS Studio → username do Trello
-    LOGIN_MAP = {
-        "Myrella": "myrelladesouza",
-        "Beatriz": "beatriz51",
-        "Gabriel": "gabriel_borges",
-        "MartinSousa": "martinsousa",
-    }
-    username_logado = LOGIN_MAP.get(usuario_logado, usuario_logado)
-
-    if eh_master:
-        cols_mi=st.columns(len(MEMBROS_ATIVOS))
-        for i,(u,nome) in enumerate(MEMBROS_ATIVOS.items()):
-            with cols_mi[i]:
-                pts=d["pts_membro"].get(u,0); pen=d["pen_membro"].get(u,0)
-                _render_meta_ind(u, nome, pts, pen, meta_ind_map.get(u,1500))
-    elif username_logado in MEMBROS_ATIVOS:
-        pts=d["pts_membro"].get(username_logado,0)
-        pen=d["pen_membro"].get(username_logado,0)
-        nome=MEMBROS_ATIVOS.get(username_logado,usuario_logado)
-        _render_meta_ind(username_logado, nome, pts, pen, meta_ind_map.get(username_logado,1500))
-    else:
-        st.caption("Meta individual disponível apenas para colaboradores.")
-
-    # Penalidades (master)
+    # ══ BLOCO 5 — PENALIDADES (coletivas, apenas master) ══
+    # (Meta Individual foi movida para aba "📊 Análise de Metas" → Por Colaborador)
     if eh_master and d["pen_cards"]:
         st.markdown('<hr style="border:none;border-top:1px solid var(--ms-divisor);margin:10px 0 8px 0;"/>',unsafe_allow_html=True)
         st.markdown("**⚠️ Penalidades Registradas**")
