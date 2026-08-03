@@ -7,7 +7,8 @@ from datetime import datetime
 PLANILHA_NOME = "MartinSousa - Financeiro"
 ABA_NOME = "atividades"
 COLUNAS = ["data_hora", "usuario", "tipo", "produto", "resumo",
-           "codigo", "cor", "medidas", "peso", "link_capa", "link_pasta"]
+           "codigo", "cor", "medidas", "peso", "link_capa", "link_pasta",
+           "material", "caracteristicas", "diferenciais", "uso", "categoria"]
 
 
 def _cliente():
@@ -42,7 +43,8 @@ def _aba():
 
 def registrar_atividade(usuario, tipo, produto, resumo,
                         codigo="", cor="", medidas="", peso="",
-                        link_capa="", link_pasta=""):
+                        link_capa="", link_pasta="",
+                        material="", caracteristicas="", diferenciais="", uso="", categoria=""):
     """Grava uma linha no historico. Nunca deixa um erro aqui quebrar a
     tela principal -- se a gravacao falhar, so ignora silenciosamente."""
     try:
@@ -51,6 +53,7 @@ def registrar_atividade(usuario, tipo, produto, resumo,
             datetime.now().strftime("%d/%m/%Y %H:%M"),
             usuario, tipo, produto, resumo,
             codigo, cor, medidas, peso, link_capa, link_pasta,
+            material, caracteristicas, diferenciais, uso, categoria,
         ], value_input_option="RAW")
         carregar_atividades.clear()
     except Exception:
@@ -65,7 +68,8 @@ def carregar_atividades():
     if not df.empty:
         df.columns = [str(c).strip().lower() for c in df.columns]
         # Garante que colunas novas existem mesmo em planilhas antigas
-        for col in ["codigo", "cor", "medidas", "link_capa", "link_pasta"]:
+        for col in ["codigo", "cor", "medidas", "link_capa", "link_pasta",
+                    "material", "caracteristicas", "diferenciais", "uso", "categoria"]:
             if col not in df.columns:
                 df[col] = ""
     return df
@@ -92,6 +96,11 @@ def buscar_por_codigo(codigo):
             "peso": ultimo.get("peso", ""),
             "link_capa": ultimo.get("link_capa", ""),
             "resumo": ultimo.get("resumo", ""),
+            "material": ultimo.get("material", ""),
+            "caracteristicas": ultimo.get("caracteristicas", ""),
+            "diferenciais": ultimo.get("diferenciais", ""),
+            "uso": ultimo.get("uso", ""),
+            "categoria": ultimo.get("categoria", ""),
         }
     except Exception:
         return None
