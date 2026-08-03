@@ -1095,20 +1095,22 @@ _eh_admin        = auth.is_admin(usuario_logado)
 _eh_martinsousa  = usuario_logado.lower() == "martinsousa"
 _eh_painel       = usuario_logado.lower() in placar.MASTERS or usuario_logado in placar.MEMBROS_ATIVOS
 
+# Ordem: fixas | Painel de Metas | Análise de Metas | Administrativo
 _nomes_abas = ["Análise de Viabilidade", "Triagem", "Palavras-chave", "Título",
-               "Descrição", "Imagem", "Vídeo", "Histórico", "Análise de Venda"]
-if _eh_admin:
-    _nomes_abas.append("Administrativo")
+               "Descrição", "Imagem", "Vídeo", "Análise de Venda", "Histórico"]
 _idx_painel = len(_nomes_abas) if _eh_painel else None
 if _eh_painel:
     _nomes_abas.append("🏆 Painel de Metas")
-_idx_analise_metas = len(_nomes_abas)   # guarda posição antes de inserir
+_idx_analise_metas = len(_nomes_abas) if _eh_martinsousa else None
 if _eh_martinsousa:
     _nomes_abas.append("📊 Análise de Metas")
+_idx_admin = len(_nomes_abas) if _eh_admin else None
+if _eh_admin:
+    _nomes_abas.append("Administrativo")
 
 _abas = st.tabs(_nomes_abas)
 (aba_viabilidade, aba_triagem, aba_palavras, aba_titulo,
- aba_descricao, aba_imagem, aba_video, aba_historico, aba_analise_venda) = _abas[:9]
+ aba_descricao, aba_imagem, aba_video, aba_analise_venda, aba_historico) = _abas[:9]
 
 with aba_video:
     video.pagina_video(usuario_logado)
@@ -1116,21 +1118,17 @@ with aba_video:
 with aba_historico:
     atividades.pagina_historico()
 
-if _eh_admin:
-    with _abas[9]:
-        _sub_admin, _sub_financeiro = st.tabs(["⚙️ Administrativo", "💰 Financeiro"])
-        with _sub_admin:
-            admin.pagina_admin(usuario_logado)
-        with _sub_financeiro:
-            financeiro.pagina_financeiro(usuario_logado)
-
 if _eh_painel and _idx_painel is not None:
     with _abas[_idx_painel]:
         placar.pagina_placar(usuario_logado)
 
-if _eh_martinsousa:
+if _eh_martinsousa and _idx_analise_metas is not None:
     with _abas[_idx_analise_metas]:
         analise_metas.pagina_analise_metas(usuario_logado)
+
+if _eh_admin and _idx_admin is not None:
+    with _abas[_idx_admin]:
+        admin.pagina_admin(usuario_logado)
 
 with aba_analise_venda:
     # LPV e NF vigentes
