@@ -6,6 +6,7 @@ Layout: cards resumo | vel. meta | vel. maxx | cards resumo maxx
 + Modo TV
 """
 import streamlit as st
+import streamlit.components.v1 as _components
 import requests
 from datetime import datetime, timezone
 import math
@@ -63,7 +64,7 @@ COLUNAS_SKIP = {
 CAPACIDADE_MIN = 390
 
 # ── API ────────────────────────────────────────────────────────────────────────
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=30)
 def _buscar_board():
     if not TRELLO_KEY: return None,None,None,None,None,None
     base = "https://api.trello.com/1"
@@ -143,6 +144,12 @@ def _fmt_tempo(m):
 
 # ── PROCESSAMENTO ──────────────────────────────────────────────────────────────
 def _processar(listas,cards,membros_map,id_p,id_t,id_i,filtro_mes=None):
+    """
+    filtro_mes=(year,month) filtra APENAS:
+      - pontuação de cartões concluídos  (pts_equipe / pts_membro)
+      - penalidades
+    Cartões abertos/pendentes são exibidos SEMPRE, independente do mês.
+    """
     d={
         "pts_equipe":0.0,"pen_total":0.0,
         "pts_membro":{u:0.0 for u in MEMBROS_ATIVOS},
@@ -158,21 +165,25 @@ def _processar(listas,cards,membros_map,id_p,id_t,id_i,filtro_mes=None):
         lb=_labels(card); us=_users(card,membros_map)
         ok=card.get("dueComplete",False)
         pt=_num(card,id_p); tempo=_num(card,id_t); interr=_num(card,id_i) or 0
-        if filtro_mes:
-            mc=_mes_card(card)
-            if mc and mc!=filtro_mes: continue
+
+        # ── PENALIDADES: contam só no mês em que foram registradas ─────────────
         if nl in LISTAS_PENALIDADE:
+            if filtro_mes:
+                mc=_mes_card(card)
+                if mc and mc!=filtro_mes: continue
             if pt:
                 v=abs(pt); d["pen_total"]+=v
                 d["pen_cards"].append({"card":card["name"],"valor":v,"membros":us})
                 for u in us:
                     if u in d["pen_membro"]: d["pen_membro"][u]+=v
             continue
+
+        # ── EM ANDAMENTO: sempre visível, sem filtro de mês ────────────────────
         if "EM ANDAMENTO" in lb:
             d["em_andamento"]+=1
             d["andamento_lista"].append({"card":card["name"],"lista":nl,"membros":us})
-        if ok and tempo and tempo>0:
-            d["tempo_lista"].setdefault(nl,[]).append(max(tempo-interr,0))
+
+        # ── CARTÕES ABERTOS/PENDENTES: nunca filtrados por mês ─────────────────
         if not ok:
             d["abertos"]+=1
             if "URGENTE" in lb or "URGENTES" in nl.upper(): d["urgentes"]+=1
@@ -186,7 +197,19 @@ def _processar(listas,cards,membros_map,id_p,id_t,id_i,filtro_mes=None):
                 if pt: d["pts_pendentes"]+=pt
             if "DESATIVAR" in nl.upper(): d["desativar"]+=1
             if "REATIVAR" in nl.upper(): d["reativar"]+=1
-        if not ok or pt is None: continue
+            continue  # cartão aberto não pontua — próximo card
+
+        # ── A partir daqui: cartão concluído (ok=True) ─────────────────────────
+        # Aplica filtro de mês somente para concluídos
+        if filtro_mes:
+            mc=_mes_card(card)
+            if mc and mc!=filtro_mes: continue
+
+        if tempo and tempo>0:
+            d["tempo_lista"].setdefault(nl,[]).append(max(tempo-interr,0))
+
+        # ── PONTUAÇÃO: somente concluídos no mês selecionado ───────────────────
+        if pt is None: continue
         if nl in LISTAS_SEM_PONTUACAO: continue
         d["pts_equipe"]+=pt
         ma=[u for u in us if u in MEMBROS_ATIVOS]
@@ -365,7 +388,34 @@ def pagina_placar(usuario_logado):
         if st.button("🔄",use_container_width=True,help="Atualizar"):
             _buscar_board.clear(); st.rerun()
 
-    st.caption(f"Exibindo: {sel} · atualiza a cada 60s · {agora.strftime('%d/%m/%Y %H:%M')}")
+    # ── Botão oculto para auto-refresh via JS (não recarrega a página) ─────────
+    if st.button("__auto_refresh_placar__", key="btn_placar_auto_refresh", label_visibility="collapsed"):
+        st.rerun()
+
+    # JS: clica o botão oculto a cada 30 segundos, sem location.reload()
+    _components.html("""
+<script>
+(function() {
+    var _intervalo = null;
+    function _clickRefresh() {
+        try {
+            var doc = window.parent.document;
+            var btns = doc.querySelectorAll('button');
+            for (var i = 0; i < btns.length; i++) {
+                if (btns[i].innerText.trim() === '__auto_refresh_placar__') {
+                    btns[i].click();
+                    return;
+                }
+            }
+        } catch(e) {}
+    }
+    if (_intervalo) clearInterval(_intervalo);
+    _intervalo = setInterval(_clickRefresh, 30000);
+})();
+</script>
+""", height=0)
+
+    st.caption(f"Exibindo: {sel} · atualiza automaticamente a cada 30s · {agora.strftime('%d/%m/%Y %H:%M')}")
 
     # Metas
     k_eq=f"meta_eq_{filtro_mes[0]}_{filtro_mes[1]}"
