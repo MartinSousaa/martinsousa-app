@@ -105,11 +105,20 @@ def pagina_triagem(usuario_logado):
     st.subheader("Triagem do Produto")
     st.caption("Preenche uma vez por produto -- essa informação alimenta palavras-chave, título e descrição.")
 
+    # Persiste a última categoria selecionada entre reruns
+    _CATS = sorted(ML_COMISSAO_POR_CATEGORIA.keys())
+    if "triagem_ultima_categoria" not in st.session_state:
+        st.session_state["triagem_ultima_categoria"] = _CATS[0]
+    _cat_idx = _CATS.index(st.session_state["triagem_ultima_categoria"]) \
+        if st.session_state["triagem_ultima_categoria"] in _CATS else 0
+
     with st.form("form_triagem", clear_on_submit=False):
         st.markdown("#### Dados do produto")
         col1, col2 = st.columns(2)
         nome_comercial = col1.text_input("Nome comercial")
-        categoria = col2.selectbox("Categoria no ML", sorted(ML_COMISSAO_POR_CATEGORIA.keys()), key="triagem_categoria")
+        categoria = col2.selectbox(
+            "Categoria no ML", _CATS, index=_cat_idx, key="triagem_categoria"
+        )
 
         col1, col2 = st.columns(2)
         material = col1.text_input("Material", placeholder="ex: Plástico e Metal (o predominante primeiro)")
@@ -133,6 +142,9 @@ def pagina_triagem(usuario_logado):
         if not nome_comercial:
             st.warning("Preencha pelo menos o Nome comercial.")
             return
+
+        # Salva a categoria escolhida para a próxima triagem
+        st.session_state["triagem_ultima_categoria"] = categoria
 
         dados = {
             "nome_comercial": nome_comercial, "categoria": categoria,
