@@ -730,7 +730,7 @@ def _gauge_svg(pct, cor, titulo, sub="", legend=""):
     def _pt(a): return cx + r * math.cos(a), cy - r * math.sin(a)
     sx, sy = _pt(math.pi); ex, ey = _pt(0)
     af = math.pi * (1 - p / 100); fx, fy = _pt(af)
-    lg = 1 if p > 50 else 0
+    lg = 0  # semicírculo sempre < 180° → large-arc nunca necessário
     vh = 94 if legend else 82   # viewBox mais alto quando há legenda
     legend_el = (
         f'<text x="50" y="89" text-anchor="middle" font-size="5" '
@@ -974,7 +974,8 @@ def _chart_indices_meta(dados):
 
 def _chart_tempo_execucao(dados):
     """HTML/SVG: pizza top 5 colunas por tempo médio de execução.
-    Fatias = % do tempo de cada coluna no total. Box = % dessas demandas no total de demandas."""
+    Usa dados reais (TEMPO ACUMULADO) quando disponíveis;
+    caso contrário usa tempo_min configurado em COLUNAS_CONFIG como estimativa."""
     CORES5 = ["#4A90D9", "#2C6BAF", "#E34948", "#EDA100", "#1BAF7A"]
     tempo_agg = {}; qtd_agg = {}
     for r in dados:
@@ -982,25 +983,37 @@ def _chart_tempo_execucao(dados):
             tempo_agg.setdefault(nl, []).extend(tempos)
         for nl, q in r.get("qtd_lista", {}).items():
             qtd_agg[nl] = qtd_agg.get(nl, 0) + q
+
+    estimado = False
+    if not tempo_agg:
+        # Fallback: usa tempo_min configurado para colunas com cartões concluídos
+        for nl, cfg in _pc.COLUNAS_CONFIG.items():
+            q = qtd_agg.get(nl, 0)
+            if q > 0:
+                tempo_agg[nl] = [cfg["tempo_min"]] * q
+        estimado = True
+
     if not tempo_agg:
         return '<div style="padding:24px;text-align:center;color:var(--ms-texto-sec);font-size:11px;">Sem dados de tempo no período</div>'
+
     medias = {nl: sum(t) / len(t) for nl, t in tempo_agg.items()}
     top5   = sorted(medias.items(), key=lambda x: -x[1])[:5]
-    # % de demandas (por qtd) que as top 5 colunas representam
     top5_qtd   = sum(qtd_agg.get(nl, 0) for nl, _ in top5)
     total_qtd  = sum(qtd_agg.values()) or 1
     pct_demandas = top5_qtd / total_qtd * 100
-    # segmentos para a pizza
     segs = []
     for i, (nl, v) in enumerate(top5):
         mins = int(v); h, m = divmod(mins, 60)
         t_str = f"{h}h{m:02d}" if h else f"{m}min"
         label = f"{nl[:20]}{'…' if len(nl)>20 else ''} · ~{t_str}"
         segs.append((CORES5[i], v, label))
+    box_label = "das demandas totais\nestão nessas 5 colunas"
+    if estimado:
+        box_label += "\n(tempo estimado configurado)"
     return _pizza_svg(
         segs,
         box_pct=f"{pct_demandas:.0f}%",
-        box_label="das demandas totais\nestão nessas 5 colunas",
+        box_label=box_label,
         box_cor="#4A90D9",
     )
 
