@@ -1,0 +1,213 @@
+{
+  "name": "MS Studio — 2. Finalizar Timer (Cartão Concluído)",
+  "flow": [
+    {
+      "id": 1,
+      "module": "trello:TriggerNewActivity",
+      "version": 1,
+      "parameters": {
+        "__IMTCONN__": {
+          "label": "Sua Conexão Trello",
+          "data": { "scoped": true, "connection": "trello" }
+        },
+        "boardId": "SEU_BOARD_ID",
+        "filter": "updateCard"
+      },
+      "mapper": {},
+      "metadata": {
+        "designer": { "x": 0, "y": 0 },
+        "restore": {
+          "parameters": {
+            "__IMTCONN__": { "label": "Sua Conexão Trello" },
+            "boardId": { "label": "SEU_BOARD_ID — substitua pelo ID real do board" }
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "module": "trello:ActionGetACard",
+      "version": 1,
+      "parameters": {
+        "__IMTCONN__": {
+          "label": "Sua Conexão Trello",
+          "data": { "scoped": true, "connection": "trello" }
+        }
+      },
+      "filter": {
+        "name": "Cartão foi marcado como concluído?",
+        "conditions": [
+          [
+            {
+              "a": "{{1.data.card.dueComplete}}",
+              "b": "true",
+              "o": "text:equal"
+            }
+          ]
+        ]
+      },
+      "mapper": {
+        "cardId": "{{1.data.card.id}}",
+        "customFieldItems": true,
+        "members": true
+      },
+      "metadata": {
+        "designer": { "x": 300, "y": 0 },
+        "restore": {
+          "parameters": {
+            "__IMTCONN__": { "label": "Sua Conexão Trello" }
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "module": "builtin:SetVariables",
+      "version": 1,
+      "parameters": {},
+      "filter": {
+        "name": "INÍCIO PARCIAL está preenchido?",
+        "conditions": [
+          [
+            {
+              "a": "{{first(map(2.customFieldItems; \"value\"; \"idCustomField\"; \"ID_CAMPO_INICIO_PARCIAL\")).date}}",
+              "b": "",
+              "o": "text:notequal"
+            }
+          ]
+        ]
+      },
+      "mapper": {
+        "variables": [
+          {
+            "name": "inicio_parcial",
+            "value": "{{first(map(2.customFieldItems; \"value\"; \"idCustomField\"; \"ID_CAMPO_INICIO_PARCIAL\")).date}}"
+          },
+          {
+            "name": "colaborador",
+            "value": "{{ifempty(2.members[1].username; \"sem_membro\")}}"
+          },
+          {
+            "name": "lista_id",
+            "value": "{{2.idList}}"
+          },
+          {
+            "name": "minutos_sessao",
+            "value": "{{round(dateDifference(now; parseDate(first(map(2.customFieldItems; \"value\"; \"idCustomField\"; \"ID_CAMPO_INICIO_PARCIAL\")).date; \"YYYY-MM-DDTHH:mm:ss.SSSZ\"); \"minutes\"))}}"
+          },
+          {
+            "name": "novo_total",
+            "value": "{{round(ifempty(first(map(2.customFieldItems; \"value\"; \"idCustomField\"; \"ID_CAMPO_TEMPO_ACUMULADO\")).number; 0)) + round(dateDifference(now; parseDate(first(map(2.customFieldItems; \"value\"; \"idCustomField\"; \"ID_CAMPO_INICIO_PARCIAL\")).date; \"YYYY-MM-DDTHH:mm:ss.SSSZ\"); \"minutes\"))}}"
+          }
+        ]
+      },
+      "metadata": {
+        "designer": { "x": 600, "y": 0 }
+      }
+    },
+    {
+      "id": 4,
+      "module": "googlesheets:ActionAddARow",
+      "version": 1,
+      "parameters": {
+        "__IMTCONN__": {
+          "label": "Sua Conexão Google Sheets",
+          "data": { "scoped": true, "connection": "google" }
+        }
+      },
+      "mapper": {
+        "spreadsheetId": "ID_DA_PLANILHA_SHEETS",
+        "sheetId": "historico_tempo",
+        "values": {
+          "cartao_id": "{{1.data.card.id}}",
+          "lista": "{{3.lista_id}}",
+          "colaborador": "{{3.colaborador}}",
+          "inicio": "{{3.inicio_parcial}}",
+          "fim": "{{now}}",
+          "tempo_min": "{{3.minutos_sessao}}",
+          "interrompido_min": "0"
+        }
+      },
+      "metadata": {
+        "designer": { "x": 900, "y": 0 },
+        "restore": {
+          "parameters": {
+            "__IMTCONN__": { "label": "Sua Conexão Google Sheets" },
+            "spreadsheetId": { "label": "ID_DA_PLANILHA_SHEETS — ID da planilha Google Drive (na URL)" },
+            "sheetId": { "label": "historico_tempo" }
+          }
+        }
+      }
+    },
+    {
+      "id": 5,
+      "module": "trello:ActionUpdateCustomFieldItem",
+      "version": 1,
+      "parameters": {
+        "__IMTCONN__": {
+          "label": "Sua Conexão Trello",
+          "data": { "scoped": true, "connection": "trello" }
+        }
+      },
+      "mapper": {
+        "idCard": "{{1.data.card.id}}",
+        "idCustomField": "ID_CAMPO_TEMPO_ACUMULADO",
+        "modelType": "card",
+        "value": {
+          "number": "{{3.novo_total}}"
+        }
+      },
+      "metadata": {
+        "designer": { "x": 1200, "y": 0 },
+        "restore": {
+          "parameters": {
+            "__IMTCONN__": { "label": "Sua Conexão Trello" }
+          }
+        }
+      }
+    },
+    {
+      "id": 6,
+      "module": "trello:ActionUpdateCustomFieldItem",
+      "version": 1,
+      "parameters": {
+        "__IMTCONN__": {
+          "label": "Sua Conexão Trello",
+          "data": { "scoped": true, "connection": "trello" }
+        }
+      },
+      "mapper": {
+        "idCard": "{{1.data.card.id}}",
+        "idCustomField": "ID_CAMPO_INICIO_PARCIAL",
+        "modelType": "card",
+        "value": {
+          "date": ""
+        }
+      },
+      "metadata": {
+        "designer": { "x": 1500, "y": 0 },
+        "restore": {
+          "parameters": {
+            "__IMTCONN__": { "label": "Sua Conexão Trello" }
+          }
+        }
+      }
+    }
+  ],
+  "metadata": {
+    "instant": true,
+    "version": 1,
+    "scenario": {
+      "roundtrips": 1,
+      "maxErrors": 3,
+      "autoCommit": true,
+      "autoCommitTriggerLast": true,
+      "sequential": true,
+      "confidential": false,
+      "dataloss": false,
+      "dlq": false,
+      "freshVariables": false
+    },
+    "designer": { "orphans": [] }
+  }
+}

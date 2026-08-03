@@ -1,0 +1,261 @@
+{
+  "name": "MS Studio — 4. Interrupção Global (INTERRUPÇÃO MS → Pausar TODOS os timers)",
+  "flow": [
+    {
+      "id": 1,
+      "module": "trello:TriggerNewActivity",
+      "version": 1,
+      "parameters": {
+        "__IMTCONN__": {
+          "label": "Sua Conexão Trello",
+          "data": { "scoped": true, "connection": "trello" }
+        },
+        "boardId": "SEU_BOARD_ID",
+        "filter": "addLabelToCard"
+      },
+      "mapper": {},
+      "metadata": {
+        "designer": { "x": 0, "y": 0 },
+        "restore": {
+          "parameters": {
+            "__IMTCONN__": { "label": "Sua Conexão Trello" },
+            "boardId": { "label": "SEU_BOARD_ID — substitua pelo ID real do board" }
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "module": "http:ActionSendData",
+      "version": 3,
+      "parameters": {
+        "handleErrors": false,
+        "useNewZLibDeCompress": true
+      },
+      "filter": {
+        "name": "Etiqueta adicionada é INTERRUPÇÃO MS?",
+        "conditions": [
+          [
+            {
+              "a": "{{1.data.label.name}}",
+              "b": "INTERRUPÇÃO MS",
+              "o": "text:equal"
+            }
+          ]
+        ]
+      },
+      "mapper": {
+        "url": "https://api.trello.com/1/labels/ID_ETIQUETA_EM_ANDAMENTO/cards?customFieldItems=true&fields=id%2Cname%2CidList%2CidMembers&key=SEU_TRELLO_KEY&token=SEU_TRELLO_TOKEN",
+        "method": "GET",
+        "headers": [],
+        "qs": [],
+        "bodyType": "raw",
+        "parseResponse": true,
+        "timeout": "",
+        "shareCookies": false,
+        "ca": "",
+        "rejectUnauthorized": true,
+        "followRedirect": true,
+        "useQuerystring": false,
+        "gzip": true,
+        "useMtls": false
+      },
+      "metadata": {
+        "designer": { "x": 300, "y": 0 },
+        "restore": {}
+      }
+    },
+    {
+      "id": 3,
+      "module": "builtin:BasicIterator",
+      "version": 1,
+      "parameters": {},
+      "mapper": {
+        "array": "{{2.data}}"
+      },
+      "metadata": {
+        "designer": { "x": 600, "y": 0 }
+      }
+    },
+    {
+      "id": 4,
+      "module": "builtin:SetVariables",
+      "version": 1,
+      "parameters": {},
+      "filter": {
+        "name": "INÍCIO PARCIAL está preenchido?",
+        "conditions": [
+          [
+            {
+              "a": "{{first(map(3.value.customFieldItems; \"value\"; \"idCustomField\"; \"ID_CAMPO_INICIO_PARCIAL\")).date}}",
+              "b": "",
+              "o": "text:notequal"
+            }
+          ]
+        ]
+      },
+      "mapper": {
+        "variables": [
+          {
+            "name": "card_id",
+            "value": "{{3.value.id}}"
+          },
+          {
+            "name": "lista_id",
+            "value": "{{3.value.idList}}"
+          },
+          {
+            "name": "inicio_parcial",
+            "value": "{{first(map(3.value.customFieldItems; \"value\"; \"idCustomField\"; \"ID_CAMPO_INICIO_PARCIAL\")).date}}"
+          },
+          {
+            "name": "minutos_sessao",
+            "value": "{{round(dateDifference(now; parseDate(first(map(3.value.customFieldItems; \"value\"; \"idCustomField\"; \"ID_CAMPO_INICIO_PARCIAL\")).date; \"YYYY-MM-DDTHH:mm:ss.SSSZ\"); \"minutes\"))}}"
+          },
+          {
+            "name": "novo_acumulado",
+            "value": "{{round(ifempty(first(map(3.value.customFieldItems; \"value\"; \"idCustomField\"; \"ID_CAMPO_TEMPO_ACUMULADO\")).number; 0)) + round(dateDifference(now; parseDate(first(map(3.value.customFieldItems; \"value\"; \"idCustomField\"; \"ID_CAMPO_INICIO_PARCIAL\")).date; \"YYYY-MM-DDTHH:mm:ss.SSSZ\"); \"minutes\"))}}"
+          },
+          {
+            "name": "novo_interrompido",
+            "value": "{{round(ifempty(first(map(3.value.customFieldItems; \"value\"; \"idCustomField\"; \"ID_CAMPO_INTERROMPIDO\")).number; 0)) + round(dateDifference(now; parseDate(first(map(3.value.customFieldItems; \"value\"; \"idCustomField\"; \"ID_CAMPO_INICIO_PARCIAL\")).date; \"YYYY-MM-DDTHH:mm:ss.SSSZ\"); \"minutes\"))}}"
+          }
+        ]
+      },
+      "metadata": {
+        "designer": { "x": 900, "y": 0 }
+      }
+    },
+    {
+      "id": 5,
+      "module": "googlesheets:ActionAddARow",
+      "version": 1,
+      "parameters": {
+        "__IMTCONN__": {
+          "label": "Sua Conexão Google Sheets",
+          "data": { "scoped": true, "connection": "google" }
+        }
+      },
+      "mapper": {
+        "spreadsheetId": "ID_DA_PLANILHA_SHEETS",
+        "sheetId": "historico_tempo",
+        "values": {
+          "cartao_id": "{{4.card_id}}",
+          "lista": "{{4.lista_id}}",
+          "colaborador": "{{3.value.idMembers[1]}}",
+          "inicio": "{{4.inicio_parcial}}",
+          "fim": "{{now}}",
+          "tempo_min": "{{4.minutos_sessao}}",
+          "interrompido_min": "{{4.minutos_sessao}}"
+        }
+      },
+      "metadata": {
+        "designer": { "x": 1200, "y": 0 },
+        "restore": {
+          "parameters": {
+            "__IMTCONN__": { "label": "Sua Conexão Google Sheets" },
+            "spreadsheetId": { "label": "ID_DA_PLANILHA_SHEETS — ID da planilha Google Drive (na URL)" },
+            "sheetId": { "label": "historico_tempo" }
+          }
+        }
+      }
+    },
+    {
+      "id": 6,
+      "module": "trello:ActionUpdateCustomFieldItem",
+      "version": 1,
+      "parameters": {
+        "__IMTCONN__": {
+          "label": "Sua Conexão Trello",
+          "data": { "scoped": true, "connection": "trello" }
+        }
+      },
+      "mapper": {
+        "idCard": "{{4.card_id}}",
+        "idCustomField": "ID_CAMPO_TEMPO_ACUMULADO",
+        "modelType": "card",
+        "value": {
+          "number": "{{4.novo_acumulado}}"
+        }
+      },
+      "metadata": {
+        "designer": { "x": 1500, "y": -100 },
+        "restore": {
+          "parameters": {
+            "__IMTCONN__": { "label": "Sua Conexão Trello" }
+          }
+        }
+      }
+    },
+    {
+      "id": 7,
+      "module": "trello:ActionUpdateCustomFieldItem",
+      "version": 1,
+      "parameters": {
+        "__IMTCONN__": {
+          "label": "Sua Conexão Trello",
+          "data": { "scoped": true, "connection": "trello" }
+        }
+      },
+      "mapper": {
+        "idCard": "{{4.card_id}}",
+        "idCustomField": "ID_CAMPO_INTERROMPIDO",
+        "modelType": "card",
+        "value": {
+          "number": "{{4.novo_interrompido}}"
+        }
+      },
+      "metadata": {
+        "designer": { "x": 1500, "y": 100 },
+        "restore": {
+          "parameters": {
+            "__IMTCONN__": { "label": "Sua Conexão Trello" }
+          }
+        }
+      }
+    },
+    {
+      "id": 8,
+      "module": "trello:ActionUpdateCustomFieldItem",
+      "version": 1,
+      "parameters": {
+        "__IMTCONN__": {
+          "label": "Sua Conexão Trello",
+          "data": { "scoped": true, "connection": "trello" }
+        }
+      },
+      "mapper": {
+        "idCard": "{{4.card_id}}",
+        "idCustomField": "ID_CAMPO_INICIO_PARCIAL",
+        "modelType": "card",
+        "value": {
+          "date": ""
+        }
+      },
+      "metadata": {
+        "designer": { "x": 1800, "y": 0 },
+        "restore": {
+          "parameters": {
+            "__IMTCONN__": { "label": "Sua Conexão Trello" }
+          }
+        }
+      }
+    }
+  ],
+  "metadata": {
+    "instant": true,
+    "version": 1,
+    "scenario": {
+      "roundtrips": 1,
+      "maxErrors": 3,
+      "autoCommit": true,
+      "autoCommitTriggerLast": true,
+      "sequential": true,
+      "confidential": false,
+      "dataloss": false,
+      "dlq": false,
+      "freshVariables": false
+    },
+    "designer": { "orphans": [] }
+  }
+}
