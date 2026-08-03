@@ -148,6 +148,39 @@ def _analisar_meses(listas, cards, membros_map, id_p, id_t, id_i, meses_lista, p
     return resultado
 
 
+def _extend_dados_ano(dados):
+    """Preenche com entradas zeradas para todos os meses de Jan até o mês atual do ano corrente.
+    Garante que o gráfico anual sempre mostre Jan–mês_atual mesmo quando o período selecionado
+    é apenas 'Dentro do mês' ou outro intervalo curto."""
+    agora = datetime.now()
+    ano_atual, mes_atual = agora.year, agora.month
+    existentes = {(r["ano"], r["mes"]) for r in dados}
+    resultado = list(dados)
+    for m in range(1, mes_atual + 1):
+        if (ano_atual, m) not in existentes:
+            cfg = mc.carregar_config(ano_atual, m)
+            meta_eq  = cfg["meta_equipe"]
+            maxx_pct = cfg.get("meta_maxx_pct", 120)
+            resultado.append({
+                "ano": ano_atual, "mes": m,
+                "label": _label_mes(ano_atual, m),
+                "cfg": cfg,
+                "meta_eq": meta_eq,
+                "meta_maxx": meta_eq * maxx_pct / 100,
+                "pts_equipe": 0.0, "pen_total": 0.0, "pen_qtd": 0,
+                "saldo": 0.0, "pct_mensal": 0.0, "pct_maxx": 0.0,
+                "pts_pendentes": 0.0, "abertos": 0, "urgentes": 0,
+                "atrasados": 0, "em_andamento": 0,
+                "andamento_lista": [], "pend_lista": {},
+                "tempo_lista": {}, "pts_lista": {}, "qtd_lista": {},
+                "pts_membro": {}, "pen_membro": {}, "qtd_membro": {},
+                "pen_cards": [], "pct_retrab": None, "total_concl": 0,
+                "pct_com_membro": 0.0,
+            })
+    resultado.sort(key=lambda r: (r["ano"], r["mes"]))
+    return resultado
+
+
 # ── Seção: painel Meta Coletiva | Meta MAXX lado a lado ──────────────────────
 
 def _barra_painel(nome, pct, desc, cor):
@@ -689,17 +722,23 @@ def _secao_tempos_individual(dados):
 _CORES = ["#4A90D9", "#E34948", "#1BAF7A", "#EDA100"]
 
 
-def _gauge_svg(pct, cor, titulo, sub=""):
-    """Velocímetro semicircular SVG inline com traço colorido abaixo (igual ao template)."""
+def _gauge_svg(pct, cor, titulo, sub="", legend=""):
+    """Velocímetro semicircular SVG inline com traço colorido abaixo.
+    legend: texto explicativo opcional abaixo da barra colorida."""
     p = max(0.1, min(99.9, float(pct)))
     cx, cy, r = 50, 52, 40
     def _pt(a): return cx + r * math.cos(a), cy - r * math.sin(a)
     sx, sy = _pt(math.pi); ex, ey = _pt(0)
     af = math.pi * (1 - p / 100); fx, fy = _pt(af)
     lg = 1 if p > 50 else 0
+    vh = 94 if legend else 82   # viewBox mais alto quando há legenda
+    legend_el = (
+        f'<text x="50" y="89" text-anchor="middle" font-size="5" '
+        f'fill="var(--ms-texto-sec,#777)" font-style="italic">{legend}</text>'
+    ) if legend else ""
     return (
         f'<div style="text-align:center;">'
-        f'<svg viewBox="0 0 100 82" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:130px;">'
+        f'<svg viewBox="0 0 100 {vh}" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:130px;">'
         f'<path d="M{sx:.2f},{sy:.2f} A{r},{r} 0 0,1 {ex:.2f},{ey:.2f}" fill="none" '
         f'stroke="var(--ms-metric-bd,#2e2e2e)" stroke-width="9" stroke-linecap="round"/>'
         f'<path d="M{sx:.2f},{sy:.2f} A{r},{r} 0 {lg},1 {fx:.2f},{fy:.2f}" fill="none" '
@@ -710,18 +749,19 @@ def _gauge_svg(pct, cor, titulo, sub=""):
         f'<text x="50" y="69" text-anchor="middle" font-size="5.5" '
         f'fill="var(--ms-texto-sec,#888)">{sub}</text>'
         f'<rect x="14" y="75" width="72" height="3" rx="1.5" fill="{cor}"/>'
+        f'{legend_el}'
         f'</svg></div>'
     )
 
 
 def _pizza_svg(segmentos, box_pct, box_label, box_cor="#4A90D9"):
     """Pizza chart SVG (pizza CHEIA) com % dentro das fatias + legenda numerada + box destaque.
-    segmentos = [(cor, val, nome)]  — val absoluto, % calculado internamente.
-    Layout: pizza à esquerda | bolinhas numeradas + box à direita (igual ao template)."""
-    cx, cy, r = 82, 82, 70
+    segmentos = [(cor, val, nome)]  — val absoluto, % calculado internamente."""
+    # Cores suaves (mesmas mas com opacidade 0.85 via SVG)
+    cx, cy, r = 140, 140, 125
     total = sum(s[1] for s in segmentos) or 1
     slices, labels_svg = [], []
-    ang = -math.pi / 2  # começa do topo
+    ang = -math.pi / 2
     for i, (cor, val, nome) in enumerate(segmentos):
         if val <= 0:
             continue
@@ -732,20 +772,19 @@ def _pizza_svg(segmentos, box_pct, box_label, box_cor="#4A90D9"):
         lg = 1 if frac > 0.5 else 0
         slices.append(
             f'<path d="M{cx},{cy} L{x1:.2f},{y1:.2f} A{r},{r} 0 {lg},1 {x2:.2f},{y2:.2f} Z" '
-            f'fill="{cor}" stroke="var(--ms-bg,#111)" stroke-width="2"/>'
+            f'fill="{cor}" fill-opacity="0.82" stroke="none"/>'
         )
-        # % dentro da fatia (só mostra se fatia >= 6%)
         if frac >= 0.06:
             mid = (ang + ae) / 2
             lx = cx + r * 0.62 * math.cos(mid)
             ly = cy + r * 0.62 * math.sin(mid)
             labels_svg.append(
                 f'<text x="{lx:.1f}" y="{ly:.1f}" text-anchor="middle" dominant-baseline="middle" '
-                f'font-size="10" font-weight="700" fill="white">{frac*100:.0f}%</text>'
+                f'font-size="16" font-weight="700" fill="white">{frac*100:.0f}%</text>'
             )
         ang = ae
     svg = (
-        f'<svg viewBox="0 0 164 164" xmlns="http://www.w3.org/2000/svg" style="width:150px;flex-shrink:0;">'
+        f'<svg viewBox="0 0 280 280" xmlns="http://www.w3.org/2000/svg" style="width:200px;flex-shrink:0;">'
         + "".join(slices) + "".join(labels_svg) + '</svg>'
     )
     # Legenda numerada (bolinhas 01-05)
@@ -753,23 +792,23 @@ def _pizza_svg(segmentos, box_pct, box_label, box_cor="#4A90D9"):
     for i, (cor, val, nome) in enumerate(segmentos):
         leg_html += (
             f'<div style="display:flex;align-items:center;gap:7px;margin-bottom:6px;">'
-            f'<div style="width:22px;height:22px;border-radius:50%;background:{cor};flex-shrink:0;'
+            f'<div style="width:22px;height:22px;border-radius:50%;background:{cor};opacity:0.85;flex-shrink:0;'
             f'display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;color:#fff;">{i+1:02d}</div>'
             f'<div style="font-size:10px;color:var(--ms-texto,#ccc);line-height:1.3;">'
-            f'{nome[:24]}{"…" if len(nome)>24 else ""}</div></div>'
+            f'{nome[:26]}{"…" if len(nome)>26 else ""}</div></div>'
         )
-    # Box destaque colorido (como o "72% Informação importante" do template)
+    # Box menor (metade do tamanho original)
     box_html = (
-        f'<div style="margin-top:10px;background:{box_cor};border-radius:8px;padding:10px 14px;'
-        f'display:flex;align-items:center;gap:10px;">'
-        f'<div style="font-size:26px;font-weight:800;color:#fff;white-space:nowrap;">{box_pct}</div>'
-        f'<div style="font-size:10px;color:rgba(255,255,255,0.92);line-height:1.4;">{box_label}</div>'
+        f'<div style="margin-top:8px;background:{box_cor};border-radius:6px;padding:6px 10px;'
+        f'display:flex;align-items:center;gap:8px;opacity:0.9;">'
+        f'<div style="font-size:18px;font-weight:800;color:#fff;white-space:nowrap;">{box_pct}</div>'
+        f'<div style="font-size:9px;color:rgba(255,255,255,0.92);line-height:1.4;">{box_label}</div>'
         f'</div>'
     )
     return (
         f'<div style="display:flex;align-items:flex-start;gap:14px;padding:8px 0;">'
         + svg
-        + f'<div style="flex:1;padding-top:6px;">{leg_html}{box_html}</div>'
+        + f'<div style="flex:1;padding-top:4px;">{leg_html}{box_html}</div>'
         + '</div>'
     )
 
@@ -893,14 +932,40 @@ def _chart_indices_meta(dados):
     retrab_l   = [r["pct_retrab"] for r in dados if r["pct_retrab"] is not None]
     pct_retrab = sum(retrab_l) / len(retrab_l) if retrab_l else 0
     pct_pen    = sum(r["pen_qtd"] for r in dados) / max(tc, 1) * 100
+    pct_no_prazo = max(0, 100 - pct_atras)
+
+    # Cores dinâmicas
+    cor_qualidade   = "#1BAF7A" if pct_retrab <= 10 else "#E34948"
+    cor_conformidade = "#1BAF7A" if pct_pen <= 10 else "#E34948"
+
+    # (pct, cor, titulo, sub, legend)
     indices = [
-        (min(pct_maxx, 100),       "#4A90D9", "Alcance MAXX",  f"{pct_maxx:.0f}% da meta MAXX"),
-        (max(0, 100 - pct_atras),  "#2C6BAF", "Pontualidade",  f"{pct_atras:.1f}% atrasados"),
-        (max(0, 100 - pct_retrab), "#E34948", "Qualidade",     f"{pct_retrab:.1f}% retrabalho"),
-        (max(0, 100 - pct_pen),    "#EDA100", "Conformidade",  f"{pct_pen:.1f}% c/ penalidade"),
+        (min(pct_maxx, 100),
+         "#FFD700",
+         "Alcance MAXX",
+         f"{pct_maxx:.0f}% da meta MAXX",
+         ""),
+        (pct_no_prazo,
+         "#1BAF7A",
+         "Pontualidade",
+         f"{pct_atras:.1f}% dos cartões atrasaram",
+         "Cartões concluídos dentro do prazo"),
+        (max(0, 100 - pct_retrab),
+         cor_qualidade,
+         "Qualidade",
+         f"{pct_retrab:.1f}% de retrabalho no período",
+         ""),
+        (max(0, 100 - pct_pen),
+         cor_conformidade,
+         "Conformidade",
+         f"{max(0,100-pct_pen):.0f}% s/ penalidade · {pct_pen:.1f}% c/ pen.",
+         ""),
     ]
-    gauges = "".join(_gauge_svg(pct, cor, titulo, sub) for pct, cor, titulo, sub in indices)
-    return f'<div style="display:flex;justify-content:space-around;align-items:center;gap:4px;padding:8px 0;">{gauges}</div>'
+    gauges = "".join(_gauge_svg(pct, cor, titulo, sub, legend) for pct, cor, titulo, sub, legend in indices)
+    return (
+        f'<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 2px;padding:8px 0;">'
+        f'{gauges}</div>'
+    )
 
 
 def _chart_tempo_execucao(dados):
@@ -1036,7 +1101,7 @@ def _chart_ind_pts(meses, C=None):
 
 
 def _chart_ind_indices(meses, C=None):
-    """HTML/SVG: 5 velocímetros individuais."""
+    """HTML/SVG: 5 velocímetros individuais com cores dinâmicas."""
     n = len(meses)
     batidos = sum(1 for m in meses if m["pct"] >= 100)
     pct_bat = (batidos / n * 100) if n > 0 else 0
@@ -1056,12 +1121,28 @@ def _chart_ind_indices(meses, C=None):
     ta = sum(m["atrasados"]   for m in meses)
     pct_pont = max(0, 100 - (ta / max(tc, 1) * 100))
 
+    # Ociosidade: 0 = aguardando; verde se <= 10, vermelho se > 10
+    pct_ocio = 0
+    cor_ocio = "#1BAF7A" if pct_ocio <= 10 else "#E34948"
+    sub_ocio = f"{pct_ocio:.0f}% ociosidade" if pct_ocio > 0 else "Aguardando ponto"
+
+    # Tolerâncias: 100 = aguardando (considera OK = verde)
+    pct_tol = 100
+    cor_tol = "#1BAF7A"  # aguardando = verde por padrão
+    sub_tol = "Aguardando ponto"
+
+    # Tempo médio: azul base, verde se há melhoria
+    cor_tempo = "#1BAF7A" if pct_tempo > 50 else "#4A90D9"
+
+    # Pontualidade: verde se >= 80%, vermelho se < 80%
+    cor_pont = "#1BAF7A" if pct_pont >= 80 else "#E34948"
+
     indices = [
-        (min(pct_bat, 100),  "#4A90D9", "Pontuação Batida",   f"{batidos}/{n} meses"),
-        (0,                  "#2C6BAF", "Ociosidade",          "Aguardando ponto"),
-        (pct_tempo,          "#1BAF7A", "Redução Tempo Médio", "1º vs último mês"),
-        (100,                "#EDA100", "Tolerâncias",         "Aguardando ponto"),
-        (min(pct_pont, 100), "#E34948", "Pontualidade Tarefa", f"{ta}/{max(tc,1)} concl."),
+        (min(pct_bat, 100),  "#4A90D9",  "Pontuação Batida",   f"{batidos}/{n} meses"),
+        (min(pct_ocio, 100), cor_ocio,   "Ociosidade",          sub_ocio),
+        (pct_tempo,          cor_tempo,  "Redução Tempo Médio", "1º vs último mês"),
+        (min(pct_tol, 100),  cor_tol,    "Tolerâncias",         sub_tol),
+        (min(pct_pont, 100), cor_pont,   "Pontualidade Tarefa", f"{ta}/{max(tc,1)} concl."),
     ]
     gauges = "".join(_gauge_svg(pct, cor, titulo, sub) for pct, cor, titulo, sub in indices)
     return f'<div style="display:flex;justify-content:space-around;gap:4px;padding:8px 0;">{gauges}</div>'
@@ -1117,9 +1198,13 @@ def _chart_ind_destaques(meses, dados, username, C=None):
             )
         else:
             cards.append(
-                f'<div style="background:var(--ms-metric-bg);border-radius:8px;padding:12px;'
+                f'<div style="background:var(--ms-metric-bg);border-radius:8px;padding:12px 10px;'
                 f'border:1px solid var(--ms-divisor);text-align:center;">'
-                f'<div style="font-size:18px;color:var(--ms-divisor);">—</div></div>'
+                f'<div style="font-size:10px;font-weight:700;color:var(--ms-divisor);margin-bottom:4px;">— sem dado —</div>'
+                f'<div style="font-size:22px;font-weight:700;color:var(--ms-texto-sec);">0</div>'
+                f'<div style="font-size:9px;color:var(--ms-texto-sec);margin-top:2px;">pts alcançados</div>'
+                f'<div style="font-size:8px;color:var(--ms-texto-sec);margin-top:4px;">0% da meta · 0 pts</div>'
+                f'</div>'
             )
     rodape = ""
     if top4_c:
@@ -1223,18 +1308,21 @@ def _desempenho_individual(dados, username, nome):
         st.markdown(_chart_ind_destaques(meses, dados, username), unsafe_allow_html=True)
 
 
-def _aba_desempenho(dados):
+def _aba_desempenho(dados, dados_ano_full=None):
     """Aba Desempenho — 4 gráficos anuais de performance coletiva."""
     if not dados:
         st.caption("Sem dados para exibir no período selecionado.")
         return
 
+    # Para o gráfico de barras, sempre exibir Jan→mês atual (meses sem dado = zero)
+    dados_ano = dados_ano_full if dados_ano_full else _extend_dados_ano(dados)
+
     row1_col1, row1_col2 = st.columns(2)
 
     with row1_col1:
         st.markdown("#### 📊 Pontuação Meta Coletiva")
-        st.caption("Meta de pontuação vs. realizado mês a mês · linha de delta · destaque do melhor mês.")
-        st.markdown(_chart_pontuacao_meta(dados), unsafe_allow_html=True)
+        st.caption("Meta de pontuação vs. realizado · Jan até o mês atual · meses sem dado aparecem zerados.")
+        st.markdown(_chart_pontuacao_meta(dados_ano), unsafe_allow_html=True)
 
     with row1_col2:
         st.markdown("#### 🎯 Índices Meta Coletiva")
@@ -1434,6 +1522,14 @@ def pagina_analise_metas(usuario_logado):
             meses_lista, _pc._processar
         )
 
+    # Dados do ano completo para aba Desempenho (Jan → mês atual)
+    _meses_ano_full = [(agora.year, m) for m in range(1, agora.month + 1)]
+    with st.spinner("Preparando visão anual..."):
+        dados_ano_full = _analisar_meses(
+            listas, cards, membros_map, id_p, id_t, id_i,
+            _meses_ano_full, _pc._processar
+        )
+
     # ── CABEÇALHO DO PERÍODO ───────────────────────────────────────────────
     total_saldo = sum(r["saldo"] for r in dados)
     media_saldo = total_saldo / len(dados)
@@ -1532,7 +1628,28 @@ def pagina_analise_metas(usuario_logado):
             _desempenho_individual(dados, _mb_u_sel, _mb_nome_sel)
 
     with tab_des:
-        _aba_desempenho(dados)
+        _aba_desempenho(dados, dados_ano_full)
+
+        st.markdown("---")
+        st.markdown("#### 📈 Desempenho Individual")
+
+        _eh_master_des = usuario_logado.lower() in {m.lower() for m in _pc.MASTERS}
+        _LOGIN_MAP_DES = {"Myrella": "myrelladesouza", "Beatriz": "beatriz51",
+                          "Gabriel": "gabriel_borges", "MartinSousa": "martinsousa"}
+        _username_des = _LOGIN_MAP_DES.get(usuario_logado, usuario_logado)
+
+        _mb_opcoes_des = list(_pc.MEMBROS_ATIVOS.keys())
+        _mb_nomes_des  = [_pc.MEMBROS_ATIVOS[u] for u in _mb_opcoes_des]
+        if _eh_master_des:
+            _mb_nome_des = st.selectbox("👤 Selecionar colaborador:", _mb_nomes_des, key="des_ind_sel")
+            _mb_u_des = _mb_opcoes_des[_mb_nomes_des.index(_mb_nome_des)]
+        else:
+            _mb_u_des    = _username_des
+            _mb_nome_des = _pc.MEMBROS_ATIVOS.get(_mb_u_des, _mb_u_des)
+            st.info(f"Exibindo seus dados: **{_mb_nome_des}**")
+
+        if _mb_u_des:
+            _desempenho_individual(dados_ano_full if dados_ano_full else dados, _mb_u_des, _mb_nome_des)
 
     with tab_cfg:
         _secao_configuracao()
