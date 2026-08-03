@@ -336,37 +336,56 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia):
         },
     }
 
-    try:
-        resp = requests.post(
-            f"https://generativelanguage.googleapis.com/v1/models/{MODELO_IMAGEM}:generateContent",
-            headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
-            json=body, timeout=90,
-        )
-        if resp.status_code != 200:
-            return None, f"Erro da API (HTTP {resp.status_code}): {resp.text[:300]}"
-        dados = resp.json()
-        candidatos = dados.get("candidates", [])
-        if not candidatos:
-            return None, "A IA não retornou nenhuma imagem (resposta vazia)."
-        for parte in candidatos[0].get("content", {}).get("parts", []):
-            inline = parte.get("inlineData") or parte.get("inline_data")
-            if inline and inline.get("data"):
-                img_bytes = base64.b64decode(inline["data"])
-                # Redimensiona para 1200x1200 (padrão MartinSousa para marketplace)
-                try:
-                    from PIL import Image as _PILImage
-                    import io as _io
-                    pil = _PILImage.open(_io.BytesIO(img_bytes)).convert("RGBA")
-                    pil = pil.resize((1200, 1200), _PILImage.LANCZOS)
-                    buf = _io.BytesIO()
-                    pil.save(buf, format="PNG")
-                    img_bytes = buf.getvalue()
-                except Exception:
-                    pass  # se PIL não estiver disponível, retorna o tamanho original
-                return img_bytes, None
-        return None, "A IA respondeu, mas não veio nenhuma imagem (pode ter bloqueado o pedido)."
-    except Exception as e:
-        return None, str(e)
+    import time as _time
+    MAX_TENTATIVAS = 3
+    ultimo_erro = ""
+    for tentativa in range(1, MAX_TENTATIVAS + 1):
+        try:
+            resp = requests.post(
+                f"https://generativelanguage.googleapis.com/v1/models/{MODELO_IMAGEM}:generateContent",
+                headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
+                json=body, timeout=120,
+            )
+            if resp.status_code == 429:
+                # Rate limit — espera proporcional antes de nova tentativa
+                _time.sleep(12 * tentativa)
+                ultimo_erro = f"Limite de requisições da API (tentativa {tentativa}/{MAX_TENTATIVAS})"
+                continue
+            if resp.status_code != 200:
+                ultimo_erro = f"Erro da API (HTTP {resp.status_code}): {resp.text[:300]}"
+                if tentativa < MAX_TENTATIVAS:
+                    _time.sleep(5)
+                continue
+            dados = resp.json()
+            candidatos = dados.get("candidates", [])
+            if not candidatos:
+                ultimo_erro = "A IA não retornou nenhuma imagem (resposta vazia)."
+                if tentativa < MAX_TENTATIVAS:
+                    _time.sleep(5)
+                continue
+            for parte in candidatos[0].get("content", {}).get("parts", []):
+                inline = parte.get("inlineData") or parte.get("inline_data")
+                if inline and inline.get("data"):
+                    img_bytes_raw = base64.b64decode(inline["data"])
+                    # Redimensiona para 1200x1200 (padrão MartinSousa para marketplace)
+                    try:
+                        from PIL import Image as _PILImage
+                        import io as _io
+                        pil = _PILImage.open(_io.BytesIO(img_bytes_raw)).convert("RGBA")
+                        pil = pil.resize((1200, 1200), _PILImage.LANCZOS)
+                        buf = _io.BytesIO()
+                        pil.save(buf, format="PNG")
+                        img_bytes_raw = buf.getvalue()
+                    except Exception:
+                        pass  # se PIL não estiver disponível, retorna o tamanho original
+                    return img_bytes_raw, None
+            ultimo_erro = "A IA respondeu, mas não veio nenhuma imagem (pode ter bloqueado o pedido)."
+            break  # não é erro de rede/rate — não adianta retry
+        except Exception as e:
+            ultimo_erro = str(e)
+            if tentativa < MAX_TENTATIVAS:
+                _time.sleep(5)
+    return None, ultimo_erro
 
 
 def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto):
@@ -534,6 +553,25 @@ def criar_zip_galeria(galeria, nome_produto):
 def pagina_imagem(usuario_logado):
     st.subheader("Imagem")
     st.caption("Gere imagens profissionais para o anúncio. A IA mostra o que vai criar antes de gastar com a geração.")
+
+    # ── RE-RUN AUTOMÁTICO DA TRIAGEM (disparado pelo chat ao preencher dados) ──
+    if st.session_state.pop("img_rerun_triagem", False):
+        cfg = st.session_state.get("img_triagem_config")
+        if cfg and cfg.get("tipos"):
+            with st.spinner("♻️ O Assistente IA atualizou os dados — refazendo a análise..."):
+                try:
+                    plano, erro = gerar_triagem_ia(
+                        cfg["nome_produto"],
+                        cfg["tipos"],
+                        cfg.get("dados_descricao"),
+                        cfg.get("instrucoes_extras", ""),
+                        cfg.get("fotos_bytes", []),
+                    )
+                    if not erro and plano:
+                        st.session_state["img_triagem_plano"] = plano
+                except Exception:
+                    pass  # silencioso — triagem antiga continua visível
+            st.rerun()
 
     # ── LINHA 1: Nome + Código ─────────────────────────────────────────────────
     col_nome, col_cod = st.columns(2)
@@ -884,8 +922,12 @@ def pagina_imagem(usuario_logado):
                 tipos_viaveis = [item["tipo"] for item in itens_viaveis]
                 tipos = tipos_viaveis if tipos_viaveis else cfg["tipos"]
 
+                import time as _time_gen
                 for i, tipo in enumerate(tipos):
-                    barra.progress(i / len(tipos), text=f"Gerando: {tipo[:50]}...")
+                    barra.progress(i / len(tipos), text=f"Gerando {i+1}/{len(tipos)}: {tipo[:50]}...")
+                    # Pausa entre chamadas para evitar rate limit da API
+                    if i > 0:
+                        _time_gen.sleep(3)
                     try:
                         prompt_final = montar_prompt_imagem(
                             tipo,
@@ -902,7 +944,7 @@ def pagina_imagem(usuario_logado):
                         st.warning(f"⚠️ Erro inesperado em '{tipo}': {_e_img}")
                         continue
 
-                barra.progress(1.0, text="Concluído!")
+                barra.progress(1.0, text=f"Concluído! {len(galeria)}/{len(tipos)} imagens geradas.")
 
                 if galeria:
                     for k in [k for k in st.session_state if k.startswith("_pasta_")]:
