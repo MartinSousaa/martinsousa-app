@@ -196,6 +196,7 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
         "qtd_lista": {},   # quantidade de cartões concluídos por coluna
         "correcao_concl": 0,  # cartões "CORREÇÃO DE FOTOS" concluídos no mês (retrabalho)
         "total_concl": 0,     # total de cartões concluídos no mês
+        "concluido_sem_membro": [],  # cartões concluídos no mês sem membro atribuído
     }
     for card in cards:
         nl = listas.get(card["idList"], "")
@@ -266,6 +267,10 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
         d["total_concl"] += 1
         if nl == "CORREÇÃO DE FOTOS: 0 PONTOS":
             d["correcao_concl"] += 1
+
+        # Alerta: concluído sem membro atribuído
+        if not us:
+            d["concluido_sem_membro"].append({"card": card["name"], "lista": nl})
 
         if pt is None:
             continue
