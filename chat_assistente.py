@@ -93,7 +93,36 @@ Oriente assim (NUNCA mencione botões que não existem, como "Editar", "Salvar p
 - Peso e dimensões devem ser sempre do produto JÁ EMBALADO
 
 Tom: objetivo, informal mas profissional. Responda sempre em português do Brasil.
-Quando não souber algo, diga claramente em vez de inventar."""
+Quando não souber algo, diga claramente em vez de inventar.
+
+=== ACESSO AO BANCO DE DADOS ===
+Você TEM acesso TOTAL ao banco de dados do MS Studio via Google Sheets.
+Quando o colaborador mencionar um código de produto (ex: MS-LBUM-0731K1H), os dados
+completos desse produto aparecerão no CONTEXTO DO APP abaixo — cor, medidas, peso,
+material, características, diferenciais, uso e categoria.
+Se aparecerem dados do produto no contexto, USE-OS para responder perguntas e
+para preencher informações que estavam faltando na triagem de imagens.
+
+=== PREENCHIMENTO DE DADOS DA TRIAGEM ===
+Quando o colaborador fornecer informações que estavam faltando para imagens BLOQUEADAS
+(peso, medidas, material, capacidade, etc.), você deve:
+1. Confirmar os dados recebidos
+2. Usar o CMD "preencher_dados_triagem" para atualizar o banco de dados da triagem
+3. A tela será atualizada automaticamente e a triagem será refeita com os novos dados
+
+Exemplo do CMD:
+<CMD>{"acao":"preencher_dados_triagem","dados":{"peso":"850g","medidas":"30x30x2cm","material":"capa dura, folhas de papel fotográfico pretas","capacidade":"120 fotos","diferenciais":"folhas pretas sofisticadas"}}</CMD>"""
+
+
+def _buscar_dados_produto_db(codigo: str) -> dict | None:
+    """Busca dados completos do produto no banco de dados pelo código."""
+    if not codigo or not codigo.strip():
+        return None
+    try:
+        import atividades as _atv
+        return _atv.buscar_por_codigo(codigo.strip())
+    except Exception:
+        return None
 
 
 def _mime_tipo(data: bytes) -> str:
@@ -158,6 +187,31 @@ def _contexto_atual() -> str:
             info_img.append(f"  Produto no formulário: {img_nome_form}")
         if img_codigo_form:
             info_img.append(f"  Código da descrição informado: {img_codigo_form}")
+            # Busca dados completos do produto no banco de dados
+            dados_db = _buscar_dados_produto_db(img_codigo_form)
+            if dados_db:
+                info_img.append(f"  DADOS DO PRODUTO NO BANCO DE DADOS (código {img_codigo_form}):")
+                for campo, label in [("nome_produto","Nome"), ("cor","Cor"), ("medidas","Medidas"),
+                                      ("peso","Peso"), ("material","Material"),
+                                      ("caracteristicas","Características"),
+                                      ("diferenciais","Diferenciais"), ("uso","Uso"),
+                                      ("categoria","Categoria")]:
+                    val = dados_db.get(campo, "")
+                    if val:
+                        info_img.append(f"    {label}: {val}")
+            else:
+                info_img.append(f"  ⚠️ Código {img_codigo_form} não encontrado no banco de dados")
+        # Também busca pelo código já vinculado na triagem
+        if not img_codigo_form and img_triagem_cfg.get("codigo"):
+            dados_db = _buscar_dados_produto_db(img_triagem_cfg["codigo"])
+            if dados_db:
+                info_img.append(f"  DADOS DO PRODUTO VINCULADO À TRIAGEM (código {img_triagem_cfg['codigo']}):")
+                for campo, label in [("cor","Cor"), ("medidas","Medidas"), ("peso","Peso"),
+                                      ("material","Material"), ("caracteristicas","Características"),
+                                      ("diferenciais","Diferenciais"), ("uso","Uso")]:
+                    val = dados_db.get(campo, "")
+                    if val:
+                        info_img.append(f"    {label}: {val}")
         if img_triagem:
             plano = img_triagem.get("plano", [])
             bloqueadas = [i for i in plano if not i.get("viavel", True)]
@@ -205,6 +259,14 @@ def _montar_system() -> str:
     if tem_imgs:
         cmds_exemplo.append('{"acao":"ajustar_imagem","foto":1,"instrucao":"instrução de edição para a foto"}')
 
+    # Sempre disponível quando há triagem com bloqueios — independe de imgs geradas
+    tem_triagem_bloqueada = bool(
+        (st.session_state.get("img_triagem_plano") or {}).get("plano") and
+        any(not i.get("viavel", True) for i in (st.session_state.get("img_triagem_plano") or {}).get("plano", []))
+    )
+    if tem_triagem_bloqueada:
+        cmds_exemplo.append('{"acao":"preencher_dados_triagem","dados":{"peso":"valor","medidas":"valor","material":"valor"}}')
+
     exemplos_str = "\n".join(f"- <CMD>{c}</CMD>" for c in cmds_exemplo)
 
     instrucao_cmd = f"""
@@ -221,6 +283,9 @@ REGRAS DOS COMANDOS:
 - "alterar_titulo": inclua os 2 títulos COMPLETOS e já ajustados (não coloque placeholders)
 - "alterar_descricao": inclua o texto COMPLETO da nova descrição
 - "ajustar_imagem": descreva a instrução de edição claramente; a foto será regenerada na aba Imagem
+- "preencher_dados_triagem": use quando o colaborador fornecer dados que estavam faltando para imagens BLOQUEADAS.
+  O campo "dados" deve conter APENAS os campos que o colaborador informou (peso, medidas, material, capacidade, etc.).
+  A triagem será refeita automaticamente com esses dados e as imagens bloqueadas serão reavaliadas.
 - Use APENAS UM bloco <CMD> por resposta
 - Para dúvidas sem alteração de conteúdo: responda normalmente, SEM bloco <CMD>"""
 
@@ -266,6 +331,27 @@ def _executar_comando(cmd: dict) -> str | None:
                 f"🔄 Instrução enviada para a **Foto {foto_num}** — "
                 "abra a aba **Imagem** para ver o resultado sendo gerado."
             )
+
+    if acao == "preencher_dados_triagem":
+        novos_dados = cmd.get("dados", {})
+        if not novos_dados or not isinstance(novos_dados, dict):
+            return None
+        cfg = st.session_state.get("img_triagem_config")
+        if cfg is None:
+            return "⚠️ Não há triagem em andamento no momento. Vá até a aba **Imagem** e clique em **Analisar** primeiro."
+        # Mescla os novos dados no dados_descricao do config
+        dados_atuais = cfg.get("dados_descricao") or {}
+        dados_atuais.update({k: v for k, v in novos_dados.items() if v})
+        cfg["dados_descricao"] = dados_atuais
+        st.session_state["img_triagem_config"] = cfg
+        # Sinaliza para imagem.py refazer a triagem automaticamente
+        st.session_state["img_rerun_triagem"] = True
+        campos_str = ", ".join(f"{k}: {v}" for k, v in novos_dados.items() if v)
+        return (
+            f"✅ Dados atualizados ({campos_str}). "
+            "A triagem está sendo refeita — veja na aba **Imagem** que as imagens bloqueadas serão reavaliadas."
+        )
+
     return None
 
 
