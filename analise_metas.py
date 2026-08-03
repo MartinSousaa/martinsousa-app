@@ -2,22 +2,18 @@
 analise_metas.py — Página de Análise de Metas (exclusiva MartinSousa)
 Permite visualizar desempenho histórico e configurar metas por mês.
 
-NOTA: NÃO importa `placar` no nível de módulo — o import é feito de forma
-lazy dentro de pagina_analise_metas() para evitar circular import, já que
-placar.py pode importar analise_metas.
+NOTA: importa placar_core (sem UI) em vez de placar (com UI) para evitar
+circular import e conflito de chaves de widgets do Streamlit.
 """
 import streamlit as st
 import pandas as pd
 from datetime import datetime
 
 import metas_config as mc
+import placar_core as _pc
 
-# MESES_PT definido localmente para não depender do import de placar no nível de módulo
-MESES_PT = {
-    1: "Janeiro", 2: "Fevereiro", 3: "Março",    4: "Abril",
-    5: "Maio",    6: "Junho",     7: "Julho",     8: "Agosto",
-    9: "Setembro",10: "Outubro",  11: "Novembro", 12: "Dezembro",
-}
+# MESES_PT importado do placar_core
+MESES_PT = _pc.MESES_PT
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -243,9 +239,7 @@ def _secao_colaboradores(dados, membros_ativos):
 
 def _secao_tempos(dados):
     """Tempo médio por coluna agregado do período."""
-    # Import lazy — placar já está carregado nesse ponto (chamado de dentro de pagina_analise_metas)
-    import placar as _pl
-    _CC = _pl.COLUNAS_CONFIG
+    _CC = _pc.COLUNAS_CONFIG
 
     tempo_agg = {}
     for r in dados:
@@ -407,10 +401,6 @@ def pagina_analise_metas(usuario_logado):
         st.warning("🔒 Acesso restrito ao gestor.")
         return
 
-    # ── LAZY IMPORT: importa placar aqui, dentro da função, para evitar circular import
-    # (placar.py pode importar analise_metas, então nunca importamos placar no nível de módulo)
-    import placar as _pl
-
     agora = datetime.now()
     st.markdown("### 📊 Análise de Metas")
 
@@ -476,7 +466,7 @@ def pagina_analise_metas(usuario_logado):
 
     # ── CARREGA DADOS ──────────────────────────────────────────────────────
     with st.spinner("Carregando dados do Trello e configurações..."):
-        dados_board = _pl._buscar_board()
+        dados_board = _pc._buscar_board()
 
     if not dados_board or not dados_board[0]:
         st.error("Não foi possível conectar ao Trello."); return
@@ -486,7 +476,7 @@ def pagina_analise_metas(usuario_logado):
     with st.spinner(f"Processando {len(meses_lista)} mês(es)..."):
         dados = _analisar_meses(
             listas, cards, membros_map, id_p, id_t, id_i,
-            meses_lista, _pl._processar
+            meses_lista, _pc._processar
         )
 
     # ── CABEÇALHO DO PERÍODO ───────────────────────────────────────────────
@@ -520,7 +510,7 @@ def pagina_analise_metas(usuario_logado):
         _secao_coletiva(dados)
 
     with tab_ind:
-        _secao_colaboradores(dados, _pl.MEMBROS_ATIVOS)
+        _secao_colaboradores(dados, _pc.MEMBROS_ATIVOS)
 
         st.markdown("---")
         st.markdown(
