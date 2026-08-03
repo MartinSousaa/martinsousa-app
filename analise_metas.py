@@ -1065,7 +1065,7 @@ def _ind_extrair_meses(dados, username):
     resultado = []
     for r in dados:
         mk = f"meta_{username}"
-        meta_ind = r["cfg"].get(mk, r["cfg"].get("meta_equipe", 0))
+        meta_ind = r["cfg"].get(mk, 0)
         pts = r["pts_membro"].get(username, 0)
         resultado.append({
             "label":       r["label"],
