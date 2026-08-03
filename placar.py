@@ -158,6 +158,7 @@ def _processar(listas,cards,membros_map,id_p,id_t,id_i,filtro_mes=None):
         "falta_conf":0,"falta_info":0,"sem_membro":0,"falta_pts":0,
         "pts_pendentes":0.0,"pen_cards":[],"andamento_lista":[],
         "tempo_lista":{},"desativar":0,"reativar":0,"pend_lista":{},
+        "correcao_concl":0,"total_concl":0,
     }
     for card in cards:
         nl=listas.get(card["idList"],"")
@@ -207,6 +208,10 @@ def _processar(listas,cards,membros_map,id_p,id_t,id_i,filtro_mes=None):
 
         if tempo and tempo>0:
             d["tempo_lista"].setdefault(nl,[]).append(max(tempo-interr,0))
+
+        # Retrabalho: conta cartões concluídos e de correção de fotos
+        d["total_concl"]+=1
+        if nl=="CORREÇÃO DE FOTOS: 0 PONTOS": d["correcao_concl"]+=1
 
         # ── PONTUAÇÃO: somente concluídos no mês selecionado ───────────────────
         if pt is None: continue
@@ -624,25 +629,34 @@ def pagina_placar(usuario_logado):
     max_retrab_n  = int(cfg_mes.get("max_retrab_normal", 10))
     max_retrab_x  = int(cfg_mes.get("max_retrab_maxx", 5))
 
-    # % da meta de penalidades (base: max+1 → % vai a 0 ao atingir o limite)
-    pct_pen_normal = max(0, min(100, (1 - qtd_pen / (max_pen_n + 1)) * 100))
-    pct_pen_maxx   = max(0, min(100, (1 - qtd_pen / (max_pen_x + 1)) * 100))
+    # Penalidades: acumulam de 0% (sem pen.) até 100% (no limite) — barra VERMELHA
+    pct_pen_normal = min(qtd_pen / (max_pen_n + 1) * 100, 100) if max_pen_n >= 0 else 0
+    pct_pen_maxx   = min(qtd_pen / (max_pen_x + 1) * 100, 100) if max_pen_x >= 0 else 0
+
+    # Retrabalho: calcula do processamento do mês (via _processar já aplicou filtro_mes)
+    _total_concl  = d.get("total_concl", 0)
+    _corr_concl   = d.get("correcao_concl", 0)
+    pct_retrab    = (_corr_concl / _total_concl * 100) if _total_concl > 0 else 0
+    _desc_retrab  = (f"{pct_retrab:.1f}% retrabalho · {_corr_concl} correção(ões) / {_total_concl} concluídos"
+                     if _total_concl > 0 else "Nenhum cartão concluído no período")
+    # Barra: 0% = sem retrabalho, 100% = no limite — VERMELHO
+    pct_retrab_barra_n = min(pct_retrab / max_retrab_n * 100, 100) if max_retrab_n > 0 else 0
+    pct_retrab_barra_x = min(pct_retrab / max_retrab_x * 100, 100) if max_retrab_x > 0 else 0
 
     with col_meta_n:
         b = ""
         b += f'<div style="font-size:10px;font-weight:600;color:#1BAF7A;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">📋 Meta Coletiva</div>'
         b += _barra_meta("Pontuação do mês", pct_eq, f"{saldo_eq:,.0f} / {meta_eq:,} pts (inclui -{d['pen_total']:.0f} penalidades)", "#1BAF7A")
         b += _barra_meta("Sem atraso em prioritários P8-P10", pct_prioritarios_ok, "Nenhum cartão prioritário atrasado", "#1BAF7A")
-        b += _barra_meta(f"Retrabalho abaixo de {max_retrab_n}%", 100, "Coluna Correção de Fotos", "#1BAF7A")
-        cor_pen_n = "#E34948" if qtd_pen > max_pen_n else "#1BAF7A"
-        b += _barra_meta(f"Menos de {max_pen_n+1} penalidades", pct_pen_normal, f"{qtd_pen} ocorrências / máx {max_pen_n}", cor_pen_n)
+        b += _barra_meta(f"Retrabalho abaixo de {max_retrab_n}%", pct_retrab_barra_n, _desc_retrab, "#E34948")
+        b += _barra_meta(f"Menos de {max_pen_n+1} penalidades", pct_pen_normal, f"{qtd_pen} ocorrência(s) / máx {max_pen_n}", "#E34948")
         b += _barra_meta("Cartões com membro atribuído", pct_com_membro, "Em andamento e concluídos", "#1BAF7A")
         b += f'<div style="font-size:10px;font-weight:600;color:#1BAF7A;text-transform:uppercase;letter-spacing:.5px;margin:10px 0 8px 0;border-top:1px solid var(--ms-divisor);padding-top:8px;">🎯 Meta Individual</div>'
         b += _barra_aguardando("Pontuação Individual", "Veja abaixo o desempenho por colaborador", "#1BAF7A")
         b += _barra_aguardando("Ociosidade abaixo de 10%", "Aguardando relógio de ponto", "#1BAF7A")
         b += _barra_aguardando("Tempo médio abaixo do estimado", "Aguardando histórico de execução", "#1BAF7A")
-        b += _barra_meta(f"Pontualidade: máx {max_tol_n} tolerâncias", 100, f"0 tolerâncias usadas este mês", "#1BAF7A")
-        b += _barra_meta(f"Pontualidade: máx {max_atr_n} atrasos", 100, f"0 atrasos registrados este mês", "#1BAF7A")
+        b += _barra_aguardando(f"Pontualidade: máx {max_tol_n} tolerâncias", "Aguardando integração do relógio de ponto", "#1BAF7A")
+        b += _barra_aguardando(f"Pontualidade: máx {max_atr_n} atrasos", "Aguardando integração do relógio de ponto", "#1BAF7A")
         st.markdown(f'<div style="background:var(--ms-metric-bg);border:1px solid #1BAF7A22;border-radius:8px;padding:12px 14px;">{b}</div>', unsafe_allow_html=True)
 
     with col_meta_x:
@@ -650,16 +664,15 @@ def pagina_placar(usuario_logado):
         b += f'<div style="font-size:10px;font-weight:600;color:#FFD700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">⭐ Meta Maxx Coletiva</div>'
         b += _barra_meta(f"Pontuação +{maxx_pct-100}% acima da meta", pct_maxx, f"{saldo_eq:,.0f} / {meta_maxx_pts:,.0f} pts (c/ penalidades -{ d['pen_total']:.0f})", "#FFD700")
         b += _barra_meta("Zero prioritários em atraso", pct_prioritarios_ok, "Nenhum cartão prioritário atrasado", "#FFD700")
-        b += _barra_meta(f"Retrabalho abaixo de {max_retrab_x}%", 100, "Coluna Correção de Fotos", "#FFD700")
-        cor_pen_x = "#E34948" if qtd_pen > max_pen_x else "#FFD700"
-        b += _barra_meta(f"Menos de {max_pen_x+1} penalidades", pct_pen_maxx, f"{qtd_pen} ocorrências / máx {max_pen_x}", cor_pen_x)
+        b += _barra_meta(f"Retrabalho abaixo de {max_retrab_x}%", pct_retrab_barra_x, _desc_retrab, "#E34948")
+        b += _barra_meta(f"Menos de {max_pen_x+1} penalidades", pct_pen_maxx, f"{qtd_pen} ocorrência(s) / máx {max_pen_x}", "#E34948")
         b += f'<div style="height:32px;"></div>'
         b += f'<div style="font-size:10px;font-weight:600;color:#FFD700;text-transform:uppercase;letter-spacing:.5px;margin:10px 0 8px 0;border-top:1px solid var(--ms-divisor);padding-top:8px;">⭐ Meta Maxx Individual</div>'
         b += _barra_aguardando("Pontuação Individual", "Veja abaixo o desempenho por colaborador", "#FFD700")
         b += _barra_aguardando("Ociosidade abaixo de 5%", "Aguardando relógio de ponto", "#FFD700")
         b += _barra_aguardando("Tempo médio abaixo do estimado", "Aguardando histórico de execução", "#FFD700")
-        b += _barra_meta(f"Pontualidade: máx {max_tol_x} tolerâncias", 100, f"0 tolerâncias usadas este mês", "#FFD700")
-        b += _barra_meta(f"Pontualidade: máx {max_atr_x} atrasos", 100, f"0 atrasos registrados este mês", "#FFD700")
+        b += _barra_aguardando(f"Pontualidade: máx {max_tol_x} tolerâncias", "Aguardando integração do relógio de ponto", "#FFD700")
+        b += _barra_aguardando(f"Pontualidade: máx {max_atr_x} atrasos", "Aguardando integração do relógio de ponto", "#FFD700")
         st.markdown(f'<div style="background:var(--ms-metric-bg);border:1px solid #FFD70022;border-radius:8px;padding:12px 14px;">{b}</div>', unsafe_allow_html=True)
 
     # ══ BLOCO 3 — EM ANDAMENTO | FILA | DESEMPENHO ══
