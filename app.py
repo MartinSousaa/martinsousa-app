@@ -79,6 +79,11 @@ body.tema-claro {
 [data-testid="stHeader"]  { background-color: var(--ms-fundo) !important; border-bottom: none !important; }
 [data-testid="stToolbar"] { background-color: var(--ms-fundo) !important; }
 #stDecoration             { display: none !important; }
+/* Esconde o overlay de "running" que escurece a tela no auto-refresh */
+[data-testid="stStatusWidget"]          { display: none !important; }
+div[class*="StatusWidget"]              { display: none !important; }
+.stApp > header [data-testid="stStatus"]{ display: none !important; }
+iframe[title="st_autorefresh"]          { display: none !important; }
 
 /* ── FUNDO GERAL ────────────────────────────────────────────────────────── */
 .stApp { background-color: var(--ms-fundo) !important; color: var(--ms-texto) !important; }
