@@ -27,7 +27,7 @@ import descricao
 import imagem
 import video
 import chat_assistente
-import placar
+import analise_metas
 
 st.set_page_config(page_title="MS Studio", layout="wide")
 
@@ -1090,15 +1090,20 @@ with st.sidebar:
         st.rerun()
     chat_assistente.renderizar_chat(usuario_logado)
 
-_eh_admin = auth.is_admin(usuario_logado)
+_eh_admin        = auth.is_admin(usuario_logado)
+_eh_martinsousa  = usuario_logado.lower() == "martinsousa"
+
 _nomes_abas = ["Análise de Viabilidade", "Triagem", "Palavras-chave", "Título",
-               "Descrição", "Imagem", "Vídeo", "Histórico", "Análise de Venda", "🏆 Painel de Meta"]
+               "Descrição", "Imagem", "Vídeo", "Histórico", "Análise de Venda"]
 if _eh_admin:
     _nomes_abas.append("Administrativo")
+_idx_analise_metas = len(_nomes_abas)   # guarda posição antes de inserir
+if _eh_martinsousa:
+    _nomes_abas.append("📊 Análise de Metas")
 
 _abas = st.tabs(_nomes_abas)
 (aba_viabilidade, aba_triagem, aba_palavras, aba_titulo,
- aba_descricao, aba_imagem, aba_video, aba_historico, aba_analise_venda, aba_placar) = _abas[:10]
+ aba_descricao, aba_imagem, aba_video, aba_historico, aba_analise_venda) = _abas[:9]
 
 with aba_video:
     video.pagina_video(usuario_logado)
@@ -1106,16 +1111,17 @@ with aba_video:
 with aba_historico:
     atividades.pagina_historico()
 
-with aba_placar:
-    placar.pagina_placar(usuario_logado)
-
 if _eh_admin:
-    with _abas[10]:
+    with _abas[9]:
         _sub_admin, _sub_financeiro = st.tabs(["⚙️ Administrativo", "💰 Financeiro"])
         with _sub_admin:
             admin.pagina_admin(usuario_logado)
         with _sub_financeiro:
             financeiro.pagina_financeiro(usuario_logado)
+
+if _eh_martinsousa:
+    with _abas[_idx_analise_metas]:
+        analise_metas.pagina_analise_metas(usuario_logado)
 
 with aba_analise_venda:
     # LPV e NF vigentes
