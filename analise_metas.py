@@ -878,7 +878,7 @@ def _chart_pontuacao_meta(dados):
     html = _grafico_barras_svg(
         labels, metas, saldos, label1="Meta", label2="Realizado",
         line_vals=deltas, cor1="#4A90D9",
-        cor2_fn=lambda i: "#1BAF7A" if saldos[i] >= metas[i] else "#E34948",
+        cor2_fn=lambda i: "#1BAF7A",
         melhor_idx=bi, melhor_txt=melhor_txt,
     )
     return html + f'<div style="text-align:right;font-size:9px;color:#EDA100;padding:0 4px 4px;">Média período: {avg_pct:.1f}%</div>'
@@ -1029,7 +1029,7 @@ def _chart_ind_pts(meses, C=None):
     html = _grafico_barras_svg(
         labels, metas, pts, label1="Meta", label2="Realizado",
         line_vals=deltas, cor1="#4A90D9",
-        cor2_fn=lambda i: "#1BAF7A" if pts[i] >= metas[i] else "#E34948",
+        cor2_fn=lambda i: "#1BAF7A",
         melhor_idx=bi, melhor_txt=melhor_txt,
     )
     return html + f'<div style="text-align:right;font-size:9px;color:#EDA100;padding:0 4px 4px;">Média: {avg_pct:.1f}%</div>'
