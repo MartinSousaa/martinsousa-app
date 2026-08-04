@@ -23,6 +23,11 @@ try:
 except Exception:
     TRELLO_KEY = TRELLO_TOKEN = BOARD_ID = ""
 
+try:
+    _TV_TOKEN = str(st.secrets.get("tv", {}).get("token", ""))
+except Exception:
+    _TV_TOKEN = ""
+
 MEMBROS_ATIVOS = {
     "myrelladesouza": "Myrella",
     "beatriz51":      "Beatriz",
@@ -383,30 +388,40 @@ def pagina_placar(usuario_logado):
     st.markdown(CSS,unsafe_allow_html=True)
     agora=datetime.now()
     params=st.query_params
-    modo_tv=params.get("tv","")=="1"
+    modo_tv = bool(_TV_TOKEN) and params.get("tv","") == _TV_TOKEN
 
-    # Cabeçalho
-    col_tit,col_mes,col_att=st.columns([3,2,1])
-    with col_tit: st.markdown("### 🏆 Painel de Meta")
-    with col_mes:
-        meses=[(agora.year,agora.month)]
-        m,a=agora.month,agora.year
-        for _ in range(5):
-            m-=1
-            if m==0: m=12; a-=1
-            meses.append((a,m))
-        labels=[f"{MESES_PT[mm]} {aa}" for aa,mm in meses]
-        sel=st.selectbox("Mês",labels,index=0,key="placar_mes",label_visibility="collapsed")
-        filtro_mes=meses[labels.index(sel)]
-    with col_att:
-        if st.button("🔄",use_container_width=True,help="Atualizar"):
-            _buscar_board.clear(); st.rerun()
-
-    # ── Auto-refresh a cada 30s (streamlit-autorefresh) ──────────────────────
-    if _AUTOREFRESH_OK:
-        _st_autorefresh(interval=30_000, limit=None, key="placar_autorefresh")
-
-    st.caption(f"Exibindo: {sel} · atualiza automaticamente a cada 30s · {agora.strftime('%d/%m/%Y %H:%M')}")
+    # ── Cabeçalho / controles ────────────────────────────────────────────────
+    if modo_tv:
+        # TV: sem seletor de mês, sem botão, mês atual fixo
+        filtro_mes = (agora.year, agora.month)
+        sel        = f"{MESES_PT[agora.month]} {agora.year}"
+        if _AUTOREFRESH_OK:
+            _st_autorefresh(interval=60_000, limit=None, key="tv_autorefresh")
+        st.markdown(
+            f'<div style="font-size:10px;color:var(--ms-texto-sec);'
+            f'text-align:right;padding:2px 8px 6px;">'
+            f'📺 {sel} · atualiza a cada 60s · {agora.strftime("%d/%m/%Y %H:%M")}</div>',
+            unsafe_allow_html=True
+        )
+    else:
+        col_tit,col_mes,col_att=st.columns([3,2,1])
+        with col_tit: st.markdown("### 🏆 Painel de Meta")
+        with col_mes:
+            meses=[(agora.year,agora.month)]
+            m,a=agora.month,agora.year
+            for _ in range(5):
+                m-=1
+                if m==0: m=12; a-=1
+                meses.append((a,m))
+            labels=[f"{MESES_PT[mm]} {aa}" for aa,mm in meses]
+            sel=st.selectbox("Mês",labels,index=0,key="placar_mes",label_visibility="collapsed")
+            filtro_mes=meses[labels.index(sel)]
+        with col_att:
+            if st.button("🔄",use_container_width=True,help="Atualizar"):
+                _buscar_board.clear(); st.rerun()
+        if _AUTOREFRESH_OK:
+            _st_autorefresh(interval=30_000, limit=None, key="placar_autorefresh")
+        st.caption(f"Exibindo: {sel} · atualiza automaticamente a cada 30s · {agora.strftime('%d/%m/%Y %H:%M')}")
 
     # ── Carrega configuração persistida (ou usa defaults) ──────────────────────
     try:
@@ -761,6 +776,63 @@ def pagina_placar(usuario_logado):
               <div style="font-size:10px;color:var(--ms-texto-sec);margin-top:2px;">{ms}</div>
             </div>""",unsafe_allow_html=True)
 
-    # Link TV
-    st.markdown('<hr style="border:none;border-top:1px solid var(--ms-divisor);margin:10px 0 4px 0;"/>',unsafe_allow_html=True)
-    st.caption(f"📺 Para TV: adicione **?tv=1** no final da URL · {agora.strftime('%d/%m/%Y %H:%M')}")
+    # ══ BLOCO FINAL — alertas sonoros (TV) e rodapé ══
+    if modo_tv:
+        # Alertas sonoros via Web Audio API
+        _urgentes_tv  = int(d.get("urgentes",  0))
+        _atrasados_tv = int(d.get("atrasados", 0))
+        _components.html(f"""
+<script>
+(function() {{
+    var URGENTES  = {_urgentes_tv};
+    var ATRASADOS = {_atrasados_tv};
+
+    function beep(freq, dur, vol, delay) {{
+        try {{
+            var ctx = new (window.AudioContext || window.webkitAudioContext)();
+            var osc  = ctx.createOscillator();
+            var gain = ctx.createGain();
+            osc.connect(gain); gain.connect(ctx.destination);
+            osc.type = 'sine';
+            osc.frequency.value = freq;
+            gain.gain.setValueAtTime(0, ctx.currentTime + delay);
+            gain.gain.linearRampToValueAtTime(vol, ctx.currentTime + delay + 0.02);
+            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + dur);
+            osc.start(ctx.currentTime + delay);
+            osc.stop(ctx.currentTime + delay + dur + 0.05);
+        }} catch(e) {{}}
+    }}
+
+    /* Som "urgente" — 3 bips ascendentes (tipo chamada de hospital) */
+    function playUrgente() {{
+        beep(660,  0.25, 0.4, 0.0);
+        beep(880,  0.25, 0.4, 0.35);
+        beep(1100, 0.40, 0.45, 0.70);
+        beep(1100, 0.40, 0.45, 1.20);
+    }}
+
+    /* Som "atenção" — 2 bips curtos (prazo próximo) */
+    function playAtencao() {{
+        beep(660, 0.20, 0.35, 0.0);
+        beep(880, 0.30, 0.35, 0.30);
+    }}
+
+    function checkAndPlay() {{
+        if (URGENTES > 0)       {{ playUrgente(); }}
+        else if (ATRASADOS > 0) {{ playAtencao(); }}
+    }}
+
+    /* Primeira execução 4s após carregar; depois a cada 5 minutos */
+    setTimeout(checkAndPlay, 4000);
+    setInterval(checkAndPlay, 5 * 60 * 1000);
+}})();
+</script>
+""", height=0)
+    else:
+        # Rodapé normal com dica de TV
+        if _TV_TOKEN:
+            st.markdown('<hr style="border:none;border-top:1px solid var(--ms-divisor);margin:10px 0 4px 0;"/>',unsafe_allow_html=True)
+            st.caption(f"📺 Para TV: adicione **?tv={_TV_TOKEN}** no final da URL · {agora.strftime('%d/%m/%Y %H:%M')}")
+        else:
+            st.markdown('<hr style="border:none;border-top:1px solid var(--ms-divisor);margin:10px 0 4px 0;"/>',unsafe_allow_html=True)
+            st.caption(f"📺 Configure **[tv] token** no Secrets para ativar modo TV · {agora.strftime('%d/%m/%Y %H:%M')}")
