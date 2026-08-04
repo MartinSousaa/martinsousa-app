@@ -864,6 +864,63 @@ def pagina_placar(usuario_logado):
         {**c, "tipo": "concluído"} for c in d.get("concluido_sem_membro", [])
     ]
     _alertas_sem_mb = _and_sem_mb + _concl_sem_mb
+
+    # ══ MODO TV — calcula tudo aqui e encerra antes de qualquer render ══
+    if modo_tv:
+        _tv_saldo    = d["pts_equipe"] - d["pen_total"]
+        _tv_pct_eq   = (_tv_saldo / meta_eq * 100) if meta_eq > 0 else 0
+        _tv_pct_maxx = (_tv_saldo / meta_maxx_pts * 100) if meta_maxx_pts > 0 else 0
+        _tv_faltam   = max(meta_eq - _tv_saldo, 0)
+        _tv_faltam_x = max(meta_maxx_pts - _tv_saldo, 0)
+
+        _tv_pri_ok   = 100 if d["atrasados"] == 0 else max(0, 100 - d["atrasados"] * 20)
+        from datetime import timezone as _tz2
+        _tv_corte    = datetime(2026, 7, 1, tzinfo=_tz2.utc)
+        _tv_eleg     = [c for c in cards if _data_card(c) >= _tv_corte
+                        and ("EM ANDAMENTO" in _labels(c) or c.get("dueComplete", False))]
+        _tv_sem_mb   = sum(1 for c in _tv_eleg if not _users(c, membros_map))
+        _tv_pct_mb   = max(0, min(100, 100 - (_tv_sem_mb / max(len(_tv_eleg), 1) * 100)))
+
+        _tv_qtd_pen  = len(d["pen_cards"])
+        _tv_mpen_n   = int(cfg_mes.get("max_pen_normal", 4))
+        _tv_mpen_x   = int(cfg_mes.get("max_pen_maxx", 1))
+        _tv_mret_n   = int(cfg_mes.get("max_retrab_normal", 10))
+        _tv_mret_x   = int(cfg_mes.get("max_retrab_maxx", 5))
+        _tv_pct_pen_n = min(_tv_qtd_pen / (_tv_mpen_n + 1) * 100, 100) if _tv_mpen_n >= 0 else 0
+        _tv_pct_pen_x = min(_tv_qtd_pen / (_tv_mpen_x + 1) * 100, 100) if _tv_mpen_x >= 0 else 0
+        _tv_concl    = d.get("total_concl", 0)
+        _tv_corr     = d.get("correcao_concl", 0)
+        _tv_pret     = (_tv_corr / _tv_concl * 100) if _tv_concl > 0 else 0
+        _tv_desc_ret = (f"{_tv_pret:.1f}% retrabalho · {_tv_corr} correção(ões) / {_tv_concl} concluídos"
+                        if _tv_concl > 0 else "Nenhum cartão concluído no período")
+        _tv_pret_n   = min(_tv_pret / _tv_mret_n * 100, 100) if _tv_mret_n > 0 else 0
+        _tv_pret_x   = min(_tv_pret / _tv_mret_x * 100, 100) if _tv_mret_x > 0 else 0
+
+        _alertas_tv  = _alertas_tv_list(listas, cards, membros_map)
+        st.markdown("""<style>
+        header[data-testid="stHeader"]{display:none!important;}
+        .stMainBlockContainer,.block-container{padding:0!important;max-width:100vw!important;}
+        footer{display:none!important;}#MainMenu{display:none!important;}
+        </style>""", unsafe_allow_html=True)
+        _html_tv = _tv_full_html(
+            pct_eq=_tv_pct_eq, pct_maxx=_tv_pct_maxx,
+            saldo_eq=_tv_saldo, meta_eq=meta_eq, faltam=_tv_faltam,
+            pts_pendentes=d["pts_pendentes"],
+            meta_maxx_pts=meta_maxx_pts, faltam_maxx=_tv_faltam_x,
+            maxx_pct=maxx_pct, pen_total=d["pen_total"], n_pen=len(d["pen_cards"]),
+            d=d, fila=fila, alertas=_alertas_tv, pend_lista=d["pend_lista"],
+            pct_pri_ok=_tv_pri_ok,
+            pct_retrab_n=_tv_pret_n, pct_pen_n=_tv_pct_pen_n,
+            pct_retrab_x=_tv_pret_x, pct_pen_x=_tv_pct_pen_x,
+            pct_com_membro=_tv_pct_mb, desc_retrab=_tv_desc_ret,
+            max_retrab_n=_tv_mret_n, max_pen_n=_tv_mpen_n,
+            max_retrab_x=_tv_mret_x, max_pen_x=_tv_mpen_x,
+            n_urgentes=d.get("urgentes", 0), n_sem_mb=d.get("sem_membro", 0),
+            agora_str=agora.strftime("%d/%m/%Y %H:%M"),
+        )
+        _components.html(_html_tv, height=1080, scrolling=False)
+        return
+
     if _alertas_sem_mb:
         _itens = "".join(
             f'<div style="display:flex;align-items:center;gap:8px;padding:4px 0;'
@@ -1045,33 +1102,6 @@ def pagina_placar(usuario_logado):
     # Barra: 0% = sem retrabalho, 100% = no limite — VERMELHO
     pct_retrab_barra_n = min(pct_retrab / max_retrab_n * 100, 100) if max_retrab_n > 0 else 0
     pct_retrab_barra_x = min(pct_retrab / max_retrab_x * 100, 100) if max_retrab_x > 0 else 0
-
-    # ══ MODO TV — renderiza HTML completo e encerra ══
-    if modo_tv:
-        _alertas_tv = _alertas_tv_list(listas, cards, membros_map)
-        st.markdown("""<style>
-        header[data-testid="stHeader"]{display:none!important;}
-        .stMainBlockContainer,.block-container{padding:0!important;max-width:100vw!important;}
-        footer{display:none!important;}#MainMenu{display:none!important;}
-        </style>""", unsafe_allow_html=True)
-        _html_tv = _tv_full_html(
-            pct_eq=pct_eq, pct_maxx=pct_maxx,
-            saldo_eq=saldo_eq, meta_eq=meta_eq, faltam=faltam,
-            pts_pendentes=d["pts_pendentes"],
-            meta_maxx_pts=meta_maxx_pts, faltam_maxx=faltam_maxx,
-            maxx_pct=maxx_pct, pen_total=d["pen_total"], n_pen=len(d["pen_cards"]),
-            d=d, fila=fila, alertas=_alertas_tv, pend_lista=d["pend_lista"],
-            pct_pri_ok=pct_prioritarios_ok,
-            pct_retrab_n=pct_retrab_barra_n, pct_pen_n=pct_pen_normal,
-            pct_retrab_x=pct_retrab_barra_x, pct_pen_x=pct_pen_maxx,
-            pct_com_membro=pct_com_membro, desc_retrab=_desc_retrab,
-            max_retrab_n=max_retrab_n, max_pen_n=max_pen_n,
-            max_retrab_x=max_retrab_x, max_pen_x=max_pen_x,
-            n_urgentes=d.get("urgentes", 0), n_sem_mb=d.get("sem_membro", 0),
-            agora_str=agora.strftime("%d/%m/%Y %H:%M"),
-        )
-        _components.html(_html_tv, height=1080, scrolling=False)
-        return
 
     with col_meta_n:
         b = ""
