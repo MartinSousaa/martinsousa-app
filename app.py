@@ -29,6 +29,7 @@ import video
 import chat_assistente
 import placar
 import analise_metas
+import relogio_ponto
 
 st.set_page_config(page_title="MS Studio", layout="wide")
 
@@ -1144,17 +1145,29 @@ with st.sidebar:
 
 _eh_admin        = auth.is_admin(usuario_logado)
 _eh_martinsousa  = usuario_logado.lower() == "martinsousa"
-_eh_painel       = usuario_logado.lower() in placar.MASTERS or usuario_logado in placar.MEMBROS_ATIVOS
 
-# Ordem: fixas | Painel de Metas | Análise de Metas | Administrativo
+# Mapeia nomes de login (exibição) → usernames do Trello para checagem de acesso
+_LOGIN_TRELLO = {
+    "Myrella":     "myrelladesouza",
+    "Beatriz":     "beatriz51",
+    "Gabriel":     "gabriel_borges",
+    "MartinSousa": "martinsousa",
+}
+_trello_user = _LOGIN_TRELLO.get(usuario_logado, usuario_logado.lower())
+_eh_painel   = _trello_user in {m.lower() for m in placar.MASTERS} or _trello_user in placar.MEMBROS_ATIVOS
+
+# Ordem: fixas | Painel de Metas | Análise de Metas | Ponto | Administrativo
 _nomes_abas = ["Análise de Viabilidade", "Triagem", "Palavras-chave", "Título",
                "Descrição", "Imagem", "Vídeo", "Análise de Venda", "Histórico"]
 _idx_painel = len(_nomes_abas) if _eh_painel else None
 if _eh_painel:
     _nomes_abas.append("🏆 Painel de Metas")
-_idx_analise_metas = len(_nomes_abas) if _eh_martinsousa else None
-if _eh_martinsousa:
+_idx_analise_metas = len(_nomes_abas) if _eh_painel else None
+if _eh_painel:
     _nomes_abas.append("📊 Análise de Metas")
+_idx_ponto = len(_nomes_abas) if _eh_painel else None
+if _eh_painel:
+    _nomes_abas.append("🕐 Ponto")
 _idx_admin = len(_nomes_abas) if _eh_admin else None
 if _eh_admin:
     _nomes_abas.append("Administrativo")
@@ -1173,9 +1186,13 @@ if _eh_painel and _idx_painel is not None:
     with _abas[_idx_painel]:
         placar.pagina_placar(usuario_logado)
 
-if _eh_martinsousa and _idx_analise_metas is not None:
+if _eh_painel and _idx_analise_metas is not None:
     with _abas[_idx_analise_metas]:
         analise_metas.pagina_analise_metas(usuario_logado)
+
+if _eh_painel and _idx_ponto is not None:
+    with _abas[_idx_ponto]:
+        relogio_ponto.pagina_ponto(usuario_logado)
 
 if _eh_admin and _idx_admin is not None:
     with _abas[_idx_admin]:
