@@ -736,31 +736,41 @@ if _tv_token_cfg and st.query_params.get("tv", "") == _tv_token_cfg:
     # Oculta todo o chrome do Streamlit — só o conteúdo do Placar aparece
     st.markdown("""
     <style>
-    header[data-testid="stHeader"]       { display: none !important; }
-    [data-testid="stSidebar"]            { display: none !important; }
-    [data-testid="stToolbar"]            { display: none !important; }
-    footer                               { display: none !important; }
-    #stDecoration                        { display: none !important; }
-    .stDeployButton                      { display: none !important; }
-    #MainMenu                            { display: none !important; }
-    [data-testid="stStatusWidget"]       { display: none !important; }
-    [data-testid="stAppRunningIndicator"]{ display: none !important; }
-    div[class*="StatusWidget"]           { display: none !important; }
-    div[class*="AppRunningIndicator"]    { display: none !important; }
-    iframe[title="st_autorefresh"]       { display: none !important; }
-    iframe[title="tv_autorefresh"]       { display: none !important; }
+    header[data-testid="stHeader"]        { display: none !important; }
+    [data-testid="stSidebar"]             { display: none !important; }
+    [data-testid="stToolbar"]             { display: none !important; }
+    footer                                { display: none !important; }
+    #stDecoration                         { display: none !important; }
+    .stDeployButton                       { display: none !important; }
+    #MainMenu                             { display: none !important; }
+    [data-testid="stStatusWidget"]        { display: none !important; }
+    [data-testid="stAppRunningIndicator"] { display: none !important; }
+    div[class*="StatusWidget"]            { display: none !important; }
+    div[class*="AppRunningIndicator"]     { display: none !important; }
+    iframe[title="st_autorefresh"]        { display: none !important; }
+    iframe[title="tv_autorefresh"]        { display: none !important; }
+
+    /* Garante que o rerun não escureça a tela */
     .stApp *, .main *,
     [data-testid="stMain"] *,
     [data-testid="stMainBlockContainer"] * { opacity: 1 !important; }
+
+    /* Container principal: sem padding, fundo escuro */
     .stApp, [data-testid="stAppViewContainer"],
     [data-testid="stMain"], .main,
     [data-testid="stMainBlockContainer"],
     .main .block-container {
         padding: 0 !important;
-        padding-top: 6px !important;
         margin: 0 !important;
         max-width: 100% !important;
         background-color: #1a1a1a !important;
+    }
+
+    /* ── ESCALA PARA CABER NA TV ── */
+    /* Aplica zoom de 78% no conteúdo — tudo cabe sem scroll */
+    [data-testid="stMainBlockContainer"] {
+        zoom: 0.78 !important;
+        padding: 4px 10px !important;
     }
     </style>
     """, unsafe_allow_html=True)
