@@ -892,33 +892,6 @@ def pagina_placar(usuario_logado):
     faltam_maxx=max(meta_maxx_pts-saldo_eq,0)
     cor_pts="#1BAF7A" if pct_eq>=100 else ("#EDA100" if pct_eq>=50 else "#E34948")
 
-    # ══ MODO TV — renderiza HTML completo e encerra ══
-    if modo_tv:
-        _alertas_tv = _alertas_tv_list(listas, cards, membros_map)
-        st.markdown("""<style>
-        header[data-testid="stHeader"]{display:none!important;}
-        .stMainBlockContainer,.block-container{padding:0!important;max-width:100vw!important;}
-        footer{display:none!important;}#MainMenu{display:none!important;}
-        </style>""", unsafe_allow_html=True)
-        _html_tv = _tv_full_html(
-            pct_eq=pct_eq, pct_maxx=pct_maxx,
-            saldo_eq=saldo_eq, meta_eq=meta_eq, faltam=faltam,
-            pts_pendentes=d["pts_pendentes"],
-            meta_maxx_pts=meta_maxx_pts, faltam_maxx=faltam_maxx,
-            maxx_pct=maxx_pct, pen_total=d["pen_total"], n_pen=len(d["pen_cards"]),
-            d=d, fila=fila, alertas=_alertas_tv, pend_lista=d["pend_lista"],
-            pct_pri_ok=pct_prioritarios_ok,
-            pct_retrab_n=pct_retrab_barra_n, pct_pen_n=pct_pen_normal,
-            pct_retrab_x=pct_retrab_barra_x, pct_pen_x=pct_pen_maxx,
-            pct_com_membro=pct_com_membro, desc_retrab=_desc_retrab,
-            max_retrab_n=max_retrab_n, max_pen_n=max_pen_n,
-            max_retrab_x=max_retrab_x, max_pen_x=max_pen_x,
-            n_urgentes=d.get("urgentes", 0), n_sem_mb=d.get("sem_membro", 0),
-            agora_str=agora.strftime("%d/%m/%Y %H:%M"),
-        )
-        _components.html(_html_tv, height=1080, scrolling=False)
-        return
-
     # ══ BLOCO 1 — cards meta | vel meta | vel maxx | cards maxx ══
     col_cm, col_vm, col_vx, col_cx = st.columns([1.8, 2.0, 2.0, 1.8])
 
@@ -1072,6 +1045,33 @@ def pagina_placar(usuario_logado):
     # Barra: 0% = sem retrabalho, 100% = no limite — VERMELHO
     pct_retrab_barra_n = min(pct_retrab / max_retrab_n * 100, 100) if max_retrab_n > 0 else 0
     pct_retrab_barra_x = min(pct_retrab / max_retrab_x * 100, 100) if max_retrab_x > 0 else 0
+
+    # ══ MODO TV — renderiza HTML completo e encerra ══
+    if modo_tv:
+        _alertas_tv = _alertas_tv_list(listas, cards, membros_map)
+        st.markdown("""<style>
+        header[data-testid="stHeader"]{display:none!important;}
+        .stMainBlockContainer,.block-container{padding:0!important;max-width:100vw!important;}
+        footer{display:none!important;}#MainMenu{display:none!important;}
+        </style>""", unsafe_allow_html=True)
+        _html_tv = _tv_full_html(
+            pct_eq=pct_eq, pct_maxx=pct_maxx,
+            saldo_eq=saldo_eq, meta_eq=meta_eq, faltam=faltam,
+            pts_pendentes=d["pts_pendentes"],
+            meta_maxx_pts=meta_maxx_pts, faltam_maxx=faltam_maxx,
+            maxx_pct=maxx_pct, pen_total=d["pen_total"], n_pen=len(d["pen_cards"]),
+            d=d, fila=fila, alertas=_alertas_tv, pend_lista=d["pend_lista"],
+            pct_pri_ok=pct_prioritarios_ok,
+            pct_retrab_n=pct_retrab_barra_n, pct_pen_n=pct_pen_normal,
+            pct_retrab_x=pct_retrab_barra_x, pct_pen_x=pct_pen_maxx,
+            pct_com_membro=pct_com_membro, desc_retrab=_desc_retrab,
+            max_retrab_n=max_retrab_n, max_pen_n=max_pen_n,
+            max_retrab_x=max_retrab_x, max_pen_x=max_pen_x,
+            n_urgentes=d.get("urgentes", 0), n_sem_mb=d.get("sem_membro", 0),
+            agora_str=agora.strftime("%d/%m/%Y %H:%M"),
+        )
+        _components.html(_html_tv, height=1080, scrolling=False)
+        return
 
     with col_meta_n:
         b = ""
