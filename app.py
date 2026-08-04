@@ -725,6 +725,48 @@ components.html("""
 </script>
 """, height=0)
 
+# ── MODO TV: acesso sem login via token seguro ────────────────────────────────
+_tv_token_cfg = ""
+try:
+    _tv_token_cfg = str(st.secrets.get("tv", {}).get("token", ""))
+except Exception:
+    pass
+
+if _tv_token_cfg and st.query_params.get("tv", "") == _tv_token_cfg:
+    # Oculta todo o chrome do Streamlit — só o conteúdo do Placar aparece
+    st.markdown("""
+    <style>
+    header[data-testid="stHeader"]       { display: none !important; }
+    [data-testid="stSidebar"]            { display: none !important; }
+    [data-testid="stToolbar"]            { display: none !important; }
+    footer                               { display: none !important; }
+    #stDecoration                        { display: none !important; }
+    .stDeployButton                      { display: none !important; }
+    #MainMenu                            { display: none !important; }
+    [data-testid="stStatusWidget"]       { display: none !important; }
+    [data-testid="stAppRunningIndicator"]{ display: none !important; }
+    div[class*="StatusWidget"]           { display: none !important; }
+    div[class*="AppRunningIndicator"]    { display: none !important; }
+    iframe[title="st_autorefresh"]       { display: none !important; }
+    iframe[title="tv_autorefresh"]       { display: none !important; }
+    .stApp *, .main *,
+    [data-testid="stMain"] *,
+    [data-testid="stMainBlockContainer"] * { opacity: 1 !important; }
+    .stApp, [data-testid="stAppViewContainer"],
+    [data-testid="stMain"], .main,
+    [data-testid="stMainBlockContainer"],
+    .main .block-container {
+        padding: 0 !important;
+        padding-top: 6px !important;
+        margin: 0 !important;
+        max-width: 100% !important;
+        background-color: #1a1a1a !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    placar.pagina_placar("martinsousa")
+    st.stop()
+
 usuario_logado = auth.verificar_login()
 
 # UC minimo pra aprovar produto -- definido pelo Léo em 14/07/2026,
