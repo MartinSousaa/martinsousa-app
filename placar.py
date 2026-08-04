@@ -8,6 +8,7 @@ Layout: cards resumo | vel. meta | vel. maxx | cards resumo maxx
 import streamlit as st
 import streamlit.components.v1 as _components
 import requests
+import json as _json
 try:
     from streamlit_autorefresh import st_autorefresh as _st_autorefresh
     _AUTOREFRESH_OK = True
@@ -918,7 +919,12 @@ def pagina_placar(usuario_logado):
             n_urgentes=d.get("urgentes", 0), n_sem_mb=d.get("sem_membro", 0),
             agora_str=agora.strftime("%d/%m/%Y %H:%M"),
         )
-        _components.html(_html_tv, height=1080, scrolling=False)
+        # Substitui a página inteira pelo HTML TV (mesmo-origen → document.write funciona)
+        _tv_json = _json.dumps(_html_tv)
+        _components.html(
+            f"<script>(function(){{var d=window.parent.document;d.open();d.write({_tv_json});d.close();}})();</script>",
+            height=0, scrolling=False
+        )
         return
 
     if _alertas_sem_mb:
