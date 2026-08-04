@@ -12,6 +12,7 @@ from datetime import datetime
 
 import metas_config as mc
 import placar_core as _pc
+import relogio_ponto as _rp
 
 # MESES_PT importado do placar_core
 MESES_PT = _pc.MESES_PT
@@ -144,6 +145,7 @@ def _analisar_meses(listas, cards, membros_map, id_p, id_t, id_i, meses_lista, p
             "pct_retrab": pct_retrab,   # None se sem dados
             "total_concl": total_concl,
             "pct_com_membro": pct_com_membro_m,
+            "filtro_mes": (ano, mes),   # usado por relogio_ponto para calcular ociosidade
         })
     return resultado
 
@@ -1256,8 +1258,66 @@ def _chart_resumo_colabs(dados):
     ta_total  = sum(r["atrasados"]   for r in dados)
     atraso_mb = {u: ta_total / max(tc_total, 1) * 100 for u in users}
 
+    # ── Dados do relógio de ponto (ociosidade + tolerâncias) ──────────────────
+    # Tenta calcular para o período coberto em `dados`
+    # `dados` é lista de dicts com chave "filtro_mes" = (ano, mes)
+    try:
+        _meses_ponto = [r.get("filtro_mes") for r in dados if r.get("filtro_mes")]
+        _tem_ponto = False
+        _ocio_mb   = {u: 0.0 for u in users}
+        _tol_mb    = {u: 0.0 for u in users}
+        _pct_ocio  = {u: 0.0 for u in users}
+        _dias_trab = {u: 0   for u in users}
+        _dias_aus  = {u: 0   for u in users}
+
+        for ym in _meses_ponto:
+            if not ym:
+                continue
+            _ano, _mes = ym
+            # Tempo em cards por membro (minutos): soma tempo_lista ponderado
+            _tc_user = {}
+            for r in dados:
+                if r.get("filtro_mes") != ym:
+                    continue
+                for nl, tempos in r.get("tempo_lista", {}).items():
+                    # distribui igualmente entre os membros ativos (aproximação)
+                    t_sum = sum(tempos)
+                    for u in users:
+                        _tc_user[u] = _tc_user.get(u, 0) + t_sum / len(users)
+            _res = _rp.get_ociosidade_mes(_ano, _mes, _tc_user)
+            for u in users:
+                _ocio_mb[u]  += _res[u]["ociosidade_min"]
+                _tol_mb[u]   += _res[u]["total_tolerancia_min"]
+                _dias_trab[u] += _res[u]["dias_trabalhados"]
+                _dias_aus[u]  += _res[u]["dias_ausentes"]
+            # Verifica se há dados reais de ponto
+            if any(_res[u]["dias_trabalhados"] > 0 for u in users):
+                _tem_ponto = True
+
+        if _tem_ponto:
+            max_disp = max((sum(r.get("horas_disp_min", 0) for r in [
+                _rp.calcular_resumo_mes(_m[0], _m[1])[u] for _m in _meses_ponto if _m
+            ]) for u in users), default=1) or 1
+            _hd = {}
+            for u in users:
+                _hd_u = 0.0
+                for ym in _meses_ponto:
+                    if ym:
+                        _hd_u += _rp.calcular_resumo_mes(ym[0], ym[1])[u]["total_horas_disp"]
+                _hd[u] = _hd_u
+            _pct_ocio = {u: (_ocio_mb[u] / max(_hd.get(u, 1), 1) * 100) for u in users}
+    except Exception:
+        _tem_ponto = False
+        _ocio_mb   = {u: 0.0 for u in users}
+        _tol_mb    = {u: 0.0 for u in users}
+        _pct_ocio  = {u: 0.0 for u in users}
+        _dias_trab = {u: 0   for u in users}
+        _dias_aus  = {u: 0   for u in users}
+
     def _cor_meta(v):   return "#1BAF7A" if v >= 100 else ("#EDA100" if v >= 75 else "#E34948")
     def _cor_atraso(v): return "#1BAF7A" if v < 5   else ("#EDA100" if v < 15  else "#E34948")
+    def _cor_ocio(v):   return "#1BAF7A" if v < 10  else ("#EDA100" if v < 25  else "#E34948")
+    def _cor_tol(v):    return "#1BAF7A" if v <= 30 else ("#EDA100" if v <= 90  else "#E34948")
 
     def _titulo(t):
         return f'<div style="font-size:9px;font-weight:700;color:var(--ms-texto-sec);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">{t}</div>'
@@ -1265,7 +1325,7 @@ def _chart_resumo_colabs(dados):
     def _mini(titulo, vals_dict, fmt="{:.0f}", unidade="", cor_fn=None, aguardando=False):
         t = _titulo(titulo)
         if aguardando:
-            return t + '<div style="font-size:9px;color:var(--ms-texto-sec);font-style:italic;padding:6px 0;">Aguardando relógio de ponto</div>'
+            return t + '<div style="font-size:9px;color:var(--ms-texto-sec);font-style:italic;padding:6px 0;">Registre o ponto na aba 🕐 Ponto</div>'
         sorted_items = sorted(vals_dict.items(), key=lambda x: -x[1])
         max_v = max((v for _, v in sorted_items), default=1) or 1
         rows = ""
@@ -1278,16 +1338,42 @@ def _chart_resumo_colabs(dados):
     def _card(html):
         return f'<div style="background:var(--ms-metric-bg);border-radius:8px;padding:12px 14px;border:1px solid var(--ms-divisor);">{html}</div>'
 
+    # Detalhe de ociosidade e ausências
+    if _tem_ponto:
+        _detalhe_ocio = _titulo("💤 Ociosidade — Detalhe")
+        for u in users:
+            nome_u = MB.get(u, u)
+            ocio_h = _rp._fmt_min(_ocio_mb[u])
+            aus    = _dias_aus[u]
+            trab   = _dias_trab[u]
+            cor_o  = _cor_ocio(_pct_ocio.get(u, 0))
+            _detalhe_ocio += (
+                f'<div style="margin-bottom:4px;font-size:10px;">'
+                f'<span style="color:var(--ms-texto);">{nome_u}</span>'
+                f' <span style="color:{cor_o};font-weight:700;">{ocio_h} ocioso</span>'
+                f' <span style="color:var(--ms-texto-sec);">· {trab}d trabalhados'
+                + (f' · <b style="color:#E34948;">{aus} ausência{"s" if aus>1 else ""}</b>' if aus else '') +
+                f'</span></div>'
+            )
+    else:
+        _detalhe_ocio = (
+            _titulo("💤 Ociosidade — Detalhe") +
+            '<div style="font-size:9px;color:var(--ms-texto-sec);font-style:italic;padding:6px 0;">'
+            'Registre o ponto na aba 🕐 Ponto</div>'
+        )
+
     cells = [
         _mini("🏆 Ranking — Pontuação",     pts_mb,     fmt="{:,.0f}", unidade=" pts"),
         _mini("🎯 % de Contribuição",        pct_contrib, fmt="{:.1f}", unidade="%"),
         _mini("📈 % da Meta Individual",      pct_meta,   fmt="{:.0f}", unidade="%", cor_fn=_cor_meta),
         _mini("⏱️ Média de Execução",         exec_mb,    fmt="{:.0f}", unidade=" min",
               cor_fn=lambda v: "#1BAF7A" if v <= 60 else ("#EDA100" if v <= 120 else "#E34948")),
-        _mini("💤 Ociosidade",               {u: 0 for u in users}, aguardando=True),
-        _mini("🕐 Tolerâncias Utilizadas",    {u: 0 for u in users}, aguardando=True),
+        _mini("💤 Ociosidade",               _pct_ocio,  fmt="{:.1f}", unidade="%",
+              cor_fn=_cor_ocio, aguardando=not _tem_ponto),
+        _mini("🕐 Tolerâncias Utilizadas",    _tol_mb,    fmt="{:.0f}", unidade=" min",
+              cor_fn=_cor_tol,  aguardando=not _tem_ponto),
         _mini("⏰ Índice de Atraso",          atraso_mb,  fmt="{:.1f}", unidade="%", cor_fn=_cor_atraso),
-        _titulo("💤 Ociosidade — Detalhe") + '<div style="font-size:9px;color:var(--ms-texto-sec);font-style:italic;padding:6px 0;">Aguardando relógio de ponto</div>',
+        _detalhe_ocio,
     ]
     return (
         f'<div style="margin-bottom:8px;font-size:11px;font-weight:700;color:var(--ms-texto);">📋 Resumo Comparativo — Todos os Colaboradores</div>'
@@ -1465,8 +1551,16 @@ def _secao_configuracao():
 # ── Página principal ───────────────────────────────────────────────────────────
 
 def pagina_analise_metas(usuario_logado):
-    if usuario_logado.lower() != "martinsousa":
-        st.warning("🔒 Acesso restrito ao gestor.")
+    # ── Controle de acesso ─────────────────────────────────────────────────
+    _LOGIN_MAP_GERAL = {
+        "Myrella": "myrelladesouza", "Beatriz": "beatriz51",
+        "Gabriel": "gabriel_borges", "MartinSousa": "martinsousa",
+    }
+    _username_atual = _LOGIN_MAP_GERAL.get(usuario_logado, usuario_logado.lower())
+    _eh_master      = _username_atual in {m.lower() for m in _pc.MASTERS}
+    _eh_membro      = _username_atual in _pc.MEMBROS_ATIVOS or _eh_master
+    if not _eh_membro:
+        st.warning("🔒 Acesso restrito à equipe.")
         return
 
     agora = datetime.now()
@@ -1608,28 +1702,26 @@ def pagina_analise_metas(usuario_logado):
                 st.caption("Nenhum cartão em andamento no período.")
 
     with tab_ind:
-        _eh_master_am = usuario_logado.lower() in {m.lower() for m in _pc.MASTERS}
-        # Mapeia login do app → username do Trello (para membros que fazem login)
-        _LOGIN_MAP = {"Myrella": "myrelladesouza", "Beatriz": "beatriz51",
-                      "Gabriel": "gabriel_borges", "MartinSousa": "martinsousa"}
-        _username_logado = _LOGIN_MAP.get(usuario_logado, usuario_logado)
+        # Reutiliza _eh_master/_username_atual calculados no início da página
+        _username_logado = _username_atual
         _secao_meta_individual(
             dados, _pc.MEMBROS_ATIVOS,
             usuario_logado=_username_logado,
-            eh_master=_eh_master_am
+            eh_master=_eh_master
         )
-        st.markdown("---")
-        _secao_tempos_individual(dados)
 
-        # ── Resumo comparativo (todos os colaboradores) ───────────────────
-        st.markdown("---")
-        st.markdown("#### 📋 Resumo Comparativo dos Colaboradores")
-        st.caption(
-            "Grade de barras horizontais por métrica — cada painel compara todos "
-            "os colaboradores em uma dimensão. Métricas que dependem do relógio de "
-            "ponto serão preenchidas automaticamente após a integração."
-        )
-        st.markdown(_chart_resumo_colabs(dados), unsafe_allow_html=True)
+        # Tempos individuais e resumo comparativo — apenas para masters
+        if _eh_master:
+            st.markdown("---")
+            _secao_tempos_individual(dados)
+            st.markdown("---")
+            st.markdown("#### 📋 Resumo Comparativo dos Colaboradores")
+            st.caption(
+                "Grade de barras horizontais por métrica — cada painel compara todos "
+                "os colaboradores em uma dimensão. Métricas que dependem do relógio de "
+                "ponto serão preenchidas automaticamente após a integração."
+            )
+            st.markdown(_chart_resumo_colabs(dados), unsafe_allow_html=True)
 
 
     with tab_des:
@@ -1638,20 +1730,16 @@ def pagina_analise_metas(usuario_logado):
         st.markdown("---")
         st.markdown("#### 📈 Desempenho Individual")
 
-        _eh_master_des = usuario_logado.lower() in {m.lower() for m in _pc.MASTERS}
-        _LOGIN_MAP_DES = {"Myrella": "myrelladesouza", "Beatriz": "beatriz51",
-                          "Gabriel": "gabriel_borges", "MartinSousa": "martinsousa"}
-        _username_des = _LOGIN_MAP_DES.get(usuario_logado, usuario_logado)
-
+        # Masters podem selecionar qualquer colaborador; membros veem apenas o próprio
         _mb_opcoes_des = list(_pc.MEMBROS_ATIVOS.keys())
         _mb_nomes_des  = [_pc.MEMBROS_ATIVOS[u] for u in _mb_opcoes_des]
-        if _eh_master_des:
+        if _eh_master:
             _mb_nome_des = st.selectbox("👤 Selecionar colaborador:", _mb_nomes_des, key="des_ind_sel")
             _mb_u_des = _mb_opcoes_des[_mb_nomes_des.index(_mb_nome_des)]
         else:
-            _mb_u_des    = _username_des
+            _mb_u_des    = _username_atual
             _mb_nome_des = _pc.MEMBROS_ATIVOS.get(_mb_u_des, _mb_u_des)
-            st.info(f"Exibindo seus dados: **{_mb_nome_des}**")
+            st.caption(f"Exibindo seus dados: **{_mb_nome_des}**")
 
         if _mb_u_des:
             # Usa o período selecionado (dados) — não o ano completo —
@@ -1659,4 +1747,7 @@ def pagina_analise_metas(usuario_logado):
             _desempenho_individual(dados, _mb_u_des, _mb_nome_des)
 
     with tab_cfg:
-        _secao_configuracao()
+        if _eh_master:
+            _secao_configuracao()
+        else:
+            st.warning("🔒 Configuração de metas restrita ao gestor.")
