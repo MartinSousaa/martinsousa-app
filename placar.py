@@ -495,83 +495,83 @@ def _tv_full_html(
 <style>
 *{{margin:0;padding:0;box-sizing:border-box;}}
 body{{background:#1a1a1a;color:#e0e0e0;font-family:Arial,sans-serif;width:100vw;height:100vh;overflow:hidden;}}
-.tv-root{{display:flex;flex-direction:column;height:100vh;padding:0 14px;gap:6px;justify-content:center;}}
-.bloco-metas{{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;flex-shrink:0;min-width:0;}}
-.mini-cards{{display:grid;grid-template-columns:1fr 1fr;gap:4px;}}
-.mini-card{{background:#252525;border-radius:6px;padding:5px 8px;border:1px solid #444;text-align:center;}}
+.tv-root{{display:flex;flex-direction:column;height:100vh;padding:5px 12px;gap:4px;}}
+.bloco-metas{{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:7px;flex:0 0 auto;min-width:0;}}
+.mini-cards{{display:grid;grid-template-columns:1fr 1fr;gap:3px;}}
+.mini-card{{background:#252525;border-radius:5px;padding:3px 6px;border:1px solid #444;text-align:center;}}
 .mini-card.verde{{border-color:#1BAF7A;background:#0d2e1f;}}
 .mini-card.amarelo{{border-color:#EDA100;background:#2a1e05;}}
 .mini-card.ouro{{border-color:#FFD700;background:#2a2000;}}
 .mini-card.red{{border-color:#E34948;background:#2a1500;}}
-.mc-label{{font-size:7px;text-transform:uppercase;letter-spacing:.4px;margin-bottom:1px;display:block;}}
+.mc-label{{font-size:6px;text-transform:uppercase;letter-spacing:.4px;margin-bottom:0;display:block;}}
 .mc-label.verde{{color:#1BAF7A;}}.mc-label.amarelo{{color:#EDA100;}}.mc-label.ouro{{color:#FFD700;}}.mc-label.red{{color:#E34948;}}
-.mc-val{{font-size:16px;font-weight:700;display:block;}}
+.mc-val{{font-size:13px;font-weight:700;display:block;line-height:1.2;}}
 .mc-val.verde{{color:#e0f5ec;}}.mc-val.amarelo{{color:#fae8b0;}}.mc-val.ouro{{color:#fff5cc;}}.mc-val.red{{color:#fae8b0;}}
-.mc-sub{{font-size:7px;margin-top:1px;display:block;}}
+.mc-sub{{font-size:6px;margin-top:0;display:block;}}
 .mc-sub.verde{{color:#1BAF7A;}}.mc-sub.amarelo{{color:#EDA100;}}.mc-sub.ouro{{color:#FFD700;}}.mc-sub.red{{color:#E34948;}}
-.bloco-titulo{{font-size:8.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px;}}
+.bloco-titulo{{font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;}}
 .bloco-titulo.verde{{color:#1BAF7A;}}.bloco-titulo.ouro{{color:#FFD700;}}
-.gauge-col{{display:flex;align-items:center;justify-content:center;gap:12px;}}
-.gauge-svg{{height:130px;width:auto;flex-shrink:0;}}
+.gauge-col{{display:flex;align-items:center;justify-content:center;gap:8px;}}
+.gauge-svg{{height:90px;width:auto;flex-shrink:0;}}
 .gauge-info{{display:flex;flex-direction:column;align-items:flex-start;}}
-.gauge-pct{{font-size:34px;font-weight:700;line-height:1;}}
-.gauge-pct.verde{{color:#1BAF7A;}}.gauge-pct.ouro{{color:#FFD700;text-shadow:0 0 12px #FFD70099;}}
-.gauge-label{{font-size:9px;color:#888;margin-top:3px;}}
+.gauge-pct{{font-size:26px;font-weight:700;line-height:1;}}
+.gauge-pct.verde{{color:#1BAF7A;}}.gauge-pct.ouro{{color:#FFD700;text-shadow:0 0 10px #FFD70099;}}
+.gauge-label{{font-size:8px;color:#888;margin-top:2px;}}
 .needle-maxx{{animation:glow-needle 2.4s ease-in-out infinite;}}
 .tip-maxx{{animation:glow-tip 2.4s ease-in-out infinite;}}
 @keyframes glow-needle{{0%,100%{{filter:drop-shadow(0 0 3px #FFD700);}}50%{{filter:drop-shadow(0 0 8px #FFD700) drop-shadow(0 0 16px #FFD700aa);}}}}
 @keyframes glow-tip{{0%,100%{{filter:drop-shadow(0 0 4px #FFD700);}}50%{{filter:drop-shadow(0 0 10px #FFD700);}}}}
-.bloco-status{{display:flex;gap:4px;flex-shrink:0;}}
-.pill{{flex:1;background:#252525;border-radius:6px;padding:4px 5px;text-align:center;border:1px solid #444;}}
-.pill-val{{font-size:17px;font-weight:700;display:block;}}
-.pill-label{{font-size:7px;color:#999;text-transform:uppercase;letter-spacing:.3px;display:block;margin-bottom:1px;}}
-.pill-badge{{font-size:6.5px;display:inline-block;padding:1px 5px;border-radius:3px;margin-top:1px;}}
+.bloco-status{{display:flex;gap:3px;flex:0 0 auto;}}
+.pill{{flex:1;background:#252525;border-radius:5px;padding:3px 3px;text-align:center;border:1px solid #444;}}
+.pill-val{{font-size:14px;font-weight:700;display:block;line-height:1.2;}}
+.pill-label{{font-size:6px;color:#999;text-transform:uppercase;letter-spacing:.3px;display:block;margin-bottom:0;}}
+.pill-badge{{font-size:5.5px;display:inline-block;padding:1px 3px;border-radius:3px;margin-top:0;}}
 .pill.urgente{{background:#E3494820;border-color:#E34948;}}.pill.urgente .pill-val{{color:#E34948;}}
 .pill.atencao{{background:#EDA10020;border-color:#EDA100;}}.pill.atencao .pill-val{{color:#EDA100;}}
 .pill.ok{{background:#1BAF7A20;border-color:#1BAF7A;}}.pill.ok .pill-val{{color:#1BAF7A;}}
-.bloco-barras{{display:grid;grid-template-columns:1fr 1fr;gap:8px;flex-shrink:0;}}
-.barra-box{{background:#252525;border-radius:7px;padding:7px 12px;}}
+.bloco-barras{{display:grid;grid-template-columns:1fr 1fr;gap:6px;flex:0 0 auto;}}
+.barra-box{{background:#252525;border-radius:6px;padding:5px 10px;}}
 .barra-box.verde-border{{border:1px solid #1BAF7A33;}}.barra-box.ouro-border{{border:1px solid #FFD70033;}}
-.barra-item{{margin-bottom:4px;}}
-.barra-header{{display:flex;justify-content:space-between;font-size:9.5px;margin-bottom:2px;}}
-.barra-track{{background:#3a3a3a;border-radius:3px;height:5px;overflow:hidden;}}
-.barra-fill{{height:100%;border-radius:3px;}}
-.barra-desc{{font-size:7.5px;color:#777;margin-top:1px;}}
-.bloco-bottom{{display:grid;grid-template-columns:22fr 16fr 28fr 34fr;gap:7px;flex-shrink:0;align-items:start;min-width:0;}}
-.sub-bloco{{display:flex;flex-direction:column;}}
-.sub-titulo{{font-size:9.5px;font-weight:700;margin-bottom:4px;padding-bottom:3px;border-bottom:1px solid #2e2e2e;white-space:nowrap;}}
-.cards-col{{display:flex;flex-direction:column;gap:4px;}}
-.card-base{{background:#252525;border:1px solid #3a3a3a;border-radius:7px;padding:7px 10px;display:flex;flex-direction:column;justify-content:center;overflow:hidden;}}
-.card-and-nome{{font-size:10.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}}
-.card-and-sub{{font-size:8.5px;color:#888;margin-top:2px;}}.card-and-sub span{{color:#1BAF7A;}}
-.fila-inner{{display:flex;gap:8px;align-items:center;}}
-.fila-num{{font-size:13px;font-weight:700;min-width:20px;flex-shrink:0;}}
+.barra-item{{margin-bottom:3px;}}
+.barra-header{{display:flex;justify-content:space-between;font-size:8.5px;margin-bottom:1px;}}
+.barra-track{{background:#3a3a3a;border-radius:2px;height:4px;overflow:hidden;}}
+.barra-fill{{height:100%;border-radius:2px;}}
+.barra-desc{{font-size:6.5px;color:#777;margin-top:1px;}}
+.bloco-bottom{{display:grid;grid-template-columns:22fr 16fr 28fr 34fr;gap:6px;flex:1 1 0;min-height:0;overflow:hidden;}}
+.sub-bloco{{display:flex;flex-direction:column;overflow:hidden;min-height:0;}}
+.sub-titulo{{font-size:8.5px;font-weight:700;margin-bottom:3px;padding-bottom:2px;border-bottom:1px solid #2e2e2e;white-space:nowrap;flex:0 0 auto;}}
+.cards-col{{display:flex;flex-direction:column;gap:3px;overflow:hidden;}}
+.card-base{{background:#252525;border:1px solid #3a3a3a;border-radius:6px;padding:5px 8px;display:flex;flex-direction:column;justify-content:center;overflow:hidden;flex:0 0 auto;}}
+.card-and-nome{{font-size:9.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}}
+.card-and-sub{{font-size:7.5px;color:#888;margin-top:1px;}}.card-and-sub span{{color:#1BAF7A;}}
+.fila-inner{{display:flex;gap:6px;align-items:center;}}
+.fila-num{{font-size:11px;font-weight:700;min-width:18px;flex-shrink:0;}}
 .fila-info{{flex:1;min-width:0;}}
-.fila-nome{{font-size:10px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}}
-.fila-sub{{font-size:8px;color:#888;margin-top:1px;}}
-.fila-tempo{{font-size:8.5px;color:#888;white-space:nowrap;flex-shrink:0;}}
-.badge-urg{{background:#E3494830;color:#E34948;border:1px solid #E34948;border-radius:3px;font-size:7px;padding:1px 4px;}}
-.pend-item{{margin-bottom:5px;}}
-.pend-header{{display:flex;justify-content:space-between;font-size:9.5px;margin-bottom:2px;}}
+.fila-nome{{font-size:9px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}}
+.fila-sub{{font-size:7px;color:#888;margin-top:0;}}
+.fila-tempo{{font-size:7.5px;color:#888;white-space:nowrap;flex-shrink:0;}}
+.badge-urg{{background:#E3494830;color:#E34948;border:1px solid #E34948;border-radius:3px;font-size:6px;padding:1px 3px;}}
+.pend-item{{margin-bottom:4px;flex:0 0 auto;}}
+.pend-header{{display:flex;justify-content:space-between;font-size:8.5px;margin-bottom:1px;}}
 .pend-header .pend-num{{font-weight:700;color:#EDA100;}}.pend-header .pend-num.red{{color:#E34948;}}
-.pend-track{{background:#3a3a3a;border-radius:3px;height:5px;overflow:hidden;}}
-.pend-fill{{height:100%;border-radius:3px;background:#EDA100;}}
-.alerta-col{{display:flex;flex-direction:column;gap:4px;}}
-.alerta-header{{border-radius:7px;padding:7px 12px;display:flex;flex-direction:column;align-items:center;gap:1px;}}
+.pend-track{{background:#3a3a3a;border-radius:2px;height:4px;overflow:hidden;}}
+.pend-fill{{height:100%;border-radius:2px;background:#EDA100;}}
+.alerta-col{{display:flex;flex-direction:column;gap:3px;overflow:hidden;}}
+.alerta-header{{border-radius:6px;padding:5px 10px;display:flex;flex-direction:column;align-items:center;gap:0;flex:0 0 auto;}}
 .alerta-header.com-alerta{{background:#E3494812;border:2px solid #E34948;animation:pulso 2s ease-in-out infinite;}}
 .alerta-header.com-alerta.tocando{{animation:pulso-forte 0.35s ease-in-out infinite!important;border-color:#FF5555!important;}}
 @keyframes pulso{{0%,100%{{box-shadow:0 0 0 0 #E3494840;}}50%{{box-shadow:0 0 16px 5px #E3494840;}}}}
 @keyframes pulso-forte{{0%,100%{{box-shadow:0 0 4px 0 #E3494880;}}50%{{box-shadow:0 0 40px 15px #E3494899;}}}}
-.alerta-titulo{{font-size:18px;font-weight:900;letter-spacing:2px;color:#E34948;}}
-.alerta-sub{{font-size:8.5px;color:#aaa;text-align:center;}}
-.alerta-lista{{display:flex;flex-direction:column;gap:4px;}}
-.alerta-item{{border-radius:6px;padding:7px 10px;display:flex;flex-direction:column;justify-content:center;box-sizing:border-box;min-width:0;width:100%;}}
+.alerta-titulo{{font-size:15px;font-weight:900;letter-spacing:2px;color:#E34948;}}
+.alerta-sub{{font-size:7.5px;color:#aaa;text-align:center;}}
+.alerta-lista{{display:flex;flex-direction:column;gap:3px;overflow:hidden;}}
+.alerta-item{{border-radius:5px;padding:5px 8px;display:flex;flex-direction:column;justify-content:center;box-sizing:border-box;min-width:0;width:100%;flex:0 0 auto;}}
 .alerta-item.urgente{{background:#E3494818;border-top:1px solid #E3494855;border-bottom:1px solid #E3494855;border-right:1px solid #E3494855;border-left:3px solid #E34948;}}
 .alerta-item.atencao{{background:#EDA10015;border-top:1px solid #EDA10055;border-bottom:1px solid #EDA10055;border-right:1px solid #EDA10055;border-left:3px solid #EDA100;}}
-.alerta-item-prioridade{{font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;display:flex;justify-content:space-between;margin-bottom:2px;}}
+.alerta-item-prioridade{{font-size:7px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;display:flex;justify-content:space-between;margin-bottom:1px;}}
 .alerta-item.urgente .alerta-item-prioridade{{color:#E34948;}}.alerta-item.atencao .alerta-item-prioridade{{color:#EDA100;}}
-.alerta-item-nome{{font-size:10.5px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}}
-.alerta-item-col{{font-size:8px;color:#aaa;margin-top:1px;}}
+.alerta-item-nome{{font-size:9.5px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}}
+.alerta-item-col{{font-size:7px;color:#aaa;margin-top:0;}}
 </style>
 </head>
 <body>
