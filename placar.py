@@ -715,55 +715,55 @@ def pagina_placar(usuario_logado):
             barras+=_barra(nome,pts,meta_ind_map.get(u,1500),pen)
         st.markdown(f'<div style="padding:4px 0">{barras}</div>',unsafe_allow_html=True)
 
-    # ══ BLOCO 4 — PENDENTES + TEMPO MÉDIO ══
-    st.markdown('<hr style="border:none;border-top:1px solid var(--ms-divisor);margin:10px 0 8px 0;"/>',unsafe_allow_html=True)
-    col_pend,col_tempo=st.columns([1,1])
+    # ══ BLOCO 4 — PENDENTES + TEMPO MÉDIO (oculto na TV para caber na tela) ══
+    if not modo_tv:
+        st.markdown('<hr style="border:none;border-top:1px solid var(--ms-divisor);margin:10px 0 8px 0;"/>',unsafe_allow_html=True)
+        col_pend,col_tempo=st.columns([1,1])
 
-    with col_pend:
-        st.markdown("**🟠 Pendentes por Coluna**")
-        if d["pend_lista"]:
-            max_q=max(d["pend_lista"].values())
-            for nl,qtd in sorted(d["pend_lista"].items(),key=lambda x:-x[1]):
-                pct_b=qtd/max_q*100
-                st.markdown(f"""<div style="margin-bottom:6px;">
-                  <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--ms-texto);margin-bottom:2px;">
-                    <span>{nl[:38]}</span><span style="font-weight:700;">{qtd}</span></div>
-                  <div style="background:var(--ms-metric-bd);border-radius:3px;height:5px;">
-                    <div style="background:#EDA100;width:{pct_b:.0f}%;height:100%;border-radius:3px;"></div>
-                  </div></div>""",unsafe_allow_html=True)
-        else:
-            st.caption("Nenhum cartão pendente 🎉")
-
-    with col_tempo:
-        st.markdown("**⏱️ Tempo Médio por Coluna**")
-        listas_t=[nl for nl in set(listas.values())
-                  if nl not in LISTAS_PENALIDADE and nl!="TABELA DE PONTUAÇÃO"
-                  and nl not in LISTAS_SEM_PONTUACAO]
-        listas_ord=sorted(listas_t)
-        cols_t=st.columns(3)
-        for i,nl in enumerate(listas_ord[:18]):
-            tempos=d["tempo_lista"].get(nl,[])
-            cfg=COLUNAS_CONFIG.get(nl)
-            if tempos:
-                media=sum(tempos)/len(tempos)
-                val=f"{media:.0f}min"; sub=f"{len(tempos)} reais"; cor="var(--ms-texto)"
-            elif cfg:
-                val=f"~{cfg['tempo_min']}min"; sub="estimativa"; cor="var(--ms-texto-sec)"
+        with col_pend:
+            st.markdown("**🟠 Pendentes por Coluna**")
+            if d["pend_lista"]:
+                max_q=max(d["pend_lista"].values())
+                for nl,qtd in sorted(d["pend_lista"].items(),key=lambda x:-x[1]):
+                    pct_b=qtd/max_q*100
+                    st.markdown(f"""<div style="margin-bottom:6px;">
+                      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--ms-texto);margin-bottom:2px;">
+                        <span>{nl[:38]}</span><span style="font-weight:700;">{qtd}</span></div>
+                      <div style="background:var(--ms-metric-bd);border-radius:3px;height:5px;">
+                        <div style="background:#EDA100;width:{pct_b:.0f}%;height:100%;border-radius:3px;"></div>
+                      </div></div>""",unsafe_allow_html=True)
             else:
-                val="—"; sub="sem dados"; cor="var(--ms-texto-sec)"
-            nl_curto=nl[:20]+"…" if len(nl)>20 else nl
-            with cols_t[i%3]:
-                st.markdown(f"""<div style="background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);border-radius:6px;padding:6px 8px;margin-bottom:4px;display:flex;align-items:center;justify-content:space-between;gap:4px;">
-                  <div style="flex:1;min-width:0;">
-                    <div style="font-size:8px;color:var(--ms-texto-sec);text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{nl_curto}</div>
-                    <div style="font-size:7px;color:var(--ms-texto-sec);margin-top:1px;">{sub}</div>
-                  </div>
-                  <div style="font-size:14px;font-weight:700;color:{cor};white-space:nowrap;text-align:right;">{val}</div>
-                </div>""",unsafe_allow_html=True)
+                st.caption("Nenhum cartão pendente 🎉")
 
-    # ══ BLOCO 5 — PENALIDADES (coletivas, apenas master) ══
-    # (Meta Individual foi movida para aba "📊 Análise de Metas" → Por Colaborador)
-    if eh_master and d["pen_cards"]:
+        with col_tempo:
+            st.markdown("**⏱️ Tempo Médio por Coluna**")
+            listas_t=[nl for nl in set(listas.values())
+                      if nl not in LISTAS_PENALIDADE and nl!="TABELA DE PONTUAÇÃO"
+                      and nl not in LISTAS_SEM_PONTUACAO]
+            listas_ord=sorted(listas_t)
+            cols_t=st.columns(3)
+            for i,nl in enumerate(listas_ord[:18]):
+                tempos=d["tempo_lista"].get(nl,[])
+                cfg=COLUNAS_CONFIG.get(nl)
+                if tempos:
+                    media=sum(tempos)/len(tempos)
+                    val=f"{media:.0f}min"; sub=f"{len(tempos)} reais"; cor="var(--ms-texto)"
+                elif cfg:
+                    val=f"~{cfg['tempo_min']}min"; sub="estimativa"; cor="var(--ms-texto-sec)"
+                else:
+                    val="—"; sub="sem dados"; cor="var(--ms-texto-sec)"
+                nl_curto=nl[:20]+"…" if len(nl)>20 else nl
+                with cols_t[i%3]:
+                    st.markdown(f"""<div style="background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);border-radius:6px;padding:6px 8px;margin-bottom:4px;display:flex;align-items:center;justify-content:space-between;gap:4px;">
+                      <div style="flex:1;min-width:0;">
+                        <div style="font-size:8px;color:var(--ms-texto-sec);text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{nl_curto}</div>
+                        <div style="font-size:7px;color:var(--ms-texto-sec);margin-top:1px;">{sub}</div>
+                      </div>
+                      <div style="font-size:14px;font-weight:700;color:{cor};white-space:nowrap;text-align:right;">{val}</div>
+                    </div>""",unsafe_allow_html=True)
+
+    # ══ BLOCO 5 — PENALIDADES (coletivas, apenas master, oculto na TV) ══
+    if not modo_tv and eh_master and d["pen_cards"]:
         st.markdown('<hr style="border:none;border-top:1px solid var(--ms-divisor);margin:10px 0 8px 0;"/>',unsafe_allow_html=True)
         st.markdown("**⚠️ Penalidades Registradas**")
         for p in d["pen_cards"]:
