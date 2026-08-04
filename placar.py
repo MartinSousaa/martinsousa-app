@@ -329,7 +329,7 @@ def _sc(label,valor,badge,cn,bb,bt):
 
 def _barra(nome,pts,meta,pen):
     saldo=pts-pen; pct=min(saldo/meta*100,100) if meta>0 else 0
-    cor="#1BAF7A" if pct>=100 else ("#EDA100" if pct>=50 else "#E34948")
+    cor="#1BAF7A" if pct>=100 else ("#8BC34A" if pct>=75 else ("#4A90D9" if pct>=0 else "#4A90D9"))
     pen_h=f'<div style="font-size:9px;color:#E34948;margin-top:2px;">⚠ -{pen:.0f} pts penalidades</div>' if pen>0 else ""
     return (f'<div style="margin-bottom:10px;">'
             f'<div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px;">'
