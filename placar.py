@@ -360,6 +360,389 @@ def _fila_html(item):
   <div class="fila-eta" style="color:{cor};">~{_fmt_tempo(item['eta_min'])}</div>
 </div>"""
 
+# ── TV MODE HELPERS ────────────────────────────────────────────────────────────
+def _g_pt(pct, r, cx=90, cy=92):
+    """Ponto no arco do gauge SVG para um dado percentual (0-100)."""
+    a = math.radians(180 - max(0.0, min(float(pct), 100.0)) / 100 * 180)
+    return round(cx + r * math.cos(a), 1), round(cy - r * math.sin(a), 1)
+
+def _alertas_tv_list(listas, cards, membros_map):
+    """Lista de alertas TV: urgentes P8+ primeiro, depois sem membro."""
+    urg, sem = [], []
+    for card in cards:
+        nl = listas.get(card["idList"], "")
+        if nl in COLUNAS_SKIP or nl == "TABELA DE PONTUAÇÃO": continue
+        if card.get("dueComplete", False): continue
+        lb = _labels(card)
+        if "EM ANDAMENTO" in lb: continue
+        us = _users(card, membros_map)
+        cfg = COLUNAS_CONFIG.get(nl, {})
+        prio = cfg.get("prioridade", 0)
+        if prio >= 8 or "URGENTE" in nl.upper():
+            urg.append({"tipo":"urgente","lab":"🔴 Urgente","pos":f"P{prio}",
+                        "nome":card["name"],"col":nl,"_p":prio,"_d":_data_card(card)})
+        elif not us:
+            sem.append({"tipo":"atencao","lab":"🟡 Sem membro","pos":f"P{prio}",
+                        "nome":card["name"],"col":nl,"_p":prio,"_d":_data_card(card)})
+    urg.sort(key=lambda x: (-x["_p"], x["_d"]))
+    sem.sort(key=lambda x: (-x["_p"], x["_d"]))
+    return urg + sem
+
+def _tv_full_html(
+    pct_eq, pct_maxx,
+    saldo_eq, meta_eq, faltam, pts_pendentes,
+    meta_maxx_pts, faltam_maxx, maxx_pct, pen_total, n_pen,
+    d, fila, alertas, pend_lista,
+    pct_pri_ok, pct_retrab_n, pct_pen_n, pct_retrab_x, pct_pen_x,
+    pct_com_membro, desc_retrab, max_retrab_n, max_pen_n, max_retrab_x, max_pen_x,
+    n_urgentes, n_sem_mb, agora_str,
+):
+    def fp(v): return f"{'%.1f'%v if v<10 else '%.0f'%v}%"
+
+    # Gauge META MENSAL
+    ax_m, ay_m = _g_pt(pct_eq, 78)
+    nx_m, ny_m = _g_pt(pct_eq, 72)
+    fill_m = (f'<path d="M 12 92 A 78 78 0 0 1 {ax_m} {ay_m}" fill="none" '
+              f'stroke="#1BAF7A" stroke-width="11" stroke-linecap="butt"/>'
+              if pct_eq >= 0.5 else "")
+
+    # Gauge META MAXX
+    ax_x, ay_x = _g_pt(pct_maxx, 78)
+    nx_x, ny_x = _g_pt(pct_maxx, 72)
+    fill_x = (f'<path d="M 12 92 A 78 78 0 0 1 {ax_x} {ay_x}" fill="none" '
+              f'stroke="#FFD700" stroke-width="11" stroke-linecap="butt"/>'
+              if pct_maxx >= 0.5 else "")
+
+    # Pendentes por coluna
+    pend_html = ""
+    if pend_lista:
+        max_q = max(pend_lista.values()) or 1
+        for nl, qtd in sorted(pend_lista.items(), key=lambda x: -x[1]):
+            pct_b = qtd / max_q * 100
+            is_red = "URGENTE" in nl.upper()
+            fc = "#E34948" if is_red else "#EDA100"
+            nc = "red" if is_red else ""
+            nl_s = (nl[:28]+"…") if len(nl)>28 else nl
+            pend_html += (f'<div class="pend-item">'
+                          f'<div class="pend-header"><span>{nl_s}</span>'
+                          f'<span class="pend-num {nc}">{qtd}</span></div>'
+                          f'<div class="pend-track"><div class="pend-fill" '
+                          f'style="width:{pct_b:.0f}%;background:{fc};"></div></div></div>')
+
+    # Em andamento
+    and_html = ""
+    for c in (d.get("andamento_lista") or []):
+        ms = ", ".join(MEMBROS_ATIVOS.get(u,u) for u in c.get("membros",[])) or "—"
+        nome = (c["card"][:42]+"…") if len(c["card"])>42 else c["card"]
+        ls   = (c["lista"][:28]+"…") if len(c["lista"])>28 else c["lista"]
+        and_html += (f'<div class="card-base">'
+                     f'<div class="card-and-nome">{nome}</div>'
+                     f'<div class="card-and-sub">{ls} · <span>{ms}</span></div></div>')
+    if not and_html:
+        and_html = '<div style="font-size:10px;color:#555;padding:8px;">Nenhum em andamento</div>'
+
+    # Próximas 6 da fila
+    ORDS = ["1°","2°","3°","4°","5°","6°"]
+    fila_html = ""
+    for i, item in enumerate(fila[:6]):
+        p = item["prioridade"]
+        cor = "#E34948" if p>=10 else ("#EDA100" if p>=8 else ("#1BAF7A" if p>=6 else "#888"))
+        badge = '<span class="badge-urg">URGENTE</span> · ' if (item.get("is_urgente") or p>=8) else ""
+        nome = (item["nome"][:44]+"…") if len(item["nome"])>44 else item["nome"]
+        ls   = (item["lista"][:24]+"…") if len(item["lista"])>24 else item["lista"]
+        eta  = _fmt_tempo(item["eta_min"])
+        fila_html += (f'<div class="card-base"><div class="fila-inner">'
+                      f'<div class="fila-num" style="color:{cor};">{ORDS[i]}</div>'
+                      f'<div class="fila-info"><div class="fila-nome">{nome}</div>'
+                      f'<div class="fila-sub">{ls} · {badge}P{p}</div></div>'
+                      f'<div class="fila-tempo">~{eta}</div></div></div>')
+    if not fila_html:
+        fila_html = '<div style="font-size:10px;color:#555;padding:8px;">Fila vazia 🎉</div>'
+
+    # Alertas JS
+    alertas_js = "[\n"
+    for a in alertas:
+        ne = a["nome"].replace('"','\\"').replace("'","\\'")
+        ce = a["col"].replace('"','\\"')
+        alertas_js += (f'  {{tipo:"{a["tipo"]}",prioridade:"{a["lab"]}",pos:"{a["pos"]}",'
+                       f'nome:"{ne}",col:"{ce}"}},\n')
+    alertas_js += "]"
+
+    pend_total = sum(pend_lista.values()) if pend_lista else 0
+    atrasados  = d.get("atrasados", 0)
+    desc_pri   = "Nenhum cartão prioritário atrasado" if atrasados == 0 else f"{atrasados} atrasado(s)"
+
+    return f"""<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>MS Studio — TV</title>
+<style>
+*{{margin:0;padding:0;box-sizing:border-box;}}
+body{{background:#1a1a1a;color:#e0e0e0;font-family:Arial,sans-serif;width:100vw;height:100vh;overflow:hidden;}}
+.tv-root{{display:flex;flex-direction:column;height:100vh;padding:0 14px;gap:6px;justify-content:center;}}
+.bloco-metas{{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;flex-shrink:0;min-width:0;}}
+.mini-cards{{display:grid;grid-template-columns:1fr 1fr;gap:4px;}}
+.mini-card{{background:#252525;border-radius:6px;padding:5px 8px;border:1px solid #444;text-align:center;}}
+.mini-card.verde{{border-color:#1BAF7A;background:#0d2e1f;}}
+.mini-card.amarelo{{border-color:#EDA100;background:#2a1e05;}}
+.mini-card.ouro{{border-color:#FFD700;background:#2a2000;}}
+.mini-card.red{{border-color:#E34948;background:#2a1500;}}
+.mc-label{{font-size:7px;text-transform:uppercase;letter-spacing:.4px;margin-bottom:1px;display:block;}}
+.mc-label.verde{{color:#1BAF7A;}}.mc-label.amarelo{{color:#EDA100;}}.mc-label.ouro{{color:#FFD700;}}.mc-label.red{{color:#E34948;}}
+.mc-val{{font-size:16px;font-weight:700;display:block;}}
+.mc-val.verde{{color:#e0f5ec;}}.mc-val.amarelo{{color:#fae8b0;}}.mc-val.ouro{{color:#fff5cc;}}.mc-val.red{{color:#fae8b0;}}
+.mc-sub{{font-size:7px;margin-top:1px;display:block;}}
+.mc-sub.verde{{color:#1BAF7A;}}.mc-sub.amarelo{{color:#EDA100;}}.mc-sub.ouro{{color:#FFD700;}}.mc-sub.red{{color:#E34948;}}
+.bloco-titulo{{font-size:8.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px;}}
+.bloco-titulo.verde{{color:#1BAF7A;}}.bloco-titulo.ouro{{color:#FFD700;}}
+.gauge-col{{display:flex;align-items:center;justify-content:center;gap:12px;}}
+.gauge-svg{{height:130px;width:auto;flex-shrink:0;}}
+.gauge-info{{display:flex;flex-direction:column;align-items:flex-start;}}
+.gauge-pct{{font-size:34px;font-weight:700;line-height:1;}}
+.gauge-pct.verde{{color:#1BAF7A;}}.gauge-pct.ouro{{color:#FFD700;text-shadow:0 0 12px #FFD70099;}}
+.gauge-label{{font-size:9px;color:#888;margin-top:3px;}}
+.needle-maxx{{animation:glow-needle 2.4s ease-in-out infinite;}}
+.tip-maxx{{animation:glow-tip 2.4s ease-in-out infinite;}}
+@keyframes glow-needle{{0%,100%{{filter:drop-shadow(0 0 3px #FFD700);}}50%{{filter:drop-shadow(0 0 8px #FFD700) drop-shadow(0 0 16px #FFD700aa);}}}}
+@keyframes glow-tip{{0%,100%{{filter:drop-shadow(0 0 4px #FFD700);}}50%{{filter:drop-shadow(0 0 10px #FFD700);}}}}
+.bloco-status{{display:flex;gap:4px;flex-shrink:0;}}
+.pill{{flex:1;background:#252525;border-radius:6px;padding:4px 5px;text-align:center;border:1px solid #444;}}
+.pill-val{{font-size:17px;font-weight:700;display:block;}}
+.pill-label{{font-size:7px;color:#999;text-transform:uppercase;letter-spacing:.3px;display:block;margin-bottom:1px;}}
+.pill-badge{{font-size:6.5px;display:inline-block;padding:1px 5px;border-radius:3px;margin-top:1px;}}
+.pill.urgente{{background:#E3494820;border-color:#E34948;}}.pill.urgente .pill-val{{color:#E34948;}}
+.pill.atencao{{background:#EDA10020;border-color:#EDA100;}}.pill.atencao .pill-val{{color:#EDA100;}}
+.pill.ok{{background:#1BAF7A20;border-color:#1BAF7A;}}.pill.ok .pill-val{{color:#1BAF7A;}}
+.bloco-barras{{display:grid;grid-template-columns:1fr 1fr;gap:8px;flex-shrink:0;}}
+.barra-box{{background:#252525;border-radius:7px;padding:7px 12px;}}
+.barra-box.verde-border{{border:1px solid #1BAF7A33;}}.barra-box.ouro-border{{border:1px solid #FFD70033;}}
+.barra-item{{margin-bottom:4px;}}
+.barra-header{{display:flex;justify-content:space-between;font-size:9.5px;margin-bottom:2px;}}
+.barra-track{{background:#3a3a3a;border-radius:3px;height:5px;overflow:hidden;}}
+.barra-fill{{height:100%;border-radius:3px;}}
+.barra-desc{{font-size:7.5px;color:#777;margin-top:1px;}}
+.bloco-bottom{{display:grid;grid-template-columns:22fr 16fr 28fr 34fr;gap:7px;flex-shrink:0;align-items:start;min-width:0;}}
+.sub-bloco{{display:flex;flex-direction:column;}}
+.sub-titulo{{font-size:9.5px;font-weight:700;margin-bottom:4px;padding-bottom:3px;border-bottom:1px solid #2e2e2e;white-space:nowrap;}}
+.cards-col{{display:flex;flex-direction:column;gap:4px;}}
+.card-base{{background:#252525;border:1px solid #3a3a3a;border-radius:7px;padding:7px 10px;display:flex;flex-direction:column;justify-content:center;overflow:hidden;}}
+.card-and-nome{{font-size:10.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}}
+.card-and-sub{{font-size:8.5px;color:#888;margin-top:2px;}}.card-and-sub span{{color:#1BAF7A;}}
+.fila-inner{{display:flex;gap:8px;align-items:center;}}
+.fila-num{{font-size:13px;font-weight:700;min-width:20px;flex-shrink:0;}}
+.fila-info{{flex:1;min-width:0;}}
+.fila-nome{{font-size:10px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}}
+.fila-sub{{font-size:8px;color:#888;margin-top:1px;}}
+.fila-tempo{{font-size:8.5px;color:#888;white-space:nowrap;flex-shrink:0;}}
+.badge-urg{{background:#E3494830;color:#E34948;border:1px solid #E34948;border-radius:3px;font-size:7px;padding:1px 4px;}}
+.pend-item{{margin-bottom:5px;}}
+.pend-header{{display:flex;justify-content:space-between;font-size:9.5px;margin-bottom:2px;}}
+.pend-header .pend-num{{font-weight:700;color:#EDA100;}}.pend-header .pend-num.red{{color:#E34948;}}
+.pend-track{{background:#3a3a3a;border-radius:3px;height:5px;overflow:hidden;}}
+.pend-fill{{height:100%;border-radius:3px;background:#EDA100;}}
+.alerta-col{{display:flex;flex-direction:column;gap:4px;}}
+.alerta-header{{border-radius:7px;padding:7px 12px;display:flex;flex-direction:column;align-items:center;gap:1px;}}
+.alerta-header.com-alerta{{background:#E3494812;border:2px solid #E34948;animation:pulso 2s ease-in-out infinite;}}
+.alerta-header.com-alerta.tocando{{animation:pulso-forte 0.35s ease-in-out infinite!important;border-color:#FF5555!important;}}
+@keyframes pulso{{0%,100%{{box-shadow:0 0 0 0 #E3494840;}}50%{{box-shadow:0 0 16px 5px #E3494840;}}}}
+@keyframes pulso-forte{{0%,100%{{box-shadow:0 0 4px 0 #E3494880;}}50%{{box-shadow:0 0 40px 15px #E3494899;}}}}
+.alerta-titulo{{font-size:18px;font-weight:900;letter-spacing:2px;color:#E34948;}}
+.alerta-sub{{font-size:8.5px;color:#aaa;text-align:center;}}
+.alerta-lista{{display:flex;flex-direction:column;gap:4px;}}
+.alerta-item{{border-radius:6px;padding:7px 10px;display:flex;flex-direction:column;justify-content:center;box-sizing:border-box;min-width:0;width:100%;}}
+.alerta-item.urgente{{background:#E3494818;border-top:1px solid #E3494855;border-bottom:1px solid #E3494855;border-right:1px solid #E3494855;border-left:3px solid #E34948;}}
+.alerta-item.atencao{{background:#EDA10015;border-top:1px solid #EDA10055;border-bottom:1px solid #EDA10055;border-right:1px solid #EDA10055;border-left:3px solid #EDA100;}}
+.alerta-item-prioridade{{font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;display:flex;justify-content:space-between;margin-bottom:2px;}}
+.alerta-item.urgente .alerta-item-prioridade{{color:#E34948;}}.alerta-item.atencao .alerta-item-prioridade{{color:#EDA100;}}
+.alerta-item-nome{{font-size:10.5px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}}
+.alerta-item-col{{font-size:8px;color:#aaa;margin-top:1px;}}
+</style>
+</head>
+<body>
+<div class="tv-root">
+
+  <div class="bloco-metas">
+    <div>
+      <div class="bloco-titulo verde">🏆 Meta Mensal</div>
+      <div class="mini-cards">
+        <div class="mini-card verde"><span class="mc-label verde">Meta</span><span class="mc-val verde">{meta_eq:,.0f}</span><span class="mc-sub verde">pts/mês</span></div>
+        <div class="mini-card amarelo"><span class="mc-label amarelo">Atual</span><span class="mc-val amarelo">{saldo_eq:,.0f}</span><span class="mc-sub amarelo">{fp(pct_eq)} da meta</span></div>
+        <div class="mini-card amarelo"><span class="mc-label amarelo">Faltam</span><span class="mc-val amarelo">{faltam:,.0f}</span><span class="mc-sub amarelo">pts</span></div>
+        <div class="mini-card amarelo"><span class="mc-label amarelo">Em Aberto</span><span class="mc-val amarelo">{pts_pendentes:,.0f}</span><span class="mc-sub amarelo">pendentes</span></div>
+      </div>
+    </div>
+    <div class="gauge-col">
+      <svg class="gauge-svg" viewBox="0 0 180 100" xmlns="http://www.w3.org/2000/svg">
+        <path d="M 12 92 A 78 78 0 0 1 168 92" fill="none" stroke="#2e2e2e" stroke-width="11" stroke-linecap="butt"/>
+        {fill_m}
+        <line x1="12" y1="92" x2="18" y2="92" stroke="#666" stroke-width="1.5"/>
+        <line x1="90" y1="14" x2="90" y2="21" stroke="#444" stroke-width="1.5"/>
+        <line x1="168" y1="92" x2="162" y2="92" stroke="#444" stroke-width="1.5"/>
+        <text x="8" y="89" text-anchor="end" fill="#555" font-size="7" font-family="Arial">0</text>
+        <text x="172" y="89" text-anchor="start" fill="#555" font-size="7" font-family="Arial">100%</text>
+        <line x1="90" y1="92" x2="{nx_m}" y2="{ny_m}" stroke="#1BAF7A" stroke-width="2.5" stroke-linecap="round"/>
+        <circle cx="90" cy="92" r="5" fill="#222" stroke="#1BAF7A" stroke-width="1.5"/>
+        <circle cx="{nx_m}" cy="{ny_m}" r="3.5" fill="#1BAF7A"/>
+      </svg>
+      <div class="gauge-info">
+        <div class="gauge-pct verde">{fp(pct_eq)}</div>
+        <div class="gauge-label">🏆 META MENSAL</div>
+      </div>
+    </div>
+    <div class="gauge-col">
+      <svg class="gauge-svg" viewBox="0 0 180 100" xmlns="http://www.w3.org/2000/svg">
+        <path d="M 12 92 A 78 78 0 0 1 168 92" fill="none" stroke="#2e2e2e" stroke-width="11" stroke-linecap="butt"/>
+        {fill_x}
+        <line x1="12" y1="92" x2="18" y2="92" stroke="#666" stroke-width="1.5"/>
+        <line x1="90" y1="14" x2="90" y2="21" stroke="#444" stroke-width="1.5"/>
+        <line x1="168" y1="92" x2="162" y2="92" stroke="#444" stroke-width="1.5"/>
+        <text x="8" y="89" text-anchor="end" fill="#555" font-size="7" font-family="Arial">0</text>
+        <text x="172" y="89" text-anchor="start" fill="#555" font-size="7" font-family="Arial">100%</text>
+        <line class="needle-maxx" x1="90" y1="92" x2="{nx_x}" y2="{ny_x}" stroke="#FFD700" stroke-width="2.5" stroke-linecap="round"/>
+        <circle cx="90" cy="92" r="5" fill="#222" stroke="#FFD700" stroke-width="1.5"/>
+        <circle class="tip-maxx" cx="{nx_x}" cy="{ny_x}" r="3.5" fill="#FFD700"/>
+      </svg>
+      <div class="gauge-info">
+        <div class="gauge-pct ouro">{fp(pct_maxx)}</div>
+        <div class="gauge-label">⭐ META MAXX</div>
+      </div>
+    </div>
+    <div>
+      <div class="bloco-titulo ouro">⭐ Meta Maxx</div>
+      <div class="mini-cards">
+        <div class="mini-card ouro"><span class="mc-label ouro">Maxx</span><span class="mc-val ouro">{meta_maxx_pts:,.0f}</span><span class="mc-sub ouro">+{maxx_pct-100}% meta</span></div>
+        <div class="mini-card amarelo"><span class="mc-label amarelo">Saldo c/ pen.</span><span class="mc-val amarelo">{saldo_eq:,.0f}</span><span class="mc-sub amarelo">{fp(pct_maxx)} Maxx</span></div>
+        <div class="mini-card amarelo"><span class="mc-label amarelo">Faltam</span><span class="mc-val amarelo">{faltam_maxx:,.0f}</span><span class="mc-sub amarelo">p/ bônus</span></div>
+        <div class="mini-card red"><span class="mc-label red">Penalidades</span><span class="mc-val red">-{pen_total:,.0f}</span><span class="mc-sub red">{n_pen} ocorrência(s)</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="bloco-status">
+    <div class="pill atencao"><span class="pill-label">Cartões Pend.</span><span class="pill-val">{pend_total}</span><span class="pill-badge" style="background:#EDA10030;color:#EDA100;">Pendente</span></div>
+    <div class="pill atencao"><span class="pill-label">Pts Pendentes</span><span class="pill-val">{pts_pendentes:,.0f}</span><span class="pill-badge" style="background:#EDA10030;color:#EDA100;">Aberto</span></div>
+    <div class="pill ok"><span class="pill-label">Em Andamento</span><span class="pill-val">{d.get("em_andamento",0)}</span><span class="pill-badge" style="background:#1BAF7A30;color:#1BAF7A;">Ativo</span></div>
+    <div class="pill"><span class="pill-label">Atrasados</span><span class="pill-val">{d.get("atrasados",0)}</span><span class="pill-badge" style="background:#E3494830;color:#E34948;">Atenção</span></div>
+    <div class="pill"><span class="pill-label">Desativar</span><span class="pill-val">{d.get("desativar",0)}</span><span class="pill-badge" style="background:#E3494830;color:#E34948;">Prioritário</span></div>
+    <div class="pill"><span class="pill-label">Reativar</span><span class="pill-val">{d.get("reativar",0)}</span><span class="pill-badge" style="background:#33333340;color:#888;">Normal</span></div>
+    <div class="pill urgente"><span class="pill-label">Urgentes</span><span class="pill-val">{n_urgentes}</span><span class="pill-badge" style="background:#E3494830;color:#E34948;">Crítico</span></div>
+    <div class="pill atencao"><span class="pill-label">Falta Info</span><span class="pill-val">{d.get("falta_info",0)}</span><span class="pill-badge" style="background:#EDA10020;color:#EDA100;">Pendente</span></div>
+    <div class="pill atencao"><span class="pill-label">Falta Pontuação</span><span class="pill-val">{d.get("falta_pts",0)}</span><span class="pill-badge" style="background:#EDA10020;color:#EDA100;">Revisar</span></div>
+    <div class="pill urgente"><span class="pill-label">Penalidades</span><span class="pill-val">-{pen_total:,.0f}</span><span class="pill-badge" style="background:#E3494820;color:#E34948;">Ocorrências</span></div>
+    <div class="pill atencao"><span class="pill-label">Sem Membro</span><span class="pill-val">{n_sem_mb}</span><span class="pill-badge" style="background:#EDA10020;color:#EDA100;">Revisar</span></div>
+  </div>
+
+  <div class="bloco-barras">
+    <div class="barra-box verde-border">
+      <div class="bloco-titulo verde" style="margin-bottom:5px;">📋 Meta Coletiva</div>
+      <div class="barra-item"><div class="barra-header"><span>Pontuação do mês</span><span style="color:#1BAF7A;font-weight:700;">{fp(pct_eq)}</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_eq,100):.1f}%;background:#1BAF7A;"></div></div><div class="barra-desc">{saldo_eq:,.0f} / {meta_eq:,} pts (inclui -{pen_total:.0f} penalidades)</div></div>
+      <div class="barra-item"><div class="barra-header"><span>Sem atraso em prioritários P8-P10</span><span style="color:#1BAF7A;font-weight:700;">{pct_pri_ok:.0f}%</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_pri_ok,100):.1f}%;background:#1BAF7A;"></div></div><div class="barra-desc">{desc_pri}</div></div>
+      <div class="barra-item"><div class="barra-header"><span>Retrabalho abaixo de {max_retrab_n}%</span><span style="color:#E34948;font-weight:700;">{pct_retrab_n:.0f}%</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_retrab_n,100):.1f}%;background:#E34948;"></div></div><div class="barra-desc">{desc_retrab}</div></div>
+      <div class="barra-item"><div class="barra-header"><span>Menos de {max_pen_n+1} penalidades</span><span style="color:#E34948;font-weight:700;">{pct_pen_n:.0f}%</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_pen_n,100):.1f}%;background:#E34948;"></div></div><div class="barra-desc">{n_pen} ocorrência(s) / máx {max_pen_n}</div></div>
+      <div class="barra-item"><div class="barra-header"><span>Cartões com membro atribuído</span><span style="color:#1BAF7A;font-weight:700;">{pct_com_membro:.0f}%</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_com_membro,100):.1f}%;background:#1BAF7A;"></div></div><div class="barra-desc">Em andamento e concluídos</div></div>
+    </div>
+    <div class="barra-box ouro-border">
+      <div class="bloco-titulo ouro" style="margin-bottom:5px;">⭐ Meta Maxx Coletiva</div>
+      <div class="barra-item"><div class="barra-header"><span>Pontuação +{maxx_pct-100}% acima da meta</span><span style="color:#FFD700;font-weight:700;">{fp(pct_maxx)}</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_maxx,100):.1f}%;background:#FFD700;"></div></div><div class="barra-desc">{saldo_eq:,.0f} / {meta_maxx_pts:,.0f} pts (c/ penalidades -{pen_total:.0f})</div></div>
+      <div class="barra-item"><div class="barra-header"><span>Zero prioritários em atraso</span><span style="color:#FFD700;font-weight:700;">{pct_pri_ok:.0f}%</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_pri_ok,100):.1f}%;background:#FFD700;"></div></div><div class="barra-desc">{desc_pri}</div></div>
+      <div class="barra-item"><div class="barra-header"><span>Retrabalho abaixo de {max_retrab_x}%</span><span style="color:#E34948;font-weight:700;">{pct_retrab_x:.0f}%</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_retrab_x,100):.1f}%;background:#E34948;"></div></div><div class="barra-desc">{desc_retrab}</div></div>
+      <div class="barra-item"><div class="barra-header"><span>Menos de {max_pen_x+1} penalidades</span><span style="color:#E34948;font-weight:700;">{pct_pen_x:.0f}%</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_pen_x,100):.1f}%;background:#E34948;"></div></div><div class="barra-desc">{n_pen} ocorrência(s) / máx {max_pen_x}</div></div>
+      <div class="barra-item"><div class="barra-header"><span>Cartões com membro atribuído</span><span style="color:#FFD700;font-weight:700;">{pct_com_membro:.0f}%</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_com_membro,100):.1f}%;background:#FFD700;"></div></div><div class="barra-desc">Em andamento e concluídos</div></div>
+    </div>
+  </div>
+
+  <div class="bloco-bottom">
+    <div class="sub-bloco">
+      <div class="sub-titulo" style="color:#EDA100;">🟠 Pendentes por Coluna</div>
+      {pend_html}
+    </div>
+    <div class="sub-bloco">
+      <div class="sub-titulo">▶️ Em Andamento Agora</div>
+      <div class="cards-col">{and_html}</div>
+    </div>
+    <div class="sub-bloco">
+      <div class="sub-titulo">📋 Próximas Demandas na Fila</div>
+      <div class="cards-col">{fila_html}</div>
+    </div>
+    <div class="sub-bloco">
+      <div class="sub-titulo" style="color:#E34948;">🔔 Alertas — Demandas que precisam de atenção</div>
+      <div class="alerta-col">
+        <div class="alerta-header com-alerta" id="alerta-header">
+          <div class="alerta-titulo">⚠️ ATENÇÃO</div>
+          <div class="alerta-sub">{n_urgentes} urgentes · {n_sem_mb} sem membro atribuído</div>
+        </div>
+        <div class="alerta-lista" id="alerta-lista"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const ALERTAS = {alertas_js};
+const MAX = 5;
+let offset = 0;
+function render() {{
+  const lista = document.getElementById("alerta-lista");
+  lista.innerHTML = "";
+  for (let i = 0; i < MAX; i++) {{
+    if (!ALERTAS.length) break;
+    const a = ALERTAS[(offset + i) % ALERTAS.length];
+    const pos = (offset + i) % ALERTAS.length + 1;
+    const div = document.createElement("div");
+    div.className = "alerta-item " + a.tipo;
+    div.innerHTML = `
+      <div class="alerta-item-prioridade">
+        <span>${{a.prioridade}} — ${{a.pos}}</span>
+        <span style="color:#555;font-weight:400;">${{pos}}/${{ALERTAS.length}}</span>
+      </div>
+      <div class="alerta-item-nome">${{a.nome}}</div>
+      <div class="alerta-item-col">${{a.col}}</div>`;
+    lista.appendChild(div);
+  }}
+  requestAnimationFrame(() => {{
+    const sample = lista.querySelector(".alerta-item");
+    if (!sample) return;
+    const h = sample.getBoundingClientRect().height;
+    document.querySelectorAll(".card-base").forEach(el => {{ el.style.height = h + "px"; }});
+  }});
+}}
+if (ALERTAS.length) {{
+  render();
+  setInterval(() => {{ offset = (offset + 1) % ALERTAS.length; render(); }}, 8000);
+}}
+function beep(freq, dur, vol, delay) {{
+  try {{
+    var ctx = new (window.AudioContext || window.webkitAudioContext)();
+    var osc = ctx.createOscillator(); var gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.type = "sine"; osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0, ctx.currentTime + delay);
+    gain.gain.linearRampToValueAtTime(vol, ctx.currentTime + delay + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + dur);
+    osc.start(ctx.currentTime + delay);
+    osc.stop(ctx.currentTime + delay + dur + 0.05);
+  }} catch(e) {{}}
+}}
+function playOnce() {{
+  beep(660, 0.25, 0.4, 0.0); beep(880, 0.25, 0.4, 0.35);
+  beep(1100, 0.40, 0.45, 0.70); beep(1100, 0.40, 0.45, 1.20);
+}}
+function checkAndPlay() {{
+  var h = document.getElementById("alerta-header");
+  if (!h) return;
+  h.classList.add("tocando");
+  playOnce();
+  setTimeout(playOnce, 3500);
+  setTimeout(playOnce, 7000);
+  setTimeout(function() {{ h.classList.remove("tocando"); }}, 11000);
+}}
+setTimeout(checkAndPlay, 4000);
+setInterval(checkAndPlay, 5 * 60 * 1000);
+</script>
+</body>
+</html>"""
+
 def _meta_ind_item(titulo, pct, descricao, cor=None, aguardando=False):
     if aguardando:
         return f"""<div class="meta-ind-card">
@@ -508,6 +891,33 @@ def pagina_placar(usuario_logado):
     faltam=max(meta_eq-saldo_eq,0)
     faltam_maxx=max(meta_maxx_pts-saldo_eq,0)
     cor_pts="#1BAF7A" if pct_eq>=100 else ("#EDA100" if pct_eq>=50 else "#E34948")
+
+    # ══ MODO TV — renderiza HTML completo e encerra ══
+    if modo_tv:
+        _alertas_tv = _alertas_tv_list(listas, cards, membros_map)
+        st.markdown("""<style>
+        header[data-testid="stHeader"]{display:none!important;}
+        .stMainBlockContainer,.block-container{padding:0!important;max-width:100vw!important;}
+        footer{display:none!important;}#MainMenu{display:none!important;}
+        </style>""", unsafe_allow_html=True)
+        _html_tv = _tv_full_html(
+            pct_eq=pct_eq, pct_maxx=pct_maxx,
+            saldo_eq=saldo_eq, meta_eq=meta_eq, faltam=faltam,
+            pts_pendentes=d["pts_pendentes"],
+            meta_maxx_pts=meta_maxx_pts, faltam_maxx=faltam_maxx,
+            maxx_pct=maxx_pct, pen_total=d["pen_total"], n_pen=len(d["pen_cards"]),
+            d=d, fila=fila, alertas=_alertas_tv, pend_lista=d["pend_lista"],
+            pct_pri_ok=pct_prioritarios_ok,
+            pct_retrab_n=pct_retrab_barra_n, pct_pen_n=pct_pen_normal,
+            pct_retrab_x=pct_retrab_barra_x, pct_pen_x=pct_pen_maxx,
+            pct_com_membro=pct_com_membro, desc_retrab=_desc_retrab,
+            max_retrab_n=max_retrab_n, max_pen_n=max_pen_n,
+            max_retrab_x=max_retrab_x, max_pen_x=max_pen_x,
+            n_urgentes=d.get("urgentes", 0), n_sem_mb=d.get("sem_membro", 0),
+            agora_str=agora.strftime("%d/%m/%Y %H:%M"),
+        )
+        _components.html(_html_tv, height=1080, scrolling=False)
+        return
 
     # ══ BLOCO 1 — cards meta | vel meta | vel maxx | cards maxx ══
     col_cm, col_vm, col_vx, col_cx = st.columns([1.8, 2.0, 2.0, 1.8])
@@ -776,58 +1186,9 @@ def pagina_placar(usuario_logado):
               <div style="font-size:10px;color:var(--ms-texto-sec);margin-top:2px;">{ms}</div>
             </div>""",unsafe_allow_html=True)
 
-    # ══ BLOCO FINAL — alertas sonoros (TV) e rodapé ══
-    if modo_tv:
-        # Alertas sonoros via Web Audio API
-        _urgentes_tv  = int(d.get("urgentes",  0))
-        _atrasados_tv = int(d.get("atrasados", 0))
-        _components.html(f"""
-<script>
-(function() {{
-    var URGENTES  = {_urgentes_tv};
-    var ATRASADOS = {_atrasados_tv};
-
-    function beep(freq, dur, vol, delay) {{
-        try {{
-            var ctx = new (window.AudioContext || window.webkitAudioContext)();
-            var osc  = ctx.createOscillator();
-            var gain = ctx.createGain();
-            osc.connect(gain); gain.connect(ctx.destination);
-            osc.type = 'sine';
-            osc.frequency.value = freq;
-            gain.gain.setValueAtTime(0, ctx.currentTime + delay);
-            gain.gain.linearRampToValueAtTime(vol, ctx.currentTime + delay + 0.02);
-            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + dur);
-            osc.start(ctx.currentTime + delay);
-            osc.stop(ctx.currentTime + delay + dur + 0.05);
-        }} catch(e) {{}}
-    }}
-
-    /* Som "urgente" — 3 bips ascendentes (tipo chamada de hospital) */
-    function playUrgente() {{
-        beep(660,  0.25, 0.4, 0.0);
-        beep(880,  0.25, 0.4, 0.35);
-        beep(1100, 0.40, 0.45, 0.70);
-        beep(1100, 0.40, 0.45, 1.20);
-    }}
-
-    /* Som "atenção" — 2 bips curtos (prazo próximo) */
-    function playAtencao() {{
-        beep(660, 0.20, 0.35, 0.0);
-        beep(880, 0.30, 0.35, 0.30);
-    }}
-
-    function checkAndPlay() {{
-        if (URGENTES > 0)       {{ playUrgente(); }}
-        else if (ATRASADOS > 0) {{ playAtencao(); }}
-    }}
-
-    /* Primeira execução 4s após carregar; depois a cada 2 minutos */
-    setTimeout(checkAndPlay, 4000);
-    setInterval(checkAndPlay, 2 * 60 * 1000);
-}})();
-</script>
-""", height=0)
+    # ══ BLOCO FINAL — rodapé normal ══
+    if False:  # modo_tv já fez return acima
+        pass
     else:
         # Rodapé normal com dica de TV
         if _TV_TOKEN:
