@@ -12,7 +12,12 @@ from datetime import datetime
 
 import metas_config as mc
 import placar_core as _pc
-import relogio_ponto as _rp
+try:
+    import relogio_ponto as _rp
+    _PONTO_DISPONIVEL = True
+except ImportError:
+    _rp = None
+    _PONTO_DISPONIVEL = False
 
 # MESES_PT importado do placar_core
 MESES_PT = _pc.MESES_PT
