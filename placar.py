@@ -898,33 +898,40 @@ def pagina_placar(usuario_logado):
         _tv_pret_x   = min(_tv_pret / _tv_mret_x * 100, 100) if _tv_mret_x > 0 else 0
 
         _alertas_tv  = _alertas_tv_list(listas, cards, membros_map)
+        try:
+            _html_tv = _tv_full_html(
+                pct_eq=_tv_pct_eq, pct_maxx=_tv_pct_maxx,
+                saldo_eq=_tv_saldo, meta_eq=meta_eq, faltam=_tv_faltam,
+                pts_pendentes=d["pts_pendentes"],
+                meta_maxx_pts=meta_maxx_pts, faltam_maxx=_tv_faltam_x,
+                maxx_pct=maxx_pct, pen_total=d["pen_total"], n_pen=len(d["pen_cards"]),
+                d=d, fila=fila, alertas=_alertas_tv, pend_lista=d["pend_lista"],
+                pct_pri_ok=_tv_pri_ok,
+                pct_retrab_n=_tv_pret_n, pct_pen_n=_tv_pct_pen_n,
+                pct_retrab_x=_tv_pret_x, pct_pen_x=_tv_pct_pen_x,
+                pct_com_membro=_tv_pct_mb, desc_retrab=_tv_desc_ret,
+                max_retrab_n=_tv_mret_n, max_pen_n=_tv_mpen_n,
+                max_retrab_x=_tv_mret_x, max_pen_x=_tv_mpen_x,
+                n_urgentes=d.get("urgentes", 0), n_sem_mb=d.get("sem_membro", 0),
+                agora_str=agora.strftime("%d/%m/%Y %H:%M"),
+            )
+        except Exception as _tv_err:
+            st.error(f"Erro ao gerar TV HTML: {_tv_err}")
+            return
+        # CSS que transforma o iframe em overlay fixo 100vw × 100vh cobrindo a página
         st.markdown("""<style>
-        header[data-testid="stHeader"]{display:none!important;}
-        .stMainBlockContainer,.block-container{padding:0!important;max-width:100vw!important;}
-        footer{display:none!important;}#MainMenu{display:none!important;}
+        html,body{background:#1a1a1a!important;overflow:hidden!important;}
+        header[data-testid="stHeader"],footer,#MainMenu{display:none!important;}
+        .stMainBlockContainer,.block-container,[data-testid="stMain"]{
+            padding:0!important;margin:0!important;max-width:100vw!important;
+            background:#1a1a1a!important;}
+        iframe{
+            position:fixed!important;top:0!important;left:0!important;
+            width:100vw!important;height:100vh!important;
+            border:none!important;z-index:9999!important;
+        }
         </style>""", unsafe_allow_html=True)
-        _html_tv = _tv_full_html(
-            pct_eq=_tv_pct_eq, pct_maxx=_tv_pct_maxx,
-            saldo_eq=_tv_saldo, meta_eq=meta_eq, faltam=_tv_faltam,
-            pts_pendentes=d["pts_pendentes"],
-            meta_maxx_pts=meta_maxx_pts, faltam_maxx=_tv_faltam_x,
-            maxx_pct=maxx_pct, pen_total=d["pen_total"], n_pen=len(d["pen_cards"]),
-            d=d, fila=fila, alertas=_alertas_tv, pend_lista=d["pend_lista"],
-            pct_pri_ok=_tv_pri_ok,
-            pct_retrab_n=_tv_pret_n, pct_pen_n=_tv_pct_pen_n,
-            pct_retrab_x=_tv_pret_x, pct_pen_x=_tv_pct_pen_x,
-            pct_com_membro=_tv_pct_mb, desc_retrab=_tv_desc_ret,
-            max_retrab_n=_tv_mret_n, max_pen_n=_tv_mpen_n,
-            max_retrab_x=_tv_mret_x, max_pen_x=_tv_mpen_x,
-            n_urgentes=d.get("urgentes", 0), n_sem_mb=d.get("sem_membro", 0),
-            agora_str=agora.strftime("%d/%m/%Y %H:%M"),
-        )
-        # Substitui a página inteira pelo HTML TV (mesmo-origen → document.write funciona)
-        _tv_json = _json.dumps(_html_tv)
-        _components.html(
-            f"<script>(function(){{var d=window.parent.document;d.open();d.write({_tv_json});d.close();}})();</script>",
-            height=0, scrolling=False
-        )
+        _components.html(_html_tv, height=1080, scrolling=False)
         return
 
     if _alertas_sem_mb:
