@@ -918,20 +918,30 @@ def pagina_placar(usuario_logado):
         except Exception as _tv_err:
             st.error(f"Erro ao gerar TV HTML: {_tv_err}")
             return
-        # CSS que transforma o iframe em overlay fixo 100vw × 100vh cobrindo a página
-        st.markdown("""<style>
-        html,body{background:#1a1a1a!important;overflow:hidden!important;}
-        header[data-testid="stHeader"],footer,#MainMenu{display:none!important;}
-        .stMainBlockContainer,.block-container,[data-testid="stMain"]{
-            padding:0!important;margin:0!important;max-width:100vw!important;
-            background:#1a1a1a!important;}
-        iframe{
-            position:fixed!important;top:0!important;left:0!important;
-            width:100vw!important;height:100vh!important;
-            border:none!important;z-index:9999!important;
-        }
-        </style>""", unsafe_allow_html=True)
-        _components.html(_html_tv, height=1080, scrolling=False)
+        # Extrai <style>, body e <script> do HTML gerado
+        import re as _re
+        _style_m  = _re.search(r'<style>(.*?)</style>', _html_tv, _re.DOTALL)
+        _body_m   = _re.search(r'<body>(.*?)<script', _html_tv, _re.DOTALL)
+        _script_m = _re.search(r'<script>(.*?)</script>', _html_tv, _re.DOTALL)
+        _style_txt  = _style_m.group(1)  if _style_m  else ""
+        _body_txt   = _body_m.group(1)   if _body_m   else _html_tv
+        _script_txt = _script_m.group(1) if _script_m else ""
+        # .tv-root vira overlay fixo de tela cheia, sem iframe
+        _overlay_extra = """
+.tv-root{position:fixed!important;top:0!important;left:0!important;
+         width:100vw!important;height:100vh!important;z-index:99999!important;
+         background:#1a1a1a!important;overflow:hidden!important;}
+html,body{background:#1a1a1a!important;margin:0!important;padding:0!important;}
+header[data-testid="stHeader"],footer,#MainMenu{display:none!important;}
+"""
+        # Renderiza conteúdo visual direto no DOM do Streamlit (sem iframe)
+        st.markdown(
+            f"<style>{_style_txt}{_overlay_extra}</style>{_body_txt}",
+            unsafe_allow_html=True
+        )
+        # JS de som num iframe mínimo (height=0, invisível)
+        if _script_txt:
+            _components.html(f"<script>{_script_txt}</script>", height=0, scrolling=False)
         return
 
     if _alertas_sem_mb:
