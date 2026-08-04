@@ -868,6 +868,7 @@ def pagina_placar(usuario_logado):
 
     # ══ MODO TV — calcula tudo aqui e encerra antes de qualquer render ══
     if modo_tv:
+        st.markdown("🟢 **TV modo ativo** — carregando painel...", unsafe_allow_html=False)
         _tv_saldo    = d["pts_equipe"] - d["pen_total"]
         _tv_pct_eq   = (_tv_saldo / meta_eq * 100) if meta_eq > 0 else 0
         _tv_pct_maxx = (_tv_saldo / meta_maxx_pts * 100) if meta_maxx_pts > 0 else 0
