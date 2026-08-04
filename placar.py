@@ -822,9 +822,9 @@ def pagina_placar(usuario_logado):
         else if (ATRASADOS > 0) {{ playAtencao(); }}
     }}
 
-    /* Primeira execução 4s após carregar; depois a cada 5 minutos */
+    /* Primeira execução 4s após carregar; depois a cada 2 minutos */
     setTimeout(checkAndPlay, 4000);
-    setInterval(checkAndPlay, 5 * 60 * 1000);
+    setInterval(checkAndPlay, 2 * 60 * 1000);
 }})();
 </script>
 """, height=0)
