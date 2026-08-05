@@ -662,6 +662,7 @@ def _tv_full_html(
     pct_pri_ok, pct_retrab_n, pct_pen_n, pct_retrab_x, pct_pen_x,
     pct_com_membro, desc_retrab, max_retrab_n, max_pen_n, max_retrab_x, max_pen_x,
     n_urgentes, n_sem_mb, agora_str,
+    meta_ind_map=None,
 ):
     def fp(v): return f"{'%.1f'%v if v<10 else '%.0f'%v}%"
 
@@ -695,6 +696,27 @@ def _tv_full_html(
                           f'<div class="pend-track"><div class="pend-fill" '
                           f'style="width:{pct_b:.0f}%;background:{fc};"></div></div></div>')
 
+    # Desempenho por colaborador (abaixo de pendentes por coluna)
+    desempenho_html = ""
+    _pts_mb = d.get("pts_membro", {})
+    _pen_mb = d.get("pen_membro", {})
+    _meta_per = meta_ind_map or {}
+    _meta_base = meta_eq / max(len(MEMBROS_ATIVOS), 1)
+    for _u, _nm in MEMBROS_ATIVOS.items():
+        _pts = _pts_mb.get(_u, 0.0)
+        _pen = _pen_mb.get(_u, 0.0)
+        _meta_u = _meta_per.get(_u, _meta_base)
+        _pct = min(_pts / _meta_u * 100, 100) if _meta_u > 0 else 0
+        _cor = "#1BAF7A" if _pct >= 80 else ("#EDA100" if _pct >= 50 else "#E34948")
+        _pen_str = f" · <span style='color:#E34948;'>-{_pen:.0f}pen</span>" if _pen > 0 else ""
+        desempenho_html += (
+            f'<div class="pend-item">'
+            f'<div class="pend-header"><span>{_nm}</span>'
+            f'<span class="pend-num" style="color:{_cor};">{_pts:.0f}{_pen_str}</span></div>'
+            f'<div class="pend-track"><div class="pend-fill" style="width:{_pct:.0f}%;background:{_cor};"></div></div>'
+            f'</div>'
+        )
+
     # Em andamento
     and_html = ""
     for c in (d.get("andamento_lista") or []):
@@ -707,21 +729,24 @@ def _tv_full_html(
     if not and_html:
         and_html = '<div style="font-size:10px;color:#555;padding:8px;">Nenhum em andamento</div>'
 
-    # Próximas 6 da fila
-    ORDS = ["1°","2°","3°","4°","5°","6°"]
+    # Próximas 5 da fila — visual idêntico aos cards de alerta
+    ORDS = ["1°","2°","3°","4°","5°"]
     fila_html = ""
-    for i, item in enumerate(fila[:6]):
+    for i, item in enumerate(fila[:5]):
         p = item["prioridade"]
         cor = "#E34948" if p>=10 else ("#EDA100" if p>=8 else ("#1BAF7A" if p>=6 else "#888"))
-        badge = '<span class="badge-urg">URGENTE</span> · ' if (item.get("is_urgente") or p>=8) else ""
-        nome = (item["nome"][:44]+"…") if len(item["nome"])>44 else item["nome"]
+        tipo_cls = "urgente" if (item.get("is_urgente") or p>=8) else "atencao"
+        nome = (item["nome"][:42]+"…") if len(item["nome"])>42 else item["nome"]
         ls   = (item["lista"][:24]+"…") if len(item["lista"])>24 else item["lista"]
         eta  = _fmt_tempo(item["eta_min"])
-        fila_html += (f'<div class="card-base"><div class="fila-inner">'
-                      f'<div class="fila-num" style="color:{cor};">{ORDS[i]}</div>'
-                      f'<div class="fila-info"><div class="fila-nome">{nome}</div>'
-                      f'<div class="fila-sub">{ls} · {badge}P{p}</div></div>'
-                      f'<div class="fila-tempo">~{eta}</div></div></div>')
+        fila_html += (f'<div class="alerta-item {tipo_cls}">'
+                      f'<div class="alerta-item-prioridade">'
+                      f'<span style="color:{cor};">{ORDS[i]} — P{p}</span>'
+                      f'<span style="color:#888;font-weight:400;">~{eta}</span>'
+                      f'</div>'
+                      f'<div class="alerta-item-nome">{nome}</div>'
+                      f'<div class="alerta-item-col">{ls}</div>'
+                      f'</div>')
     if not fila_html:
         fila_html = '<div style="font-size:10px;color:#555;padding:8px;">Fila vazia 🎉</div>'
 
@@ -936,6 +961,10 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
     <div class="sub-bloco-pend">
       <div class="sub-titulo" style="color:#EDA100;">🟠 Pendentes por Coluna</div>
       {pend_html}
+      <div style="margin-top:8px;padding-top:6px;border-top:1px solid #2e2e2e;">
+        <div class="sub-titulo" style="color:#aaa;font-size:10px;margin-bottom:4px;">👤 Desempenho</div>
+        {desempenho_html}
+      </div>
     </div>
     <div class="sub-bloco-and">
       <div class="sub-titulo">▶️ Em Andamento</div>
@@ -981,26 +1010,39 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
   fix('tv-bb',  y, hB);  y += hB  + GAP;
   fix('tv-bbt', y, hBt);
 }})();
-// ── Alertas: exibição estática, sem rotação ──────────────────────────────────
+// ── Alertas: máx 4 visíveis; rotação automática quando há mais de 4 ──────────
 var ALERTAS = {alertas_js};
-(function() {{
+var _alertaOffset = 0;
+function _renderAlertas() {{
   var lista = document.getElementById("alerta-lista");
-  if (!lista || !ALERTAS.length) return;
-  for (var i = 0; i < ALERTAS.length; i++) {{
-    var a = ALERTAS[i];
+  if (!lista) return;
+  lista.innerHTML = "";
+  var total = ALERTAS.length;
+  if (!total) return;
+  var visiveis = total > 4 ? 4 : total;
+  for (var i = 0; i < visiveis; i++) {{
+    var idx = (i + _alertaOffset) % total;
+    var a = ALERTAS[idx];
     var div = document.createElement("div");
     div.className = "alerta-item " + a.tipo;
     div.innerHTML =
       '<div class="alerta-item-prioridade">' +
         '<span>' + a.prioridade + ' — ' + a.pos + '</span>' +
-        '<span style="color:#555;font-weight:400;">' + (i+1) + '/' + ALERTAS.length + '</span>' +
+        '<span style="color:#555;font-weight:400;">' + (idx+1) + '/' + total + '</span>' +
       '</div>' +
       '<div class="alerta-item-nome">' + a.nome + '</div>' +
       '<div class="alerta-item-col">' + a.col + '</div>' +
       '<div class="alerta-item-col" style="color:#666;font-style:italic;">' + a.detalhe + '</div>';
     lista.appendChild(div);
   }}
-}})();
+}}
+_renderAlertas();
+if (ALERTAS.length > 4) {{
+  setInterval(function() {{
+    _alertaOffset = (_alertaOffset + 1) % ALERTAS.length;
+    _renderAlertas();
+  }}, 12000);
+}}
 // ── Áudio via elemento <audio> HTML5 (compatível com LG WebOS) ───────────────
 var _audioAtivo = false;
 function _marcarBtnAtivo() {{
@@ -1039,11 +1081,29 @@ function ativarSom() {{
     }}
   }} catch(e) {{ _marcarBtnErro(); }}
 }}
-// Auto-restauração ao recarregar (meta-refresh de 60s): não toca bipe, só reativa
-// No WebOS (TV) a reprodução posterior funciona sem novo gesto do usuário
+// Auto-restauração ao recarregar (meta-refresh de 60s):
+// Tenta tocar o áudio em volume quase zero; se funcionar, ativa o som.
+// Se o browser bloquear (autoplay policy), limpa o flag — botão volta a exigir toque.
 try {{
   if (localStorage.getItem('ms_tv_audio') === '1') {{
-    _audioAtivo = true; _marcarBtnAtivo();
+    var _aEl = document.getElementById('beep-audio');
+    if (_aEl) {{
+      _aEl.volume = 0.01;
+      var _pTry = _aEl.play();
+      if (_pTry !== undefined && _pTry.then) {{
+        _pTry.then(function() {{
+          _aEl.pause(); _aEl.currentTime = 0; _aEl.volume = 1.0;
+          _audioAtivo = true; _marcarBtnAtivo();
+        }}).catch(function() {{
+          _aEl.volume = 1.0;
+          try {{ localStorage.removeItem('ms_tv_audio'); }} catch(e2) {{}}
+        }});
+      }} else {{
+        // Browser sem Promise (WebOS antigo) — assume que funcionou
+        _aEl.pause(); _aEl.currentTime = 0; _aEl.volume = 1.0;
+        _audioAtivo = true; _marcarBtnAtivo();
+      }}
+    }}
   }}
 }} catch(e) {{}}
 function checkAndPlay() {{
@@ -1403,6 +1463,7 @@ def pagina_placar(usuario_logado):
         max_retrab_x=max_retrab_x, max_pen_x=max_pen_x,
         n_urgentes=d.get("urgentes", 0), n_sem_mb=d.get("sem_membro", 0),
         agora_str=agora.strftime("%d/%m/%Y %H:%M"),
+        meta_ind_map=meta_ind_map,
     )
     _write_tv_static(_html_tv)  # atualiza static/tv.html a cada refresh do app
 
