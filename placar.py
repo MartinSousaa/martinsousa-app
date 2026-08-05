@@ -15,9 +15,11 @@ import json as _json
 from datetime import datetime, timezone
 import math
 
-# ── Beep de alerta embutido como WAV base64 (compatível com LG WebOS) ─────────
-def _gerar_beep_b64():
-    """Gera WAV com 4 bipes (660→880→1100→1100 Hz) e retorna como base64."""
+# ── Beep de alerta — gerado como arquivo WAV físico em static/beep.wav ────────
+# Data URIs de ~79KB falham silenciosamente no browser da LG TV.
+# Servir como arquivo HTTP normal é compatível com todos os browsers.
+def _gerar_beep_wav_bytes() -> bytes:
+    """Gera bytes de um WAV com 4 bipes (660→880→1100→1100 Hz)."""
     sr = 22050
     beeps = [
         (660,  0.25, 0.40, 0.00),
@@ -44,9 +46,19 @@ def _gerar_beep_b64():
         b'fmt ', 16, 1, 1, sr, sr * 2, 2, 16,
         b'data', len(pcm),
     )
-    return _base64.b64encode(hdr + pcm).decode('ascii')
+    return hdr + pcm
 
-_BEEP_WAV_B64 = _gerar_beep_b64()
+def _write_beep_wav() -> None:
+    """Escreve static/beep.wav (gerado uma vez; regenera se sumir após redeploy)."""
+    try:
+        _static_dir = os.path.join(os.path.dirname(__file__), "static")
+        os.makedirs(_static_dir, exist_ok=True)
+        _path = os.path.join(_static_dir, "beep.wav")
+        if not os.path.exists(_path):
+            with open(_path, "wb") as _f:
+                _f.write(_gerar_beep_wav_bytes())
+    except Exception:
+        pass
 
 try:
     TRELLO_KEY   = st.secrets["trello"]["api_key"]
@@ -69,8 +81,9 @@ def _write_tv_static(html: str) -> None:
         _path = os.path.join(_static_dir, "tv.html")
         with open(_path, "w", encoding="utf-8") as _f:
             _f.write(html)
-    except Exception as _e:
+    except Exception:
         pass  # nunca travar o app por causa da TV
+    _write_beep_wav()  # garante que beep.wav existe ao lado de tv.html
 
 MEMBROS_ATIVOS = {
     "myrelladesouza": "Myrella",
@@ -945,7 +958,7 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
   </div>
 </div>
 
-<audio id="beep-audio" src="data:audio/wav;base64,{_BEEP_WAV_B64}" preload="auto"></audio>
+<audio id="beep-audio" src="/app/static/beep.wav" preload="auto"></audio>
 <div id="som-btn" onclick="ativarSom();">🔊 Ativar Som</div>
 
 <script>
@@ -968,37 +981,27 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
   fix('tv-bb',  y, hB);  y += hB  + GAP;
   fix('tv-bbt', y, hBt);
 }})();
-// ────────────────────────────────────────────────────────────────────────────
+// ── Alertas: exibição estática, sem rotação ──────────────────────────────────
 var ALERTAS = {alertas_js};
-var MAX = 5;
-var offset = 0;
-function render() {{
+(function() {{
   var lista = document.getElementById("alerta-lista");
-  if (!lista) return;
-  lista.innerHTML = "";
-  for (var i = 0; i < MAX; i++) {{
-    if (!ALERTAS.length) break;
-    var a   = ALERTAS[(offset + i) % ALERTAS.length];
-    var pos = (offset + i) % ALERTAS.length + 1;
+  if (!lista || !ALERTAS.length) return;
+  for (var i = 0; i < ALERTAS.length; i++) {{
+    var a = ALERTAS[i];
     var div = document.createElement("div");
     div.className = "alerta-item " + a.tipo;
     div.innerHTML =
       '<div class="alerta-item-prioridade">' +
         '<span>' + a.prioridade + ' — ' + a.pos + '</span>' +
-        '<span style="color:#555;font-weight:400;">' + pos + '/' + ALERTAS.length + '</span>' +
+        '<span style="color:#555;font-weight:400;">' + (i+1) + '/' + ALERTAS.length + '</span>' +
       '</div>' +
       '<div class="alerta-item-nome">' + a.nome + '</div>' +
       '<div class="alerta-item-col">' + a.col + '</div>' +
       '<div class="alerta-item-col" style="color:#666;font-style:italic;">' + a.detalhe + '</div>';
     lista.appendChild(div);
   }}
-}}
-if (ALERTAS.length) {{
-  render();
-  setInterval(function() {{ offset = (offset + 1) % ALERTAS.length; render(); }}, 8000);
-}}
+}})();
 // ── Áudio via elemento <audio> HTML5 (compatível com LG WebOS) ───────────────
-// Web Audio API não é suportada pela TV LG. Usamos <audio> com WAV embutido.
 var _audioAtivo = false;
 function _marcarBtnAtivo() {{
   var btn = document.getElementById('som-btn');
@@ -1013,6 +1016,7 @@ function _playAudio() {{
   if (!a || !_audioAtivo) return;
   try {{ a.currentTime = 0; a.play(); }} catch(e) {{}}
 }}
+// Botão manual — toca bipe de confirmação e ativa o som
 function ativarSom() {{
   var btn = document.getElementById('som-btn');
   if (btn) {{ btn.innerHTML = '⏳ Ativando...'; }}
@@ -1020,26 +1024,28 @@ function ativarSom() {{
   var a = document.getElementById('beep-audio');
   if (!a) {{ _marcarBtnErro(); return; }}
   try {{
-    a.load();
+    a.currentTime = 0;
     var p = a.play();
     if (p !== undefined && p.then) {{
       p.then(function() {{
-        _audioAtivo = true;
-        _marcarBtnAtivo();
-      }}).catch(function() {{
-        // play() bloqueado — tenta marcar ativo mesmo assim (WebOS pode não retornar Promise)
-        _audioAtivo = true;
-        _marcarBtnAtivo();
+        _audioAtivo = true; _marcarBtnAtivo();
+      }}).catch(function(err) {{
+        // play() rejeitado — browser bloqueou, mostra erro real
+        _marcarBtnErro();
       }});
     }} else {{
-      // Browser mais antigo: play() não retorna Promise
-      _audioAtivo = true;
-      _marcarBtnAtivo();
+      // Browser antigo sem Promise — assume que funcionou
+      _audioAtivo = true; _marcarBtnAtivo();
     }}
-  }} catch(e) {{
-    _marcarBtnErro();
-  }}
+  }} catch(e) {{ _marcarBtnErro(); }}
 }}
+// Auto-restauração ao recarregar (meta-refresh de 60s): não toca bipe, só reativa
+// No WebOS (TV) a reprodução posterior funciona sem novo gesto do usuário
+try {{
+  if (localStorage.getItem('ms_tv_audio') === '1') {{
+    _audioAtivo = true; _marcarBtnAtivo();
+  }}
+}} catch(e) {{}}
 function checkAndPlay() {{
   var h = document.getElementById("alerta-header");
   if (!h) return;
