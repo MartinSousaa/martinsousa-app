@@ -30,8 +30,6 @@ import chat_assistente
 import placar
 import analise_metas
 import relogio_ponto
-from tv_route import register_tv_route
-register_tv_route()
 
 st.set_page_config(page_title="MS Studio", layout="wide")
 
@@ -227,10 +225,11 @@ tr:hover td { background-color: var(--ms-hover) !important; }
 /* ── TABS ───────────────────────────────────────────────────────────────── */
 .stTabs [data-baseweb="tab-list"] {
     background-color: transparent !important;
-    border-bottom: 1px solid var(--ms-divisor) !important; gap: 4px !important;
+    border-bottom: 1px solid var(--ms-divisor) !important; gap: 12px !important;
 }
 .stTabs [data-baseweb="tab"] {
     color: var(--ms-texto-sec) !important; background: transparent !important; font-size: 14px !important;
+    padding-left: 10px !important; padding-right: 10px !important;
 }
 .stTabs [aria-selected="true"] {
     color: var(--ms-texto) !important; border-bottom-color: var(--ms-texto) !important;
