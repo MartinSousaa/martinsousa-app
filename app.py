@@ -31,6 +31,16 @@ import placar
 import analise_metas
 import relogio_ponto
 
+# Permite que Streamlit sirva .html com Content-Type correto (text/html)
+try:
+    import streamlit.web.server.app_static_file_handler as _sfh
+    if ".html" not in _sfh.SAFE_APP_STATIC_FILE_EXTENSIONS:
+        _sfh.SAFE_APP_STATIC_FILE_EXTENSIONS = (
+            _sfh.SAFE_APP_STATIC_FILE_EXTENSIONS + (".html", ".htm")
+        )
+except Exception:
+    pass
+
 st.set_page_config(page_title="MS Studio", layout="wide")
 
 st.markdown("""
