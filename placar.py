@@ -456,14 +456,38 @@ def _g_pt(pct, r, cx=90, cy=92):
 
 def _alertas_tv_list(listas, cards, membros_map):
     """
-    Alertas para o campo Atenção — 4 condições exatas:
+    Alertas para o campo Atenção — 7 condições:
     1. Prioridade 8-10 com etiqueta PENDENTE (sem INTERROMPIDO MS)
     2. EM ANDAMENTO / Filmagem / Concluído sem membro atribuído
     3. PENDENTE + membro atribuído + >5 min sem virar EM ANDAMENTO
     4. Tempo de execução (Filmagem + EM ANDAMENTO − Interrompido MS) >= 1.5× tempo médio
+    5. Concluído (dueComplete) com etiqueta PENDENTE ainda presente
+    6. Mesmo cartão com EM ANDAMENTO + FILMAGEM simultaneamente
+    7. Membro tem ≥1 cartão EM ANDAMENTO e ainda tem outros cartões só com FILMAGEM
     """
     agora   = datetime.now(timezone.utc)
     alertas = []
+
+    # Pré-computa dados relevantes por membro para condição 7
+    # membro → {"andamento": [card_name,...], "filmagem": [card_name,...]}
+    membro_estado = {}
+
+    for card in cards:
+        nl = listas.get(card["idList"], "")
+        if nl in COLUNAS_SKIP or nl not in COLUNAS_CONFIG:
+            continue
+        lb = _labels(card)
+        us = _users(card, membros_map)
+        is_andamento = LABEL_EM_ANDAMENTO_STR in lb
+        is_filmagem  = LABEL_FILMAGEM         in lb
+        for u in us:
+            if u not in membro_estado:
+                membro_estado[u] = {"andamento": [], "filmagem_puro": []}
+            if is_andamento:
+                membro_estado[u]["andamento"].append(card["name"])
+            # filmagem "puro" = FILMAGEM mas NÃO EM ANDAMENTO (evita dupla contagem)
+            if is_filmagem and not is_andamento:
+                membro_estado[u]["filmagem_puro"].append(card["name"])
 
     for card in cards:
         nl = listas.get(card["idList"], "")
@@ -536,6 +560,48 @@ def _alertas_tv_list(listas, cards, membros_map):
                     })
             except Exception:
                 pass
+
+        # ── 5. Concluído (dueComplete) com etiqueta PENDENTE ainda presente ────
+        if concluido and is_pendente:
+            alertas.append({
+                "tipo": "atencao", "lab": "🟡 Concl. c/ Pendente",
+                "pos": "—", "nome": card["name"], "col": nl,
+                "detalhe": "Marcado como concluído mas etiqueta Pendente não removida",
+                "_s": (4, -prio, _data_card(card).timestamp()),
+            })
+
+        # ── 6. Mesmo cartão com EM ANDAMENTO + FILMAGEM simultaneamente ─────────
+        if is_andamento and is_filmagem:
+            nomes_mb = ", ".join(MEMBROS_ATIVOS.get(u, u) for u in us) if us else "sem membro"
+            alertas.append({
+                "tipo": "atencao", "lab": "🟡 And.+Film. no mesmo",
+                "pos": "—", "nome": card["name"], "col": nl,
+                "detalhe": f"Em Andamento sem remover Filmagem — {nomes_mb}",
+                "_s": (5, -prio, _data_card(card).timestamp()),
+            })
+
+    # ── 7. Membro tem EM ANDAMENTO e ainda tem outros cartões só com FILMAGEM ──
+    alertas_mb_vistos = set()  # evita duplicar por membro
+    for membro, estado in membro_estado.items():
+        if estado["andamento"] and estado["filmagem_puro"]:
+            if membro in alertas_mb_vistos:
+                continue
+            alertas_mb_vistos.add(membro)
+            nome_mb  = MEMBROS_ATIVOS.get(membro, membro)
+            n_film   = len(estado["filmagem_puro"])
+            alertas.append({
+                "tipo": "atencao", "lab": "🟡 Filmagem pendente",
+                "pos": f"{n_film} cartão(ões)",
+                "nome": f"{nome_mb} — filmagens não encerradas",
+                "col": "—",
+                "detalhe": (
+                    f"{nome_mb} está Em Andamento mas ainda tem "
+                    f"{n_film} cartão(ões) com Filmagem: "
+                    f"{', '.join(estado['filmagem_puro'][:3])}"
+                    + (" ..." if n_film > 3 else "")
+                ),
+                "_s": (6, -n_film, 0.0),
+            })
 
     alertas.sort(key=lambda x: x["_s"])
     return alertas
