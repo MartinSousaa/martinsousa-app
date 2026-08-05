@@ -6,12 +6,47 @@ Layout: cards resumo | vel. meta | vel. maxx | cards resumo maxx
 + Modo TV
 """
 import os
+import struct as _struct
+import base64 as _base64
 import streamlit as st
 import streamlit.components.v1 as _components
 import requests
 import json as _json
 from datetime import datetime, timezone
 import math
+
+# ── Beep de alerta embutido como WAV base64 (compatível com LG WebOS) ─────────
+def _gerar_beep_b64():
+    """Gera WAV com 4 bipes (660→880→1100→1100 Hz) e retorna como base64."""
+    sr = 22050
+    beeps = [
+        (660,  0.25, 0.40, 0.00),
+        (880,  0.25, 0.40, 0.35),
+        (1100, 0.40, 0.45, 0.70),
+        (1100, 0.40, 0.45, 1.20),
+    ]
+    total_n = int(sr * 1.85)
+    samples = [0.0] * total_n
+    for freq, dur, vol, delay in beeps:
+        s0 = int(delay * sr)
+        s1 = int((delay + dur) * sr)
+        for i in range(s0, min(s1, total_n)):
+            t = (i - s0) / sr
+            fade = max(0.0, min(t / 0.02, 1.0, (dur - t) / 0.05))
+            samples[i] += math.sin(2 * math.pi * freq * t) * vol * fade
+    pcm = b"".join(
+        _struct.pack('<h', int(max(-1.0, min(1.0, s)) * 32767))
+        for s in samples
+    )
+    hdr = _struct.pack(
+        '<4sI4s4sIHHIIHH4sI',
+        b'RIFF', 36 + len(pcm), b'WAVE',
+        b'fmt ', 16, 1, 1, sr, sr * 2, 2, 16,
+        b'data', len(pcm),
+    )
+    return _base64.b64encode(hdr + pcm).decode('ascii')
+
+_BEEP_WAV_B64 = _gerar_beep_b64()
 
 try:
     TRELLO_KEY   = st.secrets["trello"]["api_key"]
@@ -910,6 +945,7 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
   </div>
 </div>
 
+<audio id="beep-audio" src="data:audio/wav;base64,{_BEEP_WAV_B64}" preload="auto"></audio>
 <div id="som-btn" onclick="ativarSom();">🔊 Ativar Som</div>
 
 <script>
@@ -961,85 +997,56 @@ if (ALERTAS.length) {{
   render();
   setInterval(function() {{ offset = (offset + 1) % ALERTAS.length; render(); }}, 8000);
 }}
-// ── Áudio: AudioContext + ativação síncrona (sem depender de .then()) ──────────
-// Motivo: WebOS/LG e Chromium antigos têm Promises quebradas onde .then() nunca
-// dispara em AudioContext.resume(). A solução é definir _audioOk = true de forma
-// SÍNCRONA logo após criar o contexto, sem aguardar a Promise.
-var _ctx = null;
-var _audioOk = false;
+// ── Áudio via elemento <audio> HTML5 (compatível com LG WebOS) ───────────────
+// Web Audio API não é suportada pela TV LG. Usamos <audio> com WAV embutido.
+var _audioAtivo = false;
 function _marcarBtnAtivo() {{
   var btn = document.getElementById('som-btn');
   if (btn) {{ btn.className = 'ativo'; btn.innerHTML = '🔊 Som Ativo'; }}
 }}
 function _marcarBtnErro() {{
   var btn = document.getElementById('som-btn');
-  if (btn) {{ btn.innerHTML = '🔇 Sem suporte'; btn.style.color = '#E34948'; }}
+  if (btn) {{ btn.style.color = '#E34948'; btn.innerHTML = '🔇 Sem suporte'; }}
 }}
-// Cria AudioContext e ativa _audioOk de forma SÍNCRONA (não usa .then())
+function _playAudio() {{
+  var a = document.getElementById('beep-audio');
+  if (!a || !_audioAtivo) return;
+  try {{ a.currentTime = 0; a.play(); }} catch(e) {{}}
+}}
 function ativarSom() {{
   var btn = document.getElementById('som-btn');
-  // Feedback imediato: mostra que o clique foi registrado
   if (btn) {{ btn.innerHTML = '⏳ Ativando...'; }}
-  try {{ localStorage.setItem('ms_tv_audio','1'); }} catch(e) {{}}
+  try {{ localStorage.setItem('ms_tv_audio', '1'); }} catch(e) {{}}
+  var a = document.getElementById('beep-audio');
+  if (!a) {{ _marcarBtnErro(); return; }}
   try {{
-    if (!_ctx) {{
-      _ctx = new (window.AudioContext || window.webkitAudioContext)();
+    a.load();
+    var p = a.play();
+    if (p !== undefined && p.then) {{
+      p.then(function() {{
+        _audioAtivo = true;
+        _marcarBtnAtivo();
+      }}).catch(function() {{
+        // play() bloqueado — tenta marcar ativo mesmo assim (WebOS pode não retornar Promise)
+        _audioAtivo = true;
+        _marcarBtnAtivo();
+      }});
+    }} else {{
+      // Browser mais antigo: play() não retorna Promise
+      _audioAtivo = true;
+      _marcarBtnAtivo();
     }}
-    // resume() pode retornar uma Promise — chamamos sem .then() para compatibilidade
-    if (_ctx.resume) {{
-      try {{ _ctx.resume(); }} catch(e) {{}}
-    }}
-    // Define ativo de forma SÍNCRONA — não espera a Promise
-    _audioOk = true;
-    _marcarBtnAtivo();
-    // Toca bipe de confirmação imediato para provar que o som funciona
-    setTimeout(function() {{
-      beepRaw(880, 0.3, 0.5, 0.0);
-      beepRaw(1100, 0.3, 0.5, 0.4);
-    }}, 100);
   }} catch(e) {{
-    // AudioContext não suportado neste browser
-    _audioOk = false;
     _marcarBtnErro();
   }}
-}}
-// Se já ativou antes, tenta restaurar automaticamente ao carregar
-try {{
-  if (localStorage.getItem('ms_tv_audio') === '1') {{
-    setTimeout(ativarSom, 500);
-  }}
-}} catch(e) {{}}
-
-// beepRaw: toca sempre que _ctx existir (sem checar _audioOk) — usado no bipe de confirmação
-function beepRaw(freq, dur, vol, delay) {{
-  if (!_ctx) return;
-  try {{
-    var osc = _ctx.createOscillator(); var gain = _ctx.createGain();
-    osc.connect(gain); gain.connect(_ctx.destination);
-    osc.type = "sine"; osc.frequency.value = freq;
-    gain.gain.setValueAtTime(0, _ctx.currentTime + delay);
-    gain.gain.linearRampToValueAtTime(vol, _ctx.currentTime + delay + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.001, _ctx.currentTime + delay + dur);
-    osc.start(_ctx.currentTime + delay);
-    osc.stop(_ctx.currentTime + delay + dur + 0.05);
-  }} catch(e) {{}}
-}}
-// beep: versão normal (só toca se _audioOk estiver ativo)
-function beep(freq, dur, vol, delay) {{
-  if (!_audioOk) return;
-  beepRaw(freq, dur, vol, delay);
-}}
-function playOnce() {{
-  beep(660, 0.25, 0.4, 0.0); beep(880, 0.25, 0.4, 0.35);
-  beep(1100, 0.40, 0.45, 0.70); beep(1100, 0.40, 0.45, 1.20);
 }}
 function checkAndPlay() {{
   var h = document.getElementById("alerta-header");
   if (!h) return;
   h.classList.add("tocando");
-  playOnce();
-  setTimeout(playOnce, 3500);
-  setTimeout(playOnce, 7000);
+  _playAudio();
+  setTimeout(_playAudio, 3500);
+  setTimeout(_playAudio, 7000);
   setTimeout(function() {{ h.classList.remove("tocando"); }}, 11000);
 }}
 setTimeout(checkAndPlay, 4000);
