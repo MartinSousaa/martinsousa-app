@@ -10,11 +10,6 @@ import streamlit as st
 import streamlit.components.v1 as _components
 import requests
 import json as _json
-try:
-    from streamlit_autorefresh import st_autorefresh as _st_autorefresh
-    _AUTOREFRESH_OK = True
-except ImportError:
-    _AUTOREFRESH_OK = False
 from datetime import datetime, timezone
 import math
 
@@ -87,6 +82,14 @@ COLUNAS_SKIP = {
 }
 CAPACIDADE_MIN = 390
 
+# ── Etiquetas e limiares para o campo Atenção ─────────────────────────────────
+LABEL_FILMAGEM          = "FILMAGEM"
+LABEL_INTERROMPIDO_MS   = "INTERROMPIDO MS"
+LABEL_EM_ANDAMENTO_STR  = "EM ANDAMENTO"
+LABEL_PENDENTE_STR      = "PENDENTE"
+FATOR_VENCIMENTO        = 1.5   # alerta quando decorrido >= 1.5× tempo_médio
+MIN_PENDENTE_COM_MEMBRO = 5     # minutos antes de alertar (pendente + membro)
+
 # ── API ────────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=30)
 def _buscar_board():
@@ -107,6 +110,77 @@ def _buscar_board():
     id_t = next((c["id"] for c in campos if "TEMPO ACUMULADO" in c.get("name","").upper()),None)
     id_i = next((c["id"] for c in campos if "INTERROMPIDO" in c.get("name","").upper()),None)
     return listas,cards,membros_map,id_p,id_t,id_i
+
+@st.cache_data(ttl=60)
+def _buscar_acoes_card(card_id: str):
+    """Busca histórico de adição/remoção de etiquetas e membros de um cartão."""
+    if not TRELLO_KEY:
+        return []
+    base = "https://api.trello.com/1"
+    auth = {"key": TRELLO_KEY, "token": TRELLO_TOKEN}
+    r = requests.get(
+        f"{base}/cards/{card_id}/actions",
+        params={**auth,
+                "filter": "addLabelToCard,removeLabelFromCard,addMemberToCard",
+                "limit": 200},
+    )
+    return r.json() if r.ok else []
+
+
+def _calcular_tempo_execucao_min(card_id: str):
+    """
+    Calcula tempo total de execução em minutos:
+      tempo_FILMAGEM + tempo_EM_ANDAMENTO − tempo_INTERROMPIDO_MS
+    Retorna: (float minutos, datetime|None primeiro addMember)
+    """
+    acoes = _buscar_acoes_card(card_id)
+    agora = datetime.now(timezone.utc)
+    acoes_sorted = sorted(acoes, key=lambda a: a.get("date", ""))
+
+    filmagem_ini  = None; filmagem_total  = 0.0
+    andamento_ini = None; andamento_total = 0.0
+    interr_ini    = None; interr_total    = 0.0
+    membro_em     = None
+
+    for ac in acoes_sorted:
+        try:
+            dt = datetime.fromisoformat(ac["date"].replace("Z", "+00:00"))
+        except Exception:
+            continue
+        tipo    = ac.get("type", "")
+        nome_lb = ac.get("data", {}).get("label", {}).get("name", "").upper()
+
+        if tipo == "addLabelToCard":
+            if nome_lb == LABEL_FILMAGEM and filmagem_ini is None:
+                filmagem_ini = dt
+            elif nome_lb == LABEL_EM_ANDAMENTO_STR and andamento_ini is None:
+                andamento_ini = dt
+            elif nome_lb == LABEL_INTERROMPIDO_MS and interr_ini is None:
+                interr_ini = dt
+        elif tipo == "removeLabelFromCard":
+            if nome_lb == LABEL_FILMAGEM and filmagem_ini is not None:
+                filmagem_total += (dt - filmagem_ini).total_seconds() / 60
+                filmagem_ini = None
+            elif nome_lb == LABEL_EM_ANDAMENTO_STR and andamento_ini is not None:
+                andamento_total += (dt - andamento_ini).total_seconds() / 60
+                andamento_ini = None
+            elif nome_lb == LABEL_INTERROMPIDO_MS and interr_ini is not None:
+                interr_total += (dt - interr_ini).total_seconds() / 60
+                interr_ini = None
+        elif tipo == "addMemberToCard" and membro_em is None:
+            membro_em = dt
+
+    # Períodos ainda em aberto
+    if filmagem_ini:
+        filmagem_total  += (agora - filmagem_ini).total_seconds()  / 60
+    if andamento_ini:
+        andamento_total += (agora - andamento_ini).total_seconds() / 60
+    if interr_ini:
+        interr_total    += (agora - interr_ini).total_seconds()    / 60
+
+    total = max(0.0, filmagem_total + andamento_total - interr_total)
+    return total, membro_em
+
 
 def _num(card,id_c):
     if not id_c: return None
@@ -381,26 +455,90 @@ def _g_pt(pct, r, cx=90, cy=92):
     return round(cx + r * math.cos(a), 1), round(cy - r * math.sin(a), 1)
 
 def _alertas_tv_list(listas, cards, membros_map):
-    """Lista de alertas TV: urgentes P8+ primeiro, depois sem membro."""
-    urg, sem = [], []
+    """
+    Alertas para o campo Atenção — 4 condições exatas:
+    1. Prioridade 8-10 com etiqueta PENDENTE (sem INTERROMPIDO MS)
+    2. EM ANDAMENTO / Filmagem / Concluído sem membro atribuído
+    3. PENDENTE + membro atribuído + >5 min sem virar EM ANDAMENTO
+    4. Tempo de execução (Filmagem + EM ANDAMENTO − Interrompido MS) >= 1.5× tempo médio
+    """
+    agora   = datetime.now(timezone.utc)
+    alertas = []
+
     for card in cards:
         nl = listas.get(card["idList"], "")
-        if nl in COLUNAS_SKIP or nl == "TABELA DE PONTUAÇÃO": continue
-        if card.get("dueComplete", False): continue
-        lb = _labels(card)
-        if "EM ANDAMENTO" in lb: continue
-        us = _users(card, membros_map)
-        cfg = COLUNAS_CONFIG.get(nl, {})
-        prio = cfg.get("prioridade", 0)
-        if prio >= 8 or "URGENTE" in nl.upper():
-            urg.append({"tipo":"urgente","lab":"🔴 Urgente","pos":f"P{prio}",
-                        "nome":card["name"],"col":nl,"_p":prio,"_d":_data_card(card)})
-        elif not us:
-            sem.append({"tipo":"atencao","lab":"🟡 Sem membro","pos":f"P{prio}",
-                        "nome":card["name"],"col":nl,"_p":prio,"_d":_data_card(card)})
-    urg.sort(key=lambda x: (-x["_p"], x["_d"]))
-    sem.sort(key=lambda x: (-x["_p"], x["_d"]))
-    return urg + sem
+        if nl in COLUNAS_SKIP or nl not in COLUNAS_CONFIG:
+            continue
+
+        lb          = _labels(card)
+        us          = _users(card, membros_map)
+        cfg         = COLUNAS_CONFIG.get(nl, {})
+        prio        = cfg.get("prioridade", 0)
+        tempo_medio = cfg.get("tempo_min", 0)
+        concluido   = card.get("dueComplete", False)
+
+        is_pendente     = LABEL_PENDENTE_STR      in lb
+        is_andamento    = LABEL_EM_ANDAMENTO_STR  in lb
+        is_filmagem     = LABEL_FILMAGEM          in lb
+        is_interrompido = LABEL_INTERROMPIDO_MS   in lb
+
+        # ── 1. P8-10 com etiqueta PENDENTE ─────────────────────────────────────
+        if prio >= 8 and is_pendente and not is_interrompido:
+            alertas.append({
+                "tipo": "urgente", "lab": "🔴 Alta Prioridade",
+                "pos": f"P{prio}", "nome": card["name"], "col": nl,
+                "detalhe": f"Prioridade {prio} aguardando execução",
+                "_s": (0, -prio, _data_card(card).timestamp()),
+            })
+
+        # ── 2. Em andamento / Filmagem / Concluído sem membro ──────────────────
+        if (is_andamento or is_filmagem or concluido) and not us:
+            status = ("Filmagem" if is_filmagem
+                      else "Em andamento" if is_andamento
+                      else "Concluído")
+            alertas.append({
+                "tipo": "atencao", "lab": "🟡 Sem Membro",
+                "pos": "—", "nome": card["name"], "col": nl,
+                "detalhe": f"{status} · sem membro atribuído",
+                "_s": (1, -prio, _data_card(card).timestamp()),
+            })
+
+        # ── 3. PENDENTE + membro + >5 min sem virar EM ANDAMENTO ───────────────
+        if is_pendente and us and not is_interrompido and not is_andamento:
+            ultima  = _data_card(card)
+            min_dec = (agora - ultima).total_seconds() / 60
+            if min_dec >= MIN_PENDENTE_COM_MEMBRO:
+                nomes_mb = ", ".join(MEMBROS_ATIVOS.get(u, u) for u in us)
+                alertas.append({
+                    "tipo": "atencao", "lab": "🟡 Pend. c/ Membro",
+                    "pos": f"{int(min_dec)}min",
+                    "nome": card["name"], "col": nl,
+                    "detalhe": f"Pendente há {int(min_dec)}min — {nomes_mb}",
+                    "_s": (2, -min_dec, _data_card(card).timestamp()),
+                })
+
+        # ── 4. Tempo de execução >= 1.5× tempo médio ───────────────────────────
+        if (is_andamento or is_filmagem) and tempo_medio > 0 and not is_interrompido:
+            try:
+                tempo_exec, _ = _calcular_tempo_execucao_min(card["id"])
+                if tempo_exec >= tempo_medio * FATOR_VENCIMENTO:
+                    pct_uso = tempo_exec / tempo_medio * 100
+                    alertas.append({
+                        "tipo": "atencao", "lab": "⏰ Tempo Crítico",
+                        "pos": f"{int(pct_uso)}%",
+                        "nome": card["name"], "col": nl,
+                        "detalhe": (
+                            f"{_fmt_tempo(int(tempo_exec))} decorrido "
+                            f"(prev. {_fmt_tempo(tempo_medio)})"
+                        ),
+                        "_s": (3, -(tempo_exec / tempo_medio),
+                               _data_card(card).timestamp()),
+                    })
+            except Exception:
+                pass
+
+    alertas.sort(key=lambda x: x["_s"])
+    return alertas
 
 def _tv_full_html(
     pct_eq, pct_maxx,
@@ -474,12 +612,15 @@ def _tv_full_html(
         fila_html = '<div style="font-size:10px;color:#555;padding:8px;">Fila vazia 🎉</div>'
 
     # Alertas JS
+    n_alerta_urg = sum(1 for a in alertas if a.get("tipo") == "urgente")
+    n_alerta_atc = sum(1 for a in alertas if a.get("tipo") == "atencao")
     alertas_js = "[\n"
     for a in alertas:
         ne = a["nome"].replace('"','\\"').replace("'","\\'")
         ce = a["col"].replace('"','\\"')
+        de = a.get("detalhe","").replace('"','\\"').replace("'","\\'")
         alertas_js += (f'  {{tipo:"{a["tipo"]}",prioridade:"{a["lab"]}",pos:"{a["pos"]}",'
-                       f'nome:"{ne}",col:"{ce}"}},\n')
+                       f'nome:"{ne}",col:"{ce}",detalhe:"{de}"}},\n')
     alertas_js += "]"
 
     pend_total = sum(pend_lista.values()) if pend_lista else 0
@@ -693,7 +834,7 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
       <div class="alerta-col">
         <div class="alerta-header com-alerta" id="alerta-header">
           <div class="alerta-titulo">⚠️ ATENÇÃO</div>
-          <div class="alerta-sub">{n_urgentes} urgentes · {n_sem_mb} sem membro atribuído</div>
+          <div class="alerta-sub">{n_alerta_urg} prioritários · {n_alerta_atc} atenção</div>
         </div>
         <div class="alerta-lista" id="alerta-lista"></div>
       </div>
@@ -740,7 +881,8 @@ function render() {{
         <span style="color:#555;font-weight:400;">${{pos}}/${{ALERTAS.length}}</span>
       </div>
       <div class="alerta-item-nome">${{a.nome}}</div>
-      <div class="alerta-item-col">${{a.col}}</div>`;
+      <div class="alerta-item-col">${{a.col}}</div>
+      <div class="alerta-item-col" style="color:#666;font-style:italic;">${{a.detalhe}}</div>`;
     lista.appendChild(div);
   }}
   requestAnimationFrame(() => {{
@@ -837,8 +979,10 @@ def pagina_placar(usuario_logado):
         # TV: sem seletor de mês, sem botão, mês atual fixo
         filtro_mes = (agora.year, agora.month)
         sel        = f"{MESES_PT[agora.month]} {agora.year}"
-        if _AUTOREFRESH_OK:
-            _st_autorefresh(interval=60_000, limit=None, key="tv_autorefresh")
+        @st.fragment(run_every=60)
+        def _tv_ticker():
+            pass
+        _tv_ticker()
         st.markdown(
             f'<div style="font-size:10px;color:var(--ms-texto-sec);'
             f'text-align:right;padding:2px 8px 6px;">'
@@ -861,8 +1005,10 @@ def pagina_placar(usuario_logado):
         with col_att:
             if st.button("🔄",use_container_width=True,help="Atualizar"):
                 _buscar_board.clear(); st.rerun()
-        if _AUTOREFRESH_OK:
-            _st_autorefresh(interval=30_000, limit=None, key="placar_autorefresh")
+        @st.fragment(run_every=30)
+        def _placar_ticker():
+            pass
+        _placar_ticker()
         st.caption(f"Exibindo: {sel} · atualiza automaticamente a cada 30s · {agora.strftime('%d/%m/%Y %H:%M')}")
 
     # ── Carrega configuração persistida (ou usa defaults) ──────────────────────
@@ -1130,7 +1276,7 @@ def pagina_placar(usuario_logado):
     if modo_tv:
         st.info(
             "📺 **Painel TV atualizado!** "
-            "Acesse na TV: `https://app.martinsousa.com.br/app/tv?token=msstudio2025tv` "
+            "Acesse na TV: `https://app.martinsousa.com.br/app/static/tv.html` "
             "— HTML puro, sem WebSocket, auto-atualiza a cada 60s."
         )
         return
