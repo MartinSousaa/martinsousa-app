@@ -929,38 +929,33 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
   fix('tv-bbt', y, hBt);
 }})();
 // ────────────────────────────────────────────────────────────────────────────
-const ALERTAS = {alertas_js};
-const MAX = 5;
-let offset = 0;
+var ALERTAS = {alertas_js};
+var MAX = 5;
+var offset = 0;
 function render() {{
-  const lista = document.getElementById("alerta-lista");
+  var lista = document.getElementById("alerta-lista");
+  if (!lista) return;
   lista.innerHTML = "";
-  for (let i = 0; i < MAX; i++) {{
+  for (var i = 0; i < MAX; i++) {{
     if (!ALERTAS.length) break;
-    const a = ALERTAS[(offset + i) % ALERTAS.length];
-    const pos = (offset + i) % ALERTAS.length + 1;
-    const div = document.createElement("div");
+    var a   = ALERTAS[(offset + i) % ALERTAS.length];
+    var pos = (offset + i) % ALERTAS.length + 1;
+    var div = document.createElement("div");
     div.className = "alerta-item " + a.tipo;
-    div.innerHTML = `
-      <div class="alerta-item-prioridade">
-        <span>${{a.prioridade}} — ${{a.pos}}</span>
-        <span style="color:#555;font-weight:400;">${{pos}}/${{ALERTAS.length}}</span>
-      </div>
-      <div class="alerta-item-nome">${{a.nome}}</div>
-      <div class="alerta-item-col">${{a.col}}</div>
-      <div class="alerta-item-col" style="color:#666;font-style:italic;">${{a.detalhe}}</div>`;
+    div.innerHTML =
+      '<div class="alerta-item-prioridade">' +
+        '<span>' + a.prioridade + ' — ' + a.pos + '</span>' +
+        '<span style="color:#555;font-weight:400;">' + pos + '/' + ALERTAS.length + '</span>' +
+      '</div>' +
+      '<div class="alerta-item-nome">' + a.nome + '</div>' +
+      '<div class="alerta-item-col">' + a.col + '</div>' +
+      '<div class="alerta-item-col" style="color:#666;font-style:italic;">' + a.detalhe + '</div>';
     lista.appendChild(div);
   }}
-  requestAnimationFrame(() => {{
-    const sample = lista.querySelector(".alerta-item");
-    if (!sample) return;
-    const h = sample.getBoundingClientRect().height;
-    document.querySelectorAll(".card-base").forEach(el => {{ el.style.height = h + "px"; }});
-  }});
 }}
 if (ALERTAS.length) {{
   render();
-  setInterval(() => {{ offset = (offset + 1) % ALERTAS.length; render(); }}, 8000);
+  setInterval(function() {{ offset = (offset + 1) % ALERTAS.length; render(); }}, 8000);
 }}
 // ── Áudio: AudioContext compartilhado + desbloqueio via localStorage ──────────
 var _ctx = null;
