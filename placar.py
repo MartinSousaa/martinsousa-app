@@ -1130,7 +1130,7 @@ def pagina_placar(usuario_logado):
     if modo_tv:
         st.info(
             "📺 **Painel TV atualizado!** "
-            "Acesse na TV: `https://app.martinsousa.com.br/app/static/tv.html` "
+            "Acesse na TV: `https://app.martinsousa.com.br/app/tv?token=msstudio2025tv` "
             "— HTML puro, sem WebSocket, auto-atualiza a cada 60s."
         )
         return
