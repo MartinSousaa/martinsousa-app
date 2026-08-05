@@ -707,13 +707,15 @@ def _tv_full_html(
         _pen = _pen_mb.get(_u, 0.0)
         _meta_u = _meta_per.get(_u, _meta_base)
         _pct = min(_pts / _meta_u * 100, 100) if _meta_u > 0 else 0
-        _cor = "#1BAF7A" if _pct >= 80 else ("#EDA100" if _pct >= 50 else "#E34948")
+        _cor_text = "#1BAF7A" if _pct >= 80 else ("#EDA100" if _pct >= 50 else "#E34948")
         _pen_str = f" · <span style='color:#E34948;'>-{_pen:.0f}pen</span>" if _pen > 0 else ""
+        _pts_fmt  = f"{_pts:,.0f}".replace(",", ".")
+        _meta_fmt = f"{_meta_u:,.0f}".replace(",", ".")
         desempenho_html += (
             f'<div class="pend-item">'
             f'<div class="pend-header"><span>{_nm}</span>'
-            f'<span class="pend-num" style="color:{_cor};">{_pts:.0f}{_pen_str}</span></div>'
-            f'<div class="pend-track"><div class="pend-fill" style="width:{_pct:.0f}%;background:{_cor};"></div></div>'
+            f'<span class="pend-num" style="color:{_cor_text};">{_pts_fmt}/{_meta_fmt}{_pen_str}</span></div>'
+            f'<div class="pend-track"><div class="pend-fill" style="width:{_pct:.0f}%;background:#1BAF7A;"></div></div>'
             f'</div>'
         )
 
@@ -823,8 +825,8 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
 .barra-fill{{height:100%;border-radius:2px;}}
 .barra-desc{{font-size:6px;color:#777;margin-top:1px;}}
 .bloco-bottom{{position:absolute;left:10px;right:10px;top:555px;height:521px;display:-webkit-box;display:-webkit-flex;display:flex;gap:6px;overflow:hidden;}}
-.sub-bloco-pend{{width:22%;height:100%;overflow:hidden;}}
-.sub-bloco-and{{width:15%;height:100%;overflow:hidden;}}
+.sub-bloco-pend{{width:19%;height:100%;overflow:hidden;}}
+.sub-bloco-and{{width:18%;height:100%;overflow:hidden;}}
 .sub-bloco-fila{{width:28%;height:100%;overflow:hidden;}}
 .sub-bloco-alerta{{width:35%;height:100%;overflow:hidden;}}
 .sub-titulo{{font-size:12px;font-weight:700;margin-bottom:4px;padding-bottom:3px;border-bottom:1px solid #2e2e2e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}}
@@ -1019,7 +1021,7 @@ function _renderAlertas() {{
   lista.innerHTML = "";
   var total = ALERTAS.length;
   if (!total) return;
-  var visiveis = total > 4 ? 4 : total;
+  var visiveis = total > 3 ? 3 : total;
   for (var i = 0; i < visiveis; i++) {{
     var idx = (i + _alertaOffset) % total;
     var a = ALERTAS[idx];
@@ -1037,7 +1039,7 @@ function _renderAlertas() {{
   }}
 }}
 _renderAlertas();
-if (ALERTAS.length > 4) {{
+if (ALERTAS.length > 3) {{
   setInterval(function() {{
     _alertaOffset = (_alertaOffset + 1) % ALERTAS.length;
     _renderAlertas();
@@ -1082,28 +1084,10 @@ function ativarSom() {{
   }} catch(e) {{ _marcarBtnErro(); }}
 }}
 // Auto-restauração ao recarregar (meta-refresh de 60s):
-// Tenta tocar o áudio em volume quase zero; se funcionar, ativa o som.
-// Se o browser bloquear (autoplay policy), limpa o flag — botão volta a exigir toque.
+// Se o usuário ativou o som antes, restaura o estado ativo direto — sem tentar tocar.
 try {{
   if (localStorage.getItem('ms_tv_audio') === '1') {{
-    var _aEl = document.getElementById('beep-audio');
-    if (_aEl) {{
-      _aEl.volume = 0.01;
-      var _pTry = _aEl.play();
-      if (_pTry !== undefined && _pTry.then) {{
-        _pTry.then(function() {{
-          _aEl.pause(); _aEl.currentTime = 0; _aEl.volume = 1.0;
-          _audioAtivo = true; _marcarBtnAtivo();
-        }}).catch(function() {{
-          _aEl.volume = 1.0;
-          try {{ localStorage.removeItem('ms_tv_audio'); }} catch(e2) {{}}
-        }});
-      }} else {{
-        // Browser sem Promise (WebOS antigo) — assume que funcionou
-        _aEl.pause(); _aEl.currentTime = 0; _aEl.volume = 1.0;
-        _audioAtivo = true; _marcarBtnAtivo();
-      }}
-    }}
+    _audioAtivo = true; _marcarBtnAtivo();
   }}
 }} catch(e) {{}}
 function checkAndPlay() {{
