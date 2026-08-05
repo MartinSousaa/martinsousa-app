@@ -495,8 +495,8 @@ def _tv_full_html(
 <style>
 *{{margin:0;padding:0;box-sizing:border-box;}}
 html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0e0;font-family:Arial,Helvetica,sans-serif;}}
-.tv-root{{position:absolute;top:0;left:0;width:100%;height:100%;padding:5px 10px;display:-webkit-box;display:-webkit-flex;display:flex;-webkit-box-orient:vertical;-webkit-flex-direction:column;flex-direction:column;gap:3px;overflow:hidden;}}
-.bloco-metas{{display:-webkit-box;display:-webkit-flex;display:flex;gap:6px;height:20vh;overflow:hidden;-webkit-flex-shrink:0;flex-shrink:0;}}
+.tv-root{{position:absolute;top:0;left:0;width:100%;height:100%;overflow:hidden;}}
+.bloco-metas{{position:absolute;left:10px;right:10px;top:5px;height:212px;display:-webkit-box;display:-webkit-flex;display:flex;gap:6px;overflow:hidden;}}
 .bloco-metas>div{{-webkit-flex:1;flex:1;overflow:hidden;}}
 .mini-cards{{display:-webkit-box;display:-webkit-flex;display:flex;-webkit-flex-wrap:wrap;flex-wrap:wrap;gap:3px;height:100%;}}
 .mini-card{{-webkit-flex:1 1 45%;flex:1 1 45%;background:#252525;border-radius:5px;padding:3px 6px;border:1px solid #444;text-align:center;overflow:hidden;}}
@@ -524,7 +524,7 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
 @keyframes glow-needle{{0%,100%{{filter:drop-shadow(0 0 3px #FFD700);}}50%{{filter:drop-shadow(0 0 8px #FFD700);}}}}
 @-webkit-keyframes glow-tip{{0%,100%{{-webkit-filter:drop-shadow(0 0 4px #FFD700);}}50%{{-webkit-filter:drop-shadow(0 0 10px #FFD700);}}}}
 @keyframes glow-tip{{0%,100%{{filter:drop-shadow(0 0 4px #FFD700);}}50%{{filter:drop-shadow(0 0 10px #FFD700);}}}}
-.bloco-status{{display:-webkit-box;display:-webkit-flex;display:flex;gap:3px;height:9vh;overflow:hidden;-webkit-flex-shrink:0;flex-shrink:0;}}
+.bloco-status{{position:absolute;left:10px;right:10px;top:220px;height:95px;display:-webkit-box;display:-webkit-flex;display:flex;gap:3px;overflow:hidden;-webkit-flex-wrap:wrap;flex-wrap:wrap;}}
 .pill{{-webkit-flex:1;flex:1;background:#252525;border-radius:5px;padding:2px 2px;text-align:center;border:1px solid #444;overflow:hidden;}}
 .pill-val{{font-size:13px;font-weight:700;display:block;line-height:1.2;}}
 .pill-label{{font-size:5.5px;color:#999;text-transform:uppercase;letter-spacing:.3px;display:block;}}
@@ -532,7 +532,7 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
 .pill.urgente{{background:#E3494820;border-color:#E34948;}}.pill.urgente .pill-val{{color:#E34948;}}
 .pill.atencao{{background:#EDA10020;border-color:#EDA100;}}.pill.atencao .pill-val{{color:#EDA100;}}
 .pill.ok{{background:#1BAF7A20;border-color:#1BAF7A;}}.pill.ok .pill-val{{color:#1BAF7A;}}
-.bloco-barras{{display:-webkit-box;display:-webkit-flex;display:flex;gap:6px;height:22vh;overflow:hidden;-webkit-flex-shrink:0;flex-shrink:0;}}
+.bloco-barras{{position:absolute;left:10px;right:10px;top:318px;height:233px;display:-webkit-box;display:-webkit-flex;display:flex;gap:6px;overflow:hidden;}}
 .barra-box{{-webkit-flex:1;flex:1;background:#252525;border-radius:6px;padding:5px 10px;overflow:hidden;}}
 .barra-box.verde-border{{border:1px solid #1BAF7A33;}}.barra-box.ouro-border{{border:1px solid #FFD70033;}}
 .barra-item{{margin-bottom:3px;}}
@@ -540,11 +540,11 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
 .barra-track{{background:#3a3a3a;border-radius:2px;height:4px;overflow:hidden;}}
 .barra-fill{{height:100%;border-radius:2px;}}
 .barra-desc{{font-size:6px;color:#777;margin-top:1px;}}
-.bloco-bottom{{display:-webkit-box;display:-webkit-flex;display:flex;gap:6px;height:46vh;overflow:hidden;-webkit-flex-shrink:0;flex-shrink:0;}}
-.sub-bloco-pend{{width:22%;overflow:hidden;}}
-.sub-bloco-and{{width:15%;overflow:hidden;}}
-.sub-bloco-fila{{width:28%;overflow:hidden;}}
-.sub-bloco-alerta{{width:35%;overflow:hidden;}}
+.bloco-bottom{{position:absolute;left:10px;right:10px;top:554px;height:521px;display:-webkit-box;display:-webkit-flex;display:flex;gap:6px;overflow:hidden;}}
+.sub-bloco-pend{{width:22%;height:100%;overflow:hidden;}}
+.sub-bloco-and{{width:15%;height:100%;overflow:hidden;}}
+.sub-bloco-fila{{width:28%;height:100%;overflow:hidden;}}
+.sub-bloco-alerta{{width:35%;height:100%;overflow:hidden;}}
 .sub-titulo{{font-size:8px;font-weight:700;margin-bottom:3px;padding-bottom:2px;border-bottom:1px solid #2e2e2e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}}
 .cards-col{{overflow:hidden;}}
 .card-base{{background:#252525;border:1px solid #3a3a3a;border-radius:6px;padding:5px 8px;overflow:hidden;margin-bottom:3px;}}
@@ -585,7 +585,7 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
 <body>
 <div class="tv-root">
 
-  <div class="bloco-metas">
+  <div class="bloco-metas" id="tv-bm">
     <div>
       <div class="bloco-titulo verde">🏆 Meta Mensal</div>
       <div class="mini-cards">
@@ -642,7 +642,7 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
     </div>
   </div>
 
-  <div class="bloco-status">
+  <div class="bloco-status" id="tv-bs">
     <div class="pill atencao"><span class="pill-label">Cartões Pend.</span><span class="pill-val">{pend_total}</span><span class="pill-badge" style="background:#EDA10030;color:#EDA100;">Pendente</span></div>
     <div class="pill atencao"><span class="pill-label">Pts Pendentes</span><span class="pill-val">{pts_pendentes:,.0f}</span><span class="pill-badge" style="background:#EDA10030;color:#EDA100;">Aberto</span></div>
     <div class="pill ok"><span class="pill-label">Em Andamento</span><span class="pill-val">{d.get("em_andamento",0)}</span><span class="pill-badge" style="background:#1BAF7A30;color:#1BAF7A;">Ativo</span></div>
@@ -656,7 +656,7 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
     <div class="pill atencao"><span class="pill-label">Sem Membro</span><span class="pill-val">{n_sem_mb}</span><span class="pill-badge" style="background:#EDA10020;color:#EDA100;">Revisar</span></div>
   </div>
 
-  <div class="bloco-barras">
+  <div class="bloco-barras" id="tv-bb">
     <div class="barra-box verde-border">
       <div class="bloco-titulo verde" style="margin-bottom:5px;">📋 Meta Coletiva</div>
       <div class="barra-item"><div class="barra-header"><span>Pontuação do mês</span><span style="color:#1BAF7A;font-weight:700;">{fp(pct_eq)}</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_eq,100):.1f}%;background:#1BAF7A;"></div></div><div class="barra-desc">{saldo_eq:,.0f} / {meta_eq:,} pts (inclui -{pen_total:.0f} penalidades)</div></div>
@@ -675,7 +675,7 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
     </div>
   </div>
 
-  <div class="bloco-bottom">
+  <div class="bloco-bottom" id="tv-bbt">
     <div class="sub-bloco-pend">
       <div class="sub-titulo" style="color:#EDA100;">🟠 Pendentes por Coluna</div>
       {pend_html}
@@ -702,6 +702,26 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
 </div>
 
 <script>
+// ── Layout: calcula alturas reais em px a partir de window.innerHeight ──────
+(function() {{
+  var H = window.innerHeight || 1080;
+  var GAP = 3, PAD = 5;
+  var avail = H - PAD * 2 - GAP * 3;
+  var hM  = Math.round(avail * 0.20);
+  var hS  = Math.round(avail * 0.09);
+  var hB  = Math.round(avail * 0.22);
+  var hBt = avail - hM - hS - hB;
+  var y = PAD;
+  function fix(id, top, h) {{
+    var e = document.getElementById(id);
+    if (e) {{ e.style.top = top + 'px'; e.style.height = h + 'px'; }}
+  }}
+  fix('tv-bm',  y, hM);  y += hM  + GAP;
+  fix('tv-bs',  y, hS);  y += hS  + GAP;
+  fix('tv-bb',  y, hB);  y += hB  + GAP;
+  fix('tv-bbt', y, hBt);
+}})();
+// ────────────────────────────────────────────────────────────────────────────
 const ALERTAS = {alertas_js};
 const MAX = 5;
 let offset = 0;
