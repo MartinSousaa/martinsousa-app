@@ -249,6 +249,8 @@ def verificar_login():
         border-radius: 6px !important;
         padding: 10px 14px !important;
         box-shadow: none !important;
+        height: 46px !important;
+        min-height: 46px !important;
     }}
     [data-testid="stColumn"]:last-child .stTextInput input:focus,
     body.tema-claro [data-testid="stColumn"]:last-child .stTextInput input:focus {{
