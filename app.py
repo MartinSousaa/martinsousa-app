@@ -611,131 +611,6 @@ body.tema-claro .ms-card-plat-price { color: #111 !important; }
 </style>
 """, unsafe_allow_html=True)
 
-# ── TEMA JS — via components.html p/ garantir execução real do script ──────────
-components.html("""
-<script>
-(function() {
-  var P = window.parent;
-
-  function temaAuto() { return 'tema-escuro'; } // padrão fixo: sempre noite
-
-  function aplicarTema(tema, salvar) {
-    P.document.body.classList.remove('tema-claro','tema-escuro');
-    P.document.body.classList.add(tema);
-    var btn = P.document.getElementById('ms-tema-toggle');
-    if (btn) {
-      btn.textContent = tema === 'tema-escuro' ? '☀️' : '🌙';
-      btn.title = tema === 'tema-escuro' ? 'Mudar para tema claro' : 'Mudar para tema escuro';
-    }
-    if (salvar) {
-      P.sessionStorage.setItem('ms_tema', tema);
-      P.sessionStorage.setItem('ms_tema_dia', new Date().toDateString());
-    }
-  }
-
-  // ── Anti-escurecimento no auto-refresh ─────────────────────────────────────
-  // MutationObserver no body do parent: dispara IMEDIATAMENTE quando o Streamlit
-  // injeta opacity inline em qualquer elemento, eliminando o flash de escurecimento.
-  // Armazenado em P._msAntiDimObs para sobreviver a reruns (o iframe recria,
-  // mas window.parent persiste).
-  if (!P._msAntiDimObs) {
-    var _fixOpacity = function(el) {
-      try {
-        if (el && el.style && el.style.opacity !== '' && parseFloat(el.style.opacity) < 1) {
-          el.style.setProperty('opacity', '1', 'important');
-        }
-      } catch(e) {}
-    };
-    var _obs = new P.MutationObserver(function(muts) {
-      for (var i = 0; i < muts.length; i++) {
-        var m = muts[i];
-        if (m.type === 'attributes') {
-          _fixOpacity(m.target);
-        } else if (m.type === 'childList') {
-          for (var j = 0; j < m.addedNodes.length; j++) {
-            var n = m.addedNodes[j];
-            if (n.nodeType === 1) { _fixOpacity(n); }
-          }
-        }
-      }
-    });
-    _obs.observe(P.document.body, {
-      subtree: true,
-      attributes: true,
-      attributeFilter: ['style'],
-      childList: true
-    });
-    P._msAntiDimObs = _obs;
-  }
-
-  if (P._msTemaIniciado) {
-    // Streamlit rerender — re-aplica o tema salvo (botão já existe no body)
-    var t = P.sessionStorage.getItem('ms_tema');
-    var d = P.sessionStorage.getItem('ms_tema_dia');
-    aplicarTema((t && d === new Date().toDateString()) ? t : temaAuto(), false);
-    return;
-  }
-  P._msTemaIniciado = true;
-
-  // Desativa tradução automática do navegador (evita "Shein" → "Ela", etc.)
-  P.document.documentElement.setAttribute('lang', 'pt-BR');
-  P.document.documentElement.setAttribute('translate', 'no');
-  var metaNotranslate = P.document.querySelector('meta[name="google"]');
-  if (!metaNotranslate) {
-    metaNotranslate = P.document.createElement('meta');
-    metaNotranslate.name = 'google';
-    metaNotranslate.content = 'notranslate';
-    P.document.head.appendChild(metaNotranslate);
-  }
-
-  // Aplica tema inicial
-  var temaSalvo = P.sessionStorage.getItem('ms_tema');
-  var diaSalvo  = P.sessionStorage.getItem('ms_tema_dia');
-  if (temaSalvo && diaSalvo === new Date().toDateString()) {
-    aplicarTema(temaSalvo, false);
-  } else {
-    P.sessionStorage.removeItem('ms_tema');
-    P.sessionStorage.removeItem('ms_tema_dia');
-    aplicarTema(temaAuto(), false);
-  }
-
-  // Injeta botão toggle (uma única vez, direto no body — sobrevive rerenders)
-  if (!P.document.getElementById('ms-tema-toggle')) {
-    var btn = P.document.createElement('button');
-    btn.id = 'ms-tema-toggle';
-    btn.onclick = function() {
-      var claro = P.document.body.classList.contains('tema-claro');
-      aplicarTema(claro ? 'tema-escuro' : 'tema-claro', true);
-    };
-    P.document.body.appendChild(btn);
-    // Ícone inicial
-    aplicarTema(P.document.body.classList.contains('tema-claro') ? 'tema-claro' : 'tema-escuro', false);
-  }
-
-  // Auto-switch ao cruzar 18h (só se não houver override manual)
-  setInterval(function() {
-    if (!P.sessionStorage.getItem('ms_tema')) aplicarTema(temaAuto(), false);
-  }, 60000);
-
-
-  // Força largura do sidebar (override do resize do Streamlit) — só desktop
-  function forceSidebarWidth() {
-    if (P.innerWidth <= 768) return;
-    var sb = P.document.querySelector('section[data-testid="stSidebar"]');
-    if (!sb) return;
-    sb.style.setProperty('width', '360px', 'important');
-    sb.style.setProperty('min-width', '360px', 'important');
-    sb.style.setProperty('max-width', '360px', 'important');
-    // Remove o handle de resize para não atrapalhar
-    var rz = P.document.querySelector('[data-testid="stSidebarResizeHandle"]');
-    if (rz) rz.style.display = 'none';
-  }
-  forceSidebarWidth();
-  setInterval(forceSidebarWidth, 1500);
-})();
-</script>
-""", height=0)
-
 # ── MODO TV: acesso sem login via token seguro ────────────────────────────────
 _tv_token_cfg = ""
 try:
@@ -789,6 +664,125 @@ if _tv_token_cfg and st.query_params.get("tv", "") == _tv_token_cfg:
     st.stop()
 
 usuario_logado = auth.verificar_login()
+
+# ── TEMA JS — executado APÓS auth para garantir sessão inicializada ───────────
+# Mover para cá elimina a race condition "SessionInfo before initialized"
+# que ocorria quando components.html() rodava antes da sessão estar pronta.
+components.html("""
+<script>
+(function() {
+  var P = window.parent;
+
+  function temaAuto() { return 'tema-escuro'; } // padrão fixo: sempre noite
+
+  function aplicarTema(tema, salvar) {
+    P.document.body.classList.remove('tema-claro','tema-escuro');
+    P.document.body.classList.add(tema);
+    var btn = P.document.getElementById('ms-tema-toggle');
+    if (btn) {
+      btn.textContent = tema === 'tema-escuro' ? '☀️' : '🌙';
+      btn.title = tema === 'tema-escuro' ? 'Mudar para tema claro' : 'Mudar para tema escuro';
+    }
+    if (salvar) {
+      P.sessionStorage.setItem('ms_tema', tema);
+      P.sessionStorage.setItem('ms_tema_dia', new Date().toDateString());
+    }
+  }
+
+  // ── Anti-escurecimento no auto-refresh ─────────────────────────────────────
+  if (!P._msAntiDimObs) {
+    var _fixOpacity = function(el) {
+      try {
+        if (el && el.style && el.style.opacity !== '' && parseFloat(el.style.opacity) < 1) {
+          el.style.setProperty('opacity', '1', 'important');
+        }
+      } catch(e) {}
+    };
+    var _obs = new P.MutationObserver(function(muts) {
+      for (var i = 0; i < muts.length; i++) {
+        var m = muts[i];
+        if (m.type === 'attributes') {
+          _fixOpacity(m.target);
+        } else if (m.type === 'childList') {
+          for (var j = 0; j < m.addedNodes.length; j++) {
+            var n = m.addedNodes[j];
+            if (n.nodeType === 1) { _fixOpacity(n); }
+          }
+        }
+      }
+    });
+    _obs.observe(P.document.body, {
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['style'],
+      childList: true
+    });
+    P._msAntiDimObs = _obs;
+  }
+
+  if (P._msTemaIniciado) {
+    var t = P.sessionStorage.getItem('ms_tema');
+    var d = P.sessionStorage.getItem('ms_tema_dia');
+    aplicarTema((t && d === new Date().toDateString()) ? t : temaAuto(), false);
+    return;
+  }
+  P._msTemaIniciado = true;
+
+  // Desativa tradução automática do navegador (evita "Shein" → "Ela", etc.)
+  P.document.documentElement.setAttribute('lang', 'pt-BR');
+  P.document.documentElement.setAttribute('translate', 'no');
+  var metaNotranslate = P.document.querySelector('meta[name="google"]');
+  if (!metaNotranslate) {
+    metaNotranslate = P.document.createElement('meta');
+    metaNotranslate.name = 'google';
+    metaNotranslate.content = 'notranslate';
+    P.document.head.appendChild(metaNotranslate);
+  }
+
+  // Aplica tema inicial
+  var temaSalvo = P.sessionStorage.getItem('ms_tema');
+  var diaSalvo  = P.sessionStorage.getItem('ms_tema_dia');
+  if (temaSalvo && diaSalvo === new Date().toDateString()) {
+    aplicarTema(temaSalvo, false);
+  } else {
+    P.sessionStorage.removeItem('ms_tema');
+    P.sessionStorage.removeItem('ms_tema_dia');
+    aplicarTema(temaAuto(), false);
+  }
+
+  // Injeta botão toggle (uma única vez, direto no body)
+  if (!P.document.getElementById('ms-tema-toggle')) {
+    var btn = P.document.createElement('button');
+    btn.id = 'ms-tema-toggle';
+    btn.onclick = function() {
+      var claro = P.document.body.classList.contains('tema-claro');
+      aplicarTema(claro ? 'tema-escuro' : 'tema-claro', true);
+    };
+    P.document.body.appendChild(btn);
+    aplicarTema(P.document.body.classList.contains('tema-claro') ? 'tema-claro' : 'tema-escuro', false);
+  }
+
+  // Auto-switch ao cruzar 18h (só se não houver override manual)
+  setInterval(function() {
+    if (!P.sessionStorage.getItem('ms_tema')) aplicarTema(temaAuto(), false);
+  }, 60000);
+
+  // Força largura do sidebar (override do resize do Streamlit) — só desktop
+  function forceSidebarWidth() {
+    if (P.innerWidth <= 768) return;
+    var sb = P.document.querySelector('section[data-testid="stSidebar"]');
+    if (!sb) return;
+    sb.style.setProperty('width', '360px', 'important');
+    sb.style.setProperty('min-width', '360px', 'important');
+    sb.style.setProperty('max-width', '360px', 'important');
+    var rz = P.document.querySelector('[data-testid="stSidebarResizeHandle"]');
+    if (rz) rz.style.display = 'none';
+  }
+  forceSidebarWidth();
+  setInterval(forceSidebarWidth, 1500);
+})();
+</script>
+""", height=0)
 
 # UC minimo pra aprovar produto -- definido pelo Léo em 14/07/2026,
 # provisorio ate ele analisar as UCs reais da operacao.
