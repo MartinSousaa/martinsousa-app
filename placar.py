@@ -731,15 +731,15 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
 @keyframes glow-needle{{0%,100%{{filter:drop-shadow(0 0 3px #FFD700);}}50%{{filter:drop-shadow(0 0 8px #FFD700);}}}}
 @-webkit-keyframes glow-tip{{0%,100%{{-webkit-filter:drop-shadow(0 0 4px #FFD700);}}50%{{-webkit-filter:drop-shadow(0 0 10px #FFD700);}}}}
 @keyframes glow-tip{{0%,100%{{filter:drop-shadow(0 0 4px #FFD700);}}50%{{filter:drop-shadow(0 0 10px #FFD700);}}}}
-.bloco-status{{position:absolute;left:10px;right:10px;top:220px;height:95px;display:-webkit-box;display:-webkit-flex;display:flex;gap:3px;overflow:hidden;-webkit-flex-wrap:wrap;flex-wrap:wrap;}}
-.pill{{-webkit-flex:1;flex:1;background:#252525;border-radius:5px;padding:2px 2px;text-align:center;border:1px solid #444;overflow:hidden;}}
-.pill-val{{font-size:13px;font-weight:700;display:block;line-height:1.2;}}
-.pill-label{{font-size:5.5px;color:#999;text-transform:uppercase;letter-spacing:.3px;display:block;}}
-.pill-badge{{font-size:5px;display:block;padding:0;margin-top:0;}}
+.bloco-status{{position:absolute;left:10px;right:10px;top:220px;height:72px;display:-webkit-box;display:-webkit-flex;display:flex;gap:4px;overflow:hidden;-webkit-flex-wrap:nowrap;flex-wrap:nowrap;}}
+.pill{{-webkit-flex:1;flex:1;background:#252525;border-radius:6px;padding:6px 4px;text-align:center;border:1px solid #444;overflow:hidden;display:-webkit-box;display:-webkit-flex;display:flex;-webkit-flex-direction:column;flex-direction:column;-webkit-box-pack:center;-webkit-justify-content:center;justify-content:center;}}
+.pill-val{{font-size:20px;font-weight:700;display:block;line-height:1.1;}}
+.pill-label{{font-size:9px;color:#aaa;text-transform:uppercase;letter-spacing:.3px;display:block;margin-bottom:2px;}}
+.pill-badge{{font-size:8px;display:block;padding:1px 0;margin-top:2px;}}
 .pill.urgente{{background:#E3494820;border-color:#E34948;}}.pill.urgente .pill-val{{color:#E34948;}}
 .pill.atencao{{background:#EDA10020;border-color:#EDA100;}}.pill.atencao .pill-val{{color:#EDA100;}}
 .pill.ok{{background:#1BAF7A20;border-color:#1BAF7A;}}.pill.ok .pill-val{{color:#1BAF7A;}}
-.bloco-barras{{position:absolute;left:10px;right:10px;top:318px;height:233px;display:-webkit-box;display:-webkit-flex;display:flex;gap:6px;overflow:hidden;}}
+.bloco-barras{{position:absolute;left:10px;right:10px;top:296px;height:255px;display:-webkit-box;display:-webkit-flex;display:flex;gap:6px;overflow:hidden;}}
 .barra-box{{-webkit-flex:1;flex:1;background:#252525;border-radius:6px;padding:5px 10px;overflow:hidden;}}
 .barra-box.verde-border{{border:1px solid #1BAF7A33;}}.barra-box.ouro-border{{border:1px solid #FFD70033;}}
 .barra-item{{margin-bottom:3px;}}
@@ -747,7 +747,7 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
 .barra-track{{background:#3a3a3a;border-radius:2px;height:4px;overflow:hidden;}}
 .barra-fill{{height:100%;border-radius:2px;}}
 .barra-desc{{font-size:6px;color:#777;margin-top:1px;}}
-.bloco-bottom{{position:absolute;left:10px;right:10px;top:554px;height:521px;display:-webkit-box;display:-webkit-flex;display:flex;gap:6px;overflow:hidden;}}
+.bloco-bottom{{position:absolute;left:10px;right:10px;top:555px;height:521px;display:-webkit-box;display:-webkit-flex;display:flex;gap:6px;overflow:hidden;}}
 .sub-bloco-pend{{width:22%;height:100%;overflow:hidden;}}
 .sub-bloco-and{{width:15%;height:100%;overflow:hidden;}}
 .sub-bloco-fila{{width:28%;height:100%;overflow:hidden;}}
@@ -962,17 +962,37 @@ if (ALERTAS.length) {{
   render();
   setInterval(() => {{ offset = (offset + 1) % ALERTAS.length; render(); }}, 8000);
 }}
-function beep(freq, dur, vol, delay) {{
+// ── Áudio: AudioContext compartilhado + desbloqueio via localStorage ──────────
+var _ctx = null;
+var _audioOk = false;
+function _initAudio() {{
   try {{
-    var ctx = new (window.AudioContext || window.webkitAudioContext)();
-    var osc = ctx.createOscillator(); var gain = ctx.createGain();
-    osc.connect(gain); gain.connect(ctx.destination);
+    _ctx = new (window.AudioContext || window.webkitAudioContext)();
+    _ctx.resume().then(function() {{ _audioOk = true; }});
+  }} catch(e) {{}}
+}}
+// Se o usuário já ativou antes (localStorage), inicializa automaticamente
+try {{ if (localStorage.getItem('ms_tv_audio') === '1') setTimeout(_initAudio, 300); }} catch(e) {{}}
+// Desbloqueia no primeiro clique/toque e persiste
+function _unlockAudio() {{
+  try {{ localStorage.setItem('ms_tv_audio','1'); }} catch(e) {{}}
+  if (!_ctx) {{ _initAudio(); }}
+  else {{ _ctx.resume().then(function() {{ _audioOk = true; }}); }}
+}}
+document.addEventListener('click',      _unlockAudio, false);
+document.addEventListener('touchstart', _unlockAudio, false);
+
+function beep(freq, dur, vol, delay) {{
+  if (!_ctx || !_audioOk) return;
+  try {{
+    var osc = _ctx.createOscillator(); var gain = _ctx.createGain();
+    osc.connect(gain); gain.connect(_ctx.destination);
     osc.type = "sine"; osc.frequency.value = freq;
-    gain.gain.setValueAtTime(0, ctx.currentTime + delay);
-    gain.gain.linearRampToValueAtTime(vol, ctx.currentTime + delay + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + dur);
-    osc.start(ctx.currentTime + delay);
-    osc.stop(ctx.currentTime + delay + dur + 0.05);
+    gain.gain.setValueAtTime(0, _ctx.currentTime + delay);
+    gain.gain.linearRampToValueAtTime(vol, _ctx.currentTime + delay + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.001, _ctx.currentTime + delay + dur);
+    osc.start(_ctx.currentTime + delay);
+    osc.stop(_ctx.currentTime + delay + dur + 0.05);
   }} catch(e) {{}}
 }}
 function playOnce() {{
