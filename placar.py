@@ -9,7 +9,6 @@ import os
 import struct as _struct
 import base64 as _base64
 import streamlit as st
-import streamlit.components.v1 as _components
 import requests
 import json as _json
 from datetime import datetime, timezone
@@ -707,14 +706,13 @@ def _tv_full_html(
         _pen = _pen_mb.get(_u, 0.0)
         _meta_u = _meta_per.get(_u, _meta_base)
         _pct = min(_pts / _meta_u * 100, 100) if _meta_u > 0 else 0
-        _cor_text = "#1BAF7A" if _pct >= 80 else ("#EDA100" if _pct >= 50 else "#E34948")
-        _pen_str = f" · <span style='color:#E34948;'>-{_pen:.0f}pen</span>" if _pen > 0 else ""
+        _pen_str = f" <span style='color:#E34948;font-size:9px;'>-{_pen:.0f}p</span>" if _pen > 0 else ""
         _pts_fmt  = f"{_pts:,.0f}".replace(",", ".")
         _meta_fmt = f"{_meta_u:,.0f}".replace(",", ".")
         desempenho_html += (
             f'<div class="pend-item">'
             f'<div class="pend-header"><span>{_nm}</span>'
-            f'<span class="pend-num" style="color:{_cor_text};">{_pts_fmt}/{_meta_fmt}{_pen_str}</span></div>'
+            f'<span class="pend-num" style="color:#1BAF7A;">{_pts_fmt}/{_meta_fmt}{_pen_str}</span></div>'
             f'<div class="pend-track"><div class="pend-fill" style="width:{_pct:.0f}%;background:#1BAF7A;"></div></div>'
             f'</div>'
         )
@@ -755,6 +753,12 @@ def _tv_full_html(
     # Alertas JS
     n_alerta_urg = sum(1 for a in alertas if a.get("tipo") == "urgente")
     n_alerta_atc = sum(1 for a in alertas if a.get("tipo") == "atencao")
+    tem_alertas      = len(alertas) > 0
+    alerta_cls       = "com-alerta" if tem_alertas else "sem-alerta"
+    alerta_titulo_txt = "⚠️ ATENÇÃO" if tem_alertas else "✅ TUDO OK"
+    alerta_titulo_cor = "#E34948" if tem_alertas else "#555"
+    alerta_sub_html   = (f"{n_alerta_urg} prioritários · {n_alerta_atc} atenção"
+                         if tem_alertas else "Nenhum alerta no momento")
     alertas_js = "[\n"
     for a in alertas:
         ne = a["nome"].replace('"','\\"').replace("'","\\'")
@@ -825,8 +829,8 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
 .barra-fill{{height:100%;border-radius:2px;}}
 .barra-desc{{font-size:6px;color:#777;margin-top:1px;}}
 .bloco-bottom{{position:absolute;left:10px;right:10px;top:555px;height:521px;display:-webkit-box;display:-webkit-flex;display:flex;gap:6px;overflow:hidden;}}
-.sub-bloco-pend{{width:19%;height:100%;overflow:hidden;}}
-.sub-bloco-and{{width:18%;height:100%;overflow:hidden;}}
+.sub-bloco-pend{{width:16%;height:100%;overflow:hidden;padding-right:6px;}}
+.sub-bloco-and{{width:20%;height:100%;overflow:hidden;}}
 .sub-bloco-fila{{width:28%;height:100%;overflow:hidden;}}
 .sub-bloco-alerta{{width:35%;height:100%;overflow:hidden;}}
 .sub-titulo{{font-size:12px;font-weight:700;margin-bottom:4px;padding-bottom:3px;border-bottom:1px solid #2e2e2e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}}
@@ -849,11 +853,12 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
 .alerta-col{{overflow:hidden;}}
 .alerta-header{{border-radius:6px;padding:5px 10px;text-align:center;margin-bottom:4px;}}
 .alerta-header.com-alerta{{background:#E3494812;border:2px solid #E34948;-webkit-animation:pulso 2s ease-in-out infinite;animation:pulso 2s ease-in-out infinite;}}
-.alerta-header.com-alerta.tocando{{-webkit-animation:pulso-forte 0.35s ease-in-out infinite!important;animation:pulso-forte 0.35s ease-in-out infinite!important;border-color:#FF5555!important;}}
-@-webkit-keyframes pulso{{0%,100%{{-webkit-box-shadow:0 0 0 0 #E3494840;}}50%{{-webkit-box-shadow:0 0 16px 5px #E3494840;}}}}
-@keyframes pulso{{0%,100%{{box-shadow:0 0 0 0 #E3494840;}}50%{{box-shadow:0 0 16px 5px #E3494840;}}}}
-@-webkit-keyframes pulso-forte{{0%,100%{{-webkit-box-shadow:0 0 4px 0 #E3494880;}}50%{{-webkit-box-shadow:0 0 40px 15px #E3494899;}}}}
-@keyframes pulso-forte{{0%,100%{{box-shadow:0 0 4px 0 #E3494880;}}50%{{box-shadow:0 0 40px 15px #E3494899;}}}}
+.alerta-header.sem-alerta{{background:#1a1a1a;border:1px solid #333;}}
+.alerta-header.com-alerta.tocando{{-webkit-animation:pulso-forte 0.35s ease-in-out infinite!important;animation:pulso-forte 0.35s ease-in-out infinite!important;}}
+@-webkit-keyframes pulso{{0%,100%{{background:#E3494812;border-color:#E34948;}}50%{{background:#E3494840;border-color:#FF6B6B;}}}}
+@keyframes pulso{{0%,100%{{background:#E3494812;border-color:#E34948;}}50%{{background:#E3494840;border-color:#FF6B6B;}}}}
+@-webkit-keyframes pulso-forte{{0%,100%{{background:#E3494820;border-color:#E34948;}}50%{{background:#E3494880;border-color:#FF5555;}}}}
+@keyframes pulso-forte{{0%,100%{{background:#E3494820;border-color:#E34948;}}50%{{background:#E3494880;border-color:#FF5555;}}}}
 .alerta-titulo{{font-size:14px;font-weight:900;letter-spacing:2px;color:#E34948;}}
 .alerta-sub{{font-size:10px;color:#aaa;}}
 .alerta-lista{{overflow:hidden;}}
@@ -979,9 +984,9 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
     <div class="sub-bloco-alerta">
       <div class="sub-titulo" style="color:#E34948;">🔔 Alertas</div>
       <div class="alerta-col">
-        <div class="alerta-header com-alerta" id="alerta-header">
-          <div class="alerta-titulo">⚠️ ATENÇÃO</div>
-          <div class="alerta-sub">{n_alerta_urg} prioritários · {n_alerta_atc} atenção</div>
+        <div class="alerta-header {alerta_cls}" id="alerta-header">
+          <div class="alerta-titulo" style="color:{alerta_titulo_cor};">{alerta_titulo_txt}</div>
+          <div class="alerta-sub">{alerta_sub_html}</div>
         </div>
         <div class="alerta-lista" id="alerta-lista"></div>
       </div>
@@ -1055,12 +1060,13 @@ function _marcarBtnErro() {{
   var btn = document.getElementById('som-btn');
   if (btn) {{ btn.style.color = '#E34948'; btn.innerHTML = '🔇 Sem suporte'; }}
 }}
+// _playAudio: toca o bipe. Sem trava _audioAtivo — TV é quiosque, autoplay permitido.
 function _playAudio() {{
   var a = document.getElementById('beep-audio');
-  if (!a || !_audioAtivo) return;
+  if (!a) return;
   try {{ a.currentTime = 0; a.play(); }} catch(e) {{}}
 }}
-// Botão manual — toca bipe de confirmação e ativa o som
+// Botão manual — toca bipe de confirmação e sinaliza que o usuário ativou o som
 function ativarSom() {{
   var btn = document.getElementById('som-btn');
   if (btn) {{ btn.innerHTML = '⏳ Ativando...'; }}
@@ -1074,23 +1080,22 @@ function ativarSom() {{
       p.then(function() {{
         _audioAtivo = true; _marcarBtnAtivo();
       }}).catch(function(err) {{
-        // play() rejeitado — browser bloqueou, mostra erro real
         _marcarBtnErro();
       }});
     }} else {{
-      // Browser antigo sem Promise — assume que funcionou
       _audioAtivo = true; _marcarBtnAtivo();
     }}
   }} catch(e) {{ _marcarBtnErro(); }}
 }}
-// Auto-restauração ao recarregar (meta-refresh de 60s):
-// Se o usuário ativou o som antes, restaura o estado ativo direto — sem tentar tocar.
+// Auto-restauração do botão ao recarregar (meta-refresh de 60s)
 try {{
   if (localStorage.getItem('ms_tv_audio') === '1') {{
     _audioAtivo = true; _marcarBtnAtivo();
   }}
 }} catch(e) {{}}
+// checkAndPlay: só dispara quando há alertas (ALERTAS não vazio)
 function checkAndPlay() {{
+  if (!ALERTAS.length) return;
   var h = document.getElementById("alerta-header");
   if (!h) return;
   h.classList.add("tocando");
