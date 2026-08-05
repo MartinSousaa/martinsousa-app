@@ -961,48 +961,58 @@ if (ALERTAS.length) {{
   render();
   setInterval(function() {{ offset = (offset + 1) % ALERTAS.length; render(); }}, 8000);
 }}
-// ── Áudio: AudioContext compartilhado + botão visível de ativação ────────────
+// ── Áudio: AudioContext + ativação síncrona (sem depender de .then()) ──────────
+// Motivo: WebOS/LG e Chromium antigos têm Promises quebradas onde .then() nunca
+// dispara em AudioContext.resume(). A solução é definir _audioOk = true de forma
+// SÍNCRONA logo após criar o contexto, sem aguardar a Promise.
 var _ctx = null;
 var _audioOk = false;
 function _marcarBtnAtivo() {{
   var btn = document.getElementById('som-btn');
   if (btn) {{ btn.className = 'ativo'; btn.innerHTML = '🔊 Som Ativo'; }}
 }}
-function _initAudio() {{
-  try {{
-    _ctx = new (window.AudioContext || window.webkitAudioContext)();
-    if (_ctx.resume) {{
-      _ctx.resume().then(function() {{ _audioOk = true; _marcarBtnAtivo(); }});
-    }} else {{
-      _audioOk = true; _marcarBtnAtivo();
-    }}
-  }} catch(e) {{}}
+function _marcarBtnErro() {{
+  var btn = document.getElementById('som-btn');
+  if (btn) {{ btn.innerHTML = '🔇 Sem suporte'; btn.style.color = '#E34948'; }}
 }}
-// Função chamada pelo botão — DEVE criar AudioContext dentro do handler de clique
+// Cria AudioContext e ativa _audioOk de forma SÍNCRONA (não usa .then())
 function ativarSom() {{
+  var btn = document.getElementById('som-btn');
+  // Feedback imediato: mostra que o clique foi registrado
+  if (btn) {{ btn.innerHTML = '⏳ Ativando...'; }}
   try {{ localStorage.setItem('ms_tv_audio','1'); }} catch(e) {{}}
-  if (!_ctx) {{
-    _initAudio();
-  }} else if (_ctx.state === 'suspended') {{
-    _ctx.resume().then(function() {{ _audioOk = true; _marcarBtnAtivo(); }});
-  }} else {{
-    _audioOk = true; _marcarBtnAtivo();
+  try {{
+    if (!_ctx) {{
+      _ctx = new (window.AudioContext || window.webkitAudioContext)();
+    }}
+    // resume() pode retornar uma Promise — chamamos sem .then() para compatibilidade
+    if (_ctx.resume) {{
+      try {{ _ctx.resume(); }} catch(e) {{}}
+    }}
+    // Define ativo de forma SÍNCRONA — não espera a Promise
+    _audioOk = true;
+    _marcarBtnAtivo();
+    // Toca bipe de confirmação imediato para provar que o som funciona
+    setTimeout(function() {{
+      beepRaw(880, 0.3, 0.5, 0.0);
+      beepRaw(1100, 0.3, 0.5, 0.4);
+    }}, 100);
+  }} catch(e) {{
+    // AudioContext não suportado neste browser
+    _audioOk = false;
+    _marcarBtnErro();
   }}
 }}
-// Se o usuário já ativou antes (localStorage), tenta inicializar automaticamente
-// (pode falhar no Chrome/WebOS se não houver gesto — nesse caso o botão aparece)
+// Se já ativou antes, tenta restaurar automaticamente ao carregar
 try {{
   if (localStorage.getItem('ms_tv_audio') === '1') {{
-    setTimeout(function() {{
-      _initAudio();
-      // Verifica após 1s se realmente ficou ativo (alguns browsers bloqueiam mesmo com localStorage)
-      setTimeout(function() {{ if (!_audioOk) {{ _audioOk = false; }} else {{ _marcarBtnAtivo(); }} }}, 1000);
-    }}, 300);
+    setTimeout(ativarSom, 500);
   }}
 }} catch(e) {{}}
 
-function beep(freq, dur, vol, delay) {{
-  if (!_ctx || !_audioOk) return;
+// beepRaw: toca sempre que _ctx existir (sem checar _audioOk) — usado no bipe de confirmação
+function beepRaw(freq, dur, vol, delay) {{
+  if (!_ctx) return;
   try {{
     var osc = _ctx.createOscillator(); var gain = _ctx.createGain();
     osc.connect(gain); gain.connect(_ctx.destination);
@@ -1013,6 +1023,11 @@ function beep(freq, dur, vol, delay) {{
     osc.start(_ctx.currentTime + delay);
     osc.stop(_ctx.currentTime + delay + dur + 0.05);
   }} catch(e) {{}}
+}}
+// beep: versão normal (só toca se _audioOk estiver ativo)
+function beep(freq, dur, vol, delay) {{
+  if (!_audioOk) return;
+  beepRaw(freq, dur, vol, delay);
 }}
 function playOnce() {{
   beep(660, 0.25, 0.4, 0.0); beep(880, 0.25, 0.4, 0.35);
