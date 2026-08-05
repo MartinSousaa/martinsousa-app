@@ -96,14 +96,12 @@ div[class*="StatusWidget"]                      { display: none !important; }
 iframe[title="st_autorefresh"]                  { display: none !important; }
 [data-testid="stAppRunningIndicator"]           { display: none !important; }
 div[class*="AppRunningIndicator"]               { display: none !important; }
-/* Impede o escurecimento do conteúdo durante o rerun — cobre TODOS os filhos */
-.stApp, .stApp *, .main, .main *,
-[data-testid="stMain"], [data-testid="stMain"] *,
+/* Impede o escurecimento dos containers principais durante o rerun */
+.stApp, .main,
+[data-testid="stMain"],
 [data-testid="stMainBlockContainer"],
-[data-testid="stAppViewBlockContainer"]         { opacity: 1 !important; }
-/* Remove pseudo-elemento de overlay que alguns temas Streamlit usam */
-.stApp::after, .stApp::before,
-.main::after,  .main::before                   { display: none !important; }
+[data-testid="stAppViewBlockContainer"],
+[data-testid="stAppViewContainer"]              { opacity: 1 !important; }
 
 /* ── FUNDO GERAL ────────────────────────────────────────────────────────── */
 .stApp { background-color: var(--ms-fundo) !important; color: var(--ms-texto) !important; }
@@ -651,9 +649,9 @@ if _tv_token_cfg and st.query_params.get("tv", "") == _tv_token_cfg:
     iframe[title="tv_autorefresh"]        { display: none !important; }
 
     /* Garante que o rerun não escureça a tela */
-    .stApp *, .main *,
-    [data-testid="stMain"] *,
-    [data-testid="stMainBlockContainer"] * { opacity: 1 !important; }
+    .stApp, .main,
+    [data-testid="stMain"],
+    [data-testid="stMainBlockContainer"]  { opacity: 1 !important; }
 
     /* Container principal: sem padding, fundo escuro */
     .stApp, [data-testid="stAppViewContainer"],
