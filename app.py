@@ -30,6 +30,8 @@ import chat_assistente
 import placar
 import analise_metas
 import relogio_ponto
+from tv_route import register_tv_route
+register_tv_route()
 
 st.set_page_config(page_title="MS Studio", layout="wide")
 
