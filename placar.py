@@ -719,12 +719,14 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
 .mc-sub.verde{{color:#1BAF7A;}}.mc-sub.amarelo{{color:#EDA100;}}.mc-sub.ouro{{color:#FFD700;}}.mc-sub.red{{color:#E34948;}}
 .bloco-titulo{{font-size:7px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px;}}
 .bloco-titulo.verde{{color:#1BAF7A;}}.bloco-titulo.ouro{{color:#FFD700;}}
-.gauge-col{{display:-webkit-box;display:-webkit-flex;display:flex;-webkit-box-align:center;-webkit-align-items:center;align-items:center;-webkit-box-pack:center;-webkit-justify-content:center;justify-content:center;gap:8px;height:100%;}}
-.gauge-svg{{height:80px;width:auto;}}
-.gauge-info{{display:-webkit-box;display:-webkit-flex;display:flex;-webkit-box-orient:vertical;-webkit-flex-direction:column;flex-direction:column;}}
-.gauge-pct{{font-size:24px;font-weight:700;line-height:1;}}
+.gauge-col{{display:-webkit-box;display:-webkit-flex;display:flex;-webkit-box-orient:vertical;-webkit-flex-direction:column;flex-direction:column;-webkit-box-align:center;-webkit-align-items:center;align-items:center;-webkit-box-pack:center;-webkit-justify-content:center;justify-content:center;gap:4px;height:100%;}}
+.gauge-svg{{height:90px;width:auto;}}
+.gauge-info{{text-align:center;}}
+.gauge-pct{{font-size:30px;font-weight:700;line-height:1;}}
 .gauge-pct.verde{{color:#1BAF7A;}}.gauge-pct.ouro{{color:#FFD700;}}
-.gauge-label{{font-size:8px;color:#888;margin-top:2px;}}
+.gauge-label{{font-size:10px;color:#aaa;margin-top:3px;}}
+#som-btn{{position:fixed;bottom:14px;right:14px;background:#1a1a1aee;border:1px solid #444;border-radius:8px;padding:8px 14px;color:#aaa;font-size:13px;cursor:pointer;z-index:9999;-webkit-user-select:none;user-select:none;}}
+#som-btn.ativo{{color:#1BAF7A;border-color:#1BAF7A;}}
 .needle-maxx{{-webkit-animation:glow-needle 2.4s ease-in-out infinite;animation:glow-needle 2.4s ease-in-out infinite;}}
 .tip-maxx{{-webkit-animation:glow-tip 2.4s ease-in-out infinite;animation:glow-tip 2.4s ease-in-out infinite;}}
 @-webkit-keyframes glow-needle{{0%,100%{{-webkit-filter:drop-shadow(0 0 3px #FFD700);}}50%{{-webkit-filter:drop-shadow(0 0 8px #FFD700);}}}}
@@ -752,25 +754,25 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
 .sub-bloco-and{{width:15%;height:100%;overflow:hidden;}}
 .sub-bloco-fila{{width:28%;height:100%;overflow:hidden;}}
 .sub-bloco-alerta{{width:35%;height:100%;overflow:hidden;}}
-.sub-titulo{{font-size:8px;font-weight:700;margin-bottom:3px;padding-bottom:2px;border-bottom:1px solid #2e2e2e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}}
+.sub-titulo{{font-size:12px;font-weight:700;margin-bottom:4px;padding-bottom:3px;border-bottom:1px solid #2e2e2e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}}
 .cards-col{{overflow:hidden;}}
-.card-base{{background:#252525;border:1px solid #3a3a3a;border-radius:6px;padding:5px 8px;overflow:hidden;margin-bottom:3px;}}
-.card-and-nome{{font-size:9px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}}
-.card-and-sub{{font-size:7px;color:#888;margin-top:1px;}}.card-and-sub span{{color:#1BAF7A;}}
+.card-base{{background:#252525;border:1px solid #3a3a3a;border-radius:6px;padding:8px 12px;overflow:hidden;margin-bottom:4px;}}
+.card-and-nome{{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}}
+.card-and-sub{{font-size:10px;color:#888;margin-top:2px;}}.card-and-sub span{{color:#1BAF7A;}}
 .fila-inner{{display:-webkit-box;display:-webkit-flex;display:flex;gap:6px;-webkit-box-align:center;-webkit-align-items:center;align-items:center;}}
-.fila-num{{font-size:11px;font-weight:700;min-width:18px;}}
+.fila-num{{font-size:16px;font-weight:700;min-width:24px;}}
 .fila-info{{-webkit-flex:1;flex:1;overflow:hidden;}}
-.fila-nome{{font-size:8.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}}
-.fila-sub{{font-size:6.5px;color:#888;}}
-.fila-tempo{{font-size:7px;color:#888;white-space:nowrap;}}
-.badge-urg{{background:#E3494830;color:#E34948;border:1px solid #E34948;border-radius:3px;font-size:6px;padding:0 3px;}}
-.pend-item{{margin-bottom:4px;}}
-.pend-header{{display:-webkit-box;display:-webkit-flex;display:flex;-webkit-box-pack:justify;-webkit-justify-content:space-between;justify-content:space-between;font-size:8px;margin-bottom:1px;}}
+.fila-nome{{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}}
+.fila-sub{{font-size:10px;color:#888;}}
+.fila-tempo{{font-size:10px;color:#888;white-space:nowrap;}}
+.badge-urg{{background:#E3494830;color:#E34948;border:1px solid #E34948;border-radius:3px;font-size:9px;padding:0 3px;}}
+.pend-item{{margin-bottom:6px;}}
+.pend-header{{display:-webkit-box;display:-webkit-flex;display:flex;-webkit-box-pack:justify;-webkit-justify-content:space-between;justify-content:space-between;font-size:11px;margin-bottom:2px;}}
 .pend-header .pend-num{{font-weight:700;color:#EDA100;}}.pend-header .pend-num.red{{color:#E34948;}}
-.pend-track{{background:#3a3a3a;border-radius:2px;height:4px;overflow:hidden;}}
+.pend-track{{background:#3a3a3a;border-radius:2px;height:6px;overflow:hidden;}}
 .pend-fill{{height:100%;border-radius:2px;background:#EDA100;}}
 .alerta-col{{overflow:hidden;}}
-.alerta-header{{border-radius:6px;padding:5px 10px;text-align:center;margin-bottom:3px;}}
+.alerta-header{{border-radius:6px;padding:5px 10px;text-align:center;margin-bottom:4px;}}
 .alerta-header.com-alerta{{background:#E3494812;border:2px solid #E34948;-webkit-animation:pulso 2s ease-in-out infinite;animation:pulso 2s ease-in-out infinite;}}
 .alerta-header.com-alerta.tocando{{-webkit-animation:pulso-forte 0.35s ease-in-out infinite!important;animation:pulso-forte 0.35s ease-in-out infinite!important;border-color:#FF5555!important;}}
 @-webkit-keyframes pulso{{0%,100%{{-webkit-box-shadow:0 0 0 0 #E3494840;}}50%{{-webkit-box-shadow:0 0 16px 5px #E3494840;}}}}
@@ -778,15 +780,15 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
 @-webkit-keyframes pulso-forte{{0%,100%{{-webkit-box-shadow:0 0 4px 0 #E3494880;}}50%{{-webkit-box-shadow:0 0 40px 15px #E3494899;}}}}
 @keyframes pulso-forte{{0%,100%{{box-shadow:0 0 4px 0 #E3494880;}}50%{{box-shadow:0 0 40px 15px #E3494899;}}}}
 .alerta-titulo{{font-size:14px;font-weight:900;letter-spacing:2px;color:#E34948;}}
-.alerta-sub{{font-size:7px;color:#aaa;}}
+.alerta-sub{{font-size:10px;color:#aaa;}}
 .alerta-lista{{overflow:hidden;}}
-.alerta-item{{border-radius:5px;padding:4px 8px;margin-bottom:3px;overflow:hidden;}}
+.alerta-item{{border-radius:5px;padding:6px 12px;margin-bottom:4px;overflow:hidden;}}
 .alerta-item.urgente{{background:#E3494818;border-left:3px solid #E34948;}}
 .alerta-item.atencao{{background:#EDA10015;border-left:3px solid #EDA100;}}
-.alerta-item-prioridade{{font-size:6.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;display:-webkit-box;display:-webkit-flex;display:flex;-webkit-box-pack:justify;-webkit-justify-content:space-between;justify-content:space-between;}}
+.alerta-item-prioridade{{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;display:-webkit-box;display:-webkit-flex;display:flex;-webkit-box-pack:justify;-webkit-justify-content:space-between;justify-content:space-between;}}
 .alerta-item.urgente .alerta-item-prioridade{{color:#E34948;}}.alerta-item.atencao .alerta-item-prioridade{{color:#EDA100;}}
-.alerta-item-nome{{font-size:9px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}}
-.alerta-item-col{{font-size:6.5px;color:#aaa;}}
+.alerta-item-nome{{font-size:13px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}}
+.alerta-item-col{{font-size:10px;color:#aaa;}}
 </style>
 </head>
 <body>
@@ -908,6 +910,8 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
   </div>
 </div>
 
+<div id="som-btn" onclick="ativarSom();">🔊 Ativar Som</div>
+
 <script>
 // ── Layout: calcula alturas reais em px a partir de window.innerHeight ──────
 (function() {{
@@ -957,25 +961,45 @@ if (ALERTAS.length) {{
   render();
   setInterval(function() {{ offset = (offset + 1) % ALERTAS.length; render(); }}, 8000);
 }}
-// ── Áudio: AudioContext compartilhado + desbloqueio via localStorage ──────────
+// ── Áudio: AudioContext compartilhado + botão visível de ativação ────────────
 var _ctx = null;
 var _audioOk = false;
+function _marcarBtnAtivo() {{
+  var btn = document.getElementById('som-btn');
+  if (btn) {{ btn.className = 'ativo'; btn.innerHTML = '🔊 Som Ativo'; }}
+}}
 function _initAudio() {{
   try {{
     _ctx = new (window.AudioContext || window.webkitAudioContext)();
-    _ctx.resume().then(function() {{ _audioOk = true; }});
+    if (_ctx.resume) {{
+      _ctx.resume().then(function() {{ _audioOk = true; _marcarBtnAtivo(); }});
+    }} else {{
+      _audioOk = true; _marcarBtnAtivo();
+    }}
   }} catch(e) {{}}
 }}
-// Se o usuário já ativou antes (localStorage), inicializa automaticamente
-try {{ if (localStorage.getItem('ms_tv_audio') === '1') setTimeout(_initAudio, 300); }} catch(e) {{}}
-// Desbloqueia no primeiro clique/toque e persiste
-function _unlockAudio() {{
+// Função chamada pelo botão — DEVE criar AudioContext dentro do handler de clique
+function ativarSom() {{
   try {{ localStorage.setItem('ms_tv_audio','1'); }} catch(e) {{}}
-  if (!_ctx) {{ _initAudio(); }}
-  else {{ _ctx.resume().then(function() {{ _audioOk = true; }}); }}
+  if (!_ctx) {{
+    _initAudio();
+  }} else if (_ctx.state === 'suspended') {{
+    _ctx.resume().then(function() {{ _audioOk = true; _marcarBtnAtivo(); }});
+  }} else {{
+    _audioOk = true; _marcarBtnAtivo();
+  }}
 }}
-document.addEventListener('click',      _unlockAudio, false);
-document.addEventListener('touchstart', _unlockAudio, false);
+// Se o usuário já ativou antes (localStorage), tenta inicializar automaticamente
+// (pode falhar no Chrome/WebOS se não houver gesto — nesse caso o botão aparece)
+try {{
+  if (localStorage.getItem('ms_tv_audio') === '1') {{
+    setTimeout(function() {{
+      _initAudio();
+      // Verifica após 1s se realmente ficou ativo (alguns browsers bloqueiam mesmo com localStorage)
+      setTimeout(function() {{ if (!_audioOk) {{ _audioOk = false; }} else {{ _marcarBtnAtivo(); }} }}, 1000);
+    }}, 300);
+  }}
+}} catch(e) {{}}
 
 function beep(freq, dur, vol, delay) {{
   if (!_ctx || !_audioOk) return;
