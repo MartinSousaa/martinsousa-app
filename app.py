@@ -1,5 +1,4 @@
 import streamlit as st
-import streamlit.components.v1 as components
 import base64
 from datetime import date
 
@@ -132,6 +131,21 @@ section[data-testid="stSidebar"] > div:first-child {
 [data-testid="stSidebarContent"] {
     padding-top: 0.25rem !important;
 }
+
+/* ── Sidebar: largura fixa 360px (sem JS) ───────────────────────────────── */
+section[data-testid="stSidebar"] {
+    width: 360px !important;
+    min-width: 360px !important;
+    max-width: 360px !important;
+}
+[data-testid="stSidebarResizeHandle"] { display: none !important; }
+
+/* ── Anti-dim: impede Streamlit de escurecer a tela durante re-runs ─────── */
+/* (substitui o MutationObserver que estava no components.html — sem iframe) */
+.stApp, [data-testid="stAppViewContainer"],
+[data-testid="stMain"], .main,
+[data-testid="stMainBlockContainer"],
+.main .block-container { opacity: 1 !important; }
 
 /* Caixa visual do chat — estilizada via JS (id ms-chat-box-dynamic) */
 #ms-chat-topo { display: none !important; }
@@ -665,124 +679,15 @@ if _tv_token_cfg and st.query_params.get("tv", "") == _tv_token_cfg:
 
 usuario_logado = auth.verificar_login()
 
-# ── TEMA JS — executado APÓS auth para garantir sessão inicializada ───────────
-# Mover para cá elimina a race condition "SessionInfo before initialized"
-# que ocorria quando components.html() rodava antes da sessão estar pronta.
-components.html("""
-<script>
-(function() {
-  var P = window.parent;
-
-  function temaAuto() { return 'tema-escuro'; } // padrão fixo: sempre noite
-
-  function aplicarTema(tema, salvar) {
-    P.document.body.classList.remove('tema-claro','tema-escuro');
-    P.document.body.classList.add(tema);
-    var btn = P.document.getElementById('ms-tema-toggle');
-    if (btn) {
-      btn.textContent = tema === 'tema-escuro' ? '☀️' : '🌙';
-      btn.title = tema === 'tema-escuro' ? 'Mudar para tema claro' : 'Mudar para tema escuro';
-    }
-    if (salvar) {
-      P.sessionStorage.setItem('ms_tema', tema);
-      P.sessionStorage.setItem('ms_tema_dia', new Date().toDateString());
-    }
-  }
-
-  // ── Anti-escurecimento no auto-refresh ─────────────────────────────────────
-  if (!P._msAntiDimObs) {
-    var _fixOpacity = function(el) {
-      try {
-        if (el && el.style && el.style.opacity !== '' && parseFloat(el.style.opacity) < 1) {
-          el.style.setProperty('opacity', '1', 'important');
-        }
-      } catch(e) {}
-    };
-    var _obs = new P.MutationObserver(function(muts) {
-      for (var i = 0; i < muts.length; i++) {
-        var m = muts[i];
-        if (m.type === 'attributes') {
-          _fixOpacity(m.target);
-        } else if (m.type === 'childList') {
-          for (var j = 0; j < m.addedNodes.length; j++) {
-            var n = m.addedNodes[j];
-            if (n.nodeType === 1) { _fixOpacity(n); }
-          }
-        }
-      }
-    });
-    _obs.observe(P.document.body, {
-      subtree: true,
-      attributes: true,
-      attributeFilter: ['style'],
-      childList: true
-    });
-    P._msAntiDimObs = _obs;
-  }
-
-  if (P._msTemaIniciado) {
-    var t = P.sessionStorage.getItem('ms_tema');
-    var d = P.sessionStorage.getItem('ms_tema_dia');
-    aplicarTema((t && d === new Date().toDateString()) ? t : temaAuto(), false);
-    return;
-  }
-  P._msTemaIniciado = true;
-
-  // Desativa tradução automática do navegador (evita "Shein" → "Ela", etc.)
-  P.document.documentElement.setAttribute('lang', 'pt-BR');
-  P.document.documentElement.setAttribute('translate', 'no');
-  var metaNotranslate = P.document.querySelector('meta[name="google"]');
-  if (!metaNotranslate) {
-    metaNotranslate = P.document.createElement('meta');
-    metaNotranslate.name = 'google';
-    metaNotranslate.content = 'notranslate';
-    P.document.head.appendChild(metaNotranslate);
-  }
-
-  // Aplica tema inicial
-  var temaSalvo = P.sessionStorage.getItem('ms_tema');
-  var diaSalvo  = P.sessionStorage.getItem('ms_tema_dia');
-  if (temaSalvo && diaSalvo === new Date().toDateString()) {
-    aplicarTema(temaSalvo, false);
-  } else {
-    P.sessionStorage.removeItem('ms_tema');
-    P.sessionStorage.removeItem('ms_tema_dia');
-    aplicarTema(temaAuto(), false);
-  }
-
-  // Injeta botão toggle (uma única vez, direto no body)
-  if (!P.document.getElementById('ms-tema-toggle')) {
-    var btn = P.document.createElement('button');
-    btn.id = 'ms-tema-toggle';
-    btn.onclick = function() {
-      var claro = P.document.body.classList.contains('tema-claro');
-      aplicarTema(claro ? 'tema-escuro' : 'tema-claro', true);
-    };
-    P.document.body.appendChild(btn);
-    aplicarTema(P.document.body.classList.contains('tema-claro') ? 'tema-claro' : 'tema-escuro', false);
-  }
-
-  // Auto-switch ao cruzar 18h (só se não houver override manual)
-  setInterval(function() {
-    if (!P.sessionStorage.getItem('ms_tema')) aplicarTema(temaAuto(), false);
-  }, 60000);
-
-  // Força largura do sidebar (override do resize do Streamlit) — só desktop
-  function forceSidebarWidth() {
-    if (P.innerWidth <= 768) return;
-    var sb = P.document.querySelector('section[data-testid="stSidebar"]');
-    if (!sb) return;
-    sb.style.setProperty('width', '360px', 'important');
-    sb.style.setProperty('min-width', '360px', 'important');
-    sb.style.setProperty('max-width', '360px', 'important');
-    var rz = P.document.querySelector('[data-testid="stSidebarResizeHandle"]');
-    if (rz) rz.style.display = 'none';
-  }
-  forceSidebarWidth();
-  setInterval(forceSidebarWidth, 1500);
-})();
-</script>
-""", height=0)
+# ── NOTA: components.html() foi REMOVIDO por causar "SessionInfo before
+# initialized" para colaboradoras (Myrella, etc.) em todas as abas.
+# O components.html() criava iframes com canal WebSocket próprio que
+# colidia com a sessão Streamlit durante reruns.
+# Toda a funcionalidade foi migrada para CSS puro (sem iframes, sem race condition):
+#   · Largura do sidebar: CSS section[data-testid="stSidebar"]
+#   · Anti-dim de re-runs: CSS opacity: 1 !important
+#   · Tema: sempre escuro via CSS "body, body.tema-escuro { ... }"
+# ─────────────────────────────────────────────────────────────────────────────
 
 # UC minimo pra aprovar produto -- definido pelo Léo em 14/07/2026,
 # provisorio ate ele analisar as UCs reais da operacao.
