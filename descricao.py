@@ -1,3 +1,4 @@
+import os
 import streamlit as st
 import anthropic
 import math
@@ -222,7 +223,7 @@ def pesquisar_usos_produto(nome_produto):
 
 
 def gerar_descricao(dados):
-    api_key = st.secrets.get("ANTHROPIC_API_KEY", "")
+    api_key = st.secrets.get("ANTHROPIC_API_KEY", "") or os.environ.get("ANTHROPIC_API_KEY", "")
     if not api_key:
         raise ValueError("ANTHROPIC_API_KEY não configurada nas Secrets.")
 
@@ -343,7 +344,7 @@ Responda SOMENTE com o texto da descrição, pronta pra colar no anúncio, sem c
 def editar_descricao(descricao_atual, instrucao):
     """Ajuste pontual em cima do texto ja gerado -- recebe o texto completo atual
     e devolve (texto_ajustado, erro). Nunca retorna texto vazio sem avisar."""
-    api_key = st.secrets.get("ANTHROPIC_API_KEY", "")
+    api_key = st.secrets.get("ANTHROPIC_API_KEY", "") or os.environ.get("ANTHROPIC_API_KEY", "")
     if not api_key:
         return descricao_atual, "ANTHROPIC_API_KEY não configurada nas Secrets."
     prompt = f"""Esta é a descrição atual de um anúncio de e-commerce:
