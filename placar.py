@@ -1206,7 +1206,7 @@ def _meta_ind_item(titulo, pct, descricao, cor=None, aguardando=False):
   <div class="meta-ind-titulo">{titulo}</div>
   <div style="font-size:10px;color:var(--ms-texto-sec);font-style:italic;">⏳ Aguardando integração do relógio de ponto</div>
 </div>"""
-    c=cor or ("#1BAF7A" if pct>=80 else ("#EDA100" if pct>=50 else "#E34948"))
+    c=cor or ("#1BAF7A" if pct>=80 else ("#EDA100" if pct>=50 else "#4A90D9"))
     return f"""<div class="meta-ind-card">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
     <div class="meta-ind-titulo" style="margin:0;">{titulo}</div>
@@ -1344,7 +1344,7 @@ def pagina_placar(usuario_logado):
     pct_maxx=(saldo_eq/meta_maxx_pts*100) if meta_maxx_pts>0 else 0
     faltam=max(meta_eq-saldo_eq,0)
     faltam_maxx=max(meta_maxx_pts-saldo_eq,0)
-    cor_pts="#1BAF7A" if pct_eq>=100 else ("#EDA100" if pct_eq>=50 else "#E34948")
+    cor_pts="#1BAF7A" if pct_eq>=100 else ("#EDA100" if pct_eq>=50 else "#4A90D9")
 
     # ══ BLOCO 1 — cards meta | vel meta | vel maxx | cards maxx ══
     col_cm, col_vm, col_vx, col_cx = st.columns([1.8, 2.0, 2.0, 1.8])
