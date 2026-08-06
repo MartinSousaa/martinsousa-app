@@ -86,7 +86,7 @@ body.tema-claro {
 }
 
 /* ── REMOVE BARRA DO TOPO ───────────────────────────────────────────────── */
-[data-testid="stHeader"]  { background-color: var(--ms-fundo) !important; border-bottom: none !important; }
+[data-testid="stHeader"]  { display: none !important; }
 [data-testid="stToolbar"] { background-color: var(--ms-fundo) !important; }
 #stDecoration             { display: none !important; }
 /* Esconde o overlay de "running" que escurece a tela no auto-refresh */
