@@ -247,8 +247,8 @@ def _secao_metas_card(dados):
     # Retrabalho
     pct_retrab = r.get("pct_retrab")
     if pct_retrab is not None:
-        pct_retrab_n = min(pct_retrab / max_retrab_n * 100, 100) if max_retrab_n > 0 else 0
-        pct_retrab_x = min(pct_retrab / max_retrab_x * 100, 100) if max_retrab_x > 0 else 0
+        pct_retrab_n = max(0.0, (1.0 - pct_retrab / max_retrab_n) * 100) if max_retrab_n > 0 else 100.0
+        pct_retrab_x = max(0.0, (1.0 - pct_retrab / max_retrab_x) * 100) if max_retrab_x > 0 else 100.0
         desc_retrab = f"{pct_retrab:.1f}% atual · máx {max_retrab_n}%"
         desc_retrab_x = f"{pct_retrab:.1f}% atual · máx {max_retrab_x}%"
     else:
@@ -264,7 +264,8 @@ def _secao_metas_card(dados):
                             f"{saldo:,.0f} / {meta_eq:,.0f} pts (inclui -{pen_total:.0f} penalidades)", "#1BAF7A")
         b += _barra_painel("Sem atraso em prioritários P8-P10", pct_prioritarios,
                             "Nenhum cartão prioritário atrasado" if atrasados == 0 else f"{atrasados} atrasado(s)", "#1BAF7A")
-        b += _barra_painel(f"Retrabalho abaixo de {max_retrab_n}%", pct_retrab_n, desc_retrab, "#E34948")
+        _cor_rtn_a = "#1BAF7A" if pct_retrab_n >= 100 else "#E34948"
+        b += _barra_painel(f"Retrabalho abaixo de {max_retrab_n}%", pct_retrab_n, desc_retrab, _cor_rtn_a)
         b += _barra_painel(f"Menos de {max_pen_n+1} penalidades", pct_pen_n,
                             f"{pen_qtd} ocorrência(s) / máx {max_pen_n}", "#E34948")
         b += _barra_painel("Cartões com membro atribuído", pct_com_membro,
@@ -277,7 +278,8 @@ def _secao_metas_card(dados):
                             f"{saldo:,.0f} / {meta_maxx:,.0f} pts (c/ penalidades -{pen_total:.0f})", "#FFD700")
         b += _barra_painel("Zero prioritários em atraso", pct_prioritarios,
                             "Nenhum cartão prioritário atrasado" if atrasados == 0 else f"{atrasados} atrasado(s)", "#FFD700")
-        b += _barra_painel(f"Retrabalho abaixo de {max_retrab_x}%", pct_retrab_x, desc_retrab_x, "#E34948")
+        _cor_rtx_a = "#1BAF7A" if pct_retrab_x >= 100 else "#E34948"
+        b += _barra_painel(f"Retrabalho abaixo de {max_retrab_x}%", pct_retrab_x, desc_retrab_x, _cor_rtx_a)
         b += _barra_painel(f"Menos de {max_pen_x+1} penalidades", pct_pen_x,
                             f"{pen_qtd} ocorrência(s) / máx {max_pen_x}", "#E34948")
         b += _barra_painel("Cartões com membro atribuído", pct_com_membro,
