@@ -1,3 +1,4 @@
+import os
 """
 video.py
 Gerador de prompt para vídeo no Envato Elements.
@@ -27,7 +28,7 @@ def _gerar_prompt_video(dados_produto: dict, acao: str, observacoes: str,
                          frame_inicial: bytes | None, frame_final: bytes | None) -> tuple:
     """Chama a API Anthropic para gerar o prompt de vídeo.
     Retorna (prompt_gerado, aviso_imagens, erro)."""
-    api_key = st.secrets.get("ANTHROPIC_API_KEY", "")
+    api_key = st.secrets.get("ANTHROPIC_API_KEY", "") or os.environ.get("ANTHROPIC_API_KEY", "")
     if not api_key:
         return None, None, "ANTHROPIC_API_KEY não configurada."
 
@@ -165,7 +166,7 @@ RESPOND ONLY with valid JSON:
 
 def _ajustar_prompt_video(prompt_atual: str, instrucao: str, dados_produto: dict) -> tuple:
     """Ajusta o prompt via chat. Retorna (novo_prompt, erro)."""
-    api_key = st.secrets.get("ANTHROPIC_API_KEY", "")
+    api_key = st.secrets.get("ANTHROPIC_API_KEY", "") or os.environ.get("ANTHROPIC_API_KEY", "")
     if not api_key:
         return prompt_atual, "ANTHROPIC_API_KEY não configurada."
 
