@@ -808,7 +808,8 @@ def pagina_imagem(usuario_logado):
                         "fotos_bytes": fotos_bytes,
                         "dados_descricao": dados_descricao,
                     }
-                    st.rerun()
+                    # Sem st.rerun() — o plano é exibido diretamente abaixo
+                    # sem resetar a página nem perder os campos preenchidos
             except Exception as _e_triagem:
                 st.error(
                     f"❌ Ocorreu um erro ao montar a prévia: {_e_triagem}\n\n"
