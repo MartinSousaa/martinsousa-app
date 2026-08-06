@@ -412,7 +412,7 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
         pts  = pts_total.get(username, 0)
         meta = meta_total.get(username, len(dados) * 1500)
         pct_pts = min(pts / meta * 100, 100) if meta > 0 else 0
-        cor_pts = "#1BAF7A" if pct_pts >= 100 else ("#EDA100" if pct_pts >= 50 else "#E34948")
+        cor_pts = "#1BAF7A"  # progresso — sempre verde (cresce até 100%)
 
         st.markdown(f"##### {nome}")
         st.markdown(_meta_ind_item(
