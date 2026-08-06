@@ -231,7 +231,7 @@ Responda SOMENTE com JSON válido, sem texto antes ou depois:
     client = anthropic.Anthropic(api_key=api_key)
     try:
         msg = client.messages.create(
-            model="claude-sonnet-4-6",
+            model="claude-haiku-4-5",
             max_tokens=2048,
             messages=[{"role": "user", "content": prompt}]
         )
