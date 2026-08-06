@@ -137,7 +137,7 @@ def _mime_tipo(data: bytes) -> str:
 
 def _api_key():
     try:
-        k = st.secrets.get("ANTHROPIC_API_KEY", "")
+        k = st.secrets.get("ANTHROPIC_API_KEY", "") or os.environ.get("ANTHROPIC_API_KEY", "")
         if k:
             return k
     except Exception:
