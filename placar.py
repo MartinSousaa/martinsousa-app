@@ -250,12 +250,14 @@ def _data_card(card):
     return datetime.now(timezone.utc)
 
 def _mes_card(card):
-    d=card.get("dateLastActivity","")
-    if d:
+    card_id = card.get("id", "")
+    if card_id and len(card_id) >= 8:
         try:
-            dt=datetime.fromisoformat(d.replace("Z","+00:00"))
-            return (dt.year,dt.month)
-        except: pass
+            ts = int(card_id[:8], 16)
+            dt = datetime.fromtimestamp(ts, timezone.utc)
+            return (dt.year, dt.month)
+        except Exception:
+            pass
     return None
 
 # ── FILA ───────────────────────────────────────────────────────────────────────
@@ -348,8 +350,9 @@ def _processar(listas,cards,membros_map,id_p,id_t,id_i,filtro_mes=None):
             if "FALTA CONFERÊNCIA" in lb: d["falta_conf"]+=1
             if "FALTA INFORMAÇÃO" in lb: d["falta_info"]+=1
             if not us:
-                d["sem_membro"] += 1
-                d["sem_membro_lista"].append({"nome": card["name"], "lista": nl})
+                if not filtro_mes or _mes_card(card) == filtro_mes:
+                    d["sem_membro"] += 1
+                    d["sem_membro_lista"].append({"nome": card["name"], "lista": nl})
             if pt is None: d["falta_pts"]+=1
             if "PENDENTE" in lb:
                 d["pend_lista"][nl]=d["pend_lista"].get(nl,0)+1
@@ -1236,8 +1239,7 @@ def pagina_placar(usuario_logado):
         with col_att:
             if st.button("🔄",use_container_width=True,help="Atualizar"):
                 _buscar_board.clear(); st.rerun()
-        st.markdown('<meta http-equiv="refresh" content="30">', unsafe_allow_html=True)
-        st.caption(f"Exibindo: {sel} · atualiza automaticamente a cada 30s · {agora.strftime('%d/%m/%Y %H:%M')}")
+        st.caption(f"Exibindo: {sel} · {agora.strftime('%d/%m/%Y %H:%M')} · use 🔄 para atualizar")
 
     # ── Carrega configuração persistida (ou usa defaults) ──────────────────────
     try:
@@ -1595,7 +1597,7 @@ def pagina_placar(usuario_logado):
     with col_meta_n:
         b = ""
         b += f'<div style="font-size:10px;font-weight:600;color:#1BAF7A;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">📋 Meta Coletiva</div>'
-        _cor_eq   = "#1BAF7A" if pct_eq               >= 100 else "#E34948"
+        _cor_eq   = "#1BAF7A"  # progresso — sempre verde
         _cor_pri  = "#1BAF7A" if pct_prioritarios_ok  >= 100 else "#E34948"
         _cor_rtn  = "#1BAF7A" if pct_retrab_barra_n   >= 100 else "#E34948"
         _cor_cmb  = "#1BAF7A" if pct_com_membro       >= 100 else "#E34948"
@@ -1611,7 +1613,7 @@ def pagina_placar(usuario_logado):
     with col_meta_x:
         b = ""
         b += f'<div style="font-size:10px;font-weight:600;color:#FFD700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">⭐ Meta Maxx Coletiva</div>'
-        _cor_mx   = "#FFD700" if pct_maxx             >= 100 else "#E34948"
+        _cor_mx   = "#FFD700"  # progresso — sempre amarelo
         _cor_prix = "#FFD700" if pct_prioritarios_ok  >= 100 else "#E34948"
         _cor_rtnx = "#FFD700" if pct_retrab_barra_x   >= 100 else "#E34948"
         _cor_cmbx = "#FFD700" if pct_com_membro       >= 100 else "#E34948"
