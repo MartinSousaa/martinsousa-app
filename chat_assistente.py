@@ -443,38 +443,30 @@ def renderizar_chat(usuario_logado=""):
                                 st.image(ib, use_container_width=True)
                         st.markdown(msg["content"])
 
-        # ── Formulário de envio ───────────────────────────────────────────────
-        with st.form("ms_chat_form", clear_on_submit=True):
-            img_chat = st.file_uploader(
-                "📎",
-                type=["jpg", "jpeg", "png", "webp"],
-                accept_multiple_files=False,
-                key="chat_img_upload",
-                label_visibility="collapsed",
-            )
-            user_input = st.text_area(
-                "msg",
-                placeholder="",
-                label_visibility="collapsed",
-                height=68,
-            )
-            # Submit fora da tela — acionado pelo JS quando Enter pressionado
-            enviar = st.form_submit_button("Enviar", use_container_width=False)
+        # ── Envio de imagem (opcional) ────────────────────────────────────────
+        # A chave muda a cada envio para limpar o uploader automaticamente
+        _upload_ver = st.session_state.get("_chat_upload_ver", 0)
+        img_chat = st.file_uploader(
+            "📎",
+            type=["jpg", "jpeg", "png", "webp"],
+            accept_multiple_files=False,
+            key=f"chat_img_upload_{_upload_ver}",
+            label_visibility="collapsed",
+        )
 
-        # NOTA: components.html() foi REMOVIDO — causava "SessionInfo before initialized"
-        # para colaboradoras (Myrella, etc.) por criar iframe com WebSocket próprio que
-        # colidia com a sessão Streamlit durante reruns.
-        # Enter para enviar: use Shift+Enter para nova linha, Enter direto clica "Enviar"
-        # não está disponível sem JS — usar o botão Enviar normalmente.
+        # ── Campo de texto — Enter envia, Shift+Enter nova linha ──────────────
+        user_input = st.chat_input("Digite sua mensagem…")
 
-    if enviar and (user_input.strip() or img_chat):
-        msg_user = user_input.strip() or "Veja a imagem que enviei."
+    if user_input or img_chat:
+        msg_user = (user_input or "").strip() or "Veja a imagem que enviei."
         imagens_bytes = [img_chat.getvalue()] if img_chat else []
 
         # Guarda no histórico — incluindo bytes para exibição
         entry = {"role": "user", "content": msg_user}
         if imagens_bytes:
             entry["img_bytes"] = imagens_bytes
+            # Incrementa versão para limpar o uploader no próximo rerun
+            st.session_state["_chat_upload_ver"] = _upload_ver + 1
         hist.append(entry)
 
         with st.spinner("Assistente digitando…"):
