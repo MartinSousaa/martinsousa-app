@@ -134,6 +134,20 @@ def _data_card(card):
     return datetime.now(timezone.utc)
 
 def _mes_card(card):
+    """Mês do cartão pela última atividade — usado para cartões CONCLUÍDOS (quando foi feito)."""
+    d = card.get("dateLastActivity", "")
+    if d:
+        try:
+            dt = datetime.fromisoformat(d.replace("Z", "+00:00"))
+            return (dt.year, dt.month)
+        except Exception:
+            pass
+    return None
+
+def _mes_card_criacao(card):
+    """Mês do cartão pela data de CRIAÇÃO (ID Trello = ObjectID MongoDB) —
+    usado para penalidades e sem_membro, evitando que cartões antigos
+    vazem para o mês atual quando são modificados."""
     card_id = card.get("id", "")
     if card_id and len(card_id) >= 8:
         try:
@@ -214,7 +228,7 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
         # ── PENALIDADES ────────────────────────────────────────────────────────
         if nl in LISTAS_PENALIDADE:
             if filtro_mes:
-                mc = _mes_card(card)
+                mc = _mes_card_criacao(card)  # data de CRIAÇÃO — não vaza penalidades antigas
                 if mc and mc != filtro_mes:
                     continue
             if pt:
@@ -243,8 +257,8 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
             if "FALTA INFORMAÇÃO" in lb:
                 d["falta_info"] += 1
             if not us:
-                if not filtro_mes or _mes_card(card) == filtro_mes:
-                    d["sem_membro"] += 1
+                if not filtro_mes or _mes_card_criacao(card) == filtro_mes:
+                    d["sem_membro"] += 1  # data de CRIAÇÃO — conta no mês em que o cartão foi aberto
             if pt is None:
                 d["falta_pts"] += 1
             if "PENDENTE" in lb:
