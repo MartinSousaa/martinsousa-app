@@ -134,10 +134,11 @@ def _data_card(card):
     return datetime.now(timezone.utc)
 
 def _mes_card(card):
-    d = card.get("dateLastActivity", "")
-    if d:
+    card_id = card.get("id", "")
+    if card_id and len(card_id) >= 8:
         try:
-            dt = datetime.fromisoformat(d.replace("Z", "+00:00"))
+            ts = int(card_id[:8], 16)
+            dt = datetime.fromtimestamp(ts, timezone.utc)
             return (dt.year, dt.month)
         except Exception:
             pass
@@ -242,7 +243,8 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
             if "FALTA INFORMAÇÃO" in lb:
                 d["falta_info"] += 1
             if not us:
-                d["sem_membro"] += 1
+                if not filtro_mes or _mes_card(card) == filtro_mes:
+                    d["sem_membro"] += 1
             if pt is None:
                 d["falta_pts"] += 1
             if "PENDENTE" in lb:
