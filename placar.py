@@ -250,6 +250,20 @@ def _data_card(card):
     return datetime.now(timezone.utc)
 
 def _mes_card(card):
+    """Mês do cartão pela última atividade — usado para cartões CONCLUÍDOS (quando foi feito)."""
+    d = card.get("dateLastActivity", "")
+    if d:
+        try:
+            dt = datetime.fromisoformat(d.replace("Z", "+00:00"))
+            return (dt.year, dt.month)
+        except Exception:
+            pass
+    return None
+
+def _mes_card_criacao(card):
+    """Mês do cartão pela data de CRIAÇÃO (ID Trello = ObjectID MongoDB) —
+    usado para penalidades e sem_membro, evitando que cartões antigos
+    vazem para o mês atual quando são modificados."""
     card_id = card.get("id", "")
     if card_id and len(card_id) >= 8:
         try:
@@ -325,10 +339,10 @@ def _processar(listas,cards,membros_map,id_p,id_t,id_i,filtro_mes=None):
         ok=card.get("dueComplete",False)
         pt=_num(card,id_p); tempo=_num(card,id_t); interr=_num(card,id_i) or 0
 
-        # ── PENALIDADES: contam só no mês em que foram registradas ─────────────
+        # ── PENALIDADES: contam no mês em que foram CRIADAS (data de criação) ────
         if nl in LISTAS_PENALIDADE:
             if filtro_mes:
-                mc=_mes_card(card)
+                mc=_mes_card_criacao(card)  # data de criação — não vaza penalidades antigas
                 if mc and mc!=filtro_mes: continue
             if pt:
                 v=abs(pt); d["pen_total"]+=v
@@ -350,8 +364,8 @@ def _processar(listas,cards,membros_map,id_p,id_t,id_i,filtro_mes=None):
             if "FALTA CONFERÊNCIA" in lb: d["falta_conf"]+=1
             if "FALTA INFORMAÇÃO" in lb: d["falta_info"]+=1
             if not us:
-                if not filtro_mes or _mes_card(card) == filtro_mes:
-                    d["sem_membro"] += 1
+                if not filtro_mes or _mes_card_criacao(card) == filtro_mes:
+                    d["sem_membro"] += 1  # data de criação — conta no mês em que o cartão foi aberto
                     d["sem_membro_lista"].append({"nome": card["name"], "lista": nl})
             if pt is None: d["falta_pts"]+=1
             if "PENDENTE" in lb:
@@ -789,12 +803,16 @@ def _tv_full_html(
     atrasados  = d.get("atrasados", 0)
     desc_pri   = "Nenhum cartão prioritário atrasado" if atrasados == 0 else f"{atrasados} atrasado(s)"
 
-    _cor_tv_retrab_n = "#1BAF7A" if pct_retrab_n >= 100 else "#E34948"
-    _cor_tv_retrab_x = "#1BAF7A" if pct_retrab_x >= 100 else "#E34948"
-    _cor_tv_eq   = "#1BAF7A" if pct_eq >= 100 else "#E34948"
-    _cor_tv_maxx = "#FFD700" if pct_maxx >= 100 else "#E34948"
-    _cor_tv_pri  = "#1BAF7A" if pct_pri_ok >= 100 else "#E34948"
-    _cor_tv_cmb  = "#1BAF7A" if pct_com_membro >= 100 else "#E34948"
+    # Coletiva: threshold bars (verde ↔ vermelho), progresso sempre verde
+    _cor_tv_eq       = "#1BAF7A"  # progresso — sempre verde
+    _cor_tv_pri      = "#1BAF7A" if pct_pri_ok      >= 100 else "#E34948"
+    _cor_tv_retrab_n = "#1BAF7A" if pct_retrab_n    >= 100 else "#E34948"
+    _cor_tv_cmb      = "#1BAF7A" if pct_com_membro  >= 100 else "#E34948"
+    # MAXX: threshold bars (amarelo ↔ vermelho), progresso sempre amarelo
+    _cor_tv_maxx     = "#FFD700"  # progresso — sempre amarelo
+    _cor_tv_prix     = "#FFD700" if pct_pri_ok      >= 100 else "#E34948"
+    _cor_tv_retrab_x = "#FFD700" if pct_retrab_x    >= 100 else "#E34948"
+    _cor_tv_cmbx     = "#FFD700" if pct_com_membro  >= 100 else "#E34948"
     _tv_sem_mb_desc = ("Em andamento e concluídos" if not sem_membro_lista
                        else "Sem membro: " + ", ".join(f'"{c["nome"][:25]}"' for c in sem_membro_lista[:2]))
     return f"""<!DOCTYPE html>
@@ -983,10 +1001,10 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
     <div class="barra-box ouro-border">
       <div class="bloco-titulo ouro" style="margin-bottom:5px;">⭐ Meta Maxx Coletiva</div>
       <div class="barra-item"><div class="barra-header"><span>Pontuação +{maxx_pct-100}% acima da meta</span><span style="color:{_cor_tv_maxx};font-weight:700;">{fp(pct_maxx)}</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_maxx,100):.1f}%;background:{_cor_tv_maxx};"></div></div><div class="barra-desc">{saldo_eq:,.0f} / {meta_maxx_pts:,.0f} pts (c/ penalidades -{pen_total:.0f})</div></div>
-      <div class="barra-item"><div class="barra-header"><span>Zero prioritários em atraso</span><span style="color:{_cor_tv_pri};font-weight:700;">{pct_pri_ok:.0f}%</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_pri_ok,100):.1f}%;background:{_cor_tv_pri};"></div></div><div class="barra-desc">{desc_pri}</div></div>
+      <div class="barra-item"><div class="barra-header"><span>Zero prioritários em atraso</span><span style="color:{_cor_tv_prix};font-weight:700;">{pct_pri_ok:.0f}%</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_pri_ok,100):.1f}%;background:{_cor_tv_prix};"></div></div><div class="barra-desc">{desc_pri}</div></div>
       <div class="barra-item"><div class="barra-header"><span>Retrabalho abaixo de {max_retrab_x}%</span><span style="color:{_cor_tv_retrab_x};font-weight:700;">{pct_retrab_x:.0f}%</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_retrab_x,100):.1f}%;background:{_cor_tv_retrab_x};"></div></div><div class="barra-desc">{desc_retrab}</div></div>
       <div class="barra-item"><div class="barra-header"><span>Menos de {max_pen_x+1} penalidades</span><span style="color:#E34948;font-weight:700;">{pct_pen_x:.0f}%</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_pen_x,100):.1f}%;background:#E34948;"></div></div><div class="barra-desc">{n_pen} ocorrência(s) / máx {max_pen_x}</div></div>
-      <div class="barra-item"><div class="barra-header"><span>Cartões com membro atribuído</span><span style="color:{_cor_tv_maxx};font-weight:700;">{pct_com_membro:.0f}%</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_com_membro,100):.1f}%;background:{_cor_tv_maxx};"></div></div><div class="barra-desc">{_tv_sem_mb_desc}</div></div>
+      <div class="barra-item"><div class="barra-header"><span>Cartões com membro atribuído</span><span style="color:{_cor_tv_cmbx};font-weight:700;">{pct_com_membro:.0f}%</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_com_membro,100):.1f}%;background:{_cor_tv_cmbx};"></div></div><div class="barra-desc">{_tv_sem_mb_desc}</div></div>
     </div>
   </div>
 
