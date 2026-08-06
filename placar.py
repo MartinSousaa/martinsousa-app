@@ -277,6 +277,16 @@ def _calcular_fila(listas,cards,membros_map):
             "is_urgente": cfg["prioridade"]>=10 or "URGENTE" in nl.upper(),
         })
     pendentes.sort(key=lambda x:(-x["prioridade"],x["data"]))
+    # Limita CRIATIVO VÍDEO a no máximo 2 itens na fila
+    _cv_count = 0
+    _filtrado = []
+    for p in pendentes:
+        if "CRIATIVO V" in p["lista"].upper():
+            if _cv_count >= 2:
+                continue
+            _cv_count += 1
+        _filtrado.append(p)
+    pendentes = _filtrado
     acum=0
     for i,p in enumerate(pendentes):
         p["posicao"]=i+1; acum+=p["tempo_min"]; p["eta_min"]=acum
@@ -300,7 +310,7 @@ def _processar(listas,cards,membros_map,id_p,id_t,id_i,filtro_mes=None):
         "pts_membro":{u:0.0 for u in MEMBROS_ATIVOS},
         "pen_membro":{u:0.0 for u in MEMBROS_ATIVOS},
         "abertos":0,"urgentes":0,"atrasados":0,"em_andamento":0,
-        "falta_conf":0,"falta_info":0,"sem_membro":0,"falta_pts":0,
+        "falta_conf":0,"falta_info":0,"sem_membro":0,"sem_membro_lista":[],"falta_pts":0,
         "pts_pendentes":0.0,"pen_cards":[],"andamento_lista":[],
         "tempo_lista":{},"desativar":0,"reativar":0,"pend_lista":{},
         "correcao_concl":0,"total_concl":0,
@@ -337,7 +347,9 @@ def _processar(listas,cards,membros_map,id_p,id_t,id_i,filtro_mes=None):
             if "ATRASADO" in lb: d["atrasados"]+=1
             if "FALTA CONFERÊNCIA" in lb: d["falta_conf"]+=1
             if "FALTA INFORMAÇÃO" in lb: d["falta_info"]+=1
-            if not us: d["sem_membro"]+=1
+            if not us:
+                d["sem_membro"] += 1
+                d["sem_membro_lista"].append({"nome": card["name"], "lista": nl})
             if pt is None: d["falta_pts"]+=1
             if "PENDENTE" in lb:
                 d["pend_lista"][nl]=d["pend_lista"].get(nl,0)+1
@@ -662,6 +674,8 @@ def _tv_full_html(
     pct_com_membro, desc_retrab, max_retrab_n, max_pen_n, max_retrab_x, max_pen_x,
     n_urgentes, n_sem_mb, agora_str,
     meta_ind_map=None,
+    ritmo_tv_html="",
+    sem_membro_lista=None,
 ):
     def fp(v): return f"{'%.1f'%v if v<10 else '%.0f'%v}%"
 
@@ -772,6 +786,14 @@ def _tv_full_html(
     atrasados  = d.get("atrasados", 0)
     desc_pri   = "Nenhum cartão prioritário atrasado" if atrasados == 0 else f"{atrasados} atrasado(s)"
 
+    _cor_tv_retrab_n = "#1BAF7A" if pct_retrab_n >= 100 else "#E34948"
+    _cor_tv_retrab_x = "#1BAF7A" if pct_retrab_x >= 100 else "#E34948"
+    _cor_tv_eq   = "#1BAF7A" if pct_eq >= 100 else "#E34948"
+    _cor_tv_maxx = "#FFD700" if pct_maxx >= 100 else "#E34948"
+    _cor_tv_pri  = "#1BAF7A" if pct_pri_ok >= 100 else "#E34948"
+    _cor_tv_cmb  = "#1BAF7A" if pct_com_membro >= 100 else "#E34948"
+    _tv_sem_mb_desc = ("Em andamento e concluídos" if not sem_membro_lista
+                       else "Sem membro: " + ", ".join(f'"{c["nome"][:25]}"' for c in sem_membro_lista[:2]))
     return f"""<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -829,10 +851,10 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
 .barra-fill{{height:100%;border-radius:2px;}}
 .barra-desc{{font-size:6px;color:#777;margin-top:1px;}}
 .bloco-bottom{{position:absolute;left:10px;right:10px;top:555px;height:521px;display:-webkit-box;display:-webkit-flex;display:flex;gap:6px;overflow:hidden;}}
-.sub-bloco-pend{{width:16%;height:100%;overflow:hidden;padding-right:6px;}}
-.sub-bloco-and{{width:20%;height:100%;overflow:hidden;}}
-.sub-bloco-fila{{width:28%;height:100%;overflow:hidden;}}
-.sub-bloco-alerta{{width:35%;height:100%;overflow:hidden;}}
+.sub-bloco-pend{{width:13%;height:100%;overflow:hidden;padding-right:4px;}}
+.sub-bloco-and{{width:21%;height:100%;overflow:hidden;}}
+.sub-bloco-fila{{width:29%;height:100%;overflow:hidden;}}
+.sub-bloco-alerta{{width:36%;height:100%;overflow:hidden;}}
 .sub-titulo{{font-size:12px;font-weight:700;margin-bottom:4px;padding-bottom:3px;border-bottom:1px solid #2e2e2e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}}
 .cards-col{{overflow:hidden;}}
 .card-base{{background:#252525;border:1px solid #3a3a3a;border-radius:6px;padding:8px 12px;overflow:hidden;margin-bottom:4px;}}
@@ -901,6 +923,7 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
         <div class="gauge-pct verde">{fp(pct_eq)}</div>
         <div class="gauge-label">🏆 META MENSAL</div>
       </div>
+      {ritmo_tv_html}
     </div>
     <div class="gauge-col">
       <svg class="gauge-svg" viewBox="0 0 180 100" xmlns="http://www.w3.org/2000/svg">
@@ -935,9 +958,9 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
     <div class="pill atencao"><span class="pill-label">Cartões Pend.</span><span class="pill-val">{pend_total}</span><span class="pill-badge" style="background:#EDA10030;color:#EDA100;">Pendente</span></div>
     <div class="pill atencao"><span class="pill-label">Pts Pendentes</span><span class="pill-val">{pts_pendentes:,.0f}</span><span class="pill-badge" style="background:#EDA10030;color:#EDA100;">Aberto</span></div>
     <div class="pill ok"><span class="pill-label">Em Andamento</span><span class="pill-val">{d.get("em_andamento",0)}</span><span class="pill-badge" style="background:#1BAF7A30;color:#1BAF7A;">Ativo</span></div>
-    <div class="pill"><span class="pill-label">Atrasados</span><span class="pill-val">{d.get("atrasados",0)}</span><span class="pill-badge" style="background:#E3494830;color:#E34948;">Atenção</span></div>
-    <div class="pill"><span class="pill-label">Desativar</span><span class="pill-val">{d.get("desativar",0)}</span><span class="pill-badge" style="background:#E3494830;color:#E34948;">Prioritário</span></div>
-    <div class="pill"><span class="pill-label">Reativar</span><span class="pill-val">{d.get("reativar",0)}</span><span class="pill-badge" style="background:#33333340;color:#888;">Normal</span></div>
+    <div class="pill urgente"><span class="pill-label">Atrasados</span><span class="pill-val">{d.get("atrasados",0)}</span><span class="pill-badge" style="background:#E3494830;color:#E34948;">Atenção</span></div>
+    <div class="pill urgente"><span class="pill-label">Desativar</span><span class="pill-val">{d.get("desativar",0)}</span><span class="pill-badge" style="background:#E3494830;color:#E34948;">Prioritário</span></div>
+    <div class="pill urgente"><span class="pill-label">Reativar</span><span class="pill-val">{d.get("reativar",0)}</span><span class="pill-badge" style="background:#E3494830;color:#E34948;">Normal</span></div>
     <div class="pill urgente"><span class="pill-label">Urgentes</span><span class="pill-val">{n_urgentes}</span><span class="pill-badge" style="background:#E3494830;color:#E34948;">Crítico</span></div>
     <div class="pill atencao"><span class="pill-label">Falta Info</span><span class="pill-val">{d.get("falta_info",0)}</span><span class="pill-badge" style="background:#EDA10020;color:#EDA100;">Pendente</span></div>
     <div class="pill atencao"><span class="pill-label">Falta Pontuação</span><span class="pill-val">{d.get("falta_pts",0)}</span><span class="pill-badge" style="background:#EDA10020;color:#EDA100;">Revisar</span></div>
@@ -948,19 +971,19 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
   <div class="bloco-barras" id="tv-bb">
     <div class="barra-box verde-border">
       <div class="bloco-titulo verde" style="margin-bottom:5px;">📋 Meta Coletiva</div>
-      <div class="barra-item"><div class="barra-header"><span>Pontuação do mês</span><span style="color:#1BAF7A;font-weight:700;">{fp(pct_eq)}</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_eq,100):.1f}%;background:#1BAF7A;"></div></div><div class="barra-desc">{saldo_eq:,.0f} / {meta_eq:,} pts (inclui -{pen_total:.0f} penalidades)</div></div>
-      <div class="barra-item"><div class="barra-header"><span>Sem atraso em prioritários P8-P10</span><span style="color:#1BAF7A;font-weight:700;">{pct_pri_ok:.0f}%</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_pri_ok,100):.1f}%;background:#1BAF7A;"></div></div><div class="barra-desc">{desc_pri}</div></div>
-      <div class="barra-item"><div class="barra-header"><span>Retrabalho abaixo de {max_retrab_n}%</span><span style="color:#E34948;font-weight:700;">{pct_retrab_n:.0f}%</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_retrab_n,100):.1f}%;background:#E34948;"></div></div><div class="barra-desc">{desc_retrab}</div></div>
+      <div class="barra-item"><div class="barra-header"><span>Pontuação do mês</span><span style="color:{_cor_tv_eq};font-weight:700;">{fp(pct_eq)}</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_eq,100):.1f}%;background:{_cor_tv_eq};"></div></div><div class="barra-desc">{saldo_eq:,.0f} / {meta_eq:,} pts (inclui -{pen_total:.0f} penalidades)</div></div>
+      <div class="barra-item"><div class="barra-header"><span>Sem atraso em prioritários P8-P10</span><span style="color:{_cor_tv_pri};font-weight:700;">{pct_pri_ok:.0f}%</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_pri_ok,100):.1f}%;background:{_cor_tv_pri};"></div></div><div class="barra-desc">{desc_pri}</div></div>
+      <div class="barra-item"><div class="barra-header"><span>Retrabalho abaixo de {max_retrab_n}%</span><span style="color:{_cor_tv_retrab_n};font-weight:700;">{pct_retrab_n:.0f}%</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_retrab_n,100):.1f}%;background:{_cor_tv_retrab_n};"></div></div><div class="barra-desc">{desc_retrab}</div></div>
       <div class="barra-item"><div class="barra-header"><span>Menos de {max_pen_n+1} penalidades</span><span style="color:#E34948;font-weight:700;">{pct_pen_n:.0f}%</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_pen_n,100):.1f}%;background:#E34948;"></div></div><div class="barra-desc">{n_pen} ocorrência(s) / máx {max_pen_n}</div></div>
-      <div class="barra-item"><div class="barra-header"><span>Cartões com membro atribuído</span><span style="color:#1BAF7A;font-weight:700;">{pct_com_membro:.0f}%</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_com_membro,100):.1f}%;background:#1BAF7A;"></div></div><div class="barra-desc">Em andamento e concluídos</div></div>
+      <div class="barra-item"><div class="barra-header"><span>Cartões com membro atribuído</span><span style="color:{_cor_tv_cmb};font-weight:700;">{pct_com_membro:.0f}%</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_com_membro,100):.1f}%;background:{_cor_tv_cmb};"></div></div><div class="barra-desc">{_tv_sem_mb_desc}</div></div>
     </div>
     <div class="barra-box ouro-border">
       <div class="bloco-titulo ouro" style="margin-bottom:5px;">⭐ Meta Maxx Coletiva</div>
-      <div class="barra-item"><div class="barra-header"><span>Pontuação +{maxx_pct-100}% acima da meta</span><span style="color:#FFD700;font-weight:700;">{fp(pct_maxx)}</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_maxx,100):.1f}%;background:#FFD700;"></div></div><div class="barra-desc">{saldo_eq:,.0f} / {meta_maxx_pts:,.0f} pts (c/ penalidades -{pen_total:.0f})</div></div>
-      <div class="barra-item"><div class="barra-header"><span>Zero prioritários em atraso</span><span style="color:#FFD700;font-weight:700;">{pct_pri_ok:.0f}%</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_pri_ok,100):.1f}%;background:#FFD700;"></div></div><div class="barra-desc">{desc_pri}</div></div>
-      <div class="barra-item"><div class="barra-header"><span>Retrabalho abaixo de {max_retrab_x}%</span><span style="color:#E34948;font-weight:700;">{pct_retrab_x:.0f}%</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_retrab_x,100):.1f}%;background:#E34948;"></div></div><div class="barra-desc">{desc_retrab}</div></div>
+      <div class="barra-item"><div class="barra-header"><span>Pontuação +{maxx_pct-100}% acima da meta</span><span style="color:{_cor_tv_maxx};font-weight:700;">{fp(pct_maxx)}</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_maxx,100):.1f}%;background:{_cor_tv_maxx};"></div></div><div class="barra-desc">{saldo_eq:,.0f} / {meta_maxx_pts:,.0f} pts (c/ penalidades -{pen_total:.0f})</div></div>
+      <div class="barra-item"><div class="barra-header"><span>Zero prioritários em atraso</span><span style="color:{_cor_tv_pri};font-weight:700;">{pct_pri_ok:.0f}%</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_pri_ok,100):.1f}%;background:{_cor_tv_pri};"></div></div><div class="barra-desc">{desc_pri}</div></div>
+      <div class="barra-item"><div class="barra-header"><span>Retrabalho abaixo de {max_retrab_x}%</span><span style="color:{_cor_tv_retrab_x};font-weight:700;">{pct_retrab_x:.0f}%</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_retrab_x,100):.1f}%;background:{_cor_tv_retrab_x};"></div></div><div class="barra-desc">{desc_retrab}</div></div>
       <div class="barra-item"><div class="barra-header"><span>Menos de {max_pen_x+1} penalidades</span><span style="color:#E34948;font-weight:700;">{pct_pen_x:.0f}%</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_pen_x,100):.1f}%;background:#E34948;"></div></div><div class="barra-desc">{n_pen} ocorrência(s) / máx {max_pen_x}</div></div>
-      <div class="barra-item"><div class="barra-header"><span>Cartões com membro atribuído</span><span style="color:#FFD700;font-weight:700;">{pct_com_membro:.0f}%</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_com_membro,100):.1f}%;background:#FFD700;"></div></div><div class="barra-desc">Em andamento e concluídos</div></div>
+      <div class="barra-item"><div class="barra-header"><span>Cartões com membro atribuído</span><span style="color:{_cor_tv_maxx};font-weight:700;">{pct_com_membro:.0f}%</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_com_membro,100):.1f}%;background:{_cor_tv_maxx};"></div></div><div class="barra-desc">{_tv_sem_mb_desc}</div></div>
     </div>
   </div>
 
@@ -1050,8 +1073,17 @@ if (ALERTAS.length > 3) {{
     _renderAlertas();
   }}, 12000);
 }}
-// ── Áudio via elemento <audio> HTML5 (compatível com LG WebOS) ───────────────
+// ── Áudio via Web Audio API (sem arquivo externo, compatível com WebOS) ────────
+var _audioCtx = null;
 var _audioAtivo = false;
+function _ensureCtx() {{
+  if (!_audioCtx) {{
+    try {{
+      _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }} catch(e) {{ _audioCtx = null; }}
+  }}
+  return _audioCtx;
+}}
 function _marcarBtnAtivo() {{
   var btn = document.getElementById('som-btn');
   if (btn) {{ btn.className = 'ativo'; btn.innerHTML = '🔊 Som Ativo'; }}
@@ -1060,34 +1092,55 @@ function _marcarBtnErro() {{
   var btn = document.getElementById('som-btn');
   if (btn) {{ btn.style.color = '#E34948'; btn.innerHTML = '🔇 Sem suporte'; }}
 }}
-// _playAudio: toca o bipe. Sem trava _audioAtivo — TV é quiosque, autoplay permitido.
-function _playAudio() {{
-  var a = document.getElementById('beep-audio');
-  if (!a) return;
-  try {{ a.currentTime = 0; a.play(); }} catch(e) {{}}
+function _beep(freq, dur) {{
+  var ctx = _ensureCtx();
+  if (!ctx) return;
+  function _doBeep() {{
+    try {{
+      var osc = ctx.createOscillator();
+      var gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.frequency.value = freq || 880;
+      gain.gain.setValueAtTime(0.35, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + (dur || 0.4));
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + (dur || 0.4));
+    }} catch(e) {{}}
+  }}
+  try {{
+    if (ctx.state === 'suspended') {{
+      ctx.resume().then(_doBeep).catch(function() {{}});
+    }} else {{
+      _doBeep();
+    }}
+  }} catch(e) {{ _doBeep(); }}
 }}
-// Botão manual — toca bipe de confirmação e sinaliza que o usuário ativou o som
+function _playAudio() {{
+  if (!_audioAtivo) return;
+  _beep(880, 0.35);
+  setTimeout(function() {{ _beep(660, 0.25); }}, 450);
+}}
 function ativarSom() {{
   var btn = document.getElementById('som-btn');
   if (btn) {{ btn.innerHTML = '⏳ Ativando...'; }}
-  try {{ localStorage.setItem('ms_tv_audio', '1'); }} catch(e) {{}}
-  var a = document.getElementById('beep-audio');
-  if (!a) {{ _marcarBtnErro(); return; }}
+  var ctx = _ensureCtx();
+  if (!ctx) {{ _marcarBtnErro(); return; }}
   try {{
-    a.currentTime = 0;
-    var p = a.play();
-    if (p !== undefined && p.then) {{
-      p.then(function() {{
-        _audioAtivo = true; _marcarBtnAtivo();
-      }}).catch(function(err) {{
-        _marcarBtnErro();
-      }});
-    }} else {{
-      _audioAtivo = true; _marcarBtnAtivo();
-    }}
-  }} catch(e) {{ _marcarBtnErro(); }}
+    ctx.resume().then(function() {{
+      _beep(880, 0.15);
+      _audioAtivo = true;
+      _marcarBtnAtivo();
+      try {{ localStorage.setItem('ms_tv_audio', '1'); }} catch(e) {{}}
+    }}).catch(function() {{ _marcarBtnErro(); }});
+  }} catch(e) {{
+    // Fallback sync for older WebOS
+    _beep(880, 0.15);
+    _audioAtivo = true;
+    _marcarBtnAtivo();
+    try {{ localStorage.setItem('ms_tv_audio', '1'); }} catch(e) {{}}
+  }}
 }}
-// Auto-restauração do botão ao recarregar (meta-refresh de 60s)
+// Auto-restauração: se o usuário já ativou antes, marca como ativo (áudio não toca automaticamente, precisa de nova interação)
 try {{
   if (localStorage.getItem('ms_tv_audio') === '1') {{
     _audioAtivo = true; _marcarBtnAtivo();
@@ -1161,10 +1214,6 @@ def pagina_placar(usuario_logado):
         # TV: sem seletor de mês, sem botão, mês atual fixo
         filtro_mes = (agora.year, agora.month)
         sel        = f"{MESES_PT[agora.month]} {agora.year}"
-        @st.fragment(run_every=60)
-        def _tv_ticker():
-            pass
-        _tv_ticker()
         st.markdown(
             f'<div style="font-size:10px;color:var(--ms-texto-sec);'
             f'text-align:right;padding:2px 8px 6px;">'
@@ -1187,10 +1236,7 @@ def pagina_placar(usuario_logado):
         with col_att:
             if st.button("🔄",use_container_width=True,help="Atualizar"):
                 _buscar_board.clear(); st.rerun()
-        @st.fragment(run_every=30)
-        def _placar_ticker():
-            pass
-        _placar_ticker()
+        st.markdown('<meta http-equiv="refresh" content="30">', unsafe_allow_html=True)
         st.caption(f"Exibindo: {sel} · atualiza automaticamente a cada 30s · {agora.strftime('%d/%m/%Y %H:%M')}")
 
     # ── Carrega configuração persistida (ou usa defaults) ──────────────────────
@@ -1310,6 +1356,49 @@ def pagina_placar(usuario_logado):
     <div style="font-size:7px;color:#EDA100;">pendentes</div>
   </div>
 </div>""", unsafe_allow_html=True)
+        # ── Ritmo de desempenho por dias úteis ──
+        import calendar as _cal
+        _hoje = datetime.now().date()
+        if filtro_mes[0] == _hoje.year and filtro_mes[1] == _hoje.month:
+            _feriados_br = {(1,1),(4,21),(5,1),(9,7),(10,12),(11,2),(11,15),(12,25)}
+            _, _n_dias = _cal.monthrange(filtro_mes[0], filtro_mes[1])
+            _total_uteis = sum(
+                1 for _d in range(1, _n_dias+1)
+                if datetime(filtro_mes[0], filtro_mes[1], _d).weekday() < 5
+                and (filtro_mes[1], _d) not in _feriados_br
+            )
+            _uteis_dec = sum(
+                1 for _d in range(1, _hoje.day+1)
+                if datetime(filtro_mes[0], filtro_mes[1], _d).weekday() < 5
+                and (filtro_mes[1], _d) not in _feriados_br
+            )
+            if _total_uteis > 0 and _uteis_dec > 0:
+                _meta_diaria = meta_eq / _total_uteis
+                _pts_esp = _meta_diaria * _uteis_dec
+                _diff_pct = (saldo_eq - _pts_esp) / _pts_esp * 100 if _pts_esp > 0 else 0
+                _proj = saldo_eq / _uteis_dec * _total_uteis
+                if _diff_pct > 10:
+                    _r_icon, _r_cor = "📈", "#1BAF7A"
+                    _r_txt = f"Desempenho {_diff_pct:.0f}% acima do estimado para o período"
+                    _r_extra = f"+{saldo_eq-_pts_esp:.0f} pts a mais que o esperado ({_pts_esp:.0f} pts em {_uteis_dec} dias úteis)"
+                elif _diff_pct < -10:
+                    _r_icon, _r_cor = "📉", "#E34948"
+                    _r_txt = f"Desempenho {abs(_diff_pct):.0f}% abaixo do estimado para o período"
+                    _r_extra = f"{saldo_eq-_pts_esp:.0f} pts abaixo do esperado ({_pts_esp:.0f} pts em {_uteis_dec} dias úteis)"
+                else:
+                    _r_icon, _r_cor = "📊", "#EDA100"
+                    _r_txt = "Desempenho dentro do ritmo esperado para o período"
+                    _r_extra = f"Realizados {saldo_eq:.0f} pts · esperado {_pts_esp:.0f} pts em {_uteis_dec} dias úteis"
+                _ritmo_html = f"""<div style="background:#1a1a1a;border:1px solid {_r_cor}44;border-radius:6px;padding:8px 10px;margin-top:8px;">
+  <div style="font-size:11px;font-weight:700;color:{_r_cor};margin-bottom:3px;">{_r_icon} {_r_txt}</div>
+  <div style="font-size:9px;color:#ccc;line-height:1.5;">{_r_extra}<br>Nesse ritmo: projeção de <strong style="color:{_r_cor};">{_proj:.0f} pts</strong> ao final do mês</div>
+</div>"""
+            else:
+                _ritmo_html = ""
+        else:
+            _ritmo_html = ""
+        if _ritmo_html:
+            st.markdown(_ritmo_html, unsafe_allow_html=True)
 
     with col_vm:
         st.markdown(_vel_meta(pct_eq, meta_eq, saldo_eq, faltam), unsafe_allow_html=True)
@@ -1430,13 +1519,50 @@ def pagina_placar(usuario_logado):
     pct_retrab    = (_corr_concl / _total_concl * 100) if _total_concl > 0 else 0
     _desc_retrab  = (f"{pct_retrab:.1f}% retrabalho · {_corr_concl} correção(ões) / {_total_concl} concluídos"
                      if _total_concl > 0 else "Nenhum cartão concluído no período")
-    # Barra: 0% = sem retrabalho, 100% = no limite — VERMELHO
-    pct_retrab_barra_n = min(pct_retrab / max_retrab_n * 100, 100) if max_retrab_n > 0 else 0
-    pct_retrab_barra_x = min(pct_retrab / max_retrab_x * 100, 100) if max_retrab_x > 0 else 0
+    # Barra: 100% = sem retrabalho (meta batida), decresce conforme aumenta — VERDE quando 100%, VERMELHO quando abaixo
+    pct_retrab_barra_n = max(0.0, (1.0 - pct_retrab / max_retrab_n) * 100) if max_retrab_n > 0 else 100.0
+    pct_retrab_barra_x = max(0.0, (1.0 - pct_retrab / max_retrab_x) * 100) if max_retrab_x > 0 else 100.0
 
     # ══ MODO TV — gera HTML estático e encerra (sem WebSocket) ══
     # Todas as variáveis necessárias já estão calculadas aqui.
     _alertas_tv = _alertas_tv_list(listas, cards, membros_map)
+    # ── Ritmo de desempenho para TV ──
+    import calendar as _cal_tv
+    _hoje_tv = datetime.now().date()
+    _ritmo_tv_html = ""
+    if filtro_mes[0] == _hoje_tv.year and filtro_mes[1] == _hoje_tv.month:
+        _feriados_br_tv = {(1,1),(4,21),(5,1),(9,7),(10,12),(11,2),(11,15),(12,25)}
+        _, _n_dias_tv = _cal_tv.monthrange(filtro_mes[0], filtro_mes[1])
+        _total_uteis_tv = sum(
+            1 for _d in range(1, _n_dias_tv+1)
+            if datetime(filtro_mes[0], filtro_mes[1], _d).weekday() < 5
+            and (filtro_mes[1], _d) not in _feriados_br_tv
+        )
+        _uteis_dec_tv = sum(
+            1 for _d in range(1, _hoje_tv.day+1)
+            if datetime(filtro_mes[0], filtro_mes[1], _d).weekday() < 5
+            and (filtro_mes[1], _d) not in _feriados_br_tv
+        )
+        if _total_uteis_tv > 0 and _uteis_dec_tv > 0:
+            _pts_esp_tv = meta_eq / _total_uteis_tv * _uteis_dec_tv
+            _diff_pct_tv = (saldo_eq - _pts_esp_tv) / _pts_esp_tv * 100 if _pts_esp_tv > 0 else 0
+            _proj_tv = saldo_eq / _uteis_dec_tv * _total_uteis_tv
+            if _diff_pct_tv > 10:
+                _r_icon_tv, _r_cor_tv = "📈", "#1BAF7A"
+                _r_txt_tv = f"{_diff_pct_tv:.0f}% acima do ritmo"
+                _r_extra_tv = f"+{saldo_eq-_pts_esp_tv:.0f} pts · projeção: {_proj_tv:.0f} pts"
+            elif _diff_pct_tv < -10:
+                _r_icon_tv, _r_cor_tv = "📉", "#E34948"
+                _r_txt_tv = f"{abs(_diff_pct_tv):.0f}% abaixo do ritmo"
+                _r_extra_tv = f"{saldo_eq-_pts_esp_tv:.0f} pts · projeção: {_proj_tv:.0f} pts"
+            else:
+                _r_icon_tv, _r_cor_tv = "📊", "#EDA100"
+                _r_txt_tv = "Dentro do ritmo esperado"
+                _r_extra_tv = f"Esperado {_pts_esp_tv:.0f} pts · projeção: {_proj_tv:.0f} pts"
+            _ritmo_tv_html = (f'<div style="margin-top:4px;padding:3px 6px;background:{_r_cor_tv}18;'
+                              f'border:1px solid {_r_cor_tv}44;border-radius:4px;font-size:9px;">'
+                              f'<span style="color:{_r_cor_tv};font-weight:700;">{_r_icon_tv} {_r_txt_tv}</span>'
+                              f'<span style="color:#aaa;margin-left:6px;">{_r_extra_tv}</span></div>')
     _html_tv = _tv_full_html(
         pct_eq=pct_eq, pct_maxx=pct_maxx,
         saldo_eq=saldo_eq, meta_eq=meta_eq, faltam=faltam,
@@ -1453,6 +1579,8 @@ def pagina_placar(usuario_logado):
         n_urgentes=d.get("urgentes", 0), n_sem_mb=d.get("sem_membro", 0),
         agora_str=agora.strftime("%d/%m/%Y %H:%M"),
         meta_ind_map=meta_ind_map,
+        ritmo_tv_html=_ritmo_tv_html,
+        sem_membro_lista=d.get("sem_membro_lista", []),
     )
     _write_tv_static(_html_tv)  # atualiza static/tv.html a cada refresh do app
 
@@ -1467,21 +1595,33 @@ def pagina_placar(usuario_logado):
     with col_meta_n:
         b = ""
         b += f'<div style="font-size:10px;font-weight:600;color:#1BAF7A;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">📋 Meta Coletiva</div>'
-        b += _barra_meta("Pontuação do mês", pct_eq, f"{saldo_eq:,.0f} / {meta_eq:,} pts (inclui -{d['pen_total']:.0f} penalidades)", "#1BAF7A")
-        b += _barra_meta("Sem atraso em prioritários P8-P10", pct_prioritarios_ok, "Nenhum cartão prioritário atrasado", "#1BAF7A")
-        b += _barra_meta(f"Retrabalho abaixo de {max_retrab_n}%", pct_retrab_barra_n, _desc_retrab, "#E34948")
+        _cor_eq   = "#1BAF7A" if pct_eq               >= 100 else "#E34948"
+        _cor_pri  = "#1BAF7A" if pct_prioritarios_ok  >= 100 else "#E34948"
+        _cor_rtn  = "#1BAF7A" if pct_retrab_barra_n   >= 100 else "#E34948"
+        _cor_cmb  = "#1BAF7A" if pct_com_membro       >= 100 else "#E34948"
+        _sem_mb_desc_n = ("Em andamento e concluídos" if not d.get("sem_membro_lista")
+                          else "Sem membro: " + ", ".join(f'"{c["nome"][:30]}"' for c in d["sem_membro_lista"][:3]))
+        b += _barra_meta("Pontuação do mês", pct_eq, f"{saldo_eq:,.0f} / {meta_eq:,} pts (inclui -{d['pen_total']:.0f} penalidades)", _cor_eq)
+        b += _barra_meta("Sem atraso em prioritários P8-P10", pct_prioritarios_ok, "Nenhum cartão prioritário atrasado", _cor_pri)
+        b += _barra_meta(f"Retrabalho abaixo de {max_retrab_n}%", pct_retrab_barra_n, _desc_retrab, _cor_rtn)
         b += _barra_meta(f"Menos de {max_pen_n+1} penalidades", pct_pen_normal, f"{qtd_pen} ocorrência(s) / máx {max_pen_n}", "#E34948")
-        b += _barra_meta("Cartões com membro atribuído", pct_com_membro, "Em andamento e concluídos", "#1BAF7A")
+        b += _barra_meta("Cartões com membro atribuído", pct_com_membro, _sem_mb_desc_n, _cor_cmb)
         st.markdown(f'<div style="background:var(--ms-metric-bg);border:1px solid #1BAF7A22;border-radius:8px;padding:12px 14px;">{b}</div>', unsafe_allow_html=True)
 
     with col_meta_x:
         b = ""
         b += f'<div style="font-size:10px;font-weight:600;color:#FFD700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">⭐ Meta Maxx Coletiva</div>'
-        b += _barra_meta(f"Pontuação +{maxx_pct-100}% acima da meta", pct_maxx, f"{saldo_eq:,.0f} / {meta_maxx_pts:,.0f} pts (c/ penalidades -{ d['pen_total']:.0f})", "#FFD700")
-        b += _barra_meta("Zero prioritários em atraso", pct_prioritarios_ok, "Nenhum cartão prioritário atrasado", "#FFD700")
-        b += _barra_meta(f"Retrabalho abaixo de {max_retrab_x}%", pct_retrab_barra_x, _desc_retrab, "#E34948")
+        _cor_mx   = "#FFD700" if pct_maxx             >= 100 else "#E34948"
+        _cor_prix = "#FFD700" if pct_prioritarios_ok  >= 100 else "#E34948"
+        _cor_rtnx = "#FFD700" if pct_retrab_barra_x   >= 100 else "#E34948"
+        _cor_cmbx = "#FFD700" if pct_com_membro       >= 100 else "#E34948"
+        _sem_mb_desc_x = ("Em andamento e concluídos" if not d.get("sem_membro_lista")
+                          else "Sem membro: " + ", ".join(f'"{c["nome"][:30]}"' for c in d["sem_membro_lista"][:3]))
+        b += _barra_meta(f"Pontuação +{maxx_pct-100}% acima da meta", pct_maxx, f"{saldo_eq:,.0f} / {meta_maxx_pts:,.0f} pts (c/ penalidades -{ d['pen_total']:.0f})", _cor_mx)
+        b += _barra_meta("Zero prioritários em atraso", pct_prioritarios_ok, "Nenhum cartão prioritário atrasado", _cor_prix)
+        b += _barra_meta(f"Retrabalho abaixo de {max_retrab_x}%", pct_retrab_barra_x, _desc_retrab, _cor_rtnx)
         b += _barra_meta(f"Menos de {max_pen_x+1} penalidades", pct_pen_maxx, f"{qtd_pen} ocorrência(s) / máx {max_pen_x}", "#E34948")
-        b += _barra_meta("Cartões com membro atribuído", pct_com_membro, "Em andamento e concluídos", "#FFD700")
+        b += _barra_meta("Cartões com membro atribuído", pct_com_membro, _sem_mb_desc_x, _cor_cmbx)
         st.markdown(f'<div style="background:var(--ms-metric-bg);border:1px solid #FFD70022;border-radius:8px;padding:12px 14px;">{b}</div>', unsafe_allow_html=True)
 
     # ══ BLOCO 3 — EM ANDAMENTO | FILA | DESEMPENHO ══
