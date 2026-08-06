@@ -232,7 +232,7 @@ Responda SOMENTE com JSON válido, sem texto antes ou depois:
     try:
         msg = client.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=8192,
+            max_tokens=2048,
             messages=[{"role": "user", "content": prompt}]
         )
         texto = msg.content[0].text.strip()
@@ -781,14 +781,15 @@ def pagina_imagem(usuario_logado):
         )
 
         if iniciar_triagem:
-            try:
-                if not nome_produto:
-                    st.warning("Informe o nome do produto.")
-                    st.stop()
-                if not fotos_bytes:
-                    st.warning("Suba pelo menos uma foto do produto — é ela que garante fidelidade.")
-                    st.stop()
+            # Validações FORA do try/except para evitar que st.stop() seja capturado como erro
+            if not nome_produto:
+                st.warning("Informe o nome do produto.")
+                st.stop()
+            if not fotos_bytes:
+                st.warning("Suba pelo menos uma foto do produto — é ela que garante fidelidade.")
+                st.stop()
 
+            try:
                 with st.spinner("Analisando produto e montando o plano de criação..."):
                     plano, erro_triagem = gerar_triagem_ia(
                         nome_produto, tipos_selecionados, dados_descricao,
