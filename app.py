@@ -2,6 +2,8 @@ import streamlit as st
 import base64
 from datetime import date
 
+st.set_page_config(page_title="MS Studio", layout="wide")
+
 @st.cache_data
 def _logo_b64(path):
     try:
@@ -39,8 +41,6 @@ try:
         )
 except Exception:
     pass
-
-st.set_page_config(page_title="MS Studio", layout="wide")
 
 st.markdown("""
 <style>
