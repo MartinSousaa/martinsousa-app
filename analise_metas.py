@@ -378,7 +378,7 @@ def _meta_ind_item(titulo, pct, descricao, cor=None, aguardando=False):
                 f'<div style="{_titulo_css}">{titulo}</div>'
                 f'<div style="font-size:10px;color:var(--ms-texto-sec);font-style:italic;">'
                 f'⏳ Aguardando integração do relógio de ponto</div></div>')
-    c = cor or ("#1BAF7A" if pct >= 80 else ("#EDA100" if pct >= 50 else "#E34948"))
+    c = cor or ("#1BAF7A" if pct >= 80 else ("#EDA100" if pct >= 50 else "#4A90D9"))
     return (f'<div style="{_card_css}">'
             f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'
             f'<div style="{_titulo_css}margin:0;">{titulo}</div>'
@@ -732,7 +732,7 @@ def _secao_tempos_individual(dados):
 
 # ── Aba Desempenho — Gráficos HTML/SVG ───────────────────────────────────────
 
-_CORES = ["#4A90D9", "#E34948", "#1BAF7A", "#EDA100"]
+_CORES = ["#4A90D9", "#1BAF7A", "#EDA100", "#7B68EE"]
 
 
 def _gauge_svg(pct, cor, titulo, sub="", legend=""):
@@ -989,7 +989,7 @@ def _chart_tempo_execucao(dados):
     """HTML/SVG: pizza top 5 colunas por tempo médio de execução.
     Usa dados reais (TEMPO ACUMULADO) quando disponíveis;
     caso contrário usa tempo_min configurado em COLUNAS_CONFIG como estimativa."""
-    CORES5 = ["#4A90D9", "#2C6BAF", "#E34948", "#EDA100", "#1BAF7A"]
+    CORES5 = ["#4A90D9", "#2C6BAF", "#1BAF7A", "#EDA100", "#7B68EE"]
     tempo_agg = {}; qtd_agg = {}
     for r in dados:
         for nl, tempos in r["tempo_lista"].items():
@@ -1034,7 +1034,7 @@ def _chart_tempo_execucao(dados):
 def _chart_pontuacoes(dados):
     """HTML: 4 mini gráficos de barras (pts/membro, cartões/membro, top4 cols qtd, top4 cols pts)."""
     MB = _pc.MEMBROS_ATIVOS
-    CORES_MB = ["#4A90D9", "#E34948", "#1BAF7A", "#EDA100"]
+    CORES_MB = ["#4A90D9", "#1BAF7A", "#EDA100", "#7B68EE"]
     pts_mb = {}; qtd_mb = {}
     for r in dados:
         for u, p in r["pts_membro"].items(): pts_mb[u] = pts_mb.get(u, 0) + p
@@ -1181,7 +1181,7 @@ def _chart_ind_indices(meses, C=None):
 def _chart_ind_participacao(dados, username, C=None):
     """HTML/SVG: pizza participação nas top 5 colunas + % contribuição individual.
     Fatias = % de pontos de cada coluna no total da equipe. Box = % do colaborador no total geral."""
-    CORES5 = ["#4A90D9", "#2C6BAF", "#E34948", "#EDA100", "#1BAF7A"]
+    CORES5 = ["#4A90D9", "#2C6BAF", "#1BAF7A", "#EDA100", "#7B68EE"]
     pts_col_team = {}; pts_total_team = 0; pts_mb_total = 0
     for r in dados:
         for nl, p in r["pts_lista"].items(): pts_col_team[nl] = pts_col_team.get(nl, 0) + p
@@ -1205,7 +1205,7 @@ def _chart_ind_participacao(dados, username, C=None):
 
 def _chart_ind_destaques(meses, dados, username, C=None):
     """HTML: top 4 meses individuais + top 4 colunas da equipe."""
-    CORES4 = ["#EDA100", "#4A90D9", "#1BAF7A", "#E34948"]
+    CORES4 = ["#EDA100", "#4A90D9", "#1BAF7A", "#7B68EE"]
     top4_m = sorted(meses, key=lambda m: -m["pts"])[:4]
     pts_col = {}
     for r in dados:
@@ -1253,7 +1253,7 @@ def _chart_resumo_colabs(dados):
     """HTML: 2×4 grade comparativa de todos os colaboradores."""
     MB    = _pc.MEMBROS_ATIVOS
     users = list(MB.keys())
-    CORES = ["#4A90D9", "#E34948", "#1BAF7A", "#EDA100"][:len(users)]
+    CORES = ["#4A90D9", "#1BAF7A", "#EDA100", "#7B68EE"][:len(users)]
 
     pts_mb  = {u: sum(r["pts_membro"].get(u, 0) for r in dados) for u in users}
     meta_mb = {u: sum(r["cfg"].get(f"meta_{u}", r["cfg"].get("meta_equipe", 0)) for r in dados) for u in users}
@@ -1325,7 +1325,7 @@ def _chart_resumo_colabs(dados):
         _dias_trab = {u: 0   for u in users}
         _dias_aus  = {u: 0   for u in users}
 
-    def _cor_meta(v):   return "#1BAF7A" if v >= 100 else ("#EDA100" if v >= 75 else "#E34948")
+    def _cor_meta(v):   return "#1BAF7A" if v >= 100 else ("#EDA100" if v >= 75 else "#4A90D9")
     def _cor_atraso(v): return "#1BAF7A" if v < 5   else ("#EDA100" if v < 15  else "#E34948")
     def _cor_ocio(v):   return "#1BAF7A" if v < 10  else ("#EDA100" if v < 25  else "#E34948")
     def _cor_tol(v):    return "#1BAF7A" if v <= 30 else ("#EDA100" if v <= 90  else "#E34948")
