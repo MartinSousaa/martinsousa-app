@@ -1,3 +1,4 @@
+import os
 import streamlit as st
 import anthropic
 import triagem
@@ -13,7 +14,7 @@ CAMPOS_TRIAGEM = ["nome_comercial", "categoria", "material", "variacao_cores",
 
 
 def gerar_titulos(dados, palavras_lista):
-    api_key = st.secrets.get("ANTHROPIC_API_KEY", "")
+    api_key = st.secrets.get("ANTHROPIC_API_KEY", "") or os.environ.get("ANTHROPIC_API_KEY", "")
     tem_variacao_cor = "," in (dados.get("variacao_cores") or "")
 
     prompt = f"""Gere 2 títulos de anúncio para o produto abaixo, pra usar em qualquer marketplace
@@ -57,7 +58,7 @@ Responda SOMENTE com os 2 títulos, um por linha, sem numeração, sem aspas, se
 
 def ajustar_titulos(titulos_atuais, instrucao, dados, palavras_lista):
     """Recebe os títulos atuais e uma instrução. Retorna 2 títulos ajustados."""
-    api_key = st.secrets.get("ANTHROPIC_API_KEY", "")
+    api_key = st.secrets.get("ANTHROPIC_API_KEY", "") or os.environ.get("ANTHROPIC_API_KEY", "")
     titulos_str = "\n".join(f"{i+1}. {t}" for i, t in enumerate(titulos_atuais))
     prompt = f"""Você gerou os seguintes títulos para o produto "{dados.get('nome_comercial','')}":
 
