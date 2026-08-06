@@ -4,9 +4,15 @@ import pandas as pd
 from datetime import datetime
 import gspread
 from google.oauth2.service_account import Credentials
+import secrets as _secrets
 
 PLANILHA_NOME = "MartinSousa - Financeiro"
 ABA_USUARIOS = "usuarios"
+
+# Tokens persistentes no nível do processo Python.
+# Sobrevivem a reconexões WebSocket (nova sessão Streamlit, mesmo processo).
+# São apagados apenas quando o Railway faz deploy (reinicia o container).
+_TOKENS: dict = {}
 
 
 # ── HASH ──────────────────────────────────────────────────────────────────────
@@ -135,6 +141,14 @@ def verificar_login():
     Retorna o nome do usuário logado."""
     if "usuario_logado" in st.session_state:
         return st.session_state["usuario_logado"]
+
+    # ── Reconexão automática via token de URL ─────────────────────────────────
+    # Se o WebSocket caiu e o Streamlit criou uma nova sessão, o token ainda
+    # está na URL. Restaura o login sem pedir senha novamente.
+    _tok = st.query_params.get("_s", "")
+    if _tok and _tok in _TOKENS:
+        st.session_state["usuario_logado"] = _TOKENS[_tok]
+        return _TOKENS[_tok]
 
     usuarios_secrets = dict(st.secrets.get("usuarios", {}))
     df_sheets = _carregar_usuarios_sheets()
@@ -376,6 +390,10 @@ def verificar_login():
         ok, _ = _verificar_credencial(login, senha)
         if ok:
             st.session_state["usuario_logado"] = login
+            # Gera token de reconexão e coloca na URL para sobreviver a quedas de WebSocket
+            _tok = _secrets.token_hex(24)
+            _TOKENS[_tok] = login
+            st.query_params["_s"] = _tok
             _carregar_usuarios_sheets.clear()
             st.rerun()
         else:
