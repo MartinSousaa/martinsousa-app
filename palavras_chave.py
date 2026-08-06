@@ -1,3 +1,4 @@
+import os
 import streamlit as st
 import anthropic
 import requests
@@ -56,7 +57,7 @@ def bate_com_tendencia(termo, tendencias):
 
 
 def gerar_palavras_chave(dados):
-    api_key = st.secrets.get("ANTHROPIC_API_KEY", "")
+    api_key = st.secrets.get("ANTHROPIC_API_KEY", "") or os.environ.get("ANTHROPIC_API_KEY", "")
     prompt = f"""Gere de 10 a 15 palavras-chave de busca para o produto abaixo, pensando em como
 CLIENTES REAIS pesquisam no Mercado Livre -- a maioria busca termos amplos e curtos, poucos
 buscam especificações exatas. Misture:
@@ -91,7 +92,7 @@ Responda SOMENTE com a lista de palavras-chave, uma por linha, sem numeração, 
 
 def ajustar_palavras_chave(palavras_atuais, instrucao, dados):
     """Recebe a lista atual e uma instrução de ajuste. Retorna nova lista."""
-    api_key = st.secrets.get("ANTHROPIC_API_KEY", "")
+    api_key = st.secrets.get("ANTHROPIC_API_KEY", "") or os.environ.get("ANTHROPIC_API_KEY", "")
     lista_str = "\n".join(f"- {p}" for p in palavras_atuais)
     prompt = f"""Você gerou as seguintes palavras-chave para o produto "{dados.get('nome_comercial','')}":
 
