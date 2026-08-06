@@ -1,3 +1,4 @@
+import os
 import streamlit as st
 import requests
 import base64
@@ -148,7 +149,7 @@ PRESETS = {
 def gerar_triagem_ia(nome_produto, tipos_selecionados, dados_descricao, instrucoes_extras, fotos_bytes):
     """Pede para a IA analisar o que ela criaria para cada tipo de imagem,
     ANTES de gastar com a geração real. Retorna lista de dicts com o plano."""
-    api_key = st.secrets.get("ANTHROPIC_API_KEY", "")
+    api_key = st.secrets.get("ANTHROPIC_API_KEY", "") or os.environ.get("ANTHROPIC_API_KEY", "")
     if not api_key:
         return None, "ANTHROPIC_API_KEY não configurada."
 
@@ -314,7 +315,7 @@ def _detectar_mime(data: bytes) -> str:
 
 def gerar_imagem_ia(prompt_texto, imagens_referencia):
     """imagens_referencia: lista de bytes. Retorna (imagem_bytes, erro)."""
-    api_key = st.secrets.get("GEMINI_API_KEY", "")
+    api_key = st.secrets.get("GEMINI_API_KEY", "") or os.environ.get("GEMINI_API_KEY", "")
     if not api_key:
         return None, "GEMINI_API_KEY não configurada nas Secrets."
 
