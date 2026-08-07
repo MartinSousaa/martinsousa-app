@@ -421,8 +421,8 @@ def renderizar_chat(usuario_logado=""):
     partes = usuario_logado.split() if usuario_logado else []
     nome_exib = partes[0].capitalize() if partes else "você"
 
-    # ── Container que agrupa visualmente todo o chat (box com borda via CSS :has) ──
-    with st.container():
+    # ── Container que agrupa visualmente todo o chat ──────────────────────────
+    with st.container(border=True):
         st.markdown('<div id="ms-chat-topo"></div>', unsafe_allow_html=True)
         st.markdown(
             '<span style="font-size:10px; font-weight:700; letter-spacing:1.5px; '
