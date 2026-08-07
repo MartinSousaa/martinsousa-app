@@ -313,6 +313,19 @@ def _detectar_mime(data: bytes) -> str:
     return "image/jpeg"  # fallback seguro
 
 
+def _gerar_imagem_thread(prompt_texto, imagens_ref, resultado):
+    """Executa gerar_imagem_ia em thread separada para não bloquear o WebSocket."""
+    try:
+        img, erro = gerar_imagem_ia(prompt_texto, imagens_ref)
+        resultado["img"] = img
+        resultado["erro"] = erro
+    except Exception as e:
+        resultado["img"] = None
+        resultado["erro"] = str(e)
+    finally:
+        resultado["done"] = True
+
+
 def gerar_imagem_ia(prompt_texto, imagens_referencia):
     """imagens_referencia: lista de bytes. Retorna (imagem_bytes, erro)."""
     api_key = st.secrets.get("GEMINI_API_KEY", "") or os.environ.get("GEMINI_API_KEY", "")
@@ -669,9 +682,23 @@ def pagina_imagem(usuario_logado):
                 st.warning("Descreva o que você quer modificar.")
                 st.stop()
 
-            with st.spinner("Aplicando ajuste fino... (pode levar até 1 minuto)"):
-                prompt_af = montar_prompt_ajuste_fino(instrucao_ajuste.strip())
-                img_bytes_af, erro_af = gerar_imagem_ia(prompt_af, fotos_bytes_ajuste)
+            import time as _time_af
+            import threading as _threading_af
+            prompt_af = montar_prompt_ajuste_fino(instrucao_ajuste.strip())
+            _res_af = {"img": None, "erro": None, "done": False}
+            _threading_af.Thread(
+                target=_gerar_imagem_thread,
+                args=(prompt_af, fotos_bytes_ajuste, _res_af),
+                daemon=True,
+            ).start()
+            _slot_af = st.empty()
+            _t0_af = _time_af.time()
+            while not _res_af["done"]:
+                _seg_af = int(_time_af.time() - _t0_af)
+                _slot_af.caption(f"⏳ Aplicando ajuste fino... {_seg_af}s")
+                _time_af.sleep(1)
+            _slot_af.empty()
+            img_bytes_af, erro_af = _res_af["img"], _res_af["erro"]
 
             if erro_af:
                 st.error(f"❌ Erro ao aplicar ajuste: {erro_af}")
@@ -926,6 +953,7 @@ def pagina_imagem(usuario_logado):
                 tipos = tipos_viaveis if tipos_viaveis else cfg["tipos"]
 
                 import time as _time_gen
+                import threading as _threading
                 for i, tipo in enumerate(tipos):
                     barra.progress(i / len(tipos), text=f"Gerando {i+1}/{len(tipos)}: {tipo[:50]}...")
                     # Pausa entre chamadas para evitar rate limit da API
@@ -938,7 +966,26 @@ def pagina_imagem(usuario_logado):
                             cfg.get("dados_descricao"),
                             cfg["nome_produto"],
                         )
-                        img_bytes, erro_gen = gerar_imagem_ia(prompt_final, cfg["fotos_bytes"])
+                        # ── Geração em thread separada ──────────────────────────
+                        # Mantém o WebSocket vivo durante a chamada Gemini (30-60s)
+                        # enviando atualizações a cada segundo para o Railway não
+                        # fechar a conexão por inatividade.
+                        _res = {"img": None, "erro": None, "done": False}
+                        _thread = _threading.Thread(
+                            target=_gerar_imagem_thread,
+                            args=(prompt_final, cfg["fotos_bytes"], _res),
+                            daemon=True,
+                        )
+                        _thread.start()
+                        _contador = st.empty()
+                        _t0 = _time_gen.time()
+                        while not _res["done"]:
+                            _seg = int(_time_gen.time() - _t0)
+                            _contador.caption(f"⏳ Aguardando Gemini... {_seg}s")
+                            _time_gen.sleep(1)
+                        _contador.empty()
+                        img_bytes, erro_gen = _res["img"], _res["erro"]
+                        # ────────────────────────────────────────────────────────
                         if erro_gen:
                             st.warning(f"⚠️ Falhou em '{tipo}': {erro_gen}")
                             continue
@@ -1079,9 +1126,23 @@ def pagina_imagem(usuario_logado):
                     st.warning("Descreva o que deseja modificar.")
                 else:
                     # Usa a imagem ATUAL da galeria como referência para o ajuste
+                    import time as _time_afg
+                    import threading as _threading_afg
                     prompt_af_gal = montar_prompt_ajuste_fino(instrucao_af_gal.strip())
-                    with st.spinner("Aplicando ajuste fino... (pode levar até 1 minuto)"):
-                        nova_img_af, err_af_gal = gerar_imagem_ia(prompt_af_gal, [imagem_ativa])
+                    _res_afg = {"img": None, "erro": None, "done": False}
+                    _threading_afg.Thread(
+                        target=_gerar_imagem_thread,
+                        args=(prompt_af_gal, [imagem_ativa], _res_afg),
+                        daemon=True,
+                    ).start()
+                    _slot_afg = st.empty()
+                    _t0_afg = _time_afg.time()
+                    while not _res_afg["done"]:
+                        _seg_afg = int(_time_afg.time() - _t0_afg)
+                        _slot_afg.caption(f"⏳ Aplicando ajuste fino... {_seg_afg}s")
+                        _time_afg.sleep(1)
+                    _slot_afg.empty()
+                    nova_img_af, err_af_gal = _res_afg["img"], _res_afg["erro"]
                     if err_af_gal:
                         st.error(f"❌ Erro: {err_af_gal}")
                     else:
@@ -1106,8 +1167,22 @@ def pagina_imagem(usuario_logado):
                 # Usa a imagem ATUAL como referência + prompt de ajuste fino
                 img_ref_cmd = [galeria[idx_alvo]["bytes"]] if galeria[idx_alvo]["bytes"] else fotos_ref_aj
                 prompt_aj = montar_prompt_ajuste_fino(instrucao)
-                with st.spinner(f"Assistente IA: ajuste fino na foto {num_foto} ({tipo_alvo[:30]})…"):
-                    nova_img, err_aj = gerar_imagem_ia(prompt_aj, img_ref_cmd)
+                import time as _time_cmd
+                import threading as _threading_cmd
+                _res_cmd = {"img": None, "erro": None, "done": False}
+                _threading_cmd.Thread(
+                    target=_gerar_imagem_thread,
+                    args=(prompt_aj, img_ref_cmd, _res_cmd),
+                    daemon=True,
+                ).start()
+                _slot_cmd = st.empty()
+                _t0_cmd = _time_cmd.time()
+                while not _res_cmd["done"]:
+                    _seg_cmd = int(_time_cmd.time() - _t0_cmd)
+                    _slot_cmd.caption(f"⏳ Assistente IA: ajuste fino na foto {num_foto}... {_seg_cmd}s")
+                    _time_cmd.sleep(1)
+                _slot_cmd.empty()
+                nova_img, err_aj = _res_cmd["img"], _res_cmd["erro"]
                 if err_aj:
                     msgs_result.append(f"⚠️ Foto {num_foto}: erro ao gerar — {err_aj}")
                 else:
