@@ -361,9 +361,15 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia):
                 json=body, timeout=120,
             )
             if resp.status_code == 429:
-                # Rate limit — espera proporcional antes de nova tentativa
-                _time.sleep(12 * tentativa)
-                ultimo_erro = f"Limite de requisições da API (tentativa {tentativa}/{MAX_TENTATIVAS})"
+                # Rate limit — espera progressiva maior antes de nova tentativa
+                espera = 30 * tentativa  # 30s, 60s, 90s
+                _time.sleep(espera)
+                ultimo_erro = (
+                    f"Cota da API Gemini esgotada (HTTP 429) — tentativa {tentativa}/{MAX_TENTATIVAS}. "
+                    "Isso ocorre quando o plano gratuito atinge o limite de imagens por dia/minuto. "
+                    "Solução: acesse aistudio.google.com, verifique a cota da chave GEMINI_API_KEY "
+                    "e considere ativar faturamento no Google Cloud."
+                )
                 continue
             if resp.status_code != 200:
                 ultimo_erro = f"Erro da API (HTTP {resp.status_code}): {resp.text[:300]}"
@@ -850,7 +856,7 @@ def pagina_imagem(usuario_logado):
         cfg = st.session_state["img_triagem_config"]
 
         st.markdown("---")
-        st.markdown("### 🗂️ Plano de criação — confira antes de gastar")
+        st.markdown("### 🗂️ Plano de criação")
         st.caption("Esta etapa não custou nada. Corrija o que precisar antes de confirmar a geração.")
 
         itens_plano = plano.get("plano", [])
