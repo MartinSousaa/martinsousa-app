@@ -10,22 +10,23 @@ import threading as _threading_limiter
 import time as _time_limiter
 from collections import deque as _deque
 
-MODELO_IMAGEM = "gemini-3.1-flash-image"           # modelo primário
-MODELO_IMAGEM_FALLBACK = "gemini-2.0-flash-preview-image-generation"  # fallback se primário estiver sem cota
+# Modelo que suporta geraÃ§Ã£o de imagem via generateContent + responseModalities:["IMAGE"]
+# gemini-2.0-flash-exp Ã© o modelo confirmado para geraÃ§Ã£o nativa de imagem via generateContent
+MODELO_IMAGEM = "gemini-2.0-flash-exp"
 
 
 class _GeminiRateLimiter:
-    """Rate limiter global para a API Gemini — respeita 10 RPM automaticamente.
-    Compartilhado entre todas as threads/sessões do processo.
+    """Rate limiter global para a API Gemini â respeita 10 RPM automaticamente.
+    Compartilhado entre todas as threads/sessÃµes do processo.
     """
     def __init__(self, rpm=8, window=60):
         self._lock = _threading_limiter.Lock()
         self._calls = _deque()
-        self._rpm = rpm        # 8 de 10 disponíveis — margem de segurança
+        self._rpm = rpm        # 8 de 10 disponÃ­veis â margem de seguranÃ§a
         self._window = window  # janela deslizante de 60s
 
     def aguardar(self):
-        """Bloqueia até que seja seguro fazer uma nova chamada à API."""
+        """Bloqueia atÃ© que seja seguro fazer uma nova chamada Ã  API."""
         while True:
             with self._lock:
                 agora = _time_limiter.time()
@@ -35,226 +36,226 @@ class _GeminiRateLimiter:
                 if len(self._calls) < self._rpm:
                     self._calls.append(agora)
                     return
-                # Quanto falta até a chamada mais antiga sair da janela
+                # Quanto falta atÃ© a chamada mais antiga sair da janela
                 espera = self._window - (agora - self._calls[0]) + 0.2
             _time_limiter.sleep(min(espera, 2))
 
-# Singleton por processo — usa st.cache_resource para sobreviver a reruns E hot-reloads
+# Singleton por processo â usa st.cache_resource para sobreviver a reruns E hot-reloads
 @st.cache_resource
 def _get_gemini_limiter():
     return _GeminiRateLimiter(rpm=8, window=60)
 
 _GEMINI_LIMITER = _get_gemini_limiter()
 
-# ── PADRÃO VISUAL MARTINSOUSA (hardcoded em todos os prompts) ──────────────────
+# ââ PADRÃO VISUAL MARTINSOUSA (hardcoded em todos os prompts) ââââââââââââââââââ
 PADRAO_VISUAL = """
-PADRÃO VISUAL OBRIGATÓRIO DA EMPRESA (aplique em todas as peças de marketing):
+PADRÃO VISUAL OBRIGATÃRIO DA EMPRESA (aplique em todas as peÃ§as de marketing):
 - Fundo: #E8EEF5 (azul-cinza claro suave)
-- Cor principal / texto e elementos gráficos: #1A3A6B (azul marinho)
-- Cor de destaque secundária: #4A7EC7 (azul médio)
-- Fonte: Montserrat ou Poppins — nunca fontes serifadas
-- Ícones: estilo line-art clean, traço fino, monocromáticos em azul marinho
-- Elementos decorativos: círculos ou manchas suaves em azul marinho ou azul médio,
-  usados como moldura ou destaque atrás do produto ou dos ícones
-- Texto sempre em português do Brasil, sem erros ortográficos, sem caixa alta excessiva
-- Visual limpo, arejado, profissional — sem poluição visual
-- NÃO use marrom, laranja, vermelho ou verde como cores principais
+- Cor principal / texto e elementos grÃ¡ficos: #1A3A6B (azul marinho)
+- Cor de destaque secundÃ¡ria: #4A7EC7 (azul mÃ©dio)
+- Fonte: Montserrat ou Poppins â nunca fontes serifadas
+- Ãcones: estilo line-art clean, traÃ§o fino, monocromÃ¡ticos em azul marinho
+- Elementos decorativos: cÃ­rculos ou manchas suaves em azul marinho ou azul mÃ©dio,
+  usados como moldura ou destaque atrÃ¡s do produto ou dos Ã­cones
+- Texto sempre em portuguÃªs do Brasil, sem erros ortogrÃ¡ficos, sem caixa alta excessiva
+- Visual limpo, arejado, profissional â sem poluiÃ§Ã£o visual
+- NÃO use marrom, laranja, vermelho ou verde como cores principais
 """
 
 INSTRUCAO_FIDELIDADE = """
-REGRA DE FIDELIDADE AO PRODUTO (a mais importante de todas — sem exceções):
-- Reproduza o produto EXATAMENTE como aparece nas imagens de referência: mesma cor,
-  mesmo formato, mesmas proporções, mesmos detalhes visíveis
-- PROIBIÇÃO ABSOLUTA: JAMAIS substitua o produto das fotos de referência por um
-  produto diferente, inventado ou genérico. Se não conseguir reproduzir o produto
-  num ângulo específico, use o ângulo disponível nas fotos — mas NUNCA crie outro
-  produto. Gerar um produto diferente é o erro mais grave possível nesta tarefa.
-- Se uma característica do produto não estiver visível nas fotos de referência e for
-  necessária para a composição, adapte a cena para evitar mostrar esse ângulo —
-  não invente como o produto seria naquele ângulo
+REGRA DE FIDELIDADE AO PRODUTO (a mais importante de todas â sem exceÃ§Ãµes):
+- Reproduza o produto EXATAMENTE como aparece nas imagens de referÃªncia: mesma cor,
+  mesmo formato, mesmas proporÃ§Ãµes, mesmos detalhes visÃ­veis
+- PROIBIÃÃO ABSOLUTA: JAMAIS substitua o produto das fotos de referÃªncia por um
+  produto diferente, inventado ou genÃ©rico. Se nÃ£o conseguir reproduzir o produto
+  num Ã¢ngulo especÃ­fico, use o Ã¢ngulo disponÃ­vel nas fotos â mas NUNCA crie outro
+  produto. Gerar um produto diferente Ã© o erro mais grave possÃ­vel nesta tarefa.
+- Se uma caracterÃ­stica do produto nÃ£o estiver visÃ­vel nas fotos de referÃªncia e for
+  necessÃ¡ria para a composiÃ§Ã£o, adapte a cena para evitar mostrar esse Ã¢ngulo â
+  nÃ£o invente como o produto seria naquele Ã¢ngulo
 - Nunca deforme, alongue, encurte ou altere qualquer parte do produto
-- Nunca crie detalhes que não aparecem nas fotos de referência
-- NÃO copie nem reproduza nenhum texto, palavra ou rótulo que apareça escrito
-  nas fotos de referência — ignore completamente qualquer texto visível nas imagens
-- PROIBIÇÃO ABSOLUTA DE INVENTAR DADOS TÉCNICOS: JAMAIS crie, estime ou invente
-  medidas, dimensões, peso ou material do produto. Se esses dados não foram
-  fornecidos nos campos do produto, NÃO os coloque na imagem sob nenhuma hipótese.
-  Imagem com dados inventados é pior do que imagem sem dados.
-- Só use medidas e peso na imagem se eles estiverem EXPLICITAMENTE informados
-  nos dados do produto fornecidos — nunca estime por conta própria
+- Nunca crie detalhes que nÃ£o aparecem nas fotos de referÃªncia
+- NÃO copie nem reproduza nenhum texto, palavra ou rÃ³tulo que apareÃ§a escrito
+  nas fotos de referÃªncia â ignore completamente qualquer texto visÃ­vel nas imagens
+- PROIBIÃÃO ABSOLUTA DE INVENTAR DADOS TÃCNICOS: JAMAIS crie, estime ou invente
+  medidas, dimensÃµes, peso ou material do produto. Se esses dados nÃ£o foram
+  fornecidos nos campos do produto, NÃO os coloque na imagem sob nenhuma hipÃ³tese.
+  Imagem com dados inventados Ã© pior do que imagem sem dados.
+- SÃ³ use medidas e peso na imagem se eles estiverem EXPLICITAMENTE informados
+  nos dados do produto fornecidos â nunca estime por conta prÃ³pria
 """
 
 INSTRUCAO_COMPOSICAO = """
-INSTRUÇÃO DE COMPOSIÇÃO:
-- Use as imagens de referência APENAS para manter o produto reconhecível e fiel
+INSTRUÃÃO DE COMPOSIÃÃO:
+- Use as imagens de referÃªncia APENAS para manter o produto reconhecÃ­vel e fiel
 - Componha uma cena/layout NOVO e apropriado para o tipo de imagem solicitado
-- Não reaproveite a foto de referência literalmente — crie uma peça nova
+- NÃ£o reaproveite a foto de referÃªncia literalmente â crie uma peÃ§a nova
 """
 
-# ── MODO PERSONALIZADO — sem branding automático ──────────────────────────────
+# ââ MODO PERSONALIZADO â sem branding automÃ¡tico ââââââââââââââââââââââââââââââ
 INSTRUCAO_PERSONALIZADO = """
-MODO PERSONALIZADO — REGRAS ABSOLUTAS:
-- Execute EXATAMENTE e SOMENTE o que o colaborador descreveu nas instruções
-- NÃO adicione texto, legenda, título, rótulo ou qualquer elemento escrito
-  que não tenha sido pedido explicitamente nas instruções
-- NÃO aplique cores da empresa, fontes específicas, ícones ou branding
-  a não ser que as instruções peçam explicitamente por isso
-- NÃO crie uma composição "nova" ou "melhorada" por conta própria —
-  siga a instrução, nada mais
-- NÃO invente diferenciais, características ou frases de marketing
-- As instruções do colaborador são a ÚNICA fonte de verdade para
+MODO PERSONALIZADO â REGRAS ABSOLUTAS:
+- Execute EXATAMENTE e SOMENTE o que o colaborador descreveu nas instruÃ§Ãµes
+- NÃO adicione texto, legenda, tÃ­tulo, rÃ³tulo ou qualquer elemento escrito
+  que nÃ£o tenha sido pedido explicitamente nas instruÃ§Ãµes
+- NÃO aplique cores da empresa, fontes especÃ­ficas, Ã­cones ou branding
+  a nÃ£o ser que as instruÃ§Ãµes peÃ§am explicitamente por isso
+- NÃO crie uma composiÃ§Ã£o "nova" ou "melhorada" por conta prÃ³pria â
+  siga a instruÃ§Ã£o, nada mais
+- NÃO invente diferenciais, caracterÃ­sticas ou frases de marketing
+- As instruÃ§Ãµes do colaborador sÃ£o a ÃNICA fonte de verdade para
   o que deve aparecer nesta imagem
 """
 
-# ── MODO AJUSTE FINO — edição cirúrgica, sem alterar nada além do pedido ─────
+# ââ MODO AJUSTE FINO â ediÃ§Ã£o cirÃºrgica, sem alterar nada alÃ©m do pedido âââââ
 INSTRUCAO_AJUSTE_FINO = """
-MODO AJUSTE FINO — EDIÇÃO CIRÚRGICA — REGRAS ABSOLUTAS E INVIOLÁVEIS:
+MODO AJUSTE FINO â EDIÃÃO CIRÃRGICA â REGRAS ABSOLUTAS E INVIOLÃVEIS:
 
-1. Faça SOMENTE a modificação descrita na instrução — absolutamente nada mais
-2. Preserve a composição inteira: fundo, cenário, iluminação, cores, perspectiva,
+1. FaÃ§a SOMENTE a modificaÃ§Ã£o descrita na instruÃ§Ã£o â absolutamente nada mais
+2. Preserve a composiÃ§Ã£o inteira: fundo, cenÃ¡rio, iluminaÃ§Ã£o, cores, perspectiva,
    todos os objetos e todos os detalhes visuais
-3. Preserve exatamente todos os textos que já existem na imagem
-   (não adicione nem remova nenhum texto)
-4. Preserve a aparência exata do produto: mesma cor, mesmos detalhes,
-   mesmos elementos visíveis (furos, padrões, logotipos na embalagem, etc.)
-5. NÃO "melhore", "enriqueça", "atualize" ou "harmonize" nada além do pedido
-6. NÃO aplique identidade visual, branding, cores ou fontes da empresa
-7. NÃO adicione nenhum objeto, efeito, texto ou elemento não mencionado
-8. Se a instrução pedir redimensionar o produto: altere APENAS o tamanho relativo
-   do produto dentro da cena — todo o resto permanece pixel-a-pixel idêntico
-9. Se não tiver certeza de algo que não foi mencionado, mantenha como está
+3. Preserve exatamente todos os textos que jÃ¡ existem na imagem
+   (nÃ£o adicione nem remova nenhum texto)
+4. Preserve a aparÃªncia exata do produto: mesma cor, mesmos detalhes,
+   mesmos elementos visÃ­veis (furos, padrÃµes, logotipos na embalagem, etc.)
+5. NÃO "melhore", "enriqueÃ§a", "atualize" ou "harmonize" nada alÃ©m do pedido
+6. NÃO aplique identidade visual, branding, cores ou fontes da empresa
+7. NÃO adicione nenhum objeto, efeito, texto ou elemento nÃ£o mencionado
+8. Se a instruÃ§Ã£o pedir redimensionar o produto: altere APENAS o tamanho relativo
+   do produto dentro da cena â todo o resto permanece pixel-a-pixel idÃªntico
+9. Se nÃ£o tiver certeza de algo que nÃ£o foi mencionado, mantenha como estÃ¡
 """
 
-# ── PRESETS ATUALIZADOS COM IDENTIDADE VISUAL ─────────────────────────────────
+# ââ PRESETS ATUALIZADOS COM IDENTIDADE VISUAL âââââââââââââââââââââââââââââââââ
 TIPOS_PADRAO = [
-    "1 — Produto com fundo branco",
-    "2 — Benefícios do produto",
-    "3 — Benefícios no cenário de uso",
-    "4 — Close nos detalhes",
-    "5 — Características técnicas (medidas/peso/material)",
-    "6 — Quebra de objeção",
-    "7 — Presenteie",
+    "1 â Produto com fundo branco",
+    "2 â BenefÃ­cios do produto",
+    "3 â BenefÃ­cios no cenÃ¡rio de uso",
+    "4 â Close nos detalhes",
+    "5 â CaracterÃ­sticas tÃ©cnicas (medidas/peso/material)",
+    "6 â Quebra de objeÃ§Ã£o",
+    "7 â Presenteie",
 ]
 
 PRESETS = {
     "Personalizado (descrevo o que quero)": "",
-    "1 — Produto com fundo branco": (
+    "1 â Produto com fundo branco": (
         "Foto de produto limpa e profissional, fundo branco liso, produto centralizado e bem iluminado, "
-        "iluminação de estúdio suave sem sombras duras, sem texto sobreposto, sem elementos extras. "
+        "iluminaÃ§Ã£o de estÃºdio suave sem sombras duras, sem texto sobreposto, sem elementos extras. "
         "O produto deve ocupar 70-80% do frame."
     ),
-    "2 — Benefícios do produto": (
-        "Peça de marketing mostrando os principais benefícios do produto. "
-        "Layout: produto em destaque no centro ou à esquerda, à direita blocos verticais empilhados "
-        "com ícone line-art + título curto (2-3 palavras) + frase explicativa (1 linha). "
-        "Máximo 4 benefícios. Título principal em destaque no topo."
+    "2 â BenefÃ­cios do produto": (
+        "PeÃ§a de marketing mostrando os principais benefÃ­cios do produto. "
+        "Layout: produto em destaque no centro ou Ã  esquerda, Ã  direita blocos verticais empilhados "
+        "com Ã­cone line-art + tÃ­tulo curto (2-3 palavras) + frase explicativa (1 linha). "
+        "MÃ¡ximo 4 benefÃ­cios. TÃ­tulo principal em destaque no topo."
     ),
-    "3 — Benefícios no cenário de uso": (
-        "Peça de marketing mostrando o produto sendo usado em um cenário real do dia a dia. "
-        "Cena realista e aspiracional com iluminação natural. "
-        "Frases curtas de destaque flutuando sobre ou ao lado do produto, explicando o benefício "
-        "daquele momento de uso específico. Tom acolhedor e moderno."
+    "3 â BenefÃ­cios no cenÃ¡rio de uso": (
+        "PeÃ§a de marketing mostrando o produto sendo usado em um cenÃ¡rio real do dia a dia. "
+        "Cena realista e aspiracional com iluminaÃ§Ã£o natural. "
+        "Frases curtas de destaque flutuando sobre ou ao lado do produto, explicando o benefÃ­cio "
+        "daquele momento de uso especÃ­fico. Tom acolhedor e moderno."
     ),
-    "4 — Close nos detalhes": (
+    "4 â Close nos detalhes": (
         "Imagem em zoom aproximado valorizando os acabamentos e qualidade do produto. "
         "Pequenas setas ou linhas finas apontando para cada detalhe, com legenda curta ao lado. "
         "Foco em textura, material, costuras, encaixe, ou qualquer acabamento que diferencie o produto. "
-        "Máximo 4 pontos de destaque."
+        "MÃ¡ximo 4 pontos de destaque."
     ),
-    "5 — Características técnicas (medidas/peso/material)": (
-        "Imagem técnica do produto com linhas de medida estilo desenho técnico, mostrando as dimensões "
-        "exatas (altura, largura, profundidade). Peso e material indicados com ícones técnicos. "
-        "Dados anotados de forma clara e legível. Fundo claro, visual limpo e técnico."
+    "5 â CaracterÃ­sticas tÃ©cnicas (medidas/peso/material)": (
+        "Imagem tÃ©cnica do produto com linhas de medida estilo desenho tÃ©cnico, mostrando as dimensÃµes "
+        "exatas (altura, largura, profundidade). Peso e material indicados com Ã­cones tÃ©cnicos. "
+        "Dados anotados de forma clara e legÃ­vel. Fundo claro, visual limpo e tÃ©cnico."
     ),
-    "6 — Quebra de objeção": (
-        "Peça de marketing respondendo as principais dúvidas de quem está prestes a comprar. "
-        "Formato: 3 a 4 blocos, cada um com uma objeção comum em forma de pergunta curta e a "
-        "resposta direta e tranquilizadora ao lado ou abaixo. Ícone de check ou escudo. "
-        "Tom de confiança e credibilidade."
+    "6 â Quebra de objeÃ§Ã£o": (
+        "PeÃ§a de marketing respondendo as principais dÃºvidas de quem estÃ¡ prestes a comprar. "
+        "Formato: 3 a 4 blocos, cada um com uma objeÃ§Ã£o comum em forma de pergunta curta e a "
+        "resposta direta e tranquilizadora ao lado ou abaixo. Ãcone de check ou escudo. "
+        "Tom de confianÃ§a e credibilidade."
     ),
-    "7 — Presenteie": (
-        "Peça de marketing emocional incentivando a compra do produto como presente. "
-        "Frase principal de impacto emocional em destaque (ex: 'O presente certo para quem você ama'). "
-        "Composição com laço, embrulho ou contexto de presente. Tom acolhedor e especial. "
-        "Cena mostrando a entrega ou o momento de surpresa com reação positiva."
+    "7 â Presenteie": (
+        "PeÃ§a de marketing emocional incentivando a compra do produto como presente. "
+        "Frase principal de impacto emocional em destaque (ex: 'O presente certo para quem vocÃª ama'). "
+        "ComposiÃ§Ã£o com laÃ§o, embrulho ou contexto de presente. Tom acolhedor e especial. "
+        "Cena mostrando a entrega ou o momento de surpresa com reaÃ§Ã£o positiva."
     ),
 }
 
 
-# ── TRIAGEM POR IA (análise textual, sem gastar com geração) ──────────────────
+# ââ TRIAGEM POR IA (anÃ¡lise textual, sem gastar com geraÃ§Ã£o) ââââââââââââââââââ
 
 def gerar_triagem_ia(nome_produto, tipos_selecionados, dados_descricao, instrucoes_extras, fotos_bytes):
     """Pede para a IA analisar o que ela criaria para cada tipo de imagem,
-    ANTES de gastar com a geração real. Retorna lista de dicts com o plano."""
+    ANTES de gastar com a geraÃ§Ã£o real. Retorna lista de dicts com o plano."""
     api_key = st.secrets.get("ANTHROPIC_API_KEY", "") or os.environ.get("ANTHROPIC_API_KEY", "")
     if not api_key:
-        return None, "ANTHROPIC_API_KEY não configurada."
+        return None, "ANTHROPIC_API_KEY nÃ£o configurada."
 
     tipos_str = "\n".join(f"- {t}: {PRESETS.get(t,'')[:120]}..." for t in tipos_selecionados)
 
     contexto_descricao = ""
     if dados_descricao:
         contexto_descricao = f"""
-DADOS DA DESCRIÇÃO DO PRODUTO (vinculados pelo código):
-- Cor: {dados_descricao.get('cor', 'não informada')}
-- Medidas: {dados_descricao.get('medidas', 'não informadas')}
-- Categoria: {dados_descricao.get('categoria', 'não informada')}
-- Diferenciais: {dados_descricao.get('diferenciais', 'não informados')}
-- Características: {dados_descricao.get('caracteristicas', 'não informadas')}
-- Uso: {dados_descricao.get('uso', 'não informado')}
+DADOS DA DESCRIÃÃO DO PRODUTO (vinculados pelo cÃ³digo):
+- Cor: {dados_descricao.get('cor', 'nÃ£o informada')}
+- Medidas: {dados_descricao.get('medidas', 'nÃ£o informadas')}
+- Categoria: {dados_descricao.get('categoria', 'nÃ£o informada')}
+- Diferenciais: {dados_descricao.get('diferenciais', 'nÃ£o informados')}
+- CaracterÃ­sticas: {dados_descricao.get('caracteristicas', 'nÃ£o informadas')}
+- Uso: {dados_descricao.get('uso', 'nÃ£o informado')}
 """
 
-    # Verifica quais dados técnicos estão disponíveis para informar a IA
+    # Verifica quais dados tÃ©cnicos estÃ£o disponÃ­veis para informar a IA
     dados_disponiveis = []
     dados_faltantes = []
     if dados_descricao:
         if dados_descricao.get("medidas"): dados_disponiveis.append(f"medidas: {dados_descricao['medidas']}")
-        else: dados_faltantes.append("medidas (altura × largura × profundidade)")
+        else: dados_faltantes.append("medidas (altura Ã largura Ã profundidade)")
         if dados_descricao.get("peso"): dados_disponiveis.append(f"peso: {dados_descricao['peso']}")
         else: dados_faltantes.append("peso")
         if dados_descricao.get("cor"): dados_disponiveis.append(f"cor: {dados_descricao['cor']}")
         if dados_descricao.get("material") or dados_descricao.get("caracteristicas"):
-            dados_disponiveis.append("material/características informados")
+            dados_disponiveis.append("material/caracterÃ­sticas informados")
         else: dados_faltantes.append("material")
     else:
         dados_faltantes = ["medidas", "peso", "material"]
 
     resumo_dados = ""
     if dados_disponiveis:
-        resumo_dados += f"Dados disponíveis: {', '.join(dados_disponiveis)}\n"
+        resumo_dados += f"Dados disponÃ­veis: {', '.join(dados_disponiveis)}\n"
     if dados_faltantes:
-        resumo_dados += f"Dados NÃO informados (não inventar): {', '.join(dados_faltantes)}\n"
+        resumo_dados += f"Dados NÃO informados (nÃ£o inventar): {', '.join(dados_faltantes)}\n"
 
-    prompt = f"""Você é especialista em imagens para e-commerce no Mercado Livre. Seja BREVE e DIRETO.
+    prompt = f"""VocÃª Ã© especialista em imagens para e-commerce no Mercado Livre. Seja BREVE e DIRETO.
 
 PRODUTO: {nome_produto}
 {contexto_descricao}
 {resumo_dados}
-FOTOS ENVIADAS: {len(fotos_bytes)} foto(s) de referência
-{f"INSTRUÇÕES EXTRAS: {instrucoes_extras}" if instrucoes_extras else ""}
+FOTOS ENVIADAS: {len(fotos_bytes)} foto(s) de referÃªncia
+{f"INSTRUÃÃES EXTRAS: {instrucoes_extras}" if instrucoes_extras else ""}
 
 TIPOS A CRIAR:
 {tipos_str}
 
-TAREFA: Para cada tipo, analise se é VIÁVEL gerar com as informações e fotos disponíveis.
+TAREFA: Para cada tipo, analise se Ã© VIÃVEL gerar com as informaÃ§Ãµes e fotos disponÃ­veis.
 
-REGRAS DE VIABILIDADE — CRÍTICO:
-1. "Características técnicas (medidas/peso/material)" → SOMENTE viável se medidas E peso estiverem nos dados disponíveis acima. Se qualquer um faltar, marque viavel: false e peça os dados exatos.
-2. "Close nos detalhes" ou qualquer tipo que exija ângulo do produto NÃO disponível nas fotos → viavel: false, peça a foto naquele ângulo.
-3. Qualquer tipo que necessite de informação específica ausente (ex: cores disponíveis, voltagem, compatibilidade) → viavel: false, peça a informação.
-4. NUNCA marque como viável se for necessário INVENTAR qualquer dado técnico, dimensão ou característica.
+REGRAS DE VIABILIDADE â CRÃTICO:
+1. "CaracterÃ­sticas tÃ©cnicas (medidas/peso/material)" â SOMENTE viÃ¡vel se medidas E peso estiverem nos dados disponÃ­veis acima. Se qualquer um faltar, marque viavel: false e peÃ§a os dados exatos.
+2. "Close nos detalhes" ou qualquer tipo que exija Ã¢ngulo do produto NÃO disponÃ­vel nas fotos â viavel: false, peÃ§a a foto naquele Ã¢ngulo.
+3. Qualquer tipo que necessite de informaÃ§Ã£o especÃ­fica ausente (ex: cores disponÃ­veis, voltagem, compatibilidade) â viavel: false, peÃ§a a informaÃ§Ã£o.
+4. NUNCA marque como viÃ¡vel se for necessÃ¡rio INVENTAR qualquer dado tÃ©cnico, dimensÃ£o ou caracterÃ­stica.
 
-Quando viavel: false, preencha "pergunta_info" com pergunta direta e específica ao colaborador explicando exatamente o que falta e por quê é necessário. Essa imagem será DESCARTADA até a informação ser fornecida.
+Quando viavel: false, preencha "pergunta_info" com pergunta direta e especÃ­fica ao colaborador explicando exatamente o que falta e por quÃª Ã© necessÃ¡rio. Essa imagem serÃ¡ DESCARTADA atÃ© a informaÃ§Ã£o ser fornecida.
 
-Quando viavel: true, descreva em 1-2 frases o que será criado.
+Quando viavel: true, descreva em 1-2 frases o que serÃ¡ criado.
 
-Responda SOMENTE com JSON válido, sem texto antes ou depois:
+Responda SOMENTE com JSON vÃ¡lido, sem texto antes ou depois:
 {{
   "plano": [
     {{
       "tipo": "nome do tipo",
       "numero": 1,
-      "composicao": "1-2 frases curtas descrevendo a imagem (só se viavel: true)",
+      "composicao": "1-2 frases curtas descrevendo a imagem (sÃ³ se viavel: true)",
       "textos": ["texto 1", "texto 2"],
       "flags": [],
       "viavel": true,
@@ -277,7 +278,7 @@ Responda SOMENTE com JSON válido, sem texto antes ou depois:
         # Se a resposta foi cortada (max_tokens atingido), avisa mas tenta salvar
         truncado = msg.stop_reason == "max_tokens"
 
-        # ── Extração robusta de JSON ───────────────────────────────────────────
+        # ââ ExtraÃ§Ã£o robusta de JSON âââââââââââââââââââââââââââââââââââââââââââ
         import re as _re
 
         def _tentar_parse(s):
@@ -291,13 +292,13 @@ Responda SOMENTE com JSON válido, sem texto antes ou depois:
         # 1. Texto direto
         resultado = _tentar_parse(texto)
 
-        # 2. Bloco ```json ... ``` (regex, mais confiável que split)
+        # 2. Bloco ```json ... ``` (regex, mais confiÃ¡vel que split)
         if resultado is None:
             m = _re.search(r"```(?:json)?\s*(\{.*?\})\s*```", texto, _re.DOTALL)
             if m:
                 resultado = _tentar_parse(m.group(1))
 
-        # 3. Primeiro { até o último }
+        # 3. Primeiro { atÃ© o Ãºltimo }
         if resultado is None:
             start = texto.find("{")
             end = texto.rfind("}")
@@ -307,10 +308,10 @@ Responda SOMENTE com JSON válido, sem texto antes ou depois:
         if resultado is not None:
             return resultado, None
 
-        # ── Fallback: plano básico com presets ────────────────────────────────
+        # ââ Fallback: plano bÃ¡sico com presets ââââââââââââââââââââââââââââââââ
         motivo = (
             "resposta da IA truncada (max_tokens atingido)" if truncado
-            else "resposta da IA não estava em formato JSON válido"
+            else "resposta da IA nÃ£o estava em formato JSON vÃ¡lido"
         )
         plano_fallback = {
             "plano": [
@@ -326,9 +327,9 @@ Responda SOMENTE com JSON válido, sem texto antes ou depois:
                 for i, t in enumerate(tipos_selecionados)
             ],
             "observacao_geral": (
-                f"⚠️ A triagem detalhada não pôde ser gerada ({motivo}). "
-                "O plano abaixo usa os presets padrão de cada tipo. "
-                "Revise as instruções antes de confirmar a geração."
+                f"â ï¸ A triagem detalhada nÃ£o pÃ´de ser gerada ({motivo}). "
+                "O plano abaixo usa os presets padrÃ£o de cada tipo. "
+                "Revise as instruÃ§Ãµes antes de confirmar a geraÃ§Ã£o."
             ),
         }
         return plano_fallback, None
@@ -337,7 +338,7 @@ Responda SOMENTE com JSON válido, sem texto antes ou depois:
         return None, str(e)
 
 
-# ── GERAÇÃO DE IMAGEM (Gemini) ─────────────────────────────────────────────────
+# ââ GERAÃÃO DE IMAGEM (Gemini) âââââââââââââââââââââââââââââââââââââââââââââââââ
 
 def _detectar_mime(data: bytes) -> str:
     """Detecta o MIME type real da imagem pelos magic bytes."""
@@ -351,7 +352,7 @@ def _detectar_mime(data: bytes) -> str:
 
 
 def _gerar_imagem_thread(prompt_texto, imagens_ref, resultado):
-    """Executa gerar_imagem_ia em thread separada para não bloquear o WebSocket."""
+    """Executa gerar_imagem_ia em thread separada para nÃ£o bloquear o WebSocket."""
     try:
         img, erro = gerar_imagem_ia(prompt_texto, imagens_ref)
         resultado["img"] = img
@@ -365,7 +366,7 @@ def _gerar_imagem_thread(prompt_texto, imagens_ref, resultado):
 
 def _chamar_gemini(api_key, modelo, body):
     """Faz uma chamada ao Gemini com retry em 429 e retorna (resp, erro_fatal).
-    erro_fatal = string → não tente mais. resp = None → erro recuperável.
+    erro_fatal = string â nÃ£o tente mais. resp = None â erro recuperÃ¡vel.
     """
     import time as _time
     MAX_TENTATIVAS = 2
@@ -390,7 +391,7 @@ def _chamar_gemini(api_key, modelo, body):
                     "resource_exhausted",
                 ]) or _st == "RESOURCE_EXHAUSTED"
                 if _cota:
-                    # Cota esgotada — não adianta esperar; sinaliza para tentar fallback
+                    # Cota esgotada â nÃ£o adianta esperar; sinaliza para tentar fallback
                     return None, f"COTA_ESGOTADA:{_msg[:200]}"
                 if tentativa >= MAX_TENTATIVAS:
                     return None, f"HTTP 429: {_msg[:200]}"
@@ -403,16 +404,14 @@ def _chamar_gemini(api_key, modelo, body):
             if tentativa >= MAX_TENTATIVAS:
                 return None, str(e)
             _time.sleep(5)
-    return None, "Máximo de tentativas atingido."
+    return None, "MÃ¡ximo de tentativas atingido."
 
 
 def gerar_imagem_ia(prompt_texto, imagens_referencia):
-    """Gera imagem via Gemini com fallback automático de modelo.
-    Retorna (imagem_bytes, erro_ou_None).
-    """
+    """Gera imagem via Gemini. Retorna (imagem_bytes, erro_ou_None)."""
     api_key = st.secrets.get("GEMINI_API_KEY", "") or os.environ.get("GEMINI_API_KEY", "")
     if not api_key:
-        return None, "GEMINI_API_KEY não configurada nas Secrets."
+        return None, "GEMINI_API_KEY nÃ£o configurada nas Secrets."
 
     parts = [{"text": prompt_texto}]
     for img_bytes in imagens_referencia:
@@ -427,90 +426,79 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia):
         "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]},
     }
 
-    # Tenta modelo primário; se cota esgotada tenta fallback
-    for modelo in [MODELO_IMAGEM, MODELO_IMAGEM_FALLBACK]:
-        resp, erro_fatal = _chamar_gemini(api_key, modelo, body)
-        if erro_fatal:
-            if erro_fatal.startswith("COTA_ESGOTADA:") and modelo == MODELO_IMAGEM:
-                # Fallback automático — tenta o outro modelo
-                continue
-            msg_detalhe = erro_fatal.replace("COTA_ESGOTADA:", "")
+    resp, erro_fatal = _chamar_gemini(api_key, MODELO_IMAGEM, body)
+    if erro_fatal:
+        msg_detalhe = erro_fatal.replace("COTA_ESGOTADA:", "")
+        if erro_fatal.startswith("COTA_ESGOTADA:"):
             return None, (
-                f"⛔ Cota da API Gemini esgotada (modelos {MODELO_IMAGEM} e {MODELO_IMAGEM_FALLBACK}). "
-                "Aguarde até amanhã ou verifique console.cloud.google.com → APIs → Gemini. "
+                f"â Cota diÃ¡ria da API Gemini esgotada (modelo: {MODELO_IMAGEM}). "
+                "Aguarde atÃ© amanhÃ£ (meia-noite horÃ¡rio de BrasÃ­lia) ou verifique "
+                "console.cloud.google.com â APIs â Gemini API â Cotas. "
                 f"Detalhe: {msg_detalhe[:200]}"
             )
-        if resp is None:
-            return None, f"Falha ao chamar o modelo {modelo}."
+        return None, f"Erro ao chamar a API Gemini: {msg_detalhe[:300]}"
 
-        if resp.status_code != 200:
-            try:
-                _err = resp.json().get("error", {}).get("message", resp.text[:300])
-            except Exception:
-                _err = resp.text[:300]
-            if modelo == MODELO_IMAGEM:
-                continue  # tenta fallback
-            return None, f"Erro HTTP {resp.status_code}: {_err}"
+    if resp is None:
+        return None, f"Falha ao conectar ao modelo {MODELO_IMAGEM}."
 
+    if resp.status_code != 200:
         try:
-            dados = resp.json()
+            _err = resp.json().get("error", {}).get("message", resp.text[:300])
         except Exception:
-            if modelo == MODELO_IMAGEM:
-                continue
-            return None, "Resposta inválida da API."
+            _err = resp.text[:300]
+        return None, f"Erro HTTP {resp.status_code}: {_err}"
 
-        candidatos = dados.get("candidates", [])
-        if not candidatos:
-            if modelo == MODELO_IMAGEM:
-                continue
-            return None, "A IA não retornou nenhuma imagem (resposta vazia)."
+    try:
+        dados = resp.json()
+    except Exception:
+        return None, "Resposta invÃ¡lida da API (nÃ£o Ã© JSON)."
 
-        for parte in candidatos[0].get("content", {}).get("parts", []):
-            inline = parte.get("inlineData") or parte.get("inline_data")
-            if inline and inline.get("data"):
-                img_bytes_raw = base64.b64decode(inline["data"])
-                try:
-                    from PIL import Image as _PILImage
-                    import io as _io
-                    pil = _PILImage.open(_io.BytesIO(img_bytes_raw)).convert("RGBA")
-                    pil = pil.resize((1200, 1200), _PILImage.LANCZOS)
-                    buf = _io.BytesIO()
-                    pil.save(buf, format="PNG")
-                    img_bytes_raw = buf.getvalue()
-                except Exception:
-                    pass
-                return img_bytes_raw, None
+    candidatos = dados.get("candidates", [])
+    if not candidatos:
+        return None, "A IA nÃ£o retornou nenhuma imagem (resposta vazia â possÃ­vel bloqueio de conteÃºdo)."
 
-        if modelo == MODELO_IMAGEM:
-            continue
-        return None, "A IA respondeu mas não enviou imagem (pode ter bloqueado o conteúdo)."
+    for parte in candidatos[0].get("content", {}).get("parts", []):
+        inline = parte.get("inlineData") or parte.get("inline_data")
+        if inline and inline.get("data"):
+            img_bytes_raw = base64.b64decode(inline["data"])
+            try:
+                from PIL import Image as _PILImage
+                import io as _io
+                pil = _PILImage.open(_io.BytesIO(img_bytes_raw)).convert("RGBA")
+                pil = pil.resize((1200, 1200), _PILImage.LANCZOS)
+                buf = _io.BytesIO()
+                pil.save(buf, format="PNG")
+                img_bytes_raw = buf.getvalue()
+            except Exception:
+                pass
+            return img_bytes_raw, None
 
-    return None, "Nenhum modelo disponível retornou uma imagem."
+    return None, "A IA respondeu mas nÃ£o incluiu imagem (pode ter bloqueado o conteÃºdo)."
 
 
 INSTRUCAO_REFERENCIA_LAYOUT = """
-IMAGENS DE REFERÊNCIA DE LAYOUT — REGRAS ABSOLUTAS:
-- As imagens de referência de layout mostram COMPOSIÇÃO, POSIÇÃO, ESTILO e ESTRUTURA visual
-- O produto nessas imagens de referência NÃO É o produto a ser gerado — é apenas um exemplo de layout
-- USE das referências: posicionamento, hierarquia de elementos, estilo de texto, uso de pessoas/cenários
-- NÃO USE das referências: o produto em si, cores do produto de referência, marcas ou logotipos visíveis
-- Aplique o layout/composição da referência ao PRODUTO DO COLABORADOR com as cores MartinSousa
-- Se o arquivo de referência tiver nome indicando o tipo (ex: "fundo_branco", "beneficios"), essa referência se aplica especificamente àquele tipo de imagem
+IMAGENS DE REFERÃNCIA DE LAYOUT â REGRAS ABSOLUTAS:
+- As imagens de referÃªncia de layout mostram COMPOSIÃÃO, POSIÃÃO, ESTILO e ESTRUTURA visual
+- O produto nessas imagens de referÃªncia NÃO Ã o produto a ser gerado â Ã© apenas um exemplo de layout
+- USE das referÃªncias: posicionamento, hierarquia de elementos, estilo de texto, uso de pessoas/cenÃ¡rios
+- NÃO USE das referÃªncias: o produto em si, cores do produto de referÃªncia, marcas ou logotipos visÃ­veis
+- Aplique o layout/composiÃ§Ã£o da referÃªncia ao PRODUTO DO COLABORADOR com as cores MartinSousa
+- Se o arquivo de referÃªncia tiver nome indicando o tipo (ex: "fundo_branco", "beneficios"), essa referÃªncia se aplica especificamente Ã quele tipo de imagem
 """
 
 
 def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
                          refs_layout_nomes=None, instrucao_layout=""):
-    """Monta o prompt completo para geração.
+    """Monta o prompt completo para geraÃ§Ã£o.
 
-    Para os tipos padrão (1-7): aplica PADRAO_VISUAL + INSTRUCAO_COMPOSICAO
+    Para os tipos padrÃ£o (1-7): aplica PADRAO_VISUAL + INSTRUCAO_COMPOSICAO
     (imagens de marketing com identidade visual).
 
-    Para 'Personalizado': aplica INSTRUCAO_PERSONALIZADO sem branding automático
-    — a instrução do colaborador é a única fonte de verdade.
+    Para 'Personalizado': aplica INSTRUCAO_PERSONALIZADO sem branding automÃ¡tico
+    â a instruÃ§Ã£o do colaborador Ã© a Ãºnica fonte de verdade.
 
-    refs_layout_nomes: lista de nomes de arquivo das imagens de referência de layout
-    instrucao_layout: texto descrevendo o que cada referência representa
+    refs_layout_nomes: lista de nomes de arquivo das imagens de referÃªncia de layout
+    instrucao_layout: texto descrevendo o que cada referÃªncia representa
     """
     base = PRESETS.get(tipo, "")
 
@@ -519,31 +507,31 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
         if dados_descricao.get("cor"):
             contexto_produto += f"Cor: {dados_descricao['cor']}\n"
         if dados_descricao.get("medidas"):
-            contexto_produto += f"Medidas EXATAS (use esses números, não invente): {dados_descricao['medidas']}\n"
+            contexto_produto += f"Medidas EXATAS (use esses nÃºmeros, nÃ£o invente): {dados_descricao['medidas']}\n"
         if dados_descricao.get("peso"):
-            contexto_produto += f"Peso EXATO (use esse número, não invente): {dados_descricao['peso']}\n"
+            contexto_produto += f"Peso EXATO (use esse nÃºmero, nÃ£o invente): {dados_descricao['peso']}\n"
         if dados_descricao.get("diferenciais"):
             contexto_produto += f"Diferenciais principais: {dados_descricao['diferenciais'][:200]}\n"
 
     bloco_instrucoes = (
-        f"\nINSTRUÇÕES DO COLABORADOR (siga com precisão):\n{instrucoes_extras}"
+        f"\nINSTRUÃÃES DO COLABORADOR (siga com precisÃ£o):\n{instrucoes_extras}"
         if instrucoes_extras else ""
     )
 
-    # Bloco de referências de layout
+    # Bloco de referÃªncias de layout
     bloco_refs = ""
     if refs_layout_nomes:
         nomes_str = ", ".join(refs_layout_nomes)
-        bloco_refs = f"\nREFERÊNCIAS DE LAYOUT FORNECIDAS: {nomes_str}"
+        bloco_refs = f"\nREFERÃNCIAS DE LAYOUT FORNECIDAS: {nomes_str}"
         if instrucao_layout:
-            bloco_refs += f"\nO que cada referência representa: {instrucao_layout}"
+            bloco_refs += f"\nO que cada referÃªncia representa: {instrucao_layout}"
         bloco_refs += f"\n{INSTRUCAO_REFERENCIA_LAYOUT}"
 
     eh_personalizado = (tipo == "Personalizado (descrevo o que quero)")
 
     if eh_personalizado:
-        # Modo personalizado: SEM branding automático, SEM nova composição forçada
-        # A instrução do colaborador define tudo.
+        # Modo personalizado: SEM branding automÃ¡tico, SEM nova composiÃ§Ã£o forÃ§ada
+        # A instruÃ§Ã£o do colaborador define tudo.
         return f"""{contexto_produto}
 TIPO DE IMAGEM: Personalizado
 {bloco_instrucoes}
@@ -553,7 +541,7 @@ TIPO DE IMAGEM: Personalizado
 {INSTRUCAO_FIDELIDADE}
 """
     else:
-        # Tipos padrão (1-7): imagens de marketing com identidade visual completa
+        # Tipos padrÃ£o (1-7): imagens de marketing com identidade visual completa
         return f"""{contexto_produto}
 TIPO DE IMAGEM: {tipo}
 {base}
@@ -567,26 +555,26 @@ TIPO DE IMAGEM: {tipo}
 
 
 def montar_prompt_ajuste_fino(instrucao):
-    """Monta prompt para edição cirúrgica de uma imagem existente.
+    """Monta prompt para ediÃ§Ã£o cirÃºrgica de uma imagem existente.
 
-    NÃO aplica PADRAO_VISUAL, NÃO aplica INSTRUCAO_COMPOSICAO.
-    Instrui a IA a fazer SOMENTE a modificação descrita, preservando tudo o mais.
+    NÃO aplica PADRAO_VISUAL, NÃO aplica INSTRUCAO_COMPOSICAO.
+    Instrui a IA a fazer SOMENTE a modificaÃ§Ã£o descrita, preservando tudo o mais.
     """
-    return f"""MODO AJUSTE FINO — EDIÇÃO CIRÚRGICA DE IMAGEM EXISTENTE
+    return f"""MODO AJUSTE FINO â EDIÃÃO CIRÃRGICA DE IMAGEM EXISTENTE
 
-A imagem fornecida é a imagem atual que deve ser editada.
+A imagem fornecida Ã© a imagem atual que deve ser editada.
 
-MODIFICAÇÃO SOLICITADA — o único e exclusivo ponto a alterar:
+MODIFICAÃÃO SOLICITADA â o Ãºnico e exclusivo ponto a alterar:
 {instrucao}
 
 {INSTRUCAO_AJUSTE_FINO}
 
-Reproduza a imagem fornecida com fidelidade absoluta, aplicando APENAS a modificação acima.
-Trate qualquer elemento que não foi mencionado na instrução como intocável.
+Reproduza a imagem fornecida com fidelidade absoluta, aplicando APENAS a modificaÃ§Ã£o acima.
+Trate qualquer elemento que nÃ£o foi mencionado na instruÃ§Ã£o como intocÃ¡vel.
 """
 
 
-# ── GOOGLE DRIVE — GESTÃO DE PASTAS ───────────────────────────────────────────
+# ââ GOOGLE DRIVE â GESTÃO DE PASTAS âââââââââââââââââââââââââââââââââââââââââââ
 
 def _drive_service():
     from googleapiclient.discovery import build
@@ -599,7 +587,7 @@ def _drive_service():
 
 
 def buscar_pasta_produto(nome_produto, codigo, pasta_pai_id):
-    """Busca pasta exata '[Nome] - [Código]' ou pelo nome aproximado.
+    """Busca pasta exata '[Nome] - [CÃ³digo]' ou pelo nome aproximado.
     Retorna lista de (id, name) encontrados."""
     try:
         service = _drive_service()
@@ -644,7 +632,7 @@ def criar_pasta_produto(nome_pasta, pasta_pai_id):
 
 
 def upload_para_pasta(imagem_bytes, nome_arquivo, pasta_id):
-    """Faz upload de imagem para pasta específica. Retorna (link, erro)."""
+    """Faz upload de imagem para pasta especÃ­fica. Retorna (link, erro)."""
     from googleapiclient.http import MediaInMemoryUpload
     try:
         service = _drive_service()
@@ -663,7 +651,7 @@ def upload_para_pasta(imagem_bytes, nome_arquivo, pasta_id):
 
 
 def criar_zip_galeria(galeria, nome_produto):
-    """Cria ZIP em memória com todas as imagens da galeria. Retorna bytes."""
+    """Cria ZIP em memÃ³ria com todas as imagens da galeria. Retorna bytes."""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for g in galeria:
@@ -674,24 +662,24 @@ def criar_zip_galeria(galeria, nome_produto):
     return buf.read()
 
 
-# ── INTERFACE PRINCIPAL ────────────────────────────────────────────────────────
+# ââ INTERFACE PRINCIPAL ââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 
 def _testar_gemini_api():
-    """Testa a API Gemini com geração real de imagem (prompt mínimo, sem foto de referência).
+    """Testa a API Gemini com geraÃ§Ã£o real de imagem (prompt mÃ­nimo, sem foto de referÃªncia).
     Retorna dict com resultados por modelo.
     """
     import time as _t_diag
     api_key = st.secrets.get("GEMINI_API_KEY", "") or os.environ.get("GEMINI_API_KEY", "")
     if not api_key:
-        return {"erro_geral": "GEMINI_API_KEY não configurada nas Secrets do Railway."}
+        return {"erro_geral": "GEMINI_API_KEY nÃ£o configurada nas Secrets do Railway."}
 
     body_teste = {
         "contents": [{"parts": [{"text": "Draw a small red circle on a white background. Simple and minimal."}]}],
         "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]},
     }
 
-    resultados = {"key_prefixo": f"{api_key[:6]}…{api_key[-4:]}"}
-    for modelo in [MODELO_IMAGEM, MODELO_IMAGEM_FALLBACK]:
+    resultados = {"key_prefixo": f"{api_key[:6]}â¦{api_key[-4:]}"}
+    for modelo in [MODELO_IMAGEM]:
         t0 = _t_diag.time()
         try:
             r = requests.post(
@@ -711,9 +699,9 @@ def _testar_gemini_api():
             else:
                 try:
                     err = r.json().get("error", {})
-                    msg = f"HTTP {r.status_code} — {err.get('status','')} — {err.get('message','')[:250]}"
+                    msg = f"HTTP {r.status_code} â {err.get('status','')} â {err.get('message','')[:250]}"
                 except Exception:
-                    msg = f"HTTP {r.status_code} — {r.text[:250]}"
+                    msg = f"HTTP {r.status_code} â {r.text[:250]}"
                 resultados[modelo] = {"ok": False, "ms": ms, "erro": msg}
         except Exception as e:
             resultados[modelo] = {"ok": False, "ms": int((_t_diag.time() - t0)*1000), "erro": str(e)}
@@ -722,31 +710,30 @@ def _testar_gemini_api():
 
 def pagina_imagem(usuario_logado):
     st.subheader("Imagem")
-    st.caption("Gere imagens profissionais para o anúncio. A IA mostra o que vai criar antes de gastar com a geração.")
+    st.caption("Gere imagens profissionais para o anÃºncio. A IA mostra o que vai criar antes de gastar com a geraÃ§Ã£o.")
 
-    with st.expander("🔧 Diagnóstico da API Gemini", expanded=False):
-        st.caption("Gera uma imagem de teste em cada modelo para confirmar qual está funcionando. Gasta um pouco de cota.")
-        if st.button("Testar geração agora", key="btn_diag_gemini"):
-            with st.spinner("Testando os dois modelos (pode levar ~30s)..."):
+    with st.expander("ð§ DiagnÃ³stico da API Gemini", expanded=False):
+        st.caption("Gera uma imagem de teste em cada modelo para confirmar qual estÃ¡ funcionando. Gasta um pouco de cota.")
+        if st.button("Testar geraÃ§Ã£o agora", key="btn_diag_gemini"):
+            with st.spinner(f"Testando modelo {MODELO_IMAGEM} (pode levar ~30s)..."):
                 d = _testar_gemini_api()
             if "erro_geral" in d:
                 st.error(d["erro_geral"])
             else:
                 st.caption(f"Chave: `{d.get('key_prefixo','?')}`")
-                for modelo in [MODELO_IMAGEM, MODELO_IMAGEM_FALLBACK]:
-                    info = d.get(modelo, {})
-                    if info.get("ok"):
-                        icone = "✅" if info.get("tem_imagem") else "⚠️"
-                        label = "gerou imagem" if info.get("tem_imagem") else "respondeu mas sem imagem"
-                        st.success(f"{icone} **{modelo}** — {label} ({info['ms']}ms)")
-                    else:
-                        st.error(f"❌ **{modelo}** — {info.get('erro','erro desconhecido')} ({info.get('ms',0)}ms)")
+                info = d.get(MODELO_IMAGEM, {})
+                if info.get("ok"):
+                    icone = "â" if info.get("tem_imagem") else "â ï¸"
+                    label = "gerou imagem" if info.get("tem_imagem") else "respondeu mas sem imagem"
+                    st.success(f"{icone} **{MODELO_IMAGEM}** â {label} ({info['ms']}ms)")
+                else:
+                    st.error(f"â **{MODELO_IMAGEM}** â {info.get('erro','erro desconhecido')} ({info.get('ms',0)}ms)")
 
-    # ── RE-RUN AUTOMÁTICO DA TRIAGEM (disparado pelo chat ao preencher dados) ──
+    # ââ RE-RUN AUTOMÃTICO DA TRIAGEM (disparado pelo chat ao preencher dados) ââ
     if st.session_state.pop("img_rerun_triagem", False):
         cfg = st.session_state.get("img_triagem_config")
         if cfg and cfg.get("tipos"):
-            with st.spinner("♻️ O Assistente IA atualizou os dados — refazendo a análise..."):
+            with st.spinner("â»ï¸ O Assistente IA atualizou os dados â refazendo a anÃ¡lise..."):
                 try:
                     plano, erro = gerar_triagem_ia(
                         cfg["nome_produto"],
@@ -758,11 +745,11 @@ def pagina_imagem(usuario_logado):
                     if not erro and plano:
                         st.session_state["img_triagem_plano"] = plano
                 except Exception:
-                    pass  # silencioso — triagem antiga continua visível
+                    pass  # silencioso â triagem antiga continua visÃ­vel
             st.rerun()
 
-    # ── LINHA 1: Nome + Código ─────────────────────────────────────────────────
-    # Pré-preenche via session_state (evita bug RemoveChild do React ao usar
+    # ââ LINHA 1: Nome + CÃ³digo âââââââââââââââââââââââââââââââââââââââââââââââââ
+    # PrÃ©-preenche via session_state (evita bug RemoveChild do React ao usar
     # value= com pop() durante re-renders causados por paste/autocomplete)
     if "img_nome_importado" in st.session_state:
         st.session_state["img_nome_produto_input"] = st.session_state.pop("img_nome_importado")
@@ -777,47 +764,47 @@ def pagina_imagem(usuario_logado):
         )
     with col_cod:
         codigo_input = st.text_input(
-            "Código da descrição (opcional)",
+            "CÃ³digo da descriÃ§Ã£o (opcional)",
             key="img_codigo_input",
-            placeholder="ex: MS-BENG-07174K2  (gerado na aba Descrição)",
-            help="Gere uma descrição na aba Descrição — o código aparece num bloco azul no final. Copie e cole aqui. O nome do produto não é o código.",
+            placeholder="ex: MS-BENG-07174K2  (gerado na aba DescriÃ§Ã£o)",
+            help="Gere uma descriÃ§Ã£o na aba DescriÃ§Ã£o â o cÃ³digo aparece num bloco azul no final. Copie e cole aqui. O nome do produto nÃ£o Ã© o cÃ³digo.",
         )
 
-    # Busca dados da descrição pelo código
+    # Busca dados da descriÃ§Ã£o pelo cÃ³digo
     dados_descricao = None
     if codigo_input:
         import atividades as _atv
         dados_descricao = _atv.buscar_por_codigo(codigo_input)
         if dados_descricao:
             st.success(
-                f"✅ Descrição encontrada: **{dados_descricao.get('nome_produto','')}** · "
-                f"Cor: {dados_descricao.get('cor') or '—'} · "
-                f"Medidas: {dados_descricao.get('medidas') or '—'}"
+                f"â DescriÃ§Ã£o encontrada: **{dados_descricao.get('nome_produto','')}** Â· "
+                f"Cor: {dados_descricao.get('cor') or 'â'} Â· "
+                f"Medidas: {dados_descricao.get('medidas') or 'â'}"
             )
         else:
-            st.warning("Código não encontrado no histórico. Pode continuar — só não haverá vínculo com a descrição.")
+            st.warning("CÃ³digo nÃ£o encontrado no histÃ³rico. Pode continuar â sÃ³ nÃ£o haverÃ¡ vÃ­nculo com a descriÃ§Ã£o.")
 
-    # Também usa dados do session_state do módulo de descrição se o usuário
-    # acabou de gerar na mesma sessão e ainda não copiou o código
+    # TambÃ©m usa dados do session_state do mÃ³dulo de descriÃ§Ã£o se o usuÃ¡rio
+    # acabou de gerar na mesma sessÃ£o e ainda nÃ£o copiou o cÃ³digo
     if not dados_descricao and st.session_state.get("desc_codigo_atual") == codigo_input and codigo_input:
         dados_descricao = st.session_state.get("desc_dados_atual")
 
-    # ── O QUE GERAR — escolha antes de ver opções específicas ─────────────────
+    # ââ O QUE GERAR â escolha antes de ver opÃ§Ãµes especÃ­ficas âââââââââââââââââ
     st.markdown("---")
     modo = st.radio(
         "O que gerar?",
-        ["1 imagem específica", "Selecionar", "As 7 imagens do padrão", "✏️ Ajuste Fino"],
+        ["1 imagem especÃ­fica", "Selecionar", "As 7 imagens do padrÃ£o", "âï¸ Ajuste Fino"],
         horizontal=True,
         key="img_modo",
     )
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # MODO AJUSTE FINO — edição cirúrgica de imagem existente
-    # ══════════════════════════════════════════════════════════════════════════
-    if modo == "✏️ Ajuste Fino":
+    # ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    # MODO AJUSTE FINO â ediÃ§Ã£o cirÃºrgica de imagem existente
+    # ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    if modo == "âï¸ Ajuste Fino":
         st.info(
-            "**✏️ Ajuste Fino** — envie a imagem que deseja modificar e descreva "
-            "**somente** o que deve mudar. A IA preservará tudo o mais exatamente igual."
+            "**âï¸ Ajuste Fino** â envie a imagem que deseja modificar e descreva "
+            "**somente** o que deve mudar. A IA preservarÃ¡ tudo o mais exatamente igual."
         )
 
         fotos_ajuste_upload = st.file_uploader(
@@ -837,19 +824,19 @@ def pagina_imagem(usuario_logado):
                 st.caption(f"+ {len(fotos_bytes_ajuste) - 4} imagem(ns) adicional(is) carregada(s).")
 
         instrucao_ajuste = st.text_area(
-            "O que você quer modificar? (descreva SOMENTE o que deve mudar — não explique o que deve ficar igual)",
+            "O que vocÃª quer modificar? (descreva SOMENTE o que deve mudar â nÃ£o explique o que deve ficar igual)",
             height=120,
             placeholder=(
-                "ex: Diminua o tamanho do produto para que fique em proporção realista ao cenário. "
+                "ex: Diminua o tamanho do produto para que fique em proporÃ§Ã£o realista ao cenÃ¡rio. "
                 "O produto mede aproximadamente 18cm.\n\n"
-                "NÃO descreva o que já está certo — a IA vai preservar tudo que você não mencionar."
+                "NÃO descreva o que jÃ¡ estÃ¡ certo â a IA vai preservar tudo que vocÃª nÃ£o mencionar."
             ),
             key="img_instrucao_ajuste",
         )
 
         st.markdown("---")
         if st.button(
-            "✏️ Aplicar Ajuste Fino",
+            "âï¸ Aplicar Ajuste Fino",
             type="primary",
             use_container_width=True,
             disabled=(not fotos_bytes_ajuste or not instrucao_ajuste.strip()),
@@ -858,7 +845,7 @@ def pagina_imagem(usuario_logado):
                 st.warning("Suba a imagem que deseja ajustar.")
                 st.stop()
             if not instrucao_ajuste.strip():
-                st.warning("Descreva o que você quer modificar.")
+                st.warning("Descreva o que vocÃª quer modificar.")
                 st.stop()
 
             import time as _time_af
@@ -878,17 +865,17 @@ def pagina_imagem(usuario_logado):
                     _res_af["erro"] = "Tempo limite de 5 min atingido. Tente novamente."
                     _res_af["done"] = True
                     break
-                _slot_af.caption(f"⏳ Aplicando ajuste fino... {_seg_af}s")
+                _slot_af.caption(f"â³ Aplicando ajuste fino... {_seg_af}s")
                 _time_af.sleep(1)
             _slot_af.empty()
             img_bytes_af, erro_af = _res_af["img"], _res_af["erro"]
 
             if erro_af:
-                st.error(f"❌ Erro ao aplicar ajuste: {erro_af}")
+                st.error(f"â Erro ao aplicar ajuste: {erro_af}")
             else:
                 galeria_atual = st.session_state.get("img_galeria", [])
                 galeria_atual.append({
-                    "tipo": f"Ajuste Fino — {instrucao_ajuste[:40]}...",
+                    "tipo": f"Ajuste Fino â {instrucao_ajuste[:40]}...",
                     "bytes": img_bytes_af,
                     "aprovado": False,
                 })
@@ -908,13 +895,13 @@ def pagina_imagem(usuario_logado):
                 )
                 st.rerun()
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # MODOS PADRÃO — fotos de referência + triagem + geração
-    # ══════════════════════════════════════════════════════════════════════════
+    # ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    # MODOS PADRÃO â fotos de referÃªncia + triagem + geraÃ§Ã£o
+    # ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
     else:
-        # ── FOTOS DE REFERÊNCIA DO PRODUTO ────────────────────────────────────
-        st.markdown("**Fotos de referência do produto**")
-        st.caption("Suba quantas fotos quiser — ângulos diferentes ajudam a IA a ser mais fiel.")
+        # ââ FOTOS DE REFERÃNCIA DO PRODUTO ââââââââââââââââââââââââââââââââââââ
+        st.markdown("**Fotos de referÃªncia do produto**")
+        st.caption("Suba quantas fotos quiser â Ã¢ngulos diferentes ajudam a IA a ser mais fiel.")
         fotos_upload = st.file_uploader(
             "Fotos do produto (JPG, PNG, WebP)",
             type=["jpg", "jpeg", "png", "webp"],
@@ -933,43 +920,43 @@ def pagina_imagem(usuario_logado):
             if fotos_grandes:
                 nomes = ", ".join(f"{n} ({s:.1f}MB)" for n, s in fotos_grandes)
                 st.warning(
-                    f"⚠️ {len(fotos_grandes)} foto(s) com mais de {LIMITE_MB}MB: {nomes}. "
-                    f"Fotos muito grandes podem causar timeout — considere reduzir a resolução antes de enviar."
+                    f"â ï¸ {len(fotos_grandes)} foto(s) com mais de {LIMITE_MB}MB: {nomes}. "
+                    f"Fotos muito grandes podem causar timeout â considere reduzir a resoluÃ§Ã£o antes de enviar."
                 )
 
-            # Sempre 5 colunas fixas — evita RemoveChild do React ao mudar nº de colunas
+            # Sempre 5 colunas fixas â evita RemoveChild do React ao mudar nÂº de colunas
             _cols_prev = st.columns(5)
             for _i, _fb in enumerate(fotos_bytes[:5]):
                 _cols_prev[_i].image(_fb, use_container_width=True)
             if len(fotos_bytes) > 5:
                 st.caption(f"+ {len(fotos_bytes) - 5} foto(s) adicionais carregadas.")
 
-        # ── IMAGENS DE REFERÊNCIA DE LAYOUT (opcional) ────────────────────────
-        with st.expander("🖼️ Imagens de referência de layout (opcional)", expanded=False):
+        # ââ IMAGENS DE REFERÃNCIA DE LAYOUT (opcional) ââââââââââââââââââââââââ
+        with st.expander("ð¼ï¸ Imagens de referÃªncia de layout (opcional)", expanded=False):
             st.caption(
-                "Suba imagens de outros produtos que mostram o **layout, posições, estilo ou texto** "
-                "que você quer replicar. A IA vai entender a composição e aplicar ao SEU produto, "
-                "mantendo o padrão visual MartinSousa."
+                "Suba imagens de outros produtos que mostram o **layout, posiÃ§Ãµes, estilo ou texto** "
+                "que vocÃª quer replicar. A IA vai entender a composiÃ§Ã£o e aplicar ao SEU produto, "
+                "mantendo o padrÃ£o visual MartinSousa."
             )
             st.info(
-                "💡 **Como nomear os arquivos para as 7 imagens padrão:** "
+                "ð¡ **Como nomear os arquivos para as 7 imagens padrÃ£o:** "
                 "`fundo_branco.jpg`, `beneficios.jpg`, `cenario.jpg`, `detalhes.jpg`, "
-                "`medidas_peso.jpg`, `quebra_objecao.jpg`, `presentear.jpg` — "
-                "o nome do arquivo indica para qual tipo de imagem a referência se aplica."
+                "`medidas_peso.jpg`, `quebra_objecao.jpg`, `presentear.jpg` â "
+                "o nome do arquivo indica para qual tipo de imagem a referÃªncia se aplica."
             )
             refs_layout_upload = st.file_uploader(
-                "Imagens de referência de layout (JPG, PNG, WebP)",
+                "Imagens de referÃªncia de layout (JPG, PNG, WebP)",
                 type=["jpg", "jpeg", "png", "webp"],
                 accept_multiple_files=True,
                 key="img_refs_layout_upload",
-                help="Ex: uma imagem de bengala mostrando como você quer que fique o layout — a IA reproduz o estilo no seu produto.",
+                help="Ex: uma imagem de bengala mostrando como vocÃª quer que fique o layout â a IA reproduz o estilo no seu produto.",
             )
             refs_layout_bytes = []
             refs_layout_nomes = []
             if refs_layout_upload:
                 refs_layout_bytes = [f.getvalue() for f in refs_layout_upload]
                 refs_layout_nomes = [f.name for f in refs_layout_upload]
-                # Sempre 4 colunas fixas — evita RemoveChild do React
+                # Sempre 4 colunas fixas â evita RemoveChild do React
                 _cols_rl = st.columns(4)
                 for _i, _rb in enumerate(refs_layout_bytes[:4]):
                     _cols_rl[_i].image(_rb, caption=refs_layout_nomes[_i][:20], use_container_width=True)
@@ -977,27 +964,27 @@ def pagina_imagem(usuario_logado):
             instrucao_layout = ""
             if refs_layout_bytes:
                 instrucao_layout = st.text_area(
-                    "Descreva o que cada imagem de referência representa (opcional)",
+                    "Descreva o que cada imagem de referÃªncia representa (opcional)",
                     height=80,
                     placeholder=(
-                        "ex: 'fundo_branco.jpg' — quero esse estilo de sombra suave e centralização. "
-                        "'beneficios.jpg' — replicar os ícones à direita com texto ao lado."
+                        "ex: 'fundo_branco.jpg' â quero esse estilo de sombra suave e centralizaÃ§Ã£o. "
+                        "'beneficios.jpg' â replicar os Ã­cones Ã  direita com texto ao lado."
                     ),
                     key="img_instrucao_layout",
                 )
 
-        # ── TIPOS ─────────────────────────────────────────────────────────────
+        # ââ TIPOS âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
         tipos_selecionados = []
         instrucoes_extras = ""
 
-        if modo == "1 imagem específica":
+        if modo == "1 imagem especÃ­fica":
             tipo_unico = st.selectbox("Tipo de imagem", list(PRESETS.keys()), key="img_tipo_unico")
             instrucoes_extras = st.text_area(
-                "Descreva o que você quer nessa imagem (textos, cenas, destaque)",
+                "Descreva o que vocÃª quer nessa imagem (textos, cenas, destaque)",
                 value=PRESETS[tipo_unico],
                 height=120,
                 key=f"img_instr_{tipo_unico}",
-                placeholder="ex: título 'Guarda suas memórias com estilo', 3 benefícios: durabilidade, capa dura, folhas pretas...",
+                placeholder="ex: tÃ­tulo 'Guarda suas memÃ³rias com estilo', 3 benefÃ­cios: durabilidade, capa dura, folhas pretas...",
             )
             tipos_selecionados = [tipo_unico]
 
@@ -1009,48 +996,48 @@ def pagina_imagem(usuario_logado):
                 key="img_tipos_multi",
             )
             instrucoes_extras = st.text_area(
-                "Observações gerais (aplicadas a todas as imagens selecionadas)",
+                "ObservaÃ§Ãµes gerais (aplicadas a todas as imagens selecionadas)",
                 height=80,
-                placeholder="ex: produto tem versão preta e branca, foca nos dois no fundo branco",
+                placeholder="ex: produto tem versÃ£o preta e branca, foca nos dois no fundo branco",
                 key="img_instr_multi",
             )
 
-        else:  # As 7 imagens do padrão
+        else:  # As 7 imagens do padrÃ£o
             tipos_selecionados = TIPOS_PADRAO
             instrucoes_extras = st.text_area(
-                "Observações gerais (aplicadas a todas as 7 imagens)",
+                "ObservaÃ§Ãµes gerais (aplicadas a todas as 7 imagens)",
                 height=80,
-                placeholder="ex: produto vem em 3 cores, destaque a vermelha nas peças de marketing",
+                placeholder="ex: produto vem em 3 cores, destaque a vermelha nas peÃ§as de marketing",
                 key="img_instr_lote",
             )
 
-        # ── BOTÃO DE TRIAGEM ──────────────────────────────────────────────────
+        # ââ BOTÃO DE TRIAGEM ââââââââââââââââââââââââââââââââââââââââââââââââââ
         st.markdown("---")
         iniciar_triagem = st.button(
-            "🔍 Analisar e mostrar plano antes de gerar",
+            "ð Analisar e mostrar plano antes de gerar",
             type="primary",
             use_container_width=True,
             disabled=not tipos_selecionados,
         )
 
         if iniciar_triagem:
-            # Validações FORA do try/except para evitar que st.stop() seja capturado como erro
+            # ValidaÃ§Ãµes FORA do try/except para evitar que st.stop() seja capturado como erro
             if not nome_produto:
                 st.warning("Informe o nome do produto.")
                 st.stop()
             if not fotos_bytes:
-                st.warning("Suba pelo menos uma foto do produto — é ela que garante fidelidade.")
+                st.warning("Suba pelo menos uma foto do produto â Ã© ela que garante fidelidade.")
                 st.stop()
 
             try:
-                with st.spinner("Analisando produto e montando o plano de criação..."):
+                with st.spinner("Analisando produto e montando o plano de criaÃ§Ã£o..."):
                     plano, erro_triagem = gerar_triagem_ia(
                         nome_produto, tipos_selecionados, dados_descricao,
                         instrucoes_extras, fotos_bytes,
                     )
 
                 if erro_triagem:
-                    st.error(f"Não consegui montar a triagem: {erro_triagem}")
+                    st.error(f"NÃ£o consegui montar a triagem: {erro_triagem}")
                 else:
                     st.session_state["img_triagem_plano"] = plano
                     st.session_state["img_triagem_config"] = {
@@ -1060,55 +1047,55 @@ def pagina_imagem(usuario_logado):
                         "instrucoes_extras": instrucoes_extras,
                         "fotos_bytes": fotos_bytes,
                         "dados_descricao": dados_descricao,
-                        # Referências de layout (opcional)
+                        # ReferÃªncias de layout (opcional)
                         "refs_layout_bytes": refs_layout_bytes,
                         "refs_layout_nomes": refs_layout_nomes,
                         "instrucao_layout": instrucao_layout,
                     }
-                    # Sem st.rerun() — o plano é exibido diretamente abaixo
-                    # sem resetar a página nem perder os campos preenchidos
+                    # Sem st.rerun() â o plano Ã© exibido diretamente abaixo
+                    # sem resetar a pÃ¡gina nem perder os campos preenchidos
             except Exception as _e_triagem:
                 st.error(
-                    f"❌ Ocorreu um erro ao montar a prévia: {_e_triagem}\n\n"
-                    "Verifique se o nome do produto está preenchido e tente novamente. "
+                    f"â Ocorreu um erro ao montar a prÃ©via: {_e_triagem}\n\n"
+                    "Verifique se o nome do produto estÃ¡ preenchido e tente novamente. "
                     "Se o erro persistir, reduza o tamanho das fotos ou escolha menos tipos de imagem."
                 )
 
-    # ── EXIBIÇÃO DA TRIAGEM ───────────────────────────────────────────────────
+    # ââ EXIBIÃÃO DA TRIAGEM âââââââââââââââââââââââââââââââââââââââââââââââââââ
     if "img_triagem_plano" in st.session_state and "img_triagem_config" in st.session_state:
         plano = st.session_state["img_triagem_plano"]
         cfg = st.session_state["img_triagem_config"]
 
         st.markdown("---")
-        st.markdown("### 🗂️ Plano de criação")
-        st.caption("Esta etapa não custou nada. Corrija o que precisar antes de confirmar a geração.")
+        st.markdown("### ðï¸ Plano de criaÃ§Ã£o")
+        st.caption("Esta etapa nÃ£o custou nada. Corrija o que precisar antes de confirmar a geraÃ§Ã£o.")
 
         itens_plano = plano.get("plano", [])
         itens_viaveis   = [item for item in itens_plano if item.get("viavel", True)]
         itens_bloqueados = [item for item in itens_plano if not item.get("viavel", True)]
 
-        # ── Itens viáveis ─────────────────────────────────────────────────────
+        # ââ Itens viÃ¡veis âââââââââââââââââââââââââââââââââââââââââââââââââââââ
         for item in itens_viaveis:
             flags = item.get("flags", [])
             with st.container(border=True):
                 col_title, col_flag = st.columns([5, 1])
                 col_title.markdown(f"**{item.get('numero', '')}. {item.get('tipo', '')}**")
                 if flags:
-                    col_flag.caption("⚠️ aviso")
+                    col_flag.caption("â ï¸ aviso")
                 st.caption(item.get("composicao", ""))
                 textos = item.get("textos", [])
                 if textos:
-                    st.caption("Textos: " + " · ".join(f'"{t}"' for t in textos[:4]))
+                    st.caption("Textos: " + " Â· ".join(f'"{t}"' for t in textos[:4]))
                 if flags:
                     with st.expander("Ver aviso", expanded=False):
                         st.warning(flags[0])
 
-        # ── Itens bloqueados (informação faltante) ────────────────────────────
+        # ââ Itens bloqueados (informaÃ§Ã£o faltante) ââââââââââââââââââââââââââââ
         if itens_bloqueados:
             st.markdown("---")
             st.markdown(
-                "### 🚫 Imagens bloqueadas — informação insuficiente\n"
-                "As imagens abaixo **não serão geradas** porque falta alguma informação essencial. "
+                "### ð« Imagens bloqueadas â informaÃ§Ã£o insuficiente\n"
+                "As imagens abaixo **nÃ£o serÃ£o geradas** porque falta alguma informaÃ§Ã£o essencial. "
                 "Responda as perguntas no **Assistente IA** (menu lateral) ou preencha os dados e "
                 "clique em **Analisar novamente**."
             )
@@ -1116,7 +1103,7 @@ def pagina_imagem(usuario_logado):
                 with st.container(border=True):
                     st.markdown(
                         f"<div style='padding:2px 0'>"
-                        f"<span class='ms-bloqueada'>🚫 BLOQUEADA</span> &nbsp; "
+                        f"<span class='ms-bloqueada'>ð« BLOQUEADA</span> &nbsp; "
                         f"<strong>{item.get('numero', '')}. {item.get('tipo', '')}</strong>"
                         f"</div>",
                         unsafe_allow_html=True,
@@ -1125,14 +1112,14 @@ def pagina_imagem(usuario_logado):
                     if pergunta:
                         st.error(f"**O que falta:** {pergunta}")
                     else:
-                        st.error("Informação necessária não fornecida. Forneça os dados e analise novamente.")
+                        st.error("InformaÃ§Ã£o necessÃ¡ria nÃ£o fornecida. ForneÃ§a os dados e analise novamente.")
 
         if plano.get("observacao_geral"):
             st.info(plano["observacao_geral"])
 
         correcao = st.text_area(
-            "✏️ Correção ou instrução adicional (opcional — a IA aplicará antes de gerar)",
-            placeholder="ex: O produto é azul, não branco. Nas imagens de cenário, use ambiente externo, não doméstico.",
+            "âï¸ CorreÃ§Ã£o ou instruÃ§Ã£o adicional (opcional â a IA aplicarÃ¡ antes de gerar)",
+            placeholder="ex: O produto Ã© azul, nÃ£o branco. Nas imagens de cenÃ¡rio, use ambiente externo, nÃ£o domÃ©stico.",
             key="img_correcao_triagem",
             height=80,
         )
@@ -1143,42 +1130,42 @@ def pagina_imagem(usuario_logado):
 
         if n_viaveis == 0:
             st.error(
-                "⛔ Nenhuma imagem pode ser gerada agora — todas estão bloqueadas por falta de informação. "
-                "Forneça os dados solicitados e clique em **Analisar novamente**."
+                "â Nenhuma imagem pode ser gerada agora â todas estÃ£o bloqueadas por falta de informaÃ§Ã£o. "
+                "ForneÃ§a os dados solicitados e clique em **Analisar novamente**."
             )
         else:
             aviso_bloqueadas = (
-                f" ({n_bloqueadas} bloqueada(s) por dados insuficientes — serão ignoradas)"
+                f" ({n_bloqueadas} bloqueada(s) por dados insuficientes â serÃ£o ignoradas)"
                 if n_bloqueadas else ""
             )
             st.warning(
-                f"💰 Isso vai gerar **{n_viaveis} imagem(ns)**{aviso_bloqueadas} "
+                f"ð° Isso vai gerar **{n_viaveis} imagem(ns)**{aviso_bloqueadas} "
                 f"com custo estimado de **~R${custo_est:.2f}**. Confirma?"
             )
 
         col_cancelar, col_confirmar = st.columns(2)
-        if col_cancelar.button("❌ Cancelar", use_container_width=True):
+        if col_cancelar.button("â Cancelar", use_container_width=True):
             del st.session_state["img_triagem_plano"]
             del st.session_state["img_triagem_config"]
             st.rerun()
 
         confirmar_disabled = n_viaveis == 0
         if col_confirmar.button(
-            "✅ Confirmar e gerar",
+            "â Confirmar e gerar",
             type="primary",
             use_container_width=True,
             disabled=confirmar_disabled,
         ):
             try:
-                # Aplica correção ao config se houver
+                # Aplica correÃ§Ã£o ao config se houver
                 if correcao:
-                    cfg["instrucoes_extras"] = (cfg.get("instrucoes_extras", "") + "\n\nCORREÇÃO DO COLABORADOR:\n" + correcao).strip()
+                    cfg["instrucoes_extras"] = (cfg.get("instrucoes_extras", "") + "\n\nCORREÃÃO DO COLABORADOR:\n" + correcao).strip()
                     st.session_state["img_triagem_config"] = cfg
 
                 galeria = []
-                barra = st.progress(0.0, text="Iniciando geração...")
+                barra = st.progress(0.0, text="Iniciando geraÃ§Ã£o...")
 
-                # Gera APENAS os tipos viáveis aprovados na triagem
+                # Gera APENAS os tipos viÃ¡veis aprovados na triagem
                 tipos_viaveis = [item["tipo"] for item in itens_viaveis]
                 tipos = tipos_viaveis if tipos_viaveis else cfg["tipos"]
 
@@ -1186,7 +1173,7 @@ def pagina_imagem(usuario_logado):
                 import threading as _threading
                 for i, tipo in enumerate(tipos):
                     barra.progress(i / len(tipos), text=f"Gerando {i+1}/{len(tipos)}: {tipo[:50]}...")
-                    # Sem sleep aqui — o _GEMINI_LIMITER em gerar_imagem_ia já respeita o RPM
+                    # Sem sleep aqui â o _GEMINI_LIMITER em gerar_imagem_ia jÃ¡ respeita o RPM
                     try:
                         prompt_final = montar_prompt_imagem(
                             tipo,
@@ -1196,10 +1183,10 @@ def pagina_imagem(usuario_logado):
                             refs_layout_nomes=cfg.get("refs_layout_nomes", []),
                             instrucao_layout=cfg.get("instrucao_layout", ""),
                         )
-                        # ── Geração em thread separada ──────────────────────────
-                        # Mantém o WebSocket vivo durante a chamada Gemini (30-60s)
-                        # enviando atualizações a cada segundo para o Railway não
-                        # fechar a conexão por inatividade.
+                        # ââ GeraÃ§Ã£o em thread separada ââââââââââââââââââââââââââ
+                        # MantÃ©m o WebSocket vivo durante a chamada Gemini (30-60s)
+                        # enviando atualizaÃ§Ãµes a cada segundo para o Railway nÃ£o
+                        # fechar a conexÃ£o por inatividade.
                         # Combina fotos do produto + refs de layout para o Gemini
                         todas_fotos = cfg["fotos_bytes"] + cfg.get("refs_layout_bytes", [])
                         _res = {"img": None, "erro": None, "done": False}
@@ -1217,20 +1204,20 @@ def pagina_imagem(usuario_logado):
                                 _res["erro"] = "Tempo limite de 5 min atingido. Tente novamente."
                                 _res["done"] = True
                                 break
-                            _contador.caption(f"⏳ Aguardando Gemini... {_seg}s")
+                            _contador.caption(f"â³ Aguardando Gemini... {_seg}s")
                             _time_gen.sleep(1)
                         _contador.empty()
                         img_bytes, erro_gen = _res["img"], _res["erro"]
-                        # ────────────────────────────────────────────────────────
+                        # ââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
                         if erro_gen:
-                            st.warning(f"⚠️ Falhou em '{tipo}': {erro_gen}")
+                            st.warning(f"â ï¸ Falhou em '{tipo}': {erro_gen}")
                             continue
                         galeria.append({"tipo": tipo, "bytes": img_bytes, "aprovado": False})
                     except Exception as _e_img:
-                        st.warning(f"⚠️ Erro inesperado em '{tipo}': {_e_img}")
+                        st.warning(f"â ï¸ Erro inesperado em '{tipo}': {_e_img}")
                         continue
 
-                barra.progress(1.0, text=f"Concluído! {len(galeria)}/{len(tipos)} imagens geradas.")
+                barra.progress(1.0, text=f"ConcluÃ­do! {len(galeria)}/{len(tipos)} imagens geradas.")
 
                 if galeria:
                     for k in [k for k in st.session_state if k.startswith("_pasta_")]:
@@ -1258,28 +1245,28 @@ def pagina_imagem(usuario_logado):
                     del st.session_state["img_triagem_config"]
                     st.rerun()
                 else:
-                    st.error("❌ Nenhuma imagem foi gerada com sucesso. Verifique os avisos acima e tente novamente.")
+                    st.error("â Nenhuma imagem foi gerada com sucesso. Verifique os avisos acima e tente novamente.")
             except Exception as _e_gerar:
                 st.error(
-                    f"❌ Erro durante a geração: {_e_gerar}\n\n"
-                    "Suas sessões e dados estão preservados. Tente novamente ou reduza o número de imagens."
+                    f"â Erro durante a geraÃ§Ã£o: {_e_gerar}\n\n"
+                    "Suas sessÃµes e dados estÃ£o preservados. Tente novamente ou reduza o nÃºmero de imagens."
                 )
 
-    # ── GALERIA ───────────────────────────────────────────────────────────────
+    # ââ GALERIA âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
     if "img_galeria" in st.session_state and st.session_state["img_galeria"]:
         st.markdown("---")
         galeria = st.session_state["img_galeria"]
         nome_gal = st.session_state.get("img_nome_produto", "produto")
         codigo_gal = st.session_state.get("img_codigo", "")
 
-        # Miniaturas clicáveis
+        # Miniaturas clicÃ¡veis
         nomes_galeria = [g["tipo"] for g in galeria]
         _cols_gal = st.columns(4)
         for i, g in enumerate(galeria):
             with _cols_gal[i % 4]:
                 st.image(g["bytes"], caption=g["tipo"][:20], use_container_width=True)
 
-        # Seleção da imagem ativa
+        # SeleÃ§Ã£o da imagem ativa
         escolha = st.selectbox("Imagem ativa (para ajustar ou baixar individualmente)", nomes_galeria, key="img_escolha")
         idx_ativo = nomes_galeria.index(escolha)
         imagem_ativa = galeria[idx_ativo]["bytes"]
@@ -1288,20 +1275,20 @@ def pagina_imagem(usuario_logado):
         # Exibe imagem ativa grande
         st.image(imagem_ativa, use_container_width=True)
 
-        # Ações individuais
+        # AÃ§Ãµes individuais
         col_dl, col_drive_ind = st.columns(2)
         col_dl.download_button(
-            "⬇️ Baixar esta imagem",
+            "â¬ï¸ Baixar esta imagem",
             data=imagem_ativa,
             file_name=f"{nome_gal}_{tipo_ativo[:20]}.png",
             mime="image/png",
             use_container_width=True,
             key=f"dl_{idx_ativo}",
         )
-        if col_drive_ind.button("☁️ Salvar esta no Drive", use_container_width=True, key=f"drive_ind_{idx_ativo}"):
+        if col_drive_ind.button("âï¸ Salvar esta no Drive", use_container_width=True, key=f"drive_ind_{idx_ativo}"):
             pasta_pai = st.secrets.get("DRIVE_PASTA_IMAGENS_ID", "")
             if not pasta_pai:
-                st.error("DRIVE_PASTA_IMAGENS_ID não configurada.")
+                st.error("DRIVE_PASTA_IMAGENS_ID nÃ£o configurada.")
             else:
                 with st.spinner("Enviando..."):
                     nome_pasta = f"{nome_gal} - {codigo_gal}".strip(" -")
@@ -1320,7 +1307,7 @@ def pagina_imagem(usuario_logado):
                         if err_up:
                             st.error(f"Erro no upload: {err_up}")
                         else:
-                            # Atualiza galeria com o link e registra no histórico
+                            # Atualiza galeria com o link e registra no histÃ³rico
                             st.session_state["img_galeria"][idx_ativo]["link_drive"] = link
                             import atividades as _atv_ind
                             _atv_ind.registrar_atividade(
@@ -1333,16 +1320,16 @@ def pagina_imagem(usuario_logado):
                             )
                             st.success(f"Salvo! [Abrir no Drive]({link})")
 
-        # ── AJUSTE FINO NA GALERIA ────────────────────────────────────────────
-        with st.expander("✏️ Ajuste Fino — modificar somente algo específico nesta imagem", expanded=False):
+        # ââ AJUSTE FINO NA GALERIA ââââââââââââââââââââââââââââââââââââââââââââ
+        with st.expander("âï¸ Ajuste Fino â modificar somente algo especÃ­fico nesta imagem", expanded=False):
             st.caption(
-                "Descreva **somente o que deve mudar** — a IA vai preservar tudo o mais "
+                "Descreva **somente o que deve mudar** â a IA vai preservar tudo o mais "
                 "exatamente igual (fundo, cores, cena, textos existentes, detalhes do produto)."
             )
             instrucao_af_gal = st.text_area(
-                "O que você quer modificar?",
+                "O que vocÃª quer modificar?",
                 placeholder=(
-                    "ex: Diminua o tamanho do produto para que fique em proporção realista ao cenário. "
+                    "ex: Diminua o tamanho do produto para que fique em proporÃ§Ã£o realista ao cenÃ¡rio. "
                     "O produto mede aproximadamente 18cm.\n\n"
                     "ex: Remova a sombra embaixo do produto.\n\n"
                     "ex: Mude o fundo para branco puro, mantendo o produto igual."
@@ -1351,7 +1338,7 @@ def pagina_imagem(usuario_logado):
                 key=f"img_af_gal_{idx_ativo}",
             )
             if st.button(
-                "✏️ Aplicar Ajuste Fino nesta imagem",
+                "âï¸ Aplicar Ajuste Fino nesta imagem",
                 key=f"img_af_btn_{idx_ativo}",
                 type="primary",
                 use_container_width=True,
@@ -1360,7 +1347,7 @@ def pagina_imagem(usuario_logado):
                 if not instrucao_af_gal.strip():
                     st.warning("Descreva o que deseja modificar.")
                 else:
-                    # Usa a imagem ATUAL da galeria como referência para o ajuste
+                    # Usa a imagem ATUAL da galeria como referÃªncia para o ajuste
                     import time as _time_afg
                     import threading as _threading_afg
                     prompt_af_gal = montar_prompt_ajuste_fino(instrucao_af_gal.strip())
@@ -1378,19 +1365,19 @@ def pagina_imagem(usuario_logado):
                             _res_afg["erro"] = "Tempo limite de 5 min atingido. Tente novamente."
                             _res_afg["done"] = True
                             break
-                        _slot_afg.caption(f"⏳ Aplicando ajuste fino... {_seg_afg}s")
+                        _slot_afg.caption(f"â³ Aplicando ajuste fino... {_seg_afg}s")
                         _time_afg.sleep(1)
                     _slot_afg.empty()
                     nova_img_af, err_af_gal = _res_afg["img"], _res_afg["erro"]
                     if err_af_gal:
-                        st.error(f"❌ Erro: {err_af_gal}")
+                        st.error(f"â Erro: {err_af_gal}")
                     else:
                         st.session_state["img_galeria"][idx_ativo]["bytes"] = nova_img_af
                         st.rerun()
 
-        # ── COMANDOS PENDENTES DO ASSISTENTE IA ──────────────────────────────
-        # O Assistente IA envia comandos de correção. Tratamos sempre como
-        # Ajuste Fino (NÃO aplica PADRAO_VISUAL nem INSTRUCAO_COMPOSICAO).
+        # ââ COMANDOS PENDENTES DO ASSISTENTE IA ââââââââââââââââââââââââââââââ
+        # O Assistente IA envia comandos de correÃ§Ã£o. Tratamos sempre como
+        # Ajuste Fino (NÃO aplica PADRAO_VISUAL nem INSTRUCAO_COMPOSICAO).
         cmds_pendentes = st.session_state.pop("chat_img_pendente", [])
         if cmds_pendentes:
             fotos_ref_aj = st.session_state.get("img_fotos_originais") or []
@@ -1400,10 +1387,10 @@ def pagina_imagem(usuario_logado):
                 instrucao = cmd.get("instrucao", "")
                 idx_alvo  = num_foto - 1
                 if idx_alvo < 0 or idx_alvo >= len(galeria):
-                    msgs_result.append(f"⚠️ Foto {num_foto} não existe na galeria.")
+                    msgs_result.append(f"â ï¸ Foto {num_foto} nÃ£o existe na galeria.")
                     continue
                 tipo_alvo = galeria[idx_alvo]["tipo"]
-                # Usa a imagem ATUAL como referência + prompt de ajuste fino
+                # Usa a imagem ATUAL como referÃªncia + prompt de ajuste fino
                 img_ref_cmd = [galeria[idx_alvo]["bytes"]] if galeria[idx_alvo]["bytes"] else fotos_ref_aj
                 prompt_aj = montar_prompt_ajuste_fino(instrucao)
                 import time as _time_cmd
@@ -1422,26 +1409,26 @@ def pagina_imagem(usuario_logado):
                         _res_cmd["erro"] = "Tempo limite de 5 min atingido. Tente novamente."
                         _res_cmd["done"] = True
                         break
-                    _slot_cmd.caption(f"⏳ Assistente IA: ajuste fino na foto {num_foto}... {_seg_cmd}s")
+                    _slot_cmd.caption(f"â³ Assistente IA: ajuste fino na foto {num_foto}... {_seg_cmd}s")
                     _time_cmd.sleep(1)
                 _slot_cmd.empty()
                 nova_img, err_aj = _res_cmd["img"], _res_cmd["erro"]
                 if err_aj:
-                    msgs_result.append(f"⚠️ Foto {num_foto}: erro ao gerar — {err_aj}")
+                    msgs_result.append(f"â ï¸ Foto {num_foto}: erro ao gerar â {err_aj}")
                 else:
                     st.session_state["img_galeria"][idx_alvo]["bytes"] = nova_img
-                    msgs_result.append(f"✅ Foto {num_foto} ({tipo_alvo[:25]}) atualizada pelo Assistente IA.")
+                    msgs_result.append(f"â Foto {num_foto} ({tipo_alvo[:25]}) atualizada pelo Assistente IA.")
             if msgs_result:
                 st.info("\n\n".join(msgs_result))
 
-        st.caption("💬 Para ajustar imagens, use o **Assistente IA** no menu lateral ou o painel **✏️ Ajuste Fino** acima.")
+        st.caption("ð¬ Para ajustar imagens, use o **Assistente IA** no menu lateral ou o painel **âï¸ Ajuste Fino** acima.")
         st.markdown("---")
 
-        # ── APROVAÇÃO E SALVAMENTO ─────────────────────────────────────────────
-        st.markdown("### ✅ Aprovar e salvar todas as imagens")
+        # ââ APROVAÃÃO E SALVAMENTO âââââââââââââââââââââââââââââââââââââââââââââ
+        st.markdown("### â Aprovar e salvar todas as imagens")
         pasta_pai = st.secrets.get("DRIVE_PASTA_IMAGENS_ID", "")
 
-        # Busca pasta existente (cacheada em session_state para não bater na API a cada rerender)
+        # Busca pasta existente (cacheada em session_state para nÃ£o bater na API a cada rerender)
         _cache_key = f"_pasta_{nome_gal}__{codigo_gal}"
         if _cache_key not in st.session_state:
             if pasta_pai and nome_gal:
@@ -1455,30 +1442,30 @@ def pagina_imagem(usuario_logado):
 
         if pastas_encontradas:
             st.info(
-                f"📁 Pasta encontrada no Drive: **{pastas_encontradas[0][1]}**\n\n"
-                f"As imagens serão adicionadas a essa pasta (sem apagar o que já está lá)."
+                f"ð Pasta encontrada no Drive: **{pastas_encontradas[0][1]}**\n\n"
+                f"As imagens serÃ£o adicionadas a essa pasta (sem apagar o que jÃ¡ estÃ¡ lÃ¡)."
             )
             pasta_destino_id = pastas_encontradas[0][0]
             if len(pastas_encontradas) > 1:
                 escolha_pasta = st.selectbox(
-                    "Mais de uma pasta encontrada — qual usar?",
+                    "Mais de uma pasta encontrada â qual usar?",
                     [p[1] for p in pastas_encontradas],
                     key="img_escolha_pasta",
                 )
                 pasta_destino_id = next(p[0] for p in pastas_encontradas if p[1] == escolha_pasta)
         else:
-            st.info(f"📁 Será criada uma nova pasta no Drive: **{nome_pasta_novo}**")
-            pasta_destino_id = None  # será criada no momento do clique
+            st.info(f"ð SerÃ¡ criada uma nova pasta no Drive: **{nome_pasta_novo}**")
+            pasta_destino_id = None  # serÃ¡ criada no momento do clique
 
         col_aprovar, col_zip = st.columns(2)
 
         if col_aprovar.button(
-            f"☁️ APROVAR E SALVAR no Drive ({len(galeria)} imagens)",
+            f"âï¸ APROVAR E SALVAR no Drive ({len(galeria)} imagens)",
             type="primary",
             use_container_width=True,
         ):
             if not pasta_pai:
-                st.error("DRIVE_PASTA_IMAGENS_ID não configurada nas Secrets.")
+                st.error("DRIVE_PASTA_IMAGENS_ID nÃ£o configurada nas Secrets.")
             else:
                 if pasta_destino_id is None:
                     with st.spinner("Criando pasta..."):
@@ -1498,7 +1485,7 @@ def pagina_imagem(usuario_logado):
                     else:
                         links_salvos.append(link)
 
-                barra_salvar.progress(1.0, text="Concluído!")
+                barra_salvar.progress(1.0, text="ConcluÃ­do!")
                 link_pasta = f"https://drive.google.com/drive/folders/{pasta_destino_id}"
 
                 import atividades
@@ -1511,14 +1498,14 @@ def pagina_imagem(usuario_logado):
                 )
 
                 st.success(
-                    f"✅ {len(links_salvos)} imagem(ns) salvas no Drive! "
+                    f"â {len(links_salvos)} imagem(ns) salvas no Drive! "
                     f"[Abrir pasta]({link_pasta})"
                 )
 
-        # ZIP sempre disponível
+        # ZIP sempre disponÃ­vel
         zip_bytes = criar_zip_galeria(galeria, nome_gal)
         col_zip.download_button(
-            f"⬇️ Baixar todas em ZIP ({len(galeria)} imagens)",
+            f"â¬ï¸ Baixar todas em ZIP ({len(galeria)} imagens)",
             data=zip_bytes,
             file_name=f"{nome_gal}_imagens.zip",
             mime="application/zip",
