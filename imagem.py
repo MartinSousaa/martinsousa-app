@@ -10,7 +10,8 @@ import threading as _threading_limiter
 import time as _time_limiter
 from collections import deque as _deque
 
-MODELO_IMAGEM = "gemini-3.1-flash-image"  # modelo de geração de imagens via generateContent (v1beta)
+MODELO_IMAGEM = "gemini-3.1-flash-image"           # modelo primário
+MODELO_IMAGEM_FALLBACK = "gemini-2.0-flash-preview-image-generation"  # fallback se primário estiver sem cota
 
 
 class _GeminiRateLimiter:
@@ -362,8 +363,53 @@ def _gerar_imagem_thread(prompt_texto, imagens_ref, resultado):
         resultado["done"] = True
 
 
+def _chamar_gemini(api_key, modelo, body):
+    """Faz uma chamada ao Gemini com retry em 429 e retorna (resp, erro_fatal).
+    erro_fatal = string → não tente mais. resp = None → erro recuperável.
+    """
+    import time as _time
+    MAX_TENTATIVAS = 2
+    for tentativa in range(1, MAX_TENTATIVAS + 1):
+        try:
+            _GEMINI_LIMITER.aguardar()
+            resp = requests.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent",
+                headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
+                json=body, timeout=120,
+            )
+            if resp.status_code == 429:
+                try:
+                    _ej = resp.json()
+                    _msg = _ej.get("error", {}).get("message", resp.text[:300])
+                    _st  = _ej.get("error", {}).get("status", "")
+                except Exception:
+                    _msg = resp.text[:300]
+                    _st  = ""
+                _cota = any(k in _msg.lower() for k in [
+                    "quota", "daily", "exhausted", "exceeded your current quota",
+                    "resource_exhausted",
+                ]) or _st == "RESOURCE_EXHAUSTED"
+                if _cota:
+                    # Cota esgotada — não adianta esperar; sinaliza para tentar fallback
+                    return None, f"COTA_ESGOTADA:{_msg[:200]}"
+                if tentativa >= MAX_TENTATIVAS:
+                    return None, f"HTTP 429: {_msg[:200]}"
+                _ra = resp.headers.get("Retry-After") or resp.headers.get("retry-after")
+                espera = max(int(_ra), 5) if _ra and _ra.isdigit() else 60
+                _time.sleep(espera)
+                continue
+            return resp, None
+        except Exception as e:
+            if tentativa >= MAX_TENTATIVAS:
+                return None, str(e)
+            _time.sleep(5)
+    return None, "Máximo de tentativas atingido."
+
+
 def gerar_imagem_ia(prompt_texto, imagens_referencia):
-    """imagens_referencia: lista de bytes. Retorna (imagem_bytes, erro)."""
+    """Gera imagem via Gemini com fallback automático de modelo.
+    Retorna (imagem_bytes, erro_ou_None).
+    """
     api_key = st.secrets.get("GEMINI_API_KEY", "") or os.environ.get("GEMINI_API_KEY", "")
     if not api_key:
         return None, "GEMINI_API_KEY não configurada nas Secrets."
@@ -376,112 +422,70 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia):
                 "data": base64.b64encode(img_bytes).decode("utf-8"),
             }
         })
-
     body = {
         "contents": [{"parts": parts}],
-        "generationConfig": {
-            "responseModalities": ["TEXT", "IMAGE"],
-            # imageConfig (aspectRatio/imageSize) não é suportado no generateContent —
-            # é parâmetro do Imagen (endpoint /predict). Remover evita erros silenciosos.
-        },
+        "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]},
     }
 
-    import time as _time
-    MAX_TENTATIVAS = 2  # 2 tentativas: se ambas derem 429, a cota está esgotada
-    ultimo_erro = ""
-    for tentativa in range(1, MAX_TENTATIVAS + 1):
-        try:
-            _GEMINI_LIMITER.aguardar()  # garante respeito ao RPM antes de cada chamada
-            resp = requests.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/{MODELO_IMAGEM}:generateContent",
-                headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
-                json=body, timeout=120,
+    # Tenta modelo primário; se cota esgotada tenta fallback
+    for modelo in [MODELO_IMAGEM, MODELO_IMAGEM_FALLBACK]:
+        resp, erro_fatal = _chamar_gemini(api_key, modelo, body)
+        if erro_fatal:
+            if erro_fatal.startswith("COTA_ESGOTADA:") and modelo == MODELO_IMAGEM:
+                # Fallback automático — tenta o outro modelo
+                continue
+            msg_detalhe = erro_fatal.replace("COTA_ESGOTADA:", "")
+            return None, (
+                f"⛔ Cota da API Gemini esgotada (modelos {MODELO_IMAGEM} e {MODELO_IMAGEM_FALLBACK}). "
+                "Aguarde até amanhã ou verifique console.cloud.google.com → APIs → Gemini. "
+                f"Detalhe: {msg_detalhe[:200]}"
             )
-            if resp.status_code == 429:
-                # Lê o corpo real do erro para distinguir RPM vs cota diária
-                try:
-                    _err_json = resp.json()
-                    _err_msg = _err_json.get("error", {}).get("message", resp.text[:200])
-                    _err_status = _err_json.get("error", {}).get("status", "")
-                except Exception:
-                    _err_msg = resp.text[:200]
-                    _err_status = ""
+        if resp is None:
+            return None, f"Falha ao chamar o modelo {modelo}."
 
-                # Detecta cota diária esgotada — não adianta retry
-                _cota_esgotada = any(kw in _err_msg.lower() for kw in [
-                    "quota", "daily", "exhausted", "exceeded your current quota",
-                    "resource_exhausted",
-                ]) or _err_status in ("RESOURCE_EXHAUSTED",)
+        if resp.status_code != 200:
+            try:
+                _err = resp.json().get("error", {}).get("message", resp.text[:300])
+            except Exception:
+                _err = resp.text[:300]
+            if modelo == MODELO_IMAGEM:
+                continue  # tenta fallback
+            return None, f"Erro HTTP {resp.status_code}: {_err}"
 
-                if tentativa >= MAX_TENTATIVAS:
-                    if _cota_esgotada:
-                        return None, (
-                            "⛔ Cota diária da API Gemini esgotada. "
-                            "Aguarde até amanhã ou verifique os limites em "
-                            "console.cloud.google.com → APIs → Gemini. "
-                            f"Detalhe: {_err_msg[:200]}"
-                        )
-                    return None, (
-                        "⛔ Limite de requisições por minuto atingido (HTTP 429). "
-                        "Aguarde 1-2 minutos e tente novamente. "
-                        f"Detalhe: {_err_msg[:200]}"
-                    )
-
-                # Usa Retry-After se o Gemini informar o tempo exato; senão 60s (reset RPM)
-                _retry_after = resp.headers.get("Retry-After") or resp.headers.get("retry-after")
-                if _retry_after:
-                    try:
-                        espera = max(int(_retry_after), 5)  # respeita o servidor
-                    except Exception:
-                        espera = 60
-                else:
-                    espera = 60  # janela RPM de 60s garante reset completo
-
-                ultimo_erro = (
-                    f"HTTP 429 (tentativa {tentativa}/{MAX_TENTATIVAS}) — "
-                    f"aguardando {espera}s para reset do limite de API..."
-                )
-                _time.sleep(espera)
-                continue
-            if resp.status_code != 200:
-                try:
-                    _err_detail = resp.json().get("error", {}).get("message", resp.text[:300])
-                except Exception:
-                    _err_detail = resp.text[:300]
-                ultimo_erro = f"Erro da API (HTTP {resp.status_code}): {_err_detail}"
-                if tentativa < MAX_TENTATIVAS:
-                    _time.sleep(5)
-                continue
+        try:
             dados = resp.json()
-            candidatos = dados.get("candidates", [])
-            if not candidatos:
-                ultimo_erro = "A IA não retornou nenhuma imagem (resposta vazia)."
-                if tentativa < MAX_TENTATIVAS:
-                    _time.sleep(5)
+        except Exception:
+            if modelo == MODELO_IMAGEM:
                 continue
-            for parte in candidatos[0].get("content", {}).get("parts", []):
-                inline = parte.get("inlineData") or parte.get("inline_data")
-                if inline and inline.get("data"):
-                    img_bytes_raw = base64.b64decode(inline["data"])
-                    # Redimensiona para 1200x1200 (padrão MartinSousa para marketplace)
-                    try:
-                        from PIL import Image as _PILImage
-                        import io as _io
-                        pil = _PILImage.open(_io.BytesIO(img_bytes_raw)).convert("RGBA")
-                        pil = pil.resize((1200, 1200), _PILImage.LANCZOS)
-                        buf = _io.BytesIO()
-                        pil.save(buf, format="PNG")
-                        img_bytes_raw = buf.getvalue()
-                    except Exception:
-                        pass  # se PIL não estiver disponível, retorna o tamanho original
-                    return img_bytes_raw, None
-            ultimo_erro = "A IA respondeu, mas não veio nenhuma imagem (pode ter bloqueado o pedido)."
-            break  # não é erro de rede/rate — não adianta retry
-        except Exception as e:
-            ultimo_erro = str(e)
-            if tentativa < MAX_TENTATIVAS:
-                _time.sleep(5)
-    return None, ultimo_erro
+            return None, "Resposta inválida da API."
+
+        candidatos = dados.get("candidates", [])
+        if not candidatos:
+            if modelo == MODELO_IMAGEM:
+                continue
+            return None, "A IA não retornou nenhuma imagem (resposta vazia)."
+
+        for parte in candidatos[0].get("content", {}).get("parts", []):
+            inline = parte.get("inlineData") or parte.get("inline_data")
+            if inline and inline.get("data"):
+                img_bytes_raw = base64.b64decode(inline["data"])
+                try:
+                    from PIL import Image as _PILImage
+                    import io as _io
+                    pil = _PILImage.open(_io.BytesIO(img_bytes_raw)).convert("RGBA")
+                    pil = pil.resize((1200, 1200), _PILImage.LANCZOS)
+                    buf = _io.BytesIO()
+                    pil.save(buf, format="PNG")
+                    img_bytes_raw = buf.getvalue()
+                except Exception:
+                    pass
+                return img_bytes_raw, None
+
+        if modelo == MODELO_IMAGEM:
+            continue
+        return None, "A IA respondeu mas não enviou imagem (pode ter bloqueado o conteúdo)."
+
+    return None, "Nenhum modelo disponível retornou uma imagem."
 
 
 INSTRUCAO_REFERENCIA_LAYOUT = """
@@ -673,52 +677,47 @@ def criar_zip_galeria(galeria, nome_produto):
 # ── INTERFACE PRINCIPAL ────────────────────────────────────────────────────────
 
 def _testar_gemini_api():
-    """Testa a conectividade com a API Gemini e retorna diagnóstico completo."""
+    """Testa a API Gemini com geração real de imagem (prompt mínimo, sem foto de referência).
+    Retorna dict com resultados por modelo.
+    """
     import time as _t_diag
     api_key = st.secrets.get("GEMINI_API_KEY", "") or os.environ.get("GEMINI_API_KEY", "")
-    resultado = {"ok": False, "status": None, "modelo": MODELO_IMAGEM, "erro": "", "detalhe": "", "ms": 0}
     if not api_key:
-        resultado["erro"] = "GEMINI_API_KEY não configurada nas Secrets do Railway."
-        return resultado
-    resultado["key_prefixo"] = f"{api_key[:6]}…{api_key[-4:]}"
-    # Teste 1: listar modelos (sem imagem, barato)
-    t0 = _t_diag.time()
-    try:
-        r = requests.get(
-            f"https://generativelanguage.googleapis.com/v1beta/models/{MODELO_IMAGEM}",
-            headers={"x-goog-api-key": api_key},
-            timeout=10,
-        )
-        resultado["ms"] = int((_t_diag.time() - t0) * 1000)
-        resultado["status"] = r.status_code
-        if r.status_code == 200:
-            info = r.json()
-            resultado["ok"] = True
-            resultado["detalhe"] = (
-                f"Modelo: {info.get('displayName', MODELO_IMAGEM)} | "
-                f"Versão: {info.get('version','?')} | "
-                f"Suporta geração: {'generateContent' in str(info.get('supportedGenerationMethods', []))}"
+        return {"erro_geral": "GEMINI_API_KEY não configurada nas Secrets do Railway."}
+
+    body_teste = {
+        "contents": [{"parts": [{"text": "Draw a small red circle on a white background. Simple and minimal."}]}],
+        "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]},
+    }
+
+    resultados = {"key_prefixo": f"{api_key[:6]}…{api_key[-4:]}"}
+    for modelo in [MODELO_IMAGEM, MODELO_IMAGEM_FALLBACK]:
+        t0 = _t_diag.time()
+        try:
+            r = requests.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent",
+                headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
+                json=body_teste, timeout=60,
             )
-        elif r.status_code == 429:
-            try:
-                err = r.json().get("error", {})
-                resultado["erro"] = f"429 — {err.get('status','')}: {err.get('message','')[:200]}"
-            except Exception:
-                resultado["erro"] = f"429 — {r.text[:200]}"
-        elif r.status_code == 404:
-            resultado["erro"] = f"404 — Modelo '{MODELO_IMAGEM}' não encontrado. Verifique o nome do modelo."
-        elif r.status_code == 403:
-            resultado["erro"] = f"403 — Sem permissão. Verifique se a API Gemini está ativada no projeto Google Cloud."
-        else:
-            try:
-                err = r.json().get("error", {})
-                resultado["erro"] = f"HTTP {r.status_code} — {err.get('message', r.text[:200])}"
-            except Exception:
-                resultado["erro"] = f"HTTP {r.status_code} — {r.text[:200]}"
-    except Exception as e:
-        resultado["ms"] = int((_t_diag.time() - t0) * 1000)
-        resultado["erro"] = f"Erro de conexão: {e}"
-    return resultado
+            ms = int((_t_diag.time() - t0) * 1000)
+            if r.status_code == 200:
+                dados = r.json()
+                tem_imagem = any(
+                    (p.get("inlineData") or p.get("inline_data", {}))
+                    for c in dados.get("candidates", [])
+                    for p in c.get("content", {}).get("parts", [])
+                )
+                resultados[modelo] = {"ok": True, "ms": ms, "tem_imagem": tem_imagem}
+            else:
+                try:
+                    err = r.json().get("error", {})
+                    msg = f"HTTP {r.status_code} — {err.get('status','')} — {err.get('message','')[:250]}"
+                except Exception:
+                    msg = f"HTTP {r.status_code} — {r.text[:250]}"
+                resultados[modelo] = {"ok": False, "ms": ms, "erro": msg}
+        except Exception as e:
+            resultados[modelo] = {"ok": False, "ms": int((_t_diag.time() - t0)*1000), "erro": str(e)}
+    return resultados
 
 
 def pagina_imagem(usuario_logado):
@@ -726,16 +725,22 @@ def pagina_imagem(usuario_logado):
     st.caption("Gere imagens profissionais para o anúncio. A IA mostra o que vai criar antes de gastar com a geração.")
 
     with st.expander("🔧 Diagnóstico da API Gemini", expanded=False):
-        st.caption("Testa a conexão com a API sem gerar nenhuma imagem e sem custo.")
-        if st.button("Testar agora", key="btn_diag_gemini"):
-            with st.spinner("Testando..."):
+        st.caption("Gera uma imagem de teste em cada modelo para confirmar qual está funcionando. Gasta um pouco de cota.")
+        if st.button("Testar geração agora", key="btn_diag_gemini"):
+            with st.spinner("Testando os dois modelos (pode levar ~30s)..."):
                 d = _testar_gemini_api()
-            if d["ok"]:
-                st.success(
-                    f"✅ API funcionando ({d['ms']}ms) | Chave: `{d.get('key_prefixo','')}` | {d['detalhe']}"
-                )
+            if "erro_geral" in d:
+                st.error(d["erro_geral"])
             else:
-                st.error(f"❌ Falha ({d['ms']}ms) | Chave: `{d.get('key_prefixo','')}` | {d['erro']}")
+                st.caption(f"Chave: `{d.get('key_prefixo','?')}`")
+                for modelo in [MODELO_IMAGEM, MODELO_IMAGEM_FALLBACK]:
+                    info = d.get(modelo, {})
+                    if info.get("ok"):
+                        icone = "✅" if info.get("tem_imagem") else "⚠️"
+                        label = "gerou imagem" if info.get("tem_imagem") else "respondeu mas sem imagem"
+                        st.success(f"{icone} **{modelo}** — {label} ({info['ms']}ms)")
+                    else:
+                        st.error(f"❌ **{modelo}** — {info.get('erro','erro desconhecido')} ({info.get('ms',0)}ms)")
 
     # ── RE-RUN AUTOMÁTICO DA TRIAGEM (disparado pelo chat ao preencher dados) ──
     if st.session_state.pop("img_rerun_triagem", False):
