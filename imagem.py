@@ -427,15 +427,15 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia):
                         f"Detalhe: {_err_msg[:200]}"
                     )
 
-                # Usa Retry-After se o Gemini informar o tempo exato
+                # Usa Retry-After se o Gemini informar o tempo exato; senão 60s (reset RPM)
                 _retry_after = resp.headers.get("Retry-After") or resp.headers.get("retry-after")
                 if _retry_after:
                     try:
-                        espera = max(int(_retry_after), 60)
+                        espera = max(int(_retry_after), 5)  # respeita o servidor
                     except Exception:
                         espera = 60
                 else:
-                    espera = 60  # 60s garante reset do janela RPM (10 req/min)
+                    espera = 60  # janela RPM de 60s garante reset completo
 
                 ultimo_erro = (
                     f"HTTP 429 (tentativa {tentativa}/{MAX_TENTATIVAS}) — "
