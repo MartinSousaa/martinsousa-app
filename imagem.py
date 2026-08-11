@@ -790,9 +790,10 @@ def pagina_imagem(usuario_logado):
                     f"Fotos muito grandes podem causar timeout — considere reduzir a resolução antes de enviar."
                 )
 
-            cols_prev = st.columns(min(len(fotos_bytes), 5))
-            for i, fb in enumerate(fotos_bytes[:5]):
-                cols_prev[i].image(fb, use_container_width=True)
+            # Sempre 5 colunas fixas — evita RemoveChild do React ao mudar nº de colunas
+            _cols_prev = st.columns(5)
+            for _i, _fb in enumerate(fotos_bytes[:5]):
+                _cols_prev[_i].image(_fb, use_container_width=True)
             if len(fotos_bytes) > 5:
                 st.caption(f"+ {len(fotos_bytes) - 5} foto(s) adicionais carregadas.")
 
@@ -821,9 +822,10 @@ def pagina_imagem(usuario_logado):
             if refs_layout_upload:
                 refs_layout_bytes = [f.getvalue() for f in refs_layout_upload]
                 refs_layout_nomes = [f.name for f in refs_layout_upload]
-                cols_rl = st.columns(min(len(refs_layout_bytes), 4))
-                for i, rb in enumerate(refs_layout_bytes[:4]):
-                    cols_rl[i].image(rb, caption=refs_layout_nomes[i][:20], use_container_width=True)
+                # Sempre 4 colunas fixas — evita RemoveChild do React
+                _cols_rl = st.columns(4)
+                for _i, _rb in enumerate(refs_layout_bytes[:4]):
+                    _cols_rl[_i].image(_rb, caption=refs_layout_nomes[_i][:20], use_container_width=True)
 
             instrucao_layout = ""
             if refs_layout_bytes:
@@ -1039,7 +1041,7 @@ def pagina_imagem(usuario_logado):
                     barra.progress(i / len(tipos), text=f"Gerando {i+1}/{len(tipos)}: {tipo[:50]}...")
                     # Pausa entre chamadas para evitar rate limit da API
                     if i > 0:
-                        _time_gen.sleep(3)
+                        _time_gen.sleep(15)  # 15s entre imagens — Gemini Flash Image ~6 RPM
                     try:
                         prompt_final = montar_prompt_imagem(
                             tipo,
