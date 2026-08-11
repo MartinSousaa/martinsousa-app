@@ -1,18 +1,21 @@
 import streamlit as st
 import hashlib
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
+import time as _time_auth
 import gspread
 from google.oauth2.service_account import Credentials
 import secrets as _secrets
 
 PLANILHA_NOME = "MartinSousa - Financeiro"
 ABA_USUARIOS = "usuarios"
+_TOKEN_TTL_DIAS = 30  # tokens expiram após 30 dias
 
 # Tokens em memória — cache rápido para WebSocket reconnections no mesmo processo.
 # Ao iniciar, carregados do Sheets para sobreviver a redeploys do Railway.
 _TOKENS: dict = {}
 _tokens_sheets_carregados: bool = False
+_tokens_sheets_ultimo_erro: float = 0  # evita retry em loop quando Sheets está fora
 
 
 # ── PERSISTÊNCIA DE TOKENS NO SHEETS ─────────────────────────────────────────
@@ -30,21 +33,46 @@ def _aba_tokens():
 
 
 def _garantir_tokens_carregados():
-    """Carrega tokens do Sheets para _TOKENS (só uma vez por processo)."""
-    global _tokens_sheets_carregados
+    """Carrega tokens do Sheets para _TOKENS (só uma vez por processo).
+    Se o Sheets falhou, retenta após 5 minutos — evita que erro temporário
+    bloqueie a reconexão por toda a vida do processo."""
+    global _tokens_sheets_carregados, _tokens_sheets_ultimo_erro
     if _tokens_sheets_carregados:
         return
-    _tokens_sheets_carregados = True
+    # Se o Sheets deu erro recentemente, não fica tentando em loop
+    if _tokens_sheets_ultimo_erro and _time_auth.time() - _tokens_sheets_ultimo_erro < 300:
+        return
     try:
         aba = _aba_tokens()
         registros = aba.get_all_records(value_render_option="UNFORMATTED_VALUE")
-        for r in registros:
+        limite = datetime.now() - timedelta(days=_TOKEN_TTL_DIAS)
+        linhas_expiradas = []
+        for i, r in enumerate(registros, start=2):  # linha 1 = cabeçalho
             tok = str(r.get("token", "")).strip()
             usr = str(r.get("usuario", "")).strip()
-            if tok and usr:
-                _TOKENS[tok] = usr
+            criado = str(r.get("criado_em", "")).strip()
+            if not tok or not usr:
+                continue
+            # Verifica TTL — descarta tokens expirados
+            try:
+                dt = datetime.strptime(criado, "%d/%m/%Y %H:%M")
+                if dt < limite:
+                    linhas_expiradas.append(i)
+                    continue
+            except Exception:
+                pass  # data inválida — mantém o token
+            _TOKENS[tok] = usr
+        # Limpa tokens expirados do Sheets (em lote, de baixo pra cima)
+        if linhas_expiradas:
+            try:
+                for ln in sorted(linhas_expiradas, reverse=True):
+                    aba.delete_rows(ln)
+            except Exception:
+                pass
+        _tokens_sheets_carregados = True  # só marca sucesso aqui
     except Exception:
-        pass  # se falhar, segue sem tokens persistidos — pede login normalmente
+        _tokens_sheets_ultimo_erro = _time_auth.time()
+        # falha silenciosa — pede login normalmente, retenta em 5 min
 
 
 def _salvar_token_sheets(token, usuario):
