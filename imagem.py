@@ -687,9 +687,9 @@ def pagina_imagem(usuario_logado):
         fotos_bytes_ajuste = [f.getvalue() for f in fotos_ajuste_upload] if fotos_ajuste_upload else []
 
         if fotos_bytes_ajuste:
-            cols_aj = st.columns(min(len(fotos_bytes_ajuste), 4))
-            for i, fb in enumerate(fotos_bytes_ajuste[:4]):
-                cols_aj[i].image(fb, use_container_width=True)
+            _cols_aj = st.columns(4)
+            for _i, _fb in enumerate(fotos_bytes_ajuste[:4]):
+                _cols_aj[_i].image(_fb, use_container_width=True)
             if len(fotos_bytes_ajuste) > 4:
                 st.caption(f"+ {len(fotos_bytes_ajuste) - 4} imagem(ns) adicional(is) carregada(s).")
 
@@ -1125,10 +1125,9 @@ def pagina_imagem(usuario_logado):
 
         # Miniaturas clicáveis
         nomes_galeria = [g["tipo"] for g in galeria]
-        n_cols = min(len(galeria), 4)
-        cols_gal = st.columns(n_cols)
+        _cols_gal = st.columns(4)
         for i, g in enumerate(galeria):
-            with cols_gal[i % n_cols]:
+            with _cols_gal[i % 4]:
                 st.image(g["bytes"], caption=g["tipo"][:20], use_container_width=True)
 
         # Seleção da imagem ativa
