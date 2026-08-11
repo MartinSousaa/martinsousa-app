@@ -672,9 +672,70 @@ def criar_zip_galeria(galeria, nome_produto):
 
 # ── INTERFACE PRINCIPAL ────────────────────────────────────────────────────────
 
+def _testar_gemini_api():
+    """Testa a conectividade com a API Gemini e retorna diagnóstico completo."""
+    import time as _t_diag
+    api_key = st.secrets.get("GEMINI_API_KEY", "") or os.environ.get("GEMINI_API_KEY", "")
+    resultado = {"ok": False, "status": None, "modelo": MODELO_IMAGEM, "erro": "", "detalhe": "", "ms": 0}
+    if not api_key:
+        resultado["erro"] = "GEMINI_API_KEY não configurada nas Secrets do Railway."
+        return resultado
+    resultado["key_prefixo"] = f"{api_key[:6]}…{api_key[-4:]}"
+    # Teste 1: listar modelos (sem imagem, barato)
+    t0 = _t_diag.time()
+    try:
+        r = requests.get(
+            f"https://generativelanguage.googleapis.com/v1beta/models/{MODELO_IMAGEM}",
+            headers={"x-goog-api-key": api_key},
+            timeout=10,
+        )
+        resultado["ms"] = int((_t_diag.time() - t0) * 1000)
+        resultado["status"] = r.status_code
+        if r.status_code == 200:
+            info = r.json()
+            resultado["ok"] = True
+            resultado["detalhe"] = (
+                f"Modelo: {info.get('displayName', MODELO_IMAGEM)} | "
+                f"Versão: {info.get('version','?')} | "
+                f"Suporta geração: {'generateContent' in str(info.get('supportedGenerationMethods', []))}"
+            )
+        elif r.status_code == 429:
+            try:
+                err = r.json().get("error", {})
+                resultado["erro"] = f"429 — {err.get('status','')}: {err.get('message','')[:200]}"
+            except Exception:
+                resultado["erro"] = f"429 — {r.text[:200]}"
+        elif r.status_code == 404:
+            resultado["erro"] = f"404 — Modelo '{MODELO_IMAGEM}' não encontrado. Verifique o nome do modelo."
+        elif r.status_code == 403:
+            resultado["erro"] = f"403 — Sem permissão. Verifique se a API Gemini está ativada no projeto Google Cloud."
+        else:
+            try:
+                err = r.json().get("error", {})
+                resultado["erro"] = f"HTTP {r.status_code} — {err.get('message', r.text[:200])}"
+            except Exception:
+                resultado["erro"] = f"HTTP {r.status_code} — {r.text[:200]}"
+    except Exception as e:
+        resultado["ms"] = int((_t_diag.time() - t0) * 1000)
+        resultado["erro"] = f"Erro de conexão: {e}"
+    return resultado
+
+
 def pagina_imagem(usuario_logado):
     st.subheader("Imagem")
     st.caption("Gere imagens profissionais para o anúncio. A IA mostra o que vai criar antes de gastar com a geração.")
+
+    with st.expander("🔧 Diagnóstico da API Gemini", expanded=False):
+        st.caption("Testa a conexão com a API sem gerar nenhuma imagem e sem custo.")
+        if st.button("Testar agora", key="btn_diag_gemini"):
+            with st.spinner("Testando..."):
+                d = _testar_gemini_api()
+            if d["ok"]:
+                st.success(
+                    f"✅ API funcionando ({d['ms']}ms) | Chave: `{d.get('key_prefixo','')}` | {d['detalhe']}"
+                )
+            else:
+                st.error(f"❌ Falha ({d['ms']}ms) | Chave: `{d.get('key_prefixo','')}` | {d['erro']}")
 
     # ── RE-RUN AUTOMÁTICO DA TRIAGEM (disparado pelo chat ao preencher dados) ──
     if st.session_state.pop("img_rerun_triagem", False):
