@@ -13,7 +13,7 @@ from collections import deque as _deque
 # Geração de imagem via Imagen 3 (Vertex AI) — fatura no Google Cloud, sem GEMINI_API_KEY.
 # Modelo geralmente disponível, sem acesso especial necessário.
 # Autenticação: service account gcp_service_account (o mesmo do Sheets/Drive).
-MODELO_IMAGEM = "imagen-3.0-generate-002"
+MODELO_IMAGEM = "imagen-3.0-generate-001"
 
 
 class _GeminiRateLimiter:
