@@ -13,7 +13,7 @@ from collections import deque as _deque
 # Geração de imagem via Vertex AI — fatura no Google Cloud (não usa GEMINI_API_KEY).
 # Autenticação: service account gcp_service_account (o mesmo do Sheets/Drive).
 # Documentação: cloud.google.com/vertex-ai/generative-ai/docs/multimodal/image-generation
-MODELO_IMAGEM = "gemini-2.0-flash-exp"
+MODELO_IMAGEM = "gemini-2.0-flash-preview-image-generation"
 
 
 class _GeminiRateLimiter:
