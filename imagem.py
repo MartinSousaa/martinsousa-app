@@ -1045,7 +1045,7 @@ def pagina_imagem(usuario_logado):
                     barra.progress(i / len(tipos), text=f"Gerando {i+1}/{len(tipos)}: {tipo[:50]}...")
                     # Pausa entre chamadas para evitar rate limit da API
                     if i > 0:
-                        _time_gen.sleep(15)  # 15s entre imagens — Gemini Flash Image ~6 RPM
+                        _time_gen.sleep(3)  # 3s entre imagens — billing ativo = Tier 1 (10 RPM)
                     try:
                         prompt_final = montar_prompt_imagem(
                             tipo,
