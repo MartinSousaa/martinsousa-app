@@ -10,10 +10,10 @@ import threading as _threading_limiter
 import time as _time_limiter
 from collections import deque as _deque
 
-# Geração de imagem via Vertex AI — fatura no Google Cloud (não usa GEMINI_API_KEY).
+# Geração de imagem via Imagen 3 (Vertex AI) — fatura no Google Cloud, sem GEMINI_API_KEY.
+# Modelo geralmente disponível, sem acesso especial necessário.
 # Autenticação: service account gcp_service_account (o mesmo do Sheets/Drive).
-# Documentação: cloud.google.com/vertex-ai/generative-ai/docs/multimodal/image-generation
-MODELO_IMAGEM = "gemini-2.0-flash-preview-image-generation"
+MODELO_IMAGEM = "imagen-3.0-generate-002"
 
 
 class _GeminiRateLimiter:
@@ -339,7 +339,7 @@ Responda SOMENTE com JSON válido, sem texto antes ou depois:
         return None, str(e)
 
 
-# ── GERAÇÃO DE IMAGEM (Gemini) ─────────────────────────────────────────────────
+# ── GERAÇÃO DE IMAGEM (Imagen 3 via Vertex AI) ────────────────────────────────
 
 def _detectar_mime(data: bytes) -> str:
     """Detecta o MIME type real da imagem pelos magic bytes."""
@@ -380,11 +380,68 @@ def _get_vertex_credenciais():
     return creds.token, creds_dict.get("project_id", "")
 
 
-def _chamar_vertex(modelo, body):
-    """Chama Vertex AI (Gemini) com service account. Retorna (resp, erro_fatal).
-    erro_fatal = string → não tente mais. resp = None → erro recuperável.
-    Fatura no Google Cloud — sem GEMINI_API_KEY.
-    """
+def _montar_prompt_imagen(prompt_texto_completo, imagens_referencia):
+    """Usa Claude Vision para analisar as fotos de referência e criar um prompt
+    conciso em inglês para o Imagen 3. Retorna string de prompt."""
+    api_key = st.secrets.get("ANTHROPIC_API_KEY", "") or os.environ.get("ANTHROPIC_API_KEY", "")
+
+    # Extrai primeiras linhas do prompt (produto, cor, medidas, tipo de imagem)
+    linhas_relevantes = "\n".join(prompt_texto_completo.splitlines()[:20])
+
+    if not api_key or not imagens_referencia:
+        # Fallback sem visão: traduz o prompt diretamente
+        return (
+            f"Professional product marketing image. {linhas_relevantes[:300]}. "
+            "Background color #E8EEF5 (soft blue-gray). Navy blue (#1A3A6B) accents. "
+            "Clean, modern, professional style. 1:1 square format."
+        )
+
+    content = []
+    for img_bytes in imagens_referencia[:3]:
+        content.append({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": _detectar_mime(img_bytes),
+                "data": base64.b64encode(img_bytes).decode("utf-8"),
+            }
+        })
+    content.append({
+        "type": "text",
+        "text": f"""You are creating a visual prompt for the Imagen 3 text-to-image model.
+
+Analyze the product reference photos and the image brief below. Write ONE concise visual prompt in English (4-6 sentences) for Imagen 3.
+
+IMAGE BRIEF:
+{linhas_relevantes}
+
+Your prompt must describe:
+1. The exact product appearance (shape, color, material, key details from the photos)
+2. The scene/composition (what the brief asks for)
+3. Lighting style (studio, natural, etc.)
+4. Background: soft blue-gray (#E8EEF5), navy blue (#1A3A6B) accents
+5. Style: professional product marketing photography
+
+Write ONLY the Imagen 3 prompt. No explanation, no preamble."""
+    })
+
+    try:
+        client = anthropic.Anthropic(api_key=api_key)
+        msg = client.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=500,
+            messages=[{"role": "user", "content": content}]
+        )
+        return msg.content[0].text.strip()
+    except Exception:
+        return (
+            f"Professional product marketing image. {linhas_relevantes[:300]}. "
+            "Background #E8EEF5 (light blue-gray). Navy blue accents. Clean modern style."
+        )
+
+
+def _chamar_imagen3(prompt_final):
+    """Chama Imagen 3 via Vertex AI predict endpoint. Retorna (resp, erro_fatal)."""
     import time as _time
     MAX_TENTATIVAS = 2
     LOCATION = "us-central1"
@@ -396,14 +453,20 @@ def _chamar_vertex(modelo, body):
                 return None, "project_id não encontrado no gcp_service_account."
             url = (
                 f"https://{LOCATION}-aiplatform.googleapis.com/v1/projects/{project_id}"
-                f"/locations/{LOCATION}/publishers/google/models/{modelo}:generateContent"
+                f"/locations/{LOCATION}/publishers/google/models/{MODELO_IMAGEM}:predict"
             )
+            body = {
+                "instances": [{"prompt": prompt_final}],
+                "parameters": {
+                    "sampleCount": 1,
+                    "aspectRatio": "1:1",
+                    "safetyFilterLevel": "block_some",
+                    "personGeneration": "allow_adult",
+                },
+            }
             resp = requests.post(
                 url,
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "Content-Type": "application/json",
-                },
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
                 json=body,
                 timeout=120,
             )
@@ -416,16 +479,13 @@ def _chamar_vertex(modelo, body):
                     _msg = resp.text[:300]
                     _st  = ""
                 _cota = any(k in _msg.lower() for k in [
-                    "quota", "daily", "exhausted", "exceeded your current quota",
-                    "resource_exhausted",
+                    "quota", "exhausted", "resource_exhausted",
                 ]) or _st == "RESOURCE_EXHAUSTED"
                 if _cota:
                     return None, f"COTA_ESGOTADA:{_msg[:200]}"
                 if tentativa >= MAX_TENTATIVAS:
                     return None, f"HTTP 429: {_msg[:200]}"
-                _ra = resp.headers.get("Retry-After") or resp.headers.get("retry-after")
-                espera = max(int(_ra), 5) if _ra and _ra.isdigit() else 60
-                _time.sleep(espera)
+                _time.sleep(60)
                 continue
             return resp, None
         except Exception as e:
@@ -436,34 +496,25 @@ def _chamar_vertex(modelo, body):
 
 
 def gerar_imagem_ia(prompt_texto, imagens_referencia):
-    """Gera imagem via Vertex AI (Gemini). Retorna (imagem_bytes, erro_ou_None).
-    Usa o service account gcp_service_account — fatura no Google Cloud."""
-    parts = [{"text": prompt_texto}]
-    for img_bytes in imagens_referencia:
-        parts.append({
-            "inline_data": {
-                "mime_type": _detectar_mime(img_bytes),
-                "data": base64.b64encode(img_bytes).decode("utf-8"),
-            }
-        })
-    body = {
-        "contents": [{"parts": parts}],
-        "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]},
-    }
+    """Gera imagem via Imagen 3 (Vertex AI). Retorna (imagem_bytes, erro_ou_None).
+    Claude analisa as fotos de referência → cria prompt para Imagen 3 → gera imagem."""
+    # 1. Converte o prompt completo + fotos em prompt visual para Imagen 3
+    prompt_imagen = _montar_prompt_imagen(prompt_texto, imagens_referencia)
 
-    resp, erro_fatal = _chamar_vertex(MODELO_IMAGEM, body)
+    # 2. Chama Imagen 3
+    resp, erro_fatal = _chamar_imagen3(prompt_imagen)
     if erro_fatal:
-        msg_detalhe = erro_fatal.replace("COTA_ESGOTADA:", "")
+        msg = erro_fatal.replace("COTA_ESGOTADA:", "")
         if erro_fatal.startswith("COTA_ESGOTADA:"):
             return None, (
-                f"⛔ Cota do Vertex AI esgotada (modelo: {MODELO_IMAGEM}). "
-                "Verifique console.cloud.google.com → IAM → Cotas ou adicione créditos. "
-                f"Detalhe: {msg_detalhe[:200]}"
+                f"⛔ Cota do Vertex AI esgotada (Imagen 3). "
+                "Verifique console.cloud.google.com → Vertex AI → Cotas. "
+                f"Detalhe: {msg[:200]}"
             )
-        return None, f"Erro ao chamar Vertex AI: {msg_detalhe[:300]}"
+        return None, f"Erro ao chamar Imagen 3: {msg[:300]}"
 
     if resp is None:
-        return None, f"Falha ao conectar ao Vertex AI (modelo: {MODELO_IMAGEM})."
+        return None, "Falha ao conectar ao Imagen 3 (Vertex AI)."
 
     if resp.status_code != 200:
         try:
@@ -475,29 +526,28 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia):
     try:
         dados = resp.json()
     except Exception:
-        return None, "Resposta inválida da API (não é JSON)."
+        return None, "Resposta inválida do Imagen 3 (não é JSON)."
 
-    candidatos = dados.get("candidates", [])
-    if not candidatos:
-        return None, "A IA não retornou nenhuma imagem (resposta vazia — possível bloqueio de conteúdo)."
+    predicoes = dados.get("predictions", [])
+    if not predicoes:
+        return None, "Imagen 3 não retornou nenhuma imagem (possível bloqueio de conteúdo)."
 
-    for parte in candidatos[0].get("content", {}).get("parts", []):
-        inline = parte.get("inlineData") or parte.get("inline_data")
-        if inline and inline.get("data"):
-            img_bytes_raw = base64.b64decode(inline["data"])
-            try:
-                from PIL import Image as _PILImage
-                import io as _io
-                pil = _PILImage.open(_io.BytesIO(img_bytes_raw)).convert("RGBA")
-                pil = pil.resize((1200, 1200), _PILImage.LANCZOS)
-                buf = _io.BytesIO()
-                pil.save(buf, format="PNG")
-                img_bytes_raw = buf.getvalue()
-            except Exception:
-                pass
-            return img_bytes_raw, None
+    img_b64 = predicoes[0].get("bytesBase64Encoded", "")
+    if not img_b64:
+        return None, "Dados de imagem ausentes na resposta do Imagen 3."
 
-    return None, "A IA respondeu mas não incluiu imagem (pode ter bloqueado o conteúdo)."
+    img_bytes_raw = base64.b64decode(img_b64)
+    try:
+        from PIL import Image as _PILImage
+        import io as _io
+        pil = _PILImage.open(_io.BytesIO(img_bytes_raw)).convert("RGBA")
+        pil = pil.resize((1200, 1200), _PILImage.LANCZOS)
+        buf = _io.BytesIO()
+        pil.save(buf, format="PNG")
+        img_bytes_raw = buf.getvalue()
+    except Exception:
+        pass
+    return img_bytes_raw, None
 
 
 INSTRUCAO_REFERENCIA_LAYOUT = """
@@ -689,15 +739,19 @@ def criar_zip_galeria(galeria, nome_produto):
 # ── INTERFACE PRINCIPAL ────────────────────────────────────────────────────────
 
 def _testar_gemini_api():
-    """Testa o Vertex AI com geração real de imagem (prompt mínimo, sem foto de referência).
-    Retorna dict com resultados por modelo.
+    """Testa o Vertex AI com geração real de Imagen 3 (prompt mínimo, sem foto de referência).
+    Retorna dict com resultados.
     """
     import time as _t_diag
     LOCATION = "us-central1"
 
     body_teste = {
-        "contents": [{"parts": [{"text": "Draw a small red circle on a white background. Simple and minimal."}]}],
-        "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]},
+        "instances": [{"prompt": "A small red circle on a white background. Simple, minimal, clean."}],
+        "parameters": {
+            "sampleCount": 1,
+            "aspectRatio": "1:1",
+            "safetyFilterLevel": "block_some",
+        },
     }
 
     resultados = {}
@@ -712,21 +766,18 @@ def _testar_gemini_api():
         try:
             url = (
                 f"https://{LOCATION}-aiplatform.googleapis.com/v1/projects/{project_id}"
-                f"/locations/{LOCATION}/publishers/google/models/{modelo}:generateContent"
+                f"/locations/{LOCATION}/publishers/google/models/{modelo}:predict"
             )
             r = requests.post(
                 url,
                 headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-                json=body_teste, timeout=60,
+                json=body_teste, timeout=90,
             )
             ms = int((_t_diag.time() - t0) * 1000)
             if r.status_code == 200:
                 dados = r.json()
-                tem_imagem = any(
-                    (p.get("inlineData") or p.get("inline_data", {}))
-                    for c in dados.get("candidates", [])
-                    for p in c.get("content", {}).get("parts", [])
-                )
+                predicoes = dados.get("predictions", [])
+                tem_imagem = bool(predicoes and predicoes[0].get("bytesBase64Encoded"))
                 resultados[modelo] = {"ok": True, "ms": ms, "tem_imagem": tem_imagem}
             else:
                 try:
