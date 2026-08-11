@@ -9,10 +9,54 @@ import secrets as _secrets
 PLANILHA_NOME = "MartinSousa - Financeiro"
 ABA_USUARIOS = "usuarios"
 
-# Tokens persistentes no nível do processo Python.
-# Sobrevivem a reconexões WebSocket (nova sessão Streamlit, mesmo processo).
-# São apagados apenas quando o Railway faz deploy (reinicia o container).
+# Tokens em memória — cache rápido para WebSocket reconnections no mesmo processo.
+# Ao iniciar, carregados do Sheets para sobreviver a redeploys do Railway.
 _TOKENS: dict = {}
+_tokens_sheets_carregados: bool = False
+
+
+# ── PERSISTÊNCIA DE TOKENS NO SHEETS ─────────────────────────────────────────
+
+def _aba_tokens():
+    """Acessa (ou cria) a aba de tokens na planilha."""
+    cliente = _cliente_sheets()
+    planilha = cliente.open(PLANILHA_NOME)
+    try:
+        return planilha.worksheet("auth_tokens")
+    except gspread.exceptions.WorksheetNotFound:
+        aba = planilha.add_worksheet(title="auth_tokens", rows=1000, cols=3)
+        aba.append_row(["token", "usuario", "criado_em"], value_input_option="RAW")
+        return aba
+
+
+def _garantir_tokens_carregados():
+    """Carrega tokens do Sheets para _TOKENS (só uma vez por processo)."""
+    global _tokens_sheets_carregados
+    if _tokens_sheets_carregados:
+        return
+    _tokens_sheets_carregados = True
+    try:
+        aba = _aba_tokens()
+        registros = aba.get_all_records(value_render_option="UNFORMATTED_VALUE")
+        for r in registros:
+            tok = str(r.get("token", "")).strip()
+            usr = str(r.get("usuario", "")).strip()
+            if tok and usr:
+                _TOKENS[tok] = usr
+    except Exception:
+        pass  # se falhar, segue sem tokens persistidos — pede login normalmente
+
+
+def _salvar_token_sheets(token, usuario):
+    """Grava novo token no Sheets para sobreviver a redeploys."""
+    try:
+        aba = _aba_tokens()
+        aba.append_row(
+            [token, usuario, datetime.now().strftime("%d/%m/%Y %H:%M")],
+            value_input_option="RAW",
+        )
+    except Exception:
+        pass  # falha silenciosa — token ainda funciona na sessão atual
 
 
 # ── HASH ──────────────────────────────────────────────────────────────────────
@@ -144,11 +188,15 @@ def verificar_login():
 
     # ── Reconexão automática via token de URL ─────────────────────────────────
     # Se o WebSocket caiu e o Streamlit criou uma nova sessão, o token ainda
-    # está na URL. Restaura o login sem pedir senha novamente.
+    # está na URL. Tenta restaurar sem pedir senha.
+    # _garantir_tokens_carregados() busca tokens do Sheets se o container
+    # reiniciou (redeploy Railway) e _TOKENS estava vazio.
     _tok = st.query_params.get("_s", "")
-    if _tok and _tok in _TOKENS:
-        st.session_state["usuario_logado"] = _TOKENS[_tok]
-        return _TOKENS[_tok]
+    if _tok:
+        _garantir_tokens_carregados()
+        if _tok in _TOKENS:
+            st.session_state["usuario_logado"] = _TOKENS[_tok]
+            return _TOKENS[_tok]
 
     usuarios_secrets = dict(st.secrets.get("usuarios", {}))
     df_sheets = _carregar_usuarios_sheets()
@@ -390,9 +438,10 @@ def verificar_login():
         ok, _ = _verificar_credencial(login, senha)
         if ok:
             st.session_state["usuario_logado"] = login
-            # Gera token de reconexão e coloca na URL para sobreviver a quedas de WebSocket
+            # Gera token de reconexão: fica na URL (WebSocket reconnect) e no Sheets (redeploy)
             _tok = _secrets.token_hex(24)
             _TOKENS[_tok] = login
+            _salvar_token_sheets(_tok, login)  # persiste no Sheets para sobreviver a redeploys
             st.query_params["_s"] = _tok
             _carregar_usuarios_sheets.clear()
             st.rerun()
