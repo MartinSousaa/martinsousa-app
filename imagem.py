@@ -361,12 +361,11 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia):
                 json=body, timeout=120,
             )
             if resp.status_code == 429:
-                # Rate limit — espera progressiva maior antes de nova tentativa
-                espera = 30 * tentativa  # 30s, 60s, 90s
+                # Rate limit — espera progressiva reduzida
+                espera = 10 * tentativa  # 10s, 20s, 30s (máx 60s total)
                 _time.sleep(espera)
                 ultimo_erro = (
                     f"Limite de taxa da API Gemini atingido (HTTP 429) — tentativa {tentativa}/{MAX_TENTATIVAS}. "
-                    "A API está rejeitando requisições em rajada. O sistema aguardará e tentará novamente automaticamente. "
                     f"Aguardando {espera}s antes da próxima tentativa."
                 )
                 continue
