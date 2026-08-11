@@ -68,7 +68,7 @@ def carregar_atividades():
     if not df.empty:
         df.columns = [str(c).strip().lower() for c in df.columns]
         # Garante que colunas novas existem mesmo em planilhas antigas
-        for col in ["codigo", "cor", "medidas", "link_capa", "link_pasta",
+        for col in ["codigo", "cor", "medidas", "peso", "link_capa", "link_pasta",
                     "material", "caracteristicas", "diferenciais", "uso", "categoria"]:
             if col not in df.columns:
                 df[col] = ""
