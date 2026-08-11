@@ -376,30 +376,33 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia):
                     "resource_exhausted",
                 ]) or _err_status in ("RESOURCE_EXHAUSTED",)
 
-                if _cota_esgotada or tentativa >= MAX_TENTATIVAS:
+                if tentativa >= MAX_TENTATIVAS:
                     if _cota_esgotada:
                         return None, (
-                            "⛔ Cota da API Gemini esgotada. O limite de requisições "
-                            "(diário ou por minuto) foi atingido. Aguarde alguns minutos "
-                            "e tente novamente — ou verifique os limites em "
-                            "console.cloud.google.com. "
+                            "⛔ Cota diária da API Gemini esgotada. "
+                            "Aguarde até amanhã ou verifique os limites em "
+                            "console.cloud.google.com → APIs → Gemini. "
                             f"Detalhe: {_err_msg[:200]}"
                         )
-                    return None, f"HTTP 429 após {MAX_TENTATIVAS} tentativas. Detalhe: {_err_msg[:200]}"
+                    return None, (
+                        "⛔ Limite de requisições por minuto atingido (HTTP 429). "
+                        "Aguarde 1-2 minutos e tente novamente. "
+                        f"Detalhe: {_err_msg[:200]}"
+                    )
 
                 # Usa Retry-After se o Gemini informar o tempo exato
                 _retry_after = resp.headers.get("Retry-After") or resp.headers.get("retry-after")
                 if _retry_after:
                     try:
-                        espera = min(int(_retry_after), 30)
+                        espera = max(int(_retry_after), 60)
                     except Exception:
-                        espera = 10
+                        espera = 60
                 else:
-                    espera = 10  # 10s fixo na única retry (RPM reseta em 60s)
+                    espera = 60  # 60s garante reset do janela RPM (10 req/min)
 
                 ultimo_erro = (
                     f"HTTP 429 (tentativa {tentativa}/{MAX_TENTATIVAS}) — "
-                    f"aguardando {espera}s. Detalhe: {_err_msg[:120]}"
+                    f"aguardando {espera}s para reset do limite de API..."
                 )
                 _time.sleep(espera)
                 continue
