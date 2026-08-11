@@ -6,8 +6,44 @@ import io
 import zipfile
 import json
 import anthropic
+import threading as _threading_limiter
+import time as _time_limiter
+from collections import deque as _deque
 
-MODELO_IMAGEM = "gemini-3.1-flash-image"  # modelo de geração de imagens via generateContent (v1)
+MODELO_IMAGEM = "gemini-3.1-flash-image"  # modelo de geração de imagens via generateContent (v1beta)
+
+
+class _GeminiRateLimiter:
+    """Rate limiter global para a API Gemini — respeita 10 RPM automaticamente.
+    Compartilhado entre todas as threads/sessões do processo.
+    """
+    def __init__(self, rpm=8, window=60):
+        self._lock = _threading_limiter.Lock()
+        self._calls = _deque()
+        self._rpm = rpm        # 8 de 10 disponíveis — margem de segurança
+        self._window = window  # janela deslizante de 60s
+
+    def aguardar(self):
+        """Bloqueia até que seja seguro fazer uma nova chamada à API."""
+        while True:
+            with self._lock:
+                agora = _time_limiter.time()
+                # Descarta chamadas fora da janela
+                while self._calls and agora - self._calls[0] >= self._window:
+                    self._calls.popleft()
+                if len(self._calls) < self._rpm:
+                    self._calls.append(agora)
+                    return
+                # Quanto falta até a chamada mais antiga sair da janela
+                espera = self._window - (agora - self._calls[0]) + 0.2
+            _time_limiter.sleep(min(espera, 2))
+
+# Singleton por processo — usa st.cache_resource para sobreviver a reruns E hot-reloads
+@st.cache_resource
+def _get_gemini_limiter():
+    return _GeminiRateLimiter(rpm=8, window=60)
+
+_GEMINI_LIMITER = _get_gemini_limiter()
 
 # ── PADRÃO VISUAL MARTINSOUSA (hardcoded em todos os prompts) ──────────────────
 PADRAO_VISUAL = """
@@ -355,6 +391,7 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia):
     ultimo_erro = ""
     for tentativa in range(1, MAX_TENTATIVAS + 1):
         try:
+            _GEMINI_LIMITER.aguardar()  # garante respeito ao RPM antes de cada chamada
             resp = requests.post(
                 f"https://generativelanguage.googleapis.com/v1beta/models/{MODELO_IMAGEM}:generateContent",
                 headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
@@ -1083,9 +1120,7 @@ def pagina_imagem(usuario_logado):
                 import threading as _threading
                 for i, tipo in enumerate(tipos):
                     barra.progress(i / len(tipos), text=f"Gerando {i+1}/{len(tipos)}: {tipo[:50]}...")
-                    # Pausa entre chamadas para evitar rate limit da API
-                    if i > 0:
-                        _time_gen.sleep(6)  # 6s entre imagens — 10 RPM = 1 req/6s mínimo
+                    # Sem sleep aqui — o _GEMINI_LIMITER em gerar_imagem_ia já respeita o RPM
                     try:
                         prompt_final = montar_prompt_imagem(
                             tipo,
