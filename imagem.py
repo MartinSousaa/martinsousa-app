@@ -365,10 +365,9 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia):
                 espera = 30 * tentativa  # 30s, 60s, 90s
                 _time.sleep(espera)
                 ultimo_erro = (
-                    f"Cota da API Gemini esgotada (HTTP 429) — tentativa {tentativa}/{MAX_TENTATIVAS}. "
-                    "Isso ocorre quando o plano gratuito atinge o limite de imagens por dia/minuto. "
-                    "Solução: acesse aistudio.google.com, verifique a cota da chave GEMINI_API_KEY "
-                    "e considere ativar faturamento no Google Cloud."
+                    f"Limite de taxa da API Gemini atingido (HTTP 429) — tentativa {tentativa}/{MAX_TENTATIVAS}. "
+                    "A API está rejeitando requisições em rajada. O sistema aguardará e tentará novamente automaticamente. "
+                    f"Aguardando {espera}s antes da próxima tentativa."
                 )
                 continue
             if resp.status_code != 200:
@@ -408,7 +407,19 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia):
     return None, ultimo_erro
 
 
-def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto):
+INSTRUCAO_REFERENCIA_LAYOUT = """
+IMAGENS DE REFERÊNCIA DE LAYOUT — REGRAS ABSOLUTAS:
+- As imagens de referência de layout mostram COMPOSIÇÃO, POSIÇÃO, ESTILO e ESTRUTURA visual
+- O produto nessas imagens de referência NÃO É o produto a ser gerado — é apenas um exemplo de layout
+- USE das referências: posicionamento, hierarquia de elementos, estilo de texto, uso de pessoas/cenários
+- NÃO USE das referências: o produto em si, cores do produto de referência, marcas ou logotipos visíveis
+- Aplique o layout/composição da referência ao PRODUTO DO COLABORADOR com as cores MartinSousa
+- Se o arquivo de referência tiver nome indicando o tipo (ex: "fundo_branco", "beneficios"), essa referência se aplica especificamente àquele tipo de imagem
+"""
+
+
+def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
+                         refs_layout_nomes=None, instrucao_layout=""):
     """Monta o prompt completo para geração.
 
     Para os tipos padrão (1-7): aplica PADRAO_VISUAL + INSTRUCAO_COMPOSICAO
@@ -416,6 +427,9 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto)
 
     Para 'Personalizado': aplica INSTRUCAO_PERSONALIZADO sem branding automático
     — a instrução do colaborador é a única fonte de verdade.
+
+    refs_layout_nomes: lista de nomes de arquivo das imagens de referência de layout
+    instrucao_layout: texto descrevendo o que cada referência representa
     """
     base = PRESETS.get(tipo, "")
 
@@ -435,6 +449,15 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto)
         if instrucoes_extras else ""
     )
 
+    # Bloco de referências de layout
+    bloco_refs = ""
+    if refs_layout_nomes:
+        nomes_str = ", ".join(refs_layout_nomes)
+        bloco_refs = f"\nREFERÊNCIAS DE LAYOUT FORNECIDAS: {nomes_str}"
+        if instrucao_layout:
+            bloco_refs += f"\nO que cada referência representa: {instrucao_layout}"
+        bloco_refs += f"\n{INSTRUCAO_REFERENCIA_LAYOUT}"
+
     eh_personalizado = (tipo == "Personalizado (descrevo o que quero)")
 
     if eh_personalizado:
@@ -443,6 +466,7 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto)
         return f"""{contexto_produto}
 TIPO DE IMAGEM: Personalizado
 {bloco_instrucoes}
+{bloco_refs}
 
 {INSTRUCAO_PERSONALIZADO}
 {INSTRUCAO_FIDELIDADE}
@@ -453,6 +477,7 @@ TIPO DE IMAGEM: Personalizado
 TIPO DE IMAGEM: {tipo}
 {base}
 {bloco_instrucoes}
+{bloco_refs}
 
 {PADRAO_VISUAL}
 {INSTRUCAO_FIDELIDADE}
@@ -594,17 +619,22 @@ def pagina_imagem(usuario_logado):
             st.rerun()
 
     # ── LINHA 1: Nome + Código ─────────────────────────────────────────────────
+    # Pré-preenche via session_state (evita bug RemoveChild do React ao usar
+    # value= com pop() durante re-renders causados por paste/autocomplete)
+    if "img_nome_importado" in st.session_state:
+        st.session_state["img_nome_produto_input"] = st.session_state.pop("img_nome_importado")
+    if "img_codigo_importado" in st.session_state:
+        st.session_state["img_codigo_input"] = st.session_state.pop("img_codigo_importado")
+
     col_nome, col_cod = st.columns(2)
     with col_nome:
         nome_produto = st.text_input(
             "Nome do produto",
-            value=st.session_state.pop("img_nome_importado", ""),
             key="img_nome_produto_input",
         )
     with col_cod:
         codigo_input = st.text_input(
             "Código da descrição (opcional)",
-            value=st.session_state.pop("img_codigo_importado", ""),
             key="img_codigo_input",
             placeholder="ex: MS-BENG-07174K2  (gerado na aba Descrição)",
             help="Gere uma descrição na aba Descrição — o código aparece num bloco azul no final. Copie e cole aqui. O nome do produto não é o código.",
@@ -735,7 +765,7 @@ def pagina_imagem(usuario_logado):
     # MODOS PADRÃO — fotos de referência + triagem + geração
     # ══════════════════════════════════════════════════════════════════════════
     else:
-        # ── FOTOS DE REFERÊNCIA ───────────────────────────────────────────────
+        # ── FOTOS DE REFERÊNCIA DO PRODUTO ────────────────────────────────────
         st.markdown("**Fotos de referência do produto**")
         st.caption("Suba quantas fotos quiser — ângulos diferentes ajudam a IA a ser mais fiel.")
         fotos_upload = st.file_uploader(
@@ -765,6 +795,47 @@ def pagina_imagem(usuario_logado):
                 cols_prev[i].image(fb, use_container_width=True)
             if len(fotos_bytes) > 5:
                 st.caption(f"+ {len(fotos_bytes) - 5} foto(s) adicionais carregadas.")
+
+        # ── IMAGENS DE REFERÊNCIA DE LAYOUT (opcional) ────────────────────────
+        with st.expander("🖼️ Imagens de referência de layout (opcional)", expanded=False):
+            st.caption(
+                "Suba imagens de outros produtos que mostram o **layout, posições, estilo ou texto** "
+                "que você quer replicar. A IA vai entender a composição e aplicar ao SEU produto, "
+                "mantendo o padrão visual MartinSousa."
+            )
+            st.info(
+                "💡 **Como nomear os arquivos para as 7 imagens padrão:** "
+                "`fundo_branco.jpg`, `beneficios.jpg`, `cenario.jpg`, `detalhes.jpg`, "
+                "`medidas_peso.jpg`, `quebra_objecao.jpg`, `presentear.jpg` — "
+                "o nome do arquivo indica para qual tipo de imagem a referência se aplica."
+            )
+            refs_layout_upload = st.file_uploader(
+                "Imagens de referência de layout (JPG, PNG, WebP)",
+                type=["jpg", "jpeg", "png", "webp"],
+                accept_multiple_files=True,
+                key="img_refs_layout_upload",
+                help="Ex: uma imagem de bengala mostrando como você quer que fique o layout — a IA reproduz o estilo no seu produto.",
+            )
+            refs_layout_bytes = []
+            refs_layout_nomes = []
+            if refs_layout_upload:
+                refs_layout_bytes = [f.getvalue() for f in refs_layout_upload]
+                refs_layout_nomes = [f.name for f in refs_layout_upload]
+                cols_rl = st.columns(min(len(refs_layout_bytes), 4))
+                for i, rb in enumerate(refs_layout_bytes[:4]):
+                    cols_rl[i].image(rb, caption=refs_layout_nomes[i][:20], use_container_width=True)
+
+            instrucao_layout = ""
+            if refs_layout_bytes:
+                instrucao_layout = st.text_area(
+                    "Descreva o que cada imagem de referência representa (opcional)",
+                    height=80,
+                    placeholder=(
+                        "ex: 'fundo_branco.jpg' — quero esse estilo de sombra suave e centralização. "
+                        "'beneficios.jpg' — replicar os ícones à direita com texto ao lado."
+                    ),
+                    key="img_instrucao_layout",
+                )
 
         # ── TIPOS ─────────────────────────────────────────────────────────────
         tipos_selecionados = []
@@ -840,6 +911,10 @@ def pagina_imagem(usuario_logado):
                         "instrucoes_extras": instrucoes_extras,
                         "fotos_bytes": fotos_bytes,
                         "dados_descricao": dados_descricao,
+                        # Referências de layout (opcional)
+                        "refs_layout_bytes": refs_layout_bytes,
+                        "refs_layout_nomes": refs_layout_nomes,
+                        "instrucao_layout": instrucao_layout,
                     }
                     # Sem st.rerun() — o plano é exibido diretamente abaixo
                     # sem resetar a página nem perder os campos preenchidos
@@ -971,15 +1046,19 @@ def pagina_imagem(usuario_logado):
                             cfg.get("instrucoes_extras", ""),
                             cfg.get("dados_descricao"),
                             cfg["nome_produto"],
+                            refs_layout_nomes=cfg.get("refs_layout_nomes", []),
+                            instrucao_layout=cfg.get("instrucao_layout", ""),
                         )
                         # ── Geração em thread separada ──────────────────────────
                         # Mantém o WebSocket vivo durante a chamada Gemini (30-60s)
                         # enviando atualizações a cada segundo para o Railway não
                         # fechar a conexão por inatividade.
+                        # Combina fotos do produto + refs de layout para o Gemini
+                        todas_fotos = cfg["fotos_bytes"] + cfg.get("refs_layout_bytes", [])
                         _res = {"img": None, "erro": None, "done": False}
                         _thread = _threading.Thread(
                             target=_gerar_imagem_thread,
-                            args=(prompt_final, cfg["fotos_bytes"], _res),
+                            args=(prompt_final, todas_fotos, _res),
                             daemon=True,
                         )
                         _thread.start()
