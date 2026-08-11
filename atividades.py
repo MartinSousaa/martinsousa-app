@@ -213,12 +213,11 @@ def pagina_historico():
         with st.expander(label_expander, expanded=False):
             # Thumbnail da imagem + metadados lado a lado
             thumb = _thumb_url(link_capa)
-            col_thumb, col_meta = st.columns([1, 4]) if thumb else (None, None)
+            # Sempre cria as 2 colunas — evita RemoveChild do React
+            _col_thumb, _col_meta = st.columns([1, 4])
             if thumb:
-                col_thumb.image(thumb, use_container_width=True)
-                meta_col = col_meta
-            else:
-                meta_col = st.container()
+                _col_thumb.image(thumb, use_container_width=True)
+            meta_col = _col_meta
 
             meta = []
             if cor_val.any():    meta.append(f"🎨 **Cor:** {cor_val.iloc[0]}")
