@@ -665,14 +665,22 @@ def pagina_descricao(usuario_logado):
             st.markdown(
                 f"""<div style="background:#1A3A6B; border-radius:8px; padding:12px 18px; margin-bottom:4px;">
                 <span class="ms-desc-code-titulo">CÓDIGO DA DESCRIÇÃO</span><br>
-                <span class="ms-desc-code-sub">Cole esse código na aba Imagem para vincular medidas, peso e cor.
-                Clique no ícone de cópia à direita ou use o botão abaixo.</span>
+                <span class="ms-desc-code-sub">Cole esse código na aba Imagem para vincular medidas, peso e cor.</span>
                 </div>""",
                 unsafe_allow_html=True,
             )
             st.code(codigo_exibir, language=None)
-            if st.button(
-                "📋 Pré-preencher aba Imagem com este código",
+            col_copy_cod, col_enviar_cod = st.columns(2)
+            # Botão de cópia via JS — garante funcionamento mesmo quando o ícone nativo falha
+            col_copy_cod.markdown(
+                f"""<button onclick="navigator.clipboard.writeText('{codigo_exibir}').then(()=>{{this.textContent='✅ Copiado!';setTimeout(()=>this.textContent='📋 Copiar código',2000)}})"
+                style="width:100%;padding:6px 12px;background:#1A3A6B;color:#E8EEF5;border:1px solid #4A7EC7;
+                border-radius:5px;cursor:pointer;font-size:14px;font-family:inherit;">
+                📋 Copiar código</button>""",
+                unsafe_allow_html=True,
+            )
+            if col_enviar_cod.button(
+                "➡️ Pré-preencher aba Imagem",
                 key="desc_btn_enviar_img",
                 use_container_width=True,
             ):
@@ -680,7 +688,19 @@ def pagina_descricao(usuario_logado):
                 st.session_state["img_nome_importado"] = nome_exibir_cod
                 st.info("✅ Código enviado! Vá até a aba **Imagem** — os campos já estarão preenchidos.")
 
-        st.code(st.session_state["desc_texto_atual"], language=None)
-        st.caption(f"{len(st.session_state['desc_texto_atual'])}/10.000 caracteres (limite do Mercado Livre pra descrição)")
+        # ── TEXTO DA DESCRIÇÃO ─────────────────────────────────────────────────
+        texto_desc = st.session_state["desc_texto_atual"]
+        st.code(texto_desc, language=None)
+        st.caption(f"{len(texto_desc)}/10.000 caracteres (limite do Mercado Livre pra descrição)")
+
+        # Botão de cópia explícito para o texto da descrição (fallback ao ícone nativo)
+        texto_js = texto_desc.replace("\\", "\\\\").replace("`", "\\`").replace("'", "\\'").replace("\n", "\\n").replace("\r", "")
+        st.markdown(
+            f"""<button onclick="navigator.clipboard.writeText('{texto_js}').then(()=>{{this.textContent='✅ Descrição copiada!';setTimeout(()=>this.textContent='📋 Copiar descrição',2500)}})"
+            style="width:100%;padding:6px 12px;background:#1A3A6B;color:#E8EEF5;border:1px solid #4A7EC7;
+            border-radius:5px;cursor:pointer;font-size:14px;font-family:inherit;margin-bottom:8px;">
+            📋 Copiar descrição</button>""",
+            unsafe_allow_html=True,
+        )
 
         st.caption("💬 Para ajustar a descrição, use o **Assistente IA** no menu lateral.")
