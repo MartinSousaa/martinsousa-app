@@ -365,19 +365,10 @@ def _gerar_imagem_thread(prompt_texto, imagens_ref, resultado):
         resultado["done"] = True
 
 
-def _get_vertex_credenciais():
-    """Retorna (token, project_id) usando o service account das secrets.
-    Lança exceção se falhar — tratado pelo chamador."""
-    from google.oauth2.service_account import Credentials
-    import google.auth.transport.requests as _gar
-    creds_dict = dict(st.secrets["gcp_service_account"])
-    creds = Credentials.from_service_account_info(
-        creds_dict,
-        scopes=["https://www.googleapis.com/auth/cloud-platform"],
-    )
-    req = _gar.Request()
-    creds.refresh(req)
-    return creds.token, creds_dict.get("project_id", "")
+def _get_gemini_api_key():
+    """Retorna a GEMINI_API_KEY das secrets ou variável de ambiente."""
+    key = st.secrets.get("GEMINI_API_KEY", "") or os.environ.get("GEMINI_API_KEY", "")
+    return key
 
 
 def _montar_prompt_imagen(prompt_texto_completo, imagens_referencia):
@@ -440,36 +431,26 @@ Write ONLY the Imagen 3 prompt. No explanation, no preamble."""
         )
 
 
-def _chamar_imagen3(prompt_final):
-    """Chama Imagen 3 via Vertex AI predict endpoint. Retorna (resp, erro_fatal)."""
+def _chamar_gemini_geracao(prompt_final):
+    """Chama Gemini Flash Image Generation via API key. Retorna (resp, erro_fatal)."""
     import time as _time
     MAX_TENTATIVAS = 2
-    LOCATION = "us-central1"
+    MODELO = "gemini-2.0-flash-preview-image-generation"
     for tentativa in range(1, MAX_TENTATIVAS + 1):
         try:
             _GEMINI_LIMITER.aguardar()
-            token, project_id = _get_vertex_credenciais()
-            if not project_id:
-                return None, "project_id não encontrado no gcp_service_account."
+            api_key = _get_gemini_api_key()
+            if not api_key:
+                return None, "GEMINI_API_KEY não configurada nas secrets do Railway."
             url = (
-                f"https://{LOCATION}-aiplatform.googleapis.com/v1/projects/{project_id}"
-                f"/locations/{LOCATION}/publishers/google/models/{MODELO_IMAGEM}:predict"
+                f"https://generativelanguage.googleapis.com/v1beta/models/"
+                f"{MODELO}:generateContent?key={api_key}"
             )
             body = {
-                "instances": [{"prompt": prompt_final}],
-                "parameters": {
-                    "sampleCount": 1,
-                    "aspectRatio": "1:1",
-                    "safetyFilterLevel": "block_some",
-                    "personGeneration": "allow_adult",
-                },
+                "contents": [{"parts": [{"text": prompt_final}]}],
+                "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]},
             }
-            resp = requests.post(
-                url,
-                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-                json=body,
-                timeout=120,
-            )
+            resp = requests.post(url, json=body, timeout=120)
             if resp.status_code == 429:
                 try:
                     _ej = resp.json()
@@ -479,7 +460,7 @@ def _chamar_imagen3(prompt_final):
                     _msg = resp.text[:300]
                     _st  = ""
                 _cota = any(k in _msg.lower() for k in [
-                    "quota", "exhausted", "resource_exhausted",
+                    "quota", "exhausted", "resource_exhausted", "billing",
                 ]) or _st == "RESOURCE_EXHAUSTED"
                 if _cota:
                     return None, f"COTA_ESGOTADA:{_msg[:200]}"
@@ -496,25 +477,26 @@ def _chamar_imagen3(prompt_final):
 
 
 def gerar_imagem_ia(prompt_texto, imagens_referencia):
-    """Gera imagem via Imagen 3 (Vertex AI). Retorna (imagem_bytes, erro_ou_None).
-    Claude analisa as fotos de referência → cria prompt para Imagen 3 → gera imagem."""
-    # 1. Converte o prompt completo + fotos em prompt visual para Imagen 3
-    prompt_imagen = _montar_prompt_imagen(prompt_texto, imagens_referencia)
+    """Gera imagem via Gemini Flash Image Generation (Google AI Studio API).
+    Claude analisa as fotos de referência → cria prompt → Gemini gera imagem."""
+    # 1. Converte o prompt completo + fotos em prompt visual para o Gemini
+    prompt_gemini = _montar_prompt_imagen(prompt_texto, imagens_referencia)
 
-    # 2. Chama Imagen 3
-    resp, erro_fatal = _chamar_imagen3(prompt_imagen)
+    # 2. Chama Gemini Image Generation
+    resp, erro_fatal = _chamar_gemini_geracao(prompt_gemini)
     if erro_fatal:
         msg = erro_fatal.replace("COTA_ESGOTADA:", "")
         if erro_fatal.startswith("COTA_ESGOTADA:"):
             return None, (
-                f"⛔ Cota do Vertex AI esgotada (Imagen 3). "
-                "Verifique console.cloud.google.com → Vertex AI → Cotas. "
-                f"Detalhe: {msg[:200]}"
+                "⛔ Cota ou créditos da GEMINI_API_KEY esgotados. "
+                "Crie uma nova chave em aistudio.google.com/apikey vinculada ao projeto GCP "
+                "e atualize GEMINI_API_KEY no Railway."
+                f" Detalhe: {msg[:200]}"
             )
-        return None, f"Erro ao chamar Imagen 3: {msg[:300]}"
+        return None, f"Erro ao chamar Gemini: {msg[:300]}"
 
     if resp is None:
-        return None, "Falha ao conectar ao Imagen 3 (Vertex AI)."
+        return None, "Falha ao conectar ao Gemini Image Generation."
 
     if resp.status_code != 200:
         try:
@@ -526,15 +508,21 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia):
     try:
         dados = resp.json()
     except Exception:
-        return None, "Resposta inválida do Imagen 3 (não é JSON)."
+        return None, "Resposta inválida do Gemini (não é JSON)."
 
-    predicoes = dados.get("predictions", [])
-    if not predicoes:
-        return None, "Imagen 3 não retornou nenhuma imagem (possível bloqueio de conteúdo)."
+    # Extrai imagem da resposta Gemini (candidates → content → parts → inlineData)
+    img_b64 = ""
+    for candidate in dados.get("candidates", []):
+        for part in candidate.get("content", {}).get("parts", []):
+            inline = part.get("inlineData") or part.get("inline_data", {})
+            if inline and inline.get("data"):
+                img_b64 = inline["data"]
+                break
+        if img_b64:
+            break
 
-    img_b64 = predicoes[0].get("bytesBase64Encoded", "")
     if not img_b64:
-        return None, "Dados de imagem ausentes na resposta do Imagen 3."
+        return None, "Gemini não retornou nenhuma imagem (possível bloqueio de conteúdo ou créditos esgotados)."
 
     img_bytes_raw = base64.b64decode(img_b64)
     try:
@@ -739,55 +727,48 @@ def criar_zip_galeria(galeria, nome_produto):
 # ── INTERFACE PRINCIPAL ────────────────────────────────────────────────────────
 
 def _testar_gemini_api():
-    """Testa o Vertex AI com geração real de Imagen 3 (prompt mínimo, sem foto de referência).
+    """Testa a API Gemini Image Generation com um prompt mínimo.
     Retorna dict com resultados.
     """
     import time as _t_diag
-    LOCATION = "us-central1"
+    MODELO = "gemini-2.0-flash-preview-image-generation"
+
+    api_key = _get_gemini_api_key()
+    resultados = {"api_key": "configurada" if api_key else "NÃO CONFIGURADA"}
+
+    if not api_key:
+        return {"erro_geral": "GEMINI_API_KEY não configurada nas secrets do Railway."}
 
     body_teste = {
-        "instances": [{"prompt": "A small red circle on a white background. Simple, minimal, clean."}],
-        "parameters": {
-            "sampleCount": 1,
-            "aspectRatio": "1:1",
-            "safetyFilterLevel": "block_some",
-        },
+        "contents": [{"parts": [{"text": "A small red circle on a white background. Simple and minimal."}]}],
+        "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]},
     }
 
-    resultados = {}
+    t0 = _t_diag.time()
     try:
-        token, project_id = _get_vertex_credenciais()
-        resultados["service_account"] = project_id or "(project_id não encontrado)"
+        url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{MODELO}:generateContent?key={api_key}"
+        )
+        r = requests.post(url, json=body_teste, timeout=90)
+        ms = int((_t_diag.time() - t0) * 1000)
+        if r.status_code == 200:
+            dados = r.json()
+            tem_imagem = any(
+                (p.get("inlineData") or p.get("inline_data", {})).get("data")
+                for c in dados.get("candidates", [])
+                for p in c.get("content", {}).get("parts", [])
+            )
+            resultados[MODELO] = {"ok": True, "ms": ms, "tem_imagem": tem_imagem}
+        else:
+            try:
+                err = r.json().get("error", {})
+                msg = f"HTTP {r.status_code} — {err.get('status','')} — {err.get('message','')[:250]}"
+            except Exception:
+                msg = f"HTTP {r.status_code} — {r.text[:250]}"
+            resultados[MODELO] = {"ok": False, "ms": ms, "erro": msg}
     except Exception as e:
-        return {"erro_geral": f"Erro ao obter credenciais Vertex AI: {e}"}
-
-    for modelo in [MODELO_IMAGEM]:
-        t0 = _t_diag.time()
-        try:
-            url = (
-                f"https://{LOCATION}-aiplatform.googleapis.com/v1/projects/{project_id}"
-                f"/locations/{LOCATION}/publishers/google/models/{modelo}:predict"
-            )
-            r = requests.post(
-                url,
-                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-                json=body_teste, timeout=90,
-            )
-            ms = int((_t_diag.time() - t0) * 1000)
-            if r.status_code == 200:
-                dados = r.json()
-                predicoes = dados.get("predictions", [])
-                tem_imagem = bool(predicoes and predicoes[0].get("bytesBase64Encoded"))
-                resultados[modelo] = {"ok": True, "ms": ms, "tem_imagem": tem_imagem}
-            else:
-                try:
-                    err = r.json().get("error", {})
-                    msg = f"HTTP {r.status_code} — {err.get('status','')} — {err.get('message','')[:250]}"
-                except Exception:
-                    msg = f"HTTP {r.status_code} — {r.text[:250]}"
-                resultados[modelo] = {"ok": False, "ms": ms, "erro": msg}
-        except Exception as e:
-            resultados[modelo] = {"ok": False, "ms": int((_t_diag.time() - t0)*1000), "erro": str(e)}
+        resultados[MODELO] = {"ok": False, "ms": int((_t_diag.time() - t0)*1000), "erro": str(e)}
     return resultados
 
 
@@ -795,22 +776,23 @@ def pagina_imagem(usuario_logado):
     st.subheader("Imagem")
     st.caption("Gere imagens profissionais para o anúncio. A IA mostra o que vai criar antes de gastar com a geração.")
 
-    with st.expander("🔧 Diagnóstico do Vertex AI", expanded=False):
-        st.caption("Gera uma imagem de teste para confirmar que o Vertex AI está funcionando. Gasta um pouco de cota do Cloud.")
+    MODELO_DIAG = "gemini-2.0-flash-preview-image-generation"
+    with st.expander("🔧 Diagnóstico da API Gemini", expanded=False):
+        st.caption("Gera uma imagem de teste para confirmar que a GEMINI_API_KEY está funcionando.")
         if st.button("Testar geração agora", key="btn_diag_gemini"):
-            with st.spinner(f"Testando modelo {MODELO_IMAGEM} via Vertex AI (pode levar ~30s)..."):
+            with st.spinner(f"Testando {MODELO_DIAG} via Gemini API (pode levar ~30s)..."):
                 d = _testar_gemini_api()
             if "erro_geral" in d:
                 st.error(d["erro_geral"])
             else:
-                st.caption(f"Service account / projeto: `{d.get('service_account','?')}`")
-                info = d.get(MODELO_IMAGEM, {})
+                st.caption(f"API Key: `{d.get('api_key','?')}`")
+                info = d.get(MODELO_DIAG, {})
                 if info.get("ok"):
                     icone = "✅" if info.get("tem_imagem") else "⚠️"
-                    label = "gerou imagem" if info.get("tem_imagem") else "respondeu mas sem imagem"
-                    st.success(f"{icone} **{MODELO_IMAGEM}** via Vertex AI — {label} ({info['ms']}ms)")
+                    label = "gerou imagem" if info.get("tem_imagem") else "respondeu mas sem imagem (créditos podem estar esgotados)"
+                    st.success(f"{icone} **{MODELO_DIAG}** — {label} ({info['ms']}ms)")
                 else:
-                    st.error(f"❌ **{MODELO_IMAGEM}** via Vertex AI — {info.get('erro','erro desconhecido')} ({info.get('ms',0)}ms)")
+                    st.error(f"❌ **{MODELO_DIAG}** — {info.get('erro','erro desconhecido')} ({info.get('ms',0)}ms)")
 
     # ── RE-RUN AUTOMÁTICO DA TRIAGEM (disparado pelo chat ao preencher dados) ──
     if st.session_state.pop("img_rerun_triagem", False):
