@@ -351,26 +351,64 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia):
     }
 
     import time as _time
-    MAX_TENTATIVAS = 3
+    MAX_TENTATIVAS = 2  # 2 tentativas: se ambas derem 429, a cota está esgotada
     ultimo_erro = ""
     for tentativa in range(1, MAX_TENTATIVAS + 1):
         try:
             resp = requests.post(
-                f"https://generativelanguage.googleapis.com/v1/models/{MODELO_IMAGEM}:generateContent",
+                f"https://generativelanguage.googleapis.com/v1beta/models/{MODELO_IMAGEM}:generateContent",
                 headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
                 json=body, timeout=120,
             )
             if resp.status_code == 429:
-                # Rate limit — espera progressiva reduzida
-                espera = 10 * tentativa  # 10s, 20s, 30s (máx 60s total)
-                _time.sleep(espera)
+                # Lê o corpo real do erro para distinguir RPM vs cota diária
+                try:
+                    _err_json = resp.json()
+                    _err_msg = _err_json.get("error", {}).get("message", resp.text[:200])
+                    _err_status = _err_json.get("error", {}).get("status", "")
+                except Exception:
+                    _err_msg = resp.text[:200]
+                    _err_status = ""
+
+                # Detecta cota diária esgotada — não adianta retry
+                _cota_esgotada = any(kw in _err_msg.lower() for kw in [
+                    "quota", "daily", "exhausted", "exceeded your current quota",
+                    "resource_exhausted",
+                ]) or _err_status in ("RESOURCE_EXHAUSTED",)
+
+                if _cota_esgotada or tentativa >= MAX_TENTATIVAS:
+                    if _cota_esgotada:
+                        return None, (
+                            "⛔ Cota da API Gemini esgotada. O limite de requisições "
+                            "(diário ou por minuto) foi atingido. Aguarde alguns minutos "
+                            "e tente novamente — ou verifique os limites em "
+                            "console.cloud.google.com. "
+                            f"Detalhe: {_err_msg[:200]}"
+                        )
+                    return None, f"HTTP 429 após {MAX_TENTATIVAS} tentativas. Detalhe: {_err_msg[:200]}"
+
+                # Usa Retry-After se o Gemini informar o tempo exato
+                _retry_after = resp.headers.get("Retry-After") or resp.headers.get("retry-after")
+                if _retry_after:
+                    try:
+                        espera = min(int(_retry_after), 30)
+                    except Exception:
+                        espera = 10
+                else:
+                    espera = 10  # 10s fixo na única retry (RPM reseta em 60s)
+
                 ultimo_erro = (
-                    f"Limite de taxa da API Gemini atingido (HTTP 429) — tentativa {tentativa}/{MAX_TENTATIVAS}. "
-                    f"Aguardando {espera}s antes da próxima tentativa."
+                    f"HTTP 429 (tentativa {tentativa}/{MAX_TENTATIVAS}) — "
+                    f"aguardando {espera}s. Detalhe: {_err_msg[:120]}"
                 )
+                _time.sleep(espera)
                 continue
             if resp.status_code != 200:
-                ultimo_erro = f"Erro da API (HTTP {resp.status_code}): {resp.text[:300]}"
+                try:
+                    _err_detail = resp.json().get("error", {}).get("message", resp.text[:300])
+                except Exception:
+                    _err_detail = resp.text[:300]
+                ultimo_erro = f"Erro da API (HTTP {resp.status_code}): {_err_detail}"
                 if tentativa < MAX_TENTATIVAS:
                     _time.sleep(5)
                 continue
@@ -1044,7 +1082,7 @@ def pagina_imagem(usuario_logado):
                     barra.progress(i / len(tipos), text=f"Gerando {i+1}/{len(tipos)}: {tipo[:50]}...")
                     # Pausa entre chamadas para evitar rate limit da API
                     if i > 0:
-                        _time_gen.sleep(3)  # 3s entre imagens — billing ativo = Tier 1 (10 RPM)
+                        _time_gen.sleep(6)  # 6s entre imagens — 10 RPM = 1 req/6s mínimo
                     try:
                         prompt_final = montar_prompt_imagem(
                             tipo,
