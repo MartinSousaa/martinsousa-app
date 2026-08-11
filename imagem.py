@@ -10,9 +10,10 @@ import threading as _threading_limiter
 import time as _time_limiter
 from collections import deque as _deque
 
-# Modelo correto para geração de imagem via generateContent + responseModalities:["IMAGE"]
-# Documentação: ai.google.dev/gemini-api/docs/models/gemini-2.5-flash-image
-MODELO_IMAGEM = "gemini-2.5-flash-image"
+# Geração de imagem via Vertex AI — fatura no Google Cloud (não usa GEMINI_API_KEY).
+# Autenticação: service account gcp_service_account (o mesmo do Sheets/Drive).
+# Documentação: cloud.google.com/vertex-ai/generative-ai/docs/multimodal/image-generation
+MODELO_IMAGEM = "gemini-2.0-flash-exp"
 
 
 class _GeminiRateLimiter:
@@ -364,19 +365,47 @@ def _gerar_imagem_thread(prompt_texto, imagens_ref, resultado):
         resultado["done"] = True
 
 
-def _chamar_gemini(api_key, modelo, body):
-    """Faz uma chamada ao Gemini com retry em 429 e retorna (resp, erro_fatal).
+def _get_vertex_credenciais():
+    """Retorna (token, project_id) usando o service account das secrets.
+    Lança exceção se falhar — tratado pelo chamador."""
+    from google.oauth2.service_account import Credentials
+    import google.auth.transport.requests as _gar
+    creds_dict = dict(st.secrets["gcp_service_account"])
+    creds = Credentials.from_service_account_info(
+        creds_dict,
+        scopes=["https://www.googleapis.com/auth/cloud-platform"],
+    )
+    req = _gar.Request()
+    creds.refresh(req)
+    return creds.token, creds_dict.get("project_id", "")
+
+
+def _chamar_vertex(modelo, body):
+    """Chama Vertex AI (Gemini) com service account. Retorna (resp, erro_fatal).
     erro_fatal = string → não tente mais. resp = None → erro recuperável.
+    Fatura no Google Cloud — sem GEMINI_API_KEY.
     """
     import time as _time
     MAX_TENTATIVAS = 2
+    LOCATION = "us-central1"
     for tentativa in range(1, MAX_TENTATIVAS + 1):
         try:
             _GEMINI_LIMITER.aguardar()
+            token, project_id = _get_vertex_credenciais()
+            if not project_id:
+                return None, "project_id não encontrado no gcp_service_account."
+            url = (
+                f"https://{LOCATION}-aiplatform.googleapis.com/v1/projects/{project_id}"
+                f"/locations/{LOCATION}/publishers/google/models/{modelo}:generateContent"
+            )
             resp = requests.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent",
-                headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
-                json=body, timeout=120,
+                url,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                },
+                json=body,
+                timeout=120,
             )
             if resp.status_code == 429:
                 try:
@@ -391,7 +420,6 @@ def _chamar_gemini(api_key, modelo, body):
                     "resource_exhausted",
                 ]) or _st == "RESOURCE_EXHAUSTED"
                 if _cota:
-                    # Cota esgotada — não adianta esperar; sinaliza para tentar fallback
                     return None, f"COTA_ESGOTADA:{_msg[:200]}"
                 if tentativa >= MAX_TENTATIVAS:
                     return None, f"HTTP 429: {_msg[:200]}"
@@ -408,11 +436,8 @@ def _chamar_gemini(api_key, modelo, body):
 
 
 def gerar_imagem_ia(prompt_texto, imagens_referencia):
-    """Gera imagem via Gemini. Retorna (imagem_bytes, erro_ou_None)."""
-    api_key = st.secrets.get("GEMINI_API_KEY", "") or os.environ.get("GEMINI_API_KEY", "")
-    if not api_key:
-        return None, "GEMINI_API_KEY não configurada nas Secrets."
-
+    """Gera imagem via Vertex AI (Gemini). Retorna (imagem_bytes, erro_ou_None).
+    Usa o service account gcp_service_account — fatura no Google Cloud."""
     parts = [{"text": prompt_texto}]
     for img_bytes in imagens_referencia:
         parts.append({
@@ -426,20 +451,19 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia):
         "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]},
     }
 
-    resp, erro_fatal = _chamar_gemini(api_key, MODELO_IMAGEM, body)
+    resp, erro_fatal = _chamar_vertex(MODELO_IMAGEM, body)
     if erro_fatal:
         msg_detalhe = erro_fatal.replace("COTA_ESGOTADA:", "")
         if erro_fatal.startswith("COTA_ESGOTADA:"):
             return None, (
-                f"⛔ Cota diária da API Gemini esgotada (modelo: {MODELO_IMAGEM}). "
-                "Aguarde até amanhã (meia-noite horário de Brasília) ou verifique "
-                "console.cloud.google.com → APIs → Gemini API → Cotas. "
+                f"⛔ Cota do Vertex AI esgotada (modelo: {MODELO_IMAGEM}). "
+                "Verifique console.cloud.google.com → IAM → Cotas ou adicione créditos. "
                 f"Detalhe: {msg_detalhe[:200]}"
             )
-        return None, f"Erro ao chamar a API Gemini: {msg_detalhe[:300]}"
+        return None, f"Erro ao chamar Vertex AI: {msg_detalhe[:300]}"
 
     if resp is None:
-        return None, f"Falha ao conectar ao modelo {MODELO_IMAGEM}."
+        return None, f"Falha ao conectar ao Vertex AI (modelo: {MODELO_IMAGEM})."
 
     if resp.status_code != 200:
         try:
@@ -665,26 +689,34 @@ def criar_zip_galeria(galeria, nome_produto):
 # ── INTERFACE PRINCIPAL ────────────────────────────────────────────────────────
 
 def _testar_gemini_api():
-    """Testa a API Gemini com geração real de imagem (prompt mínimo, sem foto de referência).
+    """Testa o Vertex AI com geração real de imagem (prompt mínimo, sem foto de referência).
     Retorna dict com resultados por modelo.
     """
     import time as _t_diag
-    api_key = st.secrets.get("GEMINI_API_KEY", "") or os.environ.get("GEMINI_API_KEY", "")
-    if not api_key:
-        return {"erro_geral": "GEMINI_API_KEY não configurada nas Secrets do Railway."}
+    LOCATION = "us-central1"
 
     body_teste = {
         "contents": [{"parts": [{"text": "Draw a small red circle on a white background. Simple and minimal."}]}],
         "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]},
     }
 
-    resultados = {"key_prefixo": f"{api_key[:6]}…{api_key[-4:]}"}
+    resultados = {}
+    try:
+        token, project_id = _get_vertex_credenciais()
+        resultados["service_account"] = project_id or "(project_id não encontrado)"
+    except Exception as e:
+        return {"erro_geral": f"Erro ao obter credenciais Vertex AI: {e}"}
+
     for modelo in [MODELO_IMAGEM]:
         t0 = _t_diag.time()
         try:
+            url = (
+                f"https://{LOCATION}-aiplatform.googleapis.com/v1/projects/{project_id}"
+                f"/locations/{LOCATION}/publishers/google/models/{modelo}:generateContent"
+            )
             r = requests.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent",
-                headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
+                url,
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
                 json=body_teste, timeout=60,
             )
             ms = int((_t_diag.time() - t0) * 1000)
@@ -712,22 +744,22 @@ def pagina_imagem(usuario_logado):
     st.subheader("Imagem")
     st.caption("Gere imagens profissionais para o anúncio. A IA mostra o que vai criar antes de gastar com a geração.")
 
-    with st.expander("🔧 Diagnóstico da API Gemini", expanded=False):
-        st.caption("Gera uma imagem de teste em cada modelo para confirmar qual está funcionando. Gasta um pouco de cota.")
+    with st.expander("🔧 Diagnóstico do Vertex AI", expanded=False):
+        st.caption("Gera uma imagem de teste para confirmar que o Vertex AI está funcionando. Gasta um pouco de cota do Cloud.")
         if st.button("Testar geração agora", key="btn_diag_gemini"):
-            with st.spinner(f"Testando modelo {MODELO_IMAGEM} (pode levar ~30s)..."):
+            with st.spinner(f"Testando modelo {MODELO_IMAGEM} via Vertex AI (pode levar ~30s)..."):
                 d = _testar_gemini_api()
             if "erro_geral" in d:
                 st.error(d["erro_geral"])
             else:
-                st.caption(f"Chave: `{d.get('key_prefixo','?')}`")
+                st.caption(f"Service account / projeto: `{d.get('service_account','?')}`")
                 info = d.get(MODELO_IMAGEM, {})
                 if info.get("ok"):
                     icone = "✅" if info.get("tem_imagem") else "⚠️"
                     label = "gerou imagem" if info.get("tem_imagem") else "respondeu mas sem imagem"
-                    st.success(f"{icone} **{MODELO_IMAGEM}** — {label} ({info['ms']}ms)")
+                    st.success(f"{icone} **{MODELO_IMAGEM}** via Vertex AI — {label} ({info['ms']}ms)")
                 else:
-                    st.error(f"❌ **{MODELO_IMAGEM}** — {info.get('erro','erro desconhecido')} ({info.get('ms',0)}ms)")
+                    st.error(f"❌ **{MODELO_IMAGEM}** via Vertex AI — {info.get('erro','erro desconhecido')} ({info.get('ms',0)}ms)")
 
     # ── RE-RUN AUTOMÁTICO DA TRIAGEM (disparado pelo chat ao preencher dados) ──
     if st.session_state.pop("img_rerun_triagem", False):
