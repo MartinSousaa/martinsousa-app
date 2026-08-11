@@ -1,1428 +1,1368 @@
+import os
 import streamlit as st
+import requests
 import base64
-from datetime import date
+import io
+import zipfile
+import json
+import anthropic
 
-st.set_page_config(page_title="MS Studio", layout="wide")
+MODELO_IMAGEM = "gemini-3.1-flash-image"  # modelo de geração de imagens via generateContent (v1)
 
-@st.cache_data
-def _logo_b64(path):
+# ── PADRÃO VISUAL MARTINSOUSA (hardcoded em todos os prompts) ──────────────────
+PADRAO_VISUAL = """
+PADRÃO VISUAL OBRIGATÓRIO DA EMPRESA (aplique em todas as peças de marketing):
+- Fundo: #E8EEF5 (azul-cinza claro suave)
+- Cor principal / texto e elementos gráficos: #1A3A6B (azul marinho)
+- Cor de destaque secundária: #4A7EC7 (azul médio)
+- Fonte: Montserrat ou Poppins — nunca fontes serifadas
+- Ícones: estilo line-art clean, traço fino, monocromáticos em azul marinho
+- Elementos decorativos: círculos ou manchas suaves em azul marinho ou azul médio,
+  usados como moldura ou destaque atrás do produto ou dos ícones
+- Texto sempre em português do Brasil, sem erros ortográficos, sem caixa alta excessiva
+- Visual limpo, arejado, profissional — sem poluição visual
+- NÃO use marrom, laranja, vermelho ou verde como cores principais
+"""
+
+INSTRUCAO_FIDELIDADE = """
+REGRA DE FIDELIDADE AO PRODUTO (a mais importante de todas — sem exceções):
+- Reproduza o produto EXATAMENTE como aparece nas imagens de referência: mesma cor,
+  mesmo formato, mesmas proporções, mesmos detalhes visíveis
+- PROIBIÇÃO ABSOLUTA: JAMAIS substitua o produto das fotos de referência por um
+  produto diferente, inventado ou genérico. Se não conseguir reproduzir o produto
+  num ângulo específico, use o ângulo disponível nas fotos — mas NUNCA crie outro
+  produto. Gerar um produto diferente é o erro mais grave possível nesta tarefa.
+- Se uma característica do produto não estiver visível nas fotos de referência e for
+  necessária para a composição, adapte a cena para evitar mostrar esse ângulo —
+  não invente como o produto seria naquele ângulo
+- Nunca deforme, alongue, encurte ou altere qualquer parte do produto
+- Nunca crie detalhes que não aparecem nas fotos de referência
+- NÃO copie nem reproduza nenhum texto, palavra ou rótulo que apareça escrito
+  nas fotos de referência — ignore completamente qualquer texto visível nas imagens
+- PROIBIÇÃO ABSOLUTA DE INVENTAR DADOS TÉCNICOS: JAMAIS crie, estime ou invente
+  medidas, dimensões, peso ou material do produto. Se esses dados não foram
+  fornecidos nos campos do produto, NÃO os coloque na imagem sob nenhuma hipótese.
+  Imagem com dados inventados é pior do que imagem sem dados.
+- Só use medidas e peso na imagem se eles estiverem EXPLICITAMENTE informados
+  nos dados do produto fornecidos — nunca estime por conta própria
+"""
+
+INSTRUCAO_COMPOSICAO = """
+INSTRUÇÃO DE COMPOSIÇÃO:
+- Use as imagens de referência APENAS para manter o produto reconhecível e fiel
+- Componha uma cena/layout NOVO e apropriado para o tipo de imagem solicitado
+- Não reaproveite a foto de referência literalmente — crie uma peça nova
+"""
+
+# ── MODO PERSONALIZADO — sem branding automático ──────────────────────────────
+INSTRUCAO_PERSONALIZADO = """
+MODO PERSONALIZADO — REGRAS ABSOLUTAS:
+- Execute EXATAMENTE e SOMENTE o que o colaborador descreveu nas instruções
+- NÃO adicione texto, legenda, título, rótulo ou qualquer elemento escrito
+  que não tenha sido pedido explicitamente nas instruções
+- NÃO aplique cores da empresa, fontes específicas, ícones ou branding
+  a não ser que as instruções peçam explicitamente por isso
+- NÃO crie uma composição "nova" ou "melhorada" por conta própria —
+  siga a instrução, nada mais
+- NÃO invente diferenciais, características ou frases de marketing
+- As instruções do colaborador são a ÚNICA fonte de verdade para
+  o que deve aparecer nesta imagem
+"""
+
+# ── MODO AJUSTE FINO — edição cirúrgica, sem alterar nada além do pedido ─────
+INSTRUCAO_AJUSTE_FINO = """
+MODO AJUSTE FINO — EDIÇÃO CIRÚRGICA — REGRAS ABSOLUTAS E INVIOLÁVEIS:
+
+1. Faça SOMENTE a modificação descrita na instrução — absolutamente nada mais
+2. Preserve a composição inteira: fundo, cenário, iluminação, cores, perspectiva,
+   todos os objetos e todos os detalhes visuais
+3. Preserve exatamente todos os textos que já existem na imagem
+   (não adicione nem remova nenhum texto)
+4. Preserve a aparência exata do produto: mesma cor, mesmos detalhes,
+   mesmos elementos visíveis (furos, padrões, logotipos na embalagem, etc.)
+5. NÃO "melhore", "enriqueça", "atualize" ou "harmonize" nada além do pedido
+6. NÃO aplique identidade visual, branding, cores ou fontes da empresa
+7. NÃO adicione nenhum objeto, efeito, texto ou elemento não mencionado
+8. Se a instrução pedir redimensionar o produto: altere APENAS o tamanho relativo
+   do produto dentro da cena — todo o resto permanece pixel-a-pixel idêntico
+9. Se não tiver certeza de algo que não foi mencionado, mantenha como está
+"""
+
+# ── PRESETS ATUALIZADOS COM IDENTIDADE VISUAL ─────────────────────────────────
+TIPOS_PADRAO = [
+    "1 — Produto com fundo branco",
+    "2 — Benefícios do produto",
+    "3 — Benefícios no cenário de uso",
+    "4 — Close nos detalhes",
+    "5 — Características técnicas (medidas/peso/material)",
+    "6 — Quebra de objeção",
+    "7 — Presenteie",
+]
+
+PRESETS = {
+    "Personalizado (descrevo o que quero)": "",
+    "1 — Produto com fundo branco": (
+        "Foto de produto limpa e profissional, fundo branco liso, produto centralizado e bem iluminado, "
+        "iluminação de estúdio suave sem sombras duras, sem texto sobreposto, sem elementos extras. "
+        "O produto deve ocupar 70-80% do frame."
+    ),
+    "2 — Benefícios do produto": (
+        "Peça de marketing mostrando os principais benefícios do produto. "
+        "Layout: produto em destaque no centro ou à esquerda, à direita blocos verticais empilhados "
+        "com ícone line-art + título curto (2-3 palavras) + frase explicativa (1 linha). "
+        "Máximo 4 benefícios. Título principal em destaque no topo."
+    ),
+    "3 — Benefícios no cenário de uso": (
+        "Peça de marketing mostrando o produto sendo usado em um cenário real do dia a dia. "
+        "Cena realista e aspiracional com iluminação natural. "
+        "Frases curtas de destaque flutuando sobre ou ao lado do produto, explicando o benefício "
+        "daquele momento de uso específico. Tom acolhedor e moderno."
+    ),
+    "4 — Close nos detalhes": (
+        "Imagem em zoom aproximado valorizando os acabamentos e qualidade do produto. "
+        "Pequenas setas ou linhas finas apontando para cada detalhe, com legenda curta ao lado. "
+        "Foco em textura, material, costuras, encaixe, ou qualquer acabamento que diferencie o produto. "
+        "Máximo 4 pontos de destaque."
+    ),
+    "5 — Características técnicas (medidas/peso/material)": (
+        "Imagem técnica do produto com linhas de medida estilo desenho técnico, mostrando as dimensões "
+        "exatas (altura, largura, profundidade). Peso e material indicados com ícones técnicos. "
+        "Dados anotados de forma clara e legível. Fundo claro, visual limpo e técnico."
+    ),
+    "6 — Quebra de objeção": (
+        "Peça de marketing respondendo as principais dúvidas de quem está prestes a comprar. "
+        "Formato: 3 a 4 blocos, cada um com uma objeção comum em forma de pergunta curta e a "
+        "resposta direta e tranquilizadora ao lado ou abaixo. Ícone de check ou escudo. "
+        "Tom de confiança e credibilidade."
+    ),
+    "7 — Presenteie": (
+        "Peça de marketing emocional incentivando a compra do produto como presente. "
+        "Frase principal de impacto emocional em destaque (ex: 'O presente certo para quem você ama'). "
+        "Composição com laço, embrulho ou contexto de presente. Tom acolhedor e especial. "
+        "Cena mostrando a entrega ou o momento de surpresa com reação positiva."
+    ),
+}
+
+
+# ── TRIAGEM POR IA (análise textual, sem gastar com geração) ──────────────────
+
+def gerar_triagem_ia(nome_produto, tipos_selecionados, dados_descricao, instrucoes_extras, fotos_bytes):
+    """Pede para a IA analisar o que ela criaria para cada tipo de imagem,
+    ANTES de gastar com a geração real. Retorna lista de dicts com o plano."""
+    api_key = st.secrets.get("ANTHROPIC_API_KEY", "") or os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        return None, "ANTHROPIC_API_KEY não configurada."
+
+    tipos_str = "\n".join(f"- {t}: {PRESETS.get(t,'')[:120]}..." for t in tipos_selecionados)
+
+    contexto_descricao = ""
+    if dados_descricao:
+        contexto_descricao = f"""
+DADOS DA DESCRIÇÃO DO PRODUTO (vinculados pelo código):
+- Cor: {dados_descricao.get('cor', 'não informada')}
+- Medidas: {dados_descricao.get('medidas', 'não informadas')}
+- Categoria: {dados_descricao.get('categoria', 'não informada')}
+- Diferenciais: {dados_descricao.get('diferenciais', 'não informados')}
+- Características: {dados_descricao.get('caracteristicas', 'não informadas')}
+- Uso: {dados_descricao.get('uso', 'não informado')}
+"""
+
+    # Verifica quais dados técnicos estão disponíveis para informar a IA
+    dados_disponiveis = []
+    dados_faltantes = []
+    if dados_descricao:
+        if dados_descricao.get("medidas"): dados_disponiveis.append(f"medidas: {dados_descricao['medidas']}")
+        else: dados_faltantes.append("medidas (altura × largura × profundidade)")
+        if dados_descricao.get("peso"): dados_disponiveis.append(f"peso: {dados_descricao['peso']}")
+        else: dados_faltantes.append("peso")
+        if dados_descricao.get("cor"): dados_disponiveis.append(f"cor: {dados_descricao['cor']}")
+        if dados_descricao.get("material") or dados_descricao.get("caracteristicas"):
+            dados_disponiveis.append("material/características informados")
+        else: dados_faltantes.append("material")
+    else:
+        dados_faltantes = ["medidas", "peso", "material"]
+
+    resumo_dados = ""
+    if dados_disponiveis:
+        resumo_dados += f"Dados disponíveis: {', '.join(dados_disponiveis)}\n"
+    if dados_faltantes:
+        resumo_dados += f"Dados NÃO informados (não inventar): {', '.join(dados_faltantes)}\n"
+
+    prompt = f"""Você é especialista em imagens para e-commerce no Mercado Livre. Seja BREVE e DIRETO.
+
+PRODUTO: {nome_produto}
+{contexto_descricao}
+{resumo_dados}
+FOTOS ENVIADAS: {len(fotos_bytes)} foto(s) de referência
+{f"INSTRUÇÕES EXTRAS: {instrucoes_extras}" if instrucoes_extras else ""}
+
+TIPOS A CRIAR:
+{tipos_str}
+
+TAREFA: Para cada tipo, analise se é VIÁVEL gerar com as informações e fotos disponíveis.
+
+REGRAS DE VIABILIDADE — CRÍTICO:
+1. "Características técnicas (medidas/peso/material)" → SOMENTE viável se medidas E peso estiverem nos dados disponíveis acima. Se qualquer um faltar, marque viavel: false e peça os dados exatos.
+2. "Close nos detalhes" ou qualquer tipo que exija ângulo do produto NÃO disponível nas fotos → viavel: false, peça a foto naquele ângulo.
+3. Qualquer tipo que necessite de informação específica ausente (ex: cores disponíveis, voltagem, compatibilidade) → viavel: false, peça a informação.
+4. NUNCA marque como viável se for necessário INVENTAR qualquer dado técnico, dimensão ou característica.
+
+Quando viavel: false, preencha "pergunta_info" com pergunta direta e específica ao colaborador explicando exatamente o que falta e por quê é necessário. Essa imagem será DESCARTADA até a informação ser fornecida.
+
+Quando viavel: true, descreva em 1-2 frases o que será criado.
+
+Responda SOMENTE com JSON válido, sem texto antes ou depois:
+{{
+  "plano": [
+    {{
+      "tipo": "nome do tipo",
+      "numero": 1,
+      "composicao": "1-2 frases curtas descrevendo a imagem (só se viavel: true)",
+      "textos": ["texto 1", "texto 2"],
+      "flags": [],
+      "viavel": true,
+      "pergunta_info": ""
+    }}
+  ],
+  "observacao_geral": "uma frase resumindo o conjunto, ou string vazia"
+}}
+"""
+
+    client = anthropic.Anthropic(api_key=api_key)
     try:
-        with open(path, "rb") as f:
-            return base64.b64encode(f.read()).decode()
-    except Exception:
-        return ""
-from params_oficiais import (
-    LPV_OFICIAL, NF_OFICIAL,
-    ML_FAIXAS_PRECO, ML_FRETE_TABELA, ML_COMISSAO_POR_CATEGORIA,
-    SHOPEE_FAIXAS, SHOPEE_FRETE_LIQUIDO,
-    SHEIN_COMISSAO, SHEIN_FRETE_TABELA,
-)
-import financeiro
-import atividades
-import auth
-import admin
-import triagem
-import palavras_chave
-import tit_ml as titulo
-import descricao
-import imagem
-import video
-import chat_assistente
-import placar
-import analise_metas
-import relogio_ponto
-
-# Permite que Streamlit sirva .html com Content-Type correto (text/html)
-try:
-    import streamlit.web.server.app_static_file_handler as _sfh
-    if ".html" not in _sfh.SAFE_APP_STATIC_FILE_EXTENSIONS:
-        _sfh.SAFE_APP_STATIC_FILE_EXTENSIONS = (
-            _sfh.SAFE_APP_STATIC_FILE_EXTENSIONS + (".html", ".htm")
+        msg = client.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=2048,
+            messages=[{"role": "user", "content": prompt}]
         )
-except Exception:
-    pass
-
-st.markdown("""
-<style>
-/* ══ TEMA ESCURO — padrão / após 18h ═══════════════════════════════════════ */
-body, body.tema-escuro {
-  --ms-fundo:         #3c3c3c;
-  --ms-sidebar:       #515151;
-  --ms-chat-bg:       #666666;
-  --ms-chat-header:   #515151;
-  --ms-chat-footer:   #5a5a5a;
-  --ms-chat-input:    #666666;
-  --ms-divisor:       #666666;
-  --ms-input:         #666666;
-  --ms-borda:         #888888;
-  --ms-texto:         #e0e0e0;
-  --ms-texto-sec:     #b8b8b8;
-  --ms-hover:         #5c5c5c;
-  --ms-metric-bg:     #666666;
-  --ms-metric-bd:     #888888;
-  --ms-msg-user:      #515151;
-  --ms-msg-ia:        #5a5a5a;
-  --ms-msg-ia-bd:     #888888;
-}
-/* ══ TEMA CLARO — diurno / antes das 18h ═══════════════════════════════════ */
-body.tema-claro {
-  --ms-fundo:         #E0E0E0;
-  --ms-sidebar:       #EEEEEE;
-  --ms-chat-bg:       #EEEEEE;
-  --ms-chat-header:   #E8E8E8;
-  --ms-chat-footer:   #E8E8E8;
-  --ms-chat-input:    #E0E0E0;
-  --ms-divisor:       #BDBDBD;
-  --ms-input:         #EEEEEE;
-  --ms-borda:         #9E9E9E;
-  --ms-texto:         #212121;
-  --ms-texto-sec:     #424242;
-  --ms-hover:         #D0D0D0;
-  --ms-metric-bg:     #EEEEEE;
-  --ms-metric-bd:     #BDBDBD;
-  --ms-msg-user:      #D0D0D0;
-  --ms-msg-ia:        #F5F5F5;
-  --ms-msg-ia-bd:     #BDBDBD;
-}
-
-/* ── REMOVE BARRA DO TOPO ───────────────────────────────────────────────── */
-[data-testid="stHeader"]  { display: none !important; }
-[data-testid="stToolbar"] { background-color: var(--ms-fundo) !important; }
-#stDecoration             { display: none !important; }
-/* Esconde o overlay de "running" que escurece a tela no auto-refresh */
-[data-testid="stStatusWidget"]                  { display: none !important; }
-div[class*="StatusWidget"]                      { display: none !important; }
-.stApp > header [data-testid="stStatus"]        { display: none !important; }
-iframe[title="st_autorefresh"]                  { display: none !important; }
-[data-testid="stAppRunningIndicator"]           { display: none !important; }
-div[class*="AppRunningIndicator"]               { display: none !important; }
-/* Impede o escurecimento dos containers principais durante o rerun */
-.stApp, .main,
-[data-testid="stMain"],
-[data-testid="stMainBlockContainer"],
-[data-testid="stAppViewBlockContainer"],
-[data-testid="stAppViewContainer"]              { opacity: 1 !important; }
-
-/* ── FUNDO GERAL ────────────────────────────────────────────────────────── */
-.stApp { background-color: var(--ms-fundo) !important; color: var(--ms-texto) !important; }
-.main, [data-testid="stMain"] { background-color: var(--ms-fundo) !important; }
-.main .block-container,
-[data-testid="stMainBlockContainer"] {
-    background-color: var(--ms-fundo) !important;
-    color: var(--ms-texto) !important;
-    padding-top: 16px !important;
-}
-h1, h2, h3, h4, h5, h6 { color: var(--ms-texto) !important; }
-p, span, label, div     { color: var(--ms-texto) !important; }
-
-/* ── SIDEBAR ESQUERDO ───────────────────────────────────────────────────── */
-[data-testid="stSidebar"] {
-    background-color: var(--ms-sidebar) !important;
-    border-right: 1px solid var(--ms-divisor) !important;
-}
-[data-testid="stSidebar"] * { color: var(--ms-texto) !important; }
-
-/* Logo rente ao topo — remove padding do sidebar */
-section[data-testid="stSidebar"] > div:first-child {
-    padding-top: 0 !important;
-}
-[data-testid="stSidebarContent"] {
-    padding-top: 0.25rem !important;
-}
-
-/* ── Sidebar: largura fixa 360px (sem JS) ───────────────────────────────── */
-section[data-testid="stSidebar"] {
-    width: 360px !important;
-    min-width: 360px !important;
-    max-width: 360px !important;
-}
-[data-testid="stSidebarResizeHandle"] { display: none !important; }
-
-/* ── Anti-dim: impede Streamlit de escurecer a tela durante re-runs ─────── */
-/* (substitui o MutationObserver que estava no components.html — sem iframe) */
-.stApp, [data-testid="stAppViewContainer"],
-[data-testid="stMain"], .main,
-[data-testid="stMainBlockContainer"],
-.main .block-container { opacity: 1 !important; }
-
-/* Caixa visual do chat — estilizada via JS (id ms-chat-box-dynamic) */
-#ms-chat-topo { display: none !important; }
-
-/* ── INPUTS ─────────────────────────────────────────────────────────────── */
-.stTextInput input, .stNumberInput input {
-    background-color: var(--ms-input) !important;
-    border: 1px solid var(--ms-borda) !important;
-    color: var(--ms-texto) !important;
-    border-radius: 5px !important;
-    font-size: 14px !important;
-    padding: 6px 10px !important;
-    height: 36px !important;
-    min-height: unset !important;
-}
-.stTextInput input::placeholder,
-.stNumberInput input::placeholder { color: var(--ms-texto-sec) !important; font-size: 13px !important; }
-.stTextInput input:focus,
-.stNumberInput input:focus { border-color: var(--ms-texto) !important; box-shadow: none !important; }
-
-/* Labels */
-.stTextInput label, .stNumberInput label, .stSelectbox label,
-[data-testid="stWidgetLabel"] p {
-    color: var(--ms-texto-sec) !important;
-    font-size: 13px !important;
-    margin-bottom: 3px !important;
-}
-
-/* TextArea */
-textarea, .stTextArea textarea {
-    background-color: var(--ms-input) !important;
-    border: 1px solid var(--ms-borda) !important;
-    color: var(--ms-texto) !important;
-    border-radius: 5px !important;
-    font-size: 14px !important;
-    padding: 8px 10px !important;
-}
-textarea:focus, .stTextArea textarea:focus {
-    border-color: var(--ms-texto) !important;
-    box-shadow: none !important;
-    outline: none !important;
-}
-textarea::placeholder, .stTextArea textarea::placeholder {
-    color: var(--ms-texto-sec) !important;
-    font-size: 13px !important;
-}
-.stTextArea label {
-    color: var(--ms-texto-sec) !important;
-    font-size: 13px !important;
-    margin-bottom: 3px !important;
-}
-
-/* Select */
-.stSelectbox > div > div {
-    background-color: var(--ms-input) !important;
-    border: 1px solid var(--ms-borda) !important;
-    color: var(--ms-texto) !important;
-    font-size: 14px !important;
-    min-height: 36px !important;
-}
-.stSelectbox [data-baseweb="select"] > div {
-    padding-top: 4px !important; padding-bottom: 4px !important; min-height: 36px !important;
-}
-/* Botões +/- */
-.stNumberInput [data-testid="stNumberInputStepUp"],
-.stNumberInput [data-testid="stNumberInputStepDown"] {
-    height: 36px !important; width: 30px !important; font-size: 15px !important;
-    background-color: var(--ms-input) !important;
-    color: var(--ms-texto) !important;
-    border-color: var(--ms-borda) !important;
-}
-/* Espaçamento */
-.stTextInput, .stNumberInput, .stSelectbox { margin-bottom: 4px !important; }
-.element-container { margin-bottom: 6px !important; }
-
-/* ── TABELAS ────────────────────────────────────────────────────────────── */
-table { color: var(--ms-texto) !important; border-collapse: collapse !important;
-        width: 100% !important; border: none !important; background: transparent !important; }
-th    { background-color: transparent !important; color: var(--ms-texto-sec) !important;
-        font-size: 10px !important; font-weight: 600 !important; letter-spacing: 0.07em !important;
-        text-transform: uppercase !important; border: none !important;
-        border-bottom: 1px solid var(--ms-divisor) !important; padding: 4px 6px !important; text-align: left !important; }
-td    { background-color: transparent !important; border: none !important;
-        border-bottom: 1px solid var(--ms-divisor) !important; padding: 4px 6px !important;
-        color: var(--ms-texto) !important; font-size: 12px !important; }
-tr:last-child td { border-bottom: none !important; }
-/* Destaque sutil nas últimas 3 linhas: Lucro, Margem e UC */
-tr:nth-last-child(-n+3) td { background-color: rgba(255,255,255,0.07) !important; }
-tr:nth-last-child(-n+3):last-child td { border-bottom: none !important; }
-tr:hover td { background-color: var(--ms-hover) !important; }
-
-/* ── MÉTRICAS ───────────────────────────────────────────────────────────── */
-[data-testid="stMetric"] {
-    background-color: var(--ms-metric-bg) !important;
-    border-radius: 8px !important; padding: 12px 16px !important;
-    border: 1px solid var(--ms-metric-bd) !important;
-}
-[data-testid="stMetricLabel"] p { color: var(--ms-texto-sec) !important; font-size: 12px !important; }
-[data-testid="stMetricValue"]   { color: var(--ms-texto) !important; }
-
-/* ── TABS ───────────────────────────────────────────────────────────────── */
-.stTabs [data-baseweb="tab-list"] {
-    background-color: transparent !important;
-    border-bottom: 1px solid var(--ms-divisor) !important; gap: 12px !important;
-}
-.stTabs [data-baseweb="tab"] {
-    color: var(--ms-texto-sec) !important; background: transparent !important; font-size: 14px !important;
-    padding-left: 10px !important; padding-right: 10px !important;
-}
-.stTabs [aria-selected="true"] {
-    color: var(--ms-texto) !important; border-bottom-color: var(--ms-texto) !important;
-}
-
-/* ── BOTÕES ─────────────────────────────────────────────────────────────── */
-.stButton > button[kind="primary"] {
-    background-color: var(--ms-metric-bg) !important; color: var(--ms-texto) !important;
-    border: 1px solid var(--ms-metric-bd) !important; border-radius: 6px !important;
-    font-weight: 600 !important; letter-spacing: 0.4px !important; transition: all 0.15s ease !important;
-}
-.stButton > button[kind="primary"]:hover {
-    background-color: var(--ms-hover) !important; border-color: var(--ms-texto-sec) !important;
-}
-.stButton > button:not([kind="primary"]) {
-    background-color: transparent !important; color: var(--ms-texto-sec) !important;
-    border: 1px solid var(--ms-metric-bd) !important; border-radius: 6px !important;
-}
-.stButton > button:not([kind="primary"]):hover {
-    color: var(--ms-texto) !important; border-color: var(--ms-texto-sec) !important;
-}
-
-/* ── CAPTION / ALERTAS / DIVISORES ─────────────────────────────────────── */
-.stCaption, [data-testid="stCaptionContainer"] p { color: var(--ms-texto-sec) !important; }
-[data-testid="stAlert"] { background-color: var(--ms-metric-bg) !important; border-color: var(--ms-metric-bd) !important; }
-hr { border-color: var(--ms-divisor) !important; margin: 16px 0 !important; }
-
-/* ── LOGOS POR TEMA ─────────────────────────────────────────────────────── */
-/* Padrão (escuro): mostra logo branca */
-#ms-logo-preto { display: none !important; }
-#ms-logo-branco { display: block !important; }
-/* Tema claro: mostra logo preta */
-body.tema-claro #ms-logo-preto { display: block !important; }
-body.tema-claro #ms-logo-branco { display: none !important; }
-
-/* ── TEMA CLARO: bordas dos campos removidas ────────────────────────────── */
-body.tema-claro .stTextInput input,
-body.tema-claro .stNumberInput input {
-    border: none !important;
-    box-shadow: none !important;
-}
-body.tema-claro .stSelectbox > div > div {
-    border: none !important;
-    box-shadow: none !important;
-}
-body.tema-claro .stNumberInput [data-testid="stNumberInputStepUp"],
-body.tema-claro .stNumberInput [data-testid="stNumberInputStepDown"] {
-    border: none !important;
-}
-body.tema-claro textarea,
-body.tema-claro .stTextArea textarea {
-    border: none !important;
-    box-shadow: none !important;
-}
-
-/* ── TEMA CLARO: todas as escritas pretas ───────────────────────────────── */
-body.tema-claro [data-baseweb] * { color: var(--ms-texto) !important; }
-body.tema-claro .stSelectbox * { color: var(--ms-texto) !important; }
-body.tema-claro .stNumberInput * { color: var(--ms-texto) !important; }
-body.tema-claro .stTextInput * { color: var(--ms-texto) !important; }
-body.tema-claro [role="option"] * { color: var(--ms-texto) !important; }
-body.tema-claro [data-testid="stWidgetLabel"] * { color: var(--ms-texto-sec) !important; }
-body.tema-claro .stTextInput label *,
-body.tema-claro .stNumberInput label *,
-body.tema-claro .stSelectbox label * { color: var(--ms-texto-sec) !important; }
-
-/* ── SELECTBOX: texto do valor selecionado e dropdown ───────────────────── */
-.stSelectbox [data-baseweb="select"] span,
-.stSelectbox [data-baseweb="select"] div {
-    color: var(--ms-texto) !important;
-}
-/* Dropdown popover — tema claro */
-body.tema-claro [data-baseweb="popover"] [data-baseweb="menu"],
-body.tema-claro [data-baseweb="list"],
-body.tema-claro ul[role="listbox"] {
-    background-color: var(--ms-input) !important;
-}
-body.tema-claro [role="option"] {
-    background-color: var(--ms-input) !important;
-    color: var(--ms-texto) !important;
-}
-body.tema-claro [role="option"]:hover,
-body.tema-claro [aria-selected="true"][role="option"] {
-    background-color: var(--ms-hover) !important;
-    color: var(--ms-texto) !important;
-}
-
-/* ── FILE UPLOADER — TEMA CLARO ─────────────────────────────────────────── */
-body.tema-claro [data-testid="stFileUploaderDropzone"] {
-    background-color: var(--ms-input) !important;
-    border-color: var(--ms-borda) !important;
-}
-body.tema-claro [data-testid="stFileUploaderDropzoneInstructions"] span,
-body.tema-claro [data-testid="stFileUploaderDropzoneInstructions"] small,
-body.tema-claro [data-testid="stFileUploaderDropzone"] button {
-    color: var(--ms-texto) !important;
-}
-
-/* ── CHAT SIDEBAR — AVATAR E BALÃO ─────────────────────────────────────── */
-/* Remove avatar laranja do assistente (seletor amplo) */
-[data-testid="stSidebar"] [data-testid^="chatAvatarIcon"] {
-    display: none !important;
-}
-[data-testid="stSidebar"] [data-testid="stChatMessage"] > div:first-child {
-    display: none !important;
-}
-/* Balão cinza para mensagens da IA — seletor de irmão (sem :has) */
-[data-testid="stSidebar"] [data-testid="chatAvatarIcon-assistant"] ~ [data-testid="stChatMessageContent"],
-[data-testid="stSidebar"] [data-testid="stChatMessage"][data-message-author-role="assistant"] [data-testid="stChatMessageContent"] {
-    background-color: var(--ms-msg-ia) !important;
-    border-radius: 10px !important;
-    padding: 8px 12px !important;
-    border: 1px solid var(--ms-msg-ia-bd) !important;
-    margin-left: 0 !important;
-}
-/* Remove hint "Press ⌘+Enter to submit form" do Streamlit */
-[data-testid="stSidebar"] [data-testid="InputInstructions"],
-[data-testid="stSidebar"] [data-testid="stForm"] small,
-[data-testid="stSidebar"] [data-testid="stForm"] [data-testid="stFormSubmitButton"] ~ div small {
-    display: none !important;
-}
-
-/* Botão de enviar fora da tela (não display:none — precisa ser clicável pelo JS) */
-[data-testid="stSidebar"] [data-testid="stForm"] .stFormSubmitButton {
-    height: 0 !important;
-    overflow: hidden !important;
-    margin: 0 !important;
-    padding: 0 !important;
-}
-[data-testid="stSidebar"] [data-testid="stForm"] .stFormSubmitButton button {
-    position: fixed !important;
-    left: -9999px !important;
-    opacity: 0 !important;
-    pointer-events: none !important;
-}
-/* Textarea do chat: auto-expande como o Claude */
-[data-testid="stSidebar"] [data-testid="stForm"] textarea {
-    min-height: 40px !important;
-    max-height: 150px !important;
-    field-sizing: content !important;
-    resize: none !important;
-    overflow-y: auto !important;
-}
-/* Remove padding extra abaixo do file uploader no chat */
-[data-testid="stSidebar"] [data-testid="stForm"] {
-    padding-bottom: 0 !important;
-    margin-bottom: 0 !important;
-}
-[data-testid="stSidebar"] [data-testid="stFileUploader"] {
-    margin-bottom: 0 !important;
-    padding-bottom: 0 !important;
-}
-/* File uploader do chat — compact, só clip */
-[data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] {
-    background: transparent !important;
-    border: none !important;
-    padding: 0 !important;
-    min-height: unset !important;
-}
-[data-testid="stSidebar"] [data-testid="stFileUploaderDropzoneInstructions"] > div:first-child,
-[data-testid="stSidebar"] [data-testid="stFileUploaderDropzoneInstructions"] small {
-    display: none !important;
-}
-[data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] button {
-    background: transparent !important;
-    border: none !important;
-    padding: 2px 4px !important;
-    font-size: 14px !important;
-    color: var(--ms-texto-sec) !important;
-    text-decoration: underline !important;
-    cursor: pointer !important;
-}
-
-/* ── BOTÃO TOGGLE DE TEMA ───────────────────────────────────────────────── */
-#ms-tema-toggle {
-  position: fixed !important; top: 14px !important; right: 16px !important;
-  z-index: 999997 !important;
-  background: var(--ms-sidebar) !important;
-  border: 1.5px solid var(--ms-borda) !important;
-  border-radius: 50% !important; width: 46px !important; height: 46px !important;
-  font-size: 18px !important; cursor: pointer !important;
-  display: flex !important; align-items: center !important; justify-content: center !important;
-  box-shadow: 0 3px 12px rgba(0,0,0,0.35) !important;
-  transition: opacity 0.15s !important; line-height: 1 !important; padding: 0 !important;
-}
-#ms-tema-toggle:hover { opacity: 0.75 !important; }
-
-/* ── SELOS DE RESULTADO (tema-aware) ─────────────────────────────────────── */
-.ms-selo { border-radius: 6px; padding: 8px 12px; margin-bottom: 8px;
-           border-left-width: 4px; border-left-style: solid; }
-.ms-selo-viavel    { background: #0d2b1a; border-left-color: #34d399; }
-.ms-selo-ressalvas { background: #2b1f06; border-left-color: #fbbf24; }
-.ms-selo-inviavel  { background: #2b0d0d; border-left-color: #f87171; }
-body.tema-claro .ms-selo-viavel    { background: #d1fae5 !important; }
-body.tema-claro .ms-selo-ressalvas { background: #fef3c7 !important; }
-body.tema-claro .ms-selo-inviavel  { background: #fee2e2 !important; }
-.ms-selo-titulo { font-size: 14px; font-weight: 700; letter-spacing: 0.05em;
-                  text-transform: uppercase; display: block; }
-.ms-selo-viavel .ms-selo-titulo    { color: #34d399 !important; }
-.ms-selo-ressalvas .ms-selo-titulo { color: #fbbf24 !important; }
-.ms-selo-inviavel .ms-selo-titulo  { color: #f87171 !important; }
-body.tema-claro .ms-selo-viavel .ms-selo-titulo    { color: #065f46 !important; }
-body.tema-claro .ms-selo-ressalvas .ms-selo-titulo { color: #92400e !important; }
-body.tema-claro .ms-selo-inviavel .ms-selo-titulo  { color: #b91c1c !important; }
-.ms-selo-sub { font-size: 13px; display: block; margin-top: 2px; color: #aaa !important; }
-body.tema-claro .ms-selo-sub { color: #555 !important; }
-
-/* ── CARDS UC (tema-aware) ────────────────────────────────────────────────── */
-.ms-card-uc { border-radius: 8px; padding: 14px 18px; margin-bottom: 10px;
-              border-left-width: 4px; border-left-style: solid; }
-.ms-card-08 { background: #2b0d0d; border-left-color: #f87171; }
-.ms-card-10 { background: #2b1f06; border-left-color: #fbbf24; }
-.ms-card-15 { background: #0d2b1a; border-left-color: #34d399; }
-body.tema-claro .ms-card-08 { background: #fee2e2 !important; }
-body.tema-claro .ms-card-10 { background: #fef3c7 !important; }
-body.tema-claro .ms-card-15 { background: #d1fae5 !important; }
-.ms-card-uc-label { font-size: 12px; font-weight: 700; letter-spacing: 0.07em;
-                    text-transform: uppercase; margin-bottom: 10px; display: block; }
-.ms-card-08 .ms-card-uc-label { color: #f87171 !important; }
-.ms-card-10 .ms-card-uc-label { color: #fbbf24 !important; }
-.ms-card-15 .ms-card-uc-label { color: #34d399 !important; }
-body.tema-claro .ms-card-08 .ms-card-uc-label { color: #b91c1c !important; }
-body.tema-claro .ms-card-10 .ms-card-uc-label { color: #92400e !important; }
-body.tema-claro .ms-card-15 .ms-card-uc-label { color: #065f46 !important; }
-.ms-card-plat-prices { display: flex; gap: 40px; flex-wrap: wrap; }
-.ms-card-plat-name  { font-size: 11px; color: var(--ms-texto-sec) !important; margin-bottom: 2px; }
-.ms-card-plat-price { font-size: 22px; font-weight: 700; color: #fff !important; }
-body.tema-claro .ms-card-plat-price { color: #111 !important; }
-
-/* ── TEXTO DE RESUMO ABAIXO DO SELO ──────────────────────────────────────── */
-.ms-resumo { font-size: 13px !important; line-height: 1.4 !important;
-             margin: 4px 0 8px 0 !important; color: var(--ms-texto) !important; }
-
-/* ── TÍTULOS DE SEÇÃO DO RESULTADO ──────────────────────────────────────── */
-.ms-section-title { font-size: 14px !important; font-weight: 600 !important;
-                    margin: 6px 0 3px 0 !important; padding: 0 !important;
-                    color: var(--ms-texto) !important; display: block; }
-
-/* ── CABEÇALHOS DE PLATAFORMA ────────────────────────────────────────────── */
-.ms-plat-header {
-  font-size: 16px; font-weight: 600; letter-spacing: 0.02em;
-  padding-bottom: 4px; margin-bottom: 10px;
-  border-bottom-width: 2px; border-bottom-style: solid;
-  display: block;
-}
-.ms-plat-ml { color: var(--ms-texto) !important; border-bottom-color: #ffe600 !important; }
-.ms-plat-sp { color: #ee4d2d !important;          border-bottom-color: #ee4d2d !important; }
-.ms-plat-sh { color: #fe4a7b !important;          border-bottom-color: #fe4a7b !important; }
-
-/* ── CONTADOR DE CARACTERES DO TÍTULO ───────────────────────────────────── */
-.ms-char-ok   { color: #16a34a !important; font-size: 13px; }
-.ms-char-over { color: #dc2626 !important; font-size: 13px; }
-
-/* ── TAG BLOQUEADA (imagem) ─────────────────────────────────────────────── */
-.ms-bloqueada { color: #e74c3c !important; font-weight: 700; }
-
-/* ── CÓDIGO DA DESCRIÇÃO ─────────────────────────────────────────────────── */
-.ms-desc-code-titulo { color: #E8EEF5 !important; font-size: 13px; font-weight: 600; letter-spacing: 1px; }
-.ms-desc-code-sub    { color: #9BB5D9 !important; font-size: 12px; }
-
-/* ══ SIDEBAR — somente desktop (>=769px) ════════════════════════════════════ */
-@media screen and (min-width: 769px) {
-  section[data-testid="stSidebar"],
-  section[data-testid="stSidebar"] > div,
-  section[data-testid="stSidebar"] > div:first-child {
-      min-width: 360px !important;
-      max-width: 360px !important;
-      width: 360px !important;
-  }
-}
-
-/* ══ RESPONSIVO — MOBILE (max 768px) ═══════════════════════════════════════ */
-@media screen and (max-width: 768px) {
-
-  /* ── COLUNAS: empilham verticalmente — selector correto (stColumn) ── */
-  [data-testid="stHorizontalBlock"] {
-    flex-direction: column !important;
-    gap: 0 !important;
-  }
-  [data-testid="stColumn"] {
-    width: 100% !important;
-    min-width: 100% !important;
-    max-width: 100% !important;
-    flex: none !important;
-    padding-left: 0 !important;
-    padding-right: 0 !important;
-  }
-
-  /* Padding reduzido no conteúdo principal */
-  .main .block-container,
-  [data-testid="stMainBlockContainer"] {
-    padding-left: 12px !important;
-    padding-right: 12px !important;
-    padding-top: 8px !important;
-    max-width: 100% !important;
-  }
-
-  /* Abas: rolagem horizontal sem quebrar */
-  .stTabs [data-baseweb="tab-list"] {
-    overflow-x: auto !important;
-    flex-wrap: nowrap !important;
-    -webkit-overflow-scrolling: touch !important;
-    scrollbar-width: none !important;
-  }
-  .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar { display: none !important; }
-  .stTabs [data-baseweb="tab"] {
-    font-size: 12px !important;
-    white-space: nowrap !important;
-    padding: 8px 10px !important;
-    min-width: fit-content !important;
-  }
-
-  /* Títulos menores */
-  h1, h2 { font-size: 20px !important; }
-  h3      { font-size: 17px !important; }
-  h4, h5  { font-size: 15px !important; }
-
-  /* Métricas compactas */
-  [data-testid="stMetric"] { padding: 8px 10px !important; }
-  [data-testid="stMetricValue"] { font-size: 20px !important; }
-  [data-testid="stMetricLabel"] p { font-size: 12px !important; }
-
-  /* Tabelas markdown: scroll horizontal em vez de transbordar */
-  [data-testid="stMarkdownContainer"] table {
-    display: block !important;
-    overflow-x: auto !important;
-    -webkit-overflow-scrolling: touch !important;
-    max-width: 100% !important;
-    white-space: nowrap !important;
-  }
-  /* Cabeçalhos de tabela: legíveis no celular */
-  th { font-size: 12px !important; }
-  td { font-size: 13px !important; }
-
-  /* Inputs: fonte mínima 16px evita zoom automático no iOS */
-  .stTextInput input,
-  .stNumberInput input,
-  .stSelectbox input,
-  textarea {
-    font-size: 16px !important;
-  }
-  /* Placeholder também em 16px para consistência e evitar zoom no iOS */
-  .stTextInput input::placeholder,
-  .stNumberInput input::placeholder,
-  textarea::placeholder {
-    font-size: 16px !important;
-  }
-
-  /* Botão principal */
-  .stButton > button { font-size: 14px !important; padding: 10px !important; }
-
-  /* Logo no sidebar: sem margem negativa no mobile */
-  [data-testid="stSidebar"] img { margin-top: 4px !important; }
-
-  /* Cards UC: gap menor em telas pequenas */
-  .ms-card-plat-prices { gap: 20px !important; }
-  .ms-card-plat-name   { font-size: 12px !important; }
-  .ms-card-plat-price  { font-size: 18px !important; }
-
-  /* Toggle de tema: escondido no mobile (hambúrguer do Streamlit ocupa o espaço) */
-  #ms-tema-toggle {
-    top: 8px !important;
-    right: 60px !important;
-    width: 34px !important;
-    height: 34px !important;
-    font-size: 14px !important;
-  }
-}
-</style>
-""", unsafe_allow_html=True)
-
-# ── MODO TV: acesso sem login via token seguro ────────────────────────────────
-_tv_token_cfg = ""
-try:
-    _tv_token_cfg = str(st.secrets.get("tv", {}).get("token", ""))
-except Exception:
-    pass
-
-if _tv_token_cfg and st.query_params.get("tv", "") == _tv_token_cfg:
-    # Oculta todo o chrome do Streamlit — só o conteúdo do Placar aparece
-    st.markdown("""
-    <style>
-    header[data-testid="stHeader"]        { display: none !important; }
-    [data-testid="stSidebar"]             { display: none !important; }
-    [data-testid="stToolbar"]             { display: none !important; }
-    footer                                { display: none !important; }
-    #stDecoration                         { display: none !important; }
-    .stDeployButton                       { display: none !important; }
-    #MainMenu                             { display: none !important; }
-    [data-testid="stStatusWidget"]        { display: none !important; }
-    [data-testid="stAppRunningIndicator"] { display: none !important; }
-    div[class*="StatusWidget"]            { display: none !important; }
-    div[class*="AppRunningIndicator"]     { display: none !important; }
-    iframe[title="st_autorefresh"]        { display: none !important; }
-    iframe[title="tv_autorefresh"]        { display: none !important; }
-
-    /* Garante que o rerun não escureça a tela */
-    .stApp, .main,
-    [data-testid="stMain"],
-    [data-testid="stMainBlockContainer"]  { opacity: 1 !important; }
-
-    /* Container principal: sem padding, fundo escuro */
-    .stApp, [data-testid="stAppViewContainer"],
-    [data-testid="stMain"], .main,
-    [data-testid="stMainBlockContainer"],
-    .main .block-container {
-        padding: 0 !important;
-        margin: 0 !important;
-        max-width: 100% !important;
-        background-color: #1a1a1a !important;
-    }
-
-    /* ── ESCALA PARA CABER NA TV ── */
-    /* Aplica zoom de 78% no conteúdo — tudo cabe sem scroll */
-    [data-testid="stMainBlockContainer"] {
-        zoom: 0.78 !important;
-        padding: 4px 10px !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-    placar.pagina_placar("martinsousa")
-    st.stop()
-
-usuario_logado = auth.verificar_login()
-
-# ── NOTA: components.html() foi REMOVIDO por causar "SessionInfo before
-# initialized" para colaboradoras (Myrella, etc.) em todas as abas.
-# O components.html() criava iframes com canal WebSocket próprio que
-# colidia com a sessão Streamlit durante reruns.
-# Toda a funcionalidade foi migrada para CSS puro (sem iframes, sem race condition):
-#   · Largura do sidebar: CSS section[data-testid="stSidebar"]
-#   · Anti-dim de re-runs: CSS opacity: 1 !important
-#   · Tema: sempre escuro via CSS "body, body.tema-escuro { ... }"
-# ─────────────────────────────────────────────────────────────────────────────
-
-# UC minimo pra aprovar produto -- definido pelo Léo em 14/07/2026,
-# provisorio ate ele analisar as UCs reais da operacao.
-UC_MINIMO = 0.8
-
-# ── CÁLCULO MERCADO LIVRE ──────────────────────────────────────────────────────
-
-def calcular_peso_taxado(peso_kg, d1, d2, d3):
-    """Peso taxado = maior entre peso fisico e peso cubado (altura x largura
-    x profundidade / 6000), conforme politica oficial do Mercado Livre.
-    IMPORTANTE: peso e dimensoes devem ser do produto JA EMBALADO."""
-    peso_cubado = (d1 * d2 * d3) / 6000
-    return max(peso_kg, peso_cubado)
-
-def calcular_frete_ml(preco, peso_kg):
-    """Tabela oficial do Mercado Livre pos-reforma de marco/2026
-    (MercadoLider / reputacao verde / sem reputacao)."""
-    if preco < 19:
-        valor_tabela = ML_FRETE_TABELA[-1][1][0]
-        for peso_lim, vals in ML_FRETE_TABELA:
-            if peso_kg <= peso_lim:
-                valor_tabela = vals[0]
-                break
-        return min(valor_tabela, preco * 0.5)
-    idx = len(ML_FAIXAS_PRECO) - 1
-    for i, lim in enumerate(ML_FAIXAS_PRECO):
-        if preco <= lim:
-            idx = i
-            break
-    for peso_lim, vals in ML_FRETE_TABELA:
-        if peso_kg <= peso_lim:
-            return vals[idx]
-    return ML_FRETE_TABELA[-1][1][idx]
-
-def calcular_comissao_ml(preco, categoria, modalidade="Premium"):
-    taxas = ML_COMISSAO_POR_CATEGORIA.get(categoria, ML_COMISSAO_POR_CATEGORIA['Outros'])
-    return preco * taxas[1 if modalidade == "Premium" else 0]
-
-def calcular_resultado(preco, custo, peso_kg, categoria, modalidade, nf_pct, custo_operacional, lpv):
-    comissao     = calcular_comissao_ml(preco, categoria, modalidade)
-    frete        = calcular_frete_ml(preco, peso_kg)
-    nf           = preco * nf_pct
-    lucro_bruto  = preco - (comissao + frete)
-    lucro_liq    = preco - (custo + comissao + frete + nf + custo_operacional)
-    margem       = (lucro_liq / preco * 100) if preco > 0 else 0
-    uc           = round(lucro_liq / lpv, 2) if lpv else None
-    return {'preco': preco, 'custo': custo, 'comissao': comissao, 'frete': frete,
-            'nf': nf, 'custo_operacional': custo_operacional, 'lpv': lpv,
-            'lucro_bruto': lucro_bruto, 'lucro_liquido': lucro_liq,
-            'margem': margem, 'uc': uc}
-
-# ── CÁLCULO SHOPEE ─────────────────────────────────────────────────────────────
-
-def calcular_comissao_shopee(preco):
-    """Retorna (comissao_valor, adicional_fixo) conforme tabela SHOPEE_FAIXAS.
-    Formato: (preco_min, preco_max, comissao_pct, adicional_fixo, frete_liquido)."""
-    for pmin, pmax, pct, adicional, _ in SHOPEE_FAIXAS:
-        if pmin <= preco <= pmax:
-            return preco * pct, adicional
-    # fallback: ultima faixa
-    _, _, pct, adicional, _ = SHOPEE_FAIXAS[-1]
-    return preco * pct, adicional
-
-def calcular_resultado_shopee(preco, custo, nf_pct, custo_operacional, lpv):
-    comissao_pct, adicional = calcular_comissao_shopee(preco)
-    comissao_total = comissao_pct + adicional
-    frete     = SHOPEE_FRETE_LIQUIDO  # R$0,00 — Frete Gratis obrigatorio, vendedor nao paga
-    nf        = preco * nf_pct
-    lucro_liq = preco - (custo + comissao_total + frete + nf + custo_operacional)
-    margem    = (lucro_liq / preco * 100) if preco > 0 else 0
-    uc        = round(lucro_liq / lpv, 2) if lpv else None
-    return {
-        'preco': preco, 'custo': custo, 'comissao': comissao_total, 'frete': frete,
-        'nf': nf, 'custo_operacional': custo_operacional, 'lpv': lpv,
-        'lucro_bruto': preco - (comissao_total + frete),
-        'lucro_liquido': lucro_liq, 'margem': margem, 'uc': uc,
-    }
-
-# ── CÁLCULO SHEIN ──────────────────────────────────────────────────────────────
-
-def calcular_frete_shein(peso_kg):
-    """Frete da Shein por peso (tabela oficial do vendedor).
-    Formato: (peso_maximo_kg, valor_frete_reais)."""
-    for peso_lim, valor in SHEIN_FRETE_TABELA:
-        if peso_kg <= peso_lim:
-            return valor
-    return SHEIN_FRETE_TABELA[-1][1]
-
-def calcular_resultado_shein(preco, custo, peso_kg, nf_pct, custo_operacional, lpv):
-    comissao  = preco * SHEIN_COMISSAO  # 18% flat
-    frete     = calcular_frete_shein(peso_kg)
-    nf        = preco * nf_pct
-    lucro_liq = preco - (custo + comissao + frete + nf + custo_operacional)
-    margem    = (lucro_liq / preco * 100) if preco > 0 else 0
-    uc        = round(lucro_liq / lpv, 2) if lpv else None
-    return {
-        'preco': preco, 'custo': custo, 'comissao': comissao, 'frete': frete,
-        'nf': nf, 'custo_operacional': custo_operacional, 'lpv': lpv,
-        'lucro_bruto': preco - (comissao + frete),
-        'lucro_liquido': lucro_liq, 'margem': margem, 'uc': uc,
-    }
-
-# ── VEREDICTO (100% Python, sem chamada de IA -- mais rapido e sem custo) ──────
-
-def montar_tabela_vertical(r):
-    """Tabela vertical (Item | Valor) na ordem pedida pelo usuario."""
-    uc_str = f"{r['uc']}/1" if r['uc'] is not None else "sem lucro"
-    linhas = [
-        "| Item | Valor |",
-        "|---|---|",
-        f"| Valor do anúncio | R${r['preco']:.2f} |",
-        f"| Taxa da plataforma (comissão) | R${r['comissao']:.2f} |",
-        f"| Frete | R${r['frete']:.2f} |",
-        f"| NF | R${r['nf']:.2f} |",
-        f"| Custos operacionais | R${r['custo_operacional']:.2f} |",
-        f"| Custo do produto | R${r['custo']:.2f} |",
-        f"| **Lucro** | **R${r['lucro_liquido']:.2f}** |",
-        f"| Margem | {r['margem']:.1f}% |",
-        f"| **UC** | **{uc_str}** |",
-    ]
-    return "\n".join(linhas)
-
-
-def classificar_uc(uc):
-    if uc is None or uc < UC_MINIMO:
-        return "INVIAVEL"
-    elif uc < 1.0:
-        return "RESSALVAS"
-    return "VIAVEL"
-
-
-def montar_tabela_horizontal_completa(cenarios):
-    """cenarios: lista de (nome, resultado_dict)"""
-    campos = [
-        ("Valor do anúncio", lambda r: f"R${r['preco']:.2f}"),
-        ("Taxa da plataforma", lambda r: f"R${r['comissao']:.2f}"),
-        ("Frete", lambda r: f"R${r['frete']:.2f}"),
-        ("NF", lambda r: f"R${r['nf']:.2f}"),
-        ("Custos operacionais", lambda r: f"R${r['custo_operacional']:.2f}"),
-        ("Custo do produto", lambda r: f"R${r['custo']:.2f}"),
-        ("**Lucro**", lambda r: f"**R${r['lucro_liquido']:.2f}**"),
-        ("Margem", lambda r: f"{r['margem']:.1f}%"),
-        ("**UC**", lambda r: f"**{r['uc']}/1**" if r['uc'] is not None else "**sem lucro**"),
-    ]
-    header = "| Item | " + " | ".join(nome for nome, _ in cenarios) + " |"
-    sep = "|---" * (len(cenarios) + 1) + "|"
-    linhas = [header, sep]
-    for label, fn in campos:
-        linhas.append(f"| {label} | " + " | ".join(fn(r) for _, r in cenarios) + " |")
-    return "\n".join(linhas)
-
-# ── RESOLVER E PROMOÇÃO GENÉRICOS (funciona pra ML, Shopee e Shein) ───────────
-
-def resolver_preco_para_uc_fn(uc_alvo, calc_fn, lpv, preco_max=2000.0):
-    """Bissecao generica: acha preco que resulta exatamente em uc_alvo
-    dado um calc_fn(preco) -> resultado_dict."""
-    if not lpv:
-        return None
-    lo, hi = 0.01, float(preco_max)
-    for _ in range(80):
-        mid = (lo + hi) / 2
-        r = calc_fn(mid)
-        uc = r['uc'] if r['uc'] is not None else -999
-        if uc < uc_alvo:
-            lo = mid
-        else:
-            hi = mid
-    return round(hi, 2)
-
-def analisar_promocao_fn(preco_mercado, uc_mercado, calc_fn, lpv):
-    """Analise de promocao generica usando calc_fn(preco) -> resultado_dict."""
-    if uc_mercado is None or uc_mercado < 1.0:
-        return None
-
-    preco_10pct = round(preco_mercado * 0.9, 2)
-    r_10pct = calc_fn(preco_10pct)
-
-    preco_uc1 = resolver_preco_para_uc_fn(1.0, calc_fn, lpv, preco_max=preco_mercado * 2)
-    desconto_teorico_uc1 = round(100 * (preco_mercado - preco_uc1) / preco_mercado, 1) if preco_uc1 else 0
-
-    if r_10pct['uc'] is not None and r_10pct['uc'] >= 1.0:
-        desconto_recomendado = 10.0
-        r_recomendado = r_10pct
-        nota_extra = (
-            f"Isso ainda deixa a UC em {r_10pct['uc']}/1. Se quiser ir além, o limite pra não cair "
-            f"abaixo de 1/1 é **{desconto_teorico_uc1}%** de desconto (informativo, não é a sugestão)."
-        ) if desconto_teorico_uc1 > 10 else ""
-        texto = "✅ Dá pra promover em até **10%** de desconto (o teto padrão da empresa)."
-    else:
-        desconto_recomendado = desconto_teorico_uc1
-        r_recomendado = calc_fn(preco_uc1) if preco_uc1 else None
-        nota_extra = ""
-        texto = (
-            f"⚠️ 10% de desconto derrubaria a UC abaixo de 1/1. O desconto máximo recomendado pra manter "
-            f"UC ≥ 1/1 é **{desconto_recomendado}%**."
+        texto = msg.content[0].text.strip()
+
+        # Se a resposta foi cortada (max_tokens atingido), avisa mas tenta salvar
+        truncado = msg.stop_reason == "max_tokens"
+
+        # ── Extração robusta de JSON ───────────────────────────────────────────
+        import re as _re
+
+        def _tentar_parse(s):
+            try:
+                return json.loads(s)
+            except Exception:
+                return None
+
+        resultado = None
+
+        # 1. Texto direto
+        resultado = _tentar_parse(texto)
+
+        # 2. Bloco ```json ... ``` (regex, mais confiável que split)
+        if resultado is None:
+            m = _re.search(r"```(?:json)?\s*(\{.*?\})\s*```", texto, _re.DOTALL)
+            if m:
+                resultado = _tentar_parse(m.group(1))
+
+        # 3. Primeiro { até o último }
+        if resultado is None:
+            start = texto.find("{")
+            end = texto.rfind("}")
+            if start != -1 and end > start:
+                resultado = _tentar_parse(texto[start:end + 1])
+
+        if resultado is not None:
+            return resultado, None
+
+        # ── Fallback: plano básico com presets ────────────────────────────────
+        motivo = (
+            "resposta da IA truncada (max_tokens atingido)" if truncado
+            else "resposta da IA não estava em formato JSON válido"
         )
-
-    if r_recomendado is None:
-        return None
-
-    tabela = montar_tabela_horizontal_completa([
-        ("Preço de mercado", calc_fn(preco_mercado)),
-        (f"Promoção ({desconto_recomendado}% off)", r_recomendado),
-    ])
-
-    return {"texto": texto, "nota_extra": nota_extra, "tabela": tabela}
-
-def gerar_analise_fn(preco_mercado, custo, nome, nf_pct, custo_op, lpv, calc_fn,
-                     preco_max_busca=None, alerta_cubagem=""):
-    """Motor de analise generico. Recebe calc_fn(preco)->resultado e produz
-    o mesmo dicionario de saida que gerar_analise() (ML-especifico)."""
-    r_base = calc_fn(preco_mercado)
-    tag = classificar_uc(r_base['uc'])
-    preco_max = preco_max_busca or max(custo * 20, 2000)
-
-    RESUMOS = {
-        "VIAVEL":    f"Esse anúncio sobra R${r_base['lucro_liquido']:.2f} de lucro por venda (margem de {r_base['margem']:.1f}%), cobrindo a meta de lucro com folga.",
-        "RESSALVAS": f"Esse anúncio sobra R${r_base['lucro_liquido']:.2f} de lucro por venda (margem de {r_base['margem']:.1f}%) — ajuda a pagar as contas, mas não cobre a meta sozinho.",
-        "INVIAVEL":  f"Esse anúncio {'dá prejuízo' if r_base['lucro_liquido'] < 0 else 'sobra pouco lucro'} (R${r_base['lucro_liquido']:.2f} por venda) — fica abaixo do mínimo aceitável pra empresa.",
-    }
-
-    preco_uc07 = resolver_preco_para_uc_fn(0.7, calc_fn, lpv, preco_max)
-    preco_uc10 = resolver_preco_para_uc_fn(1.0, calc_fn, lpv, preco_max)
-    r_uc07 = calc_fn(preco_uc07) if preco_uc07 else None
-    r_uc10 = calc_fn(preco_uc10) if preco_uc10 else None
-
-    cenarios = [("Risco (UC 0,7/1)", r_uc07), ("Preço de mercado", r_base), ("Equilíbrio (UC 1,0/1)", r_uc10)]
-    cenarios = [(n, r) for n, r in cenarios if r is not None]
-    tabela_cenarios = montar_tabela_horizontal_completa(cenarios)
-
-    promo = analisar_promocao_fn(preco_mercado, r_base['uc'], calc_fn, lpv)
-    if promo is None:
-        if tag == "INVIAVEL":
-            texto_promo = "⚠️ Não tem margem pra promoção nesse preço — o produto já está abaixo do UC mínimo. Considere revisar custo ou anunciar mais caro (veja o cenário de Equilíbrio acima)."
-        else:
-            texto_promo = f"⚠️ Margem apertada (UC entre {UC_MINIMO}/1 e 1/1) — não recomendamos promoção nesse preço, só se aproximar do valor de Equilíbrio (UC 1,0/1) mostrado acima."
-        tabela_promo = ""
-        nota_extra_promo = ""
-    else:
-        texto_promo = promo["texto"]
-        tabela_promo = promo["tabela"]
-        nota_extra_promo = promo["nota_extra"]
-
-    return {
-        "tag": tag,
-        "resumo": RESUMOS[tag],
-        "tabela_cenarios": tabela_cenarios,
-        "texto_promo": texto_promo,
-        "tabela_promo": tabela_promo,
-        "nota_extra_promo": nota_extra_promo,
-        "alerta_cubagem": alerta_cubagem,
-        "preco_sugerido": preco_mercado,
-    }
-
-# ── FUNÇÕES ML LEGADAS (mantidas intactas) ────────────────────────────────────
-
-def resolver_preco_para_uc(uc_alvo, custo, peso_kg, categoria, modalidade, nf_pct, custo_op, lpv, preco_max=None):
-    """Acha por bissecao o preco de anuncio que resulta exatamente no UC alvo."""
-    if not lpv:
-        return None
-    preco_max = preco_max or max(custo * 20, 2000)
-    lo, hi = 0.01, preco_max
-    for _ in range(80):
-        mid = (lo + hi) / 2
-        r = calcular_resultado(mid, custo, peso_kg, categoria, modalidade, nf_pct, custo_op, lpv)
-        uc = r['uc'] if r['uc'] is not None else -999
-        if uc < uc_alvo:
-            lo = mid
-        else:
-            hi = mid
-    return round(hi, 2)
-
-
-def analisar_promocao(preco_mercado, uc_mercado, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv):
-    """Regra definida pelo usuario (14/07/2026):
-    - Teto de promocao recomendado: 10% de desconto.
-    - Mas nunca deixar o UC final cair abaixo de 1/1."""
-    if uc_mercado is None or uc_mercado < 1.0:
-        return None
-
-    preco_10pct = round(preco_mercado * 0.9, 2)
-    r_10pct = calcular_resultado(preco_10pct, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv)
-
-    preco_uc1 = resolver_preco_para_uc(1.0, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv)
-    desconto_teorico_uc1 = round(100 * (preco_mercado - preco_uc1) / preco_mercado, 1) if preco_uc1 else 0
-
-    if r_10pct['uc'] is not None and r_10pct['uc'] >= 1.0:
-        desconto_recomendado = 10.0
-        preco_recomendado = preco_10pct
-        r_recomendado = r_10pct
-        nota_extra = (f"Isso ainda deixa a UC em {r_10pct['uc']}/1. Se quiser ir além, o limite pra não cair "
-                      f"abaixo de 1/1 é **{desconto_teorico_uc1}%** de desconto (informativo, não é a sugestão).") \
-                      if desconto_teorico_uc1 > 10 else ""
-        texto = f"✅ Dá pra promover em até **10%** de desconto (o teto padrão da empresa)."
-    else:
-        desconto_recomendado = desconto_teorico_uc1
-        preco_recomendado = preco_uc1
-        r_recomendado = calcular_resultado(preco_uc1, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv)
-        nota_extra = ""
-        texto = (f"⚠️ 10% de desconto derrubaria a UC abaixo de 1/1. O desconto máximo recomendado pra manter "
-                 f"UC ≥ 1/1 é **{desconto_recomendado}%**.")
-
-    tabela = montar_tabela_horizontal_completa([
-        ("Preço de mercado", calcular_resultado(preco_mercado, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv)),
-        (f"Promoção ({desconto_recomendado}% off)", r_recomendado),
-    ])
-
-    return {"texto": texto, "nota_extra": nota_extra, "tabela": tabela}
-
-
-def gerar_analise(preco_mercado, custo, peso_taxado, categoria, modalidade,
-                   nome, dims_ref, qtd_ref, nf_pct, custo_operacional, lpv):
-    r_base = calcular_resultado(preco_mercado, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv)
-    tag = classificar_uc(r_base['uc'])
-
-    RESUMOS = {
-        "VIAVEL": f"Esse anúncio sobra R${r_base['lucro_liquido']:.2f} de lucro por venda (margem de {r_base['margem']:.1f}%), cobrindo a meta de lucro com folga.",
-        "RESSALVAS": f"Esse anúncio sobra R${r_base['lucro_liquido']:.2f} de lucro por venda (margem de {r_base['margem']:.1f}%) — ajuda a pagar as contas, mas não cobre a meta sozinho.",
-        "INVIAVEL": f"Esse anúncio {'dá prejuízo' if r_base['lucro_liquido'] < 0 else 'sobra pouco lucro'} (R${r_base['lucro_liquido']:.2f} por venda) — fica abaixo do mínimo aceitável pra empresa.",
-    }
-    resumo = RESUMOS[tag]
-
-    preco_uc07 = resolver_preco_para_uc(0.7, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv)
-    preco_uc10 = resolver_preco_para_uc(1.0, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv)
-    r_uc07 = calcular_resultado(preco_uc07, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv) if preco_uc07 else None
-    r_uc10 = calcular_resultado(preco_uc10, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv) if preco_uc10 else None
-
-    cenarios = [("Risco (UC 0,7/1)", r_uc07), ("Preço de mercado", r_base), ("Equilíbrio (UC 1,0/1)", r_uc10)]
-    cenarios = [(n, r) for n, r in cenarios if r is not None]
-    tabela_cenarios = montar_tabela_horizontal_completa(cenarios)
-
-    promo = analisar_promocao(preco_mercado, r_base['uc'], custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv)
-    if promo is None:
-        if tag == "INVIAVEL":
-            texto_promo = "⚠️ Não tem margem pra promoção nesse preço — o produto já está abaixo do UC mínimo. Considere revisar custo ou anunciar mais caro (veja o cenário de Equilíbrio acima)."
-        else:
-            texto_promo = f"⚠️ Margem apertada (UC entre {UC_MINIMO}/1 e 1/1) — não recomendamos promoção nesse preço, só se aproximar do valor de Equilíbrio (UC 1,0/1) mostrado acima."
-        tabela_promo = ""
-        nota_extra_promo = ""
-    else:
-        texto_promo = promo["texto"]
-        tabela_promo = promo["tabela"]
-        nota_extra_promo = promo["nota_extra"]
-
-    alerta_cubagem = ""
-    if any(d > 0 for d in dims_ref):
-        peso_cubado = (dims_ref[0] * dims_ref[1] * dims_ref[2]) / 6000
-        if peso_cubado > peso_taxado - 0.001 and peso_cubado > 0:
-            alerta_cubagem = f"⚠️ **Atenção:** o frete foi calculado pelo volume da embalagem ({dims_ref[0]:.0f}x{dims_ref[1]:.0f}x{dims_ref[2]:.0f}cm), não pelo peso — o Mercado Livre pode reconferir essa medida depois e mudar o custo."
-
-    return {
-        "tag": tag,
-        "resumo": resumo,
-        "tabela_cenarios": tabela_cenarios,
-        "texto_promo": texto_promo,
-        "tabela_promo": tabela_promo,
-        "nota_extra_promo": nota_extra_promo,
-        "alerta_cubagem": alerta_cubagem,
-        "preco_sugerido": preco_mercado,
-    }
-
-# ── RENDERIZAÇÃO DE RESULTADO (compartilhada pelas 3 plataformas) ──────────────
-
-def _mostrar_resultado(resultado, nome_produto):
-    SELOS = {
-        "VIAVEL":    ("✅", "VIÁVEL",            "ms-selo-viavel"),
-        "RESSALVAS": ("⚠️", "VIÁVEL COM ATENÇÃO", "ms-selo-ressalvas"),
-        "INVIAVEL":  ("🚫", "INVIÁVEL",           "ms-selo-inviavel"),
-    }
-    emoji, texto_selo, classe = SELOS[resultado["tag"]]
-
-    st.markdown(f"""
-    <div class="ms-selo {classe}">
-        <span class="ms-selo-titulo">{emoji} {texto_selo}</span>
-        <span class="ms-selo-sub">{nome_produto} · R${resultado['preco_sugerido']:.2f}</span>
-    </div>
-    """, unsafe_allow_html=True)
-    st.markdown(
-        f'<p class="ms-resumo">{resultado["resumo"]}</p>',
-        unsafe_allow_html=True,
-    )
-
-    st.markdown('<span class="ms-section-title">Cenários</span>', unsafe_allow_html=True)
-    st.markdown(resultado["tabela_cenarios"])
-
-    st.markdown('<span class="ms-section-title">Viabilidade de promoção</span>', unsafe_allow_html=True)
-    st.markdown(resultado["texto_promo"])
-    if resultado["tabela_promo"]:
-        st.markdown(resultado["tabela_promo"])
-    if resultado["nota_extra_promo"]:
-        st.caption(resultado["nota_extra_promo"])
-
-    if resultado.get("alerta_cubagem"):
-        st.markdown("---")
-        st.markdown(resultado["alerta_cubagem"])
-
-# ── INTERFACE ──────────────────────────────────────────────────────────────────
-
-with st.sidebar:
-    _lp = _logo_b64("logo_preto.png")
-    _lb = _logo_b64("logo_branco.png")
-    st.markdown(
-        f'<img id="ms-logo-preto" src="data:image/png;base64,{_lp}" style="width:100%;margin-top:-32px;margin-bottom:2px;display:block;"/>'
-        f'<img id="ms-logo-branco" src="data:image/png;base64,{_lb}" style="width:100%;margin-top:-32px;margin-bottom:2px;display:block;"/>',
-        unsafe_allow_html=True
-    )
-    _col_user, _col_sair = st.columns([3, 1])
-    _col_user.caption(f"Logado como **{usuario_logado}**")
-    _sair_clicked = _col_sair.button("Sair", key="btn_sair")
-    if _sair_clicked:
-        chave_admin = f"admin_confirmado_{usuario_logado}"
-        for k in [k for k in st.session_state if k == chave_admin]:
-            del st.session_state[k]
-        del st.session_state["usuario_logado"]
-        st.rerun()
-    chat_assistente.renderizar_chat(usuario_logado)
-
-_eh_admin        = auth.is_admin(usuario_logado)
-_eh_martinsousa  = usuario_logado.lower() == "martinsousa"
-
-# Mapeia nomes de login (exibição) → usernames do Trello para checagem de acesso
-_LOGIN_TRELLO = {
-    "Myrella":     "myrelladesouza",
-    "Beatriz":     "beatriz51",
-    "Gabriel":     "gabriel_borges",
-    "MartinSousa": "martinsousa",
-}
-_trello_user = _LOGIN_TRELLO.get(usuario_logado, usuario_logado.lower())
-_eh_painel   = _trello_user in {m.lower() for m in placar.MASTERS} or _trello_user in placar.MEMBROS_ATIVOS
-
-# Ordem: fixas | Painel de Metas | Análise de Metas | Ponto | Administrativo
-_nomes_abas = ["Análise de Viabilidade", "Triagem", "Palavras-chave", "Título",
-               "Descrição", "Imagem", "Vídeo", "Análise de Venda", "Histórico"]
-_idx_painel = len(_nomes_abas) if _eh_painel else None
-if _eh_painel:
-    _nomes_abas.append("🏆 Painel de Metas")
-_idx_analise_metas = len(_nomes_abas) if _eh_painel else None
-if _eh_painel:
-    _nomes_abas.append("📊 Análise de Metas")
-_idx_ponto = len(_nomes_abas) if _eh_painel else None
-if _eh_painel:
-    _nomes_abas.append("🕐 Ponto")
-_idx_admin = len(_nomes_abas) if _eh_admin else None
-if _eh_admin:
-    _nomes_abas.append("Administrativo")
-
-_abas = st.tabs(_nomes_abas)
-(aba_viabilidade, aba_triagem, aba_palavras, aba_titulo,
- aba_descricao, aba_imagem, aba_video, aba_analise_venda, aba_historico) = _abas[:9]
-
-with aba_video:
-    video.pagina_video(usuario_logado)
-
-with aba_historico:
-    atividades.pagina_historico()
-
-if _eh_painel and _idx_painel is not None:
-    with _abas[_idx_painel]:
-        placar.pagina_placar(usuario_logado)
-
-if _eh_painel and _idx_analise_metas is not None:
-    with _abas[_idx_analise_metas]:
-        analise_metas.pagina_analise_metas(usuario_logado)
-
-if _eh_painel and _idx_ponto is not None:
-    with _abas[_idx_ponto]:
-        relogio_ponto.pagina_ponto(usuario_logado)
-
-if _eh_admin and _idx_admin is not None:
-    with _abas[_idx_admin]:
-        admin.pagina_admin(usuario_logado)
-
-with aba_analise_venda:
-    # LPV e NF vigentes
-    _lpv_av, _nf_av = LPV_OFICIAL, NF_OFICIAL
-    try:
-        _df_av = financeiro.carregar_dados()
-        _lpv_d_av, _ = financeiro.lpv_vigente(_df_av)
-        _aliq_d_av, _ = financeiro.aliquota_vigente(_df_av)
-        if _lpv_d_av: _lpv_av = _lpv_d_av
-        if _aliq_d_av: _nf_av = _aliq_d_av / 100
-    except Exception:
-        pass
-
-    st.subheader("Calculadora de Preço Mínimo")
-    st.caption("Informe o custo e as características do produto para descobrir qual preço mínimo anunciar em cada plataforma antes de pesquisar o mercado.")
-    st.markdown("---")
-
-    col_av1, col_av2 = st.columns(2)
-    with col_av1:
-        st.markdown("**Produto**")
-        custo_av        = st.number_input("Custo do produto (R$)", min_value=0.0, value=None,
-                                           step=0.50, format="%.2f", placeholder="0,00", key="av_custo")
-        categoria_av    = st.selectbox("Categoria no ML", sorted(ML_COMISSAO_POR_CATEGORIA.keys()), key="av_categoria")
-        modalidade_av   = st.selectbox("Modalidade ML", ["Premium", "Classico"], key="av_modalidade")
-        custo_op_av     = st.number_input("Custo operacional (embalagem/logística/ADS/cross docking)",
-                                           min_value=0.0, value=8.13, step=0.50, format="%.2f", key="av_custo_op")
-
-    with col_av2:
-        st.markdown("**Dimensões e Peso (produto embalado)**")
-        col_p_av, col_u_av = st.columns([3, 1])
-        peso_val_av  = col_p_av.number_input("Peso Embalado para Envio", min_value=0.0, value=None,
-                                              step=1.0, format="%.0f", placeholder="ex: 700", key="av_peso")
-        peso_unit_av = col_u_av.selectbox("Unidade", ["g", "kg"], key="av_peso_unit")
-        peso_kg_av   = (peso_val_av / 1000 if peso_val_av else 0) if peso_unit_av == "g" else (peso_val_av or 0)
-        st.caption("Medidas da embalagem — usadas no cálculo de peso cubado do ML")
-        dim1_av = st.number_input("Medida 1 (cm)", min_value=0.0, value=None, step=0.5, format="%.1f", placeholder="ex: 30", key="av_d1")
-        dim2_av = st.number_input("Medida 2 (cm)", min_value=0.0, value=None, step=0.5, format="%.1f", placeholder="ex: 20", key="av_d2")
-        dim3_av = st.number_input("Medida 3 (cm)", min_value=0.0, value=None, step=0.5, format="%.1f", placeholder="ex: 5",  key="av_d3")
-
-    st.markdown("---")
-    calcular_av = st.button("Calcular Preços Mínimos", type="primary", use_container_width=True, key="av_calcular")
-
-    if calcular_av:
-        erros_av = []
-        if custo_av is None: erros_av.append("Custo do produto")
-        if peso_kg_av == 0:  erros_av.append("Peso do produto")
-        if erros_av:
-            st.warning(f"Preencha: {', '.join(erros_av)}")
-        else:
-            peso_taxado_av = calcular_peso_taxado(peso_kg_av, dim1_av or 0, dim2_av or 0, dim3_av or 0)
-
-            UC_ALVOS_AV = [
-                (0.8, "0,8/1", "Mínimo viável", "ms-card-08"),
-                (1.0, "1,0/1", "Equilíbrio",    "ms-card-10"),
-                (1.5, "1,5/1", "Confortável",   "ms-card-15"),
-            ]
-
-            with st.spinner("Calculando preços mínimos..."):
-                linhas_av = []
-                for uc_val, uc_label, uc_desc, classe_card in UC_ALVOS_AV:
-                    # ML
-                    p_ml_av = resolver_preco_para_uc(
-                        uc_val, custo_av, peso_taxado_av, categoria_av, modalidade_av,
-                        _nf_av, custo_op_av, _lpv_av
-                    )
-                    # Shopee
-                    def _sp(p, _c=custo_av, _n=_nf_av, _o=custo_op_av, _l=_lpv_av):
-                        return calcular_resultado_shopee(p, _c, _n, _o, _l)
-                    p_sp_av = resolver_preco_para_uc_fn(uc_val, _sp, _lpv_av)
-                    # Shein
-                    def _sh(p, _c=custo_av, _pk=peso_kg_av, _n=_nf_av, _o=custo_op_av, _l=_lpv_av):
-                        return calcular_resultado_shein(p, _c, _pk, _n, _o, _l)
-                    p_sh_av = resolver_preco_para_uc_fn(uc_val, _sh, _lpv_av)
-
-                    linhas_av.append((uc_label, uc_desc, classe_card, p_ml_av, p_sp_av, p_sh_av))
-
-            st.markdown("### Preços mínimos para anunciar")
-            st.caption(f"LPV: R${_lpv_av:.2f} · NF: {_nf_av*100:.1f}% · Op: R${custo_op_av:.2f}")
-            st.markdown("")
-
-            for uc_label, uc_desc, classe_card, p_ml, p_sp, p_sh in linhas_av:
-                fmt = lambda v: f"R${v:.2f}" if v else "—"
-                st.markdown(f"""
-                <div class="ms-card-uc {classe_card}">
-                  <div class="ms-card-uc-label">UC {uc_label} — {uc_desc}</div>
-                  <div class="ms-card-plat-prices">
-                    <div>
-                      <div class="ms-card-plat-name">🛒 Mercado Livre</div>
-                      <div class="ms-card-plat-price">{fmt(p_ml)}</div>
-                    </div>
-                    <div>
-                      <div class="ms-card-plat-name">🛍️ Shopee</div>
-                      <div class="ms-card-plat-price">{fmt(p_sp)}</div>
-                    </div>
-                    <div>
-                      <div class="ms-card-plat-name">👗 Shein</div>
-                      <div class="ms-card-plat-price">{fmt(p_sh)}</div>
-                    </div>
-                  </div>
-                </div>
-                """, unsafe_allow_html=True)
-
-            st.markdown("---")
-            st.caption("Pesquise se há produtos ativos nessas faixas de preço. Se sim, o produto é viável — use a aba **Análise de Viabilidade** para confirmar os números com o preço real encontrado.")
-
-with aba_triagem:
-    triagem.pagina_triagem(usuario_logado)
-
-with aba_palavras:
-    palavras_chave.pagina_palavras_chave(usuario_logado)
-
-with aba_titulo:
-    titulo.pagina_titulo(usuario_logado)
-
-with aba_imagem:
-    imagem.pagina_imagem(usuario_logado)
-
-with aba_descricao:
-    descricao.pagina_descricao(usuario_logado)
-
-with aba_viabilidade:
-    # Busca LPV e aliquota calculados a partir dos dados financeiros reais.
-    # Se ainda nao houver dado suficiente, cai pros valores fixos antigos
-    # (params_oficiais.py) so como reserva, deixando isso claro na tela.
-    lpv_dinamico, lpv_origem, aliquota_dinamica = None, None, None
-    try:
-        df_financeiro = financeiro.carregar_dados()
-        lpv_dinamico, lpv_origem = financeiro.lpv_vigente(df_financeiro)
-        aliquota_dinamica, _ = financeiro.aliquota_vigente(df_financeiro)
-    except Exception:
-        pass
-
-    lpv_usado = lpv_dinamico if lpv_dinamico else LPV_OFICIAL
-    lpv_origem_usada = lpv_origem if lpv_dinamico else "valor fixo de reserva (sem dados financeiros ainda)"
-    nf_pct_usado = (aliquota_dinamica / 100) if aliquota_dinamica else NF_OFICIAL
-
-    col_info1, col_info2, col_info3 = st.columns(3)
-    col_info1.metric("LPV vigente", f"R${lpv_usado:.2f}")
-    col_info2.metric("NF (alíquota)", f"{nf_pct_usado*100:.1f}%")
-    col_info3.metric("UC mínimo p/ aprovar", f"{UC_MINIMO}/1")
-    st.caption(f"LPV calculado com base em: {lpv_origem_usada}")
-    st.markdown("---")
-
-    # ── FORMULÁRIO ÚNICO ───────────────────────────────────────────────────────
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("Dados do Produto")
-        nome_produto      = st.text_input("Nome do produto")
-        custo             = st.number_input("Preço de custo (R$)", min_value=0.0, value=None, step=0.50, format="%.2f", placeholder="0,00")
-        qtd_ref           = st.number_input("Quantidade por unidade/kit", min_value=1, step=1, value=1)
-        categoria         = st.selectbox("Categoria no ML", sorted(ML_COMISSAO_POR_CATEGORIA.keys()), key="viab_categoria")
-        custo_operacional = st.number_input("Custo operacional (embalagem/logística/ADS/cross docking)",
-                                             min_value=0.0, value=8.13, step=0.50, format="%.2f")
-
-    with col2:
-        st.subheader("Dimensões e Peso (produto EMBALADO)")
-        st.caption("Peso e medidas do pacote pronto pra envio — usados no cálculo de frete do ML (cubagem) e da Shein (por peso).")
-        col_peso, col_unit = st.columns([3, 1])
-        peso_val  = col_peso.number_input("Peso Embalado para Envio", min_value=0.0, value=None, step=1.0, format="%.0f", placeholder="ex: 700")
-        peso_unit = col_unit.selectbox("Unidade", ["g", "kg"])
-        peso_kg   = (peso_val / 1000 if peso_val else 0) if peso_unit == "g" else (peso_val or 0)
-        st.caption("Medidas da embalagem — usadas no cálculo de peso cubado do ML")
-        dim1 = st.number_input("Medida 1 (cm)", min_value=0.0, value=None, step=0.5, format="%.1f", placeholder="ex: 30")
-        dim2 = st.number_input("Medida 2 (cm)", min_value=0.0, value=None, step=0.5, format="%.1f", placeholder="ex: 30")
-        dim3 = st.number_input("Medida 3 (cm)", min_value=0.0, value=None, step=0.5, format="%.1f", placeholder="ex: 2")
-        dims_ref = [dim1 or 0, dim2 or 0, dim3 or 0]
-
-    # ── PREÇOS DE MERCADO POR PLATAFORMA ──────────────────────────────────────
-    st.markdown("---")
-    st.subheader("Preço de mercado por plataforma")
-    modalidade = st.selectbox("Modalidade ML", ["Premium", "Classico"], key="viab_modalidade")
-    st.caption("Preencha o preço pesquisado em cada plataforma. Deixe em branco as que não forem analisar.")
-
-    col_p1, col_p2, col_p3 = st.columns(3)
-    with col_p1:
-        preco_ml = st.number_input("🛒 Mercado Livre", min_value=0.0, value=None, step=0.50,
-                                    format="%.2f", placeholder="0,00", key="preco_ml")
-    with col_p2:
-        preco_sp = st.number_input("🛍️ Shopee", min_value=0.0, value=None, step=0.50,
-                                    format="%.2f", placeholder="0,00", key="preco_sp")
-    with col_p3:
-        preco_sh = st.number_input("👗 Shein", min_value=0.0, value=None, step=0.50,
-                                    format="%.2f", placeholder="0,00", key="preco_sh")
-
-    st.markdown("---")
-    analisar = st.button("Analisar Viabilidade", type="primary", use_container_width=True)
-
-    if analisar:
-        erros = []
-        if not nome_produto: erros.append("Nome do produto")
-        if custo is None:    erros.append("Preço de custo")
-        if all(p is None for p in [preco_ml, preco_sp, preco_sh]):
-            erros.append("Pelo menos um preço de mercado (ML, Shopee ou Shein)")
-        if preco_sh and peso_kg == 0:
-            erros.append("Peso do produto (necessário para calcular o frete da Shein)")
-        if erros:
-            st.warning(f"Preencha: {', '.join(erros)}")
-            # Abre o chat automaticamente com orientação sobre o que falta
-            msg_chat = f"Atenção! Faltam informações para calcular a viabilidade:\n\n"
-            for e in erros:
-                msg_chat += f"• {e}\n"
-            msg_chat += "\nMe fala o que não sabe preencher que te explico."
-            chat_assistente.iniciar_conversa(msg_chat)
-            st.stop()
-
-        peso_taxado_ml = calcular_peso_taxado(peso_kg, dim1 or 0, dim2 or 0, dim3 or 0)
-
-        # ── CALCULA AS 3 PLATAFORMAS ───────────────────────────────────────────
-        with st.spinner("Calculando viabilidade nas plataformas..."):
-            res_ml, res_sp, res_sh = None, None, None
-
-            if preco_ml:
-                res_ml = gerar_analise(
-                    preco_ml, custo, peso_taxado_ml, categoria, modalidade,
-                    nome_produto, dims_ref, qtd_ref, nf_pct_usado, custo_operacional, lpv_usado,
-                )
-
-            if preco_sp:
-                calc_sp = lambda p: calcular_resultado_shopee(p, custo, nf_pct_usado, custo_operacional, lpv_usado)
-                res_sp = gerar_analise_fn(preco_sp, custo, nome_produto, nf_pct_usado,
-                                          custo_operacional, lpv_usado, calc_sp)
-
-            if preco_sh:
-                calc_sh = lambda p: calcular_resultado_shein(p, custo, peso_kg, nf_pct_usado, custo_operacional, lpv_usado)
-                res_sh = gerar_analise_fn(preco_sh, custo, nome_produto, nf_pct_usado,
-                                          custo_operacional, lpv_usado, calc_sh)
-
-        # registra no histórico
-        plataformas_log = " / ".join(
-            f"{p}: {r['tag']} R${pr:.2f}"
-            for p, r, pr in [("ML", res_ml, preco_ml or 0), ("Shopee", res_sp, preco_sp or 0), ("Shein", res_sh, preco_sh or 0)]
-            if r is not None
-        )
-        atividades.registrar_atividade(
-            usuario_logado, "Análise de Viabilidade", nome_produto,
-            f"custo R${custo:.2f} · {plataformas_log}"
-        )
-
-        # ── RESULTADO LADO A LADO ──────────────────────────────────────────────
-        st.markdown("---")
-
-        # classe CSS de cada plataforma (evita inline style que é ignorado pelo CSS global)
-        PLATAFORMAS = {
-            "ml": ("ms-plat-ml", "Mercado Livre"),
-            "sp": ("ms-plat-sp", "Shopee"),
-            "sh": ("ms-plat-sh", "Shein"),
+        plano_fallback = {
+            "plano": [
+                {
+                    "tipo": t,
+                    "numero": i + 1,
+                    "composicao": PRESETS.get(t, ""),
+                    "textos": [],
+                    "flags": [],
+                    "viavel": True,
+                    "pergunta_info": "",
+                }
+                for i, t in enumerate(tipos_selecionados)
+            ],
+            "observacao_geral": (
+                f"⚠️ A triagem detalhada não pôde ser gerada ({motivo}). "
+                "O plano abaixo usa os presets padrão de cada tipo. "
+                "Revise as instruções antes de confirmar a geração."
+            ),
         }
+        return plano_fallback, None
 
-        col_r1, col_r2, col_r3 = st.columns(3)
+    except Exception as e:
+        return None, str(e)
 
-        for col, chave, resultado, preco in [
-            (col_r1, "ml", res_ml, preco_ml),
-            (col_r2, "sp", res_sp, preco_sp),
-            (col_r3, "sh", res_sh, preco_sh),
-        ]:
-            classe_plat, nome_plataforma = PLATAFORMAS[chave]
-            with col:
-                st.markdown(
-                    f'<div class="ms-plat-header {classe_plat}">{nome_plataforma}</div>',
-                    unsafe_allow_html=True,
+
+# ── GERAÇÃO DE IMAGEM (Gemini) ─────────────────────────────────────────────────
+
+def _detectar_mime(data: bytes) -> str:
+    """Detecta o MIME type real da imagem pelos magic bytes."""
+    if data[:8] == b'\x89PNG\r\n\x1a\n':
+        return "image/png"
+    if data[:2] == b'\xff\xd8':
+        return "image/jpeg"
+    if data[:4] == b'RIFF' and data[8:12] == b'WEBP':
+        return "image/webp"
+    return "image/jpeg"  # fallback seguro
+
+
+def _gerar_imagem_thread(prompt_texto, imagens_ref, resultado):
+    """Executa gerar_imagem_ia em thread separada para não bloquear o WebSocket."""
+    try:
+        img, erro = gerar_imagem_ia(prompt_texto, imagens_ref)
+        resultado["img"] = img
+        resultado["erro"] = erro
+    except Exception as e:
+        resultado["img"] = None
+        resultado["erro"] = str(e)
+    finally:
+        resultado["done"] = True
+
+
+def gerar_imagem_ia(prompt_texto, imagens_referencia):
+    """imagens_referencia: lista de bytes. Retorna (imagem_bytes, erro)."""
+    api_key = st.secrets.get("GEMINI_API_KEY", "") or os.environ.get("GEMINI_API_KEY", "")
+    if not api_key:
+        return None, "GEMINI_API_KEY não configurada nas Secrets."
+
+    parts = [{"text": prompt_texto}]
+    for img_bytes in imagens_referencia:
+        parts.append({
+            "inline_data": {
+                "mime_type": _detectar_mime(img_bytes),
+                "data": base64.b64encode(img_bytes).decode("utf-8"),
+            }
+        })
+
+    body = {
+        "contents": [{"parts": parts}],
+        "generationConfig": {
+            "responseModalities": ["TEXT", "IMAGE"],
+            # imageConfig (aspectRatio/imageSize) não é suportado no generateContent —
+            # é parâmetro do Imagen (endpoint /predict). Remover evita erros silenciosos.
+        },
+    }
+
+    import time as _time
+    MAX_TENTATIVAS = 3
+    ultimo_erro = ""
+    for tentativa in range(1, MAX_TENTATIVAS + 1):
+        try:
+            resp = requests.post(
+                f"https://generativelanguage.googleapis.com/v1/models/{MODELO_IMAGEM}:generateContent",
+                headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
+                json=body, timeout=120,
+            )
+            if resp.status_code == 429:
+                # Rate limit — espera progressiva maior antes de nova tentativa
+                espera = 30 * tentativa  # 30s, 60s, 90s
+                _time.sleep(espera)
+                ultimo_erro = (
+                    f"Limite de taxa da API Gemini atingido (HTTP 429) — tentativa {tentativa}/{MAX_TENTATIVAS}. "
+                    "A API está rejeitando requisições em rajada. O sistema aguardará e tentará novamente automaticamente. "
+                    f"Aguardando {espera}s antes da próxima tentativa."
                 )
-                if resultado is not None:
-                    _mostrar_resultado(resultado, nome_produto)
+                continue
+            if resp.status_code != 200:
+                ultimo_erro = f"Erro da API (HTTP {resp.status_code}): {resp.text[:300]}"
+                if tentativa < MAX_TENTATIVAS:
+                    _time.sleep(5)
+                continue
+            dados = resp.json()
+            candidatos = dados.get("candidates", [])
+            if not candidatos:
+                ultimo_erro = "A IA não retornou nenhuma imagem (resposta vazia)."
+                if tentativa < MAX_TENTATIVAS:
+                    _time.sleep(5)
+                continue
+            for parte in candidatos[0].get("content", {}).get("parts", []):
+                inline = parte.get("inlineData") or parte.get("inline_data")
+                if inline and inline.get("data"):
+                    img_bytes_raw = base64.b64decode(inline["data"])
+                    # Redimensiona para 1200x1200 (padrão MartinSousa para marketplace)
+                    try:
+                        from PIL import Image as _PILImage
+                        import io as _io
+                        pil = _PILImage.open(_io.BytesIO(img_bytes_raw)).convert("RGBA")
+                        pil = pil.resize((1200, 1200), _PILImage.LANCZOS)
+                        buf = _io.BytesIO()
+                        pil.save(buf, format="PNG")
+                        img_bytes_raw = buf.getvalue()
+                    except Exception:
+                        pass  # se PIL não estiver disponível, retorna o tamanho original
+                    return img_bytes_raw, None
+            ultimo_erro = "A IA respondeu, mas não veio nenhuma imagem (pode ter bloqueado o pedido)."
+            break  # não é erro de rede/rate — não adianta retry
+        except Exception as e:
+            ultimo_erro = str(e)
+            if tentativa < MAX_TENTATIVAS:
+                _time.sleep(5)
+    return None, ultimo_erro
+
+
+INSTRUCAO_REFERENCIA_LAYOUT = """
+IMAGENS DE REFERÊNCIA DE LAYOUT — REGRAS ABSOLUTAS:
+- As imagens de referência de layout mostram COMPOSIÇÃO, POSIÇÃO, ESTILO e ESTRUTURA visual
+- O produto nessas imagens de referência NÃO É o produto a ser gerado — é apenas um exemplo de layout
+- USE das referências: posicionamento, hierarquia de elementos, estilo de texto, uso de pessoas/cenários
+- NÃO USE das referências: o produto em si, cores do produto de referência, marcas ou logotipos visíveis
+- Aplique o layout/composição da referência ao PRODUTO DO COLABORADOR com as cores MartinSousa
+- Se o arquivo de referência tiver nome indicando o tipo (ex: "fundo_branco", "beneficios"), essa referência se aplica especificamente àquele tipo de imagem
+"""
+
+
+def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
+                         refs_layout_nomes=None, instrucao_layout=""):
+    """Monta o prompt completo para geração.
+
+    Para os tipos padrão (1-7): aplica PADRAO_VISUAL + INSTRUCAO_COMPOSICAO
+    (imagens de marketing com identidade visual).
+
+    Para 'Personalizado': aplica INSTRUCAO_PERSONALIZADO sem branding automático
+    — a instrução do colaborador é a única fonte de verdade.
+
+    refs_layout_nomes: lista de nomes de arquivo das imagens de referência de layout
+    instrucao_layout: texto descrevendo o que cada referência representa
+    """
+    base = PRESETS.get(tipo, "")
+
+    contexto_produto = f"PRODUTO: {nome_produto}\n"
+    if dados_descricao:
+        if dados_descricao.get("cor"):
+            contexto_produto += f"Cor: {dados_descricao['cor']}\n"
+        if dados_descricao.get("medidas"):
+            contexto_produto += f"Medidas EXATAS (use esses números, não invente): {dados_descricao['medidas']}\n"
+        if dados_descricao.get("peso"):
+            contexto_produto += f"Peso EXATO (use esse número, não invente): {dados_descricao['peso']}\n"
+        if dados_descricao.get("diferenciais"):
+            contexto_produto += f"Diferenciais principais: {dados_descricao['diferenciais'][:200]}\n"
+
+    bloco_instrucoes = (
+        f"\nINSTRUÇÕES DO COLABORADOR (siga com precisão):\n{instrucoes_extras}"
+        if instrucoes_extras else ""
+    )
+
+    # Bloco de referências de layout
+    bloco_refs = ""
+    if refs_layout_nomes:
+        nomes_str = ", ".join(refs_layout_nomes)
+        bloco_refs = f"\nREFERÊNCIAS DE LAYOUT FORNECIDAS: {nomes_str}"
+        if instrucao_layout:
+            bloco_refs += f"\nO que cada referência representa: {instrucao_layout}"
+        bloco_refs += f"\n{INSTRUCAO_REFERENCIA_LAYOUT}"
+
+    eh_personalizado = (tipo == "Personalizado (descrevo o que quero)")
+
+    if eh_personalizado:
+        # Modo personalizado: SEM branding automático, SEM nova composição forçada
+        # A instrução do colaborador define tudo.
+        return f"""{contexto_produto}
+TIPO DE IMAGEM: Personalizado
+{bloco_instrucoes}
+{bloco_refs}
+
+{INSTRUCAO_PERSONALIZADO}
+{INSTRUCAO_FIDELIDADE}
+"""
+    else:
+        # Tipos padrão (1-7): imagens de marketing com identidade visual completa
+        return f"""{contexto_produto}
+TIPO DE IMAGEM: {tipo}
+{base}
+{bloco_instrucoes}
+{bloco_refs}
+
+{PADRAO_VISUAL}
+{INSTRUCAO_FIDELIDADE}
+{INSTRUCAO_COMPOSICAO}
+"""
+
+
+def montar_prompt_ajuste_fino(instrucao):
+    """Monta prompt para edição cirúrgica de uma imagem existente.
+
+    NÃO aplica PADRAO_VISUAL, NÃO aplica INSTRUCAO_COMPOSICAO.
+    Instrui a IA a fazer SOMENTE a modificação descrita, preservando tudo o mais.
+    """
+    return f"""MODO AJUSTE FINO — EDIÇÃO CIRÚRGICA DE IMAGEM EXISTENTE
+
+A imagem fornecida é a imagem atual que deve ser editada.
+
+MODIFICAÇÃO SOLICITADA — o único e exclusivo ponto a alterar:
+{instrucao}
+
+{INSTRUCAO_AJUSTE_FINO}
+
+Reproduza a imagem fornecida com fidelidade absoluta, aplicando APENAS a modificação acima.
+Trate qualquer elemento que não foi mencionado na instrução como intocável.
+"""
+
+
+# ── GOOGLE DRIVE — GESTÃO DE PASTAS ───────────────────────────────────────────
+
+def _drive_service():
+    from googleapiclient.discovery import build
+    from google.oauth2.service_account import Credentials
+    creds_dict = dict(st.secrets["gcp_service_account"])
+    creds = Credentials.from_service_account_info(
+        creds_dict, scopes=["https://www.googleapis.com/auth/drive"]
+    )
+    return build("drive", "v3", credentials=creds)
+
+
+def buscar_pasta_produto(nome_produto, codigo, pasta_pai_id):
+    """Busca pasta exata '[Nome] - [Código]' ou pelo nome aproximado.
+    Retorna lista de (id, name) encontrados."""
+    try:
+        service = _drive_service()
+        nome_exato = f"{nome_produto} - {codigo}".strip(" -")
+
+        # Tenta nome exato primeiro
+        q = (f"'{pasta_pai_id}' in parents and mimeType='application/vnd.google-apps.folder' "
+             f"and name='{nome_exato}' and trashed=false")
+        res = service.files().list(q=q, fields="files(id,name)").execute()
+        if res.get("files"):
+            return [(f["id"], f["name"]) for f in res["files"]]
+
+        # Busca por trecho do nome do produto (fuzzy)
+        if nome_produto:
+            palavras = nome_produto.split()[:2]  # primeiras 2 palavras
+            for palavra in palavras:
+                if len(palavra) < 3:
+                    continue
+                q2 = (f"'{pasta_pai_id}' in parents and mimeType='application/vnd.google-apps.folder' "
+                      f"and name contains '{palavra}' and trashed=false")
+                res2 = service.files().list(q=q2, fields="files(id,name)").execute()
+                if res2.get("files"):
+                    return [(f["id"], f["name"]) for f in res2["files"]]
+        return []
+    except Exception:
+        return []
+
+
+def criar_pasta_produto(nome_pasta, pasta_pai_id):
+    """Cria nova pasta no Drive. Retorna (id, erro)."""
+    try:
+        service = _drive_service()
+        metadata = {
+            "name": nome_pasta,
+            "mimeType": "application/vnd.google-apps.folder",
+            "parents": [pasta_pai_id],
+        }
+        pasta = service.files().create(body=metadata, fields="id").execute()
+        return pasta["id"], None
+    except Exception as e:
+        return None, str(e)
+
+
+def upload_para_pasta(imagem_bytes, nome_arquivo, pasta_id):
+    """Faz upload de imagem para pasta específica. Retorna (link, erro)."""
+    from googleapiclient.http import MediaInMemoryUpload
+    try:
+        service = _drive_service()
+        metadata = {"name": nome_arquivo, "parents": [pasta_id]}
+        media = MediaInMemoryUpload(imagem_bytes, mimetype="image/png")
+        arquivo = service.files().create(
+            body=metadata, media_body=media, fields="id, webViewLink"
+        ).execute()
+        service.permissions().create(
+            fileId=arquivo["id"],
+            body={"role": "reader", "type": "anyone"}
+        ).execute()
+        return arquivo.get("webViewLink"), None
+    except Exception as e:
+        return None, str(e)
+
+
+def criar_zip_galeria(galeria, nome_produto):
+    """Cria ZIP em memória com todas as imagens da galeria. Retorna bytes."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for g in galeria:
+            nome_arquivo = f"{nome_produto}_{g['tipo'][:30]}.png"
+            nome_arquivo = "".join(c if c.isalnum() or c in "._- " else "_" for c in nome_arquivo)
+            zf.writestr(nome_arquivo, g["bytes"])
+    buf.seek(0)
+    return buf.read()
+
+
+# ── INTERFACE PRINCIPAL ────────────────────────────────────────────────────────
+
+def pagina_imagem(usuario_logado):
+    st.subheader("Imagem")
+    st.caption("Gere imagens profissionais para o anúncio. A IA mostra o que vai criar antes de gastar com a geração.")
+
+    # ── RE-RUN AUTOMÁTICO DA TRIAGEM (disparado pelo chat ao preencher dados) ──
+    if st.session_state.pop("img_rerun_triagem", False):
+        cfg = st.session_state.get("img_triagem_config")
+        if cfg and cfg.get("tipos"):
+            with st.spinner("♻️ O Assistente IA atualizou os dados — refazendo a análise..."):
+                try:
+                    plano, erro = gerar_triagem_ia(
+                        cfg["nome_produto"],
+                        cfg["tipos"],
+                        cfg.get("dados_descricao"),
+                        cfg.get("instrucoes_extras", ""),
+                        cfg.get("fotos_bytes", []),
+                    )
+                    if not erro and plano:
+                        st.session_state["img_triagem_plano"] = plano
+                except Exception:
+                    pass  # silencioso — triagem antiga continua visível
+            st.rerun()
+
+    # ── LINHA 1: Nome + Código ─────────────────────────────────────────────────
+    # Pré-preenche via session_state (evita bug RemoveChild do React ao usar
+    # value= com pop() durante re-renders causados por paste/autocomplete)
+    if "img_nome_importado" in st.session_state:
+        st.session_state["img_nome_produto_input"] = st.session_state.pop("img_nome_importado")
+    if "img_codigo_importado" in st.session_state:
+        st.session_state["img_codigo_input"] = st.session_state.pop("img_codigo_importado")
+
+    col_nome, col_cod = st.columns(2)
+    with col_nome:
+        nome_produto = st.text_input(
+            "Nome do produto",
+            key="img_nome_produto_input",
+        )
+    with col_cod:
+        codigo_input = st.text_input(
+            "Código da descrição (opcional)",
+            key="img_codigo_input",
+            placeholder="ex: MS-BENG-07174K2  (gerado na aba Descrição)",
+            help="Gere uma descrição na aba Descrição — o código aparece num bloco azul no final. Copie e cole aqui. O nome do produto não é o código.",
+        )
+
+    # Busca dados da descrição pelo código
+    dados_descricao = None
+    if codigo_input:
+        import atividades as _atv
+        dados_descricao = _atv.buscar_por_codigo(codigo_input)
+        if dados_descricao:
+            st.success(
+                f"✅ Descrição encontrada: **{dados_descricao.get('nome_produto','')}** · "
+                f"Cor: {dados_descricao.get('cor') or '—'} · "
+                f"Medidas: {dados_descricao.get('medidas') or '—'}"
+            )
+        else:
+            st.warning("Código não encontrado no histórico. Pode continuar — só não haverá vínculo com a descrição.")
+
+    # Também usa dados do session_state do módulo de descrição se o usuário
+    # acabou de gerar na mesma sessão e ainda não copiou o código
+    if not dados_descricao and st.session_state.get("desc_codigo_atual") == codigo_input and codigo_input:
+        dados_descricao = st.session_state.get("desc_dados_atual")
+
+    # ── O QUE GERAR — escolha antes de ver opções específicas ─────────────────
+    st.markdown("---")
+    modo = st.radio(
+        "O que gerar?",
+        ["1 imagem específica", "Selecionar", "As 7 imagens do padrão", "✏️ Ajuste Fino"],
+        horizontal=True,
+        key="img_modo",
+    )
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # MODO AJUSTE FINO — edição cirúrgica de imagem existente
+    # ══════════════════════════════════════════════════════════════════════════
+    if modo == "✏️ Ajuste Fino":
+        st.info(
+            "**✏️ Ajuste Fino** — envie a imagem que deseja modificar e descreva "
+            "**somente** o que deve mudar. A IA preservará tudo o mais exatamente igual."
+        )
+
+        fotos_ajuste_upload = st.file_uploader(
+            "Imagem a ajustar (JPG, PNG, WebP)",
+            type=["jpg", "jpeg", "png", "webp"],
+            accept_multiple_files=True,
+            key="img_ajuste_upload",
+            help="Suba a(s) imagem(ns) que deseja editar. Pode enviar mais de uma variante ao mesmo tempo.",
+        )
+        fotos_bytes_ajuste = [f.getvalue() for f in fotos_ajuste_upload] if fotos_ajuste_upload else []
+
+        if fotos_bytes_ajuste:
+            cols_aj = st.columns(min(len(fotos_bytes_ajuste), 4))
+            for i, fb in enumerate(fotos_bytes_ajuste[:4]):
+                cols_aj[i].image(fb, use_container_width=True)
+            if len(fotos_bytes_ajuste) > 4:
+                st.caption(f"+ {len(fotos_bytes_ajuste) - 4} imagem(ns) adicional(is) carregada(s).")
+
+        instrucao_ajuste = st.text_area(
+            "O que você quer modificar? (descreva SOMENTE o que deve mudar — não explique o que deve ficar igual)",
+            height=120,
+            placeholder=(
+                "ex: Diminua o tamanho do produto para que fique em proporção realista ao cenário. "
+                "O produto mede aproximadamente 18cm.\n\n"
+                "NÃO descreva o que já está certo — a IA vai preservar tudo que você não mencionar."
+            ),
+            key="img_instrucao_ajuste",
+        )
+
+        st.markdown("---")
+        if st.button(
+            "✏️ Aplicar Ajuste Fino",
+            type="primary",
+            use_container_width=True,
+            disabled=(not fotos_bytes_ajuste or not instrucao_ajuste.strip()),
+        ):
+            if not fotos_bytes_ajuste:
+                st.warning("Suba a imagem que deseja ajustar.")
+                st.stop()
+            if not instrucao_ajuste.strip():
+                st.warning("Descreva o que você quer modificar.")
+                st.stop()
+
+            import time as _time_af
+            import threading as _threading_af
+            prompt_af = montar_prompt_ajuste_fino(instrucao_ajuste.strip())
+            _res_af = {"img": None, "erro": None, "done": False}
+            _threading_af.Thread(
+                target=_gerar_imagem_thread,
+                args=(prompt_af, fotos_bytes_ajuste, _res_af),
+                daemon=True,
+            ).start()
+            _slot_af = st.empty()
+            _t0_af = _time_af.time()
+            while not _res_af["done"]:
+                _seg_af = int(_time_af.time() - _t0_af)
+                _slot_af.caption(f"⏳ Aplicando ajuste fino... {_seg_af}s")
+                _time_af.sleep(1)
+            _slot_af.empty()
+            img_bytes_af, erro_af = _res_af["img"], _res_af["erro"]
+
+            if erro_af:
+                st.error(f"❌ Erro ao aplicar ajuste: {erro_af}")
+            else:
+                galeria_atual = st.session_state.get("img_galeria", [])
+                galeria_atual.append({
+                    "tipo": f"Ajuste Fino — {instrucao_ajuste[:40]}...",
+                    "bytes": img_bytes_af,
+                    "aprovado": False,
+                })
+                st.session_state["img_galeria"] = galeria_atual
+                st.session_state["img_nome_produto"] = nome_produto or "produto-ajustado"
+                st.session_state["img_codigo"] = codigo_input
+                st.session_state["img_fotos_originais"] = fotos_bytes_ajuste
+                st.session_state["img_dados_descricao"] = dados_descricao or {}
+                st.session_state["img_instrucoes_originais"] = instrucao_ajuste
+                import atividades
+                atividades.registrar_atividade(
+                    usuario_logado,
+                    "Imagem (ajuste fino)",
+                    nome_produto or "produto",
+                    instrucao_ajuste[:80],
+                    codigo=codigo_input,
+                )
+                st.rerun()
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # MODOS PADRÃO — fotos de referência + triagem + geração
+    # ══════════════════════════════════════════════════════════════════════════
+    else:
+        # ── FOTOS DE REFERÊNCIA DO PRODUTO ────────────────────────────────────
+        st.markdown("**Fotos de referência do produto**")
+        st.caption("Suba quantas fotos quiser — ângulos diferentes ajudam a IA a ser mais fiel.")
+        fotos_upload = st.file_uploader(
+            "Fotos do produto (JPG, PNG, WebP)",
+            type=["jpg", "jpeg", "png", "webp"],
+            accept_multiple_files=True,
+            key="img_fotos_upload",
+        )
+        fotos_bytes = [f.getvalue() for f in fotos_upload] if fotos_upload else []
+
+        if fotos_bytes:
+            LIMITE_MB = 10
+            fotos_grandes = [
+                (fotos_upload[i].name, len(b) / 1_048_576)
+                for i, b in enumerate(fotos_bytes)
+                if len(b) > LIMITE_MB * 1_048_576
+            ]
+            if fotos_grandes:
+                nomes = ", ".join(f"{n} ({s:.1f}MB)" for n, s in fotos_grandes)
+                st.warning(
+                    f"⚠️ {len(fotos_grandes)} foto(s) com mais de {LIMITE_MB}MB: {nomes}. "
+                    f"Fotos muito grandes podem causar timeout — considere reduzir a resolução antes de enviar."
+                )
+
+            cols_prev = st.columns(min(len(fotos_bytes), 5))
+            for i, fb in enumerate(fotos_bytes[:5]):
+                cols_prev[i].image(fb, use_container_width=True)
+            if len(fotos_bytes) > 5:
+                st.caption(f"+ {len(fotos_bytes) - 5} foto(s) adicionais carregadas.")
+
+        # ── IMAGENS DE REFERÊNCIA DE LAYOUT (opcional) ────────────────────────
+        with st.expander("🖼️ Imagens de referência de layout (opcional)", expanded=False):
+            st.caption(
+                "Suba imagens de outros produtos que mostram o **layout, posições, estilo ou texto** "
+                "que você quer replicar. A IA vai entender a composição e aplicar ao SEU produto, "
+                "mantendo o padrão visual MartinSousa."
+            )
+            st.info(
+                "💡 **Como nomear os arquivos para as 7 imagens padrão:** "
+                "`fundo_branco.jpg`, `beneficios.jpg`, `cenario.jpg`, `detalhes.jpg`, "
+                "`medidas_peso.jpg`, `quebra_objecao.jpg`, `presentear.jpg` — "
+                "o nome do arquivo indica para qual tipo de imagem a referência se aplica."
+            )
+            refs_layout_upload = st.file_uploader(
+                "Imagens de referência de layout (JPG, PNG, WebP)",
+                type=["jpg", "jpeg", "png", "webp"],
+                accept_multiple_files=True,
+                key="img_refs_layout_upload",
+                help="Ex: uma imagem de bengala mostrando como você quer que fique o layout — a IA reproduz o estilo no seu produto.",
+            )
+            refs_layout_bytes = []
+            refs_layout_nomes = []
+            if refs_layout_upload:
+                refs_layout_bytes = [f.getvalue() for f in refs_layout_upload]
+                refs_layout_nomes = [f.name for f in refs_layout_upload]
+                cols_rl = st.columns(min(len(refs_layout_bytes), 4))
+                for i, rb in enumerate(refs_layout_bytes[:4]):
+                    cols_rl[i].image(rb, caption=refs_layout_nomes[i][:20], use_container_width=True)
+
+            instrucao_layout = ""
+            if refs_layout_bytes:
+                instrucao_layout = st.text_area(
+                    "Descreva o que cada imagem de referência representa (opcional)",
+                    height=80,
+                    placeholder=(
+                        "ex: 'fundo_branco.jpg' — quero esse estilo de sombra suave e centralização. "
+                        "'beneficios.jpg' — replicar os ícones à direita com texto ao lado."
+                    ),
+                    key="img_instrucao_layout",
+                )
+
+        # ── TIPOS ─────────────────────────────────────────────────────────────
+        tipos_selecionados = []
+        instrucoes_extras = ""
+
+        if modo == "1 imagem específica":
+            tipo_unico = st.selectbox("Tipo de imagem", list(PRESETS.keys()), key="img_tipo_unico")
+            instrucoes_extras = st.text_area(
+                "Descreva o que você quer nessa imagem (textos, cenas, destaque)",
+                value=PRESETS[tipo_unico],
+                height=120,
+                key=f"img_instr_{tipo_unico}",
+                placeholder="ex: título 'Guarda suas memórias com estilo', 3 benefícios: durabilidade, capa dura, folhas pretas...",
+            )
+            tipos_selecionados = [tipo_unico]
+
+        elif modo == "Selecionar":
+            tipos_selecionados = st.multiselect(
+                "Quais imagens gerar?",
+                TIPOS_PADRAO,
+                default=TIPOS_PADRAO[:3],
+                key="img_tipos_multi",
+            )
+            instrucoes_extras = st.text_area(
+                "Observações gerais (aplicadas a todas as imagens selecionadas)",
+                height=80,
+                placeholder="ex: produto tem versão preta e branca, foca nos dois no fundo branco",
+                key="img_instr_multi",
+            )
+
+        else:  # As 7 imagens do padrão
+            tipos_selecionados = TIPOS_PADRAO
+            instrucoes_extras = st.text_area(
+                "Observações gerais (aplicadas a todas as 7 imagens)",
+                height=80,
+                placeholder="ex: produto vem em 3 cores, destaque a vermelha nas peças de marketing",
+                key="img_instr_lote",
+            )
+
+        # ── BOTÃO DE TRIAGEM ──────────────────────────────────────────────────
+        st.markdown("---")
+        iniciar_triagem = st.button(
+            "🔍 Analisar e mostrar plano antes de gerar",
+            type="primary",
+            use_container_width=True,
+            disabled=not tipos_selecionados,
+        )
+
+        if iniciar_triagem:
+            # Validações FORA do try/except para evitar que st.stop() seja capturado como erro
+            if not nome_produto:
+                st.warning("Informe o nome do produto.")
+                st.stop()
+            if not fotos_bytes:
+                st.warning("Suba pelo menos uma foto do produto — é ela que garante fidelidade.")
+                st.stop()
+
+            try:
+                with st.spinner("Analisando produto e montando o plano de criação..."):
+                    plano, erro_triagem = gerar_triagem_ia(
+                        nome_produto, tipos_selecionados, dados_descricao,
+                        instrucoes_extras, fotos_bytes,
+                    )
+
+                if erro_triagem:
+                    st.error(f"Não consegui montar a triagem: {erro_triagem}")
                 else:
+                    st.session_state["img_triagem_plano"] = plano
+                    st.session_state["img_triagem_config"] = {
+                        "nome_produto": nome_produto,
+                        "codigo": codigo_input,
+                        "tipos": tipos_selecionados,
+                        "instrucoes_extras": instrucoes_extras,
+                        "fotos_bytes": fotos_bytes,
+                        "dados_descricao": dados_descricao,
+                        # Referências de layout (opcional)
+                        "refs_layout_bytes": refs_layout_bytes,
+                        "refs_layout_nomes": refs_layout_nomes,
+                        "instrucao_layout": instrucao_layout,
+                    }
+                    # Sem st.rerun() — o plano é exibido diretamente abaixo
+                    # sem resetar a página nem perder os campos preenchidos
+            except Exception as _e_triagem:
+                st.error(
+                    f"❌ Ocorreu um erro ao montar a prévia: {_e_triagem}\n\n"
+                    "Verifique se o nome do produto está preenchido e tente novamente. "
+                    "Se o erro persistir, reduza o tamanho das fotos ou escolha menos tipos de imagem."
+                )
+
+    # ── EXIBIÇÃO DA TRIAGEM ───────────────────────────────────────────────────
+    if "img_triagem_plano" in st.session_state and "img_triagem_config" in st.session_state:
+        plano = st.session_state["img_triagem_plano"]
+        cfg = st.session_state["img_triagem_config"]
+
+        st.markdown("---")
+        st.markdown("### 🗂️ Plano de criação")
+        st.caption("Esta etapa não custou nada. Corrija o que precisar antes de confirmar a geração.")
+
+        itens_plano = plano.get("plano", [])
+        itens_viaveis   = [item for item in itens_plano if item.get("viavel", True)]
+        itens_bloqueados = [item for item in itens_plano if not item.get("viavel", True)]
+
+        # ── Itens viáveis ─────────────────────────────────────────────────────
+        for item in itens_viaveis:
+            flags = item.get("flags", [])
+            with st.container(border=True):
+                col_title, col_flag = st.columns([5, 1])
+                col_title.markdown(f"**{item.get('numero', '')}. {item.get('tipo', '')}**")
+                if flags:
+                    col_flag.caption("⚠️ aviso")
+                st.caption(item.get("composicao", ""))
+                textos = item.get("textos", [])
+                if textos:
+                    st.caption("Textos: " + " · ".join(f'"{t}"' for t in textos[:4]))
+                if flags:
+                    with st.expander("Ver aviso", expanded=False):
+                        st.warning(flags[0])
+
+        # ── Itens bloqueados (informação faltante) ────────────────────────────
+        if itens_bloqueados:
+            st.markdown("---")
+            st.markdown(
+                "### 🚫 Imagens bloqueadas — informação insuficiente\n"
+                "As imagens abaixo **não serão geradas** porque falta alguma informação essencial. "
+                "Responda as perguntas no **Assistente IA** (menu lateral) ou preencha os dados e "
+                "clique em **Analisar novamente**."
+            )
+            for item in itens_bloqueados:
+                with st.container(border=True):
                     st.markdown(
-                        '<div style="color:var(--ms-texto-sec); font-style:italic; font-size:13px; '
-                        'padding: 16px 0;">Preço não informado</div>',
+                        f"<div style='padding:2px 0'>"
+                        f"<span class='ms-bloqueada'>🚫 BLOQUEADA</span> &nbsp; "
+                        f"<strong>{item.get('numero', '')}. {item.get('tipo', '')}</strong>"
+                        f"</div>",
                         unsafe_allow_html=True,
                     )
+                    pergunta = item.get("pergunta_info", "").strip()
+                    if pergunta:
+                        st.error(f"**O que falta:** {pergunta}")
+                    else:
+                        st.error("Informação necessária não fornecida. Forneça os dados e analise novamente.")
+
+        if plano.get("observacao_geral"):
+            st.info(plano["observacao_geral"])
+
+        correcao = st.text_area(
+            "✏️ Correção ou instrução adicional (opcional — a IA aplicará antes de gerar)",
+            placeholder="ex: O produto é azul, não branco. Nas imagens de cenário, use ambiente externo, não doméstico.",
+            key="img_correcao_triagem",
+            height=80,
+        )
+
+        n_viaveis = len(itens_viaveis)
+        n_bloqueadas = len(itens_bloqueados)
+        custo_est = n_viaveis * 1.0
+
+        if n_viaveis == 0:
+            st.error(
+                "⛔ Nenhuma imagem pode ser gerada agora — todas estão bloqueadas por falta de informação. "
+                "Forneça os dados solicitados e clique em **Analisar novamente**."
+            )
+        else:
+            aviso_bloqueadas = (
+                f" ({n_bloqueadas} bloqueada(s) por dados insuficientes — serão ignoradas)"
+                if n_bloqueadas else ""
+            )
+            st.warning(
+                f"💰 Isso vai gerar **{n_viaveis} imagem(ns)**{aviso_bloqueadas} "
+                f"com custo estimado de **~R${custo_est:.2f}**. Confirma?"
+            )
+
+        col_cancelar, col_confirmar = st.columns(2)
+        if col_cancelar.button("❌ Cancelar", use_container_width=True):
+            del st.session_state["img_triagem_plano"]
+            del st.session_state["img_triagem_config"]
+            st.rerun()
+
+        confirmar_disabled = n_viaveis == 0
+        if col_confirmar.button(
+            "✅ Confirmar e gerar",
+            type="primary",
+            use_container_width=True,
+            disabled=confirmar_disabled,
+        ):
+            try:
+                # Aplica correção ao config se houver
+                if correcao:
+                    cfg["instrucoes_extras"] = (cfg.get("instrucoes_extras", "") + "\n\nCORREÇÃO DO COLABORADOR:\n" + correcao).strip()
+                    st.session_state["img_triagem_config"] = cfg
+
+                galeria = []
+                barra = st.progress(0.0, text="Iniciando geração...")
+
+                # Gera APENAS os tipos viáveis aprovados na triagem
+                tipos_viaveis = [item["tipo"] for item in itens_viaveis]
+                tipos = tipos_viaveis if tipos_viaveis else cfg["tipos"]
+
+                import time as _time_gen
+                import threading as _threading
+                for i, tipo in enumerate(tipos):
+                    barra.progress(i / len(tipos), text=f"Gerando {i+1}/{len(tipos)}: {tipo[:50]}...")
+                    # Pausa entre chamadas para evitar rate limit da API
+                    if i > 0:
+                        _time_gen.sleep(3)
+                    try:
+                        prompt_final = montar_prompt_imagem(
+                            tipo,
+                            cfg.get("instrucoes_extras", ""),
+                            cfg.get("dados_descricao"),
+                            cfg["nome_produto"],
+                            refs_layout_nomes=cfg.get("refs_layout_nomes", []),
+                            instrucao_layout=cfg.get("instrucao_layout", ""),
+                        )
+                        # ── Geração em thread separada ──────────────────────────
+                        # Mantém o WebSocket vivo durante a chamada Gemini (30-60s)
+                        # enviando atualizações a cada segundo para o Railway não
+                        # fechar a conexão por inatividade.
+                        # Combina fotos do produto + refs de layout para o Gemini
+                        todas_fotos = cfg["fotos_bytes"] + cfg.get("refs_layout_bytes", [])
+                        _res = {"img": None, "erro": None, "done": False}
+                        _thread = _threading.Thread(
+                            target=_gerar_imagem_thread,
+                            args=(prompt_final, todas_fotos, _res),
+                            daemon=True,
+                        )
+                        _thread.start()
+                        _contador = st.empty()
+                        _t0 = _time_gen.time()
+                        while not _res["done"]:
+                            _seg = int(_time_gen.time() - _t0)
+                            _contador.caption(f"⏳ Aguardando Gemini... {_seg}s")
+                            _time_gen.sleep(1)
+                        _contador.empty()
+                        img_bytes, erro_gen = _res["img"], _res["erro"]
+                        # ────────────────────────────────────────────────────────
+                        if erro_gen:
+                            st.warning(f"⚠️ Falhou em '{tipo}': {erro_gen}")
+                            continue
+                        galeria.append({"tipo": tipo, "bytes": img_bytes, "aprovado": False})
+                    except Exception as _e_img:
+                        st.warning(f"⚠️ Erro inesperado em '{tipo}': {_e_img}")
+                        continue
+
+                barra.progress(1.0, text=f"Concluído! {len(galeria)}/{len(tipos)} imagens geradas.")
+
+                if galeria:
+                    for k in [k for k in st.session_state if k.startswith("_pasta_")]:
+                        del st.session_state[k]
+                    st.session_state["img_galeria"] = galeria
+                    st.session_state["img_nome_produto"] = cfg["nome_produto"]
+                    st.session_state["img_codigo"] = cfg.get("codigo", "")
+                    st.session_state["img_fotos_originais"] = cfg["fotos_bytes"]
+                    st.session_state["img_dados_descricao"] = cfg.get("dados_descricao") or {}
+                    if st.session_state["img_dados_descricao"] and not st.session_state["img_dados_descricao"].get("peso"):
+                        st.session_state["img_dados_descricao"]["peso"] = st.session_state.get("desc_dados_atual", {}).get("peso", "")
+                    st.session_state["img_instrucoes_originais"] = cfg.get("instrucoes_extras", "")
+                    st.session_state["img_chat_log"] = []
+                    import atividades
+                    atividades.registrar_atividade(
+                        usuario_logado,
+                        f"Imagem ({len(galeria)} geradas)",
+                        cfg["nome_produto"],
+                        ", ".join(t[:20] for t in tipos_viaveis[:3]) + ("..." if len(tipos_viaveis) > 3 else ""),
+                        codigo=cfg.get("codigo", ""),
+                        cor=cfg.get("dados_descricao", {}).get("cor", "") if cfg.get("dados_descricao") else "",
+                        medidas=cfg.get("dados_descricao", {}).get("medidas", "") if cfg.get("dados_descricao") else "",
+                    )
+                    del st.session_state["img_triagem_plano"]
+                    del st.session_state["img_triagem_config"]
+                    st.rerun()
+                else:
+                    st.error("❌ Nenhuma imagem foi gerada com sucesso. Verifique os avisos acima e tente novamente.")
+            except Exception as _e_gerar:
+                st.error(
+                    f"❌ Erro durante a geração: {_e_gerar}\n\n"
+                    "Suas sessões e dados estão preservados. Tente novamente ou reduza o número de imagens."
+                )
+
+    # ── GALERIA ───────────────────────────────────────────────────────────────
+    if "img_galeria" in st.session_state and st.session_state["img_galeria"]:
+        st.markdown("---")
+        galeria = st.session_state["img_galeria"]
+        nome_gal = st.session_state.get("img_nome_produto", "produto")
+        codigo_gal = st.session_state.get("img_codigo", "")
+
+        # Miniaturas clicáveis
+        nomes_galeria = [g["tipo"] for g in galeria]
+        n_cols = min(len(galeria), 4)
+        cols_gal = st.columns(n_cols)
+        for i, g in enumerate(galeria):
+            with cols_gal[i % n_cols]:
+                st.image(g["bytes"], caption=g["tipo"][:20], use_container_width=True)
+
+        # Seleção da imagem ativa
+        escolha = st.selectbox("Imagem ativa (para ajustar ou baixar individualmente)", nomes_galeria, key="img_escolha")
+        idx_ativo = nomes_galeria.index(escolha)
+        imagem_ativa = galeria[idx_ativo]["bytes"]
+        tipo_ativo = galeria[idx_ativo]["tipo"]
+
+        # Exibe imagem ativa grande
+        st.image(imagem_ativa, use_container_width=True)
+
+        # Ações individuais
+        col_dl, col_drive_ind = st.columns(2)
+        col_dl.download_button(
+            "⬇️ Baixar esta imagem",
+            data=imagem_ativa,
+            file_name=f"{nome_gal}_{tipo_ativo[:20]}.png",
+            mime="image/png",
+            use_container_width=True,
+            key=f"dl_{idx_ativo}",
+        )
+        if col_drive_ind.button("☁️ Salvar esta no Drive", use_container_width=True, key=f"drive_ind_{idx_ativo}"):
+            pasta_pai = st.secrets.get("DRIVE_PASTA_IMAGENS_ID", "")
+            if not pasta_pai:
+                st.error("DRIVE_PASTA_IMAGENS_ID não configurada.")
+            else:
+                with st.spinner("Enviando..."):
+                    nome_pasta = f"{nome_gal} - {codigo_gal}".strip(" -")
+                    pastas = buscar_pasta_produto(nome_gal, codigo_gal, pasta_pai)
+                    if pastas:
+                        pasta_id = pastas[0][0]
+                    else:
+                        pasta_id, err_pasta = criar_pasta_produto(nome_pasta, pasta_pai)
+                        if err_pasta:
+                            st.error(f"Erro ao criar pasta: {err_pasta}")
+                            pasta_id = None
+                    if pasta_id:
+                        link, err_up = upload_para_pasta(
+                            imagem_ativa, f"{tipo_ativo[:20]}.png", pasta_id
+                        )
+                        if err_up:
+                            st.error(f"Erro no upload: {err_up}")
+                        else:
+                            # Atualiza galeria com o link e registra no histórico
+                            st.session_state["img_galeria"][idx_ativo]["link_drive"] = link
+                            import atividades as _atv_ind
+                            _atv_ind.registrar_atividade(
+                                usuario_logado,
+                                "Imagem (individual salva)",
+                                nome_gal,
+                                f"Tipo: {tipo_ativo[:40]}",
+                                codigo=codigo_gal,
+                                link_capa=link,
+                            )
+                            st.success(f"Salvo! [Abrir no Drive]({link})")
+
+        # ── AJUSTE FINO NA GALERIA ────────────────────────────────────────────
+        with st.expander("✏️ Ajuste Fino — modificar somente algo específico nesta imagem", expanded=False):
+            st.caption(
+                "Descreva **somente o que deve mudar** — a IA vai preservar tudo o mais "
+                "exatamente igual (fundo, cores, cena, textos existentes, detalhes do produto)."
+            )
+            instrucao_af_gal = st.text_area(
+                "O que você quer modificar?",
+                placeholder=(
+                    "ex: Diminua o tamanho do produto para que fique em proporção realista ao cenário. "
+                    "O produto mede aproximadamente 18cm.\n\n"
+                    "ex: Remova a sombra embaixo do produto.\n\n"
+                    "ex: Mude o fundo para branco puro, mantendo o produto igual."
+                ),
+                height=120,
+                key=f"img_af_gal_{idx_ativo}",
+            )
+            if st.button(
+                "✏️ Aplicar Ajuste Fino nesta imagem",
+                key=f"img_af_btn_{idx_ativo}",
+                type="primary",
+                use_container_width=True,
+                disabled=not instrucao_af_gal.strip(),
+            ):
+                if not instrucao_af_gal.strip():
+                    st.warning("Descreva o que deseja modificar.")
+                else:
+                    # Usa a imagem ATUAL da galeria como referência para o ajuste
+                    import time as _time_afg
+                    import threading as _threading_afg
+                    prompt_af_gal = montar_prompt_ajuste_fino(instrucao_af_gal.strip())
+                    _res_afg = {"img": None, "erro": None, "done": False}
+                    _threading_afg.Thread(
+                        target=_gerar_imagem_thread,
+                        args=(prompt_af_gal, [imagem_ativa], _res_afg),
+                        daemon=True,
+                    ).start()
+                    _slot_afg = st.empty()
+                    _t0_afg = _time_afg.time()
+                    while not _res_afg["done"]:
+                        _seg_afg = int(_time_afg.time() - _t0_afg)
+                        _slot_afg.caption(f"⏳ Aplicando ajuste fino... {_seg_afg}s")
+                        _time_afg.sleep(1)
+                    _slot_afg.empty()
+                    nova_img_af, err_af_gal = _res_afg["img"], _res_afg["erro"]
+                    if err_af_gal:
+                        st.error(f"❌ Erro: {err_af_gal}")
+                    else:
+                        st.session_state["img_galeria"][idx_ativo]["bytes"] = nova_img_af
+                        st.rerun()
+
+        # ── COMANDOS PENDENTES DO ASSISTENTE IA ──────────────────────────────
+        # O Assistente IA envia comandos de correção. Tratamos sempre como
+        # Ajuste Fino (NÃO aplica PADRAO_VISUAL nem INSTRUCAO_COMPOSICAO).
+        cmds_pendentes = st.session_state.pop("chat_img_pendente", [])
+        if cmds_pendentes:
+            fotos_ref_aj = st.session_state.get("img_fotos_originais") or []
+            msgs_result = []
+            for cmd in cmds_pendentes:
+                num_foto  = cmd.get("num", 1)
+                instrucao = cmd.get("instrucao", "")
+                idx_alvo  = num_foto - 1
+                if idx_alvo < 0 or idx_alvo >= len(galeria):
+                    msgs_result.append(f"⚠️ Foto {num_foto} não existe na galeria.")
+                    continue
+                tipo_alvo = galeria[idx_alvo]["tipo"]
+                # Usa a imagem ATUAL como referência + prompt de ajuste fino
+                img_ref_cmd = [galeria[idx_alvo]["bytes"]] if galeria[idx_alvo]["bytes"] else fotos_ref_aj
+                prompt_aj = montar_prompt_ajuste_fino(instrucao)
+                import time as _time_cmd
+                import threading as _threading_cmd
+                _res_cmd = {"img": None, "erro": None, "done": False}
+                _threading_cmd.Thread(
+                    target=_gerar_imagem_thread,
+                    args=(prompt_aj, img_ref_cmd, _res_cmd),
+                    daemon=True,
+                ).start()
+                _slot_cmd = st.empty()
+                _t0_cmd = _time_cmd.time()
+                while not _res_cmd["done"]:
+                    _seg_cmd = int(_time_cmd.time() - _t0_cmd)
+                    _slot_cmd.caption(f"⏳ Assistente IA: ajuste fino na foto {num_foto}... {_seg_cmd}s")
+                    _time_cmd.sleep(1)
+                _slot_cmd.empty()
+                nova_img, err_aj = _res_cmd["img"], _res_cmd["erro"]
+                if err_aj:
+                    msgs_result.append(f"⚠️ Foto {num_foto}: erro ao gerar — {err_aj}")
+                else:
+                    st.session_state["img_galeria"][idx_alvo]["bytes"] = nova_img
+                    msgs_result.append(f"✅ Foto {num_foto} ({tipo_alvo[:25]}) atualizada pelo Assistente IA.")
+            if msgs_result:
+                st.info("\n\n".join(msgs_result))
+
+        st.caption("💬 Para ajustar imagens, use o **Assistente IA** no menu lateral ou o painel **✏️ Ajuste Fino** acima.")
+        st.markdown("---")
+
+        # ── APROVAÇÃO E SALVAMENTO ─────────────────────────────────────────────
+        st.markdown("### ✅ Aprovar e salvar todas as imagens")
+        pasta_pai = st.secrets.get("DRIVE_PASTA_IMAGENS_ID", "")
+
+        # Busca pasta existente (cacheada em session_state para não bater na API a cada rerender)
+        _cache_key = f"_pasta_{nome_gal}__{codigo_gal}"
+        if _cache_key not in st.session_state:
+            if pasta_pai and nome_gal:
+                with st.spinner("Verificando pasta no Drive..."):
+                    st.session_state[_cache_key] = buscar_pasta_produto(nome_gal, codigo_gal, pasta_pai)
+            else:
+                st.session_state[_cache_key] = []
+        pastas_encontradas = st.session_state[_cache_key]
+
+        nome_pasta_novo = f"{nome_gal} - {codigo_gal}".strip(" -") if codigo_gal else nome_gal
+
+        if pastas_encontradas:
+            st.info(
+                f"📁 Pasta encontrada no Drive: **{pastas_encontradas[0][1]}**\n\n"
+                f"As imagens serão adicionadas a essa pasta (sem apagar o que já está lá)."
+            )
+            pasta_destino_id = pastas_encontradas[0][0]
+            if len(pastas_encontradas) > 1:
+                escolha_pasta = st.selectbox(
+                    "Mais de uma pasta encontrada — qual usar?",
+                    [p[1] for p in pastas_encontradas],
+                    key="img_escolha_pasta",
+                )
+                pasta_destino_id = next(p[0] for p in pastas_encontradas if p[1] == escolha_pasta)
+        else:
+            st.info(f"📁 Será criada uma nova pasta no Drive: **{nome_pasta_novo}**")
+            pasta_destino_id = None  # será criada no momento do clique
+
+        col_aprovar, col_zip = st.columns(2)
+
+        if col_aprovar.button(
+            f"☁️ APROVAR E SALVAR no Drive ({len(galeria)} imagens)",
+            type="primary",
+            use_container_width=True,
+        ):
+            if not pasta_pai:
+                st.error("DRIVE_PASTA_IMAGENS_ID não configurada nas Secrets.")
+            else:
+                if pasta_destino_id is None:
+                    with st.spinner("Criando pasta..."):
+                        pasta_destino_id, err_pasta = criar_pasta_produto(nome_pasta_novo, pasta_pai)
+                    if err_pasta:
+                        st.error(f"Erro ao criar pasta: {err_pasta}")
+                        st.stop()
+
+                links_salvos = []
+                barra_salvar = st.progress(0.0, text="Salvando imagens...")
+                for i, g in enumerate(galeria):
+                    barra_salvar.progress(i / len(galeria), text=f"Salvando: {g['tipo'][:30]}...")
+                    nome_arq = f"{g['tipo'][:30]}.png"
+                    link, err_up = upload_para_pasta(g["bytes"], nome_arq, pasta_destino_id)
+                    if err_up:
+                        st.warning(f"Falhou '{g['tipo']}': {err_up}")
+                    else:
+                        links_salvos.append(link)
+
+                barra_salvar.progress(1.0, text="Concluído!")
+                link_pasta = f"https://drive.google.com/drive/folders/{pasta_destino_id}"
+
+                import atividades
+                atividades.registrar_atividade(
+                    usuario_logado, "Imagem (aprovada e salva)",
+                    nome_gal,
+                    f"{len(links_salvos)} imagens salvas na pasta {nome_pasta_novo}",
+                    codigo=codigo_gal,
+                    link_pasta=link_pasta,
+                )
+
+                st.success(
+                    f"✅ {len(links_salvos)} imagem(ns) salvas no Drive! "
+                    f"[Abrir pasta]({link_pasta})"
+                )
+
+        # ZIP sempre disponível
+        zip_bytes = criar_zip_galeria(galeria, nome_gal)
+        col_zip.download_button(
+            f"⬇️ Baixar todas em ZIP ({len(galeria)} imagens)",
+            data=zip_bytes,
+            file_name=f"{nome_gal}_imagens.zip",
+            mime="application/zip",
+            use_container_width=True,
+        )
