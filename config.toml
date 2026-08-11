@@ -1,2 +1,6 @@
 [server]
 enableStaticServing = true
+maxMessageSize = 500
+
+[browser]
+gatherUsageStats = false
