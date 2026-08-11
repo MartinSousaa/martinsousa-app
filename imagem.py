@@ -731,6 +731,10 @@ def pagina_imagem(usuario_logado):
             _t0_af = _time_af.time()
             while not _res_af["done"]:
                 _seg_af = int(_time_af.time() - _t0_af)
+                if _seg_af >= 180:
+                    _res_af["erro"] = "Tempo limite de 3 min atingido. Tente novamente."
+                    _res_af["done"] = True
+                    break
                 _slot_af.caption(f"⏳ Aplicando ajuste fino... {_seg_af}s")
                 _time_af.sleep(1)
             _slot_af.empty()
@@ -1068,6 +1072,10 @@ def pagina_imagem(usuario_logado):
                         _t0 = _time_gen.time()
                         while not _res["done"]:
                             _seg = int(_time_gen.time() - _t0)
+                            if _seg >= 180:
+                                _res["erro"] = "Tempo limite de 3 min atingido. Tente novamente."
+                                _res["done"] = True
+                                break
                             _contador.caption(f"⏳ Aguardando Gemini... {_seg}s")
                             _time_gen.sleep(1)
                         _contador.empty()
@@ -1225,6 +1233,10 @@ def pagina_imagem(usuario_logado):
                     _t0_afg = _time_afg.time()
                     while not _res_afg["done"]:
                         _seg_afg = int(_time_afg.time() - _t0_afg)
+                        if _seg_afg >= 180:
+                            _res_afg["erro"] = "Tempo limite de 3 min atingido. Tente novamente."
+                            _res_afg["done"] = True
+                            break
                         _slot_afg.caption(f"⏳ Aplicando ajuste fino... {_seg_afg}s")
                         _time_afg.sleep(1)
                     _slot_afg.empty()
@@ -1265,6 +1277,10 @@ def pagina_imagem(usuario_logado):
                 _t0_cmd = _time_cmd.time()
                 while not _res_cmd["done"]:
                     _seg_cmd = int(_time_cmd.time() - _t0_cmd)
+                    if _seg_cmd >= 180:
+                        _res_cmd["erro"] = "Tempo limite de 3 min atingido. Tente novamente."
+                        _res_cmd["done"] = True
+                        break
                     _slot_cmd.caption(f"⏳ Assistente IA: ajuste fino na foto {num_foto}... {_seg_cmd}s")
                     _time_cmd.sleep(1)
                 _slot_cmd.empty()
