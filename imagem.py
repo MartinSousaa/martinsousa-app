@@ -443,7 +443,7 @@ def _chamar_gemini_geracao(prompt_final):
             if not api_key:
                 return None, "GEMINI_API_KEY não configurada nas secrets do Railway."
             url = (
-                f"https://generativelanguage.googleapis.com/v1beta/models/"
+                f"https://generativelanguage.googleapis.com/v1alpha/models/"
                 f"{MODELO}:generateContent?key={api_key}"
             )
             body = {
@@ -747,7 +747,7 @@ def _testar_gemini_api():
     t0 = _t_diag.time()
     try:
         url = (
-            f"https://generativelanguage.googleapis.com/v1beta/models/"
+            f"https://generativelanguage.googleapis.com/v1alpha/models/"
             f"{MODELO}:generateContent?key={api_key}"
         )
         r = requests.post(url, json=body_teste, timeout=90)
