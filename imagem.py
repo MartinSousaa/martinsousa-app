@@ -435,7 +435,7 @@ def _chamar_gemini_geracao(prompt_final):
     """Chama Gemini Flash Image Generation via API key. Retorna (resp, erro_fatal)."""
     import time as _time
     MAX_TENTATIVAS = 2
-    MODELO = "gemini-2.5-flash-image"
+    MODELO = "gemini-2.0-flash-exp"
     for tentativa in range(1, MAX_TENTATIVAS + 1):
         try:
             _GEMINI_LIMITER.aguardar()
@@ -443,7 +443,7 @@ def _chamar_gemini_geracao(prompt_final):
             if not api_key:
                 return None, "GEMINI_API_KEY não configurada nas secrets do Railway."
             url = (
-                f"https://generativelanguage.googleapis.com/v1/models/"
+                f"https://generativelanguage.googleapis.com/v1beta/models/"
                 f"{MODELO}:generateContent?key={api_key}"
             )
             body = {
@@ -731,7 +731,7 @@ def _testar_gemini_api():
     Retorna dict com resultados.
     """
     import time as _t_diag
-    MODELO = "gemini-2.5-flash-image"
+    MODELO = "gemini-2.0-flash-exp"
 
     api_key = _get_gemini_api_key()
     resultados = {"api_key": "configurada" if api_key else "NÃO CONFIGURADA"}
@@ -747,7 +747,7 @@ def _testar_gemini_api():
     t0 = _t_diag.time()
     try:
         url = (
-            f"https://generativelanguage.googleapis.com/v1/models/"
+            f"https://generativelanguage.googleapis.com/v1beta/models/"
             f"{MODELO}:generateContent?key={api_key}"
         )
         r = requests.post(url, json=body_teste, timeout=90)
@@ -776,7 +776,7 @@ def pagina_imagem(usuario_logado):
     st.subheader("Imagem")
     st.caption("Gere imagens profissionais para o anúncio. A IA mostra o que vai criar antes de gastar com a geração.")
 
-    MODELO_DIAG = "gemini-2.5-flash-image"
+    MODELO_DIAG = "gemini-2.0-flash-exp"
     with st.expander("🔧 Diagnóstico da API Gemini", expanded=False):
         st.caption("Gera uma imagem de teste para confirmar que a GEMINI_API_KEY está funcionando.")
         if st.button("Testar geração agora", key="btn_diag_gemini"):
