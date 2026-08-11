@@ -291,6 +291,7 @@ organizar em blocos com cabeçalho, mesmo tom direto e técnico).
 - Usa cabeçalho em blocos quando fizer sentido pro produto, no estilo dos exemplos (ex: "DIMENSÕES:",
   "MEDIDAS DO PRODUTO;", "Composição:", "Contém;") -- só inclua os blocos que fizerem sentido pra
   esse produto especificamente, não force bloco que não se aplica
+- Quando o peso for fornecido, inclua-o no bloco de medidas (MEDIDAS DO PRODUTO ou DIMENSÕES) — é dado objetivo que o comprador quer saber antes de comprar
 - Se o produto se beneficiar de explicar "onde usar" ou "como conservar/cuidar", pode usar o formato
   de pergunta como nos exemplos ("- Onde usar...", "- Como conservar...") -- só se fizer sentido,
   não é obrigatório em todo produto
@@ -671,14 +672,19 @@ def pagina_descricao(usuario_logado):
             )
             st.code(codigo_exibir, language=None)
             col_copy_cod, col_enviar_cod = st.columns(2)
-            # Botão de cópia via JS — garante funcionamento mesmo quando o ícone nativo falha
-            col_copy_cod.markdown(
-                f"""<button onclick="navigator.clipboard.writeText('{codigo_exibir}').then(()=>{{this.textContent='✅ Copiado!';setTimeout(()=>this.textContent='📋 Copiar código',2000)}})"
-                style="width:100%;padding:6px 12px;background:#1A3A6B;color:#E8EEF5;border:1px solid #4A7EC7;
-                border-radius:5px;cursor:pointer;font-size:14px;font-family:inherit;">
-                📋 Copiar código</button>""",
-                unsafe_allow_html=True,
-            )
+            # Botão de cópia via componente HTML (iframe) — st.markdown strips onclick via DOMPurify
+            with col_copy_cod:
+                import streamlit.components.v1 as _stcomp_cod
+                import json as _json_cod
+                _cod_json = _json_cod.dumps(codigo_exibir, ensure_ascii=False).replace("</", "<\\/")
+                _stcomp_cod.html(
+                    f"""<button onclick="copyBtn(this)" style="width:100%;padding:6px 12px;background:#1A3A6B;color:#E8EEF5;border:1px solid #4A7EC7;border-radius:5px;cursor:pointer;font-size:14px;font-family:sans-serif;">📋 Copiar código</button>
+<script>
+var _t={_cod_json};
+function copyBtn(b){{if(navigator.clipboard){{navigator.clipboard.writeText(_t).then(function(){{b.textContent='✅ Copiado!';setTimeout(function(){{b.textContent='📋 Copiar código';}},2000)}}).catch(function(){{fb(b)}})}}else{{fb(b)}}function fb(b){{var ta=document.createElement('textarea');ta.value=_t;ta.style.cssText='position:fixed;opacity:0;top:0;left:0';document.body.appendChild(ta);ta.focus();ta.select();document.execCommand('copy');document.body.removeChild(ta);b.textContent='✅ Copiado!';setTimeout(function(){{b.textContent='📋 Copiar código';}},2000)}}}}
+</script>""",
+                    height=45,
+                )
             if col_enviar_cod.button(
                 "➡️ Pré-preencher aba Imagem",
                 key="desc_btn_enviar_img",
@@ -693,14 +699,17 @@ def pagina_descricao(usuario_logado):
         st.code(texto_desc, language=None)
         st.caption(f"{len(texto_desc)}/10.000 caracteres (limite do Mercado Livre pra descrição)")
 
-        # Botão de cópia explícito para o texto da descrição (fallback ao ícone nativo)
-        texto_js = texto_desc.replace("\\", "\\\\").replace("`", "\\`").replace("'", "\\'").replace("\n", "\\n").replace("\r", "")
-        st.markdown(
-            f"""<button onclick="navigator.clipboard.writeText('{texto_js}').then(()=>{{this.textContent='✅ Descrição copiada!';setTimeout(()=>this.textContent='📋 Copiar descrição',2500)}})"
-            style="width:100%;padding:6px 12px;background:#1A3A6B;color:#E8EEF5;border:1px solid #4A7EC7;
-            border-radius:5px;cursor:pointer;font-size:14px;font-family:inherit;margin-bottom:8px;">
-            📋 Copiar descrição</button>""",
-            unsafe_allow_html=True,
+        # Botão de cópia explícito para o texto da descrição (iframe — st.markdown strips onclick)
+        import streamlit.components.v1 as _stcomp_desc
+        import json as _json_desc
+        _desc_json = _json_desc.dumps(texto_desc, ensure_ascii=False).replace("</", "<\\/")
+        _stcomp_desc.html(
+            f"""<button onclick="copyDesc(this)" style="width:100%;padding:6px 12px;background:#1A3A6B;color:#E8EEF5;border:1px solid #4A7EC7;border-radius:5px;cursor:pointer;font-size:14px;font-family:sans-serif;margin-bottom:8px;">📋 Copiar descrição</button>
+<script>
+var _td={_desc_json};
+function copyDesc(b){{if(navigator.clipboard){{navigator.clipboard.writeText(_td).then(function(){{b.textContent='✅ Descrição copiada!';setTimeout(function(){{b.textContent='📋 Copiar descrição';}},2500)}}).catch(function(){{fb(b)}})}}else{{fb(b)}}function fb(b){{var ta=document.createElement('textarea');ta.value=_td;ta.style.cssText='position:fixed;opacity:0;top:0;left:0';document.body.appendChild(ta);ta.focus();ta.select();document.execCommand('copy');document.body.removeChild(ta);b.textContent='✅ Descrição copiada!';setTimeout(function(){{b.textContent='📋 Copiar descrição';}},2500)}}}}
+</script>""",
+            height=45,
         )
 
         st.caption("💬 Para ajustar a descrição, use o **Assistente IA** no menu lateral.")
