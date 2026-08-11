@@ -10,8 +10,9 @@ import threading as _threading_limiter
 import time as _time_limiter
 from collections import deque as _deque
 
-# Modelo confirmado: retorna 429 (existe) nunca 404 — único válido para geração de imagem
-MODELO_IMAGEM = "gemini-3.1-flash-image"
+# Modelo correto para geração de imagem via generateContent + responseModalities:["IMAGE"]
+# Documentação: ai.google.dev/gemini-api/docs/models/gemini-2.5-flash-image
+MODELO_IMAGEM = "gemini-2.5-flash-image"
 
 
 class _GeminiRateLimiter:
