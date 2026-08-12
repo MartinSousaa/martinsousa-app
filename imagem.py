@@ -484,37 +484,40 @@ Write ONLY the image generation prompt. No explanation, no preamble."""
 
 
 def _chamar_gemini_geracao(prompt_final, imagens_referencia=None):
-    """Chama Gemini Flash Image Generation via Interactions API. Retorna (resp, erro_fatal).
+    """Chama Gemini Image Generation via generateContent API. Retorna (resp, erro_fatal).
     imagens_referencia: lista de bytes das fotos do produto — enviadas diretamente ao Gemini
     para máxima fidelidade visual ao produto real."""
     import time as _time
     MAX_TENTATIVAS = 2
-    MODELO = "gemini-3.1-flash-image"
+    MODELO = "gemini-2.0-flash-preview-image-generation"
     for tentativa in range(1, MAX_TENTATIVAS + 1):
         try:
             _GEMINI_LIMITER.aguardar()
             api_key = _get_gemini_api_key()
             if not api_key:
                 return None, "GEMINI_API_KEY não configurada nas secrets do Railway."
-            url = "https://generativelanguage.googleapis.com/v1beta/interactions"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODELO}:generateContent"
             headers = {
                 "x-goog-api-key": api_key,
                 "Content-Type": "application/json",
             }
-            # Monta input com as imagens de referência ANTES do texto para ancoragem visual
-            input_parts = []
+            # Monta parts com as imagens de referência ANTES do texto para ancoragem visual
+            parts = []
             if imagens_referencia:
                 for img_bytes in imagens_referencia[:3]:
                     mime = _detectar_mime(img_bytes)
-                    input_parts.append({
-                        "type": "image",
-                        "mime_type": mime,
-                        "data": base64.b64encode(img_bytes).decode("utf-8"),
+                    parts.append({
+                        "inlineData": {
+                            "mimeType": mime,
+                            "data": base64.b64encode(img_bytes).decode("utf-8"),
+                        }
                     })
-            input_parts.append({"type": "text", "text": prompt_final})
+            parts.append({"text": prompt_final})
             body = {
-                "model": MODELO,
-                "input": input_parts,
+                "contents": [{"role": "user", "parts": parts}],
+                "generationConfig": {
+                    "responseModalities": ["IMAGE", "TEXT"],
+                },
             }
             resp = requests.post(url, json=body, headers=headers, timeout=120,
                                  proxies={"http": None, "https": None})
@@ -578,33 +581,25 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia):
     except Exception:
         return None, "Resposta inválida do Gemini (não é JSON)."
 
-    # Extrai imagem da resposta Interactions API
-    # Tentativa 1: convenience property output_image
-    img_b64 = (dados.get("output_image") or {}).get("data", "")
-
-    # Tentativa 2: percorre steps → model_output → content[] → type "image"
-    if not img_b64:
-        for step in dados.get("steps", []):
-            for bloco in step.get("content", []):
-                if bloco.get("type") == "image" and bloco.get("data"):
-                    img_b64 = bloco["data"]
-                    break
-            if img_b64:
+    # Extrai imagem da resposta generateContent (formato padrão Google AI)
+    # candidates → content → parts → inlineData → data
+    img_b64 = ""
+    for candidate in dados.get("candidates", []):
+        for part in candidate.get("content", {}).get("parts", []):
+            inline = part.get("inlineData") or part.get("inline_data", {})
+            if inline and inline.get("data"):
+                img_b64 = inline["data"]
                 break
-
-    # Tentativa 3: formato legado candidates (fallback)
-    if not img_b64:
-        for candidate in dados.get("candidates", []):
-            for part in candidate.get("content", {}).get("parts", []):
-                inline = part.get("inlineData") or part.get("inline_data", {})
-                if inline and inline.get("data"):
-                    img_b64 = inline["data"]
-                    break
-            if img_b64:
-                break
+        if img_b64:
+            break
 
     if not img_b64:
-        return None, "Gemini não retornou nenhuma imagem (possível bloqueio de conteúdo ou créditos esgotados)."
+        # Tenta extrair mensagem de erro detalhada para diagnóstico
+        try:
+            _detail = dados.get("error", {}).get("message", "") or str(dados)[:300]
+        except Exception:
+            _detail = str(dados)[:300]
+        return None, f"Gemini não retornou nenhuma imagem (possível bloqueio de conteúdo ou créditos esgotados). Detalhe: {_detail}"
 
     img_bytes_raw = base64.b64decode(img_b64)
     try:
