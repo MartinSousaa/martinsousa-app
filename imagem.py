@@ -93,6 +93,15 @@ INSTRUÇÃO DE COMPOSIÇÃO:
 - Não reaproveite a foto de referência literalmente — crie uma peça nova
 """
 
+INSTRUCAO_PROPORCAO = """
+REGRA DE PROPORÇÃO E DESTAQUE DO PRODUTO (obrigatória):
+- O produto deve ser o elemento principal e dominante da composição
+- Ocupe o maior espaço possível no frame — o produto deve ser grande, imponente, bem visível
+- NUNCA minimize ou reduza o produto para dar espaço a elementos decorativos
+- Elementos de texto, ícones e decoração são coadjuvantes — o produto é o protagonista absoluto
+- Mantenha as proporções exatas do produto: não alongue, não achatou, não deforme
+"""
+
 # ── MODO PERSONALIZADO — sem branding automático ──────────────────────────────
 INSTRUCAO_PERSONALIZADO = """
 MODO PERSONALIZADO — REGRAS ABSOLUTAS:
@@ -141,9 +150,11 @@ TIPOS_PADRAO = [
 PRESETS = {
     "Personalizado (descrevo o que quero)": "",
     "1 — Produto com fundo branco": (
-        "Foto de produto limpa e profissional, fundo branco liso, produto centralizado e bem iluminado, "
-        "iluminação de estúdio suave sem sombras duras, sem texto sobreposto, sem elementos extras. "
-        "O produto deve ocupar 70-80% do frame."
+        "Foto de produto limpa e profissional. "
+        "FUNDO: branco puro (#FFFFFF) — absolutamente liso, sem gradiente, sem sombra, sem elementos. "
+        "Produto centralizado, ocupando 75-90% do frame — a maior proporção possível sem cortar bordas. "
+        "Iluminação de estúdio suave, luz frontal e preenchimento lateral para eliminar sombras duras. "
+        "Sem texto, sem logotipo, sem elementos extras — apenas o produto sobre fundo branco puro."
     ),
     "2 — Benefícios do produto": (
         "Peça de marketing mostrando os principais benefícios do produto. "
@@ -397,23 +408,32 @@ def _montar_prompt_imagen(prompt_texto_completo, imagens_referencia):
                 "data": base64.b64encode(img_bytes).decode("utf-8"),
             }
         })
+    # Detecta se o brief é fundo branco para não sobrescrever com o padrão azul-cinza
+    _is_fundo_branco = "fundo branco" in prompt_texto_completo.lower() or "white background" in prompt_texto_completo.lower()
+    _background_instrucao = (
+        "Background: pure white (#FFFFFF), perfectly clean, no gradients, no shadows"
+        if _is_fundo_branco else
+        "Background: soft blue-gray (#E8EEF5), navy blue (#1A3A6B) accents"
+    )
+
     content.append({
         "type": "text",
-        "text": f"""You are creating a visual prompt for the Imagen 3 text-to-image model.
+        "text": f"""You are creating a visual prompt for the Gemini image generation model.
 
-Analyze the product reference photos and the image brief below. Write ONE concise visual prompt in English (4-6 sentences) for Imagen 3.
+Analyze the product reference photos and the image brief below. Write ONE concise visual prompt in English (4-6 sentences).
 
 IMAGE BRIEF:
 {linhas_relevantes}
 
 Your prompt must describe:
-1. The exact product appearance (shape, color, material, key details from the photos)
+1. The exact product appearance (shape, color, material, key details from the photos) — be very specific and faithful to the reference photos
 2. The scene/composition (what the brief asks for)
-3. Lighting style (studio, natural, etc.)
-4. Background: soft blue-gray (#E8EEF5), navy blue (#1A3A6B) accents
-5. Style: professional product marketing photography
+3. The product must be large and dominant, occupying the maximum possible space in the frame
+4. Lighting style (studio, natural, etc.)
+5. {_background_instrucao}
+6. Style: professional product marketing photography
 
-Write ONLY the Imagen 3 prompt. No explanation, no preamble."""
+Write ONLY the image generation prompt. No explanation, no preamble."""
     })
 
     try:
@@ -431,8 +451,10 @@ Write ONLY the Imagen 3 prompt. No explanation, no preamble."""
         )
 
 
-def _chamar_gemini_geracao(prompt_final):
-    """Chama Gemini Flash Image Generation via Interactions API. Retorna (resp, erro_fatal)."""
+def _chamar_gemini_geracao(prompt_final, imagens_referencia=None):
+    """Chama Gemini Flash Image Generation via Interactions API. Retorna (resp, erro_fatal).
+    imagens_referencia: lista de bytes das fotos do produto — enviadas diretamente ao Gemini
+    para máxima fidelidade visual ao produto real."""
     import time as _time
     MAX_TENTATIVAS = 2
     MODELO = "gemini-3.1-flash-image"
@@ -447,9 +469,20 @@ def _chamar_gemini_geracao(prompt_final):
                 "x-goog-api-key": api_key,
                 "Content-Type": "application/json",
             }
+            # Monta input com as imagens de referência ANTES do texto para ancoragem visual
+            input_parts = []
+            if imagens_referencia:
+                for img_bytes in imagens_referencia[:3]:
+                    mime = _detectar_mime(img_bytes)
+                    input_parts.append({
+                        "type": "image",
+                        "mimeType": mime,
+                        "data": base64.b64encode(img_bytes).decode("utf-8"),
+                    })
+            input_parts.append({"type": "text", "text": prompt_final})
             body = {
                 "model": MODELO,
-                "input": [{"type": "text", "text": prompt_final}],
+                "input": input_parts,
             }
             resp = requests.post(url, json=body, headers=headers, timeout=120,
                                  proxies={"http": None, "https": None})
@@ -484,8 +517,9 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia):
     # 1. Converte o prompt completo + fotos em prompt visual para o Gemini
     prompt_gemini = _montar_prompt_imagen(prompt_texto, imagens_referencia)
 
-    # 2. Chama Gemini Image Generation
-    resp, erro_fatal = _chamar_gemini_geracao(prompt_gemini)
+    # 2. Chama Gemini Image Generation — passa as fotos de referência diretamente
+    # para que o Gemini use o produto real como âncora visual (não apenas texto)
+    resp, erro_fatal = _chamar_gemini_geracao(prompt_gemini, imagens_referencia)
     if erro_fatal:
         msg = erro_fatal.replace("COTA_ESGOTADA:", "")
         if erro_fatal.startswith("COTA_ESGOTADA:"):
@@ -606,6 +640,7 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
         bloco_refs += f"\n{INSTRUCAO_REFERENCIA_LAYOUT}"
 
     eh_personalizado = (tipo == "Personalizado (descrevo o que quero)")
+    eh_fundo_branco = tipo.startswith("1 —")
 
     if eh_personalizado:
         # Modo personalizado: SEM branding automático, SEM nova composição forçada
@@ -617,9 +652,30 @@ TIPO DE IMAGEM: Personalizado
 
 {INSTRUCAO_PERSONALIZADO}
 {INSTRUCAO_FIDELIDADE}
+{INSTRUCAO_PROPORCAO}
+"""
+    elif eh_fundo_branco:
+        # Tipo 1: fundo BRANCO PURO — o PADRAO_VISUAL (azul-cinza) não se aplica aqui
+        PADRAO_VISUAL_FUNDO_BRANCO = """
+PADRÃO VISUAL PARA FOTO DE PRODUTO:
+- Fundo: BRANCO PURO (#FFFFFF) — sem gradiente, sem textura, sem cor de fundo
+- Iluminação de estúdio profissional: luz suave, sem sombras duras
+- Sem texto, sem logotipo, sem elementos de branding
+- Visual limpo, minimalista, focado 100% no produto
+"""
+        return f"""{contexto_produto}
+TIPO DE IMAGEM: {tipo}
+{base}
+{bloco_instrucoes}
+{bloco_refs}
+
+{PADRAO_VISUAL_FUNDO_BRANCO}
+{INSTRUCAO_FIDELIDADE}
+{INSTRUCAO_PROPORCAO}
+{INSTRUCAO_COMPOSICAO}
 """
     else:
-        # Tipos padrão (1-7): imagens de marketing com identidade visual completa
+        # Tipos padrão (2-7): imagens de marketing com identidade visual completa
         return f"""{contexto_produto}
 TIPO DE IMAGEM: {tipo}
 {base}
@@ -628,6 +684,7 @@ TIPO DE IMAGEM: {tipo}
 
 {PADRAO_VISUAL}
 {INSTRUCAO_FIDELIDADE}
+{INSTRUCAO_PROPORCAO}
 {INSTRUCAO_COMPOSICAO}
 """
 
