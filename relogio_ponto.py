@@ -2,7 +2,7 @@
 relogio_ponto.py — Módulo de Relógio de Ponto para MS Studio
 
 Responsabilidades:
-  1. Armazenar registros de ponto em SQLite local (db/ponto.db)
+  1. Armazenar registros de ponto no Google Sheets (aba "ponto")
   2. UI Streamlit para registro de: entrada, saída almoço, volta almoço, fim expediente, ausência
   3. Calcular: horas disponíveis, ociosidade e tolerâncias utilizadas por colaborador/dia
   4. Prover dados exportáveis para analise_metas.py
@@ -13,16 +13,15 @@ CONECTOR FUTURO:
   A API interna (_get_registros, _salvar_registro) continua a mesma.
 """
 
-import os
-import sqlite3
 import streamlit as st
+import gspread
+from google.oauth2.service_account import Credentials
 from datetime import datetime, date, time, timedelta
 from typing import Optional
 
 import placar_core as _pc
 
 # ── Constantes ─────────────────────────────────────────────────────────────────
-DB_PATH = os.path.join(os.path.dirname(__file__), "db", "ponto.db")
 MEMBROS = _pc.MEMBROS_ATIVOS          # {"username": "Nome", ...}
 MASTERS = _pc.MASTERS                 # {"martinsousa", "renan"}
 
@@ -41,90 +40,122 @@ TIPOS_PONTO = {
     "ausencia":       "⛔ Ausência",
 }
 
-# ── Banco de dados SQLite ───────────────────────────────────────────────────────
+# ── Google Sheets ──────────────────────────────────────────────────────────────
 
-def _init_db():
-    """Cria o banco e as tabelas se não existirem."""
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    con = sqlite3.connect(DB_PATH)
-    con.execute("""
-        CREATE TABLE IF NOT EXISTS registros_ponto (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            data        TEXT    NOT NULL,          -- YYYY-MM-DD
-            username    TEXT    NOT NULL,          -- trello username
-            tipo        TEXT    NOT NULL,          -- entrada|saida_almoco|volta_almoco|fim_expediente|ausencia
-            horario     TEXT,                      -- HH:MM  (NULL para ausencia)
-            observacao  TEXT,
-            criado_em   TEXT    DEFAULT (datetime('now','localtime')),
-            criado_por  TEXT                       -- quem registrou (auditoria)
-        )
-    """)
-    # Garante unicidade: um tipo de registro por pessoa por dia
-    con.execute("""
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_ponto_unico
-        ON registros_ponto (data, username, tipo)
-    """)
-    con.commit()
-    con.close()
+PLANILHA_NOME = "MartinSousa - Financeiro"
+ABA_PONTO     = "ponto"
+COLUNAS_PONTO = ["data", "username", "tipo", "horario", "observacao", "criado_em", "criado_por"]
+
+
+def _cliente_gs():
+    creds_dict = dict(st.secrets["gcp_service_account"])
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive.readonly",
+    ]
+    creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+    return gspread.authorize(creds)
+
+
+def _aba_ponto():
+    """Retorna a aba 'ponto' da planilha, criando-a se necessário."""
+    cliente = _cliente_gs()
+    planilha = cliente.open(PLANILHA_NOME)
+    try:
+        aba = planilha.worksheet(ABA_PONTO)
+        # Garante que todas as colunas existem no cabeçalho
+        cabecalho = aba.row_values(1)
+        for col in COLUNAS_PONTO:
+            if col not in cabecalho:
+                aba.add_cols(1)
+                col_idx = len(cabecalho) + 1
+                aba.update_cell(1, col_idx, col)
+                cabecalho.append(col)
+        return aba
+    except gspread.exceptions.WorksheetNotFound:
+        aba = planilha.add_worksheet(title=ABA_PONTO, rows=5000, cols=len(COLUNAS_PONTO))
+        aba.append_row(COLUNAS_PONTO, value_input_option="RAW")
+        return aba
+
+
+@st.cache_data(ttl=30)
+def _carregar_ponto_todos() -> list[dict]:
+    """Carrega todos os registros de ponto do Google Sheets (cache de 30 s)."""
+    aba = _aba_ponto()
+    registros = aba.get_all_records(value_render_option="UNFORMATTED_VALUE")
+    resultado = []
+    for r in registros:
+        resultado.append({
+            "data":       str(r.get("data",       "")).strip(),
+            "username":   str(r.get("username",   "")).strip(),
+            "tipo":       str(r.get("tipo",        "")).strip(),
+            "horario":    str(r.get("horario",    "")).strip() or None,
+            "observacao": str(r.get("observacao", "")).strip() or None,
+            "criado_em":  str(r.get("criado_em",  "")).strip(),
+            "criado_por": str(r.get("criado_por", "")).strip(),
+        })
+    return resultado
 
 
 def _get_registros(data_str: str, username: Optional[str] = None) -> list[dict]:
     """Retorna registros de ponto de uma data (YYYY-MM-DD), opcionalmente filtrado por usuário."""
-    _init_db()
-    con = sqlite3.connect(DB_PATH)
-    con.row_factory = sqlite3.Row
+    todos = _carregar_ponto_todos()
+    regs  = [r for r in todos if r["data"] == data_str]
     if username:
-        rows = con.execute(
-            "SELECT * FROM registros_ponto WHERE data=? AND username=? ORDER BY horario",
-            (data_str, username)
-        ).fetchall()
-    else:
-        rows = con.execute(
-            "SELECT * FROM registros_ponto WHERE data=? ORDER BY username, horario",
-            (data_str,)
-        ).fetchall()
-    con.close()
-    return [dict(r) for r in rows]
+        regs = [r for r in regs if r["username"] == username]
+    regs.sort(key=lambda r: (r["username"], r["horario"] or "99:99"))
+    return regs
 
 
 def _get_registros_periodo(ano: int, mes: int) -> list[dict]:
     """Retorna todos os registros de ponto de um mês (ano, mes)."""
-    _init_db()
     prefixo = f"{ano:04d}-{mes:02d}"
-    con = sqlite3.connect(DB_PATH)
-    con.row_factory = sqlite3.Row
-    rows = con.execute(
-        "SELECT * FROM registros_ponto WHERE data LIKE ? ORDER BY data, username, horario",
-        (f"{prefixo}%",)
-    ).fetchall()
-    con.close()
-    return [dict(r) for r in rows]
+    todos   = _carregar_ponto_todos()
+    regs    = [r for r in todos if r["data"].startswith(prefixo)]
+    regs.sort(key=lambda r: (r["data"], r["username"], r["horario"] or "99:99"))
+    return regs
 
 
 def _salvar_registro(data_str, username, tipo, horario_str, observacao, criado_por):
-    """Insere ou substitui um registro de ponto."""
-    _init_db()
-    con = sqlite3.connect(DB_PATH)
-    con.execute(
-        """INSERT OR REPLACE INTO registros_ponto
-           (data, username, tipo, horario, observacao, criado_por)
-           VALUES (?, ?, ?, ?, ?, ?)""",
-        (data_str, username, tipo, horario_str, observacao, criado_por)
-    )
-    con.commit()
-    con.close()
+    """Upsert: atualiza linha existente ou adiciona nova linha no Google Sheets."""
+    try:
+        aba       = _aba_ponto()
+        criado_em = datetime.now().strftime("%d/%m/%Y %H:%M")
+        nova_linha = [
+            data_str, username, tipo,
+            horario_str or "", observacao or "",
+            criado_em, criado_por,
+        ]
+        all_vals = aba.get_all_values()          # inclui cabeçalho na posição 0
+        for i, row in enumerate(all_vals[1:], start=2):   # 1-based, pula cabeçalho
+            if (len(row) >= 3
+                    and row[0] == data_str
+                    and row[1] == username
+                    and row[2] == tipo):
+                aba.update(f"A{i}:G{i}", [nova_linha], value_input_option="RAW")
+                _carregar_ponto_todos.clear()
+                return
+        aba.append_row(nova_linha, value_input_option="RAW")
+        _carregar_ponto_todos.clear()
+    except Exception:
+        pass
 
 
 def _deletar_registro(data_str, username, tipo):
-    """Remove um registro de ponto."""
-    _init_db()
-    con = sqlite3.connect(DB_PATH)
-    con.execute(
-        "DELETE FROM registros_ponto WHERE data=? AND username=? AND tipo=?",
-        (data_str, username, tipo)
-    )
-    con.commit()
-    con.close()
+    """Remove uma linha do Google Sheets que corresponde a (data, username, tipo)."""
+    try:
+        aba      = _aba_ponto()
+        all_vals = aba.get_all_values()
+        for i, row in enumerate(all_vals[1:], start=2):
+            if (len(row) >= 3
+                    and row[0] == data_str
+                    and row[1] == username
+                    and row[2] == tipo):
+                aba.delete_rows(i)
+                _carregar_ponto_todos.clear()
+                return
+    except Exception:
+        pass
 
 
 # ── Cálculo de indicadores ─────────────────────────────────────────────────────
