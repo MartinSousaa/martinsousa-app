@@ -98,8 +98,9 @@ REGRA DE PROPORÇÃO E DESTAQUE DO PRODUTO (obrigatória):
 - O produto deve ser o elemento principal e dominante da composição
 - Ocupe o maior espaço possível no frame — o produto deve ser grande, imponente, bem visível
 - NUNCA minimize ou reduza o produto para dar espaço a elementos decorativos
-- Elementos de texto, ícones e decoração são coadjuvantes — o produto é o protagonista absoluto
-- Mantenha as proporções exatas do produto: não alongue, não achatou, não deforme
+- Para imagens de marketing com texto (benefícios, características, frases): produto e texto coexistem de forma equilibrada — o texto é parte essencial da composição, não elemento secundário
+- Para fotos limpas de produto (fundo branco): produto ocupa o máximo espaço, sem texto
+- Mantenha as proporções exatas do produto: não alongue, não achate, não deforme
 """
 
 # ── MODO PERSONALIZADO — sem branding automático ──────────────────────────────
@@ -160,36 +161,48 @@ PRESETS = {
         "Peça de marketing mostrando os principais benefícios do produto. "
         "Layout: produto em destaque no centro ou à esquerda, à direita blocos verticais empilhados "
         "com ícone line-art + título curto (2-3 palavras) + frase explicativa (1 linha). "
-        "Máximo 4 benefícios. Título principal em destaque no topo."
+        "Máximo 4 benefícios. Título principal em destaque no topo. "
+        "OBRIGATÓRIO: os textos dos benefícios fornecidos pelo colaborador DEVEM APARECER ESCRITOS NA IMAGEM — "
+        "use as frases e títulos exatos informados, renderizados como elementos gráficos de texto na composição."
     ),
     "3 — Benefícios no cenário de uso": (
         "Peça de marketing mostrando o produto sendo usado em um cenário real do dia a dia. "
         "Cena realista e aspiracional com iluminação natural. "
         "Frases curtas de destaque flutuando sobre ou ao lado do produto, explicando o benefício "
-        "daquele momento de uso específico. Tom acolhedor e moderno."
+        "daquele momento de uso específico. Tom acolhedor e moderno. "
+        "OBRIGATÓRIO: as frases de benefício fornecidas pelo colaborador DEVEM APARECER ESCRITAS NA IMAGEM — "
+        "use os textos exatos como sobreposições ou callouts visuais."
     ),
     "4 — Close nos detalhes": (
         "Imagem em zoom aproximado valorizando os acabamentos e qualidade do produto. "
         "Pequenas setas ou linhas finas apontando para cada detalhe, com legenda curta ao lado. "
         "Foco em textura, material, costuras, encaixe, ou qualquer acabamento que diferencie o produto. "
-        "Máximo 4 pontos de destaque."
+        "Máximo 4 pontos de destaque. "
+        "OBRIGATÓRIO: as legendas e descrições de detalhes fornecidas pelo colaborador DEVEM APARECER "
+        "ESCRITAS NA IMAGEM como anotações visuais — use os textos exatos informados."
     ),
     "5 — Características técnicas (medidas/peso/material)": (
         "Imagem técnica do produto com linhas de medida estilo desenho técnico, mostrando as dimensões "
         "exatas (altura, largura, profundidade). Peso e material indicados com ícones técnicos. "
-        "Dados anotados de forma clara e legível. Fundo claro, visual limpo e técnico."
+        "Dados anotados de forma clara e legível. Fundo claro, visual limpo e técnico. "
+        "OBRIGATÓRIO: os valores exatos de medidas, peso e material fornecidos pelo colaborador DEVEM "
+        "APARECER ESCRITOS NA IMAGEM — renderize os números e unidades como cotas e anotações técnicas."
     ),
     "6 — Quebra de objeção": (
         "Peça de marketing respondendo as principais dúvidas de quem está prestes a comprar. "
         "Formato: 3 a 4 blocos, cada um com uma objeção comum em forma de pergunta curta e a "
         "resposta direta e tranquilizadora ao lado ou abaixo. Ícone de check ou escudo. "
-        "Tom de confiança e credibilidade."
+        "Tom de confiança e credibilidade. "
+        "OBRIGATÓRIO: as perguntas e respostas fornecidas pelo colaborador DEVEM APARECER ESCRITAS NA IMAGEM "
+        "como blocos de texto gráficos — use os textos exatos, não invente novas objeções."
     ),
     "7 — Presenteie": (
         "Peça de marketing emocional incentivando a compra do produto como presente. "
-        "Frase principal de impacto emocional em destaque (ex: 'O presente certo para quem você ama'). "
+        "Frase principal de impacto emocional em destaque. "
         "Composição com laço, embrulho ou contexto de presente. Tom acolhedor e especial. "
-        "Cena mostrando a entrega ou o momento de surpresa com reação positiva."
+        "Cena mostrando a entrega ou o momento de surpresa com reação positiva. "
+        "OBRIGATÓRIO: a frase de chamada emocional fornecida pelo colaborador DEVE APARECER ESCRITA NA IMAGEM "
+        "em destaque tipográfico — use o texto exato informado."
     ),
 }
 
@@ -387,8 +400,8 @@ def _montar_prompt_imagen(prompt_texto_completo, imagens_referencia):
     conciso em inglês para o Imagen 3. Retorna string de prompt."""
     api_key = st.secrets.get("ANTHROPIC_API_KEY", "") or os.environ.get("ANTHROPIC_API_KEY", "")
 
-    # Extrai primeiras linhas do prompt (produto, cor, medidas, tipo de imagem)
-    linhas_relevantes = "\n".join(prompt_texto_completo.splitlines()[:20])
+    # Usa o prompt completo — colaborador pode ter texto em qualquer parte
+    linhas_relevantes = prompt_texto_completo.strip()
 
     if not api_key or not imagens_referencia:
         # Fallback sem visão: traduz o prompt diretamente
@@ -416,11 +429,29 @@ def _montar_prompt_imagen(prompt_texto_completo, imagens_referencia):
         "Background: soft blue-gray (#E8EEF5), navy blue (#1A3A6B) accents"
     )
 
+    # Detecta se o tipo requer texto na imagem (marketing com benefícios, características, etc.)
+    _is_marketing_com_texto = any(kw in prompt_texto_completo.lower() for kw in [
+        "benefício", "beneficio", "características", "caracteristica", "quebra de objeção",
+        "objeção", "frases", "medidas", "peso", "material", "presenteie", "close nos detalhes",
+        "cenário de uso", "obrigatório: os textos", "obrigatório: as frases",
+        "deve aparecer escrito", "devem aparecer escritos"
+    ])
+
+    _texto_instrucao = ""
+    if _is_marketing_com_texto:
+        _texto_instrucao = """
+7. TEXT RENDERING (CRITICAL): This is a marketing piece that requires text IN the image.
+   - Extract ALL specific text content from the brief (benefit titles, feature descriptions, phrases, measurements, questions/answers, emotional taglines, etc.)
+   - Include these EXACT texts as rendered text elements in your prompt — specify them word-for-word
+   - Describe where each text block appears (top title, side panels, callouts, annotations, overlays, etc.)
+   - The text must be clearly readable and styled (bold titles, clean sans-serif fonts, proper contrast)
+   - Do NOT summarize or paraphrase — use the exact words/phrases from the brief"""
+
     content.append({
         "type": "text",
         "text": f"""You are creating a visual prompt for the Gemini image generation model.
 
-Analyze the product reference photos and the image brief below. Write ONE concise visual prompt in English (4-6 sentences).
+Analyze the product reference photos and the image brief below. Write ONE concise visual prompt in English (5-8 sentences).
 
 IMAGE BRIEF:
 {linhas_relevantes}
@@ -428,10 +459,10 @@ IMAGE BRIEF:
 Your prompt must describe:
 1. The exact product appearance (shape, color, material, key details from the photos) — be very specific and faithful to the reference photos
 2. The scene/composition (what the brief asks for)
-3. The product must be large and dominant, occupying the maximum possible space in the frame
+3. The product must be large and prominent in the composition
 4. Lighting style (studio, natural, etc.)
 5. {_background_instrucao}
-6. Style: professional product marketing photography
+6. Style: professional product marketing graphic design{_texto_instrucao}
 
 Write ONLY the image generation prompt. No explanation, no preamble."""
     })
@@ -440,7 +471,7 @@ Write ONLY the image generation prompt. No explanation, no preamble."""
         client = anthropic.Anthropic(api_key=api_key)
         msg = client.messages.create(
             model="claude-haiku-4-5",
-            max_tokens=500,
+            max_tokens=800,
             messages=[{"role": "user", "content": content}]
         )
         return msg.content[0].text.strip()
