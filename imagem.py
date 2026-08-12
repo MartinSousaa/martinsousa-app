@@ -476,7 +476,7 @@ def _chamar_gemini_geracao(prompt_final, imagens_referencia=None):
                     mime = _detectar_mime(img_bytes)
                     input_parts.append({
                         "type": "image",
-                        "mimeType": mime,
+                        "mime_type": mime,
                         "data": base64.b64encode(img_bytes).decode("utf-8"),
                     })
             input_parts.append({"type": "text", "text": prompt_final})
