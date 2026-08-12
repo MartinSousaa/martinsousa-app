@@ -216,7 +216,7 @@ def gerar_triagem_ia(nome_produto, tipos_selecionados, dados_descricao, instruco
     if not api_key:
         return None, "ANTHROPIC_API_KEY não configurada."
 
-    tipos_str = "\n".join(f"- {t}: {PRESETS.get(t,'')[:120]}..." for t in tipos_selecionados)
+    tipos_str = "\n".join(f"- {t}: {PRESETS.get(t,'')[:300]}..." for t in tipos_selecionados)
 
     contexto_descricao = ""
     if dados_descricao:
@@ -429,13 +429,14 @@ def _montar_prompt_imagen(prompt_texto_completo, imagens_referencia):
         "Background: soft blue-gray (#E8EEF5), navy blue (#1A3A6B) accents"
     )
 
-    # Detecta se o tipo requer texto na imagem (marketing com benefícios, características, etc.)
-    _is_marketing_com_texto = any(kw in prompt_texto_completo.lower() for kw in [
-        "benefício", "beneficio", "características", "caracteristica", "quebra de objeção",
-        "objeção", "frases", "medidas", "peso", "material", "presenteie", "close nos detalhes",
-        "cenário de uso", "obrigatório: os textos", "obrigatório: as frases",
-        "deve aparecer escrito", "devem aparecer escritos"
-    ])
+    # Detecta se o tipo requer texto na imagem (tipos 2-7 de marketing).
+    # Usa o prefixo do número no "TIPO DE IMAGEM:" — evita falso-positivo em Tipo 1
+    # (fundo branco) que também tem palavras como "peso" e "material" no contexto.
+    _PREFIXOS_MARKETING = ("2 —", "3 —", "4 —", "5 —", "6 —", "7 —")
+    _is_marketing_com_texto = any(
+        f"TIPO DE IMAGEM: {p}" in prompt_texto_completo
+        for p in _PREFIXOS_MARKETING
+    )
 
     _texto_instrucao = ""
     if _is_marketing_com_texto:
