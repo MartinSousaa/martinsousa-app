@@ -807,12 +807,12 @@ def _tv_full_html(
     _cor_tv_eq       = "#1BAF7A"  # progresso — sempre verde
     _cor_tv_pri      = "#1BAF7A" if pct_pri_ok      >= 100 else "#E34948"
     _cor_tv_retrab_n = "#1BAF7A" if pct_retrab_n    >= 100 else "#E34948"
-    _cor_tv_cmb      = "#1BAF7A" if pct_com_membro  >= 99.5 else "#E34948"
+    _cor_tv_cmb      = "#1BAF7A" if pct_com_membro  >= 100 else "#E34948"
     # MAXX: threshold bars (amarelo ↔ vermelho), progresso sempre amarelo
     _cor_tv_maxx     = "#FFD700"  # progresso — sempre amarelo
     _cor_tv_prix     = "#FFD700" if pct_pri_ok      >= 100 else "#E34948"
     _cor_tv_retrab_x = "#FFD700" if pct_retrab_x    >= 100 else "#E34948"
-    _cor_tv_cmbx     = "#FFD700" if pct_com_membro  >= 99.5 else "#E34948"
+    _cor_tv_cmbx     = "#FFD700" if pct_com_membro  >= 100 else "#E34948"
     _tv_sem_mb_desc = ("Em andamento e concluídos" if not sem_membro_lista
                        else "Sem membro: " + ", ".join(f'"{c["nome"][:25]}"' for c in sem_membro_lista[:2]))
     return f"""<!DOCTYPE html>
@@ -1618,7 +1618,7 @@ def pagina_placar(usuario_logado):
         _cor_eq   = "#1BAF7A"  # progresso — sempre verde
         _cor_pri  = "#1BAF7A" if pct_prioritarios_ok  >= 100 else "#E34948"
         _cor_rtn  = "#1BAF7A" if pct_retrab_barra_n   >= 100 else "#E34948"
-        _cor_cmb  = "#1BAF7A" if pct_com_membro       >= 99.5 else "#E34948"
+        _cor_cmb  = "#1BAF7A" if pct_com_membro       >= 100 else "#E34948"
         _sem_mb_desc_n = ("Em andamento e concluídos" if not d.get("sem_membro_lista")
                           else "Sem membro: " + ", ".join(f'"{c["nome"][:30]}"' for c in d["sem_membro_lista"][:3]))
         b += _barra_meta("Pontuação do mês", pct_eq, f"{saldo_eq:,.0f} / {meta_eq:,} pts (inclui -{d['pen_total']:.0f} penalidades)", _cor_eq)
@@ -1634,7 +1634,7 @@ def pagina_placar(usuario_logado):
         _cor_mx   = "#FFD700"  # progresso — sempre amarelo
         _cor_prix = "#FFD700" if pct_prioritarios_ok  >= 100 else "#E34948"
         _cor_rtnx = "#FFD700" if pct_retrab_barra_x   >= 100 else "#E34948"
-        _cor_cmbx = "#FFD700" if pct_com_membro       >= 99.5 else "#E34948"
+        _cor_cmbx = "#FFD700" if pct_com_membro       >= 100 else "#E34948"
         _sem_mb_desc_x = ("Em andamento e concluídos" if not d.get("sem_membro_lista")
                           else "Sem membro: " + ", ".join(f'"{c["nome"][:30]}"' for c in d["sem_membro_lista"][:3]))
         b += _barra_meta(f"Pontuação +{maxx_pct-100}% acima da meta", pct_maxx, f"{saldo_eq:,.0f} / {meta_maxx_pts:,.0f} pts (c/ penalidades -{ d['pen_total']:.0f})", _cor_mx)
