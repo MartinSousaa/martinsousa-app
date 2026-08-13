@@ -115,6 +115,9 @@ div[class*="AppRunningIndicator"]               { display: none !important; }
 h1, h2, h3, h4, h5, h6 { color: var(--ms-texto) !important; }
 p, span, label, div     { color: var(--ms-texto) !important; }
 
+/* ── Escala global 90% — equivalente ao zoom do navegador em 90% ─────────── */
+html { zoom: 0.9; }
+
 /* ── SIDEBAR ESQUERDO ───────────────────────────────────────────────────── */
 [data-testid="stSidebar"] {
     background-color: var(--ms-sidebar) !important;
@@ -122,12 +125,28 @@ p, span, label, div     { color: var(--ms-texto) !important; }
 }
 [data-testid="stSidebar"] * { color: var(--ms-texto) !important; }
 
-/* Logo rente ao topo — remove padding do sidebar */
+/* Logo rente ao topo — remove padding do sidebar; altura máxima */
 section[data-testid="stSidebar"] > div:first-child {
     padding-top: 0 !important;
+    height: 100vh !important;
+    overflow-y: hidden !important;
+    display: flex !important;
+    flex-direction: column !important;
 }
 [data-testid="stSidebarContent"] {
     padding-top: 0.25rem !important;
+    flex: 1 !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+    display: flex !important;
+    flex-direction: column !important;
+}
+[data-testid="stSidebarContent"] > div:first-child {
+    flex: 1 !important;
+    min-height: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
 }
 
 /* ── Sidebar: largura fixa 360px (sem JS) ───────────────────────────────── */
@@ -1104,8 +1123,8 @@ with st.sidebar:
     _lp = _logo_b64("logo_preto.png")
     _lb = _logo_b64("logo_branco.png")
     st.markdown(
-        f'<img id="ms-logo-preto" src="data:image/png;base64,{_lp}" style="width:100%;margin-top:-32px;margin-bottom:2px;display:block;"/>'
-        f'<img id="ms-logo-branco" src="data:image/png;base64,{_lb}" style="width:100%;margin-top:-32px;margin-bottom:2px;display:block;"/>',
+        f'<img id="ms-logo-preto" src="data:image/png;base64,{_lp}" style="width:100%;max-height:110px;object-fit:contain;margin-top:-32px;margin-bottom:2px;display:block;"/>'
+        f'<img id="ms-logo-branco" src="data:image/png;base64,{_lb}" style="width:100%;max-height:110px;object-fit:contain;margin-top:-32px;margin-bottom:2px;display:block;"/>',
         unsafe_allow_html=True
     )
     _col_user, _col_sair = st.columns([3, 1])
