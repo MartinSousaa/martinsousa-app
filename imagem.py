@@ -489,7 +489,7 @@ def _chamar_gemini_geracao(prompt_final, imagens_referencia=None):
     para máxima fidelidade visual ao produto real."""
     import time as _time
     MAX_TENTATIVAS = 2
-    MODELO = "gemini-2.0-flash-preview-image-generation"
+    MODELO = "gemini-3.1-flash-image"
     for tentativa in range(1, MAX_TENTATIVAS + 1):
         try:
             _GEMINI_LIMITER.aguardar()
@@ -832,7 +832,7 @@ def _testar_gemini_api():
     Retorna dict com resultados.
     """
     import time as _t_diag
-    MODELO = "gemini-2.0-flash-preview-image-generation"
+    MODELO = "gemini-3.1-flash-image"
 
     api_key = _get_gemini_api_key()
     resultados = {"api_key": "configurada" if api_key else "NÃO CONFIGURADA"}
@@ -889,7 +889,7 @@ def pagina_imagem(usuario_logado):
     st.subheader("Imagem")
     st.caption("Gere imagens profissionais para o anúncio. A IA mostra o que vai criar antes de gastar com a geração.")
 
-    MODELO_DIAG = "gemini-2.0-flash-preview-image-generation"
+    MODELO_DIAG = "gemini-3.1-flash-image"
     with st.expander("🔧 Diagnóstico da API Gemini", expanded=False):
         st.caption("Gera uma imagem de teste para confirmar que a GEMINI_API_KEY está funcionando.")
         if st.button("Testar geração agora", key="btn_diag_gemini"):
