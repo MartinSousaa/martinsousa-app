@@ -465,6 +465,10 @@ Your prompt must describe:
 5. {_background_instrucao}
 6. Style: professional product marketing graphic design{_texto_instrucao}
 
+CRITICAL RULES — FOLLOW EXACTLY:
+- LANGUAGE OF IMAGE TEXT: Any text that must appear visually INSIDE the generated image (benefit titles, product descriptions, marketing phrases, feature annotations, questions, taglines, measurements, etc.) MUST be written in Brazilian Portuguese EXACTLY as provided in the brief. NEVER translate these texts to English. The overall prompt description is in English, but all text rendered IN the image must be in Portuguese.
+- NEW CREATION: Generate a completely NEW professional studio-quality image. Do NOT reproduce, copy or replicate the reference photos. The reference photos exist ONLY to show what the product looks like — use them for product recognition only. Create a fresh, clean, professional marketing composition as if taken in a professional photography studio with perfect lighting and equipment.
+
 Write ONLY the image generation prompt. No explanation, no preamble."""
     })
 
@@ -551,6 +555,17 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia):
     Claude analisa as fotos de referência → cria prompt → Gemini gera imagem."""
     # 1. Converte o prompt completo + fotos em prompt visual para o Gemini
     prompt_gemini = _montar_prompt_imagen(prompt_texto, imagens_referencia)
+
+    # Reforça no prompt final: texto em português + imagem nova (não cópia)
+    prompt_gemini = (
+        prompt_gemini +
+        "\n\nIMPORTANT — MANDATORY RULES: "
+        "(1) ALL text visible in the final image must be in Brazilian Portuguese. "
+        "Never render English text inside the image. "
+        "(2) Create a completely NEW, professional studio-quality image. "
+        "Do NOT copy or replicate the reference photos — use them ONLY to recognize the product. "
+        "The final image must look like it was produced in a professional photography studio."
+    )
 
     # 2. Chama Gemini Image Generation — passa as fotos de referência diretamente
     # para que o Gemini use o produto real como âncora visual (não apenas texto)
