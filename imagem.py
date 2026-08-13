@@ -827,11 +827,12 @@ def criar_zip_galeria(galeria, nome_produto):
 # ── INTERFACE PRINCIPAL ────────────────────────────────────────────────────────
 
 def _testar_gemini_api():
-    """Testa a API Gemini Image Generation com um prompt mínimo (Interactions API).
+    """Testa a API Gemini Image Generation com um prompt mínimo (generateContent API).
+    Usa o mesmo modelo e endpoint da geração real para diagnóstico preciso.
     Retorna dict com resultados.
     """
     import time as _t_diag
-    MODELO = "gemini-3.1-flash-image"
+    MODELO = "gemini-2.0-flash-preview-image-generation"
 
     api_key = _get_gemini_api_key()
     resultados = {"api_key": "configurada" if api_key else "NÃO CONFIGURADA"}
@@ -839,33 +840,37 @@ def _testar_gemini_api():
     if not api_key:
         return {"erro_geral": "GEMINI_API_KEY não configurada nas secrets do Railway."}
 
-    body_teste = {
-        "model": MODELO,
-        "input": [{"type": "text", "text": "A small red circle on a white background. Simple and minimal."}],
-    }
     headers_teste = {
         "x-goog-api-key": api_key,
         "Content-Type": "application/json",
     }
+    body_teste = {
+        "contents": [{"role": "user", "parts": [
+            {"text": "A small red circle on a white background. Simple and minimal."}
+        ]}],
+        "generationConfig": {
+            "responseModalities": ["IMAGE", "TEXT"],
+        },
+    }
 
     t0 = _t_diag.time()
     try:
-        url = "https://generativelanguage.googleapis.com/v1beta/interactions"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODELO}:generateContent"
         r = requests.post(url, json=body_teste, headers=headers_teste, timeout=90,
                           proxies={"http": None, "https": None})
         ms = int((_t_diag.time() - t0) * 1000)
         if r.status_code == 200:
             dados = r.json()
-            # Verifica imagem na convenience property ou nos steps
-            img_data = (dados.get("output_image") or {}).get("data", "")
-            if not img_data:
-                for step in dados.get("steps", []):
-                    for bloco in step.get("content", []):
-                        if bloco.get("type") == "image" and bloco.get("data"):
-                            img_data = bloco["data"]
-                            break
-                    if img_data:
+            # Verifica imagem no formato generateContent
+            img_data = ""
+            for candidate in dados.get("candidates", []):
+                for part in candidate.get("content", {}).get("parts", []):
+                    inline = part.get("inlineData") or part.get("inline_data", {})
+                    if inline and inline.get("data"):
+                        img_data = inline["data"]
                         break
+                if img_data:
+                    break
             tem_imagem = bool(img_data)
             resultados[MODELO] = {"ok": True, "ms": ms, "tem_imagem": tem_imagem}
         else:
@@ -884,7 +889,7 @@ def pagina_imagem(usuario_logado):
     st.subheader("Imagem")
     st.caption("Gere imagens profissionais para o anúncio. A IA mostra o que vai criar antes de gastar com a geração.")
 
-    MODELO_DIAG = "gemini-3.1-flash-image"
+    MODELO_DIAG = "gemini-2.0-flash-preview-image-generation"
     with st.expander("🔧 Diagnóstico da API Gemini", expanded=False):
         st.caption("Gera uma imagem de teste para confirmar que a GEMINI_API_KEY está funcionando.")
         if st.button("Testar geração agora", key="btn_diag_gemini"):
