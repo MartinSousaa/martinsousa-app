@@ -447,35 +447,65 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
             key=f"am_salario_{username}", label_visibility="visible"
         )
         if salario > 0:
-            bonus_col      = salario * 0.12 * (pct_eq   / 100)
-            bonus_ind      = salario * 0.08 * (pct_i    / 100)
-            bonus_maxx_col = salario * 0.05 * (pct_maxx / 100)
-            bonus_maxx_ind = salario * 0.05 * (pct_i / 100) * (pct_maxx / 100)
+            # Bônus só entra quando a meta correspondente foi BATIDA (≥100%)
+            meta_col_batida  = pct_eq   >= 100
+            meta_ind_batida  = pct_i    >= 100
+            meta_maxx_batida = pct_maxx >= 100
+
+            bonus_col      = salario * 0.12 if meta_col_batida  else 0.0
+            bonus_ind      = salario * 0.08 if meta_ind_batida  else 0.0
+            bonus_maxx_col = salario * 0.05 if meta_maxx_batida else 0.0
+            bonus_maxx_ind = salario * 0.05 if (meta_ind_batida and meta_maxx_batida) else 0.0
             total = salario + bonus_col + bonus_ind + bonus_maxx_col + bonus_maxx_ind
-            cor_total = "#FFD700" if pct_maxx > 0 else "#1BAF7A"
-            st.markdown(
-                f'<div style="background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);'
-                f'border-radius:8px;padding:10px 12px;margin-top:6px;">'
-                f'<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr 1fr;gap:6px;">'
-                f'<div><div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;">Salário Base</div>'
-                f'<div style="font-size:13px;font-weight:700;color:var(--ms-texto);">R$ {salario:,.2f}</div></div>'
-                f'<div><div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;">Bônus Coletivo</div>'
-                f'<div style="font-size:13px;font-weight:700;color:#1BAF7A;">+R$ {bonus_col:,.2f}</div>'
-                f'<div style="font-size:7px;color:var(--ms-texto-sec);">{pct_eq:.0f}% de 12%</div></div>'
-                f'<div><div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;">Bônus Individual</div>'
-                f'<div style="font-size:13px;font-weight:700;color:#1BAF7A;">+R$ {bonus_ind:,.2f}</div>'
-                f'<div style="font-size:7px;color:var(--ms-texto-sec);">{pct_i:.0f}% de 8%</div></div>'
-                f'<div><div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;">Maxx Coletivo</div>'
-                f'<div style="font-size:13px;font-weight:700;color:#FFD700;">+R$ {bonus_maxx_col:,.2f}</div>'
-                f'<div style="font-size:7px;color:var(--ms-texto-sec);">{pct_maxx:.0f}% de 5%</div></div>'
-                f'<div><div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;">Maxx Individual</div>'
-                f'<div style="font-size:13px;font-weight:700;color:#FFD700;">+R$ {bonus_maxx_ind:,.2f}</div>'
-                f'<div style="font-size:7px;color:var(--ms-texto-sec);">{pct_maxx:.0f}% de 5%</div></div>'
-                f'<div><div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;">Total a Receber</div>'
-                f'<div style="font-size:16px;font-weight:700;color:{cor_total};">R$ {total:,.2f}</div></div>'
-                f'</div></div>',
-                unsafe_allow_html=True
-            )
+
+            alguma_meta_batida = meta_col_batida or meta_ind_batida or meta_maxx_batida
+            cor_total = "#FFD700" if meta_maxx_batida else "#1BAF7A"
+
+            def _bonus_val(valor, batida, cor):
+                if batida:
+                    return f'<div style="font-size:13px;font-weight:700;color:{cor};">+R$ {valor:,.2f}</div>'
+                return '<div style="font-size:13px;font-weight:700;color:var(--ms-texto-sec);">—</div>'
+
+            def _bonus_sub(batida, label):
+                if batida:
+                    return f'<div style="font-size:7px;color:var(--ms-texto-sec);">{label}</div>'
+                return '<div style="font-size:7px;color:#e57373;">Meta não batida</div>'
+
+            if alguma_meta_batida:
+                st.markdown(
+                    f'<div style="background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);'
+                    f'border-radius:8px;padding:10px 12px;margin-top:6px;">'
+                    f'<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr 1fr;gap:6px;">'
+                    f'<div><div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;">Salário Base</div>'
+                    f'<div style="font-size:13px;font-weight:700;color:var(--ms-texto);">R$ {salario:,.2f}</div></div>'
+                    f'<div><div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;">Bônus Coletivo</div>'
+                    f'{_bonus_val(bonus_col, meta_col_batida, "#1BAF7A")}'
+                    f'{_bonus_sub(meta_col_batida, f"{pct_eq:.0f}% de 12%")}</div>'
+                    f'<div><div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;">Bônus Individual</div>'
+                    f'{_bonus_val(bonus_ind, meta_ind_batida, "#1BAF7A")}'
+                    f'{_bonus_sub(meta_ind_batida, f"{pct_i:.0f}% de 8%")}</div>'
+                    f'<div><div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;">Maxx Coletivo</div>'
+                    f'{_bonus_val(bonus_maxx_col, meta_maxx_batida, "#FFD700")}'
+                    f'{_bonus_sub(meta_maxx_batida, f"{pct_maxx:.0f}% de 5%")}</div>'
+                    f'<div><div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;">Maxx Individual</div>'
+                    f'{_bonus_val(bonus_maxx_ind, meta_ind_batida and meta_maxx_batida, "#FFD700")}'
+                    f'{_bonus_sub(meta_ind_batida and meta_maxx_batida, f"{pct_maxx:.0f}% de 5%")}</div>'
+                    f'<div><div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;">Total a Receber</div>'
+                    f'<div style="font-size:16px;font-weight:700;color:{cor_total};">R$ {total:,.2f}</div></div>'
+                    f'</div></div>',
+                    unsafe_allow_html=True
+                )
+            else:
+                st.markdown(
+                    f'<div style="background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);'
+                    f'border-radius:8px;padding:10px 14px;margin-top:6px;display:flex;align-items:center;gap:10px;">'
+                    f'<div style="font-size:18px;">⏳</div>'
+                    f'<div>'
+                    f'<div style="font-size:12px;font-weight:700;color:var(--ms-texto);">Nenhuma meta atingida ainda</div>'
+                    f'<div style="font-size:11px;color:var(--ms-texto-sec);">Os bônus serão calculados assim que as metas forem batidas.</div>'
+                    f'</div></div>',
+                    unsafe_allow_html=True
+                )
 
     # Exibe master vê todos; membro vê só o próprio
     if eh_master:
