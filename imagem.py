@@ -1565,6 +1565,56 @@ def pagina_imagem(usuario_logado):
                             )
                             st.success(f"Salvo! [Abrir no Drive]({link})")
 
+        # ── REGENERAR DO ZERO NA GALERIA ─────────────────────────────────────
+        with st.expander("🔄 Regenerar esta imagem do zero", expanded=False):
+            st.caption(
+                "Use esta opção se a imagem gerou o produto **errado** ou está completamente incorreta. "
+                "Vai gerar uma imagem completamente nova usando as fotos originais do produto."
+            )
+            if st.button(
+                "🔄 Regenerar esta imagem agora",
+                key=f"regen_btn_{idx_ativo}",
+                type="primary",
+                use_container_width=True,
+            ):
+                fotos_orig = st.session_state.get("img_fotos_originais") or []
+                instrucoes_orig = st.session_state.get("img_instrucoes_originais", "")
+                dados_desc = st.session_state.get("img_dados_descricao") or {}
+                if not fotos_orig:
+                    st.error("❌ Fotos originais não encontradas. Tente gerar novamente do início.")
+                else:
+                    import time as _time_regen
+                    import threading as _threading_regen
+                    prompt_regen = montar_prompt_imagem(
+                        tipo_ativo,
+                        instrucoes_orig,
+                        dados_desc,
+                        nome_gal,
+                    )
+                    _res_regen = {"img": None, "erro": None, "done": False}
+                    _threading_regen.Thread(
+                        target=_gerar_imagem_thread,
+                        args=(prompt_regen, fotos_orig, _res_regen),
+                        daemon=True,
+                    ).start()
+                    _slot_regen = st.empty()
+                    _t0_regen = _time_regen.time()
+                    while not _res_regen["done"]:
+                        _seg_regen = int(_time_regen.time() - _t0_regen)
+                        if _seg_regen >= 300:
+                            _res_regen["erro"] = "Tempo limite de 5 min atingido."
+                            _res_regen["done"] = True
+                            break
+                        _slot_regen.caption(f"⏳ Regenerando {tipo_ativo[:30]}... {_seg_regen}s")
+                        _time_regen.sleep(1)
+                    _slot_regen.empty()
+                    nova_img_regen, err_regen = _res_regen["img"], _res_regen["erro"]
+                    if err_regen:
+                        st.error(f"❌ Erro: {err_regen}")
+                    else:
+                        st.session_state["img_galeria"][idx_ativo]["bytes"] = nova_img_regen
+                        st.rerun()
+
         # ── AJUSTE FINO NA GALERIA ────────────────────────────────────────────
         with st.expander("✏️ Ajuste Fino — modificar somente algo específico nesta imagem", expanded=False):
             st.caption(
