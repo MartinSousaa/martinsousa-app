@@ -376,10 +376,10 @@ def _detectar_mime(data: bytes) -> str:
     return "image/jpeg"  # fallback seguro
 
 
-def _gerar_imagem_thread(prompt_texto, imagens_ref, resultado):
+def _gerar_imagem_thread(prompt_texto, imagens_ref, resultado, refs_layout=None):
     """Executa gerar_imagem_ia em thread separada para não bloquear o WebSocket."""
     try:
-        img, erro = gerar_imagem_ia(prompt_texto, imagens_ref)
+        img, erro = gerar_imagem_ia(prompt_texto, imagens_ref, refs_layout=refs_layout)
         resultado["img"] = img
         resultado["erro"] = erro
     except Exception as e:
@@ -395,9 +395,13 @@ def _get_gemini_api_key():
     return key
 
 
-def _montar_prompt_imagen(prompt_texto_completo, imagens_referencia):
+def _montar_prompt_imagen(prompt_texto_completo, imagens_referencia, refs_layout=None):
     """Usa Claude Vision para analisar as fotos de referência e criar um prompt
-    conciso em inglês para o Imagen 3. Retorna string de prompt."""
+    conciso em inglês para o Gemini. Retorna string de prompt.
+
+    imagens_referencia: fotos do produto (para Claude ver o produto e descrevê-lo)
+    refs_layout: imagens modelo de layout (Claude vê o estilo/composição a replicar)
+    """
     api_key = st.secrets.get("ANTHROPIC_API_KEY", "") or os.environ.get("ANTHROPIC_API_KEY", "")
 
     # Usa o prompt completo — colaborador pode ter texto em qualquer parte
@@ -412,6 +416,9 @@ def _montar_prompt_imagen(prompt_texto_completo, imagens_referencia):
         )
 
     content = []
+
+    # ── Fotos do produto (o que recrear fielmente) ───────────────────────────
+    content.append({"type": "text", "text": "PRODUCT PHOTOS — recreate this exact product faithfully (same shape, color, material, details):"})
     for img_bytes in imagens_referencia[:3]:
         content.append({
             "type": "image",
@@ -421,6 +428,20 @@ def _montar_prompt_imagen(prompt_texto_completo, imagens_referencia):
                 "data": base64.b64encode(img_bytes).decode("utf-8"),
             }
         })
+
+    # ── Imagens modelo de layout (estilo/composição a seguir) ────────────────
+    if refs_layout:
+        content.append({"type": "text", "text": "LAYOUT STYLE REFERENCES — follow the composition, element placement, text style, and visual structure shown in these images (apply to the product above, not the product in these reference images):"})
+        for img_bytes in refs_layout[:3]:
+            content.append({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": _detectar_mime(img_bytes),
+                    "data": base64.b64encode(img_bytes).decode("utf-8"),
+                }
+            })
+
     # Detecta se o brief é fundo branco para não sobrescrever com o padrão azul-cinza
     _is_fundo_branco = "fundo branco" in prompt_texto_completo.lower() or "white background" in prompt_texto_completo.lower()
     _background_instrucao = (
@@ -430,18 +451,25 @@ def _montar_prompt_imagen(prompt_texto_completo, imagens_referencia):
     )
 
     # Detecta se o tipo requer texto na imagem (tipos 2-7 de marketing).
-    # Usa o prefixo do número no "TIPO DE IMAGEM:" — evita falso-positivo em Tipo 1
-    # (fundo branco) que também tem palavras como "peso" e "material" no contexto.
     _PREFIXOS_MARKETING = ("2 —", "3 —", "4 —", "5 —", "6 —", "7 —")
     _is_marketing_com_texto = any(
         f"TIPO DE IMAGEM: {p}" in prompt_texto_completo
         for p in _PREFIXOS_MARKETING
     )
 
+    _instrucao_layout_refs = ""
+    if refs_layout:
+        _instrucao_layout_refs = """
+7. LAYOUT REPLICATION (CRITICAL): Layout style reference images were provided above.
+   - Replicate the EXACT composition structure shown in the layout reference: same element positions, same text hierarchy, same visual zones (header, product area, info panels, etc.)
+   - Apply that layout structure to the PRODUCT from the product photos
+   - Keep the same feel, spacing, font style, icon style, and visual balance shown in the layout reference
+   - Do NOT copy the product from the layout reference — only the composition/layout/style"""
+
     _texto_instrucao = ""
     if _is_marketing_com_texto:
-        _texto_instrucao = """
-7. TEXT RENDERING (CRITICAL): This is a marketing piece that requires text IN the image.
+        _texto_instrucao = f"""
+{"8" if refs_layout else "7"}. TEXT RENDERING (CRITICAL): This is a marketing piece that requires text IN the image.
    - Extract ALL specific text content from the brief (benefit titles, feature descriptions, phrases, measurements, questions/answers, emotional taglines, etc.)
    - Include these EXACT texts as rendered text elements in your prompt — specify them word-for-word
    - Describe where each text block appears (top title, side panels, callouts, annotations, overlays, etc.)
@@ -452,22 +480,23 @@ def _montar_prompt_imagen(prompt_texto_completo, imagens_referencia):
         "type": "text",
         "text": f"""You are creating a visual prompt for the Gemini image generation model.
 
-Analyze the product reference photos and the image brief below. Write ONE concise visual prompt in English (5-8 sentences).
+Analyze the product photos AND the layout style references above. Write ONE concise visual prompt in English (6-10 sentences).
 
 IMAGE BRIEF:
 {linhas_relevantes}
 
 Your prompt must describe:
-1. The exact product appearance (shape, color, material, key details from the photos) — be very specific and faithful to the reference photos
+1. The exact product appearance from the PRODUCT PHOTOS (shape, color, material, key details) — be very specific and faithful
 2. The scene/composition (what the brief asks for)
 3. The product must be large and prominent in the composition
-4. Lighting style (studio, natural, etc.)
+4. Lighting style (studio, natural, lifestyle, etc. — match the layout references if provided)
 5. {_background_instrucao}
-6. Style: professional product marketing graphic design{_texto_instrucao}
+6. Style: professional product marketing graphic design{_instrucao_layout_refs}{_texto_instrucao}
 
 CRITICAL RULES — FOLLOW EXACTLY:
-- LANGUAGE OF IMAGE TEXT: Any text that must appear visually INSIDE the generated image (benefit titles, product descriptions, marketing phrases, feature annotations, questions, taglines, measurements, etc.) MUST be written in Brazilian Portuguese EXACTLY as provided in the brief. NEVER translate these texts to English. The overall prompt description is in English, but all text rendered IN the image must be in Portuguese.
-- NEW CREATION: Generate a completely NEW professional studio-quality image. Do NOT reproduce, copy or replicate the reference photos. The reference photos exist ONLY to show what the product looks like — use them for product recognition only. Create a fresh, clean, professional marketing composition as if taken in a professional photography studio with perfect lighting and equipment.
+- PRODUCT FIDELITY: Reproduce the product from the PRODUCT PHOTOS exactly — same color, same shape, same details. NEVER substitute a different product.
+- LANGUAGE OF IMAGE TEXT: Any text that must appear visually INSIDE the generated image MUST be written in Brazilian Portuguese EXACTLY as provided in the brief. NEVER translate to English.
+- CREATE NEW: Generate a new professional marketing image. Do NOT copy the product photo composition literally — create a proper marketing piece. If layout references are provided, follow their composition style.
 
 Write ONLY the image generation prompt. No explanation, no preamble."""
     })
@@ -476,7 +505,7 @@ Write ONLY the image generation prompt. No explanation, no preamble."""
         client = anthropic.Anthropic(api_key=api_key)
         msg = client.messages.create(
             model="claude-haiku-4-5",
-            max_tokens=800,
+            max_tokens=900,
             messages=[{"role": "user", "content": content}]
         )
         return msg.content[0].text.strip()
@@ -487,10 +516,11 @@ Write ONLY the image generation prompt. No explanation, no preamble."""
         )
 
 
-def _chamar_gemini_geracao(prompt_final, imagens_referencia=None):
+def _chamar_gemini_geracao(prompt_final, imagens_referencia=None, refs_layout=None):
     """Chama Gemini Image Generation via generateContent API. Retorna (resp, erro_fatal).
-    imagens_referencia: lista de bytes das fotos do produto — enviadas diretamente ao Gemini
-    para máxima fidelidade visual ao produto real."""
+    imagens_referencia: fotos do produto — âncora visual para o produto real.
+    refs_layout: imagens modelo de layout — Gemini segue o estilo/composição dessas.
+    """
     import time as _time
     MAX_TENTATIVAS = 2
     MODELO = "gemini-3.1-flash-image"
@@ -505,10 +535,21 @@ def _chamar_gemini_geracao(prompt_final, imagens_referencia=None):
                 "x-goog-api-key": api_key,
                 "Content-Type": "application/json",
             }
-            # Monta parts com as imagens de referência ANTES do texto para ancoragem visual
+            # Monta parts: primeiro fotos do produto (com label), depois refs de layout (com label), depois o prompt
             parts = []
             if imagens_referencia:
+                parts.append({"text": "PRODUCT PHOTOS — recreate this exact product (same color, shape, material, details):"})
                 for img_bytes in imagens_referencia[:3]:
+                    mime = _detectar_mime(img_bytes)
+                    parts.append({
+                        "inlineData": {
+                            "mimeType": mime,
+                            "data": base64.b64encode(img_bytes).decode("utf-8"),
+                        }
+                    })
+            if refs_layout:
+                parts.append({"text": "LAYOUT STYLE REFERENCES — follow the exact composition, text placement, visual zones, and style of these images, applying them to the product above:"})
+                for img_bytes in refs_layout[:2]:
                     mime = _detectar_mime(img_bytes)
                     parts.append({
                         "inlineData": {
@@ -550,26 +591,35 @@ def _chamar_gemini_geracao(prompt_final, imagens_referencia=None):
     return None, "Máximo de tentativas atingido."
 
 
-def gerar_imagem_ia(prompt_texto, imagens_referencia):
+def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None):
     """Gera imagem via Gemini Flash Image Generation (Google AI Studio API).
-    Claude analisa as fotos de referência → cria prompt → Gemini gera imagem."""
-    # 1. Converte o prompt completo + fotos em prompt visual para o Gemini
-    prompt_gemini = _montar_prompt_imagen(prompt_texto, imagens_referencia)
+    Claude analisa as fotos de referência → cria prompt → Gemini gera imagem.
 
-    # Reforça no prompt final: texto em português + imagem nova (não cópia)
+    Args:
+        prompt_texto: Texto com instruções de geração.
+        imagens_referencia: Fotos reais do produto (bytes). Gemini deve recriar fielmente.
+        refs_layout: Imagens de referência de layout/composição (bytes). Apenas estilo/estrutura.
+    """
+    # 1. Converte o prompt completo + fotos em prompt visual para o Gemini
+    prompt_gemini = _montar_prompt_imagen(prompt_texto, imagens_referencia, refs_layout=refs_layout)
+
+    # Reforça no prompt final: texto em português + produto fiel + layout das refs
     prompt_gemini = (
         prompt_gemini +
         "\n\nIMPORTANT — MANDATORY RULES: "
         "(1) ALL text visible in the final image must be in Brazilian Portuguese. "
         "Never render English text inside the image. "
-        "(2) Create a completely NEW, professional studio-quality image. "
-        "Do NOT copy or replicate the reference photos — use them ONLY to recognize the product. "
+        "(2) PRODUCT FIDELITY: Reproduce the product from the PRODUCT PHOTOS exactly — "
+        "same shape, color, material, and details. The product must be recognizable. "
+        "(3) Create a completely NEW, professional studio-quality image — not a photo copy. "
+        "If layout references are provided, follow their composition, element placement, "
+        "and visual structure, applying them to this specific product. "
         "The final image must look like it was produced in a professional photography studio."
     )
 
-    # 2. Chama Gemini Image Generation — passa as fotos de referência diretamente
-    # para que o Gemini use o produto real como âncora visual (não apenas texto)
-    resp, erro_fatal = _chamar_gemini_geracao(prompt_gemini, imagens_referencia)
+    # 2. Chama Gemini Image Generation — passa fotos do produto E refs de layout separadas
+    # para que o Gemini use o produto real como âncora visual e o layout como guia de composição
+    resp, erro_fatal = _chamar_gemini_geracao(prompt_gemini, imagens_referencia, refs_layout=refs_layout)
     if erro_fatal:
         msg = erro_fatal.replace("COTA_ESGOTADA:", "")
         if erro_fatal.startswith("COTA_ESGOTADA:"):
@@ -1380,12 +1430,14 @@ def pagina_imagem(usuario_logado):
                         # Mantém o WebSocket vivo durante a chamada Gemini (30-60s)
                         # enviando atualizações a cada segundo para o Railway não
                         # fechar a conexão por inatividade.
-                        # Combina fotos do produto + refs de layout para o Gemini
-                        todas_fotos = cfg["fotos_bytes"] + cfg.get("refs_layout_bytes", [])
+                        # Passa fotos do produto e refs de layout SEPARADAMENTE para o Gemini
+                        # As fotos do produto são âncora visual; as refs de layout guiam a composição
+                        _refs_layout_arg = cfg.get("refs_layout_bytes") or None
                         _res = {"img": None, "erro": None, "done": False}
                         _thread = _threading.Thread(
                             target=_gerar_imagem_thread,
-                            args=(prompt_final, todas_fotos, _res),
+                            args=(prompt_final, cfg["fotos_bytes"], _res),
+                            kwargs={"refs_layout": _refs_layout_arg},
                             daemon=True,
                         )
                         _thread.start()
