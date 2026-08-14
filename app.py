@@ -1123,8 +1123,8 @@ with st.sidebar:
     _lp = _logo_b64("logo_preto.png")
     _lb = _logo_b64("logo_branco.png")
     st.markdown(
-        f'<img id="ms-logo-preto" src="data:image/png;base64,{_lp}" style="width:100%;max-height:110px;object-fit:contain;margin-top:-32px;margin-bottom:2px;display:block;"/>'
-        f'<img id="ms-logo-branco" src="data:image/png;base64,{_lb}" style="width:100%;max-height:110px;object-fit:contain;margin-top:-32px;margin-bottom:2px;display:block;"/>',
+        f'<img id="ms-logo-preto" src="data:image/png;base64,{_lp}" style="width:100%;max-height:220px;object-fit:contain;margin-top:-32px;margin-bottom:10px;display:block;"/>'
+        f'<img id="ms-logo-branco" src="data:image/png;base64,{_lb}" style="width:100%;max-height:220px;object-fit:contain;margin-top:-32px;margin-bottom:10px;display:block;"/>',
         unsafe_allow_html=True
     )
     _col_user, _col_sair = st.columns([3, 1])
