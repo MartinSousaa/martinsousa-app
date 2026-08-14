@@ -26,7 +26,7 @@ def _aba():
     planilha = cliente.open(PLANILHA_NOME)
     try:
         aba = planilha.worksheet(ABA_NOME)
-        # Garante que colunas novas existem no cabeÃ§alho sem apagar dados
+        # Garante que colunas novas existem no cabeçalho sem apagar dados
         cabecalho = aba.row_values(1)
         for col in COLUNAS:
             if col not in cabecalho:
@@ -76,14 +76,14 @@ def carregar_atividades():
 
 
 def buscar_por_codigo(codigo):
-    """Retorna o dict de dados da Ãºltima atividade de DescriÃ§Ã£o com esse cÃ³digo,
-    ou None se nÃ£o encontrar. Usado pelo mÃ³dulo de Imagem."""
+    """Retorna o dict de dados da última atividade de Descrição com esse código,
+    ou None se não encontrar. Usado pelo módulo de Imagem."""
     try:
         df = carregar_atividades()
         if df.empty or "codigo" not in df.columns:
             return None
         mask = (df["codigo"].astype(str).str.strip() == str(codigo).strip()) & \
-               (df["tipo"].str.contains("DescriÃ§Ã£o", case=False, na=False))
+               (df["tipo"].str.contains("Descrição", case=False, na=False))
         encontrados = df[mask]
         if encontrados.empty:
             return None
@@ -107,26 +107,26 @@ def buscar_por_codigo(codigo):
 
 
 def pagina_historico():
-    st.subheader("HistÃ³rico de Atividades")
+    st.subheader("Histórico de Atividades")
 
     try:
         df = carregar_atividades()
     except Exception as e:
-        st.error(f"NÃ£o consegui carregar o histÃ³rico: {e}")
+        st.error(f"Não consegui carregar o histórico: {e}")
         return
 
     if df.empty:
         st.info("Nenhuma atividade registrada ainda.")
         return
 
-    # ââ FILTROS ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    # ── FILTROS ────────────────────────────────────────────────────────────────
     col_busca, col_filtro = st.columns([3, 1])
     busca = col_busca.text_input(
-        "ð Buscar por produto ou cÃ³digo",
+        "🔍 Buscar por produto ou código",
         placeholder="ex: Bengala, MS-BENG-..."
     )
     usuarios_disponiveis = ["Todos"] + sorted(df["usuario"].dropna().unique().tolist())
-    filtro_usuario = col_filtro.selectbox("UsuÃ¡rio", usuarios_disponiveis)
+    filtro_usuario = col_filtro.selectbox("Usuário", usuarios_disponiveis)
 
     df_exibir = df.copy()
     if filtro_usuario != "Todos":
@@ -146,8 +146,8 @@ def pagina_historico():
     # mais recente primeiro
     df_exibir = df_exibir.iloc[::-1].reset_index(drop=True)
 
-    # ââ AGRUPAMENTO POR PRODUTO + CÃDIGO ââââââââââââââââââââââââââââââââââââââ
-    # Chave de grupo: cÃ³digo (se tiver) ou nome do produto
+    # ── AGRUPAMENTO POR PRODUTO + CÓDIGO ──────────────────────────────────────
+    # Chave de grupo: código (se tiver) ou nome do produto
     def _chave_grupo(row):
         cod = str(row.get("codigo", "")).strip()
         prod = str(row.get("produto", "sem produto")).strip()
@@ -158,7 +158,7 @@ def pagina_historico():
     # Ordem dos grupos: pelo timestamp mais recente de cada grupo
     ordem_grupos = df_exibir.groupby("_grupo")["data_hora"].max().sort_values(ascending=False).index.tolist()
 
-    # Extrai ID do Drive para thumbnail â definida fora do loop (evita redefiniÃ§Ã£o)
+    # Extrai ID do Drive para thumbnail — definida fora do loop (evita redefinição)
     import re as _re_hist
     def _thumb_url(drive_link):
         m = _re_hist.search(r'/d/([a-zA-Z0-9_-]+)', drive_link or "")
@@ -173,91 +173,91 @@ def pagina_historico():
         grupo = df_exibir[df_exibir["_grupo"] == chave].copy()
 
         # Metadados do grupo
-        produto_nome = grupo["produto"].dropna().iloc[0] if not grupo["produto"].dropna().empty else "â"
+        produto_nome = grupo["produto"].dropna().iloc[0] if not grupo["produto"].dropna().empty else "—"
         codigos = grupo["codigo"].astype(str).str.strip().replace("", None).dropna().unique().tolist()
         codigo_principal = codigos[0] if codigos else ""
         usuarios_grupo = sorted(grupo["usuario"].dropna().unique().tolist())
         data_ultima = grupo["data_hora"].max()
         n_atividades = len(grupo)
 
-        # ââ Label de tipo de atividade (Ã­cones por etapa)
+        # ── Label de tipo de atividade (ícones por etapa)
         tipos_presentes = grupo["tipo"].dropna().unique().tolist()
         icones = []
         for t in tipos_presentes:
             tl = t.lower()
-            if "descriÃ§" in tl:  icones.append("ð")
-            elif "imagem" in tl: icones.append("ð¼ï¸")
-            elif "ajuste" in tl: icones.append("âï¸")
-            elif "tÃ­tulo" in tl: icones.append("ð¤")
-            elif "palavra" in tl: icones.append("ð")
-            elif "viab" in tl:   icones.append("ð")
-            else:                icones.append("ð")
-        etapas_str = " ".join(dict.fromkeys(icones))  # sem duplicatas, mantÃ©m ordem
+            if "descriç" in tl:  icones.append("📝")
+            elif "imagem" in tl: icones.append("🖼️")
+            elif "ajuste" in tl: icones.append("✏️")
+            elif "título" in tl: icones.append("🔤")
+            elif "palavra" in tl: icones.append("🔍")
+            elif "viab" in tl:   icones.append("📊")
+            else:                icones.append("📌")
+        etapas_str = " ".join(dict.fromkeys(icones))  # sem duplicatas, mantém ordem
 
-        # ââ Link do Drive (mais recente)
+        # ── Link do Drive (mais recente)
         link_pasta_vals = grupo["link_pasta"].astype(str).str.strip().replace("", None).dropna()
         link_pasta = link_pasta_vals.iloc[-1] if not link_pasta_vals.empty else ""
 
-        # ââ Capa (imagem gerada mais recente, se houver link_capa no grupo)
+        # ── Capa (imagem gerada mais recente, se houver link_capa no grupo)
         link_capa_vals = grupo["link_capa"].astype(str).str.strip().replace("", None).dropna()
         link_capa = link_capa_vals.iloc[-1] if not link_capa_vals.empty else ""
 
-        # ââ Detalhes rÃ¡pidos (cor, medidas)
+        # ── Detalhes rápidos (cor, medidas)
         cor_val   = grupo["cor"].astype(str).str.strip().replace("", None).dropna()
         med_val   = grupo["medidas"].astype(str).str.strip().replace("", None).dropna()
 
-        # ââ Header do card ââââââââââââââââââââââââââââââââââââââââââââââââââââ
+        # ── Header do card ────────────────────────────────────────────────────
         label_expander = (
             f"{etapas_str}  **{produto_nome}**"
-            + (f"  Â·  `{codigo_principal}`" if codigo_principal else "")
-            + f"  Â·  {n_atividades} etapa(s)"
-            + f"  Â·  {', '.join(usuarios_grupo)}"
-            + f"  Â·  {data_ultima}"
+            + (f"  ·  `{codigo_principal}`" if codigo_principal else "")
+            + f"  ·  {n_atividades} etapa(s)"
+            + f"  ·  {', '.join(usuarios_grupo)}"
+            + f"  ·  {data_ultima}"
         )
 
         with st.expander(label_expander, expanded=False):
             # Thumbnail da imagem + metadados lado a lado
-            # Sempre cria as 2 colunas (estrutura fixa â evita RemoveChild do React)
+            # Sempre cria as 2 colunas (estrutura fixa — evita RemoveChild do React)
             _col_thumb, _col_meta = st.columns([1, 4])
             thumb = _thumb_url(link_capa)
             if thumb:
                 _col_thumb.image(thumb, use_container_width=True)
             else:
-                _col_thumb.empty()  # placeholder fixo â mantÃ©m estrutura DOM estÃ¡vel
+                _col_thumb.empty()  # placeholder fixo — mantém estrutura DOM estável
 
             meta = []
-            if cor_val.any():    meta.append(f"ð¨ **Cor:** {cor_val.iloc[0]}")
-            if med_val.any():    meta.append(f"ð **Medidas:** {med_val.iloc[0]}")
-            if codigo_principal: meta.append(f"ð **CÃ³digo:** `{codigo_principal}`")
-            _col_meta.caption("  Â·  ".join(meta) if meta else "")
+            if cor_val.any():    meta.append(f"🎨 **Cor:** {cor_val.iloc[0]}")
+            if med_val.any():    meta.append(f"📐 **Medidas:** {med_val.iloc[0]}")
+            if codigo_principal: meta.append(f"📋 **Código:** `{codigo_principal}`")
+            _col_meta.caption("  ·  ".join(meta) if meta else "")
 
             st.markdown("---")
 
             # Lista de etapas (mais recente primeiro)
             for _, row in grupo.iterrows():
                 resumo_txt = str(row.get("resumo", "")).strip()
-                resumo_curto = resumo_txt[:120] + ("â¦" if len(resumo_txt) > 120 else "")
+                resumo_curto = resumo_txt[:120] + ("…" if len(resumo_txt) > 120 else "")
                 col_d, col_u, col_t, col_r = st.columns([2, 1, 2, 4])
                 col_d.caption(str(row.get("data_hora", "")))
                 col_u.caption(str(row.get("usuario", "")))
                 col_t.markdown(f"**{row.get('tipo', '')}**")
-                col_r.caption(resumo_curto or "â")
+                col_r.caption(resumo_curto or "—")
 
             st.markdown("---")
 
-            # AÃ§Ãµes do card â colunas sempre renderizadas (estrutura fixa)
+            # Ações do card — colunas sempre renderizadas (estrutura fixa)
             col_drive, col_btn = st.columns([1, 1])
-            col_drive.markdown(f"[ð Abrir pasta no Drive]({link_pasta})" if link_pasta else "")
+            col_drive.markdown(f"[📁 Abrir pasta no Drive]({link_pasta})" if link_pasta else "")
             if codigo_principal:
                 if col_btn.button(
-                    "ð Usar este cÃ³digo na aba Imagem",
+                    "📋 Usar este código na aba Imagem",
                     key=f"usar_cod_{chave}",
                     use_container_width=True,
                 ):
                     st.session_state["img_codigo_importado"] = codigo_principal
                     st.session_state["img_nome_importado"] = produto_nome
                     # Armazena msg para renderizar FORA do expander (evita RemoveChild)
-                    st.session_state["_hist_msg_sucesso"] = f"CÃ³digo **{codigo_principal}** copiado! VÃ¡ para a aba Imagem."
+                    st.session_state["_hist_msg_sucesso"] = f"Código **{codigo_principal}** copiado! Vá para a aba Imagem."
                     st.rerun()
             else:
                 col_btn.empty()  # placeholder fixo
