@@ -6,11 +6,7 @@ Responsabilidades:
   2. UI Streamlit para registro de: entrada, saída almoço, volta almoço, fim expediente, ausência
   3. Calcular: horas disponíveis, ociosidade e tolerâncias utilizadas por colaborador/dia
   4. Prover dados exportáveis para analise_metas.py
-
-CONECTOR FUTURO:
-  Quando o sistema de ponto da empresa for identificado, basta implementar
-  _carregar_externo() e definir FONTE_PONTO = "api" em secrets.toml.
-  A API interna (_get_registros, _salvar_registro) continua a mesma.
+  5. [MASTER ONLY] Relatório RHiD: atrasos, desempenho, banco de horas e ociosidade via API
 """
 
 import streamlit as st
@@ -20,6 +16,7 @@ from datetime import datetime, date, time, timedelta
 from typing import Optional
 
 import placar_core as _pc
+import rhid_api as _rhid
 
 # ── Constantes ─────────────────────────────────────────────────────────────────
 MEMBROS = _pc.MEMBROS_ATIVOS          # {"username": "Nome", ...}
@@ -594,6 +591,292 @@ def get_ociosidade_mes(ano: int, mes: int, tempo_cards_por_user: dict) -> dict:
     return resultado
 
 
+# ── Relatório RHiD (só para masters) ──────────────────────────────────────────
+
+# Mapeamento nome RHiD → username Trello (ajuste conforme nomes cadastrados na RHiD)
+_RHID_TRELLO_MAP = {
+    "myrella":      "myrelladesouza",
+    "beatriz":      "beatriz51",
+    "gabriel":      "gabriel_borges",
+    "martinsousa":  "martinsousa",
+    "martin":       "martinsousa",
+}
+
+# Horas esperadas por dia (em minutos)
+_JORNADA_MINUTOS = 8 * 60  # 480 min = 8h
+
+
+def _rhid_nome_para_trello(nome: str) -> Optional[str]:
+    """Tenta mapear nome da RHiD para username Trello."""
+    chave = nome.lower().split()[0]  # primeiro nome
+    return _RHID_TRELLO_MAP.get(chave)
+
+
+def _cor_atraso(min_atraso: float) -> str:
+    if min_atraso <= 0:
+        return "#1BAF7A"   # verde — no horário
+    if min_atraso <= 15:
+        return "#EDA100"   # amarelo — tolerável
+    return "#E34948"       # vermelho — atraso relevante
+
+
+def _cor_banco(saldo_min: float) -> str:
+    if saldo_min >= 0:
+        return "#1BAF7A"
+    if saldo_min >= -60:
+        return "#EDA100"
+    return "#E34948"
+
+
+def _secao_relatorio_rhid():
+    """
+    Relatório de ponto via RHiD API — exclusivo para masters.
+    Mostra: atrasos, desempenho, banco de horas e ociosidade por colaborador.
+    """
+    # ── Seletor de período ────────────────────────────────────────────────────
+    hoje = date.today()
+    col_ini, col_fim, col_btn = st.columns([1, 1, 1])
+    data_ini = col_ini.date_input(
+        "De", value=hoje.replace(day=1), max_value=hoje, key="rhid_ini"
+    )
+    data_fim = col_fim.date_input(
+        "Até", value=hoje, min_value=data_ini, max_value=hoje, key="rhid_fim"
+    )
+
+    # Limite da API: máximo 90 dias
+    if (data_fim - data_ini).days > 90:
+        st.error("⚠️ O intervalo máximo permitido pela API RHiD é 90 dias.")
+        return
+
+    atualizar = col_btn.button("🔄 Atualizar", use_container_width=True, key="rhid_atualizar")
+
+    str_ini = data_ini.isoformat()
+    str_fim = data_fim.isoformat()
+
+    # ── Carrega colaboradores ─────────────────────────────────────────────────
+    with st.spinner("Conectando à RHiD…"):
+        token = _rhid.get_token()
+
+    if not token:
+        erro = st.session_state.get("rhid_login_error", "Erro desconhecido")
+        st.error(f"❌ Não foi possível autenticar na RHiD: **{erro}**")
+        st.caption("Verifique se `[rhid]` está configurado nos secrets do Railway.")
+        if st.button("🔁 Tentar novamente", key="rhid_retry"):
+            _rhid.invalidar_token()
+            st.rerun()
+        return
+
+    persons = _rhid.get_persons()
+    if not persons:
+        st.warning("Nenhum colaborador encontrado na RHiD.")
+        return
+
+    # Filtra apenas colaboradores ativos
+    persons_ativos = [p for p in persons if str(p.get("status", "1")) != "0"]
+
+    st.caption(
+        f"✅ Conectado à RHiD · {len(persons_ativos)} colaborador(es) · "
+        f"Período: {data_ini.strftime('%d/%m')} a {data_fim.strftime('%d/%m/%Y')}"
+    )
+
+    # ── Busca apuração para cada colaborador ──────────────────────────────────
+    dias_uteis = max(sum(
+        1 for d in range((data_fim - data_ini).days + 1)
+        if (data_ini + timedelta(days=d)).weekday() < 5
+    ), 1)
+
+    resultados = []
+
+    prog = st.progress(0, text="Buscando dados de ponto…")
+    for i, p in enumerate(persons_ativos):
+        prog.progress((i + 1) / len(persons_ativos), text=f"Buscando: {p.get('name', '?')}")
+        apuracao = _rhid.get_apuracao(str_ini, str_fim, int(p["id"]))
+
+        # Extrai campos da apuração (estrutura pode variar entre versões da API)
+        if apuracao and not apuracao.get("_raw"):
+            # Campos comuns em APIs de ponto RHiD/ControlID
+            horas_trab_min  = float(apuracao.get("horasTrabalhadas", apuracao.get("workedMinutes", 0)) or 0)
+            banco_min       = float(apuracao.get("bancoHoras",        apuracao.get("bankMinutes",   0)) or 0)
+            total_atrasos   = float(apuracao.get("totalAtrasos",      apuracao.get("lateMinutes",    0)) or 0)
+            dias_presentes  = int(  apuracao.get("diasPresentes",     apuracao.get("workedDays",     0)) or 0)
+            dias_ausentes   = int(  apuracao.get("diasAusentes",      apuracao.get("absentDays",     0)) or 0)
+
+            # Se a API retornar tudo zero mas com dados brutos, tenta interpretar
+            if horas_trab_min == 0 and isinstance(apuracao, dict):
+                # Pode ser uma lista de registros diários
+                registros = apuracao.get("registros", apuracao.get("records", apuracao.get("data", [])))
+                if isinstance(registros, list) and registros:
+                    for reg in registros:
+                        horas_trab_min += float(reg.get("horasTrabalhadas", reg.get("workedMinutes", 0)) or 0)
+                        banco_min      += float(reg.get("bancoHoras", reg.get("bankBalance", 0)) or 0)
+                        total_atrasos  += float(reg.get("atraso", reg.get("lateMinutes", 0)) or 0)
+                    dias_presentes = len([r for r in registros if not r.get("ausente", False)])
+                    dias_ausentes  = len([r for r in registros if r.get("ausente", False)])
+        else:
+            horas_trab_min = 0
+            banco_min      = 0
+            total_atrasos  = 0
+            dias_presentes = 0
+            dias_ausentes  = 0
+            apuracao       = apuracao or {}
+
+        # Desempenho = horas trabalhadas / horas esperadas no período
+        horas_esperadas = dias_uteis * _JORNADA_MINUTOS
+        desempenho_pct  = (horas_trab_min / horas_esperadas * 100) if horas_esperadas > 0 else 0
+
+        # Mapeamento para Trello
+        trello_user = _rhid_nome_para_trello(p.get("name", ""))
+
+        resultados.append({
+            "id":            p["id"],
+            "nome":          p.get("name", "—"),
+            "trello_user":   trello_user,
+            "horas_min":     horas_trab_min,
+            "banco_min":     banco_min,
+            "atraso_min":    total_atrasos,
+            "dias_pres":     dias_presentes,
+            "dias_aus":      dias_ausentes,
+            "desempenho":    desempenho_pct,
+            "apuracao_raw":  apuracao,
+        })
+
+    prog.empty()
+
+    if not resultados:
+        st.info("Nenhum dado de apuração retornado pela API.")
+        return
+
+    # ── Painel de cards por colaborador ──────────────────────────────────────
+    st.markdown("---")
+    st.markdown("#### 👥 Resumo por Colaborador")
+
+    for r in sorted(resultados, key=lambda x: x["nome"]):
+        nome         = r["nome"]
+        horas_str    = _rhid.fmt_horas(r["horas_min"])
+        banco_str    = _rhid.fmt_banco(r["banco_min"])
+        atraso_str   = _rhid.fmt_horas(r["atraso_min"]) if r["atraso_min"] > 0 else "Nenhum"
+        desemp_str   = f"{r['desempenho']:.0f}%"
+        cor_atraso   = _cor_atraso(r["atraso_min"])
+        cor_banco    = _cor_banco(r["banco_min"])
+        cor_desemp   = "#1BAF7A" if r["desempenho"] >= 90 else ("#EDA100" if r["desempenho"] >= 70 else "#E34948")
+
+        with st.expander(f"**{nome}** — {horas_str} trabalhadas · {desemp_str} desempenho", expanded=False):
+            cols = st.columns(4)
+            cols[0].metric("⏱️ Horas trab.", horas_str)
+            cols[1].metric(
+                "🏦 Banco de horas",
+                banco_str,
+                delta=None,
+                help="Saldo positivo = banco a favor · negativo = débito"
+            )
+            cols[2].metric(
+                "⏰ Atrasos",
+                atraso_str,
+                delta=None,
+                help="Total de minutos de atraso no período"
+            )
+            cols[3].metric(
+                "📊 Desempenho",
+                desemp_str,
+                help=f"Horas trabalhadas / horas esperadas ({dias_uteis} dias úteis × 8h)"
+            )
+
+            # Dias
+            st.markdown(
+                f'<div style="display:flex;gap:20px;font-size:11px;color:var(--ms-texto-sec);margin-top:4px;">'
+                f'<span>✅ Dias presentes: <b style="color:var(--ms-texto);">{r["dias_pres"]}</b></span>'
+                f'<span>⛔ Ausências: <b style="color:{"#E34948" if r["dias_aus"]>0 else "var(--ms-texto)"};">{r["dias_aus"]}</b></span>'
+                f'</div>',
+                unsafe_allow_html=True
+            )
+
+            # Ociosidade via Trello (se mapeado)
+            if r["trello_user"] and r["horas_min"] > 0:
+                st.markdown("---")
+                st.caption("🔗 Cruzamento com Trello")
+                _calcular_ociosidade_trello(r["trello_user"], r["nome"], str_ini, str_fim, r["horas_min"])
+
+            # Debug: resposta bruta da API (para ajuste do parse)
+            with st.expander("🔧 Dados brutos da API (debug)", expanded=False):
+                st.json(r["apuracao_raw"])
+
+
+def _calcular_ociosidade_trello(trello_user: str, nome: str, data_ini: str, data_fim: str, horas_min: float):
+    """
+    Estima ociosidade cruzando horas trabalhadas (RHiD) com atividade Trello.
+    Usa a função de análise de metas existente para buscar tempo em cards.
+    """
+    try:
+        import placar_core as _pc
+        import requests as _req
+
+        key   = _pc.TRELLO_KEY
+        token = _pc.TRELLO_TOKEN
+        board = _pc.BOARD_ID
+
+        # Busca membros do board para encontrar idMember do usuário
+        resp = _req.get(
+            f"https://api.trello.com/1/boards/{board}/members",
+            params={"key": key, "token": token},
+            timeout=10,
+        )
+        membros = resp.json() if resp.ok else []
+        id_member = next(
+            (m["id"] for m in membros if m.get("username", "").lower() == trello_user.lower()),
+            None
+        )
+
+        if not id_member:
+            st.caption(f"⚠️ Usuário Trello '{trello_user}' não encontrado no board.")
+            return
+
+        # Busca ações do membro no período
+        ini_dt = datetime.fromisoformat(data_ini)
+        fim_dt = datetime.fromisoformat(data_fim) + timedelta(days=1)
+
+        resp2 = _req.get(
+            f"https://api.trello.com/1/members/{id_member}/actions",
+            params={
+                "key": key, "token": token,
+                "filter": "updateCard,createCard,commentCard,moveCardToBoard",
+                "since": ini_dt.strftime("%Y-%m-%dT00:00:00.000Z"),
+                "before": fim_dt.strftime("%Y-%m-%dT00:00:00.000Z"),
+                "limit": 1000,
+            },
+            timeout=15,
+        )
+        acoes = resp2.json() if resp2.ok else []
+
+        # Conta dias com atividade e estima tempo ativo (1 ação = ~5min de trabalho ativo)
+        dias_com_atividade = len({a["date"][:10] for a in acoes})
+        acoes_total        = len(acoes)
+        tempo_ativo_est    = min(acoes_total * 5, horas_min)  # cap nas horas trabalhadas
+        ociosidade_est     = max(horas_min - tempo_ativo_est, 0)
+        pct_ocioso         = (ociosidade_est / horas_min * 100) if horas_min > 0 else 0
+
+        cor_ocio = "#1BAF7A" if pct_ocioso < 20 else ("#EDA100" if pct_ocioso < 40 else "#E34948")
+
+        cols = st.columns(3)
+        cols[0].metric("📋 Ações no Trello", f"{acoes_total}")
+        cols[1].metric("📅 Dias com atividade", f"{dias_com_atividade}")
+        cols[2].metric(
+            "😴 Ociosidade estimada",
+            _rhid.fmt_horas(ociosidade_est),
+            delta=f"{pct_ocioso:.0f}% do tempo",
+            delta_color="inverse",
+            help="Estimativa: tempo trabalhado (RHiD) menos tempo com atividade no Trello"
+        )
+
+        if pct_ocioso > 30:
+            st.warning(
+                f"⚠️ **{nome}** ficou ~{pct_ocioso:.0f}% do tempo sem atividade registrada no Trello "
+                f"durante o período trabalhado."
+            )
+
+    except Exception as e:
+        st.caption(f"Não foi possível calcular ociosidade Trello: {e}")
+
+
 # ── Página principal ────────────────────────────────────────────────────────────
 
 def pagina_ponto(usuario_logado: str):
@@ -606,9 +889,23 @@ def pagina_ponto(usuario_logado: str):
         "ociosidade por colaborador e alertar sobre sobrecarga em caso de ausência."
     )
 
-    tab_hoje, tab_registro, tab_historico = st.tabs(
-        ["📡 Status Hoje", "✏️ Registrar", "📋 Histórico Mensal"]
-    )
+    if eh_master:
+        tab_relatorio, tab_hoje, tab_registro, tab_historico = st.tabs(
+            ["📊 Relatório RHiD", "📡 Status Hoje", "✏️ Registrar", "📋 Histórico Mensal"]
+        )
+    else:
+        tab_hoje, tab_registro, tab_historico = st.tabs(
+            ["📡 Status Hoje", "✏️ Registrar", "📋 Histórico Mensal"]
+        )
+
+    if eh_master:
+        with tab_relatorio:
+            st.markdown("#### 📊 Relatório de Ponto — RHiD")
+            st.caption(
+                "Dados obtidos diretamente do sistema RHiD. "
+                "Ociosidade calculada cruzando horas registradas com atividade no Trello."
+            )
+            _secao_relatorio_rhid()
 
     with tab_hoje:
         st.markdown("#### Status atual da equipe")
