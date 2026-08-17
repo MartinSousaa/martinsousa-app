@@ -177,7 +177,7 @@ section[data-testid="stSidebar"] > div:first-child {
 /* O último stVerticalBlockBorderWrapper (container do chat) cresce para preencher */
 [data-testid="stSidebarUserContent"] [data-testid="stVerticalBlockBorderWrapper"]:last-of-type {
     flex: 1 !important;
-    min-height: calc(100vh - 250px) !important;
+    min-height: calc(100vh - 130px) !important;
     display: flex !important;
     flex-direction: column !important;
 }
