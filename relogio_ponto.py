@@ -678,6 +678,13 @@ def _secao_relatorio_rhid():
         if st.button("🔁 Recarregar colaboradores", key="rhid_reload_persons"):
             _rhid.get_persons.clear()
             st.rerun()
+        # Debug: mostra resposta bruta da API
+        debug_info = st.session_state.get("rhid_persons_debug")
+        if debug_info:
+            with st.expander("🔧 Debug — resposta bruta da API /person", expanded=True):
+                st.json(debug_info)
+        else:
+            st.caption("ℹ️ Clique em Atualizar para carregar debug da API.")
         return
 
     # Filtra apenas colaboradores ativos

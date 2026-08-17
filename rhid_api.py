@@ -119,12 +119,30 @@ def get_persons() -> list[dict]:
         )
         resp.raise_for_status()
         data = resp.json()
+        # Guarda resposta bruta para debug
+        try:
+            st.session_state["rhid_persons_debug"] = {
+                "status": resp.status_code,
+                "data_type": type(data).__name__,
+                "data_preview": str(data)[:500],
+            }
+        except Exception:
+            pass
         if isinstance(data, dict):
-            return data.get("records", data.get("data", []))
+            # Tenta várias chaves comuns da API RHiD
+            for key in ("records", "data", "persons", "colaboradores", "items", "content"):
+                if key in data and isinstance(data[key], list):
+                    return data[key]
+            # Se o dict em si parece uma lista de pessoas (chaves são IDs numéricos)
+            return list(data.values()) if data else []
         if isinstance(data, list):
             return data
         return []
     except Exception as e:
+        try:
+            st.session_state["rhid_persons_debug"] = {"erro": str(e)}
+        except Exception:
+            pass
         return []
 
 
