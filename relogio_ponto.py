@@ -672,6 +672,13 @@ def _secao_relatorio_rhid():
             st.rerun()
         return
 
+    # Debug: mostra resposta completa do login para diagnóstico
+    login_data = st.session_state.get("rhid_login_data")
+    if login_data:
+        with st.expander("🔧 Debug — resposta do login RHiD", expanded=False):
+            import json as _json
+            st.code(_json.dumps(login_data, indent=2, default=str)[:2000])
+
     persons = _rhid.get_persons()
     if not persons:
         st.warning("Nenhum colaborador encontrado na RHiD.")
