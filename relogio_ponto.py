@@ -730,15 +730,36 @@ def _secao_relatorio_rhid():
 
             # Se a API retornar tudo zero mas com dados brutos, tenta interpretar
             if horas_trab_min == 0 and isinstance(apuracao, dict):
-                # Pode ser uma lista de registros diários
+                # Pode ser uma lista de registros diários (RHiD retorna um por dia)
                 registros = apuracao.get("registros", apuracao.get("records", apuracao.get("data", [])))
                 if isinstance(registros, list) and registros:
                     for reg in registros:
-                        horas_trab_min += float(reg.get("horasTrabalhadas", reg.get("workedMinutes", 0)) or 0)
-                        banco_min      += float(reg.get("bancoHoras", reg.get("bankBalance", 0)) or 0)
-                        total_atrasos  += float(reg.get("atraso", reg.get("lateMinutes", 0)) or 0)
-                    dias_presentes = len([r for r in registros if not r.get("ausente", False)])
-                    dias_ausentes  = len([r for r in registros if r.get("ausente", False)])
+                        # totalHorasTrabalhadas = minutos trabalhados no dia (campo nativo RHiD)
+                        horas_trab_min += float(
+                            reg.get("totalHorasTrabalhadas",
+                            reg.get("horasTrabalhadas",
+                            reg.get("workedMinutes", 0))) or 0
+                        )
+                        banco_min      += float(
+                            reg.get("saldoBancoCredDeb",
+                            reg.get("bancoHoras",
+                            reg.get("bankBalance", 0))) or 0
+                        )
+                        total_atrasos  += float(
+                            reg.get("minutosAtraso",
+                            reg.get("apenasAtraso",
+                            reg.get("atraso",
+                            reg.get("lateMinutes", 0)))) or 0
+                        )
+                    # Dias presentes: registros onde houve trabalho (totalHorasTrabalhadas > 0)
+                    dias_presentes = len([
+                        r for r in registros
+                        if float(r.get("totalHorasTrabalhadas", r.get("horasTrabalhadas", 0)) or 0) > 0
+                    ])
+                    dias_ausentes = len([
+                        r for r in registros
+                        if int(r.get("faltasDiasInteiro", r.get("ausente", 0)) or 0) > 0
+                    ])
         else:
             horas_trab_min = 0
             banco_min      = 0

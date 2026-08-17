@@ -197,7 +197,18 @@ def get_apuracao(data_ini: str, data_final: str, id_person: int) -> Optional[dic
                 return data
             if isinstance(data, list):
                 return {"records": data, "_status": resp.status_code}
-            # String ou outro tipo primitivo — trata como raw
+            # A RHiD pode retornar a lista serializada como string JSON dupla
+            if isinstance(data, str):
+                import json as _json
+                try:
+                    inner = _json.loads(data)
+                    if isinstance(inner, list):
+                        return {"records": inner, "_status": resp.status_code}
+                    if isinstance(inner, dict):
+                        return inner
+                except (ValueError, TypeError):
+                    pass
+            # Outro tipo primitivo — preserva raw para debug
             return {"_raw": str(data), "_status": resp.status_code}
         except ValueError:
             # Resposta não é JSON (ex.: string pura ou CSV)
