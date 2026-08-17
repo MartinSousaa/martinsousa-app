@@ -432,7 +432,18 @@ body.tema-claro [data-testid="stFileUploaderDropzone"] button {
 }
 /* Sem file uploader no chat sidebar — CSS removido */
 
-/* Remove apenas o avatar do usuário no st.chat_input (oval preto) */
+/* Remove o oval preto do chat_input — sobrescreve background escuro padrão do Streamlit */
+[data-testid="stSidebar"] [data-testid="stChatInput"] > div:first-child {
+    background-color: var(--ms-input) !important;
+    border: 1px solid var(--ms-borda) !important;
+}
+/* Garante que o textarea interno também use o mesmo background */
+[data-testid="stSidebar"] [data-testid="stChatInput"] [data-baseweb="textarea"],
+[data-testid="stSidebar"] [data-testid="stChatInput"] [data-baseweb="base-input"],
+[data-testid="stSidebar"] [data-testid="stChatInputTextArea"] {
+    background-color: var(--ms-input) !important;
+}
+/* Mantém compatibilidade: avatar do usuário oculto (caso exista em outras versões) */
 [data-testid="stSidebar"] [data-testid="chatAvatarIcon-user"] {
     display: none !important;
 }
