@@ -431,7 +431,7 @@ def renderizar_chat(usuario_logado=""):
         )
 
         # ── Área de mensagens com scroll ──────────────────────────────────────
-        with st.container(height=420, border=False):
+        with st.container(height=340, border=False):
             if not hist:
                 with st.chat_message("assistant"):
                     st.markdown(f"Olá **{nome_exib}**, como posso ajudar?")

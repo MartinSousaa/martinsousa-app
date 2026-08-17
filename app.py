@@ -432,6 +432,23 @@ body.tema-claro [data-testid="stFileUploaderDropzone"] button {
 }
 /* Sem file uploader no chat sidebar — CSS removido */
 
+/* Remove o oval/avatar preto à esquerda do st.chat_input */
+[data-testid="stSidebar"] [data-testid="stChatInput"] > div > div:first-child,
+[data-testid="stSidebar"] [data-testid="stChatInputContainer"] > div:first-child,
+[data-testid="stSidebar"] .stChatInput > div > div:first-child {
+    display: none !important;
+}
+/* Remove margem/padding desnecessários ao redor do chat input no sidebar */
+[data-testid="stSidebar"] [data-testid="stChatInput"],
+[data-testid="stSidebar"] [data-testid="stChatInputContainer"] {
+    padding: 0 !important;
+    margin: 0 !important;
+}
+/* Remove espaço vazio abaixo do container do chat no sidebar */
+[data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"]:last-child {
+    margin-bottom: 0 !important;
+}
+
 /* ── BOTÃO TOGGLE DE TEMA ───────────────────────────────────────────────── */
 #ms-tema-toggle {
   position: fixed !important; top: 14px !important; right: 16px !important;
