@@ -419,7 +419,7 @@ def renderizar_chat(usuario_logado=""):
 
     # Nome de exibição: primeiro nome em maiúscula
     partes = usuario_logado.split() if usuario_logado else []
-    nome_exib = partes[0].capitalize() if partes else "você"
+    nome_exib = partes[0] if partes else "você"
 
     # ── Container que agrupa visualmente todo o chat ──────────────────────────
     with st.container(border=True):

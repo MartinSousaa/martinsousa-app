@@ -125,11 +125,11 @@ html { zoom: 0.9; }
 }
 [data-testid="stSidebar"] * { color: var(--ms-texto) !important; }
 
-/* Logo rente ao topo — remove padding do sidebar */
+/* Layout do sidebar — chat preenche o espaço restante */
 section[data-testid="stSidebar"] > div:first-child {
     padding-top: 0 !important;
     height: 100vh !important;
-    overflow-y: auto !important;
+    overflow-y: hidden !important;
     display: flex !important;
     flex-direction: column !important;
 }
@@ -137,16 +137,55 @@ section[data-testid="stSidebar"] > div:first-child {
     padding-top: 0 !important;
     flex: 1 !important;
     min-height: 0 !important;
-    overflow: visible !important;
+    overflow: hidden !important;
     display: flex !important;
     flex-direction: column !important;
 }
-[data-testid="stSidebarContent"] > div:first-child {
+/* stSidebarHeader (área interna do Streamlit) — minimiza para não roubar espaço */
+[data-testid="stSidebarHeader"] {
+    flex: 0 0 auto !important;
+    padding: 0 !important;
+    min-height: 0 !important;
+}
+[data-testid="stLogoSpacer"] { display: none !important; }
+/* stSidebarUserContent — cresce para preencher tudo abaixo do header */
+[data-testid="stSidebarUserContent"] {
+    flex: 1 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+    padding-top: 0 !important;
+}
+[data-testid="stSidebarUserContent"] > div {
+    flex: 1 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    min-height: 0 !important;
+}
+[data-testid="stSidebarUserContent"] [data-testid="stVerticalBlock"] {
+    flex: 1 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    min-height: 0 !important;
+    gap: 0 !important;
+}
+/* O último stVerticalBlockBorderWrapper (container do chat) cresce para preencher */
+[data-testid="stSidebarUserContent"] [data-testid="stVerticalBlockBorderWrapper"]:last-of-type {
     flex: 1 !important;
     min-height: 0 !important;
     display: flex !important;
     flex-direction: column !important;
-    overflow: visible !important;
+}
+[data-testid="stSidebarUserContent"] [data-testid="stVerticalBlockBorderWrapper"]:last-of-type > div {
+    flex: 1 !important;
+    min-height: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+}
+[data-testid="stSidebarUserContent"] [data-testid="stVerticalBlockBorderWrapper"]:last-of-type [data-testid="stVerticalBlock"] {
+    flex: 1 !important;
+    min-height: 0 !important;
 }
 
 /* ── Sidebar: largura fixa 360px (sem JS) ───────────────────────────────── */
@@ -1111,8 +1150,8 @@ with st.sidebar:
     _lp = _logo_b64("logo_preto.png")
     _lb = _logo_b64("logo_branco.png")
     st.markdown(
-        f'<img id="ms-logo-preto" src="data:image/png;base64,{_lp}" style="width:100%;max-height:160px;object-fit:contain;margin-top:-24px;margin-bottom:6px;display:block;"/>'
-        f'<img id="ms-logo-branco" src="data:image/png;base64,{_lb}" style="width:100%;max-height:160px;object-fit:contain;margin-top:-24px;margin-bottom:6px;display:block;"/>',
+        f'<img id="ms-logo-preto" src="data:image/png;base64,{_lp}" style="width:100%;max-height:220px;object-fit:contain;margin-top:-32px;margin-bottom:6px;display:block;"/>'
+        f'<img id="ms-logo-branco" src="data:image/png;base64,{_lb}" style="width:100%;max-height:220px;object-fit:contain;margin-top:-32px;margin-bottom:6px;display:block;"/>',
         unsafe_allow_html=True
     )
     _col_user, _col_sair = st.columns([3, 1])
