@@ -260,6 +260,8 @@ def fmt_horas(minutos: float) -> str:
 
 
 def fmt_banco(minutos: float) -> str:
-    """Formata saldo do banco de horas com sinal: '+2h15min' ou '-30min'."""
-    sinal = "+" if minutos >= 0 else "-"
+    """Formata saldo do banco de horas com sinal: '+2h15min' ou '-30min'. Retorna '0' se zerado."""
+    if minutos == 0:
+        return "0"
+    sinal = "+" if minutos > 0 else "-"
     return f"{sinal}{fmt_horas(abs(minutos))}"
