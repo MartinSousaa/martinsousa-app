@@ -431,7 +431,7 @@ def renderizar_chat(usuario_logado=""):
         )
 
         # ── Área de mensagens com scroll ──────────────────────────────────────
-        with st.container(height=270, border=False):
+        with st.container(height=420, border=False):
             if not hist:
                 with st.chat_message("assistant"):
                     st.markdown(f"Olá **{nome_exib}**, como posso ajudar?")
@@ -443,30 +443,15 @@ def renderizar_chat(usuario_logado=""):
                                 st.image(ib, use_container_width=True)
                         st.markdown(msg["content"])
 
-        # ── Envio de imagem (opcional) ────────────────────────────────────────
-        # A chave muda a cada envio para limpar o uploader automaticamente
-        _upload_ver = st.session_state.get("_chat_upload_ver", 0)
-        img_chat = st.file_uploader(
-            "📎",
-            type=["jpg", "jpeg", "png", "webp"],
-            accept_multiple_files=False,
-            key=f"chat_img_upload_{_upload_ver}",
-            label_visibility="collapsed",
-        )
-
         # ── Campo de texto — Enter envia, Shift+Enter nova linha ──────────────
         user_input = st.chat_input("Digite sua mensagem…")
 
-    if user_input or img_chat:
-        msg_user = (user_input or "").strip() or "Veja a imagem que enviei."
-        imagens_bytes = [img_chat.getvalue()] if img_chat else []
+    if user_input:
+        msg_user = user_input.strip()
+        imagens_bytes = []
 
-        # Guarda no histórico — incluindo bytes para exibição
+        # Guarda no histórico
         entry = {"role": "user", "content": msg_user}
-        if imagens_bytes:
-            entry["img_bytes"] = imagens_bytes
-            # Incrementa versão para limpar o uploader no próximo rerun
-            st.session_state["_chat_upload_ver"] = _upload_ver + 1
         hist.append(entry)
 
         with st.spinner("Assistente digitando…"):

@@ -430,35 +430,7 @@ body.tema-claro [data-testid="stFileUploaderDropzone"] button {
     resize: none !important;
     overflow-y: auto !important;
 }
-/* Remove padding extra abaixo do file uploader no chat */
-[data-testid="stSidebar"] [data-testid="stForm"] {
-    padding-bottom: 0 !important;
-    margin-bottom: 0 !important;
-}
-[data-testid="stSidebar"] [data-testid="stFileUploader"] {
-    margin-bottom: 0 !important;
-    padding-bottom: 0 !important;
-}
-/* File uploader do chat — compact, só clip */
-[data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] {
-    background: transparent !important;
-    border: none !important;
-    padding: 0 !important;
-    min-height: unset !important;
-}
-[data-testid="stSidebar"] [data-testid="stFileUploaderDropzoneInstructions"] > div:first-child,
-[data-testid="stSidebar"] [data-testid="stFileUploaderDropzoneInstructions"] small {
-    display: none !important;
-}
-[data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] button {
-    background: transparent !important;
-    border: none !important;
-    padding: 2px 4px !important;
-    font-size: 14px !important;
-    color: var(--ms-texto-sec) !important;
-    text-decoration: underline !important;
-    cursor: pointer !important;
-}
+/* Sem file uploader no chat sidebar — CSS removido */
 
 /* ── BOTÃO TOGGLE DE TEMA ───────────────────────────────────────────────── */
 #ms-tema-toggle {
