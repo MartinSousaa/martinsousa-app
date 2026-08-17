@@ -650,6 +650,11 @@ def _secao_relatorio_rhid():
 
     atualizar = col_btn.button("🔄 Atualizar", use_container_width=True, key="rhid_atualizar")
 
+    # Limpa caches ao atualizar (ou na primeira carga, se persons ainda não estiver em cache válido)
+    if atualizar:
+        _rhid.get_persons.clear()
+        _rhid.invalidar_token()
+
     str_ini = data_ini.isoformat()
     str_fim = data_fim.isoformat()
 
@@ -663,12 +668,16 @@ def _secao_relatorio_rhid():
         st.caption("Verifique se `[rhid]` está configurado nos secrets do Railway.")
         if st.button("🔁 Tentar novamente", key="rhid_retry"):
             _rhid.invalidar_token()
+            _rhid.get_persons.clear()
             st.rerun()
         return
 
     persons = _rhid.get_persons()
     if not persons:
         st.warning("Nenhum colaborador encontrado na RHiD.")
+        if st.button("🔁 Recarregar colaboradores", key="rhid_reload_persons"):
+            _rhid.get_persons.clear()
+            st.rerun()
         return
 
     # Filtra apenas colaboradores ativos
