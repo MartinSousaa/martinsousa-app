@@ -128,7 +128,7 @@ html { zoom: 0.9; }
 /* Layout do sidebar — chat preenche o espaço restante */
 section[data-testid="stSidebar"] > div:first-child {
     padding-top: 0 !important;
-    height: 100vh !important;
+    height: 100% !important;
     overflow-y: hidden !important;
     display: flex !important;
     flex-direction: column !important;
@@ -177,7 +177,7 @@ section[data-testid="stSidebar"] > div:first-child {
 /* O último stVerticalBlockBorderWrapper (container do chat) cresce para preencher */
 [data-testid="stSidebarUserContent"] [data-testid="stVerticalBlockBorderWrapper"]:last-of-type {
     flex: 1 !important;
-    min-height: calc(100vh - 130px) !important;
+    min-height: 0 !important;
     display: flex !important;
     flex-direction: column !important;
 }
