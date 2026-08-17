@@ -715,6 +715,7 @@ def _secao_relatorio_rhid():
             dias_ausentes   = int(  apuracao.get("diasAusentes",      apuracao.get("absentDays",     0)) or 0)
 
             # Se a API retornar tudo zero mas com dados brutos, tenta interpretar
+            registros_diarios = []
             if horas_trab_min == 0 and isinstance(apuracao, dict):
                 # Pode ser uma lista de registros diários (RHiD retorna um por dia)
                 registros = apuracao.get("registros", apuracao.get("records", apuracao.get("data", [])))
@@ -726,17 +727,18 @@ def _secao_relatorio_rhid():
                             reg.get("horasTrabalhadas",
                             reg.get("workedMinutes", 0))) or 0
                         )
-                        banco_min      += float(
-                            reg.get("saldoBancoCredDeb",
-                            reg.get("bancoHoras",
-                            reg.get("bankBalance", 0))) or 0
-                        )
                         total_atrasos  += float(
                             reg.get("minutosAtraso",
-                            reg.get("apenasAtraso",
                             reg.get("atraso",
-                            reg.get("lateMinutes", 0)))) or 0
+                            reg.get("lateMinutes", 0))) or 0
                         )
+                    # Banco de horas: usa saldoBancoFinalDia do ÚLTIMO registro
+                    # (valor acumulado oficial da RHiD, não a soma diária)
+                    for reg in reversed(registros):
+                        saldo_final = reg.get("saldoBancoFinalDia")
+                        if saldo_final is not None:
+                            banco_min = float(saldo_final or 0)
+                            break
                     # Dias presentes: registros onde houve trabalho (totalHorasTrabalhadas > 0)
                     dias_presentes = len([
                         r for r in registros
@@ -746,6 +748,32 @@ def _secao_relatorio_rhid():
                         r for r in registros
                         if int(r.get("faltasDiasInteiro", r.get("ausente", 0)) or 0) > 0
                     ])
+                    # Guarda resumo diário para tabela de conferência
+                    import datetime as _dt
+                    for reg in registros:
+                        data_str = reg.get("dateTimeStr") or reg.get("date", "")
+                        try:
+                            if len(str(data_str)) == 8:  # "20260801"
+                                d = _dt.datetime.strptime(str(data_str), "%Y%m%d").date()
+                            else:
+                                d = _dt.datetime.fromisoformat(str(data_str)[:10]).date()
+                        except Exception:
+                            d = None
+                        trabalhado = float(reg.get("totalHorasTrabalhadas", 0) or 0)
+                        saldo_dia  = float(reg.get("saldoBancoCredDeb", 0) or 0)
+                        saldo_acum = float(reg.get("saldoBancoFinalDia", 0) or 0)
+                        is_holiday = bool(reg.get("isHoliday") or reg.get("holiday"))
+                        is_falta   = int(reg.get("faltasDiasInteiro", 0) or 0) > 0
+                        # só inclui dias úteis ou com alguma informação relevante
+                        if d and (trabalhado > 0 or is_falta or saldo_dia != 0):
+                            registros_diarios.append({
+                                "data":       d,
+                                "trab_min":   trabalhado,
+                                "saldo_dia":  saldo_dia,
+                                "saldo_acum": saldo_acum,
+                                "falta":      is_falta,
+                                "holiday":    is_holiday,
+                            })
         else:
             horas_trab_min = 0
             banco_min      = 0
@@ -771,6 +799,7 @@ def _secao_relatorio_rhid():
             "dias_pres":     dias_presentes,
             "dias_aus":      dias_ausentes,
             "desempenho":    desempenho_pct,
+            "registros":     registros_diarios,
         })
 
     prog.empty()
@@ -822,6 +851,29 @@ def _secao_relatorio_rhid():
                 f'</div>',
                 unsafe_allow_html=True
             )
+
+            # Tabela diária para conferência do banco de horas
+            if r["registros"]:
+                import pandas as _pd
+                st.markdown("---")
+                st.caption("📅 Detalhamento diário (banco de horas)")
+                df_dias = _pd.DataFrame(r["registros"])
+                df_dias["Data"]     = df_dias["data"].apply(lambda d: d.strftime("%d/%m/%Y (%a)") if d else "—")
+                df_dias["Trabalhado"] = df_dias["trab_min"].apply(
+                    lambda m: _rhid.fmt_horas(m) if m > 0 else "—"
+                )
+                df_dias["Saldo dia"]  = df_dias["saldo_dia"].apply(
+                    lambda m: _rhid.fmt_banco(m) if m != 0 else "—"
+                )
+                df_dias["Banco acum."] = df_dias["saldo_acum"].apply(_rhid.fmt_banco)
+                df_dias["Obs."] = df_dias.apply(
+                    lambda row: "🔴 Falta" if row["falta"] else ("🎉 Feriado" if row["holiday"] else ""), axis=1
+                )
+                st.dataframe(
+                    df_dias[["Data", "Trabalhado", "Saldo dia", "Banco acum.", "Obs."]],
+                    hide_index=True,
+                    use_container_width=True,
+                )
 
             # Ociosidade via Trello (se mapeado)
             if r["trello_user"] and r["horas_min"] > 0:
