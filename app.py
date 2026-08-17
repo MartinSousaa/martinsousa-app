@@ -141,21 +141,25 @@ section[data-testid="stSidebar"] > div:first-child {
     display: flex !important;
     flex-direction: column !important;
 }
-/* stSidebarHeader (área interna do Streamlit) — minimiza para não roubar espaço */
+/* stSidebarHeader — zera completamente (não usamos o header nativo do Streamlit) */
 [data-testid="stSidebarHeader"] {
     flex: 0 0 auto !important;
     padding: 0 !important;
+    margin: 0 !important;
     min-height: 0 !important;
+    height: 0 !important;
+    overflow: hidden !important;
 }
-[data-testid="stLogoSpacer"] { display: none !important; }
-/* stSidebarUserContent — cresce para preencher tudo abaixo do header */
+[data-testid="stLogoSpacer"],
+[data-testid="stSidebarCollapseButton"] { display: none !important; }
+/* stSidebarUserContent — cresce para preencher tudo + remove padding-bottom do Streamlit */
 [data-testid="stSidebarUserContent"] {
     flex: 1 !important;
     display: flex !important;
     flex-direction: column !important;
     min-height: 0 !important;
     overflow: hidden !important;
-    padding-top: 0 !important;
+    padding: 0 !important;
 }
 [data-testid="stSidebarUserContent"] > div {
     flex: 1 !important;
