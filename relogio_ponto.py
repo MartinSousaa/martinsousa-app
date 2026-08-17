@@ -672,26 +672,12 @@ def _secao_relatorio_rhid():
             st.rerun()
         return
 
-    # Debug: mostra resposta completa do login para diagnóstico
-    login_data = st.session_state.get("rhid_login_data")
-    if login_data:
-        with st.expander("🔧 Debug — resposta do login RHiD", expanded=False):
-            import json as _json
-            st.code(_json.dumps(login_data, indent=2, default=str)[:2000])
-
     persons = _rhid.get_persons()
     if not persons:
         st.warning("Nenhum colaborador encontrado na RHiD.")
         if st.button("🔁 Recarregar colaboradores", key="rhid_reload_persons"):
             _rhid.get_persons.clear()
             st.rerun()
-        # Debug: mostra resposta bruta da API
-        debug_info = st.session_state.get("rhid_persons_debug")
-        if debug_info:
-            with st.expander("🔧 Debug — resposta bruta da API /person", expanded=True):
-                st.json(debug_info)
-        else:
-            st.caption("ℹ️ Clique em Atualizar para carregar debug da API.")
         return
 
     # Filtra apenas colaboradores ativos
@@ -785,7 +771,6 @@ def _secao_relatorio_rhid():
             "dias_pres":     dias_presentes,
             "dias_aus":      dias_ausentes,
             "desempenho":    desempenho_pct,
-            "apuracao_raw":  apuracao,
         })
 
     prog.empty()
@@ -844,9 +829,6 @@ def _secao_relatorio_rhid():
                 st.caption("🔗 Cruzamento com Trello")
                 _calcular_ociosidade_trello(r["trello_user"], r["nome"], str_ini, str_fim, r["horas_min"])
 
-            # Debug: resposta bruta da API (para ajuste do parse)
-            with st.expander("🔧 Dados brutos da API (debug)", expanded=False):
-                st.json(r["apuracao_raw"])
 
 
 def _calcular_ociosidade_trello(trello_user: str, nome: str, data_ini: str, data_fim: str, horas_min: float):

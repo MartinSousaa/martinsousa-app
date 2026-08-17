@@ -75,7 +75,6 @@ def get_token() -> Optional[str]:
         if token:
             st.session_state["rhid_token"]     = token
             st.session_state["rhid_token_exp"] = datetime.now() + timedelta(minutes=TOKEN_TTL_MIN)
-            st.session_state["rhid_login_data"] = data  # guarda resposta completa para debug
             return token
 
         # Login sem token — erro retornado pela API
@@ -128,15 +127,6 @@ def get_persons() -> list[dict]:
                 params=params,
                 timeout=15,
             )
-            try:
-                st.session_state["rhid_persons_debug"] = {
-                    "endpoint": f"{BASE_URL}{suffix}",
-                    "params": params,
-                    "status": resp.status_code,
-                    "body_preview": resp.text[:500],
-                }
-            except Exception:
-                pass
             if resp.status_code == 500:
                 last_err = f"500 em {suffix}"
                 continue
@@ -160,10 +150,6 @@ def get_persons() -> list[dict]:
             last_err = f"Sem dados em {suffix} (status {resp.status_code})"
         except Exception as e:
             last_err = str(e)
-    try:
-        st.session_state["rhid_persons_debug"] = {"erro_final": last_err}
-    except Exception:
-        pass
     return []
 
 
