@@ -108,42 +108,63 @@ def invalidar_token():
 def get_persons() -> list[dict]:
     """
     Retorna lista de colaboradores cadastrados na RHiD.
+    Tenta múltiplas variações de endpoint/parâmetros.
     Cache de 5 minutos.
     """
+    endpoints = [
+        # (url_suffix, params)
+        ("/person",    {"start": 0, "length": 500}),
+        ("/person",    {}),
+        ("/persons",   {"start": 0, "length": 500}),
+        ("/employee",  {"start": 0, "length": 500}),
+        ("/collaborator", {}),
+    ]
+    last_err = "Nenhuma tentativa realizada"
+    for suffix, params in endpoints:
+        try:
+            resp = requests.get(
+                f"{BASE_URL}{suffix}",
+                headers=_headers(),
+                params=params,
+                timeout=15,
+            )
+            try:
+                st.session_state["rhid_persons_debug"] = {
+                    "endpoint": f"{BASE_URL}{suffix}",
+                    "params": params,
+                    "status": resp.status_code,
+                    "body_preview": resp.text[:500],
+                }
+            except Exception:
+                pass
+            if resp.status_code == 500:
+                last_err = f"500 em {suffix}"
+                continue
+            resp.raise_for_status()
+            data = resp.json()
+            if isinstance(data, dict):
+                for key in ("records", "data", "persons", "colaboradores", "items", "content"):
+                    if key in data and isinstance(data[key], list) and data[key]:
+                        return data[key]
+                vals = list(data.values())
+                flat = []
+                for v in vals:
+                    if isinstance(v, list):
+                        flat.extend(v)
+                    elif isinstance(v, dict):
+                        flat.append(v)
+                if flat:
+                    return flat
+            elif isinstance(data, list) and data:
+                return data
+            last_err = f"Sem dados em {suffix} (status {resp.status_code})"
+        except Exception as e:
+            last_err = str(e)
     try:
-        resp = requests.get(
-            f"{BASE_URL}/person",
-            headers=_headers(),
-            params={"start": 0, "length": 500},
-            timeout=15,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        # Guarda resposta bruta para debug
-        try:
-            st.session_state["rhid_persons_debug"] = {
-                "status": resp.status_code,
-                "data_type": type(data).__name__,
-                "data_preview": str(data)[:500],
-            }
-        except Exception:
-            pass
-        if isinstance(data, dict):
-            # Tenta várias chaves comuns da API RHiD
-            for key in ("records", "data", "persons", "colaboradores", "items", "content"):
-                if key in data and isinstance(data[key], list):
-                    return data[key]
-            # Se o dict em si parece uma lista de pessoas (chaves são IDs numéricos)
-            return list(data.values()) if data else []
-        if isinstance(data, list):
-            return data
-        return []
-    except Exception as e:
-        try:
-            st.session_state["rhid_persons_debug"] = {"erro": str(e)}
-        except Exception:
-            pass
-        return []
+        st.session_state["rhid_persons_debug"] = {"erro_final": last_err}
+    except Exception:
+        pass
+    return []
 
 
 def get_apuracao(data_ini: str, data_final: str, id_person: int) -> Optional[dict]:
