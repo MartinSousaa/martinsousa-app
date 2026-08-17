@@ -125,19 +125,19 @@ html { zoom: 0.9; }
 }
 [data-testid="stSidebar"] * { color: var(--ms-texto) !important; }
 
-/* Logo rente ao topo — remove padding do sidebar; altura máxima */
+/* Logo rente ao topo — remove padding do sidebar */
 section[data-testid="stSidebar"] > div:first-child {
     padding-top: 0 !important;
     height: 100vh !important;
-    overflow-y: hidden !important;
+    overflow-y: auto !important;
     display: flex !important;
     flex-direction: column !important;
 }
 [data-testid="stSidebarContent"] {
-    padding-top: 0.25rem !important;
+    padding-top: 0 !important;
     flex: 1 !important;
     min-height: 0 !important;
-    overflow: hidden !important;
+    overflow: visible !important;
     display: flex !important;
     flex-direction: column !important;
 }
@@ -146,7 +146,7 @@ section[data-testid="stSidebar"] > div:first-child {
     min-height: 0 !important;
     display: flex !important;
     flex-direction: column !important;
-    overflow: hidden !important;
+    overflow: visible !important;
 }
 
 /* ── Sidebar: largura fixa 360px (sem JS) ───────────────────────────────── */
@@ -432,21 +432,9 @@ body.tema-claro [data-testid="stFileUploaderDropzone"] button {
 }
 /* Sem file uploader no chat sidebar — CSS removido */
 
-/* Remove o oval/avatar preto à esquerda do st.chat_input */
-[data-testid="stSidebar"] [data-testid="stChatInput"] > div > div:first-child,
-[data-testid="stSidebar"] [data-testid="stChatInputContainer"] > div:first-child,
-[data-testid="stSidebar"] .stChatInput > div > div:first-child {
+/* Remove apenas o avatar do usuário no st.chat_input (oval preto) */
+[data-testid="stSidebar"] [data-testid="chatAvatarIcon-user"] {
     display: none !important;
-}
-/* Remove margem/padding desnecessários ao redor do chat input no sidebar */
-[data-testid="stSidebar"] [data-testid="stChatInput"],
-[data-testid="stSidebar"] [data-testid="stChatInputContainer"] {
-    padding: 0 !important;
-    margin: 0 !important;
-}
-/* Remove espaço vazio abaixo do container do chat no sidebar */
-[data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"]:last-child {
-    margin-bottom: 0 !important;
 }
 
 /* ── BOTÃO TOGGLE DE TEMA ───────────────────────────────────────────────── */
@@ -1112,8 +1100,8 @@ with st.sidebar:
     _lp = _logo_b64("logo_preto.png")
     _lb = _logo_b64("logo_branco.png")
     st.markdown(
-        f'<img id="ms-logo-preto" src="data:image/png;base64,{_lp}" style="width:100%;max-height:220px;object-fit:contain;margin-top:-32px;margin-bottom:10px;display:block;"/>'
-        f'<img id="ms-logo-branco" src="data:image/png;base64,{_lb}" style="width:100%;max-height:220px;object-fit:contain;margin-top:-32px;margin-bottom:10px;display:block;"/>',
+        f'<img id="ms-logo-preto" src="data:image/png;base64,{_lp}" style="width:100%;max-height:160px;object-fit:contain;margin-top:-24px;margin-bottom:6px;display:block;"/>'
+        f'<img id="ms-logo-branco" src="data:image/png;base64,{_lb}" style="width:100%;max-height:160px;object-fit:contain;margin-top:-24px;margin-bottom:6px;display:block;"/>',
         unsafe_allow_html=True
     )
     _col_user, _col_sair = st.columns([3, 1])
