@@ -712,8 +712,12 @@ def _secao_relatorio_rhid():
 
     prog = st.progress(0, text="Buscando dados de ponto…")
     for i, p in enumerate(persons_ativos):
-        prog.progress((i + 1) / len(persons_ativos), text=f"Buscando: {p.get('name', '?')}")
-        apuracao = _rhid.get_apuracao(str_ini, str_fim, int(p["id"]))
+        # Campos de nome e ID podem variar entre versões da API RHiD
+        nome_p = (p.get("name") or p.get("nome") or p.get("nomeCompleto")
+                  or p.get("fullName") or p.get("personName") or str(p.get("id", "?")))
+        id_p   = p.get("id") or p.get("idPerson") or p.get("personId") or p.get("codigo") or 0
+        prog.progress((i + 1) / len(persons_ativos), text=f"Buscando: {nome_p}")
+        apuracao = _rhid.get_apuracao(str_ini, str_fim, int(id_p))
 
         # Extrai campos da apuração (estrutura pode variar entre versões da API)
         if apuracao and not apuracao.get("_raw"):
@@ -748,11 +752,11 @@ def _secao_relatorio_rhid():
         desempenho_pct  = (horas_trab_min / horas_esperadas * 100) if horas_esperadas > 0 else 0
 
         # Mapeamento para Trello
-        trello_user = _rhid_nome_para_trello(p.get("name", ""))
+        trello_user = _rhid_nome_para_trello(nome_p)
 
         resultados.append({
-            "id":            p["id"],
-            "nome":          p.get("name", "—"),
+            "id":            id_p,
+            "nome":          nome_p or "—",
             "trello_user":   trello_user,
             "horas_min":     horas_trab_min,
             "banco_min":     banco_min,

@@ -191,7 +191,14 @@ def get_apuracao(data_ini: str, data_final: str, id_person: int) -> Optional[dic
         )
         resp.raise_for_status()
         try:
-            return resp.json()
+            data = resp.json()
+            # Se a API retornar uma string JSON (ex.: "null", "[]", ou texto puro)
+            if isinstance(data, dict):
+                return data
+            if isinstance(data, list):
+                return {"records": data, "_status": resp.status_code}
+            # String ou outro tipo primitivo — trata como raw
+            return {"_raw": str(data), "_status": resp.status_code}
         except ValueError:
             # Resposta não é JSON (ex.: string pura ou CSV)
             return {"_raw": resp.text, "_status": resp.status_code}
