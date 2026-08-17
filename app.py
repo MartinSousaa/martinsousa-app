@@ -1151,57 +1151,11 @@ _LOGIN_TRELLO = {
 _trello_user = _LOGIN_TRELLO.get(usuario_logado, usuario_logado.lower())
 _eh_painel   = _trello_user in {m.lower() for m in placar.MASTERS} or _trello_user in placar.MEMBROS_ATIVOS
 
-# Ordem: fixas | Painel de Metas | Análise de Metas | Ponto | Financeiro (admin) | Administrativo
-_nomes_abas = ["Análise de Viabilidade", "Triagem", "Palavras-chave", "Título",
-               "Descrição", "Imagem", "Vídeo", "Análise de Venda", "Histórico"]
-_idx_painel = len(_nomes_abas) if _eh_painel else None
-if _eh_painel:
-    _nomes_abas.append("🏆 Painel de Metas")
-_idx_analise_metas = len(_nomes_abas) if _eh_painel else None
-if _eh_painel:
-    _nomes_abas.append("📊 Análise de Metas")
-_idx_ponto = len(_nomes_abas) if _eh_painel else None
-if _eh_painel:
-    _nomes_abas.append("🕐 Ponto")
-_idx_financeiro = len(_nomes_abas) if _eh_admin else None
-if _eh_admin:
-    _nomes_abas.append("💰 Financeiro")
-_idx_admin = len(_nomes_abas) if _eh_admin else None
-if _eh_admin:
-    _nomes_abas.append("Administrativo")
 
-_abas = st.tabs(_nomes_abas)
-(aba_viabilidade, aba_triagem, aba_palavras, aba_titulo,
- aba_descricao, aba_imagem, aba_video, aba_analise_venda, aba_historico) = _abas[:9]
+# ── FUNÇÕES DE RENDERIZAÇÃO — ABAS DE OPERAÇÃO ───────────────────────────────
 
-with aba_video:
-    video.pagina_video(usuario_logado)
-
-with aba_historico:
-    atividades.pagina_historico()
-
-if _eh_painel and _idx_painel is not None:
-    with _abas[_idx_painel]:
-        placar.pagina_placar(usuario_logado)
-
-if _eh_painel and _idx_analise_metas is not None:
-    with _abas[_idx_analise_metas]:
-        analise_metas.pagina_analise_metas(usuario_logado)
-
-if _eh_painel and _idx_ponto is not None:
-    with _abas[_idx_ponto]:
-        relogio_ponto.pagina_ponto(usuario_logado)
-
-if _eh_admin and _idx_financeiro is not None:
-    with _abas[_idx_financeiro]:
-        financeiro.pagina_financeiro(usuario_logado)
-
-if _eh_admin and _idx_admin is not None:
-    with _abas[_idx_admin]:
-        admin.pagina_admin(usuario_logado)
-
-with aba_analise_venda:
-    # LPV e NF vigentes
+def _render_analise_venda_tab():
+    """Aba Análise de Venda — calculadora de preço mínimo."""
     _lpv_av, _nf_av = LPV_OFICIAL, NF_OFICIAL
     try:
         _df_av = financeiro.carregar_dados()
@@ -1259,20 +1213,16 @@ with aba_analise_venda:
             with st.spinner("Calculando preços mínimos..."):
                 linhas_av = []
                 for uc_val, uc_label, uc_desc, classe_card in UC_ALVOS_AV:
-                    # ML
                     p_ml_av = resolver_preco_para_uc(
                         uc_val, custo_av, peso_taxado_av, categoria_av, modalidade_av,
                         _nf_av, custo_op_av, _lpv_av
                     )
-                    # Shopee
                     def _sp(p, _c=custo_av, _n=_nf_av, _o=custo_op_av, _l=_lpv_av):
                         return calcular_resultado_shopee(p, _c, _n, _o, _l)
                     p_sp_av = resolver_preco_para_uc_fn(uc_val, _sp, _lpv_av)
-                    # Shein
                     def _sh(p, _c=custo_av, _pk=peso_kg_av, _n=_nf_av, _o=custo_op_av, _l=_lpv_av):
                         return calcular_resultado_shein(p, _c, _pk, _n, _o, _l)
                     p_sh_av = resolver_preco_para_uc_fn(uc_val, _sh, _lpv_av)
-
                     linhas_av.append((uc_label, uc_desc, classe_card, p_ml_av, p_sp_av, p_sh_av))
 
             st.markdown("### Preços mínimos para anunciar")
@@ -1304,25 +1254,9 @@ with aba_analise_venda:
             st.markdown("---")
             st.caption("Pesquise se há produtos ativos nessas faixas de preço. Se sim, o produto é viável — use a aba **Análise de Viabilidade** para confirmar os números com o preço real encontrado.")
 
-with aba_triagem:
-    triagem.pagina_triagem(usuario_logado)
 
-with aba_palavras:
-    palavras_chave.pagina_palavras_chave(usuario_logado)
-
-with aba_titulo:
-    titulo.pagina_titulo(usuario_logado)
-
-with aba_imagem:
-    imagem.pagina_imagem(usuario_logado)
-
-with aba_descricao:
-    descricao.pagina_descricao(usuario_logado)
-
-with aba_viabilidade:
-    # Busca LPV e aliquota calculados a partir dos dados financeiros reais.
-    # Se ainda nao houver dado suficiente, cai pros valores fixos antigos
-    # (params_oficiais.py) so como reserva, deixando isso claro na tela.
+def _render_viabilidade_tab():
+    """Aba Análise de Viabilidade — cálculo completo por plataforma."""
     lpv_dinamico, lpv_origem, aliquota_dinamica = None, None, None
     try:
         df_financeiro = financeiro.carregar_dados()
@@ -1342,7 +1276,6 @@ with aba_viabilidade:
     st.caption(f"LPV calculado com base em: {lpv_origem_usada}")
     st.markdown("---")
 
-    # ── FORMULÁRIO ÚNICO ───────────────────────────────────────────────────────
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("Dados do Produto")
@@ -1366,7 +1299,6 @@ with aba_viabilidade:
         dim3 = st.number_input("Medida 3 (cm)", min_value=0.0, value=None, step=0.5, format="%.1f", placeholder="ex: 2")
         dims_ref = [dim1 or 0, dim2 or 0, dim3 or 0]
 
-    # ── PREÇOS DE MERCADO POR PLATAFORMA ──────────────────────────────────────
     st.markdown("---")
     st.subheader("Preço de mercado por plataforma")
     modalidade = st.selectbox("Modalidade ML", ["Premium", "Classico"], key="viab_modalidade")
@@ -1396,7 +1328,6 @@ with aba_viabilidade:
             erros.append("Peso do produto (necessário para calcular o frete da Shein)")
         if erros:
             st.warning(f"Preencha: {', '.join(erros)}")
-            # Abre o chat automaticamente com orientação sobre o que falta
             msg_chat = f"Atenção! Faltam informações para calcular a viabilidade:\n\n"
             for e in erros:
                 msg_chat += f"• {e}\n"
@@ -1406,7 +1337,6 @@ with aba_viabilidade:
 
         peso_taxado_ml = calcular_peso_taxado(peso_kg, dim1 or 0, dim2 or 0, dim3 or 0)
 
-        # ── CALCULA AS 3 PLATAFORMAS ───────────────────────────────────────────
         with st.spinner("Calculando viabilidade nas plataformas..."):
             res_ml, res_sp, res_sh = None, None, None
 
@@ -1415,18 +1345,15 @@ with aba_viabilidade:
                     preco_ml, custo, peso_taxado_ml, categoria, modalidade,
                     nome_produto, dims_ref, qtd_ref, nf_pct_usado, custo_operacional, lpv_usado,
                 )
-
             if preco_sp:
                 calc_sp = lambda p: calcular_resultado_shopee(p, custo, nf_pct_usado, custo_operacional, lpv_usado)
                 res_sp = gerar_analise_fn(preco_sp, custo, nome_produto, nf_pct_usado,
                                           custo_operacional, lpv_usado, calc_sp)
-
             if preco_sh:
                 calc_sh = lambda p: calcular_resultado_shein(p, custo, peso_kg, nf_pct_usado, custo_operacional, lpv_usado)
                 res_sh = gerar_analise_fn(preco_sh, custo, nome_produto, nf_pct_usado,
                                           custo_operacional, lpv_usado, calc_sh)
 
-        # registra no histórico
         plataformas_log = " / ".join(
             f"{p}: {r['tag']} R${pr:.2f}"
             for p, r, pr in [("ML", res_ml, preco_ml or 0), ("Shopee", res_sp, preco_sp or 0), ("Shein", res_sh, preco_sh or 0)]
@@ -1437,10 +1364,8 @@ with aba_viabilidade:
             f"custo R${custo:.2f} · {plataformas_log}"
         )
 
-        # ── RESULTADO LADO A LADO ──────────────────────────────────────────────
         st.markdown("---")
 
-        # classe CSS de cada plataforma (evita inline style que é ignorado pelo CSS global)
         PLATAFORMAS = {
             "ml": ("ms-plat-ml", "Mercado Livre"),
             "sp": ("ms-plat-sp", "Shopee"),
@@ -1468,3 +1393,112 @@ with aba_viabilidade:
                         'padding: 16px 0;">Preço não informado</div>',
                         unsafe_allow_html=True,
                     )
+
+
+def _render_abas_operacao(usuario_logado):
+    """Renderiza as 9 abas de Operação (usada tanto no admin quanto nos colaboradores)."""
+    _abas_op = st.tabs(["Análise de Viabilidade", "Triagem", "Palavras-chave", "Título",
+                         "Descrição", "Imagem", "Vídeo", "Análise de Venda", "Histórico"])
+    (aba_viab, aba_tri, aba_pal, aba_tit,
+     aba_des, aba_img, aba_vid, aba_av, aba_hist) = _abas_op
+
+    with aba_vid:
+        video.pagina_video(usuario_logado)
+    with aba_hist:
+        atividades.pagina_historico()
+    with aba_tri:
+        triagem.pagina_triagem(usuario_logado)
+    with aba_pal:
+        palavras_chave.pagina_palavras_chave(usuario_logado)
+    with aba_tit:
+        titulo.pagina_titulo(usuario_logado)
+    with aba_img:
+        imagem.pagina_imagem(usuario_logado)
+    with aba_des:
+        descricao.pagina_descricao(usuario_logado)
+    with aba_av:
+        _render_analise_venda_tab()
+    with aba_viab:
+        _render_viabilidade_tab()
+
+
+# ── NAVEGAÇÃO PRINCIPAL ───────────────────────────────────────────────────────
+
+if _eh_admin:
+    # ── ADMIN: acordeão Gestão (padrão) / Operação ────────────────────────────
+    if "secao_admin" not in st.session_state:
+        st.session_state.secao_admin = "gestao"
+
+    # Cabeçalhos de seção como botões destacados
+    _col_g, _col_o = st.columns(2)
+    _gestao_ativa   = st.session_state.secao_admin == "gestao"
+    _operacao_ativa = not _gestao_ativa
+
+    with _col_g:
+        if st.button(
+            "📊  Gestão" + ("  ▾" if _gestao_ativa else "  ▸"),
+            use_container_width=True,
+            key="btn_secao_gestao",
+            type="primary" if _gestao_ativa else "secondary",
+        ):
+            st.session_state.secao_admin = "gestao"
+            st.rerun()
+
+    with _col_o:
+        if st.button(
+            "⚙️  Operação" + ("  ▾" if _operacao_ativa else "  ▸"),
+            use_container_width=True,
+            key="btn_secao_operacao",
+            type="primary" if _operacao_ativa else "secondary",
+        ):
+            st.session_state.secao_admin = "operacao"
+            st.rerun()
+
+    if _gestao_ativa:
+        _abas_g = st.tabs(["🏆 Painel de Metas", "📊 Análise de Metas", "🕐 Ponto", "💰 Financeiro", "Administrativo"])
+        with _abas_g[0]:
+            placar.pagina_placar(usuario_logado)
+        with _abas_g[1]:
+            analise_metas.pagina_analise_metas(usuario_logado)
+        with _abas_g[2]:
+            relogio_ponto.pagina_ponto(usuario_logado)
+        with _abas_g[3]:
+            financeiro.pagina_financeiro(usuario_logado)
+        with _abas_g[4]:
+            admin.pagina_admin(usuario_logado)
+    else:
+        _render_abas_operacao(usuario_logado)
+
+else:
+    # ── COLABORADORES: barra única com 11 abas ────────────────────────────────
+    _abas_c = st.tabs([
+        "Análise de Viabilidade", "Triagem", "Palavras-chave", "Título",
+        "Descrição", "Imagem", "Vídeo", "Análise de Venda", "Histórico",
+        "🏆 Painel de Metas", "📊 Análise de Metas",
+    ])
+    (aba_viab_c, aba_tri_c, aba_pal_c, aba_tit_c,
+     aba_des_c, aba_img_c, aba_vid_c, aba_av_c, aba_hist_c,
+     aba_painel_c, aba_am_c) = _abas_c
+
+    with aba_vid_c:
+        video.pagina_video(usuario_logado)
+    with aba_hist_c:
+        atividades.pagina_historico()
+    with aba_tri_c:
+        triagem.pagina_triagem(usuario_logado)
+    with aba_pal_c:
+        palavras_chave.pagina_palavras_chave(usuario_logado)
+    with aba_tit_c:
+        titulo.pagina_titulo(usuario_logado)
+    with aba_img_c:
+        imagem.pagina_imagem(usuario_logado)
+    with aba_des_c:
+        descricao.pagina_descricao(usuario_logado)
+    with aba_painel_c:
+        placar.pagina_placar(usuario_logado)
+    with aba_am_c:
+        analise_metas.pagina_analise_metas(usuario_logado)
+    with aba_av_c:
+        _render_analise_venda_tab()
+    with aba_viab_c:
+        _render_viabilidade_tab()
