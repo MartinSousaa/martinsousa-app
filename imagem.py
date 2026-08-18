@@ -120,6 +120,16 @@ REGRA DE LAYOUT PARA IMAGENS DE MARKETING (obrigatória para tipos 2, 3, 4, 5, 6
   deve estar em área própria adjacente ao produto, não sobreposta a ele.
 - A imagem final deve ter aparência de peça gráfica profissional de e-commerce,
   criada por um estúdio de marketing — não de uma foto com texto editado por cima.
+
+REGRA DE DENSIDADE E LIMPEZA VISUAL (menos é mais):
+- MÁXIMO 3 elementos informativos por imagem (3 benefícios, 3 callouts, 3 perguntas, etc.)
+  — nunca ultrapasse esse limite, mesmo que haja mais informações disponíveis
+- Cada elemento de texto: título em 2-4 palavras + frase de no máximo 8 palavras — nada mais
+- Espaçamento generoso entre elementos — nunca comprima, nunca empilhe blocos densamente
+- A zona de texto deve ter bastante espaço vazio (whitespace) — peça clean, leve e arejada
+- NUNCA adicione tags, selos, rodapés, ícones de uso, icones de compatibilidade ou elementos
+  decorativos extras além do que foi explicitamente pedido
+- Uma imagem objetiva com 3 pontos claros converte melhor do que uma poluída com 8
 """
 
 # ── MODO PERSONALIZADO — sem branding automático ──────────────────────────────
@@ -165,63 +175,72 @@ TIPOS_PADRAO = [
     "5 — Características técnicas (medidas/peso/material)",
     "6 — Quebra de objeção",
     "7 — Presenteie",
+    "8 — Ambientação realista (sem texto)",
 ]
 
 PRESETS = {
     "Personalizado (descrevo o que quero)": "",
     "1 — Produto com fundo branco": (
-        "Foto de produto limpa e profissional. "
+        "FOTO DE PRODUTO LIMPA — REGRA ABSOLUTA: ZERO TEXTO, ZERO TÍTULO, ZERO ÍCONE, ZERO ELEMENTO GRÁFICO. "
+        "APENAS o produto sobre fundo branco puro. Qualquer texto é erro crítico nesta imagem. "
         "FUNDO: branco puro (#FFFFFF) — absolutamente liso, sem gradiente, sem sombra, sem elementos. "
         "Produto centralizado, ocupando 75-90% do frame — a maior proporção possível sem cortar bordas. "
         "Iluminação de estúdio suave, luz frontal e preenchimento lateral para eliminar sombras duras. "
-        "Sem texto, sem logotipo, sem elementos extras — apenas o produto sobre fundo branco puro."
+        "Resultado: foto de catálogo profissional, limpa, apenas produto e fundo branco. Nada mais."
     ),
     "2 — Benefícios do produto": (
-        "Peça de marketing mostrando os principais benefícios do produto. "
-        "Layout: produto em destaque no centro ou à esquerda, à direita blocos verticais empilhados "
-        "com ícone line-art + título curto (2-3 palavras) + frase explicativa (1 linha). "
-        "Máximo 4 benefícios. Título principal em destaque no topo. "
+        "Peça de marketing objetiva mostrando EXATAMENTE 3 benefícios do produto — não mais, não menos. "
+        "Layout: produto em destaque à esquerda (zona limpa, sem texto sobre ele), "
+        "à direita 3 blocos verticais compactos cada um com ícone line-art + título (2-3 palavras) + "
+        "frase curta (máximo 7 palavras). Título principal discreto no topo. "
+        "Visual clean, arejado, muito whitespace — NUNCA sobreponha texto ao produto. "
         "OBRIGATÓRIO: os textos dos benefícios fornecidos pelo colaborador DEVEM APARECER ESCRITOS NA IMAGEM — "
         "use as frases e títulos exatos informados, renderizados como elementos gráficos de texto na composição."
     ),
     "3 — Benefícios no cenário de uso": (
-        "Peça de marketing mostrando o produto sendo usado em um cenário real do dia a dia. "
-        "Cena realista e aspiracional com iluminação natural. "
-        "Frases curtas de destaque flutuando sobre ou ao lado do produto, explicando o benefício "
-        "daquele momento de uso específico. Tom acolhedor e moderno. "
-        "OBRIGATÓRIO: as frases de benefício fornecidas pelo colaborador DEVEM APARECER ESCRITAS NA IMAGEM — "
-        "use os textos exatos como sobreposições ou callouts visuais."
+        "Peça de marketing com o produto em cenário real aspiracional, iluminação natural. "
+        "EXATAMENTE 3 frases curtas de destaque posicionadas em painéis ao lado do produto — "
+        "nunca sobrepostas ao produto em si. Cada frase: máximo 6 palavras, impactante e objetiva. "
+        "Visual limpo, clean, muito espaço respira — não polua com elementos extras. "
+        "OBRIGATÓRIO: as frases fornecidas pelo colaborador DEVEM APARECER ESCRITAS NA IMAGEM — "
+        "use os textos exatos como callouts visuais em painéis separados do produto."
     ),
     "4 — Close nos detalhes": (
-        "Imagem em zoom aproximado valorizando os acabamentos e qualidade do produto. "
-        "Pequenas setas ou linhas finas apontando para cada detalhe, com legenda curta ao lado. "
-        "Foco em textura, material, costuras, encaixe, ou qualquer acabamento que diferencie o produto. "
-        "Máximo 4 pontos de destaque. "
-        "OBRIGATÓRIO: as legendas e descrições de detalhes fornecidas pelo colaborador DEVEM APARECER "
-        "ESCRITAS NA IMAGEM como anotações visuais — use os textos exatos informados."
+        "Imagem em zoom valorizando acabamento e qualidade. "
+        "EXATAMENTE 3 pontos de destaque com linha fina + legenda curta ao lado — nunca mais de 3. "
+        "Cada legenda: máximo 4 palavras. Muito espaço limpo ao redor. "
+        "NÃO mostre o produto inteiro — foco apenas em recortes/detalhes ampliados. "
+        "OBRIGATÓRIO: as legendas fornecidas pelo colaborador DEVEM APARECER ESCRITAS NA IMAGEM "
+        "como anotações visuais — use os textos exatos informados."
     ),
     "5 — Características técnicas (medidas/peso/material)": (
-        "Imagem técnica do produto com linhas de medida estilo desenho técnico, mostrando as dimensões "
-        "exatas (altura, largura, profundidade). Peso e material indicados com ícones técnicos. "
-        "Dados anotados de forma clara e legível. Fundo claro, visual limpo e técnico. "
-        "OBRIGATÓRIO: os valores exatos de medidas, peso e material fornecidos pelo colaborador DEVEM "
-        "APARECER ESCRITOS NA IMAGEM — renderize os números e unidades como cotas e anotações técnicas."
+        "Imagem técnica minimalista com produto centralizado e linhas de cota finas indicando dimensões. "
+        "Apenas as medidas exatas (altura × largura), peso e material anotados com tipografia clean. "
+        "Fundo claro, visual técnico e limpo — ZERO ícones decorativos, ZERO blocos de benefício, "
+        "ZERO selos ou tags extras. Somente produto + linhas de medida + números. "
+        "OBRIGATÓRIO: use SOMENTE os valores exatos fornecidos — JAMAIS invente ou estime medidas."
     ),
     "6 — Quebra de objeção": (
-        "Peça de marketing respondendo as principais dúvidas de quem está prestes a comprar. "
-        "Formato: 3 a 4 blocos, cada um com uma objeção comum em forma de pergunta curta e a "
-        "resposta direta e tranquilizadora ao lado ou abaixo. Ícone de check ou escudo. "
-        "Tom de confiança e credibilidade. "
+        "Peça de marketing com EXATAMENTE 3 perguntas e respostas — não mais. "
+        "Cada bloco: pergunta curta em destaque (máximo 5 palavras) + resposta direta (máximo 8 palavras). "
+        "Ícone de check simples. Layout clean, muito whitespace, produto presente mas compacto. "
         "OBRIGATÓRIO: as perguntas e respostas fornecidas pelo colaborador DEVEM APARECER ESCRITAS NA IMAGEM "
-        "como blocos de texto gráficos — use os textos exatos, não invente novas objeções."
+        "— use os textos exatos, não invente novas objeções."
     ),
     "7 — Presenteie": (
-        "Peça de marketing emocional incentivando a compra do produto como presente. "
-        "Frase principal de impacto emocional em destaque. "
-        "Composição com laço, embrulho ou contexto de presente. Tom acolhedor e especial. "
-        "Cena mostrando a entrega ou o momento de surpresa com reação positiva. "
-        "OBRIGATÓRIO: a frase de chamada emocional fornecida pelo colaborador DEVE APARECER ESCRITA NA IMAGEM "
+        "Peça emocional de presentear — UMA frase principal grande e impactante em destaque, "
+        "produto em composição elegante. Contexto visual de presente (laço, embrulho ou cenário especial). "
+        "Visual limpo, clean — somente a frase, o produto e o contexto de presente. Nada mais. "
+        "OBRIGATÓRIO: a frase fornecida pelo colaborador DEVE APARECER ESCRITA NA IMAGEM "
         "em destaque tipográfico — use o texto exato informado."
+    ),
+    "8 — Ambientação realista (sem texto)": (
+        "FOTO EDITORIAL DE PRODUTO EM AMBIENTE REAL — REGRA ABSOLUTA: ZERO TEXTO, ZERO ÍCONE, ZERO BENEFÍCIO. "
+        "Produto integrado a um ambiente sofisticado e aspiracional, como peça decorativa protagonista. "
+        "Cena real com mobiliário, iluminação natural suave, tons neutros e composição elegante. "
+        "Apenas a frase discreta 'Imagem meramente ilustrativa' no canto inferior em tipografia fina. "
+        "Tom editorial, aspiracional, realista — parece uma foto de revista de decoração ou lifestyle. "
+        "Nenhum outro texto, título, legenda ou elemento gráfico além do mencionado acima."
     ),
 }
 
@@ -630,14 +649,29 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None):
     prompt_gemini = _montar_prompt_imagen(prompt_texto, imagens_referencia, refs_layout=refs_layout)
 
     # Reforça no prompt final: regras absolutas de layout, fidelidade e criação nova
+    _is_clean_photo = (
+        "1 —" in prompt_texto or
+        "fundo branco" in prompt_texto.lower() or
+        "ambientação realista" in prompt_texto.lower() or
+        "8 —" in prompt_texto
+    )
+    _clean_photo_rule = (
+        "(0) CLEAN PHOTO MODE: This image type requires ABSOLUTE ZERO text inside the image. "
+        "No titles, no headlines, no labels, no icons, no benefit blocks, no callouts — "
+        "NOTHING written. Any text in this image is a critical error. "
+        if _is_clean_photo else ""
+    )
     prompt_gemini = (
         prompt_gemini +
-        "\n\nFINAL MANDATORY RULES — ABSOLUTE — NO EXCEPTIONS: "
+        f"\n\nFINAL MANDATORY RULES — ABSOLUTE — NO EXCEPTIONS: "
+        f"{_clean_photo_rule}"
         "(1) LANGUAGE: ALL text visible inside the generated image MUST be in Brazilian Portuguese. NEVER render English words inside the image. "
-        "(2) NEW CREATION: Generate a COMPLETELY NEW, professional studio-quality marketing image. DO NOT use, copy, or edit the amateur reference photo composition. The reference photos exist solely to describe the product — create entirely fresh professional marketing artwork. "
-        "(3) LAYOUT ZONES: NEVER place any text, title, icon, label, or graphic element directly over or on top of the product. The product must occupy its own clean, text-free zone. All text must appear in separate dedicated panel zones beside or around the product — never overlaid on it. "
-        "(4) PRODUCT FIDELITY: Reproduce the product exactly as described — same shape, color, finish, material, proportions. NEVER add any base, pedestal, support, platform, packaging, or accessory that was not described or visible in the product photos. Any invented physical element is a critical error. "
-        "(5) PROFESSIONAL RESULT: The final image must look like it was produced by a professional e-commerce photography studio and graphic design team — not like a photo with text pasted on top."
+        "(2) NEW CREATION: Generate a COMPLETELY NEW, professional studio-quality image. DO NOT use, copy, or edit the amateur reference photo composition. The reference photos exist solely to describe the product — create entirely fresh professional artwork. "
+        "(3) LAYOUT ZONES: NEVER place any text, title, icon, label, or graphic element directly over or on top of the product. The product must occupy its own clean, text-free zone. All text must appear in separate dedicated panel zones. "
+        "(4) INFORMATION DENSITY: Maximum 3 information elements per image. Each text block must be concise (title: 2-4 words, body: max 8 words). Generous whitespace. Clean and airy — never dense or cluttered. "
+        "(5) NO PEOPLE: NEVER add people, faces, hands, human figures, or models to the image unless explicitly and specifically requested in the brief. "
+        "(6) PRODUCT FIDELITY: Reproduce the product exactly. NEVER add any base, pedestal, support, platform, packaging, or accessory that was not visible in the product photos. Any invented physical element is a critical error. "
+        "(7) PROFESSIONAL RESULT: The final image must look like it was produced by a professional e-commerce studio and graphic design team — not like a photo with text pasted on top."
     )
 
     # 2. Chama Gemini Image Generation — passa fotos do produto E refs de layout separadas
@@ -756,6 +790,7 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
 
     eh_personalizado = (tipo == "Personalizado (descrevo o que quero)")
     eh_fundo_branco = tipo.startswith("1 —")
+    eh_ambientacao = tipo.startswith("8 —")
 
     if eh_personalizado:
         # Modo personalizado: SEM branding automático, SEM nova composição forçada
@@ -772,11 +807,12 @@ TIPO DE IMAGEM: Personalizado
     elif eh_fundo_branco:
         # Tipo 1: fundo BRANCO PURO — o PADRAO_VISUAL (azul-cinza) não se aplica aqui
         PADRAO_VISUAL_FUNDO_BRANCO = """
-PADRÃO VISUAL PARA FOTO DE PRODUTO:
+PADRÃO VISUAL PARA FOTO DE PRODUTO — REGRA ABSOLUTA:
 - Fundo: BRANCO PURO (#FFFFFF) — sem gradiente, sem textura, sem cor de fundo
 - Iluminação de estúdio profissional: luz suave, sem sombras duras
-- Sem texto, sem logotipo, sem elementos de branding
-- Visual limpo, minimalista, focado 100% no produto
+- PROIBIÇÃO TOTAL DE TEXTO: NENHUM texto, título, headline, legenda, ícone, selo, tag,
+  logotipo ou qualquer elemento gráfico além do produto em si. ZERO elementos escritos.
+- Visual limpo, minimalista, focado 100% no produto — apenas produto sobre branco puro
 """
         return f"""{contexto_produto}
 TIPO DE IMAGEM: {tipo}
@@ -785,6 +821,29 @@ TIPO DE IMAGEM: {tipo}
 {bloco_refs}
 
 {PADRAO_VISUAL_FUNDO_BRANCO}
+{INSTRUCAO_FIDELIDADE}
+{INSTRUCAO_PROPORCAO}
+{INSTRUCAO_COMPOSICAO}
+"""
+    elif eh_ambientacao:
+        # Tipo 8: ambientação realista — SEM texto (exceto "Imagem meramente ilustrativa")
+        PADRAO_VISUAL_AMBIENTACAO = """
+PADRÃO VISUAL PARA AMBIENTAÇÃO REALISTA — REGRA ABSOLUTA:
+- Cena editorial aspiracional com produto integrado ao ambiente
+- Iluminação natural suave, tons neutros, composição elegante
+- PROIBIÇÃO DE TEXTO: NENHUM título, headline, benefício, ícone, legenda ou elemento
+  gráfico. APENAS a frase discreta "Imagem meramente ilustrativa" no canto inferior
+  em tipografia fina e sem destaque. Nada mais escrito.
+- Tom de revista de decoração/lifestyle — foto editorial, não peça de marketing
+- NUNCA adicione pessoas, modelos ou figuras humanas nesta imagem
+"""
+        return f"""{contexto_produto}
+TIPO DE IMAGEM: {tipo}
+{base}
+{bloco_instrucoes}
+{bloco_refs}
+
+{PADRAO_VISUAL_AMBIENTACAO}
 {INSTRUCAO_FIDELIDADE}
 {INSTRUCAO_PROPORCAO}
 {INSTRUCAO_COMPOSICAO}
