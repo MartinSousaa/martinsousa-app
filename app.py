@@ -1486,17 +1486,24 @@ if _eh_admin:
             st.rerun()
 
     if _gestao_ativa:
-        _abas_g = st.tabs(["🏆 Painel de Metas", "📊 Análise de Metas", "🕐 Ponto", "💰 Financeiro", "Administrativo"])
-        with _abas_g[0]:
-            placar.pagina_placar(usuario_logado)
-        with _abas_g[1]:
-            analise_metas.pagina_analise_metas(usuario_logado)
-        with _abas_g[2]:
-            relogio_ponto.pagina_ponto(usuario_logado)
-        with _abas_g[3]:
-            financeiro.pagina_financeiro(usuario_logado)
-        with _abas_g[4]:
-            admin.pagina_admin(usuario_logado)
+        if _eh_martinsousa:
+            _abas_g = st.tabs(["🏆 Painel de Metas", "📊 Análise de Metas", "🕐 Ponto", "💰 Financeiro", "Administrativo"])
+            with _abas_g[0]:
+                placar.pagina_placar(usuario_logado)
+            with _abas_g[1]:
+                analise_metas.pagina_analise_metas(usuario_logado)
+            with _abas_g[2]:
+                relogio_ponto.pagina_ponto(usuario_logado)
+            with _abas_g[3]:
+                financeiro.pagina_financeiro(usuario_logado)
+            with _abas_g[4]:
+                admin.pagina_admin(usuario_logado)
+        else:
+            _abas_g = st.tabs(["🏆 Painel de Metas", "📊 Análise de Metas"])
+            with _abas_g[0]:
+                placar.pagina_placar(usuario_logado)
+            with _abas_g[1]:
+                analise_metas.pagina_analise_metas(usuario_logado)
     else:
         _render_abas_operacao(usuario_logado)
 
