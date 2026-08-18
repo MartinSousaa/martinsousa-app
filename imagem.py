@@ -76,6 +76,10 @@ REGRA DE FIDELIDADE AO PRODUTO (a mais importante de todas — sem exceções):
   não invente como o produto seria naquele ângulo
 - Nunca deforme, alongue, encurte ou altere qualquer parte do produto
 - Nunca crie detalhes que não aparecem nas fotos de referência
+- PROIBIÇÃO ABSOLUTA DE INVENTAR ELEMENTOS FÍSICOS: JAMAIS adicione base, pedestal,
+  suporte, superfície, embalagem, acessório ou qualquer objeto que não apareça
+  explicitamente nas fotos de referência. O produto deve flutuar ou pousar exatamente
+  como aparece nas fotos — sem acréscimos de nenhuma espécie.
 - NÃO copie nem reproduza nenhum texto, palavra ou rótulo que apareça escrito
   nas fotos de referência — ignore completamente qualquer texto visível nas imagens
 - PROIBIÇÃO ABSOLUTA DE INVENTAR DADOS TÉCNICOS: JAMAIS crie, estime ou invente
@@ -101,6 +105,21 @@ REGRA DE PROPORÇÃO E DESTAQUE DO PRODUTO (obrigatória):
 - Para imagens de marketing com texto (benefícios, características, frases): produto e texto coexistem de forma equilibrada — o texto é parte essencial da composição, não elemento secundário
 - Para fotos limpas de produto (fundo branco): produto ocupa o máximo espaço, sem texto
 - Mantenha as proporções exatas do produto: não alongue, não achate, não deforme
+"""
+
+INSTRUCAO_LAYOUT_MARKETING = """
+REGRA DE LAYOUT PARA IMAGENS DE MARKETING (obrigatória para tipos 2, 3, 4, 5, 6 e 7):
+- PROIBIÇÃO ABSOLUTA: JAMAIS sobreponha texto, ícone, título ou qualquer elemento gráfico
+  diretamente sobre o produto. O produto deve estar em zona limpa, sem nada sobre ele.
+- A composição é dividida em ZONAS DISTINTAS e separadas:
+    ZONA DO PRODUTO: área exclusiva do produto, sem texto, sem overlays, sem elementos
+    gráficos sobre ele. O produto é exibido em fundo limpo dentro dessa zona.
+    ZONA DE TEXTO: painéis laterais, faixas superiores/inferiores ou blocos ao lado do produto,
+    com fundo sólido ou semi-transparente, onde ficam títulos, ícones, benefícios e frases.
+- O produto NUNCA serve de fundo para texto — qualquer legenda, benefício ou frase
+  deve estar em área própria adjacente ao produto, não sobreposta a ele.
+- A imagem final deve ter aparência de peça gráfica profissional de e-commerce,
+  criada por um estúdio de marketing — não de uma foto com texto editado por cima.
 """
 
 # ── MODO PERSONALIZADO — sem branding automático ──────────────────────────────
@@ -478,34 +497,41 @@ def _montar_prompt_imagen(prompt_texto_completo, imagens_referencia, refs_layout
 
     content.append({
         "type": "text",
-        "text": f"""You are creating a visual prompt for the Gemini image generation model.
+        "text": f"""You are creating a detailed visual prompt for the Gemini image generation model.
 
-Analyze the product photos AND the layout style references above. Write ONE concise visual prompt in English (6-10 sentences).
+Analyze the PRODUCT PHOTOS above carefully. Write a comprehensive image generation prompt in English (14-20 sentences).
 
 IMAGE BRIEF:
 {linhas_relevantes}
 
-Your prompt must describe:
-1. The exact product appearance from the PRODUCT PHOTOS (shape, color, material, key details) — be very specific and faithful
-2. The scene/composition (what the brief asks for)
-3. The product must be large and prominent in the composition
-4. Lighting style (studio, natural, lifestyle, etc. — match the layout references if provided)
-5. {_background_instrucao}
-6. Style: professional product marketing graphic design{_instrucao_layout_refs}{_texto_instrucao}
+Your prompt MUST cover ALL of these sections in this exact order:
 
-CRITICAL RULES — FOLLOW EXACTLY:
-- PRODUCT FIDELITY: Reproduce the product from the PRODUCT PHOTOS exactly — same color, same shape, same details. NEVER substitute a different product.
-- LANGUAGE OF IMAGE TEXT: Any text that must appear visually INSIDE the generated image MUST be written in Brazilian Portuguese EXACTLY as provided in the brief. NEVER translate to English.
-- CREATE NEW: Generate a new professional marketing image. Do NOT copy the product photo composition literally — create a proper marketing piece. If layout references are provided, follow their composition style.
+SECTION 1 — PRODUCT DESCRIPTION (4-5 sentences):
+Describe the product from the PRODUCT PHOTOS in precise detail: its exact shape, color, finish, texture, material appearance, proportions, and every distinguishing visual characteristic. This description must be specific enough for Gemini to reproduce it faithfully without seeing the photo. Do NOT invent details not visible in the photos.
 
-Write ONLY the image generation prompt. No explanation, no preamble."""
+SECTION 2 — WHAT TO GENERATE (1-2 sentences):
+State clearly that Gemini must generate a COMPLETELY NEW, professional studio-quality marketing image inspired by the brief below. It must NOT copy, edit, or use the reference photo composition — it must create an entirely new piece of professional graphic design artwork.
+
+SECTION 3 — LAYOUT ZONES (3-4 sentences — CRITICAL):
+{"For this marketing image: The composition is divided into two clear, separate zones. PRODUCT ZONE (left side or center, ~55% of image): the product rendered large and prominent on the background color — absolutely NO text, icons, or graphic elements overlaid ON the product. TEXT ZONE (right side or surrounding panels): all titles, benefit blocks, icons, and callout text placed on solid or semi-transparent panel backgrounds, clearly separated from the product. The product must never serve as a background for any text." if _is_marketing_com_texto else "Product centered on a perfectly clean background, no text, no overlays, no graphic elements."}
+
+SECTION 4 — EXACT TEXT CONTENT (list every element explicitly — CRITICAL):
+Extract EVERY piece of text from the brief above and list them word-for-word in Portuguese. For each text element specify: the exact text in Portuguese, its role (title, benefit label, body text, callout phrase, measurement annotation, question, answer, tagline), its location in the image (header area, right panel, left overlay, bottom strip, etc.), and its visual style (large bold title, small caption, icon + label, etc.). Do NOT summarize or paraphrase any text — use the exact words.
+
+SECTION 5 — VISUAL STYLE:
+{_background_instrucao}. Font style: clean geometric sans-serif (Montserrat or Poppins style). Navy blue (#1A3A6B) for headings and graphic accents. Professional e-commerce marketing aesthetic, clean and airy.{_instrucao_layout_refs}
+
+End your prompt with these absolute rules on a new line:
+"ABSOLUTE RULES: (1) Generate a completely new professional marketing image — do NOT copy the reference photo composition. (2) NEVER place any text, label, or icon directly over or on top of the product. Text must be in separate dedicated zones only. (3) NEVER add any base, pedestal, support, packaging, or accessory that does not appear in the product photos. (4) Reproduce the product exactly as described — same color, shape, finish, every detail. (5) All visible text in the image must be in Brazilian Portuguese exactly as specified above."
+
+Write ONLY the image generation prompt. No preamble, no explanation."""
     })
 
     try:
         client = anthropic.Anthropic(api_key=api_key)
         msg = client.messages.create(
             model="claude-haiku-4-5",
-            max_tokens=900,
+            max_tokens=1800,
             messages=[{"role": "user", "content": content}]
         )
         return msg.content[0].text.strip()
@@ -603,18 +629,15 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None):
     # 1. Converte o prompt completo + fotos em prompt visual para o Gemini
     prompt_gemini = _montar_prompt_imagen(prompt_texto, imagens_referencia, refs_layout=refs_layout)
 
-    # Reforça no prompt final: texto em português + produto fiel + layout das refs
+    # Reforça no prompt final: regras absolutas de layout, fidelidade e criação nova
     prompt_gemini = (
         prompt_gemini +
-        "\n\nIMPORTANT — MANDATORY RULES: "
-        "(1) ALL text visible in the final image must be in Brazilian Portuguese. "
-        "Never render English text inside the image. "
-        "(2) PRODUCT FIDELITY: Reproduce the product from the PRODUCT PHOTOS exactly — "
-        "same shape, color, material, and details. The product must be recognizable. "
-        "(3) Create a completely NEW, professional studio-quality image — not a photo copy. "
-        "If layout references are provided, follow their composition, element placement, "
-        "and visual structure, applying them to this specific product. "
-        "The final image must look like it was produced in a professional photography studio."
+        "\n\nFINAL MANDATORY RULES — ABSOLUTE — NO EXCEPTIONS: "
+        "(1) LANGUAGE: ALL text visible inside the generated image MUST be in Brazilian Portuguese. NEVER render English words inside the image. "
+        "(2) NEW CREATION: Generate a COMPLETELY NEW, professional studio-quality marketing image. DO NOT use, copy, or edit the amateur reference photo composition. The reference photos exist solely to describe the product — create entirely fresh professional marketing artwork. "
+        "(3) LAYOUT ZONES: NEVER place any text, title, icon, label, or graphic element directly over or on top of the product. The product must occupy its own clean, text-free zone. All text must appear in separate dedicated panel zones beside or around the product — never overlaid on it. "
+        "(4) PRODUCT FIDELITY: Reproduce the product exactly as described — same shape, color, finish, material, proportions. NEVER add any base, pedestal, support, platform, packaging, or accessory that was not described or visible in the product photos. Any invented physical element is a critical error. "
+        "(5) PROFESSIONAL RESULT: The final image must look like it was produced by a professional e-commerce photography studio and graphic design team — not like a photo with text pasted on top."
     )
 
     # 2. Chama Gemini Image Generation — passa fotos do produto E refs de layout separadas
@@ -775,6 +798,7 @@ TIPO DE IMAGEM: {tipo}
 {bloco_refs}
 
 {PADRAO_VISUAL}
+{INSTRUCAO_LAYOUT_MARKETING}
 {INSTRUCAO_FIDELIDADE}
 {INSTRUCAO_PROPORCAO}
 {INSTRUCAO_COMPOSICAO}
