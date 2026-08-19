@@ -625,14 +625,43 @@ def _chamar_gemini_geracao_texto(prompt_final):
     return None, "Máximo de tentativas atingido."
 
 
-def _chamar_openai_geracao(prompt_final):
-    """Chama gpt-image-1 da OpenAI (motor primário de geração). Retorna (img_bytes, erro)."""
+def _chamar_openai_geracao(prompt_final, imagens_bytes=None):
+    """Chama gpt-image-1 da OpenAI (motor primário de geração). Retorna (img_bytes, erro).
+
+    Quando `imagens_bytes` é fornecido, usa a Responses API com as fotos do produto
+    como referência visual direta — o mesmo comportamento do ChatGPT.
+    Sem fotos, usa images.generate() (texto puro).
+    """
     api_key = _get_openai_api_key()
     if not api_key:
         return None, "OPENAI_API_KEY não configurada."
     try:
         from openai import OpenAI as _OpenAI
         client = _OpenAI(api_key=api_key)
+
+        # ── COM FOTOS: Responses API (fotos como referência visual direta, igual ao ChatGPT) ──
+        if imagens_bytes:
+            content = []
+            for img_b in imagens_bytes[:3]:
+                mime = _detectar_mime(img_b)
+                b64 = base64.b64encode(img_b).decode("utf-8")
+                content.append({
+                    "type": "input_image",
+                    "image_url": f"data:{mime};base64,{b64}",
+                })
+            content.append({"type": "input_text", "text": prompt_final})
+            resp = client.responses.create(
+                model="gpt-image-1",
+                input=[{"role": "user", "content": content}],
+            )
+            for out in resp.output:
+                if getattr(out, "type", None) == "image_generation_call":
+                    result = getattr(out, "result", None)
+                    if result:
+                        return base64.b64decode(result), None
+            return None, "Sem imagem na resposta Responses API."
+
+        # ── SEM FOTOS: geração texto puro (fallback) ──
         response = client.images.generate(
             model="gpt-image-1",
             prompt=prompt_final,
@@ -741,12 +770,22 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None):
         if _is_marketing and _colaborador_brief else ""
     )
 
-    # 3. Monta prompt de geração em inglês (texto puro, sem fotos)
+    # 3. Monta prompt de geração em inglês
+    # Quando enviado via Responses API (com fotos), a seção PRODUCT DESCRIPTION é
+    # substituída por uma instrução de referência visual — o modelo VÊ as fotos.
+    _tem_fotos = bool(imagens_referencia) and bool(_get_openai_api_key())
+    _product_section = (
+        "PRODUCT REFERENCE: Use the product photos provided as the exact visual reference. "
+        "Reproduce EVERY detail visible in those photos — same colors, shapes, proportions, "
+        "textures, finishes and components. Do NOT invent or substitute any detail.\n\n"
+        if _tem_fotos else
+        f"PRODUCT DESCRIPTION (recreate this product exactly — match every detail described):\n"
+        f"{descricao_produto}\n\n"
+    )
     prompt_geracao = (
         f"Create a professional e-commerce marketing image.\n\n"
         f"IMAGE TYPE: {_tipo_str}\n\n"
-        f"PRODUCT DESCRIPTION (recreate this product exactly — match every detail described):\n"
-        f"{descricao_produto}\n\n"
+        f"{_product_section}"
         f"BACKGROUND & VISUAL STYLE:\n"
         f"{_background}\n"
         f"Brand accents when applicable: Navy blue (#1A3A6B) for text and graphic elements, "
@@ -778,7 +817,11 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None):
     _usando_openai = bool(_get_openai_api_key())
 
     if _usando_openai:
-        img_bytes, erro = _chamar_openai_geracao(prompt_geracao)
+        # Passa as fotos do produto diretamente ao gpt-image-1 via Responses API
+        # (igual ao ChatGPT) — o modelo VÊ as fotos em vez de receber só texto.
+        # Se não houver fotos, cai no geração texto-puro como antes.
+        _fotos_para_openai = imagens_referencia if imagens_referencia else None
+        img_bytes, erro = _chamar_openai_geracao(prompt_geracao, imagens_bytes=_fotos_para_openai)
         if not img_bytes:
             erro_primario = f"OpenAI gpt-image-1: {erro}"
 
