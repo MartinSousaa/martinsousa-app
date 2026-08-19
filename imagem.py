@@ -1179,15 +1179,42 @@ def pagina_imagem(usuario_logado):
     st.caption("Gere imagens profissionais para o anúncio. A IA mostra o que vai criar antes de gastar com a geração.")
 
     MODELO_DIAG = "gemini-3.1-flash-image"
-    with st.expander("🔧 Diagnóstico da API Gemini", expanded=False):
-        st.caption("Gera uma imagem de teste para confirmar que a GEMINI_API_KEY está funcionando.")
-        if st.button("Testar geração agora", key="btn_diag_gemini"):
+    with st.expander("🔧 Diagnóstico das APIs de Imagem", expanded=False):
+        st.caption("Testa OpenAI gpt-image-1 (motor primário) e Gemini Flash (fallback) para confirmar que estão funcionando.")
+        if st.button("Testar APIs agora", key="btn_diag_gemini"):
+            # Testa OpenAI
+            _oai_key = _get_openai_api_key()
+            if _oai_key:
+                with st.spinner("Testando OpenAI gpt-image-1..."):
+                    import time as _td
+                    _t0_oai = _td.time()
+                    try:
+                        from openai import OpenAI as _OAITest
+                        _oai_client = _OAITest(api_key=_oai_key)
+                        _oai_resp = _oai_client.images.generate(
+                            model="gpt-image-1",
+                            prompt="A small red circle on white background, minimal.",
+                            n=1, size="1024x1024", quality="low",
+                        )
+                        _oai_ms = int((_td.time() - _t0_oai) * 1000)
+                        _oai_img = getattr(_oai_resp.data[0], "b64_json", None) or getattr(_oai_resp.data[0], "url", None)
+                        if _oai_img:
+                            st.success(f"✅ **gpt-image-1** — gerou imagem ({_oai_ms}ms)")
+                        else:
+                            st.warning(f"⚠️ **gpt-image-1** — sem imagem na resposta ({_oai_ms}ms)")
+                    except Exception as _e_oai:
+                        _oai_ms = int((_td.time() - _t0_oai) * 1000)
+                        st.error(f"❌ **gpt-image-1** — {str(_e_oai)[:300]} ({_oai_ms}ms)")
+            else:
+                st.warning("⚠️ **gpt-image-1** — OPENAI_API_KEY não configurada nas secrets do Railway.")
+
+            # Testa Gemini
             with st.spinner(f"Testando {MODELO_DIAG} via Gemini API (pode levar ~30s)..."):
                 d = _testar_gemini_api()
             if "erro_geral" in d:
                 st.error(d["erro_geral"])
             else:
-                st.caption(f"API Key: `{d.get('api_key','?')}`")
+                st.caption(f"Gemini API Key: `{d.get('api_key','?')}`")
                 info = d.get(MODELO_DIAG, {})
                 if info.get("ok"):
                     icone = "✅" if info.get("tem_imagem") else "⚠️"
