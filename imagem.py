@@ -174,7 +174,7 @@ MODO AJUSTE FINO — EDIÇÃO CIRÚRGICA — REGRAS ABSOLUTAS E INVIOLÁVEIS:
 
 # ── PRESETS ATUALIZADOS COM IDENTIDADE VISUAL ─────────────────────────────────
 TIPOS_PADRAO = [
-    "1 — Produto com fundo branco",
+    "1 — Capa do anúncio (fundo branco)",
     "2 — Benefícios do produto",
     "3 — Benefícios no cenário de uso",
     "4 — Close nos detalhes",
@@ -186,67 +186,68 @@ TIPOS_PADRAO = [
 
 PRESETS = {
     "Personalizado (descrevo o que quero)": "",
-    "1 — Produto com fundo branco": (
-        "FOTO DE PRODUTO LIMPA — REGRA ABSOLUTA: ZERO TEXTO, ZERO TÍTULO, ZERO ÍCONE, ZERO ELEMENTO GRÁFICO. "
-        "APENAS o produto sobre fundo branco puro. Qualquer texto é erro crítico nesta imagem. "
-        "FUNDO: branco puro (#FFFFFF) — absolutamente liso, sem gradiente, sem sombra, sem elementos. "
-        "Produto centralizado, ocupando 75-90% do frame — a maior proporção possível sem cortar bordas. "
-        "Iluminação de estúdio suave, luz frontal e preenchimento lateral para eliminar sombras duras. "
-        "Resultado: foto de catálogo profissional, limpa, apenas produto e fundo branco. Nada mais."
+    "1 — Capa do anúncio (fundo branco)": (
+        "CAPA DO ANÚNCIO — FOTO PRINCIPAL DO PRODUTO: REGRA ABSOLUTA: ZERO TEXTO, ZERO TÍTULO, ZERO ÍCONE. "
+        "APENAS o produto sobre fundo branco puro — esta é a primeira imagem que o comprador vê. "
+        "FUNDO: branco puro (#FFFFFF), absolutamente liso, sem gradiente, sem sombra, sem elementos. "
+        "Produto centralizado, ocupando 75-85% do frame, completamente visível sem cortes. "
+        "Iluminação profissional de estúdio: luz suave e uniforme, sombra mínima e delicada embaixo. "
+        "Posição: ângulo frontal ligeiramente 3/4 que mostra melhor o produto, ou frontal direto. "
+        "Resultado: foto de e-commerce de alta qualidade — limpa, profissional, produto é tudo."
     ),
     "2 — Benefícios do produto": (
-        "Peça de marketing de alto impacto com benefícios do produto. "
-        "Layout: produto em destaque em zona limpa (sem texto sobre ele), painéis ao lado com "
-        "ícone line-art + título curto (2-3 palavras) + frase objetiva (máximo 7 palavras) por benefício. "
-        "Regra de limpeza visual: máximo 3 benefícios — NUNCA mais de 3, "
-        "pois menos elementos com mais espaço converte melhor do que peça densa. "
-        "Visual clean, arejado, muito whitespace — jamais sobreponha texto ao produto. "
-        "OBRIGATÓRIO: use os textos EXATOS fornecidos pelo colaborador — não invente nem parafrasear."
+        "IMAGEM DE MARKETING — BENEFÍCIOS: produto em zona central limpa (SEM texto sobre ele). "
+        "Fundo padrão da marca (#E8EEF5). Máximo 3 benefícios em painéis laterais ou inferiores: "
+        "ícone line-art azul marinho + título curto (2-3 palavras) + frase direta (máximo 7 palavras). "
+        "Visual arejado, muito whitespace — jamais comprima ou empilhe os blocos de benefício. "
+        "Os textos dos benefícios vêm dos diferenciais e características do produto informados."
     ),
     "3 — Benefícios no cenário de uso": (
-        "Peça de marketing com produto em cenário real aspiracional, iluminação natural. "
-        "Frases de destaque posicionadas em painéis ao lado do produto — "
-        "nunca sobrepostas ao produto em si. Cada frase: máximo 6 palavras, impactante e objetiva. "
-        "Regra de limpeza visual: máximo 3 frases — NUNCA mais de 3. "
-        "Visual limpo, clean, muito espaço — não polua com elementos extras. "
-        "OBRIGATÓRIO: use os textos EXATOS fornecidos pelo colaborador como callouts visuais."
+        "IMAGEM DE MARKETING — PRODUTO NO AMBIENTE DE USO REAL: escolha o cenário mais natural "
+        "para este produto específico (escritório, quarto, sala de estudo, cozinha, etc.). "
+        "Produto protagonista em cena aspiracional com iluminação natural suave. "
+        "Máximo 2-3 frases de destaque em painéis fora do produto (nunca sobre ele). "
+        "Cada frase: curta, impactante, máximo 6 palavras. Fundo e cores da marca presentes. "
+        "Visual editorial — parece foto de lifestyle de qualidade, não montagem amadora."
     ),
     "4 — Close nos detalhes": (
-        "Imagem em zoom valorizando acabamento e qualidade do produto. "
-        "Pontos de destaque com linha fina + legenda curta ao lado — máximo 3 callouts. "
-        "Cada legenda: máximo 4 palavras. Muito espaço limpo ao redor. "
-        "NÃO mostre o produto inteiro — foco apenas em recortes/detalhes ampliados. "
-        "Regra de limpeza visual: preferir menos callouts bem espaçados a muitos comprimidos. "
-        "OBRIGATÓRIO: use os textos EXATOS fornecidos pelo colaborador como anotações visuais."
+        "CLOSE NO PRODUTO — ZOOM REAL EM DETALHE ESPECÍFICO: NÃO mostre o produto inteiro. "
+        "Recorte e amplie UMA área específica do produto: textura do material, acabamento, encaixe, "
+        "mecanismo, superfície, ou detalhe que justifique qualidade e diferencial. "
+        "Fundo desfocado (bokeh) com produto em foco nítido no primeiro plano. "
+        "Máximo 2 callouts discretos com linha fina + legenda de até 4 palavras, posicionados "
+        "em área limpa FORA do produto. Tom: premium, artesanal, qualidade perceptível. "
+        "ZERO medidas, ZERO setas de dimensão — isso é uma foto de qualidade, não infográfico técnico."
     ),
     "5 — Características técnicas (medidas/peso/material)": (
-        "Imagem técnica minimalista com produto centralizado e linhas de cota finas indicando dimensões. "
-        "Apenas as medidas exatas (altura × largura), peso e material anotados com tipografia clean. "
-        "Fundo claro, visual técnico e limpo — ZERO ícones decorativos, ZERO blocos de benefício, "
-        "ZERO selos ou tags extras. Somente produto + linhas de medida + números. "
-        "OBRIGATÓRIO: use SOMENTE os valores EXATOS fornecidos — JAMAIS invente ou estime medidas."
+        "INFOGRÁFICO TÉCNICO — SOMENTE DIMENSÕES E ESPECIFICAÇÕES: produto centralizado com "
+        "linhas de cota finas indicando medidas EXATAS (altura × largura × profundidade se disponível). "
+        "Peso e material anotados com tipografia clean em área lateral. "
+        "Fundo claro, visual técnico limpo — ZERO ícones decorativos, ZERO blocos de benefício. "
+        "Use APENAS os valores informados nos dados do produto — JAMAIS invente ou estime medidas. "
+        "Se medidas não foram informadas, omita-as completamente — não crie números fictícios."
     ),
     "6 — Quebra de objeção": (
-        "Peça de marketing que responde objeções de compra. "
-        "Cada bloco: pergunta curta em destaque (máximo 5 palavras) + resposta direta (máximo 8 palavras). "
-        "Ícone de check simples ao lado de cada resposta. Layout clean, muito whitespace, produto presente. "
-        "Regra de limpeza visual: máximo 3 perguntas/respostas — NUNCA mais de 3. "
-        "OBRIGATÓRIO: use os textos EXATOS fornecidos pelo colaborador — não invente objeções."
+        "IMAGEM DE MARKETING — RESPONDENDO DÚVIDAS DO COMPRADOR: layout clean com produto "
+        "em destaque e máximo 3 blocos de pergunta+resposta ao lado. "
+        "Cada bloco: pergunta curta (máximo 5 palavras) em destaque + check verde + resposta direta "
+        "(máximo 8 palavras). As objeções são baseadas nos diferenciais e características do produto. "
+        "Visual arejado, muito whitespace, fundo padrão da marca (#E8EEF5)."
     ),
     "7 — Presenteie": (
-        "Peça emocional de presentear — frase principal grande e impactante em destaque, "
-        "produto em composição elegante. Contexto visual de presente (laço, embrulho ou cenário especial). "
-        "Visual limpo, clean — somente a frase, o produto e o contexto de presente. Nada mais. "
-        "OBRIGATÓRIO: a frase fornecida pelo colaborador DEVE APARECER ESCRITA NA IMAGEM "
-        "em destaque tipográfico — use o texto exato informado."
+        "IMAGEM EMOCIONAL — PRESENTEAR: composição elegante com produto como presente especial. "
+        "Contexto visual de presente: laço de fita, embrulho decorativo, ou cena de entrega. "
+        "Frase grande e impactante em destaque: 'Presenteie com' + nome do produto, ou frase emotiva. "
+        "Visual limpo, clean, tons suaves e elegantes — produto e contexto de presente como únicos elementos. "
+        "Se nenhuma frase específica foi fornecida, crie uma frase genérica adequada ao produto."
     ),
     "8 — Ambientação realista (sem texto)": (
-        "FOTO EDITORIAL DE PRODUTO EM AMBIENTE REAL — REGRA ABSOLUTA: ZERO TEXTO, ZERO ÍCONE, ZERO BENEFÍCIO. "
-        "Produto integrado a um ambiente sofisticado e aspiracional, como peça decorativa protagonista. "
-        "Cena real com mobiliário, iluminação natural suave, tons neutros e composição elegante. "
+        "FOTO EDITORIAL — PRODUTO NO AMBIENTE NATURAL DE USO: ZERO TEXTO, ZERO ÍCONE, ZERO BENEFÍCIO. "
+        "Identifique o ambiente mais natural para este produto (escritório, quarto de estudos, sala, "
+        "mesa de trabalho, estante de livros, etc.) e integre o produto como peça protagonista. "
+        "Cena real com mobiliário, iluminação natural suave, tons neutros e composição editorial elegante. "
         "Apenas a frase discreta 'Imagem meramente ilustrativa' no canto inferior em tipografia fina. "
-        "Tom editorial, aspiracional, realista — parece uma foto de revista de decoração ou lifestyle. "
-        "Nenhum outro texto, título, legenda ou elemento gráfico além do mencionado acima."
+        "Tom: revista de decoração/lifestyle — parece uma foto editorial real, não montagem digital."
     ),
 }
 
@@ -690,9 +691,10 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None):
 
     # 2. Detecta tipo e flags visuais
     _is_fundo_branco = (
-        "1 —" in prompt_texto or
+        "1 — Capa" in prompt_texto or
         "fundo branco" in prompt_texto.lower() or
-        "white background" in prompt_texto.lower()
+        "white background" in prompt_texto.lower() or
+        "CAPA DO ANÚNCIO" in prompt_texto
     )
     _is_clean_photo = (
         _is_fundo_branco or
@@ -717,9 +719,10 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None):
         "product area. NEVER overlay text directly on the product. Product zone must be clean and text-free."
     )
 
-    # Extrai conteúdo do colaborador do prompt original
+    # Extrai conteúdo visual do colaborador — APENAS de "INSTRUÇÕES VISUAIS" (modo Personalizado).
+    # "CONTEXTO INTERNO DO PRODUTO" é referência para a IA, NUNCA renderizado na imagem.
     _colab_match = _re.search(
-        r"INSTRUÇÕES DO COLABORADOR[^:]*:\s*(.*?)(?:\n(?:REFERÊNCIAS|PADRÃO|INSTRUÇÃO|$))",
+        r"INSTRUÇÕES VISUAIS DO COLABORADOR[^:]*:\s*(.*?)(?:\n(?:REFERÊNCIAS|PADRÃO|INSTRUÇÃO|CONTEXTO|$))",
         prompt_texto, _re.DOTALL
     )
     _colaborador_brief = _colab_match.group(1).strip() if _colab_match else ""
@@ -893,9 +896,20 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
             contexto_produto += f"Peso EXATO (use esse número, não invente): {dados_descricao['peso']}\n"
         if dados_descricao.get("diferenciais"):
             contexto_produto += f"Diferenciais principais: {dados_descricao['diferenciais'][:200]}\n"
+        if dados_descricao.get("caracteristicas"):
+            contexto_produto += f"Características: {dados_descricao['caracteristicas'][:200]}\n"
+        if dados_descricao.get("uso"):
+            contexto_produto += f"Uso principal: {dados_descricao['uso'][:100]}\n"
 
-    bloco_instrucoes = (
-        f"\nINSTRUÇÕES DO COLABORADOR (siga com precisão):\n{instrucoes_extras}"
+    # IMPORTANTE: instrucoes_extras é CONTEXTO INTERNO para a IA, não conteúdo visual.
+    # Para tipos padrão (1-8), é marcado como contexto — nunca renderizado na imagem.
+    # Para Personalizado, é marcado como instrução visual.
+    bloco_contexto_interno = (
+        f"\nCONTEXTO INTERNO DO PRODUTO (informação de apoio para a IA — NÃO renderize estes dados como texto na imagem):\n{instrucoes_extras}"
+        if instrucoes_extras else ""
+    )
+    bloco_instrucao_visual = (
+        f"\nINSTRUÇÕES VISUAIS DO COLABORADOR (aparecem na imagem conforme descrito):\n{instrucoes_extras}"
         if instrucoes_extras else ""
     )
 
@@ -909,15 +923,15 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
         bloco_refs += f"\n{INSTRUCAO_REFERENCIA_LAYOUT}"
 
     eh_personalizado = (tipo == "Personalizado (descrevo o que quero)")
-    eh_fundo_branco = tipo.startswith("1 —")
+    eh_fundo_branco = tipo.startswith("1 —") or "fundo branco" in tipo.lower() or "capa" in tipo.lower()
     eh_ambientacao = tipo.startswith("8 —")
 
     if eh_personalizado:
         # Modo personalizado: SEM branding automático, SEM nova composição forçada
-        # A instrução do colaborador define tudo.
+        # A instrução do colaborador define tudo — e é conteúdo visual, não contexto interno.
         return f"""{contexto_produto}
 TIPO DE IMAGEM: Personalizado
-{bloco_instrucoes}
+{bloco_instrucao_visual}
 {bloco_refs}
 
 {INSTRUCAO_PERSONALIZADO}
@@ -925,7 +939,7 @@ TIPO DE IMAGEM: Personalizado
 {INSTRUCAO_PROPORCAO}
 """
     elif eh_fundo_branco:
-        # Tipo 1: fundo BRANCO PURO — o PADRAO_VISUAL (azul-cinza) não se aplica aqui
+        # Tipo 1 (Capa): fundo BRANCO PURO — o PADRAO_VISUAL (azul-cinza) não se aplica aqui
         PADRAO_VISUAL_FUNDO_BRANCO = """
 PADRÃO VISUAL PARA FOTO DE PRODUTO — REGRA ABSOLUTA:
 - Fundo: BRANCO PURO (#FFFFFF) — sem gradiente, sem textura, sem cor de fundo
@@ -937,7 +951,7 @@ PADRÃO VISUAL PARA FOTO DE PRODUTO — REGRA ABSOLUTA:
         return f"""{contexto_produto}
 TIPO DE IMAGEM: {tipo}
 {base}
-{bloco_instrucoes}
+{bloco_contexto_interno}
 {bloco_refs}
 
 {PADRAO_VISUAL_FUNDO_BRANCO}
@@ -949,7 +963,9 @@ TIPO DE IMAGEM: {tipo}
         # Tipo 8: ambientação realista — SEM texto (exceto "Imagem meramente ilustrativa")
         PADRAO_VISUAL_AMBIENTACAO = """
 PADRÃO VISUAL PARA AMBIENTAÇÃO REALISTA — REGRA ABSOLUTA:
-- Cena editorial aspiracional com produto integrado ao ambiente
+- Cena editorial aspiracional com produto integrado ao ambiente natural de uso
+- Use o contexto do produto para escolher o ambiente: escritório, quarto de estudos,
+  sala de estar, mesa de trabalho, ou outro ambiente adequado ao produto específico
 - Iluminação natural suave, tons neutros, composição elegante
 - PROIBIÇÃO DE TEXTO: NENHUM título, headline, benefício, ícone, legenda ou elemento
   gráfico. APENAS a frase discreta "Imagem meramente ilustrativa" no canto inferior
@@ -960,7 +976,7 @@ PADRÃO VISUAL PARA AMBIENTAÇÃO REALISTA — REGRA ABSOLUTA:
         return f"""{contexto_produto}
 TIPO DE IMAGEM: {tipo}
 {base}
-{bloco_instrucoes}
+{bloco_contexto_interno}
 {bloco_refs}
 
 {PADRAO_VISUAL_AMBIENTACAO}
@@ -970,10 +986,11 @@ TIPO DE IMAGEM: {tipo}
 """
     else:
         # Tipos padrão (2-7): imagens de marketing com identidade visual completa
+        # instrucoes_extras é CONTEXTO INTERNO — não conteúdo visual renderizado
         return f"""{contexto_produto}
 TIPO DE IMAGEM: {tipo}
 {base}
-{bloco_instrucoes}
+{bloco_contexto_interno}
 {bloco_refs}
 
 {PADRAO_VISUAL}
@@ -1442,7 +1459,7 @@ def pagina_imagem(usuario_logado):
                 key="img_tipos_multi",
             )
             instrucoes_extras = st.text_area(
-                "Observações gerais (aplicadas a todas as imagens selecionadas)",
+                "Contexto do produto (dados internos para a IA — não aparecem nas imagens)",
                 height=80,
                 placeholder="ex: produto tem versão preta e branca, foca nos dois no fundo branco",
                 key="img_instr_multi",
@@ -1450,10 +1467,15 @@ def pagina_imagem(usuario_logado):
 
         else:  # As 7 imagens do padrão
             tipos_selecionados = TIPOS_PADRAO
+            st.info(
+                "💡 **Contexto do produto** — escreva aqui dados que a IA precisa saber para gerar bem as imagens. "
+                "Esses dados são **internos para a IA** e não aparecem escritos nas imagens."
+            )
             instrucoes_extras = st.text_area(
-                "Observações gerais (aplicadas a todas as 7 imagens)",
+                "Contexto do produto (dados internos para a IA — não aparecem nas imagens)",
                 height=80,
-                placeholder="ex: produto vem em 3 cores, destaque a vermelha nas peças de marketing",
+                placeholder="ex: produto vem em 3 cores (preto, branco e azul) — destaque o preto. "
+                            "Rotação de 360°. Base estável. Ideal para presente.",
                 key="img_instr_lote",
             )
 
