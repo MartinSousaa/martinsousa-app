@@ -48,6 +48,12 @@ def _get_gemini_limiter():
 
 _GEMINI_LIMITER = _get_gemini_limiter()
 
+
+def _get_openai_api_key():
+    """Retorna OPENAI_API_KEY das secrets ou variável de ambiente."""
+    return st.secrets.get("OPENAI_API_KEY", "") or os.environ.get("OPENAI_API_KEY", "")
+
+
 # ── PADRÃO VISUAL MARTINSOUSA (hardcoded em todos os prompts) ──────────────────
 PADRAO_VISUAL = """
 PADRÃO VISUAL OBRIGATÓRIO DA EMPRESA (aplique em todas as peças de marketing):
@@ -189,46 +195,46 @@ PRESETS = {
         "Resultado: foto de catálogo profissional, limpa, apenas produto e fundo branco. Nada mais."
     ),
     "2 — Benefícios do produto": (
-        "Peça de marketing objetiva mostrando EXATAMENTE 3 benefícios do produto — não mais, não menos. "
-        "Layout: produto em destaque à esquerda (zona limpa, sem texto sobre ele), "
-        "à direita 3 blocos verticais compactos cada um com ícone line-art + título (2-3 palavras) + "
-        "frase curta (máximo 7 palavras). Título principal discreto no topo. "
-        "Visual clean, arejado, muito whitespace — NUNCA sobreponha texto ao produto. "
-        "OBRIGATÓRIO: os textos dos benefícios fornecidos pelo colaborador DEVEM APARECER ESCRITOS NA IMAGEM — "
-        "use as frases e títulos exatos informados, renderizados como elementos gráficos de texto na composição."
+        "Peça de marketing de alto impacto com benefícios do produto. "
+        "Layout: produto em destaque em zona limpa (sem texto sobre ele), painéis ao lado com "
+        "ícone line-art + título curto (2-3 palavras) + frase objetiva (máximo 7 palavras) por benefício. "
+        "Regra de limpeza visual: máximo 3 benefícios — NUNCA mais de 3, "
+        "pois menos elementos com mais espaço converte melhor do que peça densa. "
+        "Visual clean, arejado, muito whitespace — jamais sobreponha texto ao produto. "
+        "OBRIGATÓRIO: use os textos EXATOS fornecidos pelo colaborador — não invente nem parafrasear."
     ),
     "3 — Benefícios no cenário de uso": (
-        "Peça de marketing com o produto em cenário real aspiracional, iluminação natural. "
-        "EXATAMENTE 3 frases curtas de destaque posicionadas em painéis ao lado do produto — "
+        "Peça de marketing com produto em cenário real aspiracional, iluminação natural. "
+        "Frases de destaque posicionadas em painéis ao lado do produto — "
         "nunca sobrepostas ao produto em si. Cada frase: máximo 6 palavras, impactante e objetiva. "
-        "Visual limpo, clean, muito espaço respira — não polua com elementos extras. "
-        "OBRIGATÓRIO: as frases fornecidas pelo colaborador DEVEM APARECER ESCRITAS NA IMAGEM — "
-        "use os textos exatos como callouts visuais em painéis separados do produto."
+        "Regra de limpeza visual: máximo 3 frases — NUNCA mais de 3. "
+        "Visual limpo, clean, muito espaço — não polua com elementos extras. "
+        "OBRIGATÓRIO: use os textos EXATOS fornecidos pelo colaborador como callouts visuais."
     ),
     "4 — Close nos detalhes": (
-        "Imagem em zoom valorizando acabamento e qualidade. "
-        "EXATAMENTE 3 pontos de destaque com linha fina + legenda curta ao lado — nunca mais de 3. "
+        "Imagem em zoom valorizando acabamento e qualidade do produto. "
+        "Pontos de destaque com linha fina + legenda curta ao lado — máximo 3 callouts. "
         "Cada legenda: máximo 4 palavras. Muito espaço limpo ao redor. "
         "NÃO mostre o produto inteiro — foco apenas em recortes/detalhes ampliados. "
-        "OBRIGATÓRIO: as legendas fornecidas pelo colaborador DEVEM APARECER ESCRITAS NA IMAGEM "
-        "como anotações visuais — use os textos exatos informados."
+        "Regra de limpeza visual: preferir menos callouts bem espaçados a muitos comprimidos. "
+        "OBRIGATÓRIO: use os textos EXATOS fornecidos pelo colaborador como anotações visuais."
     ),
     "5 — Características técnicas (medidas/peso/material)": (
         "Imagem técnica minimalista com produto centralizado e linhas de cota finas indicando dimensões. "
         "Apenas as medidas exatas (altura × largura), peso e material anotados com tipografia clean. "
         "Fundo claro, visual técnico e limpo — ZERO ícones decorativos, ZERO blocos de benefício, "
         "ZERO selos ou tags extras. Somente produto + linhas de medida + números. "
-        "OBRIGATÓRIO: use SOMENTE os valores exatos fornecidos — JAMAIS invente ou estime medidas."
+        "OBRIGATÓRIO: use SOMENTE os valores EXATOS fornecidos — JAMAIS invente ou estime medidas."
     ),
     "6 — Quebra de objeção": (
-        "Peça de marketing com EXATAMENTE 3 perguntas e respostas — não mais. "
+        "Peça de marketing que responde objeções de compra. "
         "Cada bloco: pergunta curta em destaque (máximo 5 palavras) + resposta direta (máximo 8 palavras). "
-        "Ícone de check simples. Layout clean, muito whitespace, produto presente mas compacto. "
-        "OBRIGATÓRIO: as perguntas e respostas fornecidas pelo colaborador DEVEM APARECER ESCRITAS NA IMAGEM "
-        "— use os textos exatos, não invente novas objeções."
+        "Ícone de check simples ao lado de cada resposta. Layout clean, muito whitespace, produto presente. "
+        "Regra de limpeza visual: máximo 3 perguntas/respostas — NUNCA mais de 3. "
+        "OBRIGATÓRIO: use os textos EXATOS fornecidos pelo colaborador — não invente objeções."
     ),
     "7 — Presenteie": (
-        "Peça emocional de presentear — UMA frase principal grande e impactante em destaque, "
+        "Peça emocional de presentear — frase principal grande e impactante em destaque, "
         "produto em composição elegante. Contexto visual de presente (laço, embrulho ou cenário especial). "
         "Visual limpo, clean — somente a frase, o produto e o contexto de presente. Nada mais. "
         "OBRIGATÓRIO: a frase fornecida pelo colaborador DEVE APARECER ESCRITA NA IMAGEM "
@@ -433,44 +439,27 @@ def _get_gemini_api_key():
     return key
 
 
-def _montar_prompt_imagen(prompt_texto_completo, imagens_referencia, refs_layout=None):
-    """Usa Claude Vision para analisar as fotos de referência e criar um prompt
-    conciso em inglês para o Gemini. Retorna string de prompt.
+def _descrever_produto_via_claude(imagens_referencia, nome_produto="produto", dados_descricao=None, refs_layout=None):
+    """Claude Vision analisa as fotos do produto e retorna:
+    - descricao_produto: descrição ultra-detalhada em inglês (substitui inlineData)
+    - estilo_layout: descrição textual do estilo/composição das refs de layout
 
-    imagens_referencia: fotos do produto (para Claude ver o produto e descrevê-lo)
-    refs_layout: imagens modelo de layout (Claude vê o estilo/composição a replicar)
+    NENHUMA foto vai ao modelo gerador — apenas estas descrições em texto.
+    Esta é a peça mais crítica da nova arquitetura: a qualidade da descrição
+    determina diretamente a qualidade da imagem gerada.
     """
     api_key = st.secrets.get("ANTHROPIC_API_KEY", "") or os.environ.get("ANTHROPIC_API_KEY", "")
 
-    # Usa o prompt completo — colaborador pode ter texto em qualquer parte
-    linhas_relevantes = prompt_texto_completo.strip()
+    descricao_produto = f"Product: {nome_produto}. Visual details not available."
+    estilo_layout = ""
 
-    if not api_key or not imagens_referencia:
-        # Fallback sem visão: traduz o prompt diretamente
-        return (
-            f"Professional product marketing image. {linhas_relevantes[:300]}. "
-            "Background color #E8EEF5 (soft blue-gray). Navy blue (#1A3A6B) accents. "
-            "Clean, modern, professional style. 1:1 square format."
-        )
+    if not api_key:
+        return descricao_produto, estilo_layout
 
-    content = []
-
-    # ── Fotos do produto (o que recrear fielmente) ───────────────────────────
-    content.append({"type": "text", "text": "PRODUCT PHOTOS — recreate this exact product faithfully (same shape, color, material, details):"})
-    for img_bytes in imagens_referencia[:3]:
-        content.append({
-            "type": "image",
-            "source": {
-                "type": "base64",
-                "media_type": _detectar_mime(img_bytes),
-                "data": base64.b64encode(img_bytes).decode("utf-8"),
-            }
-        })
-
-    # ── Imagens modelo de layout (estilo/composição a seguir) ────────────────
-    if refs_layout:
-        content.append({"type": "text", "text": "LAYOUT STYLE REFERENCES — follow the composition, element placement, text style, and visual structure shown in these images (apply to the product above, not the product in these reference images):"})
-        for img_bytes in refs_layout[:3]:
+    # ── PARTE 1: Descrever o produto com ultra-detalhe ────────────────────────
+    if imagens_referencia:
+        content = [{"type": "text", "text": "Analyze these product photos:"}]
+        for img_bytes in imagens_referencia[:4]:
             content.append({
                 "type": "image",
                 "source": {
@@ -480,95 +469,115 @@ def _montar_prompt_imagen(prompt_texto_completo, imagens_referencia, refs_layout
                 }
             })
 
-    # Detecta se o brief é fundo branco para não sobrescrever com o padrão azul-cinza
-    _is_fundo_branco = "fundo branco" in prompt_texto_completo.lower() or "white background" in prompt_texto_completo.lower()
-    _background_instrucao = (
-        "Background: pure white (#FFFFFF), perfectly clean, no gradients, no shadows"
-        if _is_fundo_branco else
-        "Background: soft blue-gray (#E8EEF5), navy blue (#1A3A6B) accents"
-    )
+        dados_str = ""
+        if dados_descricao:
+            partes = []
+            if dados_descricao.get("cor"):
+                partes.append(f"Color: {dados_descricao['cor']}")
+            if dados_descricao.get("medidas"):
+                partes.append(f"Dimensions: {dados_descricao['medidas']}")
+            if dados_descricao.get("peso"):
+                partes.append(f"Weight: {dados_descricao['peso']}")
+            mat = dados_descricao.get("material") or dados_descricao.get("caracteristicas", "")
+            if mat:
+                partes.append(f"Material: {mat[:100]}")
+            if partes:
+                dados_str = f"\nKnown specs: {' | '.join(partes)}"
 
-    # Detecta se o tipo requer texto na imagem (tipos 2-7 de marketing).
-    _PREFIXOS_MARKETING = ("2 —", "3 —", "4 —", "5 —", "6 —", "7 —")
-    _is_marketing_com_texto = any(
-        f"TIPO DE IMAGEM: {p}" in prompt_texto_completo
-        for p in _PREFIXOS_MARKETING
-    )
+        content.append({
+            "type": "text",
+            "text": (
+                f"You are a hyper-detailed visual analyst. An AI image generator will recreate "
+                f"this product based ONLY on your text description — it will NEVER see these photos. "
+                f"Your description is the only bridge.\n\n"
+                f"Product: {nome_produto}{dados_str}\n\n"
+                "Write a HYPER-DETAILED visual description in English (15-20 sentences) structured as:\n\n"
+                "SHAPE & GEOMETRY: Exact 3D form, overall silhouette, proportions (estimated "
+                "width:height:depth ratio), curvature or angularity, primary and secondary geometric shapes.\n\n"
+                "COLORS: Every color present, precisely named with intensity/saturation "
+                "(e.g., \"deep sapphire blue\", \"warm ivory white\", \"brushed silver-gray\"). "
+                "Which surfaces carry which color. Any gradients or transitions.\n\n"
+                "SURFACE & MATERIALS: Texture quality (matte/semi-gloss/glossy/metallic), "
+                "material type (hard plastic, rubber, brushed metal, glass, wood, etc.), "
+                "surface finish details, tactile quality implied visually.\n\n"
+                "COMPONENTS & DETAILS: Every distinct visible element — buttons, ports, seams, joints, "
+                "decorative lines, raised/recessed areas, logos, patterns. Each described with "
+                "position and visual appearance.\n\n"
+                "SCALE & PROPORTIONS: Estimated real-world size relative to familiar objects, "
+                "visual weight, overall footprint.\n\n"
+                "LIGHTING & REFLECTIVITY: How light interacts with each surface — highlights, "
+                "reflections, matte absorption, any translucency.\n\n"
+                "Rules:\n"
+                "- Extremely specific — every adjective matters for the generator\n"
+                "- Only describe what is ACTUALLY VISIBLE in the photos\n"
+                "- Do NOT invent details not clearly visible\n"
+                "- This description must enable recreation of the product from words alone\n\n"
+                "Write ONLY the description. Start immediately with \"SHAPE & GEOMETRY:\"."
+            )
+        })
 
-    _instrucao_layout_refs = ""
+        try:
+            client = anthropic.Anthropic(api_key=api_key)
+            msg = client.messages.create(
+                model="claude-haiku-4-5",
+                max_tokens=2000,
+                messages=[{"role": "user", "content": content}]
+            )
+            descricao_produto = msg.content[0].text.strip()
+        except Exception:
+            pass
+
+    # ── PARTE 2: Descrever estilo das refs de layout em texto ─────────────────
     if refs_layout:
-        _instrucao_layout_refs = """
-7. LAYOUT REPLICATION (CRITICAL): Layout style reference images were provided above.
-   - Replicate the EXACT composition structure shown in the layout reference: same element positions, same text hierarchy, same visual zones (header, product area, info panels, etc.)
-   - Apply that layout structure to the PRODUCT from the product photos
-   - Keep the same feel, spacing, font style, icon style, and visual balance shown in the layout reference
-   - Do NOT copy the product from the layout reference — only the composition/layout/style"""
+        content_layout = [{"type": "text", "text": "Analyze the visual composition style of these marketing reference images:"}]
+        for img_bytes in refs_layout[:2]:
+            content_layout.append({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": _detectar_mime(img_bytes),
+                    "data": base64.b64encode(img_bytes).decode("utf-8"),
+                }
+            })
+        content_layout.append({
+            "type": "text",
+            "text": (
+                "Describe the COMPOSITION STYLE of these reference images for an AI that will "
+                "replicate this layout structure (not the specific product, just the layout).\n\n"
+                "Cover in 6-8 sentences:\n"
+                "- Overall layout zones (product placement, text placement, proportions)\n"
+                "- Text hierarchy (headers vs subheads vs callouts — size, weight, position)\n"
+                "- Visual style (clean/dense, flat/layered, minimal/rich)\n"
+                "- Color distribution and use of whitespace\n"
+                "- Grid/alignment structure (centered, left-aligned, asymmetric)\n"
+                "- Element count and spacing feel\n"
+                "- Overall aesthetic and professional mood\n\n"
+                "Write ONLY the composition description. Start directly."
+            )
+        })
 
-    _texto_instrucao = ""
-    if _is_marketing_com_texto:
-        _texto_instrucao = f"""
-{"8" if refs_layout else "7"}. TEXT RENDERING (CRITICAL): This is a marketing piece that requires text IN the image.
-   - Extract ALL specific text content from the brief (benefit titles, feature descriptions, phrases, measurements, questions/answers, emotional taglines, etc.)
-   - Include these EXACT texts as rendered text elements in your prompt — specify them word-for-word
-   - Describe where each text block appears (top title, side panels, callouts, annotations, overlays, etc.)
-   - The text must be clearly readable and styled (bold titles, clean sans-serif fonts, proper contrast)
-   - Do NOT summarize or paraphrase — use the exact words/phrases from the brief"""
+        try:
+            client = anthropic.Anthropic(api_key=api_key)
+            msg = client.messages.create(
+                model="claude-haiku-4-5",
+                max_tokens=800,
+                messages=[{"role": "user", "content": content_layout}]
+            )
+            estilo_layout = msg.content[0].text.strip()
+        except Exception:
+            pass
 
-    content.append({
-        "type": "text",
-        "text": f"""You are creating a detailed visual prompt for the Gemini image generation model.
-
-Analyze the PRODUCT PHOTOS above carefully. Write a comprehensive image generation prompt in English (14-20 sentences).
-
-IMAGE BRIEF:
-{linhas_relevantes}
-
-Your prompt MUST cover ALL of these sections in this exact order:
-
-SECTION 1 — PRODUCT DESCRIPTION (4-5 sentences):
-Describe the product from the PRODUCT PHOTOS in precise detail: its exact shape, color, finish, texture, material appearance, proportions, and every distinguishing visual characteristic. This description must be specific enough for Gemini to reproduce it faithfully without seeing the photo. Do NOT invent details not visible in the photos.
-
-SECTION 2 — WHAT TO GENERATE (1-2 sentences):
-State clearly that Gemini must generate a COMPLETELY NEW, professional studio-quality marketing image inspired by the brief below. It must NOT copy, edit, or use the reference photo composition — it must create an entirely new piece of professional graphic design artwork.
-
-SECTION 3 — LAYOUT ZONES (3-4 sentences — CRITICAL):
-{"For this marketing image: The composition is divided into two clear, separate zones. PRODUCT ZONE (left side or center, ~55% of image): the product rendered large and prominent on the background color — absolutely NO text, icons, or graphic elements overlaid ON the product. TEXT ZONE (right side or surrounding panels): all titles, benefit blocks, icons, and callout text placed on solid or semi-transparent panel backgrounds, clearly separated from the product. The product must never serve as a background for any text." if _is_marketing_com_texto else "Product centered on a perfectly clean background, no text, no overlays, no graphic elements."}
-
-SECTION 4 — EXACT TEXT CONTENT (list every element explicitly — CRITICAL):
-Extract EVERY piece of text from the brief above and list them word-for-word in Portuguese. For each text element specify: the exact text in Portuguese, its role (title, benefit label, body text, callout phrase, measurement annotation, question, answer, tagline), its location in the image (header area, right panel, left overlay, bottom strip, etc.), and its visual style (large bold title, small caption, icon + label, etc.). Do NOT summarize or paraphrase any text — use the exact words.
-
-SECTION 5 — VISUAL STYLE:
-{_background_instrucao}. Font style: clean geometric sans-serif (Montserrat or Poppins style). Navy blue (#1A3A6B) for headings and graphic accents. Professional e-commerce marketing aesthetic, clean and airy.{_instrucao_layout_refs}
-
-End your prompt with these absolute rules on a new line:
-"ABSOLUTE RULES: (1) Generate a completely new professional marketing image — do NOT copy the reference photo composition. (2) NEVER place any text, label, or icon directly over or on top of the product. Text must be in separate dedicated zones only. (3) NEVER add any base, pedestal, support, packaging, or accessory that does not appear in the product photos. (4) Reproduce the product exactly as described — same color, shape, finish, every detail. (5) All visible text in the image must be in Brazilian Portuguese exactly as specified above."
-
-Write ONLY the image generation prompt. No preamble, no explanation."""
-    })
-
-    try:
-        client = anthropic.Anthropic(api_key=api_key)
-        msg = client.messages.create(
-            model="claude-haiku-4-5",
-            max_tokens=1800,
-            messages=[{"role": "user", "content": content}]
-        )
-        return msg.content[0].text.strip()
-    except Exception:
-        return (
-            f"Professional product marketing image. {linhas_relevantes[:300]}. "
-            "Background #E8EEF5 (light blue-gray). Navy blue accents. Clean modern style."
-        )
+    return descricao_produto, estilo_layout
 
 
-def _chamar_gemini_geracao(prompt_final, imagens_referencia=None, refs_layout=None):
-    """Chama Gemini Image Generation via generateContent API. Retorna (resp, erro_fatal).
-    imagens_referencia: fotos do produto — âncora visual para o produto real.
-    refs_layout: imagens modelo de layout — Gemini segue o estilo/composição dessas.
+def _chamar_gemini_geracao_texto(prompt_final):
+    """Chama Gemini Flash Image com APENAS texto — sem inlineData.
+    Geração pura a partir de prompt descritivo. Fallback quando sem OpenAI.
     """
     import time as _time
     MAX_TENTATIVAS = 2
     MODELO = "gemini-3.1-flash-image"
+
     for tentativa in range(1, MAX_TENTATIVAS + 1):
         try:
             _GEMINI_LIMITER.aguardar()
@@ -580,29 +589,8 @@ def _chamar_gemini_geracao(prompt_final, imagens_referencia=None, refs_layout=No
                 "x-goog-api-key": api_key,
                 "Content-Type": "application/json",
             }
-            # Monta parts: primeiro fotos do produto (com label), depois refs de layout (com label), depois o prompt
-            parts = []
-            if imagens_referencia:
-                parts.append({"text": "PRODUCT PHOTOS — recreate this exact product (same color, shape, material, details):"})
-                for img_bytes in imagens_referencia[:3]:
-                    mime = _detectar_mime(img_bytes)
-                    parts.append({
-                        "inlineData": {
-                            "mimeType": mime,
-                            "data": base64.b64encode(img_bytes).decode("utf-8"),
-                        }
-                    })
-            if refs_layout:
-                parts.append({"text": "LAYOUT STYLE REFERENCES — follow the exact composition, text placement, visual zones, and style of these images, applying them to the product above:"})
-                for img_bytes in refs_layout[:2]:
-                    mime = _detectar_mime(img_bytes)
-                    parts.append({
-                        "inlineData": {
-                            "mimeType": mime,
-                            "data": base64.b64encode(img_bytes).decode("utf-8"),
-                        }
-                    })
-            parts.append({"text": prompt_final})
+            # TEXTO APENAS — zero inlineData, geração limpa sem edição de foto
+            parts = [{"text": prompt_final}]
             body = {
                 "contents": [{"role": "user", "parts": parts}],
                 "generationConfig": {
@@ -615,10 +603,10 @@ def _chamar_gemini_geracao(prompt_final, imagens_referencia=None, refs_layout=No
                 try:
                     _ej = resp.json()
                     _msg = _ej.get("error", {}).get("message", resp.text[:300])
-                    _st  = _ej.get("error", {}).get("status", "")
+                    _st = _ej.get("error", {}).get("status", "")
                 except Exception:
                     _msg = resp.text[:300]
-                    _st  = ""
+                    _st = ""
                 _cota = any(k in _msg.lower() for k in [
                     "quota", "exhausted", "resource_exhausted", "billing",
                 ]) or _st == "RESOURCE_EXHAUSTED"
@@ -636,105 +624,237 @@ def _chamar_gemini_geracao(prompt_final, imagens_referencia=None, refs_layout=No
     return None, "Máximo de tentativas atingido."
 
 
+def _chamar_openai_geracao(prompt_final):
+    """Chama gpt-image-1 da OpenAI (motor primário de geração). Retorna (img_bytes, erro)."""
+    api_key = _get_openai_api_key()
+    if not api_key:
+        return None, "OPENAI_API_KEY não configurada."
+    try:
+        from openai import OpenAI as _OpenAI
+        client = _OpenAI(api_key=api_key)
+        response = client.images.generate(
+            model="gpt-image-1",
+            prompt=prompt_final,
+            n=1,
+            size="1024x1024",
+            quality="high",
+        )
+        img_data = response.data[0]
+        # gpt-image-1 retorna b64_json por padrão
+        if hasattr(img_data, "b64_json") and img_data.b64_json:
+            return base64.b64decode(img_data.b64_json), None
+        # Fallback: URL temporária
+        if hasattr(img_data, "url") and img_data.url:
+            r = requests.get(img_data.url, timeout=60)
+            if r.status_code == 200:
+                return r.content, None
+        return None, "Sem dados de imagem na resposta OpenAI."
+    except Exception as e:
+        return None, f"Erro OpenAI gpt-image-1: {str(e)[:300]}"
+
+
 def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None):
-    """Gera imagem via Gemini Flash Image Generation (Google AI Studio API).
-    Claude analisa as fotos de referência → cria prompt → Gemini gera imagem.
+    """Nova arquitetura de geração — sem enviar fotos ao modelo gerador.
 
-    Args:
-        prompt_texto: Texto com instruções de geração.
-        imagens_referencia: Fotos reais do produto (bytes). Gemini deve recriar fielmente.
-        refs_layout: Imagens de referência de layout/composição (bytes). Apenas estilo/estrutura.
+    Fluxo:
+    1. Claude Vision analisa fotos do produto → descrição ultra-detalhada em texto
+    2. Claude descreve estilo das refs de layout (se houver) → texto de composição
+    3. Monta prompt de geração APENAS com texto (zero inlineData)
+    4. Tenta gpt-image-1 (OpenAI) como motor primário
+    5. Fallback: Gemini Flash Image com texto-apenas
+    6. Retorna imagem com proporções exatas preservadas (sem deformação)
     """
-    # 1. Converte o prompt completo + fotos em prompt visual para o Gemini
-    prompt_gemini = _montar_prompt_imagen(prompt_texto, imagens_referencia, refs_layout=refs_layout)
+    import re as _re
 
-    # Reforça no prompt final: regras absolutas de layout, fidelidade e criação nova
-    _is_clean_photo = (
+    # Extrai metadados do prompt para contextualizar a descrição
+    nome_produto = ""
+    _m = _re.search(r"PRODUTO:\s*(.+?)(?:\n|$)", prompt_texto)
+    if _m:
+        nome_produto = _m.group(1).strip()
+
+    dados_descricao = {}
+    _m_cor = _re.search(r"Cor:\s*(.+?)(?:\n|$)", prompt_texto)
+    _m_med = _re.search(r"Medidas EXATAS[^:]*:\s*(.+?)(?:\n|$)", prompt_texto)
+    _m_pes = _re.search(r"Peso EXATO[^:]*:\s*(.+?)(?:\n|$)", prompt_texto)
+    if _m_cor:
+        dados_descricao["cor"] = _m_cor.group(1).strip()
+    if _m_med:
+        dados_descricao["medidas"] = _m_med.group(1).strip()
+    if _m_pes:
+        dados_descricao["peso"] = _m_pes.group(1).strip()
+
+    # 1. Claude descreve produto e layout em texto puro
+    descricao_produto, estilo_layout = _descrever_produto_via_claude(
+        imagens_referencia, nome_produto, dados_descricao, refs_layout
+    )
+
+    # 2. Detecta tipo e flags visuais
+    _is_fundo_branco = (
         "1 —" in prompt_texto or
         "fundo branco" in prompt_texto.lower() or
+        "white background" in prompt_texto.lower()
+    )
+    _is_clean_photo = (
+        _is_fundo_branco or
         "ambientação realista" in prompt_texto.lower() or
         "8 —" in prompt_texto
     )
-    _clean_photo_rule = (
-        "(0) CLEAN PHOTO MODE: This image type requires ABSOLUTE ZERO text inside the image. "
-        "No titles, no headlines, no labels, no icons, no benefit blocks, no callouts — "
-        "NOTHING written. Any text in this image is a critical error. "
-        if _is_clean_photo else ""
-    )
-    prompt_gemini = (
-        prompt_gemini +
-        f"\n\nFINAL MANDATORY RULES — ABSOLUTE — NO EXCEPTIONS: "
-        f"{_clean_photo_rule}"
-        "(1) LANGUAGE: ALL text visible inside the generated image MUST be in Brazilian Portuguese. NEVER render English words inside the image. "
-        "(2) NEW CREATION: Generate a COMPLETELY NEW, professional studio-quality image. DO NOT use, copy, or edit the amateur reference photo composition. The reference photos exist solely to describe the product — create entirely fresh professional artwork. "
-        "(3) LAYOUT ZONES: NEVER place any text, title, icon, label, or graphic element directly over or on top of the product. The product must occupy its own clean, text-free zone. All text must appear in separate dedicated panel zones. "
-        "(4) INFORMATION DENSITY: Maximum 3 information elements per image. Each text block must be concise (title: 2-4 words, body: max 8 words). Generous whitespace. Clean and airy — never dense or cluttered. "
-        "(5) NO PEOPLE: NEVER add people, faces, hands, human figures, or models to the image unless explicitly and specifically requested in the brief. "
-        "(6) PRODUCT FIDELITY: Reproduce the product exactly. NEVER add any base, pedestal, support, platform, packaging, or accessory that was not visible in the product photos. Any invented physical element is a critical error. "
-        "(7) PROFESSIONAL RESULT: The final image must look like it was produced by a professional e-commerce studio and graphic design team — not like a photo with text pasted on top."
+    _PREFIXOS_MARKETING = ("2 —", "3 —", "4 —", "5 —", "6 —", "7 —")
+    _is_marketing = any(f"TIPO DE IMAGEM: {p}" in prompt_texto for p in _PREFIXOS_MARKETING)
+
+    _background = (
+        "Pure white background (#FFFFFF) — absolutely clean, no gradients, no shadows, no textures. "
+        "Studio product photography look."
+        if _is_fundo_branco else
+        "Soft blue-gray background (#E8EEF5) — clean, professional MS Studio brand standard."
     )
 
-    # 2. Chama Gemini Image Generation — passa fotos do produto E refs de layout separadas
-    # para que o Gemini use o produto real como âncora visual e o layout como guia de composição
-    resp, erro_fatal = _chamar_gemini_geracao(prompt_gemini, imagens_referencia, refs_layout=refs_layout)
-    if erro_fatal:
-        msg = erro_fatal.replace("COTA_ESGOTADA:", "")
-        if erro_fatal.startswith("COTA_ESGOTADA:"):
-            return None, (
-                "⛔ Cota ou créditos da GEMINI_API_KEY esgotados. "
-                "Crie uma nova chave em aistudio.google.com/apikey vinculada ao projeto GCP "
-                "e atualize GEMINI_API_KEY no Railway."
-                f" Detalhe: {msg[:200]}"
-            )
-        return None, f"Erro ao chamar Gemini: {msg[:300]}"
+    _text_rule = (
+        "ZERO TEXT RULE: This image MUST contain ABSOLUTELY NO text, titles, labels, icons, badges, "
+        "callouts, or any written element whatsoever. Any visible text is a critical failure."
+        if _is_clean_photo else
+        "TEXT ZONES RULE: ALL text must appear ONLY in dedicated panel zones completely separate from the "
+        "product area. NEVER overlay text directly on the product. Product zone must be clean and text-free."
+    )
 
-    if resp is None:
-        return None, "Falha ao conectar ao Gemini Image Generation."
+    # Extrai conteúdo do colaborador do prompt original
+    _colab_match = _re.search(
+        r"INSTRUÇÕES DO COLABORADOR[^:]*:\s*(.*?)(?:\n(?:REFERÊNCIAS|PADRÃO|INSTRUÇÃO|$))",
+        prompt_texto, _re.DOTALL
+    )
+    _colaborador_brief = _colab_match.group(1).strip() if _colab_match else ""
 
-    if resp.status_code != 200:
+    _tipo_match = _re.search(r"TIPO DE IMAGEM:\s*(.+?)(?:\n|$)", prompt_texto)
+    _tipo_str = _tipo_match.group(1).strip() if _tipo_match else "produto"
+
+    _layout_section = (
+        f"\n\nCOMPOSITION STYLE TO REPLICATE (apply this exact layout to the product above):\n{estilo_layout}"
+        if estilo_layout else ""
+    )
+
+    _marketing_content = (
+        f"\n\nCONTENT FROM COLLABORATOR (render these EXACT words as text in the image — "
+        f"Brazilian Portuguese — in dedicated text zones):\n{_colaborador_brief}"
+        if _is_marketing and _colaborador_brief else ""
+    )
+
+    # 3. Monta prompt de geração em inglês (texto puro, sem fotos)
+    prompt_geracao = (
+        f"Create a professional e-commerce marketing image.\n\n"
+        f"IMAGE TYPE: {_tipo_str}\n\n"
+        f"PRODUCT DESCRIPTION (recreate this product exactly — match every detail described):\n"
+        f"{descricao_produto}\n\n"
+        f"BACKGROUND & VISUAL STYLE:\n"
+        f"{_background}\n"
+        f"Brand accents when applicable: Navy blue (#1A3A6B) for text and graphic elements, "
+        f"medium blue (#4A7EC7) as secondary accent.\n"
+        f"Typography: Clean geometric sans-serif (Montserrat or Poppins style).\n"
+        f"Professional e-commerce aesthetic — clean, airy, high-end studio quality.\n\n"
+        f"CORE VISUAL RULE:\n"
+        f"{_text_rule}\n\n"
+        f"COMPOSITION RULES:\n"
+        f"- Product is the dominant visual element — large, prominent, fully visible\n"
+        f"- Maintain product exact proportions — NEVER stretch, compress, or distort\n"
+        f"- Maximum 3 information elements if text present — generous whitespace, never cluttered\n"
+        f"- Professional studio quality — high-end e-commerce agency standard"
+        f"{_layout_section}"
+        f"{_marketing_content}\n\n"
+        f"COLLABORATOR BRIEF: {_colaborador_brief if _colaborador_brief else 'Follow the image type guidelines above.'}\n\n"
+        f"ABSOLUTE RULES — NO EXCEPTIONS:\n"
+        f"1. Reproduce the product EXACTLY as described — same colors, shape, proportions, every detail\n"
+        f"2. NEVER add physical elements not in the description (no pedestals, bases, packaging, accessories)\n"
+        f"3. NEVER add people or human figures unless explicitly requested\n"
+        f"4. All text visible in image must be in Brazilian Portuguese\n"
+        f"5. NEVER deform or stretch the product — maintain exact proportions always\n"
+        f"6. Generate a completely NEW professional image — not a copy or edit of any photo"
+    )
+
+    # 4. Tenta gpt-image-1 (OpenAI) como motor primário
+    img_bytes = None
+    erro_primario = None
+
+    if _get_openai_api_key():
+        img_bytes, erro = _chamar_openai_geracao(prompt_geracao)
+        if not img_bytes:
+            erro_primario = f"OpenAI: {erro}"
+
+    # 5. Fallback: Gemini texto-apenas
+    if not img_bytes:
+        resp, erro_fatal = _chamar_gemini_geracao_texto(prompt_geracao)
+        if erro_fatal:
+            msg = erro_fatal.replace("COTA_ESGOTADA:", "")
+            if erro_fatal.startswith("COTA_ESGOTADA:"):
+                return None, (
+                    "⛔ Cota ou créditos da GEMINI_API_KEY esgotados. "
+                    "Crie uma nova chave em aistudio.google.com/apikey vinculada ao projeto GCP "
+                    f"e atualize GEMINI_API_KEY no Railway. Detalhe: {msg[:200]}"
+                )
+            erro_fallback = f"Gemini: {msg[:300]}"
+            return None, (f"{erro_primario} | {erro_fallback}" if erro_primario else erro_fallback)
+
+        if resp is None:
+            return None, "Falha ao conectar ao gerador de imagem."
+
+        if resp.status_code != 200:
+            try:
+                _err = resp.json().get("error", {}).get("message", resp.text[:300])
+            except Exception:
+                _err = resp.text[:300]
+            return None, f"Erro HTTP {resp.status_code}: {_err}"
+
         try:
-            _err = resp.json().get("error", {}).get("message", resp.text[:300])
+            dados = resp.json()
         except Exception:
-            _err = resp.text[:300]
-        return None, f"Erro HTTP {resp.status_code}: {_err}"
+            return None, "Resposta inválida do gerador (não é JSON)."
 
-    try:
-        dados = resp.json()
-    except Exception:
-        return None, "Resposta inválida do Gemini (não é JSON)."
-
-    # Extrai imagem da resposta generateContent (formato padrão Google AI)
-    # candidates → content → parts → inlineData → data
-    img_b64 = ""
-    for candidate in dados.get("candidates", []):
-        for part in candidate.get("content", {}).get("parts", []):
-            inline = part.get("inlineData") or part.get("inline_data", {})
-            if inline and inline.get("data"):
-                img_b64 = inline["data"]
+        img_b64 = ""
+        for candidate in dados.get("candidates", []):
+            for part in candidate.get("content", {}).get("parts", []):
+                inline = part.get("inlineData") or part.get("inline_data", {})
+                if inline and inline.get("data"):
+                    img_b64 = inline["data"]
+                    break
+            if img_b64:
                 break
-        if img_b64:
-            break
 
-    if not img_b64:
-        # Tenta extrair mensagem de erro detalhada para diagnóstico
-        try:
-            _detail = dados.get("error", {}).get("message", "") or str(dados)[:300]
-        except Exception:
-            _detail = str(dados)[:300]
-        return None, f"Gemini não retornou nenhuma imagem (possível bloqueio de conteúdo ou créditos esgotados). Detalhe: {_detail}"
+        if not img_b64:
+            try:
+                _detail = dados.get("error", {}).get("message", "") or str(dados)[:300]
+            except Exception:
+                _detail = str(dados)[:300]
+            return None, (
+                f"Gerador não retornou imagem (possível bloqueio ou créditos esgotados). "
+                f"Detalhe: {_detail}"
+            )
 
-    img_bytes_raw = base64.b64decode(img_b64)
+        img_bytes = base64.b64decode(img_b64)
+
+    # 6. Processa imagem — preserva proporções exatas (sem deformação)
     try:
         from PIL import Image as _PILImage
         import io as _io
-        pil = _PILImage.open(_io.BytesIO(img_bytes_raw)).convert("RGBA")
+        pil = _PILImage.open(_io.BytesIO(img_bytes)).convert("RGBA")
+
+        # Letterbox para 1200x1200 preservando proporções — sem stretch
+        pil_w, pil_h = pil.size
+        if pil_w != pil_h:
+            max_dim = max(pil_w, pil_h)
+            # Fundo branco para tipo 1, azul-cinza da marca para os demais
+            bg_color = (255, 255, 255, 255) if _is_fundo_branco else (232, 238, 245, 255)
+            bg = _PILImage.new("RGBA", (max_dim, max_dim), bg_color)
+            offset = ((max_dim - pil_w) // 2, (max_dim - pil_h) // 2)
+            bg.paste(pil, offset, pil)
+            pil = bg
+
         pil = pil.resize((1200, 1200), _PILImage.LANCZOS)
         buf = _io.BytesIO()
         pil.save(buf, format="PNG")
-        img_bytes_raw = buf.getvalue()
+        img_bytes = buf.getvalue()
     except Exception:
         pass
-    return img_bytes_raw, None
+
+    return img_bytes, None
+
 
 
 INSTRUCAO_REFERENCIA_LAYOUT = """
