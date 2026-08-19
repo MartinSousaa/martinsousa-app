@@ -311,7 +311,7 @@ TAREFA: Para cada tipo, analise se é VIÁVEL gerar com as informações e fotos
 
 REGRAS DE VIABILIDADE — CRÍTICO:
 1. "Características técnicas (medidas/peso/material)" → SOMENTE viável se medidas E peso estiverem nos dados disponíveis acima. Se qualquer um faltar, marque viavel: false e peça os dados exatos.
-2. "Close nos detalhes" ou qualquer tipo que exija ângulo do produto NÃO disponível nas fotos → viavel: false, peça a foto naquele ângulo.
+2. "Close nos detalhes" → SEMPRE viável se houver pelo menos 1 foto do produto. A IA faz zoom em detalhe das fotos existentes — NUNCA peça foto adicional de close para este tipo.
 3. Qualquer tipo que necessite de informação específica ausente (ex: cores disponíveis, voltagem, compatibilidade) → viavel: false, peça a informação.
 4. NUNCA marque como viável se for necessário INVENTAR qualquer dado técnico, dimensão ou característica.
 
@@ -775,11 +775,12 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None):
     # 4. Tenta gpt-image-1 (OpenAI) como motor primário
     img_bytes = None
     erro_primario = None
+    _usando_openai = bool(_get_openai_api_key())
 
-    if _get_openai_api_key():
+    if _usando_openai:
         img_bytes, erro = _chamar_openai_geracao(prompt_geracao)
         if not img_bytes:
-            erro_primario = f"OpenAI: {erro}"
+            erro_primario = f"OpenAI gpt-image-1: {erro}"
 
     # 5. Fallback: Gemini texto-apenas
     if not img_bytes:
@@ -831,6 +832,9 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None):
             )
 
         img_bytes = base64.b64decode(img_b64)
+        # OpenAI falhou mas Gemini funcionou — avisa para o usuário saber
+        if erro_primario:
+            st.warning(f"⚠️ {erro_primario} → usando Gemini como fallback.")
 
     # 6. Processa imagem — preserva proporções exatas (sem deformação)
     try:
@@ -1320,7 +1324,7 @@ def pagina_imagem(usuario_logado):
                 args=(prompt_af, fotos_bytes_ajuste, _res_af),
                 daemon=True,
             ).start()
-            _slot_af = st.empty()
+            _barra_af = st.progress(0.0, text="Aplicando ajuste fino...")
             _t0_af = _time_af.time()
             while not _res_af["done"]:
                 _seg_af = int(_time_af.time() - _t0_af)
@@ -1328,9 +1332,9 @@ def pagina_imagem(usuario_logado):
                     _res_af["erro"] = "Tempo limite de 5 min atingido. Tente novamente."
                     _res_af["done"] = True
                     break
-                _slot_af.caption(f"⏳ Aplicando ajuste fino... {_seg_af}s")
+                _barra_af.progress(min(0.9, _seg_af / 60), text=f"Aplicando ajuste fino... ({_seg_af}s)")
                 _time_af.sleep(1)
-            _slot_af.empty()
+            _barra_af.progress(1.0, text="Concluído!")
             img_bytes_af, erro_af = _res_af["img"], _res_af["erro"]
 
             if erro_af:
@@ -1666,7 +1670,6 @@ def pagina_imagem(usuario_logado):
                             daemon=True,
                         )
                         _thread.start()
-                        _contador = st.empty()
                         _t0 = _time_gen.time()
                         while not _res["done"]:
                             _seg = int(_time_gen.time() - _t0)
@@ -1674,9 +1677,8 @@ def pagina_imagem(usuario_logado):
                                 _res["erro"] = "Tempo limite de 5 min atingido. Tente novamente."
                                 _res["done"] = True
                                 break
-                            _contador.caption(f"⏳ Aguardando Gemini... {_seg}s")
+                            barra.progress(i / len(tipos), text=f"Gerando {i+1}/{len(tipos)}: {tipo[:40]}... ({_seg}s)")
                             _time_gen.sleep(1)
-                        _contador.empty()
                         img_bytes, erro_gen = _res["img"], _res["erro"]
                         # ────────────────────────────────────────────────────────
                         if erro_gen:
@@ -1822,7 +1824,7 @@ def pagina_imagem(usuario_logado):
                         args=(prompt_regen, fotos_orig, _res_regen),
                         daemon=True,
                     ).start()
-                    _slot_regen = st.empty()
+                    _barra_regen = st.progress(0.0, text=f"Regenerando {tipo_ativo[:30]}...")
                     _t0_regen = _time_regen.time()
                     while not _res_regen["done"]:
                         _seg_regen = int(_time_regen.time() - _t0_regen)
@@ -1830,9 +1832,9 @@ def pagina_imagem(usuario_logado):
                             _res_regen["erro"] = "Tempo limite de 5 min atingido."
                             _res_regen["done"] = True
                             break
-                        _slot_regen.caption(f"⏳ Regenerando {tipo_ativo[:30]}... {_seg_regen}s")
+                        _barra_regen.progress(min(0.9, _seg_regen / 60), text=f"Regenerando {tipo_ativo[:30]}... ({_seg_regen}s)")
                         _time_regen.sleep(1)
-                    _slot_regen.empty()
+                    _barra_regen.progress(1.0, text="Concluído!")
                     nova_img_regen, err_regen = _res_regen["img"], _res_regen["erro"]
                     if err_regen:
                         st.error(f"❌ Erro: {err_regen}")
@@ -1877,7 +1879,7 @@ def pagina_imagem(usuario_logado):
                         args=(prompt_af_gal, [imagem_ativa], _res_afg),
                         daemon=True,
                     ).start()
-                    _slot_afg = st.empty()
+                    _barra_afg = st.progress(0.0, text="Aplicando ajuste fino...")
                     _t0_afg = _time_afg.time()
                     while not _res_afg["done"]:
                         _seg_afg = int(_time_afg.time() - _t0_afg)
@@ -1885,9 +1887,9 @@ def pagina_imagem(usuario_logado):
                             _res_afg["erro"] = "Tempo limite de 5 min atingido. Tente novamente."
                             _res_afg["done"] = True
                             break
-                        _slot_afg.caption(f"⏳ Aplicando ajuste fino... {_seg_afg}s")
+                        _barra_afg.progress(min(0.9, _seg_afg / 60), text=f"Aplicando ajuste fino... ({_seg_afg}s)")
                         _time_afg.sleep(1)
-                    _slot_afg.empty()
+                    _barra_afg.progress(1.0, text="Concluído!")
                     nova_img_af, err_af_gal = _res_afg["img"], _res_afg["erro"]
                     if err_af_gal:
                         st.error(f"❌ Erro: {err_af_gal}")
@@ -1921,7 +1923,7 @@ def pagina_imagem(usuario_logado):
                     args=(prompt_aj, img_ref_cmd, _res_cmd),
                     daemon=True,
                 ).start()
-                _slot_cmd = st.empty()
+                _barra_cmd = st.progress(0.0, text=f"Assistente IA: ajuste fino na foto {num_foto}...")
                 _t0_cmd = _time_cmd.time()
                 while not _res_cmd["done"]:
                     _seg_cmd = int(_time_cmd.time() - _t0_cmd)
@@ -1929,9 +1931,9 @@ def pagina_imagem(usuario_logado):
                         _res_cmd["erro"] = "Tempo limite de 5 min atingido. Tente novamente."
                         _res_cmd["done"] = True
                         break
-                    _slot_cmd.caption(f"⏳ Assistente IA: ajuste fino na foto {num_foto}... {_seg_cmd}s")
+                    _barra_cmd.progress(min(0.9, _seg_cmd / 60), text=f"Assistente IA: ajuste fino na foto {num_foto}... ({_seg_cmd}s)")
                     _time_cmd.sleep(1)
-                _slot_cmd.empty()
+                _barra_cmd.progress(1.0, text="Concluído!")
                 nova_img, err_aj = _res_cmd["img"], _res_cmd["erro"]
                 if err_aj:
                     msgs_result.append(f"⚠️ Foto {num_foto}: erro ao gerar — {err_aj}")
