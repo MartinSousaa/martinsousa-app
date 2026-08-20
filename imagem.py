@@ -1025,7 +1025,7 @@ IMAGENS DE REFERÊNCIA DE LAYOUT — REGRAS ABSOLUTAS:
 
 
 def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
-                         refs_layout_nomes=None, instrucao_layout=""):
+                         refs_layout_nomes=None, instrucao_layout="", plano_triagem=None):
     """Monta o prompt completo para geração.
 
     Para os tipos padrão (1-7): aplica PADRAO_VISUAL + INSTRUCAO_COMPOSICAO
@@ -1038,6 +1038,18 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
     instrucao_layout: texto descrevendo o que cada referência representa
     """
     base = PRESETS.get(tipo, "")
+
+    # ── Bloco do plano da triagem (composição e textos decididos pela IA antes da geração) ──
+    bloco_plano_triagem = ""
+    if plano_triagem and not (tipo == "Personalizado (descrevo o que quero)"):
+        _composicao = plano_triagem.get("composicao", "").strip()
+        _textos = [t for t in plano_triagem.get("textos", []) if t and str(t).strip()]
+        if _composicao or _textos:
+            bloco_plano_triagem = "\nPLANO DE CRIAÇÃO (definido pela análise do produto — siga este planejamento):\n"
+            if _composicao:
+                bloco_plano_triagem += f"Composição: {_composicao}\n"
+            if _textos:
+                bloco_plano_triagem += f"Textos a incluir: {' | '.join(_textos)}\n"
 
     contexto_produto = f"PRODUTO: {nome_produto}\n"
     if dados_descricao:
@@ -1104,6 +1116,7 @@ PADRÃO VISUAL PARA FOTO DE PRODUTO — REGRA ABSOLUTA:
         return f"""{contexto_produto}
 TIPO DE IMAGEM: {tipo}
 {base}
+{bloco_plano_triagem}
 {bloco_contexto_interno}
 {bloco_refs}
 
@@ -1129,6 +1142,7 @@ PADRÃO VISUAL PARA AMBIENTAÇÃO REALISTA — REGRA ABSOLUTA:
         return f"""{contexto_produto}
 TIPO DE IMAGEM: {tipo}
 {base}
+{bloco_plano_triagem}
 {bloco_contexto_interno}
 {bloco_refs}
 
@@ -1143,6 +1157,7 @@ TIPO DE IMAGEM: {tipo}
         return f"""{contexto_produto}
 TIPO DE IMAGEM: {tipo}
 {base}
+{bloco_plano_triagem}
 {bloco_contexto_interno}
 {bloco_refs}
 
@@ -1431,6 +1446,80 @@ def pagina_imagem(usuario_logado):
     # acabou de gerar na mesma sessão e ainda não copiou o código
     if not dados_descricao and st.session_state.get("desc_codigo_atual") == codigo_input and codigo_input:
         dados_descricao = st.session_state.get("desc_dados_atual")
+
+    # ── TRIAGEM: specs do produto (quando não veio de código de descrição) ─────
+    # Preenche medidas/peso/material/etc. automaticamente a partir da triagem.
+    # Se houver múltiplas variantes com o mesmo nome, exibe seletor visual.
+    if nome_produto and not (dados_descricao and dados_descricao.get("medidas")):
+        import triagem as _triagem_img
+        _sel_triagem_key = "img_triagem_sel_idx"
+        _busca_prev_key = "img_triagem_busca_prev"
+
+        # Limpa seleção se nome_produto mudou
+        if st.session_state.get(_busca_prev_key) != nome_produto:
+            st.session_state[_sel_triagem_key] = None
+            st.session_state[_busca_prev_key] = nome_produto
+
+        _encontrados_t = _triagem_img.buscar_triagens_por_trecho(nome_produto)
+
+        if len(_encontrados_t) == 1:
+            # Variante única → auto-seleciona e completa specs faltantes
+            _t = _encontrados_t[0]
+            if not dados_descricao:
+                dados_descricao = {}
+            for _fld, _val in [
+                ("medidas", _t.get("medidas")), ("peso", _t.get("peso")),
+                ("material", _t.get("material")), ("cor", _t.get("variacao_cores")),
+                ("caracteristicas", _t.get("caracteristicas")),
+                ("diferenciais", _t.get("diferenciais")),
+            ]:
+                if _val and not dados_descricao.get(_fld):
+                    dados_descricao[_fld] = _val
+
+        elif len(_encontrados_t) > 1:
+            _selecionado_t_idx = st.session_state.get(_sel_triagem_key)
+
+            if _selecionado_t_idx is not None and _selecionado_t_idx < len(_encontrados_t):
+                # Variante já escolhida — exibe resumo e permite trocar
+                _t = _encontrados_t[_selecionado_t_idx]
+                _col_tinfo, _col_ttrocar = st.columns([5, 1])
+                _col_tinfo.success(f"✅ Variante selecionada: {_triagem_img._label_variante(_t)}")
+                if _col_ttrocar.button("Trocar variante", key="img_triagem_trocar"):
+                    st.session_state[_sel_triagem_key] = None
+                    st.rerun()
+                if not dados_descricao:
+                    dados_descricao = {}
+                for _fld, _val in [
+                    ("medidas", _t.get("medidas")), ("peso", _t.get("peso")),
+                    ("material", _t.get("material")), ("cor", _t.get("variacao_cores")),
+                    ("caracteristicas", _t.get("caracteristicas")),
+                    ("diferenciais", _t.get("diferenciais")),
+                ]:
+                    if _val and not dados_descricao.get(_fld):
+                        dados_descricao[_fld] = _val
+            else:
+                # Ainda sem seleção → mostra cards de variante
+                _nome_p = _encontrados_t[0].get("nome_comercial", nome_produto)
+                st.info(
+                    f"**{_nome_p}** tem {len(_encontrados_t)} variante(s) na triagem. "
+                    "Selecione a correta para carregar as specs automaticamente:"
+                )
+                _n_cols_t = min(len(_encontrados_t), 4)
+                _cols_t = st.columns(_n_cols_t)
+                for _i_t, _var_t in enumerate(_encontrados_t):
+                    with _cols_t[_i_t % _n_cols_t]:
+                        _foto_id_t = str(_var_t.get("foto_drive_id", "")).strip()
+                        if _foto_id_t:
+                            try:
+                                st.image(_triagem_img.url_thumbnail(_foto_id_t), use_container_width=True)
+                            except Exception:
+                                st.markdown("📦")
+                        else:
+                            st.markdown("📦")
+                        st.caption(_triagem_img._label_variante(_var_t))
+                        if st.button("Selecionar", key=f"img_triagem_btn_{_i_t}", use_container_width=True):
+                            st.session_state[_sel_triagem_key] = _i_t
+                            st.rerun()
 
     # ── O QUE GERAR — escolha antes de ver opções específicas ─────────────────
     st.markdown("---")
@@ -1819,6 +1908,13 @@ def pagina_imagem(usuario_logado):
 
                 import time as _time_gen
                 import threading as _threading
+
+                # Indexa os itens da triagem por tipo para lookup rápido
+                _plano_por_tipo = {}
+                _plano_items = st.session_state.get("img_triagem_plano", {}).get("plano", [])
+                for _pi in _plano_items:
+                    _plano_por_tipo[_pi.get("tipo", "")] = _pi
+
                 for i, tipo in enumerate(tipos):
                     barra.progress(i / len(tipos), text=f"Gerando {i+1}/{len(tipos)}: {tipo[:50]}...")
                     # Sem sleep aqui — o _GEMINI_LIMITER em gerar_imagem_ia já respeita o RPM
@@ -1830,6 +1926,7 @@ def pagina_imagem(usuario_logado):
                             cfg["nome_produto"],
                             refs_layout_nomes=cfg.get("refs_layout_nomes", []),
                             instrucao_layout=cfg.get("instrucao_layout", ""),
+                            plano_triagem=_plano_por_tipo.get(tipo),
                         )
                         # ── Geração em thread separada ──────────────────────────
                         # Mantém o WebSocket vivo durante a chamada Gemini (30-60s)
