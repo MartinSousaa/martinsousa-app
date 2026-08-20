@@ -442,40 +442,25 @@ def pagina_descricao(usuario_logado):
 
     import triagem
 
-    busca = st.text_input("Nome do produto", key="desc_busca_nome")
+    selecionado, aviso = triagem.widget_seletor_produto("desc", "Nome do produto")
 
     dados_iniciais = {"nome_produto": "", "categoria": "", "medidas": "", "peso": "",
                        "material": "", "cor": "", "uso": "", "caracteristicas": "",
                        "diferenciais": ""}
-    aviso = None
-
-    if busca:
-        encontrados = triagem.buscar_triagens_por_trecho(busca)
-        if len(encontrados) == 1:
-            t = encontrados[0]
-            dados_iniciais.update({
-                "nome_produto": t.get("nome_comercial", ""), "categoria": t.get("categoria", ""),
-                "medidas": t.get("medidas", ""), "peso": t.get("peso", ""),
-                "material": t.get("material", ""), "cor": t.get("variacao_cores", ""),
-                "uso": t.get("uso", ""), "caracteristicas": t.get("caracteristicas", ""),
-                "diferenciais": t.get("diferenciais", ""),
-            })
-            aviso = ("info", f"Triagem encontrada: **{t['nome_comercial']}**. Confira os dados abaixo -- pode editar antes de gerar.")
-        elif len(encontrados) > 1:
-            nomes = [e["nome_comercial"] for e in encontrados]
-            escolha = st.selectbox("Mais de um produto encontrado com esse nome -- qual é?", nomes, key="desc_escolha")
-            t = next(e for e in encontrados if e["nome_comercial"] == escolha)
-            dados_iniciais.update({
-                "nome_produto": t.get("nome_comercial", ""), "categoria": t.get("categoria", ""),
-                "medidas": t.get("medidas", ""), "peso": t.get("peso", ""),
-                "material": t.get("material", ""), "cor": t.get("variacao_cores", ""),
-                "uso": t.get("uso", ""), "caracteristicas": t.get("caracteristicas", ""),
-                "diferenciais": t.get("diferenciais", ""),
-            })
-            aviso = ("info", "Confira os dados abaixo -- pode editar antes de gerar.")
-        else:
-            dados_iniciais["nome_produto"] = busca
-            aviso = ("warning", "Nenhuma triagem encontrada pra esse produto ainda -- preencha os campos abaixo.")
+    if selecionado:
+        dados_iniciais.update({
+            "nome_produto": selecionado.get("nome_comercial", ""),
+            "categoria": selecionado.get("categoria", ""),
+            "medidas": selecionado.get("medidas", ""),
+            "peso": selecionado.get("peso", ""),
+            "material": selecionado.get("material", ""),
+            "cor": selecionado.get("variacao_cores", ""),
+            "uso": selecionado.get("uso", ""),
+            "caracteristicas": selecionado.get("caracteristicas", ""),
+            "diferenciais": selecionado.get("diferenciais", ""),
+        })
+        if not aviso:
+            aviso = ("info", "Confira os dados abaixo — pode editar antes de gerar.")
 
     if aviso:
         getattr(st, aviso[0])(aviso[1])
