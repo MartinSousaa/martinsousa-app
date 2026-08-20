@@ -660,6 +660,8 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None):
                 if getattr(out, "type", None) == "image_generation_call":
                     result = getattr(out, "result", None)
                     if result:
+                        import sys as _sys
+                        print(f"[DEBUG gpt-image-2] Operation: generate/edit | References sent: {len(imagens_bytes)} | Model: gpt-image-2", file=_sys.stderr)
                         return base64.b64decode(result), None
             return None, "Sem imagem na resposta Responses API."
 
@@ -674,6 +676,8 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None):
         img_data = response.data[0]
         # gpt-image-2 retorna b64_json por padrão
         if hasattr(img_data, "b64_json") and img_data.b64_json:
+            import sys as _sys
+            print(f"[DEBUG gpt-image-2] Operation: generate | References sent: 0 | Model: gpt-image-2 | Quality: high | Size: 1024x1024", file=_sys.stderr)
             return base64.b64decode(img_data.b64_json), None
         # Fallback: URL temporária
         if hasattr(img_data, "url") and img_data.url:
@@ -773,16 +777,52 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None):
     _tipo_match = _re.search(r"TIPO DE IMAGEM:\s*(.+?)(?:\n|$)", prompt_texto)
     _tipo_str = _tipo_match.group(1).strip() if _tipo_match else "produto"
 
-    # ── Detecta Close para ajustar regra de composição (produto NOT "fully visible" em close) ──
+    # ── Composição específica por tipo (sem regras conflitantes — a regra genérica só aparece
+    #    quando o tipo não define a sua própria) ──
     _is_close = (
         "4 — Close" in prompt_texto or
         "CLOSE NO PRODUTO" in prompt_texto
     )
-    _product_dominance_rule = (
-        "- Detail fills 70-85% of the frame — macro close-up, do NOT show the full product"
-        if _is_close else
-        "- Product is the dominant visual element — large, prominent, fully visible"
-    )
+    _is_capa = "1 — Capa" in prompt_texto or "CAPA DO ANÚNCIO" in prompt_texto
+    _is_beneficios = "2 — Benefícios do produto" in prompt_texto
+    _is_beneficios_cena = "3 — Benefícios no cenário" in prompt_texto
+    _is_lifestyle = "8 — Ambientação" in prompt_texto
+    _is_presenteie = "7 — Presenteie" in prompt_texto
+
+    if _is_close:
+        _product_dominance_rule = (
+            "- COMPOSITION (Close): Detail occupancy 70–85% of frame. Macro close-up. "
+            "Do NOT show the full product. Full product: NO."
+        )
+    elif _is_capa:
+        _product_dominance_rule = (
+            "- COMPOSITION (Capa): Product occupancy 75–85% of frame. Full product: YES — "
+            "completely visible, no cropping. Minimal environment."
+        )
+    elif _is_beneficios:
+        _product_dominance_rule = (
+            "- COMPOSITION (Benefícios): Product occupancy 40–60% of frame. "
+            "Full product: preferably YES. Callouts and benefit panels allowed in margins."
+        )
+    elif _is_beneficios_cena:
+        _product_dominance_rule = (
+            "- COMPOSITION (Benefícios no Cenário): Product occupancy contextual — "
+            "product is protagonist but environment is relevant. Full product: preferably YES."
+        )
+    elif _is_lifestyle:
+        _product_dominance_rule = (
+            "- COMPOSITION (Lifestyle): Product occupancy contextual. Full product: optional. "
+            "Environment and atmosphere take priority."
+        )
+    elif _is_presenteie:
+        _product_dominance_rule = (
+            "- COMPOSITION (Presenteie): Product occupancy 35–55% of frame. "
+            "Full product: preferably YES. Environment and gift props allowed."
+        )
+    else:
+        _product_dominance_rule = (
+            "- Product is the dominant visual element — large, prominent, fully visible"
+        )
 
     _layout_section = (
         f"\n\nCOMPOSITION STYLE TO REPLICATE (apply this exact layout to the product above):\n{estilo_layout}"
@@ -795,15 +835,7 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None):
         if _is_marketing and _colaborador_brief else ""
     )
 
-    # ── Instrução do colaborador: visual (Personalizado) ou contexto de apoio (padrão) ──
-    _instrucao_colaborador = (
-        f"COLLABORATOR VISUAL INSTRUCTIONS (render these in the image — Brazilian Portuguese):\n{_colaborador_brief}"
-        if _colaborador_brief else (
-            f"PRODUCT CONTEXT (reference only — do NOT render as text in the image):\n{_colaborador_contexto}"
-            if _colaborador_contexto else
-            "Follow the type-specific instructions above."
-        )
-    )
+    # _instrucao_colaborador foi incorporado em _user_brief_section no prompt_geracao
 
     # 3. Monta prompt de geração
     # Quando enviado via Responses API (com fotos), a seção PRODUCT DESCRIPTION é
@@ -817,35 +849,72 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None):
         f"PRODUCT DESCRIPTION (recreate this product exactly — match every detail described):\n"
         f"{descricao_produto}\n\n"
     )
+    # ── Seção de USER/COLLABORATOR BRIEF (intenção específica) ──
+    _user_brief_section = ""
+    if _colaborador_brief:
+        if _is_marketing:
+            _user_brief_section = (
+                f"\nUSER/COLLABORATOR BRIEF (specific intent — render these words as text in the image, "
+                f"Brazilian Portuguese, in dedicated text zones):\n{_colaborador_brief}"
+            )
+        else:
+            _user_brief_section = (
+                f"\nUSER/COLLABORATOR BRIEF (specific visual intent — apply to composition):\n{_colaborador_brief}"
+            )
+    elif _colaborador_contexto:
+        _user_brief_section = (
+            f"\nPRODUCT CONTEXT (reference only — do NOT render as text in the image):\n{_colaborador_contexto}"
+        )
+
     prompt_geracao = (
         f"Create a professional e-commerce marketing image.\n\n"
         f"IMAGE TYPE: {_tipo_str}\n\n"
-        f"{_product_section}"
-        f"TYPE-SPECIFIC INSTRUCTIONS (follow these exactly — they take priority over generic rules below):\n"
+
+        f"━━━ SECTION 1: TYPE-SPECIFIC INSTRUCTIONS ━━━\n"
+        f"(Follow these exactly. They define the image type and override any conflicting generic rule below.)\n"
         f"{_preset_content}\n\n"
-        f"BACKGROUND & VISUAL STYLE:\n"
-        f"{_background}\n"
+
+        f"━━━ SECTION 2: PRODUCT REFERENCE ━━━\n"
+        f"{_product_section}"
+
+        f"━━━ SECTION 3: USER / COLLABORATOR BRIEF ━━━\n"
+        f"{_user_brief_section if _user_brief_section else '(none — follow type instructions only)'}\n\n"
+
+        f"━━━ VISUAL STYLE ━━━\n"
+        f"BACKGROUND: {_background}\n"
         f"Brand accents: Navy blue (#1A3A6B) for text and graphic elements, "
         f"medium blue (#4A7EC7) as secondary accent.\n"
         f"Typography: Clean geometric sans-serif (Montserrat or Poppins style).\n"
         f"Professional e-commerce aesthetic — clean, airy, high-end studio quality.\n\n"
-        f"CORE VISUAL RULE:\n"
-        f"{_text_rule}\n\n"
+
+        f"TEXT RULE: {_text_rule}\n\n"
+
         f"COMPOSITION:\n"
         f"{_product_dominance_rule}\n"
         f"- Maintain product exact proportions — NEVER stretch, compress, or distort\n"
         f"- Maximum 3 information elements if text present — generous whitespace, never cluttered\n"
         f"- Professional studio quality — high-end e-commerce agency standard"
-        f"{_layout_section}"
-        f"{_marketing_content}\n\n"
-        f"{_instrucao_colaborador}\n\n"
-        f"ABSOLUTE RULES:\n"
-        f"1. Reproduce the product EXACTLY — same colors, shape, proportions, every visible detail\n"
-        f"2. NEVER add or modify components on the product itself — scene elements (furniture, props, gift wrapping, context objects) are allowed when required by the image type\n"
-        f"3. NEVER add people or human figures unless the image type or collaborator instructions explicitly request them\n"
-        f"4. All text visible in the image must be in Brazilian Portuguese\n"
-        f"5. NEVER deform or stretch the product — maintain exact proportions always\n"
-        f"6. Generate a completely new professional image — not a literal copy of any reference photo"
+        f"{_layout_section}\n\n"
+        f"{_marketing_content}"
+
+        f"━━━ PRODUCT INTEGRITY RULES ━━━\n"
+        f"PRODUCT (absolute fidelity — never alter):\n"
+        f"- Reproduce EXACTLY: same colors, shape, proportions, every visible detail\n"
+        f"- NEVER invent, remove, redesign or alter: components, controls, mechanisms, "
+        f"openings, connectors, or accessories presented as included with the product\n"
+        f"- NEVER deform or stretch the product — maintain exact proportions always\n\n"
+        f"SCENE ELEMENTS (controlled freedom):\n"
+        f"- Environmental objects may be created when required by the image type or user brief\n"
+        f"- Scene elements must remain visually secondary and must not be confused with "
+        f"included product accessories\n\n"
+        f"ACCESSORIES / ITEMS THAT MAY SEEM INCLUDED (extreme care):\n"
+        f"- NEVER add objects beside the product that could be mistaken for included accessories\n"
+        f"- Example: do NOT place 20 drill bits next to a drill — this implies they are included\n"
+        f"- Only include accessories explicitly mentioned in product data or user brief\n\n"
+        f"ADDITIONAL RULES:\n"
+        f"- NEVER add people or human figures unless the image type or collaborator brief explicitly requests them\n"
+        f"- All text visible in the image must be in Brazilian Portuguese\n"
+        f"- Generate a completely new professional image — not a literal copy of any reference photo"
     )
 
     # 4. Tenta gpt-image-2 (OpenAI) como motor primário
@@ -1260,33 +1329,33 @@ def pagina_imagem(usuario_logado):
 
     MODELO_DIAG = "gemini-3.1-flash-image"
     with st.expander("🔧 Diagnóstico das APIs de Imagem", expanded=False):
-        st.caption("Testa OpenAI gpt-image-1 (motor primário) e Gemini Flash (fallback) para confirmar que estão funcionando.")
+        st.caption("Testa OpenAI gpt-image-2 (motor primário) e Gemini Flash (fallback) para confirmar que estão funcionando.")
         if st.button("Testar APIs agora", key="btn_diag_gemini"):
             # Testa OpenAI
             _oai_key = _get_openai_api_key()
             if _oai_key:
-                with st.spinner("Testando OpenAI gpt-image-1..."):
+                with st.spinner("Testando OpenAI gpt-image-2..."):
                     import time as _td
                     _t0_oai = _td.time()
                     try:
                         from openai import OpenAI as _OAITest
                         _oai_client = _OAITest(api_key=_oai_key)
                         _oai_resp = _oai_client.images.generate(
-                            model="gpt-image-1",
+                            model="gpt-image-2",
                             prompt="A small red circle on white background, minimal.",
                             n=1, size="1024x1024", quality="low",
                         )
                         _oai_ms = int((_td.time() - _t0_oai) * 1000)
                         _oai_img = getattr(_oai_resp.data[0], "b64_json", None) or getattr(_oai_resp.data[0], "url", None)
                         if _oai_img:
-                            st.success(f"✅ **gpt-image-1** — gerou imagem ({_oai_ms}ms)")
+                            st.success(f"✅ **gpt-image-2** — gerou imagem ({_oai_ms}ms)")
                         else:
-                            st.warning(f"⚠️ **gpt-image-1** — sem imagem na resposta ({_oai_ms}ms)")
+                            st.warning(f"⚠️ **gpt-image-2** — sem imagem na resposta ({_oai_ms}ms)")
                     except Exception as _e_oai:
                         _oai_ms = int((_td.time() - _t0_oai) * 1000)
-                        st.error(f"❌ **gpt-image-1** — {str(_e_oai)[:300]} ({_oai_ms}ms)")
+                        st.error(f"❌ **gpt-image-2** — {str(_e_oai)[:300]} ({_oai_ms}ms)")
             else:
-                st.warning("⚠️ **gpt-image-1** — OPENAI_API_KEY não configurada nas secrets do Railway.")
+                st.warning("⚠️ **gpt-image-2** — OPENAI_API_KEY não configurada nas secrets do Railway.")
 
             # Testa Gemini
             with st.spinner(f"Testando {MODELO_DIAG} via Gemini API (pode levar ~30s)..."):
