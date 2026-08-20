@@ -82,10 +82,12 @@ REGRA DE FIDELIDADE AO PRODUTO (a mais importante de todas — sem exceções):
   não invente como o produto seria naquele ângulo
 - Nunca deforme, alongue, encurte ou altere qualquer parte do produto
 - Nunca crie detalhes que não aparecem nas fotos de referência
-- PROIBIÇÃO ABSOLUTA DE INVENTAR ELEMENTOS FÍSICOS: JAMAIS adicione base, pedestal,
-  suporte, superfície, embalagem, acessório ou qualquer objeto que não apareça
-  explicitamente nas fotos de referência. O produto deve flutuar ou pousar exatamente
-  como aparece nas fotos — sem acréscimos de nenhuma espécie.
+- PROIBIÇÃO DE MODIFICAR O PRODUTO: JAMAIS adicione base, pedestal, suporte, embalagem
+  ou qualquer componente AO PRODUTO em si que não apareça explicitamente nas fotos de
+  referência. Esta restrição se aplica ao PRODUTO — não ao cenário. Elementos de CENÁRIO
+  (mesa, laço decorativo, props, ambiente, contexto) são permitidos quando o tipo de
+  imagem exige (ex: Presenteie, Ambientação). O produto deve ser apresentado exatamente
+  como aparece nas fotos — sem modificações nos seus componentes.
 - NÃO copie nem reproduza nenhum texto, palavra ou rótulo que apareça escrito
   nas fotos de referência — ignore completamente qualquer texto visível nas imagens
 - PROIBIÇÃO ABSOLUTA DE INVENTAR DADOS TÉCNICOS: JAMAIS crie, estime ou invente
@@ -626,7 +628,7 @@ def _chamar_gemini_geracao_texto(prompt_final):
 
 
 def _chamar_openai_geracao(prompt_final, imagens_bytes=None):
-    """Chama gpt-image-1 da OpenAI (motor primário de geração). Retorna (img_bytes, erro).
+    """Chama gpt-image-2 da OpenAI (motor primário de geração). Retorna (img_bytes, erro).
 
     Quando `imagens_bytes` é fornecido, usa a Responses API com as fotos do produto
     como referência visual direta — o mesmo comportamento do ChatGPT.
@@ -651,7 +653,7 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None):
                 })
             content.append({"type": "input_text", "text": prompt_final})
             resp = client.responses.create(
-                model="gpt-image-1",
+                model="gpt-image-2",
                 input=[{"role": "user", "content": content}],
             )
             for out in resp.output:
@@ -661,16 +663,16 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None):
                         return base64.b64decode(result), None
             return None, "Sem imagem na resposta Responses API."
 
-        # ── SEM FOTOS: geração texto puro (fallback) ──
+        # ── SEM FOTOS: geração texto puro ──
         response = client.images.generate(
-            model="gpt-image-1",
+            model="gpt-image-2",
             prompt=prompt_final,
             n=1,
             size="1024x1024",
             quality="high",
         )
         img_data = response.data[0]
-        # gpt-image-1 retorna b64_json por padrão
+        # gpt-image-2 retorna b64_json por padrão
         if hasattr(img_data, "b64_json") and img_data.b64_json:
             return base64.b64decode(img_data.b64_json), None
         # Fallback: URL temporária
@@ -680,17 +682,17 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None):
                 return r.content, None
         return None, "Sem dados de imagem na resposta OpenAI."
     except Exception as e:
-        return None, f"Erro OpenAI gpt-image-1: {str(e)[:300]}"
+        return None, f"Erro OpenAI gpt-image-2: {str(e)[:300]}"
 
 
 def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None):
-    """Nova arquitetura de geração — sem enviar fotos ao modelo gerador.
+    """Arquitetura de geração — fotos do produto vão diretamente ao modelo via Responses API.
 
     Fluxo:
-    1. Claude Vision analisa fotos do produto → descrição ultra-detalhada em texto
+    1. Claude Vision analisa fotos → descrição de apoio (usada apenas quando não há OpenAI)
     2. Claude descreve estilo das refs de layout (se houver) → texto de composição
-    3. Monta prompt de geração APENAS com texto (zero inlineData)
-    4. Tenta gpt-image-1 (OpenAI) como motor primário
+    3. Monta prompt único preservando preset completo do tipo (sem double-prompt)
+    4. Tenta gpt-image-2 (OpenAI) como motor primário — fotos enviadas diretamente
     5. Fallback: Gemini Flash Image com texto-apenas
     6. Retorna imagem com proporções exatas preservadas (sem deformação)
     """
@@ -748,16 +750,39 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None):
         "product area. NEVER overlay text directly on the product. Product zone must be clean and text-free."
     )
 
-    # Extrai conteúdo visual do colaborador — APENAS de "INSTRUÇÕES VISUAIS" (modo Personalizado).
-    # "CONTEXTO INTERNO DO PRODUTO" é referência para a IA, NUNCA renderizado na imagem.
+    # ── Extrai conteúdo visual do colaborador (modo Personalizado) ou contexto interno (padrão) ──
     _colab_match = _re.search(
-        r"INSTRUÇÕES VISUAIS DO COLABORADOR[^:]*:\s*(.*?)(?:\n(?:REFERÊNCIAS|PADRÃO|INSTRUÇÃO|CONTEXTO|$))",
+        r"INSTRUÇÕES VISUAIS DO COLABORADOR[^:]*:\s*(.*?)(?:\n(?:REFERÊNCIAS|PADRÃO|INSTRUÇÃO|REGRA|MODO|$))",
+        prompt_texto, _re.DOTALL
+    )
+    _context_match = _re.search(
+        r"CONTEXTO INTERNO DO PRODUTO[^:]*:\s*(.*?)(?:\n(?:REFERÊNCIAS|PADRÃO|INSTRUÇÃO|REGRA|MODO|$))",
         prompt_texto, _re.DOTALL
     )
     _colaborador_brief = _colab_match.group(1).strip() if _colab_match else ""
+    _colaborador_contexto = _context_match.group(1).strip() if _context_match else ""
+
+    # ── Extrai conteúdo específico do preset (instruções do tipo, ex: Close, Fundo Branco…) ──
+    # Isso resolve o problema do double-prompt: o preset não era passado ao gerador.
+    _preset_match = _re.search(
+        r"TIPO DE IMAGEM:[^\n]+\n(.*?)(?=\n(?:CONTEXTO INTERNO|REFERÊNCIAS|PADRÃO VISUAL|INSTRUÇÕES VISUAIS|REGRA DE|INSTRUÇÃO DE|MODO |$))",
+        prompt_texto, _re.DOTALL
+    )
+    _preset_content = _preset_match.group(1).strip() if _preset_match else ""
 
     _tipo_match = _re.search(r"TIPO DE IMAGEM:\s*(.+?)(?:\n|$)", prompt_texto)
     _tipo_str = _tipo_match.group(1).strip() if _tipo_match else "produto"
+
+    # ── Detecta Close para ajustar regra de composição (produto NOT "fully visible" em close) ──
+    _is_close = (
+        "4 — Close" in prompt_texto or
+        "CLOSE NO PRODUTO" in prompt_texto
+    )
+    _product_dominance_rule = (
+        "- Detail fills 70-85% of the frame — macro close-up, do NOT show the full product"
+        if _is_close else
+        "- Product is the dominant visual element — large, prominent, fully visible"
+    )
 
     _layout_section = (
         f"\n\nCOMPOSITION STYLE TO REPLICATE (apply this exact layout to the product above):\n{estilo_layout}"
@@ -770,7 +795,17 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None):
         if _is_marketing and _colaborador_brief else ""
     )
 
-    # 3. Monta prompt de geração em inglês
+    # ── Instrução do colaborador: visual (Personalizado) ou contexto de apoio (padrão) ──
+    _instrucao_colaborador = (
+        f"COLLABORATOR VISUAL INSTRUCTIONS (render these in the image — Brazilian Portuguese):\n{_colaborador_brief}"
+        if _colaborador_brief else (
+            f"PRODUCT CONTEXT (reference only — do NOT render as text in the image):\n{_colaborador_contexto}"
+            if _colaborador_contexto else
+            "Follow the type-specific instructions above."
+        )
+    )
+
+    # 3. Monta prompt de geração
     # Quando enviado via Responses API (com fotos), a seção PRODUCT DESCRIPTION é
     # substituída por uma instrução de referência visual — o modelo VÊ as fotos.
     _tem_fotos = bool(imagens_referencia) and bool(_get_openai_api_key())
@@ -786,44 +821,46 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None):
         f"Create a professional e-commerce marketing image.\n\n"
         f"IMAGE TYPE: {_tipo_str}\n\n"
         f"{_product_section}"
+        f"TYPE-SPECIFIC INSTRUCTIONS (follow these exactly — they take priority over generic rules below):\n"
+        f"{_preset_content}\n\n"
         f"BACKGROUND & VISUAL STYLE:\n"
         f"{_background}\n"
-        f"Brand accents when applicable: Navy blue (#1A3A6B) for text and graphic elements, "
+        f"Brand accents: Navy blue (#1A3A6B) for text and graphic elements, "
         f"medium blue (#4A7EC7) as secondary accent.\n"
         f"Typography: Clean geometric sans-serif (Montserrat or Poppins style).\n"
         f"Professional e-commerce aesthetic — clean, airy, high-end studio quality.\n\n"
         f"CORE VISUAL RULE:\n"
         f"{_text_rule}\n\n"
-        f"COMPOSITION RULES:\n"
-        f"- Product is the dominant visual element — large, prominent, fully visible\n"
+        f"COMPOSITION:\n"
+        f"{_product_dominance_rule}\n"
         f"- Maintain product exact proportions — NEVER stretch, compress, or distort\n"
         f"- Maximum 3 information elements if text present — generous whitespace, never cluttered\n"
         f"- Professional studio quality — high-end e-commerce agency standard"
         f"{_layout_section}"
         f"{_marketing_content}\n\n"
-        f"COLLABORATOR BRIEF: {_colaborador_brief if _colaborador_brief else 'Follow the image type guidelines above.'}\n\n"
-        f"ABSOLUTE RULES — NO EXCEPTIONS:\n"
-        f"1. Reproduce the product EXACTLY as described — same colors, shape, proportions, every detail\n"
-        f"2. NEVER add physical elements not in the description (no pedestals, bases, packaging, accessories)\n"
-        f"3. NEVER add people or human figures unless explicitly requested\n"
-        f"4. All text visible in image must be in Brazilian Portuguese\n"
+        f"{_instrucao_colaborador}\n\n"
+        f"ABSOLUTE RULES:\n"
+        f"1. Reproduce the product EXACTLY — same colors, shape, proportions, every visible detail\n"
+        f"2. NEVER add or modify components on the product itself — scene elements (furniture, props, gift wrapping, context objects) are allowed when required by the image type\n"
+        f"3. NEVER add people or human figures unless the image type or collaborator instructions explicitly request them\n"
+        f"4. All text visible in the image must be in Brazilian Portuguese\n"
         f"5. NEVER deform or stretch the product — maintain exact proportions always\n"
-        f"6. Generate a completely NEW professional image — not a copy or edit of any photo"
+        f"6. Generate a completely new professional image — not a literal copy of any reference photo"
     )
 
-    # 4. Tenta gpt-image-1 (OpenAI) como motor primário
+    # 4. Tenta gpt-image-2 (OpenAI) como motor primário
     img_bytes = None
     erro_primario = None
     _usando_openai = bool(_get_openai_api_key())
 
     if _usando_openai:
-        # Passa as fotos do produto diretamente ao gpt-image-1 via Responses API
+        # Passa as fotos do produto diretamente ao gpt-image-2 via Responses API
         # (igual ao ChatGPT) — o modelo VÊ as fotos em vez de receber só texto.
-        # Se não houver fotos, cai no geração texto-puro como antes.
+        # Se não houver fotos, cai em geração texto-puro.
         _fotos_para_openai = imagens_referencia if imagens_referencia else None
         img_bytes, erro = _chamar_openai_geracao(prompt_geracao, imagens_bytes=_fotos_para_openai)
         if not img_bytes:
-            erro_primario = f"OpenAI gpt-image-1: {erro}"
+            erro_primario = f"OpenAI gpt-image-2: {erro}"
 
     # 5. Fallback: Gemini texto-apenas
     if not img_bytes:
