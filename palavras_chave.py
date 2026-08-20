@@ -122,25 +122,11 @@ def pagina_palavras_chave(usuario_logado):
     st.subheader("Palavras-chave")
     st.caption("Busca a Triagem do produto automaticamente. Se não encontrar, preenche na hora.")
 
-    busca = st.text_input("Nome do produto", key="pc_busca_nome")
+    selecionado, aviso = triagem.widget_seletor_produto("pc", "Nome do produto")
 
     dados_iniciais = {c: "" for c in CAMPOS_TRIAGEM}
-    aviso = None
-
-    if busca:
-        encontrados = triagem.buscar_triagens_por_trecho(busca)
-        if len(encontrados) == 1:
-            dados_iniciais.update(encontrados[0])
-            aviso = ("info", f"Triagem encontrada: **{encontrados[0]['nome_comercial']}**. Confira os dados abaixo antes de gerar.")
-        elif len(encontrados) > 1:
-            nomes = [e["nome_comercial"] for e in encontrados]
-            escolha = st.selectbox("Mais de um produto encontrado com esse nome -- qual é?", nomes, key="pc_escolha")
-            selecionado = next(e for e in encontrados if e["nome_comercial"] == escolha)
-            dados_iniciais.update(selecionado)
-            aviso = ("info", "Confira os dados abaixo antes de gerar.")
-        else:
-            dados_iniciais["nome_comercial"] = busca
-            aviso = ("warning", "Nenhuma triagem encontrada pra esse produto ainda -- preencha os campos abaixo.")
+    if selecionado:
+        dados_iniciais.update(selecionado)
 
     if aviso:
         getattr(st, aviso[0])(aviso[1])
