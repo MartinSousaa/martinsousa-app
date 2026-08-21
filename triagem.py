@@ -39,61 +39,41 @@ def _aba():
 # ── GOOGLE DRIVE — FOTO DE TRIAGEM ────────────────────────────────────────────
 
 def _drive_service_triagem():
-    from googleapiclient.discovery import build
-    from google.oauth2.service_account import Credentials as GCreds
-    creds_dict = dict(st.secrets["gcp_service_account"])
-    creds = GCreds.from_service_account_info(
-        creds_dict, scopes=["https://www.googleapis.com/auth/drive"]
-    )
-    return build("drive", "v3", credentials=creds)
+    """Mantido por compatibilidade — delega para o módulo gdrive."""
+    import gdrive
+    return gdrive.service()
 
 
 def _pasta_triagens_id():
     """Retorna o ID da pasta de fotos de triagem no Drive.
     Usa DRIVE_PASTA_TRIAGENS_ID se configurado, senão usa DRIVE_PASTA_IMAGENS_ID."""
-    return (st.secrets.get("DRIVE_PASTA_TRIAGENS_ID", "")
-            or st.secrets.get("DRIVE_PASTA_IMAGENS_ID", ""))
+    import gdrive
+    return gdrive.pasta_triagens_id()
 
 
 def upload_foto_triagem(imagem_bytes, nome_arquivo):
     """Faz upload da foto de referência do produto para o Drive.
-    Retorna (file_id, erro)."""
-    from googleapiclient.http import MediaInMemoryUpload
-    try:
-        service = _drive_service_triagem()
-        pasta_pai = _pasta_triagens_id()
+    Retorna (file_id, erro).
 
-        metadata = {"name": nome_arquivo}
-        if pasta_pai:
-            metadata["parents"] = [pasta_pai]
-
-        ext = nome_arquivo.rsplit(".", 1)[-1].lower() if "." in nome_arquivo else "jpeg"
-        mime_map = {"jpg": "image/jpeg", "jpeg": "image/jpeg",
-                    "png": "image/png", "webp": "image/webp"}
-        mimetype = mime_map.get(ext, "image/jpeg")
-
-        media = MediaInMemoryUpload(imagem_bytes, mimetype=mimetype)
-        arquivo = service.files().create(
-            body=metadata, media_body=media, fields="id"
-        ).execute()
-        file_id = arquivo["id"]
-
-        # Torna público (leitura) para exibir thumbnail nos cards
-        service.permissions().create(
-            fileId=file_id,
-            body={"role": "reader", "type": "anyone"}
-        ).execute()
-
-        return file_id, None
-    except Exception as e:
-        return None, str(e)
+    O upload passa pelo módulo gdrive, que trata Unidade Compartilhada,
+    impersonation e OAuth conforme as secrets configuradas.
+    """
+    import gdrive
+    info, err = gdrive.upload(
+        imagem_bytes,
+        nome_arquivo,
+        gdrive.pasta_triagens_id(),
+        mimetype=gdrive.mimetype_por_nome(nome_arquivo),
+    )
+    if err:
+        return None, err
+    return info["id"], None
 
 
 def url_thumbnail(foto_drive_id, tamanho=200):
     """Retorna URL de thumbnail do Google Drive (imagem deve ser pública)."""
-    if not foto_drive_id:
-        return None
-    return f"https://drive.google.com/thumbnail?id={foto_drive_id}&sz=w{tamanho}"
+    import gdrive
+    return gdrive.url_thumbnail(foto_drive_id, tamanho)
 
 
 # ── SHEETS — LEITURA E GRAVAÇÃO ───────────────────────────────────────────────
@@ -295,9 +275,30 @@ def widget_seletor_produto(key_prefix, label="Nome do produto"):
 
 # ── PÁGINA DE TRIAGEM ─────────────────────────────────────────────────────────
 
+# Campos do formulário de triagem que devem ser zerados após salvar.
+# A categoria fica de fora de propósito: o colaborador costuma cadastrar
+# vários produtos da mesma categoria em sequência.
+_CAMPOS_FORM_TRIAGEM = [
+    "triagem_nome_comercial", "triagem_material", "triagem_variacao_cores",
+    "triagem_medidas", "triagem_peso", "triagem_uso", "triagem_caracteristicas",
+    "triagem_diferenciais", "triagem_termos_busca", "triagem_termos_evitar",
+    "triagem_foto_upload",
+]
+
+
+def _limpar_form_triagem():
+    for _k in _CAMPOS_FORM_TRIAGEM:
+        st.session_state.pop(_k, None)
+
+
 def pagina_triagem(usuario_logado):
     st.subheader("Triagem do Produto")
     st.caption("Preenche uma vez por produto — essa informação alimenta palavras-chave, título e descrição.")
+
+    # Mensagem de sucesso vinda do rerun que limpou o formulário
+    _msg_ok = st.session_state.pop("triagem_msg_ok", "")
+    if _msg_ok:
+        st.success(_msg_ok)
 
     # Persiste a última categoria selecionada entre reruns
     _CATS = sorted(ML_COMISSAO_POR_CATEGORIA.keys())
@@ -309,26 +310,30 @@ def pagina_triagem(usuario_logado):
     with st.form("form_triagem", clear_on_submit=False):
         st.markdown("#### Dados do produto")
         col1, col2 = st.columns(2)
-        nome_comercial = col1.text_input("Nome comercial")
+        # Todo campo tem key= de propósito: sem key, o Streamlit identifica o
+        # widget pela posição na árvore. Qualquer remontagem da navegação
+        # (troca de seção, mudança de perfil) gera IDs novos e o que já foi
+        # digitado se perde. Com key, o valor fica no session_state e sobrevive.
+        nome_comercial = col1.text_input("Nome comercial", key="triagem_nome_comercial")
         categoria = col2.selectbox(
             "Categoria no ML", _CATS, index=_cat_idx, key="triagem_categoria"
         )
 
         col1, col2 = st.columns(2)
-        material = col1.text_input("Material", placeholder="ex: Plástico e Metal (o predominante primeiro)")
-        variacao_cores = col2.text_input("Variação de cores", placeholder="ex: Preto, Vermelho, Azul (só uma se não tiver variação)")
+        material = col1.text_input("Material", placeholder="ex: Plástico e Metal (o predominante primeiro)", key="triagem_material")
+        variacao_cores = col2.text_input("Variação de cores", placeholder="ex: Preto, Vermelho, Azul (só uma se não tiver variação)", key="triagem_variacao_cores")
 
         col1, col2 = st.columns(2)
-        medidas = col1.text_input("Medidas (AxLxP, cm)", placeholder="ex: 33x33x6")
-        peso = col2.text_input("Peso", placeholder="ex: 700g")
+        medidas = col1.text_input("Medidas (AxLxP, cm)", placeholder="ex: 33x33x6", key="triagem_medidas")
+        peso = col2.text_input("Peso", placeholder="ex: 700g", key="triagem_peso")
 
-        uso = st.text_input("Uso / ocasião (ex: presente, uso pessoal, infantil)")
-        caracteristicas = st.text_area("Características técnicas (specs além de material/cor)")
-        diferenciais = st.text_area("Diferenciais (o que separa esse produto de um genérico)")
+        uso = st.text_input("Uso / ocasião (ex: presente, uso pessoal, infantil)", key="triagem_uso")
+        caracteristicas = st.text_area("Características técnicas (specs além de material/cor)", key="triagem_caracteristicas")
+        diferenciais = st.text_area("Diferenciais (o que separa esse produto de um genérico)", key="triagem_diferenciais")
 
         st.markdown("#### Opcional")
-        termos_busca = st.text_input("Termos que o cliente já costuma buscar (se souber)")
-        termos_evitar = st.text_input("Termos a evitar (ex: marca registrada)")
+        termos_busca = st.text_input("Termos que o cliente já costuma buscar (se souber)", key="triagem_termos_busca")
+        termos_evitar = st.text_input("Termos a evitar (ex: marca registrada)", key="triagem_termos_evitar")
 
         st.markdown("#### Foto do produto")
         st.caption(
@@ -361,7 +366,10 @@ def pagina_triagem(usuario_logado):
                 nome_arquivo = f"{nome_comercial.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d%H%M%S')}.{ext}"
                 file_id, err_foto = upload_foto_triagem(imagem_bytes, nome_arquivo)
                 if err_foto:
-                    st.warning(f"⚠️ Não foi possível enviar a foto: {err_foto}. A triagem será salva sem foto.")
+                    st.warning(
+                        f"⚠️ Não foi possível enviar a foto. A triagem será salva "
+                        f"normalmente, mas sem a foto de referência.\n\n{err_foto}"
+                    )
                 else:
                     foto_drive_id = file_id
 
@@ -377,12 +385,19 @@ def pagina_triagem(usuario_logado):
                 salvar_triagem(usuario_logado, dados)
             import atividades
             atividades.registrar_atividade(usuario_logado, "Triagem de Produto", nome_comercial, categoria)
-            if foto_drive_id:
-                st.success(f"Triagem de '{nome_comercial}' salva com foto! ✅")
-            else:
-                st.success(f"Triagem de '{nome_comercial}' salva!")
+
+            # Só limpa o formulário DEPOIS de a gravação ter dado certo.
+            # Se falhar, o que foi digitado continua na tela para o
+            # colaborador tentar de novo sem redigitar nada.
+            st.session_state["triagem_msg_ok"] = (
+                f"Triagem de '{nome_comercial}' salva com foto! ✅" if foto_drive_id
+                else f"Triagem de '{nome_comercial}' salva!"
+            )
+            _limpar_form_triagem()
+            st.rerun()
         except RuntimeError as e:
             st.error(str(e))
+            st.info("Nada do que você preencheu foi perdido — corrija e tente salvar de novo.")
 
     st.markdown("---")
     st.markdown("#### Buscar triagem existente")

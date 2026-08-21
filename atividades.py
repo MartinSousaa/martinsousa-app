@@ -45,8 +45,12 @@ def registrar_atividade(usuario, tipo, produto, resumo,
                         codigo="", cor="", medidas="", peso="",
                         link_capa="", link_pasta="",
                         material="", caracteristicas="", diferenciais="", uso="", categoria=""):
-    """Grava uma linha no historico. Nunca deixa um erro aqui quebrar a
-    tela principal -- se a gravacao falhar, so ignora silenciosamente."""
+    """Grava uma linha no historico. Retorna True/False.
+
+    Uma falha aqui nunca derruba a tela principal -- mas tambem nao passa em
+    silencio: o historico alimenta o placar e a analise de metas, entao um
+    registro perdido vira credito perdido para o colaborador.
+    """
     try:
         aba = _aba()
         aba.append_row([
@@ -56,8 +60,16 @@ def registrar_atividade(usuario, tipo, produto, resumo,
             material, caracteristicas, diferenciais, uso, categoria,
         ], value_input_option="RAW")
         carregar_atividades.clear()
+        return True
     except Exception:
-        pass
+        try:
+            st.warning(
+                f"⚠️ '{tipo}' foi concluído, mas não entrou no histórico. "
+                "Isso afeta seu placar e suas metas — avise o administrador."
+            )
+        except Exception:
+            pass
+        return False
 
 
 @st.cache_data(ttl=30)

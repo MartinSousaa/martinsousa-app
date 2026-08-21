@@ -1192,77 +1192,51 @@ Trate qualquer elemento que não foi mencionado na instrução como intocável.
 # ── GOOGLE DRIVE — GESTÃO DE PASTAS ───────────────────────────────────────────
 
 def _drive_service():
-    from googleapiclient.discovery import build
-    from google.oauth2.service_account import Credentials
-    creds_dict = dict(st.secrets["gcp_service_account"])
-    creds = Credentials.from_service_account_info(
-        creds_dict, scopes=["https://www.googleapis.com/auth/drive"]
-    )
-    return build("drive", "v3", credentials=creds)
+    """Mantido por compatibilidade — delega para o módulo gdrive."""
+    import gdrive
+    return gdrive.service()
 
 
 def buscar_pasta_produto(nome_produto, codigo, pasta_pai_id):
     """Busca pasta exata '[Nome] - [Código]' ou pelo nome aproximado.
     Retorna lista de (id, name) encontrados."""
-    try:
-        service = _drive_service()
-        nome_exato = f"{nome_produto} - {codigo}".strip(" -")
+    import gdrive
+    nome_exato = f"{nome_produto} - {codigo}".strip(" -")
 
-        # Tenta nome exato primeiro
-        q = (f"'{pasta_pai_id}' in parents and mimeType='application/vnd.google-apps.folder' "
-             f"and name='{nome_exato}' and trashed=false")
-        res = service.files().list(q=q, fields="files(id,name)").execute()
-        if res.get("files"):
-            return [(f["id"], f["name"]) for f in res["files"]]
+    # Tenta nome exato primeiro
+    q = (f"'{pasta_pai_id}' in parents and mimeType='application/vnd.google-apps.folder' "
+         f"and name='{nome_exato}' and trashed=false")
+    achados = gdrive.listar(q)
+    if achados:
+        return [(f["id"], f["name"]) for f in achados]
 
-        # Busca por trecho do nome do produto (fuzzy)
-        if nome_produto:
-            palavras = nome_produto.split()[:2]  # primeiras 2 palavras
-            for palavra in palavras:
-                if len(palavra) < 3:
-                    continue
-                q2 = (f"'{pasta_pai_id}' in parents and mimeType='application/vnd.google-apps.folder' "
-                      f"and name contains '{palavra}' and trashed=false")
-                res2 = service.files().list(q=q2, fields="files(id,name)").execute()
-                if res2.get("files"):
-                    return [(f["id"], f["name"]) for f in res2["files"]]
-        return []
-    except Exception:
-        return []
+    # Busca por trecho do nome do produto (fuzzy)
+    if nome_produto:
+        palavras = nome_produto.split()[:2]  # primeiras 2 palavras
+        for palavra in palavras:
+            if len(palavra) < 3:
+                continue
+            q2 = (f"'{pasta_pai_id}' in parents and mimeType='application/vnd.google-apps.folder' "
+                  f"and name contains '{palavra}' and trashed=false")
+            achados2 = gdrive.listar(q2)
+            if achados2:
+                return [(f["id"], f["name"]) for f in achados2]
+    return []
 
 
 def criar_pasta_produto(nome_pasta, pasta_pai_id):
     """Cria nova pasta no Drive. Retorna (id, erro)."""
-    try:
-        service = _drive_service()
-        metadata = {
-            "name": nome_pasta,
-            "mimeType": "application/vnd.google-apps.folder",
-            "parents": [pasta_pai_id],
-        }
-        pasta = service.files().create(body=metadata, fields="id").execute()
-        return pasta["id"], None
-    except Exception as e:
-        return None, str(e)
+    import gdrive
+    return gdrive.criar_pasta(nome_pasta, pasta_pai_id)
 
 
 def upload_para_pasta(imagem_bytes, nome_arquivo, pasta_id):
     """Faz upload de imagem para pasta específica. Retorna (link, erro)."""
-    from googleapiclient.http import MediaInMemoryUpload
-    try:
-        service = _drive_service()
-        metadata = {"name": nome_arquivo, "parents": [pasta_id]}
-        media = MediaInMemoryUpload(imagem_bytes, mimetype="image/png")
-        arquivo = service.files().create(
-            body=metadata, media_body=media, fields="id, webViewLink"
-        ).execute()
-        service.permissions().create(
-            fileId=arquivo["id"],
-            body={"role": "reader", "type": "anyone"}
-        ).execute()
-        return arquivo.get("webViewLink"), None
-    except Exception as e:
-        return None, str(e)
+    import gdrive
+    info, err = gdrive.upload(imagem_bytes, nome_arquivo, pasta_id, mimetype="image/png")
+    if err:
+        return None, err
+    return info.get("webViewLink"), None
 
 
 def criar_zip_galeria(galeria, nome_produto):
@@ -2259,43 +2233,64 @@ def pagina_imagem(usuario_logado):
             type="primary",
             use_container_width=True,
         ):
+            err_pasta = None
             if not pasta_pai:
-                st.error("DRIVE_PASTA_IMAGENS_ID não configurada nas Secrets.")
-            else:
-                if pasta_destino_id is None:
-                    with st.spinner("Criando pasta..."):
-                        pasta_destino_id, err_pasta = criar_pasta_produto(nome_pasta_novo, pasta_pai)
-                    if err_pasta:
-                        st.error(f"Erro ao criar pasta: {err_pasta}")
-                        st.stop()
+                err_pasta = "DRIVE_PASTA_IMAGENS_ID não configurada nas Secrets."
+                st.error(err_pasta)
+            elif pasta_destino_id is None:
+                with st.spinner("Criando pasta..."):
+                    pasta_destino_id, err_pasta = criar_pasta_produto(nome_pasta_novo, pasta_pai)
+                if err_pasta:
+                    st.error(f"Não foi possível criar a pasta no Drive.\n\n{err_pasta}")
 
+            # NÃO usar st.stop() aqui: isso impediria o botão de ZIP abaixo de
+            # renderizar, e as imagens só existem em memória — o colaborador
+            # perderia todo o trabalho. Em caso de falha, o ZIP é a saída.
+            if err_pasta or not pasta_destino_id:
+                st.info(
+                    "⬇️ Suas imagens **não foram perdidas** — use o botão "
+                    "\"Baixar todas em ZIP\" ao lado para salvá-las no seu computador."
+                )
+            else:
                 links_salvos = []
+                falhas = []
                 barra_salvar = st.progress(0.0, text="Salvando imagens...")
                 for i, g in enumerate(galeria):
                     barra_salvar.progress(i / len(galeria), text=f"Salvando: {g['tipo'][:30]}...")
                     nome_arq = f"{g['tipo'][:30]}.png"
                     link, err_up = upload_para_pasta(g["bytes"], nome_arq, pasta_destino_id)
                     if err_up:
-                        st.warning(f"Falhou '{g['tipo']}': {err_up}")
+                        falhas.append((g["tipo"], err_up))
                     else:
                         links_salvos.append(link)
 
                 barra_salvar.progress(1.0, text="Concluído!")
                 link_pasta = f"https://drive.google.com/drive/folders/{pasta_destino_id}"
 
-                import atividades
-                atividades.registrar_atividade(
-                    usuario_logado, "Imagem (aprovada e salva)",
-                    nome_gal,
-                    f"{len(links_salvos)} imagens salvas na pasta {nome_pasta_novo}",
-                    codigo=codigo_gal,
-                    link_pasta=link_pasta,
-                )
+                if links_salvos:
+                    import atividades
+                    atividades.registrar_atividade(
+                        usuario_logado, "Imagem (aprovada e salva)",
+                        nome_gal,
+                        f"{len(links_salvos)} imagens salvas na pasta {nome_pasta_novo}",
+                        codigo=codigo_gal,
+                        link_pasta=link_pasta,
+                    )
+                    st.success(
+                        f"✅ {len(links_salvos)} imagem(ns) salvas no Drive! "
+                        f"[Abrir pasta]({link_pasta})"
+                    )
 
-                st.success(
-                    f"✅ {len(links_salvos)} imagem(ns) salvas no Drive! "
-                    f"[Abrir pasta]({link_pasta})"
-                )
+                if falhas:
+                    st.warning(
+                        f"⚠️ {len(falhas)} imagem(ns) não foram salvas: "
+                        + ", ".join(t for t, _ in falhas)
+                        + f"\n\n{falhas[0][1]}"
+                    )
+                    st.info(
+                        "⬇️ Use o botão \"Baixar todas em ZIP\" ao lado para "
+                        "garantir que nada se perca."
+                    )
 
         # ZIP sempre disponível
         zip_bytes = criar_zip_galeria(galeria, nome_gal)

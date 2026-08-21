@@ -114,7 +114,12 @@ def _get_registros_periodo(ano: int, mes: int) -> list[dict]:
 
 
 def _salvar_registro(data_str, username, tipo, horario_str, observacao, criado_por):
-    """Upsert: atualiza linha existente ou adiciona nova linha no Google Sheets."""
+    """Upsert: atualiza linha existente ou adiciona nova linha no Google Sheets.
+
+    Retorna (ok: bool, erro: str). Ponto é dado de folha de pagamento — uma
+    falha aqui NAO pode passar despercebida, entao o resultado volta para o
+    chamador em vez de ser engolido.
+    """
     try:
         aba       = _aba_ponto()
         criado_em = datetime.now().strftime("%d/%m/%Y %H:%M")
@@ -131,15 +136,19 @@ def _salvar_registro(data_str, username, tipo, horario_str, observacao, criado_p
                     and row[2] == tipo):
                 aba.update(f"A{i}:G{i}", [nova_linha], value_input_option="RAW")
                 _carregar_ponto_todos.clear()
-                return
+                return True, ""
         aba.append_row(nova_linha, value_input_option="RAW")
         _carregar_ponto_todos.clear()
-    except Exception:
-        pass
+        return True, ""
+    except Exception as e:
+        return False, str(e)
 
 
 def _deletar_registro(data_str, username, tipo):
-    """Remove uma linha do Google Sheets que corresponde a (data, username, tipo)."""
+    """Remove uma linha do Sheets que corresponde a (data, username, tipo).
+
+    Retorna (ok: bool, erro: str).
+    """
     try:
         aba      = _aba_ponto()
         all_vals = aba.get_all_values()
@@ -150,9 +159,10 @@ def _deletar_registro(data_str, username, tipo):
                     and row[2] == tipo):
                 aba.delete_rows(i)
                 _carregar_ponto_todos.clear()
-                return
-    except Exception:
-        pass
+                return True, ""
+        return False, "Registro não encontrado na planilha."
+    except Exception as e:
+        return False, str(e)
 
 
 # ── Cálculo de indicadores ─────────────────────────────────────────────────────
@@ -466,10 +476,19 @@ def _secao_registro(usuario_logado: str, eh_master: bool):
 
         salvar = st.form_submit_button("💾 Registrar ponto", use_container_width=True)
         if salvar:
-            _salvar_registro(data_str, username_sel, tipo_sel, hora_str, obs, usuario_logado)
-            st.success(f"✅ {TIPOS_PONTO[tipo_sel]} registrado para **{nome_sel}** em {data_str}" +
-                       (f" às {hora_str}" if hora_str else "") + ".")
-            st.rerun()
+            _ok, _err = _salvar_registro(
+                data_str, username_sel, tipo_sel, hora_str, obs, usuario_logado
+            )
+            if _ok:
+                st.success(f"✅ {TIPOS_PONTO[tipo_sel]} registrado para **{nome_sel}** em {data_str}" +
+                           (f" às {hora_str}" if hora_str else "") + ".")
+                st.rerun()
+            else:
+                # Nunca confirmar um ponto que não foi gravado.
+                st.error(
+                    f"❌ NÃO foi possível registrar o ponto de **{nome_sel}**. "
+                    f"O registro não está salvo — tente de novo ou avise o administrador.\n\n{_err}"
+                )
 
     # Exibe registros do dia selecionado
     if regs_existentes:
@@ -480,8 +499,11 @@ def _secao_registro(usuario_logado: str, eh_master: bool):
             col_r, col_del = st.columns([5, 1])
             col_r.markdown(f"{TIPOS_PONTO[tipo]}  **{h}**{obs_txt}")
             if eh_master and col_del.button("🗑️", key=f"del_{tipo}_{data_str}_{username_sel}", help="Remover"):
-                _deletar_registro(data_str, username_sel, tipo)
-                st.rerun()
+                _ok_del, _err_del = _deletar_registro(data_str, username_sel, tipo)
+                if _ok_del:
+                    st.rerun()
+                else:
+                    st.error(f"❌ Não foi possível remover o registro.\n\n{_err_del}")
 
         if ind_existente and not ind_existente["ausente"]:
             disp = ind_existente["horas_disponiveis"]

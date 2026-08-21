@@ -120,17 +120,33 @@ def _aba_usuarios():
         return aba
 
 
+# Último resultado bem-sucedido da leitura de usuários.
+# Serve de rede de segurança: uma falha transitória do Sheets NÃO pode fazer o
+# sistema concluir que ninguém é admin — isso trocaria o layout inteiro do app
+# embaixo do usuário que está trabalhando.
+_ULTIMOS_USUARIOS_OK = {"df": None}
+
+
 @st.cache_data(ttl=60)
 def _carregar_usuarios_sheets():
-    """Carrega usuários do Sheets. Cache de 60s para não sobrecarregar a API."""
+    """Carrega usuários do Sheets. Cache de 60s para não sobrecarregar a API.
+
+    Em caso de erro devolve a última leitura bem-sucedida em vez de um
+    DataFrame vazio. Um vazio faria is_admin() retornar False para todo mundo
+    e remontar a navegação no meio da operação.
+    """
     try:
         aba = _aba_usuarios()
         registros = aba.get_all_records(value_render_option="UNFORMATTED_VALUE")
         df = pd.DataFrame(registros)
         if not df.empty:
             df.columns = [str(c).strip().lower() for c in df.columns]
+        _ULTIMOS_USUARIOS_OK["df"] = df
         return df
     except Exception:
+        anterior = _ULTIMOS_USUARIOS_OK.get("df")
+        if anterior is not None:
+            return anterior
         return pd.DataFrame()
 
 
@@ -168,11 +184,9 @@ def _verificar_credencial(login, senha):
 
 # ── VERIFICAÇÃO DE ADMIN ───────────────────────────────────────────────────────
 
-def is_admin(usuario_logado):
+def _calcular_is_admin(usuario_logado):
     """Usuários das Secrets sempre têm acesso admin (são os donos do app).
     Usuários do Sheets precisam ter coluna admin = Sim."""
-    if not usuario_logado:
-        return False
     if usuario_logado in dict(st.secrets.get("usuarios", {})):
         return True
     df = _carregar_usuarios_sheets()
@@ -182,6 +196,23 @@ def is_admin(usuario_logado):
     if row.empty:
         return False
     return str(row.iloc[0].get("admin", "")).lower() in ("sim", "true", "1", "yes")
+
+
+def is_admin(usuario_logado):
+    """Perfil admin do usuário, FIXADO na primeira checagem da sessão.
+
+    Por que fixar: o valor decide qual navegação é montada (acordeão
+    Gestão/Operação para admin, barra plana para colaborador). Se ele oscilar
+    no meio da sessão — por uma falha momentânea do Sheets, por exemplo — o
+    Streamlit remonta a árvore de widgets inteira e o usuário perde tudo o que
+    estava preenchendo. O perfil só muda ao sair e entrar de novo.
+    """
+    if not usuario_logado:
+        return False
+    chave = f"_perfil_admin__{usuario_logado}"
+    if chave not in st.session_state:
+        st.session_state[chave] = _calcular_is_admin(usuario_logado)
+    return st.session_state[chave]
 
 
 # ── LOGIN ──────────────────────────────────────────────────────────────────────
