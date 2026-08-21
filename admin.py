@@ -108,12 +108,16 @@ def pagina_admin(usuario_logado):
             if col_b.button("👤 Remover Admin", use_container_width=True, key="btn_rm_admin"):
                 _atualizar_campo(usuario_sel, "admin", "Não")
                 auth._carregar_usuarios_sheets.clear()
+                # is_admin fica fixado por sessão — invalida para refletir a mudança
+                st.session_state.pop(f"_perfil_admin__{usuario_sel}", None)
                 st.success(f"'{usuario_sel}' não é mais admin.")
                 st.rerun()
         else:
             if col_b.button("⭐ Tornar Admin", use_container_width=True, key="btn_mk_admin"):
                 _atualizar_campo(usuario_sel, "admin", "Sim")
                 auth._carregar_usuarios_sheets.clear()
+                # is_admin fica fixado por sessão — invalida para refletir a mudança
+                st.session_state.pop(f"_perfil_admin__{usuario_sel}", None)
                 st.success(f"'{usuario_sel}' agora é admin.")
                 st.rerun()
 
