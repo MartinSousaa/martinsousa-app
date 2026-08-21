@@ -39,61 +39,41 @@ def _aba():
 # ── GOOGLE DRIVE — FOTO DE TRIAGEM ────────────────────────────────────────────
 
 def _drive_service_triagem():
-    from googleapiclient.discovery import build
-    from google.oauth2.service_account import Credentials as GCreds
-    creds_dict = dict(st.secrets["gcp_service_account"])
-    creds = GCreds.from_service_account_info(
-        creds_dict, scopes=["https://www.googleapis.com/auth/drive"]
-    )
-    return build("drive", "v3", credentials=creds)
+    """Mantido por compatibilidade — delega para o módulo gdrive."""
+    import gdrive
+    return gdrive.service()
 
 
 def _pasta_triagens_id():
     """Retorna o ID da pasta de fotos de triagem no Drive.
     Usa DRIVE_PASTA_TRIAGENS_ID se configurado, senão usa DRIVE_PASTA_IMAGENS_ID."""
-    return (st.secrets.get("DRIVE_PASTA_TRIAGENS_ID", "")
-            or st.secrets.get("DRIVE_PASTA_IMAGENS_ID", ""))
+    import gdrive
+    return gdrive.pasta_triagens_id()
 
 
 def upload_foto_triagem(imagem_bytes, nome_arquivo):
     """Faz upload da foto de referência do produto para o Drive.
-    Retorna (file_id, erro)."""
-    from googleapiclient.http import MediaInMemoryUpload
-    try:
-        service = _drive_service_triagem()
-        pasta_pai = _pasta_triagens_id()
+    Retorna (file_id, erro).
 
-        metadata = {"name": nome_arquivo}
-        if pasta_pai:
-            metadata["parents"] = [pasta_pai]
-
-        ext = nome_arquivo.rsplit(".", 1)[-1].lower() if "." in nome_arquivo else "jpeg"
-        mime_map = {"jpg": "image/jpeg", "jpeg": "image/jpeg",
-                    "png": "image/png", "webp": "image/webp"}
-        mimetype = mime_map.get(ext, "image/jpeg")
-
-        media = MediaInMemoryUpload(imagem_bytes, mimetype=mimetype)
-        arquivo = service.files().create(
-            body=metadata, media_body=media, fields="id"
-        ).execute()
-        file_id = arquivo["id"]
-
-        # Torna público (leitura) para exibir thumbnail nos cards
-        service.permissions().create(
-            fileId=file_id,
-            body={"role": "reader", "type": "anyone"}
-        ).execute()
-
-        return file_id, None
-    except Exception as e:
-        return None, str(e)
+    O upload passa pelo módulo gdrive, que trata Unidade Compartilhada,
+    impersonation e OAuth conforme as secrets configuradas.
+    """
+    import gdrive
+    info, err = gdrive.upload(
+        imagem_bytes,
+        nome_arquivo,
+        gdrive.pasta_triagens_id(),
+        mimetype=gdrive.mimetype_por_nome(nome_arquivo),
+    )
+    if err:
+        return None, err
+    return info["id"], None
 
 
 def url_thumbnail(foto_drive_id, tamanho=200):
     """Retorna URL de thumbnail do Google Drive (imagem deve ser pública)."""
-    if not foto_drive_id:
-        return None
-    return f"https://drive.google.com/thumbnail?id={foto_drive_id}&sz=w{tamanho}"
+    import gdrive
+    return gdrive.url_thumbnail(foto_drive_id, tamanho)
 
 
 # ── SHEETS — LEITURA E GRAVAÇÃO ───────────────────────────────────────────────
@@ -361,7 +341,10 @@ def pagina_triagem(usuario_logado):
                 nome_arquivo = f"{nome_comercial.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d%H%M%S')}.{ext}"
                 file_id, err_foto = upload_foto_triagem(imagem_bytes, nome_arquivo)
                 if err_foto:
-                    st.warning(f"⚠️ Não foi possível enviar a foto: {err_foto}. A triagem será salva sem foto.")
+                    st.warning(
+                        f"⚠️ Não foi possível enviar a foto. A triagem será salva "
+                        f"normalmente, mas sem a foto de referência.\n\n{err_foto}"
+                    )
                 else:
                     foto_drive_id = file_id
 
