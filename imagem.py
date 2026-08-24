@@ -211,7 +211,10 @@ PRESETS = {
         "CAPA DO ANÚNCIO — FOTO PRINCIPAL DO PRODUTO: REGRA ABSOLUTA: ZERO TEXTO, ZERO TÍTULO, ZERO ÍCONE. "
         "APENAS o produto sobre fundo branco puro — esta é a primeira imagem que o comprador vê. "
         "FUNDO: branco puro (#FFFFFF), absolutamente liso, sem gradiente, sem sombra, sem elementos. "
-        "Produto centralizado, ocupando 75-85% do frame, completamente visível sem cortes. "
+        "Produto centralizado e O MAIOR POSSÍVEL: deve ocupar 90-95% do frame, "
+        "encostando quase nas bordas, sem cortar nenhuma parte e sem distorcer as "
+        "proporções reais. Margem branca mínima — sobra de fundo é desperdício de "
+        "área nesta imagem, que é a primeira que o comprador vê. "
         "Iluminação profissional de estúdio: luz suave e uniforme, sombra mínima e delicada embaixo. "
         "Posição: ângulo frontal ligeiramente 3/4 que mostra melhor o produto, ou frontal direto. "
         "Resultado: foto de e-commerce de alta qualidade — limpa, profissional, produto é tudo."
@@ -445,9 +448,13 @@ def _detectar_mime(data: bytes) -> str:
 def _gerar_imagem_thread(prompt_texto, imagens_ref, resultado, refs_layout=None):
     """Executa gerar_imagem_ia em thread separada para não bloquear o WebSocket."""
     try:
-        img, erro = gerar_imagem_ia(prompt_texto, imagens_ref, refs_layout=refs_layout)
+        _diag = {}
+        img, erro = gerar_imagem_ia(
+            prompt_texto, imagens_ref, refs_layout=refs_layout, diagnostico=_diag
+        )
         resultado["img"] = img
         resultado["erro"] = erro
+        resultado["diag"] = _diag
     except Exception as e:
         resultado["img"] = None
         resultado["erro"] = str(e)
@@ -646,7 +653,7 @@ def _chamar_gemini_geracao_texto(prompt_final):
     return None, "Máximo de tentativas atingido."
 
 
-def _chamar_openai_geracao(prompt_final, imagens_bytes=None):
+def _chamar_openai_geracao(prompt_final, imagens_bytes=None, diagnostico=None):
     """Chama gpt-image-2 da OpenAI (motor primário de geração). Retorna (img_bytes, erro).
 
     Quando `imagens_bytes` é fornecido, usa a Responses API com as fotos do produto
@@ -708,6 +715,11 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None):
                     print("[DEBUG gpt-image-2] Operation: generate/edit | "
                           f"References sent: {len(imagens_bytes)} | size=1024x1024 | "
                           "input_fidelity=high", file=_sys.stderr)
+                    if diagnostico is not None:
+                        diagnostico["motor"] = "gpt-image-2 (Responses + tools)"
+                        diagnostico["size_pedido"] = "1024x1024"
+                        diagnostico["input_fidelity"] = "high"
+                        diagnostico["refs_enviadas"] = len(imagens_bytes[:3])
                     return img, None
             except Exception as _e_tool:
                 import sys as _sys
@@ -739,6 +751,11 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None):
                     print("[DEBUG gpt-image-2] Operation: edit | "
                           f"References sent: {len(arquivos)} | size=1024x1024 | "
                           "input_fidelity=high", file=_sys.stderr)
+                    if diagnostico is not None:
+                        diagnostico["motor"] = "gpt-image-2 (images.edit)"
+                        diagnostico["size_pedido"] = "1024x1024"
+                        diagnostico["input_fidelity"] = "high"
+                        diagnostico["refs_enviadas"] = len(arquivos)
                     return base64.b64decode(_d.b64_json), None
             except Exception as _e_edit:
                 import sys as _sys
@@ -750,6 +767,10 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None):
             if img:
                 import sys as _sys
                 print(f"[DEBUG gpt-image-2] Operation: generate/edit | References sent: {len(imagens_bytes)} | Model: gpt-image-2", file=_sys.stderr)
+                if diagnostico is not None:
+                    diagnostico["motor"] = "gpt-image-2 (Responses simples — SEM size)"
+                    diagnostico["size_pedido"] = "nenhum (modelo escolhe)"
+                    diagnostico["refs_enviadas"] = len(imagens_bytes[:3])
                 return img, None
             return None, "Sem imagem na resposta Responses API."
 
@@ -777,7 +798,7 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None):
         return None, f"Erro OpenAI gpt-image-2: {str(e)[:300]}"
 
 
-def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None):
+def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None, diagnostico=None):
     """Arquitetura de geração — fotos do produto vão diretamente ao modelo via Responses API.
 
     Fluxo:
@@ -1041,12 +1062,29 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None):
         # (igual ao ChatGPT) — o modelo VÊ as fotos em vez de receber só texto.
         # Se não houver fotos, cai em geração texto-puro.
         _fotos_para_openai = imagens_referencia if imagens_referencia else None
-        img_bytes, erro = _chamar_openai_geracao(prompt_geracao, imagens_bytes=_fotos_para_openai)
+        img_bytes, erro = _chamar_openai_geracao(
+            prompt_geracao, imagens_bytes=_fotos_para_openai, diagnostico=diagnostico
+        )
         if not img_bytes:
             erro_primario = f"OpenAI gpt-image-2: {erro}"
 
+    if diagnostico is not None:
+        diagnostico["prompt_final"] = prompt_geracao
+        diagnostico["fotos_disponiveis"] = len(imagens_referencia or [])
+        if erro_primario:
+            diagnostico["erro_openai"] = erro_primario
+
     # 5. Fallback: Gemini texto-apenas
+    #
+    # ATENCAO: este caminho NAO recebe as fotos do produto — so o texto. O
+    # modelo nunca ve o produto real, entao inventa um a partir da descricao.
+    # E a explicacao mais provavel para um produto preto sair azul-marinho:
+    # sem foto, sobra a paleta da marca. Por isso o diagnostico marca este
+    # caminho de forma bem visivel.
     if not img_bytes:
+        if diagnostico is not None:
+            diagnostico["motor"] = "Gemini (fallback TEXTO-PURO — sem as fotos)"
+            diagnostico["refs_enviadas"] = 0
         resp, erro_fatal = _chamar_gemini_geracao_texto(prompt_geracao)
         if erro_fatal:
             msg = erro_fatal.replace("COTA_ESGOTADA:", "")
@@ -1104,6 +1142,8 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None):
         from PIL import Image as _PILImage
         import io as _io
         pil = _PILImage.open(_io.BytesIO(img_bytes)).convert("RGBA")
+        if diagnostico is not None:
+            diagnostico["tamanho_bruto"] = f"{pil.size[0]}x{pil.size[1]}"
 
         # Enquadramento para 1200x1200.
         #
@@ -2185,7 +2225,15 @@ def pagina_imagem(usuario_logado):
                         if erro_gen:
                             st.warning(f"⚠️ Falhou em '{tipo}': {erro_gen}")
                             continue
-                        galeria.append({"tipo": tipo, "bytes": img_bytes, "aprovado": False})
+                        galeria.append({
+                            "tipo": tipo,
+                            "bytes": img_bytes,
+                            "aprovado": False,
+                            # Guarda o prompt exato e o motor que gerou ESTA imagem.
+                            # Sem isso não dá para saber se o resultado ruim veio de
+                            # prompt errado ou de ter caído no fallback texto-puro.
+                            "diag": _res.get("diag") or {},
+                        })
                     except Exception as _e_img:
                         st.warning(f"⚠️ Erro inesperado em '{tipo}': {_e_img}")
                         continue
@@ -2231,6 +2279,44 @@ def pagina_imagem(usuario_logado):
         galeria = st.session_state["img_galeria"]
         nome_gal = st.session_state.get("img_nome_produto", "produto")
         codigo_gal = st.session_state.get("img_codigo", "")
+
+        # ── DIAGNÓSTICO DA GERAÇÃO ────────────────────────────────────────────
+        # Sem isto não há como saber se uma imagem ruim veio de prompt errado ou
+        # de ter caído no fallback do Gemini, que gera SEM ver as fotos.
+        _sem_foto = [g for g in galeria if (g.get("diag") or {}).get("refs_enviadas", 1) == 0]
+        if _sem_foto:
+            st.error(
+                f"⚠️ **{len(_sem_foto)} de {len(galeria)} imagens foram geradas SEM as suas fotos.** "
+                "O gerador principal falhou e o sistema caiu no motor reserva, que só recebe texto — "
+                "ele nunca viu o produto real, então inventou um. É por isso que a cor e o formato saem "
+                "errados. Abra o painel abaixo e me mande o erro."
+            )
+
+        with st.expander("🔍 Prompt e motor usados em cada imagem", expanded=bool(_sem_foto)):
+            _opcoes_diag = [g["tipo"] for g in galeria]
+            _tipo_diag = st.selectbox(
+                "Imagem", _opcoes_diag, key="img_diag_sel", label_visibility="collapsed"
+            )
+            _g_diag = next((g for g in galeria if g["tipo"] == _tipo_diag), None)
+            _d = (_g_diag or {}).get("diag") or {}
+
+            if not _d:
+                st.caption("Sem diagnóstico — imagem gerada antes desta atualização.")
+            else:
+                _c1, _c2, _c3 = st.columns(3)
+                _c1.markdown(f"**Motor**  \n{_d.get('motor', '—')}")
+                _c2.markdown(
+                    f"**Fotos enviadas**  \n{_d.get('refs_enviadas', '—')} "
+                    f"de {_d.get('fotos_disponiveis', '—')} disponíveis"
+                )
+                _c3.markdown(
+                    f"**Tamanho pedido / recebido**  \n"
+                    f"{_d.get('size_pedido', '—')} → {_d.get('tamanho_bruto', '—')}"
+                )
+                if _d.get("erro_openai"):
+                    st.warning(f"**Erro do gerador principal:**\n\n{_d['erro_openai']}")
+                st.markdown("**Prompt exato enviado ao modelo:**")
+                st.code(_d.get("prompt_final", "—"), language="text")
 
         # Miniaturas clicáveis
         nomes_galeria = [g["tipo"] for g in galeria]
