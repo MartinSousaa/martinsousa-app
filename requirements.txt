@@ -7,3 +7,4 @@ requests
 google-api-python-client
 Pillow
 openai
+pillow-heif

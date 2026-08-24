@@ -445,12 +445,56 @@ def _detectar_mime(data: bytes) -> str:
     return "image/jpeg"  # fallback seguro
 
 
-def _gerar_imagem_thread(prompt_texto, imagens_ref, resultado, refs_layout=None):
+def _normalizar_nome(texto):
+    """Minúsculas, sem acento e só letras/números — para casar nome de arquivo com tipo."""
+    import unicodedata as _ud
+    t = _ud.normalize("NFKD", str(texto)).encode("ascii", "ignore").decode("ascii").lower()
+    return _re.sub(r"[^a-z0-9]+", " ", t).strip()
+
+
+def ref_layout_do_tipo(tipo, refs_bytes, refs_nomes):
+    """Escolhe a imagem de referência de layout que pertence a este tipo.
+
+    O colaborador nomeia os arquivos pelo que eles representam — "beneficios.png",
+    "fundo_branco.jpg", "quebra de objecao.png". A escolha é por essas palavras,
+    não por ordem de upload: enviar as referências fora de ordem não pode
+    embaralhar as peças.
+
+    Retorna (bytes, nome) ou (None, None) quando nenhuma referência corresponde —
+    caso em que a peça é gerada sem referência de layout, e não com a referência
+    de outro tipo, que seria pior do que nenhuma.
+    """
+    if not refs_bytes:
+        return None, None
+
+    tipo_norm = _normalizar_nome(tipo)
+    # Descarta o numero do tipo ("2") e palavras vazias de significado
+    _IGNORAR = {"de", "do", "da", "no", "na", "em", "com", "e", "o", "a", "os", "as", "nos"}
+    palavras_tipo = {p for p in tipo_norm.split() if len(p) > 2 and p not in _IGNORAR}
+
+    melhor, melhor_nota = None, 0
+    for i, nome in enumerate(refs_nomes or []):
+        if i >= len(refs_bytes):
+            break
+        nome_norm = _normalizar_nome(nome.rsplit(".", 1)[0])
+        palavras_nome = {p for p in nome_norm.split() if len(p) > 2 and p not in _IGNORAR}
+        nota = len(palavras_tipo & palavras_nome)
+        if nota > melhor_nota:
+            melhor, melhor_nota = i, nota
+
+    if melhor is None:
+        return None, None
+    return refs_bytes[melhor], (refs_nomes or [])[melhor]
+
+
+def _gerar_imagem_thread(prompt_texto, imagens_ref, resultado, refs_layout=None,
+                         refs_layout_nomes=None, tipo=""):
     """Executa gerar_imagem_ia em thread separada para não bloquear o WebSocket."""
     try:
         _diag = {}
         img, erro = gerar_imagem_ia(
-            prompt_texto, imagens_ref, refs_layout=refs_layout, diagnostico=_diag
+            prompt_texto, imagens_ref, refs_layout=refs_layout,
+            refs_layout_nomes=refs_layout_nomes, tipo=tipo, diagnostico=_diag
         )
         resultado["img"] = img
         resultado["erro"] = erro
@@ -599,7 +643,7 @@ def _descrever_produto_via_claude(imagens_referencia, nome_produto="produto", da
     return descricao_produto, estilo_layout
 
 
-def _chamar_gemini_geracao_texto(prompt_final, imagens_bytes=None):
+def _chamar_gemini_geracao_texto(prompt_final, imagens_bytes=None, ref_layout=None):
     """Chama Gemini Flash Image COM as fotos do produto como referência visual.
 
     Antes esta função mandava só texto — havia até um comentário declarando
@@ -635,10 +679,20 @@ def _chamar_gemini_geracao_texto(prompt_final, imagens_bytes=None):
             # texto depois. Mesmo limite de 3 usado no caminho da OpenAI.
             parts = []
             for img_b in (imagens_bytes or [])[:3]:
+                _d_norm, _m_norm, _ = normalizar_imagem(img_b)
                 parts.append({
                     "inline_data": {
-                        "mime_type": _detectar_mime(img_b),
-                        "data": base64.b64encode(img_b).decode("utf-8"),
+                        "mime_type": _m_norm,
+                        "data": base64.b64encode(_d_norm).decode("utf-8"),
+                    }
+                })
+            # Referência de layout por último, como no caminho da OpenAI.
+            if ref_layout:
+                _d_rl, _m_rl, _ = normalizar_imagem(ref_layout)
+                parts.append({
+                    "inline_data": {
+                        "mime_type": _m_rl,
+                        "data": base64.b64encode(_d_rl).decode("utf-8"),
                     }
                 })
             parts.append({"text": prompt_final})
@@ -675,7 +729,79 @@ def _chamar_gemini_geracao_texto(prompt_final, imagens_bytes=None):
     return None, "Máximo de tentativas atingido."
 
 
-def _chamar_openai_geracao(prompt_final, imagens_bytes=None, diagnostico=None):
+
+# Formatos que os endpoints de imagem aceitam receber diretamente.
+_MIMES_ACEITOS = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
+
+
+def normalizar_imagem(img_bytes):
+    """Converte qualquer imagem para um formato que os geradores aceitem.
+
+    Retorna (bytes, mime, extensao).
+
+    O colaborador não deveria precisar saber quais extensões o fornecedor de IA
+    aceita nesta semana. Ele fotografa com o celular, baixa do fornecedor, tira
+    print — e o arquivo pode vir HEIC, AVIF, GIF, BMP, TIFF. Antes, qualquer
+    coisa fora de png/jpeg virava erro genérico de geração, sem dizer o motivo.
+
+    PNG e JPEG e WEBP passam direto. O resto é convertido: JPEG quando a imagem
+    é opaca (foto de produto costuma ser, e PNG de foto fica muitas vezes maior),
+    PNG quando tem transparência a preservar.
+    """
+    import io as _io_norm
+    mime = _detectar_mime(img_bytes)
+    ext = _MIMES_ACEITOS.get(mime)
+    if ext:
+        return img_bytes, mime, ext
+
+    try:
+        from PIL import Image as _PILnorm
+        # HEIC/HEIF é o padrão de foto do iPhone e o Pillow não abre sozinho.
+        # Sem isto, o colaborador que fotografa o produto no celular e envia
+        # direto recebia falha de geração sem explicação.
+        try:
+            import pillow_heif as _heif
+            _heif.register_heif_opener()
+        except Exception:
+            pass
+        im = _PILnorm.open(_io_norm.BytesIO(img_bytes))
+        tem_alpha = (
+            im.mode in ("RGBA", "LA")
+            or (im.mode == "P" and "transparency" in im.info)
+        )
+        buf = _io_norm.BytesIO()
+        if tem_alpha:
+            im.convert("RGBA").save(buf, format="PNG")
+            return buf.getvalue(), "image/png", "png"
+        im.convert("RGB").save(buf, format="JPEG", quality=92)
+        return buf.getvalue(), "image/jpeg", "jpg"
+    except Exception:
+        # Não dá para converter — devolve como está e deixa o gerador recusar
+        # com a própria mensagem, que é mais informativa do que um palpite nosso.
+        return img_bytes, mime, "png"
+
+
+def _arquivo_para_openai(img_bytes, nome_base):
+    """Prepara (nome, buffer, mime) coerentes para o endpoint de edição.
+
+    O nome do arquivo e o mime PRECISAM concordar. Antes a extensão era decidida
+    por `"png" if "png" in mime else "jpg"`, então todo .webp era enviado como
+    "arquivo.jpg" declarando mime image/webp — incoerência que a API recusa, e o
+    erro chegava ao colaborador como falha genérica de geração.
+    """
+    import io as _io_prep
+    dados, mime, ext = normalizar_imagem(img_bytes)
+    return (f"{nome_base}.{ext}", _io_prep.BytesIO(dados), mime)
+
+
+def _data_url(img_bytes):
+    """data: URL já normalizada, para os caminhos que enviam imagem embutida."""
+    dados, mime, _ = normalizar_imagem(img_bytes)
+    return f"data:{mime};base64,{base64.b64encode(dados).decode('utf-8')}"
+
+
+def _chamar_openai_geracao(prompt_final, imagens_bytes=None, ref_layout=None,
+                           ref_layout_nome="", diagnostico=None):
     """Chama gpt-image-2 da OpenAI (motor primário de geração). Retorna (img_bytes, erro).
 
     Quando `imagens_bytes` é fornecido, usa a Responses API com as fotos do produto
@@ -693,12 +819,11 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None, diagnostico=None):
         if imagens_bytes:
             content = []
             for img_b in imagens_bytes[:3]:
-                mime = _detectar_mime(img_b)
-                b64 = base64.b64encode(img_b).decode("utf-8")
-                content.append({
-                    "type": "input_image",
-                    "image_url": f"data:{mime};base64,{b64}",
-                })
+                content.append({"type": "input_image", "image_url": _data_url(img_b)})
+            # Referência de layout por ÚLTIMO — a ordem é o que diz ao modelo
+            # que ela é molde de composição, não o produto a reproduzir.
+            if ref_layout:
+                content.append({"type": "input_image", "image_url": _data_url(ref_layout)})
             content.append({"type": "input_text", "text": prompt_final})
             entrada = [{"role": "user", "content": content}]
 
@@ -754,11 +879,12 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None, diagnostico=None):
             # tentativa 1 não seja aceita.
             try:
                 import io as _io_edit
-                arquivos = []
-                for _i, img_b in enumerate(imagens_bytes[:3]):
-                    _mime = _detectar_mime(img_b)
-                    _ext = "png" if "png" in _mime else "jpg"
-                    arquivos.append((f"ref{_i}.{_ext}", _io_edit.BytesIO(img_b), _mime))
+                arquivos = [
+                    _arquivo_para_openai(img_b, f"produto{_i}")
+                    for _i, img_b in enumerate(imagens_bytes[:3])
+                ]
+                if ref_layout:
+                    arquivos.append(_arquivo_para_openai(ref_layout, "layout_referencia"))
                 edit = client.images.edit(
                     model="gpt-image-2",
                     image=arquivos,
@@ -820,7 +946,8 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None, diagnostico=None):
         return None, f"Erro OpenAI gpt-image-2: {str(e)[:300]}"
 
 
-def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None, diagnostico=None):
+def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
+                    refs_layout_nomes=None, tipo="", diagnostico=None):
     """Arquitetura de geração — fotos do produto vão diretamente ao modelo via Responses API.
 
     Fluxo:
@@ -1074,6 +1201,35 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None, diagnost
         f"- Generate a completely new professional image — not a literal copy of any reference photo"
     )
 
+    # 3.5 Referência de layout desta peça, escolhida pelo nome do arquivo.
+    #
+    # Antes, as referências de layout só viravam TEXTO: o Claude descrevia as duas
+    # primeiras e o gerador nunca via imagem nenhuma de composição. Descrição em
+    # palavras perde o que a referência tem de útil — posição dos blocos, peso
+    # tipográfico, respiro. Agora a imagem vai junto.
+    #
+    # Vai UMA só, a que corresponde a este tipo, e sempre por último, depois das
+    # fotos do produto. A ordem importa: o modelo precisa saber que as primeiras
+    # são o produto a reproduzir e a última é só molde de composição — senão ele
+    # copia o produto da referência, que é o erro mais caro possível aqui.
+    _ref_layout_bytes, _ref_layout_nome = ref_layout_do_tipo(
+        tipo, refs_layout, refs_layout_nomes
+    )
+    if _ref_layout_bytes:
+        prompt_geracao += (
+            "\n\nIMAGENS ENVIADAS — o que é cada uma:\n"
+            f"- As primeiras imagens são FOTOS DO PRODUTO REAL. Reproduza o produto "
+            f"exatamente como aparece nelas: cor, forma, proporções, acabamento.\n"
+            f"- A ÚLTIMA imagem é apenas REFERÊNCIA DE LAYOUT (arquivo "
+            f"\"{_ref_layout_nome}\"). Use dela SOMENTE a composição: posição dos "
+            f"blocos, hierarquia, estilo dos textos, uso do espaço.\n"
+            f"- PROIBIDO copiar o produto, as cores do produto, marcas ou textos da "
+            f"imagem de referência de layout. O produto da peça final é o das "
+            f"primeiras fotos, nunca o da referência."
+        )
+    if diagnostico is not None:
+        diagnostico["ref_layout"] = _ref_layout_nome or "nenhuma correspondeu ao tipo"
+
     # 4. Tenta gpt-image-2 (OpenAI) como motor primário
     img_bytes = None
     erro_primario = None
@@ -1085,7 +1241,9 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None, diagnost
         # Se não houver fotos, cai em geração texto-puro.
         _fotos_para_openai = imagens_referencia if imagens_referencia else None
         img_bytes, erro = _chamar_openai_geracao(
-            prompt_geracao, imagens_bytes=_fotos_para_openai, diagnostico=diagnostico
+            prompt_geracao, imagens_bytes=_fotos_para_openai,
+            ref_layout=_ref_layout_bytes, ref_layout_nome=_ref_layout_nome,
+            diagnostico=diagnostico
         )
         if not img_bytes:
             erro_primario = f"OpenAI gpt-image-2: {erro}"
@@ -1110,7 +1268,7 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None, diagnost
             diagnostico["refs_enviadas"] = _n_refs
             diagnostico["size_pedido"] = "não suportado neste motor"
         resp, erro_fatal = _chamar_gemini_geracao_texto(
-            prompt_geracao, imagens_bytes=imagens_referencia
+            prompt_geracao, imagens_bytes=imagens_referencia, ref_layout=_ref_layout_bytes
         )
         if erro_fatal:
             msg = erro_fatal.replace("COTA_ESGOTADA:", "")
@@ -1776,7 +1934,7 @@ def pagina_imagem(usuario_logado):
 
         fotos_ajuste_upload = st.file_uploader(
             "Imagem a ajustar (JPG, PNG, WebP)",
-            type=["jpg", "jpeg", "png", "webp"],
+            type=None,  # qualquer formato — normalizar_imagem converte o que precisar
             accept_multiple_files=True,
             key="img_ajuste_upload",
             help="Suba a(s) imagem(ns) que deseja editar. Pode enviar mais de uma variante ao mesmo tempo.",
@@ -1871,7 +2029,7 @@ def pagina_imagem(usuario_logado):
         st.caption("Suba quantas fotos quiser — ângulos diferentes ajudam a IA a ser mais fiel.")
         fotos_upload = st.file_uploader(
             "Fotos do produto (JPG, PNG, WebP)",
-            type=["jpg", "jpeg", "png", "webp"],
+            type=None,  # qualquer formato — normalizar_imagem converte o que precisar
             accept_multiple_files=True,
             key="img_fotos_upload",
         )
@@ -1913,7 +2071,7 @@ def pagina_imagem(usuario_logado):
             )
             refs_layout_upload = st.file_uploader(
                 "Imagens de referência de layout (JPG, PNG, WebP)",
-                type=["jpg", "jpeg", "png", "webp"],
+                type=None,  # qualquer formato — normalizar_imagem converte o que precisar
                 accept_multiple_files=True,
                 key="img_refs_layout_upload",
                 help="Ex: uma imagem de bengala mostrando como você quer que fique o layout — a IA reproduz o estilo no seu produto.",
@@ -2233,7 +2391,11 @@ def pagina_imagem(usuario_logado):
                         _thread = _threading.Thread(
                             target=_gerar_imagem_thread,
                             args=(prompt_final, cfg["fotos_bytes"], _res),
-                            kwargs={"refs_layout": _refs_layout_arg},
+                            kwargs={
+                                "refs_layout": _refs_layout_arg,
+                                "refs_layout_nomes": cfg.get("refs_layout_nomes", []),
+                                "tipo": tipo,
+                            },
                             daemon=True,
                         )
                         _thread.start()

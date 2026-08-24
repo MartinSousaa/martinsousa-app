@@ -301,11 +301,11 @@ def pagina_video(usuario_logado):
         )
         col_f1, col_f2 = st.columns(2)
         frame_inicial_up = col_f1.file_uploader(
-            "Quadro inicial", type=["jpg", "jpeg", "png", "webp"],
+            "Quadro inicial", type=None,
             key="vid_frame_ini"
         )
         frame_final_up = col_f2.file_uploader(
-            "Quadro final", type=["jpg", "jpeg", "png", "webp"],
+            "Quadro final", type=None,
             key="vid_frame_fim"
         )
 
