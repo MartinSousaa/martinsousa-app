@@ -599,9 +599,22 @@ def _descrever_produto_via_claude(imagens_referencia, nome_produto="produto", da
     return descricao_produto, estilo_layout
 
 
-def _chamar_gemini_geracao_texto(prompt_final):
-    """Chama Gemini Flash Image com APENAS texto — sem inlineData.
-    Geração pura a partir de prompt descritivo. Fallback quando sem OpenAI.
+def _chamar_gemini_geracao_texto(prompt_final, imagens_bytes=None):
+    """Chama Gemini Flash Image COM as fotos do produto como referência visual.
+
+    Antes esta função mandava só texto — havia até um comentário declarando
+    "TEXTO APENAS — zero inlineData". Isso nunca foi limitação da ferramenta: o
+    endpoint generateContent aceita partes inline_data desde sempre. Era escolha
+    do código.
+
+    A consequência era grave e silenciosa: quando o gerador principal falhava, a
+    imagem era montada por um modelo que NUNCA VIU o produto. Ele reconstruía o
+    item a partir da descrição em texto, e a cor mais afirmada no prompt é a
+    paleta azul da marca — foi assim que um álbum preto saiu azul-marinho
+    repetidas vezes, com folhas brancas e proporções que não batiam.
+
+    Agora as fotos vão junto, como no caminho da OpenAI. Fidelidade ao produto
+    não pode depender de qual motor atendeu.
     """
     import time as _time
     MAX_TENTATIVAS = 2
@@ -618,8 +631,17 @@ def _chamar_gemini_geracao_texto(prompt_final):
                 "x-goog-api-key": api_key,
                 "Content-Type": "application/json",
             }
-            # TEXTO APENAS — zero inlineData, geração limpa sem edição de foto
-            parts = [{"text": prompt_final}]
+            # As fotos do produto vão PRIMEIRO, para o modelo ancorar nelas, e o
+            # texto depois. Mesmo limite de 3 usado no caminho da OpenAI.
+            parts = []
+            for img_b in (imagens_bytes or [])[:3]:
+                parts.append({
+                    "inline_data": {
+                        "mime_type": _detectar_mime(img_b),
+                        "data": base64.b64encode(img_b).decode("utf-8"),
+                    }
+                })
+            parts.append({"text": prompt_final})
             body = {
                 "contents": [{"role": "user", "parts": parts}],
                 "generationConfig": {
@@ -1083,9 +1105,13 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None, diagnost
     # caminho de forma bem visivel.
     if not img_bytes:
         if diagnostico is not None:
-            diagnostico["motor"] = "Gemini (fallback TEXTO-PURO — sem as fotos)"
-            diagnostico["refs_enviadas"] = 0
-        resp, erro_fatal = _chamar_gemini_geracao_texto(prompt_geracao)
+            _n_refs = len((imagens_referencia or [])[:3])
+            diagnostico["motor"] = "Gemini 3.1 Flash Image (fallback, COM fotos)"
+            diagnostico["refs_enviadas"] = _n_refs
+            diagnostico["size_pedido"] = "não suportado neste motor"
+        resp, erro_fatal = _chamar_gemini_geracao_texto(
+            prompt_geracao, imagens_bytes=imagens_referencia
+        )
         if erro_fatal:
             msg = erro_fatal.replace("COTA_ESGOTADA:", "")
             if erro_fatal.startswith("COTA_ESGOTADA:"):
