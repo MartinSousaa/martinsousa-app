@@ -448,8 +448,9 @@ def _detectar_mime(data: bytes) -> str:
 def _normalizar_nome(texto):
     """Minúsculas, sem acento e só letras/números — para casar nome de arquivo com tipo."""
     import unicodedata as _ud
+    import re as _re_nome
     t = _ud.normalize("NFKD", str(texto)).encode("ascii", "ignore").decode("ascii").lower()
-    return _re.sub(r"[^a-z0-9]+", " ", t).strip()
+    return _re_nome.sub(r"[^a-z0-9]+", " ", t).strip()
 
 
 def ref_layout_do_tipo(tipo, refs_bytes, refs_nomes):
@@ -468,6 +469,26 @@ def ref_layout_do_tipo(tipo, refs_bytes, refs_nomes):
         return None, None
 
     tipo_norm = _normalizar_nome(tipo)
+    # Sinônimos: o colaborador nomeia pelo que a peça É, não pelo rótulo exato
+    # do tipo. "medidas.png" e "dimensoes.jpg" são a peça de características
+    # técnicas; "presente.png" é a de presentear. Sem isto, casar dependia de o
+    # nome do arquivo repetir a palavra do menu, o que ninguém faz.
+    _SINONIMOS = {
+        "1 —": {"capa", "principal", "branco", "fundo", "produto"},
+        "2 —": {"beneficios", "beneficio", "vantagens", "features"},
+        "3 —": {"cenario", "uso", "lifestyle", "contexto", "pessoas", "rotina"},
+        "4 —": {"close", "detalhe", "detalhes", "zoom", "macro"},
+        "5 —": {"medidas", "medida", "dimensoes", "dimensao", "tecnicas",
+                "tecnica", "especificacoes", "specs", "tamanho", "peso"},
+        "6 —": {"objecao", "objecoes", "duvidas", "duvida", "perguntas", "faq"},
+        "7 —": {"presente", "presentear", "presenteie", "gift", "brinde"},
+        "8 —": {"ambiente", "ambientacao", "ambientada", "editorial", "cena"},
+    }
+    for prefixo, palavras in _SINONIMOS.items():
+        if tipo.startswith(prefixo):
+            tipo_norm = tipo_norm + " " + " ".join(palavras)
+            break
+
     # Descarta o numero do tipo ("2") e palavras vazias de significado
     _IGNORAR = {"de", "do", "da", "no", "na", "em", "com", "e", "o", "a", "os", "as", "nos"}
     palavras_tipo = {p for p in tipo_norm.split() if len(p) > 2 and p not in _IGNORAR}
@@ -2085,6 +2106,45 @@ def pagina_imagem(usuario_logado):
                 _cols_rl = st.columns(4)
                 for _i, _rb in enumerate(refs_layout_bytes[:4]):
                     _cols_rl[_i].image(_rb, caption=refs_layout_nomes[_i][:20], use_container_width=True)
+
+                # ── A QUAL PEÇA CADA REFERÊNCIA VAI ───────────────────────────
+                # A referência é escolhida pelo nome do arquivo. Sem mostrar o
+                # resultado desse casamento ANTES de gerar, o colaborador só
+                # descobria que o nome não bateu depois de pagar a geração
+                # inteira — e sem saber que o problema era o nome.
+                _pares = []
+                _usadas = set()
+                for _t in TIPOS_PADRAO:
+                    _b, _n = ref_layout_do_tipo(_t, refs_layout_bytes, refs_layout_nomes)
+                    _pares.append((_t, _n))
+                    if _n:
+                        _usadas.add(_n)
+
+                _orfas = [n for n in refs_layout_nomes if n not in _usadas]
+
+                with st.expander(
+                    f"🔗 Qual referência vai para cada peça "
+                    f"({len(_usadas)} de {len(refs_layout_nomes)} em uso)",
+                    expanded=bool(_orfas),
+                ):
+                    for _t, _n in _pares:
+                        if _n:
+                            st.markdown(f"**{_t}**  →  `{_n}`")
+                        else:
+                            st.markdown(
+                                f"<span style='opacity:.55'>{_t}  →  sem referência "
+                                f"(será gerada só pelo padrão)</span>",
+                                unsafe_allow_html=True,
+                            )
+                    if _orfas:
+                        st.warning(
+                            "Estes arquivos **não serão usados** porque o nome não "
+                            "corresponde a nenhuma peça: "
+                            + ", ".join(f"`{n}`" for n in _orfas)
+                            + ".\n\nRenomeie usando uma palavra da peça — por exemplo "
+                            "`beneficios`, `medidas`, `presente`, `cenario`, `close`, "
+                            "`objecao`, `ambiente` ou `capa`."
+                        )
 
             instrucao_layout = ""
             if refs_layout_bytes:
