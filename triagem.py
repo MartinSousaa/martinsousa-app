@@ -348,7 +348,7 @@ def pagina_triagem(usuario_logado):
         )
         foto_upload = st.file_uploader(
             "Foto de referência (opcional)",
-            type=["jpg", "jpeg", "png", "webp"],
+            type=None,
             key="triagem_foto_upload",
         )
 
