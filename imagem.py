@@ -130,7 +130,7 @@ REGRA DE PROPORÇÃO E DESTAQUE DO PRODUTO (obrigatória):
 - Ocupe o maior espaço possível no frame — o produto deve ser grande, imponente, bem visível
 - NUNCA minimize ou reduza o produto para dar espaço a elementos decorativos
 - Para imagens de marketing com texto (benefícios, características, frases): produto e texto coexistem de forma equilibrada — o texto é parte essencial da composição, não elemento secundário
-- Para fotos limpas de produto (fundo branco): produto ocupa o máximo espaço, sem texto
+- Para fotos limpas de produto (capa do anúncio): produto ocupa o máximo espaço, sem texto
 - Mantenha as proporções exatas do produto: não alongue, não achate, não deforme
 """
 
@@ -812,27 +812,53 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None):
         imagens_referencia, nome_produto, dados_descricao, refs_layout
     )
 
-    # 2. Detecta tipo e flags visuais
-    _is_fundo_branco = (
-        "1 — Capa" in prompt_texto or
-        "fundo branco" in prompt_texto.lower() or
-        "white background" in prompt_texto.lower() or
-        "CAPA DO ANÚNCIO" in prompt_texto
-    )
-    _is_clean_photo = (
-        _is_fundo_branco or
-        "ambientação realista" in prompt_texto.lower() or
-        "8 —" in prompt_texto
-    )
+    # 2. Modo de fundo — lido do marcador que montar_prompt_imagem escreve.
+    #
+    # Antes isto era adivinhado procurando "fundo branco" DENTRO do prompt
+    # inteiro. Só que INSTRUCAO_PROPORCAO — colada em todo prompt — contém a
+    # frase "Para fotos limpas de produto (fundo branco)". Resultado: os 8
+    # tipos eram classificados como fundo branco, e o app mandava ao modelo
+    # "Pure white background" e "ZERO TEXT RULE" até nas peças de marketing
+    # que existem justamente para ter texto. Daí os fundos brancos fora do
+    # padrão e as frases saindo pela metade — o modelo recebia ordens opostas.
+    _modo_fundo = "padrao"
+    _m_fundo = _re.search(r"^MS_FUNDO:\s*(\w+)", prompt_texto, _re.MULTILINE)
+    if _m_fundo:
+        _modo_fundo = _m_fundo.group(1).strip().lower()
+
+    _is_fundo_branco = _modo_fundo == "branco"       # só a capa do anúncio
+    _is_ambientacao = _modo_fundo == "ambiente"      # fundo é a cena real
+    _is_personalizado = _modo_fundo == "personalizado"
+    # Sem texto: capa (foto limpa) e ambientação (foto editorial).
+    _is_clean_photo = _is_fundo_branco or _is_ambientacao
     _PREFIXOS_MARKETING = ("2 —", "3 —", "4 —", "5 —", "6 —", "7 —")
     _is_marketing = any(f"TIPO DE IMAGEM: {p}" in prompt_texto for p in _PREFIXOS_MARKETING)
 
-    _background = (
-        "Pure white background (#FFFFFF) — absolutely clean, no gradients, no shadows, no textures. "
-        "Studio product photography look."
-        if _is_fundo_branco else
-        "Soft blue-gray background (#E8EEF5) — clean, professional MS Studio brand standard."
-    )
+    # Regra de fundo definida pelo dono do produto:
+    #   capa            -> branco puro
+    #   ambientação     -> o próprio ambiente da cena, sem cor imposta
+    #   personalizado   -> o colaborador manda, não impomos nada
+    #   demais (2 a 7)  -> padrão da marca #E8EEF5
+    if _is_fundo_branco:
+        _background = (
+            "Pure white background (#FFFFFF) — absolutely clean, no gradients, no shadows, "
+            "no textures. Studio product photography look."
+        )
+    elif _is_ambientacao:
+        _background = (
+            "Background is the REAL ENVIRONMENT of the scene (room, desk, shelf, natural setting). "
+            "Do NOT paint a flat studio backdrop and do NOT apply any brand background color — "
+            "the environment itself is the background, with natural light and real depth."
+        )
+    elif _is_personalizado:
+        _background = (
+            "Background follows the collaborator's instructions. Do not impose a brand background."
+        )
+    else:
+        _background = (
+            "Soft blue-gray background (#E8EEF5) — clean, professional MS Studio brand standard. "
+            "This is MANDATORY: do NOT use plain white for this image type."
+        )
 
     _text_rule = (
         "ZERO TEXT RULE: This image MUST contain ABSOLUTELY NO text, titles, labels, icons, badges, "
@@ -1094,29 +1120,31 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None):
         if pil_w != pil_h:
             import sys as _sys_fmt
             print(f"[DEBUG enquadramento] modelo devolveu {pil_w}x{pil_h} "
-                  "(esperado 1024x1024) — reenquadrando", file=_sys_fmt.stderr)
+                  "(esperado 1024x1024) — preenchendo", file=_sys_fmt.stderr)
 
-            _CROP_MAX = 0.18  # recorta no máximo 18% do lado maior
-            lado_maior = max(pil_w, pil_h)
-            lado_menor = min(pil_w, pil_h)
-            alvo = max(lado_menor, int(lado_maior * (1 - _CROP_MAX)))
-
-            if pil_w > pil_h:
-                esq = (pil_w - alvo) // 2
-                pil = pil.crop((esq, 0, esq + alvo, pil_h))
+            # NÃO recortar. Uma tentativa anterior cortava até 18% do lado maior
+            # para diminuir as faixas, e isso decepava os painéis de texto das
+            # peças de marketing, que ficam justamente nas laterais — frases
+            # saíam pela metade. Recorte só destrói conteúdo; preencher, no
+            # máximo, deixa margem.
+            #
+            # A saída de verdade é a imagem já chegar quadrada (size=1024x1024
+            # na geração). Isto aqui é o último recurso quando a API recusa o
+            # parâmetro — e o log acima registra quando acontece.
+            max_dim = max(pil_w, pil_h)
+            if _is_fundo_branco:
+                bg_color = (255, 255, 255, 255)
+            elif _is_ambientacao or _is_personalizado:
+                # Cena real: usa a cor média da borda para a faixa desaparecer
+                # em vez de virar tarja lisa.
+                bg_color = tuple(pil.resize((1, 1), _PILImage.LANCZOS).getpixel((0, 0)))
             else:
-                topo = (pil_h - alvo) // 2
-                pil = pil.crop((0, topo, pil_w, topo + alvo))
+                bg_color = (232, 238, 245, 255)  # padrão da marca
 
-            pil_w, pil_h = pil.size
-            if pil_w != pil_h:
-                max_dim = max(pil_w, pil_h)
-                # Fundo branco para tipo 1, azul-cinza da marca para os demais
-                bg_color = (255, 255, 255, 255) if _is_fundo_branco else (232, 238, 245, 255)
-                bg = _PILImage.new("RGBA", (max_dim, max_dim), bg_color)
-                offset = ((max_dim - pil_w) // 2, (max_dim - pil_h) // 2)
-                bg.paste(pil, offset, pil)
-                pil = bg
+            bg = _PILImage.new("RGBA", (max_dim, max_dim), bg_color)
+            offset = ((max_dim - pil_w) // 2, (max_dim - pil_h) // 2)
+            bg.paste(pil, offset, pil)
+            pil = bg
 
         pil = pil.resize((1200, 1200), _PILImage.LANCZOS)
         buf = _io.BytesIO()
@@ -1150,14 +1178,26 @@ def _trava_cor_produto(cor):
     instrução verificável em vez de interpretável.
     """
     cor = str(cor).strip()
-    if not cor:
-        return ""
 
     # Desvios que já aconteceram em produção, mais a paleta da marca — que é a
     # fonte da contaminação e por isso precisa ser negada nominalmente.
     desvios = ["azul", "azul-marinho", "azul médio", "bege", "marrom", "cinza-azulado"]
     cor_norm = cor.lower()
     desvios = [d for d in desvios if d not in cor_norm]
+
+    if not cor:
+        # Sem a cor informada na triagem não dá para nomeá-la — mas a proibição
+        # de repintar continua valendo. Antes, campo vazio significava nenhuma
+        # trava, e o álbum preto voltava azul-marinho (o hex da marca).
+        return (
+            "TRAVA DE COR (regra inviolável): a cor do produto é a que aparece nas fotos "
+            "de referência. Reproduza-a exatamente, seja ela qual for.\n"
+            "É PROIBIDO recolorir o produto para harmonizar com a paleta azul da empresa, "
+            "com o fundo, com o cenário ou com a iluminação. A paleta da marca vale para "
+            "fundo, texto e elementos gráficos — nunca para o produto.\n"
+            f"É PROIBIDO tingir o produto de: {', '.join(desvios)}, "
+            "a menos que essa seja de fato a cor nas fotos.\n"
+        )
 
     return (
         f"COR REAL DO PRODUTO: {cor}\n"
@@ -1199,9 +1239,13 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
                 bloco_plano_triagem += f"Textos a incluir: {' | '.join(_textos)}\n"
 
     contexto_produto = f"PRODUTO: {nome_produto}\n"
+    # A trava entra SEMPRE — com a cor nomeada quando a triagem tem o campo,
+    # e na versão genérica quando não tem. Condicioná-la ao campo preenchido
+    # era o que deixava o produto livre para ser repintado de azul da marca.
+    contexto_produto += _trava_cor_produto(
+        (dados_descricao or {}).get("cor", "")
+    )
     if dados_descricao:
-        if dados_descricao.get("cor"):
-            contexto_produto += _trava_cor_produto(dados_descricao["cor"])
         if dados_descricao.get("medidas"):
             contexto_produto += f"Medidas EXATAS (use esses números, não invente): {dados_descricao['medidas']}\n"
         if dados_descricao.get("peso"):
@@ -1241,7 +1285,8 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
     if eh_personalizado:
         # Modo personalizado: SEM branding automático, SEM nova composição forçada
         # A instrução do colaborador define tudo — e é conteúdo visual, não contexto interno.
-        return f"""{contexto_produto}
+        return f"""MS_FUNDO: personalizado
+{contexto_produto}
 TIPO DE IMAGEM: Personalizado
 {bloco_instrucao_visual}
 {bloco_refs}
@@ -1260,7 +1305,8 @@ PADRÃO VISUAL PARA FOTO DE PRODUTO — REGRA ABSOLUTA:
   logotipo ou qualquer elemento gráfico além do produto em si. ZERO elementos escritos.
 - Visual limpo, minimalista, focado 100% no produto — apenas produto sobre branco puro
 """
-        return f"""{contexto_produto}
+        return f"""MS_FUNDO: branco
+{contexto_produto}
 TIPO DE IMAGEM: {tipo}
 {base}
 {bloco_plano_triagem}
@@ -1286,7 +1332,8 @@ PADRÃO VISUAL PARA AMBIENTAÇÃO REALISTA — REGRA ABSOLUTA:
 - Tom de revista de decoração/lifestyle — foto editorial, não peça de marketing
 - NUNCA adicione pessoas, modelos ou figuras humanas nesta imagem
 """
-        return f"""{contexto_produto}
+        return f"""MS_FUNDO: ambiente
+{contexto_produto}
 TIPO DE IMAGEM: {tipo}
 {base}
 {bloco_plano_triagem}
@@ -1301,7 +1348,8 @@ TIPO DE IMAGEM: {tipo}
     else:
         # Tipos padrão (2-7): imagens de marketing com identidade visual completa
         # instrucoes_extras é CONTEXTO INTERNO — não conteúdo visual renderizado
-        return f"""{contexto_produto}
+        return f"""MS_FUNDO: padrao
+{contexto_produto}
 TIPO DE IMAGEM: {tipo}
 {base}
 {bloco_plano_triagem}
@@ -1926,7 +1974,7 @@ def pagina_imagem(usuario_logado):
 
         st.markdown("---")
         st.markdown("### 🗂️ Plano de criação")
-        st.caption("Esta etapa não custou nada. Corrija o que precisar antes de confirmar a geração.")
+        st.caption("Corrija o que precisar antes de confirmar a geração.")
 
         itens_plano = plano.get("plano", [])
         itens_viaveis   = [item for item in itens_plano if item.get("viavel", True)]
@@ -2032,14 +2080,13 @@ def pagina_imagem(usuario_logado):
 
         n_viaveis = len(itens_viaveis)
         n_bloqueadas = len(itens_bloqueados)
-        custo_est = n_viaveis * 1.0
 
-        # O aviso de custo e os botões vivem dentro de um placeholder para poderem
+        # Os botões vivem dentro de um placeholder para poderem
         # ser APAGADOS assim que a geração começa. No Streamlit o corpo do
         # `if botao:` roda no mesmo run em que o botão foi desenhado — sem isso, o
-        # aviso "Confirma?" e os dois botões ficavam na tela durante os minutos de
-        # geração, ainda clicáveis: um segundo clique em "Confirmar" reiniciava o
-        # run e gerava tudo de novo (custo em dobro), e "Cancelar" matava a geração
+        # os dois botões ficavam na tela durante os minutos de geração, ainda
+        # clicáveis: um segundo clique em "Confirmar" reiniciava o run e gerava
+        # tudo de novo, e "Cancelar" matava a geração
         # em curso, perdendo as imagens que só existem em memória.
         _painel_confirmacao = st.empty()
         with _painel_confirmacao.container():
@@ -2053,10 +2100,8 @@ def pagina_imagem(usuario_logado):
                     f" ({n_bloqueadas} bloqueada(s) por dados insuficientes — serão ignoradas)"
                     if n_bloqueadas else ""
                 )
-                st.warning(
-                    f"💰 Isso vai gerar **{n_viaveis} imagem(ns)**{aviso_bloqueadas} "
-                    f"com custo estimado de **~R${custo_est:.2f}**. Confirma?"
-                )
+                if aviso_bloqueadas:
+                    st.info(f"Serão geradas **{n_viaveis} imagem(ns)**{aviso_bloqueadas}.")
 
             col_cancelar, col_confirmar = st.columns(2)
             cancelar_clicado = col_cancelar.button("❌ Cancelar", use_container_width=True)
