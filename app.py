@@ -32,6 +32,13 @@ import placar
 import analise_metas
 import relogio_ponto
 
+# Mantém o painel da TV vivo sem depender de ninguém estar usando o app.
+# Sobe uma única vez por processo — o cache_resource garante isso.
+try:
+    placar.iniciar_regenerador_tv()
+except Exception:
+    pass  # a TV nunca pode impedir o app de subir
+
 # Permite que Streamlit sirva .html com Content-Type correto (text/html)
 try:
     import streamlit.web.server.app_static_file_handler as _sfh

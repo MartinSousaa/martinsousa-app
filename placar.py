@@ -72,6 +72,29 @@ except Exception:
     _TV_TOKEN = ""
 
 # ── helper: persiste o HTML do painel TV em static/tv.html ──────────────────
+def _meta_sessao(chave, padrao):
+    """Lê uma meta do session_state, caindo na configuração quando não há sessão.
+
+    A thread que regenera o painel da TV roda fora de qualquer sessão Streamlit,
+    e nesse contexto `st.session_state[...]` levanta KeyError. Todo o resto da
+    pagina_placar funciona: as chamadas de UI viram no-op e st.secrets lê do
+    secrets.toml normalmente. Este acessor é o único ponto que precisava ceder.
+    """
+    try:
+        return st.session_state[chave]
+    except Exception:
+        return int(padrao)
+
+
+def _semear_meta(chave, valor):
+    """Grava o valor inicial no session_state; no-op fora de uma sessão."""
+    try:
+        if chave not in st.session_state:
+            st.session_state[chave] = int(valor)
+    except Exception:
+        pass
+
+
 def _write_tv_static(html: str) -> None:
     """Grava o HTML completo do painel TV no diretório static/ do Streamlit."""
     try:
@@ -825,6 +848,8 @@ def _tv_full_html(
 *{{margin:0;padding:0;box-sizing:border-box;}}
 html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0e0;font-family:Arial,Helvetica,sans-serif;}}
 .tv-root{{position:absolute;top:0;left:0;width:100%;height:100%;overflow:hidden;}}
+#tv-carimbo{{position:absolute;top:2px;right:8px;font-size:8px;color:#6a6a6a;letter-spacing:.3px;z-index:99;}}
+#tv-carimbo.velho{{color:#E34948;font-weight:700;}}
 .bloco-metas{{position:absolute;left:10px;right:10px;top:5px;height:212px;display:-webkit-box;display:-webkit-flex;display:flex;gap:6px;overflow:hidden;}}
 .bloco-metas>div{{-webkit-flex:1;flex:1;overflow:hidden;}}
 .mini-cards{{display:-webkit-box;display:-webkit-flex;display:flex;-webkit-flex-wrap:wrap;flex-wrap:wrap;gap:3px;height:100%;}}
@@ -916,6 +941,11 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
 </head>
 <body>
 <div class="tv-root">
+
+  <!-- Carimbo de geracao: sem ele nao da para olhar a TV e saber se o dado e
+       de agora ou de ontem. O painel ja ficou congelado sem ninguem perceber.
+       O script no rodape pinta de vermelho quando passa de 5 minutos. -->
+  <div id="tv-carimbo" data-gerado="{agora_str}">atualizado {agora_str}</div>
 
   <div class="bloco-metas" id="tv-bm">
     <div>
@@ -1174,6 +1204,27 @@ function checkAndPlay() {{
   setTimeout(_playAudio, 7000);
   setTimeout(function() {{ h.classList.remove("tocando"); }}, 11000);
 }}
+// Carimbo: fica vermelho se o painel passou de 5 min sem ser regenerado.
+// Assim um congelamento vira algo visivel na tela, nao uma surpresa silenciosa.
+(function() {{
+  var el = document.getElementById('tv-carimbo');
+  if (!el) return;
+  var g = el.getAttribute('data-gerado') || '';
+  var m = g.match(/(\\d{{2}})\\/(\\d{{2}})\\/(\\d{{4}}) (\\d{{2}}):(\\d{{2}})/);
+  if (!m) return;
+  var gerado = new Date(+m[3], +m[2] - 1, +m[1], +m[4], +m[5]);
+  function checar() {{
+    var min = (Date.now() - gerado.getTime()) / 60000;
+    if (min > 5) {{
+      el.className = 'velho';
+      el.textContent = 'DESATUALIZADO — ultima atualizacao ' + g;
+    }}
+  }}
+  checar();
+  setInterval(checar, 30000);
+}})();
+// Recarga por JS: o navegador da TV pode ignorar o <meta refresh>.
+setTimeout(function() {{ location.reload(); }}, 60000);
 setTimeout(checkAndPlay, 4000);
 setInterval(checkAndPlay, 5 * 60 * 1000);
 // Auto-scale se conteúdo não couber na tela
@@ -1215,7 +1266,13 @@ def _meta_ind_item(titulo, pct, descricao, cor=None, aguardando=False):
 </div>"""
 
 # ── PÁGINA ─────────────────────────────────────────────────────────────────────
-def pagina_placar(usuario_logado):
+def pagina_placar(usuario_logado, headless=False):
+    """Renderiza o Painel de Metas.
+
+    headless=True: chamado pela thread que mantém o painel da TV vivo. Nesse
+    modo não há sessão Streamlit — as chamadas de UI viram no-op e a função
+    serve apenas para recalcular e reescrever o static/tv.html.
+    """
     eh_master=usuario_logado.lower() in {m.lower() for m in MASTERS}
     eh_membro=usuario_logado in MEMBROS_ATIVOS
     if not TRELLO_KEY:
@@ -1224,7 +1281,7 @@ def pagina_placar(usuario_logado):
     st.markdown(CSS,unsafe_allow_html=True)
     agora=datetime.now()
     params=st.query_params
-    modo_tv = bool(_TV_TOKEN) and params.get("tv","") == _TV_TOKEN
+    modo_tv = headless or (bool(_TV_TOKEN) and params.get("tv","") == _TV_TOKEN)
 
     # ── Cabeçalho / controles ────────────────────────────────────────────────
     if modo_tv:
@@ -1276,21 +1333,22 @@ def pagina_placar(usuario_logado):
     k_bea = f"meta_bea_{filtro_mes[0]}_{filtro_mes[1]}"
     k_gab = f"meta_gab_{filtro_mes[0]}_{filtro_mes[1]}"
 
-    if k_eq  not in st.session_state: st.session_state[k_eq]  = int(cfg_mes["meta_equipe"])
-    if k_mx  not in st.session_state: st.session_state[k_mx]  = int(cfg_mes["meta_maxx_pct"])
-    if k_myr not in st.session_state: st.session_state[k_myr] = int(cfg_mes["meta_myrelladesouza"])
-    if k_bea not in st.session_state: st.session_state[k_bea] = int(cfg_mes["meta_beatriz51"])
-    if k_gab not in st.session_state: st.session_state[k_gab] = int(cfg_mes["meta_gabriel_borges"])
+    _semear_meta(k_eq,  cfg_mes["meta_equipe"])
+    _semear_meta(k_mx,  cfg_mes["meta_maxx_pct"])
+    _semear_meta(k_myr, cfg_mes["meta_myrelladesouza"])
+    _semear_meta(k_bea, cfg_mes["meta_beatriz51"])
+    _semear_meta(k_gab, cfg_mes["meta_gabriel_borges"])
 
     # Configuração de metas foi movida para a aba "📊 Análise de Metas"
-    meta_eq   = st.session_state[k_eq]
-    maxx_pct  = st.session_state[k_mx]
+    # _meta_sessao cai na configuração quando não há sessão (thread da TV).
+    meta_eq   = _meta_sessao(k_eq, cfg_mes["meta_equipe"])
+    maxx_pct  = _meta_sessao(k_mx, cfg_mes["meta_maxx_pct"])
     meta_maxx_pts = meta_eq * maxx_pct / 100
     # Meta individual por colaborador
     meta_ind_map = {
-        "myrelladesouza": st.session_state[k_myr],
-        "beatriz51":      st.session_state[k_bea],
-        "gabriel_borges": st.session_state[k_gab],
+        "myrelladesouza": _meta_sessao(k_myr, cfg_mes["meta_myrelladesouza"]),
+        "beatriz51":      _meta_sessao(k_bea, cfg_mes["meta_beatriz51"]),
+        "gabriel_borges": _meta_sessao(k_gab, cfg_mes["meta_gabriel_borges"]),
     }
     # Compatibilidade: meta_ind = média para barras genéricas
     meta_ind = sum(meta_ind_map.values()) // max(len(meta_ind_map), 1)
@@ -1744,3 +1802,42 @@ def pagina_placar(usuario_logado):
         else:
             st.markdown('<hr style="border:none;border-top:1px solid var(--ms-divisor);margin:10px 0 4px 0;"/>',unsafe_allow_html=True)
             st.caption(f"📺 Configure **[tv] token** no Secrets para ativar modo TV · {agora.strftime('%d/%m/%Y %H:%M')}")
+
+
+# ── REGENERADOR DO PAINEL DA TV ───────────────────────────────────────────────
+# Antes, o static/tv.html só era reescrito quando alguém renderizava o Placar
+# dentro do app. Como o Streamlit executa o corpo de todas as abas, isso
+# acontecia por acidente enquanto havia gente trabalhando — e parava fora do
+# expediente, deixando a TV congelada sem aviso. Pior: o arquivo nem sobrevive
+# a um restart do container, então após cada deploy a TV ficava sem nada até
+# alguém abrir o Placar.
+#
+# Esta thread torna o painel independente de pessoas: ela recalcula e reescreve
+# o arquivo em intervalo fixo, 24h por dia.
+
+_TV_INTERVALO_SEG = 60
+
+
+def _loop_regenerador_tv():
+    import time as _t_tv
+    import logging as _log_tv
+    # A thread roda fora de qualquer sessão Streamlit. As chamadas de UI viram
+    # no-op, mas cada uma emite "missing ScriptRunContext" — sem isso os logs
+    # do Railway ficariam ilegíveis.
+    _log_tv.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context"
+                      ).setLevel(_log_tv.ERROR)
+    while True:
+        try:
+            pagina_placar("martinsousa", headless=True)
+        except Exception:
+            pass  # a thread nunca pode morrer — a TV depende dela
+        _t_tv.sleep(_TV_INTERVALO_SEG)
+
+
+@st.cache_resource
+def iniciar_regenerador_tv():
+    """Sobe a thread uma única vez por processo (garantido pelo cache_resource)."""
+    import threading as _th_tv
+    t = _th_tv.Thread(target=_loop_regenerador_tv, name="tv-regen", daemon=True)
+    t.start()
+    return t
