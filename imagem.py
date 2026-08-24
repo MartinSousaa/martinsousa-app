@@ -57,9 +57,16 @@ def _get_openai_api_key():
 # ── PADRÃO VISUAL MARTINSOUSA (hardcoded em todos os prompts) ──────────────────
 PADRAO_VISUAL = """
 PADRÃO VISUAL OBRIGATÓRIO DA EMPRESA (aplique em todas as peças de marketing):
+
+ATENÇÃO — ESCOPO DAS CORES DA MARCA (regra que precede todas as outras):
+As cores abaixo valem EXCLUSIVAMENTE para fundo, texto, ícones, painéis e
+elementos gráficos. Elas NUNCA se aplicam ao produto. O produto mantém a cor
+real das fotos de referência, mesmo que ela destoe da paleta. É proibido
+"harmonizar", tingir, esfriar ou aproximar a cor do produto da paleta da marca.
+
 - Fundo: #E8EEF5 (azul-cinza claro suave)
-- Cor principal / texto e elementos gráficos: #1A3A6B (azul marinho)
-- Cor de destaque secundária: #4A7EC7 (azul médio)
+- Cor de texto e elementos gráficos: #1A3A6B (azul marinho) — NUNCA no produto
+- Cor de destaque secundária: #4A7EC7 (azul médio) — NUNCA no produto
 - Fonte: Montserrat ou Poppins — nunca fontes serifadas
 - Ícones: estilo line-art clean, traço fino, monocromáticos em azul marinho
 - Elementos decorativos: círculos ou manchas suaves em azul marinho ou azul médio,
@@ -96,13 +103,25 @@ REGRA DE FIDELIDADE AO PRODUTO (a mais importante de todas — sem exceções):
   Imagem com dados inventados é pior do que imagem sem dados.
 - Só use medidas e peso na imagem se eles estiverem EXPLICITAMENTE informados
   nos dados do produto fornecidos — nunca estime por conta própria
-"""
+
+INTEGRIDADE ESTRUTURAL (o que fazer quando você NÃO sabe como o produto funciona):
+- NÃO invente mecânica interna: folhas soltas, páginas saindo, miolo exposto,
+  abas, encaixes, dobradiças, camadas extras, peças móveis ou vãos que não
+  aparecem nas fotos de referência
+- Quando um ângulo ou parte interna não estiver visível nas fotos, a saída correta
+  é NÃO MOSTRAR essa região — escolha um ângulo que ela não apareça. Preencher o
+  desconhecido com algo plausível é erro grave, não criatividade
+- Mantenha a estrutura visível exatamente como está: espessura, encadernação,
+  acabamento, quantidade de partes"""
 
 INSTRUCAO_COMPOSICAO = """
 INSTRUÇÃO DE COMPOSIÇÃO:
 - Use as imagens de referência APENAS para manter o produto reconhecível e fiel
 - Componha uma cena/layout NOVO e apropriado para o tipo de imagem solicitado
-- Não reaproveite a foto de referência literalmente — crie uma peça nova
+- "Peça nova" refere-se a CENÁRIO, ENQUADRAMENTO e LAYOUT — nunca ao produto.
+  Não reaproveite o fundo nem o enquadramento da foto de referência; o PRODUTO,
+  ao contrário, deve ser reproduzido fielmente, sem reinterpretação. Criar um
+  produto diferente do fotografado nunca é uma composição nova — é um erro.
 """
 
 INSTRUCAO_PROPORCAO = """
@@ -652,17 +671,86 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None):
                     "image_url": f"data:{mime};base64,{b64}",
                 })
             content.append({"type": "input_text", "text": prompt_final})
-            resp = client.responses.create(
-                model="gpt-image-2",
-                input=[{"role": "user", "content": content}],
-            )
-            for out in resp.output:
-                if getattr(out, "type", None) == "image_generation_call":
-                    result = getattr(out, "result", None)
-                    if result:
-                        import sys as _sys
-                        print(f"[DEBUG gpt-image-2] Operation: generate/edit | References sent: {len(imagens_bytes)} | Model: gpt-image-2", file=_sys.stderr)
-                        return base64.b64decode(result), None
+            entrada = [{"role": "user", "content": content}]
+
+            def _extrair(resposta):
+                for out in resposta.output:
+                    if getattr(out, "type", None) == "image_generation_call":
+                        result = getattr(out, "result", None)
+                        if result:
+                            return base64.b64decode(result)
+                return None
+
+            # Tentativa 1: declara a ferramenta de imagem com os controles que
+            # resolvem dois problemas reais de produção:
+            #   size=1024x1024   -> saída JÁ quadrada. Sem isso o modelo escolhe
+            #                       o formato (costuma vir 1536x1024) e o
+            #                       pós-processamento precisava criar faixas.
+            #   input_fidelity=high -> obriga a preservar cor e estrutura das
+            #                       fotos de referência. É o que impedia um
+            #                       álbum preto de sair azul ou bege.
+            # Se a API recusar esse formato de chamada, cai na chamada antiga —
+            # o pior caso é exatamente o comportamento de hoje, nunca menos.
+            try:
+                resp = client.responses.create(
+                    model="gpt-image-2",
+                    input=entrada,
+                    tools=[{
+                        "type": "image_generation",
+                        "size": "1024x1024",
+                        "quality": "high",
+                        "input_fidelity": "high",
+                    }],
+                )
+                img = _extrair(resp)
+                if img:
+                    import sys as _sys
+                    print("[DEBUG gpt-image-2] Operation: generate/edit | "
+                          f"References sent: {len(imagens_bytes)} | size=1024x1024 | "
+                          "input_fidelity=high", file=_sys.stderr)
+                    return img, None
+            except Exception as _e_tool:
+                import sys as _sys
+                print(f"[DEBUG gpt-image-2] tools recusado ({str(_e_tool)[:120]}) — "
+                      "tentando images.edit", file=_sys.stderr)
+
+            # Tentativa 2: endpoint de edição — aceita as fotos como referência e,
+            # diferente da Responses API, size e input_fidelity são parâmetros
+            # documentados e estáveis aqui. Garante saída quadrada mesmo que a
+            # tentativa 1 não seja aceita.
+            try:
+                import io as _io_edit
+                arquivos = []
+                for _i, img_b in enumerate(imagens_bytes[:3]):
+                    _mime = _detectar_mime(img_b)
+                    _ext = "png" if "png" in _mime else "jpg"
+                    arquivos.append((f"ref{_i}.{_ext}", _io_edit.BytesIO(img_b), _mime))
+                edit = client.images.edit(
+                    model="gpt-image-2",
+                    image=arquivos,
+                    prompt=prompt_final,
+                    size="1024x1024",
+                    quality="high",
+                    input_fidelity="high",
+                )
+                _d = edit.data[0]
+                if getattr(_d, "b64_json", None):
+                    import sys as _sys
+                    print("[DEBUG gpt-image-2] Operation: edit | "
+                          f"References sent: {len(arquivos)} | size=1024x1024 | "
+                          "input_fidelity=high", file=_sys.stderr)
+                    return base64.b64decode(_d.b64_json), None
+            except Exception as _e_edit:
+                import sys as _sys
+                print(f"[DEBUG gpt-image-2] images.edit recusado ({str(_e_edit)[:120]}) — "
+                      "usando chamada simples", file=_sys.stderr)
+
+            resp = client.responses.create(model="gpt-image-2", input=entrada)
+            img = _extrair(resp)
+            if img:
+                import sys as _sys
+                print(f"[DEBUG gpt-image-2] Operation: generate/edit | References sent: {len(imagens_bytes)} | Model: gpt-image-2", file=_sys.stderr)
+                return img, None
             return None, "Sem imagem na resposta Responses API."
 
         # ── SEM FOTOS: geração texto puro ──
@@ -991,16 +1079,44 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None):
         import io as _io
         pil = _PILImage.open(_io.BytesIO(img_bytes)).convert("RGBA")
 
-        # Letterbox para 1200x1200 preservando proporções — sem stretch
+        # Enquadramento para 1200x1200.
+        #
+        # A geração agora pede size=1024x1024, então o normal é a imagem JÁ chegar
+        # quadrada e nada acontecer aqui. O tratamento abaixo é rede de segurança
+        # para quando a API recusa o parâmetro e devolve 1536x1024 ou 1024x1536.
+        #
+        # Nesse caso, preencher com faixas de cor lisa era o que produzia as
+        # "tarjas" brancas e encolhia o produto no meio do quadro. Agora recorta
+        # o excedente até o limite do que é seguro (_CROP_MAX) e só preenche o
+        # que sobrar — em vez de preencher tudo. Crop total nunca é opção: a zona
+        # de texto das peças de marketing fica nas laterais e seria decepada.
         pil_w, pil_h = pil.size
         if pil_w != pil_h:
-            max_dim = max(pil_w, pil_h)
-            # Fundo branco para tipo 1, azul-cinza da marca para os demais
-            bg_color = (255, 255, 255, 255) if _is_fundo_branco else (232, 238, 245, 255)
-            bg = _PILImage.new("RGBA", (max_dim, max_dim), bg_color)
-            offset = ((max_dim - pil_w) // 2, (max_dim - pil_h) // 2)
-            bg.paste(pil, offset, pil)
-            pil = bg
+            import sys as _sys_fmt
+            print(f"[DEBUG enquadramento] modelo devolveu {pil_w}x{pil_h} "
+                  "(esperado 1024x1024) — reenquadrando", file=_sys_fmt.stderr)
+
+            _CROP_MAX = 0.18  # recorta no máximo 18% do lado maior
+            lado_maior = max(pil_w, pil_h)
+            lado_menor = min(pil_w, pil_h)
+            alvo = max(lado_menor, int(lado_maior * (1 - _CROP_MAX)))
+
+            if pil_w > pil_h:
+                esq = (pil_w - alvo) // 2
+                pil = pil.crop((esq, 0, esq + alvo, pil_h))
+            else:
+                topo = (pil_h - alvo) // 2
+                pil = pil.crop((0, topo, pil_w, topo + alvo))
+
+            pil_w, pil_h = pil.size
+            if pil_w != pil_h:
+                max_dim = max(pil_w, pil_h)
+                # Fundo branco para tipo 1, azul-cinza da marca para os demais
+                bg_color = (255, 255, 255, 255) if _is_fundo_branco else (232, 238, 245, 255)
+                bg = _PILImage.new("RGBA", (max_dim, max_dim), bg_color)
+                offset = ((max_dim - pil_w) // 2, (max_dim - pil_h) // 2)
+                bg.paste(pil, offset, pil)
+                pil = bg
 
         pil = pil.resize((1200, 1200), _PILImage.LANCZOS)
         buf = _io.BytesIO()
@@ -1022,6 +1138,37 @@ IMAGENS DE REFERÊNCIA DE LAYOUT — REGRAS ABSOLUTAS:
 - Aplique o layout/composição da referência ao PRODUTO DO COLABORADOR com as cores MartinSousa
 - Se o arquivo de referência tiver nome indicando o tipo (ex: "fundo_branco", "beneficios"), essa referência se aplica especificamente àquele tipo de imagem
 """
+
+
+def _trava_cor_produto(cor):
+    """Trava a cor do produto no prompt, citando o que NÃO pode acontecer.
+
+    Dizer "mesma cor" é semântico demais: o gerador trata como sugestão e
+    "harmoniza" o produto com a paleta azul da marca ou com o cenário. Foi assim
+    que um álbum preto saiu azul-marinho (#1A3A6B, exatamente a cor da marca) e
+    outro saiu bege. Nomear a cor real e listar os desvios proibidos deixa a
+    instrução verificável em vez de interpretável.
+    """
+    cor = str(cor).strip()
+    if not cor:
+        return ""
+
+    # Desvios que já aconteceram em produção, mais a paleta da marca — que é a
+    # fonte da contaminação e por isso precisa ser negada nominalmente.
+    desvios = ["azul", "azul-marinho", "azul médio", "bege", "marrom", "cinza-azulado"]
+    cor_norm = cor.lower()
+    desvios = [d for d in desvios if d not in cor_norm]
+
+    return (
+        f"COR REAL DO PRODUTO: {cor}\n"
+        f"TRAVA DE COR (regra inviolável): a cor do produto é uma propriedade física, "
+        f"não uma escolha estética. O produto DEVE aparecer em {cor} exatamente como "
+        f"nas fotos de referência.\n"
+        f"É PROIBIDO reinterpretar essa cor como: {', '.join(desvios)}.\n"
+        f"É PROIBIDO recolorir o produto para harmonizar com a paleta da marca, com o "
+        f"fundo, com o cenário ou com a iluminação. A paleta azul da empresa vale para "
+        f"fundo, texto e elementos gráficos — nunca para o produto.\n"
+    )
 
 
 def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
@@ -1054,7 +1201,7 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
     contexto_produto = f"PRODUTO: {nome_produto}\n"
     if dados_descricao:
         if dados_descricao.get("cor"):
-            contexto_produto += f"Cor: {dados_descricao['cor']}\n"
+            contexto_produto += _trava_cor_produto(dados_descricao["cor"])
         if dados_descricao.get("medidas"):
             contexto_produto += f"Medidas EXATAS (use esses números, não invente): {dados_descricao['medidas']}\n"
         if dados_descricao.get("peso"):
@@ -1825,6 +1972,54 @@ def pagina_imagem(usuario_logado):
                     else:
                         st.error("Informação necessária não fornecida. Forneça os dados e analise novamente.")
 
+            # Campos de dados técnicos + reanálise.
+            #
+            # Antes, a mensagem mandava clicar em "Analisar novamente" e esse botão
+            # NÃO EXISTIA em lugar nenhum do arquivo. O colaborador digitava o peso
+            # na caixa de correção abaixo, que vai para instrucoes_extras — campo
+            # marcado no prompt como "NÃO renderize estes dados como texto na
+            # imagem". Ou seja: o dado informado era proibido de aparecer e o item
+            # continuava bloqueado. Agora medidas e peso vão para dados_descricao,
+            # que é o campo que a regra de viabilidade lê e que o prompt autoriza
+            # a desenhar.
+            _dd_atual = cfg.get("dados_descricao") or {}
+            st.markdown("**Preencha o que falta e analise de novo:**")
+            _c_med, _c_peso = st.columns(2)
+            _medidas_novo = _c_med.text_input(
+                "Medidas (AxLxP)",
+                value=str(_dd_atual.get("medidas", "") or ""),
+                placeholder="ex: 30x30x6",
+                key="img_fix_medidas",
+            )
+            _peso_novo = _c_peso.text_input(
+                "Peso",
+                value=str(_dd_atual.get("peso", "") or ""),
+                placeholder="ex: 780g",
+                key="img_fix_peso",
+            )
+
+            if st.button("🔄 Analisar novamente", use_container_width=True,
+                         key="img_reanalisar"):
+                _dd_novo = dict(_dd_atual)
+                if _medidas_novo.strip():
+                    _dd_novo["medidas"] = _medidas_novo.strip()
+                if _peso_novo.strip():
+                    _dd_novo["peso"] = _peso_novo.strip()
+
+                cfg["dados_descricao"] = _dd_novo
+                st.session_state["img_triagem_config"] = cfg
+
+                with st.spinner("Reanalisando com os dados novos..."):
+                    _plano_novo, _erro_novo = gerar_triagem_ia(
+                        cfg["nome_produto"], cfg["tipos"], _dd_novo,
+                        cfg.get("instrucoes_extras", ""), cfg["fotos_bytes"],
+                    )
+                if _erro_novo:
+                    st.error(f"Não consegui reanalisar: {_erro_novo}")
+                else:
+                    st.session_state["img_triagem_plano"] = _plano_novo
+                    st.rerun()
+
         if plano.get("observacao_geral"):
             st.info(plano["observacao_geral"])
 
@@ -1839,34 +2034,48 @@ def pagina_imagem(usuario_logado):
         n_bloqueadas = len(itens_bloqueados)
         custo_est = n_viaveis * 1.0
 
-        if n_viaveis == 0:
-            st.error(
-                "⛔ Nenhuma imagem pode ser gerada agora — todas estão bloqueadas por falta de informação. "
-                "Forneça os dados solicitados e clique em **Analisar novamente**."
-            )
-        else:
-            aviso_bloqueadas = (
-                f" ({n_bloqueadas} bloqueada(s) por dados insuficientes — serão ignoradas)"
-                if n_bloqueadas else ""
-            )
-            st.warning(
-                f"💰 Isso vai gerar **{n_viaveis} imagem(ns)**{aviso_bloqueadas} "
-                f"com custo estimado de **~R${custo_est:.2f}**. Confirma?"
+        # O aviso de custo e os botões vivem dentro de um placeholder para poderem
+        # ser APAGADOS assim que a geração começa. No Streamlit o corpo do
+        # `if botao:` roda no mesmo run em que o botão foi desenhado — sem isso, o
+        # aviso "Confirma?" e os dois botões ficavam na tela durante os minutos de
+        # geração, ainda clicáveis: um segundo clique em "Confirmar" reiniciava o
+        # run e gerava tudo de novo (custo em dobro), e "Cancelar" matava a geração
+        # em curso, perdendo as imagens que só existem em memória.
+        _painel_confirmacao = st.empty()
+        with _painel_confirmacao.container():
+            if n_viaveis == 0:
+                st.error(
+                    "⛔ Nenhuma imagem pode ser gerada agora — todas estão bloqueadas por falta de informação. "
+                    "Forneça os dados solicitados e clique em **Analisar novamente**."
+                )
+            else:
+                aviso_bloqueadas = (
+                    f" ({n_bloqueadas} bloqueada(s) por dados insuficientes — serão ignoradas)"
+                    if n_bloqueadas else ""
+                )
+                st.warning(
+                    f"💰 Isso vai gerar **{n_viaveis} imagem(ns)**{aviso_bloqueadas} "
+                    f"com custo estimado de **~R${custo_est:.2f}**. Confirma?"
+                )
+
+            col_cancelar, col_confirmar = st.columns(2)
+            cancelar_clicado = col_cancelar.button("❌ Cancelar", use_container_width=True)
+            confirmar_clicado = col_confirmar.button(
+                "✅ Confirmar e gerar",
+                type="primary",
+                use_container_width=True,
+                disabled=(n_viaveis == 0),
             )
 
-        col_cancelar, col_confirmar = st.columns(2)
-        if col_cancelar.button("❌ Cancelar", use_container_width=True):
+        if cancelar_clicado:
             del st.session_state["img_triagem_plano"]
             del st.session_state["img_triagem_config"]
             st.rerun()
 
-        confirmar_disabled = n_viaveis == 0
-        if col_confirmar.button(
-            "✅ Confirmar e gerar",
-            type="primary",
-            use_container_width=True,
-            disabled=confirmar_disabled,
-        ):
+        if confirmar_clicado:
+            # Primeira coisa: some com o painel. Daqui pra frente a tela mostra
+            # só a barra de progresso — não há mais botão para clicar por engano.
+            _painel_confirmacao.empty()
             try:
                 # Aplica correção ao config se houver
                 if correcao:
@@ -1983,7 +2192,14 @@ def pagina_imagem(usuario_logado):
         _cols_gal = st.columns(4)
         for i, g in enumerate(galeria):
             with _cols_gal[i % 4]:
-                st.image(g["bytes"], caption=g["tipo"][:20], use_container_width=True)
+                # 20 caracteres cortavam o nome no meio ("Capa do", "Imagem
+                # emocional — P") e o colaborador não sabia qual peça era qual.
+                _rotulo = g["tipo"]
+                st.image(
+                    g["bytes"],
+                    caption=(_rotulo[:42] + "…") if len(_rotulo) > 42 else _rotulo,
+                    use_container_width=True,
+                )
 
         # Seleção da imagem ativa
         escolha = st.selectbox("Imagem ativa (para ajustar ou baixar individualmente)", nomes_galeria, key="img_escolha")
