@@ -45,6 +45,10 @@ def formatar_br(valor, casas=2):
 
 # ── CONEXAO COM A PLANILHA ──────────────────────────────────────────────────
 
+# Reutiliza a conexao entre reruns. Sem isso cada chamada refazia
+# from_service_account_info + gspread.authorize + open() + worksheet() —
+# quatro idas a rede antes de ler o primeiro dado, por modulo, a cada rerun.
+@st.cache_resource
 def _cliente():
     creds_dict = dict(st.secrets["gcp_service_account"])
     scopes = [
@@ -54,6 +58,7 @@ def _cliente():
     creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
     return gspread.authorize(creds)
 
+@st.cache_resource
 def _aba():
     cliente = _cliente()
     planilha = cliente.open(PLANILHA_NOME)

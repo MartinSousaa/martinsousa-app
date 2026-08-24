@@ -32,6 +32,13 @@ import placar
 import analise_metas
 import relogio_ponto
 
+# Mantém o painel da TV vivo sem depender de ninguém estar usando o app.
+# Sobe uma única vez por processo — o cache_resource garante isso.
+try:
+    placar.iniciar_regenerador_tv()
+except Exception:
+    pass  # a TV nunca pode impedir o app de subir
+
 # Permite que Streamlit sirva .html com Content-Type correto (text/html)
 try:
     import streamlit.web.server.app_static_file_handler as _sfh
@@ -1457,13 +1464,29 @@ def _render_abas_operacao(usuario_logado):
 
 if _eh_admin:
     # ── ADMIN: acordeão Gestão (padrão) / Operação ────────────────────────────
+    # A seção ativa vive na URL (?secao=operacao), nao so no session_state.
+    # O session_state morre quando o servidor reinicia — e o Railway reinicia a
+    # cada deploy. Sem isso, quem estivesse preenchendo algo em Operacao era
+    # jogado de volta para Gestao e perdia o formulario inteiro.
     if "secao_admin" not in st.session_state:
-        st.session_state.secao_admin = "gestao"
+        _secao_url = str(st.query_params.get("secao", "")).strip().lower()
+        st.session_state.secao_admin = (
+            _secao_url if _secao_url in ("gestao", "operacao") else "gestao"
+        )
+
+    def _trocar_secao(destino):
+        st.session_state.secao_admin = destino
+        st.query_params["secao"] = destino
+        st.rerun()
 
     # Cabeçalhos de seção como botões destacados
     _col_g, _col_o = st.columns(2)
     _gestao_ativa   = st.session_state.secao_admin == "gestao"
     _operacao_ativa = not _gestao_ativa
+
+    # Mantém a URL em sincronia com a seção atual, inclusive no primeiro render
+    if str(st.query_params.get("secao", "")) != st.session_state.secao_admin:
+        st.query_params["secao"] = st.session_state.secao_admin
 
     with _col_g:
         if st.button(
@@ -1472,8 +1495,7 @@ if _eh_admin:
             key="btn_secao_gestao",
             type="primary" if _gestao_ativa else "secondary",
         ):
-            st.session_state.secao_admin = "gestao"
-            st.rerun()
+            _trocar_secao("gestao")
 
     with _col_o:
         if st.button(
@@ -1482,8 +1504,7 @@ if _eh_admin:
             key="btn_secao_operacao",
             type="primary" if _operacao_ativa else "secondary",
         ):
-            st.session_state.secao_admin = "operacao"
-            st.rerun()
+            _trocar_secao("operacao")
 
     if _gestao_ativa:
         if _eh_martinsousa:

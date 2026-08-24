@@ -108,12 +108,16 @@ def pagina_admin(usuario_logado):
             if col_b.button("👤 Remover Admin", use_container_width=True, key="btn_rm_admin"):
                 _atualizar_campo(usuario_sel, "admin", "Não")
                 auth._carregar_usuarios_sheets.clear()
+                # is_admin fica fixado por sessão — invalida para refletir a mudança
+                st.session_state.pop(f"_perfil_admin__{usuario_sel}", None)
                 st.success(f"'{usuario_sel}' não é mais admin.")
                 st.rerun()
         else:
             if col_b.button("⭐ Tornar Admin", use_container_width=True, key="btn_mk_admin"):
                 _atualizar_campo(usuario_sel, "admin", "Sim")
                 auth._carregar_usuarios_sheets.clear()
+                # is_admin fica fixado por sessão — invalida para refletir a mudança
+                st.session_state.pop(f"_perfil_admin__{usuario_sel}", None)
                 st.success(f"'{usuario_sel}' agora é admin.")
                 st.rerun()
 
@@ -170,3 +174,54 @@ def pagina_admin(usuario_logado):
             perfil = "Admin" if eh_admin else "Colaborador"
             st.success(f"Usuário **{novo_login}** criado com perfil {perfil}!")
             st.rerun()
+
+    # ── DIAGNÓSTICO DO GOOGLE DRIVE ──────────────────────────────────────────
+    st.markdown("---")
+    st.markdown("#### 🔧 Diagnóstico do Google Drive")
+    st.caption(
+        "Verifica se o sistema consegue gravar arquivos no Drive. "
+        "Use quando aparecer erro ao salvar fotos de triagem ou imagens geradas."
+    )
+
+    if st.button("Testar conexão com o Drive", use_container_width=True):
+        import gdrive
+        with st.spinner("Testando gravação no Drive..."):
+            rel = gdrive.diagnostico()
+
+        rotulo_modo = {
+            "oauth": "OAuth (refresh token) — usa a cota de uma conta Google real",
+            "impersonation": f"Impersonation — agindo como {rel['impersonando']}",
+            "service_account": "Conta de serviço pura — SEM cota de armazenamento",
+        }.get(rel["modo"], rel["modo"])
+
+        col_a, col_b = st.columns(2)
+        col_a.markdown(f"**Modo de credencial**  \n{rotulo_modo}")
+        col_b.markdown(
+            f"**Pasta de destino**  \n"
+            f"{rel['pasta_nome'] or '(não encontrada)'}  \n"
+            f"{'✅ Unidade Compartilhada' if rel['shared_drive'] else '⚠️ Meu Drive (pasta pessoal)'}"
+        )
+        st.caption(f"Conta de serviço: `{rel['conta']}`")
+
+        if rel["escrita_ok"]:
+            st.success("✅ Gravação no Drive funcionando — upload de teste concluído e removido.")
+            if not rel["publico_ok"]:
+                st.warning(
+                    "⚠️ O arquivo foi salvo, mas não pôde ser tornado público. "
+                    "Os thumbnails do seletor de variante não vão aparecer. "
+                    "Verifique se o compartilhamento externo está liberado no Workspace."
+                )
+        else:
+            st.error(f"❌ Gravação falhou.\n\n{rel['erro']}")
+            if rel["modo"] == "service_account" and not rel["shared_drive"]:
+                st.info(
+                    "**Como resolver** — escolha um dos caminhos:\n\n"
+                    "1. **Unidade Compartilhada** (Workspace Business Standard+): crie uma "
+                    "unidade compartilhada, adicione a conta de serviço acima como *Gerente de conteúdo*, "
+                    "mova a pasta de imagens para dentro dela e atualize `DRIVE_PASTA_IMAGENS_ID`.\n\n"
+                    "2. **Impersonation** (Workspace + Admin Console): ative a delegação em todo o domínio "
+                    "para a conta de serviço com o escopo `https://www.googleapis.com/auth/drive` e "
+                    "adicione a secret `GDRIVE_IMPERSONATE_USER` com seu e-mail.\n\n"
+                    "3. **OAuth** (funciona até com Gmail comum): configure o bloco de secret "
+                    "`[gdrive_oauth]` com `client_id`, `client_secret` e `refresh_token`."
+                )

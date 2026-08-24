@@ -11,6 +11,10 @@ COLUNAS = ["data_hora", "usuario", "tipo", "produto", "resumo",
            "material", "caracteristicas", "diferenciais", "uso", "categoria"]
 
 
+# Reutiliza a conexao entre reruns. Sem isso cada chamada refazia
+# from_service_account_info + gspread.authorize + open() + worksheet() —
+# quatro idas a rede antes de ler o primeiro dado, por modulo, a cada rerun.
+@st.cache_resource
 def _cliente():
     creds_dict = dict(st.secrets["gcp_service_account"])
     scopes = [
@@ -21,6 +25,7 @@ def _cliente():
     return gspread.authorize(creds)
 
 
+@st.cache_resource
 def _aba():
     cliente = _cliente()
     planilha = cliente.open(PLANILHA_NOME)
@@ -45,8 +50,12 @@ def registrar_atividade(usuario, tipo, produto, resumo,
                         codigo="", cor="", medidas="", peso="",
                         link_capa="", link_pasta="",
                         material="", caracteristicas="", diferenciais="", uso="", categoria=""):
-    """Grava uma linha no historico. Nunca deixa um erro aqui quebrar a
-    tela principal -- se a gravacao falhar, so ignora silenciosamente."""
+    """Grava uma linha no historico. Retorna True/False.
+
+    Uma falha aqui nunca derruba a tela principal -- mas tambem nao passa em
+    silencio: o historico alimenta o placar e a analise de metas, entao um
+    registro perdido vira credito perdido para o colaborador.
+    """
     try:
         aba = _aba()
         aba.append_row([
@@ -56,11 +65,19 @@ def registrar_atividade(usuario, tipo, produto, resumo,
             material, caracteristicas, diferenciais, uso, categoria,
         ], value_input_option="RAW")
         carregar_atividades.clear()
+        return True
     except Exception:
-        pass
+        try:
+            st.warning(
+                f"⚠️ '{tipo}' foi concluído, mas não entrou no histórico. "
+                "Isso afeta seu placar e suas metas — avise o administrador."
+            )
+        except Exception:
+            pass
+        return False
 
 
-@st.cache_data(ttl=30)
+@st.cache_data(ttl=90)
 def carregar_atividades():
     aba = _aba()
     registros = aba.get_all_records(value_render_option="UNFORMATTED_VALUE")
