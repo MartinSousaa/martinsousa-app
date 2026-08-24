@@ -448,43 +448,85 @@ def _detectar_mime(data: bytes) -> str:
 def _normalizar_nome(texto):
     """Minúsculas, sem acento e só letras/números — para casar nome de arquivo com tipo."""
     import unicodedata as _ud
+    import re as _re_nome
     t = _ud.normalize("NFKD", str(texto)).encode("ascii", "ignore").decode("ascii").lower()
-    return _re.sub(r"[^a-z0-9]+", " ", t).strip()
+    return _re_nome.sub(r"[^a-z0-9]+", " ", t).strip()
+
+
+_SINONIMOS_TIPO = {
+    "1 —": {"capa", "principal", "branco", "fundo"},
+    "2 —": {"beneficios", "beneficio", "vantagens", "features"},
+    "3 —": {"cenario", "uso", "lifestyle", "contexto", "pessoas", "rotina"},
+    "4 —": {"close", "detalhe", "detalhes", "zoom", "macro"},
+    "5 —": {"medidas", "medida", "dimensoes", "dimensao", "tecnicas", "tecnica",
+            "caracteristicas", "especificacoes", "specs", "tamanho", "peso", "material"},
+    "6 —": {"objecao", "objecoes", "duvidas", "duvida", "perguntas", "faq"},
+    "7 —": {"presente", "presentear", "presenteie", "gift", "brinde"},
+    "8 —": {"ambiente", "ambientacao", "ambientada", "editorial", "cena"},
+}
+
+# Palavras que aparecem em quase todo nome de arquivo e em varios tipos. Contar
+# essas como acerto fazia "Produto com fundo branco" casar com "Beneficios do
+# produto" — layout errado copiado por causa de uma palavra generica.
+_PALAVRAS_VAZIAS = {
+    "de", "do", "da", "no", "na", "em", "com", "os", "as", "nos", "que", "ele",
+    "produto", "produtos", "anuncio", "imagem", "imagens", "foto", "fotos",
+    "arquivo", "referencia", "layout", "modelo", "exemplo", "cliente", "final",
+}
+
+
+def _palavras_uteis(texto):
+    return {
+        p for p in _normalizar_nome(texto).split()
+        if len(p) > 2 and p not in _PALAVRAS_VAZIAS
+    }
+
+
+def _pontuar_ref(tipo, nome_arquivo):
+    """Quantas palavras significativas o nome do arquivo tem em comum com o tipo."""
+    alvo = _palavras_uteis(tipo)
+    for prefixo, sinonimos in _SINONIMOS_TIPO.items():
+        if tipo.startswith(prefixo):
+            alvo |= sinonimos
+            break
+    return len(alvo & _palavras_uteis(nome_arquivo.rsplit(".", 1)[0]))
 
 
 def ref_layout_do_tipo(tipo, refs_bytes, refs_nomes):
-    """Escolhe a imagem de referência de layout que pertence a este tipo.
+    """Escolhe a imagem de referencia de layout que pertence a este tipo.
 
-    O colaborador nomeia os arquivos pelo que eles representam — "beneficios.png",
-    "fundo_branco.jpg", "quebra de objecao.png". A escolha é por essas palavras,
-    não por ordem de upload: enviar as referências fora de ordem não pode
-    embaralhar as peças.
+    O colaborador nomeia os arquivos pelo que eles representam — "Presenteie
+    (frases impactantes)", "Caracteristicas (medidas/peso/material).webp". A
+    escolha e por essas palavras, nao por ordem de upload: enviar as referencias
+    fora de ordem nao pode embaralhar as pecas.
 
-    Retorna (bytes, nome) ou (None, None) quando nenhuma referência corresponde —
-    caso em que a peça é gerada sem referência de layout, e não com a referência
-    de outro tipo, que seria pior do que nenhuma.
+    O casamento e MUTUO: a referencia so e usada por este tipo se este tipo for
+    tambem a melhor correspondencia dela. Sem isso, uma peca sem referencia
+    propria roubava a de outra por uma palavra solta em comum — foi assim que
+    "Beneficios do produto" ficou com a referencia de fundo branco.
+
+    Retorna (bytes, nome) ou (None, None). Sem correspondencia a peca e gerada
+    sem referencia, o que e melhor do que gerar com a referencia de outro tipo.
     """
-    if not refs_bytes:
+    if not refs_bytes or not refs_nomes:
         return None, None
 
-    tipo_norm = _normalizar_nome(tipo)
-    # Descarta o numero do tipo ("2") e palavras vazias de significado
-    _IGNORAR = {"de", "do", "da", "no", "na", "em", "com", "e", "o", "a", "os", "as", "nos"}
-    palavras_tipo = {p for p in tipo_norm.split() if len(p) > 2 and p not in _IGNORAR}
-
-    melhor, melhor_nota = None, 0
-    for i, nome in enumerate(refs_nomes or []):
+    melhor_i, melhor_nota = None, 0
+    for i, nome in enumerate(refs_nomes):
         if i >= len(refs_bytes):
             break
-        nome_norm = _normalizar_nome(nome.rsplit(".", 1)[0])
-        palavras_nome = {p for p in nome_norm.split() if len(p) > 2 and p not in _IGNORAR}
-        nota = len(palavras_tipo & palavras_nome)
-        if nota > melhor_nota:
-            melhor, melhor_nota = i, nota
+        nota = _pontuar_ref(tipo, nome)
+        if nota <= 0 or nota <= melhor_nota:
+            continue
+        # A referencia pertence a este tipo? Se ela pontua mais alto em outro,
+        # e daquele outro.
+        if any(_pontuar_ref(t, nome) > nota for t in TIPOS_PADRAO):
+            continue
+        melhor_i, melhor_nota = i, nota
 
-    if melhor is None:
+    if melhor_i is None:
         return None, None
-    return refs_bytes[melhor], (refs_nomes or [])[melhor]
+    return refs_bytes[melhor_i], refs_nomes[melhor_i]
 
 
 def _gerar_imagem_thread(prompt_texto, imagens_ref, resultado, refs_layout=None,
@@ -2085,6 +2127,45 @@ def pagina_imagem(usuario_logado):
                 _cols_rl = st.columns(4)
                 for _i, _rb in enumerate(refs_layout_bytes[:4]):
                     _cols_rl[_i].image(_rb, caption=refs_layout_nomes[_i][:20], use_container_width=True)
+
+                # ── A QUAL PEÇA CADA REFERÊNCIA VAI ───────────────────────────
+                # A referência é escolhida pelo nome do arquivo. Sem mostrar o
+                # resultado desse casamento ANTES de gerar, o colaborador só
+                # descobria que o nome não bateu depois de pagar a geração
+                # inteira — e sem saber que o problema era o nome.
+                _pares = []
+                _usadas = set()
+                for _t in TIPOS_PADRAO:
+                    _b, _n = ref_layout_do_tipo(_t, refs_layout_bytes, refs_layout_nomes)
+                    _pares.append((_t, _n))
+                    if _n:
+                        _usadas.add(_n)
+
+                _orfas = [n for n in refs_layout_nomes if n not in _usadas]
+
+                with st.expander(
+                    f"🔗 Qual referência vai para cada peça "
+                    f"({len(_usadas)} de {len(refs_layout_nomes)} em uso)",
+                    expanded=bool(_orfas),
+                ):
+                    for _t, _n in _pares:
+                        if _n:
+                            st.markdown(f"**{_t}**  →  `{_n}`")
+                        else:
+                            st.markdown(
+                                f"<span style='opacity:.55'>{_t}  →  sem referência "
+                                f"(será gerada só pelo padrão)</span>",
+                                unsafe_allow_html=True,
+                            )
+                    if _orfas:
+                        st.warning(
+                            "Estes arquivos **não serão usados** porque o nome não "
+                            "corresponde a nenhuma peça: "
+                            + ", ".join(f"`{n}`" for n in _orfas)
+                            + ".\n\nRenomeie usando uma palavra da peça — por exemplo "
+                            "`beneficios`, `medidas`, `presente`, `cenario`, `close`, "
+                            "`objecao`, `ambiente` ou `capa`."
+                        )
 
             instrucao_layout = ""
             if refs_layout_bytes:
