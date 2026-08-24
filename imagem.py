@@ -148,15 +148,29 @@ REGRA DE LAYOUT PARA IMAGENS DE MARKETING (obrigatória para tipos 2, 3, 4, 5, 6
 - A imagem final deve ter aparência de peça gráfica profissional de e-commerce,
   criada por um estúdio de marketing — não de uma foto com texto editado por cima.
 
-REGRA DE DENSIDADE E LIMPEZA VISUAL (menos é mais):
-- MÁXIMO 3 elementos informativos por imagem (3 benefícios, 3 callouts, 3 perguntas, etc.)
-  — nunca ultrapasse esse limite, mesmo que haja mais informações disponíveis
-- Cada elemento de texto: título em 2-4 palavras + frase de no máximo 8 palavras — nada mais
-- Espaçamento generoso entre elementos — nunca comprima, nunca empilhe blocos densamente
-- A zona de texto deve ter bastante espaço vazio (whitespace) — peça clean, leve e arejada
-- NUNCA adicione tags, selos, rodapés, ícones de uso, icones de compatibilidade ou elementos
-  decorativos extras além do que foi explicitamente pedido
-- Uma imagem objetiva com 3 pontos claros converte melhor do que uma poluída com 8
+REGRA DE DENSIDADE:
+- QUANDO HOUVER IMAGEM DE REFERÊNCIA DE LAYOUT, ELA MANDA. Reproduza a mesma
+  quantidade de blocos, o mesmo tamanho de texto e a mesma densidade que ela
+  mostra — mesmo que sejam 5 ou 6 blocos. A referência é o padrão aprovado da
+  empresa; qualquer número abaixo desta regra não se aplica a ela.
+- Sem referência: use de 3 a 5 blocos informativos, conforme o conteúdo disponível
+- Cada bloco: título curto em CAIXA ALTA (2-5 palavras) + descrição de 8 a 16
+  palavras. Descrição de 3 palavras deixa a peça pobre e sem argumento de venda.
+- Blocos em cartões de cantos arredondados, com ícone próprio, alinhados em
+  coluna ou grade — não como texto solto sobre o fundo
+- Espaçamento uniforme entre blocos; respiro nas bordas da peça
+- NUNCA adicione tags, selos, rodapés, ícones de compatibilidade ou elementos
+  decorativos além dos blocos pedidos
+
+REGRA DE TEXTO REAL (o erro mais constrangedor):
+- TODO texto renderizado deve ser português correto e existir de verdade. É
+  PROIBIDO inventar palavras, misturar idiomas ou desenhar texto decorativo
+  ilegível que "pareça" escrita. Nada de "Profess commerco", "High-resolução"
+  ou variações — isso destrói a credibilidade do anúncio.
+- Se não houver informação suficiente para preencher um bloco, use MENOS blocos.
+  Bloco a menos é melhor que bloco com texto inventado.
+- PROIBIDO desenhar logotipo, marca, monograma ou assinatura sobre o produto ou
+  na peça. O produto não tem logo — não crie um.
 """
 
 # ── MODO PERSONALIZADO — sem branding automático ──────────────────────────────
@@ -221,7 +235,7 @@ PRESETS = {
     ),
     "2 — Benefícios do produto": (
         "IMAGEM DE MARKETING — BENEFÍCIOS: produto em zona central limpa (SEM texto sobre ele). "
-        "Fundo padrão da marca (#E8EEF5). Máximo 3 benefícios em painéis laterais ou inferiores: "
+        "Fundo padrão da marca (#E8EEF5). De 3 a 5 benefícios em cartões laterais, inferiores ou em grade — siga a referência de layout quando houver: "
         "ícone line-art azul marinho + título curto (2-3 palavras) + frase direta (máximo 7 palavras). "
         "Visual arejado, muito whitespace — jamais comprima ou empilhe os blocos de benefício. "
         "Os textos dos benefícios vêm dos diferenciais e características do produto informados."
@@ -244,16 +258,23 @@ PRESETS = {
         "ZERO medidas, ZERO setas de dimensão — isso é uma foto de qualidade, não infográfico técnico."
     ),
     "5 — Características técnicas (medidas/peso/material)": (
-        "INFOGRÁFICO TÉCNICO — SOMENTE DIMENSÕES E ESPECIFICAÇÕES: produto centralizado com "
-        "linhas de cota finas indicando medidas EXATAS (altura × largura × profundidade se disponível). "
-        "Peso e material anotados com tipografia clean em área lateral. "
-        "Fundo claro, visual técnico limpo — ZERO ícones decorativos, ZERO blocos de benefício. "
+        "INFOGRÁFICO TÉCNICO DE MEDIDAS — estilo cota de catálogo: produto grande e "
+        "centralizado, fotografado nítido, ocupando o miolo da peça. "
+        "CADA dimensão recebe SEU PRÓPRIO indicador, nunca uma linha de texto corrida: "
+        "uma seta ou linha de cota TRACEJADA saindo da borda exata que está sendo medida, "
+        "terminando num CARTÃO de cantos arredondados, fundo branco e borda fina azul, "
+        "contendo o rótulo em caixa alta pequena (ALTURA, LARGURA, PROFUNDIDADE, PESO) e, "
+        "logo abaixo, o valor em número grande e negrito. "
+        "Os cartões ficam distribuídos ao redor do produto — em cima, nas laterais e "
+        "embaixo — cada um junto da medida que representa, nunca empilhados num canto. "
+        "Setas nas duas pontas das linhas de cota, no eixo correto de cada medida. "
+        "Fundo claro liso. ZERO ícones decorativos, ZERO blocos de benefício, ZERO frases de venda. "
         "Use APENAS os valores informados nos dados do produto — JAMAIS invente ou estime medidas. "
         "Se medidas não foram informadas, omita-as completamente — não crie números fictícios."
     ),
     "6 — Quebra de objeção": (
         "IMAGEM DE MARKETING — RESPONDENDO DÚVIDAS DO COMPRADOR: layout clean com produto "
-        "em destaque e máximo 3 blocos de pergunta+resposta ao lado. "
+        "em destaque e de 3 a 4 blocos de pergunta+resposta ao lado, em cartões de cantos arredondados — siga a referência de layout quando houver. "
         "Cada bloco: pergunta curta (máximo 5 palavras) em destaque + check verde + resposta direta "
         "(máximo 8 palavras). As objeções são baseadas nos diferenciais e características do produto. "
         "Visual arejado, muito whitespace, fundo padrão da marca (#E8EEF5)."
