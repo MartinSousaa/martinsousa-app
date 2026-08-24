@@ -11,6 +11,10 @@ COLUNAS = ["data_hora", "usuario", "tipo", "produto", "resumo",
            "material", "caracteristicas", "diferenciais", "uso", "categoria"]
 
 
+# Reutiliza a conexao entre reruns. Sem isso cada chamada refazia
+# from_service_account_info + gspread.authorize + open() + worksheet() —
+# quatro idas a rede antes de ler o primeiro dado, por modulo, a cada rerun.
+@st.cache_resource
 def _cliente():
     creds_dict = dict(st.secrets["gcp_service_account"])
     scopes = [
@@ -21,6 +25,7 @@ def _cliente():
     return gspread.authorize(creds)
 
 
+@st.cache_resource
 def _aba():
     cliente = _cliente()
     planilha = cliente.open(PLANILHA_NOME)
@@ -72,7 +77,7 @@ def registrar_atividade(usuario, tipo, produto, resumo,
         return False
 
 
-@st.cache_data(ttl=30)
+@st.cache_data(ttl=90)
 def carregar_atividades():
     aba = _aba()
     registros = aba.get_all_records(value_render_option="UNFORMATTED_VALUE")

@@ -44,6 +44,10 @@ ABA_PONTO     = "ponto"
 COLUNAS_PONTO = ["data", "username", "tipo", "horario", "observacao", "criado_em", "criado_por"]
 
 
+# Reutiliza a conexao entre reruns. Sem isso cada chamada refazia
+# from_service_account_info + gspread.authorize + open() + worksheet() —
+# quatro idas a rede antes de ler o primeiro dado, por modulo, a cada rerun.
+@st.cache_resource
 def _cliente_gs():
     creds_dict = dict(st.secrets["gcp_service_account"])
     scopes = [
@@ -54,6 +58,7 @@ def _cliente_gs():
     return gspread.authorize(creds)
 
 
+@st.cache_resource
 def _aba_ponto():
     """Retorna a aba 'ponto' da planilha, criando-a se necessário."""
     cliente = _cliente_gs()
@@ -75,9 +80,10 @@ def _aba_ponto():
         return aba
 
 
-@st.cache_data(ttl=30)
+@st.cache_data(ttl=90)
 def _carregar_ponto_todos() -> list[dict]:
-    """Carrega todos os registros de ponto do Google Sheets (cache de 30 s)."""
+    """Carrega todos os registros de ponto do Google Sheets (cache de 90 s;
+    invalidado na hora por _salvar_registro e _deletar_registro)."""
     aba = _aba_ponto()
     registros = aba.get_all_records(value_render_option="UNFORMATTED_VALUE")
     resultado = []

@@ -20,6 +20,7 @@ _tokens_sheets_ultimo_erro: float = 0  # evita retry em loop quando Sheets está
 
 # ── PERSISTÊNCIA DE TOKENS NO SHEETS ─────────────────────────────────────────
 
+@st.cache_resource
 def _aba_tokens():
     """Acessa (ou cria) a aba de tokens na planilha."""
     cliente = _cliente_sheets()
@@ -95,6 +96,10 @@ def _hash(senha):
 
 # ── SHEETS ────────────────────────────────────────────────────────────────────
 
+# Reutiliza a conexao entre reruns. Sem isso cada chamada refazia
+# from_service_account_info + gspread.authorize + open() + worksheet() —
+# quatro idas a rede antes de ler o primeiro dado, por modulo, a cada rerun.
+@st.cache_resource
 def _cliente_sheets():
     creds_dict = dict(st.secrets["gcp_service_account"])
     scopes = [
@@ -105,6 +110,7 @@ def _cliente_sheets():
     return gspread.authorize(creds)
 
 
+@st.cache_resource
 def _aba_usuarios():
     """Acessa (ou cria) a aba de usuários na planilha."""
     cliente = _cliente_sheets()
