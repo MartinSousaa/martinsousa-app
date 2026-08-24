@@ -1433,31 +1433,70 @@ def _render_viabilidade_tab():
                     )
 
 
+def _navegar(paginas, param_url, padrao=None):
+    """Seletor de aba que renderiza SOMENTE a página escolhida.
+
+    Por que não é mais st.tabs: o st.tabs executa o corpo de TODAS as abas em
+    todo rerun — o servidor nem fica sabendo qual aba está aberta. Com 11
+    módulos, cada clique em qualquer lugar do app disparava Placar (com as
+    chamadas ao Trello), Análise de Metas, Histórico, Triagem, Imagem, Descrição,
+    Título, Palavras-chave, Vídeo e as duas calculadoras. Era a origem dos ~20s
+    de espera a cada interação.
+
+    O st.segmented_control informa a seleção ao servidor, então dá para renderizar
+    só o que está na tela.
+
+    A aba ativa é gravada na URL pelo mesmo motivo da seção Gestão/Operação: o
+    session_state morre quando o Railway reinicia, e sem isso o colaborador era
+    jogado de volta para a primeira aba a cada deploy.
+
+    paginas: dict {rótulo: função sem argumentos}
+    """
+    rotulos = list(paginas.keys())
+    estado = f"_nav_{param_url}"
+
+    if estado not in st.session_state:
+        _da_url = str(st.query_params.get(param_url, "")).strip()
+        st.session_state[estado] = (
+            _da_url if _da_url in rotulos else (padrao if padrao in rotulos else rotulos[0])
+        )
+
+    atual = st.session_state[estado]
+    if atual not in rotulos:
+        atual = rotulos[0]
+
+    escolhido = st.segmented_control(
+        "Navegação",
+        rotulos,
+        default=atual,
+        label_visibility="collapsed",
+    )
+    # Clicar no item já selecionado desmarca — nesse caso mantemos o anterior
+    # em vez de deixar a tela vazia.
+    if not escolhido:
+        escolhido = atual
+
+    if escolhido != st.session_state[estado]:
+        st.session_state[estado] = escolhido
+    if str(st.query_params.get(param_url, "")) != escolhido:
+        st.query_params[param_url] = escolhido
+
+    paginas[escolhido]()
+
+
 def _render_abas_operacao(usuario_logado):
     """Renderiza as 9 abas de Operação (usada tanto no admin quanto nos colaboradores)."""
-    _abas_op = st.tabs(["Análise de Viabilidade", "Triagem", "Palavras-chave", "Título",
-                         "Descrição", "Imagem", "Vídeo", "Análise de Venda", "Histórico"])
-    (aba_viab, aba_tri, aba_pal, aba_tit,
-     aba_des, aba_img, aba_vid, aba_av, aba_hist) = _abas_op
-
-    with aba_vid:
-        video.pagina_video(usuario_logado)
-    with aba_hist:
-        atividades.pagina_historico()
-    with aba_tri:
-        triagem.pagina_triagem(usuario_logado)
-    with aba_pal:
-        palavras_chave.pagina_palavras_chave(usuario_logado)
-    with aba_tit:
-        titulo.pagina_titulo(usuario_logado)
-    with aba_img:
-        imagem.pagina_imagem(usuario_logado)
-    with aba_des:
-        descricao.pagina_descricao(usuario_logado)
-    with aba_av:
-        _render_analise_venda_tab()
-    with aba_viab:
-        _render_viabilidade_tab()
+    _navegar({
+        "Análise de Viabilidade": _render_viabilidade_tab,
+        "Triagem":                lambda: triagem.pagina_triagem(usuario_logado),
+        "Palavras-chave":         lambda: palavras_chave.pagina_palavras_chave(usuario_logado),
+        "Título":                 lambda: titulo.pagina_titulo(usuario_logado),
+        "Descrição":              lambda: descricao.pagina_descricao(usuario_logado),
+        "Imagem":                 lambda: imagem.pagina_imagem(usuario_logado),
+        "Vídeo":                  lambda: video.pagina_video(usuario_logado),
+        "Análise de Venda":       _render_analise_venda_tab,
+        "Histórico":              atividades.pagina_historico,
+    }, "aba")
 
 
 # ── NAVEGAÇÃO PRINCIPAL ───────────────────────────────────────────────────────
@@ -1508,56 +1547,33 @@ if _eh_admin:
 
     if _gestao_ativa:
         if _eh_martinsousa:
-            _abas_g = st.tabs(["🏆 Painel de Metas", "📊 Análise de Metas", "🕐 Ponto", "💰 Financeiro", "Administrativo"])
-            with _abas_g[0]:
-                placar.pagina_placar(usuario_logado)
-            with _abas_g[1]:
-                analise_metas.pagina_analise_metas(usuario_logado)
-            with _abas_g[2]:
-                relogio_ponto.pagina_ponto(usuario_logado)
-            with _abas_g[3]:
-                financeiro.pagina_financeiro(usuario_logado)
-            with _abas_g[4]:
-                admin.pagina_admin(usuario_logado)
+            _navegar({
+                "🏆 Painel de Metas":  lambda: placar.pagina_placar(usuario_logado),
+                "📊 Análise de Metas": lambda: analise_metas.pagina_analise_metas(usuario_logado),
+                "🕐 Ponto":            lambda: relogio_ponto.pagina_ponto(usuario_logado),
+                "💰 Financeiro":       lambda: financeiro.pagina_financeiro(usuario_logado),
+                "Administrativo":     lambda: admin.pagina_admin(usuario_logado),
+            }, "aba_g")
         else:
-            _abas_g = st.tabs(["🏆 Painel de Metas", "📊 Análise de Metas"])
-            with _abas_g[0]:
-                placar.pagina_placar(usuario_logado)
-            with _abas_g[1]:
-                analise_metas.pagina_analise_metas(usuario_logado)
+            _navegar({
+                "🏆 Painel de Metas":  lambda: placar.pagina_placar(usuario_logado),
+                "📊 Análise de Metas": lambda: analise_metas.pagina_analise_metas(usuario_logado),
+            }, "aba_g")
     else:
         _render_abas_operacao(usuario_logado)
 
 else:
     # ── COLABORADORES: barra única com 11 abas ────────────────────────────────
-    _abas_c = st.tabs([
-        "Análise de Viabilidade", "Triagem", "Palavras-chave", "Título",
-        "Descrição", "Imagem", "Vídeo", "Análise de Venda", "Histórico",
-        "🏆 Painel de Metas", "📊 Análise de Metas",
-    ])
-    (aba_viab_c, aba_tri_c, aba_pal_c, aba_tit_c,
-     aba_des_c, aba_img_c, aba_vid_c, aba_av_c, aba_hist_c,
-     aba_painel_c, aba_am_c) = _abas_c
-
-    with aba_vid_c:
-        video.pagina_video(usuario_logado)
-    with aba_hist_c:
-        atividades.pagina_historico()
-    with aba_tri_c:
-        triagem.pagina_triagem(usuario_logado)
-    with aba_pal_c:
-        palavras_chave.pagina_palavras_chave(usuario_logado)
-    with aba_tit_c:
-        titulo.pagina_titulo(usuario_logado)
-    with aba_img_c:
-        imagem.pagina_imagem(usuario_logado)
-    with aba_des_c:
-        descricao.pagina_descricao(usuario_logado)
-    with aba_painel_c:
-        placar.pagina_placar(usuario_logado)
-    with aba_am_c:
-        analise_metas.pagina_analise_metas(usuario_logado)
-    with aba_av_c:
-        _render_analise_venda_tab()
-    with aba_viab_c:
-        _render_viabilidade_tab()
+    _navegar({
+        "Análise de Viabilidade": _render_viabilidade_tab,
+        "Triagem":                lambda: triagem.pagina_triagem(usuario_logado),
+        "Palavras-chave":         lambda: palavras_chave.pagina_palavras_chave(usuario_logado),
+        "Título":                 lambda: titulo.pagina_titulo(usuario_logado),
+        "Descrição":              lambda: descricao.pagina_descricao(usuario_logado),
+        "Imagem":                 lambda: imagem.pagina_imagem(usuario_logado),
+        "Vídeo":                  lambda: video.pagina_video(usuario_logado),
+        "Análise de Venda":       _render_analise_venda_tab,
+        "Histórico":              atividades.pagina_historico,
+        "🏆 Painel de Metas":      lambda: placar.pagina_placar(usuario_logado),
+        "📊 Análise de Metas":     lambda: analise_metas.pagina_analise_metas(usuario_logado),
+    }, "aba")
