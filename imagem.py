@@ -453,59 +453,80 @@ def _normalizar_nome(texto):
     return _re_nome.sub(r"[^a-z0-9]+", " ", t).strip()
 
 
+_SINONIMOS_TIPO = {
+    "1 —": {"capa", "principal", "branco", "fundo"},
+    "2 —": {"beneficios", "beneficio", "vantagens", "features"},
+    "3 —": {"cenario", "uso", "lifestyle", "contexto", "pessoas", "rotina"},
+    "4 —": {"close", "detalhe", "detalhes", "zoom", "macro"},
+    "5 —": {"medidas", "medida", "dimensoes", "dimensao", "tecnicas", "tecnica",
+            "caracteristicas", "especificacoes", "specs", "tamanho", "peso", "material"},
+    "6 —": {"objecao", "objecoes", "duvidas", "duvida", "perguntas", "faq"},
+    "7 —": {"presente", "presentear", "presenteie", "gift", "brinde"},
+    "8 —": {"ambiente", "ambientacao", "ambientada", "editorial", "cena"},
+}
+
+# Palavras que aparecem em quase todo nome de arquivo e em varios tipos. Contar
+# essas como acerto fazia "Produto com fundo branco" casar com "Beneficios do
+# produto" — layout errado copiado por causa de uma palavra generica.
+_PALAVRAS_VAZIAS = {
+    "de", "do", "da", "no", "na", "em", "com", "os", "as", "nos", "que", "ele",
+    "produto", "produtos", "anuncio", "imagem", "imagens", "foto", "fotos",
+    "arquivo", "referencia", "layout", "modelo", "exemplo", "cliente", "final",
+}
+
+
+def _palavras_uteis(texto):
+    return {
+        p for p in _normalizar_nome(texto).split()
+        if len(p) > 2 and p not in _PALAVRAS_VAZIAS
+    }
+
+
+def _pontuar_ref(tipo, nome_arquivo):
+    """Quantas palavras significativas o nome do arquivo tem em comum com o tipo."""
+    alvo = _palavras_uteis(tipo)
+    for prefixo, sinonimos in _SINONIMOS_TIPO.items():
+        if tipo.startswith(prefixo):
+            alvo |= sinonimos
+            break
+    return len(alvo & _palavras_uteis(nome_arquivo.rsplit(".", 1)[0]))
+
+
 def ref_layout_do_tipo(tipo, refs_bytes, refs_nomes):
-    """Escolhe a imagem de referência de layout que pertence a este tipo.
+    """Escolhe a imagem de referencia de layout que pertence a este tipo.
 
-    O colaborador nomeia os arquivos pelo que eles representam — "beneficios.png",
-    "fundo_branco.jpg", "quebra de objecao.png". A escolha é por essas palavras,
-    não por ordem de upload: enviar as referências fora de ordem não pode
-    embaralhar as peças.
+    O colaborador nomeia os arquivos pelo que eles representam — "Presenteie
+    (frases impactantes)", "Caracteristicas (medidas/peso/material).webp". A
+    escolha e por essas palavras, nao por ordem de upload: enviar as referencias
+    fora de ordem nao pode embaralhar as pecas.
 
-    Retorna (bytes, nome) ou (None, None) quando nenhuma referência corresponde —
-    caso em que a peça é gerada sem referência de layout, e não com a referência
-    de outro tipo, que seria pior do que nenhuma.
+    O casamento e MUTUO: a referencia so e usada por este tipo se este tipo for
+    tambem a melhor correspondencia dela. Sem isso, uma peca sem referencia
+    propria roubava a de outra por uma palavra solta em comum — foi assim que
+    "Beneficios do produto" ficou com a referencia de fundo branco.
+
+    Retorna (bytes, nome) ou (None, None). Sem correspondencia a peca e gerada
+    sem referencia, o que e melhor do que gerar com a referencia de outro tipo.
     """
-    if not refs_bytes:
+    if not refs_bytes or not refs_nomes:
         return None, None
 
-    tipo_norm = _normalizar_nome(tipo)
-    # Sinônimos: o colaborador nomeia pelo que a peça É, não pelo rótulo exato
-    # do tipo. "medidas.png" e "dimensoes.jpg" são a peça de características
-    # técnicas; "presente.png" é a de presentear. Sem isto, casar dependia de o
-    # nome do arquivo repetir a palavra do menu, o que ninguém faz.
-    _SINONIMOS = {
-        "1 —": {"capa", "principal", "branco", "fundo", "produto"},
-        "2 —": {"beneficios", "beneficio", "vantagens", "features"},
-        "3 —": {"cenario", "uso", "lifestyle", "contexto", "pessoas", "rotina"},
-        "4 —": {"close", "detalhe", "detalhes", "zoom", "macro"},
-        "5 —": {"medidas", "medida", "dimensoes", "dimensao", "tecnicas",
-                "tecnica", "especificacoes", "specs", "tamanho", "peso"},
-        "6 —": {"objecao", "objecoes", "duvidas", "duvida", "perguntas", "faq"},
-        "7 —": {"presente", "presentear", "presenteie", "gift", "brinde"},
-        "8 —": {"ambiente", "ambientacao", "ambientada", "editorial", "cena"},
-    }
-    for prefixo, palavras in _SINONIMOS.items():
-        if tipo.startswith(prefixo):
-            tipo_norm = tipo_norm + " " + " ".join(palavras)
-            break
-
-    # Descarta o numero do tipo ("2") e palavras vazias de significado
-    _IGNORAR = {"de", "do", "da", "no", "na", "em", "com", "e", "o", "a", "os", "as", "nos"}
-    palavras_tipo = {p for p in tipo_norm.split() if len(p) > 2 and p not in _IGNORAR}
-
-    melhor, melhor_nota = None, 0
-    for i, nome in enumerate(refs_nomes or []):
+    melhor_i, melhor_nota = None, 0
+    for i, nome in enumerate(refs_nomes):
         if i >= len(refs_bytes):
             break
-        nome_norm = _normalizar_nome(nome.rsplit(".", 1)[0])
-        palavras_nome = {p for p in nome_norm.split() if len(p) > 2 and p not in _IGNORAR}
-        nota = len(palavras_tipo & palavras_nome)
-        if nota > melhor_nota:
-            melhor, melhor_nota = i, nota
+        nota = _pontuar_ref(tipo, nome)
+        if nota <= 0 or nota <= melhor_nota:
+            continue
+        # A referencia pertence a este tipo? Se ela pontua mais alto em outro,
+        # e daquele outro.
+        if any(_pontuar_ref(t, nome) > nota for t in TIPOS_PADRAO):
+            continue
+        melhor_i, melhor_nota = i, nota
 
-    if melhor is None:
+    if melhor_i is None:
         return None, None
-    return refs_bytes[melhor], (refs_nomes or [])[melhor]
+    return refs_bytes[melhor_i], refs_nomes[melhor_i]
 
 
 def _gerar_imagem_thread(prompt_texto, imagens_ref, resultado, refs_layout=None,
