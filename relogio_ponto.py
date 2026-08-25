@@ -22,12 +22,18 @@ import rhid_api as _rhid
 MEMBROS = _pc.MEMBROS_ATIVOS          # {"username": "Nome", ...}
 MASTERS = _pc.MASTERS                 # {"martinsousa", "renan"}
 
-# Horário padrão de expediente (usado para cálculo de tolerância)
-ENTRADA_ESPERADA  = time(8,  0)
+# Horário padrão de expediente
+ENTRADA_ESPERADA  = time(9,  0)
 SAIDA_ALMOCO      = time(12, 0)
 VOLTA_ALMOCO      = time(13, 0)
 FIM_EXPEDIENTE    = time(17, 0)
-TOLERANCIA_MINUTOS = 10               # atraso ≤ 10 min não é tolerância registrada
+
+# Regra de pontualidade da casa:
+#   bateu a entrada até 09h05  → tolerância (não é atraso)
+#   bateu depois das 09h05     → atraso
+#   voltou atrasado do almoço  → atraso, mesmo que por 1 minuto (não há tolerância)
+LIMITE_TOLERANCIA_ENTRADA = time(9, 5)
+TOLERANCIA_MINUTOS = 10               # legado: minutos de folga do cálculo antigo
 
 TIPOS_PONTO = {
     "entrada":        "🟢 Entrada",
@@ -213,6 +219,14 @@ def calcular_indicadores_dia(regs: list[dict]) -> dict:
         "duracao_almoco":   0.0,
         "tolerancia_min":   0.0,
         "saiu_cedo_min":    0.0,
+        # Pontualidade (contagem, não minutos)
+        "tolerancia_entrada":  False,
+        "atraso_entrada":      False,
+        "atraso_almoco":       False,
+        "min_atraso_entrada":  0.0,
+        "min_atraso_almoco":   0.0,
+        "qtd_tolerancias":     0,
+        "qtd_atrasos":         0,
     }
     tipos = {reg["tipo"]: reg for reg in regs}
 
@@ -232,10 +246,27 @@ def calcular_indicadores_dia(regs: list[dict]) -> dict:
     total_periodo = _diff_min(r["entrada"], r["fim_expediente"])
     r["horas_disponiveis"] = max(total_periodo - r["duracao_almoco"], 0)
 
-    # Tolerância de entrada (atraso acima do limite de tolerância)
+    # ── Pontualidade ──────────────────────────────────────────────────────────
+    # Entrada: no horário até ENTRADA_ESPERADA; tolerância até 09h05; depois, atraso.
     if r["entrada"]:
-        entrada_min = _diff_min(ENTRADA_ESPERADA, r["entrada"])   # > 0 se atrasado
-        r["tolerancia_min"] = max(entrada_min - TOLERANCIA_MINUTOS, 0)
+        atraso_ent = _diff_min(ENTRADA_ESPERADA, r["entrada"])   # > 0 se atrasado
+        if r["entrada"] > LIMITE_TOLERANCIA_ENTRADA:
+            r["atraso_entrada"]     = True
+            r["min_atraso_entrada"] = atraso_ent
+        elif atraso_ent > 0:
+            r["tolerancia_entrada"] = True
+            r["min_atraso_entrada"] = atraso_ent
+            r["tolerancia_min"]     = atraso_ent
+
+    # Volta do almoço não tem tolerância: um minuto atrasado já é atraso.
+    if r["volta_almoco"] and r["volta_almoco"] > VOLTA_ALMOCO:
+        r["atraso_almoco"]     = True
+        r["min_atraso_almoco"] = _diff_min(VOLTA_ALMOCO, r["volta_almoco"])
+
+    # Entrada e volta do almoço são ocorrências separadas: atrasar nas duas no
+    # mesmo dia conta dois atrasos.
+    r["qtd_atrasos"]     = int(r["atraso_entrada"]) + int(r["atraso_almoco"])
+    r["qtd_tolerancias"] = int(r["tolerancia_entrada"])
 
     # Saiu cedo (antes do fim esperado)
     if r["fim_expediente"]:
@@ -267,6 +298,10 @@ def calcular_resumo_mes(ano: int, mes: int) -> dict:
             "total_horas_disp":    0.0,  # em minutos
             "total_tolerancia_min": 0.0,
             "total_saiu_cedo_min":  0.0,
+            "qtd_tolerancias":     0,
+            "qtd_atrasos":         0,
+            "atrasos_entrada":     0,
+            "atrasos_almoco":      0,
             "detalhes":            [],
         }
         for u in MEMBROS
@@ -284,6 +319,10 @@ def calcular_resumo_mes(ano: int, mes: int) -> dict:
                 resumo[username]["total_horas_disp"]    += ind["horas_disponiveis"]
                 resumo[username]["total_tolerancia_min"] += ind["tolerancia_min"]
                 resumo[username]["total_saiu_cedo_min"]  += ind["saiu_cedo_min"]
+                resumo[username]["qtd_tolerancias"] += ind["qtd_tolerancias"]
+                resumo[username]["qtd_atrasos"]     += ind["qtd_atrasos"]
+                resumo[username]["atrasos_entrada"] += int(ind["atraso_entrada"])
+                resumo[username]["atrasos_almoco"]  += int(ind["atraso_almoco"])
             resumo[username]["detalhes"].append({"data": data_str, **ind})
 
     return resumo
@@ -589,6 +628,51 @@ def _secao_historico_mensal(eh_master: bool, usuario_logado: str):
 
 # ── Dados para analise_metas.py ────────────────────────────────────────────────
 
+def get_pontualidade_mes(ano: int, mes: int) -> dict:
+    """Contagem de tolerâncias e atrasos do mês, por colaborador.
+
+    Regra da casa: entrada até 09h05 é tolerância, depois disso é atraso; volta
+    do almoço atrasada é atraso mesmo que por um minuto. Entrada e volta são
+    ocorrências separadas.
+
+    Retorna {username: {"tolerancias": int, "atrasos": int, "atrasos_entrada": int,
+                        "atrasos_almoco": int, "dias_trabalhados": int,
+                        "ocorrencias": [ {data, tipo, horario, minutos} ]}}
+    """
+    resumo = calcular_resumo_mes(ano, mes)
+    resultado = {}
+    for u in MEMBROS:
+        ocorrencias = []
+        for det in resumo[u]["detalhes"]:
+            if det.get("tolerancia_entrada"):
+                ocorrencias.append({
+                    "data": det["data"], "tipo": "tolerancia",
+                    "horario": det["entrada"].strftime("%H:%M") if det["entrada"] else "—",
+                    "minutos": det["min_atraso_entrada"],
+                })
+            if det.get("atraso_entrada"):
+                ocorrencias.append({
+                    "data": det["data"], "tipo": "atraso_entrada",
+                    "horario": det["entrada"].strftime("%H:%M") if det["entrada"] else "—",
+                    "minutos": det["min_atraso_entrada"],
+                })
+            if det.get("atraso_almoco"):
+                ocorrencias.append({
+                    "data": det["data"], "tipo": "atraso_almoco",
+                    "horario": det["volta_almoco"].strftime("%H:%M") if det["volta_almoco"] else "—",
+                    "minutos": det["min_atraso_almoco"],
+                })
+        resultado[u] = {
+            "tolerancias":      resumo[u]["qtd_tolerancias"],
+            "atrasos":          resumo[u]["qtd_atrasos"],
+            "atrasos_entrada":  resumo[u]["atrasos_entrada"],
+            "atrasos_almoco":   resumo[u]["atrasos_almoco"],
+            "dias_trabalhados": resumo[u]["dias_trabalhados"],
+            "ocorrencias":      ocorrencias,
+        }
+    return resultado
+
+
 def get_ociosidade_mes(ano: int, mes: int, tempo_cards_por_user: dict) -> dict:
     """
     Calcula ociosidade por colaborador no mês.
@@ -615,6 +699,8 @@ def get_ociosidade_mes(ano: int, mes: int, tempo_cards_por_user: dict) -> dict:
             "dias_trabalhados": resumo[u]["dias_trabalhados"],
             "dias_ausentes": resumo[u]["dias_ausentes"],
             "total_tolerancia_min": resumo[u]["total_tolerancia_min"],
+            "qtd_tolerancias": resumo[u]["qtd_tolerancias"],
+            "qtd_atrasos":     resumo[u]["qtd_atrasos"],
         }
     return resultado
 
