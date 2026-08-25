@@ -225,3 +225,123 @@ def pagina_admin(usuario_logado):
                     "3. **OAuth** (funciona até com Gmail comum): configure o bloco de secret "
                     "`[gdrive_oauth]` com `client_id`, `client_secret` e `refresh_token`."
                 )
+
+    # ── ASSISTENTE DE OAUTH DO DRIVE ─────────────────────────────────────────
+    # O OAuth exige um consentimento humano no navegador — ninguém pode autorizar
+    # acesso ao Drive de outra pessoa, e é exatamente isso que ele protege. O que
+    # dá para automatizar é o resto: montar a URL de autorização com os parâmetros
+    # certos e trocar o código pelo refresh_token. Feito à mão, é aí que se erra
+    # (falta access_type=offline, falta prompt=consent, escopo errado) e o token
+    # volta sem refresh — funcionando por uma hora e quebrando depois.
+    st.markdown("---")
+    st.markdown("#### 🔑 Assistente de configuração do OAuth do Drive")
+    st.caption(
+        "Gera o refresh_token que falta para o sistema gravar no Drive. "
+        "Use uma vez; depois é só colar o resultado no Railway."
+    )
+
+    with st.expander("Abrir assistente", expanded=False):
+        st.markdown(
+            "**Antes de começar**, no `console.cloud.google.com` (projeto `martinsousa-app`):\n\n"
+            "1. **APIs e serviços → Biblioteca** → ative a **Google Drive API**\n"
+            "2. **Tela de permissão OAuth** → tipo **Externo** → preencha o básico → "
+            "**PUBLICAR APLICATIVO** (se ficar em *Teste*, o token expira em 7 dias)\n"
+            "3. **Credenciais → Criar credenciais → ID do cliente OAuth** → "
+            "**Aplicativo da Web**\n"
+            "4. Em *URIs de redirecionamento autorizados*, adicione **exatamente** o "
+            "endereço abaixo:"
+        )
+        _redirect = st.text_input(
+            "URI de redirecionamento (cole este valor no Google Cloud Console)",
+            value="https://app.martinsousa.com.br/",
+            key="oauth_redirect",
+        )
+
+        st.markdown("---")
+        _cid = st.text_input("client_id", key="oauth_cid",
+                             placeholder="...apps.googleusercontent.com")
+        _csec = st.text_input("client_secret", key="oauth_csec", type="password")
+
+        if _cid and _csec:
+            from urllib.parse import urlencode as _urlencode
+            _params = _urlencode({
+                "client_id": _cid.strip(),
+                "redirect_uri": _redirect.strip(),
+                "response_type": "code",
+                "scope": "https://www.googleapis.com/auth/drive",
+                # Sem estes dois o Google devolve só um token de 1 hora, sem
+                # refresh_token — o erro mais comum neste fluxo.
+                "access_type": "offline",
+                "prompt": "consent",
+            })
+            _url_auth = f"https://accounts.google.com/o/oauth2/v2/auth?{_params}"
+            st.markdown(
+                f"**Passo 1 —** [Clique aqui para autorizar no Google]({_url_auth})\n\n"
+                "Entre com a conta dona do Drive e clique em **Permitir**. "
+                "Você vai voltar para o Studio com um `?code=...` na barra de endereço."
+            )
+            st.markdown("**Passo 2 —** cole aqui o valor do `code` que apareceu na URL:")
+            _codigo = st.text_input("code", key="oauth_code")
+
+            if st.button("Gerar refresh_token", type="primary",
+                         use_container_width=True, disabled=not _codigo.strip()):
+                import requests as _rq
+                with st.spinner("Trocando o código pelo token..."):
+                    try:
+                        _r = _rq.post(
+                            "https://oauth2.googleapis.com/token",
+                            data={
+                                "code": _codigo.strip(),
+                                "client_id": _cid.strip(),
+                                "client_secret": _csec.strip(),
+                                "redirect_uri": _redirect.strip(),
+                                "grant_type": "authorization_code",
+                            },
+                            timeout=30,
+                        )
+                        _dados = _r.json()
+                    except Exception as _e_tok:
+                        _dados = {"error": "falha_rede", "error_description": str(_e_tok)}
+
+                _refresh = _dados.get("refresh_token", "")
+                if _refresh:
+                    st.success("✅ Token gerado. Copie o bloco abaixo.")
+                    st.markdown(
+                        "**Passo 3 —** no **Railway → Variables**, cole isto nas secrets "
+                        "e aguarde o redeploy:"
+                    )
+                    st.code(
+                        '[gdrive_oauth]\n'
+                        f'client_id = "{_cid.strip()}"\n'
+                        f'client_secret = "{_csec.strip()}"\n'
+                        f'refresh_token = "{_refresh}"',
+                        language="toml",
+                    )
+                    st.info(
+                        "Depois do redeploy, volte aqui e rode **Testar conexão com o "
+                        "Drive**. O modo deve aparecer como *OAuth* e a gravação em verde."
+                    )
+                    st.warning(
+                        "Esse refresh_token dá acesso de escrita ao seu Drive. Cole no "
+                        "Railway e não deixe cópia em documento, e-mail ou conversa."
+                    )
+                elif _dados.get("error"):
+                    _desc = _dados.get("error_description", "")
+                    st.error(f"❌ {_dados['error']}: {_desc}")
+                    if _dados["error"] == "invalid_grant":
+                        st.info(
+                            "O código só vale uma vez e expira em minutos. Refaça o "
+                            "Passo 1 e cole um código novo."
+                        )
+                    elif _dados["error"] == "redirect_uri_mismatch":
+                        st.info(
+                            "A URI de redirecionamento aqui e a cadastrada no Google "
+                            "Cloud Console precisam ser idênticas — inclusive a barra "
+                            "no final."
+                        )
+                else:
+                    st.error(
+                        "O Google respondeu sem refresh_token. Isso acontece quando a "
+                        "conta já autorizou este app antes. Remova o acesso em "
+                        "myaccount.google.com/permissions e refaça o Passo 1."
+                    )
