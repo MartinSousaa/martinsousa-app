@@ -1679,16 +1679,23 @@ def _drive_service():
     return gdrive.service()
 
 
-def buscar_pasta_produto(nome_produto, codigo, pasta_pai_id):
+def buscar_pasta_produto(nome_produto, codigo, pasta_pai_id, diagnostico=None):
     """Busca pasta exata '[Nome] - [Código]' ou pelo nome aproximado.
-    Retorna lista de (id, name) encontrados."""
+
+    Retorna lista de (id, name). Quando `diagnostico` recebe um dict, uma falha
+    da API e registrada la em vez de virar lista vazia — quem chama precisa
+    distinguir "nao existe" de "nao consegui verificar", porque no primeiro caso
+    criar a pasta e certo e no segundo cria duplicata.
+    """
     import gdrive
     nome_exato = f"{nome_produto} - {codigo}".strip(" -")
 
     # Tenta nome exato primeiro
     q = (f"'{pasta_pai_id}' in parents and mimeType='application/vnd.google-apps.folder' "
          f"and name='{nome_exato}' and trashed=false")
-    achados = gdrive.listar(q)
+    achados = gdrive.listar(q, diagnostico=diagnostico)
+    if diagnostico is not None and diagnostico.get("erro"):
+        return []
     if achados:
         return [(f["id"], f["name"]) for f in achados]
 
@@ -1700,7 +1707,9 @@ def buscar_pasta_produto(nome_produto, codigo, pasta_pai_id):
                 continue
             q2 = (f"'{pasta_pai_id}' in parents and mimeType='application/vnd.google-apps.folder' "
                   f"and name contains '{palavra}' and trashed=false")
-            achados2 = gdrive.listar(q2)
+            achados2 = gdrive.listar(q2, diagnostico=diagnostico)
+            if diagnostico is not None and diagnostico.get("erro"):
+                return []
             if achados2:
                 return [(f["id"], f["name"]) for f in achados2]
     return []
@@ -2869,13 +2878,27 @@ def pagina_imagem(usuario_logado):
 
         # Busca pasta existente (cacheada em session_state para não bater na API a cada rerender)
         _cache_key = f"_pasta_{nome_gal}__{codigo_gal}"
+        _busca_falhou = False
         if _cache_key not in st.session_state:
             if pasta_pai and nome_gal:
+                _diag_busca = {}
                 with st.spinner("Verificando pasta no Drive..."):
-                    st.session_state[_cache_key] = buscar_pasta_produto(nome_gal, codigo_gal, pasta_pai)
+                    st.session_state[_cache_key] = buscar_pasta_produto(
+                        nome_gal, codigo_gal, pasta_pai, diagnostico=_diag_busca
+                    )
+                if _diag_busca.get("erro"):
+                    # Nao guarda em cache: a proxima tentativa deve consultar de novo
+                    # em vez de tratar a falha como "pasta nao existe" para sempre.
+                    del st.session_state[_cache_key]
+                    _busca_falhou = True
+                    st.warning(
+                        "Não consegui verificar se já existe pasta desse produto no "
+                        "Drive. Salvar agora criaria uma pasta duplicada — tente de "
+                        f"novo em instantes.\n\n{_diag_busca['erro']}"
+                    )
             else:
                 st.session_state[_cache_key] = []
-        pastas_encontradas = st.session_state[_cache_key]
+        pastas_encontradas = st.session_state.get(_cache_key, [])
 
         nome_pasta_novo = f"{nome_gal} - {codigo_gal}".strip(" -") if codigo_gal else nome_gal
 
@@ -2902,6 +2925,7 @@ def pagina_imagem(usuario_logado):
             f"☁️ APROVAR E SALVAR no Drive ({len(galeria)} imagens)",
             type="primary",
             use_container_width=True,
+            disabled=_busca_falhou,
         ):
             err_pasta = None
             if not pasta_pai:
@@ -2912,6 +2936,13 @@ def pagina_imagem(usuario_logado):
                     pasta_destino_id, err_pasta = criar_pasta_produto(nome_pasta_novo, pasta_pai)
                 if err_pasta:
                     st.error(f"Não foi possível criar a pasta no Drive.\n\n{err_pasta}")
+                else:
+                    # Registra a pasta recem-criada no cache da sessao. Sem isto, o
+                    # cache continuava dizendo "nao existe" e um segundo clique —
+                    # comum quando o upload falha — criava OUTRA pasta com o mesmo
+                    # nome. Foi assim que apareceram duas pastas vazias do mesmo
+                    # album no Drive.
+                    st.session_state[_cache_key] = [(pasta_destino_id, nome_pasta_novo)]
 
             # NÃO usar st.stop() aqui: isso impediria o botão de ZIP abaixo de
             # renderizar, e as imagens só existem em memória — o colaborador

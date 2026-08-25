@@ -200,12 +200,21 @@ def criar_pasta(nome_pasta, pasta_pai_id):
         return None, erro_amigavel(e)
 
 
-def listar(q, fields="files(id,name)"):
-    """Lista arquivos/pastas. Retorna lista de dicts (vazia em caso de erro)."""
+def listar(q, fields="files(id,name)", diagnostico=None):
+    """Lista arquivos/pastas. Retorna lista de dicts.
+
+    Em caso de erro devolve lista vazia — mas registra o motivo em `diagnostico`
+    quando um dict e passado. Sem isso, "a busca falhou" e "nao existe nada" sao
+    resultados IDENTICOS para quem chama, e a diferenca importa: ao procurar a
+    pasta de um produto, falha lida como ausencia faz o app criar uma pasta
+    duplicada em vez de reaproveitar a que ja existe.
+    """
     try:
         res = service().files().list(q=q, fields=fields, **_SHARED_LIST).execute()
         return res.get("files", [])
-    except Exception:
+    except Exception as e:
+        if diagnostico is not None:
+            diagnostico["erro"] = erro_amigavel(e)
         return []
 
 
