@@ -22,18 +22,37 @@ import rhid_api as _rhid
 MEMBROS = _pc.MEMBROS_ATIVOS          # {"username": "Nome", ...}
 MASTERS = _pc.MASTERS                 # {"martinsousa", "renan"}
 
-# Horário padrão de expediente
-ENTRADA_ESPERADA  = time(9,  0)
+# ── Horários de expediente ────────────────────────────────────────────────────
+# Padrão da casa: 09h00 às 18h00. Myrella cumpre 08h45 às 17h45.
+ENTRADA_ESPERADA  = time(9,  0)   # padrão (mantido como nome público)
 SAIDA_ALMOCO      = time(12, 0)
 VOLTA_ALMOCO      = time(13, 0)
-FIM_EXPEDIENTE    = time(17, 0)
+FIM_EXPEDIENTE    = time(18, 0)   # padrão
+
+HORARIO_PADRAO = {"entrada": ENTRADA_ESPERADA, "fim": FIM_EXPEDIENTE}
+HORARIOS = {
+    "myrelladesouza": {"entrada": time(8, 45), "fim": time(17, 45)},
+}
 
 # Regra de pontualidade da casa:
-#   bateu a entrada até 09h05  → tolerância (não é atraso)
-#   bateu depois das 09h05     → atraso
-#   voltou atrasado do almoço  → atraso, mesmo que por 1 minuto (não há tolerância)
-LIMITE_TOLERANCIA_ENTRADA = time(9, 5)
+#   entrada até o horário                    → no horário
+#   até 5 min depois (09h05 no padrão)       → tolerância
+#   depois disso                             → atraso
+#   voltou atrasado do almoço                → atraso, mesmo que por 1 minuto
+TOLERANCIA_ENTRADA_MIN = 5
 TOLERANCIA_MINUTOS = 10               # legado: minutos de folga do cálculo antigo
+
+
+def horario_de(username: Optional[str]) -> dict:
+    """Horário de expediente do colaborador (quem não tem exceção usa o padrão)."""
+    return HORARIOS.get(username, HORARIO_PADRAO)
+
+
+def limite_tolerancia(username: Optional[str]) -> time:
+    """Até que horas a entrada ainda conta como tolerância, e não como atraso."""
+    ent = horario_de(username)["entrada"]
+    return (datetime.combine(date.min, ent)
+            + timedelta(minutes=TOLERANCIA_ENTRADA_MIN)).time()
 
 TIPOS_PONTO = {
     "entrada":        "🟢 Entrada",
@@ -198,7 +217,7 @@ def _diff_min(t1: Optional[time], t2: Optional[time]) -> float:
     return max((dt2 - dt1).total_seconds() / 60, 0)
 
 
-def calcular_indicadores_dia(regs: list[dict]) -> dict:
+def calcular_indicadores_dia(regs: list[dict], username: Optional[str] = None) -> dict:
     """
     Recebe lista de registros de um dia para um único colaborador.
     Retorna dict com:
@@ -228,6 +247,14 @@ def calcular_indicadores_dia(regs: list[dict]) -> dict:
         "qtd_tolerancias":     0,
         "qtd_atrasos":         0,
     }
+    # Cada colaborador pode ter horário próprio; sem username, usa o padrão.
+    if username is None and regs:
+        username = regs[0].get("username")
+    _h = horario_de(username)
+    entrada_esperada = _h["entrada"]
+    fim_esperado     = _h["fim"]
+    limite_tol       = limite_tolerancia(username)
+
     tipos = {reg["tipo"]: reg for reg in regs}
 
     if "ausencia" in tipos:
@@ -247,10 +274,11 @@ def calcular_indicadores_dia(regs: list[dict]) -> dict:
     r["horas_disponiveis"] = max(total_periodo - r["duracao_almoco"], 0)
 
     # ── Pontualidade ──────────────────────────────────────────────────────────
-    # Entrada: no horário até ENTRADA_ESPERADA; tolerância até 09h05; depois, atraso.
+    # Entrada: no horário até o horário da pessoa; tolerância nos 5 minutos
+    # seguintes (09h05 no padrão, 08h50 para quem entra 08h45); depois, atraso.
     if r["entrada"]:
-        atraso_ent = _diff_min(ENTRADA_ESPERADA, r["entrada"])   # > 0 se atrasado
-        if r["entrada"] > LIMITE_TOLERANCIA_ENTRADA:
+        atraso_ent = _diff_min(entrada_esperada, r["entrada"])   # > 0 se atrasado
+        if r["entrada"] > limite_tol:
             r["atraso_entrada"]     = True
             r["min_atraso_entrada"] = atraso_ent
         elif atraso_ent > 0:
@@ -270,7 +298,7 @@ def calcular_indicadores_dia(regs: list[dict]) -> dict:
 
     # Saiu cedo (antes do fim esperado)
     if r["fim_expediente"]:
-        r["saiu_cedo_min"] = max(_diff_min(r["fim_expediente"], FIM_EXPEDIENTE), 0)
+        r["saiu_cedo_min"] = max(_diff_min(r["fim_expediente"], fim_esperado), 0)
 
     return r
 
@@ -311,7 +339,7 @@ def calcular_resumo_mes(ano: int, mes: int) -> dict:
         for username, rlist in users.items():
             if username not in resumo:
                 continue
-            ind = calcular_indicadores_dia(rlist)
+            ind = calcular_indicadores_dia(rlist, username)
             if ind["ausente"]:
                 resumo[username]["dias_ausentes"] += 1
             else:
@@ -488,7 +516,8 @@ def _secao_registro(usuario_logado: str, eh_master: bool):
 
     # Registros já existentes nesse dia/pessoa
     regs_existentes = {r["tipo"]: r for r in _get_registros(data_str, username_sel)}
-    ind_existente   = calcular_indicadores_dia(list(regs_existentes.values())) if regs_existentes else None
+    ind_existente   = (calcular_indicadores_dia(list(regs_existentes.values()), username_sel)
+                       if regs_existentes else None)
 
     st.markdown("##### Registrar horário")
 
@@ -500,17 +529,18 @@ def _secao_registro(usuario_logado: str, eh_master: bool):
         tipo_label = col_tipo.selectbox("Tipo", tipo_labels, key="pt_tipo")
         tipo_sel = tipo_opts[tipo_labels.index(tipo_label)]
 
+        _h_sel = horario_de(username_sel)
         horario_default = {
-            "entrada":        ENTRADA_ESPERADA,
+            "entrada":        _h_sel["entrada"],
             "saida_almoco":   SAIDA_ALMOCO,
             "volta_almoco":   VOLTA_ALMOCO,
-            "fim_expediente": FIM_EXPEDIENTE,
+            "fim_expediente": _h_sel["fim"],
             "ausencia":       None,
         }[tipo_sel]
 
         if tipo_sel != "ausencia":
             hora_val = col_hora.time_input(
-                "Horário", value=horario_default or time(8, 0), key="pt_hora"
+                "Horário", value=horario_default or _h_sel["entrada"], key="pt_hora"
             )
             hora_str = hora_val.strftime("%H:%M")
         else:
