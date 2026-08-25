@@ -284,6 +284,10 @@ _CAMPOS_DATA = ("dateTimeStr", "date", "data", "dia", "dataStr", "dataRegistro")
 _CAMPOS_HORA = ("hora", "horario", "time", "dateTime", "marcacao", "batida",
                 "valor", "value", "horaMarcacao")
 _SEQUENCIAS_ENTRADA_SAIDA = (
+    # A apuração da RHiD traz as quatro marcações em "colunaMix" — é o que a
+    # tela mostra como Ent.1 / Saí.1 / Ent.2 / Saí.2.
+    ("colunaMix1", "colunaMix2", "colunaMix3", "colunaMix4"),
+    ("mix1", "mix2", "mix3", "mix4"),
     ("entrada1", "saida1", "entrada2", "saida2"),
     ("entrada", "saidaAlmoco", "voltaAlmoco", "saida"),
     ("entrada", "saida_almoco", "volta_almoco", "saida"),
@@ -387,7 +391,8 @@ def get_registros_diarios(data_ini: str, data_final: str, id_person: int):
     silêncio: {"erro": str|None, "registros_brutos": int, "com_batidas": int,
     "chaves_exemplo": [str]}.
     """
-    diag = {"erro": None, "registros_brutos": 0, "com_batidas": 0, "chaves_exemplo": []}
+    diag = {"erro": None, "registros_brutos": 0, "com_batidas": 0,
+            "chaves_exemplo": [], "exemplo_dia": ""}
 
     apuracao = get_apuracao(data_ini, data_final, id_person)
     if not apuracao:
@@ -402,7 +407,19 @@ def get_registros_diarios(data_ini: str, data_final: str, id_person: int):
         brutos = [apuracao] if isinstance(apuracao, dict) else []
     diag["registros_brutos"] = len(brutos)
     if brutos and isinstance(brutos[0], dict):
-        diag["chaves_exemplo"] = sorted(brutos[0].keys())[:40]
+        diag["chaves_exemplo"] = sorted(brutos[0].keys())
+        # Um dia inteiro, com valores: saber o nome do campo não basta se não dá
+        # para ver que formato ele tem. Prefere um dia que pareça trabalhado.
+        import json as _json
+        _amostra = brutos[0]
+        for _r in brutos:
+            if isinstance(_r, dict) and not _r.get("folga") and not _r.get("faltaDiaInteiro"):
+                _amostra = _r
+                break
+        try:
+            diag["exemplo_dia"] = _json.dumps(_amostra, ensure_ascii=False)[:2500]
+        except Exception:
+            diag["exemplo_dia"] = str(_amostra)[:2500]
 
     saida = []
     for reg in brutos:

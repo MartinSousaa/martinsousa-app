@@ -697,7 +697,7 @@ def _pontualidade_rhid(ano: int, mes: int):
     quando não há dado, ele diz por quê.
     """
     diag = {"fonte": "RHiD", "erro": None, "pessoas": 0, "mapeadas": 0,
-            "dias_com_batida": 0, "chaves_exemplo": []}
+            "dias_com_batida": 0, "chaves_exemplo": [], "exemplo_dia": ""}
 
     persons = _rhid.get_persons()
     if not persons:
@@ -728,6 +728,8 @@ def _pontualidade_rhid(ano: int, mes: int):
             diag["erro"] = d["erro"]
         if d.get("chaves_exemplo") and not diag["chaves_exemplo"]:
             diag["chaves_exemplo"] = d["chaves_exemplo"]
+        if d.get("exemplo_dia") and not diag.get("exemplo_dia"):
+            diag["exemplo_dia"] = d["exemplo_dia"]
 
         acc = {"tolerancias": 0, "atrasos": 0, "atrasos_entrada": 0,
                "atrasos_almoco": 0, "dias_trabalhados": 0, "ocorrencias": [],
@@ -798,7 +800,8 @@ def get_pontualidade_mes(ano: int, mes: int, com_diagnostico: bool = False):
     except Exception as e:
         via_rhid, diag = {}, {"fonte": "RHiD", "erro": str(e)[:200],
                               "pessoas": 0, "mapeadas": 0,
-                              "dias_com_batida": 0, "chaves_exemplo": []}
+                              "dias_com_batida": 0, "chaves_exemplo": [],
+                              "exemplo_dia": ""}
     if any(v["dias_trabalhados"] > 0 for v in via_rhid.values()):
         completo = {u: via_rhid.get(u, {
             "tolerancias": 0, "atrasos": 0, "atrasos_entrada": 0,
