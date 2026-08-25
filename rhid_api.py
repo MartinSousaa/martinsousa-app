@@ -323,6 +323,21 @@ def _extrair_hhmm(valor) -> Optional[str]:
     return None
 
 
+def _e_marcacao(chave, valor) -> bool:
+    """Se este campo parece guardar um horário de batida.
+
+    Campos de data pura ("2026-08-03T00:00:00") casam como 00:00 e sujariam o
+    diagnóstico — o que interessa é hora de verdade, num campo que não seja data.
+    """
+    hora = _extrair_hhmm(valor)
+    if not hora:
+        return False
+    if hora == "00:00":
+        return False
+    k = str(chave).lower()
+    return not (k.startswith("date") or k in ("data", "dia", "diafechamento"))
+
+
 def _extrair_data(reg: dict):
     """date do registro diário, ou None."""
     from datetime import datetime as _dt
@@ -416,7 +431,7 @@ def get_registros_diarios(data_ini: str, data_final: str, id_person: int):
         for _r in brutos:
             if not isinstance(_r, dict):
                 continue
-            _n = sum(1 for v in _r.values() if _extrair_hhmm(v))
+            _n = sum(1 for k, v in _r.items() if _e_marcacao(k, v))
             if _n > _melhor:
                 _melhor, _amostra = _n, _r
             if _n >= 4:
@@ -425,7 +440,7 @@ def get_registros_diarios(data_ini: str, data_final: str, id_person: int):
             diag["campos_com_hora"] = [
                 f"{k} = {v!r} → {_extrair_hhmm(v)}"
                 for k, v in sorted(_amostra.items())
-                if _extrair_hhmm(v)
+                if _e_marcacao(k, v)
             ][:20]
             diag["data_amostra"] = str(_amostra.get("dateTimeStr")
                                        or _amostra.get("date") or "?")[:20]
