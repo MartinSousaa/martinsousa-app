@@ -423,7 +423,10 @@ def _diagnostico_metas_individuais(tem_ponto, sem_exec, diags_pont, erro_pont, d
                 )
                 if d.get("erro"):
                     st.warning(d["erro"])
-                if d.get("chaves_exemplo"):
+                if d.get("exemplo_dia"):
+                    st.caption("Um dia devolvido pela RHiD (é isto que preciso ver):")
+                    st.code(d["exemplo_dia"], language="json")
+                elif d.get("chaves_exemplo"):
                     st.caption("Campos devolvidos pela RHiD: " + ", ".join(d["chaves_exemplo"]))
 
         if sem_exec:
@@ -1930,13 +1933,16 @@ def pagina_analise_metas(usuario_logado):
             meses_lista, _pc._processar
         )
 
-    # Dados do ano completo para aba Desempenho (Jan → mês atual)
-    _meses_ano_full = [(agora.year, m) for m in range(1, agora.month + 1)]
-    with st.spinner("Preparando visão anual..."):
-        dados_ano_full = _analisar_meses(
-            listas, cards, membros_map, id_p, id_t, id_i,
-            _meses_ano_full, _pc._processar
-        )
+    # A visão anual (Jan → mês atual) só é usada pela aba Desempenho, e custa uma
+    # passada por mês. Calcular sempre fazia quem abre a tela em "Dentro do mês"
+    # esperar por oito análises que ninguém ia ver.
+    def _carregar_ano_full():
+        _meses_ano = [(agora.year, m) for m in range(1, agora.month + 1)]
+        with st.spinner("Preparando visão anual..."):
+            return _analisar_meses(
+                listas, cards, membros_map, id_p, id_t, id_i,
+                _meses_ano, _pc._processar
+            )
 
     # ── CABEÇALHO DO PERÍODO ───────────────────────────────────────────────
     total_saldo = sum(r["saldo"] for r in dados)
@@ -1960,12 +1966,29 @@ def pagina_analise_metas(usuario_logado):
         unsafe_allow_html=True
     )
 
-    # ── TABS DE ANÁLISE ────────────────────────────────────────────────────
-    tab_col, tab_ind, tab_des, tab_cfg = st.tabs([
-        "📋 Coletivo", "🎯 Individual", "📈 Desempenho", "⚙️ Configuração de Metas"
-    ])
+    # ── SEÇÕES DE ANÁLISE ──────────────────────────────────────────────────
+    # Não é st.tabs: ele executa o corpo de TODAS as abas em todo rerun — o
+    # servidor nem fica sabendo qual está aberta. Aqui isso significava rodar
+    # Coletivo, Individual (com as chamadas à RHiD), Desempenho (com a visão
+    # anual e os gráficos) e Configuração de uma vez só, a cada clique.
+    _ABAS = ["📋 Coletivo", "🎯 Individual", "📈 Desempenho", "⚙️ Configuração de Metas"]
+    _chave_aba = "_am_aba"
+    if _chave_aba not in st.session_state:
+        _da_url = str(st.query_params.get("aba_am", "")).strip()
+        st.session_state[_chave_aba] = _da_url if _da_url in _ABAS else _ABAS[0]
 
-    with tab_col:
+    _aba_sel = st.segmented_control(
+        "Seção", _ABAS,
+        default=st.session_state[_chave_aba],
+        key="am_aba_sel", label_visibility="collapsed",
+    ) or st.session_state[_chave_aba]
+
+    if _aba_sel != st.session_state[_chave_aba]:
+        st.session_state[_chave_aba] = _aba_sel
+        st.query_params["aba_am"] = _aba_sel
+        st.rerun()
+
+    if _aba_sel == _ABAS[0]:
         _secao_metas_card(dados)
 
         st.markdown("---")
@@ -1990,7 +2013,7 @@ def pagina_analise_metas(usuario_logado):
             else:
                 st.caption("Nenhum cartão em andamento no período.")
 
-    with tab_ind:
+    elif _aba_sel == _ABAS[1]:
         # Reutiliza _eh_master/_username_atual calculados no início da página
         _username_logado = _username_atual
         _secao_meta_individual(
@@ -2013,8 +2036,8 @@ def pagina_analise_metas(usuario_logado):
             st.markdown(_chart_resumo_colabs(dados), unsafe_allow_html=True)
 
 
-    with tab_des:
-        _aba_desempenho(dados, dados_ano_full)
+    elif _aba_sel == _ABAS[2]:
+        _aba_desempenho(dados, _carregar_ano_full())
 
         st.markdown("---")
         st.markdown("#### 📈 Desempenho Individual")
@@ -2035,7 +2058,7 @@ def pagina_analise_metas(usuario_logado):
             # para evitar mostrar meses sem meta individual configurada.
             _desempenho_individual(dados, _mb_u_des, _mb_nome_des)
 
-    with tab_cfg:
+    elif _aba_sel == _ABAS[3]:
         if _eh_master:
             _secao_configuracao()
         else:

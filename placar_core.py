@@ -158,6 +158,10 @@ def _buscar_acoes_board(desde_iso=None, max_paginas=10):
     agora = _t.time()
     cache = _acoes_cache.get(chave)
     if cache and agora - cache["ts"] < 300:
+        # Repõe o diagnóstico da busca que gerou este cache. Sem isso a tela
+        # mostrava "HTTP None · 0 ações" — parecendo falha, quando na verdade a
+        # consulta tinha dado certo e só não foi refeita.
+        ULTIMO_DIAGNOSTICO_ACOES.update(cache.get("diag", {}))
         return cache["data"]
 
     diag = ULTIMO_DIAGNOSTICO_ACOES
@@ -210,7 +214,7 @@ def _buscar_acoes_board(desde_iso=None, max_paginas=10):
     if not por_card and not diag["erro"]:
         diag["erro"] = "O Trello respondeu, mas não devolveu nenhuma ação de etiqueta no período."
 
-    _acoes_cache[chave] = {"ts": agora, "data": por_card}
+    _acoes_cache[chave] = {"ts": agora, "data": por_card, "diag": dict(diag)}
     return por_card
 
 
