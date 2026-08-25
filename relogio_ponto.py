@@ -23,34 +23,21 @@ MEMBROS = _pc.MEMBROS_ATIVOS          # {"username": "Nome", ...}
 MASTERS = _pc.MASTERS                 # {"martinsousa", "renan"}
 
 # ── Horários de expediente ────────────────────────────────────────────────────
-# Padrão da casa: 09h00 às 18h00. Myrella cumpre 08h45 às 17h45.
-ENTRADA_ESPERADA  = time(9,  0)   # padrão (mantido como nome público)
-SAIDA_ALMOCO      = time(12, 0)   # referência da tela de registro
-VOLTA_ALMOCO      = time(13, 0)   # referência da tela de registro
+# Definidos em placar_core: o cálculo de tempo de cartão também precisa deles
+# para cortar o que caiu fora do expediente, e duas cópias divergiriam.
+HORARIO_PADRAO = _pc.HORARIO_PADRAO
+HORARIOS       = _pc.HORARIOS
+ALMOCO_MINUTOS = _pc.ALMOCO_MINUTOS
+TOLERANCIA_ENTRADA_MIN = _pc.TOLERANCIA_ENTRADA_MIN
 
-# O almoço não tem hora fixa: na apuração da RHiD a saída varia (12h05, 13h00,
-# 13h36…). O que é fixo é a DURAÇÃO. Então o atraso do almoço é medido pelo
-# tempo fora, não pelo relógio de parede.
-ALMOCO_MINUTOS = 60
-FIM_EXPEDIENTE    = time(18, 0)   # padrão
+ENTRADA_ESPERADA = HORARIO_PADRAO["entrada"]
+FIM_EXPEDIENTE   = HORARIO_PADRAO["fim"]
+SAIDA_ALMOCO     = _pc.ALMOCO[0]
+VOLTA_ALMOCO     = _pc.ALMOCO[1]
 
-HORARIO_PADRAO = {"entrada": ENTRADA_ESPERADA, "fim": FIM_EXPEDIENTE}
-HORARIOS = {
-    "myrelladesouza": {"entrada": time(8, 45), "fim": time(17, 45)},
-}
+TOLERANCIA_MINUTOS = 10   # legado: folga do cálculo antigo
 
-# Regra de pontualidade da casa:
-#   entrada até o horário                    → no horário
-#   até 5 min depois (09h05 no padrão)       → tolerância
-#   depois disso                             → atraso
-#   voltou atrasado do almoço                → atraso, mesmo que por 1 minuto
-TOLERANCIA_ENTRADA_MIN = 5
-TOLERANCIA_MINUTOS = 10               # legado: minutos de folga do cálculo antigo
-
-
-def horario_de(username: Optional[str]) -> dict:
-    """Horário de expediente do colaborador (quem não tem exceção usa o padrão)."""
-    return HORARIOS.get(username, HORARIO_PADRAO)
+horario_de = _pc.horario_de
 
 
 def limite_tolerancia(username: Optional[str]) -> time:
@@ -58,6 +45,7 @@ def limite_tolerancia(username: Optional[str]) -> time:
     ent = horario_de(username)["entrada"]
     return (datetime.combine(date.min, ent)
             + timedelta(minutes=TOLERANCIA_ENTRADA_MIN)).time()
+
 
 TIPOS_PONTO = {
     "entrada":        "🟢 Entrada",

@@ -198,60 +198,13 @@ def _buscar_acoes_card(card_id: str):
 
 
 def _calcular_tempo_execucao_min(card_id: str):
-    """(Mesma regra de placar_core.tempo_execucao_min — alterou aqui, altere lá.)
+    """Minutos de execução do cartão — regra única, em placar_core.
 
-    
-    Calcula tempo total de execução em minutos:
-      tempo_FILMAGEM + tempo_EM_ANDAMENTO − tempo_INTERROMPIDO_MS
-    Retorna: (float minutos, datetime|None primeiro addMember)
+    O relógio corre com EM ANDAMENTO ou FILMAGEM e para enquanto houver
+    INTERROMPIDO ou INTERROMPIDO MS. Só conta o que caiu dentro do expediente.
     """
-    acoes = _buscar_acoes_card(card_id)
-    agora = datetime.now(timezone.utc)
-    acoes_sorted = sorted(acoes, key=lambda a: a.get("date", ""))
-
-    filmagem_ini  = None; filmagem_total  = 0.0
-    andamento_ini = None; andamento_total = 0.0
-    interr_ini    = None; interr_total    = 0.0
-    membro_em     = None
-
-    for ac in acoes_sorted:
-        try:
-            dt = datetime.fromisoformat(ac["date"].replace("Z", "+00:00"))
-        except Exception:
-            continue
-        tipo    = ac.get("type", "")
-        nome_lb = ac.get("data", {}).get("label", {}).get("name", "").upper()
-
-        if tipo == "addLabelToCard":
-            if nome_lb == LABEL_FILMAGEM and filmagem_ini is None:
-                filmagem_ini = dt
-            elif nome_lb == LABEL_EM_ANDAMENTO_STR and andamento_ini is None:
-                andamento_ini = dt
-            elif nome_lb == LABEL_INTERROMPIDO_MS and interr_ini is None:
-                interr_ini = dt
-        elif tipo == "removeLabelFromCard":
-            if nome_lb == LABEL_FILMAGEM and filmagem_ini is not None:
-                filmagem_total += (dt - filmagem_ini).total_seconds() / 60
-                filmagem_ini = None
-            elif nome_lb == LABEL_EM_ANDAMENTO_STR and andamento_ini is not None:
-                andamento_total += (dt - andamento_ini).total_seconds() / 60
-                andamento_ini = None
-            elif nome_lb == LABEL_INTERROMPIDO_MS and interr_ini is not None:
-                interr_total += (dt - interr_ini).total_seconds() / 60
-                interr_ini = None
-        elif tipo == "addMemberToCard" and membro_em is None:
-            membro_em = dt
-
-    # Períodos ainda em aberto
-    if filmagem_ini:
-        filmagem_total  += (agora - filmagem_ini).total_seconds()  / 60
-    if andamento_ini:
-        andamento_total += (agora - andamento_ini).total_seconds() / 60
-    if interr_ini:
-        interr_total    += (agora - interr_ini).total_seconds()    / 60
-
-    total = max(0.0, filmagem_total + andamento_total - interr_total)
-    return total, membro_em
+    import placar_core as _pc_tempo
+    return _pc_tempo.tempo_execucao_min(card_id)
 
 
 def _num(card,id_c):
@@ -385,7 +338,12 @@ def _processar(listas,cards,membros_map,id_p,id_t,id_i,filtro_mes=None):
         if not ok:
             d["abertos"]+=1
             if "URGENTE" in lb or "URGENTES" in nl.upper(): d["urgentes"]+=1
-            if "ATRASADO" in lb: d["atrasados"]+=1
+            # A etiqueta ATRASADO saiu do board: atraso agora vem do tempo medido.
+            _cfg_atr = COLUNAS_CONFIG.get(nl, {})
+            _est_atr = _cfg_atr.get("tempo_min") or 0
+            if _est_atr > 0:
+                _dec_atr, _ = _calcular_tempo_execucao_min(card["id"])
+                if _dec_atr > _est_atr: d["atrasados"]+=1
             if "FALTA CONFERÊNCIA" in lb: d["falta_conf"]+=1
             if "FALTA INFORMAÇÃO" in lb: d["falta_info"]+=1
             if not us:
