@@ -2685,10 +2685,15 @@ def pagina_imagem(usuario_logado):
             with _cols_gal[i % 4]:
                 # 20 caracteres cortavam o nome no meio ("Capa do", "Imagem
                 # emocional — P") e o colaborador não sabia qual peça era qual.
+                # O numero vem na legenda porque e assim que o Assistente IA
+                # enxerga a galeria ("Foto 1", "Foto 2"...). Sem ele na tela, o
+                # colaborador conta de cabeca — e a conta erra quando algum tipo
+                # foi bloqueado na triagem e nao entrou na galeria.
                 _rotulo = g["tipo"]
+                _legenda = f"Foto {i+1} · {_rotulo}"
                 st.image(
                     g["bytes"],
-                    caption=(_rotulo[:42] + "…") if len(_rotulo) > 42 else _rotulo,
+                    caption=(_legenda[:52] + "…") if len(_legenda) > 52 else _legenda,
                     use_container_width=True,
                 )
 
