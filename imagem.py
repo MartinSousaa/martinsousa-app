@@ -2268,9 +2268,42 @@ def pagina_imagem(usuario_logado):
                         instrucoes_extras, fotos_bytes,
                     )
 
+                # A triagem e um PLANEJAMENTO, nao um pre-requisito tecnico: ela
+                # roda no Claude, enquanto as imagens saem no gpt-image-2 ou no
+                # Gemini. Fazer a falha dela travar tudo significa que uma conta
+                # sem saldo em UM fornecedor derruba o Studio inteiro — foi o que
+                # aconteceu em producao com "credit balance is too low".
+                #
+                # Agora, quando a triagem falha, seguimos com um plano neutro:
+                # todos os tipos escolhidos marcados como viaveis, sem composicao
+                # sugerida. O colaborador perde a previa e a checagem de dados
+                # faltantes, mas continua conseguindo gerar.
                 if erro_triagem:
-                    st.error(f"Não consegui montar a triagem: {erro_triagem}")
-                else:
+                    _e_txt = str(erro_triagem)
+                    if "credit balance" in _e_txt or "billing" in _e_txt.lower():
+                        st.warning(
+                            "⚠️ A análise prévia não rodou: a conta da Anthropic está sem "
+                            "crédito. **Isso é ajuste de administrador** — avise o Léo "
+                            "(console.anthropic.com → Plans & Billing).\n\n"
+                            "A geração das imagens continua funcionando normalmente; você "
+                            "só não vai ver o plano de criação antes."
+                        )
+                    else:
+                        st.warning(
+                            f"⚠️ Não consegui montar a prévia do plano, mas você pode gerar "
+                            f"assim mesmo.\n\nDetalhe técnico: {_e_txt[:200]}"
+                        )
+                    plano = {
+                        "plano": [
+                            {"tipo": _t, "numero": _i + 1, "composicao": "",
+                             "textos": [], "flags": [], "viavel": True,
+                             "pergunta_info": ""}
+                            for _i, _t in enumerate(tipos_selecionados)
+                        ],
+                        "observacao_geral": "",
+                    }
+
+                if plano:
                     st.session_state["img_triagem_plano"] = plano
                     st.session_state["img_triagem_config"] = {
                         "nome_produto": nome_produto,
