@@ -338,6 +338,25 @@ def _extrair_data(reg: dict):
     return None
 
 
+def _extrair_marcacoes(reg: dict):
+    """As quatro marcações do dia: (entrada, saída almoço, volta almoço, saída).
+
+    A tela da RHiD chama de Ent.1 / Saí.1 / Ent.2 / Saí.2. Os campos nomeados vêm
+    ANTES de qualquer lista de batidas: a RHiD também devolve as marcações
+    excluídas do cálculo (coluna "Exclusões"), e uma lista crua misturaria as
+    duas coisas. Dia de "Folga" ou "Justif" não tem horário e volta tudo None.
+    """
+    for sequencia in _SEQUENCIAS_ENTRADA_SAIDA:
+        valores = [_extrair_hhmm(reg.get(c)) for c in sequencia]
+        if any(valores):
+            return tuple(valores)
+
+    # Sem campos nomeados: usa a lista de batidas na ordem do relógio.
+    horas = _extrair_batidas(reg)
+    horas = horas + [None] * 4
+    return tuple(horas[:4])
+
+
 def _extrair_batidas(reg: dict) -> list[str]:
     """Horários de marcação do dia, em ordem, como 'HH:MM'."""
     for campo in _CAMPOS_LISTA_BATIDAS:
@@ -353,10 +372,6 @@ def _extrair_batidas(reg: dict) -> list[str]:
             if horas:
                 return sorted(horas)
 
-    for sequencia in _SEQUENCIAS_ENTRADA_SAIDA:
-        horas = [h for h in (_extrair_hhmm(reg.get(c)) for c in sequencia) if h]
-        if horas:
-            return sorted(horas)
     return []
 
 
@@ -364,8 +379,9 @@ def get_registros_diarios(data_ini: str, data_final: str, id_person: int):
     """Registros diários de ponto de uma pessoa, normalizados.
 
     Devolve (lista, diagnostico). Cada item:
-      {"data": date, "batidas": ["08:59", ...], "minutos_atraso": float|None,
-       "minutos_trabalhados": float, "faltou": bool}
+      {"data": date, "batidas": ["08:59", ...],
+       "entrada"/"saida_almoco"/"volta_almoco"/"saida": "HH:MM"|None,
+       "minutos_atraso": float|None, "minutos_trabalhados": float, "faltou": bool}
 
     O diagnóstico diz o que aconteceu quando a lista vem vazia — nunca devolve
     silêncio: {"erro": str|None, "registros_brutos": int, "com_batidas": int,
@@ -392,7 +408,8 @@ def get_registros_diarios(data_ini: str, data_final: str, id_person: int):
     for reg in brutos:
         if not isinstance(reg, dict):
             continue
-        batidas = _extrair_batidas(reg)
+        marcacoes = _extrair_marcacoes(reg)
+        batidas = [m for m in marcacoes if m]
         if batidas:
             diag["com_batidas"] += 1
         atraso = reg.get("minutosAtraso", reg.get("atraso", reg.get("lateMinutes")))
@@ -409,6 +426,10 @@ def get_registros_diarios(data_ini: str, data_final: str, id_person: int):
         saida.append({
             "data": _extrair_data(reg),
             "batidas": batidas,
+            "entrada":      marcacoes[0],
+            "saida_almoco": marcacoes[1],
+            "volta_almoco": marcacoes[2],
+            "saida":        marcacoes[3],
             "minutos_atraso": atraso,
             "minutos_trabalhados": trabalhados,
             "faltou": bool(int(reg.get("faltasDiasInteiro", reg.get("ausente", 0)) or 0)),

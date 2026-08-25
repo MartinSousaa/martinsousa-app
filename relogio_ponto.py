@@ -25,8 +25,13 @@ MASTERS = _pc.MASTERS                 # {"martinsousa", "renan"}
 # ── Horários de expediente ────────────────────────────────────────────────────
 # Padrão da casa: 09h00 às 18h00. Myrella cumpre 08h45 às 17h45.
 ENTRADA_ESPERADA  = time(9,  0)   # padrão (mantido como nome público)
-SAIDA_ALMOCO      = time(12, 0)
-VOLTA_ALMOCO      = time(13, 0)
+SAIDA_ALMOCO      = time(12, 0)   # referência da tela de registro
+VOLTA_ALMOCO      = time(13, 0)   # referência da tela de registro
+
+# O almoço não tem hora fixa: na apuração da RHiD a saída varia (12h05, 13h00,
+# 13h36…). O que é fixo é a DURAÇÃO. Então o atraso do almoço é medido pelo
+# tempo fora, não pelo relógio de parede.
+ALMOCO_MINUTOS = 60
 FIM_EXPEDIENTE    = time(18, 0)   # padrão
 
 HORARIO_PADRAO = {"entrada": ENTRADA_ESPERADA, "fim": FIM_EXPEDIENTE}
@@ -286,8 +291,13 @@ def calcular_indicadores_dia(regs: list[dict], username: Optional[str] = None) -
             r["min_atraso_entrada"] = atraso_ent
             r["tolerancia_min"]     = atraso_ent
 
-    # Volta do almoço não tem tolerância: um minuto atrasado já é atraso.
-    if r["volta_almoco"] and r["volta_almoco"] > VOLTA_ALMOCO:
+    # Almoço: conta pela duração, não pelo relógio de parede.
+    if r["saida_almoco"] and r["volta_almoco"]:
+        _fora = _diff_min(r["saida_almoco"], r["volta_almoco"])
+        if _fora > ALMOCO_MINUTOS:
+            r["atraso_almoco"]     = True
+            r["min_atraso_almoco"] = _fora - ALMOCO_MINUTOS
+    elif r["volta_almoco"] and r["volta_almoco"] > VOLTA_ALMOCO:
         r["atraso_almoco"]     = True
         r["min_atraso_almoco"] = _diff_min(VOLTA_ALMOCO, r["volta_almoco"])
 
@@ -658,22 +668,34 @@ def _secao_historico_mensal(eh_master: bool, usuario_logado: str):
 
 # ── Dados para analise_metas.py ────────────────────────────────────────────────
 
-def _classificar_batidas(username, entrada, volta_almoco):
-    """Aplica a regra da casa a um dia. Devolve (tolerancias, atraso_entrada, atraso_almoco).
+def _classificar_batidas(username, entrada, saida_almoco=None, volta_almoco=None):
+    """Aplica a regra da casa a um dia.
 
-    entrada / volta_almoco são `time` ou None.
+    Devolve (tolerancias, atraso_entrada, atraso_almoco, minutos_almoco).
+
+    Entrada: no horário da pessoa; tolerância nos 5 minutos seguintes; depois,
+    atraso. Almoço: passou de ALMOCO_MINUTOS fora, é atraso — sem tolerância,
+    um minuto já conta.
     """
     tol = atr_ent = atr_alm = 0
+    minutos_almoco = 0.0
+
     if entrada:
         h = horario_de(username)
         if entrada > limite_tolerancia(username):
             atr_ent = 1
         elif _diff_min(h["entrada"], entrada) > 0:
             tol = 1
-    # Volta do almoço não tem tolerância: um minuto atrasado já é atraso.
-    if volta_almoco and volta_almoco > VOLTA_ALMOCO:
+
+    if saida_almoco and volta_almoco:
+        minutos_almoco = _diff_min(saida_almoco, volta_almoco)
+        if minutos_almoco > ALMOCO_MINUTOS:
+            atr_alm = 1
+    elif volta_almoco and volta_almoco > VOLTA_ALMOCO:
+        # Sem a saída registrada, só resta comparar com o horário de referência.
         atr_alm = 1
-    return tol, atr_ent, atr_alm
+
+    return tol, atr_ent, atr_alm, minutos_almoco
 
 
 @st.cache_data(ttl=300)   # 5 min — o painel precisa acompanhar o dia
@@ -728,14 +750,13 @@ def _pontualidade_rhid(ano: int, mes: int):
             diag["dias_com_batida"] += 1
             acc["dias_trabalhados"] += 1
             acc["minutos_trabalhados"] += reg["minutos_trabalhados"]
-            batidas = [_parse_horario(b) for b in reg["batidas"]]
-            batidas = [b for b in batidas if b]
-            if not batidas:
+            entrada = _parse_horario(reg.get("entrada"))
+            saida_a = _parse_horario(reg.get("saida_almoco"))
+            volta   = _parse_horario(reg.get("volta_almoco"))
+            if not entrada and not volta:
                 continue
-            entrada = batidas[0]
-            # Dia completo tem 4 batidas: entrada, saída almoço, volta, saída.
-            volta = batidas[2] if len(batidas) >= 3 else None
-            tol, atr_ent, atr_alm = _classificar_batidas(u, entrada, volta)
+            tol, atr_ent, atr_alm, min_almoco = _classificar_batidas(
+                u, entrada, saida_a, volta)
             acc["tolerancias"]     += tol
             acc["atrasos_entrada"] += atr_ent
             acc["atrasos_almoco"]  += atr_alm
@@ -751,9 +772,11 @@ def _pontualidade_rhid(ano: int, mes: int):
                                            "horario": entrada.strftime("%H:%M"),
                                            "minutos": _diff_min(horario_de(u)["entrada"], entrada)})
             if atr_alm:
-                acc["ocorrencias"].append({"data": data_txt, "tipo": "atraso_almoco",
-                                           "horario": volta.strftime("%H:%M"),
-                                           "minutos": _diff_min(VOLTA_ALMOCO, volta)})
+                acc["ocorrencias"].append({
+                    "data": data_txt, "tipo": "atraso_almoco",
+                    "horario": volta.strftime("%H:%M") if volta else "—",
+                    "minutos": max(min_almoco - ALMOCO_MINUTOS, 0),
+                })
         resultado[u] = acc
 
     if diag["mapeadas"] == 0 and not diag["erro"]:
