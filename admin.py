@@ -177,6 +177,54 @@ def pagina_admin(usuario_logado):
 
     # ── DIAGNÓSTICO DO GOOGLE DRIVE ──────────────────────────────────────────
     st.markdown("---")
+    # ── Explorador da API da RHiD ─────────────────────────────────────────────
+    # A pontualidade depende das marcações do dia, e a apuração não as devolve —
+    # traz totais e o horário contratual. Este painel pergunta à própria API
+    # quais caminhos existem, em vez de eu ficar adivinhando nomes de campo.
+    with st.expander("🔎 Explorar a API da RHiD (achar as marcações de ponto)"):
+        st.caption(
+            "A apuração devolve totais, não as batidas. Isto testa os caminhos "
+            "conhecidos e mostra o que cada um responde — a saída me diz qual usar."
+        )
+        if st.button("Testar caminhos da RHiD", key="rhid_explorar"):
+            import rhid_api as _ra
+            from datetime import date as _d, timedelta as _td
+            _fim = _d.today()
+            _ini = _fim - _td(days=7)
+
+            with st.spinner("Consultando a RHiD..."):
+                _pessoas = _ra.get_persons()
+                if not _pessoas:
+                    st.error("Não consegui listar colaboradores na RHiD.")
+                else:
+                    _p = _pessoas[0]
+                    _idp = (_p.get("id") or _p.get("idPerson")
+                            or _p.get("personId") or _p.get("codigo"))
+                    _nome = (_p.get("name") or _p.get("nome") or "?")
+                    st.caption(f"Testando com **{_nome}** (id {_idp}), "
+                               f"{_ini.strftime('%d/%m')} a {_fim.strftime('%d/%m')}")
+                    _res = _ra.explorar_endpoints(_ini.isoformat(), _fim.isoformat(), int(_idp))
+
+            _uteis = [r for r in _res if r.get("campos_com_hora")]
+            if _uteis:
+                st.success(f"{len(_uteis)} caminho(s) devolveram horários:")
+                for r in _uteis:
+                    st.markdown(f"**{r['endpoint']}** — status {r['status']} · "
+                                f"{r['registros']} registro(s)")
+                    st.code("\n".join(r["campos_com_hora"]))
+            else:
+                st.warning("Nenhum caminho devolveu horário. Resumo do que respondeu:")
+
+            _linhas = [
+                f"{r['endpoint']:26} status={r['status']} "
+                f"tipo={r['tipo'] or '—'} registros={r['registros']}"
+                + (f"  campos: {r['amostra'][:160]}" if r.get("amostra") else "")
+                for r in _res
+            ]
+            st.code("\n".join(_linhas))
+            st.caption("Copie este bloco e me mande — com ele eu fecho a pontualidade.")
+
+    st.markdown("---")
     st.markdown("#### 🔧 Diagnóstico do Google Drive")
     st.caption(
         "Verifica se o sistema consegue gravar arquivos no Drive. "

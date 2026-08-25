@@ -124,7 +124,10 @@ FUSO = timezone(timedelta(hours=-3))
 # Expediente — fonte única (relogio_ponto.py importa daqui).
 HORARIO_PADRAO = {"entrada": time(9, 0), "fim": time(18, 0)}
 HORARIOS = {"myrelladesouza": {"entrada": time(8, 45), "fim": time(17, 45)}}
-ALMOCO = (time(12, 0), time(13, 0))
+# Horario contratual lido da RHiD: 09:00-13:30 / 14:30-18:00. O intervalo real
+# e 13h30 as 14h30 — antes o codigo descontava 12h as 13h, hora em que a equipe
+# esta trabalhando, e contava 13h30 as 14h30, hora em que esta almocando.
+ALMOCO = (time(13, 30), time(14, 30))
 TOLERANCIA_ENTRADA_MIN = 5
 ALMOCO_MINUTOS = 60
 
@@ -322,7 +325,18 @@ def _janelas_uteis(ini_local, fim_local, username=None):
 _tempos_cache = {}   # chave -> {"ts": float, "data": {...}}
 
 
-def tempos_do_board(cards, membros_map, desde_iso):
+def _desde_padrao():
+    """Início da janela de histórico, arredondado para o dia.
+
+    Arredondar é o que faz o cache existir: com hora, minuto e segundo, a chave
+    mudava a cada chamada e nada era reaproveitado — o board inteiro era relido
+    e revarrido em toda renderização.
+    """
+    return (datetime.now(timezone.utc) - timedelta(days=120)).strftime(
+        "%Y-%m-%dT00:00:00.000Z")
+
+
+def tempos_do_board(cards, membros_map, desde_iso=None):
     """tempos_dos_cartoes com cache — o resultado não depende do mês analisado.
 
     A análise de metas chama _processar uma vez por mês do período (e de novo
@@ -330,12 +344,18 @@ def tempos_do_board(cards, membros_map, desde_iso):
     mais vezes por clique.
     """
     import time as _t
+    desde_iso = desde_iso or _desde_padrao()
+    # Busca sempre (ela tem cache proprio e e barata no acerto). Alem de simples,
+    # e o que mantem o diagnostico das acoes atualizado: pulando esta chamada, a
+    # tela mostrava "HTTP None · 0 acoes" como se o Trello tivesse falhado.
+    acoes = _buscar_acoes_board(desde_iso)
+
     agora = _t.time()
-    chave = f"{desde_iso}|{len(cards)}"
+    chave = f"{desde_iso}|{len(cards)}|{len(acoes)}"
     c = _tempos_cache.get(chave)
     if c and agora - c["ts"] < 300:
         return c["data"]
-    dados = tempos_dos_cartoes(cards, _buscar_acoes_board(desde_iso), membros_map)
+    dados = tempos_dos_cartoes(cards, acoes, membros_map)
     _tempos_cache[chave] = {"ts": agora, "data": dados}
     return dados
 
@@ -561,8 +581,7 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
 
     # O rateio entre cartões simultâneos precisa enxergar o board inteiro, então
     # os tempos são calculados de uma vez, antes do laço.
-    _desde = (datetime.now(timezone.utc) - timedelta(days=120)).strftime(
-        "%Y-%m-%dT%H:%M:%S.000Z")
+    _desde = _desde_padrao()
     _tempos = tempos_do_board(cards, membros_map, _desde)
 
     for card in cards:

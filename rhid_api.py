@@ -480,3 +480,90 @@ def get_registros_diarios(data_ini: str, data_final: str, id_person: int):
         diag["erro"] = ("A RHiD devolveu os dias, mas nenhum horário de batida foi "
                         "reconhecido nos campos conhecidos.")
     return saida, diag
+
+
+# ── Explorador de endpoints ───────────────────────────────────────────────────
+# A apuração devolve totais e o horário contratual, mas NÃO as marcações — a
+# tela da RHiD mostra Ent.1 / Saí.1 / Ent.2 / Saí.2, então elas vêm de outro
+# lugar. Sem documentação e sem poder testar de fora, a saída é perguntar à
+# própria API: tenta os caminhos conhecidos e relata o que cada um devolveu.
+
+_ENDPOINTS_CANDIDATOS = (
+    "/ponto_diario", "/pontoDiario", "/ponto",
+    "/marcacao", "/marcacoes", "/marcacao_ponto",
+    "/batida", "/batidas",
+    "/registro_ponto", "/registros_ponto",
+    "/espelho_ponto", "/espelho",
+    "/apuracao_ponto_detalhado", "/apuracao_detalhe",
+    "/afd",
+)
+
+
+def explorar_endpoints(data_ini: str, data_final: str, id_person: int) -> list[dict]:
+    """Tenta cada caminho candidato e resume o que voltou.
+
+    Devolve [{"endpoint", "status", "tipo", "registros", "campos_com_hora",
+              "amostra"}] — o suficiente para eu identificar qual serve sem
+    precisar ver a resposta inteira.
+    """
+    resultados = []
+    params = {"dataIni": data_ini, "dataFinal": data_final, "idPerson": id_person}
+
+    for suffix in _ENDPOINTS_CANDIDATOS:
+        item = {"endpoint": suffix, "status": None, "tipo": "", "registros": 0,
+                "campos_com_hora": [], "amostra": ""}
+        try:
+            resp = requests.get(f"{BASE_URL}{suffix}", headers=_headers(),
+                                params=params, timeout=15)
+            item["status"] = resp.status_code
+            if resp.status_code >= 400:
+                resultados.append(item)
+                continue
+            try:
+                dados = resp.json()
+            except ValueError:
+                item["tipo"] = "não-JSON"
+                item["amostra"] = resp.text[:200]
+                resultados.append(item)
+                continue
+            if isinstance(dados, str):
+                import json as _j
+                try:
+                    dados = _j.loads(dados)
+                except (ValueError, TypeError):
+                    pass
+
+            regs = dados
+            if isinstance(dados, dict):
+                for k in ("registros", "records", "data", "marcacoes", "batidas", "items"):
+                    if isinstance(dados.get(k), list):
+                        regs = dados[k]
+                        break
+                else:
+                    regs = [dados]
+            if not isinstance(regs, list):
+                regs = [regs]
+
+            item["tipo"] = type(dados).__name__
+            item["registros"] = len(regs)
+
+            melhor, amostra = -1, None
+            for r in regs:
+                if not isinstance(r, dict):
+                    continue
+                n = sum(1 for k, v in r.items() if _e_marcacao(k, v))
+                if n > melhor:
+                    melhor, amostra = n, r
+                if n >= 4:
+                    break
+            if amostra:
+                item["campos_com_hora"] = [
+                    f"{k} = {v!r}" for k, v in sorted(amostra.items()) if _e_marcacao(k, v)
+                ][:12]
+                item["amostra"] = ", ".join(sorted(amostra.keys()))[:400]
+        except Exception as e:
+            item["status"] = "erro"
+            item["amostra"] = str(e)[:200]
+        resultados.append(item)
+
+    return resultados
