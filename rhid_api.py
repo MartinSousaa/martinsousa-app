@@ -392,7 +392,7 @@ def get_registros_diarios(data_ini: str, data_final: str, id_person: int):
     "chaves_exemplo": [str]}.
     """
     diag = {"erro": None, "registros_brutos": 0, "com_batidas": 0,
-            "chaves_exemplo": [], "exemplo_dia": ""}
+            "chaves_exemplo": [], "campos_com_hora": [], "data_amostra": ""}
 
     apuracao = get_apuracao(data_ini, data_final, id_person)
     if not apuracao:
@@ -408,18 +408,27 @@ def get_registros_diarios(data_ini: str, data_final: str, id_person: int):
     diag["registros_brutos"] = len(brutos)
     if brutos and isinstance(brutos[0], dict):
         diag["chaves_exemplo"] = sorted(brutos[0].keys())
-        # Um dia inteiro, com valores: saber o nome do campo não basta se não dá
-        # para ver que formato ele tem. Prefere um dia que pareça trabalhado.
-        import json as _json
-        _amostra = brutos[0]
+        # Em vez de despejar o JSON inteiro (que fica cortado na tela e não cabe
+        # numa captura), procura sozinho os campos que CONTÊM horário. É o que
+        # falta saber: o nome do campo não diz nada se o formato for outro.
+        _amostra = None
+        _melhor = -1
         for _r in brutos:
-            if isinstance(_r, dict) and not _r.get("folga") and not _r.get("faltaDiaInteiro"):
-                _amostra = _r
+            if not isinstance(_r, dict):
+                continue
+            _n = sum(1 for v in _r.values() if _extrair_hhmm(v))
+            if _n > _melhor:
+                _melhor, _amostra = _n, _r
+            if _n >= 4:
                 break
-        try:
-            diag["exemplo_dia"] = _json.dumps(_amostra, ensure_ascii=False)[:2500]
-        except Exception:
-            diag["exemplo_dia"] = str(_amostra)[:2500]
+        if _amostra is not None:
+            diag["campos_com_hora"] = [
+                f"{k} = {v!r} → {_extrair_hhmm(v)}"
+                for k, v in sorted(_amostra.items())
+                if _extrair_hhmm(v)
+            ][:20]
+            diag["data_amostra"] = str(_amostra.get("dateTimeStr")
+                                       or _amostra.get("date") or "?")[:20]
 
     saida = []
     for reg in brutos:
