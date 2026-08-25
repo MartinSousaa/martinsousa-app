@@ -524,11 +524,18 @@ def _alertas_tv_list(listas, cards, membros_map):
     1. Prioridade 8-10 com etiqueta PENDENTE (sem INTERROMPIDO MS)
     2. EM ANDAMENTO / Filmagem / Concluído sem membro atribuído
     3. PENDENTE + membro atribuído + >5 min sem virar EM ANDAMENTO
-    4. Tempo de execução (Filmagem + EM ANDAMENTO − Interrompido MS) >= 1.5× tempo médio
+    4. Tempo de execução (relógio pausado por INTERROMPIDO / INTERROMPIDO MS) >= 1.5× tempo médio
     5. Concluído (dueComplete) com etiqueta PENDENTE ainda presente
     6. Mesmo cartão com EM ANDAMENTO + FILMAGEM simultaneamente
     7. Membro tem ≥1 cartão EM ANDAMENTO e ainda tem outros cartões só com FILMAGEM
     """
+    import placar_core as _pc_al
+    from datetime import timedelta as _td_al
+    # Uma chamada para o board inteiro. Antes era um GET por cartao em execucao,
+    # a cada atualizacao do painel.
+    _acoes_al = _pc_al._buscar_acoes_board(
+        (datetime.now(timezone.utc) - _td_al(days=120)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    )
     agora   = datetime.now(timezone.utc)
     alertas = []
 
@@ -608,7 +615,7 @@ def _alertas_tv_list(listas, cards, membros_map):
         # ── 4. Tempo de execução >= 1.5× tempo médio ───────────────────────────
         if (is_andamento or is_filmagem) and tempo_medio > 0 and not is_interrompido:
             try:
-                tempo_exec, _ = _calcular_tempo_execucao_min(card["id"])
+                tempo_exec, _ = _pc_al.tempo_execucao_min(card["id"], _acoes_al)
                 if tempo_exec >= tempo_medio * FATOR_VENCIMENTO:
                     pct_uso = tempo_exec / tempo_medio * 100
                     alertas.append({
