@@ -814,7 +814,9 @@ def _tv_full_html(
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="refresh" content="60">
+<!-- Sem <meta refresh>: recarregar a pagina apaga a liberacao de audio do
+     navegador e a TV volta a ficar muda. A atualizacao e feita por JS, trocando
+     so o conteudo. -->
 <title>MS Studio — TV</title>
 <style>
 *{{margin:0;padding:0;box-sizing:border-box;}}
@@ -1041,7 +1043,7 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
 
 <script>
 // ── Layout: calcula alturas reais em px a partir de window.innerHeight ──────
-(function() {{
+function _aplicarLayout() {{
   var H = window.innerHeight || 1080;
   var GAP = 3, PAD = 5;
   var avail = H - PAD * 2 - GAP * 3;
@@ -1058,7 +1060,8 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
   fix('tv-bs',  y, hS);  y += hS  + GAP;
   fix('tv-bb',  y, hB);  y += hB  + GAP;
   fix('tv-bbt', y, hBt);
-}})();
+}}
+_aplicarLayout();
 // ── Alertas: máx 4 visíveis; rotação automática quando há mais de 4 ──────────
 var ALERTAS = {alertas_js};
 var _alertaOffset = 0;
@@ -1228,14 +1231,45 @@ function checkAndPlay() {{
   checar();
   setInterval(checar, 30000);
 }})();
-// Recarga por JS: o navegador da TV pode ignorar o <meta refresh>.
-setTimeout(function() {{ location.reload(); }}, 60000);
+// ── Atualizacao sem recarregar a pagina ──────────────────────────────────────
+// Recarregar a pagina inteira apagava a liberacao de audio do navegador: quem
+// clicasse em "Ativar Som" na TV perdia o som em menos de um minuto e nunca
+// mais ouvia alerta. Agora so o conteudo e trocado; a pagina, o <audio> e a
+// liberacao continuam vivos.
+//
+// Se qualquer coisa falhar na troca, cai no recarregamento de antes — pior caso
+// e voltar ao comportamento atual, nunca uma TV congelada.
+function _atualizarPainel() {{
+  fetch(location.href, {{cache: 'no-store'}})
+    .then(function(r) {{ if (!r.ok) throw new Error(r.status); return r.text(); }})
+    .then(function(html) {{
+      var doc = new DOMParser().parseFromString(html, 'text/html');
+      var novo = doc.querySelector('.tv-root');
+      var atual = document.querySelector('.tv-root');
+      if (!novo || !atual) throw new Error('sem .tv-root');
+      atual.innerHTML = novo.innerHTML;
+
+      // Os alertas vivem numa variavel do script, nao no HTML trocado.
+      var m = html.match(/var ALERTAS = (\[[\s\S]*?\]);/);
+      if (m) {{
+        try {{ ALERTAS = JSON.parse(m[1]); _alertaOffset = 0; }} catch(e) {{}}
+      }}
+      _aplicarLayout();
+      _renderAlertas();
+      _autoEscala();
+      checkAndPlay();
+      setTimeout(_atualizarPainel, 60000);
+    }})
+    .catch(function() {{ location.reload(); }});
+}}
+setTimeout(_atualizarPainel, 60000);
 setTimeout(checkAndPlay, 4000);
 setInterval(checkAndPlay, 5 * 60 * 1000);
 // Auto-scale se conteúdo não couber na tela
-(function() {{
+function _autoEscala() {{
   try {{
     var root = document.querySelector('.tv-root');
+    root.style.transform = ''; root.style.webkitTransform = ''; root.style.width = '';
     var sh = root.scrollHeight;
     var vh = window.innerHeight || document.documentElement.clientHeight;
     if (sh > vh) {{
@@ -1247,7 +1281,8 @@ setInterval(checkAndPlay, 5 * 60 * 1000);
       root.style.width = Math.round(100 / scale) + '%';
     }}
   }} catch(e) {{}}
-}})();
+}}
+_autoEscala();
 </script>
 </body>
 </html>"""
