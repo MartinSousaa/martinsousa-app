@@ -290,6 +290,27 @@ def _janelas_uteis(ini_local, fim_local, username=None):
     return janelas
 
 
+_tempos_cache = {}   # chave -> {"ts": float, "data": {...}}
+
+
+def tempos_do_board(cards, membros_map, desde_iso):
+    """tempos_dos_cartoes com cache — o resultado não depende do mês analisado.
+
+    A análise de metas chama _processar uma vez por mês do período (e de novo
+    para o ano inteiro). Sem cache, a varredura do board inteiro rodava nove ou
+    mais vezes por clique.
+    """
+    import time as _t
+    agora = _t.time()
+    chave = f"{desde_iso}|{len(cards)}"
+    c = _tempos_cache.get(chave)
+    if c and agora - c["ts"] < 300:
+        return c["data"]
+    dados = tempos_dos_cartoes(cards, _buscar_acoes_board(desde_iso), membros_map)
+    _tempos_cache[chave] = {"ts": agora, "data": dados}
+    return dados
+
+
 def tempos_dos_cartoes(cards, acoes_board, membros_map=None, agora=None):
     """Minutos de trabalho por cartão e por pessoa.
 
@@ -512,7 +533,7 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
     # os tempos são calculados de uma vez, antes do laço.
     _desde = (datetime.now(timezone.utc) - timedelta(days=120)).strftime(
         "%Y-%m-%dT%H:%M:%S.000Z")
-    _tempos = tempos_dos_cartoes(cards, _buscar_acoes_board(_desde), membros_map)
+    _tempos = tempos_do_board(cards, membros_map, _desde)
 
     for card in cards:
         nl = listas.get(card["idList"], "")

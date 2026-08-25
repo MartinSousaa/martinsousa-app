@@ -405,7 +405,9 @@ def _diagnostico_metas_individuais(tem_ponto, sem_exec, diags_pont, erro_pont, d
     if sem_exec:
         faltando.append("tempo de execução")
 
-    with st.expander(f"🔎 Por que {' e '.join(faltando)} não preencheu", expanded=False):
+    # Aberto por padrao: fechado, ele parece um detalhe opcional — e e justamente
+    # onde esta a causa de a tela estar vazia.
+    with st.expander(f"🔎 Por que {' e '.join(faltando)} não preencheu", expanded=True):
         if not tem_ponto:
             st.markdown("**Relógio de ponto**")
             if erro_pont:
