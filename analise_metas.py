@@ -410,6 +410,55 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
     pts_total  = {u: sum(r["pts_membro"].get(u, 0) for r in dados) for u in membros_ativos}
     meta_total = {u: sum(r["cfg"].get(f"meta_{u}", 1500) for r in dados) for u in membros_ativos}
 
+    # ── Relógio de ponto: pontualidade e ociosidade reais ─────────────────────
+    # Uma passada por mês do período; se a planilha de ponto não responder, os
+    # cards voltam a dizer "aguardando" em vez de mostrar zero como se fosse dado.
+    _pont = {u: {"tol": 0, "atr": 0, "atr_ent": 0, "atr_alm": 0, "dias": 0} for u in membros_ativos}
+    _ocio = {u: {"disp": 0.0, "cards": 0.0} for u in membros_ativos}
+    _tem_ponto = False
+    try:
+        for r in dados:
+            ym = r.get("filtro_mes")
+            if not ym:
+                continue
+            tc_mes = {
+                u: sum(t for ts in por_col.values() for t in ts)
+                for u, por_col in (r.get("tempo_membro_lista") or {}).items()
+            }
+            p_mes = _rp.get_pontualidade_mes(*ym)
+            o_mes = _rp.get_ociosidade_mes(ym[0], ym[1], tc_mes)
+            for u in membros_ativos:
+                p = p_mes.get(u)
+                if p:
+                    _pont[u]["tol"]     += p["tolerancias"]
+                    _pont[u]["atr"]     += p["atrasos"]
+                    _pont[u]["atr_ent"] += p["atrasos_entrada"]
+                    _pont[u]["atr_alm"] += p["atrasos_almoco"]
+                    _pont[u]["dias"]    += p["dias_trabalhados"]
+                o = o_mes.get(u)
+                if o:
+                    _ocio[u]["disp"]  += o["horas_disp_min"]
+                    _ocio[u]["cards"] += o["tempo_cards_min"]
+        _tem_ponto = any(v["dias"] > 0 for v in _pont.values())
+    except Exception:
+        _tem_ponto = False
+
+    # Tempo de execução medido pelas etiquetas: % de cartões dentro do estimado
+    _CC_ = _pc.COLUNAS_CONFIG
+    _exec = {u: {"dentro": 0, "total": 0} for u in membros_ativos}
+    for r in dados:
+        for u, por_col in (r.get("tempo_membro_lista") or {}).items():
+            if u not in _exec:
+                continue
+            for nl, tempos in por_col.items():
+                est = _CC_.get(nl, {}).get("tempo_min") or 0
+                if est <= 0:
+                    continue
+                for t in tempos:
+                    _exec[u]["total"] += 1
+                    if t <= est:
+                        _exec[u]["dentro"] += 1
+
     def _card(username, nome):
         pts  = pts_total.get(username, 0)
         meta = meta_total.get(username, len(dados) * 1500)
@@ -423,22 +472,83 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
             f"{'✅ Meta atingida!' if pct_pts >= 100 else f'Faltam {meta - pts:,.0f} pts'}",
             cor=cor_pts
         ), unsafe_allow_html=True)
-        st.markdown(_meta_ind_item(
-            "⏱️ Ociosidade abaixo de 10%", 100,
-            "Aguardando integração do relógio de ponto", aguardando=True
-        ), unsafe_allow_html=True)
-        st.markdown(_meta_ind_item(
-            "⚡ Tempo médio de execução abaixo do estimado", 100,
-            "Aguardando dados suficientes de execução", aguardando=True
-        ), unsafe_allow_html=True)
-        st.markdown(_meta_ind_item(
-            f"🕐 Tolerâncias de pontualidade ({max_tol}/mês)", 100,
-            "0 tolerâncias usadas — Aguardando integração do ponto", cor="#1BAF7A"
-        ), unsafe_allow_html=True)
-        st.markdown(_meta_ind_item(
-            f"⏰ Atrasos de pontualidade ({max_atr}/mês)", 100,
-            "0 atrasos registrados — Aguardando integração do ponto", cor="#1BAF7A"
-        ), unsafe_allow_html=True)
+        # ── Ociosidade ────────────────────────────────────────────────────────
+        o = _ocio.get(username, {"disp": 0.0, "cards": 0.0})
+        if _tem_ponto and o["disp"] > 0:
+            pct_ocio = max(o["disp"] - o["cards"], 0) / o["disp"] * 100
+            # A barra mostra o quanto da meta (≤10%) está cumprido.
+            pct_barra = 100 if pct_ocio <= 10 else max(0, 100 - (pct_ocio - 10) * 4)
+            cor_ocio = "#1BAF7A" if pct_ocio <= 10 else ("#EDA100" if pct_ocio <= 20 else "#E34948")
+            st.markdown(_meta_ind_item(
+                "⏱️ Ociosidade abaixo de 10%", pct_barra,
+                f"{pct_ocio:.1f}% ocioso · {o['cards']/60:.1f}h em cartões de "
+                f"{o['disp']/60:.1f}h disponíveis",
+                cor=cor_ocio
+            ), unsafe_allow_html=True)
+        else:
+            st.markdown(_meta_ind_item(
+                "⏱️ Ociosidade abaixo de 10%", 100,
+                "", aguardando=True
+            ), unsafe_allow_html=True)
+
+        # ── Tempo de execução vs. estimado ────────────────────────────────────
+        e = _exec.get(username, {"dentro": 0, "total": 0})
+        if e["total"] > 0:
+            pct_exec = e["dentro"] / e["total"] * 100
+            cor_exec = "#1BAF7A" if pct_exec >= 80 else ("#EDA100" if pct_exec >= 50 else "#E34948")
+            st.markdown(_meta_ind_item(
+                "⚡ Tempo médio de execução abaixo do estimado", pct_exec,
+                f"{e['dentro']} de {e['total']} cartões dentro do tempo estimado "
+                f"· medido pela etiqueta EM ANDAMENTO",
+                cor=cor_exec
+            ), unsafe_allow_html=True)
+        else:
+            st.markdown(_meta_ind_item(
+                "⚡ Tempo médio de execução abaixo do estimado", 100,
+                "Nenhum cartão concluído com tempo medido no período", aguardando=True
+            ), unsafe_allow_html=True)
+
+        # ── Pontualidade ──────────────────────────────────────────────────────
+        # Regra: entrada até 09h05 é tolerância; depois disso, atraso. Voltar
+        # atrasado do almoço é atraso mesmo que por um minuto.
+        p = _pont.get(username, {"tol": 0, "atr": 0, "atr_ent": 0, "atr_alm": 0})
+        if _tem_ponto:
+            tol = p["tol"]
+            pct_tol = min(tol / max_tol * 100, 100) if max_tol else 0
+            if tol > max_tol:
+                cor_tol, extra_tol = "#E34948", f"limite estourado em {tol - max_tol}"
+            elif tol >= max_tol * 0.7:
+                cor_tol, extra_tol = "#EDA100", f"restam {max_tol - tol}"
+            else:
+                cor_tol, extra_tol = "#1BAF7A", f"restam {max_tol - tol}"
+            st.markdown(_meta_ind_item(
+                f"🕐 Tolerâncias de pontualidade ({max_tol}/mês)", pct_tol,
+                f"{tol} de {max_tol} usadas · {extra_tol} · entrada entre "
+                f"09h01 e 09h05",
+                cor=cor_tol
+            ), unsafe_allow_html=True)
+
+            atr = p["atr"]
+            pct_atr = min(atr / max_atr * 100, 100) if max_atr else 0
+            if atr > max_atr:
+                cor_atr, extra_atr = "#E34948", f"limite estourado em {atr - max_atr}"
+            elif atr >= max_atr * 0.7:
+                cor_atr, extra_atr = "#EDA100", f"restam {max_atr - atr}"
+            else:
+                cor_atr, extra_atr = "#1BAF7A", f"restam {max_atr - atr}"
+            detalhe = f"{p['atr_ent']} na entrada · {p['atr_alm']} na volta do almoço"
+            st.markdown(_meta_ind_item(
+                f"⏰ Atrasos de pontualidade ({max_atr}/mês)", pct_atr,
+                f"{atr} de {max_atr} · {extra_atr} · {detalhe}",
+                cor=cor_atr
+            ), unsafe_allow_html=True)
+        else:
+            st.markdown(_meta_ind_item(
+                f"🕐 Tolerâncias de pontualidade ({max_tol}/mês)", 100, "", aguardando=True
+            ), unsafe_allow_html=True)
+            st.markdown(_meta_ind_item(
+                f"⏰ Atrasos de pontualidade ({max_atr}/mês)", 100, "", aguardando=True
+            ), unsafe_allow_html=True)
 
         # Calculadora de ganhos
         pct_i = min(pts / meta * 100, 100) if meta > 0 else 0
@@ -1371,20 +1481,21 @@ def _chart_resumo_colabs(dados):
             if not ym:
                 continue
             _ano, _mes = ym
-            # Tempo em cards por membro (minutos): soma tempo_lista ponderado
+            # Tempo em cards por membro (minutos). Agora vem medido por membro
+            # pelas etiquetas do cartão — antes era o total do mês dividido em
+            # partes iguais, o que dava ociosidade errada para todo mundo.
             _tc_user = {}
             for r in dados:
                 if r.get("filtro_mes") != ym:
                     continue
-                for nl, tempos in r.get("tempo_lista", {}).items():
-                    # distribui igualmente entre os membros ativos (aproximação)
-                    t_sum = sum(tempos)
-                    for u in users:
-                        _tc_user[u] = _tc_user.get(u, 0) + t_sum / len(users)
+                for u, por_col in (r.get("tempo_membro_lista") or {}).items():
+                    _tc_user[u] = _tc_user.get(u, 0) + sum(
+                        t for ts in por_col.values() for t in ts
+                    )
             _res = _rp.get_ociosidade_mes(_ano, _mes, _tc_user)
             for u in users:
                 _ocio_mb[u]  += _res[u]["ociosidade_min"]
-                _tol_mb[u]   += _res[u]["total_tolerancia_min"]
+                _tol_mb[u]   += _res[u].get("qtd_tolerancias", 0)
                 _dias_trab[u] += _res[u]["dias_trabalhados"]
                 _dias_aus[u]  += _res[u]["dias_ausentes"]
             # Verifica se há dados reais de ponto
@@ -1414,7 +1525,12 @@ def _chart_resumo_colabs(dados):
     def _cor_meta(v):   return "#1BAF7A" if v >= 100 else ("#EDA100" if v >= 75 else "#4A90D9")
     def _cor_atraso(v): return "#1BAF7A" if v < 5   else ("#EDA100" if v < 15  else "#E34948")
     def _cor_ocio(v):   return "#1BAF7A" if v < 10  else ("#EDA100" if v < 25  else "#E34948")
-    def _cor_tol(v):    return "#1BAF7A" if v <= 30 else ("#EDA100" if v <= 90  else "#E34948")
+    # Agora é contagem de tolerâncias, não minutos: verde até 60% do limite
+    # mensal, amarelo até o limite, vermelho quando estoura.
+    _lim_tol = int(dados[-1]["cfg"].get("max_tol_normal", 15)) if dados else 15
+    def _cor_tol(v):
+        return ("#1BAF7A" if v <= _lim_tol * 0.6
+                else ("#EDA100" if v <= _lim_tol else "#E34948"))
 
     def _titulo(t):
         return f'<div style="font-size:9px;font-weight:700;color:var(--ms-texto-sec);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">{t}</div>'
@@ -1467,7 +1583,7 @@ def _chart_resumo_colabs(dados):
               cor_fn=lambda v: "#1BAF7A" if v <= 60 else ("#EDA100" if v <= 120 else "#E34948")),
         _mini("💤 Ociosidade",               _pct_ocio,  fmt="{:.1f}", unidade="%",
               cor_fn=_cor_ocio, aguardando=not _tem_ponto),
-        _mini("🕐 Tolerâncias Utilizadas",    _tol_mb,    fmt="{:.0f}", unidade=" min",
+        _mini("🕐 Tolerâncias Utilizadas",    _tol_mb,    fmt="{:.0f}", unidade="",
               cor_fn=_cor_tol,  aguardando=not _tem_ponto),
         _mini("⏰ Índice de Atraso",          atraso_mb,  fmt="{:.1f}", unidade="%", cor_fn=_cor_atraso),
         _detalhe_ocio,
