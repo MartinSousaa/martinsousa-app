@@ -246,14 +246,14 @@ def pagina_admin(usuario_logado):
             "1. **APIs e serviços → Biblioteca** → ative a **Google Drive API**\n"
             "2. **Tela de permissão OAuth** → tipo **Externo** → preencha o básico → "
             "**PUBLICAR APLICATIVO** (se ficar em *Teste*, o token expira em 7 dias)\n"
-            "3. **Credenciais → Criar credenciais → ID do cliente OAuth** → "
-            "**Aplicativo da Web**\n"
-            "4. Em *URIs de redirecionamento autorizados*, adicione **exatamente** o "
-            "endereço abaixo:"
+            "3. **Clientes → Criar cliente** → tipo **App para computador**\n\n"
+            "O tipo *App para computador* evita ter que verificar a posse do domínio "
+            "no Search Console, exigência do tipo *Aplicativo da Web*. Ele usa "
+            "`http://localhost` como redirecionamento, que é o valor abaixo."
         )
         _redirect = st.text_input(
             "URI de redirecionamento (cole este valor no Google Cloud Console)",
-            value="https://app.martinsousa.com.br/",
+            value="http://localhost",
             key="oauth_redirect",
         )
 
@@ -275,16 +275,31 @@ def pagina_admin(usuario_logado):
                 "prompt": "consent",
             })
             _url_auth = f"https://accounts.google.com/o/oauth2/v2/auth?{_params}"
+            # target="_blank": na mesma aba, o Google substituiria esta pagina e
+            # os campos preenchidos se perderiam no meio do processo.
             st.markdown(
-                f"**Passo 1 —** [Clique aqui para autorizar no Google]({_url_auth})\n\n"
-                "Entre com a conta dona do Drive e clique em **Permitir**. "
-                "Você vai voltar para o Studio com um `?code=...` na barra de endereço."
+                f'**Passo 1 —** <a href="{_url_auth}" target="_blank">'
+                f'Clique aqui para autorizar no Google (abre em nova aba)</a>',
+                unsafe_allow_html=True,
+            )
+            st.caption(
+                "Entre com a conta dona do Drive → em \"o Google não verificou este "
+                "app\" clique em Avançado → Acessar → Permitir. A página seguinte vai "
+                "falhar (\"localhost recusou a conexão\") — isso é o esperado. O que "
+                "importa está na barra de endereço: copie o trecho entre `code=` e `&scope`."
             )
             st.markdown("**Passo 2 —** cole aqui o valor do `code` que apareceu na URL:")
             _codigo = st.text_input("code", key="oauth_code")
 
+            # Sem `disabled=`: a condicao dependia de o Streamlit ter confirmado o
+            # campo de texto, e em producao o botao ficava apagado com o codigo
+            # ja colado — sem o colaborador ter como saber por que. Agora o botao
+            # esta sempre ativo e a validacao acontece ao clicar.
             if st.button("Gerar refresh_token", type="primary",
-                         use_container_width=True, disabled=not _codigo.strip()):
+                         use_container_width=True):
+                if not _codigo.strip():
+                    st.warning("Cole o `code` no campo acima antes de gerar.")
+                    st.stop()
                 import requests as _rq
                 with st.spinner("Trocando o código pelo token..."):
                     try:
