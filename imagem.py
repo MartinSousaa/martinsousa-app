@@ -2539,6 +2539,7 @@ def pagina_imagem(usuario_logado):
                     st.session_state["img_triagem_config"] = cfg
 
                 galeria = []
+                st.session_state.pop("img_galeria_salva", None)
                 barra = st.progress(0.0, text="Iniciando geração...")
                 try:
                     import log_imagem
@@ -2958,6 +2959,16 @@ def pagina_imagem(usuario_logado):
         st.markdown("---")
 
         # ── APROVAÇÃO E SALVAMENTO ─────────────────────────────────────────────
+        # As imagens existem so na memoria da sessao ate serem salvas. Quem
+        # encerra o expediente sem clicar perde a geracao inteira — ja aconteceu.
+        if st.session_state.get("img_galeria_salva") != len(galeria):
+            st.warning(
+                f"⚠️ **As {len(galeria)} imagens ainda não estão no Drive.** "
+                "Elas existem apenas nesta sessão: se você fechar o navegador, "
+                "sair do Studio ou o site reiniciar, elas se perdem e a geração "
+                "precisa ser refeita do zero. Salve antes de encerrar."
+            )
+
         st.markdown("### ✅ Aprovar e salvar todas as imagens")
         pasta_pai = st.secrets.get("DRIVE_PASTA_IMAGENS_ID", "")
 
@@ -3062,6 +3073,7 @@ def pagina_imagem(usuario_logado):
                         codigo=codigo_gal,
                         link_pasta=link_pasta,
                     )
+                    st.session_state["img_galeria_salva"] = len(links_salvos)
                     st.success(
                         f"✅ {len(links_salvos)} imagem(ns) salvas no Drive! "
                         f"[Abrir pasta]({link_pasta})"
