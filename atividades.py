@@ -123,6 +123,31 @@ def buscar_por_codigo(codigo):
         return None
 
 
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _imagens_da_pasta(pasta_id):
+    """Lista as imagens de uma pasta do Drive. Retorna [(id, nome), ...].
+
+    Cache de 5 min porque o Histórico redesenha a cada interação e uma chamada
+    de rede por card tornaria a aba lenta de novo.
+    """
+    if not pasta_id:
+        return []
+    import gdrive
+    arquivos = gdrive.listar(
+        f"'{pasta_id}' in parents and trashed=false and mimeType contains 'image/'",
+        fields="files(id,name)",
+    )
+    return [(a.get("id", ""), a.get("name", "")) for a in arquivos if a.get("id")]
+
+
+def _id_da_pasta(link_pasta):
+    """Extrai o ID da pasta a partir do link salvo no histórico."""
+    import re as _re_pasta
+    m = _re_pasta.search(r"/folders/([a-zA-Z0-9_-]+)", link_pasta or "")
+    return m.group(1) if m else ""
+
+
 def pagina_historico():
     st.subheader("Histórico de Atividades")
 
@@ -137,13 +162,19 @@ def pagina_historico():
         return
 
     # ── FILTROS ────────────────────────────────────────────────────────────────
-    col_busca, col_filtro = st.columns([3, 1])
+    col_busca, col_filtro, col_ordem = st.columns([3, 1, 1])
     busca = col_busca.text_input(
         "🔍 Buscar por produto ou código",
         placeholder="ex: Bengala, MS-BENG-..."
     )
     usuarios_disponiveis = ["Todos"] + sorted(df["usuario"].dropna().unique().tolist())
     filtro_usuario = col_filtro.selectbox("Usuário", usuarios_disponiveis)
+    ordem_escolhida = col_ordem.selectbox(
+        "Ordenar por data",
+        ["Mais recente primeiro", "Mais antiga primeiro"],
+        key="hist_ordem",
+    )
+    _decrescente = ordem_escolhida == "Mais recente primeiro"
 
     df_exibir = df.copy()
     if filtro_usuario != "Todos":
@@ -160,8 +191,16 @@ def pagina_historico():
         st.info("Nenhum resultado para essa busca.")
         return
 
-    # mais recente primeiro
-    df_exibir = df_exibir.iloc[::-1].reset_index(drop=True)
+    # A data e gravada como texto "%d/%m/%Y %H:%M". Ordenar essa string coloca
+    # 30/07 acima de 25/08, porque compara caractere a caractere — o dia vem
+    # primeiro. Convertendo para data de verdade a ordem passa a ser a real.
+    # Linhas com data ilegivel viram NaT e vao para o fim, em vez de derrubar a tela.
+    df_exibir["_dt"] = pd.to_datetime(
+        df_exibir["data_hora"], format="%d/%m/%Y %H:%M", errors="coerce"
+    )
+    df_exibir = df_exibir.sort_values(
+        "_dt", ascending=not _decrescente, na_position="last"
+    ).reset_index(drop=True)
 
     # ── AGRUPAMENTO POR PRODUTO + CÓDIGO ──────────────────────────────────────
     # Chave de grupo: código (se tiver) ou nome do produto
@@ -173,7 +212,13 @@ def pagina_historico():
     df_exibir["_grupo"] = df_exibir.apply(_chave_grupo, axis=1)
 
     # Ordem dos grupos: pelo timestamp mais recente de cada grupo
-    ordem_grupos = df_exibir.groupby("_grupo")["data_hora"].max().sort_values(ascending=False).index.tolist()
+    # O grupo e posicionado pela atividade mais recente que ele contem, e a
+    # ordem segue o que o colaborador escolheu no filtro.
+    ordem_grupos = (
+        df_exibir.groupby("_grupo")["_dt"].max()
+        .sort_values(ascending=not _decrescente, na_position="last")
+        .index.tolist()
+    )
 
     # Extrai ID do Drive para thumbnail — definida fora do loop (evita redefinição)
     import re as _re_hist
@@ -263,8 +308,43 @@ def pagina_historico():
             st.markdown("---")
 
             # Ações do card — colunas sempre renderizadas (estrutura fixa)
-            col_drive, col_btn = st.columns([1, 1])
+            col_drive, col_ver, col_btn = st.columns([1, 1, 1])
             col_drive.markdown(f"[📁 Abrir pasta no Drive]({link_pasta})" if link_pasta else "")
+
+            # Visualizar as imagens sem sair do Studio.
+            #
+            # A listagem so acontece quando o colaborador pede: o Streamlit executa
+            # o corpo de tudo que esta na tela a cada rerun, entao listar a pasta de
+            # todo card faria uma chamada de rede por card, em toda interacao.
+            _pasta_id = _id_da_pasta(link_pasta)
+            _chave_ver = f"_hist_ver_imgs_{chave}"
+            if _pasta_id:
+                if col_ver.button("🖼️ Ver imagens", key=f"ver_imgs_{chave}",
+                                  use_container_width=True):
+                    st.session_state[_chave_ver] = not st.session_state.get(_chave_ver, False)
+            else:
+                col_ver.empty()  # placeholder fixo — mantém a estrutura estável
+
+            if st.session_state.get(_chave_ver) and _pasta_id:
+                _imgs = _imagens_da_pasta(_pasta_id)
+                if not _imgs:
+                    st.info(
+                        "Nenhuma imagem encontrada nessa pasta. Ou elas não chegaram a "
+                        "ser salvas no Drive, ou a pasta foi movida."
+                    )
+                else:
+                    import gdrive as _gd_hist
+                    _cols_img = st.columns(4)
+                    for _i, (_fid, _fnome) in enumerate(_imgs):
+                        with _cols_img[_i % 4]:
+                            st.image(
+                                _gd_hist.url_thumbnail(_fid, 400),
+                                caption=_fnome[:28],
+                                use_container_width=True,
+                            )
+                            st.markdown(
+                                f"[abrir](https://drive.google.com/file/d/{_fid}/view)"
+                            )
             if codigo_principal:
                 if col_btn.button(
                     "📋 Usar este código na aba Imagem",
