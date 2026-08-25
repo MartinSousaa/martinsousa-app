@@ -141,6 +141,7 @@ def _analisar_meses(listas, cards, membros_map, id_p, id_t, id_i, meses_lista, p
             "andamento_lista": d["andamento_lista"],
             "pend_lista": d["pend_lista"],
             "tempo_lista": d["tempo_lista"],
+            "tempo_membro_lista": d.get("tempo_membro_lista", {}),
             "pts_lista": dict(d["pts_lista"]),
             "qtd_lista": dict(d["qtd_lista"]),
             "pts_membro": dict(d["pts_membro"]),
@@ -179,7 +180,8 @@ def _extend_dados_ano(dados):
                 "pts_pendentes": 0.0, "abertos": 0, "urgentes": 0,
                 "atrasados": 0, "em_andamento": 0,
                 "andamento_lista": [], "pend_lista": {},
-                "tempo_lista": {}, "pts_lista": {}, "qtd_lista": {},
+                "tempo_lista": {}, "tempo_membro_lista": {},
+                "pts_lista": {}, "qtd_lista": {},
                 "pts_membro": {}, "pen_membro": {}, "qtd_membro": {},
                 "pen_cards": [], "pct_retrab": None, "total_concl": 0,
                 "pct_com_membro": 0.0,
@@ -714,47 +716,101 @@ def _secao_em_andamento_virada(dados):
     )
 
 
-# ── Seção: tempo individual por colaborador (placeholder) ──────────────────────
+# ── Seção: tempo individual por colaborador ───────────────────────────────────
 
 def _secao_tempos_individual(dados):
-    """Tempo médio de execução por colaborador — será populado em tempo real."""
+    """Tempo médio de execução por colaborador, medido pelas etiquetas do Trello.
+
+    O tempo vem do campo TEMPO ACUMULADO quando alguém o preencheu; quando não,
+    é medido automaticamente: o relógio começa quando o cartão recebe a etiqueta
+    "EM ANDAMENTO" e para quando ela sai (descontando "INTERROMPIDO MS").
+    """
     _CC = _pc.COLUNAS_CONFIG
     membros = _pc.MEMBROS_ATIVOS
 
-    # Agrupa tempo por membro (se houver dados no futuro, virão de campos customizados por membro)
-    # Por ora, exibe placeholder estruturado — os números aparecerão conforme forem registrados
-    st.caption("Campos atualizados em tempo real conforme as demandas são concluídas.")
+    def _fmt(m):
+        if m < 60: return f"{m:.0f}min"
+        h = int(m // 60); mm = int(m % 60)
+        return f"{h}h{mm:02d}" if mm else f"{h}h"
+
+    # Agrega por membro → coluna (todos os meses do período)
+    agg = {}
+    for r in dados:
+        for u, por_col in (r.get("tempo_membro_lista") or {}).items():
+            for nl, tempos in por_col.items():
+                agg.setdefault(u, {}).setdefault(nl, []).extend(tempos)
+
+    st.caption(
+        "Medido pela etiqueta: o tempo começa a contar quando o cartão recebe "
+        "**EM ANDAMENTO** e para quando a etiqueta sai. Pausas com **INTERROMPIDO MS** "
+        "são descontadas. Ninguém precisa preencher nada."
+    )
+
+    # Escala comum entre os colaboradores, para as barras serem comparáveis
+    todos = [t for por_col in agg.values() for ts in por_col.values() for t in ts]
+    max_ref = max(todos) if todos else 1
 
     cols = st.columns(len(membros))
     for i, (u, nome) in enumerate(membros.items()):
+        por_col = agg.get(u, {})
+        tempos_u = [t for ts in por_col.values() for t in ts]
+        media_u = (sum(tempos_u) / len(tempos_u)) if tempos_u else None
+
         with cols[i]:
             st.markdown(
                 f'<div style="font-size:12px;font-weight:600;color:var(--ms-texto);'
                 f'margin-bottom:8px;">{nome}</div>',
                 unsafe_allow_html=True
             )
-            # Card de média geral
+            if media_u is None:
+                valor, sub, cor = "—", "Sem cartões concluídos no período", "var(--ms-texto-sec)"
+            else:
+                valor = _fmt(media_u)
+                n = len(tempos_u)
+                sub = f"{n} cartão concluído" if n == 1 else f"{n} cartões concluídos"
+                cor = "var(--ms-texto)"
             st.markdown(
                 f'<div style="background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);'
                 f'border-radius:8px;padding:10px 12px;margin-bottom:8px;text-align:center;">'
                 f'<div style="font-size:9px;color:var(--ms-texto-sec);text-transform:uppercase;">Média Geral</div>'
-                f'<div style="font-size:20px;font-weight:700;color:var(--ms-texto-sec);">—</div>'
-                f'<div style="font-size:8px;color:var(--ms-texto-sec);font-style:italic;">Aguardando dados</div>'
+                f'<div style="font-size:20px;font-weight:700;color:{cor};">{valor}</div>'
+                f'<div style="font-size:8px;color:var(--ms-texto-sec);font-style:italic;">{sub}</div>'
                 f'</div>',
                 unsafe_allow_html=True
             )
-            # Barras por coluna (zeradas — será preenchido em tempo real)
-            colunas_ord = sorted(_CC.keys(), key=lambda x: -_CC[x]["prioridade"])
+
+            # Só as colunas em que a pessoa realmente trabalhou; as demais só
+            # encheriam a tela de traços.
+            colunas_ord = sorted(
+                por_col.keys(),
+                key=lambda x: -_CC.get(x, {}).get("prioridade", 0)
+            )[:8]
+            if not colunas_ord:
+                st.markdown(
+                    '<div style="font-size:9px;color:var(--ms-texto-sec);font-style:italic;'
+                    'text-align:center;">Nenhuma coluna com tempo medido</div>',
+                    unsafe_allow_html=True
+                )
+                continue
+
             html = ""
-            for nl in colunas_ord[:8]:
+            for nl in colunas_ord:
+                tempos = por_col[nl]
+                media = sum(tempos) / len(tempos)
+                estimado = _CC.get(nl, {}).get("tempo_min")
+                if estimado and estimado > 0:
+                    cor_barra = "#1BAF7A" if media <= estimado else "#E34948"
+                else:
+                    cor_barra = "#4A90D9"
+                pct = min(100, media / max_ref * 100) if max_ref else 0
                 nl_c = nl[:30] + "…" if len(nl) > 30 else nl
                 html += (
                     f'<div style="margin-bottom:4px;">'
                     f'<div style="display:flex;justify-content:space-between;font-size:9px;margin-bottom:1px;">'
                     f'<span style="color:var(--ms-texto-sec);">{nl_c}</span>'
-                    f'<span style="color:var(--ms-texto-sec);">—</span></div>'
+                    f'<span style="color:{cor_barra};font-weight:600;">{_fmt(media)}</span></div>'
                     f'<div style="background:var(--ms-metric-bd);border-radius:3px;height:4px;">'
-                    f'<div style="background:var(--ms-metric-bd);width:0%;height:100%;border-radius:3px;"></div>'
+                    f'<div style="background:{cor_barra};width:{pct:.0f}%;height:100%;border-radius:3px;"></div>'
                     f'</div></div>'
                 )
             st.markdown(html, unsafe_allow_html=True)
