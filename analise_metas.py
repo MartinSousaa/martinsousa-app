@@ -390,6 +390,54 @@ def _meta_ind_item(titulo, pct, descricao, cor=None, aguardando=False):
             f'<div style="font-size:9px;color:var(--ms-texto-sec);margin-top:3px;">{descricao}</div></div>')
 
 
+# ── Diagnóstico: por que um indicador está vazio ──────────────────────────────
+
+def _diagnostico_metas_individuais(tem_ponto, sem_exec, diags_pont, erro_pont, dados):
+    """Mostra em números por que um indicador não preencheu.
+
+    Sem isso, uma falha de API vira "aguardando integração" na tela — igual a
+    "ainda não há dado". Quem olha não tem como saber se o problema é a
+    ferramenta ou o processo.
+    """
+    faltando = []
+    if not tem_ponto:
+        faltando.append("pontualidade e ociosidade")
+    if sem_exec:
+        faltando.append("tempo de execução")
+
+    with st.expander(f"🔎 Por que {' e '.join(faltando)} não preencheu", expanded=False):
+        if not tem_ponto:
+            st.markdown("**Relógio de ponto**")
+            if erro_pont:
+                st.error(f"Erro ao consultar: {erro_pont}")
+            for ym, d in diags_pont:
+                if not d:
+                    continue
+                st.markdown(
+                    f"- {ym[1]:02d}/{ym[0]} · fonte **{d.get('fonte','?')}** · "
+                    f"{d.get('pessoas',0)} pessoa(s) na RHiD · "
+                    f"{d.get('mapeadas',0)} casaram com o Trello · "
+                    f"{d.get('dias_com_batida',0)} dia(s) com batida"
+                )
+                if d.get("erro"):
+                    st.warning(d["erro"])
+                if d.get("chaves_exemplo"):
+                    st.caption("Campos devolvidos pela RHiD: " + ", ".join(d["chaves_exemplo"]))
+
+        if sem_exec:
+            st.markdown("**Tempo de execução (etiquetas do Trello)**")
+            d = getattr(_pc, "ULTIMO_DIAGNOSTICO_ACOES", {})
+            st.markdown(
+                f"- HTTP **{d.get('http','—')}** · {d.get('paginas',0)} página(s) · "
+                f"{d.get('acoes',0)} ação(ões) de etiqueta · "
+                f"{d.get('cartoes',0)} cartão(ões) com histórico"
+            )
+            if d.get("erro"):
+                st.warning(d["erro"])
+            _concl = sum(r.get("total_concl", 0) for r in dados)
+            st.caption(f"{_concl} cartão(ões) concluído(s) no período analisado.")
+
+
 # ── Seção: meta individual por colaborador ────────────────────────────────────
 
 def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master=False):
@@ -410,12 +458,31 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
     pts_total  = {u: sum(r["pts_membro"].get(u, 0) for r in dados) for u in membros_ativos}
     meta_total = {u: sum(r["cfg"].get(f"meta_{u}", 1500) for r in dados) for u in membros_ativos}
 
+    # Monitoramento em tempo real: os dados têm cache curto (30s a 5min) para não
+    # bater na API a cada clique; este botão descarta tudo e relê na hora.
+    _c_at, _c_leg = st.columns([1, 5])
+    if _c_at.button("🔄 Atualizar agora", key="am_ind_refresh"):
+        try:
+            _pc._buscar_board_clear()
+            _pc._acoes_cache.clear()
+        except Exception:
+            pass
+        try:
+            _rp.limpar_cache_ponto()
+        except Exception:
+            pass
+        st.cache_data.clear()
+        st.rerun()
+    _c_leg.caption("Ponto vindo do relógio físico (RHiD) · tempo vindo das etiquetas do Trello")
+
     # ── Relógio de ponto: pontualidade e ociosidade reais ─────────────────────
     # Uma passada por mês do período; se a planilha de ponto não responder, os
     # cards voltam a dizer "aguardando" em vez de mostrar zero como se fosse dado.
     _pont = {u: {"tol": 0, "atr": 0, "atr_ent": 0, "atr_alm": 0, "dias": 0} for u in membros_ativos}
     _ocio = {u: {"disp": 0.0, "cards": 0.0} for u in membros_ativos}
     _tem_ponto = False
+    _diags_pont = []
+    _erro_pont = None
     try:
         for r in dados:
             ym = r.get("filtro_mes")
@@ -425,7 +492,8 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
                 u: sum(t for ts in por_col.values() for t in ts)
                 for u, por_col in (r.get("tempo_membro_lista") or {}).items()
             }
-            p_mes = _rp.get_pontualidade_mes(*ym)
+            p_mes, _diag_pont = _rp.get_pontualidade_mes(*ym, com_diagnostico=True)
+            _diags_pont.append((ym, _diag_pont))
             o_mes = _rp.get_ociosidade_mes(ym[0], ym[1], tc_mes)
             for u in membros_ativos:
                 p = p_mes.get(u)
@@ -440,8 +508,9 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
                     _ocio[u]["disp"]  += o["horas_disp_min"]
                     _ocio[u]["cards"] += o["tempo_cards_min"]
         _tem_ponto = any(v["dias"] > 0 for v in _pont.values())
-    except Exception:
+    except Exception as e:
         _tem_ponto = False
+        _erro_pont = str(e)[:200]
 
     # Tempo de execução medido pelas etiquetas: % de cartões dentro do estimado
     _CC_ = _pc.COLUNAS_CONFIG
@@ -458,6 +527,11 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
                     _exec[u]["total"] += 1
                     if t <= est:
                         _exec[u]["dentro"] += 1
+
+    _sem_exec = not any(v["total"] for v in _exec.values())
+    if eh_master and (not _tem_ponto or _sem_exec):
+        _diagnostico_metas_individuais(_tem_ponto, _sem_exec, _diags_pont,
+                                       _erro_pont, dados)
 
     def _card(username, nome):
         pts  = pts_total.get(username, 0)

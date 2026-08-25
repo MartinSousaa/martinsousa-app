@@ -265,3 +265,177 @@ def fmt_banco(minutos: float) -> str:
         return "0"
     sinal = "+" if minutos > 0 else "-"
     return f"{sinal}{fmt_horas(abs(minutos))}"
+
+
+# ── Batidas diárias (fonte oficial de pontualidade) ───────────────────────────
+# A equipe registra ponto SOMENTE no relógio físico — nunca pelo Studio. Então a
+# pontualidade tem que sair daqui, não da planilha.
+#
+# O nome dos campos varia entre versões da RHiD, e não dá para descobrir sem ver
+# a resposta real. Por isso a normalização tenta todas as variações conhecidas e
+# devolve, junto, as chaves cruas do primeiro registro: se nenhuma bater, o
+# diagnóstico mostra o que veio em vez de devolver zero em silêncio.
+
+_CAMPOS_LISTA_BATIDAS = (
+    "batidas", "marcacoes", "marcacoesDia", "pontos", "horarios",
+    "apontamentos", "registrosPonto", "punches", "clockings",
+)
+_CAMPOS_DATA = ("dateTimeStr", "date", "data", "dia", "dataStr", "dataRegistro")
+_CAMPOS_HORA = ("hora", "horario", "time", "dateTime", "marcacao", "batida",
+                "valor", "value", "horaMarcacao")
+_SEQUENCIAS_ENTRADA_SAIDA = (
+    ("entrada1", "saida1", "entrada2", "saida2"),
+    ("entrada", "saidaAlmoco", "voltaAlmoco", "saida"),
+    ("entrada", "saida_almoco", "volta_almoco", "saida"),
+    ("e1", "s1", "e2", "s2"),
+)
+
+
+def _extrair_hhmm(valor) -> Optional[str]:
+    """Extrai 'HH:MM' de string, timestamp ou dict aninhado. None se não der."""
+    if valor is None:
+        return None
+    if isinstance(valor, dict):
+        for c in _CAMPOS_HORA:
+            if c in valor:
+                achou = _extrair_hhmm(valor[c])
+                if achou:
+                    return achou
+        return None
+    texto = str(valor).strip()
+    if not texto:
+        return None
+    # "2026-08-25T08:59:00" / "2026-08-25 08:59" → pega a parte da hora
+    if "T" in texto or " " in texto:
+        texto = texto.replace("T", " ").split(" ")[-1]
+    # "085900" → "08:59"
+    if texto.isdigit() and len(texto) in (4, 6):
+        return f"{texto[:2]}:{texto[2:4]}"
+    partes = texto.split(":")
+    if len(partes) >= 2 and partes[0].isdigit() and partes[1][:2].isdigit():
+        h, m = int(partes[0]), int(partes[1][:2])
+        if 0 <= h <= 23 and 0 <= m <= 59:
+            return f"{h:02d}:{m:02d}"
+    return None
+
+
+def _extrair_data(reg: dict):
+    """date do registro diário, ou None."""
+    from datetime import datetime as _dt
+    for c in _CAMPOS_DATA:
+        v = reg.get(c)
+        if not v:
+            continue
+        t = str(v)
+        try:
+            if len(t) == 8 and t.isdigit():        # "20260825"
+                return _dt.strptime(t, "%Y%m%d").date()
+            if "/" in t[:10]:                       # "25/08/2026"
+                return _dt.strptime(t[:10], "%d/%m/%Y").date()
+            return _dt.fromisoformat(t[:10]).date()
+        except (ValueError, TypeError):
+            continue
+    return None
+
+
+def _extrair_marcacoes(reg: dict):
+    """As quatro marcações do dia: (entrada, saída almoço, volta almoço, saída).
+
+    A tela da RHiD chama de Ent.1 / Saí.1 / Ent.2 / Saí.2. Os campos nomeados vêm
+    ANTES de qualquer lista de batidas: a RHiD também devolve as marcações
+    excluídas do cálculo (coluna "Exclusões"), e uma lista crua misturaria as
+    duas coisas. Dia de "Folga" ou "Justif" não tem horário e volta tudo None.
+    """
+    for sequencia in _SEQUENCIAS_ENTRADA_SAIDA:
+        valores = [_extrair_hhmm(reg.get(c)) for c in sequencia]
+        if any(valores):
+            return tuple(valores)
+
+    # Sem campos nomeados: usa a lista de batidas na ordem do relógio.
+    horas = _extrair_batidas(reg)
+    horas = horas + [None] * 4
+    return tuple(horas[:4])
+
+
+def _extrair_batidas(reg: dict) -> list[str]:
+    """Horários de marcação do dia, em ordem, como 'HH:MM'."""
+    for campo in _CAMPOS_LISTA_BATIDAS:
+        bruto = reg.get(campo)
+        if isinstance(bruto, list) and bruto:
+            horas = [h for h in (_extrair_hhmm(b) for b in bruto) if h]
+            if horas:
+                return sorted(horas)
+        if isinstance(bruto, str) and bruto.strip():
+            # "08:59, 12:01, 13:00, 18:02" ou "08:59 12:01 13:00 18:02"
+            pedacos = bruto.replace(";", ",").replace(" ", ",").split(",")
+            horas = [h for h in (_extrair_hhmm(p) for p in pedacos) if h]
+            if horas:
+                return sorted(horas)
+
+    return []
+
+
+def get_registros_diarios(data_ini: str, data_final: str, id_person: int):
+    """Registros diários de ponto de uma pessoa, normalizados.
+
+    Devolve (lista, diagnostico). Cada item:
+      {"data": date, "batidas": ["08:59", ...],
+       "entrada"/"saida_almoco"/"volta_almoco"/"saida": "HH:MM"|None,
+       "minutos_atraso": float|None, "minutos_trabalhados": float, "faltou": bool}
+
+    O diagnóstico diz o que aconteceu quando a lista vem vazia — nunca devolve
+    silêncio: {"erro": str|None, "registros_brutos": int, "com_batidas": int,
+    "chaves_exemplo": [str]}.
+    """
+    diag = {"erro": None, "registros_brutos": 0, "com_batidas": 0, "chaves_exemplo": []}
+
+    apuracao = get_apuracao(data_ini, data_final, id_person)
+    if not apuracao:
+        diag["erro"] = "A RHiD não respondeu à apuração de ponto."
+        return [], diag
+    if apuracao.get("_raw"):
+        diag["erro"] = f"Resposta não reconhecida da RHiD: {str(apuracao['_raw'])[:120]}"
+        return [], diag
+
+    brutos = apuracao.get("registros", apuracao.get("records", apuracao.get("data", [])))
+    if not isinstance(brutos, list):
+        brutos = [apuracao] if isinstance(apuracao, dict) else []
+    diag["registros_brutos"] = len(brutos)
+    if brutos and isinstance(brutos[0], dict):
+        diag["chaves_exemplo"] = sorted(brutos[0].keys())[:40]
+
+    saida = []
+    for reg in brutos:
+        if not isinstance(reg, dict):
+            continue
+        marcacoes = _extrair_marcacoes(reg)
+        batidas = [m for m in marcacoes if m]
+        if batidas:
+            diag["com_batidas"] += 1
+        atraso = reg.get("minutosAtraso", reg.get("atraso", reg.get("lateMinutes")))
+        try:
+            atraso = float(atraso) if atraso is not None else None
+        except (TypeError, ValueError):
+            atraso = None
+        try:
+            trabalhados = float(reg.get("totalHorasTrabalhadas",
+                                        reg.get("horasTrabalhadas",
+                                        reg.get("workedMinutes", 0))) or 0)
+        except (TypeError, ValueError):
+            trabalhados = 0.0
+        saida.append({
+            "data": _extrair_data(reg),
+            "batidas": batidas,
+            "entrada":      marcacoes[0],
+            "saida_almoco": marcacoes[1],
+            "volta_almoco": marcacoes[2],
+            "saida":        marcacoes[3],
+            "minutos_atraso": atraso,
+            "minutos_trabalhados": trabalhados,
+            "faltou": bool(int(reg.get("faltasDiasInteiro", reg.get("ausente", 0)) or 0)),
+        })
+
+    if saida and diag["com_batidas"] == 0:
+        diag["erro"] = ("A RHiD devolveu os dias, mas nenhum horário de batida foi "
+                        "reconhecido nos campos conhecidos.")
+    return saida, diag

@@ -1141,7 +1141,7 @@ function _marcarBtnErro() {{
   var btn = document.getElementById('som-btn');
   if (btn) {{ btn.style.color = '#E34948'; btn.innerHTML = '🔇 Sem suporte'; }}
 }}
-function _beep(freq, dur) {{
+function _beepOsc(freq, dur) {{
   var ctx = _ensureCtx();
   if (!ctx) return;
   function _doBeep() {{
@@ -1164,35 +1164,68 @@ function _beep(freq, dur) {{
     }}
   }} catch(e) {{ _doBeep(); }}
 }}
+// O navegador da TV (WebOS) nao implementa Web Audio API — o ctx.resume()
+// era rejeitado e o botao virava "Sem suporte". Mas ele toca <audio> sem
+// problema, e o beep.wav ja estava na pagina, so nao era usado.
+var _beepEl = null;
+function _ensureBeepEl() {{
+  if (!_beepEl) _beepEl = document.getElementById('beep-audio');
+  return _beepEl;
+}}
+function _tocarWav() {{
+  var el = _ensureBeepEl();
+  if (!el) return Promise.reject('sem elemento de audio');
+  try {{
+    el.currentTime = 0;
+    var p = el.play();
+    return (p && p.then) ? p : Promise.resolve();
+  }} catch(e) {{ return Promise.reject(e); }}
+}}
 function _playAudio() {{
   if (!_audioAtivo) return;
-  _beep(880, 0.35);
-  setTimeout(function() {{ _beep(660, 0.25); }}, 450);
+  _tocarWav().catch(function() {{
+    // Reserva: navegadores sem <audio> utilizavel, mas com Web Audio.
+    _beepOsc(880, 0.35);
+    setTimeout(function() {{ _beepOsc(660, 0.25); }}, 450);
+  }});
+}}
+function _confirmarAtivo() {{
+  _audioAtivo = true;
+  _marcarBtnAtivo();
+  try {{ localStorage.setItem('ms_tv_audio', '1'); }} catch(e) {{}}
 }}
 function ativarSom() {{
   var btn = document.getElementById('som-btn');
   if (btn) {{ btn.innerHTML = '⏳ Ativando...'; }}
-  var ctx = _ensureCtx();
-  if (!ctx) {{ _marcarBtnErro(); return; }}
-  try {{
-    ctx.resume().then(function() {{
-      _beep(880, 0.15);
-      _audioAtivo = true;
-      _marcarBtnAtivo();
-      try {{ localStorage.setItem('ms_tv_audio', '1'); }} catch(e) {{}}
-    }}).catch(function() {{ _marcarBtnErro(); }});
-  }} catch(e) {{
-    // Fallback sync for older WebOS
-    _beep(880, 0.15);
-    _audioAtivo = true;
-    _marcarBtnAtivo();
-    try {{ localStorage.setItem('ms_tv_audio', '1'); }} catch(e) {{}}
-  }}
+  _tocarWav().then(_confirmarAtivo).catch(function() {{
+    // So agora tenta Web Audio — e so marca "Sem suporte" se os dois falharem.
+    var ctx = _ensureCtx();
+    if (!ctx) {{ _marcarBtnErro(); return; }}
+    try {{
+      ctx.resume().then(function() {{
+        _beepOsc(880, 0.15);
+        _confirmarAtivo();
+      }}).catch(function() {{ _marcarBtnErro(); }});
+    }} catch(e) {{ _marcarBtnErro(); }}
+  }});
 }}
-// Auto-restauração: se o usuário já ativou antes, marca como ativo (áudio não toca automaticamente, precisa de nova interação)
+// A pagina recarrega sozinha e o navegador volta a bloquear o audio. Antes o
+// codigo remarcava o botao como "Som Ativo" so porque havia registro de um
+// clique antigo — a TV ficava muda anunciando que estava tocando. Agora ele
+// confere de verdade: toca mudo e so se declara ativo se o navegador deixar.
 try {{
   if (localStorage.getItem('ms_tv_audio') === '1') {{
-    _audioAtivo = true; _marcarBtnAtivo();
+    var _el = _ensureBeepEl();
+    var _vol = _el ? _el.volume : 1;
+    if (_el) _el.volume = 0;
+    _tocarWav().then(function() {{
+      if (_el) {{ _el.pause(); _el.currentTime = 0; _el.volume = _vol; }}
+      _audioAtivo = true; _marcarBtnAtivo();
+    }}).catch(function() {{
+      if (_el) _el.volume = _vol;
+      var b = document.getElementById('som-btn');
+      if (b) {{ b.className = ''; b.innerHTML = '🔇 Toque para ativar'; }}
+    }});
   }}
 }} catch(e) {{}}
 // checkAndPlay: só dispara quando há alertas (ALERTAS não vazio)

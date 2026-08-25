@@ -25,8 +25,13 @@ MASTERS = _pc.MASTERS                 # {"martinsousa", "renan"}
 # ── Horários de expediente ────────────────────────────────────────────────────
 # Padrão da casa: 09h00 às 18h00. Myrella cumpre 08h45 às 17h45.
 ENTRADA_ESPERADA  = time(9,  0)   # padrão (mantido como nome público)
-SAIDA_ALMOCO      = time(12, 0)
-VOLTA_ALMOCO      = time(13, 0)
+SAIDA_ALMOCO      = time(12, 0)   # referência da tela de registro
+VOLTA_ALMOCO      = time(13, 0)   # referência da tela de registro
+
+# O almoço não tem hora fixa: na apuração da RHiD a saída varia (12h05, 13h00,
+# 13h36…). O que é fixo é a DURAÇÃO. Então o atraso do almoço é medido pelo
+# tempo fora, não pelo relógio de parede.
+ALMOCO_MINUTOS = 60
 FIM_EXPEDIENTE    = time(18, 0)   # padrão
 
 HORARIO_PADRAO = {"entrada": ENTRADA_ESPERADA, "fim": FIM_EXPEDIENTE}
@@ -286,8 +291,13 @@ def calcular_indicadores_dia(regs: list[dict], username: Optional[str] = None) -
             r["min_atraso_entrada"] = atraso_ent
             r["tolerancia_min"]     = atraso_ent
 
-    # Volta do almoço não tem tolerância: um minuto atrasado já é atraso.
-    if r["volta_almoco"] and r["volta_almoco"] > VOLTA_ALMOCO:
+    # Almoço: conta pela duração, não pelo relógio de parede.
+    if r["saida_almoco"] and r["volta_almoco"]:
+        _fora = _diff_min(r["saida_almoco"], r["volta_almoco"])
+        if _fora > ALMOCO_MINUTOS:
+            r["atraso_almoco"]     = True
+            r["min_atraso_almoco"] = _fora - ALMOCO_MINUTOS
+    elif r["volta_almoco"] and r["volta_almoco"] > VOLTA_ALMOCO:
         r["atraso_almoco"]     = True
         r["min_atraso_almoco"] = _diff_min(VOLTA_ALMOCO, r["volta_almoco"])
 
@@ -658,7 +668,133 @@ def _secao_historico_mensal(eh_master: bool, usuario_logado: str):
 
 # ── Dados para analise_metas.py ────────────────────────────────────────────────
 
-def get_pontualidade_mes(ano: int, mes: int) -> dict:
+def _classificar_batidas(username, entrada, saida_almoco=None, volta_almoco=None):
+    """Aplica a regra da casa a um dia.
+
+    Devolve (tolerancias, atraso_entrada, atraso_almoco, minutos_almoco).
+
+    Entrada: no horário da pessoa; tolerância nos 5 minutos seguintes; depois,
+    atraso. Almoço: passou de ALMOCO_MINUTOS fora, é atraso — sem tolerância,
+    um minuto já conta.
+    """
+    tol = atr_ent = atr_alm = 0
+    minutos_almoco = 0.0
+
+    if entrada:
+        h = horario_de(username)
+        if entrada > limite_tolerancia(username):
+            atr_ent = 1
+        elif _diff_min(h["entrada"], entrada) > 0:
+            tol = 1
+
+    if saida_almoco and volta_almoco:
+        minutos_almoco = _diff_min(saida_almoco, volta_almoco)
+        if minutos_almoco > ALMOCO_MINUTOS:
+            atr_alm = 1
+    elif volta_almoco and volta_almoco > VOLTA_ALMOCO:
+        # Sem a saída registrada, só resta comparar com o horário de referência.
+        atr_alm = 1
+
+    return tol, atr_ent, atr_alm, minutos_almoco
+
+
+@st.cache_data(ttl=300)   # 5 min — o painel precisa acompanhar o dia
+def _pontualidade_rhid(ano: int, mes: int):
+    """Pontualidade a partir do relógio de ponto físico (RHiD).
+
+    A equipe bate ponto SOMENTE no relógio — nunca pelo Studio. Esta é a fonte
+    real; a planilha só entra como reserva.
+
+    Devolve ({username: resumo}, diagnostico). O diagnóstico nunca fica vazio:
+    quando não há dado, ele diz por quê.
+    """
+    diag = {"fonte": "RHiD", "erro": None, "pessoas": 0, "mapeadas": 0,
+            "dias_com_batida": 0, "chaves_exemplo": []}
+
+    persons = _rhid.get_persons()
+    if not persons:
+        diag["erro"] = ("Não consegui listar os colaboradores na RHiD "
+                        "(login ou endpoint de pessoas).")
+        return {}, diag
+    diag["pessoas"] = len(persons)
+
+    ini = date(ano, mes, 1)
+    prox = date(ano + (1 if mes == 12 else 0), 1 if mes == 12 else mes + 1, 1)
+    fim = min(prox - timedelta(days=1), date.today())
+    if fim < ini:
+        diag["erro"] = "Mês ainda não começou."
+        return {}, diag
+
+    resultado = {}
+    for p in persons:
+        nome_p = (p.get("name") or p.get("nome") or p.get("nomeCompleto")
+                  or p.get("fullName") or p.get("personName") or "")
+        id_p = p.get("id") or p.get("idPerson") or p.get("personId") or p.get("codigo")
+        u = _rhid_nome_para_trello(nome_p) if nome_p else None
+        if not u or u not in MEMBROS or not id_p:
+            continue
+        diag["mapeadas"] += 1
+
+        regs, d = _rhid.get_registros_diarios(ini.isoformat(), fim.isoformat(), int(id_p))
+        if d.get("erro") and not diag["erro"]:
+            diag["erro"] = d["erro"]
+        if d.get("chaves_exemplo") and not diag["chaves_exemplo"]:
+            diag["chaves_exemplo"] = d["chaves_exemplo"]
+
+        acc = {"tolerancias": 0, "atrasos": 0, "atrasos_entrada": 0,
+               "atrasos_almoco": 0, "dias_trabalhados": 0, "ocorrencias": [],
+               "minutos_trabalhados": 0.0}
+        for reg in regs:
+            if reg["faltou"] or not reg["batidas"]:
+                continue
+            diag["dias_com_batida"] += 1
+            acc["dias_trabalhados"] += 1
+            acc["minutos_trabalhados"] += reg["minutos_trabalhados"]
+            entrada = _parse_horario(reg.get("entrada"))
+            saida_a = _parse_horario(reg.get("saida_almoco"))
+            volta   = _parse_horario(reg.get("volta_almoco"))
+            if not entrada and not volta:
+                continue
+            tol, atr_ent, atr_alm, min_almoco = _classificar_batidas(
+                u, entrada, saida_a, volta)
+            acc["tolerancias"]     += tol
+            acc["atrasos_entrada"] += atr_ent
+            acc["atrasos_almoco"]  += atr_alm
+            acc["atrasos"]         += atr_ent + atr_alm
+
+            data_txt = reg["data"].strftime("%Y-%m-%d") if reg["data"] else "—"
+            if tol:
+                acc["ocorrencias"].append({"data": data_txt, "tipo": "tolerancia",
+                                           "horario": entrada.strftime("%H:%M"),
+                                           "minutos": _diff_min(horario_de(u)["entrada"], entrada)})
+            if atr_ent:
+                acc["ocorrencias"].append({"data": data_txt, "tipo": "atraso_entrada",
+                                           "horario": entrada.strftime("%H:%M"),
+                                           "minutos": _diff_min(horario_de(u)["entrada"], entrada)})
+            if atr_alm:
+                acc["ocorrencias"].append({
+                    "data": data_txt, "tipo": "atraso_almoco",
+                    "horario": volta.strftime("%H:%M") if volta else "—",
+                    "minutos": max(min_almoco - ALMOCO_MINUTOS, 0),
+                })
+        resultado[u] = acc
+
+    if diag["mapeadas"] == 0 and not diag["erro"]:
+        diag["erro"] = ("Nenhum colaborador da RHiD casou com os nomes do Trello "
+                        "(confira _RHID_TRELLO_MAP).")
+    return resultado, diag
+
+
+def limpar_cache_ponto():
+    """Descarta o cache de ponto para a próxima leitura vir do zero."""
+    for f in (_pontualidade_rhid, _carregar_ponto_todos):
+        try:
+            f.clear()
+        except Exception:
+            pass
+
+
+def get_pontualidade_mes(ano: int, mes: int, com_diagnostico: bool = False):
     """Contagem de tolerâncias e atrasos do mês, por colaborador.
 
     Regra da casa: entrada até 09h05 é tolerância, depois disso é atraso; volta
@@ -669,7 +805,24 @@ def get_pontualidade_mes(ano: int, mes: int) -> dict:
                         "atrasos_almoco": int, "dias_trabalhados": int,
                         "ocorrencias": [ {data, tipo, horario, minutos} ]}}
     """
+    try:
+        via_rhid, diag = _pontualidade_rhid(ano, mes)
+    except Exception as e:
+        via_rhid, diag = {}, {"fonte": "RHiD", "erro": str(e)[:200],
+                              "pessoas": 0, "mapeadas": 0,
+                              "dias_com_batida": 0, "chaves_exemplo": []}
+    if any(v["dias_trabalhados"] > 0 for v in via_rhid.values()):
+        completo = {u: via_rhid.get(u, {
+            "tolerancias": 0, "atrasos": 0, "atrasos_entrada": 0,
+            "atrasos_almoco": 0, "dias_trabalhados": 0, "ocorrencias": [],
+            "minutos_trabalhados": 0.0,
+        }) for u in MEMBROS}
+        return (completo, diag) if com_diagnostico else completo
+
+    # Reserva: registros feitos dentro do Studio. Hoje ninguém usa, mas se
+    # alguém usar, o dado não se perde.
     resumo = calcular_resumo_mes(ano, mes)
+    diag["fonte"] = "planilha (RHiD sem dado)"
     resultado = {}
     for u in MEMBROS:
         ocorrencias = []
@@ -700,7 +853,7 @@ def get_pontualidade_mes(ano: int, mes: int) -> dict:
             "dias_trabalhados": resumo[u]["dias_trabalhados"],
             "ocorrencias":      ocorrencias,
         }
-    return resultado
+    return (resultado, diag) if com_diagnostico else resultado
 
 
 def get_ociosidade_mes(ano: int, mes: int, tempo_cards_por_user: dict) -> dict:
@@ -715,9 +868,18 @@ def get_ociosidade_mes(ano: int, mes: int, tempo_cards_por_user: dict) -> dict:
                         "ociosidade_min": float, "pct_ocioso": float}}
     """
     resumo = calcular_resumo_mes(ano, mes)
+
+    # Horas disponíveis vêm do relógio físico quando ele responde — é lá que a
+    # equipe bate ponto. A planilha só entra se a RHiD não trouxer nada.
+    try:
+        via_rhid, _ = _pontualidade_rhid(ano, mes)
+    except Exception:
+        via_rhid = {}
+
     resultado = {}
     for u in MEMBROS:
-        hd   = resumo[u]["total_horas_disp"]          # minutos disponíveis
+        hd = (via_rhid.get(u, {}).get("minutos_trabalhados", 0.0)
+              or resumo[u]["total_horas_disp"])       # minutos disponíveis
         tc   = tempo_cards_por_user.get(u, 0)         # minutos em cards (Trello)
         ocio = max(hd - tc, 0)
         pct  = (ocio / hd * 100) if hd > 0 else 0
@@ -726,11 +888,14 @@ def get_ociosidade_mes(ano: int, mes: int, tempo_cards_por_user: dict) -> dict:
             "tempo_cards_min": tc,
             "ociosidade_min": ocio,
             "pct_ocioso": pct,
-            "dias_trabalhados": resumo[u]["dias_trabalhados"],
+            "dias_trabalhados": (via_rhid.get(u, {}).get("dias_trabalhados")
+                                 or resumo[u]["dias_trabalhados"]),
             "dias_ausentes": resumo[u]["dias_ausentes"],
             "total_tolerancia_min": resumo[u]["total_tolerancia_min"],
-            "qtd_tolerancias": resumo[u]["qtd_tolerancias"],
-            "qtd_atrasos":     resumo[u]["qtd_atrasos"],
+            "qtd_tolerancias": (via_rhid.get(u, {}).get("tolerancias")
+                                or resumo[u]["qtd_tolerancias"]),
+            "qtd_atrasos":     (via_rhid.get(u, {}).get("atrasos")
+                                or resumo[u]["qtd_atrasos"]),
         }
     return resultado
 
