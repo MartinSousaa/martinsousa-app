@@ -342,7 +342,8 @@ def pagina_video(usuario_logado):
             )
 
         if erro:
-            st.error(f"Erro ao gerar prompt: {erro}")
+            import erros_ia
+            st.error(erros_ia.mensagem(erro, "gerar o prompt do vídeo"))
             return
 
         import atividades

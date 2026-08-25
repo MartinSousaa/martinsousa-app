@@ -146,14 +146,16 @@ def pagina_titulo(usuario_logado):
             palavras_lista, erro_pc = palavras_chave.gerar_palavras_chave(dados)
 
         if erro_pc:
-            st.error(f"Erro ao gerar palavras-chave: {erro_pc}")
+            import erros_ia
+            st.error(erros_ia.mensagem(erro_pc, "gerar as palavras-chave"))
             return
 
         with st.spinner("Montando títulos..."):
             titulos, erro_tit = gerar_titulos(dados, palavras_lista)
 
         if erro_tit:
-            st.error(f"Erro ao gerar títulos: {erro_tit}")
+            import erros_ia
+            st.error(erros_ia.mensagem(erro_tit, "gerar os títulos"))
             return
 
         import atividades
