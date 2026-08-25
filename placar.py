@@ -301,9 +301,7 @@ def _processar(listas,cards,membros_map,id_p,id_t,id_i,filtro_mes=None):
     """
     import placar_core as _pc_tv
     from datetime import timedelta as _td_tv
-    _desde_tv = (datetime.now(timezone.utc) - _td_tv(days=120)).strftime(
-        "%Y-%m-%dT%H:%M:%S.000Z")
-    _tempos_tv = _pc_tv.tempos_do_board(cards, membros_map, _desde_tv)
+    _tempos_tv = _pc_tv.tempos_do_board(cards, membros_map)
     d={
         "pts_equipe":0.0,"pen_total":0.0,
         "pts_membro":{u:0.0 for u in MEMBROS_ATIVOS},
@@ -533,9 +531,7 @@ def _alertas_tv_list(listas, cards, membros_map):
     from datetime import timedelta as _td_al
     # Uma chamada para o board inteiro. Antes era um GET por cartao em execucao,
     # a cada atualizacao do painel.
-    _acoes_al = _pc_al._buscar_acoes_board(
-        (datetime.now(timezone.utc) - _td_al(days=120)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-    )
+    _acoes_al = _pc_al._buscar_acoes_board(_pc_al._desde_padrao())
     agora   = datetime.now(timezone.utc)
     alertas = []
 
