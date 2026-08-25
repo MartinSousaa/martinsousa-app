@@ -376,10 +376,13 @@ def _meta_ind_item(titulo, pct, descricao, cor=None, aguardando=False):
     _titulo_css = 'font-size:12px;font-weight:600;color:var(--ms-texto);margin-bottom:6px;'
     _barra_bg   = 'background:var(--ms-metric-bd);border-radius:4px;height:8px;overflow:hidden;margin-bottom:3px;'
     if aguardando:
+        # A frase fixa dizia "relógio de ponto" mesmo quando o motivo era outro —
+        # por exemplo, nenhum cartão concluído com tempo medido no período.
+        _motivo = descricao or "Aguardando integração do relógio de ponto"
         return (f'<div style="{_card_css}">'
                 f'<div style="{_titulo_css}">{titulo}</div>'
                 f'<div style="font-size:10px;color:var(--ms-texto-sec);font-style:italic;">'
-                f'⏳ Aguardando integração do relógio de ponto</div></div>')
+                f'⏳ {_motivo}</div></div>')
     c = cor or ("#1BAF7A" if pct >= 80 else ("#EDA100" if pct >= 50 else "#4A90D9"))
     return (f'<div style="{_card_css}">'
             f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'
@@ -423,9 +426,12 @@ def _diagnostico_metas_individuais(tem_ponto, sem_exec, diags_pont, erro_pont, d
                 )
                 if d.get("erro"):
                     st.warning(d["erro"])
-                if d.get("exemplo_dia"):
-                    st.caption("Um dia devolvido pela RHiD (é isto que preciso ver):")
-                    st.code(d["exemplo_dia"], language="json")
+                if d.get("campos_com_hora"):
+                    st.caption(
+                        f"Campos da RHiD que contêm horário (dia {d.get('data_amostra','?')}) "
+                        "— é daqui que saem entrada e volta do almoço:"
+                    )
+                    st.code("\n".join(d["campos_com_hora"]))
                 elif d.get("chaves_exemplo"):
                     st.caption("Campos devolvidos pela RHiD: " + ", ".join(d["chaves_exemplo"]))
 

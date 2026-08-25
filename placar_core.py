@@ -218,7 +218,31 @@ def _buscar_acoes_board(desde_iso=None, max_paginas=10):
     return por_card
 
 
-def intervalos_do_cartao(acoes, agora=None):
+def _membros_no_inicio(acoes, membros_agora):
+    """Quem estava no cartão ANTES da primeira ação da janela consultada.
+
+    O histórico só cobre os últimos meses. Quem entrou no cartão antes disso não
+    tem addMemberToCard dentro da janela e, sem esta reconstrução, o cartão
+    parecia não ter membro nenhum — o tempo era medido mas não ia para ninguém,
+    e o painel individual ficava vazio.
+
+    Reconstrói desfazendo, de trás para frente, o que aconteceu na janela.
+    """
+    inicio = set(membros_agora or [])
+    for ac in sorted(acoes, key=lambda a: a.get("date", ""), reverse=True):
+        tipo = ac.get("type", "")
+        dados = ac.get("data", {}) or {}
+        mid = dados.get("idMember") or (dados.get("member") or {}).get("id")
+        if not mid:
+            continue
+        if tipo == "addMemberToCard":
+            inicio.discard(mid)     # entrou na janela: antes não estava
+        elif tipo == "removeMemberFromCard":
+            inicio.add(mid)         # saiu na janela: antes estava
+    return inicio
+
+
+def intervalos_do_cartao(acoes, agora=None, membros_agora=None):
     """Trechos em que o cartão esteve efetivamente em execução.
 
     Devolve [{"ini": dt, "fim": dt, "tipo": "filmagem"|"andamento",
@@ -247,7 +271,8 @@ def intervalos_do_cartao(acoes, agora=None):
                 eventos.append((dt, "membro", mid, tipo == "addMemberToCard"))
     eventos.sort(key=lambda e: (e[0], e[1], str(e[2])))
 
-    labels, membros, segs = set(), set(), []
+    labels, segs = set(), []
+    membros = _membros_no_inicio(acoes, membros_agora)
     ini, tipo_seg = None, None
 
     def _trabalhando():
@@ -336,7 +361,8 @@ def tempos_dos_cartoes(cards, acoes_board, membros_map=None, agora=None):
 
     brutos, bruto_min = {}, {}
     for c in cards:
-        segs = intervalos_do_cartao(acoes_board.get(c["id"], []), agora)
+        segs = intervalos_do_cartao(
+            acoes_board.get(c["id"], []), agora, c.get("idMembers"))
         if segs:
             brutos[c["id"]] = segs
 
