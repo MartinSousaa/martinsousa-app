@@ -263,6 +263,7 @@ def _montar_system() -> str:
         cmds_exemplo.append('{"acao":"alterar_descricao","texto":"nova descrição completa aqui"}')
     if tem_imgs:
         cmds_exemplo.append('{"acao":"ajustar_imagem","imagem":1,"instrucao":"instrução de edição para a imagem"}')
+        cmds_exemplo.append('{"acao":"refazer_todas_imagens","instrucao":"o que mudar em todas"}')
 
     # Sempre disponível quando há triagem com bloqueios — independe de imgs geradas
     tem_triagem_bloqueada = bool(
@@ -290,6 +291,14 @@ REGRAS DOS COMANDOS:
 - "ajustar_imagem": use o NÚMERO da imagem na galeria (o mesmo da legenda). Descreva
   apenas o que muda — o resto da imagem é preservado. Uma imagem por comando; se o
   colaborador pedir a mesma mudança em várias, emita um comando para cada uma.
+  REGRA CENTRAL: imagem que o colaborador NÃO citou não pode ser tocada. Se ele
+  pedir "deixa a imagem 1 com fundo branco", só a imagem 1 muda — as outras ficam
+  exatamente como estão. Na dúvida sobre qual imagem é, PERGUNTE o número antes de
+  emitir o comando; nunca chute e nunca aplique a todas por precaução.
+- "refazer_todas_imagens": SOMENTE quando o colaborador pedir explicitamente que
+  TODAS sejam refeitas ("refaz tudo", "gera tudo de novo"). Descarta a galeria e
+  gera de novo do zero. Confirme com ele antes de emitir, dizendo quantas imagens
+  serão perdidas.
 - "preencher_dados_triagem": use quando o colaborador fornecer dados que estavam faltando para imagens BLOQUEADAS.
   O campo "dados" deve conter APENAS os campos que o colaborador informou (peso, medidas, material, capacidade, etc.).
   A triagem será refeita automaticamente com esses dados e as imagens bloqueadas serão reavaliadas.
@@ -297,6 +306,15 @@ REGRAS DOS COMANDOS:
 - Para dúvidas sem alteração de conteúdo: responda normalmente, SEM bloco <CMD>"""
 
     return f"{SYSTEM_BASE}{instrucao_cmd}"
+
+
+def _log(acao, instrucao="", imagem=None, tipo="", resultado=""):
+    """Registra o comando na planilha. Nunca interrompe o fluxo."""
+    try:
+        import log_imagem
+        log_imagem.registrar(acao, instrucao, imagem, tipo, resultado)
+    except Exception:
+        pass
 
 
 def _executar_comando(cmd: dict) -> str | None:
@@ -336,10 +354,26 @@ def _executar_comando(cmd: dict) -> str | None:
             st.session_state["chat_img_pendente"].append(
                 {"num": foto_num, "instrucao": instrucao}
             )
+            _log("ajustar_imagem", instrucao, imagem=foto_num,
+                 tipo=galeria[foto_num - 1].get("tipo", ""))
             return (
                 f"🔄 Instrução enviada para a **Imagem {foto_num}** — "
-                "abra a aba **Imagem** para ver o resultado sendo gerado."
+                "abra a aba **Imagem** para ver o resultado sendo gerado. "
+                "As demais imagens não serão alteradas."
             )
+
+    if acao == "refazer_todas_imagens":
+        galeria = st.session_state.get("img_galeria")
+        if not galeria:
+            return "⚠️ Não há imagens geradas para refazer."
+        instrucao = str(cmd.get("instrucao", "")).strip()
+        st.session_state["chat_refazer_todas"] = {"instrucao": instrucao}
+        _log("refazer_todas", instrucao, resultado=f"{len(galeria)} imagem(ns) a descartar")
+        return (
+            f"🔁 Preparei para refazer as **{len(galeria)} imagens** do zero. "
+            "Abra a aba **Imagem** e clique em **Confirmar e gerar** para começar — "
+            "as imagens atuais serão descartadas."
+        )
 
     if acao == "preencher_dados_triagem":
         novos_dados = cmd.get("dados", {})

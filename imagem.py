@@ -2467,12 +2467,10 @@ def pagina_imagem(usuario_logado):
         if plano.get("observacao_geral"):
             st.info(plano["observacao_geral"])
 
-        correcao = st.text_area(
-            "✏️ Correção ou instrução adicional (opcional — a IA aplicará antes de gerar)",
-            placeholder="ex: O produto é azul, não branco. Nas imagens de cenário, use ambiente externo, não doméstico.",
-            key="img_correcao_triagem",
-            height=80,
-        )
+        # O campo de "correção que vale para todas" foi removido de propósito.
+        # Qualquer ajuste depois da geração é por imagem, pelo Assistente IA,
+        # citando o número: imagem não mencionada não pode ser tocada.
+        correcao = ""
 
         n_viaveis = len(itens_viaveis)
         n_bloqueadas = len(itens_bloqueados)
@@ -2499,13 +2497,30 @@ def pagina_imagem(usuario_logado):
                 if aviso_bloqueadas:
                     st.info(f"Serão geradas **{n_viaveis} imagem(ns)**{aviso_bloqueadas}.")
 
+            # Gerar por cima de uma galeria pronta descarta tudo o que já foi
+            # aprovado. Antes isso acontecia com um clique e sem aviso.
+            _ja_tem = len(st.session_state.get("img_galeria") or [])
+            _ciente = True
+            if _ja_tem:
+                st.warning(
+                    f"⚠️ Você já tem **{_ja_tem} imagem(ns) gerada(s)**. Gerar de novo "
+                    "**descarta todas** e recomeça do zero.\n\n"
+                    "Para mudar só uma, peça no **Assistente IA** citando o número "
+                    "(ex.: *\"na Imagem 1, deixa o fundo totalmente branco\"*) — "
+                    "as demais ficam intactas."
+                )
+                _ciente = st.checkbox(
+                    f"Sim, descartar as {_ja_tem} imagens e gerar tudo de novo",
+                    key="img_confirma_descarte",
+                )
+
             col_cancelar, col_confirmar = st.columns(2)
             cancelar_clicado = col_cancelar.button("❌ Cancelar", use_container_width=True)
             confirmar_clicado = col_confirmar.button(
                 "✅ Confirmar e gerar",
                 type="primary",
                 use_container_width=True,
-                disabled=(n_viaveis == 0),
+                disabled=(n_viaveis == 0 or not _ciente),
             )
 
         if cancelar_clicado:
@@ -2525,6 +2540,15 @@ def pagina_imagem(usuario_logado):
 
                 galeria = []
                 barra = st.progress(0.0, text="Iniciando geração...")
+                try:
+                    import log_imagem
+                    log_imagem.registrar(
+                        "gerar_tudo", cfg.get("instrucoes_extras", ""),
+                        resultado=f"{len(itens_viaveis)} imagem(ns) a gerar"
+                        + (f" · descartou {_ja_tem}" if _ja_tem else ""),
+                    )
+                except Exception:
+                    pass
 
                 # Gera APENAS os tipos viáveis aprovados na triagem
                 tipos_viaveis = [item["tipo"] for item in itens_viaveis]
@@ -2860,6 +2884,25 @@ def pagina_imagem(usuario_logado):
         # ── COMANDOS PENDENTES DO ASSISTENTE IA ──────────────────────────────
         # O Assistente IA envia comandos de correção. Tratamos sempre como
         # Ajuste Fino (NÃO aplica PADRAO_VISUAL nem INSTRUCAO_COMPOSICAO).
+        _refazer = st.session_state.pop("chat_refazer_todas", None)
+        if _refazer is not None:
+            _inst = (_refazer or {}).get("instrucao", "").strip()
+            if _inst:
+                _cfg_rf = st.session_state.get("img_triagem_config") or {}
+                _cfg_rf["instrucoes_extras"] = (
+                    (_cfg_rf.get("instrucoes_extras", "") + "\n\n" + _inst).strip()
+                )
+                st.session_state["img_triagem_config"] = _cfg_rf
+            st.session_state["img_galeria"] = []
+            st.session_state.pop("img_confirma_descarte", None)
+            try:
+                import log_imagem
+                log_imagem.registrar("refazer_todas_aplicado", _inst,
+                                     resultado="galeria descartada")
+            except Exception:
+                pass
+            st.rerun()
+
         cmds_pendentes = st.session_state.pop("chat_img_pendente", [])
         if cmds_pendentes:
             fotos_ref_aj = st.session_state.get("img_fotos_originais") or []
@@ -2897,9 +2940,17 @@ def pagina_imagem(usuario_logado):
                 nova_img, err_aj = _res_cmd["img"], _res_cmd["erro"]
                 if err_aj:
                     msgs_result.append(f"⚠️ Imagem {num_foto}: erro ao gerar — {err_aj}")
+                    _resultado_log = f"erro: {str(err_aj)[:120]}"
                 else:
                     st.session_state["img_galeria"][idx_alvo]["bytes"] = nova_img
                     msgs_result.append(f"✅ Imagem {num_foto} ({tipo_alvo[:25]}) atualizada pelo Assistente IA.")
+                    _resultado_log = "imagem atualizada"
+                try:
+                    import log_imagem
+                    log_imagem.registrar("ajuste_aplicado", instrucao, num_foto,
+                                         tipo_alvo, _resultado_log)
+                except Exception:
+                    pass
             if msgs_result:
                 st.info("\n\n".join(msgs_result))
 
