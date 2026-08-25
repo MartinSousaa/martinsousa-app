@@ -1498,6 +1498,22 @@ def _trava_cor_produto(cor):
     )
 
 
+def modo_fundo_do_tipo(tipo):
+    """Qual regra de fundo o tipo de imagem segue: branco, ambiente, personalizado, padrao.
+
+    Regra do dono do produto: só a capa tem fundo branco; as ambientadas usam o
+    fundo do próprio ambiente; as demais usam o azul-cinza da marca.
+    """
+    tipo = tipo or ""
+    if tipo == "Personalizado (descrevo o que quero)":
+        return "personalizado"
+    if tipo.startswith("1 —") or "fundo branco" in tipo.lower() or "capa" in tipo.lower():
+        return "branco"
+    if tipo.startswith("8 —"):
+        return "ambiente"
+    return "padrao"
+
+
 def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
                          refs_layout_nomes=None, instrucao_layout="", plano_triagem=None):
     """Monta o prompt completo para geração.
@@ -1565,9 +1581,10 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
             bloco_refs += f"\nO que cada referência representa: {instrucao_layout}"
         bloco_refs += f"\n{INSTRUCAO_REFERENCIA_LAYOUT}"
 
-    eh_personalizado = (tipo == "Personalizado (descrevo o que quero)")
-    eh_fundo_branco = tipo.startswith("1 —") or "fundo branco" in tipo.lower() or "capa" in tipo.lower()
-    eh_ambientacao = tipo.startswith("8 —")
+    _modo = modo_fundo_do_tipo(tipo)
+    eh_personalizado = _modo == "personalizado"
+    eh_fundo_branco  = _modo == "branco"
+    eh_ambientacao   = _modo == "ambiente"
 
     if eh_personalizado:
         # Modo personalizado: SEM branding automático, SEM nova composição forçada
@@ -1651,13 +1668,24 @@ TIPO DE IMAGEM: {tipo}
 """
 
 
-def montar_prompt_ajuste_fino(instrucao):
+def montar_prompt_ajuste_fino(instrucao, tipo=None):
     """Monta prompt para edição cirúrgica de uma imagem existente.
 
     NÃO aplica PADRAO_VISUAL, NÃO aplica INSTRUCAO_COMPOSICAO.
     Instrui a IA a fazer SOMENTE a modificação descrita, preservando tudo o mais.
+
+    O marcador MS_FUNDO é obrigatório: sem ele, gerar_imagem_ia trata a imagem
+    como "padrão" e injeta no prompt "fundo azul-cinza da marca, OBRIGATÓRIO" e
+    "todo texto em painéis dedicados". Numa capa — que é branca e sem texto —
+    essas duas linhas contradizem o "não mude mais nada" logo acima, e o modelo
+    obedece a instrução mais específica: devolve a capa com fundo colorido e
+    títulos. Foi exatamente isso que aconteceu ao pedir "aumente a estátua".
     """
-    return f"""MODO AJUSTE FINO — EDIÇÃO CIRÚRGICA DE IMAGEM EXISTENTE
+    # Sem tipo conhecido, o correto é NÃO impor nada: a imagem já existe e a
+    # edição é cirúrgica. "padrao" imporia o fundo da marca a uma foto qualquer.
+    _modo = modo_fundo_do_tipo(tipo) if tipo else "personalizado"
+    return f"""MS_FUNDO: {_modo}
+MODO AJUSTE FINO — EDIÇÃO CIRÚRGICA DE IMAGEM EXISTENTE
 
 A imagem fornecida é a imagem atual que deve ser editada.
 
@@ -2798,7 +2826,8 @@ def pagina_imagem(usuario_logado):
                     # Usa a imagem ATUAL da galeria como referência para o ajuste
                     import time as _time_afg
                     import threading as _threading_afg
-                    prompt_af_gal = montar_prompt_ajuste_fino(instrucao_af_gal.strip())
+                    prompt_af_gal = montar_prompt_ajuste_fino(
+                        instrucao_af_gal.strip(), galeria[idx_ativo].get("tipo"))
                     _res_afg = {"img": None, "erro": None, "done": False}
                     _threading_afg.Thread(
                         target=_gerar_imagem_thread,
@@ -2840,7 +2869,7 @@ def pagina_imagem(usuario_logado):
                 tipo_alvo = galeria[idx_alvo]["tipo"]
                 # Usa a imagem ATUAL como referência + prompt de ajuste fino
                 img_ref_cmd = [galeria[idx_alvo]["bytes"]] if galeria[idx_alvo]["bytes"] else fotos_ref_aj
-                prompt_aj = montar_prompt_ajuste_fino(instrucao)
+                prompt_aj = montar_prompt_ajuste_fino(instrucao, tipo_alvo)
                 import time as _time_cmd
                 import threading as _threading_cmd
                 _res_cmd = {"img": None, "erro": None, "done": False}
