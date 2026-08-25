@@ -198,7 +198,9 @@ def _buscar_acoes_card(card_id: str):
 
 
 def _calcular_tempo_execucao_min(card_id: str):
-    """
+    """(Mesma regra de placar_core.tempo_execucao_min — alterou aqui, altere lá.)
+
+    
     Calcula tempo total de execução em minutos:
       tempo_FILMAGEM + tempo_EM_ANDAMENTO − tempo_INTERROMPIDO_MS
     Retorna: (float minutos, datetime|None primeiro addMember)

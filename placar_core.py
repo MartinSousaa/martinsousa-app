@@ -5,7 +5,7 @@ IMPORTANTE: Este módulo NÃO importa streamlit e NÃO contém nenhuma UI.
 Pode ser importado com segurança por qualquer módulo sem causar efeitos colaterais.
 """
 import requests
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 # ── Tenta ler secrets do Streamlit; falha silenciosa fora do contexto ──────────
 try:
@@ -103,6 +103,145 @@ def _buscar_board():
 def _buscar_board_clear():
     """Invalida o cache de _buscar_board."""
     _board_cache.clear()
+
+
+# ── Tempo de execução medido pelas etiquetas ───────────────────────────────────
+# O tempo NÃO é a idade do cartão. Um cartão pode ficar dias em "PENDENTE" sem
+# ninguém tocar nele — isso não é tempo de trabalho. O relógio só corre enquanto
+# a etiqueta "EM ANDAMENTO" (ou "FILMAGEM") está no cartão, e para quando ela sai
+# ou quando entra "INTERROMPIDO MS".
+LABEL_FILMAGEM        = "FILMAGEM"
+LABEL_EM_ANDAMENTO    = "EM ANDAMENTO"
+LABEL_INTERROMPIDO_MS = "INTERROMPIDO MS"
+
+_acoes_cache = {}   # chave -> {"ts": float, "data": {card_id: [acoes]}}
+
+
+def _buscar_acoes_board(desde_iso=None, max_paginas=10):
+    """Histórico de etiquetas do board inteiro, agrupado por cartão.
+
+    Uma chamada por página em vez de uma por cartão: a análise mensal passa por
+    centenas de cartões, e um GET por cartão deixaria a tela inviável.
+    """
+    import time
+    chave = desde_iso or "tudo"
+    agora = time.time()
+    cache = _acoes_cache.get(chave)
+    if cache and agora - cache["ts"] < 300:
+        return cache["data"]
+
+    if not TRELLO_KEY:
+        return {}
+
+    base = "https://api.trello.com/1"
+    auth = {"key": TRELLO_KEY, "token": TRELLO_TOKEN}
+    por_card = {}
+    antes = None
+    for _ in range(max_paginas):
+        params = {**auth,
+                  "filter": "addLabelToCard,removeLabelFromCard,addMemberToCard",
+                  "limit": 1000}
+        if desde_iso:
+            params["since"] = desde_iso
+        if antes:
+            params["before"] = antes
+        try:
+            r = requests.get(f"{base}/boards/{BOARD_ID}/actions", params=params, timeout=30)
+        except Exception:
+            break
+        if not r.ok:
+            break
+        lote = r.json()
+        if not lote:
+            break
+        for ac in lote:
+            cid = ac.get("data", {}).get("card", {}).get("id")
+            if cid:
+                por_card.setdefault(cid, []).append(ac)
+        if len(lote) < 1000:
+            break
+        antes = lote[-1].get("date")
+
+    _acoes_cache[chave] = {"ts": agora, "data": por_card}
+    return por_card
+
+
+def _tempo_por_acoes(acoes, agora=None):
+    """Minutos trabalhados a partir do histórico de etiquetas de um cartão.
+
+    tempo_FILMAGEM + tempo_EM_ANDAMENTO − tempo_INTERROMPIDO_MS.
+    Retorna (minutos, datetime do primeiro membro atribuído ou None).
+    """
+    agora = agora or datetime.now(timezone.utc)
+    acoes_ord = sorted(acoes, key=lambda a: a.get("date", ""))
+
+    filmagem_ini  = None; filmagem_total  = 0.0
+    andamento_ini = None; andamento_total = 0.0
+    interr_ini    = None; interr_total    = 0.0
+    membro_em     = None
+
+    for ac in acoes_ord:
+        try:
+            dt = datetime.fromisoformat(ac["date"].replace("Z", "+00:00"))
+        except Exception:
+            continue
+        tipo    = ac.get("type", "")
+        nome_lb = (ac.get("data", {}).get("label", {}).get("name") or "").upper()
+
+        if tipo == "addLabelToCard":
+            if nome_lb == LABEL_FILMAGEM and filmagem_ini is None:
+                filmagem_ini = dt
+            elif nome_lb == LABEL_EM_ANDAMENTO and andamento_ini is None:
+                andamento_ini = dt
+            elif nome_lb == LABEL_INTERROMPIDO_MS and interr_ini is None:
+                interr_ini = dt
+        elif tipo == "removeLabelFromCard":
+            if nome_lb == LABEL_FILMAGEM and filmagem_ini is not None:
+                filmagem_total += (dt - filmagem_ini).total_seconds() / 60
+                filmagem_ini = None
+            elif nome_lb == LABEL_EM_ANDAMENTO and andamento_ini is not None:
+                andamento_total += (dt - andamento_ini).total_seconds() / 60
+                andamento_ini = None
+            elif nome_lb == LABEL_INTERROMPIDO_MS and interr_ini is not None:
+                interr_total += (dt - interr_ini).total_seconds() / 60
+                interr_ini = None
+        elif tipo == "addMemberToCard" and membro_em is None:
+            membro_em = dt
+
+    # Períodos ainda abertos contam até agora.
+    if filmagem_ini:
+        filmagem_total  += (agora - filmagem_ini).total_seconds()  / 60
+    if andamento_ini:
+        andamento_total += (agora - andamento_ini).total_seconds() / 60
+    if interr_ini:
+        interr_total    += (agora - interr_ini).total_seconds()    / 60
+
+    return max(0.0, filmagem_total + andamento_total - interr_total), membro_em
+
+
+def tempo_execucao_min(card_id, acoes_board=None):
+    """Minutos trabalhados no cartão, medidos pelas etiquetas.
+
+    `acoes_board` é o mapa devolvido por _buscar_acoes_board; passar o mapa evita
+    uma requisição por cartão. Sem ele, busca as ações só deste cartão.
+    """
+    if acoes_board is not None:
+        return _tempo_por_acoes(acoes_board.get(card_id, []))
+
+    if not TRELLO_KEY:
+        return 0.0, None
+    base = "https://api.trello.com/1"
+    try:
+        r = requests.get(
+            f"{base}/cards/{card_id}/actions",
+            params={"key": TRELLO_KEY, "token": TRELLO_TOKEN,
+                    "filter": "addLabelToCard,removeLabelFromCard,addMemberToCard",
+                    "limit": 200},
+            timeout=30,
+        )
+    except Exception:
+        return 0.0, None
+    return _tempo_por_acoes(r.json() if r.ok else [])
 
 # ── Funções auxiliares puras ───────────────────────────────────────────────────
 def _num(card, id_c):
@@ -213,7 +352,20 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
         "correcao_concl": 0,  # cartões "CORREÇÃO DE FOTOS" concluídos no mês (retrabalho)
         "total_concl": 0,     # total de cartões concluídos no mês
         "concluido_sem_membro": [],  # cartões concluídos no mês sem membro atribuído
+        "tempo_membro_lista": {},  # membro -> coluna -> [minutos] (medido por etiqueta)
     }
+
+    # O histórico de etiquetas só é buscado se algum cartão precisar dele — quando
+    # o campo TEMPO ACUMULADO está preenchido, o valor da equipe manda.
+    _acoes = {"mapa": None}
+
+    def _tempo_etiquetas(c):
+        if _acoes["mapa"] is None:
+            desde = (datetime.now(timezone.utc) - timedelta(days=120)).isoformat()
+            _acoes["mapa"] = _buscar_acoes_board(desde)
+        minutos, _ = tempo_execucao_min(c["id"], _acoes["mapa"])
+        return minutos
+
     for card in cards:
         nl = listas.get(card["idList"], "")
         if nl == "TABELA DE PONTUAÇÃO":
@@ -278,7 +430,18 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
                 continue
 
         if tempo and tempo > 0:
-            d["tempo_lista"].setdefault(nl, []).append(max(tempo - interr, 0))
+            minutos = max(tempo - interr, 0)
+        else:
+            # Ninguém preencheu o tempo: mede pelas etiquetas. O relógio corre a
+            # partir de quando o cartão recebeu "EM ANDAMENTO", não de quando foi
+            # criado — cartão parado em PENDENTE não é tempo de trabalho.
+            minutos = _tempo_etiquetas(card)
+
+        if minutos > 0:
+            d["tempo_lista"].setdefault(nl, []).append(minutos)
+            for u in us:
+                if u in MEMBROS_ATIVOS:
+                    d["tempo_membro_lista"].setdefault(u, {}).setdefault(nl, []).append(minutos)
 
         # Contagem de concluídos para retrabalho
         d["total_concl"] += 1
