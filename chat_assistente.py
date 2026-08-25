@@ -49,7 +49,9 @@ O MS Studio tem as seguintes abas (menu lateral esquerdo):
   código de descrição vinculado. Solução: informar o código da descrição (que tem medidas/peso)
   ou escolher outro tipo de imagem.
   AJUSTE PÓS-GERAÇÃO: não há botão "Regenerar" — o colaborador pede ajuste aqui no chat.
-  Ex: "refaça a Foto 2 com fundo azul". O assistente envia o comando para a aba Imagem.
+  Ex: "refaça a Imagem 2 com fundo azul". O assistente envia o comando para a aba Imagem.
+  O colaborador se refere às imagens pelo NÚMERO que aparece na legenda da galeria
+  ("Imagem 1", "Imagem 2"...) ou pelo nome do tipo ("a capa", "a ambientação").
   TODAS as imagens geradas têm 1200x1200 px (padrão da empresa).
 
 • Vídeo — gera o prompt de texto otimizado para o gerador de vídeo do Envato Elements.
@@ -224,8 +226,12 @@ def _contexto_atual() -> str:
     # Galeria de imagens geradas
     galeria = st.session_state.get("img_galeria")
     if galeria:
-        tipos = [f"  Foto {i+1}: {g.get('tipo','?')}" for i, g in enumerate(galeria)]
-        partes.append(f"GALERIA DE IMAGENS ({len(galeria)} foto(s)):\n" + "\n".join(tipos))
+        tipos = [f"  Imagem {i+1}: {g.get('tipo','?')}" for i, g in enumerate(galeria)]
+        partes.append(
+            f"GALERIA DE IMAGENS ({len(galeria)} imagem(ns)):\n" + "\n".join(tipos)
+            + "\n(É por este número que o colaborador se refere a cada imagem — "
+              "é o mesmo que aparece na legenda da tela.)"
+        )
 
     return "\n\n".join(partes) if partes else "Nenhum produto em edição no momento."
 
@@ -256,7 +262,7 @@ def _montar_system() -> str:
     if tem_desc:
         cmds_exemplo.append('{"acao":"alterar_descricao","texto":"nova descrição completa aqui"}')
     if tem_imgs:
-        cmds_exemplo.append('{"acao":"ajustar_imagem","foto":1,"instrucao":"instrução de edição para a foto"}')
+        cmds_exemplo.append('{"acao":"ajustar_imagem","imagem":1,"instrucao":"instrução de edição para a imagem"}')
 
     # Sempre disponível quando há triagem com bloqueios — independe de imgs geradas
     tem_triagem_bloqueada = bool(
@@ -281,7 +287,9 @@ da sua resposta um bloco <CMD>...</CMD> com o JSON do comando:
 REGRAS DOS COMANDOS:
 - "alterar_titulo": inclua os 2 títulos COMPLETOS e já ajustados (não coloque placeholders)
 - "alterar_descricao": inclua o texto COMPLETO da nova descrição
-- "ajustar_imagem": descreva a instrução de edição claramente; a foto será regenerada na aba Imagem
+- "ajustar_imagem": use o NÚMERO da imagem na galeria (o mesmo da legenda). Descreva
+  apenas o que muda — o resto da imagem é preservado. Uma imagem por comando; se o
+  colaborador pedir a mesma mudança em várias, emita um comando para cada uma.
 - "preencher_dados_triagem": use quando o colaborador fornecer dados que estavam faltando para imagens BLOQUEADAS.
   O campo "dados" deve conter APENAS os campos que o colaborador informou (peso, medidas, material, capacidade, etc.).
   A triagem será refeita automaticamente com esses dados e as imagens bloqueadas serão reavaliadas.
@@ -313,21 +321,23 @@ def _executar_comando(cmd: dict) -> str | None:
 
     if acao == "ajustar_imagem":
         try:
-            foto_num  = int(cmd.get("foto", 1))
+            # Aceita "imagem" (nome atual) e "foto" (comandos antigos).
+            foto_num  = int(cmd.get("imagem", cmd.get("foto", 1)))
         except (ValueError, TypeError):
             foto_num  = 1
         instrucao = str(cmd.get("instrucao", "")).strip()
         galeria   = st.session_state.get("img_galeria")
         if galeria and instrucao:
             if foto_num < 1 or foto_num > len(galeria):
-                return f"⚠️ Foto {foto_num} não existe (há {len(galeria)} foto(s) na galeria)."
+                return (f"⚠️ Imagem {foto_num} não existe — a galeria tem "
+                        f"{len(galeria)} imagem(ns).")
             if "chat_img_pendente" not in st.session_state:
                 st.session_state["chat_img_pendente"] = []
             st.session_state["chat_img_pendente"].append(
                 {"num": foto_num, "instrucao": instrucao}
             )
             return (
-                f"🔄 Instrução enviada para a **Foto {foto_num}** — "
+                f"🔄 Instrução enviada para a **Imagem {foto_num}** — "
                 "abra a aba **Imagem** para ver o resultado sendo gerado."
             )
 

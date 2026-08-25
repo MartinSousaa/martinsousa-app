@@ -2685,12 +2685,12 @@ def pagina_imagem(usuario_logado):
             with _cols_gal[i % 4]:
                 # 20 caracteres cortavam o nome no meio ("Capa do", "Imagem
                 # emocional — P") e o colaborador não sabia qual peça era qual.
-                # O numero vem na legenda porque e assim que o Assistente IA
-                # enxerga a galeria ("Foto 1", "Foto 2"...). Sem ele na tela, o
+                # O numero vem na legenda porque e assim que o colaborador e o
+                # Assistente IA se referem a cada imagem ("Imagem 1", "Imagem 2"). Sem ele na tela, o
                 # colaborador conta de cabeca — e a conta erra quando algum tipo
                 # foi bloqueado na triagem e nao entrou na galeria.
                 _rotulo = g["tipo"]
-                _legenda = f"Foto {i+1} · {_rotulo}"
+                _legenda = f"Imagem {i+1} · {_rotulo}"
                 st.image(
                     g["bytes"],
                     caption=(_legenda[:52] + "…") if len(_legenda) > 52 else _legenda,
@@ -2869,7 +2869,7 @@ def pagina_imagem(usuario_logado):
                 instrucao = cmd.get("instrucao", "")
                 idx_alvo  = num_foto - 1
                 if idx_alvo < 0 or idx_alvo >= len(galeria):
-                    msgs_result.append(f"⚠️ Foto {num_foto} não existe na galeria.")
+                    msgs_result.append(f"⚠️ Imagem {num_foto} não existe na galeria.")
                     continue
                 tipo_alvo = galeria[idx_alvo]["tipo"]
                 # Usa a imagem ATUAL como referência + prompt de ajuste fino
@@ -2883,7 +2883,7 @@ def pagina_imagem(usuario_logado):
                     args=(prompt_aj, img_ref_cmd, _res_cmd),
                     daemon=True,
                 ).start()
-                _barra_cmd = st.progress(0.0, text=f"Assistente IA: ajuste fino na foto {num_foto}...")
+                _barra_cmd = st.progress(0.0, text=f"Assistente IA: ajuste fino na Imagem {num_foto}...")
                 _t0_cmd = _time_cmd.time()
                 while not _res_cmd["done"]:
                     _seg_cmd = int(_time_cmd.time() - _t0_cmd)
@@ -2891,15 +2891,15 @@ def pagina_imagem(usuario_logado):
                         _res_cmd["erro"] = "Tempo limite de 5 min atingido. Tente novamente."
                         _res_cmd["done"] = True
                         break
-                    _barra_cmd.progress(min(0.9, _seg_cmd / 60), text=f"Assistente IA: ajuste fino na foto {num_foto}... ({_seg_cmd}s)")
+                    _barra_cmd.progress(min(0.9, _seg_cmd / 60), text=f"Assistente IA: ajuste fino na Imagem {num_foto}... ({_seg_cmd}s)")
                     _time_cmd.sleep(1)
                 _barra_cmd.progress(1.0, text="Concluído!")
                 nova_img, err_aj = _res_cmd["img"], _res_cmd["erro"]
                 if err_aj:
-                    msgs_result.append(f"⚠️ Foto {num_foto}: erro ao gerar — {err_aj}")
+                    msgs_result.append(f"⚠️ Imagem {num_foto}: erro ao gerar — {err_aj}")
                 else:
                     st.session_state["img_galeria"][idx_alvo]["bytes"] = nova_img
-                    msgs_result.append(f"✅ Foto {num_foto} ({tipo_alvo[:25]}) atualizada pelo Assistente IA.")
+                    msgs_result.append(f"✅ Imagem {num_foto} ({tipo_alvo[:25]}) atualizada pelo Assistente IA.")
             if msgs_result:
                 st.info("\n\n".join(msgs_result))
 
