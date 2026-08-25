@@ -299,6 +299,11 @@ def _processar(listas,cards,membros_map,id_p,id_t,id_i,filtro_mes=None):
       - penalidades
     Cartões abertos/pendentes são exibidos SEMPRE, independente do mês.
     """
+    import placar_core as _pc_tv
+    from datetime import timedelta as _td_tv
+    _desde_tv = (datetime.now(timezone.utc) - _td_tv(days=120)).strftime(
+        "%Y-%m-%dT%H:%M:%S.000Z")
+    _tempos_tv = _pc_tv.tempos_do_board(cards, membros_map, _desde_tv)
     d={
         "pts_equipe":0.0,"pen_total":0.0,
         "pts_membro":{u:0.0 for u in MEMBROS_ATIVOS},
@@ -339,11 +344,11 @@ def _processar(listas,cards,membros_map,id_p,id_t,id_i,filtro_mes=None):
             d["abertos"]+=1
             if "URGENTE" in lb or "URGENTES" in nl.upper(): d["urgentes"]+=1
             # A etiqueta ATRASADO saiu do board: atraso agora vem do tempo medido.
-            _cfg_atr = COLUNAS_CONFIG.get(nl, {})
-            _est_atr = _cfg_atr.get("tempo_min") or 0
-            if _est_atr > 0:
-                _dec_atr, _ = _calcular_tempo_execucao_min(card["id"])
-                if _dec_atr > _est_atr: d["atrasados"]+=1
+            # Usa o mapa do board inteiro — consultar cartao a cartao seria uma
+            # requisicao por cartao aberto a cada atualizacao do painel.
+            _est_atr = COLUNAS_CONFIG.get(nl, {}).get("tempo_min") or 0
+            if _est_atr > 0 and _tempos_tv.get(card["id"], {}).get("total", 0) > _est_atr:
+                d["atrasados"]+=1
             if "FALTA CONFERÊNCIA" in lb: d["falta_conf"]+=1
             if "FALTA INFORMAÇÃO" in lb: d["falta_info"]+=1
             if not us:
