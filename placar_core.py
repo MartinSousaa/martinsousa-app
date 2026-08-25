@@ -116,6 +116,13 @@ LABEL_INTERROMPIDO_MS = "INTERROMPIDO MS"
 
 _acoes_cache = {}   # chave -> {"ts": float, "data": {card_id: [acoes]}}
 
+# Última consulta de ações: por que veio vazia, quando vier. Sem isso, uma falha
+# na API do Trello vira "0 minutos" em todo cartão — indistinguível de "ninguém
+# trabalhou", que foi exatamente o que aconteceu.
+ULTIMO_DIAGNOSTICO_ACOES = {
+    "erro": None, "paginas": 0, "acoes": 0, "cartoes": 0, "http": None,
+}
+
 
 def _buscar_acoes_board(desde_iso=None, max_paginas=10):
     """Histórico de etiquetas do board inteiro, agrupado por cartão.
@@ -130,7 +137,11 @@ def _buscar_acoes_board(desde_iso=None, max_paginas=10):
     if cache and agora - cache["ts"] < 300:
         return cache["data"]
 
+    diag = ULTIMO_DIAGNOSTICO_ACOES
+    diag.update({"erro": None, "paginas": 0, "acoes": 0, "cartoes": 0, "http": None})
+
     if not TRELLO_KEY:
+        diag["erro"] = "Credenciais do Trello não configuradas."
         return {}
 
     base = "https://api.trello.com/1"
@@ -139,7 +150,8 @@ def _buscar_acoes_board(desde_iso=None, max_paginas=10):
     antes = None
     for _ in range(max_paginas):
         params = {**auth,
-                  "filter": "addLabelToCard,removeLabelFromCard,addMemberToCard",
+                  "filter": ("addLabelToCard,removeLabelFromCard,"
+                             "addMemberToCard,removeMemberFromCard"),
                   "limit": 1000}
         if desde_iso:
             params["since"] = desde_iso
@@ -147,13 +159,22 @@ def _buscar_acoes_board(desde_iso=None, max_paginas=10):
             params["before"] = antes
         try:
             r = requests.get(f"{base}/boards/{BOARD_ID}/actions", params=params, timeout=30)
-        except Exception:
+        except Exception as e:
+            diag["erro"] = f"Falha de conexão com o Trello: {str(e)[:150]}"
             break
+        diag["http"] = r.status_code
         if not r.ok:
+            diag["erro"] = f"Trello respondeu {r.status_code}: {r.text[:150]}"
             break
-        lote = r.json()
+        try:
+            lote = r.json()
+        except Exception:
+            diag["erro"] = "Trello devolveu resposta que não é JSON."
+            break
+        diag["paginas"] += 1
         if not lote:
             break
+        diag["acoes"] += len(lote)
         for ac in lote:
             cid = ac.get("data", {}).get("card", {}).get("id")
             if cid:
@@ -161,6 +182,10 @@ def _buscar_acoes_board(desde_iso=None, max_paginas=10):
         if len(lote) < 1000:
             break
         antes = lote[-1].get("date")
+
+    diag["cartoes"] = len(por_card)
+    if not por_card and not diag["erro"]:
+        diag["erro"] = "O Trello respondeu, mas não devolveu nenhuma ação de etiqueta no período."
 
     _acoes_cache[chave] = {"ts": agora, "data": por_card}
     return por_card
@@ -361,7 +386,8 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
 
     def _tempo_etiquetas(c):
         if _acoes["mapa"] is None:
-            desde = (datetime.now(timezone.utc) - timedelta(days=120)).isoformat()
+            desde = (datetime.now(timezone.utc) - timedelta(days=120)).strftime(
+                "%Y-%m-%dT%H:%M:%S.000Z")
             _acoes["mapa"] = _buscar_acoes_board(desde)
         minutos, _ = tempo_execucao_min(c["id"], _acoes["mapa"])
         return minutos
