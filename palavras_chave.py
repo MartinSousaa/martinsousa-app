@@ -167,7 +167,8 @@ def pagina_palavras_chave(usuario_logado):
             palavras, erro_gen = gerar_palavras_chave(dados)
 
         if erro_gen:
-            st.error(f"Erro ao gerar palavras-chave: {erro_gen}")
+            import erros_ia
+            st.error(erros_ia.mensagem(erro_gen, "gerar as palavras-chave"))
             return
 
         with st.spinner("Conferindo tendências oficiais do Mercado Livre..."):

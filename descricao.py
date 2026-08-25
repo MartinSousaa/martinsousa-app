@@ -339,7 +339,8 @@ Responda SOMENTE com o texto da descrição, pronta pra colar no anúncio, sem c
             raise ValueError("A IA retornou uma resposta vazia.")
         return texto
     except Exception as e:
-        raise RuntimeError(f"Erro ao gerar descrição: {e}") from e
+        import erros_ia
+        raise RuntimeError(erros_ia.mensagem(e, "gerar a descrição")) from e
 
 
 def editar_descricao(descricao_atual, instrucao):
