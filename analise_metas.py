@@ -368,7 +368,8 @@ def _secao_coletiva(dados):
 
 # ── Helper: card de item de meta individual ────────────────────────────────────
 
-def _meta_ind_item(titulo, pct, descricao, cor=None, aguardando=False):
+def _meta_ind_item(titulo, pct, descricao, cor=None, aguardando=False,
+                   valor_texto=None):
     """Card de item de meta individual (inline styles, sem depender do CSS do placar)."""
     _card_css = (
         'background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);'
@@ -385,10 +386,14 @@ def _meta_ind_item(titulo, pct, descricao, cor=None, aguardando=False):
                 f'<div style="font-size:10px;color:var(--ms-texto-sec);font-style:italic;">'
                 f'⏳ {_motivo}</div></div>')
     c = cor or ("#1BAF7A" if pct >= 80 else ("#EDA100" if pct >= 50 else "#4A90D9"))
+    # valor_texto: o numero REAL do indicador, quando ele nao e "quanto da meta
+    # foi cumprido". Ociosidade de 40% e de 90% davam as duas 0% de meta
+    # cumprida e pareciam "sem dado" — o numero de verdade sumia.
+    _valor = valor_texto if valor_texto is not None else f"{pct:.0f}%"
     return (f'<div style="{_card_css}">'
             f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'
             f'<div style="{_titulo_css}margin:0;">{titulo}</div>'
-            f'<div style="font-size:16px;font-weight:700;color:{c};">{pct:.0f}%</div></div>'
+            f'<div style="font-size:16px;font-weight:700;color:{c};">{_valor}</div></div>'
             f'<div style="{_barra_bg}">'
             f'<div style="background:{c};width:{min(pct,100):.1f}%;height:100%;border-radius:4px;"></div></div>'
             f'<div style="font-size:9px;color:var(--ms-texto-sec);margin-top:3px;">{descricao}</div></div>')
@@ -691,14 +696,18 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
                             unsafe_allow_html=True)
                 return
             pct_ocio = max(o["disp"] - o["cards"], 0) / o["disp"] * 100
-            barra = 100 if pct_ocio <= limite else max(0, 100 - (pct_ocio - limite) * 4)
+            # Escala proporcional em vez de queda de 4 pontos por ponto: com a
+            # anterior, qualquer ociosidade acima de 35% dava barra zero, e 40%
+            # ficava indistinguivel de 90%.
+            barra = 100 if pct_ocio <= limite else limite / pct_ocio * 100
             cor = ("#1BAF7A" if pct_ocio <= limite
                    else "#EDA100" if pct_ocio <= limite * 2 else "#E34948")
             st.markdown(_meta_ind_item(
                 rotulo, barra,
-                f"{pct_ocio:.1f}% ocioso · {o['cards']/60:.1f}h em cartões de "
-                f"{o['disp']/60:.1f}h disponíveis",
-                cor=cor
+                f"{o['cards']/60:.1f}h em cartões de {o['disp']/60:.1f}h disponíveis"
+                + (" · dentro da meta" if pct_ocio <= limite
+                   else f" · {pct_ocio - limite:.1f} pontos acima da meta"),
+                cor=cor, valor_texto=f"{pct_ocio:.1f}%"
             ), unsafe_allow_html=True)
 
         def _it_execucao(limite):
@@ -714,9 +723,9 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
                    else "#EDA100" if pct_exec >= limite * 0.6 else "#E34948")
             st.markdown(_meta_ind_item(
                 rotulo, min(pct_exec / limite * 100, 100) if limite else 0,
-                f"{e['dentro']} de {e['total']} cartões dentro do tempo estimado "
-                f"({pct_exec:.0f}%) · medido pela etiqueta EM ANDAMENTO",
-                cor=cor
+                f"{e['dentro']} de {e['total']} cartões ficaram dentro do tempo "
+                f"estimado da coluna · tempo medido pela etiqueta EM ANDAMENTO",
+                cor=cor, valor_texto=f"{pct_exec:.0f}%"
             ), unsafe_allow_html=True)
 
         def _it_contagem(rotulo, usado, limite, detalhe=""):
