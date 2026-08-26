@@ -181,9 +181,10 @@ ALMOCO = (time(13, 30), time(14, 30))
 FOLGA_ENTRADA_MIN = 5
 TOLERANCIA_ENTRADA_MIN = 10
 ALMOCO_MINUTOS = 60
-# Mesmas tres faixas na volta do almoco, contadas sobre a duracao do almoco.
+# A volta do almoco tem DUAS faixas, nao tres: cinco minutos livres e, passando
+# disso, atraso direto. A faixa de tolerancia existe so na entrada do
+# expediente.
 FOLGA_ALMOCO_MIN = 5
-TOLERANCIA_ALMOCO_MIN = 10
 
 # Teto de segurança: etiqueta esquecida por meses não vira varredura infinita.
 MAX_DIAS_INTERVALO = 60
