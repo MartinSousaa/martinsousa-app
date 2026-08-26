@@ -809,6 +809,17 @@ def _tv_full_html(
         and_html += (f'<div class="card-base">'
                      f'<div class="card-and-nome">{nome}</div>'
                      f'<div class="card-and-sub">{ls} · <span>{ms}</span></div></div>')
+    # Parados com EM ANDAMENTO ainda no cartao: aparecem aqui, apagados e com o
+    # motivo, para a equipe ver o que ha para retomar. Nao entram no contador.
+    for c in (d.get("pausados_lista") or []):
+        ms = ", ".join(MEMBROS_ATIVOS.get(u,u) for u in c.get("membros",[])) or "—"
+        nome = (c["card"][:42]+"…") if len(c["card"])>42 else c["card"]
+        ls   = (c["lista"][:28]+"…") if len(c["lista"])>28 else c["lista"]
+        and_html += (f'<div class="card-base" style="opacity:.62;'
+                     f'border-left:3px solid #EDA100;">'
+                     f'<div class="card-and-nome">⏸ {nome}</div>'
+                     f'<div class="card-and-sub">{ls} · <span>{ms}</span>'
+                     f' · <span style="color:#EDA100;">{c["motivo"]}</span></div></div>')
     if not and_html:
         and_html = '<div style="font-size:10px;color:#555;padding:8px;">Nenhum em andamento</div>'
 
