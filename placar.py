@@ -254,6 +254,9 @@ def _mes_card_criacao(card):
 
 # ── FILA ───────────────────────────────────────────────────────────────────────
 def _calcular_fila(listas,cards,membros_map):
+    import placar_core as _pc_ent
+    _entradas_tv = _pc_ent.entradas_na_coluna(
+        _pc_ent._buscar_acoes_board(_pc_ent._desde_padrao()))
     pendentes=[]
     for card in cards:
         nl=listas.get(card["idList"],"")
@@ -262,6 +265,9 @@ def _calcular_fila(listas,cards,membros_map):
         lb=_labels(card)
         if "EM ANDAMENTO" in lb: continue
         import placar_core as _pc_fila
+        # Espera de terceiro (ex.: 36h de retorno da plataforma) nao ocupa a
+        # fila: o cartao aparece quando o prazo esta vencendo.
+        if _pc_fila.aguardando_terceiro(card, nl, _entradas_tv): continue
         cfg=_pc_fila.cfg_coluna(nl)
         us=_users(card,membros_map)
         pendentes.append({

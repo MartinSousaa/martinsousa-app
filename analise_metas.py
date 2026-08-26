@@ -1758,6 +1758,82 @@ def _aba_desempenho(dados, dados_ano_full=None):
 
 # ── Seção: configuração de metas ──────────────────────────────────────────────
 
+def _secao_colunas(dados):
+    """Prioridade, tempo estimado e espera de cada coluna — editáveis pelo gestor.
+
+    Mostra ao lado a média REAL medida pelas etiquetas, para a calibragem sair do
+    dado e não do chute. O estimado continua sendo a meta que o gestor define: se
+    ele se ajustasse sozinho à média, time devagar viraria meta devagar.
+    """
+    import colunas_config as _cc
+
+    st.markdown("##### 🗂️ Colunas do Trello")
+    st.caption(
+        "O tempo estimado é **sua meta**, não uma média automática. A média real "
+        "medida aparece ao lado para você calibrar. **Espera** é tempo de terceiro "
+        "(ex.: 36h de retorno da plataforma): não conta como trabalho e segura o "
+        "cartão fora da fila até o prazo estar vencendo."
+    )
+
+    # Média real por coluna, do período analisado
+    reais = {}
+    for r in dados:
+        for nl, tempos in (r.get("tempo_lista") or {}).items():
+            reais.setdefault(nl, []).extend(tempos)
+
+    try:
+        do_board = _pc.colunas_do_board()
+    except Exception:
+        do_board = []
+    todas = sorted(set(do_board) | set(_pc.COLUNAS_CONFIG) | set(_cc.carregar()))
+    if not todas:
+        st.info("Não consegui listar as colunas do Trello agora.")
+        return
+
+    novas = [c for c in do_board if c not in _pc.COLUNAS_CONFIG and c not in _cc.carregar()]
+    if novas:
+        st.warning(
+            "**Colunas novas no Trello, ainda sem configuração:** "
+            + ", ".join(novas)
+            + ". Estão rodando com prioridade 5 e 1h de tempo estimado."
+        )
+
+    for nome in todas:
+        cfg = _pc.cfg_coluna(nome)
+        medidos = reais.get(nome) or []
+        media = (sum(medidos) / len(medidos)) if medidos else None
+        rotulo = nome if len(nome) <= 44 else nome[:43] + "…"
+        real_txt = (f"{media/60:.1f}h real ({len(medidos)} cartões)"
+                    if media else "sem medição no período")
+
+        with st.expander(f"{rotulo}  ·  {real_txt}", expanded=False):
+            c1, c2, c3, c4 = st.columns([1, 1, 1, 1])
+            p = c1.number_input("Prioridade", 0, 10, int(cfg.get("prioridade", 5)),
+                                key=f"col_p_{nome}")
+            t = c2.number_input("Tempo estimado (min)", 0, 2000,
+                                int(cfg.get("tempo_min", 60)), step=10,
+                                key=f"col_t_{nome}")
+            e = c3.number_input("Espera de terceiro (h)", 0, 336,
+                                int(cfg.get("espera_h") or 0), step=1,
+                                key=f"col_e_{nome}")
+            if media:
+                delta = media - t
+                cor = "#1BAF7A" if delta <= 0 else "#E34948"
+                c4.markdown(
+                    f'<div style="font-size:11px;color:var(--ms-texto-sec);margin-top:28px;">'
+                    f'Real: <b style="color:{cor};">{media:.0f}min</b><br>'
+                    f'{"dentro" if delta <= 0 else f"+{delta:.0f}min acima"} do estimado</div>',
+                    unsafe_allow_html=True,
+                )
+            if st.button("Salvar", key=f"col_s_{nome}", use_container_width=True):
+                try:
+                    _cc.salvar(nome, p, t, e or None)
+                    st.success(f"{rotulo} salva.")
+                    st.rerun()
+                except Exception as ex:
+                    st.error(f"Não consegui salvar: {str(ex)[:200]}")
+
+
 def _secao_configuracao():
     st.markdown("#### ⚙️ Configurar Metas por Mês")
     st.caption("Configure as metas de qualquer mês, inclusive meses futuros. As configurações são salvas automaticamente no banco de dados.")
@@ -2070,5 +2146,7 @@ def pagina_analise_metas(usuario_logado):
     elif _aba_sel == _ABAS[3]:
         if _eh_master:
             _secao_configuracao()
+            st.markdown("---")
+            _secao_colunas(dados)
         else:
             st.warning("🔒 Configuração de metas restrita ao gestor.")

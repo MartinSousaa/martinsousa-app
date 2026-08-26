@@ -54,6 +54,13 @@ COLUNAS_CONFIG = {
     "CHAT (PROBLEMAS-30)":                            {"prioridade":5, "tempo_min":120},
     "DEMANDAS BLING":                                 {"prioridade":5, "tempo_min":150},
     "VARIAÇÃO DE ANÚNCIO (20)":                       {"prioridade":4, "tempo_min":120},
+    # "espera_h" e tempo de terceiro, nao de execucao: o cartao fica fora da
+    # fila enquanto se aguarda a resposta da plataforma e so aparece quando o
+    # prazo esta vencendo. Sem isso, 36 horas de espera entrariam na conta como
+    # 36 horas de trabalho da equipe.
+    "CONFERENCIA DE CHAMADOS (20)":                   {"prioridade":6, "tempo_min":30,
+                                                       "espera_h":36},
+    "CORREÇÕES/RETRABALHOS: 0 PONTOS":                {"prioridade":7, "tempo_min":120},
 }
 COLUNAS_SKIP = {
     "TABELA DE PONTUAÇÃO","TRIAGEM","PENALIDADES",
@@ -478,6 +485,58 @@ COLUNAS_DESCONHECIDAS = set()
 CFG_PADRAO_COLUNA = {"prioridade": 5, "tempo_min": 60}
 
 
+# Quantas horas antes de a espera vencer o cartao aparece na fila, para alguem
+# pegar assim que a resposta chegar.
+MARGEM_ENTRA_FILA_H = 2
+
+
+def entradas_na_coluna(acoes_board):
+    """{card_id: datetime} da ultima vez que o cartao mudou de coluna."""
+    entrada = {}
+    for cid, acoes in (acoes_board or {}).items():
+        for ac in acoes:
+            if ac.get("type") != "updateCard":
+                continue
+            if not (ac.get("data") or {}).get("listAfter"):
+                continue
+            try:
+                dt = datetime.fromisoformat(ac["date"].replace("Z", "+00:00"))
+            except Exception:
+                continue
+            if cid not in entrada or dt > entrada[cid]:
+                entrada[cid] = dt
+    return entrada
+
+
+def _criacao_card(card):
+    """Data de criacao, extraida do proprio id do cartao."""
+    cid = card.get("id", "")
+    if len(cid) >= 8:
+        try:
+            return datetime.fromtimestamp(int(cid[:8], 16), timezone.utc)
+        except Exception:
+            pass
+    return None
+
+
+def espera_restante_h(card, nome_lista, entradas=None):
+    """Horas que faltam para a espera de terceiro vencer. None se a coluna nao espera."""
+    horas = cfg_coluna(nome_lista).get("espera_h")
+    if not horas:
+        return None
+    inicio = (entradas or {}).get(card.get("id")) or _criacao_card(card)
+    if not inicio:
+        return None
+    passadas = (datetime.now(timezone.utc) - inicio).total_seconds() / 3600
+    return horas - passadas
+
+
+def aguardando_terceiro(card, nome_lista, entradas=None):
+    """Se o cartao ainda esta no prazo de espera e nao deve ocupar a fila."""
+    restante = espera_restante_h(card, nome_lista, entradas)
+    return restante is not None and restante > MARGEM_ENTRA_FILA_H
+
+
 def _data_entrega(card):
     """Data de entrega do cartao (campo `due` do Trello), ou None."""
     d = card.get("due")
@@ -489,13 +548,15 @@ def _data_entrega(card):
         return None
 
 
-def _card_atrasado(card, nome_lista, tempos=None):
+def _card_atrasado(card, nome_lista, tempos=None, entradas=None):
     """Cartao aberto esta atrasado se passou da entrega OU do tempo estimado.
 
     Sao coisas diferentes: um cartao pode estourar o prazo sem ninguem ter
     trabalhado nele, e outro pode consumir o dobro do tempo previsto ainda
     dentro do prazo. Os dois merecem alerta.
     """
+    if aguardando_terceiro(card, nome_lista, entradas):
+        return False
     entrega = _data_entrega(card)
     if entrega and datetime.now(timezone.utc) > entrega:
         return True
@@ -505,13 +566,31 @@ def _card_atrasado(card, nome_lista, tempos=None):
 
 
 def cfg_coluna(nome_lista):
-    """Configuracao da coluna. Coluna nova entra com padrao e fica registrada."""
-    cfg = COLUNAS_CONFIG.get(nome_lista)
-    if cfg is not None:
-        return cfg
+    """Configuracao da coluna, com a planilha mandando sobre o codigo.
+
+    Ordem: o que o gestor editou na planilha > os valores de origem no codigo >
+    o padrao. Coluna que nao esta em lugar nenhum fica registrada, para virar
+    aviso em vez de sumir.
+    """
+    base = dict(COLUNAS_CONFIG.get(nome_lista) or {})
+    try:
+        import colunas_config as _cc
+        editado = _cc.carregar().get(nome_lista)
+    except Exception:
+        editado = None
+    if editado:
+        base.update(editado)
+    if base:
+        return base
     if nome_lista and nome_lista not in COLUNAS_SKIP:
         COLUNAS_DESCONHECIDAS.add(nome_lista)
-    return CFG_PADRAO_COLUNA
+    return dict(CFG_PADRAO_COLUNA)
+
+
+def colunas_do_board():
+    """Nomes das colunas que existem no Trello agora, fora as ignoradas."""
+    listas = (_buscar_board() or (None,))[0] or {}
+    return sorted(n for n in listas.values() if n and n not in COLUNAS_SKIP)
 
 
 def _num(card, id_c):
@@ -617,6 +696,7 @@ def _fmt_tempo(m):
     return f"{h}h{mm:02d}" if mm > 0 else f"{h}h"
 
 def _calcular_fila(listas, cards, membros_map):
+    _entradas_fila = entradas_na_coluna(_buscar_acoes_board(_desde_padrao()))
     pendentes = []
     for card in cards:
         nl = listas.get(card["idList"], "")
@@ -626,6 +706,10 @@ def _calcular_fila(listas, cards, membros_map):
             continue
         lb = _labels(card)
         if "EM ANDAMENTO" in lb:
+            continue
+        # Espera de terceiro nao e trabalho: o cartao so entra na fila quando o
+        # prazo esta vencendo.
+        if aguardando_terceiro(card, nl, _entradas_fila):
             continue
         cfg = cfg_coluna(nl)
         us = _users(card, membros_map)
@@ -672,7 +756,9 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
     # os tempos são calculados de uma vez, antes do laço.
     _desde = _desde_padrao()
     _tempos = tempos_do_board(cards, membros_map, _desde)
-    _conclusoes = datas_de_conclusao(_buscar_acoes_board(_desde))
+    _acoes_proc = _buscar_acoes_board(_desde)
+    _conclusoes = datas_de_conclusao(_acoes_proc)
+    _entradas = entradas_na_coluna(_acoes_proc)
     try:
         _janela_ini = datetime.fromisoformat(_desde.replace("Z", "+00:00"))
     except Exception:
@@ -717,7 +803,7 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
             # Atraso, agora com dois criterios. So o tempo de execucao nao
             # bastava: cartao que ninguem tocou tem tempo zero e nunca ficava
             # atrasado, mesmo aberto ha semanas.
-            if _card_atrasado(card, nl, _tempos):
+            if _card_atrasado(card, nl, _tempos, _entradas):
                 d["atrasados"] += 1
             if "FALTA CONFERÊNCIA" in lb:
                 d["falta_conf"] += 1
