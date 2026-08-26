@@ -504,6 +504,22 @@ def _diagnostico_metas_individuais(tem_ponto, sem_exec, diags_pont, erro_pont, d
 
 # ── Seção: meta individual por colaborador ────────────────────────────────────
 
+# Limites dos indicadores individuais. A ociosidade da MAXX e 5% (a mensal e
+# 10%); o percentual de cartoes dentro do tempo estimado nao tinha alvo definido,
+# entao ficam 80% no mensal e 90% na MAXX — mudar aqui muda os dois cards.
+OCIO_META_NORMAL = 10
+OCIO_META_MAXX = 5
+EXEC_META_NORMAL = 80
+EXEC_META_MAXX = 90
+
+
+def _titulo_grupo_meta(texto, cor):
+    return (f'<div style="margin:14px 0 6px 0;padding-left:8px;'
+            f'border-left:3px solid {cor};font-size:12px;font-weight:700;'
+            f'letter-spacing:.5px;text-transform:uppercase;color:{cor};">'
+            f'{texto}</div>')
+
+
 def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master=False):
     """Exibe cards de meta individual — pontuação real + campos aguardando integração.
     Penalidades ficam apenas na visão coletiva."""
@@ -616,108 +632,106 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
     def _card(username, nome):
         pts  = pts_total.get(username, 0)
         meta = meta_total.get(username, len(dados) * 1500)
-        pct_pts = min(pts / meta * 100, 100) if meta > 0 else 0
-        cor_pts = "#1BAF7A"  # progresso — sempre verde (cresce até 100%)
 
         st.markdown(f"##### {nome}")
-        st.markdown(_meta_ind_item(
-            "📈 Pontuação Individual", pct_pts,
-            f"{pts:,.0f} / {meta:,.0f} pts · "
-            f"{'✅ Meta atingida!' if pct_pts >= 100 else f'Faltam {meta - pts:,.0f} pts'}",
-            cor=cor_pts
-        ), unsafe_allow_html=True)
-        meta_mx = maxx_total.get(username, 0)
-        if meta_mx > 0:
-            pct_mx = min(pts / meta_mx * 100, 100)
-            falta_mx = meta_mx - pts
-            st.markdown(_meta_ind_item(
-                "⭐ Meta MAXX Individual", pct_mx,
-                f"{pts:,.0f} / {meta_mx:,.0f} pts · "
-                + ("✅ MAXX atingida!" if falta_mx <= 0 else f"Faltam {falta_mx:,.0f} pts"),
-                cor="#EDA100"
-            ), unsafe_allow_html=True)
-        # ── Ociosidade ────────────────────────────────────────────────────────
+
         o = _ocio.get(username, {"disp": 0.0, "cards": 0.0})
-        if _tem_ponto and o["disp"] > 0:
-            pct_ocio = max(o["disp"] - o["cards"], 0) / o["disp"] * 100
-            # A barra mostra o quanto da meta (≤10%) está cumprido.
-            pct_barra = 100 if pct_ocio <= 10 else max(0, 100 - (pct_ocio - 10) * 4)
-            cor_ocio = "#1BAF7A" if pct_ocio <= 10 else ("#EDA100" if pct_ocio <= 20 else "#E34948")
+        e = _exec.get(username, {"dentro": 0, "total": 0})
+        p = _pont.get(username, {"tol": 0, "atr": 0, "atr_ent": 0, "atr_alm": 0})
+
+        def _it_pontuacao(rotulo, alvo, cor):
+            if alvo <= 0:
+                return
+            pct = min(pts / alvo * 100, 100)
+            falta = alvo - pts
             st.markdown(_meta_ind_item(
-                "⏱️ Ociosidade abaixo de 10%", pct_barra,
+                rotulo, pct,
+                f"{pts:,.0f} / {alvo:,.0f} pts · "
+                + ("✅ Atingida!" if falta <= 0 else f"Faltam {falta:,.0f} pts"),
+                cor=cor
+            ), unsafe_allow_html=True)
+
+        def _it_ociosidade(limite):
+            rotulo = f"⏱️ Ociosidade abaixo de {limite}%"
+            if not (_tem_ponto and o["disp"] > 0):
+                st.markdown(_meta_ind_item(rotulo, 100, "", aguardando=True),
+                            unsafe_allow_html=True)
+                return
+            pct_ocio = max(o["disp"] - o["cards"], 0) / o["disp"] * 100
+            barra = 100 if pct_ocio <= limite else max(0, 100 - (pct_ocio - limite) * 4)
+            cor = ("#1BAF7A" if pct_ocio <= limite
+                   else "#EDA100" if pct_ocio <= limite * 2 else "#E34948")
+            st.markdown(_meta_ind_item(
+                rotulo, barra,
                 f"{pct_ocio:.1f}% ocioso · {o['cards']/60:.1f}h em cartões de "
                 f"{o['disp']/60:.1f}h disponíveis",
-                cor=cor_ocio
-            ), unsafe_allow_html=True)
-        else:
-            st.markdown(_meta_ind_item(
-                "⏱️ Ociosidade abaixo de 10%", 100,
-                "", aguardando=True
+                cor=cor
             ), unsafe_allow_html=True)
 
-        # ── Tempo de execução vs. estimado ────────────────────────────────────
-        e = _exec.get(username, {"dentro": 0, "total": 0})
-        if e["total"] > 0:
+        def _it_execucao(limite):
+            rotulo = f"⚡ Tempo de execução dentro do estimado ({limite}%)"
+            if e["total"] <= 0:
+                st.markdown(_meta_ind_item(
+                    rotulo, 100,
+                    "Nenhum cartão concluído com tempo medido no período",
+                    aguardando=True), unsafe_allow_html=True)
+                return
             pct_exec = e["dentro"] / e["total"] * 100
-            cor_exec = "#1BAF7A" if pct_exec >= 80 else ("#EDA100" if pct_exec >= 50 else "#E34948")
+            cor = ("#1BAF7A" if pct_exec >= limite
+                   else "#EDA100" if pct_exec >= limite * 0.6 else "#E34948")
             st.markdown(_meta_ind_item(
-                "⚡ Tempo médio de execução abaixo do estimado", pct_exec,
+                rotulo, min(pct_exec / limite * 100, 100) if limite else 0,
                 f"{e['dentro']} de {e['total']} cartões dentro do tempo estimado "
-                f"· medido pela etiqueta EM ANDAMENTO",
-                cor=cor_exec
-            ), unsafe_allow_html=True)
-        else:
-            st.markdown(_meta_ind_item(
-                "⚡ Tempo médio de execução abaixo do estimado", 100,
-                "Nenhum cartão concluído com tempo medido no período", aguardando=True
+                f"({pct_exec:.0f}%) · medido pela etiqueta EM ANDAMENTO",
+                cor=cor
             ), unsafe_allow_html=True)
 
-        # ── Pontualidade ──────────────────────────────────────────────────────
-        # Regra: entrada até 09h05 é tolerância; depois disso, atraso. Voltar
-        # atrasado do almoço é atraso mesmo que por um minuto.
-        p = _pont.get(username, {"tol": 0, "atr": 0, "atr_ent": 0, "atr_alm": 0})
-        if _tem_ponto:
-            tol = p["tol"]
-            pct_tol = min(tol / max_tol * 100, 100) if max_tol else 0
-            if tol > max_tol:
-                cor_tol, extra_tol = "#E34948", f"limite estourado em {tol - max_tol}"
-            elif tol >= max_tol * 0.7:
-                cor_tol, extra_tol = "#EDA100", f"restam {max_tol - tol}"
+        def _it_contagem(rotulo, usado, limite, detalhe=""):
+            """Card de tolerância ou atraso contra UM limite — o mensal ou o da MAXX."""
+            if not _tem_ponto:
+                st.markdown(_meta_ind_item(rotulo, 100, "", aguardando=True),
+                            unsafe_allow_html=True)
+                return
+            pct = min(usado / limite * 100, 100) if limite else 0
+            if usado > limite:
+                cor, extra = "#E34948", f"limite estourado em {usado - limite}"
+            elif usado >= limite * 0.7:
+                cor, extra = "#EDA100", f"restam {limite - usado}"
             else:
-                cor_tol, extra_tol = "#1BAF7A", f"restam {max_tol - tol}"
-            _mx_tol = ("⭐ dentro da MAXX" if tol <= max_tol_mx
-                       else f"⭐ fora da MAXX (limite {max_tol_mx})")
-            st.markdown(_meta_ind_item(
-                f"🕐 Tolerâncias de pontualidade ({max_tol}/mês · MAXX {max_tol_mx})",
-                pct_tol,
-                f"{tol} de {max_tol} usadas · {extra_tol} · {_mx_tol}",
-                cor=cor_tol
-            ), unsafe_allow_html=True)
+                cor, extra = "#1BAF7A", f"restam {limite - usado}"
+            corpo = f"{usado} de {limite} · {extra}"
+            if detalhe:
+                corpo += f" · {detalhe}"
+            st.markdown(_meta_ind_item(rotulo, pct, corpo, cor=cor),
+                        unsafe_allow_html=True)
 
-            atr = p["atr"]
-            pct_atr = min(atr / max_atr * 100, 100) if max_atr else 0
-            if atr > max_atr:
-                cor_atr, extra_atr = "#E34948", f"limite estourado em {atr - max_atr}"
-            elif atr >= max_atr * 0.7:
-                cor_atr, extra_atr = "#EDA100", f"restam {max_atr - atr}"
-            else:
-                cor_atr, extra_atr = "#1BAF7A", f"restam {max_atr - atr}"
-            detalhe = f"{p['atr_ent']} na entrada · {p['atr_alm']} na volta do almoço"
-            _mx_atr = ("⭐ dentro da MAXX" if atr <= max_atr_mx
-                       else f"⭐ fora da MAXX (limite {max_atr_mx})")
-            st.markdown(_meta_ind_item(
-                f"⏰ Atrasos de pontualidade ({max_atr}/mês · MAXX {max_atr_mx})",
-                pct_atr,
-                f"{atr} de {max_atr} · {extra_atr} · {detalhe} · {_mx_atr}",
-                cor=cor_atr
-            ), unsafe_allow_html=True)
-        else:
-            st.markdown(_meta_ind_item(
-                f"🕐 Tolerâncias de pontualidade ({max_tol}/mês · MAXX {max_tol_mx})", 100, "", aguardando=True
-            ), unsafe_allow_html=True)
-            st.markdown(_meta_ind_item(
-                f"⏰ Atrasos de pontualidade ({max_atr}/mês · MAXX {max_atr_mx})", 100, "", aguardando=True
-            ), unsafe_allow_html=True)
+        _det_atr = f"{p['atr_ent']} na entrada · {p['atr_alm']} na volta do almoço"
+
+        # ── META MENSAL ───────────────────────────────────────────────────────
+        st.markdown(_titulo_grupo_meta("Meta mensal", "#1BAF7A"),
+                    unsafe_allow_html=True)
+        _it_pontuacao("📈 Pontuação", meta_total.get(username, len(dados) * 1500),
+                      "#1BAF7A")
+        _it_ociosidade(OCIO_META_NORMAL)
+        _it_execucao(EXEC_META_NORMAL)
+        _it_contagem(f"🕐 Tolerâncias de pontualidade ({max_tol}/mês)",
+                     p["tol"], max_tol)
+        _it_contagem(f"⏰ Atrasos de pontualidade ({max_atr}/mês)",
+                     p["atr"], max_atr, _det_atr)
+
+        # ── META MAXX ─────────────────────────────────────────────────────────
+        # Os mesmos indicadores, com os limites proprios da MAXX. Antes a MAXX
+        # aparecia so como uma observacao no rodape dos cards mensais — dava para
+        # ver se estava dentro, nao o quanto faltava.
+        st.markdown(_titulo_grupo_meta("Meta MAXX", "#EDA100"),
+                    unsafe_allow_html=True)
+        _it_pontuacao("⭐ Pontuação", maxx_total.get(username, 0), "#EDA100")
+        _it_ociosidade(OCIO_META_MAXX)
+        _it_execucao(EXEC_META_MAXX)
+        _it_contagem(f"🕐 Tolerâncias de pontualidade ({max_tol_mx}/mês)",
+                     p["tol"], max_tol_mx)
+        _it_contagem(f"⏰ Atrasos de pontualidade ({max_atr_mx}/mês)",
+                     p["atr"], max_atr_mx, _det_atr)
 
         # Calculadora de ganhos
         pct_i = min(pts / meta * 100, 100) if meta > 0 else 0
