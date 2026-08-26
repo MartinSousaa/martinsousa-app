@@ -460,6 +460,16 @@ def _diagnostico_metas_individuais(tem_ponto, sem_exec, diags_pont, erro_pont, d
                     f"**{_dt.get('com_tempo_util',0)}** com tempo dentro do expediente · "
                     f"**{_dt.get('com_membro',0)}** atribuídos a alguém"
                 )
+                # O histograma de tipos vem SEMPRE, inclusive (e principalmente)
+                # quando nenhuma etiqueta aparece: e ele que diz se o Trello
+                # devolveu addLabelToCard ou so outra coisa.
+                _tp = _dt.get("tipos_vistos") or {}
+                if _tp:
+                    st.caption("Tipos de ação recebidos do Trello (tipo · vezes):")
+                    st.code("\n".join(
+                        f"{n}  ·  {q}" for n, q in
+                        sorted(_tp.items(), key=lambda x: -x[1])[:10]
+                    ))
                 _et = _dt.get("etiquetas_vistas") or {}
                 if _et:
                     st.caption("Etiquetas vistas no histórico (nome exato · vezes):")
@@ -467,6 +477,14 @@ def _diagnostico_metas_individuais(tem_ponto, sem_exec, diags_pont, erro_pont, d
                         f"{n}  ·  {q}" for n, q in
                         sorted(_et.items(), key=lambda x: -x[1])[:15]
                     ))
+                else:
+                    st.caption("Nenhuma ação de etiqueta chegou no histórico — "
+                               "é por isso que o tempo de execução está zerado.")
+                if d.get("plano_b"):
+                    st.caption(
+                        f"Plano B (busca sem filtro): {d.get('plano_b_etiquetas',0)} "
+                        f"ação(ões) de etiqueta em {d.get('plano_b_cartoes',0)} cartão(ões)."
+                    )
 
 
 # ── Seção: meta individual por colaborador ────────────────────────────────────
