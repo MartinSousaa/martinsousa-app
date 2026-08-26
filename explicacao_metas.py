@@ -33,8 +33,8 @@ PCT_INDIVIDUAL_MAXX = 12.0
 # Salário só para ilustrar quando a pessoa ainda não digitou o dela.
 SALARIO_EXEMPLO = 2000.0
 
-# Em que dia útil do mês seguinte o valor das metas é depositado. O mês precisa
-# fechar para dar para apurar, então o pagamento nunca sai dentro do próprio mês.
+# São DOIS pagamentos separados: o salário fecha no último dia do mês, e o valor
+# das metas vem depois, porque o mês precisa terminar para dar para apurar.
 DIA_UTIL_PAGAMENTO = 5
 
 # Os nomes que a equipe usa. A tela inteira fala nestes quatro termos — antes
@@ -226,15 +226,19 @@ def render(expandido=True, chave_salario="expl_salario"):
             'border-radius:10px;padding:12px 16px;margin-top:16px;'
             'font-size:15px;line-height:1.7;">'
             '📅 <b>Quando esse dinheiro cai na sua conta</b><br>'
-            'Para saber quanto cada um ganhou, o mês precisa <b>terminar</b> — '
+            'São <b>dois pagamentos separados</b>, em datas diferentes.<br><br>'
+            '💵 <b>O seu salário</b> cai no <b>último dia do mês</b>, como sempre.<br>'
+            '🏆 <b>O valor das metas</b> vem <b>depois</b>, e o motivo é simples: '
+            'para saber quanto cada um ganhou, o mês precisa <b>terminar</b> — '
             'só depois disso dá para contar tudo o que foi feito. '
             'Essa contagem se chama <b>apuração</b>.<br>'
             f'Por isso o valor das metas é depositado no '
-            f'<b>{DIA_UTIL_PAGAMENTO}º dia útil do mês seguinte</b>, '
-            'junto com o salário.<br>'
-            '<span style="color:var(--ms-texto-sec);">Exemplo: o que você fez em '
-            f'<b>agosto</b> é apurado quando agosto acaba, e cai na conta no '
-            f'{DIA_UTIL_PAGAMENTO}º dia útil de <b>setembro</b>.</span>'
+            f'<b>{DIA_UTIL_PAGAMENTO}º dia útil do mês seguinte</b>.<br><br>'
+            '<span style="color:var(--ms-texto-sec);">Exemplo com o mês de '
+            '<b>agosto</b>: o salário de agosto cai no <b>último dia de agosto</b>. '
+            'O que você fez em agosto é apurado quando agosto acaba, e o valor '
+            f'das metas cai no {DIA_UTIL_PAGAMENTO}º dia útil de '
+            '<b>setembro</b>.</span>'
             '</div>', unsafe_allow_html=True)
 
         st.caption("Mais abaixo, no seu card, a mesma conta aparece com as "
