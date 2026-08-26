@@ -368,6 +368,12 @@ def _secao_coletiva(dados):
 
 # ── Helper: card de item de meta individual ────────────────────────────────────
 
+def _fmt_hm(minutos):
+    """Minutos como 15h24 — a unidade em que a equipe pensa o mes."""
+    m = int(round(abs(minutos)))
+    return f"{m // 60}h{m % 60:02d}"
+
+
 def _meta_ind_item(titulo, pct, descricao, cor=None, aguardando=False,
                    valor_texto=None):
     """Card de item de meta individual (inline styles, sem depender do CSS do placar)."""
@@ -529,10 +535,11 @@ def _diagnostico_metas_individuais(tem_ponto, sem_exec, diags_pont, erro_pont, d
 # Limites dos indicadores individuais. A ociosidade da MAXX e 5% (a mensal e
 # 10%); o percentual de cartoes dentro do tempo estimado nao tinha alvo definido,
 # entao ficam 80% no mensal e 90% na MAXX — mudar aqui muda os dois cards.
-OCIO_META_NORMAL = 10
-OCIO_META_MAXX = 5
-EXEC_META_NORMAL = 80
-EXEC_META_MAXX = 90
+# Uma fonte so: os mesmos numeros que o painel de explicacao mostra.
+OCIO_META_NORMAL = _expl.OCIO_META_NORMAL
+OCIO_META_MAXX   = _expl.OCIO_META_MAXX
+EXEC_META_NORMAL = _expl.EXEC_META_NORMAL
+EXEC_META_MAXX   = _expl.EXEC_META_MAXX
 
 
 def _titulo_grupo_meta(texto, cor):
@@ -540,6 +547,67 @@ def _titulo_grupo_meta(texto, cor):
             f'border-left:3px solid {cor};font-size:12px;font-weight:700;'
             f'letter-spacing:.5px;text-transform:uppercase;color:{cor};">'
             f'{texto}</div>')
+
+
+_ROTULO_OCORRENCIA = {
+    "tolerancia":     ("🕐", "Tolerância", "#8E7CC3"),
+    "atraso_entrada": ("⏰", "Atraso", "#E34948"),
+    "atraso_almoco":  ("⏰", "Atraso", "#E34948"),
+}
+
+
+def _detalhe_pontualidade(ocorrencias, username):
+    """Lista dia a dia o que gerou cada tolerância e cada atraso.
+
+    Os numeros de tolerancia e atraso nao tinham como ser conferidos: a tela
+    mostrava so o total, e a pessoa precisava abrir a apuracao da RHiD para
+    entender de onde veio.
+    """
+    if not ocorrencias:
+        return
+    linhas = ""
+    for oc in sorted(ocorrencias, key=lambda x: (x.get("data", ""),
+                                                 x.get("horario", ""))):
+        emoji, rotulo, cor = _ROTULO_OCORRENCIA.get(
+            oc.get("tipo"), ("•", "Ocorrência", "var(--ms-texto-sec)"))
+        mins = oc.get("minutos") or 0
+        linhas += (
+            f'<tr>'
+            f'<td style="padding:6px 10px;font-size:12px;white-space:nowrap;">'
+            f'{oc.get("data","—")}</td>'
+            f'<td style="padding:6px 10px;font-size:12px;">'
+            f'{oc.get("evento","—")}</td>'
+            f'<td style="padding:6px 10px;font-size:12px;'
+            f'color:var(--ms-texto-sec);white-space:nowrap;">'
+            f'previsto {oc.get("esperado","—")}</td>'
+            f'<td style="padding:6px 10px;font-size:12px;font-weight:700;'
+            f'white-space:nowrap;">{oc.get("horario","—")}</td>'
+            f'<td style="padding:6px 10px;font-size:12px;color:{cor};'
+            f'white-space:nowrap;">{emoji} {rotulo}</td>'
+            f'<td style="padding:6px 10px;font-size:12px;'
+            f'color:var(--ms-texto-sec);text-align:right;white-space:nowrap;">'
+            f'{mins:.0f} min</td></tr>')
+
+    with st.expander(f"🗓️ Ver os dias de tolerância e atraso "
+                     f"({len(ocorrencias)})", expanded=False):
+        st.markdown(
+            '<div style="overflow-x:auto;"><table style="width:100%;'
+            'border-collapse:collapse;">'
+            '<thead><tr style="background:var(--ms-metric-bg);">'
+            '<th style="padding:7px 10px;font-size:10px;text-align:left;'
+            'text-transform:uppercase;color:var(--ms-texto-sec);">Dia</th>'
+            '<th style="padding:7px 10px;font-size:10px;text-align:left;'
+            'text-transform:uppercase;color:var(--ms-texto-sec);">Evento</th>'
+            '<th style="padding:7px 10px;font-size:10px;text-align:left;'
+            'text-transform:uppercase;color:var(--ms-texto-sec);">Horário</th>'
+            '<th style="padding:7px 10px;font-size:10px;text-align:left;'
+            'text-transform:uppercase;color:var(--ms-texto-sec);">Bateu</th>'
+            '<th style="padding:7px 10px;font-size:10px;text-align:left;'
+            'text-transform:uppercase;color:var(--ms-texto-sec);">O quê</th>'
+            '<th style="padding:7px 10px;font-size:10px;text-align:right;'
+            'text-transform:uppercase;color:var(--ms-texto-sec);">Passou</th>'
+            '</tr></thead><tbody>' + linhas + '</tbody></table></div>',
+            unsafe_allow_html=True)
 
 
 def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master=False):
@@ -603,9 +671,10 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
     # Uma passada por mês do período; se a planilha de ponto não responder, os
     # cards voltam a dizer "aguardando" em vez de mostrar zero como se fosse dado.
     _pont = {u: {"tol": 0, "tol_ent": 0, "tol_alm": 0,
-                 "atr": 0, "atr_ent": 0, "atr_alm": 0, "dias": 0}
+                 "atr": 0, "atr_ent": 0, "atr_alm": 0, "dias": 0,
+                 "ocorr": []}
              for u in membros_ativos}
-    _ocio = {u: {"disp": 0.0, "cards": 0.0} for u in membros_ativos}
+    _ocio = {u: {"disp": 0.0, "cards": 0.0, "ocio": 0.0} for u in membros_ativos}
     _tem_ponto = False
     _diags_pont = []
     _erro_pont = None
@@ -635,10 +704,15 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
                     _pont[u]["atr_ent"] += p["atrasos_entrada"]
                     _pont[u]["atr_alm"] += p["atrasos_almoco"]
                     _pont[u]["dias"]    += p["dias_trabalhados"]
+                    _pont[u]["ocorr"].extend(p.get("ocorrencias") or [])
                 o = o_mes.get(u)
                 if o:
                     _ocio[u]["disp"]  += o["horas_disp_min"]
                     _ocio[u]["cards"] += o["tempo_cards_min"]
+                    # O valor JA calculado na linha do tempo, com as folgas de
+                    # 10 e 5 minutos e a hora pessoal do dia. Recalcular aqui
+                    # por disp menos cards jogaria fora tudo isso.
+                    _ocio[u]["ocio"]  += o["ociosidade_min"]
         _tem_ponto = any(v["dias"] > 0 for v in _pont.values())
     except Exception as e:
         _tem_ponto = False
@@ -679,7 +753,8 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
         o = _ocio.get(username, {"disp": 0.0, "cards": 0.0})
         e = _exec.get(username, {"dentro": 0, "total": 0})
         p = _pont.get(username, {"tol": 0, "tol_ent": 0, "tol_alm": 0,
-                                 "atr": 0, "atr_ent": 0, "atr_alm": 0})
+                                 "atr": 0, "atr_ent": 0, "atr_alm": 0,
+                                 "ocorr": []})
 
         def _it_pontuacao(rotulo, alvo, cor):
             if alvo <= 0:
@@ -699,19 +774,25 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
                 st.markdown(_meta_ind_item(rotulo, 100, "", aguardando=True),
                             unsafe_allow_html=True)
                 return
-            pct_ocio = max(o["disp"] - o["cards"], 0) / o["disp"] * 100
+            _ocio_min = o.get("ocio", 0.0)
+            pct_ocio = _ocio_min / o["disp"] * 100
             # Escala proporcional em vez de queda de 4 pontos por ponto: com a
             # anterior, qualquer ociosidade acima de 35% dava barra zero, e 40%
             # ficava indistinguivel de 90%.
             barra = 100 if pct_ocio <= limite else limite / pct_ocio * 100
             cor = ("#1BAF7A" if pct_ocio <= limite
                    else "#EDA100" if pct_ocio <= limite * 2 else "#E34948")
+            # O teto em HORAS, que e o numero que da para administrar: 10% de
+            # 154h (22 dias de 7h cobradas) sao 15h24 no mes. Percentual sozinho
+            # nao diz quanto ainda sobra.
+            _teto_min = o["disp"] * limite / 100
+            _resta = _teto_min - _ocio_min
             st.markdown(_meta_ind_item(
                 rotulo, barra,
-                f"{o['disp']/60:.1f}h cobradas no mês (jornada menos 1h/dia "
-                f"de pausa pessoal)"
-                + (" · dentro da meta" if pct_ocio <= limite
-                   else f" · {pct_ocio - limite:.1f} pontos acima da meta"),
+                f"{_fmt_hm(_ocio_min)} ocioso de {_fmt_hm(_teto_min)} permitidas"
+                + (f" · restam {_fmt_hm(_resta)}" if _resta >= 0
+                   else f" · {_fmt_hm(-_resta)} acima do limite")
+                + f" · {o['disp']/60:.0f}h cobradas no mês",
                 cor=cor, valor_texto=f"{pct_ocio:.1f}%"
             ), unsafe_allow_html=True)
 
@@ -768,6 +849,8 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
                      p["tol"], max_tol, _det_tol)
         _it_contagem(f"⏰ Atrasos de pontualidade ({max_atr}/mês)",
                      p["atr"], max_atr, _det_atr)
+
+        _detalhe_pontualidade(p.get("ocorr") or [], username)
 
         # ── META MAXX ─────────────────────────────────────────────────────────
         # Os mesmos indicadores, com os limites proprios da MAXX. Antes a MAXX

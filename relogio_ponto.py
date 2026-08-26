@@ -663,6 +663,12 @@ def _secao_historico_mensal(eh_master: bool, usuario_logado: str):
 
 # ── Dados para analise_metas.py ────────────────────────────────────────────────
 
+def _dt_soma(t, minutos):
+    """Horario mais N minutos, sem sair do tipo time."""
+    from datetime import datetime as _d, timedelta as _td
+    return (_d.combine(_d.today().date(), t) + _td(minutes=minutos)).time()
+
+
 def _janelas_do_dia(data, entrada, saida_almoco, volta_almoco, saida):
     """[(ini, fim)] do expediente efetivo, em hora local com data.
 
@@ -817,21 +823,32 @@ def _pontualidade_rhid(ano: int, mes: int):
                     (reg["data"], _janelas_do_dia(reg["data"], entrada, saida_a,
                                                   volta, saida_d)))
 
-            data_txt = reg["data"].strftime("%Y-%m-%d") if reg["data"] else "—"
-            if tol:
-                acc["ocorrencias"].append({"data": data_txt, "tipo": "tolerancia",
-                                           "horario": entrada.strftime("%H:%M"),
-                                           "minutos": _diff_min(horario_de(u)["entrada"], entrada)})
-            if atr_ent:
-                acc["ocorrencias"].append({"data": data_txt, "tipo": "atraso_entrada",
-                                           "horario": entrada.strftime("%H:%M"),
-                                           "minutos": _diff_min(horario_de(u)["entrada"], entrada)})
+            # Cada ocorrencia guarda o dia, a hora batida, QUAL evento a gerou e
+            # quantos minutos passaram do horario. E o que a equipe precisa para
+            # conferir um numero contra o proprio ponto.
+            data_txt = reg["data"].strftime("%d/%m") if reg["data"] else "—"
+            _esperado = horario_de(u)["entrada"]
+            if tol and entrada:
+                acc["ocorrencias"].append({
+                    "data": data_txt, "tipo": "tolerancia",
+                    "evento": "Entrada", "horario": entrada.strftime("%H:%M"),
+                    "esperado": _esperado.strftime("%H:%M"),
+                    "minutos": _diff_min(_esperado, entrada)})
+            if atr_ent and entrada:
+                acc["ocorrencias"].append({
+                    "data": data_txt, "tipo": "atraso_entrada",
+                    "evento": "Entrada", "horario": entrada.strftime("%H:%M"),
+                    "esperado": _esperado.strftime("%H:%M"),
+                    "minutos": _diff_min(_esperado, entrada)})
             if atr_alm:
+                _prev = (_dt_soma(saida_a, ALMOCO_MINUTOS) if saida_a
+                         else VOLTA_ALMOCO)
                 acc["ocorrencias"].append({
                     "data": data_txt, "tipo": "atraso_almoco",
+                    "evento": "Volta do almoço",
                     "horario": volta.strftime("%H:%M") if volta else "—",
-                    "minutos": max(min_almoco - ALMOCO_MINUTOS
-                                   - FOLGA_ALMOCO_MIN, 0),
+                    "esperado": _prev.strftime("%H:%M"),
+                    "minutos": max(min_almoco - ALMOCO_MINUTOS, 0),
                 })
         resultado[u] = acc
 
