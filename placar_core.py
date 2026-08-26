@@ -549,9 +549,9 @@ def _acoes_sem_filtro(desde_iso, diag):
     # Sobe os numeros da leitura crua para a linha principal. Sem isto o painel
     # mostrava "HTTP None · 0 pagina(s) · 0 acao(oes)" logo depois de ler oito
     # mil acoes — parecia falha de conexao onde houve leitura completa.
-    for campo in ("http", "paginas", "acoes"):
-        if not diag.get(campo):
-            diag[campo] = sub.get(campo)
+    for campo in ("paginas", "acoes"):
+        diag[campo] = (diag.get(campo) or 0) + (sub.get(campo) or 0)
+    diag["http"] = sub.get("http") or diag.get("http")
     if not achou:
         diag["erro"] = ("Nem com filtro nem sem filtro o Trello devolveu ação de "
                         "etiqueta neste período — o tempo de execução fica zerado.")
