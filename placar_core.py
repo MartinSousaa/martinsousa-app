@@ -312,6 +312,48 @@ def _buscar_acoes_board(desde_iso=None, max_paginas=10, filtro=None,
 
 
 TIPOS_ETIQUETA = ("addLabelToCard", "removeLabelFromCard")
+
+# Cache do mapa id-da-etiqueta -> nome. Preenchido sob demanda.
+_MAPA_LABELS = {}
+
+
+def mapa_labels(forcar=False):
+    """{id_da_etiqueta: NOME} do board.
+
+    Necessario porque a mudanca de etiqueta nao vem como addLabelToCard neste
+    board: ela aparece dentro do updateCard, e la so existem os IDs.
+    """
+    if _MAPA_LABELS and not forcar:
+        return _MAPA_LABELS
+    if not TRELLO_KEY:
+        return _MAPA_LABELS
+    try:
+        r = requests.get(f"https://api.trello.com/1/boards/{BOARD_ID}/labels",
+                         params={"key": TRELLO_KEY, "token": TRELLO_TOKEN,
+                                 "limit": 1000}, timeout=20)
+        if r.ok:
+            for lb in r.json():
+                if lb.get("id"):
+                    _MAPA_LABELS[lb["id"]] = (lb.get("name") or "").upper().strip()
+    except Exception:
+        pass
+    return _MAPA_LABELS
+
+
+def _mudanca_de_etiqueta(ac):
+    """(adicionadas, removidas) de um updateCard que mexeu em idLabels.
+
+    O board nao emite addLabelToCard: 8416 acoes lidas com filter=all e nenhuma
+    de etiqueta. A troca de etiqueta esta aqui, na diferenca entre os idLabels
+    de antes e os de depois.
+    """
+    dados = ac.get("data") or {}
+    velho_ = dados.get("old") or {}
+    if "idLabels" not in velho_:
+        return (), ()
+    antes = set(velho_.get("idLabels") or [])
+    depois = set((dados.get("card") or {}).get("idLabels") or [])
+    return tuple(depois - antes), tuple(antes - depois)
 TIPOS_UTEIS = TIPOS_ETIQUETA + ("addMemberToCard", "removeMemberFromCard")
 
 # O parametro filter do Trello nao reconhece addLabelToCard/removeLabelFromCard:
@@ -479,7 +521,11 @@ def _cru_que_cobre(desde_iso, agora):
     definicao, tudo o que a de 30 dias traria.
     """
     melhor = None
-    for chave, c in _acoes_cache.items():
+    # list(): o cache e escrito pelas buscas em paralelo e por execucoes
+    # sobrepostas do script (todo Enter num campo dispara uma). Percorrer o dict
+    # vivo levanta "dictionary changed size during iteration" e derruba a pagina
+    # inteira — o painel some e sobra o traceback.
+    for chave, c in list(_acoes_cache.items()):
         if not str(chave).startswith("cru|") or agora - c["ts"] >= 300:
             continue
         desde_cache = str(chave).split("|")[1]
@@ -534,10 +580,14 @@ def _acoes_sem_filtro(desde_iso, diag):
     bruto = _acoes_cru_cache(desde_iso, _paginas_para(desde_iso))
     por_card, achou = {}, 0
     for cid, acoes in bruto.items():
-        uteis = [a for a in acoes if a.get("type") in TIPOS_UTEIS]
+        uteis = [a for a in acoes
+                 if a.get("type") in TIPOS_UTEIS
+                 or "idLabels" in ((a.get("data") or {}).get("old") or {})]
         if uteis:
             por_card[cid] = uteis
-            achou += sum(1 for a in uteis if a.get("type") in TIPOS_ETIQUETA)
+            achou += sum(1 for a in uteis
+                         if a.get("type") in TIPOS_ETIQUETA
+                         or "idLabels" in ((a.get("data") or {}).get("old") or {}))
     diag["plano_b_etiquetas"] = achou
     diag["plano_b_cartoes"] = len(por_card)
     sub = DIAGNOSTICO_POR_FILTRO.get("cru", {})
@@ -605,6 +655,16 @@ def intervalos_do_cartao(acoes, agora=None, membros_agora=None):
             nome = ((dados.get("label") or {}).get("name") or "").upper().strip()
             if nome in LABELS_TRABALHO or nome in LABELS_INTERRUPCAO:
                 eventos.append((dt, "label", nome, tipo == "addLabelToCard"))
+        elif "idLabels" in (dados.get("old") or {}):
+            # Este board registra a troca de etiqueta como updateCard: o nome nao
+            # vem junto, so os IDs, entao e preciso traduzir.
+            mapa = mapa_labels()
+            postas, tiradas = _mudanca_de_etiqueta(ac)
+            for ids, entrou in ((postas, True), (tiradas, False)):
+                for lid in ids:
+                    nome = mapa.get(lid, "")
+                    if nome in LABELS_TRABALHO or nome in LABELS_INTERRUPCAO:
+                        eventos.append((dt, "label", nome, entrou))
         elif tipo in ("addMemberToCard", "removeMemberFromCard"):
             mid = dados.get("idMember") or (dados.get("member") or {}).get("id")
             if mid:
@@ -763,6 +823,12 @@ def tempos_dos_cartoes(cards, acoes_board, membros_map=None, agora=None):
                 if nome:
                     n = nome.upper().strip()
                     diag["etiquetas_vistas"][n] = diag["etiquetas_vistas"].get(n, 0) + 1
+                elif "idLabels" in ((ac.get("data") or {}).get("old") or {}):
+                    _mapa = mapa_labels()
+                    _post, _tir = _mudanca_de_etiqueta(ac)
+                    for _lid in _post + _tir:
+                        n = _mapa.get(_lid) or f"(id {_lid[:6]})"
+                        diag["etiquetas_vistas"][n] = diag["etiquetas_vistas"].get(n, 0) + 1
         segs = intervalos_do_cartao(acoes_c, agora, c.get("idMembers"))
         if segs:
             diag["com_trecho"] += 1
