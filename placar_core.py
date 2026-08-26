@@ -385,6 +385,38 @@ def _desde_padrao():
         "%Y-%m-%dT00:00:00.000Z")
 
 
+def _desde_curto(dias=30):
+    """Janela curta, para o que nao precisa de meses de historico."""
+    return (datetime.now(timezone.utc) - timedelta(days=dias)).strftime(
+        "%Y-%m-%dT00:00:00.000Z")
+
+
+def alguma_coluna_espera(listas=None):
+    """Se existe coluna com espera de terceiro configurada.
+
+    Sem nenhuma, nao ha por que buscar quando cada cartao entrou na coluna — e
+    essa busca custa uma consulta paginada ao Trello.
+    """
+    nomes = list((listas or {}).values()) if listas else list(COLUNAS_CONFIG)
+    for nome in nomes:
+        if cfg_coluna(nome).get("espera_h"):
+            return True
+    return False
+
+
+def entradas_se_preciso(listas=None):
+    """Entradas na coluna, buscadas so quando alguma coluna espera terceiro.
+
+    Antes essa consulta era feita sempre, ao abrir o Painel — e com janela de 120
+    dias. Uma espera de 36 horas nao precisa de quatro meses de historico.
+    """
+    if not alguma_coluna_espera(listas):
+        return {}
+    return entradas_na_coluna(
+        _buscar_acoes_board(_desde_curto(30), max_paginas=3,
+                            filtro=FILTRO_MOVIMENTO))
+
+
 def tempos_do_board(cards, membros_map, desde_iso=None):
     """tempos_dos_cartoes com cache — o resultado não depende do mês analisado.
 
@@ -753,8 +785,7 @@ def _fmt_tempo(m):
     return f"{h}h{mm:02d}" if mm > 0 else f"{h}h"
 
 def _calcular_fila(listas, cards, membros_map):
-    _entradas_fila = entradas_na_coluna(
-        _buscar_acoes_board(_desde_padrao(), filtro=FILTRO_MOVIMENTO))
+    _entradas_fila = entradas_se_preciso(listas)
     pendentes = []
     for card in cards:
         nl = listas.get(card["idList"], "")
@@ -814,7 +845,10 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
     # os tempos são calculados de uma vez, antes do laço.
     _desde = _desde_padrao()
     _tempos = tempos_do_board(cards, membros_map, _desde)
-    _acoes_mov = _buscar_acoes_board(_desde, filtro=FILTRO_MOVIMENTO)
+    # A consulta de movimentacao e a mais volumosa de um board ativo. Limitada em
+    # paginas: perder o registro de conclusao de um cartao muito antigo apenas o
+    # deixa de fora do mes, que ja e o comportamento seguro.
+    _acoes_mov = _buscar_acoes_board(_desde, max_paginas=5, filtro=FILTRO_MOVIMENTO)
     _conclusoes = datas_de_conclusao(_acoes_mov)
     _entradas = entradas_na_coluna(_acoes_mov)
     try:

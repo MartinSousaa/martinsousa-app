@@ -255,8 +255,7 @@ def _mes_card_criacao(card):
 # ── FILA ───────────────────────────────────────────────────────────────────────
 def _calcular_fila(listas,cards,membros_map):
     import placar_core as _pc_ent
-    _entradas_tv = _pc_ent.entradas_na_coluna(_pc_ent._buscar_acoes_board(
-        _pc_ent._desde_padrao(), filtro=_pc_ent.FILTRO_MOVIMENTO))
+    _entradas_tv = _pc_ent.entradas_se_preciso(listas)
     pendentes=[]
     for card in cards:
         nl=listas.get(card["idList"],"")
@@ -334,7 +333,7 @@ def _processar(listas,cards,membros_map,id_p,id_t,id_i,filtro_mes=None):
     """
     import placar_core as _pc_tv
     from datetime import timedelta as _td_tv
-    _tempos_tv = _pc_tv.tempos_do_board(cards, membros_map)
+    _tempos_tv = _pc_tv.tempos_do_board(cards, membros_map, _pc_tv._desde_curto(45))
     d={
         "pts_equipe":0.0,"pen_total":0.0,
         "pts_membro":{u:0.0 for u in MEMBROS_ATIVOS},
@@ -564,7 +563,7 @@ def _alertas_tv_list(listas, cards, membros_map):
     from datetime import timedelta as _td_al
     # Uma chamada para o board inteiro. Antes era um GET por cartao em execucao,
     # a cada atualizacao do painel.
-    _acoes_al = _pc_al._buscar_acoes_board(_pc_al._desde_padrao())
+    _acoes_al = _pc_al._buscar_acoes_board(_pc_al._desde_curto(45), max_paginas=5)
     agora   = datetime.now(timezone.utc)
     alertas = []
 
