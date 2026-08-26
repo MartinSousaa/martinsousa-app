@@ -154,30 +154,65 @@ def carregar_config(ano: int, mes: int) -> dict:
 # ── Escrita ────────────────────────────────────────────────────────────────────
 
 def salvar_config(ano: int, mes: int, dados: dict):
-    """Salva ou atualiza a configuração do mês no Google Sheets."""
+    """Salva ou atualiza a configuração do mês, preservando o que não veio no form.
+
+    Dois cuidados que faltavam e apagavam configuração:
+
+    1. A linha era montada na ordem de COLUNAS, do código, e escrita por posição.
+       Bastava a planilha ter outra ordem — ou o código ganhar uma coluna nova no
+       meio da lista — para os valores irem parar nos campos errados a partir
+       dali. Agora a linha é montada pelo CABEÇALHO REAL da planilha, e coluna
+       nova é acrescentada no fim.
+
+    2. Campo ausente em `dados` virava o valor padrão, apagando o que estava
+       salvo. Agora a base é a configuração atual do mês: o formulário só
+       sobrescreve o que ele de fato enviou.
+    """
     try:
         aba = _aba()
-        registros = aba.get_all_records(value_render_option="UNFORMATTED_VALUE")
 
-        # Localiza linha existente (ano+mes)
-        linha_idx = None
+        cabecalho = [str(c).strip() for c in aba.row_values(1)]
+        if not cabecalho:
+            cabecalho = list(COLUNAS)
+            aba.update("A1", [cabecalho])
+
+        # Coluna que o código conhece e a planilha ainda não tem entra no fim,
+        # sem deslocar nada do que já está gravado.
+        faltando = [c for c in COLUNAS if c not in cabecalho]
+        if faltando:
+            cabecalho = cabecalho + faltando
+            aba.update("A1", [cabecalho])
+
+        registros = aba.get_all_records(value_render_option="UNFORMATTED_VALUE")
+        linha_idx, atual = None, {}
         for i, r in enumerate(registros, start=2):
             try:
                 if int(r.get("ano", 0)) == int(ano) and int(r.get("mes", 0)) == int(mes):
-                    linha_idx = i
+                    linha_idx, atual = i, dict(r)
                     break
-            except Exception:
+            except (TypeError, ValueError):
                 pass
 
-        nova = [int(ano), int(mes)] + [
-            dados.get(col, DEFAULTS.get(col, "")) for col in COLUNAS[2:]
-        ]
+        valores = {**DEFAULTS, **{k: v for k, v in atual.items() if v not in (None, "")},
+                   **dados, "ano": int(ano), "mes": int(mes)}
+        nova = [valores.get(col, "") for col in cabecalho]
 
+        fim = _letra_coluna(len(cabecalho))
         if linha_idx:
-            aba.update(f"A{linha_idx}", [nova])
+            aba.update(f"A{linha_idx}:{fim}{linha_idx}", [nova],
+                       value_input_option="RAW")
         else:
             aba.append_row(nova, value_input_option="RAW")
 
         carregar_todas.clear()
     except Exception as e:
         st.error(f"Erro ao salvar configuração: {e}")
+
+
+def _letra_coluna(n: int) -> str:
+    """1 -> A, 27 -> AA. A planilha ja passa de 26 colunas."""
+    letras = ""
+    while n > 0:
+        n, resto = divmod(n - 1, 26)
+        letras = chr(65 + resto) + letras
+    return letras
