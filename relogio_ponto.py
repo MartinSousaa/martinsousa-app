@@ -735,6 +735,10 @@ def _pontualidade_rhid(ano: int, mes: int):
             diag["data_amostra"] = d.get("data_amostra", "")
         if d.get("todos_os_campos") and not diag.get("todos_os_campos"):
             diag["todos_os_campos"] = d["todos_os_campos"]
+        # De qual campo as batidas sairam. Se a RHiD trocar o nome da lista, a
+        # tela diz qual campo foi usado em vez de voltar a zero em silencio.
+        if not diag.get("campo_batidas"):
+            diag["campo_batidas"] = _rhid.ULTIMA_ORIGEM_BATIDAS.get("campo", "")
 
         acc = {"tolerancias": 0, "atrasos": 0, "atrasos_entrada": 0,
                "atrasos_almoco": 0, "dias_trabalhados": 0, "ocorrencias": [],

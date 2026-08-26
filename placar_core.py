@@ -280,6 +280,10 @@ def _buscar_acoes_board(desde_iso=None, max_paginas=10, filtro=None,
         if len(lote) < 1000:
             break
         antes = lote[-1].get("date")
+    else:
+        # Saiu pelo teto de paginas: existe historico mais antigo que nao foi
+        # lido. Sem marcar isso, tempo faltando parece "ninguem trabalhou".
+        diag["truncado"] = True
 
     diag["cartoes"] = len(por_card)
     if not por_card and not diag["erro"]:
@@ -325,6 +329,22 @@ def _publicar_diag(filtro, diag):
         ULTIMO_DIAGNOSTICO_ACOES.update(diag)
 
 
+# Ritmo observado no board: cerca de 155 acoes por dia, contando updateCard. Uma
+# pagina leva 1000. Com folga, seis dias por pagina.
+DIAS_POR_PAGINA = 6
+PAGINAS_MIN, PAGINAS_MAX = 5, 20
+
+
+def _paginas_para(desde_iso):
+    """Quantas paginas cobrem a janela pedida, sem filtro."""
+    try:
+        ini = datetime.fromisoformat((desde_iso or "").replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return PAGINAS_MAX
+    dias = max(1, (datetime.now(timezone.utc) - ini).days)
+    return max(PAGINAS_MIN, min(PAGINAS_MAX, -(-dias // DIAS_POR_PAGINA)))
+
+
 def _acoes_sem_filtro(desde_iso, diag):
     """Historico sem filtro, guardando so etiqueta e membro.
 
@@ -333,8 +353,12 @@ def _acoes_sem_filtro(desde_iso, diag):
     paginas vem da mais recente para a mais antiga.
     """
     diag["plano_b"] = True
-    bruto = _buscar_acoes_board(desde_iso, max_paginas=5, filtro="",
-                                _sem_filtro=True)
+    # Sem filtro, os updateCard sao a maioria esmagadora das acoes. Com teto fixo
+    # de 5 paginas, uma janela de 120 dias so enxergaria o ultimo mes de
+    # etiquetas — e o resto do periodo ficaria sem tempo medido, em silencio.
+    # O teto passa a acompanhar o tamanho da janela.
+    bruto = _buscar_acoes_board(desde_iso, max_paginas=_paginas_para(desde_iso),
+                                filtro="", _sem_filtro=True)
     por_card, achou = {}, 0
     for cid, acoes in bruto.items():
         uteis = [a for a in acoes if a.get("type") in TIPOS_UTEIS]
@@ -343,6 +367,9 @@ def _acoes_sem_filtro(desde_iso, diag):
             achou += sum(1 for a in uteis if a.get("type") in TIPOS_ETIQUETA)
     diag["plano_b_etiquetas"] = achou
     diag["plano_b_cartoes"] = len(por_card)
+    sub = DIAGNOSTICO_POR_FILTRO.get("", {})
+    diag["plano_b_acoes"] = sub.get("acoes", 0)
+    diag["plano_b_truncado"] = sub.get("truncado", False)
     if not achou:
         diag["erro"] = ("Nem com filtro nem sem filtro o Trello devolveu ação de "
                         "etiqueta neste período — o tempo de execução fica zerado.")
