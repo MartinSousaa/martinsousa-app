@@ -323,6 +323,34 @@ def _extrair_hhmm(valor) -> Optional[str]:
     return None
 
 
+def _varrer_horarios(obj, caminho="", achados=None, profundidade=0):
+    """Procura horários em QUALQUER nível — dentro de listas e dicionários.
+
+    A varredura anterior só olhava os valores do primeiro nível, então uma lista
+    de marcações (que é como APIs de ponto costumam entregar) passava batido: o
+    único campo com hora que aparecia era o horário contratual.
+    """
+    if achados is None:
+        achados = []
+    if profundidade > 4 or len(achados) >= 40:
+        return achados
+
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            _varrer_horarios(v, f"{caminho}.{k}" if caminho else str(k),
+                             achados, profundidade + 1)
+    elif isinstance(obj, (list, tuple)):
+        for i, v in enumerate(obj[:8]):
+            _varrer_horarios(v, f"{caminho}[{i}]", achados, profundidade + 1)
+    else:
+        hora = _extrair_hhmm(obj)
+        if hora and hora != "00:00":
+            nome = caminho.split(".")[-1].split("[")[0].lower()
+            if not (nome.startswith("date") or nome in ("data", "dia", "diafechamento")):
+                achados.append(f"{caminho} = {obj!r} → {hora}")
+    return achados
+
+
 def _e_marcacao(chave, valor) -> bool:
     """Se este campo parece guardar um horário de batida.
 
@@ -407,7 +435,8 @@ def get_registros_diarios(data_ini: str, data_final: str, id_person: int):
     "chaves_exemplo": [str]}.
     """
     diag = {"erro": None, "registros_brutos": 0, "com_batidas": 0,
-            "chaves_exemplo": [], "campos_com_hora": [], "data_amostra": ""}
+            "chaves_exemplo": [], "campos_com_hora": [],
+            "data_amostra": "", "todos_os_campos": []}
 
     apuracao = get_apuracao(data_ini, data_final, id_person)
     if not apuracao:
@@ -426,24 +455,26 @@ def get_registros_diarios(data_ini: str, data_final: str, id_person: int):
         # Em vez de despejar o JSON inteiro (que fica cortado na tela e não cabe
         # numa captura), procura sozinho os campos que CONTÊM horário. É o que
         # falta saber: o nome do campo não diz nada se o formato for outro.
-        _amostra = None
-        _melhor = -1
+        _amostra, _melhor, _horas = None, -1, []
         for _r in brutos:
             if not isinstance(_r, dict):
                 continue
-            _n = sum(1 for k, v in _r.items() if _e_marcacao(k, v))
-            if _n > _melhor:
-                _melhor, _amostra = _n, _r
-            if _n >= 4:
+            _h = _varrer_horarios(_r)
+            if len(_h) > _melhor:
+                _melhor, _amostra, _horas = len(_h), _r, _h
+            if len(_h) >= 4:
                 break
         if _amostra is not None:
-            diag["campos_com_hora"] = [
-                f"{k} = {v!r} → {_extrair_hhmm(v)}"
-                for k, v in sorted(_amostra.items())
-                if _e_marcacao(k, v)
-            ][:20]
+            diag["campos_com_hora"] = _horas[:20]
             diag["data_amostra"] = str(_amostra.get("dateTimeStr")
                                        or _amostra.get("date") or "?")[:20]
+            # Todos os campos do dia, com o tipo — se nenhum horário aparecer, é
+            # daqui que sai a próxima pista.
+            diag["todos_os_campos"] = [
+                f"{k}: {type(v).__name__}"
+                + (f"[{len(v)}]" if isinstance(v, (list, dict)) else "")
+                for k, v in sorted(_amostra.items())
+            ]
 
     saida = []
     for reg in brutos:
@@ -547,19 +578,17 @@ def explorar_endpoints(data_ini: str, data_final: str, id_person: int) -> list[d
             item["tipo"] = type(dados).__name__
             item["registros"] = len(regs)
 
-            melhor, amostra = -1, None
+            melhor, amostra, horas = -1, None, []
             for r in regs:
                 if not isinstance(r, dict):
                     continue
-                n = sum(1 for k, v in r.items() if _e_marcacao(k, v))
-                if n > melhor:
-                    melhor, amostra = n, r
-                if n >= 4:
+                h = _varrer_horarios(r)
+                if len(h) > melhor:
+                    melhor, amostra, horas = len(h), r, h
+                if len(h) >= 4:
                     break
             if amostra:
-                item["campos_com_hora"] = [
-                    f"{k} = {v!r}" for k, v in sorted(amostra.items()) if _e_marcacao(k, v)
-                ][:12]
+                item["campos_com_hora"] = horas[:12]
                 item["amostra"] = ", ".join(sorted(amostra.keys()))[:400]
         except Exception as e:
             item["status"] = "erro"
