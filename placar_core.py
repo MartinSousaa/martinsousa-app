@@ -246,7 +246,7 @@ def _buscar_acoes_board(desde_iso=None, max_paginas=10, filtro=None,
     por_card = {}
     antes = None
     for _ in range(max_paginas):
-        params = {**auth, "limit": 1000}
+        params = {**auth, "limit": 1000, **CAMPOS_ACAO}
         if filtro:
             params["filter"] = filtro
         if desde_iso:
@@ -278,6 +278,13 @@ def _buscar_acoes_board(desde_iso=None, max_paginas=10, filtro=None,
             if cid:
                 por_card.setdefault(cid, []).append(ac)
         if len(lote) < 1000:
+            break
+        # Se a PRIMEIRA pagina cheia de uma consulta de etiqueta nao trouxe uma
+        # unica acao de etiqueta, o filtro nao esta sendo respeitado — insistir
+        # nas outras nove paginas so gasta tempo. Custava dez idas ao Trello em
+        # toda partida do servidor.
+        if (filtro == FILTRO_ETIQUETAS and not _sem_filtro
+                and not any(t in diag["tipos"] for t in TIPOS_ETIQUETA)):
             break
         antes = lote[-1].get("date")
     else:
@@ -345,20 +352,186 @@ def _paginas_para(desde_iso):
     return max(PAGINAS_MIN, min(PAGINAS_MAX, -(-dias // DIAS_POR_PAGINA)))
 
 
+# Campos que realmente usamos de cada acao. Sem isto o Trello manda junto o autor
+# inteiro de cada uma das mil acoes da pagina — payload varias vezes maior para
+# baixar e desserializar, em cada uma das paginas.
+CAMPOS_ACAO = {"fields": "type,date,data", "memberCreator": "false",
+               "reactions": "false"}
+
+# Quantas fatias do periodo buscar ao mesmo tempo. A paginacao do Trello e
+# sequencial (cada pagina depende da data da anterior), entao vinte paginas em
+# fila eram vinte esperas somadas. Cortando o periodo em fatias independentes,
+# cada uma pagina por conta propria e todas correm juntas.
+FATIAS_PARALELAS = 6
+
+
+def _fatias_do_periodo(desde_iso, n):
+    """Divide [desde, agora] em n intervalos (mais novo primeiro)."""
+    try:
+        ini = datetime.fromisoformat((desde_iso or "").replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return [(desde_iso, None)]
+    fim = datetime.now(timezone.utc)
+    if fim <= ini:
+        return [(desde_iso, None)]
+    passo = (fim - ini) / n
+    saida = []
+    for i in range(n):
+        a = ini + passo * i
+        b = ini + passo * (i + 1)
+        # Um minuto de sobreposicao entre fatias vizinhas: se o Trello tratar
+        # since/before como exclusivos, uma acao exatamente na fronteira se
+        # perderia. Acao repetida e inofensiva — as etiquetas entram num
+        # conjunto e os dicionarios sao por cartao —, acao faltando nao e.
+        a = a - timedelta(minutes=1)
+        saida.append((a.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+                      None if i == n - 1 else b.strftime("%Y-%m-%dT%H:%M:%S.000Z")))
+    return list(reversed(saida))
+
+
+def _paginar_fatia(desde_iso, ate_iso, max_paginas):
+    """Paginacao de UMA fatia. Devolve (acoes, tipos, erro, http, paginas, truncado)."""
+    base = "https://api.trello.com/1"
+    auth = {"key": TRELLO_KEY, "token": TRELLO_TOKEN}
+    acoes, tipos, antes = [], {}, ate_iso
+    erro, http, paginas, truncado = None, None, 0, False
+    for _ in range(max_paginas):
+        # filter=all EXPLICITO. Omitir o parametro nao significa "tudo": o Trello
+        # aplica um subconjunto padrao, e a leitura crua voltou com 8411 acoes e
+        # nenhuma de etiqueta. Pedindo all, ou as acoes de etiqueta aparecem, ou
+        # fica provado que o feed do board realmente nao as tem.
+        params = {**auth, "limit": 1000, "filter": "all", **CAMPOS_ACAO}
+        if desde_iso:
+            params["since"] = desde_iso
+        if antes:
+            params["before"] = antes
+        try:
+            r = requests.get(f"{base}/boards/{BOARD_ID}/actions",
+                             params=params, timeout=30)
+        except Exception as e:
+            erro = f"Falha de conexão com o Trello: {str(e)[:150]}"
+            break
+        http = r.status_code
+        if not r.ok:
+            erro = f"Trello respondeu {r.status_code}: {r.text[:150]}"
+            break
+        try:
+            lote = r.json()
+        except Exception:
+            erro = "Trello devolveu resposta que não é JSON."
+            break
+        paginas += 1
+        if not lote:
+            break
+        for ac in lote:
+            t = ac.get("type", "?")
+            tipos[t] = tipos.get(t, 0) + 1
+        acoes.extend(lote)
+        if len(lote) < 1000:
+            break
+        antes = lote[-1].get("date")
+    else:
+        truncado = True
+    return acoes, tipos, erro, http, paginas, truncado
+
+
+def _acoes_cru(desde_iso, max_paginas, diag):
+    """Historico sem filtro do periodo inteiro, em fatias buscadas em paralelo.
+
+    Devolve {card_id: [acoes]} com TODOS os tipos — a mesma leitura serve para
+    etiqueta, membro e movimentacao, em vez de uma consulta para cada.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    n = min(FATIAS_PARALELAS, max(1, max_paginas))
+    fatias = _fatias_do_periodo(desde_iso, n)
+    # Folga de uma pagina: as fatias nao tem o mesmo volume de acoes.
+    por_fatia = max(2, -(-max_paginas // len(fatias)) + 1)
+
+    with ThreadPoolExecutor(max_workers=len(fatias)) as ex:
+        resultados = list(ex.map(
+            lambda f: _paginar_fatia(f[0], f[1], por_fatia), fatias))
+
+    por_card = {}
+    for acoes, tipos, erro, http, paginas, truncado in resultados:
+        diag["paginas"] += paginas
+        diag["acoes"] += len(acoes)
+        if http is not None:
+            diag["http"] = http
+        if erro and not diag.get("erro"):
+            diag["erro"] = erro
+        if truncado:
+            diag["truncado"] = True
+        for t, q in tipos.items():
+            diag["tipos"][t] = diag["tipos"].get(t, 0) + q
+        for ac in acoes:
+            cid = (ac.get("data") or {}).get("card", {}).get("id")
+            if cid:
+                por_card.setdefault(cid, []).append(ac)
+    return por_card
+
+
+def _cru_que_cobre(desde_iso, agora):
+    """Leitura crua ja em cache que alcance MAIS longe que a pedida.
+
+    A fila olha 30 dias e a Analise olha 120. Sem isto, abrir as duas telas
+    varria o board duas vezes — sendo que a leitura de 120 dias ja contem, por
+    definicao, tudo o que a de 30 dias traria.
+    """
+    melhor = None
+    for chave, c in _acoes_cache.items():
+        if not str(chave).startswith("cru|") or agora - c["ts"] >= 300:
+            continue
+        desde_cache = str(chave).split("|")[1]
+        if desde_cache <= (desde_iso or ""):
+            if melhor is None or desde_cache < melhor[0]:
+                melhor = (desde_cache, c)
+    return melhor[1] if melhor else None
+
+
+def _acoes_cru_cache(desde_iso, max_paginas):
+    """_acoes_cru com cache de 5 min — a leitura crua e cara e serve a todos."""
+    import time as _t
+    chave = f"cru|{desde_iso}|{max_paginas}"
+    agora = _t.time()
+    c = _acoes_cache.get(chave) or _cru_que_cobre(desde_iso, agora)
+    if c and agora - c["ts"] < 300:
+        DIAGNOSTICO_POR_FILTRO["cru"] = dict(c.get("diag", {}))
+        return c["data"]
+    diag = {"erro": None, "paginas": 0, "acoes": 0, "cartoes": 0, "http": None,
+            "filtro": "cru", "tipos": {}}
+    por_card = _acoes_cru(desde_iso, max_paginas, diag)
+    diag["cartoes"] = len(por_card)
+    DIAGNOSTICO_POR_FILTRO["cru"] = dict(diag)
+    _acoes_cache[chave] = {"ts": agora, "data": por_card, "diag": dict(diag)}
+    return por_card
+
+
+def acoes_movimento(desde_iso, max_paginas=5):
+    """Acoes updateCard do periodo.
+
+    Quando o filtro de etiqueta nao serve, a leitura crua ja foi feita e ja tem
+    os updateCard dentro: reaproveita em vez de gastar mais cinco paginas.
+    """
+    if _FILTRO_ETIQUETA_SERVE is False:
+        cru = _acoes_cru_cache(desde_iso, _paginas_para(desde_iso))
+        return {cid: [a for a in acoes if a.get("type") == "updateCard"]
+                for cid, acoes in cru.items()}
+    return _buscar_acoes_board(desde_iso, max_paginas=max_paginas,
+                               filtro=FILTRO_MOVIMENTO)
+
+
 def _acoes_sem_filtro(desde_iso, diag):
     """Historico sem filtro, guardando so etiqueta e membro.
 
     Plano B para quando o parametro filter nao devolve as acoes de etiqueta.
-    Limitado a 5 paginas: o que interessa aqui e existir tempo medido, e as
-    paginas vem da mais recente para a mais antiga.
     """
     diag["plano_b"] = True
     # Sem filtro, os updateCard sao a maioria esmagadora das acoes. Com teto fixo
     # de 5 paginas, uma janela de 120 dias so enxergaria o ultimo mes de
     # etiquetas — e o resto do periodo ficaria sem tempo medido, em silencio.
     # O teto passa a acompanhar o tamanho da janela.
-    bruto = _buscar_acoes_board(desde_iso, max_paginas=_paginas_para(desde_iso),
-                                filtro="", _sem_filtro=True)
+    bruto = _acoes_cru_cache(desde_iso, _paginas_para(desde_iso))
     por_card, achou = {}, 0
     for cid, acoes in bruto.items():
         uteis = [a for a in acoes if a.get("type") in TIPOS_UTEIS]
@@ -367,9 +540,18 @@ def _acoes_sem_filtro(desde_iso, diag):
             achou += sum(1 for a in uteis if a.get("type") in TIPOS_ETIQUETA)
     diag["plano_b_etiquetas"] = achou
     diag["plano_b_cartoes"] = len(por_card)
-    sub = DIAGNOSTICO_POR_FILTRO.get("", {})
+    sub = DIAGNOSTICO_POR_FILTRO.get("cru", {})
     diag["plano_b_acoes"] = sub.get("acoes", 0)
     diag["plano_b_truncado"] = sub.get("truncado", False)
+    # Os tipos da leitura CRUA — sem isto nao da para saber o que sao as milhares
+    # de acoes que chegam, so que etiqueta nao esta entre elas.
+    diag["plano_b_tipos"] = dict(sub.get("tipos", {}))
+    # Sobe os numeros da leitura crua para a linha principal. Sem isto o painel
+    # mostrava "HTTP None · 0 pagina(s) · 0 acao(oes)" logo depois de ler oito
+    # mil acoes — parecia falha de conexao onde houve leitura completa.
+    for campo in ("http", "paginas", "acoes"):
+        if not diag.get(campo):
+            diag[campo] = sub.get(campo)
     if not achou:
         diag["erro"] = ("Nem com filtro nem sem filtro o Trello devolveu ação de "
                         "etiqueta neste período — o tempo de execução fica zerado.")
@@ -518,9 +700,7 @@ def entradas_se_preciso(listas=None):
     """
     if not alguma_coluna_espera(listas):
         return {}
-    return entradas_na_coluna(
-        _buscar_acoes_board(_desde_curto(30), max_paginas=3,
-                            filtro=FILTRO_MOVIMENTO))
+    return entradas_na_coluna(acoes_movimento(_desde_curto(30), max_paginas=3))
 
 
 def tempos_do_board(cards, membros_map, desde_iso=None):
@@ -957,7 +1137,7 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
     # A consulta de movimentacao e a mais volumosa de um board ativo. Limitada em
     # paginas: perder o registro de conclusao de um cartao muito antigo apenas o
     # deixa de fora do mes, que ja e o comportamento seguro.
-    _acoes_mov = _buscar_acoes_board(_desde, max_paginas=5, filtro=FILTRO_MOVIMENTO)
+    _acoes_mov = acoes_movimento(_desde, max_paginas=5)
     _conclusoes = datas_de_conclusao(_acoes_mov)
     _entradas = entradas_na_coluna(_acoes_mov)
     try:

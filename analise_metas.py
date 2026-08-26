@@ -488,6 +488,12 @@ def _diagnostico_metas_individuais(tem_ponto, sem_exec, diags_pont, erro_pont, d
                         f"{d.get('plano_b_etiquetas',0)} de etiqueta em "
                         f"{d.get('plano_b_cartoes',0)} cartão(ões)."
                     )
+                    _tb = d.get("plano_b_tipos") or {}
+                    if _tb:
+                        st.caption("Tipos na leitura crua do board (tipo · vezes):")
+                        st.code("\n".join(
+                            f"{n}  ·  {q}" for n, q in
+                            sorted(_tb.items(), key=lambda x: -x[1])[:15]))
                     if d.get("plano_b_truncado"):
                         st.warning(
                             "O histórico do período é maior do que coube na leitura — "
