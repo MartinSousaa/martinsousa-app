@@ -306,15 +306,30 @@ def _extrair_hhmm(valor) -> Optional[str]:
                 if achou:
                     return achou
         return None
+    # A RHiD entrega as marcacoes como NUMERO no formato HHMM — 900.0 para 09:00,
+    # 1330.0 para 13:30. Sem este caso, colunaMix1..4 (que sao float) viravam
+    # "900.0" e nenhum formato batia: as batidas existiam e eram descartadas.
+    if isinstance(valor, (int, float)) and not isinstance(valor, bool):
+        n = int(valor)
+        if n <= 0:
+            return None
+        h, m = divmod(n, 100)
+        return f"{h:02d}:{m:02d}" if 0 <= h <= 23 and 0 <= m <= 59 else None
+
     texto = str(valor).strip()
     if not texto:
         return None
     # "2026-08-25T08:59:00" / "2026-08-25 08:59" → pega a parte da hora
     if "T" in texto or " " in texto:
         texto = texto.replace("T", " ").split(" ")[-1]
-    # "085900" → "08:59"
-    if texto.isdigit() and len(texto) in (4, 6):
-        return f"{texto[:2]}:{texto[2:4]}"
+    # "900" → 09:00 · "1330" → 13:30 · "085900" → 08:59
+    if texto.replace(".0", "").isdigit() and "." in texto:
+        texto = texto.split(".")[0]
+    if texto.isdigit() and len(texto) in (3, 4, 6):
+        if len(texto) == 3:
+            texto = "0" + texto
+        h, m = int(texto[:2]), int(texto[2:4])
+        return f"{h:02d}:{m:02d}" if 0 <= h <= 23 and 0 <= m <= 59 else None
     partes = texto.split(":")
     if len(partes) >= 2 and partes[0].isdigit() and partes[1][:2].isdigit():
         h, m = int(partes[0]), int(partes[1][:2])
