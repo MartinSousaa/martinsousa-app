@@ -12,6 +12,7 @@ from datetime import datetime
 
 import metas_config as mc
 import placar_core as _pc
+import explicacao_metas as _expl
 try:
     import relogio_ponto as _rp
     _PONTO_DISPONIVEL = True
@@ -554,6 +555,10 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
 
     maxx_total = {u: sum(_maxx_do_mes(r, u) for r in dados) for u in membros_ativos}
 
+    # A explicacao vem antes dos numeros: quem abre a tela precisa saber o que
+    # esta olhando e o que aquilo vale em dinheiro.
+    _expl.render()
+
     # Monitoramento em tempo real: os dados têm cache curto (30s a 5min) para não
     # bater na API a cada clique; este botão descarta tudo e relê na hora.
     _c_at, _c_leg = st.columns([1, 5])
@@ -742,19 +747,31 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
             key=f"am_salario_{username}", label_visibility="visible"
         )
         if salario > 0:
-            # Bônus só entra quando a meta correspondente foi BATIDA (≥100%)
+            # Bônus só entra quando a meta correspondente foi BATIDA (≥100%).
+            #
+            # A metade do time e a metade do colaborador pagam, cada uma, o nivel
+            # MAIS ALTO alcancado — a MAXX toma o lugar da mensal, nao se soma a
+            # ela. Antes daqui a MAXX pagava 5% + 5% e o bonus MAXX individual
+            # dependia da meta MENSAL do colaborador, nao da MAXX dele.
+            meta_ind = meta_total.get(username, len(dados) * 1500)
+            meta_ind_maxx = maxx_total.get(username, 0)
+
             meta_col_batida  = pct_eq   >= 100
-            meta_ind_batida  = pct_i    >= 100
             meta_maxx_batida = pct_maxx >= 100
+            meta_ind_batida      = meta_ind > 0 and pts >= meta_ind
+            meta_ind_maxx_batida = meta_ind_maxx > 0 and pts >= meta_ind_maxx
 
-            bonus_col      = salario * 0.12 if meta_col_batida  else 0.0
-            bonus_ind      = salario * 0.08 if meta_ind_batida  else 0.0
-            bonus_maxx_col = salario * 0.05 if meta_maxx_batida else 0.0
-            bonus_maxx_ind = salario * 0.05 if (meta_ind_batida and meta_maxx_batida) else 0.0
-            total = salario + bonus_col + bonus_ind + bonus_maxx_col + bonus_maxx_ind
+            pct_time, pct_seu = _expl.bonus_percentuais(
+                meta_col_batida, meta_maxx_batida,
+                meta_ind_batida, meta_ind_maxx_batida)
 
-            alguma_meta_batida = meta_col_batida or meta_ind_batida or meta_maxx_batida
-            cor_total = "#FFD700" if meta_maxx_batida else "#1BAF7A"
+            # Cada metade vira uma linha só: a do time e a sua.
+            bonus_col = salario * pct_time / 100
+            bonus_ind = salario * pct_seu / 100
+            total = salario + bonus_col + bonus_ind
+
+            alguma_meta_batida = (pct_time + pct_seu) > 0
+            cor_total = "#FFD700" if (meta_maxx_batida or meta_ind_maxx_batida) else "#1BAF7A"
 
             def _bonus_val(valor, batida, cor):
                 if batida:
@@ -767,26 +784,36 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
                 return '<div style="font-size:7px;color:#e57373;">Meta não batida</div>'
 
             if alguma_meta_batida:
+                def _parcela(rotulo, valor, pct, nivel, cor):
+                    if pct <= 0:
+                        return (f'<div><div style="font-size:8px;color:var(--ms-texto-sec);'
+                                f'text-transform:uppercase;">{rotulo}</div>'
+                                f'<div style="font-size:14px;font-weight:700;'
+                                f'color:var(--ms-texto-sec);">—</div>'
+                                f'<div style="font-size:8px;color:#e57373;">Meta não batida</div></div>')
+                    return (f'<div><div style="font-size:8px;color:var(--ms-texto-sec);'
+                            f'text-transform:uppercase;">{rotulo}</div>'
+                            f'<div style="font-size:14px;font-weight:700;color:{cor};">'
+                            f'+{_expl._reais(valor)}</div>'
+                            f'<div style="font-size:8px;color:var(--ms-texto-sec);">'
+                            f'{nivel} · +{pct:.0f}%</div></div>')
+
+                _niv_time = "Meta MAXX" if meta_maxx_batida else "Meta mensal"
+                _niv_seu  = "Meta MAXX" if meta_ind_maxx_batida else "Meta mensal"
                 st.markdown(
                     f'<div style="background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);'
                     f'border-radius:8px;padding:10px 12px;margin-top:6px;">'
-                    f'<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr 1fr;gap:6px;">'
-                    f'<div><div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;">Salário Base</div>'
-                    f'<div style="font-size:13px;font-weight:700;color:var(--ms-texto);">R$ {salario:,.2f}</div></div>'
-                    f'<div><div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;">Bônus Coletivo</div>'
-                    f'{_bonus_val(bonus_col, meta_col_batida, "#1BAF7A")}'
-                    f'{_bonus_sub(meta_col_batida, f"{pct_eq:.0f}% de 12%")}</div>'
-                    f'<div><div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;">Bônus Individual</div>'
-                    f'{_bonus_val(bonus_ind, meta_ind_batida, "#1BAF7A")}'
-                    f'{_bonus_sub(meta_ind_batida, f"{pct_i:.0f}% de 8%")}</div>'
-                    f'<div><div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;">Maxx Coletivo</div>'
-                    f'{_bonus_val(bonus_maxx_col, meta_maxx_batida, "#FFD700")}'
-                    f'{_bonus_sub(meta_maxx_batida, f"{pct_maxx:.0f}% de 5%")}</div>'
-                    f'<div><div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;">Maxx Individual</div>'
-                    f'{_bonus_val(bonus_maxx_ind, meta_ind_batida and meta_maxx_batida, "#FFD700")}'
-                    f'{_bonus_sub(meta_ind_batida and meta_maxx_batida, f"{pct_maxx:.0f}% de 5%")}</div>'
-                    f'<div><div style="font-size:7px;color:var(--ms-texto-sec);text-transform:uppercase;">Total a Receber</div>'
-                    f'<div style="font-size:16px;font-weight:700;color:{cor_total};">R$ {total:,.2f}</div></div>'
+                    f'<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;">'
+                    f'<div><div style="font-size:8px;color:var(--ms-texto-sec);text-transform:uppercase;">Salário Base</div>'
+                    f'<div style="font-size:14px;font-weight:700;color:var(--ms-texto);">{_expl._reais(salario)}</div></div>'
+                    + _parcela("🤝 Parte do time", bonus_col, pct_time, _niv_time,
+                               "#FFD700" if meta_maxx_batida else "#1BAF7A")
+                    + _parcela("🙋 Parte sua", bonus_ind, pct_seu, _niv_seu,
+                               "#FFD700" if meta_ind_maxx_batida else "#1BAF7A")
+                    + f'<div><div style="font-size:8px;color:var(--ms-texto-sec);text-transform:uppercase;">'
+                    f'Total a Receber (+{pct_time + pct_seu:.0f}%)</div>'
+                    f'<div style="font-size:17px;font-weight:700;color:{cor_total};">'
+                    f'{_expl._reais(total)}</div></div>'
                     f'</div></div>',
                     unsafe_allow_html=True
                 )
