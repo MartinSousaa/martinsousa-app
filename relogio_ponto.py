@@ -663,6 +663,27 @@ def _secao_historico_mensal(eh_master: bool, usuario_logado: str):
 
 # ── Dados para analise_metas.py ────────────────────────────────────────────────
 
+def _janelas_do_dia(data, entrada, saida_almoco, volta_almoco, saida):
+    """[(ini, fim)] do expediente efetivo, em hora local com data.
+
+    Duas janelas quando o almoco esta registrado, uma so quando nao esta. Sem
+    a saida do dia, usa o fim contratual — melhor que descartar o dia inteiro.
+    """
+    from datetime import datetime as _dt
+    def _dt_local(t):
+        return _dt.combine(data, t, tzinfo=_pc.FUSO) if t else None
+    ini = _dt_local(entrada)
+    fim = _dt_local(saida)
+    if not ini:
+        return []
+    if not fim or fim <= ini:
+        return []
+    sa, va = _dt_local(saida_almoco), _dt_local(volta_almoco)
+    if sa and va and ini < sa < va < fim:
+        return [(ini, sa), (va, fim)]
+    return [(ini, fim)]
+
+
 # De onde vieram as tolerancias do ultimo dia classificado.
 TOLERANCIA_DETALHE = {"entrada": 0, "almoco": 0}
 
@@ -764,7 +785,12 @@ def _pontualidade_rhid(ano: int, mes: int):
         acc = {"tolerancias": 0, "tol_entrada": 0, "tol_almoco": 0,
                "atrasos": 0, "atrasos_entrada": 0,
                "atrasos_almoco": 0, "dias_trabalhados": 0, "ocorrencias": [],
-               "minutos_trabalhados": 0.0}
+               "minutos_trabalhados": 0.0,
+               # Expediente EFETIVO de cada dia, do relogio de ponto. E sobre
+               # estas janelas que a ociosidade e medida — sem elas so da para
+               # subtrair totais, e a folga de 10 e a de 5 minutos precisam
+               # saber QUANDO cada buraco aconteceu.
+               "janelas": []}
         for reg in regs:
             if reg["faltou"] or not reg["batidas"]:
                 continue
@@ -784,6 +810,12 @@ def _pontualidade_rhid(ano: int, mes: int):
             acc["atrasos_entrada"] += atr_ent
             acc["atrasos_almoco"]  += atr_alm
             acc["atrasos"]         += atr_ent + atr_alm
+
+            saida_d = _parse_horario(reg.get("saida"))
+            if reg["data"]:
+                acc["janelas"].append(
+                    (reg["data"], _janelas_do_dia(reg["data"], entrada, saida_a,
+                                                  volta, saida_d)))
 
             data_txt = reg["data"].strftime("%Y-%m-%d") if reg["data"] else "—"
             if tol:
@@ -884,13 +916,20 @@ def get_pontualidade_mes(ano: int, mes: int, com_diagnostico: bool = False):
     return (resultado, diag) if com_diagnostico else resultado
 
 
-def get_ociosidade_mes(ano: int, mes: int, tempo_cards_por_user: dict) -> dict:
+def get_ociosidade_mes(ano: int, mes: int, tempo_cards_por_user: dict,
+                       intervalos_por_user: dict = None) -> dict:
     """
     Calcula ociosidade por colaborador no mês.
 
-    tempo_cards_por_user: {username: minutos_em_cards}
-      — vem de analise_metas._processar()["tempo_lista"] filtrado por membro.
-      Se não disponível, passa dict vazio.
+    intervalos_por_user: {username: [(ini, fim)]} — trechos com cartão
+      EM ANDAMENTO daquela pessoa, em hora local. Quando vem, a ociosidade é
+      medida DIA A DIA sobre a linha do tempo: cada buraco entre o expediente e
+      os cartões vira ocioso, descontada a folga de 10 minutos no começo do dia
+      e de 5 minutos entre um cartão e o seguinte.
+
+    tempo_cards_por_user: {username: minutos_em_cards} — reserva para quando
+      não há linha do tempo (o mês inteiro cai numa subtração de totais, sem as
+      folgas). É como funcionava antes.
 
     Retorna {username: {"horas_disp_min": float, "tempo_cards_min": float,
                         "ociosidade_min": float, "pct_ocioso": float}}
@@ -904,12 +943,35 @@ def get_ociosidade_mes(ano: int, mes: int, tempo_cards_por_user: dict) -> dict:
     except Exception:
         via_rhid = {}
 
+    intervalos_por_user = intervalos_por_user or {}
     resultado = {}
     for u in MEMBROS:
         hd = (via_rhid.get(u, {}).get("minutos_trabalhados", 0.0)
               or resumo[u]["total_horas_disp"])       # minutos disponíveis
         tc   = tempo_cards_por_user.get(u, 0)         # minutos em cards (Trello)
-        ocio = max(hd - tc, 0)
+
+        _janelas_mes = (via_rhid.get(u, {}) or {}).get("janelas") or []
+        if _janelas_mes and u in intervalos_por_user:
+            ativos = intervalos_por_user.get(u) or []
+            ocio, hd_reais = 0.0, 0.0
+            for _data, _jans in _janelas_mes:
+                if not _jans:
+                    continue
+                _o, _ = _pc.ociosidade_do_dia(_jans, ativos)
+                _bruto_dia = sum((f - i).total_seconds() / 60 for i, f in _jans)
+                # A hora pessoal do dia sai dos DOIS lados: do tempo ocioso e do
+                # tempo cobrado. Das 8h no relogio, 7h sao de atividade.
+                ocio += max(_o - _pc.PAUSA_PESSOAL_MIN, 0.0)
+                hd_reais += max(_bruto_dia - _pc.PAUSA_PESSOAL_MIN, 0.0)
+            if hd_reais > 0:
+                hd = hd_reais
+        else:
+            # Sem linha do tempo: subtracao de totais, como era antes — mas ja
+            # descontando a hora pessoal de cada dia trabalhado.
+            _dias = (via_rhid.get(u, {}).get("dias_trabalhados")
+                     or resumo[u]["dias_trabalhados"] or 0)
+            hd = max(hd - _pc.PAUSA_PESSOAL_MIN * _dias, 0)
+            ocio = max(hd - tc, 0)
         pct  = (ocio / hd * 100) if hd > 0 else 0
         resultado[u] = {
             "horas_disp_min": hd,
