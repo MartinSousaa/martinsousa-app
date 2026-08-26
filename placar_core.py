@@ -171,11 +171,19 @@ HORARIOS = {"myrelladesouza": {"entrada": time(8, 45), "fim": time(17, 45)}}
 # e 13h30 as 14h30 — antes o codigo descontava 12h as 13h, hora em que a equipe
 # esta trabalhando, e contava 13h30 as 14h30, hora em que esta almocando.
 ALMOCO = (time(13, 30), time(14, 30))
-TOLERANCIA_ENTRADA_MIN = 5
+# Tres faixas, nao duas. Ate FOLGA nao registra nada; de FOLGA ate TOLERANCIA
+# consome uma tolerancia; passou de TOLERANCIA, e atraso.
+#
+#   entrada 09:00 ->  ate 09:05 nada · 09:06 a 09:10 tolerancia · 09:11 atraso
+#
+# Antes so havia duas faixas (ate 09:05 tolerancia, depois atraso), e chegar
+# 09:01 ja gastava uma tolerancia.
+FOLGA_ENTRADA_MIN = 5
+TOLERANCIA_ENTRADA_MIN = 10
 ALMOCO_MINUTOS = 60
-# Mesma folga da entrada, agora tambem na volta do almoco. Sem ela um minuto ja
-# virava atraso — e atraso e o indicador que estoura a meta.
-TOLERANCIA_ALMOCO_MIN = 5
+# Mesmas tres faixas na volta do almoco, contadas sobre a duracao do almoco.
+FOLGA_ALMOCO_MIN = 5
+TOLERANCIA_ALMOCO_MIN = 10
 
 # Teto de segurança: etiqueta esquecida por meses não vira varredura infinita.
 MAX_DIAS_INTERVALO = 60
