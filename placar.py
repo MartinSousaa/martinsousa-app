@@ -377,7 +377,10 @@ def _processar(listas,cards,membros_map,id_p,id_t,id_i,filtro_mes=None):
             continue
 
         # ── EM ANDAMENTO: sempre visível, sem filtro de mês ────────────────────
-        if "EM ANDAMENTO" in lb:
+        # Cartao com INTERROMPIDO, INTERROMPIDO MS ou FIM DE EXPEDIENTE nao esta
+        # em execucao agora, mesmo com EM ANDAMENTO ainda colada nele. O contador
+        # nao olhava para isso e mostrava quatro em andamento havendo um.
+        if "EM ANDAMENTO" in lb and not _parado(lb):
             d["em_andamento"]+=1
             d["andamento_lista"].append({"card":card["name"],"lista":nl,"membros":us})
 
