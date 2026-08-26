@@ -59,7 +59,9 @@ TIPOS_PONTO = {
 
 # ── Google Sheets ──────────────────────────────────────────────────────────────
 
-PLANILHA_NOME = "MartinSousa - Financeiro"
+import planilha as _plan
+# Nome vindo do ambiente: producao usa o padrao, homologacao usa a copia.
+PLANILHA_NOME = _plan.nome()
 ABA_PONTO     = "ponto"
 COLUNAS_PONTO = ["data", "username", "tipo", "horario", "observacao", "criado_em", "criado_por"]
 

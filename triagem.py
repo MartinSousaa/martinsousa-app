@@ -5,7 +5,9 @@ import pandas as pd
 from datetime import datetime
 from params_oficiais import ML_COMISSAO_POR_CATEGORIA
 
-PLANILHA_NOME = "MartinSousa - Financeiro"
+import planilha as _plan
+# Nome vindo do ambiente: producao usa o padrao, homologacao usa a copia.
+PLANILHA_NOME = _plan.nome()
 ABA_NOME = "triagens"
 
 COLUNAS = [

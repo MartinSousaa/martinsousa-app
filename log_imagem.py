@@ -18,7 +18,9 @@ registro se perde mas o trabalho continua.
 import streamlit as st
 from datetime import datetime
 
-PLANILHA_NOME = "MartinSousa - Financeiro"
+import planilha as _plan
+# Nome vindo do ambiente: producao usa o padrao, homologacao usa a copia.
+PLANILHA_NOME = _plan.nome()
 ABA_LOG = "log_imagem"
 COLUNAS = ["quando", "usuario", "produto", "acao", "imagem", "tipo", "instrucao", "resultado"]
 

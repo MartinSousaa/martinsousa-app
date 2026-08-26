@@ -7,7 +7,9 @@ import gspread
 from google.oauth2.service_account import Credentials
 import pandas as pd
 
-PLANILHA_NOME = "MartinSousa - Financeiro"
+import planilha as _plan
+# Nome vindo do ambiente: producao usa o padrao, homologacao usa a copia.
+PLANILHA_NOME = _plan.nome()
 ABA_NOME = "metas_config"
 
 # Ordem fixa de colunas na planilha

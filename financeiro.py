@@ -4,7 +4,9 @@ from google.oauth2.service_account import Credentials
 import pandas as pd
 from datetime import date
 
-PLANILHA_NOME = "MartinSousa - Financeiro"
+import planilha as _plan
+# Nome vindo do ambiente: producao usa o padrao, homologacao usa a copia.
+PLANILHA_NOME = _plan.nome()
 ABA_NOME = "financeiro"
 
 MESES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
