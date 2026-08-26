@@ -257,11 +257,12 @@ def _calcular_fila(listas,cards,membros_map):
     pendentes=[]
     for card in cards:
         nl=listas.get(card["idList"],"")
-        if nl in COLUNAS_SKIP or nl not in COLUNAS_CONFIG: continue
+        if nl in COLUNAS_SKIP: continue
         if card.get("dueComplete",False): continue
         lb=_labels(card)
         if "EM ANDAMENTO" in lb: continue
-        cfg=COLUNAS_CONFIG[nl]
+        import placar_core as _pc_fila
+        cfg=_pc_fila.cfg_coluna(nl)
         us=_users(card,membros_map)
         pendentes.append({
             "nome":card["name"],"lista":nl,
@@ -541,7 +542,7 @@ def _alertas_tv_list(listas, cards, membros_map):
 
     for card in cards:
         nl = listas.get(card["idList"], "")
-        if nl in COLUNAS_SKIP or nl not in COLUNAS_CONFIG:
+        if nl in COLUNAS_SKIP:
             continue
         lb = _labels(card)
         us = _users(card, membros_map)
@@ -558,12 +559,12 @@ def _alertas_tv_list(listas, cards, membros_map):
 
     for card in cards:
         nl = listas.get(card["idList"], "")
-        if nl in COLUNAS_SKIP or nl not in COLUNAS_CONFIG:
+        if nl in COLUNAS_SKIP:
             continue
 
         lb          = _labels(card)
         us          = _users(card, membros_map)
-        cfg         = COLUNAS_CONFIG.get(nl, {})
+        cfg         = _pc_al.cfg_coluna(nl)
         prio        = cfg.get("prioridade", 0)
         tempo_medio = cfg.get("tempo_min", 0)
         concluido   = card.get("dueComplete", False)
@@ -671,6 +672,19 @@ def _alertas_tv_list(listas, cards, membros_map):
             })
 
     alertas.sort(key=lambda x: x["_s"])
+    # Coluna que existe no Trello e nao esta configurada: o trabalho dela ficava
+    # fora do painel inteiro, sem nenhum aviso.
+    _desconhecidas = sorted(_pc_al.COLUNAS_DESCONHECIDAS)
+    for _col in _desconhecidas[:3]:
+        _qtd = sum(1 for c in cards
+                   if listas.get(c["idList"], "") == _col and not c.get("dueComplete"))
+        alertas.append({
+            "tipo": "atencao", "lab": "⚙️ Coluna sem config",
+            "pos": f"{_qtd}", "nome": _col, "col": _col,
+            "detalhe": f"{_qtd} cartao(oes) usando prioridade e tempo padrao",
+            "_s": (1, 0, 0),
+        })
+
     return alertas
 
 def _tv_full_html(

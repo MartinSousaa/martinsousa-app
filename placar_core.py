@@ -83,7 +83,8 @@ def _buscar_board():
     listas = {l["id"]: l["name"] for l in r_l.json()} if r_l.ok else {}
     r_c = requests.get(f"{base}/boards/{BOARD_ID}/cards", params={
         **auth,
-        "fields": "id,name,idList,idMembers,labels,dueComplete,customFieldItems,dateLastActivity",
+        "fields": ("id,name,idList,idMembers,labels,due,dueComplete,"
+                   "customFieldItems,dateLastActivity"),
         "customFieldItems": "true",
     })
     cards = r_c.json() if r_c.ok else []
@@ -181,7 +182,7 @@ def _buscar_acoes_board(desde_iso=None, max_paginas=10):
     for _ in range(max_paginas):
         params = {**auth,
                   "filter": ("addLabelToCard,removeLabelFromCard,"
-                             "addMemberToCard,removeMemberFromCard"),
+                             "addMemberToCard,removeMemberFromCard,updateCard"),
                   "limit": 1000}
         if desde_iso:
             params["since"] = desde_iso
@@ -468,6 +469,51 @@ def tempo_execucao_min(card_id, acoes_board=None):
     return minutos, primeiro_membro
 
 
+# Colunas que existem no Trello mas nao estao em COLUNAS_CONFIG. O codigo pulava
+# esses cartoes por completo — sem fila, sem alerta, sem atraso — e em silencio.
+# Basta alguem criar ou renomear uma coluna no Trello para o trabalho dela sumir
+# do painel sem ninguem perceber.
+COLUNAS_DESCONHECIDAS = set()
+
+CFG_PADRAO_COLUNA = {"prioridade": 5, "tempo_min": 60}
+
+
+def _data_entrega(card):
+    """Data de entrega do cartao (campo `due` do Trello), ou None."""
+    d = card.get("due")
+    if not d:
+        return None
+    try:
+        return datetime.fromisoformat(str(d).replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def _card_atrasado(card, nome_lista, tempos=None):
+    """Cartao aberto esta atrasado se passou da entrega OU do tempo estimado.
+
+    Sao coisas diferentes: um cartao pode estourar o prazo sem ninguem ter
+    trabalhado nele, e outro pode consumir o dobro do tempo previsto ainda
+    dentro do prazo. Os dois merecem alerta.
+    """
+    entrega = _data_entrega(card)
+    if entrega and datetime.now(timezone.utc) > entrega:
+        return True
+    est = cfg_coluna(nome_lista).get("tempo_min") or 0
+    decorrido = (tempos or {}).get(card.get("id"), {}).get("total", 0.0)
+    return est > 0 and decorrido > est
+
+
+def cfg_coluna(nome_lista):
+    """Configuracao da coluna. Coluna nova entra com padrao e fica registrada."""
+    cfg = COLUNAS_CONFIG.get(nome_lista)
+    if cfg is not None:
+        return cfg
+    if nome_lista and nome_lista not in COLUNAS_SKIP:
+        COLUNAS_DESCONHECIDAS.add(nome_lista)
+    return CFG_PADRAO_COLUNA
+
+
 def _num(card, id_c):
     if not id_c:
         return None
@@ -496,8 +542,41 @@ def _data_card(card):
             pass
     return datetime.now(timezone.utc)
 
-def _mes_card(card):
-    """Mês do cartão pela última atividade — usado para cartões CONCLUÍDOS (quando foi feito)."""
+def datas_de_conclusao(acoes_board):
+    """{card_id: datetime} do momento em que cada cartão foi marcado como concluído.
+
+    Vem da ação que virou dueComplete para verdadeiro. Sem isso o mês saía da
+    última atividade do cartão: um cartão concluído em julho que recebesse um
+    comentário em agosto migrava a pontuação para agosto.
+    """
+    fim = {}
+    for cid, acoes in (acoes_board or {}).items():
+        for ac in acoes:
+            if ac.get("type") != "updateCard":
+                continue
+            dados = ac.get("data", {}) or {}
+            if (dados.get("old") or {}).get("dueComplete") is False and \
+               (dados.get("card") or {}).get("dueComplete") is True:
+                try:
+                    dt = datetime.fromisoformat(ac["date"].replace("Z", "+00:00"))
+                except Exception:
+                    continue
+                # Mais de uma? Vale a última — reabrir e concluir de novo conta
+                # como concluído na segunda vez.
+                if cid not in fim or dt > fim[cid]:
+                    fim[cid] = dt
+    return fim
+
+
+def _mes_card(card, conclusoes=None):
+    """Mês em que o cartão foi CONCLUÍDO.
+
+    Usa a data real de conclusão quando ela existe no histórico; só cai na
+    última atividade quando o cartão foi concluído antes da janela consultada.
+    """
+    dt_fim = (conclusoes or {}).get(card.get("id"))
+    if dt_fim:
+        return (dt_fim.year, dt_fim.month)
     d = card.get("dateLastActivity", "")
     if d:
         try:
@@ -531,14 +610,14 @@ def _calcular_fila(listas, cards, membros_map):
     pendentes = []
     for card in cards:
         nl = listas.get(card["idList"], "")
-        if nl in COLUNAS_SKIP or nl not in COLUNAS_CONFIG:
+        if nl in COLUNAS_SKIP:
             continue
         if card.get("dueComplete", False):
             continue
         lb = _labels(card)
         if "EM ANDAMENTO" in lb:
             continue
-        cfg = COLUNAS_CONFIG[nl]
+        cfg = cfg_coluna(nl)
         us = _users(card, membros_map)
         pendentes.append({
             "nome": card["name"], "lista": nl,
@@ -583,6 +662,7 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
     # os tempos são calculados de uma vez, antes do laço.
     _desde = _desde_padrao()
     _tempos = tempos_do_board(cards, membros_map, _desde)
+    _conclusoes = datas_de_conclusao(_buscar_acoes_board(_desde))
 
     for card in cards:
         nl = listas.get(card["idList"], "")
@@ -620,13 +700,10 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
             d["abertos"] += 1
             if "URGENTE" in lb or "URGENTES" in nl.upper():
                 d["urgentes"] += 1
-            # A etiqueta ATRASADO foi retirada do board: o atraso agora sai do
-            # tempo medido. Cartão aberto que já passou do tempo estimado da
-            # coluna está atrasado. Sem essa troca o contador ficaria em zero
-            # para sempre, parecendo "tudo em dia".
-            _est = COLUNAS_CONFIG.get(nl, {}).get("tempo_min") or 0
-            _decorrido = _tempos.get(card["id"], {}).get("total", 0.0)
-            if _est > 0 and _decorrido > _est:
+            # Atraso, agora com dois criterios. So o tempo de execucao nao
+            # bastava: cartao que ninguem tocou tem tempo zero e nunca ficava
+            # atrasado, mesmo aberto ha semanas.
+            if _card_atrasado(card, nl, _tempos):
                 d["atrasados"] += 1
             if "FALTA CONFERÊNCIA" in lb:
                 d["falta_conf"] += 1
@@ -649,7 +726,7 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
 
         # ── CARTÃO CONCLUÍDO ───────────────────────────────────────────────────
         if filtro_mes:
-            mc = _mes_card(card)
+            mc = _mes_card(card, _conclusoes)
             if mc and mc != filtro_mes:
                 continue
 

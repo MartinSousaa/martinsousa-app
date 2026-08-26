@@ -264,6 +264,7 @@ def _montar_system() -> str:
     if tem_imgs:
         cmds_exemplo.append('{"acao":"ajustar_imagem","imagem":1,"instrucao":"instrução de edição para a imagem"}')
         cmds_exemplo.append('{"acao":"refazer_todas_imagens","instrucao":"o que mudar em todas"}')
+        cmds_exemplo.append('{"acao":"gerar_imagens_faltantes"}')
 
     # Sempre disponível quando há triagem com bloqueios — independe de imgs geradas
     tem_triagem_bloqueada = bool(
@@ -295,6 +296,10 @@ REGRAS DOS COMANDOS:
   pedir "deixa a imagem 1 com fundo branco", só a imagem 1 muda — as outras ficam
   exatamente como estão. Na dúvida sobre qual imagem é, PERGUNTE o número antes de
   emitir o comando; nunca chute e nunca aplique a todas por precaução.
+- "gerar_imagens_faltantes": quando faltarem tipos do padrão na galeria e o
+  colaborador pedir para completar ("faltam 2 imagens", "gera as que faltam").
+  NÃO mande ele fazer o processo na aba Imagem — o comando faz isso. As imagens
+  já geradas não são tocadas; as novas entram no fim da galeria.
 - "refazer_todas_imagens": SOMENTE quando o colaborador pedir explicitamente que
   TODAS sejam refeitas ("refaz tudo", "gera tudo de novo"). Descarta a galeria e
   gera de novo do zero. Confirme com ele antes de emitir, dizendo quantas imagens
@@ -361,6 +366,28 @@ def _executar_comando(cmd: dict) -> str | None:
                 "abra a aba **Imagem** para ver o resultado sendo gerado. "
                 "As demais imagens não serão alteradas."
             )
+
+    if acao == "gerar_imagens_faltantes":
+        galeria = st.session_state.get("img_galeria") or []
+        cfg = st.session_state.get("img_triagem_config") or {}
+        if not cfg.get("nome_produto"):
+            return ("⚠️ Não há produto aberto na aba Imagem para completar a galeria.")
+        try:
+            import imagem as _img
+            padrao = list(_img.TIPOS_PADRAO)
+        except Exception:
+            return "⚠️ Não consegui ler a lista de tipos padrão."
+        ja_tem = {g.get("tipo") for g in galeria}
+        faltam = [t for t in padrao if t not in ja_tem]
+        if not faltam:
+            return "✅ A galeria já tem todos os tipos do padrão."
+        st.session_state["chat_gerar_faltantes"] = faltam
+        _log("gerar_faltantes", ", ".join(faltam), resultado=f"{len(faltam)} tipo(s)")
+        lista = "\n".join(f"- {t}" for t in faltam)
+        return (
+            f"🖼️ Vou gerar as **{len(faltam)} imagens que faltam**:\n{lista}\n\n"
+            "Abra a aba **Imagem** para acompanhar. As que já existem não serão tocadas."
+        )
 
     if acao == "refazer_todas_imagens":
         galeria = st.session_state.get("img_galeria")
