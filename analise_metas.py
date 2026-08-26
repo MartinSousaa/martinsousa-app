@@ -1680,13 +1680,22 @@ def _chart_resumo_colabs(dados):
     pct_contrib = {u: pts_mb[u] / total_pts * 100 for u in users}
     pct_meta    = {u: pts_mb[u] / max(meta_mb[u], 1) * 100 for u in users}
 
-    tempo_flat = [t for r in dados for ts in r["tempo_lista"].values() for t in ts]
-    med_global = sum(tempo_flat) / len(tempo_flat) if tempo_flat else 0
-    exec_mb    = {u: med_global for u in users}
+    # Media de execucao de CADA UM. Antes era a media geral do board repetida
+    # identica em todas as barras — o painel comparava todo mundo com todo mundo
+    # usando o mesmo numero.
+    _tempos_u = {u: [] for u in users}
+    for r in dados:
+        for u, por_col in (r.get("tempo_membro_lista") or {}).items():
+            if u in _tempos_u:
+                _tempos_u[u].extend(t for ts in por_col.values() for t in ts)
+    exec_mb = {u: (sum(v) / len(v) if v else 0.0) for u, v in _tempos_u.items()}
 
+    # Cartoes entregues depois da data combinada. E do time inteiro, nao de cada
+    # um: como barra por pessoa dava a mesma altura para todos e nao comparava
+    # nada. Vira uma linha de texto no detalhe.
     tc_total  = sum(r["total_concl"] for r in dados)
     ta_total  = sum(r["atrasados"]   for r in dados)
-    atraso_mb = {u: ta_total / max(tc_total, 1) * 100 for u in users}
+    pct_cards_atrasados = ta_total / max(tc_total, 1) * 100
 
     # ── Dados do relógio de ponto (ociosidade + tolerâncias) ──────────────────
     # Tenta calcular para o período coberto em `dados`
@@ -1699,6 +1708,8 @@ def _chart_resumo_colabs(dados):
         _pct_ocio  = {u: 0.0 for u in users}
         _dias_trab = {u: 0   for u in users}
         _dias_aus  = {u: 0   for u in users}
+        _disp_mb   = {u: 0.0 for u in users}
+        _atr_mb    = {u: 0   for u in users}
 
         for ym in _meses_ponto:
             if not ym:
@@ -1721,22 +1732,20 @@ def _chart_resumo_colabs(dados):
                 _tol_mb[u]   += _res[u].get("qtd_tolerancias", 0)
                 _dias_trab[u] += _res[u]["dias_trabalhados"]
                 _dias_aus[u]  += _res[u]["dias_ausentes"]
+                # Minutos disponiveis e atrasos de ponto saem DAQUI, da mesma
+                # fonte da ociosidade. Antes o percentual era recalculado com
+                # calcular_resumo_mes(), que le a planilha — e a equipe bate
+                # ponto no relogio fisico, entao vinha zero: a divisao caia num
+                # piso de 1 minuto e a tela mostrava 780400% de ociosidade.
+                _disp_mb[u] += _res[u].get("horas_disp_min", 0.0)
+                _atr_mb[u]  += _res[u].get("qtd_atrasos", 0)
             # Verifica se há dados reais de ponto
             if any(_res[u]["dias_trabalhados"] > 0 for u in users):
                 _tem_ponto = True
 
         if _tem_ponto:
-            max_disp = max((sum(r.get("horas_disp_min", 0) for r in [
-                _rp.calcular_resumo_mes(_m[0], _m[1])[u] for _m in _meses_ponto if _m
-            ]) for u in users), default=1) or 1
-            _hd = {}
-            for u in users:
-                _hd_u = 0.0
-                for ym in _meses_ponto:
-                    if ym:
-                        _hd_u += _rp.calcular_resumo_mes(ym[0], ym[1])[u]["total_horas_disp"]
-                _hd[u] = _hd_u
-            _pct_ocio = {u: (_ocio_mb[u] / max(_hd.get(u, 1), 1) * 100) for u in users}
+            _pct_ocio = {u: (_ocio_mb[u] / _disp_mb[u] * 100) if _disp_mb.get(u) else 0.0
+                         for u in users}
     except Exception:
         _tem_ponto = False
         _ocio_mb   = {u: 0.0 for u in users}
@@ -1744,9 +1753,15 @@ def _chart_resumo_colabs(dados):
         _pct_ocio  = {u: 0.0 for u in users}
         _dias_trab = {u: 0   for u in users}
         _dias_aus  = {u: 0   for u in users}
+        _disp_mb   = {u: 0.0 for u in users}
+        _atr_mb    = {u: 0   for u in users}
 
     def _cor_meta(v):   return "#1BAF7A" if v >= 100 else ("#EDA100" if v >= 75 else "#4A90D9")
     def _cor_atraso(v): return "#1BAF7A" if v < 5   else ("#EDA100" if v < 15  else "#E34948")
+    _lim_atr = int(dados[-1]["cfg"].get("max_atr_normal", 10)) if dados else 10
+    def _cor_atr_ponto(v):
+        return ("#1BAF7A" if v <= _lim_atr * 0.6
+                else ("#EDA100" if v <= _lim_atr else "#E34948"))
     def _cor_ocio(v):   return "#1BAF7A" if v < 10  else ("#EDA100" if v < 25  else "#E34948")
     # Agora é contagem de tolerâncias, não minutos: verde até 60% do limite
     # mensal, amarelo até o limite, vermelho quando estoura.
@@ -1808,9 +1823,16 @@ def _chart_resumo_colabs(dados):
               cor_fn=_cor_ocio, aguardando=not _tem_ponto),
         _mini("🕐 Tolerâncias Utilizadas",    _tol_mb,    fmt="{:.0f}", unidade="",
               cor_fn=_cor_tol,  aguardando=not _tem_ponto),
-        _mini("⏰ Índice de Atraso",          atraso_mb,  fmt="{:.1f}", unidade="%", cor_fn=_cor_atraso),
+        _mini("⏰ Atrasos de Ponto",          _atr_mb,    fmt="{:.0f}", unidade="",
+              cor_fn=_cor_atr_ponto, aguardando=not _tem_ponto),
         _detalhe_ocio,
     ]
+    cells[-1] += (
+        f'<div style="margin-top:8px;padding-top:7px;'
+        f'border-top:1px solid var(--ms-divisor);font-size:10px;'
+        f'color:var(--ms-texto-sec);">Cartões entregues após a data combinada: '
+        f'<b style="color:var(--ms-texto);">{ta_total} de {tc_total}</b>'
+        f' ({pct_cards_atrasados:.1f}%) — do time inteiro</div>')
     return (
         f'<div style="margin-bottom:8px;font-size:11px;font-weight:700;color:var(--ms-texto);">📋 Resumo Comparativo — Todos os Colaboradores</div>'
         f'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;">'
