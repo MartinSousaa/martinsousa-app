@@ -169,7 +169,9 @@ def _buscar_board():
     r_l = requests.get(f"{base}/boards/{BOARD_ID}/lists",params={**auth,"fields":"id,name"})
     listas = {l["id"]:l["name"] for l in r_l.json()} if r_l.ok else {}
     r_c = requests.get(f"{base}/boards/{BOARD_ID}/cards",params={
-        **auth,"fields":"id,name,idList,idMembers,labels,dueComplete,customFieldItems,dateLastActivity",
+        # idLabels: estado atual das etiquetas, ancora da reconstrucao da linha
+        # do tempo em placar_core.
+        **auth,"fields":"id,name,idList,idMembers,labels,idLabels,dueComplete,customFieldItems,dateLastActivity",
         "customFieldItems":"true"})
     cards = r_c.json() if r_c.ok else []
     r_m = requests.get(f"{base}/boards/{BOARD_ID}/members",params={**auth,"fields":"id,username"})
