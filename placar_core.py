@@ -114,7 +114,9 @@ def _buscar_board():
     listas = {l["id"]: l["name"] for l in r_l.json()} if r_l.ok else {}
     r_c = requests.get(f"{base}/boards/{BOARD_ID}/cards", params={
         **auth,
-        "fields": ("id,name,idList,idMembers,labels,due,dueComplete,"
+        # idLabels e o estado ATUAL das etiquetas do cartao. E a ancora final da
+        # reconstrucao da linha do tempo: o estado depois da ultima mudanca.
+        "fields": ("id,name,idList,idMembers,labels,idLabels,due,dueComplete,"
                    "customFieldItems,dateLastActivity"),
         "customFieldItems": "true",
     })
@@ -651,7 +653,64 @@ def _membros_no_inicio(acoes, membros_agora):
     return inicio
 
 
-def intervalos_do_cartao(acoes, agora=None, membros_agora=None):
+def labels_do_card(card):
+    """IDs das etiquetas que o cartao tem agora.
+
+    Aceita as duas formas que a API devolve: idLabels (lista de ids) e labels
+    (lista de objetos). Pedir so uma delas ja custou uma rodada — a consulta
+    pedia labels e o codigo lia idLabels, entao a ancora vinha vazia.
+    """
+    ids = (card or {}).get("idLabels")
+    if ids:
+        return list(ids)
+    return [l.get("id") for l in ((card or {}).get("labels") or []) if l.get("id")]
+
+
+def _eventos_de_etiqueta(acoes, labels_agora=None):
+    """[(data, id_etiqueta, entrou)] a partir dos updateCard do cartao.
+
+    Este board nao emite addLabelToCard: a troca vem como updateCard, e o unico
+    campo garantido e data.old.idLabels — o estado ANTES daquela mudanca. O
+    data.card do payload pode vir no formato minimo, sem idLabels, e ai comparar
+    antes com depois da sempre vazio (era o que acontecia: 1838 acoes entravam e
+    zero evento saia).
+
+    A reconstrucao nao depende disso. As acoes de um cartao estao em ordem no
+    tempo, entao o estado DEPOIS de uma mudanca e o estado ANTES da seguinte; e
+    o estado depois da ultima e o do cartao agora, que ja temos em maos.
+    """
+    mudancas = []
+    for ac in acoes:
+        antes = ((ac.get("data") or {}).get("old") or {})
+        if "idLabels" not in antes:
+            continue
+        try:
+            dt = datetime.fromisoformat(ac["date"].replace("Z", "+00:00"))
+        except Exception:
+            continue
+        # Quando o payload traz o card completo, o depois vem de graca.
+        depois_direto = (ac.get("data") or {}).get("card") or {}
+        mudancas.append((dt, set(antes.get("idLabels") or []),
+                         set(depois_direto["idLabels"])
+                         if "idLabels" in depois_direto else None))
+    if not mudancas:
+        return []
+
+    mudancas.sort(key=lambda m: m[0])
+    final = set(labels_agora or [])
+    eventos = []
+    for i, (dt, antes, depois) in enumerate(mudancas):
+        if depois is None:
+            depois = mudancas[i + 1][1] if i + 1 < len(mudancas) else final
+        for lid in depois - antes:
+            eventos.append((dt, lid, True))
+        for lid in antes - depois:
+            eventos.append((dt, lid, False))
+    return eventos
+
+
+def intervalos_do_cartao(acoes, agora=None, membros_agora=None,
+                         labels_agora=None):
     """Trechos em que o cartão esteve efetivamente em execução.
 
     Devolve [{"ini": dt, "fim": dt, "tipo": "filmagem"|"andamento",
@@ -674,20 +733,19 @@ def intervalos_do_cartao(acoes, agora=None, membros_agora=None):
             nome = ((dados.get("label") or {}).get("name") or "").upper().strip()
             if nome in LABELS_TRABALHO or nome in LABELS_INTERRUPCAO:
                 eventos.append((dt, "label", nome, tipo == "addLabelToCard"))
-        elif "idLabels" in (dados.get("old") or {}):
-            # Este board registra a troca de etiqueta como updateCard: o nome nao
-            # vem junto, so os IDs, entao e preciso traduzir.
-            mapa = mapa_labels()
-            postas, tiradas = _mudanca_de_etiqueta(ac)
-            for ids, entrou in ((postas, True), (tiradas, False)):
-                for lid in ids:
-                    nome = mapa.get(lid, "")
-                    if nome in LABELS_TRABALHO or nome in LABELS_INTERRUPCAO:
-                        eventos.append((dt, "label", nome, entrou))
         elif tipo in ("addMemberToCard", "removeMemberFromCard"):
             mid = dados.get("idMember") or (dados.get("member") or {}).get("id")
             if mid:
                 eventos.append((dt, "membro", mid, tipo == "addMemberToCard"))
+    # Etiquetas reconstruidas a partir dos updateCard (ver _eventos_de_etiqueta).
+    _mapa = None
+    for dt, lid, entrou in _eventos_de_etiqueta(acoes, labels_agora):
+        if _mapa is None:
+            _mapa = mapa_labels()
+        nome = _mapa.get(lid, "")
+        if nome in LABELS_TRABALHO or nome in LABELS_INTERRUPCAO:
+            eventos.append((dt, "label", nome, entrou))
+
     eventos.sort(key=lambda e: (e[0], e[1], str(e[2])))
 
     labels, segs = set(), []
@@ -842,13 +900,13 @@ def tempos_dos_cartoes(cards, acoes_board, membros_map=None, agora=None):
                 if nome:
                     n = nome.upper().strip()
                     diag["etiquetas_vistas"][n] = diag["etiquetas_vistas"].get(n, 0) + 1
-                elif "idLabels" in ((ac.get("data") or {}).get("old") or {}):
-                    _mapa = mapa_labels()
-                    _post, _tir = _mudanca_de_etiqueta(ac)
-                    for _lid in _post + _tir:
-                        n = _mapa.get(_lid) or f"(id {_lid[:6]})"
-                        diag["etiquetas_vistas"][n] = diag["etiquetas_vistas"].get(n, 0) + 1
-        segs = intervalos_do_cartao(acoes_c, agora, c.get("idMembers"))
+
+            _m = mapa_labels()
+            for _dt, _lid, _e in _eventos_de_etiqueta(acoes_c, labels_do_card(c)):
+                n = _m.get(_lid) or f"(id {_lid[:6]})"
+                diag["etiquetas_vistas"][n] = diag["etiquetas_vistas"].get(n, 0) + 1
+        segs = intervalos_do_cartao(acoes_c, agora, c.get("idMembers"),
+                                    labels_do_card(c))
         if segs:
             diag["com_trecho"] += 1
             brutos[c["id"]] = segs
