@@ -44,6 +44,13 @@ NOME_COL_MAXX = "meta coletiva MAXX"
 NOME_IND = "meta individual"
 NOME_IND_MAXX = "meta individual MAXX"
 
+# Limites dos cinco indicadores. Moram aqui, junto da explicacao que os
+# descreve, para que mudar um numero mude tambem o texto que a equipe le.
+OCIO_META_NORMAL = 10
+OCIO_META_MAXX = 5
+EXEC_META_NORMAL = 80
+EXEC_META_MAXX = 90
+
 
 def bonus_percentuais(col_mensal, col_maxx, ind_mensal, ind_maxx):
     """Quanto o salário aumenta, em pontos percentuais.
@@ -108,6 +115,75 @@ def _bloco_nivel(titulo, subtitulo, cor, nome_col, pct_col, nome_ind, pct_ind):
         f'se bater <b>as duas</b></span></div>'
         f'</div>'
     )
+
+
+def _topico(emoji, titulo, o_que, como, cor):
+    return (
+        f'<div style="border-left:3px solid {cor};padding:2px 0 2px 12px;'
+        f'margin-bottom:14px;">'
+        f'<div style="font-size:14px;font-weight:700;color:{cor};'
+        f'margin-bottom:3px;">{emoji} {titulo}</div>'
+        f'<div style="font-size:14px;line-height:1.6;color:var(--ms-texto);">'
+        f'{o_que}</div>'
+        f'<div style="font-size:13px;line-height:1.6;'
+        f'color:var(--ms-texto-sec);margin-top:4px;">{como}</div></div>')
+
+
+def _explicar_indicadores():
+    """O que cada indicador mede e como e contado, em duas linhas cada.
+
+    Os numeros vem das constantes de verdade — as folgas sao lidas do
+    placar_core, que e quem mede. Texto e calculo nao tem como discordar.
+    """
+    try:
+        import placar_core as _pc
+        g_ini, g_ent = _pc.GRACA_INICIO_MIN, _pc.GRACA_ENTRE_MIN
+        pausa = _pc.PAUSA_PESSOAL_MIN // 60
+        f_ent, t_ent = _pc.FOLGA_ENTRADA_MIN, _pc.TOLERANCIA_ENTRADA_MIN
+        f_alm, almoco = _pc.FOLGA_ALMOCO_MIN, _pc.ALMOCO_MINUTOS
+    except Exception:
+        g_ini, g_ent, pausa = 10, 5, 1
+        f_ent, t_ent, f_alm, almoco = 5, 10, 5, 60
+
+    st.markdown(
+        '<div style="font-size:16px;font-weight:700;margin:20px 0 8px 0;">'
+        '📐 O que cada indicador mede</div>', unsafe_allow_html=True)
+
+    blocos = [
+        ("📈", "Pontuação", "#1BAF7A",
+         "Os pontos dos cartões que você concluiu.",
+         "Cada cartão vale os pontos da coluna dele, e conta no mês em que "
+         "foi <b>concluído</b>."),
+
+        ("⏱️", "Ociosidade", "#4A90D9",
+         "Tempo do seu dia <b>sem nenhum cartão EM ANDAMENTO</b> no seu nome.",
+         f"Você tem {g_ini} min ao chegar, {g_ent} min a cada troca de cartão "
+         f"e {pausa}h por dia de pausa. Cartão <b>INTERROMPIDO</b> ou "
+         f"<b>PENDENTE</b> não conta como atividade. Meta: abaixo de "
+         f"{OCIO_META_NORMAL}% ({OCIO_META_MAXX}% na MAXX)."),
+
+        ("⚡", "Tempo de execução", "#EDA100",
+         "Quantos dos seus cartões ficaram dentro do tempo previsto.",
+         "O tempo é medido pela etiqueta EM ANDAMENTO e comparado com o "
+         f"estimado da coluna. Meta: {EXEC_META_NORMAL}% dos cartões dentro "
+         f"({EXEC_META_MAXX}% na MAXX)."),
+
+        ("🕐", "Tolerâncias", "#8E7CC3",
+         "Os atrasos pequenos na entrada.",
+         f"Até {f_ent} min depois do seu horário não conta nada. De {f_ent} a "
+         f"{t_ent} min gasta uma tolerância. Quem entra 09:00: livre até "
+         f"09:05, tolerância até 09:10."),
+
+        ("⏰", "Atrasos", "#E34948",
+         "Os atrasos que pesam na meta.",
+         f"Entrada: passou de {t_ent} min (09:11 para quem entra 09:00). "
+         f"Almoço: passou de {almoco + f_alm} min fora — aqui não há "
+         f"tolerância. Os dois contam separado."),
+    ]
+    st.markdown("".join(
+        _topico(emoji, titulo, o_que, como, cor)
+        for emoji, titulo, cor, o_que, como in blocos
+    ), unsafe_allow_html=True)
 
 
 def render(expandido=True, chave_salario="expl_salario"):
@@ -257,6 +333,8 @@ def render(expandido=True, chave_salario="expl_salario"):
             f'das metas cai no {DIA_UTIL_PAGAMENTO}º dia útil de '
             '<b>setembro</b>.</span>'
             '</div>', unsafe_allow_html=True)
+
+        _explicar_indicadores()
 
         st.caption("Mais abaixo, no seu card, a mesma conta aparece com as "
                    "metas que já estão valendo neste mês.")
