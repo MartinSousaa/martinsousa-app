@@ -165,14 +165,25 @@ ULTIMO_DIAGNOSTICO_TEMPOS = {
 }
 
 
-def _buscar_acoes_board(desde_iso=None, max_paginas=10):
-    """Histórico de etiquetas e membros do board inteiro, agrupado por cartão.
+FILTRO_ETIQUETAS = ("addLabelToCard,removeLabelFromCard,"
+                    "addMemberToCard,removeMemberFromCard")
+FILTRO_MOVIMENTO = "updateCard"
+
+
+def _buscar_acoes_board(desde_iso=None, max_paginas=10, filtro=None):
+    """Histórico do board inteiro, agrupado por cartão.
 
     Uma chamada por página em vez de uma por cartão: a análise mensal passa por
     centenas de cartões, e um GET por cartão deixaria a tela inviável.
+
+    As etiquetas e os updateCard sao buscados SEPARADAMENTE de proposito. Juntos
+    numa consulta so, os updateCard — que sao a maioria esmagadora das acoes de
+    um board ativo — enchiam as paginas e empurravam as etiquetas para fora da
+    janela: 18 mil acoes lidas e nenhum trecho de trabalho encontrado.
     """
     import time as _t
-    chave = desde_iso or "tudo"
+    filtro = filtro or FILTRO_ETIQUETAS
+    chave = f"{desde_iso or 'tudo'}|{filtro}"
     agora = _t.time()
     cache = _acoes_cache.get(chave)
     if cache and agora - cache["ts"] < 300:
@@ -195,8 +206,7 @@ def _buscar_acoes_board(desde_iso=None, max_paginas=10):
     antes = None
     for _ in range(max_paginas):
         params = {**auth,
-                  "filter": ("addLabelToCard,removeLabelFromCard,"
-                             "addMemberToCard,removeMemberFromCard,updateCard"),
+                  "filter": filtro,
                   "limit": 1000}
         if desde_iso:
             params["since"] = desde_iso
@@ -719,7 +729,8 @@ def _fmt_tempo(m):
     return f"{h}h{mm:02d}" if mm > 0 else f"{h}h"
 
 def _calcular_fila(listas, cards, membros_map):
-    _entradas_fila = entradas_na_coluna(_buscar_acoes_board(_desde_padrao()))
+    _entradas_fila = entradas_na_coluna(
+        _buscar_acoes_board(_desde_padrao(), filtro=FILTRO_MOVIMENTO))
     pendentes = []
     for card in cards:
         nl = listas.get(card["idList"], "")
@@ -779,9 +790,9 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
     # os tempos são calculados de uma vez, antes do laço.
     _desde = _desde_padrao()
     _tempos = tempos_do_board(cards, membros_map, _desde)
-    _acoes_proc = _buscar_acoes_board(_desde)
-    _conclusoes = datas_de_conclusao(_acoes_proc)
-    _entradas = entradas_na_coluna(_acoes_proc)
+    _acoes_mov = _buscar_acoes_board(_desde, filtro=FILTRO_MOVIMENTO)
+    _conclusoes = datas_de_conclusao(_acoes_mov)
+    _entradas = entradas_na_coluna(_acoes_mov)
     try:
         _janela_ini = datetime.fromisoformat(_desde.replace("Z", "+00:00"))
     except Exception:
