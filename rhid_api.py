@@ -358,27 +358,39 @@ def _varrer_horarios(obj, caminho="", achados=None, profundidade=0):
         for i, v in enumerate(obj[:8]):
             _varrer_horarios(v, f"{caminho}[{i}]", achados, profundidade + 1)
     else:
-        hora = _extrair_hhmm(obj)
-        if hora and hora != "00:00":
-            nome = caminho.split(".")[-1].split("[")[0].lower()
-            if not (nome.startswith("date") or nome in ("data", "dia", "diafechamento")):
+        nome = caminho.split(".")[-1].split("[")[0]
+        if _campo_de_marcacao(nome):
+            hora = _extrair_hhmm(obj)
+            if hora:
                 achados.append(f"{caminho} = {obj!r} → {hora}")
     return achados
 
 
-def _e_marcacao(chave, valor) -> bool:
-    """Se este campo parece guardar um horário de batida.
+# Nomes de campo que de fato guardam marcação de ponto. Sem esta lista, qualquer
+# número inteiro do registro virava "horário": paginas=1 lido como 00:01,
+# idPerson=3 como 00:03, dsrConsideradoMinutos=440 como 04:40. O diagnóstico
+# enchia de lixo e escolhia o dia errado para mostrar.
+_PREFIXOS_MARCACAO = ("colunamix", "mix", "entrada", "saida", "saída",
+                      "hora", "batida", "marcacao", "marcação", "ponto")
 
-    Campos de data pura ("2026-08-03T00:00:00") casam como 00:00 e sujariam o
-    diagnóstico — o que interessa é hora de verdade, num campo que não seja data.
-    """
-    hora = _extrair_hhmm(valor)
-    if not hora:
-        return False
-    if hora == "00:00":
-        return False
+
+def _campo_de_marcacao(chave) -> bool:
     k = str(chave).lower()
-    return not (k.startswith("date") or k in ("data", "dia", "diafechamento"))
+    if k.startswith("date") or k in ("data", "dia", "diafechamento"):
+        return False
+    return any(k.startswith(p) for p in _PREFIXOS_MARCACAO)
+
+
+def _e_marcacao(chave, valor) -> bool:
+    """Se este campo guarda um horário de batida.
+
+    Exige duas coisas: o NOME parecer de marcação e o valor virar horário
+    plausível. Só o valor não basta — metade dos inteiros de um registro de ponto
+    vira hora se convertida sem critério.
+    """
+    if not _campo_de_marcacao(chave):
+        return False
+    return bool(_extrair_hhmm(valor))
 
 
 def _extrair_data(reg: dict):
@@ -470,15 +482,24 @@ def get_registros_diarios(data_ini: str, data_final: str, id_person: int):
         # Em vez de despejar o JSON inteiro (que fica cortado na tela e não cabe
         # numa captura), procura sozinho os campos que CONTÊM horário. É o que
         # falta saber: o nome do campo não diz nada se o formato for outro.
-        _amostra, _melhor, _horas = None, -1, []
+        # Domingo e folga nao tem batida: mostrar um deles como exemplo nao diz
+        # nada. Prefere o dia com mais horas trabalhadas.
+        def _trabalhado(r):
+            if r.get("folga") or r.get("faltaDiaInteiro"):
+                return -1
+            try:
+                return float(r.get("totalHorasTrabalhadas") or 0)
+            except (TypeError, ValueError):
+                return 0
+
+        _amostra, _melhor, _horas = None, (-2, -1), []
         for _r in brutos:
             if not isinstance(_r, dict):
                 continue
             _h = _varrer_horarios(_r)
-            if len(_h) > _melhor:
-                _melhor, _amostra, _horas = len(_h), _r, _h
-            if len(_h) >= 4:
-                break
+            _nota = (_trabalhado(_r), len(_h))
+            if _nota > _melhor:
+                _melhor, _amostra, _horas = _nota, _r, _h
         if _amostra is not None:
             diag["campos_com_hora"] = _horas[:20]
             diag["data_amostra"] = str(_amostra.get("dateTimeStr")

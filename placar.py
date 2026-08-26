@@ -255,8 +255,8 @@ def _mes_card_criacao(card):
 # ── FILA ───────────────────────────────────────────────────────────────────────
 def _calcular_fila(listas,cards,membros_map):
     import placar_core as _pc_ent
-    _entradas_tv = _pc_ent.entradas_na_coluna(
-        _pc_ent._buscar_acoes_board(_pc_ent._desde_padrao()))
+    _entradas_tv = _pc_ent.entradas_na_coluna(_pc_ent._buscar_acoes_board(
+        _pc_ent._desde_padrao(), filtro=_pc_ent.FILTRO_MOVIMENTO))
     pendentes=[]
     for card in cards:
         nl=listas.get(card["idList"],"")
