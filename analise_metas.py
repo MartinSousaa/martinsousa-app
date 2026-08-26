@@ -495,6 +495,16 @@ def _diagnostico_metas_individuais(tem_ponto, sem_exec, diags_pont, erro_pont, d
                         st.code("\n".join(
                             f"{n}  ·  {q}" for n, q in
                             sorted(_tb.items(), key=lambda x: -x[1])[:15]))
+                    _am = getattr(_pc, "AMOSTRA_ACAO_ETIQUETA", {}) or {}
+                    st.caption(
+                        f"Etiquetas cadastradas no board (id → nome): "
+                        f"**{_am.get('mapa_labels', 0)}**")
+                    if _am.get("acao"):
+                        import json as _json
+                        st.caption("Uma ação de troca de etiqueta, exatamente "
+                                   "como o Trello mandou:")
+                        st.code(_json.dumps(_am["acao"], indent=2,
+                                            ensure_ascii=False)[:1800])
                     if d.get("plano_b_truncado"):
                         st.warning(
                             "O histórico do período é maior do que coube na leitura — "
@@ -559,7 +569,7 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
     # dele. O master ve todos os cards lado a lado, em colunas estreitas onde a
     # tabela nao caberia, entao para ele vai uma copia so, aqui em cima.
     if eh_master:
-        _expl.render(expandido=False)
+        _expl.render()
 
     # Monitoramento em tempo real: os dados têm cache curto (30s a 5min) para não
     # bater na API a cada clique; este botão descarta tudo e relê na hora.

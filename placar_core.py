@@ -316,6 +316,12 @@ TIPOS_ETIQUETA = ("addLabelToCard", "removeLabelFromCard")
 # Cache do mapa id-da-etiqueta -> nome. Preenchido sob demanda.
 _MAPA_LABELS = {}
 
+# Uma acao de troca de etiqueta, como o Trello mandou. A leitura crua acha 2463
+# delas e o motor extrai zero evento — sem ver o JSON de verdade nao da para
+# saber se o campo tem outro nome, se vem vazio, ou se o card do payload nao
+# carrega idLabels. Deduzir ja custou duas rodadas.
+AMOSTRA_ACAO_ETIQUETA = {"acao": None, "mapa_labels": 0}
+
 
 def mapa_labels(forcar=False):
     """{id_da_etiqueta: NOME} do board.
@@ -335,6 +341,7 @@ def mapa_labels(forcar=False):
             for lb in r.json():
                 if lb.get("id"):
                     _MAPA_LABELS[lb["id"]] = (lb.get("name") or "").upper().strip()
+            AMOSTRA_ACAO_ETIQUETA["mapa_labels"] = len(_MAPA_LABELS)
     except Exception:
         pass
     return _MAPA_LABELS
@@ -579,6 +586,7 @@ def _acoes_sem_filtro(desde_iso, diag):
     # O teto passa a acompanhar o tamanho da janela.
     bruto = _acoes_cru_cache(desde_iso, _paginas_para(desde_iso))
     por_card, achou = {}, 0
+    AMOSTRA_ACAO_ETIQUETA["acao"] = None
     for cid, acoes in bruto.items():
         uteis = [a for a in acoes
                  if a.get("type") in TIPOS_UTEIS
@@ -588,8 +596,19 @@ def _acoes_sem_filtro(desde_iso, diag):
             achou += sum(1 for a in uteis
                          if a.get("type") in TIPOS_ETIQUETA
                          or "idLabels" in ((a.get("data") or {}).get("old") or {}))
+            if AMOSTRA_ACAO_ETIQUETA["acao"] is None:
+                for a in uteis:
+                    if "idLabels" in ((a.get("data") or {}).get("old") or {}):
+                        AMOSTRA_ACAO_ETIQUETA["acao"] = a
+                        # Carrega o mapa agora: se ele vier vazio (endpoint fora
+                        # do ar, board sem etiqueta nomeada), o contador na tela
+                        # denuncia isso em vez de mostrar zero por nunca ter
+                        # sido chamado.
+                        mapa_labels()
+                        break
     diag["plano_b_etiquetas"] = achou
     diag["plano_b_cartoes"] = len(por_card)
+    diag["cartoes"] = len(por_card)
     sub = DIAGNOSTICO_POR_FILTRO.get("cru", {})
     diag["plano_b_acoes"] = sub.get("acoes", 0)
     diag["plano_b_truncado"] = sub.get("truncado", False)
