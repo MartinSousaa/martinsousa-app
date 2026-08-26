@@ -2008,6 +2008,25 @@ def _secao_configuracao():
                     key=f"cfg_{_chave}_{ano_cfg}_{mes_cfg_num}",
                 )
 
+        st.markdown("##### ⭐ Meta MAXX individual")
+        st.caption(
+            "Deixe em 0 para usar a mesma porcentagem da MAXX coletiva sobre a meta "
+            "individual de cada um. Preencha para definir um valor próprio."
+        )
+        m1, m2, m3 = st.columns(3)
+        nova_cfg["meta_maxx_myrelladesouza"] = m1.number_input(
+            "Myrella — MAXX (pts)", min_value=0,
+            value=int(cfg_atual.get("meta_maxx_myrelladesouza", 0)), step=100
+        )
+        nova_cfg["meta_maxx_beatriz51"] = m2.number_input(
+            "Beatriz — MAXX (pts)", min_value=0,
+            value=int(cfg_atual.get("meta_maxx_beatriz51", 0)), step=100
+        )
+        nova_cfg["meta_maxx_gabriel_borges"] = m3.number_input(
+            "Gabriel — MAXX (pts)", min_value=0,
+            value=int(cfg_atual.get("meta_maxx_gabriel_borges", 0)), step=100
+        )
+
         st.markdown("##### ⚠️ Limites de Penalidade")
         c1, c2 = st.columns(2)
         nova_cfg["max_pen_normal"] = c1.number_input(
