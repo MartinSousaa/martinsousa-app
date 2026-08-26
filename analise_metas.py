@@ -1894,29 +1894,58 @@ def _secao_configuracao():
 
     st.markdown(f"**Configurando: {mes_cfg} {ano_cfg}**")
 
+    # Valor gravado fora da faixa do campo era corrigido em silencio pelo widget
+    # e regravado assim — parecia que o numero mudava sozinho.
+    _faixas = {"meta_maxx_pct": (100, 300)}
+    _fora = []
+    for _campo, (_mn, _mx) in _faixas.items():
+        try:
+            _v = float(cfg_atual.get(_campo, 0))
+        except (TypeError, ValueError):
+            continue
+        if _v < _mn or _v > _mx:
+            _fora.append(f"**{mc.LABELS.get(_campo, _campo)}** está gravado como "
+                         f"`{_v:g}`, fora da faixa permitida ({_mn}–{_mx})")
+    if _fora:
+        st.error(
+            "⚠️ Valor gravado fora da faixa — o campo abaixo aparece ajustado, e "
+            "salvar vai gravar o valor ajustado:\n\n- " + "\n- ".join(_fora)
+        )
+
+    with st.expander("🔎 Valores realmente gravados neste mês", expanded=False):
+        st.caption(
+            "É o que está na planilha agora. Se algo aqui estiver diferente do que "
+            "você digitou, é gravação errada — não cálculo."
+        )
+        st.code("\n".join(
+            f"{mc.LABELS.get(k, k):46} = {cfg_atual.get(k)}"
+            for k in mc.DEFAULTS
+        ))
+
     with st.form(key=f"form_cfg_{ano_cfg}_{mes_cfg_num}"):
         st.markdown("##### 🏆 Meta Coletiva")
         c1, c2 = st.columns(2)
         nova_cfg = {}
         nova_cfg["meta_equipe"] = c1.number_input(
             mc.LABELS["meta_equipe"], min_value=0, value=int(cfg_atual["meta_equipe"]), step=100
-        )
+        , key=f"cfg_meta_equipe_{ano_cfg}_{mes_cfg_num}")
         nova_cfg["meta_maxx_pct"] = c2.number_input(
             mc.LABELS["meta_maxx_pct"] + f" (atual: {cfg_atual['meta_maxx_pct']}% = {cfg_atual['meta_equipe'] * cfg_atual['meta_maxx_pct'] / 100:,.0f} pts)",
-            min_value=100, max_value=300, value=int(cfg_atual["meta_maxx_pct"]), step=5
-        )
+            min_value=100, max_value=300,
+            value=min(300, max(100, int(cfg_atual["meta_maxx_pct"]))), step=5
+        , key=f"cfg_meta_maxx_pct_{ano_cfg}_{mes_cfg_num}")
 
         st.markdown("##### 🎯 Meta Individual por Colaborador")
         c1, c2, c3 = st.columns(3)
         nova_cfg["meta_myrelladesouza"] = c1.number_input(
             "Myrella (pts)", min_value=0, value=int(cfg_atual["meta_myrelladesouza"]), step=100
-        )
+        , key=f"cfg_meta_myrelladesouza_{ano_cfg}_{mes_cfg_num}")
         nova_cfg["meta_beatriz51"] = c2.number_input(
             "Beatriz (pts)", min_value=0, value=int(cfg_atual["meta_beatriz51"]), step=100
-        )
+        , key=f"cfg_meta_beatriz51_{ano_cfg}_{mes_cfg_num}")
         nova_cfg["meta_gabriel_borges"] = c3.number_input(
             "Gabriel (pts)", min_value=0, value=int(cfg_atual["meta_gabriel_borges"]), step=100
-        )
+        , key=f"cfg_meta_gabriel_borges_{ano_cfg}_{mes_cfg_num}")
 
         st.markdown("##### ⭐ Meta MAXX individual")
         st.caption(
@@ -1941,40 +1970,40 @@ def _secao_configuracao():
         c1, c2 = st.columns(2)
         nova_cfg["max_pen_normal"] = c1.number_input(
             mc.LABELS["max_pen_normal"], min_value=0, value=int(cfg_atual["max_pen_normal"]), step=1
-        )
+        , key=f"cfg_max_pen_normal_{ano_cfg}_{mes_cfg_num}")
         nova_cfg["max_pen_maxx"] = c2.number_input(
             mc.LABELS["max_pen_maxx"], min_value=0, value=int(cfg_atual["max_pen_maxx"]), step=1
-        )
+        , key=f"cfg_max_pen_maxx_{ano_cfg}_{mes_cfg_num}")
 
         st.markdown("##### 🕐 Pontualidade")
         c1, c2, c3, c4 = st.columns(4)
         nova_cfg["max_tol_normal"] = c1.number_input(
             "Tolerâncias (Normal)", min_value=0, value=int(cfg_atual["max_tol_normal"]), step=1
-        )
+        , key=f"cfg_max_tol_normal_{ano_cfg}_{mes_cfg_num}")
         nova_cfg["max_tol_maxx"] = c2.number_input(
             "Tolerâncias (MAXX)", min_value=0, value=int(cfg_atual["max_tol_maxx"]), step=1
-        )
+        , key=f"cfg_max_tol_maxx_{ano_cfg}_{mes_cfg_num}")
         nova_cfg["max_atr_normal"] = c3.number_input(
             "Atrasos (Normal)", min_value=0, value=int(cfg_atual["max_atr_normal"]), step=1
-        )
+        , key=f"cfg_max_atr_normal_{ano_cfg}_{mes_cfg_num}")
         nova_cfg["max_atr_maxx"] = c4.number_input(
             "Atrasos (MAXX)", min_value=0, value=int(cfg_atual["max_atr_maxx"]), step=1
-        )
+        , key=f"cfg_max_atr_maxx_{ano_cfg}_{mes_cfg_num}")
 
         st.markdown("##### 🔧 Outros Critérios")
         c1, c2, c3 = st.columns(3)
         nova_cfg["max_retrab_normal"] = c1.number_input(
             "Retrabalho máx % (Normal)", min_value=0, max_value=100,
             value=int(cfg_atual["max_retrab_normal"]), step=1
-        )
+        , key=f"cfg_max_retrab_normal_{ano_cfg}_{mes_cfg_num}")
         nova_cfg["max_retrab_maxx"] = c2.number_input(
             "Retrabalho máx % (MAXX)", min_value=0, max_value=100,
             value=int(cfg_atual["max_retrab_maxx"]), step=1
-        )
+        , key=f"cfg_max_retrab_maxx_{ano_cfg}_{mes_cfg_num}")
         nova_cfg["min_membro_pct"] = c3.number_input(
             "% mín. cartões com membro", min_value=0, max_value=100,
             value=int(cfg_atual["min_membro_pct"]), step=1
-        )
+        , key=f"cfg_min_membro_pct_{ano_cfg}_{mes_cfg_num}")
 
         submitted = st.form_submit_button("💾 Salvar configuração", use_container_width=True)
         if submitted:
