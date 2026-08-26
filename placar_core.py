@@ -568,23 +568,33 @@ def datas_de_conclusao(acoes_board):
     return fim
 
 
-def _mes_card(card, conclusoes=None):
-    """Mês em que o cartão foi CONCLUÍDO.
+def _mes_card(card, conclusoes=None, inicio_janela=None):
+    """Mês em que o cartão foi CONCLUÍDO. None quando não dá para saber.
 
-    Usa a data real de conclusão quando ela existe no histórico; só cai na
-    última atividade quando o cartão foi concluído antes da janela consultada.
+    A pontuação só pode contar no mês da conclusão. Editar ou comentar um cartão
+    antigo não pode trazer os pontos dele para o mês atual.
+
+    Quando não há registro de conclusão dentro da janela de histórico, a última
+    atividade só serve se ela também for anterior à janela — aí ninguém mexeu no
+    cartão desde então e ela equivale à conclusão. Se o cartão foi tocado dentro
+    da janela sem ter sido concluído nela, a conclusão é mais antiga que o
+    histórico: devolve None, e o cartão fica de fora do mês analisado em vez de
+    pontuar de novo.
     """
     dt_fim = (conclusoes or {}).get(card.get("id"))
     if dt_fim:
         return (dt_fim.year, dt_fim.month)
+
     d = card.get("dateLastActivity", "")
-    if d:
-        try:
-            dt = datetime.fromisoformat(d.replace("Z", "+00:00"))
-            return (dt.year, dt.month)
-        except Exception:
-            pass
-    return None
+    if not d:
+        return None
+    try:
+        dt = datetime.fromisoformat(d.replace("Z", "+00:00"))
+    except Exception:
+        return None
+    if inicio_janela and dt >= inicio_janela:
+        return None
+    return (dt.year, dt.month)
 
 def _mes_card_criacao(card):
     """Mês do cartão pela data de CRIAÇÃO (ID Trello = ObjectID MongoDB) —
@@ -663,6 +673,10 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
     _desde = _desde_padrao()
     _tempos = tempos_do_board(cards, membros_map, _desde)
     _conclusoes = datas_de_conclusao(_buscar_acoes_board(_desde))
+    try:
+        _janela_ini = datetime.fromisoformat(_desde.replace("Z", "+00:00"))
+    except Exception:
+        _janela_ini = None
 
     for card in cards:
         nl = listas.get(card["idList"], "")
@@ -726,8 +740,9 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
 
         # ── CARTÃO CONCLUÍDO ───────────────────────────────────────────────────
         if filtro_mes:
-            mc = _mes_card(card, _conclusoes)
-            if mc and mc != filtro_mes:
+            # Sem mes de conclusao confiavel, o cartao fica FORA do mes
+            # analisado. Errar para menos e melhor que pontuar duas vezes.
+            if _mes_card(card, _conclusoes, _janela_ini) != filtro_mes:
                 continue
 
         _t = _tempos.get(card["id"], {})

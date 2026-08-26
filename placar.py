@@ -265,6 +265,7 @@ def _calcular_fila(listas,cards,membros_map):
         cfg=_pc_fila.cfg_coluna(nl)
         us=_users(card,membros_map)
         pendentes.append({
+            "card_id":card["id"],
             "nome":card["name"],"lista":nl,
             "prioridade":cfg["prioridade"],"tempo_min":cfg["tempo_min"],
             "data":_data_card(card),
@@ -282,10 +283,35 @@ def _calcular_fila(listas,cards,membros_map):
             _cv_count += 1
         _filtrado.append(p)
     pendentes = _filtrado
-    acum=0
-    for i,p in enumerate(pendentes):
-        p["posicao"]=i+1; acum+=p["tempo_min"]; p["eta_min"]=acum
+    # A previsao supunha UMA pessoa fazendo tudo em serie. Com tres
+    # colaboradores, a fila anda em paralelo e o numero saia ~3x maior do que a
+    # espera real.
+    _equipe = max(len(MEMBROS_ATIVOS), 1)
+    acum = 0
+    for i, p in enumerate(pendentes):
+        p["posicao"] = i + 1
+        acum += p["tempo_min"]
+        p["eta_serie_min"] = acum          # se uma pessoa so fizesse tudo
+        p["eta_min"] = acum / _equipe      # com a equipe trabalhando junto
+        p["entrega"] = _data_entrega_card(p["card_id"], cards)
+        p["estoura_prazo"] = _estoura_prazo(p["entrega"], p["eta_min"])
     return pendentes
+
+
+def _data_entrega_card(card_id, cards):
+    for c in cards:
+        if c.get("id") == card_id:
+            import placar_core as _pc_dt
+            return _pc_dt._data_entrega(c)
+    return None
+
+
+def _estoura_prazo(entrega, eta_min):
+    """Se a fila nao alcanca o prazo: previsao de inicio + execucao passa da entrega."""
+    if not entrega:
+        return False
+    from datetime import timedelta as _td
+    return datetime.now(timezone.utc) + _td(minutes=eta_min) > entrega
 
 def _fmt_tempo(m):
     if m<60: return f"{int(m)}min"
