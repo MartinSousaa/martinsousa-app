@@ -222,6 +222,17 @@ def _num(card,id_c):
 def _labels(card): return {lb.get("name","").upper().strip() for lb in card.get("labels",[])}
 
 
+def _ordem_pausa():
+    """Etiquetas de pausa, da mais especifica para a mais generica.
+
+    A ordem so decide qual mostrar quando o cartao tem mais de uma —
+    "FIM DE EXPEDIENTE" diz mais que "INTERROMPIDO".
+    """
+    import placar_core as _pc_o
+    return [_pc_o.LABEL_FIM_EXPEDIENTE, "FIM DO EXPEDIENTE",
+            _pc_o.LABEL_INTERROMPIDO_MS, _pc_o.LABEL_INTERROMPIDO]
+
+
 def _parado(lb):
     """Se o cartao esta com o relogio parado por etiqueta.
 
@@ -352,7 +363,7 @@ def _processar(listas,cards,membros_map,id_p,id_t,id_i,filtro_mes=None):
         "pen_membro":{u:0.0 for u in MEMBROS_ATIVOS},
         "abertos":0,"urgentes":0,"atrasados":0,"em_andamento":0,
         "falta_conf":0,"falta_info":0,"sem_membro":0,"sem_membro_lista":[],"falta_pts":0,
-        "pts_pendentes":0.0,"pen_cards":[],"andamento_lista":[],
+        "pts_pendentes":0.0,"pen_cards":[],"andamento_lista":[],"pausados_lista":[],
         "tempo_lista":{},"desativar":0,"reativar":0,"pend_lista":{},
         "correcao_concl":0,"total_concl":0,
         "concluido_sem_membro":[],
@@ -380,9 +391,16 @@ def _processar(listas,cards,membros_map,id_p,id_t,id_i,filtro_mes=None):
         # Cartao com INTERROMPIDO, INTERROMPIDO MS ou FIM DE EXPEDIENTE nao esta
         # em execucao agora, mesmo com EM ANDAMENTO ainda colada nele. O contador
         # nao olhava para isso e mostrava quatro em andamento havendo um.
-        if "EM ANDAMENTO" in lb and not _parado(lb):
+        _pausa = next((x for x in _ordem_pausa() if x in lb), "")
+        if "EM ANDAMENTO" in lb and not _pausa:
             d["em_andamento"]+=1
             d["andamento_lista"].append({"card":card["name"],"lista":nl,"membros":us})
+        elif _pausa:
+            # Comecado e parado. Aparece na mesma secao, apagado, para a equipe
+            # ver o que ha para retomar — inclusive quando a etiqueta de pausa
+            # SUBSTITUIU a EM ANDAMENTO, que e como a equipe usa no fim do dia.
+            d["pausados_lista"].append({"card":card["name"],"lista":nl,
+                                        "membros":us,"motivo":_pausa})
 
         # ── CARTÕES ABERTOS/PENDENTES: nunca filtrados por mês ─────────────────
         if not ok:
