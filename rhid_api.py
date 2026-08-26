@@ -277,6 +277,14 @@ def fmt_banco(minutos: float) -> str:
 # diagnóstico mostra o que veio em vez de devolver zero em silêncio.
 
 _CAMPOS_LISTA_BATIDAS = (
+    # A apuracao da RHiD entrega as batidas do dia em listAfdtManutencao: uma
+    # lista de itens com "hora" (a batida real) e "horaPrevista" (a escala).
+    # Vem PRIMEIRO porque e o campo que a RHiD de fato preenche — colunaMix1..4
+    # chegam zeradas, e por isso nenhuma batida era reconhecida.
+    #
+    # listAfdtExcluidos fica de fora de proposito: sao as marcacoes que a propria
+    # RHiD descartou do calculo (a coluna "Exclusoes" da tela).
+    "listAfdtManutencao", "listAfdt", "listAfdtOriginal", "listAfd",
     "batidas", "marcacoes", "marcacoesDia", "pontos", "horarios",
     "apontamentos", "registrosPonto", "punches", "clockings",
 )
@@ -431,6 +439,23 @@ def _extrair_marcacoes(reg: dict):
     return tuple(horas[:4])
 
 
+# De qual campo sairam as batidas na ultima leitura. O diagnostico mostra isso:
+# se a RHiD mudar o nome da lista, a tela diz qual campo foi usado em vez de
+# voltar a zero em silencio.
+ULTIMA_ORIGEM_BATIDAS = {"campo": ""}
+
+
+def _sem_repetidos(horas):
+    """Remove batida duplicada mantendo a ordem — a RHiD repete a mesma hora
+    quando o registro passou por manutencao."""
+    vistas, saida = set(), []
+    for h in horas:
+        if h not in vistas:
+            vistas.add(h)
+            saida.append(h)
+    return saida
+
+
 def _extrair_batidas(reg: dict) -> list[str]:
     """Horários de marcação do dia, em ordem, como 'HH:MM'."""
     for campo in _CAMPOS_LISTA_BATIDAS:
@@ -438,7 +463,8 @@ def _extrair_batidas(reg: dict) -> list[str]:
         if isinstance(bruto, list) and bruto:
             horas = [h for h in (_extrair_hhmm(b) for b in bruto) if h]
             if horas:
-                return sorted(horas)
+                ULTIMA_ORIGEM_BATIDAS["campo"] = campo
+                return _sem_repetidos(sorted(horas))
         if isinstance(bruto, str) and bruto.strip():
             # "08:59, 12:01, 13:00, 18:02" ou "08:59 12:01 13:00 18:02"
             pedacos = bruto.replace(";", ",").replace(" ", ",").split(",")

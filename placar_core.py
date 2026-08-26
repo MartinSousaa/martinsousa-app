@@ -185,8 +185,14 @@ ULTIMO_DIAGNOSTICO_ACOES = {
 # cartoes concluidos, nenhum com tempo medido" nao diz onde a conta se perde.
 ULTIMO_DIAGNOSTICO_TEMPOS = {
     "cards": 0, "com_acoes": 0, "com_trecho": 0, "com_tempo_util": 0,
-    "com_membro": 0, "etiquetas_vistas": {},
+    "com_membro": 0, "etiquetas_vistas": {}, "tipos_vistos": {},
 }
+
+# Um diagnostico por filtro. As duas consultas (etiquetas e movimentacao)
+# escreviam no MESMO dicionario, e a segunda apagava a primeira: a tela dizia
+# "5000 acoes de etiqueta" quando aquilo era o resultado dos updateCard. Se a
+# consulta de etiqueta falhasse, ninguem ficava sabendo.
+DIAGNOSTICO_POR_FILTRO = {}
 
 
 FILTRO_ETIQUETAS = ("addLabelToCard,removeLabelFromCard,"
@@ -194,7 +200,8 @@ FILTRO_ETIQUETAS = ("addLabelToCard,removeLabelFromCard,"
 FILTRO_MOVIMENTO = "updateCard"
 
 
-def _buscar_acoes_board(desde_iso=None, max_paginas=10, filtro=None):
+def _buscar_acoes_board(desde_iso=None, max_paginas=10, filtro=None,
+                        _sem_filtro=False):
     """Histórico do board inteiro, agrupado por cartão.
 
     Uma chamada por página em vez de uma por cartão: a análise mensal passa por
@@ -206,22 +213,32 @@ def _buscar_acoes_board(desde_iso=None, max_paginas=10, filtro=None):
     janela: 18 mil acoes lidas e nenhum trecho de trabalho encontrado.
     """
     import time as _t
-    filtro = filtro or FILTRO_ETIQUETAS
-    chave = f"{desde_iso or 'tudo'}|{filtro}"
+    global _FILTRO_ETIQUETA_SERVE
+    filtro = FILTRO_ETIQUETAS if filtro is None else filtro
+    chave = f"{desde_iso or 'tudo'}|{filtro or 'sem-filtro'}|{max_paginas}"
     agora = _t.time()
     cache = _acoes_cache.get(chave)
     if cache and agora - cache["ts"] < 300:
         # Repõe o diagnóstico da busca que gerou este cache. Sem isso a tela
         # mostrava "HTTP None · 0 ações" — parecendo falha, quando na verdade a
         # consulta tinha dado certo e só não foi refeita.
-        ULTIMO_DIAGNOSTICO_ACOES.update(cache.get("diag", {}))
+        _publicar_diag(filtro, cache.get("diag", {}))
         return cache["data"]
 
-    diag = ULTIMO_DIAGNOSTICO_ACOES
-    diag.update({"erro": None, "paginas": 0, "acoes": 0, "cartoes": 0, "http": None})
+    if filtro == FILTRO_ETIQUETAS and _FILTRO_ETIQUETA_SERVE is False:
+        diag = {"erro": None, "paginas": 0, "acoes": 0, "cartoes": 0, "http": None,
+                "filtro": filtro, "tipos": {}, "direto_sem_filtro": True}
+        por_card = _acoes_sem_filtro(desde_iso, diag)
+        _publicar_diag(filtro, diag)
+        _acoes_cache[chave] = {"ts": agora, "data": por_card, "diag": dict(diag)}
+        return por_card
+
+    diag = {"erro": None, "paginas": 0, "acoes": 0, "cartoes": 0, "http": None,
+            "filtro": filtro, "tipos": {}}
 
     if not TRELLO_KEY:
         diag["erro"] = "Credenciais do Trello não configuradas."
+        _publicar_diag(filtro, diag)
         return {}
 
     base = "https://api.trello.com/1"
@@ -229,9 +246,9 @@ def _buscar_acoes_board(desde_iso=None, max_paginas=10, filtro=None):
     por_card = {}
     antes = None
     for _ in range(max_paginas):
-        params = {**auth,
-                  "filter": filtro,
-                  "limit": 1000}
+        params = {**auth, "limit": 1000}
+        if filtro:
+            params["filter"] = filtro
         if desde_iso:
             params["since"] = desde_iso
         if antes:
@@ -255,6 +272,8 @@ def _buscar_acoes_board(desde_iso=None, max_paginas=10, filtro=None):
             break
         diag["acoes"] += len(lote)
         for ac in lote:
+            t = ac.get("type", "?")
+            diag["tipos"][t] = diag["tipos"].get(t, 0) + 1
             cid = ac.get("data", {}).get("card", {}).get("id")
             if cid:
                 por_card.setdefault(cid, []).append(ac)
@@ -264,9 +283,69 @@ def _buscar_acoes_board(desde_iso=None, max_paginas=10, filtro=None):
 
     diag["cartoes"] = len(por_card)
     if not por_card and not diag["erro"]:
-        diag["erro"] = "O Trello respondeu, mas não devolveu nenhuma ação de etiqueta no período."
+        diag["erro"] = ("O Trello respondeu, mas não devolveu nenhuma ação "
+                        f"para o filtro {filtro} no período.")
 
+    # A consulta de etiquetas voltou sem NENHUMA acao de etiqueta: ou o board nao
+    # emite addLabelToCard, ou o filtro nao foi respeitado. Em vez de medir zero
+    # em silencio, refaz uma vez sem filtro e separa aqui — custa uma consulta a
+    # cada cinco minutos e e o que faz o tempo de execucao existir.
+    if filtro == FILTRO_ETIQUETAS and not diag["erro"] and not _sem_filtro:
+        _FILTRO_ETIQUETA_SERVE = any(t in diag["tipos"] for t in TIPOS_ETIQUETA)
+        if not _FILTRO_ETIQUETA_SERVE:
+            por_card = _acoes_sem_filtro(desde_iso, diag)
+
+    _publicar_diag(filtro, diag)
     _acoes_cache[chave] = {"ts": agora, "data": por_card, "diag": dict(diag)}
+    return por_card
+
+
+TIPOS_ETIQUETA = ("addLabelToCard", "removeLabelFromCard")
+TIPOS_UTEIS = TIPOS_ETIQUETA + ("addMemberToCard", "removeMemberFromCard")
+
+# O parametro filter do Trello nao reconhece addLabelToCard/removeLabelFromCard:
+# ele devolve so as acoes de membro e descarta as de etiqueta em silencio. Era
+# por isso que 314 cartoes tinham historico e NENHUM tinha etiqueta — e, sem
+# etiqueta, nenhum trecho de trabalho e nenhum tempo de execucao.
+#
+# Depois da primeira resposta sem etiqueta, para de insistir na consulta
+# filtrada: ela nao voltaria nada util e custa uma ida ao Trello.
+_FILTRO_ETIQUETA_SERVE = None
+
+
+def _publicar_diag(filtro, diag):
+    """Guarda o diagnostico deste filtro e espelha o de etiquetas no global.
+
+    O painel le ULTIMO_DIAGNOSTICO_ACOES; ele passa a ser sempre o da consulta
+    de etiquetas, que e a que responde pelo tempo de execucao.
+    """
+    DIAGNOSTICO_POR_FILTRO[diag.get("filtro") or filtro] = dict(diag)
+    if (diag.get("filtro") or filtro) == FILTRO_ETIQUETAS:
+        ULTIMO_DIAGNOSTICO_ACOES.clear()
+        ULTIMO_DIAGNOSTICO_ACOES.update(diag)
+
+
+def _acoes_sem_filtro(desde_iso, diag):
+    """Historico sem filtro, guardando so etiqueta e membro.
+
+    Plano B para quando o parametro filter nao devolve as acoes de etiqueta.
+    Limitado a 5 paginas: o que interessa aqui e existir tempo medido, e as
+    paginas vem da mais recente para a mais antiga.
+    """
+    diag["plano_b"] = True
+    bruto = _buscar_acoes_board(desde_iso, max_paginas=5, filtro="",
+                                _sem_filtro=True)
+    por_card, achou = {}, 0
+    for cid, acoes in bruto.items():
+        uteis = [a for a in acoes if a.get("type") in TIPOS_UTEIS]
+        if uteis:
+            por_card[cid] = uteis
+            achou += sum(1 for a in uteis if a.get("type") in TIPOS_ETIQUETA)
+    diag["plano_b_etiquetas"] = achou
+    diag["plano_b_cartoes"] = len(por_card)
+    if not achou:
+        diag["erro"] = ("Nem com filtro nem sem filtro o Trello devolveu ação de "
+                        "etiqueta neste período — o tempo de execução fica zerado.")
     return por_card
 
 
@@ -462,7 +541,8 @@ def tempos_dos_cartoes(cards, acoes_board, membros_map=None, agora=None):
 
     diag = ULTIMO_DIAGNOSTICO_TEMPOS
     diag.update({"cards": len(cards), "com_acoes": 0, "com_trecho": 0,
-                 "com_tempo_util": 0, "com_membro": 0, "etiquetas_vistas": {}})
+                 "com_tempo_util": 0, "com_membro": 0, "etiquetas_vistas": {},
+                 "tipos_vistos": {}})
 
     brutos, bruto_min = {}, {}
     for c in cards:
@@ -470,6 +550,8 @@ def tempos_dos_cartoes(cards, acoes_board, membros_map=None, agora=None):
         if acoes_c:
             diag["com_acoes"] += 1
             for ac in acoes_c:
+                t = ac.get("type", "?")
+                diag["tipos_vistos"][t] = diag["tipos_vistos"].get(t, 0) + 1
                 nome = ((ac.get("data") or {}).get("label") or {}).get("name")
                 if nome:
                     n = nome.upper().strip()

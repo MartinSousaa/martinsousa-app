@@ -2701,6 +2701,9 @@ def pagina_imagem(usuario_logado):
     # ── GALERIA ───────────────────────────────────────────────────────────────
     if "img_galeria" in st.session_state and st.session_state["img_galeria"]:
         st.markdown("---")
+        _msgs_chat = st.session_state.pop("chat_img_msgs", None)
+        if _msgs_chat:
+            st.info("\n\n".join(_msgs_chat))
         galeria = st.session_state["img_galeria"]
         nome_gal = st.session_state.get("img_nome_produto", "produto")
         codigo_gal = st.session_state.get("img_codigo", "")
@@ -2947,7 +2950,7 @@ def pagina_imagem(usuario_logado):
         cmds_pendentes = st.session_state.pop("chat_img_pendente", [])
         if cmds_pendentes:
             fotos_ref_aj = st.session_state.get("img_fotos_originais") or []
-            msgs_result = []
+            msgs_result, _mudou = [], False
             for cmd in cmds_pendentes:
                 num_foto  = cmd.get("num", 1)
                 instrucao = cmd.get("instrucao", "")
@@ -2984,6 +2987,7 @@ def pagina_imagem(usuario_logado):
                     _resultado_log = f"erro: {str(err_aj)[:120]}"
                 else:
                     st.session_state["img_galeria"][idx_alvo]["bytes"] = nova_img
+                    _mudou = True
                     msgs_result.append(f"✅ Imagem {num_foto} ({tipo_alvo[:25]}) atualizada pelo Assistente IA.")
                     _resultado_log = "imagem atualizada"
                 try:
@@ -2992,6 +2996,14 @@ def pagina_imagem(usuario_logado):
                                          tipo_alvo, _resultado_log)
                 except Exception:
                     pass
+            # A galeria ja foi desenhada acima, com os bytes ANTIGOS. Sem recarregar
+            # a pagina, a imagem na tela continua a de antes e so a mensagem de
+            # sucesso aparece — que era exatamente o sintoma: "diz que corrige,
+            # mas a imagem permanece a mesma". As correcoes feitas pelos paineis
+            # manuais ja faziam st.rerun(); a do Assistente IA nao fazia.
+            if _mudou:
+                st.session_state["chat_img_msgs"] = msgs_result
+                st.rerun()
             if msgs_result:
                 st.info("\n\n".join(msgs_result))
 
