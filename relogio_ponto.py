@@ -29,7 +29,6 @@ HORARIO_PADRAO = _pc.HORARIO_PADRAO
 HORARIOS       = _pc.HORARIOS
 ALMOCO_MINUTOS = _pc.ALMOCO_MINUTOS
 TOLERANCIA_ENTRADA_MIN = _pc.TOLERANCIA_ENTRADA_MIN
-TOLERANCIA_ALMOCO_MIN  = _pc.TOLERANCIA_ALMOCO_MIN
 FOLGA_ENTRADA_MIN      = _pc.FOLGA_ENTRADA_MIN
 FOLGA_ALMOCO_MIN       = _pc.FOLGA_ALMOCO_MIN
 
@@ -284,19 +283,16 @@ def calcular_indicadores_dia(regs: list[dict], username: Optional[str] = None) -
             r["min_atraso_entrada"] = atraso_ent
             r["tolerancia_min"]     = atraso_ent
 
-    # Almoço: conta pela duração, não pelo relógio de parede. Mesmas tres faixas
-    # da entrada — 5 minutos livres, 5 de tolerancia, depois atraso.
+    # Almoço: conta pela duração, não pelo relógio de parede. Duas faixas apenas
+    # — 5 minutos livres e, passando disso, atraso. Tolerância só na entrada.
     _excedeu = 0.0
     if r["saida_almoco"] and r["volta_almoco"]:
         _excedeu = _diff_min(r["saida_almoco"], r["volta_almoco"]) - ALMOCO_MINUTOS
     elif r["volta_almoco"] and r["volta_almoco"] > VOLTA_ALMOCO:
         # Sem a saída registrada, só resta comparar com o horário de referência.
         _excedeu = _diff_min(VOLTA_ALMOCO, r["volta_almoco"])
-    if _excedeu > TOLERANCIA_ALMOCO_MIN:
+    if _excedeu > FOLGA_ALMOCO_MIN:
         r["atraso_almoco"]     = True
-        r["min_atraso_almoco"] = _excedeu
-    elif _excedeu > FOLGA_ALMOCO_MIN:
-        r["tolerancia_almoco"] = True
         r["min_atraso_almoco"] = _excedeu
 
     # Entrada e volta do almoço são ocorrências separadas: atrasar nas duas no
@@ -676,9 +672,11 @@ def _classificar_batidas(username, entrada, saida_almoco=None, volta_almoco=None
 
     Devolve (tolerancias, atraso_entrada, atraso_almoco, minutos_almoco).
 
-    Tres faixas dos dois lados: os 5 primeiros minutos de atraso nao registram
-    nada, os 5 seguintes consomem tolerancia, e passou disso e atraso. Na volta
-    do almoco a conta e sobre a duracao do almoco, nao sobre o relogio.
+    Entrada em tres faixas: os 5 primeiros minutos de atraso nao registram nada,
+    os 5 seguintes consomem tolerancia, e passou disso e atraso.
+
+    Volta do almoco em duas: 5 minutos livres sobre a duracao do almoco e, acima
+    disso, atraso. Nao ha tolerancia aqui — ela existe so na entrada.
 
     Guarda em TOLERANCIA_DETALHE de onde vieram as tolerâncias do dia. Sem essa
     separação a tela mostrava "13 tolerâncias" para quem só chegou atrasado
@@ -703,11 +701,8 @@ def _classificar_batidas(username, entrada, saida_almoco=None, volta_almoco=None
     elif volta_almoco and volta_almoco > VOLTA_ALMOCO:
         # Sem a saída registrada, só resta comparar com o horário de referência.
         excedeu = _diff_min(VOLTA_ALMOCO, volta_almoco)
-    if excedeu > TOLERANCIA_ALMOCO_MIN:
+    if excedeu > FOLGA_ALMOCO_MIN:
         atr_alm = 1
-    elif excedeu > FOLGA_ALMOCO_MIN:
-        tol += 1
-        TOLERANCIA_DETALHE["almoco"] = 1
 
     return tol, atr_ent, atr_alm, minutos_almoco
 
@@ -804,7 +799,7 @@ def _pontualidade_rhid(ano: int, mes: int):
                     "data": data_txt, "tipo": "atraso_almoco",
                     "horario": volta.strftime("%H:%M") if volta else "—",
                     "minutos": max(min_almoco - ALMOCO_MINUTOS
-                                   - TOLERANCIA_ALMOCO_MIN, 0),
+                                   - FOLGA_ALMOCO_MIN, 0),
                 })
         resultado[u] = acc
 
@@ -827,7 +822,8 @@ def get_pontualidade_mes(ano: int, mes: int, com_diagnostico: bool = False):
     """Contagem de tolerâncias e atrasos do mês, por colaborador.
 
     Regra da casa: entrada até 09h05 não registra nada, de 09h05 a 09h10 é
-    tolerância e depois disso é atraso; volta
+    tolerância e depois disso é atraso. Na volta do almoço são 5 minutos livres
+    e, passando disso, atraso — sem tolerância; volta
     do almoço atrasada é atraso mesmo que por um minuto. Entrada e volta são
     ocorrências separadas.
 
