@@ -424,6 +424,8 @@ def _diagnostico_metas_individuais(tem_ponto, sem_exec, diags_pont, erro_pont, d
                     f"{d.get('mapeadas',0)} casaram com o Trello · "
                     f"{d.get('dias_com_batida',0)} dia(s) com batida"
                 )
+                if d.get("campo_batidas"):
+                    st.caption(f"Batidas lidas do campo **{d['campo_batidas']}**.")
                 if d.get("erro"):
                     st.warning(d["erro"])
                 if d.get("campos_com_hora"):
@@ -482,9 +484,16 @@ def _diagnostico_metas_individuais(tem_ponto, sem_exec, diags_pont, erro_pont, d
                                "é por isso que o tempo de execução está zerado.")
                 if d.get("plano_b"):
                     st.caption(
-                        f"Plano B (busca sem filtro): {d.get('plano_b_etiquetas',0)} "
-                        f"ação(ões) de etiqueta em {d.get('plano_b_cartoes',0)} cartão(ões)."
+                        f"Busca sem filtro: {d.get('plano_b_acoes',0)} ação(ões) lidas · "
+                        f"{d.get('plano_b_etiquetas',0)} de etiqueta em "
+                        f"{d.get('plano_b_cartoes',0)} cartão(ões)."
                     )
+                    if d.get("plano_b_truncado"):
+                        st.warning(
+                            "O histórico do período é maior do que coube na leitura — "
+                            "há etiquetas antigas que não foram lidas, e o tempo "
+                            "medido nos meses mais antigos fica incompleto."
+                        )
 
 
 # ── Seção: meta individual por colaborador ────────────────────────────────────
