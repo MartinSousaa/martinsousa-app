@@ -18,6 +18,11 @@ COLUNAS = [
     "meta_myrelladesouza",   # meta individual Myrella
     "meta_beatriz51",        # meta individual Beatriz
     "meta_gabriel_borges",   # meta individual Gabriel
+    # Meta MAXX individual. Zero = usa meta_maxx_pct sobre a meta individual,
+    # que era o comportamento implicito antes de o campo existir.
+    "meta_maxx_myrelladesouza",
+    "meta_maxx_beatriz51",
+    "meta_maxx_gabriel_borges",
     "max_pen_normal",        # máx penalidades meta normal (ex: 4)
     "max_pen_maxx",          # máx penalidades meta maxx (ex: 1)
     "max_tol_normal",        # máx tolerâncias pontualidade normal (ex: 15)
@@ -35,6 +40,9 @@ DEFAULTS = {
     "meta_myrelladesouza": 1500,
     "meta_beatriz51":      1500,
     "meta_gabriel_borges": 1500,
+    "meta_maxx_myrelladesouza": 0,
+    "meta_maxx_beatriz51":      0,
+    "meta_maxx_gabriel_borges": 0,
     "max_pen_normal":      4,
     "max_pen_maxx":        1,
     "max_tol_normal":      15,
@@ -53,6 +61,9 @@ LABELS = {
     "meta_myrelladesouza": "Meta Individual — Myrella (pts)",
     "meta_beatriz51":      "Meta Individual — Beatriz (pts)",
     "meta_gabriel_borges": "Meta Individual — Gabriel (pts)",
+    "meta_maxx_myrelladesouza": "Meta MAXX — Myrella (pts)",
+    "meta_maxx_beatriz51":      "Meta MAXX — Beatriz (pts)",
+    "meta_maxx_gabriel_borges": "Meta MAXX — Gabriel (pts)",
     "max_pen_normal":      "Máx. penalidades (Meta Normal)",
     "max_pen_maxx":        "Máx. penalidades (Meta MAXX)",
     "max_tol_normal":      "Máx. tolerâncias pontualidade (Normal)",

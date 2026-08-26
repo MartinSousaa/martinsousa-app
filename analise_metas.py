@@ -451,6 +451,23 @@ def _diagnostico_metas_individuais(tem_ponto, sem_exec, diags_pont, erro_pont, d
             _concl = sum(r.get("total_concl", 0) for r in dados)
             st.caption(f"{_concl} cartão(ões) concluído(s) no período analisado.")
 
+            _dt = getattr(_pc, "ULTIMO_DIAGNOSTICO_TEMPOS", {})
+            if _dt:
+                st.markdown(
+                    f"- {_dt.get('cards',0)} cartão(ões) no board · "
+                    f"**{_dt.get('com_acoes',0)}** com histórico · "
+                    f"**{_dt.get('com_trecho',0)}** com trecho de trabalho · "
+                    f"**{_dt.get('com_tempo_util',0)}** com tempo dentro do expediente · "
+                    f"**{_dt.get('com_membro',0)}** atribuídos a alguém"
+                )
+                _et = _dt.get("etiquetas_vistas") or {}
+                if _et:
+                    st.caption("Etiquetas vistas no histórico (nome exato · vezes):")
+                    st.code("\n".join(
+                        f"{n}  ·  {q}" for n, q in
+                        sorted(_et.items(), key=lambda x: -x[1])[:15]
+                    ))
+
 
 # ── Seção: meta individual por colaborador ────────────────────────────────────
 
@@ -471,6 +488,18 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
     # Agrega pontos do período completo (sem penalidades — penalidades são coletivas)
     pts_total  = {u: sum(r["pts_membro"].get(u, 0) for r in dados) for u in membros_ativos}
     meta_total = {u: sum(r["cfg"].get(f"meta_{u}", 1500) for r in dados) for u in membros_ativos}
+
+    # Meta MAXX individual. Quando nao ha valor proprio, usa a mesma porcentagem
+    # da MAXX coletiva sobre a meta individual — que era o que ja acontecia na
+    # pratica, so que sem nunca aparecer na tela.
+    def _maxx_do_mes(r, u):
+        proprio = r["cfg"].get(f"meta_maxx_{u}") or 0
+        if proprio:
+            return proprio
+        pct = r["cfg"].get("meta_maxx_pct", 110)
+        return r["cfg"].get(f"meta_{u}", 1500) * pct / 100
+
+    maxx_total = {u: sum(_maxx_do_mes(r, u) for r in dados) for u in membros_ativos}
 
     # Monitoramento em tempo real: os dados têm cache curto (30s a 5min) para não
     # bater na API a cada clique; este botão descarta tudo e relê na hora.
@@ -560,6 +589,16 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
             f"{'✅ Meta atingida!' if pct_pts >= 100 else f'Faltam {meta - pts:,.0f} pts'}",
             cor=cor_pts
         ), unsafe_allow_html=True)
+        meta_mx = maxx_total.get(username, 0)
+        if meta_mx > 0:
+            pct_mx = min(pts / meta_mx * 100, 100)
+            falta_mx = meta_mx - pts
+            st.markdown(_meta_ind_item(
+                "⭐ Meta MAXX Individual", pct_mx,
+                f"{pts:,.0f} / {meta_mx:,.0f} pts · "
+                + ("✅ MAXX atingida!" if falta_mx <= 0 else f"Faltam {falta_mx:,.0f} pts"),
+                cor="#EDA100"
+            ), unsafe_allow_html=True)
         # ── Ociosidade ────────────────────────────────────────────────────────
         o = _ocio.get(username, {"disp": 0.0, "cards": 0.0})
         if _tem_ponto and o["disp"] > 0:
@@ -1877,6 +1916,25 @@ def _secao_configuracao():
         )
         nova_cfg["meta_gabriel_borges"] = c3.number_input(
             "Gabriel (pts)", min_value=0, value=int(cfg_atual["meta_gabriel_borges"]), step=100
+        )
+
+        st.markdown("##### ⭐ Meta MAXX individual")
+        st.caption(
+            "Deixe em 0 para usar a mesma porcentagem da MAXX coletiva sobre a meta "
+            "individual de cada um. Preencha para definir um valor próprio."
+        )
+        m1, m2, m3 = st.columns(3)
+        nova_cfg["meta_maxx_myrelladesouza"] = m1.number_input(
+            "Myrella — MAXX (pts)", min_value=0,
+            value=int(cfg_atual.get("meta_maxx_myrelladesouza", 0)), step=100
+        )
+        nova_cfg["meta_maxx_beatriz51"] = m2.number_input(
+            "Beatriz — MAXX (pts)", min_value=0,
+            value=int(cfg_atual.get("meta_maxx_beatriz51", 0)), step=100
+        )
+        nova_cfg["meta_maxx_gabriel_borges"] = m3.number_input(
+            "Gabriel — MAXX (pts)", min_value=0,
+            value=int(cfg_atual.get("meta_maxx_gabriel_borges", 0)), step=100
         )
 
         st.markdown("##### ⚠️ Limites de Penalidade")

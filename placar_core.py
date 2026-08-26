@@ -157,6 +157,13 @@ ULTIMO_DIAGNOSTICO_ACOES = {
     "erro": None, "paginas": 0, "acoes": 0, "cartoes": 0, "http": None,
 }
 
+# Por que um cartao com historico acaba com tempo zero. Sem estes numeros, "161
+# cartoes concluidos, nenhum com tempo medido" nao diz onde a conta se perde.
+ULTIMO_DIAGNOSTICO_TEMPOS = {
+    "cards": 0, "com_acoes": 0, "com_trecho": 0, "com_tempo_util": 0,
+    "com_membro": 0, "etiquetas_vistas": {},
+}
+
 
 def _buscar_acoes_board(desde_iso=None, max_paginas=10):
     """Histórico de etiquetas e membros do board inteiro, agrupado por cartão.
@@ -387,11 +394,23 @@ def tempos_dos_cartoes(cards, acoes_board, membros_map=None, agora=None):
     membros_map = membros_map or {}
     agora = agora or datetime.now(timezone.utc)
 
+    diag = ULTIMO_DIAGNOSTICO_TEMPOS
+    diag.update({"cards": len(cards), "com_acoes": 0, "com_trecho": 0,
+                 "com_tempo_util": 0, "com_membro": 0, "etiquetas_vistas": {}})
+
     brutos, bruto_min = {}, {}
     for c in cards:
-        segs = intervalos_do_cartao(
-            acoes_board.get(c["id"], []), agora, c.get("idMembers"))
+        acoes_c = acoes_board.get(c["id"], [])
+        if acoes_c:
+            diag["com_acoes"] += 1
+            for ac in acoes_c:
+                nome = ((ac.get("data") or {}).get("label") or {}).get("name")
+                if nome:
+                    n = nome.upper().strip()
+                    diag["etiquetas_vistas"][n] = diag["etiquetas_vistas"].get(n, 0) + 1
+        segs = intervalos_do_cartao(acoes_c, agora, c.get("idMembers"))
         if segs:
+            diag["com_trecho"] += 1
             brutos[c["id"]] = segs
 
     # ator = username do membro na época; "" quando o cartão não tinha membro
@@ -424,6 +443,10 @@ def tempos_dos_cartoes(cards, acoes_board, membros_map=None, agora=None):
     resultado = {}
     for cid in brutos:
         fatias = por_membro.get(cid, {})
+        if fatias:
+            diag["com_tempo_util"] += 1
+        if any(u for u in fatias):
+            diag["com_membro"] += 1
         # Total do cartão = quanto tempo UMA pessoa gastou nele. Dois membros
         # trabalhando juntos não fazem o cartão durar o dobro.
         total = max(fatias.values()) if fatias else 0.0
