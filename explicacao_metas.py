@@ -74,28 +74,38 @@ def _reais(v):
     return f"R$ {v:,.2f}".replace(",", "@").replace(".", ",").replace("@", ".")
 
 
-def _linha_meta(nome, pct, cor, destaque=False):
-    peso = "800" if destaque else "700"
-    return (f'<div style="display:flex;align-items:baseline;gap:9px;margin-bottom:5px;">'
-            f'<span style="font-size:21px;font-weight:{peso};color:{cor};'
-            f'min-width:62px;">+{pct:.0f}%</span>'
+def _linha_meta(emoji, nome, pct, cor):
+    return (f'<div style="display:flex;align-items:baseline;gap:9px;'
+            f'margin-bottom:6px;">'
+            f'<span style="font-size:20px;font-weight:800;color:{cor};'
+            f'min-width:60px;">+{pct:.0f}%</span>'
             f'<span style="font-size:14px;color:var(--ms-texto);">'
-            f'se bater a <b>{nome}</b></span></div>')
+            f'{emoji} <b>{nome}</b></span></div>')
 
 
-def _bloco(titulo, emoji, cor, nome_mensal, pct_mensal, nome_maxx, pct_maxx, quem):
+def _bloco_nivel(titulo, subtitulo, cor, nome_col, pct_col, nome_ind, pct_ind):
+    """Um nivel de meta: as duas metas que o compoem e quanto elas somam.
+
+    Antes os quadros eram divididos por DONO (metas do time / metas suas), e o
+    total de cada nivel — 20% no mes, 30% na MAXX — nao aparecia em lugar nenhum.
+    """
+    total = pct_col + pct_ind
     return (
-        f'<div style="flex:1;min-width:250px;background:var(--ms-metric-bg);'
+        f'<div style="flex:1;min-width:260px;background:var(--ms-metric-bg);'
         f'border:1px solid {cor}55;border-left:4px solid {cor};border-radius:10px;'
         f'padding:14px 16px;">'
         f'<div style="font-size:15px;font-weight:700;color:{cor};margin-bottom:2px;">'
-        f'{emoji} {titulo}</div>'
+        f'{titulo}</div>'
         f'<div style="font-size:12px;color:var(--ms-texto-sec);margin-bottom:11px;">'
-        f'{quem}</div>'
-        + _linha_meta(nome_maxx, pct_maxx, cor, destaque=True)
-        + _linha_meta(nome_mensal, pct_mensal, "var(--ms-texto)")
-        + f'<div style="font-size:12px;color:var(--ms-texto-sec);margin-top:8px;">'
-        f'Não bateu nenhuma das duas: <b>+0%</b></div>'
+        f'{subtitulo}</div>'
+        + _linha_meta("🤝", nome_col, pct_col, cor)
+        + _linha_meta("🙋", nome_ind, pct_ind, cor)
+        + f'<div style="border-top:1px solid var(--ms-divisor);margin-top:10px;'
+        f'padding-top:9px;display:flex;align-items:baseline;gap:9px;">'
+        f'<span style="font-size:24px;font-weight:800;color:{cor};'
+        f'min-width:60px;">+{total:.0f}%</span>'
+        f'<span style="font-size:13px;color:var(--ms-texto);">'
+        f'se bater <b>as duas</b></span></div>'
         f'</div>'
     )
 
@@ -119,30 +129,37 @@ def render(expandido=True, chave_salario="expl_salario"):
 
         st.markdown(
             '<div style="display:flex;gap:14px;flex-wrap:wrap;margin:14px 0;">'
-            + _bloco("As metas do TIME", "🤝", "#1BAF7A",
-                     NOME_COL, PCT_COLETIVO_MENSAL,
-                     NOME_COL_MAXX, PCT_COLETIVO_MAXX,
-                     "Dependem do resultado de todo mundo junto")
-            + _bloco("As metas SUAS", "🙋", "#EDA100",
-                     NOME_IND, PCT_INDIVIDUAL_MENSAL,
-                     NOME_IND_MAXX, PCT_INDIVIDUAL_MAXX,
-                     "Dependem só da sua pontuação")
+            + _bloco_nivel(
+                f"📗 Metas do mês — até +{PCT_COLETIVO_MENSAL + PCT_INDIVIDUAL_MENSAL:.0f}%",
+                "O primeiro nível. São as metas normais do mês.",
+                "#1BAF7A",
+                NOME_COL, PCT_COLETIVO_MENSAL,
+                NOME_IND, PCT_INDIVIDUAL_MENSAL)
+            + _bloco_nivel(
+                f"⭐ Metas MAXX — até +{PCT_COLETIVO_MAXX + PCT_INDIVIDUAL_MAXX:.0f}%",
+                "O nível mais alto. São metas maiores e pagam mais.",
+                "#EDA100",
+                NOME_COL_MAXX, PCT_COLETIVO_MAXX,
+                NOME_IND_MAXX, PCT_INDIVIDUAL_MAXX)
             + '</div>', unsafe_allow_html=True)
 
         st.markdown(
             '<div style="background:#EDA10018;border:1px solid #EDA10055;'
             'border-radius:10px;padding:12px 16px;font-size:15px;line-height:1.7;">'
             '⚠️ <b>A regra mais importante de todas:</b><br>'
-            f'A <b>{NOME_COL_MAXX}</b> <b>não soma</b> com a {NOME_COL}: ela '
-            '<b>toma o lugar</b> dela.<br>'
-            f'A <b>{NOME_IND_MAXX}</b> <b>não soma</b> com a {NOME_IND}: ela '
-            '<b>toma o lugar</b> dela.<br>'
-            '<span style="color:var(--ms-texto-sec);">Exemplo: bateu a '
-            f'{NOME_IND_MAXX}? Você ganha os {PCT_INDIVIDUAL_MAXX:.0f}% dela. '
-            f'Você <b>não</b> ganha {PCT_INDIVIDUAL_MAXX:.0f}% + '
-            f'{PCT_INDIVIDUAL_MENSAL:.0f}%.</span><br>'
-            f'<span style="color:var(--ms-texto-sec);">Mas uma meta do time '
-            'e uma meta sua <b>sempre</b> somam entre si.</span>'
+            'Os dois quadros acima <b>não somam</b> entre si. '
+            f'Ninguém recebe {PCT_COLETIVO_MENSAL + PCT_INDIVIDUAL_MENSAL:.0f}% '
+            f'+ {PCT_COLETIVO_MAXX + PCT_INDIVIDUAL_MAXX:.0f}%.<br>'
+            'Quando uma meta MAXX é batida, ela <b>toma o lugar</b> da meta '
+            'normal correspondente:<br>'
+            f'<span style="color:var(--ms-texto-sec);">• Bateu a '
+            f'<b>{NOME_COL_MAXX}</b>? Vale {PCT_COLETIVO_MAXX:.0f}% no lugar dos '
+            f'{PCT_COLETIVO_MENSAL:.0f}% da {NOME_COL}.<br>'
+            f'• Bateu a <b>{NOME_IND_MAXX}</b>? Vale {PCT_INDIVIDUAL_MAXX:.0f}% no '
+            f'lugar dos {PCT_INDIVIDUAL_MENSAL:.0f}% da {NOME_IND}.</span><br>'
+            'Mas uma meta <b>do time</b> e uma meta <b>sua</b> sempre somam entre '
+            'si — inclusive de níveis diferentes. Dá para bater a '
+            f'{NOME_COL} e a {NOME_IND_MAXX} no mesmo mês.'
             '</div>', unsafe_allow_html=True)
 
         st.markdown(
