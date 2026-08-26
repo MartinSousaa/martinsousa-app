@@ -148,8 +148,17 @@ LABEL_FILMAGEM        = "FILMAGEM"
 LABEL_EM_ANDAMENTO    = "EM ANDAMENTO"
 LABEL_INTERROMPIDO_MS = "INTERROMPIDO MS"
 LABEL_INTERROMPIDO    = "INTERROMPIDO"
+# Posta no fim do dia no que ficou pela metade, para retomar amanha. Conta como
+# interrupcao, nao como "sem etiqueta": se alguem esquecer EM ANDAMENTO no
+# cartao, o relogio voltaria a andar sozinho as 9h do dia seguinte e a pessoa
+# apareceria trabalhando sem ter tocado no cartao — o que esconde ociosidade.
+# Com ela ativa o relogio so volta quando alguem a tira.
+LABEL_FIM_EXPEDIENTE  = "FIM DE EXPEDIENTE"
 LABELS_TRABALHO    = {LABEL_FILMAGEM, LABEL_EM_ANDAMENTO}
-LABELS_INTERRUPCAO = {LABEL_INTERROMPIDO_MS, LABEL_INTERROMPIDO}
+LABELS_INTERRUPCAO = {LABEL_INTERROMPIDO_MS, LABEL_INTERROMPIDO,
+                      LABEL_FIM_EXPEDIENTE,
+                      # variacao provavel na hora de digitar no Trello
+                      "FIM DO EXPEDIENTE"}
 
 # Fuso de Brasília. As ações do Trello vêm em UTC e o expediente é local: sem
 # converter, o corte pelo horário de trabalho erraria em 3 horas.
