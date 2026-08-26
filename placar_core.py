@@ -675,46 +675,96 @@ def labels_do_card(card):
     return [l.get("id") for l in ((card or {}).get("labels") or []) if l.get("id")]
 
 
-def _eventos_de_etiqueta(acoes, labels_agora=None):
-    """[(data, id_etiqueta, entrou)] a partir dos updateCard do cartao.
-
-    Este board nao emite addLabelToCard: a troca vem como updateCard, e o unico
-    campo garantido e data.old.idLabels — o estado ANTES daquela mudanca. O
-    data.card do payload pode vir no formato minimo, sem idLabels, e ai comparar
-    antes com depois da sempre vazio (era o que acontecia: 1838 acoes entravam e
-    zero evento saia).
-
-    A reconstrucao nao depende disso. As acoes de um cartao estao em ordem no
-    tempo, entao o estado DEPOIS de uma mudanca e o estado ANTES da seguinte; e
-    o estado depois da ultima e o do cartao agora, que ja temos em maos.
-    """
-    mudancas = []
+def _olds_do_cartao(acoes):
+    """[(data, conjunto_de_ids)] de cada updateCard que mexeu em idLabels."""
+    saida = []
     for ac in acoes:
-        antes = ((ac.get("data") or {}).get("old") or {})
-        if "idLabels" not in antes:
+        old = ((ac.get("data") or {}).get("old") or {})
+        if "idLabels" not in old:
             continue
         try:
             dt = datetime.fromisoformat(ac["date"].replace("Z", "+00:00"))
         except Exception:
             continue
-        # Quando o payload traz o card completo, o depois vem de graca.
-        depois_direto = (ac.get("data") or {}).get("card") or {}
-        mudancas.append((dt, set(antes.get("idLabels") or []),
-                         set(depois_direto["idLabels"])
-                         if "idLabels" in depois_direto else None))
-    if not mudancas:
-        return []
+        saida.append((dt, set(old.get("idLabels") or [])))
+    saida.sort(key=lambda m: m[0])
+    return saida
 
-    mudancas.sort(key=lambda m: m[0])
-    final = set(labels_agora or [])
-    eventos = []
-    for i, (dt, antes, depois) in enumerate(mudancas):
-        if depois is None:
-            depois = mudancas[i + 1][1] if i + 1 < len(mudancas) else final
-        for lid in depois - antes:
+
+# Como interpretar data.old.idLabels: "antes" (o estado anterior a mudanca, que
+# e o que a documentacao do Trello descreve) ou "depois" (o estado ja
+# atualizado). Descoberto a partir dos proprios dados por _detectar_alinhamento.
+ALINHAMENTO_OLD = {"modo": "depois", "iguais": 0, "diferentes": 0}
+
+
+def _detectar_alinhamento(cards, acoes_board):
+    """Descobre, pelos dados, o que data.old.idLabels significa neste board.
+
+    O criterio e o ultimo registro de cada cartao: se o old da ultima mudanca
+    ja bate com as etiquetas que o cartao tem AGORA, entao old traz o estado
+    depois da mudanca. Se nao bate, old traz o estado de antes e a ultima
+    transicao levou justamente ate as etiquetas atuais.
+
+    Amostra que motivou isto — card e old identicos na mesma acao:
+        "card": {"idLabels": ["6a16e9df..."]}
+        "old":  {"idLabels": ["6a16e9df..."]}
+    Comparar um com o outro dava diferenca vazia em todas as 2463 acoes.
+    """
+    iguais = diferentes = 0
+    for c in cards:
+        olds = _olds_do_cartao(acoes_board.get(c["id"], []))
+        if not olds:
+            continue
+        if olds[-1][1] == set(labels_do_card(c)):
+            iguais += 1
+        else:
+            diferentes += 1
+    ALINHAMENTO_OLD.update({
+        "modo": "depois" if iguais >= diferentes else "antes",
+        "iguais": iguais, "diferentes": diferentes,
+    })
+    return ALINHAMENTO_OLD["modo"]
+
+
+def _eventos_de_etiqueta(acoes, labels_agora=None, modo=None):
+    """[(data, id_etiqueta, entrou)] a partir dos updateCard do cartao.
+
+    Este board nao emite addLabelToCard: a troca de etiqueta vem como updateCard.
+    Comparar data.old.idLabels com data.card.idLabels nao funciona — os dois vem
+    IGUAIS, entao a diferenca era sempre vazia (1838 acoes entrando, zero evento
+    saindo).
+
+    A transicao esta entre acoes CONSECUTIVAS, nao dentro de uma. Com a lista de
+    estados em ordem no tempo, cada mudanca e a diferenca entre um estado e o
+    seguinte; a ponta que falta e o estado atual do cartao, que ja temos.
+    """
+    olds = _olds_do_cartao(acoes)
+    if not olds:
+        return []
+    modo = modo or ALINHAMENTO_OLD["modo"]
+    atual = set(labels_agora or [])
+
+    # Sequencia (data_da_mudanca, estado_resultante).
+    if modo == "depois":
+        # old ja e o estado apos aquela acao.
+        passos = list(olds)
+        if atual != passos[-1][1]:
+            # Houve mudanca depois da ultima acao lida (ou a janela cortou).
+            passos.append((passos[-1][0], atual))
+        estado_inicial = set()
+    else:
+        # old e o estado anterior: o resultado de cada acao e o old da seguinte.
+        passos = [(olds[i][0], olds[i + 1][1] if i + 1 < len(olds) else atual)
+                  for i in range(len(olds))]
+        estado_inicial = olds[0][1]
+
+    eventos, anterior = [], estado_inicial
+    for dt, estado in passos:
+        for lid in estado - anterior:
             eventos.append((dt, lid, True))
-        for lid in antes - depois:
+        for lid in anterior - estado:
             eventos.append((dt, lid, False))
+        anterior = estado
     return eventos
 
 
@@ -896,6 +946,9 @@ def tempos_dos_cartoes(cards, acoes_board, membros_map=None, agora=None):
     diag.update({"cards": len(cards), "com_acoes": 0, "com_trecho": 0,
                  "com_tempo_util": 0, "com_membro": 0, "etiquetas_vistas": {},
                  "tipos_vistos": {}})
+
+    _detectar_alinhamento(cards, acoes_board)
+    diag["alinhamento_old"] = dict(ALINHAMENTO_OLD)
 
     brutos, bruto_min = {}, {}
     for c in cards:

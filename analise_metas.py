@@ -473,6 +473,12 @@ def _diagnostico_metas_individuais(tem_ponto, sem_exec, diags_pont, erro_pont, d
                         f"{n}  ·  {q}" for n, q in
                         sorted(_tp.items(), key=lambda x: -x[1])[:10]
                     ))
+                _al = _dt.get("alinhamento_old") or {}
+                if _al:
+                    st.caption(
+                        f"Leitura do campo `old.idLabels`: **{_al.get('modo','?')}** "
+                        f"(em {_al.get('iguais',0)} cartão(ões) o último registro "
+                        f"bate com as etiquetas atuais, em {_al.get('diferentes',0)} não)")
                 _et = _dt.get("etiquetas_vistas") or {}
                 if _et:
                     st.caption("Etiquetas vistas no histórico (nome exato · vezes):")
