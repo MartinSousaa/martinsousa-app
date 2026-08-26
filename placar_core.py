@@ -935,6 +935,99 @@ def tempos_do_board(cards, membros_map, desde_iso=None):
     return dados
 
 
+# ── OCIOSIDADE ────────────────────────────────────────────────────────────────
+# Ocioso e o tempo do expediente em que a pessoa NAO tem nenhum cartao com
+# EM ANDAMENTO no qual ela seja membro. Duas folgas:
+GRACA_INICIO_MIN = 10   # do ponto de entrada ate pegar o primeiro cartao
+GRACA_ENTRE_MIN = 5     # de um cartao ao seguinte
+# Alem das folgas por troca de tarefa, uma hora por dia trabalhado: banheiro,
+# cafe, agua, conversa rapida. A jornada e de 9h, menos 1h de almoco dao 8h no
+# relogio de ponto, e destas 8h so 7h sao cobradas como tempo de atividade.
+PAUSA_PESSOAL_MIN = 60
+
+
+def _unir(intervalos):
+    """Une trechos que se sobrepoem ou se encostam."""
+    if not intervalos:
+        return []
+    ordenados = sorted(intervalos, key=lambda x: x[0])
+    saida = [list(ordenados[0])]
+    for ini, fim in ordenados[1:]:
+        if ini <= saida[-1][1]:
+            saida[-1][1] = max(saida[-1][1], fim)
+        else:
+            saida.append([ini, fim])
+    return [tuple(x) for x in saida]
+
+
+def intervalos_por_membro(cards, acoes_board, membros_map=None, agora=None):
+    """{username: [(ini, fim)]} em hora local — trechos com ao menos um cartao
+    EM ANDAMENTO atribuido aquela pessoa.
+
+    Diferente de tempos_dos_cartoes, que reparte o minuto entre cartoes
+    simultaneos: aqui interessa so SE havia algum cartao ativo, nao quantos.
+    """
+    membros_map = membros_map or {}
+    agora = agora or datetime.now(timezone.utc)
+    por_membro = {}
+    for c in cards:
+        acoes_c = acoes_board.get(c["id"], [])
+        for s in intervalos_do_cartao(acoes_c, agora, c.get("idMembers"),
+                                      labels_do_card(c)):
+            for m in s["membros"]:
+                ator = membros_map.get(m, m)
+                por_membro.setdefault(ator, []).append(
+                    (s["ini"].astimezone(FUSO), s["fim"].astimezone(FUSO)))
+    return {u: _unir(v) for u, v in por_membro.items()}
+
+
+def _buracos(janelas, ativos):
+    """Trechos das janelas que NAO estao cobertos pelos ativos."""
+    ativos = _unir(ativos)
+    saida = []
+    for jini, jfim in sorted(janelas, key=lambda x: x[0]):
+        cursor = jini
+        for aini, afim in ativos:
+            if afim <= cursor or aini >= jfim:
+                continue
+            if aini > cursor:
+                saida.append((cursor, min(aini, jfim)))
+            cursor = max(cursor, afim)
+            if cursor >= jfim:
+                break
+        if cursor < jfim:
+            saida.append((cursor, jfim))
+    return saida
+
+
+def ociosidade_do_dia(janelas, ativos, graca_inicio=None, graca_entre=None):
+    """Minutos ociosos de um dia. Devolve (minutos, detalhe_dos_buracos).
+
+    janelas: trechos de expediente efetivo, do relogio de ponto (entrada ate a
+             saida para o almoco, e a volta ate a saida do dia).
+    ativos:  trechos com cartao EM ANDAMENTO da pessoa.
+
+    O buraco que comeca junto com o expediente tem 10 minutos de folga — e o
+    tempo de sentar e abrir o Trello. Os demais tem 5, que e a troca de uma
+    demanda para a outra. So o que passa disso e ocioso.
+    """
+    graca_inicio = GRACA_INICIO_MIN if graca_inicio is None else graca_inicio
+    graca_entre = GRACA_ENTRE_MIN if graca_entre is None else graca_entre
+    if not janelas:
+        return 0.0, []
+    inicio_dia = min(j[0] for j in janelas)
+    total, detalhe = 0.0, []
+    for ini, fim in _buracos(janelas, ativos):
+        bruto = (fim - ini).total_seconds() / 60
+        folga = graca_inicio if ini <= inicio_dia else graca_entre
+        ocioso = max(bruto - folga, 0.0)
+        total += ocioso
+        if ocioso > 0:
+            detalhe.append({"ini": ini, "fim": fim, "minutos": ocioso,
+                            "folga": folga})
+    return total, detalhe
+
+
 def tempos_dos_cartoes(cards, acoes_board, membros_map=None, agora=None):
     """Minutos de trabalho por cartão e por pessoa.
 
@@ -1345,6 +1438,10 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
         "total_concl": 0,     # total de cartões concluídos no mês
         "concluido_sem_membro": [],  # cartões concluídos no mês sem membro atribuído
         "tempo_membro_lista": {},  # membro -> coluna -> [minutos] (medido por etiqueta)
+        # membro -> [(ini, fim)] com cartao EM ANDAMENTO. E a linha do tempo que
+        # a ociosidade precisa: sem ela so da para subtrair totais, e as folgas
+        # de 10 e de 5 minutos exigem saber QUANDO cada buraco aconteceu.
+        "intervalos_membro": {},
     }
 
     # O rateio entre cartões simultâneos precisa enxergar o board inteiro, então
@@ -1355,6 +1452,8 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
     # paginas: perder o registro de conclusao de um cartao muito antigo apenas o
     # deixa de fora do mes, que ja e o comportamento seguro.
     _acoes_mov = acoes_movimento(_desde, max_paginas=5)
+    d["intervalos_membro"] = intervalos_por_membro(
+        cards, _buscar_acoes_board(_desde), membros_map)
     _conclusoes = datas_de_conclusao(_acoes_mov)
     _entradas = entradas_na_coluna(_acoes_mov)
     try:

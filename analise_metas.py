@@ -620,7 +620,11 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
             }
             p_mes, _diag_pont = _rp.get_pontualidade_mes(*ym, com_diagnostico=True)
             _diags_pont.append((ym, _diag_pont))
-            o_mes = _rp.get_ociosidade_mes(ym[0], ym[1], tc_mes)
+            _iv_mes = {}
+            for _r in dados:
+                if _r.get("filtro_mes") == ym:
+                    _iv_mes.update(_r.get("intervalos_membro") or {})
+            o_mes = _rp.get_ociosidade_mes(ym[0], ym[1], tc_mes, _iv_mes)
             for u in membros_ativos:
                 p = p_mes.get(u)
                 if p:
@@ -704,7 +708,8 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
                    else "#EDA100" if pct_ocio <= limite * 2 else "#E34948")
             st.markdown(_meta_ind_item(
                 rotulo, barra,
-                f"{o['cards']/60:.1f}h em cartões de {o['disp']/60:.1f}h disponíveis"
+                f"{o['disp']/60:.1f}h cobradas no mês (jornada menos 1h/dia "
+                f"de pausa pessoal)"
                 + (" · dentro da meta" if pct_ocio <= limite
                    else f" · {pct_ocio - limite:.1f} pontos acima da meta"),
                 cor=cor, valor_texto=f"{pct_ocio:.1f}%"
@@ -1759,7 +1764,11 @@ def _chart_resumo_colabs(dados):
                     _tc_user[u] = _tc_user.get(u, 0) + sum(
                         t for ts in por_col.values() for t in ts
                     )
-            _res = _rp.get_ociosidade_mes(_ano, _mes, _tc_user)
+            _iv_user = {}
+            for r in dados:
+                if r.get("filtro_mes") == ym:
+                    _iv_user.update(r.get("intervalos_membro") or {})
+            _res = _rp.get_ociosidade_mes(_ano, _mes, _tc_user, _iv_user)
             for u in users:
                 _ocio_mb[u]  += _res[u]["ociosidade_min"]
                 _tol_mb[u]   += _res[u].get("qtd_tolerancias", 0)
