@@ -54,6 +54,13 @@ COLUNAS_CONFIG = {
     "CHAT (PROBLEMAS-30)":                            {"prioridade":5, "tempo_min":120},
     "DEMANDAS BLING":                                 {"prioridade":5, "tempo_min":150},
     "VARIAÇÃO DE ANÚNCIO (20)":                       {"prioridade":4, "tempo_min":120},
+    # "espera_h" e tempo de terceiro, nao de execucao: o cartao fica fora da
+    # fila enquanto se aguarda a resposta da plataforma e so aparece quando o
+    # prazo esta vencendo. Sem isso, 36 horas de espera entrariam na conta como
+    # 36 horas de trabalho da equipe.
+    "CONFERENCIA DE CHAMADOS (20)":                   {"prioridade":6, "tempo_min":30,
+                                                       "espera_h":36},
+    "CORREÇÕES/RETRABALHOS: 0 PONTOS":                {"prioridade":7, "tempo_min":120},
 }
 COLUNAS_SKIP = {
     "TABELA DE PONTUAÇÃO","TRIAGEM","PENALIDADES",
@@ -83,7 +90,8 @@ def _buscar_board():
     listas = {l["id"]: l["name"] for l in r_l.json()} if r_l.ok else {}
     r_c = requests.get(f"{base}/boards/{BOARD_ID}/cards", params={
         **auth,
-        "fields": "id,name,idList,idMembers,labels,dueComplete,customFieldItems,dateLastActivity",
+        "fields": ("id,name,idList,idMembers,labels,due,dueComplete,"
+                   "customFieldItems,dateLastActivity"),
         "customFieldItems": "true",
     })
     cards = r_c.json() if r_c.ok else []
@@ -149,6 +157,13 @@ ULTIMO_DIAGNOSTICO_ACOES = {
     "erro": None, "paginas": 0, "acoes": 0, "cartoes": 0, "http": None,
 }
 
+# Por que um cartao com historico acaba com tempo zero. Sem estes numeros, "161
+# cartoes concluidos, nenhum com tempo medido" nao diz onde a conta se perde.
+ULTIMO_DIAGNOSTICO_TEMPOS = {
+    "cards": 0, "com_acoes": 0, "com_trecho": 0, "com_tempo_util": 0,
+    "com_membro": 0, "etiquetas_vistas": {},
+}
+
 
 def _buscar_acoes_board(desde_iso=None, max_paginas=10):
     """Histórico de etiquetas e membros do board inteiro, agrupado por cartão.
@@ -181,7 +196,7 @@ def _buscar_acoes_board(desde_iso=None, max_paginas=10):
     for _ in range(max_paginas):
         params = {**auth,
                   "filter": ("addLabelToCard,removeLabelFromCard,"
-                             "addMemberToCard,removeMemberFromCard"),
+                             "addMemberToCard,removeMemberFromCard,updateCard"),
                   "limit": 1000}
         if desde_iso:
             params["since"] = desde_iso
@@ -379,11 +394,23 @@ def tempos_dos_cartoes(cards, acoes_board, membros_map=None, agora=None):
     membros_map = membros_map or {}
     agora = agora or datetime.now(timezone.utc)
 
+    diag = ULTIMO_DIAGNOSTICO_TEMPOS
+    diag.update({"cards": len(cards), "com_acoes": 0, "com_trecho": 0,
+                 "com_tempo_util": 0, "com_membro": 0, "etiquetas_vistas": {}})
+
     brutos, bruto_min = {}, {}
     for c in cards:
-        segs = intervalos_do_cartao(
-            acoes_board.get(c["id"], []), agora, c.get("idMembers"))
+        acoes_c = acoes_board.get(c["id"], [])
+        if acoes_c:
+            diag["com_acoes"] += 1
+            for ac in acoes_c:
+                nome = ((ac.get("data") or {}).get("label") or {}).get("name")
+                if nome:
+                    n = nome.upper().strip()
+                    diag["etiquetas_vistas"][n] = diag["etiquetas_vistas"].get(n, 0) + 1
+        segs = intervalos_do_cartao(acoes_c, agora, c.get("idMembers"))
         if segs:
+            diag["com_trecho"] += 1
             brutos[c["id"]] = segs
 
     # ator = username do membro na época; "" quando o cartão não tinha membro
@@ -416,6 +443,10 @@ def tempos_dos_cartoes(cards, acoes_board, membros_map=None, agora=None):
     resultado = {}
     for cid in brutos:
         fatias = por_membro.get(cid, {})
+        if fatias:
+            diag["com_tempo_util"] += 1
+        if any(u for u in fatias):
+            diag["com_membro"] += 1
         # Total do cartão = quanto tempo UMA pessoa gastou nele. Dois membros
         # trabalhando juntos não fazem o cartão durar o dobro.
         total = max(fatias.values()) if fatias else 0.0
@@ -468,6 +499,123 @@ def tempo_execucao_min(card_id, acoes_board=None):
     return minutos, primeiro_membro
 
 
+# Colunas que existem no Trello mas nao estao em COLUNAS_CONFIG. O codigo pulava
+# esses cartoes por completo — sem fila, sem alerta, sem atraso — e em silencio.
+# Basta alguem criar ou renomear uma coluna no Trello para o trabalho dela sumir
+# do painel sem ninguem perceber.
+COLUNAS_DESCONHECIDAS = set()
+
+CFG_PADRAO_COLUNA = {"prioridade": 5, "tempo_min": 60}
+
+
+# Quantas horas antes de a espera vencer o cartao aparece na fila, para alguem
+# pegar assim que a resposta chegar.
+MARGEM_ENTRA_FILA_H = 2
+
+
+def entradas_na_coluna(acoes_board):
+    """{card_id: datetime} da ultima vez que o cartao mudou de coluna."""
+    entrada = {}
+    for cid, acoes in (acoes_board or {}).items():
+        for ac in acoes:
+            if ac.get("type") != "updateCard":
+                continue
+            if not (ac.get("data") or {}).get("listAfter"):
+                continue
+            try:
+                dt = datetime.fromisoformat(ac["date"].replace("Z", "+00:00"))
+            except Exception:
+                continue
+            if cid not in entrada or dt > entrada[cid]:
+                entrada[cid] = dt
+    return entrada
+
+
+def _criacao_card(card):
+    """Data de criacao, extraida do proprio id do cartao."""
+    cid = card.get("id", "")
+    if len(cid) >= 8:
+        try:
+            return datetime.fromtimestamp(int(cid[:8], 16), timezone.utc)
+        except Exception:
+            pass
+    return None
+
+
+def espera_restante_h(card, nome_lista, entradas=None):
+    """Horas que faltam para a espera de terceiro vencer. None se a coluna nao espera."""
+    horas = cfg_coluna(nome_lista).get("espera_h")
+    if not horas:
+        return None
+    inicio = (entradas or {}).get(card.get("id")) or _criacao_card(card)
+    if not inicio:
+        return None
+    passadas = (datetime.now(timezone.utc) - inicio).total_seconds() / 3600
+    return horas - passadas
+
+
+def aguardando_terceiro(card, nome_lista, entradas=None):
+    """Se o cartao ainda esta no prazo de espera e nao deve ocupar a fila."""
+    restante = espera_restante_h(card, nome_lista, entradas)
+    return restante is not None and restante > MARGEM_ENTRA_FILA_H
+
+
+def _data_entrega(card):
+    """Data de entrega do cartao (campo `due` do Trello), ou None."""
+    d = card.get("due")
+    if not d:
+        return None
+    try:
+        return datetime.fromisoformat(str(d).replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def _card_atrasado(card, nome_lista, tempos=None, entradas=None):
+    """Cartao aberto esta atrasado se passou da entrega OU do tempo estimado.
+
+    Sao coisas diferentes: um cartao pode estourar o prazo sem ninguem ter
+    trabalhado nele, e outro pode consumir o dobro do tempo previsto ainda
+    dentro do prazo. Os dois merecem alerta.
+    """
+    if aguardando_terceiro(card, nome_lista, entradas):
+        return False
+    entrega = _data_entrega(card)
+    if entrega and datetime.now(timezone.utc) > entrega:
+        return True
+    est = cfg_coluna(nome_lista).get("tempo_min") or 0
+    decorrido = (tempos or {}).get(card.get("id"), {}).get("total", 0.0)
+    return est > 0 and decorrido > est
+
+
+def cfg_coluna(nome_lista):
+    """Configuracao da coluna, com a planilha mandando sobre o codigo.
+
+    Ordem: o que o gestor editou na planilha > os valores de origem no codigo >
+    o padrao. Coluna que nao esta em lugar nenhum fica registrada, para virar
+    aviso em vez de sumir.
+    """
+    base = dict(COLUNAS_CONFIG.get(nome_lista) or {})
+    try:
+        import colunas_config as _cc
+        editado = _cc.carregar().get(nome_lista)
+    except Exception:
+        editado = None
+    if editado:
+        base.update(editado)
+    if base:
+        return base
+    if nome_lista and nome_lista not in COLUNAS_SKIP:
+        COLUNAS_DESCONHECIDAS.add(nome_lista)
+    return dict(CFG_PADRAO_COLUNA)
+
+
+def colunas_do_board():
+    """Nomes das colunas que existem no Trello agora, fora as ignoradas."""
+    listas = (_buscar_board() or (None,))[0] or {}
+    return sorted(n for n in listas.values() if n and n not in COLUNAS_SKIP)
+
+
 def _num(card, id_c):
     if not id_c:
         return None
@@ -496,16 +644,59 @@ def _data_card(card):
             pass
     return datetime.now(timezone.utc)
 
-def _mes_card(card):
-    """Mês do cartão pela última atividade — usado para cartões CONCLUÍDOS (quando foi feito)."""
+def datas_de_conclusao(acoes_board):
+    """{card_id: datetime} do momento em que cada cartão foi marcado como concluído.
+
+    Vem da ação que virou dueComplete para verdadeiro. Sem isso o mês saía da
+    última atividade do cartão: um cartão concluído em julho que recebesse um
+    comentário em agosto migrava a pontuação para agosto.
+    """
+    fim = {}
+    for cid, acoes in (acoes_board or {}).items():
+        for ac in acoes:
+            if ac.get("type") != "updateCard":
+                continue
+            dados = ac.get("data", {}) or {}
+            if (dados.get("old") or {}).get("dueComplete") is False and \
+               (dados.get("card") or {}).get("dueComplete") is True:
+                try:
+                    dt = datetime.fromisoformat(ac["date"].replace("Z", "+00:00"))
+                except Exception:
+                    continue
+                # Mais de uma? Vale a última — reabrir e concluir de novo conta
+                # como concluído na segunda vez.
+                if cid not in fim or dt > fim[cid]:
+                    fim[cid] = dt
+    return fim
+
+
+def _mes_card(card, conclusoes=None, inicio_janela=None):
+    """Mês em que o cartão foi CONCLUÍDO. None quando não dá para saber.
+
+    A pontuação só pode contar no mês da conclusão. Editar ou comentar um cartão
+    antigo não pode trazer os pontos dele para o mês atual.
+
+    Quando não há registro de conclusão dentro da janela de histórico, a última
+    atividade só serve se ela também for anterior à janela — aí ninguém mexeu no
+    cartão desde então e ela equivale à conclusão. Se o cartão foi tocado dentro
+    da janela sem ter sido concluído nela, a conclusão é mais antiga que o
+    histórico: devolve None, e o cartão fica de fora do mês analisado em vez de
+    pontuar de novo.
+    """
+    dt_fim = (conclusoes or {}).get(card.get("id"))
+    if dt_fim:
+        return (dt_fim.year, dt_fim.month)
+
     d = card.get("dateLastActivity", "")
-    if d:
-        try:
-            dt = datetime.fromisoformat(d.replace("Z", "+00:00"))
-            return (dt.year, dt.month)
-        except Exception:
-            pass
-    return None
+    if not d:
+        return None
+    try:
+        dt = datetime.fromisoformat(d.replace("Z", "+00:00"))
+    except Exception:
+        return None
+    if inicio_janela and dt >= inicio_janela:
+        return None
+    return (dt.year, dt.month)
 
 def _mes_card_criacao(card):
     """Mês do cartão pela data de CRIAÇÃO (ID Trello = ObjectID MongoDB) —
@@ -528,17 +719,22 @@ def _fmt_tempo(m):
     return f"{h}h{mm:02d}" if mm > 0 else f"{h}h"
 
 def _calcular_fila(listas, cards, membros_map):
+    _entradas_fila = entradas_na_coluna(_buscar_acoes_board(_desde_padrao()))
     pendentes = []
     for card in cards:
         nl = listas.get(card["idList"], "")
-        if nl in COLUNAS_SKIP or nl not in COLUNAS_CONFIG:
+        if nl in COLUNAS_SKIP:
             continue
         if card.get("dueComplete", False):
             continue
         lb = _labels(card)
         if "EM ANDAMENTO" in lb:
             continue
-        cfg = COLUNAS_CONFIG[nl]
+        # Espera de terceiro nao e trabalho: o cartao so entra na fila quando o
+        # prazo esta vencendo.
+        if aguardando_terceiro(card, nl, _entradas_fila):
+            continue
+        cfg = cfg_coluna(nl)
         us = _users(card, membros_map)
         pendentes.append({
             "nome": card["name"], "lista": nl,
@@ -583,6 +779,13 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
     # os tempos são calculados de uma vez, antes do laço.
     _desde = _desde_padrao()
     _tempos = tempos_do_board(cards, membros_map, _desde)
+    _acoes_proc = _buscar_acoes_board(_desde)
+    _conclusoes = datas_de_conclusao(_acoes_proc)
+    _entradas = entradas_na_coluna(_acoes_proc)
+    try:
+        _janela_ini = datetime.fromisoformat(_desde.replace("Z", "+00:00"))
+    except Exception:
+        _janela_ini = None
 
     for card in cards:
         nl = listas.get(card["idList"], "")
@@ -620,13 +823,10 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
             d["abertos"] += 1
             if "URGENTE" in lb or "URGENTES" in nl.upper():
                 d["urgentes"] += 1
-            # A etiqueta ATRASADO foi retirada do board: o atraso agora sai do
-            # tempo medido. Cartão aberto que já passou do tempo estimado da
-            # coluna está atrasado. Sem essa troca o contador ficaria em zero
-            # para sempre, parecendo "tudo em dia".
-            _est = COLUNAS_CONFIG.get(nl, {}).get("tempo_min") or 0
-            _decorrido = _tempos.get(card["id"], {}).get("total", 0.0)
-            if _est > 0 and _decorrido > _est:
+            # Atraso, agora com dois criterios. So o tempo de execucao nao
+            # bastava: cartao que ninguem tocou tem tempo zero e nunca ficava
+            # atrasado, mesmo aberto ha semanas.
+            if _card_atrasado(card, nl, _tempos, _entradas):
                 d["atrasados"] += 1
             if "FALTA CONFERÊNCIA" in lb:
                 d["falta_conf"] += 1
@@ -649,8 +849,9 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
 
         # ── CARTÃO CONCLUÍDO ───────────────────────────────────────────────────
         if filtro_mes:
-            mc = _mes_card(card)
-            if mc and mc != filtro_mes:
+            # Sem mes de conclusao confiavel, o cartao fica FORA do mes
+            # analisado. Errar para menos e melhor que pontuar duas vezes.
+            if _mes_card(card, _conclusoes, _janela_ini) != filtro_mes:
                 continue
 
         _t = _tempos.get(card["id"], {})

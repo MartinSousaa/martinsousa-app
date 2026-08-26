@@ -451,6 +451,23 @@ def _diagnostico_metas_individuais(tem_ponto, sem_exec, diags_pont, erro_pont, d
             _concl = sum(r.get("total_concl", 0) for r in dados)
             st.caption(f"{_concl} cartão(ões) concluído(s) no período analisado.")
 
+            _dt = getattr(_pc, "ULTIMO_DIAGNOSTICO_TEMPOS", {})
+            if _dt:
+                st.markdown(
+                    f"- {_dt.get('cards',0)} cartão(ões) no board · "
+                    f"**{_dt.get('com_acoes',0)}** com histórico · "
+                    f"**{_dt.get('com_trecho',0)}** com trecho de trabalho · "
+                    f"**{_dt.get('com_tempo_util',0)}** com tempo dentro do expediente · "
+                    f"**{_dt.get('com_membro',0)}** atribuídos a alguém"
+                )
+                _et = _dt.get("etiquetas_vistas") or {}
+                if _et:
+                    st.caption("Etiquetas vistas no histórico (nome exato · vezes):")
+                    st.code("\n".join(
+                        f"{n}  ·  {q}" for n, q in
+                        sorted(_et.items(), key=lambda x: -x[1])[:15]
+                    ))
+
 
 # ── Seção: meta individual por colaborador ────────────────────────────────────
 
@@ -471,6 +488,18 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
     # Agrega pontos do período completo (sem penalidades — penalidades são coletivas)
     pts_total  = {u: sum(r["pts_membro"].get(u, 0) for r in dados) for u in membros_ativos}
     meta_total = {u: sum(r["cfg"].get(f"meta_{u}", 1500) for r in dados) for u in membros_ativos}
+
+    # Meta MAXX individual. Quando nao ha valor proprio, usa a mesma porcentagem
+    # da MAXX coletiva sobre a meta individual — que era o que ja acontecia na
+    # pratica, so que sem nunca aparecer na tela.
+    def _maxx_do_mes(r, u):
+        proprio = r["cfg"].get(f"meta_maxx_{u}") or 0
+        if proprio:
+            return proprio
+        pct = r["cfg"].get("meta_maxx_pct", 110)
+        return r["cfg"].get(f"meta_{u}", 1500) * pct / 100
+
+    maxx_total = {u: sum(_maxx_do_mes(r, u) for r in dados) for u in membros_ativos}
 
     # Monitoramento em tempo real: os dados têm cache curto (30s a 5min) para não
     # bater na API a cada clique; este botão descarta tudo e relê na hora.
@@ -560,6 +589,16 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
             f"{'✅ Meta atingida!' if pct_pts >= 100 else f'Faltam {meta - pts:,.0f} pts'}",
             cor=cor_pts
         ), unsafe_allow_html=True)
+        meta_mx = maxx_total.get(username, 0)
+        if meta_mx > 0:
+            pct_mx = min(pts / meta_mx * 100, 100)
+            falta_mx = meta_mx - pts
+            st.markdown(_meta_ind_item(
+                "⭐ Meta MAXX Individual", pct_mx,
+                f"{pts:,.0f} / {meta_mx:,.0f} pts · "
+                + ("✅ MAXX atingida!" if falta_mx <= 0 else f"Faltam {falta_mx:,.0f} pts"),
+                cor="#EDA100"
+            ), unsafe_allow_html=True)
         # ── Ociosidade ────────────────────────────────────────────────────────
         o = _ocio.get(username, {"disp": 0.0, "cards": 0.0})
         if _tem_ponto and o["disp"] > 0:
@@ -1758,6 +1797,82 @@ def _aba_desempenho(dados, dados_ano_full=None):
 
 # ── Seção: configuração de metas ──────────────────────────────────────────────
 
+def _secao_colunas(dados):
+    """Prioridade, tempo estimado e espera de cada coluna — editáveis pelo gestor.
+
+    Mostra ao lado a média REAL medida pelas etiquetas, para a calibragem sair do
+    dado e não do chute. O estimado continua sendo a meta que o gestor define: se
+    ele se ajustasse sozinho à média, time devagar viraria meta devagar.
+    """
+    import colunas_config as _cc
+
+    st.markdown("##### 🗂️ Colunas do Trello")
+    st.caption(
+        "O tempo estimado é **sua meta**, não uma média automática. A média real "
+        "medida aparece ao lado para você calibrar. **Espera** é tempo de terceiro "
+        "(ex.: 36h de retorno da plataforma): não conta como trabalho e segura o "
+        "cartão fora da fila até o prazo estar vencendo."
+    )
+
+    # Média real por coluna, do período analisado
+    reais = {}
+    for r in dados:
+        for nl, tempos in (r.get("tempo_lista") or {}).items():
+            reais.setdefault(nl, []).extend(tempos)
+
+    try:
+        do_board = _pc.colunas_do_board()
+    except Exception:
+        do_board = []
+    todas = sorted(set(do_board) | set(_pc.COLUNAS_CONFIG) | set(_cc.carregar()))
+    if not todas:
+        st.info("Não consegui listar as colunas do Trello agora.")
+        return
+
+    novas = [c for c in do_board if c not in _pc.COLUNAS_CONFIG and c not in _cc.carregar()]
+    if novas:
+        st.warning(
+            "**Colunas novas no Trello, ainda sem configuração:** "
+            + ", ".join(novas)
+            + ". Estão rodando com prioridade 5 e 1h de tempo estimado."
+        )
+
+    for nome in todas:
+        cfg = _pc.cfg_coluna(nome)
+        medidos = reais.get(nome) or []
+        media = (sum(medidos) / len(medidos)) if medidos else None
+        rotulo = nome if len(nome) <= 44 else nome[:43] + "…"
+        real_txt = (f"{media/60:.1f}h real ({len(medidos)} cartões)"
+                    if media else "sem medição no período")
+
+        with st.expander(f"{rotulo}  ·  {real_txt}", expanded=False):
+            c1, c2, c3, c4 = st.columns([1, 1, 1, 1])
+            p = c1.number_input("Prioridade", 0, 10, int(cfg.get("prioridade", 5)),
+                                key=f"col_p_{nome}")
+            t = c2.number_input("Tempo estimado (min)", 0, 2000,
+                                int(cfg.get("tempo_min", 60)), step=10,
+                                key=f"col_t_{nome}")
+            e = c3.number_input("Espera de terceiro (h)", 0, 336,
+                                int(cfg.get("espera_h") or 0), step=1,
+                                key=f"col_e_{nome}")
+            if media:
+                delta = media - t
+                cor = "#1BAF7A" if delta <= 0 else "#E34948"
+                c4.markdown(
+                    f'<div style="font-size:11px;color:var(--ms-texto-sec);margin-top:28px;">'
+                    f'Real: <b style="color:{cor};">{media:.0f}min</b><br>'
+                    f'{"dentro" if delta <= 0 else f"+{delta:.0f}min acima"} do estimado</div>',
+                    unsafe_allow_html=True,
+                )
+            if st.button("Salvar", key=f"col_s_{nome}", use_container_width=True):
+                try:
+                    _cc.salvar(nome, p, t, e or None)
+                    st.success(f"{rotulo} salva.")
+                    st.rerun()
+                except Exception as ex:
+                    st.error(f"Não consegui salvar: {str(ex)[:200]}")
+
+
 def _secao_configuracao():
     st.markdown("#### ⚙️ Configurar Metas por Mês")
     st.caption("Configure as metas de qualquer mês, inclusive meses futuros. As configurações são salvas automaticamente no banco de dados.")
@@ -1801,6 +1916,25 @@ def _secao_configuracao():
         )
         nova_cfg["meta_gabriel_borges"] = c3.number_input(
             "Gabriel (pts)", min_value=0, value=int(cfg_atual["meta_gabriel_borges"]), step=100
+        )
+
+        st.markdown("##### ⭐ Meta MAXX individual")
+        st.caption(
+            "Deixe em 0 para usar a mesma porcentagem da MAXX coletiva sobre a meta "
+            "individual de cada um. Preencha para definir um valor próprio."
+        )
+        m1, m2, m3 = st.columns(3)
+        nova_cfg["meta_maxx_myrelladesouza"] = m1.number_input(
+            "Myrella — MAXX (pts)", min_value=0,
+            value=int(cfg_atual.get("meta_maxx_myrelladesouza", 0)), step=100
+        )
+        nova_cfg["meta_maxx_beatriz51"] = m2.number_input(
+            "Beatriz — MAXX (pts)", min_value=0,
+            value=int(cfg_atual.get("meta_maxx_beatriz51", 0)), step=100
+        )
+        nova_cfg["meta_maxx_gabriel_borges"] = m3.number_input(
+            "Gabriel — MAXX (pts)", min_value=0,
+            value=int(cfg_atual.get("meta_maxx_gabriel_borges", 0)), step=100
         )
 
         st.markdown("##### ⚠️ Limites de Penalidade")
@@ -2070,5 +2204,7 @@ def pagina_analise_metas(usuario_logado):
     elif _aba_sel == _ABAS[3]:
         if _eh_master:
             _secao_configuracao()
+            st.markdown("---")
+            _secao_colunas(dados)
         else:
             st.warning("🔒 Configuração de metas restrita ao gestor.")

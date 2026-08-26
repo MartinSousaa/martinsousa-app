@@ -1213,6 +1213,41 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
             f"\nPRODUCT CONTEXT (reference only — do NOT render as text in the image):\n{_colaborador_contexto}"
         )
 
+    # ── AJUSTE FINO: editar, nao recriar ─────────────────────────────────────
+    # O prompt de ajuste fino era descartado aqui. Este trecho remonta um prompt
+    # de CRIACAO a partir de pedacos extraidos por regex ("TIPO DE IMAGEM:",
+    # "CONTEXTO INTERNO..."), que o prompt de ajuste nao tem. Resultado: a
+    # instrucao do colaborador — "deixe o album mais reto, com o weri-o virado a
+    # direita" — nao chegava ao modelo, e ele recebia apenas "crie uma imagem de
+    # produto sobre fundo branco". Por isso a foto voltava recomposta, com objetos
+    # que ninguem pediu, e sem a mudanca solicitada.
+    _prompt_ajuste = None
+    if "MODO AJUSTE FINO" in prompt_texto:
+        _m_instr = _re.search(
+            r"MODIFICAÇÃO SOLICITADA[^\n]*:\n(.*?)(?=\n[A-ZÀ-Ú][A-ZÀ-Ú ]{4,}|\Z)",
+            prompt_texto, _re.DOTALL
+        )
+        _instr_edicao = (_m_instr.group(1).strip() if _m_instr else "").strip()
+
+        prompt_geracao = (
+            "EDIT the provided image. This is not a new image — it is a surgical "
+            "edit of the image supplied as reference.\n\n"
+            "━━━ THE ONLY CHANGE TO MAKE ━━━\n"
+            f"{_instr_edicao or '(no instruction provided)'}\n\n"
+            "━━━ EVERYTHING ELSE IS UNTOUCHABLE ━━━\n"
+            "- Keep the exact same product, colors, materials, lighting and framing\n"
+            "- Do NOT add, remove or move any object that the instruction did not mention\n"
+            "- Do NOT recompose, re-stage or re-render the scene from scratch\n"
+            "- Do NOT add props, accessories, pens, pencils, plants, hands or decorations\n"
+            "- Do NOT change the background style\n\n"
+            f"BACKGROUND (must stay as it is): {_background}\n"
+            f"TEXT RULE: {_text_rule}\n\n"
+            "Return the same image with the single requested change applied. "
+            "If the change is about position, angle or orientation of the product, "
+            "reposition the product itself — do not compensate by changing anything else."
+        )
+        _prompt_ajuste = prompt_geracao
+
     prompt_geracao = (
         f"Create a professional e-commerce marketing image.\n\n"
         f"IMAGE TYPE: {_tipo_str}\n\n"
@@ -1263,6 +1298,11 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
         f"- All text visible in the image must be in Brazilian Portuguese\n"
         f"- Generate a completely new professional image — not a literal copy of any reference photo"
     )
+
+    # Ajuste fino manda sobre o prompt de criacao: aqui a imagem ja existe e o
+    # pedido e cirurgico, nao "crie uma imagem de produto".
+    if _prompt_ajuste:
+        prompt_geracao = _prompt_ajuste
 
     # 3.5 Referência de layout desta peça, escolhida pelo nome do arquivo.
     #

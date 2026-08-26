@@ -254,16 +254,24 @@ def _mes_card_criacao(card):
 
 # ── FILA ───────────────────────────────────────────────────────────────────────
 def _calcular_fila(listas,cards,membros_map):
+    import placar_core as _pc_ent
+    _entradas_tv = _pc_ent.entradas_na_coluna(
+        _pc_ent._buscar_acoes_board(_pc_ent._desde_padrao()))
     pendentes=[]
     for card in cards:
         nl=listas.get(card["idList"],"")
-        if nl in COLUNAS_SKIP or nl not in COLUNAS_CONFIG: continue
+        if nl in COLUNAS_SKIP: continue
         if card.get("dueComplete",False): continue
         lb=_labels(card)
         if "EM ANDAMENTO" in lb: continue
-        cfg=COLUNAS_CONFIG[nl]
+        import placar_core as _pc_fila
+        # Espera de terceiro (ex.: 36h de retorno da plataforma) nao ocupa a
+        # fila: o cartao aparece quando o prazo esta vencendo.
+        if _pc_fila.aguardando_terceiro(card, nl, _entradas_tv): continue
+        cfg=_pc_fila.cfg_coluna(nl)
         us=_users(card,membros_map)
         pendentes.append({
+            "card_id":card["id"],
             "nome":card["name"],"lista":nl,
             "prioridade":cfg["prioridade"],"tempo_min":cfg["tempo_min"],
             "data":_data_card(card),
@@ -281,10 +289,35 @@ def _calcular_fila(listas,cards,membros_map):
             _cv_count += 1
         _filtrado.append(p)
     pendentes = _filtrado
-    acum=0
-    for i,p in enumerate(pendentes):
-        p["posicao"]=i+1; acum+=p["tempo_min"]; p["eta_min"]=acum
+    # A previsao supunha UMA pessoa fazendo tudo em serie. Com tres
+    # colaboradores, a fila anda em paralelo e o numero saia ~3x maior do que a
+    # espera real.
+    _equipe = max(len(MEMBROS_ATIVOS), 1)
+    acum = 0
+    for i, p in enumerate(pendentes):
+        p["posicao"] = i + 1
+        acum += p["tempo_min"]
+        p["eta_serie_min"] = acum          # se uma pessoa so fizesse tudo
+        p["eta_min"] = acum / _equipe      # com a equipe trabalhando junto
+        p["entrega"] = _data_entrega_card(p["card_id"], cards)
+        p["estoura_prazo"] = _estoura_prazo(p["entrega"], p["eta_min"])
     return pendentes
+
+
+def _data_entrega_card(card_id, cards):
+    for c in cards:
+        if c.get("id") == card_id:
+            import placar_core as _pc_dt
+            return _pc_dt._data_entrega(c)
+    return None
+
+
+def _estoura_prazo(entrega, eta_min):
+    """Se a fila nao alcanca o prazo: previsao de inicio + execucao passa da entrega."""
+    if not entrega:
+        return False
+    from datetime import timedelta as _td
+    return datetime.now(timezone.utc) + _td(minutes=eta_min) > entrega
 
 def _fmt_tempo(m):
     if m<60: return f"{int(m)}min"
@@ -541,7 +574,7 @@ def _alertas_tv_list(listas, cards, membros_map):
 
     for card in cards:
         nl = listas.get(card["idList"], "")
-        if nl in COLUNAS_SKIP or nl not in COLUNAS_CONFIG:
+        if nl in COLUNAS_SKIP:
             continue
         lb = _labels(card)
         us = _users(card, membros_map)
@@ -558,12 +591,12 @@ def _alertas_tv_list(listas, cards, membros_map):
 
     for card in cards:
         nl = listas.get(card["idList"], "")
-        if nl in COLUNAS_SKIP or nl not in COLUNAS_CONFIG:
+        if nl in COLUNAS_SKIP:
             continue
 
         lb          = _labels(card)
         us          = _users(card, membros_map)
-        cfg         = COLUNAS_CONFIG.get(nl, {})
+        cfg         = _pc_al.cfg_coluna(nl)
         prio        = cfg.get("prioridade", 0)
         tempo_medio = cfg.get("tempo_min", 0)
         concluido   = card.get("dueComplete", False)
@@ -671,6 +704,19 @@ def _alertas_tv_list(listas, cards, membros_map):
             })
 
     alertas.sort(key=lambda x: x["_s"])
+    # Coluna que existe no Trello e nao esta configurada: o trabalho dela ficava
+    # fora do painel inteiro, sem nenhum aviso.
+    _desconhecidas = sorted(_pc_al.COLUNAS_DESCONHECIDAS)
+    for _col in _desconhecidas[:3]:
+        _qtd = sum(1 for c in cards
+                   if listas.get(c["idList"], "") == _col and not c.get("dueComplete"))
+        alertas.append({
+            "tipo": "atencao", "lab": "⚙️ Coluna sem config",
+            "pos": f"{_qtd}", "nome": _col, "col": _col,
+            "detalhe": f"{_qtd} cartao(oes) usando prioridade e tempo padrao",
+            "_s": (1, 0, 0),
+        })
+
     return alertas
 
 def _tv_full_html(
