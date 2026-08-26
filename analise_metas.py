@@ -555,9 +555,11 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
 
     maxx_total = {u: sum(_maxx_do_mes(r, u) for r in dados) for u in membros_ativos}
 
-    # A explicacao vem antes dos numeros: quem abre a tela precisa saber o que
-    # esta olhando e o que aquilo vale em dinheiro.
-    _expl.render()
+    # A explicacao fica DENTRO do card de cada colaborador — e a tela individual
+    # dele. O master ve todos os cards lado a lado, em colunas estreitas onde a
+    # tabela nao caberia, entao para ele vai uma copia so, aqui em cima.
+    if eh_master:
+        _expl.render(expandido=False)
 
     # Monitoramento em tempo real: os dados têm cache curto (30s a 5min) para não
     # bater na API a cada clique; este botão descarta tudo e relê na hora.
@@ -634,11 +636,16 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
         _diagnostico_metas_individuais(_tem_ponto, _sem_exec, _diags_pont,
                                        _erro_pont, dados)
 
-    def _card(username, nome):
+    def _card(username, nome, com_explicacao=False):
         pts  = pts_total.get(username, 0)
         meta = meta_total.get(username, len(dados) * 1500)
+        _chave_sal = f"am_salario_{username}"
 
         st.markdown(f"##### {nome}")
+        if com_explicacao:
+            # O campo de salario mora dentro do painel: um so, alimentando a
+            # tabela de exemplos e a conta real logo abaixo.
+            _expl.render(chave_salario=_chave_sal)
 
         o = _ocio.get(username, {"disp": 0.0, "cards": 0.0})
         e = _exec.get(username, {"dentro": 0, "total": 0})
@@ -741,11 +748,17 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
         # Calculadora de ganhos
         pct_i = min(pts / meta * 100, 100) if meta > 0 else 0
         st.markdown('<div style="margin-top:4px;"></div>', unsafe_allow_html=True)
-        salario = st.number_input(
-            "💰 Informe seu salário base para calcular seus ganhos mensais até o momento:",
-            min_value=0.0, value=0.0, step=100.0, format="%.2f",
-            key=f"am_salario_{username}", label_visibility="visible"
-        )
+        if com_explicacao:
+            salario = float(st.session_state.get(_chave_sal) or 0.0)
+            if salario <= 0:
+                st.caption("💰 Digite seu salário no painel acima para ver seus "
+                           "ganhos deste mês.")
+        else:
+            salario = st.number_input(
+                "💰 Informe seu salário base para calcular seus ganhos mensais até o momento:",
+                min_value=0.0, value=0.0, step=100.0, format="%.2f",
+                key=_chave_sal, label_visibility="visible"
+            )
         if salario > 0:
             # Bônus só entra quando a meta correspondente foi BATIDA (≥100%).
             #
@@ -836,7 +849,7 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
             with cols_mi[i]:
                 _card(u, nome)
     elif usuario_logado in membros_ativos:
-        _card(usuario_logado, membros_ativos[usuario_logado])
+        _card(usuario_logado, membros_ativos[usuario_logado], com_explicacao=True)
     else:
         st.caption("Meta individual disponível apenas para colaboradores e gestores.")
 
