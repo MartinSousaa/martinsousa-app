@@ -213,6 +213,7 @@ def _buscar_acoes_board(desde_iso=None, max_paginas=10, filtro=None,
     janela: 18 mil acoes lidas e nenhum trecho de trabalho encontrado.
     """
     import time as _t
+    global _FILTRO_ETIQUETA_SERVE
     filtro = FILTRO_ETIQUETAS if filtro is None else filtro
     chave = f"{desde_iso or 'tudo'}|{filtro or 'sem-filtro'}|{max_paginas}"
     agora = _t.time()
@@ -223,6 +224,14 @@ def _buscar_acoes_board(desde_iso=None, max_paginas=10, filtro=None,
         # consulta tinha dado certo e só não foi refeita.
         _publicar_diag(filtro, cache.get("diag", {}))
         return cache["data"]
+
+    if filtro == FILTRO_ETIQUETAS and _FILTRO_ETIQUETA_SERVE is False:
+        diag = {"erro": None, "paginas": 0, "acoes": 0, "cartoes": 0, "http": None,
+                "filtro": filtro, "tipos": {}, "direto_sem_filtro": True}
+        por_card = _acoes_sem_filtro(desde_iso, diag)
+        _publicar_diag(filtro, diag)
+        _acoes_cache[chave] = {"ts": agora, "data": por_card, "diag": dict(diag)}
+        return por_card
 
     diag = {"erro": None, "paginas": 0, "acoes": 0, "cartoes": 0, "http": None,
             "filtro": filtro, "tipos": {}}
@@ -281,9 +290,10 @@ def _buscar_acoes_board(desde_iso=None, max_paginas=10, filtro=None,
     # emite addLabelToCard, ou o filtro nao foi respeitado. Em vez de medir zero
     # em silencio, refaz uma vez sem filtro e separa aqui — custa uma consulta a
     # cada cinco minutos e e o que faz o tempo de execucao existir.
-    if (filtro == FILTRO_ETIQUETAS and not diag["erro"]
-            and not any(t in diag["tipos"] for t in TIPOS_ETIQUETA) and not _sem_filtro):
-        por_card = _acoes_sem_filtro(desde_iso, diag)
+    if filtro == FILTRO_ETIQUETAS and not diag["erro"] and not _sem_filtro:
+        _FILTRO_ETIQUETA_SERVE = any(t in diag["tipos"] for t in TIPOS_ETIQUETA)
+        if not _FILTRO_ETIQUETA_SERVE:
+            por_card = _acoes_sem_filtro(desde_iso, diag)
 
     _publicar_diag(filtro, diag)
     _acoes_cache[chave] = {"ts": agora, "data": por_card, "diag": dict(diag)}
@@ -292,6 +302,15 @@ def _buscar_acoes_board(desde_iso=None, max_paginas=10, filtro=None,
 
 TIPOS_ETIQUETA = ("addLabelToCard", "removeLabelFromCard")
 TIPOS_UTEIS = TIPOS_ETIQUETA + ("addMemberToCard", "removeMemberFromCard")
+
+# O parametro filter do Trello nao reconhece addLabelToCard/removeLabelFromCard:
+# ele devolve so as acoes de membro e descarta as de etiqueta em silencio. Era
+# por isso que 314 cartoes tinham historico e NENHUM tinha etiqueta — e, sem
+# etiqueta, nenhum trecho de trabalho e nenhum tempo de execucao.
+#
+# Depois da primeira resposta sem etiqueta, para de insistir na consulta
+# filtrada: ela nao voltaria nada util e custa uma ida ao Trello.
+_FILTRO_ETIQUETA_SERVE = None
 
 
 def _publicar_diag(filtro, diag):
