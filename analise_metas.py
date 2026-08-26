@@ -432,7 +432,10 @@ def _diagnostico_metas_individuais(tem_ponto, sem_exec, diags_pont, erro_pont, d
                         "— é daqui que saem entrada e volta do almoço:"
                     )
                     st.code("\n".join(d["campos_com_hora"]))
-                elif d.get("chaves_exemplo"):
+                if d.get("todos_os_campos"):
+                    st.caption("Todos os campos do dia, com o tipo:")
+                    st.code("\n".join(d["todos_os_campos"]))
+                if not d.get("campos_com_hora") and d.get("chaves_exemplo"):
                     st.caption("Campos devolvidos pela RHiD: " + ", ".join(d["chaves_exemplo"]))
 
         if sem_exec:

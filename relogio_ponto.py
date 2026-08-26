@@ -698,7 +698,8 @@ def _pontualidade_rhid(ano: int, mes: int):
     """
     diag = {"fonte": "RHiD", "erro": None, "pessoas": 0, "mapeadas": 0,
             "dias_com_batida": 0, "chaves_exemplo": [],
-            "campos_com_hora": [], "data_amostra": ""}
+            "campos_com_hora": [], "data_amostra": "",
+            "todos_os_campos": []}
 
     persons = _rhid.get_persons()
     if not persons:
@@ -732,6 +733,8 @@ def _pontualidade_rhid(ano: int, mes: int):
         if d.get("campos_com_hora") and not diag.get("campos_com_hora"):
             diag["campos_com_hora"] = d["campos_com_hora"]
             diag["data_amostra"] = d.get("data_amostra", "")
+        if d.get("todos_os_campos") and not diag.get("todos_os_campos"):
+            diag["todos_os_campos"] = d["todos_os_campos"]
 
         acc = {"tolerancias": 0, "atrasos": 0, "atrasos_entrada": 0,
                "atrasos_almoco": 0, "dias_trabalhados": 0, "ocorrencias": [],
@@ -803,7 +806,8 @@ def get_pontualidade_mes(ano: int, mes: int, com_diagnostico: bool = False):
         via_rhid, diag = {}, {"fonte": "RHiD", "erro": str(e)[:200],
                               "pessoas": 0, "mapeadas": 0,
                               "dias_com_batida": 0, "chaves_exemplo": [],
-                              "campos_com_hora": [], "data_amostra": ""}
+                              "campos_com_hora": [], "data_amostra": "",
+            "todos_os_campos": []}
     if any(v["dias_trabalhados"] > 0 for v in via_rhid.values()):
         completo = {u: via_rhid.get(u, {
             "tolerancias": 0, "atrasos": 0, "atrasos_entrada": 0,
