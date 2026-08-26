@@ -30,9 +30,15 @@ PCT_COLETIVO_MAXX = 18.0
 PCT_INDIVIDUAL_MENSAL = 8.0
 PCT_INDIVIDUAL_MAXX = 12.0
 
-# Salário usado só nos exemplos da tela — número redondo para a conta ficar fácil
-# de acompanhar de cabeça.
+# Salário só para ilustrar quando a pessoa ainda não digitou o dela.
 SALARIO_EXEMPLO = 2000.0
+
+# Os nomes que a equipe usa. A tela inteira fala nestes quatro termos — antes
+# dizia "a parte do time" e "a parte sua", que ninguem reconhecia.
+NOME_COL = "meta coletiva"
+NOME_COL_MAXX = "meta coletiva MAXX"
+NOME_IND = "meta individual"
+NOME_IND_MAXX = "meta individual MAXX"
 
 
 def bonus_percentuais(col_mensal, col_maxx, ind_mensal, ind_maxx):
@@ -50,13 +56,13 @@ def bonus_percentuais(col_mensal, col_maxx, ind_mensal, ind_maxx):
 
 # Os sete cenários possíveis, do pior para o melhor. (o time fez, você fez)
 CENARIOS = [
-    (False, False, False, False, "Não bateu nada",        "Não bateu a sua"),
-    (True,  False, False, False, "Bateu a meta mensal",   "Não bateu a sua"),
-    (False, False, True,  False, "Não bateu",             "Bateu a sua mensal"),
-    (True,  False, True,  False, "Bateu a meta mensal",   "Bateu a sua mensal"),
-    (True,  True,  False, False, "Bateu a meta MAXX",     "Não bateu a sua"),
-    (True,  False, True,  True,  "Bateu a meta mensal",   "Bateu a sua MAXX"),
-    (True,  True,  True,  True,  "Bateu a meta MAXX",     "Bateu a sua MAXX"),
+    (False, False, False, False, "Não bateu",              "Não bateu"),
+    (True,  False, False, False, "Bateu a coletiva",       "Não bateu"),
+    (False, False, True,  False, "Não bateu",              "Bateu a individual"),
+    (True,  False, True,  False, "Bateu a coletiva",       "Bateu a individual"),
+    (True,  True,  False, False, "Bateu a coletiva MAXX",  "Não bateu"),
+    (True,  False, True,  True,  "Bateu a coletiva",       "Bateu a individual MAXX"),
+    (True,  True,  True,  True,  "Bateu a coletiva MAXX",  "Bateu a individual MAXX"),
 ]
 
 
@@ -64,71 +70,97 @@ def _reais(v):
     return f"R$ {v:,.2f}".replace(",", "@").replace(".", ",").replace("@", ".")
 
 
-def _bloco(titulo, emoji, cor, mensal_pct, maxx_pct, quem):
+def _linha_meta(nome, pct, cor, destaque=False):
+    peso = "800" if destaque else "700"
+    return (f'<div style="display:flex;align-items:baseline;gap:9px;margin-bottom:5px;">'
+            f'<span style="font-size:21px;font-weight:{peso};color:{cor};'
+            f'min-width:62px;">+{pct:.0f}%</span>'
+            f'<span style="font-size:14px;color:var(--ms-texto);">'
+            f'se bater a <b>{nome}</b></span></div>')
+
+
+def _bloco(titulo, emoji, cor, nome_mensal, pct_mensal, nome_maxx, pct_maxx, quem):
     return (
-        f'<div style="flex:1;min-width:230px;background:var(--ms-metric-bg);'
+        f'<div style="flex:1;min-width:250px;background:var(--ms-metric-bg);'
         f'border:1px solid {cor}55;border-left:4px solid {cor};border-radius:10px;'
         f'padding:14px 16px;">'
         f'<div style="font-size:15px;font-weight:700;color:{cor};margin-bottom:2px;">'
         f'{emoji} {titulo}</div>'
-        f'<div style="font-size:12px;color:var(--ms-texto-sec);margin-bottom:10px;">'
+        f'<div style="font-size:12px;color:var(--ms-texto-sec);margin-bottom:11px;">'
         f'{quem}</div>'
-        f'<div style="display:flex;align-items:baseline;gap:8px;margin-bottom:4px;">'
-        f'<span style="font-size:22px;font-weight:800;color:{cor};">+{maxx_pct:.0f}%</span>'
-        f'<span style="font-size:13px;color:var(--ms-texto);">se bater a <b>meta MAXX</b></span></div>'
-        f'<div style="display:flex;align-items:baseline;gap:8px;">'
-        f'<span style="font-size:22px;font-weight:800;color:var(--ms-texto);">+{mensal_pct:.0f}%</span>'
-        f'<span style="font-size:13px;color:var(--ms-texto);">se bater a <b>meta mensal</b></span></div>'
-        f'<div style="font-size:12px;color:var(--ms-texto-sec);margin-top:8px;">'
-        f'Se não bater nenhuma das duas: <b>+0%</b></div>'
+        + _linha_meta(nome_maxx, pct_maxx, cor, destaque=True)
+        + _linha_meta(nome_mensal, pct_mensal, "var(--ms-texto)")
+        + f'<div style="font-size:12px;color:var(--ms-texto-sec);margin-top:8px;">'
+        f'Não bateu nenhuma das duas: <b>+0%</b></div>'
         f'</div>'
     )
 
 
-def render(expandido=True):
-    """Painel didático: como as metas viram dinheiro no salário."""
+def render(expandido=True, chave_salario="expl_salario"):
+    """Painel didático: como as metas viram dinheiro no salário.
+
+    A tabela usa o salário que a própria pessoa digita. Sem isso a explicação
+    ficava abstrata: percentual não diz nada até virar reais na conta de quem
+    está lendo.
+    """
     with st.expander("📘 Como as metas viram dinheiro no seu salário — leia aqui",
                      expanded=expandido):
 
         st.markdown(
             '<div style="font-size:16px;line-height:1.7;margin-bottom:4px;">'
             'Todo mês o seu salário <b>pode aumentar</b>.<br>'
-            'O aumento tem <b>duas partes</b>, e elas são independentes: '
-            'uma parte depende do <b>time inteiro</b>, a outra depende '
-            '<b>só de você</b>.'
+            'Existem <b>quatro metas</b>, e cada uma vale um valor diferente. '
+            'Duas são do <b>time inteiro</b> e duas são <b>só suas</b>.'
             '</div>', unsafe_allow_html=True)
 
         st.markdown(
-            f'<div style="display:flex;gap:14px;flex-wrap:wrap;margin:14px 0;">'
-            + _bloco("A parte do TIME", "🤝", "#1BAF7A",
-                     PCT_COLETIVO_MENSAL, PCT_COLETIVO_MAXX,
-                     "Depende do resultado de todo mundo junto")
-            + _bloco("A parte SUA", "🙋", "#EDA100",
-                     PCT_INDIVIDUAL_MENSAL, PCT_INDIVIDUAL_MAXX,
-                     "Depende só da sua pontuação")
+            '<div style="display:flex;gap:14px;flex-wrap:wrap;margin:14px 0;">'
+            + _bloco("As metas do TIME", "🤝", "#1BAF7A",
+                     NOME_COL, PCT_COLETIVO_MENSAL,
+                     NOME_COL_MAXX, PCT_COLETIVO_MAXX,
+                     "Dependem do resultado de todo mundo junto")
+            + _bloco("As metas SUAS", "🙋", "#EDA100",
+                     NOME_IND, PCT_INDIVIDUAL_MENSAL,
+                     NOME_IND_MAXX, PCT_INDIVIDUAL_MAXX,
+                     "Dependem só da sua pontuação")
             + '</div>', unsafe_allow_html=True)
 
         st.markdown(
             '<div style="background:#EDA10018;border:1px solid #EDA10055;'
             'border-radius:10px;padding:12px 16px;font-size:15px;line-height:1.7;">'
             '⚠️ <b>A regra mais importante de todas:</b><br>'
-            'Cada parte paga <b>um nível só</b> — o mais alto que você alcançou.<br>'
-            'A meta MAXX <b>não soma</b> com a mensal: ela <b>toma o lugar</b> dela.<br>'
-            '<span style="color:var(--ms-texto-sec);">Exemplo: se você bateu a sua '
-            'meta MAXX, você ganha os 12% da MAXX. Você <b>não</b> ganha 12% + 8%.</span>'
+            f'A <b>{NOME_COL_MAXX}</b> <b>não soma</b> com a {NOME_COL}: ela '
+            '<b>toma o lugar</b> dela.<br>'
+            f'A <b>{NOME_IND_MAXX}</b> <b>não soma</b> com a {NOME_IND}: ela '
+            '<b>toma o lugar</b> dela.<br>'
+            '<span style="color:var(--ms-texto-sec);">Exemplo: bateu a '
+            f'{NOME_IND_MAXX}? Você ganha os {PCT_INDIVIDUAL_MAXX:.0f}% dela. '
+            f'Você <b>não</b> ganha {PCT_INDIVIDUAL_MAXX:.0f}% + '
+            f'{PCT_INDIVIDUAL_MENSAL:.0f}%.</span><br>'
+            f'<span style="color:var(--ms-texto-sec);">Mas uma meta do time '
+            'e uma meta sua <b>sempre</b> somam entre si.</span>'
             '</div>', unsafe_allow_html=True)
 
         st.markdown(
-            f'<div style="font-size:16px;font-weight:700;margin:18px 0 6px 0;">'
-            f'💰 Na prática, com um salário de {_reais(SALARIO_EXEMPLO)}</div>',
-            unsafe_allow_html=True)
+            '<div style="font-size:16px;font-weight:700;margin:18px 0 2px 0;">'
+            '💰 Veja a conta com o SEU salário</div>', unsafe_allow_html=True)
+        salario = st.number_input(
+            "Digite aqui o seu salário base:",
+            min_value=0.0, value=0.0, step=100.0, format="%.2f",
+            key=chave_salario,
+            help="Fica só no seu navegador, ninguém mais vê.")
+        _proprio = salario > 0
+        _base = salario if _proprio else SALARIO_EXEMPLO
+        if not _proprio:
+            st.caption(f"Enquanto você não digitar, a tabela mostra um exemplo "
+                       f"com {_reais(SALARIO_EXEMPLO)}.")
 
         linhas = ""
         for i, (cm, cx, im, ix, txt_time, txt_voce) in enumerate(CENARIOS):
             p_time, p_seu = bonus_percentuais(cm, cx, im, ix)
             total_pct = p_time + p_seu
-            ganho = SALARIO_EXEMPLO * total_pct / 100
-            recebe = SALARIO_EXEMPLO + ganho
+            ganho = _base * total_pct / 100
+            recebe = _base + ganho
             cor = ("#1BAF7A" if total_pct >= 30 else
                    "#EDA100" if total_pct >= 20 else
                    "var(--ms-texto)" if total_pct > 0 else "var(--ms-texto-sec)")
@@ -153,9 +185,9 @@ def render(expandido=True):
             'border:1px solid var(--ms-metric-bd);border-radius:10px;overflow:hidden;">'
             '<thead><tr style="background:var(--ms-metric-bg);">'
             '<th style="padding:10px 12px;font-size:11px;text-transform:uppercase;'
-            'text-align:left;color:var(--ms-texto-sec);">🤝 O time fez</th>'
+            'text-align:left;color:var(--ms-texto-sec);">🤝 Meta coletiva</th>'
             '<th style="padding:10px 12px;font-size:11px;text-transform:uppercase;'
-            'text-align:left;color:var(--ms-texto-sec);">🙋 Você fez</th>'
+            'text-align:left;color:var(--ms-texto-sec);">🙋 Meta individual</th>'
             '<th style="padding:10px 12px;font-size:11px;text-transform:uppercase;'
             'text-align:center;color:var(--ms-texto-sec);">Aumento</th>'
             '<th style="padding:10px 12px;font-size:11px;text-transform:uppercase;'
@@ -167,17 +199,22 @@ def render(expandido=True):
 
         st.markdown(
             '<div style="font-size:15px;line-height:1.8;margin-top:16px;">'
-            '<b>Resumindo em quatro frases:</b><br>'
-            '1️⃣ O time bater a meta já coloca dinheiro no seu bolso, mesmo que '
-            'você não bata a sua.<br>'
-            '2️⃣ Você bater a sua meta já coloca dinheiro no seu bolso, mesmo que '
-            'o time não bata a dele.<br>'
-            '3️⃣ Bater a MAXX vale mais do que bater a mensal — mas vale '
-            '<b>no lugar</b> dela, não além dela.<br>'
-            '4️⃣ O melhor mês possível é o time na MAXX e você na sua MAXX: '
-            f'<b>+30%</b>, que num salário de {_reais(SALARIO_EXEMPLO)} são '
-            f'<b>{_reais(SALARIO_EXEMPLO * 0.30)} a mais</b>.'
-            '</div>', unsafe_allow_html=True)
+            '<b>Resumindo:</b><br>'
+            f'1️⃣ Se o time bater a <b>{NOME_COL}</b>, você ganha '
+            f'<b>+{PCT_COLETIVO_MENSAL:.0f}%</b> — mesmo que você não bata a sua.<br>'
+            f'2️⃣ Se você bater a sua <b>{NOME_IND}</b>, você ganha '
+            f'<b>+{PCT_INDIVIDUAL_MENSAL:.0f}%</b> — mesmo que o time não bata a dele.<br>'
+            f'3️⃣ A <b>{NOME_COL_MAXX}</b> paga <b>+{PCT_COLETIVO_MAXX:.0f}%</b> '
+            f'e a <b>{NOME_IND_MAXX}</b> paga <b>+{PCT_INDIVIDUAL_MAXX:.0f}%</b> — '
+            'sempre no lugar da meta normal, nunca além dela.<br>'
+            f'4️⃣ O melhor mês possível é <b>{NOME_COL_MAXX}</b> + '
+            f'<b>{NOME_IND_MAXX}</b>: '
+            f'<b>+{PCT_COLETIVO_MAXX + PCT_INDIVIDUAL_MAXX:.0f}%</b>, que '
+            + (f'no seu salário são <b>{_reais(_base * 0.30)} a mais</b>.'
+               if _proprio else
+               f'num salário de {_reais(SALARIO_EXEMPLO)} são '
+               f'<b>{_reais(SALARIO_EXEMPLO * 0.30)} a mais</b>.')
+            + '</div>', unsafe_allow_html=True)
 
-        st.caption("Logo abaixo, informe seu salário para ver esta conta com o "
-                   "seu número real e com as metas deste mês.")
+        st.caption("Mais abaixo, no seu card, a mesma conta aparece com as "
+                   "metas que já estão valendo neste mês.")
