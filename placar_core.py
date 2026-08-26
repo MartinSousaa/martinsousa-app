@@ -173,6 +173,9 @@ HORARIOS = {"myrelladesouza": {"entrada": time(8, 45), "fim": time(17, 45)}}
 ALMOCO = (time(13, 30), time(14, 30))
 TOLERANCIA_ENTRADA_MIN = 5
 ALMOCO_MINUTOS = 60
+# Mesma folga da entrada, agora tambem na volta do almoco. Sem ela um minuto ja
+# virava atraso — e atraso e o indicador que estoura a meta.
+TOLERANCIA_ALMOCO_MIN = 5
 
 # Teto de segurança: etiqueta esquecida por meses não vira varredura infinita.
 MAX_DIAS_INTERVALO = 60
