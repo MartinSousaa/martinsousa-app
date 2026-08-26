@@ -664,6 +664,10 @@ def _secao_historico_mensal(eh_master: bool, usuario_logado: str):
 
 # ── Dados para analise_metas.py ────────────────────────────────────────────────
 
+# De onde vieram as tolerancias do ultimo dia classificado.
+TOLERANCIA_DETALHE = {"entrada": 0, "almoco": 0}
+
+
 def _classificar_batidas(username, entrada, saida_almoco=None, volta_almoco=None):
     """Aplica a regra da casa a um dia.
 
@@ -672,8 +676,13 @@ def _classificar_batidas(username, entrada, saida_almoco=None, volta_almoco=None
     Entrada: no horário da pessoa; tolerância nos 5 minutos seguintes; depois,
     atraso. Volta do almoço: mesma regra — os 5 primeiros minutos passados de
     ALMOCO_MINUTOS são tolerância, e só depois vira atraso.
+
+    Guarda em TOLERANCIA_DETALHE de onde vieram as tolerâncias do dia. Sem essa
+    separação a tela mostrava "13 tolerâncias" para quem só chegou atrasado
+    sete vezes, e não havia como descobrir que as outras seis eram do almoço.
     """
     tol = atr_ent = atr_alm = 0
+    TOLERANCIA_DETALHE["entrada"] = TOLERANCIA_DETALHE["almoco"] = 0
     minutos_almoco = 0.0
 
     if entrada:
@@ -682,6 +691,7 @@ def _classificar_batidas(username, entrada, saida_almoco=None, volta_almoco=None
             atr_ent = 1
         elif _diff_min(h["entrada"], entrada) > 0:
             tol = 1
+            TOLERANCIA_DETALHE["entrada"] = 1
 
     excedeu = 0.0
     if saida_almoco and volta_almoco:
@@ -694,6 +704,7 @@ def _classificar_batidas(username, entrada, saida_almoco=None, volta_almoco=None
         atr_alm = 1
     elif excedeu > 0:
         tol += 1
+        TOLERANCIA_DETALHE["almoco"] = 1
 
     return tol, atr_ent, atr_alm, minutos_almoco
 
@@ -752,7 +763,8 @@ def _pontualidade_rhid(ano: int, mes: int):
         if not diag.get("campo_batidas"):
             diag["campo_batidas"] = _rhid.ULTIMA_ORIGEM_BATIDAS.get("campo", "")
 
-        acc = {"tolerancias": 0, "atrasos": 0, "atrasos_entrada": 0,
+        acc = {"tolerancias": 0, "tol_entrada": 0, "tol_almoco": 0,
+               "atrasos": 0, "atrasos_entrada": 0,
                "atrasos_almoco": 0, "dias_trabalhados": 0, "ocorrencias": [],
                "minutos_trabalhados": 0.0}
         for reg in regs:
@@ -769,6 +781,8 @@ def _pontualidade_rhid(ano: int, mes: int):
             tol, atr_ent, atr_alm, min_almoco = _classificar_batidas(
                 u, entrada, saida_a, volta)
             acc["tolerancias"]     += tol
+            acc["tol_entrada"]     += TOLERANCIA_DETALHE["entrada"]
+            acc["tol_almoco"]      += TOLERANCIA_DETALHE["almoco"]
             acc["atrasos_entrada"] += atr_ent
             acc["atrasos_almoco"]  += atr_alm
             acc["atrasos"]         += atr_ent + atr_alm

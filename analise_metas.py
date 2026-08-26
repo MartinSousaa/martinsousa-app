@@ -597,7 +597,9 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
     # ── Relógio de ponto: pontualidade e ociosidade reais ─────────────────────
     # Uma passada por mês do período; se a planilha de ponto não responder, os
     # cards voltam a dizer "aguardando" em vez de mostrar zero como se fosse dado.
-    _pont = {u: {"tol": 0, "atr": 0, "atr_ent": 0, "atr_alm": 0, "dias": 0} for u in membros_ativos}
+    _pont = {u: {"tol": 0, "tol_ent": 0, "tol_alm": 0,
+                 "atr": 0, "atr_ent": 0, "atr_alm": 0, "dias": 0}
+             for u in membros_ativos}
     _ocio = {u: {"disp": 0.0, "cards": 0.0} for u in membros_ativos}
     _tem_ponto = False
     _diags_pont = []
@@ -618,6 +620,8 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
                 p = p_mes.get(u)
                 if p:
                     _pont[u]["tol"]     += p["tolerancias"]
+                    _pont[u]["tol_ent"] += p.get("tol_entrada", 0)
+                    _pont[u]["tol_alm"] += p.get("tol_almoco", 0)
                     _pont[u]["atr"]     += p["atrasos"]
                     _pont[u]["atr_ent"] += p["atrasos_entrada"]
                     _pont[u]["atr_alm"] += p["atrasos_almoco"]
@@ -665,7 +669,8 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
 
         o = _ocio.get(username, {"disp": 0.0, "cards": 0.0})
         e = _exec.get(username, {"dentro": 0, "total": 0})
-        p = _pont.get(username, {"tol": 0, "atr": 0, "atr_ent": 0, "atr_alm": 0})
+        p = _pont.get(username, {"tol": 0, "tol_ent": 0, "tol_alm": 0,
+                                 "atr": 0, "atr_ent": 0, "atr_alm": 0})
 
         def _it_pontuacao(rotulo, alvo, cor):
             if alvo <= 0:
@@ -734,6 +739,9 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
                         unsafe_allow_html=True)
 
         _det_atr = f"{p['atr_ent']} na entrada · {p['atr_alm']} na volta do almoço"
+        # A mesma abertura das tolerancias. Sem ela "13 tolerancias" era um
+        # numero sem explicacao para quem so chegou atrasado sete vezes.
+        _det_tol = f"{p['tol_ent']} na entrada · {p['tol_alm']} na volta do almoço"
 
         # ── META MENSAL ───────────────────────────────────────────────────────
         st.markdown(_titulo_grupo_meta("Meta mensal", "#1BAF7A"),
@@ -743,7 +751,7 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
         _it_ociosidade(OCIO_META_NORMAL)
         _it_execucao(EXEC_META_NORMAL)
         _it_contagem(f"🕐 Tolerâncias de pontualidade ({max_tol}/mês)",
-                     p["tol"], max_tol)
+                     p["tol"], max_tol, _det_tol)
         _it_contagem(f"⏰ Atrasos de pontualidade ({max_atr}/mês)",
                      p["atr"], max_atr, _det_atr)
 
@@ -757,7 +765,7 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
         _it_ociosidade(OCIO_META_MAXX)
         _it_execucao(EXEC_META_MAXX)
         _it_contagem(f"🕐 Tolerâncias de pontualidade ({max_tol_mx}/mês)",
-                     p["tol"], max_tol_mx)
+                     p["tol"], max_tol_mx, _det_tol)
         _it_contagem(f"⏰ Atrasos de pontualidade ({max_atr_mx}/mês)",
                      p["atr"], max_atr_mx, _det_atr)
 
