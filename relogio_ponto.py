@@ -29,6 +29,7 @@ HORARIO_PADRAO = _pc.HORARIO_PADRAO
 HORARIOS       = _pc.HORARIOS
 ALMOCO_MINUTOS = _pc.ALMOCO_MINUTOS
 TOLERANCIA_ENTRADA_MIN = _pc.TOLERANCIA_ENTRADA_MIN
+TOLERANCIA_ALMOCO_MIN  = _pc.TOLERANCIA_ALMOCO_MIN
 
 ENTRADA_ESPERADA = HORARIO_PADRAO["entrada"]
 FIM_EXPEDIENTE   = HORARIO_PADRAO["fim"]
@@ -233,6 +234,7 @@ def calcular_indicadores_dia(regs: list[dict], username: Optional[str] = None) -
         "saiu_cedo_min":    0.0,
         # Pontualidade (contagem, não minutos)
         "tolerancia_entrada":  False,
+        "tolerancia_almoco":   False,
         "atraso_entrada":      False,
         "atraso_almoco":       False,
         "min_atraso_entrada":  0.0,
@@ -279,20 +281,26 @@ def calcular_indicadores_dia(regs: list[dict], username: Optional[str] = None) -
             r["min_atraso_entrada"] = atraso_ent
             r["tolerancia_min"]     = atraso_ent
 
-    # Almoço: conta pela duração, não pelo relógio de parede.
+    # Almoço: conta pela duração, não pelo relógio de parede. Os cinco primeiros
+    # minutos passados são tolerância, como na entrada; depois disso, atraso.
+    _excedeu = 0.0
     if r["saida_almoco"] and r["volta_almoco"]:
-        _fora = _diff_min(r["saida_almoco"], r["volta_almoco"])
-        if _fora > ALMOCO_MINUTOS:
-            r["atraso_almoco"]     = True
-            r["min_atraso_almoco"] = _fora - ALMOCO_MINUTOS
+        _excedeu = _diff_min(r["saida_almoco"], r["volta_almoco"]) - ALMOCO_MINUTOS
     elif r["volta_almoco"] and r["volta_almoco"] > VOLTA_ALMOCO:
+        # Sem a saída registrada, só resta comparar com o horário de referência.
+        _excedeu = _diff_min(VOLTA_ALMOCO, r["volta_almoco"])
+    if _excedeu > TOLERANCIA_ALMOCO_MIN:
         r["atraso_almoco"]     = True
-        r["min_atraso_almoco"] = _diff_min(VOLTA_ALMOCO, r["volta_almoco"])
+        r["min_atraso_almoco"] = _excedeu
+    elif _excedeu > 0:
+        r["tolerancia_almoco"] = True
+        r["min_atraso_almoco"] = _excedeu
 
     # Entrada e volta do almoço são ocorrências separadas: atrasar nas duas no
-    # mesmo dia conta dois atrasos.
+    # mesmo dia conta dois atrasos. O mesmo vale para as tolerâncias.
     r["qtd_atrasos"]     = int(r["atraso_entrada"]) + int(r["atraso_almoco"])
-    r["qtd_tolerancias"] = int(r["tolerancia_entrada"])
+    r["qtd_tolerancias"] = (int(r["tolerancia_entrada"])
+                            + int(r["tolerancia_almoco"]))
 
     # Saiu cedo (antes do fim esperado)
     if r["fim_expediente"]:
@@ -662,8 +670,8 @@ def _classificar_batidas(username, entrada, saida_almoco=None, volta_almoco=None
     Devolve (tolerancias, atraso_entrada, atraso_almoco, minutos_almoco).
 
     Entrada: no horário da pessoa; tolerância nos 5 minutos seguintes; depois,
-    atraso. Almoço: passou de ALMOCO_MINUTOS fora, é atraso — sem tolerância,
-    um minuto já conta.
+    atraso. Volta do almoço: mesma regra — os 5 primeiros minutos passados de
+    ALMOCO_MINUTOS são tolerância, e só depois vira atraso.
     """
     tol = atr_ent = atr_alm = 0
     minutos_almoco = 0.0
@@ -675,13 +683,17 @@ def _classificar_batidas(username, entrada, saida_almoco=None, volta_almoco=None
         elif _diff_min(h["entrada"], entrada) > 0:
             tol = 1
 
+    excedeu = 0.0
     if saida_almoco and volta_almoco:
         minutos_almoco = _diff_min(saida_almoco, volta_almoco)
-        if minutos_almoco > ALMOCO_MINUTOS:
-            atr_alm = 1
+        excedeu = minutos_almoco - ALMOCO_MINUTOS
     elif volta_almoco and volta_almoco > VOLTA_ALMOCO:
         # Sem a saída registrada, só resta comparar com o horário de referência.
+        excedeu = _diff_min(VOLTA_ALMOCO, volta_almoco)
+    if excedeu > TOLERANCIA_ALMOCO_MIN:
         atr_alm = 1
+    elif excedeu > 0:
+        tol += 1
 
     return tol, atr_ent, atr_alm, minutos_almoco
 
@@ -774,7 +786,8 @@ def _pontualidade_rhid(ano: int, mes: int):
                 acc["ocorrencias"].append({
                     "data": data_txt, "tipo": "atraso_almoco",
                     "horario": volta.strftime("%H:%M") if volta else "—",
-                    "minutos": max(min_almoco - ALMOCO_MINUTOS, 0),
+                    "minutos": max(min_almoco - ALMOCO_MINUTOS
+                                   - TOLERANCIA_ALMOCO_MIN, 0),
                 })
         resultado[u] = acc
 
