@@ -7,7 +7,9 @@ import gspread
 from google.oauth2.service_account import Credentials
 import secrets as _secrets
 
-PLANILHA_NOME = "MartinSousa - Financeiro"
+import planilha as _plan
+# Nome vindo do ambiente: producao usa o padrao, homologacao usa a copia.
+PLANILHA_NOME = _plan.nome()
 ABA_USUARIOS = "usuarios"
 _TOKEN_TTL_DIAS = 30  # tokens expiram após 30 dias
 

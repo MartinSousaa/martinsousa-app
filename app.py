@@ -1157,6 +1157,11 @@ def _mostrar_resultado(resultado, nome_produto):
 
 # ── INTERFACE ──────────────────────────────────────────────────────────────────
 
+# Faixa de aviso quando NAO e producao. As duas telas sao identicas; sem isto da
+# para passar meia hora testando na producao achando que e o teste.
+import planilha as _plan
+_plan.aviso_ambiente()
+
 with st.sidebar:
     _lp = _logo_b64("logo_preto.png")
     _lb = _logo_b64("logo_branco.png")

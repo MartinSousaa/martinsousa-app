@@ -18,7 +18,9 @@ Três campos por pessoa:
 
 import streamlit as st
 
-PLANILHA_NOME = "MartinSousa - Financeiro"
+import planilha as _plan
+# Nome vindo do ambiente: producao usa o padrao, homologacao usa a copia.
+PLANILHA_NOME = _plan.nome()
 ABA_NOME = "equipe"
 COLUNAS = ["username_trello", "nome", "nome_rhid", "ativo"]
 

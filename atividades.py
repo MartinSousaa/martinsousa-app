@@ -4,7 +4,9 @@ from google.oauth2.service_account import Credentials
 import pandas as pd
 from datetime import datetime
 
-PLANILHA_NOME = "MartinSousa - Financeiro"
+import planilha as _plan
+# Nome vindo do ambiente: producao usa o padrao, homologacao usa a copia.
+PLANILHA_NOME = _plan.nome()
 ABA_NOME = "atividades"
 COLUNAS = ["data_hora", "usuario", "tipo", "produto", "resumo",
            "codigo", "cor", "medidas", "peso", "link_capa", "link_pasta",

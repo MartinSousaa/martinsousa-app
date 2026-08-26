@@ -20,7 +20,9 @@ Três números por coluna:
 
 import streamlit as st
 
-PLANILHA_NOME = "MartinSousa - Financeiro"
+import planilha as _plan
+# Nome vindo do ambiente: producao usa o padrao, homologacao usa a copia.
+PLANILHA_NOME = _plan.nome()
 ABA_NOME = "colunas_config"
 COLUNAS = ["coluna", "prioridade", "tempo_min", "espera_h"]
 
