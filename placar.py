@@ -219,7 +219,17 @@ def _num(card,id_c):
                 except: pass
     return None
 
-def _labels(card): return {lb.get("name","").upper() for lb in card.get("labels",[])}
+def _labels(card): return {lb.get("name","").upper().strip() for lb in card.get("labels",[])}
+
+
+def _parado(lb):
+    """Se o cartao esta com o relogio parado por etiqueta.
+
+    Inclui FIM DE EXPEDIENTE: cartao guardado para amanha nao pode aparecer no
+    painel como alguem trabalhando nele agora.
+    """
+    import placar_core as _pc_lb
+    return bool(lb & _pc_lb.LABELS_INTERRUPCAO)
 def _users(card,mm): return [mm.get(mid,mid) for mid in card.get("idMembers",[])]
 
 def _data_card(card):
@@ -367,7 +377,10 @@ def _processar(listas,cards,membros_map,id_p,id_t,id_i,filtro_mes=None):
             continue
 
         # ── EM ANDAMENTO: sempre visível, sem filtro de mês ────────────────────
-        if "EM ANDAMENTO" in lb:
+        # Cartao com INTERROMPIDO, INTERROMPIDO MS ou FIM DE EXPEDIENTE nao esta
+        # em execucao agora, mesmo com EM ANDAMENTO ainda colada nele. O contador
+        # nao olhava para isso e mostrava quatro em andamento havendo um.
+        if "EM ANDAMENTO" in lb and not _parado(lb):
             d["em_andamento"]+=1
             d["andamento_lista"].append({"card":card["name"],"lista":nl,"membros":us})
 
@@ -579,8 +592,9 @@ def _alertas_tv_list(listas, cards, membros_map):
             continue
         lb = _labels(card)
         us = _users(card, membros_map)
-        is_andamento = LABEL_EM_ANDAMENTO_STR in lb
-        is_filmagem  = LABEL_FILMAGEM         in lb
+        _pausado     = _parado(lb)
+        is_andamento = LABEL_EM_ANDAMENTO_STR in lb and not _pausado
+        is_filmagem  = LABEL_FILMAGEM         in lb and not _pausado
         for u in us:
             if u not in membro_estado:
                 membro_estado[u] = {"andamento": [], "filmagem_puro": []}
@@ -603,9 +617,9 @@ def _alertas_tv_list(listas, cards, membros_map):
         concluido   = card.get("dueComplete", False)
 
         is_pendente     = LABEL_PENDENTE_STR      in lb
-        is_andamento    = LABEL_EM_ANDAMENTO_STR  in lb
-        is_filmagem     = LABEL_FILMAGEM          in lb
-        is_interrompido = LABEL_INTERROMPIDO_MS   in lb
+        is_interrompido = _parado(lb)
+        is_andamento    = LABEL_EM_ANDAMENTO_STR  in lb and not is_interrompido
+        is_filmagem     = LABEL_FILMAGEM          in lb and not is_interrompido
 
         # ── 1. P8-10 com etiqueta PENDENTE ─────────────────────────────────────
         if prio >= 8 and is_pendente and not is_interrompido:
