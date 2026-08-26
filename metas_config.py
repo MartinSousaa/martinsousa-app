@@ -15,14 +15,7 @@ COLUNAS = [
     "ano", "mes",
     "meta_equipe",           # pontos meta coletiva
     "meta_maxx_pct",         # % da meta mensal (ex: 110 = 10% a mais)
-    "meta_myrelladesouza",   # meta individual Myrella
-    "meta_beatriz51",        # meta individual Beatriz
-    "meta_gabriel_borges",   # meta individual Gabriel
-    # Meta MAXX individual. Zero = usa meta_maxx_pct sobre a meta individual,
-    # que era o comportamento implicito antes de o campo existir.
-    "meta_maxx_myrelladesouza",
-    "meta_maxx_beatriz51",
-    "meta_maxx_gabriel_borges",
+    # Metas por pessoa entram adiante, derivadas da equipe cadastrada.
     "max_pen_normal",        # máx penalidades meta normal (ex: 4)
     "max_pen_maxx",          # máx penalidades meta maxx (ex: 1)
     "max_tol_normal",        # máx tolerâncias pontualidade normal (ex: 15)
@@ -37,12 +30,7 @@ COLUNAS = [
 DEFAULTS = {
     "meta_equipe":         5000,
     "meta_maxx_pct":       110,
-    "meta_myrelladesouza": 1500,
-    "meta_beatriz51":      1500,
-    "meta_gabriel_borges": 1500,
-    "meta_maxx_myrelladesouza": 0,
-    "meta_maxx_beatriz51":      0,
-    "meta_maxx_gabriel_borges": 0,
+
     "max_pen_normal":      4,
     "max_pen_maxx":        1,
     "max_tol_normal":      15,
@@ -58,12 +46,7 @@ DEFAULTS = {
 LABELS = {
     "meta_equipe":         "Meta Equipe (pts)",
     "meta_maxx_pct":       "Meta MAXX (% da meta mensal)",
-    "meta_myrelladesouza": "Meta Individual — Myrella (pts)",
-    "meta_beatriz51":      "Meta Individual — Beatriz (pts)",
-    "meta_gabriel_borges": "Meta Individual — Gabriel (pts)",
-    "meta_maxx_myrelladesouza": "Meta MAXX — Myrella (pts)",
-    "meta_maxx_beatriz51":      "Meta MAXX — Beatriz (pts)",
-    "meta_maxx_gabriel_borges": "Meta MAXX — Gabriel (pts)",
+
     "max_pen_normal":      "Máx. penalidades (Meta Normal)",
     "max_pen_maxx":        "Máx. penalidades (Meta MAXX)",
     "max_tol_normal":      "Máx. tolerâncias pontualidade (Normal)",
@@ -74,6 +57,40 @@ LABELS = {
     "max_retrab_maxx":     "Retrabalho máx. % (MAXX)",
     "min_membro_pct":      "% mín. cartões com membro",
 }
+
+
+# ── Campos por pessoa ─────────────────────────────────────────────────────────
+# Derivados da equipe cadastrada, e nao de uma lista fixa: contratar alguem
+# passa a ser cadastro na aba "equipe", sem alteracao de codigo.
+META_INDIVIDUAL_PADRAO = 1500
+
+
+def _equipe():
+    try:
+        import placar_core as _pc
+        _pc.recarregar_membros()
+        return dict(_pc.MEMBROS_ATIVOS)
+    except Exception:
+        return {}
+
+
+def campos_por_pessoa():
+    """[(chave, rotulo, padrao)] para meta individual e meta MAXX de cada um."""
+    campos = []
+    for user, nome in _equipe().items():
+        campos.append((f"meta_{user}", f"Meta Individual — {nome} (pts)",
+                       META_INDIVIDUAL_PADRAO))
+        campos.append((f"meta_maxx_{user}", f"Meta MAXX — {nome} (pts)", 0))
+    return campos
+
+
+def sincronizar_campos():
+    """Garante que COLUNAS, DEFAULTS e LABELS conhecam a equipe atual."""
+    for chave, rotulo, padrao in campos_por_pessoa():
+        if chave not in COLUNAS:
+            COLUNAS.append(chave)
+        DEFAULTS.setdefault(chave, padrao)
+        LABELS.setdefault(chave, rotulo)
 
 # ── Conexão ────────────────────────────────────────────────────────────────────
 
@@ -130,6 +147,7 @@ def carregar_todas() -> pd.DataFrame:
 
 def carregar_config(ano: int, mes: int) -> dict:
     """Retorna dict de configuração para o mês. Valores ausentes são preenchidos com defaults."""
+    sincronizar_campos()
     cfg = {**DEFAULTS, "ano": int(ano), "mes": int(mes)}
     try:
         df = carregar_todas()
@@ -169,6 +187,7 @@ def salvar_config(ano: int, mes: int, dados: dict):
        sobrescreve o que ele de fato enviou.
     """
     try:
+        sincronizar_campos()
         aba = _aba()
 
         cabecalho = [str(c).strip() for c in aba.row_values(1)]

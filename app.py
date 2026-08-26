@@ -1176,6 +1176,14 @@ with st.sidebar:
         st.rerun()
     chat_assistente.renderizar_chat(usuario_logado)
 
+# A equipe medida vem da planilha, nao do codigo. Carregada uma vez por
+# renderizacao: contratacao passa a valer sem alteracao de codigo.
+try:
+    import placar_core as _pc_equipe
+    _pc_equipe.recarregar_membros()
+except Exception:
+    pass
+
 _eh_admin        = auth.is_admin(usuario_logado)
 _eh_martinsousa  = usuario_logado.lower() == "martinsousa"
 

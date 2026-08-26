@@ -913,9 +913,16 @@ _JORNADA_MINUTOS = 8 * 60  # 480 min = 8h
 
 
 def _rhid_nome_para_trello(nome: str) -> Optional[str]:
-    """Tenta mapear nome da RHiD para username Trello."""
-    chave = nome.lower().split()[0]  # primeiro nome
-    return _RHID_TRELLO_MAP.get(chave)
+    """Nome da RHiD -> username do Trello.
+
+    A equipe cadastrada na planilha manda; o mapa do codigo fica de reserva.
+    Sem isso, cada contratacao exigia alterar codigo para o ponto da pessoa ser
+    reconhecido.
+    """
+    if not nome:
+        return None
+    chave = nome.lower().split()[0]
+    return _pc.MAPA_RHID.get(chave) or _RHID_TRELLO_MAP.get(chave)
 
 
 def _cor_atraso(min_atraso: float) -> str:

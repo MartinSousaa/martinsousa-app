@@ -484,6 +484,10 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
     cfg      = r_atual["cfg"]
     max_tol  = int(cfg.get("max_tol_normal", 15))
     max_atr  = int(cfg.get("max_atr_normal", 10))
+    # A MAXX tem limites proprios, mais apertados. Estavam configurados e nunca
+    # apareciam no painel individual — so os limites normais eram mostrados.
+    max_tol_mx = int(cfg.get("max_tol_maxx", 7))
+    max_atr_mx = int(cfg.get("max_atr_maxx", 5))
 
     # Agrega pontos do período completo (sem penalidades — penalidades são coletivas)
     pts_total  = {u: sum(r["pts_membro"].get(u, 0) for r in dados) for u in membros_ativos}
@@ -648,10 +652,12 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
                 cor_tol, extra_tol = "#EDA100", f"restam {max_tol - tol}"
             else:
                 cor_tol, extra_tol = "#1BAF7A", f"restam {max_tol - tol}"
+            _mx_tol = ("⭐ dentro da MAXX" if tol <= max_tol_mx
+                       else f"⭐ fora da MAXX (limite {max_tol_mx})")
             st.markdown(_meta_ind_item(
-                f"🕐 Tolerâncias de pontualidade ({max_tol}/mês)", pct_tol,
-                f"{tol} de {max_tol} usadas · {extra_tol} · entrada entre "
-                f"09h01 e 09h05",
+                f"🕐 Tolerâncias de pontualidade ({max_tol}/mês · MAXX {max_tol_mx})",
+                pct_tol,
+                f"{tol} de {max_tol} usadas · {extra_tol} · {_mx_tol}",
                 cor=cor_tol
             ), unsafe_allow_html=True)
 
@@ -664,17 +670,20 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
             else:
                 cor_atr, extra_atr = "#1BAF7A", f"restam {max_atr - atr}"
             detalhe = f"{p['atr_ent']} na entrada · {p['atr_alm']} na volta do almoço"
+            _mx_atr = ("⭐ dentro da MAXX" if atr <= max_atr_mx
+                       else f"⭐ fora da MAXX (limite {max_atr_mx})")
             st.markdown(_meta_ind_item(
-                f"⏰ Atrasos de pontualidade ({max_atr}/mês)", pct_atr,
-                f"{atr} de {max_atr} · {extra_atr} · {detalhe}",
+                f"⏰ Atrasos de pontualidade ({max_atr}/mês · MAXX {max_atr_mx})",
+                pct_atr,
+                f"{atr} de {max_atr} · {extra_atr} · {detalhe} · {_mx_atr}",
                 cor=cor_atr
             ), unsafe_allow_html=True)
         else:
             st.markdown(_meta_ind_item(
-                f"🕐 Tolerâncias de pontualidade ({max_tol}/mês)", 100, "", aguardando=True
+                f"🕐 Tolerâncias de pontualidade ({max_tol}/mês · MAXX {max_tol_mx})", 100, "", aguardando=True
             ), unsafe_allow_html=True)
             st.markdown(_meta_ind_item(
-                f"⏰ Atrasos de pontualidade ({max_atr}/mês)", 100, "", aguardando=True
+                f"⏰ Atrasos de pontualidade ({max_atr}/mês · MAXX {max_atr_mx})", 100, "", aguardando=True
             ), unsafe_allow_html=True)
 
         # Calculadora de ganhos
@@ -1797,6 +1806,51 @@ def _aba_desempenho(dados, dados_ano_full=None):
 
 # ── Seção: configuração de metas ──────────────────────────────────────────────
 
+def _secao_equipe():
+    """Cadastro da equipe medida — quem entra nas metas, no placar e na ociosidade."""
+    import equipe_config as _ec
+
+    st.markdown("##### 👥 Equipe medida")
+    st.caption(
+        "Quem está aqui entra nas metas, no placar e na ociosidade. O "
+        "**username do Trello** é a chave de tudo: tem que ser o @ exato, senão o "
+        "trabalho da pessoa não é reconhecido. O **nome na RHiD** liga o relógio de "
+        "ponto — use o primeiro nome como está cadastrado lá."
+    )
+
+    membros, mapa_rhid = _ec.carregar()
+    if membros:
+        _rhid_por_user = {u: n for n, u in mapa_rhid.items()}
+        st.markdown("\n".join(
+            f"- **{nome}** · Trello `{user}` · RHiD `{_rhid_por_user.get(user, '—')}`"
+            for user, nome in membros.items()
+        ))
+    else:
+        st.warning(
+            "Nenhum colaborador cadastrado ainda — o painel está usando a equipe "
+            "de origem do código (Myrella, Beatriz, Gabriel). Cadastre todos aqui, "
+            "inclusive esses três, para a lista passar a valer."
+        )
+
+    with st.form("form_equipe"):
+        e1, e2, e3 = st.columns([2, 2, 2])
+        _user = e1.text_input("Username do Trello", placeholder="ex: gabriel_borges")
+        _nome = e2.text_input("Nome no painel", placeholder="ex: Gabriel")
+        _rhid = e3.text_input("Primeiro nome na RHiD", placeholder="ex: Gabriel")
+        _ativo = st.checkbox("Ativo (conta nas metas)", value=True)
+        if st.form_submit_button("Salvar colaborador", use_container_width=True):
+            if not _user.strip() or not _nome.strip():
+                st.error("Username do Trello e nome são obrigatórios.")
+            else:
+                try:
+                    _ec.salvar(_user, _nome, _rhid, _ativo)
+                    _pc.recarregar_membros()
+                    st.success(f"{_nome} salvo.")
+                    st.rerun()
+                except Exception as ex:
+                    st.error(f"Não consegui salvar: {str(ex)[:200]}")
+
+
 def _secao_colunas(dados):
     """Prioridade, tempo estimado e espera de cada coluna — editáveis pelo gestor.
 
@@ -1935,36 +1989,24 @@ def _secao_configuracao():
             value=min(300, max(100, int(cfg_atual["meta_maxx_pct"]))), step=5
         , key=f"cfg_meta_maxx_pct_{ano_cfg}_{mes_cfg_num}")
 
-        st.markdown("##### 🎯 Meta Individual por Colaborador")
-        c1, c2, c3 = st.columns(3)
-        nova_cfg["meta_myrelladesouza"] = c1.number_input(
-            "Myrella (pts)", min_value=0, value=int(cfg_atual["meta_myrelladesouza"]), step=100
-        , key=f"cfg_meta_myrelladesouza_{ano_cfg}_{mes_cfg_num}")
-        nova_cfg["meta_beatriz51"] = c2.number_input(
-            "Beatriz (pts)", min_value=0, value=int(cfg_atual["meta_beatriz51"]), step=100
-        , key=f"cfg_meta_beatriz51_{ano_cfg}_{mes_cfg_num}")
-        nova_cfg["meta_gabriel_borges"] = c3.number_input(
-            "Gabriel (pts)", min_value=0, value=int(cfg_atual["meta_gabriel_borges"]), step=100
-        , key=f"cfg_meta_gabriel_borges_{ano_cfg}_{mes_cfg_num}")
-
-        st.markdown("##### ⭐ Meta MAXX individual")
+        st.markdown("##### 👤 Metas por colaborador")
         st.caption(
-            "Deixe em 0 para usar a mesma porcentagem da MAXX coletiva sobre a meta "
-            "individual de cada um. Preencha para definir um valor próprio."
+            "A lista vem da aba **equipe** da planilha. Cadastrou alguém lá, o campo "
+            "aparece aqui — sem precisar mexer no código. Deixe a MAXX em 0 para usar "
+            "a porcentagem da MAXX coletiva sobre a meta individual."
         )
-        m1, m2, m3 = st.columns(3)
-        nova_cfg["meta_maxx_myrelladesouza"] = m1.number_input(
-            "Myrella — MAXX (pts)", min_value=0,
-            value=int(cfg_atual.get("meta_maxx_myrelladesouza", 0)), step=100
-        )
-        nova_cfg["meta_maxx_beatriz51"] = m2.number_input(
-            "Beatriz — MAXX (pts)", min_value=0,
-            value=int(cfg_atual.get("meta_maxx_beatriz51", 0)), step=100
-        )
-        nova_cfg["meta_maxx_gabriel_borges"] = m3.number_input(
-            "Gabriel — MAXX (pts)", min_value=0,
-            value=int(cfg_atual.get("meta_maxx_gabriel_borges", 0)), step=100
-        )
+        _campos_pessoa = mc.campos_por_pessoa()
+        if not _campos_pessoa:
+            st.warning("Nenhum colaborador cadastrado na aba **equipe** da planilha.")
+        for _i in range(0, len(_campos_pessoa), 2):
+            _par = _campos_pessoa[_i:_i + 2]
+            _cols = st.columns(len(_par))
+            for _c, (_chave, _rot, _pad) in zip(_cols, _par):
+                nova_cfg[_chave] = _c.number_input(
+                    _rot, min_value=0,
+                    value=int(cfg_atual.get(_chave, _pad) or 0), step=100,
+                    key=f"cfg_{_chave}_{ano_cfg}_{mes_cfg_num}",
+                )
 
         st.markdown("##### ⚠️ Limites de Penalidade")
         c1, c2 = st.columns(2)
@@ -2233,6 +2275,8 @@ def pagina_analise_metas(usuario_logado):
     elif _aba_sel == _ABAS[3]:
         if _eh_master:
             _secao_configuracao()
+            st.markdown("---")
+            _secao_equipe()
             st.markdown("---")
             _secao_colunas(dados)
         else:

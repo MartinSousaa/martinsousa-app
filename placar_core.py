@@ -17,11 +17,35 @@ except Exception:
     TRELLO_KEY = TRELLO_TOKEN = BOARD_ID = ""
 
 # ── Constantes ─────────────────────────────────────────────────────────────────
+# Equipe de origem. A lista real vem da planilha (aba "equipe") e e aplicada por
+# recarregar_membros(); esta serve de reserva quando a planilha nao responde.
 MEMBROS_ATIVOS = {
     "myrelladesouza": "Myrella",
     "beatriz51":      "Beatriz",
     "gabriel_borges": "Gabriel",
 }
+MAPA_RHID = {}   # primeiro nome na RHiD -> username do Trello
+
+
+def recarregar_membros():
+    """Aplica a equipe cadastrada na planilha, sem trocar o objeto.
+
+    Muda o conteudo do dicionario no lugar de substitui-lo: modulos que ja
+    importaram MEMBROS_ATIVOS continuam vendo a mesma lista. Contratacao passa a
+    ser cadastro, nao alteracao de codigo.
+    """
+    try:
+        import equipe_config as _ec
+        membros, mapa = _ec.carregar()
+    except Exception:
+        return False
+    if not membros:
+        return False
+    MEMBROS_ATIVOS.clear()
+    MEMBROS_ATIVOS.update(membros)
+    MAPA_RHID.clear()
+    MAPA_RHID.update(mapa)
+    return True
 MASTERS = {"martinsousa", "renan"}
 LISTAS_SEM_PONTUACAO = {
     "TABELA DE PONTUAÇÃO","TRIAGEM","CORREÇÃO DE FOTOS: 0 PONTOS",
