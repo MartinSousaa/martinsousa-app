@@ -33,6 +33,10 @@ PCT_INDIVIDUAL_MAXX = 12.0
 # Salário só para ilustrar quando a pessoa ainda não digitou o dela.
 SALARIO_EXEMPLO = 2000.0
 
+# Em que dia útil do mês seguinte o valor das metas é depositado. O mês precisa
+# fechar para dar para apurar, então o pagamento nunca sai dentro do próprio mês.
+DIA_UTIL_PAGAMENTO = 5
+
 # Os nomes que a equipe usa. A tela inteira fala nestes quatro termos — antes
 # dizia "a parte do time" e "a parte sua", que ninguem reconhecia.
 NOME_COL = "meta coletiva"
@@ -215,6 +219,23 @@ def render(expandido=True, chave_salario="expl_salario"):
                f'num salário de {_reais(SALARIO_EXEMPLO)} são '
                f'<b>{_reais(SALARIO_EXEMPLO * 0.30)} a mais</b>.')
             + '</div>', unsafe_allow_html=True)
+
+        st.markdown(
+            '<div style="background:var(--ms-metric-bg);'
+            'border:1px solid var(--ms-metric-bd);border-left:4px solid #6AA9FF;'
+            'border-radius:10px;padding:12px 16px;margin-top:16px;'
+            'font-size:15px;line-height:1.7;">'
+            '📅 <b>Quando esse dinheiro cai na sua conta</b><br>'
+            'Para saber quanto cada um ganhou, o mês precisa <b>terminar</b> — '
+            'só depois disso dá para contar tudo o que foi feito. '
+            'Essa contagem se chama <b>apuração</b>.<br>'
+            f'Por isso o valor das metas é depositado no '
+            f'<b>{DIA_UTIL_PAGAMENTO}º dia útil do mês seguinte</b>, '
+            'junto com o salário.<br>'
+            '<span style="color:var(--ms-texto-sec);">Exemplo: o que você fez em '
+            f'<b>agosto</b> é apurado quando agosto acaba, e cai na conta no '
+            f'{DIA_UTIL_PAGAMENTO}º dia útil de <b>setembro</b>.</span>'
+            '</div>', unsafe_allow_html=True)
 
         st.caption("Mais abaixo, no seu card, a mesma conta aparece com as "
                    "metas que já estão valendo neste mês.")
