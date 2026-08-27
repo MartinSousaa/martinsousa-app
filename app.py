@@ -1332,7 +1332,7 @@ def _render_analise_venda_tab():
                     linhas_av.append((uc_label, uc_desc, classe_card, p_ml_av, p_sp_av, p_sh_av))
 
             st.markdown("### Preços mínimos para anunciar")
-            st.caption(f"LPV: R${_lpv_av:.2f} · NF: {_nf_av*100:.1f}% · Op: R${custo_op_av:.2f}")
+            st.caption(f"LPV: R\\${_lpv_av:.2f} · NF: {_nf_av*100:.1f}% · Op: R\\${custo_op_av:.2f}")
             st.markdown("")
 
             for uc_label, uc_desc, classe_card, p_ml, p_sp, p_sh in linhas_av:
@@ -1380,6 +1380,18 @@ def _render_viabilidade_tab():
     col_info2.metric("NF (alíquota)", f"{nf_pct_usado*100:.1f}%")
     col_info3.metric("UC mínimo p/ aprovar", f"{UC_MINIMO}/1")
     st.caption(f"LPV calculado com base em: {lpv_origem_usada}")
+    # O veredito de viabilidade sai daqui. Se o LPV é de dois meses atrás, quem
+    # olha a tela precisa saber ANTES de aprovar ou reprovar o produto.
+    try:
+        _atraso_lpv = financeiro.meses_de_atraso_lpv(financeiro.carregar_dados())
+        if _atraso_lpv >= 1:
+            st.warning(
+                f"⚠️ Este cálculo usa o LPV de **{lpv_origem_usada}**, "
+                f"{_atraso_lpv} {'mês' if _atraso_lpv == 1 else 'meses'} atrás. "
+                "Atualize em Gestão → Financeiro para o veredito valer."
+            )
+    except Exception:
+        pass
     st.markdown("---")
 
     col1, col2 = st.columns(2)
@@ -1424,7 +1436,16 @@ def _render_viabilidade_tab():
     st.markdown("---")
     analisar = st.button("Analisar Viabilidade", type="primary", use_container_width=True)
 
+    # O resultado era desenhado so dentro do "if analisar", ou seja, so na
+    # passada do clique. Qualquer rerun seguinte — um segundo clique, mexer em
+    # outro campo — voltava a tela ao formulario vazio, sem aviso. Agora o
+    # clique liga uma chave que sobrevive aos reruns; os valores vem dos
+    # proprios widgets, entao o recalculo da o mesmo resultado.
     if analisar:
+        st.session_state["av_mostrar"] = True
+    mostrar_analise = analisar or st.session_state.get("av_mostrar", False)
+
+    if mostrar_analise:
         erros = []
         if not nome_produto: erros.append("Nome do produto")
         if custo is None:    erros.append("Preço de custo")
@@ -1434,12 +1455,20 @@ def _render_viabilidade_tab():
             erros.append("Peso do produto (necessário para calcular o frete da Shein)")
         if erros:
             st.warning(f"Preencha: {', '.join(erros)}")
-            msg_chat = f"Atenção! Faltam informações para calcular a viabilidade:\n\n"
-            for e in erros:
-                msg_chat += f"• {e}\n"
-            msg_chat += "\nMe fala o que não sabe preencher que te explico."
-            chat_assistente.iniciar_conversa(msg_chat)
+            # So manda para o chat no clique, e so quando a lista de pendencias
+            # MUDOU. Antes cada rerun repetia a mesma mensagem no painel, que
+            # continuava acusando falta de dados ja preenchidos.
+            _pend = " | ".join(erros)
+            if analisar and st.session_state.get("av_pendencias") != _pend:
+                st.session_state["av_pendencias"] = _pend
+                msg_chat = "Atenção! Faltam informações para calcular a viabilidade:\n\n"
+                for e in erros:
+                    msg_chat += f"• {e}\n"
+                msg_chat += "\nMe fala o que não sabe preencher que te explico."
+                chat_assistente.iniciar_conversa(msg_chat)
+            st.session_state["av_mostrar"] = False
             st.stop()
+        st.session_state.pop("av_pendencias", None)
 
         peso_taxado_ml = calcular_peso_taxado(peso_kg, dim1 or 0, dim2 or 0, dim3 or 0)
 
@@ -1465,10 +1494,13 @@ def _render_viabilidade_tab():
             for p, r, pr in [("ML", res_ml, preco_ml or 0), ("Shopee", res_sp, preco_sp or 0), ("Shein", res_sh, preco_sh or 0)]
             if r is not None
         )
-        atividades.registrar_atividade(
-            usuario_logado, "Análise de Viabilidade", nome_produto,
-            f"custo R${custo:.2f} · {plataformas_log}"
-        )
+        # Com o resultado sobrevivendo aos reruns, registrar aqui sem guarda
+        # gravaria uma linha no historico a cada interacao da tela.
+        if analisar:
+            atividades.registrar_atividade(
+                usuario_logado, "Análise de Viabilidade", nome_produto,
+                f"custo R${custo:.2f} · {plataformas_log}"
+            )
 
         st.markdown("---")
 
@@ -1533,16 +1565,29 @@ def _navegar(paginas, param_url, padrao=None):
     if atual not in rotulos:
         atual = rotulos[0]
 
+    # `default=` só vale na PRIMEIRA renderização do widget. Depois disso o
+    # Streamlit guarda a seleção num estado interno próprio, e `default` passa a
+    # ser ignorado — o widget e o nosso session_state viravam duas verdades
+    # diferentes. Era isso que fazia o primeiro clique numa aba não trocar nada
+    # e as duas abas ficarem acesas ao mesmo tempo: o widget já tinha mudado, a
+    # tela ainda desenhava a antiga, e só o segundo clique alinhava as duas.
+    #
+    # Com `key=`, o widget e o session_state passam a ser o MESMO estado.
+    chave_widget = f"{estado}__widget"
+    if chave_widget not in st.session_state:
+        st.session_state[chave_widget] = atual
+
     escolhido = st.segmented_control(
         "Navegação",
         rotulos,
-        default=atual,
+        key=chave_widget,
         label_visibility="collapsed",
     )
     # Clicar no item já selecionado desmarca — nesse caso mantemos o anterior
     # em vez de deixar a tela vazia.
     if not escolhido:
         escolhido = atual
+        st.session_state[chave_widget] = atual
 
     if escolhido != st.session_state[estado]:
         st.session_state[estado] = escolhido
@@ -1578,7 +1623,7 @@ def _render_abas_operacao(usuario_logado):
         "Descrição":              lambda: descricao.pagina_descricao(usuario_logado),
         "Imagem":                 lambda: imagem.pagina_imagem(usuario_logado),
         "Vídeo":                  lambda: video.pagina_video(usuario_logado),
-        "Análise de Venda":       _render_analise_venda_tab,
+        "Calculadora de Preço Mínimo":       _render_analise_venda_tab,
         "Histórico":              atividades.pagina_historico,
     }, "aba")
 
@@ -1656,7 +1701,7 @@ else:
         "Descrição":              lambda: descricao.pagina_descricao(usuario_logado),
         "Imagem":                 lambda: imagem.pagina_imagem(usuario_logado),
         "Vídeo":                  lambda: video.pagina_video(usuario_logado),
-        "Análise de Venda":       _render_analise_venda_tab,
+        "Calculadora de Preço Mínimo":       _render_analise_venda_tab,
         "Histórico":              atividades.pagina_historico,
         "🏆 Painel de Metas":      lambda: placar.pagina_placar(usuario_logado),
         "📊 Análise de Metas":     lambda: analise_metas.pagina_analise_metas(usuario_logado),

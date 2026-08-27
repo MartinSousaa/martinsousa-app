@@ -36,7 +36,21 @@ def _aba():
     cliente = _cliente()
     planilha = cliente.open(PLANILHA_NOME)
     try:
-        return planilha.worksheet(ABA_NOME)
+        aba = planilha.worksheet(ABA_NOME)
+        # Reconcilia o cabecalho, como atividades.py ja fazia.
+        #
+        # A aba foi criada antes de foto_drive_id existir. A linha gravada passou
+        # a ter 14 valores para 13 cabecalhos, e o id da foto no Drive caia numa
+        # coluna sem nome — get_all_records devolvia {"": "1c3GYCn..."}. Quem
+        # lesse por foto_drive_id nao achava nada, e a miniatura da variante
+        # nunca aparecia.
+        cabecalho = aba.row_values(1)
+        for col in COLUNAS:
+            if col not in cabecalho:
+                aba.add_cols(1)
+                aba.update_cell(1, len(cabecalho) + 1, col)
+                cabecalho.append(col)
+        return aba
     except gspread.exceptions.WorksheetNotFound:
         aba = planilha.add_worksheet(title=ABA_NOME, rows=2000, cols=len(COLUNAS))
         aba.append_row(COLUNAS, value_input_option="RAW")
@@ -163,7 +177,18 @@ def buscar_triagem_por_nome(nome_comercial):
     df = carregar_triagens()
     if df.empty or "nome_comercial" not in df.columns:
         return None
-    linhas = df[df["nome_comercial"].astype(str).str.strip().str.lower() == str(nome_comercial).strip().lower()]
+    alvo = _normalizar(str(nome_comercial)).strip()
+    if not alvo:
+        return None
+    # Exato primeiro; sem exato, por pedaco do nome.
+    #
+    # So a igualdade exata obrigava a digitar as 27 letras de "TESTE Caneca
+    # Ceramica 350ml". Quem buscava "TESTE Caneca" ouvia que nao existia e
+    # preenchia tudo de novo — triagem duplicada.
+    nomes = df["nome_comercial"].astype(str).apply(_normalizar).str.strip()
+    linhas = df[nomes == alvo]
+    if linhas.empty:
+        linhas = df[nomes.str.contains(alvo, na=False, regex=False)]
     if linhas.empty:
         return None
     return linhas.iloc[-1].to_dict()

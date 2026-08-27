@@ -1974,7 +1974,7 @@ def _testar_gemini_api():
     t0 = _t_diag.time()
     try:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODELO}:generateContent"
-        r = requests.post(url, json=body_teste, headers=headers_teste, timeout=90,
+        r = requests.post(url, json=body_teste, headers=headers_teste, timeout=25,
                           proxies={"http": None, "https": None})
         ms = int((_t_diag.time() - t0) * 1000)
         if r.status_code == 200:
@@ -2993,7 +2993,9 @@ def pagina_imagem(usuario_logado):
         tipo_ativo = galeria[idx_ativo]["tipo"]
 
         # Exibe imagem ativa grande
-        st.image(imagem_ativa, use_container_width=True)
+        # use_container_width esticava a imagem para a largura inteira da tela:
+        # 1200px de altura, ~3 telas de rolagem antes de chegar nos botoes.
+        st.image(imagem_ativa, width=520)
 
         # Ações individuais
         col_dl, col_drive_ind = st.columns(2)

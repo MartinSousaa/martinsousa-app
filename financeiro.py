@@ -155,6 +155,28 @@ def lpv_vigente(df, hoje=None):
     return float(linha["lpv"]), origem
 
 
+def meses_de_atraso_lpv(df, hoje=None):
+    """Quantos meses fechados existem depois do último LPV informado.
+
+    O LPV alimenta toda decisão de viabilidade. Se ninguém preenche há dois
+    meses, o Studio continua aprovando e reprovando produto com custo velho — e
+    não dizia nada em lugar nenhum. Zero quando está em dia ou não há LPV.
+    """
+    hoje = hoje or date.today()
+    if df is None or df.empty or "lpv" not in df.columns:
+        return 0
+    validos = df.dropna(subset=["lpv"])
+    validos = validos[validos["lpv"] > 0]
+    validos = validos[
+        (validos["ano"] < hoje.year) |
+        ((validos["ano"] == hoje.year) & (validos["mes"] <= hoje.month))
+    ]
+    if validos.empty:
+        return 0
+    linha = validos.sort_values(["ano", "mes"], ascending=False).iloc[0]
+    return max((hoje.year - int(linha["ano"])) * 12 + hoje.month - int(linha["mes"]), 0)
+
+
 def aliquota_vigente(df, ano=None):
     """Aliquota do ano informado; se nao tiver (ou for um valor absurdo,
     fora de 0-100), usa a mais recente disponivel que seja valida."""
@@ -237,7 +259,7 @@ def pagina_financeiro(usuario_logado=None):
         if lpv is None and txt_lpv:
             st.error(f"{nome_mes}: valor não reconhecido.")
         elif lpv is not None:
-            st.caption(f"Entendido como -> R${formatar_br(lpv)}")
+            st.caption(f"Entendido como -> R\\${formatar_br(lpv)}")
 
         lpv_meses.append(lpv)
 
@@ -254,6 +276,15 @@ def pagina_financeiro(usuario_logado=None):
     st.subheader("LPV vigente")
     lpv, origem = lpv_vigente(df)
     if lpv:
-        st.success(f"LPV vigente: R${formatar_br(lpv)}  \nÚltimo mês informado: {origem}")
+        _atraso = meses_de_atraso_lpv(df)
+        if _atraso >= 1:
+            st.warning(
+                f"⚠️ LPV em uso: R\\${formatar_br(lpv)}, de **{origem}** — "
+                f"{_atraso} {'mês' if _atraso == 1 else 'meses'} atrás. "
+                "Toda análise de viabilidade está saindo com custo defasado. "
+                "Preencha os meses que faltam abaixo."
+            )
+        else:
+            st.success(f"LPV vigente: R\\${formatar_br(lpv)}  \nÚltimo mês informado: {origem}")
     else:
         st.warning(f"Ainda não há LPV informado ({origem}).")
