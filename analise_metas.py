@@ -2357,7 +2357,20 @@ def pagina_analise_metas(usuario_logado):
         "Gabriel": "gabriel_borges", "MartinSousa": "martinsousa",
     }
     _username_atual = _LOGIN_MAP_GERAL.get(usuario_logado, usuario_logado.lower())
-    _eh_master      = _username_atual in {m.lower() for m in _pc.MASTERS}
+    # Quem enxerga o desempenho dos OUTROS é quem tem perfil de administrador —
+    # não uma lista de nomes escrita no código.
+    #
+    # A regra do gestor é: cada um vê a meta coletiva e a SUA meta individual;
+    # ninguém vê o progresso do colega. A tela já respeitava isso, mas a decisão
+    # vinha de _pc.MASTERS, um conjunto fixo no código, enquanto o perfil de
+    # acesso vinha de outro lugar. Duas listas para a mesma pergunta é como se
+    # perde o controle de quem vê o quê. Agora é o secret ADMINS que manda, e
+    # MASTERS fica de reserva se a checagem de perfil falhar.
+    try:
+        import auth as _auth_am
+        _eh_master = _auth_am.is_admin(usuario_logado)
+    except Exception:
+        _eh_master = _username_atual in {m.lower() for m in _pc.MASTERS}
     _eh_membro      = _username_atual in _pc.MEMBROS_ATIVOS or _eh_master
     if not _eh_membro:
         st.warning("🔒 Acesso restrito à equipe.")
@@ -2479,11 +2492,24 @@ def pagina_analise_metas(usuario_logado):
     # servidor nem fica sabendo qual está aberta. Aqui isso significava rodar
     # Coletivo, Individual (com as chamadas à RHiD), Desempenho (com a visão
     # anual e os gráficos) e Configuração de uma vez só, a cada clique.
-    _ABAS = ["📋 Coletivo", "🎯 Individual", "📈 Desempenho", "⚙️ Configuração de Metas"]
+    # A aba de configuração some para quem não é gestor, em vez de aparecer e
+    # responder com cadeado. Aba que abre e nega deixa a pessoa achando que
+    # quebrou — e ainda anuncia que existe um lugar onde se mexe nas metas.
+    _ABAS = ["📋 Coletivo", "🎯 Individual", "📈 Desempenho"]
+    if _eh_master:
+        _ABAS = _ABAS + ["⚙️ Configuração de Metas"]
     _chave_aba = "_am_aba"
     if _chave_aba not in st.session_state:
         _da_url = str(st.query_params.get("aba_am", "")).strip()
         st.session_state[_chave_aba] = _da_url if _da_url in _ABAS else _ABAS[0]
+
+    # A lista de abas encolhe para quem não é gestor. Se a seleção guardada for a
+    # aba que sumiu, ela precisa ser trocada ANTES de o widget existir — escrever
+    # na chave de um widget já instanciado derruba a tela.
+    if st.session_state[_chave_aba] not in _ABAS:
+        st.session_state[_chave_aba] = _ABAS[0]
+    if st.session_state.get("am_aba_sel") not in _ABAS:
+        st.session_state["am_aba_sel"] = st.session_state[_chave_aba]
 
     _aba_sel = st.segmented_control(
         "Seção", _ABAS,
@@ -2566,7 +2592,10 @@ def pagina_analise_metas(usuario_logado):
             # para evitar mostrar meses sem meta individual configurada.
             _desempenho_individual(dados, _mb_u_des, _mb_nome_des)
 
-    elif _aba_sel == _ABAS[3]:
+    elif len(_ABAS) > 3 and _aba_sel == _ABAS[3]:
+        # Só chega aqui quem é gestor: a aba nem entra na lista dos outros, e
+        # _navegar recusa rótulo fora da lista. A checagem fica assim mesmo —
+        # é do lado do servidor, não some se alguém mexer na URL.
         if _eh_master:
             _secao_configuracao()
             st.markdown("---")
