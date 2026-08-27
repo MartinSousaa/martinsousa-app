@@ -2516,9 +2516,12 @@ def pagina_analise_metas(usuario_logado):
     if st.session_state.get("am_aba_sel") not in _ABAS:
         st.session_state["am_aba_sel"] = st.session_state[_chave_aba]
 
+    # Sem `default=`: passar default E escrever na chave do widget faz o
+    # Streamlit avisar em inglês, numa caixa amarela no meio da tela, toda vez
+    # que a página carrega. Com `key=`, o valor JÁ vem do session_state — o
+    # default é redundante e é ele que dispara o aviso.
     _aba_sel = st.segmented_control(
         "Seção", _ABAS,
-        default=st.session_state[_chave_aba],
         key="am_aba_sel", label_visibility="collapsed",
     ) or st.session_state[_chave_aba]
 

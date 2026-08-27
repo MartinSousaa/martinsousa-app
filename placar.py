@@ -792,7 +792,7 @@ def _tv_full_html(
     n_urgentes, n_sem_mb, agora_str,
     meta_ind_map=None,
     ritmo_tv_html="",
-    sem_membro_lista=None,
+    sem_membro_lista=None, sem_membro_desc="",
 ):
     def fp(v): return f"{'%.1f'%v if v<10 else '%.0f'%v}%"
 
@@ -925,8 +925,11 @@ def _tv_full_html(
     _cor_tv_prix     = "#FFD700" if pct_pri_ok      >= 100 else "#E34948"
     _cor_tv_retrab_x = "#FFD700" if pct_retrab_x    >= 100 else "#E34948"
     _cor_tv_cmbx     = "#FFD700" if pct_com_membro  >= 99.5 else "#E34948"
-    _tv_sem_mb_desc = ("Em andamento e concluídos" if not sem_membro_lista
-                       else "Sem membro: " + ", ".join(f'"{c["nome"][:25]}"' for c in sem_membro_lista[:2]))
+    # Mesma legenda do painel: quem monta a descrição é quem calcula o
+    # percentual. Antes a TV recebia a lista de cartões ABERTOS sem membro,
+    # enquanto a barra media os em andamento e concluídos — 100% com faltantes
+    # listados embaixo.
+    _tv_sem_mb_desc = sem_membro_desc or "Em andamento e concluídos"
     return f"""<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -1707,9 +1710,24 @@ def pagina_placar(usuario_logado, headless=False):
         if _data_card(card) >= _corte
         and ("EM ANDAMENTO" in _labels(card) or card.get("dueComplete", False))
     ]
-    _sem_mb_novo = sum(1 for card in _elegivel if not _users(card, membros_map))
+    # A legenda sai da MESMA lista que o percentual.
+    #
+    # A barra marcava 100% e logo abaixo listava cartões sem membro, com o
+    # contador do topo dizendo SEM MEMBRO: 16. Os dois números estavam certos e
+    # falavam de coisas diferentes: o percentual olha os cartões em andamento e
+    # concluídos desde 01/07; a legenda vinha de sem_membro_lista, que é
+    # preenchida com cartões ABERTOS. Uma barra cheia com uma lista de faltantes
+    # embaixo só pode ser lida como erro.
+    _sem_mb_cards = [card for card in _elegivel if not _users(card, membros_map)]
+    _sem_mb_novo = len(_sem_mb_cards)
     _total_novo = max(len(_elegivel), 1)
     pct_com_membro = max(0, min(100, 100 - (_sem_mb_novo / _total_novo * 100)))
+    _sem_mb_desc_meta = (
+        f"Em andamento e concluídos desde 01/07 — todos os {len(_elegivel)} com membro"
+        if not _sem_mb_cards else
+        f"{_sem_mb_novo} de {len(_elegivel)} sem membro: "
+        + ", ".join(f'"{c["name"][:30]}"' for c in _sem_mb_cards[:3])
+    )
 
 
 
@@ -1822,6 +1840,7 @@ def pagina_placar(usuario_logado, headless=False):
         meta_ind_map=meta_ind_map,
         ritmo_tv_html=_ritmo_tv_html,
         sem_membro_lista=d.get("sem_membro_lista", []),
+        sem_membro_desc=_sem_mb_desc_meta,
     )
     _write_tv_static(_html_tv)  # atualiza static/tv.html a cada refresh do app
 
@@ -1840,8 +1859,7 @@ def pagina_placar(usuario_logado, headless=False):
         _cor_pri  = "#1BAF7A" if pct_prioritarios_ok  >= 100 else "#E34948"
         _cor_rtn  = "#1BAF7A" if pct_retrab_barra_n   >= 100 else "#E34948"
         _cor_cmb  = "#1BAF7A" if pct_com_membro       >= 99.5 else "#E34948"
-        _sem_mb_desc_n = ("Em andamento e concluídos" if not d.get("sem_membro_lista")
-                          else "Sem membro: " + ", ".join(f'"{c["nome"][:30]}"' for c in d["sem_membro_lista"][:3]))
+        _sem_mb_desc_n = _sem_mb_desc_meta
         b += _barra_meta("Pontuação do mês", pct_eq, f"{saldo_eq:,.0f} / {meta_eq:,} pts (inclui -{d['pen_total']:.0f} penalidades)", _cor_eq)
         b += _barra_meta("Sem atraso em prioritários P8-P10", pct_prioritarios_ok, _desc_pri, _cor_pri)
         b += _barra_meta(f"Retrabalho abaixo de {max_retrab_n}%", pct_retrab_barra_n, _desc_retrab, _cor_rtn)
@@ -1856,8 +1874,7 @@ def pagina_placar(usuario_logado, headless=False):
         _cor_prix = "#FFD700" if pct_prioritarios_ok  >= 100 else "#E34948"
         _cor_rtnx = "#FFD700" if pct_retrab_barra_x   >= 100 else "#E34948"
         _cor_cmbx = "#FFD700" if pct_com_membro       >= 99.5 else "#E34948"
-        _sem_mb_desc_x = ("Em andamento e concluídos" if not d.get("sem_membro_lista")
-                          else "Sem membro: " + ", ".join(f'"{c["nome"][:30]}"' for c in d["sem_membro_lista"][:3]))
+        _sem_mb_desc_x = _sem_mb_desc_meta
         b += _barra_meta(f"Pontuação +{maxx_pct-100}% acima da meta", pct_maxx, f"{saldo_eq:,.0f} / {meta_maxx_pts:,.0f} pts (c/ penalidades -{ d['pen_total']:.0f})", _cor_mx)
         b += _barra_meta("Zero prioritários em atraso", pct_prioritarios_ok, _desc_pri, _cor_prix)
         b += _barra_meta(f"Retrabalho abaixo de {max_retrab_x}%", pct_retrab_barra_x, _desc_retrab, _cor_rtnx)
