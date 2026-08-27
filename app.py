@@ -1287,7 +1287,10 @@ with st.sidebar:
     # Marca cedo, antes de qualquer tela pesada: se a pagina der erro no meio, a
     # presenca ja foi registrada. A aba certa e refinada em _render_abas.
     presenca.marcar(usuario_logado)
-    if auth.is_admin(usuario_logado):
+    # Só o dono. Na barra lateral, cada linha aqui é uma linha a menos de
+    # conversa para o colaborador — e saber quem está online é assunto de quem
+    # decide subir atualização, não de quem está trabalhando.
+    if auth.eh_dono(usuario_logado):
         presenca.painel()
 
     chat_assistente.renderizar_chat(usuario_logado)

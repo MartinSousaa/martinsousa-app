@@ -198,6 +198,16 @@ def _verificar_credencial(login, senha):
 ADMINS_PADRAO = {"martinsousa"}
 
 
+def eh_dono(usuario_logado):
+    """O dono do Studio — não é o mesmo que ter perfil admin.
+
+    Serve para o que é só dele ver, como o painel de quem está no Studio agora.
+    Um gestor a mais no secret ADMINS ganha as telas de gestão, não a vigilância
+    de quem está online.
+    """
+    return str(usuario_logado or "").strip().lower() in ADMINS_PADRAO
+
+
 def _admins_configurados():
     """Logins com perfil admin, do secret ADMINS. None quando não configurado.
 

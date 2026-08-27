@@ -107,18 +107,23 @@ def painel(titulo="NO STUDIO AGORA"):
         onde = (p.get("onde") or "—")
         if len(onde) > 26:
             onde = onde[:25] + "…"
+        # A hora ia na mesma linha do nome, empurrada para a direita. Na largura
+        # da barra lateral ela saía da tela — "agora" virava "ag". Agora desce
+        # junto da tela, que é onde sobra espaço.
         linhas.append(
-            '<div style="padding:3px 0;line-height:1.25;">'
-            '<div style="display:flex;align-items:baseline;gap:5px;'
-            'font-size:12px;min-width:0;">'
-            f'<span style="color:{cor};font-size:9px;flex:none;">●</span>'
-            f'<b style="color:var(--ms-texto);overflow:hidden;'
-            f'text-overflow:ellipsis;white-space:nowrap;">{p["usuario"]}</b>'
-            f'<span style="color:var(--ms-texto-sec);font-size:10px;flex:none;'
-            f'margin-left:auto;">{_ha_quanto(inativo)}</span></div>'
+            '<div style="padding:2px 0;line-height:1.3;">'
+            '<div style="font-size:12px;white-space:nowrap;overflow:hidden;'
+            'text-overflow:ellipsis;">'
+            f'<span style="color:{cor};font-size:9px;">●</span> '
+            f'<b style="color:var(--ms-texto);">{p["usuario"]}</b></div>'
             f'<div style="font-size:10px;color:var(--ms-texto-sec);'
-            f'padding-left:14px;overflow:hidden;text-overflow:ellipsis;'
-            f'white-space:nowrap;">{onde}</div></div>'
+            f'padding-left:13px;white-space:nowrap;overflow:hidden;'
+            f'text-overflow:ellipsis;">{onde} · {_ha_quanto(inativo)}</div></div>'
         )
-    st.markdown("".join(linhas), unsafe_allow_html=True)
-    st.caption("Verde = ativo no último minuto.")
+    # Sem st.caption: ele entra com margem própria e encavalava na linha
+    # seguinte. A legenda vai no title, que aparece ao passar o mouse.
+    st.markdown(
+        '<div title="Verde = ativo no último minuto. Quem só está lendo, sem '
+        'clicar, some da lista depois de 10 min." '
+        'style="margin-bottom:8px;">' + "".join(linhas) + '</div>',
+        unsafe_allow_html=True)
