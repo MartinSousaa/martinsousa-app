@@ -322,6 +322,71 @@ def _log(acao, instrucao="", imagem=None, tipo="", resultado=""):
         pass
 
 
+def _norm_texto(v):
+    """Minusculas, sem acento, so letras e numeros separados por espaco."""
+    import re as _re
+    import unicodedata as _ud
+    s = _ud.normalize("NFKD", str(v)).encode("ascii", "ignore").decode("ascii").lower()
+    return _re.sub(r"[^a-z0-9]+", " ", s).strip()
+
+
+def _resolver_imagem(alvo, galeria):
+    """Qual imagem da galeria o comando quer. Devolve o numero (1-based) ou None.
+
+    Antes, qualquer valor que nao virasse numero caia num `foto_num = 1`. O
+    prompt manda a IA perguntar quando estiver em duvida, mas o codigo escolhia
+    por ela — e a duvida virava um ajuste silencioso na primeira imagem, que e
+    justamente o erro que nao pode acontecer.
+
+    Agora aceita as duas formas que o colaborador usa naturalmente: o numero
+    ("imagem 3") e o nome do tipo ("a do fundo branco"). O nome so vale quando
+    casa com UMA imagem — dois candidatos viram duvida, e duvida vira pergunta.
+    """
+    if not galeria:
+        return None
+    if isinstance(alvo, bool):
+        return None
+    if isinstance(alvo, int):
+        return alvo if 1 <= alvo <= len(galeria) else None
+
+    texto = _norm_texto(alvo or "")
+    if not texto:
+        return None
+    if texto.isdigit():
+        n = int(texto)
+        return n if 1 <= n <= len(galeria) else None
+
+    # "imagem 3", "foto 2", "a 4a" — pega o numero solto se houver so um.
+    import re as _re_alvo
+    numeros = _re_alvo.findall(r"\d+", texto)
+    if len(numeros) == 1:
+        n = int(numeros[0])
+        if 1 <= n <= len(galeria):
+            return n
+
+    # Pelo nome do tipo: "fundo branco", "beneficios", "medidas".
+    #
+    # Texto que junta mais de um alvo ("a do fundo e a de medidas") nao e
+    # resolvido por nome: so um dos nomes casaria, e o comando ajustaria uma
+    # imagem calado enquanto a pessoa pediu duas. Melhor devolver a pergunta.
+    if _re_alvo.search(r"(^| )(e|ou|todas|ambas|as duas)( |$)|,", texto):
+        return None
+
+    casos = []
+    for i, g in enumerate(galeria):
+        tipo = _norm_texto(g.get("tipo", ""))
+        # O rotulo vem numerado ("1 fundo branco"); o numero atrapalha a
+        # comparacao com o jeito que a pessoa fala ("a do fundo branco").
+        nucleo = _re_alvo.sub(r"^[\d\s]+", "", tipo).strip()
+        if not nucleo:
+            continue
+        if nucleo in texto or texto in nucleo:
+            casos.append(i + 1)
+    if len(casos) == 1:
+        return casos[0]
+    return None
+
+
 def _executar_comando(cmd: dict) -> str | None:
     """Executa o comando extraído da resposta da IA. Retorna texto de feedback."""
     acao = cmd.get("acao", "")
@@ -343,17 +408,21 @@ def _executar_comando(cmd: dict) -> str | None:
         return None
 
     if acao == "ajustar_imagem":
-        try:
-            # Aceita "imagem" (nome atual) e "foto" (comandos antigos).
-            foto_num  = int(cmd.get("imagem", cmd.get("foto", 1)))
-        except (ValueError, TypeError):
-            foto_num  = 1
+        # Aceita "imagem" (nome atual) e "foto" (comandos antigos).
+        alvo = cmd.get("imagem", cmd.get("foto"))
         instrucao = str(cmd.get("instrucao", "")).strip()
         galeria   = st.session_state.get("img_galeria")
+        foto_num  = _resolver_imagem(alvo, galeria)
         if galeria and instrucao:
-            if foto_num < 1 or foto_num > len(galeria):
-                return (f"⚠️ Imagem {foto_num} não existe — a galeria tem "
-                        f"{len(galeria)} imagem(ns).")
+            if foto_num is None:
+                nomes = "\n".join(
+                    f"- **Imagem {i+1}** — {g.get('tipo','?')}"
+                    for i, g in enumerate(galeria)
+                )
+                return (
+                    "⚠️ Não ficou claro **qual imagem** ajustar, então não mexi "
+                    "em nenhuma. Me diga o número:\n" + nomes
+                )
             if "chat_img_pendente" not in st.session_state:
                 st.session_state["chat_img_pendente"] = []
             st.session_state["chat_img_pendente"].append(
