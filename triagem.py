@@ -45,11 +45,17 @@ def _aba():
         # lesse por foto_drive_id nao achava nada, e a miniatura da variante
         # nunca aparecia.
         cabecalho = aba.row_values(1)
+        # Compara normalizado, como em atividades.py: "Peso" ou "peso " nao
+        # batia e uma coluna repetida e vazia nascia no fim, apagando a boa na
+        # leitura.
+        _norm = lambda c: str(c).strip().lower()
+        vistos = {_norm(c) for c in cabecalho}
         for col in COLUNAS:
-            if col not in cabecalho:
+            if _norm(col) not in vistos:
                 aba.add_cols(1)
                 aba.update_cell(1, len(cabecalho) + 1, col)
                 cabecalho.append(col)
+                vistos.add(_norm(col))
         return aba
     except gspread.exceptions.WorksheetNotFound:
         aba = planilha.add_worksheet(title=ABA_NOME, rows=2000, cols=len(COLUNAS))
@@ -106,9 +112,16 @@ def salvar_triagem(usuario, dados):
     sempre pega a mais recente. Lança RuntimeError se a gravação falhar."""
     try:
         aba = _aba()
-        linha = [datetime.now().strftime("%d/%m/%Y %H:%M"), usuario] + [
-            dados.get(c, "") for c in COLUNAS if c not in ("data_hora", "usuario")
-        ]
+        # Por NOME de coluna, nao por posicao — foi o que fez o peso se perder
+        # no historico de atividades. Aqui a armadilha e a mesma.
+        valores = dict(dados or {})
+        valores["data_hora"] = datetime.now().strftime("%d/%m/%Y %H:%M")
+        valores["usuario"] = usuario
+        try:
+            cabecalho_real = aba.row_values(1) or list(COLUNAS)
+        except Exception:
+            cabecalho_real = list(COLUNAS)
+        linha = [valores.get(str(c).strip().lower(), "") for c in cabecalho_real]
         aba.append_row(linha, value_input_option="RAW")
         carregar_triagens.clear()
     except Exception as e:
@@ -228,6 +241,12 @@ def widget_seletor_produto(key_prefix, label="Nome do produto"):
     sel_key = f"{key_prefix}_sel_idx"
     busca_prev_key = f"{key_prefix}_busca_prev"
 
+    # Semeia com o produto em que a pessoa ja esta trabalhando, para nao
+    # redigitar o mesmo nome em cinco abas. ANTES do widget: escrever na chave
+    # depois de ele existir derruba a tela.
+    import contexto_produto as _ctx
+    _ctx.semear(busca_key)
+
     busca = st.text_input(label, key=busca_key)
 
     # Limpa seleção sempre que o texto de busca muda
@@ -241,12 +260,14 @@ def widget_seletor_produto(key_prefix, label="Nome do produto"):
     encontrados = buscar_triagens_por_trecho(busca)
 
     if not encontrados:
+        _ctx.definir(busca)
         return (
             {"nome_comercial": busca},
             ("warning", "Nenhuma triagem encontrada para esse produto ainda — preencha os campos abaixo.")
         )
 
     if len(encontrados) == 1:
+        _ctx.definir(encontrados[0].get("nome_comercial", busca), dados=encontrados[0])
         return (
             encontrados[0],
             ("info", f"Triagem encontrada: **{encontrados[0]['nome_comercial']}**. Confira os dados abaixo antes de gerar.")
@@ -264,6 +285,7 @@ def widget_seletor_produto(key_prefix, label="Nome do produto"):
         if col_trocar.button("Trocar", key=f"{key_prefix}_trocar", use_container_width=True):
             st.session_state[sel_key] = None
             st.rerun()
+        _ctx.definir(v.get("nome_comercial", busca), dados=v)
         return v, None
 
     # Nomes diferentes → selectbox por nome (comportamento original)
@@ -276,6 +298,7 @@ def widget_seletor_produto(key_prefix, label="Nome do produto"):
         )
         candidatos = [v for v in encontrados if v.get("nome_comercial") == escolha_nome]
         if len(candidatos) == 1:
+            _ctx.definir(candidatos[0].get("nome_comercial", busca), dados=candidatos[0])
             return candidatos[0], ("info", "Confira os dados abaixo antes de gerar.")
         # Mesmo nome → prossegue para cards visuais com este subconjunto
         encontrados = candidatos

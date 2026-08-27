@@ -141,6 +141,9 @@ CHAVES_TRABALHO = (
     "pc_palavras_geradas", "pc_dados_produto", "pc_tendencias",
     "img_nome_produto", "img_codigo", "img_dados_descricao",
     "ms_chat_hist",
+    # O produto em que a pessoa esta trabalhando, e as palavras-chave dele.
+    "ctx_produto_nome", "ctx_produto_codigo", "ctx_produto_palavras",
+    "ctx_produto_dados",
 )
 
 

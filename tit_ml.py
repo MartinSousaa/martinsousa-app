@@ -142,8 +142,22 @@ def pagina_titulo(usuario_logado):
             "uso": uso,
         }
 
-        with st.spinner("Gerando palavras-chave de apoio..."):
-            palavras_lista, erro_pc = palavras_chave.gerar_palavras_chave(dados)
+        # Reaproveita a lista da aba Palavras-chave, se houver — INCLUSIVE os
+        # ajustes feitos por conversa.
+        #
+        # Antes o Titulo refazia a lista do zero. Quem tinha acabado de pedir
+        # "remova os termos de escritorio" via a lista voltar com
+        # "caneca escritorio" e o termo entrar no titulo. O trabalho de conversa
+        # era descartado em silencio, sem nada na tela dizendo isso.
+        import contexto_produto as _ctx_tt
+        palavras_lista = _ctx_tt.palavras()
+        erro_pc = None
+        if palavras_lista:
+            st.caption(f"Usando as {len(palavras_lista)} palavras-chave da aba "
+                       "*Palavras-chave*, com os ajustes que você fez lá.")
+        else:
+            with st.spinner("Gerando palavras-chave de apoio..."):
+                palavras_lista, erro_pc = palavras_chave.gerar_palavras_chave(dados)
 
         if erro_pc:
             import erros_ia

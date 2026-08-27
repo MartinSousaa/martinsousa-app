@@ -179,6 +179,10 @@ def pagina_palavras_chave(usuario_logado):
 
         # Persiste no session_state para não perder ao trocar de aba
         st.session_state["pc_palavras_geradas"] = palavras
+        # Disponivel para as outras abas — o Titulo refazia a lista do zero e
+        # jogava fora o ajuste que a pessoa acabara de fazer aqui.
+        import contexto_produto as _ctx_pc
+        _ctx_pc.definir_palavras(palavras)
         st.session_state["pc_tendencias"] = tendencias
         st.session_state["pc_erro_tendencia"] = erro_tendencia
         st.session_state["pc_dados_produto"] = dados
@@ -231,6 +235,8 @@ def pagina_palavras_chave(usuario_logado):
             st.session_state["pc_chat_log"].append(("assistant", f"⚠️ Erro ao ajustar: {erro_aj}"))
         else:
             st.session_state["pc_palavras_geradas"] = nova_lista
+            import contexto_produto as _ctx_pc
+            _ctx_pc.definir_palavras(nova_lista)
             n_antes = len(palavras_salvas)
             n_depois = len(nova_lista)
             msg = f"✅ Lista atualizada ({n_antes} → {n_depois} termos)."
