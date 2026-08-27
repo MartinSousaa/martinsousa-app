@@ -164,6 +164,13 @@ def upload(imagem_bytes, nome_arquivo, pasta_id, mimetype="image/png", publico=T
         metadata = {"name": nome_arquivo}
         if pasta_id:
             metadata["parents"] = [pasta_id]
+        else:
+            # Sem pasta, o Google joga o arquivo na RAIZ do Meu Drive. Isso
+            # acontecia calado: as imagens iam para o meio de tudo e ninguem
+            # ficava sabendo que DRIVE_PASTA_IMAGENS_ID nao estava configurada.
+            # O upload continua — perder a imagem gerada seria pior —, mas
+            # agora ele avisa.
+            pass
 
         arquivo = svc.files().create(
             body=metadata,
@@ -177,6 +184,10 @@ def upload(imagem_bytes, nome_arquivo, pasta_id, mimetype="image/png", publico=T
             "id": arquivo["id"],
             "webViewLink": arquivo.get("webViewLink"),
             "publico": publicado,
+            "na_raiz": not pasta_id,
+            "aviso": ("" if pasta_id else
+                      "Salvo na RAIZ do Meu Drive: a pasta de imagens não está "
+                      "configurada (DRIVE_PASTA_IMAGENS_ID)."),
         }, None
     except Exception as e:
         return None, erro_amigavel(e)

@@ -1795,6 +1795,9 @@ def upload_para_pasta(imagem_bytes, nome_arquivo, pasta_id):
     info, err = gdrive.upload(imagem_bytes, nome_arquivo, pasta_id, mimetype="image/png")
     if err:
         return None, err
+    if info.get("na_raiz"):
+        import streamlit as _st_av
+        _st_av.warning("⚠️ " + info.get("aviso", ""))
     return info.get("webViewLink"), None
 
 
