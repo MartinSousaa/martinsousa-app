@@ -2147,6 +2147,27 @@ def pagina_imagem(usuario_logado):
                                            ("Cor", "cor"), ("Medidas", "medidas"))
                        if not str(dados_descricao.get(ch) or "").strip()]
             if _vazios:
+                # Diagnostico ao lado do aviso: quando a tela acusa falta de um
+                # dado que a pessoa preencheu, da para ver a linha crua em vez de
+                # discutir de memoria.
+                with st.expander("🔎 O que a planilha realmente tem neste código"):
+                    _diag_cod = _atv.diagnostico_codigo(codigo_input)
+                    if _diag_cod.get("erro"):
+                        st.error(_diag_cod["erro"])
+                    else:
+                        if _diag_cod.get("duplicadas"):
+                            st.error("Colunas repetidas no cabeçalho: **"
+                                     + "**, **".join(_diag_cod["duplicadas"])
+                                     + "**. A leitura fica com a última, que "
+                                       "costuma estar vazia — é preciso apagar a "
+                                       "coluna repetida na planilha.")
+                        st.caption("Cabeçalho da aba `atividades`, na ordem real:")
+                        st.code(" | ".join(str(c) for c in _diag_cod.get("cabecalho", [])))
+                        for _ln in _diag_cod.get("linhas", []):
+                            st.caption(f"Linha de {_ln.get('data_hora','?')} · {_ln.get('tipo','?')}")
+                            st.json({k: v for k, v in _ln.items()
+                                     if k in ("codigo", "cor", "medidas", "peso",
+                                              "material", "categoria", "uso")})
                 st.warning(
                     "⚠️ A descrição foi encontrada, mas está sem **"
                     + "**, **".join(_vazios) + "**. Estes campos ficaram em branco "
