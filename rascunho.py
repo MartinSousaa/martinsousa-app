@@ -119,3 +119,94 @@ def limpar(usuario):
         shutil.rmtree(_pasta(usuario), ignore_errors=True)
     except Exception:
         pass
+
+
+# ── Trabalho da sessão ───────────────────────────────────────────────────────
+#
+# Um F5 apagava título, descrição, palavras-chave e o histórico do chat. O login
+# persiste — o trabalho não. Uma queda de internet, um deploy no Railway, um F5
+# sem querer, e a pessoa refaz tudo (pagando a geração de novo).
+#
+# O mesmo disco que já guarda as imagens guarda o resto. Vale a mesma ressalva:
+# cobre queda de conexão e recarga de página, não reinício do servidor — e nesse
+# caso o navegador recarrega inteiro de qualquer jeito.
+
+# Só o que é RESULTADO de trabalho. Chaves de widget e de controle de fluxo
+# ficam de fora de propósito: restaurar estado de widget faz o Streamlit brigar,
+# e restaurar um "pendente" de meio de fluxo reabriria uma confirmação que a
+# pessoa já respondeu.
+CHAVES_TRABALHO = (
+    "desc_nome_atual", "desc_codigo_atual", "desc_texto_atual", "desc_dados_atual",
+    "tt_titulos_gerados", "tt_dados_produto", "tt_palavras_usadas",
+    "pc_palavras_geradas", "pc_dados_produto", "pc_tendencias",
+    "img_nome_produto", "img_codigo", "img_dados_descricao",
+    "ms_chat_hist",
+)
+
+
+def _caminho_trabalho(usuario):
+    return os.path.join(_pasta(usuario), "trabalho.json")
+
+
+def salvar_trabalho(usuario, estado):
+    """Grava as chaves de trabalho. Devolve True se escreveu algo.
+
+    `estado` é o st.session_state. Só grava o que é serializável em JSON: bytes
+    de imagem, por exemplo, têm o caminho próprio em salvar()/carregar().
+    """
+    if not usuario:
+        return False
+    dados = {}
+    for chave in CHAVES_TRABALHO:
+        valor = estado.get(chave)
+        if valor in (None, "", [], {}):
+            continue
+        try:
+            json.dumps(valor)
+        except (TypeError, ValueError):
+            continue
+        dados[chave] = valor
+    try:
+        pasta = _pasta(usuario)
+        os.makedirs(pasta, exist_ok=True)
+        if not dados:
+            if os.path.exists(_caminho_trabalho(usuario)):
+                os.remove(_caminho_trabalho(usuario))
+            return False
+        with open(_caminho_trabalho(usuario), "w", encoding="utf-8") as fh:
+            json.dump({"quando": time.time(), "dados": dados}, fh)
+        return True
+    except Exception:
+        return False
+
+
+def carregar_trabalho(usuario):
+    """Devolve o dict de chaves gravadas, ou {} se não houver nada válido."""
+    if not usuario:
+        return {}
+    try:
+        caminho = _caminho_trabalho(usuario)
+        if not os.path.exists(caminho):
+            return {}
+        with open(caminho, encoding="utf-8") as fh:
+            guardado = json.load(fh)
+        if time.time() - float(guardado.get("quando", 0)) > VALIDADE_HORAS * 3600:
+            os.remove(caminho)
+            return {}
+        return guardado.get("dados") or {}
+    except Exception:
+        return {}
+
+
+def restaurar(usuario, estado):
+    """Repõe o trabalho no session_state. Devolve o que foi reposto.
+
+    Só preenche chave que está VAZIA: se a pessoa já gerou algo nesta sessão,
+    o que está na tela manda sobre o que estava em disco.
+    """
+    reposto = []
+    for chave, valor in (carregar_trabalho(usuario) or {}).items():
+        if estado.get(chave) in (None, "", [], {}):
+            estado[chave] = valor
+            reposto.append(chave)
+    return reposto
