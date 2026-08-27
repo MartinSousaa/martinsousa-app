@@ -96,21 +96,29 @@ def painel(titulo="NO STUDIO AGORA"):
         st.caption("Ninguém ativo nos últimos 10 minutos.")
         return
 
+    # Tudo numa linha so nao cabe na largura da barra lateral: nome, tela e
+    # "ha 4 min" se sobrepunham. Duas linhas por pessoa, com a tela em fonte
+    # menor embaixo do nome, e cada texto cortado no que cabe.
     agora = time.time()
     linhas = []
     for p in gente:
         inativo = agora - p.get("visto", agora)
         cor = "#3FB950" if inativo < 120 else "#EDA100"
-        onde = p.get("onde") or "—"
+        onde = (p.get("onde") or "—")
+        if len(onde) > 26:
+            onde = onde[:25] + "…"
         linhas.append(
-            f'<div style="display:flex;align-items:center;gap:6px;'
-            f'font-size:12px;padding:2px 0;">'
-            f'<span style="color:{cor};font-size:9px;">●</span>'
-            f'<b style="color:var(--ms-texto);">{p["usuario"]}</b>'
-            f'<span style="color:var(--ms-texto-sec);">{onde}</span>'
-            f'<span style="color:var(--ms-texto-sec);margin-left:auto;">'
-            f'{_ha_quanto(inativo)}</span></div>'
+            '<div style="padding:3px 0;line-height:1.25;">'
+            '<div style="display:flex;align-items:baseline;gap:5px;'
+            'font-size:12px;min-width:0;">'
+            f'<span style="color:{cor};font-size:9px;flex:none;">●</span>'
+            f'<b style="color:var(--ms-texto);overflow:hidden;'
+            f'text-overflow:ellipsis;white-space:nowrap;">{p["usuario"]}</b>'
+            f'<span style="color:var(--ms-texto-sec);font-size:10px;flex:none;'
+            f'margin-left:auto;">{_ha_quanto(inativo)}</span></div>'
+            f'<div style="font-size:10px;color:var(--ms-texto-sec);'
+            f'padding-left:14px;overflow:hidden;text-overflow:ellipsis;'
+            f'white-space:nowrap;">{onde}</div></div>'
         )
     st.markdown("".join(linhas), unsafe_allow_html=True)
-    st.caption("Verde = mexeu no último minuto. Quem só está lendo, sem clicar, "
-               "some da lista depois de 10 min.")
+    st.caption("Verde = ativo no último minuto.")

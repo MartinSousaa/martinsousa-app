@@ -138,6 +138,8 @@ def _analisar_meses(listas, cards, membros_map, id_p, id_t, id_i, meses_lista, p
             "abertos": d["abertos"],
             "urgentes": d["urgentes"],
             "atrasados": d["atrasados"],
+            "atrasados_pri": d.get("atrasados_pri", 0),
+            "atrasados_pri_lista": d.get("atrasados_pri_lista", []),
             "em_andamento": d["em_andamento"],
             "andamento_lista": d["andamento_lista"],
             "pend_lista": d["pend_lista"],
@@ -240,7 +242,16 @@ def _secao_metas_card(dados):
     max_retrab_n = int(cfg.get("max_retrab_normal", 10))
     max_retrab_x = int(cfg.get("max_retrab_maxx", 5))
 
-    pct_prioritarios = 100 if atrasados == 0 else max(0, 100 - atrasados * 20)
+    # A meta e sobre prioridade 8 a 10; "atrasados" conta o board inteiro.
+    atrasados_pri = r.get("atrasados_pri", 0)
+    pct_prioritarios = 100 if atrasados_pri == 0 else max(0, 100 - atrasados_pri * 20)
+    if atrasados_pri == 0:
+        _desc_pri = "Nenhum cartão prioritário (P8-P10) atrasado"
+    else:
+        _nomes = ", ".join(f'"{c["nome"][:30]}"'
+                           for c in (r.get("atrasados_pri_lista") or [])[:3])
+        _desc_pri = (f"{atrasados_pri} prioritário(s) atrasado(s)"
+                     + (f": {_nomes}" if _nomes else ""))
     pct_com_membro   = r.get("pct_com_membro", 100.0)
 
     # Penalidades: acumulam de 0% a 100% (vermelho)
@@ -267,7 +278,7 @@ def _secao_metas_card(dados):
                             f"{saldo:,.0f} / {meta_eq:,.0f} pts (inclui -{pen_total:.0f} penalidades)", "#1BAF7A")
         _cor_pri_a = "#1BAF7A" if pct_prioritarios >= 100 else "#E34948"
         b += _barra_painel("Sem atraso em prioritários P8-P10", pct_prioritarios,
-                            "Nenhum cartão prioritário atrasado" if atrasados == 0 else f"{atrasados} atrasado(s)", _cor_pri_a)
+                            _desc_pri, _cor_pri_a)
         _cor_rtn_a = "#1BAF7A" if pct_retrab_n >= 100 else "#E34948"
         b += _barra_painel(f"Retrabalho abaixo de {max_retrab_n}%", pct_retrab_n, desc_retrab, _cor_rtn_a)
         b += _barra_painel(f"Menos de {max_pen_n+1} penalidades", pct_pen_n,
@@ -283,7 +294,7 @@ def _secao_metas_card(dados):
                             f"{saldo:,.0f} / {meta_maxx:,.0f} pts (c/ penalidades -{pen_total:.0f})", "#FFD700")
         _cor_prix_a = "#FFD700" if pct_prioritarios >= 100 else "#E34948"
         b += _barra_painel("Zero prioritários em atraso", pct_prioritarios,
-                            "Nenhum cartão prioritário atrasado" if atrasados == 0 else f"{atrasados} atrasado(s)", _cor_prix_a)
+                            _desc_pri, _cor_prix_a)
         _cor_rtx_a = "#FFD700" if pct_retrab_x >= 100 else "#E34948"
         b += _barra_painel(f"Retrabalho abaixo de {max_retrab_x}%", pct_retrab_x, desc_retrab_x, _cor_rtx_a)
         b += _barra_painel(f"Menos de {max_pen_x+1} penalidades", pct_pen_x,

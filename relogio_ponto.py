@@ -1118,6 +1118,27 @@ def _secao_relatorio_rhid():
         f"Período: {data_ini.strftime('%d/%m')} a {data_fim.strftime('%d/%m/%Y')}"
     )
 
+    # Esta tela lista quem existe na RHiD; a aba "Status Hoje" lista a equipe
+    # cadastrada no Studio. Sao fontes diferentes, e quando divergem a diferenca
+    # aparecia como colaborador sumido, sem explicacao nenhuma. Agora a
+    # divergencia e dita em voz alta.
+    _users_na_rhid = set()
+    for _p in persons_ativos:
+        _n = (_p.get("name") or _p.get("nome") or _p.get("nomeCompleto")
+              or _p.get("fullName") or _p.get("personName") or "")
+        _u = _rhid_nome_para_trello(_n) if _n else None
+        if _u:
+            _users_na_rhid.add(_u)
+    _faltando = [nome for user, nome in MEMBROS.items()
+                 if user not in _users_na_rhid]
+    if _faltando:
+        st.warning(
+            "⚠️ Sem relógio na RHiD: **" + "**, **".join(_faltando) + "**. "
+            "Estes aparecem na aba *Status Hoje* (equipe do Studio) mas não aqui. "
+            "Ou o cadastro na RHiD está inativo, ou o primeiro nome está escrito "
+            "diferente dos dois lados."
+        )
+
     # ── Busca apuração para cada colaborador ──────────────────────────────────
     dias_uteis = max(sum(
         1 for d in range((data_fim - data_ini).days + 1)
@@ -1278,6 +1299,19 @@ def _secao_relatorio_rhid():
         st.info("Nenhum dado de apuração retornado pela API.")
         return
 
+    # Quem existe na RHiD mas voltou sem nada no periodo. Antes aparecia so como
+    # travessao no lugar das horas, e nao dava para saber se era falta, cadastro
+    # sem relogio vinculado ou periodo errado.
+    _sem_dado = [r["nome"] for r in resultados
+                 if r["horas_min"] <= 0 and not r["registros"]]
+    if _sem_dado:
+        st.info(
+            "ℹ️ Sem nenhum registro no período: **" + "**, **".join(_sem_dado) +
+            "**. Não é o mesmo que falta — a RHiD não devolveu batida nem "
+            "apuração para estes. Confira se o cadastro tem relógio vinculado e "
+            "se o período escolhido é o certo."
+        )
+
     # ── Painel de cards por colaborador ──────────────────────────────────────
     st.markdown("---")
     st.markdown("#### 👥 Resumo por Colaborador")
@@ -1412,31 +1446,27 @@ def _calcular_ociosidade_trello(trello_user: str, nome: str, data_ini: str, data
         )
         acoes = resp2.json() if resp2.ok else []
 
-        # Conta dias com atividade e estima tempo ativo (1 ação = ~5min de trabalho ativo)
+        # Ociosidade NAO sai daqui.
+        #
+        # Havia aqui uma "ociosidade estimada" que multiplicava o numero de acoes
+        # no Trello por 5 minutos e chamava o resto de ocioso. Nao mede nada: uma
+        # pessoa que passa duas horas num cartao gera uma acao, e virava 1h55 de
+        # ociosidade. Dava numeros como 79% ocioso ao lado de 96% de desempenho,
+        # dois numeros que nao podem ser verdade ao mesmo tempo.
+        #
+        # A ociosidade de verdade e medida por linha do tempo (entrada, cartoes
+        # em andamento, folgas de 10 e 5 min, 1h pessoal por dia) em
+        # get_ociosidade_mes, e aparece em Analise de Metas. Um numero so, num
+        # lugar so.
         dias_com_atividade = len({a["date"][:10] for a in acoes})
         acoes_total        = len(acoes)
-        tempo_ativo_est    = min(acoes_total * 5, horas_min)  # cap nas horas trabalhadas
-        ociosidade_est     = max(horas_min - tempo_ativo_est, 0)
-        pct_ocioso         = (ociosidade_est / horas_min * 100) if horas_min > 0 else 0
 
-        cor_ocio = "#1BAF7A" if pct_ocioso < 20 else ("#EDA100" if pct_ocioso < 40 else "#E34948")
-
-        cols = st.columns(3)
+        cols = st.columns(2)
         cols[0].metric("📋 Ações no Trello", f"{acoes_total}")
         cols[1].metric("📅 Dias com atividade", f"{dias_com_atividade}")
-        cols[2].metric(
-            "😴 Ociosidade estimada",
-            _rhid.fmt_horas(ociosidade_est),
-            delta=f"{pct_ocioso:.0f}% do tempo",
-            delta_color="inverse",
-            help="Estimativa: tempo trabalhado (RHiD) menos tempo com atividade no Trello"
-        )
-
-        if pct_ocioso > 30:
-            st.warning(
-                f"⚠️ **{nome}** ficou ~{pct_ocioso:.0f}% do tempo sem atividade registrada no Trello "
-                f"durante o período trabalhado."
-            )
+        st.caption("Atividade no Trello no período. A **ociosidade** medida por "
+                   "linha do tempo fica em *Análise de Metas* — aqui seria um "
+                   "chute com outro nome.")
 
     except Exception as e:
         st.caption(f"Não foi possível calcular ociosidade Trello: {e}")
