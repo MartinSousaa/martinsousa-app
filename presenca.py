@@ -84,46 +84,58 @@ def _ha_quanto(segundos):
 
 
 def painel(titulo="NO STUDIO AGORA"):
-    """Lista compacta para a barra lateral do gestor."""
-    gente = online()
-    st.markdown(
-        f'<span style="font-size:10px;font-weight:700;letter-spacing:1.5px;'
-        f'color:var(--ms-texto-sec);text-transform:uppercase;display:block;'
-        f'margin:10px 0 4px;">{titulo} · {len(gente)}</span>',
-        unsafe_allow_html=True,
-    )
-    if not gente:
-        st.caption("Ninguém ativo nos últimos 10 minutos.")
-        return
+    """Lista compacta para a barra lateral do gestor.
 
-    # Tudo numa linha so nao cabe na largura da barra lateral: nome, tela e
-    # "ha 4 min" se sobrepunham. Duas linhas por pessoa, com a tela em fonte
-    # menor embaixo do nome, e cada texto cortado no que cabe.
-    agora = time.time()
-    linhas = []
-    for p in gente:
-        inativo = agora - p.get("visto", agora)
-        cor = "#3FB950" if inativo < 120 else "#EDA100"
-        onde = (p.get("onde") or "—")
-        if len(onde) > 26:
-            onde = onde[:25] + "…"
-        # A hora ia na mesma linha do nome, empurrada para a direita. Na largura
-        # da barra lateral ela saía da tela — "agora" virava "ag". Agora desce
-        # junto da tela, que é onde sobra espaço.
-        linhas.append(
-            '<div style="padding:2px 0;line-height:1.3;">'
-            '<div style="font-size:12px;white-space:nowrap;overflow:hidden;'
-            'text-overflow:ellipsis;">'
-            f'<span style="color:{cor};font-size:9px;">●</span> '
-            f'<b style="color:var(--ms-texto);">{p["usuario"]}</b></div>'
-            f'<div style="font-size:10px;color:var(--ms-texto-sec);'
-            f'padding-left:13px;white-space:nowrap;overflow:hidden;'
-            f'text-overflow:ellipsis;">{onde} · {_ha_quanto(inativo)}</div></div>'
-        )
-    # Sem st.caption: ele entra com margem própria e encavalava na linha
-    # seguinte. A legenda vai no title, que aparece ao passar o mouse.
+    A barra lateral é estreita e o chat divide o espaço com ela, então o painel
+    é desenhado como um cartão baixo: cabeçalho com contagem, uma linha por
+    pessoa, e o texto secundário menor e recuado. Tudo em HTML de uma vez — cada
+    componente do Streamlit traz margem própria, e três deles empilhados já
+    encavalam nesta largura.
+    """
+    gente = online()
+    cor_titulo = "#3FB950" if gente else "var(--ms-texto-sec)"
+    cabecalho = (
+        '<div style="display:flex;align-items:center;gap:6px;'
+        'margin-bottom:6px;">'
+        f'<span style="font-size:9.5px;font-weight:700;letter-spacing:1.2px;'
+        f'color:var(--ms-texto-sec);text-transform:uppercase;">{titulo}</span>'
+        f'<span style="font-size:10px;font-weight:700;color:{cor_titulo};'
+        f'background:#ffffff10;border-radius:8px;padding:0 6px;line-height:16px;">'
+        f'{len(gente)}</span></div>'
+    )
+
+    if not gente:
+        corpo = ('<div style="font-size:11px;color:var(--ms-texto-sec);">'
+                 'Ninguém ativo nos últimos 10 minutos.</div>')
+    else:
+        agora = time.time()
+        linhas = []
+        for i, p in enumerate(gente):
+            inativo = agora - p.get("visto", agora)
+            cor = "#3FB950" if inativo < 120 else "#EDA100"
+            onde = p.get("onde") or "—"
+            borda = ("border-top:1px solid var(--ms-divisor);padding-top:6px;"
+                     if i else "")
+            linhas.append(
+                f'<div style="{borda}padding-bottom:6px;line-height:1.35;">'
+                '<div style="display:flex;align-items:center;gap:6px;'
+                'font-size:12px;min-width:0;">'
+                f'<span style="width:7px;height:7px;border-radius:50%;'
+                f'background:{cor};flex:none;box-shadow:0 0 6px {cor}66;"></span>'
+                f'<b style="color:var(--ms-texto);overflow:hidden;'
+                f'text-overflow:ellipsis;white-space:nowrap;">{p["usuario"]}</b>'
+                '</div>'
+                f'<div style="font-size:10px;color:var(--ms-texto-sec);'
+                f'padding-left:13px;white-space:nowrap;overflow:hidden;'
+                f'text-overflow:ellipsis;">{onde} · {_ha_quanto(inativo)}</div>'
+                '</div>'
+            )
+        corpo = "".join(linhas)
+
     st.markdown(
         '<div title="Verde = ativo no último minuto. Quem só está lendo, sem '
         'clicar, some da lista depois de 10 min." '
-        'style="margin-bottom:8px;">' + "".join(linhas) + '</div>',
+        'style="background:#ffffff08;border:1px solid var(--ms-divisor);'
+        'border-radius:8px;padding:8px 10px;margin:10px 0 12px;">'
+        + cabecalho + corpo + '</div>',
         unsafe_allow_html=True)
