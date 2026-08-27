@@ -219,6 +219,11 @@ TIPOS_PADRAO = [
     "8 — Ambientação realista (sem texto)",
 ]
 
+# O rotulo do botao dizia "As 7 imagens do padrao" com oito tipos na lista: o
+# plano listava ate a 8 e o resumo falava em "6 de 8 viaveis". Contar a lista
+# mantem os dois numeros amarrados quando um tipo entrar ou sair.
+_OPCAO_PADRAO = f"As {len(TIPOS_PADRAO)} imagens do padrão"
+
 PRESETS = {
     "Personalizado (descrevo o que quero)": "",
     "1 — Capa do anúncio (fundo branco)": (
@@ -2002,6 +2007,39 @@ def pagina_imagem(usuario_logado):
     st.subheader("Imagem")
     st.caption("Gere imagens profissionais para o anúncio. A IA mostra o que vai criar antes de gastar com a geração.")
 
+    # ── Recuperacao apos queda de conexao ────────────────────────────────────
+    # Se a sessao morreu no meio de uma geracao, o session_state veio vazio mas o
+    # rascunho em disco continua la. Sem isto, o colaborador so via o formulario
+    # em branco e concluia que nao gerou nada — com as imagens ja pagas.
+    if not st.session_state.get("img_galeria"):
+        try:
+            import rascunho as _rasc
+            _pend = _rasc.carregar(usuario_logado)
+        except Exception:
+            _pend = None
+        if _pend:
+            _n = len(_pend["galeria"])
+            _quando = (f"há {_pend['idade_min']} min" if _pend["idade_min"] >= 1
+                       else "agora há pouco")
+            st.warning(
+                f"🛟 Encontrei **{_n} imagem(ns)** de **{_pend['nome_produto'] or 'um produto'}** "
+                f"geradas {_quando} que não chegaram a aparecer na tela — a conexão "
+                "caiu no meio. Elas já foram pagas: recupere antes de gerar de novo."
+            )
+            _c_rec, _c_desc = st.columns(2)
+            if _c_rec.button(f"🛟 Recuperar as {_n} imagens", type="primary",
+                             use_container_width=True, key="img_recuperar_rascunho"):
+                st.session_state["img_galeria"] = _pend["galeria"]
+                st.session_state["img_nome_produto"] = _pend["nome_produto"]
+                st.rerun()
+            if _c_desc.button("Descartar", use_container_width=True,
+                              key="img_descartar_rascunho"):
+                try:
+                    _rasc.limpar(usuario_logado)
+                except Exception:
+                    pass
+                st.rerun()
+
     MODELO_DIAG = "gemini-3.1-flash-image"
     with st.expander("🔧 Diagnóstico das APIs de Imagem", expanded=False):
         st.caption("Testa OpenAI gpt-image-2 (motor primário) e Gemini Flash (fallback) para confirmar que estão funcionando.")
@@ -2097,8 +2135,25 @@ def pagina_imagem(usuario_logado):
             st.success(
                 f"✅ Descrição encontrada: **{dados_descricao.get('nome_produto','')}** · "
                 f"Cor: {dados_descricao.get('cor') or '—'} · "
-                f"Medidas: {dados_descricao.get('medidas') or '—'}"
+                f"Medidas: {dados_descricao.get('medidas') or '—'} · "
+                f"Peso: {dados_descricao.get('peso') or '—'} · "
+                f"Material: {dados_descricao.get('material') or '—'}"
             )
+            # O codigo ser reconhecido nao quer dizer que a descricao esteja
+            # completa: quem a gerou pode ter deixado peso e material em branco.
+            # Antes isso so aparecia la na frente, como imagem bloqueada, depois
+            # de a pessoa ter montado a triagem inteira.
+            _vazios = [rot for rot, ch in (("Peso", "peso"), ("Material", "material"),
+                                           ("Cor", "cor"), ("Medidas", "medidas"))
+                       if not str(dados_descricao.get(ch) or "").strip()]
+            if _vazios:
+                st.warning(
+                    "⚠️ A descrição foi encontrada, mas está sem **"
+                    + "**, **".join(_vazios) + "**. Estes campos ficaram em branco "
+                    "quando a descrição foi gerada — imagens que dependem deles "
+                    "vão aparecer bloqueadas. Dá para preencher aqui mesmo, no "
+                    "passo da análise."
+                )
         else:
             st.warning("Código não encontrado no histórico. Pode continuar — só não haverá vínculo com a descrição.")
 
@@ -2185,7 +2240,7 @@ def pagina_imagem(usuario_logado):
     st.markdown("---")
     modo = st.radio(
         "O que gerar?",
-        ["1 imagem específica", "Selecionar", "As 7 imagens do padrão", "✏️ Ajuste Fino"],
+        ["1 imagem específica", "Selecionar", _OPCAO_PADRAO, "✏️ Ajuste Fino"],
         horizontal=True,
         key="img_modo",
     )
@@ -2331,7 +2386,7 @@ def pagina_imagem(usuario_logado):
                 "mantendo o padrão visual MartinSousa."
             )
             st.info(
-                "💡 **Como nomear os arquivos para as 7 imagens padrão:** "
+                f"💡 **Como nomear os arquivos para as {len(TIPOS_PADRAO)} imagens padrão:** "
                 "`fundo_branco.jpg`, `beneficios.jpg`, `cenario.jpg`, `detalhes.jpg`, "
                 "`medidas_peso.jpg`, `quebra_objecao.jpg`, `presentear.jpg` — "
                 "o nome do arquivo indica para qual tipo de imagem a referência se aplica."
@@ -2433,7 +2488,7 @@ def pagina_imagem(usuario_logado):
                 key="img_instr_multi",
             )
 
-        else:  # As 7 imagens do padrão
+        else:  # todas as do padrão
             tipos_selecionados = TIPOS_PADRAO
             st.info(
                 "💡 **Contexto do produto** — escreva aqui dados que a IA precisa saber para gerar bem as imagens. "
@@ -2594,6 +2649,9 @@ def pagina_imagem(usuario_logado):
             # que é o campo que a regra de viabilidade lê e que o prompt autoriza
             # a desenhar.
             _dd_atual = cfg.get("dados_descricao") or {}
+            # Havia so Medidas e Peso aqui, e o bloqueio pedia MATERIAL. Nao
+            # existia campo de material em lugar nenhum da tela: a imagem
+            # bloqueada por falta de material nao tinha como ser desbloqueada.
             st.markdown("**Preencha o que falta e analise de novo:**")
             _c_med, _c_peso = st.columns(2)
             _medidas_novo = _c_med.text_input(
@@ -2608,6 +2666,19 @@ def pagina_imagem(usuario_logado):
                 placeholder="ex: 780g",
                 key="img_fix_peso",
             )
+            _c_mat, _c_cor = st.columns(2)
+            _material_novo = _c_mat.text_input(
+                "Material",
+                value=str(_dd_atual.get("material", "") or ""),
+                placeholder="ex: capa em couro sintético, miolo em papel 180g",
+                key="img_fix_material",
+            )
+            _cor_novo = _c_cor.text_input(
+                "Cor / variação de cores",
+                value=str(_dd_atual.get("cor", "") or ""),
+                placeholder="ex: preto, marrom",
+                key="img_fix_cor",
+            )
 
             if st.button("🔄 Analisar novamente", use_container_width=True,
                          key="img_reanalisar"):
@@ -2616,6 +2687,10 @@ def pagina_imagem(usuario_logado):
                     _dd_novo["medidas"] = _medidas_novo.strip()
                 if _peso_novo.strip():
                     _dd_novo["peso"] = _peso_novo.strip()
+                if _material_novo.strip():
+                    _dd_novo["material"] = _material_novo.strip()
+                if _cor_novo.strip():
+                    _dd_novo["cor"] = _cor_novo.strip()
 
                 cfg["dados_descricao"] = _dd_novo
                 st.session_state["img_triagem_config"] = cfg
@@ -2707,6 +2782,11 @@ def pagina_imagem(usuario_logado):
 
                 galeria = []
                 st.session_state.pop("img_galeria_salva", None)
+                try:
+                    import rascunho as _rasc
+                    _rasc.limpar(usuario_logado)
+                except Exception:
+                    pass
                 barra = st.progress(0.0, text="Iniciando geração...")
                 try:
                     import log_imagem
@@ -2786,6 +2866,20 @@ def pagina_imagem(usuario_logado):
                             # prompt errado ou de ter caído no fallback texto-puro.
                             "diag": _res.get("diag") or {},
                         })
+                        # Grava a cada imagem, nao so no fim do laco.
+                        #
+                        # A galeria so era publicada depois da ultima imagem. Uma
+                        # queda de WebSocket no meio (aconteceu em 27/08, na
+                        # quarta de seis) matava a sessao e levava junto tudo que
+                        # ja tinha sido gerado — e pago. Agora cada imagem pronta
+                        # ja esta no session_state e em disco.
+                        st.session_state["img_galeria"] = list(galeria)
+                        try:
+                            import rascunho as _rasc
+                            _rasc.salvar(usuario_logado, cfg.get("nome_produto", ""),
+                                         galeria, cfg.get("codigo", ""))
+                        except Exception:
+                            pass
                     except Exception as _e_img:
                         st.warning(f"⚠️ Erro inesperado em '{tipo}': {_e_img}")
                         continue

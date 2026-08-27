@@ -37,7 +37,7 @@ O MS Studio tem as seguintes abas (menu lateral esquerdo):
     - Fotos de referência: upload de quantas fotos o colaborador quiser (obrigatório para gerar)
     - "Descreva o que você quer nessa imagem": campo de texto livre onde o colaborador pode
       especificar textos, cenas, ângulos, cores, destaque — aparece quando o modo for
-      "1 imagem específica" (para um tipo só) ou "Selecionar tipos" / "As 7 imagens do padrão"
+      "1 imagem específica" (para um tipo só), "Selecionar" ou "As 8 imagens do padrão"
       (observações gerais que se aplicam a todas as imagens)
   FLUXO (2 etapas obrigatórias — não tem como pular):
     1. Clicar em "🔍 Analisar e mostrar plano antes de gerar" → a IA mostra o plano de cada
@@ -282,7 +282,13 @@ def _montar_system(usuario="", eh_admin=None) -> str:
         nota_orientacao = (
             "\n\n--- CONTEXTO DO APP ---\n"
             + ctx
-            + "\n\nNota: não há títulos, descrição nem imagens gerados no momento. "
+            + "\n\nNota: não há títulos, descrição nem imagens gerados no momento.\n"
+            "RESPONDA A PERGUNTA ANTES DE ENSINAR. Quando perguntarem sobre algo que "
+            "não existe ainda ('qual o título atual?', 'como está a descrição?'), a "
+            "primeira frase tem que ser a resposta: 'Ainda não há título gerado nesta "
+            "sessão.' Só DEPOIS, e em uma linha, diga onde se faz. Passo a passo "
+            "numerado só quando pedirem como fazer — perguntar o que existe não é "
+            "pedir tutorial.\n"
             "Se o usuário pedir ajuda para usar o app, oriente-o a acessar a aba correta "
             "e preencher os campos necessários conforme descrito na seção ORIENTAÇÃO SEM PRODUTO ABERTO acima. "
             "Nunca sugira ações como clicar em 'Editar' ou 'Salvar produto' — esses botões não existem."

@@ -101,7 +101,7 @@ def salvar_triagem(usuario, dados):
         raise RuntimeError(f"Não consegui salvar a triagem no Google Sheets: {e}") from e
 
 
-@st.cache_data(ttl=90)
+@st.cache_data(ttl=600)
 def carregar_triagens():
     try:
         aba = _aba()

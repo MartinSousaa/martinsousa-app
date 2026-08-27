@@ -79,7 +79,7 @@ def registrar_atividade(usuario, tipo, produto, resumo,
         return False
 
 
-@st.cache_data(ttl=90)
+@st.cache_data(ttl=600)
 def carregar_atividades():
     aba = _aba()
     registros = aba.get_all_records(value_render_option="UNFORMATTED_VALUE")

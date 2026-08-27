@@ -46,7 +46,7 @@ def _aba():
         return aba
 
 
-@st.cache_data(ttl=120)
+@st.cache_data(ttl=600)
 def carregar() -> dict:
     """{nome_da_coluna: {"prioridade": int, "tempo_min": int, "espera_h": int|None}}.
 

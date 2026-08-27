@@ -72,7 +72,7 @@ def _aba():
         return aba
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=600)
 def carregar_dados():
     """Le todos os dados da planilha. Cache de 60s pra nao bater na API
     do Google toda hora que a tela recarrega."""
