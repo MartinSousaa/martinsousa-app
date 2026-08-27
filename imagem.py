@@ -844,6 +844,119 @@ def normalizar_imagem(img_bytes):
         return img_bytes, mime, "png"
 
 
+# Limite de peso das plataformas de venda.
+#
+# A Shopee recusa arquivo acima de 2,0 MB, e a recusa acontece la, na hora de
+# montar o anuncio — depois que o colaborador ja gerou, revisou e baixou tudo.
+# Uma peca 1200x1200 salva em PNG passa de 2 MB com facilidade, entao o corte
+# precisa acontecer aqui, na saida da geracao, e nao virar tarefa manual.
+#
+# O alvo e 1,9 MB e nao 2,0: nao da para saber se a plataforma conta MB como
+# 1.000.000 ou 1.048.576 bytes, e a margem cobre as duas leituras.
+LIMITE_PLATAFORMA_BYTES = 1_900_000
+
+
+def _tem_transparencia(pil):
+    """True so quando existe pixel realmente translucido.
+
+    Modo RGBA nao basta: a geracao converte tudo para RGBA no enquadramento, e
+    quase toda peca sai com alfa 255 em todo lugar. Perguntar pelo modo faria
+    todas as imagens caírem no caminho do PNG, que e justamente o pesado.
+    """
+    if pil.mode not in ("RGBA", "LA", "P"):
+        return False
+    try:
+        alpha = pil.convert("RGBA").getchannel("A")
+        return (alpha.getextrema() or (255, 255))[0] < 255
+    except Exception:
+        return True
+
+
+def extensao_de(img_bytes):
+    """Extensao que corresponde ao conteudo real dos bytes.
+
+    Depois da compressao a imagem pode ter deixado de ser PNG. Nome de arquivo
+    escrito na mao como ".png" entregaria um JPEG disfarcado, e plataforma que
+    confere o conteudo recusa.
+    """
+    return _MIMES_ACEITOS.get(_detectar_mime(img_bytes or b""), "png")
+
+
+def comprimir_para_limite(img_bytes, limite=LIMITE_PLATAFORMA_BYTES):
+    """Deixa a imagem abaixo do limite de peso perdendo o minimo de qualidade.
+
+    Da tentativa menos destrutiva para a mais:
+
+    1. PNG otimizado — resolve quando o excesso e pequeno.
+    2. JPEG com qualidade decrescente (92 ate 62). Um JPEG 88 de peca de
+       marketing fica na casa das centenas de KB e e visualmente indistinguivel
+       do PNG. Vale para imagem opaca, que e o caso de praticamente toda peca
+       gerada aqui.
+    3. Reducao de resolucao, em ultimo caso. 1200x1200 e o tamanho que as
+       plataformas pedem; encolher antes de tentar qualidade estragaria o
+       anuncio a toa.
+
+    Imagem com transparencia de verdade nunca vira JPEG — o fundo transparente
+    viraria preto. Ela passa so por PNG otimizado e, se nao couber, por reducao.
+
+    Devolve os bytes originais quando ja cabem, e o menor resultado obtido caso
+    nenhuma tentativa caiba. Nunca devolve None e nunca levanta: imagem grande
+    demais ainda e melhor do que imagem nenhuma.
+    """
+    if not img_bytes or len(img_bytes) <= limite:
+        return img_bytes
+    try:
+        import io as _io_c
+        from PIL import Image as _PILc
+        pil = _PILc.open(_io_c.BytesIO(img_bytes))
+        pil.load()
+    except Exception:
+        return img_bytes
+
+    alpha = _tem_transparencia(pil)
+    larg, alt = pil.size
+    melhor = img_bytes
+
+    def _tenta(dados):
+        nonlocal melhor
+        if len(dados) < len(melhor):
+            melhor = dados
+        return dados if len(dados) <= limite else None
+
+    for escala in (1.0, 0.85, 0.72, 0.6, 0.5):
+        if escala == 1.0:
+            base = pil
+        else:
+            base = pil.resize((max(1, int(larg * escala)), max(1, int(alt * escala))),
+                              _PILc.LANCZOS)
+
+        try:
+            buf = _io_c.BytesIO()
+            base.convert("RGBA" if alpha else "RGB").save(buf, format="PNG",
+                                                          optimize=True)
+            cabe = _tenta(buf.getvalue())
+            if cabe:
+                return cabe
+        except Exception:
+            pass
+
+        if alpha:
+            continue
+
+        for qualidade in (92, 88, 84, 80, 75, 70, 62):
+            try:
+                buf = _io_c.BytesIO()
+                base.convert("RGB").save(buf, format="JPEG", quality=qualidade,
+                                         optimize=True, progressive=True)
+                cabe = _tenta(buf.getvalue())
+                if cabe:
+                    return cabe
+            except Exception:
+                break
+
+    return melhor
+
+
 def _arquivo_para_openai(img_bytes, nome_base):
     """Prepara (nome, buffer, mime) coerentes para o endpoint de edição.
 
@@ -1480,6 +1593,13 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
     except Exception:
         pass
 
+    # Fora do try acima de proposito: mesmo que o enquadramento falhe, o peso
+    # maximo da plataforma continua valendo.
+    img_bytes = comprimir_para_limite(img_bytes)
+    if diagnostico is not None:
+        diagnostico["peso_final"] = f"{len(img_bytes or b'') / 1048576:.2f} MB"
+        diagnostico["formato_final"] = extensao_de(img_bytes)
+
     return img_bytes, None
 
 
@@ -1792,7 +1912,10 @@ def criar_pasta_produto(nome_pasta, pasta_pai_id):
 def upload_para_pasta(imagem_bytes, nome_arquivo, pasta_id):
     """Faz upload de imagem para pasta específica. Retorna (link, erro)."""
     import gdrive
-    info, err = gdrive.upload(imagem_bytes, nome_arquivo, pasta_id, mimetype="image/png")
+    # O tipo vem dos bytes, nao de um valor fixo: depois da compressao a peca
+    # pode ter saido em JPEG, e o Drive gravaria um JPEG rotulado como PNG.
+    info, err = gdrive.upload(imagem_bytes, nome_arquivo, pasta_id,
+                              mimetype=_detectar_mime(imagem_bytes))
     if err:
         return None, err
     if info.get("na_raiz"):
@@ -1806,7 +1929,8 @@ def criar_zip_galeria(galeria, nome_produto):
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for g in galeria:
-            nome_arquivo = f"{nome_produto}_{g['tipo'][:30]}.png"
+            nome_arquivo = (f"{nome_produto}_{g['tipo'][:30]}"
+                            f".{extensao_de(g['bytes'])}")
             nome_arquivo = "".join(c if c.isalnum() or c in "._- " else "_" for c in nome_arquivo)
             zf.writestr(nome_arquivo, g["bytes"])
     buf.seek(0)
@@ -2782,8 +2906,9 @@ def pagina_imagem(usuario_logado):
         col_dl.download_button(
             "⬇️ Baixar esta imagem",
             data=imagem_ativa,
-            file_name=f"{nome_gal}_{tipo_ativo[:20]}.png",
-            mime="image/png",
+            file_name=(f"{nome_gal}_{tipo_ativo[:20]}"
+                       f".{extensao_de(imagem_ativa)}"),
+            mime=_detectar_mime(imagem_ativa),
             use_container_width=True,
             key=f"dl_{idx_ativo}",
         )
@@ -2804,7 +2929,9 @@ def pagina_imagem(usuario_logado):
                             pasta_id = None
                     if pasta_id:
                         link, err_up = upload_para_pasta(
-                            imagem_ativa, f"{tipo_ativo[:20]}.png", pasta_id
+                            imagem_ativa,
+                            f"{tipo_ativo[:20]}.{extensao_de(imagem_ativa)}",
+                            pasta_id
                         )
                         if err_up:
                             st.error(f"Erro no upload: {err_up}")
@@ -3109,7 +3236,7 @@ def pagina_imagem(usuario_logado):
                 barra_salvar = st.progress(0.0, text="Salvando imagens...")
                 for i, g in enumerate(galeria):
                     barra_salvar.progress(i / len(galeria), text=f"Salvando: {g['tipo'][:30]}...")
-                    nome_arq = f"{g['tipo'][:30]}.png"
+                    nome_arq = f"{g['tipo'][:30]}.{extensao_de(g['bytes'])}"
                     link, err_up = upload_para_pasta(g["bytes"], nome_arq, pasta_destino_id)
                     if err_up:
                         falhas.append((g["tipo"], err_up))
