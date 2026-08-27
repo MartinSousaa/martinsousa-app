@@ -130,7 +130,7 @@ def _aba():
 
 # ── Leitura ────────────────────────────────────────────────────────────────────
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=600)
 def carregar_todas() -> pd.DataFrame:
     """Retorna DataFrame com todos os registros de configuração de metas."""
     try:

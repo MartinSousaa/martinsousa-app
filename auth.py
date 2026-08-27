@@ -135,7 +135,7 @@ def _aba_usuarios():
 _ULTIMOS_USUARIOS_OK = {"df": None}
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=600)
 def _carregar_usuarios_sheets():
     """Carrega usuários do Sheets. Cache de 60s para não sobrecarregar a API.
 

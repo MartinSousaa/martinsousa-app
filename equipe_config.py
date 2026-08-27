@@ -44,7 +44,7 @@ def _aba():
         return aba
 
 
-@st.cache_data(ttl=120)
+@st.cache_data(ttl=600)
 def carregar():
     """({username: nome}, {primeiro_nome_rhid: username}).
 
