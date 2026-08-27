@@ -192,10 +192,42 @@ def _verificar_credencial(login, senha):
 
 # ── VERIFICAÇÃO DE ADMIN ───────────────────────────────────────────────────────
 
+# Quem é admin quando o secret ADMINS não está configurado.
+# Só o dono — qualquer outro perfil precisa ser dito em voz alta, no secret ou
+# na coluna `admin` da aba de usuários.
+ADMINS_PADRAO = {"martinsousa"}
+
+
+def _admins_configurados():
+    """Logins com perfil admin, do secret ADMINS. None quando não configurado.
+
+    Formato: ADMINS = "MartinSousa, Renan"
+    """
+    try:
+        bruto = str(st.secrets.get("ADMINS", "") or "").strip()
+    except Exception:
+        bruto = ""
+    if not bruto:
+        return None
+    return {p.strip().lower() for p in bruto.replace(";", ",").split(",") if p.strip()}
+
+
 def _calcular_is_admin(usuario_logado):
-    """Usuários das Secrets sempre têm acesso admin (são os donos do app).
-    Usuários do Sheets precisam ter coluna admin = Sim."""
-    if usuario_logado in dict(st.secrets.get("usuarios", {})):
+    """Perfil admin: lista explícita do secret ADMINS, ou coluna admin no Sheets.
+
+    Antes, TODO usuário do bloco `usuarios` das Secrets era admin — só por estar
+    lá. Como as colaboradoras estão nesse bloco, as quatro tinham Administrativo
+    aberto: lista de usuários, criar e desativar gente, e o Financeiro. A senha
+    pedida na entrada do Administrativo é a da própria pessoa, então não segurava
+    nada.
+
+    Estar cadastrado é uma coisa; ser administrador é outra, e agora precisa ser
+    dito: no secret ADMINS ou na coluna `admin` da aba de usuários.
+    """
+    u = str(usuario_logado or "").strip().lower()
+    if not u:
+        return False
+    if u in (_admins_configurados() or ADMINS_PADRAO):
         return True
     df = _carregar_usuarios_sheets()
     if df.empty or "login" not in df.columns:
