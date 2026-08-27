@@ -2106,13 +2106,19 @@ def _secao_equipe():
         _user = e1.text_input("Username do Trello", placeholder="ex: gabriel_borges")
         _nome = e2.text_input("Nome no painel", placeholder="ex: Gabriel")
         _rhid = e3.text_input("Primeiro nome na RHiD", placeholder="ex: Gabriel")
-        _ativo = st.checkbox("Ativo (conta nas metas)", value=True)
+        _c_at, _c_bp = st.columns(2)
+        _ativo = _c_at.checkbox("Ativo (conta nas metas)", value=True)
+        _bate = _c_bp.checkbox(
+            "Bate ponto no relógio", value=True,
+            help="Desmarque para quem não usa a RHiD. Sem isso a pessoa aparece "
+                 "com 0% de desempenho e 'Não registrado' em vermelho, como se "
+                 "tivesse faltado.")
         if st.form_submit_button("Salvar colaborador", use_container_width=True):
             if not _user.strip() or not _nome.strip():
                 st.error("Username do Trello e nome são obrigatórios.")
             else:
                 try:
-                    _ec.salvar(_user, _nome, _rhid, _ativo)
+                    _ec.salvar(_user, _nome, _rhid, _ativo, _bate)
                     _pc.recarregar_membros()
                     st.success(f"{_nome} salvo.")
                     st.rerun()

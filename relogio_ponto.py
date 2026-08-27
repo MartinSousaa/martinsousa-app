@@ -20,6 +20,21 @@ import rhid_api as _rhid
 
 # ── Constantes ─────────────────────────────────────────────────────────────────
 MEMBROS = _pc.MEMBROS_ATIVOS          # {"username": "Nome", ...}
+
+
+def _nao_bate_ponto():
+    """Usernames de quem nao usa o relogio. Vazio em qualquer falha.
+
+    Sem isto, as duas telas de ponto tratavam quem nao bate ponto igual a quem
+    faltou: 0% de desempenho no Resumo por Colaborador e "Nao registrado" em
+    vermelho no Status Hoje. Quem bate o olho le "essa pessoa rendeu zero", e o
+    numero vira conversa de avaliacao — sobre uma medicao que nunca existiu.
+    """
+    try:
+        import equipe_config as _ec_bp
+        return _ec_bp.nao_batem()
+    except Exception:
+        return set()
 MASTERS = _pc.MASTERS                 # {"martinsousa", "renan"}
 
 # ── Horários de expediente ────────────────────────────────────────────────────
@@ -417,6 +432,8 @@ def _cor_status(status: str) -> str:
         "encerrado":     "#888888",
         "ausente":       "#E34948",
         "nao_registrado":"#555555",
+        # Cinza, nao vermelho: nao bater ponto nao e ausencia.
+        "sem_relogio":   "#6B7280",
     }.get(status, "#555555")
 
 
@@ -427,6 +444,7 @@ def _label_status(status: str) -> str:
         "encerrado":     "🏠 Encerrado",
         "ausente":       "⛔ Ausente",
         "nao_registrado":"❓ Não registrado",
+        "sem_relogio":   "🕒 Não bate ponto",
     }.get(status, status)
 
 
@@ -452,9 +470,13 @@ def _secao_status_hoje():
     for reg in regs:
         por_user.setdefault(reg["username"], []).append(reg)
 
+    _fora_do_relogio = _nao_bate_ponto()
+
     cards = []
     for username, nome in MEMBROS.items():
         status = status_map.get(username, "nao_registrado")
+        if username in _fora_do_relogio and status == "nao_registrado":
+            status = "sem_relogio"
         cor = _cor_status(status)
         label_s = _label_status(status)
 
@@ -1129,15 +1151,23 @@ def _secao_relatorio_rhid():
         _u = _rhid_nome_para_trello(_n) if _n else None
         if _u:
             _users_na_rhid.add(_u)
+    _fora_relogio = _nao_bate_ponto()
+    # Quem esta marcado como "nao bate ponto" nao e uma divergencia a resolver:
+    # e o esperado. Continua listado, mas como informacao, nao como alerta.
     _faltando = [nome for user, nome in MEMBROS.items()
-                 if user not in _users_na_rhid]
+                 if user not in _users_na_rhid and user not in _fora_relogio]
+    _por_escolha = [nome for user, nome in MEMBROS.items() if user in _fora_relogio]
     if _faltando:
         st.warning(
             "⚠️ Sem relógio na RHiD: **" + "**, **".join(_faltando) + "**. "
             "Estes aparecem na aba *Status Hoje* (equipe do Studio) mas não aqui. "
             "Ou o cadastro na RHiD está inativo, ou o primeiro nome está escrito "
-            "diferente dos dois lados."
+            "diferente dos dois lados. Se for gente que **não bate ponto**, "
+            "desmarque a caixa em *Administrativo → Equipe* e este aviso some."
         )
+    if _por_escolha:
+        st.caption("🕒 Não batem ponto (fora do cálculo de horas e desempenho): "
+                   + ", ".join(_por_escolha))
 
     # ── Busca apuração para cada colaborador ──────────────────────────────────
     dias_uteis = max(sum(
@@ -1303,7 +1333,8 @@ def _secao_relatorio_rhid():
     # travessao no lugar das horas, e nao dava para saber se era falta, cadastro
     # sem relogio vinculado ou periodo errado.
     _sem_dado = [r["nome"] for r in resultados
-                 if r["horas_min"] <= 0 and not r["registros"]]
+                 if r["horas_min"] <= 0 and not r["registros"]
+                 and (r.get("trello_user") or "") not in _fora_relogio]
     if _sem_dado:
         st.info(
             "ℹ️ Sem nenhum registro no período: **" + "**, **".join(_sem_dado) +
@@ -1326,7 +1357,18 @@ def _secao_relatorio_rhid():
         cor_banco    = _cor_banco(r["banco_min"])
         cor_desemp   = "#1BAF7A" if r["desempenho"] >= 90 else ("#EDA100" if r["desempenho"] >= 70 else "#E34948")
 
-        with st.expander(f"**{nome}** — {horas_str} trabalhadas · {desemp_str} desempenho", expanded=False):
+        # Quem nao bate ponto nao tem desempenho a mostrar: "0%" seria lido como
+        # rendimento zero numa conversa de avaliacao.
+        _sem_relogio = (r.get("trello_user") or "") in _nao_bate_ponto()
+        _titulo_exp = (f"**{nome}** — 🕒 não bate ponto (sem medição de horas)"
+                       if _sem_relogio
+                       else f"**{nome}** — {horas_str} trabalhadas · {desemp_str} desempenho")
+        with st.expander(_titulo_exp, expanded=False):
+            if _sem_relogio:
+                st.info("Este colaborador não usa o relógio de ponto. Horas, "
+                        "desempenho e atrasos não se aplicam — o trabalho dele "
+                        "aparece no Painel de Metas, pelos cartões do Trello.")
+                continue
             cols = st.columns(4)
             cols[0].metric("⏱️ Horas trab.", horas_str)
             cols[1].metric(
