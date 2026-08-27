@@ -197,6 +197,40 @@ def horario_de(username):
 
 _acoes_cache = {}   # chave -> {"ts": float, "data": {card_id: [acoes]}}
 
+# Teto dos caches de modulo.
+#
+# As entradas tinham prazo de validade na LEITURA e nunca eram removidas: uma
+# entrada vencida continuava ocupando memoria com o board inteiro de acoes
+# agrupadas por cartao, e a chave muda a cada janela de datas — cada mes que
+# alguem abre no painel cria mais uma. Depois de horas de uso sao dezenas de
+# copias do board vivas ao mesmo tempo.
+#
+# E memoria do PROCESSO, nao da sessao: cresce com a equipe inteira usando, o
+# servidor comeca a passar mais tempo coletando lixo que respondendo, os reruns
+# demoram e o WebSocket cai. Bate com o que foi medido — "no comeco quase todo
+# clique pegava; depois de tres horas, de dois a seis cliques por acao".
+_CACHE_VALIDADE_S = 300
+_CACHE_MAX_ENTRADAS = 12
+
+
+def _podar(cache, agora=None, validade=_CACHE_VALIDADE_S,
+           maximo=_CACHE_MAX_ENTRADAS):
+    """Descarta o que venceu e, se ainda for muito, o mais antigo.
+
+    Itera sobre uma copia: estes dicionarios sao compartilhados por todas as
+    sessoes, e outra pessoa escrevendo durante a leitura mudaria o tamanho no
+    meio do laco.
+    """
+    agora = agora if agora is not None else _t.time()
+    for chave, entrada in list(cache.items()):
+        if agora - (entrada or {}).get("ts", 0) >= validade:
+            cache.pop(chave, None)
+    if len(cache) > maximo:
+        for chave, _ in sorted(list(cache.items()),
+                               key=lambda kv: (kv[1] or {}).get("ts", 0))[:len(cache) - maximo]:
+            cache.pop(chave, None)
+    return cache
+
 # Última consulta de ações: por que veio vazia, quando vier. Sem isso, uma falha
 # na API do Trello vira "0 minutos" em todo cartão — indistinguível de "ninguém
 # trabalhou", que foi exatamente o que aconteceu.
@@ -254,6 +288,7 @@ def _buscar_acoes_board(desde_iso=None, max_paginas=10, filtro=None,
         por_card = _acoes_sem_filtro(desde_iso, diag)
         _publicar_diag(filtro, diag)
         _acoes_cache[chave] = {"ts": agora, "data": por_card, "diag": dict(diag)}
+        _podar(_acoes_cache, agora)
         return por_card
 
     diag = {"erro": None, "paginas": 0, "acoes": 0, "cartoes": 0, "http": None,
@@ -331,6 +366,7 @@ def _buscar_acoes_board(desde_iso=None, max_paginas=10, filtro=None,
 
     _publicar_diag(filtro, diag)
     _acoes_cache[chave] = {"ts": agora, "data": por_card, "diag": dict(diag)}
+    _podar(_acoes_cache, agora)
     return por_card
 
 
@@ -580,6 +616,7 @@ def _acoes_cru_cache(desde_iso, max_paginas):
     diag["cartoes"] = len(por_card)
     DIAGNOSTICO_POR_FILTRO["cru"] = dict(diag)
     _acoes_cache[chave] = {"ts": agora, "data": por_card, "diag": dict(diag)}
+    _podar(_acoes_cache, agora)
     return por_card
 
 
@@ -932,6 +969,7 @@ def tempos_do_board(cards, membros_map, desde_iso=None):
         return c["data"]
     dados = tempos_dos_cartoes(cards, acoes, membros_map)
     _tempos_cache[chave] = {"ts": agora, "data": dados}
+    _podar(_tempos_cache, agora)
     return dados
 
 
