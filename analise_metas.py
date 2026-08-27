@@ -720,19 +720,43 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
 
     # Tempo de execução medido pelas etiquetas: % de cartões dentro do estimado
     _CC_ = _pc.COLUNAS_CONFIG
+    try:
+        import colunas_config as _cc_ed
+        _editadas = _cc_ed.carregar() or {}
+    except Exception:
+        _editadas = {}
+
     _exec = {u: {"dentro": 0, "total": 0} for u in membros_ativos}
+    _colunas_sem_tempo = set()
     for r in dados:
         for u, por_col in (r.get("tempo_membro_lista") or {}).items():
             if u not in _exec:
                 continue
             for nl, tempos in por_col.items():
-                est = _CC_.get(nl, {}).get("tempo_min") or 0
+                # Coluna que ninguem configurou fica de fora: julgar contra um
+                # numero inventado seria pior que nao julgar. Ela e listada na
+                # tela para o gestor definir o tempo.
+                if nl not in _CC_ and nl not in _editadas:
+                    if tempos:
+                        _colunas_sem_tempo.add(nl)
+                    continue
+                # cfg_coluna junta a tabela do codigo com o que o gestor editou
+                # na tela. Antes lia COLUNAS_CONFIG direto, e o valor editado em
+                # Configuracao de Metas nao tinha efeito nenhum aqui.
+                est = _pc.cfg_coluna(nl).get("tempo_min") or 0
                 if est <= 0:
+                    _colunas_sem_tempo.add(nl)
                     continue
                 for t in tempos:
                     _exec[u]["total"] += 1
                     if t <= est:
                         _exec[u]["dentro"] += 1
+
+    if _colunas_sem_tempo:
+        st.caption(
+            "⚠️ Fora da conta de tempo de execução, por não terem tempo "
+            "estimado definido em Configuração de Metas → Colunas: "
+            + " · ".join(sorted(_colunas_sem_tempo)))
 
     _sem_exec = not any(v["total"] for v in _exec.values())
     if eh_master and (not _tem_ponto or _sem_exec):
