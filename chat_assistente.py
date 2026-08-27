@@ -514,19 +514,50 @@ def renderizar_chat(usuario_logado=""):
                                 st.image(ib, use_container_width=True)
                         st.markdown(msg["content"])
 
+            # Balão de espera DENTRO da área de mensagens.
+            #
+            # Antes, a pergunta era guardada e a chamada à IA acontecia na mesma
+            # passada — depois que a lista de mensagens já tinha sido desenhada.
+            # Resultado: durante a espera a própria pergunta não aparecia, e o
+            # spinner entrava embaixo do quadro, empurrando o campo de escrita
+            # para cima. Parecia travamento; era a tela mostrando um estado que
+            # ainda não existia.
+            #
+            # Agora a pergunta é gravada e a tela recarrega ANTES de chamar a IA:
+            # quando a espera começa, a mensagem já está no lugar e o campo de
+            # escrita já está no lugar dele.
+            if st.session_state.get("chat_pendente"):
+                with st.chat_message("assistant"):
+                    st.markdown("_digitando…_")
+
+        # ── Anexo de imagem ───────────────────────────────────────────────────
+        # O campo tinha sumido da tela, mas o resto do caminho continuou de pé:
+        # o histórico já desenhava as imagens e _chamar_ia já sabia enviá-las.
+        # Faltava só por onde entrar.
+        versao_anexo = st.session_state.get("chat_anexo_versao", 0)
+        anexos = st.file_uploader(
+            "📎 Anexar imagem",
+            type=["png", "jpg", "jpeg", "webp"],
+            accept_multiple_files=True,
+            key=f"chat_anexos_{versao_anexo}",
+            label_visibility="collapsed",
+            help="Anexe uma imagem para o assistente analisar junto da sua mensagem.",
+        )
+
         # ── Campo de texto — Enter envia, Shift+Enter nova linha ──────────────
         user_input = st.chat_input("Digite sua mensagem…")
 
-    if user_input:
-        msg_user = user_input.strip()
-        imagens_bytes = []
-
-        # Guarda no histórico
-        entry = {"role": "user", "content": msg_user}
-        hist.append(entry)
-
-        with st.spinner("Assistente digitando…"):
-            resposta, cmd = _chamar_ia(hist[:-1], msg_user, imagens_bytes)
+    # ── Resposta da IA ────────────────────────────────────────────────────────
+    # Fora do container e numa passada só dela: a tela já está desenhada quando
+    # a chamada começa. Tira do estado ANTES de chamar — se a chamada quebrar, a
+    # pergunta não fica presa repetindo para sempre.
+    pendente = st.session_state.pop("chat_pendente", None)
+    if pendente:
+        try:
+            resposta, cmd = _chamar_ia(
+                hist[:-1], pendente["texto"], pendente.get("imagens") or [])
+        except Exception as e:
+            resposta, cmd = f"⚠️ Erro ao falar com o assistente: {e}", None
 
         feedback = _executar_comando(cmd) if cmd else None
 
@@ -535,6 +566,27 @@ def renderizar_chat(usuario_logado=""):
             texto_final = (texto_final + "\n\n" + feedback).strip() if texto_final else feedback
 
         hist.append({"role": "assistant", "content": texto_final})
+        st.rerun()
+
+    if user_input:
+        msg_user = user_input.strip()
+        imagens_bytes = []
+        for arq in (anexos or []):
+            try:
+                imagens_bytes.append(arq.getvalue())
+            except Exception:
+                pass
+
+        entry = {"role": "user", "content": msg_user}
+        if imagens_bytes:
+            entry["img_bytes"] = imagens_bytes
+        hist.append(entry)
+
+        st.session_state["chat_pendente"] = {"texto": msg_user, "imagens": imagens_bytes}
+        # Troca a chave do anexo para esvaziar o campo — o mesmo arquivo iria
+        # junto de toda mensagem seguinte.
+        if imagens_bytes:
+            st.session_state["chat_anexo_versao"] = versao_anexo + 1
         st.rerun()
 
 

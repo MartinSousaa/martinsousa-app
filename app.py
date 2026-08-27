@@ -21,6 +21,7 @@ import financeiro
 import atividades
 import auth
 import admin
+import presenca
 import triagem
 import palavras_chave
 import tit_ml as titulo
@@ -1177,8 +1178,16 @@ with st.sidebar:
         chave_admin = f"admin_confirmado_{usuario_logado}"
         for k in [k for k in st.session_state if k == chave_admin]:
             del st.session_state[k]
+        presenca.esquecer(usuario_logado)
         del st.session_state["usuario_logado"]
         st.rerun()
+
+    # Marca cedo, antes de qualquer tela pesada: se a pagina der erro no meio, a
+    # presenca ja foi registrada. A aba certa e refinada em _render_abas.
+    presenca.marcar(usuario_logado)
+    if auth.is_admin(usuario_logado):
+        presenca.painel()
+
     chat_assistente.renderizar_chat(usuario_logado)
 
 # A equipe medida vem da planilha, nao do codigo. Carregada uma vez por
@@ -1493,6 +1502,13 @@ def _navegar(paginas, param_url, padrao=None):
         st.session_state[estado] = escolhido
     if str(st.query_params.get(param_url, "")) != escolhido:
         st.query_params[param_url] = escolhido
+
+    # Agora sim da para dizer em que tela a pessoa esta: no topo do script o
+    # session_state ainda guardava a aba anterior.
+    try:
+        presenca.marcar(usuario_logado, escolhido)
+    except Exception:
+        pass
 
     paginas[escolhido]()
 
