@@ -346,14 +346,64 @@ def _limpar_form_triagem():
         st.session_state.pop(_k, None)
 
 
+_ROTULOS_TRIAGEM = [
+    ("nome_comercial", "Nome comercial"), ("categoria", "Categoria"),
+    ("material", "Material"), ("variacao_cores", "Cores"),
+    ("medidas", "Medidas"), ("peso", "Peso"), ("uso", "Uso / ocasião"),
+    ("caracteristicas", "Características"), ("diferenciais", "Diferenciais"),
+    ("termos_busca", "Termos de busca"), ("termos_evitar", "Termos a evitar"),
+    ("usuario", "Cadastrada por"), ("data_hora", "Quando"),
+]
+
+
+def _cartao_triagem(dados):
+    """Mostra a triagem como cartao legivel, nao como JSON cru.
+
+    st.json despejava a linha inteira da planilha, com nome de coluna e o id do
+    arquivo no Drive no meio. Quem le e o colaborador conferindo o produto, nao
+    quem depura a planilha.
+    """
+    foto = str(dados.get("foto_drive_id", "")).strip()
+    col_foto, col_dados = st.columns([1, 4]) if foto else (None, st.container())
+    if foto:
+        with col_foto:
+            st.image(url_thumbnail(foto, 160), use_container_width=True)
+    with col_dados:
+        st.markdown(f"#### {dados.get('nome_comercial', '(sem nome)')}")
+        linhas = []
+        for chave, rotulo in _ROTULOS_TRIAGEM:
+            if chave == "nome_comercial":
+                continue
+            valor = str(dados.get(chave, "") or "").strip()
+            if valor:
+                linhas.append(f"**{rotulo}:** {valor}")
+        st.markdown("  \n".join(linhas) if linhas
+                    else "_Só o nome foi preenchido nesta triagem._")
+        _vazios = [rot for ch, rot in _ROTULOS_TRIAGEM
+                   if ch not in ("usuario", "data_hora", "nome_comercial")
+                   and not str(dados.get(ch, "") or "").strip()]
+        if _vazios:
+            st.caption("Em branco: " + ", ".join(_vazios))
+
+
 def pagina_triagem(usuario_logado):
     st.subheader("Triagem do Produto")
     st.caption("Preenche uma vez por produto — essa informação alimenta palavras-chave, título e descrição.")
 
     # Mensagem de sucesso vinda do rerun que limpou o formulário
+    # As mensagens aparecem no TOPO, e cada uma so uma vez.
+    #
+    # O aviso de validacao era escrito onde o codigo roda — depois do
+    # formulario, ou seja, no rodape. Salvar com o formulario vazio fazia a
+    # pagina saltar para o topo e "nao acontecer nada": a resposta estava la
+    # embaixo, fora da tela. O pop garante que a mensagem some na interacao
+    # seguinte, em vez de continuar na tela depois de resolvida.
     _msg_ok = st.session_state.pop("triagem_msg_ok", "")
     if _msg_ok:
         st.success(_msg_ok)
+    _msg_erro = st.session_state.pop("triagem_msg_erro", "")
+    if _msg_erro:
+        st.warning(_msg_erro)
 
     # Persiste a última categoria selecionada entre reruns
     _CATS = sorted(ML_COMISSAO_POR_CATEGORIA.keys())
@@ -406,8 +456,9 @@ def pagina_triagem(usuario_logado):
 
     if enviar:
         if not nome_comercial:
-            st.warning("Preencha pelo menos o Nome comercial.")
-            return
+            st.session_state["triagem_msg_erro"] = (
+                "Preencha pelo menos o **Nome comercial** para salvar a triagem.")
+            st.rerun()
 
         # Salva a categoria escolhida para a próxima triagem
         st.session_state["triagem_ultima_categoria"] = categoria
@@ -460,6 +511,6 @@ def pagina_triagem(usuario_logado):
     if nome_busca:
         encontrada = buscar_triagem_por_nome(nome_busca)
         if encontrada:
-            st.json(encontrada)
+            _cartao_triagem(encontrada)
         else:
             st.info("Nenhuma triagem encontrada com esse nome ainda.")
