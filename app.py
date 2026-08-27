@@ -1569,30 +1569,55 @@ def _navegar(paginas, param_url, padrao=None):
     # Streamlit guarda a seleção num estado interno próprio, e `default` passa a
     # ser ignorado — o widget e o nosso session_state viravam duas verdades
     # diferentes. Era isso que fazia o primeiro clique numa aba não trocar nada
-    # e as duas abas ficarem acesas ao mesmo tempo: o widget já tinha mudado, a
-    # tela ainda desenhava a antiga, e só o segundo clique alinhava as duas.
+    # e as duas abas ficarem acesas ao mesmo tempo. Com `key=`, os dois passam a
+    # ser o MESMO estado.
     #
-    # Com `key=`, o widget e o session_state passam a ser o MESMO estado.
+    # REGRA QUE NÃO PODE SER QUEBRADA: depois que o widget com key=K foi criado
+    # nesta passada, escrever em st.session_state[K] derruba a tela inteira com
+    # StreamlitAPIException. Era o que acontecia quando alguém clicava na aba já
+    # selecionada: o segmented_control DESMARCA, e a linha que repunha o valor
+    # rodava logo depois do widget. Toda escrita nesta chave acontece ou ANTES
+    # da criação do widget, ou dentro do on_change — callbacks rodam antes do
+    # script, então lá a escrita é legal.
     chave_widget = f"{estado}__widget"
+    chave_url = f"{estado}__url"
+
+    # Botão voltar do navegador: a URL muda por fora e o widget não sabe.
+    # Se a query param virou um valor que não foi este código que escreveu, é
+    # navegação do usuário — e aí ela manda. Sem isto a URL dizia
+    # "aba_g=Financeiro" com a tela inteira ainda no Administrativo.
+    _da_url_agora = str(st.query_params.get(param_url, "")).strip()
+    if (_da_url_agora in rotulos
+            and _da_url_agora != st.session_state.get(chave_url)
+            and _da_url_agora != atual):
+        atual = _da_url_agora
+        st.session_state[estado] = atual
+        st.session_state[chave_widget] = atual
+
     if chave_widget not in st.session_state:
         st.session_state[chave_widget] = atual
+
+    def _repor_selecao(_chave=chave_widget, _atual=atual):
+        """Clicar na aba já selecionada desmarca — repõe o valor anterior."""
+        if not st.session_state.get(_chave):
+            st.session_state[_chave] = _atual
 
     escolhido = st.segmented_control(
         "Navegação",
         rotulos,
         key=chave_widget,
+        on_change=_repor_selecao,
         label_visibility="collapsed",
     )
-    # Clicar no item já selecionado desmarca — nesse caso mantemos o anterior
-    # em vez de deixar a tela vazia.
+    # Sem escrever de volta: nesta passada o widget já existe.
     if not escolhido:
         escolhido = atual
-        st.session_state[chave_widget] = atual
 
     if escolhido != st.session_state[estado]:
         st.session_state[estado] = escolhido
     if str(st.query_params.get(param_url, "")) != escolhido:
         st.query_params[param_url] = escolhido
+    st.session_state[chave_url] = escolhido
 
     # Agora sim da para dizer em que tela a pessoa esta: no topo do script o
     # session_state ainda guardava a aba anterior.
