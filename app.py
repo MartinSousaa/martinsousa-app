@@ -1286,6 +1286,24 @@ with st.sidebar:
 
     # Marca cedo, antes de qualquer tela pesada: se a pagina der erro no meio, a
     # presenca ja foi registrada. A aba certa e refinada em _render_abas.
+    # ── O trabalho sobrevive ao F5 ───────────────────────────────────────────
+    #
+    # Um F5 apagava título, descrição, palavras-chave e o histórico do chat. O
+    # login persistia, o trabalho não. Aqui o que estava em disco volta uma vez
+    # por sessão, e daí em diante o que está na tela é gravado a cada rerun —
+    # só quando muda, para não escrever em disco a cada clique.
+    try:
+        import rascunho as _rasc_sess
+        if not st.session_state.get("_trabalho_restaurado"):
+            st.session_state["_trabalho_restaurado"] = True
+            _voltou = _rasc_sess.restaurar(usuario_logado, st.session_state)
+            if _voltou:
+                st.session_state["_trabalho_voltou"] = len(_voltou)
+        if st.session_state.pop("_trabalho_voltou", 0):
+            st.toast("↩️ Seu trabalho anterior foi recuperado.", icon="↩️")
+    except Exception:
+        pass
+
     presenca.marcar(usuario_logado)
     # Só o dono. Na barra lateral, cada linha aqui é uma linha a menos de
     # conversa para o colaborador — e saber quem está online é assunto de quem
@@ -1794,3 +1812,22 @@ else:
         "🏆 Painel de Metas":      lambda: placar.pagina_placar(usuario_logado),
         "📊 Análise de Metas":     lambda: analise_metas.pagina_analise_metas(usuario_logado),
     }, "aba")
+
+
+# ── Grava o trabalho no fim de cada passada ──────────────────────────────────
+#
+# Aqui, e nao no meio: neste ponto o session_state ja tem o resultado do que a
+# pessoa acabou de fazer. Compara com o que foi gravado por ultimo e so escreve
+# quando mudou — sem isso seria uma escrita em disco a cada clique, inclusive
+# nos cliques que nao produzem nada.
+try:
+    import json as _json_sess
+    import rascunho as _rasc_fim
+    _foto = _json_sess.dumps(
+        {k: st.session_state.get(k) for k in _rasc_fim.CHAVES_TRABALHO},
+        default=str, sort_keys=True)
+    if st.session_state.get("_trabalho_foto") != _foto:
+        st.session_state["_trabalho_foto"] = _foto
+        _rasc_fim.salvar_trabalho(usuario_logado, st.session_state)
+except Exception:
+    pass
