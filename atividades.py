@@ -35,12 +35,18 @@ def _aba():
         aba = planilha.worksheet(ABA_NOME)
         # Garante que colunas novas existem no cabeçalho sem apagar dados
         cabecalho = aba.row_values(1)
+        # Compara normalizado. "Peso" com maiuscula, ou "peso " com espaco, nao
+        # batia com "peso" e uma coluna NOVA e VAZIA era criada no fim. A leitura
+        # (get_all_records) monta um dicionario: a segunda coluna de mesmo nome
+        # sobrescreve a primeira, e o valor gravado desaparecia.
+        _norm = lambda c: str(c).strip().lower()
+        vistos = {_norm(c) for c in cabecalho}
         for col in COLUNAS:
-            if col not in cabecalho:
+            if _norm(col) not in vistos:
                 aba.add_cols(1)
-                col_idx = len(cabecalho) + 1
-                aba.update_cell(1, col_idx, col)
+                aba.update_cell(1, len(cabecalho) + 1, col)
                 cabecalho.append(col)
+                vistos.add(_norm(col))
         return aba
     except gspread.exceptions.WorksheetNotFound:
         aba = planilha.add_worksheet(title=ABA_NOME, rows=2000, cols=len(COLUNAS))
@@ -73,12 +79,30 @@ def registrar_atividade(usuario, tipo, produto, resumo,
         # diferentes — uma com asteriscos e uma sem — partindo o histórico dele
         # em dois. Aqui o nome entra limpo.
         produto = _limpar_markdown(produto)
-        aba.append_row([
-            datetime.now().strftime("%d/%m/%Y %H:%M"),
-            usuario, tipo, produto, resumo,
-            codigo, cor, medidas, peso, link_capa, link_pasta,
-            material, caracteristicas, diferenciais, uso, categoria,
-        ], value_input_option="RAW")
+
+        # Grava por NOME de coluna, nao por posicao.
+        #
+        # append_row escreve na ordem da lista. Se o cabecalho da planilha
+        # estiver em outra ordem — e ele fica, porque colunas novas sao
+        # acrescentadas no fim ao longo do tempo — cada valor cai debaixo do
+        # rotulo errado. Foi assim que o peso preenchido chegava vazio na aba
+        # Imagem enquanto medidas e material passavam.
+        valores = {
+            "data_hora": datetime.now().strftime("%d/%m/%Y %H:%M"),
+            "usuario": usuario, "tipo": tipo, "produto": produto,
+            "resumo": resumo, "codigo": codigo, "cor": cor, "medidas": medidas,
+            "peso": peso, "link_capa": link_capa, "link_pasta": link_pasta,
+            "material": material, "caracteristicas": caracteristicas,
+            "diferenciais": diferenciais, "uso": uso, "categoria": categoria,
+        }
+        try:
+            cabecalho_real = aba.row_values(1)
+        except Exception:
+            cabecalho_real = list(COLUNAS)
+        if not cabecalho_real:
+            cabecalho_real = list(COLUNAS)
+        linha = [valores.get(str(c).strip().lower(), "") for c in cabecalho_real]
+        aba.append_row(linha, value_input_option="RAW")
         carregar_atividades.clear()
         return True
     except Exception:
@@ -110,6 +134,30 @@ def carregar_atividades():
             if col not in df.columns:
                 df[col] = ""
     return df
+
+
+def diagnostico_codigo(codigo):
+    """O que a planilha REALMENTE tem para este código, campo a campo.
+
+    Existe para não discutir de memória: quando a tela diz que falta um dado que
+    o colaborador preencheu, isto mostra a linha crua e o cabeçalho de verdade.
+    """
+    try:
+        df = carregar_atividades()
+        aba = _aba()
+        cabecalho = aba.row_values(1)
+    except Exception as e:
+        return {"erro": str(e)[:200]}
+    if df.empty or "codigo" not in df.columns:
+        return {"erro": "Histórico vazio ou sem coluna de código."}
+    achados = df[df["codigo"].astype(str).str.strip() == str(codigo).strip()]
+    return {
+        "cabecalho": cabecalho,
+        "duplicadas": sorted({c for c in
+                              [str(x).strip().lower() for x in cabecalho]
+                              if [str(y).strip().lower() for y in cabecalho].count(c) > 1}),
+        "linhas": achados.to_dict("records"),
+    }
 
 
 def buscar_por_codigo(codigo):
