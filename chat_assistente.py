@@ -266,7 +266,35 @@ def _bloco_quem_fala(usuario="", eh_admin=None):
                   "Metas, e vê toda a Operação. Não tem acesso a Ponto, "
                   "Financeiro nem Administrativo — não mande ele para lá.")
     return (f"\n\n=== QUEM ESTÁ FALANDO COM VOCÊ ===\n"
-            f"Usuário logado: {usuario}\n{acesso}\n")
+            f"Usuário logado: {usuario}\n{acesso}\n"
+            + REGRA_FERRAMENTAS)
+
+
+REGRA_FERRAMENTAS = """
+=== CONSULTE ANTES DE RESPONDER ===
+Você tem ferramentas de leitura e está DENTRO do Studio. A regra é uma só:
+
+  Se a pergunta é sobre um dado que existe no sistema, CONSULTE e responda com
+  o número. Nunca explique onde encontrar um dado que você mesmo pode ler.
+
+Exemplos de como agir:
+- "quanto está o LPV?" -> ler_financeiro -> "R$ 19,68, de Junho/2026 — e está 2
+  meses atrasado." NÃO mande a pessoa até a aba Financeiro.
+- "quantos cartões atrasados temos?" -> ler_painel_metas. "Cartão" aqui é
+  cartão do TRELLO, trabalho da equipe. Nunca é cartão de crédito, e o Studio
+  não tem contas a receber.
+- "qual o título atual?" -> ler_produto_aberto. Se não houver, a primeira frase
+  é "Ainda não há título gerado nesta sessão".
+- "gera o título da caneca" -> buscar_triagem ANTES de pedir categoria,
+  material ou diferenciais: quase sempre já estão salvos. Só pergunte o que
+  faltar de verdade, dizendo o que já encontrou.
+- "quantos colaboradores temos?" -> ler_equipe.
+
+Nunca invente número. Se a ferramenta falhar, diga que não conseguiu consultar
+agora — não caia no passo a passo.
+Depois de consultar, responda em 1 a 3 frases. Passo a passo só quando
+perguntarem COMO FAZER alguma coisa.
+"""
 
 
 def _montar_system(usuario="", eh_admin=None) -> str:
@@ -533,8 +561,13 @@ def _executar_comando(cmd: dict) -> str | None:
     return None
 
 
+# Modelo do assistente. Com ferramentas ele passou a decidir o que consultar
+# antes de responder, e isso e trabalho de raciocinio, nao de completar texto.
+MODELO_CHAT = "claude-opus-5"
+
+
 def _chamar_ia(historico: list, mensagem_usuario: str, imagens_bytes: list = None,
-               usuario: str = "") -> tuple:
+               usuario: str = "", eh_admin: bool = False) -> tuple:
     """Chama a API Anthropic. Retorna (texto_resposta, comando_ou_None).
     imagens_bytes: lista de bytes de imagens para envio via visão (opcional).
     usuario: quem está logado — vai para o system prompt junto com o perfil."""
@@ -562,15 +595,54 @@ def _chamar_ia(historico: list, mensagem_usuario: str, imagens_bytes: list = Non
     else:
         msgs.append({"role": "user", "content": mensagem_usuario})
 
+    # ── Laço de ferramentas ──────────────────────────────────────────────────
+    #
+    # O assistente sabia explicar o site e não sabia ler o site: o contexto era
+    # um resumo montado ANTES da pergunta, e nada nele conseguia buscar um dado
+    # depois de ler o que a pessoa perguntou. Daí "quanto está o LPV?" virar um
+    # passo a passo até a tela do Financeiro, com o valor na tela ao lado.
+    #
+    # Agora ele escolhe a consulta depois de ler a pergunta, lê o resultado e
+    # responde com o número na mão. As ferramentas são só de LEITURA; alterar
+    # continua pelo bloco <CMD>, que confirma e nomeia o que vai mudar.
+    #
+    # O teto de 4 rodadas é o freio: 4 consultas resolvem qualquer pergunta que
+    # esta tela faz, e um laço sem teto seria uma conta aberta a cada mensagem.
+    try:
+        import ferramentas_chat as _fer
+        ferramentas = _fer.para_o_modelo(eh_admin)
+    except Exception:
+        _fer, ferramentas = None, []
+
     try:
         client = anthropic.Anthropic(api_key=api_key)
-        resp = client.messages.create(
-            model="claude-haiku-4-5",
-            max_tokens=1500,
-            system=_montar_system(usuario),
-            messages=msgs,
-        )
-        texto_raw = resp.content[0].text
+        sistema = [{"type": "text", "text": _montar_system(usuario, eh_admin),
+                    "cache_control": {"type": "ephemeral"}}]
+
+        resp = None
+        for _ in range(5):
+            resp = client.messages.create(
+                model=MODELO_CHAT,
+                max_tokens=2000,
+                system=sistema,
+                messages=msgs,
+                **({"tools": ferramentas} if ferramentas else {}),
+            )
+            usos = [b for b in resp.content if getattr(b, "type", "") == "tool_use"]
+            if resp.stop_reason != "tool_use" or not usos or not _fer:
+                break
+            msgs.append({"role": "assistant", "content": resp.content})
+            msgs.append({"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": u.id,
+                 "content": _fer.executar(u.name, u.input, eh_admin)}
+                for u in usos
+            ]})
+
+        texto_raw = "\n".join(b.text for b in (resp.content if resp else [])
+                              if getattr(b, "type", "") == "text").strip()
+        if not texto_raw:
+            texto_raw = ("Consultei os dados mas não consegui formar a resposta. "
+                         "Pergunte de novo, por favor.")
 
         # Extrai bloco <CMD>{...}</CMD>
         cmd = None
@@ -664,9 +736,14 @@ def renderizar_chat(usuario_logado=""):
     pendente = st.session_state.pop("chat_pendente", None)
     if pendente:
         try:
+            try:
+                import auth as _auth_chat
+                _adm = _auth_chat.is_admin(usuario_logado)
+            except Exception:
+                _adm = False
             resposta, cmd = _chamar_ia(
                 hist[:-1], pendente["texto"], pendente.get("imagens") or [],
-                usuario=usuario_logado)
+                usuario=usuario_logado, eh_admin=_adm)
         except Exception as e:
             resposta, cmd = f"⚠️ Erro ao falar com o assistente: {e}", None
 
