@@ -1321,7 +1321,19 @@ with st.sidebar:
     if auth.eh_dono(usuario_logado):
         presenca.painel()
 
-    chat_assistente.renderizar_chat(usuario_logado)
+    # O chat NAO e desenhado aqui — ver o fim do arquivo.
+    #
+    # Ele fica na barra lateral, mas quem manda no que o Streamlit guarda e a
+    # ORDEM DE EXECUCAO, nao o lugar na tela. Desenhado aqui, o st.rerun() que
+    # o chat dispara ao responder interrompia o script ANTES de a area
+    # principal existir naquela passada. Widget que nao e desenhado numa passada
+    # tem o estado descartado: era por isso que, depois de o chat ajustar um
+    # titulo, o formulario inteiro voltava em branco — nome comercial, material,
+    # cores, uso, diferenciais — e "Gerar Titulo" geraria sem dado nenhum.
+    #
+    # Chamando no fim, a area principal ja foi desenhada quando o rerun
+    # acontece. O `with st.sidebar` la embaixo poe o conteudo no mesmo lugar de
+    # sempre, logo abaixo do painel de presenca.
 
 # A equipe medida vem da planilha, nao do codigo. Carregada uma vez por
 # renderizacao: contratacao passa a valer sem alteracao de codigo.
@@ -1822,6 +1834,13 @@ else:
         "🏆 Painel de Metas":      lambda: placar.pagina_placar(usuario_logado),
         "📊 Análise de Metas":     lambda: analise_metas.pagina_analise_metas(usuario_logado),
     }, "aba")
+
+
+# ── O chat, por ultimo ───────────────────────────────────────────────────────
+# Aparece na barra lateral do mesmo jeito; o que muda e a ordem de execucao.
+# Ver a nota no bloco da barra lateral.
+with st.sidebar:
+    chat_assistente.renderizar_chat(usuario_logado)
 
 
 # ── Grava o trabalho no fim de cada passada ──────────────────────────────────
