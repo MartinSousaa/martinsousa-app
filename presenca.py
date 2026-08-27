@@ -110,25 +110,23 @@ def painel(titulo="NO STUDIO AGORA"):
     else:
         agora = time.time()
         linhas = []
-        for i, p in enumerate(gente):
+        for p in gente:
             inativo = agora - p.get("visto", agora)
             cor = "#3FB950" if inativo < 120 else "#EDA100"
             onde = p.get("onde") or "—"
-            borda = ("border-top:1px solid var(--ms-divisor);padding-top:6px;"
-                     if i else "")
+            # Nome e tela na MESMA linha: cada pessoa ocupava duas, e a barra
+            # lateral e do chat. O nome nao encolhe (flex:none) e o que sobra
+            # e cortado do lado da tela, que e o texto mais longo.
             linhas.append(
-                f'<div style="{borda}padding-bottom:6px;line-height:1.35;">'
-                '<div style="display:flex;align-items:center;gap:6px;'
-                'font-size:12px;min-width:0;">'
-                f'<span style="width:7px;height:7px;border-radius:50%;'
-                f'background:{cor};flex:none;box-shadow:0 0 6px {cor}66;"></span>'
-                f'<b style="color:var(--ms-texto);overflow:hidden;'
-                f'text-overflow:ellipsis;white-space:nowrap;">{p["usuario"]}</b>'
-                '</div>'
-                f'<div style="font-size:10px;color:var(--ms-texto-sec);'
-                f'padding-left:13px;white-space:nowrap;overflow:hidden;'
-                f'text-overflow:ellipsis;">{onde} · {_ha_quanto(inativo)}</div>'
-                '</div>'
+                '<div style="display:flex;align-items:baseline;gap:5px;'
+                'padding:2px 0;font-size:12px;min-width:0;">'
+                f'<span style="width:7px;height:7px;border-radius:50%;flex:none;'
+                f'background:{cor};box-shadow:0 0 6px {cor}66;'
+                f'align-self:center;"></span>'
+                f'<b style="color:var(--ms-texto);flex:none;">{p["usuario"]}:</b>'
+                f'<span style="color:var(--ms-texto-sec);font-size:11px;'
+                f'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'
+                f'{onde} · {_ha_quanto(inativo)}</span></div>'
             )
         corpo = "".join(linhas)
 

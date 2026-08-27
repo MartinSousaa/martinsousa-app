@@ -124,10 +124,17 @@ div[class*="AppRunningIndicator"]               { display: none !important; }
    arriscaria deixar o anexo sem jeito de ser aberto. */
 section[data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] {
     min-height: 0 !important;
-    padding: 4px 8px !important;
+    padding: 2px 4px !important;
     border: none !important;
     background: transparent !important;
-    gap: 6px !important;
+    /* row-reverse porque no HTML o texto vem ANTES do botão: invertendo, o
+       clipe fica à esquerda e o limite à direita, na mesma linha. Empilhados
+       eram duas linhas da barra lateral, que é do chat. */
+    flex-direction: row-reverse !important;
+    justify-content: flex-end !important;
+    align-items: center !important;
+    flex-wrap: nowrap !important;
+    gap: 8px !important;
 }
 /* O ícone de nuvem e o título "Drag and drop files here" saem. */
 section[data-testid="stSidebar"]
@@ -139,6 +146,9 @@ section[data-testid="stSidebar"]
 section[data-testid="stSidebar"] [data-testid="stFileUploaderDropzoneInstructions"] {
     align-items: center !important;
     margin: 0 !important;
+    padding: 0 !important;
+    flex: 0 1 auto !important;
+    min-width: 0 !important;
 }
 /* Fica só o limite, escrito em português. */
 section[data-testid="stSidebar"]
