@@ -531,10 +531,23 @@ def _secao_registro(usuario_logado: str, eh_master: bool):
     data_str = data_sel.isoformat()
 
     if eh_master:
-        usernames = list(MEMBROS.keys())
+        # Quem nao bate ponto sai da lista: lancamento manual aqui vira dado de
+        # folha, e nao pode existir batida para quem nao tem relogio. Para
+        # incluir alguem, marque "Bate ponto" no cadastro da equipe.
+        _fora = _nao_bate_ponto()
+        usernames = [u for u in MEMBROS if u not in _fora]
+        if not usernames:
+            st.warning("Nenhum colaborador marcado como 'bate ponto' no cadastro "
+                       "da equipe. Marque em Análise de Metas → Configuração de "
+                       "Metas → Equipe.")
+            return
         nomes_disp = [MEMBROS[u] for u in usernames]
         nome_sel = col_user.selectbox("👤 Colaborador", nomes_disp, key="pt_user")
         username_sel = usernames[nomes_disp.index(nome_sel)]
+        _sem_relogio = [MEMBROS[u] for u in MEMBROS if u in _fora]
+        if _sem_relogio:
+            col_user.caption("Fora da lista (não batem ponto): "
+                             + ", ".join(_sem_relogio))
     else:
         # Mapeia login do app para username Trello
         _LOGIN_MAP = {"Myrella": "myrelladesouza", "Beatriz": "beatriz51",
@@ -633,10 +646,25 @@ def _secao_historico_mensal(eh_master: bool, usuario_logado: str):
     mes_sel  = col_m.selectbox("Mês", mes_opts, index=agora.month - 1, key="pt_h_mes")
     mes_num  = mes_opts.index(mes_sel) + 1
 
+    st.caption("Lançamentos manuais (aba *Registrar*)"
+               + (" — as batidas do relógio estão em *Relatório RHiD*."
+                  if eh_master else "."))
+
     resumo = calcular_resumo_mes(ano_sel, mes_num)
 
     if not any(r["dias_trabalhados"] + r["dias_ausentes"] > 0 for r in resumo.values()):
-        st.caption(f"Nenhum registro de ponto em {mes_sel} {ano_sel}.")
+        # Dizer de QUAL fonte o vazio fala.
+        #
+        # Esta tela le os lancamentos MANUAIS da planilha; o Relatorio RHiD, ao
+        # lado, le o relogio. "Nenhum registro de ponto em Agosto" aparecia com
+        # 437 horas registradas na aba vizinha, no mesmo mes — quem abrisse
+        # concluiria que ninguem bateu ponto.
+        st.info(
+            f"Nenhum **lançamento manual** em {mes_sel} {ano_sel}. "
+            "Esta tela mostra só o que foi registrado à mão na aba *Registrar*"
+            + (" — as batidas do relógio ficam em **📊 Relatório RHiD**, na mesma tela."
+               if eh_master else ".")
+        )
         return
 
     # Mostra apenas o colaborador logado (se não for master)
