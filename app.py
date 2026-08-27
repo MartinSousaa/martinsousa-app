@@ -111,6 +111,62 @@ div[class*="AppRunningIndicator"]               { display: none !important; }
 [data-testid="stAppViewBlockContainer"],
 [data-testid="stAppViewContainer"]              { opacity: 1 !important; }
 
+/* ── ANEXO DO CHAT: um clipe, nada mais ────────────────────────────────────
+   O st.file_uploader vem com a caixa de arrastar-e-soltar inteira: título,
+   lista de extensões e botão "Browse files". Na largura da barra lateral isso
+   ocupa mais espaço do que a conversa.
+
+   Só o que está DENTRO da barra lateral é afetado — os uploads de Imagem,
+   Triagem e Vídeo ficam na área principal e continuam com a caixa normal.
+
+   O botão continua sendo o botão de verdade, só que rotulado com o clipe: é
+   ele que abre o seletor de arquivos. Trocar por uma área clicável inventada
+   arriscaria deixar o anexo sem jeito de ser aberto. */
+section[data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] {
+    min-height: 0 !important;
+    padding: 4px 8px !important;
+    border: none !important;
+    background: transparent !important;
+    gap: 6px !important;
+}
+/* O ícone de nuvem e o título "Drag and drop files here" saem. */
+section[data-testid="stSidebar"]
+  [data-testid="stFileUploaderDropzoneInstructions"] > div:first-child,
+section[data-testid="stSidebar"]
+  [data-testid="stFileUploaderDropzoneInstructions"] > div:last-child > *:first-child {
+    display: none !important;
+}
+section[data-testid="stSidebar"] [data-testid="stFileUploaderDropzoneInstructions"] {
+    align-items: center !important;
+    margin: 0 !important;
+}
+/* Fica só o limite, escrito em português. */
+section[data-testid="stSidebar"]
+  [data-testid="stFileUploaderDropzoneInstructions"] > div:last-child > *:last-child {
+    font-size: 0 !important;
+}
+section[data-testid="stSidebar"]
+  [data-testid="stFileUploaderDropzoneInstructions"] > div:last-child > *:last-child::after {
+    content: "Limite 200MB";
+    font-size: 11px !important;
+    color: var(--ms-texto-sec);
+    white-space: nowrap;
+}
+/* "Browse files" vira o clipe. */
+section[data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] button {
+    min-width: 0 !important;
+    width: auto !important;
+    padding: 2px 8px !important;
+    font-size: 0 !important;
+    line-height: 1 !important;
+    border: 1px solid var(--ms-divisor) !important;
+}
+section[data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] button::after {
+    content: "📎";
+    font-size: 15px !important;
+    line-height: 1.4;
+}
+
 /* ── CONEXÃO CAÍDA ──────────────────────────────────────────────────────────
    As regras acima escondem o indicador de status do Streamlit e anulam o
    escurecimento da tela. As duas coisas foram feitas de propósito: o "running
