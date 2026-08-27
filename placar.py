@@ -251,7 +251,14 @@ def _data_card(card):
     return datetime.now(timezone.utc)
 
 def _mes_card(card):
-    """Mês do cartão pela última atividade — usado para cartões CONCLUÍDOS (quando foi feito)."""
+    """OBSOLETA — não use. Mantida só para não quebrar chamador esquecido.
+
+    Usava a última atividade como mês de conclusão, o que fazia um cartão de
+    julho pontuar em agosto ao receber um comentário. O mês de conclusão de
+    verdade vem de placar_core._mes_card(card, conclusoes, janela), que lê a
+    ação que virou dueComplete. Duas contas para a mesma pergunta foi o que fez
+    o Painel e a Análise discordarem em 330 pontos.
+    """
     d = card.get("dateLastActivity", "")
     if d:
         try:
@@ -357,6 +364,21 @@ def _processar(listas,cards,membros_map,id_p,id_t,id_i,filtro_mes=None):
     import placar_core as _pc_tv
     from datetime import timedelta as _td_tv
     _tempos_tv = _pc_tv.tempos_do_board(cards, membros_map, _pc_tv._desde_curto(45))
+
+    # Mês de conclusão: a MESMA fonte que a Análise de Metas usa.
+    #
+    # Esta tela decidia o mês do cartão pela última atividade dele. Comentar ou
+    # editar em agosto um cartão concluído em julho trazia os pontos para agosto
+    # — e o Painel mostrava 5.972 pts onde a Análise mostrava 5.642, 330 pontos
+    # de diferença no mesmo mês e na mesma sessão. A Análise já usava a ação que
+    # de fato virou dueComplete, que é o que "concluído no mês" significa.
+    _desde_concl = _pc_tv._desde_padrao()
+    _conclusoes_tv = _pc_tv.datas_de_conclusao(
+        _pc_tv.acoes_movimento(_desde_concl, max_paginas=5))
+    try:
+        _janela_tv = datetime.fromisoformat(_desde_concl.replace("Z", "+00:00"))
+    except Exception:
+        _janela_tv = None
     d={
         "pts_equipe":0.0,"pen_total":0.0,
         "pts_membro":{u:0.0 for u in MEMBROS_ATIVOS},
@@ -435,8 +457,10 @@ def _processar(listas,cards,membros_map,id_p,id_t,id_i,filtro_mes=None):
         # ── A partir daqui: cartão concluído (ok=True) ─────────────────────────
         # Aplica filtro de mês somente para concluídos
         if filtro_mes:
-            mc=_mes_card(card)
-            if mc and mc!=filtro_mes: continue
+            # Sem "if mc and": mês indeterminado deixa o cartão FORA do mês, em
+            # vez de contar em qualquer mês que estiver aberto na tela.
+            if _pc_tv._mes_card(card, _conclusoes_tv, _janela_tv) != filtro_mes:
+                continue
 
         if tempo and tempo>0:
             d["tempo_lista"].setdefault(nl,[]).append(max(tempo-interr,0))
