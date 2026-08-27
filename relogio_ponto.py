@@ -689,6 +689,11 @@ def _janelas_do_dia(data, entrada, saida_almoco, volta_almoco, saida):
     sa, va = _dt_local(saida_almoco), _dt_local(volta_almoco)
     if sa and va and ini < sa < va < fim:
         return [(ini, sa), (va, fim)]
+    # Foi embora durante o almoco ou logo na volta dele: so vale a manha. Sem
+    # este corte a hora do almoco entrava como expediente e, sem cartao aberto,
+    # virava ociosidade — justamente no dia em que a pessoa teve um imprevisto.
+    if sa and ini < sa and fim <= (va or sa):
+        return [(ini, min(sa, fim))]
     return [(ini, fim)]
 
 
