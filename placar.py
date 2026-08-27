@@ -361,7 +361,8 @@ def _processar(listas,cards,membros_map,id_p,id_t,id_i,filtro_mes=None):
         "pts_equipe":0.0,"pen_total":0.0,
         "pts_membro":{u:0.0 for u in MEMBROS_ATIVOS},
         "pen_membro":{u:0.0 for u in MEMBROS_ATIVOS},
-        "abertos":0,"urgentes":0,"atrasados":0,"em_andamento":0,
+        "abertos":0,"urgentes":0,"atrasados":0,"atrasados_pri":0,
+        "atrasados_pri_lista":[],"em_andamento":0,
         "falta_conf":0,"falta_info":0,"sem_membro":0,"sem_membro_lista":[],"falta_pts":0,
         "pts_pendentes":0.0,"pen_cards":[],"andamento_lista":[],"pausados_lista":[],
         "tempo_lista":{},"desativar":0,"reativar":0,"pend_lista":{},
@@ -412,6 +413,11 @@ def _processar(listas,cards,membros_map,id_p,id_t,id_i,filtro_mes=None):
             _est_atr = COLUNAS_CONFIG.get(nl, {}).get("tempo_min") or 0
             if _est_atr > 0 and _tempos_tv.get(card["id"], {}).get("total", 0) > _est_atr:
                 d["atrasados"]+=1
+                # Ver placar_core: a meta e sobre prioridade 8 a 10, nao sobre
+                # o board inteiro.
+                if int((COLUNAS_CONFIG.get(nl) or {}).get("prioridade", 5) or 5) >= 8:
+                    d["atrasados_pri"]+=1
+                    d["atrasados_pri_lista"].append({"nome":card["name"],"lista":nl})
             if "FALTA CONFERÊNCIA" in lb: d["falta_conf"]+=1
             if "FALTA INFORMAÇÃO" in lb: d["falta_info"]+=1
             if not us:
@@ -881,8 +887,9 @@ def _tv_full_html(
     alertas_js += "]"
 
     pend_total = sum(pend_lista.values()) if pend_lista else 0
-    atrasados  = d.get("atrasados", 0)
-    desc_pri   = "Nenhum cartão prioritário atrasado" if atrasados == 0 else f"{atrasados} atrasado(s)"
+    atrasados  = d.get("atrasados_pri", 0)
+    desc_pri   = ("Nenhum cartão prioritário (P8-P10) atrasado" if atrasados == 0
+                  else f"{atrasados} prioritário(s) atrasado(s)")
 
     # Coletiva: threshold bars (verde ↔ vermelho), progresso sempre verde
     _cor_tv_eq       = "#1BAF7A"  # progresso — sempre verde
@@ -1656,7 +1663,17 @@ def pagina_placar(usuario_logado, headless=False):
     col_meta_n, col_meta_x = st.columns(2)
 
     # Cálculos para as barras
-    pct_prioritarios_ok = 100 if d["atrasados"] == 0 else max(0, 100 - d["atrasados"]*20)
+    # Percentual e legenda saem do mesmo numero. Antes a legenda era o texto
+    # fixo "Nenhum cartao prioritario atrasado", entao a barra podia marcar 0%
+    # jurando que nao havia atraso nenhum.
+    _atr_pri = d.get("atrasados_pri", 0)
+    pct_prioritarios_ok = 100 if _atr_pri == 0 else max(0, 100 - _atr_pri * 20)
+    if _atr_pri == 0:
+        _desc_pri = "Nenhum cartão prioritário (P8-P10) atrasado"
+    else:
+        _nomes_pri = ", ".join(f'"{c["nome"][:30]}"'
+                               for c in d.get("atrasados_pri_lista", [])[:3])
+        _desc_pri = f"{_atr_pri} prioritário(s) atrasado(s)" + (f": {_nomes_pri}" if _nomes_pri else "")
     total_cards_ativos = max(d["em_andamento"] + sum(d["pend_lista"].values()), 1)
     # Meta: Em Andamento e Concluídos com membro — apenas de 01/07/2026 em diante
     from datetime import timezone as _tz
@@ -1802,7 +1819,7 @@ def pagina_placar(usuario_logado, headless=False):
         _sem_mb_desc_n = ("Em andamento e concluídos" if not d.get("sem_membro_lista")
                           else "Sem membro: " + ", ".join(f'"{c["nome"][:30]}"' for c in d["sem_membro_lista"][:3]))
         b += _barra_meta("Pontuação do mês", pct_eq, f"{saldo_eq:,.0f} / {meta_eq:,} pts (inclui -{d['pen_total']:.0f} penalidades)", _cor_eq)
-        b += _barra_meta("Sem atraso em prioritários P8-P10", pct_prioritarios_ok, "Nenhum cartão prioritário atrasado", _cor_pri)
+        b += _barra_meta("Sem atraso em prioritários P8-P10", pct_prioritarios_ok, _desc_pri, _cor_pri)
         b += _barra_meta(f"Retrabalho abaixo de {max_retrab_n}%", pct_retrab_barra_n, _desc_retrab, _cor_rtn)
         b += _barra_meta(f"Menos de {max_pen_n+1} penalidades", pct_pen_normal, f"{qtd_pen} ocorrência(s) / máx {max_pen_n}", "#E34948")
         b += _barra_meta("Cartões com membro atribuído", pct_com_membro, _sem_mb_desc_n, _cor_cmb)
@@ -1818,7 +1835,7 @@ def pagina_placar(usuario_logado, headless=False):
         _sem_mb_desc_x = ("Em andamento e concluídos" if not d.get("sem_membro_lista")
                           else "Sem membro: " + ", ".join(f'"{c["nome"][:30]}"' for c in d["sem_membro_lista"][:3]))
         b += _barra_meta(f"Pontuação +{maxx_pct-100}% acima da meta", pct_maxx, f"{saldo_eq:,.0f} / {meta_maxx_pts:,.0f} pts (c/ penalidades -{ d['pen_total']:.0f})", _cor_mx)
-        b += _barra_meta("Zero prioritários em atraso", pct_prioritarios_ok, "Nenhum cartão prioritário atrasado", _cor_prix)
+        b += _barra_meta("Zero prioritários em atraso", pct_prioritarios_ok, _desc_pri, _cor_prix)
         b += _barra_meta(f"Retrabalho abaixo de {max_retrab_x}%", pct_retrab_barra_x, _desc_retrab, _cor_rtnx)
         b += _barra_meta(f"Menos de {max_pen_x+1} penalidades", pct_pen_maxx, f"{qtd_pen} ocorrência(s) / máx {max_pen_x}", "#E34948")
         b += _barra_meta("Cartões com membro atribuído", pct_com_membro, _sem_mb_desc_x, _cor_cmbx)

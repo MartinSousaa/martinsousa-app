@@ -111,6 +111,52 @@ div[class*="AppRunningIndicator"]               { display: none !important; }
 [data-testid="stAppViewBlockContainer"],
 [data-testid="stAppViewContainer"]              { opacity: 1 !important; }
 
+/* ── CONEXÃO CAÍDA ──────────────────────────────────────────────────────────
+   As regras acima escondem o indicador de status do Streamlit e anulam o
+   escurecimento da tela. As duas coisas foram feitas de propósito: o "running
+   man" piscando a cada rerun distrai. Só que são exatamente os dois avisos que
+   o Streamlit tem quando o WebSocket cai — e sem eles a página fica com cara de
+   normal enquanto nenhum clique chega ao servidor. Foi o que aconteceu no login:
+   o botão ENTRAR não fazia nada e não havia mensagem nenhuma.
+
+   O Streamlit marca o estado da conexão em data-test-connection-state no
+   [data-testid="stApp"]: CONNECTED quando está tudo certo, e CONNECTING,
+   PINGING_SERVER ou DISCONNECTED_FOREVER quando não está. Então o indicador
+   volta a aparecer — e só nesses casos. Em CSS puro: components.html() está
+   proibido aqui (criava iframe com canal próprio e derrubava a sessão das
+   colaboradoras), e <script> em markdown é removido pelo sanitizador. */
+[data-testid="stApp"]:not([data-test-connection-state="CONNECTED"])
+  [data-testid="stStatusWidget"],
+[data-testid="stApp"]:not([data-test-connection-state="CONNECTED"])
+  div[class*="StatusWidget"] {
+    display: flex !important;
+    position: fixed !important; top: 8px; right: 8px; z-index: 2147483000;
+}
+
+/* Faixa no topo, para não depender de o usuário reparar num ícone pequeno. */
+[data-testid="stApp"][data-test-connection-state="DISCONNECTED_FOREVER"]::before,
+[data-testid="stApp"][data-test-connection-state="PINGING_SERVER"]::before,
+[data-testid="stApp"][data-test-connection-state="CONNECTING"]::before {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 2147483001;
+    padding: 7px 12px; text-align: center;
+    font-size: 13px; font-weight: 700; letter-spacing: .3px;
+    font-family: inherit;
+}
+[data-testid="stApp"][data-test-connection-state="CONNECTING"]::before,
+[data-testid="stApp"][data-test-connection-state="PINGING_SERVER"]::before {
+    content: "🔌 Reconectando ao servidor… os cliques não estão sendo enviados.";
+    background: #EDA100; color: #111;
+}
+[data-testid="stApp"][data-test-connection-state="DISCONNECTED_FOREVER"]::before {
+    content: "⛔ Conexão perdida — aperte F5 para recarregar. Nada nesta tela está sendo salvo.";
+    background: #E34948; color: #fff;
+}
+/* Aqui o escurecimento AJUDA: mostra que a tela virou foto. */
+[data-testid="stApp"][data-test-connection-state="DISCONNECTED_FOREVER"]
+  [data-testid="stAppViewContainer"] {
+    opacity: .45 !important; pointer-events: none !important;
+}
+
 /* ── FUNDO GERAL ────────────────────────────────────────────────────────── */
 .stApp { background-color: var(--ms-fundo) !important; color: var(--ms-texto) !important; }
 .main, [data-testid="stMain"] { background-color: var(--ms-fundo) !important; }
@@ -1510,7 +1556,16 @@ def _navegar(paginas, param_url, padrao=None):
     except Exception:
         pass
 
-    paginas[escolhido]()
+    # A tela nova e desenhada DENTRO de um st.empty().
+    #
+    # Sem ele, o Streamlit so descarta os elementos da aba anterior quando o
+    # script termina. Uma tela que leva 5s para montar ficava 5s com o painel
+    # velho desenhado embaixo do novo — dois paineis na tela ao mesmo tempo.
+    # O st.empty() zera aquela posicao no instante em que e criado, entao o
+    # conteudo antigo some antes de a tela nova comecar a aparecer.
+    espaco = st.empty()
+    with espaco.container():
+        paginas[escolhido]()
 
 
 def _render_abas_operacao(usuario_logado):

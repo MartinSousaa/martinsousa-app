@@ -1427,7 +1427,8 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
         "pts_equipe": 0.0, "pen_total": 0.0,
         "pts_membro": {u: 0.0 for u in MEMBROS_ATIVOS},
         "pen_membro": {u: 0.0 for u in MEMBROS_ATIVOS},
-        "abertos": 0, "urgentes": 0, "atrasados": 0, "em_andamento": 0,
+        "abertos": 0, "urgentes": 0, "atrasados": 0, "atrasados_pri": 0,
+        "atrasados_pri_lista": [], "em_andamento": 0,
         "falta_conf": 0, "falta_info": 0, "sem_membro": 0, "falta_pts": 0,
         "pts_pendentes": 0.0, "pen_cards": [], "andamento_lista": [],
         "tempo_lista": {}, "desativar": 0, "reativar": 0, "pend_lista": {},
@@ -1502,6 +1503,13 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
             # atrasado, mesmo aberto ha semanas.
             if _card_atrasado(card, nl, _tempos, _entradas):
                 d["atrasados"] += 1
+                # A meta fala em "prioritarios P8-P10", mas o numero usado era o
+                # de TODOS os cartoes atrasados. Rotulo e conta mediam coisas
+                # diferentes, e a barra ficava vermelha por atraso em coluna de
+                # prioridade baixa.
+                if int(cfg_coluna(nl).get("prioridade", 5) or 5) >= 8:
+                    d["atrasados_pri"] += 1
+                    d["atrasados_pri_lista"].append({"nome": card["name"], "lista": nl})
             if "FALTA CONFERÊNCIA" in lb:
                 d["falta_conf"] += 1
             if "FALTA INFORMAÇÃO" in lb:

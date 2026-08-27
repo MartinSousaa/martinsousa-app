@@ -64,9 +64,15 @@ O MS Studio tem as seguintes abas (menu lateral esquerdo):
 • Financeiro — configuração de LPV (custo fixo por venda) e alíquota tributária, mês a mês por ano.
   O LPV informado aqui alimenta os cálculos de viabilidade (UC) em Título.
 
-• Histórico — registro de atividades da equipe (leitura).
+• Administrativo (apenas admin) — é AQUI que ficam: configuração de metas,
+  cadastro da equipe/colaboradores, colunas do Trello e gestão de usuários.
+  NÃO existe aba "Usuários" nem aba "Histórico" — nunca cite esses nomes.
 
-• Usuários — gestão de usuários (apenas admins).
+=== ABAS QUE EXISTEM, LISTA COMPLETA ===
+Gestão (só admin): Painel de Metas · Análise de Metas · Ponto · Financeiro · Administrativo
+Operação: Triagem · Palavras-chave · Título · Descrição · Imagem · Vídeo
+Colaborador não-admin vê apenas Painel de Metas e Análise de Metas em Gestão.
+Nunca invente nome de aba. Se não souber onde fica algo, diga que não sabe.
 
 === FLUXO TÍPICO ===
 1. Aba Título → preenche nome do produto, categoria, material e diferenciais → clica Gerar Título
@@ -236,9 +242,36 @@ def _contexto_atual() -> str:
     return "\n\n".join(partes) if partes else "Nenhum produto em edição no momento."
 
 
-def _montar_system() -> str:
+def _bloco_quem_fala(usuario="", eh_admin=None):
+    """Diz ao assistente com quem ele esta falando e o que essa pessoa enxerga.
+
+    Sem isso ele cumprimentava pelo nome e na frase seguinte respondia "se voce
+    for admin, pode consultar la" — o nome vinha da saudacao, o perfil nao vinha
+    de lugar nenhum.
+    """
+    if not usuario:
+        return ""
+    if eh_admin is None:
+        try:
+            import auth as _auth
+            eh_admin = _auth.is_admin(usuario)
+        except Exception:
+            eh_admin = False
+    if eh_admin:
+        acesso = ("É ADMIN: enxerga Gestão inteira (Painel de Metas, Análise de "
+                  "Metas, Ponto, Financeiro, Administrativo) e toda a Operação. "
+                  "NUNCA responda 'se você for admin' — ele é. Diga direto onde fica.")
+    else:
+        acesso = ("NÃO é admin: em Gestão vê apenas Painel de Metas e Análise de "
+                  "Metas, e vê toda a Operação. Não tem acesso a Ponto, "
+                  "Financeiro nem Administrativo — não mande ele para lá.")
+    return (f"\n\n=== QUEM ESTÁ FALANDO COM VOCÊ ===\n"
+            f"Usuário logado: {usuario}\n{acesso}\n")
+
+
+def _montar_system(usuario="", eh_admin=None) -> str:
     """Monta o system prompt completo com contexto dinâmico."""
-    ctx = _contexto_atual()
+    ctx = _contexto_atual() + _bloco_quem_fala(usuario, eh_admin)
 
     tem_titulos = bool(st.session_state.get("tt_titulos_gerados"))
     tem_desc    = bool(st.session_state.get("desc_texto_atual"))
@@ -494,9 +527,11 @@ def _executar_comando(cmd: dict) -> str | None:
     return None
 
 
-def _chamar_ia(historico: list, mensagem_usuario: str, imagens_bytes: list = None) -> tuple:
+def _chamar_ia(historico: list, mensagem_usuario: str, imagens_bytes: list = None,
+               usuario: str = "") -> tuple:
     """Chama a API Anthropic. Retorna (texto_resposta, comando_ou_None).
-    imagens_bytes: lista de bytes de imagens para envio via visão (opcional)."""
+    imagens_bytes: lista de bytes de imagens para envio via visão (opcional).
+    usuario: quem está logado — vai para o system prompt junto com o perfil."""
     api_key = _api_key()
     if not api_key:
         return "⚠️ ANTHROPIC_API_KEY não configurada no Railway/Secrets.", None
@@ -526,7 +561,7 @@ def _chamar_ia(historico: list, mensagem_usuario: str, imagens_bytes: list = Non
         resp = client.messages.create(
             model="claude-haiku-4-5",
             max_tokens=1500,
-            system=_montar_system(),
+            system=_montar_system(usuario),
             messages=msgs,
         )
         texto_raw = resp.content[0].text
@@ -624,7 +659,8 @@ def renderizar_chat(usuario_logado=""):
     if pendente:
         try:
             resposta, cmd = _chamar_ia(
-                hist[:-1], pendente["texto"], pendente.get("imagens") or [])
+                hist[:-1], pendente["texto"], pendente.get("imagens") or [],
+                usuario=usuario_logado)
         except Exception as e:
             resposta, cmd = f"⚠️ Erro ao falar com o assistente: {e}", None
 
