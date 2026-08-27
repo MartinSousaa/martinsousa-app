@@ -18,24 +18,18 @@ os dados de verdade, sem risco.
 
 ---
 
-## Passo 1 — Copiar a planilha (5 min)
+## Passo 1 — Planilha de teste (FEITO)
 
-1. Abra a planilha **MartinSousa - Financeiro**
-2. `Arquivo → Fazer uma cópia`
-3. Nome: **`MartinSousa - Financeiro (TESTE)`**
-4. Na cópia: `Compartilhar` → adicione o **mesmo e-mail de serviço** que a
-   planilha original já tem, como **Editor**
+Planilha **`MartinSousa - Financeiro - Área de Testes`**, já criada e já
+compartilhada com a conta do robô.
 
-> Para descobrir o e-mail de serviço: abra a planilha original em
-> `Compartilhar` e copie o endereço terminado em
-> `.iam.gserviceaccount.com`.
+## Passo 2 — Pasta do Drive (FEITO)
 
-## Passo 2 — Criar a pasta no Drive (2 min)
+Pasta **`IMAGENS GEMINI`** de teste, ID:
 
-1. No Drive, crie a pasta **`MS Studio - Imagens (TESTE)`**
-2. Compartilhe com o mesmo e-mail de serviço, como **Editor**
-3. Abra a pasta e copie o **ID** da barra de endereço:
-   `drive.google.com/drive/folders/`**`ISTO_AQUI`**
+```
+101h6k5o125pLca2g9blxlgqRIwjCjvSZ
+```
 
 ## Passo 3 — Criar o serviço no Railway (10 min)
 
@@ -45,21 +39,23 @@ os dados de verdade, sem risco.
    (o Railway cria um endereço sozinho, sem mexer em DNS)
 4. Em `Variables`, copie **todas** as variáveis do serviço de produção
 
-## Passo 4 — Trocar três coisas nos secrets do teste (3 min)
+## Passo 4 — Trocar tres coisas nos secrets do teste (3 min)
 
-No `STREAMLIT_SECRETS` do serviço de teste, **acrescente estas duas linhas
-no topo** do arquivo:
+No `STREAMLIT_SECRETS` do servico de teste, **acrescente estas tres linhas no
+topo** do arquivo (antes de qualquer `[secao]`):
 
 ```toml
 AMBIENTE = "homologacao"
-PLANILHA_NOME = "MartinSousa - Financeiro (TESTE)"
+PLANILHA_NOME = "MartinSousa - Financeiro - Área de Testes"
+DRIVE_PASTA_IMAGENS_ID = "101h6k5o125pLca2g9blxlgqRIwjCjvSZ"
 ```
 
-E **troque** o valor da pasta do Drive pelo ID do Passo 2:
+Se `DRIVE_PASTA_IMAGENS_ID` ja existir mais abaixo no arquivo, **apague a linha
+antiga** — senao vale a de baixo e o teste salva na pasta de producao.
 
-```toml
-DRIVE_PASTA_IMAGENS_ID = "id_da_pasta_de_teste"
-```
+Atencao: cole em `Variables` do **servico** de teste, nao do **projeto**.
+Variavel de projeto e herdada por todos os servicos e iria contaminar a
+producao.
 
 Pronto. O resto fica igual.
 
@@ -69,7 +65,7 @@ Pronto. O resto fica igual.
 
 Ao abrir o endereço de teste, deve aparecer uma **faixa amarela** no topo:
 
-> 🧪 AMBIENTE DE TESTE — planilha "MartinSousa - Financeiro (TESTE)" ·
+> 🧪 AMBIENTE DE TESTE — planilha "MartinSousa - Financeiro - Área de Testes" ·
 > nada aqui afeta o Studio de verdade
 
 **Se a faixa não aparecer, pare.** Sem ela, o app está escrevendo na

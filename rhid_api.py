@@ -435,6 +435,12 @@ def _extrair_marcacoes(reg: dict):
 
     # Sem campos nomeados: usa a lista de batidas na ordem do relógio.
     horas = _extrair_batidas(reg)
+    # DUAS batidas e o dia inteiro: entrada e saida, sem almoco. Encaixar a
+    # segunda como "saida para o almoco" deixava o dia sem hora de saida, e o
+    # calculo de ociosidade descartava o dia todo. Acontece quando alguem sai
+    # mais cedo — foi embora antes do almoco, ou nao voltou dele.
+    if len(horas) == 2:
+        return (horas[0], None, None, horas[1])
     horas = horas + [None] * 4
     return tuple(horas[:4])
 
