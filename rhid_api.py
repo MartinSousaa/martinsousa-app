@@ -445,6 +445,34 @@ def _extrair_marcacoes(reg: dict):
     return tuple(horas[:4])
 
 
+def marcacoes_do_registro(reg: dict):
+    """As quatro marcacoes de um registro diario ja apurado pela RHiD.
+
+    Versao publica de _extrair_marcacoes, para a tela de ponto poder mostrar as
+    batidas do dia. A apuracao da RHiD so preenche totalHorasTrabalhadas quando
+    fecha o dia; as batidas, essas, chegam assim que o relogio registra.
+    """
+    return _extrair_marcacoes(reg)
+
+
+def minutos_das_marcacoes(marc):
+    """Minutos trabalhados a partir de (ent, sai_almoco, volta_almoco, saida).
+
+    Conta os pares que existirem: manha, tarde, ou o dia direto quando so ha
+    entrada e saida. Devolve 0.0 quando nao da para fechar nenhum par — meio
+    par nao vira hora trabalhada por chute.
+    """
+    ent, sai_alm, volta_alm, saida = (list(marc) + [None] * 4)[:4]
+    total = 0.0
+    if ent and sai_alm:
+        total += minutos_entre(parse_horario(ent), parse_horario(sai_alm))
+    if volta_alm and saida:
+        total += minutos_entre(parse_horario(volta_alm), parse_horario(saida))
+    if not total and ent and saida and not sai_alm and not volta_alm:
+        total = minutos_entre(parse_horario(ent), parse_horario(saida))
+    return max(total, 0.0)
+
+
 # De qual campo sairam as batidas na ultima leitura. O diagnostico mostra isso:
 # se a RHiD mudar o nome da lista, a tela diz qual campo foi usado em vez de
 # voltar a zero em silencio.

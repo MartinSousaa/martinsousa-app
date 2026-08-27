@@ -1152,11 +1152,14 @@ def _secao_relatorio_rhid():
                 if isinstance(registros, list) and registros:
                     for reg in registros:
                         # totalHorasTrabalhadas = minutos trabalhados no dia (campo nativo RHiD)
-                        horas_trab_min += float(
+                        _apurado = float(
                             reg.get("totalHorasTrabalhadas",
                             reg.get("horasTrabalhadas",
                             reg.get("workedMinutes", 0))) or 0
                         )
+                        # Dia ainda nao fechado pela RHiD: vale a batida.
+                        horas_trab_min += _apurado or _rhid.minutos_das_marcacoes(
+                            _rhid.marcacoes_do_registro(reg))
                         total_atrasos  += float(
                             reg.get("minutosAtraso",
                             reg.get("atraso",
@@ -1170,13 +1173,21 @@ def _secao_relatorio_rhid():
                             banco_min = float(saldo_final or 0)
                             break
                     # Dias presentes: registros onde houve trabalho (totalHorasTrabalhadas > 0)
+                    # Presenca e ausencia olham a batida, nao so a apuracao:
+                    # dia em aberto tem batida e zero apurado, e contava como
+                    # ausencia.
+                    def _bateu(r):
+                        return any(_rhid.marcacoes_do_registro(r))
+
                     dias_presentes = len([
                         r for r in registros
                         if float(r.get("totalHorasTrabalhadas", r.get("horasTrabalhadas", 0)) or 0) > 0
+                        or _bateu(r)
                     ])
                     dias_ausentes = len([
                         r for r in registros
                         if int(r.get("faltasDiasInteiro", r.get("ausente", 0)) or 0) > 0
+                        and not _bateu(r)
                     ])
                     # Guarda resumo diário para tabela de conferência
                     import datetime as _dt
@@ -1194,8 +1205,35 @@ def _secao_relatorio_rhid():
                         saldo_acum = float(reg.get("saldoBancoFinalDia", 0) or 0)
                         is_holiday = bool(reg.get("isHoliday") or reg.get("holiday"))
                         is_falta   = int(reg.get("faltasDiasInteiro", 0) or 0) > 0
+
+                        # As batidas do relógio, independentes da apuração.
+                        #
+                        # A RHiD só preenche totalHorasTrabalhadas quando FECHA o
+                        # dia. No dia corrente ela devolve zero para todo mundo, e
+                        # a tela mostrava o dia em branco com "Falta" — lido como
+                        # "ninguém trabalhou hoje", que é o oposto da verdade.
+                        # Também acontece em dia de batida incompleta: quem sai
+                        # mais cedo sem bater o almoço aparecia como ausente.
+                        #
+                        # As batidas chegam assim que o relógio registra, então
+                        # elas viram a fonte quando a apuração ainda não fechou.
+                        marc = _rhid.marcacoes_do_registro(reg)
+                        batidas_txt = " · ".join(m for m in marc if m)
+                        trab_batidas = _rhid.minutos_das_marcacoes(marc)
+                        em_aberto = False
+                        if trabalhado <= 0 and trab_batidas > 0:
+                            trabalhado = trab_batidas
+                            em_aberto = True
+                            is_falta = False
+                        elif trabalhado <= 0 and batidas_txt:
+                            # Bateu, mas não dá para fechar par nenhum: ainda está
+                            # no expediente. Não é falta.
+                            em_aberto = True
+                            is_falta = False
+
                         # só inclui dias úteis ou com alguma informação relevante
-                        if d and (trabalhado > 0 or is_falta or saldo_dia != 0):
+                        if d and (trabalhado > 0 or is_falta or saldo_dia != 0
+                                  or batidas_txt):
                             registros_diarios.append({
                                 "data":       d,
                                 "trab_min":   trabalhado,
@@ -1203,6 +1241,8 @@ def _secao_relatorio_rhid():
                                 "saldo_acum": saldo_acum,
                                 "falta":      is_falta,
                                 "holiday":    is_holiday,
+                                "batidas":    batidas_txt,
+                                "em_aberto":  em_aberto,
                             })
         else:
             horas_trab_min = 0
@@ -1296,11 +1336,24 @@ def _secao_relatorio_rhid():
                     lambda m: _rhid.fmt_banco(m) if m != 0 else "—"
                 )
                 df_dias["Banco acum."] = df_dias["saldo_acum"].apply(_rhid.fmt_banco)
-                df_dias["Obs."] = df_dias.apply(
-                    lambda row: "🔴 Falta" if row["falta"] else ("🎉 Feriado" if row["holiday"] else ""), axis=1
+                # A coluna das batidas e o que permite conferir o dia sem abrir a
+                # RHiD: e o unico dado que existe antes de a apuracao fechar.
+                df_dias["Batidas"] = df_dias.get("batidas", "").fillna("") if "batidas" in df_dias else ""
+
+                def _obs(row):
+                    if row["holiday"]:
+                        return "🎉 Feriado"
+                    if row["falta"]:
+                        return "🔴 Falta"
+                    if row.get("em_aberto"):
+                        return "⏳ Dia em aberto (RHiD ainda não fechou)"
+                    return ""
+
+                df_dias["Obs."] = df_dias.apply(_obs, axis=1
                 )
                 st.dataframe(
-                    df_dias[["Data", "Trabalhado", "Saldo dia", "Banco acum.", "Obs."]],
+                    df_dias[["Data", "Batidas", "Trabalhado", "Saldo dia",
+                             "Banco acum.", "Obs."]],
                     hide_index=True,
                     use_container_width=True,
                 )
