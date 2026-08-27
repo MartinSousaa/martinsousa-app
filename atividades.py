@@ -48,6 +48,14 @@ def _aba():
         return aba
 
 
+def _limpar_markdown(texto):
+    """Tira marcação de markdown e espaços sobrando de um nome de produto."""
+    import re as _re_md
+    s = str(texto or "")
+    s = _re_md.sub(r"[*_`#]+", "", s)
+    return _re_md.sub(r"\s+", " ", s).strip()
+
+
 def registrar_atividade(usuario, tipo, produto, resumo,
                         codigo="", cor="", medidas="", peso="",
                         link_capa="", link_pasta="",
@@ -60,6 +68,11 @@ def registrar_atividade(usuario, tipo, produto, resumo,
     """
     try:
         aba = _aba()
+        # O nome ia para a planilha com os ** do markdown. No Histórico eles
+        # apareciam como texto, e pior: o mesmo produto virava duas linhas
+        # diferentes — uma com asteriscos e uma sem — partindo o histórico dele
+        # em dois. Aqui o nome entra limpo.
+        produto = _limpar_markdown(produto)
         aba.append_row([
             datetime.now().strftime("%d/%m/%Y %H:%M"),
             usuario, tipo, produto, resumo,
@@ -86,6 +99,11 @@ def carregar_atividades():
     df = pd.DataFrame(registros)
     if not df.empty:
         df.columns = [str(c).strip().lower() for c in df.columns]
+        # Limpa também na LEITURA, não só na escrita: as linhas gravadas antes
+        # desta correção continuam com ** na planilha, e sem isto o mesmo
+        # produto seguiria partido em duas no Histórico.
+        if "produto" in df.columns:
+            df["produto"] = df["produto"].apply(_limpar_markdown)
         # Garante que colunas novas existem mesmo em planilhas antigas
         for col in ["codigo", "cor", "medidas", "peso", "link_capa", "link_pasta",
                     "material", "caracteristicas", "diferenciais", "uso", "categoria"]:
@@ -106,7 +124,23 @@ def buscar_por_codigo(codigo):
         encontrados = df[mask]
         if encontrados.empty:
             return None
-        ultimo = encontrados.iloc[-1]
+
+        # Junta as linhas do código, da mais recente para a mais antiga, ficando
+        # com o primeiro valor NÃO VAZIO de cada campo.
+        #
+        # Antes valia só a última linha. Quando o mesmo código era registrado de
+        # novo sem peso — regeração, ajuste, pré-preenchimento — a linha nova
+        # apagava o peso que a anterior tinha. A tela da Imagem então mostrava
+        # "Peso: —" e acusava o colaborador de não ter preenchido um dado que
+        # ele preencheu, e a imagem de características técnicas ficava bloqueada
+        # sem motivo real.
+        ultimo = {}
+        for _, linha in encontrados.iloc[::-1].iterrows():
+            for chave, valor in linha.items():
+                if str(ultimo.get(chave, "") or "").strip():
+                    continue
+                if str(valor or "").strip():
+                    ultimo[chave] = valor
         return {
             "nome_produto": ultimo.get("produto", ""),
             "codigo": ultimo.get("codigo", ""),
