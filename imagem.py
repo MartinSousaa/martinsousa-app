@@ -2114,11 +2114,19 @@ def pagina_imagem(usuario_logado):
 
     col_nome, col_cod = st.columns(2)
     with col_nome:
+        # Semeado com o produto em que a pessoa ja esta trabalhando, para nao
+        # redigitar o mesmo nome em cinco abas. ANTES do widget: escrever na
+        # chave depois de ele existir derruba a tela.
+        import contexto_produto as _ctx_img
+        _ctx_img.semear("img_nome_produto_input")
         nome_produto = st.text_input(
             "Nome do produto",
             key="img_nome_produto_input",
         )
     with col_cod:
+        if _ctx_img.codigo() and not str(
+                st.session_state.get("img_codigo_input", "")).strip():
+            st.session_state["img_codigo_input"] = _ctx_img.codigo()
         codigo_input = st.text_input(
             "Código da descrição (opcional)",
             key="img_codigo_input",

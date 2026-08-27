@@ -207,6 +207,8 @@ def pagina_video(usuario_logado):
     )
 
     # ── BUSCA TRIAGEM ──────────────────────────────────────────────────────────
+    import contexto_produto as _ctx_vid
+    _ctx_vid.semear("vid_busca_nome")
     busca = st.text_input("Nome do produto", key="vid_busca_nome")
 
     dados_iniciais = {c: "" for c in CAMPOS_TRIAGEM}

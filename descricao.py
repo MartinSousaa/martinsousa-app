@@ -627,6 +627,10 @@ def pagina_descricao(usuario_logado):
             st.session_state["desc_texto_atual"] = descricao
             st.session_state["desc_nome_atual"] = dados["nome_produto"]
             st.session_state["desc_codigo_atual"] = codigo
+            # O codigo passa a viajar junto do produto: a aba Imagem o encontra
+            # ja preenchido, em vez de exigir copia e cola.
+            import contexto_produto as _ctx_desc
+            _ctx_desc.definir(dados["nome_produto"], codigo=codigo, dados=dados)
             st.session_state["desc_dados_atual"] = {
                 "cor": dados.get("cor", ""),
                 "medidas": dados.get("medidas", ""),
