@@ -1304,7 +1304,11 @@ except Exception:
     pass
 
 _eh_admin        = auth.is_admin(usuario_logado)
-_eh_martinsousa  = usuario_logado.lower() == "martinsousa"
+# Ponto, Financeiro e Administrativo. Vem do secret ADMINS, nao da coluna
+# `admin` da planilha — senao quem entrasse no Administrativo uma vez poderia
+# se promover e abrir as tres.
+_eh_gestor       = auth.eh_gestor(usuario_logado)
+_eh_martinsousa  = _eh_gestor
 
 # Mapeia nomes de login (exibição) → usernames do Trello para checagem de acesso
 _LOGIN_TRELLO = {

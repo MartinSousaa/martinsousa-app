@@ -208,6 +208,23 @@ def eh_dono(usuario_logado):
     return str(usuario_logado or "").strip().lower() in ADMINS_PADRAO
 
 
+def eh_gestor(usuario_logado):
+    """Quem manda: enxerga o desempenho dos outros e entra em Ponto, Financeiro
+    e Administrativo.
+
+    Vem do secret ADMINS (ou, sem ele, do dono) — e NUNCA da coluna `admin` da
+    planilha. A diferença importa: a coluna é editável pelo próprio Studio, por
+    quem já tem acesso ao Administrativo. Se ela concedesse este perfil, quem
+    entrasse lá uma vez poderia se promover, e passaria a ver a meta individual
+    de cada colega.
+
+    `is_admin` continua valendo para o que é acesso comum de gestão. Este aqui é
+    para o que não pode ser delegado por engano.
+    """
+    u = str(usuario_logado or "").strip().lower()
+    return bool(u) and u in (_admins_configurados() or ADMINS_PADRAO)
+
+
 def _admins_configurados():
     """Logins com perfil admin, do secret ADMINS. None quando não configurado.
 

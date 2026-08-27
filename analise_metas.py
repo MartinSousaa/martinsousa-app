@@ -2366,9 +2366,14 @@ def pagina_analise_metas(usuario_logado):
     # acesso vinha de outro lugar. Duas listas para a mesma pergunta é como se
     # perde o controle de quem vê o quê. Agora é o secret ADMINS que manda, e
     # MASTERS fica de reserva se a checagem de perfil falhar.
+    # eh_gestor, nao is_admin: is_admin le a coluna `admin` da planilha, que e
+    # editavel de dentro do proprio Studio. Se ela valesse aqui, quem entrasse
+    # uma vez no Administrativo poderia se promover e passar a ver a meta
+    # individual de cada colega. A regra e clara: cada um ve a sua, e ninguem ve
+    # a do outro.
     try:
         import auth as _auth_am
-        _eh_master = _auth_am.is_admin(usuario_logado)
+        _eh_master = _auth_am.eh_gestor(usuario_logado)
     except Exception:
         _eh_master = _username_atual in {m.lower() for m in _pc.MASTERS}
     _eh_membro      = _username_atual in _pc.MEMBROS_ATIVOS or _eh_master
