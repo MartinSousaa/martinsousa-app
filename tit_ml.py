@@ -114,12 +114,26 @@ def pagina_titulo(usuario_logado):
     if aviso:
         getattr(st, aviso[0])(aviso[1])
 
+    # Tudo o que pode falhar e calculado ANTES de abrir o formulario.
+    #
+    # O Streamlit exige que todo st.form termine com um submit button. Se
+    # qualquer linha dentro do bloco levantar, o formulario fecha sem o botao e
+    # a tela mostra a caixa de aviso "Missing Submit Button" — texto de
+    # desenvolvedor, em ingles, na cara do colaborador. Foi visto uma vez, de
+    # forma intermitente, e a unica maneira de garantir que nao volte e nao ter
+    # nada arriscado la dentro.
+    try:
+        categorias = sorted(ML_COMISSAO_POR_CATEGORIA.keys())
+    except Exception:
+        categorias = []
+    if not categorias:
+        categorias = ["(sem categorias configuradas)"]
+    cat_atual = dados_iniciais.get("categoria", "")
+    idx_cat = categorias.index(cat_atual) if cat_atual in categorias else 0
+
     with st.form("form_titulo"):
         col1, col2 = st.columns(2)
         nome_comercial = col1.text_input("Nome comercial", value=dados_iniciais.get("nome_comercial", ""))
-        categorias = sorted(ML_COMISSAO_POR_CATEGORIA.keys())
-        cat_atual = dados_iniciais.get("categoria", "")
-        idx_cat = categorias.index(cat_atual) if cat_atual in categorias else 0
         categoria = col2.selectbox("Categoria no ML", categorias, index=idx_cat, key="tt_categoria")
 
         col1, col2 = st.columns(2)

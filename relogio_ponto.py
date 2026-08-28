@@ -1191,7 +1191,7 @@ def _secao_relatorio_rhid():
             "Estes aparecem na aba *Status Hoje* (equipe do Studio) mas não aqui. "
             "Ou o cadastro na RHiD está inativo, ou o primeiro nome está escrito "
             "diferente dos dois lados. Se for gente que **não bate ponto**, "
-            "desmarque a caixa em *Administrativo → Equipe* e este aviso some."
+            "desmarque a caixa **Bate ponto no relógio** em *Análise de Metas → Configuração de Metas → Equipe* e este aviso some."
         )
     if _por_escolha:
         st.caption("🕒 Não batem ponto (fora do cálculo de horas e desempenho): "
