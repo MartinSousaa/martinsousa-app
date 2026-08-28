@@ -22,6 +22,15 @@ _tokens_sheets_ultimo_erro: float = 0  # evita retry em loop quando Sheets está
 
 # ── PERSISTÊNCIA DE TOKENS NO SHEETS ─────────────────────────────────────────
 
+def _crono(rotulo, seg, detalhe=""):
+    """Registra quanto custou uma ida a planilha. Nunca derruba a leitura."""
+    try:
+        import cronometro
+        cronometro.marcar(rotulo, seg, detalhe)
+    except Exception:
+        pass
+
+
 @st.cache_resource
 def _aba_tokens():
     """Acessa (ou cria) a aba de tokens na planilha."""
@@ -145,7 +154,11 @@ def _carregar_usuarios_sheets():
     """
     try:
         aba = _aba_usuarios()
+        import time as _t_crono
+        _t0_crono = _t_crono.perf_counter()
         registros = aba.get_all_records(value_render_option="UNFORMATTED_VALUE")
+        _crono("Planilha: usuarios", _t_crono.perf_counter() - _t0_crono,
+               f"{len(registros)} linhas")
         df = pd.DataFrame(registros)
         if not df.empty:
             df.columns = [str(c).strip().lower() for c in df.columns]

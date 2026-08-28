@@ -67,6 +67,15 @@ LABELS = {
 META_INDIVIDUAL_PADRAO = 1500
 
 
+def _crono(rotulo, seg, detalhe=""):
+    """Registra quanto custou uma ida a planilha. Nunca derruba a leitura."""
+    try:
+        import cronometro
+        cronometro.marcar(rotulo, seg, detalhe)
+    except Exception:
+        pass
+
+
 def _equipe():
     try:
         import placar_core as _pc
@@ -135,7 +144,11 @@ def carregar_todas() -> pd.DataFrame:
     """Retorna DataFrame com todos os registros de configuração de metas."""
     try:
         aba = _aba()
+        import time as _t_crono
+        _t0_crono = _t_crono.perf_counter()
         registros = aba.get_all_records(value_render_option="UNFORMATTED_VALUE")
+        _crono("Planilha: metas", _t_crono.perf_counter() - _t0_crono,
+               f"{len(registros)} linhas")
         df = pd.DataFrame(registros)
         if not df.empty:
             df.columns = [str(c).strip().lower() for c in df.columns]

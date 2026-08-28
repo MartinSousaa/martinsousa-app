@@ -21,6 +21,7 @@ import financeiro
 import atividades
 import auth
 import admin
+import cronometro
 import presenca
 import triagem
 import palavras_chave
@@ -862,6 +863,10 @@ if _tv_token_cfg and st.query_params.get("tv", "") == _tv_token_cfg:
     st.stop()
 
 usuario_logado = auth.verificar_login()
+
+# Comeca a contar esta passada. Toda ida a rede — Trello, planilha, RHiD — se
+# registra sozinha; no fim da tela o painel mostra onde os segundos foram.
+cronometro.zerar()
 
 # ── NOTA: components.html() foi REMOVIDO por causar "SessionInfo before
 # initialized" para colaboradoras (Myrella, etc.) em todas as abas.
@@ -1834,6 +1839,15 @@ else:
         "🏆 Painel de Metas":      lambda: placar.pagina_placar(usuario_logado),
         "📊 Análise de Metas":     lambda: analise_metas.pagina_analise_metas(usuario_logado),
     }, "aba")
+
+
+# ── Onde foram os segundos ───────────────────────────────────────────────────
+# Depois de a tela inteira ter sido desenhada, para a conta estar fechada.
+if auth.eh_gestor(usuario_logado):
+    try:
+        cronometro.painel()
+    except Exception:
+        pass
 
 
 # ── O chat, por ultimo ───────────────────────────────────────────────────────
