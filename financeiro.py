@@ -17,6 +17,15 @@ REGIMES_TRIBUTARIOS = ["Simples Nacional", "Lucro Presumido", "Lucro Real", "MEI
 COLUNAS = ["ano", "mes", "lpv", "regime_tributario", "aliquota"]
 
 
+def _crono(rotulo, seg, detalhe=""):
+    """Registra quanto custou uma ida a planilha. Nunca derruba a leitura."""
+    try:
+        import cronometro
+        cronometro.marcar(rotulo, seg, detalhe)
+    except Exception:
+        pass
+
+
 def parse_numero_br(texto):
     """Converte texto colado (com virgula ou ponto decimal, com ou sem
     separador de milhar) em float. Retorna None se vazio/invalido."""
@@ -77,7 +86,11 @@ def carregar_dados():
     """Le todos os dados da planilha. Cache de 60s pra nao bater na API
     do Google toda hora que a tela recarrega."""
     aba = _aba()
+    import time as _t_crono
+    _t0_crono = _t_crono.perf_counter()
     registros = aba.get_all_records(value_render_option="UNFORMATTED_VALUE")
+    _crono("Planilha: financeiro", _t_crono.perf_counter() - _t0_crono,
+           f"{len(registros)} linhas")
     df = pd.DataFrame(registros)
     if df.empty:
         df = pd.DataFrame(columns=COLUNAS)

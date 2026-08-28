@@ -16,6 +16,15 @@ COLUNAS = ["data_hora", "usuario", "tipo", "produto", "resumo",
 # Reutiliza a conexao entre reruns. Sem isso cada chamada refazia
 # from_service_account_info + gspread.authorize + open() + worksheet() —
 # quatro idas a rede antes de ler o primeiro dado, por modulo, a cada rerun.
+def _crono(rotulo, seg, detalhe=""):
+    """Registra quanto custou uma ida a planilha. Nunca derruba a leitura."""
+    try:
+        import cronometro
+        cronometro.marcar(rotulo, seg, detalhe)
+    except Exception:
+        pass
+
+
 @st.cache_resource
 def _cliente():
     creds_dict = dict(st.secrets["gcp_service_account"])
@@ -119,7 +128,11 @@ def registrar_atividade(usuario, tipo, produto, resumo,
 @st.cache_data(ttl=600)
 def carregar_atividades():
     aba = _aba()
+    import time as _t_crono
+    _t0_crono = _t_crono.perf_counter()
     registros = aba.get_all_records(value_render_option="UNFORMATTED_VALUE")
+    _crono("Planilha: atividades", _t_crono.perf_counter() - _t0_crono,
+           f"{len(registros)} linhas")
     df = pd.DataFrame(registros)
     if not df.empty:
         df.columns = [str(c).strip().lower() for c in df.columns]

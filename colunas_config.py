@@ -27,6 +27,15 @@ ABA_NOME = "colunas_config"
 COLUNAS = ["coluna", "prioridade", "tempo_min", "espera_h"]
 
 
+def _crono(rotulo, seg, detalhe=""):
+    """Registra quanto custou uma ida a planilha. Nunca derruba a leitura."""
+    try:
+        import cronometro
+        cronometro.marcar(rotulo, seg, detalhe)
+    except Exception:
+        pass
+
+
 @st.cache_resource
 def _aba():
     import gspread
@@ -53,7 +62,11 @@ def carregar() -> dict:
     Devolve vazio em qualquer falha — quem chama cai nos valores de origem.
     """
     try:
+        import time as _t_crono
+        _t0_crono = _t_crono.perf_counter()
         registros = _aba().get_all_records()
+        _crono("Planilha: colunas", _t_crono.perf_counter() - _t0_crono,
+               f"{len(registros)} linhas")
     except Exception:
         return {}
 

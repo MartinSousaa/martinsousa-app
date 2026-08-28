@@ -95,6 +95,19 @@ CAPACIDADE_MIN = 390
 
 # ── API ────────────────────────────────────────────────────────────────────────
 # Cache manual simples (evita decorator @st.cache_data que exige streamlit importado)
+def _crono(rotulo, seg, detalhe=""):
+    """Registra a medicao, se o cronometro estiver disponivel.
+
+    Envolvido em try: este modulo tambem roda fora do Streamlit (scripts de
+    teste), e medicao nunca pode derrubar calculo.
+    """
+    try:
+        import cronometro
+        cronometro.marcar(rotulo, seg, detalhe)
+    except Exception:
+        pass
+
+
 _board_cache = {}
 
 def _buscar_board():
@@ -104,7 +117,9 @@ def _buscar_board():
     import time
     now = time.time()
     if _board_cache.get("ts") and now - _board_cache["ts"] < 30:
+        _crono("Trello: board", 0.0, "HIT")
         return _board_cache["data"]
+    _t0_board = time.perf_counter()
 
     if not TRELLO_KEY:
         return None, None, None, None, None, None
@@ -132,6 +147,7 @@ def _buscar_board():
     result = (listas, cards, membros_map, id_p, id_t, id_i)
     _board_cache["ts"] = now
     _board_cache["data"] = result
+    _crono("Trello: board", time.perf_counter() - _t0_board, "MISS")
     return result
 
 def _buscar_board_clear():
@@ -276,6 +292,8 @@ def _buscar_acoes_board(desde_iso=None, max_paginas=10, filtro=None,
     agora = _t.time()
     cache = _acoes_cache.get(chave)
     if cache and agora - cache["ts"] < 300:
+        _crono("Trello: ações", 0.0,
+               f"HIT idade {agora - cache['ts']:.0f}s · {len(_acoes_cache)} entradas")
         # Repõe o diagnóstico da busca que gerou este cache. Sem isso a tela
         # mostrava "HTTP None · 0 ações" — parecendo falha, quando na verdade a
         # consulta tinha dado certo e só não foi refeita.
@@ -366,6 +384,8 @@ def _buscar_acoes_board(desde_iso=None, max_paginas=10, filtro=None,
 
     _publicar_diag(filtro, diag)
     _acoes_cache[chave] = {"ts": agora, "data": por_card, "diag": dict(diag)}
+    _crono("Trello: ações", _t.time() - agora,
+           f"MISS chave={chave[:34]} · {len(_acoes_cache)} entradas")
     _podar(_acoes_cache, agora)
     return por_card
 
@@ -616,6 +636,8 @@ def _acoes_cru_cache(desde_iso, max_paginas):
     diag["cartoes"] = len(por_card)
     DIAGNOSTICO_POR_FILTRO["cru"] = dict(diag)
     _acoes_cache[chave] = {"ts": agora, "data": por_card, "diag": dict(diag)}
+    _crono("Trello: ações", _t.time() - agora,
+           f"MISS chave={chave[:34]} · {len(_acoes_cache)} entradas")
     _podar(_acoes_cache, agora)
     return por_card
 

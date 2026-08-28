@@ -22,6 +22,15 @@ TOKEN_TTL_MIN = 50  # JWT RHiD expira ~60 min; renova aos 50 min
 
 # ── Configuração ────────────────────────────────────────────────────────────────
 
+def _crono(rotulo, seg, detalhe=""):
+    """Registra quanto custou uma ida a RHiD. Nunca derruba a leitura."""
+    try:
+        import cronometro
+        cronometro.marcar(rotulo, seg, detalhe)
+    except Exception:
+        pass
+
+
 def _cfg() -> dict:
     """Lê credenciais de st.secrets['rhid'] com fallback para defaults vazios."""
     try:
@@ -165,6 +174,8 @@ def get_apuracao(data_ini: str, data_final: str, id_person: int) -> Optional[dic
              ou None em caso de erro.
     """
     try:
+        import time as _t_crono
+        _t0_crono = _t_crono.perf_counter()
         resp = requests.get(
             f"{BASE_URL}/apuracao_ponto",
             headers=_headers(),
@@ -175,6 +186,8 @@ def get_apuracao(data_ini: str, data_final: str, id_person: int) -> Optional[dic
             },
             timeout=20,
         )
+        _crono("RHiD: apuração", _t_crono.perf_counter() - _t0_crono,
+               f"pessoa {id_person}")
         resp.raise_for_status()
         try:
             data = resp.json()
