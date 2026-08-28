@@ -32,7 +32,9 @@ def _atualizar_campo(login, campo, valor):
 
 
 def pagina_admin(usuario_logado):
-    if not auth.is_admin(usuario_logado):
+    # eh_gestor, nao is_admin: a coluna `admin` da planilha e editavel daqui
+    # dentro. Se ela desse entrada, quem entrasse uma vez poderia se promover.
+    if not auth.eh_gestor(usuario_logado):
         st.error("Acesso restrito a administradores.")
         return
 
@@ -59,10 +61,19 @@ def pagina_admin(usuario_logado):
     usuarios_secrets = dict(st.secrets.get("usuarios", {}))
     if usuarios_secrets:
         st.markdown("##### Usuários fixos (Secrets do Streamlit)")
-        st.caption("Esses usuários só podem ser alterados no painel do Streamlit Cloud. Todos têm perfil Admin.")
+        st.caption("Esses usuários só podem ser alterados no painel do Railway. "
+                   "Estar aqui dá acesso ao Studio — **não** dá perfil de gestor.")
         import pandas as pd
+        # O perfil e LIDO, nao presumido.
+        #
+        # Esta tabela dizia "Admin" para todo mundo das Secrets, e a legenda
+        # afirmava "Todos tem perfil Admin". Era verdade ate a separacao entre
+        # cadastro e perfil; depois dela, virou a tela mentindo sobre quem pode
+        # o que — justamente na tela onde se confere isso.
         df_sec = pd.DataFrame([
-            {"login": u, "perfil": "Admin", "origem": "Secrets", "ativo": "Sim"}
+            {"login": u,
+             "perfil": "Gestor" if auth.eh_gestor(u) else "Colaborador",
+             "origem": "Secrets", "ativo": "Sim"}
             for u in usuarios_secrets
         ])
         st.dataframe(df_sec, use_container_width=True, hide_index=True)

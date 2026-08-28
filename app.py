@@ -1315,7 +1315,10 @@ with st.sidebar:
             if _voltou:
                 st.session_state["_trabalho_voltou"] = len(_voltou)
         if st.session_state.pop("_trabalho_voltou", 0):
-            st.toast("↩️ Seu trabalho anterior foi recuperado.", icon="↩️")
+            # Sem o emoji no texto: o `icon` ja o desenha, e os dois juntos
+            # saiam colados — em fonte sem o glifo, como um quadradinho antes
+            # da frase.
+            st.toast("Seu trabalho anterior foi recuperado.", icon="↩️")
     except Exception:
         pass
 
