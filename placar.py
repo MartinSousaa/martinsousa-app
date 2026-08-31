@@ -793,6 +793,10 @@ def _tv_full_html(
     meta_ind_map=None,
     ritmo_tv_html="",
     sem_membro_lista=None, sem_membro_desc="",
+    # Carimbo de quando este HTML foi gerado. O JS da TV compara com o relogio
+    # do navegador e mostra a faixa vermelha se os dados envelhecerem — uma TV
+    # congelada precisa se anunciar, senao mostra numeros plausiveis e velhos.
+    gerado_epoch=0,
 ):
     def fp(v): return f"{'%.1f'%v if v<10 else '%.0f'%v}%"
 
@@ -1384,6 +1388,37 @@ function _atualizarPainel() {{
 }}
 setTimeout(_atualizarPainel, 60000);
 setTimeout(checkAndPlay, 4000);
+
+// A TV avisa quando ela mesma congela.
+//
+// O arquivo servido a TV so muda quando o servidor o reescreve. Se a
+// regeneracao parar, a TV segue mostrando numeros plausiveis e velhos — e
+// ninguem percebe, que e o pior jeito de falhar. GERADO_EM e carimbado no
+// HTML a cada regeneracao; se ficar velho, a faixa aparece.
+var GERADO_EM = {gerado_epoch};
+function _checarFrescor() {{
+  try {{
+    var idadeMin = (Date.now() / 1000 - GERADO_EM) / 60;
+    var faixa = document.getElementById('tv-congelada');
+    if (!faixa) {{
+      faixa = document.createElement('div');
+      faixa.id = 'tv-congelada';
+      faixa.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;'
+        + 'background:#E34948;color:#fff;font-weight:800;text-align:center;'
+        + 'padding:10px;font-size:22px;display:none;';
+      document.body.appendChild(faixa);
+    }}
+    if (idadeMin > 6) {{
+      faixa.textContent = 'DADOS DESATUALIZADOS — parados ha '
+        + Math.round(idadeMin) + ' min. Avise o gestor.';
+      faixa.style.display = 'block';
+    }} else {{
+      faixa.style.display = 'none';
+    }}
+  }} catch (e) {{}}
+}}
+_checarFrescor();
+setInterval(_checarFrescor, 60000);
 setInterval(checkAndPlay, 5 * 60 * 1000);
 // Auto-scale se conteúdo não couber na tela
 function _autoEscala() {{
@@ -1837,12 +1872,22 @@ def pagina_placar(usuario_logado, headless=False):
         max_retrab_x=max_retrab_x, max_pen_x=max_pen_x,
         n_urgentes=d.get("urgentes", 0), n_sem_mb=d.get("sem_membro", 0),
         agora_str=agora.strftime("%d/%m/%Y %H:%M"),
+        gerado_epoch=int(agora.timestamp()),
         meta_ind_map=meta_ind_map,
         ritmo_tv_html=_ritmo_tv_html,
         sem_membro_lista=d.get("sem_membro_lista", []),
         sem_membro_desc=_sem_mb_desc_meta,
     )
     _write_tv_static(_html_tv)  # atualiza static/tv.html a cada refresh do app
+
+    # Estado da regeneracao, para quem abre o painel. Uma TV congelada nao se
+    # anuncia; esta linha anuncia por ela.
+    if not modo_tv:
+        try:
+            _tipo_tv, _msg_tv = tv_diagnostico()
+            getattr(st, _tipo_tv if _tipo_tv != "caption" else "caption")(_msg_tv)
+        except Exception:
+            pass
 
     if modo_tv:
         st.info(
@@ -2001,21 +2046,79 @@ def pagina_placar(usuario_logado, headless=False):
 
 _TV_INTERVALO_SEG = 60
 
+# Estado da regeneração, para a falha parar de ser invisível.
+#
+# A thread engolia qualquer exceção com `except: pass`. A intenção estava certa
+# — ela não pode morrer, a TV depende dela — mas o efeito era que uma falha
+# deixava a TV congelada mostrando a tela de horas atrás, sem nada em lugar
+# nenhum dizendo isso. Quem olhasse a TV via números plausíveis e velhos, que é
+# pior do que ver uma tela quebrada.
+#
+# Agora a volta registra o que aconteceu, e o Painel de Metas mostra.
+TV_STATUS = {
+    "voltas": 0, "erros": 0,
+    "ultimo_ok": None,       # epoch da última regeneração bem-sucedida
+    "ultimo_erro": None,     # epoch da última falha
+    "erro": "",              # a mensagem, resumida
+}
+
 
 def _loop_regenerador_tv():
     import time as _t_tv
     import logging as _log_tv
+    import traceback as _tb_tv
     # A thread roda fora de qualquer sessão Streamlit. As chamadas de UI viram
     # no-op, mas cada uma emite "missing ScriptRunContext" — sem isso os logs
     # do Railway ficariam ilegíveis.
     _log_tv.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context"
                       ).setLevel(_log_tv.ERROR)
     while True:
+        TV_STATUS["voltas"] += 1
         try:
             pagina_placar("martinsousa", headless=True)
-        except Exception:
-            pass  # a thread nunca pode morrer — a TV depende dela
+            TV_STATUS["ultimo_ok"] = _t_tv.time()
+            TV_STATUS["erro"] = ""
+        except Exception as e:
+            # Continua sem morrer — mas agora deixa rastro, na estrutura e no
+            # log do Railway.
+            TV_STATUS["erros"] += 1
+            TV_STATUS["ultimo_erro"] = _t_tv.time()
+            TV_STATUS["erro"] = f"{type(e).__name__}: {e}"[:200]
+            try:
+                print("[TV regen] FALHOU:", _tb_tv.format_exc()[-1200:],
+                      file=__import__("sys").stderr)
+            except Exception:
+                pass
         _t_tv.sleep(_TV_INTERVALO_SEG)
+
+
+def tv_diagnostico():
+    """Uma linha dizendo se a TV está sendo regenerada, e há quanto tempo."""
+    import time as _t_d
+    import os as _os_d
+    agora = _t_d.time()
+    ok, erro = TV_STATUS["ultimo_ok"], TV_STATUS["erro"]
+    caminho = _os_d.path.join(_os_d.path.dirname(__file__), "static", "tv.html")
+    try:
+        idade_arq = agora - _os_d.path.getmtime(caminho)
+        arq = f"arquivo com {idade_arq/60:.0f} min"
+    except Exception:
+        idade_arq, arq = None, "arquivo NÃO existe"
+
+    if ok is None and TV_STATUS["voltas"] == 0:
+        return ("error", "A regeneração da TV nunca rodou — a thread não subiu. "
+                         "A TV está mostrando o que sobrou do último deploy.")
+    if erro:
+        return ("error", f"A regeneração da TV está falhando há "
+                         f"{(agora - (TV_STATUS['ultimo_erro'] or agora))/60:.0f} min "
+                         f"({TV_STATUS['erros']} falha(s) em {TV_STATUS['voltas']} voltas). "
+                         f"A TV está congelada. Erro: {erro}")
+    if idade_arq is not None and idade_arq > 300:
+        return ("warning", f"A TV não é reescrita há {idade_arq/60:.0f} min, "
+                           f"mas a regeneração não acusou erro. Confira se o "
+                           f"processo reiniciou agora há pouco.")
+    return ("caption", f"📺 TV regenerada há {(agora - ok)/60:.0f} min · "
+                       f"{TV_STATUS['voltas']} voltas · {TV_STATUS['erros']} falha(s) · {arq}")
 
 
 @st.cache_resource
