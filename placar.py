@@ -621,7 +621,14 @@ def _vel_maxx(pct_maxx, meta_maxx_pts, saldo_eq):
       <stop offset="80%" style="stop-color:#FFD700;stop-opacity:1"/>
       <stop offset="100%" style="stop-color:#B8860B;stop-opacity:1"/>
     </linearGradient>
-    <filter id="glow">
+    <!-- filterUnits e o detalhe que faz o ponteiro existir. No padrao
+         (objectBoundingBox) a regiao do filtro e uma porcentagem da caixa do
+         elemento — e o ponteiro fica EXATAMENTE horizontal quando a Maxx bate
+         100%, entao a caixa dele tem altura zero, a regiao do filtro tem altura
+         zero e o navegador nao desenha nada. O ponteiro sumia justo quando a
+         meta era atingida. Em userSpaceOnUse a regiao e fixa no espaco do SVG e
+         nao depende mais da forma do que esta sendo filtrado. -->
+    <filter id="glow" filterUnits="userSpaceOnUse" x="0" y="0" width="260" height="150">
       <feGaussianBlur stdDeviation="2.5" result="coloredBlur"/>
       <feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
@@ -1045,10 +1052,7 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
 .gauge-label{{font-size:10px;color:#aaa;margin-top:3px;}}
 #som-btn{{position:fixed;bottom:14px;right:14px;background:#1a1a1aee;border:1px solid #444;border-radius:8px;padding:8px 14px;color:#aaa;font-size:13px;cursor:pointer;z-index:9999;-webkit-user-select:none;user-select:none;}}
 #som-btn.ativo{{color:#1BAF7A;border-color:#1BAF7A;}}
-.needle-maxx{{-webkit-animation:glow-needle 2.4s ease-in-out infinite;animation:glow-needle 2.4s ease-in-out infinite;}}
 .tip-maxx{{-webkit-animation:glow-tip 2.4s ease-in-out infinite;animation:glow-tip 2.4s ease-in-out infinite;}}
-@-webkit-keyframes glow-needle{{0%,100%{{-webkit-filter:drop-shadow(0 0 3px #FFD700);}}50%{{-webkit-filter:drop-shadow(0 0 8px #FFD700);}}}}
-@keyframes glow-needle{{0%,100%{{filter:drop-shadow(0 0 3px #FFD700);}}50%{{filter:drop-shadow(0 0 8px #FFD700);}}}}
 @-webkit-keyframes glow-tip{{0%,100%{{-webkit-filter:drop-shadow(0 0 4px #FFD700);}}50%{{-webkit-filter:drop-shadow(0 0 10px #FFD700);}}}}
 @keyframes glow-tip{{0%,100%{{filter:drop-shadow(0 0 4px #FFD700);}}50%{{filter:drop-shadow(0 0 10px #FFD700);}}}}
 .bloco-status{{position:absolute;left:10px;right:10px;top:220px;height:72px;display:-webkit-box;display:-webkit-flex;display:flex;gap:4px;overflow:hidden;-webkit-flex-wrap:nowrap;flex-wrap:nowrap;}}
@@ -1156,7 +1160,11 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
         <line x1="168" y1="92" x2="162" y2="92" stroke="#444" stroke-width="1.5"/>
         <text x="8" y="89" text-anchor="end" fill="#555" font-size="7" font-family="Arial">0</text>
         <text x="172" y="89" text-anchor="start" fill="#555" font-size="7" font-family="Arial">100%</text>
-        <line class="needle-maxx" x1="90" y1="92" x2="{nx_x}" y2="{ny_x}" stroke="#FFD700" stroke-width="2.5" stroke-linecap="round"/>
+        <!-- Sem a classe de brilho: aqui o glow e um filter CSS, que tambem
+             tem a regiao presa a caixa do elemento, e a caixa de uma linha
+             horizontal tem altura zero. O pulso dourado fica no tip-maxx, que e
+             um circulo e nunca degenera. -->
+        <line x1="90" y1="92" x2="{nx_x}" y2="{ny_x}" stroke="#FFD700" stroke-width="2.5" stroke-linecap="round"/>
         <circle cx="90" cy="92" r="5" fill="#222" stroke="#FFD700" stroke-width="1.5"/>
         <circle class="tip-maxx" cx="{nx_x}" cy="{ny_x}" r="3.5" fill="#FFD700"/>
       </svg>
