@@ -96,17 +96,29 @@ def _semear_meta(chave, valor):
         pass
 
 
-def _write_tv_static(html: str) -> None:
-    """Grava o HTML completo do painel TV no diretório static/ do Streamlit."""
+def _write_tv_static(html: str) -> bool:
+    """Grava o HTML completo do painel TV no diretório static/ do Streamlit.
+
+    O `except: pass` continua — a TV nunca pode derrubar o app —, mas agora a
+    falha deixa rastro. Antes, disco cheio ou sistema de arquivos somente
+    leitura sumia sem uma linha em lugar nenhum, e o diagnostico da TV seguia
+    dizendo que estava tudo certo.
+    """
     try:
         _static_dir = os.path.join(os.path.dirname(__file__), "static")
         os.makedirs(_static_dir, exist_ok=True)
         _path = os.path.join(_static_dir, "tv.html")
         with open(_path, "w", encoding="utf-8") as _f:
             _f.write(html)
-    except Exception:
-        pass  # nunca travar o app por causa da TV
+        ok = True
+    except Exception as e:
+        try:
+            TV_STATUS["motivo"] = f"falha ao gravar o arquivo: {type(e).__name__}: {e}"[:200]
+        except Exception:
+            pass
+        ok = False
     _write_beep_wav()  # garante que beep.wav existe ao lado de tv.html
+    return ok
 
 MEMBROS_ATIVOS = {
     "myrelladesouza": "Myrella",
@@ -1495,6 +1507,11 @@ def pagina_placar(usuario_logado, headless=False):
     eh_master=usuario_logado.lower() in {m.lower() for m in MASTERS}
     eh_membro=usuario_logado in MEMBROS_ATIVOS
     if not TRELLO_KEY:
+        # Sair daqui nao levanta excecao, entao a thread da TV contabilizava a
+        # volta como sucesso e o arquivo nunca era reescrito. O motivo fica
+        # registrado para o diagnostico nao mentir.
+        if headless:
+            TV_STATUS["motivo"] = "credenciais do Trello não configuradas"
         st.error("Credenciais do Trello não configuradas."); return
 
     st.markdown(CSS,unsafe_allow_html=True)
@@ -1575,6 +1592,8 @@ def pagina_placar(usuario_logado, headless=False):
     with st.spinner(""):
         dados=_buscar_board()
     if not dados or not dados[0]:
+        if headless:
+            TV_STATUS["motivo"] = "o Trello não respondeu nesta volta"
         st.error("Não foi possível conectar ao Trello."); return
 
     listas,cards,membros_map,id_p,id_t,id_i=dados
@@ -1902,7 +1921,8 @@ def pagina_placar(usuario_logado, headless=False):
         sem_membro_lista=d.get("sem_membro_lista", []),
         sem_membro_desc=_sem_mb_desc_meta,
     )
-    _write_tv_static(_html_tv)  # atualiza static/tv.html a cada refresh do app
+    if _write_tv_static(_html_tv) and headless:
+        TV_STATUS["motivo"] = ""   # chegou ate aqui e gravou: a volta valeu
 
     # Estado da regeneracao, para quem abre o painel. Uma TV congelada nao se
     # anuncia; esta linha anuncia por ela.
@@ -2079,11 +2099,18 @@ _TV_INTERVALO_SEG = 60
 # pior do que ver uma tela quebrada.
 #
 # Agora a volta registra o que aconteceu, e o Painel de Metas mostra.
+# `ultimo_ok` era carimbado quando pagina_placar nao levantava excecao — e ela
+# tem duas saidas antecipadas que nao levantam nada (sem credencial do Trello, e
+# Trello sem responder), alem de uma gravacao de arquivo que engolia o proprio
+# erro. Dava para a TV ficar congelada com o diagnostico jurando "regenerada ha
+# 0 min". Agora o sucesso e o ARQUIVO ter sido reescrito, e `motivo` guarda por
+# que a volta nao chegou la.
 TV_STATUS = {
     "voltas": 0, "erros": 0,
-    "ultimo_ok": None,       # epoch da última regeneração bem-sucedida
+    "ultimo_ok": None,       # epoch da última regeneração que de fato gravou
     "ultimo_erro": None,     # epoch da última falha
     "erro": "",              # a mensagem, resumida
+    "motivo": "",            # por que a volta terminou sem gravar
 }
 
 
@@ -2099,9 +2126,17 @@ def _loop_regenerador_tv():
     while True:
         TV_STATUS["voltas"] += 1
         try:
+            TV_STATUS["motivo"] = "a volta terminou sem chegar na gravação"
             pagina_placar("martinsousa", headless=True)
-            TV_STATUS["ultimo_ok"] = _t_tv.time()
-            TV_STATUS["erro"] = ""
+            if TV_STATUS["motivo"]:
+                # Voltou inteira, mas sem gravar. Nao e excecao, e tambem nao e
+                # sucesso: contar como sucesso era o que escondia o problema.
+                TV_STATUS["erros"] += 1
+                TV_STATUS["ultimo_erro"] = _t_tv.time()
+                TV_STATUS["erro"] = TV_STATUS["motivo"]
+            else:
+                TV_STATUS["ultimo_ok"] = _t_tv.time()
+                TV_STATUS["erro"] = ""
         except Exception as e:
             # Continua sem morrer — mas agora deixa rastro, na estrutura e no
             # log do Railway.
@@ -2117,7 +2152,12 @@ def _loop_regenerador_tv():
 
 
 def tv_diagnostico():
-    """Uma linha dizendo se a TV está sendo regenerada, e há quanto tempo."""
+    """Uma linha dizendo se a TV está sendo regenerada, e há quanto tempo.
+
+    A verdade aqui é a data do ARQUIVO, não o que a thread acha que fez: é o
+    arquivo que a TV lê. A contagem de voltas e o último erro entram como
+    explicação de por que ele está velho, quando está.
+    """
     import time as _t_d
     import os as _os_d
     agora = _t_d.time()
@@ -2125,24 +2165,35 @@ def tv_diagnostico():
     caminho = _os_d.path.join(_os_d.path.dirname(__file__), "static", "tv.html")
     try:
         idade_arq = agora - _os_d.path.getmtime(caminho)
-        arq = f"arquivo com {idade_arq/60:.0f} min"
     except Exception:
-        idade_arq, arq = None, "arquivo NÃO existe"
+        idade_arq = None
 
-    if ok is None and TV_STATUS["voltas"] == 0:
-        return ("error", "A regeneração da TV nunca rodou — a thread não subiu. "
-                         "A TV está mostrando o que sobrou do último deploy.")
+    porque = f" Motivo: {erro}" if erro else ""
+
+    if idade_arq is None:
+        return ("error", "O arquivo da TV não existe. Ela está sem nada para "
+                         "mostrar desde o último deploy." + porque)
+
+    if idade_arq > 300:
+        if TV_STATUS["voltas"] == 0:
+            return ("error", f"O arquivo da TV tem {idade_arq/60:.0f} min e a "
+                             f"thread de regeneração nunca rodou — ela não subiu.")
+        return ("error", f"A TV está congelada: o arquivo tem {idade_arq/60:.0f} min "
+                         f"({TV_STATUS['erros']} falha(s) em {TV_STATUS['voltas']} "
+                         f"voltas).{porque}")
+
+    # Arquivo fresco. Se a thread mesmo assim vem falhando, quem esta salvando a
+    # TV e alguem com o Painel aberto — e no fim do expediente ela congela.
     if erro:
-        return ("error", f"A regeneração da TV está falhando há "
-                         f"{(agora - (TV_STATUS['ultimo_erro'] or agora))/60:.0f} min "
-                         f"({TV_STATUS['erros']} falha(s) em {TV_STATUS['voltas']} voltas). "
-                         f"A TV está congelada. Erro: {erro}")
-    if idade_arq is not None and idade_arq > 300:
-        return ("warning", f"A TV não é reescrita há {idade_arq/60:.0f} min, "
-                           f"mas a regeneração não acusou erro. Confira se o "
-                           f"processo reiniciou agora há pouco.")
-    return ("caption", f"📺 TV regenerada há {(agora - ok)/60:.0f} min · "
-                       f"{TV_STATUS['voltas']} voltas · {TV_STATUS['erros']} falha(s) · {arq}")
+        return ("warning", f"O arquivo da TV está atualizado ({idade_arq/60:.0f} min), "
+                           f"mas a regeneração automática está falhando "
+                           f"({TV_STATUS['erros']} de {TV_STATUS['voltas']} voltas). "
+                           f"Fora do expediente a TV vai congelar.{porque}")
+
+    visto = f"{(agora - ok)/60:.0f} min" if ok else "—"
+    return ("caption", f"📺 TV: arquivo com {idade_arq/60:.0f} min · última "
+                       f"regeneração há {visto} · {TV_STATUS['voltas']} voltas · "
+                       f"{TV_STATUS['erros']} falha(s)")
 
 
 @st.cache_resource
