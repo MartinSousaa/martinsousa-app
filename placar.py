@@ -147,6 +147,21 @@ def _write_tv_static(html: str) -> bool:
         _path = os.path.join(_static_dir, "tv.html")
         with open(_path, "w", encoding="utf-8") as _f:
             _f.write(html)
+        # O Tornado calcula o ETag de um arquivo estatico UMA vez e guarda o
+        # hash num dicionario de classe que nunca expira. Como a TV revalida com
+        # If-None-Match, ela recebia 304 para sempre: o arquivo era reescrito a
+        # cada minuto e o navegador continuava com a primeira versao servida
+        # depois do deploy. Recarregar nao adiantava — o 304 responde igual.
+        # Apagar a entrada devolve o ETag correto na proxima requisicao.
+        try:
+            from tornado.web import StaticFileHandler as _SFH
+            # A chave e o caminho absoluto que o proprio Tornado montou. Se por
+            # qualquer diferenca de normalizacao ela nao for esta, reset() limpa
+            # tudo — sao dois arquivos no static/, o custo e um md5 de cada um.
+            if _SFH._static_hashes.pop(os.path.abspath(_path), None) is None:
+                _SFH.reset()
+        except Exception:
+            pass
         ok = True
     except Exception as e:
         try:
@@ -1450,9 +1465,24 @@ function checkAndPlay() {{
 // Se qualquer coisa falhar na troca, cai no recarregamento de antes — pior caso
 // e voltar ao comportamento atual, nunca uma TV congelada.
 function _atualizarPainel() {{
-  fetch(location.href, {{cache: 'no-store'}})
+  // Cada volta usa uma URL nova. Sem isso o navegador revalida com
+  // If-None-Match e o servidor estatico responde 304 com o ETag velho — o
+  // conteudo novo nunca chega, por mais que o arquivo mude no disco.
+  var _u = new URL(location.href);
+  _u.searchParams.set('ts', Date.now());   // 'v' nao: o Tornado da 10 anos de cache
+  fetch(_u.toString(), {{cache: 'no-store'}})
     .then(function(r) {{ if (!r.ok) throw new Error(r.status); return r.text(); }})
     .then(function(html) {{
+      var sv = html.match(/var SCRIPT_VER = "([^"]+)";/);
+      if (sv && sv[1] !== SCRIPT_VER) {{
+        try {{
+          if (sessionStorage.getItem('tv_ver') !== sv[1]) {{
+            sessionStorage.setItem('tv_ver', sv[1]);
+            location.reload();
+            return;
+          }}
+        }} catch (e) {{ location.reload(); return; }}
+      }}
       var doc = new DOMParser().parseFromString(html, 'text/html');
       var novo = doc.querySelector('.tv-root');
       var atual = document.querySelector('.tv-root');
@@ -1492,6 +1522,13 @@ setTimeout(checkAndPlay, 4000);
 // ninguem percebe, que e o pior jeito de falhar. GERADO_EM e carimbado no
 // HTML a cada regeneracao; se ficar velho, a faixa aparece.
 var GERADO_EM = {gerado_epoch};
+// Versao do proprio script. A atualizacao sem recarregar troca so o miolo da
+// pagina, entao o script que roda na TV e o do dia em que ela foi ligada:
+// qualquer correcao daqui de dentro so chegava se alguem fosse ate a TV e
+// recarregasse na mao. Quando a versao servida muda, a pagina se recarrega uma
+// unica vez — o sessionStorage e o que impede virar laco se algum cache
+// intermediario insistir na versao velha.
+var SCRIPT_VER = "{_TV_SCRIPT_VER}";
 function _checarFrescor() {{
   try {{
     var idadeMin = (Date.now() / 1000 - GERADO_EM) / 60;
@@ -1537,6 +1574,17 @@ _autoEscala();
 </script>
 </body>
 </html>"""
+
+# Muda quando o codigo da TV muda, e so entao. Nao serve hash do HTML pronto: o
+# carimbo de geracao entra nele, o valor mudaria a cada minuto e a TV entraria
+# num laco de recarregamento.
+try:
+    import hashlib as _hl_tv, inspect as _insp_tv
+    _TV_SCRIPT_VER = _hl_tv.md5(
+        _insp_tv.getsource(_tv_full_html).encode("utf-8")).hexdigest()[:8]
+except Exception:
+    _TV_SCRIPT_VER = "estatico"
+
 
 def _meta_ind_item(titulo, pct, descricao, cor=None, aguardando=False):
     if aguardando:
