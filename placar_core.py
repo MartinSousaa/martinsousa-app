@@ -7,6 +7,43 @@ Pode ser importado com segurança por qualquer módulo sem causar efeitos colate
 import requests
 from datetime import datetime, timezone, timedelta, time
 
+# Conexao, leitura. requests SEM timeout espera para sempre: uma chamada
+# pendurada travava a thread que regenera a TV — ela nao morre, nao levanta
+# excecao e nao volta, entao o painel congelava sem uma linha de erro.
+_HTTP_TIMEOUT = (10, 30)
+
+class _RespFalha:
+    """Resposta que nao chegou, com a forma de uma resposta do requests.
+
+    Todo call-site aqui ja trata `r.ok` falso — e o caminho que termina em
+    "Nao foi possivel conectar ao Trello", que a tela sabe mostrar. Deixar o
+    timeout virar excecao trocaria a espera infinita por um traceback vermelho
+    na cara do usuario; assim ele vira a falha que o codigo ja esperava.
+    """
+    ok = False
+    status_code = None
+
+    def __init__(self, erro=""):
+        self.erro = erro
+
+    def json(self):
+        return []
+
+
+def _req_get(url, **kw):
+    """GET no Trello que nunca pendura e nunca levanta."""
+    kw.setdefault("timeout", _HTTP_TIMEOUT)
+    try:
+        return requests.get(url, **kw)
+    except Exception as e:
+        try:
+            import sys as _sys
+            print(f"[Trello] {type(e).__name__}: {e}", file=_sys.stderr)
+        except Exception:
+            pass
+        return _RespFalha(f"{type(e).__name__}: {e}")
+
+
 # ── Tenta ler secrets do Streamlit; falha silenciosa fora do contexto ──────────
 try:
     import streamlit as st
@@ -130,20 +167,20 @@ def _buscar_board():
         return None, None, None, None, None, None
     base = "https://api.trello.com/1"
     auth = {"key": TRELLO_KEY, "token": TRELLO_TOKEN}
-    r_l = requests.get(f"{base}/boards/{BOARD_ID}/lists", params={**auth, "fields": "id,name"})
+    r_l = _req_get(f"{base}/boards/{BOARD_ID}/lists", params={**auth, "fields": "id,name"}, timeout=_HTTP_TIMEOUT)
     listas = {l["id"]: l["name"] for l in r_l.json()} if r_l.ok else {}
-    r_c = requests.get(f"{base}/boards/{BOARD_ID}/cards", params={
+    r_c = _req_get(f"{base}/boards/{BOARD_ID}/cards", params={
         **auth,
         # idLabels e o estado ATUAL das etiquetas do cartao. E a ancora final da
         # reconstrucao da linha do tempo: o estado depois da ultima mudanca.
         "fields": ("id,name,idList,idMembers,labels,idLabels,due,dueComplete,"
                    "customFieldItems,dateLastActivity"),
         "customFieldItems": "true",
-    })
+    }, timeout=_HTTP_TIMEOUT)
     cards = r_c.json() if r_c.ok else []
-    r_m = requests.get(f"{base}/boards/{BOARD_ID}/members", params={**auth, "fields": "id,username"})
+    r_m = _req_get(f"{base}/boards/{BOARD_ID}/members", params={**auth, "fields": "id,username"}, timeout=_HTTP_TIMEOUT)
     membros_map = {m["id"]: m["username"] for m in r_m.json()} if r_m.ok else {}
-    r_cf = requests.get(f"{base}/boards/{BOARD_ID}/customFields", params=auth)
+    r_cf = _req_get(f"{base}/boards/{BOARD_ID}/customFields", params=auth, timeout=_HTTP_TIMEOUT)
     campos = r_cf.json() if r_cf.ok else []
     id_p = next((c["id"] for c in campos if c.get("name", "").upper() == "PONTOS"), None)
     id_t = next((c["id"] for c in campos if "TEMPO ACUMULADO" in c.get("name", "").upper()), None)
