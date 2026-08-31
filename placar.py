@@ -13,6 +13,7 @@ import requests
 import json as _json
 from datetime import datetime, timezone
 import math
+import placar_core as _pc_core
 
 # ── Beep de alerta — gerado como arquivo WAV físico em static/beep.wav ────────
 # Data URIs de ~79KB falham silenciosamente no browser da LG TV.
@@ -123,28 +124,35 @@ MESES_PT = {1:"Janeiro",2:"Fevereiro",3:"Março",4:"Abril",5:"Maio",
             6:"Junho",7:"Julho",8:"Agosto",9:"Setembro",10:"Outubro",
             11:"Novembro",12:"Dezembro"}
 
-COLUNAS_CONFIG = {
-    "DESATIVAR (50)":                                  {"prioridade":10,"tempo_min":50},
-    "AJUSTE DE PREÇO (MS-20)":                        {"prioridade":9, "tempo_min":120},
-    "AJUSTE DE PREÇO (EQ-70)":                        {"prioridade":9, "tempo_min":60},
-    "URGENTES!!!!":                                   {"prioridade":8, "tempo_min":210},
-    "REATIVAR (20)":                                  {"prioridade":7, "tempo_min":150},
-    "CORREÇÃO DE FOTOS: 0 PONTOS":                    {"prioridade":7, "tempo_min":120},
-    "CRIATIVO VÍDEO (80)":                            {"prioridade":7, "tempo_min":180},
-    "RETIRADA DE ETIQUETAS (30)":                     {"prioridade":7, "tempo_min":90},
-    "CRIATIVO VARIAÇÃO (50)":                         {"prioridade":6, "tempo_min":120},
-    "CRIATIVO DO ZERO: (FINALIZAR NO INTEGRAÇÃO!!!)": {"prioridade":6, "tempo_min":240},
-    "INTEGRAÇÃO NOVOS ANÚNCIOS (100)":                {"prioridade":6, "tempo_min":60},
-    "CRIATIVO FOTOS (NOVAS: 10/VAR.:2)":              {"prioridade":6, "tempo_min":180},
-    "INTEGRAÇÃO VÍDEO (PONTUA NA CONFERIENCIA)":      {"prioridade":6, "tempo_min":60},
-    "CONFERENCIA VÍDEO (10)":                         {"prioridade":6, "tempo_min":60},
-    "TÍTULO/DESCRIÇÃO/EDIÇÃO (10)":                   {"prioridade":6, "tempo_min":60},
-    "ANÚNCIAR DE CATÁLOGO (10)":                      {"prioridade":6, "tempo_min":60},
-    "ESPELHAMENTO DE ANÚNCIO (30)":                   {"prioridade":5, "tempo_min":120},
-    "CHAT (PROBLEMAS-30)":                            {"prioridade":5, "tempo_min":120},
-    "DEMANDAS BLING":                                 {"prioridade":5, "tempo_min":150},
-    "VARIAÇÃO DE ANÚNCIO (20)":                       {"prioridade":4, "tempo_min":120},
-}
+# Prioridade e tempo estimado de cada coluna vivem em placar_core. Aqui existia
+# uma copia literal do dicionario, e ela ficou para tras: sem CONFERENCIA DE
+# CHAMADOS (20) — inclusive sem as 36h de espera de terceiro dela — e sem
+# CORRECOES/RETRABALHOS: 0 PONTOS, e ainda com o nome antigo da INTEGRACAO
+# VIDEO. As duas telas liam listas diferentes da mesma coisa.
+#
+# Agora e a mesma referencia, e _cfg_colunas() ainda deixa a planilha mandar,
+# como manda na Analise de Metas: o que o gestor configura na tela passa a valer
+# tambem no Painel de Metas e na TV, que antes ignoravam a planilha aqui.
+COLUNAS_CONFIG = _pc_core.COLUNAS_CONFIG
+
+
+def _cfg_colunas():
+    """Configuracao efetiva por coluna: valores de origem + planilha por cima.
+
+    Devolve um dicionario so com o que esta realmente configurado — coluna
+    ausente continua ausente, e nao um padrao inventado. Quem chama depende
+    disso para distinguir "estimativa configurada" de "sem estimativa".
+
+    Montado uma vez por chamada de proposito: cfg_coluna() por cartao colocaria
+    uma consulta de cache dentro do laco do board inteiro.
+    """
+    base = dict(_pc_core.COLUNAS_CONFIG)
+    try:
+        import colunas_config as _cc_p
+        base.update(_cc_p.carregar() or {})
+    except Exception:
+        pass
+    return base
 COLUNAS_SKIP = {
     "TABELA DE PONTUAÇÃO","TRIAGEM","PENALIDADES",
     "RENAN","GUSTAVO","MYRELLA","Vídeos pendentes",
@@ -364,6 +372,7 @@ def _processar(listas,cards,membros_map,id_p,id_t,id_i,filtro_mes=None):
     import placar_core as _pc_tv
     from datetime import timedelta as _td_tv
     _tempos_tv = _pc_tv.tempos_do_board(cards, membros_map, _pc_tv._desde_curto(45))
+    _cfg_col = _cfg_colunas()
 
     # Mês de conclusão: a MESMA fonte que a Análise de Metas usa.
     #
@@ -432,12 +441,12 @@ def _processar(listas,cards,membros_map,id_p,id_t,id_i,filtro_mes=None):
             # A etiqueta ATRASADO saiu do board: atraso agora vem do tempo medido.
             # Usa o mapa do board inteiro — consultar cartao a cartao seria uma
             # requisicao por cartao aberto a cada atualizacao do painel.
-            _est_atr = COLUNAS_CONFIG.get(nl, {}).get("tempo_min") or 0
+            _est_atr = _cfg_col.get(nl, {}).get("tempo_min") or 0
             if _est_atr > 0 and _tempos_tv.get(card["id"], {}).get("total", 0) > _est_atr:
                 d["atrasados"]+=1
                 # Ver placar_core: a meta e sobre prioridade 8 a 10, nao sobre
                 # o board inteiro.
-                if int((COLUNAS_CONFIG.get(nl) or {}).get("prioridade", 5) or 5) >= 8:
+                if int((_cfg_col.get(nl) or {}).get("prioridade", 5) or 5) >= 8:
                     d["atrasados_pri"]+=1
                     d["atrasados_pri_lista"].append({"nome":card["name"],"lista":nl})
             if "FALTA CONFERÊNCIA" in lb: d["falta_conf"]+=1
@@ -2003,7 +2012,7 @@ def pagina_placar(usuario_logado, headless=False):
             cols_t=st.columns(3)
             for i,nl in enumerate(listas_ord[:18]):
                 tempos=d["tempo_lista"].get(nl,[])
-                cfg=COLUNAS_CONFIG.get(nl)
+                cfg=_cfg_colunas().get(nl)
                 if tempos:
                     media=sum(tempos)/len(tempos)
                     val=f"{media:.0f}min"; sub=f"{len(tempos)} reais"; cor="var(--ms-texto)"
