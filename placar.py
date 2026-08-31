@@ -1339,13 +1339,18 @@ function checkAndPlay() {{
 // Carimbo: fica vermelho se o painel passou de 5 min sem ser regenerado.
 // Assim um congelamento vira algo visivel na tela, nao uma surpresa silenciosa.
 (function() {{
-  var el = document.getElementById('tv-carimbo');
-  if (!el) return;
-  var g = el.getAttribute('data-gerado') || '';
-  var m = g.match(/(\\d{{2}})\\/(\\d{{2}})\\/(\\d{{4}}) (\\d{{2}}):(\\d{{2}})/);
-  if (!m) return;
-  var gerado = new Date(+m[3], +m[2] - 1, +m[1], +m[4], +m[5]);
+  // O elemento e reprocurado a cada volta de proposito: a atualizacao sem
+  // recarregar troca o innerHTML de .tv-root, e a referencia guardada aqui
+  // ficava apontando para o carimbo antigo, ja fora da pagina — o aviso era
+  // escrito num no invisivel. Relendo o data-gerado a cada checagem, o
+  // carimbo passa a refletir o arquivo que esta na tela agora.
   function checar() {{
+    var el = document.getElementById('tv-carimbo');
+    if (!el) return;
+    var g = el.getAttribute('data-gerado') || '';
+    var m = g.match(/(\\d{{2}})\\/(\\d{{2}})\\/(\\d{{4}}) (\\d{{2}}):(\\d{{2}})/);
+    if (!m) return;
+    var gerado = new Date(+m[3], +m[2] - 1, +m[1], +m[4], +m[5]);
     var min = (Date.now() - gerado.getTime()) / 60000;
     if (min > 5) {{
       el.className = 'velho';
@@ -1378,6 +1383,16 @@ function _atualizarPainel() {{
       if (m) {{
         try {{ ALERTAS = JSON.parse(m[1]); _alertaOffset = 0; }} catch(e) {{}}
       }}
+
+      // O carimbo de frescor tambem vive numa variavel do script, e o script
+      // do HTML buscado nunca e executado — so o miolo da pagina e trocado.
+      // Sem reler GERADO_EM aqui, ele ficava parado na hora em que a TV foi
+      // ligada, e a faixa "DADOS DESATUALIZADOS" acendia sozinha 6 min depois
+      // mesmo com o painel se atualizando certinho a cada minuto. Agora a
+      // faixa so acende quando o servidor de fato parou de reescrever.
+      var gm = html.match(/var GERADO_EM = (\d+);/);
+      if (gm) {{ GERADO_EM = parseInt(gm[1], 10) || GERADO_EM; }}
+      _checarFrescor();
       _aplicarLayout();
       _renderAlertas();
       _autoEscala();
