@@ -1705,155 +1705,17 @@ def _chart_ind_pts(meses, C=None):
     return html + f'<div style="text-align:right;font-size:9px;color:#EDA100;padding:0 4px 4px;">Média: {avg_pct:.1f}%</div>'
 
 
-def _chart_ind_indices(meses, C=None):
-    """HTML/SVG: 5 velocímetros individuais com cores dinâmicas."""
-    n = len(meses)
-    batidos = sum(1 for m in meses if m["pct"] >= 100)
-    pct_bat = (batidos / n * 100) if n > 0 else 0
+def _ponto_por_membro(dados, users):
+    """Ociosidade, tolerâncias e atrasos de cada membro no período de `dados`.
 
-    def _med_global(tl):
-        vals = [sum(t) / len(t) for t in tl.values() if t]
-        return sum(vals) / len(vals) if vals else None
+    Vivia dentro do resumo comparativo da equipe, então os velocímetros
+    individuais não tinham como chegar nesses números — e mostravam
+    "Aguardando ponto" para sempre, com ociosidade fixa em 0 e tolerâncias
+    fixas em 100. Agora as duas telas leem da mesma conta.
 
-    if n >= 2:
-        t0 = _med_global(meses[0]["tempo_lista"])
-        tf = _med_global(meses[-1]["tempo_lista"])
-        pct_tempo = max(0, min(100, 50 + (t0 - tf) / t0 * 100)) if t0 and tf and t0 > 0 else 0
-    else:
-        pct_tempo = 0
-
-    tc = sum(m["total_concl"] for m in meses)
-    ta = sum(m["atrasados"]   for m in meses)
-    pct_pont = max(0, 100 - (ta / max(tc, 1) * 100))
-
-    # Ociosidade: 0 = aguardando; verde se <= 10, vermelho se > 10
-    pct_ocio = 0
-    cor_ocio = "#1BAF7A" if pct_ocio <= 10 else "#E34948"
-    sub_ocio = f"{pct_ocio:.0f}% ociosidade" if pct_ocio > 0 else "Aguardando ponto"
-
-    # Tolerâncias: 100 = aguardando (considera OK = verde)
-    pct_tol = 100
-    cor_tol = "#1BAF7A"  # aguardando = verde por padrão
-    sub_tol = "Aguardando ponto"
-
-    # Tempo médio: azul base, verde se há melhoria
-    cor_tempo = "#1BAF7A" if pct_tempo > 50 else "#4A90D9"
-
-    # Pontualidade: verde se >= 80%, vermelho se < 80%
-    cor_pont = "#1BAF7A" if pct_pont >= 80 else "#E34948"
-
-    indices = [
-        (min(pct_bat, 100),  "#4A90D9",  "Pontuação Batida",   f"{batidos}/{n} meses"),
-        (min(pct_ocio, 100), cor_ocio,   "Ociosidade",          sub_ocio),
-        (pct_tempo,          cor_tempo,  "Redução Tempo Médio", "1º vs último mês"),
-        (min(pct_tol, 100),  cor_tol,    "Tolerâncias",         sub_tol),
-        (min(pct_pont, 100), cor_pont,   "Pontualidade Tarefa", f"{ta}/{max(tc,1)} concl."),
-    ]
-    gauges = "".join(_gauge_svg(pct, cor, titulo, sub) for pct, cor, titulo, sub in indices)
-    return f'<div style="display:flex;justify-content:space-around;gap:4px;padding:8px 0;">{gauges}</div>'
-
-
-def _chart_ind_participacao(dados, username, C=None):
-    """HTML/SVG: pizza participação nas top 5 colunas + % contribuição individual.
-    Fatias = % de pontos de cada coluna no total da equipe. Box = % do colaborador no total geral."""
-    CORES5 = ["#4A90D9", "#2C6BAF", "#1BAF7A", "#EDA100", "#7B68EE"]
-    pts_col_team = {}; pts_total_team = 0; pts_mb_total = 0
-    for r in dados:
-        for nl, p in r["pts_lista"].items(): pts_col_team[nl] = pts_col_team.get(nl, 0) + p
-        pts_total_team += sum(r["pts_lista"].values())
-        pts_mb_total   += r["pts_membro"].get(username, 0)
-    if not pts_col_team:
-        return '<div style="padding:20px;text-align:center;color:var(--ms-texto-sec);">Sem dados de pontuação</div>'
-    pct_contrib = (pts_mb_total / max(pts_total_team, 1)) * 100
-    top5 = sorted(pts_col_team.items(), key=lambda x: -x[1])[:5]
-    segs = []
-    for i, (nl, v) in enumerate(top5):
-        label = f"{nl[:20]}{'…' if len(nl)>20 else ''} · {v:,.0f} pts"
-        segs.append((CORES5[i], v, label))
-    return _pizza_svg(
-        segs,
-        box_pct=f"{pct_contrib:.0f}%",
-        box_label="contribuição individual\nno total de pontos da equipe",
-        box_cor="#4A90D9",
-    )
-
-
-def _chart_ind_destaques(meses, dados, username, C=None):
-    """HTML: top 4 meses individuais + top 4 colunas da equipe."""
-    CORES4 = ["#EDA100", "#4A90D9", "#1BAF7A", "#7B68EE"]
-    top4_m = sorted(meses, key=lambda m: -m["pts"])[:4]
-    pts_col = {}
-    for r in dados:
-        for nl, p in r["pts_lista"].items(): pts_col[nl] = pts_col.get(nl, 0) + p
-    top4_c = sorted(pts_col.items(), key=lambda x: -x[1])[:4]
-
-    cards = []
-    for i in range(4):
-        if i < len(top4_m):
-            m = top4_m[i]; cor = CORES4[i]
-            sinal = "+" if m["delta"] >= 0 else ""
-            cards.append(
-                f'<div style="background:var(--ms-metric-bg);border-radius:8px;padding:12px 10px;'
-                f'border:1px solid var(--ms-divisor);text-align:center;">'
-                f'<div style="font-size:10px;font-weight:700;color:{cor};margin-bottom:4px;">🏆 {m["label"]}</div>'
-                f'<div style="font-size:22px;font-weight:700;color:{cor};">{m["pts"]:,.0f}</div>'
-                f'<div style="font-size:9px;color:var(--ms-texto);margin-top:2px;">pts alcançados</div>'
-                f'<div style="font-size:8px;color:var(--ms-texto-sec);margin-top:4px;">{m["pct"]:.0f}% da meta · {sinal}{m["delta"]:,.0f} pts</div>'
-                f'</div>'
-            )
-        else:
-            cards.append(
-                f'<div style="background:var(--ms-metric-bg);border-radius:8px;padding:12px 10px;'
-                f'border:1px solid var(--ms-divisor);text-align:center;">'
-                f'<div style="font-size:10px;font-weight:700;color:var(--ms-divisor);margin-bottom:4px;">— sem dado —</div>'
-                f'<div style="font-size:22px;font-weight:700;color:var(--ms-texto-sec);">0</div>'
-                f'<div style="font-size:9px;color:var(--ms-texto-sec);margin-top:2px;">pts alcançados</div>'
-                f'<div style="font-size:8px;color:var(--ms-texto-sec);margin-top:4px;">0% da meta · 0 pts</div>'
-                f'</div>'
-            )
-    rodape = ""
-    if top4_c:
-        cols_txt = "  ·  ".join(
-            f"#{i+1} {(nl[:16]+'…') if len(nl)>16 else nl} ({v:,.0f}pts)"
-            for i, (nl, v) in enumerate(top4_c)
-        )
-        rodape = f'<div style="font-size:9px;color:var(--ms-texto-sec);text-align:center;margin-top:8px;font-style:italic;">🏆 Top 4 colunas da equipe: {cols_txt}</div>'
-    return (
-        f'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;">'
-        + "".join(cards) + f'</div>{rodape}'
-    )
-
-
-def _chart_resumo_colabs(dados):
-    """HTML: 2×4 grade comparativa de todos os colaboradores."""
-    MB    = _pc.MEMBROS_ATIVOS
-    users = list(MB.keys())
-    CORES = ["#4A90D9", "#1BAF7A", "#EDA100", "#7B68EE"][:len(users)]
-
-    pts_mb  = {u: sum(r["pts_membro"].get(u, 0) for r in dados) for u in users}
-    meta_mb = {u: sum(r["cfg"].get(f"meta_{u}", r["cfg"].get("meta_equipe", 0)) for r in dados) for u in users}
-    total_pts   = sum(pts_mb.values()) or 1
-    pct_contrib = {u: pts_mb[u] / total_pts * 100 for u in users}
-    pct_meta    = {u: pts_mb[u] / max(meta_mb[u], 1) * 100 for u in users}
-
-    # Media de execucao de CADA UM. Antes era a media geral do board repetida
-    # identica em todas as barras — o painel comparava todo mundo com todo mundo
-    # usando o mesmo numero.
-    _tempos_u = {u: [] for u in users}
-    for r in dados:
-        for u, por_col in (r.get("tempo_membro_lista") or {}).items():
-            if u in _tempos_u:
-                _tempos_u[u].extend(t for ts in por_col.values() for t in ts)
-    exec_mb = {u: (sum(v) / len(v) if v else 0.0) for u, v in _tempos_u.items()}
-
-    # Cartoes entregues depois da data combinada. E do time inteiro, nao de cada
-    # um: como barra por pessoa dava a mesma altura para todos e nao comparava
-    # nada. Vira uma linha de texto no detalhe.
-    tc_total  = sum(r["total_concl"] for r in dados)
-    ta_total  = sum(r["atrasados"]   for r in dados)
-    pct_cards_atrasados = ta_total / max(tc_total, 1) * 100
-
-    # ── Dados do relógio de ponto (ociosidade + tolerâncias) ──────────────────
+    A ida ao RHiD é cacheada em `_pontualidade_rhid` (5 min), então chamar
+    isto duas vezes na mesma renderização não custa uma segunda requisição.
+    """
     # Tenta calcular para o período coberto em `dados`
     # `dados` é lista de dicts com chave "filtro_mes" = (ano, mes)
     try:
@@ -1915,6 +1777,192 @@ def _chart_resumo_colabs(dados):
         _dias_aus  = {u: 0   for u in users}
         _disp_mb   = {u: 0.0 for u in users}
         _atr_mb    = {u: 0   for u in users}
+    return {"tem_ponto": _tem_ponto, "ocio_mb": _ocio_mb, "tol_mb": _tol_mb,
+            "pct_ocio": _pct_ocio, "dias_trab": _dias_trab, "dias_aus": _dias_aus,
+            "disp_mb": _disp_mb, "atr_mb": _atr_mb}
+
+
+def _chart_ind_indices(meses, ponto=None, username=None, max_tol=0, C=None):
+    """HTML/SVG: 5 velocímetros individuais com cores dinâmicas.
+
+    `ponto` vem de `_ponto_por_membro`. Sem ele os dois velocímetros que
+    dependem do relógio ficam em "Aguardando ponto" — que era o estado
+    permanente antes, porque ninguém passava o dado.
+    """
+    n = len(meses)
+    batidos = sum(1 for m in meses if m["pct"] >= 100)
+    pct_bat = (batidos / n * 100) if n > 0 else 0
+
+    def _med_global(tl):
+        vals = [sum(t) / len(t) for t in tl.values() if t]
+        return sum(vals) / len(vals) if vals else None
+
+    # Este indice compara o primeiro mes com o ultimo. Com um mes so no filtro
+    # nao ha comparacao possivel — e mostrar 0% fazia parecer desempenho pessimo
+    # quando o que falta e periodo. O subtitulo passa a dizer isso.
+    if n >= 2:
+        t0 = _med_global(meses[0]["tempo_lista"])
+        tf = _med_global(meses[-1]["tempo_lista"])
+        pct_tempo = max(0, min(100, 50 + (t0 - tf) / t0 * 100)) if t0 and tf and t0 > 0 else 0
+        sub_tempo = f'{meses[0]["label"]} vs {meses[-1]["label"]}'
+    else:
+        pct_tempo = 0
+        sub_tempo = "Precisa de 2 meses"
+
+    tc = sum(m["total_concl"] for m in meses)
+    ta = sum(m["atrasados"]   for m in meses)
+    pct_pont = max(0, 100 - (ta / max(tc, 1) * 100))
+
+    # Ociosidade e tolerâncias saem do relógio de ponto. Antes eram constantes
+    # escritas aqui — 0 e 100 — e o subtítulo "Aguardando ponto" nunca mudava,
+    # porque não havia nada esperando: ninguém calculava.
+    tem_ponto = bool(ponto and ponto.get("tem_ponto"))
+    if tem_ponto and username:
+        pct_ocio = float((ponto.get("pct_ocio") or {}).get(username, 0.0))
+        cor_ocio = ("#1BAF7A" if pct_ocio < 10
+                    else ("#EDA100" if pct_ocio < 25 else "#E34948"))
+        sub_ocio = f"{pct_ocio:.1f}% ocioso"
+        # O velocímetro anda para cima quando a coisa está boa: o arco mostra o
+        # quanto do expediente foi produtivo, e o texto o quanto foi ocioso.
+        arco_ocio = max(0.0, 100.0 - pct_ocio)
+
+        usadas = float((ponto.get("tol_mb") or {}).get(username, 0.0))
+        limite = float(max_tol or 0)
+        if limite > 0:
+            arco_tol = max(0.0, 100.0 - usadas / limite * 100.0)
+            sub_tol = f"{usadas:.0f} de {limite:.0f} usadas"
+        else:
+            arco_tol = 100.0 if usadas == 0 else 0.0
+            sub_tol = f"{usadas:.0f} utilizada(s)"
+        cor_tol = ("#1BAF7A" if arco_tol >= 40
+                   else ("#EDA100" if arco_tol > 0 else "#E34948"))
+    else:
+        arco_ocio, cor_ocio, sub_ocio = 0.0, "#4A90D9", "Sem ponto no período"
+        arco_tol,  cor_tol,  sub_tol  = 0.0, "#4A90D9", "Sem ponto no período"
+
+    # Tempo médio: azul base, verde se há melhoria
+    cor_tempo = "#1BAF7A" if pct_tempo > 50 else "#4A90D9"
+
+    # Pontualidade: verde se >= 80%, vermelho se < 80%
+    cor_pont = "#1BAF7A" if pct_pont >= 80 else "#E34948"
+
+    indices = [
+        (min(pct_bat, 100),  "#4A90D9",  "Pontuação Batida",   f"{batidos}/{n} meses"),
+        (min(arco_ocio, 100), cor_ocio,  "Tempo Produtivo",     sub_ocio),
+        (pct_tempo,          cor_tempo,  "Redução Tempo Médio", sub_tempo),
+        (min(arco_tol, 100), cor_tol,    "Tolerâncias",         sub_tol),
+        (min(pct_pont, 100), cor_pont,   "Pontualidade Tarefa", f"{ta}/{max(tc,1)} concl."),
+    ]
+    gauges = "".join(_gauge_svg(pct, cor, titulo, sub) for pct, cor, titulo, sub in indices)
+    return f'<div style="display:flex;justify-content:space-around;gap:4px;padding:8px 0;">{gauges}</div>'
+
+
+def _chart_ind_participacao(dados, username, C=None):
+    """HTML/SVG: pizza participação nas top 5 colunas + % contribuição individual.
+    Fatias = % de pontos de cada coluna no total da equipe. Box = % do colaborador no total geral."""
+    CORES5 = ["#4A90D9", "#2C6BAF", "#1BAF7A", "#EDA100", "#7B68EE"]
+    pts_col_team = {}; pts_total_team = 0; pts_mb_total = 0
+    for r in dados:
+        for nl, p in r["pts_lista"].items(): pts_col_team[nl] = pts_col_team.get(nl, 0) + p
+        pts_total_team += sum(r["pts_lista"].values())
+        pts_mb_total   += r["pts_membro"].get(username, 0)
+    if not pts_col_team:
+        return '<div style="padding:20px;text-align:center;color:var(--ms-texto-sec);">Sem dados de pontuação</div>'
+    pct_contrib = (pts_mb_total / max(pts_total_team, 1)) * 100
+    top5 = sorted(pts_col_team.items(), key=lambda x: -x[1])[:5]
+    segs = []
+    for i, (nl, v) in enumerate(top5):
+        label = f"{nl[:20]}{'…' if len(nl)>20 else ''} · {v:,.0f} pts"
+        segs.append((CORES5[i], v, label))
+    return _pizza_svg(
+        segs,
+        box_pct=f"{pct_contrib:.0f}%",
+        box_label="contribuição individual\nno total de pontos da equipe",
+        box_cor="#4A90D9",
+    )
+
+
+def _chart_ind_destaques(meses, dados, username, C=None):
+    """HTML: top 4 meses individuais + top 4 colunas da equipe."""
+    CORES4 = ["#EDA100", "#4A90D9", "#1BAF7A", "#7B68EE"]
+    top4_m = sorted(meses, key=lambda m: -m["pts"])[:4]
+    pts_col = {}
+    for r in dados:
+        for nl, p in r["pts_lista"].items(): pts_col[nl] = pts_col.get(nl, 0) + p
+    top4_c = sorted(pts_col.items(), key=lambda x: -x[1])[:4]
+
+    # Antes a grade era sempre de 4 quadros, e um filtro de um mês só enchia a
+    # tela com três "— sem dado — 0 pts", que parecia falha de carregamento. A
+    # grade agora tem o tamanho do que existe.
+    cards = []
+    for i, m in enumerate(top4_m):
+        cor = CORES4[i]
+        sinal = "+" if m["delta"] >= 0 else ""
+        cards.append(
+            f'<div style="background:var(--ms-metric-bg);border-radius:8px;padding:12px 10px;'
+            f'border:1px solid var(--ms-divisor);text-align:center;">'
+            f'<div style="font-size:10px;font-weight:700;color:{cor};margin-bottom:4px;">🏆 {m["label"]}</div>'
+            f'<div style="font-size:22px;font-weight:700;color:{cor};">{m["pts"]:,.0f}</div>'
+            f'<div style="font-size:9px;color:var(--ms-texto);margin-top:2px;">pts alcançados</div>'
+            f'<div style="font-size:8px;color:var(--ms-texto-sec);margin-top:4px;">{m["pct"]:.0f}% da meta · {sinal}{m["delta"]:,.0f} pts</div>'
+            f'</div>'
+        )
+    if not cards:
+        cards.append(
+            '<div style="background:var(--ms-metric-bg);border-radius:8px;padding:12px 10px;'
+            'border:1px solid var(--ms-divisor);text-align:center;font-size:10px;'
+            'color:var(--ms-texto-sec);">Nenhum mês com meta individual configurada '
+            'no período selecionado.</div>'
+        )
+    rodape = ""
+    if top4_c:
+        cols_txt = "  ·  ".join(
+            f"#{i+1} {(nl[:16]+'…') if len(nl)>16 else nl} ({v:,.0f}pts)"
+            for i, (nl, v) in enumerate(top4_c)
+        )
+        rodape = f'<div style="font-size:9px;color:var(--ms-texto-sec);text-align:center;margin-top:8px;font-style:italic;">🏆 Top 4 colunas da equipe: {cols_txt}</div>'
+    return (
+        f'<div style="display:grid;grid-template-columns:repeat({len(cards)},1fr);gap:8px;">'
+        + "".join(cards) + f'</div>{rodape}'
+    )
+
+
+def _chart_resumo_colabs(dados):
+    """HTML: 2×4 grade comparativa de todos os colaboradores."""
+    MB    = _pc.MEMBROS_ATIVOS
+    users = list(MB.keys())
+    # A paleta e ciclica de proposito. Ela era cortada em len(users), e como
+    # a equipe vem da planilha, o quinto colaborador cadastrado (Nicollas e
+    # Luiz) caia em CORES[4] e derrubava o resumo inteiro com IndexError.
+    CORES = ["#4A90D9", "#1BAF7A", "#EDA100", "#7B68EE"]
+
+    pts_mb  = {u: sum(r["pts_membro"].get(u, 0) for r in dados) for u in users}
+    meta_mb = {u: sum(r["cfg"].get(f"meta_{u}", r["cfg"].get("meta_equipe", 0)) for r in dados) for u in users}
+    total_pts   = sum(pts_mb.values()) or 1
+    pct_contrib = {u: pts_mb[u] / total_pts * 100 for u in users}
+    pct_meta    = {u: pts_mb[u] / max(meta_mb[u], 1) * 100 for u in users}
+
+    # Media de execucao de CADA UM. Antes era a media geral do board repetida
+    # identica em todas as barras — o painel comparava todo mundo com todo mundo
+    # usando o mesmo numero.
+    _tempos_u = {u: [] for u in users}
+    for r in dados:
+        for u, por_col in (r.get("tempo_membro_lista") or {}).items():
+            if u in _tempos_u:
+                _tempos_u[u].extend(t for ts in por_col.values() for t in ts)
+    exec_mb = {u: (sum(v) / len(v) if v else 0.0) for u, v in _tempos_u.items()}
+
+    # Cartoes entregues depois da data combinada. E do time inteiro, nao de cada
+    # um: como barra por pessoa dava a mesma altura para todos e nao comparava
+    # nada. Vira uma linha de texto no detalhe.
+    tc_total  = sum(r["total_concl"] for r in dados)
+    ta_total  = sum(r["atrasados"]   for r in dados)
+    pct_cards_atrasados = ta_total / max(tc_total, 1) * 100
+
+    _pt = _ponto_por_membro(dados, users)
+    _tem_ponto = _pt["tem_ponto"]
+    _ocio_mb, _tol_mb, _pct_ocio = _pt["ocio_mb"], _pt["tol_mb"], _pt["pct_ocio"]
+    _dias_trab, _dias_aus, _atr_mb = _pt["dias_trab"], _pt["dias_aus"], _pt["atr_mb"]
 
     def _cor_meta(v):   return "#1BAF7A" if v >= 100 else ("#EDA100" if v >= 75 else "#4A90D9")
     def _cor_atraso(v): return "#1BAF7A" if v < 5   else ("#EDA100" if v < 15  else "#E34948")
@@ -1941,7 +1989,7 @@ def _chart_resumo_colabs(dados):
         max_v = max((v for _, v in sorted_items), default=1) or 1
         rows = ""
         for idx, (u, v) in enumerate(sorted_items):
-            cor = CORES[users.index(u)] if u in users else "#555"
+            cor = CORES[users.index(u) % len(CORES)] if u in users else "#555"
             if cor_fn: cor = cor_fn(v)
             rows += _barra_std(MB.get(u, u), fmt.format(v) + unidade, v / max_v * 100, cor)
         return t + rows
@@ -2006,6 +2054,17 @@ def _desempenho_individual(dados, username, nome):
     # Remove meses sem meta individual configurada (meta == 0)
     meses = [m for m in meses if m["meta"] > 0]
 
+    # Ociosidade e tolerâncias vêm da mesma conta do resumo da equipe. O limite
+    # de tolerâncias é mensal, então o orçamento do período é o limite vezes o
+    # número de meses analisados — senão um filtro de 6 meses pareceria estourar.
+    try:
+        _users_ind = list(_pc.MEMBROS_ATIVOS.keys())
+        _ponto_ind = _ponto_por_membro(dados, _users_ind)
+    except Exception:
+        _ponto_ind = None
+    _n_meses_ponto = len({r.get("filtro_mes") for r in dados if r.get("filtro_mes")}) or 1
+    _tol_lim = (int(dados[-1]["cfg"].get("max_tol_normal", 15)) if dados else 15) * _n_meses_ponto
+
     row1a, row1b = st.columns(2)
     with row1a:
         st.markdown(f"#### 📊 Pontuação — {nome}")
@@ -2014,8 +2073,9 @@ def _desempenho_individual(dados, username, nome):
 
     with row1b:
         st.markdown("#### 🎯 Índices Individuais")
-        st.caption("Pontuação batida · ociosidade · tempo médio · tolerâncias · pontualidade.")
-        st.markdown(_chart_ind_indices(meses), unsafe_allow_html=True)
+        st.caption("Pontuação batida · tempo produtivo · tempo médio · tolerâncias · pontualidade.")
+        st.markdown(_chart_ind_indices(meses, ponto=_ponto_ind, username=username,
+                                       max_tol=_tol_lim), unsafe_allow_html=True)
 
     st.markdown("---")
     row2a, row2b = st.columns(2)
@@ -2153,12 +2213,18 @@ def _secao_colunas(dados):
         do_board = _pc.colunas_do_board()
     except Exception:
         do_board = []
-    todas = sorted(set(do_board) | set(_pc.COLUNAS_CONFIG) | set(_cc.carregar()))
+    # A tela mostra a uniao de tres fontes: o board agora, os valores de origem
+    # no codigo e o que o gestor salvou na planilha. Uma coluna renomeada no
+    # Trello continua vindo das duas ultimas — e ficava lado a lado com a nova,
+    # com configuracao e sem cartao nenhum, sem nada dizendo qual era qual.
+    salvas = _cc.carregar()
+    todas = sorted(set(do_board) | set(_pc.COLUNAS_CONFIG) | set(salvas))
+    fora_do_board = set(todas) - set(do_board) if do_board else set()
     if not todas:
         st.info("Não consegui listar as colunas do Trello agora.")
         return
 
-    novas = [c for c in do_board if c not in _pc.COLUNAS_CONFIG and c not in _cc.carregar()]
+    novas = [c for c in do_board if c not in _pc.COLUNAS_CONFIG and c not in salvas]
     if novas:
         st.warning(
             "**Colunas novas no Trello, ainda sem configuração:** "
@@ -2173,8 +2239,25 @@ def _secao_colunas(dados):
         rotulo = nome if len(nome) <= 44 else nome[:43] + "…"
         real_txt = (f"{media/60:.1f}h real ({len(medidos)} cartões)"
                     if media else "sem medição no período")
+        orfa = nome in fora_do_board
+        if orfa:
+            real_txt = "⚠️ não existe mais no Trello"
 
         with st.expander(f"{rotulo}  ·  {real_txt}", expanded=False):
+            if orfa:
+                st.warning(
+                    "Esta coluna não está mais no board — provavelmente foi "
+                    "renomeada. A configuração dela não é usada por cartão "
+                    "nenhum. Configure a coluna com o nome novo e remova esta."
+                )
+                if nome in salvas and st.button("🗑️ Remover configuração",
+                                                key=f"col_x_{nome}"):
+                    try:
+                        _cc.remover(nome)
+                        st.success(f"{rotulo} removida.")
+                        st.rerun()
+                    except Exception as ex:
+                        st.error(f"Não consegui remover: {str(ex)[:200]}")
             c1, c2, c3, c4 = st.columns([1, 1, 1, 1])
             p = c1.number_input("Prioridade", 0, 10, int(cfg.get("prioridade", 5)),
                                 key=f"col_p_{nome}")

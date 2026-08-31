@@ -70,7 +70,12 @@ COLUNAS_CONFIG = {
     "CRIATIVO DO ZERO: (FINALIZAR NO INTEGRAÇÃO!!!)": {"prioridade":6, "tempo_min":240},
     "INTEGRAÇÃO NOVOS ANÚNCIOS (100)":                {"prioridade":6, "tempo_min":60},
     "CRIATIVO FOTOS (NOVAS: 10/VAR.:2)":              {"prioridade":6, "tempo_min":180},
-    "INTEGRAÇÃO VÍDEO (PONTUA NA CONFERIENCIA)":      {"prioridade":6, "tempo_min":60},
+    # Renomeada no Trello para "INTEGRAÇÃO VÍDEO (10)". O nome antigo estava
+    # escrito aqui com CONFERIENCIA sem acento, e como a configuracao casa por
+    # texto exato, ele continuava aparecendo na tela de configuracao como uma
+    # coluna propria — configurada, sem cartao nenhum — enquanto a coluna de
+    # verdade rodava no padrao. 30 min e a media medida (3.5h em 8 cartoes).
+    "INTEGRAÇÃO VÍDEO (10)":                         {"prioridade":6, "tempo_min":30},
     "CONFERENCIA VÍDEO (10)":                         {"prioridade":6, "tempo_min":60},
     "TÍTULO/DESCRIÇÃO/EDIÇÃO (10)":                   {"prioridade":6, "tempo_min":60},
     "ANÚNCIAR DE CATÁLOGO (10)":                      {"prioridade":6, "tempo_min":60},

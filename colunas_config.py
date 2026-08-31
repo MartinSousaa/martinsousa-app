@@ -107,3 +107,21 @@ def salvar(nome_coluna, prioridade, tempo_min, espera_h=None):
     else:
         aba.append_row(linha, value_input_option="RAW")
     carregar.clear()
+
+
+def remover(nome_coluna):
+    """Apaga a linha de uma coluna que não existe mais no Trello.
+
+    Coluna renomeada no Trello deixa a configuração antiga órfã na planilha, e a
+    tela de configuração mostra a união do que está no board com o que está aqui
+    — então a órfã ficava para sempre, indistinguível de uma coluna real e sem
+    nenhuma medição. Sem isto, a única saída era editar a planilha na mão.
+    """
+    aba = _aba()
+    try:
+        celula = aba.find(str(nome_coluna), in_column=1)
+    except Exception:
+        celula = None
+    if celula:
+        aba.delete_rows(celula.row)
+    carregar.clear()
