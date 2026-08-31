@@ -228,7 +228,10 @@ def _buscar_board():
     r_c = _req_get(f"{base}/boards/{BOARD_ID}/cards",params={
         # idLabels: estado atual das etiquetas, ancora da reconstrucao da linha
         # do tempo em placar_core.
-        **auth,"fields":"id,name,idList,idMembers,labels,idLabels,dueComplete,customFieldItems,dateLastActivity",
+        # `due` entra aqui porque o criterio de prazo depende dele. Sem o campo,
+        # _data_entrega devolvia None para todo cartao e a metade do teste de
+        # atraso que olha a data de entrega simplesmente nunca disparava.
+        **auth,"fields":"id,name,idList,idMembers,labels,idLabels,due,dueComplete,customFieldItems,dateLastActivity",
         "customFieldItems":"true"}, timeout=_HTTP_TIMEOUT)
     cards = r_c.json() if r_c.ok else []
     r_m = _req_get(f"{base}/boards/{BOARD_ID}/members",params={**auth,"fields":"id,username"}, timeout=_HTTP_TIMEOUT)
@@ -422,6 +425,12 @@ def _processar(listas,cards,membros_map,id_p,id_t,id_i,filtro_mes=None):
     from datetime import timedelta as _td_tv
     _tempos_tv = _pc_tv.tempos_do_board(cards, membros_map, _pc_tv._desde_curto(45))
     _cfg_col = _cfg_colunas()
+    # Espera de terceiro: busca so acontece se alguma coluna tiver espera
+    # configurada, entao na maioria dos boards isto e um dicionario vazio.
+    try:
+        _entradas_atr = _pc_tv.entradas_se_preciso(listas)
+    except Exception:
+        _entradas_atr = {}
 
     # Mês de conclusão: a MESMA fonte que a Análise de Metas usa.
     #
@@ -487,11 +496,17 @@ def _processar(listas,cards,membros_map,id_p,id_t,id_i,filtro_mes=None):
         if not ok:
             d["abertos"]+=1
             if "URGENTE" in lb or "URGENTES" in nl.upper(): d["urgentes"]+=1
-            # A etiqueta ATRASADO saiu do board: atraso agora vem do tempo medido.
+            # A etiqueta ATRASADO saiu do board: atraso vem do tempo medido.
             # Usa o mapa do board inteiro — consultar cartao a cartao seria uma
             # requisicao por cartao aberto a cada atualizacao do painel.
-            _est_atr = _cfg_col.get(nl, {}).get("tempo_min") or 0
-            if _est_atr > 0 and _tempos_tv.get(card["id"], {}).get("total", 0) > _est_atr:
+            #
+            # O criterio e o mesmo da Analise de Metas, e nao mais uma copia
+            # antiga dele. A daqui so olhava tempo de execucao: cartao que
+            # ninguem tocou tem tempo zero e nunca ficava atrasado, mesmo aberto
+            # ha semanas, e cartao parado esperando a plataforma responder era
+            # contado como atraso da equipe. As duas telas mostravam numeros
+            # diferentes para a mesma pergunta.
+            if _pc_tv._card_atrasado(card, nl, _tempos_tv, _entradas_atr):
                 d["atrasados"]+=1
                 # Ver placar_core: a meta e sobre prioridade 8 a 10, nao sobre
                 # o board inteiro.
