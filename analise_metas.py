@@ -2561,21 +2561,43 @@ def _desempenho_individual(dados, username, nome, carregar_periodo=None):
     obrigava a outra.
     """
     # ── Periodo desta secao ──────────────────────────────────────────────────
+    #
+    # As chaves nao levam o username: trocar de colaborador mantem o periodo
+    # escolhido. Comparar duas pessoas no mesmo mes e o uso normal daqui, e
+    # reescolher o mes a cada troca seria trabalho a toa.
     _hoje = datetime.now()
-    _op = st.radio("Período", ["Mês", "Último trimestre", "Último semestre"],
-                   horizontal=True, key=f"des_ind_per_{username}",
-                   label_visibility="collapsed")
-    _por_mes = _op != "Mês"
-    if _por_mes and carregar_periodo:
-        _qtd = 3 if _op == "Último trimestre" else 6
-        _lista = []
-        _a, _m = _hoje.year, _hoje.month
-        for _ in range(_qtd):
-            _lista.append((_a, _m))
+
+    def _recuar(ate):
+        """Os `ate` ultimos meses, do mais antigo para o mais recente."""
+        fora, _a, _m = [], _hoje.year, _hoje.month
+        for _ in range(ate):
+            fora.append((_a, _m))
             _m -= 1
             if _m == 0:
                 _a, _m = _a - 1, 12
-        _lista.reverse()
+        fora.reverse()
+        return fora
+
+    _c_per, _c_mes = st.columns([2, 1])
+    _op = _c_per.radio("Período", ["Mês", "Último trimestre", "Último semestre"],
+                       horizontal=True, key="des_ind_periodo",
+                       label_visibility="collapsed")
+    _por_mes = _op != "Mês"
+
+    _lista = None
+    if _por_mes:
+        _lista = _recuar(3 if _op == "Último trimestre" else 6)
+    else:
+        # Um mes qualquer dos ultimos doze, e nao so o que veio do filtro
+        # coletivo: a secao tem periodo proprio, e sem o seletor "Mes" queria
+        # dizer "o mes que a tela de cima escolheu".
+        _ult12 = list(reversed(_recuar(12)))
+        _rots = [_label_mes(a, m) for a, m in _ult12]
+        _esc = _c_mes.selectbox("Mês", _rots, index=0, key="des_ind_mes",
+                                label_visibility="collapsed")
+        _lista = [_ult12[_rots.index(_esc)]]
+
+    if _lista and carregar_periodo:
         try:
             dados = carregar_periodo(_lista)
         except Exception as _e:
