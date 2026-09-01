@@ -1171,11 +1171,13 @@ def _fatiar_por_dia(ini, fim):
     return saida
 
 
-def execucoes_por_dia(cards, acoes_board, membros_map=None, agora=None):
+def execucoes_por_dia(cards, acoes_board, membros_map=None, agora=None,
+                      listas=None):
     """Cada execução de cartão, por pessoa e por dia, com hora de início e fim.
 
-    {username: {"AAAA-MM-DD": [{"card": nome, "ini": dt, "fim": dt,
-                                "min": float, "tipo": "andamento"|"filmagem"}]}}
+    {username: {"AAAA-MM-DD": [{"card": nome, "lista": coluna, "ini": dt,
+                                "fim": dt, "min": float,
+                                "tipo": "andamento"|"filmagem"}]}}
 
     `atividade_por_dia` responde "quanto" e "quantos"; isto responde "quando".
     São os mesmos trechos de `intervalos_do_cartao` — o que muda é que aqui eles
@@ -1186,6 +1188,7 @@ def execucoes_por_dia(cards, acoes_board, membros_map=None, agora=None):
     que aconteceu, senão ele apareceria inteiro num dia só, na hora errada.
     """
     membros_map = membros_map or {}
+    listas = listas or {}
     agora = agora or datetime.now(timezone.utc)
     por = {}
     for c in cards:
@@ -1193,6 +1196,7 @@ def execucoes_por_dia(cards, acoes_board, membros_map=None, agora=None):
         if not acoes_c:
             continue
         nome = c.get("name", "")
+        col = listas.get(c.get("idList"), "")
         for s in intervalos_do_cartao(acoes_c, agora, c.get("idMembers"),
                                       labels_do_card(c)):
             ini_l = s["ini"].astimezone(FUSO)
@@ -1202,7 +1206,7 @@ def execucoes_por_dia(cards, acoes_board, membros_map=None, agora=None):
                 virada = (cursor + timedelta(days=1)).replace(
                     hour=0, minute=0, second=0, microsecond=0)
                 fim_p = min(virada, fim_l)
-                reg = {"card": nome, "ini": cursor, "fim": fim_p,
+                reg = {"card": nome, "lista": col, "ini": cursor, "fim": fim_p,
                        "min": (fim_p - cursor).total_seconds() / 60.0,
                        "tipo": s.get("tipo", "andamento")}
                 for m in s["membros"]:
@@ -1765,7 +1769,8 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
     d["atividade_dia"] = atividade_por_dia(cards, _acoes_board, membros_map)
     # As mesmas execucoes, sem somar: cada cartao com a hora em que comecou e
     # terminou. E o que a linha do tempo do dia precisa.
-    d["execucoes_dia"] = execucoes_por_dia(cards, _acoes_board, membros_map)
+    d["execucoes_dia"] = execucoes_por_dia(cards, _acoes_board, membros_map,
+                                          listas=listas)
     _conclusoes = datas_de_conclusao(_acoes_mov)
     _entradas = entradas_na_coluna(_acoes_mov)
     try:

@@ -2827,6 +2827,68 @@ def _fmt_hhmm(minutos):
     return f"{int(minutos)//60:02d}:{int(minutos)%60:02d}"
 
 
+# A ficha que aparece com o mouse em cima de um bloco. CSS puro, dentro do
+# proprio SVG.
+#
+# Nao e JavaScript de proposito: components.html cria um iframe com WebSocket
+# proprio e ja derrubou a sessao da equipe inteira neste app. O <title> nativo
+# do SVG, que era o que havia antes, demora quase um segundo para aparecer,
+# nao aceita formatacao e some sozinho — nao serve para ler nome de cartao.
+# A ficha nao pode morar dentro do grupo do bloco: SVG nao tem z-index -- quem e
+# desenhado depois fica por cima --, entao a ficha de um dia sumiria embaixo dos
+# blocos dos dias seguintes. Todas as fichas vao para o FIM do desenho, e cada
+# uma e ligada ao seu bloco pelo seletor de irmao posterior (~), que so exige
+# que ela venha depois no documento. Sem :has(), sem JS.
+_LTD_BASE = ('.ltd-f{opacity:0;pointer-events:none;}'
+             '.ltd-i:hover rect:first-child{fill-opacity:1;stroke:#fff;'
+             'stroke-width:1;}')
+
+
+def _ltd_css(n):
+    regras = "".join(f'#ltd-i{i}:hover~#ltd-f{i}{{opacity:1;}}' for i in range(n))
+    return f'<style>{_LTD_BASE}{regras}</style>'
+
+FICHA_L = 246
+
+
+def _ficha_exec(idx, e, tot, cx, cy, W, H, cor):
+    """Resumo de uma execução: cartão, coluna, janela e total do cartão no dia.
+
+    Fica ao lado do bloco, e vira para o outro lado quando o bloco está na
+    metade direita do gráfico — encostada na borda, ela sairia do quadro.
+    """
+    def _corta(t, n):
+        t = _esc(t)
+        return t if len(t) <= n else t[:n - 1] + "…"
+
+    linhas = [("#e8e6e1", 10, "700", _corta(e["card"], 42))]
+    col = _corta(e.get("lista", ""), 36)
+    if col:
+        linhas.append(("#9aa09c", 8.5, "400", col))
+    linhas.append((cor, 9.5, "400",
+                   f'{e["ini"]:%H:%M} → {e["fim"]:%H:%M} · '
+                   f'{_fmt_hm(e["min"])} de execução'))
+    if tot["n"] > 1:
+        linhas.append(("#EDA100", 8.5, "400",
+                       f'total do cartão no dia {_fmt_hm(tot["min"])} '
+                       f'em {tot["n"]} trechos'))
+
+    alt = 14 + sum(l[1] + 6 for l in linhas)
+    esq = cx > W / 2
+    fx = cx - FICHA_L - 7 if esq else cx + 7
+    fy = min(max(cy - alt / 2, 2), H - alt - 2)
+    texto, ty = "", 8
+    for c, fs, peso, t in linhas:
+        ty += fs + 6
+        texto += (f'<text x="10" y="{ty:.0f}" font-size="{fs}" '
+                  f'font-weight="{peso}" fill="{c}">{t}</text>')
+    return (
+        f'<g class="ltd-f" id="ltd-f{idx}" '
+        f'transform="translate({fx:.1f},{fy:.1f})">'
+        f'<rect width="{FICHA_L}" height="{alt:.0f}" rx="6" fill="#12140f" '
+        f'fill-opacity="0.97" stroke="{cor}" stroke-width="1"/>{texto}</g>')
+
+
 def _chart_linha_do_tempo(dados, username):
     """Quando cada cartão foi executado, dia a dia, no relógio do expediente.
 
@@ -2878,7 +2940,7 @@ def _chart_linha_do_tempo(dados, username):
     def y(m):
         return mt + (m - eixo_ini) / span * ih
 
-    partes = []
+    partes, itens, fichas = [], [], []
     # Fora do expediente com outro fundo, e o almoco marcado: um bloco as 13h45
     # nao quer dizer a mesma coisa que um as 10h.
     if eixo_ini < exp_ini:
@@ -2912,6 +2974,12 @@ def _chart_linha_do_tempo(dados, username):
             partes.append(f'<rect x="{x:.1f}" y="{mt}" width="{bw:.1f}" '
                           f'height="{ih}" fill="#00000022"/>')
         lista = dias_exec.get(f"{pref}{d:02d}", [])
+        # Quanto CADA cartao somou no dia. Um cartao retomado tres vezes tem
+        # tres blocos de meia hora; o que interessa saber e que ele custou 1h30.
+        por_card = {}
+        for e in lista:
+            v = por_card.setdefault(e["card"], {"min": 0.0, "n": 0})
+            v["min"] += e["min"]; v["n"] += 1
         for e in lista:
             m_ini = e["ini"].hour * 60 + e["ini"].minute
             m_fim = e["fim"].hour * 60 + e["fim"].minute
@@ -2921,18 +2989,28 @@ def _chart_linha_do_tempo(dados, username):
             alt = max(y1 - y0, 2.2)
             cor = "#8B5CF6" if e.get("tipo") == "filmagem" else "#4A90D9"
             bx, blarg = x + 2.5, max(bw - 5, 2)
-            partes.append(
-                f'<rect x="{bx:.1f}" y="{y0:.1f}" width="{blarg:.1f}" '
-                f'height="{alt:.1f}" rx="2" fill="{cor}" fill-opacity="0.85">'
-                f'<title>{_esc(e["card"])[:70]}\n'
-                f'{e["ini"]:%H:%M} → {e["fim"]:%H:%M} · {_fmt_hm(e["min"])}</title></rect>'
-                # Marcadores de inicio e fim: o traco passa dos lados do bloco,
-                # senao a borda de um bloco encostado no seguinte vira uma
-                # emenda so e os dois viram um cartao unico e longo.
+            tot = por_card.get(e["card"], {"min": e["min"], "n": 1})
+            _i = len(fichas)
+            fichas.append(_ficha_exec(_i, e, tot, bx + blarg / 2, (y0 + y1) / 2,
+                                      W, H, cor))
+            itens.append(
+                f'<g class="ltd-i" id="ltd-i{_i}">'
+                f'<rect x="{bx:.1f}" y="{y0:.1f}" '
+                f'width="{blarg:.1f}" height="{alt:.1f}" rx="2" fill="{cor}" '
+                f'fill-opacity="0.85"/>'
+                # Alvo de mouse maior que o bloco: bloco de 20 minutos tem 6px
+                # de altura, e caçar 6px com o ponteiro é o tipo de detalhe que
+                # faz alguém achar que a tela não responde.
+                f'<rect x="{bx:.1f}" y="{y0-3:.1f}" width="{blarg:.1f}" '
+                f'height="{alt+6:.1f}" fill="transparent"/>'
                 f'<line x1="{bx-2:.1f}" y1="{y0:.1f}" x2="{bx+blarg+2:.1f}" '
                 f'y2="{y0:.1f}" stroke="#1BAF7A" stroke-width="1.4"/>'
                 f'<line x1="{bx-2:.1f}" y1="{y1:.1f}" x2="{bx+blarg+2:.1f}" '
-                f'y2="{y1:.1f}" stroke="#E34948" stroke-width="1.4"/>')
+                f'y2="{y1:.1f}" stroke="#E34948" stroke-width="1.4"/>'
+                # O <title> continua: se o navegador nao aplicar o CSS da ficha,
+                # ainda sobra o tooltip nativo em vez de nada.
+                f'<title>{_esc(e["card"])[:70]} · {e["ini"]:%H:%M} → '
+                f'{e["fim"]:%H:%M} · {_fmt_hm(e["min"])}</title></g>')
         if lista:
             medias.append(sum(e["min"] for e in lista) / len(lista))
         passo = 1 if ultimo <= 12 else 2
@@ -2970,9 +3048,13 @@ def _chart_linha_do_tempo(dados, username):
            '<span style="color:#8B5CF6;font-weight:700;">■</span> filmagem · '
            'fundo escuro = fora do expediente ou fim de semana · '
            'passe o mouse num bloco para ver o cartão</div>')
-    return (f'<div style="width:100%;overflow:hidden;padding:4px 0;">{cab}'
+    # overflow visivel: a ficha do hover encosta na borda do SVG, e com
+    # overflow:hidden ela sairia cortada.
+    return (f'<div style="width:100%;padding:4px 0;">{cab}'
             f'<svg viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" '
-            f'style="width:100%;">' + "".join(partes) + f'</svg>{leg}</div>')
+            f'style="width:100%;overflow:visible;">{_ltd_css(len(fichas))}'
+            + "".join(partes) + "".join(itens) + "".join(fichas)
+            + f'</svg>{leg}</div>')
 
 
 def _tabela_execucoes_dia(dados, username, dia):
