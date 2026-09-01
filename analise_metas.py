@@ -1464,49 +1464,77 @@ def _gauge_svg(pct, cor, titulo, sub="", legend=""):
 
 
 def _pizza_svg(segmentos, box_pct, box_label, box_cor="#4A90D9"):
-    """Pizza chart SVG (pizza CHEIA) com % dentro das fatias + legenda numerada + box destaque.
-    segmentos = [(cor, val, nome)]  — val absoluto, % calculado internamente."""
-    # Cores suaves (mesmas mas com opacidade 0.85 via SVG)
-    cx, cy, r = 140, 140, 125
-    total = sum(s[1] for s in segmentos) or 1
-    slices, labels_svg = [], []
+    """Rosca com as fatias destacadas. segmentos = [(cor, valor, nome)].
+
+    Era uma pizza cheia, fatias encostadas. Duas coisas melhoram com o furo no
+    meio e a folga entre elas: a comparacao passa a ser pelo comprimento do arco,
+    que se le melhor que area, e cada fatia ganha um contorno proprio — nao e
+    mais a divisa de cor que separa uma da outra, o que importa quando duas cores
+    vizinhas sao parecidas.
+
+    O numero da fatia vive dentro dela e repete o da legenda, para o olho ir de
+    uma a outra sem contar posicao.
+    """
+    cx = cy = 140
+    r_ext, r_int = 128, 66
+    FOLGA = 2.2          # graus retirados de cada ponta, o vao entre as fatias
+    total = sum(s[1] for s in segmentos if s[1] > 0) or 1
+
+    def _pt(raio, ang):
+        return cx + raio * math.cos(ang), cy + raio * math.sin(ang)
+
+    fatias, rotulos = [], []
     ang = -math.pi / 2
     for i, (cor, val, nome) in enumerate(segmentos):
         if val <= 0:
             continue
         frac = val / total
-        ae = ang + 2 * math.pi * frac
-        x1 = cx + r * math.cos(ang);  y1 = cy + r * math.sin(ang)
-        x2 = cx + r * math.cos(ae);   y2 = cy + r * math.sin(ae)
-        lg = 1 if frac > 0.5 else 0
-        slices.append(
-            f'<path d="M{cx},{cy} L{x1:.2f},{y1:.2f} A{r},{r} 0 {lg},1 {x2:.2f},{y2:.2f} Z" '
-            f'fill="{cor}" fill-opacity="0.82" stroke="none"/>'
+        a0, a1 = ang, ang + 2 * math.pi * frac
+        ang = a1
+        # A folga sai de dentro da fatia. Numa fatia estreita ela encolheria o
+        # arco a nada, entao nunca passa de um terco da abertura.
+        rec = min(math.radians(FOLGA), (a1 - a0) / 3)
+        b0, b1 = a0 + rec, a1 - rec
+        lg = 1 if (b1 - b0) > math.pi else 0
+        xe0, ye0 = _pt(r_ext, b0); xe1, ye1 = _pt(r_ext, b1)
+        xi1, yi1 = _pt(r_int, b1); xi0, yi0 = _pt(r_int, b0)
+        fatias.append(
+            f'<path d="M{xe0:.2f},{ye0:.2f} A{r_ext},{r_ext} 0 {lg},1 {xe1:.2f},{ye1:.2f} '
+            f'L{xi1:.2f},{yi1:.2f} A{r_int},{r_int} 0 {lg},0 {xi0:.2f},{yi0:.2f} Z" '
+            f'fill="{cor}" stroke="{cor}" stroke-width="7" stroke-linejoin="round"/>'
         )
-        if frac >= 0.06:
-            mid = (ang + ae) / 2
-            lx = cx + r * 0.62 * math.cos(mid)
-            ly = cy + r * 0.62 * math.sin(mid)
-            labels_svg.append(
-                f'<text x="{lx:.1f}" y="{ly:.1f}" text-anchor="middle" dominant-baseline="middle" '
-                f'font-size="16" font-weight="700" fill="white">{frac*100:.0f}%</text>'
-            )
-        ang = ae
+        # Numero e percentual no meio do anel. Fatia curta demais nao comporta os
+        # dois — fica so o numero, e o percentual e lido na legenda.
+        mid = (b0 + b1) / 2
+        lx, ly = _pt((r_ext + r_int) / 2, mid)
+        cabe_pct = frac >= 0.05
+        rotulos.append(
+            f'<text x="{lx:.1f}" y="{ly - (7 if cabe_pct else 0):.1f}" text-anchor="middle" '
+            f'dominant-baseline="middle" font-size="15" font-weight="700" '
+            f'fill="#fff">{i+1:02d}</text>'
+            + (f'<text x="{lx:.1f}" y="{ly + 11:.1f}" text-anchor="middle" '
+               f'dominant-baseline="middle" font-size="13" font-weight="700" '
+               f'fill="#fff" fill-opacity="0.92">{frac*100:.0f}%</text>' if cabe_pct else "")
+        )
+
     svg = (
-        f'<svg viewBox="0 0 280 280" xmlns="http://www.w3.org/2000/svg" style="width:200px;flex-shrink:0;">'
-        + "".join(slices) + "".join(labels_svg) + '</svg>'
+        f'<svg viewBox="0 0 280 280" xmlns="http://www.w3.org/2000/svg" '
+        f'style="width:200px;flex-shrink:0;">'
+        + "".join(fatias) + "".join(rotulos) + '</svg>'
     )
-    # Legenda numerada (bolinhas 01-05)
+
     leg_html = ""
     for i, (cor, val, nome) in enumerate(segmentos):
+        pct = (val / total * 100) if total else 0
         leg_html += (
-            f'<div style="display:flex;align-items:center;gap:7px;margin-bottom:6px;">'
-            f'<div style="width:22px;height:22px;border-radius:50%;background:{cor};opacity:0.85;flex-shrink:0;'
-            f'display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;color:#fff;">{i+1:02d}</div>'
-            f'<div style="font-size:10px;color:var(--ms-texto,#ccc);line-height:1.3;">'
-            f'{nome}</div></div>'
+            f'<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">'
+            f'<div style="width:22px;height:22px;border-radius:6px;background:{cor};flex-shrink:0;'
+            f'display:flex;align-items:center;justify-content:center;font-size:8px;'
+            f'font-weight:700;color:#fff;">{i+1:02d}</div>'
+            f'<div style="font-size:10px;color:var(--ms-texto,#ccc);line-height:1.3;flex:1;">{nome}</div>'
+            f'<div style="font-size:10px;font-weight:700;color:var(--ms-texto-sec,#888);">{pct:.0f}%</div>'
+            f'</div>'
         )
-    # Box menor (metade do tamanho original)
     box_html = (
         f'<div style="margin-top:8px;background:{box_cor};border-radius:6px;padding:6px 10px;'
         f'display:flex;align-items:center;gap:8px;opacity:0.9;">'
