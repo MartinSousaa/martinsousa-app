@@ -1532,7 +1532,7 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
         "abertos": 0, "urgentes": 0, "atrasados": 0, "atrasados_pri": 0,
         "atrasados_pri_lista": [], "em_andamento": 0,
         "falta_conf": 0, "falta_info": 0, "sem_membro": 0, "falta_pts": 0,
-        "pts_pendentes": 0.0, "pen_cards": [], "andamento_lista": [],
+        "pts_pendentes": 0.0, "pend_sem_pts": 0, "pen_cards": [], "andamento_lista": [],
         "tempo_lista": {}, "desativar": 0, "reativar": 0, "pend_lista": {},
         "qtd_membro": {u: 0 for u in MEMBROS_ATIVOS},  # cartões concluídos por membro
         "pts_lista": {},   # pontos por coluna (cartões concluídos com pontuação)
@@ -1635,6 +1635,10 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
                 d["pend_lista"][nl] = d["pend_lista"].get(nl, 0) + 1
                 if pt:
                     d["pts_pendentes"] += pt
+                else:
+                    # Pendente sem o campo PONTOS no Trello. E o que explica a
+                    # soma zerada com cartoes na fila.
+                    d["pend_sem_pts"] = d.get("pend_sem_pts", 0) + 1
             if "DESATIVAR" in nl.upper():
                 d["desativar"] += 1
             if "REATIVAR" in nl.upper():

@@ -468,7 +468,7 @@ def _processar(listas,cards,membros_map,id_p,id_t,id_i,filtro_mes=None):
         "abertos":0,"urgentes":0,"atrasados":0,"atrasados_pri":0,
         "atrasados_pri_lista":[],"em_andamento":0,
         "falta_conf":0,"falta_info":0,"sem_membro":0,"sem_membro_lista":[],"falta_pts":0,
-        "pts_pendentes":0.0,"pen_cards":[],"andamento_lista":[],"pausados_lista":[],
+        "pts_pendentes":0.0,"pend_sem_pts":0,"pen_cards":[],"andamento_lista":[],"pausados_lista":[],
         "tempo_lista":{},"desativar":0,"reativar":0,"pend_lista":{},
         "correcao_concl":0,"total_concl":0,
         "concluido_sem_membro":[],
@@ -538,6 +538,11 @@ def _processar(listas,cards,membros_map,id_p,id_t,id_i,filtro_mes=None):
             if "PENDENTE" in lb:
                 d["pend_lista"][nl]=d["pend_lista"].get(nl,0)+1
                 if pt: d["pts_pendentes"]+=pt
+                # Cartao pendente SEM o campo PONTOS preenchido no Trello. Sem
+                # esta conta, "12 pendentes / 0 pts" parecia erro do painel — e a
+                # causa e outra tela ("Falta Pontuacao"), que ninguem cruza de
+                # cabeca. Agora o proprio card diz de onde vem o zero.
+                else: d["pend_sem_pts"] = d.get("pend_sem_pts", 0) + 1
             if "DESATIVAR" in nl.upper(): d["desativar"]+=1
             if "REATIVAR" in nl.upper(): d["reativar"]+=1
             continue  # cartão aberto não pontua — próximo card
@@ -1780,7 +1785,7 @@ def pagina_placar(usuario_logado, headless=False):
   <div style="background:#2a1e05;border:1px solid #EDA100;border-radius:6px;padding:6px 8px;">
     <div style="font-size:7px;color:#EDA100;text-transform:uppercase;">Em Aberto</div>
     <div style="font-size:13px;font-weight:700;color:#fae8b0;">{d["pts_pendentes"]:,.0f}</div>
-    <div style="font-size:7px;color:#EDA100;">pendentes</div>
+    <div style="font-size:7px;color:#EDA100;">{"%d s/ pontuação" % d["pend_sem_pts"] if d.get("pend_sem_pts") else "pendentes"}</div>
   </div>
 </div>""", unsafe_allow_html=True)
         # ── Ritmo de desempenho por dias úteis ──
@@ -1863,7 +1868,12 @@ def pagina_placar(usuario_logado, headless=False):
     st.markdown('<hr style="border:none;border-top:1px solid var(--ms-divisor);margin:10px 0 8px 0;"/>',unsafe_allow_html=True)
     status_items=[
         ("Cartões Pendentes",sum(d["pend_lista"].values()),"Pendente","var(--ms-texto)","#EDA10030","#EDA100"),
-        ("Pts Pendentes",f"{d['pts_pendentes']:.0f}","Aberto","#EDA100","#EDA10020","#EDA100"),
+        # O rotulo do badge deixa de ser so "Aberto" quando ha pendente sem
+        # pontuacao: e ali que a pergunta "12 cartoes e zero pontos?" se responde.
+        ("Pts Pendentes", f"{d['pts_pendentes']:.0f}",
+         (f"{d.get('pend_sem_pts', 0)} sem pontuação"
+          if d.get("pend_sem_pts") else "Aberto"),
+         "#EDA100", "#EDA10020", "#EDA100"),
         ("Em Andamento",d["em_andamento"],"Ativo","var(--ms-texto)","#1BAF7A20","#1BAF7A"),
         ("Atrasados",d["atrasados"],"Atenção","var(--ms-texto)","#E3494820","#E34948"),
         ("Desativar",d["desativar"],"Prioritário","var(--ms-texto)","#E3494820","#E34948"),
