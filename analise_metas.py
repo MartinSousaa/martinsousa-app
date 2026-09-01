@@ -1522,6 +1522,40 @@ def _pizza_svg(segmentos, box_pct, box_label, box_cor="#4A90D9"):
     )
 
 
+def _curva_suave(pts, y_min=None, y_max=None):
+    """Caminho SVG passando por todos os pontos, com as quinas arredondadas.
+
+    Catmull-Rom convertido para Bézier cúbica: cada ponto continua exatamente
+    onde estava — a linha só deixa de virar em bico. Os pontos de controle são
+    presos à área do gráfico porque a curva pode ultrapassar os extremos entre
+    dois pontos distantes, e sair da moldura seria pior que o bico.
+    """
+    if len(pts) < 2:
+        return ""
+    if len(pts) == 2:
+        (x0, y0), (x1, y1) = pts
+        return f"M{x0:.1f},{y0:.1f} L{x1:.1f},{y1:.1f}"
+
+    def _presa(v):
+        if y_min is not None and v < y_min:
+            return y_min
+        if y_max is not None and v > y_max:
+            return y_max
+        return v
+
+    d = [f"M{pts[0][0]:.1f},{pts[0][1]:.1f}"]
+    for i in range(len(pts) - 1):
+        p0 = pts[i - 1] if i > 0 else pts[i]
+        p1, p2 = pts[i], pts[i + 1]
+        p3 = pts[i + 2] if i + 2 < len(pts) else p2
+        c1x = p1[0] + (p2[0] - p0[0]) / 6
+        c1y = _presa(p1[1] + (p2[1] - p0[1]) / 6)
+        c2x = p2[0] - (p3[0] - p1[0]) / 6
+        c2y = _presa(p2[1] - (p3[1] - p1[1]) / 6)
+        d.append(f"C{c1x:.1f},{c1y:.1f} {c2x:.1f},{c2y:.1f} {p2[0]:.1f},{p2[1]:.1f}")
+    return " ".join(d)
+
+
 def _grafico_barras_svg(labels, vals1, vals2=None, label1="Meta", label2="Realizado",
                          line_vals=None, cor1="#4A90D9", cor2_fn=None,
                          melhor_idx=None, melhor_txt=None):
@@ -1530,7 +1564,7 @@ def _grafico_barras_svg(labels, vals1, vals2=None, label1="Meta", label2="Realiz
     if n == 0:
         return '<div style="padding:20px;text-align:center;color:var(--ms-texto-sec);">Sem dados</div>'
     W, H = 560, 195
-    ml, mr, mt, mb_m = 54, 38, 28, 46
+    ml, mr, mt, mb_m = 54, 38, 34, 46   # topo maior: o valor da barra mora ali
     cw = W - ml - mr; ch = H - mt - mb_m
     all_v = list(vals1) + (list(vals2) if vals2 else [])
     max_v = max(all_v + [1])
@@ -1553,9 +1587,18 @@ def _grafico_barras_svg(labels, vals1, vals2=None, label1="Meta", label2="Realiz
         v1 = vals1[i]
         x1 = cx_c - bw - 1 if vals2 is not None else cx_c - bw / 2
         parts.append(f'<rect x="{x1:.1f}" y="{bary(v1):.1f}" width="{bw:.1f}" height="{barh(v1):.1f}" fill="{cor1}" opacity="0.55" rx="2"/>')
+        # O valor em cima da barra. Sem ele so dava para estimar a altura contra
+        # a regua da esquerda, e a pergunta que se faz olhando este grafico —
+        # quanto era a meta, quanto saiu — nao tinha resposta na tela.
+        parts.append(
+            f'<text x="{x1+bw/2:.1f}" y="{bary(v1)-3:.1f}" text-anchor="middle" '
+            f'font-size="6.5" font-weight="700" fill="var(--ms-texto-sec,#888)">{v1:,.0f}</text>')
         if vals2 is not None:
             v2 = vals2[i]; c2 = cor2_fn(i) if cor2_fn else "#1BAF7A"
             parts.append(f'<rect x="{cx_c+1:.1f}" y="{bary(v2):.1f}" width="{bw:.1f}" height="{barh(v2):.1f}" fill="{c2}" opacity="0.9" rx="2"/>')
+            parts.append(
+                f'<text x="{cx_c+1+bw/2:.1f}" y="{bary(v2)-3:.1f}" text-anchor="middle" '
+                f'font-size="6.5" font-weight="700" fill="{c2}">{v2:,.0f}</text>')
         if line_vals is not None:
             max_d = max(abs(v) for v in line_vals) or 1
             ly = mt + ch / 2 - (line_vals[i] / max_d * (ch / 2))
@@ -1573,14 +1616,19 @@ def _grafico_barras_svg(labels, vals1, vals2=None, label1="Meta", label2="Realiz
         for step, lbl_d in [(-1, f"{-max_d:+,.0f}"), (0, "0"), (1, f"+{max_d:,.0f}")]:
             yd = y0 - step * ch / 2
             parts.append(f'<text x="{W-mr+3}" y="{yd+3:.0f}" font-size="6.5" fill="#FF6B6B">{lbl_d}</text>')
-        pts_str = " ".join(f"{x:.1f},{y:.1f}" for x, y in line_pts)
-        parts.append(f'<polyline points="{pts_str}" fill="none" stroke="#FF6B6B" stroke-width="1.8"/>')
+        # Curva no lugar da poligonal: em quatro meses a linha de delta virava
+        # um zigue-zague de bicos, e o bico sugere um evento que nao existe —
+        # o dado e mensal, a passagem entre um mes e outro e continua.
+        parts.append(
+            f'<path d="{_curva_suave(line_pts, mt, mt + ch)}" fill="none" '
+            f'stroke="#FF6B6B" stroke-width="1.8" stroke-linecap="round"/>')
         parts += [f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3" fill="#FF6B6B"/>' for x, y in line_pts]
     # Callout melhor mês
     if melhor_idx is not None and melhor_txt and 0 <= melhor_idx < n:
         cx_c = ml + (melhor_idx + 0.5) * col_w
         v_pk = max(vals1[melhor_idx], (vals2[melhor_idx] if vals2 else 0))
-        ytop = bary(v_pk) - 6; ytxt = max(mt + 2, ytop - 20)
+        # Sobe 8px: o numero da barra agora ocupa o espaco logo acima dela.
+        ytop = bary(v_pk) - 14; ytxt = max(mt + 2, ytop - 20)
         tw = min(len(melhor_txt) * 4.8 + 8, 110)
         parts += [
             f'<line x1="{cx_c:.1f}" y1="{ytop:.1f}" x2="{cx_c:.1f}" y2="{ytxt+12:.1f}" stroke="#EDA100" stroke-width="0.8"/>',
