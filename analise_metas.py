@@ -431,9 +431,11 @@ def _diagnostico_metas_individuais(tem_ponto, sem_exec, diags_pont, erro_pont, d
     if sem_exec:
         faltando.append("tempo de execução")
 
-    # Aberto por padrao: fechado, ele parece um detalhe opcional — e e justamente
-    # onde esta a causa de a tela estar vazia.
-    with st.expander(f"🔎 Por que {' e '.join(faltando)} não preencheu", expanded=True):
+    # Fechado por padrao. Aberto, ele despeja a lista de campos crus da RHiD e a
+    # contagem de acoes do Trello no meio da Analise de Metas — util para achar
+    # a causa, mas nao e o que se vai ver na tela todo dia. O titulo ja diz que a
+    # explicacao esta ali; quem precisar, abre.
+    with st.expander(f"🔎 Por que {' e '.join(faltando)} não preencheu", expanded=False):
         if not tem_ponto:
             st.markdown("**Relógio de ponto**")
             if erro_pont:
@@ -763,11 +765,18 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
                     if t <= est:
                         _exec[u]["dentro"] += 1
 
-    if _colunas_sem_tempo:
+    # TRIAGEM e as demais de COLUNAS_SKIP / LISTAS_SEM_PONTUACAO estao fora da
+    # conta de proposito — nao sao esquecimento de configuracao. Avisar sobre
+    # elas so ensina a ignorar o aviso, e ai o dia em que aparecer uma coluna de
+    # verdade mal configurada ninguem repara. O aviso tambem manda para uma tela
+    # que so o gestor abre, entao so o gestor o ve.
+    _fora_de_proposito = set(_pc.COLUNAS_SKIP) | set(_pc.LISTAS_SEM_PONTUACAO)
+    _sem_tempo_reais = sorted(_colunas_sem_tempo - _fora_de_proposito)
+    if _sem_tempo_reais and eh_master:
         st.caption(
             "⚠️ Fora da conta de tempo de execução, por não terem tempo "
             "estimado definido em Configuração de Metas → Colunas: "
-            + " · ".join(sorted(_colunas_sem_tempo)))
+            + " · ".join(_sem_tempo_reais))
 
     _sem_exec = not any(v["total"] for v in _exec.values())
     if eh_master and (not _tem_ponto or _sem_exec):
