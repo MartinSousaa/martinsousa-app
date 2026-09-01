@@ -1545,6 +1545,16 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
         # a ociosidade precisa: sem ela so da para subtrair totais, e as folgas
         # de 10 e de 5 minutos exigem saber QUANDO cada buraco aconteceu.
         "intervalos_membro": {},
+        # Entregas de cada pessoa, abertas por DIA e por COLUNA.
+        #
+        # A data de conclusao de cada cartao ja era calculada aqui para decidir o
+        # mes — e descartada em seguida. Guarda-la custa nada e e o que permite
+        # olhar o ritmo dentro do mes (constante ou concentrado numa ponta) e
+        # onde o trabalho da pessoa aconteceu.
+        #
+        #   membro -> {"dias":    {"AAAA-MM-DD": {"qtd": n, "pts": p}},
+        #              "colunas": {nome_da_coluna: {"qtd": n, "pts": p}}}
+        "entregas_membro": {},
     }
 
     # O rateio entre cartões simultâneos precisa enxergar o board inteiro, então
@@ -1660,6 +1670,26 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
         d["total_concl"] += 1
         if nl == "CORREÇÃO DE FOTOS: 0 PONTOS":
             d["correcao_concl"] += 1
+
+        # Registra a entrega por dia e por coluna. Conta o cartao mesmo sem
+        # pontuacao: a pergunta "onde essa pessoa trabalhou" nao depende de o
+        # cartao pontuar, e coluna sem pontos e justamente onde se descobre que
+        # alguem esta fazendo o que nao deveria. Os pontos entram rateados entre
+        # quem estava no cartao, igual ao pts_membro.
+        _mem_ok = [u for u in us if u in MEMBROS_ATIVOS]
+        if _mem_ok:
+            _dt_conc = _conclusoes.get(card["id"])
+            _dia = _dt_conc.astimezone().strftime("%Y-%m-%d") if _dt_conc else None
+            _cada_pt = (pt or 0) / len(_mem_ok)
+            for u in _mem_ok:
+                _e = d["entregas_membro"].setdefault(u, {"dias": {}, "colunas": {}})
+                if _dia:
+                    _dd = _e["dias"].setdefault(_dia, {"qtd": 0, "pts": 0.0})
+                    _dd["qtd"] += 1
+                    _dd["pts"] += _cada_pt
+                _cc = _e["colunas"].setdefault(nl, {"qtd": 0, "pts": 0.0})
+                _cc["qtd"] += 1
+                _cc["pts"] += _cada_pt
 
         # Alerta: concluído sem membro atribuído
         if not us:

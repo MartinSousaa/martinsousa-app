@@ -8,6 +8,7 @@ circular import e conflito de chaves de widgets do Streamlit.
 import streamlit as st
 import pandas as pd
 import math
+import calendar
 from datetime import datetime
 
 import metas_config as mc
@@ -2002,7 +2003,8 @@ def _ponto_por_membro(dados, users):
             "disp_mb": _disp_mb, "atr_mb": _atr_mb}
 
 
-def _chart_ind_indices(meses, ponto=None, username=None, max_tol=0, C=None):
+def _chart_ind_indices(meses, ponto=None, username=None, max_tol=0,
+                       max_atr=0, dados=None, cfg=None, C=None):
     """HTML/SVG: 5 velocímetros individuais com cores dinâmicas.
 
     `ponto` vem de `_ponto_por_membro`. Sem ele os dois velocímetros que
@@ -2056,9 +2058,23 @@ def _chart_ind_indices(meses, ponto=None, username=None, max_tol=0, C=None):
             sub_tol = f"{usadas:.0f} utilizada(s)"
         cor_tol = ("#1BAF7A" if arco_tol >= 40
                    else ("#EDA100" if arco_tol > 0 else "#E34948"))
+        # Atrasos de ponto: o numero ja vinha de _ponto_por_membro desde sempre
+        # e so aparecia no resumo da equipe. Tolerancia sem atraso ao lado conta
+        # meia historia — sao duas coisas diferentes.
+        atrasos = float((ponto.get("atr_mb") or {}).get(username, 0.0))
+        lim_atr = float(max_atr or 0)
+        if lim_atr > 0:
+            arco_atr = max(0.0, 100.0 - atrasos / lim_atr * 100.0)
+            sub_atr = f"{atrasos:.0f} de {lim_atr:.0f} usados"
+        else:
+            arco_atr = 100.0 if atrasos == 0 else 0.0
+            sub_atr = f"{atrasos:.0f} atraso(s)"
+        cor_atr = ("#1BAF7A" if arco_atr >= 40
+                   else ("#EDA100" if arco_atr > 0 else "#E34948"))
     else:
         arco_ocio, cor_ocio, sub_ocio = 0.0, "#4A90D9", "Sem ponto no período"
         arco_tol,  cor_tol,  sub_tol  = 0.0, "#4A90D9", "Sem ponto no período"
+        arco_atr,  cor_atr,  sub_atr  = 0.0, "#4A90D9", "Sem ponto no período"
 
     # Tempo médio: azul base, verde se há melhoria
     cor_tempo = "#1BAF7A" if pct_tempo > 50 else "#4A90D9"
@@ -2071,10 +2087,279 @@ def _chart_ind_indices(meses, ponto=None, username=None, max_tol=0, C=None):
         (min(arco_ocio, 100), cor_ocio,  "Tempo Produtivo",     sub_ocio),
         (pct_tempo,          cor_tempo,  "Redução Tempo Médio", sub_tempo),
         (min(arco_tol, 100), cor_tol,    "Tolerâncias",         sub_tol),
+        (min(arco_atr, 100), cor_atr,    "Atrasos",             sub_atr),
         (min(pct_pont, 100), cor_pont,   "Pontualidade Tarefa", f"{ta}/{max(tc,1)} concl."),
     ]
     gauges = "".join(_gauge_svg(pct, cor, titulo, sub) for pct, cor, titulo, sub in indices)
     return f'<div style="display:flex;justify-content:space-around;gap:4px;padding:8px 0;">{gauges}</div>'
+
+
+def _entregas_do_membro(dados, username):
+    """Junta as entregas da pessoa em todos os meses do periodo.
+
+    Devolve ({dia: {"qtd","pts"}}, {coluna: {"qtd","pts"}}). Vem de
+    placar_core._processar, que registra a data de conclusao e a coluna de cada
+    cartao entregue.
+    """
+    dias, cols = {}, {}
+    for r in dados:
+        e = (r.get("entregas_membro") or {}).get(username) or {}
+        for dia, v in (e.get("dias") or {}).items():
+            d = dias.setdefault(dia, {"qtd": 0, "pts": 0.0})
+            d["qtd"] += v["qtd"]; d["pts"] += v["pts"]
+        for col, v in (e.get("colunas") or {}).items():
+            c = cols.setdefault(col, {"qtd": 0, "pts": 0.0})
+            c["qtd"] += v["qtd"]; c["pts"] += v["pts"]
+    return dias, cols
+
+
+def _chart_curva_execucao(dados, username, por_mes=False):
+    """Barras de entregas por dia do mes — ou por mes, no trimestre/semestre.
+
+    Dia sem entrega aparece como um tracinho no zero e nao como um buraco: e a
+    sequencia completa que mostra se o ritmo e constante ou se junta tudo numa
+    ponta do mes. Some com os dias vazios e a curva mente.
+    """
+    dias, _ = _entregas_do_membro(dados, username)
+    if not dias and not por_mes:
+        return ('<div style="padding:24px;text-align:center;font-size:11px;'
+                'color:var(--ms-texto-sec);">Nenhuma entrega registrada no período</div>')
+
+    if por_mes:
+        agrup = {}
+        for dia, v in dias.items():
+            agrup.setdefault(dia[:7], 0)
+            agrup[dia[:7]] += v["qtd"]
+        # Todos os meses do periodo, inclusive os zerados
+        rotulos, vals = [], []
+        for r in dados:
+            ym = r.get("filtro_mes")
+            if not ym:
+                continue
+            chave = f"{ym[0]:04d}-{ym[1]:02d}"
+            rotulos.append(r.get("label", chave))
+            vals.append(agrup.get(chave, 0))
+        titulo_x = "mês"
+    else:
+        ym = next((r.get("filtro_mes") for r in dados if r.get("filtro_mes")), None)
+        if not ym:
+            return ('<div style="padding:24px;text-align:center;font-size:11px;'
+                    'color:var(--ms-texto-sec);">Sem mês definido</div>')
+        ano, mes = ym
+        ultimo = calendar.monthrange(ano, mes)[1]
+        rotulos = [str(d) for d in range(1, ultimo + 1)]
+        vals = [dias.get(f"{ano:04d}-{mes:02d}-{d:02d}", {}).get("qtd", 0)
+                for d in range(1, ultimo + 1)]
+        titulo_x = "dia"
+
+    if not vals:
+        return ('<div style="padding:24px;text-align:center;font-size:11px;'
+                'color:var(--ms-texto-sec);">Sem dados no período</div>')
+
+    W, H = 620, 170
+    ml, mr, mt, mb = 30, 12, 16, 30
+    iw, ih = W - ml - mr, H - mt - mb
+    topo = max(vals + [1])
+    media = sum(vals) / len(vals)
+    bw = iw / len(vals)
+    def y(v): return mt + ih - (v / topo * ih)
+
+    partes = []
+    for i in range(4):
+        yg = mt + ih * i / 3
+        partes.append(
+            f'<line x1="{ml}" y1="{yg:.1f}" x2="{W-mr}" y2="{yg:.1f}" '
+            f'stroke="var(--ms-divisor,#333)" stroke-width="0.5"/>'
+            f'<text x="{ml-4}" y="{yg+3:.1f}" text-anchor="end" font-size="7.5" '
+            f'fill="var(--ms-texto-sec,#888)">{topo*(3-i)/3:.0f}</text>')
+    for i, v in enumerate(vals):
+        x = ml + i * bw + 1
+        larg = max(bw - 2, 1)
+        if v > 0:
+            partes.append(
+                f'<rect x="{x:.1f}" y="{y(v):.1f}" width="{larg:.1f}" '
+                f'height="{mt+ih-y(v):.1f}" rx="2" fill="#4A90D9">'
+                f'<title>{rotulos[i]}: {v} cartão(ões)</title></rect>')
+        else:
+            partes.append(
+                f'<rect x="{x:.1f}" y="{mt+ih-1.5:.1f}" width="{larg:.1f}" height="1.5" '
+                f'fill="var(--ms-divisor,#444)"><title>{rotulos[i]}: nenhum</title></rect>')
+        passo = 1 if len(vals) <= 12 else 5
+        if i == 0 or (i + 1) % passo == 0:
+            partes.append(
+                f'<text x="{x+larg/2:.1f}" y="{H-12}" text-anchor="middle" '
+                f'font-size="7.5" fill="var(--ms-texto-sec,#888)">{rotulos[i]}</text>')
+    partes.append(
+        f'<line x1="{ml}" y1="{y(media):.1f}" x2="{W-mr}" y2="{y(media):.1f}" '
+        f'stroke="#EDA100" stroke-width="1.5" stroke-dasharray="4,3"/>'
+        f'<text x="{W-mr}" y="{y(media)-4:.1f}" text-anchor="end" font-size="7.5" '
+        f'font-weight="700" fill="#EDA100">média {media:.1f}/{titulo_x}</text>')
+    return (f'<div style="width:100%;overflow:hidden;padding:4px 0;">'
+            f'<svg viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" '
+            f'style="width:100%;">' + "".join(partes) + '</svg></div>')
+
+
+def _chart_colunas_membro(dados, username, colunas_funcao=None):
+    """Cartoes que a pessoa entregou, por coluna, com pontos e pontos por cartao.
+
+    Pontos por cartao e o numero que denuncia garimpo: quem so pega coluna cara
+    aparece com media alta em poucas colunas. Coluna fora da funcao configurada
+    vem marcada — quando nao ha funcao cadastrada, nada e marcado.
+    """
+    _, cols = _entregas_do_membro(dados, username)
+    if not cols:
+        return ('<div style="padding:24px;text-align:center;font-size:11px;'
+                'color:var(--ms-texto-sec);">Nenhum cartão entregue no período</div>')
+    ordenado = sorted(cols.items(), key=lambda kv: -kv[1]["qtd"])
+    maxq = max(v["qtd"] for _, v in ordenado) or 1
+    funcao = [f.upper() for f in (colunas_funcao or [])]
+
+    html = ""
+    for nome, v in ordenado:
+        fora = bool(funcao) and not any(nome.upper().startswith(f) for f in funcao)
+        cor = "#E34948" if fora else "#4A90D9"
+        ppc = v["pts"] / v["qtd"] if v["qtd"] else 0
+        rot = nome if len(nome) <= 34 else nome[:33] + "…"
+        html += (
+            f'<div style="margin-bottom:9px;">'
+            f'<div style="display:flex;justify-content:space-between;gap:10px;font-size:11px;">'
+            f'<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" '
+            f'title="{nome}">{rot}'
+            + (' <b style="color:#E34948;">· fora da função</b>' if fora else '') +
+            f'</span>'
+            f'<span style="flex:none;font-weight:700;">{v["qtd"]}'
+            f'<span style="font-weight:400;color:var(--ms-texto-sec);"> · '
+            f'{v["pts"]:,.0f} pts · {ppc:.0f}/cartão</span></span></div>'
+            f'<div style="height:7px;border-radius:4px;background:var(--ms-metric-bd);'
+            f'margin-top:3px;overflow:hidden;">'
+            f'<div style="height:100%;border-radius:4px;width:{v["qtd"]/maxq*100:.1f}%;'
+            f'background:{cor};"></div></div></div>'
+        ).replace(",", ".")
+    return html
+
+
+def _chart_tempo_medio(dados, username, cfg):
+    """Tempo medio do periodo contra o alvo, mais o historico mes a mes."""
+    ref = float((cfg or {}).get(f"exec_ref_{username}", 0) or 0) or 120.0
+    red = float((cfg or {}).get(f"exec_red_{username}", 0) or 0)
+    alvo = ref * (1 - red / 100)
+
+    # Media por mes, para o historico; e a do periodo inteiro, para o numero grande
+    por_mes, todos = [], []
+    for r in dados:
+        ts = [t for por_col in (r.get("tempo_membro_lista") or {}).get(username, {}).values()
+              for t in por_col]
+        todos.extend(ts)
+        por_mes.append((r.get("label", ""), (sum(ts) / len(ts)) if ts else None))
+    atual = (sum(todos) / len(todos)) if todos else None
+
+    if atual is None:
+        return ('<div style="padding:24px;text-align:center;font-size:11px;'
+                'color:var(--ms-texto-sec);">Nenhum cartão com tempo medido no período</div>')
+
+    cor = "#1BAF7A" if atual <= alvo else ("#EDA100" if atual <= ref else "#E34948")
+    if red <= 0:
+        recado = "sem redução definida para o mês"
+    elif atual <= alvo:
+        recado = "✅ dentro do alvo"
+    else:
+        recado = f"{_fmt_hm(atual - alvo)} acima do alvo"
+    topo = (
+        f'<div style="display:flex;align-items:baseline;gap:10px;">'
+        f'<span style="font-size:30px;font-weight:700;color:{cor};line-height:1;">'
+        f'{_fmt_hm(atual)}</span>'
+        f'<span style="font-size:11px;color:var(--ms-texto-sec);">média do período</span></div>'
+        f'<div style="font-size:11px;color:var(--ms-texto-sec);margin:4px 0 10px;">'
+        f'alvo <b style="color:var(--ms-texto);">{_fmt_hm(alvo)}</b> · '
+        f'referência {_fmt_hm(ref)} · {recado}</div>'
+    )
+
+    # Historico so faz sentido com mais de um mes: um mes so repete o numero acima
+    medidos = [(l, v) for l, v in por_mes if v]
+    if len(medidos) < 2:
+        return topo + ('<div style="font-size:10.5px;color:var(--ms-texto-sec);'
+                       'font-style:italic;">Histórico aparece com o filtro em '
+                       'trimestre ou semestre.</div>')
+
+    W, H = 420, 132
+    ml, mr, mt, mb = 34, 10, 12, 24
+    iw, ih = W - ml - mr, H - mt - mb
+    teto = max([v for _, v in medidos] + [alvo]) * 1.15
+    bw = iw / len(medidos)
+    def y(v): return mt + ih - (v / teto * ih)
+    partes = []
+    for i, (lab, v) in enumerate(medidos):
+        x = ml + i * bw + bw * 0.2
+        w = bw * 0.6
+        c = "#1BAF7A" if v <= alvo else "#E34948"
+        partes.append(
+            f'<rect x="{x:.1f}" y="{y(v):.1f}" width="{w:.1f}" '
+            f'height="{mt+ih-y(v):.1f}" rx="3" fill="{c}"><title>{lab}: {_fmt_hm(v)}</title></rect>'
+            f'<text x="{x+w/2:.1f}" y="{y(v)-4:.1f}" text-anchor="middle" font-size="8" '
+            f'fill="var(--ms-texto-sec,#888)">{_fmt_hm(v)}</text>'
+            f'<text x="{x+w/2:.1f}" y="{H-8}" text-anchor="middle" font-size="8" '
+            f'fill="var(--ms-texto-sec,#888)">{lab}</text>')
+    partes.append(
+        f'<line x1="{ml}" y1="{y(alvo):.1f}" x2="{W-mr}" y2="{y(alvo):.1f}" '
+        f'stroke="#EDA100" stroke-width="1.5" stroke-dasharray="4,3"/>'
+        f'<text x="{ml}" y="{y(alvo)-4:.1f}" font-size="8" font-weight="700" '
+        f'fill="#EDA100">alvo {_fmt_hm(alvo)}</text>')
+    return topo + (f'<svg viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" '
+                   f'style="width:100%;">' + "".join(partes) + '</svg>')
+
+
+def _chart_colaboracao(dados, username):
+    """Quanto dos pontos da equipe saiu dos cartoes dessa pessoa, em % e em pontos."""
+    linhas, pt_tot, eq_tot = [], 0.0, 0.0
+    for r in dados:
+        p = float((r.get("pts_membro") or {}).get(username, 0) or 0)
+        e = float(r.get("pts_equipe", 0) or 0)
+        q = int((r.get("qtd_membro") or {}).get(username, 0) or 0)
+        pt_tot += p; eq_tot += e
+        linhas.append((r.get("label", ""), p, e, q))
+    if eq_tot <= 0:
+        return ('<div style="padding:24px;text-align:center;font-size:11px;'
+                'color:var(--ms-texto-sec);">Sem pontuação da equipe no período</div>')
+    pct = pt_tot / eq_tot * 100
+    q_tot = sum(l[3] for l in linhas)
+
+    html = (
+        f'<div style="display:flex;align-items:baseline;gap:10px;">'
+        f'<span style="font-size:30px;font-weight:700;color:#4A90D9;line-height:1;">'
+        f'{pct:.1f}%</span>'
+        f'<span style="font-size:11px;color:var(--ms-texto-sec);">'
+        f'dos pontos da equipe</span></div>'
+        f'<div style="height:11px;border-radius:6px;background:var(--ms-metric-bd);'
+        f'margin:8px 0 6px;overflow:hidden;">'
+        f'<div style="height:100%;border-radius:6px;width:{min(pct,100):.1f}%;'
+        f'background:#4A90D9;"></div></div>'
+        f'<div style="font-size:11px;color:var(--ms-texto-sec);margin-bottom:10px;">'
+        f'<b style="color:var(--ms-texto);">{pt_tot:,.0f}</b> pts dela · de '
+        f'<b style="color:var(--ms-texto);">{eq_tot:,.0f}</b> pts da equipe · '
+        f'{q_tot} cartões</div>'
+    ).replace(",", ".")
+
+    # A tabela mes a mes so acrescenta quando ha mais de um mes
+    if len(linhas) > 1:
+        corpo = ""
+        for lab, p, e, q in linhas:
+            pp = (p / e * 100) if e else 0
+            corpo += (
+                f'<tr><td style="text-align:left;padding:3px 6px;">{lab}</td>'
+                f'<td style="text-align:right;padding:3px 6px;">{p:,.0f}</td>'
+                f'<td style="text-align:right;padding:3px 6px;">{e:,.0f}</td>'
+                f'<td style="text-align:right;padding:3px 6px;font-weight:700;">'
+                f'{pp:.1f}%</td></tr>').replace(",", ".")
+        html += (
+            f'<table style="border-collapse:collapse;width:100%;font-size:11px;">'
+            f'<thead><tr style="color:var(--ms-texto-sec);font-size:9.5px;'
+            f'text-transform:uppercase;letter-spacing:.4px;">'
+            f'<th style="text-align:left;padding:3px 6px;">Mês</th>'
+            f'<th style="text-align:right;padding:3px 6px;">Pontos</th>'
+            f'<th style="text-align:right;padding:3px 6px;">Equipe</th>'
+            f'<th style="text-align:right;padding:3px 6px;">Contrib.</th>'
+            f'</tr></thead><tbody>{corpo}</tbody></table>')
+    return html
 
 
 def _chart_ind_participacao(dados, username, C=None):
@@ -2268,8 +2553,38 @@ def _chart_resumo_colabs(dados):
     )
 
 
-def _desempenho_individual(dados, username, nome):
-    """Renderiza os 4 gráficos HTML/SVG de desempenho para um colaborador."""
+def _desempenho_individual(dados, username, nome, carregar_periodo=None):
+    """Desempenho de um colaborador, com periodo proprio.
+
+    O filtro daqui e separado do coletivo la de cima de proposito: olhar o ano da
+    equipe e o trimestre de uma pessoa sao perguntas diferentes, e antes uma
+    obrigava a outra.
+    """
+    # ── Periodo desta secao ──────────────────────────────────────────────────
+    _hoje = datetime.now()
+    _op = st.radio("Período", ["Mês", "Último trimestre", "Último semestre"],
+                   horizontal=True, key=f"des_ind_per_{username}",
+                   label_visibility="collapsed")
+    _por_mes = _op != "Mês"
+    if _por_mes and carregar_periodo:
+        _qtd = 3 if _op == "Último trimestre" else 6
+        _lista = []
+        _a, _m = _hoje.year, _hoje.month
+        for _ in range(_qtd):
+            _lista.append((_a, _m))
+            _m -= 1
+            if _m == 0:
+                _a, _m = _a - 1, 12
+        _lista.reverse()
+        try:
+            dados = carregar_periodo(_lista)
+        except Exception as _e:
+            st.warning(f"Não consegui carregar o período: {str(_e)[:120]}")
+            _por_mes = False
+    _rot_per = (dados[0]["label"] + " → " + dados[-1]["label"]) if len(dados) > 1 else \
+               (dados[-1]["label"] if dados else "—")
+    st.caption(f"Período desta seção: **{_rot_per}** · independente do filtro coletivo acima.")
+
     meses = _ind_extrair_meses(dados, username)
     # Remove meses sem meta individual configurada (meta == 0)
     meses = [m for m in meses if m["meta"] > 0]
@@ -2283,7 +2598,9 @@ def _desempenho_individual(dados, username, nome):
     except Exception:
         _ponto_ind = None
     _n_meses_ponto = len({r.get("filtro_mes") for r in dados if r.get("filtro_mes")}) or 1
-    _tol_lim = (int(dados[-1]["cfg"].get("max_tol_normal", 15)) if dados else 15) * _n_meses_ponto
+    _cfg_ult = dados[-1]["cfg"] if dados else {}
+    _tol_lim = int(_cfg_ult.get("max_tol_normal", 15)) * _n_meses_ponto
+    _atr_lim = int(_cfg_ult.get("max_atr_normal", 10)) * _n_meses_ponto
 
     row1a, row1b = st.columns(2)
     with row1a:
@@ -2293,25 +2610,63 @@ def _desempenho_individual(dados, username, nome):
 
     with row1b:
         st.markdown("#### 🎯 Índices Individuais")
-        st.caption("Pontuação batida · tempo produtivo · tempo médio · tolerâncias · pontualidade.")
+        st.caption("Pontuação · tempo produtivo · tempo de execução · tolerâncias · "
+                   "atrasos · redução do tempo médio.")
         st.markdown(_chart_ind_indices(meses, ponto=_ponto_ind, username=username,
-                                       max_tol=_tol_lim), unsafe_allow_html=True)
+                                       max_tol=_tol_lim, max_atr=_atr_lim,
+                                       dados=dados, cfg=_cfg_ult),
+                    unsafe_allow_html=True)
 
     st.markdown("---")
     row2a, row2b = st.columns(2)
-
     with row2a:
+        st.markdown("#### 📅 Curva de execução")
+        st.caption("Cartões entregues por dia. Dia sem entrega aparece como zero — é ele "
+                   "que mostra se o ritmo é constante ou se junta numa ponta do mês."
+                   if not _por_mes else
+                   "Cartões entregues por mês no período selecionado.")
+        st.markdown(_chart_curva_execucao(dados, username, por_mes=_por_mes),
+                    unsafe_allow_html=True)
+
+    with row2b:
+        st.markdown("#### 🗂️ Cartões por coluna")
+        st.caption("Onde o trabalho aconteceu. **Pontos por cartão** mostra quem só "
+                   "pega coluna cara. Coluna fora da função cadastrada vem marcada.")
+        try:
+            import equipe_config as _ec_f
+            _funcao = _ec_f.colunas_da_funcao(username)
+        except Exception:
+            _funcao = []
+        st.markdown(_chart_colunas_membro(dados, username, _funcao),
+                    unsafe_allow_html=True)
+
+    st.markdown("---")
+    row3a, row3b = st.columns(2)
+    with row3a:
+        st.markdown("#### ⏳ Tempo médio de execução")
+        st.caption("O mês contra a referência da meta, e o histórico ao lado.")
+        st.markdown(_chart_tempo_medio(dados, username, _cfg_ult), unsafe_allow_html=True)
+
+    with row3b:
+        st.markdown("#### 🤝 Colaboração nas metas")
+        st.caption("Quanto dos pontos da equipe saiu dos cartões que essa pessoa entregou.")
+        st.markdown(_chart_colaboracao(dados, username), unsafe_allow_html=True)
+
+    st.markdown("---")
+    row4a, row4b = st.columns(2)
+
+    with row4a:
         st.markdown("#### 🍕 Participação nas Colunas")
         st.caption("Top 5 colunas mais pontuadas pela equipe · % central = contribuição individual no total.")
         st.markdown(_chart_ind_participacao(dados, username), unsafe_allow_html=True)
 
-    with row2b:
+    with row4b:
         st.markdown("#### 🏆 Destaques do Período")
         st.caption("4 melhores meses individuais · top 4 colunas da equipe.")
         st.markdown(_chart_ind_destaques(meses, dados, username), unsafe_allow_html=True)
 
 
-def _aba_desempenho(dados, dados_ano_full=None):
+def _aba_desempenho(dados, dados_ano_full=None, carregar_periodo=None):
     """Aba Desempenho — 4 gráficos anuais de performance coletiva."""
     if not dados:
         st.caption("Sem dados para exibir no período selecionado.")
@@ -2388,6 +2743,13 @@ def _secao_equipe():
         _rhid = e3.text_input("Primeiro nome na RHiD", placeholder="ex: Gabriel")
         _c_at, _c_bp = st.columns(2)
         _ativo = _c_at.checkbox("Ativo (conta nas metas)", value=True)
+        _funcao_in = st.text_input(
+            "Colunas da função (opcional)",
+            placeholder="CRIATIVO VÍDEO; CRIATIVO FOTOS; DESATIVAR",
+            help="Separe por ponto e vírgula. Compara por início do nome, então "
+                 "'CRIATIVO VÍDEO' pega 'CRIATIVO VÍDEO (80)' mesmo se o número "
+                 "mudar. Deixe vazio para não restringir ninguém — em branco "
+                 "significa sem restrição, e nada é marcado na tela.")
         _bate = _c_bp.checkbox(
             "Bate ponto no relógio", value=True,
             help="Desmarque para quem não usa a RHiD. Sem isso a pessoa aparece "
@@ -2398,7 +2760,7 @@ def _secao_equipe():
                 st.error("Username do Trello e nome são obrigatórios.")
             else:
                 try:
-                    _ec.salvar(_user, _nome, _rhid, _ativo, _bate)
+                    _ec.salvar(_user, _nome, _rhid, _ativo, _bate, _funcao_in)
                     _pc.recarregar_membros()
                     st.success(f"{_nome} salvo.")
                     st.rerun()
@@ -2864,6 +3226,17 @@ def pagina_analise_metas(usuario_logado):
     # A visão anual (Jan → mês atual) só é usada pela aba Desempenho, e custa uma
     # passada por mês. Calcular sempre fazia quem abre a tela em "Dentro do mês"
     # esperar por oito análises que ninguém ia ver.
+    def _carregar_periodo(meses):
+        """Reprocessa uma lista de meses reusando o board ja buscado.
+
+        Nao custa requisicao nova: _buscar_board e tempos_do_board tem cache
+        proprio, e o que roda de novo e a varredura dos cartoes em memoria. E o
+        que permite a secao individual ter periodo proprio, independente do
+        filtro coletivo la de cima.
+        """
+        return _analisar_meses(listas, cards, membros_map, id_p, id_t, id_i,
+                               meses, _pc._processar)
+
     def _carregar_ano_full():
         _meses_ano = [(agora.year, m) for m in range(1, agora.month + 1)]
         with st.spinner("Preparando visão anual..."):
@@ -2981,7 +3354,8 @@ def pagina_analise_metas(usuario_logado):
 
 
     elif _aba_sel == _ABAS[2]:
-        _aba_desempenho(dados, _carregar_ano_full())
+        _aba_desempenho(dados, _carregar_ano_full(),
+                        carregar_periodo=_carregar_periodo)
 
         st.markdown("---")
         st.markdown("#### 📈 Desempenho Individual")
@@ -3000,7 +3374,8 @@ def pagina_analise_metas(usuario_logado):
         if _mb_u_des:
             # Usa o período selecionado (dados) — não o ano completo —
             # para evitar mostrar meses sem meta individual configurada.
-            _desempenho_individual(dados, _mb_u_des, _mb_nome_des)
+            _desempenho_individual(dados, _mb_u_des, _mb_nome_des,
+                                   carregar_periodo=carregar_periodo)
 
     elif len(_ABAS) > 3 and _aba_sel == _ABAS[3]:
         # Só chega aqui quem é gestor: a aba nem entra na lista dos outros, e

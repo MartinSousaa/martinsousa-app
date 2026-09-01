@@ -32,7 +32,7 @@ import planilha as _plan
 # Nome vindo do ambiente: producao usa o padrao, homologacao usa a copia.
 PLANILHA_NOME = _plan.nome()
 ABA_NOME = "equipe"
-COLUNAS = ["username_trello", "nome", "nome_rhid", "ativo", "bate_ponto"]
+COLUNAS = ["username_trello", "nome", "nome_rhid", "ativo", "bate_ponto", "colunas_funcao"]
 
 
 def _crono(rotulo, seg, detalhe=""):
@@ -89,23 +89,25 @@ def carregar():
     return membros, mapa_rhid
 
 
-def salvar(username_trello, nome, nome_rhid="", ativo=True, bate_ponto=True):
+def salvar(username_trello, nome, nome_rhid="", ativo=True, bate_ponto=True,
+           colunas_funcao=""):
     """Grava ou atualiza uma pessoa."""
     aba = _aba()
     _garantir_colunas(aba)
     linha = [str(username_trello).strip(), str(nome).strip(),
              str(nome_rhid).strip(), "sim" if ativo else "não",
-             "sim" if bate_ponto else "não"]
+             "sim" if bate_ponto else "não", str(colunas_funcao or "").strip()]
     try:
         celula = aba.find(str(username_trello).strip(), in_column=1)
     except Exception:
         celula = None
     if celula:
-        aba.update(f"A{celula.row}:E{celula.row}", [linha], value_input_option="RAW")
+        aba.update(f"A{celula.row}:F{celula.row}", [linha], value_input_option="RAW")
     else:
         aba.append_row(linha, value_input_option="RAW")
     carregar.clear()
     nao_batem.clear()
+    colunas_da_funcao.clear()
 
 
 def _garantir_colunas(aba):
@@ -144,3 +146,31 @@ def nao_batem():
         if user and marca in ("não", "nao", "0", "false", "n"):
             fora.add(user)
     return fora
+
+
+@st.cache_data(ttl=600)
+def colunas_da_funcao(username=None):
+    """Colunas do Trello que sao da funcao de cada pessoa.
+
+    Sem username devolve {usuario: [prefixo, ...]}; com username, a lista dela.
+    Pessoa sem nada cadastrado devolve lista vazia, e isso quer dizer SEM
+    RESTRICAO — nada e marcado na tela. Marcar por omissao acusaria todo mundo
+    no dia em que o campo fosse criado.
+
+    O valor e uma lista separada por ponto e virgula, comparada por prefixo:
+    "CRIATIVO VÍDEO" pega "CRIATIVO VÍDEO (80)" mesmo se o numero mudar.
+    """
+    mapa = {}
+    try:
+        registros = _aba().get_all_records()
+    except Exception:
+        registros = []
+    for linha in registros:
+        u = str(linha.get("username_trello", "")).strip().lower()
+        if not u:
+            continue
+        bruto = str(linha.get("colunas_funcao", "") or "").strip()
+        mapa[u] = [p.strip() for p in bruto.split(";") if p.strip()]
+    if username is not None:
+        return mapa.get(str(username).strip().lower(), [])
+    return mapa
