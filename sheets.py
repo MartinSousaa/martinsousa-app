@@ -80,11 +80,41 @@ def cliente():
     return gc
 
 
+# Motivo de a planilha ter sido aberta pelo nome, quando havia um ID. Lido pela
+# tela para avisar; vazio quando nao houve problema.
+ID_RECUSADO = {"motivo": ""}
+
+
 @st.cache_resource
 def planilha():
-    """A planilha deste ambiente, aberta uma vez por processo."""
+    """A planilha deste ambiente, aberta uma vez por processo.
+
+    O ID so e aceito se o titulo bater com o nome esperado do ambiente.
+
+    Sem essa conferencia, o ID de producao colado por engano no ambiente de
+    teste faria o teste ESCREVER na planilha de verdade — com a faixa amarela
+    de "nada aqui afeta o Studio de verdade" no topo da tela, dizendo o
+    contrario. O nome e escolhido por ambiente em planilha.py; o ID nao passa
+    por ali, entao ele tem que se justificar contra o nome.
+
+    O titulo nao custa requisicao: gspread ja busca o metadata da planilha ao
+    construir o objeto, tanto por ID quanto por nome.
+    """
     gc = cliente()
     chave = _id_configurado()
+    esperado = _plan.nome()
+    ID_RECUSADO["motivo"] = ""
     if chave:
-        return gc.open_by_key(chave)
-    return gc.open(_plan.nome())
+        try:
+            pl = gc.open_by_key(chave)
+            titulo = str(getattr(pl, "title", "") or "").strip()
+            if titulo == esperado:
+                return pl
+            ID_RECUSADO["motivo"] = (
+                f'PLANILHA_ID aponta para "{titulo}", mas este ambiente é '
+                f'"{esperado}". Abri pelo nome e ignorei o ID.')
+        except Exception as e:
+            ID_RECUSADO["motivo"] = (
+                f"PLANILHA_ID configurado, mas não consegui abrir por ele "
+                f"({str(e)[:120]}). Abri pelo nome.")
+    return gc.open(esperado)
