@@ -2827,83 +2827,61 @@ def _fmt_hhmm(minutos):
     return f"{int(minutos)//60:02d}:{int(minutos)%60:02d}"
 
 
-# A ficha que aparece com o mouse em cima de um bloco. CSS puro, dentro do
-# proprio SVG.
+# A ficha que aparece com o mouse em cima de um bloco.
 #
-# Nao e JavaScript de proposito: components.html cria um iframe com WebSocket
-# proprio e ja derrubou a sessao da equipe inteira neste app. O <title> nativo
-# do SVG, que era o que havia antes, demora quase um segundo para aparecer,
-# nao aceita formatacao e some sozinho — nao serve para ler nome de cartao.
-# A ficha nao pode morar dentro do grupo do bloco: SVG nao tem z-index -- quem e
-# desenhado depois fica por cima --, entao a ficha de um dia sumiria embaixo dos
-# blocos dos dias seguintes. Todas as fichas vao para o FIM do desenho, e cada
-# uma e ligada ao seu bloco pelo seletor de irmao posterior (~), que so exige
-# que ela venha depois no documento. Sem :has(), sem JS.
-_LTD_BASE = ('.ltd-f{opacity:0;pointer-events:none;}'
-             '.ltd-i:hover rect:first-child{fill-opacity:1;stroke:#fff;'
-             'stroke-width:1;}')
-
-
-def _ltd_css(pre, n):
-    regras = "".join(f'#{pre}i{i}:hover~#{pre}f{i}{{opacity:1;}}' for i in range(n))
-    return f'<style>{_LTD_BASE}{regras}</style>'
-
+# Ela e HTML sobreposto ao SVG, e nao um <g> dentro dele. Duas tentativas
+# falharam na tela antes desta, e o motivo esta no proprio Streamlit: markdown
+# com HTML nao passa por sanitizador -- passa por rehypeRaw e e RECONSTRUIDO
+# elemento a elemento pelo React. O que nao e HTML ou SVG comum se perde no
+# caminho: o <style> dentro do <svg> e o <set> do SMIL sumiram, e sem eles as
+# fichas ficavam todas visiveis de uma vez, empilhadas sobre o grafico.
+#
+# O que sobra e o que este app ja prova funcionar: style= inline em cada
+# elemento, e a folha de estilo do app.py. Por isso a regra de :hover mora la,
+# e aqui cada ficha nasce com display:none INLINE. Se a regra sumir, a ficha
+# fica escondida -- que e o comportamento seguro -- e o <title> do bloco ainda
+# responde. O contrario, que era o caso, e a tela coberta de cartoes.
+#
+# HTML tambem resolve a ordem de pintura de graca: as fichas vem depois do
+# <svg> no documento, entao ficam por cima dele sem precisar de z-index.
 FICHA_L = 246
 
 
-def _ficha_exec(pre, idx, e, tot, cx, cy, W, H, cor):
-    """Resumo de uma execução: cartão, coluna, janela e total do cartão no dia.
+def _ficha_exec(e, tot, cx_pct, cy_pct, cor, esq):
+    """Resumo de uma execução, sobreposto ao gráfico: cartão, coluna e tempo.
 
-    Fica ao lado do bloco, e vira para o outro lado quando o bloco está na
-    metade direita do gráfico — encostada na borda, ela sairia do quadro.
+    As coordenadas vêm em porcentagem do quadro: o SVG tem viewBox e largura
+    100%, então porcentagem é a única medida que acompanha o gráfico quando a
+    coluna do Streamlit muda de largura.
     """
     def _corta(t, n):
         t = _esc(t)
         return t if len(t) <= n else t[:n - 1] + "…"
 
-    linhas = [("#e8e6e1", 10, "700", _corta(e["card"], 42))]
-    col = _corta(e.get("lista", ""), 36)
+    linhas = [
+        f'<div style="font-size:11px;font-weight:700;color:#e8e6e1;'
+        f'margin-bottom:2px;">{_corta(e["card"], 44)}</div>']
+    col = _corta(e.get("lista", ""), 38)
     if col:
-        linhas.append(("#9aa09c", 8.5, "400", col))
-    linhas.append((cor, 9.5, "400",
-                   f'{e["ini"]:%H:%M} → {e["fim"]:%H:%M} · '
-                   f'{_fmt_hm(e["min"])} de execução'))
+        linhas.append(f'<div style="font-size:9px;color:#9aa09c;">{col}</div>')
+    linhas.append(
+        f'<div style="font-size:10px;color:{cor};margin-top:3px;">'
+        f'{e["ini"]:%H:%M} → {e["fim"]:%H:%M} · {_fmt_hm(e["min"])} de execução'
+        f'</div>')
     if tot["n"] > 1:
-        linhas.append(("#EDA100", 8.5, "400",
-                       f'total do cartão no dia {_fmt_hm(tot["min"])} '
-                       f'em {tot["n"]} trechos'))
-
-    alt = 14 + sum(l[1] + 6 for l in linhas)
-    esq = cx > W / 2
-    fx = cx - FICHA_L - 7 if esq else cx + 7
-    fy = min(max(cy - alt / 2, 2), H - alt - 2)
-    texto, ty = "", 8
-    for c, fs, peso, t in linhas:
-        ty += fs + 6
-        texto += (f'<text x="10" y="{ty:.0f}" font-size="{fs}" '
-                  f'font-weight="{peso}" fill="{c}">{t}</text>')
-    # Tres mecanismos para a mesma coisa, e nao e exagero: o <style> dentro do
-    # SVG nao sobrevive ao pipeline de HTML do Streamlit -- as fichas apareceram
-    # todas de uma vez na tela, embora o mesmo SVG funcione num navegador puro.
-    #
-    #   opacity="0" no atributo  -- a ficha nasce invisivel mesmo sem CSS algum.
-    #                               Sem isto, folha de estilo descartada = todas
-    #                               as fichas visiveis ao mesmo tempo, que foi o
-    #                               defeito relatado.
-    #   <set> do proprio SVG     -- acende no mouseover do bloco e apaga no
-    #                               mouseout. E SVG nativo: nao passa por CSS
-    #                               nem por JavaScript, entao nao ha o que
-    #                               higienizar.
-    #   a regra de CSS           -- continua, para quem aplicar. Animacao SMIL
-    #                               tem prioridade sobre CSS, e as duas mandam a
-    #                               mesma coisa; nao brigam.
+        linhas.append(
+            f'<div style="font-size:9px;color:#EDA100;margin-top:2px;">'
+            f'total do cartão no dia {_fmt_hm(tot["min"])} em {tot["n"]} trechos'
+            f'</div>')
+    lado = (f'right:{100 - cx_pct:.2f}%;margin-right:8px;' if esq
+            else f'left:{cx_pct:.2f}%;margin-left:8px;')
     return (
-        f'<g class="ltd-f" id="{pre}f{idx}" opacity="0" '
-        f'pointer-events="none" transform="translate({fx:.1f},{fy:.1f})">'
-        f'<set attributeName="opacity" to="1" '
-        f'begin="{pre}i{idx}.mouseover" end="{pre}i{idx}.mouseout"/>'
-        f'<rect width="{FICHA_L}" height="{alt:.0f}" rx="6" fill="#12140f" '
-        f'fill-opacity="0.97" stroke="{cor}" stroke-width="1"/>{texto}</g>')
+        f'<div class="ltd-f" style="display:none;position:absolute;'
+        f'top:{cy_pct:.2f}%;{lado}transform:translateY(-50%);'
+        f'width:{FICHA_L}px;max-width:60%;background:#12140f;'
+        f'border:1px solid {cor};border-radius:6px;padding:8px 10px;'
+        f'pointer-events:none;z-index:5;line-height:1.35;">'
+        + "".join(linhas) + '</div>')
 
 
 def _chart_linha_do_tempo(dados, username):
@@ -2957,13 +2935,7 @@ def _chart_linha_do_tempo(dados, username):
     def y(m):
         return mt + (m - eixo_ini) / span * ih
 
-    # Prefixo proprio deste grafico. Id repetido na mesma pagina quebra tanto a
-    # referencia do <set> quanto o seletor de CSS: os dois passam a apontar
-    # sempre para o primeiro elemento com aquele id, e todos os blocos acendem
-    # a mesma ficha.
-    import zlib
-    pre = "ltd%d" % (zlib.crc32(f"{username}{ano}{mes}".encode()) % 100000)
-    partes, itens, fichas = [], [], []
+    partes, sobre = [], []
     # Fora do expediente com outro fundo, e o almoco marcado: um bloco as 13h45
     # nao quer dizer a mesma coisa que um as 10h.
     if eixo_ini < exp_ini:
@@ -3013,33 +2985,33 @@ def _chart_linha_do_tempo(dados, username):
             cor = "#8B5CF6" if e.get("tipo") == "filmagem" else "#4A90D9"
             bx, blarg = x + 2.5, max(bw - 5, 2)
             tot = por_card.get(e["card"], {"min": e["min"], "n": 1})
-            _i = len(fichas)
-            fichas.append(_ficha_exec(pre, _i, e, tot, bx + blarg / 2,
-                                      (y0 + y1) / 2, W, H, cor))
-            itens.append(
-                f'<g class="ltd-i" id="{pre}i{_i}">'
-                f'<rect x="{bx:.1f}" y="{y0:.1f}" '
-                f'width="{blarg:.1f}" height="{alt:.1f}" rx="2" fill="{cor}" '
-                f'fill-opacity="0.85">'
-                f'<set attributeName="fill-opacity" to="1" '
-                f'begin="{pre}i{_i}.mouseover" end="{pre}i{_i}.mouseout"/>'
-                f'<set attributeName="stroke" to="#fff" '
-                f'begin="{pre}i{_i}.mouseover" end="{pre}i{_i}.mouseout"/>'
-                f'</rect>'
-                # Alvo de mouse maior que o bloco: bloco de 20 minutos tem 6px
-                # de altura, e caçar 6px com o ponteiro é o tipo de detalhe que
-                # faz alguém achar que a tela não responde.
-                f'<rect x="{bx:.1f}" y="{y0-3:.1f}" width="{blarg:.1f}" '
-                f'height="{alt+6:.1f}" fill="transparent"/>'
+            partes.append(
+                f'<rect x="{bx:.1f}" y="{y0:.1f}" width="{blarg:.1f}" '
+                f'height="{alt:.1f}" rx="2" fill="{cor}" fill-opacity="0.85">'
+                # O <title> e a rede de seguranca: se a folha de estilo do app
+                # nao chegar, a ficha fica escondida e ele responde sozinho.
+                f'<title>{_esc(e["card"])} · {e["ini"]:%H:%M} → '
+                f'{e["fim"]:%H:%M} · {_fmt_hm(e["min"])}</title></rect>'
+                # Marcadores de inicio e fim: o traco passa dos lados do bloco,
+                # senao a borda de um bloco encostado no seguinte vira uma
+                # emenda so e os dois viram um cartao unico e longo.
                 f'<line x1="{bx-2:.1f}" y1="{y0:.1f}" x2="{bx+blarg+2:.1f}" '
                 f'y2="{y0:.1f}" stroke="#1BAF7A" stroke-width="1.4"/>'
                 f'<line x1="{bx-2:.1f}" y1="{y1:.1f}" x2="{bx+blarg+2:.1f}" '
-                f'y2="{y1:.1f}" stroke="#E34948" stroke-width="1.4"/>'
-
-                # O <title> continua: se o navegador nao aplicar o CSS da ficha,
-                # ainda sobra o tooltip nativo em vez de nada.
-                f'<title>{_esc(e["card"])[:70]} · {e["ini"]:%H:%M} → '
-                f'{e["fim"]:%H:%M} · {_fmt_hm(e["min"])}</title></g>')
+                f'y2="{y1:.1f}" stroke="#E34948" stroke-width="1.4"/>')
+            # Area de mouse e ficha, em porcentagem do quadro: o SVG tem viewBox
+            # e largura 100%, entao porcentagem e a unica medida que acompanha o
+            # grafico quando a coluna do Streamlit muda de largura. A area e
+            # mais alta que o bloco -- um bloco de 20 minutos tem 6px, e cacar
+            # 6px com o ponteiro faz a tela parecer que nao responde.
+            cx_pct = (bx + blarg / 2) / W * 100
+            cy_pct = (y0 + y1) / 2 / H * 100
+            sobre.append(
+                f'<div class="ltd-hit" style="position:absolute;'
+                f'left:{bx / W * 100:.3f}%;top:{(y0 - 3) / H * 100:.3f}%;'
+                f'width:{blarg / W * 100:.3f}%;'
+                f'height:{(alt + 6) / H * 100:.3f}%;"></div>'
+                + _ficha_exec(e, tot, cx_pct, cy_pct, cor, cx_pct > 55))
         if lista:
             medias.append(sum(e["min"] for e in lista) / len(lista))
         passo = 1 if ultimo <= 12 else 2
@@ -3079,12 +3051,14 @@ def _chart_linha_do_tempo(dados, username):
            'passe o mouse num bloco para ver o cartão</div>')
     # overflow visivel: a ficha do hover encosta na borda do SVG, e com
     # overflow:hidden ela sairia cortada.
-    return (f'{_ltd_css(pre, len(fichas))}'
-            f'<div style="width:100%;padding:4px 0;">{cab}'
+    # O quadro e position:relative para as fichas se posicionarem por ele. Elas
+    # vem DEPOIS do <svg> no documento, e por isso ficam por cima dele sem
+    # z-index nenhum -- HTML resolve de graca o que no SVG exigia truque.
+    return (f'<div style="width:100%;padding:4px 0;">{cab}'
+            f'<div style="position:relative;width:100%;">'
             f'<svg viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" '
-            f'style="width:100%;overflow:visible;">'
-            + "".join(partes) + "".join(itens) + "".join(fichas)
-            + f'</svg>{leg}</div>')
+            f'style="width:100%;display:block;">' + "".join(partes) + '</svg>'
+            + "".join(sobre) + f'</div>{leg}</div>')
 
 
 def _tabela_execucoes_dia(dados, username, dia):

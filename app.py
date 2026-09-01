@@ -434,6 +434,16 @@ tr:nth-last-child(-n+3) td { background-color: rgba(255,255,255,0.07) !important
 tr:nth-last-child(-n+3):last-child td { border-bottom: none !important; }
 tr:hover td { background-color: var(--ms-hover) !important; }
 
+/* ── FICHA DE EXECUÇÃO (linha do tempo do dia) ──────────────────────────── */
+/* Mora aqui, e não junto do gráfico, porque este bloco de estilo é o único
+   caminho que comprovadamente chega ao navegador: <style> dentro do <svg> é
+   perdido no caminho — st.markdown com HTML não sanitiza, mas reconstrói a
+   árvore elemento a elemento pelo React, e o que não é HTML/SVG comum se
+   perde. A ficha nasce com display:none inline, então se ESTA regra faltar
+   ela continua escondida em vez de aparecer sobre o gráfico. */
+.ltd-f { display: none; }
+.ltd-hit:hover + .ltd-f { display: block !important; }
+
 /* ── MÉTRICAS ───────────────────────────────────────────────────────────── */
 [data-testid="stMetric"] {
     background-color: var(--ms-metric-bg) !important;
