@@ -1143,6 +1143,29 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
 .bloco-titulo.verde{{color:#1BAF7A;}}.bloco-titulo.ouro{{color:#FFD700;}}
 .gauge-col{{display:-webkit-box;display:-webkit-flex;display:flex;-webkit-box-orient:vertical;-webkit-flex-direction:column;flex-direction:column;-webkit-box-align:center;-webkit-align-items:center;align-items:center;-webkit-box-pack:center;-webkit-justify-content:center;justify-content:center;gap:4px;height:100%;}}
 .gauge-svg{{height:90px;width:auto;}}
+.rit-tv{{margin-top:3px;padding:2px 6px;border:1px solid;border-radius:4px;text-align:center;max-width:100%;}}
+.rit-p{{font-weight:700;font-size:9px;white-space:nowrap;}}
+.rit-s{{color:#aaa;font-size:8px;white-space:nowrap;}}
+/* Tela mais baixa que o projeto -- e o que o zoom faz: a 150%, 1080px de janela
+   viram 720px de CSS. As alturas dos blocos sao fracao da janela, entao a faixa
+   de metas cai de 212 para 140px; as fontes e o velocimetro nao mudam, e quem
+   cedia era o velocimetro, espremido de 90 para 60px. E ele o indicador, entao
+   quem cede agora e o texto: o rotulo "META MENSAL" sai (o bloco ja se chama
+   Meta Mensal a esquerda), a caixa do ritmo perde moldura e segunda linha, e
+   sobra so a frase do ritmo -- que e a informacao. */
+@media (max-height: 980px) {{
+  .gauge-svg{{-webkit-flex:0 0 auto;flex:0 0 auto;}}
+  .gauge-col .gauge-label{{display:none;}}
+  .gauge-pct{{font-size:26px;}}
+  .rit-tv{{margin-top:1px;padding:0;border:0;background:none !important;}}
+  .rit-s{{display:none;}}
+}}
+/* Abaixo disto nem o velocimetro inteiro cabe: 200% de zoom deixam a faixa com
+   104px, e so o mostrador tem 90. Aqui ele volta a poder encolher -- menor e
+   pior que grande, mas melhor que cortado pela metade. */
+@media (max-height: 730px) {{
+  .gauge-svg{{-webkit-flex:1 1 auto;flex:1 1 auto;}}
+}}
 .gauge-info{{text-align:center;}}
 .gauge-pct{{font-size:30px;font-weight:700;line-height:1;}}
 .gauge-pct.verde{{color:#1BAF7A;}}.gauge-pct.ouro{{color:#FFD700;}}
@@ -1344,19 +1367,9 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
 <div id="som-btn" onclick="ativarSom();">🔊 Ativar Som</div>
 
 <script>
-// ── Layout: alturas dos quatro blocos, sempre sobre a altura de projeto ─────
-// Isto era calculado sobre window.innerHeight. Parecia certo — os blocos sempre
-// cabiam na tela — mas so os blocos encolhiam: as fontes, os velocimetros e os
-// mini-cards continuavam com o tamanho fixo em px. Com o zoom em 150% a janela
-// cai de 1080 para 720px de CSS, a faixa de metas cai de 212 para 140px e o
-// velocimetro, que e o ultimo a ceder no flex, e espremido de 90 para 60px;
-// em 200% sobra 24px dele. Era esse o indicador sumindo na TV.
-// Agora o layout e sempre montado na medida de projeto e a TV inteira e
-// reduzida junto por _autoEscala(): em qualquer zoom se ve o mesmo painel,
-// menor, e nunca um pedaco dele.
-var ALTURA_PROJETO = 1080;
+// ── Layout: calcula alturas reais em px a partir de window.innerHeight ──────
 function _aplicarLayout() {{
-  var H = ALTURA_PROJETO;
+  var H = window.innerHeight || 1080;
   var GAP = 3, PAD = 5;
   var avail = H - PAD * 2 - GAP * 3;
   var hM  = Math.round(avail * 0.20);
@@ -1639,25 +1652,27 @@ _registrarCarimbo(GERADO_EM);
 var SCRIPT_VER = "{_TV_SCRIPT_VER}";
 setInterval(checkAndPlay, 5 * 60 * 1000);
 // Auto-scale se conteúdo não couber na tela
-// Encaixa o painel de 1080px na tela que existe. A largura compensa a escala
-// para o conteudo continuar ocupando a tela inteira na horizontal.
+// Auto-scale se conteúdo não couber na tela
 function _autoEscala() {{
   try {{
     var root = document.querySelector('.tv-root');
-    var vh = window.innerHeight || document.documentElement.clientHeight
-             || ALTURA_PROJETO;
-    var esc = vh / ALTURA_PROJETO;
-    root.style.height = ALTURA_PROJETO + 'px';
-    root.style.width = (100 / esc).toFixed(4) + '%';
-    root.style.webkitTransformOrigin = 'top left';
-    root.style.transformOrigin = 'top left';
-    root.style.webkitTransform = 'scale(' + esc + ')';
-    root.style.transform = 'scale(' + esc + ')';
+    root.style.transform = ''; root.style.webkitTransform = ''; root.style.width = '';
+    var sh = root.scrollHeight;
+    var vh = window.innerHeight || document.documentElement.clientHeight;
+    if (sh > vh) {{
+      var scale = vh / sh;
+      root.style.webkitTransform = 'scale(' + scale + ')';
+      root.style.transform = 'scale(' + scale + ')';
+      root.style.webkitTransformOrigin = 'top left';
+      root.style.transformOrigin = 'top left';
+      root.style.width = Math.round(100 / scale) + '%';
+    }}
   }} catch(e) {{}}
 }}
 _autoEscala();
-// Mudar o zoom dispara resize e nao recarrega a pagina: sem isto a TV so se
-// reajustava no proximo refresh, ou nunca.
+// Mudar o zoom dispara resize e nao recarrega a pagina. Sem isto o painel so se
+// reajustava no proximo refresh -- e o layout, que e calculado sobre a altura da
+// janela, ficava com as medidas da altura antiga.
 window.addEventListener('resize', function() {{ _aplicarLayout(); _autoEscala(); }});
 </script>
 </body>
@@ -2064,13 +2079,10 @@ def pagina_placar(usuario_logado, headless=False):
         # texto quebrava em tres ou quatro linhas, estourava os 212px da
         # .bloco-metas e o overflow:hidden cortava o bloco — o que se via na TV.
         _ritmo_tv_html = (
-            f'<div style="margin-top:3px;padding:2px 6px;background:{_c}18;'
-            f'border:1px solid {_c}44;border-radius:4px;text-align:center;'
-            f'max-width:100%;">'
-            f'<div style="color:{_c};font-weight:700;font-size:9px;'
-            f'white-space:nowrap;">{_ritmo_tv["icone"]} {_r_txt_tv}</div>'
-            f'<div style="color:#aaa;font-size:8px;white-space:nowrap;">'
-            f'{_r_extra_tv}</div></div>')
+            f'<div class="rit-tv" style="border-color:{_c}44;background:{_c}18;">'
+            f'<div class="rit-p" style="color:{_c};">'
+            f'{_ritmo_tv["icone"]} {_r_txt_tv}</div>'
+            f'<div class="rit-s">{_r_extra_tv}</div></div>')
     _html_tv = _tv_full_html(
         pct_eq=pct_eq, pct_maxx=pct_maxx,
         saldo_eq=saldo_eq, meta_eq=meta_eq, faltam=faltam,
