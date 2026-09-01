@@ -325,10 +325,24 @@ def _metas_topicos(dados):
                  "sub_n": "Sem conclusões no período",
                  "sub_x": "Sem conclusões no período"}
     else:
+        # Como as penalidades: o arco sobe com o retrabalho e a cor julga. Verde
+        # ate metade do limite, amarelo dai ate 90% dele, vermelho passando
+        # disso — com o limite em 10%, da exatamente verde ate 5, amarelo ate 9
+        # e vermelho de 10 em diante. Escrito em fracao do limite, a mesma regra
+        # vale para a MAXX, que permite 5%.
+        def _ret(limite):
+            if limite <= 0:
+                return 0.0, "#1BAF7A"
+            pct = min(pct_retrab / limite * 100, 100)
+            cor = ("#1BAF7A" if pct_retrab <= limite * 0.5
+                   else "#EDA100" if pct_retrab <= limite * 0.9 else "#E34948")
+            return pct, cor
+
+        _rn, _crn = _ret(max_retrab_n)
+        _rx, _crx = _ret(max_retrab_x)
         t_ret = {
             "chave": "retrabalho", "rotulo": "Retrabalho",
-            "pct_n": max(0.0, (1.0 - pct_retrab / max_retrab_n) * 100) if max_retrab_n > 0 else 100.0,
-            "pct_x": max(0.0, (1.0 - pct_retrab / max_retrab_x) * 100) if max_retrab_x > 0 else 100.0,
+            "pct_n": _rn, "pct_x": _rx, "cor_n": _crn, "cor_x": _crx,
             "sub_n": f"{pct_retrab:.1f}% atual · máx {max_retrab_n}%",
             "sub_x": f"{pct_retrab:.1f}% atual · máx {max_retrab_x}%",
         }
@@ -1611,9 +1625,13 @@ def _gauge_svg(pct, cor, titulo, sub="", legend=""):
     sx, sy = _pt(math.pi); ex, ey = _pt(0)
     af = math.pi * (1 - p / 100); fx, fy = _pt(af)
     lg = 0  # semicírculo sempre < 180° → large-arc nunca necessário
-    vh = 94 if legend else 82   # viewBox mais alto quando há legenda
+    # As pontas do arco descem ate y=56.5 (centro 52 + metade do traco de 9). O
+    # titulo comecava em y=59 com o topo da letra por volta de 54,3 — 2,2px
+    # dentro do arco, e num rotulo longo como "Sem atraso em prioritarios" a
+    # linha passava justamente por baixo das pontas. Tudo desce 5px.
+    vh = 99 if legend else 87
     legend_el = (
-        f'<text x="50" y="89" text-anchor="middle" font-size="5" '
+        f'<text x="50" y="94" text-anchor="middle" font-size="5" '
         f'fill="var(--ms-texto-sec,#777)" font-style="italic">{legend}</text>'
     ) if legend else ""
     return (
@@ -1624,11 +1642,11 @@ def _gauge_svg(pct, cor, titulo, sub="", legend=""):
         f'<path d="M{sx:.2f},{sy:.2f} A{r},{r} 0 {lg},1 {fx:.2f},{fy:.2f}" fill="none" '
         f'stroke="{cor}" stroke-width="9" stroke-linecap="round"/>'
         f'<text x="50" y="42" text-anchor="middle" font-size="14" font-weight="700" fill="{cor}">{p:.0f}%</text>'
-        f'<text x="50" y="59" text-anchor="middle" font-size="6.5" font-weight="600" '
+        f'<text x="50" y="64" text-anchor="middle" font-size="6.5" font-weight="600" '
         f'fill="var(--ms-texto,#ccc)">{titulo}</text>'
-        f'<text x="50" y="69" text-anchor="middle" font-size="5.5" '
+        f'<text x="50" y="74" text-anchor="middle" font-size="5.5" '
         f'fill="var(--ms-texto-sec,#888)">{sub}</text>'
-        f'<rect x="14" y="75" width="72" height="3" rx="1.5" fill="{cor}"/>'
+        f'<rect x="14" y="80" width="72" height="3" rx="1.5" fill="{cor}"/>'
         f'{legend_el}'
         f'</svg></div>'
     )
