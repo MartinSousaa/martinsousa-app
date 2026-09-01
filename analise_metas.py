@@ -158,8 +158,12 @@ def _analisar_meses(listas, cards, membros_map, id_p, id_t, id_i, meses_lista, p
             # aplicar as folgas de 10 e 5 minutos. Sem ela, _ponto_por_membro
             # caia no calculo grosseiro por subtracao de totais — funcionava, e
             # dava outro numero.
+            #
+            # atividade_dia responde a pergunta que a entrega nao responde: num
+            # dia sem nenhum cartao concluido, a pessoa encostou no trabalho?
             "entregas_membro": d.get("entregas_membro", {}),
             "intervalos_membro": d.get("intervalos_membro", {}),
+            "atividade_dia": d.get("atividade_dia", {}),
             "pts_lista": dict(d["pts_lista"]),
             "qtd_lista": dict(d["qtd_lista"]),
             "pts_membro": dict(d["pts_membro"]),
@@ -2757,6 +2761,190 @@ def _chart_curva_execucao(dados, username, por_mes=False):
             f'style="width:100%;">' + "".join(partes) + '</svg></div>')
 
 
+def _atividade_do_membro(dados, username):
+    """O dia a dia da pessoa: o que ela tocou e o que ela entregou.
+
+    Devolve {dia: {"iniciados","concluidos","interrompidos","ativos","minutos"}}.
+
+    São duas fontes, de propósito. O concluído vem de `entregas_membro`, apurado
+    pela movimentação de coluna — a mesma origem da pontuação, para as telas não
+    discordarem entre si. O resto vem de `atividade_dia`, apurado pelas
+    etiquetas. Um dia sem entrega não é um dia sem trabalho, e até agora só o
+    primeiro tinha como aparecer.
+    """
+    dias = {}
+
+    def _reg(dia):
+        return dias.setdefault(dia, {"iniciados": 0, "concluidos": 0,
+                                     "interrompidos": 0, "ativos": 0,
+                                     "minutos": 0.0})
+
+    for r in dados:
+        for dia, v in ((r.get("atividade_dia") or {}).get(username) or {}).items():
+            reg = _reg(dia)
+            reg["iniciados"] += v.get("iniciados", 0)
+            reg["interrompidos"] += v.get("interrompidos", 0)
+            reg["ativos"] += v.get("ativos", 0)
+            reg["minutos"] += float(v.get("minutos", 0) or 0)
+        e = (r.get("entregas_membro") or {}).get(username) or {}
+        for dia, v in (e.get("dias") or {}).items():
+            _reg(dia)["concluidos"] += v.get("qtd", 0)
+    return dias
+
+
+def _chart_atividade_dia(dados, username, por_mes=False):
+    """Dia a dia: iniciados, concluídos, interrompidos e tempo de execução.
+
+    A curva de execução mostra o que foi ENTREGUE. Um dia sem entrega pode ser
+    um dia de cartão longo ou um dia em que ninguém encostou em nada, e os dois
+    apareciam iguais — zero. Aqui a barra é o tempo de execução do dia, e a
+    grade embaixo dá as três contagens, para separar um caso do outro.
+
+    Dia útil já passado, sem tempo nenhum e sem cartão nenhum tocado, sai em
+    vermelho. Fim de semana e dia ainda por vir não são acusados.
+    """
+    dias = _atividade_do_membro(dados, username)
+
+    if por_mes:
+        agrup = {}
+        for dia, v in dias.items():
+            a = agrup.setdefault(dia[:7], {"iniciados": 0, "concluidos": 0,
+                                           "interrompidos": 0, "minutos": 0.0})
+            for k in a:
+                a[k] += v[k]
+        rotulos, regs, uteis = [], [], []
+        for r in dados:
+            ym = r.get("filtro_mes")
+            if not ym:
+                continue
+            chave = f"{ym[0]:04d}-{ym[1]:02d}"
+            rotulos.append(r.get("label", chave))
+            regs.append(agrup.get(chave, {"iniciados": 0, "concluidos": 0,
+                                          "interrompidos": 0, "minutos": 0.0}))
+            uteis.append(False)   # mês inteiro vazio não se acusa como dia parado
+        unidade = "mês"
+    else:
+        ym = next((r.get("filtro_mes") for r in dados if r.get("filtro_mes")), None)
+        if not ym:
+            return ('<div style="padding:24px;text-align:center;font-size:11px;'
+                    'color:var(--ms-texto-sec);">Sem mês definido</div>')
+        ano, mes = ym
+        ultimo = calendar.monthrange(ano, mes)[1]
+        hoje = datetime.now().date()
+        rotulos, regs, uteis = [], [], []
+        for d in range(1, ultimo + 1):
+            data = datetime(ano, mes, d).date()
+            rotulos.append(str(d))
+            regs.append(dias.get(f"{ano:04d}-{mes:02d}-{d:02d}",
+                                 {"iniciados": 0, "concluidos": 0,
+                                  "interrompidos": 0, "minutos": 0.0}))
+            uteis.append(data.weekday() < 5 and data <= hoje)
+        unidade = "dia"
+
+    if not regs:
+        return ('<div style="padding:24px;text-align:center;font-size:11px;'
+                'color:var(--ms-texto-sec);">Sem dados no período</div>')
+
+    mins = [r["minutos"] for r in regs]
+    parados = [i for i, r in enumerate(regs)
+               if uteis[i] and r["minutos"] <= 0 and r["iniciados"] == 0
+               and r["concluidos"] == 0]
+
+    W = 620
+    ml, mr, mt = 34, 12, 14
+    ALT_BARRA, ALT_EIXO, ALT_LINHA = 96, 14, 15
+    LINHAS = [("iniciados", "▶ iniciados", "#4A90D9"),
+              ("concluidos", "✔ concluídos", "#1BAF7A"),
+              ("interrompidos", "⏸ interrompidos", "#EDA100")]
+    H = mt + ALT_BARRA + ALT_EIXO + ALT_LINHA * len(LINHAS) + 6
+    iw = W - ml - mr
+    topo = max(mins + [60.0])
+    bw = iw / len(regs)
+    base = mt + ALT_BARRA
+
+    partes = []
+    for i in range(4):
+        yg = mt + ALT_BARRA * i / 3
+        partes.append(
+            f'<line x1="{ml}" y1="{yg:.1f}" x2="{W-mr}" y2="{yg:.1f}" '
+            f'stroke="var(--ms-divisor,#333)" stroke-width="0.5"/>'
+            f'<text x="{ml-4}" y="{yg+3:.1f}" text-anchor="end" font-size="7" '
+            f'fill="var(--ms-texto-sec,#888)">'
+            f'{_fmt_hm(topo*(3-i)/3)}</text>')
+
+    for i, reg in enumerate(regs):
+        x = ml + i * bw + 1
+        larg = max(bw - 2, 1)
+        dica = (f'{rotulos[i]}: {_fmt_hm(reg["minutos"])} de execução · '
+                f'{reg["iniciados"]} iniciado(s) · {reg["concluidos"]} concluído(s) · '
+                f'{reg["interrompidos"]} interrompido(s)')
+        if reg["minutos"] > 0:
+            alt = reg["minutos"] / topo * ALT_BARRA
+            partes.append(
+                f'<rect x="{x:.1f}" y="{base-alt:.1f}" width="{larg:.1f}" '
+                f'height="{alt:.1f}" rx="2" fill="#4A90D9">'
+                f'<title>{dica}</title></rect>')
+        elif i in parados:
+            # O dia parado nao pode ser um vazio igual ao domingo: ele e o
+            # achado que esta tela existe para mostrar.
+            partes.append(
+                f'<rect x="{x:.1f}" y="{mt:.1f}" width="{larg:.1f}" '
+                f'height="{ALT_BARRA:.1f}" fill="#E3494822"/>'
+                f'<rect x="{x:.1f}" y="{base-2:.1f}" width="{larg:.1f}" height="2" '
+                f'fill="#E34948"><title>{dica} — dia útil sem registro</title></rect>')
+        else:
+            partes.append(
+                f'<rect x="{x:.1f}" y="{base-1.5:.1f}" width="{larg:.1f}" '
+                f'height="1.5" fill="var(--ms-divisor,#444)">'
+                f'<title>{dica}</title></rect>')
+        passo = 1 if len(regs) <= 12 else 3
+        if i == 0 or (i + 1) % passo == 0:
+            partes.append(
+                f'<text x="{x+larg/2:.1f}" y="{base+10:.1f}" text-anchor="middle" '
+                f'font-size="7" fill="var(--ms-texto-sec,#888)">{rotulos[i]}</text>')
+
+    # A grade das tres contagens. Numero pequeno em cada dia: e a resposta
+    # direta a "quantos comecou, quantos terminou, quantos parou".
+    for li, (chave, rot, cor) in enumerate(LINHAS):
+        yl = base + ALT_EIXO + li * ALT_LINHA
+        partes.append(
+            f'<text x="{ml-4}" y="{yl+8:.1f}" text-anchor="end" font-size="7" '
+            f'font-weight="700" fill="{cor}">{rot.split()[0]}</text>')
+        for i, reg in enumerate(regs):
+            v = reg[chave]
+            x = ml + i * bw + 1
+            larg = max(bw - 2, 1)
+            if v > 0:
+                partes.append(
+                    f'<rect x="{x:.1f}" y="{yl:.1f}" width="{larg:.1f}" '
+                    f'height="{ALT_LINHA-3:.1f}" rx="2" fill="{cor}" '
+                    f'fill-opacity="{min(0.35 + v * 0.2, 1):.2f}"/>'
+                    f'<text x="{x+larg/2:.1f}" y="{yl+9:.1f}" text-anchor="middle" '
+                    f'font-size="7.5" font-weight="700" fill="#12140f">{v}</text>')
+            else:
+                partes.append(
+                    f'<rect x="{x:.1f}" y="{yl:.1f}" width="{larg:.1f}" '
+                    f'height="{ALT_LINHA-3:.1f}" rx="2" '
+                    f'fill="var(--ms-divisor,#3a3a3a)" fill-opacity="0.45"/>')
+
+    legenda = " · ".join(
+        f'<span style="color:{c};font-weight:700;">{r}</span>' for _, r, c in LINHAS)
+    if parados:
+        _quais = ", ".join(rotulos[i] for i in parados)
+        aviso = (f'<div style="margin-top:6px;font-size:10px;color:#E34948;'
+                 f'font-weight:700;">🚩 {len(parados)} dia(s) útil(eis) sem nenhum '
+                 f'registro: {_quais}</div>')
+    else:
+        aviso = ('<div style="margin-top:6px;font-size:10px;color:#1BAF7A;">'
+                 'Nenhum dia útil sem registro no período.</div>')
+    return (f'<div style="width:100%;overflow:hidden;padding:4px 0;">'
+            f'<svg viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" '
+            f'style="width:100%;">' + "".join(partes) + '</svg>'
+            f'<div style="font-size:9px;color:var(--ms-texto-sec);margin-top:2px;">'
+            f'Barra: tempo de execução por {unidade} · {legenda}</div>'
+            f'{aviso}</div>')
+
+
 def _chart_colunas_membro(dados, username, colunas_funcao=None):
     """Cartoes que a pessoa entregou, por coluna, com pontos e pontos por cartao.
 
@@ -3196,6 +3384,21 @@ def _desempenho_individual(dados, username, nome, carregar_periodo=None):
                                        max_tol=_tol_lim, max_atr=_atr_lim,
                                        dados=dados, cfg=_cfg_ult),
                     unsafe_allow_html=True)
+
+    st.markdown("---")
+    # Largura inteira: sao 30 colunas de dia com tres contagens embaixo de cada
+    # uma. Em meia tela os numeros ficam ilegiveis, e sao eles a resposta.
+    st.markdown("#### 🗓️ Atividade diária")
+    st.caption(
+        "O que a pessoa **encostou** no dia, não só o que entregou. A barra é o "
+        "tempo de execução; abaixo, quantos cartões ela iniciou, concluiu e "
+        "interrompeu. Dia útil já passado sem nenhum registro sai em vermelho — "
+        "é ele que separa um dia de cartão longo de um dia parado."
+        if not _por_mes else
+        "Mês a mês: tempo de execução e quantos cartões foram iniciados, "
+        "concluídos e interrompidos.")
+    st.markdown(_chart_atividade_dia(dados, username, por_mes=_por_mes),
+                unsafe_allow_html=True)
 
     st.markdown("---")
     row2a, row2b = st.columns(2)

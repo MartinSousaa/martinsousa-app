@@ -1089,6 +1089,140 @@ def intervalos_por_membro(cards, acoes_board, membros_map=None, agora=None):
     return {u: _unir(v) for u, v in por_membro.items()}
 
 
+def eventos_de_trabalho(acoes, membros_agora=None, labels_agora=None):
+    """Os marcos do cartão: quando começou a ser executado e quando parou.
+
+    Devolve [{"dt": datetime UTC, "tipo": "inicio"|"interrupcao",
+              "membros": {id_membro}}].
+
+    `intervalos_do_cartao` responde "por quanto tempo", que é o que a pontuação
+    e a ociosidade precisam. Falta a outra pergunta, que é a de quem olha um dia
+    e não vê entrega nenhuma: *encostaram* no trabalho? Um dia com três cartões
+    iniciados e nenhum concluído é diferente de um dia sem nada — e os dois
+    apareciam iguais, porque só o concluído era contado.
+
+    - "inicio" é a entrada de etiqueta de trabalho num cartão que não estava
+      trabalhando. Retomada depois de interrupção também é início: para contar
+      cartões tocados no dia, é o mesmo fato, e a contagem por cartão distinto
+      impede que a mesma demanda apareça duas vezes.
+    - "interrupcao" é a entrada de etiqueta de interrupção num cartão que
+      estava trabalhando. Tirar a etiqueta de trabalho não é interrupção: é o
+      fim normal da execução.
+    """
+    eventos = []
+    for ac in acoes:
+        try:
+            dt = datetime.fromisoformat(ac["date"].replace("Z", "+00:00"))
+        except Exception:
+            continue
+        tipo = ac.get("type", "")
+        dados = ac.get("data", {}) or {}
+        if tipo in ("addLabelToCard", "removeLabelFromCard"):
+            nome = ((dados.get("label") or {}).get("name") or "").upper().strip()
+            if nome in LABELS_TRABALHO or nome in LABELS_INTERRUPCAO:
+                eventos.append((dt, "label", nome, tipo == "addLabelToCard"))
+        elif tipo in ("addMemberToCard", "removeMemberFromCard"):
+            mid = dados.get("idMember") or (dados.get("member") or {}).get("id")
+            if mid:
+                eventos.append((dt, "membro", mid, tipo == "addMemberToCard"))
+    _mapa = None
+    for dt, lid, entrou in _eventos_de_etiqueta(acoes, labels_agora):
+        if _mapa is None:
+            _mapa = mapa_labels()
+        nome = _mapa.get(lid, "")
+        if nome in LABELS_TRABALHO or nome in LABELS_INTERRUPCAO:
+            eventos.append((dt, "label", nome, entrou))
+
+    eventos.sort(key=lambda e: (e[0], e[1], str(e[2])))
+
+    labels, membros = set(), _membros_no_inicio(acoes, membros_agora)
+    marcos = []
+
+    def _trabalhando():
+        return bool(labels & LABELS_TRABALHO) and not (labels & LABELS_INTERRUPCAO)
+
+    for dt, especie, valor, entrou in eventos:
+        antes = _trabalhando()
+        if especie == "label":
+            labels.add(valor) if entrou else labels.discard(valor)
+        else:
+            membros.add(valor) if entrou else membros.discard(valor)
+        agora_trab = _trabalhando()
+        if especie != "label" or not entrou:
+            continue
+        if valor in LABELS_TRABALHO and agora_trab and not antes:
+            marcos.append({"dt": dt, "tipo": "inicio", "membros": set(membros)})
+        elif valor in LABELS_INTERRUPCAO and antes and not agora_trab:
+            marcos.append({"dt": dt, "tipo": "interrupcao", "membros": set(membros)})
+    return marcos
+
+
+def _fatiar_por_dia(ini, fim):
+    """Quebra um trecho na virada do dia. [(dia, minutos)] em hora local."""
+    saida = []
+    cursor = ini
+    while cursor < fim:
+        virada = (cursor + timedelta(days=1)).replace(
+            hour=0, minute=0, second=0, microsecond=0)
+        pedaco = min(virada, fim)
+        saida.append((cursor.strftime("%Y-%m-%d"),
+                      (pedaco - cursor).total_seconds() / 60.0))
+        cursor = pedaco
+    return saida
+
+
+def atividade_por_dia(cards, acoes_board, membros_map=None, agora=None):
+    """Quanto cada pessoa encostou no trabalho, dia a dia.
+
+    {username: {"AAAA-MM-DD": {"iniciados": n, "interrompidos": n,
+                               "ativos": n, "minutos": m}}}
+
+    `iniciados` e `interrompidos` contam CARTÕES DISTINTOS: um cartão iniciado,
+    interrompido e retomado no mesmo dia conta uma vez em cada, não três.
+    `ativos` são os cartões que tiveram algum tempo de execução no dia, e
+    `minutos` é esse tempo somado — sem rateio entre cartões simultâneos, que é
+    conta de pontuação, não de presença no trabalho.
+
+    O que falta aqui de propósito é o concluído: ele já vem de
+    `entregas_membro`, apurado pela movimentação de coluna, que é a mesma fonte
+    da pontuação. Contar conclusão duas vezes, por dois caminhos, é como as
+    telas passam a discordar entre si.
+    """
+    membros_map = membros_map or {}
+    agora = agora or datetime.now(timezone.utc)
+    por = {}
+
+    def _dia(u, d):
+        return por.setdefault(u, {}).setdefault(
+            d, {"iniciados": set(), "interrompidos": set(),
+                "ativos": set(), "minutos": 0.0})
+
+    for c in cards:
+        acoes_c = acoes_board.get(c["id"], [])
+        if not acoes_c:
+            continue
+        labels_c = labels_do_card(c)
+        for ev in eventos_de_trabalho(acoes_c, c.get("idMembers"), labels_c):
+            d = ev["dt"].astimezone(FUSO).strftime("%Y-%m-%d")
+            chave = "iniciados" if ev["tipo"] == "inicio" else "interrompidos"
+            for m in ev["membros"]:
+                _dia(membros_map.get(m, m), d)[chave].add(c["id"])
+        for s in intervalos_do_cartao(acoes_c, agora, c.get("idMembers"), labels_c):
+            for d, mins in _fatiar_por_dia(s["ini"].astimezone(FUSO),
+                                           s["fim"].astimezone(FUSO)):
+                for m in s["membros"]:
+                    reg = _dia(membros_map.get(m, m), d)
+                    reg["ativos"].add(c["id"])
+                    reg["minutos"] += mins
+
+    return {u: {d: {"iniciados": len(v["iniciados"]),
+                    "interrompidos": len(v["interrompidos"]),
+                    "ativos": len(v["ativos"]),
+                    "minutos": round(v["minutos"], 1)}
+                for d, v in dias.items()}
+            for u, dias in por.items()}
+
+
 def _buracos(janelas, ativos):
     """Trechos das janelas que NAO estao cobertos pelos ativos."""
     ativos = _unir(ativos)
@@ -1561,6 +1695,9 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
         #   membro -> {"dias":    {"AAAA-MM-DD": {"qtd": n, "pts": p}},
         #              "colunas": {nome_da_coluna: {"qtd": n, "pts": p}}}
         "entregas_membro": {},
+        # membro -> {"AAAA-MM-DD": {"iniciados", "interrompidos", "ativos",
+        # "minutos"}}. Ver atividade_por_dia().
+        "atividade_dia": {},
     }
 
     # O rateio entre cartões simultâneos precisa enxergar o board inteiro, então
@@ -1571,8 +1708,12 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
     # paginas: perder o registro de conclusao de um cartao muito antigo apenas o
     # deixa de fora do mes, que ja e o comportamento seguro.
     _acoes_mov = acoes_movimento(_desde, max_paginas=5)
-    d["intervalos_membro"] = intervalos_por_membro(
-        cards, _buscar_acoes_board(_desde), membros_map)
+    _acoes_board = _buscar_acoes_board(_desde)
+    d["intervalos_membro"] = intervalos_por_membro(cards, _acoes_board, membros_map)
+    # Dia a dia de cada pessoa: cartoes iniciados, interrompidos e o tempo de
+    # execucao. E o que separa um dia sem entrega de um dia sem trabalho — os
+    # dois apareciam iguais, porque so o concluido era contado.
+    d["atividade_dia"] = atividade_por_dia(cards, _acoes_board, membros_map)
     _conclusoes = datas_de_conclusao(_acoes_mov)
     _entradas = entradas_na_coluna(_acoes_mov)
     try:
