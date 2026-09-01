@@ -29,21 +29,22 @@ def _crono(rotulo, seg, detalhe=""):
         pass
 
 
-@st.cache_resource
 def _cliente():
-    creds_dict = dict(st.secrets["gcp_service_account"])
-    scopes = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive.readonly",
-    ]
-    creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
-    return gspread.authorize(creds)
+    """Cliente gspread compartilhado (ver sheets.py).
+
+    Era um bloco proprio de credencial + authorize, identico em nove
+    modulos: nove trocas de token por processo, todas no cold start.
+    """
+    import sheets as _sh
+    return _sh.cliente()
 
 
 @st.cache_resource
 def _aba():
-    cliente = _cliente()
-    planilha = cliente.open(PLANILHA_NOME)
+    # A planilha e aberta uma vez por processo em sheets.py. Aqui cada
+    # modulo abria a sua, e abrir por nome custa uma varredura do Drive.
+    import sheets as _sh
+    planilha = _sh.planilha()
     try:
         aba = planilha.worksheet(ABA_NOME)
         # Reconcilia o cabecalho, como atividades.py ja fazia.

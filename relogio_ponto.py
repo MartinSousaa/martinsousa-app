@@ -84,22 +84,23 @@ COLUNAS_PONTO = ["data", "username", "tipo", "horario", "observacao", "criado_em
 # Reutiliza a conexao entre reruns. Sem isso cada chamada refazia
 # from_service_account_info + gspread.authorize + open() + worksheet() —
 # quatro idas a rede antes de ler o primeiro dado, por modulo, a cada rerun.
-@st.cache_resource
 def _cliente_gs():
-    creds_dict = dict(st.secrets["gcp_service_account"])
-    scopes = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive.readonly",
-    ]
-    creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
-    return gspread.authorize(creds)
+    """Cliente gspread compartilhado (ver sheets.py).
+
+    Era um bloco proprio de credencial + authorize, identico em nove
+    modulos: nove trocas de token por processo, todas no cold start.
+    """
+    import sheets as _sh
+    return _sh.cliente()
 
 
 @st.cache_resource
 def _aba_ponto():
     """Retorna a aba 'ponto' da planilha, criando-a se necessário."""
-    cliente = _cliente_gs()
-    planilha = cliente.open(PLANILHA_NOME)
+    # A planilha e aberta uma vez por processo em sheets.py. Aqui cada
+    # modulo abria a sua, e abrir por nome custa uma varredura do Drive.
+    import sheets as _sh
+    planilha = _sh.planilha()
     try:
         aba = planilha.worksheet(ABA_PONTO)
         # Garante que todas as colunas existem no cabeçalho

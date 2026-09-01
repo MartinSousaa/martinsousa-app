@@ -38,15 +38,10 @@ def _crono(rotulo, seg, detalhe=""):
 
 @st.cache_resource
 def _aba():
-    import gspread
-    from google.oauth2.service_account import Credentials
-
-    creds = Credentials.from_service_account_info(
-        dict(st.secrets["gcp_service_account"]),
-        scopes=["https://www.googleapis.com/auth/spreadsheets",
-                "https://www.googleapis.com/auth/drive"],
-    )
-    planilha = gspread.authorize(creds).open(PLANILHA_NOME)
+    # A planilha e aberta uma vez por processo em sheets.py. Aqui cada
+    # modulo abria a sua, e abrir por nome custa uma varredura do Drive.
+    import sheets as _sh
+    planilha = _sh.planilha()
     try:
         return planilha.worksheet(ABA_NOME)
     except Exception:
