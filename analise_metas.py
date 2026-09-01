@@ -315,13 +315,26 @@ def _metas_topicos(dados):
             "sub_x": f"{pct_retrab:.1f}% atual · máx {max_retrab_x}%",
         }
 
-    # 4. Penalidades — o arco anda no mesmo sentido dos outros cinco: cheio e
-    # bom. Um mostrador que enche quando piora, no meio de cinco que enchem
-    # quando melhora, se le errado de relance.
+    # 4. Penalidades — este enche com as penalidades, ao contrario dos outros
+    # cinco. Quem separa o bom do ruim aqui e a cor, nao a altura: verde ate
+    # metade do limite, amarelo da metade ate o limite, vermelho quando estoura.
+    # Por isso ele nao precisa andar no mesmo sentido dos demais, e assim
+    # continua igual a barra do painel de metas, que sempre enche desse jeito.
+    def _pen(qtd, limite):
+        pct = min(qtd / limite * 100, 100) if limite > 0 else (0 if qtd == 0 else 100)
+        if limite > 0 and qtd > limite:
+            cor = "#E34948"          # estourou
+        elif pct >= 50:
+            cor = "#EDA100"          # a meio caminho de estourar
+        else:
+            cor = "#1BAF7A"
+        return pct, cor
+
+    _pn, _cn = _pen(pen_qtd, max_pen_n)
+    _px, _cx = _pen(pen_qtd, max_pen_x)
     t_pen = {
-        "chave": "penalidades", "rotulo": "Sem penalidades",
-        "pct_n": max(0.0, 100.0 - min(pen_qtd / (max_pen_n + 1) * 100, 100)),
-        "pct_x": max(0.0, 100.0 - min(pen_qtd / (max_pen_x + 1) * 100, 100)),
+        "chave": "penalidades", "rotulo": "Penalidades",
+        "pct_n": _pn, "pct_x": _px, "cor_n": _cn, "cor_x": _cx,
         "sub_n": f"{pen_qtd} de {max_pen_n} permitidas",
         "sub_x": f"{pen_qtd} de {max_pen_x} permitidas",
     }
@@ -1874,7 +1887,10 @@ def _chart_indices_meta(dados):
         gauges = ""
         for t in topicos:
             pct = float(t[chave_pct] or 0)
-            gauges += _gauge_svg(min(pct, 100), _cor(pct, dourado), t["rotulo"],
+            # Topico com regra propria de cor manda; os demais seguem a escala
+            # comum, em que mais alto e melhor.
+            cor = t.get("cor_n" if chave_pct == "pct_n" else "cor_x") or _cor(pct, dourado)
+            gauges += _gauge_svg(min(pct, 100), cor, t["rotulo"],
                                  # O numero fica no subtitulo quando passa de
                                  # 100: o arco satura, o texto nao.
                                  (f"{pct:.0f}% · " if pct > 100 else "") + t[chave_sub])
@@ -2059,7 +2075,7 @@ def _chart_ind_pts(meses, C=None):
             # bater 112% e bater 100% davam a mesma barra cheia — so o texto
             # dizia a diferenca, e era preciso le-lo para ver que superou.
             f'<div style="height:16px;border-radius:8px;background:var(--ms-metric-bd);'
-            f'margin:12px 0 6px;overflow:hidden;position:relative;">'
+            f'margin:16px 0 6px;position:relative;">'
             # Ate a meta na cor do desempenho; o excedente em ouro. Uma barra de
             # cor unica mostra que passou, mas nao QUANTO passou sem medir a
             # distancia ate o risco — o trecho dourado e essa medida, pintada.
@@ -2071,9 +2087,12 @@ def _chart_ind_pts(meses, C=None):
                f'width:{_sobra/_escala*100:.1f}%;background:{OURO};'
                f'border-radius:0 8px 8px 0;"></div>' if _sobra > 0 else "")
             +
-            f'<div style="position:absolute;top:-3px;bottom:-3px;'
-            f'left:{m["meta"]/_escala*100:.1f}%;width:2px;background:var(--ms-texto);'
-            f'opacity:.85;"></div></div>'
+            # O risco ultrapassa a trilha em cima e embaixo: contido nela, ele
+            # se confundia com a emenda entre a cor do desempenho e o ouro.
+            # Sobrando para fora, vira uma referencia, e nao uma divisa.
+            f'<div style="position:absolute;top:-6px;bottom:-6px;'
+            f'left:{m["meta"]/_escala*100:.1f}%;width:3px;margin-left:-1.5px;'
+            f'border-radius:2px;background:var(--ms-texto);"></div></div>'
             f'<div style="position:relative;height:13px;margin-bottom:4px;">'
             f'<span style="position:absolute;left:{m["meta"]/_escala*100:.1f}%;'
             f'transform:translateX(-50%);font-size:9px;font-weight:700;'
