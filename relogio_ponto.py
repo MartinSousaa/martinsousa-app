@@ -854,7 +854,18 @@ def _pontualidade_rhid(ano: int, mes: int):
                # estas janelas que a ociosidade e medida — sem elas so da para
                # subtrair totais, e a folga de 10 e a de 5 minutos precisam
                # saber QUANDO cada buraco aconteceu.
-               "janelas": []}
+               "janelas": [],
+               # Saldo do banco no fim do mes e quanto os atrasos pesaram nele.
+               # O desconto quem faz e a RHiD; aqui so se le, para nao existirem
+               # duas contas da mesma coisa dando numeros diferentes.
+               "banco_min": 0.0, "minutos_atraso": 0.0}
+        # Saldo do banco: o ULTIMO dia que trouxer o valor, porque o campo da
+        # RHiD ja e acumulado — somar os dias contaria tudo de novo.
+        for reg in reversed(regs):
+            if reg.get("saldo_banco"):
+                acc["banco_min"] = float(reg["saldo_banco"])
+                break
+
         for reg in regs:
             if reg["faltou"] or not reg["batidas"]:
                 continue
@@ -908,6 +919,12 @@ def _pontualidade_rhid(ano: int, mes: int):
                     "esperado": _prev.strftime("%H:%M"),
                     "minutos": max(min_almoco - ALMOCO_MINUTOS, 0),
                 })
+        # Minutos de atraso do mes: ja estavam em cada ocorrencia, so nunca
+        # tinham sido somados. E o numero que diz o TAMANHO do atraso — chegar
+        # 6 min tarde e chegar 40 min tarde contavam igual ate aqui.
+        acc["minutos_atraso"] = sum(
+            float(o.get("minutos", 0) or 0) for o in acc["ocorrencias"]
+            if o.get("tipo", "").startswith("atraso"))
         resultado[u] = acc
 
     if diag["mapeadas"] == 0 and not diag["erro"]:
@@ -950,7 +967,7 @@ def get_pontualidade_mes(ano: int, mes: int, com_diagnostico: bool = False):
         completo = {u: via_rhid.get(u, {
             "tolerancias": 0, "atrasos": 0, "atrasos_entrada": 0,
             "atrasos_almoco": 0, "dias_trabalhados": 0, "ocorrencias": [],
-            "minutos_trabalhados": 0.0,
+            "minutos_trabalhados": 0.0, "banco_min": 0.0, "minutos_atraso": 0.0,
         }) for u in MEMBROS}
         return (completo, diag) if com_diagnostico else completo
 
@@ -1061,6 +1078,11 @@ def get_ociosidade_mes(ano: int, mes: int, tempo_cards_por_user: dict,
                                 or resumo[u]["qtd_tolerancias"]),
             "qtd_atrasos":     (via_rhid.get(u, {}).get("atrasos")
                                 or resumo[u]["qtd_atrasos"]),
+            # Saldo do banco e o peso dos atrasos em minutos, para a meta poder
+            # mostrar os dois lado a lado. Quem desconta o atraso do banco e a
+            # RHiD; o Studio le o saldo dela e nao refaz a conta.
+            "banco_min":       float(via_rhid.get(u, {}).get("banco_min", 0.0) or 0.0),
+            "minutos_atraso":  float(via_rhid.get(u, {}).get("minutos_atraso", 0.0) or 0.0),
         }
     return resultado
 

@@ -272,6 +272,14 @@ def fmt_horas(minutos: float) -> str:
     return f"{m}min"
 
 
+def _para_float(valor, padrao=0.0):
+    """Numero da RHiD, ou o padrao. Campo ausente vem None; campo vazio vem "". """
+    try:
+        return float(valor)
+    except (TypeError, ValueError):
+        return padrao
+
+
 def fmt_banco(minutos: float) -> str:
     """Formata saldo do banco de horas com sinal: '+2h15min' ou '-30min'. Retorna '0' se zerado."""
     if minutos == 0:
@@ -614,6 +622,10 @@ def get_registros_diarios(data_ini: str, data_final: str, id_person: int):
             "minutos_atraso": atraso,
             "minutos_trabalhados": trabalhados,
             "faltou": bool(int(reg.get("faltasDiasInteiro", reg.get("ausente", 0)) or 0)),
+            # Saldo do banco de horas no fim do dia, como a RHiD o calcula. E
+            # ela quem desconta o atraso do banco; aqui so se le o numero, para
+            # o Studio nao manter uma segunda conta que divergiria da primeira.
+            "saldo_banco": _para_float(reg.get("saldoBancoFinalDia")),
         })
 
     if saida and diag["com_batidas"] == 0:

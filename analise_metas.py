@@ -257,6 +257,24 @@ def _barra_tempo_medio(dados, cfg, cor_ok):
         cor)
 
 
+def _penalidades_por_atraso(dados, cfg):
+    """Penalidades geradas por atraso alem do limite do mes, somando a equipe.
+
+    Cada pessoa que passar dos atrasos permitidos gera uma penalidade por atraso
+    excedente. Conta a ocorrencia; a perda de pontos continua vindo so do
+    lancamento no Trello.
+    """
+    limite = int((cfg or {}).get("max_atr_normal", 10))
+    if limite <= 0:
+        return 0
+    try:
+        users = list(_pc.MEMBROS_ATIVOS.keys())
+        atr = (_ponto_por_membro(dados, users) or {}).get("atr_mb") or {}
+    except Exception:
+        return 0
+    return sum(max(0, int(v) - limite) for v in atr.values())
+
+
 def _metas_topicos(dados):
     """Os seis topicos da meta, ja em porcentagem, para Coletiva e MAXX.
 
@@ -330,13 +348,21 @@ def _metas_topicos(dados):
             cor = "#1BAF7A"
         return pct, cor
 
+    # Atraso alem do permitido vira penalidade, somando as da coluna
+    # PENALIDADES do Trello. Conta a OCORRENCIA, nao desconta ponto: tirar
+    # pontuacao e decisao de outra ordem, e o lancamento no Trello continua
+    # sendo o unico caminho para isso.
+    _pen_atr = _penalidades_por_atraso(dados, cfg)
+    pen_qtd += _pen_atr
+    _origem_pen = f" · {_pen_atr} por atraso" if _pen_atr else ""
+
     _pn, _cn = _pen(pen_qtd, max_pen_n)
     _px, _cx = _pen(pen_qtd, max_pen_x)
     t_pen = {
         "chave": "penalidades", "rotulo": "Penalidades",
         "pct_n": _pn, "pct_x": _px, "cor_n": _cn, "cor_x": _cx,
-        "sub_n": f"{pen_qtd} de {max_pen_n} permitidas",
-        "sub_x": f"{pen_qtd} de {max_pen_x} permitidas",
+        "sub_n": f"{pen_qtd} de {max_pen_n} permitidas" + _origem_pen,
+        "sub_x": f"{pen_qtd} de {max_pen_x} permitidas" + _origem_pen,
     }
 
     # 5. Cartoes com membro
@@ -893,7 +919,7 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
     # cards voltam a dizer "aguardando" em vez de mostrar zero como se fosse dado.
     _pont = {u: {"tol": 0, "tol_ent": 0, "tol_alm": 0,
                  "atr": 0, "atr_ent": 0, "atr_alm": 0, "dias": 0,
-                 "ocorr": []}
+                 "ocorr": [], "min_atr": 0.0, "banco": 0.0}
              for u in membros_ativos}
     _ocio = {u: {"disp": 0.0, "cards": 0.0, "ocio": 0.0} for u in membros_ativos}
     _tem_ponto = False
@@ -926,6 +952,10 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
                     _pont[u]["atr_alm"] += p["atrasos_almoco"]
                     _pont[u]["dias"]    += p["dias_trabalhados"]
                     _pont[u]["ocorr"].extend(p.get("ocorrencias") or [])
+                    # Minutos de atraso somam; o banco NAO — ele ja vem
+                    # acumulado da RHiD, e somar os meses contaria tudo de novo.
+                    _pont[u]["min_atr"] += float(p.get("minutos_atraso", 0.0) or 0.0)
+                    _pont[u]["banco"] = float(p.get("banco_min", 0.0) or 0.0)
                 o = o_mes.get(u)
                 if o:
                     _ocio[u]["disp"]  += o["horas_disp_min"]
@@ -1006,7 +1036,7 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
         e = _exec.get(username, {"dentro": 0, "total": 0})
         p = _pont.get(username, {"tol": 0, "tol_ent": 0, "tol_alm": 0,
                                  "atr": 0, "atr_ent": 0, "atr_alm": 0,
-                                 "ocorr": []})
+                                 "ocorr": [], "min_atr": 0.0, "banco": 0.0})
 
         def _it_pontuacao(rotulo, alvo, cor):
             if alvo <= 0:
@@ -1120,6 +1150,16 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
                         unsafe_allow_html=True)
 
         _det_atr = f"{p['atr_ent']} na entrada · {p['atr_alm']} na volta do almoço"
+        # O atraso sai do banco de horas — quem desconta e a RHiD, o Studio le o
+        # saldo dela. Sem isso a tela mostrava "3 atrasos" e nada dizia o que
+        # aquilo custou: chegar 6 min tarde e chegar 40 min tarde eram iguais.
+        _banco = float(p.get("banco", 0.0) or 0.0)
+        _min_atr = float(p.get("min_atr", 0.0) or 0.0)
+        if _min_atr > 0:
+            _det_atr += f" · {_fmt_hm(_min_atr)} de atraso no total"
+        if _banco:
+            _sinal = "+" if _banco > 0 else "−"
+            _det_atr += f" · banco {_sinal}{_fmt_hm(abs(_banco))}"
         # A mesma abertura das tolerancias. Sem ela "13 tolerancias" era um
         # numero sem explicacao para quem so chegou atrasado sete vezes.
         _det_tol = f"{p['tol_ent']} na entrada · {p['tol_alm']} na volta do almoço"
@@ -2142,6 +2182,8 @@ def _ponto_por_membro(dados, users):
         _dias_aus  = {u: 0   for u in users}
         _disp_mb   = {u: 0.0 for u in users}
         _atr_mb    = {u: 0   for u in users}
+        _banco_mb  = {u: 0.0 for u in users}
+        _minatr_mb = {u: 0.0 for u in users}
 
         for ym in _meses_ponto:
             if not ym:
@@ -2175,6 +2217,10 @@ def _ponto_por_membro(dados, users):
                 # piso de 1 minuto e a tela mostrava 780400% de ociosidade.
                 _disp_mb[u] += _res[u].get("horas_disp_min", 0.0)
                 _atr_mb[u]  += _res[u].get("qtd_atrasos", 0)
+                _minatr_mb[u] += _res[u].get("minutos_atraso", 0.0)
+                # O banco ja vem acumulado da RHiD: o ultimo mes do periodo e o
+                # saldo atual, e somar os meses contaria tudo de novo.
+                _banco_mb[u] = _res[u].get("banco_min", 0.0)
             # Verifica se há dados reais de ponto
             if any(_res[u]["dias_trabalhados"] > 0 for u in users):
                 _tem_ponto = True
@@ -2191,9 +2237,12 @@ def _ponto_por_membro(dados, users):
         _dias_aus  = {u: 0   for u in users}
         _disp_mb   = {u: 0.0 for u in users}
         _atr_mb    = {u: 0   for u in users}
+        _banco_mb  = {u: 0.0 for u in users}
+        _minatr_mb = {u: 0.0 for u in users}
     return {"tem_ponto": _tem_ponto, "ocio_mb": _ocio_mb, "tol_mb": _tol_mb,
             "pct_ocio": _pct_ocio, "dias_trab": _dias_trab, "dias_aus": _dias_aus,
-            "disp_mb": _disp_mb, "atr_mb": _atr_mb}
+            "disp_mb": _disp_mb, "atr_mb": _atr_mb,
+            "banco_mb": _banco_mb, "minatr_mb": _minatr_mb}
 
 
 def _chart_ind_indices(meses, ponto=None, username=None, max_tol=0,
