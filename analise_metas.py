@@ -330,21 +330,26 @@ def _metas_topicos(dados):
         # disso — com o limite em 10%, da exatamente verde ate 5, amarelo ate 9
         # e vermelho de 10 em diante. Escrito em fracao do limite, a mesma regra
         # vale para a MAXX, que permite 5%.
+        # Azul ate metade do limite, amarelo dai ate o limite, vermelho acima
+        # dele. Em fracao do limite a mesma regra serve a MAXX, que permite 5%.
         def _ret(limite):
             if limite <= 0:
-                return 0.0, "#1BAF7A"
+                return 0.0, "#4A90D9"
             pct = min(pct_retrab / limite * 100, 100)
-            cor = ("#1BAF7A" if pct_retrab <= limite * 0.5
-                   else "#EDA100" if pct_retrab <= limite * 0.9 else "#E34948")
+            cor = ("#4A90D9" if pct_retrab <= limite * 0.5
+                   else "#EDA100" if pct_retrab <= limite else "#E34948")
             return pct, cor
 
         _rn, _crn = _ret(max_retrab_n)
         _rx, _crx = _ret(max_retrab_x)
+        # O numero no centro e o retrabalho de verdade, nao a fracao do limite:
+        # 7% de retrabalho e a informacao, "70% do teto" e a leitura do arco.
+        _v_ret = f"{pct_retrab:.1f}%".replace(".0%", "%")
         t_ret = {
             "chave": "retrabalho", "rotulo": "Retrabalho",
             "pct_n": _rn, "pct_x": _rx, "cor_n": _crn, "cor_x": _crx,
-            "sub_n": f"{pct_retrab:.1f}% atual · máx {max_retrab_n}%",
-            "sub_x": f"{pct_retrab:.1f}% atual · máx {max_retrab_x}%",
+            "valor_n": _v_ret, "valor_x": _v_ret,
+            "sub_n": f"máx {max_retrab_n}%", "sub_x": f"máx {max_retrab_x}%",
         }
 
     # 4. Penalidades — este enche com as penalidades, ao contrario dos outros
@@ -375,8 +380,9 @@ def _metas_topicos(dados):
     t_pen = {
         "chave": "penalidades", "rotulo": "Penalidades",
         "pct_n": _pn, "pct_x": _px, "cor_n": _cn, "cor_x": _cx,
-        "sub_n": f"{pen_qtd} de {max_pen_n} permitidas" + _origem_pen,
-        "sub_x": f"{pen_qtd} de {max_pen_x} permitidas" + _origem_pen,
+        "valor_n": f"{pen_qtd:.0f}", "valor_x": f"{pen_qtd:.0f}",
+        "sub_n": f"de {max_pen_n} permitidas" + _origem_pen,
+        "sub_x": f"de {max_pen_x} permitidas" + _origem_pen,
     }
 
     # 5. Cartoes com membro
@@ -1616,7 +1622,7 @@ def _secao_tempos_individual(dados):
 _CORES = ["#4A90D9", "#1BAF7A", "#EDA100", "#7B68EE"]
 
 
-def _gauge_svg(pct, cor, titulo, sub="", legend=""):
+def _gauge_svg(pct, cor, titulo, sub="", legend="", valor=None):
     """Velocímetro semicircular SVG inline com traço colorido abaixo.
     legend: texto explicativo opcional abaixo da barra colorida."""
     p = max(0.1, min(99.9, float(pct)))
@@ -1641,7 +1647,11 @@ def _gauge_svg(pct, cor, titulo, sub="", legend=""):
         f'stroke="var(--ms-metric-bd,#2e2e2e)" stroke-width="9" stroke-linecap="round"/>'
         f'<path d="M{sx:.2f},{sy:.2f} A{r},{r} 0 {lg},1 {fx:.2f},{fy:.2f}" fill="none" '
         f'stroke="{cor}" stroke-width="9" stroke-linecap="round"/>'
-        f'<text x="50" y="42" text-anchor="middle" font-size="14" font-weight="700" fill="{cor}">{p:.0f}%</text>'
+        # `valor` no lugar da porcentagem para o que e contagem: 2 penalidades
+        # sao duas, nao "50% do limite". O arco continua sendo a fracao do
+        # limite — e dele que sai a nocao de quanto ainda cabe.
+        f'<text x="50" y="42" text-anchor="middle" font-size="14" font-weight="700" '
+        f'fill="{cor}">{valor if valor is not None else f"{p:.0f}%"}</text>'
         f'<text x="50" y="64" text-anchor="middle" font-size="6.5" font-weight="600" '
         f'fill="var(--ms-texto,#ccc)">{titulo}</text>'
         f'<text x="50" y="74" text-anchor="middle" font-size="5.5" '
@@ -1948,10 +1958,14 @@ def _chart_indices_meta(dados):
             # Topico com regra propria de cor manda; os demais seguem a escala
             # comum, em que mais alto e melhor.
             cor = t.get("cor_n" if chave_pct == "pct_n" else "cor_x") or _cor(pct, dourado)
-            gauges += _gauge_svg(min(pct, 100), cor, t["rotulo"],
-                                 # O numero fica no subtitulo quando passa de
-                                 # 100: o arco satura, o texto nao.
-                                 (f"{pct:.0f}% · " if pct > 100 else "") + t[chave_sub])
+            # O numero fica no subtitulo quando passa de 100: o arco satura, o
+            # texto nao. So vale para os que sao porcentagem — no de contagem o
+            # centro ja mostra o numero cheio.
+            _val = t.get("valor_n" if chave_pct == "pct_n" else "valor_x")
+            _sub = t[chave_sub]
+            if pct > 100 and _val is None:
+                _sub = f"{pct:.0f}% · {_sub}"
+            gauges += _gauge_svg(min(pct, 100), cor, t["rotulo"], _sub, valor=_val)
         return (
             f'<div style="font-size:10px;font-weight:600;color:{cor_tit};'
             f'text-transform:uppercase;letter-spacing:.5px;margin:0 0 4px;">{titulo}</div>'
@@ -2310,31 +2324,39 @@ def _chart_ind_indices(meses, ponto=None, username=None, max_tol=0,
 
         usadas = float((ponto.get("tol_mb") or {}).get(username, 0.0))
         limite = float(max_tol or 0)
+        # Tolerancia e contagem: o centro mostra quantas foram usadas, e o arco
+        # mostra o quanto do limite ja se foi. "80%" nao diz nada sozinho; "2"
+        # com "de 10 permitidas" embaixo diz tudo.
         if limite > 0:
-            arco_tol = max(0.0, 100.0 - usadas / limite * 100.0)
-            sub_tol = f"{usadas:.0f} de {limite:.0f} usadas"
+            arco_tol = min(usadas / limite * 100.0, 100.0)
+            sub_tol = f"de {limite:.0f} permitidas"
+            cor_tol = ("#1BAF7A" if usadas <= limite * 0.5
+                       else "#EDA100" if usadas <= limite else "#E34948")
         else:
-            arco_tol = 100.0 if usadas == 0 else 0.0
-            sub_tol = f"{usadas:.0f} utilizada(s)"
-        cor_tol = ("#1BAF7A" if arco_tol >= 40
-                   else ("#EDA100" if arco_tol > 0 else "#E34948"))
+            arco_tol = 0.0 if usadas == 0 else 100.0
+            sub_tol = "sem limite definido"
+            cor_tol = "#1BAF7A" if usadas == 0 else "#EDA100"
+        val_tol = f"{usadas:.0f}"
         # Atrasos de ponto: o numero ja vinha de _ponto_por_membro desde sempre
         # e so aparecia no resumo da equipe. Tolerancia sem atraso ao lado conta
         # meia historia — sao duas coisas diferentes.
         atrasos = float((ponto.get("atr_mb") or {}).get(username, 0.0))
         lim_atr = float(max_atr or 0)
         if lim_atr > 0:
-            arco_atr = max(0.0, 100.0 - atrasos / lim_atr * 100.0)
-            sub_atr = f"{atrasos:.0f} de {lim_atr:.0f} usados"
+            arco_atr = min(atrasos / lim_atr * 100.0, 100.0)
+            sub_atr = f"de {lim_atr:.0f} permitidos"
+            cor_atr = ("#1BAF7A" if atrasos <= lim_atr * 0.5
+                       else "#EDA100" if atrasos <= lim_atr else "#E34948")
         else:
-            arco_atr = 100.0 if atrasos == 0 else 0.0
-            sub_atr = f"{atrasos:.0f} atraso(s)"
-        cor_atr = ("#1BAF7A" if arco_atr >= 40
-                   else ("#EDA100" if arco_atr > 0 else "#E34948"))
+            arco_atr = 0.0 if atrasos == 0 else 100.0
+            sub_atr = "sem limite definido"
+            cor_atr = "#1BAF7A" if atrasos == 0 else "#EDA100"
+        val_atr = f"{atrasos:.0f}"
     else:
         arco_ocio, cor_ocio, sub_ocio = 0.0, "#4A90D9", "Sem ponto no período"
         arco_tol,  cor_tol,  sub_tol  = 0.0, "#4A90D9", "Sem ponto no período"
         arco_atr,  cor_atr,  sub_atr  = 0.0, "#4A90D9", "Sem ponto no período"
+        val_tol = val_atr = "—"
 
     # Tempo médio: azul base, verde se há melhoria
     cor_tempo = "#1BAF7A" if pct_tempo > 50 else "#4A90D9"
@@ -2346,11 +2368,16 @@ def _chart_ind_indices(meses, ponto=None, username=None, max_tol=0,
         (min(pct_bat, 100),  "#4A90D9",  "Pontuação Batida",   f"{batidos}/{n} meses"),
         (min(arco_ocio, 100), cor_ocio,  "Tempo Produtivo",     sub_ocio),
         (pct_tempo,          cor_tempo,  "Redução Tempo Médio", sub_tempo),
-        (min(arco_tol, 100), cor_tol,    "Tolerâncias",         sub_tol),
-        (min(arco_atr, 100), cor_atr,    "Atrasos",             sub_atr),
+        (min(arco_tol, 100), cor_tol,    "Tolerâncias",         sub_tol, val_tol),
+        (min(arco_atr, 100), cor_atr,    "Atrasos",             sub_atr, val_atr),
         (min(pct_pont, 100), cor_pont,   "Pontualidade Tarefa", f"{ta}/{max(tc,1)} concl."),
     ]
-    gauges = "".join(_gauge_svg(pct, cor, titulo, sub) for pct, cor, titulo, sub in indices)
+    # A tupla ganha um quinto item opcional: o que mostrar no centro quando o
+    # indice e contagem e nao porcentagem.
+    gauges = "".join(
+        _gauge_svg(item[0], item[1], item[2], item[3],
+                   valor=item[4] if len(item) > 4 else None)
+        for item in indices)
     # Tres por linha, duas linhas. Os seis lado a lado espremiam cada
     # velocimetro numa coluna estreita demais para o rotulo de duas palavras
     # ("Redução Tempo Médio" quebrava em tres linhas de fonte 6).
