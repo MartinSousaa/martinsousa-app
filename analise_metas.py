@@ -1476,8 +1476,16 @@ def _pizza_svg(segmentos, box_pct, box_label, box_cor="#4A90D9"):
     uma a outra sem contar posicao.
     """
     cx = cy = 140
-    r_ext, r_int = 128, 66
-    FOLGA = 2.2          # graus retirados de cada ponta, o vao entre as fatias
+    r_ext, r_int = 128, 62
+
+    # O vao e uma distancia, nao um angulo. Com angulo fixo o vao encolhe junto
+    # com o raio: 2,2 graus davam 9,8px na borda externa e 5,1px na interna, e o
+    # contorno de 7px que arredonda os cantos comia os dois — na borda interna
+    # sobrava -1,9px, ou seja, as fatias se sobrepunham ali. Convertendo a
+    # distancia em angulo a cada raio, os lados ficam paralelos e o filete de
+    # fundo aparece inteiro, do lado de fora ao de dentro.
+    VAO = 17.0          # distancia total entre duas fatias, em unidades do SVG
+    TRACO = 6           # contorno que arredonda os cantos; ele alarga a fatia
     total = sum(s[1] for s in segmentos if s[1] > 0) or 1
 
     def _pt(raio, ang):
@@ -1491,61 +1499,74 @@ def _pizza_svg(segmentos, box_pct, box_label, box_cor="#4A90D9"):
         frac = val / total
         a0, a1 = ang, ang + 2 * math.pi * frac
         ang = a1
-        # A folga sai de dentro da fatia. Numa fatia estreita ela encolheria o
-        # arco a nada, entao nunca passa de um terco da abertura.
-        rec = min(math.radians(FOLGA), (a1 - a0) / 3)
-        b0, b1 = a0 + rec, a1 - rec
-        lg = 1 if (b1 - b0) > math.pi else 0
-        xe0, ye0 = _pt(r_ext, b0); xe1, ye1 = _pt(r_ext, b1)
-        xi1, yi1 = _pt(r_int, b1); xi0, yi0 = _pt(r_int, b0)
+        abertura = a1 - a0
+        # Recuo por raio, e nunca mais que um terco da abertura: numa fatia
+        # estreita o vao consumiria o arco inteiro e ela sumiria.
+        def _rec(raio):
+            return min((VAO / 2) / raio, abertura / 3)
+        re_, ri_ = _rec(r_ext), _rec(r_int)
+        e0, e1 = a0 + re_, a1 - re_
+        i0, i1 = a0 + ri_, a1 - ri_
+        lg = 1 if (e1 - e0) > math.pi else 0
+        xe0, ye0 = _pt(r_ext, e0); xe1, ye1 = _pt(r_ext, e1)
+        xi1, yi1 = _pt(r_int, i1); xi0, yi0 = _pt(r_int, i0)
         fatias.append(
             f'<path d="M{xe0:.2f},{ye0:.2f} A{r_ext},{r_ext} 0 {lg},1 {xe1:.2f},{ye1:.2f} '
             f'L{xi1:.2f},{yi1:.2f} A{r_int},{r_int} 0 {lg},0 {xi0:.2f},{yi0:.2f} Z" '
-            f'fill="{cor}" stroke="{cor}" stroke-width="7" stroke-linejoin="round"/>'
+            f'fill="{cor}" stroke="{cor}" stroke-width="{TRACO}" stroke-linejoin="round"/>'
         )
         # Numero e percentual no meio do anel. Fatia curta demais nao comporta os
         # dois — fica so o numero, e o percentual e lido na legenda.
-        mid = (b0 + b1) / 2
+        mid = (a0 + a1) / 2
         lx, ly = _pt((r_ext + r_int) / 2, mid)
         cabe_pct = frac >= 0.05
         rotulos.append(
-            f'<text x="{lx:.1f}" y="{ly - (7 if cabe_pct else 0):.1f}" text-anchor="middle" '
-            f'dominant-baseline="middle" font-size="15" font-weight="700" '
+            f'<text x="{lx:.1f}" y="{ly - (8 if cabe_pct else 0):.1f}" text-anchor="middle" '
+            f'dominant-baseline="middle" font-size="16" font-weight="700" '
             f'fill="#fff">{i+1:02d}</text>'
-            + (f'<text x="{lx:.1f}" y="{ly + 11:.1f}" text-anchor="middle" '
-               f'dominant-baseline="middle" font-size="13" font-weight="700" '
+            + (f'<text x="{lx:.1f}" y="{ly + 12:.1f}" text-anchor="middle" '
+               f'dominant-baseline="middle" font-size="14" font-weight="700" '
                f'fill="#fff" fill-opacity="0.92">{frac*100:.0f}%</text>' if cabe_pct else "")
         )
 
     svg = (
         f'<svg viewBox="0 0 280 280" xmlns="http://www.w3.org/2000/svg" '
-        f'style="width:200px;flex-shrink:0;">'
+        f'style="width:258px;flex-shrink:0;">'
         + "".join(fatias) + "".join(rotulos) + '</svg>'
     )
 
-    leg_html = ""
+    # Legenda em duas colunas: uma embaixo da outra deixava metade da largura do
+    # cartao vazia, e cada nome ainda vinha truncado.
+    itens = ""
     for i, (cor, val, nome) in enumerate(segmentos):
         pct = (val / total * 100) if total else 0
-        leg_html += (
-            f'<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">'
+        itens += (
+            f'<div style="display:flex;align-items:center;gap:8px;min-width:0;">'
             f'<div style="width:22px;height:22px;border-radius:6px;background:{cor};flex-shrink:0;'
             f'display:flex;align-items:center;justify-content:center;font-size:8px;'
             f'font-weight:700;color:#fff;">{i+1:02d}</div>'
-            f'<div style="font-size:10px;color:var(--ms-texto,#ccc);line-height:1.3;flex:1;">{nome}</div>'
-            f'<div style="font-size:10px;font-weight:700;color:var(--ms-texto-sec,#888);">{pct:.0f}%</div>'
-            f'</div>'
+            f'<div style="font-size:10px;color:var(--ms-texto,#ccc);line-height:1.3;flex:1;'
+            f'min-width:0;">{nome}</div>'
+            f'<div style="font-size:10px;font-weight:700;color:var(--ms-texto-sec,#888);'
+            f'flex-shrink:0;">{pct:.0f}%</div></div>'
         )
+    leg_html = (
+        f'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));'
+        f'gap:8px 18px;">{itens}</div>'
+    )
+    # A faixa acompanha o texto em vez de atravessar o cartao: esticada, ela
+    # virava uma barra de progresso cheia, que nao e o que o numero diz.
     box_html = (
-        f'<div style="margin-top:8px;background:{box_cor};border-radius:6px;padding:6px 10px;'
-        f'display:flex;align-items:center;gap:8px;opacity:0.9;">'
+        f'<div style="margin-top:12px;background:{box_cor};border-radius:6px;padding:6px 12px;'
+        f'display:inline-flex;align-items:center;gap:8px;opacity:0.9;max-width:100%;">'
         f'<div style="font-size:18px;font-weight:800;color:#fff;white-space:nowrap;">{box_pct}</div>'
         f'<div style="font-size:9px;color:rgba(255,255,255,0.92);line-height:1.4;">{box_label}</div>'
         f'</div>'
     )
     return (
-        f'<div style="display:flex;align-items:flex-start;gap:14px;padding:8px 0;">'
+        f'<div style="display:flex;align-items:flex-start;gap:18px;padding:8px 0;flex-wrap:wrap;">'
         + svg
-        + f'<div style="flex:1;padding-top:4px;">{leg_html}{box_html}</div>'
+        + f'<div style="flex:1;min-width:280px;padding-top:6px;">{leg_html}{box_html}</div>'
         + '</div>'
     )
 
