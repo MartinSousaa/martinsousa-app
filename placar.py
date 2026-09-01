@@ -612,13 +612,72 @@ CSS="""
 </style>
 """
 
+# ── RITMO DO MÊS ──────────────────────────────────────────────────────────────
+# Quanto a equipe deveria ter feito ate hoje, contra o que fez. O calculo estava
+# escrito duas vezes — uma para o Studio, outra para a TV — com os mesmos dias
+# uteis, os mesmos feriados e os mesmos cortes de 10%. Duas copias da mesma regra
+# e uma delas envelhecendo.
+FERIADOS_BR = {(1,1), (4,21), (5,1), (9,7), (10,12), (11,2), (11,15), (12,25)}
+
+
+def ritmo_do_mes(filtro_mes, meta_eq, saldo_eq, hoje=None):
+    """Como esta o ritmo do mes, ou None se nao for o mes corrente.
+
+    Devolve {"cor", "icone", "pct", "esperado", "projecao", "dias_uteis",
+             "sobra", "estado"} — estado e "acima", "dentro" ou "abaixo".
+
+    E a cor daqui que pinta o velocimetro da Meta Mensal: a porcentagem da meta
+    diz onde a equipe chegou, o ritmo diz se ela chega. No comeco do mes qualquer
+    equipe esta longe da meta, e um mostrador vermelho no dia 2 nao informa nada.
+    """
+    hoje = hoje or datetime.now()
+    if not filtro_mes or (filtro_mes[0], filtro_mes[1]) != (hoje.year, hoje.month):
+        return None
+    import calendar as _cal_r
+    ano, mes = filtro_mes[0], filtro_mes[1]
+    _, n_dias = _cal_r.monthrange(ano, mes)
+
+    def _uteis(ate):
+        return sum(1 for d in range(1, ate + 1)
+                   if datetime(ano, mes, d).weekday() < 5
+                   and (mes, d) not in FERIADOS_BR)
+
+    total_uteis = _uteis(n_dias)
+    decorridos = _uteis(hoje.day)
+    if total_uteis <= 0 or decorridos <= 0:
+        return None
+
+    esperado = meta_eq / total_uteis * decorridos
+    pct = (saldo_eq - esperado) / esperado * 100 if esperado > 0 else 0
+    if pct > 10:
+        estado, cor, icone = "acima", "#1BAF7A", "📈"
+    elif pct < -10:
+        estado, cor, icone = "abaixo", "#E34948", "📉"
+    else:
+        estado, cor, icone = "dentro", "#EDA100", "📊"
+    return {"cor": cor, "icone": icone, "pct": pct, "estado": estado,
+            "esperado": esperado, "sobra": saldo_eq - esperado,
+            "projecao": saldo_eq / decorridos * total_uteis,
+            "dias_uteis": decorridos}
+
+
 # ── VELOCÍMETROS ───────────────────────────────────────────────────────────────
-def _vel_meta(pct, meta_eq, saldo_eq, faltam):
+def _vel_meta(pct, meta_eq, saldo_eq, faltam, cor=None):
+    """Velocimetro da Meta Mensal. `cor` vem do ritmo do mes.
+
+    A porcentagem no arco continua sendo a da meta — e onde a equipe chegou. A
+    COR passa a ser a do ritmo: se o mes esta no dia 2, estar em 6% da meta e o
+    esperado, e um mostrador vermelho ali nao informa nada. O que se quer saber
+    olhando de longe e se, neste passo, a meta chega.
+
+    A Meta MAXX nao muda: ela e um bonus sobre a meta ja batida, e o ritmo dela
+    e outra conversa.
+    """
     pct_clip=min(max(pct,0),110)
     ang=math.radians(-180+min(pct_clip/100,1)*180)
     cx,cy,r=130,125,105
     px=cx+r*math.cos(ang); py=cy+r*math.sin(ang)
-    cor="#1BAF7A"
+    cor=cor or "#1BAF7A"
     perim=math.pi*r; dash=min(pct_clip/100,1)*perim
     return f"""
 <div style="text-align:center;">
@@ -906,6 +965,10 @@ def _tv_full_html(
     n_urgentes, n_sem_mb, agora_str,
     meta_ind_map=None,
     ritmo_tv_html="",
+    # Cor do velocimetro da META MENSAL, vinda de ritmo_do_mes(). Verde e so o
+    # padrao de quando nao ha ritmo a mostrar (mes passado, mes recem-comecado).
+    # A META MAXX nao usa isto: ela continua dourada sempre.
+    cor_ritmo="#1BAF7A",
     sem_membro_lista=None, sem_membro_desc="",
     # Carimbo de quando este HTML foi gerado. O JS da TV compara com o relogio
     # do navegador e mostra a faixa vermelha se os dados envelhecerem — uma TV
@@ -918,7 +981,7 @@ def _tv_full_html(
     ax_m, ay_m = _g_pt(pct_eq, 78)
     nx_m, ny_m = _g_pt(pct_eq, 72)
     fill_m = (f'<path d="M 12 92 A 78 78 0 0 1 {ax_m} {ay_m}" fill="none" '
-              f'stroke="#1BAF7A" stroke-width="11" stroke-linecap="butt"/>'
+              f'stroke="{cor_ritmo}" stroke-width="11" stroke-linecap="butt"/>'
               if pct_eq >= 0.5 else "")
 
     # Gauge META MAXX
@@ -1175,12 +1238,12 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
         <line x1="168" y1="92" x2="162" y2="92" stroke="#444" stroke-width="1.5"/>
         <text x="8" y="89" text-anchor="end" fill="#555" font-size="7" font-family="Arial">0</text>
         <text x="172" y="89" text-anchor="start" fill="#555" font-size="7" font-family="Arial">100%</text>
-        <line x1="90" y1="92" x2="{nx_m}" y2="{ny_m}" stroke="#1BAF7A" stroke-width="2.5" stroke-linecap="round"/>
-        <circle cx="90" cy="92" r="5" fill="#222" stroke="#1BAF7A" stroke-width="1.5"/>
-        <circle cx="{nx_m}" cy="{ny_m}" r="3.5" fill="#1BAF7A"/>
+        <line x1="90" y1="92" x2="{nx_m}" y2="{ny_m}" stroke="{cor_ritmo}" stroke-width="2.5" stroke-linecap="round"/>
+        <circle cx="90" cy="92" r="5" fill="#222" stroke="{cor_ritmo}" stroke-width="1.5"/>
+        <circle cx="{nx_m}" cy="{ny_m}" r="3.5" fill="{cor_ritmo}"/>
       </svg>
       <div class="gauge-info">
-        <div class="gauge-pct verde">{fp(pct_eq)}</div>
+        <div class="gauge-pct" style="color:{cor_ritmo};">{fp(pct_eq)}</div>
         <div class="gauge-label">🏆 META MENSAL</div>
       </div>
       {ritmo_tv_html}
@@ -1281,9 +1344,19 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
 <div id="som-btn" onclick="ativarSom();">🔊 Ativar Som</div>
 
 <script>
-// ── Layout: calcula alturas reais em px a partir de window.innerHeight ──────
+// ── Layout: alturas dos quatro blocos, sempre sobre a altura de projeto ─────
+// Isto era calculado sobre window.innerHeight. Parecia certo — os blocos sempre
+// cabiam na tela — mas so os blocos encolhiam: as fontes, os velocimetros e os
+// mini-cards continuavam com o tamanho fixo em px. Com o zoom em 150% a janela
+// cai de 1080 para 720px de CSS, a faixa de metas cai de 212 para 140px e o
+// velocimetro, que e o ultimo a ceder no flex, e espremido de 90 para 60px;
+// em 200% sobra 24px dele. Era esse o indicador sumindo na TV.
+// Agora o layout e sempre montado na medida de projeto e a TV inteira e
+// reduzida junto por _autoEscala(): em qualquer zoom se ve o mesmo painel,
+// menor, e nunca um pedaco dele.
+var ALTURA_PROJETO = 1080;
 function _aplicarLayout() {{
-  var H = window.innerHeight || 1080;
+  var H = ALTURA_PROJETO;
   var GAP = 3, PAD = 5;
   var avail = H - PAD * 2 - GAP * 3;
   var hM  = Math.round(avail * 0.20);
@@ -1566,23 +1639,26 @@ _registrarCarimbo(GERADO_EM);
 var SCRIPT_VER = "{_TV_SCRIPT_VER}";
 setInterval(checkAndPlay, 5 * 60 * 1000);
 // Auto-scale se conteúdo não couber na tela
+// Encaixa o painel de 1080px na tela que existe. A largura compensa a escala
+// para o conteudo continuar ocupando a tela inteira na horizontal.
 function _autoEscala() {{
   try {{
     var root = document.querySelector('.tv-root');
-    root.style.transform = ''; root.style.webkitTransform = ''; root.style.width = '';
-    var sh = root.scrollHeight;
-    var vh = window.innerHeight || document.documentElement.clientHeight;
-    if (sh > vh) {{
-      var scale = vh / sh;
-      root.style.webkitTransform = 'scale(' + scale + ')';
-      root.style.transform = 'scale(' + scale + ')';
-      root.style.webkitTransformOrigin = 'top left';
-      root.style.transformOrigin = 'top left';
-      root.style.width = Math.round(100 / scale) + '%';
-    }}
+    var vh = window.innerHeight || document.documentElement.clientHeight
+             || ALTURA_PROJETO;
+    var esc = vh / ALTURA_PROJETO;
+    root.style.height = ALTURA_PROJETO + 'px';
+    root.style.width = (100 / esc).toFixed(4) + '%';
+    root.style.webkitTransformOrigin = 'top left';
+    root.style.transformOrigin = 'top left';
+    root.style.webkitTransform = 'scale(' + esc + ')';
+    root.style.transform = 'scale(' + esc + ')';
   }} catch(e) {{}}
 }}
 _autoEscala();
+// Mudar o zoom dispara resize e nao recarrega a pagina: sem isto a TV so se
+// reajustava no proximo refresh, ou nunca.
+window.addEventListener('resize', function() {{ _aplicarLayout(); _autoEscala(); }});
 </script>
 </body>
 </html>"""
@@ -1757,6 +1833,7 @@ def pagina_placar(usuario_logado, headless=False):
     faltam=max(meta_eq-saldo_eq,0)
     faltam_maxx=max(meta_maxx_pts-saldo_eq,0)
     cor_pts="#1BAF7A" if pct_eq>=100 else ("#EDA100" if pct_eq>=50 else "#4A90D9")
+    _ritmo = ritmo_do_mes(filtro_mes, meta_eq, saldo_eq)
 
     # ══ BLOCO 1 — cards meta | vel meta | vel maxx | cards maxx ══
     col_cm, col_vm, col_vx, col_cx = st.columns([1.8, 2.0, 2.0, 1.8])
@@ -1789,51 +1866,29 @@ def pagina_placar(usuario_logado, headless=False):
   </div>
 </div>""", unsafe_allow_html=True)
         # ── Ritmo de desempenho por dias úteis ──
-        import calendar as _cal
-        _hoje = datetime.now().date()
-        if filtro_mes[0] == _hoje.year and filtro_mes[1] == _hoje.month:
-            _feriados_br = {(1,1),(4,21),(5,1),(9,7),(10,12),(11,2),(11,15),(12,25)}
-            _, _n_dias = _cal.monthrange(filtro_mes[0], filtro_mes[1])
-            _total_uteis = sum(
-                1 for _d in range(1, _n_dias+1)
-                if datetime(filtro_mes[0], filtro_mes[1], _d).weekday() < 5
-                and (filtro_mes[1], _d) not in _feriados_br
-            )
-            _uteis_dec = sum(
-                1 for _d in range(1, _hoje.day+1)
-                if datetime(filtro_mes[0], filtro_mes[1], _d).weekday() < 5
-                and (filtro_mes[1], _d) not in _feriados_br
-            )
-            if _total_uteis > 0 and _uteis_dec > 0:
-                _meta_diaria = meta_eq / _total_uteis
-                _pts_esp = _meta_diaria * _uteis_dec
-                _diff_pct = (saldo_eq - _pts_esp) / _pts_esp * 100 if _pts_esp > 0 else 0
-                _proj = saldo_eq / _uteis_dec * _total_uteis
-                if _diff_pct > 10:
-                    _r_icon, _r_cor = "📈", "#1BAF7A"
-                    _r_txt = f"Desempenho {_diff_pct:.0f}% acima do estimado para o período"
-                    _r_extra = f"+{saldo_eq-_pts_esp:.0f} pts a mais que o esperado ({_pts_esp:.0f} pts em {_uteis_dec} dias úteis)"
-                elif _diff_pct < -10:
-                    _r_icon, _r_cor = "📉", "#E34948"
-                    _r_txt = f"Desempenho {abs(_diff_pct):.0f}% abaixo do estimado para o período"
-                    _r_extra = f"{saldo_eq-_pts_esp:.0f} pts abaixo do esperado ({_pts_esp:.0f} pts em {_uteis_dec} dias úteis)"
-                else:
-                    _r_icon, _r_cor = "📊", "#EDA100"
-                    _r_txt = "Desempenho dentro do ritmo esperado para o período"
-                    _r_extra = f"Realizados {saldo_eq:.0f} pts · esperado {_pts_esp:.0f} pts em {_uteis_dec} dias úteis"
-                _ritmo_html = f"""<div style="background:#1a1a1a;border:1px solid {_r_cor}44;border-radius:6px;padding:8px 10px;margin-top:8px;">
-  <div style="font-size:11px;font-weight:700;color:{_r_cor};margin-bottom:3px;">{_r_icon} {_r_txt}</div>
-  <div style="font-size:9px;color:#ccc;line-height:1.5;">{_r_extra}<br>Nesse ritmo: projeção de <strong style="color:{_r_cor};">{_proj:.0f} pts</strong> ao final do mês</div>
-</div>"""
+        # Mesmo calculo que pinta o velocimetro e a TV: ritmo_do_mes().
+        if _ritmo:
+            _sobra = _ritmo["sobra"]
+            _esp = _ritmo["esperado"]
+            _du = _ritmo["dias_uteis"]
+            if _ritmo["estado"] == "acima":
+                _r_txt = f'Desempenho {_ritmo["pct"]:.0f}% acima do estimado para o período'
+                _r_extra = f"+{_sobra:.0f} pts a mais que o esperado ({_esp:.0f} pts em {_du} dias úteis)"
+            elif _ritmo["estado"] == "abaixo":
+                _r_txt = f'Desempenho {abs(_ritmo["pct"]):.0f}% abaixo do estimado para o período'
+                _r_extra = f"{_sobra:.0f} pts abaixo do esperado ({_esp:.0f} pts em {_du} dias úteis)"
             else:
-                _ritmo_html = ""
-        else:
-            _ritmo_html = ""
-        if _ritmo_html:
-            st.markdown(_ritmo_html, unsafe_allow_html=True)
+                _r_txt = "Desempenho dentro do ritmo esperado para o período"
+                _r_extra = f"Realizados {saldo_eq:.0f} pts · esperado {_esp:.0f} pts em {_du} dias úteis"
+            _r_cor = _ritmo["cor"]
+            st.markdown(f"""<div style="background:#1a1a1a;border:1px solid {_r_cor}44;border-radius:6px;padding:8px 10px;margin-top:8px;">
+  <div style="font-size:11px;font-weight:700;color:{_r_cor};margin-bottom:3px;">{_ritmo["icone"]} {_r_txt}</div>
+  <div style="font-size:9px;color:#ccc;line-height:1.5;">{_r_extra}<br>Nesse ritmo: projeção de <strong style="color:{_r_cor};">{_ritmo["projecao"]:.0f} pts</strong> ao final do mês</div>
+</div>""", unsafe_allow_html=True)
 
     with col_vm:
-        st.markdown(_vel_meta(pct_eq, meta_eq, saldo_eq, faltam), unsafe_allow_html=True)
+        st.markdown(_vel_meta(pct_eq, meta_eq, saldo_eq, faltam,
+                              cor=(_ritmo or {}).get("cor")), unsafe_allow_html=True)
 
     with col_vx:
         st.markdown(_vel_maxx(pct_maxx, meta_maxx_pts, saldo_eq), unsafe_allow_html=True)
@@ -1989,42 +2044,33 @@ def pagina_placar(usuario_logado, headless=False):
     # Todas as variáveis necessárias já estão calculadas aqui.
     _alertas_tv = _alertas_tv_list(listas, cards, membros_map)
     # ── Ritmo de desempenho para TV ──
-    import calendar as _cal_tv
-    _hoje_tv = datetime.now().date()
+    # Ritmo do mes na TV — mesmo calculo do Studio, uma funcao so.
+    _ritmo_tv = ritmo_do_mes(filtro_mes, meta_eq, saldo_eq)
     _ritmo_tv_html = ""
-    if filtro_mes[0] == _hoje_tv.year and filtro_mes[1] == _hoje_tv.month:
-        _feriados_br_tv = {(1,1),(4,21),(5,1),(9,7),(10,12),(11,2),(11,15),(12,25)}
-        _, _n_dias_tv = _cal_tv.monthrange(filtro_mes[0], filtro_mes[1])
-        _total_uteis_tv = sum(
-            1 for _d in range(1, _n_dias_tv+1)
-            if datetime(filtro_mes[0], filtro_mes[1], _d).weekday() < 5
-            and (filtro_mes[1], _d) not in _feriados_br_tv
-        )
-        _uteis_dec_tv = sum(
-            1 for _d in range(1, _hoje_tv.day+1)
-            if datetime(filtro_mes[0], filtro_mes[1], _d).weekday() < 5
-            and (filtro_mes[1], _d) not in _feriados_br_tv
-        )
-        if _total_uteis_tv > 0 and _uteis_dec_tv > 0:
-            _pts_esp_tv = meta_eq / _total_uteis_tv * _uteis_dec_tv
-            _diff_pct_tv = (saldo_eq - _pts_esp_tv) / _pts_esp_tv * 100 if _pts_esp_tv > 0 else 0
-            _proj_tv = saldo_eq / _uteis_dec_tv * _total_uteis_tv
-            if _diff_pct_tv > 10:
-                _r_icon_tv, _r_cor_tv = "📈", "#1BAF7A"
-                _r_txt_tv = f"{_diff_pct_tv:.0f}% acima do ritmo"
-                _r_extra_tv = f"+{saldo_eq-_pts_esp_tv:.0f} pts · projeção: {_proj_tv:.0f} pts"
-            elif _diff_pct_tv < -10:
-                _r_icon_tv, _r_cor_tv = "📉", "#E34948"
-                _r_txt_tv = f"{abs(_diff_pct_tv):.0f}% abaixo do ritmo"
-                _r_extra_tv = f"{saldo_eq-_pts_esp_tv:.0f} pts · projeção: {_proj_tv:.0f} pts"
-            else:
-                _r_icon_tv, _r_cor_tv = "📊", "#EDA100"
-                _r_txt_tv = "Dentro do ritmo esperado"
-                _r_extra_tv = f"Esperado {_pts_esp_tv:.0f} pts · projeção: {_proj_tv:.0f} pts"
-            _ritmo_tv_html = (f'<div style="margin-top:4px;padding:3px 6px;background:{_r_cor_tv}18;'
-                              f'border:1px solid {_r_cor_tv}44;border-radius:4px;font-size:9px;">'
-                              f'<span style="color:{_r_cor_tv};font-weight:700;">{_r_icon_tv} {_r_txt_tv}</span>'
-                              f'<span style="color:#aaa;margin-left:6px;">{_r_extra_tv}</span></div>')
+    if _ritmo_tv:
+        _c = _ritmo_tv["cor"]
+        if _ritmo_tv["estado"] == "acima":
+            _r_txt_tv = f'{_ritmo_tv["pct"]:.0f}% acima do ritmo'
+            _r_extra_tv = f'+{_ritmo_tv["sobra"]:.0f} pts · projeção: {_ritmo_tv["projecao"]:.0f} pts'
+        elif _ritmo_tv["estado"] == "abaixo":
+            _r_txt_tv = f'{abs(_ritmo_tv["pct"]):.0f}% abaixo do ritmo'
+            _r_extra_tv = f'{_ritmo_tv["sobra"]:.0f} pts · projeção: {_ritmo_tv["projecao"]:.0f} pts'
+        else:
+            _r_txt_tv = "Dentro do ritmo esperado"
+            _r_extra_tv = f'Esperado {_ritmo_tv["esperado"]:.0f} pts · projeção: {_ritmo_tv["projecao"]:.0f} pts'
+        # Duas linhas curtas, cada uma sem quebra. As duas partes lado a lado
+        # nao cabiam na largura da coluna do velocimetro: com o zoom em 150% a
+        # viewport encolhe em px de CSS, a coluna fica um terco mais estreita, o
+        # texto quebrava em tres ou quatro linhas, estourava os 212px da
+        # .bloco-metas e o overflow:hidden cortava o bloco — o que se via na TV.
+        _ritmo_tv_html = (
+            f'<div style="margin-top:3px;padding:2px 6px;background:{_c}18;'
+            f'border:1px solid {_c}44;border-radius:4px;text-align:center;'
+            f'max-width:100%;">'
+            f'<div style="color:{_c};font-weight:700;font-size:9px;'
+            f'white-space:nowrap;">{_ritmo_tv["icone"]} {_r_txt_tv}</div>'
+            f'<div style="color:#aaa;font-size:8px;white-space:nowrap;">'
+            f'{_r_extra_tv}</div></div>')
     _html_tv = _tv_full_html(
         pct_eq=pct_eq, pct_maxx=pct_maxx,
         saldo_eq=saldo_eq, meta_eq=meta_eq, faltam=faltam,
@@ -2043,6 +2089,7 @@ def pagina_placar(usuario_logado, headless=False):
         gerado_epoch=int(agora.timestamp()),
         meta_ind_map=meta_ind_map,
         ritmo_tv_html=_ritmo_tv_html,
+        cor_ritmo=(_ritmo_tv or {}).get("cor") or "#1BAF7A",
         sem_membro_lista=d.get("sem_membro_lista", []),
         sem_membro_desc=_sem_mb_desc_meta,
     )
