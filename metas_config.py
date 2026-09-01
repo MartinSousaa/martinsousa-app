@@ -87,6 +87,17 @@ EXEC_REF_NAO_ANCORADA = 0
 EXEC_RED_PADRAO_PCT = 0
 
 
+def campos_metas_pessoa():
+    """[(chave_meta, chave_maxx, nome)] por pessoa — a forma que a tela usa.
+
+    campos_por_pessoa() devolve a lista achatada, boa para sincronizar colunas e
+    padroes. Para desenhar a tela o que serve e a pessoa inteira numa linha: a
+    meta dela ao lado da MAXX dela.
+    """
+    return [(f"meta_{user}", f"meta_maxx_{user}", nome)
+            for user, nome in _equipe().items()]
+
+
 def campos_tempo_execucao():
     """[(chave_referencia, chave_reducao, nome)] de cada pessoa da equipe."""
     return [(f"exec_ref_{user}", f"exec_red_{user}", nome)

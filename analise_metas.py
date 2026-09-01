@@ -2570,40 +2570,44 @@ def _secao_configuracao(dados=None):
         st.markdown("##### 👤 Metas por colaborador")
         st.caption(
             "A lista vem da aba **equipe** da planilha. Cadastrou alguém lá, o campo "
-            "aparece aqui — sem precisar mexer no código. Deixe a MAXX em 0 para usar "
-            "a porcentagem da MAXX coletiva sobre a meta individual."
+            "aparece aqui — sem precisar mexer no código."
         )
-        _campos_pessoa = mc.campos_por_pessoa()
-        if not _campos_pessoa:
+        # A MAXX de cada um em 0 SEGUE a porcentagem coletiva — e sempre seguiu,
+        # em _maxx_do_mes. A tela e que pedia o numero de novo, e ainda repetia a
+        # pergunta numa segunda secao logo abaixo, que so conhecia tres pessoas e
+        # sobrescrevia o que fosse digitado aqui. Agora o valor que a porcentagem
+        # produz aparece ao lado do campo: nao ha o que preencher, so o que
+        # conferir — e quem quiser um numero proprio para alguem digita ali.
+        _pct_maxx = int(nova_cfg.get("meta_maxx_pct", 110) or 110)
+        _pessoas = mc.campos_metas_pessoa()
+        if not _pessoas:
             st.warning("Nenhum colaborador cadastrado na aba **equipe** da planilha.")
-        for _i in range(0, len(_campos_pessoa), 2):
-            _par = _campos_pessoa[_i:_i + 2]
-            _cols = st.columns(len(_par))
-            for _c, (_chave, _rot, _pad) in zip(_cols, _par):
-                nova_cfg[_chave] = _c.number_input(
-                    _rot, min_value=0,
-                    value=int(cfg_atual.get(_chave, _pad) or 0), step=100,
-                    key=f"cfg_{_chave}_{ano_cfg}_{mes_cfg_num}",
-                )
-
-        st.markdown("##### ⭐ Meta MAXX individual")
-        st.caption(
-            "Deixe em 0 para usar a mesma porcentagem da MAXX coletiva sobre a meta "
-            "individual de cada um. Preencha para definir um valor próprio."
-        )
-        m1, m2, m3 = st.columns(3)
-        nova_cfg["meta_maxx_myrelladesouza"] = m1.number_input(
-            "Myrella — MAXX (pts)", min_value=0,
-            value=int(cfg_atual.get("meta_maxx_myrelladesouza", 0)), step=100
-        )
-        nova_cfg["meta_maxx_beatriz51"] = m2.number_input(
-            "Beatriz — MAXX (pts)", min_value=0,
-            value=int(cfg_atual.get("meta_maxx_beatriz51", 0)), step=100
-        )
-        nova_cfg["meta_maxx_gabriel_borges"] = m3.number_input(
-            "Gabriel — MAXX (pts)", min_value=0,
-            value=int(cfg_atual.get("meta_maxx_gabriel_borges", 0)), step=100
-        )
+        for _k_meta, _k_maxx, _nome_p in _pessoas:
+            _cn, _cm, _cx, _cr = st.columns([1, 1.5, 1.5, 1.6])
+            _cn.markdown(
+                f'<div style="padding-top:30px;font-size:13px;font-weight:600;">'
+                f'{_nome_p}</div>', unsafe_allow_html=True)
+            _meta_p = _cm.number_input(
+                "Meta individual (pts)", min_value=0,
+                value=int(cfg_atual.get(_k_meta, mc.META_INDIVIDUAL_PADRAO) or 0),
+                step=100, key=f"cfg_{_k_meta}_{ano_cfg}_{mes_cfg_num}")
+            _maxx_p = _cx.number_input(
+                "MAXX própria (pts)", min_value=0,
+                value=int(cfg_atual.get(_k_maxx, 0) or 0), step=100,
+                key=f"cfg_{_k_maxx}_{ano_cfg}_{mes_cfg_num}",
+                help="Deixe em 0 para seguir a porcentagem da MAXX coletiva. "
+                     "Preencha só para dar um valor diferente a essa pessoa.")
+            nova_cfg[_k_meta] = int(_meta_p)
+            nova_cfg[_k_maxx] = int(_maxx_p)
+            if _maxx_p:
+                _txt = f"MAXX própria: <b>{_maxx_p:,.0f}</b> pts"
+            else:
+                _txt = (f"MAXX <b>{_pct_maxx * _meta_p / 100:,.0f}</b> pts "
+                        f"· {_pct_maxx}% da meta")
+            _cr.markdown(
+                f'<div style="padding-top:32px;font-size:11px;'
+                f'color:var(--ms-texto-sec);">{_txt.replace(",", ".")}</div>',
+                unsafe_allow_html=True)
 
         st.markdown("##### ⏳ Tempo médio de execução")
         st.caption(
