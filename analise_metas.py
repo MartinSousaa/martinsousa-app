@@ -909,31 +909,73 @@ def _detalhe_pontualidade(ocorrencias, username):
             unsafe_allow_html=True)
 
 
+# A escada disciplinar, do jeito que ela e aplicada. Fica aqui, e nao espalhada
+# no texto do card, porque e ela que decide a cor E o que a pessoa le: a
+# terceira advertencia no mesmo mes e a que estoura a meta.
+ESCADA_ADVERTENCIA = [
+    ("1ª", "#1BAF7A", "advertência verbal"),
+    ("2ª", "#EDA100", "um dia advertido em casa — perde a remuneração do dia "
+                      "e do domingo, conforme a lei trabalhista"),
+    ("3ª", "#E34948", "repete o dia em casa e perde o domingo"),
+]
+ADV_NEUTRO = "#8a8a8a"   # zero advertências: sem cor de alerta nenhuma
+
+
 def _item_advertencia(advs, limite_mes, n_meses=1):
-    """Card de advertências: quantas foram lançadas contra o teto do período.
+    """Card de advertências: a escada disciplinar, com o degrau atual aceso.
+
+    A cor não vem do limite da meta, e sim da escada: a primeira é verbal e
+    ainda é verde, a segunda já custa um dia e o domingo e fica amarela, a
+    terceira estoura e fica vermelha. É a mesma escada nos dois grupos — a MAXX
+    não tem uma escada própria, só um teto mais baixo, que continua valendo
+    para dizer de qual meta a pessoa saiu.
 
     Advertência é lançamento do gestor, um número por mês na configuração — não
-    sai do Trello nem da RHiD. Somada no período, ela é comparada com o limite
-    MENSAL multiplicado pelos meses: comparar três meses de advertências com o
-    teto de um mês só acusaria quem está dentro da regra.
+    sai do Trello nem da RHiD. Somada no período, tanto o teto quanto a escada
+    acompanham os meses: a escada é sobre o MESMO mês, e comparar três meses
+    com o degrau de um só acusaria quem está dentro da regra.
     """
+    n_meses = max(1, n_meses)
     rotulo = f"🚫 Advertências (máx {limite_mes}/mês)"
-    limite = limite_mes * max(1, n_meses)
-    pct = min(advs / limite * 100, 100) if limite > 0 else (0 if advs == 0 else 100)
-    if limite <= 0:
-        cor = "#E34948" if advs else "#1BAF7A"
-        fecho = "fora desta meta" if advs else "nenhuma advertência permitida"
-    elif advs > limite:
-        cor = "#E34948"
-        fecho = f"fora desta meta — {advs - limite} além do permitido"
-    elif pct >= 50:
-        cor, fecho = "#EDA100", f"resta {limite - advs} para estourar"
+    limite = limite_mes * n_meses
+    degraus = len(ESCADA_ADVERTENCIA) * n_meses      # a 3ª é a que estoura
+    pct = min(advs / degraus * 100, 100) if degraus else 0
+
+    # Da quarta em diante o degrau continua sendo o terceiro: a escada acaba na
+    # que estoura. Sem o teto aqui, quem tomasse a quarta caia fora da lista e
+    # o card ficava sem degrau aceso nenhum.
+    degrau = (min(int((advs - 1) // n_meses), len(ESCADA_ADVERTENCIA) - 1)
+              if advs > 0 else None)
+    if degrau is None:
+        cor, atual = ADV_NEUTRO, "Nenhuma advertência no mês"
     else:
-        cor, fecho = "#1BAF7A", f"restam {limite - advs}"
-    corpo = f"{advs} de {limite} · {fecho}"
+        _ord, cor, _txt = ESCADA_ADVERTENCIA[degrau]
+        atual = f"<b>{_ord} — {_txt}</b>"
+
+    # A escada inteira embaixo, com o degrau de agora aceso: quem tomou a
+    # primeira precisa ver ali o que a segunda custa, sem perguntar a ninguem.
+    passos = []
+    for _i, (_ord, _c, _txt) in enumerate(ESCADA_ADVERTENCIA):
+        _aceso = degrau == _i
+        _cor_p = _c if _aceso else "var(--ms-texto-sec)"
+        _peso = "700" if _aceso else "400"
+        passos.append(f'<span style="color:{_cor_p};font-weight:{_peso};">'
+                      f'{_ord} {_txt}</span>')
+    escada = ' <span style="opacity:.5;">→</span> '.join(passos)
+
+    if limite > 0 and advs > limite:
+        fecho = f"fora desta meta — {advs - limite} além do permitido"
+    elif limite <= 0:
+        fecho = "fora desta meta" if advs else "nenhuma advertência permitida"
+    else:
+        fecho = f"{limite - advs} de folga até sair desta meta"
+    corpo = f"{advs} de {limite} permitidas · {fecho}"
     if n_meses > 1:
         corpo += f" · {limite_mes}/mês em {n_meses} meses"
-    corpo += " · celular, falta ou atraso excessivo sem aviso"
+    corpo += (f'<div style="margin-top:5px;padding-top:5px;'
+              f'border-top:1px solid var(--ms-divisor);line-height:1.7;">'
+              f'{atual}<div style="margin-top:3px;font-size:8.5px;">'
+              f'{escada}</div></div>')
     return _meta_ind_item(rotulo, pct, corpo, cor=cor, valor_texto=f"{advs:.0f}")
 
 
@@ -944,6 +986,10 @@ def _item_contribuicao(pts, meta, piso):
     essa fatia da própria meta individual não participa da meta coletiva do mês,
     ainda que o time feche. Por isso o card aparece nos dois grupos, com o piso
     de cada um — 80% na coletiva, 100% na MAXX.
+
+    A barra é a mesma da pontuação do mês: escala com folga acima do exigido, o
+    mínimo vira um risco na trilha e o que passa dele é pintado de ouro. Travada
+    no exigido, entregar o dobro e entregar o mínimo davam a mesma barra cheia.
     """
     rotulo = f"🤝 Participação na meta ({piso}% da meta individual)"
     if meta <= 0 or piso <= 0:
@@ -952,17 +998,53 @@ def _item_contribuicao(pts, meta, piso):
                               aguardando=True)
     pct_ind = pts / meta * 100
     exigido = meta * piso / 100
-    barra = min(pct_ind / piso * 100, 100)
+    # Verde entrou; amarelo a menos de 10% de entrar; vermelho abaixo disso —
+    # os mesmos cortes da pontuação do mês.
     if pct_ind >= piso:
         cor, fecho = "#1BAF7A", "✅ Participa desta meta"
     elif pct_ind >= piso * 0.9:
         cor, fecho = "#EDA100", f"faltam {exigido - pts:,.0f} pts para entrar"
     else:
         cor, fecho = "#E34948", f"fora desta meta — faltam {exigido - pts:,.0f} pts"
-    return _meta_ind_item(
-        rotulo, barra,
-        f"{pts:,.0f} de {exigido:,.0f} pts exigidos · {fecho}".replace(",", "."),
-        cor=cor, valor_texto=f"{pct_ind:.0f}%")
+    OURO = "#FFD700"
+    escala = (max(pts, exigido) * 1.12) or 1
+    sobra = max(0, pts - exigido)
+    _x_min = exigido / escala * 100
+
+    barra = (
+        f'<div style="height:14px;border-radius:7px;background:var(--ms-metric-bd);'
+        f'margin:14px 0 5px;position:relative;">'
+        f'<div style="position:absolute;left:0;top:0;height:100%;'
+        f'width:{min(pts, exigido)/escala*100:.1f}%;background:{cor};'
+        f'border-radius:7px {"0 0" if sobra > 0 else "7px 7px"} 7px;"></div>'
+        + (f'<div style="position:absolute;top:0;height:100%;left:{_x_min:.1f}%;'
+           f'width:{sobra/escala*100:.1f}%;background:{OURO};'
+           f'border-radius:0 7px 7px 0;"></div>' if sobra > 0 else "")
+        + f'<div style="position:absolute;top:-5px;bottom:-5px;left:{_x_min:.1f}%;'
+        f'width:3px;margin-left:-1.5px;border-radius:2px;'
+        f'background:var(--ms-texto);"></div></div>'
+        f'<div style="position:relative;height:12px;margin-bottom:3px;">'
+        f'<span style="position:absolute;left:{_x_min:.1f}%;transform:translateX(-50%);'
+        f'font-size:8px;font-weight:700;white-space:nowrap;color:var(--ms-texto);">'
+        f'▲ mínimo</span>'
+        + (f'<span style="position:absolute;right:0;font-size:8px;font-weight:700;'
+           f'color:{OURO};">+{sobra:,.0f} pts acima</span>' if sobra > 0 else "")
+        + '</div>'
+    )
+    _card_css = ('background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);'
+                 'border-radius:10px;padding:14px 16px;margin-bottom:8px;')
+    return (
+        f'<div style="{_card_css}">'
+        f'<div style="display:flex;justify-content:space-between;align-items:center;">'
+        f'<div style="font-size:12px;font-weight:600;color:var(--ms-texto);">{rotulo}</div>'
+        f'<div style="font-size:16px;font-weight:700;color:{cor};">{pct_ind:.0f}%</div>'
+        f'</div>{barra}'
+        f'<div style="display:flex;justify-content:space-between;gap:8px;'
+        f'font-size:9px;color:var(--ms-texto-sec);">'
+        f'<span>mínimo <b style="color:var(--ms-texto);">{exigido:,.0f}</b> de '
+        f'{meta:,.0f} pts</span>'
+        f'<span style="color:{cor};font-weight:600;">{fecho}</span></div></div>'
+    ).replace(",", ".")
 
 
 def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master=False):
