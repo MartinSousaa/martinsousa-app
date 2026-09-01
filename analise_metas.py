@@ -2658,18 +2658,28 @@ def _secao_configuracao(dados=None):
                 key=f"cfg_{_k_ref}_{ano_cfg}_{mes_cfg_num}",
                 help="Tempo de fechamento do mês — a base da meta. Edite aqui "
                      "para corrigir ou para começar um ciclo novo.")
+            # Ate 99: 100 seria exigir tempo zero. O teto anterior era 90 e
+            # barrava sem explicar — quem precisa cobrar uma queda grande de uma
+            # pessoa so esbarrava nele. O alvo em horas fica ao lado, e e ele que
+            # mostra quando a porcentagem passou do razoavel.
             _red = _cp.number_input(
-                "Reduzir (%)", min_value=0, max_value=90,
+                "Reduzir (%)", min_value=0, max_value=99,
                 value=int(cfg_atual.get(_k_red, 0) or 0), step=5,
-                key=f"cfg_{_k_red}_{ano_cfg}_{mes_cfg_num}")
+                key=f"cfg_{_k_red}_{ano_cfg}_{mes_cfg_num}",
+                help="Quanto do tempo de referência essa pessoa precisa cortar. "
+                     "25% em 3h10 dá um alvo de 2h22.")
             nova_cfg[_k_ref] = int(_ref)
             nova_cfg[_k_red] = int(_red)
+            # Alvo abaixo de 10 min quase sempre e engano de digitacao, e a conta
+            # nao tem como saber — mas quem le "alvo 0h06" sabe na hora.
+            _alvo_p = _ref * (1 - _red / 100)
+            _cor_p = "#E34948" if _red and _alvo_p < 10 else "var(--ms-texto-sec)"
             _ca.markdown(
-                f'<div style="padding-top:30px;font-size:11px;'
-                f'color:var(--ms-texto-sec);">'
-                f'{_fmt_hm(_ref)} → alvo <b>{_fmt_hm(_ref * (1 - _red / 100))}</b>'
+                f'<div style="padding-top:30px;font-size:11px;color:{_cor_p};">'
+                f'{_fmt_hm(_ref)} → alvo <b>{_fmt_hm(_alvo_p)}</b>'
                 + (f' · média medida: {_fmt_hm(_med)}' if _med
                    else ' · sem medição no período')
+                + ('<br>alvo muito curto — confira a %' if _cor_p != "var(--ms-texto-sec)" else '')
                 + '</div>', unsafe_allow_html=True)
 
         _ref_eq, _n_eq = _tempo_estimado_esperado(dados or [])
