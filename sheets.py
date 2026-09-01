@@ -44,7 +44,20 @@ ESCOPOS = [
 
 
 def _id_configurado():
-    """ID da planilha, quando houver. Sem ele, abre por nome como antes."""
+    """ID da planilha, quando houver. Sem ele, abre por nome como antes.
+
+    Como configurar
+    ---------------
+    O segredo chega pela variavel de ambiente PLANILHA_ID, que o Procfile
+    escreve no secrets.toml ANTES do bloco STREAMLIT_SECRETS. A ordem nao e
+    detalhe: em TOML, chave solta escrita depois de um cabecalho [secao]
+    pertence aquela secao. Acrescentada no fim do bloco de segredos, esta linha
+    viraria trello.PLANILHA_ID -- sem erro nenhum, so o Drive sendo varrido de
+    novo a cada container novo, que e exatamente o custo que ela existe para
+    evitar. Variavel nao definida nao escreve linha alguma.
+
+    O valor e o trecho entre /d/ e /edit da URL da planilha.
+    """
     try:
         return str(st.secrets.get("PLANILHA_ID", "") or "").strip()
     except Exception:
