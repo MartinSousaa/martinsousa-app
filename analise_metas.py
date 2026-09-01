@@ -1484,7 +1484,7 @@ def _pizza_svg(segmentos, box_pct, box_label, box_cor="#4A90D9"):
     # sobrava -1,9px, ou seja, as fatias se sobrepunham ali. Convertendo a
     # distancia em angulo a cada raio, os lados ficam paralelos e o filete de
     # fundo aparece inteiro, do lado de fora ao de dentro.
-    VAO = 17.0          # distancia total entre duas fatias, em unidades do SVG
+    VAO = 11.5          # distancia total entre duas fatias, em unidades do SVG
     TRACO = 6           # contorno que arredonda os cantos; ele alarga a fatia
     total = sum(s[1] for s in segmentos if s[1] > 0) or 1
 
@@ -1554,11 +1554,13 @@ def _pizza_svg(segmentos, box_pct, box_label, box_cor="#4A90D9"):
         f'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));'
         f'gap:8px 18px;">{itens}</div>'
     )
-    # A faixa acompanha o texto em vez de atravessar o cartao: esticada, ela
-    # virava uma barra de progresso cheia, que nao e o que o numero diz.
+    # A faixa fecha o bloco da legenda: mesma largura das duas colunas, conteudo
+    # centrado. Encostada a esquerda ela parecia uma barra de progresso pela
+    # metade; ocupando a largura inteira, e um rodape, e o numero deixa de sugerir
+    # preenchimento.
     box_html = (
-        f'<div style="margin-top:12px;background:{box_cor};border-radius:6px;padding:6px 12px;'
-        f'display:inline-flex;align-items:center;gap:8px;opacity:0.9;max-width:100%;">'
+        f'<div style="margin-top:12px;background:{box_cor};border-radius:6px;padding:7px 12px;'
+        f'display:flex;align-items:center;justify-content:center;gap:8px;opacity:0.9;">'
         f'<div style="font-size:18px;font-weight:800;color:#fff;white-space:nowrap;">{box_pct}</div>'
         f'<div style="font-size:9px;color:rgba(255,255,255,0.92);line-height:1.4;">{box_label}</div>'
         f'</div>'
