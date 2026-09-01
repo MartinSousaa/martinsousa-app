@@ -279,7 +279,13 @@ def _podar(cache, agora=None, validade=_CACHE_VALIDADE_S,
     sessoes, e outra pessoa escrevendo durante a leitura mudaria o tamanho no
     meio do laco.
     """
-    agora = agora if agora is not None else _t.time()
+    if agora is None:
+        # `_t` so existe dentro de outras funcoes deste modulo, que fazem
+        # `import time as _t` localmente. Aqui ele nunca existiu: chamar _podar
+        # sem `agora` levantava NameError. Os quatro chamadores de hoje sempre
+        # passam a hora, entao nunca disparou — o proximo e que pagaria.
+        import time as _t_podar
+        agora = _t_podar.time()
     for chave, entrada in list(cache.items()):
         if agora - (entrada or {}).get("ts", 0) >= validade:
             cache.pop(chave, None)

@@ -3375,7 +3375,7 @@ def pagina_analise_metas(usuario_logado):
             # Usa o período selecionado (dados) — não o ano completo —
             # para evitar mostrar meses sem meta individual configurada.
             _desempenho_individual(dados, _mb_u_des, _mb_nome_des,
-                                   carregar_periodo=carregar_periodo)
+                                   carregar_periodo=_carregar_periodo)
 
     elif len(_ABAS) > 3 and _aba_sel == _ABAS[3]:
         # Só chega aqui quem é gestor: a aba nem entra na lista dos outros, e
