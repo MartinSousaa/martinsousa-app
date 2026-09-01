@@ -258,11 +258,14 @@ def _barra_tempo_medio(dados, cfg, cor_ok):
 
 
 def _penalidades_por_atraso(dados, cfg):
-    """Penalidades geradas por atraso alem do limite do mes, somando a equipe.
+    """Penalidades geradas por atraso alem do limite, somando a equipe.
 
     Cada pessoa que passar dos atrasos permitidos gera uma penalidade por atraso
     excedente. Conta a ocorrencia; a perda de pontos continua vindo so do
     lancamento no Trello.
+
+    `dados` tem que trazer UM mes. O limite e mensal, entao receber um periodo
+    inteiro aqui compara a soma de varios meses com o teto de um so.
     """
     limite = int((cfg or {}).get("max_atr_normal", 10))
     if limite <= 0:
@@ -371,7 +374,12 @@ def _metas_topicos(dados):
     # PENALIDADES do Trello. Conta a OCORRENCIA, nao desconta ponto: tirar
     # pontuacao e decisao de outra ordem, e o lancamento no Trello continua
     # sendo o unico caminho para isso.
-    _pen_atr = _penalidades_por_atraso(dados, cfg)
+    # SO o mes de referencia. Passar `dados` inteiro somava os atrasos de todos
+    # os meses do filtro coletivo e comparava esse total com um limite MENSAL:
+    # com quatro meses na tela, quem tivesse dois atrasos por mes aparecia
+    # estourando o limite sozinho. Os outros cinco topicos sempre olharam so
+    # dados[-1]; este tinha que olhar tambem.
+    _pen_atr = _penalidades_por_atraso([r], cfg)
     pen_qtd += _pen_atr
     _origem_pen = f" · {_pen_atr} por atraso" if _pen_atr else ""
 
