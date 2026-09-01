@@ -2887,16 +2887,21 @@ def _ficha_exec(e, tot, cx_pct, cy_pct, cor, esq):
 def _chart_linha_do_tempo(dados, username):
     """Quando cada cartão foi executado, dia a dia, no relógio do expediente.
 
-    A barra de tempo somado responde "quanto"; esta responde "quando". Cada
-    execução é um bloco na coluna do seu dia, na altura da hora em que
-    aconteceu — dá para ver o dia que só começa depois do almoço, o cartão que
-    atravessa o expediente inteiro e o buraco entre uma coisa e outra.
+    Um gráfico só, que responde as três perguntas do dia: a que horas o trabalho
+    aconteceu, quanto durou cada cartão e quantos foram iniciados, concluídos e
+    interrompidos. Eram dois gráficos separados, e o de cima repetia em barra o
+    que este mostra em bloco.
 
-    O eixo é o expediente CONTRATADO da pessoa (Myrella 08:45–17:45, os demais
+    O eixo do relógio corre de baixo para cima: o início do expediente embaixo,
+    o fim em cima. É como se lê um dia que enche — a coluna sobe com as horas
+    trabalhadas em vez de descer.
+
+    A escala é o expediente CONTRATADO da pessoa (Myrella 08:45–17:45, os demais
     09:00–18:00, de placar_core.HORARIOS). Execução fora dele não é escondida: o
-    eixo se estica para caber e a faixa fora do expediente fica com outro fundo.
+    eixo se estica para caber e a faixa de fora fica com outro fundo.
     """
     dias_exec = _execucoes_do_membro(dados, username)
+    atividade = _atividade_do_membro(dados, username)
     ym = next((r.get("filtro_mes") for r in dados if r.get("filtro_mes")), None)
     if not ym:
         return ('<div style="padding:24px;text-align:center;font-size:11px;'
@@ -2920,57 +2925,76 @@ def _chart_linha_do_tempo(dados, username):
             eixo_fim = max(eixo_fim, m_fim)
             total_min += e["min"]
             n_exec += 1
-    if n_exec == 0:
-        return ('<div style="padding:24px;text-align:center;font-size:11px;'
-                'color:var(--ms-texto-sec);">Nenhuma execução registrada no mês</div>')
     eixo_ini = (eixo_ini // 30) * 30
     eixo_fim = -(-eixo_fim // 30) * 30
     span = max(eixo_fim - eixo_ini, 60)
 
-    W, H = 980, 340
-    ml, mr, mt, mb = 46, 10, 12, 40
-    iw, ih = W - ml - mr, H - mt - mb
+    LINHAS = [("iniciados", "iniciou", "#4A90D9"),
+              ("concluidos", "concluiu", "#1BAF7A"),
+              ("interrompidos", "parou", "#EDA100")]
+    W = 980
+    ml, mr, mt = 52, 10, 12
+    ALT_REL, ALT_EIXO, ALT_LINHA = 300, 15, 15
+    H = mt + ALT_REL + ALT_EIXO + ALT_LINHA * len(LINHAS) + 8
+    iw = W - ml - mr
     bw = iw / ultimo
+    base = mt + ALT_REL
 
     def y(m):
-        return mt + (m - eixo_ini) / span * ih
+        """Hora -> altura. Invertido: mais tarde é mais alto na tela."""
+        return base - (m - eixo_ini) / span * ALT_REL
+
+    def faixa(m1, m2, cor, rotulo=""):
+        y1, y2 = y(m2), y(m1)          # m2 é mais tarde, logo mais alto
+        out = (f'<rect x="{ml}" y="{y1:.1f}" width="{iw}" '
+               f'height="{y2-y1:.1f}" fill="{cor}"/>')
+        if rotulo:
+            out += (f'<text x="{ml+3}" y="{y2-3:.1f}" font-size="7" '
+                    f'fill="#EDA10099">{rotulo}</text>')
+        return out
 
     partes, sobre = [], []
     # Fora do expediente com outro fundo, e o almoco marcado: um bloco as 13h45
     # nao quer dizer a mesma coisa que um as 10h.
     if eixo_ini < exp_ini:
-        partes.append(f'<rect x="{ml}" y="{y(eixo_ini):.1f}" width="{iw}" '
-                      f'height="{y(exp_ini)-y(eixo_ini):.1f}" fill="#00000030"/>')
+        partes.append(faixa(eixo_ini, exp_ini, "#00000030"))
     if eixo_fim > exp_fim:
-        partes.append(f'<rect x="{ml}" y="{y(exp_fim):.1f}" width="{iw}" '
-                      f'height="{y(eixo_fim)-y(exp_fim):.1f}" fill="#00000030"/>')
+        partes.append(faixa(exp_fim, eixo_fim, "#00000030"))
     _alm_i = _pc.ALMOCO[0].hour * 60 + _pc.ALMOCO[0].minute
     _alm_f = _pc.ALMOCO[1].hour * 60 + _pc.ALMOCO[1].minute
-    partes.append(f'<rect x="{ml}" y="{y(_alm_i):.1f}" width="{iw}" '
-                  f'height="{y(_alm_f)-y(_alm_i):.1f}" fill="#EDA10014"/>'
-                  f'<text x="{ml+3}" y="{y(_alm_i)+10:.1f}" font-size="7" '
-                  f'fill="#EDA10099">almoço</text>')
+    partes.append(faixa(_alm_i, _alm_f, "#EDA10014", "almoço"))
 
     hora = -(-eixo_ini // 60) * 60
     while hora <= eixo_fim:
         partes.append(
             f'<line x1="{ml}" y1="{y(hora):.1f}" x2="{W-mr}" y2="{y(hora):.1f}" '
             f'stroke="var(--ms-divisor,#333)" stroke-width="0.5"/>'
-            f'<text x="{ml-5}" y="{y(hora)+3:.1f}" text-anchor="end" font-size="7.5" '
-            f'fill="var(--ms-texto-sec,#888)">{_fmt_hhmm(hora)}</text>')
+            f'<text x="{ml-5}" y="{y(hora)+3:.1f}" text-anchor="end" '
+            f'font-size="7.5" fill="var(--ms-texto-sec,#888)">'
+            f'{_fmt_hhmm(hora)}</text>')
         hora += 60
 
     hoje = datetime.now().date()
-    medias = []
+    medias, parados = [], []
     for d in range(1, ultimo + 1):
         data = datetime(ano, mes, d).date()
         x = ml + (d - 1) * bw
+        chave = f"{pref}{d:02d}"
+        lista = dias_exec.get(chave, [])
+        at = atividade.get(chave, {"iniciados": 0, "concluidos": 0,
+                                   "interrompidos": 0, "minutos": 0.0})
+        util = data.weekday() < 5 and data <= hoje
+        parado = util and not lista and not at["concluidos"] and not at["iniciados"]
         if data.weekday() >= 5:
             partes.append(f'<rect x="{x:.1f}" y="{mt}" width="{bw:.1f}" '
-                          f'height="{ih}" fill="#00000022"/>')
-        lista = dias_exec.get(f"{pref}{d:02d}", [])
-        # Quanto CADA cartao somou no dia. Um cartao retomado tres vezes tem
-        # tres blocos de meia hora; o que interessa saber e que ele custou 1h30.
+                          f'height="{ALT_REL}" fill="#00000022"/>')
+        elif parado:
+            # O dia parado nao pode ser um vazio igual ao domingo: ele e o
+            # achado que esta tela existe para mostrar.
+            parados.append(str(d))
+            partes.append(f'<rect x="{x:.1f}" y="{mt}" width="{bw:.1f}" '
+                          f'height="{ALT_REL}" fill="#E3494822"/>')
+
         por_card = {}
         for e in lista:
             v = por_card.setdefault(e["card"], {"min": 0.0, "n": 0})
@@ -2980,35 +3004,39 @@ def _chart_linha_do_tempo(dados, username):
             m_fim = e["fim"].hour * 60 + e["fim"].minute
             if m_fim <= m_ini:
                 m_fim = 24 * 60
-            y0, y1 = y(m_ini), y(m_fim)
-            alt = max(y1 - y0, 2.2)
+            y_topo, y_base = y(m_fim), y(m_ini)   # fim em cima, inicio embaixo
+            alt = max(y_base - y_topo, 2.2)
+            y_topo = y_base - alt
             cor = "#8B5CF6" if e.get("tipo") == "filmagem" else "#4A90D9"
             bx, blarg = x + 2.5, max(bw - 5, 2)
             tot = por_card.get(e["card"], {"min": e["min"], "n": 1})
             partes.append(
-                f'<rect x="{bx:.1f}" y="{y0:.1f}" width="{blarg:.1f}" '
+                f'<rect x="{bx:.1f}" y="{y_topo:.1f}" width="{blarg:.1f}" '
                 f'height="{alt:.1f}" rx="2" fill="{cor}" fill-opacity="0.85">'
                 # O <title> e a rede de seguranca: se a folha de estilo do app
                 # nao chegar, a ficha fica escondida e ele responde sozinho.
                 f'<title>{_esc(e["card"])} · {e["ini"]:%H:%M} → '
                 f'{e["fim"]:%H:%M} · {_fmt_hm(e["min"])}</title></rect>'
-                # Marcadores de inicio e fim: o traco passa dos lados do bloco,
-                # senao a borda de um bloco encostado no seguinte vira uma
-                # emenda so e os dois viram um cartao unico e longo.
-                f'<line x1="{bx-2:.1f}" y1="{y0:.1f}" x2="{bx+blarg+2:.1f}" '
-                f'y2="{y0:.1f}" stroke="#1BAF7A" stroke-width="1.4"/>'
-                f'<line x1="{bx-2:.1f}" y1="{y1:.1f}" x2="{bx+blarg+2:.1f}" '
-                f'y2="{y1:.1f}" stroke="#E34948" stroke-width="1.4"/>')
+                # Marcadores: verde embaixo, onde comecou; vermelho em cima,
+                # onde terminou. O traco passa dos lados do bloco, senao a borda
+                # de um bloco encostado no seguinte vira uma emenda so e os dois
+                # viram um cartao unico e longo.
+                f'<line x1="{bx-2:.1f}" y1="{y_base:.1f}" '
+                f'x2="{bx+blarg+2:.1f}" y2="{y_base:.1f}" '
+                f'stroke="#1BAF7A" stroke-width="1.4"/>'
+                f'<line x1="{bx-2:.1f}" y1="{y_topo:.1f}" '
+                f'x2="{bx+blarg+2:.1f}" y2="{y_topo:.1f}" '
+                f'stroke="#E34948" stroke-width="1.4"/>')
             # Area de mouse e ficha, em porcentagem do quadro: o SVG tem viewBox
             # e largura 100%, entao porcentagem e a unica medida que acompanha o
             # grafico quando a coluna do Streamlit muda de largura. A area e
             # mais alta que o bloco -- um bloco de 20 minutos tem 6px, e cacar
             # 6px com o ponteiro faz a tela parecer que nao responde.
             cx_pct = (bx + blarg / 2) / W * 100
-            cy_pct = (y0 + y1) / 2 / H * 100
+            cy_pct = (y_topo + alt / 2) / H * 100
             sobre.append(
                 f'<div class="ltd-hit" style="position:absolute;'
-                f'left:{bx / W * 100:.3f}%;top:{(y0 - 3) / H * 100:.3f}%;'
+                f'left:{bx / W * 100:.3f}%;top:{(y_topo - 3) / H * 100:.3f}%;'
                 f'width:{blarg / W * 100:.3f}%;'
                 f'height:{(alt + 6) / H * 100:.3f}%;"></div>'
                 + _ficha_exec(e, tot, cx_pct, cy_pct, cor, cx_pct > 55))
@@ -3017,19 +3045,36 @@ def _chart_linha_do_tempo(dados, username):
         passo = 1 if ultimo <= 12 else 2
         if d == 1 or d % passo == 0:
             partes.append(
-                f'<text x="{x+bw/2:.1f}" y="{mt+ih+11:.1f}" text-anchor="middle" '
+                f'<text x="{x+bw/2:.1f}" y="{base+11:.1f}" text-anchor="middle" '
                 f'font-size="7" fill="var(--ms-texto-sec,#888)">{d}</text>')
-        # Media do dia: o numero que ele pediu, embaixo da coluna dele.
-        if lista:
-            partes.append(
-                f'<text x="{x+bw/2:.1f}" y="{mt+ih+24:.1f}" text-anchor="middle" '
-                f'font-size="7" fill="#4A90D9">'
-                f'{_fmt_hm(sum(e["min"] for e in lista)/len(lista))}</text>')
-    partes.append(
-        f'<text x="{ml-5}" y="{mt+ih+24:.1f}" text-anchor="end" font-size="6.5" '
-        f'fill="#4A90D9">méd/cartão</text>')
 
-    media_geral = total_min / n_exec
+    # As tres contagens embaixo do eixo. Vinham de um grafico separado que
+    # repetia em barra o tempo que os blocos ja mostram; so as contagens tinham
+    # informacao propria, e e delas que este rodape e feito.
+    for li, (chave_c, rot, cor_c) in enumerate(LINHAS):
+        yl = base + ALT_EIXO + li * ALT_LINHA
+        partes.append(
+            f'<text x="{ml-5}" y="{yl+8:.1f}" text-anchor="end" font-size="7" '
+            f'font-weight="700" fill="{cor_c}">{rot}</text>')
+        for d in range(1, ultimo + 1):
+            v = atividade.get(f"{pref}{d:02d}", {}).get(chave_c, 0)
+            x = ml + (d - 1) * bw + 1
+            larg = max(bw - 2, 1)
+            if v > 0:
+                partes.append(
+                    f'<rect x="{x:.1f}" y="{yl:.1f}" width="{larg:.1f}" '
+                    f'height="{ALT_LINHA-3:.1f}" rx="2" fill="{cor_c}" '
+                    f'fill-opacity="{min(0.35 + v * 0.2, 1):.2f}"/>'
+                    f'<text x="{x+larg/2:.1f}" y="{yl+9:.1f}" '
+                    f'text-anchor="middle" font-size="7.5" font-weight="700" '
+                    f'fill="#12140f">{v}</text>')
+            else:
+                partes.append(
+                    f'<rect x="{x:.1f}" y="{yl:.1f}" width="{larg:.1f}" '
+                    f'height="{ALT_LINHA-3:.1f}" rx="2" '
+                    f'fill="var(--ms-divisor,#3a3a3a)" fill-opacity="0.45"/>')
+
+    media_geral = total_min / n_exec if n_exec else 0
     media_dia = sum(medias) / len(medias) if medias else 0
     cab = (
         f'<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:baseline;'
@@ -3049,8 +3094,13 @@ def _chart_linha_do_tempo(dados, username):
            '<span style="color:#8B5CF6;font-weight:700;">■</span> filmagem · '
            'fundo escuro = fora do expediente ou fim de semana · '
            'passe o mouse num bloco para ver o cartão</div>')
-    # overflow visivel: a ficha do hover encosta na borda do SVG, e com
-    # overflow:hidden ela sairia cortada.
+    if parados:
+        leg += (f'<div style="margin-top:4px;font-size:10px;color:#E34948;'
+                f'font-weight:700;">🚩 {len(parados)} dia(s) útil(eis) sem '
+                f'nenhum registro: {", ".join(parados)}</div>')
+    if n_exec == 0:
+        leg = ('<div style="font-size:10px;color:var(--ms-texto-sec);'
+               'margin-top:3px;">Nenhuma execução registrada no mês.</div>') + leg
     # O quadro e position:relative para as fichas se posicionarem por ele. Elas
     # vem DEPOIS do <svg> no documento, e por isso ficam por cima dele sem
     # z-index nenhum -- HTML resolve de graca o que no SVG exigia truque.
@@ -3719,29 +3769,30 @@ def _desempenho_individual(dados, username, nome, carregar_periodo=None):
                     unsafe_allow_html=True)
 
     st.markdown("---")
-    # Largura inteira: sao 30 colunas de dia com tres contagens embaixo de cada
-    # uma. Em meia tela os numeros ficam ilegiveis, e sao eles a resposta.
-    st.markdown("#### 🗓️ Atividade diária")
-    st.caption(
-        "O que a pessoa **encostou** no dia, não só o que entregou. A barra é o "
-        "tempo de execução; abaixo, quantos cartões ela iniciou, concluiu e "
-        "interrompeu. Dia útil já passado sem nenhum registro sai em vermelho — "
-        "é ele que separa um dia de cartão longo de um dia parado."
-        if not _por_mes else
-        "Mês a mês: tempo de execução e quantos cartões foram iniciados, "
-        "concluídos e interrompidos.")
-    st.markdown(_chart_atividade_dia(dados, username, por_mes=_por_mes),
-                unsafe_allow_html=True)
-
-    # ── Linha do tempo: a que horas cada cartao foi executado ────────────────
-    if not _por_mes:
+    # Um grafico so, em largura inteira. Eram dois: a Atividade diaria repetia
+    # em barra o tempo que os blocos da linha do tempo ja mostram, e so as tres
+    # contagens tinham informacao propria -- elas viraram o rodape daqui.
+    #
+    # No trimestre e no semestre nao ha linha do tempo possivel: 90 ou 180
+    # colunas de dia nao cabem. La fica o resumo mes a mes.
+    if _por_mes:
+        st.markdown("#### 🗓️ Atividade por mês")
+        st.caption("Tempo de execução e quantos cartões foram iniciados, "
+                   "concluídos e interrompidos em cada mês do período.")
+        st.markdown(_chart_atividade_dia(dados, username, por_mes=True),
+                    unsafe_allow_html=True)
+    else:
         st.markdown("#### ⏱️ Linha do tempo do dia")
         st.caption(
-            "Cada execução no relógio do expediente da pessoa. O traço verde é o "
-            "início, o vermelho é o fim, e a distância entre eles é a duração. "
+            "Cada execução no relógio do expediente da pessoa — o início do "
+            "expediente embaixo, o fim em cima. O traço verde é o início do "
+            "cartão, o vermelho é o fim, e a distância entre eles é a duração. "
+            "Embaixo, quantos cartões ela iniciou, concluiu e interrompeu no "
+            "dia. Dia útil já passado sem nenhum registro sai em vermelho. "
             "Passe o mouse num bloco para ver o cartão."
         )
-        st.markdown(_chart_linha_do_tempo(dados, username), unsafe_allow_html=True)
+        st.markdown(_chart_linha_do_tempo(dados, username),
+                    unsafe_allow_html=True)
 
         _exec_dias = sorted(_execucoes_do_membro(dados, username).keys(),
                             reverse=True)
