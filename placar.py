@@ -1432,25 +1432,45 @@ function checkAndPlay() {{
   setTimeout(_playAudio, 7000);
   setTimeout(function() {{ h.classList.remove("tocando"); }}, 11000);
 }}
-// Carimbo: fica vermelho se o painel passou de 5 min sem ser regenerado.
-// Assim um congelamento vira algo visivel na tela, nao uma surpresa silenciosa.
+// Frescor medido com UM relogio so — o da propria TV.
+//
+// Aqui se comparava o carimbo do servidor com Date.now() do navegador. Sao
+// relogios diferentes: o container roda em UTC e a TV em Sao Paulo, entao a
+// conta dava -180 min e o carimbo nunca acendia. A faixa vermelha fazia a mesma
+// comparacao ao contrario e acendia sozinha sempre que o relogio da TV
+// divergia. Nenhuma das duas media se o dado estava velho; mediam se os dois
+// relogios concordavam — e por isso nada feito no servidor mudava o resultado.
+//
+// O que interessa e outra coisa, e nao precisa de relogio sincronizado: ha
+// quanto tempo o carimbo do servidor PAROU DE MUDAR. Diferencas de Date.now()
+// na mesma maquina sao confiaveis mesmo com a hora absoluta errada.
+var _carimboAtual = 0;
+var _carimboVisto = Date.now();
+
+function _registrarCarimbo(novo) {{
+  if (novo && novo !== _carimboAtual) {{
+    _carimboAtual = novo;
+    _carimboVisto = Date.now();
+  }}
+}}
+
+function _minSemAtualizar() {{
+  return (Date.now() - _carimboVisto) / 60000;
+}}
+
 (function() {{
-  // O elemento e reprocurado a cada volta de proposito: a atualizacao sem
-  // recarregar troca o innerHTML de .tv-root, e a referencia guardada aqui
-  // ficava apontando para o carimbo antigo, ja fora da pagina — o aviso era
-  // escrito num no invisivel. Relendo o data-gerado a cada checagem, o
-  // carimbo passa a refletir o arquivo que esta na tela agora.
+  // O elemento e reprocurado a cada volta: a troca do innerHTML de .tv-root
+  // descarta o carimbo antigo, e uma referencia guardada apontaria para um no
+  // que ja saiu da pagina.
   function checar() {{
     var el = document.getElementById('tv-carimbo');
     if (!el) return;
-    var g = el.getAttribute('data-gerado') || '';
-    var m = g.match(/(\\d{{2}})\\/(\\d{{2}})\\/(\\d{{4}}) (\\d{{2}}):(\\d{{2}})/);
-    if (!m) return;
-    var gerado = new Date(+m[3], +m[2] - 1, +m[1], +m[4], +m[5]);
-    var min = (Date.now() - gerado.getTime()) / 60000;
-    if (min > 5) {{
+    var min = _minSemAtualizar();
+    if (min > 6) {{
       el.className = 'velho';
-      el.textContent = 'DESATUALIZADO — ultima atualizacao ' + g;
+      el.textContent = 'sem atualizar ha ' + Math.round(min) + ' min';
+    }} else {{
+      el.className = '';
     }}
   }}
   checar();
@@ -1495,15 +1515,11 @@ function _atualizarPainel() {{
         try {{ ALERTAS = JSON.parse(m[1]); _alertaOffset = 0; }} catch(e) {{}}
       }}
 
-      // O carimbo de frescor tambem vive numa variavel do script, e o script
-      // do HTML buscado nunca e executado — so o miolo da pagina e trocado.
-      // Sem reler GERADO_EM aqui, ele ficava parado na hora em que a TV foi
-      // ligada, e a faixa "DADOS DESATUALIZADOS" acendia sozinha 6 min depois
-      // mesmo com o painel se atualizando certinho a cada minuto. Agora a
-      // faixa so acende quando o servidor de fato parou de reescrever.
+      // O carimbo vive numa variavel do script, e o script do HTML buscado
+      // nunca e executado — so o miolo da pagina e trocado. Sem reler aqui, a
+      // TV nunca saberia que o servidor gerou uma versao nova.
       var gm = html.match(/var GERADO_EM = (\d+);/);
-      if (gm) {{ GERADO_EM = parseInt(gm[1], 10) || GERADO_EM; }}
-      _checarFrescor();
+      if (gm) {{ _registrarCarimbo(parseInt(gm[1], 10)); }}
       _aplicarLayout();
       _renderAlertas();
       _autoEscala();
@@ -1515,43 +1531,20 @@ function _atualizarPainel() {{
 setTimeout(_atualizarPainel, 60000);
 setTimeout(checkAndPlay, 4000);
 
-// A TV avisa quando ela mesma congela.
-//
-// O arquivo servido a TV so muda quando o servidor o reescreve. Se a
-// regeneracao parar, a TV segue mostrando numeros plausiveis e velhos — e
-// ninguem percebe, que e o pior jeito de falhar. GERADO_EM e carimbado no
-// HTML a cada regeneracao; se ficar velho, a faixa aparece.
+// A faixa vermelha "DADOS DESATUALIZADOS" que ficava aqui saiu. Ela atravessava
+// a TV do escritorio inteiro por causa de uma divergencia de relogio, com os
+// dados na tela corretos o tempo todo. O aviso agora e o carimbo discreto do
+// canto, que mede a coisa certa, e o diagnostico completo vive no Painel de
+// Metas, onde so o gestor ve.
 var GERADO_EM = {gerado_epoch};
+_registrarCarimbo(GERADO_EM);
 // Versao do proprio script. A atualizacao sem recarregar troca so o miolo da
 // pagina, entao o script que roda na TV e o do dia em que ela foi ligada:
 // qualquer correcao daqui de dentro so chegava se alguem fosse ate a TV e
 // recarregasse na mao. Quando a versao servida muda, a pagina se recarrega uma
-// unica vez — o sessionStorage e o que impede virar laco se algum cache
-// intermediario insistir na versao velha.
+// unica vez — o sessionStorage impede virar laco se um cache intermediario
+// insistir na versao velha.
 var SCRIPT_VER = "{_TV_SCRIPT_VER}";
-function _checarFrescor() {{
-  try {{
-    var idadeMin = (Date.now() / 1000 - GERADO_EM) / 60;
-    var faixa = document.getElementById('tv-congelada');
-    if (!faixa) {{
-      faixa = document.createElement('div');
-      faixa.id = 'tv-congelada';
-      faixa.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;'
-        + 'background:#E34948;color:#fff;font-weight:800;text-align:center;'
-        + 'padding:10px;font-size:22px;display:none;';
-      document.body.appendChild(faixa);
-    }}
-    if (idadeMin > 6) {{
-      faixa.textContent = 'DADOS DESATUALIZADOS — parados ha '
-        + Math.round(idadeMin) + ' min. Avise o gestor.';
-      faixa.style.display = 'block';
-    }} else {{
-      faixa.style.display = 'none';
-    }}
-  }} catch (e) {{}}
-}}
-_checarFrescor();
-setInterval(_checarFrescor, 60000);
 setInterval(checkAndPlay, 5 * 60 * 1000);
 // Auto-scale se conteúdo não couber na tela
 function _autoEscala() {{
