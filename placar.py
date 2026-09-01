@@ -550,7 +550,21 @@ def _processar(listas,cards,membros_map,id_p,id_t,id_i,filtro_mes=None):
             if _pc_tv._mes_card(card, _conclusoes_tv, _janela_tv) != filtro_mes:
                 continue
 
-        if tempo and tempo>0:
+        # O tempo medido pela etiqueta EM ANDAMENTO vem primeiro. Aqui so se lia
+        # o campo personalizado TEMPO ACUMULADO do Trello, que e preenchido a
+        # mao e esta vazio: por isso "Tempo Medio por Coluna" mostrava
+        # "estimativa" em TODAS as colunas, enquanto a Analise de Metas — que le
+        # a medicao das etiquetas — mostrava as medias reais. As duas telas
+        # respondiam a mesma pergunta olhando fontes diferentes, e uma delas
+        # olhava para um campo que ninguem preenche.
+        #
+        # A medicao ja desconta as pausas de INTERROMPIDO, entao nao se subtrai
+        # `interr` dela. O campo manual fica como reserva, para o cartao que por
+        # acaso tenha o numero preenchido e nenhum trecho medido.
+        _medido = (_tempos_tv.get(card["id"]) or {}).get("total", 0.0)
+        if _medido and _medido > 0:
+            d["tempo_lista"].setdefault(nl,[]).append(_medido)
+        elif tempo and tempo>0:
             d["tempo_lista"].setdefault(nl,[]).append(max(tempo-interr,0))
 
         # Retrabalho: conta cartões concluídos e de correção de fotos

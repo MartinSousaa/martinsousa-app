@@ -27,6 +27,7 @@ COLUNAS = [
     "max_retrab_normal",     # % retrabalho máx normal (ex: 10)
     "max_retrab_maxx",       # % retrabalho máx maxx (ex: 5)
     "min_membro_pct",        # % mín cartões com membro (ex: 95)
+    "exec_red_equipe",       # % de reducao do tempo medio de execucao da equipe
 ]
 
 DEFAULTS = {
@@ -42,6 +43,7 @@ DEFAULTS = {
     "max_retrab_normal":   10,
     "max_retrab_maxx":     5,
     "min_membro_pct":      95,
+    "exec_red_equipe":     0,
 }
 
 # Rótulos legíveis para exibição na UI
@@ -58,6 +60,7 @@ LABELS = {
     "max_retrab_normal":   "Retrabalho máx. % (Normal)",
     "max_retrab_maxx":     "Retrabalho máx. % (MAXX)",
     "min_membro_pct":      "% mín. cartões com membro",
+    "exec_red_equipe":     "Redução do tempo médio de execução — equipe (%)",
 }
 
 
@@ -65,6 +68,23 @@ LABELS = {
 # Derivados da equipe cadastrada, e nao de uma lista fixa: contratar alguem
 # passa a ser cadastro na aba "equipe", sem alteracao de codigo.
 META_INDIVIDUAL_PADRAO = 1500
+
+# Tempo medio de execucao: referencia e reducao esperada, por pessoa e por mes.
+#
+# A referencia NAO e digitada. Ela e a media que o Trello mediu, congelada no mes
+# quando o gestor salva — congelar e o ponto: se o alvo fosse "a media atual
+# menos 10%", ele perseguiria o proprio resultado e ninguem chegaria nunca.
+#
+# Quem ainda nao tem cartao medido (contratacao recente) entra com 2h, para ter
+# uma meta desde o primeiro mes em vez de um traco.
+EXEC_REF_PADRAO_MIN = 120
+EXEC_RED_PADRAO_PCT = 0
+
+
+def campos_tempo_execucao():
+    """[(chave_referencia, chave_reducao, nome)] de cada pessoa da equipe."""
+    return [(f"exec_ref_{user}", f"exec_red_{user}", nome)
+            for user, nome in _equipe().items()]
 
 
 def _crono(rotulo, seg, detalhe=""):
@@ -97,7 +117,13 @@ def campos_por_pessoa():
 
 def sincronizar_campos():
     """Garante que COLUNAS, DEFAULTS e LABELS conhecam a equipe atual."""
-    for chave, rotulo, padrao in campos_por_pessoa():
+    campos = list(campos_por_pessoa())
+    for chave_ref, chave_red, nome in campos_tempo_execucao():
+        campos.append((chave_ref, f"Tempo de referência — {nome} (min)",
+                       EXEC_REF_PADRAO_MIN))
+        campos.append((chave_red, f"Redução esperada — {nome} (%)",
+                       EXEC_RED_PADRAO_PCT))
+    for chave, rotulo, padrao in campos:
         if chave not in COLUNAS:
             COLUNAS.append(chave)
         DEFAULTS.setdefault(chave, padrao)

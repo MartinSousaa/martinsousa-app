@@ -221,6 +221,27 @@ def _barra_painel_dash(nome, desc):
     )
 
 
+def _barra_tempo_medio(dados, cfg, cor_ok):
+    """Barra do tempo médio de execução da equipe contra a redução do mês."""
+    red = float((cfg or {}).get("exec_red_equipe", 0) or 0)
+    if red <= 0:
+        return ""   # sem redução definida no mês, o indicador não existe
+    ref, n_est = _tempo_estimado_esperado(dados)
+    real = _media_execucao_geral(dados)
+    rotulo = f"Tempo médio de execução — reduzir {red:.0f}%"
+    if ref is None or real is None:
+        return _barra_painel(rotulo, 0,
+                             "Sem cartões com tempo medido no período", "#4A90D9")
+    alvo = ref * (1 - red / 100)
+    pct = 100 if real <= alvo else (alvo / real * 100 if real else 0)
+    cor = cor_ok if real <= alvo else ("#EDA100" if real <= ref else "#E34948")
+    return _barra_painel(
+        rotulo, pct,
+        f"{_fmt_hm(real)} de média real · alvo {_fmt_hm(alvo)} "
+        f"({red:.0f}% abaixo de {_fmt_hm(ref)} estimadas) · {n_est} cartões",
+        cor)
+
+
 def _secao_metas_card(dados):
     """Painel Meta Coletiva | Meta MAXX lado a lado, estilo Painel de Metas."""
     if not dados:
@@ -286,6 +307,7 @@ def _secao_metas_card(dados):
         _cor_cmb_a = "#1BAF7A" if pct_com_membro >= 100 else "#E34948"
         b += _barra_painel("Cartões com membro atribuído", pct_com_membro,
                             "Em andamento e concluídos no período", _cor_cmb_a)
+        b += _barra_tempo_medio(dados, cfg, "#1BAF7A")
         st.markdown(f'<div style="background:var(--ms-metric-bg);border:1px solid #1BAF7A22;border-radius:8px;padding:12px 14px;">{b}</div>', unsafe_allow_html=True)
 
     with col_x:
@@ -383,6 +405,56 @@ def _fmt_hm(minutos):
     """Minutos como 15h24 — a unidade em que a equipe pensa o mes."""
     m = int(round(abs(minutos)))
     return f"{m // 60}h{m % 60:02d}"
+
+
+def _media_execucao_por_membro(dados):
+    """Média de execução medida pelo Trello, em minutos, por username.
+
+    Mesma fonte da tela "Tempo por Colaborador": os trechos com a etiqueta
+    EM ANDAMENTO, já descontadas as pausas. Quem não tem cartão medido fica
+    FORA do dicionário — ausência de medição não é média zero, e tratar as duas
+    igual poria a pessoa como a mais rápida da equipe.
+    """
+    tempos = {}
+    for r in dados:
+        for u, por_col in (r.get("tempo_membro_lista") or {}).items():
+            for ts in por_col.values():
+                tempos.setdefault(u, []).extend(ts)
+    return {u: sum(v) / len(v) for u, v in tempos.items() if v}
+
+
+def _media_execucao_geral(dados):
+    """Média de execução de TODAS as demandas medidas no período, em minutos.
+
+    Cartão a cartão, não média das médias por coluna: uma coluna com dois
+    cartões pesaria igual a outra com oitenta.
+    """
+    todos = [t for r in dados
+             for ts in (r.get("tempo_lista") or {}).values()
+             for t in ts]
+    return (sum(todos) / len(todos)) if todos else None
+
+
+def _tempo_estimado_esperado(dados):
+    """Tempo médio ESPERADO por demanda, em minutos, e quantos cartões o sustentam.
+
+    Sai dos tempos estimados que o gestor definiu por coluna, ponderados pelo
+    volume real de cartões concluídos em cada uma. Média simples das colunas não
+    serve: uma coluna com dois cartões pesaria igual a outra com oitenta.
+
+    É a referência do indicador coletivo — e é dela, comparada com o tempo
+    medido, que se descobre quais estimativas foram chute alto ou baixo.
+    """
+    soma = 0.0
+    qtd = 0
+    for r in dados:
+        for nl, tempos in (r.get("tempo_lista") or {}).items():
+            est = _pc.cfg_coluna(nl).get("tempo_min") or 0
+            if est <= 0:
+                continue
+            soma += est * len(tempos)
+            qtd += len(tempos)
+    return ((soma / qtd) if qtd else None), qtd
 
 
 def _meta_ind_item(titulo, pct, descricao, cor=None, aguardando=False,
@@ -641,6 +713,11 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
     max_tol_mx = int(cfg.get("max_tol_maxx", 7))
     max_atr_mx = int(cfg.get("max_atr_maxx", 5))
 
+    # Tempo médio de execução: a referência e a redução são do mês mais recente
+    # do período, a mesma origem dos limites de pontualidade logo acima.
+    _cfg_mes = cfg
+    _medias_exec = _media_execucao_por_membro(dados)
+
     # Agrega pontos do período completo (sem penalidades — penalidades são coletivas)
     pts_total  = {u: sum(r["pts_membro"].get(u, 0) for r in dados) for u in membros_ativos}
     meta_total = {u: sum(r["cfg"].get(f"meta_{u}", 1500) for r in dados) for u in membros_ativos}
@@ -858,6 +935,38 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
                 cor=cor, valor_texto=f"{pct_exec:.0f}%"
             ), unsafe_allow_html=True)
 
+        def _it_tempo_medio():
+            """Tempo médio de execução da pessoa contra a redução esperada."""
+            ref = float(_cfg_mes.get(f"exec_ref_{username}", 0) or 0)
+            red = float(_cfg_mes.get(f"exec_red_{username}", 0) or 0)
+            if ref <= 0 or red <= 0:
+                return   # sem redução definida para o mês: o indicador não existe
+            alvo = ref * (1 - red / 100)
+            rotulo = f"⏳ Tempo médio de execução — reduzir {red:.0f}%"
+            atual = _medias_exec.get(username)
+            if atual is None:
+                st.markdown(_meta_ind_item(
+                    rotulo, 100,
+                    "Nenhum cartão com tempo medido no período", aguardando=True
+                ), unsafe_allow_html=True)
+                return
+            # Barra cheia ao atingir; acima do alvo, proporcional — a mesma
+            # escala da ociosidade, para 5% e 80% acima nao darem a mesma barra.
+            barra = 100 if atual <= alvo else (alvo / atual * 100 if atual else 0)
+            cor = ("#1BAF7A" if atual <= alvo
+                   else "#EDA100" if atual <= ref else "#E34948")
+            if atual <= alvo:
+                fecho = "✅ Atingida!"
+            elif atual <= ref:
+                fecho = f"faltam {_fmt_hm(atual - alvo)} para o alvo"
+            else:
+                fecho = f"{_fmt_hm(atual - ref)} ACIMA da referência"
+            st.markdown(_meta_ind_item(
+                rotulo, barra,
+                f"alvo {_fmt_hm(alvo)} · referência {_fmt_hm(ref)} · {fecho}",
+                cor=cor, valor_texto=_fmt_hm(atual)
+            ), unsafe_allow_html=True)
+
         def _it_contagem(rotulo, usado, limite, detalhe=""):
             """Card de tolerância ou atraso contra UM limite — o mensal ou o da MAXX."""
             if not _tem_ponto:
@@ -889,6 +998,7 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
                       "#1BAF7A")
         _it_ociosidade(OCIO_META_NORMAL)
         _it_execucao(EXEC_META_NORMAL)
+        _it_tempo_medio()
         _it_contagem(f"🕐 Tolerâncias de pontualidade ({max_tol}/mês)",
                      p["tol"], max_tol, _det_tol)
         _it_contagem(f"⏰ Atrasos de pontualidade ({max_atr}/mês)",
@@ -2294,7 +2404,7 @@ def _secao_colunas(dados):
                     st.error(f"Não consegui salvar: {str(ex)[:200]}")
 
 
-def _secao_configuracao():
+def _secao_configuracao(dados=None):
     st.markdown("#### ⚙️ Configurar Metas por Mês")
     st.caption("Configure as metas de qualquer mês, inclusive meses futuros. As configurações são salvas automaticamente no banco de dados.")
 
@@ -2393,6 +2503,65 @@ def _secao_configuracao():
             "Gabriel — MAXX (pts)", min_value=0,
             value=int(cfg_atual.get("meta_maxx_gabriel_borges", 0)), step=100
         )
+
+        st.markdown("##### ⏳ Tempo médio de execução")
+        st.caption(
+            "O tempo médio abaixo é **medido pelo Trello** (etiqueta EM ANDAMENTO), "
+            "não digitado. Preencha só a **% de redução** do mês. Ao salvar, a média "
+            "de cada um fica gravada como a referência daquele mês e o alvo passa a "
+            "ser ela menos a sua porcentagem — congelar é o que faz a meta parar de "
+            "perseguir o próprio resultado. Quem ainda não tem cartão medido entra "
+            "com 2h."
+        )
+        # De qual periodo vem a media importa: normalmente se configura o mes que
+        # vem olhando a medicao do mes corrente. Dizer qual e evita configurar
+        # setembro achando que a referencia era de setembro.
+        _per = (dados or [{}])[-1].get("label", "")
+        if _per:
+            st.caption(f"Médias medidas no período analisado acima · **{_per}**")
+        _medias_cfg = _media_execucao_por_membro(dados or [])
+        _campos_exec = mc.campos_tempo_execucao()
+        if not _campos_exec:
+            st.caption("Nenhum colaborador cadastrado na aba **equipe** da planilha.")
+        for _i in range(0, len(_campos_exec), 3):
+            _grupo = _campos_exec[_i:_i + 3]
+            _cols_e = st.columns(len(_grupo))
+            for _c, (_k_ref, _k_red, _nome_e) in zip(_cols_e, _grupo):
+                _u_e = _k_ref[len("exec_ref_"):]
+                _med = _medias_cfg.get(_u_e)
+                _ref = _med if _med else mc.EXEC_REF_PADRAO_MIN
+                nova_cfg[_k_ref] = int(round(_ref))
+                _red = _c.number_input(
+                    f"{_nome_e} — reduzir (%)", min_value=0, max_value=90,
+                    value=int(cfg_atual.get(_k_red, 0) or 0), step=5,
+                    key=f"cfg_{_k_red}_{ano_cfg}_{mes_cfg_num}",
+                )
+                nova_cfg[_k_red] = _red
+                _origem = "média medida" if _med else "sem medição · padrão"
+                _c.caption(f"{_origem}: **{_fmt_hm(_ref)}** → alvo "
+                           f"**{_fmt_hm(_ref * (1 - _red / 100))}**")
+
+        _ref_eq, _n_eq = _tempo_estimado_esperado(dados or [])
+        _real_eq = _media_execucao_geral(dados or [])
+        st.caption(
+            "**Equipe** — a referência coletiva sai dos tempos estimados que você "
+            "definiu por coluna, ponderados pelo volume de cartões concluídos."
+        )
+        _ce1, _ce2 = st.columns([1, 2])
+        nova_cfg["exec_red_equipe"] = _ce1.number_input(
+            "Equipe — reduzir (%)", min_value=0, max_value=90,
+            value=int(cfg_atual.get("exec_red_equipe", 0) or 0), step=5,
+            key=f"cfg_exec_red_equipe_{ano_cfg}_{mes_cfg_num}",
+        )
+        if _ref_eq is None:
+            _ce2.caption("Sem cartões com tempo medido no período analisado.")
+        else:
+            _alvo_eq = _ref_eq * (1 - nova_cfg["exec_red_equipe"] / 100)
+            _ce2.caption(
+                f"Estimado **{_fmt_hm(_ref_eq)}** por demanda ({_n_eq} cartões) → "
+                f"alvo **{_fmt_hm(_alvo_eq)}**"
+                + (f" · real medido hoje: **{_fmt_hm(_real_eq)}**"
+                   if _real_eq is not None else ""))
 
         st.markdown("##### ⚠️ Limites de Penalidade")
         c1, c2 = st.columns(2)
@@ -2697,7 +2866,7 @@ def pagina_analise_metas(usuario_logado):
         # _navegar recusa rótulo fora da lista. A checagem fica assim mesmo —
         # é do lado do servidor, não some se alguém mexer na URL.
         if _eh_master:
-            _secao_configuracao()
+            _secao_configuracao(dados)
             st.markdown("---")
             _secao_equipe()
             st.markdown("---")
