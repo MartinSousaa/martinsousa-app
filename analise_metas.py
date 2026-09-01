@@ -257,6 +257,109 @@ def _barra_tempo_medio(dados, cfg, cor_ok):
         cor)
 
 
+def _metas_topicos(dados):
+    """Os seis topicos da meta, ja em porcentagem, para Coletiva e MAXX.
+
+    Fonte unica: as barras do painel e os velocimetros liam as mesmas coisas de
+    lugares diferentes — o velocimetro de "Pontualidade" usava atrasados sobre o
+    board inteiro enquanto a barra usava so os prioritarios P8-P10, e os dois
+    apareciam na mesma tela dizendo coisas diferentes.
+
+    Devolve (referencia, [topico, ...]), cada topico com pct/cor/descricao para
+    as duas metas. `pct` pode passar de 100 na pontuacao: bater 120% da meta e
+    informacao, e cortar em 100 esconderia.
+    """
+    if not dados:
+        return None, []
+    r = dados[-1]
+    cfg = r["cfg"]
+
+    max_pen_n = int(cfg.get("max_pen_normal", 4))
+    max_pen_x = int(cfg.get("max_pen_maxx", 1))
+    max_retrab_n = int(cfg.get("max_retrab_normal", 10))
+    max_retrab_x = int(cfg.get("max_retrab_maxx", 5))
+    pen_qtd = r["pen_qtd"]
+
+    # 1. Pontuacao
+    t_pts = {
+        "chave": "pontuacao", "rotulo": "Pontuação do mês",
+        "pct_n": r["pct_mensal"], "pct_x": r["pct_maxx"],
+        "sub_n": f'{r["saldo"]:,.0f} / {r["meta_eq"]:,.0f} pts'.replace(",", "."),
+        "sub_x": f'{r["saldo"]:,.0f} / {r["meta_maxx"]:,.0f} pts'.replace(",", "."),
+    }
+
+    # 2. Prioritarios atrasados — a meta e sobre P8-P10, nao sobre o board todo
+    atr_pri = r.get("atrasados_pri", 0)
+    pct_pri = 100 if atr_pri == 0 else max(0, 100 - atr_pri * 20)
+    t_pri = {
+        "chave": "prioritarios", "rotulo": "Sem atraso em prioritários",
+        "pct_n": pct_pri, "pct_x": pct_pri,
+        "sub_n": ("Nenhum P8-P10 atrasado" if atr_pri == 0
+                  else f"{atr_pri} prioritário(s) atrasado(s)"),
+    }
+    t_pri["sub_x"] = t_pri["sub_n"]
+
+    # 3. Retrabalho
+    pct_retrab = r.get("pct_retrab")
+    if pct_retrab is None:
+        t_ret = {"chave": "retrabalho", "rotulo": "Retrabalho",
+                 "pct_n": 0, "pct_x": 0,
+                 "sub_n": "Sem conclusões no período",
+                 "sub_x": "Sem conclusões no período"}
+    else:
+        t_ret = {
+            "chave": "retrabalho", "rotulo": "Retrabalho",
+            "pct_n": max(0.0, (1.0 - pct_retrab / max_retrab_n) * 100) if max_retrab_n > 0 else 100.0,
+            "pct_x": max(0.0, (1.0 - pct_retrab / max_retrab_x) * 100) if max_retrab_x > 0 else 100.0,
+            "sub_n": f"{pct_retrab:.1f}% atual · máx {max_retrab_n}%",
+            "sub_x": f"{pct_retrab:.1f}% atual · máx {max_retrab_x}%",
+        }
+
+    # 4. Penalidades — o arco anda no mesmo sentido dos outros cinco: cheio e
+    # bom. Um mostrador que enche quando piora, no meio de cinco que enchem
+    # quando melhora, se le errado de relance.
+    t_pen = {
+        "chave": "penalidades", "rotulo": "Sem penalidades",
+        "pct_n": max(0.0, 100.0 - min(pen_qtd / (max_pen_n + 1) * 100, 100)),
+        "pct_x": max(0.0, 100.0 - min(pen_qtd / (max_pen_x + 1) * 100, 100)),
+        "sub_n": f"{pen_qtd} de {max_pen_n} permitidas",
+        "sub_x": f"{pen_qtd} de {max_pen_x} permitidas",
+    }
+
+    # 5. Cartoes com membro
+    pcm = r.get("pct_com_membro", 100.0)
+    t_mb = {"chave": "membro", "rotulo": "Cartões com membro",
+            "pct_n": pcm, "pct_x": pcm,
+            "sub_n": "Em andamento e concluídos",
+            "sub_x": "Em andamento e concluídos"}
+
+    # 6. Tempo medio de execucao. Mes sem reducao definida vale 100%: a meta nao
+    # existia ali, e mostrar 0 acusaria a equipe por uma regra que so passou a
+    # valer depois.
+    red = float(cfg.get("exec_red_equipe", 0) or 0)
+    ref, n_est = _tempo_estimado_esperado(dados)
+    real = _media_execucao_geral(dados)
+    if red <= 0:
+        t_tmp = {"chave": "tempo", "rotulo": "Tempo médio de execução",
+                 "pct_n": 100.0, "pct_x": 100.0,
+                 "sub_n": "sem meta de redução neste mês",
+                 "sub_x": "sem meta de redução neste mês"}
+    elif ref is None or real is None:
+        t_tmp = {"chave": "tempo", "rotulo": "Tempo médio de execução",
+                 "pct_n": 100.0, "pct_x": 100.0,
+                 "sub_n": "sem cartão com tempo medido",
+                 "sub_x": "sem cartão com tempo medido"}
+    else:
+        alvo = ref * (1 - red / 100)
+        pct = 100.0 if real <= alvo else (alvo / real * 100 if real else 0.0)
+        t_tmp = {"chave": "tempo", "rotulo": f"Tempo médio −{red:.0f}%",
+                 "pct_n": pct, "pct_x": pct,
+                 "sub_n": f"{_fmt_hm(real)} real · alvo {_fmt_hm(alvo)}",
+                 "sub_x": f"{_fmt_hm(real)} real · alvo {_fmt_hm(alvo)}"}
+
+    return r, [t_pts, t_pri, t_ret, t_pen, t_mb, t_tmp]
+
+
 def _secao_metas_card(dados):
     """Painel Meta Coletiva | Meta MAXX lado a lado, estilo Painel de Metas."""
     if not dados:
@@ -1747,52 +1850,45 @@ def _chart_pontuacao_meta(dados):
 
 
 def _chart_indices_meta(dados):
-    """HTML/SVG: 4 velocímetros semicirculares."""
-    n  = len(dados)
-    tc = sum(r["total_concl"] for r in dados)
-    pct_maxx   = sum(min(r["pct_maxx"], 100) for r in dados) / n if n > 0 else 0
-    pct_atras  = sum(r["atrasados"] for r in dados) / max(tc, 1) * 100
-    retrab_l   = [r["pct_retrab"] for r in dados if r["pct_retrab"] is not None]
-    pct_retrab = sum(retrab_l) / len(retrab_l) if retrab_l else 0
-    # Quando não há cartões concluídos, a divisão por 1 distorce a conformidade
-    # (ex: 2 penalidades / 0 concluídos = 200% → vermelho indevido).
-    # Só calcula a taxa quando há ao menos 1 cartão concluído.
-    pen_qtd_total = sum(r["pen_qtd"] for r in dados)
-    pct_pen    = (pen_qtd_total / tc * 100) if tc > 0 else 0
-    pct_no_prazo = max(0, 100 - pct_atras)
+    """Os seis topicos da meta, em velocimetros, para Coletiva e MAXX.
 
-    # Cores dinâmicas
-    cor_qualidade   = "#1BAF7A" if pct_retrab <= 10 else "#E34948"
-    cor_conformidade = "#1BAF7A" if pct_pen <= 10 else "#E34948"
+    Antes eram quatro mostradores que nao correspondiam aos topicos cobrados
+    logo acima: "Pontualidade" media atraso no board inteiro enquanto a meta e
+    sobre prioritarios P8-P10, e "Alcance MAXX" cortava em 100 justamente quando
+    a equipe passava dela. Agora saem de _metas_topicos, a mesma fonte das
+    barras — as duas leituras nao tem como divergir.
+    """
+    r, topicos = _metas_topicos(dados)
+    if not topicos:
+        return ('<div style="padding:20px;text-align:center;'
+                'color:var(--ms-texto-sec);">Sem dados</div>')
 
-    # (pct, cor, titulo, sub, legend)
-    indices = [
-        (min(pct_maxx, 100),
-         "#FFD700",
-         "Alcance MAXX",
-         f"{pct_maxx:.0f}% da meta MAXX",
-         ""),
-        (pct_no_prazo,
-         "#1BAF7A",
-         "Pontualidade",
-         f"{pct_atras:.1f}% dos cartões atrasaram",
-         "Cartões concluídos dentro do prazo"),
-        (max(0, 100 - pct_retrab),
-         cor_qualidade,
-         "Qualidade",
-         f"{pct_retrab:.1f}% de retrabalho no período",
-         ""),
-        (max(0, 100 - pct_pen),
-         cor_conformidade,
-         "Conformidade",
-         f"{max(0,100-pct_pen):.0f}% s/ penalidade · {pct_pen:.1f}% c/ pen.",
-         ""),
-    ]
-    gauges = "".join(_gauge_svg(pct, cor, titulo, sub, legend) for pct, cor, titulo, sub, legend in indices)
+    def _cor(pct, dourado=False):
+        if pct >= 100:
+            return "#FFD700" if dourado else "#1BAF7A"
+        if pct >= 75:
+            return "#EDA100"
+        return "#E34948"
+
+    def _bloco(titulo, cor_tit, chave_pct, chave_sub, dourado):
+        gauges = ""
+        for t in topicos:
+            pct = float(t[chave_pct] or 0)
+            gauges += _gauge_svg(min(pct, 100), _cor(pct, dourado), t["rotulo"],
+                                 # O numero fica no subtitulo quando passa de
+                                 # 100: o arco satura, o texto nao.
+                                 (f"{pct:.0f}% · " if pct > 100 else "") + t[chave_sub])
+        return (
+            f'<div style="font-size:10px;font-weight:600;color:{cor_tit};'
+            f'text-transform:uppercase;letter-spacing:.5px;margin:0 0 4px;">{titulo}</div>'
+            f'<div style="display:grid;grid-template-columns:repeat(3,1fr);'
+            f'gap:8px 4px;margin-bottom:14px;">{gauges}</div>')
+
     return (
-        f'<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 2px;padding:8px 0;">'
-        f'{gauges}</div>'
-    )
+        f'<div style="font-size:9px;color:var(--ms-texto-sec);text-transform:uppercase;'
+        f'letter-spacing:.5px;margin-bottom:8px;">Referência: {r["label"]}</div>'
+        + _bloco("📋 Meta Coletiva", "#1BAF7A", "pct_n", "sub_n", False)
+        + _bloco("⭐ Meta MAXX", "#FFD700", "pct_x", "sub_x", True))
 
 
 def _chart_tempo_execucao(dados):
@@ -2762,7 +2858,7 @@ def _aba_desempenho(dados, dados_ano_full=None, carregar_periodo=None):
 
     with row1_col2:
         st.markdown("#### 🎯 Índices Meta Coletiva")
-        st.caption("Quatro indicadores percentuais de desempenho coletivo no período selecionado.")
+        st.caption("Os seis tópicos cobrados na meta, para a Coletiva e para a MAXX.")
         st.markdown(_chart_indices_meta(dados), unsafe_allow_html=True)
 
     st.markdown("---")
