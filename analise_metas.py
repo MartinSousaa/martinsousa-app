@@ -2844,14 +2844,14 @@ _LTD_BASE = ('.ltd-f{opacity:0;pointer-events:none;}'
              'stroke-width:1;}')
 
 
-def _ltd_css(n):
-    regras = "".join(f'#ltd-i{i}:hover~#ltd-f{i}{{opacity:1;}}' for i in range(n))
+def _ltd_css(pre, n):
+    regras = "".join(f'#{pre}i{i}:hover~#{pre}f{i}{{opacity:1;}}' for i in range(n))
     return f'<style>{_LTD_BASE}{regras}</style>'
 
 FICHA_L = 246
 
 
-def _ficha_exec(idx, e, tot, cx, cy, W, H, cor):
+def _ficha_exec(pre, idx, e, tot, cx, cy, W, H, cor):
     """Resumo de uma execução: cartão, coluna, janela e total do cartão no dia.
 
     Fica ao lado do bloco, e vira para o outro lado quando o bloco está na
@@ -2882,9 +2882,26 @@ def _ficha_exec(idx, e, tot, cx, cy, W, H, cor):
         ty += fs + 6
         texto += (f'<text x="10" y="{ty:.0f}" font-size="{fs}" '
                   f'font-weight="{peso}" fill="{c}">{t}</text>')
+    # Tres mecanismos para a mesma coisa, e nao e exagero: o <style> dentro do
+    # SVG nao sobrevive ao pipeline de HTML do Streamlit -- as fichas apareceram
+    # todas de uma vez na tela, embora o mesmo SVG funcione num navegador puro.
+    #
+    #   opacity="0" no atributo  -- a ficha nasce invisivel mesmo sem CSS algum.
+    #                               Sem isto, folha de estilo descartada = todas
+    #                               as fichas visiveis ao mesmo tempo, que foi o
+    #                               defeito relatado.
+    #   <set> do proprio SVG     -- acende no mouseover do bloco e apaga no
+    #                               mouseout. E SVG nativo: nao passa por CSS
+    #                               nem por JavaScript, entao nao ha o que
+    #                               higienizar.
+    #   a regra de CSS           -- continua, para quem aplicar. Animacao SMIL
+    #                               tem prioridade sobre CSS, e as duas mandam a
+    #                               mesma coisa; nao brigam.
     return (
-        f'<g class="ltd-f" id="ltd-f{idx}" '
-        f'transform="translate({fx:.1f},{fy:.1f})">'
+        f'<g class="ltd-f" id="{pre}f{idx}" opacity="0" '
+        f'pointer-events="none" transform="translate({fx:.1f},{fy:.1f})">'
+        f'<set attributeName="opacity" to="1" '
+        f'begin="{pre}i{idx}.mouseover" end="{pre}i{idx}.mouseout"/>'
         f'<rect width="{FICHA_L}" height="{alt:.0f}" rx="6" fill="#12140f" '
         f'fill-opacity="0.97" stroke="{cor}" stroke-width="1"/>{texto}</g>')
 
@@ -2940,6 +2957,12 @@ def _chart_linha_do_tempo(dados, username):
     def y(m):
         return mt + (m - eixo_ini) / span * ih
 
+    # Prefixo proprio deste grafico. Id repetido na mesma pagina quebra tanto a
+    # referencia do <set> quanto o seletor de CSS: os dois passam a apontar
+    # sempre para o primeiro elemento com aquele id, e todos os blocos acendem
+    # a mesma ficha.
+    import zlib
+    pre = "ltd%d" % (zlib.crc32(f"{username}{ano}{mes}".encode()) % 100000)
     partes, itens, fichas = [], [], []
     # Fora do expediente com outro fundo, e o almoco marcado: um bloco as 13h45
     # nao quer dizer a mesma coisa que um as 10h.
@@ -2991,13 +3014,18 @@ def _chart_linha_do_tempo(dados, username):
             bx, blarg = x + 2.5, max(bw - 5, 2)
             tot = por_card.get(e["card"], {"min": e["min"], "n": 1})
             _i = len(fichas)
-            fichas.append(_ficha_exec(_i, e, tot, bx + blarg / 2, (y0 + y1) / 2,
-                                      W, H, cor))
+            fichas.append(_ficha_exec(pre, _i, e, tot, bx + blarg / 2,
+                                      (y0 + y1) / 2, W, H, cor))
             itens.append(
-                f'<g class="ltd-i" id="ltd-i{_i}">'
+                f'<g class="ltd-i" id="{pre}i{_i}">'
                 f'<rect x="{bx:.1f}" y="{y0:.1f}" '
                 f'width="{blarg:.1f}" height="{alt:.1f}" rx="2" fill="{cor}" '
-                f'fill-opacity="0.85"/>'
+                f'fill-opacity="0.85">'
+                f'<set attributeName="fill-opacity" to="1" '
+                f'begin="{pre}i{_i}.mouseover" end="{pre}i{_i}.mouseout"/>'
+                f'<set attributeName="stroke" to="#fff" '
+                f'begin="{pre}i{_i}.mouseover" end="{pre}i{_i}.mouseout"/>'
+                f'</rect>'
                 # Alvo de mouse maior que o bloco: bloco de 20 minutos tem 6px
                 # de altura, e caçar 6px com o ponteiro é o tipo de detalhe que
                 # faz alguém achar que a tela não responde.
@@ -3007,6 +3035,7 @@ def _chart_linha_do_tempo(dados, username):
                 f'y2="{y0:.1f}" stroke="#1BAF7A" stroke-width="1.4"/>'
                 f'<line x1="{bx-2:.1f}" y1="{y1:.1f}" x2="{bx+blarg+2:.1f}" '
                 f'y2="{y1:.1f}" stroke="#E34948" stroke-width="1.4"/>'
+
                 # O <title> continua: se o navegador nao aplicar o CSS da ficha,
                 # ainda sobra o tooltip nativo em vez de nada.
                 f'<title>{_esc(e["card"])[:70]} · {e["ini"]:%H:%M} → '
@@ -3050,9 +3079,10 @@ def _chart_linha_do_tempo(dados, username):
            'passe o mouse num bloco para ver o cartão</div>')
     # overflow visivel: a ficha do hover encosta na borda do SVG, e com
     # overflow:hidden ela sairia cortada.
-    return (f'<div style="width:100%;padding:4px 0;">{cab}'
+    return (f'{_ltd_css(pre, len(fichas))}'
+            f'<div style="width:100%;padding:4px 0;">{cab}'
             f'<svg viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" '
-            f'style="width:100%;overflow:visible;">{_ltd_css(len(fichas))}'
+            f'style="width:100%;overflow:visible;">'
             + "".join(partes) + "".join(itens) + "".join(fichas)
             + f'</svg>{leg}</div>')
 
