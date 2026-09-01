@@ -236,12 +236,32 @@ def _barra_painel_dash(nome, desc):
     )
 
 
+def _ref_execucao_equipe(dados, cfg):
+    """Tempo de referência da equipe: o digitado no mês, ou o estimado.
+
+    A referência era só calculada — os tempos estimados por coluna ponderados
+    pelo volume — e não havia onde digitar o tempo médio geral do mês nem
+    corrigi-lo. Agora há o campo `exec_ref_equipe`, e zero continua significando
+    "usar o calculado", do mesmo jeito que a referência de cada pessoa.
+
+    Devolve (referencia_min, n_cartoes, digitada).
+    """
+    ref, n_est = _tempo_estimado_esperado(dados)
+    try:
+        digitada = float((cfg or {}).get("exec_ref_equipe", 0) or 0)
+    except (TypeError, ValueError):
+        digitada = 0.0
+    if digitada > 0:
+        return digitada, n_est, True
+    return ref, n_est, False
+
+
 def _barra_tempo_medio(dados, cfg, cor_ok):
     """Barra do tempo médio de execução da equipe contra a redução do mês."""
     red = float((cfg or {}).get("exec_red_equipe", 0) or 0)
     if red <= 0:
         return ""   # sem redução definida no mês, o indicador não existe
-    ref, n_est = _tempo_estimado_esperado(dados)
+    ref, n_est, _digitada = _ref_execucao_equipe(dados, cfg)
     real = _media_execucao_geral(dados)
     rotulo = f"Tempo médio de execução — reduzir {red:.0f}%"
     if ref is None or real is None:
@@ -253,7 +273,8 @@ def _barra_tempo_medio(dados, cfg, cor_ok):
     return _barra_painel(
         rotulo, pct,
         f"{_fmt_hm(real)} de média real · alvo {_fmt_hm(alvo)} "
-        f"({red:.0f}% abaixo de {_fmt_hm(ref)} estimadas) · {n_est} cartões",
+        f"({red:.0f}% abaixo de {_fmt_hm(ref)} "
+        + ("digitadas" if _digitada else f"estimadas · {n_est} cartões") + ")",
         cor)
 
 
@@ -408,7 +429,7 @@ def _metas_topicos(dados):
     # existia ali, e mostrar 0 acusaria a equipe por uma regra que so passou a
     # valer depois.
     red = float(cfg.get("exec_red_equipe", 0) or 0)
-    ref, n_est = _tempo_estimado_esperado(dados)
+    ref, n_est, _ref_digitada = _ref_execucao_equipe(dados, cfg)
     real = _media_execucao_geral(dados)
     if red <= 0:
         t_tmp = {"chave": "tempo", "rotulo": "Tempo médio de execução",
@@ -888,6 +909,62 @@ def _detalhe_pontualidade(ocorrencias, username):
             unsafe_allow_html=True)
 
 
+def _item_advertencia(advs, limite_mes, n_meses=1):
+    """Card de advertências: quantas foram lançadas contra o teto do período.
+
+    Advertência é lançamento do gestor, um número por mês na configuração — não
+    sai do Trello nem da RHiD. Somada no período, ela é comparada com o limite
+    MENSAL multiplicado pelos meses: comparar três meses de advertências com o
+    teto de um mês só acusaria quem está dentro da regra.
+    """
+    rotulo = f"🚫 Advertências (máx {limite_mes}/mês)"
+    limite = limite_mes * max(1, n_meses)
+    pct = min(advs / limite * 100, 100) if limite > 0 else (0 if advs == 0 else 100)
+    if limite <= 0:
+        cor = "#E34948" if advs else "#1BAF7A"
+        fecho = "fora desta meta" if advs else "nenhuma advertência permitida"
+    elif advs > limite:
+        cor = "#E34948"
+        fecho = f"fora desta meta — {advs - limite} além do permitido"
+    elif pct >= 50:
+        cor, fecho = "#EDA100", f"resta {limite - advs} para estourar"
+    else:
+        cor, fecho = "#1BAF7A", f"restam {limite - advs}"
+    corpo = f"{advs} de {limite} · {fecho}"
+    if n_meses > 1:
+        corpo += f" · {limite_mes}/mês em {n_meses} meses"
+    corpo += " · celular, falta ou atraso excessivo sem aviso"
+    return _meta_ind_item(rotulo, pct, corpo, cor=cor, valor_texto=f"{advs:.0f}")
+
+
+def _item_contribuicao(pts, meta, piso):
+    """Card do piso de participação: entregou o bastante para entrar na meta?
+
+    Bater a meta do time é do time; ENTRAR nela é de cada um. Quem não chega a
+    essa fatia da própria meta individual não participa da meta coletiva do mês,
+    ainda que o time feche. Por isso o card aparece nos dois grupos, com o piso
+    de cada um — 80% na coletiva, 100% na MAXX.
+    """
+    rotulo = f"🤝 Participação na meta ({piso}% da meta individual)"
+    if meta <= 0 or piso <= 0:
+        return _meta_ind_item(rotulo, 100,
+                              "Meta individual não configurada para o mês",
+                              aguardando=True)
+    pct_ind = pts / meta * 100
+    exigido = meta * piso / 100
+    barra = min(pct_ind / piso * 100, 100)
+    if pct_ind >= piso:
+        cor, fecho = "#1BAF7A", "✅ Participa desta meta"
+    elif pct_ind >= piso * 0.9:
+        cor, fecho = "#EDA100", f"faltam {exigido - pts:,.0f} pts para entrar"
+    else:
+        cor, fecho = "#E34948", f"fora desta meta — faltam {exigido - pts:,.0f} pts"
+    return _meta_ind_item(
+        rotulo, barra,
+        f"{pts:,.0f} de {exigido:,.0f} pts exigidos · {fecho}".replace(",", "."),
+        cor=cor, valor_texto=f"{pct_ind:.0f}%")
+
+
 def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master=False):
     """Exibe cards de meta individual — pontuação real + campos aguardando integração.
     Penalidades ficam apenas na visão coletiva."""
@@ -905,6 +982,13 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
     # apareciam no painel individual — so os limites normais eram mostrados.
     max_tol_mx = int(cfg.get("max_tol_maxx", 7))
     max_atr_mx = int(cfg.get("max_atr_maxx", 5))
+    # Entrada na meta: o piso de contribuicao e o teto de advertencias. Os dois
+    # sao cobrados sobre a meta INDIVIDUAL de cada um — 80% dela para entrar na
+    # coletiva, 100% para entrar na MAXX.
+    _min_contrib_n = int(cfg.get("min_contrib_normal", 80) or 0)
+    _min_contrib_x = int(cfg.get("min_contrib_maxx", 100) or 0)
+    _max_adv_n = int(cfg.get("max_adv_normal", 2) or 0)
+    _max_adv_x = int(cfg.get("max_adv_maxx", 1) or 0)
 
     # Tempo médio de execução: a referência e a redução são do mês mais recente
     # do período, a mesma origem dos limites de pontualidade logo acima.
@@ -931,7 +1015,8 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
     # dele. O master ve todos os cards lado a lado, em colunas estreitas onde a
     # tabela nao caberia, entao para ele vai uma copia so, aqui em cima.
     if eh_master:
-        _expl.render()
+        _expl.render(min_contrib_n=_min_contrib_n, min_contrib_x=_min_contrib_x,
+                     max_adv_n=_max_adv_n, max_adv_x=_max_adv_x)
 
     # Monitoramento em tempo real: os dados têm cache curto (30s a 5min) para não
     # bater na API a cada clique; este botão descarta tudo e relê na hora.
@@ -1066,7 +1151,10 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
         if com_explicacao:
             # O campo de salario mora dentro do painel: um so, alimentando a
             # tabela de exemplos e a conta real logo abaixo.
-            _expl.render(chave_salario=_chave_sal)
+            _expl.render(chave_salario=_chave_sal,
+                         min_contrib_n=_min_contrib_n,
+                         min_contrib_x=_min_contrib_x,
+                         max_adv_n=_max_adv_n, max_adv_x=_max_adv_x)
 
         o = _ocio.get(username, {"disp": 0.0, "cards": 0.0})
         e = _exec.get(username, {"dentro": 0, "total": 0})
@@ -1179,6 +1267,21 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
                 cor=cor, valor_texto=_fmt_hm(atual)
             ), unsafe_allow_html=True)
 
+        # Advertencia e lancamento do gestor, um numero por mes na configuracao.
+        # Somada no periodo, ela e comparada com o limite MENSAL multiplicado
+        # pelos meses do periodo — comparar tres meses de advertencias com o
+        # teto de um mes so acusaria quem esta dentro da regra.
+        _n_meses = max(1, len(dados))
+        _advs = sum(int(r["cfg"].get(f"adv_{username}", 0) or 0) for r in dados)
+
+        def _it_advertencia(limite_mes):
+            st.markdown(_item_advertencia(_advs, limite_mes, _n_meses),
+                        unsafe_allow_html=True)
+
+        def _it_contribuicao(piso):
+            st.markdown(_item_contribuicao(pts, meta, piso),
+                        unsafe_allow_html=True)
+
         def _it_contagem(rotulo, usado, limite, detalhe=""):
             """Card de tolerância ou atraso contra UM limite — o mensal ou o da MAXX."""
             if not _tem_ponto:
@@ -1225,6 +1328,8 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
                      p["tol"], max_tol, _det_tol)
         _it_contagem(f"⏰ Atrasos de pontualidade ({max_atr}/mês)",
                      p["atr"], max_atr, _det_atr)
+        _it_contribuicao(_min_contrib_n)
+        _it_advertencia(_max_adv_n)
 
         _detalhe_pontualidade(p.get("ocorr") or [], username)
 
@@ -1241,6 +1346,8 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
                      p["tol"], max_tol_mx, _det_tol)
         _it_contagem(f"⏰ Atrasos de pontualidade ({max_atr_mx}/mês)",
                      p["atr"], max_atr_mx, _det_atr)
+        _it_contribuicao(_min_contrib_x)
+        _it_advertencia(_max_adv_x)
 
         # Calculadora de ganhos
         pct_i = min(pts / meta * 100, 100) if meta > 0 else 0
@@ -1266,10 +1373,59 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
             meta_ind = meta_total.get(username, len(dados) * 1500)
             meta_ind_maxx = maxx_total.get(username, 0)
 
-            meta_col_batida  = pct_eq   >= 100
-            meta_maxx_batida = pct_maxx >= 100
+            # Bater a meta do time nao basta: e preciso ter entrado nela. Os
+            # dois porteiros sao o piso de contribuicao (80% da propria meta
+            # para a coletiva, 100% para a MAXX) e o teto de advertencias
+            # (2 e 1). Sem isto a regra existiria so como texto na tela, e
+            # quem contribuiu pouco continuaria recebendo pelo esforco alheio.
+            #
+            # Os porteiros valem sobre a METADE DO TIME. A metade individual
+            # continua sendo do proprio resultado de cada um.
+            _pct_ind_real = (pts / meta_ind * 100) if meta_ind > 0 else 0.0
+            _lim_adv_n = _max_adv_n * _n_meses
+            _lim_adv_x = _max_adv_x * _n_meses
+            _entra_col  = (_pct_ind_real >= _min_contrib_n
+                           and _advs <= _lim_adv_n)
+            _entra_maxx = (_pct_ind_real >= _min_contrib_x
+                           and _advs <= _lim_adv_x)
+
+            meta_col_batida  = pct_eq   >= 100 and _entra_col
+            meta_maxx_batida = pct_maxx >= 100 and _entra_maxx
             meta_ind_batida      = meta_ind > 0 and pts >= meta_ind
             meta_ind_maxx_batida = meta_ind_maxx > 0 and pts >= meta_ind_maxx
+
+            # Quando o time fecha e a pessoa fica de fora, dizer por que. Um
+            # bonus que some sem explicacao vira conversa no corredor.
+            _bloqueios = []
+            if pct_eq >= 100 and not _entra_col:
+                if _pct_ind_real < _min_contrib_n:
+                    _bloqueios.append(
+                        f"contribuiu com {_pct_ind_real:.0f}% da sua meta "
+                        f"individual — o mínimo para entrar na coletiva é "
+                        f"{_min_contrib_n}%")
+                if _advs > _lim_adv_n:
+                    _bloqueios.append(
+                        f"{_advs} advertência(s) no período — o máximo para a "
+                        f"coletiva é {_lim_adv_n}")
+            elif pct_maxx >= 100 and not _entra_maxx:
+                if _pct_ind_real < _min_contrib_x:
+                    _bloqueios.append(
+                        f"contribuiu com {_pct_ind_real:.0f}% da sua meta "
+                        f"individual — o mínimo para entrar na MAXX é "
+                        f"{_min_contrib_x}%")
+                if _advs > _lim_adv_x:
+                    _bloqueios.append(
+                        f"{_advs} advertência(s) no período — o máximo para a "
+                        f"MAXX é {_lim_adv_x}")
+            if _bloqueios:
+                st.markdown(
+                    '<div style="background:#E3494815;border:1px solid #E34948;'
+                    'border-radius:8px;padding:10px 13px;margin-bottom:8px;">'
+                    '<div style="font-size:11px;font-weight:700;color:#E34948;'
+                    'margin-bottom:4px;">🚫 Fora da meta do time neste período</div>'
+                    '<div style="font-size:10px;color:var(--ms-texto-sec);'
+                    'line-height:1.6;">' + "<br>".join("· " + b for b in _bloqueios)
+                    + '</div></div>', unsafe_allow_html=True)
 
             pct_time, pct_seu = _expl.bonus_percentuais(
                 meta_col_batida, meta_maxx_batida,
@@ -3392,18 +3548,34 @@ def _secao_configuracao(dados=None):
             "**Equipe** — a referência coletiva sai dos tempos estimados que você "
             "definiu por coluna, ponderados pelo volume de cartões concluídos."
         )
-        _ce1, _ce2 = st.columns([1, 2])
+        # A referencia da equipe agora e um campo, como a de cada pessoa. Ela era
+        # so calculada — os tempos estimados por coluna ponderados pelo volume —
+        # e nao havia onde digitar o tempo medio geral do mes nem corrigi-lo.
+        # Zero segue significando "usar o calculado".
+        _gravada_eq = float(cfg_atual.get("exec_ref_equipe", 0) or 0)
+        _inicial_eq = _gravada_eq if _gravada_eq > 0 else (_ref_eq or 0)
+        _ce0, _ce1, _ce2 = st.columns([1, 1, 2])
+        nova_cfg["exec_ref_equipe"] = _ce0.number_input(
+            "Equipe — referência (min)", min_value=0, max_value=1440,
+            value=int(round(_inicial_eq)), step=5,
+            key=f"cfg_exec_ref_equipe_{ano_cfg}_{mes_cfg_num}",
+            help="Tempo médio geral por demanda que serve de base ao mês. "
+                 "Deixe em 0 para usar o estimado por coluna.")
         nova_cfg["exec_red_equipe"] = _ce1.number_input(
             "Equipe — reduzir (%)", min_value=0, max_value=90,
             value=int(cfg_atual.get("exec_red_equipe", 0) or 0), step=5,
             key=f"cfg_exec_red_equipe_{ano_cfg}_{mes_cfg_num}",
         )
-        if _ref_eq is None:
-            _ce2.caption("Sem cartões com tempo medido no período analisado.")
+        _base_eq = nova_cfg["exec_ref_equipe"] or _ref_eq
+        if not _base_eq:
+            _ce2.caption("Sem cartões com tempo medido no período analisado — "
+                         "digite a referência da equipe ao lado.")
         else:
-            _alvo_eq = _ref_eq * (1 - nova_cfg["exec_red_equipe"] / 100)
+            _alvo_eq = _base_eq * (1 - nova_cfg["exec_red_equipe"] / 100)
+            _origem_eq = ("digitada" if nova_cfg["exec_ref_equipe"]
+                          else f"estimada por coluna ({_n_eq} cartões)")
             _ce2.caption(
-                f"Estimado **{_fmt_hm(_ref_eq)}** por demanda ({_n_eq} cartões) → "
+                f"Referência **{_fmt_hm(_base_eq)}** por demanda ({_origem_eq}) → "
                 f"alvo **{_fmt_hm(_alvo_eq)}**"
                 + (f" · real medido hoje: **{_fmt_hm(_real_eq)}**"
                    if _real_eq is not None else ""))
@@ -3431,6 +3603,69 @@ def _secao_configuracao(dados=None):
         nova_cfg["max_atr_maxx"] = c4.number_input(
             "Atrasos (MAXX)", min_value=0, value=int(cfg_atual["max_atr_maxx"]), step=1
         , key=f"cfg_max_atr_maxx_{ano_cfg}_{mes_cfg_num}")
+
+        st.markdown("##### 🚫 Advertências")
+        st.caption(
+            "Advertência é disciplinar: uso de celular, falta ou atraso excessivo "
+            "injustificado ou sem aviso prévio. Não sai de sistema nenhum — é "
+            "lançada aqui, no mês em que aconteceu. Quem passa do limite **deixa "
+            "de participar** da meta correspondente."
+        )
+        c1, c2 = st.columns(2)
+        nova_cfg["max_adv_normal"] = c1.number_input(
+            mc.LABELS["max_adv_normal"], min_value=0,
+            value=int(cfg_atual.get("max_adv_normal", 2) or 0), step=1,
+            key=f"cfg_max_adv_normal_{ano_cfg}_{mes_cfg_num}")
+        nova_cfg["max_adv_maxx"] = c2.number_input(
+            mc.LABELS["max_adv_maxx"], min_value=0,
+            value=int(cfg_atual.get("max_adv_maxx", 1) or 0), step=1,
+            key=f"cfg_max_adv_maxx_{ano_cfg}_{mes_cfg_num}")
+
+        _campos_adv = mc.campos_advertencia()
+        if not _campos_adv:
+            st.caption("Nenhum colaborador cadastrado na aba **equipe** da planilha.")
+        for _k_adv, _nome_a in _campos_adv:
+            _ca1, _ca2, _ca3 = st.columns([1.2, 1, 2.6])
+            _ca1.markdown(
+                f'<div style="padding-top:30px;font-size:13px;font-weight:600;">'
+                f'{_nome_a}</div>', unsafe_allow_html=True)
+            _adv = _ca2.number_input(
+                "Advertências no mês", min_value=0, max_value=20,
+                value=int(cfg_atual.get(_k_adv, 0) or 0), step=1,
+                key=f"cfg_{_k_adv}_{ano_cfg}_{mes_cfg_num}")
+            nova_cfg[_k_adv] = int(_adv)
+            _lim_n = int(nova_cfg["max_adv_normal"])
+            _lim_x = int(nova_cfg["max_adv_maxx"])
+            if _adv == 0:
+                _txt_a, _cor_a = "Nenhuma advertência no mês", "var(--ms-texto-sec)"
+            elif _adv > _lim_n:
+                _txt_a, _cor_a = ("Fora da Meta Coletiva e da MAXX "
+                                  f"(limite {_lim_n} e {_lim_x})", "#E34948")
+            elif _adv > _lim_x:
+                _txt_a, _cor_a = (f"Dentro da Coletiva (máx {_lim_n}) · "
+                                  f"fora da MAXX (máx {_lim_x})", "#EDA100")
+            else:
+                _txt_a, _cor_a = (f"Dentro das duas metas "
+                                  f"(máx {_lim_n} e {_lim_x})", "#1BAF7A")
+            _ca3.markdown(
+                f'<div style="padding-top:32px;font-size:11px;color:{_cor_a};">'
+                f'{_txt_a}</div>', unsafe_allow_html=True)
+
+        st.markdown("##### 🤝 Contribuição mínima para entrar na meta")
+        st.caption(
+            "Piso de participação: quem não chegar a essa fatia da **própria meta "
+            "individual** não entra na meta coletiva do mês, mesmo que o time "
+            "feche. Vale igual para a MAXX, com o piso dela."
+        )
+        c1, c2 = st.columns(2)
+        nova_cfg["min_contrib_normal"] = c1.number_input(
+            mc.LABELS["min_contrib_normal"], min_value=0, max_value=200,
+            value=int(cfg_atual.get("min_contrib_normal", 80) or 0), step=5,
+            key=f"cfg_min_contrib_normal_{ano_cfg}_{mes_cfg_num}")
+        nova_cfg["min_contrib_maxx"] = c2.number_input(
+            mc.LABELS["min_contrib_maxx"], min_value=0, max_value=200,
+            value=int(cfg_atual.get("min_contrib_maxx", 100) or 0), step=5,
+            key=f"cfg_min_contrib_maxx_{ano_cfg}_{mes_cfg_num}")
 
         st.markdown("##### 🔧 Outros Critérios")
         c1, c2, c3 = st.columns(3)

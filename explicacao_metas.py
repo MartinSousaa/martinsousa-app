@@ -51,6 +51,15 @@ OCIO_META_MAXX = 5
 EXEC_META_NORMAL = 80
 EXEC_META_MAXX = 90
 
+# Condicoes de ENTRADA na meta do time. Nao sao um nivel de bonus: sao a porta.
+# Quem nao contribuiu o minimo, ou passou das advertencias, nao entra na meta
+# coletiva ainda que o time feche. Os valores reais vem da configuracao do mes;
+# estes sao so o padrao de quem chama render() sem passar nada.
+MIN_CONTRIB_NORMAL = 80
+MIN_CONTRIB_MAXX = 100
+MAX_ADV_NORMAL = 2
+MAX_ADV_MAXX = 1
+
 
 def bonus_percentuais(col_mensal, col_maxx, ind_mensal, ind_maxx):
     """Quanto o salário aumenta, em pontos percentuais.
@@ -186,7 +195,9 @@ def _explicar_indicadores():
     ), unsafe_allow_html=True)
 
 
-def render(expandido=True, chave_salario="expl_salario"):
+def render(expandido=True, chave_salario="expl_salario",
+           min_contrib_n=None, min_contrib_x=None,
+           max_adv_n=None, max_adv_x=None):
     """Painel didático: como as metas viram dinheiro no salário.
 
     A tabela usa o salário que a própria pessoa digita. Sem isso a explicação
@@ -236,6 +247,32 @@ def render(expandido=True, chave_salario="expl_salario"):
             'Mas uma meta <b>do time</b> e uma meta <b>sua</b> sempre somam entre '
             'si — inclusive de níveis diferentes. Dá para bater a '
             f'{NOME_COL} e a {NOME_IND_MAXX} no mesmo mês.'
+            '</div>', unsafe_allow_html=True)
+
+        # A porta antes do bonus. Vem depois da regra dos niveis de proposito:
+        # so faz sentido depois que a pessoa entendeu o que a meta do time paga.
+        _mc_n = MIN_CONTRIB_NORMAL if min_contrib_n is None else int(min_contrib_n)
+        _mc_x = MIN_CONTRIB_MAXX if min_contrib_x is None else int(min_contrib_x)
+        _ad_n = MAX_ADV_NORMAL if max_adv_n is None else int(max_adv_n)
+        _ad_x = MAX_ADV_MAXX if max_adv_x is None else int(max_adv_x)
+        st.markdown(
+            '<div style="background:#E3494812;border:1px solid #E3494855;'
+            'border-radius:10px;padding:12px 16px;font-size:15px;line-height:1.7;'
+            'margin-top:12px;">'
+            '🚪 <b>Para receber pela meta do time, é preciso ter entrado nela.</b><br>'
+            'Bater a meta coletiva é do time. <b>Entrar</b> nela é de cada um — '
+            'são duas condições, e as duas valem por mês:<br>'
+            '<span style="color:var(--ms-texto-sec);">'
+            f'• <b>Contribuição:</b> entregar pelo menos <b>{_mc_n}%</b> da sua '
+            f'meta individual para entrar na {NOME_COL}, e <b>{_mc_x}%</b> para '
+            f'entrar na {NOME_COL_MAXX}.<br>'
+            f'• <b>Advertências:</b> no máximo <b>{_ad_n}</b> para seguir na '
+            f'{NOME_COL} e <b>{_ad_x}</b> para seguir na {NOME_COL_MAXX}. '
+            'Advertência é disciplinar: uso de celular, falta ou atraso '
+            'excessivo injustificado ou sem aviso prévio.</span><br>'
+            'Quem fica de fora por um desses dois motivos <b>não recebe a metade '
+            'do time</b> naquele mês. A sua metade continua sendo do seu próprio '
+            'resultado.'
             '</div>', unsafe_allow_html=True)
 
         st.markdown(

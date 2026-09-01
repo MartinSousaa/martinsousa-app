@@ -44,6 +44,11 @@ DEFAULTS = {
     "max_retrab_maxx":     5,
     "min_membro_pct":      95,
     "exec_red_equipe":     0,
+    "exec_ref_equipe":     0,
+    "min_contrib_normal":  80,
+    "min_contrib_maxx":    100,
+    "max_adv_normal":      2,
+    "max_adv_maxx":        1,
 }
 
 # Rótulos legíveis para exibição na UI
@@ -61,6 +66,11 @@ LABELS = {
     "max_retrab_maxx":     "Retrabalho máx. % (MAXX)",
     "min_membro_pct":      "% mín. cartões com membro",
     "exec_red_equipe":     "Redução do tempo médio de execução — equipe (%)",
+    "exec_ref_equipe":     "Tempo de referência — equipe (min)",
+    "min_contrib_normal":  "% mín. da meta individual p/ entrar na Coletiva",
+    "min_contrib_maxx":    "% mín. da meta individual p/ entrar na MAXX",
+    "max_adv_normal":      "Máx. advertências (Meta Normal)",
+    "max_adv_maxx":        "Máx. advertências (Meta MAXX)",
 }
 
 
@@ -104,6 +114,16 @@ def campos_tempo_execucao():
             for user, nome in _equipe().items()]
 
 
+# Advertencia nao tem de onde ser lida: nao esta no Trello nem na RHiD. E um
+# lancamento do gestor, por pessoa e por mes, como qualquer outro campo daqui.
+ADVERTENCIAS_PADRAO = 0
+
+
+def campos_advertencia():
+    """[(chave, nome)] de advertências de cada pessoa da equipe."""
+    return [(f"adv_{user}", nome) for user, nome in _equipe().items()]
+
+
 def _crono(rotulo, seg, detalhe=""):
     """Registra quanto custou uma ida a planilha. Nunca derruba a leitura."""
     try:
@@ -140,6 +160,8 @@ def sincronizar_campos():
                        EXEC_REF_NAO_ANCORADA))
         campos.append((chave_red, f"Redução esperada — {nome} (%)",
                        EXEC_RED_PADRAO_PCT))
+    for chave_adv, nome in campos_advertencia():
+        campos.append((chave_adv, f"Advertências — {nome}", ADVERTENCIAS_PADRAO))
     for chave, rotulo, padrao in campos:
         if chave not in COLUNAS:
             COLUNAS.append(chave)
