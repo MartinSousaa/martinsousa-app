@@ -2521,48 +2521,53 @@ def _secao_configuracao(dados=None):
         _per = (dados or [{}])[-1].get("label", "")
         if _per:
             st.caption(f"Médias medidas no período analisado acima · **{_per}**")
-        # A referencia e gravada UMA vez por mes e nao se mexe mais. Sem isto,
-        # salvar o mes de novo — ainda que so para mudar penalidades — regravava
-        # a referencia com a media do momento: quem melhorasse veria o alvo fugir
-        # junto, e a meta que estava quase batida virava outra sozinha.
-        _reancorar = st.checkbox(
-            "Regravar as referências com a média atual",
-            value=False, key=f"cfg_exec_reanc_{ano_cfg}_{mes_cfg_num}",
-            help="Deixe desmarcado no dia a dia. Marque só quando quiser começar "
-                 "um ciclo novo a partir do desempenho de agora.")
+        # A referencia e um campo, nao um valor calculado a cada salvamento.
+        #
+        # Ela e o tempo de fechamento do mes: a base sobre a qual a reducao e
+        # cobrada. O tempo que o Trello mede serve para MEDIR o resultado contra
+        # essa base — nao para virar a base de novo toda vez que esta tela abre.
+        # Quando isso acontecia, quem melhorasse via o alvo fugir junto e a meta
+        # quase batida virava outra sozinha.
+        #
+        # O campo vem preenchido com o valor ja gravado no mes; so na primeira
+        # vez cai na media medida (ou 2h para quem ainda nao tem cartao medido).
+        # Salvar outra coisa qualquer nao o altera, porque o que se grava e o que
+        # esta no campo. Digitar nele e a unica forma de mudar a base — e serve
+        # tambem para corrigir um valor preenchido errado.
         _medias_cfg = _media_execucao_por_membro(dados or [])
         _campos_exec = mc.campos_tempo_execucao()
         if not _campos_exec:
             st.caption("Nenhum colaborador cadastrado na aba **equipe** da planilha.")
-        for _i in range(0, len(_campos_exec), 3):
-            _grupo = _campos_exec[_i:_i + 3]
-            _cols_e = st.columns(len(_grupo))
-            for _c, (_k_ref, _k_red, _nome_e) in zip(_cols_e, _grupo):
-                _u_e = _k_ref[len("exec_ref_"):]
-                _med = _medias_cfg.get(_u_e)
-                _gravada = float(cfg_atual.get(_k_ref, 0) or 0)
-                if _gravada > 0 and not _reancorar:
-                    _ref = _gravada          # travada: o mes ja foi ancorado
-                else:
-                    _ref = _med if _med else mc.EXEC_REF_PADRAO_MIN
-                nova_cfg[_k_ref] = int(round(_ref))
-                _red = _c.number_input(
-                    f"{_nome_e} — reduzir (%)", min_value=0, max_value=90,
-                    value=int(cfg_atual.get(_k_red, 0) or 0), step=5,
-                    key=f"cfg_{_k_red}_{ano_cfg}_{mes_cfg_num}",
-                )
-                nova_cfg[_k_red] = _red
-                if _gravada > 0 and not _reancorar:
-                    _origem = "referência travada"
-                elif _med:
-                    _origem = "média medida"
-                else:
-                    _origem = "sem medição · padrão 2h"
-                _c.caption(
-                    f"{_origem}: **{_fmt_hm(_ref)}** → alvo "
-                    f"**{_fmt_hm(_ref * (1 - _red / 100))}**"
-                    + (f" · média hoje: {_fmt_hm(_med)}"
-                       if _med and abs(_med - _ref) >= 1 else ""))
+        for _k_ref, _k_red, _nome_e in _campos_exec:
+            _u_e = _k_ref[len("exec_ref_"):]
+            _med = _medias_cfg.get(_u_e)
+            _gravada = float(cfg_atual.get(_k_ref, 0) or 0)
+            _inicial = _gravada if _gravada > 0 else (
+                _med if _med else mc.EXEC_REF_PADRAO_MIN)
+
+            _cn, _cr, _cp, _ca = st.columns([1.2, 1, 1, 1.8])
+            _cn.markdown(
+                f'<div style="padding-top:30px;font-size:13px;font-weight:600;">'
+                f'{_nome_e}</div>', unsafe_allow_html=True)
+            _ref = _cr.number_input(
+                "Referência (min)", min_value=1, max_value=1440,
+                value=int(round(_inicial)), step=5,
+                key=f"cfg_{_k_ref}_{ano_cfg}_{mes_cfg_num}",
+                help="Tempo de fechamento do mês — a base da meta. Edite aqui "
+                     "para corrigir ou para começar um ciclo novo.")
+            _red = _cp.number_input(
+                "Reduzir (%)", min_value=0, max_value=90,
+                value=int(cfg_atual.get(_k_red, 0) or 0), step=5,
+                key=f"cfg_{_k_red}_{ano_cfg}_{mes_cfg_num}")
+            nova_cfg[_k_ref] = int(_ref)
+            nova_cfg[_k_red] = int(_red)
+            _ca.markdown(
+                f'<div style="padding-top:30px;font-size:11px;'
+                f'color:var(--ms-texto-sec);">'
+                f'{_fmt_hm(_ref)} → alvo <b>{_fmt_hm(_ref * (1 - _red / 100))}</b>'
+                + (f' · média medida: {_fmt_hm(_med)}' if _med
+                   else ' · sem medição no período')
+                + '</div>', unsafe_allow_html=True)
 
         _ref_eq, _n_eq = _tempo_estimado_esperado(dados or [])
         _real_eq = _media_execucao_geral(dados or [])
