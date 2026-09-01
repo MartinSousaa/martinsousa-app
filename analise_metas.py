@@ -834,6 +834,10 @@ def _detalhe_pontualidade(ocorrencias, username):
     entender de onde veio.
     """
     if not ocorrencias:
+        # O expander fica, vazio. Aparecendo so para quem teve ocorrencia, ele
+        # empurrava os cards seguintes e as colunas paravam de casar.
+        with st.expander("📋 Ver os dias de tolerância e atraso (0)", expanded=False):
+            st.caption("Nenhuma tolerância ou atraso no período.")
         return
     linhas = ""
     for oc in sorted(ocorrencias, key=lambda x: (x.get("data", ""),
@@ -1067,7 +1071,13 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
                                  "ocorr": [], "min_atr": 0.0, "banco": 0.0})
 
         def _it_pontuacao(rotulo, alvo, cor):
+            # Sem meta configurada o item continua na tela, so que vazio. Sumir
+            # com ele desalinha a coluna dessa pessoa em relacao as outras, e
+            # comparar colaboradores lado a lado e justamente o que se faz aqui.
             if alvo <= 0:
+                st.markdown(_meta_ind_item(
+                    rotulo, 100, "Meta não configurada para o mês",
+                    aguardando=True), unsafe_allow_html=True)
                 return
             pct = min(pts / alvo * 100, 100)
             falta = alvo - pts
@@ -1128,7 +1138,14 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
             """Tempo médio de execução da pessoa contra a redução esperada."""
             red = float(_cfg_mes.get(f"exec_red_{username}", 0) or 0)
             if red <= 0:
-                return   # sem redução definida para o mês: o indicador não existe
+                # Mesmo motivo: o card fica, dizendo que a meta nao existe neste
+                # mes. Era ele que a Myrella tinha e os outros nao, e a coluna
+                # dela terminava um card abaixo das demais.
+                st.markdown(_meta_ind_item(
+                    "⏳ Tempo médio de execução", 100,
+                    "Sem meta de redução definida para o mês",
+                    aguardando=True), unsafe_allow_html=True)
+                return
             # Referência zero significa mês nunca ancorado. Com a redução já
             # definida, cair nas 2h é melhor do que sumir com o indicador.
             ref = float(_cfg_mes.get(f"exec_ref_{username}", 0) or 0) or 120.0
