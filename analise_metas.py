@@ -333,13 +333,17 @@ def _metas_topicos(dados):
         # disso — com o limite em 10%, da exatamente verde ate 5, amarelo ate 9
         # e vermelho de 10 em diante. Escrito em fracao do limite, a mesma regra
         # vale para a MAXX, que permite 5%.
-        # Azul ate metade do limite, amarelo dai ate o limite, vermelho acima
+        # Verde ate metade do limite, amarelo dai ate o limite, vermelho acima
         # dele. Em fracao do limite a mesma regra serve a MAXX, que permite 5%.
+        #
+        # Verde e nao azul: zero retrabalho e o melhor resultado possivel, e
+        # nesta tela verde e o que quer dizer "esta bom". Azul aqui destoava dos
+        # outros cinco mostradores, onde ele e a cor do neutro.
         def _ret(limite):
             if limite <= 0:
-                return 0.0, "#4A90D9"
+                return 0.0, "#1BAF7A"
             pct = min(pct_retrab / limite * 100, 100)
-            cor = ("#4A90D9" if pct_retrab <= limite * 0.5
+            cor = ("#1BAF7A" if pct_retrab <= limite * 0.5
                    else "#EDA100" if pct_retrab <= limite else "#E34948")
             return pct, cor
 
