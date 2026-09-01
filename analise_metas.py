@@ -937,10 +937,12 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
 
         def _it_tempo_medio():
             """Tempo médio de execução da pessoa contra a redução esperada."""
-            ref = float(_cfg_mes.get(f"exec_ref_{username}", 0) or 0)
             red = float(_cfg_mes.get(f"exec_red_{username}", 0) or 0)
-            if ref <= 0 or red <= 0:
+            if red <= 0:
                 return   # sem redução definida para o mês: o indicador não existe
+            # Referência zero significa mês nunca ancorado. Com a redução já
+            # definida, cair nas 2h é melhor do que sumir com o indicador.
+            ref = float(_cfg_mes.get(f"exec_ref_{username}", 0) or 0) or 120.0
             alvo = ref * (1 - red / 100)
             rotulo = f"⏳ Tempo médio de execução — reduzir {red:.0f}%"
             atual = _medias_exec.get(username)
@@ -2519,6 +2521,15 @@ def _secao_configuracao(dados=None):
         _per = (dados or [{}])[-1].get("label", "")
         if _per:
             st.caption(f"Médias medidas no período analisado acima · **{_per}**")
+        # A referencia e gravada UMA vez por mes e nao se mexe mais. Sem isto,
+        # salvar o mes de novo — ainda que so para mudar penalidades — regravava
+        # a referencia com a media do momento: quem melhorasse veria o alvo fugir
+        # junto, e a meta que estava quase batida virava outra sozinha.
+        _reancorar = st.checkbox(
+            "Regravar as referências com a média atual",
+            value=False, key=f"cfg_exec_reanc_{ano_cfg}_{mes_cfg_num}",
+            help="Deixe desmarcado no dia a dia. Marque só quando quiser começar "
+                 "um ciclo novo a partir do desempenho de agora.")
         _medias_cfg = _media_execucao_por_membro(dados or [])
         _campos_exec = mc.campos_tempo_execucao()
         if not _campos_exec:
@@ -2529,7 +2540,11 @@ def _secao_configuracao(dados=None):
             for _c, (_k_ref, _k_red, _nome_e) in zip(_cols_e, _grupo):
                 _u_e = _k_ref[len("exec_ref_"):]
                 _med = _medias_cfg.get(_u_e)
-                _ref = _med if _med else mc.EXEC_REF_PADRAO_MIN
+                _gravada = float(cfg_atual.get(_k_ref, 0) or 0)
+                if _gravada > 0 and not _reancorar:
+                    _ref = _gravada          # travada: o mes ja foi ancorado
+                else:
+                    _ref = _med if _med else mc.EXEC_REF_PADRAO_MIN
                 nova_cfg[_k_ref] = int(round(_ref))
                 _red = _c.number_input(
                     f"{_nome_e} — reduzir (%)", min_value=0, max_value=90,
@@ -2537,9 +2552,17 @@ def _secao_configuracao(dados=None):
                     key=f"cfg_{_k_red}_{ano_cfg}_{mes_cfg_num}",
                 )
                 nova_cfg[_k_red] = _red
-                _origem = "média medida" if _med else "sem medição · padrão"
-                _c.caption(f"{_origem}: **{_fmt_hm(_ref)}** → alvo "
-                           f"**{_fmt_hm(_ref * (1 - _red / 100))}**")
+                if _gravada > 0 and not _reancorar:
+                    _origem = "referência travada"
+                elif _med:
+                    _origem = "média medida"
+                else:
+                    _origem = "sem medição · padrão 2h"
+                _c.caption(
+                    f"{_origem}: **{_fmt_hm(_ref)}** → alvo "
+                    f"**{_fmt_hm(_ref * (1 - _red / 100))}**"
+                    + (f" · média hoje: {_fmt_hm(_med)}"
+                       if _med and abs(_med - _ref) >= 1 else ""))
 
         _ref_eq, _n_eq = _tempo_estimado_esperado(dados or [])
         _real_eq = _media_execucao_geral(dados or [])

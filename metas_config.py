@@ -78,6 +78,12 @@ META_INDIVIDUAL_PADRAO = 1500
 # Quem ainda nao tem cartao medido (contratacao recente) entra com 2h, para ter
 # uma meta desde o primeiro mes em vez de um traco.
 EXEC_REF_PADRAO_MIN = 120
+
+# Zero e o marcador de "ainda nao ancorada neste mes". Precisa ser um valor que
+# nao possa vir de uma medicao real — carregar_config preenche com o padrao tudo
+# que falta na planilha, entao sem um marcador nao havia como distinguir um mes
+# nunca salvo de um mes salvo com 2h.
+EXEC_REF_NAO_ANCORADA = 0
 EXEC_RED_PADRAO_PCT = 0
 
 
@@ -120,7 +126,7 @@ def sincronizar_campos():
     campos = list(campos_por_pessoa())
     for chave_ref, chave_red, nome in campos_tempo_execucao():
         campos.append((chave_ref, f"Tempo de referência — {nome} (min)",
-                       EXEC_REF_PADRAO_MIN))
+                       EXEC_REF_NAO_ANCORADA))
         campos.append((chave_red, f"Redução esperada — {nome} (%)",
                        EXEC_RED_PADRAO_PCT))
     for chave, rotulo, padrao in campos:
