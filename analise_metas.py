@@ -2033,8 +2033,17 @@ def _chart_ind_pts(meses, C=None):
     # como um numero grande e uma barra de progresso.
     if len(meses) == 1:
         m = meses[0]
-        cor = "#1BAF7A" if m["pct"] >= 100 else ("#EDA100" if m["pct"] >= 75 else "#E34948")
+        # Verde bateu; amarelo a menos de 10% de bater; vermelho abaixo disso.
+        # O corte era em 75%, que dava amarelo para quem estava a um quarto da
+        # meta — longe demais para o mesmo sinal de quem esta quase la.
+        cor = ("#1BAF7A" if m["pct"] >= 100
+               else "#EDA100" if m["pct"] >= 90 else "#E34948")
+        OURO = "#FFD700"   # so o que passa da meta
         falta = m["meta"] - m["pts"]
+        # A escala guarda 12% de folga acima do maior dos dois, para o risco da
+        # meta nunca encostar na ponta da trilha nem sumir na borda.
+        _escala = max(m["pts"], m["meta"]) * 1.12 or 1
+        _sobra = max(0, m["pts"] - m["meta"])
         fecho = ("✅ meta batida · +%s pts" % f'{m["delta"]:,.0f}' if m["delta"] >= 0
                  else "faltam %s pts" % f'{falta:,.0f}')
         return (
@@ -2045,10 +2054,33 @@ def _chart_ind_pts(meses, C=None):
             f'<span style="font-size:12px;color:var(--ms-texto-sec);">pts em {m["label"]}</span>'
             f'<span style="margin-left:auto;font-size:20px;font-weight:700;color:{cor};">'
             f'{m["pct"]:.1f}%</span></div>'
-            f'<div style="height:14px;border-radius:7px;background:var(--ms-metric-bd);'
-            f'margin:10px 0 6px;overflow:hidden;position:relative;">'
-            f'<div style="height:100%;border-radius:7px;width:{min(m["pct"],100):.1f}%;'
-            f'background:{cor};"></div></div>'
+            # A barra nao para nos 100%: ela e desenhada numa escala com folga
+            # acima da meta, e a meta vira um risco na trilha. Travada em 100%,
+            # bater 112% e bater 100% davam a mesma barra cheia — so o texto
+            # dizia a diferenca, e era preciso le-lo para ver que superou.
+            f'<div style="height:16px;border-radius:8px;background:var(--ms-metric-bd);'
+            f'margin:12px 0 6px;overflow:hidden;position:relative;">'
+            # Ate a meta na cor do desempenho; o excedente em ouro. Uma barra de
+            # cor unica mostra que passou, mas nao QUANTO passou sem medir a
+            # distancia ate o risco — o trecho dourado e essa medida, pintada.
+            f'<div style="position:absolute;left:0;top:0;height:100%;'
+            f'width:{min(m["pts"], m["meta"])/_escala*100:.1f}%;background:{cor};'
+            f'border-radius:8px {"0 0" if _sobra > 0 else "8px 8px"} 8px;"></div>'
+            + (f'<div style="position:absolute;top:0;height:100%;'
+               f'left:{m["meta"]/_escala*100:.1f}%;'
+               f'width:{_sobra/_escala*100:.1f}%;background:{OURO};'
+               f'border-radius:0 8px 8px 0;"></div>' if _sobra > 0 else "")
+            +
+            f'<div style="position:absolute;top:-3px;bottom:-3px;'
+            f'left:{m["meta"]/_escala*100:.1f}%;width:2px;background:var(--ms-texto);'
+            f'opacity:.85;"></div></div>'
+            f'<div style="position:relative;height:13px;margin-bottom:4px;">'
+            f'<span style="position:absolute;left:{m["meta"]/_escala*100:.1f}%;'
+            f'transform:translateX(-50%);font-size:9px;font-weight:700;'
+            f'white-space:nowrap;color:var(--ms-texto);">▲ meta</span>'
+            + (f'<span style="position:absolute;right:0;font-size:9px;'
+               f'font-weight:700;color:{OURO};">+{_sobra:,.0f} pts acima</span>'
+               if _sobra > 0 else "") + '</div>'
             f'<div style="display:flex;justify-content:space-between;font-size:11px;'
             f'color:var(--ms-texto-sec);">'
             f'<span>meta <b style="color:var(--ms-texto);">{m["meta"]:,.0f}</b> pts</span>'
