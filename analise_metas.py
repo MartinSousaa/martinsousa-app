@@ -164,6 +164,7 @@ def _analisar_meses(listas, cards, membros_map, id_p, id_t, id_i, meses_lista, p
             "entregas_membro": d.get("entregas_membro", {}),
             "intervalos_membro": d.get("intervalos_membro", {}),
             "atividade_dia": d.get("atividade_dia", {}),
+            "execucoes_dia": d.get("execucoes_dia", {}),
             "pts_lista": dict(d["pts_lista"]),
             "qtd_lista": dict(d["qtd_lista"]),
             "pts_membro": dict(d["pts_membro"]),
@@ -669,6 +670,18 @@ def _tempo_estimado_esperado(dados):
             soma += est * len(tempos)
             qtd += len(tempos)
     return ((soma / qtd) if qtd else None), qtd
+
+
+def _esc(texto):
+    """Escapa texto que veio de fora para entrar em HTML ou SVG.
+
+    Nome de cartao e escrito no Trello por quem cria a demanda: um "&" ou um
+    "<" no titulo quebrava a marcacao a partir dali, e a tela perdia o resto do
+    bloco sem dizer por que.
+    """
+    return (str(texto or "")
+            .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            .replace('"', "&quot;"))
 
 
 def _meta_ind_item(titulo, pct, descricao, cor=None, aguardando=False,
@@ -2792,6 +2805,237 @@ def _atividade_do_membro(dados, username):
     return dias
 
 
+def _execucoes_do_membro(dados, username):
+    """{dia: [{"card","ini","fim","min","tipo"}]} da pessoa, no período todo."""
+    dias = {}
+    for r in dados:
+        for dia, lista in ((r.get("execucoes_dia") or {}).get(username) or {}).items():
+            dias.setdefault(dia, []).extend(lista)
+    for lista in dias.values():
+        lista.sort(key=lambda e: e["ini"])
+    return dias
+
+
+def _expediente(username):
+    """(inicio, fim) do expediente da pessoa, em minutos desde a meia-noite."""
+    h = _pc.horario_de(username)
+    return (h["entrada"].hour * 60 + h["entrada"].minute,
+            h["fim"].hour * 60 + h["fim"].minute)
+
+
+def _fmt_hhmm(minutos):
+    return f"{int(minutos)//60:02d}:{int(minutos)%60:02d}"
+
+
+def _chart_linha_do_tempo(dados, username):
+    """Quando cada cartão foi executado, dia a dia, no relógio do expediente.
+
+    A barra de tempo somado responde "quanto"; esta responde "quando". Cada
+    execução é um bloco na coluna do seu dia, na altura da hora em que
+    aconteceu — dá para ver o dia que só começa depois do almoço, o cartão que
+    atravessa o expediente inteiro e o buraco entre uma coisa e outra.
+
+    O eixo é o expediente CONTRATADO da pessoa (Myrella 08:45–17:45, os demais
+    09:00–18:00, de placar_core.HORARIOS). Execução fora dele não é escondida: o
+    eixo se estica para caber e a faixa fora do expediente fica com outro fundo.
+    """
+    dias_exec = _execucoes_do_membro(dados, username)
+    ym = next((r.get("filtro_mes") for r in dados if r.get("filtro_mes")), None)
+    if not ym:
+        return ('<div style="padding:24px;text-align:center;font-size:11px;'
+                'color:var(--ms-texto-sec);">Sem mês definido</div>')
+    ano, mes = ym
+    ultimo = calendar.monthrange(ano, mes)[1]
+    pref = f"{ano:04d}-{mes:02d}-"
+
+    exp_ini, exp_fim = _expediente(username)
+    eixo_ini, eixo_fim = exp_ini, exp_fim
+    total_min, n_exec = 0.0, 0
+    for dia, lista in dias_exec.items():
+        if not dia.startswith(pref):
+            continue
+        for e in lista:
+            m_ini = e["ini"].hour * 60 + e["ini"].minute
+            m_fim = e["fim"].hour * 60 + e["fim"].minute
+            if m_fim <= m_ini:            # terminou na virada do dia
+                m_fim = 24 * 60
+            eixo_ini = min(eixo_ini, m_ini)
+            eixo_fim = max(eixo_fim, m_fim)
+            total_min += e["min"]
+            n_exec += 1
+    if n_exec == 0:
+        return ('<div style="padding:24px;text-align:center;font-size:11px;'
+                'color:var(--ms-texto-sec);">Nenhuma execução registrada no mês</div>')
+    eixo_ini = (eixo_ini // 30) * 30
+    eixo_fim = -(-eixo_fim // 30) * 30
+    span = max(eixo_fim - eixo_ini, 60)
+
+    W, H = 980, 340
+    ml, mr, mt, mb = 46, 10, 12, 40
+    iw, ih = W - ml - mr, H - mt - mb
+    bw = iw / ultimo
+
+    def y(m):
+        return mt + (m - eixo_ini) / span * ih
+
+    partes = []
+    # Fora do expediente com outro fundo, e o almoco marcado: um bloco as 13h45
+    # nao quer dizer a mesma coisa que um as 10h.
+    if eixo_ini < exp_ini:
+        partes.append(f'<rect x="{ml}" y="{y(eixo_ini):.1f}" width="{iw}" '
+                      f'height="{y(exp_ini)-y(eixo_ini):.1f}" fill="#00000030"/>')
+    if eixo_fim > exp_fim:
+        partes.append(f'<rect x="{ml}" y="{y(exp_fim):.1f}" width="{iw}" '
+                      f'height="{y(eixo_fim)-y(exp_fim):.1f}" fill="#00000030"/>')
+    _alm_i = _pc.ALMOCO[0].hour * 60 + _pc.ALMOCO[0].minute
+    _alm_f = _pc.ALMOCO[1].hour * 60 + _pc.ALMOCO[1].minute
+    partes.append(f'<rect x="{ml}" y="{y(_alm_i):.1f}" width="{iw}" '
+                  f'height="{y(_alm_f)-y(_alm_i):.1f}" fill="#EDA10014"/>'
+                  f'<text x="{ml+3}" y="{y(_alm_i)+10:.1f}" font-size="7" '
+                  f'fill="#EDA10099">almoço</text>')
+
+    hora = -(-eixo_ini // 60) * 60
+    while hora <= eixo_fim:
+        partes.append(
+            f'<line x1="{ml}" y1="{y(hora):.1f}" x2="{W-mr}" y2="{y(hora):.1f}" '
+            f'stroke="var(--ms-divisor,#333)" stroke-width="0.5"/>'
+            f'<text x="{ml-5}" y="{y(hora)+3:.1f}" text-anchor="end" font-size="7.5" '
+            f'fill="var(--ms-texto-sec,#888)">{_fmt_hhmm(hora)}</text>')
+        hora += 60
+
+    hoje = datetime.now().date()
+    medias = []
+    for d in range(1, ultimo + 1):
+        data = datetime(ano, mes, d).date()
+        x = ml + (d - 1) * bw
+        if data.weekday() >= 5:
+            partes.append(f'<rect x="{x:.1f}" y="{mt}" width="{bw:.1f}" '
+                          f'height="{ih}" fill="#00000022"/>')
+        lista = dias_exec.get(f"{pref}{d:02d}", [])
+        for e in lista:
+            m_ini = e["ini"].hour * 60 + e["ini"].minute
+            m_fim = e["fim"].hour * 60 + e["fim"].minute
+            if m_fim <= m_ini:
+                m_fim = 24 * 60
+            y0, y1 = y(m_ini), y(m_fim)
+            alt = max(y1 - y0, 2.2)
+            cor = "#8B5CF6" if e.get("tipo") == "filmagem" else "#4A90D9"
+            bx, blarg = x + 2.5, max(bw - 5, 2)
+            partes.append(
+                f'<rect x="{bx:.1f}" y="{y0:.1f}" width="{blarg:.1f}" '
+                f'height="{alt:.1f}" rx="2" fill="{cor}" fill-opacity="0.85">'
+                f'<title>{_esc(e["card"])[:70]}\n'
+                f'{e["ini"]:%H:%M} → {e["fim"]:%H:%M} · {_fmt_hm(e["min"])}</title></rect>'
+                # Marcadores de inicio e fim: o traco passa dos lados do bloco,
+                # senao a borda de um bloco encostado no seguinte vira uma
+                # emenda so e os dois viram um cartao unico e longo.
+                f'<line x1="{bx-2:.1f}" y1="{y0:.1f}" x2="{bx+blarg+2:.1f}" '
+                f'y2="{y0:.1f}" stroke="#1BAF7A" stroke-width="1.4"/>'
+                f'<line x1="{bx-2:.1f}" y1="{y1:.1f}" x2="{bx+blarg+2:.1f}" '
+                f'y2="{y1:.1f}" stroke="#E34948" stroke-width="1.4"/>')
+        if lista:
+            medias.append(sum(e["min"] for e in lista) / len(lista))
+        passo = 1 if ultimo <= 12 else 2
+        if d == 1 or d % passo == 0:
+            partes.append(
+                f'<text x="{x+bw/2:.1f}" y="{mt+ih+11:.1f}" text-anchor="middle" '
+                f'font-size="7" fill="var(--ms-texto-sec,#888)">{d}</text>')
+        # Media do dia: o numero que ele pediu, embaixo da coluna dele.
+        if lista:
+            partes.append(
+                f'<text x="{x+bw/2:.1f}" y="{mt+ih+24:.1f}" text-anchor="middle" '
+                f'font-size="7" fill="#4A90D9">'
+                f'{_fmt_hm(sum(e["min"] for e in lista)/len(lista))}</text>')
+    partes.append(
+        f'<text x="{ml-5}" y="{mt+ih+24:.1f}" text-anchor="end" font-size="6.5" '
+        f'fill="#4A90D9">méd/cartão</text>')
+
+    media_geral = total_min / n_exec
+    media_dia = sum(medias) / len(medias) if medias else 0
+    cab = (
+        f'<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:baseline;'
+        f'font-size:11px;color:var(--ms-texto-sec);margin-bottom:4px;">'
+        f'<span>Expediente <b style="color:var(--ms-texto);">'
+        f'{_fmt_hhmm(exp_ini)}–{_fmt_hhmm(exp_fim)}</b></span>'
+        f'<span><b style="color:var(--ms-texto);">{n_exec}</b> execuções</span>'
+        f'<span>total <b style="color:var(--ms-texto);">{_fmt_hm(total_min)}</b></span>'
+        f'<span>média por cartão <b style="color:#4A90D9;">'
+        f'{_fmt_hm(media_geral)}</b></span>'
+        f'<span>média diária <b style="color:#4A90D9;">{_fmt_hm(media_dia)}</b></span>'
+        f'</div>')
+    leg = ('<div style="font-size:9px;color:var(--ms-texto-sec);margin-top:3px;">'
+           '<span style="color:#1BAF7A;font-weight:700;">▬</span> início · '
+           '<span style="color:#E34948;font-weight:700;">▬</span> fim · '
+           '<span style="color:#4A90D9;font-weight:700;">■</span> em andamento · '
+           '<span style="color:#8B5CF6;font-weight:700;">■</span> filmagem · '
+           'fundo escuro = fora do expediente ou fim de semana · '
+           'passe o mouse num bloco para ver o cartão</div>')
+    return (f'<div style="width:100%;overflow:hidden;padding:4px 0;">{cab}'
+            f'<svg viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" '
+            f'style="width:100%;">' + "".join(partes) + f'</svg>{leg}</div>')
+
+
+def _tabela_execucoes_dia(dados, username, dia):
+    """As execuções de UM dia, com início, fim e duração de cada cartão."""
+    lista = _execucoes_do_membro(dados, username).get(dia) or []
+    if not lista:
+        return ('<div style="padding:16px;text-align:center;font-size:11px;'
+                'color:var(--ms-texto-sec);">Nenhuma execução neste dia</div>')
+    exp_ini, exp_fim = _expediente(username)
+    total = sum(e["min"] for e in lista)
+    media = total / len(lista)
+    linhas = ""
+    anterior = None
+    for e in lista:
+        m_ini = e["ini"].hour * 60 + e["ini"].minute
+        fora = m_ini < exp_ini or m_ini > exp_fim
+        # Buraco entre o fim de um cartao e o inicio do proximo: e ele que
+        # explica um dia de 9h de expediente com 3h de execucao.
+        if anterior is not None and (e["ini"] - anterior).total_seconds() > 600:
+            _b = (e["ini"] - anterior).total_seconds() / 60
+            linhas += (f'<tr><td colspan="4" style="padding:2px 8px;font-size:9px;'
+                       f'color:#EDA100;font-style:italic;">'
+                       f'⏳ {_fmt_hm(_b)} sem nenhum cartão em execução</td></tr>')
+        linhas += (
+            f'<tr style="border-top:1px solid var(--ms-divisor);">'
+            f'<td style="padding:5px 8px;font-size:11px;color:var(--ms-texto);">'
+            f'{_esc(e["card"])[:58]}</td>'
+            f'<td style="padding:5px 8px;font-size:11px;text-align:right;'
+            f'font-variant-numeric:tabular-nums;color:#1BAF7A;">{e["ini"]:%H:%M}</td>'
+            f'<td style="padding:5px 8px;font-size:11px;text-align:right;'
+            f'font-variant-numeric:tabular-nums;color:#E34948;">{e["fim"]:%H:%M}</td>'
+            f'<td style="padding:5px 8px;font-size:11px;text-align:right;'
+            f'font-weight:700;font-variant-numeric:tabular-nums;'
+            f'color:{"#EDA100" if fora else "var(--ms-texto)"};">'
+            f'{_fmt_hm(e["min"])}</td></tr>')
+        anterior = e["fim"]
+    return (
+        f'<div style="background:var(--ms-metric-bg);border:1px solid '
+        f'var(--ms-metric-bd);border-radius:10px;overflow:hidden;">'
+        f'<table style="width:100%;border-collapse:collapse;">'
+        f'<thead><tr>'
+        f'<th style="padding:6px 8px;font-size:8.5px;text-transform:uppercase;'
+        f'letter-spacing:.08em;color:var(--ms-texto-sec);text-align:left;'
+        f'font-weight:400;">Cartão</th>'
+        f'<th style="padding:6px 8px;font-size:8.5px;text-transform:uppercase;'
+        f'letter-spacing:.08em;color:var(--ms-texto-sec);text-align:right;'
+        f'font-weight:400;">Início</th>'
+        f'<th style="padding:6px 8px;font-size:8.5px;text-transform:uppercase;'
+        f'letter-spacing:.08em;color:var(--ms-texto-sec);text-align:right;'
+        f'font-weight:400;">Fim</th>'
+        f'<th style="padding:6px 8px;font-size:8.5px;text-transform:uppercase;'
+        f'letter-spacing:.08em;color:var(--ms-texto-sec);text-align:right;'
+        f'font-weight:400;">Duração</th></tr></thead>'
+        f'<tbody>{linhas}</tbody></table>'
+        f'<div style="display:flex;gap:14px;flex-wrap:wrap;padding:8px 10px;'
+        f'border-top:1px solid var(--ms-divisor);font-size:11px;'
+        f'color:var(--ms-texto-sec);">'
+        f'<span><b style="color:var(--ms-texto);">{len(lista)}</b> execuções</span>'
+        f'<span>total <b style="color:var(--ms-texto);">{_fmt_hm(total)}</b></span>'
+        f'<span>média do dia <b style="color:#4A90D9;">{_fmt_hm(media)}</b></span>'
+        f'</div></div>')
+
+
 def _chart_atividade_dia(dados, username, por_mes=False):
     """Dia a dia: iniciados, concluídos, interrompidos e tempo de execução.
 
@@ -2851,11 +3095,13 @@ def _chart_atividade_dia(dados, username, por_mes=False):
                and r["concluidos"] == 0]
 
     W = 620
-    ml, mr, mt = 34, 12, 14
+    ml, mr, mt = 52, 12, 14
     ALT_BARRA, ALT_EIXO, ALT_LINHA = 96, 14, 15
-    LINHAS = [("iniciados", "▶ iniciados", "#4A90D9"),
-              ("concluidos", "✔ concluídos", "#1BAF7A"),
-              ("interrompidos", "⏸ interrompidos", "#EDA100")]
+    # O rotulo da linha traz a PALAVRA, nao so o simbolo. "▶" sozinho na margem
+    # nao diz nada para quem abre a tela pela primeira vez.
+    LINHAS = [("iniciados", "▶ iniciados", "iniciou", "#4A90D9"),
+              ("concluidos", "✔ concluídos", "concluiu", "#1BAF7A"),
+              ("interrompidos", "⏸ interrompidos", "parou", "#EDA100")]
     H = mt + ALT_BARRA + ALT_EIXO + ALT_LINHA * len(LINHAS) + 6
     iw = W - ml - mr
     topo = max(mins + [60.0])
@@ -2905,11 +3151,11 @@ def _chart_atividade_dia(dados, username, por_mes=False):
 
     # A grade das tres contagens. Numero pequeno em cada dia: e a resposta
     # direta a "quantos comecou, quantos terminou, quantos parou".
-    for li, (chave, rot, cor) in enumerate(LINHAS):
+    for li, (chave, rot, curto, cor) in enumerate(LINHAS):
         yl = base + ALT_EIXO + li * ALT_LINHA
         partes.append(
             f'<text x="{ml-4}" y="{yl+8:.1f}" text-anchor="end" font-size="7" '
-            f'font-weight="700" fill="{cor}">{rot.split()[0]}</text>')
+            f'font-weight="700" fill="{cor}">{curto}</text>')
         for i, reg in enumerate(regs):
             v = reg[chave]
             x = ml + i * bw + 1
@@ -2928,7 +3174,8 @@ def _chart_atividade_dia(dados, username, por_mes=False):
                     f'fill="var(--ms-divisor,#3a3a3a)" fill-opacity="0.45"/>')
 
     legenda = " · ".join(
-        f'<span style="color:{c};font-weight:700;">{r}</span>' for _, r, c in LINHAS)
+        f'<span style="color:{c};font-weight:700;">{r}</span>'
+        for _, r, _cu, c in LINHAS)
     if parados:
         _quais = ", ".join(rotulos[i] for i in parados)
         aviso = (f'<div style="margin-top:6px;font-size:10px;color:#E34948;'
@@ -3399,6 +3646,28 @@ def _desempenho_individual(dados, username, nome, carregar_periodo=None):
         "concluídos e interrompidos.")
     st.markdown(_chart_atividade_dia(dados, username, por_mes=_por_mes),
                 unsafe_allow_html=True)
+
+    # ── Linha do tempo: a que horas cada cartao foi executado ────────────────
+    if not _por_mes:
+        st.markdown("#### ⏱️ Linha do tempo do dia")
+        st.caption(
+            "Cada execução no relógio do expediente da pessoa. O traço verde é o "
+            "início, o vermelho é o fim, e a distância entre eles é a duração. "
+            "Passe o mouse num bloco para ver o cartão."
+        )
+        st.markdown(_chart_linha_do_tempo(dados, username), unsafe_allow_html=True)
+
+        _exec_dias = sorted(_execucoes_do_membro(dados, username).keys(),
+                            reverse=True)
+        if _exec_dias:
+            # Sem username na chave, de proposito: trocar de colaborador mantem
+            # o dia escolhido, que e como se compara um dia entre duas pessoas.
+            _dia_sel = st.selectbox(
+                "Detalhar o dia", _exec_dias,
+                format_func=lambda d: f"{d[8:]}/{d[5:7]}/{d[:4]}",
+                key="des_ind_dia_exec")
+            st.markdown(_tabela_execucoes_dia(dados, username, _dia_sel),
+                        unsafe_allow_html=True)
 
     st.markdown("---")
     row2a, row2b = st.columns(2)
