@@ -146,6 +146,20 @@ def _analisar_meses(listas, cards, membros_map, id_p, id_t, id_i, meses_lista, p
             "pend_lista": d["pend_lista"],
             "tempo_lista": d["tempo_lista"],
             "tempo_membro_lista": d.get("tempo_membro_lista", {}),
+            # Estas duas sao calculadas por _processar e eram descartadas aqui.
+            # Este dicionario e montado chave a chave, entao o que nao e listado
+            # simplesmente nao existe do lado de fora — e nada avisa.
+            #
+            # entregas_membro sustenta a curva de execucao e os cartoes por
+            # coluna: sem ela as duas telas diziam "nenhuma entrega" para quem
+            # tinha 226 cartoes concluidos.
+            #
+            # intervalos_membro e a linha do tempo que a ociosidade usa para
+            # aplicar as folgas de 10 e 5 minutos. Sem ela, _ponto_por_membro
+            # caia no calculo grosseiro por subtracao de totais — funcionava, e
+            # dava outro numero.
+            "entregas_membro": d.get("entregas_membro", {}),
+            "intervalos_membro": d.get("intervalos_membro", {}),
             "pts_lista": dict(d["pts_lista"]),
             "qtd_lista": dict(d["qtd_lista"]),
             "pts_membro": dict(d["pts_membro"]),
@@ -1917,6 +1931,38 @@ def _chart_ind_pts(meses, C=None):
     sinal = "+" if bi is not None and pcts[bi] >= 100 else ""
     melhor_txt = f"{sinal}{pcts[bi]:.1f}% · {labels[bi]}" if bi is not None else None
     avg_pct = sum(pcts) / len(pcts) if pcts else 0
+    # Com UM mes nao ha serie temporal: sao dois numeros, e o grafico de barras
+    # vira dois retangulos gigantes lado a lado, ocupando meia tela para dizer
+    # "2.500 e 2.818". A comparacao de um valor contra uma meta se le melhor
+    # como um numero grande e uma barra de progresso.
+    if len(meses) == 1:
+        m = meses[0]
+        cor = "#1BAF7A" if m["pct"] >= 100 else ("#EDA100" if m["pct"] >= 75 else "#E34948")
+        falta = m["meta"] - m["pts"]
+        fecho = ("✅ meta batida · +%s pts" % f'{m["delta"]:,.0f}' if m["delta"] >= 0
+                 else "faltam %s pts" % f'{falta:,.0f}')
+        return (
+            f'<div style="padding:6px 2px 2px;">'
+            f'<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">'
+            f'<span style="font-size:38px;font-weight:700;color:{cor};line-height:1;">'
+            f'{m["pts"]:,.0f}</span>'
+            f'<span style="font-size:12px;color:var(--ms-texto-sec);">pts em {m["label"]}</span>'
+            f'<span style="margin-left:auto;font-size:20px;font-weight:700;color:{cor};">'
+            f'{m["pct"]:.1f}%</span></div>'
+            f'<div style="height:14px;border-radius:7px;background:var(--ms-metric-bd);'
+            f'margin:10px 0 6px;overflow:hidden;position:relative;">'
+            f'<div style="height:100%;border-radius:7px;width:{min(m["pct"],100):.1f}%;'
+            f'background:{cor};"></div></div>'
+            f'<div style="display:flex;justify-content:space-between;font-size:11px;'
+            f'color:var(--ms-texto-sec);">'
+            f'<span>meta <b style="color:var(--ms-texto);">{m["meta"]:,.0f}</b> pts</span>'
+            f'<span style="color:{cor};font-weight:600;">{fecho}</span></div>'
+            f'<div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--ms-divisor);'
+            f'font-size:10.5px;color:var(--ms-texto-sec);font-style:italic;">'
+            f'O comparativo mês a mês aparece no filtro de trimestre ou semestre.</div>'
+            f'</div>'
+        ).replace(",", ".")
+
     html = _grafico_barras_svg(
         labels, metas, pts, label1="Meta", label2="Realizado",
         line_vals=deltas, cor1="#4A90D9",
@@ -2091,7 +2137,11 @@ def _chart_ind_indices(meses, ponto=None, username=None, max_tol=0,
         (min(pct_pont, 100), cor_pont,   "Pontualidade Tarefa", f"{ta}/{max(tc,1)} concl."),
     ]
     gauges = "".join(_gauge_svg(pct, cor, titulo, sub) for pct, cor, titulo, sub in indices)
-    return f'<div style="display:flex;justify-content:space-around;gap:4px;padding:8px 0;">{gauges}</div>'
+    # Tres por linha, duas linhas. Os seis lado a lado espremiam cada
+    # velocimetro numa coluna estreita demais para o rotulo de duas palavras
+    # ("Redução Tempo Médio" quebrava em tres linhas de fonte 6).
+    return (f'<div style="display:grid;grid-template-columns:repeat(3,1fr);'
+            f'gap:10px 4px;padding:8px 0;">{gauges}</div>')
 
 
 def _entregas_do_membro(dados, username):
