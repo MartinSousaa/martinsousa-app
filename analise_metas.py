@@ -4769,8 +4769,19 @@ def _comparativo_linhas(dados):
         _advs = el.get("advs", 0)
 
         _real_ex = medias_exec.get(u)
+        # O alvo do PERIODO, e nao o do ultimo mes: num trimestre em que o alvo
+        # apertou de 108 para 90, cobrar os tres meses pelos 90 seria mudar a
+        # regra depois do jogo. A media dos alvos e o equivalente, para tempo,
+        # de somar as metas de pontuacao.
+        _alvos = []
+        for r in dados:
+            _c = r.get("cfg") or {}
+            _rf = float(_c.get(f"exec_ref_{u}", 0) or 0) or 120.0
+            _a = mc.meta_execucao(_c, u, _rf)["alvo"]
+            if _a:
+                _alvos.append(_a)
+        _alvo_ex = (sum(_alvos) / len(_alvos)) if _alvos else None
         _ref_ex = float(cfg.get(f"exec_ref_{u}", 0) or 0) or 120.0
-        _alvo_ex = mc.meta_execucao(cfg, u, _ref_ex)["alvo"]
 
         _cri = {"n": 0, "pts": 0.0}
         for r in dados:
@@ -4826,9 +4837,18 @@ def _card_ranking(titulo, sub, cor, itens, menor_melhor=False, rodape=""):
     menos é melhor. Barra proporcional ao valor cru inverteria a leitura
     justamente onde ela precisa ser óbvia.
 
-    `itens` = [(nome, valor_ordenável, texto)]. Valor None é "sem medição": vai
-    para o fim da lista, com um traço, e não disputa o pódio.
+    `itens` = [(nome, valor_ordenável, texto, bateu)]. Valor None é "sem
+    medição": vai para o fim da lista, com um traço, e não disputa o pódio.
+
+    `bateu` é o que pinta a linha: True verde, False vermelho, None cinza. O
+    cinza não é um terceiro resultado — é a ausência de meta contra a qual
+    comparar, e ele precisa se distinguir do vermelho justamente por isso.
     """
+    VERDE, VERM, CINZA = "#1BAF7A", "#E34948", "#7A8B99"
+
+    def _cor_linha(bateu):
+        return CINZA if bateu is None else (VERDE if bateu else VERM)
+
     com = [i for i in itens if i[1] is not None]
     sem = [i for i in itens if i[1] is None]
     com.sort(key=lambda i: (i[1] if menor_melhor else -i[1]))
@@ -4838,7 +4858,8 @@ def _card_ranking(titulo, sub, cor, itens, menor_melhor=False, rodape=""):
     else:
         ref = com[0][1]
         corpo = ""
-        for pos, (nome, val, txt) in enumerate(com, start=1):
+        for pos, (nome, val, txt, bateu) in enumerate(com, start=1):
+            _c = _cor_linha(bateu)
             if menor_melhor:
                 larg = (ref / val * 100) if val else 100.0
             else:
@@ -4856,14 +4877,14 @@ def _card_ranking(titulo, sub, cor, itens, menor_melhor=False, rodape=""):
                 f'<span style="flex:1;min-width:0;overflow:hidden;'
                 f'text-overflow:ellipsis;white-space:nowrap;font-weight:{_peso};">'
                 f'{_esc(nome)}</span>'
-                f'<span style="flex:none;font-weight:700;color:{cor};">{txt}</span>'
+                f'<span style="flex:none;font-weight:700;color:{_c};">{txt}</span>'
                 f'</div>'
                 f'<div style="height:5px;border-radius:3px;margin-top:3px;'
                 f'margin-left:24px;background:var(--ms-metric-bd);'
                 f'overflow:hidden;"><div style="height:100%;border-radius:3px;'
-                f'width:{larg:.1f}%;background:{cor};'
-                f'opacity:{1 if pos == 1 else 0.72};"></div></div></div>')
-        for nome, _v, txt in sem:
+                f'width:{larg:.1f}%;background:{_c};'
+                f'opacity:{1 if pos == 1 else 0.8};"></div></div></div>')
+        for nome, _v, txt, _b in sem:
             corpo += (
                 f'<div style="display:flex;align-items:baseline;gap:7px;'
                 f'font-size:11.5px;color:var(--ms-texto-sec);margin-bottom:7px;">'
@@ -4875,7 +4896,7 @@ def _card_ranking(titulo, sub, cor, itens, menor_melhor=False, rodape=""):
         f'<div style="background:var(--ms-metric-bg);border:1px solid '
         f'var(--ms-metric-bd);border-left:3px solid {cor};border-radius:10px;'
         f'padding:12px 14px;">'
-        f'<div style="font-size:12.5px;font-weight:700;color:{cor};'
+        f'<div style="font-size:12.5px;font-weight:700;color:var(--ms-texto);'
         f'margin-bottom:1px;">{titulo}</div>'
         f'<div style="font-size:9.5px;color:var(--ms-texto-sec);'
         f'margin-bottom:10px;">{sub}</div>'
@@ -5009,77 +5030,109 @@ def _rankings_por_topico(linhas, ctx):
     A tabela larga responde "quanto" e obriga a comparar números coluna a
     coluna; o pódio responde "quem" de relance. São os mesmos dados — o que
     muda é a pergunta que cada forma responde sem esforço.
-    """
-    VERDE, AZUL, OURO = "#1BAF7A", "#4A90D9", "#FFD700"
-    VERM, ROXO, CINZA = "#E34948", "#8B5CF6", "#7A8B99"
 
-    def _itens(chave, texto, valor=None):
-        """[(nome, valor_ordenavel, texto)] de cada pessoa."""
+    Só três cores, e cada uma quer dizer uma coisa só: verde bateu a meta,
+    vermelho não bateu, cinza não tem meta contra a qual comparar. Antes cada
+    card tinha a cor do seu assunto, e a mesma paleta que servia para decorar
+    era a que deveria avisar — roxo em "tolerâncias" não dizia nada sobre estar
+    dentro ou fora.
+
+    Num período de vários meses o veredito sai do montante, e não de mês a mês:
+    as metas somam com os totais, e os tetos de tolerância e atraso já vêm
+    multiplicados pelos meses.
+    """
+    CINZA = "#7A8B99"          # sem meta: informação, não julgamento
+    NEUTRO = "var(--ms-texto-sec)"
+
+    def _itens(valor, texto, bateu=None):
+        """[(nome, valor_ordenavel, texto, bateu)] de cada pessoa."""
         fora = []
         for l in linhas:
-            v = (valor or (lambda x: x[chave]))(l)
-            fora.append((l["nome"], v, texto(l) if v is not None else "—"))
+            v = valor(l)
+            fora.append((l["nome"], v,
+                         texto(l) if v is not None else "—",
+                         bateu(l) if (bateu and v is not None) else None))
         return fora
 
-    # Contribuicao: a fatia dos pontos da equipe que saiu de cada um. So o
-    # geral — quanto isso cobre da coletiva e da MAXX e a mesma informacao
-    # dividida por outro numero, e nao muda a ordem do ranking.
     _tot_pts = sum(l["pts"] for l in linhas) or 1
 
-    def _txt_contrib(l):
-        return f'{l["pts"] / _tot_pts * 100:.0f}%'
-
     cards = [
+        # ── com meta: verde bateu, vermelho nao ──
         _card_ranking(
-            "📈 Pontuação", "quem mais pontuou no período", VERDE,
-            itens=_itens("pts", lambda l: f'{_n_br(l["pts"])} pts')),
+            "📈 Pontuação", "quem mais pontuou no período", NEUTRO,
+            _itens(lambda l: l["pts"],
+                   lambda l: f'{_n_br(l["pts"])} pts',
+                   lambda l: l["meta"] > 0 and l["pts"] >= l["meta"]),
+            rodape="meta de cada um, somada no período"),
         _card_ranking(
             "🎯 % da meta individual", "quanto cada um bateu da PRÓPRIA meta",
-            OURO, itens=_itens("pct_meta", lambda l: f'{l["pct_meta"]:.0f}%'),
-            rodape=f'entra na meta do time a partir de {ctx["piso"]}%'),
+            NEUTRO,
+            _itens(lambda l: l["pct_meta"] if l["meta"] > 0 else None,
+                   lambda l: f'{l["pct_meta"]:.0f}%',
+                   lambda l: l["pct_meta"] >= 100),
+            rodape=f'verde a partir de 100% · entra na meta do time com '
+                   f'{ctx["piso"]}%'),
         _card_ranking(
-            "🤝 Contribuição na meta do time",
-            "fatia dos pontos da equipe que saiu de cada um", AZUL,
-            itens=_itens("pts", _txt_contrib)),
-        _card_ranking(
-            "💤 Ociosidade", "menos tempo parado é melhor", VERM,
-            itens=_itens("ocio", lambda l: f'{l["ocio"]:.1f}%'),
+            "💤 Ociosidade", "menos tempo parado é melhor", NEUTRO,
+            _itens(lambda l: l["ocio"],
+                   lambda l: f'{l["ocio"]:.1f}%',
+                   lambda l: l["ocio"] < ctx["ocio_max"]),
             menor_melhor=True,
             rodape=f'teto de {ctx["ocio_max"]:.0f}% do expediente'),
         _card_ranking(
-            "⚡ Tempo de execução", "média por demanda · menos é melhor", OURO,
-            itens=_itens("exec_real",
-                         lambda l: f'{l["exec_real"]:.0f} min'),
+            "⚡ Tempo de execução", "média por demanda · menos é melhor", NEUTRO,
+            _itens(lambda l: l["exec_real"],
+                   lambda l: f'{l["exec_real"]:.0f} min',
+                   lambda l: (l["exec_real"] <= l["exec_alvo"]
+                              if l["exec_alvo"] else None)),
             menor_melhor=True,
-            rodape="medido pela etiqueta EM ANDAMENTO"),
+            rodape="cinza = mês sem alvo definido em Configuração de Metas"),
         _card_ranking(
             "🕐 Tolerâncias", "atrasos pequenos na entrada · menos é melhor",
-            ROXO, itens=_itens("tol", lambda l: f'{l["tol"]:.0f}'),
+            NEUTRO,
+            _itens(lambda l: l["tol"], lambda l: f'{l["tol"]:.0f}',
+                   lambda l: l["tol"] <= ctx["lim_tol"]),
             menor_melhor=True, rodape=f'teto de {ctx["lim_tol"]} no período'),
         _card_ranking(
-            "⏰ Atrasos", "atrasos que pesam na meta · menos é melhor", VERM,
-            itens=_itens("atr", lambda l: f'{l["atr"]:.0f}'),
+            "⏰ Atrasos", "atrasos que pesam na meta · menos é melhor", NEUTRO,
+            _itens(lambda l: l["atr"], lambda l: f'{l["atr"]:.0f}',
+                   lambda l: l["atr"] <= ctx["lim_atr"]),
             menor_melhor=True, rodape=f'teto de {ctx["lim_atr"]} no período'),
         _card_ranking(
-            "🗃️ Cartões criados", "quem mais abriu demanda", AZUL,
-            itens=_itens("criadas", lambda l: f'{l["criadas"]}')),
+            "🚫 Advertências", "lançadas pelo gestor · menos é melhor", NEUTRO,
+            _itens(lambda l: float(l["advs"]), lambda l: f'{l["advs"]}',
+                   lambda l: l["advs"] <= ctx["lim_adv"]),
+            menor_melhor=True, rodape=f'teto de {ctx["lim_adv"]} no período'),
+
+        # ── sem meta: cinza, informacao ──
         _card_ranking(
-            "💰 Pontos gerados", "quanto valeram as demandas que abriu", OURO,
-            itens=_itens("criadas_pts",
-                         lambda l: f'{_n_br(l["criadas_pts"])} pts')),
+            "🤝 Contribuição na meta do time",
+            "fatia dos pontos da equipe que saiu de cada um", CINZA,
+            _itens(lambda l: l["pts"],
+                   lambda l: f'{l["pts"] / _tot_pts * 100:.0f}%'),
+            rodape="não tem meta própria — depende do tamanho da equipe"),
+        _card_ranking(
+            "🗃️ Cartões criados", "quem mais abriu demanda", CINZA,
+            _itens(lambda l: float(l["criadas"]), lambda l: f'{l["criadas"]}'),
+            rodape="sem meta definida"),
+        _card_ranking(
+            "💰 Pontos gerados", "quanto valeram as demandas que abriu", CINZA,
+            _itens(lambda l: l["criadas_pts"],
+                   lambda l: f'{_n_br(l["criadas_pts"])} pts'),
+            rodape="sem meta definida"),
         _card_ranking(
             "🔎 Tempo garimpando", "quanto do período passou procurando", CINZA,
-            itens=_itens("busca_min", lambda l: _fmt_hm(l["busca_min"]),
-                         valor=lambda l: l["busca_min"] or None),
+            _itens(lambda l: l["busca_min"] or None,
+                   lambda l: _fmt_hm(l["busca_min"])),
             menor_melhor=True,
-            rodape="menos é melhor SÓ se as demandas vierem junto — veja o card ao lado"),
+            rodape="sem meta — menos só é melhor se as demandas vierem junto"),
         _card_ranking(
             "⏱️ Tempo por demanda encontrada",
-            "busca ÷ demandas abertas · menos é melhor", VERDE,
-            itens=_itens("por_demanda",
-                         lambda l: _fmt_hm(l["por_demanda"])),
+            "busca ÷ demandas abertas · menos é melhor", CINZA,
+            _itens(lambda l: l["por_demanda"],
+                   lambda l: _fmt_hm(l["por_demanda"])),
             menor_melhor=True,
-            rodape="é o que diz se o tempo de garimpo foi bem gasto"),
+            rodape="sem meta — é o que diz se o garimpo foi bem gasto"),
     ]
     # 236px: tres colunas cabem nos ~750px que o Studio deixa com a coluna do
     # chat aberta (3x236 + 2x12 = 744). A grade continua elastica — em tela
@@ -5114,7 +5167,10 @@ def _aba_comparativo(dados):
         else dados[-1]["label"]
     st.markdown("#### 🏁 Comparativo de colaboradores")
     st.caption(
-        f"Período **{_rot}** · o **índice geral** é a média de quanto cada um "
+        f"Período **{_rot}** · num período de vários meses o veredito sai do "
+        "**montante**: as metas somam com os totais, e os tetos de tolerância, "
+        "atraso e advertência já vêm multiplicados pelos meses. "
+        f"Na tabela completa, o **índice geral** é a média de quanto cada um "
         "está longe do próprio limite nos seis critérios: 100% é o desempenho "
         "perfeito, e a distância entre duas pessoas é o que ordena a lista. "
         "**Ele não é a nota da meta** — quem tem 4% de ociosidade num teto de "
@@ -5124,6 +5180,13 @@ def _aba_comparativo(dados):
         "elas medem o que a pessoa abriu, não o que a meta cobra dela."
     )
 
+    st.markdown(
+        '<div style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px;'
+        'color:var(--ms-texto-sec);margin:2px 0 12px;">'
+        '<span><b style="color:#1BAF7A;">■</b> bateu a meta</span>'
+        '<span><b style="color:#E34948;">■</b> não bateu</span>'
+        '<span><b style="color:#7A8B99;">■</b> indicador sem meta — '
+        'informação, não cobrança</span></div>', unsafe_allow_html=True)
     st.markdown(_rankings_por_topico(linhas, ctx), unsafe_allow_html=True)
 
     # A tabela continua, fechada: o ranking responde "quem", e ela responde
