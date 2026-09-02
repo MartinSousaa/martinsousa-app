@@ -4814,11 +4814,7 @@ def _comparativo_linhas(dados):
     ctx = {"lim_tol": lim_tol, "lim_atr": lim_atr, "lim_adv": lim_adv,
            "ocio_max": ocio_max, "tem_ponto": tem_ponto,
            "uteis": uteis, "decorridos": decorridos,
-           "piso": int(cfg.get("min_contrib_normal", 80) or 0),
-           # Metas do time, para a contribuicao de cada um ser lida contra o
-           # que a equipe precisa entregar, e nao so contra os colegas.
-           "meta_eq": sum(r.get("meta_eq", 0) or 0 for r in dados),
-           "meta_maxx": sum(r.get("meta_maxx", 0) or 0 for r in dados)}
+           "piso": int(cfg.get("min_contrib_normal", 80) or 0)}
     return linhas, ctx
 
 
@@ -5025,20 +5021,13 @@ def _rankings_por_topico(linhas, ctx):
             fora.append((l["nome"], v, texto(l) if v is not None else "—"))
         return fora
 
-    # Contribuicao: quanto dos pontos da equipe saiu de cada um, e quanto da
-    # meta coletiva e da MAXX isso cobre. Sao tres leituras do mesmo esforco.
+    # Contribuicao: a fatia dos pontos da equipe que saiu de cada um. So o
+    # geral — quanto isso cobre da coletiva e da MAXX e a mesma informacao
+    # dividida por outro numero, e nao muda a ordem do ranking.
     _tot_pts = sum(l["pts"] for l in linhas) or 1
-    _meta_eq = ctx.get("meta_eq") or 0
-    _meta_mx = ctx.get("meta_maxx") or 0
 
     def _txt_contrib(l):
-        _p = l["pts"] / _tot_pts * 100
-        _c = f'{_p:.0f}%'
-        if _meta_eq:
-            _c += f' · {l["pts"] / _meta_eq * 100:.0f}% da coletiva'
-        if _meta_mx:
-            _c += f' · {l["pts"] / _meta_mx * 100:.0f}% da MAXX'
-        return _c
+        return f'{l["pts"] / _tot_pts * 100:.0f}%'
 
     cards = [
         _card_ranking(
@@ -5092,8 +5081,11 @@ def _rankings_por_topico(linhas, ctx):
             menor_melhor=True,
             rodape="é o que diz se o tempo de garimpo foi bem gasto"),
     ]
+    # 236px: tres colunas cabem nos ~750px que o Studio deixa com a coluna do
+    # chat aberta (3x236 + 2x12 = 744). A grade continua elastica — em tela
+    # cheia ela vira quatro, e num monitor menor volta para duas sozinha.
     return (f'<div style="display:grid;'
-            f'grid-template-columns:repeat(auto-fit,minmax(268px,1fr));'
+            f'grid-template-columns:repeat(auto-fit,minmax(236px,1fr));'
             f'gap:12px;margin-bottom:6px;">{"".join(cards)}</div>')
 
 
