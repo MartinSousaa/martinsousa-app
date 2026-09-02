@@ -30,12 +30,42 @@ Uso
     python3 fechar_expediente.py              # aplica
 """
 
+import os
 import sys
 from datetime import datetime
 
 import fim_expediente as _fe
 
 TIMEOUT = (10, 30)
+SECRETS = ".streamlit/secrets.toml"
+
+
+def _preparar_secrets():
+    """Escreve o secrets.toml a partir do ambiente, se ele ainda não existir.
+
+    Quem faz isso na aplicação web é o Procfile — e o Procfile NÃO roda numa
+    tarefa agendada. Sem este passo o script sobe sem credencial nenhuma e
+    morre no primeiro acesso ao Trello, com um erro que não diz o que faltou.
+
+    A ordem importa: PLANILHA_ID vai ANTES do bloco de segredos porque, em TOML,
+    chave solta escrita depois de um cabeçalho [secao] pertence àquela seção.
+    """
+    if os.path.exists(SECRETS):
+        return True
+    bloco = os.environ.get("STREAMLIT_SECRETS", "")
+    if not bloco.strip():
+        _log("ABORTADO: a variável STREAMLIT_SECRETS não está definida neste "
+             "serviço. Copie-a do serviço de produção.")
+        return False
+    os.makedirs(os.path.dirname(SECRETS), exist_ok=True)
+    pid = (os.environ.get("PLANILHA_ID") or "").strip()
+    with open(SECRETS, "w", encoding="utf-8") as fh:
+        if pid:
+            fh.write('PLANILHA_ID = "%s"\n' % pid)
+        fh.write(bloco)
+    _log(f"secrets.toml montado a partir do ambiente"
+         + (" (com PLANILHA_ID)" if pid else ""))
+    return True
 
 
 def _log(msg):
@@ -142,6 +172,8 @@ def main(simular=False, agora=None):
     roda o teste estivesse, ela própria, dentro do expediente — e o container
     onde isto é escrito trabalha em UTC.
     """
+    if not _preparar_secrets():
+        return 1
     if _abortar_se_nao_for_producao():
         return 1
 
