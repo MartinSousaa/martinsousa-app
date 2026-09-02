@@ -3477,14 +3477,62 @@ def _chart_tempo_medio(dados, username, cfg):
         recado = "✅ dentro do alvo"
     else:
         recado = f"{_fmt_hm(atual - alvo)} acima do alvo"
+    # Barra de progresso da reducao. O texto dizia "1h42 acima do alvo" e nao
+    # dizia o que importa: quanto do caminho ja foi andado. Aqui a trilha vai da
+    # referencia (o ponto de partida do mes) ate zero, o alvo e um risco nela, e
+    # o quanto ja se reduziu e a parte pintada.
+    OURO = "#FFD700"
+    escala = max(ref, atual) * 1.06 or 1
+    _x_alvo = alvo / escala * 100
+    _x_atual = min(atual, ref) / escala * 100
+    _acima = max(0.0, atual - ref)          # piorou em relacao a referencia
+    precisa = max(ref - alvo, 0.0)
+    andou = max(ref - atual, 0.0)
+    pct_prog = (andou / precisa * 100) if precisa > 0 else (100.0 if red <= 0 else 0.0)
+    barra = (
+        f'<div style="height:14px;border-radius:7px;background:var(--ms-metric-bd);'
+        f'margin:12px 0 5px;position:relative;">'
+        f'<div style="position:absolute;left:0;top:0;height:100%;'
+        f'width:{_x_atual:.1f}%;background:{cor};'
+        f'border-radius:7px {"0 0" if _acima > 0 else "7px 7px"} 7px;"></div>'
+        + (f'<div style="position:absolute;top:0;height:100%;'
+           f'left:{ref / escala * 100:.1f}%;width:{_acima / escala * 100:.1f}%;'
+           f'background:#E34948;border-radius:0 7px 7px 0;"></div>'
+           if _acima > 0 else "")
+        + f'<div style="position:absolute;top:-5px;bottom:-5px;left:{_x_alvo:.1f}%;'
+        f'width:3px;margin-left:-1.5px;border-radius:2px;'
+        f'background:var(--ms-texto);"></div></div>'
+        f'<div style="position:relative;height:12px;margin-bottom:6px;">'
+        f'<span style="position:absolute;left:{_x_alvo:.1f}%;'
+        f'transform:translateX(-50%);font-size:8px;font-weight:700;'
+        f'white-space:nowrap;color:var(--ms-texto);">▲ alvo {_fmt_hm(alvo)}</span>'
+        f'<span style="position:absolute;right:0;font-size:8px;font-weight:700;'
+        f'color:{OURO if pct_prog >= 100 else "var(--ms-texto-sec)"};">'
+        f'{min(pct_prog, 100):.0f}% do caminho</span></div>'
+    )
+    if red <= 0:
+        _detalhe = "sem redução definida para o mês"
+    elif atual <= alvo:
+        _detalhe = f"✅ alvo batido · {_fmt_hm(andou)} reduzidos"
+    elif atual >= ref:
+        _detalhe = (f"{_fmt_hm(atual - ref)} ACIMA da referência · "
+                    f"a meta pede {_fmt_hm(precisa)} a menos")
+    else:
+        _detalhe = (f"reduziu {_fmt_hm(andou)} de {_fmt_hm(precisa)} · "
+                    f"faltam {_fmt_hm(atual - alvo)}")
     topo = (
         f'<div style="display:flex;align-items:baseline;gap:10px;">'
         f'<span style="font-size:30px;font-weight:700;color:{cor};line-height:1;">'
         f'{_fmt_hm(atual)}</span>'
-        f'<span style="font-size:11px;color:var(--ms-texto-sec);">média do período</span></div>'
-        f'<div style="font-size:11px;color:var(--ms-texto-sec);margin:4px 0 10px;">'
-        f'alvo <b style="color:var(--ms-texto);">{_fmt_hm(alvo)}</b> · '
-        f'referência {_fmt_hm(ref)} · {recado}</div>'
+        f'<span style="font-size:11px;color:var(--ms-texto-sec);">média do período</span>'
+        f'<span style="margin-left:auto;font-size:11px;color:var(--ms-texto-sec);">'
+        f'meta do mês <b style="color:var(--ms-texto);">{_fmt_hm(alvo)}</b>'
+        f'</span></div>'
+        + barra +
+        f'<div style="font-size:11px;color:var(--ms-texto-sec);margin-bottom:10px;">'
+        f'referência do mês {_fmt_hm(ref)}'
+        + (f" · reduzir {red:.0f}%" if red > 0 else "")
+        + f' · <span style="color:{cor};font-weight:600;">{_detalhe}</span></div>'
     )
 
     # Historico so faz sentido com mais de um mes: um mes so repete o numero acima
