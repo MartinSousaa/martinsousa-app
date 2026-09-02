@@ -2507,7 +2507,7 @@ def _chart_indices_meta(dados):
             if pct > 100 and _val is None:
                 _sub = f"{pct:.0f}% · {_sub}"
             gauges += _gauge_svg(min(pct, 100), cor, t["rotulo"], _sub,
-                                 valor=_val, max_larg=190)
+                                 valor=_val, max_larg=150)
         # A coluna da direita terminava a 300px do fim da coluna da esquerda:
         # os mostradores estavam travados em 130px e sobrava tela embaixo. Com
         # eles maiores e com folga entre as linhas, os dois blocos ocupam a
@@ -2517,7 +2517,7 @@ def _chart_indices_meta(dados):
             f'<div style="font-size:10px;font-weight:600;color:{cor_tit};'
             f'text-transform:uppercase;letter-spacing:.5px;margin:0 0 4px;">{titulo}</div>'
             f'<div style="display:grid;grid-template-columns:repeat(3,1fr);'
-            f'gap:30px 6px;margin-bottom:16px;justify-items:center;">{gauges}</div>')
+            f'gap:20px 6px;margin-bottom:16px;justify-items:center;">{gauges}</div>')
 
     return (
         f'<div style="font-size:9px;color:var(--ms-texto-sec);text-transform:uppercase;'
