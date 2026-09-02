@@ -74,15 +74,48 @@ def bonus_percentuais(col_mensal, col_maxx, ind_mensal, ind_maxx):
     return pct_time, pct_seu
 
 
-# Os sete cenários possíveis, do pior para o melhor. (o time fez, você fez)
+# Os cenários possíveis, do pior para o melhor. (o time fez, você fez)
+#
+# Duas coisas diferentes, que a tabela misturava:
+#
+#   ENTRAR na meta do time olha só a PONTUAÇÃO — MIN_CONTRIB_NORMAL da meta
+#   individual de pontos para a coletiva, MIN_CONTRIB_MAXX para a MAXX.
+#   BATER a meta individual é outra conta, com todos os critérios dela:
+#   pontuação, ociosidade, tempo de execução, tolerâncias e atrasos.
+#
+# Por isso dá para entrar na coletiva MAXX — 100% dos pontos — e ainda assim
+# não bater a própria meta individual, por ociosidade ou atraso. As duas
+# colunas da tabela são independentes de propósito.
+#
+# A linha do time que fecha e da pessoa que fica de fora é a mais importante
+# daqui: é o caso que a regra criou, e o único em que alguém vê o time
+# comemorar sem receber por isso.
 CENARIOS = [
-    (False, False, False, False, "Não bateu",              "Não bateu"),
-    (True,  False, False, False, "Bateu a coletiva",       "Não bateu"),
-    (False, False, True,  False, "Não bateu",              "Bateu a individual"),
-    (True,  False, True,  False, "Bateu a coletiva",       "Bateu a individual"),
-    (True,  True,  False, False, "Bateu a coletiva MAXX",  "Não bateu"),
-    (True,  False, True,  True,  "Bateu a coletiva",       "Bateu a individual MAXX"),
-    (True,  True,  True,  True,  "Bateu a coletiva MAXX",  "Bateu a individual MAXX"),
+    (False, False, False, False,
+     "Time não bateu", "Você não bateu"),
+    (False, False, False, False,
+     f"Time bateu, mas você fez menos de {MIN_CONTRIB_NORMAL}% dos seus pontos",
+     "Fora da meta do time"),
+    (True,  False, False, False,
+     f"Time bateu · você com {MIN_CONTRIB_NORMAL}%+ dos seus pontos",
+     "Você não bateu a sua"),
+    (False, False, True,  False,
+     "Time não bateu", "Você bateu a individual"),
+    (True,  False, True,  False,
+     f"Time bateu · você com {MIN_CONTRIB_NORMAL}%+ dos seus pontos",
+     "Você bateu a individual"),
+    (True,  False, False, False,
+     f"Time bateu a MAXX · você entre {MIN_CONTRIB_NORMAL}% e 99% dos pontos",
+     "Você não bateu a sua"),
+    (True,  True,  False, False,
+     f"Time bateu a MAXX · você com {MIN_CONTRIB_MAXX}% dos seus pontos",
+     "Você não bateu a sua"),
+    (True,  False, True,  True,
+     f"Time bateu · você com {MIN_CONTRIB_NORMAL}%+ dos seus pontos",
+     "Você bateu a individual MAXX"),
+    (True,  True,  True,  True,
+     f"Time bateu a MAXX · você com {MIN_CONTRIB_MAXX}% dos seus pontos",
+     "Você bateu a individual MAXX"),
 ]
 
 
@@ -363,23 +396,33 @@ def render(expandido=True, chave_salario="expl_salario",
             f'<div style="font-size:13.5px;line-height:1.7;margin-top:8px;'
             f'color:var(--ms-texto-sec);">'
             f'⚠️ A coluna <b>🤝 Meta coletiva</b> acima só entra na sua conta '
-            f'se você tiver <b>entrado</b> na meta do time naquele mês: '
-            f'<b>{_mc_n}%</b> da sua meta individual (<b>{_mc_x}%</b> para a '
-            f'{NOME_COL_MAXX}) e no máximo <b>{_ad_n}</b> advertência(s) '
+            f'se você tiver <b>entrado</b> na meta do time naquele mês, e a '
+            f'entrada olha a sua <b>pontuação</b>: fazer <b>{_mc_n}%</b> dos '
+            f'seus pontos para a {NOME_COL} e <b>{_mc_x}%</b> para a '
+            f'{NOME_COL_MAXX}, com no máximo <b>{_ad_n}</b> advertência(s) '
             f'(<b>{_ad_x}</b> para a MAXX). Ficou de fora, essa metade vale '
-            f'<b>0%</b> e sobra só a coluna <b>🙋 Meta individual</b>.'
+            f'<b>0%</b> e sobra só a coluna <b>🙋 Meta individual</b>.<br>'
+            f'Entrar na meta do time e <b>bater a sua meta individual</b> são '
+            f'coisas diferentes: a entrada cobra só os pontos, e a meta '
+            f'individual cobra também ociosidade, tempo de execução, '
+            f'tolerâncias e atrasos. Dá para entrar na do time com '
+            f'{_mc_x}% dos pontos e mesmo assim não bater a sua.'
             f'</div>', unsafe_allow_html=True)
 
         st.markdown(
             '<div style="font-size:15px;line-height:1.8;margin-top:16px;">'
             '<b>Resumindo:</b><br>'
-            f'1️⃣ Se o time bater a <b>{NOME_COL}</b>, você ganha '
-            f'<b>+{PCT_COLETIVO_MENSAL:.0f}%</b> — mesmo que você não bata a sua.<br>'
+            f'1️⃣ Se o time bater a <b>{NOME_COL}</b> <b>e você tiver feito '
+            f'{_mc_n}% dos seus pontos</b>, você ganha '
+            f'<b>+{PCT_COLETIVO_MENSAL:.0f}%</b> — não precisa bater a sua '
+            f'meta individual inteira, mas os {_mc_n}% de pontos são '
+            f'obrigatórios.<br>'
             f'2️⃣ Se você bater a sua <b>{NOME_IND}</b>, você ganha '
             f'<b>+{PCT_INDIVIDUAL_MENSAL:.0f}%</b> — mesmo que o time não bata a dele.<br>'
             f'3️⃣ A <b>{NOME_COL_MAXX}</b> paga <b>+{PCT_COLETIVO_MAXX:.0f}%</b> '
-            f'e a <b>{NOME_IND_MAXX}</b> paga <b>+{PCT_INDIVIDUAL_MAXX:.0f}%</b> — '
-            'sempre no lugar da meta normal, nunca além dela.<br>'
+            f'e exige <b>{_mc_x}% dos seus pontos</b> para você entrar nela; '
+            f'a <b>{NOME_IND_MAXX}</b> paga <b>+{PCT_INDIVIDUAL_MAXX:.0f}%</b>. '
+            'As duas entram sempre no lugar da meta normal, nunca além dela.<br>'
             f'4️⃣ O melhor mês possível é <b>{NOME_COL_MAXX}</b> + '
             f'<b>{NOME_IND_MAXX}</b>: '
             f'<b>+{PCT_COLETIVO_MAXX + PCT_INDIVIDUAL_MAXX:.0f}%</b>, que '
@@ -389,10 +432,10 @@ def render(expandido=True, chave_salario="expl_salario",
                f'<b>{_reais(SALARIO_EXEMPLO * 0.30)} a mais</b>.')
             + '<br>'
             f'5️⃣ Os itens 1 e 3 valem <b>se você tiver entrado</b> na meta do '
-            f'time: <b>{_mc_n}%</b> da sua meta individual e no máximo '
-            f'<b>{_ad_n}</b> advertência(s) — <b>{_mc_x}%</b> e <b>{_ad_x}</b> '
-            f'para a MAXX. O item 2 é seu de qualquer jeito: a sua metade '
-            f'nunca depende do time nem da entrada.'
+            f'time — <b>{_mc_n}%</b> dos seus pontos e no máximo <b>{_ad_n}</b> '
+            f'advertência(s); <b>{_mc_x}%</b> e <b>{_ad_x}</b> para a MAXX. '
+            f'O item 2 é seu de qualquer jeito: a sua metade nunca depende do '
+            f'time nem da entrada.'
             + '</div>', unsafe_allow_html=True)
 
         st.markdown(
