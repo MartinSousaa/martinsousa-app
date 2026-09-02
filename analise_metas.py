@@ -1005,98 +1005,6 @@ def _elegibilidade(dados, users):
     return fora
 
 
-def _secao_elegibilidade(dados, membros_ativos):
-    """Relatório: quem entra na remuneração da meta do time, e quem não.
-
-    O card de cada pessoa já dizia isso, um de cada vez. Faltava a lista — a
-    pergunta do fechamento do mês não é "como está a Myrella", é "quem entra".
-    """
-    users = list(membros_ativos.keys())
-    eleg = _elegibilidade(dados, users)
-    if not eleg:
-        return
-    r = dados[-1]
-    pct_eq, pct_maxx = r["pct_mensal"], r["pct_maxx"]
-    algum = next(iter(eleg.values()))
-
-    st.markdown("#### 🚪 Quem entra na remuneração da meta do time")
-    st.caption(
-        f"Bater a meta é do time; **entrar nela é de cada um**. São duas "
-        f"condições, cobradas sobre a própria meta individual: contribuir com "
-        f"**{algum['min_n']}%** para a coletiva e **{algum['min_x']}%** para a "
-        f"MAXX, e não passar de **{algum['lim_adv_n']}** e "
-        f"**{algum['lim_adv_x']}** advertência(s) no período. Quem fica de fora "
-        f"não recebe a metade do time — a metade individual continua sendo do "
-        f"resultado dele."
-    )
-    _situacao = []
-    if pct_eq < 100:
-        _situacao.append("o time ainda não bateu a meta coletiva")
-    if pct_maxx < 100:
-        _situacao.append("nem a MAXX")
-    if _situacao:
-        st.caption("Neste período " + " e ".join(_situacao)
-                   + " — a lista abaixo mostra quem estaria dentro se batesse.")
-
-    def _selo(ok, motivos):
-        if ok:
-            return ('<span style="color:#1BAF7A;font-weight:700;">✅ entra</span>')
-        return ('<span style="color:#E34948;font-weight:700;">❌ fora</span>'
-                '<div style="font-size:9px;color:var(--ms-texto-sec);'
-                'margin-top:2px;">' + "<br>".join(_esc(m) for m in motivos)
-                + '</div>')
-
-    linhas = ""
-    for u in sorted(users, key=lambda x: -eleg[x]["pct"]):
-        e = eleg[u]
-        cor_pct = ("#1BAF7A" if e["pct"] >= e["min_x"]
-                   else "#EDA100" if e["pct"] >= e["min_n"] else "#E34948")
-        cor_adv = ("#E34948" if e["advs"] > e["lim_adv_n"]
-                   else "#EDA100" if e["advs"] > e["lim_adv_x"]
-                   else "var(--ms-texto)")
-        linhas += (
-            f'<tr style="border-top:1px solid var(--ms-divisor);">'
-            f'<td style="padding:8px;font-size:12px;font-weight:600;">'
-            f'{_esc(membros_ativos.get(u, u))}</td>'
-            f'<td style="padding:8px;font-size:12px;text-align:right;'
-            f'font-variant-numeric:tabular-nums;">'
-            f'{e["pts"]:,.0f} / {e["meta"]:,.0f}</td>'
-            f'<td style="padding:8px;font-size:13px;text-align:right;'
-            f'font-weight:700;color:{cor_pct};">{e["pct"]:.0f}%</td>'
-            f'<td style="padding:8px;font-size:12px;text-align:center;'
-            f'color:{cor_adv};font-weight:600;">{e["advs"]}</td>'
-            f'<td style="padding:8px;font-size:12px;">'
-            f'{_selo(e["entra_col"], e["motivos_col"])}</td>'
-            f'<td style="padding:8px;font-size:12px;">'
-            f'{_selo(e["entra_maxx"], e["motivos_maxx"])}</td></tr>'
-        ).replace(",", ".")
-
-    _th = ('padding:6px 8px;font-size:8.5px;text-transform:uppercase;'
-           'letter-spacing:.08em;color:var(--ms-texto-sec);font-weight:400;')
-    st.markdown(
-        f'<div style="background:var(--ms-metric-bg);border:1px solid '
-        f'var(--ms-metric-bd);border-radius:10px;overflow-x:auto;">'
-        f'<table style="width:100%;border-collapse:collapse;min-width:620px;">'
-        f'<thead><tr>'
-        f'<th style="{_th}text-align:left;">Colaborador</th>'
-        f'<th style="{_th}text-align:right;">Pontos / meta</th>'
-        f'<th style="{_th}text-align:right;">% da meta</th>'
-        f'<th style="{_th}text-align:center;">Advert.</th>'
-        f'<th style="{_th}text-align:left;">Meta Coletiva</th>'
-        f'<th style="{_th}text-align:left;">Meta MAXX</th>'
-        f'</tr></thead><tbody>{linhas}</tbody></table></div>',
-        unsafe_allow_html=True)
-
-    _fora_col = [membros_ativos.get(u, u) for u in users
-                 if not eleg[u]["entra_col"]]
-    if _fora_col:
-        st.markdown(
-            f'<div style="margin-top:8px;background:#E3494815;border:1px solid '
-            f'#E34948;border-radius:8px;padding:9px 13px;font-size:12px;">'
-            f'<b style="color:#E34948;">🚫 Fora da meta coletiva:</b> '
-            f'{_esc(", ".join(_fora_col))}</div>', unsafe_allow_html=True)
-
-
 def _item_advertencia(advs, limite_mes, n_meses=1):
     """Card de advertências: a escada disciplinar, com o degrau atual aceso.
 
@@ -2558,6 +2466,157 @@ def _chart_indices_meta(dados):
         + _bloco("⭐ Meta MAXX", "#FFD700", "pct_x", "sub_x", True))
 
 
+def _chart_tempo_medio_equipe(dados):
+    """Tempo médio de execução da EQUIPE: o alvo do mês contra o realizado.
+
+    O indicador existia por pessoa e no card da meta, mas o painel coletivo —
+    onde se olha o mês inteiro do time — só mostrava pontuação. Faltava a
+    resposta de "a média por demanda caiu?", que é metade do que a meta cobra.
+
+    Cada mês é medido contra o SEU alvo: mudar o alvo em outubro não pode
+    repintar setembro.
+    """
+    if not dados:
+        return ('<div style="padding:20px;text-align:center;font-size:11px;'
+                'color:var(--ms-texto-sec);">Sem dados no período</div>')
+
+    # Ordem por mes, e nao a da lista: os meses sem atividade sao acrescentados
+    # no fim por _extend_dados_ano, e sem ordenar o "mes atual" do topo podia
+    # cair num deles.
+    def _chave(r):
+        try:
+            return (int(r.get("ano", 0)), int(r.get("mes", 0)))
+        except (TypeError, ValueError):
+            return (0, 0)
+
+    linhas = []
+    for r in (sorted(dados, key=_chave) if all(r.get("mes") for r in dados)
+              else dados):
+        _um = [r]
+        _cfg_r = r.get("cfg") or {}
+        _ref_r, _n_r, _dig_r = _ref_execucao_equipe(_um, _cfg_r)
+        _m_r = mc.meta_execucao(_cfg_r, "equipe", _ref_r or 0)
+        linhas.append({"label": r.get("label", ""),
+                       "real": _media_execucao_geral(_um),
+                       "ref": _ref_r, "alvo": _m_r["alvo"],
+                       "definida": _m_r["definida"]})
+
+    # O numero grande e o do ultimo mes MEDIDO. Mes corrente ainda sem cartao
+    # concluido nao deve apagar o indicador inteiro — o rotulo ao lado do numero
+    # diz de que mes ele e.
+    medidos = [l for l in linhas if l["real"]]
+    if not medidos:
+        return ('<div style="padding:20px;text-align:center;font-size:11px;'
+                'color:var(--ms-texto-sec);">Nenhum cartão com tempo medido '
+                'no período</div>')
+    at = medidos[-1]
+    real, ref, alvo = at["real"], at["ref"], at["alvo"]
+
+    if not alvo:
+        cor, recado = ADV_NEUTRO, "sem alvo definido para o mês"
+    elif real <= alvo:
+        cor, recado = "#1BAF7A", "✅ dentro do alvo"
+    elif ref and real <= ref:
+        cor, recado = "#EDA100", f"{_fmt_hm(real - alvo)} acima do alvo"
+    else:
+        cor, recado = "#E34948", f"{_fmt_hm(real - alvo)} acima do alvo"
+
+    # Trilha da referencia ate o alvo, igual a do indicador individual: o que
+    # importa nao e "quanto falta", e quanto do caminho ja foi andado.
+    barra = ""
+    if alvo and ref:
+        OURO = "#FFD700"
+        escala = max(ref, real) * 1.06 or 1
+        _x_alvo = alvo / escala * 100
+        _x_real = min(real, ref) / escala * 100
+        _acima = max(0.0, real - ref)
+        precisa = max(ref - alvo, 0.0)
+        andou = max(ref - real, 0.0)
+        # Alvo igual ou acima da referencia nao deixa "caminho" a andar: ai o
+        # que responde e o resultado, nao a fracao — senao a barra dizia "100%
+        # do caminho" ao lado de "0h05 acima do alvo".
+        pct_prog = ((andou / precisa * 100) if precisa > 0
+                    else (100.0 if real <= alvo else 0.0))
+        barra = (
+            f'<div style="height:14px;border-radius:7px;background:var(--ms-metric-bd);'
+            f'margin:12px 0 5px;position:relative;">'
+            f'<div style="position:absolute;left:0;top:0;height:100%;'
+            f'width:{_x_real:.1f}%;background:{cor};border-radius:7px '
+            + ("0 0" if _acima > 0 else "7px 7px") + ' 7px;"></div>'
+            + (f'<div style="position:absolute;top:0;height:100%;'
+               f'left:{ref / escala * 100:.1f}%;width:{_acima / escala * 100:.1f}%;'
+               f'background:#E34948;border-radius:0 7px 7px 0;"></div>'
+               if _acima > 0 else "")
+            + f'<div style="position:absolute;top:-5px;bottom:-5px;left:{_x_alvo:.1f}%;'
+            f'width:3px;margin-left:-1.5px;border-radius:2px;'
+            f'background:var(--ms-texto);"></div></div>'
+            f'<div style="position:relative;height:12px;margin-bottom:6px;">'
+            f'<span style="position:absolute;left:{_x_alvo:.1f}%;'
+            f'transform:translateX(-50%);font-size:8px;font-weight:700;'
+            f'white-space:nowrap;color:var(--ms-texto);">▲ alvo {_fmt_hm(alvo)}</span>'
+            f'<span style="position:absolute;right:0;font-size:8px;font-weight:700;'
+            f'color:{OURO if pct_prog >= 100 else "var(--ms-texto-sec)"};">'
+            f'{min(pct_prog, 100):.0f}% do caminho</span></div>')
+
+    _alvo_txt = _fmt_hm(alvo) if alvo else "—"
+    topo = (
+        f'<div style="display:flex;align-items:baseline;gap:10px;">'
+        f'<span style="font-size:30px;font-weight:700;color:{cor};line-height:1;">'
+        f'{_fmt_hm(real)}</span>'
+        f'<span style="font-size:11px;color:var(--ms-texto-sec);">'
+        f'média por demanda · {_esc(at["label"])}</span>'
+        f'<span style="margin-left:auto;font-size:11px;color:var(--ms-texto-sec);">'
+        f'alvo do mês <b style="color:var(--ms-texto);">{_alvo_txt}</b></span></div>'
+        + barra +
+        f'<div style="font-size:11px;color:var(--ms-texto-sec);margin-bottom:8px;">'
+        + (f'referência do mês {_fmt_hm(ref)} · ' if ref else "")
+        + f'<span style="color:{cor};font-weight:600;">{recado}</span></div>')
+
+    if len(medidos) < 2:
+        return topo + ('<div style="font-size:10.5px;color:var(--ms-texto-sec);'
+                       'font-style:italic;">O mês a mês aparece quando o período '
+                       'tem mais de um mês medido.</div>')
+
+    W, H = 420, 138
+    ml, mr, mt, mb = 10, 10, 14, 24
+    iw, ih = W - ml - mr, H - mt - mb
+    teto = max([l["real"] for l in medidos]
+               + [l["alvo"] for l in medidos if l["alvo"]] + [1]) * 1.18
+    bw = iw / len(medidos)
+
+    def _y(v):
+        return mt + ih - (v / teto * ih)
+
+    partes = []
+    for i, l in enumerate(medidos):
+        x = ml + i * bw + bw * 0.22
+        w = bw * 0.56
+        v, a = l["real"], l["alvo"]
+        c = ADV_NEUTRO if not a else ("#1BAF7A" if v <= a else "#E34948")
+        _tit = (f'{_esc(l["label"])}: {_fmt_hm(v)}'
+                + (f' · alvo {_fmt_hm(a)}' if a else " · sem alvo"))
+        partes.append(
+            f'<rect x="{x:.1f}" y="{_y(v):.1f}" width="{w:.1f}" '
+            f'height="{mt + ih - _y(v):.1f}" rx="3" fill="{c}">'
+            f'<title>{_tit}</title></rect>'
+            f'<text x="{x + w / 2:.1f}" y="{_y(v) - 4:.1f}" text-anchor="middle" '
+            f'font-size="8" fill="var(--ms-texto-sec,#888)">{_fmt_hm(v)}</text>'
+            f'<text x="{x + w / 2:.1f}" y="{H - 8}" text-anchor="middle" '
+            f'font-size="8" fill="var(--ms-texto-sec,#888)">{_esc(l["label"])}</text>')
+        # O risco do alvo e por mes, e nao uma linha so atravessando tudo: o
+        # alvo de outubro nao pode repintar setembro.
+        if a:
+            partes.append(
+                f'<line x1="{x - w * 0.14:.1f}" y1="{_y(a):.1f}" '
+                f'x2="{x + w * 1.14:.1f}" y2="{_y(a):.1f}" stroke="#EDA100" '
+                f'stroke-width="1.6" stroke-dasharray="4,3"/>')
+    partes.append(
+        f'<text x="{W - mr}" y="{mt - 4}" text-anchor="end" font-size="8" '
+        f'font-weight="700" fill="#EDA100">- - - alvo do mês</text>')
+    return topo + (f'<svg viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" '
+                   f'style="width:100%;">' + "".join(partes) + '</svg>')
+
+
 def _chart_tempo_execucao(dados):
     """HTML/SVG: pizza top 5 colunas por tempo médio de execução.
     Usa dados reais (TEMPO ACUMULADO) quando disponíveis;
@@ -3658,7 +3717,8 @@ def _chart_tempo_medio(dados, username, cfg):
     _acima = max(0.0, atual - ref)          # piorou em relacao a referencia
     precisa = max(ref - alvo, 0.0)
     andou = max(ref - atual, 0.0)
-    pct_prog = (andou / precisa * 100) if precisa > 0 else (100.0 if red <= 0 else 0.0)
+    pct_prog = ((andou / precisa * 100) if precisa > 0
+                else (100.0 if atual <= alvo else 0.0))
     barra = (
         f'<div style="height:14px;border-radius:7px;background:var(--ms-metric-bd);'
         f'margin:12px 0 5px;position:relative;">'
@@ -4262,8 +4322,7 @@ def _secao_entrada_meta(dados, username, nome):
         )
 
 
-def _aba_desempenho(dados, dados_ano_full=None, carregar_periodo=None,
-                    eh_master=False):
+def _aba_desempenho(dados, dados_ano_full=None, carregar_periodo=None):
     """Aba Desempenho — 4 gráficos anuais de performance coletiva."""
     if not dados:
         st.caption("Sem dados para exibir no período selecionado.")
@@ -4282,27 +4341,27 @@ def _aba_desempenho(dados, dados_ano_full=None, carregar_periodo=None,
 
     with row1_col1:
         st.markdown("#### 📊 Pontuação Meta Coletiva")
-        st.caption("Meta de pontuação vs. realizado · a partir do primeiro mês com atividade registrada.")
+        st.caption("Meta de pontuação vs. realizado · a linha **Delta** é a "
+                   "distância entre os dois: quantos pontos o mês fechou acima "
+                   "(+) ou abaixo (−) da meta, no eixo da direita.")
         st.markdown(_chart_pontuacao_meta(dados_ano), unsafe_allow_html=True)
+
+        # A outra metade do que a meta coletiva cobra: a pontuacao diz quanto
+        # foi entregue, isto diz em quanto tempo. So aparecia por pessoa.
+        st.markdown("##### ⏳ Tempo médio de execução da equipe")
+        st.caption("O alvo do mês contra o tempo que as demandas levaram — "
+                   "cada mês medido contra o alvo dele.")
+        st.markdown(_chart_tempo_medio_equipe(dados_ano), unsafe_allow_html=True)
 
     with row1_col2:
         st.markdown("#### 🎯 Índices Meta Coletiva")
         st.caption("Os seis tópicos cobrados na meta, para a Coletiva e para a MAXX.")
         st.markdown(_chart_indices_meta(dados), unsafe_allow_html=True)
 
-    # Largura inteira: e uma tabela de seis colunas, e em meia tela os motivos
-    # de quem ficou de fora quebram em quatro linhas cada.
-    #
-    # So gestor: e a lista da equipe inteira, e cada um enxerga a propria
-    # situacao — com o ritmo diario e o que falta — logo abaixo, no Desempenho
-    # Individual. Quem nao e gestor nao precisa ler quem ficou de fora.
-    if eh_master:
-        st.markdown("---")
-        try:
-            _secao_elegibilidade(dados, _pc.MEMBROS_ATIVOS)
-        except Exception as _e_el:
-            st.warning(f"Não consegui montar o relatório de elegibilidade: "
-                       f"{str(_e_el)[:150]}")
+    # A tabela "Quem entra na remuneracao da meta do time" saiu daqui: ela
+    # listava a equipe inteira num painel que todos abrem. A mesma analise —
+    # com o ritmo diario e o que ainda falta — vive agora no Desempenho
+    # Individual, cada um com o seu.
 
     st.markdown("---")
 
@@ -5168,8 +5227,7 @@ def pagina_analise_metas(usuario_logado):
 
     elif _aba_sel == _ABAS[2]:
         _aba_desempenho(dados, _carregar_ano_full(),
-                        carregar_periodo=_carregar_periodo,
-                        eh_master=_eh_master)
+                        carregar_periodo=_carregar_periodo)
 
         st.markdown("---")
         st.markdown("#### 📈 Desempenho Individual")
