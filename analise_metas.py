@@ -2690,8 +2690,13 @@ def _ind_extrair_meses(dados, username):
     return resultado
 
 
-def _chart_ind_pts(meses, C=None):
-    """HTML/SVG: meta vs realizado individual + linha de delta."""
+def _chart_ind_pts(meses, C=None, ritmo=None):
+    """HTML/SVG: meta vs realizado individual + linha de delta.
+
+    `ritmo` vem de `_ritmo_entrada`: com ele, a barra do mês corrente deixa de
+    ficar vermelha só por ainda não ter chegado à meta — no dia 2 do mês
+    ninguém chegou. Vermelho passa a ser "abaixo do ritmo que a meta pede".
+    """
     if not meses:
         return '<div style="padding:20px;text-align:center;color:var(--ms-texto-sec);">Sem dados</div>'
     labels = [m["label"] for m in meses]
@@ -2712,16 +2717,28 @@ def _chart_ind_pts(meses, C=None):
         # Verde bateu; amarelo a menos de 10% de bater; vermelho abaixo disso.
         # O corte era em 75%, que dava amarelo para quem estava a um quarto da
         # meta — longe demais para o mesmo sinal de quem esta quase la.
-        cor = ("#1BAF7A" if m["pct"] >= 100
-               else "#EDA100" if m["pct"] >= 90 else "#E34948")
+        if m["pct"] >= 100:
+            cor = "#1BAF7A"
+        elif ritmo and ritmo["decorridos"] > 0:
+            cor = "#E34948" if ritmo["estado"] == "abaixo" else "#1BAF7A"
+        else:
+            cor = "#EDA100" if m["pct"] >= 90 else "#E34948"
         OURO = "#FFD700"   # so o que passa da meta
         falta = m["meta"] - m["pts"]
         # A escala guarda 12% de folga acima do maior dos dois, para o risco da
         # meta nunca encostar na ponta da trilha nem sumir na borda.
         _escala = max(m["pts"], m["meta"]) * 1.12 or 1
         _sobra = max(0, m["pts"] - m["meta"])
-        fecho = ("✅ meta batida · +%s pts" % f'{m["delta"]:,.0f}' if m["delta"] >= 0
-                 else "faltam %s pts" % f'{falta:,.0f}')
+        if m["delta"] >= 0:
+            fecho = "✅ meta batida · +%s pts" % f'{m["delta"]:,.0f}'
+        elif ritmo and ritmo["decorridos"] > 0:
+            _atras = ritmo["esperado"] - m["pts"]
+            fecho = ("faltam %s pts · %s pts atrás do ritmo"
+                     % (f'{falta:,.0f}', f'{_atras:,.0f}')
+                     if ritmo["estado"] == "abaixo"
+                     else "faltam %s pts · no ritmo" % f'{falta:,.0f}')
+        else:
+            fecho = "faltam %s pts" % f'{falta:,.0f}'
         return (
             f'<div style="padding:6px 2px 2px;">'
             f'<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">'
@@ -2921,11 +2938,11 @@ def _chart_ind_indices(meses, ponto=None, username=None, max_tol=0,
     Os seis velocímetros de antes mediam desempenho em geral — "Pontuação
     Batida", "Redução Tempo Médio", "Pontualidade Tarefa" — e nenhum deles é o
     que a meta do mês cobra. Agora são os cinco critérios cobrados, cada bloco
-    com o limite do seu grupo: a MAXX pede mais em todos.
+    com o limite do seu grupo: a MAXX pede mais em todos, e é amarela.
 
-    Cinco não fecham em linhas de três, e três em cima com dois sobrando
-    embaixo fica torto. Ficam dois em cima, centrados nos vãos dos três de
-    baixo — pirâmide.
+    A pontuação NÃO fica vermelha só por ainda não ter chegado ao piso: no dia
+    2 do mês ninguém chegou. Ela é medida contra o ritmo — o pedaço do piso que
+    os dias já corridos pedem — e só fica vermelha quem está abaixo dele.
     """
     dados = dados or []
     cfg = cfg or {}
@@ -2937,6 +2954,7 @@ def _chart_ind_indices(meses, ponto=None, username=None, max_tol=0,
     pct_meta = (pts / meta * 100) if meta > 0 else 0.0
     advs = sum(int((r.get("cfg") or {}).get(f"adv_{username}", 0) or 0)
                for r in dados)
+    uteis, decorridos = _dias_uteis_periodo(dados)
 
     real_exec = (_media_execucao_por_membro(dados) or {}).get(username)
     _ref_exec = float(cfg.get(f"exec_ref_{username}", 0) or 0) or 120.0
@@ -2946,64 +2964,90 @@ def _chart_ind_indices(meses, ponto=None, username=None, max_tol=0,
     tol = float((ponto.get("tol_mb") or {}).get(username, 0.0)) if tem_ponto else None
     atr = float((ponto.get("atr_mb") or {}).get(username, 0.0)) if tem_ponto else None
 
-    VERDE, VERM, AZUL = "#1BAF7A", "#E34948", "#4A90D9"
+    VERM, AZUL = "#E34948", "#4A90D9"
 
-    def _g_contagem(valor, limite, titulo, unidade):
+    def _g_contagem(valor, limite, titulo, unidade, cor_ok):
         """Contagem contra um teto: o número no centro, o teto embaixo."""
         if valor is None:
-            return _gauge_svg(0, AZUL, titulo, "sem ponto no período", valor="—")
+            return _gauge_svg(0, AZUL, titulo, "sem ponto no período",
+                              legend="depende do relógio de ponto", valor="—")
         if limite <= 0:
             return _gauge_svg(0 if valor == 0 else 100,
-                              VERDE if valor == 0 else VERM, titulo,
-                              "sem limite definido", valor=f"{valor:.0f}")
+                              cor_ok if valor == 0 else VERM, titulo,
+                              "sem limite definido", legend="—",
+                              valor=f"{valor:.0f}")
+        folga = limite - valor
         return _gauge_svg(min(valor / limite * 100, 100),
-                          VERDE if valor <= limite else VERM, titulo,
-                          f"de {limite:.0f} {unidade}", valor=f"{valor:.0f}")
+                          cor_ok if valor <= limite else VERM, titulo,
+                          f"de {limite:.0f} {unidade}",
+                          legend=(f"resta(m) {folga:.0f}" if folga >= 0
+                                  else f"{-folga:.0f} além do limite"),
+                          valor=f"{valor:.0f}")
 
-    def _g_tempo():
+    def _g_tempo(cor_ok):
         if real_exec is None:
-            return _gauge_svg(0, AZUL, "Tempo de execução",
-                              "sem cartão medido", valor="—")
+            return _gauge_svg(0, AZUL, "Tempo de execução", "sem cartão medido",
+                              legend="medido pela etiqueta EM ANDAMENTO",
+                              valor="—")
         if not alvo_exec:
             return _gauge_svg(0, ADV_NEUTRO, "Tempo de execução",
-                              "sem alvo no mês", valor=f"{real_exec:.0f}")
+                              "sem alvo no mês", legend="defina em Config. de Metas",
+                              valor=f"{real_exec:.0f}")
         # O arco e a fracao do alvo que cabe no tempo real: quanto mais lento,
         # menor o arco. Aqui menos e melhor, e o arco precisa andar junto.
+        _dif = real_exec - alvo_exec
         return _gauge_svg(min(alvo_exec / real_exec * 100, 100) if real_exec else 100,
-                          VERDE if real_exec <= alvo_exec else VERM,
+                          cor_ok if real_exec <= alvo_exec else VERM,
                           "Tempo de execução", f"alvo {alvo_exec:.0f} min",
+                          legend=(f"{-_dif:.0f} min abaixo do alvo" if _dif <= 0
+                                  else f"{_dif:.0f} min acima do alvo"),
                           valor=f"{real_exec:.0f}")
 
-    def _g_piso(piso):
+    def _g_piso(piso, cor_ok):
+        """O piso de pontuação, medido contra o RITMO e não contra o total.
+
+        Vermelho aqui não é "ainda não chegou aos 80%" — é "não vai chegar
+        neste passo". Quem está adiantado no dia 2 do mês tem 5% da meta e está
+        bem, e um mostrador vermelho ali não informa nada.
+        """
         if meta <= 0:
             return _gauge_svg(0, AZUL, "Pontuação da meta",
-                              "meta individual não configurada", valor="—")
-        return _gauge_svg(min(pct_meta / piso * 100, 100) if piso else 0,
-                          VERDE if pct_meta >= piso else VERM,
+                              "meta individual não configurada",
+                              legend="cadastre a meta do mês", valor="—")
+        exigido = meta * piso / 100
+        r = _ritmo_entrada(pts, exigido, uteis, decorridos)
+        if pct_meta >= piso:
+            cor, recado = cor_ok, "✅ piso atingido"
+        elif r and r["estado"] == "abaixo":
+            cor = VERM
+            recado = f"{r['esperado'] - pts:,.0f} pts atrás do ritmo".replace(",", ".")
+        elif r and r["restantes"] > 0:
+            cor = cor_ok
+            recado = f"no ritmo · faltam {exigido - pts:,.0f} pts".replace(",", ".")
+        else:
+            cor = VERM
+            recado = f"faltaram {exigido - pts:,.0f} pts".replace(",", ".")
+        return _gauge_svg(min(pct_meta / piso * 100, 100) if piso else 0, cor,
                           f"{piso:.0f}% da meta individual",
-                          f"{pts:,.0f} de {meta:,.0f} pts".replace(",", "."),
-                          valor=f"{pct_meta:.0f}%")
+                          f"{pts:,.0f} de {exigido:,.0f} pts".replace(",", "."),
+                          legend=recado, valor=f"{pct_meta:.0f}%")
 
-    def _piramide(g):
-        """Dois em cima, três embaixo, os de cima centrados nos vãos."""
-        topo = "".join(f'<div style="grid-column:{2 + i * 2}/{4 + i * 2};">{x}</div>'
-                       for i, x in enumerate(g[:2]))
-        base = "".join(f'<div style="grid-column:{1 + i * 2}/{3 + i * 2};">{x}</div>'
-                       for i, x in enumerate(g[2:5]))
-        return (f'<div style="display:grid;grid-template-columns:repeat(6,1fr);'
-                f'gap:12px 4px;padding:6px 0 12px;">{topo}{base}</div>')
+    def _fila(g):
+        """Os cinco lado a lado, numa linha só."""
+        return (f'<div style="display:grid;grid-template-columns:repeat(5,1fr);'
+                f'gap:6px 3px;padding:4px 0 12px;">{"".join(g)}</div>')
 
-    def _bloco(titulo, cor_tit, piso, lim_tol, lim_atr, lim_adv):
+    def _bloco(titulo, cor_ok, piso, lim_tol, lim_atr, lim_adv):
         return (
-            f'<div style="font-size:10px;font-weight:600;color:{cor_tit};'
+            f'<div style="font-size:10px;font-weight:600;color:{cor_ok};'
             f'text-transform:uppercase;letter-spacing:.5px;margin:0 0 2px;">'
             f'{titulo}</div>'
-            + _piramide([
-                _g_tempo(),
-                _g_contagem(tol, lim_tol, "Tolerâncias", "permitidas"),
-                _g_contagem(atr, lim_atr, "Atrasos", "permitidos"),
-                _g_piso(piso),
-                _g_contagem(advs, lim_adv, "Advertências", "permitidas"),
+            + _fila([
+                _g_tempo(cor_ok),
+                _g_contagem(tol, lim_tol, "Tolerâncias", "permitidas", cor_ok),
+                _g_contagem(atr, lim_atr, "Atrasos", "permitidos", cor_ok),
+                _g_piso(piso, cor_ok),
+                _g_contagem(advs, lim_adv, "Advertências", "permitidas", cor_ok),
             ]))
 
     _tol_x = int(cfg.get("max_tol_maxx", 7) or 0) * n_meses
@@ -4123,7 +4167,14 @@ def _desempenho_individual(dados, username, nome, carregar_periodo=None):
     with row1a:
         st.markdown(f"#### 📊 Pontuação — {nome}")
         st.caption("Meta individual vs. realizado · linha de delta · destaque do melhor mês.")
-        st.markdown(_chart_ind_pts(meses), unsafe_allow_html=True)
+        # O ritmo da propria meta individual: e ele que decide se a barra
+        # fica vermelha, e nao a distancia ate os 100% no dia 2 do mes.
+        _u_pts, _d_pts = _dias_uteis_periodo(dados)
+        _ritmo_pts = _ritmo_entrada(sum(m["pts"] for m in meses),
+                                    sum(m["meta"] for m in meses),
+                                    _u_pts, _d_pts)
+        st.markdown(_chart_ind_pts(meses, ritmo=_ritmo_pts),
+                    unsafe_allow_html=True)
         # A ociosidade e a outra metade da mesma pergunta: quanto se entregou, e
         # quanto do expediente ficou sem cartao nenhum em andamento.
         st.markdown(_barra_ociosidade(_ponto_ind, username, _rot_per),
