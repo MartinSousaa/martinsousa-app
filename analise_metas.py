@@ -2295,15 +2295,27 @@ def _curva_suave(pts, y_min=None, y_max=None):
 
 def _grafico_barras_svg(labels, vals1, vals2=None, label1="Meta", label2="Realizado",
                          line_vals=None, cor1="#4A90D9", cor2_fn=None,
-                         melhor_idx=None, melhor_txt=None):
-    """SVG bar chart (1 ou 2 barras/mês) + linha de delta opcional. Retorna HTML."""
+                         melhor_idx=None, melhor_txt=None,
+                         cor2="#1BAF7A", cor_linha="#FF6B6B", label_linha="Delta",
+                         linha_na_escala=False, fmt=None):
+    """SVG bar chart (1 ou 2 barras/mês) + linha opcional. Retorna HTML.
+
+    A linha nasceu como delta — um saldo, que precisa de eixo próprio centrado
+    no zero. Com `linha_na_escala` ela passa a ser uma grandeza da MESMA escala
+    das barras (o realizado contra as metas, por exemplo) e é desenhada na
+    régua delas: com escala própria, uma linha acima da barra poderia significar
+    um valor abaixo dela.
+    """
     n = len(labels)
     if n == 0:
         return '<div style="padding:20px;text-align:center;color:var(--ms-texto-sec);">Sem dados</div>'
+    fmt = fmt or (lambda v: f"{v:,.0f}")
     W, H = 560, 195
     ml, mr, mt, mb_m = 54, 38, 34, 46   # topo maior: o valor da barra mora ali
     cw = W - ml - mr; ch = H - mt - mb_m
     all_v = list(vals1) + (list(vals2) if vals2 else [])
+    if linha_na_escala and line_vals is not None:
+        all_v += list(line_vals)
     max_v = max(all_v + [1])
     def bary(v): return mt + ch - max(0, v / max_v * ch)
     def barh(v): return max(1, v / max_v * ch)
@@ -2316,7 +2328,7 @@ def _grafico_barras_svg(labels, vals1, vals2=None, label1="Meta", label2="Realiz
         vg = max_v * (4 - i) / 4
         parts += [
             f'<line x1="{ml}" y1="{yg:.0f}" x2="{W-mr}" y2="{yg:.0f}" stroke="var(--ms-divisor,#2a2a2a)" stroke-width="0.5"/>',
-            f'<text x="{ml-4}" y="{yg+3:.0f}" text-anchor="end" font-size="7.5" fill="var(--ms-texto-sec,#888)">{vg:,.0f}</text>',
+            f'<text x="{ml-4}" y="{yg+3:.0f}" text-anchor="end" font-size="7.5" fill="var(--ms-texto-sec,#888)">{fmt(vg)}</text>',
         ]
     line_pts = []
     for i in range(n):
@@ -2329,16 +2341,19 @@ def _grafico_barras_svg(labels, vals1, vals2=None, label1="Meta", label2="Realiz
         # quanto era a meta, quanto saiu — nao tinha resposta na tela.
         parts.append(
             f'<text x="{x1+bw/2:.1f}" y="{bary(v1)-3:.1f}" text-anchor="middle" '
-            f'font-size="6.5" font-weight="700" fill="var(--ms-texto-sec,#888)">{v1:,.0f}</text>')
+            f'font-size="6.5" font-weight="700" fill="var(--ms-texto-sec,#888)">{fmt(v1)}</text>')
         if vals2 is not None:
-            v2 = vals2[i]; c2 = cor2_fn(i) if cor2_fn else "#1BAF7A"
+            v2 = vals2[i]; c2 = cor2_fn(i) if cor2_fn else cor2
             parts.append(f'<rect x="{cx_c+1:.1f}" y="{bary(v2):.1f}" width="{bw:.1f}" height="{barh(v2):.1f}" fill="{c2}" opacity="0.9" rx="2"/>')
             parts.append(
                 f'<text x="{cx_c+1+bw/2:.1f}" y="{bary(v2)-3:.1f}" text-anchor="middle" '
-                f'font-size="6.5" font-weight="700" fill="{c2}">{v2:,.0f}</text>')
+                f'font-size="6.5" font-weight="700" fill="{c2}">{fmt(v2)}</text>')
         if line_vals is not None:
-            max_d = max(abs(v) for v in line_vals) or 1
-            ly = mt + ch / 2 - (line_vals[i] / max_d * (ch / 2))
+            if linha_na_escala:
+                ly = bary(line_vals[i])
+            else:
+                max_d = max(abs(v) for v in line_vals) or 1
+                ly = mt + ch / 2 - (line_vals[i] / max_d * (ch / 2))
             line_pts.append((cx_c, ly))
         ry = H - mb_m + 10
         parts.append(
@@ -2347,19 +2362,27 @@ def _grafico_barras_svg(labels, vals1, vals2=None, label1="Meta", label2="Realiz
         )
     # Linha de delta
     if line_pts and line_vals is not None:
-        max_d = max(abs(v) for v in line_vals) or 1
-        y0 = mt + ch / 2
-        parts.append(f'<line x1="{ml}" y1="{y0:.0f}" x2="{W-mr}" y2="{y0:.0f}" stroke="#555" stroke-width="0.7" stroke-dasharray="3,3"/>')
-        for step, lbl_d in [(-1, f"{-max_d:+,.0f}"), (0, "0"), (1, f"+{max_d:,.0f}")]:
-            yd = y0 - step * ch / 2
-            parts.append(f'<text x="{W-mr+3}" y="{yd+3:.0f}" font-size="6.5" fill="#FF6B6B">{lbl_d}</text>')
+        if not linha_na_escala:
+            max_d = max(abs(v) for v in line_vals) or 1
+            y0 = mt + ch / 2
+            parts.append(f'<line x1="{ml}" y1="{y0:.0f}" x2="{W-mr}" y2="{y0:.0f}" stroke="#555" stroke-width="0.7" stroke-dasharray="3,3"/>')
+            for step, lbl_d in [(-1, f"{-max_d:+,.0f}"), (0, "0"), (1, f"+{max_d:,.0f}")]:
+                yd = y0 - step * ch / 2
+                parts.append(f'<text x="{W-mr+3}" y="{yd+3:.0f}" font-size="6.5" fill="{cor_linha}">{lbl_d}</text>')
+        else:
+            # O valor de cada ponto, que e o que se veio ler aqui.
+            for (px, py), pv in zip(line_pts, line_vals):
+                parts.append(
+                    f'<text x="{px:.1f}" y="{py - 7:.1f}" text-anchor="middle" '
+                    f'font-size="6.5" font-weight="700" fill="{cor_linha}">'
+                    f'{fmt(pv)}</text>')
         # Curva no lugar da poligonal: em quatro meses a linha de delta virava
         # um zigue-zague de bicos, e o bico sugere um evento que nao existe —
         # o dado e mensal, a passagem entre um mes e outro e continua.
         parts.append(
             f'<path d="{_curva_suave(line_pts, mt, mt + ch)}" fill="none" '
-            f'stroke="#FF6B6B" stroke-width="1.8" stroke-linecap="round"/>')
-        parts += [f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3" fill="#FF6B6B"/>' for x, y in line_pts]
+            f'stroke="{cor_linha}" stroke-width="1.8" stroke-linecap="round"/>')
+        parts += [f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3" fill="{cor_linha}"/>' for x, y in line_pts]
     # Callout melhor mês
     if melhor_idx is not None and melhor_txt and 0 <= melhor_idx < n:
         cx_c = ml + (melhor_idx + 0.5) * col_w
@@ -2380,15 +2403,15 @@ def _grafico_barras_svg(labels, vals1, vals2=None, label1="Meta", label2="Realiz
     ]
     if vals2 is not None:
         parts += [
-            f'<rect x="{lx+62}" y="8" width="9" height="9" fill="#1BAF7A" rx="1"/>',
+            f'<rect x="{lx+62}" y="8" width="9" height="9" fill="{cor2}" rx="1"/>',
             f'<text x="{lx+73}" y="15.5" font-size="7" fill="var(--ms-texto-sec,#888)">{label2}</text>',
         ]
     if line_vals is not None:
         lx3 = lx + 130
         parts += [
-            f'<line x1="{lx3}" y1="12.5" x2="{lx3+14}" y2="12.5" stroke="#FF6B6B" stroke-width="1.5"/>',
-            f'<circle cx="{lx3+7}" cy="12.5" r="2.5" fill="#FF6B6B"/>',
-            f'<text x="{lx3+18}" y="15.5" font-size="7" fill="var(--ms-texto-sec,#888)">Delta</text>',
+            f'<line x1="{lx3}" y1="12.5" x2="{lx3+14}" y2="12.5" stroke="{cor_linha}" stroke-width="1.5"/>',
+            f'<circle cx="{lx3+7}" cy="12.5" r="2.5" fill="{cor_linha}"/>',
+            f'<text x="{lx3+18}" y="15.5" font-size="7" fill="var(--ms-texto-sec,#888)">{label_linha}</text>',
         ]
     return (
         f'<div style="width:100%;overflow:hidden;padding:4px 0;">'
@@ -2398,20 +2421,30 @@ def _grafico_barras_svg(labels, vals1, vals2=None, label1="Meta", label2="Realiz
 
 
 def _chart_pontuacao_meta(dados):
-    """HTML/SVG: barras meta vs realizado + linha de delta."""
+    """HTML/SVG: as duas metas em barras, o realizado como linha sobre elas.
+
+    Era meta contra realizado, com o delta numa linha de eixo proprio. Duas
+    coisas nao davam: a MAXX — que e a outra meta cobrada — nao aparecia, e o
+    delta repetia em linha o que as duas barras ja diziam, num eixo diferente
+    do delas. Agora as barras sao os dois alvos e a linha e o resultado: onde
+    ela passa por cima da barra azul, a coletiva foi batida; por cima da
+    dourada, a MAXX.
+    """
     labels = [r["label"] for r in dados]
     metas  = [r["meta_eq"] for r in dados]
+    maxx   = [r.get("meta_maxx", 0) or 0 for r in dados]
     saldos = [r["saldo"]   for r in dados]
-    deltas = [s - m for s, m in zip(saldos, metas)]
     pcts   = [r["pct_mensal"] for r in dados]
     bi = max(range(len(pcts)), key=lambda i: pcts[i]) if pcts else None
     sinal = "+" if bi is not None and pcts[bi] >= 100 else ""
     melhor_txt = f"{sinal}{pcts[bi]:.1f}% · {labels[bi]}" if bi is not None else None
     avg_pct = sum(pcts) / len(pcts) if pcts else 0
     html = _grafico_barras_svg(
-        labels, metas, saldos, label1="Meta", label2="Realizado",
-        line_vals=deltas, cor1="#4A90D9",
-        cor2_fn=lambda i: "#1BAF7A",
+        labels, metas, maxx,
+        label1="Meta Coletiva", label2="Meta MAXX",
+        line_vals=saldos, linha_na_escala=True,
+        cor1="#4A90D9", cor2_fn=lambda i: "#FFD700", cor2="#FFD700",
+        cor_linha="#1BAF7A", label_linha="Realizado",
         melhor_idx=bi, melhor_txt=melhor_txt,
     )
     return html + f'<div style="text-align:right;font-size:9px;color:#EDA100;padding:0 4px 4px;">Média período: {avg_pct:.1f}%</div>'
@@ -2467,11 +2500,12 @@ def _chart_indices_meta(dados):
 
 
 def _chart_tempo_medio_equipe(dados):
-    """Tempo médio de execução da EQUIPE: o alvo do mês contra o realizado.
+    """Tempo médio de execução da EQUIPE, no mesmo modelo da pontuação.
 
-    O indicador existia por pessoa e no card da meta, mas o painel coletivo —
-    onde se olha o mês inteiro do time — só mostrava pontuação. Faltava a
-    resposta de "a média por demanda caiu?", que é metade do que a meta cobra.
+    Duas barras e uma linha: a referência do mês e o alvo do mês são as barras,
+    o tempo que as demandas realmente levaram é a linha. Aqui BAIXO é melhor —
+    a linha abaixo da barra dourada é o alvo batido. As cores mudam de
+    propósito, para não confundir com o gráfico de pontuação logo acima.
 
     Cada mês é medido contra o SEU alvo: mudar o alvo em outubro não pode
     repintar setembro.
@@ -2480,9 +2514,8 @@ def _chart_tempo_medio_equipe(dados):
         return ('<div style="padding:20px;text-align:center;font-size:11px;'
                 'color:var(--ms-texto-sec);">Sem dados no período</div>')
 
-    # Ordem por mes, e nao a da lista: os meses sem atividade sao acrescentados
-    # no fim por _extend_dados_ano, e sem ordenar o "mes atual" do topo podia
-    # cair num deles.
+    # Ordem por mes: os meses sem atividade sao acrescentados no fim por
+    # _extend_dados_ano, e sem ordenar o grafico saia fora de ordem.
     def _chave(r):
         try:
             return (int(r.get("ano", 0)), int(r.get("mes", 0)))
@@ -2496,125 +2529,41 @@ def _chart_tempo_medio_equipe(dados):
         _cfg_r = r.get("cfg") or {}
         _ref_r, _n_r, _dig_r = _ref_execucao_equipe(_um, _cfg_r)
         _m_r = mc.meta_execucao(_cfg_r, "equipe", _ref_r or 0)
-        linhas.append({"label": r.get("label", ""),
-                       "real": _media_execucao_geral(_um),
-                       "ref": _ref_r, "alvo": _m_r["alvo"],
-                       "definida": _m_r["definida"]})
+        _real_r = _media_execucao_geral(_um)
+        if _real_r is None and not _ref_r:
+            continue          # mes sem medicao e sem referencia nao diz nada
+        linhas.append({"label": r.get("label", ""), "real": _real_r or 0.0,
+                       "ref": _ref_r or 0.0, "alvo": _m_r["alvo"] or 0.0})
 
-    # O numero grande e o do ultimo mes MEDIDO. Mes corrente ainda sem cartao
-    # concluido nao deve apagar o indicador inteiro — o rotulo ao lado do numero
-    # diz de que mes ele e.
     medidos = [l for l in linhas if l["real"]]
     if not medidos:
         return ('<div style="padding:20px;text-align:center;font-size:11px;'
                 'color:var(--ms-texto-sec);">Nenhum cartão com tempo medido '
                 'no período</div>')
+
     at = medidos[-1]
-    real, ref, alvo = at["real"], at["ref"], at["alvo"]
-
-    if not alvo:
-        cor, recado = ADV_NEUTRO, "sem alvo definido para o mês"
-    elif real <= alvo:
-        cor, recado = "#1BAF7A", "✅ dentro do alvo"
-    elif ref and real <= ref:
-        cor, recado = "#EDA100", f"{_fmt_hm(real - alvo)} acima do alvo"
+    if not at["alvo"]:
+        _fecho = "sem alvo definido para o mês — defina em Configuração de Metas"
+        _cor_f = ADV_NEUTRO
+    elif at["real"] <= at["alvo"]:
+        _fecho = f"alvo batido em {_esc(at['label'])} · {_fmt_hm(at['alvo'])}"
+        _cor_f = "#1BAF7A"
     else:
-        cor, recado = "#E34948", f"{_fmt_hm(real - alvo)} acima do alvo"
+        _fecho = (f"{_fmt_hm(at['real'] - at['alvo'])} acima do alvo em "
+                  f"{_esc(at['label'])}")
+        _cor_f = "#E34948"
 
-    # Trilha da referencia ate o alvo, igual a do indicador individual: o que
-    # importa nao e "quanto falta", e quanto do caminho ja foi andado.
-    barra = ""
-    if alvo and ref:
-        OURO = "#FFD700"
-        escala = max(ref, real) * 1.06 or 1
-        _x_alvo = alvo / escala * 100
-        _x_real = min(real, ref) / escala * 100
-        _acima = max(0.0, real - ref)
-        precisa = max(ref - alvo, 0.0)
-        andou = max(ref - real, 0.0)
-        # Alvo igual ou acima da referencia nao deixa "caminho" a andar: ai o
-        # que responde e o resultado, nao a fracao — senao a barra dizia "100%
-        # do caminho" ao lado de "0h05 acima do alvo".
-        pct_prog = ((andou / precisa * 100) if precisa > 0
-                    else (100.0 if real <= alvo else 0.0))
-        barra = (
-            f'<div style="height:14px;border-radius:7px;background:var(--ms-metric-bd);'
-            f'margin:12px 0 5px;position:relative;">'
-            f'<div style="position:absolute;left:0;top:0;height:100%;'
-            f'width:{_x_real:.1f}%;background:{cor};border-radius:7px '
-            + ("0 0" if _acima > 0 else "7px 7px") + ' 7px;"></div>'
-            + (f'<div style="position:absolute;top:0;height:100%;'
-               f'left:{ref / escala * 100:.1f}%;width:{_acima / escala * 100:.1f}%;'
-               f'background:#E34948;border-radius:0 7px 7px 0;"></div>'
-               if _acima > 0 else "")
-            + f'<div style="position:absolute;top:-5px;bottom:-5px;left:{_x_alvo:.1f}%;'
-            f'width:3px;margin-left:-1.5px;border-radius:2px;'
-            f'background:var(--ms-texto);"></div></div>'
-            f'<div style="position:relative;height:12px;margin-bottom:6px;">'
-            f'<span style="position:absolute;left:{_x_alvo:.1f}%;'
-            f'transform:translateX(-50%);font-size:8px;font-weight:700;'
-            f'white-space:nowrap;color:var(--ms-texto);">▲ alvo {_fmt_hm(alvo)}</span>'
-            f'<span style="position:absolute;right:0;font-size:8px;font-weight:700;'
-            f'color:{OURO if pct_prog >= 100 else "var(--ms-texto-sec)"};">'
-            f'{min(pct_prog, 100):.0f}% do caminho</span></div>')
-
-    _alvo_txt = _fmt_hm(alvo) if alvo else "—"
-    topo = (
-        f'<div style="display:flex;align-items:baseline;gap:10px;">'
-        f'<span style="font-size:30px;font-weight:700;color:{cor};line-height:1;">'
-        f'{_fmt_hm(real)}</span>'
-        f'<span style="font-size:11px;color:var(--ms-texto-sec);">'
-        f'média por demanda · {_esc(at["label"])}</span>'
-        f'<span style="margin-left:auto;font-size:11px;color:var(--ms-texto-sec);">'
-        f'alvo do mês <b style="color:var(--ms-texto);">{_alvo_txt}</b></span></div>'
-        + barra +
-        f'<div style="font-size:11px;color:var(--ms-texto-sec);margin-bottom:8px;">'
-        + (f'referência do mês {_fmt_hm(ref)} · ' if ref else "")
-        + f'<span style="color:{cor};font-weight:600;">{recado}</span></div>')
-
-    if len(medidos) < 2:
-        return topo + ('<div style="font-size:10.5px;color:var(--ms-texto-sec);'
-                       'font-style:italic;">O mês a mês aparece quando o período '
-                       'tem mais de um mês medido.</div>')
-
-    W, H = 420, 138
-    ml, mr, mt, mb = 10, 10, 14, 24
-    iw, ih = W - ml - mr, H - mt - mb
-    teto = max([l["real"] for l in medidos]
-               + [l["alvo"] for l in medidos if l["alvo"]] + [1]) * 1.18
-    bw = iw / len(medidos)
-
-    def _y(v):
-        return mt + ih - (v / teto * ih)
-
-    partes = []
-    for i, l in enumerate(medidos):
-        x = ml + i * bw + bw * 0.22
-        w = bw * 0.56
-        v, a = l["real"], l["alvo"]
-        c = ADV_NEUTRO if not a else ("#1BAF7A" if v <= a else "#E34948")
-        _tit = (f'{_esc(l["label"])}: {_fmt_hm(v)}'
-                + (f' · alvo {_fmt_hm(a)}' if a else " · sem alvo"))
-        partes.append(
-            f'<rect x="{x:.1f}" y="{_y(v):.1f}" width="{w:.1f}" '
-            f'height="{mt + ih - _y(v):.1f}" rx="3" fill="{c}">'
-            f'<title>{_tit}</title></rect>'
-            f'<text x="{x + w / 2:.1f}" y="{_y(v) - 4:.1f}" text-anchor="middle" '
-            f'font-size="8" fill="var(--ms-texto-sec,#888)">{_fmt_hm(v)}</text>'
-            f'<text x="{x + w / 2:.1f}" y="{H - 8}" text-anchor="middle" '
-            f'font-size="8" fill="var(--ms-texto-sec,#888)">{_esc(l["label"])}</text>')
-        # O risco do alvo e por mes, e nao uma linha so atravessando tudo: o
-        # alvo de outubro nao pode repintar setembro.
-        if a:
-            partes.append(
-                f'<line x1="{x - w * 0.14:.1f}" y1="{_y(a):.1f}" '
-                f'x2="{x + w * 1.14:.1f}" y2="{_y(a):.1f}" stroke="#EDA100" '
-                f'stroke-width="1.6" stroke-dasharray="4,3"/>')
-    partes.append(
-        f'<text x="{W - mr}" y="{mt - 4}" text-anchor="end" font-size="8" '
-        f'font-weight="700" fill="#EDA100">- - - alvo do mês</text>')
-    return topo + (f'<svg viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" '
-                   f'style="width:100%;">' + "".join(partes) + '</svg>')
+    html = _grafico_barras_svg(
+        [l["label"] for l in linhas],
+        [l["ref"] for l in linhas], [l["alvo"] for l in linhas],
+        label1="Referência", label2="Alvo do mês",
+        line_vals=[l["real"] for l in linhas], linha_na_escala=True,
+        cor1="#7B68EE", cor2_fn=lambda i: "#EDA100", cor2="#EDA100",
+        cor_linha="#4AC9C0", label_linha="Realizado",
+        fmt=_fmt_hm,
+    )
+    return html + (f'<div style="text-align:right;font-size:9px;color:{_cor_f};'
+                   f'padding:0 4px 4px;">{_fecho}</div>')
 
 
 def _chart_tempo_execucao(dados):
@@ -4341,16 +4290,18 @@ def _aba_desempenho(dados, dados_ano_full=None, carregar_periodo=None):
 
     with row1_col1:
         st.markdown("#### 📊 Pontuação Meta Coletiva")
-        st.caption("Meta de pontuação vs. realizado · a linha **Delta** é a "
-                   "distância entre os dois: quantos pontos o mês fechou acima "
-                   "(+) ou abaixo (−) da meta, no eixo da direita.")
+        st.caption("As duas metas do mês nas barras · o realizado na linha. "
+                   "Linha acima da barra azul, a Coletiva foi batida; acima da "
+                   "dourada, a MAXX.")
         st.markdown(_chart_pontuacao_meta(dados_ano), unsafe_allow_html=True)
 
         # A outra metade do que a meta coletiva cobra: a pontuacao diz quanto
         # foi entregue, isto diz em quanto tempo. So aparecia por pessoa.
         st.markdown("##### ⏳ Tempo médio de execução da equipe")
-        st.caption("O alvo do mês contra o tempo que as demandas levaram — "
-                   "cada mês medido contra o alvo dele.")
+        st.caption("Referência e alvo do mês nas barras · o tempo que as "
+                   "demandas realmente levaram na linha. Aqui **quanto mais "
+                   "baixo, melhor**: linha abaixo da barra dourada é o alvo "
+                   "batido.")
         st.markdown(_chart_tempo_medio_equipe(dados_ano), unsafe_allow_html=True)
 
     with row1_col2:
