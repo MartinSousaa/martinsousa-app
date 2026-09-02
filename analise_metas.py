@@ -2893,10 +2893,9 @@ def _barra_ociosidade(ponto, username, rotulo="", limite=LIMITE_OCIOSIDADE_PCT):
     barra de pontuação logo acima, e por isso o rótulo diz o teto por extenso.
     """
     if not (ponto and ponto.get("tem_ponto") and username):
-        return ('<div style="margin-top:14px;padding-top:10px;border-top:1px '
-                'solid var(--ms-divisor);font-size:11px;'
-                'color:var(--ms-texto-sec);">💤 Ociosidade — sem registro de '
-                'ponto no período.</div>')
+        return ('<div style="padding:6px 2px;font-size:11px;'
+                'color:var(--ms-texto-sec);">Sem registro de ponto no '
+                'período.</div>')
     pct = float((ponto.get("pct_ocio") or {}).get(username, 0.0))
     cor = "#1BAF7A" if pct < limite else "#E34948"
     escala = max(pct, limite) * 1.35 or 1
@@ -2905,13 +2904,12 @@ def _barra_ociosidade(ponto, username, rotulo="", limite=LIMITE_OCIOSIDADE_PCT):
     fecho = ("✅ dentro do limite" if pct < limite
              else f"{pct - limite:.1f} pontos acima do limite")
     return (
-        f'<div style="margin-top:14px;padding-top:12px;border-top:1px solid '
-        f'var(--ms-divisor);">'
+        f'<div style="padding:6px 2px 2px;">'
         f'<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">'
-        f'<span style="font-size:26px;font-weight:700;color:{cor};line-height:1;">'
+        f'<span style="font-size:38px;font-weight:700;color:{cor};line-height:1;">'
         f'{pct:.1f}%</span>'
         f'<span style="font-size:12px;color:var(--ms-texto-sec);">'
-        f'💤 de ociosidade{(" em " + _esc(rotulo)) if rotulo else ""}</span>'
+        f'do expediente{(" em " + _esc(rotulo)) if rotulo else ""}</span>'
         f'<span style="margin-left:auto;font-size:12px;color:var(--ms-texto-sec);">'
         f'máximo <b style="color:var(--ms-texto);">{limite:.0f}%</b></span></div>'
         f'<div style="height:16px;border-radius:8px;background:var(--ms-metric-bd);'
@@ -3331,11 +3329,18 @@ def _chart_linha_do_tempo(dados, username):
     eixo_fim = -(-eixo_fim // 30) * 30
     span = max(eixo_fim - eixo_ini, 60)
 
-    LINHAS = [("iniciados", "iniciou", "#4A90D9"),
-              ("concluidos", "concluiu", "#1BAF7A"),
-              ("interrompidos", "parou", "#EDA100")]
+    # Os tres estados da etiqueta, com o nome que eles tem no Trello e a cor de
+    # cada um. "iniciou/concluiu/parou" descrevia o evento; o que se procura
+    # aqui e o ESTADO do cartao no dia. Interrompido soma FIM DE EXPEDIENTE:
+    # `eventos_de_trabalho` ja trata as duas como interrupcao, porque as duas
+    # param o relogio do mesmo jeito.
+    LINHAS = [("ativos", "EM ANDAMENTO", "#EDA100"),
+              ("concluidos", "CONCLUÍDO", "#1BAF7A"),
+              ("interrompidos", "INTERROMPIDO", "#FF8A2B")]
     W = 980
-    ml, mr, mt = 52, 10, 12
+    # Margem maior a esquerda: "EM ANDAMENTO" nao cabia nos 52px que bastavam
+    # para "iniciou".
+    ml, mr, mt = 78, 10, 12
     ALT_REL, ALT_EIXO, ALT_LINHA = 300, 15, 15
     H = mt + ALT_REL + ALT_EIXO + ALT_LINHA * len(LINHAS) + 8
     iw = W - ml - mr
@@ -3463,8 +3468,9 @@ def _chart_linha_do_tempo(dados, username):
     for li, (chave_c, rot, cor_c) in enumerate(LINHAS):
         yl = base + ALT_EIXO + li * ALT_LINHA
         partes.append(
-            f'<text x="{ml-5}" y="{yl+8:.1f}" text-anchor="end" font-size="7" '
-            f'font-weight="700" fill="{cor_c}">{rot}</text>')
+            f'<text x="{ml-5}" y="{yl+8:.1f}" text-anchor="end" font-size="6.4" '
+            f'font-weight="700" letter-spacing="0.2" '
+            f'fill="{cor_c}">{rot}</text>')
         for d in range(1, ultimo + 1):
             v = atividade.get(f"{pref}{d:02d}", {}).get(chave_c, 0)
             x = ml + (d - 1) * bw + 1
@@ -3506,7 +3512,12 @@ def _chart_linha_do_tempo(dados, username):
            '<span style="color:#8B5CF6;font-weight:700;">■</span> filmagem · '
            '<span style="color:#7A8B99;font-weight:700;">■</span> busca de demanda · '
            'fundo escuro = fora do expediente ou fim de semana · '
-           'passe o mouse num bloco para ver o cartão</div>')
+           'passe o mouse num bloco para ver o cartão'
+           '<br>as três linhas embaixo contam CARTÕES: '
+           '<b style="color:#EDA100;">EM ANDAMENTO</b> os que tiveram execução '
+           'no dia · <b style="color:#1BAF7A;">CONCLUÍDO</b> os entregues · '
+           '<b style="color:#FF8A2B;">INTERROMPIDO</b> os parados com '
+           'INTERROMPIDO ou FIM DE EXPEDIENTE</div>')
     if parados:
         leg += (f'<div style="margin-top:4px;font-size:10px;color:#E34948;'
                 f'font-weight:700;">🚩 {len(parados)} dia(s) útil(eis) sem '
@@ -3541,7 +3552,8 @@ def _chart_atividade_dia(dados, username, por_mes=False):
         agrup = {}
         for dia, v in dias.items():
             a = agrup.setdefault(dia[:7], {"iniciados": 0, "concluidos": 0,
-                                           "interrompidos": 0, "minutos": 0.0})
+                                           "interrompidos": 0, "ativos": 0,
+                                           "minutos": 0.0})
             for k in a:
                 a[k] += v[k]
         rotulos, regs, uteis = [], [], []
@@ -3552,7 +3564,8 @@ def _chart_atividade_dia(dados, username, por_mes=False):
             chave = f"{ym[0]:04d}-{ym[1]:02d}"
             rotulos.append(r.get("label", chave))
             regs.append(agrup.get(chave, {"iniciados": 0, "concluidos": 0,
-                                          "interrompidos": 0, "minutos": 0.0}))
+                                          "interrompidos": 0, "ativos": 0,
+                                          "minutos": 0.0}))
             uteis.append(False)   # mês inteiro vazio não se acusa como dia parado
         unidade = "mês"
     else:
@@ -3569,7 +3582,8 @@ def _chart_atividade_dia(dados, username, por_mes=False):
             rotulos.append(str(d))
             regs.append(dias.get(f"{ano:04d}-{mes:02d}-{d:02d}",
                                  {"iniciados": 0, "concluidos": 0,
-                                  "interrompidos": 0, "minutos": 0.0}))
+                                  "interrompidos": 0, "ativos": 0,
+                                  "minutos": 0.0}))
             uteis.append(data.weekday() < 5 and data <= hoje)
         unidade = "dia"
 
@@ -3583,13 +3597,14 @@ def _chart_atividade_dia(dados, username, por_mes=False):
                and r["concluidos"] == 0]
 
     W = 620
-    ml, mr, mt = 52, 12, 14
+    # Margem maior a esquerda: "EM ANDAMENTO" nao cabe nos 52px de "andamento".
+    ml, mr, mt = 74, 12, 14
     ALT_BARRA, ALT_EIXO, ALT_LINHA = 96, 14, 15
     # O rotulo da linha traz a PALAVRA, nao so o simbolo. "▶" sozinho na margem
     # nao diz nada para quem abre a tela pela primeira vez.
-    LINHAS = [("iniciados", "▶ iniciados", "iniciou", "#4A90D9"),
-              ("concluidos", "✔ concluídos", "concluiu", "#1BAF7A"),
-              ("interrompidos", "⏸ interrompidos", "parou", "#EDA100")]
+    LINHAS = [("ativos", "EM ANDAMENTO", "EM ANDAMENTO", "#EDA100"),
+              ("concluidos", "CONCLUÍDO", "CONCLUÍDO", "#1BAF7A"),
+              ("interrompidos", "INTERROMPIDO", "INTERROMPIDO", "#FF8A2B")]
     H = mt + ALT_BARRA + ALT_EIXO + ALT_LINHA * len(LINHAS) + 6
     iw = W - ml - mr
     topo = max(mins + [60.0])
@@ -3610,7 +3625,7 @@ def _chart_atividade_dia(dados, username, por_mes=False):
         x = ml + i * bw + 1
         larg = max(bw - 2, 1)
         dica = (f'{rotulos[i]}: {_fmt_hm(reg["minutos"])} de execução · '
-                f'{reg["iniciados"]} iniciado(s) · {reg["concluidos"]} concluído(s) · '
+                f'{reg["ativos"]} em andamento · {reg["concluidos"]} concluído(s) · '
                 f'{reg["interrompidos"]} interrompido(s)')
         if reg["minutos"] > 0:
             alt = reg["minutos"] / topo * ALT_BARRA
@@ -3642,8 +3657,9 @@ def _chart_atividade_dia(dados, username, por_mes=False):
     for li, (chave, rot, curto, cor) in enumerate(LINHAS):
         yl = base + ALT_EIXO + li * ALT_LINHA
         partes.append(
-            f'<text x="{ml-4}" y="{yl+8:.1f}" text-anchor="end" font-size="7" '
-            f'font-weight="700" fill="{cor}">{curto}</text>')
+            f'<text x="{ml-4}" y="{yl+8:.1f}" text-anchor="end" font-size="6.4" '
+            f'font-weight="700" letter-spacing="0.2" '
+            f'fill="{cor}">{curto}</text>')
         for i, reg in enumerate(regs):
             v = reg[chave]
             x = ml + i * bw + 1
@@ -4176,7 +4192,12 @@ def _desempenho_individual(dados, username, nome, carregar_periodo=None):
         st.markdown(_chart_ind_pts(meses, ritmo=_ritmo_pts),
                     unsafe_allow_html=True)
         # A ociosidade e a outra metade da mesma pergunta: quanto se entregou, e
-        # quanto do expediente ficou sem cartao nenhum em andamento.
+        # quanto do expediente ficou sem cartao nenhum em andamento. Ganha
+        # titulo proprio, como a pontuacao: sao dois indicadores, nao um com
+        # rodape.
+        st.markdown(f"#### 💤 Ociosidade — {nome}")
+        st.caption("Tempo do expediente sem nenhum cartão EM ANDAMENTO no seu "
+                   "nome · verde abaixo do limite, vermelho acima.")
         st.markdown(_barra_ociosidade(_ponto_ind, username, _rot_per),
                     unsafe_allow_html=True)
 
@@ -4208,9 +4229,11 @@ def _desempenho_individual(dados, username, nome, carregar_periodo=None):
             "Cada execução no relógio do expediente da pessoa — o início do "
             "expediente embaixo, o fim em cima. O traço verde é o início do "
             "cartão, o vermelho é o fim, e a distância entre eles é a duração. "
-            "Embaixo, quantos cartões ela iniciou, concluiu e interrompeu no "
-            "dia. Dia útil já passado sem nenhum registro sai em vermelho. "
-            "Passe o mouse num bloco para ver o cartão."
+            "Embaixo, quantos cartões ficaram **EM ANDAMENTO**, **CONCLUÍDO** e "
+            "**INTERROMPIDO** no dia — interrompido conta tanto a etiqueta "
+            "INTERROMPIDO quanto FIM DE EXPEDIENTE. Dia útil já passado sem "
+            "nenhum registro sai em vermelho. Passe o mouse num bloco para ver "
+            "o cartão."
         )
         st.markdown(_chart_linha_do_tempo(dados, username),
                     unsafe_allow_html=True)
