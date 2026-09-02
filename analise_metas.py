@@ -654,6 +654,26 @@ def _media_execucao_por_membro(dados):
     return {u: sum(v) / len(v) for u, v in tempos.items() if v}
 
 
+def _min_em_cartoes(dados, ym=None):
+    """{username: minutos em cartões} — reserva da ociosidade.
+
+    Soma o tempo de execução COM a busca de demanda. São contas diferentes de
+    propósito: para a meta de tempo médio a busca fica de fora, porque não é
+    execução de demanda; para a ociosidade ela entra, porque a pessoa estava
+    trabalhando — contá-la como tempo parado acusaria quem passou a manhã
+    procurando serviço.
+    """
+    por = {}
+    for r in dados:
+        if ym is not None and r.get("filtro_mes") != ym:
+            continue
+        for chave in ("tempo_membro_lista", "analise_membro_lista"):
+            for u, por_col in (r.get(chave) or {}).items():
+                por[u] = por.get(u, 0.0) + sum(
+                    t for ts in por_col.values() for t in ts)
+    return por
+
+
 def _media_execucao_geral(dados):
     """Média de execução de TODAS as demandas medidas no período, em minutos.
 
@@ -1344,10 +1364,7 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
             ym = r.get("filtro_mes")
             if not ym:
                 continue
-            tc_mes = {
-                u: sum(t for ts in por_col.values() for t in ts)
-                for u, por_col in (r.get("tempo_membro_lista") or {}).items()
-            }
+            tc_mes = _min_em_cartoes([r])
             p_mes, _diag_pont = _rp.get_pontualidade_mes(*ym, com_diagnostico=True)
             _diags_pont.append((ym, _diag_pont))
             _iv_mes = {}
@@ -2907,14 +2924,7 @@ def _ponto_por_membro(dados, users):
             # Tempo em cards por membro (minutos). Agora vem medido por membro
             # pelas etiquetas do cartão — antes era o total do mês dividido em
             # partes iguais, o que dava ociosidade errada para todo mundo.
-            _tc_user = {}
-            for r in dados:
-                if r.get("filtro_mes") != ym:
-                    continue
-                for u, por_col in (r.get("tempo_membro_lista") or {}).items():
-                    _tc_user[u] = _tc_user.get(u, 0) + sum(
-                        t for ts in por_col.values() for t in ts
-                    )
+            _tc_user = _min_em_cartoes(dados, ym)
             _iv_user = {}
             for r in dados:
                 if r.get("filtro_mes") == ym:

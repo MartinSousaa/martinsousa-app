@@ -1238,6 +1238,11 @@ def intervalos_por_membro(cards, acoes_board, membros_map=None, agora=None):
 
     Diferente de tempos_dos_cartoes, que reparte o minuto entre cartoes
     simultaneos: aqui interessa so SE havia algum cartao ativo, nao quantos.
+
+    Sem filtro de coluna, e de proposito: o cartao de BUSCA DE DEMANDA fica de
+    fora da pontuacao e do tempo medio de execucao, mas quem esta com ele em
+    andamento esta trabalhando. Tira-lo daqui transformaria a manha inteira de
+    quem foi procurar servico em tempo ocioso.
     """
     membros_map = membros_map or {}
     agora = agora or datetime.now(timezone.utc)
