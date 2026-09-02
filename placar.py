@@ -613,7 +613,7 @@ CSS="""
 # escrito duas vezes — uma para o Studio, outra para a TV — com os mesmos dias
 # uteis, os mesmos feriados e os mesmos cortes de 10%. Duas copias da mesma regra
 # e uma delas envelhecendo.
-FERIADOS_BR = {(1,1), (4,21), (5,1), (9,7), (10,12), (11,2), (11,15), (12,25)}
+FERIADOS_BR = _pc_core.FERIADOS_BR   # uma lista so, no core
 
 
 def ritmo_do_mes(filtro_mes, meta_eq, saldo_eq, hoje=None):
@@ -629,17 +629,8 @@ def ritmo_do_mes(filtro_mes, meta_eq, saldo_eq, hoje=None):
     hoje = hoje or datetime.now()
     if not filtro_mes or (filtro_mes[0], filtro_mes[1]) != (hoje.year, hoje.month):
         return None
-    import calendar as _cal_r
-    ano, mes = filtro_mes[0], filtro_mes[1]
-    _, n_dias = _cal_r.monthrange(ano, mes)
-
-    def _uteis(ate):
-        return sum(1 for d in range(1, ate + 1)
-                   if datetime(ano, mes, d).weekday() < 5
-                   and (mes, d) not in FERIADOS_BR)
-
-    total_uteis = _uteis(n_dias)
-    decorridos = _uteis(hoje.day)
+    total_uteis, decorridos = _pc_core.dias_uteis_do_mes(
+        filtro_mes[0], filtro_mes[1], hoje.day)
     if total_uteis <= 0 or decorridos <= 0:
         return None
 

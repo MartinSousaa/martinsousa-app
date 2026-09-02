@@ -147,6 +147,29 @@ COLUNAS_SKIP = {
 } | LISTAS_ANALISE
 CAPACIDADE_MIN = 390
 
+# Feriados nacionais. O ritmo de qualquer meta se mede em dias UTEIS: dividir a
+# meta por 30 dias corridos cobra trabalho no domingo e no feriado.
+FERIADOS_BR = {(1, 1), (4, 21), (5, 1), (9, 7), (10, 12), (11, 2), (11, 15),
+               (12, 25)}
+
+
+def dias_uteis_do_mes(ano, mes, ate=None):
+    """(total_de_dias_uteis, decorridos_ate_o_dia). `ate` em dia do mes.
+
+    Uma conta so, porque o ritmo da meta do time, o da meta individual e o da
+    entrada na meta perguntam a mesma coisa: quanto do mes ja passou, em dias
+    de trabalho.
+    """
+    import calendar as _cal_du
+    _, n_dias = _cal_du.monthrange(ano, mes)
+
+    def _conta(ate_dia):
+        return sum(1 for d in range(1, min(ate_dia, n_dias) + 1)
+                   if datetime(ano, mes, d).weekday() < 5
+                   and (mes, d) not in FERIADOS_BR)
+
+    return _conta(n_dias), _conta(ate if ate is not None else n_dias)
+
 # ── API ────────────────────────────────────────────────────────────────────────
 # Cache manual simples (evita decorator @st.cache_data que exige streamlit importado)
 def _crono(rotulo, seg, detalhe=""):
