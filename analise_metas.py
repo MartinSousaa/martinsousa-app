@@ -2567,6 +2567,84 @@ def _chart_tempo_medio_equipe(dados):
                    f'padding:0 4px 4px;">{_fecho}</div>')
 
 
+def _tempo_analise(dados):
+    """Tempo de busca de demanda por pessoa: {username: {"min","dias","n"}}.
+
+    Sai de `execucoes_dia`, medido pela etiqueta — a mesma fonte da linha do
+    tempo. O cartão dessa coluna quase nunca é concluído (fica alternando EM
+    ANDAMENTO e INTERROMPIDO), então contar pelo concluído não veria nada.
+    """
+    por = {}
+    for r in dados:
+        for u, dias in ((r.get("execucoes_dia") or {})).items():
+            for dia, lista in (dias or {}).items():
+                trechos = [e for e in lista if e.get("analise")]
+                if not trechos:
+                    continue
+                p = por.setdefault(u, {"min": 0.0, "dias": set(), "n": 0})
+                p["min"] += sum(e["min"] for e in trechos)
+                p["n"] += len(trechos)
+                p["dias"].add(dia)
+    return {u: {"min": v["min"], "dias": len(v["dias"]), "n": v["n"]}
+            for u, v in por.items()}
+
+
+def _chart_analise_demandas(dados, membros_ativos=None):
+    """Quanto tempo cada um gastou procurando demanda, e a média geral.
+
+    Esse tempo fica FORA da pontuação e fora do tempo de execução — é trabalho,
+    mas não é execução de demanda, e somado junto faria a média de quem passou a
+    manhã procurando parecer alta. Fora das contas, porém, ele sumia da tela: só
+    aparecia no cabeçalho da linha do tempo de uma pessoa por vez. Aqui é a
+    equipe inteira, que é onde dá para ver se a busca está comendo o dia.
+    """
+    membros_ativos = membros_ativos or {}
+    dados_p = _tempo_analise(dados)
+    if not dados_p:
+        return ('<div style="padding:18px;text-align:center;font-size:11px;'
+                'color:var(--ms-texto-sec);">Nenhum tempo registrado na coluna '
+                'ANÁLISE DE DEMANDAS no período.</div>')
+
+    CINZA = "#7A8B99"
+    linhas = sorted(dados_p.items(), key=lambda kv: -kv[1]["min"])
+    tot_min = sum(v["min"] for _, v in linhas)
+    tot_dias = sum(v["dias"] for _, v in linhas)
+    # A media geral e por PESSOA-DIA: somar o total e dividir pelo numero de
+    # pessoas diria quanto cada uma gastou no periodo inteiro, que cresce com o
+    # filtro. Por dia trabalhado o numero se compara entre mes e trimestre.
+    media_dia = (tot_min / tot_dias) if tot_dias else 0.0
+    maxm = max(v["min"] for _, v in linhas) or 1
+
+    corpo = ""
+    for u, v in linhas:
+        nome = _esc(membros_ativos.get(u, u))
+        md = v["min"] / v["dias"] if v["dias"] else 0.0
+        corpo += (
+            f'<div style="margin-bottom:9px;">'
+            f'<div style="display:flex;justify-content:space-between;gap:10px;'
+            f'font-size:11px;"><span>{nome}</span>'
+            f'<span style="flex:none;font-weight:700;">{_fmt_hm(v["min"])}'
+            f'<span style="font-weight:400;color:var(--ms-texto-sec);"> · '
+            f'{_fmt_hm(md)}/dia em {v["dias"]} dia(s)</span></span></div>'
+            f'<div style="height:7px;border-radius:4px;'
+            f'background:var(--ms-metric-bd);margin-top:3px;overflow:hidden;">'
+            f'<div style="height:100%;border-radius:4px;'
+            f'width:{v["min"] / maxm * 100:.1f}%;background:{CINZA};">'
+            f'</div></div></div>')
+
+    return (
+        f'<div style="display:flex;align-items:baseline;gap:10px;'
+        f'flex-wrap:wrap;margin-bottom:12px;">'
+        f'<span style="font-size:30px;font-weight:700;color:{CINZA};'
+        f'line-height:1;">{_fmt_hm(media_dia)}</span>'
+        f'<span style="font-size:11px;color:var(--ms-texto-sec);">'
+        f'média geral por dia de busca</span>'
+        f'<span style="margin-left:auto;font-size:11px;'
+        f'color:var(--ms-texto-sec);">total do período '
+        f'<b style="color:var(--ms-texto);">{_fmt_hm(tot_min)}</b></span>'
+        f'</div>{corpo}')
+
+
 def _chart_tempo_execucao(dados):
     """HTML/SVG: pizza top 5 colunas por tempo médio de execução.
     Usa dados reais (TEMPO ACUMULADO) quando disponíveis;
@@ -4466,6 +4544,15 @@ def _aba_desempenho(dados, dados_ano_full=None, carregar_periodo=None):
                    "mais baixo, melhor**: linha abaixo da barra verde é o alvo "
                    "batido.")
         st.markdown(_chart_tempo_medio_equipe(dados_ano), unsafe_allow_html=True)
+
+        # A busca de demanda fica fora de todas as contas acima — e por isso
+        # sumia da tela. Aqui ela tem numero proprio, sem entrar em nenhuma.
+        st.markdown("##### 🔎 Busca de demandas")
+        st.caption("Coluna **ANÁLISE DE DEMANDAS** · não pontua, não entra no "
+                   "tempo de execução de ninguém nem no tempo médio da equipe. "
+                   "Está aqui só para você ver quanto do dia ela consome.")
+        st.markdown(_chart_analise_demandas(dados, _pc.MEMBROS_ATIVOS),
+                    unsafe_allow_html=True)
 
     with row1_col2:
         st.markdown("#### 🎯 Índices Meta Coletiva")

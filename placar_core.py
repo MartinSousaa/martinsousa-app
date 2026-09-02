@@ -1922,6 +1922,9 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
         "total_concl": 0,     # total de cartões concluídos no mês
         "concluido_sem_membro": [],  # cartões concluídos no mês sem membro atribuído
         "tempo_membro_lista": {},  # membro -> coluna -> [minutos] (medido por etiqueta)
+        # Busca de demanda, na mesma forma e fora das contas de execucao.
+        "analise_lista": {},
+        "analise_membro_lista": {},
         # membro -> [(ini, fim)] com cartao EM ANDAMENTO. E a linha do tempo que
         # a ociosidade precisa: sem ela so da para subtrair totais, e as folgas
         # de 10 e de 5 minutos exigem saber QUANDO cada buraco aconteceu.
@@ -2059,11 +2062,24 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
             por_membro = {u: v for u, v in _t.get("por_membro", {}).items()
                           if u in MEMBROS_ATIVOS}
 
+        # Busca de demanda tem contabilidade propria. Ela e trabalho, e por isso
+        # aparece na linha do tempo, mas nao e execucao de DEMANDA: somada junto
+        # faria a media de quem passou a manha procurando parecer alta, e o alvo
+        # de tempo do mes seria cobrado sobre uma conta que nao e a dele.
+        #
+        # Na pratica o cartao dessa coluna quase nunca e concluido -- fica
+        # alternando EM ANDAMENTO e INTERROMPIDO --, e por isso raramente
+        # chegava ate aqui. "Raramente" nao e "nunca": basta alguem marcar o
+        # cartao como concluido uma vez para o mes inteiro sair torto.
+        _destino = "analise_lista" if nl in LISTAS_ANALISE else "tempo_lista"
+        _destino_mb = ("analise_membro_lista" if nl in LISTAS_ANALISE
+                       else "tempo_membro_lista")
         if minutos > 0:
-            d["tempo_lista"].setdefault(nl, []).append(minutos)
+            d.setdefault(_destino, {}).setdefault(nl, []).append(minutos)
         for u, v in por_membro.items():
             if v > 0:
-                d["tempo_membro_lista"].setdefault(u, {}).setdefault(nl, []).append(v)
+                (d.setdefault(_destino_mb, {}).setdefault(u, {})
+                  .setdefault(nl, []).append(v))
 
         # Contagem de concluídos para retrabalho
         d["total_concl"] += 1
