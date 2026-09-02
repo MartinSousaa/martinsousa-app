@@ -2864,112 +2864,158 @@ def _ponto_por_membro(dados, users):
             "banco_mb": _banco_mb, "minatr_mb": _minatr_mb}
 
 
+LIMITE_OCIOSIDADE_PCT = 10.0   # teto de ocio do expediente, em %
+
+
+def _barra_ociosidade(ponto, username, rotulo="", limite=LIMITE_OCIOSIDADE_PCT):
+    """Ociosidade do período contra o teto, no formato da barra de pontuação.
+
+    Aqui MENOS é melhor: o que a barra pinta é o tempo ocioso e o risco na
+    trilha é o teto — passou do risco, a barra fica vermelha. É o contrário da
+    barra de pontuação logo acima, e por isso o rótulo diz o teto por extenso.
+    """
+    if not (ponto and ponto.get("tem_ponto") and username):
+        return ('<div style="margin-top:14px;padding-top:10px;border-top:1px '
+                'solid var(--ms-divisor);font-size:11px;'
+                'color:var(--ms-texto-sec);">💤 Ociosidade — sem registro de '
+                'ponto no período.</div>')
+    pct = float((ponto.get("pct_ocio") or {}).get(username, 0.0))
+    cor = "#1BAF7A" if pct < limite else "#E34948"
+    escala = max(pct, limite) * 1.35 or 1
+    _x_lim = limite / escala * 100
+    _x_pct = min(pct / escala * 100, 100)
+    fecho = ("✅ dentro do limite" if pct < limite
+             else f"{pct - limite:.1f} pontos acima do limite")
+    return (
+        f'<div style="margin-top:14px;padding-top:12px;border-top:1px solid '
+        f'var(--ms-divisor);">'
+        f'<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">'
+        f'<span style="font-size:26px;font-weight:700;color:{cor};line-height:1;">'
+        f'{pct:.1f}%</span>'
+        f'<span style="font-size:12px;color:var(--ms-texto-sec);">'
+        f'💤 de ociosidade{(" em " + _esc(rotulo)) if rotulo else ""}</span>'
+        f'<span style="margin-left:auto;font-size:12px;color:var(--ms-texto-sec);">'
+        f'máximo <b style="color:var(--ms-texto);">{limite:.0f}%</b></span></div>'
+        f'<div style="height:16px;border-radius:8px;background:var(--ms-metric-bd);'
+        f'margin:14px 0 6px;position:relative;">'
+        f'<div style="position:absolute;left:0;top:0;height:100%;'
+        f'width:{_x_pct:.1f}%;background:{cor};border-radius:8px;"></div>'
+        f'<div style="position:absolute;top:-6px;bottom:-6px;left:{_x_lim:.1f}%;'
+        f'width:3px;margin-left:-1.5px;border-radius:2px;'
+        f'background:var(--ms-texto);"></div></div>'
+        f'<div style="position:relative;height:13px;margin-bottom:4px;">'
+        f'<span style="position:absolute;left:{_x_lim:.1f}%;'
+        f'transform:translateX(-50%);font-size:9px;font-weight:700;'
+        f'white-space:nowrap;color:var(--ms-texto);">▲ limite</span></div>'
+        f'<div style="display:flex;justify-content:space-between;font-size:11px;'
+        f'color:var(--ms-texto-sec);">'
+        f'<span>tempo do expediente sem nenhum cartão EM ANDAMENTO</span>'
+        f'<span style="color:{cor};font-weight:600;">{fecho}</span></div></div>')
+
+
 def _chart_ind_indices(meses, ponto=None, username=None, max_tol=0,
                        max_atr=0, dados=None, cfg=None, C=None):
-    """HTML/SVG: 5 velocímetros individuais com cores dinâmicas.
+    """Os cinco critérios da meta, para a Coletiva e para a MAXX.
 
-    `ponto` vem de `_ponto_por_membro`. Sem ele os dois velocímetros que
-    dependem do relógio ficam em "Aguardando ponto" — que era o estado
-    permanente antes, porque ninguém passava o dado.
+    Os seis velocímetros de antes mediam desempenho em geral — "Pontuação
+    Batida", "Redução Tempo Médio", "Pontualidade Tarefa" — e nenhum deles é o
+    que a meta do mês cobra. Agora são os cinco critérios cobrados, cada bloco
+    com o limite do seu grupo: a MAXX pede mais em todos.
+
+    Cinco não fecham em linhas de três, e três em cima com dois sobrando
+    embaixo fica torto. Ficam dois em cima, centrados nos vãos dos três de
+    baixo — pirâmide.
     """
-    n = len(meses)
-    batidos = sum(1 for m in meses if m["pct"] >= 100)
-    pct_bat = (batidos / n * 100) if n > 0 else 0
+    dados = dados or []
+    cfg = cfg or {}
+    meses = meses or []
+    n_meses = max(1, len(dados) or len(meses))
 
-    def _med_global(tl):
-        vals = [sum(t) / len(t) for t in tl.values() if t]
-        return sum(vals) / len(vals) if vals else None
+    pts = sum(m["pts"] for m in meses)
+    meta = sum(m["meta"] for m in meses)
+    pct_meta = (pts / meta * 100) if meta > 0 else 0.0
+    advs = sum(int((r.get("cfg") or {}).get(f"adv_{username}", 0) or 0)
+               for r in dados)
 
-    # Este indice compara o primeiro mes com o ultimo. Com um mes so no filtro
-    # nao ha comparacao possivel — e mostrar 0% fazia parecer desempenho pessimo
-    # quando o que falta e periodo. O subtitulo passa a dizer isso.
-    if n >= 2:
-        t0 = _med_global(meses[0]["tempo_lista"])
-        tf = _med_global(meses[-1]["tempo_lista"])
-        pct_tempo = max(0, min(100, 50 + (t0 - tf) / t0 * 100)) if t0 and tf and t0 > 0 else 0
-        sub_tempo = f'{meses[0]["label"]} vs {meses[-1]["label"]}'
-    else:
-        pct_tempo = 0
-        sub_tempo = "Precisa de 2 meses"
+    real_exec = (_media_execucao_por_membro(dados) or {}).get(username)
+    _ref_exec = float(cfg.get(f"exec_ref_{username}", 0) or 0) or 120.0
+    alvo_exec = mc.meta_execucao(cfg, username, _ref_exec)["alvo"]
 
-    tc = sum(m["total_concl"] for m in meses)
-    ta = sum(m["atrasados"]   for m in meses)
-    pct_pont = max(0, 100 - (ta / max(tc, 1) * 100))
+    tem_ponto = bool(ponto and ponto.get("tem_ponto") and username)
+    tol = float((ponto.get("tol_mb") or {}).get(username, 0.0)) if tem_ponto else None
+    atr = float((ponto.get("atr_mb") or {}).get(username, 0.0)) if tem_ponto else None
 
-    # Ociosidade e tolerâncias saem do relógio de ponto. Antes eram constantes
-    # escritas aqui — 0 e 100 — e o subtítulo "Aguardando ponto" nunca mudava,
-    # porque não havia nada esperando: ninguém calculava.
-    tem_ponto = bool(ponto and ponto.get("tem_ponto"))
-    if tem_ponto and username:
-        pct_ocio = float((ponto.get("pct_ocio") or {}).get(username, 0.0))
-        cor_ocio = ("#1BAF7A" if pct_ocio < 10
-                    else ("#EDA100" if pct_ocio < 25 else "#E34948"))
-        sub_ocio = f"{pct_ocio:.1f}% ocioso"
-        # O velocímetro anda para cima quando a coisa está boa: o arco mostra o
-        # quanto do expediente foi produtivo, e o texto o quanto foi ocioso.
-        arco_ocio = max(0.0, 100.0 - pct_ocio)
+    VERDE, VERM, AZUL = "#1BAF7A", "#E34948", "#4A90D9"
 
-        usadas = float((ponto.get("tol_mb") or {}).get(username, 0.0))
-        limite = float(max_tol or 0)
-        # Tolerancia e contagem: o centro mostra quantas foram usadas, e o arco
-        # mostra o quanto do limite ja se foi. "80%" nao diz nada sozinho; "2"
-        # com "de 10 permitidas" embaixo diz tudo.
-        if limite > 0:
-            arco_tol = min(usadas / limite * 100.0, 100.0)
-            sub_tol = f"de {limite:.0f} permitidas"
-            cor_tol = ("#1BAF7A" if usadas <= limite * 0.5
-                       else "#EDA100" if usadas <= limite else "#E34948")
-        else:
-            arco_tol = 0.0 if usadas == 0 else 100.0
-            sub_tol = "sem limite definido"
-            cor_tol = "#1BAF7A" if usadas == 0 else "#EDA100"
-        val_tol = f"{usadas:.0f}"
-        # Atrasos de ponto: o numero ja vinha de _ponto_por_membro desde sempre
-        # e so aparecia no resumo da equipe. Tolerancia sem atraso ao lado conta
-        # meia historia — sao duas coisas diferentes.
-        atrasos = float((ponto.get("atr_mb") or {}).get(username, 0.0))
-        lim_atr = float(max_atr or 0)
-        if lim_atr > 0:
-            arco_atr = min(atrasos / lim_atr * 100.0, 100.0)
-            sub_atr = f"de {lim_atr:.0f} permitidos"
-            cor_atr = ("#1BAF7A" if atrasos <= lim_atr * 0.5
-                       else "#EDA100" if atrasos <= lim_atr else "#E34948")
-        else:
-            arco_atr = 0.0 if atrasos == 0 else 100.0
-            sub_atr = "sem limite definido"
-            cor_atr = "#1BAF7A" if atrasos == 0 else "#EDA100"
-        val_atr = f"{atrasos:.0f}"
-    else:
-        arco_ocio, cor_ocio, sub_ocio = 0.0, "#4A90D9", "Sem ponto no período"
-        arco_tol,  cor_tol,  sub_tol  = 0.0, "#4A90D9", "Sem ponto no período"
-        arco_atr,  cor_atr,  sub_atr  = 0.0, "#4A90D9", "Sem ponto no período"
-        val_tol = val_atr = "—"
+    def _g_contagem(valor, limite, titulo, unidade):
+        """Contagem contra um teto: o número no centro, o teto embaixo."""
+        if valor is None:
+            return _gauge_svg(0, AZUL, titulo, "sem ponto no período", valor="—")
+        if limite <= 0:
+            return _gauge_svg(0 if valor == 0 else 100,
+                              VERDE if valor == 0 else VERM, titulo,
+                              "sem limite definido", valor=f"{valor:.0f}")
+        return _gauge_svg(min(valor / limite * 100, 100),
+                          VERDE if valor <= limite else VERM, titulo,
+                          f"de {limite:.0f} {unidade}", valor=f"{valor:.0f}")
 
-    # Tempo médio: azul base, verde se há melhoria
-    cor_tempo = "#1BAF7A" if pct_tempo > 50 else "#4A90D9"
+    def _g_tempo():
+        if real_exec is None:
+            return _gauge_svg(0, AZUL, "Tempo de execução",
+                              "sem cartão medido", valor="—")
+        if not alvo_exec:
+            return _gauge_svg(0, ADV_NEUTRO, "Tempo de execução",
+                              "sem alvo no mês", valor=f"{real_exec:.0f}")
+        # O arco e a fracao do alvo que cabe no tempo real: quanto mais lento,
+        # menor o arco. Aqui menos e melhor, e o arco precisa andar junto.
+        return _gauge_svg(min(alvo_exec / real_exec * 100, 100) if real_exec else 100,
+                          VERDE if real_exec <= alvo_exec else VERM,
+                          "Tempo de execução", f"alvo {alvo_exec:.0f} min",
+                          valor=f"{real_exec:.0f}")
 
-    # Pontualidade: verde se >= 80%, vermelho se < 80%
-    cor_pont = "#1BAF7A" if pct_pont >= 80 else "#E34948"
+    def _g_piso(piso):
+        if meta <= 0:
+            return _gauge_svg(0, AZUL, "Pontuação da meta",
+                              "meta individual não configurada", valor="—")
+        return _gauge_svg(min(pct_meta / piso * 100, 100) if piso else 0,
+                          VERDE if pct_meta >= piso else VERM,
+                          f"{piso:.0f}% da meta individual",
+                          f"{pts:,.0f} de {meta:,.0f} pts".replace(",", "."),
+                          valor=f"{pct_meta:.0f}%")
 
-    indices = [
-        (min(pct_bat, 100),  "#4A90D9",  "Pontuação Batida",   f"{batidos}/{n} meses"),
-        (min(arco_ocio, 100), cor_ocio,  "Tempo Produtivo",     sub_ocio),
-        (pct_tempo,          cor_tempo,  "Redução Tempo Médio", sub_tempo),
-        (min(arco_tol, 100), cor_tol,    "Tolerâncias",         sub_tol, val_tol),
-        (min(arco_atr, 100), cor_atr,    "Atrasos",             sub_atr, val_atr),
-        (min(pct_pont, 100), cor_pont,   "Pontualidade Tarefa", f"{ta}/{max(tc,1)} concl."),
-    ]
-    # A tupla ganha um quinto item opcional: o que mostrar no centro quando o
-    # indice e contagem e nao porcentagem.
-    gauges = "".join(
-        _gauge_svg(item[0], item[1], item[2], item[3],
-                   valor=item[4] if len(item) > 4 else None)
-        for item in indices)
-    # Tres por linha, duas linhas. Os seis lado a lado espremiam cada
-    # velocimetro numa coluna estreita demais para o rotulo de duas palavras
-    # ("Redução Tempo Médio" quebrava em tres linhas de fonte 6).
-    return (f'<div style="display:grid;grid-template-columns:repeat(3,1fr);'
-            f'gap:10px 4px;padding:8px 0;">{gauges}</div>')
+    def _piramide(g):
+        """Dois em cima, três embaixo, os de cima centrados nos vãos."""
+        topo = "".join(f'<div style="grid-column:{2 + i * 2}/{4 + i * 2};">{x}</div>'
+                       for i, x in enumerate(g[:2]))
+        base = "".join(f'<div style="grid-column:{1 + i * 2}/{3 + i * 2};">{x}</div>'
+                       for i, x in enumerate(g[2:5]))
+        return (f'<div style="display:grid;grid-template-columns:repeat(6,1fr);'
+                f'gap:12px 4px;padding:6px 0 12px;">{topo}{base}</div>')
+
+    def _bloco(titulo, cor_tit, piso, lim_tol, lim_atr, lim_adv):
+        return (
+            f'<div style="font-size:10px;font-weight:600;color:{cor_tit};'
+            f'text-transform:uppercase;letter-spacing:.5px;margin:0 0 2px;">'
+            f'{titulo}</div>'
+            + _piramide([
+                _g_tempo(),
+                _g_contagem(tol, lim_tol, "Tolerâncias", "permitidas"),
+                _g_contagem(atr, lim_atr, "Atrasos", "permitidos"),
+                _g_piso(piso),
+                _g_contagem(advs, lim_adv, "Advertências", "permitidas"),
+            ]))
+
+    _tol_x = int(cfg.get("max_tol_maxx", 7) or 0) * n_meses
+    _atr_x = int(cfg.get("max_atr_maxx", 5) or 0) * n_meses
+    _adv_n = int(cfg.get("max_adv_normal", 2) or 0) * n_meses
+    _adv_x = int(cfg.get("max_adv_maxx", 1) or 0) * n_meses
+    _piso_n = int(cfg.get("min_contrib_normal", 80) or 0)
+    _piso_x = int(cfg.get("min_contrib_maxx", 100) or 0)
+
+    return (_bloco("📋 Meta Coletiva", "#1BAF7A", _piso_n,
+                   float(max_tol or 0), float(max_atr or 0), _adv_n)
+            + _bloco("⭐ Meta MAXX", "#FFD700", _piso_x,
+                     float(_tol_x), float(_atr_x), _adv_x))
 
 
 def _entregas_do_membro(dados, username):
@@ -4077,11 +4123,15 @@ def _desempenho_individual(dados, username, nome, carregar_periodo=None):
         st.markdown(f"#### 📊 Pontuação — {nome}")
         st.caption("Meta individual vs. realizado · linha de delta · destaque do melhor mês.")
         st.markdown(_chart_ind_pts(meses), unsafe_allow_html=True)
+        # A ociosidade e a outra metade da mesma pergunta: quanto se entregou, e
+        # quanto do expediente ficou sem cartao nenhum em andamento.
+        st.markdown(_barra_ociosidade(_ponto_ind, username, _rot_per),
+                    unsafe_allow_html=True)
 
     with row1b:
         st.markdown("#### 🎯 Índices Individuais")
-        st.caption("Pontuação · tempo produtivo · tempo de execução · tolerâncias · "
-                   "atrasos · redução do tempo médio.")
+        st.caption("Os cinco critérios cobrados na meta, com o limite de cada "
+                   "grupo — a MAXX pede mais em todos.")
         st.markdown(_chart_ind_indices(meses, ponto=_ponto_ind, username=username,
                                        max_tol=_tol_lim, max_atr=_atr_lim,
                                        dados=dados, cfg=_cfg_ult),
