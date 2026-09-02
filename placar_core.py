@@ -949,7 +949,21 @@ def intervalos_do_cartao(acoes, agora=None, membros_agora=None,
     return segs
 
 
-def abonos_do_dia(dia):
+def _lista_abonos():
+    """A lista de abonos, lida uma vez por chamada de quem varre dias.
+
+    _janelas_uteis percorre ate 60 dias por intervalo, e roda por cartao e por
+    membro: consultar a planilha (ainda que pelo cache) uma vez por dia dava
+    dezenas de milhares de consultas por rodada. Lendo antes do laco, e uma.
+    """
+    try:
+        import abonos as _ab
+        return _ab.carregar()
+    except Exception:
+        return []
+
+
+def abonos_do_dia(dia, lista=None):
     """[(inicio, fim)] das horas abonadas naquele dia, ou vazio.
 
     Queda de internet, falta de energia: o trabalho para e os indicadores nao.
@@ -961,7 +975,8 @@ def abonos_do_dia(dia):
     """
     try:
         import abonos as _ab
-        return _ab.janelas_do_dia(dia, FUSO)
+        return _ab.janelas_do_dia(dia, FUSO,
+                                  _lista_abonos() if lista is None else lista)
     except Exception:
         return []
 
@@ -977,6 +992,7 @@ def _janelas_uteis(ini_local, fim_local, username=None):
         fim_local = ini_local + timedelta(days=MAX_DIAS_INTERVALO)
 
     janelas = []
+    lista_ab = _lista_abonos()
     dia = ini_local.date()
     ultimo = fim_local.date()
     while dia <= ultimo:
@@ -988,7 +1004,7 @@ def _janelas_uteis(ini_local, fim_local, username=None):
                 s, e = max(ini_local, ja), min(fim_local, jb)
                 if e > s:
                     do_dia.append((s, e))
-            ab = abonos_do_dia(dia)
+            ab = abonos_do_dia(dia, lista_ab) if lista_ab else []
             if ab:
                 import abonos as _ab
                 do_dia = _ab.descontar(do_dia, ab)
