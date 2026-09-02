@@ -5000,115 +5000,125 @@ def _card_ranking(titulo, sub, cor, itens, menor_melhor=False, rodape=""):
         + '</div>')
 
 
-def _celula_ind(valor, atingido, cor, detalhe=""):
-    """Uma celula da grade: o valor grande e a barra do atingimento embaixo."""
-    _pct = 0.0 if atingido is None else min(max(atingido, 0), 100)
-    _cor = "var(--ms-texto-sec)" if atingido is None else cor
-    return (
-        f'<td style="padding:7px 9px;vertical-align:middle;min-width:96px;">'
-        f'<div style="font-size:12.5px;font-weight:700;color:{_cor};'
-        f'white-space:nowrap;">{valor}</div>'
-        + (f'<div style="font-size:8.5px;color:var(--ms-texto-sec);'
-           f'margin-top:1px;white-space:nowrap;">{detalhe}</div>' if detalhe else "")
-        + f'<div style="height:4px;border-radius:2px;margin-top:4px;'
-        f'background:var(--ms-metric-bd);overflow:hidden;">'
-        f'<div style="height:100%;border-radius:2px;width:{_pct:.0f}%;'
-        f'background:{_cor};"></div></div></td>')
+def _tabela_comparativo(linhas, ctx, ordem="Índice geral"):
+    """Todas as metas de cada um, com o colaborador em COLUNA.
 
+    A grade antes era o contrário — uma pessoa por linha, um indicador por
+    coluna — e com doze indicadores ela só cabia rolando de lado, que é o
+    oposto de "ver todo mundo de uma vez". Virada, sobra uma coluna por pessoa
+    e todas as metas empilham na vertical, onde há espaço de sobra.
 
-def _tabela_comparativo(linhas, ctx, ordem):
-    """A grade: uma linha por pessoa, uma coluna por indicador, ordenavel."""
-    VERDE, VERM, AZUL, OURO = "#1BAF7A", "#E34948", "#4A90D9", "#FFD700"
-    CINZA = "#7A8B99"
+    Cada célula segue a regra da aba: verde bateu, vermelho não bateu, cinza
+    não tem meta contra a qual comparar.
+    """
+    VERDE, VERM, CINZA = "#1BAF7A", "#E34948", "#7A8B99"
 
     def _chave(l):
-        if ordem == "Pontuação":       return -l["pct_meta"]
-        if ordem == "Ociosidade":      return (l["ocio"] is None, l["ocio"] or 0)
+        if ordem == "Pontuação":        return -l["pct_meta"]
+        if ordem == "Ociosidade":       return (l["ocio"] is None, l["ocio"] or 0)
         if ordem == "Tempo de execução":
             return (l["exec_real"] is None, l["exec_real"] or 0)
-        if ordem == "Tolerâncias":     return (l["tol"] is None, l["tol"] or 0)
-        if ordem == "Atrasos":         return (l["atr"] is None, l["atr"] or 0)
-        if ordem == "Advertências":    return l["advs"]
+        if ordem == "Tolerâncias":      return (l["tol"] is None, l["tol"] or 0)
+        if ordem == "Atrasos":          return (l["atr"] is None, l["atr"] or 0)
+        if ordem == "Advertências":     return l["advs"]
         if ordem == "Demandas geradas": return -l["criadas"]
         if ordem == "Tempo por demanda":
             return (l["por_demanda"] is None, l["por_demanda"] or 0)
         return -l["score"]
-    ordenado = sorted(linhas, key=_chave)
+    cols = sorted(linhas, key=_chave)
 
-    _th = ('padding:8px 9px;font-size:9px;text-transform:uppercase;'
-           'letter-spacing:.4px;color:var(--ms-texto-sec);text-align:left;'
-           'white-space:nowrap;')
-    cab = "".join(f'<th style="{_th}">{c}</th>' for c in (
-        "#", "Colaborador", "Índice geral", "Pontuação", "Ociosidade",
-        "Tempo de execução", "Tolerâncias", "Atrasos", "Advertências",
-        "Demandas geradas", "Tempo por demanda", "Entra na meta"))
+    def _cel(txt, estado):
+        """estado: True verde, False vermelho, None cinza."""
+        cor = CINZA if estado is None else (VERDE if estado else VERM)
+        return (f'<td style="padding:7px 10px;text-align:center;'
+                f'font-size:12.5px;font-weight:700;color:{cor};'
+                f'white-space:nowrap;">{txt}</td>')
+
+    def _linha(rotulo, limite, celulas, destaque=False):
+        _bg = "background:var(--ms-metric-bg);" if destaque else ""
+        _fs = "13px" if destaque else "11.5px"
+        return (f'<tr style="{_bg}border-top:1px solid var(--ms-divisor);">'
+                f'<td style="padding:7px 10px;font-size:{_fs};'
+                f'white-space:nowrap;">{rotulo}'
+                + (f'<div style="font-size:8.5px;color:var(--ms-texto-sec);'
+                   f'font-weight:400;">{limite}</div>' if limite else "")
+                + '</td>' + "".join(celulas) + '</tr>')
+
+    _th = ('padding:9px 10px;font-size:11px;font-weight:700;'
+           'text-align:center;white-space:nowrap;')
+    cab = ('<th style="padding:9px 10px;font-size:9px;text-align:left;'
+           'text-transform:uppercase;letter-spacing:.4px;'
+           'color:var(--ms-texto-sec);">Meta</th>')
+    for i, l in enumerate(cols, start=1):
+        _m = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}º"
+        cab += f'<th style="{_th}">{_m} {_esc(l["nome"])}</th>'
 
     corpo = ""
-    for i, l in enumerate(ordenado, start=1):
-        at = l["at"]
-        _cor_sc = (VERDE if l["score"] >= 90 else
-                   "#EDA100" if l["score"] >= 70 else VERM)
-        _pos = ("🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}º")
-        fundo = "background:var(--ms-metric-bg);" if i % 2 else ""
+    # ── indice geral, primeiro: e ele que ordena as colunas ──
+    corpo += _linha(
+        "🏁 Índice geral", "média dos critérios com meta",
+        [_cel(f'{l["score"]:.0f}%', None) for l in cols], destaque=True)
+    corpo += _linha(
+        "📈 Pontuação", "meta de cada um, somada no período",
+        [_cel(f'{_n_br(l["pts"])} pts',
+              l["meta"] > 0 and l["pts"] >= l["meta"]) for l in cols])
+    corpo += _linha(
+        "🎯 % da meta individual", f'entra na do time com {ctx["piso"]}%',
+        [_cel(f'{l["pct_meta"]:.0f}%' if l["meta"] > 0 else "—",
+              (l["pct_meta"] >= 100) if l["meta"] > 0 else None) for l in cols])
+    corpo += _linha(
+        "💤 Ociosidade", f'teto de {ctx["ocio_max"]:.0f}%',
+        [_cel(f'{l["ocio"]:.1f}%' if l["ocio"] is not None else "—",
+              (l["ocio"] < ctx["ocio_max"]) if l["ocio"] is not None else None)
+         for l in cols])
+    corpo += _linha(
+        "⚡ Tempo de execução", "contra o alvo do mês",
+        [_cel(f'{l["exec_real"]:.0f} min' if l["exec_real"] else "—",
+              (l["exec_real"] <= l["exec_alvo"])
+              if (l["exec_real"] and l["exec_alvo"]) else None) for l in cols])
+    corpo += _linha(
+        "🕐 Tolerâncias", f'teto de {ctx["lim_tol"]}',
+        [_cel(f'{l["tol"]:.0f}' if l["tol"] is not None else "—",
+              (l["tol"] <= ctx["lim_tol"]) if l["tol"] is not None else None)
+         for l in cols])
+    corpo += _linha(
+        "⏰ Atrasos", f'teto de {ctx["lim_atr"]}',
+        [_cel(f'{l["atr"]:.0f}' if l["atr"] is not None else "—",
+              (l["atr"] <= ctx["lim_atr"]) if l["atr"] is not None else None)
+         for l in cols])
+    corpo += _linha(
+        "🚫 Advertências", f'teto de {ctx["lim_adv"]}',
+        [_cel(f'{l["advs"]}', l["advs"] <= ctx["lim_adv"]) for l in cols])
+    corpo += _linha(
+        "🚪 Entra na meta do time", "coletiva · MAXX",
+        [_cel(("✅" if l["entra_col"] else "🚫") + " · "
+              + ("⭐" if l["entra_maxx"] else "—"), l["entra_col"])
+         for l in cols])
 
-        _ocio_txt = ("—" if l["ocio"] is None else f'{l["ocio"]:.1f}%')
-        _exec_txt = ("—" if l["exec_real"] is None
-                     else f'{l["exec_real"]:.0f} min')
-        _exec_det = (f'alvo {l["exec_alvo"]:.0f} min' if l["exec_alvo"]
-                     else "sem alvo no mês")
-        _tol_txt = "—" if l["tol"] is None else f'{l["tol"]:.0f}'
-        _atr_txt = "—" if l["atr"] is None else f'{l["atr"]:.0f}'
-        _dem_at = None
-        _max_dem = max((x["criadas"] for x in linhas), default=0)
-        if _max_dem:
-            _dem_at = l["criadas"] / _max_dem * 100
-        _pd_at = None
-        _pds = [x["por_demanda"] for x in linhas if x["por_demanda"]]
-        if l["por_demanda"] and _pds:
-            _pd_at = min(min(_pds) / l["por_demanda"] * 100, 100)
-
-        _entra = ("✅" if l["entra_col"] else "🚫")
-        _entra_x = ("⭐" if l["entra_maxx"] else "")
-
-        corpo += (
-            f'<tr style="{fundo}border-top:1px solid var(--ms-divisor);">'
-            f'<td style="padding:7px 9px;font-size:13px;font-weight:700;'
-            f'color:var(--ms-texto-sec);">{_pos}</td>'
-            f'<td style="padding:7px 9px;font-size:13px;font-weight:700;'
-            f'white-space:nowrap;">{_esc(l["nome"])}</td>'
-            + _celula_ind(f'{l["score"]:.0f}%', l["score"], _cor_sc,
-                          f'{l["medidos"]} de 6 medidos')
-            + _celula_ind(f'{l["pct_meta"]:.0f}%', at["pontuacao"],
-                          VERDE if l["pct_meta"] >= ctx["piso"] else VERM,
-                          f'{_n_br(l["pts"])} de {_n_br(l["meta"])} pts')
-            + _celula_ind(_ocio_txt, at["ociosidade"],
-                          VERDE if (l["ocio"] is not None
-                                    and l["ocio"] < ctx["ocio_max"]) else VERM,
-                          f'máx {ctx["ocio_max"]:.0f}%')
-            + _celula_ind(_exec_txt, at["execucao"],
-                          VERDE if (l["exec_real"] and l["exec_alvo"]
-                                    and l["exec_real"] <= l["exec_alvo"]) else VERM,
-                          _exec_det)
-            + _celula_ind(_tol_txt, at["tolerancias"],
-                          VERDE if (l["tol"] is not None
-                                    and l["tol"] <= ctx["lim_tol"]) else VERM,
-                          f'de {ctx["lim_tol"]}')
-            + _celula_ind(_atr_txt, at["atrasos"],
-                          VERDE if (l["atr"] is not None
-                                    and l["atr"] <= ctx["lim_atr"]) else VERM,
-                          f'de {ctx["lim_atr"]}')
-            + _celula_ind(f'{l["advs"]}', at["advertencias"],
-                          VERDE if l["advs"] <= ctx["lim_adv"] else VERM,
-                          f'de {ctx["lim_adv"]}')
-            + _celula_ind(f'{l["criadas"]}', _dem_at, AZUL,
-                          f'{_n_br(l["criadas_pts"])} pts gerados')
-            + _celula_ind(_fmt_hm(l["por_demanda"]) if l["por_demanda"] else "—",
-                          _pd_at, CINZA,
-                          f'{_fmt_hm(l["busca_min"])} garimpando'
-                          if l["busca_min"] else "sem busca registrada")
-            + f'<td style="padding:7px 9px;font-size:15px;white-space:nowrap;">'
-            f'{_entra} {_entra_x}</td>'
-            f'</tr>')
+    # ── sem meta: informacao, em cinza ──
+    corpo += (f'<tr><td colspan="{len(cols) + 1}" '
+              f'style="padding:10px 10px 3px;font-size:9px;'
+              f'text-transform:uppercase;letter-spacing:.4px;'
+              f'color:var(--ms-texto-sec);">sem meta — informação, não '
+              f'cobrança</td></tr>')
+    _tot_pts = sum(l["pts"] for l in linhas) or 1
+    corpo += _linha(
+        "🤝 Contribuição no time", "fatia dos pontos da equipe",
+        [_cel(f'{l["pts"] / _tot_pts * 100:.0f}%', None) for l in cols])
+    corpo += _linha(
+        "🗃️ Cartões criados", "demandas que ela abriu",
+        [_cel(f'{l["criadas"]}', None) for l in cols])
+    corpo += _linha(
+        "💰 Pontos gerados", "quanto valeram",
+        [_cel(f'{_n_br(l["criadas_pts"])}', None) for l in cols])
+    corpo += _linha(
+        "🔎 Tempo garimpando", "na coluna ANÁLISE DE DEMANDAS",
+        [_cel(_fmt_hm(l["busca_min"]) if l["busca_min"] else "—", None)
+         for l in cols])
+    corpo += _linha(
+        "⏱️ Tempo por demanda", "busca ÷ demandas abertas",
+        [_cel(_fmt_hm(l["por_demanda"]) if l["por_demanda"] else "—", None)
+         for l in cols])
 
     return (
         f'<div style="overflow-x:auto;">'
