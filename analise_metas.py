@@ -4718,6 +4718,289 @@ def _secao_entrada_meta(dados, username, nome):
         )
 
 
+# ── Comparativo: todo mundo, indicador a indicador ────────────────────────────
+
+def _comparativo_linhas(dados):
+    """Uma linha por colaborador, com todos os indicadores da meta.
+
+    Cada indicador vira duas coisas: o VALOR, que e o que a pessoa fez, e o
+    ATINGIMENTO de 0 a 100, que e o quanto disso a meta considera feito. O
+    valor sozinho nao compara — 2 atrasos com teto de 10 e 2 com teto de 3 sao
+    situacoes diferentes; o atingimento poe os dois na mesma regua.
+    """
+    users = list(_pc.MEMBROS_ATIVOS.keys())
+    if not dados or not users:
+        return [], {}
+
+    cfg = dados[-1].get("cfg") or {}
+    n_meses = max(1, len(dados))
+    eleg = _elegibilidade(dados, users)
+    try:
+        ponto = _ponto_por_membro(dados, users)
+    except Exception:
+        ponto = None
+    tem_ponto = bool(ponto and ponto.get("tem_ponto"))
+    medias_exec = _media_execucao_por_membro(dados) or {}
+    busca = _tempo_analise(dados)
+    uteis, decorridos = _dias_uteis_periodo(dados)
+
+    lim_tol = int(cfg.get("max_tol_normal", 15) or 0) * n_meses
+    lim_atr = int(cfg.get("max_atr_normal", 10) or 0) * n_meses
+    lim_adv = int(cfg.get("max_adv_normal", 2) or 0) * n_meses
+    ocio_max = LIMITE_OCIOSIDADE_PCT
+
+    def _teto(usado, limite):
+        """0 a 100: cheio com zero ocorrencia, zero ao encostar no limite."""
+        if limite <= 0:
+            return 100.0 if not usado else 0.0
+        return max(0.0, (1 - usado / limite) * 100)
+
+    linhas = []
+    for u in users:
+        el = eleg.get(u) or {}
+        pts = el.get("pts", 0.0)
+        meta = el.get("meta", 0.0)
+        pct_meta = el.get("pct", 0.0)
+
+        _ocio = (float((ponto.get("pct_ocio") or {}).get(u, 0.0))
+                 if tem_ponto else None)
+        _tol = float((ponto.get("tol_mb") or {}).get(u, 0.0)) if tem_ponto else None
+        _atr = float((ponto.get("atr_mb") or {}).get(u, 0.0)) if tem_ponto else None
+        _advs = el.get("advs", 0)
+
+        _real_ex = medias_exec.get(u)
+        _ref_ex = float(cfg.get(f"exec_ref_{u}", 0) or 0) or 120.0
+        _alvo_ex = mc.meta_execucao(cfg, u, _ref_ex)["alvo"]
+
+        _cri = {"n": 0, "pts": 0.0}
+        for r in dados:
+            v = (r.get("demandas_criadas") or {}).get(u)
+            if v:
+                _cri["n"] += v["n"]
+                _cri["pts"] += v["pts"]
+        _bu = busca.get(u) or {"min": 0.0, "dias": 0}
+        _por_dem = (_bu["min"] / _cri["n"]) if _cri["n"] else None
+
+        # Atingimento de cada criterio. None = sem medicao, e ele fica FORA da
+        # media em vez de entrar como zero: quem nao tem ponto no periodo nao e
+        # improdutivo, e sem dado.
+        at = {
+            "pontuacao": min(pct_meta, 100.0) if meta > 0 else None,
+            "ociosidade": (max(0.0, (1 - _ocio / ocio_max) * 100)
+                           if _ocio is not None and ocio_max else None),
+            "execucao": (min(_alvo_ex / _real_ex * 100, 100.0)
+                         if (_real_ex and _alvo_ex) else None),
+            "tolerancias": _teto(_tol, lim_tol) if _tol is not None else None,
+            "atrasos": _teto(_atr, lim_atr) if _atr is not None else None,
+            "advertencias": _teto(_advs, lim_adv),
+        }
+        _validos = [v for v in at.values() if v is not None]
+        score = (sum(_validos) / len(_validos)) if _validos else 0.0
+
+        linhas.append({
+            "user": u, "nome": _pc.MEMBROS_ATIVOS.get(u, u),
+            "score": score, "medidos": len(_validos), "at": at,
+            "pts": pts, "meta": meta, "pct_meta": pct_meta,
+            "entra_col": el.get("entra_col", False),
+            "entra_maxx": el.get("entra_maxx", False),
+            "ocio": _ocio, "tol": _tol, "atr": _atr, "advs": _advs,
+            "exec_real": _real_ex, "exec_alvo": _alvo_ex,
+            "criadas": _cri["n"], "criadas_pts": _cri["pts"],
+            "busca_min": _bu["min"], "por_demanda": _por_dem,
+            "ritmo": _ritmo_entrada(pts, meta * el.get("min_n", 80) / 100,
+                                    uteis, decorridos) if meta > 0 else None,
+        })
+
+    ctx = {"lim_tol": lim_tol, "lim_atr": lim_atr, "lim_adv": lim_adv,
+           "ocio_max": ocio_max, "tem_ponto": tem_ponto,
+           "uteis": uteis, "decorridos": decorridos,
+           "piso": int(cfg.get("min_contrib_normal", 80) or 0)}
+    return linhas, ctx
+
+
+def _celula_ind(valor, atingido, cor, detalhe=""):
+    """Uma celula da grade: o valor grande e a barra do atingimento embaixo."""
+    _pct = 0.0 if atingido is None else min(max(atingido, 0), 100)
+    _cor = "var(--ms-texto-sec)" if atingido is None else cor
+    return (
+        f'<td style="padding:7px 9px;vertical-align:middle;min-width:96px;">'
+        f'<div style="font-size:12.5px;font-weight:700;color:{_cor};'
+        f'white-space:nowrap;">{valor}</div>'
+        + (f'<div style="font-size:8.5px;color:var(--ms-texto-sec);'
+           f'margin-top:1px;white-space:nowrap;">{detalhe}</div>' if detalhe else "")
+        + f'<div style="height:4px;border-radius:2px;margin-top:4px;'
+        f'background:var(--ms-metric-bd);overflow:hidden;">'
+        f'<div style="height:100%;border-radius:2px;width:{_pct:.0f}%;'
+        f'background:{_cor};"></div></div></td>')
+
+
+def _tabela_comparativo(linhas, ctx, ordem):
+    """A grade: uma linha por pessoa, uma coluna por indicador, ordenavel."""
+    VERDE, VERM, AZUL, OURO = "#1BAF7A", "#E34948", "#4A90D9", "#FFD700"
+    CINZA = "#7A8B99"
+
+    def _chave(l):
+        if ordem == "Pontuação":       return -l["pct_meta"]
+        if ordem == "Ociosidade":      return (l["ocio"] is None, l["ocio"] or 0)
+        if ordem == "Tempo de execução":
+            return (l["exec_real"] is None, l["exec_real"] or 0)
+        if ordem == "Tolerâncias":     return (l["tol"] is None, l["tol"] or 0)
+        if ordem == "Atrasos":         return (l["atr"] is None, l["atr"] or 0)
+        if ordem == "Advertências":    return l["advs"]
+        if ordem == "Demandas geradas": return -l["criadas"]
+        if ordem == "Tempo por demanda":
+            return (l["por_demanda"] is None, l["por_demanda"] or 0)
+        return -l["score"]
+    ordenado = sorted(linhas, key=_chave)
+
+    _th = ('padding:8px 9px;font-size:9px;text-transform:uppercase;'
+           'letter-spacing:.4px;color:var(--ms-texto-sec);text-align:left;'
+           'white-space:nowrap;')
+    cab = "".join(f'<th style="{_th}">{c}</th>' for c in (
+        "#", "Colaborador", "Índice geral", "Pontuação", "Ociosidade",
+        "Tempo de execução", "Tolerâncias", "Atrasos", "Advertências",
+        "Demandas geradas", "Tempo por demanda", "Entra na meta"))
+
+    corpo = ""
+    for i, l in enumerate(ordenado, start=1):
+        at = l["at"]
+        _cor_sc = (VERDE if l["score"] >= 90 else
+                   "#EDA100" if l["score"] >= 70 else VERM)
+        _pos = ("🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}º")
+        fundo = "background:var(--ms-metric-bg);" if i % 2 else ""
+
+        _ocio_txt = ("—" if l["ocio"] is None else f'{l["ocio"]:.1f}%')
+        _exec_txt = ("—" if l["exec_real"] is None
+                     else f'{l["exec_real"]:.0f} min')
+        _exec_det = (f'alvo {l["exec_alvo"]:.0f} min' if l["exec_alvo"]
+                     else "sem alvo no mês")
+        _tol_txt = "—" if l["tol"] is None else f'{l["tol"]:.0f}'
+        _atr_txt = "—" if l["atr"] is None else f'{l["atr"]:.0f}'
+        _dem_at = None
+        _max_dem = max((x["criadas"] for x in linhas), default=0)
+        if _max_dem:
+            _dem_at = l["criadas"] / _max_dem * 100
+        _pd_at = None
+        _pds = [x["por_demanda"] for x in linhas if x["por_demanda"]]
+        if l["por_demanda"] and _pds:
+            _pd_at = min(min(_pds) / l["por_demanda"] * 100, 100)
+
+        _entra = ("✅" if l["entra_col"] else "🚫")
+        _entra_x = ("⭐" if l["entra_maxx"] else "")
+
+        corpo += (
+            f'<tr style="{fundo}border-top:1px solid var(--ms-divisor);">'
+            f'<td style="padding:7px 9px;font-size:13px;font-weight:700;'
+            f'color:var(--ms-texto-sec);">{_pos}</td>'
+            f'<td style="padding:7px 9px;font-size:13px;font-weight:700;'
+            f'white-space:nowrap;">{_esc(l["nome"])}</td>'
+            + _celula_ind(f'{l["score"]:.0f}%', l["score"], _cor_sc,
+                          f'{l["medidos"]} de 6 medidos')
+            + _celula_ind(f'{l["pct_meta"]:.0f}%', at["pontuacao"],
+                          VERDE if l["pct_meta"] >= ctx["piso"] else VERM,
+                          f'{_n_br(l["pts"])} de {_n_br(l["meta"])} pts')
+            + _celula_ind(_ocio_txt, at["ociosidade"],
+                          VERDE if (l["ocio"] is not None
+                                    and l["ocio"] < ctx["ocio_max"]) else VERM,
+                          f'máx {ctx["ocio_max"]:.0f}%')
+            + _celula_ind(_exec_txt, at["execucao"],
+                          VERDE if (l["exec_real"] and l["exec_alvo"]
+                                    and l["exec_real"] <= l["exec_alvo"]) else VERM,
+                          _exec_det)
+            + _celula_ind(_tol_txt, at["tolerancias"],
+                          VERDE if (l["tol"] is not None
+                                    and l["tol"] <= ctx["lim_tol"]) else VERM,
+                          f'de {ctx["lim_tol"]}')
+            + _celula_ind(_atr_txt, at["atrasos"],
+                          VERDE if (l["atr"] is not None
+                                    and l["atr"] <= ctx["lim_atr"]) else VERM,
+                          f'de {ctx["lim_atr"]}')
+            + _celula_ind(f'{l["advs"]}', at["advertencias"],
+                          VERDE if l["advs"] <= ctx["lim_adv"] else VERM,
+                          f'de {ctx["lim_adv"]}')
+            + _celula_ind(f'{l["criadas"]}', _dem_at, AZUL,
+                          f'{_n_br(l["criadas_pts"])} pts gerados')
+            + _celula_ind(_fmt_hm(l["por_demanda"]) if l["por_demanda"] else "—",
+                          _pd_at, CINZA,
+                          f'{_fmt_hm(l["busca_min"])} garimpando'
+                          if l["busca_min"] else "sem busca registrada")
+            + f'<td style="padding:7px 9px;font-size:15px;white-space:nowrap;">'
+            f'{_entra} {_entra_x}</td>'
+            f'</tr>')
+
+    return (
+        f'<div style="overflow-x:auto;">'
+        f'<table style="width:100%;border-collapse:collapse;">'
+        f'<thead><tr style="background:var(--ms-metric-bg);">{cab}</tr></thead>'
+        f'<tbody>{corpo}</tbody></table></div>')
+
+
+def _aba_comparativo(dados):
+    """Todos os colaboradores lado a lado, indicador a indicador.
+
+    O resumo comparativo antigo mostrava tres coisas — pontuacao, contribuicao
+    e tempo medio — e nao dava para ordenar por nenhuma. A pergunta que o gestor
+    faz no fim do mes e outra: quem esta produzindo mais e quem esta produzindo
+    menos, considerando TUDO o que a meta cobra.
+
+    O indice geral e a media dos seis criterios, cada um normalizado de 0 a 100
+    contra o proprio limite. Criterio sem medicao fica de fora da media em vez
+    de entrar como zero: quem nao tem ponto no periodo nao e improdutivo, e sem
+    dado — e a coluna diz quantos dos seis entraram na conta.
+    """
+    if not dados:
+        st.caption("Sem dados para exibir no período selecionado.")
+        return
+    linhas, ctx = _comparativo_linhas(dados)
+    if not linhas:
+        st.caption("Nenhum colaborador cadastrado na equipe.")
+        return
+
+    _rot = (dados[0]["label"] + " → " + dados[-1]["label"]) if len(dados) > 1 \
+        else dados[-1]["label"]
+    st.markdown("#### 🏁 Comparativo de colaboradores")
+    st.caption(
+        f"Período **{_rot}** · o **índice geral** é a média de quanto cada um "
+        "está longe do próprio limite nos seis critérios: 100% é o desempenho "
+        "perfeito, e a distância entre duas pessoas é o que ordena a lista. "
+        "**Ele não é a nota da meta** — quem tem 4% de ociosidade num teto de "
+        "10% aparece com 58% ali e está perfeitamente dentro da regra. Quem "
+        "diz se o critério foi cumprido é a **cor**: verde dentro, vermelho "
+        "fora. As colunas de demanda são informação e ficam fora do índice — "
+        "elas medem o que a pessoa abriu, não o que a meta cobra dela."
+    )
+
+    _op = ["Índice geral", "Pontuação", "Ociosidade", "Tempo de execução",
+           "Tolerâncias", "Atrasos", "Advertências", "Demandas geradas",
+           "Tempo por demanda"]
+    ordem = st.selectbox("Ordenar por", _op, index=0, key="am_comp_ordem")
+    st.markdown(_tabela_comparativo(linhas, ctx, ordem), unsafe_allow_html=True)
+
+    # O topo e o fim da lista, por extenso: a tabela responde "quanto", e isto
+    # responde "e daí" — quem merece a conversa desta semana.
+    _ord = sorted(linhas, key=lambda l: -l["score"])
+    _top, _fim = _ord[0], _ord[-1]
+    if len(_ord) > 1 and _top["score"] > _fim["score"]:
+        _piores = sorted(
+            [(k, v) for k, v in _fim["at"].items() if v is not None],
+            key=lambda kv: kv[1])[:2]
+        _nomes = {"pontuacao": "pontuação", "ociosidade": "ociosidade",
+                  "execucao": "tempo de execução", "tolerancias": "tolerâncias",
+                  "atrasos": "atrasos", "advertencias": "advertências"}
+        _txt = " e ".join(f"<b>{_nomes[k]}</b> ({v:.0f}%)" for k, v in _piores)
+        st.markdown(
+            f'<div style="margin-top:12px;display:flex;gap:12px;flex-wrap:wrap;">'
+            f'<div style="flex:1;min-width:260px;background:#1BAF7A12;'
+            f'border:1px solid #1BAF7A55;border-radius:9px;padding:10px 14px;'
+            f'font-size:12.5px;">🥇 <b>{_esc(_top["nome"])}</b> lidera com '
+            f'<b>{_top["score"]:.0f}%</b> de índice geral.</div>'
+            f'<div style="flex:1;min-width:260px;background:#E3494812;'
+            f'border:1px solid #E3494855;border-radius:9px;padding:10px 14px;'
+            f'font-size:12.5px;">📉 <b>{_esc(_fim["nome"])}</b> fecha a lista '
+            f'com <b>{_fim["score"]:.0f}%</b> — o que mais pesa é {_txt}.</div>'
+            f'</div>', unsafe_allow_html=True)
+
+
 def _aba_desempenho(dados, dados_ano_full=None, carregar_periodo=None):
     """Aba Desempenho — 4 gráficos anuais de performance coletiva."""
     if not dados:
@@ -5564,7 +5847,9 @@ def pagina_analise_metas(usuario_logado):
     # quebrou — e ainda anuncia que existe um lugar onde se mexe nas metas.
     _ABAS = ["📋 Coletivo", "🎯 Individual", "📈 Desempenho"]
     if _eh_master:
-        _ABAS = _ABAS + ["⚙️ Configuração de Metas"]
+        # Comparar pessoas e conversa de gestor. A tela mostra o desempenho de
+        # todos lado a lado, e quem nao gerencia nao tem o que fazer com isso.
+        _ABAS = _ABAS + ["🏁 Comparativo", "⚙️ Configuração de Metas"]
     _chave_aba = "_am_aba"
     if _chave_aba not in st.session_state:
         _da_url = str(st.query_params.get("aba_am", "")).strip()
@@ -5665,6 +5950,12 @@ def pagina_analise_metas(usuario_logado):
                                    carregar_periodo=_carregar_periodo)
 
     elif len(_ABAS) > 3 and _aba_sel == _ABAS[3]:
+        if _eh_master:
+            _aba_comparativo(dados)
+        else:
+            st.warning("Seção disponível apenas para gestores.")
+
+    elif len(_ABAS) > 4 and _aba_sel == _ABAS[4]:
         # Só chega aqui quem é gestor: a aba nem entra na lista dos outros, e
         # _navegar recusa rótulo fora da lista. A checagem fica assim mesmo —
         # é do lado do servidor, não some se alguém mexer na URL.
