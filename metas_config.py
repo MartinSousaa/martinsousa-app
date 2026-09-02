@@ -28,6 +28,7 @@ COLUNAS = [
     "max_retrab_maxx",       # % retrabalho máx maxx (ex: 5)
     "min_membro_pct",        # % mín cartões com membro (ex: 95)
     "exec_red_equipe",       # % de reducao do tempo medio de execucao da equipe
+    "exec_alvo_equipe",      # tempo medio alvo da equipe, em minutos
 ]
 
 DEFAULTS = {
@@ -45,6 +46,7 @@ DEFAULTS = {
     "min_membro_pct":      95,
     "exec_red_equipe":     0,
     "exec_ref_equipe":     0,
+    "exec_alvo_equipe":    0,
     "min_contrib_normal":  80,
     "min_contrib_maxx":    100,
     "max_adv_normal":      2,
@@ -67,6 +69,7 @@ LABELS = {
     "min_membro_pct":      "% mín. cartões com membro",
     "exec_red_equipe":     "Redução do tempo médio de execução — equipe (%)",
     "exec_ref_equipe":     "Tempo de referência — equipe (min)",
+    "exec_alvo_equipe":    "Tempo médio alvo — equipe (min)",
     "min_contrib_normal":  "% mín. da meta individual p/ entrar na Coletiva",
     "min_contrib_maxx":    "% mín. da meta individual p/ entrar na MAXX",
     "max_adv_normal":      "Máx. advertências (Meta Normal)",
@@ -95,6 +98,51 @@ EXEC_REF_PADRAO_MIN = 120
 # nunca salvo de um mes salvo com 2h.
 EXEC_REF_NAO_ANCORADA = 0
 EXEC_RED_PADRAO_PCT = 0
+
+# O alvo passou a ser digitado em MINUTOS, nao em porcentagem.
+#
+# Quem define a meta pensa em tempo ("quero fechar em 1h30"), nao em corte
+# percentual — e a % arredondada nunca devolvia o minuto pedido: 108 min com
+# "17%" dava 1h29, e nao a 1h30 que se quis. Agora o minuto e o que se grava e
+# a porcentagem e informacao derivada dele contra a referencia.
+#
+# Zero e "sem alvo digitado". Meses configurados antes disso so tem a % gravada,
+# e para eles o alvo continua saindo de referencia menos a porcentagem — por
+# isso `meta_execucao` olha os dois campos, nesta ordem.
+EXEC_ALVO_LIVRE = 0
+
+
+def meta_execucao(cfg, user, ref=None):
+    """Meta de tempo médio de execução de `user` ("equipe" para a coletiva).
+
+    Devolve {"alvo": minutos ou None, "red": % de redução, "definida": bool}.
+
+    `definida` diz se existe meta no mês mesmo quando a referência ainda não é
+    conhecida — sem isso, um mês com meta e sem cartão medido sumiria da tela em
+    vez de dizer que falta medição.
+    """
+    cfg = cfg or {}
+
+    def _num(chave):
+        try:
+            return float(cfg.get(chave, 0) or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    try:
+        ref = float(ref or 0)
+    except (TypeError, ValueError):
+        ref = 0.0
+
+    alvo = _num(f"exec_alvo_{user}")
+    red_gravada = _num(f"exec_red_{user}")
+    definida = alvo > 0 or red_gravada > 0
+    if alvo <= 0 and red_gravada > 0 and ref > 0:
+        alvo = ref * (1 - red_gravada / 100)
+    red = ((1 - alvo / ref) * 100) if (ref > 0 and alvo > 0) else red_gravada
+    return {"alvo": alvo if alvo > 0 else None,
+            "red": red,
+            "definida": definida}
 
 
 def campos_metas_pessoa():
@@ -160,6 +208,8 @@ def sincronizar_campos():
                        EXEC_REF_NAO_ANCORADA))
         campos.append((chave_red, f"Redução esperada — {nome} (%)",
                        EXEC_RED_PADRAO_PCT))
+        campos.append((f"exec_alvo_{chave_ref[len('exec_ref_'):]}",
+                       f"Tempo médio alvo — {nome} (min)", EXEC_ALVO_LIVRE))
     for chave_adv, nome in campos_advertencia():
         campos.append((chave_adv, f"Advertências — {nome}", ADVERTENCIAS_PADRAO))
     for chave, rotulo, padrao in campos:

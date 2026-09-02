@@ -262,24 +262,37 @@ def _ref_execucao_equipe(dados, cfg):
 
 
 def _barra_tempo_medio(dados, cfg, cor_ok):
-    """Barra do tempo médio de execução da equipe contra a redução do mês."""
-    red = float((cfg or {}).get("exec_red_equipe", 0) or 0)
-    if red <= 0:
-        return ""   # sem redução definida no mês, o indicador não existe
+    """Barra do tempo médio de execução da equipe contra o alvo do mês.
+
+    A linha fica no card mesmo sem alvo configurado. Sumir era o problema: o
+    tempo médio pesa na meta coletiva, mas quem olhava o card não tinha como
+    saber que esse indicador existia — nem que faltava dizer qual é o alvo.
+    """
     ref, n_est, _digitada = _ref_execucao_equipe(dados, cfg)
     real = _media_execucao_geral(dados)
-    rotulo = f"Tempo médio de execução — reduzir {red:.0f}%"
+    meta = mc.meta_execucao(cfg, "equipe", ref or 0)
+    alvo = meta["alvo"]
+    if not meta["definida"] or not alvo:
+        return _barra_painel_dash(
+            "Tempo médio de execução",
+            (f"{_fmt_hm(real)} de média real hoje · " if real is not None else "")
+            + "sem alvo definido para o mês — defina em Configuração de Metas")
+    rotulo = f"Tempo médio de execução até {_fmt_hm(alvo)}"
     if ref is None or real is None:
         return _barra_painel(rotulo, 0,
                              "Sem cartões com tempo medido no período", "#4A90D9")
-    alvo = ref * (1 - red / 100)
     pct = 100 if real <= alvo else (alvo / real * 100 if real else 0)
     cor = cor_ok if real <= alvo else ("#EDA100" if real <= ref else "#E34948")
+    # Alvo acima da referencia nao e "-16% abaixo": e uma folga em relacao a
+    # base, e assim que ele precisa ser lido.
+    _r = meta["red"]
+    _rel = (f"{_r:.0f}% abaixo de" if _r >= 0.5 else
+            ("no mesmo patamar de" if _r > -0.5 else f"{-_r:.0f}% acima de"))
+    _base_txt = "digitadas" if _digitada else f"estimadas · {n_est} cartões"
     return _barra_painel(
         rotulo, pct,
         f"{_fmt_hm(real)} de média real · alvo {_fmt_hm(alvo)} "
-        f"({red:.0f}% abaixo de {_fmt_hm(ref)} "
-        + ("digitadas" if _digitada else f"estimadas · {n_est} cartões") + ")",
+        f"({_rel} {_fmt_hm(ref)} {_base_txt})",
         cor)
 
 
@@ -433,23 +446,23 @@ def _metas_topicos(dados):
     # 6. Tempo medio de execucao. Mes sem reducao definida vale 100%: a meta nao
     # existia ali, e mostrar 0 acusaria a equipe por uma regra que so passou a
     # valer depois.
-    red = float(cfg.get("exec_red_equipe", 0) or 0)
     ref, n_est, _ref_digitada = _ref_execucao_equipe(dados, cfg)
     real = _media_execucao_geral(dados)
-    if red <= 0:
+    _meta_t = mc.meta_execucao(cfg, "equipe", ref or 0)
+    alvo = _meta_t["alvo"]
+    if not _meta_t["definida"] or not alvo:
         t_tmp = {"chave": "tempo", "rotulo": "Tempo médio de execução",
                  "pct_n": 100.0, "pct_x": 100.0,
-                 "sub_n": "sem meta de redução neste mês",
-                 "sub_x": "sem meta de redução neste mês"}
+                 "sub_n": "sem alvo definido neste mês",
+                 "sub_x": "sem alvo definido neste mês"}
     elif ref is None or real is None:
         t_tmp = {"chave": "tempo", "rotulo": "Tempo médio de execução",
                  "pct_n": 100.0, "pct_x": 100.0,
                  "sub_n": "sem cartão com tempo medido",
                  "sub_x": "sem cartão com tempo medido"}
     else:
-        alvo = ref * (1 - red / 100)
         pct = 100.0 if real <= alvo else (alvo / real * 100 if real else 0.0)
-        t_tmp = {"chave": "tempo", "rotulo": f"Tempo médio −{red:.0f}%",
+        t_tmp = {"chave": "tempo", "rotulo": f"Tempo médio até {_fmt_hm(alvo)}",
                  "pct_n": pct, "pct_x": pct,
                  "sub_n": f"{_fmt_hm(real)} real · alvo {_fmt_hm(alvo)}",
                  "sub_x": f"{_fmt_hm(real)} real · alvo {_fmt_hm(alvo)}"}
@@ -539,6 +552,9 @@ def _secao_metas_card(dados):
         _cor_cmbx_a = "#FFD700" if pct_com_membro >= 100 else "#E34948"
         b += _barra_painel("Cartões com membro atribuído", pct_com_membro,
                             "Em andamento e concluídos no período", _cor_cmbx_a)
+        # O tempo medio ja entrava nas duas contas (`_metas_do_mes` da o mesmo
+        # pct para Normal e MAXX); so nao aparecia deste lado do card.
+        b += _barra_tempo_medio(dados, cfg, "#FFD700")
         st.markdown(f'<div style="background:var(--ms-metric-bg);border:1px solid #FFD70022;border-radius:8px;padding:12px 14px;">{b}</div>', unsafe_allow_html=True)
 
 
@@ -1469,22 +1485,22 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
             ), unsafe_allow_html=True)
 
         def _it_tempo_medio():
-            """Tempo médio de execução da pessoa contra a redução esperada."""
-            red = float(_cfg_mes.get(f"exec_red_{username}", 0) or 0)
-            if red <= 0:
+            """Tempo médio de execução da pessoa contra o alvo do mês."""
+            # Referência zero significa mês nunca ancorado. Com o alvo já
+            # definido, cair nas 2h é melhor do que sumir com o indicador.
+            ref = float(_cfg_mes.get(f"exec_ref_{username}", 0) or 0) or 120.0
+            _mt = mc.meta_execucao(_cfg_mes, username, ref)
+            alvo = _mt["alvo"]
+            if not _mt["definida"] or not alvo:
                 # Mesmo motivo: o card fica, dizendo que a meta nao existe neste
                 # mes. Era ele que a Myrella tinha e os outros nao, e a coluna
                 # dela terminava um card abaixo das demais.
                 st.markdown(_meta_ind_item(
                     "⏳ Tempo médio de execução", 100,
-                    "Sem meta de redução definida para o mês",
+                    "Sem alvo de tempo definido para o mês",
                     aguardando=True), unsafe_allow_html=True)
                 return
-            # Referência zero significa mês nunca ancorado. Com a redução já
-            # definida, cair nas 2h é melhor do que sumir com o indicador.
-            ref = float(_cfg_mes.get(f"exec_ref_{username}", 0) or 0) or 120.0
-            alvo = ref * (1 - red / 100)
-            rotulo = f"⏳ Tempo médio de execução — reduzir {red:.0f}%"
+            rotulo = f"⏳ Tempo médio de execução até {_fmt_hm(alvo)}"
             atual = _medias_exec.get(username)
             if atual is None:
                 st.markdown(_meta_ind_item(
@@ -3473,8 +3489,9 @@ def _chart_colunas_membro(dados, username, colunas_funcao=None):
 def _chart_tempo_medio(dados, username, cfg):
     """Tempo medio do periodo contra o alvo, mais o historico mes a mes."""
     ref = float((cfg or {}).get(f"exec_ref_{username}", 0) or 0) or 120.0
-    red = float((cfg or {}).get(f"exec_red_{username}", 0) or 0)
-    alvo = ref * (1 - red / 100)
+    _mt = mc.meta_execucao(cfg, username, ref)
+    red = _mt["red"]
+    alvo = _mt["alvo"] or ref
 
     # Media por mes, para o historico; e a do periodo inteiro, para o numero grande
     por_mes, todos = [], []
@@ -3491,7 +3508,7 @@ def _chart_tempo_medio(dados, username, cfg):
 
     cor = "#1BAF7A" if atual <= alvo else ("#EDA100" if atual <= ref else "#E34948")
     if red <= 0:
-        recado = "sem redução definida para o mês"
+        recado = "sem alvo de tempo definido para o mês"
     elif atual <= alvo:
         recado = "✅ dentro do alvo"
     else:
@@ -3530,7 +3547,7 @@ def _chart_tempo_medio(dados, username, cfg):
         f'{min(pct_prog, 100):.0f}% do caminho</span></div>'
     )
     if red <= 0:
-        _detalhe = "sem redução definida para o mês"
+        _detalhe = "sem alvo de tempo definido para o mês"
     elif atual <= alvo:
         _detalhe = f"✅ alvo batido · {_fmt_hm(andou)} reduzidos"
     elif atual >= ref:
@@ -3550,7 +3567,7 @@ def _chart_tempo_medio(dados, username, cfg):
         + barra +
         f'<div style="font-size:11px;color:var(--ms-texto-sec);margin-bottom:10px;">'
         f'referência do mês {_fmt_hm(ref)}'
-        + (f" · reduzir {red:.0f}%" if red > 0 else "")
+        + (f" · alvo {_fmt_hm(alvo)} ({red:.0f}% abaixo)" if red > 0 else "")
         + f' · <span style="color:{cor};font-weight:600;">{_detalhe}</span></div>'
     )
 
@@ -4407,11 +4424,12 @@ def _secao_configuracao(dados=None):
         st.markdown("##### ⏳ Tempo médio de execução")
         st.caption(
             "O tempo médio abaixo é **medido pelo Trello** (etiqueta EM ANDAMENTO), "
-            "não digitado. Preencha só a **% de redução** do mês. Ao salvar, a média "
-            "de cada um fica gravada como a referência daquele mês e o alvo passa a "
-            "ser ela menos a sua porcentagem — congelar é o que faz a meta parar de "
-            "perseguir o próprio resultado. Quem ainda não tem cartão medido entra "
-            "com 2h."
+            "não digitado. Você preenche o **alvo em minutos** — em quanto tempo "
+            "cada demanda deve fechar — e a **% de redução** aparece ao lado como "
+            "informação, calculada contra a referência. Ao salvar, a referência do "
+            "mês fica congelada: é ela que faz a meta parar de perseguir o próprio "
+            "resultado. Quem ainda não tem cartão medido entra com 2h. "
+            "**Alvo igual à referência = nenhuma redução cobrada no mês.**"
         )
         # De qual periodo vem a media importa: normalmente se configura o mes que
         # vem olhando a medicao do mes corrente. Dizer qual e evita configurar
@@ -4453,35 +4471,53 @@ def _secao_configuracao(dados=None):
                 key=f"cfg_{_k_ref}_{ano_cfg}_{mes_cfg_num}",
                 help="Tempo de fechamento do mês — a base da meta. Edite aqui "
                      "para corrigir ou para começar um ciclo novo.")
-            # Ate 99: 100 seria exigir tempo zero. O teto anterior era 90 e
-            # barrava sem explicar — quem precisa cobrar uma queda grande de uma
-            # pessoa so esbarrava nele. O alvo em horas fica ao lado, e e ele que
-            # mostra quando a porcentagem passou do razoavel.
-            _red = _cp.number_input(
-                "Reduzir (%)", min_value=0, max_value=99,
-                value=int(cfg_atual.get(_k_red, 0) or 0), step=5,
-                key=f"cfg_{_k_red}_{ano_cfg}_{mes_cfg_num}",
-                help="Quanto do tempo de referência essa pessoa precisa cortar. "
-                     "25% em 3h10 dá um alvo de 2h22.")
+            # O alvo e digitado em MINUTOS. Antes era a porcentagem de corte, e
+            # a conta nunca devolvia o minuto que se queria: 108 min com "17%"
+            # dava 1h29, nao a 1h30 pedida. Agora o minuto e o que se grava e a
+            # porcentagem sai dele — e o mes ja configurado pela % continua
+            # valendo, porque `mc.meta_execucao` cai nela quando nao ha alvo.
+            _alvo_ant = mc.meta_execucao(cfg_atual, _u_e, _ref)["alvo"] or _ref
+            _alvo_p = _cp.number_input(
+                "Alvo (min)", min_value=1, max_value=1440,
+                value=min(max(int(round(_alvo_ant)), 1), 1440), step=5,
+                key=f"cfg_exec_alvo_{_u_e}_{ano_cfg}_{mes_cfg_num}",
+                help="Em quantos minutos essa pessoa precisa fechar uma demanda. "
+                     "Igual à referência = nenhuma redução cobrada no mês.")
+            _red = (1 - _alvo_p / _ref) * 100 if _ref > 0 else 0.0
             nova_cfg[_k_ref] = int(_ref)
-            nova_cfg[_k_red] = int(_red)
+            nova_cfg[f"exec_alvo_{_u_e}"] = int(_alvo_p)
+            # A % continua gravada, agora como consequencia do alvo: e o que se
+            # le na planilha e no historico do mes.
+            nova_cfg[_k_red] = round(max(_red, 0.0), 1)
             # Alvo abaixo de 10 min quase sempre e engano de digitacao, e a conta
             # nao tem como saber — mas quem le "alvo 0h06" sabe na hora.
-            _alvo_p = _ref * (1 - _red / 100)
-            _cor_p = "#E34948" if _red and _alvo_p < 10 else "var(--ms-texto-sec)"
+            _curto = _alvo_p < 10
+            _cor_p = "#E34948" if _curto else "var(--ms-texto-sec)"
+            _txt_red = (f'reduzir <b>{_red:.0f}%</b>' if _red >= 0.5
+                        else ('sem redução no mês' if _red > -0.5
+                              else f'<b>{-_red:.0f}% acima</b> da referência'))
             _ca.markdown(
                 f'<div style="padding-top:30px;font-size:11px;color:{_cor_p};">'
-                f'{_fmt_hm(_ref)} → alvo <b>{_fmt_hm(_alvo_p)}</b>'
+                f'{_fmt_hm(_ref)} → alvo <b>{_fmt_hm(_alvo_p)}</b> · {_txt_red}'
                 + (f' · média medida: {_fmt_hm(_med)}' if _med
                    else ' · sem medição no período')
-                + ('<br>alvo muito curto — confira a %' if _cor_p != "var(--ms-texto-sec)" else '')
+                + ('<br>alvo muito curto — confira os minutos' if _curto else '')
                 + '</div>', unsafe_allow_html=True)
 
+        # ── Tempo medio GERAL da equipe ──────────────────────────────────
+        # Este e o campo que entra na meta coletiva, e ele estava perdido no
+        # rodape da secao, com cara de nota de rodape das linhas de cima. Agora
+        # tem titulo proprio e diz, no titulo, de onde ele conta.
         _ref_eq, _n_eq = _tempo_estimado_esperado(dados or [])
         _real_eq = _media_execucao_geral(dados or [])
+        st.markdown("---")
+        st.markdown("###### 🏁 Tempo médio geral da equipe — entra na Meta "
+                    "Coletiva e na MAXX")
         st.caption(
-            "**Equipe** — a referência coletiva sai dos tempos estimados que você "
-            "definiu por coluna, ponderados pelo volume de cartões concluídos."
+            "Média de **todas** as demandas concluídas, não a de cada pessoa. "
+            "A referência sai dos tempos estimados que você definiu por coluna, "
+            "ponderados pelo volume de cartões concluídos — digite outra para "
+            "usar a sua, ou deixe 0 para manter a calculada."
         )
         # A referencia da equipe agora e um campo, como a de cada pessoa. Ela era
         # so calculada — os tempos estimados por coluna ponderados pelo volume —
@@ -4496,22 +4532,30 @@ def _secao_configuracao(dados=None):
             key=f"cfg_exec_ref_equipe_{ano_cfg}_{mes_cfg_num}",
             help="Tempo médio geral por demanda que serve de base ao mês. "
                  "Deixe em 0 para usar o estimado por coluna.")
-        nova_cfg["exec_red_equipe"] = _ce1.number_input(
-            "Equipe — reduzir (%)", min_value=0, max_value=90,
-            value=int(cfg_atual.get("exec_red_equipe", 0) or 0), step=5,
-            key=f"cfg_exec_red_equipe_{ano_cfg}_{mes_cfg_num}",
-        )
-        _base_eq = nova_cfg["exec_ref_equipe"] or _ref_eq
+        _base_eq = nova_cfg["exec_ref_equipe"] or _ref_eq or 0
+        _alvo_eq_ant = mc.meta_execucao(cfg_atual, "equipe", _base_eq)["alvo"]
+        nova_cfg["exec_alvo_equipe"] = _ce1.number_input(
+            "Equipe — alvo (min)", min_value=0, max_value=1440,
+            value=min(int(round(_alvo_eq_ant or _base_eq or 0)), 1440), step=5,
+            key=f"cfg_exec_alvo_equipe_{ano_cfg}_{mes_cfg_num}",
+            help="Em quantos minutos a média geral por demanda precisa fechar "
+                 "no mês. Igual à referência (ou 0) = nenhuma redução cobrada.")
+        _alvo_eq = nova_cfg["exec_alvo_equipe"]
+        _red_eq = ((1 - _alvo_eq / _base_eq) * 100
+                   if (_base_eq and _alvo_eq) else 0.0)
+        nova_cfg["exec_red_equipe"] = round(max(_red_eq, 0.0), 1)
         if not _base_eq:
             _ce2.caption("Sem cartões com tempo medido no período analisado — "
                          "digite a referência da equipe ao lado.")
         else:
-            _alvo_eq = _base_eq * (1 - nova_cfg["exec_red_equipe"] / 100)
             _origem_eq = ("digitada" if nova_cfg["exec_ref_equipe"]
                           else f"estimada por coluna ({_n_eq} cartões)")
+            _txt_red_eq = (f"reduzir **{_red_eq:.0f}%**" if _red_eq >= 0.5
+                           else "sem redução cobrada no mês")
+            _txt_alvo_eq = _fmt_hm(_alvo_eq) if _alvo_eq else "—"
             _ce2.caption(
                 f"Referência **{_fmt_hm(_base_eq)}** por demanda ({_origem_eq}) → "
-                f"alvo **{_fmt_hm(_alvo_eq)}**"
+                f"alvo **{_txt_alvo_eq}** · {_txt_red_eq}"
                 + (f" · real medido hoje: **{_fmt_hm(_real_eq)}**"
                    if _real_eq is not None else ""))
 
