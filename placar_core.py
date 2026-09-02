@@ -1365,30 +1365,47 @@ def execucoes_por_dia(cards, acoes_board, membros_map=None, agora=None,
                                       labels_do_card(c)):
             ini_l = s["ini"].astimezone(FUSO)
             fim_l = s["fim"].astimezone(FUSO)
-            cursor = ini_l
-            while cursor < fim_l:
-                virada = (cursor + timedelta(days=1)).replace(
-                    hour=0, minute=0, second=0, microsecond=0)
-                fim_p = min(virada, fim_l)
-                reg = {"card": nome, "lista": col, "ini": cursor, "fim": fim_p,
-                       "min": (fim_p - cursor).total_seconds() / 60.0,
-                       "tipo": s.get("tipo", "andamento"),
-                       # So o ultimo pedaco herda o motivo do fim. Os anteriores
-                       # foram cortados na meia-noite: ali o cartao seguia em
-                       # andamento, e pintar de "entregue" o pedaco da vespera
-                       # diria que ele fechou num dia em que nao fechou.
-                       "fim_tipo": (s.get("fim_tipo") if fim_p >= fim_l
-                                    else "virada"),
-                       # Busca de demanda aparece na linha do tempo -- e
-                       # trabalho, e o dia nao pode parecer vazio --, mas fica
-                       # fora da media: ela mede execucao de demanda.
-                       "analise": col in LISTAS_ANALISE}
-                for m in s["membros"]:
-                    u = membros_map.get(m, m)
-                    (por.setdefault(u, {})
-                        .setdefault(cursor.strftime("%Y-%m-%d"), [])
-                        .append(dict(reg)))
-                cursor = fim_p
+            # Cartao que ninguem fechou corre ate `agora` — e ate aqui ele era
+            # DESENHADO correndo: subia ate 24:00, atravessava a madrugada e
+            # reaparecia no dia seguinte. O TEMPO de execucao ja nao contava
+            # essas horas (_janelas_uteis), entao o desenho contradizia o
+            # numero que ele mesmo exibia no cabecalho.
+            #
+            # Agora o trecho ainda aberto e recortado pelo expediente da pessoa:
+            # ele avanca com o relogio dentro do horario dela e para no fim do
+            # expediente. Trecho ja encerrado continua inteiro — quem de fato
+            # trabalhou as 20h precisa aparecer trabalhando as 20h.
+            aberto = s.get("fim_tipo") == "aberto"
+            for m in s["membros"]:
+                u = membros_map.get(m, m)
+                trechos = (_janelas_uteis(ini_l, fim_l, u) if aberto
+                           else [(ini_l, fim_l)])
+                for t_ini, t_fim in trechos:
+                    cursor = t_ini
+                    while cursor < t_fim:
+                        virada = (cursor + timedelta(days=1)).replace(
+                            hour=0, minute=0, second=0, microsecond=0)
+                        fim_p = min(virada, t_fim)
+                        (por.setdefault(u, {})
+                            .setdefault(cursor.strftime("%Y-%m-%d"), [])
+                            .append({
+                                "card": nome, "lista": col,
+                                "ini": cursor, "fim": fim_p,
+                                "min": (fim_p - cursor).total_seconds() / 60.0,
+                                "tipo": s.get("tipo", "andamento"),
+                                # So o ultimo pedaco herda o motivo do fim. Os
+                                # anteriores pararam na virada do dia ou no fim
+                                # do expediente: ali o cartao seguia em
+                                # andamento, e pinta-lo de entregue diria que
+                                # ele fechou num dia em que nao fechou.
+                                "fim_tipo": (s.get("fim_tipo")
+                                             if fim_p >= fim_l else "virada"),
+                                # Busca de demanda aparece na linha do tempo --
+                                # e trabalho, e o dia nao pode parecer vazio --,
+                                # mas fica fora da media: ela mede execucao de
+                                # demanda.
+                                "analise": col in LISTAS_ANALISE}))
+                        cursor = fim_p
     for dias in por.values():
         for lista in dias.values():
             lista.sort(key=lambda r: r["ini"])
