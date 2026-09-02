@@ -3256,67 +3256,6 @@ def _chart_linha_do_tempo(dados, username):
             + "".join(sobre) + f'</div>{leg}</div>')
 
 
-def _tabela_execucoes_dia(dados, username, dia):
-    """As execuções de UM dia, com início, fim e duração de cada cartão."""
-    lista = _execucoes_do_membro(dados, username).get(dia) or []
-    if not lista:
-        return ('<div style="padding:16px;text-align:center;font-size:11px;'
-                'color:var(--ms-texto-sec);">Nenhuma execução neste dia</div>')
-    exp_ini, exp_fim = _expediente(username)
-    total = sum(e["min"] for e in lista)
-    media = total / len(lista)
-    linhas = ""
-    anterior = None
-    for e in lista:
-        m_ini = e["ini"].hour * 60 + e["ini"].minute
-        fora = m_ini < exp_ini or m_ini > exp_fim
-        # Buraco entre o fim de um cartao e o inicio do proximo: e ele que
-        # explica um dia de 9h de expediente com 3h de execucao.
-        if anterior is not None and (e["ini"] - anterior).total_seconds() > 600:
-            _b = (e["ini"] - anterior).total_seconds() / 60
-            linhas += (f'<tr><td colspan="4" style="padding:2px 8px;font-size:9px;'
-                       f'color:#EDA100;font-style:italic;">'
-                       f'⏳ {_fmt_hm(_b)} sem nenhum cartão em execução</td></tr>')
-        linhas += (
-            f'<tr style="border-top:1px solid var(--ms-divisor);">'
-            f'<td style="padding:5px 8px;font-size:11px;color:var(--ms-texto);">'
-            f'{_esc(e["card"])[:58]}</td>'
-            f'<td style="padding:5px 8px;font-size:11px;text-align:right;'
-            f'font-variant-numeric:tabular-nums;color:#1BAF7A;">{e["ini"]:%H:%M}</td>'
-            f'<td style="padding:5px 8px;font-size:11px;text-align:right;'
-            f'font-variant-numeric:tabular-nums;color:#E34948;">{e["fim"]:%H:%M}</td>'
-            f'<td style="padding:5px 8px;font-size:11px;text-align:right;'
-            f'font-weight:700;font-variant-numeric:tabular-nums;'
-            f'color:{"#EDA100" if fora else "var(--ms-texto)"};">'
-            f'{_fmt_hm(e["min"])}</td></tr>')
-        anterior = e["fim"]
-    return (
-        f'<div style="background:var(--ms-metric-bg);border:1px solid '
-        f'var(--ms-metric-bd);border-radius:10px;overflow:hidden;">'
-        f'<table style="width:100%;border-collapse:collapse;">'
-        f'<thead><tr>'
-        f'<th style="padding:6px 8px;font-size:8.5px;text-transform:uppercase;'
-        f'letter-spacing:.08em;color:var(--ms-texto-sec);text-align:left;'
-        f'font-weight:400;">Cartão</th>'
-        f'<th style="padding:6px 8px;font-size:8.5px;text-transform:uppercase;'
-        f'letter-spacing:.08em;color:var(--ms-texto-sec);text-align:right;'
-        f'font-weight:400;">Início</th>'
-        f'<th style="padding:6px 8px;font-size:8.5px;text-transform:uppercase;'
-        f'letter-spacing:.08em;color:var(--ms-texto-sec);text-align:right;'
-        f'font-weight:400;">Fim</th>'
-        f'<th style="padding:6px 8px;font-size:8.5px;text-transform:uppercase;'
-        f'letter-spacing:.08em;color:var(--ms-texto-sec);text-align:right;'
-        f'font-weight:400;">Duração</th></tr></thead>'
-        f'<tbody>{linhas}</tbody></table>'
-        f'<div style="display:flex;gap:14px;flex-wrap:wrap;padding:8px 10px;'
-        f'border-top:1px solid var(--ms-divisor);font-size:11px;'
-        f'color:var(--ms-texto-sec);">'
-        f'<span><b style="color:var(--ms-texto);">{len(lista)}</b> execuções</span>'
-        f'<span>total <b style="color:var(--ms-texto);">{_fmt_hm(total)}</b></span>'
-        f'<span>média do dia <b style="color:#4A90D9;">{_fmt_hm(media)}</b></span>'
-        f'</div></div>')
-
-
 def _chart_atividade_dia(dados, username, por_mes=False):
     """Dia a dia: iniciados, concluídos, interrompidos e tempo de execução.
 
@@ -3938,18 +3877,6 @@ def _desempenho_individual(dados, username, nome, carregar_periodo=None):
         )
         st.markdown(_chart_linha_do_tempo(dados, username),
                     unsafe_allow_html=True)
-
-        _exec_dias = sorted(_execucoes_do_membro(dados, username).keys(),
-                            reverse=True)
-        if _exec_dias:
-            # Sem username na chave, de proposito: trocar de colaborador mantem
-            # o dia escolhido, que e como se compara um dia entre duas pessoas.
-            _dia_sel = st.selectbox(
-                "Detalhar o dia", _exec_dias,
-                format_func=lambda d: f"{d[8:]}/{d[5:7]}/{d[:4]}",
-                key="des_ind_dia_exec")
-            st.markdown(_tabela_execucoes_dia(dados, username, _dia_sel),
-                        unsafe_allow_html=True)
 
     st.markdown("---")
     row2a, row2b = st.columns(2)
