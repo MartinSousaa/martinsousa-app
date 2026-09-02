@@ -4814,8 +4814,80 @@ def _comparativo_linhas(dados):
     ctx = {"lim_tol": lim_tol, "lim_atr": lim_atr, "lim_adv": lim_adv,
            "ocio_max": ocio_max, "tem_ponto": tem_ponto,
            "uteis": uteis, "decorridos": decorridos,
-           "piso": int(cfg.get("min_contrib_normal", 80) or 0)}
+           "piso": int(cfg.get("min_contrib_normal", 80) or 0),
+           # Metas do time, para a contribuicao de cada um ser lida contra o
+           # que a equipe precisa entregar, e nao so contra os colegas.
+           "meta_eq": sum(r.get("meta_eq", 0) or 0 for r in dados),
+           "meta_maxx": sum(r.get("meta_maxx", 0) or 0 for r in dados)}
     return linhas, ctx
+
+
+def _card_ranking(titulo, sub, cor, itens, menor_melhor=False, rodape=""):
+    """Um pódio de um assunto só: nome, valor e barra, do melhor para o pior.
+
+    A barra mede sempre a MESMA coisa — quão perto do primeiro colocado —, e
+    por isso a mais comprida é sempre a do topo, inclusive nos rankings em que
+    menos é melhor. Barra proporcional ao valor cru inverteria a leitura
+    justamente onde ela precisa ser óbvia.
+
+    `itens` = [(nome, valor_ordenável, texto)]. Valor None é "sem medição": vai
+    para o fim da lista, com um traço, e não disputa o pódio.
+    """
+    com = [i for i in itens if i[1] is not None]
+    sem = [i for i in itens if i[1] is None]
+    com.sort(key=lambda i: (i[1] if menor_melhor else -i[1]))
+    if not com:
+        corpo = ('<div style="font-size:11px;color:var(--ms-texto-sec);'
+                 'padding:6px 0;">Sem medição no período.</div>')
+    else:
+        ref = com[0][1]
+        corpo = ""
+        for pos, (nome, val, txt) in enumerate(com, start=1):
+            if menor_melhor:
+                larg = (ref / val * 100) if val else 100.0
+            else:
+                larg = (val / ref * 100) if ref else 0.0
+            larg = min(max(larg, 3.0), 100.0)
+            medalha = ("🥇" if pos == 1 else "🥈" if pos == 2 else
+                       "🥉" if pos == 3 else f'<span style="font-size:9px;'
+                       f'color:var(--ms-texto-sec);">{pos}º</span>')
+            _peso = "700" if pos == 1 else "400"
+            corpo += (
+                f'<div style="margin-bottom:7px;">'
+                f'<div style="display:flex;align-items:baseline;gap:7px;'
+                f'font-size:11.5px;">'
+                f'<span style="width:17px;flex:none;">{medalha}</span>'
+                f'<span style="flex:1;min-width:0;overflow:hidden;'
+                f'text-overflow:ellipsis;white-space:nowrap;font-weight:{_peso};">'
+                f'{_esc(nome)}</span>'
+                f'<span style="flex:none;font-weight:700;color:{cor};">{txt}</span>'
+                f'</div>'
+                f'<div style="height:5px;border-radius:3px;margin-top:3px;'
+                f'margin-left:24px;background:var(--ms-metric-bd);'
+                f'overflow:hidden;"><div style="height:100%;border-radius:3px;'
+                f'width:{larg:.1f}%;background:{cor};'
+                f'opacity:{1 if pos == 1 else 0.72};"></div></div></div>')
+        for nome, _v, txt in sem:
+            corpo += (
+                f'<div style="display:flex;align-items:baseline;gap:7px;'
+                f'font-size:11.5px;color:var(--ms-texto-sec);margin-bottom:7px;">'
+                f'<span style="width:17px;flex:none;">–</span>'
+                f'<span style="flex:1;">{_esc(nome)}</span>'
+                f'<span style="flex:none;">{txt}</span></div>')
+
+    return (
+        f'<div style="background:var(--ms-metric-bg);border:1px solid '
+        f'var(--ms-metric-bd);border-left:3px solid {cor};border-radius:10px;'
+        f'padding:12px 14px;">'
+        f'<div style="font-size:12.5px;font-weight:700;color:{cor};'
+        f'margin-bottom:1px;">{titulo}</div>'
+        f'<div style="font-size:9.5px;color:var(--ms-texto-sec);'
+        f'margin-bottom:10px;">{sub}</div>'
+        + corpo
+        + (f'<div style="font-size:9px;color:var(--ms-texto-sec);margin-top:8px;'
+           f'padding-top:7px;border-top:1px solid var(--ms-divisor);">{rodape}'
+           f'</div>' if rodape else "")
+        + '</div>')
 
 
 def _celula_ind(valor, atingido, cor, detalhe=""):
@@ -4935,6 +5007,96 @@ def _tabela_comparativo(linhas, ctx, ordem):
         f'<tbody>{corpo}</tbody></table></div>')
 
 
+def _rankings_por_topico(linhas, ctx):
+    """Um pódio por assunto, em grade. É a resposta a "quem é o melhor em quê".
+
+    A tabela larga responde "quanto" e obriga a comparar números coluna a
+    coluna; o pódio responde "quem" de relance. São os mesmos dados — o que
+    muda é a pergunta que cada forma responde sem esforço.
+    """
+    VERDE, AZUL, OURO = "#1BAF7A", "#4A90D9", "#FFD700"
+    VERM, ROXO, CINZA = "#E34948", "#8B5CF6", "#7A8B99"
+
+    def _itens(chave, texto, valor=None):
+        """[(nome, valor_ordenavel, texto)] de cada pessoa."""
+        fora = []
+        for l in linhas:
+            v = (valor or (lambda x: x[chave]))(l)
+            fora.append((l["nome"], v, texto(l) if v is not None else "—"))
+        return fora
+
+    # Contribuicao: quanto dos pontos da equipe saiu de cada um, e quanto da
+    # meta coletiva e da MAXX isso cobre. Sao tres leituras do mesmo esforco.
+    _tot_pts = sum(l["pts"] for l in linhas) or 1
+    _meta_eq = ctx.get("meta_eq") or 0
+    _meta_mx = ctx.get("meta_maxx") or 0
+
+    def _txt_contrib(l):
+        _p = l["pts"] / _tot_pts * 100
+        _c = f'{_p:.0f}%'
+        if _meta_eq:
+            _c += f' · {l["pts"] / _meta_eq * 100:.0f}% da coletiva'
+        if _meta_mx:
+            _c += f' · {l["pts"] / _meta_mx * 100:.0f}% da MAXX'
+        return _c
+
+    cards = [
+        _card_ranking(
+            "📈 Pontuação", "quem mais pontuou no período", VERDE,
+            itens=_itens("pts", lambda l: f'{_n_br(l["pts"])} pts')),
+        _card_ranking(
+            "🎯 % da meta individual", "quanto cada um bateu da PRÓPRIA meta",
+            OURO, itens=_itens("pct_meta", lambda l: f'{l["pct_meta"]:.0f}%'),
+            rodape=f'entra na meta do time a partir de {ctx["piso"]}%'),
+        _card_ranking(
+            "🤝 Contribuição na meta do time",
+            "fatia dos pontos da equipe que saiu de cada um", AZUL,
+            itens=_itens("pts", _txt_contrib)),
+        _card_ranking(
+            "💤 Ociosidade", "menos tempo parado é melhor", VERM,
+            itens=_itens("ocio", lambda l: f'{l["ocio"]:.1f}%'),
+            menor_melhor=True,
+            rodape=f'teto de {ctx["ocio_max"]:.0f}% do expediente'),
+        _card_ranking(
+            "⚡ Tempo de execução", "média por demanda · menos é melhor", OURO,
+            itens=_itens("exec_real",
+                         lambda l: f'{l["exec_real"]:.0f} min'),
+            menor_melhor=True,
+            rodape="medido pela etiqueta EM ANDAMENTO"),
+        _card_ranking(
+            "🕐 Tolerâncias", "atrasos pequenos na entrada · menos é melhor",
+            ROXO, itens=_itens("tol", lambda l: f'{l["tol"]:.0f}'),
+            menor_melhor=True, rodape=f'teto de {ctx["lim_tol"]} no período'),
+        _card_ranking(
+            "⏰ Atrasos", "atrasos que pesam na meta · menos é melhor", VERM,
+            itens=_itens("atr", lambda l: f'{l["atr"]:.0f}'),
+            menor_melhor=True, rodape=f'teto de {ctx["lim_atr"]} no período'),
+        _card_ranking(
+            "🗃️ Cartões criados", "quem mais abriu demanda", AZUL,
+            itens=_itens("criadas", lambda l: f'{l["criadas"]}')),
+        _card_ranking(
+            "💰 Pontos gerados", "quanto valeram as demandas que abriu", OURO,
+            itens=_itens("criadas_pts",
+                         lambda l: f'{_n_br(l["criadas_pts"])} pts')),
+        _card_ranking(
+            "🔎 Tempo garimpando", "quanto do período passou procurando", CINZA,
+            itens=_itens("busca_min", lambda l: _fmt_hm(l["busca_min"]),
+                         valor=lambda l: l["busca_min"] or None),
+            menor_melhor=True,
+            rodape="menos é melhor SÓ se as demandas vierem junto — veja o card ao lado"),
+        _card_ranking(
+            "⏱️ Tempo por demanda encontrada",
+            "busca ÷ demandas abertas · menos é melhor", VERDE,
+            itens=_itens("por_demanda",
+                         lambda l: _fmt_hm(l["por_demanda"])),
+            menor_melhor=True,
+            rodape="é o que diz se o tempo de garimpo foi bem gasto"),
+    ]
+    return (f'<div style="display:grid;'
+            f'grid-template-columns:repeat(auto-fit,minmax(268px,1fr));'
+            f'gap:12px;margin-bottom:6px;">{"".join(cards)}</div>')
+
+
 def _aba_comparativo(dados):
     """Todos os colaboradores lado a lado, indicador a indicador.
 
@@ -4970,11 +5132,18 @@ def _aba_comparativo(dados):
         "elas medem o que a pessoa abriu, não o que a meta cobra dela."
     )
 
-    _op = ["Índice geral", "Pontuação", "Ociosidade", "Tempo de execução",
-           "Tolerâncias", "Atrasos", "Advertências", "Demandas geradas",
-           "Tempo por demanda"]
-    ordem = st.selectbox("Ordenar por", _op, index=0, key="am_comp_ordem")
-    st.markdown(_tabela_comparativo(linhas, ctx, ordem), unsafe_allow_html=True)
+    st.markdown(_rankings_por_topico(linhas, ctx), unsafe_allow_html=True)
+
+    # A tabela continua, fechada: o ranking responde "quem", e ela responde
+    # "quanto exatamente" — duas perguntas diferentes, e a segunda so aparece
+    # quando alguem quer conferir numero.
+    with st.expander("📋 Tabela completa — todos os indicadores lado a lado"):
+        _op = ["Índice geral", "Pontuação", "Ociosidade", "Tempo de execução",
+               "Tolerâncias", "Atrasos", "Advertências", "Demandas geradas",
+               "Tempo por demanda"]
+        ordem = st.selectbox("Ordenar por", _op, index=0, key="am_comp_ordem")
+        st.markdown(_tabela_comparativo(linhas, ctx, ordem),
+                    unsafe_allow_html=True)
 
     # O topo e o fim da lista, por extenso: a tabela responde "quanto", e isto
     # responde "e daí" — quem merece a conversa desta semana.
