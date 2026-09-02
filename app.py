@@ -1496,9 +1496,12 @@ def _render_viabilidade_tab():
     lpv_origem_usada = lpv_origem if lpv_dinamico else "valor fixo de reserva (sem dados financeiros ainda)"
     nf_pct_usado = (aliquota_dinamica / 100) if aliquota_dinamica else NF_OFICIAL
 
-    col_info1, col_info2, col_info3 = st.columns(3)
+    # A aliquota continua entrando na conta (nf_pct_usado, adiante); o que saiu
+    # e o mostrador dela. Quem abre esta tela decide sobre um produto, e a
+    # aliquota nao muda de produto para produto -- ela e a mesma do mes inteiro,
+    # e se mudar o lugar de mexer nisso e Gestao -> Financeiro.
+    col_info1, col_info3 = st.columns(2)
     col_info1.metric("LPV vigente", f"R${lpv_usado:.2f}")
-    col_info2.metric("NF (alíquota)", f"{nf_pct_usado*100:.1f}%")
     col_info3.metric("UC mínimo p/ aprovar", f"{UC_MINIMO}/1")
     st.caption(f"LPV calculado com base em: {lpv_origem_usada}")
     # O veredito de viabilidade sai daqui. Se o LPV é de dois meses atrás, quem
