@@ -949,11 +949,28 @@ def intervalos_do_cartao(acoes, agora=None, membros_agora=None,
     return segs
 
 
+def abonos_do_dia(dia):
+    """[(inicio, fim)] das horas abonadas naquele dia, ou vazio.
+
+    Queda de internet, falta de energia: o trabalho para e os indicadores nao.
+    Descontando aqui, na janela, os tres se corrigem juntos -- o relogio do
+    cartao, o atraso por tempo estimado e a ociosidade partem todos daqui.
+
+    Nunca derruba a leitura: sem planilha, sem abono, e tudo volta a ser o que
+    era. Hora abonada por engano seria pior que hora nao abonada.
+    """
+    try:
+        import abonos as _ab
+        return _ab.janelas_do_dia(dia, FUSO)
+    except Exception:
+        return []
+
+
 def _janelas_uteis(ini_local, fim_local, username=None):
     """Pedaços do intervalo que caem dentro do expediente da pessoa.
 
     Fora disso não é tempo de trabalho: etiqueta esquecida na sexta à noite não
-    pode render o fim de semana inteiro.
+    pode render o fim de semana inteiro. Hora abonada também não conta.
     """
     h = horario_de(username)
     if (fim_local - ini_local).days > MAX_DIAS_INTERVALO:
@@ -964,12 +981,18 @@ def _janelas_uteis(ini_local, fim_local, username=None):
     ultimo = fim_local.date()
     while dia <= ultimo:
         if dia.weekday() < 5:   # sem sábado e domingo
+            do_dia = []
             for abre, fecha in ((h["entrada"], ALMOCO[0]), (ALMOCO[1], h["fim"])):
                 ja = datetime.combine(dia, abre, tzinfo=FUSO)
                 jb = datetime.combine(dia, fecha, tzinfo=FUSO)
                 s, e = max(ini_local, ja), min(fim_local, jb)
                 if e > s:
-                    janelas.append((s, e))
+                    do_dia.append((s, e))
+            ab = abonos_do_dia(dia)
+            if ab:
+                import abonos as _ab
+                do_dia = _ab.descontar(do_dia, ab)
+            janelas.extend(do_dia)
         dia += timedelta(days=1)
     return janelas
 

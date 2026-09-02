@@ -1049,6 +1049,15 @@ def get_ociosidade_mes(ano: int, mes: int, tempo_cards_por_user: dict,
             for _data, _jans in _janelas_mes:
                 if not _jans:
                     continue
+                # Hora abonada sai dos dois lados: do buraco e do denominador.
+                # Sem isto, uma manha sem internet aparecia como ociosidade da
+                # pessoa -- ela estava no lugar, sem ter como trabalhar.
+                _ab = _pc.abonos_do_dia(_data)
+                if _ab:
+                    import abonos as _abm
+                    _jans = _abm.descontar(_jans, _ab)
+                    if not _jans:
+                        continue
                 _o, _ = _pc.ociosidade_do_dia(_jans, ativos)
                 _bruto_dia = sum((f - i).total_seconds() / 60 for i, f in _jans)
                 # A hora pessoal do dia sai dos DOIS lados: do tempo ocioso e do

@@ -9,7 +9,7 @@ import streamlit as st
 import pandas as pd
 import math
 import calendar
-from datetime import datetime
+from datetime import datetime, time
 
 import metas_config as mc
 import placar_core as _pc
@@ -4104,6 +4104,102 @@ def _secao_configuracao(dados=None):
             f"{mc.LABELS.get(k, k):46} = {cfg_atual.get(k)}"
             for k in mc.DEFAULTS
         ))
+
+    st.markdown("##### 🛑 Paradas e períodos sem expediente")
+    st.caption(
+        "Queda de internet, falta de energia, emenda de feriado, férias "
+        "coletivas: o trabalho para e os indicadores não. O tempo lançado aqui "
+        "sai da conta de **atraso**, de **ociosidade** e de **tempo de "
+        "execução** ao mesmo tempo — os três partem das mesmas janelas de "
+        "expediente. Vale para a equipe inteira."
+    )
+    # Fora do st.form: formulario aceita um botao de submit so, e aqui sao tres
+    # acoes proprias (lancar parada, lancar periodo, apagar). Grava em aba
+    # propria, na hora, sem depender do "Salvar configuração".
+    try:
+        import abonos as _ab
+        _lista_ab = _ab.carregar()
+    except Exception as _e_ab:
+        _ab, _lista_ab = None, []
+        st.warning(f"Não consegui ler os abonos: {str(_e_ab)[:150]}")
+
+    if _ab:
+        _t_dep, _t_ant = st.tabs(["⚡ Já aconteceu", "📅 Vai acontecer"])
+
+        with _t_dep:
+            st.caption("Para o que só dá para registrar depois de resolvido — "
+                       "queda de internet, falta de energia.")
+            _c1, _c2, _c3, _c4, _c5 = st.columns([1.2, .9, .9, 2.4, 1])
+            _d1 = _c1.date_input("Dia", value=agora.date(), key="ab_p_data",
+                                 format="DD/MM/YYYY")
+            _h1 = _c2.time_input("Das", value=time(9, 0), key="ab_p_ini",
+                                 step=300)
+            _h2 = _c3.time_input("Até", value=time(11, 0), key="ab_p_fim",
+                                 step=300)
+            _m1 = _c4.text_input("O que houve", key="ab_p_motivo",
+                                 placeholder="Queda de internet")
+            _dur1 = ((_h2.hour * 60 + _h2.minute) - (_h1.hour * 60 + _h1.minute))
+            if _dur1 > 0:
+                _c4.caption(f"Parada de **{_fmt_hm(_dur1)}**")
+            if _c5.button("Lançar", key="ab_p_add", use_container_width=True):
+                if not (_m1 or "").strip():
+                    st.error("Escreva o que houve — é o que justifica a parada.")
+                else:
+                    _ok, _msg = _ab.salvar(_d1, _h1, _h2, _m1,
+                                           tipo=_ab.TIPO_PARADA)
+                    st.rerun() if _ok else st.error(_msg)
+
+        with _t_ant:
+            st.caption("Para o que dá para programar — emenda de feriado, "
+                       "feriado regional, férias coletivas. Dia inteiro, do "
+                       "primeiro ao último.")
+            _e1, _e2, _e3, _e4 = st.columns([1.2, 1.2, 2.7, 1])
+            _di = _e1.date_input("Do dia", value=agora.date(), key="ab_f_ini",
+                                 format="DD/MM/YYYY")
+            _df = _e2.date_input("Até o dia", value=agora.date(),
+                                 key="ab_f_fim", format="DD/MM/YYYY")
+            _m2 = _e3.text_input("Situação", key="ab_f_motivo",
+                                 placeholder="Emenda de feriado")
+            _nd = (_df - _di).days + 1
+            if _nd > 0:
+                _e3.caption(f"**{_nd}** dia(s) sem expediente")
+            if _e4.button("Lançar", key="ab_f_add", use_container_width=True):
+                if not (_m2 or "").strip():
+                    st.error("Escreva a situação.")
+                else:
+                    _ok, _msg = _ab.salvar(_di, _ab.DIA_INTEIRO[0],
+                                           _ab.DIA_INTEIRO[1], _m2,
+                                           data_fim=_df,
+                                           tipo=_ab.TIPO_PERIODO)
+                    st.rerun() if _ok else st.error(_msg)
+
+        if not _lista_ab:
+            st.caption("Nada lançado até agora.")
+        for _a in _lista_ab[:15]:
+            _l1, _l2 = st.columns([6, 1])
+            _per = _a["tipo"] == _ab.TIPO_PERIODO
+            if _per:
+                _dias = (_a["data_fim"] - _a["data"]).days + 1
+                _quando = (f'{_a["data"]:%d/%m/%Y}'
+                           + (f' a {_a["data_fim"]:%d/%m/%Y}' if _dias > 1 else '')
+                           + f' · {_dias} dia(s) inteiro(s)')
+                _cor, _ico = "#8B5CF6", "📅"
+            else:
+                _dur = ((_a["fim"].hour * 60 + _a["fim"].minute)
+                        - (_a["inicio"].hour * 60 + _a["inicio"].minute))
+                _quando = (f'{_a["data"]:%d/%m/%Y} · {_a["inicio"]:%H:%M} às '
+                           f'{_a["fim"]:%H:%M} · {_fmt_hm(_dur)}')
+                _cor, _ico = "#EDA100", "⚡"
+            _l1.markdown(
+                f'<div style="padding:6px 0;font-size:13px;">'
+                f'<span style="color:{_cor};">{_ico}</span> '
+                f'<b>{_esc(_a["motivo"]) or "sem motivo"}</b>'
+                f'<span style="color:var(--ms-texto-sec);"> — {_quando}</span>'
+                f'</div>', unsafe_allow_html=True)
+            if _l2.button("🗑️", key=f'ab_x_{_a["data"]}_{_a["inicio"]}',
+                          use_container_width=True):
+                _ok, _msg = _ab.remover(_a["data"], _a["inicio"])
+                st.rerun() if _ok else st.error(_msg)
 
     with st.form(key=f"form_cfg_{ano_cfg}_{mes_cfg_num}"):
         st.markdown("##### 🏆 Meta Coletiva")
