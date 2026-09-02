@@ -3219,6 +3219,28 @@ def _fmt_hhmm(minutos):
     return f"{int(minutos)//60:02d}:{int(minutos)%60:02d}"
 
 
+# A cor de cada estado do cartão, uma só para o gráfico inteiro: o bloco na
+# linha do tempo e a contagem embaixo dele falam da mesma coisa e agora falam na
+# mesma cor. `fim_tipo` vem de placar_core.intervalos_do_cartao.
+COR_ANDAMENTO   = "#EDA100"   # amarelo
+COR_CONCLUIDO   = "#1BAF7A"   # verde
+COR_INTERROMPIDO = "#8B5CF6"  # roxo — inclui FIM DE EXPEDIENTE
+CORES_ESTADO = {
+    "encerrado":    COR_CONCLUIDO,
+    "interrompido": COR_INTERROMPIDO,
+    # Ainda correndo, ou cortado na virada do dia, ou o trecho fechou e o
+    # trabalho seguiu: nos três o cartão continua EM ANDAMENTO.
+    "aberto":       COR_ANDAMENTO,
+    "virada":       COR_ANDAMENTO,
+    "seguiu":       COR_ANDAMENTO,
+}
+
+ESTADO_NOME = {"encerrado": "CONCLUÍDO", "interrompido": "INTERROMPIDO",
+               "aberto": "EM ANDAMENTO (aberto agora)",
+               "virada": "EM ANDAMENTO (virou o dia)",
+               "seguiu": "EM ANDAMENTO"}
+
+
 # A ficha que aparece com o mouse em cima de um bloco.
 #
 # Ela e HTML sobreposto ao SVG, e nao um <g> dentro dele. Duas tentativas
@@ -3260,6 +3282,11 @@ def _ficha_exec(e, tot, cx_pct, cy_pct, cor, esq):
         f'<div style="font-size:10px;color:{cor};margin-top:3px;">'
         f'{e["ini"]:%H:%M} → {e["fim"]:%H:%M} · {_fmt_hm(e["min"])} de execução'
         f'</div>')
+    linhas.append(
+        f'<div style="font-size:9px;font-weight:700;color:{cor};margin-top:2px;">'
+        f'{ESTADO_NOME.get(e.get("fim_tipo"), "EM ANDAMENTO")}'
+        + (' · filmagem' if e.get("tipo") == "filmagem" else '')
+        + (' · busca de demanda' if e.get("analise") else '') + '</div>')
     if tot["n"] > 1:
         linhas.append(
             f'<div style="font-size:9px;color:#EDA100;margin-top:2px;">'
@@ -3334,9 +3361,9 @@ def _chart_linha_do_tempo(dados, username):
     # aqui e o ESTADO do cartao no dia. Interrompido soma FIM DE EXPEDIENTE:
     # `eventos_de_trabalho` ja trata as duas como interrupcao, porque as duas
     # param o relogio do mesmo jeito.
-    LINHAS = [("ativos", "EM ANDAMENTO", "#EDA100"),
-              ("concluidos", "CONCLUÍDO", "#1BAF7A"),
-              ("interrompidos", "INTERROMPIDO", "#FF8A2B")]
+    LINHAS = [("ativos", "EM ANDAMENTO", COR_ANDAMENTO),
+              ("concluidos", "CONCLUÍDO", COR_CONCLUIDO),
+              ("interrompidos", "INTERROMPIDO", COR_INTERROMPIDO)]
     W = 980
     # Margem maior a esquerda: "EM ANDAMENTO" nao cabia nos 52px que bastavam
     # para "iniciou".
@@ -3414,21 +3441,31 @@ def _chart_linha_do_tempo(dados, username):
             y_topo, y_base = y(m_fim), y(m_ini)   # fim em cima, inicio embaixo
             alt = max(y_base - y_topo, 2.2)
             y_topo = y_base - alt
+            # A cor do bloco e a da ETIQUETA com que ele terminou, a mesma das
+            # contagens embaixo. Antes era o tipo de trabalho (andamento,
+            # filmagem), e assim o cartao entregue e o esquecido aberto ficavam
+            # da mesma cor — que e justamente a diferenca que se procura aqui.
+            cor = CORES_ESTADO.get(e.get("fim_tipo"), COR_ANDAMENTO)
+            # Filmagem e busca de demanda continuam distintas, agora pelo
+            # contorno: a cor de dentro ficou reservada para o estado.
             if e.get("analise"):
-                cor = "#7A8B99"          # cinza-azulado: presente, sem peso
+                traco, tracejado = "#7A8B99", "3,2"
             elif e.get("tipo") == "filmagem":
-                cor = "#8B5CF6"
+                traco, tracejado = "#FFFFFF", "2,2"
             else:
-                cor = "#4A90D9"
+                traco, tracejado = None, None
             bx, blarg = x + 2.5, max(bw - 5, 2)
             tot = por_card.get(e["card"], {"min": e["min"], "n": 1})
             partes.append(
                 f'<rect x="{bx:.1f}" y="{y_topo:.1f}" width="{blarg:.1f}" '
-                f'height="{alt:.1f}" rx="2" fill="{cor}" fill-opacity="0.85">'
+                f'height="{alt:.1f}" rx="2" fill="{cor}" fill-opacity="0.85"'
+                + (f' stroke="{traco}" stroke-width="1" '
+                   f'stroke-dasharray="{tracejado}"' if traco else "") + '>'
                 # O <title> e a rede de seguranca: se a folha de estilo do app
                 # nao chegar, a ficha fica escondida e ele responde sozinho.
                 f'<title>{_esc(e["card"])} · {e["ini"]:%H:%M} → '
-                f'{e["fim"]:%H:%M} · {_fmt_hm(e["min"])}</title></rect>'
+                f'{e["fim"]:%H:%M} · {_fmt_hm(e["min"])} · '
+                f'{ESTADO_NOME.get(e.get("fim_tipo"), "EM ANDAMENTO")}</title></rect>'
                 # Marcadores: verde embaixo, onde comecou; vermelho em cima,
                 # onde terminou. O traco passa dos lados do bloco, senao a borda
                 # de um bloco encostado no seguinte vira uma emenda so e os dois
@@ -3505,19 +3542,19 @@ def _chart_linha_do_tempo(dados, username):
            f'<b>{_fmt_hm(min_analise)}</b> em {n_analise} trecho(s) · '
            f'fora da média</span>' if n_analise else "")
         + '</div>')
-    leg = ('<div style="font-size:9px;color:var(--ms-texto-sec);margin-top:3px;">'
-           '<span style="color:#1BAF7A;font-weight:700;">▬</span> início · '
-           '<span style="color:#E34948;font-weight:700;">▬</span> fim · '
-           '<span style="color:#4A90D9;font-weight:700;">■</span> em andamento · '
-           '<span style="color:#8B5CF6;font-weight:700;">■</span> filmagem · '
-           '<span style="color:#7A8B99;font-weight:700;">■</span> busca de demanda · '
-           'fundo escuro = fora do expediente ou fim de semana · '
-           'passe o mouse num bloco para ver o cartão'
-           '<br>as três linhas embaixo contam CARTÕES: '
-           '<b style="color:#EDA100;">EM ANDAMENTO</b> os que tiveram execução '
-           'no dia · <b style="color:#1BAF7A;">CONCLUÍDO</b> os entregues · '
-           '<b style="color:#FF8A2B;">INTERROMPIDO</b> os parados com '
-           'INTERROMPIDO ou FIM DE EXPEDIENTE</div>')
+    leg = (f'<div style="font-size:9px;color:var(--ms-texto-sec);margin-top:3px;">'
+           f'cor do bloco = etiqueta com que ele terminou · '
+           f'<span style="color:{COR_ANDAMENTO};font-weight:700;">■</span> '
+           f'EM ANDAMENTO · '
+           f'<span style="color:{COR_CONCLUIDO};font-weight:700;">■</span> '
+           f'CONCLUÍDO · '
+           f'<span style="color:{COR_INTERROMPIDO};font-weight:700;">■</span> '
+           f'INTERROMPIDO ou FIM DE EXPEDIENTE'
+           f'<br>contorno branco tracejado = filmagem · contorno cinza = busca '
+           f'de demanda · fundo escuro = fora do expediente ou fim de semana · '
+           f'passe o mouse num bloco para ver o cartão'
+           f'<br>as três linhas embaixo contam CARTÕES, nas mesmas cores: '
+           f'quantos ficaram em cada estado no dia</div>')
     if parados:
         leg += (f'<div style="margin-top:4px;font-size:10px;color:#E34948;'
                 f'font-weight:700;">🚩 {len(parados)} dia(s) útil(eis) sem '
@@ -3602,9 +3639,9 @@ def _chart_atividade_dia(dados, username, por_mes=False):
     ALT_BARRA, ALT_EIXO, ALT_LINHA = 96, 14, 15
     # O rotulo da linha traz a PALAVRA, nao so o simbolo. "▶" sozinho na margem
     # nao diz nada para quem abre a tela pela primeira vez.
-    LINHAS = [("ativos", "EM ANDAMENTO", "EM ANDAMENTO", "#EDA100"),
-              ("concluidos", "CONCLUÍDO", "CONCLUÍDO", "#1BAF7A"),
-              ("interrompidos", "INTERROMPIDO", "INTERROMPIDO", "#FF8A2B")]
+    LINHAS = [("ativos", "EM ANDAMENTO", "EM ANDAMENTO", COR_ANDAMENTO),
+              ("concluidos", "CONCLUÍDO", "CONCLUÍDO", COR_CONCLUIDO),
+              ("interrompidos", "INTERROMPIDO", "INTERROMPIDO", COR_INTERROMPIDO)]
     H = mt + ALT_BARRA + ALT_EIXO + ALT_LINHA * len(LINHAS) + 6
     iw = W - ml - mr
     topo = max(mins + [60.0])
@@ -4229,6 +4266,7 @@ def _desempenho_individual(dados, username, nome, carregar_periodo=None):
             "Cada execução no relógio do expediente da pessoa — o início do "
             "expediente embaixo, o fim em cima. O traço verde é o início do "
             "cartão, o vermelho é o fim, e a distância entre eles é a duração. "
+            "A **cor do bloco é a da etiqueta** com que ele terminou: amarelo EM ANDAMENTO, verde CONCLUÍDO, roxo INTERROMPIDO ou FIM DE EXPEDIENTE. "
             "Embaixo, quantos cartões ficaram **EM ANDAMENTO**, **CONCLUÍDO** e "
             "**INTERROMPIDO** no dia — interrompido conta tanto a etiqueta "
             "INTERROMPIDO quanto FIM DE EXPEDIENTE. Dia útil já passado sem "

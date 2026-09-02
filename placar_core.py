@@ -965,6 +965,16 @@ def intervalos_do_cartao(acoes, agora=None, membros_agora=None,
     Um trecho existe enquanto houver etiqueta de trabalho E nenhuma etiqueta de
     interrupção. É assim que INTERROMPIDO e INTERROMPIDO MS param o relógio
     mesmo com EM ANDAMENTO ainda no cartão — que é como a equipe usa.
+
+    Cada trecho diz também COMO terminou, em "fim_tipo":
+
+    - "encerrado"    — a etiqueta de trabalho saiu: fim normal, cartão entregue
+    - "interrompido" — entrou INTERROMPIDO, INTERROMPIDO MS ou FIM DE EXPEDIENTE
+    - "seguiu"       — mudou o membro ou a etiqueta e o trabalho continuou
+    - "aberto"       — ainda está correndo agora
+
+    Sem isso a linha do tempo desenhava todo bloco da mesma cor, e o bloco que
+    alguém deixou aberto ficava igual ao que foi entregue.
     """
     agora = agora or datetime.now(timezone.utc)
     eventos = []
@@ -1002,10 +1012,23 @@ def intervalos_do_cartao(acoes, agora=None, membros_agora=None,
         return bool(labels & LABELS_TRABALHO) and not (labels & LABELS_INTERRUPCAO)
 
     for dt, especie, valor, entrou in eventos:
+        fechado = None
         if _trabalhando() and ini is not None and dt > ini:
-            segs.append({"ini": ini, "fim": dt, "tipo": tipo_seg, "membros": set(membros)})
+            segs.append({"ini": ini, "fim": dt, "tipo": tipo_seg,
+                         "membros": set(membros), "fim_tipo": None})
+            fechado = segs[-1]
         alvo = labels if especie == "label" else membros
         alvo.add(valor) if entrou else alvo.discard(valor)
+        # O motivo so se sabe DEPOIS de aplicar o evento: e o estado que ficou
+        # que diz se o trecho acabou por entrega, por interrupcao, ou se nem
+        # acabou — trocar de membro fecha o trecho e o trabalho segue.
+        if fechado is not None:
+            if _trabalhando():
+                fechado["fim_tipo"] = "seguiu"
+            elif labels & LABELS_INTERRUPCAO:
+                fechado["fim_tipo"] = "interrompido"
+            else:
+                fechado["fim_tipo"] = "encerrado"
         if _trabalhando():
             ini = dt
             tipo_seg = "filmagem" if LABEL_FILMAGEM in labels else "andamento"
@@ -1013,7 +1036,8 @@ def intervalos_do_cartao(acoes, agora=None, membros_agora=None,
             ini = None
 
     if _trabalhando() and ini is not None and agora > ini:
-        segs.append({"ini": ini, "fim": agora, "tipo": tipo_seg, "membros": set(membros)})
+        segs.append({"ini": ini, "fim": agora, "tipo": tipo_seg,
+                     "membros": set(membros), "fim_tipo": "aberto"})
     return segs
 
 
@@ -1349,6 +1373,12 @@ def execucoes_por_dia(cards, acoes_board, membros_map=None, agora=None,
                 reg = {"card": nome, "lista": col, "ini": cursor, "fim": fim_p,
                        "min": (fim_p - cursor).total_seconds() / 60.0,
                        "tipo": s.get("tipo", "andamento"),
+                       # So o ultimo pedaco herda o motivo do fim. Os anteriores
+                       # foram cortados na meia-noite: ali o cartao seguia em
+                       # andamento, e pintar de "entregue" o pedaco da vespera
+                       # diria que ele fechou num dia em que nao fechou.
+                       "fim_tipo": (s.get("fim_tipo") if fim_p >= fim_l
+                                    else "virada"),
                        # Busca de demanda aparece na linha do tempo -- e
                        # trabalho, e o dia nao pode parecer vazio --, mas fica
                        # fora da media: ela mede execucao de demanda.
