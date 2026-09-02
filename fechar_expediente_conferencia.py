@@ -18,6 +18,12 @@ sys.path.insert(0, __import__('os').path.dirname(__file__) or '.')
 HOJE = dt.date.today()
 POSTS = []
 
+# A tarefa monta o secrets.toml a partir do ambiente antes de qualquer coisa.
+# Sem esta variavel ela aborta -- corretamente -- e os casos abaixo nem chegam a
+# rodar. Um bloco minimo basta: nada aqui usa credencial de verdade.
+import os
+os.environ.setdefault("STREAMLIT_SECRETS", '[trello]\nkey = "conferencia"\n')
+
 def montar(ambiente="producao", saida_my="17:45", tem_label=True,
            labels_do_cartao=None, post_ok=True, pessoas_rhid=True):
     POSTS.clear()
