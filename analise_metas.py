@@ -2126,7 +2126,7 @@ def _secao_tempos_individual(dados):
 _CORES = ["#4A90D9", "#1BAF7A", "#EDA100", "#7B68EE"]
 
 
-def _gauge_svg(pct, cor, titulo, sub="", legend="", valor=None):
+def _gauge_svg(pct, cor, titulo, sub="", legend="", valor=None, max_larg=130):
     """Velocímetro semicircular SVG inline com traço colorido abaixo.
     legend: texto explicativo opcional abaixo da barra colorida."""
     p = max(0.1, min(99.9, float(pct)))
@@ -2146,7 +2146,7 @@ def _gauge_svg(pct, cor, titulo, sub="", legend="", valor=None):
     ) if legend else ""
     return (
         f'<div style="text-align:center;">'
-        f'<svg viewBox="0 0 100 {vh}" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:130px;">'
+        f'<svg viewBox="0 0 100 {vh}" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:{max_larg}px;">'
         f'<path d="M{sx:.2f},{sy:.2f} A{r},{r} 0 0,1 {ex:.2f},{ey:.2f}" fill="none" '
         f'stroke="var(--ms-metric-bd,#2e2e2e)" stroke-width="9" stroke-linecap="round"/>'
         f'<path d="M{sx:.2f},{sy:.2f} A{r},{r} 0 {lg},1 {fx:.2f},{fy:.2f}" fill="none" '
@@ -2232,9 +2232,12 @@ def _pizza_svg(segmentos, box_pct, box_label, box_cor="#4A90D9"):
                f'fill="#fff" fill-opacity="0.92">{frac*100:.0f}%</text>' if cabe_pct else "")
         )
 
+    # A rosca e o assunto do bloco, e ocupava um terco da largura enquanto a
+    # legenda espalhava cinco linhas em duas colunas e deixava o pe do cartao
+    # vazio. Rosca grande e legenda empilhada trocam esse espaco de lugar.
     svg = (
         f'<svg viewBox="0 0 280 280" xmlns="http://www.w3.org/2000/svg" '
-        f'style="width:258px;flex-shrink:0;">'
+        f'style="width:100%;max-width:400px;min-width:240px;flex:1 1 300px;">'
         + "".join(fatias) + "".join(rotulos) + '</svg>'
     )
 
@@ -2244,19 +2247,19 @@ def _pizza_svg(segmentos, box_pct, box_label, box_cor="#4A90D9"):
     for i, (cor, val, nome) in enumerate(segmentos):
         pct = (val / total * 100) if total else 0
         itens += (
-            f'<div style="display:flex;align-items:center;gap:8px;min-width:0;">'
-            f'<div style="width:22px;height:22px;border-radius:6px;background:{cor};flex-shrink:0;'
-            f'display:flex;align-items:center;justify-content:center;font-size:8px;'
+            f'<div style="display:flex;align-items:center;gap:10px;min-width:0;'
+            f'padding:7px 0;border-bottom:1px solid var(--ms-divisor,#2f2f2f);">'
+            f'<div style="width:26px;height:26px;border-radius:7px;background:{cor};flex-shrink:0;'
+            f'display:flex;align-items:center;justify-content:center;font-size:9px;'
             f'font-weight:700;color:#fff;">{i+1:02d}</div>'
-            f'<div style="font-size:10px;color:var(--ms-texto,#ccc);line-height:1.3;flex:1;'
+            f'<div style="font-size:12px;color:var(--ms-texto,#ccc);line-height:1.35;flex:1;'
             f'min-width:0;">{nome}</div>'
-            f'<div style="font-size:10px;font-weight:700;color:var(--ms-texto-sec,#888);'
+            f'<div style="font-size:13px;font-weight:700;color:var(--ms-texto-sec,#888);'
             f'flex-shrink:0;">{pct:.0f}%</div></div>'
         )
-    leg_html = (
-        f'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));'
-        f'gap:8px 18px;">{itens}</div>'
-    )
+    # Uma coluna so: em duas, cada nome vinha truncado no meio e a lista ainda
+    # deixava o pe do cartao vazio. Empilhada, o nome inteiro cabe.
+    leg_html = f'<div style="display:flex;flex-direction:column;">{itens}</div>'
     # A faixa fecha o bloco da legenda: mesma largura das duas colunas, conteudo
     # centrado. Encostada a esquerda ela parecia uma barra de progresso pela
     # metade; ocupando a largura inteira, e um rodape, e o numero deixa de sugerir
@@ -2269,9 +2272,10 @@ def _pizza_svg(segmentos, box_pct, box_label, box_cor="#4A90D9"):
         f'</div>'
     )
     return (
-        f'<div style="display:flex;align-items:flex-start;gap:18px;padding:8px 0;flex-wrap:wrap;">'
+        f'<div style="display:flex;align-items:center;gap:24px;padding:8px 0;'
+        f'flex-wrap:wrap;">'
         + svg
-        + f'<div style="flex:1;min-width:280px;padding-top:6px;">{leg_html}{box_html}</div>'
+        + f'<div style="flex:1 1 300px;min-width:260px;">{leg_html}{box_html}</div>'
         + '</div>'
     )
 
@@ -2502,12 +2506,18 @@ def _chart_indices_meta(dados):
             _sub = t[chave_sub]
             if pct > 100 and _val is None:
                 _sub = f"{pct:.0f}% · {_sub}"
-            gauges += _gauge_svg(min(pct, 100), cor, t["rotulo"], _sub, valor=_val)
+            gauges += _gauge_svg(min(pct, 100), cor, t["rotulo"], _sub,
+                                 valor=_val, max_larg=190)
+        # A coluna da direita terminava a 300px do fim da coluna da esquerda:
+        # os mostradores estavam travados em 130px e sobrava tela embaixo. Com
+        # eles maiores e com folga entre as linhas, os dois blocos ocupam a
+        # altura dos graficos ao lado — e a emenda entre Coletiva e MAXX fica
+        # curta de proposito, para os dois continuarem lidos como um par.
         return (
             f'<div style="font-size:10px;font-weight:600;color:{cor_tit};'
             f'text-transform:uppercase;letter-spacing:.5px;margin:0 0 4px;">{titulo}</div>'
             f'<div style="display:grid;grid-template-columns:repeat(3,1fr);'
-            f'gap:8px 4px;margin-bottom:14px;">{gauges}</div>')
+            f'gap:30px 6px;margin-bottom:16px;justify-items:center;">{gauges}</div>')
 
     return (
         f'<div style="font-size:9px;color:var(--ms-texto-sec);text-transform:uppercase;'
@@ -3524,8 +3534,15 @@ def _chart_linha_do_tempo(dados, username):
         for e in lista:
             m_ini = e["ini"].hour * 60 + e["ini"].minute
             m_fim = e["fim"].hour * 60 + e["fim"].minute
-            if m_fim <= m_ini:
+            # 24:00 e para o pedaco que morre na virada do dia -- e SO para
+            # ele. A regra antiga era "fim <= inicio", e ela pegava junto o
+            # trecho que comeca e acaba no mesmo minuto: bastava alguem entrar
+            # no cartao segundos depois de por a etiqueta para o risco de meio
+            # minuto virar um bloco da altura do dia inteiro, das 16h as 24h.
+            if e["fim"].date() > e["ini"].date():
                 m_fim = 24 * 60
+            elif m_fim <= m_ini:
+                m_fim = m_ini + 1
             y_topo, y_base = y(m_fim), y(m_ini)   # fim em cima, inicio embaixo
             alt = max(y_base - y_topo, 2.2)
             y_topo = y_base - alt
