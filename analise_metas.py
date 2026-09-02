@@ -5001,12 +5001,12 @@ def _card_ranking(titulo, sub, cor, itens, menor_melhor=False, rodape=""):
 
 
 def _tabela_comparativo(linhas, ctx, ordem="Índice geral"):
-    """Todas as metas de cada um, com o colaborador em COLUNA.
+    """Uma pessoa por linha, uma meta por coluna, tudo centrado na coluna.
 
-    A grade antes era o contrário — uma pessoa por linha, um indicador por
-    coluna — e com doze indicadores ela só cabia rolando de lado, que é o
-    oposto de "ver todo mundo de uma vez". Virada, sobra uma coluna por pessoa
-    e todas as metas empilham na vertical, onde há espaço de sobra.
+    O limite de cada meta mora no CABEÇALHO, e não repetido em toda célula:
+    "teto de 15" embaixo do título é a mesma informação dita uma vez, e é o que
+    deixa a coluna estreita o bastante para o número ficar centrado embaixo do
+    próprio título.
 
     Cada célula segue a regra da aba: verde bateu, vermelho não bateu, cinza
     não tem meta contra a qual comparar.
@@ -5025,100 +5025,80 @@ def _tabela_comparativo(linhas, ctx, ordem="Índice geral"):
         if ordem == "Tempo por demanda":
             return (l["por_demanda"] is None, l["por_demanda"] or 0)
         return -l["score"]
-    cols = sorted(linhas, key=_chave)
+    ordenado = sorted(linhas, key=_chave)
 
-    def _cel(txt, estado):
-        """estado: True verde, False vermelho, None cinza."""
-        cor = CINZA if estado is None else (VERDE if estado else VERM)
-        return (f'<td style="padding:7px 10px;text-align:center;'
-                f'font-size:12.5px;font-weight:700;color:{cor};'
-                f'white-space:nowrap;">{txt}</td>')
+    _tot_pts = sum(l["pts"] for l in linhas) or 1
 
-    def _linha(rotulo, limite, celulas, destaque=False):
-        _bg = "background:var(--ms-metric-bg);" if destaque else ""
-        _fs = "13px" if destaque else "11.5px"
-        return (f'<tr style="{_bg}border-top:1px solid var(--ms-divisor);">'
-                f'<td style="padding:7px 10px;font-size:{_fs};'
-                f'white-space:nowrap;">{rotulo}'
-                + (f'<div style="font-size:8.5px;color:var(--ms-texto-sec);'
-                   f'font-weight:400;">{limite}</div>' if limite else "")
-                + '</td>' + "".join(celulas) + '</tr>')
+    # (título, limite, função que devolve (texto, bateu)) — a ordem das colunas
+    COLUNAS = [
+        ("🏁 Índice geral", "média dos critérios com meta",
+         lambda l: (f'{l["score"]:.0f}%', None)),
+        ("📈 Pontuação", "meta somada no período",
+         lambda l: (f'{_n_br(l["pts"])} pts',
+                    l["meta"] > 0 and l["pts"] >= l["meta"])),
+        ("🎯 % da meta", f'entra no time com {ctx["piso"]}%',
+         lambda l: ((f'{l["pct_meta"]:.0f}%', l["pct_meta"] >= 100)
+                    if l["meta"] > 0 else ("—", None))),
+        ("💤 Ociosidade", f'teto de {ctx["ocio_max"]:.0f}%',
+         lambda l: ((f'{l["ocio"]:.1f}%', l["ocio"] < ctx["ocio_max"])
+                    if l["ocio"] is not None else ("—", None))),
+        ("⚡ Tempo exec.", "contra o alvo do mês",
+         lambda l: ((f'{l["exec_real"]:.0f} min',
+                     (l["exec_real"] <= l["exec_alvo"]) if l["exec_alvo"] else None)
+                    if l["exec_real"] else ("—", None))),
+        ("🕐 Tolerâncias", f'teto de {ctx["lim_tol"]}',
+         lambda l: ((f'{l["tol"]:.0f}', l["tol"] <= ctx["lim_tol"])
+                    if l["tol"] is not None else ("—", None))),
+        ("⏰ Atrasos", f'teto de {ctx["lim_atr"]}',
+         lambda l: ((f'{l["atr"]:.0f}', l["atr"] <= ctx["lim_atr"])
+                    if l["atr"] is not None else ("—", None))),
+        ("🚫 Advert.", f'teto de {ctx["lim_adv"]}',
+         lambda l: (f'{l["advs"]}', l["advs"] <= ctx["lim_adv"])),
+        ("🚪 Entra na meta", "coletiva · MAXX",
+         lambda l: (("✅" if l["entra_col"] else "🚫") + " · "
+                    + ("⭐" if l["entra_maxx"] else "—"), l["entra_col"])),
+        ("🤝 Contribuição", "fatia dos pontos do time",
+         lambda l: (f'{l["pts"] / _tot_pts * 100:.0f}%', None)),
+        ("🗃️ Cartões criados", "sem meta",
+         lambda l: (f'{l["criadas"]}', None)),
+        ("💰 Pontos gerados", "sem meta",
+         lambda l: (f'{_n_br(l["criadas_pts"])}', None)),
+        ("🔎 Garimpando", "sem meta",
+         lambda l: (_fmt_hm(l["busca_min"]) if l["busca_min"] else "—", None)),
+        ("⏱️ Por demanda", "sem meta",
+         lambda l: (_fmt_hm(l["por_demanda"]) if l["por_demanda"] else "—", None)),
+    ]
 
-    _th = ('padding:9px 10px;font-size:11px;font-weight:700;'
-           'text-align:center;white-space:nowrap;')
-    cab = ('<th style="padding:9px 10px;font-size:9px;text-align:left;'
-           'text-transform:uppercase;letter-spacing:.4px;'
-           'color:var(--ms-texto-sec);">Meta</th>')
-    for i, l in enumerate(cols, start=1):
-        _m = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}º"
-        cab += f'<th style="{_th}">{_m} {_esc(l["nome"])}</th>'
+    # Cabecalho e celula usam o MESMO alinhamento e o mesmo padding: e isso que
+    # poe o titulo em cima do numero, e nao ao lado dele.
+    _pad = "padding:8px 12px;"
+    cab = (f'<th style="{_pad}text-align:left;font-size:9px;'
+           f'text-transform:uppercase;letter-spacing:.4px;'
+           f'color:var(--ms-texto-sec);white-space:nowrap;">Colaborador</th>')
+    for titulo, limite, _fn in COLUNAS:
+        cab += (f'<th style="{_pad}text-align:center;vertical-align:bottom;">'
+                f'<div style="font-size:10px;font-weight:700;'
+                f'color:var(--ms-texto);white-space:nowrap;">{titulo}</div>'
+                f'<div style="font-size:8.5px;font-weight:400;'
+                f'color:var(--ms-texto-sec);white-space:nowrap;">{limite}</div>'
+                f'</th>')
 
     corpo = ""
-    # ── indice geral, primeiro: e ele que ordena as colunas ──
-    corpo += _linha(
-        "🏁 Índice geral", "média dos critérios com meta",
-        [_cel(f'{l["score"]:.0f}%', None) for l in cols], destaque=True)
-    corpo += _linha(
-        "📈 Pontuação", "meta de cada um, somada no período",
-        [_cel(f'{_n_br(l["pts"])} pts',
-              l["meta"] > 0 and l["pts"] >= l["meta"]) for l in cols])
-    corpo += _linha(
-        "🎯 % da meta individual", f'entra na do time com {ctx["piso"]}%',
-        [_cel(f'{l["pct_meta"]:.0f}%' if l["meta"] > 0 else "—",
-              (l["pct_meta"] >= 100) if l["meta"] > 0 else None) for l in cols])
-    corpo += _linha(
-        "💤 Ociosidade", f'teto de {ctx["ocio_max"]:.0f}%',
-        [_cel(f'{l["ocio"]:.1f}%' if l["ocio"] is not None else "—",
-              (l["ocio"] < ctx["ocio_max"]) if l["ocio"] is not None else None)
-         for l in cols])
-    corpo += _linha(
-        "⚡ Tempo de execução", "contra o alvo do mês",
-        [_cel(f'{l["exec_real"]:.0f} min' if l["exec_real"] else "—",
-              (l["exec_real"] <= l["exec_alvo"])
-              if (l["exec_real"] and l["exec_alvo"]) else None) for l in cols])
-    corpo += _linha(
-        "🕐 Tolerâncias", f'teto de {ctx["lim_tol"]}',
-        [_cel(f'{l["tol"]:.0f}' if l["tol"] is not None else "—",
-              (l["tol"] <= ctx["lim_tol"]) if l["tol"] is not None else None)
-         for l in cols])
-    corpo += _linha(
-        "⏰ Atrasos", f'teto de {ctx["lim_atr"]}',
-        [_cel(f'{l["atr"]:.0f}' if l["atr"] is not None else "—",
-              (l["atr"] <= ctx["lim_atr"]) if l["atr"] is not None else None)
-         for l in cols])
-    corpo += _linha(
-        "🚫 Advertências", f'teto de {ctx["lim_adv"]}',
-        [_cel(f'{l["advs"]}', l["advs"] <= ctx["lim_adv"]) for l in cols])
-    corpo += _linha(
-        "🚪 Entra na meta do time", "coletiva · MAXX",
-        [_cel(("✅" if l["entra_col"] else "🚫") + " · "
-              + ("⭐" if l["entra_maxx"] else "—"), l["entra_col"])
-         for l in cols])
-
-    # ── sem meta: informacao, em cinza ──
-    corpo += (f'<tr><td colspan="{len(cols) + 1}" '
-              f'style="padding:10px 10px 3px;font-size:9px;'
-              f'text-transform:uppercase;letter-spacing:.4px;'
-              f'color:var(--ms-texto-sec);">sem meta — informação, não '
-              f'cobrança</td></tr>')
-    _tot_pts = sum(l["pts"] for l in linhas) or 1
-    corpo += _linha(
-        "🤝 Contribuição no time", "fatia dos pontos da equipe",
-        [_cel(f'{l["pts"] / _tot_pts * 100:.0f}%', None) for l in cols])
-    corpo += _linha(
-        "🗃️ Cartões criados", "demandas que ela abriu",
-        [_cel(f'{l["criadas"]}', None) for l in cols])
-    corpo += _linha(
-        "💰 Pontos gerados", "quanto valeram",
-        [_cel(f'{_n_br(l["criadas_pts"])}', None) for l in cols])
-    corpo += _linha(
-        "🔎 Tempo garimpando", "na coluna ANÁLISE DE DEMANDAS",
-        [_cel(_fmt_hm(l["busca_min"]) if l["busca_min"] else "—", None)
-         for l in cols])
-    corpo += _linha(
-        "⏱️ Tempo por demanda", "busca ÷ demandas abertas",
-        [_cel(_fmt_hm(l["por_demanda"]) if l["por_demanda"] else "—", None)
-         for l in cols])
+    for i, l in enumerate(ordenado, start=1):
+        _m = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}º"
+        fundo = "background:var(--ms-metric-bg);" if i % 2 else ""
+        celulas = ""
+        for _t, _lim, fn in COLUNAS:
+            txt, bateu = fn(l)
+            cor = CINZA if bateu is None else (VERDE if bateu else VERM)
+            celulas += (f'<td style="{_pad}text-align:center;font-size:12.5px;'
+                        f'font-weight:700;color:{cor};white-space:nowrap;">'
+                        f'{txt}</td>')
+        corpo += (
+            f'<tr style="{fundo}border-top:1px solid var(--ms-divisor);">'
+            f'<td style="{_pad}text-align:left;font-size:12.5px;'
+            f'font-weight:700;white-space:nowrap;">{_m} {_esc(l["nome"])}</td>'
+            + celulas + '</tr>')
 
     return (
         f'<div style="overflow-x:auto;">'
@@ -5292,10 +5272,11 @@ def _aba_comparativo(dados):
         'informação, não cobrança</span></div>', unsafe_allow_html=True)
     st.markdown(_rankings_por_topico(linhas, ctx), unsafe_allow_html=True)
 
-    # A tabela continua, fechada: o ranking responde "quem", e ela responde
-    # "quanto exatamente" — duas perguntas diferentes, e a segunda so aparece
-    # quando alguem quer conferir numero.
-    with st.expander("📋 Tabela completa — todos os indicadores lado a lado"):
+    # A tabela fica aberta: o ranking responde "quem" e ela responde "quanto",
+    # e as duas perguntas sao feitas na mesma visita. Fechada, a segunda exigia
+    # um clique que ninguem lembrava de dar.
+    with st.expander("📋 Tabela completa — todos os indicadores lado a lado",
+                     expanded=True):
         _op = ["Índice geral", "Pontuação", "Ociosidade", "Tempo de execução",
                "Tolerâncias", "Atrasos", "Advertências", "Demandas geradas",
                "Tempo por demanda"]
