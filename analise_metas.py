@@ -2443,8 +2443,8 @@ def _chart_pontuacao_meta(dados):
         labels, metas, maxx,
         label1="Meta Coletiva", label2="Meta MAXX",
         line_vals=saldos, linha_na_escala=True,
-        cor1="#4A90D9", cor2_fn=lambda i: "#FFD700", cor2="#FFD700",
-        cor_linha="#1BAF7A", label_linha="Realizado",
+        cor1="#4A90D9", cor2_fn=lambda i: "#1BAF7A", cor2="#1BAF7A",
+        cor_linha="#FF8A2B", label_linha="Realizado",
         melhor_idx=bi, melhor_txt=melhor_txt,
     )
     return html + f'<div style="text-align:right;font-size:9px;color:#EDA100;padding:0 4px 4px;">Média período: {avg_pct:.1f}%</div>'
@@ -2504,8 +2504,9 @@ def _chart_tempo_medio_equipe(dados):
 
     Duas barras e uma linha: a referência do mês e o alvo do mês são as barras,
     o tempo que as demandas realmente levaram é a linha. Aqui BAIXO é melhor —
-    a linha abaixo da barra dourada é o alvo batido. As cores mudam de
-    propósito, para não confundir com o gráfico de pontuação logo acima.
+    a linha abaixo da barra verde é o alvo batido. As barras repetem as cores
+    do gráfico de pontuação; o que separa os dois é a linha, laranja lá e
+    amarela aqui.
 
     Cada mês é medido contra o SEU alvo: mudar o alvo em outubro não pode
     repintar setembro.
@@ -2558,8 +2559,8 @@ def _chart_tempo_medio_equipe(dados):
         [l["ref"] for l in linhas], [l["alvo"] for l in linhas],
         label1="Referência", label2="Alvo do mês",
         line_vals=[l["real"] for l in linhas], linha_na_escala=True,
-        cor1="#7B68EE", cor2_fn=lambda i: "#EDA100", cor2="#EDA100",
-        cor_linha="#4AC9C0", label_linha="Realizado",
+        cor1="#4A90D9", cor2_fn=lambda i: "#1BAF7A", cor2="#1BAF7A",
+        cor_linha="#FFD400", label_linha="Realizado",
         fmt=_fmt_hm,
     )
     return html + (f'<div style="text-align:right;font-size:9px;color:{_cor_f};'
@@ -4340,17 +4341,17 @@ def _aba_desempenho(dados, dados_ano_full=None, carregar_periodo=None):
 
     with row1_col1:
         st.markdown("#### 📊 Pontuação Meta Coletiva")
-        st.caption("As duas metas do mês nas barras · o realizado na linha. "
-                   "Linha acima da barra azul, a Coletiva foi batida; acima da "
-                   "dourada, a MAXX.")
+        st.caption("As duas metas do mês nas barras · o realizado na linha "
+                   "laranja. Linha acima da barra azul, a Coletiva foi batida; "
+                   "acima da verde, a MAXX.")
         st.markdown(_chart_pontuacao_meta(dados_ano), unsafe_allow_html=True)
 
         # A outra metade do que a meta coletiva cobra: a pontuacao diz quanto
         # foi entregue, isto diz em quanto tempo. So aparecia por pessoa.
         st.markdown("##### ⏳ Tempo médio de execução da equipe")
         st.caption("Referência e alvo do mês nas barras · o tempo que as "
-                   "demandas realmente levaram na linha. Aqui **quanto mais "
-                   "baixo, melhor**: linha abaixo da barra dourada é o alvo "
+                   "demandas realmente levaram na linha amarela. Aqui **quanto "
+                   "mais baixo, melhor**: linha abaixo da barra verde é o alvo "
                    "batido.")
         st.markdown(_chart_tempo_medio_equipe(dados_ano), unsafe_allow_html=True)
 
