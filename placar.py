@@ -178,11 +178,10 @@ MEMBROS_ATIVOS = {
     "gabriel_borges": "Gabriel",
 }
 MASTERS = {"martinsousa", "renan"}
-LISTAS_SEM_PONTUACAO = {
-    "TABELA DE PONTUAÇÃO","TRIAGEM","CORREÇÃO DE FOTOS: 0 PONTOS",
-    "RENAN","GUSTAVO","MYRELLA","URGENTES!!!!","Vídeos pendentes",
-    "CRIAR ANÚNCIO","CRIAR ANÚNCIO DO ZERO",
-}
+# Vem do placar_core, e nao de uma copia. Estas duas listas ja estiveram
+# duplicadas aqui e foi assim que uma coluna renomeada no Trello virou coluna
+# fantasma no painel: o core sabia, esta copia nao.
+LISTAS_SEM_PONTUACAO = _pc_core.LISTAS_SEM_PONTUACAO
 LISTAS_PENALIDADE = {"PENALIDADES"}
 MESES_PT = {1:"Janeiro",2:"Fevereiro",3:"Março",4:"Abril",5:"Maio",
             6:"Junho",7:"Julho",8:"Agosto",9:"Setembro",10:"Outubro",
@@ -217,11 +216,7 @@ def _cfg_colunas():
     except Exception:
         pass
     return base
-COLUNAS_SKIP = {
-    "TABELA DE PONTUAÇÃO","TRIAGEM","PENALIDADES",
-    "RENAN","GUSTAVO","MYRELLA","Vídeos pendentes",
-    "CRIAR ANÚNCIO","CRIAR ANÚNCIO DO ZERO",
-}
+COLUNAS_SKIP = _pc_core.COLUNAS_SKIP
 CAPACIDADE_MIN = 390
 
 # ── Etiquetas e limiares para o campo Atenção ─────────────────────────────────

@@ -3058,6 +3058,7 @@ def _chart_linha_do_tempo(dados, username):
     exp_ini, exp_fim = _expediente(username)
     eixo_ini, eixo_fim = exp_ini, exp_fim
     total_min, n_exec = 0.0, 0
+    min_analise, n_analise = 0.0, 0
     for dia, lista in dias_exec.items():
         if not dia.startswith(pref):
             continue
@@ -3068,6 +3069,13 @@ def _chart_linha_do_tempo(dados, username):
                 m_fim = 24 * 60
             eixo_ini = min(eixo_ini, m_ini)
             eixo_fim = max(eixo_fim, m_fim)
+            # Busca de demanda entra no desenho e fica fora da conta: ela e
+            # trabalho, mas nao e execucao de demanda, e somar as duas faria o
+            # tempo medio de quem passou a manha procurando parecer alto.
+            if e.get("analise"):
+                n_analise += 1
+                min_analise += e["min"]
+                continue
             total_min += e["min"]
             n_exec += 1
     eixo_ini = (eixo_ini // 30) * 30
@@ -3152,7 +3160,12 @@ def _chart_linha_do_tempo(dados, username):
             y_topo, y_base = y(m_fim), y(m_ini)   # fim em cima, inicio embaixo
             alt = max(y_base - y_topo, 2.2)
             y_topo = y_base - alt
-            cor = "#8B5CF6" if e.get("tipo") == "filmagem" else "#4A90D9"
+            if e.get("analise"):
+                cor = "#7A8B99"          # cinza-azulado: presente, sem peso
+            elif e.get("tipo") == "filmagem":
+                cor = "#8B5CF6"
+            else:
+                cor = "#4A90D9"
             bx, blarg = x + 2.5, max(bw - 5, 2)
             tot = por_card.get(e["card"], {"min": e["min"], "n": 1})
             partes.append(
@@ -3185,13 +3198,15 @@ def _chart_linha_do_tempo(dados, username):
                 f'width:{blarg / W * 100:.3f}%;'
                 f'height:{(alt + 6) / H * 100:.3f}%;"></div>'
                 + _ficha_exec(e, tot, cx_pct, cy_pct, cor, cx_pct > 55))
-        if lista:
-            medias.append(sum(e["min"] for e in lista) / len(lista))
+        _exec_dia = [e for e in lista if not e.get("analise")]
+        if _exec_dia:
+            medias.append(sum(e["min"] for e in _exec_dia) / len(_exec_dia))
         passo = 1 if ultimo <= 12 else 2
         if d == 1 or d % passo == 0:
             partes.append(
                 f'<text x="{x+bw/2:.1f}" y="{base+11:.1f}" text-anchor="middle" '
                 f'font-size="7" fill="var(--ms-texto-sec,#888)">{d}</text>')
+        _exec_dia = [e for e in lista if not e.get("analise")]
 
     # As tres contagens embaixo do eixo. Vinham de um grafico separado que
     # repetia em barra o tempo que os blocos ja mostram; so as contagens tinham
@@ -3231,12 +3246,16 @@ def _chart_linha_do_tempo(dados, username):
         f'<span>média por cartão <b style="color:#4A90D9;">'
         f'{_fmt_hm(media_geral)}</b></span>'
         f'<span>média diária <b style="color:#4A90D9;">{_fmt_hm(media_dia)}</b></span>'
-        f'</div>')
+        + (f'<span style="color:#7A8B99;">busca de demanda '
+           f'<b>{_fmt_hm(min_analise)}</b> em {n_analise} trecho(s) · '
+           f'fora da média</span>' if n_analise else "")
+        + '</div>')
     leg = ('<div style="font-size:9px;color:var(--ms-texto-sec);margin-top:3px;">'
            '<span style="color:#1BAF7A;font-weight:700;">▬</span> início · '
            '<span style="color:#E34948;font-weight:700;">▬</span> fim · '
            '<span style="color:#4A90D9;font-weight:700;">■</span> em andamento · '
            '<span style="color:#8B5CF6;font-weight:700;">■</span> filmagem · '
+           '<span style="color:#7A8B99;font-weight:700;">■</span> busca de demanda · '
            'fundo escuro = fora do expediente ou fim de semana · '
            'passe o mouse num bloco para ver o cartão</div>')
     if parados:

@@ -84,11 +84,23 @@ def recarregar_membros():
     MAPA_RHID.update(mapa)
     return True
 MASTERS = {"martinsousa", "renan"}
+# Garimpar demanda e trabalho, mas nao e execucao de demanda. O colaborador abre
+# um cartao por dia nesta coluna e alterna EM ANDAMENTO / INTERROMPIDO conforme
+# volta a procurar; se esse tempo entrasse na media, o tempo de execucao dele
+# subiria por ter passado a manha procurando trabalho.
+#
+# Sai da pontuacao, da fila, dos contadores de aberto e falta de pontuacao, e da
+# media de execucao. NAO sai da ociosidade, de proposito: a pessoa esta no lugar,
+# trabalhando -- tirar dali transformaria a busca em tempo parado.
+#
+# As duas escritas sao aceitas porque quem cria a coluna digita no Trello.
+LISTAS_ANALISE = {"ANÁLISE DE DEMANDAS", "ANALISE DE DEMANDAS"}
+
 LISTAS_SEM_PONTUACAO = {
     "TABELA DE PONTUAÇÃO","TRIAGEM","CORREÇÃO DE FOTOS: 0 PONTOS",
     "RENAN","GUSTAVO","MYRELLA","URGENTES!!!!","Vídeos pendentes",
     "CRIAR ANÚNCIO","CRIAR ANÚNCIO DO ZERO",
-}
+} | LISTAS_ANALISE
 LISTAS_PENALIDADE = {"PENALIDADES"}
 MESES_PT = {1:"Janeiro",2:"Fevereiro",3:"Março",4:"Abril",5:"Maio",
             6:"Junho",7:"Julho",8:"Agosto",9:"Setembro",10:"Outubro",
@@ -132,7 +144,7 @@ COLUNAS_SKIP = {
     "TABELA DE PONTUAÇÃO","TRIAGEM","PENALIDADES",
     "RENAN","GUSTAVO","MYRELLA","Vídeos pendentes",
     "CRIAR ANÚNCIO","CRIAR ANÚNCIO DO ZERO",
-}
+} | LISTAS_ANALISE
 CAPACIDADE_MIN = 390
 
 # ── API ────────────────────────────────────────────────────────────────────────
@@ -1280,7 +1292,11 @@ def execucoes_por_dia(cards, acoes_board, membros_map=None, agora=None,
                 fim_p = min(virada, fim_l)
                 reg = {"card": nome, "lista": col, "ini": cursor, "fim": fim_p,
                        "min": (fim_p - cursor).total_seconds() / 60.0,
-                       "tipo": s.get("tipo", "andamento")}
+                       "tipo": s.get("tipo", "andamento"),
+                       # Busca de demanda aparece na linha do tempo -- e
+                       # trabalho, e o dia nao pode parecer vazio --, mas fica
+                       # fora da media: ela mede execucao de demanda.
+                       "analise": col in LISTAS_ANALISE}
                 for m in s["membros"]:
                     u = membros_map.get(m, m)
                     (por.setdefault(u, {})
