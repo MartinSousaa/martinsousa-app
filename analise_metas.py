@@ -938,6 +938,149 @@ ESCADA_ADVERTENCIA = [
 ADV_NEUTRO = "#8a8a8a"   # zero advertências: sem cor de alerta nenhuma
 
 
+def _elegibilidade(dados, users):
+    """Quem entrou na meta do time neste período, e por quê não, quando não.
+
+    {username: {"pts","meta","pct","advs","lim_adv_n","lim_adv_x",
+                "entra_col","entra_maxx","motivos_col","motivos_maxx"}}
+
+    Bater a meta do time é do time; ENTRAR nela é de cada um. São dois
+    porteiros: o piso de contribuição sobre a PRÓPRIA meta individual (80% para
+    a coletiva, 100% para a MAXX) e o teto de advertências (2 e 1).
+
+    Uma função só, porque a mesma conta decide três coisas: o que o card de cada
+    pessoa mostra, quanto a calculadora de ganhos paga e quem aparece de fora no
+    relatório. Três contas separadas para a mesma pergunta é como as telas
+    passam a discordar entre si.
+    """
+    if not dados:
+        return {}
+    cfg = dados[-1]["cfg"]
+    n_meses = max(1, len(dados))
+    min_n = int(cfg.get("min_contrib_normal", 80) or 0)
+    min_x = int(cfg.get("min_contrib_maxx", 100) or 0)
+    lim_n = int(cfg.get("max_adv_normal", 2) or 0) * n_meses
+    lim_x = int(cfg.get("max_adv_maxx", 1) or 0) * n_meses
+
+    fora = {}
+    for u in users:
+        pts = sum(r["pts_membro"].get(u, 0) for r in dados)
+        meta = sum(r["cfg"].get(f"meta_{u}", 1500) for r in dados)
+        advs = sum(int(r["cfg"].get(f"adv_{u}", 0) or 0) for r in dados)
+        pct = (pts / meta * 100) if meta > 0 else 0.0
+
+        mot_col, mot_mx = [], []
+        if pct < min_n:
+            mot_col.append(f"{pct:.0f}% da meta individual (mín. {min_n}%)")
+        if advs > lim_n:
+            mot_col.append(f"{advs} advertência(s) (máx. {lim_n})")
+        if pct < min_x:
+            mot_mx.append(f"{pct:.0f}% da meta individual (mín. {min_x}%)")
+        if advs > lim_x:
+            mot_mx.append(f"{advs} advertência(s) (máx. {lim_x})")
+
+        fora[u] = {
+            "pts": pts, "meta": meta, "pct": pct, "advs": advs,
+            "min_n": min_n, "min_x": min_x,
+            "lim_adv_n": lim_n, "lim_adv_x": lim_x,
+            "entra_col": not mot_col, "entra_maxx": not mot_mx,
+            "motivos_col": mot_col, "motivos_maxx": mot_mx,
+        }
+    return fora
+
+
+def _secao_elegibilidade(dados, membros_ativos):
+    """Relatório: quem entra na remuneração da meta do time, e quem não.
+
+    O card de cada pessoa já dizia isso, um de cada vez. Faltava a lista — a
+    pergunta do fechamento do mês não é "como está a Myrella", é "quem entra".
+    """
+    users = list(membros_ativos.keys())
+    eleg = _elegibilidade(dados, users)
+    if not eleg:
+        return
+    r = dados[-1]
+    pct_eq, pct_maxx = r["pct_mensal"], r["pct_maxx"]
+    algum = next(iter(eleg.values()))
+
+    st.markdown("#### 🚪 Quem entra na remuneração da meta do time")
+    st.caption(
+        f"Bater a meta é do time; **entrar nela é de cada um**. São duas "
+        f"condições, cobradas sobre a própria meta individual: contribuir com "
+        f"**{algum['min_n']}%** para a coletiva e **{algum['min_x']}%** para a "
+        f"MAXX, e não passar de **{algum['lim_adv_n']}** e "
+        f"**{algum['lim_adv_x']}** advertência(s) no período. Quem fica de fora "
+        f"não recebe a metade do time — a metade individual continua sendo do "
+        f"resultado dele."
+    )
+    _situacao = []
+    if pct_eq < 100:
+        _situacao.append("o time ainda não bateu a meta coletiva")
+    if pct_maxx < 100:
+        _situacao.append("nem a MAXX")
+    if _situacao:
+        st.caption("Neste período " + " e ".join(_situacao)
+                   + " — a lista abaixo mostra quem estaria dentro se batesse.")
+
+    def _selo(ok, motivos):
+        if ok:
+            return ('<span style="color:#1BAF7A;font-weight:700;">✅ entra</span>')
+        return ('<span style="color:#E34948;font-weight:700;">❌ fora</span>'
+                '<div style="font-size:9px;color:var(--ms-texto-sec);'
+                'margin-top:2px;">' + "<br>".join(_esc(m) for m in motivos)
+                + '</div>')
+
+    linhas = ""
+    for u in sorted(users, key=lambda x: -eleg[x]["pct"]):
+        e = eleg[u]
+        cor_pct = ("#1BAF7A" if e["pct"] >= e["min_x"]
+                   else "#EDA100" if e["pct"] >= e["min_n"] else "#E34948")
+        cor_adv = ("#E34948" if e["advs"] > e["lim_adv_n"]
+                   else "#EDA100" if e["advs"] > e["lim_adv_x"]
+                   else "var(--ms-texto)")
+        linhas += (
+            f'<tr style="border-top:1px solid var(--ms-divisor);">'
+            f'<td style="padding:8px;font-size:12px;font-weight:600;">'
+            f'{_esc(membros_ativos.get(u, u))}</td>'
+            f'<td style="padding:8px;font-size:12px;text-align:right;'
+            f'font-variant-numeric:tabular-nums;">'
+            f'{e["pts"]:,.0f} / {e["meta"]:,.0f}</td>'
+            f'<td style="padding:8px;font-size:13px;text-align:right;'
+            f'font-weight:700;color:{cor_pct};">{e["pct"]:.0f}%</td>'
+            f'<td style="padding:8px;font-size:12px;text-align:center;'
+            f'color:{cor_adv};font-weight:600;">{e["advs"]}</td>'
+            f'<td style="padding:8px;font-size:12px;">'
+            f'{_selo(e["entra_col"], e["motivos_col"])}</td>'
+            f'<td style="padding:8px;font-size:12px;">'
+            f'{_selo(e["entra_maxx"], e["motivos_maxx"])}</td></tr>'
+        ).replace(",", ".")
+
+    _th = ('padding:6px 8px;font-size:8.5px;text-transform:uppercase;'
+           'letter-spacing:.08em;color:var(--ms-texto-sec);font-weight:400;')
+    st.markdown(
+        f'<div style="background:var(--ms-metric-bg);border:1px solid '
+        f'var(--ms-metric-bd);border-radius:10px;overflow-x:auto;">'
+        f'<table style="width:100%;border-collapse:collapse;min-width:620px;">'
+        f'<thead><tr>'
+        f'<th style="{_th}text-align:left;">Colaborador</th>'
+        f'<th style="{_th}text-align:right;">Pontos / meta</th>'
+        f'<th style="{_th}text-align:right;">% da meta</th>'
+        f'<th style="{_th}text-align:center;">Advert.</th>'
+        f'<th style="{_th}text-align:left;">Meta Coletiva</th>'
+        f'<th style="{_th}text-align:left;">Meta MAXX</th>'
+        f'</tr></thead><tbody>{linhas}</tbody></table></div>',
+        unsafe_allow_html=True)
+
+    _fora_col = [membros_ativos.get(u, u) for u in users
+                 if not eleg[u]["entra_col"]]
+    if _fora_col:
+        st.markdown(
+            f'<div style="margin-top:8px;background:#E3494815;border:1px solid '
+            f'#E34948;border-radius:8px;padding:9px 13px;font-size:12px;">'
+            f'<b style="color:#E34948;">🚫 Fora da meta coletiva:</b> '
+            f'{_esc(", ".join(_fora_col))}</div>', unsafe_allow_html=True)
+
+
 def _item_advertencia(advs, limite_mes, n_meses=1):
     """Card de advertências: a escada disciplinar, com o degrau atual aceso.
 
@@ -1480,13 +1623,15 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
             #
             # Os porteiros valem sobre a METADE DO TIME. A metade individual
             # continua sendo do proprio resultado de cada um.
-            _pct_ind_real = (pts / meta_ind * 100) if meta_ind > 0 else 0.0
-            _lim_adv_n = _max_adv_n * _n_meses
-            _lim_adv_x = _max_adv_x * _n_meses
-            _entra_col  = (_pct_ind_real >= _min_contrib_n
-                           and _advs <= _lim_adv_n)
-            _entra_maxx = (_pct_ind_real >= _min_contrib_x
-                           and _advs <= _lim_adv_x)
+            # A mesma conta do relatorio de elegibilidade, e nao uma copia
+            # dela: duas contas para a mesma pergunta e como a tela do
+            # colaborador passa a discordar da lista do gestor.
+            _el = _elegibilidade(dados, [username]).get(username, {})
+            _pct_ind_real = _el.get("pct", 0.0)
+            _lim_adv_n = _el.get("lim_adv_n", 0)
+            _lim_adv_x = _el.get("lim_adv_x", 0)
+            _entra_col = _el.get("entra_col", False)
+            _entra_maxx = _el.get("entra_maxx", False)
 
             meta_col_batida  = pct_eq   >= 100 and _entra_col
             meta_maxx_batida = pct_maxx >= 100 and _entra_maxx
@@ -3881,6 +4026,15 @@ def _aba_desempenho(dados, dados_ano_full=None, carregar_periodo=None):
         st.markdown("#### 🎯 Índices Meta Coletiva")
         st.caption("Os seis tópicos cobrados na meta, para a Coletiva e para a MAXX.")
         st.markdown(_chart_indices_meta(dados), unsafe_allow_html=True)
+
+    # Largura inteira: e uma tabela de seis colunas, e em meia tela os motivos
+    # de quem ficou de fora quebram em quatro linhas cada.
+    st.markdown("---")
+    try:
+        _secao_elegibilidade(dados, _pc.MEMBROS_ATIVOS)
+    except Exception as _e_el:
+        st.warning(f"Não consegui montar o relatório de elegibilidade: "
+                   f"{str(_e_el)[:150]}")
 
     st.markdown("---")
 
