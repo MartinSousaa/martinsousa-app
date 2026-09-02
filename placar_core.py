@@ -997,6 +997,39 @@ def _janelas_uteis(ini_local, fim_local, username=None):
     return janelas
 
 
+def previsao_termino(inicio, minutos_uteis, username=None, limite_dias=90):
+    """Quando um trabalho de `minutos_uteis` termina, no calendario de verdade.
+
+    A fila somava os minutos no relogio de parede: seis horas de fila as 17h
+    caiam as 23h, hora em que ninguem trabalha. O prazo era comparado com uma
+    data que nao existe. E nao era so feriado -- errava toda noite e todo fim de
+    semana.
+
+    Aqui a previsao ANDA pelas janelas de expediente, que ja excluem o almoco, o
+    fim de semana e as horas abonadas. Emenda de feriado e ferias coletivas
+    empurram a entrega junto, sem conta separada.
+
+    Devolve None quando nao termina dentro de `limite_dias` -- e o caso de fila
+    grande demais, que merece outra conversa e nao uma data inventada.
+    """
+    if minutos_uteis <= 0:
+        return inicio
+    restante = float(minutos_uteis)
+    dia = inicio.astimezone(FUSO).date()
+    for _ in range(limite_dias):
+        fim_dia = datetime.combine(dia, time(23, 59, 59), tzinfo=FUSO)
+        for ja, jb in _janelas_uteis(inicio.astimezone(FUSO), fim_dia, username):
+            if jb <= inicio:
+                continue
+            cabe = (jb - max(ja, inicio)).total_seconds() / 60
+            if cabe >= restante:
+                return max(ja, inicio) + timedelta(minutes=restante)
+            restante -= cabe
+        dia += timedelta(days=1)
+        inicio = datetime.combine(dia, time(0, 0), tzinfo=FUSO)
+    return None
+
+
 _tempos_cache = {}   # chave -> {"ts": float, "data": {...}}
 
 

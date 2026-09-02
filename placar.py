@@ -404,7 +404,15 @@ def _calcular_fila(listas,cards,membros_map):
         p["eta_serie_min"] = acum          # se uma pessoa so fizesse tudo
         p["eta_min"] = acum / _equipe      # com a equipe trabalhando junto
         p["entrega"] = _data_entrega_card(p["card_id"], cards)
-        p["estoura_prazo"] = _estoura_prazo(p["entrega"], p["eta_min"])
+        # A previsao ANDA pelo calendario de trabalho em vez de somar minutos no
+        # relogio de parede: seis horas de fila as 17h caiam as 23h, hora em que
+        # ninguem trabalha, e o prazo era comparado com uma data que nao existe.
+        # Passando pelas janelas, a noite, o fim de semana, o feriado lancado e
+        # a queda de internet empurram a entrega junto.
+        p["previsao"] = _pc_fila.previsao_termino(
+            datetime.now(timezone.utc), p["eta_min"])
+        p["estoura_prazo"] = bool(
+            p["entrega"] and p["previsao"] and p["previsao"] > p["entrega"])
     return pendentes
 
 
@@ -415,13 +423,6 @@ def _data_entrega_card(card_id, cards):
             return _pc_dt._data_entrega(c)
     return None
 
-
-def _estoura_prazo(entrega, eta_min):
-    """Se a fila nao alcanca o prazo: previsao de inicio + execucao passa da entrega."""
-    if not entrega:
-        return False
-    from datetime import timedelta as _td
-    return datetime.now(timezone.utc) + _td(minutes=eta_min) > entrega
 
 def _fmt_tempo(m):
     if m<60: return f"{int(m)}min"
@@ -763,19 +764,40 @@ def _barra(nome,pts,meta,pen):
             f'{pen_h}</div>')
 
 def _fila_html(item):
+    import placar_core as _pc_prev
     p=item["prioridade"]; urg=item.get("is_urgente",False) or p>=10
     cor="#E34948" if p>=10 else ("#EDA100" if p>=8 else ("#1BAF7A" if p>=6 else "#888"))
     extra_class="fila-card-urgente" if urg else ""
     urg_badge='<span style="font-size:8px;font-weight:700;color:#E34948;background:rgba(227,73,72,0.15);padding:1px 5px;border-radius:3px;margin-left:6px;">🚨 URGENTE</span>' if urg else ""
     nome=item["nome"][:50]+"..." if len(item["nome"])>50 else item["nome"]
     lista=item["lista"][:32]+"..." if len(item["lista"])>32 else item["lista"]
+    # A previsao em data, e nao so o "~2h30". Duas horas de fila numa
+    # sexta as 17h nao terminam na sexta, e era isso que o numero sozinho
+    # escondia: com feriado ou queda lancados, a data anda e o "~2h30" nao.
+    prev = item.get("previsao")
+    if prev:
+        _pl = prev.astimezone(_pc_prev.FUSO) if hasattr(prev, "astimezone") else prev
+        _hoje = datetime.now(_pc_prev.FUSO).date()
+        if _pl.date() == _hoje:
+            _quando = f"hoje {_pl:%H:%M}"
+        elif (_pl.date() - _hoje).days == 1:
+            _quando = f"amanhã {_pl:%H:%M}"
+        else:
+            _quando = f"{_pl:%d/%m} {_pl:%H:%M}"
+        _cor_p = "#E34948" if item.get("estoura_prazo") else "var(--ms-texto-sec)"
+        _prev_h = (f'<div style="font-size:8.5px;color:{_cor_p};margin-top:1px;">'
+                   f'previsão {_quando}'
+                   + (" · estoura o prazo" if item.get("estoura_prazo") else "")
+                   + '</div>')
+    else:
+        _prev_h = ""
     return f"""<div class="fila-card {extra_class}" style="border-left-color:{cor};">
   <div class="fila-pos" style="color:{cor};">{item['posicao']}°</div>
   <div class="fila-info">
     <div class="fila-nome">{nome}{urg_badge}</div>
     <div class="fila-meta">{lista} · {item['membros']} · P{p}</div>
   </div>
-  <div class="fila-eta" style="color:{cor};">~{_fmt_tempo(item['eta_min'])}</div>
+  <div class="fila-eta" style="color:{cor};">~{_fmt_tempo(item['eta_min'])}{_prev_h}</div>
 </div>"""
 
 # ── TV MODE HELPERS ────────────────────────────────────────────────────────────
