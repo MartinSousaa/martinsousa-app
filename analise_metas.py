@@ -1155,7 +1155,68 @@ def _item_advertencia(advs, limite_mes, n_meses=1):
     return _meta_ind_item(rotulo, pct, corpo, cor=cor, valor_texto=f"{advs:.0f}")
 
 
-def _item_contribuicao(pts, meta, piso):
+def _n_br(v):
+    """1500 -> "1.500". O separador brasileiro sem o .replace(",", ".") do bloco
+    inteiro, que já trocou vírgula de texto por ponto no meio de frase."""
+    return f"{v:,.0f}".replace(",", ".")
+
+
+def _dias_uteis_periodo(dados, hoje=None):
+    """(dias_úteis, já_decorridos) somando os meses do período analisado.
+
+    Mês corrente conta até hoje; mês fechado conta inteiro. Mês que ainda não
+    começou fica de fora dos dois — contar dias que não existem faria o ritmo
+    exigido parecer menor do que é.
+    """
+    hoje = hoje or datetime.now()
+    uteis = dec = 0
+    for r in dados or []:
+        fm = r.get("filtro_mes")
+        if not fm:
+            continue
+        ano, mes = int(fm[0]), int(fm[1])
+        if (ano, mes) > (hoje.year, hoje.month):
+            continue
+        ate = hoje.day if (ano, mes) == (hoje.year, hoje.month) else None
+        t, d = _pc.dias_uteis_do_mes(ano, mes, ate)
+        uteis += t
+        dec += d
+    return uteis, dec
+
+
+def _ritmo_entrada(pts, exigido, uteis, decorridos):
+    """Ritmo diário contra o piso de entrada na meta, ou None sem base.
+
+    A pergunta que o piso de 80% não responde sozinho: no dia 2 do mês, ter 8%
+    da meta não é estar mal — é estar adiantado. O que dá para cobrar de alguém
+    hoje é o pedaço do piso que os dias já corridos pedem, e é isso que vira a
+    cor: abaixo do esperado vermelho, no esperado amarelo, acima verde — a mesma
+    régua do velocímetro da Meta Mensal.
+    """
+    if uteis <= 0 or exigido <= 0:
+        return None
+    decorridos = max(0, min(decorridos, uteis))
+    restantes = uteis - decorridos
+    esperado = exigido / uteis * decorridos
+    falta = max(exigido - pts, 0.0)
+    pct = ((pts - esperado) / esperado * 100) if esperado > 0 else 0.0
+    if decorridos <= 0:
+        estado, cor = "inicio", ADV_NEUTRO
+    elif pct > 10:
+        estado, cor = "acima", "#1BAF7A"
+    elif pct < -10:
+        estado, cor = "abaixo", "#E34948"
+    else:
+        estado, cor = "dentro", "#EDA100"
+    return {"uteis": uteis, "decorridos": decorridos, "restantes": restantes,
+            "esperado": esperado, "falta": falta, "pct": pct,
+            "por_dia_alvo": exigido / uteis,
+            "por_dia_real": (pts / decorridos) if decorridos else 0.0,
+            "por_dia_falta": (falta / restantes) if restantes else falta,
+            "cor": cor, "estado": estado}
+
+
+def _item_contribuicao(pts, meta, piso, ritmo=None):
     """Card do piso de participação: entregou o bastante para entrar na meta?
 
     Bater a meta do time é do time; ENTRAR nela é de cada um. Quem não chega a
@@ -1178,6 +1239,12 @@ def _item_contribuicao(pts, meta, piso):
     # os mesmos cortes da pontuação do mês.
     if pct_ind >= piso:
         cor, fecho = "#1BAF7A", "✅ Participa desta meta"
+    elif ritmo and ritmo["restantes"] > 0 and ritmo["estado"] in ("acima", "dentro"):
+        # No dia 2 do mês ninguém tem 80% da meta, e pintar isso de vermelho
+        # dizia à pessoa que ela está fora quando ela está adiantada. Com o mês
+        # correndo, quem manda é o ritmo — e o texto diz que ainda não entrou.
+        cor = ritmo["cor"]
+        fecho = f"ainda não — no ritmo · faltam {exigido - pts:,.0f} pts"
     elif pct_ind >= piso * 0.9:
         cor, fecho = "#EDA100", f"faltam {exigido - pts:,.0f} pts para entrar"
     else:
@@ -1186,6 +1253,11 @@ def _item_contribuicao(pts, meta, piso):
     escala = (max(pts, exigido) * 1.12) or 1
     sobra = max(0, pts - exigido)
     _x_min = exigido / escala * 100
+    # Só faz sentido enquanto o período corre: com ele fechado, "hoje" é o
+    # próprio mínimo e as duas marcas cairiam uma em cima da outra.
+    _x_hoje = (ritmo["esperado"] / escala * 100
+               if ritmo and ritmo["restantes"] > 0 and ritmo["decorridos"] > 0
+               else None)
 
     barra = (
         f'<div style="height:14px;border-radius:7px;background:var(--ms-metric-bd);'
@@ -1198,11 +1270,23 @@ def _item_contribuicao(pts, meta, piso):
            f'border-radius:0 7px 7px 0;"></div>' if sobra > 0 else "")
         + f'<div style="position:absolute;top:-5px;bottom:-5px;left:{_x_min:.1f}%;'
         f'width:3px;margin-left:-1.5px;border-radius:2px;'
-        f'background:var(--ms-texto);"></div></div>'
+        f'background:var(--ms-texto);"></div>'
+        # A marca de "hoje": o pedaço do mínimo que os dias já corridos pedem.
+        # Sem ela a barra respondia "quanto falta" e não "estou no ritmo?", que
+        # é a pergunta de quem olha isso no dia 2 do mês.
+        + (f'<div style="position:absolute;top:-3px;bottom:-3px;'
+           f'left:{_x_hoje:.1f}%;width:2px;margin-left:-1px;border-radius:2px;'
+           f'background:var(--ms-texto-sec);opacity:.85;"></div>'
+           if _x_hoje is not None else "")
+        + '</div>'
         f'<div style="position:relative;height:12px;margin-bottom:3px;">'
         f'<span style="position:absolute;left:{_x_min:.1f}%;transform:translateX(-50%);'
         f'font-size:8px;font-weight:700;white-space:nowrap;color:var(--ms-texto);">'
         f'▲ mínimo</span>'
+        + (f'<span style="position:absolute;left:{_x_hoje:.1f}%;'
+           f'transform:translateX(-50%);font-size:8px;white-space:nowrap;'
+           f'color:var(--ms-texto-sec);">▲ hoje</span>'
+           if _x_hoje is not None else "")
         + (f'<span style="position:absolute;right:0;font-size:8px;font-weight:700;'
            f'color:{OURO};">+{sobra:,.0f} pts acima</span>' if sobra > 0 else "")
         + '</div>'
@@ -1219,8 +1303,51 @@ def _item_contribuicao(pts, meta, piso):
         f'font-size:9px;color:var(--ms-texto-sec);">'
         f'<span>mínimo <b style="color:var(--ms-texto);">{exigido:,.0f}</b> de '
         f'{meta:,.0f} pts</span>'
-        f'<span style="color:{cor};font-weight:600;">{fecho}</span></div></div>'
+        f'<span style="color:{cor};font-weight:600;">{fecho}</span></div>'
+        + _rodape_ritmo(ritmo, pts) + '</div>'
     ).replace(",", ".")
+
+
+def _rodape_ritmo(ritmo, pts):
+    """As três linhas do ritmo diário embaixo do card de participação.
+
+    Quanto o piso pede por dia útil, quanto a pessoa vem fazendo por dia, e o
+    que sobra dividido pelos dias que ainda existem. É a conta que ela faria na
+    mão para saber se dá — feita aqui, com os feriados já descontados.
+    """
+    if not ritmo or ritmo["decorridos"] <= 0:
+        return ""
+    _cor_r = ritmo["cor"]
+    _dif = pts - ritmo["esperado"]
+    if ritmo["estado"] == "acima":
+        _diag = f"{_dif:,.0f} pts ADIANTADO"
+    elif ritmo["estado"] == "dentro":
+        _diag = "no ritmo esperado"
+    else:
+        _diag = f"{-_dif:,.0f} pts atrás do ritmo"
+    if ritmo["falta"] <= 0:
+        _fecho_r = "mínimo já garantido"
+    elif ritmo["restantes"] > 0:
+        _fecho_r = (f"faltam {ritmo['falta']:,.0f} pts em "
+                    f"{ritmo['restantes']} dia(s) útil(eis) = "
+                    f"<b style=\'color:var(--ms-texto);\'>"
+                    f"{ritmo['por_dia_falta']:,.0f} pts/dia</b>")
+    else:
+        _fecho_r = f"faltaram {ritmo['falta']:,.0f} pts"
+    return (
+        f'<div style="margin-top:7px;padding-top:6px;border-top:1px solid '
+        f'var(--ms-divisor);font-size:9px;color:var(--ms-texto-sec);'
+        f'line-height:1.75;">'
+        f'<div>ritmo necessário <b style="color:var(--ms-texto);">'
+        f'{ritmo["por_dia_alvo"]:,.0f} pts/dia útil</b> · seu ritmo '
+        f'<b style="color:{_cor_r};">{ritmo["por_dia_real"]:,.0f} pts/dia</b> '
+        f'· <span style="color:{_cor_r};font-weight:600;">{_diag}</span></div>'
+        f'<div>esperado até hoje <b style="color:var(--ms-texto);">'
+        f'{ritmo["esperado"]:,.0f} pts</b> em {ritmo["decorridos"]} de '
+        f'{ritmo["uteis"]} dias úteis · você tem '
+        f'<b style="color:var(--ms-texto);">{pts:,.0f}</b></div>'
+        f'<div>{_fecho_r}</div></div>'
+    )
 
 
 def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master=False):
@@ -1531,14 +1658,21 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
         # teto de um mes so acusaria quem esta dentro da regra.
         _n_meses = max(1, len(dados))
         _advs = sum(int(r["cfg"].get(f"adv_{username}", 0) or 0) for r in dados)
+        _uteis_ent, _dec_ent = _dias_uteis_periodo(dados)
 
         def _it_advertencia(limite_mes):
             st.markdown(_item_advertencia(_advs, limite_mes, _n_meses),
                         unsafe_allow_html=True)
 
         def _it_contribuicao(piso):
-            st.markdown(_item_contribuicao(pts, meta, piso),
-                        unsafe_allow_html=True)
+            # O mesmo ritmo diario da secao "Entrar na meta do time": a pergunta
+            # e a mesma nos dois lugares, e responder de dois jeitos e como as
+            # telas passam a discordar.
+            st.markdown(_item_contribuicao(
+                pts, meta, piso,
+                ritmo=_ritmo_entrada(pts, meta * piso / 100,
+                                     _uteis_ent, _dec_ent)),
+                unsafe_allow_html=True)
 
         def _it_contagem(rotulo, usado, limite, detalhe=""):
             """Card de tolerância ou atraso contra UM limite — o mensal ou o da MAXX."""
@@ -3921,6 +4055,14 @@ def _desempenho_individual(dados, username, nome, carregar_periodo=None):
     _tol_lim = int(_cfg_ult.get("max_tol_normal", 15)) * _n_meses_ponto
     _atr_lim = int(_cfg_ult.get("max_atr_normal", 10)) * _n_meses_ponto
 
+    # A entrada na meta vem primeiro: antes de olhar grafico nenhum, a pergunta
+    # e "eu recebo pela meta deste mes?".
+    try:
+        _secao_entrada_meta(dados, username, nome)
+        st.markdown("---")
+    except Exception as _e_ent:
+        st.warning(f"Não consegui montar a entrada na meta: {str(_e_ent)[:150]}")
+
     row1a, row1b = st.columns(2)
     with row1a:
         st.markdown(f"#### 📊 Pontuação — {nome}")
@@ -4011,7 +4153,117 @@ def _desempenho_individual(dados, username, nome, carregar_periodo=None):
         st.markdown(_chart_ind_destaques(meses, dados, username), unsafe_allow_html=True)
 
 
-def _aba_desempenho(dados, dados_ano_full=None, carregar_periodo=None):
+def _secao_entrada_meta(dados, username, nome):
+    """Os dois porteiros da meta, explicados, para uma pessoa só.
+
+    Bater a meta é do time; ENTRAR nela é de cada um — 80% da própria meta
+    individual para a coletiva, 100% para a MAXX, e o teto de advertências nos
+    dois. Isso vivia numa tabela com a equipe inteira, na visão coletiva: quem
+    quisesse saber da própria situação lia a dos outros junto, e a tabela dizia
+    "fora" sem dizer o que falta fazer para entrar.
+
+    Aqui é a de uma pessoa só, com o ritmo diário: o que o piso pede por dia
+    útil, o que ela vem fazendo por dia e quanto sobra por dia até o fim do
+    período — a mesma leitura das outras metas.
+    """
+    if not dados:
+        return
+    el = _elegibilidade(dados, [username]).get(username)
+    if not el:
+        return
+
+    st.markdown(f"#### 🚪 Entrar na meta do time — {_esc(nome)}")
+    st.caption(
+        "Bater a meta é do time. **Entrar nela é seu**: quem não chega ao "
+        "mínimo da própria meta individual não recebe pela meta do mês, ainda "
+        "que o time feche. São dois porteiros, e os dois valem para a Coletiva "
+        f"(**{el['min_n']}%** da sua meta, até **{el['lim_adv_n']}** "
+        f"advertência(s) no período) e para a MAXX (**{el['min_x']}%**, até "
+        f"**{el['lim_adv_x']}**)."
+    )
+
+    uteis, decorridos = _dias_uteis_periodo(dados)
+    meta, pts = el["meta"], el["pts"]
+    # O limite que o card da escada recebe é o MENSAL: ele mesmo multiplica
+    # pelos meses. `el` já traz o do período — passar aquele aqui dobraria o
+    # teto num filtro de trimestre.
+    _n_m = max(1, len(dados))
+    _cfg_ent = dados[-1]["cfg"]
+    _adv_mes_n = int(_cfg_ent.get("max_adv_normal", 2) or 0)
+    _adv_mes_x = int(_cfg_ent.get("max_adv_maxx", 1) or 0)
+
+    if meta <= 0:
+        st.info("Meta individual ainda não configurada para o período — sem "
+                "ela não há como dizer se você entra na meta do time. "
+                "Peça ao gestor para preencher em **Configuração de Metas**.")
+        return
+
+    _r_col = _ritmo_entrada(pts, meta * el["min_n"] / 100, uteis, decorridos)
+    _r_mx = _ritmo_entrada(pts, meta * el["min_x"] / 100, uteis, decorridos)
+
+    _cc, _cx = st.columns(2)
+    with _cc:
+        st.markdown('<div style="font-size:10px;font-weight:600;color:#1BAF7A;'
+                    'text-transform:uppercase;letter-spacing:.5px;'
+                    'margin-bottom:6px;">📋 Entrada na Meta Coletiva</div>',
+                    unsafe_allow_html=True)
+        st.markdown(_item_contribuicao(pts, meta, el["min_n"], ritmo=_r_col),
+                    unsafe_allow_html=True)
+        st.markdown(_item_advertencia(el["advs"], _adv_mes_n, _n_m),
+                    unsafe_allow_html=True)
+    with _cx:
+        st.markdown('<div style="font-size:10px;font-weight:600;color:#FFD700;'
+                    'text-transform:uppercase;letter-spacing:.5px;'
+                    'margin-bottom:6px;">⭐ Entrada na Meta MAXX</div>',
+                    unsafe_allow_html=True)
+        st.markdown(_item_contribuicao(pts, meta, el["min_x"], ritmo=_r_mx),
+                    unsafe_allow_html=True)
+        st.markdown(_item_advertencia(el["advs"], _adv_mes_x, _n_m),
+                    unsafe_allow_html=True)
+
+    # O veredito por extenso, porque duas barras verdes ainda deixam a pergunta
+    # "entao eu recebo ou nao?" no ar.
+    #
+    # Com o mes correndo, "fora" so vale para quem esta fora de verdade: no dia
+    # 2 ninguem tem 80% da meta, e um 🚫 vermelho ali dizia a pessoa adiantada
+    # que ela perdeu a meta. Advertencia e diferente — ela ja aconteceu, e o
+    # excesso e vermelho no mesmo dia em que e lancado.
+    def _veredito(entra, motivos, rotulo, cor, ritmo, adv_ok):
+        if entra:
+            texto = f"✅ Você está <b>dentro da {rotulo}</b> — os dois critérios ok."
+            fundo, borda = f"{cor}15", cor
+        elif (adv_ok and ritmo and ritmo["restantes"] > 0
+                and ritmo["estado"] in ("acima", "dentro", "inicio")):
+            texto = (f"⏳ Você ainda <b>não entrou na {rotulo}</b>, mas está no "
+                     f"ritmo: faltam <b>{_n_br(ritmo['falta'])} pts</b> em "
+                     f"{ritmo['restantes']} dia(s) útil(eis) — "
+                     f"{_n_br(ritmo['por_dia_falta'])} pts por dia.")
+            fundo, borda = f"{ritmo['cor']}15", ritmo["cor"]
+        else:
+            texto = (f"🚫 Hoje você está <b>fora da {rotulo}</b>: "
+                     + _esc(" · ".join(motivos)))
+            fundo, borda = "#E3494815", "#E34948"
+        return (f'<div style="background:{fundo};border:1px solid {borda};'
+                f'border-radius:8px;padding:9px 13px;font-size:11.5px;'
+                f'margin-bottom:6px;">{texto}</div>')
+
+    st.markdown(
+        _veredito(el["entra_col"], el["motivos_col"], "Meta Coletiva", "#1BAF7A",
+                  _r_col, el["advs"] <= el["lim_adv_n"])
+        + _veredito(el["entra_maxx"], el["motivos_maxx"], "Meta MAXX", "#FFD700",
+                    _r_mx, el["advs"] <= el["lim_adv_x"]),
+        unsafe_allow_html=True)
+    if uteis > 0 and decorridos < uteis:
+        st.caption(
+            f"Período com **{uteis} dias úteis**, **{decorridos}** já "
+            "corridos — feriados já descontados. Enquanto o período corre, o "
+            f"que vale é o ritmo: estar abaixo dos {el['min_n']}% no começo do "
+            "mês não é estar fora, é estar no começo."
+        )
+
+
+def _aba_desempenho(dados, dados_ano_full=None, carregar_periodo=None,
+                    eh_master=False):
     """Aba Desempenho — 4 gráficos anuais de performance coletiva."""
     if not dados:
         st.caption("Sem dados para exibir no período selecionado.")
@@ -4040,12 +4292,17 @@ def _aba_desempenho(dados, dados_ano_full=None, carregar_periodo=None):
 
     # Largura inteira: e uma tabela de seis colunas, e em meia tela os motivos
     # de quem ficou de fora quebram em quatro linhas cada.
-    st.markdown("---")
-    try:
-        _secao_elegibilidade(dados, _pc.MEMBROS_ATIVOS)
-    except Exception as _e_el:
-        st.warning(f"Não consegui montar o relatório de elegibilidade: "
-                   f"{str(_e_el)[:150]}")
+    #
+    # So gestor: e a lista da equipe inteira, e cada um enxerga a propria
+    # situacao — com o ritmo diario e o que falta — logo abaixo, no Desempenho
+    # Individual. Quem nao e gestor nao precisa ler quem ficou de fora.
+    if eh_master:
+        st.markdown("---")
+        try:
+            _secao_elegibilidade(dados, _pc.MEMBROS_ATIVOS)
+        except Exception as _e_el:
+            st.warning(f"Não consegui montar o relatório de elegibilidade: "
+                       f"{str(_e_el)[:150]}")
 
     st.markdown("---")
 
@@ -4911,7 +5168,8 @@ def pagina_analise_metas(usuario_logado):
 
     elif _aba_sel == _ABAS[2]:
         _aba_desempenho(dados, _carregar_ano_full(),
-                        carregar_periodo=_carregar_periodo)
+                        carregar_periodo=_carregar_periodo,
+                        eh_master=_eh_master)
 
         st.markdown("---")
         st.markdown("#### 📈 Desempenho Individual")

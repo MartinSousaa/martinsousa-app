@@ -616,36 +616,10 @@ CSS="""
 FERIADOS_BR = _pc_core.FERIADOS_BR   # uma lista so, no core
 
 
-def ritmo_do_mes(filtro_mes, meta_eq, saldo_eq, hoje=None):
-    """Como esta o ritmo do mes, ou None se nao for o mes corrente.
-
-    Devolve {"cor", "icone", "pct", "esperado", "projecao", "dias_uteis",
-             "sobra", "estado"} — estado e "acima", "dentro" ou "abaixo".
-
-    E a cor daqui que pinta o velocimetro da Meta Mensal: a porcentagem da meta
-    diz onde a equipe chegou, o ritmo diz se ela chega. No comeco do mes qualquer
-    equipe esta longe da meta, e um mostrador vermelho no dia 2 nao informa nada.
-    """
-    hoje = hoje or datetime.now()
-    if not filtro_mes or (filtro_mes[0], filtro_mes[1]) != (hoje.year, hoje.month):
-        return None
-    total_uteis, decorridos = _pc_core.dias_uteis_do_mes(
-        filtro_mes[0], filtro_mes[1], hoje.day)
-    if total_uteis <= 0 or decorridos <= 0:
-        return None
-
-    esperado = meta_eq / total_uteis * decorridos
-    pct = (saldo_eq - esperado) / esperado * 100 if esperado > 0 else 0
-    if pct > 10:
-        estado, cor, icone = "acima", "#1BAF7A", "📈"
-    elif pct < -10:
-        estado, cor, icone = "abaixo", "#E34948", "📉"
-    else:
-        estado, cor, icone = "dentro", "#EDA100", "📊"
-    return {"cor": cor, "icone": icone, "pct": pct, "estado": estado,
-            "esperado": esperado, "sobra": saldo_eq - esperado,
-            "projecao": saldo_eq / decorridos * total_uteis,
-            "dias_uteis": decorridos}
+# O ritmo do mes vive no core: quem o usa nao e so o velocimetro da TV — a
+# entrada na meta de cada pessoa e medida com a mesma regra, e duas copias da
+# regra divergem no primeiro ajuste.
+ritmo_do_mes = _pc_core.ritmo_do_mes
 
 
 # ── VELOCÍMETROS ───────────────────────────────────────────────────────────────

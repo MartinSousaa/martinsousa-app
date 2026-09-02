@@ -170,6 +170,39 @@ def dias_uteis_do_mes(ano, mes, ate=None):
 
     return _conta(n_dias), _conta(ate if ate is not None else n_dias)
 
+
+def ritmo_do_mes(filtro_mes, meta_eq, saldo_eq, hoje=None):
+    """Como esta o ritmo do mes, ou None se nao for o mes corrente.
+
+    Devolve {"cor", "icone", "pct", "esperado", "projecao", "dias_uteis",
+             "sobra", "estado"} — estado e "acima", "dentro" ou "abaixo".
+
+    E a cor daqui que pinta o velocimetro da Meta Mensal: a porcentagem da meta
+    diz onde a equipe chegou, o ritmo diz se ela chega. No comeco do mes qualquer
+    equipe esta longe da meta, e um mostrador vermelho no dia 2 nao informa nada.
+    """
+    hoje = hoje or datetime.now()
+    if not filtro_mes or (filtro_mes[0], filtro_mes[1]) != (hoje.year, hoje.month):
+        return None
+    total_uteis, decorridos = dias_uteis_do_mes(
+        filtro_mes[0], filtro_mes[1], hoje.day)
+    if total_uteis <= 0 or decorridos <= 0:
+        return None
+
+    esperado = meta_eq / total_uteis * decorridos
+    pct = (saldo_eq - esperado) / esperado * 100 if esperado > 0 else 0
+    if pct > 10:
+        estado, cor, icone = "acima", "#1BAF7A", "📈"
+    elif pct < -10:
+        estado, cor, icone = "abaixo", "#E34948", "📉"
+    else:
+        estado, cor, icone = "dentro", "#EDA100", "📊"
+    return {"cor": cor, "icone": icone, "pct": pct, "estado": estado,
+            "esperado": esperado, "sobra": saldo_eq - esperado,
+            "projecao": saldo_eq / decorridos * total_uteis,
+            "dias_uteis": decorridos}
+
+
 # ── API ────────────────────────────────────────────────────────────────────────
 # Cache manual simples (evita decorator @st.cache_data que exige streamlit importado)
 def _crono(rotulo, seg, detalhe=""):
