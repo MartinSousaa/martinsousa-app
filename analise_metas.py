@@ -4107,7 +4107,7 @@ def _chart_demandas_criadas(dados, username):
                   f'no ar — os meses anteriores contam zero por falta de '
                   f'leitura, não por falta de demanda.</div>')
 
-    AZUL, OURO, CINZA = "#4A90D9", "#FFD700", "#7A8B99"
+    AZUL, OURO, CINZA, VERDE = "#4A90D9", "#FFD700", "#7A8B99", "#1BAF7A"
     ppd = (tot["pts"] / tot["n"]) if tot["n"] else 0.0
 
     def _n(rotulo, valor, cor, detalhe):
@@ -4119,12 +4119,21 @@ def _chart_demandas_criadas(dados, username):
                 f'<div style="font-size:9px;color:var(--ms-texto-sec);'
                 f'margin-top:1px;">{detalhe}</div></div>')
 
+    # Quanto custa ACHAR uma demanda: o tempo de garimpo dividido pelo que ele
+    # trouxe. E o numero que junta os dois lados — seis horas procurando podem
+    # ser bem ou mal gastas, e so este quociente diz qual das duas.
+    _por_card = (_busca["min"] / tot["n"]) if tot["n"] else None
+
     topo = (
         f'<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px;">'
         + _n("demandas abertas", f'{tot["n"]}', AZUL,
              "criadas por ela no período")
         + _n("pontos gerados", _n_br(tot["pts"]), OURO,
              f"{_n_br(ppd)} pts por demanda" if tot["n"] else "—")
+        + _n("por demanda encontrada",
+             _fmt_hm(_por_card) if _por_card is not None else "—", VERDE,
+             ("tempo de busca ÷ demandas abertas" if _por_card is not None
+              else "sem demanda no período"))
         + _n("garimpando", _fmt_hm(_busca["min"]), CINZA,
              (f'{_fmt_hm(_md)}/dia em {_busca["dias"]} dia(s)'
               if _busca["dias"] else "sem tempo registrado"))
