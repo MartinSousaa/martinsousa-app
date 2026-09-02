@@ -5,7 +5,7 @@ IMPORTANTE: Este módulo NÃO importa streamlit e NÃO contém nenhuma UI.
 Pode ser importado com segurança por qualquer módulo sem causar efeitos colaterais.
 """
 import requests
-from datetime import datetime, timezone, timedelta, time
+from datetime import datetime, timezone, timedelta, time, date
 
 # Conexao, leitura. requests SEM timeout espera para sempre: uma chamada
 # pendurada travava a thread que regenera a TV — ela nao morre, nao levanta
@@ -387,10 +387,16 @@ DIAGNOSTICO_POR_FILTRO = {}
 FILTRO_ETIQUETAS = ("addLabelToCard,removeLabelFromCard,"
                     "addMemberToCard,removeMemberFromCard")
 FILTRO_MOVIMENTO = "updateCard"
+# Quem ABRIU o cartao so existe na acao createCard, e ela nao vinha em nenhuma
+# das duas consultas acima. Vem numa consulta propria de proposito: criacao e
+# muito mais rara que updateCard, e juntar as duas faria uma empurrar a outra
+# para fora da janela de paginas — o mesmo acidente que ja aconteceu com as
+# etiquetas.
+FILTRO_CRIACAO = "createCard"
 
 
 def _buscar_acoes_board(desde_iso=None, max_paginas=10, filtro=None,
-                        _sem_filtro=False):
+                        _sem_filtro=False, campos=None):
     """Histórico do board inteiro, agrupado por cartão.
 
     Uma chamada por página em vez de uma por cartão: a análise mensal passa por
@@ -404,6 +410,7 @@ def _buscar_acoes_board(desde_iso=None, max_paginas=10, filtro=None,
     import time as _t
     global _FILTRO_ETIQUETA_SERVE
     filtro = FILTRO_ETIQUETAS if filtro is None else filtro
+    campos = campos or CAMPOS_ACAO
     chave = f"{desde_iso or 'tudo'}|{filtro or 'sem-filtro'}|{max_paginas}"
     agora = _t.time()
     cache = _acoes_cache.get(chave)
@@ -438,7 +445,7 @@ def _buscar_acoes_board(desde_iso=None, max_paginas=10, filtro=None,
     por_card = {}
     antes = None
     for _ in range(max_paginas):
-        params = {**auth, "limit": 1000, **CAMPOS_ACAO}
+        params = {**auth, "limit": 1000, **campos}
         if filtro:
             params["filter"] = filtro
         if desde_iso:
@@ -601,6 +608,11 @@ def _paginas_para(desde_iso):
 # baixar e desserializar, em cada uma das paginas.
 CAMPOS_ACAO = {"fields": "type,date,data", "memberCreator": "false",
                "reactions": "false"}
+# A consulta de criacao pede um campo a mais: o autor. Ele nao entra em
+# CAMPOS_ACAO porque as outras consultas nao o usam, e cada campo a mais e peso
+# em paginas de mil acoes.
+CAMPOS_ACAO_CRIACAO = {"fields": "type,date,data,idMemberCreator",
+                       "memberCreator": "false", "reactions": "false"}
 
 # Quantas fatias do periodo buscar ao mesmo tempo. A paginacao do Trello e
 # sequencial (cada pagina depende da data da anterior), entao vinte paginas em
@@ -770,6 +782,79 @@ def acoes_movimento(desde_iso, max_paginas=5):
                 for cid, acoes in cru.items()}
     return _buscar_acoes_board(desde_iso, max_paginas=max_paginas,
                                filtro=FILTRO_MOVIMENTO)
+
+
+# O dia em que a medicao de demandas criadas entrou no ar. Antes disto o Studio
+# nao lia a acao createCard, entao nao ha o que contar: periodo anterior nao
+# mostra "0 demandas" — que se le como "nao criou nada" —, mostra que nao havia
+# medicao. Zero mentiroso e pior que um traco honesto.
+CORTE_CRIACAO = date(2026, 9, 2)
+
+
+def criadores_de_cartao(desde_iso=None, max_paginas=5):
+    """{card_id: {"por": id_do_membro, "quando": datetime}} de quem abriu cada um.
+
+    So a acao createCard carrega o autor. A data vem junto porque sem ela a
+    demanda cairia no periodo que estivesse aberto na tela, e nao no mes em que
+    foi criada.
+    """
+    acoes = _buscar_acoes_board(desde_iso, max_paginas=max_paginas,
+                                filtro=FILTRO_CRIACAO,
+                                campos=CAMPOS_ACAO_CRIACAO)
+    fora = {}
+    for cid, lista in acoes.items():
+        for ac in lista:
+            if ac.get("type") != "createCard":
+                continue
+            autor = ac.get("idMemberCreator")
+            if not autor:
+                continue
+            try:
+                quando = datetime.fromisoformat(
+                    ac["date"].replace("Z", "+00:00")).astimezone(FUSO)
+            except Exception:
+                continue
+            # O cartao e criado uma vez; se vier repetido, o mais antigo manda.
+            atual = fora.get(cid)
+            if atual is None or quando < atual["quando"]:
+                fora[cid] = {"por": autor, "quando": quando}
+    return fora
+
+
+def demandas_criadas(cards, listas, membros_map, criadores, filtro_mes=None,
+                     id_pontos=None):
+    """Quem abriu cada demanda, quanto ela valeu e em que coluna ela parou.
+
+    {username: {"n": int, "pts": float, "colunas": {coluna: {"n","pts"}}}}
+
+    A coluna e a de AGORA, e nao a da criacao: a demanda nasce na triagem e e
+    movida para a coluna certa quando o gestor pontua. E a de agora que responde
+    "que tipo de demanda essa pessoa gera".
+
+    Conta so quem esta na equipe cadastrada. Isso tira de uma vez o cartao aberto
+    pelo gestor, o aberto por automacao e o de quem ja saiu — nenhum deles e
+    "demanda gerada pela equipe", e nenhum precisa estar escrito aqui pelo nome.
+    """
+    fora = {}
+    for c in cards:
+        info = criadores.get(c["id"])
+        if not info:
+            continue
+        u = membros_map.get(info["por"], info["por"])
+        if u not in MEMBROS_ATIVOS:
+            continue
+        q = info["quando"]
+        if filtro_mes and (q.year, q.month) != tuple(filtro_mes):
+            continue
+        col = listas.get(c.get("idList"), "") or "(sem coluna)"
+        pts = float(_num(c, id_pontos) or 0) if id_pontos else 0.0
+        reg = fora.setdefault(u, {"n": 0, "pts": 0.0, "colunas": {}})
+        reg["n"] += 1
+        reg["pts"] += pts
+        cc = reg["colunas"].setdefault(col, {"n": 0, "pts": 0.0})
+        cc["n"] += 1
+        cc["pts"] += pts
+    return fora
 
 
 def _acoes_sem_filtro(desde_iso, diag):
@@ -1930,6 +2015,9 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
         # Busca de demanda, na mesma forma e fora das contas de execucao.
         "analise_lista": {},
         "analise_membro_lista": {},
+        # Demandas que cada pessoa ABRIU no mes: quantas, quantos pontos e em
+        # que coluna pararam.
+        "demandas_criadas": {},
         # membro -> [(ini, fim)] com cartao EM ANDAMENTO. E a linha do tempo que
         # a ociosidade precisa: sem ela so da para subtrair totais, e as folgas
         # de 10 e de 5 minutos exigem saber QUANDO cada buraco aconteceu.
@@ -1970,6 +2058,15 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
     # terminou. E o que a linha do tempo do dia precisa.
     d["execucoes_dia"] = execucoes_por_dia(cards, _acoes_board, membros_map,
                                           listas=listas)
+    # Quem abriu cada demanda, quanto ela valeu e onde ela parou. A coluna e a
+    # de agora: a demanda nasce na triagem e e movida quando o gestor pontua.
+    try:
+        d["demandas_criadas"] = demandas_criadas(
+            cards, listas, membros_map, criadores_de_cartao(_desde),
+            filtro_mes=filtro_mes, id_pontos=id_p)
+    except Exception:
+        # Uma consulta a mais ao Trello nunca pode derrubar a tela inteira.
+        d["demandas_criadas"] = {}
     _conclusoes = datas_de_conclusao(_acoes_mov)
     _entradas = entradas_na_coluna(_acoes_mov)
     try:

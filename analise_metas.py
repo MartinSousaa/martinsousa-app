@@ -2672,6 +2672,69 @@ def _chart_analise_demandas(dados, membros_ativos=None):
         f'</div>{corpo}')
 
 
+def _chart_criacao_equipe(dados, membros_ativos=None):
+    """Quantos cartões cada um abriu e quantos pontos eles geraram.
+
+    Fica no painel coletivo, ao lado dos velocímetros: é a pergunta de quem
+    olha a equipe inteira — quem alimenta a fila de demanda e com que peso.
+    Cartão aberto pelo gestor ou por automação não entra; conta só a equipe
+    cadastrada, o que é decidido em `placar_core.demandas_criadas`.
+    """
+    membros_ativos = membros_ativos or {}
+    tot = {}
+    for r in dados:
+        for u, v in (r.get("demandas_criadas") or {}).items():
+            a = tot.setdefault(u, {"n": 0, "pts": 0.0})
+            a["n"] += v["n"]
+            a["pts"] += v["pts"]
+
+    _fim = max((r.get("filtro_mes") for r in dados if r.get("filtro_mes")),
+               default=None)
+    _corte = _pc.CORTE_CRIACAO
+    if _fim and (_fim[0], _fim[1]) < (_corte.year, _corte.month):
+        return ('<div style="padding:18px;text-align:center;font-size:11px;'
+                'color:var(--ms-texto-sec);">A medição de cartões criados '
+                f'começa em {_corte.strftime("%d/%m/%Y")}.</div>')
+    if not tot:
+        return ('<div style="padding:18px;text-align:center;font-size:11px;'
+                'color:var(--ms-texto-sec);">Nenhum cartão criado pela equipe '
+                'no período.</div>')
+
+    AZUL, OURO = "#4A90D9", "#FFD700"
+    linhas = sorted(tot.items(), key=lambda kv: -kv[1]["n"])
+    n_tot = sum(v["n"] for _, v in linhas)
+    p_tot = sum(v["pts"] for _, v in linhas)
+    maxn = max(v["n"] for _, v in linhas) or 1
+
+    corpo = ""
+    for u, v in linhas:
+        ppc = v["pts"] / v["n"] if v["n"] else 0.0
+        corpo += (
+            f'<div style="margin-bottom:9px;">'
+            f'<div style="display:flex;justify-content:space-between;gap:10px;'
+            f'font-size:11px;"><span>{_esc(membros_ativos.get(u, u))}</span>'
+            f'<span style="flex:none;font-weight:700;">{v["n"]} cartões'
+            f'<span style="font-weight:400;color:var(--ms-texto-sec);"> · '
+            f'{_n_br(v["pts"])} pts · {_n_br(ppc)}/cartão</span></span></div>'
+            f'<div style="height:7px;border-radius:4px;'
+            f'background:var(--ms-metric-bd);margin-top:3px;overflow:hidden;">'
+            f'<div style="height:100%;border-radius:4px;'
+            f'width:{v["n"] / maxn * 100:.1f}%;background:{AZUL};"></div>'
+            f'</div></div>')
+
+    return (
+        f'<div style="display:flex;align-items:baseline;gap:10px;'
+        f'flex-wrap:wrap;margin-bottom:12px;">'
+        f'<span style="font-size:30px;font-weight:700;color:{AZUL};'
+        f'line-height:1;">{n_tot}</span>'
+        f'<span style="font-size:11px;color:var(--ms-texto-sec);">'
+        f'cartões criados no período</span>'
+        f'<span style="margin-left:auto;font-size:11px;'
+        f'color:var(--ms-texto-sec);">geraram '
+        f'<b style="color:{OURO};">{_n_br(p_tot)} pts</b></span>'
+        f'</div>{corpo}')
+
+
 def _chart_tempo_execucao(dados):
     """HTML/SVG: pizza top 5 colunas por tempo médio de execução.
     Usa dados reais (TEMPO ACUMULADO) quando disponíveis;
@@ -3997,6 +4060,106 @@ def _chart_tempo_medio(dados, username, cfg):
                    f'style="width:100%;">' + "".join(partes) + '</svg>')
 
 
+def _chart_demandas_criadas(dados, username):
+    """As demandas que essa pessoa ABRIU: quantas, quanto valeram, onde pararam.
+
+    Fecha o outro lado da busca de demanda. O tempo gasto procurando já
+    aparecia; o que ele PRODUZIU, não — e é a diferença entre quem passou a
+    manhã garimpando e voltou com oito demandas e quem voltou com uma.
+
+    A coluna é a de agora, não a da criação: a demanda nasce na triagem e é
+    movida para a coluna certa quando o gestor pontua. É a de agora que responde
+    "que tipo de demanda essa pessoa gera".
+    """
+    tot = {"n": 0, "pts": 0.0, "colunas": {}}
+    for r in dados:
+        v = (r.get("demandas_criadas") or {}).get(username)
+        if not v:
+            continue
+        tot["n"] += v["n"]
+        tot["pts"] += v["pts"]
+        for col, c in (v.get("colunas") or {}).items():
+            a = tot["colunas"].setdefault(col, {"n": 0, "pts": 0.0})
+            a["n"] += c["n"]
+            a["pts"] += c["pts"]
+
+    # Quanto custou garimpar: o tempo na coluna ANÁLISE DE DEMANDAS.
+    _busca = _tempo_analise(dados).get(username) or {"min": 0.0, "dias": 0}
+    _md = (_busca["min"] / _busca["dias"]) if _busca["dias"] else 0.0
+
+    # Antes do corte o Studio nao lia a acao de criacao. Dizer "0 demandas" ali
+    # seria acusar de nao ter criado nada quem so nao estava sendo medido.
+    _ini_per = min((r.get("filtro_mes") for r in dados if r.get("filtro_mes")),
+                   default=None)
+    _fim_per = max((r.get("filtro_mes") for r in dados if r.get("filtro_mes")),
+                   default=None)
+    _corte = _pc.CORTE_CRIACAO
+    if _fim_per and (_fim_per[0], _fim_per[1]) < (_corte.year, _corte.month):
+        return ('<div style="padding:20px;text-align:center;font-size:11px;'
+                'color:var(--ms-texto-sec);">A medição de demandas criadas '
+                f'começa em {_corte.strftime("%d/%m/%Y")} — antes disso não há '
+                'o que contar.</div>')
+    _aviso = ""
+    if _ini_per and (_ini_per[0], _ini_per[1]) < (_corte.year, _corte.month):
+        _aviso = (f'<div style="font-size:9.5px;color:#EDA100;margin-top:8px;">'
+                  f'⚠️ O período escolhido começa antes de '
+                  f'{_corte.strftime("%d/%m/%Y")}, quando esta medição entrou '
+                  f'no ar — os meses anteriores contam zero por falta de '
+                  f'leitura, não por falta de demanda.</div>')
+
+    AZUL, OURO, CINZA = "#4A90D9", "#FFD700", "#7A8B99"
+    ppd = (tot["pts"] / tot["n"]) if tot["n"] else 0.0
+
+    def _n(rotulo, valor, cor, detalhe):
+        return (f'<div style="flex:1;min-width:120px;">'
+                f'<div style="font-size:26px;font-weight:700;color:{cor};'
+                f'line-height:1;">{valor}</div>'
+                f'<div style="font-size:11px;color:var(--ms-texto-sec);'
+                f'margin-top:3px;">{rotulo}</div>'
+                f'<div style="font-size:9px;color:var(--ms-texto-sec);'
+                f'margin-top:1px;">{detalhe}</div></div>')
+
+    topo = (
+        f'<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px;">'
+        + _n("demandas abertas", f'{tot["n"]}', AZUL,
+             "criadas por ela no período")
+        + _n("pontos gerados", _n_br(tot["pts"]), OURO,
+             f"{_n_br(ppd)} pts por demanda" if tot["n"] else "—")
+        + _n("garimpando", _fmt_hm(_busca["min"]), CINZA,
+             (f'{_fmt_hm(_md)}/dia em {_busca["dias"]} dia(s)'
+              if _busca["dias"] else "sem tempo registrado"))
+        + '</div>')
+
+    if not tot["colunas"]:
+        return topo + ('<div style="font-size:10.5px;color:var(--ms-texto-sec);'
+                       'font-style:italic;">Nenhuma demanda aberta por ela no '
+                       'período.</div>') + _aviso
+
+    ordenado = sorted(tot["colunas"].items(), key=lambda kv: -kv[1]["n"])
+    maxn = max(c["n"] for _, c in ordenado) or 1
+    barras = ""
+    for col, c in ordenado:
+        barras += (
+            f'<div style="margin-bottom:9px;">'
+            f'<div style="display:flex;justify-content:space-between;gap:10px;'
+            f'font-size:11px;">'
+            f'<span style="overflow:hidden;text-overflow:ellipsis;'
+            f'white-space:nowrap;">{_esc(col)}</span>'
+            f'<span style="flex:none;font-weight:700;">{c["n"]}'
+            f'<span style="font-weight:400;color:var(--ms-texto-sec);"> · '
+            f'{_n_br(c["pts"])} pts</span></span></div>'
+            f'<div style="height:7px;border-radius:4px;'
+            f'background:var(--ms-metric-bd);margin-top:3px;overflow:hidden;">'
+            f'<div style="height:100%;border-radius:4px;'
+            f'width:{c["n"] / maxn * 100:.1f}%;background:{AZUL};"></div>'
+            f'</div></div>')
+    return (topo
+            + '<div style="font-size:9px;color:var(--ms-texto-sec);'
+              'text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">'
+              'onde essas demandas estão hoje</div>'
+            + barras + _aviso)
+
+
 def _chart_colaboracao(dados, username):
     """Quanto dos pontos da equipe saiu dos cartoes dessa pessoa, em % e em pontos."""
     linhas, pt_tot, eq_tot = [], 0.0, 0.0
@@ -4412,22 +4575,29 @@ def _desempenho_individual(dados, username, nome, carregar_periodo=None):
         st.markdown(_chart_tempo_medio(dados, username, _cfg_ult), unsafe_allow_html=True)
 
     with row3b:
+        st.markdown("#### 🔎 Demandas geradas")
+        st.caption("O outro lado da busca: quantas demandas essa pessoa abriu, "
+                   "quanto elas valeram e em que coluna estão hoje.")
+        st.markdown(_chart_demandas_criadas(dados, username),
+                    unsafe_allow_html=True)
+
+    st.markdown("---")
+    row3c, row3d = st.columns(2)
+    with row3c:
         st.markdown("#### 🤝 Colaboração nas metas")
         st.caption("Quanto dos pontos da equipe saiu dos cartões que essa pessoa entregou.")
         st.markdown(_chart_colaboracao(dados, username), unsafe_allow_html=True)
 
-    st.markdown("---")
-    row4a, row4b = st.columns(2)
-
-    with row4a:
+    with row3d:
         st.markdown("#### 🍕 Participação nas Colunas")
-        st.caption("Top 5 colunas mais pontuadas pela equipe · % central = contribuição individual no total.")
+        st.caption("Top 5 colunas mais pontuadas pela equipe · % central = "
+                   "contribuição individual no total.")
         st.markdown(_chart_ind_participacao(dados, username), unsafe_allow_html=True)
 
-    with row4b:
-        st.markdown("#### 🏆 Destaques do Período")
-        st.caption("4 melhores meses individuais · top 4 colunas da equipe.")
-        st.markdown(_chart_ind_destaques(meses, dados, username), unsafe_allow_html=True)
+    st.markdown("---")
+    st.markdown("#### 🏆 Destaques do Período")
+    st.caption("4 melhores meses individuais · top 4 colunas da equipe.")
+    st.markdown(_chart_ind_destaques(meses, dados, username), unsafe_allow_html=True)
 
 
 def _secao_entrada_meta(dados, username, nome):
@@ -4585,6 +4755,14 @@ def _aba_desempenho(dados, dados_ano_full=None, carregar_periodo=None):
         st.markdown("#### 🎯 Índices Meta Coletiva")
         st.caption("Os seis tópicos cobrados na meta, para a Coletiva e para a MAXX.")
         st.markdown(_chart_indices_meta(dados), unsafe_allow_html=True)
+
+        # O espaco que sobrava embaixo dos velocimetros. A pergunta que cabe
+        # aqui e a da equipe inteira: quem alimenta a fila de demanda.
+        st.markdown("##### 🗃️ Cartões criados por colaborador")
+        st.caption("Quantos cartões cada um abriu no período e quantos pontos "
+                   "eles geraram · cartão aberto pelo gestor não entra.")
+        st.markdown(_chart_criacao_equipe(dados, _pc.MEMBROS_ATIVOS),
+                    unsafe_allow_html=True)
 
     # A tabela "Quem entra na remuneracao da meta do time" saiu daqui: ela
     # listava a equipe inteira num painel que todos abrem. A mesma analise —
