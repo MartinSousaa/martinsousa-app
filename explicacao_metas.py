@@ -138,7 +138,7 @@ def _topico(emoji, titulo, o_que, como, cor):
         f'color:var(--ms-texto-sec);margin-top:4px;">{como}</div></div>')
 
 
-def _explicar_indicadores():
+def _explicar_indicadores(mc_n=None, mc_x=None, ad_n=None, ad_x=None):
     """O que cada indicador mede e como e contado, em duas linhas cada.
 
     Os numeros vem das constantes de verdade — as folgas sao lidas do
@@ -154,6 +154,11 @@ def _explicar_indicadores():
         g_ini, g_ent, pausa = 10, 5, 1
         f_ent, t_ent, f_alm, almoco = 5, 10, 5, 60
 
+    _mc_n = MIN_CONTRIB_NORMAL if mc_n is None else int(mc_n)
+    _mc_x = MIN_CONTRIB_MAXX if mc_x is None else int(mc_x)
+    _ad_n = MAX_ADV_NORMAL if ad_n is None else int(ad_n)
+    _ad_x = MAX_ADV_MAXX if ad_x is None else int(ad_x)
+
     st.markdown(
         '<div style="font-size:16px;font-weight:700;margin:20px 0 8px 0;">'
         '📐 O que cada indicador mede</div>', unsafe_allow_html=True)
@@ -162,7 +167,27 @@ def _explicar_indicadores():
         ("📈", "Pontuação", "#1BAF7A",
          "Os pontos dos cartões que você concluiu.",
          "Cada cartão vale os pontos da coluna dele, e conta no mês em que "
-         "foi <b>concluído</b>."),
+         "foi <b>concluído</b>. É desta conta que sai a sua meta individual — "
+         "e é ela que o indicador seguinte cobra."),
+
+        ("🤝", "Participação na meta", "#FFD700",
+         f"Quanto da <b>sua</b> meta individual você entregou — é a porta de "
+         f"entrada na metade do time.",
+         f"Entregar pelo menos <b>{_mc_n}%</b> da sua meta individual para "
+         f"entrar na {NOME_COL}, e <b>{_mc_x}%</b> para entrar na "
+         f"{NOME_COL_MAXX}. Não é um nível de bônus: é a condição para receber "
+         f"a metade do time. Quem não chega nela fica de fora daquele mês "
+         f"ainda que o time feche a meta."),
+
+        ("🚫", "Advertências", "#E34948",
+         "Ocorrências disciplinares lançadas pelo gestor no mês.",
+         f"No máximo <b>{_ad_n}</b> para seguir na {NOME_COL} e <b>{_ad_x}</b> "
+         f"para seguir na {NOME_COL_MAXX}. Vale para uso de celular, falta ou "
+         f"atraso excessivo injustificado ou sem aviso prévio. A escada é: "
+         f"<b>1ª</b> advertência verbal · <b>2ª</b> um dia advertido em casa, "
+         f"perdendo a remuneração do dia e do domingo conforme a lei "
+         f"trabalhista · <b>3ª</b> no mesmo mês repete o dia em casa e perde o "
+         f"domingo."),
 
         ("⏱️", "Ociosidade", "#4A90D9",
          "Tempo do seu dia <b>sem nenhum cartão EM ANDAMENTO</b> no seu nome.",
@@ -331,6 +356,20 @@ def render(expandido=True, chave_salario="expl_salario",
             '</tr></thead><tbody>' + linhas + '</tbody></table></div>',
             unsafe_allow_html=True)
 
+        # A tabela sozinha diz "bateu a coletiva, recebe 12%", e desde que a
+        # entrada passou a ser cobrada isso vale so para quem entrou. Sem esta
+        # linha, quem le a tabela conta com um dinheiro que pode nao vir.
+        st.markdown(
+            f'<div style="font-size:13.5px;line-height:1.7;margin-top:8px;'
+            f'color:var(--ms-texto-sec);">'
+            f'⚠️ A coluna <b>🤝 Meta coletiva</b> acima só entra na sua conta '
+            f'se você tiver <b>entrado</b> na meta do time naquele mês: '
+            f'<b>{_mc_n}%</b> da sua meta individual (<b>{_mc_x}%</b> para a '
+            f'{NOME_COL_MAXX}) e no máximo <b>{_ad_n}</b> advertência(s) '
+            f'(<b>{_ad_x}</b> para a MAXX). Ficou de fora, essa metade vale '
+            f'<b>0%</b> e sobra só a coluna <b>🙋 Meta individual</b>.'
+            f'</div>', unsafe_allow_html=True)
+
         st.markdown(
             '<div style="font-size:15px;line-height:1.8;margin-top:16px;">'
             '<b>Resumindo:</b><br>'
@@ -348,6 +387,12 @@ def render(expandido=True, chave_salario="expl_salario",
                if _proprio else
                f'num salário de {_reais(SALARIO_EXEMPLO)} são '
                f'<b>{_reais(SALARIO_EXEMPLO * 0.30)} a mais</b>.')
+            + '<br>'
+            f'5️⃣ Os itens 1 e 3 valem <b>se você tiver entrado</b> na meta do '
+            f'time: <b>{_mc_n}%</b> da sua meta individual e no máximo '
+            f'<b>{_ad_n}</b> advertência(s) — <b>{_mc_x}%</b> e <b>{_ad_x}</b> '
+            f'para a MAXX. O item 2 é seu de qualquer jeito: a sua metade '
+            f'nunca depende do time nem da entrada.'
             + '</div>', unsafe_allow_html=True)
 
         st.markdown(
@@ -371,7 +416,7 @@ def render(expandido=True, chave_salario="expl_salario",
             '<b>setembro</b>.</span>'
             '</div>', unsafe_allow_html=True)
 
-        _explicar_indicadores()
+        _explicar_indicadores(_mc_n, _mc_x, _ad_n, _ad_x)
 
         st.caption("Mais abaixo, no seu card, a mesma conta aparece com as "
                    "metas que já estão valendo neste mês.")
