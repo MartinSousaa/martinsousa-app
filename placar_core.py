@@ -1480,6 +1480,10 @@ def execucoes_por_dia(cards, acoes_board, membros_map=None, agora=None,
                             .setdefault(cursor.strftime("%Y-%m-%d"), [])
                             .append({
                                 "card": nome, "lista": col,
+                                # O id, e nao so o nome: dois cartoes podem ter
+                                # o mesmo titulo, e e por ele que a linha do
+                                # tempo descobre qual deles foi concluido.
+                                "card_id": c["id"],
                                 "ini": cursor, "fim": fim_p,
                                 "min": (fim_p - cursor).total_seconds() / 60.0,
                                 "tipo": s.get("tipo", "andamento"),
@@ -2201,9 +2205,15 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
             for u in _mem_ok:
                 _e = d["entregas_membro"].setdefault(u, {"dias": {}, "colunas": {}})
                 if _dia:
-                    _dd = _e["dias"].setdefault(_dia, {"qtd": 0, "pts": 0.0})
+                    _dd = _e["dias"].setdefault(_dia, {"qtd": 0, "pts": 0.0,
+                                                       "ids": []})
                     _dd["qtd"] += 1
                     _dd["pts"] += _cada_pt
+                    # Quais cartoes fecharam no dia, e nao so quantos. Sem os
+                    # ids a linha do tempo nao tinha como saber que aquele bloco
+                    # amarelo e o mesmo cartao que a linha de baixo ja contou
+                    # como concluido.
+                    _dd["ids"].append(card["id"])
                 _cc = _e["colunas"].setdefault(nl, {"qtd": 0, "pts": 0.0})
                 _cc["qtd"] += 1
                 _cc["pts"] += _cada_pt

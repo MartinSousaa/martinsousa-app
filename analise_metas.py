@@ -3358,6 +3358,53 @@ def _atividade_do_membro(dados, username):
     return dias
 
 
+def _estados_por_dia(dados, username):
+    """O estado FINAL de cada cartão em cada dia. Um cartão, um estado.
+
+    A pergunta "quantos ficaram em andamento" só faz sentido se concluído e
+    interrompido saírem da conta: um cartão entregue às 17h esteve em andamento
+    o dia todo, mas no fim do dia ele está entregue, e contá-lo nas duas linhas
+    fazia a mesma demanda aparecer duas vezes com estados que se excluem.
+
+    Concluído vem de `entregas_membro` — movimentação de coluna, a mesma fonte
+    da pontuação — e não da etiqueta: tirar EM ANDAMENTO não é entregar. O
+    resto sai do último trecho do dia: terminou com etiqueta de interrupção, é
+    interrompido; qualquer outra coisa, ainda estava em andamento.
+
+    Devolve {dia: {"por_card": {card_id: estado}, "andamento": n,
+                   "concluido": n, "interrompido": n}}.
+    """
+    dias = {}
+
+    def _reg(dia):
+        return dias.setdefault(dia, {"por_card": {}, "ultimo": {},
+                                     "andamento": 0, "concluido": 0,
+                                     "interrompido": 0})
+
+    for r in dados:
+        for dia, lista in ((r.get("execucoes_dia") or {}).get(username) or {}).items():
+            reg = _reg(dia)
+            for e in sorted(lista, key=lambda x: x["ini"]):
+                cid = e.get("card_id") or e.get("card")
+                reg["ultimo"][cid] = e.get("fim_tipo")
+        e_m = (r.get("entregas_membro") or {}).get(username) or {}
+        for dia, v in (e_m.get("dias") or {}).items():
+            reg = _reg(dia)
+            for cid in (v.get("ids") or []):
+                reg["por_card"][cid] = "concluido"
+
+    for reg in dias.values():
+        for cid, fim in reg["ultimo"].items():
+            if reg["por_card"].get(cid) == "concluido":
+                continue
+            reg["por_card"][cid] = ("interrompido" if fim == "interrompido"
+                                    else "andamento")
+        for est in reg["por_card"].values():
+            reg[est] = reg.get(est, 0) + 1
+        reg.pop("ultimo", None)
+    return dias
+
+
 def _execucoes_do_membro(dados, username):
     """{dia: [{"card","ini","fim","min","tipo"}]} da pessoa, no período todo."""
     dias = {}
@@ -3386,6 +3433,9 @@ def _fmt_hhmm(minutos):
 COR_ANDAMENTO   = "#EDA100"   # amarelo
 COR_CONCLUIDO   = "#1BAF7A"   # verde
 COR_INTERROMPIDO = "#8B5CF6"  # roxo — inclui FIM DE EXPEDIENTE
+# O estado final do cartao no dia (de _estados_por_dia) na cor dele.
+CORES_EST_DIA = {}   # preenchido logo abaixo, depois das constantes de cor
+
 CORES_ESTADO = {
     "encerrado":    COR_CONCLUIDO,
     "interrompido": COR_INTERROMPIDO,
@@ -3395,6 +3445,16 @@ CORES_ESTADO = {
     "virada":       COR_ANDAMENTO,
     "seguiu":       COR_ANDAMENTO,
 }
+
+CORES_EST_DIA.update({"concluido": COR_CONCLUIDO,
+                      "interrompido": COR_INTERROMPIDO,
+                      "andamento": COR_ANDAMENTO})
+
+# Como o estado do dia se chama na ficha. Vem antes do estado do TRECHO: o que
+# interessa a quem passa o mouse e em que pe o cartao ficou naquele dia.
+ESTADO_DIA_NOME = {"concluido": "CONCLUÍDO no dia",
+                   "interrompido": "INTERROMPIDO",
+                   "andamento": "EM ANDAMENTO"}
 
 ESTADO_NOME = {"encerrado": "CONCLUÍDO", "interrompido": "INTERROMPIDO",
                "aberto": "EM ANDAMENTO (aberto agora)",
@@ -3422,7 +3482,7 @@ ESTADO_NOME = {"encerrado": "CONCLUÍDO", "interrompido": "INTERROMPIDO",
 FICHA_L = 246
 
 
-def _ficha_exec(e, tot, cx_pct, cy_pct, cor, esq):
+def _ficha_exec(e, tot, cx_pct, cy_pct, cor, esq, estado=None):
     """Resumo de uma execução, sobreposto ao gráfico: cartão, coluna e tempo.
 
     As coordenadas vêm em porcentagem do quadro: o SVG tem viewBox e largura
@@ -3445,7 +3505,7 @@ def _ficha_exec(e, tot, cx_pct, cy_pct, cor, esq):
         f'</div>')
     linhas.append(
         f'<div style="font-size:9px;font-weight:700;color:{cor};margin-top:2px;">'
-        f'{ESTADO_NOME.get(e.get("fim_tipo"), "EM ANDAMENTO")}'
+        f'{ESTADO_DIA_NOME.get(estado) or ESTADO_NOME.get(e.get("fim_tipo"), "EM ANDAMENTO")}'
         + (' · filmagem' if e.get("tipo") == "filmagem" else '')
         + (' · busca de demanda' if e.get("analise") else '') + '</div>')
     if tot["n"] > 1:
@@ -3522,9 +3582,12 @@ def _chart_linha_do_tempo(dados, username):
     # aqui e o ESTADO do cartao no dia. Interrompido soma FIM DE EXPEDIENTE:
     # `eventos_de_trabalho` ja trata as duas como interrupcao, porque as duas
     # param o relogio do mesmo jeito.
-    LINHAS = [("ativos", "EM ANDAMENTO", COR_ANDAMENTO),
-              ("concluidos", "CONCLUÍDO", COR_CONCLUIDO),
-              ("interrompidos", "INTERROMPIDO", COR_INTERROMPIDO)]
+    # Um cartao, um estado. As tres linhas se excluem: o que fechou nao conta
+    # como em andamento, o que foi interrompido nao conta como fechado.
+    estados = _estados_por_dia(dados, username)
+    LINHAS = [("andamento", "EM ANDAMENTO", COR_ANDAMENTO),
+              ("concluido", "CONCLUÍDO", COR_CONCLUIDO),
+              ("interrompido", "INTERROMPIDO", COR_INTERROMPIDO)]
     W = 980
     # Margem maior a esquerda: "EM ANDAMENTO" nao cabia nos 52px que bastavam
     # para "iniciou".
@@ -3576,10 +3639,10 @@ def _chart_linha_do_tempo(dados, username):
         x = ml + (d - 1) * bw
         chave = f"{pref}{d:02d}"
         lista = dias_exec.get(chave, [])
-        at = atividade.get(chave, {"iniciados": 0, "concluidos": 0,
-                                   "interrompidos": 0, "minutos": 0.0})
+        est = estados.get(chave) or {"por_card": {}, "andamento": 0,
+                                     "concluido": 0, "interrompido": 0}
         util = data.weekday() < 5 and data <= hoje
-        parado = util and not lista and not at["concluidos"] and not at["iniciados"]
+        parado = util and not lista and not est["por_card"]
         if data.weekday() >= 5:
             partes.append(f'<rect x="{x:.1f}" y="{mt}" width="{bw:.1f}" '
                           f'height="{ALT_REL}" fill="#00000022"/>')
@@ -3613,7 +3676,13 @@ def _chart_linha_do_tempo(dados, username):
             # contagens embaixo. Antes era o tipo de trabalho (andamento,
             # filmagem), e assim o cartao entregue e o esquecido aberto ficavam
             # da mesma cor — que e justamente a diferenca que se procura aqui.
-            cor = CORES_ESTADO.get(e.get("fim_tipo"), COR_ANDAMENTO)
+            # A cor e o estado do CARTAO naquele dia, e nao o de cada trecho.
+            # Um cartao entregue as 17h41 tem tres trechos no dia, e antes so o
+            # ultimo ficava verde: os anteriores saiam amarelos, e a mesma
+            # demanda aparecia como em andamento e concluida ao mesmo tempo.
+            cor = CORES_EST_DIA.get(
+                est["por_card"].get(e.get("card_id") or e.get("card")),
+                COR_ANDAMENTO)
             # Filmagem e busca de demanda continuam distintas, agora pelo
             # contorno: a cor de dentro ficou reservada para o estado.
             if e.get("analise"):
@@ -3622,6 +3691,9 @@ def _chart_linha_do_tempo(dados, username):
                 traco, tracejado = "#FFFFFF", "2,2"
             else:
                 traco, tracejado = None, None
+            _est_card = est["por_card"].get(e.get("card_id") or e.get("card"))
+            _est_nome = (ESTADO_DIA_NOME.get(_est_card)
+                         or ESTADO_NOME.get(e.get("fim_tipo"), "EM ANDAMENTO"))
             bx, blarg = x + 2.5, max(bw - 5, 2)
             tot = por_card.get(e["card"], {"min": e["min"], "n": 1})
             partes.append(
@@ -3633,7 +3705,7 @@ def _chart_linha_do_tempo(dados, username):
                 # nao chegar, a ficha fica escondida e ele responde sozinho.
                 f'<title>{_esc(e["card"])} · {e["ini"]:%H:%M} → '
                 f'{e["fim"]:%H:%M} · {_fmt_hm(e["min"])} · '
-                f'{ESTADO_NOME.get(e.get("fim_tipo"), "EM ANDAMENTO")}</title></rect>'
+                f'{_est_nome}</title></rect>'
                 # Marcadores: verde embaixo, onde comecou; vermelho em cima,
                 # onde terminou. O traco passa dos lados do bloco, senao a borda
                 # de um bloco encostado no seguinte vira uma emenda so e os dois
@@ -3656,7 +3728,8 @@ def _chart_linha_do_tempo(dados, username):
                 f'left:{bx / W * 100:.3f}%;top:{(y_topo - 3) / H * 100:.3f}%;'
                 f'width:{blarg / W * 100:.3f}%;'
                 f'height:{(alt + 6) / H * 100:.3f}%;"></div>'
-                + _ficha_exec(e, tot, cx_pct, cy_pct, cor, cx_pct > 55))
+                + _ficha_exec(e, tot, cx_pct, cy_pct, cor, cx_pct > 55,
+                              estado=_est_card))
         _exec_dia = [e for e in lista if not e.get("analise")]
         if _exec_dia:
             medias.append(sum(e["min"] for e in _exec_dia) / len(_exec_dia))
@@ -3677,7 +3750,7 @@ def _chart_linha_do_tempo(dados, username):
             f'font-weight="700" letter-spacing="0.2" '
             f'fill="{cor_c}">{rot}</text>')
         for d in range(1, ultimo + 1):
-            v = atividade.get(f"{pref}{d:02d}", {}).get(chave_c, 0)
+            v = (estados.get(f"{pref}{d:02d}") or {}).get(chave_c, 0)
             x = ml + (d - 1) * bw + 1
             larg = max(bw - 2, 1)
             if v > 0:
@@ -3711,7 +3784,7 @@ def _chart_linha_do_tempo(dados, username):
            f'fora da média</span>' if n_analise else "")
         + '</div>')
     leg = (f'<div style="font-size:9px;color:var(--ms-texto-sec);margin-top:3px;">'
-           f'cor do bloco = etiqueta com que ele terminou · '
+           f'cor do bloco = estado do cartão no dia · '
            f'<span style="color:{COR_ANDAMENTO};font-weight:700;">■</span> '
            f'EM ANDAMENTO · '
            f'<span style="color:{COR_CONCLUIDO};font-weight:700;">■</span> '
@@ -3721,8 +3794,9 @@ def _chart_linha_do_tempo(dados, username):
            f'<br>contorno branco tracejado = filmagem · contorno cinza = busca '
            f'de demanda · fundo escuro = fora do expediente ou fim de semana · '
            f'passe o mouse num bloco para ver o cartão'
-           f'<br>as três linhas embaixo contam CARTÕES, nas mesmas cores: '
-           f'quantos ficaram em cada estado no dia</div>')
+           f'<br>as três linhas embaixo contam CARTÕES, nas mesmas cores, e '
+           f'cada cartão entra em uma só: a do estado em que ele fechou o dia'
+           f'</div>')
     if parados:
         leg += (f'<div style="margin-top:4px;font-size:10px;color:#E34948;'
                 f'font-weight:700;">🚩 {len(parados)} dia(s) útil(eis) sem '
@@ -3752,13 +3826,29 @@ def _chart_atividade_dia(dados, username, por_mes=False):
     vermelho. Fim de semana e dia ainda por vir não são acusados.
     """
     dias = _atividade_do_membro(dados, username)
+    # Os tres estados vem da mesma conta da linha do tempo: um cartao, um
+    # estado. Duas telas contando o mesmo dia de jeitos diferentes e como elas
+    # passam a discordar.
+    est_dia = _estados_por_dia(dados, username)
+    for _d, _e in est_dia.items():
+        _r = dias.setdefault(_d, {"iniciados": 0, "concluidos": 0,
+                                  "interrompidos": 0, "ativos": 0,
+                                  "minutos": 0.0})
+        _r["andamento"] = _e["andamento"]
+        _r["concluido"] = _e["concluido"]
+        _r["interrompido"] = _e["interrompido"]
+    for _r in dias.values():
+        _r.setdefault("andamento", 0)
+        _r.setdefault("concluido", 0)
+        _r.setdefault("interrompido", 0)
 
     if por_mes:
         agrup = {}
         for dia, v in dias.items():
             a = agrup.setdefault(dia[:7], {"iniciados": 0, "concluidos": 0,
                                            "interrompidos": 0, "ativos": 0,
-                                           "minutos": 0.0})
+                                           "andamento": 0, "concluido": 0,
+                                           "interrompido": 0, "minutos": 0.0})
             for k in a:
                 a[k] += v[k]
         rotulos, regs, uteis = [], [], []
@@ -3770,7 +3860,8 @@ def _chart_atividade_dia(dados, username, por_mes=False):
             rotulos.append(r.get("label", chave))
             regs.append(agrup.get(chave, {"iniciados": 0, "concluidos": 0,
                                           "interrompidos": 0, "ativos": 0,
-                                          "minutos": 0.0}))
+                                          "andamento": 0, "concluido": 0,
+                                          "interrompido": 0, "minutos": 0.0}))
             uteis.append(False)   # mês inteiro vazio não se acusa como dia parado
         unidade = "mês"
     else:
@@ -3788,7 +3879,8 @@ def _chart_atividade_dia(dados, username, por_mes=False):
             regs.append(dias.get(f"{ano:04d}-{mes:02d}-{d:02d}",
                                  {"iniciados": 0, "concluidos": 0,
                                   "interrompidos": 0, "ativos": 0,
-                                  "minutos": 0.0}))
+                                  "andamento": 0, "concluido": 0,
+                                  "interrompido": 0, "minutos": 0.0}))
             uteis.append(data.weekday() < 5 and data <= hoje)
         unidade = "dia"
 
@@ -3798,8 +3890,8 @@ def _chart_atividade_dia(dados, username, por_mes=False):
 
     mins = [r["minutos"] for r in regs]
     parados = [i for i, r in enumerate(regs)
-               if uteis[i] and r["minutos"] <= 0 and r["iniciados"] == 0
-               and r["concluidos"] == 0]
+               if uteis[i] and r["minutos"] <= 0 and r["andamento"] == 0
+               and r["concluido"] == 0 and r["interrompido"] == 0]
 
     W = 620
     # Margem maior a esquerda: "EM ANDAMENTO" nao cabe nos 52px de "andamento".
@@ -3807,9 +3899,9 @@ def _chart_atividade_dia(dados, username, por_mes=False):
     ALT_BARRA, ALT_EIXO, ALT_LINHA = 96, 14, 15
     # O rotulo da linha traz a PALAVRA, nao so o simbolo. "▶" sozinho na margem
     # nao diz nada para quem abre a tela pela primeira vez.
-    LINHAS = [("ativos", "EM ANDAMENTO", "EM ANDAMENTO", COR_ANDAMENTO),
-              ("concluidos", "CONCLUÍDO", "CONCLUÍDO", COR_CONCLUIDO),
-              ("interrompidos", "INTERROMPIDO", "INTERROMPIDO", COR_INTERROMPIDO)]
+    LINHAS = [("andamento", "EM ANDAMENTO", "EM ANDAMENTO", COR_ANDAMENTO),
+              ("concluido", "CONCLUÍDO", "CONCLUÍDO", COR_CONCLUIDO),
+              ("interrompido", "INTERROMPIDO", "INTERROMPIDO", COR_INTERROMPIDO)]
     H = mt + ALT_BARRA + ALT_EIXO + ALT_LINHA * len(LINHAS) + 6
     iw = W - ml - mr
     topo = max(mins + [60.0])
@@ -3830,8 +3922,8 @@ def _chart_atividade_dia(dados, username, por_mes=False):
         x = ml + i * bw + 1
         larg = max(bw - 2, 1)
         dica = (f'{rotulos[i]}: {_fmt_hm(reg["minutos"])} de execução · '
-                f'{reg["ativos"]} em andamento · {reg["concluidos"]} concluído(s) · '
-                f'{reg["interrompidos"]} interrompido(s)')
+                f'{reg["andamento"]} em andamento · {reg["concluido"]} '
+                f'concluído(s) · {reg["interrompido"]} interrompido(s)')
         if reg["minutos"] > 0:
             alt = reg["minutos"] / topo * ALT_BARRA
             partes.append(
@@ -4543,7 +4635,8 @@ def _desempenho_individual(dados, username, nome, carregar_periodo=None):
             "Cada execução no relógio do expediente da pessoa — o início do "
             "expediente embaixo, o fim em cima. O traço verde é o início do "
             "cartão, o vermelho é o fim, e a distância entre eles é a duração. "
-            "A **cor do bloco é a da etiqueta** com que ele terminou: amarelo EM ANDAMENTO, verde CONCLUÍDO, roxo INTERROMPIDO ou FIM DE EXPEDIENTE. "
+            "A **cor do bloco é o estado do cartão naquele dia** — todos os "
+            "trechos do mesmo cartão têm a mesma cor: amarelo EM ANDAMENTO, verde CONCLUÍDO, roxo INTERROMPIDO ou FIM DE EXPEDIENTE. "
             "Embaixo, quantos cartões ficaram **EM ANDAMENTO**, **CONCLUÍDO** e "
             "**INTERROMPIDO** no dia — interrompido conta tanto a etiqueta "
             "INTERROMPIDO quanto FIM DE EXPEDIENTE. Dia útil já passado sem "
