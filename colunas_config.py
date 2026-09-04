@@ -104,6 +104,77 @@ def salvar(nome_coluna, prioridade, tempo_min, espera_h=None):
     carregar.clear()
 
 
+ABA_OCULTAS = "colunas_ocultas"
+
+
+@st.cache_resource
+def _aba_ocultas():
+    import sheets as _sh
+    planilha = _sh.planilha()
+    try:
+        return planilha.worksheet(ABA_OCULTAS)
+    except Exception:
+        aba = planilha.add_worksheet(title=ABA_OCULTAS, rows=100, cols=1)
+        aba.append_row(["coluna"], value_input_option="RAW")
+        return aba
+
+
+@st.cache_data(ttl=600)
+def ocultas() -> set:
+    """Colunas que o gestor mandou sumir da tela de configuração.
+
+    `remover` só apaga uma linha da planilha. A coluna que veio renomeada no
+    Trello mas continua escrita no código — em COLUNAS_CONFIG — voltava na
+    leitura seguinte, e o botão de remover não tinha efeito nenhum: ela não
+    estava na planilha para ser apagada. Sem um lugar que diga "essa não me
+    interessa mais", a única saída seria alterar o código.
+
+    Vazio em qualquer falha: esconder coluna por engano é pior que mostrar uma
+    coluna a mais.
+    """
+    try:
+        registros = _aba_ocultas().get_all_records()
+    except Exception:
+        return set()
+    return {str(r.get("coluna", "")).strip()
+            for r in registros if str(r.get("coluna", "")).strip()}
+
+
+def ocultar(nome_coluna):
+    """Some com a coluna da tela. Devolve (ok, mensagem)."""
+    nome = str(nome_coluna).strip()
+    if not nome:
+        return False, "Coluna sem nome."
+    try:
+        if nome not in ocultas():
+            _aba_ocultas().append_row([nome], value_input_option="RAW")
+            ocultas.clear()
+        return True, ""
+    except Exception as e:
+        return False, str(e)[:200]
+
+
+def revelar(nome_coluna):
+    """Traz a coluna de volta. Devolve (ok, mensagem).
+
+    Existe porque esconder é uma decisão e toda decisão erra: a coluna some da
+    tela junto com a configuração dela, e sem o caminho de volta o conserto
+    seria editar a planilha na mão.
+    """
+    try:
+        aba = _aba_ocultas()
+        try:
+            celula = aba.find(str(nome_coluna).strip(), in_column=1)
+        except Exception:
+            celula = None
+        if celula:
+            aba.delete_rows(celula.row)
+            ocultas.clear()
+        return True, ""
+    except Exception as e:
+        return False, str(e)[:200]
+
+
 def remover(nome_coluna):
     """Apaga a linha de uma coluna que não existe mais no Trello.
 

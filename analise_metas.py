@@ -1290,6 +1290,11 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
     r_atual = dados[-1]
     pct_eq   = r_atual["pct_mensal"]
     pct_maxx = r_atual["pct_maxx"]
+    # Em pontos, e nao so em percentual: a calculadora precisa dizer QUANTO
+    # falta, e "faltam 8%" nao e uma quantidade de trabalho.
+    _saldo_eq  = r_atual.get("saldo", 0.0)
+    _meta_eq   = r_atual.get("meta_eq", 0.0)
+    _meta_maxx = r_atual.get("meta_maxx", 0.0)
     cfg      = r_atual["cfg"]
     max_tol  = int(cfg.get("max_tol_normal", 15))
     max_atr  = int(cfg.get("max_atr_normal", 10))
@@ -1469,7 +1474,6 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
                          max_adv_n=_max_adv_n, max_adv_x=_max_adv_x)
 
         o = _ocio.get(username, {"disp": 0.0, "cards": 0.0})
-        e = _exec.get(username, {"dentro": 0, "total": 0})
         p = _pont.get(username, {"tol": 0, "tol_ent": 0, "tol_alm": 0,
                                  "atr": 0, "atr_ent": 0, "atr_alm": 0,
                                  "ocorr": [], "min_atr": 0.0, "banco": 0.0})
@@ -1520,23 +1524,11 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
                 cor=cor, valor_texto=f"{pct_ocio:.1f}%"
             ), unsafe_allow_html=True)
 
-        def _it_execucao(limite):
-            rotulo = f"⚡ Tempo de execução dentro do estimado ({limite}%)"
-            if e["total"] <= 0:
-                st.markdown(_meta_ind_item(
-                    rotulo, 100,
-                    "Nenhum cartão concluído com tempo medido no período",
-                    aguardando=True), unsafe_allow_html=True)
-                return
-            pct_exec = e["dentro"] / e["total"] * 100
-            cor = ("#1BAF7A" if pct_exec >= limite
-                   else "#EDA100" if pct_exec >= limite * 0.6 else "#E34948")
-            st.markdown(_meta_ind_item(
-                rotulo, min(pct_exec / limite * 100, 100) if limite else 0,
-                f"{e['dentro']} de {e['total']} cartões ficaram dentro do tempo "
-                f"estimado da coluna · tempo medido pela etiqueta EM ANDAMENTO",
-                cor=cor, valor_texto=f"{pct_exec:.0f}%"
-            ), unsafe_allow_html=True)
+        # "Tempo de execucao dentro do estimado" saiu das duas metas. Ele
+        # media a mesma coisa que o card de tempo medio logo abaixo, so que
+        # contra o estimado de cada coluna em vez do alvo do mes — e o alvo do
+        # mes e o numero acordado com a equipe. Dois cards para uma pergunta
+        # so, e o que ninguem batia era sempre o outro.
 
         def _it_tempo_medio():
             """Tempo médio de execução da pessoa contra o alvo do mês."""
@@ -1641,7 +1633,6 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
         _it_pontuacao("📈 Pontuação", meta_total.get(username, len(dados) * 1500),
                       "#1BAF7A")
         _it_ociosidade(OCIO_META_NORMAL)
-        _it_execucao(EXEC_META_NORMAL)
         _it_tempo_medio()
         _it_contagem(f"🕐 Tolerâncias de pontualidade ({max_tol}/mês)",
                      p["tol"], max_tol, _det_tol)
@@ -1660,7 +1651,6 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
                     unsafe_allow_html=True)
         _it_pontuacao("⭐ Pontuação", maxx_total.get(username, 0), "#EDA100")
         _it_ociosidade(OCIO_META_MAXX)
-        _it_execucao(EXEC_META_MAXX)
         _it_contagem(f"🕐 Tolerâncias de pontualidade ({max_tol_mx}/mês)",
                      p["tol"], max_tol_mx, _det_tol)
         _it_contagem(f"⏰ Atrasos de pontualidade ({max_atr_mx}/mês)",
@@ -1677,11 +1667,19 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
                 st.caption("💰 Digite seu salário no painel acima para ver seus "
                            "ganhos deste mês.")
         else:
-            salario = st.number_input(
+            # Mesma razao do botao la do painel: campo de digitacao so
+            # confirma ao perder o foco, e sem um clique visivel a pessoa acha
+            # que a tela ignorou o que ela escreveu.
+            _cs, _cb = st.columns([3, 1])
+            salario = _cs.number_input(
                 "💰 Informe seu salário base para calcular seus ganhos mensais até o momento:",
                 min_value=0.0, value=0.0, step=100.0, format="%.2f",
                 key=_chave_sal, label_visibility="visible"
             )
+            _cb.markdown("<div style='height:28px;'></div>",
+                         unsafe_allow_html=True)
+            _cb.button("✅ Confirmar", key=f"{_chave_sal}_ok",
+                       use_container_width=True)
         if salario > 0:
             # Bônus só entra quando a meta correspondente foi BATIDA (≥100%).
             #
@@ -1757,7 +1755,6 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
             bonus_ind = salario * pct_seu / 100
             total = salario + bonus_col + bonus_ind
 
-            alguma_meta_batida = (pct_time + pct_seu) > 0
             cor_total = "#FFD700" if (meta_maxx_batida or meta_ind_maxx_batida) else "#1BAF7A"
 
             def _bonus_val(valor, batida, cor):
@@ -1770,51 +1767,76 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
                     return f'<div style="font-size:7px;color:var(--ms-texto-sec);">{label}</div>'
                 return '<div style="font-size:7px;color:#e57373;">Meta não batida</div>'
 
-            if alguma_meta_batida:
-                def _parcela(rotulo, valor, pct, nivel, cor):
-                    if pct <= 0:
-                        return (f'<div><div style="font-size:8px;color:var(--ms-texto-sec);'
-                                f'text-transform:uppercase;">{rotulo}</div>'
-                                f'<div style="font-size:14px;font-weight:700;'
-                                f'color:var(--ms-texto-sec);">—</div>'
-                                f'<div style="font-size:8px;color:#e57373;">Meta não batida</div></div>')
+            # A conta aparece SEMPRE, mesmo valendo R$ 0,00 hoje.
+            #
+            # Antes, sem nenhuma meta batida, o lugar dela era ocupado por um
+            # "nenhuma meta atingida ainda": quem digitava o salario no dia 4
+            # nao via numero nenhum, e a calculadora parecia quebrada. Ela nao
+            # estava — so nao tinha o que somar. Mostrar R$ 0,00 na parcela que
+            # ainda nao vale, com o quanto falta para ela valer, responde a
+            # pergunta que a pessoa veio fazer: "e se o mes acabasse hoje?"
+            def _parcela(rotulo, valor, pct, nivel, cor):
+                if pct <= 0:
                     return (f'<div><div style="font-size:8px;color:var(--ms-texto-sec);'
                             f'text-transform:uppercase;">{rotulo}</div>'
-                            f'<div style="font-size:14px;font-weight:700;color:{cor};">'
-                            f'+{_expl._reais(valor)}</div>'
-                            f'<div style="font-size:8px;color:var(--ms-texto-sec);">'
-                            f'{nivel} · +{pct:.0f}%</div></div>')
+                            f'<div style="font-size:14px;font-weight:700;'
+                            f'color:var(--ms-texto-sec);">—</div>'
+                            f'<div style="font-size:8px;color:#e57373;">Meta não batida</div></div>')
+                return (f'<div><div style="font-size:8px;color:var(--ms-texto-sec);'
+                        f'text-transform:uppercase;">{rotulo}</div>'
+                        f'<div style="font-size:14px;font-weight:700;color:{cor};">'
+                        f'+{_expl._reais(valor)}</div>'
+                        f'<div style="font-size:8px;color:var(--ms-texto-sec);">'
+                        f'{nivel} · +{pct:.0f}%</div></div>')
 
-                _niv_time = "Meta MAXX" if meta_maxx_batida else "Meta mensal"
-                _niv_seu  = "Meta MAXX" if meta_ind_maxx_batida else "Meta mensal"
+            _niv_time = "Meta MAXX" if meta_maxx_batida else "Meta mensal"
+            _niv_seu  = "Meta MAXX" if meta_ind_maxx_batida else "Meta mensal"
+            st.markdown(
+                f'<div style="background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);'
+                f'border-radius:8px;padding:10px 12px;margin-top:6px;">'
+                f'<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;">'
+                f'<div><div style="font-size:8px;color:var(--ms-texto-sec);text-transform:uppercase;">Salário Base</div>'
+                f'<div style="font-size:14px;font-weight:700;color:var(--ms-texto);">{_expl._reais(salario)}</div></div>'
+                + _parcela("🤝 Parte do time", bonus_col, pct_time, _niv_time,
+                           "#FFD700" if meta_maxx_batida else "#1BAF7A")
+                + _parcela("🙋 Parte sua", bonus_ind, pct_seu, _niv_seu,
+                           "#FFD700" if meta_ind_maxx_batida else "#1BAF7A")
+                + f'<div><div style="font-size:8px;color:var(--ms-texto-sec);text-transform:uppercase;">'
+                f'Total a Receber (+{pct_time + pct_seu:.0f}%)</div>'
+                f'<div style="font-size:17px;font-weight:700;color:{cor_total};">'
+                f'{_expl._reais(total)}</div></div>'
+                f'</div></div>',
+                unsafe_allow_html=True
+            )
+
+            # O que ainda falta, em pontos, para cada parcela que hoje vale
+            # zero. Sem isto a pessoa ve "R$ 0,00" e nao sabe se esta a 50 ou a
+            # 5.000 pontos do bonus.
+            _faltas = []
+            if not meta_col_batida and _meta_eq > 0 and _saldo_eq < _meta_eq:
+                _faltas.append(
+                    f"🤝 faltam <b>{_n_br(_meta_eq - _saldo_eq)} pts ao time</b> "
+                    f"para a Meta Coletiva (+{_expl.PCT_COLETIVO_MENSAL:.0f}%)")
+            if (not meta_maxx_batida and _meta_maxx > 0
+                    and _saldo_eq < _meta_maxx):
+                _faltas.append(
+                    f"⭐ faltam <b>{_n_br(_meta_maxx - _saldo_eq)} pts ao time</b> "
+                    f"para a Meta MAXX (+{_expl.PCT_COLETIVO_MAXX:.0f}%)")
+            if not meta_ind_batida and meta_ind > 0 and pts < meta_ind:
+                _faltas.append(
+                    f"🙋 faltam <b>{_n_br(meta_ind - pts)} pts seus</b> para a "
+                    f"sua meta individual (+{_expl.PCT_INDIVIDUAL_MENSAL:.0f}%)")
+            if (not meta_ind_maxx_batida and meta_ind_maxx > 0
+                    and pts < meta_ind_maxx):
+                _faltas.append(
+                    f"⭐ faltam <b>{_n_br(meta_ind_maxx - pts)} pts seus</b> para "
+                    f"a sua MAXX (+{_expl.PCT_INDIVIDUAL_MAXX:.0f}%)")
+            if _faltas:
                 st.markdown(
-                    f'<div style="background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);'
-                    f'border-radius:8px;padding:10px 12px;margin-top:6px;">'
-                    f'<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;">'
-                    f'<div><div style="font-size:8px;color:var(--ms-texto-sec);text-transform:uppercase;">Salário Base</div>'
-                    f'<div style="font-size:14px;font-weight:700;color:var(--ms-texto);">{_expl._reais(salario)}</div></div>'
-                    + _parcela("🤝 Parte do time", bonus_col, pct_time, _niv_time,
-                               "#FFD700" if meta_maxx_batida else "#1BAF7A")
-                    + _parcela("🙋 Parte sua", bonus_ind, pct_seu, _niv_seu,
-                               "#FFD700" if meta_ind_maxx_batida else "#1BAF7A")
-                    + f'<div><div style="font-size:8px;color:var(--ms-texto-sec);text-transform:uppercase;">'
-                    f'Total a Receber (+{pct_time + pct_seu:.0f}%)</div>'
-                    f'<div style="font-size:17px;font-weight:700;color:{cor_total};">'
-                    f'{_expl._reais(total)}</div></div>'
-                    f'</div></div>',
-                    unsafe_allow_html=True
-                )
-            else:
-                st.markdown(
-                    f'<div style="background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);'
-                    f'border-radius:8px;padding:10px 14px;margin-top:6px;display:flex;align-items:center;gap:10px;">'
-                    f'<div style="font-size:18px;">⏳</div>'
-                    f'<div>'
-                    f'<div style="font-size:12px;font-weight:700;color:var(--ms-texto);">Nenhuma meta atingida ainda</div>'
-                    f'<div style="font-size:11px;color:var(--ms-texto-sec);">Os bônus serão calculados assim que as metas forem batidas.</div>'
-                    f'</div></div>',
-                    unsafe_allow_html=True
-                )
+                    '<div style="font-size:10px;color:var(--ms-texto-sec);'
+                    'line-height:1.7;margin-top:5px;">'
+                    + "<br>".join("· " + f for f in _faltas)
+                    + '</div>', unsafe_allow_html=True)
 
     # Exibe master vê todos; membro vê só o próprio
     if eh_master:
@@ -4851,13 +4873,10 @@ def _secao_entrada_meta(dados, username, nome):
 
     uteis, decorridos = _dias_uteis_periodo(dados)
     meta, pts = el["meta"], el["pts"]
-    # O limite que o card da escada recebe é o MENSAL: ele mesmo multiplica
-    # pelos meses. `el` já traz o do período — passar aquele aqui dobraria o
-    # teto num filtro de trimestre.
-    _n_m = max(1, len(dados))
-    _cfg_ent = dados[-1]["cfg"]
-    _adv_mes_n = int(_cfg_ent.get("max_adv_normal", 2) or 0)
-    _adv_mes_x = int(_cfg_ent.get("max_adv_maxx", 1) or 0)
+    # Advertência não tem card próprio aqui: a seção responde "eu entro na meta
+    # do time?", e a resposta é a pontuação. O teto de advertências continua
+    # valendo e continua aparecendo — no texto de cima e na faixa do veredito,
+    # que é onde ele muda o "sim" para "não".
 
     if meta <= 0:
         st.info("Meta individual ainda não configurada para o período — sem "
@@ -4876,16 +4895,12 @@ def _secao_entrada_meta(dados, username, nome):
                     unsafe_allow_html=True)
         st.markdown(_item_contribuicao(pts, meta, el["min_n"], ritmo=_r_col),
                     unsafe_allow_html=True)
-        st.markdown(_item_advertencia(el["advs"], _adv_mes_n, _n_m),
-                    unsafe_allow_html=True)
     with _cx:
         st.markdown('<div style="font-size:10px;font-weight:600;color:#FFD700;'
                     'text-transform:uppercase;letter-spacing:.5px;'
                     'margin-bottom:6px;">⭐ Entrada na Meta MAXX</div>',
                     unsafe_allow_html=True)
         st.markdown(_item_contribuicao(pts, meta, el["min_x"], ritmo=_r_mx),
-                    unsafe_allow_html=True)
-        st.markdown(_item_advertencia(el["advs"], _adv_mes_x, _n_m),
                     unsafe_allow_html=True)
 
     # O veredito por extenso, porque duas barras verdes ainda deixam a pergunta
@@ -5594,7 +5609,12 @@ def _secao_colunas(dados):
     # Trello continua vindo das duas ultimas — e ficava lado a lado com a nova,
     # com configuracao e sem cartao nenhum, sem nada dizendo qual era qual.
     salvas = _cc.carregar()
-    todas = sorted(set(do_board) | set(_pc.COLUNAS_CONFIG) | set(salvas))
+    try:
+        _ocultas = _cc.ocultas()
+    except Exception:
+        _ocultas = set()
+    todas = sorted((set(do_board) | set(_pc.COLUNAS_CONFIG) | set(salvas))
+                   - _ocultas)
     fora_do_board = set(todas) - set(do_board) if do_board else set()
     if not todas:
         st.info("Não consegui listar as colunas do Trello agora.")
@@ -5626,14 +5646,25 @@ def _secao_colunas(dados):
                     "renomeada. A configuração dela não é usada por cartão "
                     "nenhum. Configure a coluna com o nome novo e remova esta."
                 )
-                if nome in salvas and st.button("🗑️ Remover configuração",
-                                                key=f"col_x_{nome}"):
+                # O botao existia so para coluna que estava na planilha. Coluna
+                # renomeada que continua escrita no codigo nao tinha linha para
+                # apagar, e por isso aparecia sem saida nenhuma — que e o caso
+                # que o gestor viu na tela. Agora sao dois passos: apagar a
+                # linha, se houver, e marcar a coluna como oculta, que e o que
+                # tira do codigo o poder de trazer ela de volta.
+                if st.button("🗑️ Remover coluna", key=f"col_x_{nome}",
+                             use_container_width=True):
+                    _erro = ""
                     try:
-                        _cc.remover(nome)
-                        st.success(f"{rotulo} removida.")
-                        st.rerun()
+                        if nome in salvas:
+                            _cc.remover(nome)
                     except Exception as ex:
-                        st.error(f"Não consegui remover: {str(ex)[:200]}")
+                        _erro = str(ex)[:200]
+                    _ok, _msg = _cc.ocultar(nome)
+                    if _ok and not _erro:
+                        st.rerun()
+                    else:
+                        st.error(f"Não consegui remover: {_erro or _msg}")
             c1, c2, c3, c4 = st.columns([1, 1, 1, 1])
             p = c1.number_input("Prioridade", 0, 10, int(cfg.get("prioridade", 5)),
                                 key=f"col_p_{nome}")
@@ -5659,6 +5690,24 @@ def _secao_colunas(dados):
                     st.rerun()
                 except Exception as ex:
                     st.error(f"Não consegui salvar: {str(ex)[:200]}")
+
+    # Esconder e uma decisao, e toda decisao erra. Sem o caminho de volta a
+    # coluna sumia da tela junto com a configuracao dela, e o conserto seria
+    # editar a planilha na mao.
+    if _ocultas:
+        with st.expander(f"🙈 Colunas removidas da tela ({len(_ocultas)})",
+                         expanded=False):
+            for _nm in sorted(_ocultas):
+                _r1, _r2 = st.columns([6, 1])
+                _r1.markdown(
+                    f'<div style="padding:6px 0;font-size:13px;'
+                    f'color:var(--ms-texto-sec);">{_esc(_nm)}</div>',
+                    unsafe_allow_html=True)
+                if _r2.button("↩️", key=f"col_v_{_nm}",
+                              use_container_width=True,
+                              help="Mostrar de novo"):
+                    _ok, _msg = _cc.revelar(_nm)
+                    st.rerun() if _ok else st.error(_msg)
 
 
 def _secao_configuracao(dados=None):
@@ -6358,29 +6407,46 @@ def pagina_analise_metas(usuario_logado):
 
 
     elif _aba_sel == _ABAS[2]:
-        _aba_desempenho(dados, _carregar_ano_full(),
-                        carregar_periodo=_carregar_periodo)
-
-        st.markdown("---")
-        st.markdown("#### 📈 Desempenho Individual")
-
-        # Masters podem selecionar qualquer colaborador; membros veem apenas o próprio
+        # Uma visão de cada vez, escolhida aqui em cima.
+        #
+        # As duas viviam empilhadas: para olhar o individual de alguém era
+        # preciso rolar a coletiva inteira, e a cada troca de colaborador a
+        # tela voltava para o topo e a rolagem recomeçava. Além do trabalho,
+        # era tempo — o corpo das duas era montado a cada clique.
         _mb_opcoes_des = list(_pc.MEMBROS_ATIVOS.keys())
         _mb_nomes_des  = [_pc.MEMBROS_ATIVOS[u] for u in _mb_opcoes_des]
-        if _eh_master:
-            _mb_nome_des = st.selectbox("👤 Selecionar colaborador:", _mb_nomes_des, key="des_ind_sel")
-            _mb_u_des = _mb_opcoes_des[_mb_nomes_des.index(_mb_nome_des)]
-        else:
-            _mb_u_des    = _username_atual
-            _mb_nome_des = _pc.MEMBROS_ATIVOS.get(_mb_u_des, _mb_u_des)
-            st.caption(f"Exibindo seus dados: **{_mb_nome_des}**")
+        _c_vis, _c_col = st.columns([1.2, 1.4])
+        _vis = _c_vis.radio(
+            "O que você quer ver", ["👥 Análise coletiva", "🎯 Análise individual"],
+            horizontal=True, key="des_visao")
+        _individual = _vis.endswith("individual")
 
-        if _mb_u_des:
+        _mb_u_des, _mb_nome_des = None, ""
+        if _individual:
+            if _eh_master:
+                # O seletor mora na mesma linha da visão: escolher a pessoa é
+                # parte de escolher o que ver, não um passo depois.
+                _mb_nome_des = _c_col.selectbox(
+                    "👤 Colaborador", _mb_nomes_des, key="des_ind_sel")
+                _mb_u_des = _mb_opcoes_des[_mb_nomes_des.index(_mb_nome_des)]
+            else:
+                _mb_u_des    = _username_atual
+                _mb_nome_des = _pc.MEMBROS_ATIVOS.get(_mb_u_des, _mb_u_des)
+                _c_col.caption(f"Exibindo seus dados: **{_mb_nome_des}**")
+
+        st.markdown("---")
+        if not _individual:
+            _aba_desempenho(dados, _carregar_ano_full(),
+                            carregar_periodo=_carregar_periodo)
+        elif _mb_u_des:
+            st.markdown(f"#### 📈 Desempenho Individual — {_esc(_mb_nome_des)}")
             # Usa o período selecionado (dados) — não o ano completo —
             # para evitar mostrar meses sem meta individual configurada.
             _desempenho_individual(dados, _mb_u_des, _mb_nome_des,
                                    carregar_periodo=_carregar_periodo,
                                    dono=(_mb_u_des == _username_atual))
+        else:
+            st.info("Selecione um colaborador para ver o desempenho individual.")
 
     elif len(_ABAS) > 3 and _aba_sel == _ABAS[3]:
         if _eh_master:
