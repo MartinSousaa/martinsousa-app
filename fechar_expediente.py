@@ -69,7 +69,14 @@ def _preparar_secrets():
 
 
 def _log(msg):
-    print(f"[{datetime.now():%d/%m %H:%M:%S}] {msg}", flush=True)
+    # Log em hora de Brasilia, e nao a do container: quem le o log procura o
+    # horario que a equipe viveu.
+    try:
+        import placar_core as _pc_log
+        _ag = datetime.now(_pc_log.FUSO)
+    except Exception:
+        _ag = datetime.now()
+    print(f"[{_ag:%d/%m %H:%M:%S}] {msg}", flush=True)
 
 
 def _abortar_se_nao_for_producao():
@@ -179,7 +186,12 @@ def main(simular=False, agora=None):
 
     import placar_core as _pc
     _pc.recarregar_membros()
-    agora = agora or datetime.now()
+    # A hora TEM que ser a de Brasilia. O container roda em UTC, e datetime.now()
+    # devolvia 19h30 quando aqui eram 16h30 — tres horas adiantado. Como a regra
+    # compara essa hora com o fim do expediente ("18:00"), que e local, a
+    # etiqueta caia no meio da tarde: a equipe via cartao fechado entre 16h30 e
+    # 17h. Toda a decisao depende desta linha.
+    agora = agora or datetime.now(_pc.FUSO)
     hoje = agora.date()
 
     label_id = _id_da_etiqueta()
