@@ -117,12 +117,11 @@ def _analisar_meses(listas, cards, membros_map, id_p, id_t, id_i, meses_lista, p
         total_concl = d.get("total_concl", 0)
         corr_concl  = d.get("correcao_concl", 0)
         pct_retrab  = (corr_concl / total_concl * 100) if total_concl > 0 else None
-        # Cartões com membro: em andamento + concluídos
-        _and_sem_mb  = sum(1 for c in d["andamento_lista"] if not c["membros"])
-        _concl_sem_mb = len(d.get("concluido_sem_membro", []))
-        _total_ativos = d["em_andamento"] + total_concl
-        _ativos_sem_mb = _and_sem_mb + _concl_sem_mb
-        pct_com_membro_m = max(0.0, min(100.0, 100 - (_ativos_sem_mb / max(_total_ativos, 1) * 100)))
+        # Cartões com membro: concluídos no mês + o que está em andamento, e
+        # em andamento só conta no mês corrente — cartão aberto em agosto e
+        # tocado em setembro é assunto de setembro, não piora agosto de novo.
+        (pct_com_membro_m, _ativos_sem_mb_l,
+         _total_ativos, _desc_com_membro) = _pc.pct_com_membro(d, (ano, mes))
         resultado.append({
             "ano": ano, "mes": mes,
             "label": _label_mes(ano, mes),
@@ -174,6 +173,7 @@ def _analisar_meses(listas, cards, membros_map, id_p, id_t, id_i, meses_lista, p
             "pct_retrab": pct_retrab,   # None se sem dados
             "total_concl": total_concl,
             "pct_com_membro": pct_com_membro_m,
+            "desc_com_membro": _desc_com_membro,
             "filtro_mes": (ano, mes),   # usado por relogio_ponto para calcular ociosidade
         })
     return resultado
@@ -208,6 +208,7 @@ def _extend_dados_ano(dados):
                 "pts_membro": {}, "pen_membro": {}, "qtd_membro": {},
                 "pen_cards": [], "pct_retrab": None, "total_concl": 0,
                 "pct_com_membro": 0.0,
+                "desc_com_membro": "Sem dados no período",
             })
     resultado.sort(key=lambda r: (r["ano"], r["mes"]))
     return resultado
@@ -502,6 +503,7 @@ def _secao_metas_card(dados):
         _desc_pri = (f"{atrasados_pri} prioritário(s) atrasado(s)"
                      + (f": {_nomes}" if _nomes else ""))
     pct_com_membro   = r.get("pct_com_membro", 100.0)
+    _desc_cmb = r.get("desc_com_membro") or "Em andamento e concluídos no período"
 
     # Penalidades: acumulam de 0% a 100% (vermelho)
     pct_pen_n = min(pen_qtd / (max_pen_n + 1) * 100, 100) if max_pen_n >= 0 else 0
@@ -534,7 +536,7 @@ def _secao_metas_card(dados):
                             f"{pen_qtd} ocorrência(s) / máx {max_pen_n}", "#E34948")
         _cor_cmb_a = "#1BAF7A" if pct_com_membro >= 100 else "#E34948"
         b += _barra_painel("Cartões com membro atribuído", pct_com_membro,
-                            "Em andamento e concluídos no período", _cor_cmb_a)
+                            _desc_cmb, _cor_cmb_a)
         b += _barra_tempo_medio(dados, cfg, "#1BAF7A")
         st.markdown(f'<div style="background:var(--ms-metric-bg);border:1px solid #1BAF7A22;border-radius:8px;padding:12px 14px;">{b}</div>', unsafe_allow_html=True)
 
@@ -551,7 +553,7 @@ def _secao_metas_card(dados):
                             f"{pen_qtd} ocorrência(s) / máx {max_pen_x}", "#E34948")
         _cor_cmbx_a = "#FFD700" if pct_com_membro >= 100 else "#E34948"
         b += _barra_painel("Cartões com membro atribuído", pct_com_membro,
-                            "Em andamento e concluídos no período", _cor_cmbx_a)
+                            _desc_cmb, _cor_cmbx_a)
         # O tempo medio ja entrava nas duas contas (`_metas_do_mes` da o mesmo
         # pct para Normal e MAXX); so nao aparecia deste lado do card.
         b += _barra_tempo_medio(dados, cfg, "#FFD700")

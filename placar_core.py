@@ -1940,6 +1940,44 @@ def _mes_card(card, conclusoes=None, inicio_janela=None):
         return None
     return (dt.year, dt.month)
 
+def pct_com_membro(d, filtro_mes=None, hoje=None):
+    """(pct, faltam, total, legenda) da meta "Cartões com membro atribuído".
+
+    O mês de um cartão, aqui, é o mês em que ele foi TRABALHADO — nunca o da
+    criação. Concluído conta no mês da conclusão; em andamento conta no mês
+    corrente, porque é agora que ele está aberto. Um cartão aberto em agosto e
+    concluído (ou ainda em andamento) em setembro é assunto de setembro.
+
+    Era isso que fazia o painel de um mês fechado piorar sozinho depois da
+    virada: os cartões em andamento entravam em TODOS os meses, então um cartão
+    sem membro aberto hoje derrubava agosto, julho e o que mais estivesse na
+    tela. Mês fechado não muda mais.
+    """
+    hoje = hoje or datetime.now(FUSO)
+    # Sem filtro de mês a pergunta é sobre o board de agora, e aí o que está em
+    # andamento conta.
+    mes_corrente = (not filtro_mes
+                    or (int(filtro_mes[0]), int(filtro_mes[1]))
+                    == (hoje.year, hoje.month))
+
+    total = int(d.get("total_concl", 0) or 0)
+    faltam = [str(c.get("card", "")) for c in (d.get("concluido_sem_membro") or [])]
+    if mes_corrente:
+        total += int(d.get("em_andamento", 0) or 0)
+        faltam = [str(c.get("card", "")) for c in (d.get("andamento_lista") or [])
+                  if not c.get("membros")] + faltam
+
+    if total <= 0:
+        return 100.0, [], 0, "Nenhum cartão concluído ou em andamento no período"
+    pct = max(0.0, min(100.0, 100 - len(faltam) / total * 100))
+    if not faltam:
+        legenda = f"{total} cartão(ões) do período — todos com membro"
+    else:
+        nomes = ", ".join(f'"{n[:30]}"' for n in faltam[:3])
+        legenda = f"{len(faltam)} de {total} sem membro: {nomes}"
+    return pct, faltam, total, legenda
+
+
 def _mes_card_criacao(card):
     """Mês do cartão pela data de CRIAÇÃO (ID Trello = ObjectID MongoDB) —
     usado para penalidades e sem_membro, evitando que cartões antigos

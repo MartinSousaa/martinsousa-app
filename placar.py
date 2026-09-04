@@ -1957,32 +1957,17 @@ def pagina_placar(usuario_logado, headless=False):
                                for c in d.get("atrasados_pri_lista", [])[:3])
         _desc_pri = f"{_atr_pri} prioritário(s) atrasado(s)" + (f": {_nomes_pri}" if _nomes_pri else "")
     total_cards_ativos = max(d["em_andamento"] + sum(d["pend_lista"].values()), 1)
-    # Meta: Em Andamento e Concluídos com membro — apenas de 01/07/2026 em diante
-    from datetime import timezone as _tz
-    _corte = datetime(2026, 7, 1, tzinfo=_tz.utc)
-    _elegivel = [
-        card for card in cards
-        if _data_card(card) >= _corte
-        and ("EM ANDAMENTO" in _labels(card) or card.get("dueComplete", False))
-    ]
-    # A legenda sai da MESMA lista que o percentual.
+    # Meta: Em Andamento e Concluídos com membro, no MÊS que está na tela.
     #
-    # A barra marcava 100% e logo abaixo listava cartões sem membro, com o
-    # contador do topo dizendo SEM MEMBRO: 16. Os dois números estavam certos e
-    # falavam de coisas diferentes: o percentual olha os cartões em andamento e
-    # concluídos desde 01/07; a legenda vinha de sem_membro_lista, que é
-    # preenchida com cartões ABERTOS. Uma barra cheia com uma lista de faltantes
-    # embaixo só pode ser lida como erro.
-    _sem_mb_cards = [card for card in _elegivel if not _users(card, membros_map)]
+    # A conta era sobre o board inteiro desde 01/07, sem mês nenhum: um cartão
+    # sem membro aberto hoje derrubava agosto, julho e todo mês já fechado. A
+    # regra do mês agora é uma só, em placar_core, e vale igual aqui e na
+    # Análise de Metas — as duas telas mostravam números diferentes para a
+    # mesma barra.
+    import placar_core as _pc_membro
+    pct_com_membro, _sem_mb_cards, _total_novo, _sem_mb_desc_meta = \
+        _pc_membro.pct_com_membro(d, filtro_mes)
     _sem_mb_novo = len(_sem_mb_cards)
-    _total_novo = max(len(_elegivel), 1)
-    pct_com_membro = max(0, min(100, 100 - (_sem_mb_novo / _total_novo * 100)))
-    _sem_mb_desc_meta = (
-        f"Em andamento e concluídos desde 01/07 — todos os {len(_elegivel)} com membro"
-        if not _sem_mb_cards else
-        f"{_sem_mb_novo} de {len(_elegivel)} sem membro: "
-        + ", ".join(f'"{c["name"][:30]}"' for c in _sem_mb_cards[:3])
-    )
 
 
 
