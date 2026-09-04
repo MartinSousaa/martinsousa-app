@@ -336,11 +336,21 @@ def render(expandido=True, chave_salario="expl_salario",
         st.markdown(
             '<div style="font-size:16px;font-weight:700;margin:18px 0 2px 0;">'
             '💰 Veja a conta com o SEU salário</div>', unsafe_allow_html=True)
-        salario = st.number_input(
+        # O botao nao "salva" nada — o valor ja vale assim que o campo perde o
+        # foco. Ele existe porque campo de digitacao so confirma quando se
+        # clica fora dele, e clicar fora e um gesto que ninguem sabe que
+        # precisa dar: a pessoa digitava o salario, a tabela nao mudava, e a
+        # conclusao era que a tela travou. Clicar aqui e a mesma confirmacao,
+        # visivel.
+        _cs, _cb = st.columns([3, 1])
+        salario = _cs.number_input(
             "Digite aqui o seu salário base:",
             min_value=0.0, value=0.0, step=100.0, format="%.2f",
             key=chave_salario,
             help="Fica só no seu navegador, ninguém mais vê.")
+        _cb.markdown("<div style='height:28px;'></div>", unsafe_allow_html=True)
+        _cb.button("✅ Confirmar", key=f"{chave_salario}_ok",
+                   use_container_width=True)
         _proprio = salario > 0
         _base = salario if _proprio else SALARIO_EXEMPLO
         if not _proprio:

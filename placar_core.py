@@ -1140,12 +1140,17 @@ def _lista_abonos():
         return []
 
 
-def abonos_do_dia(dia, lista=None):
+def abonos_do_dia(dia, lista=None, username=None):
     """[(inicio, fim)] das horas abonadas naquele dia, ou vazio.
 
     Queda de internet, falta de energia: o trabalho para e os indicadores nao.
     Descontando aqui, na janela, os tres se corrigem juntos -- o relogio do
     cartao, o atraso por tempo estimado e a ociosidade partem todos daqui.
+
+    Com `username`, entram tambem os abatimentos aprovados daquela pessoa: o
+    tempo em que ela trabalhou e o sistema nao viu, porque ela esqueceu de
+    abrir o cartao ou de por a etiqueta. Sem `username`, so o que parou o
+    escritorio inteiro -- o esquecimento de uma pessoa nao abona o time.
 
     Nunca derruba a leitura: sem planilha, sem abono, e tudo volta a ser o que
     era. Hora abonada por engano seria pior que hora nao abonada.
@@ -1153,7 +1158,8 @@ def abonos_do_dia(dia, lista=None):
     try:
         import abonos as _ab
         return _ab.janelas_do_dia(dia, FUSO,
-                                  _lista_abonos() if lista is None else lista)
+                                  _lista_abonos() if lista is None else lista,
+                                  username=username)
     except Exception:
         return []
 
@@ -1162,7 +1168,9 @@ def _janelas_uteis(ini_local, fim_local, username=None):
     """Pedaços do intervalo que caem dentro do expediente da pessoa.
 
     Fora disso não é tempo de trabalho: etiqueta esquecida na sexta à noite não
-    pode render o fim de semana inteiro. Hora abonada também não conta.
+    pode render o fim de semana inteiro. Hora abonada também não conta — nem a
+    parada do escritório, nem o abatimento que o gestor aprovou para essa
+    pessoa.
     """
     h = horario_de(username)
     if (fim_local - ini_local).days > MAX_DIAS_INTERVALO:
@@ -1181,7 +1189,8 @@ def _janelas_uteis(ini_local, fim_local, username=None):
                 s, e = max(ini_local, ja), min(fim_local, jb)
                 if e > s:
                     do_dia.append((s, e))
-            ab = abonos_do_dia(dia, lista_ab) if lista_ab else []
+            ab = (abonos_do_dia(dia, lista_ab, username)
+                  if lista_ab else [])
             if ab:
                 import abonos as _ab
                 do_dia = _ab.descontar(do_dia, ab)
@@ -1939,6 +1948,44 @@ def _mes_card(card, conclusoes=None, inicio_janela=None):
     if inicio_janela and dt >= inicio_janela:
         return None
     return (dt.year, dt.month)
+
+def pct_com_membro(d, filtro_mes=None, hoje=None):
+    """(pct, faltam, total, legenda) da meta "Cartões com membro atribuído".
+
+    O mês de um cartão, aqui, é o mês em que ele foi TRABALHADO — nunca o da
+    criação. Concluído conta no mês da conclusão; em andamento conta no mês
+    corrente, porque é agora que ele está aberto. Um cartão aberto em agosto e
+    concluído (ou ainda em andamento) em setembro é assunto de setembro.
+
+    Era isso que fazia o painel de um mês fechado piorar sozinho depois da
+    virada: os cartões em andamento entravam em TODOS os meses, então um cartão
+    sem membro aberto hoje derrubava agosto, julho e o que mais estivesse na
+    tela. Mês fechado não muda mais.
+    """
+    hoje = hoje or datetime.now(FUSO)
+    # Sem filtro de mês a pergunta é sobre o board de agora, e aí o que está em
+    # andamento conta.
+    mes_corrente = (not filtro_mes
+                    or (int(filtro_mes[0]), int(filtro_mes[1]))
+                    == (hoje.year, hoje.month))
+
+    total = int(d.get("total_concl", 0) or 0)
+    faltam = [str(c.get("card", "")) for c in (d.get("concluido_sem_membro") or [])]
+    if mes_corrente:
+        total += int(d.get("em_andamento", 0) or 0)
+        faltam = [str(c.get("card", "")) for c in (d.get("andamento_lista") or [])
+                  if not c.get("membros")] + faltam
+
+    if total <= 0:
+        return 100.0, [], 0, "Nenhum cartão concluído ou em andamento no período"
+    pct = max(0.0, min(100.0, 100 - len(faltam) / total * 100))
+    if not faltam:
+        legenda = f"{total} cartão(ões) do período — todos com membro"
+    else:
+        nomes = ", ".join(f'"{n[:30]}"' for n in faltam[:3])
+        legenda = f"{len(faltam)} de {total} sem membro: {nomes}"
+    return pct, faltam, total, legenda
+
 
 def _mes_card_criacao(card):
     """Mês do cartão pela data de CRIAÇÃO (ID Trello = ObjectID MongoDB) —

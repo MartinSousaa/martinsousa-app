@@ -1289,9 +1289,17 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
             "- Product is the dominant visual element — large, prominent, fully visible"
         )
 
+    # Referencia de layout nao se aplica a foto limpa.
+    #
+    # A capa e o produto sobre branco puro; a ambientacao e a cena real. O
+    # estilo descrito das referencias e sempre o das pecas de marketing — fundo
+    # azul-cinza da marca, faixas, blocos de texto —, e mandar "replique este
+    # layout" junto com "fundo branco puro" da ao modelo duas ordens opostas.
+    # Entre as duas ele escolhia a que vinha com mais detalhe, e a capa saia com
+    # o fundo azul.
     _layout_section = (
         f"\n\nCOMPOSITION STYLE TO REPLICATE (apply this exact layout to the product above):\n{estilo_layout}"
-        if estilo_layout else ""
+        if estilo_layout and not _is_clean_photo else ""
     )
 
     _marketing_content = (
@@ -1382,10 +1390,18 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
 
         f"━━━ VISUAL STYLE ━━━\n"
         f"BACKGROUND: {_background}\n"
-        f"Brand accents: Navy blue (#1A3A6B) for text and graphic elements, "
-        f"medium blue (#4A7EC7) as secondary accent.\n"
-        f"Typography: Clean geometric sans-serif (Montserrat or Poppins style).\n"
-        f"Professional e-commerce aesthetic — clean, airy, high-end studio quality.\n\n"
+        # As cores da marca valem para TEXTO e elementos graficos. Numa foto
+        # limpa nao existe nem um nem outro — e uma cor de marca sem onde ser
+        # aplicada vira cor de fundo. Era a segunda ordem contraria que a capa
+        # recebia junto com "branco puro".
+        + (f"Brand accents: Navy blue (#1A3A6B) for text and graphic elements, "
+           f"medium blue (#4A7EC7) as secondary accent.\n"
+           f"Typography: Clean geometric sans-serif (Montserrat or Poppins style).\n"
+           if not _is_clean_photo else
+           "NO brand color anywhere: this image has no text and no graphic "
+           "elements, so no brand accent color may appear — not in the "
+           "background, not as a tint, not as a gradient.\n")
+        + f"Professional e-commerce aesthetic — clean, airy, high-end studio quality.\n\n"
 
         f"TEXT RULE: {_text_rule}\n\n"
 

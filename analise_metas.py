@@ -117,12 +117,11 @@ def _analisar_meses(listas, cards, membros_map, id_p, id_t, id_i, meses_lista, p
         total_concl = d.get("total_concl", 0)
         corr_concl  = d.get("correcao_concl", 0)
         pct_retrab  = (corr_concl / total_concl * 100) if total_concl > 0 else None
-        # Cartões com membro: em andamento + concluídos
-        _and_sem_mb  = sum(1 for c in d["andamento_lista"] if not c["membros"])
-        _concl_sem_mb = len(d.get("concluido_sem_membro", []))
-        _total_ativos = d["em_andamento"] + total_concl
-        _ativos_sem_mb = _and_sem_mb + _concl_sem_mb
-        pct_com_membro_m = max(0.0, min(100.0, 100 - (_ativos_sem_mb / max(_total_ativos, 1) * 100)))
+        # Cartões com membro: concluídos no mês + o que está em andamento, e
+        # em andamento só conta no mês corrente — cartão aberto em agosto e
+        # tocado em setembro é assunto de setembro, não piora agosto de novo.
+        (pct_com_membro_m, _ativos_sem_mb_l,
+         _total_ativos, _desc_com_membro) = _pc.pct_com_membro(d, (ano, mes))
         resultado.append({
             "ano": ano, "mes": mes,
             "label": _label_mes(ano, mes),
@@ -174,6 +173,7 @@ def _analisar_meses(listas, cards, membros_map, id_p, id_t, id_i, meses_lista, p
             "pct_retrab": pct_retrab,   # None se sem dados
             "total_concl": total_concl,
             "pct_com_membro": pct_com_membro_m,
+            "desc_com_membro": _desc_com_membro,
             "filtro_mes": (ano, mes),   # usado por relogio_ponto para calcular ociosidade
         })
     return resultado
@@ -208,6 +208,7 @@ def _extend_dados_ano(dados):
                 "pts_membro": {}, "pen_membro": {}, "qtd_membro": {},
                 "pen_cards": [], "pct_retrab": None, "total_concl": 0,
                 "pct_com_membro": 0.0,
+                "desc_com_membro": "Sem dados no período",
             })
     resultado.sort(key=lambda r: (r["ano"], r["mes"]))
     return resultado
@@ -502,6 +503,7 @@ def _secao_metas_card(dados):
         _desc_pri = (f"{atrasados_pri} prioritário(s) atrasado(s)"
                      + (f": {_nomes}" if _nomes else ""))
     pct_com_membro   = r.get("pct_com_membro", 100.0)
+    _desc_cmb = r.get("desc_com_membro") or "Em andamento e concluídos no período"
 
     # Penalidades: acumulam de 0% a 100% (vermelho)
     pct_pen_n = min(pen_qtd / (max_pen_n + 1) * 100, 100) if max_pen_n >= 0 else 0
@@ -534,7 +536,7 @@ def _secao_metas_card(dados):
                             f"{pen_qtd} ocorrência(s) / máx {max_pen_n}", "#E34948")
         _cor_cmb_a = "#1BAF7A" if pct_com_membro >= 100 else "#E34948"
         b += _barra_painel("Cartões com membro atribuído", pct_com_membro,
-                            "Em andamento e concluídos no período", _cor_cmb_a)
+                            _desc_cmb, _cor_cmb_a)
         b += _barra_tempo_medio(dados, cfg, "#1BAF7A")
         st.markdown(f'<div style="background:var(--ms-metric-bg);border:1px solid #1BAF7A22;border-radius:8px;padding:12px 14px;">{b}</div>', unsafe_allow_html=True)
 
@@ -551,7 +553,7 @@ def _secao_metas_card(dados):
                             f"{pen_qtd} ocorrência(s) / máx {max_pen_x}", "#E34948")
         _cor_cmbx_a = "#FFD700" if pct_com_membro >= 100 else "#E34948"
         b += _barra_painel("Cartões com membro atribuído", pct_com_membro,
-                            "Em andamento e concluídos no período", _cor_cmbx_a)
+                            _desc_cmb, _cor_cmbx_a)
         # O tempo medio ja entrava nas duas contas (`_metas_do_mes` da o mesmo
         # pct para Normal e MAXX); so nao aparecia deste lado do card.
         b += _barra_tempo_medio(dados, cfg, "#FFD700")
@@ -1288,6 +1290,11 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
     r_atual = dados[-1]
     pct_eq   = r_atual["pct_mensal"]
     pct_maxx = r_atual["pct_maxx"]
+    # Em pontos, e nao so em percentual: a calculadora precisa dizer QUANTO
+    # falta, e "faltam 8%" nao e uma quantidade de trabalho.
+    _saldo_eq  = r_atual.get("saldo", 0.0)
+    _meta_eq   = r_atual.get("meta_eq", 0.0)
+    _meta_maxx = r_atual.get("meta_maxx", 0.0)
     cfg      = r_atual["cfg"]
     max_tol  = int(cfg.get("max_tol_normal", 15))
     max_atr  = int(cfg.get("max_atr_normal", 10))
@@ -1467,7 +1474,6 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
                          max_adv_n=_max_adv_n, max_adv_x=_max_adv_x)
 
         o = _ocio.get(username, {"disp": 0.0, "cards": 0.0})
-        e = _exec.get(username, {"dentro": 0, "total": 0})
         p = _pont.get(username, {"tol": 0, "tol_ent": 0, "tol_alm": 0,
                                  "atr": 0, "atr_ent": 0, "atr_alm": 0,
                                  "ocorr": [], "min_atr": 0.0, "banco": 0.0})
@@ -1518,23 +1524,11 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
                 cor=cor, valor_texto=f"{pct_ocio:.1f}%"
             ), unsafe_allow_html=True)
 
-        def _it_execucao(limite):
-            rotulo = f"⚡ Tempo de execução dentro do estimado ({limite}%)"
-            if e["total"] <= 0:
-                st.markdown(_meta_ind_item(
-                    rotulo, 100,
-                    "Nenhum cartão concluído com tempo medido no período",
-                    aguardando=True), unsafe_allow_html=True)
-                return
-            pct_exec = e["dentro"] / e["total"] * 100
-            cor = ("#1BAF7A" if pct_exec >= limite
-                   else "#EDA100" if pct_exec >= limite * 0.6 else "#E34948")
-            st.markdown(_meta_ind_item(
-                rotulo, min(pct_exec / limite * 100, 100) if limite else 0,
-                f"{e['dentro']} de {e['total']} cartões ficaram dentro do tempo "
-                f"estimado da coluna · tempo medido pela etiqueta EM ANDAMENTO",
-                cor=cor, valor_texto=f"{pct_exec:.0f}%"
-            ), unsafe_allow_html=True)
+        # "Tempo de execucao dentro do estimado" saiu das duas metas. Ele
+        # media a mesma coisa que o card de tempo medio logo abaixo, so que
+        # contra o estimado de cada coluna em vez do alvo do mes — e o alvo do
+        # mes e o numero acordado com a equipe. Dois cards para uma pergunta
+        # so, e o que ninguem batia era sempre o outro.
 
         def _it_tempo_medio():
             """Tempo médio de execução da pessoa contra o alvo do mês."""
@@ -1639,7 +1633,6 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
         _it_pontuacao("📈 Pontuação", meta_total.get(username, len(dados) * 1500),
                       "#1BAF7A")
         _it_ociosidade(OCIO_META_NORMAL)
-        _it_execucao(EXEC_META_NORMAL)
         _it_tempo_medio()
         _it_contagem(f"🕐 Tolerâncias de pontualidade ({max_tol}/mês)",
                      p["tol"], max_tol, _det_tol)
@@ -1658,7 +1651,6 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
                     unsafe_allow_html=True)
         _it_pontuacao("⭐ Pontuação", maxx_total.get(username, 0), "#EDA100")
         _it_ociosidade(OCIO_META_MAXX)
-        _it_execucao(EXEC_META_MAXX)
         _it_contagem(f"🕐 Tolerâncias de pontualidade ({max_tol_mx}/mês)",
                      p["tol"], max_tol_mx, _det_tol)
         _it_contagem(f"⏰ Atrasos de pontualidade ({max_atr_mx}/mês)",
@@ -1675,11 +1667,19 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
                 st.caption("💰 Digite seu salário no painel acima para ver seus "
                            "ganhos deste mês.")
         else:
-            salario = st.number_input(
+            # Mesma razao do botao la do painel: campo de digitacao so
+            # confirma ao perder o foco, e sem um clique visivel a pessoa acha
+            # que a tela ignorou o que ela escreveu.
+            _cs, _cb = st.columns([3, 1])
+            salario = _cs.number_input(
                 "💰 Informe seu salário base para calcular seus ganhos mensais até o momento:",
                 min_value=0.0, value=0.0, step=100.0, format="%.2f",
                 key=_chave_sal, label_visibility="visible"
             )
+            _cb.markdown("<div style='height:28px;'></div>",
+                         unsafe_allow_html=True)
+            _cb.button("✅ Confirmar", key=f"{_chave_sal}_ok",
+                       use_container_width=True)
         if salario > 0:
             # Bônus só entra quando a meta correspondente foi BATIDA (≥100%).
             #
@@ -1755,7 +1755,6 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
             bonus_ind = salario * pct_seu / 100
             total = salario + bonus_col + bonus_ind
 
-            alguma_meta_batida = (pct_time + pct_seu) > 0
             cor_total = "#FFD700" if (meta_maxx_batida or meta_ind_maxx_batida) else "#1BAF7A"
 
             def _bonus_val(valor, batida, cor):
@@ -1768,51 +1767,76 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
                     return f'<div style="font-size:7px;color:var(--ms-texto-sec);">{label}</div>'
                 return '<div style="font-size:7px;color:#e57373;">Meta não batida</div>'
 
-            if alguma_meta_batida:
-                def _parcela(rotulo, valor, pct, nivel, cor):
-                    if pct <= 0:
-                        return (f'<div><div style="font-size:8px;color:var(--ms-texto-sec);'
-                                f'text-transform:uppercase;">{rotulo}</div>'
-                                f'<div style="font-size:14px;font-weight:700;'
-                                f'color:var(--ms-texto-sec);">—</div>'
-                                f'<div style="font-size:8px;color:#e57373;">Meta não batida</div></div>')
+            # A conta aparece SEMPRE, mesmo valendo R$ 0,00 hoje.
+            #
+            # Antes, sem nenhuma meta batida, o lugar dela era ocupado por um
+            # "nenhuma meta atingida ainda": quem digitava o salario no dia 4
+            # nao via numero nenhum, e a calculadora parecia quebrada. Ela nao
+            # estava — so nao tinha o que somar. Mostrar R$ 0,00 na parcela que
+            # ainda nao vale, com o quanto falta para ela valer, responde a
+            # pergunta que a pessoa veio fazer: "e se o mes acabasse hoje?"
+            def _parcela(rotulo, valor, pct, nivel, cor):
+                if pct <= 0:
                     return (f'<div><div style="font-size:8px;color:var(--ms-texto-sec);'
                             f'text-transform:uppercase;">{rotulo}</div>'
-                            f'<div style="font-size:14px;font-weight:700;color:{cor};">'
-                            f'+{_expl._reais(valor)}</div>'
-                            f'<div style="font-size:8px;color:var(--ms-texto-sec);">'
-                            f'{nivel} · +{pct:.0f}%</div></div>')
+                            f'<div style="font-size:14px;font-weight:700;'
+                            f'color:var(--ms-texto-sec);">—</div>'
+                            f'<div style="font-size:8px;color:#e57373;">Meta não batida</div></div>')
+                return (f'<div><div style="font-size:8px;color:var(--ms-texto-sec);'
+                        f'text-transform:uppercase;">{rotulo}</div>'
+                        f'<div style="font-size:14px;font-weight:700;color:{cor};">'
+                        f'+{_expl._reais(valor)}</div>'
+                        f'<div style="font-size:8px;color:var(--ms-texto-sec);">'
+                        f'{nivel} · +{pct:.0f}%</div></div>')
 
-                _niv_time = "Meta MAXX" if meta_maxx_batida else "Meta mensal"
-                _niv_seu  = "Meta MAXX" if meta_ind_maxx_batida else "Meta mensal"
+            _niv_time = "Meta MAXX" if meta_maxx_batida else "Meta mensal"
+            _niv_seu  = "Meta MAXX" if meta_ind_maxx_batida else "Meta mensal"
+            st.markdown(
+                f'<div style="background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);'
+                f'border-radius:8px;padding:10px 12px;margin-top:6px;">'
+                f'<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;">'
+                f'<div><div style="font-size:8px;color:var(--ms-texto-sec);text-transform:uppercase;">Salário Base</div>'
+                f'<div style="font-size:14px;font-weight:700;color:var(--ms-texto);">{_expl._reais(salario)}</div></div>'
+                + _parcela("🤝 Parte do time", bonus_col, pct_time, _niv_time,
+                           "#FFD700" if meta_maxx_batida else "#1BAF7A")
+                + _parcela("🙋 Parte sua", bonus_ind, pct_seu, _niv_seu,
+                           "#FFD700" if meta_ind_maxx_batida else "#1BAF7A")
+                + f'<div><div style="font-size:8px;color:var(--ms-texto-sec);text-transform:uppercase;">'
+                f'Total a Receber (+{pct_time + pct_seu:.0f}%)</div>'
+                f'<div style="font-size:17px;font-weight:700;color:{cor_total};">'
+                f'{_expl._reais(total)}</div></div>'
+                f'</div></div>',
+                unsafe_allow_html=True
+            )
+
+            # O que ainda falta, em pontos, para cada parcela que hoje vale
+            # zero. Sem isto a pessoa ve "R$ 0,00" e nao sabe se esta a 50 ou a
+            # 5.000 pontos do bonus.
+            _faltas = []
+            if not meta_col_batida and _meta_eq > 0 and _saldo_eq < _meta_eq:
+                _faltas.append(
+                    f"🤝 faltam <b>{_n_br(_meta_eq - _saldo_eq)} pts ao time</b> "
+                    f"para a Meta Coletiva (+{_expl.PCT_COLETIVO_MENSAL:.0f}%)")
+            if (not meta_maxx_batida and _meta_maxx > 0
+                    and _saldo_eq < _meta_maxx):
+                _faltas.append(
+                    f"⭐ faltam <b>{_n_br(_meta_maxx - _saldo_eq)} pts ao time</b> "
+                    f"para a Meta MAXX (+{_expl.PCT_COLETIVO_MAXX:.0f}%)")
+            if not meta_ind_batida and meta_ind > 0 and pts < meta_ind:
+                _faltas.append(
+                    f"🙋 faltam <b>{_n_br(meta_ind - pts)} pts seus</b> para a "
+                    f"sua meta individual (+{_expl.PCT_INDIVIDUAL_MENSAL:.0f}%)")
+            if (not meta_ind_maxx_batida and meta_ind_maxx > 0
+                    and pts < meta_ind_maxx):
+                _faltas.append(
+                    f"⭐ faltam <b>{_n_br(meta_ind_maxx - pts)} pts seus</b> para "
+                    f"a sua MAXX (+{_expl.PCT_INDIVIDUAL_MAXX:.0f}%)")
+            if _faltas:
                 st.markdown(
-                    f'<div style="background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);'
-                    f'border-radius:8px;padding:10px 12px;margin-top:6px;">'
-                    f'<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;">'
-                    f'<div><div style="font-size:8px;color:var(--ms-texto-sec);text-transform:uppercase;">Salário Base</div>'
-                    f'<div style="font-size:14px;font-weight:700;color:var(--ms-texto);">{_expl._reais(salario)}</div></div>'
-                    + _parcela("🤝 Parte do time", bonus_col, pct_time, _niv_time,
-                               "#FFD700" if meta_maxx_batida else "#1BAF7A")
-                    + _parcela("🙋 Parte sua", bonus_ind, pct_seu, _niv_seu,
-                               "#FFD700" if meta_ind_maxx_batida else "#1BAF7A")
-                    + f'<div><div style="font-size:8px;color:var(--ms-texto-sec);text-transform:uppercase;">'
-                    f'Total a Receber (+{pct_time + pct_seu:.0f}%)</div>'
-                    f'<div style="font-size:17px;font-weight:700;color:{cor_total};">'
-                    f'{_expl._reais(total)}</div></div>'
-                    f'</div></div>',
-                    unsafe_allow_html=True
-                )
-            else:
-                st.markdown(
-                    f'<div style="background:var(--ms-metric-bg);border:1px solid var(--ms-metric-bd);'
-                    f'border-radius:8px;padding:10px 14px;margin-top:6px;display:flex;align-items:center;gap:10px;">'
-                    f'<div style="font-size:18px;">⏳</div>'
-                    f'<div>'
-                    f'<div style="font-size:12px;font-weight:700;color:var(--ms-texto);">Nenhuma meta atingida ainda</div>'
-                    f'<div style="font-size:11px;color:var(--ms-texto-sec);">Os bônus serão calculados assim que as metas forem batidas.</div>'
-                    f'</div></div>',
-                    unsafe_allow_html=True
-                )
+                    '<div style="font-size:10px;color:var(--ms-texto-sec);'
+                    'line-height:1.7;margin-top:5px;">'
+                    + "<br>".join("· " + f for f in _faltas)
+                    + '</div>', unsafe_allow_html=True)
 
     # Exibe master vê todos; membro vê só o próprio
     if eh_master:
@@ -4506,7 +4530,8 @@ def _chart_resumo_colabs(dados):
     )
 
 
-def _desempenho_individual(dados, username, nome, carregar_periodo=None):
+def _desempenho_individual(dados, username, nome, carregar_periodo=None,
+                           dono=False):
     """Desempenho de um colaborador, com periodo proprio.
 
     O filtro daqui e separado do coletivo la de cima de proposito: olhar o ano da
@@ -4701,6 +4726,121 @@ def _desempenho_individual(dados, username, nome, carregar_periodo=None):
     st.caption("4 melhores meses individuais · top 4 colunas da equipe.")
     st.markdown(_chart_ind_destaques(meses, dados, username), unsafe_allow_html=True)
 
+    # No fim de proposito: e a resposta a um numero que a pessoa acabou de ver
+    # acima. Ler "78% de ociosidade" e so depois descobrir que da para explicar
+    # o que aconteceu e a ordem certa.
+    _secao_pedido_abatimento(username, nome, dono)
+
+
+def _linha_pedido(a, _ab, gestor=False):
+    """Um pedido desenhado: quando, quanto tempo, o motivo e no que deu."""
+    dur = ((a["fim"].hour * 60 + a["fim"].minute)
+           - (a["inicio"].hour * 60 + a["inicio"].minute))
+    if a["status"] == _ab.APROVADO:
+        cor, selo = "#1BAF7A", "✅ aprovado"
+    elif a["status"] == _ab.RECUSADO:
+        cor, selo = "#E34948", "🚫 recusado"
+    else:
+        cor = "#EDA100"
+        selo = "⏳ aguardando você" if gestor else "⏳ aguardando aprovação"
+
+    quem = ""
+    if gestor and a["user"]:
+        _n = _pc.MEMBROS_ATIVOS.get(a["user"], a["user"])
+        quem = (f'<span style="font-weight:700;color:var(--ms-texto);">'
+                f'{_esc(_n)}</span> · ')
+
+    # A decisao do gestor, quando existe: o horario aprovado (que pode ser
+    # menor que o pedido) e o que ele escreveu. Sem isso o pedido "some" e a
+    # pessoa manda de novo.
+    rodape = ""
+    if a["status"] != _ab.PENDENTE:
+        _obs = f' — "{_esc(a["obs"])}"' if a["obs"] else ""
+        _por = f' por {_esc(a["decidido_por"])}' if a["decidido_por"] else ""
+        rodape = (f'<div style="font-size:11.5px;color:{cor};margin-top:3px;">'
+                  f'{selo} como {a["inicio"]:%H:%M} → {a["fim"]:%H:%M}'
+                  f'{_por}{_obs}</div>')
+
+    return (
+        f'<div style="border-left:3px solid {cor};background:var(--ms-metric-bg);'
+        f'border-radius:0 6px 6px 0;padding:9px 12px;margin-bottom:8px;">'
+        f'<div style="font-size:12.5px;color:var(--ms-texto-sec);">'
+        f'{quem}{a["data"]:%d/%m} · {a["inicio"]:%H:%M} → {a["fim"]:%H:%M}'
+        f'<span style="color:var(--ms-texto);font-weight:700;"> · '
+        f'{_fmt_hm(dur)}</span>'
+        f'<span style="color:{cor};"> · {selo}</span></div>'
+        f'<div style="font-size:13px;margin-top:3px;">'
+        f'{_esc(a["motivo"]) or "sem motivo"}</div>'
+        f'{rodape}</div>')
+
+
+def _secao_pedido_abatimento(username, nome, pode_pedir):
+    """O colaborador conta o que fez fora do cartão; o gestor decide.
+
+    A ociosidade sobe quando o trabalho acontece sem cartão aberto ou sem a
+    etiqueta certa: filmar sem FILMAGEM, analisar demanda sem abrir o cartão da
+    coluna. O indicador está certo — ele mede o que o Trello viu —, mas a
+    pessoa é cobrada por uma hora que ela trabalhou.
+
+    O pedido não desconta nada sozinho. Só o que o gestor aprova sai da conta,
+    e aí sai dos três de uma vez: ociosidade, tempo de execução e atraso, que
+    partem todos das mesmas janelas de expediente.
+    """
+    try:
+        import abonos as _ab
+        _lista = _ab.carregar()
+    except Exception as _e:
+        st.warning(f"Não consegui ler os pedidos: {str(_e)[:150]}")
+        return
+
+    st.markdown("---")
+    st.markdown("#### 🙋 Pedir abatimento de ociosidade")
+    st.caption(
+        "Trabalhou e o sistema não viu? Aconteceu de esquecer a etiqueta "
+        "**FILMAGEM**, de fazer a análise de demanda sem abrir o cartão, de "
+        "executar uma tarefa sem cartão nenhum. Diga o horário e o que você "
+        "fez — o gestor aprova, ajusta ou recusa. Aprovado, esse tempo sai da "
+        "sua **ociosidade**, do seu **tempo de execução** e do **atraso**."
+    )
+
+    if pode_pedir:
+        # Fora de st.form: o rodape precisa recalcular a duracao enquanto a
+        # pessoa mexe nos horarios, e formulario so atualiza no envio.
+        _hoje = datetime.now(_pc.FUSO).date()
+        c1, c2, c3 = st.columns([1.3, 1, 1])
+        _d = c1.date_input("Data da atividade", value=_hoje,
+                           key=f"pab_d_{username}", format="DD/MM/YYYY")
+        _i = c2.time_input("Começou às", value=time(9, 0),
+                           key=f"pab_i_{username}", step=300)
+        _f = c3.time_input("Terminou às", value=time(10, 0),
+                           key=f"pab_f_{username}", step=300)
+        _m = st.text_area(
+            "O que você estava fazendo", key=f"pab_m_{username}", height=80,
+            placeholder="Estava filmando os produtos da campanha e esqueci de "
+                        "pôr a etiqueta FILMAGEM no cartão.")
+        _dur = ((_f.hour * 60 + _f.minute) - (_i.hour * 60 + _i.minute))
+        _b1, _b2 = st.columns([1, 4])
+        if _b1.button("📨 Enviar pedido", key=f"pab_ok_{username}",
+                      use_container_width=True):
+            _ok, _msg = _ab.salvar(_d, _i, _f, _m, user=username,
+                                   status=_ab.PENDENTE)
+            if _ok:
+                st.rerun()
+            else:
+                st.error(_msg)
+        _txt = (f"**{_fmt_hm(_dur)}** · " if _dur > 0 else "")
+        _b2.caption(f"{_txt}o gestor recebe, pode ajustar o horário e aprovar "
+                    f"ou recusar")
+
+    meus = _ab.do_usuario(username, _lista)
+    st.markdown("##### 📋 Meus pedidos" if pode_pedir
+                else f"##### 📋 Pedidos de {_esc(nome)}")
+    if not meus:
+        st.caption("Nenhum pedido até agora.")
+        return
+    st.markdown("".join(_linha_pedido(a, _ab) for a in meus[:20]),
+                unsafe_allow_html=True)
+
 
 def _secao_entrada_meta(dados, username, nome):
     """Os dois porteiros da meta, explicados, para uma pessoa só.
@@ -4733,13 +4873,10 @@ def _secao_entrada_meta(dados, username, nome):
 
     uteis, decorridos = _dias_uteis_periodo(dados)
     meta, pts = el["meta"], el["pts"]
-    # O limite que o card da escada recebe é o MENSAL: ele mesmo multiplica
-    # pelos meses. `el` já traz o do período — passar aquele aqui dobraria o
-    # teto num filtro de trimestre.
-    _n_m = max(1, len(dados))
-    _cfg_ent = dados[-1]["cfg"]
-    _adv_mes_n = int(_cfg_ent.get("max_adv_normal", 2) or 0)
-    _adv_mes_x = int(_cfg_ent.get("max_adv_maxx", 1) or 0)
+    # Advertência não tem card próprio aqui: a seção responde "eu entro na meta
+    # do time?", e a resposta é a pontuação. O teto de advertências continua
+    # valendo e continua aparecendo — no texto de cima e na faixa do veredito,
+    # que é onde ele muda o "sim" para "não".
 
     if meta <= 0:
         st.info("Meta individual ainda não configurada para o período — sem "
@@ -4758,16 +4895,12 @@ def _secao_entrada_meta(dados, username, nome):
                     unsafe_allow_html=True)
         st.markdown(_item_contribuicao(pts, meta, el["min_n"], ritmo=_r_col),
                     unsafe_allow_html=True)
-        st.markdown(_item_advertencia(el["advs"], _adv_mes_n, _n_m),
-                    unsafe_allow_html=True)
     with _cx:
         st.markdown('<div style="font-size:10px;font-weight:600;color:#FFD700;'
                     'text-transform:uppercase;letter-spacing:.5px;'
                     'margin-bottom:6px;">⭐ Entrada na Meta MAXX</div>',
                     unsafe_allow_html=True)
         st.markdown(_item_contribuicao(pts, meta, el["min_x"], ritmo=_r_mx),
-                    unsafe_allow_html=True)
-        st.markdown(_item_advertencia(el["advs"], _adv_mes_x, _n_m),
                     unsafe_allow_html=True)
 
     # O veredito por extenso, porque duas barras verdes ainda deixam a pergunta
@@ -5476,7 +5609,12 @@ def _secao_colunas(dados):
     # Trello continua vindo das duas ultimas — e ficava lado a lado com a nova,
     # com configuracao e sem cartao nenhum, sem nada dizendo qual era qual.
     salvas = _cc.carregar()
-    todas = sorted(set(do_board) | set(_pc.COLUNAS_CONFIG) | set(salvas))
+    try:
+        _ocultas = _cc.ocultas()
+    except Exception:
+        _ocultas = set()
+    todas = sorted((set(do_board) | set(_pc.COLUNAS_CONFIG) | set(salvas))
+                   - _ocultas)
     fora_do_board = set(todas) - set(do_board) if do_board else set()
     if not todas:
         st.info("Não consegui listar as colunas do Trello agora.")
@@ -5508,14 +5646,25 @@ def _secao_colunas(dados):
                     "renomeada. A configuração dela não é usada por cartão "
                     "nenhum. Configure a coluna com o nome novo e remova esta."
                 )
-                if nome in salvas and st.button("🗑️ Remover configuração",
-                                                key=f"col_x_{nome}"):
+                # O botao existia so para coluna que estava na planilha. Coluna
+                # renomeada que continua escrita no codigo nao tinha linha para
+                # apagar, e por isso aparecia sem saida nenhuma — que e o caso
+                # que o gestor viu na tela. Agora sao dois passos: apagar a
+                # linha, se houver, e marcar a coluna como oculta, que e o que
+                # tira do codigo o poder de trazer ela de volta.
+                if st.button("🗑️ Remover coluna", key=f"col_x_{nome}",
+                             use_container_width=True):
+                    _erro = ""
                     try:
-                        _cc.remover(nome)
-                        st.success(f"{rotulo} removida.")
-                        st.rerun()
+                        if nome in salvas:
+                            _cc.remover(nome)
                     except Exception as ex:
-                        st.error(f"Não consegui remover: {str(ex)[:200]}")
+                        _erro = str(ex)[:200]
+                    _ok, _msg = _cc.ocultar(nome)
+                    if _ok and not _erro:
+                        st.rerun()
+                    else:
+                        st.error(f"Não consegui remover: {_erro or _msg}")
             c1, c2, c3, c4 = st.columns([1, 1, 1, 1])
             p = c1.number_input("Prioridade", 0, 10, int(cfg.get("prioridade", 5)),
                                 key=f"col_p_{nome}")
@@ -5541,6 +5690,24 @@ def _secao_colunas(dados):
                     st.rerun()
                 except Exception as ex:
                     st.error(f"Não consegui salvar: {str(ex)[:200]}")
+
+    # Esconder e uma decisao, e toda decisao erra. Sem o caminho de volta a
+    # coluna sumia da tela junto com a configuracao dela, e o conserto seria
+    # editar a planilha na mao.
+    if _ocultas:
+        with st.expander(f"🙈 Colunas removidas da tela ({len(_ocultas)})",
+                         expanded=False):
+            for _nm in sorted(_ocultas):
+                _r1, _r2 = st.columns([6, 1])
+                _r1.markdown(
+                    f'<div style="padding:6px 0;font-size:13px;'
+                    f'color:var(--ms-texto-sec);">{_esc(_nm)}</div>',
+                    unsafe_allow_html=True)
+                if _r2.button("↩️", key=f"col_v_{_nm}",
+                              use_container_width=True,
+                              help="Mostrar de novo"):
+                    _ok, _msg = _cc.revelar(_nm)
+                    st.rerun() if _ok else st.error(_msg)
 
 
 def _secao_configuracao(dados=None):
@@ -5598,7 +5765,8 @@ def _secao_configuracao(dados=None):
         "coletivas: o trabalho para e os indicadores não. O tempo lançado aqui "
         "sai da conta de **atraso**, de **ociosidade** e de **tempo de "
         "execução** ao mesmo tempo — os três partem das mesmas janelas de "
-        "expediente. Vale para a equipe inteira."
+        "expediente. Vale para a equipe inteira. O que a equipe pede para si "
+        "está em **Ponto › 🙋 Abatimentos**."
     )
     # Fora do st.form: formulario aceita um botao de submit so, e aqui sao tres
     # acoes proprias (lancar parada, lancar periodo, apagar). Grava em aba
@@ -5609,6 +5777,11 @@ def _secao_configuracao(dados=None):
     except Exception as _e_ab:
         _ab, _lista_ab = None, []
         st.warning(f"Não consegui ler os abonos: {str(_e_ab)[:150]}")
+    else:
+        # So o que parou o escritorio inteiro. Os pedidos da equipe tem dono e
+        # vivem na fila do gestor, em Ponto > Abatimentos: misturados aqui,
+        # apagar "a parada da tarde" apagaria o pedido de alguem.
+        _lista_ab = [_a for _a in _lista_ab if not _a["user"]]
 
     if _ab:
         _t_dep, _t_ant = st.tabs(["⚡ Já aconteceu", "📅 Vai acontecer"])
@@ -5683,9 +5856,9 @@ def _secao_configuracao(dados=None):
                 f'<b>{_esc(_a["motivo"]) or "sem motivo"}</b>'
                 f'<span style="color:var(--ms-texto-sec);"> — {_quando}</span>'
                 f'</div>', unsafe_allow_html=True)
-            if _l2.button("🗑️", key=f'ab_x_{_a["data"]}_{_a["inicio"]}',
+            if _l2.button("🗑️", key=f'ab_x_{_a["linha"]}',
                           use_container_width=True):
-                _ok, _msg = _ab.remover(_a["data"], _a["inicio"])
+                _ok, _msg = _ab.remover_linha(_a["linha"])
                 st.rerun() if _ok else st.error(_msg)
 
     with st.form(key=f"form_cfg_{ano_cfg}_{mes_cfg_num}"):
@@ -6234,28 +6407,46 @@ def pagina_analise_metas(usuario_logado):
 
 
     elif _aba_sel == _ABAS[2]:
-        _aba_desempenho(dados, _carregar_ano_full(),
-                        carregar_periodo=_carregar_periodo)
-
-        st.markdown("---")
-        st.markdown("#### 📈 Desempenho Individual")
-
-        # Masters podem selecionar qualquer colaborador; membros veem apenas o próprio
+        # Uma visão de cada vez, escolhida aqui em cima.
+        #
+        # As duas viviam empilhadas: para olhar o individual de alguém era
+        # preciso rolar a coletiva inteira, e a cada troca de colaborador a
+        # tela voltava para o topo e a rolagem recomeçava. Além do trabalho,
+        # era tempo — o corpo das duas era montado a cada clique.
         _mb_opcoes_des = list(_pc.MEMBROS_ATIVOS.keys())
         _mb_nomes_des  = [_pc.MEMBROS_ATIVOS[u] for u in _mb_opcoes_des]
-        if _eh_master:
-            _mb_nome_des = st.selectbox("👤 Selecionar colaborador:", _mb_nomes_des, key="des_ind_sel")
-            _mb_u_des = _mb_opcoes_des[_mb_nomes_des.index(_mb_nome_des)]
-        else:
-            _mb_u_des    = _username_atual
-            _mb_nome_des = _pc.MEMBROS_ATIVOS.get(_mb_u_des, _mb_u_des)
-            st.caption(f"Exibindo seus dados: **{_mb_nome_des}**")
+        _c_vis, _c_col = st.columns([1.2, 1.4])
+        _vis = _c_vis.radio(
+            "O que você quer ver", ["👥 Análise coletiva", "🎯 Análise individual"],
+            horizontal=True, key="des_visao")
+        _individual = _vis.endswith("individual")
 
-        if _mb_u_des:
+        _mb_u_des, _mb_nome_des = None, ""
+        if _individual:
+            if _eh_master:
+                # O seletor mora na mesma linha da visão: escolher a pessoa é
+                # parte de escolher o que ver, não um passo depois.
+                _mb_nome_des = _c_col.selectbox(
+                    "👤 Colaborador", _mb_nomes_des, key="des_ind_sel")
+                _mb_u_des = _mb_opcoes_des[_mb_nomes_des.index(_mb_nome_des)]
+            else:
+                _mb_u_des    = _username_atual
+                _mb_nome_des = _pc.MEMBROS_ATIVOS.get(_mb_u_des, _mb_u_des)
+                _c_col.caption(f"Exibindo seus dados: **{_mb_nome_des}**")
+
+        st.markdown("---")
+        if not _individual:
+            _aba_desempenho(dados, _carregar_ano_full(),
+                            carregar_periodo=_carregar_periodo)
+        elif _mb_u_des:
+            st.markdown(f"#### 📈 Desempenho Individual — {_esc(_mb_nome_des)}")
             # Usa o período selecionado (dados) — não o ano completo —
             # para evitar mostrar meses sem meta individual configurada.
             _desempenho_individual(dados, _mb_u_des, _mb_nome_des,
-                                   carregar_periodo=_carregar_periodo)
+                                   carregar_periodo=_carregar_periodo,
+                                   dono=(_mb_u_des == _username_atual))
+        else:
+            st.info("Selecione um colaborador para ver o desempenho individual.")
 
     elif len(_ABAS) > 3 and _aba_sel == _ABAS[3]:
         if _eh_master:
