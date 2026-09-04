@@ -1052,7 +1052,10 @@ def get_ociosidade_mes(ano: int, mes: int, tempo_cards_por_user: dict,
                 # Hora abonada sai dos dois lados: do buraco e do denominador.
                 # Sem isto, uma manha sem internet aparecia como ociosidade da
                 # pessoa -- ela estava no lugar, sem ter como trabalhar.
-                _ab = _pc.abonos_do_dia(_data)
+                # `u` entra na conta: alem da parada do escritorio, sai
+                # daqui o abatimento que o gestor aprovou para essa pessoa --
+                # o trabalho que ela fez sem cartao aberto ou sem etiqueta.
+                _ab = _pc.abonos_do_dia(_data, username=u)
                 if _ab:
                     import abonos as _abm
                     _jans = _abm.descontar(_jans, _ab)
@@ -1576,6 +1579,113 @@ def _calcular_ociosidade_trello(trello_user: str, nome: str, data_ini: str, data
 
 # ── Página principal ────────────────────────────────────────────────────────────
 
+def _esc_ab(texto):
+    """Texto do colaborador dentro de HTML. Ele escreve o motivo à mão."""
+    return (str(texto or "").replace("&", "&amp;").replace("<", "&lt;")
+            .replace(">", "&gt;").replace('"', "&quot;"))
+
+
+def _cartao_pedido(a, _ab):
+    """Um pedido desenhado para a fila do gestor: quem, quando, quanto, o quê."""
+    dur = ((a["fim"].hour * 60 + a["fim"].minute)
+           - (a["inicio"].hour * 60 + a["inicio"].minute))
+    if a["status"] == _ab.APROVADO:
+        cor, selo = "#1BAF7A", "✅ aprovado"
+    elif a["status"] == _ab.RECUSADO:
+        cor, selo = "#E34948", "🚫 recusado"
+    else:
+        cor, selo = "#EDA100", "⏳ aguardando você"
+    nome = MEMBROS.get(a["user"], a["user"] or "equipe inteira")
+
+    rodape = ""
+    if a["status"] != _ab.PENDENTE:
+        _obs = f' — "{_esc_ab(a["obs"])}"' if a["obs"] else ""
+        _por = f' por {_esc_ab(a["decidido_por"])}' if a["decidido_por"] else ""
+        rodape = (f'<div style="font-size:11.5px;color:{cor};margin-top:3px;">'
+                  f'{selo} como {a["inicio"]:%H:%M} → {a["fim"]:%H:%M}'
+                  f'{_por}{_obs}</div>')
+
+    return (
+        f'<div style="border-left:3px solid {cor};background:var(--ms-metric-bg);'
+        f'border-radius:0 6px 6px 0;padding:9px 12px;">'
+        f'<div style="font-size:12.5px;color:var(--ms-texto-sec);">'
+        f'<span style="font-weight:700;color:var(--ms-texto);">'
+        f'{_esc_ab(nome)}</span> · {a["data"]:%d/%m} · {a["inicio"]:%H:%M} → '
+        f'{a["fim"]:%H:%M}<span style="color:var(--ms-texto);font-weight:700;">'
+        f' · {_fmt_min(dur)}</span>'
+        f'<span style="color:{cor};"> · {selo}</span></div>'
+        f'<div style="font-size:13px;margin-top:3px;">'
+        f'{_esc_ab(a["motivo"]) or "sem motivo"}</div>'
+        f'{rodape}</div>')
+
+
+def _secao_abatimentos(usuario_logado: str):
+    """A fila de pedidos de abatimento de ociosidade, para decidir.
+
+    O colaborador manda o horário de memória; quem confere tem o cartão e a
+    câmera. Por isso o gestor pode aprovar MENOS do que foi pedido — 1h20 onde
+    ela pediu 1h40 — em vez de só aceitar ou negar por inteiro.
+
+    Recusa não apaga a linha: sem ver a decisão e o porquê, a pessoa manda o
+    mesmo pedido de novo na semana seguinte.
+    """
+    st.caption(
+        "Cada pedido traz **quem**, **quando**, **quanto tempo** e o **motivo**. "
+        "Você pode ajustar o horário antes de aprovar — ou recusar escrevendo o "
+        "porquê. O colaborador vê a decisão e o texto. Aprovado, o tempo sai da "
+        "ociosidade, do tempo de execução e do atraso daquela pessoa."
+    )
+    try:
+        import abonos as _ab
+        _lista = _ab.carregar()
+    except Exception as _e:
+        st.warning(f"Não consegui ler os pedidos: {str(_e)[:150]}")
+        return
+
+    fila = [a for a in _ab.pendentes(_lista) if a["user"]]
+    st.markdown(f"##### ⏳ Aguardando você ({len(fila)})")
+    if not fila:
+        st.caption("Nenhum pedido na fila.")
+    for a in fila:
+        k = f'ab_dec_{a["linha"]}'
+        st.markdown(_cartao_pedido(a, _ab), unsafe_allow_html=True)
+        c1, c2, c3, c4, c5 = st.columns([.9, .9, 2.4, 1, 1])
+        _i = c1.time_input("Das", value=a["inicio"], key=f"{k}_i", step=300)
+        _f = c2.time_input("Até", value=a["fim"], key=f"{k}_f", step=300)
+        _o = c3.text_input("Observação (o colaborador vê)", key=f"{k}_o",
+                           placeholder="opcional na aprovação, "
+                                       "obrigatória na recusa")
+        c4.markdown("<div style='height:28px;'></div>", unsafe_allow_html=True)
+        c5.markdown("<div style='height:28px;'></div>", unsafe_allow_html=True)
+        if c4.button("✅ Aprovar", key=f"{k}_ok", use_container_width=True):
+            ok, msg = _ab.aprovar(a["linha"], usuario_logado, _i, _f, _o)
+            st.rerun() if ok else st.error(msg)
+        if c5.button("🚫 Recusar", key=f"{k}_no", use_container_width=True):
+            if not (_o or "").strip():
+                st.error("Escreva o porquê — é o que a pessoa vai ler.")
+            else:
+                ok, msg = _ab.recusar(a["linha"], usuario_logado, _o)
+                st.rerun() if ok else st.error(msg)
+        st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
+
+    decididos = [a for a in _lista
+                 if a["user"] and a["status"] != _ab.PENDENTE]
+    st.markdown(f"##### ✅ Já decididos ({len(decididos)})")
+    if not decididos:
+        st.caption("Nada decidido ainda.")
+        return
+    for a in decididos[:25]:
+        c1, c2 = st.columns([9, 1])
+        c1.markdown(_cartao_pedido(a, _ab), unsafe_allow_html=True)
+        # Apagar existe para o engano — aprovou o pedido errado, recusou sem
+        # ler. Reabrir a decisao mudaria indicador de mes fechado sem rastro.
+        if c2.button("🗑️", key=f'ab_del_{a["linha"]}',
+                     use_container_width=True, help="Apagar o pedido"):
+            ok, msg = _ab.remover_linha(a["linha"])
+            st.rerun() if ok else st.error(msg)
+        st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
+
+
 def pagina_ponto(usuario_logado: str):
     """Página completa do Relógio de Ponto."""
     eh_master = usuario_logado.lower() in {m.lower() for m in MASTERS}
@@ -1587,8 +1697,10 @@ def pagina_ponto(usuario_logado: str):
     )
 
     if eh_master:
-        tab_relatorio, tab_hoje, tab_registro, tab_historico = st.tabs(
-            ["📊 Relatório RHiD", "📡 Status Hoje", "✏️ Registrar", "📋 Histórico Mensal"]
+        (tab_relatorio, tab_abat, tab_hoje, tab_registro,
+         tab_historico) = st.tabs(
+            ["📊 Relatório RHiD", "🙋 Abatimentos", "📡 Status Hoje",
+             "✏️ Registrar", "📋 Histórico Mensal"]
         )
     else:
         tab_hoje, tab_registro, tab_historico = st.tabs(
@@ -1603,6 +1715,10 @@ def pagina_ponto(usuario_logado: str):
                 "Ociosidade calculada cruzando horas registradas com atividade no Trello."
             )
             _secao_relatorio_rhid()
+
+        with tab_abat:
+            st.markdown("#### 📥 Pedidos de abatimento")
+            _secao_abatimentos(usuario_logado)
 
     with tab_hoje:
         st.markdown("#### Status atual da equipe")

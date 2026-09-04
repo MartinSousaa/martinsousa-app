@@ -1140,12 +1140,17 @@ def _lista_abonos():
         return []
 
 
-def abonos_do_dia(dia, lista=None):
+def abonos_do_dia(dia, lista=None, username=None):
     """[(inicio, fim)] das horas abonadas naquele dia, ou vazio.
 
     Queda de internet, falta de energia: o trabalho para e os indicadores nao.
     Descontando aqui, na janela, os tres se corrigem juntos -- o relogio do
     cartao, o atraso por tempo estimado e a ociosidade partem todos daqui.
+
+    Com `username`, entram tambem os abatimentos aprovados daquela pessoa: o
+    tempo em que ela trabalhou e o sistema nao viu, porque ela esqueceu de
+    abrir o cartao ou de por a etiqueta. Sem `username`, so o que parou o
+    escritorio inteiro -- o esquecimento de uma pessoa nao abona o time.
 
     Nunca derruba a leitura: sem planilha, sem abono, e tudo volta a ser o que
     era. Hora abonada por engano seria pior que hora nao abonada.
@@ -1153,7 +1158,8 @@ def abonos_do_dia(dia, lista=None):
     try:
         import abonos as _ab
         return _ab.janelas_do_dia(dia, FUSO,
-                                  _lista_abonos() if lista is None else lista)
+                                  _lista_abonos() if lista is None else lista,
+                                  username=username)
     except Exception:
         return []
 
@@ -1162,7 +1168,9 @@ def _janelas_uteis(ini_local, fim_local, username=None):
     """Pedaços do intervalo que caem dentro do expediente da pessoa.
 
     Fora disso não é tempo de trabalho: etiqueta esquecida na sexta à noite não
-    pode render o fim de semana inteiro. Hora abonada também não conta.
+    pode render o fim de semana inteiro. Hora abonada também não conta — nem a
+    parada do escritório, nem o abatimento que o gestor aprovou para essa
+    pessoa.
     """
     h = horario_de(username)
     if (fim_local - ini_local).days > MAX_DIAS_INTERVALO:
@@ -1181,7 +1189,8 @@ def _janelas_uteis(ini_local, fim_local, username=None):
                 s, e = max(ini_local, ja), min(fim_local, jb)
                 if e > s:
                     do_dia.append((s, e))
-            ab = abonos_do_dia(dia, lista_ab) if lista_ab else []
+            ab = (abonos_do_dia(dia, lista_ab, username)
+                  if lista_ab else [])
             if ab:
                 import abonos as _ab
                 do_dia = _ab.descontar(do_dia, ab)

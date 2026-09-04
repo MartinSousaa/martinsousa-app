@@ -4508,7 +4508,8 @@ def _chart_resumo_colabs(dados):
     )
 
 
-def _desempenho_individual(dados, username, nome, carregar_periodo=None):
+def _desempenho_individual(dados, username, nome, carregar_periodo=None,
+                           dono=False):
     """Desempenho de um colaborador, com periodo proprio.
 
     O filtro daqui e separado do coletivo la de cima de proposito: olhar o ano da
@@ -4702,6 +4703,121 @@ def _desempenho_individual(dados, username, nome, carregar_periodo=None):
     st.markdown("#### 🏆 Destaques do Período")
     st.caption("4 melhores meses individuais · top 4 colunas da equipe.")
     st.markdown(_chart_ind_destaques(meses, dados, username), unsafe_allow_html=True)
+
+    # No fim de proposito: e a resposta a um numero que a pessoa acabou de ver
+    # acima. Ler "78% de ociosidade" e so depois descobrir que da para explicar
+    # o que aconteceu e a ordem certa.
+    _secao_pedido_abatimento(username, nome, dono)
+
+
+def _linha_pedido(a, _ab, gestor=False):
+    """Um pedido desenhado: quando, quanto tempo, o motivo e no que deu."""
+    dur = ((a["fim"].hour * 60 + a["fim"].minute)
+           - (a["inicio"].hour * 60 + a["inicio"].minute))
+    if a["status"] == _ab.APROVADO:
+        cor, selo = "#1BAF7A", "✅ aprovado"
+    elif a["status"] == _ab.RECUSADO:
+        cor, selo = "#E34948", "🚫 recusado"
+    else:
+        cor = "#EDA100"
+        selo = "⏳ aguardando você" if gestor else "⏳ aguardando aprovação"
+
+    quem = ""
+    if gestor and a["user"]:
+        _n = _pc.MEMBROS_ATIVOS.get(a["user"], a["user"])
+        quem = (f'<span style="font-weight:700;color:var(--ms-texto);">'
+                f'{_esc(_n)}</span> · ')
+
+    # A decisao do gestor, quando existe: o horario aprovado (que pode ser
+    # menor que o pedido) e o que ele escreveu. Sem isso o pedido "some" e a
+    # pessoa manda de novo.
+    rodape = ""
+    if a["status"] != _ab.PENDENTE:
+        _obs = f' — "{_esc(a["obs"])}"' if a["obs"] else ""
+        _por = f' por {_esc(a["decidido_por"])}' if a["decidido_por"] else ""
+        rodape = (f'<div style="font-size:11.5px;color:{cor};margin-top:3px;">'
+                  f'{selo} como {a["inicio"]:%H:%M} → {a["fim"]:%H:%M}'
+                  f'{_por}{_obs}</div>')
+
+    return (
+        f'<div style="border-left:3px solid {cor};background:var(--ms-metric-bg);'
+        f'border-radius:0 6px 6px 0;padding:9px 12px;margin-bottom:8px;">'
+        f'<div style="font-size:12.5px;color:var(--ms-texto-sec);">'
+        f'{quem}{a["data"]:%d/%m} · {a["inicio"]:%H:%M} → {a["fim"]:%H:%M}'
+        f'<span style="color:var(--ms-texto);font-weight:700;"> · '
+        f'{_fmt_hm(dur)}</span>'
+        f'<span style="color:{cor};"> · {selo}</span></div>'
+        f'<div style="font-size:13px;margin-top:3px;">'
+        f'{_esc(a["motivo"]) or "sem motivo"}</div>'
+        f'{rodape}</div>')
+
+
+def _secao_pedido_abatimento(username, nome, pode_pedir):
+    """O colaborador conta o que fez fora do cartão; o gestor decide.
+
+    A ociosidade sobe quando o trabalho acontece sem cartão aberto ou sem a
+    etiqueta certa: filmar sem FILMAGEM, analisar demanda sem abrir o cartão da
+    coluna. O indicador está certo — ele mede o que o Trello viu —, mas a
+    pessoa é cobrada por uma hora que ela trabalhou.
+
+    O pedido não desconta nada sozinho. Só o que o gestor aprova sai da conta,
+    e aí sai dos três de uma vez: ociosidade, tempo de execução e atraso, que
+    partem todos das mesmas janelas de expediente.
+    """
+    try:
+        import abonos as _ab
+        _lista = _ab.carregar()
+    except Exception as _e:
+        st.warning(f"Não consegui ler os pedidos: {str(_e)[:150]}")
+        return
+
+    st.markdown("---")
+    st.markdown("#### 🙋 Pedir abatimento de ociosidade")
+    st.caption(
+        "Trabalhou e o sistema não viu? Aconteceu de esquecer a etiqueta "
+        "**FILMAGEM**, de fazer a análise de demanda sem abrir o cartão, de "
+        "executar uma tarefa sem cartão nenhum. Diga o horário e o que você "
+        "fez — o gestor aprova, ajusta ou recusa. Aprovado, esse tempo sai da "
+        "sua **ociosidade**, do seu **tempo de execução** e do **atraso**."
+    )
+
+    if pode_pedir:
+        # Fora de st.form: o rodape precisa recalcular a duracao enquanto a
+        # pessoa mexe nos horarios, e formulario so atualiza no envio.
+        _hoje = datetime.now(_pc.FUSO).date()
+        c1, c2, c3 = st.columns([1.3, 1, 1])
+        _d = c1.date_input("Data da atividade", value=_hoje,
+                           key=f"pab_d_{username}", format="DD/MM/YYYY")
+        _i = c2.time_input("Começou às", value=time(9, 0),
+                           key=f"pab_i_{username}", step=300)
+        _f = c3.time_input("Terminou às", value=time(10, 0),
+                           key=f"pab_f_{username}", step=300)
+        _m = st.text_area(
+            "O que você estava fazendo", key=f"pab_m_{username}", height=80,
+            placeholder="Estava filmando os produtos da campanha e esqueci de "
+                        "pôr a etiqueta FILMAGEM no cartão.")
+        _dur = ((_f.hour * 60 + _f.minute) - (_i.hour * 60 + _i.minute))
+        _b1, _b2 = st.columns([1, 4])
+        if _b1.button("📨 Enviar pedido", key=f"pab_ok_{username}",
+                      use_container_width=True):
+            _ok, _msg = _ab.salvar(_d, _i, _f, _m, user=username,
+                                   status=_ab.PENDENTE)
+            if _ok:
+                st.rerun()
+            else:
+                st.error(_msg)
+        _txt = (f"**{_fmt_hm(_dur)}** · " if _dur > 0 else "")
+        _b2.caption(f"{_txt}o gestor recebe, pode ajustar o horário e aprovar "
+                    f"ou recusar")
+
+    meus = _ab.do_usuario(username, _lista)
+    st.markdown("##### 📋 Meus pedidos" if pode_pedir
+                else f"##### 📋 Pedidos de {_esc(nome)}")
+    if not meus:
+        st.caption("Nenhum pedido até agora.")
+        return
+    st.markdown("".join(_linha_pedido(a, _ab) for a in meus[:20]),
+                unsafe_allow_html=True)
 
 
 def _secao_entrada_meta(dados, username, nome):
@@ -5600,7 +5716,8 @@ def _secao_configuracao(dados=None):
         "coletivas: o trabalho para e os indicadores não. O tempo lançado aqui "
         "sai da conta de **atraso**, de **ociosidade** e de **tempo de "
         "execução** ao mesmo tempo — os três partem das mesmas janelas de "
-        "expediente. Vale para a equipe inteira."
+        "expediente. Vale para a equipe inteira. O que a equipe pede para si "
+        "está em **Ponto › 🙋 Abatimentos**."
     )
     # Fora do st.form: formulario aceita um botao de submit so, e aqui sao tres
     # acoes proprias (lancar parada, lancar periodo, apagar). Grava em aba
@@ -5611,6 +5728,11 @@ def _secao_configuracao(dados=None):
     except Exception as _e_ab:
         _ab, _lista_ab = None, []
         st.warning(f"Não consegui ler os abonos: {str(_e_ab)[:150]}")
+    else:
+        # So o que parou o escritorio inteiro. Os pedidos da equipe tem dono e
+        # vivem na fila do gestor, em Ponto > Abatimentos: misturados aqui,
+        # apagar "a parada da tarde" apagaria o pedido de alguem.
+        _lista_ab = [_a for _a in _lista_ab if not _a["user"]]
 
     if _ab:
         _t_dep, _t_ant = st.tabs(["⚡ Já aconteceu", "📅 Vai acontecer"])
@@ -5685,9 +5807,9 @@ def _secao_configuracao(dados=None):
                 f'<b>{_esc(_a["motivo"]) or "sem motivo"}</b>'
                 f'<span style="color:var(--ms-texto-sec);"> — {_quando}</span>'
                 f'</div>', unsafe_allow_html=True)
-            if _l2.button("🗑️", key=f'ab_x_{_a["data"]}_{_a["inicio"]}',
+            if _l2.button("🗑️", key=f'ab_x_{_a["linha"]}',
                           use_container_width=True):
-                _ok, _msg = _ab.remover(_a["data"], _a["inicio"])
+                _ok, _msg = _ab.remover_linha(_a["linha"])
                 st.rerun() if _ok else st.error(_msg)
 
     with st.form(key=f"form_cfg_{ano_cfg}_{mes_cfg_num}"):
@@ -6257,7 +6379,8 @@ def pagina_analise_metas(usuario_logado):
             # Usa o período selecionado (dados) — não o ano completo —
             # para evitar mostrar meses sem meta individual configurada.
             _desempenho_individual(dados, _mb_u_des, _mb_nome_des,
-                                   carregar_periodo=_carregar_periodo)
+                                   carregar_periodo=_carregar_periodo,
+                                   dono=(_mb_u_des == _username_atual))
 
     elif len(_ABAS) > 3 and _aba_sel == _ABAS[3]:
         if _eh_master:
