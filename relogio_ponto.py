@@ -641,11 +641,20 @@ def _secao_registro(usuario_logado: str, eh_master: bool):
 def _secao_historico_mensal(eh_master: bool, usuario_logado: str):
     """Resumo mensal de ponto por colaborador."""
     agora = datetime.now()
-    col_a, col_m, _ = st.columns([1, 2, 3])
+    import filtros as _filtros
+    col_a, col_m, col_go, _ = st.columns([1, 2, 1, 2])
     ano_sel = col_a.selectbox("Ano", list(range(agora.year, agora.year - 3, -1)), key="pt_h_ano")
     mes_opts = [_pc.MESES_PT[m] for m in range(1, 13)]
     mes_sel  = col_m.selectbox("Mês", mes_opts, index=agora.month - 1, key="pt_h_mes")
+    # Ano e mês são dois campos para uma escolha só. Sem o botão, mudar os dois
+    # custava duas leituras da planilha de ponto — e a primeira era de um mês
+    # que ninguém pediu.
+    _filtros.espaco(col_go)
+    _sel_h, _pend_h = _filtros.pesquisar(
+        "pt_hist_filtro", {"ano": ano_sel, "mes": mes_sel}, coluna=col_go)
+    ano_sel, mes_sel = _sel_h["ano"], _sel_h["mes"]
     mes_num  = mes_opts.index(mes_sel) + 1
+    _filtros.aviso_pendente(_pend_h)
 
     st.caption("Lançamentos manuais (aba *Registrar*)"
                + (" — as batidas do relógio estão em *Relatório RHiD*."
@@ -1163,7 +1172,20 @@ def _secao_relatorio_rhid():
         st.error("⚠️ O intervalo máximo permitido pela API RHiD é 90 dias.")
         return
 
-    atualizar = col_btn.button("🔄 Atualizar", use_container_width=True, key="rhid_atualizar")
+    import filtros as _filtros_rh
+    # A consulta a RHiD e a mais cara desta tela. Mudar "De" e depois "Ate"
+    # disparava duas — e a do meio era de um intervalo que ninguem pediu, com o
+    # "Ate" ainda no valor antigo.
+    _filtros_rh.espaco(col_btn)
+    _sel_rh, _pend_rh = _filtros_rh.pesquisar(
+        "rhid_filtro", {"ini": data_ini, "fim": data_fim},
+        rotulo="🔍 Pesquisar", coluna=col_btn)
+    data_ini, data_fim = _sel_rh["ini"], _sel_rh["fim"]
+    _filtros_rh.aviso_pendente(_pend_rh)
+
+    # "Atualizar" e outra coisa: mesmo periodo, dados relidos. Fica separado
+    # para nao virar o mesmo botao de duas funcoes.
+    atualizar = st.button("🔄 Atualizar dados deste período", key="rhid_atualizar")
 
     # Limpa caches ao atualizar (ou na primeira carga, se persons ainda não estiver em cache válido)
     if atualizar:

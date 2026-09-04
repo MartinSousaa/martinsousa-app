@@ -1724,7 +1724,7 @@ def pagina_placar(usuario_logado, headless=False):
             unsafe_allow_html=True
         )
     else:
-        col_tit,col_mes,col_att=st.columns([3,2,1])
+        col_tit,col_mes,col_go,col_att=st.columns([3,2,1,1])
         with col_tit: st.markdown("### 🏆 Painel de Meta")
         with col_mes:
             meses=[(agora.year,agora.month)]
@@ -1734,11 +1734,21 @@ def pagina_placar(usuario_logado, headless=False):
                 if m==0: m=12; a-=1
                 meses.append((a,m))
             labels=[f"{MESES_PT[mm]} {aa}" for aa,mm in meses]
-            sel=st.selectbox("Mês",labels,index=0,key="placar_mes",label_visibility="collapsed")
-            filtro_mes=meses[labels.index(sel)]
+            sel_campo=st.selectbox("Mês",labels,index=0,key="placar_mes",
+                                   label_visibility="collapsed")
+        # Trocar o mes aqui reprocessa o board inteiro. Escolher e pesquisar
+        # viram dois momentos: o campo responde na hora, a leitura so acontece
+        # no clique.
+        import filtros as _filtros_pl
+        _sel_pl,_pend_pl=_filtros_pl.pesquisar(
+            "placar_filtro",{"label":sel_campo,
+                             "mes":meses[labels.index(sel_campo)]},
+            coluna=col_go)
+        sel,filtro_mes=_sel_pl["label"],_sel_pl["mes"]
         with col_att:
             if st.button("🔄",use_container_width=True,help="Atualizar"):
                 _buscar_board.clear(); st.rerun()
+        _filtros_pl.aviso_pendente(_pend_pl)
         st.caption(f"Exibindo: {sel} · {agora.strftime('%d/%m/%Y %H:%M')} · use 🔄 para atualizar")
 
     # ── Carrega configuração persistida (ou usa defaults) ──────────────────────

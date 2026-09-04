@@ -13,6 +13,7 @@ from datetime import datetime, time
 
 import metas_config as mc
 import placar_core as _pc
+import filtros as _filtros
 import explicacao_metas as _expl
 try:
     import relogio_ponto as _rp
@@ -4556,7 +4557,7 @@ def _desempenho_individual(dados, username, nome, carregar_periodo=None,
         fora.reverse()
         return fora
 
-    _c_per, _c_mes = st.columns([2, 1])
+    _c_per, _c_mes, _c_ok = st.columns([2, 1, 1])
     _op = _c_per.radio("Período", ["Mês", "Último trimestre", "Último semestre"],
                        horizontal=True, key="des_ind_periodo",
                        label_visibility="collapsed")
@@ -4574,6 +4575,15 @@ def _desempenho_individual(dados, username, nome, carregar_periodo=None,
         _esc = _c_mes.selectbox("Mês", _rots, index=0, key="des_ind_mes",
                                 label_visibility="collapsed")
         _lista = [_ult12[_rots.index(_esc)]]
+
+    # Trocar o mes aqui recarrega o periodo inteiro. Sem o botao, escolher
+    # "Último semestre" e depois voltar para um mes custava duas leituras — e a
+    # segunda comecava antes de a primeira terminar de desenhar.
+    _lista, _pend_ind = _filtros.pesquisar(
+        "des_ind_filtro", {"op": _op, "lista": _lista},
+        coluna=_c_ok, largura=True)
+    _por_mes, _lista = _lista["op"] != "Mês", _lista["lista"]
+    _filtros.aviso_pendente(_pend_ind)
 
     if _lista and carregar_periodo:
         try:
@@ -5715,7 +5725,7 @@ def _secao_configuracao(dados=None):
     st.caption("Configure as metas de qualquer mês, inclusive meses futuros. As configurações são salvas automaticamente no banco de dados.")
 
     agora = datetime.now()
-    col_a, col_m = st.columns([1, 2])
+    col_a, col_m, col_go_cfg = st.columns([1, 2, 1])
 
     anos_disp = list(range(agora.year + 1, agora.year - 2, -1))
     ano_cfg = col_a.selectbox("Ano", anos_disp, index=1, key="am_cfg_ano")
@@ -5725,6 +5735,14 @@ def _secao_configuracao(dados=None):
         index=agora.month - 1,
         key="am_cfg_mes"
     )
+    # Cada troca aqui relê a configuração do mês na planilha. Escolher o mês e
+    # o ano é uma decisão só; sem o botão eram duas leituras, e a do meio era
+    # de um mês que ninguém quis ver.
+    _filtros.espaco(col_go_cfg)
+    _sel_cfg, _pend_cfg = _filtros.pesquisar(
+        "am_cfg_filtro", {"ano": ano_cfg, "mes": mes_cfg}, coluna=col_go_cfg)
+    ano_cfg, mes_cfg = _sel_cfg["ano"], _sel_cfg["mes"]
+    _filtros.aviso_pendente(_pend_cfg)
     mes_cfg_num = list(range(1, 13))[[MESES_PT[m] for m in range(1, 13)].index(mes_cfg)]
 
     cfg_atual = mc.carregar_config(ano_cfg, mes_cfg_num)
@@ -6259,6 +6277,19 @@ def pagina_analise_metas(usuario_logado):
     if not meses_lista:
         st.warning("Período inválido."); return
 
+    # Escolher e pesquisar sao dois momentos.
+    #
+    # Cada campo aqui recarregava a tela sozinho: trocar o ano e depois o mes
+    # custava duas leituras completas do Trello, da RHiD e da planilha. E
+    # durante cada uma delas a tela ficava parada, sem dizer que estava
+    # trabalhando — quem esperava clicava de novo e enfileirava mais uma.
+    _c_btn, _c_av = st.columns([1, 5])
+    _filtro, _pendente = _filtros.pesquisar(
+        "am_filtro", {"meses": meses_lista, "label": label_periodo},
+        coluna=_c_btn)
+    _filtros.aviso_pendente(_pendente, _c_av)
+    meses_lista, label_periodo = _filtro["meses"], _filtro["label"]
+
     # ── CARREGA DADOS ──────────────────────────────────────────────────────
     with st.spinner("Carregando dados do Trello e configurações..."):
         dados_board = _pc._buscar_board()
@@ -6415,24 +6446,38 @@ def pagina_analise_metas(usuario_logado):
         # era tempo — o corpo das duas era montado a cada clique.
         _mb_opcoes_des = list(_pc.MEMBROS_ATIVOS.keys())
         _mb_nomes_des  = [_pc.MEMBROS_ATIVOS[u] for u in _mb_opcoes_des]
-        _c_vis, _c_col = st.columns([1.2, 1.4])
+        _c_vis, _c_col, _c_go = st.columns([1.2, 1.4, .9])
         _vis = _c_vis.radio(
             "O que você quer ver", ["👥 Análise coletiva", "🎯 Análise individual"],
             horizontal=True, key="des_visao")
-        _individual = _vis.endswith("individual")
 
         _mb_u_des, _mb_nome_des = None, ""
-        if _individual:
-            if _eh_master:
-                # O seletor mora na mesma linha da visão: escolher a pessoa é
-                # parte de escolher o que ver, não um passo depois.
-                _mb_nome_des = _c_col.selectbox(
-                    "👤 Colaborador", _mb_nomes_des, key="des_ind_sel")
-                _mb_u_des = _mb_opcoes_des[_mb_nomes_des.index(_mb_nome_des)]
-            else:
-                _mb_u_des    = _username_atual
-                _mb_nome_des = _pc.MEMBROS_ATIVOS.get(_mb_u_des, _mb_u_des)
+        if _eh_master:
+            # O seletor mora na mesma linha da visão: escolher a pessoa é
+            # parte de escolher o que ver, não um passo depois. Ele aparece
+            # mesmo na visão coletiva, e desabilitado, para a linha não mudar
+            # de forma a cada troca — campo que some leva o botão de lugar.
+            _mb_nome_des = _c_col.selectbox(
+                "👤 Colaborador", _mb_nomes_des, key="des_ind_sel",
+                disabled=not _vis.endswith("individual"))
+            _mb_u_des = _mb_opcoes_des[_mb_nomes_des.index(_mb_nome_des)]
+        else:
+            _mb_u_des    = _username_atual
+            _mb_nome_des = _pc.MEMBROS_ATIVOS.get(_mb_u_des, _mb_u_des)
+            if _vis.endswith("individual"):
                 _c_col.caption(f"Exibindo seus dados: **{_mb_nome_des}**")
+
+        # Trocar de colaborador remonta a seção inteira. Aqui o botão vale
+        # ainda mais: dá para escolher a visão E a pessoa antes de qualquer
+        # recarga, em vez de pagar uma por campo.
+        _filtros.espaco(_c_go)
+        _sel_des, _pend_des = _filtros.pesquisar(
+            "des_visao_filtro", {"vis": _vis, "u": _mb_u_des,
+                                 "nome": _mb_nome_des},
+            coluna=_c_go)
+        _filtros.aviso_pendente(_pend_des)
+        _individual = _sel_des["vis"].endswith("individual")
+        _mb_u_des, _mb_nome_des = _sel_des["u"], _sel_des["nome"]
 
         st.markdown("---")
         if not _individual:
