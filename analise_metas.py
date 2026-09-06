@@ -5826,11 +5826,10 @@ def _secao_configuracao(dados=None):
                 + ", ".join(f"{_d:%d/%m}" for _d in _fer_fds) + "."
             )
         st.caption(
-            "Falta algum, ou a equipe trabalha em algum destes? Lance o dia "
-            "logo abaixo, em **Vai acontecer** — e me avise para eu corrigir a "
-            "lista. Quarta-feira de Cinzas fica de fora de propósito: o ponto "
-            "facultativo vale só até as 14h, e marcar o dia inteiro abonaria "
-            "uma tarde de trabalho."
+            "Os **pontos facultativos** entram como os feriados: Carnaval, "
+            "Quarta-feira de Cinzas e Corpus Christi contam o dia inteiro, "
+            "porque o escritório não abre. Falta algum, ou a equipe trabalha "
+            "em algum destes? Lance o dia logo abaixo, em **Vai acontecer**."
         )
 
     st.markdown("##### 🛑 Paradas e períodos sem expediente")
