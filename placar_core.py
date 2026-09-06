@@ -186,11 +186,14 @@ FERIADOS_SP_CIDADE = {(1, 25): "Aniversário da Cidade de São Paulo"}
 # o escritorio nao abre. Para a conta que interessa aqui — "esperava-se
 # trabalho neste dia?" — os dois sao nao.
 #
-# Quarta-feira de Cinzas fica de fora de proposito: o ponto facultativo vale
-# so ate as 14h, e marcar o dia inteiro abonaria uma tarde de trabalho.
+# Quarta-feira de Cinzas entra pelo mesmo criterio, por decisao do gestor. Em
+# ambito federal o ponto facultativo dela vale so ate as 14h; aqui o dia conta
+# inteiro, porque a MS nao abre. Se um dia abrir a tarde, a tarde some da conta
+# de ociosidade — e por isso ela esta escrita nomeada, e nao junto do Carnaval.
 MOVEIS_PASCOA = {
     -48: "Carnaval (segunda)",
     -47: "Carnaval (terça)",
+    -46: "Quarta-feira de Cinzas",
     -2:  "Sexta-Feira Santa",
     60:  "Corpus Christi",
 }
