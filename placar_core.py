@@ -147,19 +147,64 @@ COLUNAS_SKIP = {
 } | LISTAS_ANALISE
 CAPACIDADE_MIN = 390
 
-# Feriados nacionais de data FIXA, como (mes, dia). O ritmo de qualquer meta se
-# mede em dias UTEIS: dividir a meta por 30 dias corridos cobra trabalho no
-# domingo e no feriado.
-FERIADOS_BR = {(1, 1), (4, 21), (5, 1), (9, 7), (10, 12), (11, 2), (11, 15),
-               (12, 25)}
+# ── Calendario de feriados ───────────────────────────────────────────────────
+#
+# O ritmo de qualquer meta se mede em dias UTEIS: dividir a meta por 30 dias
+# corridos cobra trabalho no domingo e no feriado. E, num dia em que o
+# escritorio nao abre, a janela de expediente aberta faz a ociosidade da equipe
+# inteira ir a 100%, o cartao acumular tempo de execucao e o atraso correr.
+#
+# Cada feriado carrega o nome e a origem. A origem nao muda a conta — feriado e
+# feriado —, ela existe para a tela poder dizer POR QUE aquele dia nao conta, e
+# para quem confere saber onde olhar se discordar.
 
-# Feriados que andam com a Pascoa, em dias de distancia dela. Sem eles a
-# Sexta-Feira Santa e a terca de Carnaval entravam como dia de trabalho
-# comum: a equipe inteira aparecia com um dia de ociosidade total, os cartoes
-# acumulavam tempo de execucao e o atraso corria — tudo por um dia em que o
-# escritorio estava fechado.
-MOVEIS_PASCOA = {-48: "Carnaval (segunda)", -47: "Carnaval (terça)",
-                 -2: "Sexta-Feira Santa", 60: "Corpus Christi"}
+# Nacionais de data fixa, como (mes, dia).
+FERIADOS_NACIONAIS = {
+    (1, 1):   "Confraternização Universal",
+    (4, 21):  "Tiradentes",
+    (5, 1):   "Dia do Trabalho",
+    (9, 7):   "Independência do Brasil",
+    (10, 12): "Nossa Senhora Aparecida",
+    (11, 2):  "Finados",
+    (11, 15): "Proclamação da República",
+    # Nacional desde a Lei 14.759/2023 — antes disso era municipal em Sao Paulo.
+    # Faltava na lista, e e o feriado que mais perto esta de cair em dia util.
+    (11, 20): "Consciência Negra",
+    (12, 25): "Natal",
+}
+
+# Estado de Sao Paulo.
+FERIADOS_SP_ESTADO = {(7, 9): "Revolução Constitucionalista de 1932"}
+
+# Cidade de Sao Paulo.
+FERIADOS_SP_CIDADE = {(1, 25): "Aniversário da Cidade de São Paulo"}
+
+# Os que andam com a Pascoa, em dias de distancia dela.
+#
+# Carnaval e Corpus Christi sao ponto facultativo em ambito federal, nao
+# feriado — mas Corpus Christi e feriado MUNICIPAL em Sao Paulo, e no Carnaval
+# o escritorio nao abre. Para a conta que interessa aqui — "esperava-se
+# trabalho neste dia?" — os dois sao nao.
+#
+# Quarta-feira de Cinzas fica de fora de proposito: o ponto facultativo vale
+# so ate as 14h, e marcar o dia inteiro abonaria uma tarde de trabalho.
+MOVEIS_PASCOA = {
+    -48: "Carnaval (segunda)",
+    -47: "Carnaval (terça)",
+    -2:  "Sexta-Feira Santa",
+    60:  "Corpus Christi",
+}
+
+ORIGEM_FERIADO = {}
+for _grupo, _origem in ((FERIADOS_NACIONAIS, "nacional"),
+                        (FERIADOS_SP_ESTADO, "estadual · SP"),
+                        (FERIADOS_SP_CIDADE, "municipal · São Paulo")):
+    for _md in _grupo:
+        ORIGEM_FERIADO[_md] = _origem
+
+# Nome antigo, mantido porque placar.py o reexporta. Continua sendo o conjunto
+# de (mes, dia) dos nacionais fixos.
+FERIADOS_BR = set(FERIADOS_NACIONAIS)
 
 
 def _pascoa(ano):
@@ -179,12 +224,34 @@ def _pascoa(ano):
 
 
 def feriados_do_ano(ano):
-    """{date: nome} de todo feriado daquele ano — os de data fixa e os moveis."""
-    fora = {date(ano, m, d): "Feriado nacional" for m, d in FERIADOS_BR}
+    """{date: (nome, origem)} de todo feriado daquele ano.
+
+    Os de data fixa saem das tabelas; os moveis saem da Pascoa, entao valem
+    para qualquer ano sem ninguem ter que atualizar lista nenhuma.
+    """
+    fora = {}
+    for grupo in (FERIADOS_NACIONAIS, FERIADOS_SP_ESTADO, FERIADOS_SP_CIDADE):
+        for (m, d), nome in grupo.items():
+            fora[date(ano, m, d)] = (nome, ORIGEM_FERIADO[(m, d)])
     p = _pascoa(ano)
     for delta, nome in MOVEIS_PASCOA.items():
-        fora[p + timedelta(days=delta)] = nome
+        origem = ("municipal · São Paulo" if nome == "Corpus Christi"
+                  else "nacional" if nome == "Sexta-Feira Santa"
+                  else "ponto facultativo")
+        fora[p + timedelta(days=delta)] = (nome, origem)
     return fora
+
+
+def feriados_do_mes(ano, mes):
+    """[(date, nome, origem)] daquele mes, em ordem. Vazio quando nao ha."""
+    return sorted((d, nome, origem)
+                  for d, (nome, origem) in feriados_do_ano(ano).items()
+                  if d.month == mes)
+
+
+def nome_do_feriado(data):
+    """O nome do feriado naquele dia, ou "" se for dia comum."""
+    return (feriados_do_ano(data.year).get(data) or ("", ""))[0]
 
 
 def eh_dia_util(data):
@@ -194,6 +261,9 @@ def eh_dia_util(data):
     quatro deles como `weekday() < 5` — so o ritmo da meta olhava o calendario
     de feriados. Entao o painel dizia "22 dias uteis no mes" e, no mesmo mes,
     cobrava ociosidade e tempo de execucao de 23.
+
+    Feriado nacional, estadual de Sao Paulo, municipal da capital e os que
+    andam com a Pascoa: todos contam igual aqui.
     """
     return (data.weekday() < 5
             and data not in feriados_do_ano(data.year))

@@ -5781,6 +5781,58 @@ def _secao_configuracao(dados=None):
             for k in mc.DEFAULTS
         ))
 
+    # A lista na tela, e nao so no codigo.
+    #
+    # Um calendario de feriados errado falha em silencio: o dia entra como
+    # trabalho, a ociosidade da equipe vai a 100% e ninguem descobre olhando a
+    # tela — descobre olhando o codigo. Mostrar quais dias o sistema considera,
+    # e por que cada um conta, e o que permite discordar antes do fato.
+    _fer_ano = _pc.feriados_do_ano(ano_cfg)
+    _fer_uteis = sorted((d, n, o) for d, (n, o) in _fer_ano.items()
+                        if d.weekday() < 5)
+    _fer_fds = sorted(d for d in _fer_ano if d.weekday() >= 5)
+    with st.expander(
+            f"📅 Feriados considerados em {ano_cfg} "
+            f"({len(_fer_uteis)} em dia de semana)", expanded=False):
+        st.caption(
+            "Nestes dias o sistema não espera trabalho: a ociosidade não corre, "
+            "o cartão não acumula tempo de execução, o atraso não avança e o "
+            "dia não entra no ritmo da meta. Nacionais, o estadual de São Paulo "
+            "(9 de julho), o municipal da capital (25 de janeiro) e os que "
+            "andam com a Páscoa — estes últimos calculados, não digitados, "
+            "então valem para qualquer ano."
+        )
+        _CORES_ORIGEM = {"nacional": "#1BAF7A", "estadual · SP": "#4A7EC7",
+                         "municipal · São Paulo": "#8B5CF6",
+                         "ponto facultativo": "#EDA100"}
+        _DIAS_PT = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"]
+        _linhas = ""
+        for _d, _nome, _origem in _fer_uteis:
+            _cor = _CORES_ORIGEM.get(_origem, "var(--ms-texto-sec)")
+            _linhas += (
+                f'<tr><td style="padding:5px 10px;font-size:12px;'
+                f'white-space:nowrap;">{_d:%d/%m} · {_DIAS_PT[_d.weekday()]}</td>'
+                f'<td style="padding:5px 10px;font-size:12px;">'
+                f'{_esc(_nome)}</td>'
+                f'<td style="padding:5px 10px;font-size:10px;color:{_cor};'
+                f'text-align:right;white-space:nowrap;">{_esc(_origem)}</td>'
+                f'</tr>')
+        st.markdown(
+            '<table style="width:100%;border-collapse:collapse;">'
+            + _linhas + '</table>', unsafe_allow_html=True)
+        if _fer_fds:
+            st.caption(
+                "Caem em fim de semana neste ano, então não mudam nada: "
+                + ", ".join(f"{_d:%d/%m}" for _d in _fer_fds) + "."
+            )
+        st.caption(
+            "Falta algum, ou a equipe trabalha em algum destes? Lance o dia "
+            "logo abaixo, em **Vai acontecer** — e me avise para eu corrigir a "
+            "lista. Quarta-feira de Cinzas fica de fora de propósito: o ponto "
+            "facultativo vale só até as 14h, e marcar o dia inteiro abonaria "
+            "uma tarde de trabalho."
+        )
+
     st.markdown("##### 🛑 Paradas e períodos sem expediente")
     st.caption(
         "Queda de internet, falta de energia, emenda de feriado, férias "
