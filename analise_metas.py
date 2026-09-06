@@ -3666,9 +3666,13 @@ def _chart_linha_do_tempo(dados, username):
         lista = dias_exec.get(chave, [])
         est = estados.get(chave) or {"por_card": {}, "andamento": 0,
                                      "concluido": 0, "interrompido": 0}
-        util = data.weekday() < 5 and data <= hoje
+        # Feriado nao e dia parado, e dia fechado: pintar de vermelho o 7 de
+        # setembro acusaria a equipe por nao ter trabalhado num dia em que o
+        # escritorio nao abriu.
+        _fechado = not _pc.eh_dia_util(data)
+        util = not _fechado and data <= hoje
         parado = util and not lista and not est["por_card"]
-        if data.weekday() >= 5:
+        if _fechado:
             partes.append(f'<rect x="{x:.1f}" y="{mt}" width="{bw:.1f}" '
                           f'height="{ALT_REL}" fill="#00000022"/>')
         elif parado:
@@ -3906,7 +3910,7 @@ def _chart_atividade_dia(dados, username, por_mes=False):
                                   "interrompidos": 0, "ativos": 0,
                                   "andamento": 0, "concluido": 0,
                                   "interrompido": 0, "minutos": 0.0}))
-            uteis.append(data.weekday() < 5 and data <= hoje)
+            uteis.append(_pc.eh_dia_util(data) and data <= hoje)
         unidade = "dia"
 
     if not regs:

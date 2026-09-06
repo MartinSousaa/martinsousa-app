@@ -147,10 +147,56 @@ COLUNAS_SKIP = {
 } | LISTAS_ANALISE
 CAPACIDADE_MIN = 390
 
-# Feriados nacionais. O ritmo de qualquer meta se mede em dias UTEIS: dividir a
-# meta por 30 dias corridos cobra trabalho no domingo e no feriado.
+# Feriados nacionais de data FIXA, como (mes, dia). O ritmo de qualquer meta se
+# mede em dias UTEIS: dividir a meta por 30 dias corridos cobra trabalho no
+# domingo e no feriado.
 FERIADOS_BR = {(1, 1), (4, 21), (5, 1), (9, 7), (10, 12), (11, 2), (11, 15),
                (12, 25)}
+
+# Feriados que andam com a Pascoa, em dias de distancia dela. Sem eles a
+# Sexta-Feira Santa e a terca de Carnaval entravam como dia de trabalho
+# comum: a equipe inteira aparecia com um dia de ociosidade total, os cartoes
+# acumulavam tempo de execucao e o atraso corria — tudo por um dia em que o
+# escritorio estava fechado.
+MOVEIS_PASCOA = {-48: "Carnaval (segunda)", -47: "Carnaval (terça)",
+                 -2: "Sexta-Feira Santa", 60: "Corpus Christi"}
+
+
+def _pascoa(ano):
+    """Domingo de Pascoa daquele ano (algoritmo de Meeus/Butcher)."""
+    a = ano % 19
+    b, c = divmod(ano, 100)
+    d, e = divmod(b, 4)
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i, k = divmod(c, 4)
+    ll = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * ll) // 451
+    mes = (h + ll - 7 * m + 114) // 31
+    dia = ((h + ll - 7 * m + 114) % 31) + 1
+    return date(ano, mes, dia)
+
+
+def feriados_do_ano(ano):
+    """{date: nome} de todo feriado daquele ano — os de data fixa e os moveis."""
+    fora = {date(ano, m, d): "Feriado nacional" for m, d in FERIADOS_BR}
+    p = _pascoa(ano)
+    for delta, nome in MOVEIS_PASCOA.items():
+        fora[p + timedelta(days=delta)] = nome
+    return fora
+
+
+def eh_dia_util(data):
+    """Dia em que se espera trabalho: nem fim de semana, nem feriado.
+
+    UMA pergunta, UMA resposta. Ela estava escrita em cinco lugares, e em
+    quatro deles como `weekday() < 5` — so o ritmo da meta olhava o calendario
+    de feriados. Entao o painel dizia "22 dias uteis no mes" e, no mesmo mes,
+    cobrava ociosidade e tempo de execucao de 23.
+    """
+    return (data.weekday() < 5
+            and data not in feriados_do_ano(data.year))
 
 
 def dias_uteis_do_mes(ano, mes, ate=None):
@@ -165,8 +211,7 @@ def dias_uteis_do_mes(ano, mes, ate=None):
 
     def _conta(ate_dia):
         return sum(1 for d in range(1, min(ate_dia, n_dias) + 1)
-                   if datetime(ano, mes, d).weekday() < 5
-                   and (mes, d) not in FERIADOS_BR)
+                   if eh_dia_util(date(ano, mes, d)))
 
     return _conta(n_dias), _conta(ate if ate is not None else n_dias)
 
@@ -1181,7 +1226,7 @@ def _janelas_uteis(ini_local, fim_local, username=None):
     dia = ini_local.date()
     ultimo = fim_local.date()
     while dia <= ultimo:
-        if dia.weekday() < 5:   # sem sábado e domingo
+        if eh_dia_util(dia):   # sem sábado, domingo nem feriado
             do_dia = []
             for abre, fecha in ((h["entrada"], ALMOCO[0]), (ALMOCO[1], h["fim"])):
                 ja = datetime.combine(dia, abre, tzinfo=FUSO)
