@@ -1257,7 +1257,7 @@ def _secao_relatorio_rhid():
     # ── Busca apuração para cada colaborador ──────────────────────────────────
     dias_uteis = max(sum(
         1 for d in range((data_fim - data_ini).days + 1)
-        if (data_ini + timedelta(days=d)).weekday() < 5
+        if _pc.eh_dia_util(data_ini + timedelta(days=d))
     ), 1)
 
     resultados = []
