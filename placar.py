@@ -2255,9 +2255,11 @@ def pagina_placar(usuario_logado, headless=False):
         b += _barra_meta("Pontuação do mês", pct_eq, f"{saldo_eq:,.0f} / {meta_eq:,} pts (inclui -{d['pen_total']:.0f} penalidades)", _cor_eq)
         b += _barra_meta("Sem atraso em prioritários P8-P10", pct_prioritarios_ok, _desc_pri, _cor_pri)
         b += _barra_meta(f"Retrabalho abaixo de {max_retrab_n}%", pct_retrab_barra_n, _desc_retrab, _cor_rtn)
+        # A barra de penalidade e SEMPRE vermelha. Ela nao mede conquista, mede
+        # acumulo de dano: a escala e quanto do teto ja foi gasto, e pintar de
+        # verde "3 de 5 penalidades" premiaria estar perto de estourar.
         b += _barra_meta(f"Menos de {max_pen_n+1} penalidades", pct_pen_normal,
-                         _pc_membro.texto_penalidades(_sit_pen),
-                         "#1BAF7A" if _sit_pen["pen_col_ok"] else "#E34948")
+                         _pc_membro.texto_penalidades(_sit_pen), "#E34948")
         b += _barra_meta("Cartões com membro atribuído", pct_com_membro, _sem_mb_desc_n, _cor_cmb)
         # O tempo medio pesa na meta coletiva e nao aparecia AQUI — so na
         # Analise de Metas. Este painel mostrava cinco dos seis criterios, e
@@ -2279,7 +2281,7 @@ def pagina_placar(usuario_logado, headless=False):
         b += _barra_meta(f"Retrabalho abaixo de {max_retrab_x}%", pct_retrab_barra_x, _desc_retrab, _cor_rtnx)
         b += _barra_meta(f"Menos de {max_pen_x+1} penalidades", pct_pen_maxx,
                          _pc_membro.texto_penalidades(_sit_pen, maxx=True),
-                         "#FFD700" if _sit_pen["pen_maxx_ok"] else "#E34948")
+                         "#E34948")
         b += _barra_meta("Cartões com membro atribuído", pct_com_membro, _sem_mb_desc_x, _cor_cmbx)
         b += _barra_meta(_tm_eq["rotulo"], _tm_eq["pct"], _tm_eq["desc"],
                          _pc_membro.cor_tempo_medio(_tm_eq, "#FFD700"))

@@ -512,9 +512,9 @@ def _secao_metas_card(dados):
                             _desc_pri, _cor_pri_a)
         _cor_rtn_a = "#1BAF7A" if pct_retrab_n >= 100 else "#E34948"
         b += _barra_painel(f"Retrabalho abaixo de {max_retrab_n}%", pct_retrab_n, desc_retrab, _cor_rtn_a)
+        # Sempre vermelha: mede acumulo de dano, nao conquista.
         b += _barra_painel(f"Menos de {max_pen_n+1} penalidades", pct_pen_n,
-                            _pc.texto_penalidades(_sit_pen_p),
-                            "#1BAF7A" if _sit_pen_p["pen_col_ok"] else "#E34948")
+                            _pc.texto_penalidades(_sit_pen_p), "#E34948")
         _cor_cmb_a = "#1BAF7A" if pct_com_membro >= 100 else "#E34948"
         b += _barra_painel("Cartões com membro atribuído", pct_com_membro,
                             _desc_cmb, _cor_cmb_a)
@@ -532,7 +532,7 @@ def _secao_metas_card(dados):
         b += _barra_painel(f"Retrabalho abaixo de {max_retrab_x}%", pct_retrab_x, desc_retrab_x, _cor_rtx_a)
         b += _barra_painel(f"Menos de {max_pen_x+1} penalidades", pct_pen_x,
                             _pc.texto_penalidades(_sit_pen_p, maxx=True),
-                            "#FFD700" if _sit_pen_p["pen_maxx_ok"] else "#E34948")
+                            "#E34948")
         _cor_cmbx_a = "#FFD700" if pct_com_membro >= 100 else "#E34948"
         b += _barra_painel("Cartões com membro atribuído", pct_com_membro,
                             _desc_cmb, _cor_cmbx_a)
