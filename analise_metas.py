@@ -4798,10 +4798,18 @@ def _desempenho_individual(dados, username, nome, carregar_periodo=None,
     st.caption("4 melhores meses individuais · top 4 colunas da equipe.")
     st.markdown(_chart_ind_destaques(meses, dados, username), unsafe_allow_html=True)
 
-    # No fim de proposito: e a resposta a um numero que a pessoa acabou de ver
-    # acima. Ler "78% de ociosidade" e so depois descobrir que da para explicar
-    # o que aconteceu e a ordem certa.
-    _secao_pedido_abatimento(username, nome, dono)
+    # O formulario mora na aba "🙋 Pedir abatimento". Aqui fica so a placa,
+    # colada no numero que ela explica: quem acabou de ler a propria ociosidade
+    # e o momento em que a pessoa lembra que tem o que justificar.
+    if dono:
+        st.markdown("---")
+        st.info(
+            "🙋 **Trabalhou e o sistema não viu?** Esqueceu a etiqueta "
+            "**FILMAGEM**, fez a análise de demanda sem abrir o cartão, "
+            "executou algo sem cartão nenhum — peça o abatimento na aba "
+            "**🙋 Pedir abatimento**, aqui em cima. Aprovado, esse tempo sai "
+            "da sua ociosidade, do seu tempo de execução e do atraso."
+        )
 
 
 def _linha_pedido(a, _ab, gestor=False):
@@ -6569,7 +6577,14 @@ def pagina_analise_metas(usuario_logado):
     # A aba de configuração some para quem não é gestor, em vez de aparecer e
     # responder com cadeado. Aba que abre e nega deixa a pessoa achando que
     # quebrou — e ainda anuncia que existe um lugar onde se mexe nas metas.
-    _ABAS = ["📋 Coletivo", "🎯 Individual", "📈 Desempenho"]
+    # "Pedir abatimento" e aba propria, e nao um bloco no fim do Desempenho.
+    #
+    # Ela existia la embaixo, depois dos graficos da secao individual, com a
+    # ideia de ficar colada no numero que ela explica. Na pratica o caminho era
+    # Analise de Metas > Desempenho > escolher "Analise individual" > Pesquisar
+    # > rolar ate o fim: cinco passos, e o colaborador nao achava. Um campo que
+    # so quem construiu sabe encontrar nao existe para quem precisa dele.
+    _ABAS = ["📋 Coletivo", "🎯 Individual", "📈 Desempenho", "🙋 Pedir abatimento"]
     if _eh_master:
         # Comparar pessoas e conversa de gestor. A tela mostra o desempenho de
         # todos lado a lado, e quem nao gerencia nao tem o que fazer com isso.
@@ -6705,13 +6720,18 @@ def pagina_analise_metas(usuario_logado):
         else:
             st.info("Selecione um colaborador para ver o desempenho individual.")
 
-    elif len(_ABAS) > 3 and _aba_sel == _ABAS[3]:
+    elif _aba_sel == _ABAS[3]:
+        _nome_ab = _pc.MEMBROS_ATIVOS.get(_username_atual, _username_atual)
+        _secao_pedido_abatimento(_username_atual, _nome_ab,
+                                 _username_atual in _pc.MEMBROS_ATIVOS)
+
+    elif len(_ABAS) > 4 and _aba_sel == _ABAS[4]:
         if _eh_master:
             _aba_comparativo(dados)
         else:
             st.warning("Seção disponível apenas para gestores.")
 
-    elif len(_ABAS) > 4 and _aba_sel == _ABAS[4]:
+    elif len(_ABAS) > 5 and _aba_sel == _ABAS[5]:
         # Só chega aqui quem é gestor: a aba nem entra na lista dos outros, e
         # _navegar recusa rótulo fora da lista. A checagem fica assim mesmo —
         # é do lado do servidor, não some se alguém mexer na URL.
