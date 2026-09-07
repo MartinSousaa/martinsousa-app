@@ -952,6 +952,10 @@ def _tv_full_html(
     # A META MAXX nao usa isto: ela continua dourada sempre.
     cor_ritmo="#1BAF7A",
     sem_membro_lista=None, sem_membro_desc="",
+    # A barra do tempo medio, ja pronta (rotulo, pct, descricao, cor) — a
+    # mesma que o painel e a Analise mostram. A TV mostrava cinco criterios de
+    # seis, e e ela que a equipe olha o dia inteiro.
+    tm_eq=None,
     # Carimbo de quando este HTML foi gerado. O JS da TV compara com o relogio
     # do navegador e mostra a faixa vermelha se os dados envelhecerem — uma TV
     # congelada precisa se anunciar, senao mostra numeros plausiveis e velhos.
@@ -1093,6 +1097,24 @@ def _tv_full_html(
     # enquanto a barra media os em andamento e concluídos — 100% com faltantes
     # listados embaixo.
     _tv_sem_mb_desc = sem_membro_desc or "Em andamento e concluídos"
+
+    def _tv_barra_tm(cor_ok):
+        """A barra do tempo medio no formato da TV, ou nada se nao houver dado."""
+        if not tm_eq:
+            return ""
+        import placar_core as _pc_tm
+        cor = _pc_tm.cor_tempo_medio(tm_eq, cor_ok)
+        pct = float(tm_eq.get("pct") or 0)
+        return (
+            f'<div class="barra-item"><div class="barra-header">'
+            f'<span>{tm_eq["rotulo"]}</span>'
+            f'<span style="color:{cor};font-weight:700;">{pct:.0f}%</span></div>'
+            f'<div class="barra-track"><div class="barra-fill" '
+            f'style="width:{min(pct,100):.1f}%;background:{cor};"></div></div>'
+            f'<div class="barra-desc">{tm_eq["desc"]}</div></div>')
+
+    _tv_barra_tm_n = _tv_barra_tm("#1BAF7A")
+    _tv_barra_tm_x = _tv_barra_tm("#FFD700")
     return f"""<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -1308,6 +1330,7 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
       <div class="barra-item"><div class="barra-header"><span>Retrabalho abaixo de {max_retrab_n}%</span><span style="color:{_cor_tv_retrab_n};font-weight:700;">{pct_retrab_n:.0f}%</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_retrab_n,100):.1f}%;background:{_cor_tv_retrab_n};"></div></div><div class="barra-desc">{desc_retrab}</div></div>
       <div class="barra-item"><div class="barra-header"><span>Menos de {max_pen_n+1} penalidades</span><span style="color:#E34948;font-weight:700;">{pct_pen_n:.0f}%</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_pen_n,100):.1f}%;background:#E34948;"></div></div><div class="barra-desc">{n_pen} ocorrência(s) / máx {max_pen_n}</div></div>
       <div class="barra-item"><div class="barra-header"><span>Cartões com membro atribuído</span><span style="color:{_cor_tv_cmb};font-weight:700;">{pct_com_membro:.0f}%</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_com_membro,100):.1f}%;background:{_cor_tv_cmb};"></div></div><div class="barra-desc">{_tv_sem_mb_desc}</div></div>
+      {_tv_barra_tm_n}
     </div>
     <div class="barra-box ouro-border">
       <div class="bloco-titulo ouro" style="margin-bottom:5px;">⭐ Meta Maxx Coletiva</div>
@@ -1316,6 +1339,7 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
       <div class="barra-item"><div class="barra-header"><span>Retrabalho abaixo de {max_retrab_x}%</span><span style="color:{_cor_tv_retrab_x};font-weight:700;">{pct_retrab_x:.0f}%</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_retrab_x,100):.1f}%;background:{_cor_tv_retrab_x};"></div></div><div class="barra-desc">{desc_retrab}</div></div>
       <div class="barra-item"><div class="barra-header"><span>Menos de {max_pen_x+1} penalidades</span><span style="color:#E34948;font-weight:700;">{pct_pen_x:.0f}%</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_pen_x,100):.1f}%;background:#E34948;"></div></div><div class="barra-desc">{n_pen} ocorrência(s) / máx {max_pen_x}</div></div>
       <div class="barra-item"><div class="barra-header"><span>Cartões com membro atribuído</span><span style="color:{_cor_tv_cmbx};font-weight:700;">{pct_com_membro:.0f}%</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_com_membro,100):.1f}%;background:{_cor_tv_cmbx};"></div></div><div class="barra-desc">{_tv_sem_mb_desc}</div></div>
+      {_tv_barra_tm_x}
     </div>
   </div>
 
@@ -1978,6 +2002,10 @@ def pagina_placar(usuario_logado, headless=False):
     pct_com_membro, _sem_mb_cards, _total_novo, _sem_mb_desc_meta = \
         _pc_membro.pct_com_membro(d, filtro_mes)
     _sem_mb_novo = len(_sem_mb_cards)
+    # Um mes so — e o que esta tela mostra. A conta e a mesma da Analise de
+    # Metas, e o texto tambem: duas telas montando a propria frase a partir dos
+    # mesmos numeros e como elas passam a discordar.
+    _tm_eq = _pc_membro.tempo_medio_equipe([d], cfg_mes)
 
 
 
@@ -2081,6 +2109,7 @@ def pagina_placar(usuario_logado, headless=False):
         cor_ritmo=(_ritmo_tv or {}).get("cor") or "#1BAF7A",
         sem_membro_lista=d.get("sem_membro_lista", []),
         sem_membro_desc=_sem_mb_desc_meta,
+        tm_eq=_tm_eq,
     )
     if _write_tv_static(_html_tv) and headless:
         TV_STATUS["motivo"] = ""   # chegou ate aqui e gravou: a volta valeu
@@ -2115,6 +2144,11 @@ def pagina_placar(usuario_logado, headless=False):
         b += _barra_meta(f"Retrabalho abaixo de {max_retrab_n}%", pct_retrab_barra_n, _desc_retrab, _cor_rtn)
         b += _barra_meta(f"Menos de {max_pen_n+1} penalidades", pct_pen_normal, f"{qtd_pen} ocorrência(s) / máx {max_pen_n}", "#E34948")
         b += _barra_meta("Cartões com membro atribuído", pct_com_membro, _sem_mb_desc_n, _cor_cmb)
+        # O tempo medio pesa na meta coletiva e nao aparecia AQUI — so na
+        # Analise de Metas. Este painel mostrava cinco dos seis criterios, e
+        # quem so olha esta tela nao tinha como saber que o sexto existe.
+        b += _barra_meta(_tm_eq["rotulo"], _tm_eq["pct"], _tm_eq["desc"],
+                         _pc_membro.cor_tempo_medio(_tm_eq, "#1BAF7A"))
         st.markdown(f'<div style="background:var(--ms-metric-bg);border:1px solid #1BAF7A22;border-radius:8px;padding:12px 14px;">{b}</div>', unsafe_allow_html=True)
 
     with col_meta_x:
@@ -2130,6 +2164,8 @@ def pagina_placar(usuario_logado, headless=False):
         b += _barra_meta(f"Retrabalho abaixo de {max_retrab_x}%", pct_retrab_barra_x, _desc_retrab, _cor_rtnx)
         b += _barra_meta(f"Menos de {max_pen_x+1} penalidades", pct_pen_maxx, f"{qtd_pen} ocorrência(s) / máx {max_pen_x}", "#E34948")
         b += _barra_meta("Cartões com membro atribuído", pct_com_membro, _sem_mb_desc_x, _cor_cmbx)
+        b += _barra_meta(_tm_eq["rotulo"], _tm_eq["pct"], _tm_eq["desc"],
+                         _pc_membro.cor_tempo_medio(_tm_eq, "#FFD700"))
         st.markdown(f'<div style="background:var(--ms-metric-bg);border:1px solid #FFD70022;border-radius:8px;padding:12px 14px;">{b}</div>', unsafe_allow_html=True)
 
     # ══ BLOCO 3 — EM ANDAMENTO | FILA | DESEMPENHO ══

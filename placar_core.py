@@ -2067,6 +2067,105 @@ def _mes_card(card, conclusoes=None, inicio_janela=None):
         return None
     return (dt.year, dt.month)
 
+def _hm(minutos):
+    """Minutos como 15h24 — a unidade em que a equipe pensa o mes."""
+    m = int(round(abs(minutos)))
+    return f"{m // 60}h{m % 60:02d}"
+
+
+def tempo_medio_equipe(meses, cfg):
+    """A barra "Tempo médio de execução", pronta: números E texto.
+
+    `meses` é a lista de meses processados; o Painel de Metas passa `[d]`, com
+    um mês só. Só `tempo_lista` é lido de cada um.
+
+    Devolve rótulo e descrição junto dos números de proposito. Este indicador
+    aparece em duas telas — Painel de Metas e Análise de Metas —, e o jeito de
+    duas telas passarem a discordar é cada uma montar a própria frase a partir
+    dos mesmos números. Já aconteceu aqui com "Cartões com membro atribuído".
+
+    O `pct` é atingimento, não progresso: 100 quando está dentro do alvo, e
+    abaixo disso na proporção de quanto passou. `definida` é False quando o mês
+    não tem alvo — a barra continua aparecendo, dizendo que falta configurar.
+    Sumir era o problema: o tempo médio pesa na meta coletiva, e quem olhava o
+    card não tinha como saber que esse indicador existe.
+    """
+    cfg = cfg or {}
+    todos = [t for r in (meses or [])
+             for ts in (r.get("tempo_lista") or {}).values()
+             for t in ts]
+    real = (sum(todos) / len(todos)) if todos else None
+
+    # Referencia: o tempo estimado de cada coluna, ponderado pelo volume real.
+    # Media simples das colunas nao serve — uma coluna com dois cartoes pesaria
+    # igual a outra com oitenta.
+    soma = qtd = 0
+    for r in (meses or []):
+        for nl, tempos in (r.get("tempo_lista") or {}).items():
+            est = cfg_coluna(nl).get("tempo_min") or 0
+            if est > 0:
+                soma += est * len(tempos)
+                qtd += len(tempos)
+    calculada = (soma / qtd) if qtd else None
+    try:
+        digitada = float(cfg.get("exec_ref_equipe", 0) or 0)
+    except (TypeError, ValueError):
+        digitada = 0.0
+    ref = digitada if digitada > 0 else calculada
+
+    try:
+        import metas_config as _mc_tm
+        meta = _mc_tm.meta_execucao(cfg, "equipe", ref or 0)
+    except Exception:
+        meta = {"alvo": 0, "red": 0, "definida": False}
+    alvo = meta.get("alvo") or 0
+
+    fora = {"definida": bool(meta.get("definida") and alvo), "alvo": alvo,
+            "real": real, "ref": ref, "n_est": qtd,
+            "digitada": digitada > 0, "red": meta.get("red", 0)}
+
+    if not fora["definida"]:
+        fora.update(pct=0, ok=None, rotulo="Tempo médio de execução",
+                    desc=((f"{_hm(real)} de média real hoje · " if real is not None
+                           else "")
+                          + "sem alvo definido para o mês — defina em "
+                            "Configuração de Metas"))
+        return fora
+
+    fora["rotulo"] = f"Tempo médio de execução até {_hm(alvo)}"
+    if real is None:
+        fora.update(pct=0, ok=None,
+                    desc="Sem cartões com tempo medido no período")
+        return fora
+
+    fora["pct"] = 100.0 if real <= alvo else (alvo / real * 100 if real else 0)
+    fora["ok"] = real <= alvo
+    # Alvo acima da referencia nao e "-16% abaixo": e uma folga em relacao a
+    # base, e assim que ele precisa ser lido.
+    _r = fora["red"]
+    _rel = (f"{_r:.0f}% abaixo de" if _r >= 0.5 else
+            ("no mesmo patamar de" if _r > -0.5 else f"{-_r:.0f}% acima de"))
+    _base = "digitadas" if fora["digitada"] else f"estimadas · {qtd} cartões"
+    _ref_txt = (f" ({_rel} {_hm(ref)} {_base})" if ref else "")
+    fora["desc"] = (f"{_hm(real)} de média real · alvo {_hm(alvo)}{_ref_txt}")
+    return fora
+
+
+def cor_tempo_medio(tm, cor_ok):
+    """A cor da barra: no alvo, entre o alvo e a referência, ou acima dela.
+
+    Mês sem alvo e mês sem medição saem em azul, e não em vermelho: não é a
+    equipe que está devendo, é a configuração. Vermelho ali acusaria alguém por
+    um número que ninguém definiu.
+    """
+    if not tm.get("definida") or tm.get("real") is None:
+        return "#4A90D9"
+    if tm.get("ok"):
+        return cor_ok
+    ref = tm.get("ref")
+    return "#EDA100" if (ref and tm["real"] <= ref) else "#E34948"
+
+
 def pct_com_membro(d, filtro_mes=None, hoje=None):
     """(pct, faltam, total, legenda) da meta "Cartões com membro atribuído".
 

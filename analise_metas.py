@@ -266,36 +266,14 @@ def _ref_execucao_equipe(dados, cfg):
 def _barra_tempo_medio(dados, cfg, cor_ok):
     """Barra do tempo médio de execução da equipe contra o alvo do mês.
 
-    A linha fica no card mesmo sem alvo configurado. Sumir era o problema: o
-    tempo médio pesa na meta coletiva, mas quem olhava o card não tinha como
-    saber que esse indicador existia — nem que faltava dizer qual é o alvo.
+    A conta e o texto vêm de `placar_core.tempo_medio_equipe`, a mesma fonte do
+    Painel de Metas. Aqui só se escolhe a forma da barra.
     """
-    ref, n_est, _digitada = _ref_execucao_equipe(dados, cfg)
-    real = _media_execucao_geral(dados)
-    meta = mc.meta_execucao(cfg, "equipe", ref or 0)
-    alvo = meta["alvo"]
-    if not meta["definida"] or not alvo:
-        return _barra_painel_dash(
-            "Tempo médio de execução",
-            (f"{_fmt_hm(real)} de média real hoje · " if real is not None else "")
-            + "sem alvo definido para o mês — defina em Configuração de Metas")
-    rotulo = f"Tempo médio de execução até {_fmt_hm(alvo)}"
-    if ref is None or real is None:
-        return _barra_painel(rotulo, 0,
-                             "Sem cartões com tempo medido no período", "#4A90D9")
-    pct = 100 if real <= alvo else (alvo / real * 100 if real else 0)
-    cor = cor_ok if real <= alvo else ("#EDA100" if real <= ref else "#E34948")
-    # Alvo acima da referencia nao e "-16% abaixo": e uma folga em relacao a
-    # base, e assim que ele precisa ser lido.
-    _r = meta["red"]
-    _rel = (f"{_r:.0f}% abaixo de" if _r >= 0.5 else
-            ("no mesmo patamar de" if _r > -0.5 else f"{-_r:.0f}% acima de"))
-    _base_txt = "digitadas" if _digitada else f"estimadas · {n_est} cartões"
-    return _barra_painel(
-        rotulo, pct,
-        f"{_fmt_hm(real)} de média real · alvo {_fmt_hm(alvo)} "
-        f"({_rel} {_fmt_hm(ref)} {_base_txt})",
-        cor)
+    tm = _pc.tempo_medio_equipe(dados, cfg)
+    if not tm["definida"]:
+        return _barra_painel_dash(tm["rotulo"], tm["desc"])
+    return _barra_painel(tm["rotulo"], tm["pct"], tm["desc"],
+                         _pc.cor_tempo_medio(tm, cor_ok))
 
 
 def _penalidades_por_atraso(dados, cfg):
