@@ -83,6 +83,36 @@ def recarregar_membros():
     MAPA_RHID.clear()
     MAPA_RHID.update(mapa)
     return True
+
+
+# Login do Studio -> username do Trello, sem lista escrita no codigo.
+#
+# Esse mapa vivia copiado em cinco arquivos, com quatro nomes: Myrella, Beatriz,
+# Gabriel e MartinSousa. Quem entrasse depois — Luiz, Nicollas — ficava de fora
+# de todos eles. O cadastro na planilha ja fazia a pessoa aparecer no placar e
+# nas metas; a tela que precisava saber QUEM esta logado continuava sem saber, e
+# entao ela era tratada como visitante na propria conta: sem formulario de
+# abono, sem os proprios dados no Ponto, sem o proprio desempenho.
+#
+# A planilha ja tem a resposta. MEMBROS_ATIVOS e {username: nome}, e o login e o
+# nome — entao a volta e so inverter o que ja esta la. Contratacao volta a ser
+# cadastro.
+_LOGIN_EXTRA = {"martinsousa": "martinsousa", "renan": "renan"}
+
+
+def username_do_login(login):
+    """O @ do Trello de quem esta logado, ou o login em minusculas.
+
+    Casa sem diferenciar maiusculas e acentos do que o gestor digitou na
+    planilha: "Nicollas" e "nicollas" sao a mesma pessoa.
+    """
+    chave = str(login or "").strip().lower()
+    if not chave:
+        return ""
+    for user, nome in MEMBROS_ATIVOS.items():
+        if str(nome).strip().lower() == chave or user.lower() == chave:
+            return user
+    return _LOGIN_EXTRA.get(chave, chave)
 MASTERS = {"martinsousa", "renan"}
 # Garimpar demanda e trabalho, mas nao e execucao de demanda. O colaborador abre
 # um cartao por dia nesta coluna e alterna EM ANDAMENTO / INTERROMPIDO conforme
