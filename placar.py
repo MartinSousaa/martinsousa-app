@@ -1030,6 +1030,11 @@ def _tv_full_html(
     # mesma que o painel e a Analise mostram. A TV mostrava cinco criterios de
     # seis, e e ela que a equipe olha o dia inteiro.
     tm_eq=None,
+    # Por que falta o que falta. Quando o numero e para abater penalidade, o
+    # mini-card fica vermelho e o rotulo diz — "600 pts" sem dizer que sao de
+    # penalidade manda a equipe produzir achando que e pontuacao normal.
+    faltam_por_pen=False, faltam_maxx_por_pen=False,
+    faltam_travado=False, faltam_maxx_travado=False,
     # Carimbo de quando este HTML foi gerado. O JS da TV compara com o relogio
     # do navegador e mostra a faixa vermelha se os dados envelhecerem — uma TV
     # congelada precisa se anunciar, senao mostra numeros plausiveis e velhos.
@@ -1187,6 +1192,20 @@ def _tv_full_html(
             f'style="width:{min(pct,100):.1f}%;background:{cor};"></div></div>'
             f'<div class="barra-desc">{tm_eq["desc"]}</div></div>')
 
+    def _tv_faltam(por_pen, travado, rot):
+        """(classe, valor, rotulo) do mini-card FALTAM da TV."""
+        if travado:
+            return "red", "—", "teto estourado"
+        if por_pen:
+            return "red", None, "p/ abater penalid."
+        return "amarelo", None, rot
+
+    _cl_f_n, _v_f_n, _sub_f_n = _tv_faltam(faltam_por_pen, faltam_travado, "pts")
+    _cl_f_x, _v_f_x, _sub_f_x = _tv_faltam(faltam_maxx_por_pen,
+                                           faltam_maxx_travado, "p/ bônus")
+    _v_f_n = _v_f_n if _v_f_n is not None else f"{faltam:,.0f}"
+    _v_f_x = _v_f_x if _v_f_x is not None else f"{faltam_maxx:,.0f}"
+
     _tv_barra_tm_n = _tv_barra_tm("#1BAF7A")
     _tv_barra_tm_x = _tv_barra_tm("#FFD700")
     return f"""<!DOCTYPE html>
@@ -1326,7 +1345,7 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
       <div class="mini-cards">
         <div class="mini-card verde"><span class="mc-label verde">Meta</span><span class="mc-val verde">{meta_eq:,.0f}</span><span class="mc-sub verde">pts/mês</span></div>
         <div class="mini-card amarelo"><span class="mc-label amarelo">Atual</span><span class="mc-val amarelo">{saldo_eq:,.0f}</span><span class="mc-sub amarelo">{fp(pct_eq)} da meta</span></div>
-        <div class="mini-card amarelo"><span class="mc-label amarelo">Faltam</span><span class="mc-val amarelo">{faltam:,.0f}</span><span class="mc-sub amarelo">pts</span></div>
+        <div class="mini-card {_cl_f_n}"><span class="mc-label {_cl_f_n}">Faltam</span><span class="mc-val {_cl_f_n}">{_v_f_n}</span><span class="mc-sub {_cl_f_n}">{_sub_f_n}</span></div>
         <div class="mini-card amarelo"><span class="mc-label amarelo">Em Aberto</span><span class="mc-val amarelo">{pts_pendentes:,.0f}</span><span class="mc-sub amarelo">pendentes</span></div>
       </div>
     </div>
@@ -1376,7 +1395,7 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
       <div class="mini-cards">
         <div class="mini-card ouro"><span class="mc-label ouro">Maxx</span><span class="mc-val ouro">{meta_maxx_pts:,.0f}</span><span class="mc-sub ouro">+{maxx_pct-100}% meta</span></div>
         <div class="mini-card amarelo"><span class="mc-label amarelo">Saldo c/ pen.</span><span class="mc-val amarelo">{saldo_eq:,.0f}</span><span class="mc-sub amarelo">{fp(pct_maxx)} Maxx</span></div>
-        <div class="mini-card amarelo"><span class="mc-label amarelo">Faltam</span><span class="mc-val amarelo">{faltam_maxx:,.0f}</span><span class="mc-sub amarelo">p/ bônus</span></div>
+        <div class="mini-card {_cl_f_x}"><span class="mc-label {_cl_f_x}">Faltam</span><span class="mc-val {_cl_f_x}">{_v_f_x}</span><span class="mc-sub {_cl_f_x}">{_sub_f_x}</span></div>
         <div class="mini-card red"><span class="mc-label red">Penalidades</span><span class="mc-val red">-{pen_total:,.0f}</span><span class="mc-sub red">{n_pen} ocorrência(s)</span></div>
       </div>
     </div>
@@ -1935,62 +1954,6 @@ def pagina_placar(usuario_logado, headless=False):
     saldo_eq=d["pts_equipe"]-d["pen_total"]
     pct_eq=(saldo_eq/meta_eq*100) if meta_eq>0 else 0
     pct_maxx=(saldo_eq/meta_maxx_pts*100) if meta_maxx_pts>0 else 0
-    faltam=max(meta_eq-saldo_eq,0)
-    faltam_maxx=max(meta_maxx_pts-saldo_eq,0)
-    cor_pts="#1BAF7A" if pct_eq>=100 else ("#EDA100" if pct_eq>=50 else "#4A90D9")
-    _ritmo = ritmo_do_mes(filtro_mes, meta_eq, saldo_eq)
-
-    # ══ BLOCO 1 — cards meta | vel meta | vel maxx | cards maxx ══
-    col_cm, col_vm, col_vx, col_cx = st.columns([1.8, 2.0, 2.0, 1.8])
-
-    with col_cm:
-        faltam_cor="#EDA100" if faltam>0 else "#1BAF7A"
-        faltam_maxx_cor="#FFD700" if faltam_maxx==0 else "#EDA100"
-        atual_maxx_cor="#FFD700" if pct_maxx>=100 else "#EDA100"
-        st.markdown(f"""<div style="font-size:9px;font-weight:600;color:#1BAF7A;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px;">🏆 Meta Mensal</div>
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;">
-  <div style="background:#0d2e1f;border:1px solid #1BAF7A;border-radius:6px;padding:6px 8px;">
-    <div style="font-size:7px;color:#1BAF7A;text-transform:uppercase;">Meta</div>
-    <div style="font-size:13px;font-weight:700;color:#e0f5ec;">{meta_eq:,}</div>
-    <div style="font-size:7px;color:#1BAF7A;">pts/mês</div>
-  </div>
-  <div style="background:#2a1e05;border:1px solid #EDA100;border-radius:6px;padding:6px 8px;">
-    <div style="font-size:7px;color:#EDA100;text-transform:uppercase;">Atual</div>
-    <div style="font-size:13px;font-weight:700;color:#fae8b0;">{saldo_eq:,.0f}</div>
-    <div style="font-size:7px;color:#EDA100;">{"%.1f" % pct_eq if pct_eq < 10 else "%.0f" % pct_eq}% meta</div>
-  </div>
-  <div style="background:#2a1e05;border:1px solid #EDA100;border-radius:6px;padding:6px 8px;">
-    <div style="font-size:7px;color:#EDA100;text-transform:uppercase;">Faltam</div>
-    <div style="font-size:13px;font-weight:700;color:#fae8b0;">{faltam:,.0f}</div>
-    <div style="font-size:7px;color:#EDA100;">pts</div>
-  </div>
-  <div style="background:#2a1e05;border:1px solid #EDA100;border-radius:6px;padding:6px 8px;">
-    <div style="font-size:7px;color:#EDA100;text-transform:uppercase;">Em Aberto</div>
-    <div style="font-size:13px;font-weight:700;color:#fae8b0;">{d["pts_pendentes"]:,.0f}</div>
-    <div style="font-size:7px;color:#EDA100;">{"%d s/ pontuação" % d["pend_sem_pts"] if d.get("pend_sem_pts") else "pendentes"}</div>
-  </div>
-</div>""", unsafe_allow_html=True)
-        # ── Ritmo de desempenho por dias úteis ──
-        # Mesmo calculo que pinta o velocimetro e a TV: ritmo_do_mes().
-        if _ritmo:
-            _sobra = _ritmo["sobra"]
-            _esp = _ritmo["esperado"]
-            _du = _ritmo["dias_uteis"]
-            if _ritmo["estado"] == "acima":
-                _r_txt = f'Desempenho {_ritmo["pct"]:.0f}% acima do estimado para o período'
-                _r_extra = f"+{_sobra:.0f} pts a mais que o esperado ({_esp:.0f} pts em {_du} dias úteis)"
-            elif _ritmo["estado"] == "abaixo":
-                _r_txt = f'Desempenho {abs(_ritmo["pct"]):.0f}% abaixo do estimado para o período'
-                _r_extra = f"{_sobra:.0f} pts abaixo do esperado ({_esp:.0f} pts em {_du} dias úteis)"
-            else:
-                _r_txt = "Desempenho dentro do ritmo esperado para o período"
-                _r_extra = f"Realizados {saldo_eq:.0f} pts · esperado {_esp:.0f} pts em {_du} dias úteis"
-            _r_cor = _ritmo["cor"]
-            st.markdown(f"""<div style="background:#1a1a1a;border:1px solid {_r_cor}44;border-radius:6px;padding:8px 10px;margin-top:8px;">
-  <div style="font-size:11px;font-weight:700;color:{_r_cor};margin-bottom:3px;">{_ritmo["icone"]} {_r_txt}</div>
-  <div style="font-size:9px;color:#ccc;line-height:1.5;">{_r_extra}<br>Nesse ritmo: projeção de <strong style="color:{_r_cor};">{_ritmo["projecao"]:.0f} pts</strong> ao final do mês</div>
-</div>""", unsafe_allow_html=True)
-
     # Um mes so — e o que esta tela mostra. A conta e a mesma da Analise de
     # Metas, e o texto tambem: duas telas montando a propria frase a partir dos
     # mesmos numeros e como elas passam a discordar.
@@ -2030,6 +1993,93 @@ def pagina_placar(usuario_logado, headless=False):
     _pts_salvar_col = _salvar(_sit_pen["max_n"], _sit_pen["pts_destrava_col"])
     _pts_salvar_maxx = _salvar(_sit_pen["max_x"], _sit_pen["pts_destrava_maxx"])
 
+    # FALTAM = o que realmente falta para BATER, nao so a diferenca de pontos.
+    #
+    # Com a pontuacao feita e o teto de penalidades estourado, o card dizia
+    # "FALTAM 0" e a meta estava perdida. O numero estava certo para a pergunta
+    # errada: ninguem olha esse card para saber a diferenca aritmetica, olha
+    # para saber quanto ainda tem que produzir. Se sao precisos 600 pontos para
+    # abater uma penalidade e recuperar a meta, faltam 600.
+    _falta_pen_col = _sit_pen["pts_destrava_col"]
+    _falta_pen_mx = _sit_pen["pts_destrava_maxx"]
+    faltam = max(meta_eq - saldo_eq, 0, _falta_pen_col or 0)
+    faltam_maxx = max(meta_maxx_pts - saldo_eq, 0, _falta_pen_mx or 0)
+    # Por que falta: muda o rotulo e destaca o card. "600 pts" sem dizer que sao
+    # de penalidade manda a equipe produzir achando que e pontuacao normal.
+    _por_pen_col = bool(_falta_pen_col) and _falta_pen_col >= max(meta_eq - saldo_eq, 0)
+    _por_pen_mx = bool(_falta_pen_mx) and _falta_pen_mx >= max(meta_maxx_pts - saldo_eq, 0)
+    # Teto estourado sem abatimento configurado: nao ha pontuacao que salve.
+    _travado_col = _falta_pen_col is None and not _sit_pen["pen_col_ok"]
+    _travado_mx = _falta_pen_mx is None and not _sit_pen["pen_maxx_ok"]
+    cor_pts="#1BAF7A" if pct_eq>=100 else ("#EDA100" if pct_eq>=50 else "#4A90D9")
+    _ritmo = ritmo_do_mes(filtro_mes, meta_eq, saldo_eq)
+
+    # ══ BLOCO 1 — cards meta | vel meta | vel maxx | cards maxx ══
+    col_cm, col_vm, col_vx, col_cx = st.columns([1.8, 2.0, 2.0, 1.8])
+
+    with col_cm:
+        # O card FALTAM em vermelho quando o que falta e para abater penalidade:
+        # e outra natureza de esforco, e a cor tem que dizer isso antes do texto.
+        def _card_faltam(por_pen, travado, rot_normal):
+            if travado:
+                return ("#2a1500", "#E34948", "#ffd6d4",
+                        "teto estourado · sem abatimento")
+            if por_pen:
+                return ("#2a1500", "#E34948", "#ffd6d4",
+                        "p/ abater penalidade")
+            return ("#2a1e05", "#EDA100", "#fae8b0", rot_normal)
+        _bg_f_col, _bd_f_col, _tx_f_col, _sub_f_col = _card_faltam(
+            _por_pen_col, _travado_col, "pts")
+        _bg_f_mx, _bd_f_mx, _tx_f_mx, _sub_f_mx = _card_faltam(
+            _por_pen_mx, _travado_mx, "p/ bônus")
+        faltam_cor="#EDA100" if faltam>0 else "#1BAF7A"
+        faltam_maxx_cor="#FFD700" if faltam_maxx==0 else "#EDA100"
+        atual_maxx_cor="#FFD700" if pct_maxx>=100 else "#EDA100"
+        st.markdown(f"""<div style="font-size:9px;font-weight:600;color:#1BAF7A;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px;">🏆 Meta Mensal</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;">
+  <div style="background:#0d2e1f;border:1px solid #1BAF7A;border-radius:6px;padding:6px 8px;">
+    <div style="font-size:7px;color:#1BAF7A;text-transform:uppercase;">Meta</div>
+    <div style="font-size:13px;font-weight:700;color:#e0f5ec;">{meta_eq:,}</div>
+    <div style="font-size:7px;color:#1BAF7A;">pts/mês</div>
+  </div>
+  <div style="background:#2a1e05;border:1px solid #EDA100;border-radius:6px;padding:6px 8px;">
+    <div style="font-size:7px;color:#EDA100;text-transform:uppercase;">Atual</div>
+    <div style="font-size:13px;font-weight:700;color:#fae8b0;">{saldo_eq:,.0f}</div>
+    <div style="font-size:7px;color:#EDA100;">{"%.1f" % pct_eq if pct_eq < 10 else "%.0f" % pct_eq}% meta</div>
+  </div>
+  <div style="background:{_bg_f_col};border:1px solid {_bd_f_col};border-radius:6px;padding:6px 8px;">
+    <div style="font-size:7px;color:{_bd_f_col};text-transform:uppercase;">Faltam</div>
+    <div style="font-size:13px;font-weight:700;color:{_tx_f_col};">{"—" if _travado_col else f"{faltam:,.0f}"}</div>
+    <div style="font-size:7px;color:{_bd_f_col};">{_sub_f_col}</div>
+  </div>
+  <div style="background:#2a1e05;border:1px solid #EDA100;border-radius:6px;padding:6px 8px;">
+    <div style="font-size:7px;color:#EDA100;text-transform:uppercase;">Em Aberto</div>
+    <div style="font-size:13px;font-weight:700;color:#fae8b0;">{d["pts_pendentes"]:,.0f}</div>
+    <div style="font-size:7px;color:#EDA100;">{"%d s/ pontuação" % d["pend_sem_pts"] if d.get("pend_sem_pts") else "pendentes"}</div>
+  </div>
+</div>""", unsafe_allow_html=True)
+        # ── Ritmo de desempenho por dias úteis ──
+        # Mesmo calculo que pinta o velocimetro e a TV: ritmo_do_mes().
+        if _ritmo:
+            _sobra = _ritmo["sobra"]
+            _esp = _ritmo["esperado"]
+            _du = _ritmo["dias_uteis"]
+            if _ritmo["estado"] == "acima":
+                _r_txt = f'Desempenho {_ritmo["pct"]:.0f}% acima do estimado para o período'
+                _r_extra = f"+{_sobra:.0f} pts a mais que o esperado ({_esp:.0f} pts em {_du} dias úteis)"
+            elif _ritmo["estado"] == "abaixo":
+                _r_txt = f'Desempenho {abs(_ritmo["pct"]):.0f}% abaixo do estimado para o período'
+                _r_extra = f"{_sobra:.0f} pts abaixo do esperado ({_esp:.0f} pts em {_du} dias úteis)"
+            else:
+                _r_txt = "Desempenho dentro do ritmo esperado para o período"
+                _r_extra = f"Realizados {saldo_eq:.0f} pts · esperado {_esp:.0f} pts em {_du} dias úteis"
+            _r_cor = _ritmo["cor"]
+            st.markdown(f"""<div style="background:#1a1a1a;border:1px solid {_r_cor}44;border-radius:6px;padding:8px 10px;margin-top:8px;">
+  <div style="font-size:11px;font-weight:700;color:{_r_cor};margin-bottom:3px;">{_ritmo["icone"]} {_r_txt}</div>
+  <div style="font-size:9px;color:#ccc;line-height:1.5;">{_r_extra}<br>Nesse ritmo: projeção de <strong style="color:{_r_cor};">{_ritmo["projecao"]:.0f} pts</strong> ao final do mês</div>
+</div>""", unsafe_allow_html=True)
+
+
     with col_vm:
         st.markdown(_vel_meta(pct_eq, meta_eq, saldo_eq, faltam,
                               cor=(_ritmo or {}).get("cor"),
@@ -2056,10 +2106,10 @@ def pagina_placar(usuario_logado, headless=False):
     <div style="font-size:13px;font-weight:700;color:#fae8b0;">{saldo_eq:,.0f}</div>
     <div style="font-size:7px;color:#EDA100;">{"%.1f" % pct_maxx if pct_maxx < 10 else "%.0f" % pct_maxx}% Maxx</div>
   </div>
-  <div style="background:#2a1e05;border:1px solid #EDA100;border-radius:6px;padding:6px 8px;">
-    <div style="font-size:7px;color:#EDA100;text-transform:uppercase;">Faltam</div>
-    <div style="font-size:13px;font-weight:700;color:#fae8b0;">{faltam_maxx:,.0f}</div>
-    <div style="font-size:7px;color:#EDA100;">p/ bônus</div>
+  <div style="background:{_bg_f_mx};border:1px solid {_bd_f_mx};border-radius:6px;padding:6px 8px;">
+    <div style="font-size:7px;color:{_bd_f_mx};text-transform:uppercase;">Faltam</div>
+    <div style="font-size:13px;font-weight:700;color:{_tx_f_mx};">{"—" if _travado_mx else f"{faltam_maxx:,.0f}"}</div>
+    <div style="font-size:7px;color:{_bd_f_mx};">{_sub_f_mx}</div>
   </div>
   <div style="background:#2a1500;border:1px solid {cor_pen_maxx_card};border-radius:6px;padding:6px 8px;">
     <div style="font-size:7px;color:{cor_pen_maxx_card};text-transform:uppercase;">Penalidades</div>
@@ -2223,6 +2273,8 @@ def pagina_placar(usuario_logado, headless=False):
         sem_membro_lista=d.get("sem_membro_lista", []),
         sem_membro_desc=_sem_mb_desc_meta,
         tm_eq=_tm_eq,
+        faltam_por_pen=_por_pen_col, faltam_maxx_por_pen=_por_pen_mx,
+        faltam_travado=_travado_col, faltam_maxx_travado=_travado_mx,
     )
     if _write_tv_static(_html_tv) and headless:
         TV_STATUS["motivo"] = ""   # chegou ate aqui e gravou: a volta valeu
