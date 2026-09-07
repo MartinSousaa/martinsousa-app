@@ -1949,6 +1949,13 @@ def _card_atrasado(card, nome_lista, tempos=None, entradas=None):
     """
     if aguardando_terceiro(card, nome_lista, entradas):
         return False
+    # Interrompido nao atrasa. O relogio de execucao ja parava com a etiqueta,
+    # mas o prazo de entrega continuava correndo: um cartao parado ha dois
+    # meses esperando resposta de terceiro aparecia como atraso da equipe, por
+    # um tempo que nao era dela. E a mesma logica do `aguardando_terceiro`
+    # acima — trabalho parado por algo fora da mao de quem executa.
+    if _labels(card) & LABELS_INTERRUPCAO:
+        return False
     entrega = _data_entrega(card)
     if entrega and datetime.now(timezone.utc) > entrega:
         return True

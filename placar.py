@@ -364,6 +364,14 @@ def _calcular_fila(listas,cards,membros_map):
         lb=_labels(card)
         if "EM ANDAMENTO" in lb: continue
         import placar_core as _pc_fila
+        # INTERROMPIDO nao e "proxima demanda". O cartao esta parado por algo
+        # fora da mao da equipe — no caso que apareceu, esperando o vendedor
+        # dizer se o album e de 200 ou de 800 fotos —, e mesmo assim ocupava
+        # posicao na fila, ganhava previsao de termino e empurrava a previsao
+        # de todos os outros para depois. O tempo de EXECUCAO ja parava direito
+        # (`_trabalhando()` exige etiqueta de trabalho e nenhuma de
+        # interrupcao); a fila e que nunca soube da regra.
+        if _parado(lb): continue
         # Espera de terceiro (ex.: 36h de retorno da plataforma) nao ocupa a
         # fila: o cartao aparece quando o prazo esta vencendo.
         if _pc_fila.aguardando_terceiro(card, nl, _entradas_tv): continue
