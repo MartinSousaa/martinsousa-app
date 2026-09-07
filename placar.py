@@ -1994,6 +1994,7 @@ def pagina_placar(usuario_logado, headless=False):
     # Um mes so — e o que esta tela mostra. A conta e a mesma da Analise de
     # Metas, e o texto tambem: duas telas montando a propria frase a partir dos
     # mesmos numeros e como elas passam a discordar.
+    import placar_core as _pc_membro
     _tm_eq = _pc_membro.tempo_medio_equipe([d], cfg_mes)
     # O teto de penalidades passa a valer, e o abatimento por pontuacao
     # destrava. Ate aqui a contagem aparecia como criterio e nao decidia nada:
@@ -2104,7 +2105,6 @@ def pagina_placar(usuario_logado, headless=False):
     # regra do mês agora é uma só, em placar_core, e vale igual aqui e na
     # Análise de Metas — as duas telas mostravam números diferentes para a
     # mesma barra.
-    import placar_core as _pc_membro
     pct_com_membro, _sem_mb_cards, _total_novo, _sem_mb_desc_meta = \
         _pc_membro.pct_com_membro(d, filtro_mes)
     _sem_mb_novo = len(_sem_mb_cards)
