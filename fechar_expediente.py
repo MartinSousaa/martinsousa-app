@@ -147,14 +147,40 @@ def _cartoes_em_andamento():
 
 
 def _id_da_etiqueta():
-    """Id da etiqueta FIM DE EXPEDIENTE no board, ou None se ela não existir."""
+    """(id_da_etiqueta, motivo_da_falha). O motivo é "" quando achou.
+
+    Antes isto devolvia só None, e o log dizia sempre a mesma frase: "o board
+    não tem a etiqueta FIM DE EXPEDIENTE, crie-a no Trello". So que
+    `mapa_labels` engole toda falha e devolve mapa vazio — sem credencial, com
+    o Trello fora do ar, com timeout. Nos três casos a mensagem mandava criar
+    no Trello uma etiqueta que já está lá.
+
+    Um diagnóstico errado custa mais que nenhum: ele manda consertar o que não
+    está quebrado. As três causas agora se separam.
+    """
     import placar_core as _pc
+    if not _pc.TRELLO_KEY:
+        return None, ("sem credencial do Trello neste serviço — o bloco "
+                      "[trello] não chegou pelo STREAMLIT_SECRETS. Nada foi "
+                      "consultado, então não dá para dizer nada do board.")
+
     mapa = _pc.mapa_labels(forcar=True)
     alvos = {_pc.LABEL_FIM_EXPEDIENTE, "FIM DO EXPEDIENTE"}
     for lid, nome in mapa.items():
         if (nome or "").upper().strip() in alvos:
-            return lid
-    return None
+            return lid, ""
+
+    if not mapa:
+        return None, ("o Trello não respondeu a lista de etiquetas do board "
+                      "(fora do ar, timeout ou token sem acesso). Sem resposta "
+                      "não dá para saber se a etiqueta existe — e ela "
+                      "provavelmente existe.")
+
+    nomes = sorted(n for n in mapa.values() if n)
+    return None, (f"o board respondeu com {len(mapa)} etiqueta(s) e nenhuma se "
+                  f"chama '{_pc.LABEL_FIM_EXPEDIENTE}'. As que existem: "
+                  + ", ".join(nomes[:15])
+                  + (" …" if len(nomes) > 15 else ""))
 
 
 def _aplicar(card_id, label_id):
@@ -194,10 +220,25 @@ def main(simular=False, agora=None):
     agora = agora or datetime.now(_pc.FUSO)
     hoje = agora.date()
 
-    label_id = _id_da_etiqueta()
+    # Dia sem expediente: nada a fechar, e nada a consultar.
+    #
+    # Num feriado ou fim de semana ninguem bate ponto, entao a RHiD devolve
+    # lista vazia e a rotina abortava com codigo 1 — a cada quinze minutos, o
+    # dia inteiro, pintando o servico de vermelho no Railway por estar
+    # funcionando exatamente como devia. Sair antes evita a consulta e, mais
+    # importante, evita chamar de falha o que e o dia normal.
+    #
+    # O cartao esquecido aberto num feriado tambem nao corre: as janelas de
+    # expediente ja nao contam esse dia. Nao ha relogio para parar.
+    if not _pc.eh_dia_util(hoje):
+        _nome_fer = _pc.nome_do_feriado(hoje)
+        _por_que = _nome_fer or ("sábado" if hoje.weekday() == 5 else "domingo")
+        _log(f"Nada a fazer: {hoje:%d/%m} é {_por_que}, sem expediente.")
+        return 0
+
+    label_id, _erro_lb = _id_da_etiqueta()
     if not label_id:
-        _log(f"ABORTADO: o board não tem a etiqueta "
-             f"'{_pc.LABEL_FIM_EXPEDIENTE}'. Crie-a no Trello.")
+        _log(f"ABORTADO: {_erro_lb}")
         return 1
 
     saidas = _saidas_de_hoje(hoje)
