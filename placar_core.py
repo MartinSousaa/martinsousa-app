@@ -1949,6 +1949,13 @@ def _card_atrasado(card, nome_lista, tempos=None, entradas=None):
     """
     if aguardando_terceiro(card, nome_lista, entradas):
         return False
+    # Interrompido nao atrasa. O relogio de execucao ja parava com a etiqueta,
+    # mas o prazo de entrega continuava correndo: um cartao parado ha dois
+    # meses esperando resposta de terceiro aparecia como atraso da equipe, por
+    # um tempo que nao era dela. E a mesma logica do `aguardando_terceiro`
+    # acima — trabalho parado por algo fora da mao de quem executa.
+    if _labels(card) & LABELS_INTERRUPCAO:
+        return False
     entrega = _data_entrega(card)
     if entrega and datetime.now(timezone.utc) > entrega:
         return True
@@ -2066,6 +2073,136 @@ def _mes_card(card, conclusoes=None, inicio_janela=None):
     if inicio_janela and dt >= inicio_janela:
         return None
     return (dt.year, dt.month)
+
+def situacao_metas(saldo, meta_eq, meta_maxx, pen_qtd, cfg):
+    """Bateu a meta coletiva? E a MAXX? Com o abatimento de penalidade junto.
+
+    O TETO DE PENALIDADES PASSA A VALER. Ele aparecia como um dos seis
+    critérios do painel desde sempre, e nenhuma linha o lia: quem decidia era
+    só a pontuação (`saldo >= meta`). A penalidade machucava pelos pontos que
+    tirava, nunca pela contagem — então o card dizia "3 de 5 permitidas" e
+    estourar para 6 não mudava nada.
+
+    O ABATIMENTO é o caminho de volta. Estourar o teto tirava a meta do mês e
+    não sobrava pelo que se esforçar: o colaborador batia a dele e tirava o pé,
+    porque a coletiva já era perdida de qualquer jeito. Agora cada bloco de
+    `pts_por_penalidade` pontos ALÉM da meta apaga uma ocorrência.
+
+    De onde os pontos extras começam a contar depende de qual meta ainda está
+    de pé — é o patamar da meta mais baixa que as penalidades NÃO derrubaram:
+
+      dentro do teto da coletiva   a coletiva está salva, só a MAXX corre
+                                   risco: conta a partir da MAXX (12.000).
+      acima do teto da coletiva    as duas caíram: conta a partir da coletiva
+                                   (10.000), e a escada recupera primeiro a
+                                   coletiva, depois a MAXX.
+
+    A contagem que escolhe o patamar é a BRUTA, antes de abater — senão a
+    regra se morderia: abater mudaria o patamar, que mudaria quanto se abate.
+
+    Bater exige as DUAS coisas, pontuação e contagem. Só a escada não entrega a
+    meta: sem isso, num mês de penalidade alta a MAXX sairia mais barata para
+    quem foi penalizado do que para quem não foi.
+
+    Devolve tudo o que as telas precisam mostrar, para que as três contem a
+    mesma história.
+    """
+    cfg = cfg or {}
+
+    def _int(chave, padrao):
+        try:
+            return int(float(cfg.get(chave, padrao) or 0))
+        except (TypeError, ValueError):
+            return padrao
+
+    max_n = _int("max_pen_normal", 4)
+    max_x = _int("max_pen_maxx", 1)
+    por_pen = max(0, _int("pts_por_penalidade", 0))
+    pen_qtd = max(0, int(pen_qtd or 0))
+    saldo = float(saldo or 0)
+
+    coletiva_caiu = pen_qtd > max_n
+    base = meta_eq if coletiva_caiu else meta_maxx
+    sobra = max(0.0, saldo - float(base or 0))
+
+    # O abatimento so existe quando ALGUM teto foi estourado.
+    #
+    # Sem isso ele apareceria sempre: um mes com 2 penalidades e pontuacao
+    # sobrando mostraria "2 abatida(s) por pontuacao" sem que nada estivesse
+    # em risco — ruido num painel que so deve falar de abatimento quando ha
+    # meta para salvar. `precisa` e o maximo que faz sentido apagar: o que
+    # sobra do teto mais apertado dos dois.
+    precisa = max(0, pen_qtd - min(max_n, max_x))
+    abatidas = (min(precisa, int(sobra // por_pen))
+                if (por_pen > 0 and precisa > 0) else 0)
+    pen_efetiva = max(0, pen_qtd - abatidas)
+    # Nenhum teto em risco: o painel nao fala de abatimento.
+    em_risco = precisa > 0
+
+    # Quanto falta para a PRÓXIMA ocorrência cair. Sem este número o card diz
+    # "faltam 2 penalidades" e não diz quanto isso custa em pontos, que é a
+    # única coisa que a equipe pode fazer a respeito.
+    if em_risco and por_pen > 0 and abatidas < precisa:
+        falta_prox = max(0.0, float(base or 0)
+                         + (abatidas + 1) * por_pen - saldo)
+    else:
+        falta_prox = 0.0
+
+    # Pontos que ainda faltam para destravar cada meta pela contagem.
+    def _pts_para(teto):
+        if pen_qtd <= teto:
+            return 0.0                      # nunca esteve bloqueada
+        if por_pen <= 0:
+            return None                     # sem abatimento configurado
+        precisa = pen_qtd - teto            # ocorrências a apagar
+        return max(0.0, float(base or 0) + precisa * por_pen - saldo)
+
+    return {
+        "em_risco": em_risco, "precisa": precisa,
+        "pen_qtd": pen_qtd, "pen_efetiva": pen_efetiva, "abatidas": abatidas,
+        "max_n": max_n, "max_x": max_x, "por_pen": por_pen,
+        "base": float(base or 0), "coletiva_caiu": coletiva_caiu,
+        "sobra": sobra, "falta_prox": falta_prox,
+        "pts_destrava_col": _pts_para(max_n),
+        "pts_destrava_maxx": _pts_para(max_x),
+        # Os dois vereditos, cada um com o porquê separado.
+        "pts_col_ok": saldo >= float(meta_eq or 0),
+        "pts_maxx_ok": saldo >= float(meta_maxx or 0),
+        "pen_col_ok": pen_efetiva <= max_n,
+        "pen_maxx_ok": pen_efetiva <= max_x,
+        "bateu_col": saldo >= float(meta_eq or 0) and pen_efetiva <= max_n,
+        "bateu_maxx": saldo >= float(meta_maxx or 0) and pen_efetiva <= max_x,
+    }
+
+
+def _pts_br(v):
+    """1500 -> "1.500". Ponto como separador de milhar, como se escreve aqui."""
+    return f"{float(v or 0):,.0f}".replace(",", ".")
+
+
+def texto_penalidades(sit, maxx=False):
+    """A descrição da barra de penalidades, contando o abatimento.
+
+    Dentro do teto, a frase é a de sempre — abatimento não aparece onde não há
+    meta em risco.
+    """
+    teto = sit["max_x"] if maxx else sit["max_n"]
+    qtd, efet = sit["pen_qtd"], sit["pen_efetiva"]
+    base = f"{qtd} ocorrência(s) / máx {teto}"
+    if not sit["em_risco"] or qtd <= teto:
+        return base
+    if sit["abatidas"]:
+        base += (f" · {sit['abatidas']} abatida(s) por pontuação — "
+                 f"valem {efet}")
+    if efet <= teto:
+        if sit["por_pen"] > 0 and qtd > teto:
+            return base + " · dentro do teto"
+        return base
+    faltam = sit["pts_destrava_maxx"] if maxx else sit["pts_destrava_col"]
+    if faltam is None:
+        return base + " · teto estourado (sem abatimento configurado)"
+    return base + f" · faltam {_pts_br(faltam)} pts para voltar ao teto"
+
 
 def _hm(minutos):
     """Minutos como 15h24 — a unidade em que a equipe pensa o mes."""
