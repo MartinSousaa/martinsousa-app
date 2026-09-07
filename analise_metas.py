@@ -6740,7 +6740,7 @@ def pagina_analise_metas(usuario_logado):
         # era tempo — o corpo das duas era montado a cada clique.
         _mb_opcoes_des = list(_pc.MEMBROS_ATIVOS.keys())
         _mb_nomes_des  = [_pc.MEMBROS_ATIVOS[u] for u in _mb_opcoes_des]
-        _c_vis, _c_col, _c_go = st.columns([1.2, 1.4, .9])
+        _c_vis, _c_col = st.columns([1.2, 1.4])
         _vis = _c_vis.radio(
             "O que você quer ver", ["👥 Análise coletiva", "🎯 Análise individual"],
             horizontal=True, key="des_visao")
@@ -6750,7 +6750,7 @@ def pagina_analise_metas(usuario_logado):
             # O seletor mora na mesma linha da visão: escolher a pessoa é
             # parte de escolher o que ver, não um passo depois. Ele aparece
             # mesmo na visão coletiva, e desabilitado, para a linha não mudar
-            # de forma a cada troca — campo que some leva o botão de lugar.
+            # de forma a cada troca — campo que some faz a linha pular.
             _mb_nome_des = _c_col.selectbox(
                 "👤 Colaborador", _mb_nomes_des, key="des_ind_sel",
                 disabled=not _vis.endswith("individual"))
@@ -6761,17 +6761,12 @@ def pagina_analise_metas(usuario_logado):
             if _vis.endswith("individual"):
                 _c_col.caption(f"Exibindo seus dados: **{_mb_nome_des}**")
 
-        # Trocar de colaborador remonta a seção inteira. Aqui o botão vale
-        # ainda mais: dá para escolher a visão E a pessoa antes de qualquer
-        # recarga, em vez de pagar uma por campo.
-        _filtros.espaco(_c_go)
-        _sel_des, _pend_des = _filtros.pesquisar(
-            "des_visao_filtro", {"vis": _vis, "u": _mb_u_des,
-                                 "nome": _mb_nome_des},
-            coluna=_c_go)
-        _filtros.aviso_pendente(_pend_des)
-        _individual = _sel_des["vis"].endswith("individual")
-        _mb_u_des, _mb_nome_des = _sel_des["u"], _sel_des["nome"]
+        # Sem botao de pesquisar aqui. Escolher entre a visao coletiva e a
+        # individual e um clique so, e o colaborador so tem duas opcoes: pedir
+        # um segundo clique para confirmar a primeira e transformar um passo em
+        # dois. O botao existe onde a recarga e cara e a escolha tem varios
+        # campos — o mes, logo abaixo —, nao onde ela e um radio.
+        _individual = _vis.endswith("individual")
 
         st.markdown("---")
         if not _individual:
