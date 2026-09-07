@@ -482,6 +482,7 @@ def _secao_metas_card(dados):
         _desc_pri = (f"{atrasados_pri} prioritário(s) atrasado(s)"
                      + (f": {_nomes}" if _nomes else ""))
     pct_com_membro   = r.get("pct_com_membro", 100.0)
+    _sit_pen_p = _pc.situacao_metas(saldo, meta_eq, meta_maxx, pen_qtd, cfg)
     _desc_cmb = r.get("desc_com_membro") or "Em andamento e concluídos no período"
 
     # Penalidades: acumulam de 0% a 100% (vermelho)
@@ -512,7 +513,8 @@ def _secao_metas_card(dados):
         _cor_rtn_a = "#1BAF7A" if pct_retrab_n >= 100 else "#E34948"
         b += _barra_painel(f"Retrabalho abaixo de {max_retrab_n}%", pct_retrab_n, desc_retrab, _cor_rtn_a)
         b += _barra_painel(f"Menos de {max_pen_n+1} penalidades", pct_pen_n,
-                            f"{pen_qtd} ocorrência(s) / máx {max_pen_n}", "#E34948")
+                            _pc.texto_penalidades(_sit_pen_p),
+                            "#1BAF7A" if _sit_pen_p["pen_col_ok"] else "#E34948")
         _cor_cmb_a = "#1BAF7A" if pct_com_membro >= 100 else "#E34948"
         b += _barra_painel("Cartões com membro atribuído", pct_com_membro,
                             _desc_cmb, _cor_cmb_a)
@@ -529,7 +531,8 @@ def _secao_metas_card(dados):
         _cor_rtx_a = "#FFD700" if pct_retrab_x >= 100 else "#E34948"
         b += _barra_painel(f"Retrabalho abaixo de {max_retrab_x}%", pct_retrab_x, desc_retrab_x, _cor_rtx_a)
         b += _barra_painel(f"Menos de {max_pen_x+1} penalidades", pct_pen_x,
-                            f"{pen_qtd} ocorrência(s) / máx {max_pen_x}", "#E34948")
+                            _pc.texto_penalidades(_sit_pen_p, maxx=True),
+                            "#FFD700" if _sit_pen_p["pen_maxx_ok"] else "#E34948")
         _cor_cmbx_a = "#FFD700" if pct_com_membro >= 100 else "#E34948"
         b += _barra_painel("Cartões com membro atribuído", pct_com_membro,
                             _desc_cmb, _cor_cmbx_a)
@@ -1272,6 +1275,9 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
     # Em pontos, e nao so em percentual: a calculadora precisa dizer QUANTO
     # falta, e "faltam 8%" nao e uma quantidade de trabalho.
     _saldo_eq  = r_atual.get("saldo", 0.0)
+    # Penalidades da EQUIPE no mes de referencia. O teto delas passou a
+    # bloquear a meta do time, entao a calculadora precisa da contagem.
+    _pen_qtd_eq = int(r_atual.get("pen_qtd", 0) or 0)
     _meta_eq   = r_atual.get("meta_eq", 0.0)
     _meta_maxx = r_atual.get("meta_maxx", 0.0)
     cfg      = r_atual["cfg"]
@@ -1687,14 +1693,35 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
             _entra_col = _el.get("entra_col", False)
             _entra_maxx = _el.get("entra_maxx", False)
 
-            meta_col_batida  = pct_eq   >= 100 and _entra_col
-            meta_maxx_batida = pct_maxx >= 100 and _entra_maxx
+            # O teto de penalidades da EQUIPE passa a valer, com o
+            # abatimento por pontuacao junto. Ate aqui so a pontuacao decidia,
+            # e a contagem era enfeite no painel.
+            _sit_pen = _pc.situacao_metas(_saldo_eq, _meta_eq, _meta_maxx,
+                                          _pen_qtd_eq, cfg)
+            meta_col_batida  = _sit_pen["bateu_col"] and _entra_col
+            meta_maxx_batida = _sit_pen["bateu_maxx"] and _entra_maxx
             meta_ind_batida      = meta_ind > 0 and pts >= meta_ind
             meta_ind_maxx_batida = meta_ind_maxx > 0 and pts >= meta_ind_maxx
 
             # Quando o time fecha e a pessoa fica de fora, dizer por que. Um
             # bonus que some sem explicacao vira conversa no corredor.
             _bloqueios = []
+            # Penalidade da equipe estourando o teto: o motivo e do time todo,
+            # e vem com o preco em pontos para desfazer.
+            if _sit_pen["pts_col_ok"] and not _sit_pen["pen_col_ok"]:
+                _p = _sit_pen["pts_destrava_col"]
+                _bloqueios.append(
+                    f"a equipe tem {_sit_pen['pen_efetiva']} penalidade(s) "
+                    f"valendo — o máximo da coletiva é {_sit_pen['max_n']}"
+                    + (f"; faltam {_n_br(_p)} pts para abater as que sobram"
+                       if _p else ""))
+            elif _sit_pen["pts_maxx_ok"] and not _sit_pen["pen_maxx_ok"]:
+                _p = _sit_pen["pts_destrava_maxx"]
+                _bloqueios.append(
+                    f"a equipe tem {_sit_pen['pen_efetiva']} penalidade(s) "
+                    f"valendo — o máximo da MAXX é {_sit_pen['max_x']}"
+                    + (f"; faltam {_n_br(_p)} pts para abater as que sobram"
+                       if _p else ""))
             if pct_eq >= 100 and not _entra_col:
                 if _pct_ind_real < _min_contrib_n:
                     _bloqueios.append(
@@ -5702,7 +5729,7 @@ def _secao_colunas(dados):
                     st.rerun() if _ok else st.error(_msg)
 
 
-def _secao_configuracao(dados=None):
+def _secao_configuracao(dados=None, carregar_periodo=None):
     st.markdown("#### ⚙️ Configurar Metas por Mês")
     st.caption("Configure as metas de qualquer mês, inclusive meses futuros. As configurações são salvas automaticamente no banco de dados.")
 
@@ -6065,6 +6092,88 @@ def _secao_configuracao(dados=None):
             "ponderados pelo volume de cartões concluídos — digite outra para "
             "usar a sua, ou deixe 0 para manter a calculada."
         )
+        # O NUMERO DE PARTIDA, em cima e sozinho.
+        #
+        # Ele existia, mas no fim de uma linha de rodape — depois da
+        # referencia, do alvo e da reducao. Quem chega aqui para definir a meta
+        # precisa PRIMEIRO saber onde a equipe esta hoje, e procurava esse
+        # numero sem achar. Informacao no lugar errado e informacao que nao
+        # existe.
+        # A media com que o mes ANTERIOR fechou. E dela que se parte para dizer
+        # quanto cai neste — "hoje" ainda esta correndo e no dia 3 nao quer
+        # dizer nada; o mes fechado e o numero firme.
+        _real_ant, _rot_ant = None, ""
+        if carregar_periodo:
+            _a_ant, _m_ant = (ano_cfg, mes_cfg_num - 1) if mes_cfg_num > 1 \
+                else (ano_cfg - 1, 12)
+            try:
+                _dados_ant = carregar_periodo([(_a_ant, _m_ant)])
+                _real_ant = _media_execucao_geral(_dados_ant or [])
+                _rot_ant = _label_mes(_a_ant, _m_ant)
+            except Exception:
+                _real_ant = None
+
+        if _real_ant is not None:
+            _delta_ant = ""
+            if _real_eq is not None:
+                _d = _real_eq - _real_ant
+                _delta_ant = (
+                    f'<div style="font-size:10px;color:'
+                    + ("#E34948" if _d > 0 else "#1BAF7A") + ';">'
+                    + (f"▲ {_fmt_hm(_d)} acima" if _d > 0
+                       else (f"▼ {_fmt_hm(-_d)} abaixo" if _d < 0
+                             else "no mesmo patamar"))
+                    + " no período atual</div>")
+            st.markdown(
+                f'<div style="background:var(--ms-metric-bg);border:1px solid '
+                f'var(--ms-metric-bd);border-left:3px solid #8B5CF6;'
+                f'border-radius:0 8px 8px 0;padding:9px 14px;'
+                f'margin-bottom:10px;display:inline-block;min-width:280px;">'
+                f'<div style="font-size:9px;color:var(--ms-texto-sec);'
+                f'text-transform:uppercase;letter-spacing:.5px;">'
+                f'📌 Como {_esc(_rot_ant)} fechou — sua base de comparação</div>'
+                f'<div style="font-size:26px;font-weight:700;color:#8B5CF6;'
+                f'line-height:1.2;">{_fmt_hm(_real_ant)}</div>'
+                f'<div style="font-size:10px;color:var(--ms-texto-sec);">'
+                f'média por demanda no mês fechado</div>{_delta_ant}</div>',
+                unsafe_allow_html=True)
+        elif carregar_periodo:
+            st.caption("📌 Sem tempo medido no mês anterior — não há base "
+                       "fechada para comparar.")
+
+        if _real_eq is not None:
+            _c_hoje, _c_est = st.columns([1, 2])
+            _c_hoje.markdown(
+                f'<div style="background:var(--ms-metric-bg);border:1px solid '
+                f'#4A90D9;border-radius:8px;padding:9px 14px;">'
+                f'<div style="font-size:9px;color:var(--ms-texto-sec);'
+                f'text-transform:uppercase;letter-spacing:.5px;">'
+                f'⏱️ Tempo médio da equipe HOJE</div>'
+                f'<div style="font-size:24px;font-weight:700;color:#4A90D9;'
+                f'line-height:1.2;">{_fmt_hm(_real_eq)}</div>'
+                f'<div style="font-size:10px;color:var(--ms-texto-sec);">'
+                f'por demanda · medido no período analisado</div></div>',
+                unsafe_allow_html=True)
+            if _ref_eq:
+                _c_est.caption(
+                    f"É deste número que se parte para definir o alvo. O "
+                    f"estimado por coluna, para comparar, é "
+                    f"**{_fmt_hm(_ref_eq)}** ({_n_eq} cartões) — a equipe está "
+                    + (f"**{_fmt_hm(_real_eq - _ref_eq)} acima** dele."
+                       if _real_eq > _ref_eq else
+                       f"**{_fmt_hm(_ref_eq - _real_eq)} abaixo** dele.")
+                    + " Um alvo abaixo do tempo de hoje é o que cobra redução.")
+            else:
+                _c_est.caption(
+                    "É deste número que se parte para definir o alvo. Um alvo "
+                    "abaixo dele é o que cobra redução da equipe.")
+        else:
+            st.info(
+                "⏱️ **Sem tempo médio medido no período** — nenhum cartão "
+                "concluído com tempo registrado. Sem essa base, o alvo do mês "
+                "seria um chute; escolha um período com cartões concluídos no "
+                "filtro acima."
+            )
         # A referencia da equipe agora e um campo, como a de cada pessoa. Ela era
         # so calculada — os tempos estimados por coluna ponderados pelo volume —
         # e nao havia onde digitar o tempo medio geral do mes nem corrigi-lo.
@@ -6113,6 +6222,23 @@ def _secao_configuracao(dados=None):
         nova_cfg["max_pen_maxx"] = c2.number_input(
             mc.LABELS["max_pen_maxx"], min_value=0, value=int(cfg_atual["max_pen_maxx"]), step=1
         , key=f"cfg_max_pen_maxx_{ano_cfg}_{mes_cfg_num}")
+        st.caption(
+            "**Abatimento de penalidade.** Estourar o teto tira a meta do mês, "
+            "e sem caminho de volta não sobra pelo que se esforçar — o "
+            "colaborador bate a dele e tira o pé. Aqui se define quantos "
+            "pontos **além da meta** apagam uma ocorrência. **0 desliga**: o "
+            "teto volta a ser definitivo.\n\n"
+            "De onde os pontos extras contam depende de qual meta as "
+            "penalidades ainda não derrubaram: dentro do teto da coletiva, "
+            "contam a partir da **MAXX**; acima dele, a partir da "
+            "**Coletiva** — e a escada recupera primeiro a coletiva, depois a "
+            "MAXX."
+        )
+        nova_cfg["pts_por_penalidade"] = st.number_input(
+            mc.LABELS["pts_por_penalidade"], min_value=0,
+            value=int(cfg_atual.get("pts_por_penalidade", 0) or 0), step=100,
+            key=f"cfg_pts_por_penalidade_{ano_cfg}_{mes_cfg_num}",
+            help="Pontos ALÉM da meta que apagam uma penalidade. 0 desliga.")
 
         st.markdown("##### 🕐 Pontualidade")
         c1, c2, c3, c4 = st.columns(4)
@@ -6537,7 +6663,7 @@ def pagina_analise_metas(usuario_logado):
         # _navegar recusa rótulo fora da lista. A checagem fica assim mesmo —
         # é do lado do servidor, não some se alguém mexer na URL.
         if _eh_master:
-            _secao_configuracao(dados)
+            _secao_configuracao(dados, _carregar_periodo)
             st.markdown("---")
             _secao_equipe()
             st.markdown("---")

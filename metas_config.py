@@ -20,6 +20,9 @@ COLUNAS = [
     # Metas por pessoa entram adiante, derivadas da equipe cadastrada.
     "max_pen_normal",        # máx penalidades meta normal (ex: 4)
     "max_pen_maxx",          # máx penalidades meta maxx (ex: 1)
+    # Pontos, ALEM da meta, que abatem UMA penalidade. Zero desliga o
+    # abatimento e o teto volta a ser definitivo.
+    "pts_por_penalidade",
     "max_tol_normal",        # máx tolerâncias pontualidade normal (ex: 15)
     "max_tol_maxx",          # máx tolerâncias pontualidade maxx (ex: 7)
     "max_atr_normal",        # máx atrasos pontualidade normal (ex: 10)
@@ -37,6 +40,7 @@ DEFAULTS = {
 
     "max_pen_normal":      4,
     "max_pen_maxx":        1,
+    "pts_por_penalidade":  0,
     "max_tol_normal":      15,
     "max_tol_maxx":        7,
     "max_atr_normal":      10,
@@ -60,6 +64,7 @@ LABELS = {
 
     "max_pen_normal":      "Máx. penalidades (Meta Normal)",
     "max_pen_maxx":        "Máx. penalidades (Meta MAXX)",
+    "pts_por_penalidade":  "Pontos para abater 1 penalidade",
     "max_tol_normal":      "Máx. tolerâncias pontualidade (Normal)",
     "max_tol_maxx":        "Máx. tolerâncias pontualidade (MAXX)",
     "max_atr_normal":      "Máx. atrasos pontualidade (Normal)",

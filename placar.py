@@ -655,14 +655,16 @@ def _vel_meta(pct, meta_eq, saldo_eq, faltam, cor=None):
 <div class="vel-label">🏆 Meta Mensal</div>
 </div>"""
 
-def _vel_maxx(pct_maxx, meta_maxx_pts, saldo_eq):
+def _vel_maxx(pct_maxx, meta_maxx_pts, saldo_eq, maxx_batida=None):
     """Velocímetro dourado para Meta Maxx."""
     pct_clip=min(max(pct_maxx,0),115)
     ang=math.radians(-180+min(pct_clip/100,1)*180)
     cx,cy,r=130,125,105
     px=cx+r*math.cos(ang); py=cy+r*math.sin(ang)
     perim=math.pi*r; dash=min(pct_clip/100,1)*perim
-    atingiu=saldo_eq>=meta_maxx_pts
+    # `atingiu` chega pronto de quem sabe do abatimento; sem ele, a conta
+    # antiga, so por pontos.
+    atingiu = maxx_batida if maxx_batida is not None else saldo_eq >= meta_maxx_pts
     # Gradiente dourado brilhante
     return f"""
 <div style="text-align:center;">
@@ -1922,7 +1924,8 @@ def pagina_placar(usuario_logado, headless=False):
                               cor=(_ritmo or {}).get("cor")), unsafe_allow_html=True)
 
     with col_vx:
-        st.markdown(_vel_maxx(pct_maxx, meta_maxx_pts, saldo_eq), unsafe_allow_html=True)
+        st.markdown(_vel_maxx(pct_maxx, meta_maxx_pts, saldo_eq,
+                              _sit_pen["bateu_maxx"]), unsafe_allow_html=True)
 
     with col_cx:
         cor_pen_maxx_card="#E34948" if d["pen_total"]>0 else "#FFD700"
@@ -2006,6 +2009,11 @@ def pagina_placar(usuario_logado, headless=False):
     # Metas, e o texto tambem: duas telas montando a propria frase a partir dos
     # mesmos numeros e como elas passam a discordar.
     _tm_eq = _pc_membro.tempo_medio_equipe([d], cfg_mes)
+    # O teto de penalidades passa a valer, e o abatimento por pontuacao
+    # destrava. Ate aqui a contagem aparecia como criterio e nao decidia nada:
+    # quem decidia era so `saldo >= meta`.
+    _sit_pen = _pc_membro.situacao_metas(saldo_eq, meta_eq, meta_maxx_pts,
+                                         qtd_pen, cfg_mes)
 
 
 
@@ -2142,7 +2150,9 @@ def pagina_placar(usuario_logado, headless=False):
         b += _barra_meta("Pontuação do mês", pct_eq, f"{saldo_eq:,.0f} / {meta_eq:,} pts (inclui -{d['pen_total']:.0f} penalidades)", _cor_eq)
         b += _barra_meta("Sem atraso em prioritários P8-P10", pct_prioritarios_ok, _desc_pri, _cor_pri)
         b += _barra_meta(f"Retrabalho abaixo de {max_retrab_n}%", pct_retrab_barra_n, _desc_retrab, _cor_rtn)
-        b += _barra_meta(f"Menos de {max_pen_n+1} penalidades", pct_pen_normal, f"{qtd_pen} ocorrência(s) / máx {max_pen_n}", "#E34948")
+        b += _barra_meta(f"Menos de {max_pen_n+1} penalidades", pct_pen_normal,
+                         _pc_membro.texto_penalidades(_sit_pen),
+                         "#1BAF7A" if _sit_pen["pen_col_ok"] else "#E34948")
         b += _barra_meta("Cartões com membro atribuído", pct_com_membro, _sem_mb_desc_n, _cor_cmb)
         # O tempo medio pesa na meta coletiva e nao aparecia AQUI — so na
         # Analise de Metas. Este painel mostrava cinco dos seis criterios, e
@@ -2162,7 +2172,9 @@ def pagina_placar(usuario_logado, headless=False):
         b += _barra_meta(f"Pontuação +{maxx_pct-100}% acima da meta", pct_maxx, f"{saldo_eq:,.0f} / {meta_maxx_pts:,.0f} pts (c/ penalidades -{ d['pen_total']:.0f})", _cor_mx)
         b += _barra_meta("Zero prioritários em atraso", pct_prioritarios_ok, _desc_pri, _cor_prix)
         b += _barra_meta(f"Retrabalho abaixo de {max_retrab_x}%", pct_retrab_barra_x, _desc_retrab, _cor_rtnx)
-        b += _barra_meta(f"Menos de {max_pen_x+1} penalidades", pct_pen_maxx, f"{qtd_pen} ocorrência(s) / máx {max_pen_x}", "#E34948")
+        b += _barra_meta(f"Menos de {max_pen_x+1} penalidades", pct_pen_maxx,
+                         _pc_membro.texto_penalidades(_sit_pen, maxx=True),
+                         "#FFD700" if _sit_pen["pen_maxx_ok"] else "#E34948")
         b += _barra_meta("Cartões com membro atribuído", pct_com_membro, _sem_mb_desc_x, _cor_cmbx)
         b += _barra_meta(_tm_eq["rotulo"], _tm_eq["pct"], _tm_eq["desc"],
                          _pc_membro.cor_tempo_medio(_tm_eq, "#FFD700"))
