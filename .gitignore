@@ -2,3 +2,7 @@ __pycache__/
 *.pyc
 *.pyo
 .DS_Store
+
+# Credencial nunca no repositorio. O Procfile e o _preparar_secrets
+# montam este arquivo a partir do ambiente, em cada container.
+.streamlit/secrets.toml
