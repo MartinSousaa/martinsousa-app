@@ -631,7 +631,55 @@ ritmo_do_mes = _pc_core.ritmo_do_mes
 
 
 # ── VELOCÍMETROS ───────────────────────────────────────────────────────────────
-def _vel_meta(pct, meta_eq, saldo_eq, faltam, cor=None):
+def _fatia_salvar(meta_pts, pts_extra, saldo, perim, cor="#E34948"):
+    """A fatia no fim do conta-giros: o trecho que salva a meta.
+
+    O mostrador vai de 0 até a meta. Quando as penalidades estouram o teto, a
+    meta deixa de bastar — é preciso ir ALÉM dela para abater ocorrência. Essa
+    sobra vira um pedaço a mais no fim do arco, depois da marca da meta, como a
+    faixa vermelha de um conta-giros: dá para ver de longe que existe um trecho
+    extra e o quanto dele já foi vencido.
+
+    Só existe com estouro. Sem penalidade acima do teto, o mostrador é o de
+    sempre — pontuação de abatimento não é meta e não aparece onde não há meta
+    em risco.
+
+    Devolve (svg_da_fatia, fracao_do_arco_ate_a_meta, fracao_do_ponteiro).
+    """
+    meta_pts = float(meta_pts or 0)
+    pts_extra = float(pts_extra or 0)
+    if meta_pts <= 0 or pts_extra <= 0:
+        return "", 1.0, None
+
+    total = meta_pts + pts_extra
+    f_meta = meta_pts / total              # onde a marca da meta passa a ficar
+    f_pont = min(max(float(saldo or 0) / total, 0.0), 1.0)
+
+    ini = f_meta * perim                   # começo da fatia, ao longo do arco
+    tam = perim - ini
+    # A parte da fatia que já foi percorrida, em cor cheia; o resto, apagado.
+    venc = max(0.0, min(f_pont, 1.0) - f_meta) * perim
+    marca_x = 20 + f_meta * 220            # a marca da meta, no eixo do desenho
+
+    svg = (
+        f'<path d="M20,120 A110,110 0 0 1 240,120" fill="none" stroke="{cor}" '
+        f'stroke-width="18" stroke-linecap="butt" opacity=".22" '
+        f'stroke-dasharray="{tam:.1f} {perim:.1f}" '
+        f'stroke-dashoffset="{-ini:.1f}"/>')
+    if venc > 0:
+        svg += (
+            f'<path d="M20,120 A110,110 0 0 1 240,120" fill="none" '
+            f'stroke="{cor}" stroke-width="18" stroke-linecap="butt" '
+            f'stroke-dasharray="{venc:.1f} {perim:.1f}" '
+            f'stroke-dashoffset="{-ini:.1f}"/>')
+    svg += (
+        f'<line x1="{marca_x:.1f}" y1="14" x2="{marca_x:.1f}" y2="34" '
+        f'stroke="var(--ms-texto)" stroke-width="2" opacity=".55"/>')
+    return svg, f_meta, f_pont
+
+
+
+def _vel_meta(pct, meta_eq, saldo_eq, faltam, cor=None, pts_salvar=0):
     """Velocimetro da Meta Mensal. `cor` vem do ritmo do mes.
 
     A porcentagem no arco continua sendo a da meta — e onde a equipe chegou. A
@@ -643,33 +691,48 @@ def _vel_meta(pct, meta_eq, saldo_eq, faltam, cor=None):
     e outra conversa.
     """
     pct_clip=min(max(pct,0),110)
-    ang=math.radians(-180+min(pct_clip/100,1)*180)
     cx,cy,r=130,125,105
-    px=cx+r*math.cos(ang); py=cy+r*math.sin(ang)
     cor=cor or "#1BAF7A"
-    perim=math.pi*r; dash=min(pct_clip/100,1)*perim
+    perim=math.pi*r
+    _fatia, _f_meta, _f_pont = _fatia_salvar(meta_eq, pts_salvar, saldo_eq,
+                                             perim)
+    # Com a fatia, o arco inteiro passa a valer meta+extra: o ponteiro e o
+    # preenchimento seguem a mesma escala, senao apontariam para lugares
+    # diferentes do mesmo desenho.
+    _frac = _f_pont if _f_pont is not None else min(pct_clip/100, 1)
+    ang=math.radians(-180+_frac*180)
+    px=cx+r*math.cos(ang); py=cy+r*math.sin(ang)
+    dash=_frac*perim
+    _rot_meta = "META" if not _fatia else "SALVAR"
     return f"""
 <div style="text-align:center;">
 <svg viewBox="0 0 260 150" width="75%" style="display:block;margin:0 auto;overflow:visible;">
   <path d="M20,120 A110,110 0 0 1 240,120" fill="none" stroke="var(--ms-metric-bd)" stroke-width="18" stroke-linecap="round"/>
+  {_fatia}
   <path d="M20,120 A110,110 0 0 1 240,120" fill="none" stroke="{cor}" stroke-width="18" stroke-linecap="round" stroke-dasharray="{dash:.1f} {perim:.1f}"/>
   <line x1="{cx}" y1="{cy}" x2="{px:.1f}" y2="{py:.1f}" stroke="var(--ms-texto)" stroke-width="3" stroke-linecap="round"/>
   <circle cx="{cx}" cy="{cy}" r="7" fill="var(--ms-texto)"/>
   <circle cx="{cx}" cy="{cy}" r="3" fill="var(--ms-metric-bg)"/>
   <text x="13" y="142" text-anchor="middle" font-size="9" fill="var(--ms-texto-sec)">0</text>
-  <text x="247" y="142" text-anchor="middle" font-size="9" fill="var(--ms-texto-sec)">META</text>
+  <text x="247" y="142" text-anchor="middle" font-size="9" fill="var(--ms-texto-sec)">{_rot_meta}</text>
 </svg>
 <div style="font-size:36px;font-weight:700;color:{cor};margin-top:2px;line-height:1;">{"%.1f%%" % min(pct,999) if pct < 10 else "%.0f%%" % min(pct,999)}</div>
 <div class="vel-label">🏆 Meta Mensal</div>
 </div>"""
 
-def _vel_maxx(pct_maxx, meta_maxx_pts, saldo_eq, maxx_batida=None):
+def _vel_maxx(pct_maxx, meta_maxx_pts, saldo_eq, maxx_batida=None,
+              pts_salvar=0):
     """Velocímetro dourado para Meta Maxx."""
     pct_clip=min(max(pct_maxx,0),115)
-    ang=math.radians(-180+min(pct_clip/100,1)*180)
     cx,cy,r=130,125,105
+    perim=math.pi*r
+    _fatia, _f_meta, _f_pont = _fatia_salvar(meta_maxx_pts, pts_salvar,
+                                             saldo_eq, perim)
+    _frac = _f_pont if _f_pont is not None else min(pct_clip/100, 1)
+    ang=math.radians(-180+_frac*180)
     px=cx+r*math.cos(ang); py=cy+r*math.sin(ang)
-    perim=math.pi*r; dash=min(pct_clip/100,1)*perim
+    dash=_frac*perim
+    _rot_maxx = "MAXX" if not _fatia else "SALVAR"
     # `atingiu` chega pronto de quem sabe do abatimento; sem ele, a conta
     # antiga, so por pontos.
     atingiu = maxx_batida if maxx_batida is not None else saldo_eq >= meta_maxx_pts
@@ -698,13 +761,14 @@ def _vel_maxx(pct_maxx, meta_maxx_pts, saldo_eq, maxx_batida=None):
     </filter>
   </defs>
   <path d="M20,120 A110,110 0 0 1 240,120" fill="none" stroke="var(--ms-metric-bd)" stroke-width="18" stroke-linecap="round"/>
+  {_fatia}
   <path d="M20,120 A110,110 0 0 1 240,120" fill="none" stroke="url(#goldGrad)" stroke-width="18" stroke-linecap="round"
         stroke-dasharray="{dash:.1f} {perim:.1f}" filter="url(#glow)"/>
   <line x1="{cx}" y1="{cy}" x2="{px:.1f}" y2="{py:.1f}" stroke="#FFD700" stroke-width="3" stroke-linecap="round" filter="url(#glow)"/>
   <circle cx="{cx}" cy="{cy}" r="7" fill="#FFD700" filter="url(#glow)"/>
   <circle cx="{cx}" cy="{cy}" r="3" fill="var(--ms-metric-bg)"/>
   <text x="13" y="142" text-anchor="middle" font-size="9" fill="#B8860B">0</text>
-  <text x="247" y="142" text-anchor="middle" font-size="9" fill="#B8860B">MAXX</text>
+  <text x="247" y="142" text-anchor="middle" font-size="9" fill="#B8860B">{_rot_maxx}</text>
 </svg>
 <div style="font-size:36px;font-weight:700;color:#FFD700;margin-top:2px;line-height:1;filter:drop-shadow(0 0 8px #FFD700);">{"%.1f%%" % min(pct_maxx,999) if pct_maxx < 10 else "%.0f%%" % min(pct_maxx,999)}</div>
 <div class="vel-label" style="color:#FFD700;">{"⭐ META MAXX ATINGIDA!" if atingiu else "⭐ Meta Maxx"}</div>
@@ -1929,11 +1993,15 @@ def pagina_placar(usuario_logado, headless=False):
 
     with col_vm:
         st.markdown(_vel_meta(pct_eq, meta_eq, saldo_eq, faltam,
-                              cor=(_ritmo or {}).get("cor")), unsafe_allow_html=True)
+                              cor=(_ritmo or {}).get("cor"),
+                              pts_salvar=_pts_salvar_col),
+                    unsafe_allow_html=True)
 
     with col_vx:
         st.markdown(_vel_maxx(pct_maxx, meta_maxx_pts, saldo_eq,
-                              _sit_pen["bateu_maxx"]), unsafe_allow_html=True)
+                              _sit_pen["bateu_maxx"],
+                              pts_salvar=_pts_salvar_maxx),
+                    unsafe_allow_html=True)
 
     with col_cx:
         cor_pen_maxx_card="#E34948" if d["pen_total"]>0 else "#FFD700"
@@ -2022,6 +2090,15 @@ def pagina_placar(usuario_logado, headless=False):
     # quem decidia era so `saldo >= meta`.
     _sit_pen = _pc_membro.situacao_metas(saldo_eq, meta_eq, meta_maxx_pts,
                                          qtd_pen, cfg_mes)
+    # Quanto falta ALEM da meta para salvar cada uma. Zero quando o teto nao
+    # foi estourado — e ai o mostrador nao ganha fatia nenhuma.
+    def _salvar(teto, destrava):
+        if not _sit_pen["em_risco"] or _sit_pen["pen_qtd"] <= teto:
+            return 0
+        precisa = _sit_pen["pen_qtd"] - teto
+        return precisa * _sit_pen["por_pen"]
+    _pts_salvar_col = _salvar(_sit_pen["max_n"], _sit_pen["pts_destrava_col"])
+    _pts_salvar_maxx = _salvar(_sit_pen["max_x"], _sit_pen["pts_destrava_maxx"])
 
 
 

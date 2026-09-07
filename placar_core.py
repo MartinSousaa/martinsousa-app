@@ -2125,14 +2125,26 @@ def situacao_metas(saldo, meta_eq, meta_maxx, pen_qtd, cfg):
     base = meta_eq if coletiva_caiu else meta_maxx
     sobra = max(0.0, saldo - float(base or 0))
 
-    abatidas = min(pen_qtd, int(sobra // por_pen)) if por_pen > 0 else 0
+    # O abatimento so existe quando ALGUM teto foi estourado.
+    #
+    # Sem isso ele apareceria sempre: um mes com 2 penalidades e pontuacao
+    # sobrando mostraria "2 abatida(s) por pontuacao" sem que nada estivesse
+    # em risco — ruido num painel que so deve falar de abatimento quando ha
+    # meta para salvar. `precisa` e o maximo que faz sentido apagar: o que
+    # sobra do teto mais apertado dos dois.
+    precisa = max(0, pen_qtd - min(max_n, max_x))
+    abatidas = (min(precisa, int(sobra // por_pen))
+                if (por_pen > 0 and precisa > 0) else 0)
     pen_efetiva = max(0, pen_qtd - abatidas)
+    # Nenhum teto em risco: o painel nao fala de abatimento.
+    em_risco = precisa > 0
 
     # Quanto falta para a PRÓXIMA ocorrência cair. Sem este número o card diz
     # "faltam 2 penalidades" e não diz quanto isso custa em pontos, que é a
     # única coisa que a equipe pode fazer a respeito.
-    if por_pen > 0 and abatidas < pen_qtd:
-        falta_prox = float(base or 0) + (abatidas + 1) * por_pen - saldo
+    if em_risco and por_pen > 0 and abatidas < precisa:
+        falta_prox = max(0.0, float(base or 0)
+                         + (abatidas + 1) * por_pen - saldo)
     else:
         falta_prox = 0.0
 
@@ -2146,6 +2158,7 @@ def situacao_metas(saldo, meta_eq, meta_maxx, pen_qtd, cfg):
         return max(0.0, float(base or 0) + precisa * por_pen - saldo)
 
     return {
+        "em_risco": em_risco, "precisa": precisa,
         "pen_qtd": pen_qtd, "pen_efetiva": pen_efetiva, "abatidas": abatidas,
         "max_n": max_n, "max_x": max_x, "por_pen": por_pen,
         "base": float(base or 0), "coletiva_caiu": coletiva_caiu,
@@ -2168,10 +2181,16 @@ def _pts_br(v):
 
 
 def texto_penalidades(sit, maxx=False):
-    """A descrição da barra de penalidades, contando o abatimento."""
+    """A descrição da barra de penalidades, contando o abatimento.
+
+    Dentro do teto, a frase é a de sempre — abatimento não aparece onde não há
+    meta em risco.
+    """
     teto = sit["max_x"] if maxx else sit["max_n"]
     qtd, efet = sit["pen_qtd"], sit["pen_efetiva"]
     base = f"{qtd} ocorrência(s) / máx {teto}"
+    if not sit["em_risco"] or qtd <= teto:
+        return base
     if sit["abatidas"]:
         base += (f" · {sit['abatidas']} abatida(s) por pontuação — "
                  f"valem {efet}")
