@@ -4946,11 +4946,7 @@ def pagina_pedir_abono(usuario_logado):
     nao ha formulario de pedido na tela dele. Formulario errado na frente e a
     ferramenta certa escondida atras.
     """
-    _LOGIN = {
-        "Myrella": "myrelladesouza", "Beatriz": "beatriz51",
-        "Gabriel": "gabriel_borges", "MartinSousa": "martinsousa",
-    }
-    _username = _LOGIN.get(usuario_logado, usuario_logado.lower())
+    _username = _pc.username_do_login(usuario_logado)
     _nome = _pc.MEMBROS_ATIVOS.get(_username, usuario_logado)
 
     try:
@@ -6479,11 +6475,7 @@ def _secao_configuracao(dados=None, carregar_periodo=None):
 
 def pagina_analise_metas(usuario_logado):
     # ── Controle de acesso ─────────────────────────────────────────────────
-    _LOGIN_MAP_GERAL = {
-        "Myrella": "myrelladesouza", "Beatriz": "beatriz51",
-        "Gabriel": "gabriel_borges", "MartinSousa": "martinsousa",
-    }
-    _username_atual = _LOGIN_MAP_GERAL.get(usuario_logado, usuario_logado.lower())
+    _username_atual = _pc.username_do_login(usuario_logado)
     # Quem enxerga o desempenho dos OUTROS é quem tem perfil de administrador —
     # não uma lista de nomes escrita no código.
     #

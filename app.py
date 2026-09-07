@@ -33,6 +33,7 @@ import chat_assistente
 import placar
 import analise_metas
 import relogio_ponto
+import placar_core as _pc_login
 
 # Mantém o painel da TV vivo sem depender de ninguém estar usando o app.
 # Sobe uma única vez por processo — o cache_resource garante isso.
@@ -1368,14 +1369,10 @@ _eh_admin        = auth.is_admin(usuario_logado)
 _eh_gestor       = auth.eh_gestor(usuario_logado)
 _eh_martinsousa  = _eh_gestor
 
-# Mapeia nomes de login (exibição) → usernames do Trello para checagem de acesso
-_LOGIN_TRELLO = {
-    "Myrella":     "myrelladesouza",
-    "Beatriz":     "beatriz51",
-    "Gabriel":     "gabriel_borges",
-    "MartinSousa": "martinsousa",
-}
-_trello_user = _LOGIN_TRELLO.get(usuario_logado, usuario_logado.lower())
+# Login (exibição) → username do Trello, para a checagem de acesso. A resposta
+# vem da equipe cadastrada na planilha, não de uma lista escrita aqui: quem
+# entrasse depois dos quatro primeiros nomes ficava sem acesso ao próprio painel.
+_trello_user = _pc_login.username_do_login(usuario_logado)
 _eh_painel   = _trello_user in {m.lower() for m in placar.MASTERS} or _trello_user in placar.MEMBROS_ATIVOS
 
 

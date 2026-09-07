@@ -550,10 +550,8 @@ def _secao_registro(usuario_logado: str, eh_master: bool):
             col_user.caption("Fora da lista (não batem ponto): "
                              + ", ".join(_sem_relogio))
     else:
-        # Mapeia login do app para username Trello
-        _LOGIN_MAP = {"Myrella": "myrelladesouza", "Beatriz": "beatriz51",
-                      "Gabriel": "gabriel_borges", "MartinSousa": "martinsousa"}
-        username_sel = _LOGIN_MAP.get(usuario_logado, usuario_logado.lower())
+        # Login do app -> username Trello, pela equipe cadastrada na planilha.
+        username_sel = _pc.username_do_login(usuario_logado)
         nome_sel = MEMBROS.get(username_sel, usuario_logado)
         col_user.info(f"Registrando para: **{nome_sel}**")
 
@@ -678,9 +676,7 @@ def _secao_historico_mensal(eh_master: bool, usuario_logado: str):
         return
 
     # Mostra apenas o colaborador logado (se não for master)
-    _LOGIN_MAP = {"Myrella": "myrelladesouza", "Beatriz": "beatriz51",
-                  "Gabriel": "gabriel_borges", "MartinSousa": "martinsousa"}
-    u_logado = _LOGIN_MAP.get(usuario_logado, usuario_logado.lower())
+    u_logado = _pc.username_do_login(usuario_logado)
 
     for username, nome in MEMBROS.items():
         if not eh_master and username != u_logado:
