@@ -2293,48 +2293,54 @@ def pagina_placar(usuario_logado, headless=False):
         #
         # Interrompido sai da fila, para o relogio e nao conta atraso. Tudo
         # certo, e tudo invisivel: um cartao parado sumia dos indicadores sem
-        # sair do board, e ficar parado passava a nao ter custo nenhum. Quem
-        # esqueceu de retomar nao era lembrado, e quem quisesse escapar do
-        # atraso teria como.
+        # sair do board, e ficar parado passava a nao ter custo nenhum.
         #
-        # Aqui eles voltam, com o tempo parado na frente — para a equipe ver o
-        # que esta pendurado e o gestor pedir justificativa do que esta parado
-        # ha semanas.
+        # A lista inteira aqui dentro empurraria a fila para fora da vista — e
+        # a fila e o que a equipe olha para saber o que fazer AGORA. Entao so
+        # os tres mais parados ficam a mostra, que sao os que precisam de
+        # justificativa antes dos outros; o resto fica a um clique.
         if _parados_lista:
             _n_velhos = sum(1 for c in _parados_lista
                             if c["horas"] is None or c["horas"] >= 48)
-            st.markdown(
-                f'<div style="margin-top:14px;font-size:13px;font-weight:600;">'
-                f'⏸️ Parados ({len(_parados_lista)})'
-                + (f'<span style="color:#E34948;font-size:11px;font-weight:400;">'
-                   f' · {_n_velhos} há mais de 2 dias</span>' if _n_velhos else "")
-                + '</div>'
-                '<div style="font-size:10px;color:var(--ms-texto-sec);'
-                'margin-bottom:5px;">Não contam tempo, não entram na fila e não '
-                'geram atraso — e por isso precisam de justificativa.</div>',
-                unsafe_allow_html=True)
-            for _c in _parados_lista[:8]:
+
+            def _linha_parado(_c):
                 _cor_p = _pc_membro.cor_parado(_c["horas"])
                 _quem_p = ", ".join(MEMBROS_ATIVOS.get(u, u)
                                     for u in _c["membros"]) or "sem membro"
-                st.markdown(
-                    f'<div style="background:var(--ms-metric-bg);'
-                    f'border:1px solid var(--ms-metric-bd);'
-                    f'border-left:3px solid {_cor_p};border-radius:0 8px 8px 0;'
-                    f'padding:8px 12px;margin-bottom:5px;">'
+                return (
+                    f'<div style="border-left:3px solid {_cor_p};'
+                    f'background:var(--ms-metric-bg);border-radius:0 6px 6px 0;'
+                    f'padding:5px 10px;margin-bottom:4px;">'
                     f'<div style="display:flex;justify-content:space-between;'
-                    f'gap:8px;">'
-                    f'<span style="font-size:12px;font-weight:600;'
-                    f'color:var(--ms-texto);">{_c["nome"][:42]}</span>'
-                    f'<span style="font-size:11px;font-weight:700;'
+                    f'gap:8px;align-items:baseline;">'
+                    f'<span style="font-size:11.5px;font-weight:600;'
+                    f'color:var(--ms-texto);overflow:hidden;'
+                    f'text-overflow:ellipsis;white-space:nowrap;">'
+                    f'{_c["nome"][:38]}</span>'
+                    f'<span style="font-size:10.5px;font-weight:700;'
                     f'color:{_cor_p};white-space:nowrap;">'
                     f'{_pc_membro.texto_parado(_c["horas"])}</span></div>'
-                    f'<div style="font-size:10px;color:var(--ms-texto-sec);'
-                    f'margin-top:1px;">{_c["lista"][:28]} · {_quem_p} · '
-                    f'{" / ".join(_c["etiquetas"])}</div></div>',
-                    unsafe_allow_html=True)
-            if len(_parados_lista) > 8:
-                st.caption(f"+ {len(_parados_lista) - 8} parado(s).")
+                    f'<div style="font-size:9px;color:var(--ms-texto-sec);">'
+                    f'{_c["lista"][:24]} · {_quem_p}</div></div>')
+
+            st.markdown(
+                f'<div style="margin-top:12px;font-size:12.5px;'
+                f'font-weight:600;">⏸️ Parados ({len(_parados_lista)})'
+                + (f'<span style="color:#E34948;font-size:10.5px;'
+                   f'font-weight:400;"> · {_n_velhos} há +2 dias</span>'
+                   if _n_velhos else "")
+                + '</div>'
+                + "".join(_linha_parado(c) for c in _parados_lista[:3]),
+                unsafe_allow_html=True)
+
+            _resto = _parados_lista[3:]
+            if _resto:
+                with st.expander(f"ver os outros {len(_resto)} parado(s)",
+                                 expanded=False):
+                    st.markdown("".join(_linha_parado(c) for c in _resto),
+                                unsafe_allow_html=True)
+            st.caption("Não contam tempo, não entram na fila e não geram "
+                       "atraso — e por isso precisam de justificativa.")
 
     with col_fila:
         st.markdown("**📋 Próximas Demandas na Fila**")
