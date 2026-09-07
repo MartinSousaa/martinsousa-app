@@ -2008,12 +2008,23 @@ def pagina_placar(usuario_logado, headless=False):
             return 0
         precisa = _sit_pen["pen_qtd"] - teto
         return precisa * _sit_pen["por_pen"]
-    # Os cartoes parados agora, com desde quando. A janela e a mesma do resto
-    # do painel — o cache de _buscar_acoes_board ja foi pago por outra leitura.
+    # Os cartoes parados agora, com desde quando.
+    #
+    # A JANELA TEM QUE SER A MESMA que o resto do painel ja usa: 45 dias e 5
+    # paginas, a chave de cache que os alertas pagam alguns blocos acima. Eu
+    # tinha pedido 120 dias e 10 paginas — chave diferente, busca nova do zero,
+    # com o dobro da janela e o dobro das paginas. Foram os 15 segundos que a
+    # tela passou a levar para abrir.
+    #
+    # O preco de encurtar: cartao parado ha mais de 45 dias nao tem a acao no
+    # historico, e a tela diz "ha mais de 45 dias" em vez da data exata. Para
+    # cobrar justificativa isso basta — e nao custa uma busca inteira.
+    _JANELA_PARADOS = 45
     try:
         _parados_lista = _pc_membro.cartoes_interrompidos(
             cards, listas, membros_map,
-            _pc_membro._buscar_acoes_board(_pc_membro._desde_padrao()))
+            _pc_membro._buscar_acoes_board(
+                _pc_membro._desde_curto(_JANELA_PARADOS), max_paginas=5))
     except Exception:
         _parados_lista = []
     _pts_salvar_col = _salvar(_sit_pen["max_n"], _sit_pen["pts_destrava_col"])
@@ -2320,7 +2331,7 @@ def pagina_placar(usuario_logado, headless=False):
                     f'{_c["nome"][:38]}</span>'
                     f'<span style="font-size:10.5px;font-weight:700;'
                     f'color:{_cor_p};white-space:nowrap;">'
-                    f'{_pc_membro.texto_parado(_c["horas"])}</span></div>'
+                    f'{_pc_membro.texto_parado(_c["horas"], _JANELA_PARADOS)}</span></div>'
                     f'<div style="font-size:9px;color:var(--ms-texto-sec);">'
                     f'{_c["lista"][:24]} · {_quem_p}</div></div>')
 
