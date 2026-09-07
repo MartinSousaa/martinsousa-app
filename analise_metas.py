@@ -1700,8 +1700,61 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
                                           _pen_qtd_eq, cfg)
             meta_col_batida  = _sit_pen["bateu_col"] and _entra_col
             meta_maxx_batida = _sit_pen["bateu_maxx"] and _entra_maxx
-            meta_ind_batida      = meta_ind > 0 and pts >= meta_ind
-            meta_ind_maxx_batida = meta_ind_maxx > 0 and pts >= meta_ind_maxx
+            # BATER A META INDIVIDUAL sao TODOS os criterios do card, nao so
+            # a pontuacao.
+            #
+            # Ate aqui era `pts >= meta` e mais nada: os outros cinco cards que
+            # a pessoa ve — ociosidade, tempo medio, tolerancias, atrasos,
+            # advertencias — nao decidiam nada. Quem tivesse 78% de ociosidade e
+            # 15 atrasos, batendo os pontos, aparecia com "+8% a receber".
+            #
+            # Criterio que NAO DA PARA MEDIR nao reprova. Sem relogio de ponto,
+            # sem alvo de tempo no mes, sem cartao medido — o card mostra
+            # "aguardando" e aqui ele passa. Reprovar por dado que falta seria
+            # zerar o bonus de todo mundo no dia em que a RHiD sair do ar.
+            def _criterios_ind(ocio_lim, tol_lim, atr_lim, adv_lim, meta_pts):
+                """[(rotulo, ok|None)] — None e "nao da para medir"."""
+                fora = [(f"pontuação ({_n_br(pts)} de {_n_br(meta_pts)} pts)",
+                         meta_pts > 0 and pts >= meta_pts)]
+
+                if _tem_ponto and o["disp"] > 0:
+                    _pc_o = o.get("ocio", 0.0) / o["disp"] * 100
+                    fora.append((f"ociosidade ({_pc_o:.0f}%, máx {ocio_lim}%)",
+                                 _pc_o <= ocio_lim))
+                else:
+                    fora.append(("ociosidade", None))
+
+                _ref_i = float(_cfg_mes.get(f"exec_ref_{username}", 0) or 0) or 120.0
+                _mt_i = mc.meta_execucao(_cfg_mes, username, _ref_i)
+                _atual_i = _medias_exec.get(username)
+                if _mt_i["definida"] and _mt_i["alvo"] and _atual_i is not None:
+                    fora.append(
+                        (f"tempo médio ({_fmt_hm(_atual_i)}, alvo "
+                         f"{_fmt_hm(_mt_i['alvo'])})", _atual_i <= _mt_i["alvo"]))
+                else:
+                    fora.append(("tempo médio", None))
+
+                if _tem_ponto:
+                    fora.append((f"tolerâncias ({p['tol']} de {tol_lim})",
+                                 p["tol"] <= tol_lim))
+                    fora.append((f"atrasos ({p['atr']} de {atr_lim})",
+                                 p["atr"] <= atr_lim))
+                else:
+                    fora.append(("tolerâncias", None))
+                    fora.append(("atrasos", None))
+
+                fora.append((f"advertências ({_advs} de {adv_lim})",
+                             _advs <= adv_lim))
+                return fora
+
+            _crit_n = _criterios_ind(OCIO_META_NORMAL, max_tol, max_atr,
+                                     _max_adv_n, meta_ind)
+            _crit_x = _criterios_ind(OCIO_META_MAXX, max_tol_mx, max_atr_mx,
+                                     _max_adv_x, meta_ind_maxx)
+            _falhou_n = [r for r, ok in _crit_n if ok is False]
+            _falhou_x = [r for r, ok in _crit_x if ok is False]
+            meta_ind_batida      = meta_ind > 0 and not _falhou_n
+            meta_ind_maxx_batida = meta_ind_maxx > 0 and not _falhou_x
 
             # Quando o time fecha e a pessoa fica de fora, dizer por que. Um
             # bonus que some sem explicacao vira conversa no corredor.
