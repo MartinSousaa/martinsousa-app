@@ -1991,6 +1991,33 @@ def pagina_placar(usuario_logado, headless=False):
   <div style="font-size:9px;color:#ccc;line-height:1.5;">{_r_extra}<br>Nesse ritmo: projeção de <strong style="color:{_r_cor};">{_ritmo["projecao"]:.0f} pts</strong> ao final do mês</div>
 </div>""", unsafe_allow_html=True)
 
+    # Um mes so — e o que esta tela mostra. A conta e a mesma da Analise de
+    # Metas, e o texto tambem: duas telas montando a propria frase a partir dos
+    # mesmos numeros e como elas passam a discordar.
+    _tm_eq = _pc_membro.tempo_medio_equipe([d], cfg_mes)
+    # O teto de penalidades passa a valer, e o abatimento por pontuacao
+    # destrava. Ate aqui a contagem aparecia como criterio e nao decidia nada:
+    # quem decidia era so `saldo >= meta`.
+    _sit_pen = _pc_membro.situacao_metas(saldo_eq, meta_eq, meta_maxx_pts,
+                                         len(d["pen_cards"]), cfg_mes)
+    # Quanto falta ALEM da meta para salvar cada uma. Zero quando o teto nao
+    # foi estourado — e ai o mostrador nao ganha fatia nenhuma.
+    def _salvar(teto, destrava):
+        if not _sit_pen["em_risco"] or _sit_pen["pen_qtd"] <= teto:
+            return 0
+        precisa = _sit_pen["pen_qtd"] - teto
+        return precisa * _sit_pen["por_pen"]
+    # Os cartoes parados agora, com desde quando. A janela e a mesma do resto
+    # do painel — o cache de _buscar_acoes_board ja foi pago por outra leitura.
+    try:
+        _parados_lista = _pc_membro.cartoes_interrompidos(
+            cards, listas, membros_map,
+            _pc_membro._buscar_acoes_board(_pc_membro._desde_padrao()))
+    except Exception:
+        _parados_lista = []
+    _pts_salvar_col = _salvar(_sit_pen["max_n"], _sit_pen["pts_destrava_col"])
+    _pts_salvar_maxx = _salvar(_sit_pen["max_x"], _sit_pen["pts_destrava_maxx"])
+
     with col_vm:
         st.markdown(_vel_meta(pct_eq, meta_eq, saldo_eq, faltam,
                               cor=(_ritmo or {}).get("cor"),
@@ -2081,32 +2108,6 @@ def pagina_placar(usuario_logado, headless=False):
     pct_com_membro, _sem_mb_cards, _total_novo, _sem_mb_desc_meta = \
         _pc_membro.pct_com_membro(d, filtro_mes)
     _sem_mb_novo = len(_sem_mb_cards)
-    # Um mes so — e o que esta tela mostra. A conta e a mesma da Analise de
-    # Metas, e o texto tambem: duas telas montando a propria frase a partir dos
-    # mesmos numeros e como elas passam a discordar.
-    _tm_eq = _pc_membro.tempo_medio_equipe([d], cfg_mes)
-    # O teto de penalidades passa a valer, e o abatimento por pontuacao
-    # destrava. Ate aqui a contagem aparecia como criterio e nao decidia nada:
-    # quem decidia era so `saldo >= meta`.
-    _sit_pen = _pc_membro.situacao_metas(saldo_eq, meta_eq, meta_maxx_pts,
-                                         qtd_pen, cfg_mes)
-    # Quanto falta ALEM da meta para salvar cada uma. Zero quando o teto nao
-    # foi estourado — e ai o mostrador nao ganha fatia nenhuma.
-    def _salvar(teto, destrava):
-        if not _sit_pen["em_risco"] or _sit_pen["pen_qtd"] <= teto:
-            return 0
-        precisa = _sit_pen["pen_qtd"] - teto
-        return precisa * _sit_pen["por_pen"]
-    # Os cartoes parados agora, com desde quando. A janela e a mesma do resto
-    # do painel — o cache de _buscar_acoes_board ja foi pago por outra leitura.
-    try:
-        _parados_lista = _pc_membro.cartoes_interrompidos(
-            cards, listas, membros_map,
-            _pc_membro._buscar_acoes_board(_pc_membro._desde_padrao()))
-    except Exception:
-        _parados_lista = []
-    _pts_salvar_col = _salvar(_sit_pen["max_n"], _sit_pen["pts_destrava_col"])
-    _pts_salvar_maxx = _salvar(_sit_pen["max_x"], _sit_pen["pts_destrava_maxx"])
 
 
 
