@@ -2204,6 +2204,98 @@ def texto_penalidades(sit, maxx=False):
     return base + f" · faltam {_pts_br(faltam)} pts para voltar ao teto"
 
 
+def cartoes_interrompidos(cards, listas, membros_map, acoes_board=None,
+                          agora=None):
+    """Os cartões parados AGORA, com desde quando cada um está parado.
+
+    A etiqueta de interrupção tira o cartão da fila, para o relógio de execução
+    e o isenta de atraso — tudo certo, e tudo invisível. Um cartão parado vira
+    um cartão que ninguém vê: some dos indicadores sem sair do board, e ficar
+    parado passa a não ter custo nenhum. Quem esqueceu de retomar não é
+    lembrado, e quem quisesse escapar do atraso teria como.
+
+    Aqui eles voltam à tela, com o tempo parado na frente. Não para punir: para
+    a equipe ver o que está pendurado e o gestor poder pedir a justificativa de
+    um cartão parado há duas semanas.
+
+    O "desde quando" sai da última vez que uma etiqueta de interrupção ENTROU.
+    Sem histórico da ação — cartão parado há mais tempo que a janela — devolve
+    `desde=None`, que a tela mostra como "há mais de N dias" em vez de inventar
+    uma data.
+    """
+    agora = agora or datetime.now(timezone.utc)
+    acoes_board = acoes_board or {}
+    fora = []
+
+    for card in cards:
+        nl = listas.get(card.get("idList"), "")
+        if nl in COLUNAS_SKIP or card.get("dueComplete", False):
+            continue
+        rotulos = {(lb.get("name") or "").upper().strip()
+                   for lb in (card.get("labels") or [])}
+        # FIM DE EXPEDIENTE fica de fora: ele entra sozinho toda noite em todo
+        # cartao aberto e sai na manha seguinte. Nao e abandono, e o fim do
+        # dia — listar isso aqui encheria o bloco de "justifique" todo dia as
+        # 9h e o bloco viraria paisagem. Aqui so o que alguem PAROU de
+        # proposito e nao retomou.
+        paradas = rotulos & {LABEL_INTERROMPIDO, LABEL_INTERROMPIDO_MS}
+        if not paradas:
+            continue
+
+        # A ultima entrada de uma etiqueta de interrupcao. Vale a ULTIMA: o
+        # cartao pode ter sido interrompido, retomado e interrompido de novo, e
+        # o que interessa e ha quanto tempo ele esta parado AGORA.
+        desde = None
+        try:
+            acoes = acoes_board.get(card["id"]) or []
+            mapa = mapa_labels() if acoes else {}
+            for dt, lid, entrou in _eventos_de_etiqueta(
+                    acoes, [lb.get("id") for lb in (card.get("labels") or [])]):
+                if entrou and (mapa.get(lid, "")
+                               in {LABEL_INTERROMPIDO, LABEL_INTERROMPIDO_MS}):
+                    if desde is None or dt > desde:
+                        desde = dt
+        except Exception:
+            desde = None
+
+        fora.append({
+            "id": card["id"],
+            "nome": card.get("name", ""),
+            "lista": nl,
+            "etiquetas": sorted(paradas),
+            "membros": [membros_map.get(m) for m in (card.get("idMembers") or [])
+                        if membros_map.get(m)],
+            "desde": desde,
+            "horas": ((agora - desde).total_seconds() / 3600) if desde else None,
+        })
+
+    # Mais parado primeiro: e o que precisa de justificativa antes dos outros.
+    # Sem data conhecida vai para o topo — parado ha mais tempo que a janela.
+    fora.sort(key=lambda c: (c["horas"] is not None, -(c["horas"] or 0)))
+    return fora
+
+
+def texto_parado(horas, janela_dias=120):
+    """"há 3h20", "há 5 dias", "há mais de 120 dias"."""
+    if horas is None:
+        return f"há mais de {janela_dias} dias"
+    if horas < 1:
+        return f"há {int(horas * 60)}min"
+    if horas < 24:
+        return f"há {int(horas)}h{int((horas % 1) * 60):02d}"
+    d = int(horas // 24)
+    return f"há {d} dia" + ("s" if d > 1 else "")
+
+
+def cor_parado(horas):
+    """Quanto mais tempo parado, mais forte o aviso."""
+    if horas is None or horas >= 24 * 7:
+        return "#E34948"          # uma semana ou mais, ou perdido no tempo
+    if horas >= 24 * 2:
+        return "#EDA100"          # dois dias
+    return "#8B5CF6"              # recente — roxo, a cor de interrompido
+
+
 def _hm(minutos):
     """Minutos como 15h24 — a unidade em que a equipe pensa o mes."""
     m = int(round(abs(minutos)))
