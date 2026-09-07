@@ -1774,6 +1774,7 @@ def _render_abas_operacao(usuario_logado):
         "Vídeo":                  lambda: video.pagina_video(usuario_logado),
         "Calculadora de Preço Mínimo":       _render_analise_venda_tab,
         "Histórico":              atividades.pagina_historico,
+        "🙋 Abono":               lambda: analise_metas.pagina_pedir_abono(usuario_logado),
     }, "aba")
 
 
@@ -1854,6 +1855,10 @@ else:
         "Histórico":              atividades.pagina_historico,
         "🏆 Painel de Metas":      lambda: placar.pagina_placar(usuario_logado),
         "📊 Análise de Metas":     lambda: analise_metas.pagina_analise_metas(usuario_logado),
+        # Tópico próprio, e não uma aba dentro de Análise de Metas: pedir abono
+        # é coisa de quem lembrou de uma hora trabalhada, não de quem está
+        # analisando meta. Escondido lá dentro, ninguém achava.
+        "🙋 Abono":               lambda: analise_metas.pagina_pedir_abono(usuario_logado),
     }, "aba")
 
 

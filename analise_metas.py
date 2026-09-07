@@ -4806,8 +4806,8 @@ def _desempenho_individual(dados, username, nome, carregar_periodo=None,
         st.info(
             "🙋 **Trabalhou e o sistema não viu?** Esqueceu a etiqueta "
             "**FILMAGEM**, fez a análise de demanda sem abrir o cartão, "
-            "executou algo sem cartão nenhum — peça o abatimento na aba "
-            "**🙋 Pedir abatimento**, aqui em cima. Aprovado, esse tempo sai "
+            "executou algo sem cartão nenhum — peça o abatimento no tópico "
+            "**🙋 Abono**, na barra principal. Aprovado, esse tempo sai "
             "da sua ociosidade, do seu tempo de execução e do atraso."
         )
 
@@ -4854,7 +4854,7 @@ def _linha_pedido(a, _ab, gestor=False):
         f'{rodape}</div>')
 
 
-def _secao_pedido_abatimento(username, nome, pode_pedir):
+def _secao_pedido_abatimento(username, nome, pode_pedir, cabecalho=True):
     """O colaborador conta o que fez fora do cartão; o gestor decide.
 
     A ociosidade sobe quando o trabalho acontece sem cartão aberto ou sem a
@@ -4873,15 +4873,20 @@ def _secao_pedido_abatimento(username, nome, pode_pedir):
         st.warning(f"Não consegui ler os pedidos: {str(_e)[:150]}")
         return
 
-    st.markdown("---")
-    st.markdown("#### 🙋 Pedir abatimento de ociosidade")
-    st.caption(
-        "Trabalhou e o sistema não viu? Aconteceu de esquecer a etiqueta "
-        "**FILMAGEM**, de fazer a análise de demanda sem abrir o cartão, de "
-        "executar uma tarefa sem cartão nenhum. Diga o horário e o que você "
-        "fez — o gestor aprova, ajusta ou recusa. Aprovado, esse tempo sai da "
-        "sua **ociosidade**, do seu **tempo de execução** e do **atraso**."
-    )
+    # Quando o pedido é um tópico próprio, quem chama já escreveu o título —
+    # repetir "#### 🙋 Pedir abatimento" logo abaixo dele dá dois títulos para
+    # a mesma coisa, e o `---` abre a tela com uma linha solta.
+    if cabecalho:
+        st.markdown("---")
+        st.markdown("#### 🙋 Pedir abatimento de ociosidade")
+        st.caption(
+            "Trabalhou e o sistema não viu? Aconteceu de esquecer a etiqueta "
+            "**FILMAGEM**, de fazer a análise de demanda sem abrir o cartão, "
+            "de executar uma tarefa sem cartão nenhum. Diga o horário e o que "
+            "você fez — o gestor aprova, ajusta ou recusa. Aprovado, esse "
+            "tempo sai da sua **ociosidade**, do seu **tempo de execução** e "
+            "do **atraso**."
+        )
 
     if pode_pedir:
         # Fora de st.form: o rodape precisa recalcular a duracao enquanto a
@@ -4920,6 +4925,68 @@ def _secao_pedido_abatimento(username, nome, pode_pedir):
         return
     st.markdown("".join(_linha_pedido(a, _ab) for a in meus[:20]),
                 unsafe_allow_html=True)
+
+
+def pagina_pedir_abono(usuario_logado):
+    """O pedido de abono como tópico próprio, e não como aba dentro de aba.
+
+    O formulário já existia — mas para chegar nele era preciso abrir Análise de
+    Metas (que carrega board, ponto e planilha antes de desenhar qualquer
+    coisa), achar a aba certa entre seis e só então pedir. Quem vai pedir um
+    abono não está analisando meta nenhuma: está lembrando de uma hora que
+    trabalhou e o Trello não viu, e quer registrar isso antes de esquecer de
+    novo.
+
+    Aqui a tela abre direto no formulário. Não lê o Trello, não lê a RHiD, não
+    lê a planilha de metas — só a aba de abonos. É a página mais barata do
+    Studio, e é a que mais gente precisa abrir.
+
+    Para o gestor a mesma tela mostra o outro lado: a fila do que está
+    esperando decisão. Pedir e decidir são o mesmo assunto, e assunto que se
+    parte em dois lugares é assunto que fica sem dono.
+    """
+    _LOGIN = {
+        "Myrella": "myrelladesouza", "Beatriz": "beatriz51",
+        "Gabriel": "gabriel_borges", "MartinSousa": "martinsousa",
+    }
+    _username = _LOGIN.get(usuario_logado, usuario_logado.lower())
+    _nome = _pc.MEMBROS_ATIVOS.get(_username, usuario_logado)
+
+    st.subheader("🙋 Solicitação de Abono")
+    st.caption(
+        "Trabalhou e o sistema não viu? Aconteceu de esquecer a etiqueta "
+        "**FILMAGEM**, de fazer a análise de demanda sem abrir o cartão, de "
+        "executar uma tarefa sem cartão nenhum. Diga o horário e o que você "
+        "fez — o gestor aprova, ajusta ou recusa. Aprovado, esse tempo sai da "
+        "sua **ociosidade**, do seu **tempo de execução** e do **atraso**."
+    )
+    st.markdown("---")
+
+    try:
+        import auth as _auth_ab
+        _gestor = _auth_ab.eh_gestor(usuario_logado)
+    except Exception:
+        _gestor = False
+
+    if _gestor:
+        _t_pedir, _t_fila = st.tabs(["🙋 Meu pedido", "⏳ Fila para decidir"])
+        with _t_pedir:
+            _secao_pedido_abatimento(_username, _nome,
+                                     _username in _pc.MEMBROS_ATIVOS,
+                                     cabecalho=False)
+        with _t_fila:
+            # A fila mora no Ponto, onde o gestor confere horário. Aqui é a
+            # mesma fila, não uma cópia dela: duas telas que decidem a mesma
+            # coisa por caminhos diferentes viram duas decisões diferentes.
+            try:
+                import relogio_ponto as _rp
+                _rp._secao_abatimentos(usuario_logado)
+            except Exception as _e:
+                st.warning(f"Não consegui abrir a fila: {str(_e)[:150]}")
+    else:
+        _secao_pedido_abatimento(_username, _nome,
+                                 _username in _pc.MEMBROS_ATIVOS,
+                                 cabecalho=False)
 
 
 def _secao_entrada_meta(dados, username, nome):
