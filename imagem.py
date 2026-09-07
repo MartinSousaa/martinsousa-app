@@ -460,15 +460,59 @@ Responda SOMENTE com JSON válido, sem texto antes ou depois:
 
 # ── GERAÇÃO DE IMAGEM (Imagen 3 via Vertex AI) ────────────────────────────────
 
+# Nome legivel de cada formato, para a mensagem que o colaborador le. Ele nao
+# tem que saber o que e "image/avif" — tem que saber que mandou um AVIF.
+NOME_FORMATO = {
+    "image/png": "PNG", "image/jpeg": "JPEG", "image/webp": "WebP",
+    "image/gif": "GIF", "image/bmp": "BMP", "image/tiff": "TIFF",
+    "image/avif": "AVIF", "image/heic": "HEIC (foto de iPhone)",
+    "image/svg+xml": "SVG (desenho vetorial)", "application/pdf": "PDF",
+}
+
+
 def _detectar_mime(data: bytes) -> str:
-    """Detecta o MIME type real da imagem pelos magic bytes."""
+    """MIME real pelos magic bytes. "" quando não dá para reconhecer.
+
+    O fallback antigo era `return "image/jpeg"`, comentado como "fallback
+    seguro". Ele era o contrário disso: dizia que TODO arquivo irreconhecível
+    era JPEG, e como JPEG está em _MIMES_ACEITOS, `normalizar_imagem` devolvia
+    o arquivo intocado. A conversão de HEIC, AVIF, GIF, BMP e TIFF que a função
+    promete no docstring nunca chegava a rodar — era código morto desde o
+    primeiro `if`. O arquivo seguia para o gerador e para a tela como se fosse
+    JPEG, e o Pillow estourava lá na frente, com um traceback que não diz nada
+    a quem só anexou uma imagem.
+
+    Mentir sobre o tipo não é um fallback. "Não sei" é uma resposta melhor:
+    quem chama decide o que fazer, e agora pode converter ou avisar.
+    """
+    if not data:
+        return ""
     if data[:8] == b'\x89PNG\r\n\x1a\n':
         return "image/png"
     if data[:2] == b'\xff\xd8':
         return "image/jpeg"
     if data[:4] == b'RIFF' and data[8:12] == b'WEBP':
         return "image/webp"
-    return "image/jpeg"  # fallback seguro
+    if data[:6] in (b'GIF87a', b'GIF89a'):
+        return "image/gif"
+    if data[:2] == b'BM':
+        return "image/bmp"
+    if data[:4] in (b'II*\x00', b'MM\x00*'):
+        return "image/tiff"
+    if data[:4] == b'%PDF':
+        return "application/pdf"
+    # AVIF e HEIC sao caixas ISO-BMFF: o tipo esta na marca logo apos "ftyp".
+    if data[4:8] == b'ftyp':
+        marca = data[8:12]
+        if marca in (b'avif', b'avis'):
+            return "image/avif"
+        if marca in (b'heic', b'heix', b'hevc', b'heim', b'heis', b'mif1',
+                     b'msf1'):
+            return "image/heic"
+    cabeca = data[:400].lstrip()
+    if cabeca[:5] == b'<?xml' or cabeca[:4] == b'<svg':
+        return "image/svg+xml"
+    return ""
 
 
 def _normalizar_nome(texto):
@@ -846,7 +890,100 @@ def normalizar_imagem(img_bytes):
     except Exception:
         # Não dá para converter — devolve como está e deixa o gerador recusar
         # com a própria mensagem, que é mais informativa do que um palpite nosso.
-        return img_bytes, mime, "png"
+        return img_bytes, mime or "application/octet-stream", "png"
+
+
+def revisar_arquivo(dados, nome=""):
+    """(bytes_prontos, aviso, erro) de um arquivo que o colaborador anexou.
+
+    Quando dá para converter, converte e devolve o aviso do que fez — a pessoa
+    merece saber que o HEIC dela virou JPEG. Quando não dá, devolve o erro
+    dizendo O QUE ele é e o que fazer, e `bytes_prontos` vem vazio.
+
+    Existe porque a tela quebrava inteira num arquivo que o Pillow não abre:
+    o preview chamava st.image() com os bytes crus, o Pillow estourava, e o
+    colaborador via um traceback de sessenta linhas terminando em
+    `UnidentifiedImageError`. Ele não tem como saber que aquilo é sobre o
+    formato do arquivo dele — o que ele lê é "o site quebrou".
+    """
+    rotulo = f"**{nome}**" if nome else "O arquivo"
+    if not dados:
+        return b"", "", f"{rotulo} chegou vazio (0 bytes)."
+
+    mime = _detectar_mime(dados)
+    nome_fmt = NOME_FORMATO.get(mime, "")
+
+    if mime == "application/pdf":
+        return b"", "", (
+            f"{rotulo} é um **PDF**, não uma imagem. Abra o PDF, exporte a "
+            f"página como JPG ou PNG, e anexe o resultado.")
+    if mime == "image/svg+xml":
+        return b"", "", (
+            f"{rotulo} é um **SVG**, que é desenho vetorial e não foto. "
+            f"Exporte como PNG antes de anexar.")
+
+    if mime in _MIMES_ACEITOS:
+        # Formato aceito não é o mesmo que arquivo íntegro: download pela
+        # metade tem o cabeçalho certo e o corpo truncado.
+        try:
+            import io as _io_rev
+            from PIL import Image as _PILrev
+            _PILrev.open(_io_rev.BytesIO(dados)).verify()
+            return dados, "", ""
+        except Exception:
+            return b"", "", (
+                f"{rotulo} diz ser {nome_fmt} mas está corrompido ou veio pela "
+                f"metade. Baixe o arquivo de novo e anexe outra vez.")
+
+    prontos, novo_mime, _ = normalizar_imagem(dados)
+    if novo_mime in _MIMES_ACEITOS and prontos is not dados:
+        virou = NOME_FORMATO.get(novo_mime, novo_mime)
+        de = nome_fmt or "um formato incomum"
+        return prontos, f"{rotulo}: convertido de {de} para {virou}.", ""
+
+    if nome_fmt:
+        return b"", "", (
+            f"{rotulo} é um **{nome_fmt}**, e não consegui converter aqui. "
+            f"Abra a imagem e salve como **JPG** ou **PNG** antes de anexar.")
+    return b"", "", (
+        f"{rotulo} não é um arquivo de imagem que eu consiga ler — os "
+        f"primeiros bytes dele não batem com nenhum formato conhecido. "
+        f"Confira se o arquivo abre no seu computador; se abrir, salve como "
+        f"**JPG** ou **PNG** e anexe de novo.")
+
+
+def revisar_anexos(arquivos):
+    """([bytes prontos], [nomes], [avisos], [erros]) de uma lista de uploads.
+
+    Um arquivo ruim tira só ele da lista, não o lote: quem anexou cinco fotos e
+    errou uma não deve perder as outras quatro.
+
+    Os nomes saem junto e na MESMA ordem dos bytes. Quem chama precisa dos dois
+    lado a lado — a referência de layout casa com a peça pelo nome do arquivo —,
+    e reconstruir a lista de nomes do upload original desalinharia tudo a partir
+    do primeiro arquivo recusado.
+    """
+    prontos, nomes, avisos, erros = [], [], [], []
+    for arq in (arquivos or []):
+        dados = arq.getvalue() if hasattr(arq, "getvalue") else arq
+        nome = getattr(arq, "name", "")
+        ok, aviso, erro = revisar_arquivo(dados, nome)
+        if erro:
+            erros.append(erro)
+            continue
+        if aviso:
+            avisos.append(aviso)
+        prontos.append(ok)
+        nomes.append(nome)
+    return prontos, nomes, avisos, erros
+
+
+def mostrar_anexos(avisos, erros):
+    """Põe na tela o que a revisão achou. Chame logo depois de revisar_anexos."""
+    for e in erros:
+        st.error(f"❌ {e}")
+    for a in avisos:
+        st.caption(f"↻ {a}")
 
 
 # Limite de peso das plataformas de venda.
@@ -2524,7 +2661,12 @@ def pagina_imagem(usuario_logado):
             key="img_ajuste_upload",
             help="Suba a(s) imagem(ns) que deseja editar. Pode enviar mais de uma variante ao mesmo tempo.",
         )
-        fotos_bytes_ajuste = [f.getvalue() for f in fotos_ajuste_upload] if fotos_ajuste_upload else []
+        # Revisa ANTES de qualquer coisa: converte o que der, e tira da lista
+        # o que nao der, dizendo por que. Antes os bytes crus iam direto para o
+        # st.image logo abaixo, e um arquivo que o Pillow nao abre derrubava a
+        # pagina inteira com um traceback.
+        fotos_bytes_ajuste, _nm_aj, _av_aj, _er_aj = revisar_anexos(fotos_ajuste_upload)
+        mostrar_anexos(_av_aj, _er_aj)
 
         if fotos_bytes_ajuste:
             _cols_aj = st.columns(4)
@@ -2639,12 +2781,16 @@ def pagina_imagem(usuario_logado):
             accept_multiple_files=True,
             key="img_fotos_upload",
         )
-        fotos_bytes = [f.getvalue() for f in fotos_upload] if fotos_upload else []
+        fotos_bytes, _nomes_ft, _av_ft, _er_ft = revisar_anexos(fotos_upload)
+        mostrar_anexos(_av_ft, _er_ft)
 
         if fotos_bytes:
             LIMITE_MB = 10
+            # Pelos nomes que a revisao devolveu, e nao pelo upload original:
+            # com um arquivo recusado no meio, o indice do upload aponta para
+            # outra foto e o aviso acusa a errada.
             fotos_grandes = [
-                (fotos_upload[i].name, len(b) / 1_048_576)
+                (_nomes_ft[i], len(b) / 1_048_576)
                 for i, b in enumerate(fotos_bytes)
                 if len(b) > LIMITE_MB * 1_048_576
             ]
@@ -2685,8 +2831,9 @@ def pagina_imagem(usuario_logado):
             refs_layout_bytes = []
             refs_layout_nomes = []
             if refs_layout_upload:
-                refs_layout_bytes = [f.getvalue() for f in refs_layout_upload]
-                refs_layout_nomes = [f.name for f in refs_layout_upload]
+                (refs_layout_bytes, refs_layout_nomes,
+                 _av_rl, _er_rl) = revisar_anexos(refs_layout_upload)
+                mostrar_anexos(_av_rl, _er_rl)
                 # Sempre 4 colunas fixas — evita RemoveChild do React
                 _cols_rl = st.columns(4)
                 for _i, _rb in enumerate(refs_layout_bytes[:4]):
