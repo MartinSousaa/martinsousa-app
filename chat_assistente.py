@@ -363,6 +363,51 @@ REGRAS DOS COMANDOS:
   pedir "deixa a imagem 1 com fundo branco", só a imagem 1 muda — as outras ficam
   exatamente como estão. Na dúvida sobre qual imagem é, PERGUNTE o número antes de
   emitir o comando; nunca chute e nunca aplique a todas por precaução.
+
+  OLHE ANTES. Sempre. Chame `ver_imagem` na imagem citada ANTES de emitir o
+  comando — nesta conversa, para esta imagem, mesmo que você já a tenha visto
+  antes de um ajuste anterior (ela mudou desde então). Emitir o comando sem ter
+  olhado é proibido, e não tem exceção: "parece simples" e "ele foi claro" são
+  justamente os casos em que se erra.
+  O motivo: o colaborador descreve o que ELE está vendo. "Tira essa borda", "o
+  produto ficou pequeno", "a cor está errada" só querem dizer alguma coisa para
+  quem olhou. Sem olhar você não sabe se existe borda, de que lado, quanto ela
+  ocupa, quão pequeno é "pequeno", nem qual cor está errada.
+
+  DEPOIS DE OLHAR, faça três coisas, nesta ordem:
+
+  1. Diga numa linha o que você viu e vai mudar, com número: "Vi uma faixa
+     branca de uns 15% na base da imagem 3 — é essa que sai?". É assim que o
+     colaborador descobre que vocês falam da mesma coisa ANTES de gastar a
+     rodada, e não depois.
+
+  2. Escreva a instrução do comando para o GERADOR, não para o colaborador. Ela
+     descreve o ESTADO FINAL da imagem, sempre no positivo, com referência
+     espacial e proporção. Nunca repita as palavras dele como instrução — a
+     instrução é a sua tradução do que você viu com o que ele quer.
+       ele diz              você escreve
+       "tira a borda"       "produto preenchendo todo o quadro, fundo branco
+                            contínuo até o limite do arquivo, sem faixa nem
+                            moldura em nenhuma das quatro bordas"
+       "produto pequeno"    "produto ocupando cerca de 85% da altura do quadro,
+                            centralizado"
+       "cor errada"         "a alça do produto em azul-marinho, igual à foto de
+                            referência; o corpo permanece branco"
+     INSTRUÇÃO NEGATIVA NÃO FUNCIONA em geração de imagem: "sem borda", "não
+     coloque texto", "tire a sombra" são pedidos que o modelo tende a ignorar,
+     porque para atendê-los ele precisa primeiro imaginar a coisa. Diga o que
+     DEVE existir, nunca o que não deve.
+
+  3. Se depois de olhar ainda restarem duas leituras possíveis, PERGUNTE — com
+     as opções que você viu, não em aberto: "vi uma faixa branca na base e uma
+     sombra à direita; qual das duas?". Perguntar custa uma mensagem. Errar
+     custa a rodada inteira, e o colaborador tem que pedir de novo.
+
+  O QUE VOLTA: o ajuste é conferido automaticamente — a imagem antes e depois
+  são comparadas com o pedido. Você recebe o veredito na tela. Se disser que
+  não saiu, NÃO diga "pronto": diga o que faltou e proponha outra formulação.
+  Você nunca sabe que um ajuste deu certo por ter enviado o comando; só por ter
+  olhado o resultado ou lido o veredito.
 - "gerar_imagens_faltantes": quando faltarem tipos do padrão na galeria e o
   colaborador pedir para completar ("faltam 2 imagens", "gera as que faltam").
   NÃO mande ele fazer o processo na aba Imagem — o comando faz isso. As imagens
@@ -632,6 +677,9 @@ def _chamar_ia(historico: list, mensagem_usuario: str, imagens_bytes: list = Non
             if resp.stop_reason != "tool_use" or not usos or not _fer:
                 break
             msgs.append({"role": "assistant", "content": resp.content})
+            # O resultado pode vir texto OU blocos de conteudo — `ver_imagem`
+            # devolve a imagem de verdade, para o assistente OLHAR. Os dois
+            # cabem no mesmo campo `content` do tool_result.
             msgs.append({"role": "user", "content": [
                 {"type": "tool_result", "tool_use_id": u.id,
                  "content": _fer.executar(u.name, u.input, eh_admin)}

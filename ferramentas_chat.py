@@ -66,6 +66,34 @@ FERRAMENTAS = [
         },
     },
     {
+        "name": "ver_imagem",
+        "description": (
+            "ABRE E OLHA uma imagem da galeria. Devolve a imagem de verdade, "
+            "não uma descrição dela.\n\n"
+            "USE SEMPRE, SEM EXCEÇÃO, antes de mandar qualquer comando de "
+            "ajuste de imagem. O colaborador fala do que ele está vendo — "
+            "'tira essa borda', 'o produto está pequeno', 'a cor ficou errada' "
+            "— e sem olhar você não tem como saber a qual borda ele se refere, "
+            "quão pequeno o produto está, nem qual cor está errada. Mandar o "
+            "comando sem ter olhado é adivinhar, e é isso que faz a correção "
+            "sair errada e o colaborador ter que pedir de novo.\n\n"
+            "Use também quando ele perguntar o que tem numa imagem, pedir "
+            "opinião sobre ela, ou quando você precisar conferir se um ajuste "
+            "que já foi feito resolveu."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "numero": {
+                    "type": "integer",
+                    "description": "O número da imagem na galeria, como "
+                                   "aparece na legenda da tela. Começa em 1.",
+                }
+            },
+            "required": ["numero"],
+        },
+    },
+    {
         "name": "ler_financeiro",
         "description": (
             "LPV vigente (custo fixo por venda), alíquota, de que mês veio o LPV "
@@ -258,6 +286,62 @@ def _ler_colunas_trello():
     return "\n".join(linhas)
 
 
+def _ver_imagem(numero):
+    """A imagem em si, para o modelo olhar. Texto quando não dá para mostrar.
+
+    Devolve a lista de blocos de conteúdo que a API espera dentro de um
+    tool_result — com o bloco de imagem, e não uma descrição dela. É a
+    diferença entre o assistente saber o que está na tela do colaborador e
+    supor a partir do rótulo "Imagem 3: Close do produto".
+
+    Sem isto ele recebia do contexto apenas a lista de títulos. Quando alguém
+    dizia "tira a borda branca da 3", ele repassava a frase adiante sem ter
+    como saber se existe borda, onde ela está, ou quanto ocupa — e um pedido
+    vago repassado como vago volta como ajuste errado.
+    """
+    import base64 as _b64
+    s = st.session_state
+    galeria = s.get("img_galeria") or []
+    if not galeria:
+        return "Não há imagens geradas nesta sessão para olhar."
+    try:
+        n = int(numero)
+    except (TypeError, ValueError):
+        return "Diga o número da imagem, como aparece na legenda da galeria."
+    if n < 1 or n > len(galeria):
+        return (f"A galeria tem {len(galeria)} imagem(ns), numeradas de 1 a "
+                f"{len(galeria)}. Não existe imagem {n}.")
+
+    item = galeria[n - 1] or {}
+    dados = item.get("bytes")
+    if not dados:
+        return f"A imagem {n} está na galeria mas sem conteúdo para abrir."
+
+    # A API recusa formato que ela nao le. Normalizar aqui evita que o
+    # assistente fique cego justamente na imagem que precisa de conserto.
+    try:
+        import imagem as _img
+        dados, mime, _ = _img.normalizar_imagem(dados)
+        if mime not in ("image/png", "image/jpeg", "image/webp", "image/gif"):
+            return (f"A imagem {n} está num formato que não consigo abrir "
+                    f"({mime}).")
+    except Exception:
+        mime = "image/png"
+
+    # 5 MB e o teto por imagem na API; acima disso a chamada inteira falha.
+    if len(dados) > 4_500_000:
+        return (f"A imagem {n} é grande demais para eu abrir "
+                f"({len(dados)/1_048_576:.1f} MB).")
+
+    return [
+        {"type": "text",
+         "text": f"Imagem {n} da galeria — {item.get('tipo', 'sem tipo')}:"},
+        {"type": "image",
+         "source": {"type": "base64", "media_type": mime,
+                    "data": _b64.b64encode(dados).decode()}},
+    ]
+
+
 _SO_ADMIN = {"ler_financeiro", "ler_painel_metas", "ler_equipe", "ler_colunas_trello"}
 
 
@@ -269,7 +353,11 @@ def para_o_modelo(eh_admin=False):
 
 
 def executar(nome, entrada, eh_admin=False):
-    """Roda uma ferramenta. Devolve sempre texto — nunca levanta."""
+    """Roda uma ferramenta. Nunca levanta.
+
+    Devolve texto, ou — no caso de `ver_imagem` — a lista de blocos de conteúdo
+    com a imagem dentro. Quem chama repassa o que vier para o tool_result.
+    """
     entrada = entrada or {}
     if nome in _SO_ADMIN and not eh_admin:
         return ("Esse dado é da área de Gestão e este usuário não tem perfil de "
@@ -287,6 +375,8 @@ def executar(nome, entrada, eh_admin=False):
             return _ler_equipe()
         if nome == "ler_colunas_trello":
             return _ler_colunas_trello()
+        if nome == "ver_imagem":
+            return _ver_imagem(entrada.get("numero"))
     except Exception as e:
         return f"A consulta '{nome}' falhou: {e}"
     return f"Ferramenta desconhecida: {nome}"
