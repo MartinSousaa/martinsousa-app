@@ -3702,10 +3702,14 @@ def pagina_imagem(usuario_logado):
                 msgs_result.append(relato_em_texto(num_foto, _relato))
                 _resultado_log = ("ok" if _relato.get("ok") else
                                   f"nao confirmado: {_relato.get('falta') or _relato.get('erro','')}"[:120])
-                if nova_img:
+                # `nova_img` volta preenchida mesmo quando o ajuste FALHOU —
+                # nesse caso ela e a imagem original, devolvida intacta. Dizer
+                # "atualizada" aqui contradizia o proprio relato duas linhas
+                # acima, e era o "✅" que o colaborador lia enquanto a imagem
+                # continuava errada.
+                if nova_img and _relato.get("ok") is not False:
                     st.session_state["img_galeria"][idx_alvo]["bytes"] = nova_img
                     _mudou = True
-                    msgs_result.append(f"✅ Imagem {num_foto} ({tipo_alvo[:25]}) atualizada pelo Assistente IA.")
                     _resultado_log = "imagem atualizada"
                 try:
                     import log_imagem
@@ -3718,6 +3722,24 @@ def pagina_imagem(usuario_logado):
             # sucesso aparece — que era exatamente o sintoma: "diz que corrige,
             # mas a imagem permanece a mesma". As correcoes feitas pelos paineis
             # manuais ja faziam st.rerun(); a do Assistente IA nao fazia.
+            # O veredito volta para a CONVERSA, e nao so para esta aba.
+            #
+            # Sem isto o assistente mandava o comando e nunca ficava sabendo no
+            # que deu: na mensagem seguinte ele falava como se tivesse dado
+            # certo, porque para ele a historia terminava no envio. Agora a
+            # ultima coisa que ele leu sobre aquela imagem e o resultado real —
+            # e a instrucao dele diz para nao chamar de pronto o que o veredito
+            # nao confirmou.
+            if msgs_result:
+                try:
+                    _hist_chat = st.session_state.get("ms_chat_hist")
+                    if _hist_chat is not None:
+                        _hist_chat.append({
+                            "role": "assistant",
+                            "content": "**Resultado do ajuste, conferido na "
+                                       "imagem:**\n\n" + "\n\n".join(msgs_result)})
+                except Exception:
+                    pass
             if _mudou:
                 st.session_state["chat_img_msgs"] = msgs_result
                 st.rerun()
