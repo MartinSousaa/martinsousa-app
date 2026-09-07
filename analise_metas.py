@@ -4941,9 +4941,10 @@ def pagina_pedir_abono(usuario_logado):
     lê a planilha de metas — só a aba de abonos. É a página mais barata do
     Studio, e é a que mais gente precisa abrir.
 
-    Para o gestor a mesma tela mostra o outro lado: a fila do que está
-    esperando decisão. Pedir e decidir são o mesmo assunto, e assunto que se
-    parte em dois lugares é assunto que fica sem dono.
+    Para o gestor a tela e a outra metade do mesmo assunto: a fila do que o
+    time enviou, esperando decisao. Ele nao pede abono — ele decide —, entao
+    nao ha formulario de pedido na tela dele. Formulario errado na frente e a
+    ferramenta certa escondida atras.
     """
     _LOGIN = {
         "Myrella": "myrelladesouza", "Beatriz": "beatriz51",
@@ -4952,37 +4953,43 @@ def pagina_pedir_abono(usuario_logado):
     _username = _LOGIN.get(usuario_logado, usuario_logado.lower())
     _nome = _pc.MEMBROS_ATIVOS.get(_username, usuario_logado)
 
-    st.subheader("🙋 Solicitação de Abono")
-    st.caption(
-        "Trabalhou e o sistema não viu? Aconteceu de esquecer a etiqueta "
-        "**FILMAGEM**, de fazer a análise de demanda sem abrir o cartão, de "
-        "executar uma tarefa sem cartão nenhum. Diga o horário e o que você "
-        "fez — o gestor aprova, ajusta ou recusa. Aprovado, esse tempo sai da "
-        "sua **ociosidade**, do seu **tempo de execução** e do **atraso**."
-    )
-    st.markdown("---")
-
     try:
         import auth as _auth_ab
         _gestor = _auth_ab.eh_gestor(usuario_logado)
     except Exception:
         _gestor = False
 
+    # O titulo diz o que a pessoa veio fazer aqui, e nao a mesma frase para
+    # quem pede e para quem decide.
     if _gestor:
-        _t_pedir, _t_fila = st.tabs(["🙋 Meu pedido", "⏳ Fila para decidir"])
-        with _t_pedir:
-            _secao_pedido_abatimento(_username, _nome,
-                                     _username in _pc.MEMBROS_ATIVOS,
-                                     cabecalho=False)
-        with _t_fila:
-            # A fila mora no Ponto, onde o gestor confere horário. Aqui é a
-            # mesma fila, não uma cópia dela: duas telas que decidem a mesma
-            # coisa por caminhos diferentes viram duas decisões diferentes.
-            try:
-                import relogio_ponto as _rp
-                _rp._secao_abatimentos(usuario_logado)
-            except Exception as _e:
-                st.warning(f"Não consegui abrir a fila: {str(_e)[:150]}")
+        # Sem legenda aqui: a propria fila ja abre com a dela, e duas frases
+        # dizendo a mesma coisa em sequencia so empurram a fila para baixo.
+        st.subheader("🙋 Abonos da Equipe")
+    else:
+        st.subheader("🙋 Solicitação de Abono")
+        st.caption(
+            "Trabalhou e o sistema não viu? Aconteceu de esquecer a etiqueta "
+            "**FILMAGEM**, de fazer a análise de demanda sem abrir o cartão, "
+            "de executar uma tarefa sem cartão nenhum. Diga o horário e o que "
+            "você fez — o gestor aprova, ajusta ou recusa. Aprovado, esse "
+            "tempo sai da sua **ociosidade**, do seu **tempo de execução** e "
+            "do **atraso**."
+        )
+    st.markdown("---")
+
+    if _gestor:
+        # Gestor nao pede abono: ele decide. A tela dele e a fila da equipe.
+        # Mostrar um formulario de pedido para quem aprova pedidos e oferecer a
+        # ferramenta errada — e, pior, esconder a certa atras dela.
+        #
+        # A fila mora no Ponto, onde ele confere horario. Aqui e a MESMA fila,
+        # chamada de la, nao uma copia: duas telas que decidem a mesma coisa
+        # por caminhos diferentes viram duas decisoes diferentes.
+        try:
+            import relogio_ponto as _rp
+            _rp._secao_abatimentos(usuario_logado)
+        except Exception as _e:
+            st.warning(f"Não consegui abrir a fila: {str(_e)[:150]}")
     else:
         _secao_pedido_abatimento(_username, _nome,
                                  _username in _pc.MEMBROS_ATIVOS,
@@ -6651,7 +6658,10 @@ def pagina_analise_metas(usuario_logado):
     # Analise de Metas > Desempenho > escolher "Analise individual" > Pesquisar
     # > rolar ate o fim: cinco passos, e o colaborador nao achava. Um campo que
     # so quem construiu sabe encontrar nao existe para quem precisa dele.
-    _ABAS = ["📋 Coletivo", "🎯 Individual", "📈 Desempenho", "🙋 Pedir abatimento"]
+    # O rotulo da 4a aba muda com quem esta olhando: o colaborador PEDE abono,
+    # o gestor DECIDE os que chegaram. Mesma aba, lados opostos do balcao.
+    _ABAS = ["📋 Coletivo", "🎯 Individual", "📈 Desempenho",
+             "🙋 Abonos da equipe" if _eh_master else "🙋 Pedir abatimento"]
     if _eh_master:
         # Comparar pessoas e conversa de gestor. A tela mostra o desempenho de
         # todos lado a lado, e quem nao gerencia nao tem o que fazer com isso.
@@ -6783,9 +6793,9 @@ def pagina_analise_metas(usuario_logado):
             st.info("Selecione um colaborador para ver o desempenho individual.")
 
     elif _aba_sel == _ABAS[3]:
-        _nome_ab = _pc.MEMBROS_ATIVOS.get(_username_atual, _username_atual)
-        _secao_pedido_abatimento(_username_atual, _nome_ab,
-                                 _username_atual in _pc.MEMBROS_ATIVOS)
+        # A mesma tela do topico "🙋 Abono" da barra principal, para nao haver
+        # duas versoes da mesma coisa se afastando uma da outra.
+        pagina_pedir_abono(usuario_logado)
 
     elif len(_ABAS) > 4 and _aba_sel == _ABAS[4]:
         if _eh_master:
