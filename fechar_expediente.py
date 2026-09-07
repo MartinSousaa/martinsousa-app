@@ -41,21 +41,36 @@ SECRETS = ".streamlit/secrets.toml"
 
 
 def _preparar_secrets():
-    """Escreve o secrets.toml a partir do ambiente, se ele ainda não existir.
+    """Escreve o secrets.toml a partir do ambiente. Devolve True se deu.
 
     Quem faz isso na aplicação web é o Procfile — e o Procfile NÃO roda numa
     tarefa agendada. Sem este passo o script sobe sem credencial nenhuma e
     morre no primeiro acesso ao Trello, com um erro que não diz o que faltou.
 
+    Antes isto saía cedo com um `if os.path.exists(SECRETS)`, e foi assim que a
+    tarefa parou: um secrets.toml de rascunho, com o bloco [trello] pela metade,
+    entrou no repositório por engano. No container ele já existia, então o
+    arquivo de verdade nunca era escrito, `st.secrets["trello"]["api_key"]`
+    estourava, TRELLO_KEY ficava vazio e o Trello era acusado de não ter uma
+    etiqueta que tem.
+
+    Arquivo existente não é mais garantia de arquivo certo: com a variável de
+    ambiente em mãos, ela manda — é a mesma coisa que o Procfile faz na web,
+    reescrevendo sem perguntar. Sem a variável, o que estiver em disco fica,
+    que é o caso do desenvolvimento local.
+
     A ordem importa: PLANILHA_ID vai ANTES do bloco de segredos porque, em TOML,
     chave solta escrita depois de um cabeçalho [secao] pertence àquela seção.
     """
-    if os.path.exists(SECRETS):
-        return True
     bloco = os.environ.get("STREAMLIT_SECRETS", "")
     if not bloco.strip():
+        if os.path.exists(SECRETS):
+            _log("STREAMLIT_SECRETS não está definida; usando o secrets.toml "
+                 "que já está em disco.")
+            return True
         _log("ABORTADO: a variável STREAMLIT_SECRETS não está definida neste "
-             "serviço. Copie-a do serviço de produção.")
+             "serviço, e não há secrets.toml em disco. Copie a variável do "
+             "serviço de produção.")
         return False
     os.makedirs(os.path.dirname(SECRETS), exist_ok=True)
     pid = (os.environ.get("PLANILHA_ID") or "").strip()
@@ -65,6 +80,9 @@ def _preparar_secrets():
         fh.write(bloco)
     _log(f"secrets.toml montado a partir do ambiente"
          + (" (com PLANILHA_ID)" if pid else ""))
+    if "[trello]" not in bloco:
+        _log("ATENÇÃO: o STREAMLIT_SECRETS deste serviço não tem o bloco "
+             "[trello]. Sem ele não há como ler nem escrever no board.")
     return True
 
 
