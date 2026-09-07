@@ -1882,6 +1882,224 @@ Trate qualquer elemento que não foi mencionado na instrução como intocável.
 
 # ── GOOGLE DRIVE — GESTÃO DE PASTAS ───────────────────────────────────────────
 
+# ── CONFERÊNCIA DO AJUSTE — o passo que faltava ──────────────────────────────
+#
+# O caminho do ajuste era: instrução -> prompt -> gera -> salva na galeria.
+# Entre "gera" e "salva" não havia nada. Ninguém — nem o modelo, nem o
+# assistente do chat — comparava o que saiu com o que foi pedido, e o
+# assistente respondia "instrução enviada" como se fosse "pronto", quando ele
+# literalmente não tinha como saber. O erro só aparecia quando o colaborador
+# abria o arquivo, e a rodada inteira estava perdida.
+#
+# Com o ChatGPT o colaborador cola a imagem, o modelo OLHA, ele corrige, o
+# modelo olha de novo. Ciclo fechado. A diferença nunca foi de compreensão da
+# linguagem: era que um lado tem olhos e o outro não.
+#
+# Aqui o antes e o depois vão juntos para um modelo com visão, com o pedido
+# original, e a pergunta é dupla de propósito:
+#
+#   foi feito?      — o que a pessoa pediu aconteceu de verdade?
+#   mudou mais?     — o ajuste fino promete não mexer em nada além do pedido, e
+#                     essa promessa nunca era verificada. Regerar o produto
+#                     inteiro para trocar uma cor de fundo é falha, mesmo com a
+#                     cor certa.
+
+MODELO_CONFERENCIA = "claude-opus-5"
+
+_ESQUEMA_CONFERENCIA = {
+    "type": "object",
+    "properties": {
+        "feito": {
+            "type": "boolean",
+            "description": "true apenas se a mudança pedida está claramente "
+                           "visível na imagem DEPOIS.",
+        },
+        "o_que_saiu": {
+            "type": "string",
+            "description": "Em uma frase, o que de fato mudou entre ANTES e "
+                           "DEPOIS, em português do Brasil.",
+        },
+        "o_que_falta": {
+            "type": "string",
+            "description": "Se feito=false, o que ainda precisa acontecer, em "
+                           "português do Brasil e em linguagem de instrução "
+                           "para o gerador. Vazio se feito=true.",
+        },
+        "colateral": {
+            "type": "string",
+            "description": "O que mudou SEM ter sido pedido (produto, "
+                           "enquadramento, cores, texto). Vazio se nada além "
+                           "do pedido mudou.",
+        },
+    },
+    "required": ["feito", "o_que_saiu", "o_que_falta", "colateral"],
+    "additionalProperties": False,
+}
+
+
+def _bloco_imagem(img_bytes):
+    return {"type": "image",
+            "source": {"type": "base64",
+                       "media_type": _detectar_mime(img_bytes),
+                       "data": base64.b64encode(img_bytes).decode("utf-8")}}
+
+
+def conferir_ajuste(antes, depois, instrucao):
+    """A mudança pedida aconteceu? Devolve (veredito, erro).
+
+    `veredito` é o dicionário do esquema acima; `erro` é texto quando não deu
+    para conferir. Os dois nunca vêm preenchidos juntos.
+
+    Falha de conferência NÃO é falha do ajuste: sem chave, sem rede ou com a
+    API fora do ar, quem chama segue com a imagem que tem. O que não pode
+    acontecer é o contrário — dizer "conferido" sem ter conferido, que é
+    exatamente o hábito que esta função existe para quebrar.
+    """
+    api_key = (st.secrets.get("ANTHROPIC_API_KEY", "")
+               or os.environ.get("ANTHROPIC_API_KEY", ""))
+    if not api_key:
+        return None, "ANTHROPIC_API_KEY não configurada."
+    if not antes or not depois:
+        return None, "Faltou a imagem de antes ou a de depois."
+
+    conteudo = [
+        {"type": "text", "text": "IMAGEM ANTES (a que existia):"},
+        _bloco_imagem(antes),
+        {"type": "text", "text": "IMAGEM DEPOIS (a que o gerador devolveu):"},
+        _bloco_imagem(depois),
+        {"type": "text", "text": (
+            "Um colaborador pediu esta alteração, em português do Brasil:\n\n"
+            f"\"{instrucao.strip()}\"\n\n"
+            "Compare as duas imagens e responda duas coisas.\n\n"
+            "1. A alteração pedida aconteceu? Julgue SÓ o que foi pedido. "
+            "Seja rigoroso: mudança parcial, ou que só se percebe procurando, "
+            "conta como NÃO feita. Se o pedido foi 'sem borda' e ainda há "
+            "borda, é não. Se foi 'produto maior' e ele cresceu de forma "
+            "imperceptível, é não.\n\n"
+            "2. Mudou alguma coisa que NÃO foi pedida? Este é um modo de "
+            "edição cirúrgica: o produto, o enquadramento, as cores, o texto e "
+            "o fundo deviam continuar idênticos, exceto no ponto pedido. "
+            "Produto redesenhado, objeto que apareceu ou sumiu, cena "
+            "recomposta, texto reescrito — tudo isso é alteração colateral, e "
+            "vale reportar mesmo que o pedido tenha sido atendido.\n\n"
+            "Escreva em português do Brasil, direto, sem elogio e sem rodeio. "
+            "O texto de 'o_que_falta' vai ser usado como instrução para o "
+            "gerador tentar de novo, então escreva o que ELE deve fazer — e "
+            "positivamente, dizendo o que deve existir, nunca o que não deve: "
+            "instrução negativa é ignorada por gerador de imagem."
+        )},
+    ]
+
+    try:
+        cliente = anthropic.Anthropic(api_key=api_key)
+        resposta = cliente.messages.create(
+            model=MODELO_CONFERENCIA,
+            max_tokens=2000,
+            thinking={"type": "adaptive"},
+            output_config={"effort": "medium",
+                           "format": {"type": "json_schema",
+                                      "schema": _ESQUEMA_CONFERENCIA}},
+            messages=[{"role": "user", "content": conteudo}],
+        )
+        if resposta.stop_reason == "refusal":
+            return None, "A conferência foi recusada pelo modelo."
+        texto = next(b.text for b in resposta.content if b.type == "text")
+        return json.loads(texto), ""
+    except Exception as e:
+        return None, f"{type(e).__name__}: {str(e)[:160]}"
+
+
+def ajustar_com_conferencia(imagem, instrucao, tipo=None, tentativas=2,
+                            aviso=None):
+    """Ajusta, confere e — se não saiu — tenta de novo com a crítica na mão.
+
+    Devolve (bytes_finais, relato). `relato` é o que se conta ao colaborador:
+    o que foi feito, o que não foi, e o que mudou sem ter sido pedido. Ele
+    nunca mente por omissão — quando as tentativas acabam sem sucesso, a
+    imagem volta assim mesmo, com o relato dizendo o que falta.
+
+    Entregar errado calado é o que estava travando o processo. Entregar errado
+    dizendo o que faltou é uma rodada perdida; entregar errado em silêncio são
+    três, mais a ida da equipe para o ChatGPT.
+
+    `aviso` é uma função de um argumento para mostrar progresso na tela.
+    """
+    def _diz(txt):
+        if aviso:
+            try:
+                aviso(txt)
+            except Exception:
+                pass
+
+    atual = imagem
+    pedido = instrucao
+    historico = []
+
+    for n in range(1, max(1, tentativas) + 1):
+        _diz(f"Ajustando (tentativa {n} de {tentativas})…")
+        nova, erro = gerar_imagem_ia(montar_prompt_ajuste_fino(pedido, tipo),
+                                     [atual], tipo=tipo or "")
+        if erro or not nova:
+            return atual, {"ok": False, "tentativas": n,
+                           "erro": erro or "o gerador não devolveu imagem.",
+                           "falta": "", "colateral": "", "historico": historico}
+
+        _diz(f"Conferindo o resultado (tentativa {n})…")
+        veredito, erro_conf = conferir_ajuste(atual, nova, instrucao)
+
+        # Sem conferência, a imagem nova vale — ela pode estar certa, e
+        # descartá-la por causa de uma falha nossa seria pior. Mas o relato diz
+        # que ninguém olhou, para o colaborador saber que precisa olhar.
+        if erro_conf:
+            return nova, {"ok": None, "tentativas": n, "erro": erro_conf,
+                          "falta": "", "colateral": "", "historico": historico}
+
+        historico.append(veredito)
+        if veredito.get("feito"):
+            return nova, {"ok": True, "tentativas": n, "erro": "",
+                          "falta": "", "saiu": veredito.get("o_que_saiu", ""),
+                          "colateral": veredito.get("colateral", ""),
+                          "historico": historico}
+
+        # Nao saiu. A critica vira a instrucao da proxima tentativa — e a
+        # partir da imagem ORIGINAL, nao da tentativa falha: encadear falha
+        # sobre falha afasta o resultado do produto a cada rodada.
+        falta = (veredito.get("o_que_falta") or "").strip()
+        pedido = (f"{instrucao.strip()}\n\n"
+                  f"A tentativa anterior não conseguiu. O que ainda precisa "
+                  f"acontecer: {falta}") if falta else instrucao
+
+    ultimo = historico[-1] if historico else {}
+    return atual, {"ok": False, "tentativas": tentativas, "erro": "",
+                   "falta": (ultimo.get("o_que_falta") or "").strip(),
+                   "saiu": ultimo.get("o_que_saiu", ""),
+                   "colateral": (ultimo.get("colateral") or "").strip(),
+                   "historico": historico}
+
+
+def relato_em_texto(num, relato):
+    """A linha que o colaborador lê. Nunca diz "pronto" sem ter conferido."""
+    if relato.get("erro") and relato.get("ok") is False:
+        return f"⚠️ Imagem {num}: não consegui gerar — {relato['erro']}"
+    if relato.get("ok") is None:
+        return (f"⚠️ Imagem {num}: ajuste aplicado, mas **não consegui "
+                f"conferir** o resultado ({relato.get('erro','')}). "
+                f"Confira você antes de usar.")
+    colateral = (relato.get("colateral") or "").strip()
+    if relato.get("ok"):
+        txt = f"✅ Imagem {num}: {relato.get('saiu') or 'ajuste aplicado'}"
+        if relato["tentativas"] > 1:
+            txt += f" (na {relato['tentativas']}ª tentativa)"
+        if colateral:
+            txt += f"\n   ⚠️ Mudou também, sem ter sido pedido: {colateral}"
+        return txt
+    falta = relato.get("falta") or "a alteração pedida não apareceu"
+    return (f"❌ Imagem {num}: **não consegui fazer** em "
+            f"{relato['tentativas']} tentativa(s). Falta: {falta}\n"
+            f"   A imagem ficou como estava. Tente descrever de outro jeito, "
+            f"dizendo o que DEVE existir em vez do que não deve.")
+
+
 def _drive_service():
     """Mantido por compatibilidade — delega para o módulo gdrive."""
     import gdrive
@@ -2342,28 +2560,45 @@ def pagina_imagem(usuario_logado):
 
             import time as _time_af
             import threading as _threading_af
-            prompt_af = montar_prompt_ajuste_fino(instrucao_ajuste.strip())
-            _res_af = {"img": None, "erro": None, "done": False}
-            _threading_af.Thread(
-                target=_gerar_imagem_thread,
-                args=(prompt_af, fotos_bytes_ajuste, _res_af),
-                daemon=True,
-            ).start()
+            _res_af = {"img": None, "relato": None, "done": False}
+
+            def _rodar_af(_ref=fotos_bytes_ajuste[0], _ins=instrucao_ajuste.strip(),
+                          _r=_res_af):
+                try:
+                    _r["img"], _r["relato"] = ajustar_com_conferencia(
+                        _ref, _ins, aviso=lambda t: _r.__setitem__("fase", t))
+                except Exception as _e:
+                    _r["img"], _r["relato"] = None, {
+                        "ok": False, "tentativas": 0, "erro": str(_e)[:160],
+                        "falta": "", "colateral": ""}
+                finally:
+                    _r["done"] = True
+
+            _threading_af.Thread(target=_rodar_af, daemon=True).start()
             _barra_af = st.progress(0.0, text="Aplicando ajuste fino...")
             _t0_af = _time_af.time()
             while not _res_af["done"]:
                 _seg_af = int(_time_af.time() - _t0_af)
-                if _seg_af >= 300:
-                    _res_af["erro"] = "Tempo limite de 5 min atingido. Tente novamente."
+                if _seg_af >= 600:
+                    _res_af["relato"] = {
+                        "ok": False, "tentativas": 0, "falta": "",
+                        "colateral": "",
+                        "erro": "tempo limite de 10 min atingido."}
                     _res_af["done"] = True
                     break
-                _barra_af.progress(min(0.9, _seg_af / 60), text=f"Aplicando ajuste fino... ({_seg_af}s)")
+                _barra_af.progress(
+                    min(0.9, _seg_af / 120),
+                    text=(f"{_res_af.get('fase') or 'Aplicando ajuste fino'}… "
+                          f"({_seg_af}s)"))
                 _time_af.sleep(1)
             _barra_af.progress(1.0, text="Concluído!")
-            img_bytes_af, erro_af = _res_af["img"], _res_af["erro"]
+            img_bytes_af = _res_af["img"]
+            _rel_af = _res_af["relato"] or {"ok": None, "tentativas": 0,
+                                            "erro": "sem relato", "falta": "",
+                                            "colateral": ""}
 
-            if erro_af:
-                st.error(f"❌ Erro ao aplicar ajuste: {erro_af}")
+            if not img_bytes_af:
+                st.error(f"❌ {relato_em_texto(1, _rel_af)}")
             else:
                 galeria_atual = st.session_state.get("img_galeria", [])
                 galeria_atual.append({
@@ -2372,6 +2607,10 @@ def pagina_imagem(usuario_logado):
                     "aprovado": False,
                 })
                 st.session_state["img_galeria"] = galeria_atual
+                # O veredito viaja com o indice da imagem nova, para aparecer
+                # ao lado dela na galeria depois do rerun.
+                st.session_state["img_af_relato"] = (len(galeria_atual) - 1,
+                                                     _rel_af)
                 st.session_state["img_nome_produto"] = nome_produto or "produto-ajustado"
                 st.session_state["img_codigo"] = codigo_input
                 st.session_state["img_fotos_originais"] = fotos_bytes_ajuste
@@ -3157,6 +3396,18 @@ def pagina_imagem(usuario_logado):
                 height=120,
                 key=f"img_af_gal_{idx_ativo}",
             )
+            # O que a conferencia achou da ultima tentativa nesta imagem.
+            # Fica aqui, colado no botao, e nao numa mensagem que passa.
+            _rel_ant = st.session_state.get("img_af_relato")
+            if _rel_ant and _rel_ant[0] == idx_ativo:
+                _txt_ant = relato_em_texto(idx_ativo + 1, _rel_ant[1])
+                if _rel_ant[1].get("ok"):
+                    st.success(_txt_ant)
+                elif _rel_ant[1].get("ok") is None:
+                    st.warning(_txt_ant)
+                else:
+                    st.error(_txt_ant)
+
             if st.button(
                 "✏️ Aplicar Ajuste Fino nesta imagem",
                 key=f"img_af_btn_{idx_ativo}",
@@ -3167,34 +3418,58 @@ def pagina_imagem(usuario_logado):
                 if not instrucao_af_gal.strip():
                     st.warning("Descreva o que deseja modificar.")
                 else:
-                    # Usa a imagem ATUAL da galeria como referência para o ajuste
+                    # Usa a imagem ATUAL da galeria como referência para o
+                    # ajuste — e confere o resultado antes de devolver.
                     import time as _time_afg
                     import threading as _threading_afg
-                    prompt_af_gal = montar_prompt_ajuste_fino(
-                        instrucao_af_gal.strip(), galeria[idx_ativo].get("tipo"))
-                    _res_afg = {"img": None, "erro": None, "done": False}
-                    _threading_afg.Thread(
-                        target=_gerar_imagem_thread,
-                        args=(prompt_af_gal, [imagem_ativa], _res_afg),
-                        daemon=True,
-                    ).start()
+                    _res_afg = {"img": None, "relato": None, "done": False}
+
+                    def _rodar_afg(_ref=imagem_ativa,
+                                   _ins=instrucao_af_gal.strip(),
+                                   _tp=galeria[idx_ativo].get("tipo"),
+                                   _r=_res_afg):
+                        try:
+                            _r["img"], _r["relato"] = ajustar_com_conferencia(
+                                _ref, _ins, tipo=_tp,
+                                aviso=lambda t: _r.__setitem__("fase", t))
+                        except Exception as _e:
+                            _r["img"], _r["relato"] = None, {
+                                "ok": False, "tentativas": 0,
+                                "erro": str(_e)[:160], "falta": "",
+                                "colateral": ""}
+                        finally:
+                            _r["done"] = True
+
+                    _threading_afg.Thread(target=_rodar_afg, daemon=True).start()
                     _barra_afg = st.progress(0.0, text="Aplicando ajuste fino...")
                     _t0_afg = _time_afg.time()
                     while not _res_afg["done"]:
                         _seg_afg = int(_time_afg.time() - _t0_afg)
-                        if _seg_afg >= 300:
-                            _res_afg["erro"] = "Tempo limite de 5 min atingido. Tente novamente."
+                        if _seg_afg >= 600:
+                            _res_afg["relato"] = {
+                                "ok": False, "tentativas": 0, "falta": "",
+                                "colateral": "",
+                                "erro": "tempo limite de 10 min atingido."}
                             _res_afg["done"] = True
                             break
-                        _barra_afg.progress(min(0.9, _seg_afg / 60), text=f"Aplicando ajuste fino... ({_seg_afg}s)")
+                        _barra_afg.progress(
+                            min(0.9, _seg_afg / 120),
+                            text=(f"{_res_afg.get('fase') or 'Aplicando ajuste fino'}… "
+                                  f"({_seg_afg}s)"))
                         _time_afg.sleep(1)
                     _barra_afg.progress(1.0, text="Concluído!")
-                    nova_img_af, err_af_gal = _res_afg["img"], _res_afg["erro"]
-                    if err_af_gal:
-                        st.error(f"❌ Erro: {err_af_gal}")
-                    else:
+                    nova_img_af = _res_afg["img"]
+                    _rel_afg = _res_afg["relato"] or {
+                        "ok": None, "tentativas": 0, "erro": "sem relato",
+                        "falta": "", "colateral": ""}
+                    # O veredito fica guardado para aparecer DEPOIS do rerun,
+                    # ao lado da imagem: dito antes, some junto com a tela.
+                    st.session_state["img_af_relato"] = (idx_ativo, _rel_afg)
+                    if nova_img_af:
                         st.session_state["img_galeria"][idx_ativo]["bytes"] = nova_img_af
                         st.rerun()
+                    else:
+                        st.error(f"❌ {relato_em_texto(idx_ativo + 1, _rel_afg)}")
 
         # ── COMANDOS PENDENTES DO ASSISTENTE IA ──────────────────────────────
         # O Assistente IA envia comandos de correção. Tratamos sempre como
@@ -3232,31 +3507,55 @@ def pagina_imagem(usuario_logado):
                 tipo_alvo = galeria[idx_alvo]["tipo"]
                 # Usa a imagem ATUAL como referência + prompt de ajuste fino
                 img_ref_cmd = [galeria[idx_alvo]["bytes"]] if galeria[idx_alvo]["bytes"] else fotos_ref_aj
-                prompt_aj = montar_prompt_ajuste_fino(instrucao, tipo_alvo)
                 import time as _time_cmd
                 import threading as _threading_cmd
-                _res_cmd = {"img": None, "erro": None, "done": False}
-                _threading_cmd.Thread(
-                    target=_gerar_imagem_thread,
-                    args=(prompt_aj, img_ref_cmd, _res_cmd),
-                    daemon=True,
-                ).start()
-                _barra_cmd = st.progress(0.0, text=f"Assistente IA: ajuste fino na Imagem {num_foto}...")
+                # Gera, CONFERE e tenta de novo se nao saiu. O assistente do
+                # chat era justamente quem nao via nada: ele mandava a
+                # instrucao e respondia como se estivesse resolvido. Agora a
+                # resposta dele sai do veredito, e nao do envio.
+                _res_cmd = {"img": None, "relato": None, "done": False}
+                _barra_cmd = st.progress(0.0, text=f"Assistente IA: ajuste na Imagem {num_foto}...")
+
+                def _rodar_cmd(_ref=img_ref_cmd[0] if img_ref_cmd else None,
+                               _ins=instrucao, _tp=tipo_alvo, _r=_res_cmd):
+                    try:
+                        _r["img"], _r["relato"] = ajustar_com_conferencia(
+                            _ref, _ins, tipo=_tp,
+                            aviso=lambda t: _r.__setitem__("fase", t))
+                    except Exception as _e:
+                        _r["img"], _r["relato"] = None, {
+                            "ok": False, "tentativas": 0, "erro": str(_e)[:160],
+                            "falta": "", "colateral": ""}
+                    finally:
+                        _r["done"] = True
+
+                _threading_cmd.Thread(target=_rodar_cmd, daemon=True).start()
                 _t0_cmd = _time_cmd.time()
                 while not _res_cmd["done"]:
                     _seg_cmd = int(_time_cmd.time() - _t0_cmd)
-                    if _seg_cmd >= 300:
-                        _res_cmd["erro"] = "Tempo limite de 5 min atingido. Tente novamente."
+                    if _seg_cmd >= 600:
+                        _res_cmd["relato"] = {
+                            "ok": False, "tentativas": 0, "falta": "",
+                            "colateral": "",
+                            "erro": "tempo limite de 10 min atingido."}
                         _res_cmd["done"] = True
                         break
-                    _barra_cmd.progress(min(0.9, _seg_cmd / 60), text=f"Assistente IA: ajuste fino na Imagem {num_foto}... ({_seg_cmd}s)")
+                    _barra_cmd.progress(
+                        min(0.9, _seg_cmd / 120),
+                        text=(f"Imagem {num_foto}: "
+                              f"{_res_cmd.get('fase') or 'ajustando'}… "
+                              f"({_seg_cmd}s)"))
                     _time_cmd.sleep(1)
                 _barra_cmd.progress(1.0, text="Concluído!")
-                nova_img, err_aj = _res_cmd["img"], _res_cmd["erro"]
-                if err_aj:
-                    msgs_result.append(f"⚠️ Imagem {num_foto}: erro ao gerar — {err_aj}")
-                    _resultado_log = f"erro: {str(err_aj)[:120]}"
-                else:
+                nova_img = _res_cmd["img"]
+                _relato = _res_cmd["relato"] or {"ok": None, "tentativas": 0,
+                                                 "erro": "sem relato",
+                                                 "falta": "", "colateral": ""}
+                err_aj = _relato.get("erro") if _relato.get("ok") is False and not nova_img else None
+                msgs_result.append(relato_em_texto(num_foto, _relato))
+                _resultado_log = ("ok" if _relato.get("ok") else
+                                  f"nao confirmado: {_relato.get('falta') or _relato.get('erro','')}"[:120])
+                if nova_img:
                     st.session_state["img_galeria"][idx_alvo]["bytes"] = nova_img
                     _mudou = True
                     msgs_result.append(f"✅ Imagem {num_foto} ({tipo_alvo[:25]}) atualizada pelo Assistente IA.")
