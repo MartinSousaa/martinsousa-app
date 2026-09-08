@@ -2332,7 +2332,7 @@ def _hm(minutos):
     return f"{m // 60}h{m % 60:02d}"
 
 
-def tempo_medio_equipe(meses, cfg):
+def tempo_medio_equipe(meses, cfg, maxx=False):
     """A barra "Tempo médio de execução", pronta: números E texto.
 
     `meses` é a lista de meses processados; o Painel de Metas passa `[d]`, com
@@ -2348,6 +2348,11 @@ def tempo_medio_equipe(meses, cfg):
     não tem alvo — a barra continua aparecendo, dizendo que falta configurar.
     Sumir era o problema: o tempo médio pesa na meta coletiva, e quem olhava o
     card não tinha como saber que esse indicador existe.
+
+    `maxx=True` usa o alvo próprio da MAXX. Os dois cards mostravam a MESMA
+    barra, com a mesma exigência — a MAXX é a meta apertada, e no único critério
+    de tempo ela pedia exatamente o que a coletiva pede. Sem alvo próprio
+    digitado, continua sendo a mesma barra, como sempre foi.
     """
     cfg = cfg or {}
     todos = [t for r in (meses or [])
@@ -2374,7 +2379,7 @@ def tempo_medio_equipe(meses, cfg):
 
     try:
         import metas_config as _mc_tm
-        meta = _mc_tm.meta_execucao(cfg, "equipe", ref or 0)
+        meta = _mc_tm.meta_execucao(cfg, "equipe", ref or 0, maxx=maxx)
     except Exception:
         meta = {"alvo": 0, "red": 0, "definida": False}
     alvo = meta.get("alvo") or 0

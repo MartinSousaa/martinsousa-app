@@ -35,6 +35,7 @@ COLUNAS = [
     "min_membro_pct",        # % mín cartões com membro (ex: 95)
     "exec_red_equipe",       # % de reducao do tempo medio de execucao da equipe
     "exec_alvo_equipe",      # tempo medio alvo da equipe, em minutos
+    "exec_alvo_maxx_equipe", # o alvo mais apertado, so da MAXX. 0 = usa o de cima
 ]
 
 DEFAULTS = {
@@ -57,6 +58,7 @@ DEFAULTS = {
     "exec_red_equipe":     0,
     "exec_ref_equipe":     0,
     "exec_alvo_equipe":    0,
+    "exec_alvo_maxx_equipe": 0,
     "min_contrib_normal":  80,
     "min_contrib_maxx":    100,
     "max_adv_normal":      2,
@@ -82,6 +84,7 @@ LABELS = {
     "exec_red_equipe":     "Redução do tempo médio de execução — equipe (%)",
     "exec_ref_equipe":     "Tempo de referência — equipe (min)",
     "exec_alvo_equipe":    "Tempo médio alvo — equipe (min)",
+    "exec_alvo_maxx_equipe": "Tempo médio alvo MAXX — equipe (min)",
     "min_contrib_normal":  "% mín. da meta individual p/ entrar na Coletiva",
     "min_contrib_maxx":    "% mín. da meta individual p/ entrar na MAXX",
     "max_adv_normal":      "Máx. advertências (Meta Normal)",
@@ -124,7 +127,7 @@ EXEC_RED_PADRAO_PCT = 0
 EXEC_ALVO_LIVRE = 0
 
 
-def meta_execucao(cfg, user, ref=None):
+def meta_execucao(cfg, user, ref=None, maxx=False):
     """Meta de tempo médio de execução de `user` ("equipe" para a coletiva).
 
     Devolve {"alvo": minutos ou None, "red": % de redução, "definida": bool}.
@@ -132,6 +135,12 @@ def meta_execucao(cfg, user, ref=None):
     `definida` diz se existe meta no mês mesmo quando a referência ainda não é
     conhecida — sem isso, um mês com meta e sem cartão medido sumiria da tela em
     vez de dizer que falta medição.
+
+    `maxx=True` procura o alvo próprio da MAXX (`exec_alvo_maxx_<user>`), que é
+    o mais apertado dos dois. Ele nasce vazio e, vazio, CAI NO ALVO DA COLETIVA
+    — que era o comportamento antes deste campo existir. Assim o mês já
+    configurado não muda de exigência sozinho: quem quiser cobrar mais da MAXX
+    digita, quem não quiser não faz nada.
     """
     cfg = cfg or {}
 
@@ -146,7 +155,9 @@ def meta_execucao(cfg, user, ref=None):
     except (TypeError, ValueError):
         ref = 0.0
 
-    alvo = _num(f"exec_alvo_{user}")
+    alvo = _num(f"exec_alvo_maxx_{user}") if maxx else 0.0
+    if alvo <= 0:
+        alvo = _num(f"exec_alvo_{user}")
     red_gravada = _num(f"exec_red_{user}")
     definida = alvo > 0 or red_gravada > 0
     if alvo <= 0 and red_gravada > 0 and ref > 0:
