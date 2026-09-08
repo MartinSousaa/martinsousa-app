@@ -1,5 +1,6 @@
 import streamlit as st
 import base64
+import os
 from datetime import date
 
 st.set_page_config(page_title="MS Studio", layout="wide")
@@ -35,12 +36,22 @@ import analise_metas
 import relogio_ponto
 import placar_core as _pc_login
 
-# Mantém o painel da TV vivo sem depender de ninguém estar usando o app.
-# Sobe uma única vez por processo — o cache_resource garante isso.
-try:
-    placar.iniciar_regenerador_tv()
-except Exception:
-    pass  # a TV nunca pode impedir o app de subir
+# A TV é regenerada por um PROCESSO PRÓPRIO (tv_worker.py), subido pelo
+# Procfile. Aqui ficava a única partida dela — e este arquivo é o script do
+# Streamlit: ele só roda quando um navegador abre uma sessão. Como a TV é um
+# arquivo estático, pedi-lo não abre sessão nenhuma. Depois de cada deploy o
+# static/tv.html não existia até alguém abrir o Studio no navegador, e a TV
+# ficava pedindo um arquivo que ainda não tinha sido escrito.
+#
+# A thread daqui continua como reserva, para quem roda o app sem o Procfile —
+# desenvolvimento local. Com o worker de pé (TV_WORKER=1), ela não sobe: duas
+# regenerações do mesmo arquivo dobram as chamadas ao Trello e a memória do
+# container sem entregar nada.
+if os.environ.get("TV_WORKER") != "1":
+    try:
+        placar.iniciar_regenerador_tv()
+    except Exception:
+        pass  # a TV nunca pode impedir o app de subir
 
 # Permite que Streamlit sirva .html com Content-Type correto (text/html)
 try:
