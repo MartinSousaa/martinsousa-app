@@ -263,13 +263,15 @@ def _ref_execucao_equipe(dados, cfg):
     return ref, n_est, False
 
 
-def _barra_tempo_medio(dados, cfg, cor_ok):
+def _barra_tempo_medio(dados, cfg, cor_ok, maxx=False):
     """Barra do tempo médio de execução da equipe contra o alvo do mês.
 
     A conta e o texto vêm de `placar_core.tempo_medio_equipe`, a mesma fonte do
     Painel de Metas. Aqui só se escolhe a forma da barra.
+
+    `maxx=True` usa o alvo próprio da MAXX, quando houver um digitado.
     """
-    tm = _pc.tempo_medio_equipe(dados, cfg)
+    tm = _pc.tempo_medio_equipe(dados, cfg, maxx=maxx)
     if not tm["definida"]:
         return _barra_painel_dash(tm["rotulo"], tm["desc"])
     return _barra_painel(tm["rotulo"], tm["pct"], tm["desc"],
@@ -538,7 +540,7 @@ def _secao_metas_card(dados):
                             _desc_cmb, _cor_cmbx_a)
         # O tempo medio ja entrava nas duas contas (`_metas_do_mes` da o mesmo
         # pct para Normal e MAXX); so nao aparecia deste lado do card.
-        b += _barra_tempo_medio(dados, cfg, "#FFD700")
+        b += _barra_tempo_medio(dados, cfg, "#FFD700", maxx=True)
         st.markdown(f'<div style="background:var(--ms-metric-bg);border:1px solid #FFD70022;border-radius:8px;padding:12px 14px;">{b}</div>', unsafe_allow_html=True)
 
 
@@ -6340,7 +6342,7 @@ def _secao_configuracao(dados=None, carregar_periodo=None):
         # Zero segue significando "usar o calculado".
         _gravada_eq = float(cfg_atual.get("exec_ref_equipe", 0) or 0)
         _inicial_eq = _gravada_eq if _gravada_eq > 0 else (_ref_eq or 0)
-        _ce0, _ce1, _ce2 = st.columns([1, 1, 2])
+        _ce0, _ce1, _ce1x, _ce2 = st.columns([1, 1, 1, 2])
         nova_cfg["exec_ref_equipe"] = _ce0.number_input(
             "Equipe — referência (min)", min_value=0, max_value=1440,
             value=int(round(_inicial_eq)), step=5,
@@ -6356,6 +6358,19 @@ def _secao_configuracao(dados=None, carregar_periodo=None):
             help="Em quantos minutos a média geral por demanda precisa fechar "
                  "no mês. Igual à referência (ou 0) = nenhuma redução cobrada.")
         _alvo_eq = nova_cfg["exec_alvo_equipe"]
+        # O alvo da MAXX e o mais apertado dos dois. Ate aqui os dois cards
+        # mostravam a MESMA barra: no unico criterio de tempo, a MAXX pedia
+        # exatamente o que a coletiva pede. Zero mantem isso — quem nao quiser
+        # cobrar mais da MAXX nao precisa fazer nada.
+        _alvo_mx_ant = float(cfg_atual.get("exec_alvo_maxx_equipe", 0) or 0)
+        nova_cfg["exec_alvo_maxx_equipe"] = _ce1x.number_input(
+            "Equipe — alvo MAXX (min)", min_value=0, max_value=1440,
+            value=min(int(round(_alvo_mx_ant)), 1440), step=5,
+            key=f"cfg_exec_alvo_maxx_equipe_{ano_cfg}_{mes_cfg_num}",
+            help="Em quantos minutos a média geral precisa fechar para a MAXX "
+                 "— o alvo apertado. Deixe em 0 para a MAXX cobrar o mesmo "
+                 "alvo da coletiva.")
+        _alvo_mx = nova_cfg["exec_alvo_maxx_equipe"]
         _red_eq = ((1 - _alvo_eq / _base_eq) * 100
                    if (_base_eq and _alvo_eq) else 0.0)
         nova_cfg["exec_red_equipe"] = round(max(_red_eq, 0.0), 1)
@@ -6368,11 +6383,23 @@ def _secao_configuracao(dados=None, carregar_periodo=None):
             _txt_red_eq = (f"reduzir **{_red_eq:.0f}%**" if _red_eq >= 0.5
                            else "sem redução cobrada no mês")
             _txt_alvo_eq = _fmt_hm(_alvo_eq) if _alvo_eq else "—"
+            # A MAXX ganha a propria linha: um alvo que nao diz quanto cobra
+            # de reducao e um numero que so o autor sabe ler.
+            if _alvo_mx and _base_eq:
+                _red_mx = (1 - _alvo_mx / _base_eq) * 100
+                _txt_mx = (f"⭐ MAXX: alvo **{_fmt_hm(_alvo_mx)}** · "
+                           + (f"reduzir **{_red_mx:.0f}%**" if _red_mx >= 0.5
+                              else "sem redução cobrada"))
+                if _alvo_eq and _alvo_mx > _alvo_eq:
+                    _txt_mx += " · ⚠️ mais folgado que o da coletiva"
+            else:
+                _txt_mx = "⭐ MAXX: mesmo alvo da coletiva"
             _ce2.caption(
                 f"Referência **{_fmt_hm(_base_eq)}** por demanda ({_origem_eq}) → "
                 f"alvo **{_txt_alvo_eq}** · {_txt_red_eq}"
                 + (f" · real medido hoje: **{_fmt_hm(_real_eq)}**"
-                   if _real_eq is not None else ""))
+                   if _real_eq is not None else "")
+                + f"  \n{_txt_mx}")
 
         st.markdown("##### ⚠️ Limites de Penalidade")
         c1, c2 = st.columns(2)

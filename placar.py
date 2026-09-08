@@ -1057,6 +1057,7 @@ def _tv_full_html(
     # mesma que o painel e a Analise mostram. A TV mostrava cinco criterios de
     # seis, e e ela que a equipe olha o dia inteiro.
     tm_eq=None,
+    tm_mx=None,
     # Por que falta o que falta. Quando o numero e para abater penalidade, o
     # mini-card fica vermelho e o rotulo diz — "600 pts" sem dizer que sao de
     # penalidade manda a equipe produzir achando que e pontuacao normal.
@@ -1204,20 +1205,25 @@ def _tv_full_html(
     # listados embaixo.
     _tv_sem_mb_desc = sem_membro_desc or "Em andamento e concluídos"
 
-    def _tv_barra_tm(cor_ok):
-        """A barra do tempo medio no formato da TV, ou nada se nao houver dado."""
-        if not tm_eq:
+    def _tv_barra_tm(cor_ok, tm=None):
+        """A barra do tempo medio no formato da TV, ou nada se nao houver dado.
+
+        `tm` e o indicador do card em questao: a coletiva e a MAXX podem ter
+        alvos diferentes, e a TV precisa mostrar cada card com o alvo dele.
+        """
+        tm = tm if tm is not None else tm_eq
+        if not tm:
             return ""
         import placar_core as _pc_tm
-        cor = _pc_tm.cor_tempo_medio(tm_eq, cor_ok)
-        pct = float(tm_eq.get("pct") or 0)
+        cor = _pc_tm.cor_tempo_medio(tm, cor_ok)
+        pct = float(tm.get("pct") or 0)
         return (
             f'<div class="barra-item"><div class="barra-header">'
-            f'<span>{tm_eq["rotulo"]}</span>'
+            f'<span>{tm["rotulo"]}</span>'
             f'<span style="color:{cor};font-weight:700;">{pct:.0f}%</span></div>'
             f'<div class="barra-track"><div class="barra-fill" '
             f'style="width:{min(pct,100):.1f}%;background:{cor};"></div></div>'
-            f'<div class="barra-desc">{tm_eq["desc"]}</div></div>')
+            f'<div class="barra-desc">{tm["desc"]}</div></div>')
 
     def _tv_faltam(por_pen, travado, rot):
         """(classe, valor, rotulo) do mini-card FALTAM da TV."""
@@ -1234,7 +1240,7 @@ def _tv_full_html(
     _v_f_x = _v_f_x if _v_f_x is not None else f"{faltam_maxx:,.0f}"
 
     _tv_barra_tm_n = _tv_barra_tm("#1BAF7A")
-    _tv_barra_tm_x = _tv_barra_tm("#FFD700")
+    _tv_barra_tm_x = _tv_barra_tm("#FFD700", tm_mx or tm_eq)
     return f"""<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -2008,6 +2014,8 @@ def pagina_placar(usuario_logado, headless=False):
     # mesmos numeros e como elas passam a discordar.
     import placar_core as _pc_membro
     _tm_eq = _pc_membro.tempo_medio_equipe([d], cfg_mes)
+    # A MAXX tem o alvo dela. Sem um digitado, e a mesma barra da coletiva.
+    _tm_mx = _pc_membro.tempo_medio_equipe([d], cfg_mes, maxx=True)
     # O teto de penalidades passa a valer, e o abatimento por pontuacao
     # destrava. Ate aqui a contagem aparecia como criterio e nao decidia nada:
     # quem decidia era so `saldo >= meta`.
@@ -2322,6 +2330,7 @@ def pagina_placar(usuario_logado, headless=False):
         sem_membro_lista=d.get("sem_membro_lista", []),
         sem_membro_desc=_sem_mb_desc_meta,
         tm_eq=_tm_eq,
+        tm_mx=_tm_mx,
         faltam_por_pen=_por_pen_col, faltam_maxx_por_pen=_por_pen_mx,
         faltam_travado=_travado_col, faltam_maxx_travado=_travado_mx,
     )
@@ -2384,8 +2393,8 @@ def pagina_placar(usuario_logado, headless=False):
                          _pc_membro.texto_penalidades(_sit_pen, maxx=True),
                          "#E34948")
         b += _barra_meta("Cartões com membro atribuído", pct_com_membro, _sem_mb_desc_x, _cor_cmbx)
-        b += _barra_meta(_tm_eq["rotulo"], _tm_eq["pct"], _tm_eq["desc"],
-                         _pc_membro.cor_tempo_medio(_tm_eq, "#FFD700"))
+        b += _barra_meta(_tm_mx["rotulo"], _tm_mx["pct"], _tm_mx["desc"],
+                         _pc_membro.cor_tempo_medio(_tm_mx, "#FFD700"))
         st.markdown(f'<div style="background:var(--ms-metric-bg);border:1px solid #FFD70022;border-radius:8px;padding:12px 14px;">{b}</div>', unsafe_allow_html=True)
 
     # ══ BLOCO 3 — EM ANDAMENTO | FILA | DESEMPENHO ══
