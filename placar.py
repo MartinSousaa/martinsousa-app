@@ -133,6 +133,80 @@ def _semear_meta(chave, valor):
         pass
 
 
+# ── A rede de seguranca da TV: um service worker ─────────────────────────────
+#
+# O laco de atualizacao so protege a TV enquanto a PAGINA existe. Se o navegador
+# navegar para fora dela — um reload no segundo em que o Railway esta trocando o
+# container —, o que aparece e a pagina de erro do proprio navegador (ou o 502 do
+# Railway). Ali nao ha script nenhum, e nada tem como tentar de novo: a TV fica
+# parada ate alguem apertar F5. Foi assim que ela morreu.
+#
+# O service worker fecha esse buraco de vez, porque ele roda FORA da pagina e
+# atende a propria navegacao. Servidor fora do ar na hora do reload? Ele devolve
+# a ultima copia boa da TV — com o script dentro. O laco recomeca sozinho e
+# continua tentando ate o servidor voltar. A TV nunca chega a ver uma tela de
+# erro.
+#
+# So a NAVEGACAO passa por aqui. As buscas de 60 segundos seguem direto para a
+# rede, sem cache, exatamente como antes — senao a rede de seguranca viraria a
+# causa de dados velhos, que e o problema que ela deveria evitar.
+_TV_SW_JS = """// Service worker da TV — a copia que garante que ela sempre volta.
+const CACHE = 'ms-tv-v1';
+const PAGINA = 'tv.html';
+
+self.addEventListener('install', (e) => {
+  // Assume o controle sem esperar a proxima visita: a TV so navega uma vez.
+  self.skipWaiting();
+  e.waitUntil(caches.open(CACHE).then((c) => c.add(PAGINA)).catch(() => {}));
+});
+
+self.addEventListener('activate', (e) => {
+  e.waitUntil(self.clients.claim());
+});
+
+self.addEventListener('fetch', (e) => {
+  // Só a navegação. Tudo o mais — inclusive a busca de 60s — vai direto para a
+  // rede, sem passar por cache nenhum.
+  if (e.request.mode !== 'navigate') return;
+  e.respondWith(
+    fetch(e.request)
+      .then((r) => {
+        if (r && r.ok) {
+          const copia = r.clone();
+          caches.open(CACHE).then((c) => c.put(PAGINA, copia)).catch(() => {});
+        }
+        // 502/503 do Railway durante o deploy é uma resposta VÁLIDA em HTTP e
+        // não cai no catch — mas para a TV é o mesmo que estar fora do ar.
+        if (r && !r.ok) throw new Error('http ' + r.status);
+        return r;
+      })
+      .catch(() => caches.open(CACHE)
+        .then((c) => c.match(PAGINA))
+        .then((r) => r || Response.error()))
+  );
+});
+"""
+
+
+def _write_tv_sw() -> None:
+    """Escreve static/tv-sw.js ao lado do tv.html, no mesmo escopo dele."""
+    try:
+        _static_dir = os.path.join(os.path.dirname(__file__), "static")
+        os.makedirs(_static_dir, exist_ok=True)
+        _path = os.path.join(_static_dir, "tv-sw.js")
+        _atual = ""
+        if os.path.exists(_path):
+            with open(_path, encoding="utf-8") as _f:
+                _atual = _f.read()
+        # So reescreve quando muda: o navegador reinstala o worker a cada byte
+        # diferente, e reinstalar de graca a cada minuto e trabalho a toa.
+        if _atual != _TV_SW_JS:
+            with open(_path, "w", encoding="utf-8") as _f:
+                _f.write(_TV_SW_JS)
+    except Exception:
+        pass
+
+
 def _write_tv_static(html: str) -> bool:
     """Grava o HTML completo do painel TV no diretório static/ do Streamlit.
 
@@ -170,6 +244,7 @@ def _write_tv_static(html: str) -> bool:
             pass
         ok = False
     _write_beep_wav()  # garante que beep.wav existe ao lado de tv.html
+    _write_tv_sw()     # e a rede de seguranca, no mesmo diretorio
     return ok
 
 # A equipe e os gestores vem do core — o MESMO objeto, nao uma copia.
@@ -1735,6 +1810,26 @@ function _minSemAtualizar() {{
 // Agora falha de rede NAO recarrega: ela so espera e tenta outra vez. Quem
 // esta fora do ar volta, e a proxima volta encontra o servidor de pe.
 var _reloadDaVersao = false;
+var _okSeguidos = 0;          // buscas boas em sequencia
+
+// A rede de seguranca: registrada uma vez, vive fora da pagina. E ela que
+// atende a navegacao quando o servidor esta fora do ar, devolvendo a ultima
+// copia boa da TV — com este script dentro, que volta a tentar sozinho.
+if ('serviceWorker' in navigator) {{
+  try {{ navigator.serviceWorker.register('tv-sw.js'); }} catch (e) {{}}
+}}
+
+// Guarda a versao recem-buscada como a copia de emergencia. Sem isto, a copia
+// seria a da ultima navegacao — de horas atras, com os numeros de entao.
+function _guardarCopia(html) {{
+  try {{
+    if (!window.caches) return;
+    caches.open('ms-tv-v1').then(function (c) {{
+      c.put('tv.html', new Response(html, {{
+        headers: {{'Content-Type': 'text/html; charset=utf-8'}}}}));
+    }}).catch(function () {{}});
+  }} catch (e) {{}}
+}}
 
 function _agendar(ms) {{
   clearTimeout(window._tvTimer);
@@ -1752,8 +1847,14 @@ function _atualizarPainel() {{
   fetch(_u.toString(), {{cache: 'no-store'}})
     .then(function(r) {{ if (!r.ok) throw new Error(r.status); return r.text(); }})
     .then(function(html) {{
+      _okSeguidos++;
+      _guardarCopia(html);
       var sv = html.match(/var SCRIPT_VER = "([^"]+)";/);
-      if (sv && sv[1] !== SCRIPT_VER && !_reloadDaVersao) {{
+      // So recarrega depois de DUAS buscas boas seguidas. Uma so nao prova que
+      // o servidor esta de pe: o deploy pode comecar no instante seguinte, e o
+      // reload cairia no 502. Com duas, a janela para errar vira quase nada —
+      // e mesmo assim o service worker segura a queda.
+      if (sv && sv[1] !== SCRIPT_VER && !_reloadDaVersao && _okSeguidos >= 2) {{
         var precisa = true;
         try {{
           precisa = sessionStorage.getItem('tv_ver') !== sv[1];
@@ -1800,6 +1901,7 @@ function _atualizarPainel() {{
       // Servidor fora do ar ou rede oscilando: esperar e tentar de novo. Um
       // reload aqui e o que matava a TV — a pagina de erro do navegador nao
       // tem script para tentar outra vez.
+      _okSeguidos = 0;
       _agendar(20000);
     }});
 }}
