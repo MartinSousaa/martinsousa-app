@@ -1721,7 +1721,29 @@ function _minSemAtualizar() {{
 //
 // Se qualquer coisa falhar na troca, cai no recarregamento de antes — pior caso
 // e voltar ao comportamento atual, nunca uma TV congelada.
+//
+// O LACO NAO PODE MORRER. Toda saida daqui reagenda a proxima volta — inclusive
+// as que dao errado, inclusive a que recarrega a pagina.
+//
+// Era assim que a TV parava: o unico tratamento de erro era location.reload(),
+// e a proxima volta so era agendada pelo script da pagina nova. Num deploy do
+// Railway o servidor fica fora por alguns segundos; se a volta caisse ali, o
+// reload ia para uma pagina de erro do navegador — sem script, sem timer, sem
+// ninguem para tentar de novo. A TV ficava parada ate alguem ir la e apertar
+// F5. Num dia de varios deploys, isso e quase certo de acontecer.
+//
+// Agora falha de rede NAO recarrega: ela so espera e tenta outra vez. Quem
+// esta fora do ar volta, e a proxima volta encontra o servidor de pe.
+var _reloadDaVersao = false;
+
+function _agendar(ms) {{
+  clearTimeout(window._tvTimer);
+  window._tvTimer = setTimeout(_atualizarPainel, ms || 60000);
+  window._tvProxima = Date.now() + (ms || 60000);
+}}
+
 function _atualizarPainel() {{
+  window._tvUltimaTentativa = Date.now();
   // Cada volta usa uma URL nova. Sem isso o navegador revalida com
   // If-None-Match e o servidor estatico responde 304 com o ETag velho — o
   // conteudo novo nunca chega, por mais que o arquivo mude no disco.
@@ -1731,14 +1753,21 @@ function _atualizarPainel() {{
     .then(function(r) {{ if (!r.ok) throw new Error(r.status); return r.text(); }})
     .then(function(html) {{
       var sv = html.match(/var SCRIPT_VER = "([^"]+)";/);
-      if (sv && sv[1] !== SCRIPT_VER) {{
+      if (sv && sv[1] !== SCRIPT_VER && !_reloadDaVersao) {{
+        var precisa = true;
         try {{
-          if (sessionStorage.getItem('tv_ver') !== sv[1]) {{
-            sessionStorage.setItem('tv_ver', sv[1]);
-            location.reload();
-            return;
-          }}
-        }} catch (e) {{ location.reload(); return; }}
+          precisa = sessionStorage.getItem('tv_ver') !== sv[1];
+          if (precisa) {{ sessionStorage.setItem('tv_ver', sv[1]); }}
+        }} catch (e) {{ precisa = true; }}
+        if (precisa) {{
+          // Agenda ANTES de recarregar. Se a navegacao nao acontecer — o
+          // servidor caiu no meio do deploy —, este timer continua vivo na
+          // pagina atual e tenta de novo daqui a pouco.
+          _reloadDaVersao = true;
+          _agendar(90000);
+          location.reload();
+          return;
+        }}
       }}
       var doc = new DOMParser().parseFromString(html, 'text/html');
       var novo = doc.querySelector('.tv-root');
@@ -1757,15 +1786,32 @@ function _atualizarPainel() {{
       // TV nunca saberia que o servidor gerou uma versao nova.
       var gm = html.match(/var GERADO_EM = (\d+);/);
       if (gm) {{ _registrarCarimbo(parseInt(gm[1], 10)); }}
-      _aplicarLayout();
-      _renderAlertas();
-      _autoEscala();
-      checkAndPlay();
-      setTimeout(_atualizarPainel, 60000);
+      // Um erro de desenho nao pode levar o laco junto: o conteudo ja foi
+      // trocado, e a TV so precisa reagendar.
+      try {{
+        _aplicarLayout();
+        _renderAlertas();
+        _autoEscala();
+        checkAndPlay();
+      }} catch (e) {{}}
+      _agendar(60000);
     }})
-    .catch(function() {{ location.reload(); }});
+    .catch(function() {{
+      // Servidor fora do ar ou rede oscilando: esperar e tentar de novo. Um
+      // reload aqui e o que matava a TV — a pagina de erro do navegador nao
+      // tem script para tentar outra vez.
+      _agendar(20000);
+    }});
 }}
-setTimeout(_atualizarPainel, 60000);
+_agendar(60000);
+
+// Vigia: se a proxima volta ja deveria ter acontecido ha mais de dois minutos,
+// o timer se perdeu — a aba dormiu, o navegador engasgou, uma excecao escapou.
+// Este intervalo e independente do outro e so existe para religar o laco.
+setInterval(function() {{
+  var prox = window._tvProxima || 0;
+  if (prox && Date.now() - prox > 120000) {{ _atualizarPainel(); }}
+}}, 60000);
 setTimeout(checkAndPlay, 4000);
 
 // A faixa vermelha "DADOS DESATUALIZADOS" que ficava aqui saiu. Ela atravessava
