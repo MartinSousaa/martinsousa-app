@@ -1898,8 +1898,13 @@ def pagina_placar(usuario_logado, headless=False):
     # ── Carrega configuração persistida (ou usa defaults) ──────────────────────
     try:
         import metas_config as _mc
+        _mc_maxx = _mc
         cfg_mes = _mc.carregar_config(filtro_mes[0], filtro_mes[1])
     except Exception:
+        # Tem que ser ligado nos DOIS caminhos: se o import falha, o `try` nem
+        # chega na linha que define o nome, e a leitura la embaixo derruba a
+        # tela com UnboundLocalError em vez de cair no padrao.
+        _mc_maxx = None
         cfg_mes = {
             "meta_equipe": 5000, "meta_maxx_pct": 110,
             "max_pen_normal": 4, "max_pen_maxx": 1,
@@ -1909,14 +1914,23 @@ def pagina_placar(usuario_logado, headless=False):
 
     # Chaves de sessão por mês (para sobrescritas rápidas no expander)
     k_eq  = f"meta_eq_{filtro_mes[0]}_{filtro_mes[1]}"
-    k_mx  = f"meta_maxx_{filtro_mes[0]}_{filtro_mes[1]}"
+    # A chave muda de nome junto com o significado: agora ela guarda o
+    # ACRESCIMO (20), e nao o total (120). Nome novo para valor novo — a chave
+    # antiga podia estar em sessao com 120 dentro, e 120 lido como acrescimo
+    # faria a MAXX virar 2,2x a meta.
+    k_mx  = f"maxx_acre_{filtro_mes[0]}_{filtro_mes[1]}"
+    if _mc_maxx is not None:
+        _acre_cfg = _mc_maxx.acrescimo_maxx(cfg_mes)
+    else:
+        _acre_cfg = max(0.0, float(cfg_mes.get("meta_maxx_pct", 110) or 110) - 100.0)
     _semear_meta(k_eq,  cfg_mes["meta_equipe"])
-    _semear_meta(k_mx,  cfg_mes["meta_maxx_pct"])
+    _semear_meta(k_mx,  _acre_cfg)
 
     # Configuração de metas foi movida para a aba "📊 Análise de Metas"
     # _meta_sessao cai na configuração quando não há sessão (thread da TV).
     meta_eq   = _meta_sessao(k_eq, cfg_mes["meta_equipe"])
-    maxx_pct  = _meta_sessao(k_mx, cfg_mes["meta_maxx_pct"])
+    _acrescimo = _meta_sessao(k_mx, _acre_cfg)
+    maxx_pct  = 100 + float(_acrescimo or 0)      # o total, para quem desenha
     meta_maxx_pts = meta_eq * maxx_pct / 100
     # Meta individual por colaborador — de quem estiver cadastrado hoje.
     #

@@ -16,7 +16,8 @@ ABA_NOME = "metas_config"
 COLUNAS = [
     "ano", "mes",
     "meta_equipe",           # pontos meta coletiva
-    "meta_maxx_pct",         # % da meta mensal (ex: 110 = 10% a mais)
+    "meta_maxx_pct",         # LEGADO: % da meta mensal (120 = 20% a mais)
+    "meta_maxx_acrescimo",   # o que se digita hoje: 20 = 20% ACIMA da meta
     # Metas por pessoa entram adiante, derivadas da equipe cadastrada.
     "max_pen_normal",        # máx penalidades meta normal (ex: 4)
     "max_pen_maxx",          # máx penalidades meta maxx (ex: 1)
@@ -39,6 +40,9 @@ COLUNAS = [
 DEFAULTS = {
     "meta_equipe":         5000,
     "meta_maxx_pct":       110,
+    # -1 e "nunca foi preenchido": e o que faz os meses antigos continuarem
+    # lendo o campo legado em vez de virarem 0% de acrescimo.
+    "meta_maxx_acrescimo": -1,
 
     "max_pen_normal":      4,
     "max_pen_maxx":        1,
@@ -63,6 +67,7 @@ DEFAULTS = {
 LABELS = {
     "meta_equipe":         "Meta Equipe (pts)",
     "meta_maxx_pct":       "Meta MAXX (% da meta mensal)",
+    "meta_maxx_acrescimo": "Meta MAXX (% ACIMA da meta mensal)",
 
     "max_pen_normal":      "Máx. penalidades (Meta Normal)",
     "max_pen_maxx":        "Máx. penalidades (Meta MAXX)",
@@ -152,6 +157,56 @@ def meta_execucao(cfg, user, ref=None):
             "definida": definida}
 
 
+# ── A MAXX, em um lugar so ────────────────────────────────────────────────────
+#
+# A MAXX e "a meta mais um tanto". Quem pensa nela pensa em "20% acima" — e o
+# campo pedia 120, o total. Sao a mesma coisa dita de dois jeitos, e dizer de
+# dois jeitos e como se perde a conta: 120 num campo chamado "% da meta" ja foi
+# lido como "20%" por gente que so bateu o olho.
+#
+# Agora o que se digita e o ACRESCIMO. A coluna antiga fica na planilha, com o
+# total, para os meses ja fechados continuarem lendo o que sempre leram: quem
+# nunca preencheu o campo novo (-1) cai nela.
+#
+# E a MAXX de CADA PESSOA sai daqui tambem, da meta individual dela. Ela nao
+# tem como ser outra porcentagem: se a equipe precisa de 20% a mais, cada um
+# precisa de 20% a mais. Perguntar de novo, por pessoa, so criava a chance de
+# os numeros discordarem.
+CHAVE_MAXX_ACRESCIMO = "meta_maxx_acrescimo"
+MAXX_ACRESCIMO_PADRAO = 20
+
+
+def acrescimo_maxx(cfg):
+    """Quanto a MAXX fica ACIMA da meta, em % (20 = 20% a mais)."""
+    cfg = cfg or {}
+    try:
+        acre = float(cfg.get(CHAVE_MAXX_ACRESCIMO, -1))
+    except (TypeError, ValueError):
+        acre = -1.0
+    if acre >= 0:
+        return acre
+    # Legado: o campo guardava o TOTAL. 120 queria dizer 20% acima.
+    try:
+        total = float(cfg.get("meta_maxx_pct", 110) or 110)
+    except (TypeError, ValueError):
+        total = 110.0
+    return max(0.0, total - 100.0)
+
+
+def pct_maxx_total(cfg):
+    """A mesma coisa como TOTAL (120), para quem desenha "120% da meta"."""
+    return 100.0 + acrescimo_maxx(cfg)
+
+
+def maxx_de(meta, cfg):
+    """A MAXX de qualquer meta — da equipe ou de uma pessoa.
+
+    E a unica conta de MAXX do Studio. Coletiva e individual saem da mesma
+    linha, entao nao existe o caso de uma seguir 20% e a outra 10%.
+    """
+    return float(meta or 0) * pct_maxx_total(cfg) / 100.0
+
+
 def campos_metas_pessoa():
     """[(chave_meta, chave_maxx, nome)] por pessoa — a forma que a tela usa.
 
@@ -161,6 +216,8 @@ def campos_metas_pessoa():
     """
     return [(f"meta_{user}", f"meta_maxx_{user}", nome)
             for user, nome in _equipe().items()]
+    # A chave da MAXX continua no retorno porque a tela ainda mostra o valor
+    # calculado ao lado da meta — o que ela nao faz mais e pedir que se digite.
 
 
 def campos_tempo_execucao():
@@ -203,7 +260,10 @@ def campos_por_pessoa():
     for user, nome in _equipe().items():
         campos.append((f"meta_{user}", f"Meta Individual — {nome} (pts)",
                        META_INDIVIDUAL_PADRAO))
-        campos.append((f"meta_maxx_{user}", f"Meta MAXX — {nome} (pts)", 0))
+        # Sem campo de MAXX propria: ela sai da meta individual pela mesma
+        # porcentagem da coletiva. A coluna antiga fica na planilha e para de
+        # ser lida — salvar_config preserva o que ja esta gravado.
+        LABELS.setdefault(f"meta_maxx_{user}", f"Meta MAXX — {nome} (pts)")
     return campos
 
 

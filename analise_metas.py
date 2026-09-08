@@ -109,8 +109,8 @@ def _analisar_meses(listas, cards, membros_map, id_p, id_t, id_i, meses_lista, p
         d = processar_fn(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=(ano, mes))
         cfg = mc.carregar_config(ano, mes)
         meta_eq  = cfg["meta_equipe"]
-        maxx_pct = cfg["meta_maxx_pct"]
-        meta_maxx = meta_eq * maxx_pct / 100
+        maxx_pct = mc.pct_maxx_total(cfg)
+        meta_maxx = mc.maxx_de(meta_eq, cfg)
         saldo = d["pts_equipe"] - d["pen_total"]
         pct_mensal = (saldo / meta_eq * 100) if meta_eq > 0 else 0
         pct_maxx   = (saldo / meta_maxx * 100) if meta_maxx > 0 else 0
@@ -192,13 +192,13 @@ def _extend_dados_ano(dados):
         if (ano_atual, m) not in existentes:
             cfg = mc.carregar_config(ano_atual, m)
             meta_eq  = cfg["meta_equipe"]
-            maxx_pct = cfg.get("meta_maxx_pct", 120)
+            maxx_pct = mc.pct_maxx_total(cfg)
             resultado.append({
                 "ano": ano_atual, "mes": m,
                 "label": _label_mes(ano_atual, m),
                 "cfg": cfg,
                 "meta_eq": meta_eq,
-                "meta_maxx": meta_eq * maxx_pct / 100,
+                "meta_maxx": mc.maxx_de(meta_eq, cfg),
                 "pts_equipe": 0.0, "pen_total": 0.0, "pen_qtd": 0,
                 "saldo": 0.0, "pct_mensal": 0.0, "pct_maxx": 0.0,
                 "pts_pendentes": 0.0, "abertos": 0, "urgentes": 0,
@@ -464,7 +464,7 @@ def _secao_metas_card(dados):
     pen_total = r["pen_total"]
     atrasados = r["atrasados"]
     pen_qtd   = r["pen_qtd"]
-    maxx_pct  = cfg.get("meta_maxx_pct", 110)
+    maxx_pct  = mc.pct_maxx_total(cfg)
 
     max_pen_n = int(cfg.get("max_pen_normal", 4))
     max_pen_x = int(cfg.get("max_pen_maxx", 1))
@@ -1304,15 +1304,13 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
     pts_total  = {u: sum(r["pts_membro"].get(u, 0) for r in dados) for u in membros_ativos}
     meta_total = {u: sum(r["cfg"].get(f"meta_{u}", 1500) for r in dados) for u in membros_ativos}
 
-    # Meta MAXX individual. Quando nao ha valor proprio, usa a mesma porcentagem
-    # da MAXX coletiva sobre a meta individual — que era o que ja acontecia na
-    # pratica, so que sem nunca aparecer na tela.
+    # Meta MAXX individual: a meta da pessoa mais a mesma porcentagem da
+    # coletiva. Nao ha valor proprio a consultar — se a equipe precisa de 20% a
+    # mais, cada um precisa de 20% a mais, e um campo separado por pessoa so
+    # criava a chance de os dois numeros discordarem.
     def _maxx_do_mes(r, u):
-        proprio = r["cfg"].get(f"meta_maxx_{u}") or 0
-        if proprio:
-            return proprio
-        pct = r["cfg"].get("meta_maxx_pct", 110)
-        return r["cfg"].get(f"meta_{u}", 1500) * pct / 100
+        return mc.maxx_de(r["cfg"].get(f"meta_{u}", mc.META_INDIVIDUAL_PADRAO),
+                          r["cfg"])
 
     maxx_total = {u: sum(_maxx_do_mes(r, u) for r in dados) for u in membros_ativos}
 
@@ -5891,12 +5889,17 @@ def _secao_configuracao(dados=None, carregar_periodo=None):
 
     # Valor gravado fora da faixa do campo era corrigido em silencio pelo widget
     # e regravado assim — parecia que o numero mudava sozinho.
-    _faixas = {"meta_maxx_pct": (100, 300)}
+    _faixas = {"meta_maxx_pct": (100, 300), mc.CHAVE_MAXX_ACRESCIMO: (0, 200)}
     _fora = []
     for _campo, (_mn, _mx) in _faixas.items():
         try:
             _v = float(cfg_atual.get(_campo, 0))
         except (TypeError, ValueError):
+            continue
+        # -1 no acrescimo nao e valor fora da faixa: e "nunca foi preenchido",
+        # o que vale para todo mes anterior a este campo existir. Avisar ali
+        # seria dar erro em cima do normal.
+        if _campo == mc.CHAVE_MAXX_ACRESCIMO and _v < 0:
             continue
         if _v < _mn or _v > _mx:
             _fora.append(f"**{mc.LABELS.get(_campo, _campo)}** está gravado como "
@@ -6077,29 +6080,52 @@ def _secao_configuracao(dados=None, carregar_periodo=None):
         nova_cfg["meta_equipe"] = c1.number_input(
             mc.LABELS["meta_equipe"], min_value=0, value=int(cfg_atual["meta_equipe"]), step=100
         , key=f"cfg_meta_equipe_{ano_cfg}_{mes_cfg_num}")
-        nova_cfg["meta_maxx_pct"] = c2.number_input(
-            mc.LABELS["meta_maxx_pct"] + f" (atual: {cfg_atual['meta_maxx_pct']}% = {cfg_atual['meta_equipe'] * cfg_atual['meta_maxx_pct'] / 100:,.0f} pts)",
-            min_value=100, max_value=300,
-            value=min(300, max(100, int(cfg_atual["meta_maxx_pct"]))), step=5
-        , key=f"cfg_meta_maxx_pct_{ano_cfg}_{mes_cfg_num}")
+        # O campo pede o ACRESCIMO, nao o total: "20" para 20% acima da meta.
+        # Ele pedia 120, que e a mesma coisa dita de um jeito que ninguem usa
+        # ao falar — e "120" sob o rotulo "% da meta" ja foi lido como 20%.
+        _acre_atual = int(mc.acrescimo_maxx(cfg_atual))
+        _maxx_pts_atual = mc.maxx_de(cfg_atual["meta_equipe"], cfg_atual)
+        _rot_maxx = (f"{mc.LABELS[mc.CHAVE_MAXX_ACRESCIMO]} "
+                     f"(atual: +{_acre_atual}% = "
+                     f"{_maxx_pts_atual:,.0f} pts)".replace(",", "."))
+        _acre_novo = c2.number_input(
+            _rot_maxx, min_value=0, max_value=200,
+            value=min(200, max(0, _acre_atual)), step=5,
+            help="Quanto a MAXX fica ACIMA da meta mensal. 20 = a meta mais "
+                 "20%. Vale para a equipe e para a meta de cada colaborador.",
+            key=f"cfg_meta_maxx_acre_{ano_cfg}_{mes_cfg_num}")
+        nova_cfg[mc.CHAVE_MAXX_ACRESCIMO] = int(_acre_novo)
+        # A coluna antiga continua gravada e em dia. Ela guarda o TOTAL, e e o
+        # que os meses ja fechados leem; deixa-la parada faria as duas versoes
+        # da mesma regra discordarem na primeira vez que alguem lesse a errada.
+        nova_cfg["meta_maxx_pct"] = 100 + int(_acre_novo)
+        c2.caption(
+            f"Meta MAXX da equipe: **{mc.maxx_de(nova_cfg['meta_equipe'], nova_cfg):,.0f} pts** "
+            f"— {nova_cfg['meta_equipe']:,.0f} + {_acre_novo}%".replace(",", "."))
 
         st.markdown("##### 👤 Metas por colaborador")
         st.caption(
             "A lista vem da aba **equipe** da planilha. Cadastrou alguém lá, o campo "
             "aparece aqui — sem precisar mexer no código."
         )
-        # A MAXX de cada um em 0 SEGUE a porcentagem coletiva — e sempre seguiu,
-        # em _maxx_do_mes. A tela e que pedia o numero de novo, e ainda repetia a
-        # pergunta numa segunda secao logo abaixo, que so conhecia tres pessoas e
-        # sobrescrevia o que fosse digitado aqui. Agora o valor que a porcentagem
-        # produz aparece ao lado do campo: nao ha o que preencher, so o que
-        # conferir — e quem quiser um numero proprio para alguem digita ali.
-        _pct_maxx = int(nova_cfg.get("meta_maxx_pct", 110) or 110)
+        # So a meta individual e digitada. A MAXX de cada um sai dela pela
+        # mesma porcentagem da coletiva e aparece ao lado, ja calculada.
+        #
+        # Havia um campo "MAXX propria" aqui, com a promessa de um numero
+        # diferente por pessoa. Nao existe esse caso: se a equipe precisa de
+        # 20% a mais, cada um precisa de 20% a mais. O campo so oferecia a
+        # chance de digitar um numero que discordasse da regra — e, uma vez
+        # digitado, ele ganhava do calculo em silencio.
+        _acre_form = int(nova_cfg.get(mc.CHAVE_MAXX_ACRESCIMO, 0) or 0)
+        st.caption(
+            f"A MAXX de cada um é a meta dele **+{_acre_form}%** — a mesma "
+            f"porcentagem da equipe. Você preenche a meta; a MAXX aparece ao "
+            f"lado, calculada.")
         _pessoas = mc.campos_metas_pessoa()
         if not _pessoas:
             st.warning("Nenhum colaborador cadastrado na aba **equipe** da planilha.")
         for _k_meta, _k_maxx, _nome_p in _pessoas:
-            _cn, _cm, _cx, _cr = st.columns([1, 1.5, 1.5, 1.6])
+            _cn, _cm, _cr = st.columns([1, 2, 2.6])
             _cn.markdown(
                 f'<div style="padding-top:30px;font-size:13px;font-weight:600;">'
                 f'{_nome_p}</div>', unsafe_allow_html=True)
@@ -6107,19 +6133,10 @@ def _secao_configuracao(dados=None, carregar_periodo=None):
                 "Meta individual (pts)", min_value=0,
                 value=int(cfg_atual.get(_k_meta, mc.META_INDIVIDUAL_PADRAO) or 0),
                 step=100, key=f"cfg_{_k_meta}_{ano_cfg}_{mes_cfg_num}")
-            _maxx_p = _cx.number_input(
-                "MAXX própria (pts)", min_value=0,
-                value=int(cfg_atual.get(_k_maxx, 0) or 0), step=100,
-                key=f"cfg_{_k_maxx}_{ano_cfg}_{mes_cfg_num}",
-                help="Deixe em 0 para seguir a porcentagem da MAXX coletiva. "
-                     "Preencha só para dar um valor diferente a essa pessoa.")
             nova_cfg[_k_meta] = int(_meta_p)
-            nova_cfg[_k_maxx] = int(_maxx_p)
-            if _maxx_p:
-                _txt = f"MAXX própria: <b>{_maxx_p:,.0f}</b> pts"
-            else:
-                _txt = (f"MAXX <b>{_pct_maxx * _meta_p / 100:,.0f}</b> pts "
-                        f"· {_pct_maxx}% da meta")
+            _maxx_calc = mc.maxx_de(_meta_p, nova_cfg)
+            _txt = (f"MAXX: <b>{_maxx_calc:,.0f}</b> pts "
+                    f"· {_meta_p:,.0f} +{_acre_form}%")
             _cr.markdown(
                 f'<div style="padding-top:32px;font-size:11px;'
                 f'color:var(--ms-texto-sec);">{_txt.replace(",", ".")}</div>',
