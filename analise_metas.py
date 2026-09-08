@@ -624,6 +624,25 @@ def _fmt_hm(minutos):
     return f"{m // 60}h{m % 60:02d}"
 
 
+# ── Duração digitada como relógio ─────────────────────────────────────────────
+#
+# Os campos de tempo pediam MINUTOS. Quem define a meta pensa em "1h40" e tinha
+# de converter para 100 na cabeça, toda vez, para cada pessoa — e conferir o
+# resultado na legenda, que mostra h/min. Digitar numa unidade e ler noutra é
+# onde entra o erro de um zero.
+#
+# O que se GRAVA continua sendo minutos: a planilha, a conta da redução e as
+# três telas leem minutos. A troca é só de teclado.
+def _campo_duracao(alvo, rotulo, minutos, chave, ajuda=None, passo=300):
+    """Um campo hh:mm que devolve minutos inteiros."""
+    m = max(0, min(int(round(float(minutos or 0))), 23 * 60 + 59))
+    escolhido = alvo.time_input(rotulo, value=time(m // 60, m % 60),
+                                step=passo, key=chave, help=ajuda)
+    if escolhido is None:
+        return 0
+    return escolhido.hour * 60 + escolhido.minute
+
+
 def _media_execucao_por_membro(dados):
     """Média de execução medida pelo Trello, em minutos, por username.
 
@@ -6200,25 +6219,26 @@ def _secao_configuracao(dados=None, carregar_periodo=None):
             _cn.markdown(
                 f'<div style="padding-top:30px;font-size:13px;font-weight:600;">'
                 f'{_nome_e}</div>', unsafe_allow_html=True)
-            _ref = _cr.number_input(
-                "Referência (min)", min_value=1, max_value=1440,
-                value=int(round(_inicial)), step=5,
-                key=f"cfg_{_k_ref}_{ano_cfg}_{mes_cfg_num}",
-                help="Tempo de fechamento do mês — a base da meta. Edite aqui "
-                     "para corrigir ou para começar um ciclo novo.")
+            _ref = _campo_duracao(
+                _cr, "Referência (h:min)", _inicial,
+                f"cfg_{_k_ref}_{ano_cfg}_{mes_cfg_num}",
+                ajuda="Tempo de fechamento do mês — a base da meta. Edite aqui "
+                      "para corrigir ou para começar um ciclo novo.")
             # O alvo e digitado em MINUTOS. Antes era a porcentagem de corte, e
             # a conta nunca devolvia o minuto que se queria: 108 min com "17%"
             # dava 1h29, nao a 1h30 pedida. Agora o minuto e o que se grava e a
             # porcentagem sai dele — e o mes ja configurado pela % continua
             # valendo, porque `mc.meta_execucao` cai nela quando nao ha alvo.
             _alvo_ant = mc.meta_execucao(cfg_atual, _u_e, _ref)["alvo"] or _ref
-            _alvo_p = _cp.number_input(
-                "Alvo (min)", min_value=1, max_value=1440,
-                value=min(max(int(round(_alvo_ant)), 1), 1440), step=5,
-                key=f"cfg_exec_alvo_{_u_e}_{ano_cfg}_{mes_cfg_num}",
-                help="Em quantos minutos essa pessoa precisa fechar uma demanda. "
-                     "Igual à referência = nenhuma redução cobrada no mês.")
-            _red = (1 - _alvo_p / _ref) * 100 if _ref > 0 else 0.0
+            _alvo_p = _campo_duracao(
+                _cp, "Alvo (h:min)", _alvo_ant,
+                f"cfg_exec_alvo_{_u_e}_{ano_cfg}_{mes_cfg_num}",
+                ajuda="Em quanto tempo essa pessoa precisa fechar uma demanda. "
+                      "Igual à referência = nenhuma redução cobrada no mês.")
+            # Alvo 0:00 e "sem alvo", nao "reduzir 100%". Sem esta guarda, o
+            # campo zerado gravava reducao de 100% e a meta virava tempo zero.
+            _red = ((1 - _alvo_p / _ref) * 100
+                    if (_ref > 0 and _alvo_p > 0) else 0.0)
             nova_cfg[_k_ref] = int(_ref)
             nova_cfg[f"exec_alvo_{_u_e}"] = int(_alvo_p)
             # A % continua gravada, agora como consequencia do alvo: e o que se
@@ -6343,33 +6363,31 @@ def _secao_configuracao(dados=None, carregar_periodo=None):
         _gravada_eq = float(cfg_atual.get("exec_ref_equipe", 0) or 0)
         _inicial_eq = _gravada_eq if _gravada_eq > 0 else (_ref_eq or 0)
         _ce0, _ce1, _ce1x, _ce2 = st.columns([1, 1, 1, 2])
-        nova_cfg["exec_ref_equipe"] = _ce0.number_input(
-            "Equipe — referência (min)", min_value=0, max_value=1440,
-            value=int(round(_inicial_eq)), step=5,
-            key=f"cfg_exec_ref_equipe_{ano_cfg}_{mes_cfg_num}",
-            help="Tempo médio geral por demanda que serve de base ao mês. "
-                 "Deixe em 0 para usar o estimado por coluna.")
+        nova_cfg["exec_ref_equipe"] = _campo_duracao(
+            _ce0, "Equipe — referência (h:min)", _inicial_eq,
+            f"cfg_exec_ref_equipe_{ano_cfg}_{mes_cfg_num}",
+            ajuda="Tempo médio geral por demanda que serve de base ao mês. "
+                  "Deixe em 0:00 para usar o estimado por coluna.")
         _base_eq = nova_cfg["exec_ref_equipe"] or _ref_eq or 0
         _alvo_eq_ant = mc.meta_execucao(cfg_atual, "equipe", _base_eq)["alvo"]
-        nova_cfg["exec_alvo_equipe"] = _ce1.number_input(
-            "Equipe — alvo (min)", min_value=0, max_value=1440,
-            value=min(int(round(_alvo_eq_ant or _base_eq or 0)), 1440), step=5,
-            key=f"cfg_exec_alvo_equipe_{ano_cfg}_{mes_cfg_num}",
-            help="Em quantos minutos a média geral por demanda precisa fechar "
-                 "no mês. Igual à referência (ou 0) = nenhuma redução cobrada.")
+        nova_cfg["exec_alvo_equipe"] = _campo_duracao(
+            _ce1, "Equipe — alvo (h:min)", _alvo_eq_ant or _base_eq or 0,
+            f"cfg_exec_alvo_equipe_{ano_cfg}_{mes_cfg_num}",
+            ajuda="Em quanto tempo a média geral por demanda precisa fechar "
+                  "no mês. Igual à referência (ou 0:00) = nenhuma redução "
+                  "cobrada.")
         _alvo_eq = nova_cfg["exec_alvo_equipe"]
         # O alvo da MAXX e o mais apertado dos dois. Ate aqui os dois cards
         # mostravam a MESMA barra: no unico criterio de tempo, a MAXX pedia
         # exatamente o que a coletiva pede. Zero mantem isso — quem nao quiser
         # cobrar mais da MAXX nao precisa fazer nada.
         _alvo_mx_ant = float(cfg_atual.get("exec_alvo_maxx_equipe", 0) or 0)
-        nova_cfg["exec_alvo_maxx_equipe"] = _ce1x.number_input(
-            "Equipe — alvo MAXX (min)", min_value=0, max_value=1440,
-            value=min(int(round(_alvo_mx_ant)), 1440), step=5,
-            key=f"cfg_exec_alvo_maxx_equipe_{ano_cfg}_{mes_cfg_num}",
-            help="Em quantos minutos a média geral precisa fechar para a MAXX "
-                 "— o alvo apertado. Deixe em 0 para a MAXX cobrar o mesmo "
-                 "alvo da coletiva.")
+        nova_cfg["exec_alvo_maxx_equipe"] = _campo_duracao(
+            _ce1x, "Equipe — alvo MAXX (h:min)", _alvo_mx_ant,
+            f"cfg_exec_alvo_maxx_equipe_{ano_cfg}_{mes_cfg_num}",
+            ajuda="Em quanto tempo a média geral precisa fechar para a MAXX — "
+                  "o alvo apertado. Deixe em 0:00 para a MAXX cobrar o mesmo "
+                  "alvo da coletiva.")
         _alvo_mx = nova_cfg["exec_alvo_maxx_equipe"]
         _red_eq = ((1 - _alvo_eq / _base_eq) * 100
                    if (_base_eq and _alvo_eq) else 0.0)
