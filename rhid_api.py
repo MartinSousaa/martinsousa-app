@@ -441,6 +441,36 @@ def _extrair_data(reg: dict):
     return None
 
 
+# Hora abonada, como a RHiD a devolve.
+#
+# Ela nao tem hora de inicio e fim: e um TOTAL do dia, do mesmo jeito que
+# totalHorasTrabalhadas. Por isso o abono sai do total ocioso do dia, e nao de
+# um pedaco especifico da linha do tempo — nao ha como saber qual pedaco foi.
+#
+# Sem documentacao da API, os nomes sao tentados em ordem, como ja se faz com
+# minutosAtraso. O nome que respondeu vai para o diagnostico da tela de Ponto:
+# se a RHiD trocar o campo, a tela diz qual foi usado em vez de voltar a zero
+# em silencio.
+_CAMPOS_ABONO = (
+    "totalHorasAbonadas", "horasAbonadas", "totalAbono", "totalAbonos",
+    "minutosAbonados", "abonoMinutos", "abono", "totalHorasAbono",
+)
+
+ULTIMA_ORIGEM_ABONO = {"campo": ""}
+
+
+def _minutos_abonados(reg: dict):
+    """Minutos abonados no dia, pelo primeiro campo que a RHiD trouxer."""
+    for campo in _CAMPOS_ABONO:
+        if campo not in reg:
+            continue
+        valor = _para_float(reg.get(campo), 0.0)
+        if valor > 0:
+            ULTIMA_ORIGEM_ABONO["campo"] = campo
+            return valor
+    return 0.0
+
+
 def _extrair_marcacoes(reg: dict):
     """As quatro marcações do dia: (entrada, saída almoço, volta almoço, saída).
 
@@ -626,6 +656,9 @@ def get_registros_diarios(data_ini: str, data_final: str, id_person: int):
             # ela quem desconta o atraso do banco; aqui so se le o numero, para
             # o Studio nao manter uma segunda conta que divergiria da primeira.
             "saldo_banco": _para_float(reg.get("saldoBancoFinalDia")),
+            # So a ociosidade olha este numero. Meta, tempo de cartao e atraso
+            # seguem como estao.
+            "minutos_abonados": _minutos_abonados(reg),
         })
 
     if saida and diag["com_batidas"] == 0:

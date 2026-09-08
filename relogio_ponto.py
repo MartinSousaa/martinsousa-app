@@ -850,6 +850,10 @@ def _pontualidade_rhid(ano: int, mes: int):
         # tela diz qual campo foi usado em vez de voltar a zero em silencio.
         if not diag.get("campo_batidas"):
             diag["campo_batidas"] = _rhid.ULTIMA_ORIGEM_BATIDAS.get("campo", "")
+        # Idem para o abono: se a RHiD trocar o nome do campo, a tela diz qual
+        # foi lido em vez de a hora abonada voltar a pesar em silencio.
+        if not diag.get("campo_abono"):
+            diag["campo_abono"] = _rhid.ULTIMA_ORIGEM_ABONO.get("campo", "")
 
         acc = {"tolerancias": 0, "tol_entrada": 0, "tol_almoco": 0,
                "atrasos": 0, "atrasos_entrada": 0,
@@ -860,6 +864,8 @@ def _pontualidade_rhid(ano: int, mes: int):
                # subtrair totais, e a folga de 10 e a de 5 minutos precisam
                # saber QUANDO cada buraco aconteceu.
                "janelas": [],
+               # Minutos abonados por dia, da RHiD. So a ociosidade os usa.
+               "abono_min": {},
                # Saldo do banco no fim do mes e quanto os atrasos pesaram nele.
                # O desconto quem faz e a RHiD; aqui so se le, para nao existirem
                # duas contas da mesma coisa dando numeros diferentes.
@@ -896,6 +902,9 @@ def _pontualidade_rhid(ano: int, mes: int):
                 acc["janelas"].append(
                     (reg["data"], _janelas_do_dia(reg["data"], entrada, saida_a,
                                                   volta, saida_d)))
+                _abo = float(reg.get("minutos_abonados") or 0)
+                if _abo > 0:
+                    acc["abono_min"][reg["data"]] = _abo
 
             # Cada ocorrencia guarda o dia, a hora batida, QUAL evento a gerou e
             # quantos minutos passaram do horario. E o que a equipe precisa para
@@ -1048,6 +1057,7 @@ def get_ociosidade_mes(ano: int, mes: int, tempo_cards_por_user: dict,
         tc   = tempo_cards_por_user.get(u, 0)         # minutos em cards (Trello)
 
         _janelas_mes = (via_rhid.get(u, {}) or {}).get("janelas") or []
+        _abono_mes = (via_rhid.get(u, {}) or {}).get("abono_min") or {}
         if _janelas_mes and u in intervalos_por_user:
             ativos = intervalos_por_user.get(u) or []
             ocio, hd_reais = 0.0, 0.0
@@ -1072,6 +1082,22 @@ def get_ociosidade_mes(ano: int, mes: int, tempo_cards_por_user: dict,
                 # tempo cobrado. Das 8h no relogio, 7h sao de atividade.
                 ocio += max(_o - _pc.PAUSA_PESSOAL_MIN, 0.0)
                 hd_reais += max(_bruto_dia - _pc.PAUSA_PESSOAL_MIN, 0.0)
+                # Hora abonada na RHiD sai daqui tambem, e SO daqui.
+                #
+                # Quem abona uma hora esta dizendo que a pessoa nao devia essa
+                # hora — cobrar dela como ociosidade e desfazer o abono pelas
+                # costas de quem o concedeu. E o abono da RHiD e um TOTAL do
+                # dia, sem hora de inicio: por isso sai do total do dia, e nao
+                # de um trecho da linha do tempo.
+                #
+                # Sai dos dois lados, como a pausa pessoal: do tempo ocioso e
+                # do denominador. Tirar so do numerador faria o percentual cair
+                # duas vezes pela mesma hora.
+                _abo_dia = float(_abono_mes.get(_data, 0) or 0)
+                if _abo_dia > 0:
+                    _abo_dia = min(_abo_dia, _bruto_dia)
+                    ocio = max(ocio - _abo_dia, 0.0)
+                    hd_reais = max(hd_reais - _abo_dia, 0.0)
             if hd_reais > 0:
                 hd = hd_reais
         else:
@@ -1080,6 +1106,11 @@ def get_ociosidade_mes(ano: int, mes: int, tempo_cards_por_user: dict,
             _dias = (via_rhid.get(u, {}).get("dias_trabalhados")
                      or resumo[u]["dias_trabalhados"] or 0)
             hd = max(hd - _pc.PAUSA_PESSOAL_MIN * _dias, 0)
+            # A hora abonada sai daqui tambem. Este e o caminho de reserva, e
+            # ele existe para o mes que nao tem linha do tempo do Trello — se o
+            # abono so valesse no caminho principal, a mesma hora seria perdoada
+            # numa tela e cobrada na outra.
+            hd = max(hd - sum(float(v or 0) for v in _abono_mes.values()), 0)
             ocio = max(hd - tc, 0)
         pct  = (ocio / hd * 100) if hd > 0 else 0
         resultado[u] = {

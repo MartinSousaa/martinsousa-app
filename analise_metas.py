@@ -770,6 +770,18 @@ def _diagnostico_metas_individuais(tem_ponto, sem_exec, diags_pont, erro_pont, d
                 )
                 if d.get("campo_batidas"):
                     st.caption(f"Batidas lidas do campo **{d['campo_batidas']}**.")
+                # A hora abonada na RHiD sai da ociosidade. Dizer de QUAL campo
+                # ela foi lida e o que permite conferir que o abono chegou —
+                # sem isso, "nao afetou" e "nao foi lido" tem a mesma cara.
+                if d.get("campo_abono"):
+                    st.caption(
+                        f"Horas abonadas lidas do campo **{d['campo_abono']}** "
+                        f"— elas saem da ociosidade.")
+                elif d.get("dias_com_batida"):
+                    st.caption(
+                        "Nenhum campo de hora abonada reconhecido neste mês. "
+                        "Se você abonou horas na RHiD e elas ainda pesam na "
+                        "ociosidade, me diga o nome do campo na lista abaixo.")
                 if d.get("erro"):
                     st.warning(d["erro"])
                 if d.get("campos_com_hora"):
