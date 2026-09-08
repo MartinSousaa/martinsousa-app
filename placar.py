@@ -172,12 +172,19 @@ def _write_tv_static(html: str) -> bool:
     _write_beep_wav()  # garante que beep.wav existe ao lado de tv.html
     return ok
 
-MEMBROS_ATIVOS = {
-    "myrelladesouza": "Myrella",
-    "beatriz51":      "Beatriz",
-    "gabriel_borges": "Gabriel",
-}
-MASTERS = {"martinsousa", "renan"}
+# A equipe e os gestores vem do core — o MESMO objeto, nao uma copia.
+#
+# Aqui havia tres nomes escritos a mao. O core recarrega a equipe da planilha em
+# recarregar_membros(), mas mexia no dicionario DELE; esta copia continuava com
+# os tres de sempre. Foi por isso que Nicollas e Luiz sumiram do "Desempenho por
+# Colaborador": eles estavam cadastrados, o painel os contava na pontuacao da
+# equipe, e o bloco que desenha uma barra por pessoa varria uma lista que nunca
+# soube que eles existem.
+#
+# Apontar para o objeto do core (e nao copia-lo) e o que faz a recarga chegar
+# aqui: recarregar_membros() limpa e repovoa o dicionario no lugar.
+MEMBROS_ATIVOS = _pc_core.MEMBROS_ATIVOS
+MASTERS = _pc_core.MASTERS
 # Vem do placar_core, e nao de uma copia. Estas duas listas ja estiveram
 # duplicadas aqui e foi assim que uma coluna renomeada no Trello virou coluna
 # fantasma no painel: o core sabia, esta copia nao.
@@ -679,6 +686,27 @@ def _fatia_salvar(meta_pts, pts_extra, saldo, perim, cor="#E34948"):
 
 
 
+def _sem_linha_vazia(markup):
+    """Markup de uma peca so, sem linha em branco no meio.
+
+    O Studio passa este HTML pelo markdown do Streamlit, e no markdown UMA
+    LINHA SO COM ESPACOS FECHA O BLOCO HTML. Quando o velocimetro nao tem
+    fatia, `{_fatia}` saia vazio e deixava para tras uma linha de dois espacos
+    — bastava isso para o markdown cortar o SVG em dois e embrulhar o resto num
+    <p>. E <p> dentro de <svg> faz o navegador FECHAR o svg ali mesmo: o arco
+    dourado, o ponteiro e os circulos viravam elementos desconhecidos (nada na
+    tela) e os <text> vazavam como texto solto — o "0 MAXX" que aparecia
+    embaixo do mostrador.
+
+    A TV escapou porque monta a pagina inteira e nao passa por markdown nenhum.
+
+    Vale a mesma regra para a linha de cima: toda tag precisa caber numa linha
+    so. Tag partida em duas nao e bloco HTML para o markdown, e vira paragrafo
+    do mesmo jeito.
+    """
+    return "\n".join(l for l in markup.split("\n") if l.strip())
+
+
 def _vel_meta(pct, meta_eq, saldo_eq, faltam, cor=None, pts_salvar=0):
     """Velocimetro da Meta Mensal. `cor` vem do ritmo do mes.
 
@@ -704,7 +732,7 @@ def _vel_meta(pct, meta_eq, saldo_eq, faltam, cor=None, pts_salvar=0):
     px=cx+r*math.cos(ang); py=cy+r*math.sin(ang)
     dash=_frac*perim
     _rot_meta = "META" if not _fatia else "SALVAR"
-    return f"""
+    return _sem_linha_vazia(f"""
 <div style="text-align:center;">
 <svg viewBox="0 0 260 150" width="75%" style="display:block;margin:0 auto;overflow:visible;">
   <path d="M20,120 A110,110 0 0 1 240,120" fill="none" stroke="var(--ms-metric-bd)" stroke-width="18" stroke-linecap="round"/>
@@ -718,7 +746,7 @@ def _vel_meta(pct, meta_eq, saldo_eq, faltam, cor=None, pts_salvar=0):
 </svg>
 <div style="font-size:36px;font-weight:700;color:{cor};margin-top:2px;line-height:1;">{"%.1f%%" % min(pct,999) if pct < 10 else "%.0f%%" % min(pct,999)}</div>
 <div class="vel-label">🏆 Meta Mensal</div>
-</div>"""
+</div>""")
 
 def _vel_maxx(pct_maxx, meta_maxx_pts, saldo_eq, maxx_batida=None,
               pts_salvar=0):
@@ -737,7 +765,7 @@ def _vel_maxx(pct_maxx, meta_maxx_pts, saldo_eq, maxx_batida=None,
     # antiga, so por pontos.
     atingiu = maxx_batida if maxx_batida is not None else saldo_eq >= meta_maxx_pts
     # Gradiente dourado brilhante
-    return f"""
+    return _sem_linha_vazia(f"""
 <div style="text-align:center;">
 <svg viewBox="0 0 260 150" width="75%" style="display:block;margin:0 auto;overflow:visible;">
   <defs>
@@ -762,8 +790,7 @@ def _vel_maxx(pct_maxx, meta_maxx_pts, saldo_eq, maxx_batida=None,
   </defs>
   <path d="M20,120 A110,110 0 0 1 240,120" fill="none" stroke="var(--ms-metric-bd)" stroke-width="18" stroke-linecap="round"/>
   {_fatia}
-  <path d="M20,120 A110,110 0 0 1 240,120" fill="none" stroke="url(#goldGrad)" stroke-width="18" stroke-linecap="round"
-        stroke-dasharray="{dash:.1f} {perim:.1f}" filter="url(#glow)"/>
+  <path d="M20,120 A110,110 0 0 1 240,120" fill="none" stroke="url(#goldGrad)" stroke-width="18" stroke-linecap="round" stroke-dasharray="{dash:.1f} {perim:.1f}" filter="url(#glow)"/>
   <line x1="{cx}" y1="{cy}" x2="{px:.1f}" y2="{py:.1f}" stroke="#FFD700" stroke-width="3" stroke-linecap="round" filter="url(#glow)"/>
   <circle cx="{cx}" cy="{cy}" r="7" fill="#FFD700" filter="url(#glow)"/>
   <circle cx="{cx}" cy="{cy}" r="3" fill="var(--ms-metric-bg)"/>
@@ -772,7 +799,7 @@ def _vel_maxx(pct_maxx, meta_maxx_pts, saldo_eq, maxx_batida=None,
 </svg>
 <div style="font-size:36px;font-weight:700;color:#FFD700;margin-top:2px;line-height:1;filter:drop-shadow(0 0 8px #FFD700);">{"%.1f%%" % min(pct_maxx,999) if pct_maxx < 10 else "%.0f%%" % min(pct_maxx,999)}</div>
 <div class="vel-label" style="color:#FFD700;">{"⭐ META MAXX ATINGIDA!" if atingiu else "⭐ Meta Maxx"}</div>
-</div>"""
+</div>""")
 
 def _card(label,valor,sub=None,cor="var(--ms-texto)",icone=""):
     s=f'<div class="pm-sub">{sub}</div>' if sub else ""
@@ -1875,8 +1902,6 @@ def pagina_placar(usuario_logado, headless=False):
     except Exception:
         cfg_mes = {
             "meta_equipe": 5000, "meta_maxx_pct": 110,
-            "meta_myrelladesouza": 1500, "meta_beatriz51": 1500,
-            "meta_gabriel_borges": 1500,
             "max_pen_normal": 4, "max_pen_maxx": 1,
             "max_tol_normal": 15, "max_tol_maxx": 7,
             "max_atr_normal": 10, "max_atr_maxx": 5,
@@ -1885,27 +1910,27 @@ def pagina_placar(usuario_logado, headless=False):
     # Chaves de sessão por mês (para sobrescritas rápidas no expander)
     k_eq  = f"meta_eq_{filtro_mes[0]}_{filtro_mes[1]}"
     k_mx  = f"meta_maxx_{filtro_mes[0]}_{filtro_mes[1]}"
-    k_myr = f"meta_myr_{filtro_mes[0]}_{filtro_mes[1]}"
-    k_bea = f"meta_bea_{filtro_mes[0]}_{filtro_mes[1]}"
-    k_gab = f"meta_gab_{filtro_mes[0]}_{filtro_mes[1]}"
-
     _semear_meta(k_eq,  cfg_mes["meta_equipe"])
     _semear_meta(k_mx,  cfg_mes["meta_maxx_pct"])
-    _semear_meta(k_myr, cfg_mes["meta_myrelladesouza"])
-    _semear_meta(k_bea, cfg_mes["meta_beatriz51"])
-    _semear_meta(k_gab, cfg_mes["meta_gabriel_borges"])
 
     # Configuração de metas foi movida para a aba "📊 Análise de Metas"
     # _meta_sessao cai na configuração quando não há sessão (thread da TV).
     meta_eq   = _meta_sessao(k_eq, cfg_mes["meta_equipe"])
     maxx_pct  = _meta_sessao(k_mx, cfg_mes["meta_maxx_pct"])
     meta_maxx_pts = meta_eq * maxx_pct / 100
-    # Meta individual por colaborador
-    meta_ind_map = {
-        "myrelladesouza": _meta_sessao(k_myr, cfg_mes["meta_myrelladesouza"]),
-        "beatriz51":      _meta_sessao(k_bea, cfg_mes["meta_beatriz51"]),
-        "gabriel_borges": _meta_sessao(k_gab, cfg_mes["meta_gabriel_borges"]),
-    }
+    # Meta individual por colaborador — de quem estiver cadastrado hoje.
+    #
+    # Eram tres chaves escritas no codigo. A configuracao ja guarda uma
+    # `meta_<username>` por pessoa da planilha (metas_config.campos_por_pessoa),
+    # entao a lista certa e a da equipe, nao a do arquivo. Quem entrar amanha
+    # aparece sem alterar codigo; quem ainda nao tem meta configurada entra com
+    # zero, que e o que a planilha diz — e nao com um numero inventado aqui.
+    meta_ind_map = {}
+    for _u_ind in MEMBROS_ATIVOS:
+        _k_ind = f"meta_ind_{_u_ind}_{filtro_mes[0]}_{filtro_mes[1]}"
+        _padrao_ind = cfg_mes.get(f"meta_{_u_ind}", 0)
+        _semear_meta(_k_ind, _padrao_ind)
+        meta_ind_map[_u_ind] = _meta_sessao(_k_ind, _padrao_ind)
     # Compatibilidade: meta_ind = média para barras genéricas
     meta_ind = sum(meta_ind_map.values()) // max(len(meta_ind_map), 1)
 
