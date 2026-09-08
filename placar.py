@@ -1923,12 +1923,22 @@ def pagina_placar(usuario_logado, headless=False):
     # Eram tres chaves escritas no codigo. A configuracao ja guarda uma
     # `meta_<username>` por pessoa da planilha (metas_config.campos_por_pessoa),
     # entao a lista certa e a da equipe, nao a do arquivo. Quem entrar amanha
-    # aparece sem alterar codigo; quem ainda nao tem meta configurada entra com
-    # zero, que e o que a planilha diz — e nao com um numero inventado aqui.
+    # aparece sem alterar codigo.
+    #
+    # O padrao so vale quando a configuracao inteira nao pode ser lida — se a
+    # planilha responde, carregar_config() ja devolve uma meta para cada pessoa
+    # da equipe. Aqui ele e o MESMO padrao da configuracao (1.500), e nao zero:
+    # com a planilha fora do ar, meta zero pintaria a barra de todo mundo como
+    # se ninguem tivesse alvo.
+    try:
+        import metas_config as _mc_ind
+        _PADRAO_IND = _mc_ind.META_INDIVIDUAL_PADRAO
+    except Exception:
+        _PADRAO_IND = 1500
     meta_ind_map = {}
     for _u_ind in MEMBROS_ATIVOS:
         _k_ind = f"meta_ind_{_u_ind}_{filtro_mes[0]}_{filtro_mes[1]}"
-        _padrao_ind = cfg_mes.get(f"meta_{_u_ind}", 0)
+        _padrao_ind = cfg_mes.get(f"meta_{_u_ind}", _PADRAO_IND)
         _semear_meta(_k_ind, _padrao_ind)
         meta_ind_map[_u_ind] = _meta_sessao(_k_ind, _padrao_ind)
     # Compatibilidade: meta_ind = média para barras genéricas
