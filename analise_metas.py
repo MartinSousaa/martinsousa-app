@@ -4875,6 +4875,15 @@ def _linha_pedido(a, _ab, gestor=False):
     # O comprovante, quando existe. Link, e nao miniatura: a fila do gestor tem
     # dezenas de pedidos, e carregar imagem em todos deixaria a tela pesada
     # para ver o que quase sempre nao precisa ser visto.
+    # O assunto vem antes do motivo: e ele que diz o que a aprovacao vai fazer.
+    _ass_rot = _ab.rotulo_assunto(a.get("assunto") or _ab.ASSUNTO_PADRAO)
+    _ass_rot = _ass_rot.split(" — ")[0]
+    _sem_efeito = (a.get("assunto") or _ab.ASSUNTO_PADRAO) not in _ab.DESCONTA_PRAZO
+    assunto = (f'<span style="background:var(--ms-metric-bd);border-radius:4px;'
+               f'padding:1px 6px;font-size:11px;margin-left:6px;">'
+               f'{_ass_rot}{" · sem efeito automático" if _sem_efeito else ""}'
+               f'</span>')
+
     anexo = ""
     if str(a.get("anexo") or "").strip():
         anexo = (f'<div style="font-size:11.5px;margin-top:4px;">'
@@ -4889,7 +4898,7 @@ def _linha_pedido(a, _ab, gestor=False):
         f'{quem}{a["data"]:%d/%m} · {a["inicio"]:%H:%M} → {a["fim"]:%H:%M}'
         f'<span style="color:var(--ms-texto);font-weight:700;"> · '
         f'{_fmt_hm(dur)}</span>'
-        f'<span style="color:{cor};"> · {selo}</span></div>'
+        f'<span style="color:{cor};"> · {selo}</span>{assunto}</div>'
         f'<div style="font-size:13px;margin-top:3px;">'
         f'{_esc(a["motivo"]) or "sem motivo"}</div>'
         f'{anexo}{rodape}</div>')
@@ -4940,8 +4949,26 @@ def _secao_pedido_abatimento(username, nome, pode_pedir, cabecalho=True):
                            key=f"pab_i_{username}", step=300)
         _f = c3.time_input("Terminou às", value=time(10, 0),
                            key=f"pab_f_{username}", step=300)
+        # Do que trata o pedido. Sem este campo, todo pedido chegava como
+        # abono de ociosidade — e quem quisesse contestar uma advertencia ou
+        # justificar um atraso no relogio nao tinha onde dizer isso.
+        _assuntos = _ab.ASSUNTOS
+        _chaves = [c for c, _ in _assuntos]
+        _ass = st.selectbox(
+            "Sobre o que é o pedido", _chaves,
+            index=_chaves.index(_ab.ASSUNTO_PADRAO),
+            format_func=_ab.rotulo_assunto, key=f"pab_as_{username}")
+        # Tres assuntos ainda nao tem efeito automatico. Aprovar algo que nao
+        # faz nada, sem avisar, e pior do que nao ter o campo.
+        if _ass not in _ab.DESCONTA_PRAZO:
+            st.caption(
+                "ℹ️ Este assunto fica **registrado para o gestor decidir**, mas "
+                "ainda não altera indicador sozinho — a correção é feita por "
+                "ele, fora do sistema.")
+        _rot_m = ("O que você estava fazendo"
+                  if _ass == _ab.ASS_OCIOSIDADE else "Explique o que aconteceu")
         _m = st.text_area(
-            "O que você estava fazendo", key=f"pab_m_{username}", height=80,
+            _rot_m, key=f"pab_m_{username}", height=80,
             placeholder="Estava filmando os produtos da campanha e esqueci de "
                         "pôr a etiqueta FILMAGEM no cartão.")
         # O comprovante vive junto do pedido que ele justifica.
@@ -4981,7 +5008,8 @@ def _secao_pedido_abatimento(username, nome, pode_pedir, cabecalho=True):
                 st.warning(f"Não consegui enviar o anexo ({_erro_anx}). "
                            f"O pedido foi enviado sem ele.")
             _ok, _msg = _ab.salvar(_d, _i, _f, _m, user=username,
-                                   status=_ab.PENDENTE, anexo=_link)
+                                   status=_ab.PENDENTE, anexo=_link,
+                                   assunto=_ass)
             if _ok:
                 st.rerun()
             else:

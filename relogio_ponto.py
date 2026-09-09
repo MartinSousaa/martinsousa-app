@@ -1070,7 +1070,12 @@ def get_ociosidade_mes(ano: int, mes: int, tempo_cards_por_user: dict,
                 # `u` entra na conta: alem da parada do escritorio, sai
                 # daqui o abatimento que o gestor aprovou para essa pessoa --
                 # o trabalho que ela fez sem cartao aberto ou sem etiqueta.
-                _ab = _pc.abonos_do_dia(_data, username=u)
+                # Conjunto estreito: so o abono de OCIOSIDADE tira tempo
+                # daqui. O de prazo trava o relogio do cartao sem dizer que a
+                # pessoa estava produzindo.
+                import abonos as _abm_set
+                _ab = _pc.abonos_do_dia(_data, username=u,
+                                        assuntos=_abm_set.DESCONTA_OCIOSIDADE)
                 if _ab:
                     import abonos as _abm
                     _jans = _abm.descontar(_jans, _ab)
@@ -1657,6 +1662,15 @@ def _cartao_pedido(a, _ab):
     # O comprovante, quando existe. Link, e nao miniatura: a fila do gestor tem
     # dezenas de pedidos, e carregar imagem em todos deixaria a tela pesada
     # para ver o que quase sempre nao precisa ser visto.
+    # O assunto vem antes do motivo: e ele que diz o que a aprovacao vai fazer.
+    _ass_rot = _ab.rotulo_assunto(a.get("assunto") or _ab.ASSUNTO_PADRAO)
+    _ass_rot = _ass_rot.split(" — ")[0]
+    _sem_efeito = (a.get("assunto") or _ab.ASSUNTO_PADRAO) not in _ab.DESCONTA_PRAZO
+    assunto = (f'<span style="background:var(--ms-metric-bd);border-radius:4px;'
+               f'padding:1px 6px;font-size:11px;margin-left:6px;">'
+               f'{_ass_rot}{" · sem efeito automático" if _sem_efeito else ""}'
+               f'</span>')
+
     anexo = ""
     if str(a.get("anexo") or "").strip():
         anexo = (f'<div style="font-size:11.5px;margin-top:4px;">'
@@ -1672,7 +1686,7 @@ def _cartao_pedido(a, _ab):
         f'{_esc_ab(nome)}</span> · {a["data"]:%d/%m} · {a["inicio"]:%H:%M} → '
         f'{a["fim"]:%H:%M}<span style="color:var(--ms-texto);font-weight:700;">'
         f' · {_fmt_min(dur)}</span>'
-        f'<span style="color:{cor};"> · {selo}</span></div>'
+        f'<span style="color:{cor};"> · {selo}</span>{assunto}</div>'
         f'<div style="font-size:13px;margin-top:3px;">'
         f'{_esc_ab(a["motivo"]) or "sem motivo"}</div>'
         f'{anexo}{rodape}</div>')

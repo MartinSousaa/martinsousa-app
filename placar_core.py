@@ -1288,7 +1288,7 @@ def _lista_abonos():
         return []
 
 
-def abonos_do_dia(dia, lista=None, username=None):
+def abonos_do_dia(dia, lista=None, username=None, assuntos=None):
     """[(inicio, fim)] das horas abonadas naquele dia, ou vazio.
 
     Queda de internet, falta de energia: o trabalho para e os indicadores nao.
@@ -1305,9 +1305,15 @@ def abonos_do_dia(dia, lista=None, username=None):
     """
     try:
         import abonos as _ab
+        # Sem `assuntos`, o padrao e o conjunto do PRAZO: e daqui que sai o
+        # relogio do cartao, e nele entram tanto o abono de ociosidade quanto o
+        # de prazo. A ociosidade em si pede um conjunto mais estreito, e quem
+        # calcula ela passa o seu.
         return _ab.janelas_do_dia(dia, FUSO,
                                   _lista_abonos() if lista is None else lista,
-                                  username=username)
+                                  username=username,
+                                  assuntos=(_ab.DESCONTA_PRAZO
+                                            if assuntos is None else assuntos))
     except Exception:
         return []
 
