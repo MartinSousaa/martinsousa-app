@@ -1480,7 +1480,8 @@ def _unir(intervalos):
     return [tuple(x) for x in saida]
 
 
-def intervalos_por_membro(cards, acoes_board, membros_map=None, agora=None):
+def intervalos_por_membro(cards, acoes_board, membros_map=None, agora=None,
+                          listas=None):
     """{username: [(ini, fim)]} em hora local — trechos com ao menos um cartao
     EM ANDAMENTO atribuido aquela pessoa.
 
@@ -1491,15 +1492,33 @@ def intervalos_por_membro(cards, acoes_board, membros_map=None, agora=None):
     fora da pontuacao e do tempo medio de execucao, mas quem esta com ele em
     andamento esta trabalhando. Tira-lo daqui transformaria a manha inteira de
     quem foi procurar servico em tempo ocioso.
+
+    ANALISE DE DEMANDAS TEM UMA REGRA PROPRIA. Nas demais colunas, o tempo de
+    cada pessoa comeca quando ELA entra no cartao — e o certo: quem entrou as
+    11h nao executou o que aconteceu as 9h. Na coluna de analise nao: a equipe
+    procura demanda junto, num cartao so, e quem e adicionado no meio da manha
+    estava garimpando desde o comeco dela. Contar so a partir da entrada
+    transformaria em ociosidade o trabalho que a pessoa fez antes de alguem se
+    lembrar de marca-la no cartao.
+
+    Entao, e so ali, o intervalo inteiro do cartao vale para TODOS os membros
+    que estao nele. `listas` e o mapa {id: nome} do board; sem ele a regra nao
+    tem como saber a coluna e o comportamento e o de sempre.
     """
     membros_map = membros_map or {}
+    listas = listas or {}
     agora = agora or datetime.now(timezone.utc)
     por_membro = {}
     for c in cards:
         acoes_c = acoes_board.get(c["id"], [])
+        _col = str(listas.get(c.get("idList"), "")).strip().upper()
+        _todos = (set(c.get("idMembers") or [])
+                  if _col in LISTAS_ANALISE else None)
         for s in intervalos_do_cartao(acoes_c, agora, c.get("idMembers"),
                                       labels_do_card(c)):
-            for m in s["membros"]:
+            # Na analise, quem esta no cartao agora recebe o trecho inteiro.
+            # Nas outras colunas, so quem estava nele naquele trecho.
+            for m in (_todos if _todos else s["membros"]):
                 ator = membros_map.get(m, m)
                 por_membro.setdefault(ator, []).append(
                     (s["ini"].astimezone(FUSO), s["fim"].astimezone(FUSO)))
@@ -2587,7 +2606,8 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
     # deixa de fora do mes, que ja e o comportamento seguro.
     _acoes_mov = acoes_movimento(_desde, max_paginas=5)
     _acoes_board = _buscar_acoes_board(_desde)
-    d["intervalos_membro"] = intervalos_por_membro(cards, _acoes_board, membros_map)
+    d["intervalos_membro"] = intervalos_por_membro(cards, _acoes_board,
+                                                   membros_map, listas=listas)
     # Dia a dia de cada pessoa: cartoes iniciados, interrompidos e o tempo de
     # execucao. E o que separa um dia sem entrega de um dia sem trabalho — os
     # dois apareciam iguais, porque so o concluido era contado.
