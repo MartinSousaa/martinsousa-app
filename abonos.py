@@ -57,7 +57,11 @@ ABA_NOME = "abonos"
 # so, do tipo "parada", da equipe inteira e ja aprovada — que e exatamente o
 # que ela era.
 COLUNAS = ["data", "data_fim", "inicio", "fim", "motivo", "tipo",
-           "user", "status", "criado_em", "decidido_por", "decidido_em", "obs"]
+           "user", "status", "criado_em", "decidido_por", "decidido_em", "obs",
+           # Link do comprovante no Drive. Motivo escrito e a versao da pessoa;
+           # atestado e foto sao a prova. Quem decide precisava pedir por fora,
+           # no WhatsApp, e a prova nao ficava junto do pedido que ela justifica.
+           "anexo"]
 
 TIPO_PARADA = "parada"
 TIPO_PERIODO = "periodo"
@@ -189,6 +193,7 @@ def carregar():
             "decidido_por": str(r.get("decidido_por") or "").strip(),
             "decidido_em": str(r.get("decidido_em") or "").strip(),
             "obs": str(r.get("obs") or "").strip(),
+            "anexo": str(r.get("anexo") or "").strip(),
         })
     fora.sort(key=lambda a: (a["data"], a["inicio"]), reverse=True)
     return fora
@@ -215,7 +220,7 @@ def _agora():
 
 
 def salvar(data, inicio, fim, motivo, data_fim=None, tipo=TIPO_PARADA,
-           user=TODOS, status=APROVADO):
+           user=TODOS, status=APROVADO, anexo=""):
     """Acrescenta um abono. Devolve (ok, mensagem).
 
     O lançamento do gestor nasce aprovado — ele é a própria aprovação. O pedido
@@ -236,6 +241,7 @@ def salvar(data, inicio, fim, motivo, data_fim=None, tipo=TIPO_PARADA,
         "motivo": str(motivo or "").strip(), "tipo": tipo,
         "user": str(user or ""), "status": status, "criado_em": _agora(),
         "decidido_por": "", "decidido_em": "", "obs": "",
+        "anexo": str(anexo or ""),
     }
     try:
         aba = _aba()
