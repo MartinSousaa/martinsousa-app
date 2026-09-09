@@ -29,6 +29,7 @@ container e escreve o arquivo antes de a primeira pessoa chegar.
 import logging
 import os
 import sys
+import time
 
 
 def main():
@@ -42,9 +43,17 @@ def main():
     logging.getLogger("streamlit.runtime.caching.cache_data_api").setLevel(
         logging.ERROR)
 
+    # Carimbo tirado ANTES do import: `import placar` puxa streamlit, pandas e
+    # as bibliotecas do Google, e esse custo faz parte do tempo em que a TV
+    # ainda esta sem arquivo depois de um deploy. Sem medi-lo separado, ele
+    # entra na conta como se fosse lentidao da regeneracao.
+    t0 = time.time()
     print("[tv_worker] subindo — regenera static/tv.html a cada volta",
           file=sys.stderr, flush=True)
     import placar
+    placar._TV_INICIO_WORKER = t0
+    print(f"[tv_worker] import do placar: {time.time() - t0:.1f}s",
+          file=sys.stderr, flush=True)
     # O laço é o mesmo que a thread rodava: ele já trata exceção por volta,
     # registra o motivo em TV_STATUS e nunca sai sozinho.
     placar._loop_regenerador_tv()

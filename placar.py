@@ -239,7 +239,15 @@ def _write_tv_static(html: str) -> bool:
         ok = True
     except Exception as e:
         try:
-            TV_STATUS["motivo"] = f"falha ao gravar o arquivo: {type(e).__name__}: {e}"[:200]
+            # So o NOME da excecao no motivo: ele viaja para o tv-status.json,
+            # que e servido publicamente ao lado do tv.html. A mensagem inteira
+            # vai para o stderr, que so o log do Railway le.
+            TV_STATUS["motivo"] = f"falha ao gravar o arquivo: {type(e).__name__}"
+        except Exception:
+            pass
+        try:
+            print(f"[TV regen] falha ao gravar static/tv.html: {e}",
+                  file=__import__("sys").stderr, flush=True)
         except Exception:
             pass
         ok = False
@@ -2738,7 +2746,86 @@ TV_STATUS = {
     "ultimo_erro": None,     # epoch da última falha
     "erro": "",              # a mensagem, resumida
     "motivo": "",            # por que a volta terminou sem gravar
+    "primeira_gravacao": None,  # epoch da PRIMEIRA gravação deste processo
 }
+
+# Quando o `placar` foi importado neste processo. O worker carimba
+# _TV_INICIO_WORKER antes do import; a diferenca entre os dois e o custo de
+# importar streamlit, pandas e as bibliotecas do Google.
+_TV_INICIO_PLACAR = __import__("time").time()
+_TV_INICIO_WORKER = None
+
+# O arquivo de estado da TV.
+#
+# POR QUE UM ARQUIVO, E NAO A MEMORIA
+# -----------------------------------
+# Desde que a regeneracao virou processo proprio (tv_worker.py), TV_STATUS
+# passou a existir DUAS vezes: uma no worker, que roda o laco, e outra no
+# processo do Streamlit, que desenha o Painel de Metas. O painel lia a dele —
+# sempre zerada, porque com TV_WORKER=1 o processo web nunca sobe o laco
+# (app.py:49). Com o arquivo velho, o diagnostico chegava a afirmar que "a
+# thread nunca rodou — ela nao subiu", que e falso por construcao. Foi essa
+# frase que mandou tres investigacoes seguidas cacarem o worker.
+#
+# O arquivo atravessa os dois processos, como o proprio tv.html ja atravessa.
+#
+# O QUE NAO ENTRA AQUI
+# --------------------
+# Ele e servido em /app/static/tv-status.json, publicamente, sem login — igual
+# ao tv.html. Entao nao entra mensagem de excecao: `requests` poe a URL inteira
+# na mensagem dela, com key e token do Trello dentro, e cortar em 200
+# caracteres nao e redacao nenhuma — o token comeca antes disso. Vai o NOME da
+# excecao e o motivo curto ja instrumentado (placar.py:2005, :2119, :242). A
+# mensagem inteira continua indo para o stderr, que so o log do Railway le.
+_TV_STATUS_ARQ = "tv-status.json"
+
+
+def _write_tv_status() -> None:
+    """Grava o estado do laço num arquivo ao lado do tv.html. Só o laço chama.
+
+    Chamado uma vez por volta, inclusive nas que falham — uma falha invisível é
+    o que tornou este bug irresolúvel três vezes.
+    """
+    try:
+        import json as _json_st
+        import time as _t_st
+        _static_dir = os.path.join(os.path.dirname(__file__), "static")
+        os.makedirs(_static_dir, exist_ok=True)
+        _path = os.path.join(_static_dir, _TV_STATUS_ARQ)
+        _dados = {
+            "pid": os.getpid(),
+            "inicio_worker": _TV_INICIO_WORKER,
+            "inicio_placar": _TV_INICIO_PLACAR,
+            "primeira_gravacao": TV_STATUS["primeira_gravacao"],
+            "voltas": TV_STATUS["voltas"],
+            "erros": TV_STATUS["erros"],
+            "ultimo_ok": TV_STATUS["ultimo_ok"],
+            "ultimo_erro": TV_STATUS["ultimo_erro"],
+            "erro": TV_STATUS["erro"],
+            "motivo": TV_STATUS["motivo"],
+            "gravado_em": _t_st.time(),
+        }
+        _tmp = _path + ".tmp"
+        with open(_tmp, "w", encoding="utf-8") as _f:
+            _json_st.dump(_dados, _f, ensure_ascii=False)
+        # Troca atômica: o Painel de Metas lê este arquivo de outro processo e
+        # não pode topar com um JSON pela metade.
+        os.replace(_tmp, _path)
+    except Exception:
+        pass  # estado da TV nunca pode derrubar a regeneração da TV
+
+
+def tv_status_lido():
+    """O estado gravado pelo processo do laço. `{}` quando não há arquivo."""
+    try:
+        import json as _json_l
+        _path = os.path.join(os.path.dirname(__file__), "static",
+                             _TV_STATUS_ARQ)
+        with open(_path, encoding="utf-8") as _f:
+            _d = _json_l.load(_f)
+        return _d if isinstance(_d, dict) else {}
+    except Exception:
+        return {}
 
 
 def _loop_regenerador_tv():
@@ -2764,17 +2851,31 @@ def _loop_regenerador_tv():
             else:
                 TV_STATUS["ultimo_ok"] = _t_tv.time()
                 TV_STATUS["erro"] = ""
+                if TV_STATUS["primeira_gravacao"] is None:
+                    # O tamanho do blecaute de cada deploy mora aqui: o tv.html
+                    # nao esta no repositorio, entao entre o container subir e
+                    # esta gravacao a TV pede o arquivo e recebe 404.
+                    TV_STATUS["primeira_gravacao"] = TV_STATUS["ultimo_ok"]
         except Exception as e:
             # Continua sem morrer — mas agora deixa rastro, na estrutura e no
             # log do Railway.
             TV_STATUS["erros"] += 1
             TV_STATUS["ultimo_erro"] = _t_tv.time()
-            TV_STATUS["erro"] = f"{type(e).__name__}: {e}"[:200]
+            # So o NOME da excecao. Antes era f"{type(e).__name__}: {e}"[:200],
+            # e este campo agora viaja para o tv-status.json, que e servido
+            # publicamente. A mensagem do `requests` traz a URL do Trello
+            # inteira, com key e token dentro — e cortar em 200 caracteres nao
+            # protege nada, porque o token comeca antes disso. O traceback
+            # completo continua logo abaixo, no stderr, que so o Railway le.
+            TV_STATUS["erro"] = type(e).__name__
             try:
                 print("[TV regen] FALHOU:", _tb_tv.format_exc()[-1200:],
                       file=__import__("sys").stderr)
             except Exception:
                 pass
+        # Fora do try/except da volta, de proposito: a volta que falhou e
+        # justamente a que precisa aparecer no arquivo.
+        _write_tv_status()
         _t_tv.sleep(_TV_INTERVALO_SEG)
 
 
@@ -2784,11 +2885,19 @@ def tv_diagnostico():
     A verdade aqui é a data do ARQUIVO, não o que a thread acha que fez: é o
     arquivo que a TV lê. A contagem de voltas e o último erro entram como
     explicação de por que ele está velho, quando está.
+
+    As contagens vêm do `tv-status.json`, gravado pelo processo que roda o laço.
+    Antes vinham do TV_STATUS desta memória — que no Railway é a do processo do
+    Streamlit, onde o laço nunca sobe (app.py:49). Ele estava zerado sempre, e
+    com arquivo velho esta função chegava a afirmar que a thread "não subiu".
     """
     import time as _t_d
     import os as _os_d
     agora = _t_d.time()
-    ok, erro = TV_STATUS["ultimo_ok"], TV_STATUS["erro"]
+    est = tv_status_lido()
+    voltas = est.get("voltas", 0)
+    erros = est.get("erros", 0)
+    ok, erro = est.get("ultimo_ok"), est.get("erro") or ""
     caminho = _os_d.path.join(_os_d.path.dirname(__file__), "static", "tv.html")
     try:
         idade_arq = agora - _os_d.path.getmtime(caminho)
@@ -2802,25 +2911,41 @@ def tv_diagnostico():
                          "mostrar desde o último deploy." + porque)
 
     if idade_arq > 300:
-        if TV_STATUS["voltas"] == 0:
-            return ("error", f"O arquivo da TV tem {idade_arq/60:.0f} min e a "
-                             f"thread de regeneração nunca rodou — ela não subiu.")
+        if not est:
+            # Sem arquivo de estado: ninguem gravou estado nenhum. Isso sim e
+            # sinal de laco que nao subiu — e agora a frase so aparece quando
+            # o processo do laco realmente nao deu sinal.
+            return ("error", f"O arquivo da TV tem {idade_arq/60:.0f} min e "
+                             f"nenhum processo registrou estado — o regenerador "
+                             f"não subiu.")
         return ("error", f"A TV está congelada: o arquivo tem {idade_arq/60:.0f} min "
-                         f"({TV_STATUS['erros']} falha(s) em {TV_STATUS['voltas']} "
-                         f"voltas).{porque}")
+                         f"({erros} falha(s) em {voltas} voltas).{porque}")
+
+    # Arquivo fresco, mas o estado do laco parado: o tv.html esta sendo mantido
+    # por quem tem o Painel aberto (pagina_placar tambem grava, placar.py:2493),
+    # e nao pelo regenerador. E o caso que congela a TV no fim do expediente,
+    # quando a ultima aba fecha — e ate agora ele nao tinha como aparecer.
+    _gravado = est.get("gravado_em")
+    if _gravado and (agora - _gravado) > 300:
+        return ("warning",
+                f"O arquivo da TV está atualizado ({idade_arq/60:.0f} min), mas "
+                f"o regenerador automático não dá sinal há "
+                f"{(agora - _gravado)/60:.0f} min: quem está salvando a TV é "
+                f"alguém com o Painel aberto. Quando a última aba fechar, ela "
+                f"congela.{porque}")
 
     # Arquivo fresco. Se a thread mesmo assim vem falhando, quem esta salvando a
     # TV e alguem com o Painel aberto — e no fim do expediente ela congela.
     if erro:
         return ("warning", f"O arquivo da TV está atualizado ({idade_arq/60:.0f} min), "
                            f"mas a regeneração automática está falhando "
-                           f"({TV_STATUS['erros']} de {TV_STATUS['voltas']} voltas). "
+                           f"({erros} de {voltas} voltas). "
                            f"Fora do expediente a TV vai congelar.{porque}")
 
     visto = f"{(agora - ok)/60:.0f} min" if ok else "—"
     return ("caption", f"📺 TV: arquivo com {idade_arq/60:.0f} min · última "
-                       f"regeneração há {visto} · {TV_STATUS['voltas']} voltas · "
-                       f"{TV_STATUS['erros']} falha(s)")
+                       f"regeneração há {visto} · {voltas} voltas · "
+                       f"{erros} falha(s)")
 
 
 @st.cache_resource
