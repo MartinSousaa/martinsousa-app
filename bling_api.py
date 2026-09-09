@@ -474,6 +474,20 @@ def get(conta, caminho, params=None):
         return (None, "Bling devolveu resposta que não é JSON")
 
 
+def formato_do_token(conta):
+    """'JWT', 'opaco' ou ''. Diz o FORMATO sem devolver o token.
+
+    A documentação passou a avisar que "a autenticação com token opaco foi
+    descontinuada" e que é preciso migrar para JWT. Saber em qual dos dois o
+    Bling está entregando hoje é o que diz se essa migração ainda nos afeta —
+    e isso se responde contando pontos, sem expor o valor.
+    """
+    tok = str((_ler_da_planilha(conta) or {}).get("access_token", ""))
+    if not tok:
+        return ""
+    return "JWT" if tok.count(".") == 2 else "opaco"
+
+
 def pedido(conta, id_pedido):
     """Um pedido de venda pelo ID — é daqui que sai situação e cancelamento."""
     return get(conta, f"/pedidos/vendas/{id_pedido}")

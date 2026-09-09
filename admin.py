@@ -479,3 +479,53 @@ def pagina_admin(usuario_logado):
                             "autorização vale 1 minuto e é trocado na hora."
                         )
             st.markdown("")
+
+        # ── Primeira leitura de verdade ───────────────────────────────────────
+        # Diagnostico, nao produto. A forma da resposta do Bling nao esta na
+        # documentacao publica de um jeito que de para ler sem adivinhar, entao
+        # ela e descoberta AQUI, com dado real, antes de qualquer tela ser
+        # desenhada em cima dela.
+        #
+        # Nao mostra o pedido inteiro: um pedido de venda carrega nome, documento
+        # e endereco do cliente, e isso nao precisa aparecer numa tela de
+        # diagnostico para responder "a leitura funciona?".
+        st.markdown("---")
+        st.markdown("**Conferir a leitura**")
+        st.caption(
+            "Chama `GET /pedidos/vendas` e mostra a forma do que voltou — "
+            "sem dados do cliente."
+        )
+        _conta_teste = st.radio("Conta", list(_bl.CONTAS), horizontal=True,
+                                format_func=str.upper, key="bling_teste_conta")
+        if st.button("Ler pedidos agora", key="bling_teste_ler"):
+            _fmt = _bl.formato_do_token(_conta_teste)
+            st.caption(f"Formato do token: **{_fmt or '—'}**")
+            _resp, _err = _bl.pedidos(_conta_teste)
+            if _err:
+                st.error(_err)
+            else:
+                _lista = (_resp or {}).get("data")
+                if not isinstance(_lista, list):
+                    st.warning("A resposta não trouxe uma lista em `data`.")
+                    st.write("Chaves do topo:", sorted((_resp or {}).keys()))
+                else:
+                    st.success(f"{len(_lista)} pedido(s) na primeira página.")
+                    if _lista:
+                        _p0 = _lista[0]
+                        st.caption("Campos de um pedido:")
+                        st.code(", ".join(sorted(_p0.keys())), language=None)
+                        st.caption("Como vem a situação:")
+                        st.json(_p0.get("situacao"))
+                        _linhas = []
+                        for _p in _lista[:10]:
+                            _s = _p.get("situacao") or {}
+                            _linhas.append({
+                                "id": _p.get("id"),
+                                "numero": _p.get("numero"),
+                                "data": _p.get("data"),
+                                "situacao.id": _s.get("id") if isinstance(_s, dict) else _s,
+                                "situacao.valor": _s.get("valor") if isinstance(_s, dict) else "",
+                            })
+                        import pandas as _pd_bl
+                        st.dataframe(_pd_bl.DataFrame(_linhas),
+                                     use_container_width=True, hide_index=True)
