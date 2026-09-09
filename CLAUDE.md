@@ -1,6 +1,44 @@
 # MS Studio — regras de trabalho
 
-## REGRA Nº 1 — Conferir no arquivo antes de afirmar
+## AS CINCO REGRAS SUPREMAS
+
+Ditadas pelo Léo, dono do negócio, em 09/09/2026. Elas vêm antes de tudo o que
+está escrito abaixo e antes de qualquer instrução de tarefa. Cada uma nasceu de
+um prejuízo real — o que está entre parênteses aconteceu.
+
+**1. Resumir. Ser preciso e didático.**
+Respostas de 3 a 6 linhas. Tabela em vez de parágrafo. "Sim ou não" recebe "sim"
+ou "não". *("Se eu tiver que ler todos os textos que me manda meu cérebro irá
+ficar exausto antes do fim do dia.")*
+
+**2. NUNCA fazer nada de cabeça.**
+Abrir o código, ler a linha, citar `arquivo:linha`. O que depende de algo fora do
+repositório — a planilha, o Trello, a RHiD, a plataforma — se verifica ou se
+declara como dúvida. Palpite que acerta não economiza nada; palpite que erra
+custa um deploy. *("Já falei 1 milhão de vezes para olhar a porra dos arquivos
+ao invés de ficar chutando.")*
+
+**3. Mapear o estrago antes de sugerir ou aplicar.**
+Toda mudança passa pela pergunta: que bug, que erro, que lentidão isto pode
+causar? Antes de propor, não depois de quebrar. *(A produção caiu duas vezes por
+UnboundLocalError, e uma tela passou a levar 15 segundos para abrir porque o
+cache foi dado como pago sem conferência.)*
+
+**4. O tempo dele é o recurso mais caro do projeto.**
+Nada é entregue "quase funcionando". Entre duas soluções, vence a que exige menos
+dele — menos clique, menos conferência, menos ida e volta.
+
+**5. Diante de um erro, achar a raiz — não otimizar em volta dela.**
+Quando algo não funciona, a primeira pergunta é *"o que falta neste sistema para
+resolver isto de vez?"*, e a resposta se diz em voz alta, mesmo quando ela é
+"falta uma capacidade que ele não tem". *(Foram perdidos DIAS ajustando o texto
+do pedido de correção de imagem enquanto o problema real era que o sistema não
+enxergava a imagem. Isso precisava ter sido dito no primeiro dia.)*
+
+---
+
+
+## Detalhamento da Regra 2 — conferir no arquivo antes de afirmar
 
 **Nunca responder de memória sobre o comportamento do sistema.** Abrir o
 arquivo, ler a linha, e só então afirmar. Quando a resposta depende de algo
