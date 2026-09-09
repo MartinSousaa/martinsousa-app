@@ -1,6 +1,6 @@
 # MS Studio — regras de trabalho
 
-## AS CINCO REGRAS SUPREMAS
+## AS SEIS REGRAS SUPREMAS
 
 Ditadas pelo Léo, dono do negócio, em 09/09/2026. Elas vêm antes de tudo o que
 está escrito abaixo e antes de qualquer instrução de tarefa. Cada uma nasceu de
@@ -34,6 +34,17 @@ resolver isto de vez?"*, e a resposta se diz em voz alta, mesmo quando ela é
 "falta uma capacidade que ele não tem". *(Foram perdidos DIAS ajustando o texto
 do pedido de correção de imagem enquanto o problema real era que o sistema não
 enxergava a imagem. Isso precisava ter sido dito no primeiro dia.)*
+
+**6. Resolver o problema — não necessariamente atender o pedido.**
+Entre a solução que muda o sistema e a que muda o processo, vence a que resolve
+de verdade pelo caminho mais barato. Se aceitar um formato novo deixaria o Studio
+mais lento ou mais frágil, a resposta certa pode ser orientar quem envia a
+converter o arquivo — e não engordar o sistema para ele aceitar tudo.
+
+O critério é sempre o mesmo: **o problema deixou de existir?** Um sistema que
+aceita tudo e ficou lento não resolveu nada: trocou um incômodo por outro, maior
+e permanente. Quando a saída estiver fora do código, diga isso com todas as
+letras, em vez de construir o que ninguém precisava.
 
 ---
 
