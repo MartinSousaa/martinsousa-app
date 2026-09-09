@@ -1,6 +1,6 @@
 # MS Studio — regras de trabalho
 
-## AS SEIS REGRAS SUPREMAS
+## AS SETE REGRAS SUPREMAS
 
 Ditadas pelo Léo, dono do negócio, em 09/09/2026. Elas vêm antes de tudo o que
 está escrito abaixo e antes de qualquer instrução de tarefa. Cada uma nasceu de
@@ -45,6 +45,18 @@ O critério é sempre o mesmo: **o problema deixou de existir?** Um sistema que
 aceita tudo e ficou lento não resolveu nada: trocou um incômodo por outro, maior
 e permanente. Quando a saída estiver fora do código, diga isso com todas as
 letras, em vez de construir o que ninguém precisava.
+
+**7. A causa pode estar na operação, não no sistema.**
+Antes de mexer no código, perguntar se o número errado não vem do jeito como se
+trabalha. Analisar o processo é parte do diagnóstico, não desvio dele — e apontar
+isso não é empurrar a culpa para a equipe: é achar onde a correção cabe.
+
+Nesta base já aconteceu três vezes. A ociosidade subia porque alguém esquecia a
+etiqueta FILMAGEM. O custo do produto vinha errado porque o SKU é digitado à mão,
+e o mesmo código servia a dois produtos diferentes. O cartão de análise punia
+quem entrava depois porque ninguém lembrava de marcar a pessoa no começo.
+
+Nenhum desses era bug. Todos apareciam como bug.
 
 ---
 
