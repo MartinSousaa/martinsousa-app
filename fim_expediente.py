@@ -13,11 +13,36 @@ A etiqueta que resolve já existe e já é entendida como interrupção
 
 A regra, decidida pelo gestor
 -----------------------------
-1. Bateu a saída  -> a partir daquele instante, os cartões dela em EM ANDAMENTO
-                     devem receber FIM DE EXPEDIENTE. Vale a qualquer hora, o
-                     que cobre quem foi embora mais cedo.
+0. Nunca antes das 19h (horário de Brasília). Piso absoluto, vale para as duas
+   regras abaixo.
+1. Bateu a saída  -> os cartões dela em EM ANDAMENTO recebem FIM DE EXPEDIENTE.
 2. Não bateu      -> uma hora depois do fim do expediente dela, mesma coisa.
                      Cobre quem foi embora e esqueceu de bater a saída.
+
+POR QUE O PISO DAS 19h EXISTE
+-----------------------------
+A regra 1 valia "a qualquer hora", para cobrir quem foi embora mais cedo. Em
+09/09 isso fechou o cartão de alguém que estava trabalhando:
+
+    [09/09 15:00:42] fechado: PORTA 12 RELÓGIOS MARROM COM INTERIOR PRETO
+                     · myrelladesouza · bateu a saída às 14:33
+
+Ela não tinha ido embora — 14:33 é a volta do almoço dela, e o expediente
+termina 17:45. Quem chamou aquilo de "saída" foi `rhid_api._extrair_marcacoes`
+(rhid_api.py:493-494): com DUAS batidas no dia, ele assume "entrada e saída,
+sem almoço". A suposição está certa para quem lê o dia depois de fechado — que
+e para quem ela foi escrita, o cálculo de ociosidade — e está errada no meio da
+tarde, quando duas batidas quase sempre significam "as outras ainda não
+chegaram".
+
+A mesma função responde a duas perguntas diferentes: "como foi o dia dela?" e
+"ela já foi embora?". Aqui só a segunda importa, e ela não tem resposta
+confiável antes do fim do expediente. O piso é o que torna a leitura segura:
+às 19h, duas batidas realmente querem dizer que a pessoa saiu.
+
+O custo, dito em voz alta: quem for embora de verdade às 15h fica com o cartão
+correndo até as 19h. É o que o gestor pediu, sabendo disso — melhor do que
+fechar o cartão de quem está trabalhando.
 
 Este módulo só DECIDE. Ele não fala com o Trello, e é de propósito: escrever no
 board é uma capacidade que o Studio nunca teve, e o ambiente de teste aponta
@@ -33,6 +58,11 @@ from datetime import datetime, timedelta
 # algo, mais que isso deixa o relógio correndo a noite toda.
 ESPERA_SEM_BATIDA_MIN = 60
 
+# Piso absoluto: nenhum cartão é fechado antes desta hora, local. Ver o cabeçalho
+# — antes disso não dá para distinguir "foi embora" de "as batidas do dia ainda
+# não chegaram todas", e o erro fecha o cartão de quem está trabalhando.
+HORA_MINIMA = 19
+
 
 def _hhmm(texto):
     """'17:45' -> minutos desde a meia-noite. None quando não dá para ler."""
@@ -43,7 +73,8 @@ def _hhmm(texto):
         return None
 
 
-def decidir(agora, pessoas, cartoes, espera_min=ESPERA_SEM_BATIDA_MIN):
+def decidir(agora, pessoas, cartoes, espera_min=ESPERA_SEM_BATIDA_MIN,
+            hora_minima=HORA_MINIMA):
     """Quais cartões devem receber FIM DE EXPEDIENTE agora.
 
     agora    datetime local.
@@ -56,6 +87,10 @@ def decidir(agora, pessoas, cartoes, espera_min=ESPERA_SEM_BATIDA_MIN):
     trabalho continua.
     """
     agora_min = agora.hour * 60 + agora.minute
+    # O piso vem antes de tudo: sem ele nao ha leitura confiavel de "ja foi
+    # embora", e devolver lista vazia e a resposta certa, nao uma desistencia.
+    if agora.hour < hora_minima:
+        return []
     encerrado = {}
     for user, info in (pessoas or {}).items():
         saida = _hhmm((info or {}).get("saida"))
@@ -101,21 +136,34 @@ if __name__ == "__main__":
     DOIS = [{"id": "c2", "nome": "Criativo em dupla", "membros": [MY, BIA]}]
 
     CASOS = [
-        ("saiu no horário e deixou o cartão aberto",
-         _em(18, 0), {MY: {"fim": "17:45", "saida": "17:45"}}, UM, 1),
+        # ── O piso das 19h ────────────────────────────────────────────────────
+        # O primeiro e o caso real de 09/09: a volta do almoco lida como saida
+        # fechou o cartao de quem estava trabalhando. E o motivo de o piso
+        # existir, entao e o primeiro teste do arquivo.
+        ("15h, 'saída' às 14:33 que é a volta do almoço — NÃO fecha",
+         _em(15, 0), {MY: {"fim": "17:45", "saida": "14:33"}}, UM, 0),
+        ("saiu no horário e deixou o cartão aberto — 18h ainda não fecha",
+         _em(18, 0), {MY: {"fim": "17:45", "saida": "17:45"}}, UM, 0),
+        ("o mesmo cartão, às 19h",
+         _em(19, 0), {MY: {"fim": "17:45", "saida": "17:45"}}, UM, 1),
+        ("18:59 é antes do piso",
+         _em(18, 59), {MY: {"fim": "17:45", "saida": "17:45"}}, UM, 0),
+        ("foi embora às 15:20 de verdade — só fecha às 19h",
+         _em(15, 30), {MY: {"fim": "17:45", "saida": "15:20"}}, UM, 0),
+        ("a mesma pessoa, depois do piso",
+         _em(19, 30), {MY: {"fim": "17:45", "saida": "15:20"}}, UM, 1),
+        # ── O resto da regra, já com o piso valendo ───────────────────────────
         ("um minuto antes da saída registrada",
-         _em(17, 44), {MY: {"fim": "17:45", "saida": "17:45"}}, UM, 0),
-        ("foi embora mais cedo, bateu às 15:20",
-         _em(15, 30), {MY: {"fim": "17:45", "saida": "15:20"}}, UM, 1),
+         _em(19, 44), {MY: {"fim": "19:45", "saida": "19:45"}}, UM, 0),
         ("sem batida, meia hora depois do fim — ainda espera",
-         _em(18, 30), {MY: {"fim": "17:45", "saida": None}}, UM, 0),
+         _em(19, 30), {MY: {"fim": "19:15", "saida": None}}, UM, 0),
         ("sem batida, uma hora depois do fim",
-         _em(18, 46), {MY: {"fim": "17:45", "saida": None}}, UM, 1),
+         _em(19, 16), {MY: {"fim": "18:15", "saida": None}}, UM, 1),
         ("meio do expediente, sem batida",
          _em(11, 0), {MY: {"fim": "17:45", "saida": None}}, UM, 0),
         ("cartão de dupla, só uma encerrou",
-         _em(18, 0), {MY: {"fim": "17:45", "saida": "17:45"},
-                      BIA: {"fim": "18:00", "saida": None}}, DOIS, 0),
+         _em(19, 0), {MY: {"fim": "17:45", "saida": "17:45"},
+                      BIA: {"fim": "23:00", "saida": None}}, DOIS, 0),
         ("cartão de dupla, as duas encerraram",
          _em(19, 5), {MY: {"fim": "17:45", "saida": "17:45"},
                       BIA: {"fim": "18:00", "saida": None}}, DOIS, 1),
