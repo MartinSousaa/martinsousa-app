@@ -234,7 +234,18 @@ def mimetype_por_nome(nome_arquivo, padrao="image/jpeg"):
     return {
         "jpg": "image/jpeg", "jpeg": "image/jpeg",
         "png": "image/png", "webp": "image/webp",
+        # Comprovante de abono chega como foto OU como documento: atestado
+        # costuma vir em PDF, e sem estes tipos o arquivo subia marcado como
+        # JPEG — o Drive abria uma imagem quebrada em vez do documento.
+        "pdf": "application/pdf", "heic": "image/heic", "heif": "image/heif",
+        "gif": "image/gif", "bmp": "image/bmp", "tiff": "image/tiff",
     }.get(ext, padrao)
+
+
+def pasta_abonos_id():
+    """Pasta dos comprovantes de abono. Cai na de imagens se não configurada."""
+    return (str(_secret("DRIVE_PASTA_ABONOS_ID", "")).strip()
+            or pasta_imagens_id())
 
 
 def url_thumbnail(file_id, tamanho=200):

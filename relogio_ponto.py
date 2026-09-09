@@ -1654,6 +1654,16 @@ def _cartao_pedido(a, _ab):
                   f'{selo} como {a["inicio"]:%H:%M} → {a["fim"]:%H:%M}'
                   f'{_por}{_obs}</div>')
 
+    # O comprovante, quando existe. Link, e nao miniatura: a fila do gestor tem
+    # dezenas de pedidos, e carregar imagem em todos deixaria a tela pesada
+    # para ver o que quase sempre nao precisa ser visto.
+    anexo = ""
+    if str(a.get("anexo") or "").strip():
+        anexo = (f'<div style="font-size:11.5px;margin-top:4px;">'
+                 f'<a href="{a["anexo"]}" target="_blank" '
+                 f'style="color:#4A90D9;text-decoration:none;">'
+                 f'📎 ver comprovante</a></div>')
+
     return (
         f'<div style="border-left:3px solid {cor};background:var(--ms-metric-bg);'
         f'border-radius:0 6px 6px 0;padding:9px 12px;">'
@@ -1665,7 +1675,7 @@ def _cartao_pedido(a, _ab):
         f'<span style="color:{cor};"> · {selo}</span></div>'
         f'<div style="font-size:13px;margin-top:3px;">'
         f'{_esc_ab(a["motivo"]) or "sem motivo"}</div>'
-        f'{rodape}</div>')
+        f'{anexo}{rodape}</div>')
 
 
 def _secao_abatimentos(usuario_logado: str):

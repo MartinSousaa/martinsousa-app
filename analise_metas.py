@@ -4872,6 +4872,16 @@ def _linha_pedido(a, _ab, gestor=False):
                   f'{selo} como {a["inicio"]:%H:%M} → {a["fim"]:%H:%M}'
                   f'{_por}{_obs}</div>')
 
+    # O comprovante, quando existe. Link, e nao miniatura: a fila do gestor tem
+    # dezenas de pedidos, e carregar imagem em todos deixaria a tela pesada
+    # para ver o que quase sempre nao precisa ser visto.
+    anexo = ""
+    if str(a.get("anexo") or "").strip():
+        anexo = (f'<div style="font-size:11.5px;margin-top:4px;">'
+                 f'<a href="{a["anexo"]}" target="_blank" '
+                 f'style="color:#4A90D9;text-decoration:none;">'
+                 f'📎 ver comprovante</a></div>')
+
     return (
         f'<div style="border-left:3px solid {cor};background:var(--ms-metric-bg);'
         f'border-radius:0 6px 6px 0;padding:9px 12px;margin-bottom:8px;">'
@@ -4882,7 +4892,7 @@ def _linha_pedido(a, _ab, gestor=False):
         f'<span style="color:{cor};"> · {selo}</span></div>'
         f'<div style="font-size:13px;margin-top:3px;">'
         f'{_esc(a["motivo"]) or "sem motivo"}</div>'
-        f'{rodape}</div>')
+        f'{anexo}{rodape}</div>')
 
 
 def _secao_pedido_abatimento(username, nome, pode_pedir, cabecalho=True):
@@ -4934,12 +4944,44 @@ def _secao_pedido_abatimento(username, nome, pode_pedir, cabecalho=True):
             "O que você estava fazendo", key=f"pab_m_{username}", height=80,
             placeholder="Estava filmando os produtos da campanha e esqueci de "
                         "pôr a etiqueta FILMAGEM no cartão.")
+        # O comprovante vive junto do pedido que ele justifica.
+        #
+        # Sem este campo, atestado e foto chegavam por WhatsApp e o pedido
+        # ficava aqui — quem decide tinha de juntar as duas coisas de cabeça, e
+        # meses depois ninguem sabia mais qual comprovante era de qual pedido.
+        _anx = st.file_uploader(
+            "📎 Comprovante (opcional) — atestado, foto, print",
+            type=["jpg", "jpeg", "png", "webp", "heic", "pdf"],
+            key=f"pab_anx_{username}",
+            help="Anexe se tiver. Ajuda quem vai decidir e evita a conversa "
+                 "por fora.")
         _dur = ((_f.hour * 60 + _f.minute) - (_i.hour * 60 + _i.minute))
         _b1, _b2 = st.columns([1, 4])
         if _b1.button("📨 Enviar pedido", key=f"pab_ok_{username}",
                       use_container_width=True):
+            # O anexo sobe ANTES de gravar a linha. Gravar primeiro e subir
+            # depois deixaria o pedido apontando para um arquivo que talvez
+            # nunca tenha chegado.
+            _link, _erro_anx = "", ""
+            if _anx is not None:
+                try:
+                    import gdrive as _gd
+                    _nome = (f"abono_{username}_{_d:%Y-%m-%d}_"
+                             f"{_i:%H%M}-{_f:%H%M}_{_anx.name}")
+                    _info, _erro_anx = _gd.upload(
+                        _anx.getvalue(), _nome, _gd.pasta_abonos_id(),
+                        mimetype=_gd.mimetype_por_nome(_anx.name))
+                    if _info:
+                        _link = _info.get("webViewLink") or ""
+                except Exception as _e:
+                    _erro_anx = str(_e)[:150]
+            if _erro_anx and not _link:
+                # Anexo que falha nao pode engolir o pedido: a pessoa perderia
+                # o texto e o horario que acabou de digitar.
+                st.warning(f"Não consegui enviar o anexo ({_erro_anx}). "
+                           f"O pedido foi enviado sem ele.")
             _ok, _msg = _ab.salvar(_d, _i, _f, _m, user=username,
-                                   status=_ab.PENDENTE)
+                                   status=_ab.PENDENTE, anexo=_link)
             if _ok:
                 st.rerun()
             else:
