@@ -61,7 +61,58 @@ COLUNAS = ["data", "data_fim", "inicio", "fim", "motivo", "tipo",
            # Link do comprovante no Drive. Motivo escrito e a versao da pessoa;
            # atestado e foto sao a prova. Quem decide precisava pedir por fora,
            # no WhatsApp, e a prova nao ficava junto do pedido que ela justifica.
-           "anexo"]
+           "anexo",
+           # Do que trata o pedido. Sem isto, todo pedido virava abono de
+           # ociosidade — inclusive o que a pessoa mandou para contestar uma
+           # advertencia ou justificar um atraso no relogio.
+           "assunto"]
+
+# ── Do que trata o pedido ────────────────────────────────────────────────────
+#
+# Nem todo pedido apaga um pedaco do expediente. Contestar advertencia e
+# justificar atraso no relogio sao outra conversa, e o abono nao tem como
+# resolve-las sozinho — mas o pedido precisa PODER ser feito e ficar registrado,
+# senao ele volta para o WhatsApp e some.
+#
+# `DESCONTA_JANELA` e o que separa os dois grupos: so estes tiram tempo do
+# expediente. Os demais sao decisao registrada, sem efeito automatico, e a tela
+# diz isso na cara de quem pede — aprovar algo que nao faz nada, sem avisar, e
+# pior do que nao ter o campo.
+ASS_ADVERTENCIA = "advertencia"
+ASS_ATRASO      = "atraso"
+ASS_FALTA       = "falta"
+ASS_OCIOSIDADE  = "ociosidade"
+ASS_PRAZO       = "prazo"
+
+# Em ordem alfabetica pelo rotulo, como o gestor pediu.
+ASSUNTOS = [
+    (ASS_ADVERTENCIA, "Advertência — contestar uma advertência lançada"),
+    (ASS_ATRASO,      "Atraso ou tolerância no ponto — trânsito, médico, atestado"),
+    (ASS_FALTA,       "Falta — dia inteiro, com atestado"),
+    (ASS_OCIOSIDADE,  "Ociosidade — trabalhou sem cartão aberto ou sem etiqueta"),
+    (ASS_PRAZO,       "Prazo da demanda — o cartão estourou por motivo externo"),
+]
+
+# Linha sem assunto e anterior a este campo, e todas elas eram de ociosidade:
+# era o unico pedido que existia. Ler como outra coisa mudaria o passado.
+ASSUNTO_PADRAO = ASS_OCIOSIDADE
+
+# Quais assuntos realmente apagam tempo do expediente, e de onde.
+#   ociosidade -> some da ociosidade E do relogio do cartao (a pessoa estava
+#                 trabalhando; o tempo nao e ocioso nem deve pesar no prazo)
+#   prazo      -> some so do relogio do cartao (o prazo travou por fora, mas a
+#                 pessoa nao estava produzindo naquele intervalo)
+DESCONTA_OCIOSIDADE = {ASS_OCIOSIDADE}
+DESCONTA_PRAZO      = {ASS_OCIOSIDADE, ASS_PRAZO}
+
+
+def rotulo_assunto(chave):
+    """O texto do assunto, ou a propria chave quando ela for desconhecida."""
+    for c, r in ASSUNTOS:
+        if c == chave:
+            return r
+    return str(chave or ASSUNTO_PADRAO)
+
 
 TIPO_PARADA = "parada"
 TIPO_PERIODO = "periodo"
@@ -194,6 +245,8 @@ def carregar():
             "decidido_em": str(r.get("decidido_em") or "").strip(),
             "obs": str(r.get("obs") or "").strip(),
             "anexo": str(r.get("anexo") or "").strip(),
+            "assunto": (str(r.get("assunto") or "").strip().lower()
+                        or ASSUNTO_PADRAO),
         })
     fora.sort(key=lambda a: (a["data"], a["inicio"]), reverse=True)
     return fora
@@ -220,7 +273,7 @@ def _agora():
 
 
 def salvar(data, inicio, fim, motivo, data_fim=None, tipo=TIPO_PARADA,
-           user=TODOS, status=APROVADO, anexo=""):
+           user=TODOS, status=APROVADO, anexo="", assunto=ASSUNTO_PADRAO):
     """Acrescenta um abono. Devolve (ok, mensagem).
 
     O lançamento do gestor nasce aprovado — ele é a própria aprovação. O pedido
@@ -242,6 +295,7 @@ def salvar(data, inicio, fim, motivo, data_fim=None, tipo=TIPO_PARADA,
         "user": str(user or ""), "status": status, "criado_em": _agora(),
         "decidido_por": "", "decidido_em": "", "obs": "",
         "anexo": str(anexo or ""),
+        "assunto": str(assunto or ASSUNTO_PADRAO),
     }
     try:
         aba = _aba()
@@ -343,7 +397,7 @@ def do_usuario(username, lista=None):
             if a["user"].lower() == u]
 
 
-def janelas_do_dia(dia, fuso, lista=None, username=None):
+def janelas_do_dia(dia, fuso, lista=None, username=None, assuntos=None):
     """[(inicio, fim)] dos abonos que alcançam aquele dia, no fuso pedido.
 
     Um período de férias coletivas é uma linha só e vale para cada dia dentro
@@ -366,6 +420,11 @@ def janelas_do_dia(dia, fuso, lista=None, username=None):
         if a["user"] and a["user"].lower() != u:
             continue
         if not (a["data"] <= dia <= a["data_fim"]):
+            continue
+        # Pedido de advertencia aprovado nao pode apagar hora de expediente.
+        # Sem este filtro, contestar uma advertencia abonaria a ociosidade do
+        # dia junto — de graca, e sem ninguem ter pedido isso.
+        if assuntos is not None and a.get("assunto", ASSUNTO_PADRAO) not in assuntos:
             continue
         fora.append((datetime.combine(dia, a["inicio"], tzinfo=fuso),
                      datetime.combine(dia, a["fim"], tzinfo=fuso)))
