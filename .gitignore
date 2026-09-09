@@ -6,3 +6,11 @@ __pycache__/
 # Credencial nunca no repositorio. O Procfile e o _preparar_secrets
 # montam este arquivo a partir do ambiente, em cada container.
 .streamlit/secrets.toml
+
+# Gerados em cada container, nunca no repositorio. O tv.html e o painel da TV
+# escrito pelo worker (placar._write_tv_static); o beep.wav nasce ao lado dele;
+# o tv-status.json e o estado do laco, que atravessa os dois processos.
+static/tv.html
+static/beep.wav
+static/tv-status.json
+static/tv-status.json.tmp
