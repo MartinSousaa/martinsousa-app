@@ -419,3 +419,63 @@ def pagina_admin(usuario_logado):
                         "conta já autorizou este app antes. Remova o acesso em "
                         "myaccount.google.com/permissions e refaça o Passo 1."
                     )
+
+    # ── BLING ─────────────────────────────────────────────────────────────────
+    st.markdown("---")
+    st.markdown("#### 🧾 Bling — autorização das duas contas")
+    st.caption(
+        "Uma conta por CNPJ, cinco canais cada. O Studio LÊ situação de pedido "
+        "e cancelamento; valores continuam vindo da planilha."
+    )
+
+    with st.expander("Abrir autorização", expanded=False):
+        import bling_api as _bl
+
+        st.markdown(
+            "O token do Bling vence, e por isso ele é guardado na planilha e "
+            "renovado sozinho — em memória, ele morreria em todo deploy e a "
+            "integração pararia no meio da tarde, calada.\n\n"
+            "Autorizar é uma vez por conta. Depois disso o Studio se vira."
+        )
+
+        _rotulos = {"lg": "MS Studio — LG  ·  ML1, ML3, Shopee 2, Shein 1, TikTok 1",
+                    "ms": "MS Studio — MS  ·  ML2, ML4, Shopee 1, Shein 2, TikTok 2"}
+
+        for _conta in _bl.CONTAS:
+            st.markdown(f"**{_rotulos.get(_conta, _conta)}**")
+            _est = _bl.estado(_conta)
+            _sit = _est.get("situacao", "")
+            if _sit == "sem credenciais":
+                st.warning(
+                    "Sem `client_id`/`client_secret`. Eles entram nas Variáveis "
+                    f"do Railway, em `STREAMLIT_SECRETS`, na seção `[bling.{_conta}]`."
+                )
+            elif _sit == "não autorizada":
+                st.info("Credenciais configuradas, falta autorizar.")
+            else:
+                _min = _est.get("minutos_para_vencer", 0)
+                st.success(
+                    f"Autorizada · token vence em {_min:.0f} min · renova sozinho "
+                    f"· atualizado em {_est.get('atualizado_em', '—')}"
+                )
+                if _est.get("escopo"):
+                    st.caption(f"Escopo: {_est['escopo'][:200]}")
+
+            if _sit != "sem credenciais":
+                if st.button(f"Gerar link de autorização — {_conta.upper()}",
+                             key=f"bling_autorizar_{_conta}"):
+                    _url, _erro = _bl.url_de_autorizacao(_conta)
+                    if _erro:
+                        st.error(_erro)
+                    else:
+                        # Link, e nao redirecionamento automatico: quem autoriza
+                        # precisa estar logado NA CONTA BLING certa, e trocar de
+                        # conta no meio do caminho e coisa que so a pessoa sabe
+                        # fazer. O link espera por ela.
+                        st.markdown(f"[Abrir a autorização do Bling]({_url})")
+                        st.caption(
+                            "Confira que o Bling está logado no CNPJ certo antes "
+                            "de autorizar. A volta é automática — o código de "
+                            "autorização vale 1 minuto e é trocado na hora."
+                        )
+            st.markdown("")

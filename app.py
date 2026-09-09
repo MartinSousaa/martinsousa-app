@@ -884,6 +884,29 @@ if _tv_token_cfg and st.query_params.get("tv", "") == _tv_token_cfg:
     placar.pagina_placar("martinsousa")
     st.stop()
 
+# ── Volta da autorizacao do Bling ────────────────────────────────────────────
+# Antes do login, de proposito. O `code` que o Bling manda vive UM MINUTO, e
+# mandar a pessoa se logar primeiro gastaria esse minuto na tela de senha — o
+# code morreria e a autorizacao teria de ser refeita, sem ninguem entender por
+# que. Quem protege esta porta e o `state`: ele foi sorteado por este Studio,
+# gravado na planilha antes da ida, e e conferido aqui na volta. Sem par, nao
+# se troca nada.
+#
+# No caminho normal — qualquer pagina que nao seja o callback — isto e uma
+# leitura de dicionario e mais nada.
+try:
+    import bling_api as _bling_cb
+    _conta_bling, _erro_bling = _bling_cb.processar_callback(st.query_params)
+    if _conta_bling:
+        st.success(f"Bling: conta **{_conta_bling.upper()}** autorizada. "
+                   "O token passa a se renovar sozinho.")
+        st.query_params.clear()
+    elif _erro_bling:
+        st.error(f"Bling: {_erro_bling}")
+        st.query_params.clear()
+except Exception:
+    pass  # o Bling nunca pode impedir o Studio de abrir
+
 usuario_logado = auth.verificar_login()
 
 # Comeca a contar esta passada. Toda ida a rede — Trello, planilha, RHiD — se
