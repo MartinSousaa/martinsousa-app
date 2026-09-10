@@ -529,3 +529,61 @@ def pagina_admin(usuario_logado):
                         import pandas as _pd_bl
                         st.dataframe(_pd_bl.DataFrame(_linhas),
                                      use_container_width=True, hide_index=True)
+
+        # ── Situacoes e faturamento do mes ────────────────────────────────────
+        # O que este bloco responde, e que ninguem sabia ainda: qual `situacao.id`
+        # e "Cancelado" (o Bling devolve so o numero, e ele e configuravel por
+        # conta), e quanto o mes ja faturou em cada conta — bruto, cancelado e
+        # liquido separados.
+        st.markdown("---")
+        st.markdown("**Situações e faturamento do mês**")
+        st.caption(
+            "O Bling devolve a situação como número. Aqui ele vira nome, lido "
+            "da tabela da própria conta — nada chumbado no código."
+        )
+        if st.button("Ler situações e somar o mês", key="bling_mes_ler"):
+            import placar_core as _pc_bl
+            from datetime import datetime as _dt_bl
+            _hoje = _dt_bl.now(_pc_bl.FUSO)
+
+            for _conta in _bl.CONTAS:
+                st.markdown(f"**{_conta.upper()}**")
+                _mapa, _err = _bl.situacoes_de_pedidos(_conta)
+                if _err:
+                    st.error(f"situações: {_err}")
+                else:
+                    _cancel, _e2 = _bl.id_de_cancelado(_conta)
+                    st.caption("Situações desta conta:")
+                    st.code(" · ".join(f"{i} = {n}" for i, n in sorted(_mapa.items())),
+                            language=None)
+                    if _e2:
+                        st.warning(_e2)
+                    else:
+                        st.caption(f"'Cancelado' é o id {sorted(_cancel)}")
+
+                with st.spinner(f"lendo {_hoje.month:02d}/{_hoje.year} em {_conta.upper()}…"):
+                    _res, _err = _bl.faturamento_do_mes(_conta, _hoje.year,
+                                                        _hoje.month, forcar=True)
+                if _err:
+                    st.error(_err)
+                    continue
+                if _res.get("aviso"):
+                    st.warning(_res["aviso"])
+                _c1, _c2, _c3, _c4 = st.columns(4)
+                _c1.metric("Bruto", f"R$ {_res['bruto']:,.0f}".replace(",", "."))
+                _c2.metric("Cancelado", f"R$ {_res['cancelado']:,.0f}".replace(",", "."))
+                _c3.metric("Líquido", f"R$ {_res['liquido']:,.0f}".replace(",", "."))
+                _c4.metric("Pedidos", f"{_res['pedidos']}")
+                _linhas = []
+                for _sid, _d in sorted(_res.get("por_situacao", {}).items(),
+                                       key=lambda x: -x[1]["total"]):
+                    _linhas.append({
+                        "situação": f"{_sid} · {(_mapa or {}).get(_sid, '?')}",
+                        "pedidos": _d["n"],
+                        "total": round(_d["total"], 2),
+                    })
+                if _linhas:
+                    import pandas as _pd_m
+                    st.dataframe(_pd_m.DataFrame(_linhas),
+                                 use_container_width=True, hide_index=True)
+                st.markdown("")
