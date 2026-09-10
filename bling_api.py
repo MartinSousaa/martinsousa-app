@@ -466,6 +466,27 @@ def get(conta, caminho, params=None):
         return (None, f"Bling não respondeu: {type(e).__name__}")
     if r.status_code == 401:
         return (None, "Bling recusou o token (401)")
+    if r.status_code == 429:
+        # Limite de requisicoes. O Bling distingue "por segundo" de "por dia", e
+        # sao coisas MUITO diferentes: o primeiro passa sozinho em um segundo, o
+        # segundo so no dia seguinte. Tentar de novo no caso do dia seria
+        # martelar a porta por horas.
+        periodo = ""
+        try:
+            periodo = str((r.json() or {}).get("period") or "")
+        except Exception:
+            pass
+        if periodo == "day":
+            return (None, "Bling: limite de requisições do DIA atingido")
+        _t.sleep(1.2)
+        try:
+            r = requests.get(url, params=params or {}, timeout=TIMEOUT,
+                             headers={"Authorization": f"Bearer {tok}",
+                                      "Accept": "application/json"})
+        except Exception as e:
+            return (None, f"Bling não respondeu: {type(e).__name__}")
+        if r.status_code == 429:
+            return (None, "Bling: limite de requisições por segundo, mesmo após esperar")
     if not r.ok:
         return (None, f"Bling respondeu {r.status_code}")
     try:
@@ -496,6 +517,191 @@ def pedido(conta, id_pedido):
 def pedidos(conta, **filtros):
     """Lista de pedidos de venda. Os filtros vão como query string."""
     return get(conta, "/pedidos/vendas", params=filtros)
+
+
+# ── Situações: o nome de cada `situacao.id` ─────────────────────────────────
+# O pedido devolve so o numero: {"id": 6, "valor": 0}. Qual deles e "Cancelado"
+# NAO se chuta, por dois motivos. O primeiro e que a resposta existe: o Bling
+# publica a tabela. O segundo e que ela e CONFIGURAVEL por conta — um dos
+# escopos do aplicativo e "gerenciar as situacoes customizadas do sistema" —,
+# entao o id de Cancelado pode ser diferente entre LG e MS, e pode mudar se
+# alguem mexer. Numero chumbado aqui viraria a mesma pergunta com duas
+# respostas: um dia elas discordam, e o painel passa a somar cancelado como
+# venda sem avisar ninguem.
+_SITUACOES_CACHE = {}
+
+# Como o Bling nomeia o modulo de pedidos de venda na lista de modulos. A busca
+# e por texto porque o ID do modulo tambem varia por conta.
+_MODULO_PEDIDO_VENDA = ("PEDIDO DE VENDA", "PEDIDOS DE VENDA", "VENDA")
+
+
+def situacoes_de_pedidos(conta):
+    """{id: nome} das situações de pedido de venda da conta. ({}, erro)."""
+    conta = str(conta).strip().lower()
+    if conta in _SITUACOES_CACHE:
+        return (_SITUACOES_CACHE[conta], "")
+    mods, erro = get(conta, "/situacoes/modulos")
+    if erro:
+        return ({}, erro)
+    alvo = None
+    for m in ((mods or {}).get("data") or []):
+        nome = str(m.get("nome", "")).strip().upper()
+        if any(p in nome for p in _MODULO_PEDIDO_VENDA):
+            alvo = m.get("id")
+            break
+    if alvo is None:
+        return ({}, "não achei o módulo de pedidos de venda nas situações")
+    resp, erro = get(conta, f"/situacoes/modulos/{alvo}")
+    if erro:
+        return ({}, erro)
+    mapa = {}
+    for s in ((resp or {}).get("data") or []):
+        if s.get("id") is not None:
+            mapa[int(s["id"])] = str(s.get("nome", "")).strip()
+    if mapa:
+        _SITUACOES_CACHE[conta] = mapa
+    return (mapa, "")
+
+
+def id_de_cancelado(conta):
+    """O(s) id(s) cuja situação se chama 'Cancelado'. (set, erro).
+
+    Devolve conjunto e não um número: nada garante que exista exatamente um.
+    """
+    mapa, erro = situacoes_de_pedidos(conta)
+    if erro:
+        return (set(), erro)
+    ids = {i for i, nome in mapa.items() if "CANCEL" in nome.upper()}
+    if not ids:
+        return (set(), "nenhuma situação com 'cancelado' no nome")
+    return (ids, "")
+
+
+# ── Faturamento do mês ──────────────────────────────────────────────────────
+def somar_pedidos(lista, ids_cancelados):
+    """Soma uma lista de pedidos. Função pura — é ela que os testes cobrem.
+
+    Devolve bruto, líquido e cancelado separados, porque os três respondem
+    perguntas diferentes: o histórico da planilha é BRUTO (o relatório do
+    Mercado Livre mantinha a venda cancelada dentro), então comparar o líquido
+    do Bling com ele daria uma diferença sistemática, sempre para o mesmo lado.
+    Igual se compara com igual, e o cancelado aparece à parte — que é o número
+    que ninguém enxergava.
+    """
+    ids = set(ids_cancelados or ())
+    bruto = cancelado = 0.0
+    n = n_cancel = 0
+    por_situacao = {}
+    for p in (lista or []):
+        try:
+            valor = float(p.get("total") or 0)
+        except (TypeError, ValueError):
+            valor = 0.0
+        sit = p.get("situacao") or {}
+        sid = sit.get("id") if isinstance(sit, dict) else sit
+        try:
+            sid = int(sid)
+        except (TypeError, ValueError):
+            sid = None
+        acumulado = por_situacao.setdefault(sid, {"n": 0, "total": 0.0})
+        acumulado["n"] += 1
+        acumulado["total"] += valor
+        bruto += valor
+        n += 1
+        if sid in ids:
+            cancelado += valor
+            n_cancel += 1
+    return {
+        "bruto": bruto,
+        "cancelado": cancelado,
+        "liquido": bruto - cancelado,
+        "pedidos": n,
+        "pedidos_cancelados": n_cancel,
+        "por_situacao": por_situacao,
+    }
+
+
+def _paginar_pedidos(conta, inicio, fim, max_paginas=60):
+    """Todos os pedidos do período. (lista, erro).
+
+    O Bling limita requisições por segundo e por dia, e responde 429 quando
+    passa. Uma pausa curta entre páginas custa alguns segundos numa leitura que
+    já é de minuto em minuto, e evita ser barrado no meio — meio mês lido é
+    pior do que mês nenhum, porque parece um número certo.
+    """
+    todos = []
+    for pagina in range(1, max_paginas + 1):
+        resp, erro = get(conta, "/pedidos/vendas", params={
+            "dataInicial": inicio, "dataFinal": fim,
+            "pagina": pagina, "limite": 100})
+        if erro:
+            return (todos, f"{erro} (na página {pagina})")
+        lote = (resp or {}).get("data")
+        if not isinstance(lote, list) or not lote:
+            break
+        todos.extend(lote)
+        if len(lote) < 100:
+            break
+        _t.sleep(0.35)
+    else:
+        return (todos, f"parei em {max_paginas} páginas — o período tem mais")
+    return (todos, "")
+
+
+_MES_CACHE = {}
+_MES_CACHE_SEG = 300
+
+
+def faturamento_do_mes(conta, ano, mes, forcar=False):
+    """Faturamento do mês nessa conta. (resumo, erro).
+
+    Cache de 5 minutos: ler um mês custa dezenas de páginas, e a tela recarrega
+    a cada interação do Streamlit. Sem isso, abrir a página duas vezes seguidas
+    já seria motivo para o Bling responder 429.
+    """
+    import calendar as _cal
+    conta = str(conta).strip().lower()
+    chave = (conta, int(ano), int(mes))
+    agora = _t.time()
+    guardado = _MES_CACHE.get(chave)
+    if guardado and not forcar and (agora - guardado["ts"]) < _MES_CACHE_SEG:
+        return (guardado["dados"], "")
+
+    ids, erro_sit = id_de_cancelado(conta)
+    ultimo = _cal.monthrange(int(ano), int(mes))[1]
+    inicio = f"{int(ano):04d}-{int(mes):02d}-01"
+    fim = f"{int(ano):04d}-{int(mes):02d}-{ultimo:02d}"
+    lista, erro = _paginar_pedidos(conta, inicio, fim)
+    if erro and not lista:
+        return ({}, erro)
+    resumo = somar_pedidos(lista, ids)
+    resumo["conta"] = conta
+    resumo["periodo"] = f"{inicio} a {fim}"
+    resumo["lido_em"] = agora
+    # Sem o mapa de situacoes o cancelado sai como zero — e zero silencioso e
+    # pior do que aviso. O motivo viaja junto.
+    resumo["aviso"] = erro_sit or erro or ""
+    _MES_CACHE[chave] = {"ts": agora, "dados": resumo}
+    return (resumo, "")
+
+
+def faturamento_do_mes_total(ano, mes, forcar=False):
+    """Soma das duas contas. (resumo, [avisos])."""
+    total = {"bruto": 0.0, "cancelado": 0.0, "liquido": 0.0,
+             "pedidos": 0, "pedidos_cancelados": 0, "por_conta": {}}
+    avisos = []
+    for conta in CONTAS:
+        resumo, erro = faturamento_do_mes(conta, ano, mes, forcar)
+        if erro:
+            avisos.append(f"{conta.upper()}: {erro}")
+            continue
+        for campo in ("bruto", "cancelado", "liquido", "pedidos",
+                      "pedidos_cancelados"):
+            total[campo] += resumo.get(campo, 0)
+        total["por_conta"][conta] = resumo
+        if resumo.get("aviso"):
+            avisos.append(f"{conta.upper()}: {resumo['aviso']}")
+    return (total, avisos)
 
 
 # ── Conferência ───────────────────────────────────────────────────────────────
@@ -559,5 +765,36 @@ if __name__ == "__main__":
     ok("callback sem state é recusado",
        processar_callback({"bling": "callback", "code": "c"})[1]
        .startswith("o `state` que voltou"))
+
+    # ── A soma do mês ────────────────────────────────────────────────────────
+    # Funcao pura: e aqui que mora a decisao de bruto x liquido, e e o unico
+    # pedaco da leitura que da para testar sem token e sem rede.
+    def _p(total, sid):
+        return {"total": total, "situacao": {"id": sid, "valor": 0}}
+
+    VENDAS = [_p(100.0, 9), _p(200.0, 9), _p(50.0, 12), _p(30.0, 6)]
+
+    s = somar_pedidos(VENDAS, {12})
+    ok("bruto soma tudo, cancelado incluído", s["bruto"] == 380.0)
+    ok("cancelado sai separado", s["cancelado"] == 50.0)
+    ok("líquido é bruto menos cancelado", s["liquido"] == 330.0)
+    ok("conta os pedidos e os cancelados", s["pedidos"] == 4 and s["pedidos_cancelados"] == 1)
+    ok("agrupa por situação", s["por_situacao"][9]["n"] == 2
+       and s["por_situacao"][9]["total"] == 300.0)
+
+    s0 = somar_pedidos(VENDAS, set())
+    ok("sem saber o id do cancelado, nada é descontado",
+       s0["cancelado"] == 0.0 and s0["liquido"] == s0["bruto"])
+
+    ok("lista vazia não derruba", somar_pedidos([], {12})["bruto"] == 0.0)
+    ok("lista None não derruba", somar_pedidos(None, None)["pedidos"] == 0)
+    ok("total ilegível vira zero em vez de explodir",
+       somar_pedidos([{"total": "abc", "situacao": {"id": 9}}], {12})["bruto"] == 0.0)
+    ok("pedido sem situação entra no bruto e não no cancelado",
+       somar_pedidos([{"total": 10.0}], {12})["liquido"] == 10.0)
+    ok("situação como número puro também é lida",
+       somar_pedidos([{"total": 10.0, "situacao": 12}], {12})["cancelado"] == 10.0)
+    ok("dois ids de cancelado somam juntos",
+       somar_pedidos([_p(10.0, 12), _p(5.0, 13)], {12, 13})["cancelado"] == 15.0)
 
     print("\nfalhas:", falhas)
