@@ -4,3 +4,28 @@ maxMessageSize = 500
 
 [browser]
 gatherUsageStats = false
+
+# ── TEMA ──────────────────────────────────────────────────────────────────────
+# Sem esta secao, o Streamlit deixa o tema por conta do NAVEGADOR de cada
+# pessoa. O CSS do Studio (app.py:69) e escuro sempre — entao quem abria num
+# navegador que reporta claro via os widgets nativos do Streamlit (os botoes
+# "Gestao"/"Operacao", a faixa de abas, os campos) claros por cima de um fundo
+# escuro. Nao era preferencia de ninguem: eram dois temas decidindo em separado,
+# e concordando so por coincidencia.
+#
+# As cores repetem os tokens do proprio app.py para os widgets nativos
+# encostarem no resto da tela em vez de destoarem:
+#     --ms-fundo #3c3c3c · --ms-sidebar #515151 · --ms-texto #e0e0e0
+#
+# `primaryColor` fica de fora de proposito: ele pinta o acento dos botoes, e
+# muda-lo aqui mexeria na aparencia de todas as telas — o que nao e o defeito
+# que esta secao veio corrigir.
+#
+# Isto so passou a valer quando o prestart.py voltou a rodar: e ele que copia
+# este arquivo para .streamlit/config.toml, e ate hoje o Custom Start Command
+# do Railway o pulava.
+[theme]
+base = "dark"
+backgroundColor = "#3c3c3c"
+secondaryBackgroundColor = "#515151"
+textColor = "#e0e0e0"
