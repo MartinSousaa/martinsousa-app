@@ -443,6 +443,18 @@ def _mes_card_criacao(card):
     return None
 
 # ── FILA ───────────────────────────────────────────────────────────────────────
+# Quantas demandas da fila aparecem. Uma constante, nao dois numeros: a TV
+# cortava em 5 e o Studio em 4, e as duas telas discordavam de proposito. Quem
+# olha as duas nao conclui "o corte e diferente", conclui "uma delas esta
+# errada" — e ai deixa de confiar nas duas.
+FILA_VISIVEL = 4
+
+# Quantos cartões de CRIATIVO VÍDEO cabem na fila ao mesmo tempo. Um: vídeo é
+# executado por uma pessoa só (hoje o Gabriel), e dois cartões dele na fila não
+# andam em paralelo como os demais.
+MAX_VIDEO_NA_FILA = 1
+
+
 def _calcular_fila(listas,cards,membros_map):
     import placar_core as _pc_ent
     _entradas_tv = _pc_ent.entradas_se_preciso(listas)
@@ -476,12 +488,16 @@ def _calcular_fila(listas,cards,membros_map):
             "is_urgente": cfg["prioridade"]>=10 or "URGENTE" in nl.upper(),
         })
     pendentes.sort(key=lambda x:(-x["prioridade"],x["data"]))
-    # Limita CRIATIVO VÍDEO a no máximo 2 itens na fila
+    # CRIATIVO VÍDEO entra na fila uma vez só. Não é preferência de tela: vídeo
+    # é executado por uma pessoa só, então dois cartões de vídeo na fila não
+    # andam em paralelo — o segundo espera o primeiro terminar. Mostrando os
+    # dois, a fila prometia uma vazão que não existe, e as outras demandas
+    # perdiam lugar para um trabalho que ninguém ia começar.
     _cv_count = 0
     _filtrado = []
     for p in pendentes:
         if "CRIATIVO V" in p["lista"].upper():
-            if _cv_count >= 2:
+            if _cv_count >= MAX_VIDEO_NA_FILA:
                 continue
             _cv_count += 1
         _filtrado.append(p)
@@ -1229,9 +1245,8 @@ def _tv_full_html(
         and_html = '<div style="font-size:10px;color:#555;padding:8px;">Nenhum em andamento</div>'
 
     # Próximas 5 da fila — visual idêntico aos cards de alerta
-    ORDS = ["1°","2°","3°","4°","5°"]
     fila_html = ""
-    for i, item in enumerate(fila[:5]):
+    for i, item in enumerate(fila[:FILA_VISIVEL]):
         p = item["prioridade"]
         cor = "#E34948" if p>=10 else ("#EDA100" if p>=8 else ("#1BAF7A" if p>=6 else "#888"))
         tipo_cls = "urgente" if (item.get("is_urgente") or p>=8) else "atencao"
@@ -1240,7 +1255,7 @@ def _tv_full_html(
         eta  = _fmt_tempo(item["eta_min"])
         fila_html += (f'<div class="alerta-item {tipo_cls}">'
                       f'<div class="alerta-item-prioridade">'
-                      f'<span style="color:{cor};">{ORDS[i]} — P{p}</span>'
+                      f'<span style="color:{cor};">{i+1}° — P{p}</span>'
                       f'<span style="color:#888;font-weight:400;">~{eta}</span>'
                       f'</div>'
                       f'<div class="alerta-item-nome">{nome}</div>'
@@ -2625,7 +2640,7 @@ def pagina_placar(usuario_logado, headless=False):
     with col_fila:
         st.markdown("**📋 Próximas Demandas na Fila**")
         if fila:
-            for item in fila[:4]:
+            for item in fila[:FILA_VISIVEL]:
                 st.markdown(_fila_html(item),unsafe_allow_html=True)
         else:
             st.caption("Fila vazia 🎉")

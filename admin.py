@@ -2,6 +2,7 @@ import streamlit as st
 import hashlib
 from datetime import datetime
 import auth
+import planilha as _plan
 
 
 def _hash(senha):
@@ -32,14 +33,26 @@ def _atualizar_campo(login, campo, valor):
 
 
 def pagina_admin(usuario_logado):
-    # eh_gestor, nao is_admin: a coluna `admin` da planilha e editavel daqui
-    # dentro. Se ela desse entrada, quem entrasse uma vez poderia se promover.
-    if not auth.eh_gestor(usuario_logado):
-        st.error("Acesso restrito a administradores.")
+    # eh_dono, nao eh_gestor: esta tela cria, desativa e reseta a senha de
+    # qualquer pessoa. `eh_gestor` responde pelo secret ADMINS, e esse secret
+    # aceita mais de um nome — bastava um a mais para alguem ganhar o poder de
+    # trocar a senha do dono. A coluna `admin` da planilha continua de fora pelo
+    # motivo de sempre: ela e editavel daqui de dentro.
+    if not auth.eh_dono(usuario_logado):
+        st.error("Acesso restrito ao dono do Studio.")
         return
 
     # ── CONFIRMAÇÃO DE SENHA (segunda camada de segurança) ────────────────────
+    #
+    # No ambiente de teste ela sai do caminho: a tela e aberta dezenas de vezes
+    # por dia durante o desenvolvimento, e a senha ali nao protege nada — a
+    # planilha e a de teste. Em producao continua valendo, e continua valendo
+    # POR PADRAO: `eh_homologacao` so e verdadeiro quando o secret AMBIENTE diz
+    # que e teste. Esquecer de configurar deixa a senha ligada, que e o erro
+    # barato; o contrario abriria a producao sem trava.
     chave = f"admin_confirmado_{usuario_logado}"
+    if _plan.eh_homologacao():
+        st.session_state[chave] = True
     if not st.session_state.get(chave):
         st.markdown("### 🔒 Confirmação necessária")
         st.caption("Digite sua senha para acessar a área administrativa.")
