@@ -1,4 +1,4 @@
-"""custo_fixo.py — O custo que existe com ou sem venda.
+"""custo_fixo.py — As grades de custo mensal: custo fixo e folha salarial.
 
 POR QUE ESTE NÚMERO VEM PRIMEIRO
 --------------------------------
@@ -17,6 +17,14 @@ São dezessete itens. Um formulário por item seria dezessete aberturas, dezesse
 salvamentos e dezessete chances de esquecer um. A tela é uma grade: digita tudo,
 salva uma vez.
 
+DUAS TELAS, UM CÓDIGO SÓ
+------------------------
+Custo fixo e Folha salarial pedem exatamente os mesmos campos — item,
+modalidade, valor mensal, dia do débito, forma de pagamento — e mudam só a aba
+onde gravam e os itens sugeridos. Duas cópias do mesmo formulário começariam
+iguais e terminariam discordando: bastaria um ajuste de validação entrar numa e
+não na outra. `GRADES` descreve as diferenças; o resto é compartilhado.
+
 O QUE ELE AINDA NÃO FAZ
 -----------------------
 Não guarda histórico por mês — é a foto do custo vigente, como a planilha. Fazer
@@ -29,10 +37,8 @@ from datetime import datetime, timezone, timedelta
 import pandas as pd
 import streamlit as st
 
-ABA_NOME = "custo_fixo"
-
 # A ordem aqui é a ordem das colunas na planilha e na tela.
-COLUNAS = ["item", "modalidade", "valor_mensal", "dia_debito",
+COLUNAS = ["item", "modalidade", "valor_mensal", "vigente_desde", "dia_debito",
            "forma_pagamento", "atualizado_em", "atualizado_por"]
 
 # Operacional é o custo de OPERAR; não operacional é o que sai do caixa sem ser
@@ -47,13 +53,46 @@ FORMAS = ["PIX", "Boleto", "Cartão", "Transferência"]
 # grade para ser preenchida e só vira linha na planilha quando ele salvar.
 # Gravar por conta própria criaria dado que ninguém digitou — e dado que ninguém
 # digitou é dado em que ninguém confia.
-ITENS_SUGERIDOS = ["Água", "Luz", "Internet fixa", "Internet móvel",
-                   "Contabilidade"]
+# As duas grades. O que muda entre elas cabe aqui; o resto do módulo é comum.
+GRADES = {
+    "custo_fixo": {
+        "aba": "custo_fixo",
+        "titulo": "🧱 Custo fixo",
+        "legenda": ("O que sai todo mês independente de vender. É o numerador "
+                    "da linha de equilíbrio — **faturamento de equilíbrio = "
+                    "custo fixo ÷ margem de contribuição**."),
+        "rotulo_item": "Item",
+        "ajuda_item": "Água, Luz, Internet fixa, Aluguel, Anvisa…",
+        "sugestoes": ["Água", "Luz", "Internet fixa", "Internet móvel",
+                      "Contabilidade"],
+    },
+    "folha_salarial": {
+        "aba": "folha_salarial",
+        "titulo": "👥 Folha salarial",
+        "legenda": ("Salários e encargos, pessoa a pessoa. Fica separada do "
+                    "custo fixo porque é a linha que muda quando entra ou sai "
+                    "gente — e é dela que sai a conta do aporte de "
+                    "contratação."),
+        "rotulo_item": "Pessoa / verba",
+        "ajuda_item": "Nome da pessoa, ou a verba: FGTS, INSS, vale-transporte…",
+        "sugestoes": [],
+    },
+}
 
 FUSO = timezone(timedelta(hours=-3))
 
 
-def _aba():
+def _aj():
+    """O módulo de ajustes, importado só quando precisa.
+
+    No topo do arquivo criaria um ciclo: `ajustes` lê as grades daqui para
+    montar a lista do que pode ser ajustado.
+    """
+    import ajustes
+    return ajustes
+
+
+def _aba(nome):
     """A aba deste ambiente, criada na primeira vez.
 
     Sem `cache_resource`: o objeto guarda a aba encontrada, e uma aba criada
@@ -64,9 +103,9 @@ def _aba():
     import sheets as _sh
     planilha = _sh.planilha()
     try:
-        aba = planilha.worksheet(ABA_NOME)
+        aba = planilha.worksheet(nome)
     except gspread.exceptions.WorksheetNotFound:
-        aba = planilha.add_worksheet(title=ABA_NOME, rows=200,
+        aba = planilha.add_worksheet(title=nome, rows=200,
                                      cols=len(COLUNAS))
         aba.append_row(COLUNAS, value_input_option="RAW")
         return aba
@@ -102,10 +141,11 @@ def _num(v, padrao=0.0):
 
 
 @st.cache_data(ttl=600, show_spinner=False)
-def carregar():
-    """DataFrame do custo fixo. Vazio quando a aba não existe ou falha."""
+def carregar(aba_nome):
+    """DataFrame da grade. Vazio quando a aba não existe ou falha."""
     try:
-        registros = _aba().get_all_records(value_render_option="UNFORMATTED_VALUE")
+        registros = _aba(aba_nome).get_all_records(
+            value_render_option="UNFORMATTED_VALUE")
     except Exception:
         return pd.DataFrame(columns=COLUNAS)
     df = pd.DataFrame(registros)
@@ -116,11 +156,13 @@ def carregar():
         if col not in df.columns:
             df[col] = ""
     df["valor_mensal"] = df["valor_mensal"].map(_num)
+    df["vigente_desde"] = df["vigente_desde"].map(
+        lambda v: _aj().texto_mes(_aj().mes_de(v)))
     df["dia_debito"] = df["dia_debito"].map(lambda v: int(_num(v, 0)))
     return df[COLUNAS]
 
 
-def salvar(df, usuario=""):
+def salvar(aba_nome, df, usuario=""):
     """Regrava a aba inteira. Devolve (ok, mensagem).
 
     Regravar tudo, e não linha a linha: a tabela tem dezenas de linhas, não
@@ -133,7 +175,7 @@ def salvar(df, usuario=""):
     """
     linhas = _normalizar(df, usuario)
     try:
-        aba = _aba()
+        aba = _aba(aba_nome)
         cabecalho = aba.row_values(1) or list(COLUNAS)
         corpo = [[l.get(str(c).strip().lower(), "") for c in cabecalho]
                  for l in linhas]
@@ -167,6 +209,9 @@ def _normalizar(df, usuario=""):
             "item": item,
             "modalidade": modalidade if modalidade in MODALIDADES else MODALIDADES[0],
             "valor_mensal": round(_num(r.get("valor_mensal")), 2),
+            # Sempre AAAA-MM, venha como vier: sem normalizar, "05/2026" e
+            # "2026-05" seriam dois meses diferentes para quem le depois.
+            "vigente_desde": _aj().texto_mes(_aj().mes_de(r.get("vigente_desde"))),
             "dia_debito": min(max(dia, 0), 31),
             "forma_pagamento": forma if forma in FORMAS else "",
             "atualizado_em": agora,
@@ -193,42 +238,54 @@ def _brl(v):
 
 # ── Tela ─────────────────────────────────────────────────────────────────────
 
-def pagina(usuario_logado=None):
-    st.markdown("#### 🧱 Custo fixo")
-    st.caption(
-        "O que sai todo mês independente de vender. É o numerador da linha de "
-        "equilíbrio — **faturamento de equilíbrio = custo fixo ÷ margem de "
-        "contribuição**. Digite tudo e salve uma vez."
-    )
+def pagina(usuario_logado=None, grade="custo_fixo"):
+    """Uma das grades de `GRADES`. A mesma tela, aba e sugestões diferentes."""
+    cfg = GRADES.get(grade) or GRADES["custo_fixo"]
+    aba_nome = cfg["aba"]
 
-    df = carregar()
+    st.markdown(f"#### {cfg['titulo']}")
+    st.caption(cfg["legenda"] + " Digite tudo e salve uma vez.")
+
+    df = carregar(aba_nome)
     if df.empty:
-        df = pd.DataFrame([{"item": i, "modalidade": MODALIDADES[0],
-                            "valor_mensal": 0.0, "dia_debito": 0,
-                            "forma_pagamento": "", "atualizado_em": "",
-                            "atualizado_por": ""}
-                           for i in ITENS_SUGERIDOS])
-        st.info("Aba ainda vazia. Estes itens são só uma sugestão de partida — "
-                "nada foi gravado até você salvar.")
+        df = pd.DataFrame(
+            [{"item": i, "modalidade": MODALIDADES[0], "valor_mensal": 0.0,
+              "vigente_desde": "", "dia_debito": 0, "forma_pagamento": "",
+              "atualizado_em": "", "atualizado_por": ""}
+             for i in cfg["sugestoes"]],
+            columns=COLUNAS)
+        if cfg["sugestoes"]:
+            st.info("Aba ainda vazia. Estes itens são só uma sugestão de "
+                    "partida — nada foi gravado até você salvar.")
 
     editado = st.data_editor(
-        df[["item", "modalidade", "valor_mensal", "dia_debito", "forma_pagamento"]],
+        df[["item", "modalidade", "valor_mensal", "vigente_desde",
+            "dia_debito", "forma_pagamento"]],
         num_rows="dynamic",
         use_container_width=True,
         hide_index=True,
-        key="ed_custo_fixo",
+        # A chave leva o nome da grade: com uma chave só, as duas telas
+        # compartilhariam o estado do editor e a folha abriria com as linhas
+        # do custo fixo desenhadas dentro dela.
+        key=f"ed_{aba_nome}",
         column_config={
             "item": st.column_config.TextColumn(
-                "Item", required=True, width="medium",
-                help="Água, Luz, Internet fixa, Aluguel, Salário…"),
+                cfg["rotulo_item"], required=True, width="medium",
+                help=cfg["ajuda_item"]),
             "modalidade": st.column_config.SelectboxColumn(
                 "Modalidade", options=MODALIDADES, width="medium",
                 help="Operacional é custo de operar. Não operacional sai do "
-                     "caixa sem ser custo de operar — parcela de empréstimo, "
-                     "por exemplo."),
+                     "caixa sem ser custo de operar."),
             "valor_mensal": st.column_config.NumberColumn(
-                "Valor mensal (R$)", min_value=0.0, step=10.0, format="%.2f",
-                width="small"),
+                "Valor inicial (R$)", min_value=0.0, step=0.01, format="%.2f",
+                width="small",
+                help="O valor de quando o item entrou. Reajuste depois disso "
+                     "não se digita aqui — entra em «Ajuste de valor», com o "
+                     "mês em que passou a valer."),
+            "vigente_desde": st.column_config.TextColumn(
+                "Existe desde", width="small",
+                help="AAAA-MM. Antes deste mês o item não entra no custo. "
+                     "Em branco, vale para todos os meses."),
             "dia_debito": st.column_config.NumberColumn(
                 "Dia do débito", min_value=0, max_value=31, step=1, format="%d",
                 width="small", help="0 quando não há dia fixo."),
@@ -241,12 +298,14 @@ def pagina(usuario_logado=None):
 
     t = totais(editado)
     c1, c2, c3 = st.columns(3)
-    c1.metric("Operacional", _brl(t["operacional"]))
-    c2.metric("Não operacional", _brl(t["nao_operacional"]))
-    c3.metric("Total do mês", _brl(t["total"]))
+    c1.metric("Operacional (valor inicial)", _brl(t["operacional"]))
+    c2.metric("Não operacional (valor inicial)", _brl(t["nao_operacional"]))
+    c3.metric("Soma dos valores iniciais", _brl(t["total"]))
 
-    if st.button("💾 Salvar", type="primary"):
-        ok, msg = salvar(editado, usuario_logado)
+    _custo_do_mes(editado, grade)
+
+    if st.button("💾 Salvar", type="primary", key=f"btn_salvar_{aba_nome}"):
+        ok, msg = salvar(aba_nome, editado, usuario_logado)
         if ok:
             st.success(msg)
             st.rerun()
@@ -256,6 +315,28 @@ def pagina(usuario_logado=None):
     _quando = [str(x) for x in df.get("atualizado_em", []) if str(x).strip()]
     if _quando:
         st.caption(f"Última gravação: {max(_quando)}")
+
+
+def _custo_do_mes(editado, grade):
+    """O total de um mês escolhido, com os ajustes de valor já aplicados.
+
+    Os três números de cima somam o valor INICIAL de cada item, que é o que
+    está na grade. Este aqui responde a pergunta que a operação faz — "quanto
+    custou em março?" — e é ele que vale, porque respeita reajuste e mês de
+    entrada.
+    """
+    aj = _aj()
+    hoje = datetime.now(FUSO).date()
+    st.markdown("##### Custo de um mês")
+    st.caption("Com os reajustes de «Ajuste de valor» aplicados e sem os itens "
+               "que ainda não existiam naquele mês.")
+    c1, c2, c3 = st.columns([1, 1, 2])
+    ano = c1.number_input("Ano", min_value=2020, max_value=2100,
+                          value=hoje.year, step=1, key=f"ano_{grade}")
+    mes = c2.number_input("Mês", min_value=1, max_value=12,
+                          value=hoje.month, step=1, key=f"mes_{grade}")
+    total = aj.aplicar(editado, aj.carregar(), grade, ano, mes)
+    c3.metric(f"Total em {int(mes):02d}/{int(ano)}", _brl(total))
 
 
 # ── Conferência ──────────────────────────────────────────────────────────────
@@ -300,6 +381,12 @@ if __name__ == "__main__":
     ok("não operacional soma só o não operacional", t["nao_operacional"] == 4980.0)
     ok("o total é a soma dos dois", t["total"] == 5830.0)
     ok("tabela vazia não derruba o total", totais(pd.DataFrame())["total"] == 0.0)
+
+    ok("as duas grades gravam em abas diferentes",
+       GRADES["custo_fixo"]["aba"] != GRADES["folha_salarial"]["aba"])
+    ok("toda grade declara o que a tela precisa",
+       all({"aba", "titulo", "legenda", "rotulo_item", "ajuda_item",
+            "sugestoes"} <= set(g) for g in GRADES.values()))
 
     ok("real sai no formato brasileiro", _brl(29838) == "R$ 29.838,00")
     ok("centavos aparecem", _brl(1234.5) == "R$ 1.234,50")

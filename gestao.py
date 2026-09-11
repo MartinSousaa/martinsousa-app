@@ -57,12 +57,31 @@ def pagina_home(usuario_logado=None):
 def _custo_fixo(usuario_logado=None):
     """O custo que existe com ou sem venda — a base de tudo o que vem depois.
 
-    A tela mora em `custo_fixo.py`, com os dados. Import aqui dentro e não no
-    topo: o módulo abre a planilha, e carregar isso na importação faria o
+    As telas moram nos módulos que também guardam os dados. Import aqui dentro
+    e não no topo: eles abrem a planilha, e carregar isso na importação faria o
     Studio inteiro esperar pelo Google para desenhar qualquer tela.
     """
     import custo_fixo as _cf
-    _cf.pagina(usuario_logado)
+    _cf.pagina(usuario_logado, grade="custo_fixo")
+
+
+def _folha_salarial(usuario_logado=None):
+    """A mesma grade do custo fixo, em aba própria: é a linha que muda quando
+    entra ou sai gente, e é dela que sai a conta do aporte de contratação."""
+    import custo_fixo as _cf
+    _cf.pagina(usuario_logado, grade="folha_salarial")
+
+
+def _nao_operacional(usuario_logado=None):
+    """Os empréstimos: sai do caixa, mas não é custo de operar."""
+    import nao_operacional as _no
+    _no.pagina(usuario_logado)
+
+
+def _ajuste_de_valor(usuario_logado=None):
+    """Quando cada valor mudou — o que faz o custo de cada mês ficar certo."""
+    import ajustes as _aj
+    _aj.pagina(usuario_logado)
 
 
 # As telas de Financeiro, na ordem em que aparecem. Dicionário no topo do
@@ -70,6 +89,9 @@ def _custo_fixo(usuario_logado=None):
 # novo, e ela precisa estar num lugar só.
 SUBTELAS = {
     "🧱 Custo fixo": _custo_fixo,
+    "👥 Folha salarial": _folha_salarial,
+    "🏦 Não operacional": _nao_operacional,
+    "📈 Ajuste de valor": _ajuste_de_valor,
 }
 
 
