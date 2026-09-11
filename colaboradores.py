@@ -56,8 +56,8 @@ ABA_NOME = "colaboradores"
 ABA_PARAMS = "clt_parametros"
 
 COLUNAS = ["funcionario", "cargo", "registrado", "registrado_desde",
-           "salario_base", "admissao", "dias_uteis", "atualizado_em",
-           "atualizado_por"]
+           "salario_base", "admissao", "dias_uteis", "no_aporte",
+           "atualizado_em", "atualizado_por"]
 
 # Taxa sobre o salário base. O rótulo é o que aparece na tela; `grupo` diz se
 # ela sai do caixa no mês (encargo) ou se é dinheiro guardado (provisão).
@@ -103,7 +103,10 @@ SALARIO_PADRAO = 2006.58
 SUGESTOES = [
     {"funcionario": "Gabriel", "cargo": "Analista de Marketing",
      "salario_base": 3000.00, "registrado": "Sim"},
-    {"funcionario": "Monique", "registrado": "Não", "salario_base": 2400.00},
+    # Monique fica fora do aporte: ele existe para registrar e expandir o time,
+    # e ela não está nesse processo.
+    {"funcionario": "Monique", "registrado": "Não", "salario_base": 2400.00,
+     "no_aporte": "Não"},
     {"funcionario": "Beatriz"},
     {"funcionario": "Myrella"},
     {"funcionario": "Nicollas"},
@@ -187,6 +190,17 @@ def eh_registrado(v):
     vazia por descuido, errar para "registrado" cobra tributo de quem talvez
     não deva — e um custo alto demais se descobre na conferência. O contrário
     esconde encargo real e só aparece quando a guia chega.
+    """
+    return str(v).strip().lower() not in ("não", "nao", "n", "0", "false")
+
+
+def entra_no_aporte(v):
+    """Esta pessoa é coberta pelo aporte de expansão?
+
+    Coluna e não nome escrito no código: quem está fora hoje pode entrar
+    amanhã, e uma lista de gente dentro do arquivo já escondeu dois
+    colaboradores do painel nesta base. Na dúvida entra — o aporte existe para
+    o quadro, e esquecer alguém subestimaria o custo que ele precisa cobrir.
     """
     return str(v).strip().lower() not in ("não", "nao", "n", "0", "false")
 
@@ -324,7 +338,8 @@ def folha_clt(df, ano, mes, taxas=None, ajustes_df=None):
         c = custo(base, taxas, r.get("dias_uteis", DIAS_UTEIS), reg,
                   refeicao_vigente(taxas, ano, mes))
         c.update({"funcionario": nome, "cargo": str(r.get("cargo", "") or ""),
-                  "registrado": reg})
+                  "registrado": reg,
+                  "no_aporte": entra_no_aporte(r.get("no_aporte", "Sim"))})
         fora.append(c)
     return fora
 
@@ -422,6 +437,7 @@ def _normalizar(df, usuario=""):
             "cargo": str(r.get("cargo", "") or "").strip()[:80],
             "registrado": "Sim" if eh_registrado(r.get("registrado", "Sim")) else "Não",
             "registrado_desde": aj.texto_mes(aj.mes_de(r.get("registrado_desde"))),
+            "no_aporte": "Sim" if entra_no_aporte(r.get("no_aporte", "Sim")) else "Não",
             "salario_base": round(_num(r.get("salario_base")), 2),
             "admissao": aj.texto_mes(aj.mes_de(r.get("admissao"))),
             # Mês nenhum tem 40 dias úteis; zero também não é mês.
@@ -547,7 +563,7 @@ def bloco(usuario_logado=None, taxas=None):
 
     editado = st.data_editor(
         df[["funcionario", "cargo", "registrado", "registrado_desde",
-            "salario_base", "admissao", "dias_uteis"]],
+            "salario_base", "admissao", "dias_uteis", "no_aporte"]],
         num_rows="dynamic",
         use_container_width=True,
         hide_index=True,
@@ -575,6 +591,10 @@ def bloco(usuario_logado=None, taxas=None):
             "dias_uteis": st.column_config.NumberColumn(
                 "Dias úteis", min_value=0, max_value=31, step=1, format="%d",
                 width="small", help="Para a refeição no local."),
+            "no_aporte": st.column_config.SelectboxColumn(
+                "No aporte", options=["Sim", "Não"], width="small",
+                help="Se o custo desta pessoa sai do aporte de expansão. "
+                     "Aparece no Balanço headcount."),
         },
     )
 

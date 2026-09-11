@@ -112,6 +112,12 @@ def _custo_fixo(usuario_logado=None):
     FACES_DO_CUSTO[escolhido](usuario_logado)
 
 
+def _balanco_headcount(usuario_logado=None):
+    """Até quando o aporte cobre o time, e quanto ele rendeu."""
+    import headcount as _hc
+    _hc.pagina(usuario_logado)
+
+
 def _ajuste_de_valor(usuario_logado=None):
     """Quando cada valor mudou — o que faz o custo de cada mês ficar certo."""
     import ajustes as _aj
@@ -123,6 +129,7 @@ def _ajuste_de_valor(usuario_logado=None):
 # novo, e ela precisa estar num lugar só.
 SUBTELAS = {
     "🧱 Custo fixo": _custo_fixo,
+    "🧮 Balanço headcount": _balanco_headcount,
     "📈 Ajuste de valor": _ajuste_de_valor,
 }
 
