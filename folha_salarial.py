@@ -9,7 +9,7 @@ ninguém mais sabe quanto custa uma pessoa, que é justamente a pergunta.
 
 DUAS TABELAS, PORQUE SÃO DUAS CONDIÇÕES
 ---------------------------------------
-    Gestores       pró-labore, bônus, vales — e um desconto com prazo
+    Gestores       pró-labore, comissão, vales — e um desconto com prazo
     Colaboradores  salário, encargos CLT, provisões, refeição, multa do FGTS
 
 Isto começou como uma tabela só com uma coluna de grupo, e estava errado: as
@@ -28,18 +28,18 @@ ninguém. Ele vale de `desconto_desde` por `desconto_meses`, e some sozinho
 depois disso — sem precisar de alguém lembrar de apagar a linha, que é o tipo
 de lembrete que ninguém cumpre.
 
-    total bruto    = salário + pró-labore + bônus + VA + VR + VC
+    total bruto    = pró-labore + comissão + VA + VR + VC
     total líquido  = total bruto − desconto (nos meses em que ele vigora)
-    provisão 13º   = 1/12 sobre a parte SALARIAL (salário + pró-labore)
+    provisão 13º   = 1/12 sobre a remuneração (pró-labore + comissão)
 
 O 13º fica fora do total líquido e aparece em coluna própria: ele não sai do
 caixa no mês, fica guardado para sair em dezembro. Somado ao total, inflaria o
 custo do mês e esconderia o caixa — que é o erro que a tela de colaboradores
 também evita.
 
-A provisão incide só sobre salário e pró-labore, e não sobre bônus e vales:
-vale-alimentação e vale-refeição não têm natureza salarial. Se a contabilidade
-disser que algum deles entra na base aqui, a lista `BASE_DECIMO` é onde mudar.
+A provisão incide sobre pró-labore e comissão, e não sobre os vales:
+vale-alimentação, refeição e combustível são reembolso de despesa. Se a
+contabilidade disser que a comissão fica de fora, `BASE_DECIMO` é onde mudar.
 
 REAJUSTE NÃO SE DIGITA AQUI
 ---------------------------
@@ -55,8 +55,11 @@ import streamlit as st
 
 ABA_NOME = "folha_salarial"
 
-VERBAS = ["salario", "pro_labore", "bonus", "vale_alimentacao",
-          "vale_refeicao", "vale_combustivel"]
+# As verbas do gestor. `salario` e `bonus` saíram: gestor não tem salário, e o
+# que ele chamava de bônus é comissão — nome errado numa coluna vira conta
+# errada na hora em que alguém de fora ler o relatório.
+VERBAS = ["pro_labore", "comissao", "vale_alimentacao", "vale_refeicao",
+          "vale_combustivel"]
 
 COLUNAS = (["pessoa"] + VERBAS +
            ["vigente_desde", "desconto", "desconto_desde", "desconto_meses",
@@ -70,18 +73,26 @@ FORMAS = ["PIX", "Boleto", "Cartão", "Transferência"]
 # passariam a discordar na primeira vez que uma fosse ajustada.
 TAXA_DECIMO = 0.083
 
-# Sobre o que o 13º é provisionado. Bônus e vales ficam de fora: não têm
-# natureza salarial.
-BASE_DECIMO = ["salario", "pro_labore"]
+# Sobre o que o 13º é provisionado: a remuneração, não os benefícios.
+# Pró-labore e comissão são o que o gestor de fato ganha pelo trabalho; os três
+# vales são reembolso de despesa e não entram. Se a contabilidade disser que a
+# comissão fica de fora, esta lista é o único lugar a mudar.
+BASE_DECIMO = ["pro_labore", "comissao"]
 
-# Quem já se sabe que está na folha. É sugestão de partida, não cadastro: só
-# vira linha na planilha depois de salvar. A lista de quem trabalha aqui mora na
-# aba `equipe`, e não neste arquivo — nome escrito no código já escondeu dois
-# colaboradores do painel.
-SUGESTOES = ["Leonardo", "Renan"]
+# As duas linhas dos gestores, já com as verbas. Renan tem o desconto do
+# empréstimo de R$ 12.000 em 24 parcelas de R$ 500.
+SUGESTOES = [
+    {"pessoa": "Leonardo"},
+    {"pessoa": "Renan", "desconto": 500.00, "desconto_desde": "2026-06",
+     "desconto_meses": 24,
+     "desconto_descricao": "Empréstimo de R$ 12.000 em 24x"},
+]
+VERBAS_GESTOR = {"pro_labore": 1621.00, "comissao": 3979.00,
+                 "vale_combustivel": 500.00, "vale_refeicao": 1100.00,
+                 "vale_alimentacao": 500.00}
 
 ROTULOS = {
-    "salario": "Salário", "pro_labore": "Pró-labore", "bonus": "Bônus",
+    "pro_labore": "Pró-labore", "comissao": "Comissão",
     "vale_alimentacao": "Vale alimentação", "vale_refeicao": "Vale refeição",
     "vale_combustivel": "Vale combustível",
 }
@@ -150,6 +161,25 @@ def desconto_no_mes(linha, ano, mes):
         return valor            # prazo em branco: segue até alguém encerrar
     decorridos = (alvo[0] * 12 + alvo[1]) - (inicio[0] * 12 + inicio[1])
     return valor if decorridos < meses else 0.0
+
+
+def andamento_do_desconto(linha, ano, mes):
+    """(parcelas pagas, total, já descontado, saldo) até aquele mês.
+
+    O gestor sabe quanto pegou emprestado e quantas parcelas faltam; a folha
+    sabe o valor e o prazo. Sem juntar os dois, a pergunta "quanto ainda devo"
+    vira uma conta de cabeça toda vez — e conta de cabeça sobre dívida é onde
+    se perde o controle dela.
+    """
+    valor = _num(linha.get("desconto"))
+    total = max(int(_num(linha.get("desconto_meses"), 0)), 0)
+    inicio = _aj().mes_de(linha.get("desconto_desde"))
+    if valor <= 0 or not inicio:
+        return (0, total, 0.0, 0.0)
+    decorridos = ((int(ano) * 12 + int(mes)) - (inicio[0] * 12 + inicio[1])) + 1
+    pagas = max(min(decorridos, total or decorridos), 0)
+    return (pagas, total, round(pagas * valor, 2),
+            round(max((total - pagas), 0) * valor, 2))
 
 
 def custo_no_mes(linha, ano, mes, ajustes_da_pessoa=None):
@@ -302,14 +332,15 @@ def pagina(usuario_logado=None):
     df = carregar()
     if df.empty:
         df = pd.DataFrame(
-            [{**{v: 0.0 for v in VERBAS}, "pessoa": p,
+            [{**{v: 0.0 for v in VERBAS}, **VERBAS_GESTOR,
               "vigente_desde": "", "desconto": 0.0, "desconto_desde": "",
               "desconto_meses": 0, "desconto_descricao": "", "dia_debito": 30,
               "forma_pagamento": "Transferência", "atualizado_em": "",
-              "atualizado_por": ""} for p in SUGESTOES],
+              "atualizado_por": "", **p} for p in SUGESTOES],
             columns=COLUNAS)
-        st.info("Aba ainda vazia. Estas pessoas são sugestão de partida — nada "
-                "foi gravado até você salvar.")
+        st.info("Aba ainda vazia. As duas linhas já vêm preenchidas como "
+                "sugestão — confira e clique em **Salvar gestores**. Nada foi "
+                "gravado até você salvar.")
 
     visiveis = (["pessoa"] + VERBAS +
                 ["vigente_desde", "desconto", "desconto_desde",
@@ -408,12 +439,15 @@ def _conferencia(editado, ano, mes):
         # trabalhou guardaria dinheiro para um direito que nao nasceu.
         decimo = provisao_decimo(r) if bruto_mes > 0 else 0.0
         decimo_total += decimo
+        _pagas, _tot, _ja, _saldo = andamento_do_desconto(r, ano, mes)
         linhas.append({
             "Pessoa": pessoa,
             "Total": _brl(bruto_mes),
             "Desconto": _brl(desc),
             "Novo total": _brl(max(bruto_mes - desc, 0.0)),
             "1/12 de 13º": _brl(decimo),
+            "Parcelas": f"{_pagas}/{_tot}" if _tot else "",
+            "Falta descontar": _brl(_saldo) if _tot else "",
             "Motivo": r.get("desconto_descricao") or "",
         })
     if not linhas:
@@ -448,20 +482,20 @@ if __name__ == "__main__":
         falhas += not cond
         print(("ok    " if cond else "FALHA ") + nome)
 
-    leo = {"pessoa": "Leonardo", "salario": 0,
-           "pro_labore": 7000, "bonus": 1000, "vale_alimentacao": 500,
-           "vale_refeicao": 400, "vale_combustivel": 600,
-           "vigente_desde": "2026-01"}
-    ok("o total é a soma das verbas", total_bruto(leo) == 9500.0)
+    leo = {"pessoa": "Leonardo", "pro_labore": 1621, "comissao": 3979,
+           "vale_alimentacao": 500, "vale_refeicao": 1100,
+           "vale_combustivel": 500, "vigente_desde": "2026-01"}
+    ok("o total é a soma das cinco verbas", total_bruto(leo) == 7700.0)
     ok("verba em branco não atrapalha a soma",
        total_bruto({"pro_labore": 7000}) == 7000.0)
     ok("verba com vírgula entra na soma",
-       total_bruto({"salario": "2.033,00"}) == 2033.0)
+       total_bruto({"comissao": "3.979,00"}) == 3979.0)
     ok("pessoa sem verba nenhuma soma zero", total_bruto({}) == 0.0)
 
     # Desconto com prazo de 3 meses a partir de maio
     com_desc = {**leo, "desconto": 300, "desconto_desde": "2026-05",
                 "desconto_meses": 3, "desconto_descricao": "adiantamento"}
+
     ok("antes do início, não desconta", desconto_no_mes(com_desc, 2026, 4) == 0.0)
     ok("no primeiro mês, desconta", desconto_no_mes(com_desc, 2026, 5) == 300.0)
     ok("no último mês do prazo, ainda desconta",
@@ -476,9 +510,9 @@ if __name__ == "__main__":
        desconto_no_mes({**com_desc, "desconto": 0}, 2026, 5) == 0.0)
 
     ok("o novo total é o total menos o desconto",
-       custo_no_mes(com_desc, 2026, 5) == 9200.0)
+       custo_no_mes(com_desc, 2026, 5) == 7400.0)
     ok("fora do prazo, o novo total volta a ser o total",
-       custo_no_mes(com_desc, 2026, 8) == 9500.0)
+       custo_no_mes(com_desc, 2026, 8) == 7700.0)
     ok("desconto maior que o salário não vira custo negativo",
        custo_no_mes({**com_desc, "desconto": 99999}, 2026, 5) == 0.0)
     ok("antes de a pessoa entrar, ela não custa",
@@ -487,17 +521,19 @@ if __name__ == "__main__":
     # Reajuste pelo Ajuste de valor: substitui o TOTAL BRUTO
     aj_leo = [{"valor_novo": 11000, "vigente_desde": "2026-07"}]
     ok("antes do reajuste vale a soma das verbas",
-       custo_no_mes(leo, 2026, 6, aj_leo) == 9500.0)
+       custo_no_mes(leo, 2026, 6, aj_leo) == 7700.0)
     ok("do mês do reajuste em diante vale o novo total",
        custo_no_mes(leo, 2026, 7, aj_leo) == 11000.0)
     ok("reajuste e desconto convivem: desconta sobre o valor novo",
        custo_no_mes({**com_desc, "desconto_meses": 12}, 2026, 7, aj_leo)
        == 10700.0)
 
-    renan = {"pessoa": "Renan", "pro_labore": 6500, "vale_alimentacao": 500,
-             "vale_refeicao": 400, "vigente_desde": "2026-01"}
+    renan = {**leo, "pessoa": "Renan", "desconto": 500,
+             "desconto_desde": "2026-06", "desconto_meses": 24,
+             "desconto_descricao": "Empréstimo de R$ 12.000 em 24x"}
     folha = pd.DataFrame([leo, renan])
-    ok("a folha soma os gestores", total_da_folha(folha, 2026, 6) == 9500 + 7400)
+    ok("a folha soma os gestores, já com o desconto do Renan",
+       total_da_folha(folha, 2026, 6) == 7700 + 7200)
     ok("linha sem pessoa não entra na folha",
        total_da_folha(pd.DataFrame([{"pessoa": "  ", "salario": 9999}]),
                       2026, 6) == 0.0)
@@ -507,7 +543,7 @@ if __name__ == "__main__":
                       pd.DataFrame([{"grade": ABA_NOME, "item": "Leonardo",
                                      "valor_novo": 11000,
                                      "vigente_desde": "2026-07"}]))
-       == 11000 + 7400)
+       == 11000 + 7200)
 
     linhas = _normalizar(pd.DataFrame([
         {**com_desc, "dia_debito": 45, "forma_pagamento": "Cheque",
@@ -525,19 +561,41 @@ if __name__ == "__main__":
     ok("toda verba é gravada, mesmo em branco",
        all(v in linhas[1] for v in VERBAS))
 
-    ok("o 13º provisiona 1/12 do pró-labore do gestor",
-       provisao_decimo(leo) == round(7000 * 0.083, 2))
-    ok("bônus e vales ficam fora da base do 13º",
-       base_salarial(leo) == 7000.0)
-    ok("quando há salário, ele entra na base do 13º",
-       provisao_decimo({"salario": 2400}) == round(2400 * 0.083, 2))
-    ok("quem não tem verba salarial não provisiona 13º",
-       provisao_decimo({"vale_refeicao": 400}) == 0.0)
+    ok("a base do 13º é pró-labore mais comissão",
+       base_salarial(leo) == 5600.0)
+    ok("os três vales ficam fora da base do 13º",
+       provisao_decimo(leo) == round(5600 * 0.083, 2))
+    ok("quem só tem vale não provisiona 13º",
+       provisao_decimo({"vale_refeicao": 1100}) == 0.0)
+
+    # O emprestimo do Renan: 12.000 em 24 parcelas de 500, desde jun/2026
+    ok("em setembro sao quatro parcelas pagas",
+       andamento_do_desconto(renan, 2026, 9)[0] == 4)
+    ok("quatro parcelas sao R$ 2.000 ja descontados",
+       andamento_do_desconto(renan, 2026, 9)[2] == 2000.0)
+    ok("faltam vinte parcelas, R$ 10.000",
+       andamento_do_desconto(renan, 2026, 9)[3] == 10000.0)
+    ok("o total das parcelas fecha os R$ 12.000",
+       andamento_do_desconto(renan, 2026, 9)[1] * 500 == 12000)
+    ok("na ultima parcela nao falta nada",
+       andamento_do_desconto(renan, 2028, 5)[3] == 0.0)
+    ok("passado o prazo, nao passa de 24 parcelas",
+       andamento_do_desconto(renan, 2030, 1)[0] == 24)
+    ok("antes de comecar, zero parcelas",
+       andamento_do_desconto(renan, 2026, 5)[0] == 0)
+    ok("sem desconto nao ha parcela",
+       andamento_do_desconto(leo, 2026, 9) == (0, 0, 0.0, 0.0))
     ok("a taxa do 13º é a mesma das duas telas",
        TAXA_DECIMO == __import__("colaboradores").TAXAS["decimo_1_12"][2])
 
     ok("a tabela de gestores sugere Leonardo e Renan",
-       set(SUGESTOES) == {"Leonardo", "Renan"})
+       {p["pessoa"] for p in SUGESTOES} == {"Leonardo", "Renan"})
+    ok("as verbas sugeridas somam R$ 7.700",
+       sum(VERBAS_GESTOR.values()) == 7700.0)
+    ok("toda verba sugerida existe na lista de verbas",
+       set(VERBAS_GESTOR) <= set(VERBAS))
+    ok("só o Renan vem com desconto",
+       [p["pessoa"] for p in SUGESTOES if "desconto" in p] == ["Renan"])
     ok("a folha de gestores não tem coluna de grupo",
        "grupo" not in COLUNAS)
 

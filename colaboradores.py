@@ -103,7 +103,7 @@ SALARIO_PADRAO = 2006.58
 SUGESTOES = [
     {"funcionario": "Gabriel", "cargo": "Analista de Marketing",
      "salario_base": 3000.00, "registrado": "Sim"},
-    {"funcionario": "Monique", "registrado": "Não"},
+    {"funcionario": "Monique", "registrado": "Não", "salario_base": 2400.00},
     {"funcionario": "Beatriz"},
     {"funcionario": "Myrella"},
     {"funcionario": "Nicollas"},
@@ -701,12 +701,15 @@ if __name__ == "__main__":
        == round(29.99 * 22, 2))
 
     ok("o quadro sugerido tem seis pessoas", len(SUGESTOES) == 6)
-    ok("só o Gabriel tem cargo e salário próprios",
-       [p for p in SUGESTOES if "salario_base" in p][0]["funcionario"] == "Gabriel")
+    ok("só o Gabriel tem cargo próprio",
+       [p for p in SUGESTOES if "cargo" in p][0]["funcionario"] == "Gabriel")
     ok("o padrão do quadro é auxiliar de expedição a 2.006,58",
        CARGO_PADRAO == "Auxiliar de Expedição" and SALARIO_PADRAO == 2006.58)
-    ok("a Monique vem marcada como sem registro",
-       [p for p in SUGESTOES if p["funcionario"] == "Monique"][0]["registrado"] == "Não")
+    _mon = [p for p in SUGESTOES if p["funcionario"] == "Monique"][0]
+    ok("a Monique vem marcada como sem registro", _mon["registrado"] == "Não")
+    ok("a Monique recebe R$ 2.400", _mon["salario_base"] == 2400.00)
+    ok("os quatro demais ficam no padrão do quadro",
+       sum(1 for p in SUGESTOES if "salario_base" not in p) == 4)
 
     ok("sem o desconto ligado, o VT custa o valor cheio",
        vale_transporte(2000) == 233.33)

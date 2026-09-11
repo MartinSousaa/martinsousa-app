@@ -49,7 +49,9 @@ COLUNAS = ["item", "valor_mensal", "vigente_desde", "dia_debito",
 # lugar. Linha antiga com a coluna preenchida continua sendo lida; o valor é só
 # ignorado.
 
-FORMAS = ["PIX", "Boleto", "Cartão", "Transferência"]
+# "Débito" entrou porque cinco itens do custo fixo são débito automático em
+# conta. Forma fora desta lista é gravada como vazia — o dado sumia sem aviso.
+FORMAS = ["Débito", "PIX", "Boleto", "Cartão", "Transferência"]
 
 # O que muda de uma tela para outra. `sugestoes` aparece na grade quando a aba
 # está vazia e NÃO é gravada sozinha: só vira linha na planilha quando ele
@@ -64,8 +66,22 @@ GRADES = {
                     "custo fixo ÷ margem de contribuição**."),
         "rotulo_item": "Item",
         "ajuda_item": "Água, Luz, Internet fixa, Aluguel, Anvisa…",
-        "sugestoes": ["Água", "Luz", "Internet fixa", "Internet móvel",
-                      "Contabilidade"],
+        # O custo fixo de hoje, como está na planilha do gestor. Salários NÃO
+        # entram: eles vivem na Folha salarial, e lançá-los aqui também daria
+        # dois lugares somando a mesma pessoa.
+        "sugestoes": [
+            ("Luz", 450.00, 25, "Débito"),
+            ("Água", 70.00, 22, "Débito"),
+            ("Internet/Móvel", 257.00, 25, "Débito"),
+            ("Bling", 400.00, 10, "Boleto"),
+            ("Contabilidade", 885.00, 10, "Débito"),
+            ("Combustíveis", 1000.00, 30, "Transferência"),
+            ("Aluguel Sala 300", 830.00, 30, "PIX"),
+            ("Aluguel Sala 201", 1350.00, 30, "PIX"),
+            ("Estacionamento", 550.00, 30, "PIX"),
+            ("Mensalidade Anvisa", 800.00, 30, "PIX"),
+            ("Sala Bolhas", 350.00, 30, "PIX"),
+        ],
     },
 }
 
@@ -233,13 +249,15 @@ def pagina(usuario_logado=None, grade="custo_fixo"):
     df = carregar(aba_nome)
     if df.empty:
         df = pd.DataFrame(
-            [{"item": i, "valor_mensal": 0.0, "vigente_desde": "",
-              "dia_debito": 0, "forma_pagamento": "", "atualizado_em": "",
-              "atualizado_por": ""} for i in cfg["sugestoes"]],
+            [{"item": nome, "valor_mensal": valor, "vigente_desde": "",
+              "dia_debito": dia, "forma_pagamento": forma,
+              "atualizado_em": "", "atualizado_por": ""}
+             for nome, valor, dia, forma in cfg["sugestoes"]],
             columns=COLUNAS)
         if cfg["sugestoes"]:
-            st.info("Aba ainda vazia. Estes itens são só uma sugestão de "
-                    "partida — nada foi gravado até você salvar.")
+            st.info("Aba ainda vazia. Os itens já vêm preenchidos como "
+                    "sugestão — confira e clique em **Salvar**. Nada foi "
+                    "gravado até você salvar.")
 
     editado = st.data_editor(
         df[["item", "valor_mensal", "vigente_desde", "dia_debito",
@@ -359,6 +377,18 @@ if __name__ == "__main__":
 
     ok("cada grade grava numa aba própria",
        len({g["aba"] for g in GRADES.values()}) == len(GRADES))
+    _sug = GRADES["custo_fixo"]["sugestoes"]
+    ok("o custo fixo sugerido soma R$ 6.942",
+       sum(v for _, v, _, _ in _sug) == 6942.00)
+    ok("são os onze itens da planilha", len(_sug) == 11)
+    ok("toda forma sugerida existe na lista",
+       {f for _, _, _, f in _sug} <= set(FORMAS))
+    ok("todo dia sugerido cabe no calendário",
+       all(1 <= d <= 31 for _, _, d, _ in _sug))
+    ok("nenhum salário entra no custo fixo — eles moram na Folha",
+       not any(n.upper().startswith(("SALÁRIO", "SALARIO")) for n, _, _, _ in _sug))
+    ok("débito automático é forma válida", "Débito" in FORMAS)
+
     ok("toda grade declara o que a tela precisa",
        all({"aba", "titulo", "legenda", "rotulo_item", "ajuda_item",
             "sugestoes"} <= set(g) for g in GRADES.values()))
