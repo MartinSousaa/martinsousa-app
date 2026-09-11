@@ -29,22 +29,35 @@ enquadramento. Ficam numa aba da planilha e se editam na tela. Percentual
 escrito no código vira a primeira coisa que discorda da realidade, e ninguém
 descobre até o custo sair errado.
 
-DUAS COISAS A CONFERIR COM A CONTABILIDADE
-------------------------------------------
-Não são opinião sobre o negócio; são perguntas que mudam o número:
+O INSS/CPP É RATEIO, NÃO ENCARGO — E ISSO MUDA A CONTA
+------------------------------------------------------
+A contabilidade respondeu: a empresa é do Simples Nacional, e ali a
+contribuição previdenciária **já está dentro do DAS**, calculada sobre o
+FATURAMENTO e não sobre o salário de cada um. Contratar alguém **não gera guia
+nova de INSS**.
 
-1. **INSS 10%** — a empresa é do Simples Nacional (a aba SIMPLES - FLEX do
-   Controle_MS é de DAS/DARF). Nos anexos I, II, III e V a contribuição
-   patronal já está DENTRO do DAS; só o anexo IV recolhe à parte. Se for um
-   desses quatro, este 10% está sendo contado duas vezes.
+O critério que eles deram é um rateio gerencial: a alíquota efetiva do DAS
+(R$ 4.397,83 de CPP sobre R$ 115.310,92 faturados em jul/2026 = 3,8139%)
+aplicada sobre o salário, só para compor um custo por pessoa.
 
-2. **Vale-transporte 6%** — 6% do salário é o teto do DESCONTO no salário do
-   empregado, não o custo do empregador. O custo é o que passar disso: se a
-   condução custar menos de 6%, o empregador não paga nada. Como custo, o 6%
-   provavelmente está com o sinal trocado.
+Por isso ele tem grupo próprio aqui. Somado aos encargos, apareceria como
+dinheiro saindo do caixa por causa da contratação — e não sai: o DAS é o mesmo
+com um ou com dez funcionários, e ele já está lançado na aba SIMPLES - FLEX do
+controle. Contar nos dois lugares infla o custo em duas vezes o mesmo imposto.
 
-Enquanto não houver resposta, a conta usa os números que ele informou — é o que
-ele tem hoje. As duas perguntas aparecem na tela para não virarem esquecimento.
+A tela mostra os dois totais, e a diferença entre eles é exatamente esse ponto:
+
+    custo de caixa      salário + FGTS + VT + refeição + provisões
+    custo gerencial     o de caixa + o rateio do DAS
+
+Para decidir contratação vale o de caixa — é ele que muda quando entra gente.
+O gerencial serve para comparar com o número da contabilidade.
+
+O VALE-TRANSPORTE
+-----------------
+Era 6% no primeiro retorno. Os 6% são o teto do DESCONTO no salário do
+empregado, não o custo do empregador — o gestor conferiu o que de fato sai:
+R$ 233,33 por pessoa.
 """
 
 from datetime import date, datetime, timezone, timedelta
@@ -63,7 +76,10 @@ COLUNAS = ["funcionario", "cargo", "registrado", "registrado_desde",
 # ela sai do caixa no mês (encargo) ou se é dinheiro guardado (provisão).
 TAXAS = {
     "fgts":            ("FGTS", "encargo", 0.0800),
-    "inss":            ("INSS", "encargo", 0.1000),
+    # Rateio, não encargo. Ver o cabeçalho: no Simples a contribuição
+    # previdenciária já está dentro do DAS, que é calculado sobre o
+    # FATURAMENTO. Contratar não gera guia nova.
+    "inss":            ("INSS/CPP (rateio do DAS)", "rateio", 0.038139),
     "ferias_1_12":     ("1/12 de férias", "provisao", 0.0830),
     "terco_ferias":    ("1/3 de férias", "provisao", 0.0280),
     "decimo_1_12":     ("1/12 de 13º", "provisao", 0.0830),
@@ -301,14 +317,24 @@ def custo(salario_base, taxas=None, dias_uteis=DIAS_UTEIS, registrado=True,
     provisoes = (sum(base * max(_num(t.get(k)), 0.0)
                      for k, v in TAXAS.items() if v[1] == "provisao")
                  if reg else 0.0)
+    # Rateio fica FORA do total: ele não sai do caixa por causa desta pessoa.
+    rateio = (sum(base * max(_num(t.get(k)), 0.0)
+                  for k, v in TAXAS.items() if v[1] == "rateio")
+              if reg else 0.0)
     refeicao = (max(_num(t.get("refeicao_dia")), 0.0)
                 * max(int(_num(dias_uteis, 0)), 0)) if com_refeicao else 0.0
+    caixa = base + encargos + provisoes + refeicao
     return {
         "base": round(base, 2),
         "encargos": round(encargos, 2),
         "provisoes": round(provisoes, 2),
         "refeicao": round(refeicao, 2),
-        "total": round(base + encargos + provisoes + refeicao, 2),
+        "rateio": round(rateio, 2),
+        # `total` é o de CAIXA. Todo o resto do Studio lê esta chave, e mudá-la
+        # para o gerencial faria o Balanço headcount consumir o aporte com um
+        # imposto que o aporte não paga.
+        "total": round(caixa, 2),
+        "total_gerencial": round(caixa + rateio, 2),
     }
 
 
@@ -528,12 +554,15 @@ def painel_taxas(taxas):
         novas = {}
         colunas = st.columns(3)
         for i, (k, (rotulo, grupo, _)) in enumerate(TAXAS.items()):
+            _ajuda = {"encargo": "Encargo: sai do caixa no mês.",
+                      "provisao": "Provisão: fica guardado para sair depois.",
+                      "rateio": "Rateio: NÃO sai do caixa por causa desta "
+                                "pessoa. Já está no DAS, pago sobre o "
+                                "faturamento."}[grupo]
             novas[k] = colunas[i % 3].number_input(
                 f"{rotulo} (%)", min_value=0.0, max_value=100.0,
-                value=float(taxas.get(k, 0)) * 100, step=0.01, format="%.2f",
-                key=f"tx_{k}",
-                help="Encargo: sai do caixa no mês." if grupo == "encargo"
-                     else "Provisão: fica guardado para sair depois.") / 100.0
+                value=float(taxas.get(k, 0)) * 100, step=0.0001, format="%.4f",
+                key=f"tx_{k}", help=_ajuda) / 100.0
         c1, c2 = st.columns(2)
         novas["multa_fgts"] = c1.number_input(
             "Multa do FGTS (%)", min_value=0.0, max_value=100.0,
@@ -570,16 +599,17 @@ def painel_taxas(taxas):
                  "Ligue se o valor acima for o CHEIO da recarga; deixe "
                  "desligado se ele já for o que sobra para a empresa.") else 0.0
 
-        st.warning(
-            "**Uma pergunta para a contabilidade, que muda o número:**\n\n"
-            "**INSS 10%** — existem dois INSS e nenhum é 10%. O **do "
-            "empregado** (7,5% a 14%) é descontado do salário dele e já está "
-            "dentro do salário base digitado aqui — somar de novo conta duas "
-            "vezes. O **patronal** é 20% no regime normal, mas no Simples "
-            "Nacional anexos I, II, III e V ele já vem **dentro do DAS**; só o "
-            "anexo IV recolhe à parte. A pergunta exata: *em qual anexo do "
-            "Simples estamos, e esses 10% são patronal por fora do DAS ou o "
-            "desconto do empregado?*"
+        st.info(
+            "**O INSS/CPP aqui é rateio, não encargo.** A contabilidade "
+            "confirmou: no Simples a contribuição previdenciária já está "
+            "dentro do **DAS**, calculada sobre o faturamento e não sobre o "
+            "salário — contratar não gera guia nova. Os 3,8139% são a alíquota "
+            "efetiva do DAS (R$ 4.397,83 sobre R$ 115.310,92 em jul/2026), "
+            "usada só para compor um custo por pessoa.\n\n"
+            "Por isso ele **não entra no custo de caixa**: o DAS é o mesmo com "
+            "um ou com dez funcionários, e já está lançado na aba "
+            "`SIMPLES - FLEX` do controle. Contar nos dois lugares somaria o "
+            "mesmo imposto duas vezes."
         )
         if st.button("💾 Salvar taxas", key="btn_salvar_taxas"):
             ok, msg = salvar_taxas(novas)
@@ -747,7 +777,9 @@ def conferencia(editado, taxas, ano, mes):
         "Encargos": _brl(l["encargos"]),
         "Provisões": _brl(l["provisoes"]),
         "Refeição": _brl(l["refeicao"]),
-        "Custo total": _brl(l["total"]),
+        "Custo de caixa": _brl(l["total"]),
+        "Rateio do DAS": _brl(l["rateio"]),
+        "Custo gerencial": _brl(l["total_gerencial"]),
     } for l in linhas]), use_container_width=True, hide_index=True)
 
     soma = lambda c: sum(l[c] for l in linhas)
@@ -755,10 +787,16 @@ def conferencia(editado, taxas, ano, mes):
     m[0].metric("Sai do caixa no mês",
                 _brl(soma("base") + soma("encargos") + soma("refeicao")))
     m[1].metric("Fica provisionado", _brl(soma("provisoes")))
-    m[2].metric(f"Colaboradores em {int(mes):02d}/{int(ano)}",
-                _brl(soma("total")))
-    m[3].metric("Custo médio por pessoa",
-                _brl(soma("total") / len(linhas)))
+    m[2].metric(f"Custo de caixa em {int(mes):02d}/{int(ano)}",
+                _brl(soma("total")),
+                help="É este que vale para decidir contratação: é o que muda "
+                     "quando entra gente.")
+    m[3].metric("Custo gerencial (com rateio)", _brl(soma("total_gerencial")),
+                delta=_brl(soma("rateio")) + " de DAS rateado",
+                delta_color="off",
+                help="O critério da contabilidade. O DAS já é pago sobre o "
+                     "faturamento — some aqui só para comparar com o número "
+                     "deles.")
 
     _sem_reg = [l["funcionario"] for l in linhas if not l["registrado"]]
     if _sem_reg:
@@ -813,8 +851,10 @@ if __name__ == "__main__":
         print(("ok    " if cond else "FALHA ") + nome)
 
     t = taxas_padrao()
-    ok("as taxas de partida são as que a contabilidade passou",
-       t["fgts"] == 0.08 and t["inss"] == 0.10)
+    ok("o FGTS é 8%", t["fgts"] == 0.08)
+    ok("o INSS/CPP é a alíquota efetiva do DAS informada pela contabilidade",
+       abs(t["inss"] - 0.038139) < 1e-9)
+    ok("o INSS/CPP é RATEIO, e não encargo", TAXAS["inss"][1] == "rateio")
     ok("o vale-transporte é valor, não percentual",
        t["vale_transporte_mes"] == 233.33 and "vale_transporte" not in t)
     ok("o desconto de 6% vem desligado", t["descontar_vt"] == 0.0)
@@ -869,15 +909,30 @@ if __name__ == "__main__":
        vale_transporte(99999, {"descontar_vt": 1}) >= 0.0)
 
     c = custo(2000)
-    ok("encargos são 18% do salário mais o VT em reais",
-       abs(c["encargos"] - (2000 * 0.18 + 233.33)) < 0.01)
+    ok("encargos são só o FGTS mais o VT em reais",
+       abs(c["encargos"] - (2000 * 0.08 + 233.33)) < 0.01)
+
+    # O exemplo da contabilidade: salario 2.000 -> FGTS 160, CPP 76,28
+    ok("o FGTS de R$ 2.000 é R$ 160,00", abs(2000 * t["fgts"] - 160.00) < 0.01)
+    ok("o rateio do DAS de R$ 2.000 é R$ 76,28",
+       abs(c["rateio"] - 76.28) < 0.01)
+    ok("o rateio NÃO entra no custo de caixa",
+       abs(c["total"] - (2000 + c["encargos"] + c["provisoes"]
+                         + c["refeicao"])) < 0.01)
+    ok("o gerencial é o de caixa mais o rateio",
+       abs(c["total_gerencial"] - (c["total"] + c["rateio"])) < 0.01)
+    ok("e o gerencial é maior que o de caixa",
+       c["total_gerencial"] > c["total"])
+    ok("sem registro não há rateio de DAS",
+       custo(2000, registrado=False)["rateio"] == 0.0)
     ok("provisões são 19,4% do salário (8,3+2,8+8,3)",
        abs(c["provisoes"] - 388.0) < 0.01)
+
     ok("refeição é 22 dias a R$ 29,99", abs(c["refeicao"] - 659.78) < 0.01)
     ok("o total soma base, encargos, provisões e refeição",
-       abs(c["total"] - (2000 + 593.33 + 388 + 659.78)) < 0.01)
+       abs(c["total"] - (2000 + 393.33 + 388 + 659.78)) < 0.01)
     ok("a multa do FGTS NÃO entra no custo da pessoa",
-       abs(c["total"] - 3641.11) < 0.01)
+       abs(c["total"] - 3441.11) < 0.01)
     ok("ligar o desconto do VT baixa o custo",
        custo(2000, {"descontar_vt": 1})["total"] < c["total"])
 
@@ -889,17 +944,21 @@ if __name__ == "__main__":
     # tem salario no mes, entao ninguem sem salario chega a custar VT na tela.
     ok("com salário zero sobram os valores que não dependem dele",
        custo(0)["total"] == custo(0)["refeicao"] + 233.33)
+    ok("com salário zero não há rateio", custo(0)["rateio"] == 0.0)
     ok("salário ilegível não derruba", custo("abc")["base"] == 0.0)
-    ok("taxa trocada muda a conta",
+    ok("zerar o rateio não mexe nos encargos",
        abs(custo(2000, {"inss": 0.0})["encargos"] - (160 + 233.33)) < 0.01)
+    ok("mas zera o gerencial contra o de caixa",
+       custo(2000, {"inss": 0.0})["total_gerencial"]
+       == custo(2000, {"inss": 0.0})["total"])
     ok("taxa que falta cai no padrão em vez de sumir",
-       abs(custo(2000, {"fgts": 0.08})["encargos"] - (360 + 233.33)) < 0.01)
+       abs(custo(2000, {"fgts": 0.08})["encargos"] - (160 + 233.33)) < 0.01)
 
     # Monique nao e registrada: sobre o salario dela nao incide tributo nem
     # provisao. Refeicao e vale-transporte continuam — sao do dia de trabalho,
     # nao do contrato.
     sem_reg = custo(2000, registrado=False)
-    ok("sem registro não há FGTS nem INSS",
+    ok("sem registro não há FGTS",
        sem_reg["encargos"] == vale_transporte(2000))
     ok("sem registro não há provisão de férias nem 13º",
        sem_reg["provisoes"] == 0.0)
