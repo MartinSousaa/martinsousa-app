@@ -32,7 +32,7 @@ O PRONAMP tem spread fixo mais Selic, então a parcela muda quando a Selic muda.
 A conta feita aqui é explícita e aparece na tela:
 
     a.m.  =  spread mensal  +  Selic mensal,  Selic mensal = (1+Selic a.a.)^(1/12) − 1
-    a.a.  =  (1 + a.m.)^12 − 1
+    a.a.  =  a.m. × 12   (nominal, como no contrato dele: 2,19 × 12 = 26,28)
 
 CUIDADO — ESTA CONTA NÃO REPRODUZ AS PARCELAS DE HOJE
 -----------------------------------------------------
@@ -66,6 +66,23 @@ CONDICOES = ["0,49% + Selic", "Fixa"]
 SPREADS = {"0,49% + Selic": 0.0049, "Fixa": None}
 
 SELIC_PADRAO = 15.00   # % ao ano. Ponto de partida; ele informa a vigente.
+
+# Os contratos de hoje, como estão no resumo do gestor. Sugestão de partida:
+# só viram linha na planilha depois de salvar.
+#
+# O último foi renomeado de "PRONAMP LG" para "PRONAMP LG5". Havia DOIS com o
+# mesmo nome no resumo, e o nome é a chave que liga o contrato ao «Ajuste de
+# valor» — dois iguais fariam um reajuste cair nos dois, ou em nenhum, sem
+# nada na tela dizendo por quê. Renomear é reversível; o erro silencioso não.
+SUGESTOES = [
+    ("PRONAMP LG",  "Itaú LG",  "2024-02-16", 9, 48,  99934.28, 18, 3304.86, 21,  84188.44, "0,49% + Selic", 0.49),
+    ("PRONAMP LG2", "Itaú LG",  "2025-02-26", 9, 48,  43403.24, 23, 1263.80,  8,  46036.36, "0,49% + Selic", 0.49),
+    ("PRONAMP MS",  "Itaú MS",  "2024-06-20", 9, 48, 102421.95, 20, 3254.01, 16,  96776.02, "0,49% + Selic", 0.49),
+    ("PRONAMP MS2", "Inter MS", "2025-02-26", 9, 48,  23918.87, 26,  673.36, 12,  23733.84, "0,49% + Selic", 0.49),
+    ("PRONAMP LG3", "Itaú LG",  "2026-01-17", 5, 48,  21168.71, 17,  493.03,  0,  20762.68, "0,49% + Selic", 0.49),
+    ("PRONAMP LG4", "Itaú LG",  "2026-01-22", 5, 48,  73681.33, 22, 1754.30,  2,  76487.76, "0,49% + Selic", 0.49),
+    ("PRONAMP LG5", "Itaú LG",  "2025-08-12", 0, 48, 137042.00,  7, 4980.36, 10, 129127.83, "Fixa",          2.19),
+]
 
 FUSO = timezone(timedelta(hours=-3))
 
@@ -101,13 +118,19 @@ def selic_mensal(selic_aa_pct):
 
 
 def taxas(condicao, selic_aa_pct, taxa_am_digitada=None):
-    """(a.m., a.a.) do contrato. Devolve fração, não porcentagem."""
+    """(a.m., a.a.) do contrato. Devolve fração, não porcentagem.
+
+    A anual é NOMINAL — doze vezes a mensal —, e não a composta. Não é escolha
+    minha: o resumo do gestor traz 2,19% a.m. com 26,28% a.a., e 2,19 × 12 é
+    exatamente 26,28. Compor daria 29,71%, e a tela mostraria um número que o
+    contrato dele não tem. Quem compara os dois precisa ver o mesmo.
+    """
     spread = SPREADS.get(str(condicao or "").strip())
     if spread is None:
         am = max(_num(taxa_am_digitada), 0.0) / 100.0
     else:
         am = spread + selic_mensal(selic_aa_pct)
-    return am, (1.0 + am) ** 12 - 1.0
+    return am, am * 12
 
 
 def parcela_price(saldo, taxa_am, n):
@@ -330,17 +353,27 @@ def pagina(usuario_logado=None):
     sm = selic_mensal(selic)
     st.caption(f"Selic ao mês (equivalente composta): **{sm*100:.4f}%** · "
                f"a.m. do PRONAMP = 0,49% + {sm*100:.4f}% = "
-               f"**{(0.0049+sm)*100:.4f}%** · a.a. = "
-               f"**{((1.0049+sm)**12-1)*100:.2f}%**")
+               f"**{(0.0049+sm)*100:.4f}%** · a.a. (nominal, ×12) = "
+               f"**{(0.0049+sm)*12*100:.2f}%**")
 
     df = carregar()
     if df.empty:
-        df = pd.DataFrame(columns=COLUNAS)
-        st.info("Nenhum contrato cadastrado. Use o «+» no fim da tabela.")
+        df = pd.DataFrame(
+            [{"programa": pr, "conta_aporte": co, "data_contratacao": dt,
+              "carencia_meses": ca, "prazo_meses": pz, "aporte": ap,
+              "dia_debito": di, "parcela": pc, "parcelas_pagas": pg,
+              "saldo_devedor": sd, "condicao": cond, "spread_am": 0.0,
+              "taxa_aa": 0.0, "taxa_am": tam, "atualizado_em": "",
+              "atualizado_por": ""}
+             for pr, co, dt, ca, pz, ap, di, pc, pg, sd, cond, tam in SUGESTOES],
+            columns=COLUNAS)
+        st.info("Aba ainda vazia. Os contratos já vêm preenchidos como "
+                "sugestão — confira e clique em **Salvar**. Nada foi gravado "
+                "até você salvar.")
 
     visiveis = ["programa", "conta_aporte", "data_contratacao", "carencia_meses",
                 "prazo_meses", "aporte", "dia_debito", "parcela",
-                "parcelas_pagas", "saldo_devedor", "condicao"]
+                "parcelas_pagas", "saldo_devedor", "condicao", "taxa_am"]
     editado = st.data_editor(
         df[visiveis],
         num_rows="dynamic",
@@ -379,8 +412,24 @@ def pagina(usuario_logado=None):
                 "Saldo devedor", min_value=0.0, step=0.01, format="%.2f"),
             "condicao": st.column_config.SelectboxColumn(
                 "Condição", options=CONDICOES, width="medium"),
+            "taxa_am": st.column_config.NumberColumn(
+                "Taxa fixa (% a.m.)", min_value=0.0, max_value=100.0,
+                step=0.01, format="%.2f", width="medium",
+                help="Só vale na condição «Fixa». Na condição com Selic, a "
+                     "taxa é calculada e este campo é ignorado."),
         },
     )
+
+    # Nome repetido: ele é a chave que liga o contrato ao «Ajuste de valor».
+    # Dois iguais fazem um reajuste cair nos dois, ou em nenhum, sem nada na
+    # tela dizendo por quê.
+    _nomes = [str(x).strip() for x in pd.DataFrame(editado).get("programa", [])
+              if str(x).strip()]
+    _repetidos = sorted({n for n in _nomes if _nomes.count(n) > 1})
+    if _repetidos:
+        st.error("Dois contratos com o mesmo nome: **" + ", ".join(_repetidos)
+                 + "**. O nome liga o contrato ao «Ajuste de valor» — com dois "
+                   "iguais, um reajuste cai nos dois ou em nenhum. Renomeie um.")
 
     if st.button("💾 Salvar", type="primary", key="btn_salvar_nao_op"):
         ok, msg = salvar(editado, usuario_logado)
@@ -460,7 +509,7 @@ if __name__ == "__main__":
     # ── Selic
     sm = selic_mensal(15)
     ok("Selic 15% a.a. dá 1,1715% a.m.", abs(sm - 0.011715) < 1e-6)
-    ok("a equivalente composta rende exatamente 15% no ano",
+    ok("a Selic mensal composta rende exatamente 15% no ano",
        abs((1 + sm) ** 12 - 1 - 0.15) < 1e-12)
     ok("a composta é menor que a nominal 15/12", sm < 0.15 / 12)
     ok("Selic zero dá mês zero", selic_mensal(0) == 0.0)
@@ -468,10 +517,10 @@ if __name__ == "__main__":
     am, aa = taxas("0,49% + Selic", 15)
     ok("a.m. do PRONAMP é 0,49% mais a Selic do mês",
        abs(am - (0.0049 + sm)) < 1e-12)
-    ok("a.a. sai de compor o a.m. doze vezes",
-       abs(aa - ((1 + am) ** 12 - 1)) < 1e-12)
+    ok("a.a. é doze vezes o a.m., como no contrato",
+       abs(aa - am * 12) < 1e-12)
     ok("com Selic 15% o PRONAMP fica perto dos 21% da planilha",
-       0.20 < aa < 0.22)
+       0.19 < aa < 0.22)
     am_f, _ = taxas("Fixa", 15, taxa_am_digitada=1.5)
     ok("contrato de taxa fixa ignora a Selic", abs(am_f - 0.015) < 1e-12)
 
@@ -547,6 +596,33 @@ if __name__ == "__main__":
        linhas[1]["condicao"] == CONDICOES[0])
     ok("a data fica no formato da planilha",
        linhas[0]["data_contratacao"] == "2024-02-16")
+
+    # Os sete contratos do resumo do gestor
+    ok("são sete contratos", len(SUGESTOES) == 7)
+    ok("os aportes somam R$ 501.570,38",
+       abs(sum(x[5] for x in SUGESTOES) - 501570.38) < 0.01)
+    ok("as parcelas somam R$ 15.723,72",
+       abs(sum(x[7] for x in SUGESTOES) - 15723.72) < 0.01)
+    ok("os saldos somam R$ 477.112,93",
+       abs(sum(x[9] for x in SUGESTOES) - 477112.93) < 0.01)
+    ok("nenhum nome se repete",
+       len({x[0] for x in SUGESTOES}) == len(SUGESTOES))
+    ok("seis contratos seguem a Selic e um tem taxa fixa",
+       [x[10] for x in SUGESTOES].count("Fixa") == 1)
+    ok("o de taxa fixa é o de 2,19% a.m.",
+       [x[11] for x in SUGESTOES if x[10] == "Fixa"] == [2.19])
+    ok("toda condição sugerida existe na lista",
+       {x[10] for x in SUGESTOES} <= set(CONDICOES))
+    ok("todo dia de débito cabe no calendário",
+       all(1 <= x[6] <= 31 for x in SUGESTOES))
+    ok("nenhuma parcela paga passa do prazo",
+       all(x[8] <= x[4] for x in SUGESTOES))
+
+    _fixo = [x for x in SUGESTOES if x[10] == "Fixa"][0]
+    _am, _aa = taxas(_fixo[10], 15, _fixo[11])
+    ok("o contrato de taxa fixa usa 2,19% a.m.", abs(_am - 0.0219) < 1e-9)
+    ok("e isso dá exatamente os 26,28% a.a. do resumo",
+       abs(_aa - 0.2628) < 1e-9)
 
     ok("real sai no formato brasileiro", _brl(3304.86) == "R$ 3.304,86")
     ok("mês sem data aparece como travessão", _mes_texto(None) == "—")
