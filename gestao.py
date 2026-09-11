@@ -54,15 +54,42 @@ def pagina_home(usuario_logado=None):
     )
 
 
-def pagina_financeiro(usuario_logado=None):
-    """A base do custo fixo — o número que sustenta todo o resto."""
+def _custo_fixo(usuario_logado=None):
+    """O custo que existe com ou sem venda — a base de tudo o que vem depois."""
     _em_branco(
-        "💼 Financeiro",
-        "A base do custo fixo mensal. É dela que sai a linha de equilíbrio.",
+        "🧱 Custo fixo",
+        "O que sai todo mês independente de vender. É o numerador da linha de "
+        "equilíbrio: faturamento de equilíbrio = custo fixo ÷ margem de "
+        "contribuição.",
         [
-            "Custo fixo operacional, item a item",
-            "Custo não operacional (parcelas de empréstimo)",
-            "Aporte e o custo mensal que ele cobre, com os meses de cobertura",
-            "Meta de gastos e a divisão entre obrigatórios e não obrigatórios",
+            "Item a item, com valor, dia de pagamento e forma de pagamento",
+            "Separação entre operacional e não operacional (parcelas de empréstimo)",
+            "Aporte: valor, custo mensal que ele cobre e por quantos meses",
+            "Total do mês e quanto ele representa do faturamento",
         ],
     )
+
+
+# As telas de Financeiro, na ordem em que aparecem. Dicionário no topo do
+# módulo, e não montado dentro da função: é a lista que cresce a cada bloco
+# novo, e ela precisa estar num lugar só.
+SUBTELAS = {
+    "🧱 Custo fixo": _custo_fixo,
+}
+
+
+def pagina_financeiro(usuario_logado=None, navegar=None):
+    """O dinheiro planejado: custo fixo, aporte, meta de gastos.
+
+    `navegar` é o mesmo seletor de abas do app (`app._navegar`), passado de
+    fora em vez de reescrito aqui. Aquela função carrega correções que
+    custaram caro — clique na aba já aberta, botão voltar do navegador, tela
+    antiga desenhada embaixo da nova — e uma segunda cópia começaria igual e
+    terminaria discordando. Sem ele (import solto, teste), desenha a primeira.
+    """
+    st.markdown("### 💼 Financeiro")
+    if navegar is None:
+        next(iter(SUBTELAS.values()))(usuario_logado)
+        return
+    navegar({rot: (lambda f=fn: f(usuario_logado)) for rot, fn in SUBTELAS.items()},
+            "sub_fin")

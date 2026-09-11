@@ -1882,7 +1882,10 @@ if _eh_admin:
         # seção cair na primeira aba da outra.
         _navegar({
             "🏠 Home":        lambda: gestao.pagina_home(usuario_logado),
-            "💼 Financeiro":  lambda: gestao.pagina_financeiro(usuario_logado),
+            # `_navegar` vai de carona: o Financeiro tem abas proprias e usa o
+            # mesmo seletor, em vez de uma segunda copia dele la dentro.
+            "💼 Financeiro":  lambda: gestao.pagina_financeiro(usuario_logado,
+                                                               navegar=_navegar),
         }, "aba_gf")
     elif _secao == "indicadores":
         if _eh_martinsousa:
