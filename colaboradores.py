@@ -554,7 +554,8 @@ def bloco(usuario_logado=None, taxas=None):
             [{**{"cargo": CARGO_PADRAO, "registrado": "Sim",
                  "registrado_desde": "", "salario_base": SALARIO_PADRAO,
                  "admissao": "", "dias_uteis": DIAS_UTEIS,
-                 "atualizado_em": "", "atualizado_por": ""}, **p}
+                 "no_aporte": "Sim", "atualizado_em": "",
+                 "atualizado_por": ""}, **p}
              for p in SUGESTOES],
             columns=COLUNAS)
         st.info("Aba ainda vazia. O quadro já vem preenchido como sugestão — "
@@ -570,7 +571,7 @@ def bloco(usuario_logado=None, taxas=None):
         key="ed_colaboradores",
         column_config={
             "funcionario": st.column_config.TextColumn(
-                "Funcionário", required=True, width="medium"),
+                "Funcionário", required=True, width="small"),
             "cargo": st.column_config.TextColumn("Cargo", width="medium"),
             "registrado": st.column_config.SelectboxColumn(
                 "Registrado", options=["Sim", "Não"], width="small",
@@ -578,11 +579,12 @@ def bloco(usuario_logado=None, taxas=None):
                      "vale-transporte continuam: são do dia de trabalho, não "
                      "do contrato."),
             "registrado_desde": st.column_config.TextColumn(
-                "Registrado desde", width="small",
+                "Registrado desde", width="medium",
                 help="AAAA-MM. Antes desse mês, sem tributo. Em branco com "
                      "«Sim», vale para todos os meses."),
             "salario_base": st.column_config.NumberColumn(
                 "Salário base (R$)", min_value=0.0, step=0.01, format="%.2f",
+                width="medium",
                 help="O de quando entrou. Reajuste vai em «Ajuste de valor»."),
             "admissao": st.column_config.TextColumn(
                 "Admissão", width="small",
@@ -728,6 +730,16 @@ if __name__ == "__main__":
     _mon = [p for p in SUGESTOES if p["funcionario"] == "Monique"][0]
     ok("a Monique vem marcada como sem registro", _mon["registrado"] == "Não")
     ok("a Monique recebe R$ 2.400", _mon["salario_base"] == 2400.00)
+    # A linha montada na tela precisa ter TODAS as colunas preenchidas: campo
+    # que falta no padrão aparece como celula vazia no editor, e vira "None" na
+    # coluna de lista — que o usuario le como um valor, nao como um vazio.
+    _padrao = {"cargo": CARGO_PADRAO, "registrado": "Sim",
+               "registrado_desde": "", "salario_base": SALARIO_PADRAO,
+               "admissao": "", "dias_uteis": DIAS_UTEIS, "no_aporte": "Sim",
+               "atualizado_em": "", "atualizado_por": ""}
+    ok("o padrão do quadro cobre todas as colunas",
+       set(_padrao) | {"funcionario"} == set(COLUNAS))
+
     ok("os quatro demais ficam no padrão do quadro",
        sum(1 for p in SUGESTOES if "salario_base" not in p) == 4)
 

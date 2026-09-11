@@ -3,13 +3,13 @@
 POR QUE ELA SAIU DA GRADE GENÉRICA
 ----------------------------------
 Custo fixo é um valor por item. Folha não: cada pessoa tem várias verbas que se
-somam, e um desconto que pode entrar por alguns meses e sair. Enfiar isso na
-grade de «item, valor» obrigaria a lançar a mesma pessoa em cinco linhas — e aí
-ninguém mais sabe quanto custa uma pessoa, que é justamente a pergunta.
+somam. Enfiar isso na grade de «item, valor» obrigaria a lançar a mesma pessoa
+em cinco linhas — e aí ninguém mais sabe quanto custa uma pessoa, que é
+justamente a pergunta.
 
 DUAS TABELAS, PORQUE SÃO DUAS CONDIÇÕES
 ---------------------------------------
-    Gestores       pró-labore, comissão, vales — e um desconto com prazo
+    Gestores       pró-labore, comissão e vales
     Colaboradores  salário, encargos CLT, provisões, refeição, multa do FGTS
 
 Isto começou como uma tabela só com uma coluna de grupo, e estava errado: as
@@ -21,21 +21,22 @@ sem se encontrar.
 A soma da folha é uma só, no fim da tela: as duas tabelas alimentam o mesmo
 total, e é isso que impede que virem dois números.
 
-O DESCONTO TEM PRAZO
---------------------
-Desconto sem prazo é desconto para sempre, e não foi isso que se combinou com
-ninguém. Ele vale de `desconto_desde` por `desconto_meses`, e some sozinho
-depois disso — sem precisar de alguém lembrar de apagar a linha, que é o tipo
-de lembrete que ninguém cumpre.
-
-    total bruto    = pró-labore + comissão + VA + VR + VC
-    total líquido  = total bruto − desconto (nos meses em que ele vigora)
+O QUE ELA CALCULA
+-----------------
+    total          = pró-labore + comissão + VA + VR + VC
     provisão 13º   = 1/12 sobre a remuneração (pró-labore + comissão)
 
-O 13º fica fora do total líquido e aparece em coluna própria: ele não sai do
-caixa no mês, fica guardado para sair em dezembro. Somado ao total, inflaria o
-custo do mês e esconderia o caixa — que é o erro que a tela de colaboradores
-também evita.
+O 13º fica fora do total e aparece em coluna própria: ele não sai do caixa no
+mês, fica guardado para sair em dezembro. Somado ao total, inflaria o custo do
+mês e esconderia o caixa — que é o erro que a tela de colaboradores também
+evita.
+
+DESCONTO NÃO MORA AQUI
+----------------------
+Havia um desconto com prazo, para adiantamento e empréstimo. Saiu a pedido do
+gestor: esta tela é a conta do salário, e controle de empréstimo entre sócios é
+outro assunto — misturar os dois fazia o custo da folha depender de uma dívida
+que não é custo da operação.
 
 A provisão incide sobre pró-labore e comissão, e não sobre os vales:
 vale-alimentação, refeição e combustível são reembolso de despesa. Se a
@@ -62,8 +63,7 @@ VERBAS = ["pro_labore", "comissao", "vale_alimentacao", "vale_refeicao",
           "vale_combustivel"]
 
 COLUNAS = (["pessoa"] + VERBAS +
-           ["vigente_desde", "desconto", "desconto_desde", "desconto_meses",
-            "desconto_descricao", "dia_debito", "forma_pagamento",
+           ["vigente_desde", "dia_debito", "forma_pagamento",
             "atualizado_em", "atualizado_por"])
 
 FORMAS = ["PIX", "Boleto", "Cartão", "Transferência"]
@@ -79,13 +79,11 @@ TAXA_DECIMO = 0.083
 # comissão fica de fora, esta lista é o único lugar a mudar.
 BASE_DECIMO = ["pro_labore", "comissao"]
 
-# As duas linhas dos gestores, já com as verbas. Renan tem o desconto do
-# empréstimo de R$ 12.000 em 24 parcelas de R$ 500.
+# As duas linhas dos gestores, já com as verbas. As duas são iguais menos o
+# vale-combustível.
 SUGESTOES = [
     {"pessoa": "Leonardo"},
-    {"pessoa": "Renan", "desconto": 500.00, "desconto_desde": "2026-06",
-     "desconto_meses": 24,
-     "desconto_descricao": "Empréstimo de R$ 12.000 em 24x"},
+    {"pessoa": "Renan", "vale_combustivel": 900.00},
 ]
 VERBAS_GESTOR = {"pro_labore": 1621.00, "comissao": 3979.00,
                  "vale_combustivel": 500.00, "vale_refeicao": 1100.00,
@@ -139,62 +137,17 @@ def provisao_decimo(linha, taxa=None):
     return round(base_salarial(linha) * t, 2)
 
 
-def desconto_no_mes(linha, ano, mes):
-    """O desconto que incide naquele mês. Zero fora da janela combinada.
-
-    Sem mês de início não há janela: o desconto passa a valer em todo mês, que
-    é o contrário de ter prazo. Nesse caso ele fica fora da conta e a tela
-    avisa — melhor não descontar do que descontar para sempre por engano.
-    """
-    valor = _num(linha.get("desconto"))
-    if valor <= 0:
-        return 0.0
-    aj = _aj()
-    inicio = aj.mes_de(linha.get("desconto_desde"))
-    if not inicio:
-        return 0.0
-    meses = int(_num(linha.get("desconto_meses"), 0))
-    alvo = (int(ano), int(mes))
-    if alvo < inicio:
-        return 0.0
-    if meses <= 0:
-        return valor            # prazo em branco: segue até alguém encerrar
-    decorridos = (alvo[0] * 12 + alvo[1]) - (inicio[0] * 12 + inicio[1])
-    return valor if decorridos < meses else 0.0
-
-
-def andamento_do_desconto(linha, ano, mes):
-    """(parcelas pagas, total, já descontado, saldo) até aquele mês.
-
-    O gestor sabe quanto pegou emprestado e quantas parcelas faltam; a folha
-    sabe o valor e o prazo. Sem juntar os dois, a pergunta "quanto ainda devo"
-    vira uma conta de cabeça toda vez — e conta de cabeça sobre dívida é onde
-    se perde o controle dela.
-    """
-    valor = _num(linha.get("desconto"))
-    total = max(int(_num(linha.get("desconto_meses"), 0)), 0)
-    inicio = _aj().mes_de(linha.get("desconto_desde"))
-    if valor <= 0 or not inicio:
-        return (0, total, 0.0, 0.0)
-    decorridos = ((int(ano) * 12 + int(mes)) - (inicio[0] * 12 + inicio[1])) + 1
-    pagas = max(min(decorridos, total or decorridos), 0)
-    return (pagas, total, round(pagas * valor, 2),
-            round(max((total - pagas), 0) * valor, 2))
-
-
 def custo_no_mes(linha, ano, mes, ajustes_da_pessoa=None):
-    """Quanto esta pessoa custou naquele mês, já com reajuste e desconto.
+    """Quanto esta pessoa custou naquele mês, já com o reajuste aplicado.
 
     O reajuste substitui o TOTAL BRUTO: é assim que um aumento chega, e
     espalhar o novo valor pelas seis verbas exigiria adivinhar qual delas
     subiu.
     """
     aj = _aj()
-    bruto = aj.valor_no_mes(total_bruto(linha), linha.get("vigente_desde"),
-                            ajustes_da_pessoa, ano, mes)
-    if bruto <= 0:
-        return 0.0
-    return round(max(bruto - desconto_no_mes(linha, ano, mes), 0.0), 2)
+    return round(max(aj.valor_no_mes(total_bruto(linha),
+                                     linha.get("vigente_desde"),
+                                     ajustes_da_pessoa, ano, mes), 0.0), 2)
 
 
 def total_da_folha(df, ano, mes, ajustes_df=None):
@@ -265,10 +218,6 @@ def _normalizar(df, usuario=""):
         linha = {
             "pessoa": pessoa,
             "vigente_desde": aj.texto_mes(aj.mes_de(r.get("vigente_desde"))),
-            "desconto": round(_num(r.get("desconto")), 2),
-            "desconto_desde": aj.texto_mes(aj.mes_de(r.get("desconto_desde"))),
-            "desconto_meses": max(int(_num(r.get("desconto_meses"), 0)), 0),
-            "desconto_descricao": str(r.get("desconto_descricao", "") or "").strip()[:200],
             "dia_debito": min(max(int(_num(r.get("dia_debito"), 0)), 0), 31),
             "forma_pagamento": (str(r.get("forma_pagamento", "") or "").strip()
                                 if str(r.get("forma_pagamento", "") or "").strip() in FORMAS
@@ -326,15 +275,13 @@ def pagina(usuario_logado=None):
                           value=hoje.month, step=1, key="folha_mes")
 
     st.markdown("##### 🧑‍💼 Gestores")
-    st.caption("Pró-labore, bônus e vales. O **novo total** já tira o "
-               "desconto, e o desconto só incide nos meses do prazo "
-               "combinado.")
+    st.caption("Pró-labore, comissão e vales. O **1/12 de 13º** fica à parte: "
+               "é dinheiro guardado, não sai do caixa no mês.")
     df = carregar()
     if df.empty:
         df = pd.DataFrame(
             [{**{v: 0.0 for v in VERBAS}, **VERBAS_GESTOR,
-              "vigente_desde": "", "desconto": 0.0, "desconto_desde": "",
-              "desconto_meses": 0, "desconto_descricao": "", "dia_debito": 30,
+              "vigente_desde": "", "dia_debito": 30,
               "forma_pagamento": "Transferência", "atualizado_em": "",
               "atualizado_por": "", **p} for p in SUGESTOES],
             columns=COLUNAS)
@@ -343,11 +290,9 @@ def pagina(usuario_logado=None):
                 "gravado até você salvar.")
 
     visiveis = (["pessoa"] + VERBAS +
-                ["vigente_desde", "desconto", "desconto_desde",
-                 "desconto_meses", "desconto_descricao", "dia_debito",
-                 "forma_pagamento"])
+                ["vigente_desde", "dia_debito", "forma_pagamento"])
     dinheiro = lambda rot: st.column_config.NumberColumn(
-        rot, min_value=0.0, step=0.01, format="%.2f", width="small")
+        rot, min_value=0.0, step=0.01, format="%.2f", width="medium")
 
     editado = st.data_editor(
         df[visiveis],
@@ -357,23 +302,11 @@ def pagina(usuario_logado=None):
         key="ed_folha_salarial",
         column_config={
             "pessoa": st.column_config.TextColumn(
-                "Pessoa", required=True, width="medium"),
+                "Pessoa", required=True, width="small"),
             **{v: dinheiro(ROTULOS[v]) for v in VERBAS},
             "vigente_desde": st.column_config.TextColumn(
                 "Está desde", width="small",
                 help="AAAA-MM. Antes deste mês a pessoa não entra no custo."),
-            "desconto": st.column_config.NumberColumn(
-                "Desconto (R$)", min_value=0.0, step=0.01, format="%.2f",
-                width="small"),
-            "desconto_desde": st.column_config.TextColumn(
-                "Desconto desde", width="small", help="AAAA-MM."),
-            "desconto_meses": st.column_config.NumberColumn(
-                "Prazo (meses)", min_value=0, max_value=120, step=1,
-                format="%d", width="small",
-                help="Por quantos meses o desconto incide. 0 = até alguém "
-                     "encerrar."),
-            "desconto_descricao": st.column_config.TextColumn(
-                "Motivo do desconto", width="large"),
             "dia_debito": st.column_config.NumberColumn(
                 "Dia", min_value=0, max_value=31, step=1, format="%d",
                 width="small"),
@@ -411,7 +344,7 @@ def pagina(usuario_logado=None):
 
 
 def _conferencia(editado, ano, mes):
-    """Total, desconto e novo total de cada gestor, no mês escolhido.
+    """Total e provisão de 13º de cada gestor, no mês escolhido.
 
     Fica fora da grade de propósito: o `data_editor` só redesenha uma coluna
     calculada no rerun seguinte, e um total que mostra o número anterior ao que
@@ -424,44 +357,27 @@ def _conferencia(editado, ano, mes):
     ajustes_df = aj.carregar()
     mapa = aj.por_item(ajustes_df)
 
-    linhas, sem_prazo, decimo_total = [], [], 0.0
+    linhas, decimo_total = [], 0.0
     for _, r in d.iterrows():
         pessoa = str(r.get("pessoa", "") or "").strip()
         if not pessoa:
             continue
-        bruto_hoje = total_bruto(r)
-        bruto_mes = aj.valor_no_mes(bruto_hoje, r.get("vigente_desde"),
+        bruto_mes = aj.valor_no_mes(total_bruto(r), r.get("vigente_desde"),
                                     mapa.get((ABA_NOME, pessoa)), ano, mes)
-        desc = desconto_no_mes(r, ano, mes)
-        if _num(r.get("desconto")) > 0 and not aj.mes_de(r.get("desconto_desde")):
-            sem_prazo.append(pessoa)
-        # Zero antes de a pessoa entrar: provisionar 13º de quem ainda nao
-        # trabalhou guardaria dinheiro para um direito que nao nasceu.
+        # Zero antes de a pessoa entrar: provisionar 13º de quem ainda não
+        # trabalhou guardaria dinheiro para um direito que não nasceu.
         decimo = provisao_decimo(r) if bruto_mes > 0 else 0.0
         decimo_total += decimo
-        _pagas, _tot, _ja, _saldo = andamento_do_desconto(r, ano, mes)
         linhas.append({
             "Pessoa": pessoa,
             "Total": _brl(bruto_mes),
-            "Desconto": _brl(desc),
-            "Novo total": _brl(max(bruto_mes - desc, 0.0)),
             "1/12 de 13º": _brl(decimo),
-            "Parcelas": f"{_pagas}/{_tot}" if _tot else "",
-            "Falta descontar": _brl(_saldo) if _tot else "",
-            "Motivo": r.get("desconto_descricao") or "",
         })
     if not linhas:
         return 0.0
 
     st.dataframe(pd.DataFrame(linhas), use_container_width=True,
                  hide_index=True)
-
-    if sem_prazo:
-        st.warning(
-            "Desconto sem mês de início fica **fora** da conta: "
-            + ", ".join(sorted(set(sem_prazo)))
-            + ". Sem o mês, ele valeria em todos os meses, inclusive nos "
-              "anteriores — e não foi isso que se combinou.")
 
     _total = total_da_folha(d, ano, mes, ajustes_df)
     cols = st.columns(2)
@@ -493,28 +409,6 @@ if __name__ == "__main__":
     ok("pessoa sem verba nenhuma soma zero", total_bruto({}) == 0.0)
 
     # Desconto com prazo de 3 meses a partir de maio
-    com_desc = {**leo, "desconto": 300, "desconto_desde": "2026-05",
-                "desconto_meses": 3, "desconto_descricao": "adiantamento"}
-
-    ok("antes do início, não desconta", desconto_no_mes(com_desc, 2026, 4) == 0.0)
-    ok("no primeiro mês, desconta", desconto_no_mes(com_desc, 2026, 5) == 300.0)
-    ok("no último mês do prazo, ainda desconta",
-       desconto_no_mes(com_desc, 2026, 7) == 300.0)
-    ok("passado o prazo, para sozinho",
-       desconto_no_mes(com_desc, 2026, 8) == 0.0)
-    ok("prazo em branco segue descontando",
-       desconto_no_mes({**com_desc, "desconto_meses": 0}, 2027, 1) == 300.0)
-    ok("desconto sem mês de início fica fora da conta",
-       desconto_no_mes({**com_desc, "desconto_desde": ""}, 2026, 6) == 0.0)
-    ok("desconto zerado não desconta",
-       desconto_no_mes({**com_desc, "desconto": 0}, 2026, 5) == 0.0)
-
-    ok("o novo total é o total menos o desconto",
-       custo_no_mes(com_desc, 2026, 5) == 7400.0)
-    ok("fora do prazo, o novo total volta a ser o total",
-       custo_no_mes(com_desc, 2026, 8) == 7700.0)
-    ok("desconto maior que o salário não vira custo negativo",
-       custo_no_mes({**com_desc, "desconto": 99999}, 2026, 5) == 0.0)
     ok("antes de a pessoa entrar, ela não custa",
        custo_no_mes({**leo, "vigente_desde": "2026-06"}, 2026, 5) == 0.0)
 
@@ -524,16 +418,13 @@ if __name__ == "__main__":
        custo_no_mes(leo, 2026, 6, aj_leo) == 7700.0)
     ok("do mês do reajuste em diante vale o novo total",
        custo_no_mes(leo, 2026, 7, aj_leo) == 11000.0)
-    ok("reajuste e desconto convivem: desconta sobre o valor novo",
-       custo_no_mes({**com_desc, "desconto_meses": 12}, 2026, 7, aj_leo)
-       == 10700.0)
 
-    renan = {**leo, "pessoa": "Renan", "desconto": 500,
-             "desconto_desde": "2026-06", "desconto_meses": 24,
-             "desconto_descricao": "Empréstimo de R$ 12.000 em 24x"}
+    renan = {**leo, "pessoa": "Renan", "vale_combustivel": 900}
     folha = pd.DataFrame([leo, renan])
-    ok("a folha soma os gestores, já com o desconto do Renan",
-       total_da_folha(folha, 2026, 6) == 7700 + 7200)
+    ok("o Renan tem R$ 400 a mais de vale-combustível",
+       total_bruto(renan) - total_bruto(leo) == 400.0)
+    ok("a folha soma os dois gestores",
+       total_da_folha(folha, 2026, 6) == 7700 + 8100)
     ok("linha sem pessoa não entra na folha",
        total_da_folha(pd.DataFrame([{"pessoa": "  ", "salario": 9999}]),
                       2026, 6) == 0.0)
@@ -543,18 +434,14 @@ if __name__ == "__main__":
                       pd.DataFrame([{"grade": ABA_NOME, "item": "Leonardo",
                                      "valor_novo": 11000,
                                      "vigente_desde": "2026-07"}]))
-       == 11000 + 7200)
+       == 11000 + 8100)
 
     linhas = _normalizar(pd.DataFrame([
-        {**com_desc, "dia_debito": 45, "forma_pagamento": "Cheque",
-         "desconto_desde": "05/2026", "desconto_meses": -3},
+        {**leo, "dia_debito": 45, "forma_pagamento": "Cheque"},
         {"pessoa": "", "salario": 9999},
         {"pessoa": "X"},
     ]), "martinsousa")
     ok("linha sem pessoa não é gravada", len(linhas) == 2)
-    ok("a vigência do desconto vira AAAA-MM",
-       linhas[0]["desconto_desde"] == "2026-05")
-    ok("prazo negativo vira zero", linhas[0]["desconto_meses"] == 0)
     ok("dia fora do calendário é aparado", linhas[0]["dia_debito"] == 31)
     ok("forma de pagamento fora da lista fica vazia",
        linhas[0]["forma_pagamento"] == "")
@@ -568,23 +455,6 @@ if __name__ == "__main__":
     ok("quem só tem vale não provisiona 13º",
        provisao_decimo({"vale_refeicao": 1100}) == 0.0)
 
-    # O emprestimo do Renan: 12.000 em 24 parcelas de 500, desde jun/2026
-    ok("em setembro sao quatro parcelas pagas",
-       andamento_do_desconto(renan, 2026, 9)[0] == 4)
-    ok("quatro parcelas sao R$ 2.000 ja descontados",
-       andamento_do_desconto(renan, 2026, 9)[2] == 2000.0)
-    ok("faltam vinte parcelas, R$ 10.000",
-       andamento_do_desconto(renan, 2026, 9)[3] == 10000.0)
-    ok("o total das parcelas fecha os R$ 12.000",
-       andamento_do_desconto(renan, 2026, 9)[1] * 500 == 12000)
-    ok("na ultima parcela nao falta nada",
-       andamento_do_desconto(renan, 2028, 5)[3] == 0.0)
-    ok("passado o prazo, nao passa de 24 parcelas",
-       andamento_do_desconto(renan, 2030, 1)[0] == 24)
-    ok("antes de comecar, zero parcelas",
-       andamento_do_desconto(renan, 2026, 5)[0] == 0)
-    ok("sem desconto nao ha parcela",
-       andamento_do_desconto(leo, 2026, 9) == (0, 0, 0.0, 0.0))
     ok("a taxa do 13º é a mesma das duas telas",
        TAXA_DECIMO == __import__("colaboradores").TAXAS["decimo_1_12"][2])
 
@@ -594,8 +464,10 @@ if __name__ == "__main__":
        sum(VERBAS_GESTOR.values()) == 7700.0)
     ok("toda verba sugerida existe na lista de verbas",
        set(VERBAS_GESTOR) <= set(VERBAS))
-    ok("só o Renan vem com desconto",
-       [p["pessoa"] for p in SUGESTOES if "desconto" in p] == ["Renan"])
+    ok("só o Renan tem verba própria",
+       [p["pessoa"] for p in SUGESTOES if len(p) > 1] == ["Renan"])
+    ok("a folha de gestores não tem mais coluna de desconto",
+       not any("desconto" in c for c in COLUNAS))
     ok("a folha de gestores não tem coluna de grupo",
        "grupo" not in COLUNAS)
 

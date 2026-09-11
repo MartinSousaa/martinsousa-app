@@ -275,12 +275,12 @@ def pagina(usuario_logado=None, grade="custo_fixo"):
                 help=cfg["ajuda_item"]),
             "valor_mensal": st.column_config.NumberColumn(
                 "Valor inicial (R$)", min_value=0.0, step=0.01, format="%.2f",
-                width="small",
+                width="medium",
                 help="O valor de quando o item entrou. Reajuste depois disso "
                      "não se digita aqui — entra em «Ajuste de valor», com o "
                      "mês em que passou a valer."),
             "vigente_desde": st.column_config.TextColumn(
-                "Existe desde", width="small",
+                "Existe desde", width="medium",
                 help="AAAA-MM. Antes deste mês o item não entra no custo. "
                      "Em branco, vale para todos os meses."),
             "dia_debito": st.column_config.NumberColumn(
