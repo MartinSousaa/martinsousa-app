@@ -217,6 +217,46 @@ def esta_ativo(linha, ano, mes):
     return ultimo is None or alvo <= ultimo
 
 
+def totais(df):
+    """A dívida somada: o que se deve hoje e o que ainda vai sair do caixa.
+
+    São dois números diferentes, e confundi-los é caro:
+
+        saldo devedor   o que se deve HOJE, se quitasse tudo agora
+        total a pagar   (parcelas que faltam) × parcela — já com os juros de
+                        todos os meses que ainda vão correr
+
+    A diferença entre os dois é o juro que ainda não foi pago. Olhar só o saldo
+    devedor subestima o que vai sair do caixa; olhar só o total a pagar
+    superestima a dívida.
+    """
+    d = pd.DataFrame(df)
+    vazio = {"aporte": 0.0, "saldo_devedor": 0.0, "parcela_mensal": 0.0,
+             "parcelas_restantes": 0, "total_a_pagar": 0.0, "juros_futuros": 0.0,
+             "contratos": 0}
+    if d.empty:
+        return vazio
+    ap = sd = pm = tp = 0.0
+    restantes = n = 0
+    for _, r in d.iterrows():
+        if not str(r.get("programa", "") or "").strip():
+            continue
+        n += 1
+        ap += _num(r.get("aporte"))
+        sd += _num(r.get("saldo_devedor"))
+        parcela = _num(r.get("parcela"))
+        prazo = max(int(_num(r.get("prazo_meses"), 0)), 0)
+        pagas = max(int(_num(r.get("parcelas_pagas"), 0)), 0)
+        falta = max(prazo - pagas, 0)
+        pm += parcela
+        restantes += falta
+        tp += falta * parcela
+    return {"aporte": round(ap, 2), "saldo_devedor": round(sd, 2),
+            "parcela_mensal": round(pm, 2), "parcelas_restantes": restantes,
+            "total_a_pagar": round(tp, 2),
+            "juros_futuros": round(tp - sd, 2), "contratos": n}
+
+
 def total_no_mes(df, ano, mes):
     """Quanto de não operacional existiu naquele mês.
 
@@ -448,6 +488,28 @@ def _tabela_conferencia(editado, selic):
     if d.empty or not str(d.get("programa", pd.Series(dtype=str)).any()):
         return
 
+    t = totais(d)
+    st.markdown("##### A dívida somada")
+    st.caption(
+        "**Saldo devedor** é o que se deve hoje, se quitasse tudo agora. "
+        "**Total a pagar** é o que ainda vai sair do caixa até a última "
+        "parcela, já com os juros que ainda vão correr. A diferença entre os "
+        "dois é juro que ainda não foi pago."
+    )
+    g = st.columns(4)
+    g[0].metric("Saldo devedor", _brl(t["saldo_devedor"]),
+                help=f"{t['contratos']} contrato(s). É o número que você "
+                     "informa, vindo do banco.")
+    g[1].metric("Total a pagar", _brl(t["total_a_pagar"]),
+                help=f"{t['parcelas_restantes']} parcela(s) restante(s) × a "
+                     "parcela de cada contrato.")
+    g[2].metric("Juros ainda a correr", _brl(t["juros_futuros"]),
+                help="Total a pagar menos o saldo devedor.")
+    g[3].metric("Parcela mensal somada", _brl(t["parcela_mensal"]),
+                help="Todas as parcelas juntas, independentemente de o "
+                     "contrato já ter começado.")
+    st.caption(f"Tomado emprestado ao todo: **{_brl(t['aporte'])}**.")
+
     st.markdown("##### Conferência da taxa e da vigência")
     st.caption(
         "A parcela que entra na conta é sempre a **do contrato**. A calculada "
@@ -623,6 +685,42 @@ if __name__ == "__main__":
     ok("o contrato de taxa fixa usa 2,19% a.m.", abs(_am - 0.0219) < 1e-9)
     ok("e isso dá exatamente os 26,28% a.a. do resumo",
        abs(_aa - 0.2628) < 1e-9)
+
+    # A divida somada
+    _d = pd.DataFrame([
+        {"programa": "A", "aporte": 100000, "saldo_devedor": 84000,
+         "parcela": 3300, "prazo_meses": 48, "parcelas_pagas": 21},
+        {"programa": "B", "aporte": 40000, "saldo_devedor": 46000,
+         "parcela": 1264, "prazo_meses": 48, "parcelas_pagas": 8},
+        {"programa": "  ", "aporte": 99999, "saldo_devedor": 99999},
+    ])
+    _t = totais(_d)
+    ok("contrato sem nome não entra na dívida", _t["contratos"] == 2)
+    ok("o saldo devedor soma o que foi informado",
+       _t["saldo_devedor"] == 130000.0)
+    ok("o aporte soma o que foi tomado", _t["aporte"] == 140000.0)
+    ok("a parcela mensal soma todas", _t["parcela_mensal"] == 4564.0)
+    ok("as parcelas restantes são prazo menos pagas",
+       _t["parcelas_restantes"] == (48 - 21) + (48 - 8))
+    ok("o total a pagar é o que ainda vai sair do caixa",
+       _t["total_a_pagar"] == 27 * 3300 + 40 * 1264)
+    ok("o juro futuro é o total a pagar menos o saldo devedor",
+       _t["juros_futuros"] == _t["total_a_pagar"] - _t["saldo_devedor"])
+    ok("contrato quitado não tem parcela restante",
+       totais(pd.DataFrame([{"programa": "C", "parcela": 500,
+                             "prazo_meses": 48,
+                             "parcelas_pagas": 48}]))["total_a_pagar"] == 0.0)
+    ok("pagas acima do prazo não vira parcela negativa",
+       totais(pd.DataFrame([{"programa": "C", "parcela": 500,
+                             "prazo_meses": 48,
+                             "parcelas_pagas": 99}]))["parcelas_restantes"] == 0)
+    ok("tabela vazia não derruba o total", totais(pd.DataFrame())["contratos"] == 0)
+
+    _real = pd.DataFrame([{"programa": p, "aporte": a, "saldo_devedor": s_,
+                           "parcela": pc, "prazo_meses": pz, "parcelas_pagas": pg}
+                          for p, _, _, _, pz, a, _, pc, pg, s_, _, _ in SUGESTOES])
+    ok("a dívida de hoje é os R$ 477.112,93 do resumo",
+       abs(totais(_real)["saldo_devedor"] - 477112.93) < 0.01)
 
     ok("real sai no formato brasileiro", _brl(3304.86) == "R$ 3.304,86")
     ok("mês sem data aparece como travessão", _mes_texto(None) == "—")
