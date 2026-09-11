@@ -63,7 +63,6 @@ COLUNAS = ["funcionario", "cargo", "salario_base", "admissao", "dias_uteis",
 TAXAS = {
     "fgts":            ("FGTS", "encargo", 0.0800),
     "inss":            ("INSS", "encargo", 0.1000),
-    "vale_transporte": ("Vale-transporte", "encargo", 0.0600),
     "ferias_1_12":     ("1/12 de férias", "provisao", 0.0830),
     "terco_ferias":    ("1/3 de férias", "provisao", 0.0280),
     "decimo_1_12":     ("1/12 de 13º", "provisao", 0.0830),
@@ -72,6 +71,19 @@ TAXAS = {
 # Fora de TAXAS de propósito: ela não entra no custo de ninguém, vira reserva
 # do quadro. Ver o cabeçalho.
 TAXA_MULTA_FGTS = 0.0400
+
+# O vale-transporte é VALOR, não percentual. A contabilidade tinha passado 6%,
+# mas 6% é o teto do DESCONTO no salário do empregado — não o custo da empresa.
+# O gestor conferiu o que de fato sai: R$ 233,33 por colaborador por mês.
+VALE_TRANSPORTE_MES = 233.33
+
+# A lei deixa descontar até 6% do salário do empregado a título de
+# vale-transporte; o custo da empresa é o que passar disso. Fica DESLIGADO por
+# padrão porque o valor informado é o que ele disse que paga, e ligar sozinho
+# baixaria o custo dele sem que ninguém tivesse decidido isso. Ligando, a tela
+# mostra o custo líquido.
+DESCONTAR_VT_PADRAO = False
+TETO_DESCONTO_VT = 0.06
 
 REFEICAO_DIA = 29.99
 DIAS_UTEIS = 22
@@ -112,7 +124,24 @@ def taxas_padrao():
     d = {k: v[2] for k, v in TAXAS.items()}
     d["multa_fgts"] = TAXA_MULTA_FGTS
     d["refeicao_dia"] = REFEICAO_DIA
+    d["vale_transporte_mes"] = VALE_TRANSPORTE_MES
+    d["descontar_vt"] = 1.0 if DESCONTAR_VT_PADRAO else 0.0
     return d
+
+
+def vale_transporte(salario_base, taxas=None):
+    """O que o vale-transporte custa à EMPRESA neste mês.
+
+    Sem o desconto ligado, é o valor cheio — que é o que o gestor disse que
+    sai. Com ele ligado, é o que passa dos 6% do salário: se a condução custar
+    menos que isso, a empresa não paga nada, e o custo é zero e não negativo.
+    """
+    t = {**taxas_padrao(), **(taxas or {})}
+    valor = max(_num(t.get("vale_transporte_mes")), 0.0)
+    if not _num(t.get("descontar_vt")):
+        return round(valor, 2)
+    desconto = max(_num(salario_base), 0.0) * TETO_DESCONTO_VT
+    return round(max(valor - desconto, 0.0), 2)
 
 
 def custo(salario_base, taxas=None, dias_uteis=DIAS_UTEIS):
@@ -125,6 +154,7 @@ def custo(salario_base, taxas=None, dias_uteis=DIAS_UTEIS):
     base = max(_num(salario_base), 0.0)
     encargos = sum(base * max(_num(t.get(k)), 0.0)
                    for k, v in TAXAS.items() if v[1] == "encargo")
+    encargos += vale_transporte(base, t)
     provisoes = sum(base * max(_num(t.get(k)), 0.0)
                     for k, v in TAXAS.items() if v[1] == "provisao")
     refeicao = max(_num(t.get("refeicao_dia")), 0.0) * max(int(_num(dias_uteis, 0)), 0)
@@ -350,15 +380,30 @@ def _painel_taxas(taxas):
             format="%.2f", value=float(taxas.get("refeicao_dia", REFEICAO_DIA)),
             key="tx_ref")
 
+        c3, c4 = st.columns(2)
+        novas["vale_transporte_mes"] = c3.number_input(
+            "Vale-transporte (R$/mês por colaborador)", min_value=0.0,
+            step=0.01, format="%.2f", key="tx_vt",
+            value=float(taxas.get("vale_transporte_mes", VALE_TRANSPORTE_MES)),
+            help="Valor, não percentual: 6% é o teto do desconto no salário do "
+                 "empregado, não o custo da empresa.")
+        novas["descontar_vt"] = 1.0 if c4.checkbox(
+            "Abater o desconto legal de 6% do salário",
+            value=bool(_num(taxas.get("descontar_vt"))), key="tx_vt_desc",
+            help="A lei permite descontar até 6% do salário do empregado. "
+                 "Ligue se o valor acima for o CHEIO da recarga; deixe "
+                 "desligado se ele já for o que sobra para a empresa.") else 0.0
+
         st.warning(
-            "**Duas perguntas para a contabilidade, que mudam o número:**\n\n"
-            "1. **INSS 10%** — a empresa é do Simples Nacional. Nos anexos I, "
-            "II, III e V a contribuição patronal já está **dentro do DAS**; só "
-            "o anexo IV recolhe à parte. Se for um desses quatro, este 10% "
-            "está sendo contado duas vezes.\n"
-            "2. **Vale-transporte 6%** — 6% é o teto do **desconto no salário "
-            "do empregado**, não o custo da empresa. O custo é o que passar "
-            "disso; se a condução custar menos de 6%, a empresa não paga nada."
+            "**Uma pergunta para a contabilidade, que muda o número:**\n\n"
+            "**INSS 10%** — existem dois INSS e nenhum é 10%. O **do "
+            "empregado** (7,5% a 14%) é descontado do salário dele e já está "
+            "dentro do salário base digitado aqui — somar de novo conta duas "
+            "vezes. O **patronal** é 20% no regime normal, mas no Simples "
+            "Nacional anexos I, II, III e V ele já vem **dentro do DAS**; só o "
+            "anexo IV recolhe à parte. A pergunta exata: *em qual anexo do "
+            "Simples estamos, e esses 10% são patronal por fora do DAS ou o "
+            "desconto do empregado?*"
         )
         if st.button("💾 Salvar taxas", key="btn_salvar_taxas"):
             ok, msg = salvar_taxas(novas)
@@ -489,34 +534,51 @@ if __name__ == "__main__":
 
     t = taxas_padrao()
     ok("as taxas de partida são as que a contabilidade passou",
-       t["fgts"] == 0.08 and t["inss"] == 0.10 and t["vale_transporte"] == 0.06)
+       t["fgts"] == 0.08 and t["inss"] == 0.10)
+    ok("o vale-transporte é valor, não percentual",
+       t["vale_transporte_mes"] == 233.33 and "vale_transporte" not in t)
+    ok("o desconto de 6% vem desligado", t["descontar_vt"] == 0.0)
     ok("1/12 de férias e de 13º são iguais",
        t["ferias_1_12"] == t["decimo_1_12"] == 0.083)
     ok("1/3 das férias é um terço do 1/12",
        abs(t["terco_ferias"] - t["ferias_1_12"] / 3) < 0.001)
     ok("a refeição é de R$ 29,99", t["refeicao_dia"] == 29.99)
 
+    ok("sem o desconto ligado, o VT custa o valor cheio",
+       vale_transporte(2000) == 233.33)
+    ok("com o desconto ligado, sobra o que passa dos 6%",
+       vale_transporte(2000, {"descontar_vt": 1}) == round(233.33 - 120.0, 2))
+    ok("condução mais barata que os 6% não custa nada à empresa",
+       vale_transporte(10000, {"descontar_vt": 1}) == 0.0)
+    ok("o VT nunca fica negativo",
+       vale_transporte(99999, {"descontar_vt": 1}) >= 0.0)
+
     c = custo(2000)
-    ok("encargos são 24% do salário (8+10+6)", abs(c["encargos"] - 480.0) < 0.01)
+    ok("encargos são 18% do salário mais o VT em reais",
+       abs(c["encargos"] - (2000 * 0.18 + 233.33)) < 0.01)
     ok("provisões são 19,4% do salário (8,3+2,8+8,3)",
        abs(c["provisoes"] - 388.0) < 0.01)
     ok("refeição é 22 dias a R$ 29,99", abs(c["refeicao"] - 659.78) < 0.01)
     ok("o total soma base, encargos, provisões e refeição",
-       abs(c["total"] - (2000 + 480 + 388 + 659.78)) < 0.01)
+       abs(c["total"] - (2000 + 593.33 + 388 + 659.78)) < 0.01)
     ok("a multa do FGTS NÃO entra no custo da pessoa",
-       abs(c["total"] - 3527.78) < 0.01)
+       abs(c["total"] - 3641.11) < 0.01)
+    ok("ligar o desconto do VT baixa o custo",
+       custo(2000, {"descontar_vt": 1})["total"] < c["total"])
 
     ok("menos dias úteis, menos refeição",
        custo(2000, dias_uteis=20)["refeicao"] < c["refeicao"])
     ok("zero dias úteis não dá refeição",
        custo(2000, dias_uteis=0)["refeicao"] == 0.0)
-    ok("salário zero dá custo só de refeição",
-       custo(0)["total"] == custo(0)["refeicao"])
+    # Salario zero so aparece aqui, na funcao pura: `folha_clt` pula quem nao
+    # tem salario no mes, entao ninguem sem salario chega a custar VT na tela.
+    ok("com salário zero sobram os valores que não dependem dele",
+       custo(0)["total"] == custo(0)["refeicao"] + 233.33)
     ok("salário ilegível não derruba", custo("abc")["base"] == 0.0)
     ok("taxa trocada muda a conta",
-       custo(2000, {"inss": 0.0})["encargos"] == 280.0)
+       abs(custo(2000, {"inss": 0.0})["encargos"] - (160 + 233.33)) < 0.01)
     ok("taxa que falta cai no padrão em vez de sumir",
-       custo(2000, {"fgts": 0.08})["encargos"] == 480.0)
+       abs(custo(2000, {"fgts": 0.08})["encargos"] - (360 + 233.33)) < 0.01)
 
     ok("admitido em jan e olhando jan dá zero mês de casa",
        meses_de_casa("2026-01", 2026, 1) == 0)
