@@ -1886,13 +1886,19 @@ if _eh_admin:
         }, "aba_gf")
     elif _secao == "indicadores":
         if _eh_martinsousa:
-            _navegar({
+            _abas_ind = {
                 "🏆 Painel de Metas":  lambda: placar.pagina_placar(usuario_logado),
                 "📊 Análise de Metas": lambda: analise_metas.pagina_analise_metas(usuario_logado),
                 "🕐 Ponto":            lambda: relogio_ponto.pagina_ponto(usuario_logado),
                 "💰 Financeiro":       lambda: financeiro.pagina_financeiro(usuario_logado),
-                "Administrativo":     lambda: admin.pagina_admin(usuario_logado),
-            }, "aba_g")
+            }
+            # Administrativo cria, desativa e reseta senha de qualquer pessoa —
+            # inclusive a do dono. Some da barra para quem nao e dono, e a
+            # propria pagina recusa por conta propria (admin.py): esconder a
+            # aba sem trancar a porta so troca o cadeado por uma cortina.
+            if auth.eh_dono(usuario_logado):
+                _abas_ind["Administrativo"] = lambda: admin.pagina_admin(usuario_logado)
+            _navegar(_abas_ind, "aba_g")
         else:
             _navegar({
                 "🏆 Painel de Metas":  lambda: placar.pagina_placar(usuario_logado),
