@@ -907,6 +907,13 @@ def _barra(nome,pts,meta,pen):
             f'<div style="background:{cor};width:{pct:.1f}%;height:100%;border-radius:4px;"></div></div>'
             f'{pen_h}</div>')
 
+# Quantas demandas da fila aparecem. Uma constante, nao dois numeros: a TV
+# cortava em 5 e o Studio em 4, e as duas telas discordavam de proposito. Quem
+# olha as duas nao conclui "o corte e diferente", conclui "uma delas esta
+# errada" — e ai deixa de confiar nas duas.
+FILA_VISIVEL = 5
+
+
 def _fila_html(item):
     import placar_core as _pc_prev
     p=item["prioridade"]; urg=item.get("is_urgente",False) or p>=10
@@ -1229,9 +1236,8 @@ def _tv_full_html(
         and_html = '<div style="font-size:10px;color:#555;padding:8px;">Nenhum em andamento</div>'
 
     # Próximas 5 da fila — visual idêntico aos cards de alerta
-    ORDS = ["1°","2°","3°","4°","5°"]
     fila_html = ""
-    for i, item in enumerate(fila[:5]):
+    for i, item in enumerate(fila[:FILA_VISIVEL]):
         p = item["prioridade"]
         cor = "#E34948" if p>=10 else ("#EDA100" if p>=8 else ("#1BAF7A" if p>=6 else "#888"))
         tipo_cls = "urgente" if (item.get("is_urgente") or p>=8) else "atencao"
@@ -1240,7 +1246,7 @@ def _tv_full_html(
         eta  = _fmt_tempo(item["eta_min"])
         fila_html += (f'<div class="alerta-item {tipo_cls}">'
                       f'<div class="alerta-item-prioridade">'
-                      f'<span style="color:{cor};">{ORDS[i]} — P{p}</span>'
+                      f'<span style="color:{cor};">{i+1}° — P{p}</span>'
                       f'<span style="color:#888;font-weight:400;">~{eta}</span>'
                       f'</div>'
                       f'<div class="alerta-item-nome">{nome}</div>'
@@ -2625,7 +2631,7 @@ def pagina_placar(usuario_logado, headless=False):
     with col_fila:
         st.markdown("**📋 Próximas Demandas na Fila**")
         if fila:
-            for item in fila[:4]:
+            for item in fila[:FILA_VISIVEL]:
                 st.markdown(_fila_html(item),unsafe_allow_html=True)
         else:
             st.caption("Fila vazia 🎉")
