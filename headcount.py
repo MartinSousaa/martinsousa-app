@@ -101,13 +101,20 @@ def contabilidade_no_mes(params, ano, mes):
     return valor if (int(ano), int(mes)) >= desde else 0.0
 
 
+def linhas_do_aporte(ano, mes, colaboradores_df=None, taxas=None,
+                     ajustes_df=None):
+    """Só as pessoas cobertas pelo aporte, com o custo de cada uma no mês."""
+    import colaboradores as _co
+    df = _co.carregar() if colaboradores_df is None else colaboradores_df
+    return [l for l in _co.folha_clt(df, ano, mes, taxas, ajustes_df)
+            if l.get("no_aporte", True)]
+
+
 def custo_do_mes(ano, mes, params=None, colaboradores_df=None, taxas=None,
                  ajustes_df=None):
     """O que o aporte paga naquele mês: o time coberto mais a contabilidade."""
-    import colaboradores as _co
-    df = _co.carregar() if colaboradores_df is None else colaboradores_df
-    linhas = _co.folha_clt(df, ano, mes, taxas, ajustes_df)
-    time = sum(l["total"] for l in linhas if l.get("no_aporte", True))
+    time = sum(l["total"] for l in linhas_do_aporte(ano, mes, colaboradores_df,
+                                                    taxas, ajustes_df))
     return round(time + contabilidade_no_mes(params, ano, mes), 2)
 
 
@@ -317,9 +324,28 @@ def salvar(df, usuario=""):
 
 # ── Tela ─────────────────────────────────────────────────────────────────────
 
+def registrar_saldo(movimentos, ano, mes, valor, observacao=""):
+    """Põe (ou substitui) a leitura de saldo daquele mês.
+
+    Substitui em vez de acrescentar: duas leituras do mesmo mês são correção de
+    digitação, não dois saldos. Empilhá-las deixaria a conta dependendo de qual
+    linha veio por último na planilha.
+    """
+    aj = _aj()
+    alvo = aj.texto_mes((int(ano), int(mes)))
+    d = pd.DataFrame(movimentos)
+    if not d.empty:
+        d = d[~((d.get("tipo", "").astype(str).str.strip() == "Saldo")
+                & (d.get("data", "").astype(str).str.strip() == alvo))]
+    nova = pd.DataFrame([{"tipo": "Saldo", "data": alvo,
+                          "valor": round(_num(valor), 2),
+                          "observacao": str(observacao or "").strip()}])
+    return pd.concat([d, nova], ignore_index=True)
+
+
 def _painel_contabilidade(params):
     with st.expander("🧾 Contabilidade — o acréscimo pelo quadro de funcionários",
-                     expanded=False):
+                     expanded=True):
         st.caption("O que a mensalidade da contabilidade subiu por causa do "
                    "time registrado. Entra no custo que o aporte cobre.")
         c1, c2 = st.columns(2)
@@ -346,6 +372,99 @@ def _painel_contabilidade(params):
         return novos
 
 
+def _custo_do_time(params, hoje):
+    """Quem o aporte paga e quanto, no mês escolhido.
+
+    Fica ANTES do balanço e aparece mesmo sem nenhum aporte lançado: é a conta
+    que decide se vale contratar, e ela existe independente de haver dinheiro
+    guardado. Antes ela só surgia depois do primeiro aporte, e quem abria a
+    tela vazia não via custo nenhum.
+    """
+    import colaboradores as _co
+    aj = _aj()
+    st.markdown("##### Custo do time coberto pelo aporte")
+    c1, c2 = st.columns(2)
+    ano = c1.number_input("Ano", min_value=2020, max_value=2100,
+                          value=hoje.year, step=1, key="hc_custo_ano")
+    mes = c2.number_input("Mês", min_value=1, max_value=12,
+                          value=hoje.month, step=1, key="hc_custo_mes")
+
+    linhas = linhas_do_aporte(ano, mes, taxas=_co.carregar_taxas(),
+                              ajustes_df=aj.carregar())
+    cont = contabilidade_no_mes(params, ano, mes)
+    if not linhas and cont <= 0:
+        st.info("Ninguém marcado **«No aporte»** na tabela de colaboradores, e "
+                "nenhum acréscimo de contabilidade vigente neste mês.")
+        return
+
+    if linhas:
+        st.dataframe(pd.DataFrame([{
+            "Funcionário": l["funcionario"],
+            "Cargo": l["cargo"],
+            "Salário base": _brl(l["base"]),
+            "Encargos": _brl(l["encargos"]),
+            "Provisões": _brl(l["provisoes"]),
+            "Refeição": _brl(l["refeicao"]),
+            "Custo total": _brl(l["total"]),
+        } for l in linhas]), use_container_width=True, hide_index=True)
+
+    time = round(sum(l["total"] for l in linhas), 2)
+    m = st.columns(3)
+    m[0].metric(f"Time ({len(linhas)} pessoa(s))", _brl(time))
+    m[1].metric("Contabilidade", _brl(cont))
+    m[2].metric(f"Custo do headcount em {int(mes):02d}/{int(ano)}",
+                _brl(time + cont))
+    st.caption("Só quem está marcado **«No aporte»** na tabela de "
+               "colaboradores. Quem está fora — a Monique, por exemplo — não "
+               "entra nesta conta nem consome o aporte.")
+
+
+def _registrar_saldo_de_hoje(params, hoje, usuario_logado=None):
+    """O saldo do mês em dois campos e um botão, sem editar a grade.
+
+    Todo fim de mês ele abre o extrato e informa quanto sobrou. Fazer isso
+    pela grade exige criar linha, escolher o tipo e digitar o mês — quatro
+    passos para um número. Aqui é um.
+    """
+    aj = _aj()
+    with st.expander("💰 Informar o saldo de hoje", expanded=True):
+        st.caption(
+            "Abra o extrato do investimento e informe quanto há na conta. "
+            "Informar de novo no mesmo mês **substitui** a leitura anterior — "
+            "dois saldos do mesmo mês seriam correção de digitação, não dois "
+            "saldos.")
+        c1, c2, c3, c4 = st.columns([1, 1, 2, 1])
+        ano = c1.number_input("Ano", min_value=2020, max_value=2100,
+                              value=hoje.year, step=1, key="hc_saldo_ano")
+        mes = c2.number_input("Mês", min_value=1, max_value=12,
+                              value=hoje.month, step=1, key="hc_saldo_mes")
+        valor = c3.number_input("Saldo na conta (R$)", min_value=0.0,
+                                step=0.01, format="%.2f", key="hc_saldo_valor")
+        c4.markdown("&nbsp;", unsafe_allow_html=True)
+
+        atual = carregar()
+        _ja = [r for _, r in pd.DataFrame(atual).iterrows()
+               if str(r.get("tipo", "")).strip() == "Saldo"
+               and str(r.get("data", "")).strip() == aj.texto_mes((int(ano), int(mes)))]
+        if _ja:
+            st.caption(f"Já há um saldo de {int(mes):02d}/{int(ano)}: "
+                       f"**{_brl(_num(_ja[0].get('valor')))}**. Registrar "
+                       "de novo troca esse valor.")
+
+        if c4.button("Registrar", key="btn_hc_saldo", type="primary"):
+            if _num(valor) <= 0:
+                st.error("Informe o saldo.")
+            else:
+                ok, msg = salvar(registrar_saldo(atual, ano, mes, valor),
+                                 usuario_logado)
+                if ok:
+                    st.success(f"Saldo de {int(mes):02d}/{int(ano)} "
+                               f"registrado: {_brl(_num(valor))}.")
+                    st.rerun()
+                else:
+                    st.error(f"Não consegui gravar: {msg}")
+
+
 def pagina(usuario_logado=None):
     st.markdown("### 🧮 Balanço headcount")
     st.caption(
@@ -355,6 +474,10 @@ def pagina(usuario_logado=None):
     )
 
     params = _painel_contabilidade(carregar_params())
+
+    hoje = datetime.now(FUSO).date()
+    _custo_do_time(params, hoje)
+    _registrar_saldo_de_hoje(params, hoje, usuario_logado)
 
     st.markdown("##### Aportes e saldos")
     st.caption(
@@ -403,6 +526,9 @@ def _balanco(editado, params):
     r = resumo(editado, params, taxas=_co.carregar_taxas(),
                ajustes_df=aj.carregar())
     if not r["primeiro_aporte"]:
+        st.info("Sem nenhum **Aporte** lançado não há balanço: é do primeiro "
+                "aporte que sai a conta de quanto já foi consumido e de "
+                "quanto rendeu.")
         return
 
     st.markdown("##### Onde o aporte está")
@@ -531,6 +657,29 @@ if __name__ == "__main__":
     ok("custo zero não vira laço infinito",
        fim_da_cobertura(6000, 0, (2026, 9)) is None)
     ok("saldo zero não cobre nada", fim_da_cobertura(0, 1000, (2026, 9)) is None)
+
+    # Registrar o saldo do mes: substitui, nao empilha
+    _m = pd.DataFrame([{"tipo": "Aporte", "data": "2026-06", "valor": 120000},
+                       {"tipo": "Saldo", "data": "2026-09", "valor": 110000}])
+    _r1 = registrar_saldo(_m, 2026, 10, 99000)
+    ok("saldo de um mes novo e acrescentado", len(_r1) == 3)
+    ok("e o resumo passa a usar o mais recente",
+       resumo(_r1, p, quadro, tx, hoje=date(2026, 10, 15))["saldo"] == 99000.0)
+    _r2 = registrar_saldo(_m, 2026, 9, 108000)
+    ok("saldo do mesmo mes SUBSTITUI em vez de empilhar", len(_r2) == 2)
+    ok("e vale o valor novo",
+       resumo(_r2, p, quadro, tx, hoje=date(2026, 9, 15))["saldo"] == 108000.0)
+    ok("o aporte nao e tocado ao registrar saldo",
+       resumo(_r2, p, quadro, tx, hoje=date(2026, 9, 15))["aportado"] == 120000.0)
+    ok("registrar saldo numa tabela vazia cria a primeira linha",
+       len(registrar_saldo(pd.DataFrame(), 2026, 9, 1000)) == 1)
+
+    # So quem esta no aporte entra na conta
+    _lin = linhas_do_aporte(2026, 9, quadro, tx)
+    ok("a lista do aporte traz so quem esta coberto",
+       [l["funcionario"] for l in _lin] == ["Beatriz"])
+    ok("a Monique fica de fora por nao estar no aporte",
+       "Monique" not in {l["funcionario"] for l in _lin})
 
     linhas = _normalizar(pd.DataFrame([
         {"tipo": "Aporte", "data": "06/2026", "valor": "120.000,00"},
