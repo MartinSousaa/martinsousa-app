@@ -55,8 +55,9 @@ import streamlit as st
 ABA_NOME = "colaboradores"
 ABA_PARAMS = "clt_parametros"
 
-COLUNAS = ["funcionario", "cargo", "registrado", "salario_base", "admissao",
-           "dias_uteis", "atualizado_em", "atualizado_por"]
+COLUNAS = ["funcionario", "cargo", "registrado", "registrado_desde",
+           "salario_base", "admissao", "dias_uteis", "atualizado_em",
+           "atualizado_por"]
 
 # Taxa sobre o salário base. O rótulo é o que aparece na tela; `grupo` diz se
 # ela sai do caixa no mês (encargo) ou se é dinheiro guardado (provisão).
@@ -155,6 +156,32 @@ def eh_registrado(v):
     return str(v).strip().lower() not in ("não", "nao", "n", "0", "false")
 
 
+def registrado_no_mes(linha, ano, mes):
+    """Esta pessoa tinha registro em (ano, mes)?
+
+    Por que a marca sozinha não basta: ela diz o estado de HOJE. Alguém que
+    trabalhou seis meses sem registro e foi registrado em maio teria, só com a
+    marca, os seis meses anteriores recalculados com FGTS e INSS que ninguém
+    recolheu — e todo indicador que olhe para trás mudaria de valor no dia em
+    que a marca fosse ligada.
+
+    O sistema também não tem como descobrir a data sozinho: o que ele grava é o
+    momento em que a LINHA foi salva, e esse momento anda a cada nova gravação.
+    Além disso o clique não é o fato — o registro pode retroagir, ou a marca
+    pode ser ligada semanas depois. Por isso a data é informada.
+
+    Marca «Não» vence tudo: sem registro hoje, não houve registro mês nenhum.
+    Marca «Sim» sem data continua valendo para todos os meses, que é como a
+    tela se comportava antes de esta coluna existir.
+    """
+    if not eh_registrado(linha.get("registrado", "Sim")):
+        return False
+    desde = _aj().mes_de(linha.get("registrado_desde"))
+    if not desde:
+        return True
+    return (int(ano), int(mes)) >= desde
+
+
 def custo(salario_base, taxas=None, dias_uteis=DIAS_UTEIS, registrado=True):
     """O que este salário custa por mês, aberto em partes.
 
@@ -214,7 +241,7 @@ def reserva_multa(df, ano, mes, taxa=None, ajustes_df=None):
         nome = str(r.get("funcionario", "") or "").strip()
         if not nome:
             continue
-        if not eh_registrado(r.get("registrado", "Sim")):
+        if not registrado_no_mes(r, ano, mes):
             # Sem vínculo não há FGTS, e sem FGTS não há multa de 40%. Somar a
             # exposição dela inflaria a reserva com um risco que não existe.
             continue
@@ -222,7 +249,11 @@ def reserva_multa(df, ano, mes, taxa=None, ajustes_df=None):
                                mapa.get((ABA_NOME, nome)), ano, mes)
         if base <= 0:
             continue
-        expos.append(exposicao_multa(base, r.get("admissao"), ano, mes, taxa))
+        # O FGTS conta do REGISTRO, não da entrada na empresa: o tempo
+        # trabalhado sem carteira não gerou depósito, e portanto não gera
+        # multa. Sem data de registro, vale a admissão — é o que se sabe.
+        _base_tempo = r.get("registrado_desde") or r.get("admissao")
+        expos.append(exposicao_multa(base, _base_tempo, ano, mes, taxa))
     total = round(sum(expos), 2)
     metade = round(total * FRACAO_DO_QUADRO, 2)
     tres = round(sum(sorted(expos, reverse=True)[:DESLIGAMENTOS_COBERTOS]), 2)
@@ -252,10 +283,10 @@ def folha_clt(df, ano, mes, taxas=None, ajustes_df=None):
             # Antes da admissão (ou sem salário) a pessoa não custa. Somar zero
             # e mostrar a linha faria parecer que ela está na folha de graça.
             continue
-        c = custo(base, taxas, r.get("dias_uteis", DIAS_UTEIS),
-                  r.get("registrado", "Sim"))
+        reg = registrado_no_mes(r, ano, mes)
+        c = custo(base, taxas, r.get("dias_uteis", DIAS_UTEIS), reg)
         c.update({"funcionario": nome, "cargo": str(r.get("cargo", "") or ""),
-                  "registrado": eh_registrado(r.get("registrado", "Sim"))})
+                  "registrado": reg})
         fora.append(c)
     return fora
 
@@ -347,6 +378,7 @@ def _normalizar(df, usuario=""):
             "funcionario": nome,
             "cargo": str(r.get("cargo", "") or "").strip()[:80],
             "registrado": "Sim" if eh_registrado(r.get("registrado", "Sim")) else "Não",
+            "registrado_desde": aj.texto_mes(aj.mes_de(r.get("registrado_desde"))),
             "salario_base": round(_num(r.get("salario_base")), 2),
             "admissao": aj.texto_mes(aj.mes_de(r.get("admissao"))),
             # Mês nenhum tem 40 dias úteis; zero também não é mês.
@@ -452,8 +484,8 @@ def bloco(usuario_logado=None, taxas=None):
         st.caption("Nenhum colaborador cadastrado. Use o «+» no fim da tabela.")
 
     editado = st.data_editor(
-        df[["funcionario", "cargo", "registrado", "salario_base", "admissao",
-            "dias_uteis"]],
+        df[["funcionario", "cargo", "registrado", "registrado_desde",
+            "salario_base", "admissao", "dias_uteis"]],
         num_rows="dynamic",
         use_container_width=True,
         hide_index=True,
@@ -467,6 +499,10 @@ def bloco(usuario_logado=None, taxas=None):
                 help="«Não» tira FGTS, INSS, férias, 13º e a multa. Refeição e "
                      "vale-transporte continuam: são do dia de trabalho, não "
                      "do contrato."),
+            "registrado_desde": st.column_config.TextColumn(
+                "Registrado desde", width="small",
+                help="AAAA-MM. Antes desse mês, sem tributo. Em branco com "
+                     "«Sim», vale para todos os meses."),
             "salario_base": st.column_config.NumberColumn(
                 "Salário base (R$)", min_value=0.0, step=0.01, format="%.2f",
                 help="O de quando entrou. Reajuste vai em «Ajuste de valor»."),
@@ -526,8 +562,25 @@ def conferencia(editado, taxas, ano, mes):
 
     _sem_reg = [l["funcionario"] for l in linhas if not l["registrado"]]
     if _sem_reg:
-        st.caption("Sem registro, portanto sem FGTS, INSS, férias, 13º nem "
-                   "multa: **" + ", ".join(_sem_reg) + "**.")
+        st.caption(f"Em {int(mes):02d}/{int(ano)} sem registro, portanto sem "
+                   "FGTS, INSS, férias, 13º nem multa: **"
+                   + ", ".join(_sem_reg) + "**.")
+
+    # Marcada como registrada e sem o mês: a conta vale para todos os meses,
+    # inclusive os que ela trabalhou sem carteira. Quem olhar o custo de
+    # janeiro vai ver tributo que ninguém recolheu, e nada na tela diria por quê.
+    _sem_data = [str(r.get("funcionario", "")).strip()
+                 for _, r in d.iterrows()
+                 if str(r.get("funcionario", "") or "").strip()
+                 and eh_registrado(r.get("registrado", "Sim"))
+                 and not _aj().mes_de(r.get("registrado_desde"))]
+    if _sem_data:
+        st.warning(
+            "Sem **«Registrado desde»**, o tributo é cobrado em todos os "
+            "meses — inclusive nos anteriores ao registro: "
+            + ", ".join(sorted(set(_sem_data)))
+            + ". Preencha o mês em que a carteira foi assinada para o custo "
+              "dos meses de trás ficar certo.")
 
     st.markdown("###### Reserva da multa do FGTS")
     r = reserva_multa(d, ano, mes, taxas.get("multa_fgts"), ajustes_df)
@@ -626,6 +679,18 @@ if __name__ == "__main__":
     ok("célula vazia é tratada como registrado",
        eh_registrado("") and eh_registrado(None) and eh_registrado("Sim"))
 
+    # Registrada em maio depois de trabalhar sem carteira desde janeiro
+    virou = {"registrado": "Sim", "registrado_desde": "2026-05"}
+    ok("antes do registro, não tinha registro",
+       not registrado_no_mes(virou, 2026, 4))
+    ok("no mês do registro, já tem", registrado_no_mes(virou, 2026, 5))
+    ok("depois do registro, continua tendo",
+       registrado_no_mes(virou, 2026, 12))
+    ok("marcada como «Não», a data não a torna registrada",
+       not registrado_no_mes({**virou, "registrado": "Não"}, 2026, 12))
+    ok("«Sim» sem data vale para todos os meses, como era antes",
+       registrado_no_mes({"registrado": "Sim"}, 2020, 1))
+
     ok("admitido em jan e olhando jan dá zero mês de casa",
        meses_de_casa("2026-01", 2026, 1) == 0)
     ok("admitido em jan e olhando set dá oito meses",
@@ -675,6 +740,23 @@ if __name__ == "__main__":
                                     "salario_base": 5000,
                                     "admissao": "2027-01"}]),
                      2026, 9)["exposicao_total"] == 0.0)
+
+    _mq = pd.DataFrame([{"funcionario": "Monique", "salario_base": 2400,
+                         "admissao": "2026-01", "registrado": "Sim",
+                         "registrado_desde": "2026-05"}])
+    _abr = folha_clt(_mq, 2026, 4)[0]
+    _mai = folha_clt(_mq, 2026, 5)[0]
+    ok("em abril ela custa sem tributo", _abr["provisoes"] == 0.0)
+    ok("em maio o tributo entra", _mai["provisoes"] > 0.0)
+    ok("o salário e a refeição não mudam com o registro",
+       _abr["base"] == _mai["base"] and _abr["refeicao"] == _mai["refeicao"])
+    ok("registrar encarece a pessoa", _mai["total"] > _abr["total"])
+    ok("a multa só passa a existir depois do registro",
+       reserva_multa(_mq, 2026, 4)["exposicao_total"] == 0.0
+       and reserva_multa(_mq, 2026, 9)["exposicao_total"] > 0.0)
+    ok("a multa conta do REGISTRO, não da entrada na empresa",
+       reserva_multa(_mq, 2026, 9)["exposicao_total"]
+       == exposicao_multa(2400, "2026-05", 2026, 9))
 
     linhas = folha_clt(quadro, 2026, 9)
     ok("a folha traz uma linha por colaborador com salário", len(linhas) == 5)
