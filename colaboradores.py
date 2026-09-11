@@ -194,6 +194,56 @@ def eh_registrado(v):
     return str(v).strip().lower() not in ("não", "nao", "n", "0", "false")
 
 
+def cargos_cadastrados(df):
+    """Os cargos que já existem, do mais usado para o menos."""
+    d = pd.DataFrame(df)
+    if d.empty or "cargo" not in d:
+        return []
+    contagem = {}
+    for c in d["cargo"]:
+        c = str(c or "").strip()
+        if c:
+            contagem[c] = contagem.get(c, 0) + 1
+    return [c for c, _ in sorted(contagem.items(), key=lambda x: (-x[1], x[0]))]
+
+
+# O que se copia de um colega ao contratar: as condições do cargo. O que NÃO se
+# copia: nome, admissão e a data do registro — são da pessoa, e herdá-las faria
+# o novo colaborador nascer com meses de casa que ele não tem, inflando a
+# reserva da multa do FGTS no dia seguinte à contratação.
+CAMPOS_DO_PERFIL = ["cargo", "salario_base", "dias_uteis", "registrado",
+                    "no_aporte"]
+
+
+def perfil_do_cargo(df, cargo):
+    """As condições de quem já ocupa esse cargo. ({campos}, [divergências]).
+
+    Divergência é quando duas pessoas do mesmo cargo têm valores diferentes —
+    salários distintos para o mesmo posto, por exemplo. Aí vale o mais comum,
+    e a tela diz qual campo divergiu: copiar em silêncio o de alguém escolhido
+    por acaso é como o valor errado entra sem ninguém notar.
+    """
+    d = pd.DataFrame(df)
+    alvo = str(cargo or "").strip()
+    if d.empty or not alvo:
+        return {}, []
+    iguais = [r for _, r in d.iterrows()
+              if str(r.get("cargo", "") or "").strip() == alvo]
+    if not iguais:
+        return {}, []
+    perfil, divergiu = {}, []
+    for campo in CAMPOS_DO_PERFIL:
+        valores = {}
+        for r in iguais:
+            v = r.get(campo)
+            chave = round(v, 2) if isinstance(v, (int, float)) else str(v or "").strip()
+            valores[chave] = valores.get(chave, 0) + 1
+        if len(valores) > 1:
+            divergiu.append(campo)
+        perfil[campo] = max(valores.items(), key=lambda x: x[1])[0]
+    return perfil, divergiu
+
+
 def entra_no_aporte(v):
     """Esta pessoa é coberta pelo aporte de expansão?
 
@@ -608,7 +658,73 @@ def bloco(usuario_logado=None, taxas=None):
             st.rerun()
         else:
             st.error(f"Não consegui gravar: {msg}")
+
+    _contratar(editado, usuario_logado)
     return editado
+
+
+def _contratar(editado, usuario_logado=None):
+    """Contratar alguém copiando as condições de um cargo que já existe.
+
+    Fica DEPOIS da grade porque grava o que está na grade junto com a linha
+    nova: assim o que foi digitado e ainda não salvo não se perde no caminho.
+    """
+    d = pd.DataFrame(editado)
+    cargos = cargos_cadastrados(d)
+    EM_BRANCO = "— começar em branco —"
+
+    with st.expander("➕ Contratar — copiar as condições de um cargo",
+                     expanded=False):
+        c1, c2, c3 = st.columns([2, 2, 1])
+        nome = c1.text_input("Nome do novo colaborador", key="novo_colab_nome")
+        escolha = c2.selectbox("Copiar o perfil de", [EM_BRANCO] + cargos,
+                               key="novo_colab_cargo",
+                               help="Copia cargo, salário, dias úteis, "
+                                    "registro e se entra no aporte. Nome, "
+                                    "admissão e data do registro ficam em "
+                                    "branco: são da pessoa, não do cargo.")
+
+        perfil, divergiu = ({}, [])
+        if escolha != EM_BRANCO:
+            perfil, divergiu = perfil_do_cargo(d, escolha)
+            st.caption(
+                f"Vai entrar como **{perfil.get('cargo', escolha)}** · "
+                f"**{_brl(_num(perfil.get('salario_base')))}** · "
+                f"{int(_num(perfil.get('dias_uteis'), DIAS_UTEIS))} dias úteis · "
+                f"registrado: **{perfil.get('registrado', 'Sim')}** · "
+                f"no aporte: **{perfil.get('no_aporte', 'Sim')}**")
+            if divergiu:
+                st.warning(
+                    "Quem já tem esse cargo não tem os mesmos valores em: **"
+                    + ", ".join(divergiu)
+                    + "**. Copiei o mais comum — confira antes de salvar.")
+
+        c3.markdown("&nbsp;", unsafe_allow_html=True)
+        if c3.button("Adicionar", key="btn_novo_colab", type="primary"):
+            limpo = str(nome or "").strip()
+            existentes = {str(x).strip().lower()
+                          for x in d.get("funcionario", []) if str(x).strip()}
+            if not limpo:
+                st.error("Informe o nome.")
+            elif limpo.lower() in existentes:
+                # Nome repetido quebraria o «Ajuste de valor», que liga o
+                # reajuste à pessoa pelo nome.
+                st.error(f"Já existe um **{limpo}** na tabela. Use um nome que "
+                         "distinga os dois — o reajuste se liga à pessoa pelo "
+                         "nome.")
+            else:
+                nova = {"funcionario": limpo, "cargo": CARGO_PADRAO,
+                        "registrado": "Sim", "registrado_desde": "",
+                        "salario_base": SALARIO_PADRAO, "admissao": "",
+                        "dias_uteis": DIAS_UTEIS, "no_aporte": "Sim"}
+                nova.update({k: v for k, v in perfil.items() if v != ""})
+                ok, msg = salvar(pd.concat([d, pd.DataFrame([nova])],
+                                           ignore_index=True), usuario_logado)
+                if ok:
+                    st.success(f"{limpo} entrou na folha. {msg}")
+                    st.rerun()
+                else:
+                    st.error(f"Não consegui gravar: {msg}")
 
 
 def conferencia(editado, taxas, ano, mes):
@@ -809,6 +925,46 @@ if __name__ == "__main__":
        not registrado_no_mes({**virou, "registrado": "Não"}, 2026, 12))
     ok("«Sim» sem data vale para todos os meses, como era antes",
        registrado_no_mes({"registrado": "Sim"}, 2020, 1))
+
+    # Contratar copiando o perfil de um cargo
+    _q = pd.DataFrame([
+        {"funcionario": "Beatriz", "cargo": "Auxiliar de Expedição",
+         "salario_base": 2006.58, "dias_uteis": 22, "registrado": "Sim",
+         "no_aporte": "Sim"},
+        {"funcionario": "Myrella", "cargo": "Auxiliar de Expedição",
+         "salario_base": 2006.58, "dias_uteis": 22, "registrado": "Sim",
+         "no_aporte": "Sim"},
+        {"funcionario": "Gabriel", "cargo": "Analista de Marketing",
+         "salario_base": 3000.00, "dias_uteis": 22, "registrado": "Sim",
+         "no_aporte": "Sim"},
+    ])
+    ok("os cargos saem do mais usado para o menos",
+       cargos_cadastrados(_q) == ["Auxiliar de Expedição",
+                                  "Analista de Marketing"])
+    ok("tabela vazia não tem cargo", cargos_cadastrados(pd.DataFrame()) == [])
+
+    _perf, _div = perfil_do_cargo(_q, "Auxiliar de Expedição")
+    ok("o perfil copia o salário do cargo", _perf["salario_base"] == 2006.58)
+    ok("e os dias úteis, o registro e o aporte",
+       _perf["dias_uteis"] == 22 and _perf["registrado"] == "Sim"
+       and _perf["no_aporte"] == "Sim")
+    ok("sem divergência, ninguém é avisado", _div == [])
+    ok("o perfil NÃO copia nome, admissão nem data do registro",
+       not {"funcionario", "admissao", "registrado_desde"} & set(_perf))
+    ok("cargo que não existe não devolve perfil",
+       perfil_do_cargo(_q, "Faxineiro") == ({}, []))
+    ok("cargo em branco não devolve perfil",
+       perfil_do_cargo(_q, "") == ({}, []))
+
+    # Duas pessoas do mesmo cargo com salarios diferentes
+    _q2 = pd.concat([_q, pd.DataFrame([
+        {"funcionario": "Luiz", "cargo": "Auxiliar de Expedição",
+         "salario_base": 2500.00, "dias_uteis": 22, "registrado": "Sim",
+         "no_aporte": "Sim"}])], ignore_index=True)
+    _p2, _d2 = perfil_do_cargo(_q2, "Auxiliar de Expedição")
+    ok("com valores diferentes, vale o mais comum",
+       _p2["salario_base"] == 2006.58)
+    ok("e a tela é avisada de qual campo divergiu", _d2 == ["salario_base"])
 
     ok("admitido em jan e olhando jan dá zero mês de casa",
        meses_de_casa("2026-01", 2026, 1) == 0)
