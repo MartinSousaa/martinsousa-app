@@ -1898,7 +1898,8 @@ if _eh_admin:
             # Administrativo cria, desativa e reseta senha de qualquer pessoa —
             # inclusive a do dono. Some da barra para quem nao e dono, e a
             # propria pagina recusa por conta propria (admin.py): esconder a
-            # aba sem trancar a porta so troca o cadeado por uma cortina.
+            # aba sem trancar a porta so troca o cadeado por uma cortina,
+            # porque a URL continua levando la.
             if auth.eh_dono(usuario_logado):
                 _abas_ind["Administrativo"] = lambda: admin.pagina_admin(usuario_logado)
             _navegar(_abas_ind, "aba_g")
