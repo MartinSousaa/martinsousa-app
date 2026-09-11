@@ -19,6 +19,7 @@ from params_oficiais import (
     SHEIN_COMISSAO, SHEIN_FRETE_TABELA,
 )
 import financeiro
+import gestao
 import atividades
 import auth
 import admin
@@ -1701,7 +1702,8 @@ def _navegar(paginas, param_url, padrao=None):
     O st.segmented_control informa a seleção ao servidor, então dá para renderizar
     só o que está na tela.
 
-    A aba ativa é gravada na URL pelo mesmo motivo da seção Gestão/Operação: o
+    A aba ativa é gravada na URL pelo mesmo motivo da seção (Gestão,
+    Indicadores, Operação): o
     session_state morre quando o Railway reinicia, e sem isso o colaborador era
     jogado de volta para a primeira aba a cada deploy.
 
@@ -1812,50 +1814,76 @@ def _render_abas_operacao(usuario_logado):
 # ── NAVEGAÇÃO PRINCIPAL ───────────────────────────────────────────────────────
 
 if _eh_admin:
-    # ── ADMIN: acordeão Gestão (padrão) / Operação ────────────────────────────
+    # ── ADMIN: acordeão Gestão / Indicadores / Operação ───────────────────────
     # A seção ativa vive na URL (?secao=operacao), nao so no session_state.
     # O session_state morre quando o servidor reinicia — e o Railway reinicia a
     # cada deploy. Sem isso, quem estivesse preenchendo algo em Operacao era
     # jogado de volta para Gestao e perdia o formulario inteiro.
+    #
+    # As seções que ESTE usuário pode abrir. Gestão é planejamento do dinheiro —
+    # custo fixo, aporte, meta de gastos —, então segue a mesma permissão do
+    # Financeiro de hoje: só o gestor. Sem isso, um admin que não é dono abriria
+    # a tela de custo antes de ela ter qualquer trava própria.
+    _SECOES = ["indicadores", "operacao"]
+    if _eh_martinsousa:
+        _SECOES.insert(0, "gestao")
+    # Onde a sessão começa quando a URL não diz. Gestão é a primeira na barra,
+    # mas ainda está em branco: abrir o Studio num aviso de "em construção"
+    # todo dia pareceria defeito. Continua sendo Indicadores até Gestão ter
+    # conteúdo — trocar depois é mudar esta linha.
+    _SECAO_PADRAO = "indicadores"
+
     if "secao_admin" not in st.session_state:
         _secao_url = str(st.query_params.get("secao", "")).strip().lower()
+        # Link antigo: até aqui `secao=gestao` abria o que hoje se chama
+        # Indicadores, e o rótulo da aba vinha junto em `aba_g`. Quem tem esse
+        # link salvo continua caindo onde sempre caiu — um link que passa a
+        # abrir uma tela em branco parece defeito, e ninguém avisa que é
+        # renomeação.
+        if _secao_url == "gestao" and str(st.query_params.get("aba_g", "")).strip():
+            _secao_url = "indicadores"
         st.session_state.secao_admin = (
-            _secao_url if _secao_url in ("gestao", "operacao") else "gestao"
+            _secao_url if _secao_url in _SECOES else _SECAO_PADRAO
         )
+    # Perder a permissão (ou nunca ter tido) não pode deixar a sessão presa numa
+    # seção que não existe mais para ela.
+    if st.session_state.secao_admin not in _SECOES:
+        st.session_state.secao_admin = _SECAO_PADRAO
 
     def _trocar_secao(destino):
         st.session_state.secao_admin = destino
         st.query_params["secao"] = destino
         st.rerun()
 
-    # Cabeçalhos de seção como botões destacados
-    _col_g, _col_o = st.columns(2)
-    _gestao_ativa   = st.session_state.secao_admin == "gestao"
-    _operacao_ativa = not _gestao_ativa
-
     # Mantém a URL em sincronia com a seção atual, inclusive no primeiro render
     if str(st.query_params.get("secao", "")) != st.session_state.secao_admin:
         st.query_params["secao"] = st.session_state.secao_admin
 
-    with _col_g:
-        if st.button(
-            "📊  Gestão" + ("  ▾" if _gestao_ativa else "  ▸"),
-            use_container_width=True,
-            key="btn_secao_gestao",
-            type="primary" if _gestao_ativa else "secondary",
-        ):
-            _trocar_secao("gestao")
+    # Cabeçalhos de seção como botões destacados
+    _ROTULOS = {"gestao": "🧭  Gestão", "indicadores": "📊  Indicadores",
+                "operacao": "⚙️  Operação"}
+    _cols = st.columns(len(_SECOES))
+    for _col, _sec in zip(_cols, _SECOES):
+        _ativa = st.session_state.secao_admin == _sec
+        with _col:
+            if st.button(
+                _ROTULOS[_sec] + ("  ▾" if _ativa else "  ▸"),
+                use_container_width=True,
+                key=f"btn_secao_{_sec}",
+                type="primary" if _ativa else "secondary",
+            ):
+                _trocar_secao(_sec)
 
-    with _col_o:
-        if st.button(
-            "⚙️  Operação" + ("  ▾" if _operacao_ativa else "  ▸"),
-            use_container_width=True,
-            key="btn_secao_operacao",
-            type="primary" if _operacao_ativa else "secondary",
-        ):
-            _trocar_secao("operacao")
-
-    if _gestao_ativa:
+    _secao = st.session_state.secao_admin
+    if _secao == "gestao":
+        # Param próprio (`aba_gf`), e não o `aba_g` de Indicadores: as duas
+        # seções têm abas de nomes diferentes, e um param só faria cada troca de
+        # seção cair na primeira aba da outra.
+        _navegar({
+            "🏠 Home":        lambda: gestao.pagina_home(usuario_logado),
+            "💼 Financeiro":  lambda: gestao.pagina_financeiro(usuario_logado),
+        }, "aba_gf")
+    elif _secao == "indicadores":
         if _eh_martinsousa:
             _navegar({
                 "🏆 Painel de Metas":  lambda: placar.pagina_placar(usuario_logado),
