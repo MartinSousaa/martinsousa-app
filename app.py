@@ -1821,11 +1821,12 @@ if _eh_admin:
     # jogado de volta para Gestao e perdia o formulario inteiro.
     #
     # As seções que ESTE usuário pode abrir. Gestão é planejamento do dinheiro —
-    # custo fixo, aporte, meta de gastos —, então segue a mesma permissão do
-    # Financeiro de hoje: só o gestor. Sem isso, um admin que não é dono abriria
-    # a tela de custo antes de ela ter qualquer trava própria.
+    # custo fixo, aporte, meta de gastos — e é só do dono, não de quem tem
+    # perfil admin: `eh_gestor` abre para todo mundo que estiver no secret
+    # ADMINS, e basta um nome a mais ali para a tela de custo vazar sem que
+    # ninguém tenha decidido isso.
     _SECOES = ["indicadores", "operacao"]
-    if _eh_martinsousa:
+    if auth.eh_dono(usuario_logado):
         _SECOES.insert(0, "gestao")
     # Onde a sessão começa quando a URL não diz. Gestão é a primeira na barra,
     # mas ainda está em branco: abrir o Studio num aviso de "em construção"
