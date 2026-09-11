@@ -71,6 +71,12 @@ def _folha_salarial(usuario_logado=None):
     _fs.pagina(usuario_logado)
 
 
+def _colaboradores(usuario_logado=None):
+    """O custo CLT de cada colaborador e a reserva da multa do FGTS."""
+    import colaboradores as _co
+    _co.pagina(usuario_logado)
+
+
 def _nao_operacional(usuario_logado=None):
     """Os empréstimos: sai do caixa, mas não é custo de operar."""
     import nao_operacional as _no
@@ -89,6 +95,7 @@ def _ajuste_de_valor(usuario_logado=None):
 SUBTELAS = {
     "🧱 Custo fixo": _custo_fixo,
     "👥 Folha salarial": _folha_salarial,
+    "👔 Colaboradores": _colaboradores,
     "🏦 Não operacional": _nao_operacional,
     "📈 Ajuste de valor": _ajuste_de_valor,
 }

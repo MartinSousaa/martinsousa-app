@@ -25,6 +25,16 @@ de lembrete que ninguém cumpre.
 
     total bruto    = salário + pró-labore + bônus + VA + VR + VC
     total líquido  = total bruto − desconto (nos meses em que ele vigora)
+    provisão 13º   = 1/12 sobre a parte SALARIAL (salário + pró-labore)
+
+O 13º fica fora do total líquido e aparece em coluna própria: ele não sai do
+caixa no mês, fica guardado para sair em dezembro. Somado ao total, inflaria o
+custo do mês e esconderia o caixa — que é o erro que a tela de colaboradores
+também evita.
+
+A provisão incide só sobre salário e pró-labore, e não sobre bônus e vales:
+vale-alimentação e vale-refeição não têm natureza salarial. Se a contabilidade
+disser que algum deles entra na base aqui, a lista `BASE_DECIMO` é onde mudar.
 
 REAJUSTE NÃO SE DIGITA AQUI
 ---------------------------
@@ -51,6 +61,15 @@ COLUNAS = (["pessoa", "grupo"] + VERBAS +
 GRUPOS = ["Gestores", "Time"]
 
 FORMAS = ["PIX", "Boleto", "Cartão", "Transferência"]
+
+# 1/12 por mês trabalhado. Mesma taxa usada na tela de colaboradores — as duas
+# provisionam o mesmo direito, e duas taxas diferentes para a mesma conta
+# passariam a discordar na primeira vez que uma fosse ajustada.
+TAXA_DECIMO = 0.083
+
+# Sobre o que o 13º é provisionado. Bônus e vales ficam de fora: não têm
+# natureza salarial.
+BASE_DECIMO = ["salario", "pro_labore"]
 
 # Quem já se sabe que está na folha. É sugestão de partida, não cadastro: só
 # vira linha na planilha depois de salvar. A lista de quem trabalha aqui mora na
@@ -95,6 +114,17 @@ def _num(v, padrao=0.0):
 def total_bruto(linha):
     """A soma das verbas da pessoa."""
     return round(sum(_num(linha.get(v)) for v in VERBAS), 2)
+
+
+def base_salarial(linha):
+    """A parte das verbas que tem natureza salarial — a base do 13º."""
+    return round(sum(_num(linha.get(v)) for v in BASE_DECIMO), 2)
+
+
+def provisao_decimo(linha, taxa=None):
+    """1/12 de 13º do mês, sobre a base salarial."""
+    t = TAXA_DECIMO if taxa is None else max(_num(taxa), 0.0)
+    return round(base_salarial(linha) * t, 2)
 
 
 def desconto_no_mes(linha, ano, mes):
@@ -249,8 +279,10 @@ def pagina(usuario_logado=None):
     st.caption(
         "Pessoa a pessoa, com as verbas de cada uma. O **total** é a soma das "
         "verbas; o **novo total** já tira o desconto, e o desconto só incide "
-        "nos meses do prazo combinado. Reajuste **não** se digita aqui — entra "
-        "em «Ajuste de valor», com o mês em que passou a valer."
+        "nos meses do prazo combinado. O **1/12 de 13º** aparece à parte: é "
+        "dinheiro guardado, não sai do caixa no mês. Reajuste **não** se "
+        "digita aqui — entra em «Ajuste de valor», com o mês em que passou a "
+        "valer."
     )
 
     df = carregar()
@@ -341,7 +373,7 @@ def _conferencia(editado):
     ajustes_df = aj.carregar()
     mapa = aj.por_item(ajustes_df)
 
-    linhas, sem_prazo = [], []
+    linhas, sem_prazo, decimo_total = [], [], 0.0
     for _, r in d.iterrows():
         pessoa = str(r.get("pessoa", "") or "").strip()
         if not pessoa:
@@ -352,12 +384,17 @@ def _conferencia(editado):
         desc = desconto_no_mes(r, ano, mes)
         if _num(r.get("desconto")) > 0 and not aj.mes_de(r.get("desconto_desde")):
             sem_prazo.append(pessoa)
+        # Zero antes de a pessoa entrar: provisionar 13º de quem ainda nao
+        # trabalhou guardaria dinheiro para um direito que nao nasceu.
+        decimo = provisao_decimo(r) if bruto_mes > 0 else 0.0
+        decimo_total += decimo
         linhas.append({
             "Pessoa": pessoa,
             "Grupo": r.get("grupo"),
             "Total": _brl(bruto_mes),
             "Desconto": _brl(desc),
             "Novo total": _brl(max(bruto_mes - desc, 0.0)),
+            "1/12 de 13º": _brl(decimo),
             "Motivo": r.get("desconto_descricao") or "",
         })
     if not linhas:
@@ -381,11 +418,15 @@ def _conferencia(editado):
         g = str(r.get("grupo", "") or GRUPOS[-1])
         por_grupo[g] = por_grupo.get(g, 0.0) + custo_no_mes(
             r, ano, mes, mapa.get((ABA_NOME, pessoa)))
-    cols = st.columns(len(GRUPOS) + 1)
+    cols = st.columns(len(GRUPOS) + 2)
     for col, g in zip(cols, GRUPOS):
         col.metric(g, _brl(por_grupo.get(g, 0.0)))
-    cols[-1].metric(f"Folha em {int(mes):02d}/{int(ano)}",
+    cols[-2].metric(f"Folha em {int(mes):02d}/{int(ano)}",
                     _brl(total_da_folha(d, ano, mes, ajustes_df)))
+    cols[-1].metric("1/12 de 13º provisionado", _brl(round(decimo_total, 2)),
+                    help="Fica guardado, não sai do caixa neste mês. Incide "
+                         "sobre salário e pró-labore — bônus e vales ficam de "
+                         "fora por não terem natureza salarial.")
 
 
 # ── Conferência ──────────────────────────────────────────────────────────────
@@ -477,6 +518,17 @@ if __name__ == "__main__":
     ok("grupo inventado cai em Time", linhas[1]["grupo"] == "Time")
     ok("toda verba é gravada, mesmo em branco",
        all(v in linhas[1] for v in VERBAS))
+
+    ok("o 13º provisiona 1/12 do pró-labore do gestor",
+       provisao_decimo(leo) == round(7000 * 0.083, 2))
+    ok("bônus e vales ficam fora da base do 13º",
+       base_salarial(leo) == 7000.0)
+    ok("para o time, a base do 13º é o salário",
+       provisao_decimo({"salario": 2400}) == round(2400 * 0.083, 2))
+    ok("quem não tem verba salarial não provisiona 13º",
+       provisao_decimo({"vale_refeicao": 400}) == 0.0)
+    ok("a taxa do 13º é a mesma das duas telas",
+       TAXA_DECIMO == __import__("colaboradores").TAXAS["decimo_1_12"][2])
 
     ok("os oito nomes vêm sugeridos", len(SUGESTOES) == 8)
     ok("Leonardo e Renan vêm como gestores",

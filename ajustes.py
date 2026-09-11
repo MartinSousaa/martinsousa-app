@@ -44,6 +44,7 @@ COLUNAS = ["grade", "item", "valor_novo", "vigente_desde", "observacao",
 GRADES_ALVO = {
     "custo_fixo": "Custo fixo",
     "folha_salarial": "Folha salarial",
+    "colaboradores": "Colaboradores",
     "nao_operacional": "Não operacional",
 }
 
@@ -266,6 +267,13 @@ def _itens_cadastrados():
         for it in _fs.carregar().get("pessoa", []):
             if str(it).strip():
                 fora.append(f"{GRADES_ALVO['folha_salarial']} › {str(it).strip()}")
+    except Exception:
+        pass
+    try:
+        import colaboradores as _co
+        for it in _co.carregar().get("funcionario", []):
+            if str(it).strip():
+                fora.append(f"{GRADES_ALVO['colaboradores']} › {str(it).strip()}")
     except Exception:
         pass
     try:
