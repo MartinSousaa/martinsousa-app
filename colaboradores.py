@@ -89,6 +89,27 @@ TETO_DESCONTO_VT = 0.06
 REFEICAO_DIA = 29.99
 DIAS_UTEIS = 22
 
+# A partir de que mês a refeição no local passa a custar. Vazio = ainda não
+# vigora, e é o padrão. Uma taxa que ainda não existe zerada no valor seria
+# indistinguível de uma que existe e é de graça — e no dia em que o gestor
+# preenchesse o valor, ela passaria a valer para o ano inteiro para trás.
+REFEICAO_DESDE_PADRAO = ""
+
+# Quem já se sabe que está na folha. Sugestão de partida, não cadastro: só vira
+# linha na planilha depois de salvar. A lista de quem trabalha aqui mora na aba
+# `equipe` — nome escrito no código já escondeu dois colaboradores do painel.
+CARGO_PADRAO = "Auxiliar de Expedição"
+SALARIO_PADRAO = 2006.58
+SUGESTOES = [
+    {"funcionario": "Gabriel", "cargo": "Analista de Marketing",
+     "salario_base": 3000.00, "registrado": "Sim"},
+    {"funcionario": "Monique", "registrado": "Não"},
+    {"funcionario": "Beatriz"},
+    {"funcionario": "Myrella"},
+    {"funcionario": "Nicollas"},
+    {"funcionario": "Luiz"},
+]
+
 # Quantos desligamentos simultâneos a reserva precisa cobrir, e que fração da
 # exposição total ela precisa alcançar. Os dois vieram do gestor.
 DESLIGAMENTOS_COBERTOS = 3
@@ -125,9 +146,23 @@ def taxas_padrao():
     d = {k: v[2] for k, v in TAXAS.items()}
     d["multa_fgts"] = TAXA_MULTA_FGTS
     d["refeicao_dia"] = REFEICAO_DIA
+    d["refeicao_desde"] = REFEICAO_DESDE_PADRAO
     d["vale_transporte_mes"] = VALE_TRANSPORTE_MES
     d["descontar_vt"] = 1.0 if DESCONTAR_VT_PADRAO else 0.0
     return d
+
+
+def refeicao_vigente(taxas, ano, mes):
+    """A refeição no local já custa em (ano, mes)?
+
+    Enquanto o mês de início não for informado, ela não vigora — mesmo com o
+    valor por dia preenchido. Os R$ 29,99 já estão na tela porque o valor é
+    sabido; o que ainda não aconteceu é o benefício começar.
+    """
+    desde = _aj().mes_de((taxas or {}).get("refeicao_desde"))
+    if not desde:
+        return False
+    return (int(ano), int(mes)) >= desde
 
 
 def vale_transporte(salario_base, taxas=None):
@@ -182,7 +217,8 @@ def registrado_no_mes(linha, ano, mes):
     return (int(ano), int(mes)) >= desde
 
 
-def custo(salario_base, taxas=None, dias_uteis=DIAS_UTEIS, registrado=True):
+def custo(salario_base, taxas=None, dias_uteis=DIAS_UTEIS, registrado=True,
+          com_refeicao=True):
     """O que este salário custa por mês, aberto em partes.
 
     Devolve `base`, `encargos`, `provisoes`, `refeicao` e `total`. A multa do
@@ -201,7 +237,8 @@ def custo(salario_base, taxas=None, dias_uteis=DIAS_UTEIS, registrado=True):
     provisoes = (sum(base * max(_num(t.get(k)), 0.0)
                      for k, v in TAXAS.items() if v[1] == "provisao")
                  if reg else 0.0)
-    refeicao = max(_num(t.get("refeicao_dia")), 0.0) * max(int(_num(dias_uteis, 0)), 0)
+    refeicao = (max(_num(t.get("refeicao_dia")), 0.0)
+                * max(int(_num(dias_uteis, 0)), 0)) if com_refeicao else 0.0
     return {
         "base": round(base, 2),
         "encargos": round(encargos, 2),
@@ -284,7 +321,8 @@ def folha_clt(df, ano, mes, taxas=None, ajustes_df=None):
             # e mostrar a linha faria parecer que ela está na folha de graça.
             continue
         reg = registrado_no_mes(r, ano, mes)
-        c = custo(base, taxas, r.get("dias_uteis", DIAS_UTEIS), reg)
+        c = custo(base, taxas, r.get("dias_uteis", DIAS_UTEIS), reg,
+                  refeicao_vigente(taxas, ano, mes))
         c.update({"funcionario": nome, "cargo": str(r.get("cargo", "") or ""),
                   "registrado": reg})
         fora.append(c)
@@ -347,15 +385,20 @@ def carregar_taxas():
         return t
     for r in registros:
         chave = str(r.get("chave", "") or "").strip().lower()
-        if chave in t:
-            t[chave] = _num(r.get("valor"), t[chave])
+        if chave not in t:
+            continue
+        # `refeicao_desde` e um MES, nao um numero: passar por `_num` viraria
+        # zero e a refeicao voltaria a nunca vigorar, em silencio.
+        t[chave] = (str(r.get("valor", "") or "").strip()
+                    if chave == "refeicao_desde" else _num(r.get("valor"), t[chave]))
     return t
 
 
 def salvar_taxas(taxas):
     try:
         aba = _abrir(ABA_PARAMS, ["chave", "valor"])
-        corpo = [[k, round(_num(v), 6)] for k, v in sorted(taxas.items())]
+        corpo = [[k, v if k == "refeicao_desde" else round(_num(v), 6)]
+                 for k, v in sorted(taxas.items())]
         aba.clear()
         aba.update("A1", [["chave", "valor"]] + corpo,
                    value_input_option="RAW")
@@ -436,6 +479,17 @@ def painel_taxas(taxas):
             format="%.2f", value=float(taxas.get("refeicao_dia", REFEICAO_DIA)),
             key="tx_ref")
 
+        c5, c6 = st.columns(2)
+        novas["refeicao_desde"] = c5.text_input(
+            "Refeição vigente desde (AAAA-MM)", key="tx_ref_desde",
+            value=str(taxas.get("refeicao_desde", "") or ""),
+            help="Em branco, a refeição NÃO entra na conta de mês nenhum. "
+                 "Preencha o mês em que o benefício começar.")
+        _rd = _aj().mes_de(novas["refeicao_desde"])
+        c6.markdown("&nbsp;", unsafe_allow_html=True)
+        c6.caption("✅ Em vigor desde " + _aj().texto_mes(_rd) if _rd
+                   else "⏸️ Refeição ainda não vigora — não entra em mês nenhum.")
+
         c3, c4 = st.columns(2)
         novas["vale_transporte_mes"] = c3.number_input(
             "Vale-transporte (R$/mês por colaborador)", min_value=0.0,
@@ -480,8 +534,16 @@ def bloco(usuario_logado=None, taxas=None):
 
     df = carregar()
     if df.empty:
-        df = pd.DataFrame(columns=COLUNAS)
-        st.caption("Nenhum colaborador cadastrado. Use o «+» no fim da tabela.")
+        df = pd.DataFrame(
+            [{**{"cargo": CARGO_PADRAO, "registrado": "Sim",
+                 "registrado_desde": "", "salario_base": SALARIO_PADRAO,
+                 "admissao": "", "dias_uteis": DIAS_UTEIS,
+                 "atualizado_em": "", "atualizado_por": ""}, **p}
+             for p in SUGESTOES],
+            columns=COLUNAS)
+        st.info("Aba ainda vazia. O quadro já vem preenchido como sugestão — "
+                "confira e clique em **Salvar colaboradores**. Nada foi "
+                "gravado até você salvar.")
 
     editado = st.data_editor(
         df[["funcionario", "cargo", "registrado", "registrado_desde",
@@ -623,6 +685,28 @@ if __name__ == "__main__":
     ok("1/3 das férias é um terço do 1/12",
        abs(t["terco_ferias"] - t["ferias_1_12"] / 3) < 0.001)
     ok("a refeição é de R$ 29,99", t["refeicao_dia"] == 29.99)
+    ok("a refeição ainda não vigora", t["refeicao_desde"] == "")
+    ok("sem mês de início, a refeição não entra em mês nenhum",
+       not refeicao_vigente(t, 2026, 9) and not refeicao_vigente(t, 2030, 1))
+    _rt = {**t, "refeicao_desde": "2026-10"}
+    ok("antes do mês de início, não entra", not refeicao_vigente(_rt, 2026, 9))
+    ok("no mês de início, entra", refeicao_vigente(_rt, 2026, 10))
+    ok("depois, continua entrando", refeicao_vigente(_rt, 2027, 3))
+
+    _q = pd.DataFrame([{"funcionario": "Beatriz", "salario_base": 2006.58,
+                        "admissao": "2026-01", "dias_uteis": 22}])
+    ok("hoje a refeição não soma no custo de ninguém",
+       folha_clt(_q, 2026, 9, t)[0]["refeicao"] == 0.0)
+    ok("quando vigorar, ela soma", folha_clt(_q, 2026, 10, _rt)[0]["refeicao"]
+       == round(29.99 * 22, 2))
+
+    ok("o quadro sugerido tem seis pessoas", len(SUGESTOES) == 6)
+    ok("só o Gabriel tem cargo e salário próprios",
+       [p for p in SUGESTOES if "salario_base" in p][0]["funcionario"] == "Gabriel")
+    ok("o padrão do quadro é auxiliar de expedição a 2.006,58",
+       CARGO_PADRAO == "Auxiliar de Expedição" and SALARIO_PADRAO == 2006.58)
+    ok("a Monique vem marcada como sem registro",
+       [p for p in SUGESTOES if p["funcionario"] == "Monique"][0]["registrado"] == "Não")
 
     ok("sem o desconto ligado, o VT custa o valor cheio",
        vale_transporte(2000) == 233.33)
