@@ -55,19 +55,14 @@ def pagina_home(usuario_logado=None):
 
 
 def _custo_fixo(usuario_logado=None):
-    """O custo que existe com ou sem venda — a base de tudo o que vem depois."""
-    _em_branco(
-        "🧱 Custo fixo",
-        "O que sai todo mês independente de vender. É o numerador da linha de "
-        "equilíbrio: faturamento de equilíbrio = custo fixo ÷ margem de "
-        "contribuição.",
-        [
-            "Item a item, com valor, dia de pagamento e forma de pagamento",
-            "Separação entre operacional e não operacional (parcelas de empréstimo)",
-            "Aporte: valor, custo mensal que ele cobre e por quantos meses",
-            "Total do mês e quanto ele representa do faturamento",
-        ],
-    )
+    """O custo que existe com ou sem venda — a base de tudo o que vem depois.
+
+    A tela mora em `custo_fixo.py`, com os dados. Import aqui dentro e não no
+    topo: o módulo abre a planilha, e carregar isso na importação faria o
+    Studio inteiro esperar pelo Google para desenhar qualquer tela.
+    """
+    import custo_fixo as _cf
+    _cf.pagina(usuario_logado)
 
 
 # As telas de Financeiro, na ordem em que aparecem. Dicionário no topo do
