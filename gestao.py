@@ -66,10 +66,9 @@ def _custo_fixo(usuario_logado=None):
 
 
 def _folha_salarial(usuario_logado=None):
-    """A mesma grade do custo fixo, em aba própria: é a linha que muda quando
-    entra ou sai gente, e é dela que sai a conta do aporte de contratação."""
-    import custo_fixo as _cf
-    _cf.pagina(usuario_logado, grade="folha_salarial")
+    """Pessoa a pessoa, com as verbas de cada grupo e o desconto com prazo."""
+    import folha_salarial as _fs
+    _fs.pagina(usuario_logado)
 
 
 def _nao_operacional(usuario_logado=None):

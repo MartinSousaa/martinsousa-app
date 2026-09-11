@@ -262,6 +262,13 @@ def _itens_cadastrados():
     except Exception:
         pass
     try:
+        import folha_salarial as _fs
+        for it in _fs.carregar().get("pessoa", []):
+            if str(it).strip():
+                fora.append(f"{GRADES_ALVO['folha_salarial']} › {str(it).strip()}")
+    except Exception:
+        pass
+    try:
         import nao_operacional as _no
         for it in _no.carregar().get("programa", []):
             if str(it).strip():

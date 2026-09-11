@@ -17,13 +17,14 @@ São dezessete itens. Um formulário por item seria dezessete aberturas, dezesse
 salvamentos e dezessete chances de esquecer um. A tela é uma grade: digita tudo,
 salva uma vez.
 
-DUAS TELAS, UM CÓDIGO SÓ
-------------------------
-Custo fixo e Folha salarial pedem exatamente os mesmos campos — item,
-modalidade, valor mensal, dia do débito, forma de pagamento — e mudam só a aba
-onde gravam e os itens sugeridos. Duas cópias do mesmo formulário começariam
-iguais e terminariam discordando: bastaria um ajuste de validação entrar numa e
-não na outra. `GRADES` descreve as diferenças; o resto é compartilhado.
+UMA GRADE, MAIS DE UMA TELA
+---------------------------
+`GRADES` descreve o que muda entre telas que pedem os mesmos campos — item,
+modalidade, valor inicial, dia do débito, forma de pagamento — e gravam em abas
+diferentes. Hoje só o Custo fixo usa. A Folha salarial começou aqui e saiu:
+cada pessoa tem várias verbas que se somam e um desconto com prazo, e forçá-la
+nesta grade exigiria lançar a mesma pessoa em cinco linhas. Ela mora em
+`folha_salarial.py`.
 
 O QUE ELE AINDA NÃO FAZ
 -----------------------
@@ -49,11 +50,10 @@ MODALIDADES = ["Operacional", "Não operacional"]
 
 FORMAS = ["PIX", "Boleto", "Cartão", "Transferência"]
 
-# Sugestão de partida quando a aba está vazia. Não é gravada sozinha: aparece na
-# grade para ser preenchida e só vira linha na planilha quando ele salvar.
-# Gravar por conta própria criaria dado que ninguém digitou — e dado que ninguém
-# digitou é dado em que ninguém confia.
-# As duas grades. O que muda entre elas cabe aqui; o resto do módulo é comum.
+# O que muda de uma tela para outra. `sugestoes` aparece na grade quando a aba
+# está vazia e NÃO é gravada sozinha: só vira linha na planilha quando ele
+# salvar. Gravar por conta própria criaria dado que ninguém digitou — e dado que
+# ninguém digitou é dado em que ninguém confia.
 GRADES = {
     "custo_fixo": {
         "aba": "custo_fixo",
@@ -65,17 +65,6 @@ GRADES = {
         "ajuda_item": "Água, Luz, Internet fixa, Aluguel, Anvisa…",
         "sugestoes": ["Água", "Luz", "Internet fixa", "Internet móvel",
                       "Contabilidade"],
-    },
-    "folha_salarial": {
-        "aba": "folha_salarial",
-        "titulo": "👥 Folha salarial",
-        "legenda": ("Salários e encargos, pessoa a pessoa. Fica separada do "
-                    "custo fixo porque é a linha que muda quando entra ou sai "
-                    "gente — e é dela que sai a conta do aporte de "
-                    "contratação."),
-        "rotulo_item": "Pessoa / verba",
-        "ajuda_item": "Nome da pessoa, ou a verba: FGTS, INSS, vale-transporte…",
-        "sugestoes": [],
     },
 }
 
@@ -382,8 +371,8 @@ if __name__ == "__main__":
     ok("o total é a soma dos dois", t["total"] == 5830.0)
     ok("tabela vazia não derruba o total", totais(pd.DataFrame())["total"] == 0.0)
 
-    ok("as duas grades gravam em abas diferentes",
-       GRADES["custo_fixo"]["aba"] != GRADES["folha_salarial"]["aba"])
+    ok("cada grade grava numa aba própria",
+       len({g["aba"] for g in GRADES.values()}) == len(GRADES))
     ok("toda grade declara o que a tela precisa",
        all({"aba", "titulo", "legenda", "rotulo_item", "ajuda_item",
             "sugestoes"} <= set(g) for g in GRADES.values()))
