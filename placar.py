@@ -443,6 +443,18 @@ def _mes_card_criacao(card):
     return None
 
 # ── FILA ───────────────────────────────────────────────────────────────────────
+# Quantas demandas da fila aparecem. Uma constante, nao dois numeros: a TV
+# cortava em 5 e o Studio em 4, e as duas telas discordavam de proposito. Quem
+# olha as duas nao conclui "o corte e diferente", conclui "uma delas esta
+# errada" — e ai deixa de confiar nas duas.
+FILA_VISIVEL = 4
+
+# Quantos cartões de CRIATIVO VÍDEO cabem na fila ao mesmo tempo. Um: vídeo é
+# executado por uma pessoa só (hoje o Gabriel), e dois cartões dele na fila não
+# andam em paralelo como os demais.
+MAX_VIDEO_NA_FILA = 1
+
+
 def _calcular_fila(listas,cards,membros_map):
     import placar_core as _pc_ent
     _entradas_tv = _pc_ent.entradas_se_preciso(listas)
@@ -476,12 +488,16 @@ def _calcular_fila(listas,cards,membros_map):
             "is_urgente": cfg["prioridade"]>=10 or "URGENTE" in nl.upper(),
         })
     pendentes.sort(key=lambda x:(-x["prioridade"],x["data"]))
-    # Limita CRIATIVO VÍDEO a no máximo 2 itens na fila
+    # CRIATIVO VÍDEO entra na fila uma vez só. Não é preferência de tela: vídeo
+    # é executado por uma pessoa só, então dois cartões de vídeo na fila não
+    # andam em paralelo — o segundo espera o primeiro terminar. Mostrando os
+    # dois, a fila prometia uma vazão que não existe, e as outras demandas
+    # perdiam lugar para um trabalho que ninguém ia começar.
     _cv_count = 0
     _filtrado = []
     for p in pendentes:
         if "CRIATIVO V" in p["lista"].upper():
-            if _cv_count >= 2:
+            if _cv_count >= MAX_VIDEO_NA_FILA:
                 continue
             _cv_count += 1
         _filtrado.append(p)
@@ -906,13 +922,6 @@ def _barra(nome,pts,meta,pen):
             f'<div style="background:var(--ms-metric-bd);border-radius:4px;height:8px;overflow:hidden;">'
             f'<div style="background:{cor};width:{pct:.1f}%;height:100%;border-radius:4px;"></div></div>'
             f'{pen_h}</div>')
-
-# Quantas demandas da fila aparecem. Uma constante, nao dois numeros: a TV
-# cortava em 5 e o Studio em 4, e as duas telas discordavam de proposito. Quem
-# olha as duas nao conclui "o corte e diferente", conclui "uma delas esta
-# errada" — e ai deixa de confiar nas duas.
-FILA_VISIVEL = 5
-
 
 def _fila_html(item):
     import placar_core as _pc_prev
