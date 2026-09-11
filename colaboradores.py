@@ -55,8 +55,8 @@ import streamlit as st
 ABA_NOME = "colaboradores"
 ABA_PARAMS = "clt_parametros"
 
-COLUNAS = ["funcionario", "cargo", "salario_base", "admissao", "dias_uteis",
-           "atualizado_em", "atualizado_por"]
+COLUNAS = ["funcionario", "cargo", "registrado", "salario_base", "admissao",
+           "dias_uteis", "atualizado_em", "atualizado_por"]
 
 # Taxa sobre o salário base. O rótulo é o que aparece na tela; `grupo` diz se
 # ela sai do caixa no mês (encargo) ou se é dinheiro guardado (provisão).
@@ -144,19 +144,36 @@ def vale_transporte(salario_base, taxas=None):
     return round(max(valor - desconto, 0.0), 2)
 
 
-def custo(salario_base, taxas=None, dias_uteis=DIAS_UTEIS):
+def eh_registrado(v):
+    """Quem NÃO tem registro é dito em voz alta; na dúvida, é registrado.
+
+    O padrão é o caso normal: a exceção precisa ser marcada. Se a célula vier
+    vazia por descuido, errar para "registrado" cobra tributo de quem talvez
+    não deva — e um custo alto demais se descobre na conferência. O contrário
+    esconde encargo real e só aparece quando a guia chega.
+    """
+    return str(v).strip().lower() not in ("não", "nao", "n", "0", "false")
+
+
+def custo(salario_base, taxas=None, dias_uteis=DIAS_UTEIS, registrado=True):
     """O que este salário custa por mês, aberto em partes.
 
     Devolve `base`, `encargos`, `provisoes`, `refeicao` e `total`. A multa do
     FGTS não entra: ela é reserva do quadro, não custo de uma pessoa.
+
+    Sem registro não há FGTS, INSS, férias nem 13º — não existe vínculo que os
+    gere. Refeição no local continua: ela é do dia de trabalho, não do
+    contrato. Vale-transporte também, pela mesma razão.
     """
     t = {**taxas_padrao(), **(taxas or {})}
     base = max(_num(salario_base), 0.0)
+    reg = eh_registrado(registrado)
     encargos = sum(base * max(_num(t.get(k)), 0.0)
-                   for k, v in TAXAS.items() if v[1] == "encargo")
+                   for k, v in TAXAS.items() if v[1] == "encargo") if reg else 0.0
     encargos += vale_transporte(base, t)
-    provisoes = sum(base * max(_num(t.get(k)), 0.0)
-                    for k, v in TAXAS.items() if v[1] == "provisao")
+    provisoes = (sum(base * max(_num(t.get(k)), 0.0)
+                     for k, v in TAXAS.items() if v[1] == "provisao")
+                 if reg else 0.0)
     refeicao = max(_num(t.get("refeicao_dia")), 0.0) * max(int(_num(dias_uteis, 0)), 0)
     return {
         "base": round(base, 2),
@@ -197,6 +214,10 @@ def reserva_multa(df, ano, mes, taxa=None, ajustes_df=None):
         nome = str(r.get("funcionario", "") or "").strip()
         if not nome:
             continue
+        if not eh_registrado(r.get("registrado", "Sim")):
+            # Sem vínculo não há FGTS, e sem FGTS não há multa de 40%. Somar a
+            # exposição dela inflaria a reserva com um risco que não existe.
+            continue
         base = aj.valor_no_mes(r.get("salario_base"), r.get("admissao"),
                                mapa.get((ABA_NOME, nome)), ano, mes)
         if base <= 0:
@@ -231,8 +252,10 @@ def folha_clt(df, ano, mes, taxas=None, ajustes_df=None):
             # Antes da admissão (ou sem salário) a pessoa não custa. Somar zero
             # e mostrar a linha faria parecer que ela está na folha de graça.
             continue
-        c = custo(base, taxas, r.get("dias_uteis", DIAS_UTEIS))
-        c.update({"funcionario": nome, "cargo": str(r.get("cargo", "") or "")})
+        c = custo(base, taxas, r.get("dias_uteis", DIAS_UTEIS),
+                  r.get("registrado", "Sim"))
+        c.update({"funcionario": nome, "cargo": str(r.get("cargo", "") or ""),
+                  "registrado": eh_registrado(r.get("registrado", "Sim"))})
         fora.append(c)
     return fora
 
@@ -323,6 +346,7 @@ def _normalizar(df, usuario=""):
         saida.append({
             "funcionario": nome,
             "cargo": str(r.get("cargo", "") or "").strip()[:80],
+            "registrado": "Sim" if eh_registrado(r.get("registrado", "Sim")) else "Não",
             "salario_base": round(_num(r.get("salario_base")), 2),
             "admissao": aj.texto_mes(aj.mes_de(r.get("admissao"))),
             # Mês nenhum tem 40 dias úteis; zero também não é mês.
@@ -354,7 +378,7 @@ def _brl(v):
 
 # ── Tela ─────────────────────────────────────────────────────────────────────
 
-def _painel_taxas(taxas):
+def painel_taxas(taxas):
     """As taxas, editáveis. Fechado por padrão: mudam raramente."""
     with st.expander("⚙️ Taxas e valores — o que a contabilidade informou",
                      expanded=False):
@@ -413,24 +437,23 @@ def _painel_taxas(taxas):
         return novas
 
 
-def pagina(usuario_logado=None):
-    st.markdown("#### 👔 Colaboradores (CLT)")
-    st.caption(
-        "O que cada colaborador custa por mês, separando o que **sai do caixa "
-        "agora** (salário, encargos, refeição) do que **fica guardado para "
-        "sair depois** (férias, 13º). A multa do FGTS não entra no custo de "
-        "ninguém — vira reserva do quadro, no fim da tela."
-    )
+def bloco(usuario_logado=None, taxas=None):
+    """A tabela dos colaboradores CLT, para ser desenhada dentro da Folha.
 
-    taxas = _painel_taxas(carregar_taxas())
+    Não é uma página: não tem título próprio nem painel de taxas. Os dois são
+    da Folha, que desenha esta tabela junto com a dos gestores — a folha é uma
+    só, e quem abre quer ver as duas na mesma tela.
+    """
+    taxas = taxas or carregar_taxas()
 
     df = carregar()
     if df.empty:
         df = pd.DataFrame(columns=COLUNAS)
-        st.info("Nenhum colaborador cadastrado. Use o «+» no fim da tabela.")
+        st.caption("Nenhum colaborador cadastrado. Use o «+» no fim da tabela.")
 
     editado = st.data_editor(
-        df[["funcionario", "cargo", "salario_base", "admissao", "dias_uteis"]],
+        df[["funcionario", "cargo", "registrado", "salario_base", "admissao",
+            "dias_uteis"]],
         num_rows="dynamic",
         use_container_width=True,
         hide_index=True,
@@ -439,6 +462,11 @@ def pagina(usuario_logado=None):
             "funcionario": st.column_config.TextColumn(
                 "Funcionário", required=True, width="medium"),
             "cargo": st.column_config.TextColumn("Cargo", width="medium"),
+            "registrado": st.column_config.SelectboxColumn(
+                "Registrado", options=["Sim", "Não"], width="small",
+                help="«Não» tira FGTS, INSS, férias, 13º e a multa. Refeição e "
+                     "vale-transporte continuam: são do dia de trabalho, não "
+                     "do contrato."),
             "salario_base": st.column_config.NumberColumn(
                 "Salário base (R$)", min_value=0.0, step=0.01, format="%.2f",
                 help="O de quando entrou. Reajuste vai em «Ajuste de valor»."),
@@ -452,40 +480,33 @@ def pagina(usuario_logado=None):
         },
     )
 
-    if st.button("💾 Salvar", type="primary", key="btn_salvar_colab"):
+    if st.button("💾 Salvar colaboradores", type="primary",
+                 key="btn_salvar_colab"):
         ok, msg = salvar(editado, usuario_logado)
         if ok:
             st.success(msg)
             st.rerun()
         else:
             st.error(f"Não consegui gravar: {msg}")
+    return editado
 
-    _conferencia(editado, taxas)
 
-
-def _conferencia(editado, taxas):
+def conferencia(editado, taxas, ano, mes):
+    """Custo de cada colaborador no mês e a reserva da multa. Devolve o total."""
     d = pd.DataFrame(editado)
     if d.empty:
-        return
+        return 0.0
     aj = _aj()
-    hoje = datetime.now(FUSO).date()
-
-    st.markdown("##### Custo por colaborador")
-    c1, c2 = st.columns(2)
-    ano = c1.number_input("Ano", min_value=2020, max_value=2100,
-                          value=hoje.year, step=1, key="colab_ano")
-    mes = c2.number_input("Mês", min_value=1, max_value=12,
-                          value=hoje.month, step=1, key="colab_mes")
-
     ajustes_df = aj.carregar()
     linhas = folha_clt(d, ano, mes, taxas, ajustes_df)
     if not linhas:
         st.info("Nenhum colaborador com salário neste mês.")
-        return
+        return 0.0
 
     st.dataframe(pd.DataFrame([{
         "Funcionário": l["funcionario"],
         "Cargo": l["cargo"],
+        "Registro": "Sim" if l["registrado"] else "Não",
         "Salário base": _brl(l["base"]),
         "Encargos": _brl(l["encargos"]),
         "Provisões": _brl(l["provisoes"]),
@@ -498,17 +519,22 @@ def _conferencia(editado, taxas):
     m[0].metric("Sai do caixa no mês",
                 _brl(soma("base") + soma("encargos") + soma("refeicao")))
     m[1].metric("Fica provisionado", _brl(soma("provisoes")))
-    m[2].metric(f"Custo do quadro em {int(mes):02d}/{int(ano)}",
+    m[2].metric(f"Colaboradores em {int(mes):02d}/{int(ano)}",
                 _brl(soma("total")))
     m[3].metric("Custo médio por pessoa",
                 _brl(soma("total") / len(linhas)))
 
-    st.markdown("##### Reserva da multa do FGTS")
+    _sem_reg = [l["funcionario"] for l in linhas if not l["registrado"]]
+    if _sem_reg:
+        st.caption("Sem registro, portanto sem FGTS, INSS, férias, 13º nem "
+                   "multa: **" + ", ".join(_sem_reg) + "**.")
+
+    st.markdown("###### Reserva da multa do FGTS")
     r = reserva_multa(d, ano, mes, taxas.get("multa_fgts"), ajustes_df)
     st.caption(
         "Ela não entra no custo de ninguém porque só existe se houver "
         "desligamento. A reserva é a **maior** entre as duas regras — a menor "
-        "das duas não atenderia a outra."
+        "das duas não atenderia a outra. Quem não tem registro fica fora."
     )
     k = st.columns(4)
     k[0].metric("Exposição do quadro", _brl(r["exposicao_total"]),
@@ -521,6 +547,7 @@ def _conferencia(editado, taxas):
                      "os mais caros.")
     k[3].metric("Reserva necessária", _brl(r["reserva"]),
                 help=f"Manda o critério: {r['criterio']}.")
+    return soma("total")
 
 
 # ── Conferência ──────────────────────────────────────────────────────────────
@@ -580,6 +607,25 @@ if __name__ == "__main__":
     ok("taxa que falta cai no padrão em vez de sumir",
        abs(custo(2000, {"fgts": 0.08})["encargos"] - (360 + 233.33)) < 0.01)
 
+    # Monique nao e registrada: sobre o salario dela nao incide tributo nem
+    # provisao. Refeicao e vale-transporte continuam — sao do dia de trabalho,
+    # nao do contrato.
+    sem_reg = custo(2000, registrado=False)
+    ok("sem registro não há FGTS nem INSS",
+       sem_reg["encargos"] == vale_transporte(2000))
+    ok("sem registro não há provisão de férias nem 13º",
+       sem_reg["provisoes"] == 0.0)
+    ok("sem registro a refeição continua",
+       sem_reg["refeicao"] == c["refeicao"])
+    ok("sem registro o custo é salário + VT + refeição",
+       abs(sem_reg["total"] - (2000 + 233.33 + 659.78)) < 0.01)
+    ok("sem registro custa menos que com registro",
+       sem_reg["total"] < c["total"])
+    ok("«Não» em qualquer grafia marca quem não tem registro",
+       not any(eh_registrado(v) for v in ("Não", "nao", "NÃO", "n", "0")))
+    ok("célula vazia é tratada como registrado",
+       eh_registrado("") and eh_registrado(None) and eh_registrado("Sim"))
+
     ok("admitido em jan e olhando jan dá zero mês de casa",
        meses_de_casa("2026-01", 2026, 1) == 0)
     ok("admitido em jan e olhando set dá oito meses",
@@ -599,6 +645,12 @@ if __name__ == "__main__":
         {"funcionario": "Myrella", "salario_base": 1883, "admissao": "2026-08"},
         {"funcionario": "Luiz", "salario_base": 2200, "admissao": "2026-09"},
     ])
+    ok("quem não é registrado não entra na reserva da multa",
+       reserva_multa(pd.DataFrame([
+           {"funcionario": "Monique", "salario_base": 2400,
+            "admissao": "2024-01", "registrado": "Não"}]),
+           2026, 9)["exposicao_total"] == 0.0)
+
     r = reserva_multa(quadro, 2026, 9)
     ok("a exposição do quadro soma todo mundo",
        r["exposicao_total"] > 0 and r["pessoas"] == 5)
@@ -653,5 +705,9 @@ if __name__ == "__main__":
     ok("salário com vírgula chega certo", linhas_g[0]["salario_base"] == 2400.0)
     ok("a admissão vira AAAA-MM", linhas_g[0]["admissao"] == "2024-01")
     ok("mês nenhum tem 99 dias úteis", linhas_g[0]["dias_uteis"] == 31)
+    ok("o registro é gravado como Sim/Não",
+       linhas_g[0]["registrado"] == "Sim"
+       and _normalizar(pd.DataFrame([{"funcionario": "Monique",
+                                      "registrado": "Não"}]))[0]["registrado"] == "Não")
 
     print("\nfalhas:", falhas)

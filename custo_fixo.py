@@ -20,7 +20,7 @@ salva uma vez.
 UMA GRADE, MAIS DE UMA TELA
 ---------------------------
 `GRADES` descreve o que muda entre telas que pedem os mesmos campos — item,
-modalidade, valor inicial, dia do débito, forma de pagamento — e gravam em abas
+valor inicial, dia do débito, forma de pagamento — e gravam em abas
 diferentes. Hoje só o Custo fixo usa. A Folha salarial começou aqui e saiu:
 cada pessoa tem várias verbas que se somam e um desconto com prazo, e forçá-la
 nesta grade exigiria lançar a mesma pessoa em cinco linhas. Ela mora em
@@ -39,14 +39,15 @@ import pandas as pd
 import streamlit as st
 
 # A ordem aqui é a ordem das colunas na planilha e na tela.
-COLUNAS = ["item", "modalidade", "valor_mensal", "vigente_desde", "dia_debito",
+COLUNAS = ["item", "valor_mensal", "vigente_desde", "dia_debito",
            "forma_pagamento", "atualizado_em", "atualizado_por"]
 
-# Operacional é o custo de OPERAR; não operacional é o que sai do caixa sem ser
-# custo de operar — as parcelas de PRONAMP são o caso desta base. A separação
-# não é enfeite: ela muda a linha de equilíbrio em R$ 52 mil, e por isso o
-# painel mostra as duas linhas em vez de escolher uma.
-MODALIDADES = ["Operacional", "Não operacional"]
+# A coluna `modalidade` saiu. Ela separava Operacional de Não operacional numa
+# lista só, e isso agora é a sub-aba: cada um tem tela e planilha próprias. Duas
+# respostas para a mesma pergunta — "este custo é operacional?" — passariam a
+# discordar assim que alguém marcasse a coluna de um jeito e salvasse no outro
+# lugar. Linha antiga com a coluna preenchida continua sendo lida; o valor é só
+# ignorado.
 
 FORMAS = ["PIX", "Boleto", "Cartão", "Transferência"]
 
@@ -191,12 +192,10 @@ def _normalizar(df, usuario=""):
         item = str(r.get("item", "") or "").strip()
         if not item:
             continue
-        modalidade = str(r.get("modalidade", "") or "").strip()
         forma = str(r.get("forma_pagamento", "") or "").strip()
         dia = int(_num(r.get("dia_debito"), 0))
         saida.append({
             "item": item,
-            "modalidade": modalidade if modalidade in MODALIDADES else MODALIDADES[0],
             "valor_mensal": round(_num(r.get("valor_mensal")), 2),
             # Sempre AAAA-MM, venha como vier: sem normalizar, "05/2026" e
             # "2026-05" seriam dois meses diferentes para quem le depois.
@@ -209,16 +208,12 @@ def _normalizar(df, usuario=""):
     return saida
 
 
-def totais(df):
-    """{'operacional': x, 'nao_operacional': y, 'total': x+y}."""
+def total_dos_iniciais(df):
+    """A soma dos valores iniciais da grade, sem ajuste nem mês."""
     d = pd.DataFrame(df)
     if d.empty or "valor_mensal" not in d:
-        return {"operacional": 0.0, "nao_operacional": 0.0, "total": 0.0}
-    v = d["valor_mensal"].map(_num)
-    op = str(MODALIDADES[0])
-    eh_op = d.get("modalidade", pd.Series([""] * len(d))).astype(str).str.strip() == op
-    a, b = float(v[eh_op].sum()), float(v[~eh_op].sum())
-    return {"operacional": a, "nao_operacional": b, "total": a + b}
+        return 0.0
+    return float(d["valor_mensal"].map(_num).sum())
 
 
 def _brl(v):
@@ -238,18 +233,17 @@ def pagina(usuario_logado=None, grade="custo_fixo"):
     df = carregar(aba_nome)
     if df.empty:
         df = pd.DataFrame(
-            [{"item": i, "modalidade": MODALIDADES[0], "valor_mensal": 0.0,
-              "vigente_desde": "", "dia_debito": 0, "forma_pagamento": "",
-              "atualizado_em": "", "atualizado_por": ""}
-             for i in cfg["sugestoes"]],
+            [{"item": i, "valor_mensal": 0.0, "vigente_desde": "",
+              "dia_debito": 0, "forma_pagamento": "", "atualizado_em": "",
+              "atualizado_por": ""} for i in cfg["sugestoes"]],
             columns=COLUNAS)
         if cfg["sugestoes"]:
             st.info("Aba ainda vazia. Estes itens são só uma sugestão de "
                     "partida — nada foi gravado até você salvar.")
 
     editado = st.data_editor(
-        df[["item", "modalidade", "valor_mensal", "vigente_desde",
-            "dia_debito", "forma_pagamento"]],
+        df[["item", "valor_mensal", "vigente_desde", "dia_debito",
+            "forma_pagamento"]],
         num_rows="dynamic",
         use_container_width=True,
         hide_index=True,
@@ -261,10 +255,6 @@ def pagina(usuario_logado=None, grade="custo_fixo"):
             "item": st.column_config.TextColumn(
                 cfg["rotulo_item"], required=True, width="medium",
                 help=cfg["ajuda_item"]),
-            "modalidade": st.column_config.SelectboxColumn(
-                "Modalidade", options=MODALIDADES, width="medium",
-                help="Operacional é custo de operar. Não operacional sai do "
-                     "caixa sem ser custo de operar."),
             "valor_mensal": st.column_config.NumberColumn(
                 "Valor inicial (R$)", min_value=0.0, step=0.01, format="%.2f",
                 width="small",
@@ -285,11 +275,7 @@ def pagina(usuario_logado=None, grade="custo_fixo"):
         },
     )
 
-    t = totais(editado)
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Operacional (valor inicial)", _brl(t["operacional"]))
-    c2.metric("Não operacional (valor inicial)", _brl(t["nao_operacional"]))
-    c3.metric("Soma dos valores iniciais", _brl(t["total"]))
+    st.metric("Soma dos valores iniciais", _brl(total_dos_iniciais(editado)))
 
     _custo_do_mes(editado, grade)
 
@@ -346,30 +332,30 @@ if __name__ == "__main__":
     ok("número já numérico passa direto", _num(70) == 70.0)
 
     linhas = _normalizar(pd.DataFrame([
-        {"item": "Luz", "modalidade": "Operacional", "valor_mensal": "450",
-         "dia_debito": 25, "forma_pagamento": "PIX"},
-        {"item": "  ", "modalidade": "Operacional", "valor_mensal": 999,
-         "dia_debito": 1, "forma_pagamento": "PIX"},
-        {"item": "PRONAMP 1", "modalidade": "Não operacional",
-         "valor_mensal": "4.980,00", "dia_debito": 99, "forma_pagamento": "Boleto"},
-        {"item": "Bling", "modalidade": "inventada", "valor_mensal": 400,
-         "dia_debito": 10, "forma_pagamento": "Cheque"},
+        {"item": "Luz", "valor_mensal": "450", "dia_debito": 25,
+         "forma_pagamento": "PIX"},
+        {"item": "  ", "valor_mensal": 999, "dia_debito": 1,
+         "forma_pagamento": "PIX"},
+        {"item": "Aluguel", "valor_mensal": "4.980,00", "dia_debito": 99,
+         "forma_pagamento": "Boleto"},
+        {"item": "Bling", "valor_mensal": 400, "dia_debito": 10,
+         "forma_pagamento": "Cheque"},
     ]), "martinsousa")
     ok("linha sem item não é gravada", len(linhas) == 3)
     ok("valor com vírgula chega certo na planilha",
        linhas[1]["valor_mensal"] == 4980.0)
     ok("dia fora do calendário é aparado", linhas[1]["dia_debito"] == 31)
-    ok("modalidade inventada cai em Operacional",
-       linhas[2]["modalidade"] == "Operacional")
     ok("forma de pagamento fora da lista fica vazia",
        linhas[2]["forma_pagamento"] == "")
     ok("quem salvou fica registrado", linhas[0]["atualizado_por"] == "martinsousa")
 
-    t = totais(pd.DataFrame(linhas))
-    ok("operacional soma só o operacional", t["operacional"] == 850.0)
-    ok("não operacional soma só o não operacional", t["nao_operacional"] == 4980.0)
-    ok("o total é a soma dos dois", t["total"] == 5830.0)
-    ok("tabela vazia não derruba o total", totais(pd.DataFrame())["total"] == 0.0)
+    ok("o total soma os valores iniciais",
+       total_dos_iniciais(pd.DataFrame(linhas)) == 5830.0)
+    ok("tabela vazia não derruba o total",
+       total_dos_iniciais(pd.DataFrame()) == 0.0)
+    ok("linha antiga com `modalidade` continua sendo lida",
+       _normalizar(pd.DataFrame([{"item": "Água", "modalidade": "Operacional",
+                                  "valor_mensal": 70}]))[0]["valor_mensal"] == 70.0)
 
     ok("cada grade grava numa aba própria",
        len({g["aba"] for g in GRADES.values()}) == len(GRADES))

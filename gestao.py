@@ -54,33 +54,62 @@ def pagina_home(usuario_logado=None):
     )
 
 
-def _custo_fixo(usuario_logado=None):
-    """O custo que existe com ou sem venda — a base de tudo o que vem depois.
-
-    As telas moram nos módulos que também guardam os dados. Import aqui dentro
-    e não no topo: eles abrem a planilha, e carregar isso na importação faria o
-    Studio inteiro esperar pelo Google para desenhar qualquer tela.
-    """
+# As três faces do custo fixo. Elas viviam como abas irmãs do Financeiro, e
+# estava errado: folha e empréstimo SÃO custo fixo, não vizinhos dele. Como
+# irmãs, cada uma parecia uma conta separada, e ninguém somava as três para ver
+# o custo do mês — que é a única pergunta que importa aqui.
+# Os imports moram dentro das funções: cada módulo abre a planilha, e carregar
+# isso na importação faria o Studio inteiro esperar pelo Google para desenhar
+# qualquer tela.
+def _operacional(usuario_logado=None):
+    """Água, luz, aluguel, contabilidade — o custo fixo que não é gente."""
     import custo_fixo as _cf
     _cf.pagina(usuario_logado, grade="custo_fixo")
 
 
 def _folha_salarial(usuario_logado=None):
-    """Pessoa a pessoa, com as verbas de cada grupo e o desconto com prazo."""
+    """Gestores e colaboradores, em duas tabelas e um total só."""
     import folha_salarial as _fs
     _fs.pagina(usuario_logado)
-
-
-def _colaboradores(usuario_logado=None):
-    """O custo CLT de cada colaborador e a reserva da multa do FGTS."""
-    import colaboradores as _co
-    _co.pagina(usuario_logado)
 
 
 def _nao_operacional(usuario_logado=None):
     """Os empréstimos: sai do caixa, mas não é custo de operar."""
     import nao_operacional as _no
     _no.pagina(usuario_logado)
+
+
+FACES_DO_CUSTO = {
+    "🏢 Operacional": _operacional,
+    "👥 Folha salarial": _folha_salarial,
+    "🏦 Não operacional": _nao_operacional,
+}
+
+
+def _custo_fixo(usuario_logado=None):
+    """Custo fixo, com as três faces atrás de um seletor.
+
+    Rádio e não sub-aba: são três recortes da MESMA coisa, e o rádio diz isso
+    — é o mesmo gesto de «Análise coletiva / Análise individual» em Indicadores.
+    A escolha vai para a URL para sobreviver ao deploy, igual às abas.
+    """
+    st.markdown("### 🧱 Custo fixo")
+    st.caption("O que sai todo mês independente de vender — nas três formas em "
+               "que ele aparece. É a soma das três que entra na linha de "
+               "equilíbrio.")
+
+    rotulos = list(FACES_DO_CUSTO)
+    chave = "cf_face"
+    if chave not in st.session_state:
+        da_url = str(st.query_params.get(chave, "")).strip()
+        st.session_state[chave] = da_url if da_url in rotulos else rotulos[0]
+    escolhido = st.radio("O que você quer ver", rotulos, horizontal=True,
+                         key=chave)
+    if str(st.query_params.get(chave, "")) != escolhido:
+        st.query_params[chave] = escolhido
+
+    st.markdown("---")
+    FACES_DO_CUSTO[escolhido](usuario_logado)
 
 
 def _ajuste_de_valor(usuario_logado=None):
@@ -94,9 +123,6 @@ def _ajuste_de_valor(usuario_logado=None):
 # novo, e ela precisa estar num lugar só.
 SUBTELAS = {
     "🧱 Custo fixo": _custo_fixo,
-    "👥 Folha salarial": _folha_salarial,
-    "👔 Colaboradores": _colaboradores,
-    "🏦 Não operacional": _nao_operacional,
     "📈 Ajuste de valor": _ajuste_de_valor,
 }
 

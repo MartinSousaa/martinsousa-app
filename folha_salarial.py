@@ -1,4 +1,4 @@
-"""folha_salarial.py — A folha, pessoa a pessoa, com as verbas de cada grupo.
+"""folha_salarial.py — A folha inteira: gestores e colaboradores, lado a lado.
 
 POR QUE ELA SAIU DA GRADE GENÉRICA
 ----------------------------------
@@ -7,14 +7,19 @@ somam, e um desconto que pode entrar por alguns meses e sair. Enfiar isso na
 grade de «item, valor» obrigaria a lançar a mesma pessoa em cinco linhas — e aí
 ninguém mais sabe quanto custa uma pessoa, que é justamente a pergunta.
 
-DOIS GRUPOS, VERBAS DIFERENTES
-------------------------------
-    Gestores   pró-labore, bônus, vale-alimentação, vale-refeição, vale-combustível
-    Time       salário, e as verbas que houver
+DUAS TABELAS, PORQUE SÃO DUAS CONDIÇÕES
+---------------------------------------
+    Gestores       pró-labore, bônus, vales — e um desconto com prazo
+    Colaboradores  salário, encargos CLT, provisões, refeição, multa do FGTS
 
-As colunas são as mesmas para os dois: quem não tem a verba deixa em branco.
-Uma tabela por grupo daria dois lugares para somar a mesma folha, e eles
-passariam a discordar.
+Isto começou como uma tabela só com uma coluna de grupo, e estava errado: as
+duas não compartilham campo nenhum além do nome. Gestor não tem FGTS nem
+admissão; colaborador não tem pró-labore nem vale-combustível. Numa tabela só,
+cada linha ficaria com metade das colunas vazia e as duas contas conviveriam
+sem se encontrar.
+
+A soma da folha é uma só, no fim da tela: as duas tabelas alimentam o mesmo
+total, e é isso que impede que virem dois números.
 
 O DESCONTO TEM PRAZO
 --------------------
@@ -53,12 +58,10 @@ ABA_NOME = "folha_salarial"
 VERBAS = ["salario", "pro_labore", "bonus", "vale_alimentacao",
           "vale_refeicao", "vale_combustivel"]
 
-COLUNAS = (["pessoa", "grupo"] + VERBAS +
+COLUNAS = (["pessoa"] + VERBAS +
            ["vigente_desde", "desconto", "desconto_desde", "desconto_meses",
             "desconto_descricao", "dia_debito", "forma_pagamento",
             "atualizado_em", "atualizado_por"])
-
-GRUPOS = ["Gestores", "Time"]
 
 FORMAS = ["PIX", "Boleto", "Cartão", "Transferência"]
 
@@ -75,9 +78,7 @@ BASE_DECIMO = ["salario", "pro_labore"]
 # vira linha na planilha depois de salvar. A lista de quem trabalha aqui mora na
 # aba `equipe`, e não neste arquivo — nome escrito no código já escondeu dois
 # colaboradores do painel.
-SUGESTOES = [("Leonardo", "Gestores"), ("Renan", "Gestores"),
-             ("Monique", "Time"), ("Beatriz", "Time"), ("Myrella", "Time"),
-             ("Gabriel", "Time"), ("Nicollas", "Time"), ("Luiz", "Time")]
+SUGESTOES = ["Leonardo", "Renan"]
 
 ROTULOS = {
     "salario": "Salário", "pro_labore": "Pró-labore", "bonus": "Bônus",
@@ -231,10 +232,8 @@ def _normalizar(df, usuario=""):
         pessoa = str(r.get("pessoa", "") or "").strip()
         if not pessoa:
             continue
-        grupo = str(r.get("grupo", "") or "").strip()
         linha = {
             "pessoa": pessoa,
-            "grupo": grupo if grupo in GRUPOS else GRUPOS[-1],
             "vigente_desde": aj.texto_mes(aj.mes_de(r.get("vigente_desde"))),
             "desconto": round(_num(r.get("desconto")), 2),
             "desconto_desde": aj.texto_mes(aj.mes_de(r.get("desconto_desde"))),
@@ -275,29 +274,44 @@ def _brl(v):
 # ── Tela ─────────────────────────────────────────────────────────────────────
 
 def pagina(usuario_logado=None):
+    """A folha inteira: as duas tabelas e um total só."""
+    import colaboradores as _co
+
     st.markdown("#### 👥 Folha salarial")
     st.caption(
-        "Pessoa a pessoa, com as verbas de cada uma. O **total** é a soma das "
-        "verbas; o **novo total** já tira o desconto, e o desconto só incide "
-        "nos meses do prazo combinado. O **1/12 de 13º** aparece à parte: é "
-        "dinheiro guardado, não sai do caixa no mês. Reajuste **não** se "
-        "digita aqui — entra em «Ajuste de valor», com o mês em que passou a "
-        "valer."
+        "Duas tabelas porque são duas condições. Reajuste **não** se digita "
+        "aqui — entra em «Ajuste de valor», com o mês em que passou a valer."
     )
 
+    taxas = _co.painel_taxas(_co.carregar_taxas())
+
+    # O mês é escolhido UMA vez, no topo, e vale para as duas tabelas. Um
+    # seletor por tabela deixaria comparar março dos gestores com setembro dos
+    # colaboradores e somar os dois no total.
+    hoje = datetime.now(FUSO).date()
+    c1, c2 = st.columns(2)
+    ano = c1.number_input("Ano", min_value=2020, max_value=2100,
+                          value=hoje.year, step=1, key="folha_ano")
+    mes = c2.number_input("Mês", min_value=1, max_value=12,
+                          value=hoje.month, step=1, key="folha_mes")
+
+    st.markdown("##### 🧑‍💼 Gestores")
+    st.caption("Pró-labore, bônus e vales. O **novo total** já tira o "
+               "desconto, e o desconto só incide nos meses do prazo "
+               "combinado.")
     df = carregar()
     if df.empty:
         df = pd.DataFrame(
-            [{**{v: 0.0 for v in VERBAS}, "pessoa": p, "grupo": g,
+            [{**{v: 0.0 for v in VERBAS}, "pessoa": p,
               "vigente_desde": "", "desconto": 0.0, "desconto_desde": "",
               "desconto_meses": 0, "desconto_descricao": "", "dia_debito": 30,
               "forma_pagamento": "Transferência", "atualizado_em": "",
-              "atualizado_por": ""} for p, g in SUGESTOES],
+              "atualizado_por": ""} for p in SUGESTOES],
             columns=COLUNAS)
         st.info("Aba ainda vazia. Estas pessoas são sugestão de partida — nada "
                 "foi gravado até você salvar.")
 
-    visiveis = (["pessoa", "grupo"] + VERBAS +
+    visiveis = (["pessoa"] + VERBAS +
                 ["vigente_desde", "desconto", "desconto_desde",
                  "desconto_meses", "desconto_descricao", "dia_debito",
                  "forma_pagamento"])
@@ -313,8 +327,6 @@ def pagina(usuario_logado=None):
         column_config={
             "pessoa": st.column_config.TextColumn(
                 "Pessoa", required=True, width="medium"),
-            "grupo": st.column_config.SelectboxColumn(
-                "Grupo", options=GRUPOS, width="small"),
             **{v: dinheiro(ROTULOS[v]) for v in VERBAS},
             "vigente_desde": st.column_config.TextColumn(
                 "Está desde", width="small",
@@ -339,7 +351,7 @@ def pagina(usuario_logado=None):
         },
     )
 
-    if st.button("💾 Salvar", type="primary", key="btn_salvar_folha"):
+    if st.button("💾 Salvar gestores", type="primary", key="btn_salvar_folha"):
         ok, msg = salvar(editado, usuario_logado)
         if ok:
             st.success(msg)
@@ -347,11 +359,28 @@ def pagina(usuario_logado=None):
         else:
             st.error(f"Não consegui gravar: {msg}")
 
-    _conferencia(editado)
+    _tot_gestores = _conferencia(editado, ano, mes)
+
+    st.markdown("---")
+    st.markdown("##### 👔 Colaboradores (CLT)")
+    st.caption(
+        "Salário, encargos e provisões. Quem **não** é registrado não soma "
+        "FGTS, INSS, férias, 13º nem multa — só o salário, a refeição e o "
+        "vale-transporte."
+    )
+    _ed_colab = _co.bloco(usuario_logado, taxas)
+    _tot_colab = _co.conferencia(_ed_colab, taxas, ano, mes)
+
+    st.markdown("---")
+    g = st.columns(3)
+    g[0].metric("Gestores", _brl(_tot_gestores))
+    g[1].metric("Colaboradores", _brl(_tot_colab))
+    g[2].metric(f"Folha em {int(mes):02d}/{int(ano)}",
+                _brl(_tot_gestores + _tot_colab))
 
 
-def _conferencia(editado):
-    """Total, desconto e novo total de cada pessoa, no mês escolhido.
+def _conferencia(editado, ano, mes):
+    """Total, desconto e novo total de cada gestor, no mês escolhido.
 
     Fica fora da grade de propósito: o `data_editor` só redesenha uma coluna
     calculada no rerun seguinte, e um total que mostra o número anterior ao que
@@ -359,17 +388,8 @@ def _conferencia(editado):
     """
     d = pd.DataFrame(editado)
     if d.empty:
-        return
+        return 0.0
     aj = _aj()
-    hoje = datetime.now(FUSO).date()
-
-    st.markdown("##### Totais")
-    c1, c2 = st.columns(2)
-    ano = c1.number_input("Ano", min_value=2020, max_value=2100,
-                          value=hoje.year, step=1, key="folha_ano")
-    mes = c2.number_input("Mês", min_value=1, max_value=12,
-                          value=hoje.month, step=1, key="folha_mes")
-
     ajustes_df = aj.carregar()
     mapa = aj.por_item(ajustes_df)
 
@@ -390,7 +410,6 @@ def _conferencia(editado):
         decimo_total += decimo
         linhas.append({
             "Pessoa": pessoa,
-            "Grupo": r.get("grupo"),
             "Total": _brl(bruto_mes),
             "Desconto": _brl(desc),
             "Novo total": _brl(max(bruto_mes - desc, 0.0)),
@@ -398,7 +417,7 @@ def _conferencia(editado):
             "Motivo": r.get("desconto_descricao") or "",
         })
     if not linhas:
-        return
+        return 0.0
 
     st.dataframe(pd.DataFrame(linhas), use_container_width=True,
                  hide_index=True)
@@ -410,23 +429,14 @@ def _conferencia(editado):
             + ". Sem o mês, ele valeria em todos os meses, inclusive nos "
               "anteriores — e não foi isso que se combinou.")
 
-    por_grupo = {}
-    for _, r in d.iterrows():
-        pessoa = str(r.get("pessoa", "") or "").strip()
-        if not pessoa:
-            continue
-        g = str(r.get("grupo", "") or GRUPOS[-1])
-        por_grupo[g] = por_grupo.get(g, 0.0) + custo_no_mes(
-            r, ano, mes, mapa.get((ABA_NOME, pessoa)))
-    cols = st.columns(len(GRUPOS) + 2)
-    for col, g in zip(cols, GRUPOS):
-        col.metric(g, _brl(por_grupo.get(g, 0.0)))
-    cols[-2].metric(f"Folha em {int(mes):02d}/{int(ano)}",
-                    _brl(total_da_folha(d, ano, mes, ajustes_df)))
-    cols[-1].metric("1/12 de 13º provisionado", _brl(round(decimo_total, 2)),
-                    help="Fica guardado, não sai do caixa neste mês. Incide "
-                         "sobre salário e pró-labore — bônus e vales ficam de "
-                         "fora por não terem natureza salarial.")
+    _total = total_da_folha(d, ano, mes, ajustes_df)
+    cols = st.columns(2)
+    cols[0].metric(f"Gestores em {int(mes):02d}/{int(ano)}", _brl(_total))
+    cols[1].metric("1/12 de 13º provisionado", _brl(round(decimo_total, 2)),
+                   help="Fica guardado, não sai do caixa neste mês. Incide "
+                        "sobre salário e pró-labore — bônus e vales ficam de "
+                        "fora por não terem natureza salarial.")
+    return _total
 
 
 # ── Conferência ──────────────────────────────────────────────────────────────
@@ -438,7 +448,7 @@ if __name__ == "__main__":
         falhas += not cond
         print(("ok    " if cond else "FALHA ") + nome)
 
-    leo = {"pessoa": "Leonardo", "grupo": "Gestores", "salario": 0,
+    leo = {"pessoa": "Leonardo", "salario": 0,
            "pro_labore": 7000, "bonus": 1000, "vale_alimentacao": 500,
            "vale_refeicao": 400, "vale_combustivel": 600,
            "vigente_desde": "2026-01"}
@@ -484,13 +494,10 @@ if __name__ == "__main__":
        custo_no_mes({**com_desc, "desconto_meses": 12}, 2026, 7, aj_leo)
        == 10700.0)
 
-    time = [{"pessoa": p, "grupo": "Time", "salario": s,
-             "vigente_desde": "2026-01"}
-            for p, s in [("Monique", 2400), ("Beatriz", 2033),
-                         ("Myrella", 1883), ("Gabriel", 3080)]]
-    folha = pd.DataFrame([leo] + time)
-    ok("a folha soma gestores e time",
-       total_da_folha(folha, 2026, 6) == 9500 + 2400 + 2033 + 1883 + 3080)
+    renan = {"pessoa": "Renan", "pro_labore": 6500, "vale_alimentacao": 500,
+             "vale_refeicao": 400, "vigente_desde": "2026-01"}
+    folha = pd.DataFrame([leo, renan])
+    ok("a folha soma os gestores", total_da_folha(folha, 2026, 6) == 9500 + 7400)
     ok("linha sem pessoa não entra na folha",
        total_da_folha(pd.DataFrame([{"pessoa": "  ", "salario": 9999}]),
                       2026, 6) == 0.0)
@@ -500,13 +507,13 @@ if __name__ == "__main__":
                       pd.DataFrame([{"grade": ABA_NOME, "item": "Leonardo",
                                      "valor_novo": 11000,
                                      "vigente_desde": "2026-07"}]))
-       == 11000 + 2400 + 2033 + 1883 + 3080)
+       == 11000 + 7400)
 
     linhas = _normalizar(pd.DataFrame([
         {**com_desc, "dia_debito": 45, "forma_pagamento": "Cheque",
          "desconto_desde": "05/2026", "desconto_meses": -3},
         {"pessoa": "", "salario": 9999},
-        {"pessoa": "X", "grupo": "inventado"},
+        {"pessoa": "X"},
     ]), "martinsousa")
     ok("linha sem pessoa não é gravada", len(linhas) == 2)
     ok("a vigência do desconto vira AAAA-MM",
@@ -515,7 +522,6 @@ if __name__ == "__main__":
     ok("dia fora do calendário é aparado", linhas[0]["dia_debito"] == 31)
     ok("forma de pagamento fora da lista fica vazia",
        linhas[0]["forma_pagamento"] == "")
-    ok("grupo inventado cai em Time", linhas[1]["grupo"] == "Time")
     ok("toda verba é gravada, mesmo em branco",
        all(v in linhas[1] for v in VERBAS))
 
@@ -523,15 +529,16 @@ if __name__ == "__main__":
        provisao_decimo(leo) == round(7000 * 0.083, 2))
     ok("bônus e vales ficam fora da base do 13º",
        base_salarial(leo) == 7000.0)
-    ok("para o time, a base do 13º é o salário",
+    ok("quando há salário, ele entra na base do 13º",
        provisao_decimo({"salario": 2400}) == round(2400 * 0.083, 2))
     ok("quem não tem verba salarial não provisiona 13º",
        provisao_decimo({"vale_refeicao": 400}) == 0.0)
     ok("a taxa do 13º é a mesma das duas telas",
        TAXA_DECIMO == __import__("colaboradores").TAXAS["decimo_1_12"][2])
 
-    ok("os oito nomes vêm sugeridos", len(SUGESTOES) == 8)
-    ok("Leonardo e Renan vêm como gestores",
-       {p for p, g in SUGESTOES if g == "Gestores"} == {"Leonardo", "Renan"})
+    ok("a tabela de gestores sugere Leonardo e Renan",
+       set(SUGESTOES) == {"Leonardo", "Renan"})
+    ok("a folha de gestores não tem coluna de grupo",
+       "grupo" not in COLUNAS)
 
     print("\nfalhas:", falhas)
