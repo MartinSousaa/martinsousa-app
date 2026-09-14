@@ -182,7 +182,10 @@ def _bloco_faturamento(d):
             f'font-weight:800;padding:4px 10px;border-radius:999px;'
             f'white-space:nowrap;">{seta} {_brl(dif, 0)} {frase}</span>')
 
-    escala = max(proj, meta, cx, real) * 1.10 or 1
+    # A regua para na META, nao na projecao: esticar ate uma projecao que
+    # supera a meta em 32% abria um vazio de um terco da barra depois do
+    # marcador da meta, e vazio nao e informacao. A projecao fica escrita.
+    escala = max(meta, cx, real) * 1.06 or 1
     x = lambda v: min(max(v / escala * 100, 0), 100)
     rot = ('font-size:10px;color:var(--ms-texto-sec);text-align:right;'
            'white-space:nowrap;')
@@ -203,9 +206,11 @@ def _bloco_faturamento(d):
         f'<span style="font-size:12px;color:var(--ms-texto-sec);">'
         f'faturado até o dia {dia} de {dias}</span>'
         + selo +
-        f'<span style="margin-left:auto;font-size:12px;'
-        f'color:var(--ms-texto-sec);text-align:right;">Se mantiver o ritmo, '
-        f'fecha em <b style="color:var(--ms-texto);">{_brl(proj, 0)}</b></span>'
+        f'<span style="margin-left:auto;text-align:right;line-height:1.2;">'
+        f'<span style="display:block;font-size:11px;'
+        f'color:var(--ms-texto-sec);">Se mantiver o ritmo, fecha em</span>'
+        f'<span style="font-size:24px;font-weight:700;color:{cor_proj};">'
+        f'{_brl(proj, 0)}</span></span>'
         f'</div>'
 
         # Duas trilhas na mesma escala, com rótulo à esquerda: o que a coluna
@@ -218,9 +223,6 @@ def _bloco_faturamento(d):
         f'background:var(--ms-metric-bd);position:relative;">'
         f'<div style="position:absolute;left:0;top:0;height:100%;'
         f'width:{x(real):.1f}%;background:{cor};border-radius:9px;"></div>'
-        # A projeção é marcador VAZADO: ela ainda não aconteceu, e um traço
-        # cheio a faria pesar tanto quanto o que já está na conta.
-        + _marcador(x(proj), vazado=True)
         + _marcador(x(op))
         + _marcador(x(cx))
         + _marcador(x(meta)) +
@@ -237,8 +239,7 @@ def _bloco_faturamento(d):
         f'<div style="position:relative;height:15px;">'
         + _rotulo(x(op), "▲ Operacional")
         + _rotulo(x(cx), "▲ Não operacional")
-        + _rotulo(x(meta), "▲ Meta")
-        + _rotulo(x(proj), "▽ Projeção") +
+        + _rotulo(x(meta), "▲ Meta") +
         f'</div></div>'
 
         f'<div style="display:flex;justify-content:space-between;gap:12px;'
@@ -253,7 +254,7 @@ def _bloco_faturamento(d):
         f'<div style="display:flex;justify-content:space-between;gap:12px;'
         f'flex-wrap:wrap;font-size:11px;color:var(--ms-texto-sec);'
         f'margin-top:4px;">'
-        f'<span>Projeção (▽) = ritmo médio × {dias} dias</span>'
+        f'<span>Projeção = ritmo médio × {dias} dias</span>'
         f'<span>Projeção: <b style="color:{cor_proj};">{veredito}</b></span>'
         f'<span>Operacional {_brl(op, 0)} · Não operacional {_brl(cx, 0)}</span>'
         f'</div></div>',
@@ -266,12 +267,7 @@ def _rotulo(pos, texto):
             f'white-space:nowrap;color:var(--ms-texto);">{texto}</span>')
 
 
-def _marcador(pos, vazado=False):
-    if vazado:
-        return (f'<div style="position:absolute;top:-6px;bottom:-6px;'
-                f'left:{pos:.1f}%;width:9px;margin-left:-4.5px;'
-                f'border:2px solid var(--ms-texto);border-radius:3px;'
-                f'background:transparent;"></div>')
+def _marcador(pos):
     return (f'<div style="position:absolute;top:-6px;bottom:-6px;'
             f'left:{pos:.1f}%;width:3px;margin-left:-1.5px;border-radius:2px;'
             f'background:var(--ms-texto);"></div>')
@@ -331,7 +327,7 @@ def _card(c, dia=1, dias=1):
         f'margin-top:4px;">{"✔" if bateu else "▸"} {dif} {verbo}</div>'
         f'<div style="margin-top:7px;padding-top:6px;'
         f'border-top:1px solid var(--ms-metric-bd);font-size:9.5px;'
-        f'color:var(--ms-texto-sec);">▽ No ritmo, fecha em '
+        f'color:var(--ms-texto-sec);">No ritmo, fecha em '
         f'<b style="color:var(--ms-texto);">{_fmt(fecha, c["fmt"])}</b>'
         f'<br><span style="opacity:.75;">{nota}</span></div>'
         f'</div>')
@@ -362,7 +358,7 @@ def pagina(usuario_logado=None, dados=None):
     st.caption(
         f"Mês de referência {d['mes']:02d}/{d['ano']}, fechado no dia "
         f"{dia} de {dias}. O **ritmo** reparte a meta em partes iguais pelos "
-        "dias corridos do mês, e a **projeção (▽)** é o ritmo médio vezes os "
+        "dias corridos do mês, e a **projeção** é o ritmo médio vezes os "
         "dias do mês — um método só, porque duas projeções discordando na "
         "mesma tela não informam, escolhem por você.")
 
