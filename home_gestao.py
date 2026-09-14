@@ -13,18 +13,25 @@ pergunta que a tela tem.
 
 COR NUNCA SOZINHA
 -----------------
-As três cores são estado, não identidade: verde acima do necessário, amarelo na
-faixa da projeção, vermelho abaixo. Toda barra carrega o veredito **escrito** ao
+As três cores são estado, não identidade: verde acima do necessário, amarelo a
+menos de 8% dele, vermelho abaixo. Toda barra carrega o veredito **escrito** ao
 lado — quem não distingue as cores lê a frase. O vermelho do Studio tem 2,79:1
 de contraste no fundo escuro, abaixo dos 3:1: é por isso que o texto nunca
-depende dele.
+depende dele, e o selo do ritmo é preenchido com tinta escura por cima.
 
 O PONTO DE EQUILÍBRIO VEM PRIMEIRO
 ----------------------------------
 Foi decisão do gestor: "meta de faturamento é secundário, o principal é
 alcançarmos o ponto de equilíbrio". Por isso o faturamento ocupa a tela inteira
-no topo, com as DUAS linhas — a operação se paga, e a operação se paga E as
-parcelas saem —, a meta do mês e o ritmo do dia; os outros seis vêm embaixo.
+no topo, com as DUAS linhas — Operacional (a operação se paga) e Não
+operacional (a operação se paga E as parcelas do PRONAMP saem) —, a meta do
+mês e o ritmo do dia; os outros seis vêm embaixo, em cartões menores.
+
+UMA PROJEÇÃO SÓ
+---------------
+Tudo que a tela chama de projeção sai do mesmo lugar: o ritmo médio dos dias
+já corridos, esticado até o fim do mês. Duas projeções discordando na mesma
+tela não informam — escolhem pelo gestor, e escondem qual método escolheu.
 
 OS NÚMEROS DESTA TELA SÃO DE EXEMPLO
 ------------------------------------
@@ -62,35 +69,41 @@ EXEMPLO = {
     "faturamento": {
         "realizado": 148_320.00,
         "meta": 240_000.00,
-        "projecao": 241_800.00, "piso": 212_400.00, "teto": 272_300.00,
-        "operacional": 131_918.00, "caixa": 183_940.00,
+        "operacional": 131_918.00, "nao_operacional": 183_940.00,
     },
     # Três por linha: bruto em cima, líquido embaixo, e cada valor em R$ ao
-    # lado da sua própria margem em %. O mesmo fato lido nas duas unidades.
+    # lado da sua própria margem em %. O mesmo fato lido nas duas unidades —
+    # por isso o R$ aqui é a margem vezes o faturado, e a conferência trava
+    # os dois juntos: se um dia discordarem, a tela mente em dois cartões
+    # vizinhos.
     "cards": [
         {"rotulo": "Lucro bruto", "sub": "no mês",
-         "realizado": 71_190.00, "necessario": 68_400.00, "fmt": "brl0",
-         "maior_melhor": True},
+         "realizado": 102_340.80, "necessario": 94_924.80, "fmt": "brl0",
+         "maior_melhor": True, "acumula": True},
         {"rotulo": "Margem bruta", "sub": "sobre o faturado",
-         "realizado": 48.0, "necessario": 46.1, "fmt": "pct",
-         "maior_melhor": True},
+         "realizado": 69.0, "necessario": 64.0, "fmt": "pct",
+         "maior_melhor": True, "acumula": False},
         {"rotulo": "LPV", "sub": "lucro por venda",
-         "realizado": 42.10, "necessario": 48.00, "fmt": "brl",
-         "maior_melhor": True},
+         "realizado": 19.86, "necessario": 17.50, "fmt": "brl",
+         "maior_melhor": True, "acumula": False},
         {"rotulo": "Lucro líquido", "sub": "no mês",
-         "realizado": 18_460.00, "necessario": 24_900.00, "fmt": "brl0",
-         "maior_melhor": True},
+         "realizado": 41_974.56, "necessario": 35_596.80, "fmt": "brl0",
+         "maior_melhor": True, "acumula": True},
         {"rotulo": "Margem líquida", "sub": "sobre o faturado",
-         "realizado": 12.4, "necessario": 16.8, "fmt": "pct",
-         "maior_melhor": True},
-        {"rotulo": "UC", "sub": "custo unitário",
-         "realizado": 21.60, "necessario": 19.80, "fmt": "brl",
-         "maior_melhor": False},
+         "realizado": 28.3, "necessario": 24.0, "fmt": "pct",
+         "maior_melhor": True, "acumula": False},
+        {"rotulo": "UC", "sub": "unidade de contribuição, média por venda",
+         "realizado": 1.8, "necessario": 1.5, "fmt": "razao",
+         "maior_melhor": True, "acumula": False},
     ],
 }
 
 
 def _fmt(valor, como):
+    if como == "razao":
+        # Unidade de contribuicao e quantas unidades saem por venda: le-se
+        # "1,8 para 1", nao um valor em real.
+        return _num(valor, 1) + "/1"
     if como == "pct":
         return _num(valor, 1, "%")
     if como == "brl0":
@@ -99,18 +112,35 @@ def _fmt(valor, como):
 
 
 def ritmo(d):
-    """Meta gradual: quanto da meta o mês já deveria ter entregue até hoje.
+    """Meta gradual e ritmo médio: o mês repartido pelos dias que já passaram.
 
-    Reparte a meta em partes iguais pelos dias CORRIDOS do mês — é o dia do
+    Devolve (alvo_ate_hoje, por_dia, projecao, dia, dias).
+
+    A meta se reparte em partes iguais pelos dias CORRIDOS — é o dia do
     calendário que faz o cheque vencer, não o dia útil. A curva de venda não é
     reta (o mês tem picos), mas fingir uma curva sem ter a medida seria pior
     que a reta honesta: quando `financeiro_historico` entregar a curva medida,
     troca-se esta função e a tela não muda.
+
+    A projeção é o ritmo médio vezes os dias do mês — UM método só, porque
+    duas projeções discordando na mesma tela não informam, escolhem por você.
     """
     f = d["faturamento"]
     dias = int(d.get("dias_mes") or calendar.monthrange(d["ano"], d["mes"])[1])
-    dia = min(max(int(d["dia"]), 0), dias)
-    return f.get("meta", 0.0) * dia / (dias or 1), dia, dias
+    dia = min(max(int(d["dia"]), 1), dias)
+    alvo = f.get("meta", 0.0) * dia / dias
+    por_dia = f["realizado"] / dia
+    return alvo, por_dia, por_dia * dias, dia, dias
+
+
+def projetar(valor, dia, dias, acumula):
+    """Onde este indicador fecha o mês se o ritmo de hoje se mantiver.
+
+    Quem ACUMULA (lucro em R$) se estica pelos dias que faltam. Quem já é
+    média (margem, LPV, UC) fecha onde está: esticar uma razão pelo tempo
+    daria um número sem significado.
+    """
+    return valor / dia * dias if acumula else valor
 
 
 def _bloco_faturamento(d):
@@ -118,32 +148,41 @@ def _bloco_faturamento(d):
 
     Duas linhas de equilíbrio e não uma: os PRONAMPs saem do caixa mas não são
     custo de operar, e incluir ou não muda a resposta em R$ 52 mil. Em vez de
-    escolher pelo gestor, a barra mostra as duas e diz onde a projeção caiu.
+    escolher pelo gestor, a barra mostra as duas — Operacional e Não
+    operacional — e diz onde a projeção caiu.
 
     Duas trilhas empilhadas na MESMA escala: em cima o realizado, embaixo o
     ritmo — o pedaço da meta que os dias já consumiram. Comparar comprimento
     de barra é mais barato para o olho que comparar dois números escritos.
     """
     f = d["faturamento"]
-    proj, op, cx = f["projecao"], f["operacional"], f["caixa"]
+    op, cx = f["operacional"], f["nao_operacional"]
     meta, real = f.get("meta", 0.0), f["realizado"]
+    alvo_hoje, por_dia, proj, dia, dias = ritmo(d)
+
     if proj >= cx:
         cor_proj, veredito = VERDE, "fecha acima das duas linhas"
     elif proj >= op:
-        cor_proj, veredito = AMARELO, "paga a operação, mas não as parcelas"
+        cor_proj, veredito = AMARELO, "paga o operacional, não o resto"
     else:
-        cor_proj, veredito = VERMELHO, "fecha abaixo do equilíbrio operacional"
+        cor_proj, veredito = VERMELHO, "fecha abaixo do operacional"
 
-    alvo_hoje, dia, dias = ritmo(d)
     if real >= alvo_hoje:
-        cor, frase = VERDE, "acima do ritmo"
+        cor, seta, frase = VERDE, "▲", "acima do ritmo"
     elif real >= alvo_hoje * 0.92:
-        cor, frase = AMARELO, "quase no ritmo"
+        cor, seta, frase = AMARELO, "▲", "quase no ritmo"
     else:
-        cor, frase = VERMELHO, "abaixo do ritmo"
+        cor, seta, frase = VERMELHO, "▼", "abaixo do ritmo"
     dif = abs(real - alvo_hoje)
 
-    escala = max(proj, cx, meta, f["teto"]) * 1.10 or 1
+    # O selo e preenchido com a cor de estado e escreve em tinta escura: o
+    # vermelho do Studio tem 2,79:1 sobre o fundo escuro, e texto colorido
+    # nele ficaria abaixo do minimo. Preenchido, a leitura passa dos 5:1.
+    selo = (f'<span style="background:{cor};color:#161616;font-size:12.5px;'
+            f'font-weight:800;padding:4px 10px;border-radius:999px;'
+            f'white-space:nowrap;">{seta} {_brl(dif, 0)} {frase}</span>')
+
+    escala = max(proj, meta, cx, real) * 1.10 or 1
     x = lambda v: min(max(v / escala * 100, 0), 100)
     rot = ('font-size:10px;color:var(--ms-texto-sec);text-align:right;'
            'white-space:nowrap;')
@@ -154,41 +193,40 @@ def _bloco_faturamento(d):
         f'padding:16px 18px 12px;">'
 
         f'<div style="font-size:11px;color:var(--ms-texto-sec);'
-        f'text-transform:uppercase;letter-spacing:.6px;">'
+        f'letter-spacing:.3px;">'
         f'Faturamento × ponto de equilíbrio × meta</div>'
 
-        f'<div style="display:flex;align-items:baseline;gap:12px;'
+        f'<div style="display:flex;align-items:center;gap:12px;'
         f'flex-wrap:wrap;margin-top:6px;">'
         f'<span style="font-size:40px;font-weight:700;color:var(--ms-texto);'
         f'line-height:1;">{_brl(real, 0)}</span>'
         f'<span style="font-size:12px;color:var(--ms-texto-sec);">'
         f'faturado até o dia {dia} de {dias}</span>'
+        + selo +
         f'<span style="margin-left:auto;font-size:12px;'
-        f'color:var(--ms-texto-sec);">projeção de fechamento '
-        f'<b style="color:var(--ms-texto);">{_brl(proj, 0)}</b></span></div>'
+        f'color:var(--ms-texto-sec);text-align:right;">Se mantiver o ritmo, '
+        f'fecha em <b style="color:var(--ms-texto);">{_brl(proj, 0)}</b></span>'
+        f'</div>'
 
         # Duas trilhas na mesma escala, com rótulo à esquerda: o que a coluna
         # da direita mede é sempre o mesmo eixo de R$ faturado no mês.
         f'<div style="display:grid;grid-template-columns:96px 1fr;'
         f'gap:6px 10px;align-items:center;margin-top:16px;">'
 
-        f'<div style="{rot}font-weight:700;color:var(--ms-texto);">realizado</div>'
+        f'<div style="{rot}font-weight:700;color:var(--ms-texto);">Realizado</div>'
         f'<div style="height:18px;border-radius:9px;'
         f'background:var(--ms-metric-bd);position:relative;">'
         f'<div style="position:absolute;left:0;top:0;height:100%;'
         f'width:{x(real):.1f}%;background:{cor};border-radius:9px;"></div>'
-        # A faixa piso-teto: a projeção tem erro medido, e fingir um ponto
-        # exato seria inventar precisão que o método não tem.
-        f'<div style="position:absolute;top:3px;height:12px;'
-        f'left:{x(f["piso"]):.1f}%;width:{x(f["teto"]) - x(f["piso"]):.1f}%;'
-        f'border:2px dashed var(--ms-texto-sec);border-radius:7px;'
-        f'opacity:.75;"></div>'
-        + _marcador(x(op), "operacional")
-        + _marcador(x(cx), "caixa")
-        + _marcador(x(meta), "meta") +
+        # A projeção é marcador VAZADO: ela ainda não aconteceu, e um traço
+        # cheio a faria pesar tanto quanto o que já está na conta.
+        + _marcador(x(proj), vazado=True)
+        + _marcador(x(op))
+        + _marcador(x(cx))
+        + _marcador(x(meta)) +
         f'</div>'
 
-        f'<div style="{rot}">ritmo do dia {dia}</div>'
+        f'<div style="{rot}">Ritmo do dia {dia}</div>'
         f'<div style="height:10px;border-radius:5px;'
         f'background:var(--ms-metric-bd);position:relative;">'
         f'<div style="position:absolute;left:0;top:0;height:100%;'
@@ -197,67 +235,83 @@ def _bloco_faturamento(d):
 
         f'<div></div>'
         f'<div style="position:relative;height:15px;">'
-        f'<span style="position:absolute;left:{x(op):.1f}%;'
-        f'transform:translateX(-50%);font-size:9px;font-weight:700;'
-        f'white-space:nowrap;color:var(--ms-texto);">▲ operacional</span>'
-        f'<span style="position:absolute;left:{x(cx):.1f}%;'
-        f'transform:translateX(-50%);font-size:9px;font-weight:700;'
-        f'white-space:nowrap;color:var(--ms-texto);">▲ caixa</span>'
-        f'<span style="position:absolute;left:{x(meta):.1f}%;'
-        f'transform:translateX(-50%);font-size:9px;font-weight:700;'
-        f'white-space:nowrap;color:var(--ms-texto);">▲ meta</span></div>'
-        f'</div>'
+        + _rotulo(x(op), "▲ Operacional")
+        + _rotulo(x(cx), "▲ Não operacional")
+        + _rotulo(x(meta), "▲ Meta")
+        + _rotulo(x(proj), "▽ Projeção") +
+        f'</div></div>'
 
         f'<div style="display:flex;justify-content:space-between;gap:12px;'
         f'flex-wrap:wrap;font-size:11px;color:var(--ms-texto-sec);'
         f'margin-top:8px;">'
-        f'<span>meta do mês <b style="color:var(--ms-texto);">'
-        f'{_brl(meta, 0)}</b> · até o dia {dia} deveria ter '
-        f'<b style="color:var(--ms-texto);">{_brl(alvo_hoje, 0)}</b></span>'
-        f'<span style="color:{cor};font-weight:700;">'
-        f'{_brl(dif, 0)} {frase}</span></div>'
+        f'<span>Meta do mês <b style="color:var(--ms-texto);">{_brl(meta, 0)}</b>'
+        f' · até o dia {dia} deveria ter <b style="color:var(--ms-texto);">'
+        f'{_brl(alvo_hoje, 0)}</b></span>'
+        f'<span>Ritmo médio <b style="color:var(--ms-texto);">'
+        f'{_brl(por_dia, 0)}/dia</b> em {dia} dias</span></div>'
 
         f'<div style="display:flex;justify-content:space-between;gap:12px;'
         f'flex-wrap:wrap;font-size:11px;color:var(--ms-texto-sec);'
         f'margin-top:4px;">'
-        f'<span>faixa da projeção {_brl(f["piso"], 0)} – {_brl(f["teto"], 0)}</span>'
-        f'<span>projeção: <b style="color:{cor_proj};">{veredito}</b></span>'
-        f'<span>equilíbrio operacional {_brl(op, 0)} · de caixa {_brl(cx, 0)}</span>'
+        f'<span>Projeção (▽) = ritmo médio × {dias} dias</span>'
+        f'<span>Projeção: <b style="color:{cor_proj};">{veredito}</b></span>'
+        f'<span>Operacional {_brl(op, 0)} · Não operacional {_brl(cx, 0)}</span>'
         f'</div></div>',
         unsafe_allow_html=True)
 
 
-def _marcador(pos, _nome):
+def _rotulo(pos, texto):
+    return (f'<span style="position:absolute;left:{pos:.1f}%;'
+            f'transform:translateX(-50%);font-size:9px;font-weight:700;'
+            f'white-space:nowrap;color:var(--ms-texto);">{texto}</span>')
+
+
+def _marcador(pos, vazado=False):
+    if vazado:
+        return (f'<div style="position:absolute;top:-6px;bottom:-6px;'
+                f'left:{pos:.1f}%;width:9px;margin-left:-4.5px;'
+                f'border:2px solid var(--ms-texto);border-radius:3px;'
+                f'background:transparent;"></div>')
     return (f'<div style="position:absolute;top:-6px;bottom:-6px;'
             f'left:{pos:.1f}%;width:3px;margin-left:-1.5px;border-radius:2px;'
             f'background:var(--ms-texto);"></div>')
 
 
-def _card(c):
-    """Um indicador: realizado contra necessário, com o veredito escrito.
+def atingiu(c):
+    """Bateu o necessário? A direção é do cartão, não da tela."""
+    r, n = float(c["realizado"]), float(c["necessario"])
+    return r >= n if c["maior_melhor"] else r <= n
 
-    `maior_melhor` existe porque nem todos apontam para o mesmo lado: em LPV e
-    nos lucros, mais é melhor; em custo unitário, menos. Sem isso, a mesma cor
-    diria coisas opostas em cartões vizinhos.
+
+def _card(c, dia=1, dias=1):
+    """Um indicador: realizado contra necessário, e onde ele fecha o mês.
+
+    `maior_melhor` existe porque nem todos apontam para o mesmo lado: em LPV,
+    nos lucros e na unidade de contribuição, mais é melhor; num custo, menos.
+    Sem isso, a mesma cor diria coisas opostas em cartões vizinhos.
     """
     r, n = float(c["realizado"]), float(c["necessario"])
-    atingiu = r >= n if c["maior_melhor"] else r <= n
+    bateu = atingiu(c)
     perto = abs(r - n) / (abs(n) or 1) <= 0.08
-    cor = VERDE if atingiu else (AMARELO if perto else VERMELHO)
+    cor = VERDE if bateu else (AMARELO if perto else VERMELHO)
     falta = (n - r) if c["maior_melhor"] else (r - n)
-    verbo = "acima do necessário" if atingiu else (
+    verbo = "acima do necessário" if bateu else (
         "abaixo do necessário" if c["maior_melhor"] else "acima do necessário")
     # Diferenca entre duas porcentagens e ponto percentual, nao porcentagem:
     # "1,9%" ao lado de "48,0%" faz o olho ler 1,9% DE 48, que e outro numero.
     dif = (_num(abs(falta), 1, " p.p.") if c["fmt"] == "pct"
+           else _num(abs(falta), 1) if c["fmt"] == "razao"
            else _fmt(abs(falta), c["fmt"]))
+    fecha = projetar(r, dia, dias, c.get("acumula", False))
+    nota = ("soma o mês inteiro no ritmo de hoje" if c.get("acumula")
+            else "já é média: fecha onde está")
     escala = max(r, n) * 1.25 or 1
     return (
         f'<div style="background:var(--ms-metric-bg);'
         f'border:1px solid var(--ms-metric-bd);border-radius:10px;'
         f'padding:12px 14px;height:100%;">'
-        f'<div style="font-size:10px;color:var(--ms-texto-sec);'
-        f'text-transform:uppercase;letter-spacing:.5px;">{c["rotulo"]}</div>'
+        f'<div style="font-size:11.5px;font-weight:700;'
+        f'color:var(--ms-texto);letter-spacing:.2px;">{c["rotulo"]}</div>'
         f'<div style="font-size:9px;color:var(--ms-texto-sec);'
         f'margin-bottom:6px;">{c["sub"]}</div>'
         f'<div style="font-size:26px;font-weight:700;color:var(--ms-texto);'
@@ -271,11 +325,15 @@ def _card(c):
         f'left:{min(n / escala * 100, 100):.1f}%;width:3px;margin-left:-1.5px;'
         f'border-radius:2px;background:var(--ms-texto);"></div></div>'
         f'<div style="font-size:9.5px;color:var(--ms-texto-sec);">'
-        f'necessário <b style="color:var(--ms-texto);">'
+        f'Necessário <b style="color:var(--ms-texto);">'
         f'{_fmt(n, c["fmt"])}</b></div>'
         f'<div style="font-size:10.5px;font-weight:700;color:{cor};'
-        f'margin-top:4px;">'
-        f'{"✔" if atingiu else "▸"} {dif} {verbo}</div>'
+        f'margin-top:4px;">{"✔" if bateu else "▸"} {dif} {verbo}</div>'
+        f'<div style="margin-top:7px;padding-top:6px;'
+        f'border-top:1px solid var(--ms-metric-bd);font-size:9.5px;'
+        f'color:var(--ms-texto-sec);">▽ No ritmo, fecha em '
+        f'<b style="color:var(--ms-texto);">{_fmt(fecha, c["fmt"])}</b>'
+        f'<br><span style="opacity:.75;">{nota}</span></div>'
         f'</div>')
 
 
@@ -290,20 +348,23 @@ def pagina(usuario_logado=None, dados=None):
         st.warning("**Números de exemplo**, para aprovar o layout. Nenhum "
                    "deles vem da operação ainda.")
 
+    _, _, _, dia, dias = ritmo(d)
     _bloco_faturamento(d)
 
     st.markdown('<div style="height:10px;"></div>', unsafe_allow_html=True)
     st.markdown(
         '<div style="display:grid;grid-template-columns:repeat(3,1fr);'
-        'gap:10px;">' + "".join(_card(c) for c in d["cards"]) + '</div>',
+        'gap:10px;">'
+        + "".join(_card(c, dia, dias) for c in d["cards"])
+        + '</div>',
         unsafe_allow_html=True)
 
     st.caption(
         f"Mês de referência {d['mes']:02d}/{d['ano']}, fechado no dia "
-        f"{d['dia']} de {ritmo(d)[2]}. O **ritmo** reparte a meta em partes "
-        "iguais pelos dias corridos do mês. A faixa tracejada é o intervalo "
-        "da projeção — ela tem erro medido, e fingir um ponto exato seria "
-        "inventar precisão que o método não tem.")
+        f"{dia} de {dias}. O **ritmo** reparte a meta em partes iguais pelos "
+        "dias corridos do mês, e a **projeção (▽)** é o ritmo médio vezes os "
+        "dias do mês — um método só, porque duas projeções discordando na "
+        "mesma tela não informam, escolhem por você.")
 
 
 # ── Conferência ──────────────────────────────────────────────────────────────
@@ -317,18 +378,20 @@ if __name__ == "__main__":
 
     ok("real sai no formato brasileiro", _brl(148320, 0) == "R$ 148.320")
     ok("porcentagem sai com uma casa", _fmt(12.4, "pct") == "12,4%")
+    ok("a unidade de contribuição sai como razão", _fmt(1.8, "razao") == "1,8/1")
     ok("o exemplo tem os seis cartões", len(EXEMPLO["cards"]) == 6)
-    ok("todo cartão diz para que lado é melhor",
-       all("maior_melhor" in c for c in EXEMPLO["cards"]))
-    ok("o custo unitário é o único em que menos é melhor",
-       [c["rotulo"] for c in EXEMPLO["cards"] if not c["maior_melhor"]] == ["UC"])
-    ok("a linha de caixa é sempre maior que a operacional",
-       EXEMPLO["faturamento"]["caixa"] > EXEMPLO["faturamento"]["operacional"])
-    ok("a meta do mês fica acima do equilíbrio de caixa",
-       EXEMPLO["faturamento"]["meta"] > EXEMPLO["faturamento"]["caixa"])
-    ok("a projeção cai dentro da própria faixa",
-       EXEMPLO["faturamento"]["piso"] <= EXEMPLO["faturamento"]["projecao"]
-       <= EXEMPLO["faturamento"]["teto"])
+    ok("todo cartão diz para que lado é melhor e se acumula",
+       all("maior_melhor" in c and "acumula" in c for c in EXEMPLO["cards"]))
+    ok("todo rótulo começa com maiúscula",
+       all(c["rotulo"][0].isupper() for c in EXEMPLO["cards"]))
+    ok("no exemplo ilustrado, todo cartão bate o necessário",
+       all(atingiu(c) for c in EXEMPLO["cards"]))
+    ok("o não operacional é sempre maior que o operacional",
+       EXEMPLO["faturamento"]["nao_operacional"]
+       > EXEMPLO["faturamento"]["operacional"])
+    ok("a meta do mês fica acima do não operacional",
+       EXEMPLO["faturamento"]["meta"]
+       > EXEMPLO["faturamento"]["nao_operacional"])
 
     # As margens em % e os lucros em R$ sao o MESMO fato em duas unidades: se
     # um dia discordarem, a tela mente em dois cartoes vizinhos.
@@ -341,19 +404,30 @@ if __name__ == "__main__":
             ok(f"{_margem} bate com {_lucro} ({_campo})",
                abs(_esperado - _c[_margem][_campo]) < 0.06)
 
-    # O ritmo e a meta repartida pelos dias CORRIDOS: no ultimo dia do mes ele
-    # tem de ser a meta inteira, senao a barra nunca fecha.
-    _fim = dict(EXEMPLO, dia=30)
-    ok("o ritmo do último dia é a meta inteira",
-       abs(ritmo(_fim)[0] - EXEMPLO["faturamento"]["meta"]) < 0.01)
-    ok("setembro tem 30 dias e o ritmo do dia 14 é 14/30 da meta",
-       ritmo(EXEMPLO)[2] == 30
-       and abs(ritmo(EXEMPLO)[0] - 240_000 * 14 / 30) < 0.01)
-    ok("um dia além do fim do mês não passa da meta",
-       abs(ritmo(dict(EXEMPLO, dia=44))[0]
-           - EXEMPLO["faturamento"]["meta"]) < 0.01)
-    ok("o realizado do exemplo é menor que a projeção",
-       EXEMPLO["faturamento"]["realizado"] < EXEMPLO["faturamento"]["projecao"])
+    # Ritmo: meta repartida pelos dias CORRIDOS, e a projecao saindo do
+    # proprio ritmo — nunca de um numero escrito a mao em outro lugar.
+    _alvo, _dia_a_dia, _proj, _dia, _dias = ritmo(EXEMPLO)
+    ok("setembro tem 30 dias", _dias == 30)
+    ok("o ritmo do dia 14 é 14/30 da meta", abs(_alvo - 240_000 * 14 / 30) < 0.01)
+    ok("o ritmo médio é o faturado dividido pelos dias corridos",
+       abs(_dia_a_dia - 148_320 / 14) < 0.01)
+    ok("a projeção é o ritmo médio vezes os dias do mês",
+       abs(_proj - _dia_a_dia * 30) < 0.01)
+    ok("no último dia do mês, ritmo e projeção encontram o realizado",
+       abs(ritmo(dict(EXEMPLO, dia=30))[0] - 240_000) < 0.01
+       and abs(ritmo(dict(EXEMPLO, dia=30))[2] - 148_320) < 0.01)
+    ok("um dia além do fim do mês não estica a projeção",
+       abs(ritmo(dict(EXEMPLO, dia=44))[2] - 148_320) < 0.01)
+
+    # O que ACUMULA se estica; o que ja e media fecha onde esta. Esticar uma
+    # razao pelo tempo daria um numero sem significado.
+    ok("o lucro em R$ se estica pelos dias que faltam",
+       abs(projetar(102_340.80, 14, 30, True) - 102_340.80 / 14 * 30) < 0.01)
+    ok("a margem em % fecha onde está",
+       projetar(69.0, 14, 30, False) == 69.0)
+    ok("só os lucros em R$ acumulam",
+       [c["rotulo"] for c in EXEMPLO["cards"] if c["acumula"]]
+       == ["Lucro bruto", "Lucro líquido"])
 
     # As tres cores sao ESTADO: cada barra mostra uma so, e sempre com frase.
     ok("as três cores de estado são distintas",
