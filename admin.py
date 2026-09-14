@@ -599,4 +599,25 @@ def pagina_admin(usuario_logado):
                     import pandas as _pd_m
                     st.dataframe(_pd_m.DataFrame(_linhas),
                                  use_container_width=True, hide_index=True)
+
+                # Por canal, e nao so por CNPJ: ML1 e ML3 vivem dentro da LG,
+                # ML2 e ML4 dentro da MS. Somados, escondem qual conta puxa a
+                # venda — que e exatamente o indicador que faltava.
+                _nomes = _res.get("nomes_loja") or {}
+                _canais = []
+                for _lid, _d in sorted(_res.get("por_loja", {}).items(),
+                                       key=lambda x: -x[1]["total"]):
+                    _canais.append({
+                        "canal": _bl.nome_do_canal(_nomes, _lid),
+                        "id": "" if _lid is None else _lid,
+                        "pedidos": _d["n"],
+                        "bruto": round(_d["total"], 2),
+                        "cancelado": round(_d["cancelado"], 2),
+                        "líquido": round(_d["total"] - _d["cancelado"], 2),
+                    })
+                if _canais:
+                    st.caption("Por canal de venda:")
+                    import pandas as _pd_c
+                    st.dataframe(_pd_c.DataFrame(_canais),
+                                 use_container_width=True, hide_index=True)
                 st.markdown("")
