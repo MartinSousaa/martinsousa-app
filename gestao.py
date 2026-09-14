@@ -40,18 +40,8 @@ def _em_branco(titulo, descricao, itens):
 
 def pagina_home(usuario_logado=None):
     """A primeira tela de Gestão: os indicadores que resumem o mês."""
-    _em_branco(
-        "🏠 Home",
-        "O resumo do mês: onde o faturamento está contra o que ele precisa ser.",
-        [
-            "Faturamento × ponto de equilíbrio",
-            "LPV · realizado contra o necessário",
-            "UC · realizado contra o necessário",
-            "Lucro bruto · realizado contra o necessário",
-            "Lucro líquido · realizado contra o necessário",
-            "Margem de lucro · realizada contra a necessária",
-        ],
-    )
+    import home_gestao as _hg
+    _hg.pagina(usuario_logado)
 
 
 # As três faces do custo fixo. Elas viviam como abas irmãs do Financeiro, e
