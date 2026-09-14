@@ -577,6 +577,55 @@ def id_de_cancelado(conta):
     return (ids, "")
 
 
+# ── Canais de venda: o nome de cada `loja.id` ───────────────────────────────
+# O pedido devolve a loja como numero: {"loja": {"id": 204...}}. Sao 10 canais
+# nas duas contas, e dois deles sao Mercado Livre DENTRO do mesmo CNPJ (ML1 e
+# ML3 na LG, ML2 e ML4 na MS) — somados, escondem qual conta puxa a venda.
+#
+# O nome NAO se chumba aqui, pela mesma razao das situacoes: quem cadastra
+# canal e o Bling, o id muda por conta, e um canal novo nasceria sem nome no
+# painel. A tabela e lida da propria conta.
+_CANAIS_CACHE = {}
+
+
+def canais_de_venda(conta):
+    """{id: descrição} dos canais de venda da conta. ({}, erro)."""
+    conta = str(conta).strip().lower()
+    if conta in _CANAIS_CACHE:
+        return (_CANAIS_CACHE[conta], "")
+    mapa = {}
+    for pagina in range(1, 11):
+        resp, erro = get(conta, "/canais-venda",
+                         params={"pagina": pagina, "limite": 100})
+        if erro:
+            return (mapa, erro)
+        lote = (resp or {}).get("data")
+        if not isinstance(lote, list) or not lote:
+            break
+        for c in lote:
+            if c.get("id") is not None:
+                mapa[int(c["id"])] = str(c.get("descricao") or "").strip()
+        if len(lote) < 100:
+            break
+        _t.sleep(0.35)
+    if mapa:
+        _CANAIS_CACHE[conta] = mapa
+    return (mapa, "")
+
+
+def nome_do_canal(mapa, loja_id):
+    """Como chamar esta loja na tela. Nunca devolve vazio.
+
+    Canal sem nome na tabela vira "loja 4711" e nao "" — uma linha sem rotulo
+    no meio de uma tabela de dinheiro e pior do que um rotulo feio, porque
+    ninguem sabe se e um canal novo ou um erro de leitura.
+    """
+    if loja_id is None:
+        return "sem loja no pedido"
+    nome = str((mapa or {}).get(loja_id) or "").strip()
+    return nome or f"loja {loja_id}"
+
+
 # ── Faturamento do mês ──────────────────────────────────────────────────────
 def somar_pedidos(lista, ids_cancelados):
     """Soma uma lista de pedidos. Função pura — é ela que os testes cobrem.
@@ -592,6 +641,7 @@ def somar_pedidos(lista, ids_cancelados):
     bruto = cancelado = 0.0
     n = n_cancel = 0
     por_situacao = {}
+    por_loja = {}
     for p in (lista or []):
         try:
             valor = float(p.get("total") or 0)
@@ -606,11 +656,26 @@ def somar_pedidos(lista, ids_cancelados):
         acumulado = por_situacao.setdefault(sid, {"n": 0, "total": 0.0})
         acumulado["n"] += 1
         acumulado["total"] += valor
+
+        # A loja vem como {"id": N}; pedido sem loja (venda digitada a mao)
+        # cai em None e aparece na tela com esse nome, em vez de sumir.
+        loja = p.get("loja") or {}
+        lid = loja.get("id") if isinstance(loja, dict) else loja
+        try:
+            lid = int(lid)
+        except (TypeError, ValueError):
+            lid = None
+        na_loja = por_loja.setdefault(lid, {"n": 0, "total": 0.0,
+                                            "cancelado": 0.0})
+        na_loja["n"] += 1
+        na_loja["total"] += valor
+
         bruto += valor
         n += 1
         if sid in ids:
             cancelado += valor
             n_cancel += 1
+            na_loja["cancelado"] += valor
     return {
         "bruto": bruto,
         "cancelado": cancelado,
@@ -618,6 +683,7 @@ def somar_pedidos(lista, ids_cancelados):
         "pedidos": n,
         "pedidos_cancelados": n_cancel,
         "por_situacao": por_situacao,
+        "por_loja": por_loja,
     }
 
 
@@ -680,7 +746,11 @@ def faturamento_do_mes(conta, ano, mes, forcar=False):
     resumo["lido_em"] = agora
     # Sem o mapa de situacoes o cancelado sai como zero — e zero silencioso e
     # pior do que aviso. O motivo viaja junto.
-    resumo["aviso"] = erro_sit or erro or ""
+    # Os nomes viajam com o resumo: quem chama nao precisa saber que existe
+    # uma segunda leitura, e a tela nao fica montando o mapa por conta propria.
+    nomes, erro_canais = canais_de_venda(conta)
+    resumo["nomes_loja"] = nomes
+    resumo["aviso"] = erro_sit or erro or erro_canais or ""
     _MES_CACHE[chave] = {"ts": agora, "dados": resumo}
     return (resumo, "")
 
@@ -796,5 +866,41 @@ if __name__ == "__main__":
        somar_pedidos([{"total": 10.0, "situacao": 12}], {12})["cancelado"] == 10.0)
     ok("dois ids de cancelado somam juntos",
        somar_pedidos([_p(10.0, 12), _p(5.0, 13)], {12, 13})["cancelado"] == 15.0)
+
+    # ── Por loja: ML1 e ML3 dividem o CNPJ, e so o `loja.id` os separa ──────
+    def _pl(total, sid, loja):
+        d = _p(total, sid)
+        if loja is not None:
+            d["loja"] = {"id": loja}
+        return d
+
+    CANAIS = [_pl(100.0, 9, 204), _pl(60.0, 9, 204),
+              _pl(90.0, 9, 311), _pl(40.0, 12, 311),
+              _pl(25.0, 9, None)]
+    sl = somar_pedidos(CANAIS, {12})["por_loja"]
+    ok("agrupa por loja", sl[204]["n"] == 2 and sl[204]["total"] == 160.0)
+    ok("duas lojas do mesmo CNPJ não se misturam",
+       sl[311]["total"] == 130.0 and sl[204]["total"] == 160.0)
+    ok("o cancelado é contado dentro da loja onde caiu",
+       sl[311]["cancelado"] == 40.0 and sl[204]["cancelado"] == 0.0)
+    ok("pedido sem loja não some — vai para a chave None",
+       sl[None]["total"] == 25.0)
+    ok("a soma das lojas é o bruto",
+       abs(sum(v["total"] for v in sl.values())
+           - somar_pedidos(CANAIS, {12})["bruto"]) < 0.001)
+    ok("loja como número puro também é lida",
+       somar_pedidos([{"total": 7.0, "loja": 99}], set())["por_loja"][99]["total"] == 7.0)
+    ok("loja ilegível cai em None em vez de explodir",
+       somar_pedidos([{"total": 7.0, "loja": {"id": "abc"}}],
+                     set())["por_loja"][None]["total"] == 7.0)
+
+    # Canal sem nome vira rotulo legivel: linha sem rotulo numa tabela de
+    # dinheiro esconde se e canal novo ou erro de leitura.
+    ok("canal conhecido sai pelo nome", nome_do_canal({204: "ML1"}, 204) == "ML1")
+    ok("canal desconhecido vira 'loja N'", nome_do_canal({}, 311) == "loja 311")
+    ok("canal com descrição vazia não vira rótulo vazio",
+       nome_do_canal({7: "   "}, 7) == "loja 7")
+    ok("pedido sem loja tem nome próprio",
+       nome_do_canal({}, None) == "sem loja no pedido")
 
     print("\nfalhas:", falhas)
