@@ -3392,17 +3392,19 @@ def _chart_curva_execucao(dados, username, por_mes=False):
     if por_mes:
         agrup = {}
         for dia, v in dias.items():
-            agrup.setdefault(dia[:7], 0)
-            agrup[dia[:7]] += v["qtd"]
+            a = agrup.setdefault(dia[:7], {"qtd": 0, "pts": 0.0})
+            a["qtd"] += v["qtd"]; a["pts"] += v.get("pts", 0.0)
         # Todos os meses do periodo, inclusive os zerados
-        rotulos, vals = [], []
+        rotulos, vals, pontos = [], [], []
         for r in dados:
             ym = r.get("filtro_mes")
             if not ym:
                 continue
             chave = f"{ym[0]:04d}-{ym[1]:02d}"
             rotulos.append(r.get("label", chave))
-            vals.append(agrup.get(chave, 0))
+            a = agrup.get(chave) or {}
+            vals.append(a.get("qtd", 0))
+            pontos.append(a.get("pts", 0.0))
         titulo_x = "mês"
     else:
         ym = next((r.get("filtro_mes") for r in dados if r.get("filtro_mes")), None)
@@ -3414,19 +3416,30 @@ def _chart_curva_execucao(dados, username, por_mes=False):
         rotulos = [str(d) for d in range(1, ultimo + 1)]
         vals = [dias.get(f"{ano:04d}-{mes:02d}-{d:02d}", {}).get("qtd", 0)
                 for d in range(1, ultimo + 1)]
+        # A PONTUACAO do dia, ao lado da quantidade. Dez cartoes de DESATIVAR
+        # e dois de CRIATIVO DO ZERO sao dias muito diferentes, e a contagem
+        # sozinha os desenha iguais.
+        pontos = [dias.get(f"{ano:04d}-{mes:02d}-{d:02d}", {}).get("pts", 0.0)
+                  for d in range(1, ultimo + 1)]
         titulo_x = "dia"
 
     if not vals:
         return ('<div style="padding:24px;text-align:center;font-size:11px;'
                 'color:var(--ms-texto-sec);">Sem dados no período</div>')
 
+    if len(pontos) != len(vals):
+        pontos = [0.0] * len(vals)
+
     W, H = 620, 170
-    ml, mr, mt, mb = 30, 12, 16, 30
+    # Margem direita maior: entra um segundo eixo, o dos pontos.
+    ml, mr, mt, mb = 30, 34, 16, 30
     iw, ih = W - ml - mr, H - mt - mb
     topo = max(vals + [1])
+    topo_pts = max(pontos + [1.0])
     media = sum(vals) / len(vals)
     bw = iw / len(vals)
     def y(v): return mt + ih - (v / topo * ih)
+    def yp(v): return mt + ih - (v / topo_pts * ih)
 
     partes = []
     for i in range(4):
@@ -3443,7 +3456,8 @@ def _chart_curva_execucao(dados, username, por_mes=False):
             partes.append(
                 f'<rect x="{x:.1f}" y="{y(v):.1f}" width="{larg:.1f}" '
                 f'height="{mt+ih-y(v):.1f}" rx="2" fill="#4A90D9">'
-                f'<title>{rotulos[i]}: {v} cartão(ões)</title></rect>')
+                f'<title>{rotulos[i]}: {v} cartão(ões) · '
+                f'{pontos[i]:.0f} pts</title></rect>')
         else:
             partes.append(
                 f'<rect x="{x:.1f}" y="{mt+ih-1.5:.1f}" width="{larg:.1f}" height="1.5" '
@@ -3456,11 +3470,50 @@ def _chart_curva_execucao(dados, username, por_mes=False):
     partes.append(
         f'<line x1="{ml}" y1="{y(media):.1f}" x2="{W-mr}" y2="{y(media):.1f}" '
         f'stroke="#EDA100" stroke-width="1.5" stroke-dasharray="4,3"/>'
-        f'<text x="{W-mr}" y="{y(media)-4:.1f}" text-anchor="end" font-size="7.5" '
+        f'<text x="{ml+2}" y="{y(media)-4:.1f}" font-size="7.5" '
         f'font-weight="700" fill="#EDA100">média {media:.1f}/{titulo_x}</text>')
+
+    # A PONTUACAO por cima, como linha — e nao uma segunda barra.
+    #
+    # Dez cartoes de DESATIVAR e dois de CRIATIVO DO ZERO sao dias muito
+    # diferentes, e a contagem sozinha os desenha iguais. Linha e nao barra
+    # porque sao GRANDEZAS diferentes na mesma figura: duas barras lado a lado
+    # convidam a comparar altura, e cartao com ponto nao se compara.
+    #
+    # Escala propria, com o eixo dela escrito a direita: forcar as duas na
+    # mesma regua faria a de cartoes virar um risco no chao.
+    if any(p > 0 for p in pontos):
+        pts_xy = " ".join(f"{ml + i * bw + bw / 2:.1f},{yp(p):.1f}"
+                          for i, p in enumerate(pontos))
+        partes.append(
+            f'<polyline points="{pts_xy}" fill="none" stroke="#B07CC6" '
+            f'stroke-width="1.6" stroke-linejoin="round"/>')
+        for i, p in enumerate(pontos):
+            if p <= 0:
+                continue
+            partes.append(
+                f'<circle cx="{ml + i * bw + bw / 2:.1f}" cy="{yp(p):.1f}" '
+                f'r="2" fill="#B07CC6"><title>{rotulos[i]}: {p:.0f} pts · '
+                f'{vals[i]} cartão(ões)</title></circle>')
+        for i in range(4):
+            yg = mt + ih * i / 3
+            partes.append(
+                f'<text x="{W-mr+4}" y="{yg+3:.1f}" font-size="7.5" '
+                f'fill="#B07CC6">{topo_pts*(3-i)/3:.0f}</text>')
+
+    legenda = (
+        '<div style="display:flex;gap:14px;font-size:9.5px;'
+        'color:var(--ms-texto-sec);margin-top:2px;">'
+        '<span><span style="display:inline-block;width:14px;height:7px;'
+        'border-radius:2px;background:#4A90D9;vertical-align:middle;"></span> '
+        'cartões entregues</span>'
+        '<span><span style="display:inline-block;width:14px;height:2px;'
+        'background:#B07CC6;vertical-align:middle;"></span> pontos '
+        '(escala à direita)</span></div>')
     return (f'<div style="width:100%;overflow:hidden;padding:4px 0;">'
             f'<svg viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" '
-            f'style="width:100%;">' + "".join(partes) + '</svg></div>')
+            f'style="width:100%;">' + "".join(partes) + '</svg>'
+            + legenda + '</div>')
 
 
 def _atividade_do_membro(dados, username):
@@ -5841,6 +5894,107 @@ def _ociosidade_por_pessoa(dados, membros_ativos):
     return fora
 
 
+def _secao_agora(dados):
+    """Quem está parado AGORA, para dar tempo de intervir.
+
+    O período fechado responde "como foi o mês"; esta responde "o que está
+    acontecendo neste minuto". São perguntas diferentes e a segunda é a única
+    que ainda dá para mudar — ociosidade de ontem já virou ontem.
+
+    Tudo sai do que a tela JÁ leu: as janelas de hoje de `_janelas_uteis` (que
+    agora saem do relógio de ponto) e o trecho de hoje dos intervalos com
+    cartão EM ANDAMENTO. Nenhuma ida nova à rede — a atualização vem do botão,
+    e o carimbo diz de quando é o número. Auto-refresh aqui poria o Trello para
+    responder a cada clique de qualquer pessoa na tela.
+    """
+    from datetime import datetime as _dt, timedelta as _td
+    agora = _dt.now(_pc.FUSO)
+    ini_dia = agora.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    intervalos = {}
+    for r in dados:
+        for u, lista in (r.get("intervalos_membro") or {}).items():
+            intervalos.setdefault(u, []).extend(lista)
+
+    linhas = []
+    for u, nome in _pc.MEMBROS_ATIVOS.items():
+        try:
+            janelas = _pc._janelas_uteis(ini_dia, agora, u)
+        except Exception:
+            janelas = []
+        if not janelas:
+            continue
+        ativos = [(a, b) for a, b in (intervalos.get(u) or [])
+                  if b > ini_dia and a < agora]
+        try:
+            ocio, _ = _pc.ociosidade_do_dia(janelas, ativos)
+        except Exception:
+            ocio = 0.0
+        disp = sum((b - a).total_seconds() / 60 for a, b in janelas)
+        # Parado AGORA: nenhum trecho ativo cobrindo este minuto, e o
+        # expediente aberto. E o unico dado da tela sobre o qual ainda da
+        # para agir hoje.
+        no_ar = any(a <= agora <= b for a, b in janelas)
+        trabalhando = any(a <= agora <= b for a, b in ativos)
+        desde = None
+        if no_ar and not trabalhando:
+            fins = [b for a, b in ativos if b <= agora]
+            inicio_janela = min(j[0] for j in janelas)
+            desde = max(fins) if fins else inicio_janela
+        linhas.append({"u": u, "nome": nome, "ocio": ocio, "disp": disp,
+                       "no_ar": no_ar, "trabalhando": trabalhando,
+                       "parado_min": ((agora - desde).total_seconds() / 60
+                                      if desde else 0.0)})
+    if not linhas:
+        st.caption("Ninguém com expediente aberto agora.")
+        return
+
+    t_ocio = sum(l["ocio"] for l in linhas)
+    t_disp = sum(l["disp"] for l in linhas)
+    parados = [l for l in linhas if l["no_ar"] and not l["trabalhando"]]
+    _OK, _ATENCAO, _RUIM = "#1BAF7A", "#EDA100", "#E34948"
+    cor_top = _OK if not parados else (_ATENCAO if len(parados) == 1 else _RUIM)
+
+    c1, c2 = st.columns([1, 2])
+    c1.markdown(
+        f'<div style="background:var(--ms-metric-bg);border:1px solid '
+        f'var(--ms-metric-bd);border-radius:10px;padding:12px 14px;">'
+        f'<div style="font-size:10.5px;color:var(--ms-texto-sec);">'
+        f'Parados neste minuto</div>'
+        f'<div style="font-size:30px;font-weight:700;color:{cor_top};'
+        f'line-height:1.1;">{len(parados)}<span style="font-size:14px;'
+        f'color:var(--ms-texto-sec);"> de {len(linhas)}</span></div>'
+        f'<div style="font-size:10.5px;color:var(--ms-texto-sec);'
+        f'margin-top:4px;">Hoje: <b style="color:var(--ms-texto);">'
+        f'{_fmt_hm(t_ocio)}</b> ociosos de {_fmt_hm(t_disp)}</div></div>',
+        unsafe_allow_html=True)
+
+    html = ('<div style="display:grid;grid-template-columns:110px 92px 1fr;'
+            'gap:5px 10px;align-items:center;">')
+    for l in sorted(linhas, key=lambda x: (x["trabalhando"], -x["parado_min"])):
+        if not l["no_ar"]:
+            selo, cor = "fora do expediente", "var(--ms-texto-sec)"
+        elif l["trabalhando"]:
+            selo, cor = "trabalhando", _OK
+        else:
+            m = l["parado_min"]
+            cor = _RUIM if m >= 30 else _ATENCAO
+            selo = f"parado há {_fmt_hm(m)}"
+        html += (
+            f'<div style="font-size:11.5px;font-weight:600;'
+            f'color:var(--ms-texto);">{_esc(l["nome"])}</div>'
+            f'<div style="font-size:10.5px;font-weight:700;color:{cor};">'
+            f'{selo}</div>'
+            f'<div style="font-size:10.5px;color:var(--ms-texto-sec);">'
+            f'{_fmt_hm(l["ocio"])} ociosos hoje de {_fmt_hm(l["disp"])}</div>')
+    html += "</div>"
+    c2.markdown(html, unsafe_allow_html=True)
+    st.caption(f"Foto de {agora:%H:%M:%S}. Use **Atualizar** para refazer a "
+               "leitura — a tela não se atualiza sozinha de propósito: um "
+               "auto-refresh aqui poria o Trello para responder a cada clique "
+               "de qualquer pessoa no Studio.")
+
+
 def _secao_desempenho_equipe(dados):
     """Os três gráficos do individual, somando a equipe inteira.
 
@@ -5931,10 +6085,19 @@ def _secao_ociosidade_equipe(dados, membros_ativos, ocio_por_pessoa,
         f'<div style="display:flex;align-items:baseline;gap:12px;'
         f'flex-wrap:wrap;margin-top:4px;">'
         f'<span style="font-size:34px;font-weight:700;color:{_cor};'
-        f'line-height:1;">{_pct:.1f}%</span>'
+        f'line-height:1;">{_fmt_hm(_ocio)}</span>'
+        f'<span style="font-size:20px;font-weight:700;color:{_cor};">'
+        f'{_pct:.1f}%</span>'
         f'<span style="font-size:12px;color:var(--ms-texto-sec);">'
-        f'{_fmt_hm(_ocio)} ociosos de {_fmt_hm(_disp)} disponíveis · '
-        f'<b style="color:{_cor};">{_frase}</b></span></div></div>',
+        f'parados de {_fmt_hm(_disp)} disponíveis · '
+        f'<b style="color:{_cor};">{_frase}</b></span></div>'
+        # O TEMPO em horas na frente da porcentagem: 20% nao se converte em
+        # decisao, 140h paradas sim — e o gestor decide contratando, cortando
+        # ou puxando demanda, tudo em hora, nunca em porcento.
+        f'<div style="font-size:10.5px;color:var(--ms-texto-sec);'
+        f'margin-top:6px;">São <b style="color:var(--ms-texto);">'
+        f'{_fmt_hm(_ocio)}</b> de trabalho que o time tinha para dar e não '
+        f'deu no período.</div></div>',
         unsafe_allow_html=True)
 
     # O resumo por pessoa, ordenado pela ociosidade: quem precisa de conversa
@@ -6964,6 +7127,20 @@ def pagina_analise_metas(usuario_logado):
         # O desempenho do time no dia a dia. Vem logo depois do cartao de
         # metas porque e a leitura que o gestor faz antes de descer para
         # coluna e pontuacao: como o time andou, e quem esta parado.
+        st.markdown("---")
+        _t_ag, _t_bt = st.columns([4, 1])
+        _t_ag.markdown("#### 🔴 Agora")
+        if _t_bt.button("🔄 Atualizar", key="am_agora_refresh",
+                        use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
+        st.caption("Quem está parado neste minuto — a única parte da tela "
+                   "sobre a qual ainda dá para agir hoje.")
+        try:
+            _secao_agora(dados)
+        except Exception as _e_ag:
+            st.caption(f"Não consegui montar o agora: {str(_e_ag)[:150]}")
+
         st.markdown("---")
         st.markdown("#### 📈 Desempenho do time")
         _secao_desempenho_equipe(dados)
