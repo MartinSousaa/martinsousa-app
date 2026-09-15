@@ -3336,6 +3336,28 @@ def _chart_ind_indices(meses, ponto=None, username=None, max_tol=0,
                      float(_tol_x), float(_atr_x), _adv_x))
 
 
+# EQUIPE INTEIRA, sem duplicar funcao
+# ------------------------------------
+# Os quatro coletores abaixo indexam por `username`. Passando None, eles
+# passam a somar TODO MUNDO — e os tres graficos do individual servem o
+# coletivo sem uma segunda copia de cada um.
+#
+# Copiar os graficos para o coletivo seria a mesma pergunta com duas respostas
+# no codigo: um dia alguem corrige o calculo num e esquece o outro, e as duas
+# telas passam a discordar sem nada dizer qual esta certa.
+EQUIPE = None
+
+
+def _membros_de(mapa, username):
+    """Os pedaços a somar: um membro, ou todos quando `username` é None."""
+    if not isinstance(mapa, dict):
+        return []
+    if username is EQUIPE:
+        return [v for v in mapa.values() if isinstance(v, dict)]
+    v = mapa.get(username)
+    return [v] if isinstance(v, dict) else []
+
+
 def _entregas_do_membro(dados, username):
     """Junta as entregas da pessoa em todos os meses do periodo.
 
@@ -3345,13 +3367,13 @@ def _entregas_do_membro(dados, username):
     """
     dias, cols = {}, {}
     for r in dados:
-        e = (r.get("entregas_membro") or {}).get(username) or {}
-        for dia, v in (e.get("dias") or {}).items():
-            d = dias.setdefault(dia, {"qtd": 0, "pts": 0.0})
-            d["qtd"] += v["qtd"]; d["pts"] += v["pts"]
-        for col, v in (e.get("colunas") or {}).items():
-            c = cols.setdefault(col, {"qtd": 0, "pts": 0.0})
-            c["qtd"] += v["qtd"]; c["pts"] += v["pts"]
+        for e in _membros_de(r.get("entregas_membro"), username):
+            for dia, v in (e.get("dias") or {}).items():
+                d = dias.setdefault(dia, {"qtd": 0, "pts": 0.0})
+                d["qtd"] += v["qtd"]; d["pts"] += v["pts"]
+            for col, v in (e.get("colunas") or {}).items():
+                c = cols.setdefault(col, {"qtd": 0, "pts": 0.0})
+                c["qtd"] += v["qtd"]; c["pts"] += v["pts"]
     return dias, cols
 
 
@@ -3460,15 +3482,16 @@ def _atividade_do_membro(dados, username):
                                      "minutos": 0.0})
 
     for r in dados:
-        for dia, v in ((r.get("atividade_dia") or {}).get(username) or {}).items():
-            reg = _reg(dia)
-            reg["iniciados"] += v.get("iniciados", 0)
-            reg["interrompidos"] += v.get("interrompidos", 0)
-            reg["ativos"] += v.get("ativos", 0)
-            reg["minutos"] += float(v.get("minutos", 0) or 0)
-        e = (r.get("entregas_membro") or {}).get(username) or {}
-        for dia, v in (e.get("dias") or {}).items():
-            _reg(dia)["concluidos"] += v.get("qtd", 0)
+        for por_dia in _membros_de(r.get("atividade_dia"), username):
+            for dia, v in por_dia.items():
+                reg = _reg(dia)
+                reg["iniciados"] += v.get("iniciados", 0)
+                reg["interrompidos"] += v.get("interrompidos", 0)
+                reg["ativos"] += v.get("ativos", 0)
+                reg["minutos"] += float(v.get("minutos", 0) or 0)
+        for e in _membros_de(r.get("entregas_membro"), username):
+            for dia, v in (e.get("dias") or {}).items():
+                _reg(dia)["concluidos"] += v.get("qtd", 0)
     return dias
 
 
@@ -3496,16 +3519,20 @@ def _estados_por_dia(dados, username):
                                      "interrompido": 0})
 
     for r in dados:
-        for dia, lista in ((r.get("execucoes_dia") or {}).get(username) or {}).items():
-            reg = _reg(dia)
-            for e in sorted(lista, key=lambda x: x["ini"]):
-                cid = e.get("card_id") or e.get("card")
-                reg["ultimo"][cid] = e.get("fim_tipo")
-        e_m = (r.get("entregas_membro") or {}).get(username) or {}
-        for dia, v in (e_m.get("dias") or {}).items():
-            reg = _reg(dia)
-            for cid in (v.get("ids") or []):
-                reg["por_card"][cid] = "concluido"
+        # A chave e o CARD, nao a pessoa: cartao com dois membros anexados
+        # apareceria duas vezes na contagem da equipe, e a mesma demanda
+        # contada duas vezes nao e desempenho, e erro de soma.
+        for por_dia in _membros_de(r.get("execucoes_dia"), username):
+            for dia, lista in por_dia.items():
+                reg = _reg(dia)
+                for e in sorted(lista, key=lambda x: x["ini"]):
+                    cid = e.get("card_id") or e.get("card")
+                    reg["ultimo"][cid] = e.get("fim_tipo")
+        for e_m in _membros_de(r.get("entregas_membro"), username):
+            for dia, v in (e_m.get("dias") or {}).items():
+                reg = _reg(dia)
+                for cid in (v.get("ids") or []):
+                    reg["por_card"][cid] = "concluido"
 
     for reg in dias.values():
         for cid, fim in reg["ultimo"].items():
@@ -3523,15 +3550,27 @@ def _execucoes_do_membro(dados, username):
     """{dia: [{"card","ini","fim","min","tipo"}]} da pessoa, no período todo."""
     dias = {}
     for r in dados:
-        for dia, lista in ((r.get("execucoes_dia") or {}).get(username) or {}).items():
-            dias.setdefault(dia, []).extend(lista)
+        for por_dia in _membros_de(r.get("execucoes_dia"), username):
+            for dia, lista in por_dia.items():
+                dias.setdefault(dia, []).extend(lista)
     for lista in dias.values():
         lista.sort(key=lambda e: e["ini"])
     return dias
 
 
 def _expediente(username):
-    """(inicio, fim) do expediente da pessoa, em minutos desde a meia-noite."""
+    """(inicio, fim) do expediente, em minutos desde a meia-noite.
+
+    Para a EQUIPE (username None), é o envelope de todos: começa quando o
+    primeiro entra e termina quando o último sai. Usar o padrão da casa
+    esconderia meia hora de quem entra 08:45, e a linha do tempo existe
+    justamente para mostrar a que horas o trabalho aconteceu.
+    """
+    if username is EQUIPE:
+        horarios = [_pc.HORARIO_PADRAO] + list(_pc.HORARIOS.values())
+        ini = min(h["entrada"].hour * 60 + h["entrada"].minute for h in horarios)
+        fim = max(h["fim"].hour * 60 + h["fim"].minute for h in horarios)
+        return (ini, fim)
     h = _pc.horario_de(username)
     return (h["entrada"].hour * 60 + h["entrada"].minute,
             h["fim"].hour * 60 + h["fim"].minute)
@@ -5770,6 +5809,171 @@ def _aba_desempenho(dados, dados_ano_full=None, carregar_periodo=None):
 
 # ── Seção: configuração de metas ──────────────────────────────────────────────
 
+def _ociosidade_por_pessoa(dados, membros_ativos):
+    """{username: {"disp","cards","ocio"}} no período. {} quando falta ponto.
+
+    Mesma fonte da aba Desempenho — `rhid.get_ociosidade_mes`, que já aplica as
+    folgas de 10 e 5 minutos e a hora pessoal do dia. Recalcular por "disponível
+    menos cartões" jogaria tudo isso fora e daria dois números diferentes para a
+    mesma pergunta, em duas telas do mesmo Studio.
+    """
+    fora = {u: {"disp": 0.0, "cards": 0.0, "ocio": 0.0} for u in membros_ativos}
+    try:
+        for r in dados:
+            ym = r.get("filtro_mes")
+            if not ym:
+                continue
+            tc_mes = _min_em_cartoes([r])
+            iv_mes = {}
+            for _r in dados:
+                if _r.get("filtro_mes") == ym:
+                    iv_mes.update(_r.get("intervalos_membro") or {})
+            o_mes = _rp.get_ociosidade_mes(ym[0], ym[1], tc_mes, iv_mes)
+            for u in membros_ativos:
+                o = o_mes.get(u)
+                if not o:
+                    continue
+                fora[u]["disp"] += o["horas_disp_min"]
+                fora[u]["cards"] += o["tempo_cards_min"]
+                fora[u]["ocio"] += o["ociosidade_min"]
+    except Exception:
+        return {}
+    return fora
+
+
+def _secao_desempenho_equipe(dados):
+    """Os três gráficos do individual, somando a equipe inteira.
+
+    Sem uma segunda cópia de cada gráfico: `EQUIPE` faz os coletores somarem
+    todo mundo, e `_chart_linha_do_tempo`, `_chart_curva_execucao` e
+    `_chart_colunas_membro` seguem exatamente os mesmos. Copiá-los seria a
+    mesma pergunta com duas respostas no código — um dia alguém corrige o
+    cálculo num e esquece o outro, e as telas passam a discordar.
+    """
+    _por_mes = bool(st.session_state.get("_am_por_mes"))
+
+    if _por_mes:
+        st.markdown("##### 🗓️ Atividade da equipe por mês")
+        st.caption("Tempo de execução e cartões iniciados, concluídos e "
+                   "interrompidos em cada mês — a equipe inteira somada.")
+        st.markdown(_chart_atividade_dia(dados, EQUIPE, por_mes=True),
+                    unsafe_allow_html=True)
+    else:
+        st.markdown("##### ⏱️ Linha do tempo do dia — equipe")
+        st.caption(
+            "Cada execução de qualquer pessoa, no relógio do dia. O eixo cobre "
+            "do primeiro a entrar ao último a sair. A **cor do bloco é o estado "
+            "do cartão no dia**: amarelo EM ANDAMENTO, verde CONCLUÍDO, roxo "
+            "INTERROMPIDO. Cartão com duas pessoas anexadas conta **uma vez** — "
+            "a mesma demanda contada duas vezes não é desempenho, é erro de soma."
+        )
+        st.markdown(_chart_linha_do_tempo(dados, EQUIPE), unsafe_allow_html=True)
+
+    st.markdown("---")
+    _c1, _c2 = st.columns(2)
+    with _c1:
+        st.markdown("##### 📅 Curva de execução — equipe")
+        st.caption("Cartões entregues por dia pelo time. Dia sem entrega sai "
+                   "como zero: é ele que mostra se o ritmo é constante ou se "
+                   "junta numa ponta do mês."
+                   if not _por_mes else
+                   "Cartões entregues por mês pelo time.")
+        st.markdown(_chart_curva_execucao(dados, EQUIPE, por_mes=_por_mes),
+                    unsafe_allow_html=True)
+    with _c2:
+        st.markdown("##### 🗂️ Cartões por coluna — equipe")
+        st.caption("Onde o trabalho do time aconteceu. **Pontos por cartão** "
+                   "mostra o peso médio de cada coluna.")
+        # Sem marcar coluna fora da funcao: a funcao e de cada pessoa, e uma
+        # coluna fora da funcao de alguem esta dentro da de outro alguem.
+        st.markdown(_chart_colunas_membro(dados, EQUIPE), unsafe_allow_html=True)
+
+
+def _secao_ociosidade_equipe(dados, membros_ativos, ocio_por_pessoa,
+                             teto_pct=None):
+    """Ociosidade do time e o resumo por pessoa, lado a lado.
+
+    O número geral sozinho não diz o que fazer: 14% de ociosidade pode ser o
+    time inteiro em 14% ou uma pessoa em 40% e o resto em 5%. As duas leituras
+    pedem ações opostas, e é por isso que o resumo por colaborador vem junto e
+    não numa tela à parte.
+
+    `ocio_por_pessoa` é {username: {"disp","cards","ocio"}} — o mesmo dicionário
+    que a aba Desempenho já monta. Recalcular aqui jogaria fora as folgas de 10
+    e 5 minutos e a hora pessoal do dia, e daria dois números diferentes para a
+    mesma pergunta.
+    """
+    _disp = sum(v.get("disp", 0.0) for v in ocio_por_pessoa.values())
+    _ocio = sum(v.get("ocio", 0.0) for v in ocio_por_pessoa.values())
+    if _disp <= 0:
+        st.info("Sem horas de ponto no período — a ociosidade precisa da RHiD.")
+        return
+    _pct = _ocio / _disp * 100
+    _teto = float(teto_pct) if teto_pct else None
+    # Verde/amarelo/vermelho de ESTADO, e nao as cores do grafico de cima:
+    # COR_INTERROMPIDO e roxo, e roxo ali quer dizer "cartao interrompido".
+    # A mesma cor com dois significados na mesma tela e leitura errada garantida.
+    _OK, _ATENCAO, _RUIM = "#1BAF7A", "#EDA100", "#E34948"
+    if _teto is None:
+        _cor = _OK if _pct <= 15 else (_ATENCAO if _pct <= 25 else _RUIM)
+        _frase = ("dentro do esperado" if _pct <= 15 else
+                  "acima do confortável" if _pct <= 25 else "alta")
+    else:
+        _cor = _OK if _pct <= _teto else _RUIM
+        _frase = ("dentro do limite" if _pct <= _teto
+                  else f"acima do limite de {_teto:.0f}%")
+
+    st.markdown(
+        f'<div style="background:var(--ms-metric-bg);border:1px solid '
+        f'var(--ms-metric-bd);border-radius:12px;padding:14px 18px;">'
+        f'<div style="font-size:11px;color:var(--ms-texto-sec);">'
+        f'Ociosidade da equipe no período</div>'
+        f'<div style="display:flex;align-items:baseline;gap:12px;'
+        f'flex-wrap:wrap;margin-top:4px;">'
+        f'<span style="font-size:34px;font-weight:700;color:{_cor};'
+        f'line-height:1;">{_pct:.1f}%</span>'
+        f'<span style="font-size:12px;color:var(--ms-texto-sec);">'
+        f'{_fmt_hm(_ocio)} ociosos de {_fmt_hm(_disp)} disponíveis · '
+        f'<b style="color:{_cor};">{_frase}</b></span></div></div>',
+        unsafe_allow_html=True)
+
+    # O resumo por pessoa, ordenado pela ociosidade: quem precisa de conversa
+    # aparece em cima, sem ninguem ter que procurar.
+    linhas = []
+    for u in membros_ativos:
+        v = ocio_por_pessoa.get(u) or {}
+        d = v.get("disp", 0.0)
+        if d <= 0:
+            continue
+        linhas.append((u, v.get("ocio", 0.0) / d * 100, v.get("ocio", 0.0), d,
+                       v.get("cards", 0.0)))
+    if not linhas:
+        return
+    linhas.sort(key=lambda x: -x[1])
+    pior = max(x[1] for x in linhas) or 1
+
+    html = ('<div style="margin-top:10px;display:grid;'
+            'grid-template-columns:120px 1fr 150px;gap:6px 10px;'
+            'align-items:center;">')
+    for u, pct, ocio, disp, cards in linhas:
+        nome = _pc.MEMBROS_ATIVOS.get(u, u)
+        cor = _OK if pct <= 15 else (_ATENCAO if pct <= 25 else _RUIM)
+        html += (
+            f'<div style="font-size:11.5px;font-weight:600;'
+            f'color:var(--ms-texto);">{_esc(nome)}</div>'
+            f'<div style="height:10px;border-radius:5px;'
+            f'background:var(--ms-metric-bd);position:relative;">'
+            f'<div style="position:absolute;left:0;top:0;height:100%;'
+            f'width:{min(pct / pior * 100, 100):.1f}%;background:{cor};'
+            f'border-radius:5px;"></div></div>'
+            f'<div style="font-size:10.5px;text-align:right;'
+            f'color:var(--ms-texto-sec);">'
+            f'<b style="color:{cor};">{pct:.1f}%</b> · {_fmt_hm(ocio)} de '
+            f'{_fmt_hm(disp)}</div>')
+    html += "</div>"
+    st.markdown(html, unsafe_allow_html=True)
+
+
 def _secao_equipe():
     """Cadastro da equipe medida — quem entra nas metas, no placar e na ociosidade."""
     import equipe_config as _ec
@@ -6756,6 +6960,28 @@ def pagina_analise_metas(usuario_logado):
 
     if _aba_sel == _ABAS[0]:
         _secao_metas_card(dados)
+
+        # O desempenho do time no dia a dia. Vem logo depois do cartao de
+        # metas porque e a leitura que o gestor faz antes de descer para
+        # coluna e pontuacao: como o time andou, e quem esta parado.
+        st.markdown("---")
+        st.markdown("#### 📈 Desempenho do time")
+        _secao_desempenho_equipe(dados)
+
+        st.markdown("---")
+        st.markdown("#### 😴 Ociosidade")
+        st.caption(
+            "O número geral sozinho não diz o que fazer: 14% pode ser o time "
+            "inteiro em 14%, ou uma pessoa em 40% e o resto em 5%. As duas "
+            "leituras pedem ações opostas — por isso o resumo por colaborador "
+            "vem junto, ordenado de quem mais precisa de conversa."
+        )
+        try:
+            _membros_ocio = list(_pc.MEMBROS_ATIVOS.keys())
+            _ocio_eq = _ociosidade_por_pessoa(dados, _membros_ocio)
+            _secao_ociosidade_equipe(dados, _membros_ocio, _ocio_eq)
+        except Exception as _e_ocio:
+            st.caption(f"Não consegui calcular a ociosidade: {str(_e_ocio)[:150]}")
 
         st.markdown("---")
         col_t, col_p = st.columns(2)
