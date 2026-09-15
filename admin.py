@@ -32,6 +32,128 @@ def _atualizar_campo(login, campo, valor):
             return
 
 
+def _secao_cartoes_parados():
+    """Por que cada cartão EM ANDAMENTO não recebeu FIM DE EXPEDIENTE.
+
+    Existe porque a pergunta "por que este cartão varou o dia em andamento?"
+    só tinha resposta no log do Railway — e log de tarefa agendada some, exige
+    saber onde procurar, e não diz nada sobre o cartão que NÃO apareceu nele.
+
+    Duas respostas diferentes, e é a separação entre elas que resolve:
+      · cartões que já deviam ter fechado e continuam abertos  -> a rotina
+        `fechar_expediente.py` não está rodando (ou está falhando). Nenhum
+        ajuste de cadastro conserta isso.
+      · cartões que a regra não fecha  -> `fim_expediente.diagnosticar` diz a
+        porta de cada um: sem membro, sem ponto na RHiD, sem horário, ou a
+        pessoa ainda está no expediente.
+
+    Só roda quando se clica: varre o board e o mapa de batidas, e o
+    Administrativo é aberto quase sempre para outra coisa.
+    """
+    from datetime import datetime as _dt
+    import placar_core as _pc
+    import fim_expediente as _fe
+
+    st.markdown("##### ⏱️ Cartões que não fecharam")
+    st.caption(
+        "Cartão que atravessa o dia como EM ANDAMENTO mantém o relógio da "
+        "demanda correndo. Aqui se vê quais estão assim **agora** e o motivo de "
+        "cada um — sem depender do log do Railway."
+    )
+    if st.button("Conferir agora", key="btn_parados"):
+        st.session_state["adm_parados"] = True
+    if not st.session_state.get("adm_parados"):
+        return
+
+    agora = _dt.now(_pc.FUSO)
+    try:
+        _pc.recarregar_membros()
+        _listas, _cards, _membros_map, *_resto = _pc._buscar_board()
+    except Exception as e:
+        st.error(f"Não deu para ler o board do Trello: {str(e)[:160]}")
+        return
+
+    abertos, pausados = [], 0
+    for c in (_cards or []):
+        nomes = {(lb.get("name") or "").upper().strip()
+                 for lb in (c.get("labels") or [])}
+        if not (nomes & _pc.LABELS_TRABALHO):
+            continue
+        if nomes & _pc.LABELS_INTERRUPCAO:
+            # Com etiqueta de interrupcao o relogio JA esta parado
+            # (placar_core._trabalhando). Nao e cartao preso.
+            pausados += 1
+            continue
+        abertos.append({
+            "id": c["id"],
+            "nome": c.get("name", ""),
+            "membros": [_membros_map.get(m) for m in (c.get("idMembers") or [])
+                        if _membros_map.get(m)],
+        })
+
+    # Saida batida hoje, do mesmo mapa que o resto do Studio ja leu (TTL de 5
+    # min). Ausente do dicionario significa "a RHiD nao conhece esta pessoa" —
+    # e nao "nao bateu": e a diferenca entre as portas sem_ponto e aguardando.
+    saidas = {}
+    try:
+        import batidas as _bat
+        for _u, _por_dia in (_bat.mapa() or {}).items():
+            saidas[_u] = (_por_dia.get(agora.date()) or {}).get("saida")
+    except Exception:
+        st.warning("A RHiD não respondeu: sem as batidas de hoje, o motivo de "
+                   "cada cartão sai como “sem ponto”.")
+
+    pessoas = {}
+    for _u in saidas:
+        _h = _pc.horario_de(_u)
+        pessoas[_u] = {"fim": f"{_h['fim']:%H:%M}", "saida": saidas[_u]}
+
+    st.caption(f"{agora:%d/%m %H:%M} · {len(abertos)} em execução · "
+               f"{pausados} já com etiqueta de interrupção (relógio parado)")
+
+    devem_fechar = _fe.decidir(agora, pessoas, abertos)
+    if devem_fechar:
+        st.error(
+            f"**{len(devem_fechar)} cartão(ões) já deveriam estar fechados e "
+            f"continuam abertos.** A regra diz que sim, e a etiqueta não está "
+            f"lá: a rotina `fechar_expediente.py` não rodou desde então. É no "
+            f"serviço agendado do Railway que isto se resolve — nenhum ajuste "
+            f"de cadastro aqui muda este número."
+        )
+        import pandas as _pd
+        st.dataframe(_pd.DataFrame([{"cartão": d["nome"][:70],
+                                     "quem": d["quem"],
+                                     "motivo": d["motivo"]}
+                                    for d in devem_fechar]),
+                     use_container_width=True, hide_index=True)
+
+    presos = _fe.diagnosticar(agora, pessoas, abertos)
+    presos = [p for p in presos
+              if p["id"] not in {d["id"] for d in devem_fechar}]
+    if not presos:
+        st.success("Nenhum outro cartão preso: o resto está dentro da regra.")
+        return
+
+    ROTULO = {
+        "sem_membro": "Sem ninguém anexado",
+        "sem_ponto": "A RHiD não reconhece a pessoa",
+        "sem_horario": "Sem fim de expediente",
+        "aguardando": "Ainda no expediente",
+        "antes_das_19h": "Ainda não deu a hora",
+    }
+    import pandas as _pd
+    st.dataframe(
+        _pd.DataFrame([{"cartão": p["nome"][:70], "quem": p["quem"],
+                        "por que não fecha": ROTULO.get(p["porque"], p["porque"]),
+                        "detalhe": p["detalhe"]} for p in presos]),
+        use_container_width=True, hide_index=True)
+    _n_sem = sum(1 for p in presos if p["porque"] == "sem_membro")
+    if _n_sem:
+        st.warning(f"{_n_sem} cartão(ões) sem ninguém anexado: estes nunca "
+                   f"fecham sozinhos, em nenhum dia. Ou se anexa a pessoa, ou "
+                   f"se tira a etiqueta EM ANDAMENTO no Trello.")
+
+
 def _secao_equipe():
     """Cadastro da equipe medida — quem entra nas metas, no placar e na ociosidade.
 
@@ -70,22 +192,60 @@ def _secao_equipe():
             "inclusive esses três, para a lista passar a valer."
         )
 
+    # EDITAR, e nao so criar.
+    #
+    # A tela so sabia criar. Quem digitasse o nome errado — "BruMielly" no
+    # lugar de "Brunielly" — nao tinha como corrigir: criava outro e ficava
+    # com dois cadastros da mesma pessoa. O seletor carrega a ficha de quem ja
+    # existe nos campos abaixo, e salvar por cima atualiza a linha.
+    _opcoes = ["+ Novo colaborador"] + [f"{n}  ·  {u}"
+                                        for u, n in sorted(membros.items(),
+                                                           key=lambda x: x[1])]
+    # Depois de remover, a opcao escolhida deixa de existir. Streamlit nao
+    # derruba a tela por isso — ele devolve o texto antigo —, e o resultado
+    # seria a ficha vazia com o aviso de "nao consegui ler", logo depois de uma
+    # remocao que deu certo. A chave sai ANTES do widget nascer: alterar uma
+    # chave de widget depois que ele existe e que e erro.
+    if st.session_state.pop("eq_resetar", False):
+        st.session_state.pop("eq_sel", None)
+    _sel = st.selectbox("Editar quem já existe, ou cadastrar novo", _opcoes,
+                        key="eq_sel")
+    _editando = _sel != _opcoes[0]
+    _f = _ec.ficha(_sel.split("·")[-1].strip()) if _editando else {}
+    if _editando and not _f:
+        st.warning("Não consegui ler a ficha dessa pessoa — os campos abaixo "
+                   "vão em branco, e salvar assim apagaria o que está lá. "
+                   "Recarregue a página antes de editar.")
+
+    _sim = lambda v: str(v).strip().lower() != "não"
+
     with st.form("form_equipe"):
         e1, e2, e3 = st.columns([2, 2, 2])
-        _user = e1.text_input("Username do Trello", placeholder="ex: gabriel_borges")
-        _nome = e2.text_input("Nome no painel", placeholder="ex: Gabriel")
-        _rhid = e3.text_input("Primeiro nome na RHiD", placeholder="ex: Gabriel")
+        _user = e1.text_input("Username do Trello", value=_f.get("username_trello", ""),
+                              placeholder="ex: gabriel_borges",
+                              disabled=_editando,
+                              help=("O username é a chave da linha e não se "
+                                    "edita: trocá-lo criaria outra pessoa em "
+                                    "vez de renomear esta. Para corrigir um "
+                                    "username errado, remova e cadastre de novo."
+                                    if _editando else None))
+        _nome = e2.text_input("Nome no painel", value=_f.get("nome", ""),
+                              placeholder="ex: Gabriel")
+        _rhid = e3.text_input("Primeiro nome na RHiD", value=_f.get("nome_rhid", ""),
+                              placeholder="ex: Gabriel")
         _c_at, _c_bp = st.columns(2)
-        _ativo = _c_at.checkbox("Ativo (conta nas metas)", value=True)
+        _ativo = _c_at.checkbox("Ativo (conta nas metas)",
+                                value=_sim(_f.get("ativo", "sim")))
         _funcao_in = st.text_input(
             "Colunas da função (opcional)",
+            value=_f.get("colunas_funcao", ""),
             placeholder="CRIATIVO VÍDEO; CRIATIVO FOTOS; DESATIVAR",
             help="Separe por ponto e vírgula. Compara por início do nome, então "
                  "'CRIATIVO VÍDEO' pega 'CRIATIVO VÍDEO (80)' mesmo se o número "
                  "mudar. Deixe vazio para não restringir ninguém — em branco "
                  "significa sem restrição, e nada é marcado na tela.")
         _bate = _c_bp.checkbox(
-            "Bate ponto no relógio", value=True,
+            "Bate ponto no relógio", value=_sim(_f.get("bate_ponto", "sim")),
             help="Desmarque para quem não usa a RHiD. Sem isso a pessoa aparece "
                  "com 0% de desempenho e 'Não registrado' em vermelho, como se "
                  "tivesse faltado.")
@@ -95,12 +255,17 @@ def _secao_equipe():
         # almoco contado como trabalho, em silencio.
         _a1, _a2 = st.columns(2)
         _alm_i = _a1.text_input(
-            "Almoço — início (opcional)", placeholder="12:00",
+            "Almoço — início (opcional)", value=_f.get("almoco_inicio", ""),
+            placeholder="12:00",
             help="Só vale nos dias SEM batida no relógio. Quando a RHiD "
                  "responde, a janela sai do ponto de verdade. Em branco usa o "
                  "padrão da casa, 13:30 às 14:30.")
-        _alm_f = _a2.text_input("Almoço — fim (opcional)", placeholder="13:00")
-        if st.form_submit_button("Salvar colaborador", use_container_width=True):
+        _alm_f = _a2.text_input("Almoço — fim (opcional)",
+                                value=_f.get("almoco_fim", ""),
+                                placeholder="13:00")
+        _rot = ("Salvar alteração" if _editando else "Cadastrar colaborador")
+        if st.form_submit_button(_rot, use_container_width=True,
+                                 type="primary"):
             if not _user.strip() or not _nome.strip():
                 st.error("Username do Trello e nome são obrigatórios.")
             elif bool(_alm_i.strip()) != bool(_alm_f.strip()):
@@ -115,6 +280,33 @@ def _secao_equipe():
                     st.rerun()
                 except Exception as ex:
                     st.error(f"Não consegui salvar: {str(ex)[:200]}")
+
+    # Remover fica FORA do formulário: `st.form` aceita um submit só, e
+    # esconder a remoção dentro dele obrigaria a escolher entre salvar e
+    # apagar no mesmo clique.
+    if _editando and _f:
+        with st.expander("🗑️ Remover da equipe medida", expanded=False):
+            st.caption(
+                "Some da lista, das metas e da ociosidade. Use para **linha "
+                "criada por engano** — nome digitado errado, duplicata. Para "
+                "quem saiu da empresa, prefira desmarcar **Ativo**: apagar "
+                "leva junto a referência do histórico dela."
+            )
+            _conf = st.text_input(
+                "Digite o username para confirmar",
+                key="eq_rm_conf",
+                placeholder=_f.get("username_trello", ""))
+            if st.button("Remover definitivamente", key="eq_rm_btn",
+                         disabled=_conf.strip() != _f.get("username_trello", ""),
+                         use_container_width=True):
+                _ok_rm, _msg_rm = _ec.remover(_f.get("username_trello", ""))
+                if _ok_rm:
+                    _pc.recarregar_membros()
+                    st.session_state["eq_resetar"] = True
+                    st.success(_msg_rm)
+                    st.rerun()
+                else:
+                    st.error(_msg_rm)
 
 
 
@@ -699,5 +891,7 @@ def pagina_admin(usuario_logado):
     # A equipe medida fica no FIM, e nao no topo: quem abre o Administrativo
     # quase sempre vem criar ou resetar um login. O cadastro de equipe e mais
     # raro — contratacao — e nao pode empurrar o comum para baixo da dobra.
+    st.markdown("---")
+    _secao_cartoes_parados()
     st.markdown("---")
     _secao_equipe()

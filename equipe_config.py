@@ -165,6 +165,56 @@ def salvar(username_trello, nome, nome_rhid="", ativo=True, bate_ponto=True,
     nao_batem.clear()
     colunas_da_funcao.clear()
     almocos.clear()
+    ficha.clear()
+
+
+@st.cache_data(ttl=600)
+def ficha(username_trello):
+    """Todos os campos de uma pessoa. {} quando não existe.
+
+    Existe porque a tela de cadastro só sabia CRIAR. Quem digitasse o nome
+    errado — "BruMielly" no lugar de "Brunielly" — não tinha como corrigir:
+    criava outro e ficava com dois. Para editar, primeiro é preciso ler o que
+    está lá.
+    """
+    alvo = str(username_trello or "").strip().lower()
+    if not alvo:
+        return {}
+    try:
+        registros = _aba().get_all_records()
+    except Exception:
+        return {}
+    for linha in registros:
+        if str(linha.get("username_trello", "")).strip().lower() == alvo:
+            return {c: str(linha.get(c, "") or "").strip() for c in COLUNAS}
+    return {}
+
+
+def remover(username_trello):
+    """Apaga a linha da pessoa. (ok, mensagem).
+
+    Apagar e não desativar: `ativo=não` serve para quem saiu e cujo histórico
+    precisa continuar de pé. Linha criada por erro de digitação não tem
+    histórico nenhum — ela só suja a lista e dá duas respostas para a mesma
+    pessoa.
+    """
+    alvo = str(username_trello or "").strip()
+    if not alvo:
+        return False, "Sem username para remover."
+    try:
+        aba = _aba()
+        celula = aba.find(alvo, in_column=1)
+        if not celula:
+            return False, f"Não achei `{alvo}` na planilha."
+        aba.delete_rows(celula.row)
+    except Exception as e:
+        return False, f"Não consegui remover: {str(e)[:150]}"
+    carregar.clear()
+    nao_batem.clear()
+    colunas_da_funcao.clear()
+    almocos.clear()
+    ficha.clear()
+    return True, f"{alvo} removido da equipe medida."
 
 
 def _garantir_colunas(aba):
