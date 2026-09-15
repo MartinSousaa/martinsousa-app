@@ -22,19 +22,11 @@ import financeiro
 import gestao
 import atividades
 import auth
-import admin
 import cronometro
 import presenca
-import triagem
-import palavras_chave
-import tit_ml as titulo
-import descricao
-import imagem
-import video
 import chat_assistente
 import placar
 import analise_metas
-import relogio_ponto
 import placar_core as _pc_login
 
 # A TV é regenerada por um PROCESSO PRÓPRIO (tv_worker.py), subido pelo
@@ -1799,16 +1791,52 @@ def _render_abas_operacao(usuario_logado):
     """Renderiza as 9 abas de Operação (usada tanto no admin quanto nos colaboradores)."""
     _navegar({
         "Análise de Viabilidade": _render_viabilidade_tab,
-        "Triagem":                lambda: triagem.pagina_triagem(usuario_logado),
-        "Palavras-chave":         lambda: palavras_chave.pagina_palavras_chave(usuario_logado),
-        "Título":                 lambda: titulo.pagina_titulo(usuario_logado),
-        "Descrição":              lambda: descricao.pagina_descricao(usuario_logado),
-        "Imagem":                 lambda: imagem.pagina_imagem(usuario_logado),
-        "Vídeo":                  lambda: video.pagina_video(usuario_logado),
+        "Triagem":                lambda: _abrir('triagem', 'pagina_triagem', usuario_logado),
+        "Palavras-chave":         lambda: _abrir('palavras_chave', 'pagina_palavras_chave', usuario_logado),
+        "Título":                 lambda: _abrir('tit_ml', 'pagina_titulo', usuario_logado),
+        "Descrição":              lambda: _abrir('descricao', 'pagina_descricao', usuario_logado),
+        "Imagem":                 lambda: _abrir('imagem', 'pagina_imagem', usuario_logado),
+        "Vídeo":                  lambda: _abrir('video', 'pagina_video', usuario_logado),
         "Calculadora de Preço Mínimo":       _render_analise_venda_tab,
         "Histórico":              atividades.pagina_historico,
         "🙋 Abono":               lambda: analise_metas.pagina_pedir_abono(usuario_logado),
     }, "aba")
+
+
+# ── Abas carregadas SOB DEMANDA ──────────────────────────────────────────────
+#
+# Os modulos de aba viviam todos no topo do arquivo. Quem abria so o Ponto
+# pagava, na primeira carga do processo, o import de Triagem, Imagem, Video,
+# Descricao e companhia — e o Railway reinicia o container a cada deploy,
+# entao "primeira carga" acontece varias vezes por dia.
+#
+# Carregado aqui, cada modulo entra quando a aba dele e aberta, e so uma vez:
+# `import` acha o modulo ja em sys.modules a partir da segunda. E o mesmo
+# padrao que gestao.py ja usava.
+#
+# O que NAO entrou nisto: auth, placar_core, planilha, presenca, cronometro e
+# os params — sao usados fora das abas, no corpo do proprio app.py, e adiar
+# import de quem roda sempre so troca o custo de lugar.
+def _abrir(modulo, funcao, *args, **kwargs):
+    """Importa o modulo da aba na hora de desenhar, e chama a pagina dela.
+
+    O import so custa na PRIMEIRA abertura: da segunda em diante o modulo ja
+    esta em sys.modules e `import_module` devolve o que ja existe. O cronometro
+    registra esse custo com nome proprio, para a proxima conversa sobre
+    lentidao comecar de medicao e nao de palpite.
+    """
+    import importlib
+    import time as _t_abrir
+    _t0 = _t_abrir.perf_counter()
+    mod = importlib.import_module(modulo)
+    _dt = _t_abrir.perf_counter() - _t0
+    if _dt > 0.05:          # so o que pesa; import ja carregado e ruido
+        try:
+            import cronometro as _cr
+            _cr.marcar(f"Carregar aba: {modulo}", _dt, "1ª abertura")
+        except Exception:
+            pass
+    return getattr(mod, funcao)(*args, **kwargs)
 
 
 # ── NAVEGAÇÃO PRINCIPAL ───────────────────────────────────────────────────────
@@ -1892,7 +1920,7 @@ if _eh_admin:
             _abas_ind = {
                 "🏆 Painel de Metas":  lambda: placar.pagina_placar(usuario_logado),
                 "📊 Análise de Metas": lambda: analise_metas.pagina_analise_metas(usuario_logado),
-                "🕐 Ponto":            lambda: relogio_ponto.pagina_ponto(usuario_logado),
+                "🕐 Ponto":            lambda: _abrir('relogio_ponto', 'pagina_ponto', usuario_logado),
                 "💰 Financeiro":       lambda: financeiro.pagina_financeiro(usuario_logado),
             }
             # Administrativo cria, desativa e reseta senha de qualquer pessoa —
@@ -1901,7 +1929,7 @@ if _eh_admin:
             # aba sem trancar a porta so troca o cadeado por uma cortina,
             # porque a URL continua levando la.
             if auth.eh_dono(usuario_logado):
-                _abas_ind["Administrativo"] = lambda: admin.pagina_admin(usuario_logado)
+                _abas_ind["Administrativo"] = lambda: _abrir('admin', 'pagina_admin', usuario_logado)
             _navegar(_abas_ind, "aba_g")
         else:
             _navegar({
@@ -1915,12 +1943,12 @@ else:
     # ── COLABORADORES: barra única com 11 abas ────────────────────────────────
     _navegar({
         "Análise de Viabilidade": _render_viabilidade_tab,
-        "Triagem":                lambda: triagem.pagina_triagem(usuario_logado),
-        "Palavras-chave":         lambda: palavras_chave.pagina_palavras_chave(usuario_logado),
-        "Título":                 lambda: titulo.pagina_titulo(usuario_logado),
-        "Descrição":              lambda: descricao.pagina_descricao(usuario_logado),
-        "Imagem":                 lambda: imagem.pagina_imagem(usuario_logado),
-        "Vídeo":                  lambda: video.pagina_video(usuario_logado),
+        "Triagem":                lambda: _abrir('triagem', 'pagina_triagem', usuario_logado),
+        "Palavras-chave":         lambda: _abrir('palavras_chave', 'pagina_palavras_chave', usuario_logado),
+        "Título":                 lambda: _abrir('tit_ml', 'pagina_titulo', usuario_logado),
+        "Descrição":              lambda: _abrir('descricao', 'pagina_descricao', usuario_logado),
+        "Imagem":                 lambda: _abrir('imagem', 'pagina_imagem', usuario_logado),
+        "Vídeo":                  lambda: _abrir('video', 'pagina_video', usuario_logado),
         "Calculadora de Preço Mínimo":       _render_analise_venda_tab,
         "Histórico":              atividades.pagina_historico,
         "🏆 Painel de Metas":      lambda: placar.pagina_placar(usuario_logado),
