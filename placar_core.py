@@ -1392,23 +1392,6 @@ def _cortar_no_teto(janelas, teto_min):
     return fora
 
 
-def _batidas():
-    """O mapa de batidas, lido uma vez por chamada de quem varre dias.
-
-    Mesmo motivo de `_lista_abonos`: `_janelas_uteis` roda por cartão e por
-    membro, e consultar a RHiD lá dentro daria dezenas de milhares de chamadas
-    por rodada. O módulo guarda por TTL; aqui só se pede.
-
-    Nunca sobe erro: RHiD fora do ar devolve mapa vazio, e a janela volta a ser
-    a do contrato. Número aproximado é melhor que produção zerada.
-    """
-    try:
-        import batidas as _bat
-        return _bat.mapa()
-    except Exception:
-        return {}
-
-
 def _janelas_do_dia_da_pessoa(dia, username, h, batidas_pessoa, agora_local):
     """As janelas de trabalho daquele dia, do dia inteiro — sem recorte.
 
