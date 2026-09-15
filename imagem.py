@@ -1391,39 +1391,53 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
     _is_lifestyle = "8 — Ambientação" in prompt_texto
     _is_presenteie = "7 — Presenteie" in prompt_texto
 
+    # As ocupacoes subiram por decisao do dono: "a distribuicao da imagem dentro
+    # dos 1200x1200 precisa ser a maior possivel". Os numeros antigos mandavam
+    # o modelo deixar de 40% a 65% do quadro vazio — o produto saia pequeno e
+    # longe, e isso nao era desobediencia do modelo, era o que o prompt pedia.
+    #
+    # "Contextual", sem numero, era pior ainda: sem piso, o modelo escolhia — e
+    # escolhia pequeno. Todo tipo agora tem um MINIMO escrito.
     if _is_close:
         _product_dominance_rule = (
-            "- COMPOSITION (Close): Detail occupancy 70–85% of frame. Macro close-up. "
+            "- COMPOSITION (Close): Detail occupancy 80–92% of frame. Macro close-up. "
             "Do NOT show the full product. Full product: NO."
         )
     elif _is_capa:
         _product_dominance_rule = (
-            "- COMPOSITION (Capa): Product occupancy 75–85% of frame. Full product: YES — "
-            "completely visible, no cropping. Minimal environment."
+            "- COMPOSITION (Capa): Product occupancy 85–92% of frame. Full product: YES — "
+            "completely visible, no cropping. Minimal environment. "
+            "The product must nearly touch the edges of the frame — leave only a thin "
+            "breathing margin. Empty background is wasted space."
         )
     elif _is_beneficios:
         _product_dominance_rule = (
-            "- COMPOSITION (Benefícios): Product occupancy 40–60% of frame. "
-            "Full product: preferably YES. Callouts and benefit panels allowed in margins."
+            "- COMPOSITION (Benefícios): Product occupancy 60–75% of frame — the product "
+            "is the subject, the panels are the caption. Full product: preferably YES. "
+            "Callouts and benefit panels live in the remaining margin, never shrinking "
+            "the product to fit them."
         )
     elif _is_beneficios_cena:
         _product_dominance_rule = (
-            "- COMPOSITION (Benefícios no Cenário): Product occupancy contextual — "
-            "product is protagonist but environment is relevant. Full product: preferably YES."
+            "- COMPOSITION (Benefícios no Cenário): Product occupancy at least 45% of "
+            "frame. Product is the protagonist; the environment supports it and never "
+            "dominates. Full product: preferably YES."
         )
     elif _is_lifestyle:
         _product_dominance_rule = (
-            "- COMPOSITION (Lifestyle): Product occupancy contextual. Full product: optional. "
-            "Environment and atmosphere take priority."
+            "- COMPOSITION (Lifestyle): Product occupancy at least 35% of frame and "
+            "clearly readable at thumbnail size. Full product: optional. "
+            "Environment sets the mood but the product stays identifiable."
         )
     elif _is_presenteie:
         _product_dominance_rule = (
-            "- COMPOSITION (Presenteie): Product occupancy 35–55% of frame. "
-            "Full product: preferably YES. Environment and gift props allowed."
+            "- COMPOSITION (Presenteie): Product occupancy 55–70% of frame. "
+            "Full product: preferably YES. Gift props frame the product, never crowd it."
         )
     else:
         _product_dominance_rule = (
-            "- Product is the dominant visual element — large, prominent, fully visible"
+            "- Product occupancy at least 70% of frame — large, prominent, fully visible, "
+            "nearly filling the canvas"
         )
 
     # Referencia de layout nao se aplica a foto limpa.
@@ -1545,7 +1559,11 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
         f"COMPOSITION:\n"
         f"{_product_dominance_rule}\n"
         f"- Maintain product exact proportions — NEVER stretch, compress, or distort\n"
-        f"- Maximum 3 information elements if text present — generous whitespace, never cluttered\n"
+        + ("- Maximum 3 information elements if text present — never cluttered\n"
+           if not _is_clean_photo else
+           "- No text elements at all, so no whitespace is needed for them: the "
+           "product fills the canvas\n")
+        + 
         f"- Professional studio quality — high-end e-commerce agency standard"
         f"{_layout_section}\n\n"
         f"{_marketing_content}"
