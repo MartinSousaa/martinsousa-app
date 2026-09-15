@@ -18,10 +18,20 @@ oferece recuperar.
 
 Por que disco e não a planilha ou o Drive
 -----------------------------------------
-Disco local é instantâneo e não gasta cota. A falha que estamos cobrindo é a
-queda do WebSocket, não a queda do servidor: o processo continua vivo e o
-arquivo continua lá. Um deploy ou restart do Railway apaga tudo — e tudo bem,
-porque nesse caso o navegador recarrega inteiro de qualquer forma.
+Disco é instantâneo e não gasta cota. A planilha viraria lixeira de rascunho, e
+o Drive cobra segundos a cada salvamento — num fluxo que salva a cada passo.
+
+Qual disco, e o que cada um cobre
+---------------------------------
+Sem `RASCUNHO_DIR`, o disco é o /tmp do container: cobre queda de WebSocket e F5
+(o processo segue vivo, o arquivo segue lá) mas NÃO cobre deploy — o Railway
+destrói o container e leva o rascunho junto. Foi assim que imagem já gerada e
+paga evaporou no meio da tarde porque alguém subiu uma correção.
+
+Com um VOLUME do Railway montado e `RASCUNHO_DIR` apontando para ele, o rascunho
+atravessa deploy e restart. A variável é opcional de propósito: sem ela nada
+muda, e um volume mal configurado cai de volta para /tmp em vez de derrubar a
+tela — rascunho é conveniência, nunca pode ser o motivo de o Studio não abrir.
 
 O rascunho é descartável por definição: depois de salvar no Drive, ou ao começar
 uma geração nova, ele é apagado.
@@ -31,7 +41,49 @@ import os
 import shutil
 import time
 
-PASTA_BASE = os.path.join("/tmp", "ms_studio_rascunho")
+# ONDE O RASCUNHO MORA, E POR QUE ISSO IMPORTA
+#
+# Ate aqui era sempre /tmp — disco do container. Cobria queda de WebSocket e F5
+# (o processo continua vivo, o arquivo continua la), mas NAO cobria deploy: o
+# Railway destroi o container, e o rascunho ia junto. Imagem gerada e paga
+# evaporava no meio da tarde porque alguem subiu uma correcao.
+#
+# Com um VOLUME do Railway montado e a variavel RASCUNHO_DIR apontando para ele,
+# o rascunho passa a sobreviver a deploy e a restart. Sem a variavel, tudo
+# continua exatamente como antes — nenhum ambiente quebra por nao ter o volume.
+#
+# A pasta e criada e testada na primeira leitura: volume configurado errado
+# (caminho que nao existe, sem permissao de escrita) cai de volta para /tmp em
+# vez de derrubar a tela. Rascunho e conveniencia; ele nunca pode ser o motivo
+# de o Studio nao abrir.
+_PADRAO = os.path.join("/tmp", "ms_studio_rascunho")
+
+
+def _base_configurada():
+    """A pasta do secret/variavel, se der para escrever nela. Senao, /tmp."""
+    alvo = ""
+    try:
+        import streamlit as _st
+        alvo = str(_st.secrets.get("RASCUNHO_DIR", "") or "").strip()
+    except Exception:
+        alvo = ""
+    if not alvo:
+        alvo = str(os.environ.get("RASCUNHO_DIR", "") or "").strip()
+    if not alvo:
+        return _PADRAO
+    caminho = os.path.join(alvo, "ms_studio_rascunho")
+    try:
+        os.makedirs(caminho, exist_ok=True)
+        teste = os.path.join(caminho, ".escrita")
+        with open(teste, "w") as f:
+            f.write("ok")
+        os.remove(teste)
+        return caminho
+    except Exception:
+        return _PADRAO
+
+
+PASTA_BASE = _base_configurada()
 VALIDADE_HORAS = 12
 
 
