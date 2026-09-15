@@ -42,32 +42,16 @@ def pagina_admin(usuario_logado):
         st.error("Acesso restrito ao dono do Studio.")
         return
 
-    # ── CONFIRMAÇÃO DE SENHA (segunda camada de segurança) ────────────────────
+    # A confirmação de senha saiu, por decisão do dono.
     #
-    # No ambiente de teste ela sai do caminho: a tela e aberta dezenas de vezes
-    # por dia durante o desenvolvimento, e a senha ali nao protege nada — a
-    # planilha e a de teste. Em producao continua valendo, e continua valendo
-    # POR PADRAO: `eh_homologacao` so e verdadeiro quando o secret AMBIENTE diz
-    # que e teste. Esquecer de configurar deixa a senha ligada, que e o erro
-    # barato; o contrario abriria a producao sem trava.
-    chave = f"admin_confirmado_{usuario_logado}"
-    if _plan.eh_homologacao():
-        st.session_state[chave] = True
-    if not st.session_state.get(chave):
-        st.markdown("### 🔒 Confirmação necessária")
-        st.caption("Digite sua senha para acessar a área administrativa.")
-        with st.form("form_confirm_admin"):
-            senha_confirm = st.text_input("Sua senha", type="password")
-            ok_btn = st.form_submit_button("Confirmar", type="primary")
-        if ok_btn:
-            autenticado, _ = auth._verificar_credencial(usuario_logado, senha_confirm)
-            if autenticado:
-                st.session_state[chave] = True
-                st.rerun()
-            else:
-                st.error("Senha incorreta.")
-        return
-
+    # Ela era a segunda camada: a primeira é o login, e esta pedia a mesma senha
+    # de novo ao abrir a tela. O custo era diário e o ganho, pequeno — quem
+    # chegasse aqui já teria passado pelo login, e `eh_dono` fecha a porta para
+    # todo o resto (nem `eh_gestor` entra).
+    #
+    # O que ela protegia, e agora não protege mais: computador do dono aberto e
+    # sem dono na frente. Fica registrado porque é a única coisa que se perde, e
+    # é a que justificaria trazê-la de volta.
     st.subheader("Administrativo — Gestão de Usuários")
 
     # ── USUÁRIOS DAS SECRETS (somente leitura) ────────────────────────────────

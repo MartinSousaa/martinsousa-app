@@ -460,8 +460,38 @@ ALMOCO_MINUTOS = 60
 # expediente.
 FOLGA_ALMOCO_MIN = 5
 
+# Sao 7h de servico dentro das 8h disponiveis — regra do dono. O relogio do
+# cartao para na setima hora do dia, e o que passar disso nao entra nem como
+# trabalho nem como ociosidade.
+#
+# Vale para os dois caminhos, e e o que conserta o dia sem RHiD: o contrato
+# soma 8h de janela (09:00–13:30 = 4h30 e 14:30–18:00 = 3h30), e sem teto essa
+# hora a mais virava ociosidade de graca para quem nao almocou no horario. Com
+# o teto, sobra a mesma cota para todo mundo.
+TETO_DIA_MIN = 420
+
 # Teto de segurança: etiqueta esquecida por meses não vira varredura infinita.
 MAX_DIAS_INTERVALO = 60
+
+
+def almoco_de(username):
+    """(inicio, fim) do almoço da pessoa. A planilha manda; ALMOCO é reserva.
+
+    O almoço não é o mesmo para todo mundo — 12h–13h, 12h30–13h30 e
+    13h30–14h30 convivem no mesmo time. Escrito no código, cada troca de escala
+    viraria deploy, e um nome faltando ali é uma pessoa com o almoço contado
+    como trabalho, sem nada na tela dizendo por quê.
+
+    Isto só vale para o dia SEM batida: quando a RHiD responde, a janela sai do
+    relógio e nem o almoço da planilha é consultado.
+    """
+    if not username:
+        return ALMOCO
+    try:
+        import equipe_config as _ec
+        return _ec.almocos().get(username) or ALMOCO
+    except Exception:
+        return ALMOCO
 
 
 def horario_de(username):
@@ -1318,6 +1348,97 @@ def abonos_do_dia(dia, lista=None, username=None, assuntos=None):
         return []
 
 
+def _batidas():
+    """O mapa de batidas, lido uma vez por chamada de quem varre dias.
+
+    Mesmo motivo de `_lista_abonos`: `_janelas_uteis` roda por cartão e por
+    membro, e consultar a RHiD lá dentro daria dezenas de milhares de chamadas
+    por rodada. O módulo guarda por TTL; aqui só se pede.
+
+    Nunca sobe erro: RHiD fora do ar devolve mapa vazio, e a janela volta a ser
+    a do contrato. Número aproximado é melhor que produção zerada.
+    """
+    try:
+        import batidas as _bat
+        return _bat.mapa()
+    except Exception:
+        return {}
+
+
+def _cortar_no_teto(janelas, teto_min):
+    """As primeiras `teto_min` de janela do dia. Função pura.
+
+    Regra do dono: são 7h de serviço dentro das 8h disponíveis. Quem não sai
+    para almoçar e bate 8h no relógio não ganha uma hora de crédito por isso —
+    a partir da sétima hora o relógio do cartão para, e o resto do dia não
+    entra nem como trabalho nem como ociosidade.
+
+    Corta pelo fim, não pelo começo: o que vale é o que ele fez primeiro, e a
+    hora que sobra é sempre a última do dia.
+    """
+    fora, usados = [], 0.0
+    for a, b in janelas:
+        if usados >= teto_min:
+            break
+        dur = (b - a).total_seconds() / 60.0
+        if usados + dur <= teto_min:
+            fora.append((a, b))
+            usados += dur
+        else:
+            sobra = teto_min - usados
+            if sobra > 0:
+                fora.append((a, a + timedelta(minutes=sobra)))
+            usados = teto_min
+    return fora
+
+
+def _batidas():
+    """O mapa de batidas, lido uma vez por chamada de quem varre dias.
+
+    Mesmo motivo de `_lista_abonos`: `_janelas_uteis` roda por cartão e por
+    membro, e consultar a RHiD lá dentro daria dezenas de milhares de chamadas
+    por rodada. O módulo guarda por TTL; aqui só se pede.
+
+    Nunca sobe erro: RHiD fora do ar devolve mapa vazio, e a janela volta a ser
+    a do contrato. Número aproximado é melhor que produção zerada.
+    """
+    try:
+        import batidas as _bat
+        return _bat.mapa()
+    except Exception:
+        return {}
+
+
+def _janelas_do_dia_da_pessoa(dia, username, h, batidas_pessoa, agora_local):
+    """As janelas de trabalho daquele dia, do dia inteiro — sem recorte.
+
+    O relógio de ponto manda; o contrato é reserva. Ninguém almoça no horário
+    do contrato — sai 13h05, volta 14h20 —, e a diferença ia inteira para a
+    conta da pessoa: o cartão contava enquanto ela almoçava e parava enquanto
+    ela trabalhava.
+
+    Lista vazia vinda das batidas quer dizer "não sei", e não "não trabalhou":
+    quem não bate ponto, o dia ainda sem registro e a RHiD fora do ar caem
+    todos no contrato.
+    """
+    reais = []
+    if batidas_pessoa:
+        try:
+            import batidas as _bat_mod
+            reais = _bat_mod.janelas_do_dia(batidas_pessoa.get(dia), dia, FUSO,
+                                            agora=agora_local,
+                                            fim_contrato=h["fim"])
+        except Exception:
+            reais = []
+    if reais:
+        return reais
+    _alm = almoco_de(username)
+    return [(datetime.combine(dia, abre, tzinfo=FUSO),
+             datetime.combine(dia, fecha, tzinfo=FUSO))
+            for abre, fecha in ((h["entrada"], _alm[0]),
+                                (_alm[1], h["fim"]))]
+
+
 def _janelas_uteis(ini_local, fim_local, username=None):
     """Pedaços do intervalo que caem dentro do expediente da pessoa.
 
@@ -1325,6 +1446,17 @@ def _janelas_uteis(ini_local, fim_local, username=None):
     pode render o fim de semana inteiro. Hora abonada também não conta — nem a
     parada do escritório, nem o abatimento que o gestor aprovou para essa
     pessoa.
+
+    A ORDEM das três etapas importa, e é esta:
+
+      1. monta o dia INTEIRO (batidas reais, ou contrato como reserva)
+      2. desconta os abonos daquele dia
+      3. corta no teto de 7h
+      4. só então recorta no intervalo pedido
+
+    O teto é do DIA da pessoa, não do trecho perguntado. Aplicá-lo depois do
+    recorte daria 7h para cada cartão em vez de 7h para o dia — e um dia com
+    quatro cartões valeria 28h.
     """
     h = horario_de(username)
     if (fim_local - ini_local).days > MAX_DIAS_INTERVALO:
@@ -1332,23 +1464,26 @@ def _janelas_uteis(ini_local, fim_local, username=None):
 
     janelas = []
     lista_ab = _lista_abonos()
+    bat_pessoa = (_batidas().get(username) or {}) if username else {}
+    agora_local = datetime.now(FUSO)
     dia = ini_local.date()
     ultimo = fim_local.date()
     while dia <= ultimo:
         if eh_dia_util(dia):   # sem sábado, domingo nem feriado
-            do_dia = []
-            for abre, fecha in ((h["entrada"], ALMOCO[0]), (ALMOCO[1], h["fim"])):
-                ja = datetime.combine(dia, abre, tzinfo=FUSO)
-                jb = datetime.combine(dia, fecha, tzinfo=FUSO)
-                s, e = max(ini_local, ja), min(fim_local, jb)
-                if e > s:
-                    do_dia.append((s, e))
+            do_dia = _janelas_do_dia_da_pessoa(dia, username, h, bat_pessoa,
+                                               agora_local)
             ab = (abonos_do_dia(dia, lista_ab, username)
                   if lista_ab else [])
             if ab:
                 import abonos as _ab
                 do_dia = _ab.descontar(do_dia, ab)
-            janelas.extend(do_dia)
+            # O teto entra DEPOIS do abono: a hora que o escritorio parou nao
+            # pode consumir a cota de 7h de quem estava la.
+            do_dia = _cortar_no_teto(do_dia, TETO_DIA_MIN)
+            for ja, jb in do_dia:
+                s, e = max(ini_local, ja), min(fim_local, jb)
+                if e > s:
+                    janelas.append((s, e))
         dia += timedelta(days=1)
     return janelas
 

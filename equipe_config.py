@@ -32,7 +32,8 @@ import planilha as _plan
 # Nome vindo do ambiente: producao usa o padrao, homologacao usa a copia.
 PLANILHA_NOME = _plan.nome()
 ABA_NOME = "equipe"
-COLUNAS = ["username_trello", "nome", "nome_rhid", "ativo", "bate_ponto", "colunas_funcao"]
+COLUNAS = ["username_trello", "nome", "nome_rhid", "ativo", "bate_ponto",
+           "colunas_funcao", "almoco_inicio", "almoco_fim"]
 
 
 def _crono(rotulo, seg, detalhe=""):
@@ -56,6 +57,55 @@ def _aba():
         aba = planilha.add_worksheet(title=ABA_NOME, rows=100, cols=len(COLUNAS))
         aba.append_row(COLUNAS, value_input_option="RAW")
         return aba
+
+
+def _hora(texto):
+    """'12:30' -> time(12, 30). None quando vazio ou ilegível.
+
+    None e não um padrão: horário de almoço em branco quer dizer "usa o da
+    casa", e escrever 13h30 aqui esconderia a diferença entre quem tem horário
+    próprio e quem nunca preencheu.
+    """
+    from datetime import time as _time
+    t = str(texto or "").strip()
+    if not t or ":" not in t:
+        return None
+    try:
+        h, m = t.split(":")[:2]
+        h, m = int(h), int(m)
+    except (TypeError, ValueError):
+        return None
+    if not (0 <= h <= 23 and 0 <= m <= 59):
+        return None
+    return _time(h, m)
+
+
+@st.cache_data(ttl=600)
+def almocos():
+    """{username: (inicio, fim)} para quem tem horário de almoço próprio.
+
+    O almoço NÃO é o mesmo para todo mundo: 12h–13h, 12h30–13h30 e 13h30–14h30
+    convivem no mesmo time. Escrito no código, cada troca de escala viraria
+    deploy — e um nome faltando ali é uma pessoa com o almoço contado como
+    trabalho, em silêncio.
+
+    Só entra o par completo: início sem fim (ou o contrário) é cadastro pela
+    metade, e meia janela é pior que nenhuma.
+    """
+    try:
+        registros = _aba().get_all_records()
+    except Exception:
+        return {}
+    fora = {}
+    for linha in registros:
+        user = str(linha.get("username_trello", "")).strip()
+        if not user or str(linha.get("ativo", "")).strip().lower() == "não":
+            continue
+        ini = _hora(linha.get("almoco_inicio"))
+        fim = _hora(linha.get("almoco_fim"))
+        if ini and fim and fim > ini:
+            fora[user] = (ini, fim)
+    return fora
 
 
 @st.cache_data(ttl=600)
@@ -90,24 +140,31 @@ def carregar():
 
 
 def salvar(username_trello, nome, nome_rhid="", ativo=True, bate_ponto=True,
-           colunas_funcao=""):
+           colunas_funcao="", almoco_inicio="", almoco_fim=""):
     """Grava ou atualiza uma pessoa."""
     aba = _aba()
     _garantir_colunas(aba)
     linha = [str(username_trello).strip(), str(nome).strip(),
              str(nome_rhid).strip(), "sim" if ativo else "não",
-             "sim" if bate_ponto else "não", str(colunas_funcao or "").strip()]
+             "sim" if bate_ponto else "não", str(colunas_funcao or "").strip(),
+             str(almoco_inicio or "").strip(), str(almoco_fim or "").strip()]
     try:
         celula = aba.find(str(username_trello).strip(), in_column=1)
     except Exception:
         celula = None
     if celula:
-        aba.update(f"A{celula.row}:F{celula.row}", [linha], value_input_option="RAW")
+        # O intervalo acompanha COLUNAS. Escrito a mao ("A:F"), uma coluna nova
+        # ficaria de fora da gravacao sem erro nenhum — o campo some na volta e
+        # ninguem sabe por que.
+        _fim = chr(ord("A") + len(COLUNAS) - 1)
+        aba.update(f"A{celula.row}:{_fim}{celula.row}", [linha],
+                   value_input_option="RAW")
     else:
         aba.append_row(linha, value_input_option="RAW")
     carregar.clear()
     nao_batem.clear()
     colunas_da_funcao.clear()
+    almocos.clear()
 
 
 def _garantir_colunas(aba):
