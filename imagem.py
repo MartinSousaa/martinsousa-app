@@ -2164,8 +2164,159 @@ def conferir_ajuste(antes, depois, instrucao):
         return None, f"{type(e).__name__}: {str(e)[:160]}"
 
 
+# ── Revisão do texto escrito DENTRO da imagem ────────────────────────────────
+#
+# O gerador escreve o texto como PIXEL, não como texto: ele desenha as letras.
+# E erra — "Portátile e compacto", "Sem a ene esar sem energia elétrica",
+# "Limpeza rápida e bruush, apoliando coma ser comforido". Saiu assim numa peça
+# de benefícios que foi parar na tela do gestor.
+#
+# Corretor ortográfico não pega isso, porque não há texto para corrigir: há uma
+# imagem. A única forma de conferir é LER a imagem — e é o que esta função faz,
+# comparando o que está escrito com o que foi pedido.
+#
+# Só nos tipos que têm texto. Capa e ambientação não têm, e mandá-las para cá
+# seria pagar uma leitura para ouvir "não há texto".
+_ESQUEMA_TEXTO = {
+    "type": "object",
+    "properties": {
+        "tem_texto": {
+            "type": "boolean",
+            "description": "A imagem contém alguma palavra escrita?",
+        },
+        "correto": {
+            "type": "boolean",
+            "description": "true apenas se TODAS as palavras estão escritas "
+                           "corretamente em português do Brasil e fazem "
+                           "sentido. Uma única palavra inventada, truncada ou "
+                           "com letra trocada torna isto false.",
+        },
+        "erros": {
+            "type": "string",
+            "description": "As palavras erradas, entre aspas, separadas por "
+                           "vírgula. Vazio se correto=true.",
+        },
+        "texto_correto": {
+            "type": "string",
+            "description": "Se correto=false, TODO o texto que deve aparecer "
+                           "na imagem, já escrito certo, na mesma ordem e "
+                           "posição. É isto que vai para o gerador refazer.",
+        },
+    },
+    "required": ["tem_texto", "correto", "erros", "texto_correto"],
+    "additionalProperties": False,
+}
+
+# Os tipos que levam texto. Capa (1) e ambientação (8) são foto limpa.
+TIPOS_COM_TEXTO = ("2 —", "3 —", "5 —", "6 —", "7 —")
+
+
+def tipo_tem_texto(tipo):
+    return str(tipo or "").strip().startswith(TIPOS_COM_TEXTO)
+
+
+def conferir_texto(imagem, pedido=""):
+    """O texto escrito na imagem está correto? (veredito, erro).
+
+    Falha de conferência NÃO reprova a imagem: sem chave ou sem rede, quem
+    chama segue com o que tem. O que não pode acontecer é o contrário — dar por
+    conferido sem ter lido.
+    """
+    api_key = (st.secrets.get("ANTHROPIC_API_KEY", "")
+               or os.environ.get("ANTHROPIC_API_KEY", ""))
+    if not api_key:
+        return None, "ANTHROPIC_API_KEY não configurada."
+    if not imagem:
+        return None, "Sem imagem para conferir."
+
+    conteudo = [
+        _bloco_imagem(imagem),
+        {"type": "text", "text": (
+            "Leia TODO o texto escrito nesta imagem — títulos, subtítulos, "
+            "rótulos, selos, qualquer palavra.\n\n"
+            + (f"O texto que o colaborador pediu era, em português do "
+               f"Brasil:\n{pedido.strip()}\n\n" if pedido.strip() else "")
+            + "Responda se está tudo escrito corretamente em português do "
+            "Brasil.\n\n"
+            "Seja rigoroso. Gerador de imagem desenha letras e inventa "
+            "palavras: 'Portátile', 'apoliando', 'comforido', 'bruush', "
+            "'seis materia' são erros, mesmo parecendo palavra. Palavra "
+            "truncada, letra trocada, concordância errada e frase sem "
+            "sentido contam como erro.\n\n"
+            "Em `texto_correto`, escreva TODO o texto da imagem já "
+            "corrigido, mantendo a mesma ordem e a mesma divisão em blocos "
+            "— é isso que vai ser mandado ao gerador para refazer a peça."
+        )},
+    ]
+    try:
+        cliente = anthropic.Anthropic(api_key=api_key)
+        resposta = cliente.messages.create(
+            model=MODELO_CONFERENCIA,
+            max_tokens=2000,
+            thinking={"type": "adaptive"},
+            output_config={"effort": "medium",
+                           "format": {"type": "json_schema",
+                                      "schema": _ESQUEMA_TEXTO}},
+            messages=[{"role": "user", "content": conteudo}],
+        )
+        if resposta.stop_reason == "refusal":
+            return None, "A conferência de texto foi recusada pelo modelo."
+        texto = next(b.text for b in resposta.content if b.type == "text")
+        return json.loads(texto), ""
+    except Exception as e:
+        return None, f"{type(e).__name__}: {str(e)[:160]}"
+
+
+def gerar_com_texto_conferido(prompt, fotos, tipo, pedido="", tentativas=2,
+                              aviso=None):
+    """Gera e, se o tipo levar texto, confere a ortografia antes de devolver.
+
+    Devolve (bytes, erro, relato_texto). `relato_texto` é None quando não houve
+    conferência — tipo sem texto, ou falha ao conferir.
+
+    Entregar peça com "Portátile e compacto" cala mais caro que uma rodada a
+    mais: ela chega ao anúncio, ou o colaborador reporta e a rodada acontece
+    do mesmo jeito, só que depois e com ele no meio.
+    """
+    def _diz(t):
+        if aviso:
+            try:
+                aviso(t)
+            except Exception:
+                pass
+
+    img, erro = gerar_imagem_ia(prompt, fotos, tipo=tipo or "")
+    if erro or not img or not tipo_tem_texto(tipo):
+        return img, erro, None
+
+    for n in range(1, max(1, tentativas) + 1):
+        _diz(f"Conferindo o texto escrito na imagem (tentativa {n})…")
+        veredito, erro_conf = conferir_texto(img, pedido)
+        if erro_conf:
+            return img, "", {"ok": None, "erro": erro_conf}
+        if not veredito.get("tem_texto") or veredito.get("correto"):
+            return img, "", {"ok": True, "erros": "", "tentativas": n}
+        if n >= tentativas:
+            return img, "", {"ok": False, "tentativas": n,
+                             "erros": veredito.get("erros", "")}
+        # Refaz com o texto certo em cima: o gerador nao "corrige" ortografia,
+        # ele redesenha — entao o caminho e dizer exatamente o que escrever.
+        _diz(f"Texto com erro. Refazendo (tentativa {n + 1})…")
+        certo = (veredito.get("texto_correto") or "").strip()
+        prompt_b = (prompt + "\n\n━━━ TEXTO EXATO A ESCREVER ━━━\n"
+                    "Write EXACTLY these words, letter by letter, in Brazilian "
+                    "Portuguese. Do not paraphrase, do not invent words, do not "
+                    "translate:\n" + certo)
+        img_b, erro_b = gerar_imagem_ia(prompt_b, fotos, tipo=tipo or "")
+        if erro_b or not img_b:
+            return img, "", {"ok": False, "tentativas": n,
+                             "erros": veredito.get("erros", "")}
+        img = img_b
+    return img, "", None
+
+
 def ajustar_com_conferencia(imagem, instrucao, tipo=None, tentativas=2,
-                            aviso=None):
+                            aviso=None, referencias=None):
     """Ajusta, confere e — se não saiu — tenta de novo com a crítica na mão.
 
     Devolve (bytes_finais, relato). `relato` é o que se conta ao colaborador:
@@ -2192,8 +2343,18 @@ def ajustar_com_conferencia(imagem, instrucao, tipo=None, tentativas=2,
 
     for n in range(1, max(1, tentativas) + 1):
         _diz(f"Ajustando (tentativa {n} de {tentativas})…")
+        # A imagem ATUAL primeiro (é ela que está sendo editada), e depois as
+        # fotos de REFERÊNCIA do produto.
+        #
+        # Antes só a atual ia. "Replique o padrão desta imagem que anexei" era
+        # impossível de atender: a referência ficava na mão do colaborador e
+        # chegava aqui como descrição em texto — e descrever um layout em
+        # palavras com fidelidade suficiente para o modelo copiá-lo não
+        # funciona. Foram quatro tentativas sem NENHUMA mudança na imagem antes
+        # de alguém abrir este arquivo.
+        _refs = [atual] + [r for r in (referencias or []) if r and r != atual]
         nova, erro = gerar_imagem_ia(montar_prompt_ajuste_fino(pedido, tipo),
-                                     [atual], tipo=tipo or "")
+                                     _refs, tipo=tipo or "")
         if erro or not nova:
             return atual, {"ok": False, "tentativas": n,
                            "erro": erro or "o gerador não devolveu imagem.",
@@ -3314,10 +3475,71 @@ def pagina_imagem(usuario_logado):
                         if erro_gen:
                             st.warning(f"⚠️ Falhou em '{tipo}': {erro_gen}")
                             continue
+
+                        # ── O texto escrito na imagem foi conferido? ────────
+                        #
+                        # O gerador desenha as letras, e erra: saiu "Portátile
+                        # e compacto", "Sem a ene esar sem energia elétrica",
+                        # "bruush, apoliando coma ser comforido" numa peça de
+                        # benefícios que chegou até a tela do gestor.
+                        #
+                        # Corretor não pega — não há texto, há pixel. A única
+                        # forma é LER a imagem, e é isso que acontece aqui, só
+                        # nos tipos que levam texto.
+                        _rel_txt = None
+                        if tipo_tem_texto(tipo):
+                            barra.progress(i / len(tipos),
+                                           text=f"Conferindo o texto de {tipo[:30]}…")
+                            _v_txt, _e_txt = conferir_texto(
+                                img_bytes, cfg.get("instrucoes_extras", ""))
+                            if _e_txt:
+                                _rel_txt = {"ok": None, "erro": _e_txt}
+                            elif _v_txt.get("tem_texto") and not _v_txt.get("correto"):
+                                _certo = (_v_txt.get("texto_correto") or "").strip()
+                                barra.progress(i / len(tipos),
+                                               text=f"Texto com erro em {tipo[:26]} — refazendo…")
+                                _p2 = (prompt_final
+                                       + "\n\n\u2501\u2501\u2501 TEXTO EXATO A ESCREVER \u2501\u2501\u2501\n"
+                                       "Write EXACTLY these words, letter by "
+                                       "letter, in Brazilian Portuguese. Do "
+                                       "not paraphrase, do not invent words, "
+                                       "do not translate:\n" + _certo)
+                                _r2 = {"img": None, "erro": None, "done": False}
+                                _th2 = _threading.Thread(
+                                    target=_gerar_imagem_thread,
+                                    args=(_p2, cfg["fotos_bytes"], _r2),
+                                    kwargs={"refs_layout": _refs_layout_arg,
+                                            "refs_layout_nomes": cfg.get("refs_layout_nomes", []),
+                                            "tipo": tipo},
+                                    daemon=True)
+                                _th2.start()
+                                _t2 = _time_gen.time()
+                                while not _r2["done"]:
+                                    if int(_time_gen.time() - _t2) >= 300:
+                                        _r2["done"] = True
+                                        break
+                                    _time_gen.sleep(1)
+                                if _r2["img"]:
+                                    # A segunda vale mesmo sem reconferir: uma
+                                    # terceira rodada por imagem sairia caro em
+                                    # tempo e em API, e o relato avisa.
+                                    img_bytes = _r2["img"]
+                                    _rel_txt = {"ok": False, "refeita": True,
+                                                "erros": _v_txt.get("erros", "")}
+                                else:
+                                    _rel_txt = {"ok": False, "refeita": False,
+                                                "erros": _v_txt.get("erros", "")}
+                            else:
+                                _rel_txt = {"ok": True}
+
                         galeria.append({
                             "tipo": tipo,
                             "bytes": img_bytes,
                             "aprovado": False,
+                            # O veredito da revisao de texto viaja com a imagem:
+                            # a tela precisa poder dizer "confira antes de
+                            # publicar" na peca certa, e nao num aviso geral.
+                            "texto": _rel_txt,
                             # Guarda o prompt exato e o motor que gerou ESTA imagem.
                             # Sem isso não dá para saber se o resultado ruim veio de
                             # prompt errado ou de ter caído no fallback texto-puro.
@@ -3442,6 +3664,22 @@ def pagina_imagem(usuario_logado):
                     caption=(_legenda[:52] + "…") if len(_legenda) > 52 else _legenda,
                     use_container_width=True,
                 )
+                # O aviso fica NA PECA, nao num alerta geral no topo: com oito
+                # imagens na tela, "uma delas tem erro de texto" obriga a
+                # procurar qual, e procurar e o que ninguem faz.
+                _t = g.get("texto") or {}
+                if _t.get("ok") is False:
+                    _e = (_t.get("erros") or "").strip()
+                    if _t.get("refeita"):
+                        st.warning("⚠️ O texto saiu errado e a imagem foi "
+                                   "refeita. **Confira antes de publicar.**"
+                                   + (f" Erros da 1ª: {_e}" if _e else ""))
+                    else:
+                        st.error("❌ Texto com erro e não consegui refazer. "
+                                 "**Não publique sem corrigir.**"
+                                 + (f" Erros: {_e}" if _e else ""))
+                elif _t.get("ok") is None and _t.get("erro"):
+                    st.caption(f"texto não conferido ({_t['erro'][:60]})")
 
         # Seleção da imagem ativa
         escolha = st.selectbox("Imagem ativa (para ajustar ou baixar individualmente)", nomes_galeria, key="img_escolha")
@@ -3600,10 +3838,12 @@ def pagina_imagem(usuario_logado):
                     def _rodar_afg(_ref=imagem_ativa,
                                    _ins=instrucao_af_gal.strip(),
                                    _tp=galeria[idx_ativo].get("tipo"),
+                                   _rf=list(st.session_state.get(
+                                       "img_fotos_originais") or []),
                                    _r=_res_afg):
                         try:
                             _r["img"], _r["relato"] = ajustar_com_conferencia(
-                                _ref, _ins, tipo=_tp,
+                                _ref, _ins, tipo=_tp, referencias=_rf,
                                 aviso=lambda t: _r.__setitem__("fase", t))
                         except Exception as _e:
                             _r["img"], _r["relato"] = None, {
@@ -3666,6 +3906,66 @@ def pagina_imagem(usuario_logado):
                 pass
             st.rerun()
 
+        # ── REFAZER uma imagem, pedido pelo chat ─────────────────────────
+        #
+        # Diferente do ajuste: aqui a imagem nasce de novo, com a composição
+        # definida no prompt de geração. O ajuste preserva o resto do quadro e
+        # por isso não recompõe — e devolvia a imagem intacta sem erro nenhum,
+        # o que custou quatro rodadas até alguém abrir este arquivo.
+        refazer_pend = st.session_state.pop("chat_refazer_imagem", [])
+        if refazer_pend:
+            _fotos_rf = st.session_state.get("img_fotos_originais") or []
+            _cfg_rf = st.session_state.get("img_triagem_config") or {}
+            _dados_rf = st.session_state.get("img_dados_descricao") or {}
+            _nome_rf = _cfg_rf.get("nome_produto", "")
+            _msgs_rf, _mudou_rf = [], False
+            for _c in refazer_pend:
+                _i = int(_c.get("num", 1)) - 1
+                if _i < 0 or _i >= len(galeria):
+                    _msgs_rf.append(f"⚠️ Imagem {_i + 1} não existe.")
+                    continue
+                if not _fotos_rf:
+                    _msgs_rf.append("⚠️ Sem as fotos originais não dá para "
+                                    "refazer. Gere de novo pela aba.")
+                    break
+                _tp = galeria[_i]["tipo"]
+                _ins = (_c.get("instrucao") or "").strip()
+                _prompt = montar_prompt_imagem(_tp, _ins, _dados_rf, _nome_rf)
+                _r = {"img": None, "erro": None, "done": False}
+                _b = st.progress(0.0, text=f"Refazendo a Imagem {_i + 1}…")
+                import threading as _th_rf, time as _tm_rf
+                _th_rf.Thread(target=_gerar_imagem_thread,
+                              args=(_prompt, _fotos_rf, _r), daemon=True).start()
+                _t0 = _tm_rf.time()
+                while not _r["done"]:
+                    _sg = int(_tm_rf.time() - _t0)
+                    if _sg >= 300:
+                        _r["erro"], _r["done"] = "Tempo limite de 5 min.", True
+                        break
+                    _b.progress(min(0.9, _sg / 60),
+                                text=f"Refazendo a Imagem {_i + 1}… ({_sg}s)")
+                    _tm_rf.sleep(1)
+                _b.progress(1.0, text="Concluído!")
+                if _r["erro"] or not _r["img"]:
+                    _msgs_rf.append(f"❌ Imagem {_i + 1}: {_r['erro'] or 'sem retorno'}")
+                    continue
+                galeria[_i]["bytes"] = _r["img"]
+                galeria[_i]["aprovado"] = False
+                st.session_state["img_galeria"] = list(galeria)
+                _mudou_rf = True
+                _msgs_rf.append(f"🔁 Imagem {_i + 1} refeita do zero.")
+            if _mudou_rf:
+                try:
+                    import rascunho as _rasc_rf
+                    _rasc_rf.salvar(usuario_logado, _nome_rf, galeria,
+                                    _cfg_rf.get("codigo", ""))
+                except Exception:
+                    pass
+            if _msgs_rf:
+                st.session_state.setdefault("ms_chat_hist", []).append(
+                    {"role": "assistant", "content": "\n".join(_msgs_rf)})
+            st.rerun()
+
         cmds_pendentes = st.session_state.pop("chat_img_pendente", [])
         if cmds_pendentes:
             fotos_ref_aj = st.session_state.get("img_fotos_originais") or []
@@ -3690,10 +3990,11 @@ def pagina_imagem(usuario_logado):
                 _barra_cmd = st.progress(0.0, text=f"Assistente IA: ajuste na Imagem {num_foto}...")
 
                 def _rodar_cmd(_ref=img_ref_cmd[0] if img_ref_cmd else None,
-                               _ins=instrucao, _tp=tipo_alvo, _r=_res_cmd):
+                               _ins=instrucao, _tp=tipo_alvo,
+                               _rf=list(fotos_ref_aj or []), _r=_res_cmd):
                     try:
                         _r["img"], _r["relato"] = ajustar_com_conferencia(
-                            _ref, _ins, tipo=_tp,
+                            _ref, _ins, tipo=_tp, referencias=_rf,
                             aviso=lambda t: _r.__setitem__("fase", t))
                     except Exception as _e:
                         _r["img"], _r["relato"] = None, {
