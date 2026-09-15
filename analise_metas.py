@@ -5815,12 +5815,27 @@ def _secao_equipe():
             help="Desmarque para quem não usa a RHiD. Sem isso a pessoa aparece "
                  "com 0% de desempenho e 'Não registrado' em vermelho, como se "
                  "tivesse faltado.")
+        # O almoco NAO e o mesmo para todo mundo: 12h-13h, 12h30-13h30 e
+        # 13h30-14h30 convivem no time. Aqui e nao no codigo, senao cada troca
+        # de escala vira deploy — e um nome faltando la e uma pessoa com o
+        # almoco contado como trabalho, em silencio.
+        _a1, _a2 = st.columns(2)
+        _alm_i = _a1.text_input(
+            "Almoço — início (opcional)", placeholder="12:00",
+            help="Só vale nos dias SEM batida no relógio. Quando a RHiD "
+                 "responde, a janela sai do ponto de verdade. Em branco usa o "
+                 "padrão da casa, 13:30 às 14:30.")
+        _alm_f = _a2.text_input("Almoço — fim (opcional)", placeholder="13:00")
         if st.form_submit_button("Salvar colaborador", use_container_width=True):
             if not _user.strip() or not _nome.strip():
                 st.error("Username do Trello e nome são obrigatórios.")
+            elif bool(_alm_i.strip()) != bool(_alm_f.strip()):
+                st.error("Almoço pela metade não vale — preencha o início e o "
+                         "fim, ou deixe os dois em branco.")
             else:
                 try:
-                    _ec.salvar(_user, _nome, _rhid, _ativo, _bate, _funcao_in)
+                    _ec.salvar(_user, _nome, _rhid, _ativo, _bate, _funcao_in,
+                               _alm_i, _alm_f)
                     _pc.recarregar_membros()
                     st.success(f"{_nome} salvo.")
                     st.rerun()
