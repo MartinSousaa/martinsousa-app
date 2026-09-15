@@ -1692,6 +1692,113 @@ def _cartao_pedido(a, _ab):
         f'{anexo}{rodape}</div>')
 
 
+def _secao_paradas():
+    """Paradas da equipe inteira: o que parou o escritório, não uma pessoa.
+
+    Mora AQUI, e não mais dentro de Configuração de Metas, por decisão do
+    gestor. Estava a cinco cliques — Análise de Metas › Configuração › rolar
+    até o fim —, e é uma tela que se usa no meio de um problema, com o time
+    parado esperando. É o mesmo erro que já tinha sido corrigido uma vez com o
+    pedido de abatimento, que vivia enterrado dentro de Desempenho.
+
+    Ao lado dos pedidos individuais porque são a mesma coisa vista dos dois
+    lados do balcão: hora que não conta para ninguém. O que separa é quem
+    decide — a parada é o gestor que lança; o abatimento é a pessoa que pede.
+    """
+    st.caption(
+        "Queda de internet, falta de energia, emenda de feriado, férias "
+        "coletivas: o trabalho para e os indicadores não. O tempo lançado aqui "
+        "sai da conta de **atraso**, de **ociosidade** e de **tempo de "
+        "execução** ao mesmo tempo — os três partem das mesmas janelas de "
+        "expediente. Vale para a **equipe inteira**; o que uma pessoa pede "
+        "para si está logo abaixo, em Pedidos de abatimento."
+    )
+    try:
+        import abonos as _ab
+        _lista_ab = _ab.carregar()
+    except Exception as _e_ab:
+        st.warning(f"Não consegui ler os abonos: {str(_e_ab)[:150]}")
+        return
+    # So o que parou o escritorio inteiro. Os pedidos da equipe tem dono e
+    # vivem na fila logo abaixo: misturados aqui, apagar "a parada da tarde"
+    # apagaria o pedido de alguem.
+    _lista_ab = [_a for _a in _lista_ab if not _a["user"]]
+    _agora = datetime.now(_pc.FUSO)
+
+    _t_dep, _t_ant = st.tabs(["⚡ Já aconteceu", "📅 Vai acontecer"])
+
+    with _t_dep:
+        st.caption("Para o que só dá para registrar depois de resolvido — "
+                   "queda de internet, falta de energia.")
+        _c1, _c2, _c3, _c4, _c5 = st.columns([1.2, .9, .9, 2.4, 1])
+        _d1 = _c1.date_input("Dia", value=_agora.date(), key="pt_p_data",
+                             format="DD/MM/YYYY")
+        _h1 = _c2.time_input("Das", value=time(9, 0), key="pt_p_ini", step=300)
+        _h2 = _c3.time_input("Até", value=time(11, 0), key="pt_p_fim", step=300)
+        _m1 = _c4.text_input("O que houve", key="pt_p_motivo",
+                             placeholder="Queda de internet")
+        _dur1 = ((_h2.hour * 60 + _h2.minute) - (_h1.hour * 60 + _h1.minute))
+        if _dur1 > 0:
+            _c4.caption(f"Parada de **{_fmt_min(_dur1)}**")
+        if _c5.button("Lançar", key="pt_p_add", use_container_width=True):
+            if not (_m1 or "").strip():
+                st.error("Escreva o que houve — é o que justifica a parada.")
+            else:
+                _ok, _msg = _ab.salvar(_d1, _h1, _h2, _m1,
+                                       tipo=_ab.TIPO_PARADA)
+                st.rerun() if _ok else st.error(_msg)
+
+    with _t_ant:
+        st.caption("Para o que dá para programar — emenda de feriado, feriado "
+                   "regional, férias coletivas. Dia inteiro, do primeiro ao "
+                   "último.")
+        _e1, _e2, _e3, _e4 = st.columns([1.2, 1.2, 2.7, 1])
+        _di = _e1.date_input("Do dia", value=_agora.date(), key="pt_f_ini",
+                             format="DD/MM/YYYY")
+        _df = _e2.date_input("Até o dia", value=_agora.date(), key="pt_f_fim",
+                             format="DD/MM/YYYY")
+        _m2 = _e3.text_input("Situação", key="pt_f_motivo",
+                             placeholder="Emenda de feriado")
+        _nd = (_df - _di).days + 1
+        if _nd > 0:
+            _e3.caption(f"**{_nd}** dia(s) sem expediente")
+        if _e4.button("Lançar", key="pt_f_add", use_container_width=True):
+            if not (_m2 or "").strip():
+                st.error("Escreva a situação.")
+            else:
+                _ok, _msg = _ab.salvar(_di, _ab.DIA_INTEIRO[0],
+                                       _ab.DIA_INTEIRO[1], _m2,
+                                       data_fim=_df, tipo=_ab.TIPO_PERIODO)
+                st.rerun() if _ok else st.error(_msg)
+
+    if not _lista_ab:
+        st.caption("Nada lançado até agora.")
+    for _a in _lista_ab[:15]:
+        _l1, _l2 = st.columns([6, 1])
+        if _a["tipo"] == _ab.TIPO_PERIODO:
+            _dias = (_a["data_fim"] - _a["data"]).days + 1
+            _quando = (f'{_a["data"]:%d/%m/%Y}'
+                       + (f' a {_a["data_fim"]:%d/%m/%Y}' if _dias > 1 else '')
+                       + f' · {_dias} dia(s) inteiro(s)')
+            _cor, _ico = "#8B5CF6", "📅"
+        else:
+            _dur = ((_a["fim"].hour * 60 + _a["fim"].minute)
+                    - (_a["inicio"].hour * 60 + _a["inicio"].minute))
+            _quando = (f'{_a["data"]:%d/%m/%Y} · {_a["inicio"]:%H:%M} às '
+                       f'{_a["fim"]:%H:%M} · {_fmt_min(_dur)}')
+            _cor, _ico = "#EDA100", "⚡"
+        _l1.markdown(
+            f'<div style="padding:6px 0;font-size:13px;">'
+            f'<span style="color:{_cor};">{_ico}</span> '
+            f'<b>{_esc_ab(_a["motivo"]) or "sem motivo"}</b>'
+            f'<span style="color:var(--ms-texto-sec);"> — {_quando}</span>'
+            f'</div>', unsafe_allow_html=True)
+        if _l2.button("🗑️", key=f'pt_ab_x_{_a["linha"]}',
+                      use_container_width=True):
+            _ok, _msg = _ab.remover_linha(_a["linha"])
+            st.rerun() if _ok else st.error(_msg)
+
+
 def _secao_abatimentos(usuario_logado: str):
     """A fila de pedidos de abatimento de ociosidade, para decidir.
 
@@ -1772,7 +1879,7 @@ def pagina_ponto(usuario_logado: str):
     if eh_master:
         (tab_relatorio, tab_abat, tab_hoje, tab_registro,
          tab_historico) = st.tabs(
-            ["📊 Relatório RHiD", "🙋 Abatimentos", "📡 Status Hoje",
+            ["📊 Relatório RHiD", "🙋 Abonos", "📡 Status Hoje",
              "✏️ Registrar", "📋 Histórico Mensal"]
         )
     else:
@@ -1790,6 +1897,12 @@ def pagina_ponto(usuario_logado: str):
             _secao_relatorio_rhid()
 
         with tab_abat:
+            # As duas metades da mesma coisa — hora que nao conta — na mesma
+            # tela. A parada vem primeiro: ela se lanca com o time parado
+            # esperando, e o pedido de abatimento chega quando chegar.
+            st.markdown("#### 🛑 Paradas e períodos sem expediente")
+            _secao_paradas()
+            st.markdown("---")
             st.markdown("#### 📥 Pedidos de abatimento")
             _secao_abatimentos(usuario_logado)
 
