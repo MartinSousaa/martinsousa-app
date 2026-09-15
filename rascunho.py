@@ -105,14 +105,73 @@ def _ext(dados):
     return "png"
 
 
+MANIFESTO = "manifesto.json"
+TRABALHO = "trabalho.json"
+ANTERIOR = "anterior"
+
+
+def _so_a_galeria(pasta):
+    """Apaga os arquivos da galeria e o manifesto. NADA além disso.
+
+    `rmtree` na pasta inteira era o bug: levava junto o `trabalho.json`, que
+    guarda título, descrição, palavras-chave e o chat. Gerar imagem de novo
+    apagava o texto que a pessoa tinha escrito, sem nada na tela dizendo por
+    quê — e os dois não têm relação nenhuma.
+    """
+    if not os.path.isdir(pasta):
+        return
+    for nome in os.listdir(pasta):
+        if nome in (TRABALHO, ANTERIOR):
+            continue
+        alvo = os.path.join(pasta, nome)
+        try:
+            if os.path.isfile(alvo):
+                os.remove(alvo)
+        except Exception:
+            pass
+
+
+def arquivar(usuario):
+    """Empurra a galeria atual para `anterior/` em vez de jogá-la fora.
+
+    Uma geração nova começa apagando a antiga — e era ali que o colaborador
+    ficava sem rede: se a tela recarregasse antes de a primeira imagem nova
+    ficar pronta, a sessão vinha vazia E o disco vinha vazio. As imagens
+    antigas, já pagas, sumiam por causa de um pedido de correção.
+
+    Guardadas em `anterior/`, elas continuam recuperáveis até a geração nova
+    fechar. Só então `salvar()` descarta a cópia.
+    """
+    if not usuario:
+        return False
+    pasta = _pasta(usuario)
+    if not os.path.exists(os.path.join(pasta, MANIFESTO)):
+        return False
+    antigo = os.path.join(pasta, ANTERIOR)
+    try:
+        shutil.rmtree(antigo, ignore_errors=True)
+        os.makedirs(antigo, exist_ok=True)
+        for nome in os.listdir(pasta):
+            if nome in (TRABALHO, ANTERIOR):
+                continue
+            alvo = os.path.join(pasta, nome)
+            if os.path.isfile(alvo):
+                shutil.move(alvo, os.path.join(antigo, nome))
+        return True
+    except Exception:
+        return False
+
+
 def salvar(usuario, nome_produto, galeria, codigo=""):
     """Grava a galeria inteira. Nunca levanta: rascunho não pode derrubar geração."""
     if not usuario or not galeria:
         return False
     try:
         pasta = _pasta(usuario)
-        shutil.rmtree(pasta, ignore_errors=True)
         os.makedirs(pasta, exist_ok=True)
+        # Só a galeria: o trabalho.json fica. Antes era `rmtree` na pasta
+        # inteira, e salvar imagem apagava o texto da pessoa.
+        _so_a_galeria(pasta)
         itens = []
         for i, g in enumerate(galeria):
             dados = g.get("bytes")
@@ -124,51 +183,84 @@ def salvar(usuario, nome_produto, galeria, codigo=""):
             itens.append({"tipo": g.get("tipo", ""), "arquivo": arq,
                           "aprovado": bool(g.get("aprovado")),
                           "link": g.get("link", "")})
-        with open(os.path.join(pasta, "manifesto.json"), "w", encoding="utf-8") as fh:
+        with open(os.path.join(pasta, MANIFESTO), "w", encoding="utf-8") as fh:
             json.dump({"quando": time.time(), "nome_produto": nome_produto,
                        "codigo": codigo, "itens": itens}, fh)
+        # A geração nova fechou: a cópia de segurança já não serve para nada.
+        shutil.rmtree(os.path.join(pasta, ANTERIOR), ignore_errors=True)
         return True
     except Exception:
         return False
 
 
-def carregar(usuario):
-    """Devolve {"nome_produto","codigo","galeria","quando","idade_min"} ou None."""
-    if not usuario:
+def _ler_manifesto(pasta):
+    """{...} da galeria daquela pasta, ou None. Não decide nada — só lê."""
+    caminho = os.path.join(pasta, MANIFESTO)
+    if not os.path.exists(caminho):
         return None
     try:
-        pasta = _pasta(usuario)
-        caminho = os.path.join(pasta, "manifesto.json")
-        if not os.path.exists(caminho):
-            return None
         with open(caminho, encoding="utf-8") as fh:
             man = json.load(fh)
-        idade = time.time() - float(man.get("quando", 0))
-        if idade > VALIDADE_HORAS * 3600:
-            limpar(usuario)
-            return None
-        galeria = []
-        for it in man.get("itens", []):
-            caminho_img = os.path.join(pasta, it.get("arquivo", ""))
-            if not os.path.exists(caminho_img):
-                continue
+    except Exception:
+        return None
+    idade = time.time() - float(man.get("quando", 0))
+    if idade > VALIDADE_HORAS * 3600:
+        return None
+    galeria = []
+    for it in man.get("itens", []):
+        caminho_img = os.path.join(pasta, it.get("arquivo", ""))
+        if not os.path.exists(caminho_img):
+            continue
+        try:
             with open(caminho_img, "rb") as fh:
                 galeria.append({"tipo": it.get("tipo", ""), "bytes": fh.read(),
                                 "aprovado": it.get("aprovado", False),
                                 "link": it.get("link", ""), "diag": {}})
-        if not galeria:
-            return None
-        return {"nome_produto": man.get("nome_produto", ""),
-                "codigo": man.get("codigo", ""),
-                "galeria": galeria, "quando": man.get("quando", 0),
-                "idade_min": int(idade // 60)}
+        except Exception:
+            continue
+    if not galeria:
+        return None
+    return {"nome_produto": man.get("nome_produto", ""),
+            "codigo": man.get("codigo", ""),
+            "galeria": galeria, "quando": man.get("quando", 0),
+            "idade_min": int(idade // 60)}
+
+
+def carregar(usuario):
+    """A galeria guardada, ou None. Cai em `anterior/` quando a atual sumiu.
+
+    É a queda que o colaborador viveu: pediu correção, a tela recarregou antes
+    de a geração nova terminar, e não havia nem sessão nem disco. Agora a
+    geração interrompida devolve o que existia antes dela.
+    """
+    if not usuario:
+        return None
+    try:
+        pasta = _pasta(usuario)
+        atual = _ler_manifesto(pasta)
+        if atual:
+            return atual
+        anterior = _ler_manifesto(os.path.join(pasta, ANTERIOR))
+        if anterior:
+            anterior["de_geracao_interrompida"] = True
+            return anterior
+        return None
     except Exception:
         return None
 
 
 def limpar(usuario):
+    """Apaga a galeria — e SÓ ela. O trabalho de texto e chat continua.
+
+    Título, descrição, palavras-chave e chat não têm relação com gerar imagem
+    de novo; apagá-los junto era efeito colateral do `rmtree` na pasta inteira.
+    """
+    if not usuario:
+        return
+    pasta = _pasta(usuario)
     try:
-        shutil.rmtree(_pasta(usuario), ignore_errors=True)
+        _so_a_galeria(pasta)
+        shutil.rmtree(os.path.join(pasta, ANTERIOR), ignore_errors=True)
     except Exception:
         pass
 

@@ -2410,10 +2410,13 @@ def pagina_imagem(usuario_logado):
             _n = len(_pend["galeria"])
             _quando = (f"há {_pend['idade_min']} min" if _pend["idade_min"] >= 1
                        else "agora há pouco")
+            _motivo = ("uma geração nova começou e não terminou"
+                       if _pend.get("de_geracao_interrompida")
+                       else "a conexão caiu no meio")
             st.warning(
                 f"🛟 Encontrei **{_n} imagem(ns)** de **{_pend['nome_produto'] or 'um produto'}** "
-                f"geradas {_quando} que não chegaram a aparecer na tela — a conexão "
-                "caiu no meio. Elas já foram pagas: recupere antes de gerar de novo."
+                f"geradas {_quando} que não chegaram a aparecer na tela — {_motivo}. "
+                "Elas já foram pagas: recupere antes de gerar de novo."
             )
             _c_rec, _c_desc = st.columns(2)
             if _c_rec.button(f"🛟 Recuperar as {_n} imagens", type="primary",
@@ -3231,9 +3234,14 @@ def pagina_imagem(usuario_logado):
 
                 galeria = []
                 st.session_state.pop("img_galeria_salva", None)
+                # ARQUIVAR, nao apagar. Apagar aqui desarmava a rede de
+                # seguranca exatamente no momento em que ela era necessaria:
+                # entre o clique e a primeira imagem nova nao havia nem sessao
+                # nem disco, e uma recarga de tela levava as imagens antigas —
+                # ja pagas — junto com o pedido de correcao.
                 try:
                     import rascunho as _rasc
-                    _rasc.limpar(usuario_logado)
+                    _rasc.arquivar(usuario_logado)
                 except Exception:
                     pass
                 barra = st.progress(0.0, text="Iniciando geração...")
