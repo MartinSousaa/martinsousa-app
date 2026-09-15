@@ -11,7 +11,13 @@ sentindo a lentidão poder ler sem depender de log de servidor.
 
 Como usar
 ---------
-    import cronometro
+    import cronometro, time
+    t0 = time.perf_counter()
+    ...
+    cronometro.marcar("Trello: board", time.perf_counter() - t0)
+
+Ou, quando o bloco é um `with` natural:
+
     with cronometro.medir("Trello: board"):
         ...
 
@@ -78,6 +84,33 @@ def marcar(rotulo, seg, detalhe=""):
         _lista().append({"rotulo": rotulo, "detalhe": detalhe, "seg": float(seg)})
     except Exception:
         pass
+
+
+class medir:
+    """`with cronometro.medir("Trello: board"):` — mede o bloco e registra.
+
+    O docstring deste módulo prometia esta forma desde o início e ela nunca
+    existiu: quem seguia o exemplo tomava AttributeError. Escrever agora é
+    mais barato que corrigir o docstring, porque `with` é como se mede um
+    bloco — e um exemplo que não roda é pior que exemplo nenhum.
+    """
+
+    def __init__(self, rotulo, detalhe=""):
+        self.rotulo, self.detalhe, self._t0 = rotulo, detalhe, None
+
+    def __enter__(self):
+        self._t0 = time.perf_counter()
+        return self
+
+    def __exit__(self, *_exc):
+        # Nunca engole o erro do bloco: medir não pode mudar o que aconteceu
+        # dentro dele. Devolve False, então a exceção segue subindo.
+        try:
+            marcar(self.rotulo, time.perf_counter() - (self._t0 or 0),
+                   self.detalhe)
+        except Exception:
+            pass
+        return False
 
 
 def painel(titulo="⏱️ Onde foram os segundos desta tela"):

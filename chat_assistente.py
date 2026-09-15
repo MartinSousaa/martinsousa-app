@@ -18,6 +18,24 @@ import base64
 SYSTEM_BASE = """Você é o Assistente do MS Studio, aplicativo interno da MartinSousa para
 gestão de produtos em marketplaces (Mercado Livre, Shopee, Shein).
 
+=== COMO RESPONDER: CURTO ===
+De 3 a 6 linhas. Sempre.
+
+Esta é a regra mais quebrada e a mais cobrada. O dono do Studio já pediu
+resumo em quase toda mensagem, e o motivo é prático: quem lê está no meio de
+uma tarefa, com o time esperando. Texto longo não é zelo — é conta que ele
+paga em atenção.
+
+Na prática:
+- Tabela em vez de parágrafo, sempre que houver mais de dois itens.
+- "Sim ou não" recebe "sim" ou "não" na PRIMEIRA palavra, e só depois o porquê.
+- Nada de recapitular o que ele acabou de dizer antes de responder.
+- Nada de listar o que você NÃO fez, nem de explicar seu raciocínio.
+- Passo a passo numerado só quando pedirem como fazer.
+- Confirmação de comando é UMA linha: o que foi disparado e onde ver.
+
+A exceção é uma só: quando ele pedir explicitamente um relatório ou detalhe.
+
 === ESTRUTURA DO APP ===
 O MS Studio tem as seguintes abas (menu lateral esquerdo):
 
@@ -330,6 +348,7 @@ def _montar_system(usuario="", eh_admin=None) -> str:
         cmds_exemplo.append('{"acao":"alterar_descricao","texto":"nova descrição completa aqui"}')
     if tem_imgs:
         cmds_exemplo.append('{"acao":"ajustar_imagem","imagem":1,"instrucao":"instrução de edição para a imagem"}')
+        cmds_exemplo.append('{"acao":"refazer_imagem","imagem":1,"instrucao":"como a imagem deve ficar, do zero"}')
         cmds_exemplo.append('{"acao":"refazer_todas_imagens","instrucao":"o que mudar em todas"}')
         cmds_exemplo.append('{"acao":"gerar_imagens_faltantes"}')
 
@@ -356,9 +375,19 @@ da sua resposta um bloco <CMD>...</CMD> com o JSON do comando:
 REGRAS DOS COMANDOS:
 - "alterar_titulo": inclua os 2 títulos COMPLETOS e já ajustados (não coloque placeholders)
 - "alterar_descricao": inclua o texto COMPLETO da nova descrição
+- "refazer_imagem": quando a mudança pedida for de COMPOSIÇÃO — outro
+  enquadramento, outro arranjo dos objetos, "siga o padrão desta referência",
+  mudar o que está onde. O ajuste NÃO faz isso: ele edita regiões e preserva o
+  resto, então devolve a imagem intacta e ninguém entende por quê. Na dúvida
+  entre ajustar e refazer, olhe o tamanho da mudança: mexer num objeto é
+  ajuste; reorganizar o quadro é refazer.
+
 - "ajustar_imagem": use o NÚMERO da imagem na galeria (o mesmo da legenda). Descreva
-  apenas o que muda — o resto da imagem é preservado. Uma imagem por comando; se o
-  colaborador pedir a mesma mudança em várias, emita um comando para cada uma.
+  apenas o que muda — o resto da imagem é preservado. Um comando POR IMAGEM, e
+  TODOS na mesma resposta: se ele pedir a mesma mudança nas imagens 2, 3 e 6,
+  emita os três blocos <CMD> de uma vez. Nunca faça um e prometa os outros para
+  a mensagem seguinte — isso já aconteceu e obrigou o colaborador a cobrar duas
+  vezes o que ele tinha pedido uma.
   REGRA CENTRAL: imagem que o colaborador NÃO citou não pode ser tocada. Se ele
   pedir "deixa a imagem 1 com fundo branco", só a imagem 1 muda — as outras ficam
   exatamente como estão. Na dúvida sobre qual imagem é, PERGUNTE o número antes de
@@ -548,6 +577,30 @@ def _executar_comando(cmd: dict) -> str | None:
                 "As demais imagens não serão alteradas."
             )
 
+    if acao == "refazer_imagem":
+        # REFAZER uma, e nao AJUSTAR uma. Sao coisas diferentes e a diferenca
+        # custou quatro rodadas sem resultado: o ajuste edita regioes e
+        # preserva o resto, entao recompor o quadro inteiro passa do que ele
+        # faz — e ele devolve a imagem intacta, sem erro nenhum. Aqui a imagem
+        # nasce de novo, com a composicao definida no nascimento.
+        alvo = cmd.get("imagem", cmd.get("foto"))
+        galeria = st.session_state.get("img_galeria") or []
+        foto_num = _resolver_imagem(alvo, galeria)
+        if not galeria:
+            return "⚠️ Não há imagens geradas para refazer."
+        if foto_num is None:
+            nomes = "\n".join(f"- **Imagem {i+1}** — {g.get('tipo','?')}"
+                              for i, g in enumerate(galeria))
+            return ("⚠️ Não ficou claro **qual imagem** refazer. Me diga o "
+                    "número:\n" + nomes)
+        instrucao = str(cmd.get("instrucao", "")).strip()
+        st.session_state.setdefault("chat_refazer_imagem", []).append(
+            {"num": foto_num, "instrucao": instrucao})
+        _log("refazer_imagem", instrucao, imagem=foto_num,
+             tipo=galeria[foto_num - 1].get("tipo", ""))
+        return (f"🔁 **Imagem {foto_num}** será refeita do zero. As outras "
+                f"{len(galeria) - 1} não são tocadas.")
+
     if acao == "gerar_imagens_faltantes":
         galeria = st.session_state.get("img_galeria") or []
         cfg = st.session_state.get("img_triagem_config") or {}
@@ -692,20 +745,31 @@ def _chamar_ia(historico: list, mensagem_usuario: str, imagens_bytes: list = Non
             texto_raw = ("Consultei os dados mas não consegui formar a resposta. "
                          "Pergunte de novo, por favor.")
 
-        # Extrai bloco <CMD>{...}</CMD>
-        cmd = None
-        match = re.search(r"<CMD>\s*(\{.*?\})\s*</CMD>", texto_raw, re.DOTALL)
-        if match:
+        # TODOS os blocos <CMD>{...}</CMD>, nao so o primeiro.
+        #
+        # Era `re.search`: o primeiro comando era executado e os demais caiam
+        # fora em silencio. Quem pedisse tres mudancas numa mensagem via uma
+        # acontecer e tinha de cobrar as outras duas — e o proprio assistente
+        # passou a dizer "so posso um comando por vez", que nunca foi verdade:
+        # era este `search` no lugar de um `findall`. A fila do lado da aba
+        # Imagem sempre foi uma lista e sempre rodou em laco.
+        cmds = []
+        for bloco in re.findall(r"<CMD>\s*(\{.*?\})\s*</CMD>", texto_raw,
+                                re.DOTALL):
             try:
-                cmd = json.loads(match.group(1))
+                cmds.append(json.loads(bloco))
             except Exception:
-                cmd = None
-            texto_raw = re.sub(r"\s*<CMD>.*?</CMD>", "", texto_raw, flags=re.DOTALL).strip()
+                # Um JSON torto nao pode derrubar os outros dois que vieram
+                # certos na mesma resposta.
+                continue
+        if cmds:
+            texto_raw = re.sub(r"\s*<CMD>.*?</CMD>", "", texto_raw,
+                               flags=re.DOTALL).strip()
 
-        return texto_raw, cmd
+        return texto_raw, cmds
 
     except Exception as e:
-        return f"⚠️ Erro ao conectar com o assistente: {e}", None
+        return f"⚠️ Erro ao conectar com o assistente: {e}", []
 
 
 def renderizar_chat(usuario_logado=""):
@@ -789,13 +853,23 @@ def renderizar_chat(usuario_logado=""):
                 _adm = _auth_chat.is_admin(usuario_logado)
             except Exception:
                 _adm = False
-            resposta, cmd = _chamar_ia(
+            resposta, cmds = _chamar_ia(
                 hist[:-1], pendente["texto"], pendente.get("imagens") or [],
                 usuario=usuario_logado, eh_admin=_adm)
         except Exception as e:
-            resposta, cmd = f"⚠️ Erro ao falar com o assistente: {e}", None
+            resposta, cmds = f"⚠️ Erro ao falar com o assistente: {e}", []
 
-        feedback = _executar_comando(cmd) if cmd else None
+        # Um comando que falha nao pode levar os outros junto: pedir tres
+        # mudancas e receber zero por causa de uma e pior do que receber duas.
+        retornos = []
+        for _c in (cmds or []):
+            try:
+                _fb = _executar_comando(_c)
+            except Exception as _e_cmd:
+                _fb = f"⚠️ Não consegui executar `{_c.get('acao','?')}`: {str(_e_cmd)[:120]}"
+            if _fb:
+                retornos.append(_fb)
+        feedback = "\n\n".join(retornos)
 
         texto_final = resposta
         if feedback:

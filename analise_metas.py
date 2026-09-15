@@ -6054,76 +6054,19 @@ def _secao_ociosidade_equipe(dados, membros_ativos, ocio_por_pessoa,
 
 
 def _secao_equipe():
-    """Cadastro da equipe medida — quem entra nas metas, no placar e na ociosidade."""
-    import equipe_config as _ec
+    """Mudou de casa: o cadastro da equipe agora vive no Administrativo.
 
+    Decisão do dono: tudo que é cadastro de pessoa fica num lugar só. Antes
+    havia duas telas para a mesma pessoa em cantos opostos do Studio — o login
+    no Administrativo, o Trello e a RHiD aqui —, e foi assim que uma
+    colaboradora nova ficou com login funcionando e sem aparecer nas metas.
+
+    Fica o ponteiro, e não o silêncio: quem já sabia onde era volta neste ponto
+    e precisa saber para onde ir, senão conclui que a função sumiu.
+    """
     st.markdown("##### 👥 Equipe medida")
-    st.caption(
-        "Quem está aqui entra nas metas, no placar e na ociosidade. O "
-        "**username do Trello** é a chave de tudo: tem que ser o @ exato, senão o "
-        "trabalho da pessoa não é reconhecido. O **nome na RHiD** liga o relógio de "
-        "ponto — use o primeiro nome como está cadastrado lá."
-    )
-
-    membros, mapa_rhid = _ec.carregar()
-    if membros:
-        _rhid_por_user = {u: n for n, u in mapa_rhid.items()}
-        st.markdown("\n".join(
-            f"- **{nome}** · Trello `{user}` · RHiD `{_rhid_por_user.get(user, '—')}`"
-            for user, nome in membros.items()
-        ))
-    else:
-        st.warning(
-            "Nenhum colaborador cadastrado ainda — o painel está usando a equipe "
-            "de origem do código (Myrella, Beatriz, Gabriel). Cadastre todos aqui, "
-            "inclusive esses três, para a lista passar a valer."
-        )
-
-    with st.form("form_equipe"):
-        e1, e2, e3 = st.columns([2, 2, 2])
-        _user = e1.text_input("Username do Trello", placeholder="ex: gabriel_borges")
-        _nome = e2.text_input("Nome no painel", placeholder="ex: Gabriel")
-        _rhid = e3.text_input("Primeiro nome na RHiD", placeholder="ex: Gabriel")
-        _c_at, _c_bp = st.columns(2)
-        _ativo = _c_at.checkbox("Ativo (conta nas metas)", value=True)
-        _funcao_in = st.text_input(
-            "Colunas da função (opcional)",
-            placeholder="CRIATIVO VÍDEO; CRIATIVO FOTOS; DESATIVAR",
-            help="Separe por ponto e vírgula. Compara por início do nome, então "
-                 "'CRIATIVO VÍDEO' pega 'CRIATIVO VÍDEO (80)' mesmo se o número "
-                 "mudar. Deixe vazio para não restringir ninguém — em branco "
-                 "significa sem restrição, e nada é marcado na tela.")
-        _bate = _c_bp.checkbox(
-            "Bate ponto no relógio", value=True,
-            help="Desmarque para quem não usa a RHiD. Sem isso a pessoa aparece "
-                 "com 0% de desempenho e 'Não registrado' em vermelho, como se "
-                 "tivesse faltado.")
-        # O almoco NAO e o mesmo para todo mundo: 12h-13h, 12h30-13h30 e
-        # 13h30-14h30 convivem no time. Aqui e nao no codigo, senao cada troca
-        # de escala vira deploy — e um nome faltando la e uma pessoa com o
-        # almoco contado como trabalho, em silencio.
-        _a1, _a2 = st.columns(2)
-        _alm_i = _a1.text_input(
-            "Almoço — início (opcional)", placeholder="12:00",
-            help="Só vale nos dias SEM batida no relógio. Quando a RHiD "
-                 "responde, a janela sai do ponto de verdade. Em branco usa o "
-                 "padrão da casa, 13:30 às 14:30.")
-        _alm_f = _a2.text_input("Almoço — fim (opcional)", placeholder="13:00")
-        if st.form_submit_button("Salvar colaborador", use_container_width=True):
-            if not _user.strip() or not _nome.strip():
-                st.error("Username do Trello e nome são obrigatórios.")
-            elif bool(_alm_i.strip()) != bool(_alm_f.strip()):
-                st.error("Almoço pela metade não vale — preencha o início e o "
-                         "fim, ou deixe os dois em branco.")
-            else:
-                try:
-                    _ec.salvar(_user, _nome, _rhid, _ativo, _bate, _funcao_in,
-                               _alm_i, _alm_f)
-                    _pc.recarregar_membros()
-                    st.success(f"{_nome} salvo.")
-                    st.rerun()
-                except Exception as ex:
-                    st.error(f"Não consegui salvar: {str(ex)[:200]}")
+    st.info("O cadastro da equipe agora fica em **Administrativo**, junto com "
+            "o cadastro de usuários — cadastro de pessoa num lugar só.")
 
 
 def _secao_colunas(dados):
