@@ -140,6 +140,8 @@ SEED = [
     ("IMPORIENTE COMERCIO EXTERIOR LTDA", "MERCADORIA", "saida", ""),
     ("POLICARGO SERVICE", "MERCADORIA", "saida", ""),
     ("MYRELLA DE SOUZA CANDIDO", "FOLHA", "saida", "Salário"),
+    ("ELIANE MARTINS DA SILVA BESERRA", "CONSUMO INTERNO", "saida",
+     "Compra da TV da empresa"),
     # ── Fatura do cartao do Inter, anotada pelo dono em 17/09 ────────────
     # Ele marcou alguns e mandou aplicar aos semelhantes. Os semelhantes
     # ficam explicitos aqui: "aplicar ao parecido" nao pode virar regra de
