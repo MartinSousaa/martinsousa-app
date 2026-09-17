@@ -111,8 +111,7 @@ SEED = [
     ("Cleiton Costabile Martorano", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
     ("MANOEL PEDROSA CAVALCANTE", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
     ("SEM TITULO", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
-    ("AIBR INSTITUICAO DE PAGAMENTO LTDA", "OUTROS", "saida",
-     "O dono não lembra o que é; apareceu uma vez só, em agosto/2026"),
+    ("AIBR INSTITUICAO DE PAGAMENTO LTDA", "OUTROS", "saida", ""),
     # A conta que a Shopee paga (Inter 167513915) e so passagem: entra o
     # repasse e sai para a Little Glass no mesmo valor, no mesmo dia. Aqui
     # LITTLE GLASS no sentido SAIDA e transferencia — na conta da rua, o mesmo
