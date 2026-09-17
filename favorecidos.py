@@ -72,6 +72,45 @@ SEED = [
      "MERCADO LIVRE", "entrada", "Repasse, não transferência entre contas"),
     ("MARTINS E SOUSA COMERCIO DE PRODUTOS IMPORTADOS E NACIONAIS LTDA",
      "MERCADO LIVRE", "entrada", "Repasse, não transferência entre contas"),
+    # Fornecedores de mercadoria, ditos pelo dono em 17/09. Os nomes chineses
+    # ele deu como certos; o resto da fila de agosto veio como "provavelmente
+    # tudo compra de mercadoria" — entra classificado, com a duvida escrita na
+    # observacao em vez de virar uma certeza que ninguem checou.
+    ("Jie Meng", "MERCADORIA", "saida", ""),
+    ("Yuefu Pan", "MERCADORIA", "saida", ""),
+    ("Xiaoyue Jiang", "MERCADORIA", "saida", ""),
+    ("Xiao Xu", "MERCADORIA", "saida", ""),
+    ("AIJIN ZHANG", "MERCADORIA", "saida", ""),
+    ("PAN ZHENGZHONG", "MERCADORIA", "saida", ""),
+    ("MAGB", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
+    ("ELISEO VARIEDADES", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
+    ("AGE UNDERWEAR", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
+    ("ADRIANA BIJOUTERIAS  ARMARINHOS", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
+    ("STARJET CARRINHOS ESCOLARES", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
+    ("JB PEREIRA MERCADO E DISTRIBUIDORA", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
+    ("Efrain Noe Apaza Mamani", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
+    ("Jovane dos Reis", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
+    ("GUILHERME AUGUSTO BERTOLINI", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
+    ("Henrique Francabandiera da Silva", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
+    ("Ana Carla Conceicao dos Santos", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
+    ("Ana Beatriz Batista Bonates", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
+    ("Robson Cavalcanti Ramos 94274770168", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
+    ("62108197 EDNARIA ALVES DA CONCEICAO", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
+    ("57118099 JOSE AIRTON GOMES DE SA", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
+    ("Beatriz Falconi", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
+    ("VALDEMIR SILVA SANTOS", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
+    ("Flavio Adriano Rodrigues", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
+    ("MYRELLA CANDIDO", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
+    ("Lucas Porto Leite", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
+    ("JAILSON NUNES DE OLIVEIRA 88310892500", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
+    ("Wilyan Nicanor Accioli da Silva", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
+    ("Andre de Almeida Ferreira", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
+    ("Cleudio Pereira", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
+    ("Monique Sola Araujo de Sousa", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
+    ("Cleiton Costabile Martorano", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
+    ("MANOEL PEDROSA CAVALCANTE", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
+    ("SEM TITULO", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
+    ("AIBR INSTITUICAO DE PAGAMENTO LTDA", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
 ]
 
 
@@ -241,9 +280,10 @@ if __name__ == "__main__":
         {"favorecido": "Apeximp Comercio de Presentes  Importacao E Exportacao LTDA",
          "valor": -1372.44},
         {"favorecido": "MAREE INSTITUICAO DE PAGAMENTO LTDA", "valor": 2181.29},
-        {"favorecido": "AGE UNDERWEAR", "valor": -200.00},
-        {"favorecido": "Jie Meng", "valor": -190.00},
-        {"favorecido": "Jie Meng", "valor": -186.00},
+        # Nomes que NAO estao no SEED de proposito: e a fila que se confere.
+        {"favorecido": "LOJA QUE NUNCA APARECEU", "valor": -200.00},
+        {"favorecido": "FORNECEDOR NOVO", "valor": -190.00},
+        {"favorecido": "FORNECEDOR NOVO", "valor": -186.00},
     ]
     ok("nome curto casa com a razao social inteira",
        casar("Apeximp Comercio de Presentes Importacao E Exportacao LTDA",
@@ -268,7 +308,8 @@ if __name__ == "__main__":
     ok("quem nao tem cadastro fica sem finalidade, e nao com um chute",
        _c[3]["finalidade"] == "" and _c[3]["classificado"] is False)
     ok("a fila vem do maior para o menor",
-       [x["favorecido"] for x in _fila] == ["Jie Meng", "AGE UNDERWEAR"])
+       [x["favorecido"] for x in _fila]
+       == ["FORNECEDOR NOVO", "LOJA QUE NUNCA APARECEU"])
     ok("a fila soma as vezes do mesmo nome",
        _fila[0]["n"] == 2 and abs(_fila[0]["total"] - 376.0) < 0.01)
     ok("lista vazia nao derruba", classificar([], CAD) == ([], []))
