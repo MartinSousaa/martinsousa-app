@@ -1,3 +1,4 @@
+import idioma as _idioma
 import os
 import streamlit as st
 import anthropic
@@ -332,7 +333,7 @@ Responda SOMENTE com o texto da descrição, pronta pra colar no anúncio, sem c
     try:
         msg = client.messages.create(
             model="claude-sonnet-4-6", max_tokens=3000,
-            messages=[{"role": "user", "content": prompt}]
+            messages=[{"role": "user", "content": _idioma.com_regra(prompt)}]
         )
         texto = msg.content[0].text.strip()
         if not texto:
@@ -378,7 +379,7 @@ Responda SOMENTE com o texto completo da descrição já ajustada, sem comentár
     try:
         msg = client.messages.create(
             model="claude-sonnet-4-6", max_tokens=3000,
-            messages=[{"role": "user", "content": prompt}]
+            messages=[{"role": "user", "content": _idioma.com_regra(prompt)}]
         )
         novo_texto = msg.content[0].text.strip()
         if not novo_texto:
