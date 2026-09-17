@@ -57,7 +57,8 @@ SEED = [
     # Os dois custos fixos que saem pela conta do Inter, ditos pelo dono.
     ("RECEITA FEDERAL", "CUSTO FIXO", "saida",
      "DAS do Simples Nacional, pago no Pix quando não sai o código do boleto"),
-    ("Vanda Maria Martinez", "CUSTO FIXO", "saida", "Estacionamento"),
+    ("Vanda Maria Martinez", "ESTACIONAMENTO", "saida",
+     "Estacionamento fixo da empresa"),
     ("Katia Sola de Araujo", "SERVIÇO", "saida", "Faxineira das salas"),
     ("PIX Marketplace", "SERVIÇO", "saida", "Frete de produto vendido no site"),
     ("Renan Candido Sousa", "MERCADORIA", "saida",
@@ -95,7 +96,8 @@ SEED = [
     ("Henrique Francabandiera da Silva", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
     ("Ana Carla Conceicao dos Santos", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
     ("Ana Beatriz Batista Bonates", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
-    ("Robson Cavalcanti Ramos 94274770168", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
+    ("Robson Cavalcanti Ramos 94274770168", "ESTACIONAMENTO", "saida",
+     "Estacionamento fixo da empresa"),
     ("62108197 EDNARIA ALVES DA CONCEICAO", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
     ("57118099 JOSE AIRTON GOMES DE SA", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
     ("Beatriz Falconi", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
@@ -127,7 +129,8 @@ SEED = [
     # ficam explicitos aqui: "aplicar ao parecido" nao pode virar regra de
     # adivinhacao, senao a proxima loja de nome parecido entra classificada
     # errada e ninguem ve.
-    ("ZUL", "ESTACIONAMENTO", "saida", "Zona azul, avulso — 13x no mês"),
+    ("ZUL", "ESTACIONAMENTO", "saida",
+     "Zona azul que o Renan paga ao sair para comprar mercadoria"),
     ("VINDI TRAYECOMMERCE", "SERVIÇO", "saida", "Plataforma da loja"),
     ("UBER", "SERVIÇO", "saida", ""),
     ("UBER ONE", "SERVIÇO", "saida", ""),
@@ -135,10 +138,10 @@ SEED = [
     ("APPLE COM", "SERVIÇO", "saida", ""),
     ("MICROSOFT MICROSOFT", "SERVIÇO", "saida", ""),
     ("EBN", "SERVIÇO", "saida", "Canva"),
-    ("MERCADOLIVRE", "OUTROS", "saida", ""),
-    ("MERCADOLIVRE MERCADOL", "OUTROS", "saida", ""),
-    ("MERCADO RASTREAMENTOA", "OUTROS", "saida", ""),
-    ("MERCADO FENIXOFFICE", "OUTROS", "saida", ""),
+    ("MERCADOLIVRE", "CONSUMO INTERNO", "saida", ""),
+    ("MERCADOLIVRE MERCADOL", "CONSUMO INTERNO", "saida", ""),
+    ("MERCADO RASTREAMENTOA", "CONSUMO INTERNO", "saida", ""),
+    ("MERCADO FENIXOFFICE", "CONSUMO INTERNO", "saida", ""),
     ("Debito titulo KG", "NÃO OPERACIONAL", "saida", ""),
     # O extrato do Itaú rotula errado, e o rótulo dele é o que engana: os
     # R$ 170.000 de "PAGAMENTOS A FORNECEDORES" foram transferidos para a outra
