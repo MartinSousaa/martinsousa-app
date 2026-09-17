@@ -67,8 +67,21 @@ conta da empresa tem login único, compartilhado com o time inteiro por causa
 das imagens — permissão não esconde nada de quem entra com o mesmo login) e
 compartilha com o robô como Leitor.
 
-**O que falta dele:** o link da planilha, a confirmação do compartilhamento e
-o nome das abas que interessam (cheques, vendas, custo por SKU).
+**FEITO em 17/09:** compartilhada com o robô como Editor, acesso Restrito.
+Continua sendo `Controle MS.xlsx` — arquivo do Excel aberto no modo Office do
+Sheets, e NÃO uma planilha Google. Por isso `gspread` não a abre: a leitura
+tem que ser download pelo Drive + pandas.
+
+```
+ID do arquivo: 1d82vJONqMXkcPPYQqLwXk1C7KJuUh-st
+```
+
+Abas que existem: SAIDAS PIX-BOLETO 2026 · CARTÕES · ADS E CROSS ·
+SIMPLES - FLEX · CHEQUES · DEVOLUÇÕES 2026 · DIN FINANÇAS · DINAMICA ·
+DASH 2026 · AJUSTE DE PLANILHA · PREÇO DE CUSTO. · BASE DE VENDAS (e mais,
+cortadas na tela).
+
+**O que falta dele:** dizer quais abas o Studio deve ler.
 
 **O que falta de mim:** leitor de `.xlsx` no Studio — download via Drive API
 (`gdrive.py` ainda não tem função de download) e leitura com pandas, que exige
