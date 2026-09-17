@@ -218,3 +218,16 @@ ele conta.
 A divergência é a favor da equipe, então não é urgente. Mas são duas respostas
 para a mesma pergunta. Decisão do dono: PENDENTE entra na lista de
 interrupção, ou o texto muda?
+
+---
+
+## 8. Custo fixo: duas fontes para o mesmo número  ·  17/09/2026
+
+Ver `FLUXO.md`. Custo fixo passa a ser digitado no Studio, e o mesmo gasto
+aparece no extrato (SAIDAS PIX-BOLETO). Falta o dono escolher:
+
+- **A** — o Studio manda; o extrato entra com as linhas de custo fixo
+  excluídas à mão, como ele já faz.
+- **B** — o extrato manda; o que está lá contabiliza, o que não está, não.
+  Acaba a exclusão manual, e o custo fixo deixa de ser previsto para virar
+  histórico.
