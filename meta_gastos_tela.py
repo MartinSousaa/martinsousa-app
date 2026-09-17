@@ -47,10 +47,13 @@ def pagina(usuario_logado=None):
             "linha deste mês — digite a meta na tabela abaixo e clique em "
             "**Salvar**. Enquanto não houver linha, a Home mostra «—».")
     else:
+        _m = _gravado["meta"]
         st.caption(
             f"Gravado na planilha para **{_mg.rotulo(_hoje_txt)}**: meta "
-            f"R$ {_fmt(_gravado['meta'])} · informado "
-            f"R$ {_fmt(_gravado['informado'])}. É isto que a Home lê.")
+            + (f"**R$ {_fmt(_m)}** — é este o número que a Home mostra."
+               if _m else
+               "**R$ 0,00**. Enquanto a meta for zero, a Home mostra «—», "
+               "mesmo com gasto informado no mês."))
 
     linhas = _mg.ano_inteiro(ano)
     atual = next((l for l in linhas if l["mes"] == _mg.texto_mes(ano, hoje.month)),
@@ -77,8 +80,8 @@ def pagina(usuario_logado=None):
         "observação": l["observacao"],
     } for l in linhas])
 
-    st.caption("Edite **meta** e, nos meses sem extrato, **informado**. "
-               "As demais colunas são calculadas.")
+    st.caption("**Só a coluna META se digita.** As outras são calculadas ou "
+               "vieram do extrato.")
 
     # Editor e botão dentro do MESMO formulário, e não por capricho.
     #
@@ -97,10 +100,9 @@ def pagina(usuario_logado=None):
                 "meta": st.column_config.NumberColumn(
                     "🎯 META — digite aqui", format="%.2f", min_value=0.0,
                     step=100.0,
-                    help="Quanto se PODE gastar no mês. É esta a coluna que a "
-                         "Home lê em «Meta do mês». Não confunda com "
-                         "«Informado por você», que é quanto já saiu nos "
-                         "meses sem extrato."),
+                    help="Quanto se pode gastar no mês. É esta a coluna que a "
+                         "Home lê em «Meta do mês», e é a única que se "
+                         "digita."),
                 "realizado": st.column_config.NumberColumn(
                     "Realizado", format="%.2f", disabled=True),
                 "de onde": st.column_config.TextColumn(disabled=True,
@@ -108,10 +110,11 @@ def pagina(usuario_logado=None):
                 "saldo": st.column_config.NumberColumn("Saldo", format="%.2f",
                                                        disabled=True),
                 "informado": st.column_config.NumberColumn(
-                    "Informado por você", format="%.2f", min_value=0.0,
-                    step=100.0,
-                    help="Só vale nos meses sem extrato carregado. Quando o "
-                         "extrato entra, ele manda — é o número conferível."),
+                    "Gasto informado (histórico)", format="%.2f",
+                    disabled=True,
+                    help="O gasto dos meses anteriores ao extrato, vindo da "
+                         "sua planilha. Não se digita aqui: quando o extrato "
+                         "entra, é ele que manda."),
                 "observação": st.column_config.TextColumn(width="medium"),
             },
         )
