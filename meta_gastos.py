@@ -138,18 +138,41 @@ def salvar(mes_txt, meta=None, informado=None, observacao=None, usuario=""):
     try:
         aba = _aba()
         registros = aba.get_all_records()
-        pos = next((i for i, r in enumerate(registros)
-                    if str(r.get("mes", "")).strip() == alvo), None)
-        if pos is None:
+        achados = [i for i, r in enumerate(registros)
+                   if str(r.get("mes", "")).strip() == alvo]
+        # O ÚLTIMO, e não o primeiro. Com duas linhas do mesmo mês na aba, o
+        # `carregar()` lê a de baixo (a última sobrescreve o dicionário) e a
+        # gravação ia na de cima: o número entrava na planilha e a tela seguia
+        # mostrando o antigo. "Salvou" e "sumiu" ao mesmo tempo, e sem erro.
+        if not achados:
             aba.append_row(linha, value_input_option="RAW")
         else:
             fim = chr(ord("A") + len(COLUNAS) - 1)
-            aba.update([linha], f"A{pos + 2}:{fim}{pos + 2}",
-                       value_input_option="RAW")
+            n = achados[-1] + 2
+            aba.update([linha], f"A{n}:{fim}{n}", value_input_option="RAW")
+
+        # A conferência: reler e comparar com o que se mandou gravar.
+        #
+        # Sem ela, "salvo" é o que a função ACHA que fez. Três rodadas foram
+        # perdidas em 17/09 porque a tela dizia "1 mês salvo" e a planilha
+        # continuava com zero, e não havia como saber qual dos dois mentia.
+        conf = [r for r in aba.get_all_records()
+                if str(r.get("mes", "")).strip() == alvo]
+        if not conf:
+            return False, (f"Gravei {rotulo(alvo)} e a linha não apareceu na "
+                           "aba. Nada foi salvo — me chame.")
+        lido = round(_num(conf[-1].get("meta")), 2)
+        if lido != linha[1]:
+            return False, (f"Mandei gravar meta {linha[1]:.2f} em "
+                           f"{rotulo(alvo)} e a planilha devolveu {lido:.2f}"
+                           + (f", em {len(conf)} linhas repetidas deste mês."
+                              if len(conf) > 1 else "."))
     except Exception as e:
         return False, str(e)[:200]
     carregar.clear()
-    return True, f"{rotulo(alvo)} salvo."
+    extra = (f" (havia {len(conf)} linhas deste mês na aba)"
+             if len(conf) > 1 else "")
+    return True, f"{rotulo(alvo)} salvo: meta R$ {linha[1]:.2f}.{extra}"
 
 
 # ── A meta que acompanha o faturamento ───────────────────────────────────────
@@ -364,6 +387,34 @@ if __name__ == "__main__":
     ok("gravar o informado preserva a meta",
        _dez["meta"] == 95000.0 and _dez["informado"] == 88000.0)
     ok("mes fora do formato e recusado", salvar("out/26", meta=1)[0] is False)
+
+    # O caso do "salvou e sumiu": duas linhas do mesmo mes na aba. O
+    # `carregar()` le a de BAIXO (a ultima sobrescreve), e a gravacao ia na de
+    # CIMA — o numero entrava na planilha e a tela seguia mostrando o antigo,
+    # sem erro nenhum.
+    _falsa.linhas.append(["2026-11", "0", "0", "", "", "seed"])
+    _falsa.linhas.append(["2026-11", "0", "0", "", "", "duplicata"])
+    _ok_d, _msg_d = salvar("2026-11", meta=170000, usuario="leo")
+    carregar.clear()
+    ok("com linha repetida, a gravacao vai na que a leitura enxerga",
+       _ok_d is True and carregar()["2026-11"]["meta"] == 170000.0)
+    ok("e a mensagem avisa que havia repetida", "linhas deste mês" in _msg_d)
+
+    # A conferencia: se a planilha nao devolver o que se mandou, e erro.
+    class _AbaSurda(_AbaFalsa):
+        def update(self, values, range_name=None, **kw):
+            pass                      # aceita e nao grava — o pior dos casos
+
+        def append_row(self, linha, **kw):
+            pass
+
+    globals()["_aba"] = lambda: _AbaSurda()
+    carregar.clear()
+    _ok_s, _msg_s = salvar("2026-12", meta=50000, usuario="leo")
+    ok("gravacao que nao pegou e reportada como falha, e nao como sucesso",
+       _ok_s is False and "não apareceu" in _msg_s)
+    globals()["_aba"] = lambda: _falsa
+    carregar.clear()
 
     # O historico que o dono passou: oito meses, e nenhum deles zero.
     ok("o historico vai ate julho, e agosto fica com o extrato",
