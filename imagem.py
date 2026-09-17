@@ -2168,6 +2168,61 @@ def _bloco_imagem(img_bytes):
                        "data": base64.b64encode(img_bytes).decode("utf-8")}}
 
 
+def _chave_anthropic():
+    """A chave da IA de conferência, ou "" quando não há.
+
+    `st.secrets.get` não é um dicionário comum: sem arquivo de secrets ele
+    LEVANTA em vez de devolver o padrão. Chamado de dentro de um try alheio,
+    isso virava "falha ao conferir" com uma mensagem que não dizia o motivo.
+    """
+    try:
+        chave = st.secrets.get("ANTHROPIC_API_KEY", "")
+    except Exception:
+        chave = ""
+    return chave or os.environ.get("ANTHROPIC_API_KEY", "")
+
+
+def revisao_de_texto_disponivel():
+    """A revisão de texto tem como rodar? (ok, motivo). NÃO gasta API.
+
+    "Está funcionando?" não pode depender de alguém clicar um botão de teste.
+    Quando a resposta é não, as peças saem sem ninguém ler o texto delas — e
+    foi assim que uma peça com palavra inventada chegou ao gestor. A tela
+    pergunta isto sozinha, toda vez que abre.
+
+    Duas perguntas em uma: a chave existe? e a última leitura funcionou? A
+    segunda cobre o que a primeira não vê — API fora do ar, cota estourada,
+    modelo recusado.
+    """
+    if not _chave_anthropic():
+        return False, ("ANTHROPIC_API_KEY não está configurada neste serviço.")
+    try:
+        ultimo = st.session_state.get("img_revisao_erro", "")
+    except Exception:
+        ultimo = ""
+    if ultimo:
+        return False, ultimo
+    return True, ""
+
+
+def registrar_revisao(relato):
+    """Guarda se a última revisão conseguiu rodar. Só na thread principal.
+
+    Chamada de dentro de uma thread, `st.session_state` não existe — por isso
+    o try. Errar para o lado de não registrar é seguro; o contrário apagaria o
+    aviso de uma falha que continua de pé.
+    """
+    if not relato:
+        return
+    try:
+        if relato.get("ok") is None and relato.get("erro"):
+            st.session_state["img_revisao_erro"] = relato["erro"]
+        elif relato.get("ok") is not None:
+            st.session_state.pop("img_revisao_erro", None)
+    except Exception:
+        pass
+
+
 def conferir_ajuste(antes, depois, instrucao):
     """A mudança pedida aconteceu? Devolve (veredito, erro).
 
@@ -2179,8 +2234,7 @@ def conferir_ajuste(antes, depois, instrucao):
     acontecer é o contrário — dizer "conferido" sem ter conferido, que é
     exatamente o hábito que esta função existe para quebrar.
     """
-    api_key = (st.secrets.get("ANTHROPIC_API_KEY", "")
-               or os.environ.get("ANTHROPIC_API_KEY", ""))
+    api_key = _chave_anthropic()
     if not api_key:
         return None, "ANTHROPIC_API_KEY não configurada."
     if not antes or not depois:
@@ -2312,8 +2366,7 @@ def conferir_texto(imagem, pedido=""):
     chama segue com o que tem. O que não pode acontecer é o contrário — dar por
     conferido sem ter lido.
     """
-    api_key = (st.secrets.get("ANTHROPIC_API_KEY", "")
-               or os.environ.get("ANTHROPIC_API_KEY", ""))
+    api_key = _chave_anthropic()
     if not api_key:
         return None, "ANTHROPIC_API_KEY não configurada."
     if not imagem:
@@ -2724,6 +2777,22 @@ def _testar_gemini_api():
 def pagina_imagem(usuario_logado):
     st.subheader("Imagem")
     st.caption("Gere imagens profissionais para o anúncio. A IA mostra o que vai criar antes de gastar com a geração.")
+
+    # ── A revisão de texto está de pé? ───────────────────────────────────────
+    #
+    # Sozinha, sem botão e sem ninguém pedir. O que aconteceu foi isto: a
+    # revisão estava lá, o colaborador achava que estava conferindo, e as peças
+    # saíam sem leitura nenhuma — o único sinal era uma legenda cinza embaixo
+    # da imagem. Se ela não tem como rodar, a tela avisa ANTES de gastar com a
+    # geração, e não depois.
+    _rev_ok, _rev_motivo = revisao_de_texto_disponivel()
+    if not _rev_ok:
+        st.error(
+            "🔤 **A revisão de texto não está funcionando.** As imagens vão "
+            "ser geradas, mas **ninguém vai ler o que está escrito nelas** — "
+            "palavra inventada e erro de português passam direto.\n\n"
+            f"Motivo: {_rev_motivo}"
+        )
 
     # ── Recuperacao apos queda de conexao ────────────────────────────────────
     # Se a sessao morreu no meio de uma geracao, o session_state veio vazio mas o
@@ -3682,6 +3751,10 @@ def pagina_imagem(usuario_logado):
                             aviso=lambda t, _i=i: barra.progress(
                                 _i / len(tipos), text=t[:70]),
                         )
+                        # Falha de revisao vira aviso no topo da aba, e nao so
+                        # embaixo desta imagem: quem chega depois precisa saber
+                        # que a revisao esta fora do ar ANTES de gerar de novo.
+                        registrar_revisao(_rel_txt)
 
 
                         galeria.append({
@@ -3846,12 +3919,18 @@ def pagina_imagem(usuario_logado):
         # revisao esta funcionando? e o que exatamente esta escrito errado
         # nesta peca? Quando a revisao automatica falha (sem chave, API fora),
         # o erro aparece aqui em letra grande, e nao numa legenda cinza.
+        # A revisao automatica ja leu esta imagem quando ela foi gerada; este
+        # botao e para reler quando se quer ver A LISTA das palavras erradas,
+        # ou depois de um ajuste feito fora do fluxo.
         if st.button("🔤 Ler o texto desta imagem", use_container_width=True,
                      key=f"ler_txt_{idx_ativo}"):
             with st.spinner("Lendo o que está escrito na imagem…"):
                 # Sem "pedido": aqui a pergunta e so se o que esta escrito
                 # existe em portugues, e nao se bate com o que foi pedido.
                 _v, _e = conferir_texto(imagem_ativa, "")
+            # A leitura manual tambem conta como sinal de saude: se ela deu
+            # certo, o aviso do topo sai sozinho no proximo rerun.
+            registrar_revisao({"ok": None if _e else True, "erro": _e})
             if _e:
                 st.error(f"**A revisão de texto não está funcionando:** {_e}\n\n"
                          "Enquanto isto aparecer, NENHUMA imagem está sendo "
@@ -4495,6 +4574,22 @@ if __name__ == "__main__":
 
     ok("aprovado não polui a tela", texto_em_aviso({"ok": True}) == "")
     ok("relato sem revisão não inventa aviso", texto_em_aviso(None) == "")
+
+    # Sem chave nao ha revisao, e a tela tem que dizer isso sozinha, antes de
+    # gerar. Este e o caso que passou meses invisivel.
+    import os as _os_t
+    _guardado = _os_t.environ.pop("ANTHROPIC_API_KEY", None)
+    ok("sem chave, a aba avisa antes de gerar",
+       revisao_de_texto_disponivel()[0] is False)
+    _os_t.environ["ANTHROPIC_API_KEY"] = "teste"
+    ok("com chave, a aba nao avisa a toa",
+       revisao_de_texto_disponivel() == (True, ""))
+    if _guardado is None:
+        _os_t.environ.pop("ANTHROPIC_API_KEY", None)
+    else:
+        _os_t.environ["ANTHROPIC_API_KEY"] = _guardado
+    ok("registrar_revisao fora da tela nao derruba",
+       registrar_revisao({"ok": None, "erro": "x"}) is None)
 
     conferir_texto = _real
     print("\nfalhas:", falhas)
