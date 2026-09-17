@@ -341,6 +341,115 @@ def _card(c, dia=1, dias=1):
         f'</div>')
 
 
+def _bloco_gastos(usuario_logado=None, d=None):
+    """Os gastos do mês, abaixo dos seis indicadores. Aprovado em layout 17/09.
+
+    Lê a meta que o gestor digitou e os lançamentos que vieram dos extratos, e
+    responde a pergunta que ele faz olhando para cá: *dá para comprar?*
+
+    Três blocos, e a ordem é a da decisão:
+      1. meta, realizado e saldo — o número que decide
+      2. por finalidade — onde o dinheiro foi
+      3. o que falta abrir e o que falta classificar — a dívida de trabalho
+
+    Cheque, fatura e boleto ficam separados de propósito: são COMO se pagou,
+    não O QUE se comprou. Somados com "mercadoria", contariam a mesma compra
+    duas vezes.
+    """
+    from datetime import datetime
+    import placar_core as _pc
+    import meta_gastos as _mg
+    import lancamentos as _lan
+
+    st.markdown("---")
+    st.markdown("#### 💰 Gastos do mês")
+
+    hoje = datetime.now(_pc.FUSO).date()
+    ano = int((d or {}).get("ano") or hoje.year)
+    mes = int((d or {}).get("mes") or hoje.month)
+
+    try:
+        linha = _mg.linha_do_mes(ano, mes)
+        lancs = _lan.do_mes(ano, mes)
+    except Exception as e:
+        st.caption(f"Não consegui ler os gastos: {str(e)[:140]}")
+        return
+
+    if not lancs and not linha["meta"]:
+        st.info(
+            "Sem meta e sem lançamentos neste mês. A meta se digita em "
+            "**Financeiro › 🎯 Meta de gastos**; os lançamentos entram "
+            "sozinhos quando você sobe o extrato em **Financeiro › 💳 "
+            "Extratos**.")
+        return
+
+    # ── 1. o número que decide ───────────────────────────────────────────
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Realizado", _brl(linha["realizado"]),
+              help=f"origem: {linha['origem']}")
+    c2.metric("Meta do mês", _brl(linha["meta"]) if linha["meta"] else "—")
+    if linha["meta"]:
+        c3.metric("Saldo", _brl(linha["saldo"]),
+                  delta=f"{linha['pct']:.0f}% consumido",
+                  delta_color="inverse")
+        st.progress(min(linha["pct"] / 100, 1.0),
+                    text=f"{linha['pct']:.0f}% da meta")
+    else:
+        c3.metric("Saldo", "—")
+        st.caption("Sem meta digitada para este mês — o saldo não tem como "
+                   "existir.")
+
+    if not lancs:
+        st.caption("Nenhum extrato carregado neste mês. O realizado acima é o "
+                   "que você informou à mão.")
+        return
+
+    # ── 2. onde o dinheiro foi ───────────────────────────────────────────
+    import pandas as pd
+    res = _lan.resumo_por_finalidade(lancs)
+    FORMAS = {"CHEQUES", "FATURA DO CARTÃO", "BOLETO"}
+    por_fin = {k: v for k, v in res.items()
+               if k not in FORMAS and k != "SEM CLASSIFICAÇÃO"}
+    if por_fin:
+        st.markdown(f"**Por finalidade** · {_brl(sum(por_fin.values()))}")
+        st.dataframe(
+            pd.DataFrame([{"finalidade": k, "valor": v,
+                           "% do mês": v / sum(res.values()) * 100}
+                          for k, v in por_fin.items()]),
+            use_container_width=True, hide_index=True,
+            column_config={
+                "valor": st.column_config.NumberColumn(format="R$ %.2f"),
+                "% do mês": st.column_config.ProgressColumn(
+                    format="%.1f%%", min_value=0.0,
+                    max_value=max(v / sum(res.values()) * 100
+                                  for v in por_fin.values())),
+            })
+
+    # ── 3. a dívida de trabalho ──────────────────────────────────────────
+    formas = {k: v for k, v in res.items() if k in FORMAS}
+    if formas:
+        st.markdown(f"**Falta abrir** · {_brl(sum(formas.values()))}")
+        st.caption(
+            "Cheque, fatura e boleto são **como** você pagou, não **o que** "
+            "comprou. Enquanto não forem abertos, o valor conta na meta mas "
+            "não tem finalidade.")
+        st.dataframe(
+            pd.DataFrame([{"forma": k, "valor": v} for k, v in formas.items()]),
+            use_container_width=True, hide_index=True,
+            column_config={"valor": st.column_config.NumberColumn(
+                format="R$ %.2f")})
+
+    sem = res.get("SEM CLASSIFICAÇÃO", 0.0)
+    if sem:
+        st.warning(
+            f"**{_brl(sem)} sem classificação.** Cada nome respondido uma vez "
+            f"nunca mais aparece — em **Financeiro › 🏷️ Finalidades**.")
+
+    st.caption("Fora da conta: transferência entre contas, aplicação, entrada "
+               "de empréstimo e repasse de plataforma. Nenhum dos quatro é "
+               "gasto.")
+
+
 def pagina(usuario_logado=None, dados=None):
     d = dados or EXEMPLO
     st.markdown("### 🏠 Home")
@@ -369,6 +478,8 @@ def pagina(usuario_logado=None, dados=None):
         "dias corridos do mês, e a **projeção** é o ritmo médio vezes os "
         "dias do mês — um método só, porque duas projeções discordando na "
         "mesma tela não informam, escolhem por você.")
+
+    _bloco_gastos(usuario_logado, d)
 
 
 # ── Conferência ──────────────────────────────────────────────────────────────

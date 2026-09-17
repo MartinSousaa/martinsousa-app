@@ -50,22 +50,22 @@ SEED = [
     ("Apeximp Comercio de Presentes Importacao E Exportacao LTDA",
      "MERCADORIA", "saida", ""),
     ("LEXTACK COMERCIO DE PRESENTES LTDA", "MERCADORIA", "saida", ""),
-    ("Lextack Comercio de Presentes LTDA", "MERCADORIA", "saida", ""),
     ("PLASTICOS NOVA FENIX", "EMBALAGEM", "saida", ""),
     ("ER EMBALAGENS", "EMBALAGEM", "saida", ""),
     ("Nzb Comercio de Embalagens LTDA", "EMBALAGEM", "saida", ""),
     # Os dois custos fixos que saem pela conta do Inter, ditos pelo dono.
     ("RECEITA FEDERAL", "CUSTO FIXO", "saida",
      "DAS do Simples Nacional, pago no Pix quando não sai o código do boleto"),
-    ("Vanda Maria Martinez", "CUSTO FIXO", "saida", "Estacionamento"),
-    ("Katia Sola de Araujo", "LIMPEZA", "saida", "Faxineira das salas"),
-    ("PIX Marketplace", "FRETE", "saida", "Frete de produto vendido no site"),
-    ("Renan Candido Sousa", "REEMBOLSO", "saida",
+    ("Vanda Maria Martinez", "ESTACIONAMENTO", "saida",
+     "Estacionamento fixo da empresa"),
+    ("Katia Sola de Araujo", "SERVIÇO", "saida", "Faxineira das salas"),
+    ("PIX Marketplace", "SERVIÇO", "saida", "Frete de produto vendido no site"),
+    ("Renan Candido Sousa", "MERCADORIA", "saida",
      "Pagou mercadoria com dinheiro dele e se reembolsa"),
-    ("ESPETARIA IBITIRAMA COMERCIO DE ALIMENTOS LTDA", "ALIMENTACAO", "saida", ""),
-    ("SUPERMERCADO DA PRACA IBITIRAMA LTDA", "ALIMENTACAO", "saida", ""),
-    ("ESFIHARIA POLY", "ALIMENTACAO", "saida", ""),
-    ("OBA HORTIFRUTI", "ALIMENTACAO", "saida", ""),
+    ("ESPETARIA IBITIRAMA COMERCIO DE ALIMENTOS LTDA", "OUTROS", "saida", ""),
+    ("SUPERMERCADO DA PRACA IBITIRAMA LTDA", "OUTROS", "saida", ""),
+    ("ESFIHARIA POLY", "OUTROS", "saida", ""),
+    ("OBA HORTIFRUTI", "OUTROS", "saida", ""),
     ("VINDI PAGAMENTOS ONLINE", "CUSTO FIXO", "saida", ""),
     # Entradas: o nome não diz a plataforma, e deduzir pelo nome é o erro.
     ("MAREE INSTITUICAO DE PAGAMENTO LTDA", "SHOPEE", "entrada", ""),
@@ -95,7 +95,8 @@ SEED = [
     ("Henrique Francabandiera da Silva", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
     ("Ana Carla Conceicao dos Santos", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
     ("Ana Beatriz Batista Bonates", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
-    ("Robson Cavalcanti Ramos 94274770168", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
+    ("Robson Cavalcanti Ramos 94274770168", "ESTACIONAMENTO", "saida",
+     "Estacionamento fixo da empresa"),
     ("62108197 EDNARIA ALVES DA CONCEICAO", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
     ("57118099 JOSE AIRTON GOMES DE SA", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
     ("Beatriz Falconi", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
@@ -119,6 +120,61 @@ SEED = [
     ("LITTLE GLASS", "TRANSFERENCIA ENTRE CONTAS", "saida",
      "Repasse da Shopee sendo passado para a conta da Little Glass"),
     ("F CARNEIRO CIA LTDA", "SHOPEE", "entrada", ""),
+    ("MODA MUNDIAL BRASIL", "SHEIN", "entrada", "Instituição de pagamento da Shein"),
+    ("MODA MUNDIAL BRASIL PAGAMENTOS LTDA", "SHEIN", "entrada", ""),
+    ("MODA MUNDIAL BRASIL INTERMED", "SHEIN", "entrada", ""),
+    # O MESMO dinheiro chega com outro nome em cada banco. No Inter o repasse
+    # vem como "MARTINS E SOUSA COMERCIO DE PRODUTOS IMPORTADOS E NACIONAIS
+    # LTDA"; no Itaú, como "MARTINSOUSA". A chave normalizada não junta os
+    # dois — um não é começo do outro —, e sem estas linhas o dono responderia
+    # de novo o que já respondeu.
+    ("MARTINSOUSA", "MERCADO LIVRE", "entrada", "Repasse, como no Inter"),
+    ("LITTLE GLASS COMERCIO DE ARO", "MERCADO LIVRE", "entrada", ""),
+    # DAS do Simples: no Inter sai como RECEITA FEDERAL, no Itaú como
+    # PAGAMENTOS / SIMPLES NACIONAL. Mesmo imposto, mesma finalidade.
+    ("SIMPLES NACIONAL", "CUSTO FIXO", "saida", "DAS do Simples Nacional"),
+    # Ditos pelo dono em 17/09, lendo a fila do extrato do Itaú.
+    ("GRUPO GARCIA IMOBILIARIA", "CUSTO FIXO", "saida", "Aluguel"),
+    ("SIMONE MARIA DOS SANTOS", "MERCADORIA", "saida", ""),
+    ("IMPORIENTE COMERCIO EXTERIOR LTDA", "MERCADORIA", "saida", ""),
+    ("POLICARGO SERVICE", "MERCADORIA", "saida", ""),
+    ("MYRELLA DE SOUZA CANDIDO", "FOLHA", "saida", "Salário"),
+    ("ELIANE MARTINS DA SILVA BESERRA", "CONSUMO INTERNO", "saida",
+     "Compra da TV da empresa"),
+    # O Vagner aparece nos dois sentidos, e sao coisas diferentes: saindo e
+    # compra de mercadoria, entrando e a parte dele na parcela do PRONAMP.
+    ("VAGNER LAZARINI BESERRA", "MERCADORIA", "saida", ""),
+    ("VAGNER LAZARINI BESERRA", "REEMBOLSO PRONAMP", "entrada", ""),
+    ("RICCI E RICCI COMERCIO E INDUSTRIA", "CUSTO FIXO", "saida", "Anvisa"),
+    ("VALDILENE DA SILVA COELHO", "CUSTO FIXO", "saida",
+     "Aluguel da sala onde fica o plástico bolha"),
+    ("ROBSON SOUSA DOS SANTOS", "ESTACIONAMENTO", "saida",
+     "Estacionamento fixo da empresa"),
+    ("LEONARDO MARTINS BESERRA", "REEMBOLSO", "entrada", ""),
+    ("BYTEDANCE BRASIL TECNOLOGIA LTDA", "TIKTOK", "entrada",
+     "Repasse do TikTok Shop"),
+    # Flex: transporte da mercadoria até o Full. Aparece como boleto pago à TM
+    # Logistica e, na conta da MS, como SISPAG FORNECEDORES sem nome nenhum.
+    ("TM LOGISTICA", "FLEX", "saida", "Transporte da mercadoria até o Full"),
+    ("SISPAG FORNECEDORES", "FLEX", "saida", "TM Logistica"),
+    # ── Fatura do cartao do Inter, anotada pelo dono em 17/09 ────────────
+    # Ele marcou alguns e mandou aplicar aos semelhantes. Os semelhantes
+    # ficam explicitos aqui: "aplicar ao parecido" nao pode virar regra de
+    # adivinhacao, senao a proxima loja de nome parecido entra classificada
+    # errada e ninguem ve.
+    ("ZUL", "ESTACIONAMENTO", "saida",
+     "Zona azul que o Renan paga ao sair para comprar mercadoria"),
+    ("VINDI TRAYECOMMERCE", "SERVIÇO", "saida", "Plataforma da loja"),
+    ("UBER", "SERVIÇO", "saida", ""),
+    ("UBER ONE", "SERVIÇO", "saida", ""),
+    ("DL UBERRIDES", "SERVIÇO", "saida", ""),
+    ("APPLE COM", "SERVIÇO", "saida", ""),
+    ("MICROSOFT MICROSOFT", "SERVIÇO", "saida", ""),
+    ("EBN", "SERVIÇO", "saida", "Canva"),
+    ("MERCADOLIVRE", "CONSUMO INTERNO", "saida", ""),
+    ("MERCADOLIVRE MERCADOL", "CONSUMO INTERNO", "saida", ""),
+    ("MERCADO RASTREAMENTOA", "CONSUMO INTERNO", "saida", ""),
+    ("MERCADO FENIXOFFICE", "CONSUMO INTERNO", "saida", ""),
     ("Debito titulo KG", "NÃO OPERACIONAL", "saida", ""),
     # O extrato do Itaú rotula errado, e o rótulo dele é o que engana: os
     # R$ 170.000 de "PAGAMENTOS A FORNECEDORES" foram transferidos para a outra
@@ -205,16 +261,26 @@ def _aba():
 
 @st.cache_data(ttl=300)
 def carregar():
-    """{chave: {"favorecido", "finalidade", "tipo", "observacao"}}.
+    """{(chave, tipo): {...}} — o SEED por baixo, a planilha por cima.
 
-    Vazio em qualquer falha: sem cadastro, tudo cai como não classificado — que
-    é visível na tela. Classificar por chute seria invisível.
+    O SEED entra SEMPRE, e não só quando a aba nasce. Esse era o furo: a aba
+    foi criada na primeira subida de extrato, com o cadastro daquele instante,
+    e toda resposta que o dono deu depois ficou no código sem nunca chegar à
+    planilha — a tela continuava perguntando o que ele já tinha respondido.
+
+    A planilha vence o SEED em cima da mesma chave, e é isso que mantém a
+    correção feita à mão de pé: quem edita na tela está corrigindo o código.
+
+    Falha de leitura não zera nada: o SEED responde sozinho, e o que se perde é
+    só o que o dono cadastrou pela tela.
     """
+    fora = {(chave(f), tp): {"favorecido": f, "finalidade": fin, "tipo": tp,
+                             "observacao": o}
+            for f, fin, tp, o in SEED if chave(f)}
     try:
         registros = _aba().get_all_records()
     except Exception:
-        return {}
-    fora = {}
+        return fora
     for linha in registros:
         nome = str(linha.get("favorecido", "") or "").strip()
         k = chave(nome)
@@ -286,10 +352,17 @@ def classificar(lancamentos, cadastro=None):
                                        else "entrada")
         reg = casar(nome, cad, sentido)
         novo = dict(l)
-        novo["finalidade"] = reg["finalidade"] if reg else ""
-        novo["classificado"] = bool(reg)
+        # Finalidade que o lançamento JÁ trazia não é apagada.
+        #
+        # Ela vem de duas fontes legítimas: o tipo que o próprio extrato
+        # resolve (cheque, folha, fatura) e a anotação que o dono escreveu no
+        # arquivo. Apagá-la aqui mandava para a fila 49 linhas que o sistema
+        # entendia sozinho — e a fila é justamente o que se quer curto.
+        ja_tinha = str(l.get("finalidade") or "").strip()
+        novo["finalidade"] = (reg["finalidade"] if reg else ja_tinha)
+        novo["classificado"] = bool(reg) or bool(ja_tinha)
         fora.append(novo)
-        if not reg and nome:
+        if not novo["classificado"] and nome:
             d = faltando.setdefault(nome, {"n": 0, "total": 0.0})
             d["n"] += 1
             d["total"] += abs(float(l.get("valor") or 0))
@@ -423,5 +496,25 @@ if __name__ == "__main__":
     ok("a fila soma as vezes do mesmo nome",
        _fila[0]["n"] == 2 and abs(_fila[0]["total"] - 376.0) < 0.01)
     ok("lista vazia nao derruba", classificar([], CAD) == ([], []))
+    # O furo que fez a tela perguntar de novo o que ja tinha sido respondido:
+    # o SEED so entrava quando a aba nascia.
+    ok("todo nome do SEED tem chave utilizavel",
+       all(chave(f) for f, _fin, _tp, _o in SEED))
+    ok("o SEED nao tem duas respostas para a mesma chave e sentido",
+       len({(chave(f), tp) for f, _fin, tp, _o in SEED}) == len(SEED))
+
+    # O cheque e a folha o proprio extrato resolve: nao podem virar pergunta.
+    _ja = classificar([{"favorecido": "CH COMPENSADO 001 000504",
+                        "valor": -968.6, "finalidade": "CHEQUES"}], CAD)
+    ok("finalidade que ja veio no lancamento e preservada",
+       _ja[0][0]["finalidade"] == "CHEQUES"
+       and _ja[0][0]["classificado"] is True)
+    ok("e ela nao vai para a fila", _ja[1] == [])
+    # Mas o cadastro continua mandando quando existe: e nele que a correcao do
+    # dono vale para o passado inteiro.
+    _cad_manda = classificar([{"favorecido": "APEXIMP", "valor": -100.0,
+                               "finalidade": "OUTROS"}], CAD)
+    ok("o cadastro vence a finalidade que veio no arquivo",
+       _cad_manda[0][0]["finalidade"] == "MERCADORIA")
 
     print("\nfalhas:", falhas)
