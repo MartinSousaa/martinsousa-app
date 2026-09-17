@@ -23,7 +23,7 @@ memória. E a tela diz qual dos dois está mostrando, em vez de deixar o gestor
 adivinhar de onde saiu o número.
 """
 
-from datetime import datetime, timezone, timedelta
+from datetime import date, datetime, timezone, timedelta
 
 import streamlit as st
 
@@ -100,6 +100,31 @@ def _aba():
         return nova
 
 
+def mes_chave(v):
+    """A célula `mes` virando "AAAA-MM". "" quando não dá para ler.
+
+    A mesma pergunta tinha duas respostas: a leitura comparava o texto cru e a
+    gravação também, mas o Google devolve a mesma célula de mais de um jeito —
+    "2026-09", "2026-09-01" quando alguém reabre a planilha e ela vira data, e
+    um `datetime` quando a coluna foi formatada como data. Três grafias do
+    mesmo mês são três meses diferentes para um `==`, e a linha gravada some
+    da leitura sem erro nenhum.
+    """
+    if hasattr(v, "year") and hasattr(v, "month"):
+        return f"{v.year:04d}-{v.month:02d}"
+    t = str(v or "").strip()
+    if not t:
+        return ""
+    import re as _re
+    m = _re.match(r"^(\d{4})[-/](\d{1,2})", t)
+    if m:
+        return f"{int(m.group(1)):04d}-{int(m.group(2)):02d}"
+    m = _re.match(r"^(\d{1,2})[-/](\d{4})$", t)          # "09/2026"
+    if m:
+        return f"{int(m.group(2)):04d}-{int(m.group(1)):02d}"
+    return t
+
+
 @st.cache_data(ttl=300)
 def carregar():
     """{"AAAA-MM": {"meta", "informado", "observacao"}}. {} em qualquer falha."""
@@ -109,7 +134,7 @@ def carregar():
         return {}
     fora = {}
     for r in registros:
-        mes = str(r.get("mes", "") or "").strip()
+        mes = mes_chave(r.get("mes"))
         if not mes:
             continue
         fora[mes] = {
@@ -126,6 +151,7 @@ def salvar(mes_txt, meta=None, informado=None, observacao=None, usuario=""):
     if len(alvo) != 7 or "-" not in alvo:
         return False, "Mês precisa estar como AAAA-MM."
     atual = (carregar() or {}).get(alvo, {})
+    repetidas = 0
     linha = [
         alvo,
         round(_num(meta, atual.get("meta", 0.0)), 2),
@@ -139,7 +165,7 @@ def salvar(mes_txt, meta=None, informado=None, observacao=None, usuario=""):
         aba = _aba()
         registros = aba.get_all_records()
         achados = [i for i, r in enumerate(registros)
-                   if str(r.get("mes", "")).strip() == alvo]
+                   if mes_chave(r.get("mes")) == alvo]
         # O ÚLTIMO, e não o primeiro. Com duas linhas do mesmo mês na aba, o
         # `carregar()` lê a de baixo (a última sobrescreve o dicionário) e a
         # gravação ia na de cima: o número entrava na planilha e a tela seguia
@@ -150,6 +176,14 @@ def salvar(mes_txt, meta=None, informado=None, observacao=None, usuario=""):
             fim = chr(ord("A") + len(COLUNAS) - 1)
             n = achados[-1] + 2
             aba.update([linha], f"A{n}:{fim}{n}", value_input_option="RAW")
+            # E as repetidas somem, de baixo para cima para não mexer no
+            # índice das que ainda faltam apagar. Contornar a duplicata
+            # deixaria a próxima gravação com o mesmo risco; aqui ela deixa
+            # de existir. O dado não se perde: a linha que fica é a que a
+            # leitura já enxergava, e acabou de receber o valor novo.
+            for i in reversed(achados[:-1]):
+                aba.delete_rows(i + 2)
+            repetidas = len(achados) - 1
 
         # A conferência: reler e comparar com o que se mandou gravar.
         #
@@ -157,7 +191,7 @@ def salvar(mes_txt, meta=None, informado=None, observacao=None, usuario=""):
         # perdidas em 17/09 porque a tela dizia "1 mês salvo" e a planilha
         # continuava com zero, e não havia como saber qual dos dois mentia.
         conf = [r for r in aba.get_all_records()
-                if str(r.get("mes", "")).strip() == alvo]
+                if mes_chave(r.get("mes")) == alvo]
         if not conf:
             return False, (f"Gravei {rotulo(alvo)} e a linha não apareceu na "
                            "aba. Nada foi salvo — me chame.")
@@ -170,8 +204,8 @@ def salvar(mes_txt, meta=None, informado=None, observacao=None, usuario=""):
     except Exception as e:
         return False, str(e)[:200]
     carregar.clear()
-    extra = (f" (havia {len(conf)} linhas deste mês na aba)"
-             if len(conf) > 1 else "")
+    extra = (f" ({repetidas} linha(s) repetida(s) deste mês foram unificadas)"
+             if repetidas else "")
     return True, f"{rotulo(alvo)} salvo: meta R$ {linha[1]:.2f}.{extra}"
 
 
@@ -374,6 +408,9 @@ if __name__ == "__main__":
         def append_row(self, linha, **kw):
             self.linhas.append([str(c) for c in linha])
 
+        def delete_rows(self, indice, **kw):
+            del self.linhas[indice - 1]
+
     _falsa = _AbaFalsa()
     globals()["_aba"] = lambda: _falsa
     carregar.clear()
@@ -398,7 +435,17 @@ if __name__ == "__main__":
     carregar.clear()
     ok("com linha repetida, a gravacao vai na que a leitura enxerga",
        _ok_d is True and carregar()["2026-11"]["meta"] == 170000.0)
-    ok("e a mensagem avisa que havia repetida", "linhas deste mês" in _msg_d)
+    ok("e a repetida deixa de existir, em vez de ser contornada",
+       len([l for l in _falsa.linhas if l[0] == "2026-11"]) == 1)
+    ok("e a mensagem diz que unificou", "unificada" in _msg_d)
+
+    # A celula `mes` volta do Google em mais de uma grafia. Tres grafias do
+    # mesmo mes eram tres meses para um `==`, e a linha sumia da leitura.
+    ok("data completa e o mesmo mes", mes_chave("2026-09-01") == "2026-09")
+    ok("mes e ano invertidos tambem", mes_chave("09/2026") == "2026-09")
+    ok("um date de verdade tambem", mes_chave(date(2026, 9, 14)) == "2026-09")
+    ok("texto normal passa direto", mes_chave("2026-09") == "2026-09")
+    ok("celula vazia nao vira mes", mes_chave("") == "" and mes_chave(None) == "")
 
     # A conferencia: se a planilha nao devolver o que se mandou, e erro.
     class _AbaSurda(_AbaFalsa):
