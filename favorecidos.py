@@ -63,7 +63,30 @@ SEED = [
     ("Renan Candido Sousa", "MERCADORIA", "saida",
      "Pagou mercadoria com dinheiro dele e se reembolsa"),
     ("ESPETARIA IBITIRAMA COMERCIO DE ALIMENTOS LTDA", "OUTROS", "saida", ""),
+    # O mesmo CNPJ, escrito abreviado no extrato de setembro. Duas grafias do
+    # mesmo lugar são dois nomes para o `chave()` — e a tela perguntaria de novo.
+    ("ESPETARIA IBITIRAMA COM DE ALIM LTDA", "OUTROS", "saida", ""),
     ("SUPERMERCADO DA PRACA IBITIRAMA LTDA", "OUTROS", "saida", ""),
+    # Estacionamento avulso, na mesma linha do ZUL e do Robson.
+    ("REDE PARK ADMINISTRACAO DE ESTACIONAMENTOS E GARAGENS LTDA",
+     "ESTACIONAMENTO", "saida", ""),
+    # Telefonia fixa — o mesmo custo que no Itaú aparece como "DA VIVO FIXO".
+    ("VIVO - FIXO - BRASIL", "CUSTO FIXO", "saida",
+     "Pagamento de convênio, telefone fixo"),
+    # Pagar a fatura não é gasto novo: o gasto são as compras dentro dela. Sem
+    # esta linha, a fatura do Inter contaria duas vezes na meta do mês.
+    ("Debito Automatico Fatura Cartao Inter", "FATURA DO CARTÃO", "saida",
+     "Cartão Inter — o que consome a meta são as compras da fatura"),
+    # Respondidos pelo dono em 17/09, sobre o extrato do Inter de setembro.
+    ("MONE", "MERCADORIA", "saida", ""),
+    ("Soledad Canty Fernandez", "MERCADORIA", "saida", ""),
+    ("Vilma Gamarra Laura", "MERCADORIA", "saida", ""),
+    ("Edna Maria da Silva", "CUSTO FIXO", "saida",
+     "Rateio da limpeza dos corredores do prédio"),
+    ("Renan Candido Sousa", "REEMBOLSO", "entrada",
+     "Devolveu à empresa — a SAÍDA no mesmo nome é mercadoria"),
+    ("ANA CARLA CONCEICAO DOS SANTOS", "REEMBOLSO", "entrada",
+     "Fornecedora paga 3x por engano; devolveu o excedente"),
     ("ESFIHARIA POLY", "OUTROS", "saida", ""),
     ("OBA HORTIFRUTI", "OUTROS", "saida", ""),
     ("VINDI PAGAMENTOS ONLINE", "CUSTO FIXO", "saida", ""),
@@ -157,6 +180,10 @@ SEED = [
     # Logistica e, na conta da MS, como SISPAG FORNECEDORES sem nome nenhum.
     ("TM LOGISTICA", "FLEX", "saida", "Transporte da mercadoria até o Full"),
     ("SISPAG FORNECEDORES", "FLEX", "saida", "TM Logistica"),
+    # O extrato do Itaú não traz favorecido nestas: o nome está só na
+    # descrição, e sem elas a linha fica dependendo de quem clicou primeiro.
+    ("SISPAG SALARIOS", "FOLHA", "saida", ""),
+    ("TAR CHEQUE EMITIDO", "TARIFA BANCÁRIA", "saida", ""),
     # ── Fatura do cartao do Inter, anotada pelo dono em 17/09 ────────────
     # Ele marcou alguns e mandou aplicar aos semelhantes. Os semelhantes
     # ficam explicitos aqui: "aplicar ao parecido" nao pode virar regra de
@@ -229,8 +256,19 @@ NAO_CONSOME_META = {"TRANSFERENCIA ENTRE CONTAS", "TRANSFERENCIA", "APLICACAO",
 # Entradas que NÃO são faturamento. Elas abatem um custo ou são dívida
 # entrando; somadas à receita, inventam venda que não houve.
 NAO_E_FATURAMENTO = {"TRANSFERENCIA ENTRE CONTAS", "TRANSFERENCIA",
-                     "EMPRESTIMO PRONAMP", "REEMBOLSO PRONAMP", "APLICACAO",
-                     "RATEIO CUSTO FIXO"}
+                     "EMPRESTIMO PRONAMP", "REEMBOLSO PRONAMP", "REEMBOLSO",
+                     "APLICACAO", "RATEIO CUSTO FIXO"}
+
+# Entrada que DEVOLVE dinheiro de um gasto já contado. Ela não é venda e não é
+# neutra: o fornecedor recebeu 660 e devolveu 440, e o mês gastou 220. Fora da
+# conta, o gasto do mês fica 440 maior do que foi — foi o caso da Ana Carla,
+# paga três vezes por engano em 16/09.
+ABATE_META = {"REEMBOLSO"}
+
+
+def abate_meta(finalidade):
+    """Esta ENTRADA desconta do gasto do mês, em vez de ficar de fora?"""
+    return str(finalidade or "").strip().upper() in ABATE_META
 
 
 def eh_faturamento(finalidade):
@@ -334,6 +372,20 @@ def casar(nome, cadastro, sentido=None):
     return candidatos[0] if len(candidatos) == 1 else None
 
 
+# Regra dita pelo dono: fornecedor com "China" no nome é compra de mercadoria.
+# Ela vale para o nome que ainda não existe — "LOOK CHINA CARNOT" apareceu em
+# setembro e nenhum cadastro o previa. Nome chinês ROMANIZADO ("Jie Meng") esta
+# regra não pega: não há como distinguí-lo de qualquer outro nome próprio, e
+# esses continuam sendo cadastro um a um.
+def por_regra(nome, sentido="saida"):
+    """Finalidade que se deduz do próprio nome. None quando não há regra."""
+    t = str(nome or "").upper()
+    if sentido == "saida" and ("CHINA" in t
+                               or any("\u4e00" <= c <= "\u9fff" for c in t)):
+        return "MERCADORIA"
+    return None
+
+
 def classificar(lancamentos, cadastro=None):
     """Põe `finalidade` em cada lançamento. Devolve (classificados, faltando).
 
@@ -359,8 +411,11 @@ def classificar(lancamentos, cadastro=None):
         # arquivo. Apagá-la aqui mandava para a fila 49 linhas que o sistema
         # entendia sozinho — e a fila é justamente o que se quer curto.
         ja_tinha = str(l.get("finalidade") or "").strip()
-        novo["finalidade"] = (reg["finalidade"] if reg else ja_tinha)
-        novo["classificado"] = bool(reg) or bool(ja_tinha)
+        # Ordem: cadastro > finalidade que veio no arquivo > regra do nome.
+        # A regra é a última porque é a única que ninguém conferiu.
+        regra = por_regra(nome, sentido) if not (reg or ja_tinha) else None
+        novo["finalidade"] = (reg["finalidade"] if reg else (ja_tinha or regra or ""))
+        novo["classificado"] = bool(reg) or bool(ja_tinha) or bool(regra)
         fora.append(novo)
         if not novo["classificado"] and nome:
             d = faltando.setdefault(nome, {"n": 0, "total": 0.0})
@@ -514,6 +569,24 @@ if __name__ == "__main__":
     # dono vale para o passado inteiro.
     _cad_manda = classificar([{"favorecido": "APEXIMP", "valor": -100.0,
                                "finalidade": "OUTROS"}], CAD)
+    ok("nome com China vira mercadoria sem cadastro",
+       por_regra("LOOK CHINA CARNOT") == "MERCADORIA")
+    ok("a regra do China nao vale para entrada",
+       por_regra("LOOK CHINA CARNOT", "entrada") is None)
+    ok("nome romanizado a regra nao pega — e cadastro",
+       por_regra("Jie Meng") is None)
+    ok("reembolso nao e faturamento", not eh_faturamento("REEMBOLSO"))
+    ok("reembolso abate o gasto do mes", abate_meta("REEMBOLSO"))
+    ok("venda de plataforma nao abate gasto", not abate_meta("SHOPEE"))
+    _c, _f = classificar([{"favorecido": "LOOK CHINA CARNOT", "valor": -713.12,
+                           "sentido": "saida"}], {})
+    ok("a regra tira o nome da fila", not _f and _c[0]["finalidade"] == "MERCADORIA")
+    _c2, _f2 = classificar(
+        [{"favorecido": "LOOK CHINA CARNOT", "valor": -713.12, "sentido": "saida"}],
+        {(chave("LOOK CHINA CARNOT"), "saida"): {"favorecido": "x",
+                                                 "finalidade": "OUTROS"}})
+    ok("cadastro corrigido a mao vence a regra",
+       _c2[0]["finalidade"] == "OUTROS")
     ok("o cadastro vence a finalidade que veio no arquivo",
        _cad_manda[0][0]["finalidade"] == "MERCADORIA")
 

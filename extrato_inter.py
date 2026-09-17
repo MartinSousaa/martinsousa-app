@@ -69,6 +69,11 @@ def favorecido(descricao):
     O Inter escreve `Pix enviado: "Cp :60701190-APEXIMP"`: o código antes do
     hífen é da instituição, e o nome vem depois. Quando não há hífen, o nome
     está solto depois de dois números — é o caso das transferências por chave.
+
+    Cortar no ÚLTIMO hífen parecia igual e não era: `Pagamento de Convenio:
+    "VIVO - FIXO - BRASIL"` devolvia "BRASIL", um favorecido que não existe e
+    que a tela ia pedir para cadastrar todo mês. O hífen a remover é só o do
+    código da instituição, no começo — os outros são do nome.
     """
     t = str(descricao or "").strip()
     if not t:
@@ -76,8 +81,11 @@ def favorecido(descricao):
     dentro = re.search(r'"([^"]*)"', t)
     miolo = dentro.group(1) if dentro else t.split(":", 1)[-1]
     miolo = miolo.strip()
-    if "-" in miolo:
-        nome = miolo.rsplit("-", 1)[-1]
+    sem_codigo = re.sub(r'^(?:cp\s*:?\s*)?\d+\s*-\s*', "", miolo, flags=re.I)
+    if sem_codigo != miolo:
+        nome = sem_codigo
+    elif re.match(r'^[\d\s]*-', miolo):
+        nome = miolo.split("-", 1)[-1]
     else:
         # "00019 202584690 PAN ZHENGZHONG" — cai fora dos dois números.
         partes = [p for p in miolo.split() if not p.isdigit()]
@@ -165,6 +173,12 @@ if __name__ == "__main__":
     ok("nome com hifen no meio fica com a ultima parte, e nao com o codigo",
        favorecido('Pix recebido: "Cp :10573521-LITTLE GLASS COMERCIO"')
        == "LITTLE GLASS COMERCIO")
+    ok("convenio com hifen no nome nao perde o comeco",
+       favorecido('Pagamento de Convenio: "VIVO - FIXO - BRASIL"')
+       == "VIVO - FIXO - BRASIL")
+    ok("pagamento sem codigo nem hifen vem inteiro",
+       favorecido('Pagamento efetuado: "Debito Automatico Fatura Cartao Inter"')
+       == "Debito Automatico Fatura Cartao Inter")
     ok("transferencia por chave, sem hifen, tambem devolve nome",
        favorecido('Pix enviado: "00019 202584690 PAN ZHENGZHONG"')
        == "PAN ZHENGZHONG")
