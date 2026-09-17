@@ -134,6 +134,12 @@ SEED = [
     ("EMPREST CAPITAL DE GIRO", "EMPRESTIMO PRONAMP", "entrada",
      "Dívida entrando, não faturamento"),
     ("PARCELA GIRO", "NÃO OPERACIONAL", "saida", "Parcela de PRONAMP"),
+    # O Vagner (VLB ONLINE) paga parte da parcela de um dos PRONAMPs. É
+    # ABATIMENTO da parcela, não faturamento: somado à receita, inventaria
+    # venda que não houve e ainda deixaria o não operacional cheio demais.
+    ("VLB ONLINE LTDA", "REEMBOLSO PRONAMP", "entrada",
+     "Vagner paga parte da parcela de um dos PRONAMPs"),
+    ("VLB ONL", "REEMBOLSO PRONAMP", "entrada", ""),
     ("APLICACAO CDB DI", "APLICACAO", "saida", ""),
     ("RENDIMENTOS REND PAGO APLIC", "APLICACAO", "entrada", ""),
 ]
@@ -163,6 +169,17 @@ def chave(nome):
 # meta estourar sozinha.
 NAO_CONSOME_META = {"TRANSFERENCIA ENTRE CONTAS", "TRANSFERENCIA", "APLICACAO",
                     "RESGATE"}
+
+# Entradas que NÃO são faturamento. Elas abatem um custo ou são dívida
+# entrando; somadas à receita, inventam venda que não houve.
+NAO_E_FATURAMENTO = {"TRANSFERENCIA ENTRE CONTAS", "TRANSFERENCIA",
+                     "EMPRESTIMO PRONAMP", "REEMBOLSO PRONAMP", "APLICACAO",
+                     "RATEIO CUSTO FIXO"}
+
+
+def eh_faturamento(finalidade):
+    """Esta entrada é venda? Empréstimo, rateio e reembolso não são."""
+    return str(finalidade or "").strip().upper() not in NAO_E_FATURAMENTO
 
 
 def consome_meta(finalidade):
@@ -380,6 +397,14 @@ if __name__ == "__main__":
     ok("os 170 mil de transferencia NAO consomem a meta",
        not consome_meta(_ci[0]["finalidade"]))
     ok("nada ficou na fila", _fi == [])
+    # Entrada que nao e venda: divida, rateio e reembolso entram na conta
+    # errada se forem somados ao faturamento.
+    ok("PRONAMP e reembolso nao sao faturamento",
+       not eh_faturamento("EMPRESTIMO PRONAMP")
+       and not eh_faturamento("REEMBOLSO PRONAMP")
+       and not eh_faturamento("RATEIO CUSTO FIXO"))
+    ok("repasse de plataforma e faturamento",
+       eh_faturamento("MERCADO LIVRE") and eh_faturamento("SHOPEE"))
 
     _c, _fila = classificar(LANC, CAD)
     ok("as duas redacoes da Apeximp saem como MERCADORIA",
