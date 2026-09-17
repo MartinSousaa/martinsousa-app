@@ -166,7 +166,18 @@ def url_de_download(link):
 
 
 def link_configurado():
-    """O link do OneDrive guardado na secret. "" quando não há."""
+    """O link do OneDrive. "" quando não há.
+
+    Lê a VARIÁVEL DE AMBIENTE antes da secret, e é aí que estava o erro: uma
+    variável criada no Railway não vira `st.secrets`. O que alimenta o
+    `secrets.toml` é o bloco STREAMLIT_SECRETS, montado pelo Procfile — uma
+    variável solta fica só no ambiente, e o Studio dizia "Fonte: Google Drive"
+    com o link configurado do lado de lá.
+    """
+    import os
+    do_ambiente = str(os.environ.get(SECRET_URL, "") or "").strip()
+    if do_ambiente:
+        return do_ambiente
     try:
         import gdrive as _gd
         return str(_gd._secret(SECRET_URL, "") or "").strip()
