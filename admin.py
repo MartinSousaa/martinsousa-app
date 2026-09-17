@@ -48,7 +48,12 @@ def _secao_controle_ms():
         "baixa e lê, sem converter. Aqui se confere se ele está acessível e "
         "quais abas existem."
     )
-    st.caption(f"Arquivo: `{_cms.arquivo_id()}`")
+    _f_tipo, _f_desc = _cms.fonte()
+    st.caption(f"Fonte: {_f_desc}")
+    if _f_tipo == "drive":
+        st.caption("Para ler direto do OneDrive — onde o Excel tem salvamento "
+                   "automático e edição simultânea —, ponha o link de "
+                   "compartilhamento na variável `CONTROLE_MS_URL` do Railway.")
 
     _c1, _c2 = st.columns(2)
     if _c1.button("Testar a leitura", use_container_width=True,

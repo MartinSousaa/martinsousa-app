@@ -33,6 +33,7 @@ o Drive não faz merge de `.xlsx`. Enquanto isso não for decidido, esta é uma
 leitura e nada mais.
 """
 
+import base64
 import io
 import re
 
@@ -107,6 +108,117 @@ def _baixar(file_id):
             return None, str(e)[:200]
 
 
+
+# ── De onde o arquivo vem ────────────────────────────────────────────────────
+#
+# Duas fontes possíveis, e a escolha não é técnica: é de onde o dono consegue
+# trabalhar. Excel com salvamento automático e duas pessoas na mesma planilha
+# só existe no OneDrive — é regra da Microsoft, não configuração. O Drive não
+# tem isso e nunca vai ter.
+#
+# Então o arquivo fica onde o trabalho acontece, e o Studio vai buscá-lo lá:
+# com um link de compartilhamento, baixando por HTTP puro, sem app da
+# Microsoft e sem credencial nova.
+#
+# O link é SEGREDO, e por isso mora na secret CONTROLE_MS_URL e nunca no
+# código: quem o tiver baixa a planilha financeira inteira, sem senha.
+#
+# Sem a secret, vale o arquivo do Google Drive — que continua funcionando e é
+# o caminho sem link público.
+SECRET_URL = "CONTROLE_MS_URL"
+
+# Tempo de espera do download. Generoso: são 12 MB atravessando a internet, e
+# conexão que não estabelece em 15s não vai estabelecer.
+TIMEOUT = (15, 120)
+
+
+def url_de_download(link):
+    """O endereço que devolve os BYTES do arquivo. "" quando não dá.
+
+    Link de compartilhamento abre uma PÁGINA, não o arquivo: baixar direto dele
+    traz o HTML do visualizador, e o openpyxl recebe isso como se fosse a
+    planilha — o erro que sai é "arquivo corrompido", que manda procurar defeito
+    onde não há.
+
+    As duas famílias de link precisam de tratamentos diferentes:
+
+    - OneDrive pessoal (`1drv.ms`, `onedrive.live.com`): a própria Microsoft
+      publica um atalho — o link em base64, com prefixo `u!`, vira um endereço
+      de conteúdo na API de compartilhamentos. Não exige autenticação nenhuma,
+      porque o link já é a autorização.
+    - OneDrive corporativo / SharePoint: aceita `download=1` na própria URL.
+    """
+    t = str(link or "").strip()
+    if not t.lower().startswith("http"):
+        return ""
+    baixo = t.lower()
+    # Já é um endereço de conteúdo: não mexer.
+    if "/root/content" in baixo or "download=1" in baixo:
+        return t
+    if "sharepoint.com" in baixo:
+        return t + ("&" if "?" in t else "?") + "download=1"
+    if "1drv.ms" in baixo or "onedrive.live.com" in baixo:
+        b64 = base64.urlsafe_b64encode(t.encode("utf-8")).decode("ascii")
+        return f"https://api.onedrive.com/v1.0/shares/u!{b64.rstrip('=')}/root/content"
+    # Desconhecido: devolve como veio. Se for um link direto, funciona; se não
+    # for, o erro aparece na tela de conferência com o endereço na mão.
+    return t
+
+
+def link_configurado():
+    """O link do OneDrive guardado na secret. "" quando não há."""
+    try:
+        import gdrive as _gd
+        return str(_gd._secret(SECRET_URL, "") or "").strip()
+    except Exception:
+        return ""
+
+
+def fonte():
+    """('onedrive'|'drive', descrição curta) — de onde o arquivo está vindo.
+
+    A tela precisa dizer isto em voz alta: com duas fontes possíveis, "o número
+    está velho" tem duas causas diferentes, e saber qual está ativa é a
+    primeira pergunta.
+    """
+    if link_configurado():
+        return "onedrive", "Link do OneDrive (secret CONTROLE_MS_URL)"
+    return "drive", f"Google Drive · {arquivo_id()}"
+
+
+@st.cache_data(ttl=TTL_SEG, show_spinner=False)
+def _baixar_do_link(url):
+    """Os bytes do arquivo pelo link público. (bytes, erro)."""
+    import requests
+    alvo = url_de_download(url)
+    if not alvo:
+        return None, "O link configurado em CONTROLE_MS_URL não é um endereço."
+    try:
+        r = requests.get(alvo, timeout=TIMEOUT, allow_redirects=True)
+    except Exception as e:
+        return None, f"O OneDrive não respondeu: {type(e).__name__}: {str(e)[:120]}"
+    if not r.ok:
+        return None, (f"O OneDrive respondeu HTTP {r.status_code}. O link pode "
+                      f"ter sido revogado ou trocado — gere outro e atualize a "
+                      f"secret {SECRET_URL}.")
+    dados = r.content
+    # Link de PÁGINA devolve HTML com status 200. Sem esta checagem, o erro só
+    # aparece lá adiante, como "arquivo corrompido".
+    if dados[:2] != b"PK":
+        return None, ("O link devolveu uma página, e não o arquivo. Use a opção "
+                      "de compartilhamento que gera link de download, ou "
+                      "confira se o acesso é «qualquer pessoa com o link».")
+    return dados, ""
+
+
+def _bytes_do_arquivo():
+    """(bytes, erro) da fonte ativa."""
+    link = link_configurado()
+    if link:
+        return _baixar_do_link(link)
+    return _baixar(arquivo_id())
+
+
 def _workbook(dados):
     """O workbook em modo somente leitura. Quem chama fecha."""
     import openpyxl
@@ -116,9 +228,9 @@ def _workbook(dados):
 
 def abas():
     """(nomes_das_abas, erro). Lista vazia quando não deu para ler."""
-    dados, erro = _baixar(arquivo_id())
+    dados, erro = _bytes_do_arquivo()
     if erro or not dados:
-        return [], erro or "O Drive não devolveu o arquivo."
+        return [], erro or "A fonte não devolveu o arquivo."
     try:
         wb = _workbook(dados)
         try:
@@ -136,9 +248,9 @@ def ler(aba, limite=None):
     usa para mostrar as primeiras sem pagar a planilha inteira.
     """
     import pandas as pd
-    dados, erro = _baixar(arquivo_id())
+    dados, erro = _bytes_do_arquivo()
     if erro or not dados:
-        return pd.DataFrame(), erro or "O Drive não devolveu o arquivo."
+        return pd.DataFrame(), erro or "A fonte não devolveu o arquivo."
     try:
         wb = _workbook(dados)
     except Exception as e:
@@ -187,10 +299,11 @@ def _cabecalho(linha):
 
 def limpar():
     """Esquece o arquivo baixado. Para a tela que acabou de pedir releitura."""
-    try:
-        _baixar.clear()
-    except Exception:
-        pass
+    for f in (_baixar, _baixar_do_link):
+        try:
+            f.clear()
+        except Exception:
+            pass
 
 
 # ── Conferência ──────────────────────────────────────────────────────────────
@@ -224,5 +337,30 @@ if __name__ == "__main__":
     ok("coluna sem nome vira posição",
        _cabecalho(("Data", None, "  ")) == ["Data", "coluna_2", "coluna_3"])
     ok("linha vazia não derruba", _cabecalho(()) == [] and _cabecalho(None) == [])
+
+    # ── O link de compartilhamento vira endereço de ARQUIVO ───────────────
+    # Sem isto, o download traz a pagina do visualizador e o openpyxl acusa
+    # "arquivo corrompido" — mandando procurar defeito onde nao ha.
+    _pess = "https://1drv.ms/x/s!AbCdEf123456"
+    _u = url_de_download(_pess)
+    ok("link do OneDrive pessoal vira endereco de conteudo",
+       _u.startswith("https://api.onedrive.com/v1.0/shares/u!")
+       and _u.endswith("/root/content"))
+    ok("o base64 do link nao leva '=' no fim (a API recusa)",
+       "=" not in _u.split("u!")[1].split("/")[0])
+    ok("o link original esta dentro, e da para voltar dele",
+       base64.urlsafe_b64decode(
+           _u.split("u!")[1].split("/")[0] + "==").decode() == _pess)
+
+    _corp = "https://empresa-my.sharepoint.com/:x:/g/personal/leo/Documento.xlsx"
+    ok("SharePoint ganha download=1",
+       url_de_download(_corp) == _corp + "?download=1")
+    ok("SharePoint com query usa &",
+       url_de_download(_corp + "?e=abc") == _corp + "?e=abc&download=1")
+    ok("endereco que ja baixa nao e mexido",
+       url_de_download(_corp + "?download=1") == _corp + "?download=1")
+    ok("texto que nao e endereco devolve vazio",
+       url_de_download("manda depois") == "" and url_de_download("") == ""
+       and url_de_download(None) == "")
 
     print("\nfalhas:", falhas)
