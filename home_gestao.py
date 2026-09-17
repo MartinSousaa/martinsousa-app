@@ -365,8 +365,22 @@ def _bloco_gastos(usuario_logado=None, d=None):
     st.markdown("#### 💰 Gastos do mês")
 
     hoje = datetime.now(_pc.FUSO).date()
-    ano = int((d or {}).get("ano") or hoje.year)
-    mes = int((d or {}).get("mes") or hoje.month)
+    _ano_ref = int((d or {}).get("ano") or hoje.year)
+    _mes_ref = int((d or {}).get("mes") or hoje.month)
+
+    # O mês se escolhe aqui, e não fica preso ao da Home.
+    #
+    # O bloco nasceu mostrando só o mês de referência, e no dia 17 de setembro
+    # isso são dois lançamentos: o gasto do mês mal começou. Os números que o
+    # gestor quer olhar estão no mês fechado, e obrigá-lo a mudar a Home
+    # inteira para ver agosto é pedir quatro cliques para uma pergunta.
+    _cm, _cy, _ = st.columns([1, 1, 3])
+    mes = _cm.selectbox(
+        "Mês", list(range(1, 13)), index=_mes_ref - 1, key="hg_gasto_mes",
+        format_func=lambda m: ["janeiro", "fevereiro", "março", "abril",
+                               "maio", "junho", "julho", "agosto", "setembro",
+                               "outubro", "novembro", "dezembro"][m - 1])
+    ano = _cy.number_input("Ano", 2020, 2100, _ano_ref, 1, key="hg_gasto_ano")
 
     try:
         linha = _mg.linha_do_mes(ano, mes)

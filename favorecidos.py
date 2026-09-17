@@ -157,6 +157,10 @@ SEED = [
     # Logistica e, na conta da MS, como SISPAG FORNECEDORES sem nome nenhum.
     ("TM LOGISTICA", "FLEX", "saida", "Transporte da mercadoria até o Full"),
     ("SISPAG FORNECEDORES", "FLEX", "saida", "TM Logistica"),
+    # O extrato do Itaú não traz favorecido nestas: o nome está só na
+    # descrição, e sem elas a linha fica dependendo de quem clicou primeiro.
+    ("SISPAG SALARIOS", "FOLHA", "saida", ""),
+    ("TAR CHEQUE EMITIDO", "TARIFA BANCÁRIA", "saida", ""),
     # ── Fatura do cartao do Inter, anotada pelo dono em 17/09 ────────────
     # Ele marcou alguns e mandou aplicar aos semelhantes. Os semelhantes
     # ficam explicitos aqui: "aplicar ao parecido" nao pode virar regra de
