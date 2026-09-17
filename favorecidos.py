@@ -111,6 +111,14 @@ SEED = [
     ("MANOEL PEDROSA CAVALCANTE", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
     ("SEM TITULO", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
     ("AIBR INSTITUICAO DE PAGAMENTO LTDA", "MERCADORIA", "saida", "provável — classificado em bloco, confirmar"),
+    # A conta que a Shopee paga (Inter 167513915) e so passagem: entra o
+    # repasse e sai para a Little Glass no mesmo valor, no mesmo dia. Aqui
+    # LITTLE GLASS no sentido SAIDA e transferencia — na conta da rua, o mesmo
+    # nome no sentido ENTRADA e repasse do Mercado Livre.
+    ("LITTLE GLASS", "TRANSFERENCIA ENTRE CONTAS", "saida",
+     "Repasse da Shopee sendo passado para a conta da Little Glass"),
+    ("F CARNEIRO CIA LTDA", "SHOPEE", "entrada", ""),
+    ("Debito titulo KG", "NÃO OPERACIONAL", "saida", ""),
 ]
 
 
@@ -131,6 +139,18 @@ def chave(nome):
     t = re.sub(r"\b(LTDA|ME|EPP|SA|S/A|EIRELI|COMERCIO|DE|DA|DO|E)\b", " ", t)
     t = re.sub(r"[^A-Z0-9 ]", " ", t)
     return re.sub(r"\s+", " ", t).strip()
+
+
+# Finalidades que NÃO consomem a meta de gastos. Dinheiro indo de uma conta
+# nossa para outra não é despesa: contá-lo dobraria o gasto do mês e faria a
+# meta estourar sozinha.
+NAO_CONSOME_META = {"TRANSFERENCIA ENTRE CONTAS", "TRANSFERENCIA", "APLICACAO",
+                    "RESGATE"}
+
+
+def consome_meta(finalidade):
+    """Este lançamento consome a meta de gastos?"""
+    return str(finalidade or "").strip().upper() not in NAO_CONSOME_META
 
 
 def _aba():
@@ -166,17 +186,24 @@ def carregar():
         k = chave(nome)
         if not k:
             continue
-        fora[k] = {
+        tp = str(linha.get("tipo", "") or "").strip().lower()
+        fora[(k, tp if tp in TIPOS else None)] = {
             "favorecido": nome,
             "finalidade": str(linha.get("finalidade", "") or "").strip(),
-            "tipo": str(linha.get("tipo", "") or "saida").strip().lower(),
+            "tipo": tp or "",
             "observacao": str(linha.get("observacao", "") or "").strip(),
         }
     return fora
 
 
-def casar(nome, cadastro):
+def casar(nome, cadastro, sentido=None):
     """O cadastro que corresponde a este nome. None quando não há.
+
+    `sentido` ("saida"/"entrada") faz parte da identidade, e não é detalhe: na
+    conta da rua, "Pix RECEBIDO de LITTLE GLASS" é repasse do Mercado Livre;
+    na conta que a Shopee paga, "Pix ENVIADO para LITTLE GLASS" é transferência
+    entre contas nossas. Mesmo nome, dois significados opostos — um é receita,
+    o outro não é nem gasto.
 
     Primeiro a chave exata. Depois, o prefixo: o mesmo fornecedor aparece como
     "APEXIMP" e como "Apeximp Comercio de Presentes Importacao E Exportacao
@@ -191,11 +218,19 @@ def casar(nome, cadastro):
     k = chave(nome)
     if not k:
         return None
-    if k in cadastro:
-        return cadastro[k]
-    candidatos = [v for ck, v in cadastro.items()
-                  if len(ck) >= 4 and (k.startswith(ck + " ") or
-                                       ck.startswith(k + " "))]
+    # Do mais específico para o mais geral: o cadastro do sentido certo manda;
+    # sem ele, vale o cadastro sem sentido declarado.
+    for alvo in ((k, sentido), (k, None)) if sentido else ((k, None),):
+        if alvo in cadastro:
+            return cadastro[alvo]
+    if sentido:
+        iguais = [v for (ck, st), v in cadastro.items()
+                  if ck == k and st in (sentido, None)]
+        if iguais:
+            return iguais[0]
+    candidatos = [v for (ck, st), v in cadastro.items()
+                  if len(ck) >= 4 and st in (sentido, None)
+                  and (k.startswith(ck + " ") or ck.startswith(k + " "))]
     return candidatos[0] if len(candidatos) == 1 else None
 
 
@@ -209,7 +244,9 @@ def classificar(lancamentos, cadastro=None):
     fora, faltando = [], {}
     for l in (lancamentos or []):
         nome = l.get("favorecido") or l.get("razao_social") or ""
-        reg = casar(nome, cad)
+        sentido = l.get("sentido") or ("saida" if float(l.get("valor") or 0) < 0
+                                       else "entrada")
+        reg = casar(nome, cad, sentido)
         novo = dict(l)
         novo["finalidade"] = reg["finalidade"] if reg else ""
         novo["classificado"] = bool(reg)
@@ -273,8 +310,8 @@ if __name__ == "__main__":
     ok("nomes diferentes continuam diferentes",
        chave("ER EMBALAGENS") != chave("NZB EMBALAGENS"))
 
-    CAD = {chave(f): {"favorecido": f, "finalidade": fin, "tipo": tp,
-                      "observacao": o} for f, fin, tp, o in SEED}
+    CAD = {(chave(f), tp): {"favorecido": f, "finalidade": fin, "tipo": tp,
+                            "observacao": o} for f, fin, tp, o in SEED}
     LANC = [
         {"favorecido": "APEXIMP", "valor": -1303.00},
         {"favorecido": "Apeximp Comercio de Presentes  Importacao E Exportacao LTDA",
@@ -287,14 +324,30 @@ if __name__ == "__main__":
     ]
     ok("nome curto casa com a razao social inteira",
        casar("Apeximp Comercio de Presentes Importacao E Exportacao LTDA",
-             {chave("APEXIMP"): {"finalidade": "MERCADORIA"}})
-       ["finalidade"] == "MERCADORIA")
+             {(chave("APEXIMP"), "saida"): {"finalidade": "MERCADORIA"}},
+             "saida")["finalidade"] == "MERCADORIA")
     ok("dois candidatos com o mesmo comeco NAO sao casados no chute",
        casar("ER ALGUMA COISA",
-             {chave("ER EMBALAGENS"): {"finalidade": "A"},
-              chave("ER TRANSPORTES"): {"finalidade": "B"}}) is None)
+             {(chave("ER EMBALAGENS"), "saida"): {"finalidade": "A"},
+              (chave("ER TRANSPORTES"), "saida"): {"finalidade": "B"}},
+             "saida") is None)
     ok("prefixo curto demais nao casa",
-       casar("JB PEREIRA", {chave("JB"): {"finalidade": "X"}}) is None)
+       casar("JB PEREIRA", {(chave("JB"), "saida"): {"finalidade": "X"}},
+             "saida") is None)
+
+    # O caso que motivou a chave composta: mesmo nome, sentidos opostos.
+    _DOIS = {(chave("LITTLE GLASS"), "entrada"): {"finalidade": "MERCADO LIVRE"},
+             (chave("LITTLE GLASS"), "saida"):
+                 {"finalidade": "TRANSFERENCIA ENTRE CONTAS"}}
+    ok("recebido da Little Glass e repasse do Mercado Livre",
+       casar("LITTLE GLASS COMERCIO", _DOIS, "entrada")["finalidade"]
+       == "MERCADO LIVRE")
+    ok("enviado para a Little Glass e transferencia entre contas",
+       casar("LITTLE GLASS", _DOIS, "saida")["finalidade"]
+       == "TRANSFERENCIA ENTRE CONTAS")
+    ok("transferencia nao consome a meta de gastos",
+       not consome_meta("TRANSFERENCIA ENTRE CONTAS")
+       and consome_meta("MERCADORIA"))
 
     _c, _fila = classificar(LANC, CAD)
     ok("as duas redacoes da Apeximp saem como MERCADORIA",
@@ -303,8 +356,8 @@ if __name__ == "__main__":
        _c[2]["finalidade"] == "SHOPEE")
     # O erro que este modulo existe para impedir.
     ok("repasse do ML chega com o nome da empresa e NAO e transferencia",
-       CAD[chave("LITTLE GLASS COMERCIO DE AROMATIZADORES E PRODUTOS LTDA")]
-       ["finalidade"] == "MERCADO LIVRE")
+       CAD[(chave("LITTLE GLASS COMERCIO DE AROMATIZADORES E PRODUTOS LTDA"),
+            "entrada")]["finalidade"] == "MERCADO LIVRE")
     ok("quem nao tem cadastro fica sem finalidade, e nao com um chute",
        _c[3]["finalidade"] == "" and _c[3]["classificado"] is False)
     ok("a fila vem do maior para o menor",
