@@ -132,10 +132,17 @@ def _finalidades(usuario_logado=None):
     _ft.pagina(usuario_logado)
 
 
+def _cheques(usuario_logado=None):
+    """O cheque emitido — que o extrato só conhece no dia em que compensa."""
+    import cheques_tela as _cht
+    _cht.pagina(usuario_logado)
+
+
 SUBTELAS = {
     "🧱 Custo fixo": _custo_fixo,
     "🎯 Meta de gastos": _meta_gastos,
     "💳 Extratos": _extratos,
+    "🧾 Cheques": _cheques,
     "🏷️ Finalidades": _finalidades,
     "🧮 Balanço headcount": _balanco_headcount,
     "📈 Ajuste de valor": _ajuste_de_valor,
