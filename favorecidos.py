@@ -63,7 +63,20 @@ SEED = [
     ("Renan Candido Sousa", "MERCADORIA", "saida",
      "Pagou mercadoria com dinheiro dele e se reembolsa"),
     ("ESPETARIA IBITIRAMA COMERCIO DE ALIMENTOS LTDA", "OUTROS", "saida", ""),
+    # O mesmo CNPJ, escrito abreviado no extrato de setembro. Duas grafias do
+    # mesmo lugar são dois nomes para o `chave()` — e a tela perguntaria de novo.
+    ("ESPETARIA IBITIRAMA COM DE ALIM LTDA", "OUTROS", "saida", ""),
     ("SUPERMERCADO DA PRACA IBITIRAMA LTDA", "OUTROS", "saida", ""),
+    # Estacionamento avulso, na mesma linha do ZUL e do Robson.
+    ("REDE PARK ADMINISTRACAO DE ESTACIONAMENTOS E GARAGENS LTDA",
+     "ESTACIONAMENTO", "saida", ""),
+    # Telefonia fixa — o mesmo custo que no Itaú aparece como "DA VIVO FIXO".
+    ("VIVO - FIXO - BRASIL", "CUSTO FIXO", "saida",
+     "Pagamento de convênio, telefone fixo"),
+    # Pagar a fatura não é gasto novo: o gasto são as compras dentro dela. Sem
+    # esta linha, a fatura do Inter contaria duas vezes na meta do mês.
+    ("Debito Automatico Fatura Cartao Inter", "FATURA DO CARTÃO", "saida",
+     "Cartão Inter — o que consome a meta são as compras da fatura"),
     ("ESFIHARIA POLY", "OUTROS", "saida", ""),
     ("OBA HORTIFRUTI", "OUTROS", "saida", ""),
     ("VINDI PAGAMENTOS ONLINE", "CUSTO FIXO", "saida", ""),
