@@ -119,6 +119,22 @@ SEED = [
      "Repasse da Shopee sendo passado para a conta da Little Glass"),
     ("F CARNEIRO CIA LTDA", "SHOPEE", "entrada", ""),
     ("Debito titulo KG", "NÃO OPERACIONAL", "saida", ""),
+    # O extrato do Itaú rotula errado, e o rótulo dele é o que engana: os
+    # R$ 170.000 de "PAGAMENTOS A FORNECEDORES" foram transferidos para a outra
+    # conta do Itaú e investidos. Deixados como gasto, sozinhos estouravam a
+    # meta do mês.
+    ("PAGAMENTOS A FORNECEDORES", "TRANSFERENCIA ENTRE CONTAS", "saida",
+     "Transferência para a outra conta do Itaú, investida lá"),
+    ("RECEBIMENTOS", "TRANSFERENCIA ENTRE CONTAS", "entrada",
+     "A mesma transferência chegando"),
+    # PRONAMP: 170 mil numa conta e 100 mil na outra, para suprir as
+    # contratações e os custos por um período. É dívida entrando, não receita —
+    # somada ao faturamento, inventaria um mês recorde que não existiu.
+    ("EMPREST CAPITAL DE GIRO", "EMPRESTIMO PRONAMP", "entrada",
+     "Dívida entrando, não faturamento"),
+    ("PARCELA GIRO", "NÃO OPERACIONAL", "saida", "Parcela de PRONAMP"),
+    ("APLICACAO CDB DI", "APLICACAO", "saida", ""),
+    ("RENDIMENTOS REND PAGO APLIC", "APLICACAO", "entrada", ""),
 ]
 
 
@@ -243,7 +259,11 @@ def classificar(lancamentos, cadastro=None):
     cad = carregar() if cadastro is None else cadastro
     fora, faltando = [], {}
     for l in (lancamentos or []):
-        nome = l.get("favorecido") or l.get("razao_social") or ""
+        # O Itaú não traz favorecido em tudo: "PAGAMENTOS A FORNECEDORES" e
+        # "EMPREST CAPITAL DE GIRO" só existem como descrição. Sem esta
+        # reserva, as duas linhas mais pesadas do mês ficavam sem classificação.
+        nome = (l.get("favorecido") or l.get("razao_social")
+                or l.get("descricao") or "")
         sentido = l.get("sentido") or ("saida" if float(l.get("valor") or 0) < 0
                                        else "entrada")
         reg = casar(nome, cad, sentido)
@@ -348,6 +368,17 @@ if __name__ == "__main__":
     ok("transferencia nao consome a meta de gastos",
        not consome_meta("TRANSFERENCIA ENTRE CONTAS")
        and consome_meta("MERCADORIA"))
+    # As duas linhas mais pesadas de agosto nao tem favorecido nenhum: o nome
+    # esta so na descricao, e e la que a classificacao tem que ir procurar.
+    _ITAU = [{"descricao": "PAGAMENTOS A FORNECEDORES", "valor": -170000.0},
+             {"descricao": "EMPREST CAPITAL DE GIRO", "valor": 172029.0}]
+    _ci, _fi = classificar(_ITAU, CAD)
+    ok("o Itau sem favorecido e classificado pela descricao",
+       _ci[0]["finalidade"] == "TRANSFERENCIA ENTRE CONTAS"
+       and _ci[1]["finalidade"] == "EMPRESTIMO PRONAMP")
+    ok("os 170 mil de transferencia NAO consomem a meta",
+       not consome_meta(_ci[0]["finalidade"]))
+    ok("nada ficou na fila", _fi == [])
 
     _c, _fila = classificar(LANC, CAD)
     ok("as duas redacoes da Apeximp saem como MERCADORIA",
