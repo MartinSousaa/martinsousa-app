@@ -108,7 +108,7 @@ def pagina(usuario_logado=None):
 
 def _finalidades(cad):
     base = ["MERCADORIA", "EMBALAGEM", "CUSTO FIXO", "NÃO OPERACIONAL",
-            "IMPOSTO", "SERVIÇO", "ESTACIONAMENTO", "CONSUMO INTERNO", "TRANSFERENCIA ENTRE CONTAS",
+            "IMPOSTO", "SERVIÇO", "ESTACIONAMENTO", "FLEX", "CONSUMO INTERNO", "TRANSFERENCIA ENTRE CONTAS",
             "EMPRESTIMO PRONAMP", "REEMBOLSO PRONAMP", "RATEIO CUSTO FIXO",
             "MERCADO LIVRE", "SHOPEE", "SHEIN", "TIKTOK", "AMAZON", "SITE", "APLICACAO", "OUTROS"]
     usadas = {v["finalidade"] for v in (cad or {}).values()
