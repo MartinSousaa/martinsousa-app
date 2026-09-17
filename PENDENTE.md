@@ -145,8 +145,15 @@ Ainda NÃO estão na planilha. Ficam aqui para não se perderem no chat.
 | Luiz | 26/08/2026 | 2.000,00 |
 | Brunielly | 14/09/2026 | 2.000,00 |
 
-Cargo: **Auxiliar administrativo** para todos, menos **Gabriel (Biel)**, que é
-**Analista de Marketing**.
+| Cargo | Quem |
+|---|---|
+| Auxiliar administrativo | Myrella, Beatriz, Nícolas, Luiz, Brunielly |
+| Analista de Marketing | Gabriel (Biel) |
+| Auxiliar de Expedição | Monique |
+| Sócio Fundador | Léo e Renan |
+
+Vale-transporte: pago no primeiro salário, proporcional aos dias do mês
+anterior; cheio só quando a pessoa fecha o mês inteiro.
 
 Vale-transporte: 233,33 por pessoa. **Renan** é exceção: 900,00 há dois meses,
 700,00 antes (falta o mês exato em que mudou).
@@ -157,7 +164,7 @@ Agosto teve duas coisas fora do normal:
 - Nícolas e Luiz: proporcional aos dias trabalhados, e os 12% sobre esse
   proporcional.
 
-### Os três buracos que esses dados revelaram
+### Os três buracos que esses dados revelaram — 1 e 2 já consertados
 
 1. **Mês de admissão entra com salário cheio.** `valor_no_mes` zera os meses
    ANTES da admissão (`ajustes.py:106`) e cobra o mês inteiro no mês em que a
@@ -172,3 +179,14 @@ Agosto teve duas coisas fora do normal:
    Os 12% de agosto cabem no modelo atual com DOIS ajustes (agosto com o valor
    maior, setembro de volta ao normal) — funciona hoje, sem código, e deixa o
    que aconteceu visível na tela.
+
+---
+
+## 6. O que já está pronto em `homologacao`, esperando ordem para subir
+
+| Commit | O que é |
+|---|---|
+| `e0aa459` `ca28d60` | Texto das imagens: copy escrita antes de gerar, refação relida, aviso automático quando a revisão não roda, inglês fora dos prompts |
+| (este) | Proporcional do mês de admissão e vale-transporte por pessoa |
+
+Nada sobe para `main` sem o dono mandar.

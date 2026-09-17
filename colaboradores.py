@@ -60,6 +60,7 @@ empregado, não o custo do empregador — o gestor conferiu o que de fato sai:
 R$ 233,33 por pessoa.
 """
 
+import calendar
 from datetime import date, datetime, timezone, timedelta
 
 import pandas as pd
@@ -69,8 +70,8 @@ ABA_NOME = "colaboradores"
 ABA_PARAMS = "clt_parametros"
 
 COLUNAS = ["funcionario", "cargo", "registrado", "registrado_desde",
-           "salario_base", "admissao", "dias_uteis", "no_aporte",
-           "atualizado_em", "atualizado_por"]
+           "salario_base", "admissao", "dias_uteis", "vale_transporte",
+           "no_aporte", "atualizado_em", "atualizado_por"]
 
 # Taxa sobre o salário base. O rótulo é o que aparece na tela; `grupo` diz se
 # ela sai do caixa no mês (encargo) ou se é dinheiro guardado (provisão).
@@ -92,6 +93,13 @@ TAXA_MULTA_FGTS = 0.0400
 # O vale-transporte é VALOR, não percentual. A contabilidade tinha passado 6%,
 # mas 6% é o teto do DESCONTO no salário do empregado — não o custo da empresa.
 # O gestor conferiu o que de fato sai: R$ 233,33 por colaborador por mês.
+#
+# Este número é o PADRÃO da casa, e não mais a resposta final: ele vale para
+# quem não tem valor próprio na grade. O Renan recebe R$ 900 desde julho de
+# 2026, antes R$ 700 — com uma constante só, o custo dele saía R$ 666 abaixo
+# do real todo mês, e não havia lugar nenhum para dizer isso. Valor por pessoa
+# fica na coluna `vale_transporte`; mudança de valor vai em "Ajuste de valor",
+# na grade `vale_transporte`, que é o que guarda desde quando.
 VALE_TRANSPORTE_MES = 233.33
 
 # A lei deixa descontar até 6% do salário do empregado a título de
@@ -184,7 +192,7 @@ def refeicao_vigente(taxas, ano, mes):
     return (int(ano), int(mes)) >= desde
 
 
-def vale_transporte(salario_base, taxas=None):
+def vale_transporte(salario_base, taxas=None, valor_pessoa=None):
     """O que o vale-transporte custa à EMPRESA neste mês.
 
     Sem o desconto ligado, é o valor cheio — que é o que o gestor disse que
@@ -192,7 +200,8 @@ def vale_transporte(salario_base, taxas=None):
     menos que isso, a empresa não paga nada, e o custo é zero e não negativo.
     """
     t = {**taxas_padrao(), **(taxas or {})}
-    valor = max(_num(t.get("vale_transporte_mes")), 0.0)
+    valor = (max(_num(valor_pessoa), 0.0) if valor_pessoa is not None
+             else max(_num(t.get("vale_transporte_mes")), 0.0))
     if not _num(t.get("descontar_vt")):
         return round(valor, 2)
     desconto = max(_num(salario_base), 0.0) * TETO_DESCONTO_VT
@@ -298,7 +307,7 @@ def registrado_no_mes(linha, ano, mes):
 
 
 def custo(salario_base, taxas=None, dias_uteis=DIAS_UTEIS, registrado=True,
-          com_refeicao=True):
+          com_refeicao=True, vale_transporte_pessoa=None):
     """O que este salário custa por mês, aberto em partes.
 
     Devolve `base`, `encargos`, `provisoes`, `refeicao` e `total`. A multa do
@@ -313,7 +322,7 @@ def custo(salario_base, taxas=None, dias_uteis=DIAS_UTEIS, registrado=True,
     reg = eh_registrado(registrado)
     encargos = sum(base * max(_num(t.get(k)), 0.0)
                    for k, v in TAXAS.items() if v[1] == "encargo") if reg else 0.0
-    encargos += vale_transporte(base, t)
+    encargos += vale_transporte(base, t, vale_transporte_pessoa)
     provisoes = (sum(base * max(_num(t.get(k)), 0.0)
                      for k, v in TAXAS.items() if v[1] == "provisao")
                  if reg else 0.0)
@@ -336,6 +345,71 @@ def custo(salario_base, taxas=None, dias_uteis=DIAS_UTEIS, registrado=True,
         "total": round(caixa, 2),
         "total_gerencial": round(caixa + rateio, 2),
     }
+
+
+def dia_da_admissao(v):
+    """O DIA da admissão, quando ele é conhecido. None quando só há o mês.
+
+    `ajustes.mes_de` responde o mês e joga o dia fora, que é o certo para o
+    custo fixo: reajuste no dia 10 não divide o mês. Para a admissão o dia
+    importa — quem entrou dia 26 não custou agosto inteiro — e ele precisa
+    sobreviver à gravação na planilha.
+    """
+    if isinstance(v, (datetime, date)):
+        return v.day
+    t = str(v or "").strip()
+    for f in ("%Y-%m-%d", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(t[:10], f).day
+        except ValueError:
+            continue
+    return None
+
+
+def _texto_admissao(v):
+    """'AAAA-MM-DD' quando o dia é conhecido, 'AAAA-MM' quando não é."""
+    aj = _aj()
+    m = aj.mes_de(v)
+    if not m:
+        return ""
+    dia = dia_da_admissao(v)
+    return f"{m[0]:04d}-{m[1]:02d}-{dia:02d}" if dia else aj.texto_mes(m)
+
+
+def fator_admissao(admissao, ano, mes):
+    """Quanto do mês esta pessoa custou. 1.0 em mês cheio.
+
+    Só o mês da admissão é fracionado, e só quando o DIA é conhecido: sem ele,
+    cobrar o mês inteiro é a única resposta honesta — inventar um dia seria
+    inventar dinheiro.
+
+    Nícolas entrou em 24/08 e Luiz em 26/08, e os dois receberam proporcional.
+    Sem isto, agosto cobrava dois salários cheios que nunca saíram do caixa, e
+    o custo do mês em que alguém entra sempre saía alto — para sempre, porque
+    não há nada na tela que denuncie isso.
+
+    A conta é sobre os dias do mês, não sobre 30: em agosto, entrar dia 24 é
+    ter trabalhado 8 dos 31, e é isso que o gestor consegue conferir olhando
+    um calendário.
+    """
+    aj = _aj()
+    ini = aj.mes_de(admissao)
+    if not ini or (int(ano), int(mes)) != ini:
+        return 1.0
+    dia = dia_da_admissao(admissao)
+    if not dia:
+        return 1.0
+    total = calendar.monthrange(int(ano), int(mes))[1]
+    dia = min(max(int(dia), 1), total)
+    return (total - dia + 1) / total
+
+
+def _proporcional(c, fator):
+    """As partes do custo multiplicadas pelo fator. Devolve um dicionário novo."""
+    if fator >= 1.0:
+        return c
+    return {k: (round(v * fator, 2) if isinstance(v, (int, float)) else v)
+            for k, v in c.items()}
 
 
 def meses_de_casa(admissao, ano, mes):
@@ -411,10 +485,25 @@ def folha_clt(df, ano, mes, taxas=None, ajustes_df=None):
             # e mostrar a linha faria parecer que ela está na folha de graça.
             continue
         reg = registrado_no_mes(r, ano, mes)
+        # O VT da PESSOA, com o histórico dele: a grade `vale_transporte`
+        # guarda "desde quando passou a ser este valor", igual ao salário.
+        # Em branco na linha, vale o padrão da casa.
+        _vt_base = r.get("vale_transporte")
+        if _vt_base is None or str(_vt_base).strip() == "":
+            _vt_base = VALE_TRANSPORTE_MES
+        vt = aj.valor_no_mes(_vt_base, r.get("admissao"),
+                             mapa.get(("vale_transporte", nome)), ano, mes)
         c = custo(base, taxas, r.get("dias_uteis", DIAS_UTEIS), reg,
-                  refeicao_vigente(taxas, ano, mes))
+                  refeicao_vigente(taxas, ano, mes),
+                  vale_transporte_pessoa=vt)
+        # Mês de admissão é proporcional — salário, encargos, provisões,
+        # refeição e vale-transporte, todos pela mesma fração do mês. É o que
+        # de fato saiu do caixa, e é como a equipe foi paga.
+        _fator = fator_admissao(r.get("admissao"), ano, mes)
+        c = _proporcional(c, _fator)
         c.update({"funcionario": nome, "cargo": str(r.get("cargo", "") or ""),
                   "registrado": reg,
+                  "proporcional": round(_fator, 4),
                   "no_aporte": entra_no_aporte(r.get("no_aporte", "Sim"))})
         fora.append(c)
     return fora
@@ -515,7 +604,13 @@ def _normalizar(df, usuario=""):
             "registrado_desde": aj.texto_mes(aj.mes_de(r.get("registrado_desde"))),
             "no_aporte": "Sim" if entra_no_aporte(r.get("no_aporte", "Sim")) else "Não",
             "salario_base": round(_num(r.get("salario_base")), 2),
-            "admissao": aj.texto_mes(aj.mes_de(r.get("admissao"))),
+            # Com o dia, grava o dia. `texto_mes` sozinho apagava o "24" de
+            # 24/08 na primeira gravação, e com ele ia embora a única
+            # informação que torna o mês de admissão proporcional.
+            "admissao": _texto_admissao(r.get("admissao")),
+            "vale_transporte": (round(_num(r.get("vale_transporte")), 2)
+                                if str(r.get("vale_transporte") or "").strip()
+                                else ""),
             # Mês nenhum tem 40 dias úteis; zero também não é mês.
             "dias_uteis": min(max(dias, 0), 31),
             "atualizado_em": agora,
@@ -634,8 +729,8 @@ def bloco(usuario_logado=None, taxas=None):
             [{**{"cargo": CARGO_PADRAO, "registrado": "Sim",
                  "registrado_desde": "", "salario_base": SALARIO_PADRAO,
                  "admissao": "", "dias_uteis": DIAS_UTEIS,
-                 "no_aporte": "Sim", "atualizado_em": "",
-                 "atualizado_por": ""}, **p}
+                 "vale_transporte": "", "no_aporte": "Sim",
+                 "atualizado_em": "", "atualizado_por": ""}, **p}
              for p in SUGESTOES],
             columns=COLUNAS)
         st.info("Aba ainda vazia. O quadro já vem preenchido como sugestão — "
@@ -644,7 +739,8 @@ def bloco(usuario_logado=None, taxas=None):
 
     editado = st.data_editor(
         df[["funcionario", "cargo", "registrado", "registrado_desde",
-            "salario_base", "admissao", "dias_uteis", "no_aporte"]],
+            "salario_base", "admissao", "dias_uteis", "vale_transporte",
+            "no_aporte"]],
         num_rows="dynamic",
         use_container_width=True,
         hide_index=True,
@@ -668,11 +764,21 @@ def bloco(usuario_logado=None, taxas=None):
                 help="O de quando entrou. Reajuste vai em «Ajuste de valor»."),
             "admissao": st.column_config.TextColumn(
                 "Admissão", width="small",
-                help="AAAA-MM. Antes dela não custa, e é dela que sai o tempo "
-                     "de casa para a multa do FGTS."),
+                help="AAAA-MM-DD, com o dia. Antes dela não custa; no mês em "
+                     "que a pessoa entrou, o custo é proporcional aos dias "
+                     "(quem entrou em 24/08 custou 8 dos 31 dias de agosto). "
+                     "Só o mês, sem o dia, cobra o mês inteiro. É dela também "
+                     "que sai o tempo de casa para a multa do FGTS."),
             "dias_uteis": st.column_config.NumberColumn(
                 "Dias úteis", min_value=0, max_value=31, step=1, format="%d",
                 width="small", help="Para a refeição no local."),
+            "vale_transporte": st.column_config.NumberColumn(
+                "Vale-transporte (R$)", min_value=0.0, step=0.01,
+                format="%.2f", width="medium",
+                help=f"Em branco usa o padrão da casa, R$ {VALE_TRANSPORTE_MES:.2f}. "
+                     "Preencha só para quem tem valor diferente. Mudança de "
+                     "valor vai em «Ajuste de valor», grade Vale-transporte — "
+                     "assim o mês passado continua com o valor que era."),
             "no_aporte": st.column_config.SelectboxColumn(
                 "No aporte", options=["Sim", "Não"], width="small",
                 help="Se o custo desta pessoa sai do aporte de expansão. "
@@ -746,7 +852,8 @@ def _contratar(editado, usuario_logado=None):
                 nova = {"funcionario": limpo, "cargo": CARGO_PADRAO,
                         "registrado": "Sim", "registrado_desde": "",
                         "salario_base": SALARIO_PADRAO, "admissao": "",
-                        "dias_uteis": DIAS_UTEIS, "no_aporte": "Sim"}
+                        "dias_uteis": DIAS_UTEIS, "vale_transporte": "",
+                        "no_aporte": "Sim"}
                 nova.update({k: v for k, v in perfil.items() if v != ""})
                 ok, msg = salvar(pd.concat([d, pd.DataFrame([nova])],
                                            ignore_index=True), usuario_logado)
@@ -891,7 +998,8 @@ if __name__ == "__main__":
     # coluna de lista — que o usuario le como um valor, nao como um vazio.
     _padrao = {"cargo": CARGO_PADRAO, "registrado": "Sim",
                "registrado_desde": "", "salario_base": SALARIO_PADRAO,
-               "admissao": "", "dias_uteis": DIAS_UTEIS, "no_aporte": "Sim",
+               "admissao": "", "dias_uteis": DIAS_UTEIS,
+               "vale_transporte": "", "no_aporte": "Sim",
                "atualizado_em": "", "atualizado_por": ""}
     ok("o padrão do quadro cobre todas as colunas",
        set(_padrao) | {"funcionario"} == set(COLUNAS))
@@ -1125,5 +1233,79 @@ if __name__ == "__main__":
        linhas_g[0]["registrado"] == "Sim"
        and _normalizar(pd.DataFrame([{"funcionario": "Monique",
                                       "registrado": "Não"}]))[0]["registrado"] == "Não")
+
+    # ── Proporcional do mes de admissao ──────────────────────────────────
+    ok("mes cheio nao e fracionado",
+       fator_admissao("2026-03-16", 2026, 4) == 1.0)
+    ok("mes anterior a admissao tambem devolve 1.0 (quem zera e valor_no_mes)",
+       fator_admissao("2026-03-16", 2026, 2) == 1.0)
+    ok("quem entrou em 24/08 custou 8 dos 31 dias de agosto",
+       abs(fator_admissao("2026-08-24", 2026, 8) - 8 / 31) < 1e-9)
+    ok("quem entrou em 26/08 custou 6 dos 31",
+       abs(fator_admissao("2026-08-26", 2026, 8) - 6 / 31) < 1e-9)
+    ok("entrar no dia 1 e mes cheio",
+       fator_admissao("2026-08-01", 2026, 8) == 1.0)
+    ok("data em dd/mm/aaaa tambem e lida",
+       abs(fator_admissao("14/09/2026", 2026, 9) - 17 / 30) < 1e-9)
+    # Sem o dia nao ha proporcional: inventar um seria inventar dinheiro.
+    ok("so o mes, sem dia, cobra o mes inteiro",
+       fator_admissao("2026-08", 2026, 8) == 1.0)
+    ok("admissao vazia nao fraciona nada",
+       fator_admissao("", 2026, 8) == 1.0 and fator_admissao(None, 2026, 8) == 1.0)
+    ok("dia impossivel nao gera fator maior que 1",
+       fator_admissao("2026-02-31", 2026, 2) > 0)
+
+    _c_cheio = {"base": 2000.0, "encargos": 400.0, "total": 2400.0,
+                "funcionario": "x"}
+    _c_meio = _proporcional(_c_cheio, 0.5)
+    ok("o proporcional divide os numeros e nao mexe no texto",
+       _c_meio["base"] == 1000.0 and _c_meio["total"] == 1200.0
+       and _c_meio["funcionario"] == "x")
+    ok("fator 1 devolve o proprio dicionario, sem custo",
+       _proporcional(_c_cheio, 1.0) is _c_cheio)
+
+    # ── Vale-transporte por pessoa ───────────────────────────────────────
+    ok("sem valor proprio, vale o padrao da casa",
+       vale_transporte(2000, t) == 233.33)
+    ok("com valor proprio, vale o dele — o Renan recebe 900",
+       vale_transporte(2000, t, 900) == 900.0)
+    ok("valor proprio ZERO e zero, e nao 'vazio, usa o padrao'",
+       vale_transporte(2000, t, 0) == 0.0)
+    ok("negativo nao vira credito", vale_transporte(2000, t, -50) == 0.0)
+
+    # ── O dia da admissao sobrevive a gravacao ───────────────────────────
+    _l = _normalizar(pd.DataFrame([{"funcionario": "Nícolas",
+                                    "admissao": "24/08/2026",
+                                    "salario_base": 2000,
+                                    "vale_transporte": 233.33}]))[0]
+    ok("o dia da admissao e gravado, e nao apagado",
+       _l["admissao"] == "2026-08-24")
+    ok("o VT da pessoa e gravado", _l["vale_transporte"] == 233.33)
+    _l2 = _normalizar(pd.DataFrame([{"funcionario": "Myrella",
+                                     "admissao": "2026-01"}]))[0]
+    ok("sem dia, grava so o mes", _l2["admissao"] == "2026-01")
+    ok("VT em branco continua em branco, para cair no padrao",
+       _l2["vale_transporte"] == "")
+
+    # ── A folha do mes, de ponta a ponta ─────────────────────────────────
+    _equipe = pd.DataFrame([
+        {"funcionario": "Myrella", "salario_base": 1800, "admissao": "2026-01",
+         "dias_uteis": 22, "registrado": "Sim", "no_aporte": "Sim"},
+        {"funcionario": "Nícolas", "salario_base": 2000,
+         "admissao": "2026-08-24", "dias_uteis": 22, "registrado": "Sim",
+         "no_aporte": "Sim"},
+    ])
+    _ag = {r["funcionario"]: r for r in folha_clt(_equipe, 2026, 8)}
+    ok("quem entrou dia 24 nao custa agosto inteiro",
+       abs(_ag["Nícolas"]["base"] - 2000 * 8 / 31) < 0.02)
+    ok("quem ja estava custa o mes cheio", _ag["Myrella"]["base"] == 1800.0)
+    ok("a fracao viaja junto, para a tela poder dizer por que o valor e esse",
+       abs(_ag["Nícolas"]["proporcional"] - 8 / 31) < 1e-4
+       and _ag["Myrella"]["proporcional"] == 1.0)
+    _jul = {r["funcionario"]: r for r in folha_clt(_equipe, 2026, 7)}
+    ok("antes da admissao a pessoa nao aparece na folha", "Nícolas" not in _jul)
+    _set = {r["funcionario"]: r for r in folha_clt(_equipe, 2026, 9)}
+    ok("no mes seguinte ela ja custa cheio",
+       _set["Nícolas"]["base"] == 2000.0)
 
     print("\nfalhas:", falhas)
