@@ -69,11 +69,9 @@ def rotulo(mes_txt):
 # O histórico que o dono tem na planilha dele, de janeiro a agosto de 2026.
 # Primeira carga apenas: depois quem manda é a aba, e mudar aqui não muda nada.
 #
-# Agosto entra nos dois lugares — aqui como informado (159.777,61) e nos
-# extratos como medido (164.163,18). A diferença de 4.385,57 não é erro de
-# nenhum dos dois: é o que a planilha dele conta de um jeito e o extrato de
-# outro, e vale perguntar antes de fechar o ano. Por isso o valor informado
-# fica registrado mesmo no mês que já tem extrato.
+# Agosto não entra: ele já tem extrato no Studio, e por decisão do dono vale o
+# que o extrato contabilizou (164.163,18), não o da planilha (159.777,61).
+# Guardar os dois deixaria duas respostas para a mesma pergunta na tela.
 SEED_HISTORICO = {
     "2026-01": 169003.95,
     "2026-02": 137791.50,
@@ -82,7 +80,6 @@ SEED_HISTORICO = {
     "2026-05": 146693.61,
     "2026-06": 139536.82,
     "2026-07": 157525.57,
-    "2026-08": 159777.61,
 }
 
 
@@ -282,8 +279,8 @@ if __name__ == "__main__":
     ok("mes fora do formato e recusado", salvar("out/26", meta=1)[0] is False)
 
     # O historico que o dono passou: oito meses, e nenhum deles zero.
-    ok("o historico tem janeiro a agosto",
-       sorted(SEED_HISTORICO) == [f"2026-{m:02d}" for m in range(1, 9)])
+    ok("o historico vai ate julho, e agosto fica com o extrato",
+       sorted(SEED_HISTORICO) == [f"2026-{m:02d}" for m in range(1, 8)])
     ok("abril foi o mes mais caro do semestre",
        max(SEED_HISTORICO, key=SEED_HISTORICO.get) == "2026-04")
     ok("nenhum mes do historico vem zerado",
