@@ -145,6 +145,9 @@ Ainda NÃO estão na planilha. Ficam aqui para não se perderem no chat.
 | Luiz | 26/08/2026 | 2.000,00 |
 | Brunielly | 14/09/2026 | 2.000,00 |
 
+Cargo: **Auxiliar administrativo** para todos, menos **Gabriel (Biel)**, que é
+**Analista de Marketing**.
+
 Vale-transporte: 233,33 por pessoa. **Renan** é exceção: 900,00 há dois meses,
 700,00 antes (falta o mês exato em que mudou).
 
