@@ -80,6 +80,37 @@ def _num(v, padrao=0.0):
         return padrao
 
 
+def texto(v):
+    """Célula virando texto limpo. Vazio para o que não é conteúdo.
+
+    O pandas transforma célula vazia em `nan`, e `str(nan)` é a palavra
+    "nan" — texto, não vazio. Sem esta peneira, todo cheque sem número de
+    folha virava `folha = "nan"`, e como a folha é a identidade, os 64 cheques
+    antigos sem folha viravam UM só. Só apareceu rodando contra as 604 linhas
+    de verdade: 540 ids para 604 cheques.
+    """
+    t = str(v).strip() if v is not None else ""
+    return "" if t.lower() in ("nan", "nat", "none", "<na>") else t
+
+
+def texto_folha(v):
+    """O número da folha como o talão o escreve: 159, e não "159.0".
+
+    O Excel devolve a coluna inteira como float, e "159.0" não casa com o
+    "159" que alguém digita na tela — dois cheques onde há um.
+    """
+    t = texto(v)
+    if not t:
+        return ""
+    try:
+        f = float(t.replace(",", "."))
+        if f == int(f):
+            return str(int(f))
+    except ValueError:
+        pass
+    return t
+
+
 def texto_data(v):
     """Qualquer data virando "AAAA-MM-DD". "" quando não dá para ler.
 
@@ -87,9 +118,18 @@ def texto_data(v):
     do Studio devolve texto. Três tipos para a mesma data, e comparar sem
     normalizar faz o mesmo cheque entrar duas vezes na importação.
     """
-    if hasattr(v, "year") and hasattr(v, "month") and hasattr(v, "day"):
-        return f"{v.year:04d}-{v.month:02d}-{v.day:02d}"
+    # Ter `.year` não basta: a célula de data VAZIA do Excel chega aqui como
+    # `pd.NaT`, que tem `.year` — e ele vale `nan`, um float. `f"{nan:04d}"`
+    # levanta ValueError e derruba a importação inteira na primeira linha em
+    # branco. Foi o que aconteceu ao importar as 654 linhas.
+    a, m, d = getattr(v, "year", None), getattr(v, "month", None), \
+        getattr(v, "day", None)
+    if all(isinstance(x, int) for x in (a, m, d)):
+        return f"{a:04d}-{m:02d}-{d:02d}"
     t = str(v or "").strip()[:10]
+    # "NaT" e "nan" viram texto por este caminho, e texto não é data.
+    if t.lower() in ("nat", "nan", "none", "-"):
+        return ""
     if not t:
         return ""
     for f in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"):
@@ -102,7 +142,7 @@ def texto_data(v):
 
 def situacao_de(v):
     """O texto da planilha virando uma das situações. Vazio é EM ABERTO."""
-    t = " ".join(str(v or "").strip().upper().split())
+    t = " ".join(texto(v).upper().split())
     if not t:
         return "EM ABERTO"
     return t if t in SITUACOES else t[:30]
@@ -121,7 +161,7 @@ def identidade(linha):
     linhas antigas sem folha preenchida, e recusá-las deixaria de fora justo o
     histórico que se quer importar.
     """
-    folha = str(linha.get("folha") or "").strip()
+    folha = texto_folha(linha.get("folha"))
     if folha:
         return hashlib.sha1(("folha|" + folha).encode("utf-8")).hexdigest()[:16]
     bruto = "|".join([
@@ -133,23 +173,30 @@ def identidade(linha):
     return hashlib.sha1(bruto.encode("utf-8")).hexdigest()[:16]
 
 
-def normalizar(linha):
-    """Uma linha crua virando o registro do Studio, com id."""
+def normalizar(linha, seq=0):
+    """Uma linha crua virando o registro do Studio, com id.
+
+    `seq` separa duas linhas idênticas em tudo. Elas existem: na planilha do
+    dono há dois pares iguais, de 2023 e 2024, ambos já baixados. Descartar a
+    segunda deixaria o histórico menor do que é, e em silêncio.
+    """
     fora = {
-        "folha": str(linha.get("folha") or "").strip()[:20],
-        "tipo": (str(linha.get("tipo") or "CHEQUE").strip().upper()
-                 if str(linha.get("tipo") or "").strip().upper() in TIPOS
-                 else "CHEQUE"),
+        "folha": texto_folha(linha.get("folha"))[:20],
+        "tipo": (texto(linha.get("tipo")).upper()
+                 if texto(linha.get("tipo")).upper() in TIPOS else "CHEQUE"),
         "compra": texto_data(linha.get("compra")),
         "vencimento": texto_data(linha.get("vencimento")),
         "valor": round(_num(linha.get("valor")), 2),
         "envio": round(_num(linha.get("envio")), 2),
         "estoque": round(_num(linha.get("estoque")), 2),
-        "favorecido": str(linha.get("favorecido") or "").strip()[:80],
+        "favorecido": texto(linha.get("favorecido"))[:80],
         "situacao": situacao_de(linha.get("situacao")),
-        "observacao": str(linha.get("observacao") or "").strip()[:200],
+        "observacao": texto(linha.get("observacao"))[:200],
     }
     fora["id"] = identidade(fora)
+    if seq:
+        fora["id"] = hashlib.sha1(
+            f"{fora['id']}|{seq}".encode("utf-8")).hexdigest()[:16]
     return fora
 
 
@@ -257,6 +304,12 @@ def gravar(novas, usuario=""):
         linhas, vistos, repetidas = [], set(), 0
         for l in (novas or []):
             n = normalizar(l)
+            # Gêmea dentro do MESMO lote ganha sequência; gêmea do que já está
+            # gravado é repetição de verdade e fica de fora.
+            seq = 0
+            while n["id"] in vistos and seq < 20:
+                seq += 1
+                n = normalizar(l, seq)
             if n["id"] in ja or n["id"] in vistos:
                 repetidas += 1
                 continue
@@ -340,9 +393,12 @@ def do_controle_ms(limite=None):
 
     fora = []
     for _, r in df.iterrows():
-        venc = pega(r, "VENCIMENTO")
+        venc = texto_data(pega(r, "VENCIMENTO"))
         valor = _num(pega(r, "VALOR"))
-        if not texto_data(venc) or not valor:
+        # Data que não virou AAAA-MM-DD é lixo, não data: o serial do Excel
+        # ("45000.0") passaria como texto e viraria um vencimento que não
+        # existe, dentro de um total que ninguém confere linha a linha.
+        if len(venc) != 10 or venc[4] != "-" or not valor:
             continue
         fora.append({
             "tipo": pega(r, "TIPO") or "CHEQUE",
@@ -373,6 +429,42 @@ if __name__ == "__main__":
     ok("data brasileira tambem", texto_data("25/09/2026") == "2026-09-25")
     ok("texto ja pronto passa", texto_data("2026-09-25") == "2026-09-25")
     ok("vazio nao vira data", texto_data(None) == "" and texto_data("") == "")
+
+    # A celula de data VAZIA do Excel: tem `.year`, e ele vale nan. Era este o
+    # objeto que derrubava a importacao das 654 linhas na primeira em branco.
+    class _NaTFalso:
+        year = month = day = float("nan")
+
+        def __str__(self):
+            return "NaT"
+
+    # O pandas devolve celula vazia como `nan`, e `str(nan)` e a palavra "nan".
+    # Sem peneirar, todo cheque sem folha virava `folha = "nan"` — e como a
+    # folha e a identidade, 64 cheques viravam UM. So apareceu rodando contra
+    # as 604 linhas de verdade.
+    _nan = float("nan")
+    ok("nan nao e texto", texto(_nan) == "" and texto(None) == ""
+       and texto("nan") == "")
+    ok("dois cheques sem folha continuam sendo dois",
+       normalizar({"folha": _nan, "vencimento": "2026-09-04",
+                   "valor": 1409.89})["id"]
+       != normalizar({"folha": _nan, "vencimento": "2026-09-12",
+                      "valor": 4330.98})["id"])
+
+    ok("a folha vem sem o .0 do Excel",
+       normalizar({"folha": 159.0, "valor": 1})["folha"] == "159")
+    ok("e folha com letra nao vira numero",
+       normalizar({"folha": "A-12", "valor": 1})["folha"] == "A-12")
+    ok("linha gemea com seq nao colide",
+       normalizar({"vencimento": "2023-11-07", "valor": 1503.46})["id"]
+       != normalizar({"vencimento": "2023-11-07", "valor": 1503.46}, 1)["id"])
+
+    ok("celula de data vazia do Excel nao derruba",
+       texto_data(_NaTFalso()) == "")
+    ok("nem o texto que ela vira", texto_data("NaT") == ""
+       and texto_data("nan") == "")
+    ok("e ela nao entra como cheque",
+       normalizar({"vencimento": _NaTFalso(), "valor": 10})["vencimento"] == "")
 
     # O vazio da planilha do dono E "em aberto" — sem nome, nao da para filtrar.
     ok("celula vazia e em aberto", situacao_de(None) == "EM ABERTO")
