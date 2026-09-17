@@ -1,3 +1,4 @@
+import idioma as _idioma
 import os
 import streamlit as st
 import anthropic
@@ -47,7 +48,7 @@ Responda SOMENTE com os 2 títulos, um por linha, sem numeração, sem aspas, se
     try:
         msg = client.messages.create(
             model="claude-sonnet-4-6", max_tokens=300,
-            messages=[{"role": "user", "content": prompt}]
+            messages=[{"role": "user", "content": _idioma.com_regra(prompt)}]
         )
         texto = msg.content[0].text.strip()
         linhas = [l.strip("-•* \t\"") for l in texto.split("\n") if l.strip()]
@@ -79,7 +80,7 @@ Retorne SOMENTE os 2 títulos ajustados, um por linha, sem numeração, sem aspa
     try:
         msg = client.messages.create(
             model="claude-sonnet-4-6", max_tokens=300,
-            messages=[{"role": "user", "content": prompt}]
+            messages=[{"role": "user", "content": _idioma.com_regra(prompt)}]
         )
         texto = msg.content[0].text.strip()
         linhas = [l.strip("-•* \t\"") for l in texto.split("\n") if l.strip()]

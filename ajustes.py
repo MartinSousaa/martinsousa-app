@@ -46,6 +46,11 @@ GRADES_ALVO = {
     "folha_salarial": "Folha salarial",
     "colaboradores": "Colaboradores",
     "nao_operacional": "Não operacional",
+    # O vale-transporte de uma PESSOA, e não o salário dela: o item é o nome,
+    # igual em "colaboradores". Sem esta grade, mudar o VT de alguém só dava
+    # para fazer reescrevendo o valor na linha — e isso reescreve o passado
+    # inteiro, que é exatamente o que este módulo existe para impedir.
+    "vale_transporte": "Vale-transporte (por pessoa)",
 }
 
 FUSO = timezone(timedelta(hours=-3))

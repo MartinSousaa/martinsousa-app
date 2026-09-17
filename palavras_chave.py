@@ -1,3 +1,4 @@
+import idioma as _idioma
 import os
 import streamlit as st
 import anthropic
@@ -81,7 +82,7 @@ Responda SOMENTE com a lista de palavras-chave, uma por linha, sem numeração, 
     try:
         msg = client.messages.create(
             model="claude-sonnet-4-6", max_tokens=600,
-            messages=[{"role": "user", "content": prompt}]
+            messages=[{"role": "user", "content": _idioma.com_regra(prompt)}]
         )
         texto = msg.content[0].text.strip()
         linhas = [l.strip("-•* \t") for l in texto.split("\n") if l.strip()]
@@ -109,7 +110,7 @@ Responda SOMENTE com a lista, uma palavra-chave por linha, sem numeração, sem 
     try:
         msg = client.messages.create(
             model="claude-sonnet-4-6", max_tokens=600,
-            messages=[{"role": "user", "content": prompt}]
+            messages=[{"role": "user", "content": _idioma.com_regra(prompt)}]
         )
         texto = msg.content[0].text.strip()
         linhas = [l.strip("-•* \t") for l in texto.split("\n") if l.strip()]
