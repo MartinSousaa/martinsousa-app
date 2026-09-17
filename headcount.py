@@ -492,24 +492,31 @@ def pagina(usuario_logado=None):
         st.info("Nenhum movimento. Comece pelo **Aporte**, com o mês em que o "
                 "dinheiro entrou — é dele que sai toda a conta.")
 
-    editado = st.data_editor(
-        df[["tipo", "data", "valor", "observacao"]],
-        num_rows="dynamic",
-        use_container_width=True,
-        hide_index=True,
-        key="ed_headcount",
-        column_config={
-            "tipo": st.column_config.SelectboxColumn(
-                "Tipo", options=TIPOS, required=True, width="small"),
-            "data": st.column_config.TextColumn(
-                "Mês", width="small", help="AAAA-MM."),
-            "valor": st.column_config.NumberColumn(
-                "Valor (R$)", min_value=0.0, step=0.01, format="%.2f"),
-            "observacao": st.column_config.TextColumn("Observação", width="large"),
-        },
-    )
+    # Editor e botao no MESMO formulario. Com o botao solto, o clique que sai
+    # da celula ainda em edicao fecha a celula E dispara o rerun: o rerun come
+    # o clique, o botao nao roda, e a tela nao diz nada. Foi assim que a meta
+    # de gastos de setembro nao foi gravada em 17/09.
+    with st.form("form_headcount"):
+        editado = st.data_editor(
+            df[["tipo", "data", "valor", "observacao"]],
+            num_rows="dynamic",
+            use_container_width=True,
+            hide_index=True,
+            key="ed_headcount",
+            column_config={
+                "tipo": st.column_config.SelectboxColumn(
+                    "Tipo", options=TIPOS, required=True, width="small"),
+                "data": st.column_config.TextColumn(
+                    "Mês", width="small", help="AAAA-MM."),
+                "valor": st.column_config.NumberColumn(
+                    "Valor (R$)", min_value=0.0, step=0.01, format="%.2f"),
+                "observacao": st.column_config.TextColumn("Observação", width="large"),
+            },
+        )
+        enviou = st.form_submit_button("💾 Salvar movimentos",
+                                       type="primary")
 
-    if st.button("💾 Salvar movimentos", type="primary", key="btn_hc_salvar"):
+    if enviou:
         ok, msg = salvar(editado, usuario_logado)
         if ok:
             st.success(msg)

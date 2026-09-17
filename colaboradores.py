@@ -740,57 +740,63 @@ def bloco(usuario_logado=None, taxas=None):
                 "confira e clique em **Salvar colaboradores**. Nada foi "
                 "gravado até você salvar.")
 
-    editado = st.data_editor(
-        df[["funcionario", "cargo", "registrado", "registrado_desde",
-            "salario_base", "admissao", "dias_uteis", "vale_transporte",
-            "no_aporte"]],
-        num_rows="dynamic",
-        use_container_width=True,
-        hide_index=True,
-        key="ed_colaboradores",
-        column_config={
-            "funcionario": st.column_config.TextColumn(
-                "Funcionário", required=True, width="small"),
-            "cargo": st.column_config.TextColumn("Cargo", width="medium"),
-            "registrado": st.column_config.SelectboxColumn(
-                "Registrado", options=["Sim", "Não"], width="small",
-                help="«Não» tira FGTS, INSS, férias, 13º e a multa. Refeição e "
-                     "vale-transporte continuam: são do dia de trabalho, não "
-                     "do contrato."),
-            "registrado_desde": st.column_config.TextColumn(
-                "Registrado desde", width="medium",
-                help="AAAA-MM. Antes desse mês, sem tributo. Em branco com "
-                     "«Sim», vale para todos os meses."),
-            "salario_base": st.column_config.NumberColumn(
-                "Salário base (R$)", min_value=0.0, step=0.01, format="%.2f",
-                width="medium",
-                help="O de quando entrou. Reajuste vai em «Ajuste de valor»."),
-            "admissao": st.column_config.TextColumn(
-                "Admissão", width="small",
-                help="AAAA-MM-DD, com o dia. Antes dela não custa; no mês em "
-                     "que a pessoa entrou, o custo é proporcional aos dias "
-                     "(quem entrou em 24/08 custou 8 dos 31 dias de agosto). "
-                     "Só o mês, sem o dia, cobra o mês inteiro. É dela também "
-                     "que sai o tempo de casa para a multa do FGTS."),
-            "dias_uteis": st.column_config.NumberColumn(
-                "Dias úteis", min_value=0, max_value=31, step=1, format="%d",
-                width="small", help="Para a refeição no local."),
-            "vale_transporte": st.column_config.NumberColumn(
-                "Vale-transporte (R$)", min_value=0.0, step=0.01,
-                format="%.2f", width="medium",
-                help=f"Em branco usa o padrão da casa, R$ {VALE_TRANSPORTE_MES:.2f}. "
-                     "Preencha só para quem tem valor diferente. Mudança de "
-                     "valor vai em «Ajuste de valor», grade Vale-transporte — "
-                     "assim o mês passado continua com o valor que era."),
-            "no_aporte": st.column_config.SelectboxColumn(
-                "No aporte", options=["Sim", "Não"], width="small",
-                help="Se o custo desta pessoa sai do aporte de expansão. "
-                     "Aparece no Balanço headcount."),
-        },
-    )
+    # Editor e botao no MESMO formulario. Com o botao solto, o clique que sai
+    # da celula ainda em edicao fecha a celula E dispara o rerun: o rerun come
+    # o clique, o botao nao roda, e a tela nao diz nada. Foi assim que a meta
+    # de gastos de setembro nao foi gravada em 17/09.
+    with st.form("form_colaboradores"):
+        editado = st.data_editor(
+            df[["funcionario", "cargo", "registrado", "registrado_desde",
+                "salario_base", "admissao", "dias_uteis", "vale_transporte",
+                "no_aporte"]],
+            num_rows="dynamic",
+            use_container_width=True,
+            hide_index=True,
+            key="ed_colaboradores",
+            column_config={
+                "funcionario": st.column_config.TextColumn(
+                    "Funcionário", required=True, width="small"),
+                "cargo": st.column_config.TextColumn("Cargo", width="medium"),
+                "registrado": st.column_config.SelectboxColumn(
+                    "Registrado", options=["Sim", "Não"], width="small",
+                    help="«Não» tira FGTS, INSS, férias, 13º e a multa. Refeição e "
+                         "vale-transporte continuam: são do dia de trabalho, não "
+                         "do contrato."),
+                "registrado_desde": st.column_config.TextColumn(
+                    "Registrado desde", width="medium",
+                    help="AAAA-MM. Antes desse mês, sem tributo. Em branco com "
+                         "«Sim», vale para todos os meses."),
+                "salario_base": st.column_config.NumberColumn(
+                    "Salário base (R$)", min_value=0.0, step=0.01, format="%.2f",
+                    width="medium",
+                    help="O de quando entrou. Reajuste vai em «Ajuste de valor»."),
+                "admissao": st.column_config.TextColumn(
+                    "Admissão", width="small",
+                    help="AAAA-MM-DD, com o dia. Antes dela não custa; no mês em "
+                         "que a pessoa entrou, o custo é proporcional aos dias "
+                         "(quem entrou em 24/08 custou 8 dos 31 dias de agosto). "
+                         "Só o mês, sem o dia, cobra o mês inteiro. É dela também "
+                         "que sai o tempo de casa para a multa do FGTS."),
+                "dias_uteis": st.column_config.NumberColumn(
+                    "Dias úteis", min_value=0, max_value=31, step=1, format="%d",
+                    width="small", help="Para a refeição no local."),
+                "vale_transporte": st.column_config.NumberColumn(
+                    "Vale-transporte (R$)", min_value=0.0, step=0.01,
+                    format="%.2f", width="medium",
+                    help=f"Em branco usa o padrão da casa, R$ {VALE_TRANSPORTE_MES:.2f}. "
+                         "Preencha só para quem tem valor diferente. Mudança de "
+                         "valor vai em «Ajuste de valor», grade Vale-transporte — "
+                         "assim o mês passado continua com o valor que era."),
+                "no_aporte": st.column_config.SelectboxColumn(
+                    "No aporte", options=["Sim", "Não"], width="small",
+                    help="Se o custo desta pessoa sai do aporte de expansão. "
+                         "Aparece no Balanço headcount."),
+            },
+        )
+        enviou = st.form_submit_button("💾 Salvar colaboradores",
+                                       type="primary")
 
-    if st.button("💾 Salvar colaboradores", type="primary",
-                 key="btn_salvar_colab"):
+    if enviou:
         ok, msg = salvar(editado, usuario_logado)
         if ok:
             st.success(msg)

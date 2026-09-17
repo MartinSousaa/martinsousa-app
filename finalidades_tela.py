@@ -67,25 +67,31 @@ def pagina(usuario_logado=None):
         "observação": l.get("observacao", ""),
     } for l in linhas])
 
-    editado = st.data_editor(
-        df, use_container_width=True, hide_index=True, key="fin_ed",
-        num_rows="dynamic",
-        column_config={
-            "favorecido": st.column_config.TextColumn("Favorecido",
-                                                      required=True),
-            "sentido": st.column_config.SelectboxColumn(
-                "Sentido", options=["saida", "entrada"], width="small",
-                help="O mesmo nome pode significar coisas diferentes: recebido "
-                     "da Little Glass é repasse do Mercado Livre; enviado para "
-                     "ela é transferência entre contas."),
-            "finalidade": st.column_config.SelectboxColumn(
-                "Finalidade", options=_opcoes, required=True),
-            "observação": st.column_config.TextColumn(width="medium"),
-        },
-    )
+    # Editor e botao no MESMO formulario. Com o botao solto, o clique que sai
+    # da celula ainda em edicao fecha a celula E dispara o rerun: o rerun come
+    # o clique, o botao nao roda, e a tela nao diz nada. Foi assim que a meta
+    # de gastos de setembro nao foi gravada em 17/09.
+    with st.form("form_finalidades"):
+        editado = st.data_editor(
+            df, use_container_width=True, hide_index=True, key="fin_ed",
+            num_rows="dynamic",
+            column_config={
+                "favorecido": st.column_config.TextColumn("Favorecido",
+                                                          required=True),
+                "sentido": st.column_config.SelectboxColumn(
+                    "Sentido", options=["saida", "entrada"], width="small",
+                    help="O mesmo nome pode significar coisas diferentes: recebido "
+                         "da Little Glass é repasse do Mercado Livre; enviado para "
+                         "ela é transferência entre contas."),
+                "finalidade": st.column_config.SelectboxColumn(
+                    "Finalidade", options=_opcoes, required=True),
+                "observação": st.column_config.TextColumn(width="medium"),
+            },
+        )
+        enviou = st.form_submit_button("💾 Salvar cadastro", type="primary",
+                                       use_container_width=True)
 
-    if st.button("💾 Salvar cadastro", type="primary",
-                 use_container_width=True, key="fin_salvar"):
+    if enviou:
         _antes = {(l["favorecido"], l.get("tipo") or "saida"):
                   (l["finalidade"], l.get("observacao", "")) for l in linhas}
         _n = 0
