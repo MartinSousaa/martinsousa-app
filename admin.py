@@ -32,6 +32,60 @@ def _atualizar_campo(login, campo, valor):
             return
 
 
+def _secao_controle_ms():
+    """A leitura do Controle MS está de pé? Que abas ele tem?
+
+    O arquivo mora fora do Studio, num Drive que não é do Studio, e é editado
+    à mão todo dia. Toda vez que algo mudar lá — nome de aba, permissão,
+    arquivo movido — quem descobre é esta tela, e não um indicador saindo
+    errado sem explicação.
+    """
+    import controle_ms as _cms
+
+    st.markdown("##### 📗 Controle MS (planilha do Drive)")
+    st.caption(
+        "O arquivo é `.xlsx` e continua sendo editado no Excel — o Studio "
+        "baixa e lê, sem converter. Aqui se confere se ele está acessível e "
+        "quais abas existem."
+    )
+    st.caption(f"Arquivo: `{_cms.arquivo_id()}`")
+
+    _c1, _c2 = st.columns(2)
+    if _c1.button("Testar a leitura", use_container_width=True,
+                  key="btn_cms_testar"):
+        st.session_state["cms_testar"] = True
+    if _c2.button("Reler agora (limpa o cache)", use_container_width=True,
+                  key="btn_cms_limpar"):
+        _cms.limpar()
+        st.session_state["cms_testar"] = True
+
+    if not st.session_state.get("cms_testar"):
+        return
+
+    with st.spinner("Baixando e abrindo o arquivo… (são ~12 MB)"):
+        _abas, _erro = _cms.abas()
+    if _erro:
+        st.error(f"**Não consegui ler:** {_erro}")
+        st.caption("Se a mensagem falar em permissão, confira se a planilha "
+                   "está compartilhada com a conta de serviço — o e-mail está "
+                   "no diagnóstico do Drive, logo acima.")
+        return
+    st.success(f"✅ Lido. {len(_abas)} aba(s) encontradas.")
+
+    _aba = st.selectbox("Ver as primeiras linhas de qual aba?", _abas,
+                        key="cms_aba")
+    if _aba:
+        with st.spinner(f"Lendo «{_aba}»…"):
+            _df, _e2 = _cms.ler(_aba, limite=15)
+        if _e2:
+            st.error(_e2)
+        elif _df.empty:
+            st.info("A aba existe e está vazia.")
+        else:
+            st.caption(f"{len(_df.columns)} coluna(s). Primeiras linhas:")
+            st.dataframe(_df, use_container_width=True, hide_index=True)
+
+
 def _secao_cartoes_parados():
     """Por que cada cartão EM ANDAMENTO não recebeu FIM DE EXPEDIENTE.
 
@@ -891,6 +945,8 @@ def pagina_admin(usuario_logado):
     # A equipe medida fica no FIM, e nao no topo: quem abre o Administrativo
     # quase sempre vem criar ou resetar um login. O cadastro de equipe e mais
     # raro — contratacao — e nao pode empurrar o comum para baixo da dobra.
+    st.markdown("---")
+    _secao_controle_ms()
     st.markdown("---")
     _secao_cartoes_parados()
     st.markdown("---")

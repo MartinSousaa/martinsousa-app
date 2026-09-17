@@ -3,6 +3,7 @@ anthropic
 gspread
 google-auth
 pandas
+openpyxl
 requests
 google-api-python-client
 Pillow

@@ -72,9 +72,19 @@ Continua sendo `Controle MS.xlsx` — arquivo do Excel aberto no modo Office do
 Sheets, e NÃO uma planilha Google. Por isso `gspread` não a abre: a leitura
 tem que ser download pelo Drive + pandas.
 
+O arquivo mudou de casa em 17/09: o dono criou um Drive novo, da empresa, e
+subiu a planilha lá. É este o que vale:
+
 ```
-ID do arquivo: 1d82vJONqMXkcPPYQqLwXk1C7KJuUh-st
+ID do arquivo: 1TX3kgzb815EekA3v5mg-9MRvSc-5Ggc3
 ```
+
+(O primeiro, na conta pessoal, era `1d82vJONqMXkcPPYQqLwXk1C7KJuUh-st`.)
+
+Compartilhar com o robô deu "Você excedeu sua cota de compartilhamento" na
+primeira tentativa: conta Google recém-criada tem cota de ENVIO DE E-MAIL
+travada, e o compartilhamento manda um e-mail. Desmarcar "Notificar pessoas"
+resolveu — o robô não lê e-mail, a notificação não servia para nada.
 
 Abas que existem: SAIDAS PIX-BOLETO 2026 · CARTÕES · ADS E CROSS ·
 SIMPLES - FLEX · CHEQUES · DEVOLUÇÕES 2026 · DIN FINANÇAS · DINAMICA ·
@@ -83,10 +93,10 @@ cortadas na tela).
 
 **O que falta dele:** dizer quais abas o Studio deve ler.
 
-**O que falta de mim:** leitor de `.xlsx` no Studio — download via Drive API
-(`gdrive.py` ainda não tem função de download) e leitura com pandas, que exige
-`openpyxl` no requirements. Cache por TTL: o arquivo inteiro desce a cada
-leitura fria.
+**FEITO:** `controle_ms.py` baixa o arquivo pelo Drive e lê com openpyxl em
+modo `read_only`, com cache de 10 min. A tela de conferência está no
+Administrativo (📗 Controle MS), e é lá que se vê se a leitura está de pé e
+quais abas existem.
 
 **Decisão em aberto:** cheque novo é lançado ONDE? Se for na planilha e no
 Studio, os dois discordam. Proposta: o Studio importa o que já existe e daí em
