@@ -230,4 +230,49 @@ if __name__ == "__main__":
     ok("percentual com % e lido", _num("5%") == 5.0)
     ok("texto sem numero nao vira ajuste", _num("") == 0.0 and _num(None) == 0.0)
 
+    # ── A gravacao, contra uma aba de mentira ─────────────────────────────
+    # O gspread 6 mudou a ordem: update(values, range_name). Passar ao
+    # contrario nao levanta erro — ele avisa e troca —, mas o dia em que o
+    # aviso virar erro, o acordo para de ser gravado em silencio.
+    class _AbaFalsa:
+        def __init__(self):
+            self.linhas = [COLUNAS]
+
+        def get_all_records(self):
+            return [dict(zip(self.linhas[0], l)) for l in self.linhas[1:]]
+
+        def clear(self):
+            self.linhas = []
+
+        def update(self, values, range_name=None, **kw):
+            assert isinstance(values, list), "values vem PRIMEIRO no gspread 6"
+            self.linhas = [list(map(str, v)) for v in values]
+
+        def append_row(self, linha, **kw):
+            self.linhas.append(list(map(str, linha)))
+
+    _aba_falsa = _AbaFalsa()
+    globals()["_aba"] = lambda: _aba_falsa
+
+    carregar.clear()
+    _ok_s, _ = salvar(2026, 9, ["myrella", "beatriz51"], 5, "acordo", "leo")
+    carregar.clear()
+    ok("gravar devolve sucesso", _ok_s is True)
+    ok("e o que foi gravado volta na leitura",
+       carregar() == {"2026-09": {"myrella": 5.0, "beatriz51": 5.0}})
+
+    salvar(2026, 9, ["myrella"], 7, "corrigindo", "leo")
+    carregar.clear()
+    _depois = carregar()["2026-09"]
+    ok("regravar a mesma pessoa corrige, e nao duplica",
+       _depois["myrella"] == 7.0 and len(_depois) == 2)
+    ok("quem nao foi regravado fica como estava", _depois["beatriz51"] == 5.0)
+
+    ok("sem ninguem selecionado, nao grava",
+       salvar(2026, 9, [], 5)[0] is False)
+
+    remover(2026, 9)
+    carregar.clear()
+    ok("desfazer apaga o mes", carregar().get("2026-09") in (None, {}))
+
     print("\nfalhas:", falhas)
