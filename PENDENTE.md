@@ -128,3 +128,44 @@ quando ele precisa escrever (é o caso da planilha financeira principal).
 - **Correção do texto das imagens** e da mistura de inglês com português —
   commits `e0aa459` e `ca28d60`, em `homologacao`. Não subir para `main` sem
   ele mandar.
+
+---
+
+## 5. Folha desde janeiro — dados que o dono passou em 17/09/2026
+
+Ainda NÃO estão na planilha. Ficam aqui para não se perderem no chat.
+
+| Pessoa | Admissão | Salário base |
+|---|---|---|
+| Myrella | desde 01/2026 | 1.800,00 |
+| Monique | desde 01/2026 | 2.400,00 |
+| Gabriel | 16/03/2026 | 3.000,00 |
+| Beatriz | 28/04/2026 | 1.800,00 |
+| Nícolas | 24/08/2026 | 2.000,00 |
+| Luiz | 26/08/2026 | 2.000,00 |
+| Brunielly | 14/09/2026 | 2.000,00 |
+
+Vale-transporte: 233,33 por pessoa. **Renan** é exceção: 900,00 há dois meses,
+700,00 antes (falta o mês exato em que mudou).
+
+Agosto teve duas coisas fora do normal:
+- Gabriel, Myrella e Beatriz: +12% sobre o salário (bateram a meta MAXX
+  coletiva, não a individual).
+- Nícolas e Luiz: proporcional aos dias trabalhados, e os 12% sobre esse
+  proporcional.
+
+### Os três buracos que esses dados revelaram
+
+1. **Mês de admissão entra com salário cheio.** `valor_no_mes` zera os meses
+   ANTES da admissão (`ajustes.py:106`) e cobra o mês inteiro no mês em que a
+   pessoa entrou. Para quem entrou em 24 e 26 de agosto, agosto sai inflado.
+   `dias_uteis` não serve para isso: ele só divide a refeição
+   (`colaboradores.py:325`).
+2. **Vale-transporte é constante única no código**: `VALE_TRANSPORTE_MES =
+   233,33` (`colaboradores.py:95`), igual para todos e sem histórico. Os 900,00
+   do Renan não cabem nela. Precisa virar campo por pessoa, com vigência —
+   pelas mesmas razões pelas quais a lista de colaboradores saiu do código.
+3. **Bônus de um mês só não tem lugar.** Um ajuste vale "deste mês em diante".
+   Os 12% de agosto cabem no modelo atual com DOIS ajustes (agosto com o valor
+   maior, setembro de volta ao normal) — funciona hoje, sem código, e deixa o
+   que aconteceu visível na tela.
