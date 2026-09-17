@@ -1418,6 +1418,12 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
                     # 10 e 5 minutos e a hora pessoal do dia. Recalcular aqui
                     # por disp menos cards jogaria fora tudo isso.
                     _ocio[u]["ocio"]  += o["ociosidade_min"]
+                    # O detalhe viaja junto: sem ele, a pessoa vê o percentual
+                    # e não tem como conferir de onde saiu.
+                    _ocio[u].setdefault("buracos", []).extend(o.get("buracos") or [])
+                    if o.get("ajustado"):
+                        _ocio[u]["ajustado"] = True
+                        _ocio[u]["pct_medido"] = o.get("pct_medido")
         _tem_ponto = any(v["dias"] > 0 for v in _pont.values())
     except Exception as e:
         _tem_ponto = False
@@ -1520,6 +1526,7 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
                 return
             _ocio_min = o.get("ocio", 0.0)
             pct_ocio = _ocio_min / o["disp"] * 100
+            _ajustado = bool(o.get("ajustado"))
             # Escala proporcional em vez de queda de 4 pontos por ponto: com a
             # anterior, qualquer ociosidade acima de 35% dava barra zero, e 40%
             # ficava indistinguivel de 90%.
@@ -1536,9 +1543,41 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
                 f"{_fmt_hm(_ocio_min)} ocioso de {_fmt_hm(_teto_min)} permitidas"
                 + (f" · restam {_fmt_hm(_resta)}" if _resta >= 0
                    else f" · {_fmt_hm(-_resta)} acima do limite")
-                + f" · {o['disp']/60:.0f}h cobradas no mês",
+                + f" · {o['disp']/60:.0f}h cobradas no mês"
+                + (" · valor acordado com a equipe" if _ajustado else ""),
                 cor=cor, valor_texto=f"{pct_ocio:.1f}%"
             ), unsafe_allow_html=True)
+
+            # De onde veio esse número.
+            #
+            # A equipe passou a questionar a ociosidade, e com razão: o painel
+            # dava o percentual e mais nada. Aqui está cada trecho que contou —
+            # dia, hora de início, hora de fim, e a folga que já foi descontada.
+            # Número que não se consegue auditar não se defende.
+            _bur = o.get("buracos") or []
+            if _bur:
+                with st.expander(f"🔎 O que gerou a ociosidade ({len(_bur)} trechos)"):
+                    if _ajustado:
+                        st.info("Este mês está com o valor acordado com a "
+                                "equipe. Os trechos abaixo são os medidos.")
+                    st.caption(
+                        f"Trecho é tempo dentro do seu expediente sem nenhum "
+                        f"cartão EM ANDAMENTO no seu nome. Já vêm descontados "
+                        f"{_pc.GRACA_INICIO_MIN} min no começo do dia, "
+                        f"{_pc.GRACA_ENTRE_MIN} min a cada troca de cartão e "
+                        f"{_pc.PAUSA_PESSOAL_MIN} min de pausa por dia."
+                    )
+                    import pandas as _pd_b
+                    st.dataframe(
+                        _pd_b.DataFrame([{
+                            "dia": (b["data"].strftime("%d/%m")
+                                    if hasattr(b["data"], "strftime")
+                                    else str(b["data"])),
+                            "de": b["ini"], "até": b["fim"],
+                            "contou": _fmt_hm(b["minutos"]),
+                            "folga já descontada": f"{b['folga']} min",
+                        } for b in _bur]),
+                        use_container_width=True, hide_index=True)
 
         # "Tempo de execucao dentro do estimado" saiu das duas metas. Ele
         # media a mesma coisa que o card de tempo medio logo abaixo, so que
@@ -6986,24 +7025,35 @@ def pagina_analise_metas(usuario_logado):
         # O desempenho do time no dia a dia. Vem logo depois do cartao de
         # metas porque e a leitura que o gestor faz antes de descer para
         # coluna e pontuacao: como o time andou, e quem esta parado.
-        st.markdown("---")
-        st.markdown("#### 📈 Desempenho do time")
-        _secao_desempenho_equipe(dados)
+        # ── SÓ O GESTOR VÊ O TIME ────────────────────────────────────────
+        #
+        # Estas duas seções mostram, lado a lado, o desempenho e a ociosidade
+        # de CADA pessoa com nome. Elas subiram sem trava e ficaram visíveis
+        # para a equipe inteira: cada um via o número do colega, e a primeira
+        # consequência foi gente questionando a ociosidade alheia.
+        #
+        # A regra do dono é a mesma do resto desta tela, escrita vinte linhas
+        # acima: cada um vê a sua, e ninguém vê a do outro.
+        if _eh_master:
+            st.markdown("---")
+            st.markdown("#### 📈 Desempenho do time")
+            _secao_desempenho_equipe(dados)
 
-        st.markdown("---")
-        st.markdown("#### 😴 Ociosidade")
-        st.caption(
-            "O número geral sozinho não diz o que fazer: 14% pode ser o time "
-            "inteiro em 14%, ou uma pessoa em 40% e o resto em 5%. As duas "
-            "leituras pedem ações opostas — por isso o resumo por colaborador "
-            "vem junto, ordenado de quem mais precisa de conversa."
-        )
-        try:
-            _membros_ocio = list(_pc.MEMBROS_ATIVOS.keys())
-            _ocio_eq = _ociosidade_por_pessoa(dados, _membros_ocio)
-            _secao_ociosidade_equipe(dados, _membros_ocio, _ocio_eq)
-        except Exception as _e_ocio:
-            st.caption(f"Não consegui calcular a ociosidade: {str(_e_ocio)[:150]}")
+            st.markdown("---")
+            st.markdown("#### 😴 Ociosidade")
+            st.caption(
+                "O número geral sozinho não diz o que fazer: 14% pode ser o "
+                "time inteiro em 14%, ou uma pessoa em 40% e o resto em 5%. As "
+                "duas leituras pedem ações opostas — por isso o resumo por "
+                "colaborador vem junto, ordenado de quem mais precisa de "
+                "conversa."
+            )
+            try:
+                _membros_ocio = list(_pc.MEMBROS_ATIVOS.keys())
+                _ocio_eq = _ociosidade_por_pessoa(dados, _membros_ocio)
+                _secao_ociosidade_equipe(dados, _membros_ocio, _ocio_eq)
+            except Exception as _e_ocio:
+                st.caption(f"Não consegui calcular a ociosidade: {str(_e_ocio)[:150]}")
 
         st.markdown("---")
         col_t, col_p = st.columns(2)
