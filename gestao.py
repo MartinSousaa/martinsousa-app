@@ -117,6 +117,11 @@ def _ajuste_de_valor(usuario_logado=None):
 # As telas de Financeiro, na ordem em que aparecem. Dicionário no topo do
 # módulo, e não montado dentro da função: é a lista que cresce a cada bloco
 # novo, e ela precisa estar num lugar só.
+def _meta_gastos(usuario_logado=None):
+    import meta_gastos_tela as _mgt
+    _mgt.pagina(usuario_logado)
+
+
 def _extratos(usuario_logado=None):
     import extratos_tela as _ext
     _ext.pagina(usuario_logado)
@@ -129,6 +134,7 @@ def _finalidades(usuario_logado=None):
 
 SUBTELAS = {
     "🧱 Custo fixo": _custo_fixo,
+    "🎯 Meta de gastos": _meta_gastos,
     "💳 Extratos": _extratos,
     "🏷️ Finalidades": _finalidades,
     "🧮 Balanço headcount": _balanco_headcount,

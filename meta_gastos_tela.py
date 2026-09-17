@@ -1,0 +1,112 @@
+"""meta_gastos_tela.py — a aba Meta de Gastos, no Financeiro.
+
+Doze linhas, um ano. A meta se digita; o realizado vem dos extratos quando o
+mês tem extrato, e do que o dono informou quando não tem — e a tela diz qual
+dos dois está mostrando, porque "74.210,55" conferido e "74.210,55" de memória
+não valem a mesma coisa na hora de decidir.
+"""
+
+import streamlit as st
+
+
+def _fmt(v):
+    return f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def pagina(usuario_logado=None):
+    from datetime import datetime
+    import pandas as pd
+    import placar_core as _pc
+    import meta_gastos as _mg
+
+    st.markdown("#### 🎯 Meta de gastos")
+    st.caption(
+        "Quanto se pode gastar no mês, e quanto já saiu. O realizado vem dos "
+        "extratos; nos meses anteriores à entrada deles, do que você informar "
+        "aqui."
+    )
+
+    hoje = datetime.now(_pc.FUSO).date()
+    ano = st.number_input("Ano", 2020, 2100, hoje.year, 1, key="mg_ano")
+
+    linhas = _mg.ano_inteiro(ano)
+    atual = next((l for l in linhas if l["mes"] == _mg.texto_mes(ano, hoje.month)),
+                 None)
+    if atual and atual["meta"]:
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Meta de " + atual["rotulo"].split()[0],
+                  f"R$ {_fmt(atual['meta'])}")
+        c2.metric("Realizado", f"R$ {_fmt(atual['realizado'])}",
+                  help=f"origem: {atual['origem']}")
+        c3.metric("Saldo", f"R$ {_fmt(atual['saldo'])}",
+                  delta=f"{atual['pct']:.0f}% consumido",
+                  delta_color="inverse")
+
+    ORIGEM = {"extrato": "📄 extrato", "informado": "✍️ informado",
+              "sem dado": "— sem dado"}
+    df = pd.DataFrame([{
+        "mês": l["rotulo"],
+        "meta": l["meta"],
+        "realizado": l["realizado"],
+        "de onde": ORIGEM.get(l["origem"], l["origem"]),
+        "saldo": l["saldo"],
+        "informado": (l["realizado"] if l["origem"] == "informado" else 0.0),
+        "observação": l["observacao"],
+    } for l in linhas])
+
+    st.caption("Edite **meta** e, nos meses sem extrato, **informado**. "
+               "As demais colunas são calculadas.")
+    editado = st.data_editor(
+        df, use_container_width=True, hide_index=True, key="mg_ed",
+        column_config={
+            "mês": st.column_config.TextColumn(disabled=True, width="small"),
+            "meta": st.column_config.NumberColumn("Meta", format="%.2f",
+                                                  min_value=0.0, step=100.0),
+            "realizado": st.column_config.NumberColumn(
+                "Realizado", format="%.2f", disabled=True),
+            "de onde": st.column_config.TextColumn(disabled=True,
+                                                   width="small"),
+            "saldo": st.column_config.NumberColumn("Saldo", format="%.2f",
+                                                   disabled=True),
+            "informado": st.column_config.NumberColumn(
+                "Informado por você", format="%.2f", min_value=0.0,
+                step=100.0,
+                help="Só vale nos meses sem extrato carregado. Quando o "
+                     "extrato entra, ele manda — é o número conferível."),
+            "observação": st.column_config.TextColumn(width="medium"),
+        },
+    )
+
+    if st.button("💾 Salvar", type="primary", use_container_width=True,
+                 key="mg_salvar"):
+        _n = 0
+        for i, r in editado.iterrows():
+            antes = linhas[i]
+            _inf_antes = (antes["realizado"] if antes["origem"] == "informado"
+                          else 0.0)
+            if (float(r["meta"]) == antes["meta"]
+                    and float(r["informado"]) == _inf_antes
+                    and str(r["observação"] or "") == antes["observacao"]):
+                continue
+            _ok, _msg = _mg.salvar(antes["mes"], meta=float(r["meta"]),
+                                   informado=float(r["informado"]),
+                                   observacao=str(r["observação"] or ""),
+                                   usuario=usuario_logado)
+            if not _ok:
+                st.error(_msg)
+                return
+            _n += 1
+        st.success(f"{_n} mês(es) salvo(s).") if _n else st.info("Nada mudou.")
+
+    _com_dado = [l for l in linhas if l["origem"] != "sem dado"]
+    if _com_dado:
+        st.markdown("##### Realizado no ano")
+        st.bar_chart(
+            pd.DataFrame({"realizado": [l["realizado"] for l in _com_dado]},
+                         index=[l["rotulo"].split()[0] for l in _com_dado]),
+            use_container_width=True)
+    _sem = [l["rotulo"].split()[0] for l in linhas if l["origem"] == "sem dado"]
+    if _sem:
+        st.caption("Sem dado ainda: " + ", ".join(_sem)
+                   + ". Mês sem número não é mês sem gasto — preencha em "
+                     "«Informado por você» ou suba o extrato.")
