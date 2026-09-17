@@ -389,38 +389,81 @@ def _bloco_gastos(usuario_logado=None, d=None):
         st.caption(f"Não consegui ler os gastos: {str(e)[:140]}")
         return
 
-    if not lancs and not linha["meta"]:
+    # ── 1. o número que decide ───────────────────────────────────────────
+    #
+    # E ele é o COMPROMETIDO, não o que já bateu na conta.
+    #
+    # Mostrar só o extrato dizia, em 17/09, "13% da meta consumida" — e a
+    # decisão que sai disso é "dá para comprar à vontade". Não dá: o aluguel,
+    # a luz, a folha e as parcelas do mês já estão devidos, só não passaram
+    # ainda. O Studio conhece os três, e não precisa que ninguém digite.
+    import pandas as pd
+    import previsto as _pv
+
+    res = _lan.resumo_por_finalidade(lancs) if lancs else {}
+    prev, _erros_prev = _pv.do_mes(ano, mes)
+    combinado, total_comp = _pv.combinar(res, prev)
+    a_sair = round(sum(x["falta_sair"] for x in combinado), 2)
+
+    if not lancs and not linha["meta"] and not total_comp:
         st.info(
-            "Sem meta e sem lançamentos neste mês. A meta se digita em "
-            "**Financeiro › 🎯 Meta de gastos**; os lançamentos entram "
-            "sozinhos quando você sobe o extrato em **Financeiro › 💳 "
-            "Extratos**.")
+            "Sem meta, sem lançamentos e sem nada provisionado neste mês. A "
+            "meta se digita em **Financeiro › 🎯 Meta de gastos**; os "
+            "lançamentos entram sozinhos quando você sobe o extrato em "
+            "**Financeiro › 💳 Extratos**.")
         return
 
-    # ── 1. o número que decide ───────────────────────────────────────────
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Realizado", _brl(linha["realizado"]),
-              help=f"origem: {linha['origem']}")
-    c2.metric("Meta do mês", _brl(linha["meta"]) if linha["meta"] else "—")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Já saiu", _brl(linha["realizado"]),
+              help=f"o que o extrato mostra · origem: {linha['origem']}")
+    c2.metric("Ainda vai sair", _brl(a_sair),
+              help="custo fixo, folha e não operacional do mês que ainda não "
+                   "apareceram no extrato. Sai das grades do Studio, sem "
+                   "ninguém digitar nada.")
+    c3.metric("Comprometido", _brl(total_comp),
+              help="o que já saiu mais o que falta sair. É este o número que "
+                   "decide se dá para comprar.")
     if linha["meta"]:
-        c3.metric("Saldo", _brl(linha["saldo"]),
-                  delta=f"{linha['pct']:.0f}% consumido",
-                  delta_color="inverse")
-        st.progress(min(linha["pct"] / 100, 1.0),
-                    text=f"{linha['pct']:.0f}% da meta")
+        _saldo = round(linha["meta"] - total_comp, 2)
+        _pct = total_comp / linha["meta"] * 100
+        c4.metric("Sobra da meta", _brl(_saldo),
+                  delta=f"{_pct:.0f}% comprometido", delta_color="inverse")
+        st.progress(min(_pct / 100, 1.0),
+                    text=f"{_pct:.0f}% da meta comprometida"
+                         f" · já saiu {linha['pct']:.0f}%")
     else:
-        c3.metric("Saldo", "—")
-        st.caption("Sem meta digitada para este mês — o saldo não tem como "
-                   "existir.")
+        c4.metric("Sobra da meta", "—")
+        st.caption("Sem meta digitada para este mês — a sobra não tem como "
+                   "existir. Digite em **Financeiro › 🎯 Meta de gastos**.")
+    if _erros_prev:
+        st.caption("⚠️ Não consegui ler: " + " · ".join(_erros_prev)
+                   + ". O previsto dessas está como zero, e não como "
+                     "«não existe».")
+
+    st.markdown(f"**O mês inteiro** · {_brl(total_comp)}")
+    st.dataframe(
+        pd.DataFrame([{"finalidade": x["finalidade"], "já saiu": x["realizado"],
+                       "ainda vai sair": x["falta_sair"],
+                       "conta no mês": x["conta"]} for x in combinado]),
+        use_container_width=True, hide_index=True,
+        column_config={
+            "já saiu": st.column_config.NumberColumn(format="R$ %.2f"),
+            "ainda vai sair": st.column_config.NumberColumn(format="R$ %.2f"),
+            "conta no mês": st.column_config.NumberColumn(format="R$ %.2f"),
+        })
+    st.caption(
+        "Custo fixo, folha e não operacional entram **provisionados** desde o "
+        "dia 1º, pelas grades do Studio. Quando o débito aparece no extrato, "
+        "ele confere o valor — e o que saiu a mais manda. Somar os dois "
+        "contaria o mesmo aluguel duas vezes."
+    )
 
     if not lancs:
-        st.caption("Nenhum extrato carregado neste mês. O realizado acima é o "
-                   "que você informou à mão.")
+        st.caption("Nenhum extrato carregado neste mês — acima está só o "
+                   "provisionado.")
         return
 
     # ── 2. onde o dinheiro foi ───────────────────────────────────────────
-    import pandas as pd
-    res = _lan.resumo_por_finalidade(lancs)
     FORMAS = {"CHEQUES", "FATURA DO CARTÃO", "BOLETO"}
     por_fin = {k: v for k, v in res.items()
                if k not in FORMAS and k != "SEM CLASSIFICAÇÃO"}
