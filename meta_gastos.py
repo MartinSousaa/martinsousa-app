@@ -66,6 +66,26 @@ def rotulo(mes_txt):
         return str(mes_txt)
 
 
+# O histórico que o dono tem na planilha dele, de janeiro a agosto de 2026.
+# Primeira carga apenas: depois quem manda é a aba, e mudar aqui não muda nada.
+#
+# Agosto entra nos dois lugares — aqui como informado (159.777,61) e nos
+# extratos como medido (164.163,18). A diferença de 4.385,57 não é erro de
+# nenhum dos dois: é o que a planilha dele conta de um jeito e o extrato de
+# outro, e vale perguntar antes de fechar o ano. Por isso o valor informado
+# fica registrado mesmo no mês que já tem extrato.
+SEED_HISTORICO = {
+    "2026-01": 169003.95,
+    "2026-02": 137791.50,
+    "2026-03": 110358.35,
+    "2026-04": 175631.91,
+    "2026-05": 146693.61,
+    "2026-06": 139536.82,
+    "2026-07": 157525.57,
+    "2026-08": 159777.61,
+}
+
+
 def _aba():
     import gspread
     import sheets as _sh
@@ -76,6 +96,10 @@ def _aba():
         nova = planilha.add_worksheet(title=ABA_NOME, rows=200,
                                       cols=len(COLUNAS))
         nova.append_row(COLUNAS, value_input_option="RAW")
+        nova.append_rows(
+            [[m, 0, v, "histórico da planilha do dono", "", "seed"]
+             for m, v in sorted(SEED_HISTORICO.items())],
+            value_input_option="RAW")
         return nova
 
 
@@ -256,5 +280,13 @@ if __name__ == "__main__":
     ok("gravar o informado preserva a meta",
        _dez["meta"] == 95000.0 and _dez["informado"] == 88000.0)
     ok("mes fora do formato e recusado", salvar("out/26", meta=1)[0] is False)
+
+    # O historico que o dono passou: oito meses, e nenhum deles zero.
+    ok("o historico tem janeiro a agosto",
+       sorted(SEED_HISTORICO) == [f"2026-{m:02d}" for m in range(1, 9)])
+    ok("abril foi o mes mais caro do semestre",
+       max(SEED_HISTORICO, key=SEED_HISTORICO.get) == "2026-04")
+    ok("nenhum mes do historico vem zerado",
+       all(v > 0 for v in SEED_HISTORICO.values()))
 
     print("\nfalhas:", falhas)
