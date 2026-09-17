@@ -110,7 +110,7 @@ def _finalidades(cad):
     base = ["MERCADORIA", "EMBALAGEM", "CUSTO FIXO", "NÃO OPERACIONAL",
             "IMPOSTO", "SERVIÇO", "ESTACIONAMENTO", "CONSUMO INTERNO", "TRANSFERENCIA ENTRE CONTAS",
             "EMPRESTIMO PRONAMP", "REEMBOLSO PRONAMP", "RATEIO CUSTO FIXO",
-            "MERCADO LIVRE", "SHOPEE", "SHEIN", "AMAZON", "SITE", "APLICACAO", "OUTROS"]
+            "MERCADO LIVRE", "SHOPEE", "SHEIN", "TIKTOK", "AMAZON", "SITE", "APLICACAO", "OUTROS"]
     usadas = {v["finalidade"] for v in (cad or {}).values()
               if v.get("finalidade")}
     return sorted(set(base) | usadas)

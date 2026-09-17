@@ -152,6 +152,8 @@ SEED = [
     ("ROBSON SOUSA DOS SANTOS", "ESTACIONAMENTO", "saida",
      "Estacionamento fixo da empresa"),
     ("LEONARDO MARTINS BESERRA", "REEMBOLSO", "entrada", ""),
+    ("BYTEDANCE BRASIL TECNOLOGIA LTDA", "TIKTOK", "entrada",
+     "Repasse do TikTok Shop"),
     # ── Fatura do cartao do Inter, anotada pelo dono em 17/09 ────────────
     # Ele marcou alguns e mandou aplicar aos semelhantes. Os semelhantes
     # ficam explicitos aqui: "aplicar ao parecido" nao pode virar regra de
