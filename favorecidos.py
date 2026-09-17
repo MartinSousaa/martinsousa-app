@@ -142,6 +142,16 @@ SEED = [
     ("MYRELLA DE SOUZA CANDIDO", "FOLHA", "saida", "Salário"),
     ("ELIANE MARTINS DA SILVA BESERRA", "CONSUMO INTERNO", "saida",
      "Compra da TV da empresa"),
+    # O Vagner aparece nos dois sentidos, e sao coisas diferentes: saindo e
+    # compra de mercadoria, entrando e a parte dele na parcela do PRONAMP.
+    ("VAGNER LAZARINI BESERRA", "MERCADORIA", "saida", ""),
+    ("VAGNER LAZARINI BESERRA", "REEMBOLSO PRONAMP", "entrada", ""),
+    ("RICCI E RICCI COMERCIO E INDUSTRIA", "CUSTO FIXO", "saida", "Anvisa"),
+    ("VALDILENE DA SILVA COELHO", "CUSTO FIXO", "saida",
+     "Aluguel da sala onde fica o plástico bolha"),
+    ("ROBSON SOUSA DOS SANTOS", "ESTACIONAMENTO", "saida",
+     "Estacionamento fixo da empresa"),
+    ("LEONARDO MARTINS BESERRA", "REEMBOLSO", "entrada", ""),
     # ── Fatura do cartao do Inter, anotada pelo dono em 17/09 ────────────
     # Ele marcou alguns e mandou aplicar aos semelhantes. Os semelhantes
     # ficam explicitos aqui: "aplicar ao parecido" nao pode virar regra de
