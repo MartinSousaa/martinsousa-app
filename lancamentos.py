@@ -34,7 +34,8 @@ import streamlit as st
 
 ABA_NOME = "lancamentos"
 COLUNAS = ["id", "conta", "data", "descricao", "favorecido", "valor",
-           "tipo", "finalidade", "observacao", "atualizado_em", "atualizado_por"]
+           "tipo", "finalidade", "fixada", "observacao", "atualizado_em",
+           "atualizado_por"]
 
 FUSO = timezone(timedelta(hours=-3))
 
@@ -135,7 +136,7 @@ def gravar(lancamentos, conta="", usuario=""):
         l["id"], l.get("conta", ""), _txt_data(l.get("data")),
         str(l.get("descricao", ""))[:180], str(l.get("favorecido", ""))[:120],
         round(float(l.get("valor") or 0), 2), str(l.get("tipo", "")),
-        str(l.get("finalidade", "")), str(l.get("observacao", ""))[:200],
+        str(l.get("finalidade", "")), "", str(l.get("observacao", ""))[:200],
         agora, str(usuario or "")[:60],
     ] for l in novos]
     try:
@@ -160,6 +161,11 @@ def atualizar(id_lanc, campos, usuario=""):
             return False, "Lançamento não encontrado."
         linha = dict(registros[pos])
         linha.update({k: v for k, v in (campos or {}).items() if k in COLUNAS})
+        # Editar a finalidade de UMA linha é dizer "esta é exceção". Sem a
+        # marca, a releitura do cadastro desfaria a correção no clique
+        # seguinte.
+        if "finalidade" in (campos or {}):
+            linha["fixada"] = "sim"
         linha["atualizado_em"] = datetime.now(FUSO).strftime("%Y-%m-%d %H:%M")
         linha["atualizado_por"] = str(usuario or "")[:60]
         fim = chr(ord("A") + len(COLUNAS) - 1)
@@ -198,11 +204,45 @@ def apagar(ids):
     return apagados, f"{apagados} lançamento(s) apagado(s)."
 
 
+def aplicar_cadastro(linhas):
+    """Relê a finalidade do cadastro de favorecidos, em cima do que está gravado.
+
+    É o que faz "classifiquei uma vez e vale para o histórico inteiro" ser
+    verdade. Sem isto, o lançamento guardava a finalidade que tinha no dia em
+    que foi gravado, e responder um nome novo só valia para o extrato seguinte
+    — o dono teria que apagar e subir tudo de novo a cada resposta.
+
+    A linha marcada como `fixada` escapa: foi o dono que a editou no lápis, e
+    uma exceção de uma linha não pode ser desfeita pela regra geral.
+    """
+    try:
+        import favorecidos as _fv
+        cad = _fv.carregar()
+    except Exception:
+        return linhas
+    if not cad:
+        return linhas
+    fora = []
+    for l in (linhas or []):
+        if str(l.get("fixada", "")).strip().lower() in ("sim", "true", "1"):
+            fora.append(l)
+            continue
+        nome = (l.get("favorecido") or l.get("descricao") or "")
+        sentido = "entrada" if float(l.get("valor") or 0) > 0 else "saida"
+        reg = _fv.casar(nome, cad, sentido)
+        if reg and reg.get("finalidade"):
+            l = {**l, "finalidade": reg["finalidade"]}
+        fora.append(l)
+    return fora
+
+
 def do_mes(ano, mes, lista=None):
-    """Os lançamentos de um mês. Ordenados por data."""
+    """Os lançamentos de um mês, com o cadastro já aplicado por cima."""
     alvo = f"{int(ano):04d}-{int(mes):02d}"
     fora = [l for l in (carregar() if lista is None else lista)
             if str(l.get("data", "")).startswith(alvo)]
+    if lista is None:
+        fora = aplicar_cadastro(fora)
     return sorted(fora, key=lambda l: str(l.get("data", "")))
 
 
@@ -300,6 +340,26 @@ if __name__ == "__main__":
     ok("o lapis altera a finalidade de uma linha so",
        _ok_u and carregar()[0]["finalidade"] == "MERCADORIA"
        and carregar()[1]["finalidade"] == "")
+    ok("e marca a linha como excecao, para o cadastro nao desfazer",
+       carregar()[0]["fixada"] == "sim")
+
+    # O cadastro vale para o passado: responder um nome novo arruma o que ja
+    # estava gravado, sem apagar e subir de novo.
+    _CAD_FAKE = {("APEXIMP", "saida"): {"finalidade": "MERCADORIA",
+                                        "favorecido": "APEXIMP"}}
+    import favorecidos as _fv_t
+    _guardado = _fv_t.carregar
+    _fv_t.carregar = lambda: _CAD_FAKE
+    _linhas = [{"favorecido": "APEXIMP", "valor": -100.0, "finalidade": "",
+                "fixada": ""},
+               {"favorecido": "APEXIMP", "valor": -50.0, "finalidade": "OUTROS",
+                "fixada": "sim"}]
+    _depois = aplicar_cadastro(_linhas)
+    ok("linha sem finalidade recebe a do cadastro",
+       _depois[0]["finalidade"] == "MERCADORIA")
+    ok("linha fixada no lapis NAO e desfeita pelo cadastro",
+       _depois[1]["finalidade"] == "OUTROS")
+    _fv_t.carregar = _guardado
     ok("id inexistente nao altera nada",
        atualizar("nao-existe", {"finalidade": "X"})[0] is False)
 
