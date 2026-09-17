@@ -55,6 +55,30 @@ def pagina(usuario_logado=None):
                "**R$ 0,00**. Enquanto a meta for zero, a Home mostra «—», "
                "mesmo com gasto informado no mês."))
 
+    # A aba crua, do jeito que o Google devolve. Existe porque durante horas
+    # a tela e a planilha discordaram e não havia como saber qual das duas
+    # mentia — nem para o dono, nem para quem mexe no código.
+    with st.expander("🔍 O que está na aba `meta_gastos` (linha por linha)"):
+        try:
+            import pandas as _pd
+            _cru = _mg._aba().get_all_records()
+            st.dataframe(_pd.DataFrame(_cru), use_container_width=True,
+                         hide_index=True)
+            _rep = {}
+            for _r in _cru:
+                _k = _mg.mes_chave(_r.get("mes"))
+                if _k:
+                    _rep[_k] = _rep.get(_k, 0) + 1
+            _dobradas = sorted(k for k, n in _rep.items() if n > 1)
+            if _dobradas:
+                st.warning(
+                    "Mês repetido na aba: " + ", ".join(_dobradas)
+                    + ". Salvar o mês unifica as linhas.")
+            else:
+                st.caption("Nenhum mês repetido.")
+        except Exception as _e:
+            st.caption(f"Não consegui ler a aba: {str(_e)[:160]}")
+
     linhas = _mg.ano_inteiro(ano)
     atual = next((l for l in linhas if l["mes"] == _mg.texto_mes(ano, hoje.month)),
                  None)
