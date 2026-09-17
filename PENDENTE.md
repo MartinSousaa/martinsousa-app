@@ -53,3 +53,65 @@ problema: mostra o nome e oferece um seletor quando há mais de uma.
 
 **O conserto combinado.** Um seletor listando as pastas do Drive, valendo para
 os dois botões de salvar. Aguardando o "faça".
+
+---
+
+## 3. Ligar a leitura do Controle_MS  ·  17/09/2026
+
+**Onde parou.** O arquivo é `.xlsx` de ~12 MB, com tabela dinâmica, e o dono
+NÃO vai convertê-lo para Planilhas Google — ele continua alimentando pelo
+Excel. Decidido: o Studio baixa o `.xlsx` do Drive e lê, só leitura.
+
+**O que ele faz:** põe o arquivo na conta PESSOAL do Google Drive dele (a
+conta da empresa tem login único, compartilhado com o time inteiro por causa
+das imagens — permissão não esconde nada de quem entra com o mesmo login) e
+compartilha com o robô como Leitor.
+
+**O que falta dele:** o link da planilha, a confirmação do compartilhamento e
+o nome das abas que interessam (cheques, vendas, custo por SKU).
+
+**O que falta de mim:** leitor de `.xlsx` no Studio — download via Drive API
+(`gdrive.py` ainda não tem função de download) e leitura com pandas, que exige
+`openpyxl` no requirements. Cache por TTL: o arquivo inteiro desce a cada
+leitura fria.
+
+**Decisão em aberto:** cheque novo é lançado ONDE? Se for na planilha e no
+Studio, os dois discordam. Proposta: o Studio importa o que já existe e daí em
+diante o lançamento é pelo Studio.
+
+---
+
+## 4. Ociosidade — qual limite  ·  17/09/2026
+
+Pedido: "a ociosidade de quem estiver com ela estourada cai para 5%", já
+alinhado com a equipe. Hoje são 10% no normal e 5% na MAXX
+(`explicacao_metas.py:49`). Falta o dono dizer qual das duas leituras vale:
+
+| A | O limite geral cai de 10% para 5%, para todos |
+| B | Só quem estourou os 10% passa a ter 5% — limite que varia por pessoa, e precisa de onde ficar cadastrado |
+
+---
+
+## Guardados para não procurar de novo
+
+**E-mail do robô (conta de serviço), para compartilhar planilha ou pasta do
+Drive com o Studio:**
+
+```
+martinsousa-robo@martinsousa-app.iam.gserviceaccount.com
+```
+
+Não é segredo — é só o endereço de quem lê; o segredo é a chave privada, que
+mora nas Secrets. O mesmo endereço aparece no Studio em Administrativo ›
+🔧 Diagnóstico do Google Drive › "Testar conexão com o Drive".
+
+Compartilhe como **Leitor** quando o Studio só precisa ler, e como **Editor**
+quando ele precisa escrever (é o caso da planilha financeira principal).
+
+---
+
+## Segurados a pedido do dono (prontos, não sobem sem ordem)
+
+- **Correção do texto das imagens** e da mistura de inglês com português —
+  commits `e0aa459` e `ca28d60`, em `homologacao`. Não subir para `main` sem
+  ele mandar.
