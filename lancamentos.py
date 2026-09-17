@@ -251,14 +251,24 @@ def resumo_por_finalidade(lancamentos, so_saida=True):
 
     Transferência entre contas e as demais entradas que não são venda ficam de
     fora pela regra de `favorecidos`, e não por uma segunda lista escrita aqui.
+
+    UMA entrada não fica de fora: o REEMBOLSO. Ele devolve dinheiro de um gasto
+    que já foi contado — o fornecedor recebeu 660 por engano e devolveu 440, e
+    o mês gastou 220, não 660. Ignorá-lo deixava a meta 440 mais apertada do
+    que a realidade, e o dono já tinha dito como quer ver isso: o valor entra
+    negativo, na própria linha.
     """
     import favorecidos as _fv
     fora = {}
     for l in (lancamentos or []):
         valor = float(l.get("valor") or 0)
-        if so_saida and valor >= 0:
-            continue
         fin = (l.get("finalidade") or "").strip().upper() or "SEM CLASSIFICAÇÃO"
+        if valor >= 0:
+            if not so_saida:                      # panorama: entrada soma
+                fora[fin] = fora.get(fin, 0.0) + abs(valor)
+            elif _fv.abate_meta(fin):             # meta: reembolso desconta
+                fora[fin] = fora.get(fin, 0.0) - abs(valor)
+            continue
         if so_saida and not _fv.consome_meta(fin):
             continue
         fora[fin] = fora.get(fin, 0.0) + abs(valor)
