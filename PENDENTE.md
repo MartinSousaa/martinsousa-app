@@ -221,13 +221,8 @@ interrupção, ou o texto muda?
 
 ---
 
-## 8. Custo fixo: duas fontes para o mesmo número  ·  17/09/2026
+## 8. ~~Custo fixo: duas fontes para o mesmo número~~ — RESOLVIDO em 17/09
 
-Ver `FLUXO.md`. Custo fixo passa a ser digitado no Studio, e o mesmo gasto
-aparece no extrato (SAIDAS PIX-BOLETO). Falta o dono escolher:
-
-- **A** — o Studio manda; o extrato entra com as linhas de custo fixo
-  excluídas à mão, como ele já faz.
-- **B** — o extrato manda; o que está lá contabiliza, o que não está, não.
-  Acaba a exclusão manual, e o custo fixo deixa de ser previsto para virar
-  histórico.
+O dono decidiu: o Studio **provisiona** e o extrato **confere**. Linha de
+extrato ligada a um item de custo fixo atualiza o item em vez de entrar como
+gasto novo; divergência ajusta o valor daquele mês. Ver `FLUXO.md`.

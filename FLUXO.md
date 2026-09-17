@@ -36,16 +36,22 @@ digitado. O outro lado, quando existe, é consulta.
 
 ---
 
-## A decisão que ficou de pé
+## Custo fixo: provisionado no Studio, conferido pelo extrato
 
-**Custo fixo passa para o Studio, e o mesmo gasto aparece no extrato.** São
-duas fontes para o mesmo número, e a dupla contagem é questão de tempo. Os
-dois caminhos possíveis:
+**Decidido pelo dono em 17/09.** Nem A nem B — as duas fontes existem, com
+papéis diferentes:
 
-| Caminho | Como fica |
+| Fonte | Papel |
 |---|---|
-| **A** — o Studio manda no custo fixo | O extrato continua sendo conferência; ao lançar a SAIDAS PIX-BOLETO, as linhas que já são custo fixo ficam de fora. Exige a exclusão manual que ele já faz hoje |
-| **B** — o extrato manda em tudo | Se está no extrato, contabiliza; se não está, não contabiliza. Acaba a exclusão manual e acaba a dupla fonte — mas o custo fixo deixa de ser previsto e passa a ser histórico: só aparece depois de pago |
+| Studio | **Provisiona.** O custo fixo do mês existe no dia 1º, antes de ser pago |
+| Extrato / fatura | **Confere.** Quando o débito aparece, o Studio o liga ao item provisionado |
 
-Sem escolher uma, as duas fontes vão discordar, e a discordância aparece como
-erro de indicador meses depois.
+Quando o valor pago diverge do provisionado, ajusta-se o valor **daquele mês**
+— e o provisionado dos meses seguintes continua como está, até alguém mudá-lo.
+
+O que isto resolve: o custo fixo continua previsto (dá para planejar o mês) e
+para de ser chute (o que foi pago manda no que ficou registrado). E o extrato
+deixa de ser uma segunda fonte de gasto — ele confere, não soma.
+
+**A regra que impede a conta dobrada:** linha de extrato ligada a um item de
+custo fixo NÃO entra de novo como gasto. Ela atualiza o item.
