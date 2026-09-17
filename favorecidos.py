@@ -124,6 +124,16 @@ SEED = [
     ("MODA MUNDIAL BRASIL", "SHEIN", "entrada", "Instituição de pagamento da Shein"),
     ("MODA MUNDIAL BRASIL PAGAMENTOS LTDA", "SHEIN", "entrada", ""),
     ("MODA MUNDIAL BRASIL INTERMED", "SHEIN", "entrada", ""),
+    # O MESMO dinheiro chega com outro nome em cada banco. No Inter o repasse
+    # vem como "MARTINS E SOUSA COMERCIO DE PRODUTOS IMPORTADOS E NACIONAIS
+    # LTDA"; no Itaú, como "MARTINSOUSA". A chave normalizada não junta os
+    # dois — um não é começo do outro —, e sem estas linhas o dono responderia
+    # de novo o que já respondeu.
+    ("MARTINSOUSA", "MERCADO LIVRE", "entrada", "Repasse, como no Inter"),
+    ("LITTLE GLASS COMERCIO DE ARO", "MERCADO LIVRE", "entrada", ""),
+    # DAS do Simples: no Inter sai como RECEITA FEDERAL, no Itaú como
+    # PAGAMENTOS / SIMPLES NACIONAL. Mesmo imposto, mesma finalidade.
+    ("SIMPLES NACIONAL", "CUSTO FIXO", "saida", "DAS do Simples Nacional"),
     # ── Fatura do cartao do Inter, anotada pelo dono em 17/09 ────────────
     # Ele marcou alguns e mandou aplicar aos semelhantes. Os semelhantes
     # ficam explicitos aqui: "aplicar ao parecido" nao pode virar regra de
