@@ -1890,17 +1890,53 @@ def _secao_ajuste_ociosidade(usuario_logado=None):
     ca, cb = st.columns(2)
     if ca.button("Aplicar o acordo", type="primary", use_container_width=True,
                  key="oaj_aplicar", disabled=not _quem):
-        _ok, _msg = _oaj.salvar(_ano, _mes, _quem, _pct, _motivo,
-                                usuario_logado)
-        (st.success if _ok else st.error)(_msg)
-        if _ok:
-            st.rerun()
+        # Sem `st.rerun()` aqui, e de proposito.
+        #
+        # Com ele, a tela se redesenhava no mesmo instante e levava embora a
+        # mensagem: o dono clicou varias vezes vendo a pagina nao dizer nada, e
+        # concluiu — com razao — que o botao nao funcionava. Agora a resposta
+        # fica na tela, e vem com a prova: o que esta gravado na planilha,
+        # lido de volta depois de escrever.
+        with st.spinner("Gravando na planilha…"):
+            _ok, _msg = _oaj.salvar(_ano, _mes, _quem, _pct, _motivo,
+                                    usuario_logado)
+        if not _ok:
+            st.error(f"**Não consegui gravar:** {_msg}")
+        else:
+            st.success(_msg)
+            # O numero da ociosidade passa por caches de outras telas (resumo
+            # do mes, pontualidade, periodo da Analise de Metas). Sem limpar,
+            # o acordo esta gravado e o painel continua mostrando o medido —
+            # que e exatamente o "nao foi" que se ve na tela.
+            try:
+                st.cache_data.clear()
+            except Exception:
+                pass
+            _agora = (_oaj.carregar() or {}).get(_oaj.mes_texto(_ano, _mes)) or {}
+            if _agora:
+                st.caption("Gravado na planilha, lido de volta agora:")
+                import pandas as _pd_oaj
+                st.dataframe(
+                    _pd_oaj.DataFrame([{"pessoa": _membros.get(u, u),
+                                        "ociosidade do mês": f"{p:.0f}%"}
+                                       for u, p in sorted(_agora.items())]),
+                    use_container_width=True, hide_index=True)
+                st.info("Agora abra a Análise de Metas e clique em "
+                        "**Pesquisar** para o painel recalcular.")
+            else:
+                st.error("Gravei sem erro, mas a planilha voltou vazia. "
+                         "Me avise — é falha de leitura, não do acordo.")
     if cb.button("Desfazer o acordo deste mês", use_container_width=True,
                  key="oaj_remover", disabled=not _ja):
         _ok, _msg = _oaj.remover(_ano, _mes)
-        (st.success if _ok else st.error)(_msg)
         if _ok:
-            st.rerun()
+            try:
+                st.cache_data.clear()
+            except Exception:
+                pass
+            st.success(_msg)
+        else:
+            st.error(f"**Não consegui desfazer:** {_msg}")
 
 
 def _secao_abatimentos(usuario_logado: str):
