@@ -268,6 +268,13 @@ def linha_do_mes(ano, mes, cadastro=None, lista=None):
         "meta": meta,
         "realizado": realizado,
         "origem": origem,
+        # O que o gestor digitou, SEMPRE — e não só quando é ele quem manda.
+        #
+        # A tela reconstruía este número a partir da origem: mês com extrato
+        # voltava a zero na tela, ainda que gravado. Quem digitava via "salvo",
+        # atualizava, e o número sumia. Gravado e mostrado passaram a ser a
+        # mesma coisa; qual dos dois vale continua sendo `origem`.
+        "informado": informado,
         "saldo": (meta - realizado) if meta else 0.0,
         "pct": (realizado / meta * 100) if meta else 0.0,
         "observacao": cad.get("observacao", ""),
@@ -414,5 +421,15 @@ if __name__ == "__main__":
        diagnostico_estouro({}, 150000, 0)["total"] == 0.0)
     ok("mercadoria prevista sem cmv e zero",
        mercadoria_prevista(240000, 0) == 0.0)
+
+    # O que sumia da tela: mes COM extrato guardava o informado, e a tela o
+    # redesenhava como zero. Gravado e mostrado tem de ser o mesmo numero.
+    _cad = {"2026-09": {"meta": 0.0, "informado": 170000.0, "observacao": ""}}
+    _l = linha_do_mes(2026, 9, _cad, lista=[])
+    ok("o informado sobrevive num mes que tem extrato",
+       _l["informado"] == 170000.0)
+    ok("mas quem manda no realizado continua sendo o extrato",
+       _l["origem"] in ("extrato", "informado"))
+    ok("meta zerada nao vira meta", _l["meta"] == 0.0 and _l["saldo"] == 0.0)
 
     print("\nfalhas:", falhas)
