@@ -54,9 +54,10 @@ SEED = [
     ("PLASTICOS NOVA FENIX", "EMBALAGEM", "saida", ""),
     ("ER EMBALAGENS", "EMBALAGEM", "saida", ""),
     ("Nzb Comercio de Embalagens LTDA", "EMBALAGEM", "saida", ""),
-    ("RECEITA FEDERAL", "IMPOSTO", "saida",
+    # Os dois custos fixos que saem pela conta do Inter, ditos pelo dono.
+    ("RECEITA FEDERAL", "CUSTO FIXO", "saida",
      "DAS do Simples Nacional, pago no Pix quando não sai o código do boleto"),
-    ("Vanda Maria Martinez", "ESTACIONAMENTO", "saida", ""),
+    ("Vanda Maria Martinez", "CUSTO FIXO", "saida", "Estacionamento"),
     ("Katia Sola de Araujo", "LIMPEZA", "saida", "Faxineira das salas"),
     ("PIX Marketplace", "FRETE", "saida", "Frete de produto vendido no site"),
     ("Renan Candido Sousa", "REEMBOLSO", "saida",
