@@ -1061,6 +1061,15 @@ def get_ociosidade_mes(ano: int, mes: int, tempo_cards_por_user: dict,
         if _janelas_mes and u in intervalos_por_user:
             ativos = intervalos_por_user.get(u) or []
             ocio, hd_reais = 0.0, 0.0
+            # Os buracos, dia a dia, guardados em vez de descartados.
+            #
+            # `ociosidade_do_dia` sempre devolveu o detalhe de CADA trecho
+            # ocioso — hora de início, de fim e quanto contou — e o Studio
+            # jogava fora, mostrando só o total. Quem levava 42% não tinha como
+            # saber de onde veio, e a única resposta possível era "o sistema
+            # disse". Número que não se consegue auditar não se defende, e a
+            # equipe estava certa em questionar.
+            buracos = []
             for _data, _jans in _janelas_mes:
                 if not _jans:
                     continue
@@ -1081,7 +1090,15 @@ def get_ociosidade_mes(ano: int, mes: int, tempo_cards_por_user: dict,
                     _jans = _abm.descontar(_jans, _ab)
                     if not _jans:
                         continue
-                _o, _ = _pc.ociosidade_do_dia(_jans, ativos)
+                _o, _det = _pc.ociosidade_do_dia(_jans, ativos)
+                for _b in _det:
+                    buracos.append({
+                        "data": _data,
+                        "ini": _b["ini"].strftime("%H:%M"),
+                        "fim": _b["fim"].strftime("%H:%M"),
+                        "minutos": round(_b["minutos"], 1),
+                        "folga": _b["folga"],
+                    })
                 _bruto_dia = sum((f - i).total_seconds() / 60 for i, f in _jans)
                 # A hora pessoal do dia sai dos DOIS lados: do tempo ocioso e do
                 # tempo cobrado. Das 8h no relogio, 7h sao de atividade.
@@ -1106,6 +1123,7 @@ def get_ociosidade_mes(ano: int, mes: int, tempo_cards_por_user: dict,
             if hd_reais > 0:
                 hd = hd_reais
         else:
+            buracos = []
             # Sem linha do tempo: subtracao de totais, como era antes — mas ja
             # descontando a hora pessoal de cada dia trabalhado.
             _dias = (via_rhid.get(u, {}).get("dias_trabalhados")
@@ -1122,6 +1140,9 @@ def get_ociosidade_mes(ano: int, mes: int, tempo_cards_por_user: dict,
             "horas_disp_min": hd,
             "tempo_cards_min": tc,
             "ociosidade_min": ocio,
+            # Do maior para o menor: quem abre quer ver primeiro o dia que
+            # pesou, não o de três minutos.
+            "buracos": sorted(buracos, key=lambda b: -b["minutos"])[:60],
             "pct_ocioso": pct,
             "dias_trabalhados": (via_rhid.get(u, {}).get("dias_trabalhados")
                                  or resumo[u]["dias_trabalhados"]),

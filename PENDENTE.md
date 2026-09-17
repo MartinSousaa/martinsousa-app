@@ -218,3 +218,11 @@ ele conta.
 A divergência é a favor da equipe, então não é urgente. Mas são duas respostas
 para a mesma pergunta. Decisão do dono: PENDENTE entra na lista de
 interrupção, ou o texto muda?
+
+---
+
+## 8. ~~Custo fixo: duas fontes para o mesmo número~~ — RESOLVIDO em 17/09
+
+O dono decidiu: o Studio **provisiona** e o extrato **confere**. Linha de
+extrato ligada a um item de custo fixo atualiza o item em vez de entrar como
+gasto novo; divergência ajusta o valor daquele mês. Ver `FLUXO.md`.

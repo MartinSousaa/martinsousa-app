@@ -6,6 +6,11 @@ Ditadas pelo Léo, dono do negócio, em 09/09/2026. Elas vêm antes de tudo o qu
 está escrito abaixo e antes de qualquer instrução de tarefa. Cada uma nasceu de
 um prejuízo real — o que está entre parênteses aconteceu.
 
+**0. O sinal `!` é ordem de resumo.**
+Mensagem com `!` significa: resuma a resposta anterior. Sem explicação nova,
+sem justificativa, sem repetir o que já foi dito — só o essencial do que eu
+acabei de escrever, em poucas linhas.
+
 **1. Resumir. Ser preciso e didático.**
 Respostas de 3 a 6 linhas. Tabela em vez de parágrafo. "Sim ou não" recebe "sim"
 ou "não". *("Se eu tiver que ler todos os textos que me manda meu cérebro irá
