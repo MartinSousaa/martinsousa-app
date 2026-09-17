@@ -45,3 +45,42 @@ somadas na mesma tela.
 O custo fixo é digitado no Studio e o mesmo gasto aparece no extrato. Enquanto
 não se escolher qual das duas fontes manda (ver `FLUXO.md`), a meta de gastos
 corre risco de contar o mesmo dinheiro duas vezes.
+
+---
+
+## A meta acompanha o faturamento — só pela mercadoria
+
+Decidido em 17/09/2026.
+
+A meta de gastos é feita para o faturamento do **ponto de equilíbrio**. Vendendo
+acima dele, é preciso comprar mais mercadoria para sustentar a venda, e cobrar a
+mesma meta puniria justamente o mês bom.
+
+    faturamento excedente = faturamento − ponto de equilíbrio
+    folga                 = excedente × CMV
+    meta do mês           = meta base + folga
+
+Exemplo do dono: meta 150k, equilíbrio 240k, faturou 300k. Com CMV de 35%, os
+60k a mais liberam 21k de mercadoria, e a meta do mês vira 171k.
+
+### A folga é só de mercadoria
+
+> "O que não pode é aumentar o faturamento e nos gastos aumentar o 'outros'."
+
+Por isso existem dois tetos, e não um:
+
+| Teto | Vale para | Cresce com o faturamento? |
+|---|---|---|
+| Flexível | Mercadoria | **Sim** |
+| Rígido | Todo o resto | **Não** — é a meta base menos a mercadoria que ela já previa |
+
+O teto do rígido é **fixo**, e de propósito. Se ele fosse "o que sobrou da
+mercadoria", comprar menos para vender passaria a liberar gasto em "outros" —
+o contrário do que a meta existe para fazer.
+
+### O que ainda falta
+
+O **CMV** — quanto de cada real vendido vira mercadoria. Ou o gestor digita, ou
+sai da razão medida entre mercadoria e faturamento do mês. Enquanto não houver
+um, a meta não cresce: liberar gasto por um número que ninguém configurou é o
+tipo de erro que só aparece no fim do mês.

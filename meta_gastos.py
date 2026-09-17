@@ -152,6 +152,86 @@ def salvar(mes_txt, meta=None, informado=None, observacao=None, usuario=""):
     return True, f"{rotulo(alvo)} salvo."
 
 
+# ── A meta que acompanha o faturamento ───────────────────────────────────────
+#
+# Regra do dono. A meta de gastos é feita para o faturamento do ponto de
+# equilíbrio. Vendendo ACIMA dele, é preciso comprar mais mercadoria para
+# sustentar a venda — e cobrar a mesma meta nesse mês puniria justamente o mês
+# bom.
+#
+# Mas a folga é SÓ de mercadoria. Faturar mais não autoriza gastar mais em
+# "outros": esse é o gasto que cresce sozinho quando ninguém olha, e é
+# exatamente o que a meta existe para segurar.
+#
+# Quanto de cada real vendido a mais vira mercadoria é o CMV do negócio. Ele
+# não é chutado aqui: ou o gestor digita, ou sai da razão medida entre o que se
+# gastou em mercadoria e o que se faturou.
+CMV_PADRAO = 0.0
+
+# As finalidades que ganham folga quando o faturamento passa do equilíbrio.
+# Uma só, e de propósito: a lista existe para o dia em que ele disser que
+# embalagem também acompanha — e para que ninguém acrescente "outros" sem
+# decidir isso em voz alta.
+FLEXIVEIS = ("MERCADORIA",)
+
+
+def meta_ajustada(meta_base, faturamento, equilibrio, cmv=CMV_PADRAO):
+    """A meta do mês depois da folga por faturamento. Função pura.
+
+    Devolve {"base", "excedente", "folga", "meta", "cmv"}.
+
+    Abaixo do equilíbrio não há folga: a meta é a base. Acima, cada real
+    excedente libera `cmv` de mercadoria.
+    """
+    base = max(_num(meta_base), 0.0)
+    fat = max(_num(faturamento), 0.0)
+    eq = max(_num(equilibrio), 0.0)
+    taxa = max(_num(cmv), 0.0)
+    excedente = max(fat - eq, 0.0) if eq else 0.0
+    folga = excedente * taxa
+    return {"base": base, "excedente": excedente, "folga": folga,
+            "meta": base + folga, "cmv": taxa}
+
+
+def cmv_medido(gasto_mercadoria, faturamento):
+    """Quanto de cada real faturado virou mercadoria. 0.0 sem faturamento.
+
+    É a origem honesta do `cmv`: o que já aconteceu, e não uma expectativa.
+    """
+    fat = max(_num(faturamento), 0.0)
+    if fat <= 0:
+        return 0.0
+    return max(_num(gasto_mercadoria), 0.0) / fat
+
+
+def mercadoria_prevista(equilibrio, cmv):
+    """Quanto de mercadoria a meta base já contava, no faturamento de
+    equilíbrio. É o que separa a folga legítima do resto."""
+    return max(_num(equilibrio), 0.0) * max(_num(cmv), 0.0)
+
+
+def diagnostico_estouro(realizado_por_finalidade, meta_base, prevista):
+    """Estourou por mercadoria, ou por outra coisa? Função pura.
+
+    A pergunta que o dono faz quando a meta estoura, e que o total sozinho não
+    responde: o gasto a mais foi comprar para vender, ou foi o resto crescendo
+    junto? Devolve {"total", "flexivel", "rigido", "teto_rigido", "ok_rigido"}.
+
+    O teto do que NÃO acompanha faturamento é fixo: a meta base menos a
+    mercadoria que ela já previa. Fixo de propósito — se ele fosse "o que
+    sobrou da mercadoria", comprar menos para vender liberaria gastar mais em
+    "outros", que é o contrário do que a meta existe para fazer.
+    """
+    itens = dict(realizado_por_finalidade or {})
+    flexivel = sum(v for k, v in itens.items()
+                   if str(k).strip().upper() in FLEXIVEIS)
+    total = sum(itens.values())
+    rigido = total - flexivel
+    teto_rigido = max(_num(meta_base) - _num(prevista), 0.0)
+    return {"total": total, "flexivel": flexivel, "rigido": rigido,
+            "teto_rigido": teto_rigido, "ok_rigido": rigido <= teto_rigido}
+
+
 def realizado_dos_lancamentos(ano, mes, lista=None):
     """O que os extratos dizem que saiu naquele mês. None quando não há nada.
 
@@ -285,5 +365,54 @@ if __name__ == "__main__":
        max(SEED_HISTORICO, key=SEED_HISTORICO.get) == "2026-04")
     ok("nenhum mes do historico vem zerado",
        all(v > 0 for v in SEED_HISTORICO.values()))
+
+    # ── A meta que acompanha o faturamento ────────────────────────────────
+    _semfolga = meta_ajustada(150000, 230000, 240000, 0.35)
+    ok("abaixo do equilibrio a meta e a base",
+       _semfolga["meta"] == 150000.0 and _semfolga["folga"] == 0.0)
+
+    _com = meta_ajustada(150000, 300000, 240000, 0.35)
+    ok("60 mil acima do equilibrio liberam 21 mil de mercadoria",
+       _com["excedente"] == 60000.0 and abs(_com["folga"] - 21000.0) < .01
+       and abs(_com["meta"] - 171000.0) < .01)
+    ok("no equilibrio exato ainda nao ha folga",
+       meta_ajustada(150000, 240000, 240000, 0.35)["folga"] == 0.0)
+    # Sem equilibrio definido nao se inventa folga: liberar gasto por um numero
+    # que ninguem configurou e o tipo de erro que so aparece no fim do mes.
+    ok("sem ponto de equilibrio a meta nao cresce",
+       meta_ajustada(150000, 300000, 0, 0.35)["meta"] == 150000.0)
+    ok("sem cmv a meta nao cresce",
+       meta_ajustada(150000, 300000, 240000, 0)["meta"] == 150000.0)
+
+    ok("o cmv medido e mercadoria sobre faturamento",
+       abs(cmv_medido(36568.38, 104481.09) - 0.35) < 0.001)
+    ok("sem faturamento o cmv e zero, e nao divisao por zero",
+       cmv_medido(1000, 0) == 0.0)
+
+    # O caso que o dono nomeou: faturou mais, gastou mais — mas em "outros".
+    _prev = mercadoria_prevista(240000, 0.35)
+    ok("a meta base ja previa 84 mil de mercadoria no equilibrio",
+       abs(_prev - 84000.0) < .01)
+    _so_mercadoria = diagnostico_estouro(
+        {"MERCADORIA": 71000.0, "FOLHA": 40000.0, "OUTROS": 9000.0},
+        150000, _prev)
+    ok("estouro por mercadoria nao acusa o resto",
+       _so_mercadoria["ok_rigido"] is True)
+    # Comprar MENOS mercadoria nao pode liberar gastar mais em "outros": o teto
+    # do rigido e fixo, e nao a sobra do flexivel.
+    ok("teto do rigido e a meta base menos a mercadoria prevista",
+       abs(_so_mercadoria["teto_rigido"] - 66000.0) < .01)
+    _outros_cresceu = diagnostico_estouro(
+        {"MERCADORIA": 50000.0, "FOLHA": 40000.0, "OUTROS": 75000.0},
+        150000, _prev)
+    ok("quando o resto cresce, o diagnostico acusa",
+       _outros_cresceu["ok_rigido"] is False)
+    ok("o diagnostico separa o que acompanha do que nao acompanha",
+       _outros_cresceu["flexivel"] == 50000.0
+       and _outros_cresceu["rigido"] == 115000.0)
+    ok("lista vazia nao derruba",
+       diagnostico_estouro({}, 150000, 0)["total"] == 0.0)
+    ok("mercadoria prevista sem cmv e zero",
+       mercadoria_prevista(240000, 0) == 0.0)
 
     print("\nfalhas:", falhas)
