@@ -155,8 +155,12 @@ Ainda NÃO estão na planilha. Ficam aqui para não se perderem no chat.
 Vale-transporte: pago no primeiro salário, proporcional aos dias do mês
 anterior; cheio só quando a pessoa fecha o mês inteiro.
 
-Vale-transporte: 233,33 por pessoa. **Renan** é exceção: 900,00 há dois meses,
-700,00 antes (falta o mês exato em que mudou).
+Vale-transporte: 233,33 por pessoa (a equipe CLT inteira).
+
+**Renan não é CLT** — é sócio, e a folha dele já está no Studio. Os R$ 900 que
+o dono chamou de vale-transporte são o **vale-combustível** do sócio, já
+cadastrado (`folha_salarial.py:86`). O que falta lá é o histórico: era 700 até
+junho, virou 900 a partir de 30/07/2026.
 
 Agosto teve duas coisas fora do normal:
 - Gabriel, Myrella e Beatriz: +12% sobre o salário (bateram a meta MAXX
@@ -171,10 +175,11 @@ Agosto teve duas coisas fora do normal:
    pessoa entrou. Para quem entrou em 24 e 26 de agosto, agosto sai inflado.
    `dias_uteis` não serve para isso: ele só divide a refeição
    (`colaboradores.py:325`).
-2. **Vale-transporte é constante única no código**: `VALE_TRANSPORTE_MES =
-   233,33` (`colaboradores.py:95`), igual para todos e sem histórico. Os 900,00
-   do Renan não cabem nela. Precisa virar campo por pessoa, com vigência —
-   pelas mesmas razões pelas quais a lista de colaboradores saiu do código.
+2. **Vale-transporte era constante única no código**: 233,33 igual para todos
+   e sem histórico. Virou campo por pessoa com vigência. (A motivação original
+   era o Renan; ele acabou sendo outro caso — sócio, vale-combustível —, mas o
+   conserto continua certo: sem ele, o mês de admissão cobrava VT cheio de
+   quem trabalhou seis dias.)
 3. **Bônus de um mês só não tem lugar.** Um ajuste vale "deste mês em diante".
    Os 12% de agosto cabem no modelo atual com DOIS ajustes (agosto com o valor
    maior, setembro de volta ao normal) — funciona hoje, sem código, e deixa o

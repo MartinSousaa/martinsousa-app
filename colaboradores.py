@@ -95,11 +95,14 @@ TAXA_MULTA_FGTS = 0.0400
 # O gestor conferiu o que de fato sai: R$ 233,33 por colaborador por mês.
 #
 # Este número é o PADRÃO da casa, e não mais a resposta final: ele vale para
-# quem não tem valor próprio na grade. O Renan recebe R$ 900 desde julho de
-# 2026, antes R$ 700 — com uma constante só, o custo dele saía R$ 666 abaixo
-# do real todo mês, e não havia lugar nenhum para dizer isso. Valor por pessoa
-# fica na coluna `vale_transporte`; mudança de valor vai em "Ajuste de valor",
-# na grade `vale_transporte`, que é o que guarda desde quando.
+# quem não tem valor próprio na grade. Hoje a equipe inteira recebe os 233,33
+# — a coluna existe para o dia em que um deles não receber, e para o mês de
+# admissão, que é proporcional. Valor por pessoa fica na coluna
+# `vale_transporte`; mudança de valor vai em "Ajuste de valor", na grade
+# `vale_transporte`, que é o que guarda desde quando.
+#
+# (Os R$ 900 do Renan NÃO são deste módulo: sócio não é CLT, e lá são
+# vale-combustível — folha_salarial.py:86.)
 VALE_TRANSPORTE_MES = 233.33
 
 # A lei deixa descontar até 6% do salário do empregado a título de
