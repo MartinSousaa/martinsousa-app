@@ -113,8 +113,7 @@ def _perguntar(fila, _fv, usuario_logado):
 def _finalidades_conhecidas(_fv):
     """As finalidades já usadas, mais as que a casa sempre teve."""
     base = ["MERCADORIA", "EMBALAGEM", "CUSTO FIXO", "NÃO OPERACIONAL",
-            "IMPOSTO", "ALIMENTACAO", "LIMPEZA", "ESTACIONAMENTO", "FRETE",
-            "REEMBOLSO", "CONSUMO INTERNO", "TRANSFERENCIA ENTRE CONTAS",
+            "IMPOSTO", "SERVIÇO", "CONSUMO INTERNO", "TRANSFERENCIA ENTRE CONTAS",
             "MERCADO LIVRE", "SHOPEE", "AMAZON", "SITE", "OUTROS"]
     try:
         usadas = {v["finalidade"] for v in (_fv.carregar() or {}).values()
