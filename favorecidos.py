@@ -1,0 +1,276 @@
+"""favorecidos.py — o que cada nome do extrato significa, dito uma vez.
+
+O PROBLEMA
+----------
+O extrato diz PARA QUEM o dinheiro foi, e nada sobre o que aquilo é. "Vanda
+Maria Martinez" é estacionamento; "Katia Sola de Araujo" é a faxineira das
+salas; "APEXIMP" é mercadoria; "MAREE INSTITUICAO DE PAGAMENTO" é repasse da
+Shopee. Nenhuma dessas respostas está no arquivo — todas estão na cabeça do
+dono, e é por isso que a classificação era manual, mês após mês, nas mesmas
+52 linhas.
+
+Aqui cada nome é classificado UMA vez. No mês seguinte, as 16 linhas da
+APEXIMP já entram como mercadoria.
+
+A ARMADILHA QUE ESTE MÓDULO EVITA
+---------------------------------
+Entrada com o nome da própria empresa NÃO é transferência entre contas: no
+extrato do Inter, "Pix recebido - LITTLE GLASS COMERCIO" é repasse do MERCADO
+LIVRE, e "MAREE INSTITUICAO DE PAGAMENTO" é a SHOPEE. Quem lê o nome e conclui
+"dinheiro meu indo de uma conta para outra" tira 30 mil de faturamento do mês
+— foi o que eu conclui antes de o dono mostrar a coluna FINALIDADE dele.
+
+Por isso a origem da entrada é cadastro, e não dedução pelo nome.
+
+ONDE MORA
+---------
+Na aba `favorecidos` da planilha, como todo cadastro deste projeto. O SEED
+abaixo é o que o dono já classificou à mão no extrato de agosto/2026, e serve
+só para a primeira carga — depois quem manda é a planilha.
+"""
+
+from datetime import datetime, timezone, timedelta
+
+import streamlit as st
+
+ABA_NOME = "favorecidos"
+COLUNAS = ["favorecido", "finalidade", "tipo", "observacao",
+           "atualizado_em", "atualizado_por"]
+
+FUSO = timezone(timedelta(hours=-3))
+
+# saida  -> consome a meta de gastos
+# entrada -> é dinheiro entrando, e `finalidade` diz de qual plataforma
+TIPOS = ("saida", "entrada")
+
+# O que o dono classificou à mão na coluna FINALIDADE do extrato de agosto.
+# Primeira carga apenas: depois a planilha manda, e mudar aqui não muda nada.
+SEED = [
+    ("APEXIMP", "MERCADORIA", "saida", ""),
+    ("Apeximp Comercio de Presentes Importacao E Exportacao LTDA",
+     "MERCADORIA", "saida", ""),
+    ("LEXTACK COMERCIO DE PRESENTES LTDA", "MERCADORIA", "saida", ""),
+    ("Lextack Comercio de Presentes LTDA", "MERCADORIA", "saida", ""),
+    ("PLASTICOS NOVA FENIX", "EMBALAGEM", "saida", ""),
+    ("ER EMBALAGENS", "EMBALAGEM", "saida", ""),
+    ("Nzb Comercio de Embalagens LTDA", "EMBALAGEM", "saida", ""),
+    ("RECEITA FEDERAL", "IMPOSTO", "saida",
+     "DAS do Simples Nacional, pago no Pix quando não sai o código do boleto"),
+    ("Vanda Maria Martinez", "ESTACIONAMENTO", "saida", ""),
+    ("Katia Sola de Araujo", "LIMPEZA", "saida", "Faxineira das salas"),
+    ("PIX Marketplace", "FRETE", "saida", "Frete de produto vendido no site"),
+    ("Renan Candido Sousa", "REEMBOLSO", "saida",
+     "Pagou mercadoria com dinheiro dele e se reembolsa"),
+    ("ESPETARIA IBITIRAMA COMERCIO DE ALIMENTOS LTDA", "ALIMENTACAO", "saida", ""),
+    ("SUPERMERCADO DA PRACA IBITIRAMA LTDA", "ALIMENTACAO", "saida", ""),
+    ("ESFIHARIA POLY", "ALIMENTACAO", "saida", ""),
+    ("OBA HORTIFRUTI", "ALIMENTACAO", "saida", ""),
+    ("VINDI PAGAMENTOS ONLINE", "CUSTO FIXO", "saida", ""),
+    # Entradas: o nome não diz a plataforma, e deduzir pelo nome é o erro.
+    ("MAREE INSTITUICAO DE PAGAMENTO LTDA", "SHOPEE", "entrada", ""),
+    ("LITTLE GLASS COMERCIO DE AROMATIZADORES E PRODUTOS LTDA",
+     "MERCADO LIVRE", "entrada", "Repasse, não transferência entre contas"),
+    ("MARTINS E SOUSA COMERCIO DE PRODUTOS IMPORTADOS E NACIONAIS LTDA",
+     "MERCADO LIVRE", "entrada", "Repasse, não transferência entre contas"),
+]
+
+
+def chave(nome):
+    """A forma comparável de um favorecido.
+
+    O mesmo fornecedor aparece como "APEXIMP" e "Apeximp Comercio de Presentes
+    Importacao E Exportacao LTDA"; sem normalizar, viram dois cadastros e o
+    total do mês sai partido em dois.
+    """
+    import re
+    import unicodedata
+    t = str(nome or "").strip().upper()
+    if not t:
+        return ""
+    t = unicodedata.normalize("NFKD", t)
+    t = "".join(c for c in t if not unicodedata.combining(c))
+    t = re.sub(r"\b(LTDA|ME|EPP|SA|S/A|EIRELI|COMERCIO|DE|DA|DO|E)\b", " ", t)
+    t = re.sub(r"[^A-Z0-9 ]", " ", t)
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def _aba():
+    import gspread
+    import sheets as _sh
+    planilha = _sh.planilha()
+    try:
+        return planilha.worksheet(ABA_NOME)
+    except gspread.WorksheetNotFound:
+        nova = planilha.add_worksheet(title=ABA_NOME, rows=400,
+                                      cols=len(COLUNAS))
+        nova.append_row(COLUNAS, value_input_option="RAW")
+        nova.append_rows(
+            [[f, fin, tp, obs, "", "seed"] for f, fin, tp, obs in SEED],
+            value_input_option="RAW")
+        return nova
+
+
+@st.cache_data(ttl=300)
+def carregar():
+    """{chave: {"favorecido", "finalidade", "tipo", "observacao"}}.
+
+    Vazio em qualquer falha: sem cadastro, tudo cai como não classificado — que
+    é visível na tela. Classificar por chute seria invisível.
+    """
+    try:
+        registros = _aba().get_all_records()
+    except Exception:
+        return {}
+    fora = {}
+    for linha in registros:
+        nome = str(linha.get("favorecido", "") or "").strip()
+        k = chave(nome)
+        if not k:
+            continue
+        fora[k] = {
+            "favorecido": nome,
+            "finalidade": str(linha.get("finalidade", "") or "").strip(),
+            "tipo": str(linha.get("tipo", "") or "saida").strip().lower(),
+            "observacao": str(linha.get("observacao", "") or "").strip(),
+        }
+    return fora
+
+
+def casar(nome, cadastro):
+    """O cadastro que corresponde a este nome. None quando não há.
+
+    Primeiro a chave exata. Depois, o prefixo: o mesmo fornecedor aparece como
+    "APEXIMP" e como "Apeximp Comercio de Presentes Importacao E Exportacao
+    LTDA", e normalizar não junta os dois — um é começo do outro, não o mesmo
+    texto.
+
+    O prefixo só vale quando UM candidato casa. Com dois, o nome é ambíguo
+    ("ER EMBALAGENS" e "ER TRANSPORTES" começam igual), e classificar um como
+    o outro seria erro que ninguém vê: o total do mês fica certo, e a
+    finalidade, errada.
+    """
+    k = chave(nome)
+    if not k:
+        return None
+    if k in cadastro:
+        return cadastro[k]
+    candidatos = [v for ck, v in cadastro.items()
+                  if len(ck) >= 4 and (k.startswith(ck + " ") or
+                                       ck.startswith(k + " "))]
+    return candidatos[0] if len(candidatos) == 1 else None
+
+
+def classificar(lancamentos, cadastro=None):
+    """Põe `finalidade` em cada lançamento. Devolve (classificados, faltando).
+
+    `faltando` é a lista de nomes sem cadastro, do maior valor para o menor —
+    é a fila de trabalho do dono, e ela encurta a cada mês.
+    """
+    cad = carregar() if cadastro is None else cadastro
+    fora, faltando = [], {}
+    for l in (lancamentos or []):
+        nome = l.get("favorecido") or l.get("razao_social") or ""
+        reg = casar(nome, cad)
+        novo = dict(l)
+        novo["finalidade"] = reg["finalidade"] if reg else ""
+        novo["classificado"] = bool(reg)
+        fora.append(novo)
+        if not reg and nome:
+            d = faltando.setdefault(nome, {"n": 0, "total": 0.0})
+            d["n"] += 1
+            d["total"] += abs(float(l.get("valor") or 0))
+    fila = sorted(({"favorecido": k, **v} for k, v in faltando.items()),
+                  key=lambda x: -x["total"])
+    return fora, fila
+
+
+def salvar(favorecido, finalidade, tipo="saida", observacao="", usuario=""):
+    """Grava ou atualiza a classificação de um nome. (ok, mensagem)."""
+    nome = str(favorecido or "").strip()
+    if not nome or not str(finalidade or "").strip():
+        return False, "Favorecido e finalidade são obrigatórios."
+    agora = datetime.now(FUSO).strftime("%Y-%m-%d %H:%M")
+    linha = [nome, str(finalidade).strip().upper(),
+             (tipo if tipo in TIPOS else "saida"),
+             str(observacao or "")[:200], agora, str(usuario or "")[:60]]
+    try:
+        aba = _aba()
+        alvo = chave(nome)
+        atuais = aba.get_all_records()
+        pos = next((i for i, l in enumerate(atuais)
+                    if chave(l.get("favorecido")) == alvo), None)
+        if pos is None:
+            aba.append_row(linha, value_input_option="RAW")
+        else:
+            fim = chr(ord("A") + len(COLUNAS) - 1)
+            aba.update(f"A{pos + 2}:{fim}{pos + 2}", [linha],
+                       value_input_option="RAW")
+    except Exception as e:
+        return False, str(e)[:200]
+    carregar.clear()
+    return True, f"{nome} → {finalidade}."
+
+
+# ── Conferência ──────────────────────────────────────────────────────────────
+if __name__ == "__main__":
+    falhas = 0
+
+    def ok(nome, cond):
+        global falhas
+        falhas += not cond
+        print(("ok    " if cond else "FALHA ") + nome)
+
+    # O mesmo fornecedor com duas redacoes tem que virar um cadastro so.
+    # A chave NAO junta "APEXIMP" com a razao social inteira — um e comeco do
+    # outro, nao o mesmo texto. Quem junta e `casar`, e so quando nao ha duvida.
+    ok("a chave tira ltda, comercio e conectivos",
+       chave("ER EMBALAGENS LTDA") == "ER EMBALAGENS")
+    ok("caixa e acento nao criam cadastro novo",
+       chave("Plásticos Nova Fênix") == chave("PLASTICOS NOVA FENIX"))
+    ok("pontuacao nao separa",
+       chave("VINDI PAGAMENTOS ONLINE.") == chave("Vindi Pagamentos Online"))
+    ok("nome vazio nao vira chave", chave("") == "" and chave(None) == "")
+    # Dois fornecedores diferentes nao podem colidir.
+    ok("nomes diferentes continuam diferentes",
+       chave("ER EMBALAGENS") != chave("NZB EMBALAGENS"))
+
+    CAD = {chave(f): {"favorecido": f, "finalidade": fin, "tipo": tp,
+                      "observacao": o} for f, fin, tp, o in SEED}
+    LANC = [
+        {"favorecido": "APEXIMP", "valor": -1303.00},
+        {"favorecido": "Apeximp Comercio de Presentes  Importacao E Exportacao LTDA",
+         "valor": -1372.44},
+        {"favorecido": "MAREE INSTITUICAO DE PAGAMENTO LTDA", "valor": 2181.29},
+        {"favorecido": "AGE UNDERWEAR", "valor": -200.00},
+        {"favorecido": "Jie Meng", "valor": -190.00},
+        {"favorecido": "Jie Meng", "valor": -186.00},
+    ]
+    ok("nome curto casa com a razao social inteira",
+       casar("Apeximp Comercio de Presentes Importacao E Exportacao LTDA",
+             {chave("APEXIMP"): {"finalidade": "MERCADORIA"}})
+       ["finalidade"] == "MERCADORIA")
+    ok("dois candidatos com o mesmo comeco NAO sao casados no chute",
+       casar("ER ALGUMA COISA",
+             {chave("ER EMBALAGENS"): {"finalidade": "A"},
+              chave("ER TRANSPORTES"): {"finalidade": "B"}}) is None)
+    ok("prefixo curto demais nao casa",
+       casar("JB PEREIRA", {chave("JB"): {"finalidade": "X"}}) is None)
+
+    _c, _fila = classificar(LANC, CAD)
+    ok("as duas redacoes da Apeximp saem como MERCADORIA",
+       _c[0]["finalidade"] == "MERCADORIA" and _c[1]["finalidade"] == "MERCADORIA")
+    ok("entrada da Shopee e reconhecida, e nao vira transferencia",
+       _c[2]["finalidade"] == "SHOPEE")
+    # O erro que este modulo existe para impedir.
+    ok("repasse do ML chega com o nome da empresa e NAO e transferencia",
+       CAD[chave("LITTLE GLASS COMERCIO DE AROMATIZADORES E PRODUTOS LTDA")]
+       ["finalidade"] == "MERCADO LIVRE")
+    ok("quem nao tem cadastro fica sem finalidade, e nao com um chute",
+       _c[3]["finalidade"] == "" and _c[3]["classificado"] is False)
+    ok("a fila vem do maior para o menor",
+       [x["favorecido"] for x in _fila] == ["Jie Meng", "AGE UNDERWEAR"])
+    ok("a fila soma as vezes do mesmo nome",
+       _fila[0]["n"] == 2 and abs(_fila[0]["total"] - 376.0) < 0.01)
+    ok("lista vazia nao derruba", classificar([], CAD) == ([], []))
+
+    print("\nfalhas:", falhas)
