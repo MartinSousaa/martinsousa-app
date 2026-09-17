@@ -73,7 +73,7 @@ def pagina(usuario_logado=None):
         "realizado": l["realizado"],
         "de onde": ORIGEM.get(l["origem"], l["origem"]),
         "saldo": l["saldo"],
-        "informado": (l["realizado"] if l["origem"] == "informado" else 0.0),
+        "informado": l["informado"],
         "observação": l["observacao"],
     } for l in linhas])
 
@@ -94,9 +94,13 @@ def pagina(usuario_logado=None):
             column_config={
                 "mês": st.column_config.TextColumn(disabled=True,
                                                    width="small"),
-                "meta": st.column_config.NumberColumn("Meta", format="%.2f",
-                                                      min_value=0.0,
-                                                      step=100.0),
+                "meta": st.column_config.NumberColumn(
+                    "🎯 META — digite aqui", format="%.2f", min_value=0.0,
+                    step=100.0,
+                    help="Quanto se PODE gastar no mês. É esta a coluna que a "
+                         "Home lê em «Meta do mês». Não confunda com "
+                         "«Informado por você», que é quanto já saiu nos "
+                         "meses sem extrato."),
                 "realizado": st.column_config.NumberColumn(
                     "Realizado", format="%.2f", disabled=True),
                 "de onde": st.column_config.TextColumn(disabled=True,
@@ -118,10 +122,8 @@ def pagina(usuario_logado=None):
         _n = 0
         for i, r in editado.iterrows():
             antes = linhas[i]
-            _inf_antes = (antes["realizado"] if antes["origem"] == "informado"
-                          else 0.0)
             if (float(r["meta"]) == antes["meta"]
-                    and float(r["informado"]) == _inf_antes
+                    and float(r["informado"]) == antes["informado"]
                     and str(r["observação"] or "") == antes["observacao"]):
                 continue
             _ok, _msg = _mg.salvar(antes["mes"], meta=float(r["meta"]),
