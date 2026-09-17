@@ -119,6 +119,9 @@ SEED = [
     ("LITTLE GLASS", "TRANSFERENCIA ENTRE CONTAS", "saida",
      "Repasse da Shopee sendo passado para a conta da Little Glass"),
     ("F CARNEIRO CIA LTDA", "SHOPEE", "entrada", ""),
+    ("MODA MUNDIAL BRASIL", "SHEIN", "entrada", "Instituição de pagamento da Shein"),
+    ("MODA MUNDIAL BRASIL PAGAMENTOS LTDA", "SHEIN", "entrada", ""),
+    ("MODA MUNDIAL BRASIL INTERMED", "SHEIN", "entrada", ""),
     ("Debito titulo KG", "NÃO OPERACIONAL", "saida", ""),
     # O extrato do Itaú rotula errado, e o rótulo dele é o que engana: os
     # R$ 170.000 de "PAGAMENTOS A FORNECEDORES" foram transferidos para a outra

@@ -114,7 +114,7 @@ def _finalidades_conhecidas(_fv):
     """As finalidades já usadas, mais as que a casa sempre teve."""
     base = ["MERCADORIA", "EMBALAGEM", "CUSTO FIXO", "NÃO OPERACIONAL",
             "IMPOSTO", "SERVIÇO", "CONSUMO INTERNO", "TRANSFERENCIA ENTRE CONTAS",
-            "MERCADO LIVRE", "SHOPEE", "AMAZON", "SITE", "OUTROS"]
+            "MERCADO LIVRE", "SHOPEE", "SHEIN", "AMAZON", "SITE", "OUTROS"]
     try:
         usadas = {v["finalidade"] for v in (_fv.carregar() or {}).values()
                   if v.get("finalidade")}
