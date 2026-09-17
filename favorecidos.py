@@ -134,6 +134,11 @@ SEED = [
     # DAS do Simples: no Inter sai como RECEITA FEDERAL, no Itaú como
     # PAGAMENTOS / SIMPLES NACIONAL. Mesmo imposto, mesma finalidade.
     ("SIMPLES NACIONAL", "CUSTO FIXO", "saida", "DAS do Simples Nacional"),
+    # Ditos pelo dono em 17/09, lendo a fila do extrato do Itaú.
+    ("GRUPO GARCIA IMOBILIARIA", "CUSTO FIXO", "saida", "Aluguel"),
+    ("SIMONE MARIA DOS SANTOS", "MERCADORIA", "saida", ""),
+    ("IMPORIENTE COMERCIO EXTERIOR LTDA", "MERCADORIA", "saida", ""),
+    ("POLICARGO SERVICE", "MERCADORIA", "saida", ""),
     # ── Fatura do cartao do Inter, anotada pelo dono em 17/09 ────────────
     # Ele marcou alguns e mandou aplicar aos semelhantes. Os semelhantes
     # ficam explicitos aqui: "aplicar ao parecido" nao pode virar regra de
