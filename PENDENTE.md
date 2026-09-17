@@ -205,3 +205,16 @@ Agosto teve duas coisas fora do normal:
 | (este) | Proporcional do mês de admissão e vale-transporte por pessoa |
 
 Nada sobe para `main` sem o dono mandar.
+
+---
+
+## 7. PENDENTE conta como trabalho, e o texto diz que não  ·  17/09/2026
+
+Achado durante o mapeamento da ociosidade (ver `OCIOSIDADE.md`).
+`explicacao_metas.py:228` diz à equipe que cartão PENDENTE não conta como
+atividade; `LABELS_INTERRUPCAO` (`placar_core.py:432`) não tem PENDENTE, então
+ele conta.
+
+A divergência é a favor da equipe, então não é urgente. Mas são duas respostas
+para a mesma pergunta. Decisão do dono: PENDENTE entra na lista de
+interrupção, ou o texto muda?

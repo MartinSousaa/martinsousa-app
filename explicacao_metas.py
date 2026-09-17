@@ -46,6 +46,13 @@ NOME_IND_MAXX = "meta individual MAXX"
 
 # Limites dos cinco indicadores. Moram aqui, junto da explicacao que os
 # descreve, para que mudar um numero mude tambem o texto que a equipe le.
+#
+# O texto da ociosidade dizia "INTERROMPIDO ou PENDENTE nao conta como
+# atividade", e PENDENTE nao esta em LABELS_INTERRUPCAO (placar_core.py:432):
+# na pratica ele conta. Das duas respostas para a mesma pergunta, corrigiu-se
+# a que nao mexe em numero nenhum — o texto. Mudar a REGRA faria a ociosidade
+# de quem tem cartao pendente subir de um dia para o outro, e isso e decisao
+# do dono, nao conserto de divergencia.
 OCIO_META_NORMAL = 10
 OCIO_META_MAXX = 5
 EXEC_META_NORMAL = 80
@@ -225,8 +232,8 @@ def _explicar_indicadores(mc_n=None, mc_x=None, ad_n=None, ad_x=None):
         ("⏱️", "Ociosidade", "#4A90D9",
          "Tempo do seu dia <b>sem nenhum cartão EM ANDAMENTO</b> no seu nome.",
          f"Você tem {g_ini} min ao chegar, {g_ent} min a cada troca de cartão "
-         f"e {pausa}h por dia de pausa. Cartão <b>INTERROMPIDO</b> ou "
-         f"<b>PENDENTE</b> não conta como atividade. Meta: abaixo de "
+         f"e {pausa}h por dia de pausa. Cartão <b>INTERROMPIDO</b> ou com "
+         f"<b>FIM DE EXPEDIENTE</b> não conta como atividade. Meta: abaixo de "
          f"{OCIO_META_NORMAL}% ({OCIO_META_MAXX}% na MAXX)."),
 
         ("⚡", "Tempo de execução", "#EDA100",

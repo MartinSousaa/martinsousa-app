@@ -1137,6 +1137,18 @@ def get_ociosidade_mes(ano: int, mes: int, tempo_cards_por_user: dict,
             "banco_min":       float(via_rhid.get(u, {}).get("banco_min", 0.0) or 0.0),
             "minutos_atraso":  float(via_rhid.get(u, {}).get("minutos_atraso", 0.0) or 0.0),
         }
+    # O perdao de um mes, quando houve, entra AQUI e em nenhum outro lugar.
+    #
+    # Esta funcao e a fonte das tres telas que mostram ociosidade. Aplicar em
+    # cada uma daria tres respostas para a mesma pergunta, e elas passariam a
+    # discordar na primeira mudanca — a questao seria so quando.
+    #
+    # Falha nao perdoa nada: sem a aba, vale o medido, que e o padrao certo.
+    try:
+        import ociosidade_ajuste as _oaj
+        resultado = _oaj.aplicar(resultado, ano, mes, _oaj.carregar())
+    except Exception:
+        pass
     return resultado
 
 
@@ -1799,6 +1811,77 @@ def _secao_paradas():
             st.rerun() if _ok else st.error(_msg)
 
 
+def _secao_ajuste_ociosidade(usuario_logado=None):
+    """Fecha um mês com a ociosidade acordada, em vez da medida.
+
+    Setembro de 2026: a ociosidade estourou a meta de 10%, o gestor sentou com
+    a equipe e fechou o mês em 5% para todo mundo — dentro da meta —, com a
+    regra de que de outubro em diante vale o número real.
+
+    Isto NÃO corrige a medição: ela continua certa e continua guardada. É uma
+    decisão de gestão sobre um mês, e o painel mostra as duas coisas — o
+    acordado e, ao lado, o que foi medido. Painel que esconde o real vira
+    número em que ninguém confia depois.
+
+    Mora aqui, ao lado das paradas e dos abatimentos, porque é a mesma família:
+    hora que não conta para o indicador.
+    """
+    import ociosidade_ajuste as _oaj
+    import placar_core as _pc_oa
+
+    st.markdown("#### ⏱️ Fechar um mês com ociosidade acordada")
+    st.caption(
+        "Para o acordo fechado com a equipe: o mês entra com o percentual "
+        "combinado, e o medido continua visível ao lado. Não apaga nada."
+    )
+
+    _hoje = datetime.now(_pc_oa.FUSO).date()
+    c1, c2, c3 = st.columns(3)
+    _ano = c1.number_input("Ano", min_value=2020, max_value=2100,
+                           value=_hoje.year, step=1, key="oaj_ano")
+    _mes = c2.number_input("Mês", min_value=1, max_value=12,
+                           value=_hoje.month, step=1, key="oaj_mes")
+    _pct = c3.number_input("Ociosidade do mês (%)", min_value=0.0,
+                           max_value=100.0, value=5.0, step=0.5,
+                           key="oaj_pct")
+
+    # MEMBROS e {username: Nome} e vem da planilha (recarregar_membros o
+    # preenche no lugar). Lista de nome escrita aqui ja escondeu gente do
+    # painel duas vezes nesta base.
+    _membros = dict(MEMBROS)
+    _opcoes = sorted(_membros)
+    _quem = st.multiselect(
+        "Quem entra no acordo", _opcoes,
+        default=_opcoes,
+        format_func=lambda u: _membros.get(u, u),
+        key="oaj_quem")
+    _motivo = st.text_input(
+        "Motivo (fica registrado)", key="oaj_motivo",
+        placeholder="ex: acordo com a equipe — mês fecha em 5%, a partir de "
+                    "outubro vale o medido")
+
+    _ja = (_oaj.carregar() or {}).get(_oaj.mes_texto(_ano, _mes)) or {}
+    if _ja:
+        st.info(f"Este mês já tem acordo para {len(_ja)} pessoa(s): "
+                + ", ".join(f"{_membros.get(u, u)} {p:.0f}%"
+                            for u, p in sorted(_ja.items()))[:300])
+
+    ca, cb = st.columns(2)
+    if ca.button("Aplicar o acordo", type="primary", use_container_width=True,
+                 key="oaj_aplicar", disabled=not _quem):
+        _ok, _msg = _oaj.salvar(_ano, _mes, _quem, _pct, _motivo,
+                                usuario_logado)
+        (st.success if _ok else st.error)(_msg)
+        if _ok:
+            st.rerun()
+    if cb.button("Desfazer o acordo deste mês", use_container_width=True,
+                 key="oaj_remover", disabled=not _ja):
+        _ok, _msg = _oaj.remover(_ano, _mes)
+        (st.success if _ok else st.error)(_msg)
+        if _ok:
+            st.rerun()
+
+
 def _secao_abatimentos(usuario_logado: str):
     """A fila de pedidos de abatimento de ociosidade, para decidir.
 
@@ -1905,6 +1988,8 @@ def pagina_ponto(usuario_logado: str):
             st.markdown("---")
             st.markdown("#### 📥 Pedidos de abatimento")
             _secao_abatimentos(usuario_logado)
+            st.markdown("---")
+            _secao_ajuste_ociosidade(usuario_logado)
 
     with tab_hoje:
         st.markdown("#### Status atual da equipe")
