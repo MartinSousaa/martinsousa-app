@@ -27,7 +27,30 @@ def pagina(usuario_logado=None):
     )
 
     hoje = datetime.now(_pc.FUSO).date()
-    ano = st.number_input("Ano", 2020, 2100, hoje.year, 1, key="mg_ano")
+    _ca, _cb = st.columns([2, 1])
+    ano = _ca.number_input("Ano", 2020, 2100, hoje.year, 1, key="mg_ano")
+    # Fica ACIMA do editor de propósito: botão embaixo dele é o clique que se
+    # perde quando a célula ainda está aberta.
+    if _cb.button("🔄 Reler a planilha", key="mg_reler"):
+        _mg.carregar.clear()
+
+    # O que a PLANILHA tem para o mês corrente, dito antes de qualquer edição.
+    #
+    # Sem esta linha, "não gravou" e "gravou zero" ficam iguais na tela, e a
+    # única forma de saber qual dos dois é abrir a planilha na mão. Em 17/09
+    # isso custou três idas e vindas.
+    _hoje_txt = _mg.texto_mes(ano, hoje.month)
+    _gravado = (_mg.carregar() or {}).get(_hoje_txt)
+    if _gravado is None:
+        st.warning(
+            f"**Nada gravado para {_mg.rotulo(_hoje_txt)}.** A planilha não tem "
+            "linha deste mês — digite a meta na tabela abaixo e clique em "
+            "**Salvar**. Enquanto não houver linha, a Home mostra «—».")
+    else:
+        st.caption(
+            f"Gravado na planilha para **{_mg.rotulo(_hoje_txt)}**: meta "
+            f"R$ {_fmt(_gravado['meta'])} · informado "
+            f"R$ {_fmt(_gravado['informado'])}. É isto que a Home lê.")
 
     linhas = _mg.ano_inteiro(ano)
     atual = next((l for l in linhas if l["mes"] == _mg.texto_mes(ano, hoje.month)),
