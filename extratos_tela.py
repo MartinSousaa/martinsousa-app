@@ -68,7 +68,21 @@ def _processar(arq, _itau, _inter, _fv, _lan, usuario_logado):
         st.warning(f"**{nome}:** nenhum lançamento reconhecido no arquivo.")
         return
 
+    # O que o PRÓPRIO extrato já resolve não pode virar pergunta.
+    #
+    # "CH COMPENSADO 001 000504" é cheque, "SISPAG SALARIOS" é folha,
+    # "BUSINESS 6202-5907" é fatura do cartão — está na descrição, e o leitor
+    # já devolve isso em `tipo`. Sem esta linha, 49 lançamentos que o sistema
+    # entende sozinho caíam na fila do dono para ele responder um a um.
+    for _l in lancs:
+        if not _l.get("finalidade") and _l.get("tipo") in POR_TIPO:
+            _l["finalidade"] = POR_TIPO[_l["tipo"]]
+
     classificados, fila = _fv.classificar(lancs)
+    # A fila ganha o que falta para a pergunta fazer sentido: de que conta,
+    # em que sentido, e com que descrição. "MARTINSOUSA · 5x · 36.272,40" não
+    # dá para responder — entrada e saída do mesmo nome são coisas opostas.
+    fila = _enriquecer(fila, classificados, conta)
     novos, repetidos, erro_g = _lan.gravar(classificados, conta, usuario_logado)
     if erro_g:
         st.error(f"**{nome}:** li o arquivo, mas não consegui gravar — {erro_g}")
@@ -94,19 +108,77 @@ def _processar(arq, _itau, _inter, _fv, _lan, usuario_logado):
         _perguntar(fila, _fv, usuario_logado)
 
 
+# O tipo que o leitor do extrato já identifica, e a finalidade dele.
+# Cheque, fatura e boleto são FORMA de pagamento, não finalidade — entram com
+# o próprio nome e ficam no bloco "falta abrir" da Home, esperando alguém dizer
+# o que aquele cheque pagou.
+POR_TIPO = {
+    "cheque": "CHEQUES",
+    "fatura_cartao": "FATURA DO CARTÃO",
+    "boleto": "BOLETO",
+    "folha": "FOLHA",
+    "debito_auto": "CUSTO FIXO",
+    "tarifa": "TARIFA BANCÁRIA",
+    "emprestimo": "NÃO OPERACIONAL",
+    "aplicacao": "APLICACAO",
+}
+
+
+def _enriquecer(fila, classificados, conta):
+    """Põe sentido, conta e exemplo de descrição em cada item da fila.
+
+    Sem isso a pergunta não tem resposta possível: o mesmo nome entrando e
+    saindo são finalidades opostas — recebido da Little Glass é repasse de
+    plataforma, enviado para ela é transferência entre contas.
+
+    Quando o nome aparece nos dois sentidos, ele vira DUAS perguntas, porque
+    são duas respostas.
+    """
+    porta = {}
+    for l in classificados:
+        if l.get("classificado"):
+            continue
+        nome = (l.get("favorecido") or l.get("razao_social")
+                or l.get("descricao") or "")
+        if not nome:
+            continue
+        sentido = "entrada" if float(l.get("valor") or 0) > 0 else "saida"
+        d = porta.setdefault((nome, sentido), {
+            "favorecido": nome, "sentido": sentido, "conta": conta,
+            "n": 0, "total": 0.0, "exemplo": "", "datas": []})
+        d["n"] += 1
+        d["total"] += abs(float(l.get("valor") or 0))
+        d["exemplo"] = d["exemplo"] or str(l.get("descricao") or "")[:58]
+        d["datas"].append(str(l.get("data") or ""))
+    return sorted(porta.values(), key=lambda x: -x["total"])
+
+
 def _perguntar(fila, _fv, usuario_logado):
     """A fila de nomes novos, do maior valor para o menor."""
-    _opcoes = _finalidades_conhecidas(_fv)
+    ESCOLHA = "— escolher —"
+    _opcoes = [ESCOLHA] + _finalidades_conhecidas(_fv)
+    SETA = {"entrada": "🟢 ENTROU", "saida": "🔴 SAIU"}
     for i, item in enumerate(fila[:15]):
         c1, c2, c3 = st.columns([3, 2, 1])
-        c1.markdown(f"**{item['favorecido'][:44]}**  \n"
-                    f"{item['n']}x · R$ {_fmt(item['total'])}")
+        _quando = ""
+        _datas = sorted(d for d in (item.get("datas") or []) if d)
+        if _datas:
+            _quando = (f" · {_datas[0][8:10]}/{_datas[0][5:7]}" if len(_datas) == 1
+                       else f" · {_datas[0][8:10]}/{_datas[0][5:7]} a "
+                            f"{_datas[-1][8:10]}/{_datas[-1][5:7]}")
+        c1.markdown(
+            f"{SETA.get(item['sentido'], '')} **R$ {_fmt(item['total'])}**"
+            f" · {item['n']}x{_quando}  \n"
+            f"**{item['favorecido'][:46]}**  \n"
+            f"<span style='font-size:11px;opacity:.65'>na conta "
+            f"{item.get('conta', '')} · {item.get('exemplo', '')}</span>",
+            unsafe_allow_html=True)
         _fin = c2.selectbox("Finalidade", _opcoes, key=f"ext_fin_{i}",
                             label_visibility="collapsed")
-        _sent = "entrada" if item.get("sentido") == "entrada" else "saida"
-        if c3.button("Salvar", key=f"ext_sv_{i}", use_container_width=True):
-            _ok, _msg = _fv.salvar(item["favorecido"], _fin, _sent, "",
-                                   usuario_logado)
+        if c3.button("Salvar", key=f"ext_sv_{i}", use_container_width=True,
+                     disabled=_fin == ESCOLHA):
+            _ok, _msg = _fv.salvar(item["favorecido"], _fin, item["sentido"],
+                                   "", usuario_logado)
             (st.success if _ok else st.error)(_msg)
 
 

@@ -309,10 +309,17 @@ def classificar(lancamentos, cadastro=None):
                                        else "entrada")
         reg = casar(nome, cad, sentido)
         novo = dict(l)
-        novo["finalidade"] = reg["finalidade"] if reg else ""
-        novo["classificado"] = bool(reg)
+        # Finalidade que o lançamento JÁ trazia não é apagada.
+        #
+        # Ela vem de duas fontes legítimas: o tipo que o próprio extrato
+        # resolve (cheque, folha, fatura) e a anotação que o dono escreveu no
+        # arquivo. Apagá-la aqui mandava para a fila 49 linhas que o sistema
+        # entendia sozinho — e a fila é justamente o que se quer curto.
+        ja_tinha = str(l.get("finalidade") or "").strip()
+        novo["finalidade"] = (reg["finalidade"] if reg else ja_tinha)
+        novo["classificado"] = bool(reg) or bool(ja_tinha)
         fora.append(novo)
-        if not reg and nome:
+        if not novo["classificado"] and nome:
             d = faltando.setdefault(nome, {"n": 0, "total": 0.0})
             d["n"] += 1
             d["total"] += abs(float(l.get("valor") or 0))
@@ -446,5 +453,19 @@ if __name__ == "__main__":
     ok("a fila soma as vezes do mesmo nome",
        _fila[0]["n"] == 2 and abs(_fila[0]["total"] - 376.0) < 0.01)
     ok("lista vazia nao derruba", classificar([], CAD) == ([], []))
+
+    # O cheque e a folha o proprio extrato resolve: nao podem virar pergunta.
+    _ja = classificar([{"favorecido": "CH COMPENSADO 001 000504",
+                        "valor": -968.6, "finalidade": "CHEQUES"}], CAD)
+    ok("finalidade que ja veio no lancamento e preservada",
+       _ja[0][0]["finalidade"] == "CHEQUES"
+       and _ja[0][0]["classificado"] is True)
+    ok("e ela nao vai para a fila", _ja[1] == [])
+    # Mas o cadastro continua mandando quando existe: e nele que a correcao do
+    # dono vale para o passado inteiro.
+    _cad_manda = classificar([{"favorecido": "APEXIMP", "valor": -100.0,
+                               "finalidade": "OUTROS"}], CAD)
+    ok("o cadastro vence a finalidade que veio no arquivo",
+       _cad_manda[0][0]["finalidade"] == "MERCADORIA")
 
     print("\nfalhas:", falhas)
