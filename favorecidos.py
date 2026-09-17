@@ -50,7 +50,6 @@ SEED = [
     ("Apeximp Comercio de Presentes Importacao E Exportacao LTDA",
      "MERCADORIA", "saida", ""),
     ("LEXTACK COMERCIO DE PRESENTES LTDA", "MERCADORIA", "saida", ""),
-    ("Lextack Comercio de Presentes LTDA", "MERCADORIA", "saida", ""),
     ("PLASTICOS NOVA FENIX", "EMBALAGEM", "saida", ""),
     ("ER EMBALAGENS", "EMBALAGEM", "saida", ""),
     ("Nzb Comercio de Embalagens LTDA", "EMBALAGEM", "saida", ""),
@@ -262,16 +261,26 @@ def _aba():
 
 @st.cache_data(ttl=300)
 def carregar():
-    """{chave: {"favorecido", "finalidade", "tipo", "observacao"}}.
+    """{(chave, tipo): {...}} — o SEED por baixo, a planilha por cima.
 
-    Vazio em qualquer falha: sem cadastro, tudo cai como não classificado — que
-    é visível na tela. Classificar por chute seria invisível.
+    O SEED entra SEMPRE, e não só quando a aba nasce. Esse era o furo: a aba
+    foi criada na primeira subida de extrato, com o cadastro daquele instante,
+    e toda resposta que o dono deu depois ficou no código sem nunca chegar à
+    planilha — a tela continuava perguntando o que ele já tinha respondido.
+
+    A planilha vence o SEED em cima da mesma chave, e é isso que mantém a
+    correção feita à mão de pé: quem edita na tela está corrigindo o código.
+
+    Falha de leitura não zera nada: o SEED responde sozinho, e o que se perde é
+    só o que o dono cadastrou pela tela.
     """
+    fora = {(chave(f), tp): {"favorecido": f, "finalidade": fin, "tipo": tp,
+                             "observacao": o}
+            for f, fin, tp, o in SEED if chave(f)}
     try:
         registros = _aba().get_all_records()
     except Exception:
-        return {}
-    fora = {}
+        return fora
     for linha in registros:
         nome = str(linha.get("favorecido", "") or "").strip()
         k = chave(nome)
@@ -487,6 +496,12 @@ if __name__ == "__main__":
     ok("a fila soma as vezes do mesmo nome",
        _fila[0]["n"] == 2 and abs(_fila[0]["total"] - 376.0) < 0.01)
     ok("lista vazia nao derruba", classificar([], CAD) == ([], []))
+    # O furo que fez a tela perguntar de novo o que ja tinha sido respondido:
+    # o SEED so entrava quando a aba nascia.
+    ok("todo nome do SEED tem chave utilizavel",
+       all(chave(f) for f, _fin, _tp, _o in SEED))
+    ok("o SEED nao tem duas respostas para a mesma chave e sentido",
+       len({(chave(f), tp) for f, _fin, tp, _o in SEED}) == len(SEED))
 
     # O cheque e a folha o proprio extrato resolve: nao podem virar pergunta.
     _ja = classificar([{"favorecido": "CH COMPENSADO 001 000504",
