@@ -122,6 +122,23 @@ SEED = [
     ("MODA MUNDIAL BRASIL", "SHEIN", "entrada", "Instituição de pagamento da Shein"),
     ("MODA MUNDIAL BRASIL PAGAMENTOS LTDA", "SHEIN", "entrada", ""),
     ("MODA MUNDIAL BRASIL INTERMED", "SHEIN", "entrada", ""),
+    # ── Fatura do cartao do Inter, anotada pelo dono em 17/09 ────────────
+    # Ele marcou alguns e mandou aplicar aos semelhantes. Os semelhantes
+    # ficam explicitos aqui: "aplicar ao parecido" nao pode virar regra de
+    # adivinhacao, senao a proxima loja de nome parecido entra classificada
+    # errada e ninguem ve.
+    ("ZUL", "ESTACIONAMENTO", "saida", "Zona azul, avulso — 13x no mês"),
+    ("VINDI TRAYECOMMERCE", "SERVIÇO", "saida", "Plataforma da loja"),
+    ("UBER", "SERVIÇO", "saida", ""),
+    ("UBER ONE", "SERVIÇO", "saida", ""),
+    ("DL UBERRIDES", "SERVIÇO", "saida", ""),
+    ("APPLE COM", "SERVIÇO", "saida", ""),
+    ("MICROSOFT MICROSOFT", "SERVIÇO", "saida", ""),
+    ("EBN", "SERVIÇO", "saida", "Canva"),
+    ("MERCADOLIVRE", "OUTROS", "saida", ""),
+    ("MERCADOLIVRE MERCADOL", "OUTROS", "saida", ""),
+    ("MERCADO RASTREAMENTOA", "OUTROS", "saida", ""),
+    ("MERCADO FENIXOFFICE", "OUTROS", "saida", ""),
     ("Debito titulo KG", "NÃO OPERACIONAL", "saida", ""),
     # O extrato do Itaú rotula errado, e o rótulo dele é o que engana: os
     # R$ 170.000 de "PAGAMENTOS A FORNECEDORES" foram transferidos para a outra
