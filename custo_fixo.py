@@ -259,45 +259,51 @@ def pagina(usuario_logado=None, grade="custo_fixo"):
                     "sugestão — confira e clique em **Salvar**. Nada foi "
                     "gravado até você salvar.")
 
-    editado = st.data_editor(
-        df[["item", "valor_mensal", "vigente_desde", "dia_debito",
-            "forma_pagamento"]],
-        num_rows="dynamic",
-        use_container_width=True,
-        hide_index=True,
-        # A chave leva o nome da grade: com uma chave só, as duas telas
-        # compartilhariam o estado do editor e a folha abriria com as linhas
-        # do custo fixo desenhadas dentro dela.
-        key=f"ed_{aba_nome}",
-        column_config={
-            "item": st.column_config.TextColumn(
-                cfg["rotulo_item"], required=True, width="medium",
-                help=cfg["ajuda_item"]),
-            "valor_mensal": st.column_config.NumberColumn(
-                "Valor inicial (R$)", min_value=0.0, step=0.01, format="%.2f",
-                width="medium",
-                help="O valor de quando o item entrou. Reajuste depois disso "
-                     "não se digita aqui — entra em «Ajuste de valor», com o "
-                     "mês em que passou a valer."),
-            "vigente_desde": st.column_config.TextColumn(
-                "Existe desde", width="medium",
-                help="AAAA-MM. Antes deste mês o item não entra no custo. "
-                     "Em branco, vale para todos os meses."),
-            "dia_debito": st.column_config.NumberColumn(
-                "Dia do débito", min_value=0, max_value=31, step=1, format="%d",
-                width="small", help="0 quando não há dia fixo."),
-            "forma_pagamento": st.column_config.SelectboxColumn(
-                "Forma de pagamento", options=FORMAS, width="medium",
-                help="Célula em cinza claro é campo ainda não preenchido, "
-                     "não um valor gravado."),
-        },
-    )
+    # Editor e botao no MESMO formulario. Com o botao solto, o clique que sai
+    # da celula ainda em edicao fecha a celula E dispara o rerun: o rerun come
+    # o clique, o botao nao roda, e a tela nao diz nada. Foi assim que a meta
+    # de gastos de setembro nao foi gravada em 17/09.
+    with st.form(f"form_{aba_nome}"):
+        editado = st.data_editor(
+            df[["item", "valor_mensal", "vigente_desde", "dia_debito",
+                "forma_pagamento"]],
+            num_rows="dynamic",
+            use_container_width=True,
+            hide_index=True,
+            # A chave leva o nome da grade: com uma chave só, as duas telas
+            # compartilhariam o estado do editor e a folha abriria com as linhas
+            # do custo fixo desenhadas dentro dela.
+            key=f"ed_{aba_nome}",
+            column_config={
+                "item": st.column_config.TextColumn(
+                    cfg["rotulo_item"], required=True, width="medium",
+                    help=cfg["ajuda_item"]),
+                "valor_mensal": st.column_config.NumberColumn(
+                    "Valor inicial (R$)", min_value=0.0, step=0.01, format="%.2f",
+                    width="medium",
+                    help="O valor de quando o item entrou. Reajuste depois disso "
+                         "não se digita aqui — entra em «Ajuste de valor», com o "
+                         "mês em que passou a valer."),
+                "vigente_desde": st.column_config.TextColumn(
+                    "Existe desde", width="medium",
+                    help="AAAA-MM. Antes deste mês o item não entra no custo. "
+                         "Em branco, vale para todos os meses."),
+                "dia_debito": st.column_config.NumberColumn(
+                    "Dia do débito", min_value=0, max_value=31, step=1, format="%d",
+                    width="small", help="0 quando não há dia fixo."),
+                "forma_pagamento": st.column_config.SelectboxColumn(
+                    "Forma de pagamento", options=FORMAS, width="medium",
+                    help="Célula em cinza claro é campo ainda não preenchido, "
+                         "não um valor gravado."),
+            },
+        )
 
-    st.metric("Soma dos valores iniciais", _brl(total_dos_iniciais(editado)))
+        st.metric("Soma dos valores iniciais", _brl(total_dos_iniciais(editado)))
 
-    _custo_do_mes(editado, grade)
+        _custo_do_mes(editado, grade)
+        enviou = st.form_submit_button("💾 Salvar", type="primary")
 
-    if st.button("💾 Salvar", type="primary", key=f"btn_salvar_{aba_nome}"):
+    if enviou:
         ok, msg = salvar(aba_nome, editado, usuario_logado)
         if ok:
             st.success(msg)

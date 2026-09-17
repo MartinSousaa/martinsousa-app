@@ -414,64 +414,70 @@ def pagina(usuario_logado=None):
     visiveis = ["programa", "conta_aporte", "data_contratacao", "carencia_meses",
                 "prazo_meses", "aporte", "dia_debito", "parcela",
                 "parcelas_pagas", "saldo_devedor", "condicao", "taxa_am"]
-    editado = st.data_editor(
-        df[visiveis],
-        num_rows="dynamic",
-        use_container_width=True,
-        hide_index=True,
-        key="ed_nao_operacional",
-        column_config={
-            "programa": st.column_config.TextColumn(
-                "Programa", required=True, width="medium",
-                help="PRONAMP LG, PRONAMP MS…"),
-            "conta_aporte": st.column_config.TextColumn(
-                "Conta", width="small", help="Itaú LG, Itaú MS…"),
-            "data_contratacao": st.column_config.TextColumn(
-                "Contratação", width="small",
-                help="AAAA-MM-DD. É ela que diz a partir de que mês este "
-                     "custo existiu."),
-            "carencia_meses": st.column_config.NumberColumn(
-                "Carência", min_value=0, max_value=60, step=1,
-                format="%d", width="small"),
-            "prazo_meses": st.column_config.NumberColumn(
-                "Prazo", min_value=0, max_value=240, step=1,
-                format="%d", width="small"),
-            "aporte": st.column_config.NumberColumn(
-                "Aporte (R$)", min_value=0.0, step=0.01, format="%.2f"),
-            "dia_debito": st.column_config.NumberColumn(
-                "Dia", min_value=0, max_value=31, step=1,
-                format="%d", width="small"),
-            "parcela": st.column_config.NumberColumn(
-                "Parcela (R$)", min_value=0.0, step=0.01, format="%.2f",
-                help="A do contrato. É ela que entra na conta — a calculada "
-                     "fica ao lado, só para comparar."),
-            "parcelas_pagas": st.column_config.NumberColumn(
-                "Pagas", min_value=0, max_value=240, step=1, format="%d",
-                width="small"),
-            "saldo_devedor": st.column_config.NumberColumn(
-                "Saldo devedor", min_value=0.0, step=0.01, format="%.2f"),
-            "condicao": st.column_config.SelectboxColumn(
-                "Condição", options=CONDICOES, width="medium"),
-            "taxa_am": st.column_config.NumberColumn(
-                "Taxa fixa (% a.m.)", min_value=0.0, max_value=100.0,
-                step=0.01, format="%.2f", width="medium",
-                help="Só vale na condição «Fixa». Na condição com Selic, a "
-                     "taxa é calculada e este campo é ignorado."),
-        },
-    )
+    # Editor e botao no MESMO formulario. Com o botao solto, o clique que sai
+    # da celula ainda em edicao fecha a celula E dispara o rerun: o rerun come
+    # o clique, o botao nao roda, e a tela nao diz nada. Foi assim que a meta
+    # de gastos de setembro nao foi gravada em 17/09.
+    with st.form("form_nao_op"):
+        editado = st.data_editor(
+            df[visiveis],
+            num_rows="dynamic",
+            use_container_width=True,
+            hide_index=True,
+            key="ed_nao_operacional",
+            column_config={
+                "programa": st.column_config.TextColumn(
+                    "Programa", required=True, width="medium",
+                    help="PRONAMP LG, PRONAMP MS…"),
+                "conta_aporte": st.column_config.TextColumn(
+                    "Conta", width="small", help="Itaú LG, Itaú MS…"),
+                "data_contratacao": st.column_config.TextColumn(
+                    "Contratação", width="small",
+                    help="AAAA-MM-DD. É ela que diz a partir de que mês este "
+                         "custo existiu."),
+                "carencia_meses": st.column_config.NumberColumn(
+                    "Carência", min_value=0, max_value=60, step=1,
+                    format="%d", width="small"),
+                "prazo_meses": st.column_config.NumberColumn(
+                    "Prazo", min_value=0, max_value=240, step=1,
+                    format="%d", width="small"),
+                "aporte": st.column_config.NumberColumn(
+                    "Aporte (R$)", min_value=0.0, step=0.01, format="%.2f"),
+                "dia_debito": st.column_config.NumberColumn(
+                    "Dia", min_value=0, max_value=31, step=1,
+                    format="%d", width="small"),
+                "parcela": st.column_config.NumberColumn(
+                    "Parcela (R$)", min_value=0.0, step=0.01, format="%.2f",
+                    help="A do contrato. É ela que entra na conta — a calculada "
+                         "fica ao lado, só para comparar."),
+                "parcelas_pagas": st.column_config.NumberColumn(
+                    "Pagas", min_value=0, max_value=240, step=1, format="%d",
+                    width="small"),
+                "saldo_devedor": st.column_config.NumberColumn(
+                    "Saldo devedor", min_value=0.0, step=0.01, format="%.2f"),
+                "condicao": st.column_config.SelectboxColumn(
+                    "Condição", options=CONDICOES, width="medium"),
+                "taxa_am": st.column_config.NumberColumn(
+                    "Taxa fixa (% a.m.)", min_value=0.0, max_value=100.0,
+                    step=0.01, format="%.2f", width="medium",
+                    help="Só vale na condição «Fixa». Na condição com Selic, a "
+                         "taxa é calculada e este campo é ignorado."),
+            },
+        )
 
-    # Nome repetido: ele é a chave que liga o contrato ao «Ajuste de valor».
-    # Dois iguais fazem um reajuste cair nos dois, ou em nenhum, sem nada na
-    # tela dizendo por quê.
-    _nomes = [str(x).strip() for x in pd.DataFrame(editado).get("programa", [])
-              if str(x).strip()]
-    _repetidos = sorted({n for n in _nomes if _nomes.count(n) > 1})
-    if _repetidos:
-        st.error("Dois contratos com o mesmo nome: **" + ", ".join(_repetidos)
-                 + "**. O nome liga o contrato ao «Ajuste de valor» — com dois "
-                   "iguais, um reajuste cai nos dois ou em nenhum. Renomeie um.")
+        # Nome repetido: ele é a chave que liga o contrato ao «Ajuste de valor».
+        # Dois iguais fazem um reajuste cair nos dois, ou em nenhum, sem nada na
+        # tela dizendo por quê.
+        _nomes = [str(x).strip() for x in pd.DataFrame(editado).get("programa", [])
+                  if str(x).strip()]
+        _repetidos = sorted({n for n in _nomes if _nomes.count(n) > 1})
+        if _repetidos:
+            st.error("Dois contratos com o mesmo nome: **" + ", ".join(_repetidos)
+                     + "**. O nome liga o contrato ao «Ajuste de valor» — com dois "
+                       "iguais, um reajuste cai nos dois ou em nenhum. Renomeie um.")
+        enviou = st.form_submit_button("💾 Salvar", type="primary")
 
-    if st.button("💾 Salvar", type="primary", key="btn_salvar_nao_op"):
+    if enviou:
         ok, msg = salvar(editado, usuario_logado)
         if ok:
             st.success(msg)

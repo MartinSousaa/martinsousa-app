@@ -294,28 +294,34 @@ def pagina(usuario_logado=None):
     dinheiro = lambda rot: st.column_config.NumberColumn(
         rot, min_value=0.0, step=0.01, format="%.2f", width="medium")
 
-    editado = st.data_editor(
-        df[visiveis],
-        num_rows="dynamic",
-        use_container_width=True,
-        hide_index=True,
-        key="ed_folha_salarial",
-        column_config={
-            "pessoa": st.column_config.TextColumn(
-                "Pessoa", required=True, width="small"),
-            **{v: dinheiro(ROTULOS[v]) for v in VERBAS},
-            "vigente_desde": st.column_config.TextColumn(
-                "Está desde", width="small",
-                help="AAAA-MM. Antes deste mês a pessoa não entra no custo."),
-            "dia_debito": st.column_config.NumberColumn(
-                "Dia", min_value=0, max_value=31, step=1, format="%d",
-                width="small"),
-            "forma_pagamento": st.column_config.SelectboxColumn(
-                "Forma de pagamento", options=FORMAS, width="medium"),
-        },
-    )
+    # Editor e botao no MESMO formulario. Com o botao solto, o clique que sai
+    # da celula ainda em edicao fecha a celula E dispara o rerun: o rerun come
+    # o clique, o botao nao roda, e a tela nao diz nada. Foi assim que a meta
+    # de gastos de setembro nao foi gravada em 17/09.
+    with st.form("form_folha"):
+        editado = st.data_editor(
+            df[visiveis],
+            num_rows="dynamic",
+            use_container_width=True,
+            hide_index=True,
+            key="ed_folha_salarial",
+            column_config={
+                "pessoa": st.column_config.TextColumn(
+                    "Pessoa", required=True, width="small"),
+                **{v: dinheiro(ROTULOS[v]) for v in VERBAS},
+                "vigente_desde": st.column_config.TextColumn(
+                    "Está desde", width="small",
+                    help="AAAA-MM. Antes deste mês a pessoa não entra no custo."),
+                "dia_debito": st.column_config.NumberColumn(
+                    "Dia", min_value=0, max_value=31, step=1, format="%d",
+                    width="small"),
+                "forma_pagamento": st.column_config.SelectboxColumn(
+                    "Forma de pagamento", options=FORMAS, width="medium"),
+            },
+        )
+        enviou = st.form_submit_button("💾 Salvar gestores", type="primary")
 
-    if st.button("💾 Salvar gestores", type="primary", key="btn_salvar_folha"):
+    if enviou:
         ok, msg = salvar(editado, usuario_logado)
         if ok:
             st.success(msg)

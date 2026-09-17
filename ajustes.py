@@ -320,31 +320,37 @@ def pagina(usuario_logado=None):
         for g, i in zip(visao.get("grade", []), visao.get("item", []))
     ] if not visao.empty else []
 
-    editado = st.data_editor(
-        visao[["alvo", "valor_novo", "vigente_desde", "observacao"]]
-        if not visao.empty else
-        pd.DataFrame(columns=["alvo", "valor_novo", "vigente_desde", "observacao"]),
-        num_rows="dynamic",
-        use_container_width=True,
-        hide_index=True,
-        key="ed_ajustes",
-        column_config={
-            "alvo": st.column_config.SelectboxColumn(
-                "O que muda", options=opcoes, required=True, width="large",
-                help="A lista vem do que já está cadastrado nas grades."),
-            "valor_novo": st.column_config.NumberColumn(
-                "Novo valor (R$)", min_value=0.0, step=0.01, format="%.2f"),
-            "vigente_desde": st.column_config.TextColumn(
-                "Vigente desde", width="small",
-                help="AAAA-MM. O mês em que o novo valor passou a valer."),
-            "observacao": st.column_config.TextColumn(
-                "Motivo", width="large",
-                help="Dissídio, promoção, renegociação… ajuda a lembrar em "
-                     "dezembro por que mudou em maio."),
-        },
-    )
+    # Editor e botao no MESMO formulario. Com o botao solto, o clique que sai
+    # da celula ainda em edicao fecha a celula E dispara o rerun: o rerun come
+    # o clique, o botao nao roda, e a tela nao diz nada. Foi assim que a meta
+    # de gastos de setembro nao foi gravada em 17/09.
+    with st.form("form_ajustes"):
+        editado = st.data_editor(
+            visao[["alvo", "valor_novo", "vigente_desde", "observacao"]]
+            if not visao.empty else
+            pd.DataFrame(columns=["alvo", "valor_novo", "vigente_desde", "observacao"]),
+            num_rows="dynamic",
+            use_container_width=True,
+            hide_index=True,
+            key="ed_ajustes",
+            column_config={
+                "alvo": st.column_config.SelectboxColumn(
+                    "O que muda", options=opcoes, required=True, width="large",
+                    help="A lista vem do que já está cadastrado nas grades."),
+                "valor_novo": st.column_config.NumberColumn(
+                    "Novo valor (R$)", min_value=0.0, step=0.01, format="%.2f"),
+                "vigente_desde": st.column_config.TextColumn(
+                    "Vigente desde", width="small",
+                    help="AAAA-MM. O mês em que o novo valor passou a valer."),
+                "observacao": st.column_config.TextColumn(
+                    "Motivo", width="large",
+                    help="Dissídio, promoção, renegociação… ajuda a lembrar em "
+                         "dezembro por que mudou em maio."),
+            },
+        )
+        enviou = st.form_submit_button("💾 Salvar", type="primary")
 
-    if st.button("💾 Salvar", type="primary", key="btn_salvar_ajustes"):
+    if enviou:
         ok, msg = salvar(_desmontar(editado), usuario_logado)
         if ok:
             st.success(msg)
