@@ -53,6 +53,44 @@ TIPOS = [
 ]
 
 
+# ── Quem é cada cartão ───────────────────────────────────────────────────────
+#
+# O extrato bancário NÃO traz o número do cartão: "BUSINESS 6202-5907" é o
+# contrato, e nenhum dígito dele aparece na fatura. A ligação foi feita
+# cruzando data de vencimento com ordem de grandeza, e confirmada pelo dono em
+# 17/09/2026:
+#
+#   6202-5907  pago dia 03/08, R$ 16.684,36  -> VISA INFINITE ...3417
+#   4005-0759  pago dia 03/08, R$  1.226,74  -> MASTERCARD ...9113
+#   4004-7311  pago dia 11/08, R$  1.623,63  -> MASTERCARD ...3312 (vence dia 11)
+#
+# Fica no código porque é identidade de contrato bancário, não cadastro que
+# muda: cartão novo entra aqui, e a tela avisa quando aparecer um contrato
+# desconhecido em vez de somar tudo num balaio só.
+CARTOES = {
+    "6202-5907": "VISA INFINITE ...3417",
+    "4005-0759": "MASTERCARD ...9113",
+    "4004-7311": "MASTERCARD ...3312",
+}
+
+
+def qual_cartao(descricao):
+    """O cartão de um lançamento BUSINESS. "" quando não é fatura.
+
+    Devolve o contrato cru quando ele não está em CARTOES: cartão novo precisa
+    aparecer como desconhecido, e não ser somado em silêncio com os outros.
+    """
+    import re as _re
+    t = str(descricao or "").strip().upper()
+    if not t.startswith("BUSINESS"):
+        return ""
+    m = _re.search(r"(\d{4})[-\s]?(\d{4})", t)
+    if not m:
+        return ""
+    contrato = f"{m.group(1)}-{m.group(2)}"
+    return CARTOES.get(contrato, f"contrato {contrato} (não cadastrado)")
+
+
 def _num(v):
     """O valor como float. None quando a célula está vazia."""
     if v is None:
@@ -165,6 +203,7 @@ def ler(dados):
                 "valor": valor,
                 "tipo": classificar(desc),
                 "cheque": numero_do_cheque(desc),
+                "cartao": qual_cartao(desc),
             })
         return linhas, cabecalho, ""
     except Exception as e:
@@ -226,6 +265,15 @@ if __name__ == "__main__":
     ok("o que nao casa vira 'outro', e nao um chute",
        classificar("COISA QUE NAO EXISTE") == "outro"
        and classificar("") == "outro" and classificar(None) == "outro")
+
+    ok("cada contrato BUSINESS vira o cartao dele",
+       qual_cartao("BUSINESS      6202-5907") == "VISA INFINITE ...3417"
+       and qual_cartao("BUSINESS      4005-0759") == "MASTERCARD ...9113"
+       and qual_cartao("BUSINESS      4004-7311") == "MASTERCARD ...3312")
+    ok("cartao novo aparece como desconhecido, e nao somado no balaio",
+       "não cadastrado" in qual_cartao("BUSINESS      9999-0000"))
+    ok("o que nao e fatura nao devolve cartao",
+       qual_cartao("PIX ENVIADO") == "" and qual_cartao("") == "")
 
     ok("valor com ponto decimal", _num("-968.6") == -968.6)
     ok("valor com virgula e milhar", _num("-1.301,61") == -1301.61)
