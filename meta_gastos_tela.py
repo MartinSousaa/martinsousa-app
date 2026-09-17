@@ -56,29 +56,42 @@ def pagina(usuario_logado=None):
 
     st.caption("Edite **meta** e, nos meses sem extrato, **informado**. "
                "As demais colunas são calculadas.")
-    editado = st.data_editor(
-        df, use_container_width=True, hide_index=True, key="mg_ed",
-        column_config={
-            "mês": st.column_config.TextColumn(disabled=True, width="small"),
-            "meta": st.column_config.NumberColumn("Meta", format="%.2f",
-                                                  min_value=0.0, step=100.0),
-            "realizado": st.column_config.NumberColumn(
-                "Realizado", format="%.2f", disabled=True),
-            "de onde": st.column_config.TextColumn(disabled=True,
-                                                   width="small"),
-            "saldo": st.column_config.NumberColumn("Saldo", format="%.2f",
-                                                   disabled=True),
-            "informado": st.column_config.NumberColumn(
-                "Informado por você", format="%.2f", min_value=0.0,
-                step=100.0,
-                help="Só vale nos meses sem extrato carregado. Quando o "
-                     "extrato entra, ele manda — é o número conferível."),
-            "observação": st.column_config.TextColumn(width="medium"),
-        },
-    )
 
-    if st.button("💾 Salvar", type="primary", use_container_width=True,
-                 key="mg_salvar"):
+    # Editor e botão dentro do MESMO formulário, e não por capricho.
+    #
+    # Com o botão solto, o clique que sai da célula ainda em edição fazia duas
+    # coisas ao mesmo tempo: fechava a célula e disparava o rerun. O rerun
+    # consumia o clique, o botão nunca rodava, e a tela não dizia nada — o
+    # gestor digitava a meta, clicava, e ia embora achando que tinha salvo.
+    # Foi exatamente o que aconteceu com a meta de setembro em 17/09. Dentro do
+    # formulário, a edição e o envio viram um evento só.
+    with st.form("mg_form"):
+        editado = st.data_editor(
+            df, use_container_width=True, hide_index=True, key="mg_ed",
+            column_config={
+                "mês": st.column_config.TextColumn(disabled=True,
+                                                   width="small"),
+                "meta": st.column_config.NumberColumn("Meta", format="%.2f",
+                                                      min_value=0.0,
+                                                      step=100.0),
+                "realizado": st.column_config.NumberColumn(
+                    "Realizado", format="%.2f", disabled=True),
+                "de onde": st.column_config.TextColumn(disabled=True,
+                                                       width="small"),
+                "saldo": st.column_config.NumberColumn("Saldo", format="%.2f",
+                                                       disabled=True),
+                "informado": st.column_config.NumberColumn(
+                    "Informado por você", format="%.2f", min_value=0.0,
+                    step=100.0,
+                    help="Só vale nos meses sem extrato carregado. Quando o "
+                         "extrato entra, ele manda — é o número conferível."),
+                "observação": st.column_config.TextColumn(width="medium"),
+            },
+        )
+        enviou = st.form_submit_button("💾 Salvar", type="primary",
+                                       use_container_width=True)
+
+    if enviou:
         _n = 0
         for i, r in editado.iterrows():
             antes = linhas[i]
@@ -96,7 +109,23 @@ def pagina(usuario_logado=None):
                 st.error(_msg)
                 return
             _n += 1
-        st.success(f"{_n} mês(es) salvo(s).") if _n else st.info("Nada mudou.")
+        if not _n:
+            st.info(
+                "Nada mudou — os valores da tabela são iguais aos que já "
+                "estão gravados. Se você digitou e não salvou, o número volta "
+                "ao anterior assim que a tela recarrega.")
+        else:
+            # A prova, relida da planilha. Sem ela, "salvo" é promessa: já
+            # aconteceu de o botão não rodar e a tela não dizer nada.
+            _mg.carregar.clear()
+            _grav = _mg.carregar()
+            st.success(f"{_n} mês(es) salvo(s).")
+            st.dataframe(pd.DataFrame(
+                [{"mês": _mg.rotulo(m), "meta gravada": v["meta"],
+                  "informado": v["informado"]}
+                 for m, v in sorted(_grav.items()) if m.startswith(str(ano))
+                 and (v["meta"] or v["informado"])]),
+                use_container_width=True, hide_index=True)
 
     _com_dado = [l for l in linhas if l["origem"] != "sem dado"]
     if _com_dado:
