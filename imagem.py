@@ -1654,6 +1654,20 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
     img_bytes = None
     erro_primario = None
     _usando_openai = bool(_get_openai_api_key())
+    if not _usando_openai:
+        # SEM CHAVE, O MOTOR PRIMÁRIO NÃO É TENTADO — e isso precisa ter nome.
+        #
+        # Antes, a ausência da chave fazia o `if` abaixo ser pulado e
+        # `erro_primario` continuava None: TODA geração ia para o Gemini, que é
+        # o reserva, e ninguém era avisado. Os créditos do Gemini acabaram
+        # porque ele estava fazendo o trabalho dos dois, e a mensagem que
+        # sobrou na tela falava só de crédito do Gemini — escondendo que o
+        # primário nunca tinha entrado em campo.
+        erro_primario = ("OPENAI_API_KEY não está configurada no Railway — o "
+                         "motor primário (gpt-image-2) não chegou a ser "
+                         "tentado, e TODA a geração caiu no reserva.")
+        if diagnostico is not None:
+            diagnostico["erro_openai"] = erro_primario
 
     if _usando_openai:
         # Passa as fotos do produto diretamente ao gpt-image-2 via Responses API
@@ -1693,10 +1707,18 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
         if erro_fatal:
             msg = erro_fatal.replace("COTA_ESGOTADA:", "")
             if erro_fatal.startswith("COTA_ESGOTADA:"):
+                # O erro do PRIMÁRIO vai junto. Sem ele, a tela dizia só
+                # "créditos do Gemini esgotados" — e a pergunta que sobrava
+                # para o dono era "como acabaram, se ele é o reserva?". A
+                # resposta estava nesta variável, que a mensagem jogava fora.
                 return None, (
                     "⛔ Cota ou créditos da GEMINI_API_KEY esgotados. "
                     "Crie uma nova chave em aistudio.google.com/apikey vinculada ao projeto GCP "
                     f"e atualize GEMINI_API_KEY no Railway. Detalhe: {msg[:200]}"
+                    + (f"\n\n**E o motor primário falhou antes:** {erro_primario}"
+                       if erro_primario else
+                       "\n\nO motor primário (gpt-image-2) também não "
+                       "entregou nesta tentativa.")
                 )
             erro_fallback = f"Gemini: {msg[:300]}"
             return None, (f"{erro_primario} | {erro_fallback}" if erro_primario else erro_fallback)
@@ -2312,6 +2334,38 @@ def _chave_anthropic():
     except Exception:
         chave = ""
     return chave or os.environ.get("ANTHROPIC_API_KEY", "")
+
+
+def motores_de_imagem():
+    """(ok, aviso) — os dois motores estão de pé? Não gasta API nenhuma.
+
+    Serve à mesma regra do aviso da revisão de texto: dizer ANTES de gastar, e
+    não depois. Sem a chave da OpenAI, o Studio não tem motor primário — e
+    descobrir isso pelo crédito do RESERVA acabando é descobrir tarde, com as
+    imagens já pagas e erradas.
+    """
+    tem_openai = bool(_get_openai_api_key())
+    try:
+        tem_gemini = bool(st.secrets.get("GEMINI_API_KEY", "")
+                          or os.environ.get("GEMINI_API_KEY", ""))
+    except Exception:
+        tem_gemini = bool(os.environ.get("GEMINI_API_KEY", ""))
+
+    if tem_openai and tem_gemini:
+        return True, ""
+    if not tem_openai and not tem_gemini:
+        return False, ("**Nenhum motor de imagem configurado.** Nem "
+                       "`OPENAI_API_KEY` nem `GEMINI_API_KEY` estão no "
+                       "Railway — nada vai ser gerado.")
+    if not tem_openai:
+        return False, (
+            "**O motor primário está desligado.** `OPENAI_API_KEY` não está "
+            "configurada no Railway, então TODA imagem está sendo gerada pelo "
+            "reserva (Gemini) — que recebe menos informação do produto e tem "
+            "cota própria. Foi assim que os créditos do reserva acabaram: ele "
+            "estava fazendo o trabalho dos dois.")
+    return True, ("O motor reserva está desligado (`GEMINI_API_KEY` ausente). "
+                  "Se o primário falhar, não há para onde cair.")
 
 
 def revisao_de_texto_disponivel():
@@ -3241,6 +3295,11 @@ def pagina_imagem(usuario_logado):
             "palavra inventada e erro de português passam direto.\n\n"
             f"Motivo: {_rev_motivo}"
         )
+
+    # Os motores de imagem, ditos ANTES de gastar — mesma regra do aviso acima.
+    _mot_ok, _mot_aviso = motores_de_imagem()
+    if _mot_aviso:
+        (st.error if not _mot_ok else st.warning)("🖼️ " + _mot_aviso)
 
     # ── Recuperacao apos queda de conexao ────────────────────────────────────
     # Se a sessao morreu no meio de uma geracao, o session_state veio vazio mas o
@@ -5095,6 +5154,36 @@ if __name__ == "__main__":
        _rel2["ok"] is False and _rel2.get("produto_alterado") is True)
     globals()["conferir_ajuste"] = _antes_conf
     globals()["gerar_imagem_ia"] = _antes_ger
+
+    # ── Os motores, ditos antes de gastar ────────────────────────────────
+    # Sem tocar em `st.secrets`: sem arquivo de secrets ele LEVANTA, e foi essa
+    # mesma armadilha que ja tinha derrubado `_chave_anthropic`.
+    _env_antes = {k: os.environ.get(k) for k in ("OPENAI_API_KEY", "GEMINI_API_KEY")}
+
+    def _com_chaves(openai, gemini):
+        for k, v in (("OPENAI_API_KEY", openai), ("GEMINI_API_KEY", gemini)):
+            if v:
+                os.environ[k] = v
+            else:
+                os.environ.pop(k, None)
+        globals()["_get_openai_api_key"] = lambda: os.environ.get("OPENAI_API_KEY", "")
+        return motores_de_imagem()
+
+    _ok_m, _av_m = _com_chaves("", "g")
+    ok("sem a chave do primario, a tela avisa ANTES de gerar",
+       _ok_m is False and "primário" in _av_m)
+    ok("e explica por que o credito do reserva acaba", "reserva" in _av_m)
+    _ok_m, _av_m = _com_chaves("o", "")
+    ok("sem o reserva, avisa sem bloquear", _ok_m is True and _av_m)
+    _ok_m, _av_m = _com_chaves("", "")
+    ok("sem nenhum dos dois, e erro", _ok_m is False and "Nenhum motor" in _av_m)
+    _ok_m, _av_m = _com_chaves("o", "g")
+    ok("com os dois, a tela nao avisa a toa", _ok_m is True and _av_m == "")
+    for _k, _v in _env_antes.items():
+        if _v:
+            os.environ[_k] = _v
+        else:
+            os.environ.pop(_k, None)
 
     ok("aprovado não polui a tela", texto_em_aviso({"ok": True}) == "")
     ok("relato sem revisão não inventa aviso", texto_em_aviso(None) == "")
