@@ -2744,8 +2744,8 @@ _TV_INTERVALO_SEG = 60
 # se ninguém sair, ela acontece assim mesmo depois de _TV_TETO_ESPERA_SEG. A TV
 # não pode congelar durante o expediente inteiro; ela só deixa de ser
 # prioridade.
-_TV_INTERVALO_OCUPADO_SEG = 30
-_TV_TETO_ESPERA_SEG = 300
+_TV_INTERVALO_OCUPADO_SEG = 20
+_TV_TETO_ESPERA_SEG = 90
 
 # Estado da regeneração, para a falha parar de ser invisível.
 #
@@ -2764,6 +2764,15 @@ _TV_TETO_ESPERA_SEG = 300
 # que a volta nao chegou la.
 TV_STATUS = {
     "voltas": 0, "erros": 0,
+    # O CUSTO DE UMA VOLTA, medido — e não deduzido.
+    #
+    # Sem estes três campos, "a TV está pesando no Studio" é opinião. Com
+    # eles, é número: se a volta leva 0,4s, não é ela; se leva 8s num
+    # container de 1 vCPU, é ela e dá para provar.
+    "duracao_seg": None,        # a última volta
+    "duracao_max_seg": None,    # a pior desde que o processo subiu
+    "memoria_mb": None,         # o worker, depois da volta
+    "esperando_gente": 0,       # voltas adiadas porque havia gente no Studio
     "ultimo_ok": None,       # epoch da última regeneração que de fato gravou
     "ultimo_erro": None,     # epoch da última falha
     "erro": "",              # a mensagem, resumida
@@ -2876,7 +2885,10 @@ def _loop_regenerador_tv():
             import presenca as _pres_tv
             _ultimo = TV_STATUS.get("ultimo_ok") or 0
             _esperando_ha = _t_tv.time() - _ultimo if _ultimo else 0
-            if (_pres_tv.alguem_usando(janela_seg=120)
+            # Janela curta: o que se quer evitar é a volta cair EM CIMA do
+            # clique, não o dia inteiro. Quem parou há 30s não está esperando
+            # resposta da tela.
+            if (_pres_tv.alguem_usando(janela_seg=20)
                     and _esperando_ha < _TV_TETO_ESPERA_SEG):
                 TV_STATUS["esperando_gente"] = TV_STATUS.get(
                     "esperando_gente", 0) + 1
@@ -2886,6 +2898,7 @@ def _loop_regenerador_tv():
             pass                       # sem sinal, segue o ritmo normal
 
         TV_STATUS["voltas"] += 1
+        _t_volta = _t_tv.time()
         try:
             TV_STATUS["motivo"] = "a volta terminou sem chegar na gravação"
             pagina_placar("martinsousa", headless=True)
@@ -2923,6 +2936,16 @@ def _loop_regenerador_tv():
         # Fora do try/except da volta, de proposito: a volta que falhou e
         # justamente a que precisa aparecer no arquivo.
         _write_tv_status()
+        # O custo desta volta, sempre — inclusive quando ela falhou.
+        try:
+            _d = round(_t_tv.time() - _t_volta, 2)
+            TV_STATUS["duracao_seg"] = _d
+            TV_STATUS["duracao_max_seg"] = max(
+                _d, TV_STATUS.get("duracao_max_seg") or 0)
+            import saude as _sd_tv
+            TV_STATUS["memoria_mb"] = _sd_tv.memoria_mb()[0]
+        except Exception:
+            pass
         _t_tv.sleep(_TV_INTERVALO_SEG)
 
 
