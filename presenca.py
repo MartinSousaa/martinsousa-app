@@ -21,11 +21,59 @@ dado descartável, e uma escrita a cada clique de cada pessoa deixaria o Studio
 mais lento pelo resto do dia. O efeito colateral aceito é que um deploy zera a
 lista — e depois do deploy a lista se refaz sozinha no primeiro clique de cada um.
 """
+import os
+import tempfile
 import time
 
 import streamlit as st
 
 JANELA_ONLINE_MIN = 10
+
+# O sinal que ATRAVESSA processos.
+#
+# O registro acima vive na memória do processo do Streamlit. O regenerador da
+# TV é OUTRO processo, subido pelo Procfile, e não enxerga nada dela — por isso
+# ele rodava o Painel de Metas inteiro a cada 60s mesmo com gente trabalhando,
+# tomando a CPU do container e fazendo o navegador mostrar "Reconectando ao
+# servidor".
+#
+# Um arquivo com a hora da última interação resolve: é o único canal que os
+# dois lados compartilham, custa um `utime` por clique, e some sozinho quando o
+# container morre — que é exatamente a vida útil que este dado tem.
+ARQUIVO_ATIVIDADE = os.path.join(tempfile.gettempdir(), "ms-studio-atividade")
+
+
+def registrar_atividade_no_disco():
+    """Carimba a hora agora. Falha em silêncio: é sinal, não é dado."""
+    try:
+        with open(ARQUIVO_ATIVIDADE, "w", encoding="utf-8") as fh:
+            fh.write(str(time.time()))
+    except Exception:
+        pass
+
+
+def segundos_desde_ultima_atividade():
+    """Há quantos segundos alguém mexeu no Studio. None quando não se sabe.
+
+    None e "muito tempo" são coisas diferentes: sem o arquivo, quem pergunta
+    não pode concluir que o Studio está vazio — pode ser a primeira volta
+    depois de um deploy.
+    """
+    try:
+        with open(ARQUIVO_ATIVIDADE, encoding="utf-8") as fh:
+            return max(0.0, time.time() - float(fh.read().strip()))
+    except Exception:
+        return None
+
+
+def alguem_usando(janela_seg=120):
+    """Alguém mexeu no Studio nos últimos `janela_seg`?
+
+    Sem arquivo, responde False: o trabalho de fundo não pode ficar parado
+    para sempre porque um sinal não existe.
+    """
+    seg = segundos_desde_ultima_atividade()
+    return seg is not None and seg <= janela_seg
 
 
 @st.cache_resource
@@ -45,6 +93,7 @@ def marcar(usuario, onde=""):
         return
     reg = _registro()
     agora = time.time()
+    registrar_atividade_no_disco()
     atual = reg.get(usuario) or {}
     reg[usuario] = {
         "visto": agora,
@@ -137,3 +186,43 @@ def painel(titulo="NO STUDIO AGORA"):
         'border-radius:8px;padding:8px 10px;margin:10px 0 12px;">'
         + cabecalho + corpo + '</div>',
         unsafe_allow_html=True)
+
+
+# ── Conferência ──────────────────────────────────────────────────────────────
+if __name__ == "__main__":
+    falhas = 0
+
+    def ok(nome, cond):
+        global falhas
+        falhas += not cond
+        print(("ok    " if cond else "FALHA ") + nome)
+
+    try:
+        os.remove(ARQUIVO_ATIVIDADE)
+    except Exception:
+        pass
+
+    # Sem sinal, o trabalho de fundo NAO pode ficar parado para sempre.
+    ok("sem arquivo, ninguem esta usando", alguem_usando() is False)
+    ok("e o tempo e desconhecido, nao zero",
+       segundos_desde_ultima_atividade() is None)
+
+    registrar_atividade_no_disco()
+    ok("depois de um clique, alguem esta usando", alguem_usando() is True)
+    ok("e o tempo e quase zero", segundos_desde_ultima_atividade() < 5)
+
+    with open(ARQUIVO_ATIVIDADE, "w", encoding="utf-8") as _fh:
+        _fh.write(str(time.time() - 600))
+    ok("dez minutos parado nao conta como usando", alguem_usando() is False)
+    ok("mas na janela de 15 min, conta", alguem_usando(janela_seg=900) is True)
+
+    with open(ARQUIVO_ATIVIDADE, "w", encoding="utf-8") as _fh:
+        _fh.write("isto nao e um numero")
+    ok("arquivo corrompido nao derruba", alguem_usando() is False
+       and segundos_desde_ultima_atividade() is None)
+
+    try:
+        os.remove(ARQUIVO_ATIVIDADE)
+    except Exception:
+        pass
+    print("\nfalhas:", falhas)
