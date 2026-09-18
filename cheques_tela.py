@@ -145,20 +145,49 @@ def pagina(usuario_logado=None):
         # as três linhas até alguém enviar. Aqui ele é um seletor solto, que é
         # seguro — o problema do botão solto era o clique perdido ao lado de
         # uma grade em edição, e não existe grade aqui.
+        # A GERAÇÃO DO FORMULÁRIO.
+        #
+        # Limpar campo por campo significa apagar chave do `session_state` de
+        # widget já desenhado — o Streamlit recusa, e o contorno (apagar e
+        # recarregar) é frágil: esquece uma chave e o cheque seguinte nasce com
+        # o vencimento do anterior, que é justamente o erro a evitar.
+        #
+        # Aqui o formulário inteiro ganha um número no fim de cada chave. Ao
+        # gravar, o número sobe: para o Streamlit são OUTROS widgets, e widget
+        # novo nasce no padrão. Nada é apagado, nada fora deste formulário é
+        # tocado, e não há chave para esquecer.
+        _g = st.session_state.get("ch_geracao", 0)
+        if _g:
+            # As chaves das gerações passadas não servem mais a widget nenhum —
+            # o formulário que as usava não existe. Apagá-las é seguro (não há
+            # widget desenhado com elas) e evita que a sessão engorde a cada
+            # cadastro. Só as deste formulário, e só as velhas.
+            _velhas = [k for k in list(st.session_state.keys())
+                       if str(k).startswith(("ch_qtd_", "ch_favorecido_",
+                                             "ch_tipo_", "ch_compra_",
+                                             "ch_valor_cada_",
+                                             "ch_envio_total_",
+                                             "ch_situacao_", "ch_obs_",
+                                             "ch_folha_", "ch_venc_"))
+                       and not str(k).endswith(f"_{_g}")
+                       and f"_{_g}_" not in str(k)]
+            for _k in _velhas:
+                st.session_state.pop(_k, None)
+
         n = st.number_input(
             "Quantos cheques nesta compra?", min_value=1, max_value=12,
-            value=1, step=1, key="ch_qtd",
+            value=1, step=1, key=f"ch_qtd_{_g}",
             help="Uma compra fechada em vários cheques. Compra, favorecido, "
                  "valor total e envio são os mesmos; folha e vencimento são "
                  "de cada um.")
 
-        with st.form("ch_novo"):
+        with st.form(f"ch_novo_{_g}"):
             st.markdown("**A compra** — vale para todos os cheques")
             f1, f2, f3 = st.columns(3)
-            favorecido = f1.text_input("Favorecido", key="ch_favorecido")
-            tipo = f2.selectbox("Tipo", _ch.TIPOS, key="ch_tipo")
+            favorecido = f1.text_input("Favorecido", key=f"ch_favorecido_{_g}")
+            tipo = f2.selectbox("Tipo", _ch.TIPOS, key=f"ch_tipo_{_g}")
             compra = f3.date_input("Data da compra", value=hoje,
-                                   format="DD/MM/YYYY", key="ch_compra")
+                                   format="DD/MM/YYYY", key=f"ch_compra_{_g}")
             g1, g2, g3 = st.columns(3)
             # O VALOR É O DE UM CHEQUE, e não o da compra.
             #
@@ -168,16 +197,16 @@ def pagina(usuario_logado=None):
             # cinco cheques.
             valor_cada = g1.number_input(
                 "Valor de CADA cheque (R$)", min_value=0.0, step=100.0,
-                format="%.2f", key="ch_valor_cada",
+                format="%.2f", key=f"ch_valor_cada_{_g}",
                 help="Todos os cheques da compra saem com este valor. A compra "
                      "é a soma, e quem soma é o Studio.")
             envio_total = g2.number_input(
                 "ENVIO total da compra (R$)", min_value=0.0, step=50.0,
-                format="%.2f", key="ch_envio_total",
+                format="%.2f", key=f"ch_envio_total_{_g}",
                 help="Um número só da compra inteira, repartido entre os "
                      "cheques. É a parte que a plataforma devolve com data "
                      "marcada.")
-            situacao = g3.selectbox("Situação", _ch.SITUACOES, key="ch_situacao")
+            situacao = g3.selectbox("Situação", _ch.SITUACOES, key=f"ch_situacao_{_g}")
 
             # ESTOQUE não é campo: é valor − envio, e o dono só quer digitar
             # o envio. O Studio calcula e guarda; nada mais depende dele.
@@ -188,13 +217,13 @@ def pagina(usuario_logado=None):
             for _i in range(int(n)):
                 c1, c2 = st.columns([1, 2])
                 folhas.append(c1.text_input(
-                    f"Folha do {_i + 1}º", key=f"ch_folha_{_i}"))
+                    f"Folha do {_i + 1}º", key=f"ch_folha_{_g}_{_i}"))
                 vencs.append(c2.date_input(
                     f"Vencimento do {_i + 1}º", value=hoje,
-                    format="DD/MM/YYYY", key=f"ch_venc_{_i}"))
+                    format="DD/MM/YYYY", key=f"ch_venc_{_g}_{_i}"))
 
             obs = st.text_input("Observação (vale para todos)",
-                                key="ch_obs")
+                                key=f"ch_obs_{_g}")
             criar = st.form_submit_button("💾 Cadastrar", type="primary",
                                           use_container_width=True)
 
@@ -239,24 +268,17 @@ def pagina(usuario_logado=None):
                             "estoque": round(c["valor"] - c["envio"], 2),
                         } for c in cheques_do_lote],
                     }
-                    # LIMPAR O FORMULÁRIO.
+                    # O FORMULÁRIO LIMPA AQUI, e em uma linha.
                     #
-                    # Sem isto, o cheque seguinte nasce com os dados do
-                    # anterior — e o erro que sai daí não é digitar errado, é
-                    # ESQUECER de mudar. Um vencimento que ficou do cheque
-                    # passado entra certo na tela e errado no mês.
+                    # A geração sobe, todas as chaves mudam, e para o Streamlit
+                    # o formulário seguinte é outro — nasce no padrão. Sem
+                    # apagar chave nenhuma, sem tocar em nada fora daqui, e sem
+                    # chave para esquecer.
                     #
-                    # As chaves são apagadas e a tela recarrega na sequência:
-                    # mexer no estado de um widget já desenhado o Streamlit
-                    # recusa, e só o recarregar faz os campos renascerem no
-                    # padrão.
-                    for _k in list(st.session_state.keys()):
-                        if (str(_k).startswith(("ch_folha_", "ch_venc_"))
-                                or _k in ("ch_favorecido", "ch_tipo",
-                                          "ch_compra", "ch_valor_cada",
-                                          "ch_envio_total", "ch_situacao",
-                                          "ch_obs")):
-                            del st.session_state[_k]
+                    # Isso importa porque o erro que ele evita não é digitar
+                    # errado: é ESQUECER de mudar. Um vencimento que ficou do
+                    # cheque passado entra certo na tela e errado no mês.
+                    st.session_state["ch_geracao"] = _g + 1
                     st.rerun()
 
     if not linhas:
