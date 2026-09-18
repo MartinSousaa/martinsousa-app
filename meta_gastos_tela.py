@@ -61,7 +61,7 @@ def pagina(usuario_logado=None):
     with st.expander("🔍 O que está na aba `meta_gastos` (linha por linha)"):
         try:
             import pandas as _pd
-            _cru = _mg._aba().get_all_records()
+            _cru = _mg.linhas_cruas()
             st.dataframe(_pd.DataFrame(_cru), use_container_width=True,
                          hide_index=True)
             _rep = {}

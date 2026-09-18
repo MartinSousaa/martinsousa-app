@@ -193,8 +193,29 @@ def salvar(usuario, nome_produto, galeria, codigo=""):
         return False
 
 
-def _ler_manifesto(pasta):
-    """{...} da galeria daquela pasta, ou None. Não decide nada — só lê."""
+def _ler_manifesto(pasta, com_bytes=True):
+    """{...} da galeria daquela pasta, ou None. Não decide nada — só lê.
+
+    `com_bytes=False` lê SÓ o manifesto e confere quais arquivos existem, sem
+    abrir um único byte de imagem.
+
+    POR QUE ESSA OPÇÃO EXISTE
+    -------------------------
+    O aviso "🛟 Encontrei N imagens que não chegaram à tela" chama esta função
+    a cada passada do Streamlit — ou seja, a cada tecla digitada, cada clique,
+    cada troca de campo, enquanto a galeria estiver vazia. E ela lia do disco
+    TODOS os bytes de TODAS as imagens: oito peças de 1,5 MB são 12 MB lidos,
+    alocados e jogados fora, muitas vezes por minuto, para exibir um número e
+    um nome.
+
+    Era isso que deixava o Ajuste Fino impossível de usar: a tela travando, o
+    "Reconectando ao servidor… os cliques não estão sendo enviados", e o
+    processo comendo memória até reiniciar — e reiniciar é o que apaga o
+    histórico do chat, porque ele vive na memória.
+
+    Os bytes só são lidos quando alguém clica em "Recuperar". Antes disso,
+    ninguém precisa deles.
+    """
     caminho = os.path.join(pasta, MANIFESTO)
     if not os.path.exists(caminho):
         return None
@@ -211,6 +232,12 @@ def _ler_manifesto(pasta):
         caminho_img = os.path.join(pasta, it.get("arquivo", ""))
         if not os.path.exists(caminho_img):
             continue
+        if not com_bytes:
+            # Só a ficha: quantas são e o que são. Sem tocar no conteúdo.
+            galeria.append({"tipo": it.get("tipo", ""),
+                            "aprovado": it.get("aprovado", False),
+                            "link": it.get("link", "")})
+            continue
         try:
             with open(caminho_img, "rb") as fh:
                 galeria.append({"tipo": it.get("tipo", ""), "bytes": fh.read(),
@@ -226,27 +253,40 @@ def _ler_manifesto(pasta):
             "idade_min": int(idade // 60)}
 
 
-def carregar(usuario):
+def carregar(usuario, com_bytes=True):
     """A galeria guardada, ou None. Cai em `anterior/` quando a atual sumiu.
 
     É a queda que o colaborador viveu: pediu correção, a tela recarregou antes
     de a geração nova terminar, e não havia nem sessão nem disco. Agora a
     geração interrompida devolve o que existia antes dela.
+
+    `com_bytes=False` é para quem só quer saber SE há algo e quanto — o aviso
+    na tela. Ler as imagens para contar quantas são custa a tela inteira.
     """
     if not usuario:
         return None
     try:
         pasta = _pasta(usuario)
-        atual = _ler_manifesto(pasta)
+        atual = _ler_manifesto(pasta, com_bytes=com_bytes)
         if atual:
             return atual
-        anterior = _ler_manifesto(os.path.join(pasta, ANTERIOR))
+        anterior = _ler_manifesto(os.path.join(pasta, ANTERIOR),
+                                  com_bytes=com_bytes)
         if anterior:
             anterior["de_geracao_interrompida"] = True
             return anterior
         return None
     except Exception:
         return None
+
+
+def resumo(usuario):
+    """Só a ficha do rascunho: quantas imagens, de que produto, de quando.
+
+    É o que o aviso na tela precisa — e ele é desenhado a cada passada do
+    Streamlit. Nenhum byte de imagem é lido aqui.
+    """
+    return carregar(usuario, com_bytes=False)
 
 
 def limpar(usuario):
@@ -357,3 +397,58 @@ def restaurar(usuario, estado):
             estado[chave] = valor
             reposto.append(chave)
     return reposto
+
+
+# ── Conferência ──────────────────────────────────────────────────────────────
+# `python3 rascunho.py` roda os casos abaixo.
+if __name__ == "__main__":
+    import shutil as _sh_t
+    import tempfile as _tmp_t
+
+    falhas = 0
+
+    def ok(nome, cond):
+        global falhas
+        falhas += not cond
+        print(("ok    " if cond else "FALHA ") + nome)
+
+    _base = _tmp_t.mkdtemp()
+    globals()["_pasta"] = lambda u, _b=_base: os.path.join(_b, u)
+
+    _p = _pasta("bia")
+    os.makedirs(_p, exist_ok=True)
+    _IMG = b"P" * (300 * 1024)          # 300 KB por peça, como as de verdade
+    for _i in range(3):
+        with open(os.path.join(_p, f"img{_i}.png"), "wb") as _fh:
+            _fh.write(_IMG)
+    with open(os.path.join(_p, MANIFESTO), "w", encoding="utf-8") as _fh:
+        json.dump({"nome_produto": "Urso Prata", "codigo": "MS-URSO-1",
+                   "quando": time.time(),
+                   "itens": [{"tipo": f"{i} — peça", "arquivo": f"img{i}.png"}
+                             for i in range(3)]}, _fh)
+
+    _r = resumo("bia")
+    ok("o resumo acha as tres imagens", _r and len(_r["galeria"]) == 3)
+    ok("e traz o nome do produto", _r["nome_produto"] == "Urso Prata")
+    # O CUSTO QUE TRAVAVA A TELA: o aviso é desenhado a cada tecla digitada.
+    # Lendo os bytes, eram 900 KB do disco por passada — com oito peças, 12 MB.
+    ok("e NAO le um unico byte de imagem",
+       all("bytes" not in it for it in _r["galeria"]))
+
+    _c = carregar("bia")
+    ok("carregar continua trazendo os bytes, para o botao Recuperar",
+       _c and all(len(it["bytes"]) == len(_IMG) for it in _c["galeria"]))
+
+    # Rascunho velho não é rascunho: o aviso some sozinho depois da validade.
+    with open(os.path.join(_p, MANIFESTO), encoding="utf-8") as _fh:
+        _man = json.load(_fh)
+    _man["quando"] = time.time() - (VALIDADE_HORAS + 1) * 3600
+    with open(os.path.join(_p, MANIFESTO), "w", encoding="utf-8") as _fh:
+        json.dump(_man, _fh)
+    ok("rascunho vencido nao aparece", resumo("bia") is None)
+
+    ok("usuario sem rascunho nao derruba", resumo("ninguem") is None)
+    ok("usuario vazio tambem", resumo("") is None and carregar("") is None)
+
+    _sh_t.rmtree(_base, ignore_errors=True)
+    print("\nfalhas:", falhas)

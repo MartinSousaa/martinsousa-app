@@ -3249,7 +3249,10 @@ def pagina_imagem(usuario_logado):
     if not st.session_state.get("img_galeria"):
         try:
             import rascunho as _rasc
-            _pend = _rasc.carregar(usuario_logado)
+            # SÓ A FICHA. Ler os bytes aqui significava abrir do disco todas as
+            # imagens do rascunho a cada tecla digitada nesta tela — e é o que
+            # travava o Ajuste Fino e derrubava a conexão.
+            _pend = _rasc.resumo(usuario_logado)
         except Exception:
             _pend = None
         if _pend:
@@ -3267,9 +3270,15 @@ def pagina_imagem(usuario_logado):
             _c_rec, _c_desc = st.columns(2)
             if _c_rec.button(f"🛟 Recuperar as {_n} imagens", type="primary",
                              use_container_width=True, key="img_recuperar_rascunho"):
-                st.session_state["img_galeria"] = _pend["galeria"]
-                st.session_state["img_nome_produto"] = _pend["nome_produto"]
-                st.rerun()
+                # AQUI, sim, os bytes: é o único momento em que alguém precisa
+                # deles, e é um clique por vez.
+                _cheio = _rasc.carregar(usuario_logado)
+                if not _cheio:
+                    st.error("As imagens do rascunho não estão mais no disco.")
+                else:
+                    st.session_state["img_galeria"] = _cheio["galeria"]
+                    st.session_state["img_nome_produto"] = _cheio["nome_produto"]
+                    st.rerun()
             if _c_desc.button("Descartar", use_container_width=True,
                               key="img_descartar_rascunho"):
                 try:

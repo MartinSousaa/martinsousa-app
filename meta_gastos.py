@@ -145,6 +145,20 @@ def carregar():
     return fora
 
 
+@st.cache_data(ttl=120, show_spinner=False)
+def linhas_cruas():
+    """As linhas da aba como o Google as devolve. [] em qualquer falha.
+
+    O expander "o que está na aba" é desenhado a cada passada — o Streamlit
+    monta o conteúdo mesmo com ele fechado. Sem cache, era uma ida à planilha
+    por clique, em cima de uma tela que o dono usa digitando.
+    """
+    try:
+        return list(_aba().get_all_records())
+    except Exception:
+        return []
+
+
 def salvar(mes_txt, meta=None, informado=None, observacao=None, usuario=""):
     """Grava ou atualiza a linha de um mês. (ok, mensagem)."""
     alvo = str(mes_txt or "").strip()
@@ -204,6 +218,7 @@ def salvar(mes_txt, meta=None, informado=None, observacao=None, usuario=""):
     except Exception as e:
         return False, str(e)[:200]
     carregar.clear()
+    linhas_cruas.clear()
     extra = (f" ({repetidas} linha(s) repetida(s) deste mês foram unificadas)"
              if repetidas else "")
     return True, f"{rotulo(alvo)} salvo: meta R$ {linha[1]:.2f}.{extra}"
