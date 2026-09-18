@@ -7120,10 +7120,14 @@ def pagina_analise_metas(usuario_logado):
             # parte de escolher o que ver, não um passo depois. Ele aparece
             # mesmo na visão coletiva, e desabilitado, para a linha não mudar
             # de forma a cada troca — campo que some faz a linha pular.
-            _mb_nome_des = _c_col.selectbox(
-                "👤 Colaborador", _mb_nomes_des, key="des_ind_sel",
-                disabled=not _vis.endswith("individual"))
-            _mb_u_des = _mb_opcoes_des[_mb_nomes_des.index(_mb_nome_des)]
+            # Pelo username, e não pelo nome exibido: `.index()` num nome
+            # repetido devolve a primeira pessoa, e a tela mostraria as metas
+            # de uma no lugar das da outra.
+            _mb_u_des = _c_col.selectbox(
+                "👤 Colaborador", _mb_opcoes_des, key="des_ind_sel",
+                disabled=not _vis.endswith("individual"),
+                format_func=lambda u: dict(zip(_mb_opcoes_des,
+                                               _mb_nomes_des)).get(u, u))
         else:
             _mb_u_des    = _username_atual
             _mb_nome_des = _pc.MEMBROS_ATIVOS.get(_mb_u_des, _mb_u_des)
