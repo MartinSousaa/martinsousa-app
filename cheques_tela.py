@@ -120,7 +120,24 @@ def pagina(usuario_logado=None):
                     tipos={"valor": "brl"}))
 
     # ── cadastrar ────────────────────────────────────────────────────────
-    with st.expander("➕ Cadastrar cheque(s) de uma compra"):
+    #
+    # O resultado do cadastro anterior aparece AQUI, e não lá embaixo: limpar
+    # os campos exige recarregar a tela, e o que foi escrito antes do recarregar
+    # some junto. Guardar a mensagem e mostrá-la na passada seguinte é o preço
+    # de um formulário que não guarda o cheque de ontem.
+    _recado = st.session_state.pop("ch_recado", None)
+    if _recado:
+        st.success(_recado["texto"])
+        if _recado.get("tabela"):
+            st.dataframe(pd.DataFrame(_recado["tabela"]),
+                         use_container_width=True, hide_index=True,
+                         column_config=_rot.config(
+                             ["folha", "vencimento", "valor", "envio",
+                              "estoque"], st,
+                             tipos={x: "brl" for x in ("valor", "envio",
+                                                       "estoque")}))
+
+    with st.expander("➕ Cadastrar cheque(s) de uma compra", expanded=True):
         # QUANTOS CHEQUES — fora do formulário, de propósito.
         #
         # O número de linhas do formulário depende dele, e dentro de `st.form`
@@ -138,21 +155,29 @@ def pagina(usuario_logado=None):
         with st.form("ch_novo"):
             st.markdown("**A compra** — vale para todos os cheques")
             f1, f2, f3 = st.columns(3)
-            favorecido = f1.text_input("Favorecido")
-            tipo = f2.selectbox("Tipo", _ch.TIPOS)
+            favorecido = f1.text_input("Favorecido", key="ch_favorecido")
+            tipo = f2.selectbox("Tipo", _ch.TIPOS, key="ch_tipo")
             compra = f3.date_input("Data da compra", value=hoje,
-                                   format="DD/MM/YYYY")
+                                   format="DD/MM/YYYY", key="ch_compra")
             g1, g2, g3 = st.columns(3)
-            valor_total = g1.number_input(
-                "Valor TOTAL da compra (R$)", min_value=0.0, step=100.0,
-                format="%.2f",
-                help="O total fechado com o fornecedor. O Studio divide em "
-                     "partes iguais entre os cheques.")
+            # O VALOR É O DE UM CHEQUE, e não o da compra.
+            #
+            # O talão sai com dois de R$ 1.495,84, e não com um de R$ 2.991,68.
+            # Pedir o total obrigaria a somar de cabeça antes de digitar —
+            # conta que ninguém precisa fazer, e que erra em silêncio quando são
+            # cinco cheques.
+            valor_cada = g1.number_input(
+                "Valor de CADA cheque (R$)", min_value=0.0, step=100.0,
+                format="%.2f", key="ch_valor_cada",
+                help="Todos os cheques da compra saem com este valor. A compra "
+                     "é a soma, e quem soma é o Studio.")
             envio_total = g2.number_input(
                 "ENVIO total da compra (R$)", min_value=0.0, step=50.0,
-                format="%.2f",
-                help="A parte que a plataforma devolve com data marcada.")
-            situacao = g3.selectbox("Situação", _ch.SITUACOES)
+                format="%.2f", key="ch_envio_total",
+                help="Um número só da compra inteira, repartido entre os "
+                     "cheques. É a parte que a plataforma devolve com data "
+                     "marcada.")
+            situacao = g3.selectbox("Situação", _ch.SITUACOES, key="ch_situacao")
 
             # ESTOQUE não é campo: é valor − envio, e o dono só quer digitar
             # o envio. O Studio calcula e guarda; nada mais depende dele.
@@ -168,23 +193,25 @@ def pagina(usuario_logado=None):
                     f"Vencimento do {_i + 1}º", value=hoje,
                     format="DD/MM/YYYY", key=f"ch_venc_{_i}"))
 
-            obs = st.text_input("Observação (vale para todos)")
+            obs = st.text_input("Observação (vale para todos)",
+                                key="ch_obs")
             criar = st.form_submit_button("💾 Cadastrar", type="primary",
                                           use_container_width=True)
 
         if criar:
-            if not valor_total:
-                st.error("Compra sem valor não entra — seriam linhas que "
+            if not valor_cada:
+                st.error("Cheque sem valor não entra — seriam linhas que "
                          "ocupam lugar e não contam nada.")
-            elif envio_total > valor_total:
+            elif envio_total > valor_cada * int(n):
                 st.error(
                     f"O envio ({_brl(envio_total)}) é maior que a compra "
-                    f"({_brl(valor_total)}). Confira antes de cadastrar.")
+                    f"({_brl(valor_cada * int(n))} = {int(n)} × "
+                    f"{_brl(valor_cada)}). Confira antes de cadastrar.")
             else:
                 cheques_do_lote = _ch.lote(
                     {"favorecido": favorecido, "tipo": tipo, "compra": compra,
                      "situacao": situacao, "observacao": obs},
-                    folhas, vencs, valor_total, envio_total)
+                    folhas, vencs, valor_cada, envio_total)
                 novas, repetidas, erro = _ch.gravar(cheques_do_lote,
                                                     usuario_logado)
                 if erro:
@@ -194,31 +221,43 @@ def pagina(usuario_logado=None):
                 else:
                     _v = cheques_do_lote[0]["valor"]
                     _e = cheques_do_lote[0]["envio"]
-                    st.success(
-                        f"{novas} cheque(s) cadastrado(s)"
-                        + (f" · {repetidas} já existia(m)" if repetidas else "")
-                        + f"\n\nCada um: {_brl(_v)} = envio {_brl(_e)} + "
-                        f"estoque {_brl(round(_v - _e, 2))}")
-                    # A prova de que a divisão fechou: a soma tem de ser a
-                    # compra. Centavo perdido numa divisão só aparece no
-                    # fechamento do mês, e lá ninguém sabe de onde veio.
-                    st.dataframe(
-                        pd.DataFrame([{
+                    _soma = round(sum(c["valor"] for c in cheques_do_lote), 2)
+                    # O recado viaja para a próxima passada da tela, porque a
+                    # próxima passada é a que limpa os campos.
+                    st.session_state["ch_recado"] = {
+                        "texto": (
+                            f"{novas} cheque(s) cadastrado(s)"
+                            + (f" · {repetidas} já existia(m)" if repetidas
+                               else "")
+                            + f"\n\nCada um: {_brl(_v)} · envio {_brl(_e)} · "
+                            f"estoque {_brl(round(_v - _e, 2))}"
+                            + f"\n\nCompra: {_brl(_soma)} = {novas} × "
+                            f"{_brl(_v)}"),
+                        "tabela": [{
                             "folha": c["folha"], "vencimento": c["vencimento"],
                             "valor": c["valor"], "envio": c["envio"],
                             "estoque": round(c["valor"] - c["envio"], 2),
-                        } for c in cheques_do_lote]),
-                        use_container_width=True, hide_index=True,
-                        column_config=_rot.config(
-                            ["folha", "vencimento", "valor", "envio",
-                             "estoque"], st,
-                            tipos={x: "brl" for x in ("valor", "envio",
-                                                      "estoque")}))
-                    st.caption(
-                        "Soma dos cheques: "
-                        + _brl(round(sum(c["valor"] for c in cheques_do_lote), 2))
-                        + f" · compra: {_brl(valor_total)}")
-                    linhas = _ch.carregar()
+                        } for c in cheques_do_lote],
+                    }
+                    # LIMPAR O FORMULÁRIO.
+                    #
+                    # Sem isto, o cheque seguinte nasce com os dados do
+                    # anterior — e o erro que sai daí não é digitar errado, é
+                    # ESQUECER de mudar. Um vencimento que ficou do cheque
+                    # passado entra certo na tela e errado no mês.
+                    #
+                    # As chaves são apagadas e a tela recarrega na sequência:
+                    # mexer no estado de um widget já desenhado o Streamlit
+                    # recusa, e só o recarregar faz os campos renascerem no
+                    # padrão.
+                    for _k in list(st.session_state.keys()):
+                        if (str(_k).startswith(("ch_folha_", "ch_venc_"))
+                                or _k in ("ch_favorecido", "ch_tipo",
+                                          "ch_compra", "ch_valor_cada",
+                                          "ch_envio_total", "ch_situacao",
+                                          "ch_obs")):
+                            del st.session_state[_k]
+                    st.rerun()
 
     if not linhas:
         return

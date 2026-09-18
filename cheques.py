@@ -249,36 +249,38 @@ def dividir_em(total, n):
             for i in range(n)]
 
 
-def lote(comum, folhas, vencimentos, valor_total, envio_total=0.0,
-         estoque_total=None):
+def lote(comum, folhas, vencimentos, valor_cada, envio_total=0.0):
     """Os N cheques de uma compra só. Lista pronta para `gravar`.
 
     `comum` é o que não muda entre eles — compra, favorecido, tipo, situação.
-    Folha e vencimento são de cada um; valor e envio saem da divisão.
+    Folha e vencimento são de cada um.
 
-    Existe porque é assim que a compra acontece: o Renan fecha R$ 3.211,60 com
-    o fornecedor e deixa dois cheques de R$ 1.605,80 para datas diferentes.
-    Preencher a mesma compra duas vezes é trabalho repetido — e trabalho
-    repetido é onde entra o erro de digitação que ninguém confere.
+    O VALOR É O DE UM CHEQUE, E NÃO O DA COMPRA
+    -------------------------------------------
+    Cheque de compra parcelada sai todo com o mesmo valor: o talão tem dois de
+    R$ 1.495,84, e não um de R$ 2.991,68. Pedir o total obrigaria o dono a
+    somar de cabeça antes de digitar — conta que ele não precisa fazer, e que
+    erra em silêncio quando são cinco cheques.
+
+    Então ele digita o valor do cheque, e o Studio repete. A compra é a soma, e
+    quem a calcula é o programa.
+
+    O ENVIO, ESSE SIM, É DIVIDIDO
+    -----------------------------
+    Ele é um número só da compra inteira — "2 cheques com 700 de envio" — e vai
+    repartido entre eles, sem perder centavo.
     """
     n = max(len(folhas or []), len(vencimentos or []))
     if not n:
         return []
-    valores = dividir_em(valor_total, n)
+    cada = round(abs(_num(valor_cada)), 2)
     envios = dividir_em(envio_total, n)
-    # O estoque digitado também se divide. Em branco, cada cheque calcula o
-    # seu em `normalizar` — e aí a divisão do valor e a do envio já garantem
-    # que a soma fecha.
-    estoques = dividir_em(estoque_total, n) if estoque_total else None
     fora = []
     for i in range(n):
         f = (folhas or [])[i] if i < len(folhas or []) else ""
         v = (vencimentos or [])[i] if i < len(vencimentos or []) else ""
-        item = {**(comum or {}), "folha": f, "vencimento": v,
-                "valor": valores[i], "envio": envios[i]}
-        if estoques:
-            item["estoque"] = estoques[i]
-        fora.append(item)
+        fora.append({**(comum or {}), "folha": f, "vencimento": v,
+                     "valor": cada, "envio": envios[i]})
     return fora
 
 
@@ -625,38 +627,39 @@ if __name__ == "__main__":
        and dividir_em(100, -1) == [])
     ok("total zero da zeros, e nao vazio", dividir_em(0, 2) == [0.0, 0.0])
 
-    # O caso que o dono descreveu: compra de 3.211,60 em dois cheques, 569 e
-    # 572, vencimentos diferentes, 1.400 de frete dividido entre eles.
+    # O caso que o dono descreveu: dois cheques de 1.495,84 cada, vencimentos
+    # diferentes, 1.400 de envio dividido entre eles. O VALOR e o de UM cheque:
+    # o talao sai com dois de 1.495,84, e nao com um de 2.991,68.
     _l = lote({"favorecido": "LEXTACK", "compra": "2026-09-18",
                "situacao": "EM ABERTO"},
               ["569", "572"], ["2026-10-02", "2026-11-02"],
-              3211.60, 1400.00)
+              1495.84, 1400.00)
     ok("o lote gera um cheque por folha", len(_l) == 2)
-    ok("com o valor dividido igualmente",
-       [c["valor"] for c in _l] == [1605.80, 1605.80])
-    ok("e o frete tambem", [c["envio"] for c in _l] == [700.00, 700.00])
+    ok("e todos com o MESMO valor, o digitado",
+       [c["valor"] for c in _l] == [1495.84, 1495.84])
+    ok("o envio, esse sim, e dividido",
+       [c["envio"] for c in _l] == [700.00, 700.00])
     ok("cada um com seu vencimento",
        [c["vencimento"] for c in _l] == ["2026-10-02", "2026-11-02"])
     ok("e o que e comum se repete em todos",
        all(c["favorecido"] == "LEXTACK" and c["compra"] == "2026-09-18"
            for c in _l))
-    ok("a soma dos cheques do lote e a compra",
-       round(sum(c["valor"] for c in _l), 2) == 3211.60)
-    # E cada um deles, normalizado, ja traz a mercadoria calculada.
+    ok("a compra e a soma, e quem soma e o programa",
+       round(sum(c["valor"] for c in _l), 2) == 2991.68)
+    # E cada um deles, normalizado, ja traz o estoque calculado.
     _n = [normalizar(c) for c in _l]
-    ok("e a mercadoria de cada um sai da conta",
-       [c["estoque"] for c in _n] == [905.80, 905.80])
+    ok("e o estoque de cada um sai da conta",
+       [c["estoque"] for c in _n] == [795.84, 795.84])
     ok("dois cheques do mesmo lote sao dois registros",
        _n[0]["id"] != _n[1]["id"])
-    # O estoque digitado tambem se divide, e cada cheque fica fechando.
-    _le = lote({}, ["1", "2"], ["2026-10-01", "2026-11-01"], 1000.0, 300.0, 700.0)
-    ok("estoque informado e dividido entre os cheques",
-       [c["estoque"] for c in _le] == [350.0, 350.0])
-    ok("e cada cheque do lote fecha",
-       all(divergencia_da_soma(c) == 0.0 for c in _le))
-    ok("sem estoque informado, cada cheque calcula o seu",
-       [normalizar(c)["estoque"]
-        for c in lote({}, ["1", "2"], ["x", "y"], 1000.0, 300.0)] == [350.0, 350.0])
+    # Envio impar: o centavo vai para o primeiro, e a soma dos envios fecha.
+    _li = lote({}, ["1", "2", "3"], ["a", "b", "c"], 500.0, 100.01)
+    ok("envio que nao divide exato nao perde centavo",
+       round(sum(c["envio"] for c in _li), 2) == 100.01)
+    ok("e o valor de cada um continua sendo o digitado",
+       all(c["valor"] == 500.0 for c in _li))
+    ok("cada cheque do lote fecha sozinho",
+       all(divergencia_da_soma(normalizar(c)) == 0.0 for c in _li))
 
     ok("lote sem folha nem vencimento nao inventa cheque",
        lote({}, [], [], 1000) == [])
