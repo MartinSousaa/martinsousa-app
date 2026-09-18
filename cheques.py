@@ -65,10 +65,28 @@ ABERTAS = ("EM ABERTO",)
 
 
 def _num(v, padrao=0.0):
+    """Número, ou o padrão. `nan` NUNCA passa.
+
+    `nan` é float, então `isinstance(v, float)` era verdadeiro e ele saía daqui
+    inteiro. O Google recusa gravar: "Out of range float values are not JSON
+    compliant: nan" — e a importação das 604 linhas morria depois de ler tudo,
+    sem gravar nada.
+
+    É o mesmo `nan` de célula vazia que já tinha sido peneirado do lado do
+    TEXTO (`texto()`), e que eu deixei passar do lado do número. Metade do
+    conserto é o conserto que volta.
+    """
     if v is None:
         return padrao
+    if isinstance(v, bool):
+        return padrao
     if isinstance(v, (int, float)):
-        return float(v)
+        f = float(v)
+        # nan != nan é a única forma de detectá-lo sem importar `math`; e
+        # infinito tem o mesmo destino, pelo mesmo motivo.
+        if f != f or f in (float("inf"), float("-inf")):
+            return padrao
+        return f
     t = str(v).strip().replace("R$", "").replace(" ", "")
     if not t:
         return padrao
@@ -445,6 +463,19 @@ if __name__ == "__main__":
     _nan = float("nan")
     ok("nan nao e texto", texto(_nan) == "" and texto(None) == ""
        and texto("nan") == "")
+    # O QUE DERRUBOU A IMPORTACAO DAS 604 LINHAS: `nan` E float, entao passava
+    # direto por `isinstance(v, float)` e ia parar na planilha. O Google recusa:
+    # "Out of range float values are not JSON compliant: nan".
+    ok("nan tambem nao e numero", _num(_nan) == 0.0)
+    ok("nem infinito", _num(float("inf")) == 0.0 and _num(float("-inf")) == 0.0)
+    ok("e o numero de verdade continua passando",
+       _num(1409.89) == 1409.89 and _num("1.409,89") == 1409.89)
+    ok("celula vazia com padrao proprio devolve o padrao",
+       _num(_nan, 7.0) == 7.0)
+    ok("nenhum campo do cheque sai como nan",
+       all(v == v for k, v in normalizar({"valor": _nan, "envio": _nan,
+                                          "estoque": _nan}).items()
+           if isinstance(v, float)))
     ok("dois cheques sem folha continuam sendo dois",
        normalizar({"folha": _nan, "vencimento": "2026-09-04",
                    "valor": 1409.89})["id"]
