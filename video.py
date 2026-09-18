@@ -8,6 +8,7 @@ upload dos frames inicial/final → IA gera o prompt otimizado.
 import streamlit as st
 import anthropic
 import base64
+import idioma as _idioma
 import triagem as _triagem
 import chat_assistente
 
@@ -151,7 +152,7 @@ RESPOND ONLY with valid JSON:
             model="claude-sonnet-4-6",
             max_tokens=1000,
             system=system,
-            messages=[{"role": "user", "content": partes_user}],
+            messages=[{"role": "user", "content": _idioma.com_regra(partes_user)}],
         )
         import json, re
         texto = msg.content[0].text.strip()
@@ -190,7 +191,7 @@ Return ONLY the adjusted prompt, no explanation, no extra quotes."""
             model="claude-sonnet-4-6",
             max_tokens=400,
             system=system,
-            messages=[{"role": "user", "content": prompt_msg}],
+            messages=[{"role": "user", "content": _idioma.com_regra(prompt_msg)}],
         )
         return msg.content[0].text.strip().strip('"'), None
     except Exception as e:

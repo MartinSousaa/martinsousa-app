@@ -734,7 +734,7 @@ def _descrever_produto_via_claude(imagens_referencia, nome_produto="produto", da
             msg = client.messages.create(
                 model="claude-haiku-4-5",
                 max_tokens=2000,
-                messages=[{"role": "user", "content": content}]
+                messages=[{"role": "user", "content": _idioma.com_regra(content)}]
             )
             descricao_produto = msg.content[0].text.strip()
         except Exception:
@@ -774,7 +774,7 @@ def _descrever_produto_via_claude(imagens_referencia, nome_produto="produto", da
             msg = client.messages.create(
                 model="claude-haiku-4-5",
                 max_tokens=800,
-                messages=[{"role": "user", "content": content_layout}]
+                messages=[{"role": "user", "content": _idioma.com_regra(content_layout)}]
             )
             estilo_layout = msg.content[0].text.strip()
         except Exception:
@@ -2118,7 +2118,64 @@ TIPO DE IMAGEM: {tipo}
 """
 
 
-def montar_prompt_ajuste_fino(instrucao, tipo=None):
+def cor_do_produto_atual():
+    """A cor que a triagem apurou para o produto aberto. "" quando não há.
+
+    Existe para que a trava de cor valha nos DOIS prompts — o de geração e o
+    de ajuste — sem que cada um dos quatro lugares que ajustam imagem tenha de
+    lembrar de buscá-la. Foi a falta disso que deixou a trava só na geração.
+    """
+    try:
+        return str((st.session_state.get("img_dados_descricao") or {})
+                   .get("cor", "") or "").strip()
+    except Exception:
+        return ""
+
+
+def plano_do_tipo(tipo):
+    """O plano que a triagem fez para este tipo de imagem. None quando não há.
+
+    Ele carrega a composição decidida e — mais importante — a COPY FINAL,
+    palavra por palavra, que `bloco_texto_exato` manda desenhar. É a correção
+    que acabou com "Portátile" e "apoliando" nas peças.
+
+    Existe como função porque o laço principal de geração a montava inline, e
+    os dois caminhos de regerar UMA imagem não a montavam de jeito nenhum: a
+    peça refeita saía sem a composição planejada e sem a copy pronta, e o
+    gerador voltava a redigir a frase sozinho. Uma regra num lugar só.
+    """
+    try:
+        itens = (st.session_state.get("img_triagem_plano") or {}).get("plano") or []
+    except Exception:
+        return None
+    for it in itens:
+        if str(it.get("tipo", "")).strip() == str(tipo or "").strip():
+            return it
+    return None
+
+
+def prompt_para_regerar(tipo, instrucoes, dados_descricao, nome_produto):
+    """O prompt de quem vai gerar UMA imagem de novo — com tudo o que o laço
+    principal usa, e não com metade.
+
+    Quem regera não pode receber menos do que quem gera: era essa a diferença
+    entre a peça nascida na geração e a mesma peça refeita pelo botão ou pelo
+    chat.
+    """
+    cfg = {}
+    try:
+        cfg = st.session_state.get("img_triagem_config") or {}
+    except Exception:
+        cfg = {}
+    return montar_prompt_imagem(
+        tipo, instrucoes, dados_descricao, nome_produto,
+        refs_layout_nomes=cfg.get("refs_layout_nomes", []),
+        instrucao_layout=cfg.get("instrucao_layout", ""),
+        plano_triagem=plano_do_tipo(tipo),
+    )
+
+
+def montar_prompt_ajuste_fino(instrucao, tipo=None, cor_produto=None):
     """Monta prompt para edição cirúrgica de uma imagem existente.
 
     NÃO aplica PADRAO_VISUAL, NÃO aplica INSTRUCAO_COMPOSICAO.
@@ -2143,6 +2200,22 @@ MODIFICAÇÃO SOLICITADA — o único e exclusivo ponto a alterar:
 {instrucao}
 
 {INSTRUCAO_AJUSTE_FINO}
+
+{INSTRUCAO_FIDELIDADE}
+{_trava_cor_produto(cor_do_produto_atual() if cor_produto is None else cor_produto)}
+
+O PRODUTO NÃO É PARTE DO AJUSTE — regra acima de qualquer instrução:
+- O produto que está na imagem continua EXATAMENTE como está: mesma textura,
+  mesmo acabamento, mesmo brilho, mesmos detalhes, mesma superfície.
+- Pedra, strass, cravejado, relevo, textura, costura, grão: se está no produto
+  da imagem, continua ali, no mesmo lugar e na mesma quantidade. Um urso
+  cravejado de strass no corpo inteiro não pode sair liso.
+- "Melhorar", "realçar", "deixar mais bonito" NUNCA autorizam redesenhar o
+  produto. Se o pedido for sobre cor, luz ou fundo, mexa na cor, na luz ou no
+  fundo — e no produto, em nada.
+- Se a modificação pedida só puder ser feita alterando o produto, NÃO a faça:
+  devolva a imagem como está. Entregar o produto errado é pior do que não
+  atender ao pedido.
 
 Reproduza a imagem fornecida com fidelidade absoluta, aplicando APENAS a modificação acima.
 Trate qualquer elemento que não foi mencionado na instrução como intocável.
@@ -2200,8 +2273,22 @@ _ESQUEMA_CONFERENCIA = {
                            "enquadramento, cores, texto). Vazio se nada além "
                            "do pedido mudou.",
         },
+        # Campo separado, e booleano, porque `colateral` é texto livre: dava
+        # para relatar "removeu o strass do corpo do urso" e o código seguir
+        # adiante sem nunca ter lido aquilo. Pergunta fechada tem resposta que
+        # o programa consegue obedecer.
+        "produto_alterado": {
+            "type": "boolean",
+            "description": "true se o PRODUTO em si mudou — forma, textura, "
+                           "acabamento, material, detalhes, peças, cor do "
+                           "próprio produto. Strass, pedra, relevo ou textura "
+                           "que sumiu, diminuiu ou apareceu conta como true. "
+                           "Fundo, luz, cenário, texto e enquadramento NÃO "
+                           "são o produto.",
+        },
     },
-    "required": ["feito", "o_que_saiu", "o_que_falta", "colateral"],
+    "required": ["feito", "o_que_saiu", "o_que_falta", "colateral",
+                 "produto_alterado"],
     "additionalProperties": False,
 }
 
@@ -2305,6 +2392,11 @@ def conferir_ajuste(antes, depois, instrucao):
             "Produto redesenhado, objeto que apareceu ou sumiu, cena "
             "recomposta, texto reescrito — tudo isso é alteração colateral, e "
             "vale reportar mesmo que o pedido tenha sido atendido.\n\n"
+            "3. O PRODUTO mudou? Responda em `produto_alterado`. Olhe a "
+            "superfície de perto: strass, pedra, cravejado, relevo, textura, "
+            "brilho, costura, acabamento. Um urso cravejado que ficou liso é "
+            "produto alterado, mesmo que a cor pedida tenha melhorado. Fundo, "
+            "luz, cenário, texto e enquadramento não são o produto.\n\n"
             "Escreva em português do Brasil, direto, sem elogio e sem rodeio. "
             "O texto de 'o_que_falta' vai ser usado como instrução para o "
             "gerador tentar de novo, então escreva o que ELE deve fazer — e "
@@ -2322,7 +2414,7 @@ def conferir_ajuste(antes, depois, instrucao):
             output_config={"effort": "medium",
                            "format": {"type": "json_schema",
                                       "schema": _ESQUEMA_CONFERENCIA}},
-            messages=[{"role": "user", "content": conteudo}],
+            messages=[{"role": "user", "content": _idioma.com_regra(conteudo)}],
         )
         if resposta.stop_reason == "refusal":
             return None, "A conferência foi recusada pelo modelo."
@@ -2445,7 +2537,7 @@ def conferir_texto(imagem, pedido=""):
             output_config={"effort": "medium",
                            "format": {"type": "json_schema",
                                       "schema": _ESQUEMA_TEXTO}},
-            messages=[{"role": "user", "content": conteudo}],
+            messages=[{"role": "user", "content": _idioma.com_regra(conteudo)}],
         )
         if resposta.stop_reason == "refusal":
             return None, "A conferência de texto foi recusada pelo modelo."
@@ -2626,11 +2718,32 @@ def _ajustar_bruto(imagem, instrucao, tipo=None, tentativas=2,
                           "falta": "", "colateral": "", "historico": historico}
 
         historico.append(veredito)
-        if veredito.get("feito"):
+        _mexeu_no_produto = bool(veredito.get("produto_alterado"))
+        if veredito.get("feito") and not _mexeu_no_produto:
             return nova, {"ok": True, "tentativas": n, "erro": "",
                           "falta": "", "saiu": veredito.get("o_que_saiu", ""),
                           "colateral": veredito.get("colateral", ""),
                           "historico": historico}
+
+        # Pedido atendido MAS produto alterado não é sucesso — é a peça errada
+        # com a cor certa. A conferência já enxergava isso e o código seguia
+        # adiante mesmo assim: o urso de strass voltou liso, o veredito disse
+        # que o corpo tinha ficado liso, e a tela anunciou "✅ atualizada".
+        #
+        # Aqui a próxima tentativa parte da imagem ORIGINAL e leva o que foi
+        # destruído por escrito. Se nem assim der, volta a original: entregar
+        # o produto errado é pior do que não atender ao pedido.
+        if _mexeu_no_produto:
+            _dano = (veredito.get("colateral") or "o produto foi alterado").strip()
+            _diz("O produto mudou — refazendo sem tocar nele.")
+            pedido = (f"{instrucao.strip()}\n\n"
+                      f"ATENÇÃO — a tentativa anterior estragou o produto: "
+                      f"{_dano}. O produto da imagem original tem de ser "
+                      f"reproduzido EXATAMENTE como está, com a mesma "
+                      f"textura, o mesmo acabamento e os mesmos detalhes de "
+                      f"superfície. Faça a alteração pedida sem redesenhar o "
+                      f"produto.")
+            continue
 
         # Nao saiu. A critica vira a instrucao da proxima tentativa — e a
         # partir da imagem ORIGINAL, nao da tentativa falha: encadear falha
@@ -2641,10 +2754,15 @@ def _ajustar_bruto(imagem, instrucao, tipo=None, tentativas=2,
                   f"acontecer: {falta}") if falta else instrucao
 
     ultimo = historico[-1] if historico else {}
+    _estragou = bool(ultimo.get("produto_alterado"))
     return atual, {"ok": False, "tentativas": tentativas, "erro": "",
-                   "falta": (ultimo.get("o_que_falta") or "").strip(),
+                   "falta": ((ultimo.get("o_que_falta") or "").strip()
+                             if not _estragou else
+                             "o ajuste só saiu alterando o produto, então a "
+                             "imagem foi mantida como estava"),
                    "saiu": ultimo.get("o_que_saiu", ""),
                    "colateral": (ultimo.get("colateral") or "").strip(),
+                   "produto_alterado": _estragou,
                    "historico": historico}
 
 
@@ -2955,7 +3073,7 @@ def consumir_comandos_do_chat(usuario_logado=""):
                 break
             _tp = tipo_para_gerar(galeria[_i])
             _ins = (_c.get("instrucao") or "").strip()
-            _prompt = montar_prompt_imagem(_tp, _ins, _dados_rf, _nome_rf)
+            _prompt = prompt_para_regerar(_tp, _ins, _dados_rf, _nome_rf)
             _r = {"img": None, "erro": None, "done": False}
             _b = st.progress(0.0, text=f"Refazendo a Imagem {_i + 1}…")
             import threading as _th_rf, time as _tm_rf
@@ -3131,7 +3249,10 @@ def pagina_imagem(usuario_logado):
     if not st.session_state.get("img_galeria"):
         try:
             import rascunho as _rasc
-            _pend = _rasc.carregar(usuario_logado)
+            # SÓ A FICHA. Ler os bytes aqui significava abrir do disco todas as
+            # imagens do rascunho a cada tecla digitada nesta tela — e é o que
+            # travava o Ajuste Fino e derrubava a conexão.
+            _pend = _rasc.resumo(usuario_logado)
         except Exception:
             _pend = None
         if _pend:
@@ -3149,9 +3270,15 @@ def pagina_imagem(usuario_logado):
             _c_rec, _c_desc = st.columns(2)
             if _c_rec.button(f"🛟 Recuperar as {_n} imagens", type="primary",
                              use_container_width=True, key="img_recuperar_rascunho"):
-                st.session_state["img_galeria"] = _pend["galeria"]
-                st.session_state["img_nome_produto"] = _pend["nome_produto"]
-                st.rerun()
+                # AQUI, sim, os bytes: é o único momento em que alguém precisa
+                # deles, e é um clique por vez.
+                _cheio = _rasc.carregar(usuario_logado)
+                if not _cheio:
+                    st.error("As imagens do rascunho não estão mais no disco.")
+                else:
+                    st.session_state["img_galeria"] = _cheio["galeria"]
+                    st.session_state["img_nome_produto"] = _cheio["nome_produto"]
+                    st.rerun()
             if _c_desc.button("Descartar", use_container_width=True,
                               key="img_descartar_rascunho"):
                 try:
@@ -4044,6 +4171,9 @@ def pagina_imagem(usuario_logado):
                     barra.progress(i / len(tipos), text=f"Gerando {i+1}/{len(tipos)}: {tipo[:50]}...")
                     # Sem sleep aqui — o _GEMINI_LIMITER em gerar_imagem_ia já respeita o RPM
                     try:
+                        # A MESMA função que o botão de regerar e o chat usam.
+                        # Duas montagens do mesmo prompt discordam — é só
+                        # questão de quando.
                         prompt_final = montar_prompt_imagem(
                             tipo,
                             cfg.get("instrucoes_extras", ""),
@@ -4051,7 +4181,8 @@ def pagina_imagem(usuario_logado):
                             cfg["nome_produto"],
                             refs_layout_nomes=cfg.get("refs_layout_nomes", []),
                             instrucao_layout=cfg.get("instrucao_layout", ""),
-                            plano_triagem=_plano_por_tipo.get(tipo),
+                            plano_triagem=(_plano_por_tipo.get(tipo)
+                                           or plano_do_tipo(tipo)),
                         )
                         # ── Geração em thread separada ──────────────────────────
                         # Mantém o WebSocket vivo durante a chamada Gemini (30-60s)
@@ -4349,8 +4480,22 @@ def pagina_imagem(usuario_logado):
             else:
                 with st.spinner("Enviando..."):
                     nome_pasta = f"{nome_gal} - {codigo_gal}".strip(" -")
-                    pastas = buscar_pasta_produto(nome_gal, codigo_gal, pasta_pai)
-                    if pastas:
+                    # `diagnostico` aqui pelo mesmo motivo do botão de salvar
+                    # tudo (que já o passava): sem ele, "a API falhou" e "a
+                    # pasta não existe" viram a mesma lista vazia, e o Studio
+                    # cria uma pasta duplicada do produto que já tem a dele.
+                    _diag_ind = {}
+                    pastas = buscar_pasta_produto(nome_gal, codigo_gal,
+                                                  pasta_pai,
+                                                  diagnostico=_diag_ind)
+                    pasta_id = None
+                    if _diag_ind.get("erro"):
+                        st.error(
+                            "Não consegui verificar se já existe pasta deste "
+                            "produto no Drive, então não salvei — salvar agora "
+                            "criaria uma pasta duplicada. Tente de novo em "
+                            f"instantes.\n\n{_diag_ind['erro']}")
+                    elif pastas:
                         pasta_id = pastas[0][0]
                     else:
                         pasta_id, err_pasta = criar_pasta_produto(nome_pasta, pasta_pai)
@@ -4399,12 +4544,8 @@ def pagina_imagem(usuario_logado):
                 else:
                     import time as _time_regen
                     import threading as _threading_regen
-                    prompt_regen = montar_prompt_imagem(
-                        tipo_ativo,
-                        instrucoes_orig,
-                        dados_desc,
-                        nome_gal,
-                    )
+                    prompt_regen = prompt_para_regerar(
+                        tipo_ativo, instrucoes_orig, dados_desc, nome_gal)
                     _res_regen = {"img": None, "erro": None, "done": False}
                     _threading_regen.Thread(
                         target=_gerar_imagem_thread,
@@ -4867,6 +5008,65 @@ if __name__ == "__main__":
        if "1 — Capa (fundo branco)" in PRESETS else True)
     ok("rotulo de ajuste deixa de cair no padrao de branding",
        modo_fundo_do_tipo("Ajuste Fino — aumente o produto") == "personalizado")
+
+    # ── A trava do produto, no prompt do ajuste ──────────────────────────
+    _pf = montar_prompt_ajuste_fino("deixe o dourado mais vivo", None, "prata")
+    ok("o ajuste passou a levar a regra de fidelidade",
+       "REGRA DE FIDELIDADE AO PRODUTO" in _pf)
+    ok("e a trava de cor, que so a geracao tinha", "prata" in _pf.lower())
+    ok("strass e textura estao nomeados na trava", "strass" in _pf.lower())
+
+    # ── Pedido atendido com produto estragado NAO e sucesso ──────────────
+    #
+    # O caso real: a colaboradora pediu melhor cor, o ajuste melhorou a cor E
+    # tirou o strass do corpo do urso prata. O veredito dizia isso, e o codigo
+    # entregava assim mesmo com "atualizada".
+    _chamadas = []
+
+    def _conf_falsa(antes, depois, instrucao):
+        _chamadas.append(instrucao)
+        if len(_chamadas) == 1:
+            return {"feito": True, "o_que_saiu": "cor melhorou",
+                    "o_que_falta": "", "colateral": "o strass do corpo sumiu",
+                    "produto_alterado": True}, ""
+        return {"feito": True, "o_que_saiu": "cor melhorou",
+                "o_que_falta": "", "colateral": "", "produto_alterado": False}, ""
+
+    # O gerador guarda o prompt: e nele que a segunda tentativa tem de levar o
+    # estrago por escrito. A conferencia recebe sempre a instrucao ORIGINAL,
+    # de proposito — ela julga o que a pessoa pediu, e nao o que o codigo
+    # acrescentou.
+    _prompts = []
+
+    def _ger_ok(prompt, *a, **k):
+        _prompts.append(prompt)
+        return b"nova", None
+
+    _antes_conf, _antes_ger = conferir_ajuste, gerar_imagem_ia
+    globals()["conferir_ajuste"] = _conf_falsa
+    globals()["gerar_imagem_ia"] = _ger_ok
+    _img, _rel = _ajustar_bruto(b"original", "melhore a cor dourada",
+                                tentativas=2)
+    ok("produto estragado nao volta como sucesso na primeira",
+       len(_chamadas) == 2)
+    ok("e a segunda tentativa leva o estrago por escrito, no prompt",
+       len(_prompts) == 2 and "strass" in _prompts[1].lower())
+    ok("com o produto intacto, a segunda e aceita", _rel["ok"] is True)
+
+    # E quando nem a ultima tentativa poupa o produto: volta a ORIGINAL.
+    _chamadas.clear()
+    globals()["conferir_ajuste"] = lambda a, d, i: (
+        _chamadas.append(i) or {"feito": True, "o_que_saiu": "cor melhorou",
+                                "o_que_falta": "",
+                                "colateral": "o strass do corpo sumiu",
+                                "produto_alterado": True}, "")
+    _img2, _rel2 = _ajustar_bruto(b"original", "melhore a cor", tentativas=2)
+    ok("produto estragado ate o fim devolve a imagem ORIGINAL",
+       _img2 == b"original")
+    ok("e o relato diz que nao entregou, em vez de anunciar sucesso",
+       _rel2["ok"] is False and _rel2.get("produto_alterado") is True)
+    globals()["conferir_ajuste"] = _antes_conf
+    globals()["gerar_imagem_ia"] = _antes_ger
 
     ok("aprovado não polui a tela", texto_em_aviso({"ok": True}) == "")
     ok("relato sem revisão não inventa aviso", texto_em_aviso(None) == "")

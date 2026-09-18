@@ -39,5 +39,40 @@ Escreva TUDO em português do Brasil. Nenhuma palavra em inglês na resposta.
 
 
 def com_regra(prompt):
-    """O prompt com a regra de idioma no fim. Onde ela pesa mais."""
-    return f"{prompt}{REGRA}"
+    """O prompt com a regra de idioma no fim. Onde ela pesa mais.
+
+    Aceita texto OU a lista de blocos que a API usa quando vão imagens junto.
+    Sem isso, metade das chamadas do Studio ficava de fora da regra por um
+    detalhe de formato: as que mandam imagem — descrever produto, conferir a
+    peça, ler o texto escrito — são exatamente as que respondem em português
+    para o colaborador ler.
+    """
+    if isinstance(prompt, str):
+        return f"{prompt}{REGRA}"
+    if isinstance(prompt, list):
+        return list(prompt) + [{"type": "text", "text": REGRA}]
+    return prompt
+
+
+# ── Conferência ──────────────────────────────────────────────────────────────
+if __name__ == "__main__":
+    falhas = 0
+
+    def ok(nome, cond):
+        global falhas
+        falhas += not cond
+        print(("ok    " if cond else "FALHA ") + nome)
+
+    ok("texto ganha a regra no fim", com_regra("faça X").endswith(REGRA))
+    ok("e o prompt original continua lá", "faça X" in com_regra("faça X"))
+    _blocos = [{"type": "image", "source": {}}, {"type": "text", "text": "leia"}]
+    _saida = com_regra(_blocos)
+    ok("lista de blocos ganha um bloco de texto com a regra",
+       len(_saida) == 3 and _saida[-1]["text"] == REGRA)
+    ok("e a lista original nao e alterada no caminho", len(_blocos) == 2)
+    ok("o que nao e texto nem lista volta como veio",
+       com_regra(None) is None and com_regra(7) == 7)
+    ok("a regra proibe ingles em letras maiusculas tambem",
+       "português do Brasil" in REGRA and "premium" in REGRA)
+
+    print("\nfalhas:", falhas)

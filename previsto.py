@@ -40,6 +40,8 @@ o extrato, e só ele.
 
 from datetime import timezone, timedelta
 
+import streamlit as st
+
 FUSO = timezone(timedelta(hours=-3))
 
 # As três finalidades que têm previsão. Fora delas, previsão seria chute: o
@@ -129,8 +131,15 @@ def _cartoes(ano, mes):
     return round(total, 2)
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def do_mes(ano, mes):
     """{finalidade: valor} do que o mês já deve. Fonte que falha vira 0,00.
+
+    CACHE DE 5 MINUTOS, E NÃO É DETALHE: este bloco é desenhado na Home a cada
+    passada do Streamlit, e um dos caminhos dele (`_cartoes`) BAIXA E ABRE a
+    planilha Controle MS — 11 MB de xlsx no openpyxl. Sem cache, isso
+    acontecia a cada clique de qualquer pessoa na Home, segurando o script e
+    comendo memória do container.
 
     Uma grade fora do ar não pode derrubar a tela de gastos inteira — mas
     também não pode passar por "não há custo fixo neste mês". Por isso o
