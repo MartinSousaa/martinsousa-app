@@ -1862,6 +1862,47 @@ def _trava_cor_produto(cor):
     )
 
 
+# O rótulo que o Ajuste Fino escreve no lugar do tipo. Ele é texto para o
+# colaborador ler — "Ajuste Fino — aumente o produto" —, e NÃO é um tipo: não
+# está em PRESETS, e `PRESETS.get` devolve "" para ele.
+AJUSTE_FINO_PREFIXO = "Ajuste Fino —"
+
+PERSONALIZADO = "Personalizado (descrevo o que quero)"
+
+
+def eh_rotulo_de_ajuste(tipo):
+    return str(tipo or "").strip().startswith(AJUSTE_FINO_PREFIXO)
+
+
+def tipo_para_gerar(item):
+    """O tipo a usar ao GERAR de novo. Aceita o dicionário da galeria ou o texto.
+
+    Uma imagem nascida do Ajuste Fino não tem preset: o rótulo dela é a frase
+    que o colaborador escreveu. Mandada como tipo para `montar_prompt_imagem`,
+    `PRESETS.get` devolvia "" — e, como o rótulo também não casava com nenhuma
+    regra de fundo, ela caía no "padrao" e recebia o branding genérico INTEIRO
+    sem composição nenhuma por baixo.
+
+    O resultado é o que o colaborador viu: pediu para recompor o quadro, o
+    Studio disse "refazendo do zero", e voltou a mesma imagem. Sem erro, sem
+    aviso, quatro rodadas.
+
+    Quando a imagem guarda de que tipo ela nasceu, vale esse. Quando não
+    guarda, vale Personalizado: sem preset, quem manda é a instrução — que é
+    justamente o que o colaborador acabou de escrever.
+    """
+    if isinstance(item, dict):
+        base = str(item.get("tipo_base") or "").strip()
+        if base and base in PRESETS:
+            return base
+        tipo = str(item.get("tipo") or "").strip()
+    else:
+        tipo = str(item or "").strip()
+    if tipo in PRESETS and tipo != PERSONALIZADO:
+        return tipo
+    return PERSONALIZADO
+
+
 def modo_fundo_do_tipo(tipo):
     """Qual regra de fundo o tipo de imagem segue: branco, ambiente, personalizado, padrao.
 
@@ -1869,7 +1910,11 @@ def modo_fundo_do_tipo(tipo):
     fundo do próprio ambiente; as demais usam o azul-cinza da marca.
     """
     tipo = tipo or ""
-    if tipo == "Personalizado (descrevo o que quero)":
+    if tipo == PERSONALIZADO:
+        return "personalizado"
+    # Rótulo de Ajuste Fino não é tipo, e cair no "padrao" fazia a imagem
+    # receber o branding inteiro sem preset nenhum embaixo.
+    if eh_rotulo_de_ajuste(tipo):
         return "personalizado"
     if tipo.startswith("1 —") or "fundo branco" in tipo.lower() or "capa" in tipo.lower():
         return "branco"
@@ -2643,39 +2688,89 @@ def _drive_service():
     return gdrive.service()
 
 
-def buscar_pasta_produto(nome_produto, codigo, pasta_pai_id, diagnostico=None):
-    """Busca pasta exata '[Nome] - [Código]' ou pelo nome aproximado.
+# Palavras que descrevem QUALQUER produto e não identificam nenhum. Buscar
+# pasta por uma delas foi o que mandou as imagens do "Globo Preto Portátil"
+# para a pasta da "Lixeira Aramada 12 litros Preto": as duas são pretas.
+PALAVRAS_GENERICAS = {
+    "preto", "preta", "branco", "branca", "cinza", "prata", "dourado",
+    "dourada", "azul", "verde", "vermelho", "vermelha", "amarelo", "amarela",
+    "rosa", "roxo", "roxa", "marrom", "bege", "transparente", "colorido",
+    "colorida", "grande", "pequeno", "pequena", "medio", "media", "litros",
+    "litro", "cm", "mm", "kit", "com", "sem", "para", "de", "da", "do", "e",
+    "em", "por", "novo", "nova", "portatil", "portátil",
+}
 
-    Retorna lista de (id, name). Quando `diagnostico` recebe um dict, uma falha
-    da API e registrada la em vez de virar lista vazia — quem chama precisa
-    distinguir "nao existe" de "nao consegui verificar", porque no primeiro caso
-    criar a pasta e certo e no segundo cria duplicata.
+
+def _palavras_que_identificam(nome):
+    """As palavras do nome que servem para achar ESTE produto, e não qualquer um."""
+    fora = []
+    for p in str(nome or "").split():
+        limpa = "".join(c for c in p if c.isalnum())
+        if len(limpa) >= 4 and limpa.lower() not in PALAVRAS_GENERICAS:
+            fora.append(limpa)
+    return fora
+
+
+def buscar_pasta_produto(nome_produto, codigo, pasta_pai_id, diagnostico=None):
+    """Busca a pasta deste produto. Lista de (id, name), vazia quando não há.
+
+    A ORDEM É A DA CERTEZA, E NÃO A DA CONVENIÊNCIA
+    -----------------------------------------------
+    1. nome exato "[Nome] - [Código]"
+    2. o CÓDIGO, quando existe — ele é único, e é para isso que ele serve
+    3. e só sem código: as palavras do nome que identificam o produto
+
+    O passo 3 era o único fallback, e buscava por CADA uma das duas primeiras
+    palavras, devolvendo a primeira pasta que casasse. "Globo **Preto**
+    Portátil" casou com "Lixeira Aramada 12 litros **Preto**", e as imagens do
+    globo iam ser salvas na pasta da lixeira — com o código do globo
+    preenchido na tela, e sem ninguém ser avisado.
+
+    Cor não identifica produto. Código identifica. Com código preenchido, a
+    busca por palavra não acontece: melhor não achar pasta (e criar a certa)
+    do que achar a pasta errada.
+
+    Quando `diagnostico` recebe um dict, uma falha da API é registrada lá em
+    vez de virar lista vazia — quem chama precisa distinguir "não existe" de
+    "não consegui verificar", porque no primeiro caso criar a pasta é certo e
+    no segundo cria duplicata.
     """
     import gdrive
+
+    def _buscar(condicao):
+        q = (f"'{pasta_pai_id}' in parents and "
+             f"mimeType='application/vnd.google-apps.folder' "
+             f"and {condicao} and trashed=false")
+        achados = gdrive.listar(q, diagnostico=diagnostico)
+        if diagnostico is not None and diagnostico.get("erro"):
+            return None
+        return [(f["id"], f["name"]) for f in (achados or [])]
+
     nome_exato = f"{nome_produto} - {codigo}".strip(" -")
+    if nome_exato:
+        r = _buscar(f"name='{nome_exato}'")
+        if r is None:
+            return []
+        if r:
+            return r
 
-    # Tenta nome exato primeiro
-    q = (f"'{pasta_pai_id}' in parents and mimeType='application/vnd.google-apps.folder' "
-         f"and name='{nome_exato}' and trashed=false")
-    achados = gdrive.listar(q, diagnostico=diagnostico)
-    if diagnostico is not None and diagnostico.get("erro"):
-        return []
-    if achados:
-        return [(f["id"], f["name"]) for f in achados]
+    # O código é único. Com ele em mãos, nada mais precisa ser adivinhado.
+    cod = str(codigo or "").strip()
+    if cod:
+        r = _buscar(f"name contains '{cod}'")
+        if r is None:
+            return []
+        return r
 
-    # Busca por trecho do nome do produto (fuzzy)
-    if nome_produto:
-        palavras = nome_produto.split()[:2]  # primeiras 2 palavras
-        for palavra in palavras:
-            if len(palavra) < 3:
-                continue
-            q2 = (f"'{pasta_pai_id}' in parents and mimeType='application/vnd.google-apps.folder' "
-                  f"and name contains '{palavra}' and trashed=false")
-            achados2 = gdrive.listar(q2, diagnostico=diagnostico)
-            if diagnostico is not None and diagnostico.get("erro"):
-                return []
-            if achados2:
-                return [(f["id"], f["name"]) for f in achados2]
+    # Sem código: as palavras que identificam, e TODAS elas juntas. Uma só
+    # ("Preto") acha o produto de outra pessoa.
+    palavras = _palavras_que_identificam(nome_produto)[:2]
+    if palavras:
+        condicao = " and ".join(f"name contains '{p}'" for p in palavras)
+        r = _buscar(condicao)
+        if r is None:
+            return []
+        return r
     return []
 
 
@@ -2774,9 +2869,244 @@ def _testar_gemini_api():
     return resultados
 
 
+def consumir_comandos_do_chat(usuario_logado=""):
+    """Executa o que o Assistente IA deixou na fila. Roda em QUALQUER modo.
+
+    ONDE ISTO ESTAVA, E POR QUE NÃO FUNCIONAVA
+    ------------------------------------------
+    Este bloco vivia dentro do `else` do seletor de modo da aba Imagem — o
+    ramo de "1 imagem específica" e "Selecionar". No modo **✏️ Ajuste Fino**,
+    que é o outro ramo, ele simplesmente não era alcançado.
+
+    O efeito para quem usa: o chat aceitava o pedido, respondia "🔁 Imagem 1
+    será refeita do zero", e a fila ficava parada em `session_state` para
+    sempre. Nenhum erro, nenhum aviso — e a colaboradora pediu, conferiu,
+    pediu de novo, e o assistente confirmou que a imagem estava igual sem
+    conseguir dizer por quê. Quatro rodadas.
+
+    Uma tela em que o chat responde depende do chat ser ouvido em toda ela.
+    Por isso agora é uma função só, chamada no começo da página, antes de
+    qualquer ramo.
+    """
+    galeria = st.session_state.get("img_galeria") or []
+    if not galeria:
+        # Sem galeria não há o que ajustar nem refazer. A fila de "refazer
+        # todas" não depende dela e por isso é lida antes de sair.
+        if st.session_state.get("chat_refazer_todas") is None:
+            st.session_state.pop("chat_refazer_imagem", None)
+            st.session_state.pop("chat_img_pendente", None)
+            return
+
+
+    # ── COMANDOS PENDENTES DO ASSISTENTE IA ──────────────────────────────
+    # O Assistente IA envia comandos de correção. Tratamos sempre como
+    # Ajuste Fino (NÃO aplica PADRAO_VISUAL nem INSTRUCAO_COMPOSICAO).
+    _refazer = st.session_state.pop("chat_refazer_todas", None)
+    if _refazer is not None:
+        _inst = (_refazer or {}).get("instrucao", "").strip()
+        if _inst:
+            _cfg_rf = st.session_state.get("img_triagem_config") or {}
+            _cfg_rf["instrucoes_extras"] = (
+                (_cfg_rf.get("instrucoes_extras", "") + "\n\n" + _inst).strip()
+            )
+            st.session_state["img_triagem_config"] = _cfg_rf
+        st.session_state["img_galeria"] = []
+        st.session_state.pop("img_confirma_descarte", None)
+        try:
+            import log_imagem
+            log_imagem.registrar("refazer_todas_aplicado", _inst,
+                                 resultado="galeria descartada")
+        except Exception:
+            pass
+        st.rerun()
+
+    # ── REFAZER uma imagem, pedido pelo chat ─────────────────────────
+    #
+    # Diferente do ajuste: aqui a imagem nasce de novo, com a composição
+    # definida no prompt de geração. O ajuste preserva o resto do quadro e
+    # por isso não recompõe — e devolvia a imagem intacta sem erro nenhum,
+    # o que custou quatro rodadas até alguém abrir este arquivo.
+    refazer_pend = st.session_state.pop("chat_refazer_imagem", [])
+    if refazer_pend:
+        _fotos_rf = st.session_state.get("img_fotos_originais") or []
+        _cfg_rf = st.session_state.get("img_triagem_config") or {}
+        _dados_rf = st.session_state.get("img_dados_descricao") or {}
+        _nome_rf = _cfg_rf.get("nome_produto", "")
+        _msgs_rf, _mudou_rf = [], False
+        _so_arte = bool(st.session_state.get("img_fotos_sao_arte"))
+        for _c in refazer_pend:
+            _i = int(_c.get("num", 1)) - 1
+            if _i < 0 or _i >= len(galeria):
+                _msgs_rf.append(f"⚠️ Imagem {_i + 1} não existe.")
+                continue
+            if not _fotos_rf or _so_arte:
+                # Dizer "não dá" é o que faltava. Gerando do zero com a arte
+                # errada como referência, ela voltava idêntica — e o
+                # assistente anunciava sucesso em cima disso.
+                _msgs_rf.append(
+                    "⚠️ **Não dá para refazer do zero por aqui.** Esta imagem "
+                    "entrou pelo modo Ajuste Fino: o que o Studio tem dela é a "
+                    "própria arte, não as fotos do produto — e gerar de novo a "
+                    "partir da arte devolve a arte.\n\n"
+                    "Para recompor o quadro: aba **Imagem** › **1 imagem "
+                    "específica**, suba as fotos do produto e descreva a "
+                    "composição em «Descreva o que você quer nessa imagem». "
+                    "Para mexer só num ponto, siga pelo Ajuste Fino mesmo.")
+                break
+            _tp = tipo_para_gerar(galeria[_i])
+            _ins = (_c.get("instrucao") or "").strip()
+            _prompt = montar_prompt_imagem(_tp, _ins, _dados_rf, _nome_rf)
+            _r = {"img": None, "erro": None, "done": False}
+            _b = st.progress(0.0, text=f"Refazendo a Imagem {_i + 1}…")
+            import threading as _th_rf, time as _tm_rf
+            _th_rf.Thread(target=_gerar_imagem_thread,
+                          args=(_prompt, _fotos_rf, _r), daemon=True).start()
+            _t0 = _tm_rf.time()
+            while not _r["done"]:
+                _sg = int(_tm_rf.time() - _t0)
+                if _sg >= 300:
+                    _r["erro"], _r["done"] = "Tempo limite de 5 min.", True
+                    break
+                _b.progress(min(0.9, _sg / 60),
+                            text=f"Refazendo a Imagem {_i + 1}… ({_sg}s)")
+                _tm_rf.sleep(1)
+            _b.progress(1.0, text="Concluído!")
+            if _r["erro"] or not _r["img"]:
+                _msgs_rf.append(f"❌ Imagem {_i + 1}: {_r['erro'] or 'sem retorno'}")
+                continue
+            galeria[_i]["bytes"] = _r["img"]
+            galeria[_i]["aprovado"] = False
+            st.session_state["img_galeria"] = list(galeria)
+            _mudou_rf = True
+            _msgs_rf.append(f"🔁 Imagem {_i + 1} refeita do zero.")
+        if _mudou_rf:
+            try:
+                import rascunho as _rasc_rf
+                _rasc_rf.salvar(usuario_logado, _nome_rf, galeria,
+                                _cfg_rf.get("codigo", ""))
+            except Exception:
+                pass
+        if _msgs_rf:
+            st.session_state.setdefault("ms_chat_hist", []).append(
+                {"role": "assistant", "content": "\n".join(_msgs_rf)})
+        st.rerun()
+
+    cmds_pendentes = st.session_state.pop("chat_img_pendente", [])
+    if cmds_pendentes:
+        fotos_ref_aj = st.session_state.get("img_fotos_originais") or []
+        msgs_result, _mudou = [], False
+        for cmd in cmds_pendentes:
+            num_foto  = cmd.get("num", 1)
+            instrucao = cmd.get("instrucao", "")
+            idx_alvo  = num_foto - 1
+            if idx_alvo < 0 or idx_alvo >= len(galeria):
+                msgs_result.append(f"⚠️ Imagem {num_foto} não existe na galeria.")
+                continue
+            tipo_alvo = galeria[idx_alvo]["tipo"]
+            # Usa a imagem ATUAL como referência + prompt de ajuste fino
+            img_ref_cmd = [galeria[idx_alvo]["bytes"]] if galeria[idx_alvo]["bytes"] else fotos_ref_aj
+            import time as _time_cmd
+            import threading as _threading_cmd
+            # Gera, CONFERE e tenta de novo se nao saiu. O assistente do
+            # chat era justamente quem nao via nada: ele mandava a
+            # instrucao e respondia como se estivesse resolvido. Agora a
+            # resposta dele sai do veredito, e nao do envio.
+            _res_cmd = {"img": None, "relato": None, "done": False}
+            _barra_cmd = st.progress(0.0, text=f"Assistente IA: ajuste na Imagem {num_foto}...")
+
+            def _rodar_cmd(_ref=img_ref_cmd[0] if img_ref_cmd else None,
+                           _ins=instrucao, _tp=tipo_alvo,
+                           _rf=list(fotos_ref_aj or []), _r=_res_cmd):
+                try:
+                    _r["img"], _r["relato"] = ajustar_com_conferencia(
+                        _ref, _ins, tipo=_tp, referencias=_rf,
+                        aviso=lambda t: _r.__setitem__("fase", t))
+                except Exception as _e:
+                    _r["img"], _r["relato"] = None, {
+                        "ok": False, "tentativas": 0, "erro": str(_e)[:160],
+                        "falta": "", "colateral": ""}
+                finally:
+                    _r["done"] = True
+
+            _threading_cmd.Thread(target=_rodar_cmd, daemon=True).start()
+            _t0_cmd = _time_cmd.time()
+            while not _res_cmd["done"]:
+                _seg_cmd = int(_time_cmd.time() - _t0_cmd)
+                if _seg_cmd >= 600:
+                    _res_cmd["relato"] = {
+                        "ok": False, "tentativas": 0, "falta": "",
+                        "colateral": "",
+                        "erro": "tempo limite de 10 min atingido."}
+                    _res_cmd["done"] = True
+                    break
+                _barra_cmd.progress(
+                    min(0.9, _seg_cmd / 120),
+                    text=(f"Imagem {num_foto}: "
+                          f"{_res_cmd.get('fase') or 'ajustando'}… "
+                          f"({_seg_cmd}s)"))
+                _time_cmd.sleep(1)
+            _barra_cmd.progress(1.0, text="Concluído!")
+            nova_img = _res_cmd["img"]
+            _relato = _res_cmd["relato"] or {"ok": None, "tentativas": 0,
+                                             "erro": "sem relato",
+                                             "falta": "", "colateral": ""}
+            err_aj = _relato.get("erro") if _relato.get("ok") is False and not nova_img else None
+            msgs_result.append(relato_em_texto(num_foto, _relato))
+            _resultado_log = ("ok" if _relato.get("ok") else
+                              f"nao confirmado: {_relato.get('falta') or _relato.get('erro','')}"[:120])
+            # `nova_img` volta preenchida mesmo quando o ajuste FALHOU —
+            # nesse caso ela e a imagem original, devolvida intacta. Dizer
+            # "atualizada" aqui contradizia o proprio relato duas linhas
+            # acima, e era o "✅" que o colaborador lia enquanto a imagem
+            # continuava errada.
+            if nova_img and _relato.get("ok") is not False:
+                st.session_state["img_galeria"][idx_alvo]["bytes"] = nova_img
+                _mudou = True
+                _resultado_log = "imagem atualizada"
+            try:
+                import log_imagem
+                log_imagem.registrar("ajuste_aplicado", instrucao, num_foto,
+                                     tipo_alvo, _resultado_log)
+            except Exception:
+                pass
+        # A galeria ja foi desenhada acima, com os bytes ANTIGOS. Sem recarregar
+        # a pagina, a imagem na tela continua a de antes e so a mensagem de
+        # sucesso aparece — que era exatamente o sintoma: "diz que corrige,
+        # mas a imagem permanece a mesma". As correcoes feitas pelos paineis
+        # manuais ja faziam st.rerun(); a do Assistente IA nao fazia.
+        # O veredito volta para a CONVERSA, e nao so para esta aba.
+        #
+        # Sem isto o assistente mandava o comando e nunca ficava sabendo no
+        # que deu: na mensagem seguinte ele falava como se tivesse dado
+        # certo, porque para ele a historia terminava no envio. Agora a
+        # ultima coisa que ele leu sobre aquela imagem e o resultado real —
+        # e a instrucao dele diz para nao chamar de pronto o que o veredito
+        # nao confirmou.
+        if msgs_result:
+            try:
+                _hist_chat = st.session_state.get("ms_chat_hist")
+                if _hist_chat is not None:
+                    _hist_chat.append({
+                        "role": "assistant",
+                        "content": "**Resultado do ajuste, conferido na "
+                                   "imagem:**\n\n" + "\n\n".join(msgs_result)})
+            except Exception:
+                pass
+        if _mudou:
+            st.session_state["chat_img_msgs"] = msgs_result
+            st.rerun()
+        if msgs_result:
+            st.info("\n\n".join(msgs_result))
+
+
 def pagina_imagem(usuario_logado):
     st.subheader("Imagem")
     st.caption("Gere imagens profissionais para o anúncio. A IA mostra o que vai criar antes de gastar com a geração.")
+
+    # O que o Assistente IA pediu roda AQUI, antes de qualquer ramo de modo.
+    # Dentro do `else` do seletor, como estava, ele era mudo no ✏️ Ajuste Fino:
+    # o chat prometia "Imagem 1 será refeita do zero" e a fila ficava parada.
+    consumir_comandos_do_chat(usuario_logado)
 
     # ── A revisão de texto está de pé? ───────────────────────────────────────
     #
@@ -3164,6 +3494,10 @@ def pagina_imagem(usuario_logado):
                 galeria_atual = st.session_state.get("img_galeria", [])
                 galeria_atual.append({
                     "tipo": f"Ajuste Fino — {instrucao_ajuste[:40]}...",
+                    # De que tipo ela nasceu, para o dia em que alguém pedir
+                    # para refazê-la. Sem isto, o rótulo acima ia como tipo e
+                    # o prompt saía sem preset nenhum.
+                    "tipo_base": PERSONALIZADO,
                     "bytes": img_bytes_af,
                     "aprovado": False,
                 })
@@ -3174,7 +3508,14 @@ def pagina_imagem(usuario_logado):
                                                      _rel_af)
                 st.session_state["img_nome_produto"] = nome_produto or "produto-ajustado"
                 st.session_state["img_codigo"] = codigo_input
-                st.session_state["img_fotos_originais"] = fotos_bytes_ajuste
+                # A imagem que ela subiu é a ARTE PRONTA, e não foto do
+                # produto. Gravá-la como "fotos originais" fazia o refazer
+                # gerar do zero usando a própria arte errada como referência —
+                # e devolver exatamente a mesma imagem, depois de anunciar
+                # "refeita do zero". Era a resposta para "ele confirma o que eu
+                # pedi, diz que corrigiu, e não corrigiu".
+                st.session_state["img_fotos_ajuste"] = fotos_bytes_ajuste
+                st.session_state["img_fotos_sao_arte"] = True
                 st.session_state["img_dados_descricao"] = dados_descricao or {}
                 st.session_state["img_instrucoes_originais"] = instrucao_ajuste
                 import atividades
@@ -4134,195 +4475,10 @@ def pagina_imagem(usuario_logado):
                         st.rerun()
                     else:
                         st.error(f"❌ {relato_em_texto(idx_ativo + 1, _rel_afg)}")
-
-        # ── COMANDOS PENDENTES DO ASSISTENTE IA ──────────────────────────────
-        # O Assistente IA envia comandos de correção. Tratamos sempre como
-        # Ajuste Fino (NÃO aplica PADRAO_VISUAL nem INSTRUCAO_COMPOSICAO).
-        _refazer = st.session_state.pop("chat_refazer_todas", None)
-        if _refazer is not None:
-            _inst = (_refazer or {}).get("instrucao", "").strip()
-            if _inst:
-                _cfg_rf = st.session_state.get("img_triagem_config") or {}
-                _cfg_rf["instrucoes_extras"] = (
-                    (_cfg_rf.get("instrucoes_extras", "") + "\n\n" + _inst).strip()
-                )
-                st.session_state["img_triagem_config"] = _cfg_rf
-            st.session_state["img_galeria"] = []
-            st.session_state.pop("img_confirma_descarte", None)
-            try:
-                import log_imagem
-                log_imagem.registrar("refazer_todas_aplicado", _inst,
-                                     resultado="galeria descartada")
-            except Exception:
-                pass
-            st.rerun()
-
-        # ── REFAZER uma imagem, pedido pelo chat ─────────────────────────
-        #
-        # Diferente do ajuste: aqui a imagem nasce de novo, com a composição
-        # definida no prompt de geração. O ajuste preserva o resto do quadro e
-        # por isso não recompõe — e devolvia a imagem intacta sem erro nenhum,
-        # o que custou quatro rodadas até alguém abrir este arquivo.
-        refazer_pend = st.session_state.pop("chat_refazer_imagem", [])
-        if refazer_pend:
-            _fotos_rf = st.session_state.get("img_fotos_originais") or []
-            _cfg_rf = st.session_state.get("img_triagem_config") or {}
-            _dados_rf = st.session_state.get("img_dados_descricao") or {}
-            _nome_rf = _cfg_rf.get("nome_produto", "")
-            _msgs_rf, _mudou_rf = [], False
-            for _c in refazer_pend:
-                _i = int(_c.get("num", 1)) - 1
-                if _i < 0 or _i >= len(galeria):
-                    _msgs_rf.append(f"⚠️ Imagem {_i + 1} não existe.")
-                    continue
-                if not _fotos_rf:
-                    _msgs_rf.append("⚠️ Sem as fotos originais não dá para "
-                                    "refazer. Gere de novo pela aba.")
-                    break
-                _tp = galeria[_i]["tipo"]
-                _ins = (_c.get("instrucao") or "").strip()
-                _prompt = montar_prompt_imagem(_tp, _ins, _dados_rf, _nome_rf)
-                _r = {"img": None, "erro": None, "done": False}
-                _b = st.progress(0.0, text=f"Refazendo a Imagem {_i + 1}…")
-                import threading as _th_rf, time as _tm_rf
-                _th_rf.Thread(target=_gerar_imagem_thread,
-                              args=(_prompt, _fotos_rf, _r), daemon=True).start()
-                _t0 = _tm_rf.time()
-                while not _r["done"]:
-                    _sg = int(_tm_rf.time() - _t0)
-                    if _sg >= 300:
-                        _r["erro"], _r["done"] = "Tempo limite de 5 min.", True
-                        break
-                    _b.progress(min(0.9, _sg / 60),
-                                text=f"Refazendo a Imagem {_i + 1}… ({_sg}s)")
-                    _tm_rf.sleep(1)
-                _b.progress(1.0, text="Concluído!")
-                if _r["erro"] or not _r["img"]:
-                    _msgs_rf.append(f"❌ Imagem {_i + 1}: {_r['erro'] or 'sem retorno'}")
-                    continue
-                galeria[_i]["bytes"] = _r["img"]
-                galeria[_i]["aprovado"] = False
-                st.session_state["img_galeria"] = list(galeria)
-                _mudou_rf = True
-                _msgs_rf.append(f"🔁 Imagem {_i + 1} refeita do zero.")
-            if _mudou_rf:
-                try:
-                    import rascunho as _rasc_rf
-                    _rasc_rf.salvar(usuario_logado, _nome_rf, galeria,
-                                    _cfg_rf.get("codigo", ""))
-                except Exception:
-                    pass
-            if _msgs_rf:
-                st.session_state.setdefault("ms_chat_hist", []).append(
-                    {"role": "assistant", "content": "\n".join(_msgs_rf)})
-            st.rerun()
-
-        cmds_pendentes = st.session_state.pop("chat_img_pendente", [])
-        if cmds_pendentes:
-            fotos_ref_aj = st.session_state.get("img_fotos_originais") or []
-            msgs_result, _mudou = [], False
-            for cmd in cmds_pendentes:
-                num_foto  = cmd.get("num", 1)
-                instrucao = cmd.get("instrucao", "")
-                idx_alvo  = num_foto - 1
-                if idx_alvo < 0 or idx_alvo >= len(galeria):
-                    msgs_result.append(f"⚠️ Imagem {num_foto} não existe na galeria.")
-                    continue
-                tipo_alvo = galeria[idx_alvo]["tipo"]
-                # Usa a imagem ATUAL como referência + prompt de ajuste fino
-                img_ref_cmd = [galeria[idx_alvo]["bytes"]] if galeria[idx_alvo]["bytes"] else fotos_ref_aj
-                import time as _time_cmd
-                import threading as _threading_cmd
-                # Gera, CONFERE e tenta de novo se nao saiu. O assistente do
-                # chat era justamente quem nao via nada: ele mandava a
-                # instrucao e respondia como se estivesse resolvido. Agora a
-                # resposta dele sai do veredito, e nao do envio.
-                _res_cmd = {"img": None, "relato": None, "done": False}
-                _barra_cmd = st.progress(0.0, text=f"Assistente IA: ajuste na Imagem {num_foto}...")
-
-                def _rodar_cmd(_ref=img_ref_cmd[0] if img_ref_cmd else None,
-                               _ins=instrucao, _tp=tipo_alvo,
-                               _rf=list(fotos_ref_aj or []), _r=_res_cmd):
-                    try:
-                        _r["img"], _r["relato"] = ajustar_com_conferencia(
-                            _ref, _ins, tipo=_tp, referencias=_rf,
-                            aviso=lambda t: _r.__setitem__("fase", t))
-                    except Exception as _e:
-                        _r["img"], _r["relato"] = None, {
-                            "ok": False, "tentativas": 0, "erro": str(_e)[:160],
-                            "falta": "", "colateral": ""}
-                    finally:
-                        _r["done"] = True
-
-                _threading_cmd.Thread(target=_rodar_cmd, daemon=True).start()
-                _t0_cmd = _time_cmd.time()
-                while not _res_cmd["done"]:
-                    _seg_cmd = int(_time_cmd.time() - _t0_cmd)
-                    if _seg_cmd >= 600:
-                        _res_cmd["relato"] = {
-                            "ok": False, "tentativas": 0, "falta": "",
-                            "colateral": "",
-                            "erro": "tempo limite de 10 min atingido."}
-                        _res_cmd["done"] = True
-                        break
-                    _barra_cmd.progress(
-                        min(0.9, _seg_cmd / 120),
-                        text=(f"Imagem {num_foto}: "
-                              f"{_res_cmd.get('fase') or 'ajustando'}… "
-                              f"({_seg_cmd}s)"))
-                    _time_cmd.sleep(1)
-                _barra_cmd.progress(1.0, text="Concluído!")
-                nova_img = _res_cmd["img"]
-                _relato = _res_cmd["relato"] or {"ok": None, "tentativas": 0,
-                                                 "erro": "sem relato",
-                                                 "falta": "", "colateral": ""}
-                err_aj = _relato.get("erro") if _relato.get("ok") is False and not nova_img else None
-                msgs_result.append(relato_em_texto(num_foto, _relato))
-                _resultado_log = ("ok" if _relato.get("ok") else
-                                  f"nao confirmado: {_relato.get('falta') or _relato.get('erro','')}"[:120])
-                # `nova_img` volta preenchida mesmo quando o ajuste FALHOU —
-                # nesse caso ela e a imagem original, devolvida intacta. Dizer
-                # "atualizada" aqui contradizia o proprio relato duas linhas
-                # acima, e era o "✅" que o colaborador lia enquanto a imagem
-                # continuava errada.
-                if nova_img and _relato.get("ok") is not False:
-                    st.session_state["img_galeria"][idx_alvo]["bytes"] = nova_img
-                    _mudou = True
-                    _resultado_log = "imagem atualizada"
-                try:
-                    import log_imagem
-                    log_imagem.registrar("ajuste_aplicado", instrucao, num_foto,
-                                         tipo_alvo, _resultado_log)
-                except Exception:
-                    pass
-            # A galeria ja foi desenhada acima, com os bytes ANTIGOS. Sem recarregar
-            # a pagina, a imagem na tela continua a de antes e so a mensagem de
-            # sucesso aparece — que era exatamente o sintoma: "diz que corrige,
-            # mas a imagem permanece a mesma". As correcoes feitas pelos paineis
-            # manuais ja faziam st.rerun(); a do Assistente IA nao fazia.
-            # O veredito volta para a CONVERSA, e nao so para esta aba.
-            #
-            # Sem isto o assistente mandava o comando e nunca ficava sabendo no
-            # que deu: na mensagem seguinte ele falava como se tivesse dado
-            # certo, porque para ele a historia terminava no envio. Agora a
-            # ultima coisa que ele leu sobre aquela imagem e o resultado real —
-            # e a instrucao dele diz para nao chamar de pronto o que o veredito
-            # nao confirmou.
-            if msgs_result:
-                try:
-                    _hist_chat = st.session_state.get("ms_chat_hist")
-                    if _hist_chat is not None:
-                        _hist_chat.append({
-                            "role": "assistant",
-                            "content": "**Resultado do ajuste, conferido na "
-                                       "imagem:**\n\n" + "\n\n".join(msgs_result)})
-                except Exception:
-                    pass
-            if _mudou:
-                st.session_state["chat_img_msgs"] = msgs_result
-                st.rerun()
-            if msgs_result:
-                st.info("\n\n".join(msgs_result))
+        # Os comandos do Assistente IA saíram daqui: viviam dentro
+        # do `else` do modo e não rodavam no ✏️ Ajuste Fino. Agora
+        # são `consumir_comandos_do_chat()`, chamada no começo da
+        # página, antes de qualquer ramo.
 
         st.caption("💬 Para ajustar imagens, use o **Assistente IA** no menu lateral ou o painel **✏️ Ajuste Fino** acima.")
         st.markdown("---")
@@ -4571,6 +4727,71 @@ if __name__ == "__main__":
     ok("pode_ter_texto só dispensa capa e ambientação",
        pode_ter_texto("Personalizado (descrevo o que quero)")
        and not pode_ter_texto("8 — Ambientação realista (sem texto)"))
+
+    # ── A pasta do Drive ─────────────────────────────────────────────────
+    #
+    # O estrago real: as imagens do "Globo Preto Portátil" iam ser salvas na
+    # pasta da "Lixeira Aramada 12 litros Preto", porque a busca antiga
+    # procurava por CADA uma das duas primeiras palavras do nome e as duas são
+    # pretas. O código do globo estava preenchido na tela e não era usado.
+    import sys as _sys_p, types as _types_p, re as _re_p
+    _PASTAS = [
+        {"id": "1", "name": "Lixeira Aramada 12 litros Preto - MS-LIXE-0911GN1"},
+        {"id": "2", "name": "Globo Preto Portátil - MS-GLOB-0917EMD"},
+        {"id": "3", "name": "Caneca Branca 300ml - MS-CANE-0101AB2"},
+    ]
+
+    class _DriveFalso(_types_p.ModuleType):
+        @staticmethod
+        def listar(q, diagnostico=None):
+            fora = list(_PASTAS)
+            _ex = _re_p.search(r"name='([^']*)'", q)
+            if _ex:
+                fora = [p for p in fora if p["name"] == _ex.group(1)]
+            for _t in _re_p.findall(r"name contains '([^']*)'", q):
+                fora = [p for p in fora if _t.lower() in p["name"].lower()]
+            return fora
+
+    _antigo_gdrive = _sys_p.modules.get("gdrive")
+    _sys_p.modules["gdrive"] = _DriveFalso("gdrive")
+
+    def _achou(nome, cod):
+        _r = buscar_pasta_produto(nome, cod, "PAI")
+        return _r[0][1] if _r else None
+
+    ok("a pasta exata continua sendo a primeira resposta",
+       _achou("Globo Preto Portátil", "MS-GLOB-0917EMD")
+       == "Globo Preto Portátil - MS-GLOB-0917EMD")
+    ok("nome escrito diferente acha pelo codigo, que e unico",
+       _achou("Globo Portatil", "MS-GLOB-0917EMD")
+       == "Globo Preto Portátil - MS-GLOB-0917EMD")
+    ok("codigo que nao existe nao cai na pasta de outro produto",
+       _achou("Globo Preto Portátil", "MS-XXXX-0000ZZ9") is None)
+    ok("sem codigo, a cor sozinha nao acha pasta nenhuma",
+       _achou("Preto", "") is None)
+    ok("sem codigo, palavra que identifica acha",
+       _achou("Caneca Branca 300ml", "")
+       == "Caneca Branca 300ml - MS-CANE-0101AB2")
+    ok("cor e medida nao identificam produto",
+       _palavras_que_identificam("Globo Preto Portátil 12 litros") == ["Globo"])
+
+    if _antigo_gdrive is None:
+        _sys_p.modules.pop("gdrive", None)
+    else:
+        _sys_p.modules["gdrive"] = _antigo_gdrive
+
+    # ── O tipo, depois de um Ajuste Fino ─────────────────────────────────
+    ok("rotulo de ajuste nao e tipo, e vira Personalizado",
+       tipo_para_gerar("Ajuste Fino — aumente o produto") == PERSONALIZADO)
+    ok("mas o tipo que a imagem guarda manda",
+       tipo_para_gerar({"tipo": "Ajuste Fino — x",
+                        "tipo_base": "2 — Benefícios do produto"})
+       == "2 — Benefícios do produto")
+    ok("tipo de verdade passa inteiro",
+       tipo_para_gerar("1 — Capa (fundo branco)").startswith("1 —")
+       if "1 — Capa (fundo branco)" in PRESETS else True)
+    ok("rotulo de ajuste deixa de cair no padrao de branding",
+       modo_fundo_do_tipo("Ajuste Fino — aumente o produto") == "personalizado")
 
     ok("aprovado não polui a tela", texto_em_aviso({"ok": True}) == "")
     ok("relato sem revisão não inventa aviso", texto_em_aviso(None) == "")
