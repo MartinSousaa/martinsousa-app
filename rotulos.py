@@ -61,8 +61,15 @@ def colunas(chaves, apelidos=None):
 # não serve. Fica aqui, e não espalhado pelas telas, pelo mesmo motivo de
 # sempre: a mesma coluna aparece em quatro lugares.
 APELIDOS = {
-    "envio": "Frete",
-    "estoque": "Mercadoria",
+    # ENVIO e ESTOQUE ficam com o nome da planilha do dono, e não com o meu.
+    #
+    # Eu tinha traduzido para "Frete" e "Mercadoria" achando que era o mesmo
+    # com nome melhor. Não é: a divisão não é contábil, é PREVISÃO DE CAIXA. O
+    # que é envio a plataforma devolve com data marcada; o que é estoque só
+    # volta quando a peça vender, e ninguém sabe quando. São dois horizontes
+    # diferentes de dinheiro voltando, e é isso que os nomes dele carregam.
+    "envio": "Envio",
+    "estoque": "Estoque",
     "folha": "Folha",
     "situacao": "Situação",
     "observacao": "Observação",
@@ -135,9 +142,12 @@ if __name__ == "__main__":
     _c = colunas(["folha", "vencimento", "valor", "envio", "estoque"], APELIDOS)
     ok("o cabecalho inteiro sai em portugues e com maiuscula",
        _c == {"folha": "Folha", "vencimento": "Vencimento", "valor": "Valor",
-              "envio": "Frete", "estoque": "Mercadoria"})
+              "envio": "Envio", "estoque": "Estoque"})
+    # ENVIO e ESTOQUE ficam com o nome da planilha do dono: a divisao e
+    # previsao de caixa, e nao contabilidade. "Frete" e "Mercadoria" perdiam
+    # isso.
     ok("apelido vence o calculo",
-       colunas(["envio"], {"envio": "Frete"})["envio"] == "Frete")
+       colunas(["envio"], {"envio": "Custo de envio"})["envio"] == "Custo de envio")
     ok("sem apelido, vale a regra",
        colunas(["vencimento"])["vencimento"] == "Vencimento")
 

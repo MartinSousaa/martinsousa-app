@@ -85,8 +85,8 @@ def pagina(usuario_logado=None):
     # corrige: trocar o número dele pelo meu sem pedir seria inventar dado.
     _tortas = _ch.nao_fecham(linhas)
     if _tortas:
-        with st.expander(f"🧮 {len(_tortas)} linha(s) em que valor ≠ frete + "
-                         "mercadoria"):
+        with st.expander(f"🧮 {len(_tortas)} linha(s) em que valor ≠ envio + "
+                         "estoque"):
             st.caption("Vieram assim da planilha. Confira lá — aqui nada foi "
                        "alterado.")
             st.dataframe(
@@ -94,15 +94,15 @@ def pagina(usuario_logado=None):
                     "folha": l.get("folha", ""),
                     "vencimento": l.get("vencimento"),
                     "valor": _ch._num(l.get("valor")),
-                    "frete": _ch._num(l.get("envio")),
-                    "mercadoria": _ch._num(l.get("estoque")),
+                    "envio": _ch._num(l.get("envio")),
+                    "estoque": _ch._num(l.get("estoque")),
                     "diferença": _ch.divergencia_da_soma(l),
                 } for l in _tortas[:50]]),
                 use_container_width=True, hide_index=True,
                 column_config=_rot.config(
-                    ["folha", "vencimento", "valor", "frete", "mercadoria",
+                    ["folha", "vencimento", "valor", "envio", "estoque",
                      "diferença"], st,
-                    tipos={c: "brl" for c in ("valor", "frete", "mercadoria",
+                    tipos={c: "brl" for c in ("valor", "envio", "estoque",
                                               "diferença")}))
 
     atrasados = _ch.vencidos_sem_baixa(linhas, hoje)
@@ -132,7 +132,7 @@ def pagina(usuario_logado=None):
             "Quantos cheques nesta compra?", min_value=1, max_value=12,
             value=1, step=1, key="ch_qtd",
             help="Uma compra fechada em vários cheques. Compra, favorecido, "
-                 "valor total e frete são os mesmos; folha e vencimento são "
+                 "valor total e envio são os mesmos; folha e vencimento são "
                  "de cada um.")
 
         with st.form("ch_novo"):
@@ -149,9 +149,9 @@ def pagina(usuario_logado=None):
                 help="O total fechado com o fornecedor. O Studio divide em "
                      "partes iguais entre os cheques.")
             envio_total = g2.number_input(
-                "Frete TOTAL (R$)", min_value=0.0, step=50.0, format="%.2f",
+                "ENVIO total da compra (R$)", min_value=0.0, step=50.0, format="%.2f",
                 help="Também dividido entre os cheques. O que sobra do valor "
-                     "é mercadoria.")
+                     "é estoque.")
             situacao = g3.selectbox("Situação", _ch.SITUACOES)
 
             st.markdown(f"**Os {int(n)} cheque(s)** — folha e vencimento de cada")
@@ -174,7 +174,7 @@ def pagina(usuario_logado=None):
                          "ocupam lugar e não contam nada.")
             elif envio_total > valor_total:
                 st.error(
-                    f"O frete ({_brl(envio_total)}) é maior que a compra "
+                    f"O envio ({_brl(envio_total)}) é maior que a compra "
                     f"({_brl(valor_total)}). Confira antes de cadastrar.")
             else:
                 cheques_do_lote = _ch.lote(
@@ -193,23 +193,23 @@ def pagina(usuario_logado=None):
                     st.success(
                         f"{novas} cheque(s) cadastrado(s)"
                         + (f" · {repetidas} já existia(m)" if repetidas else "")
-                        + f"\n\nCada um: {_brl(_v)} = frete {_brl(_e)} + "
-                        f"mercadoria {_brl(round(_v - _e, 2))}")
+                        + f"\n\nCada um: {_brl(_v)} = envio {_brl(_e)} + "
+                        f"estoque {_brl(round(_v - _e, 2))}")
                     # A prova de que a divisão fechou: a soma tem de ser a
                     # compra. Centavo perdido numa divisão só aparece no
                     # fechamento do mês, e lá ninguém sabe de onde veio.
                     st.dataframe(
                         pd.DataFrame([{
                             "folha": c["folha"], "vencimento": c["vencimento"],
-                            "valor": c["valor"], "frete": c["envio"],
-                            "mercadoria": round(c["valor"] - c["envio"], 2),
+                            "valor": c["valor"], "envio": c["envio"],
+                            "estoque": round(c["valor"] - c["envio"], 2),
                         } for c in cheques_do_lote]),
                         use_container_width=True, hide_index=True,
                         column_config=_rot.config(
-                            ["folha", "vencimento", "valor", "frete",
-                             "mercadoria"], st,
-                            tipos={x: "brl" for x in ("valor", "frete",
-                                                      "mercadoria")}))
+                            ["folha", "vencimento", "valor", "envio",
+                             "estoque"], st,
+                            tipos={x: "brl" for x in ("valor", "envio",
+                                                      "estoque")}))
                     st.caption(
                         "Soma dos cheques: "
                         + _brl(round(sum(c["valor"] for c in cheques_do_lote), 2))
@@ -259,7 +259,7 @@ def pagina(usuario_logado=None):
                 "folha": st.column_config.TextColumn(_rot.rotular("folha"),
                                                      width="small",
                                                      disabled=True),
-                # Vencimento, valor e frete ABREM para edição: cheque
+                # Vencimento, valor e envio ABREM para edição: cheque
                 # cadastrado com a data errada tem de ser corrigido aqui, e não
                 # apagado e digitado de novo — apagar perde a baixa e o
                 # histórico da linha.
@@ -268,12 +268,12 @@ def pagina(usuario_logado=None):
                     help="AAAA-MM-DD ou DD/MM/AAAA. O Studio entende os dois."),
                 "valor": st.column_config.NumberColumn("Valor", format="R$ %.2f",
                                                        min_value=0.0),
-                "envio": st.column_config.NumberColumn("Frete", format="R$ %.2f",
+                "envio": st.column_config.NumberColumn("Envio", format="R$ %.2f",
                                                        min_value=0.0),
-                # A mercadoria continua travada: ela é conta, não campo.
+                # O estoque continua travado: ele é conta, não campo.
                 "estoque": st.column_config.NumberColumn(
-                    "Mercadoria", format="R$ %.2f", disabled=True,
-                    help="valor − frete, recalculado ao salvar"),
+                    "Estoque", format="R$ %.2f", disabled=True,
+                    help="valor − envio, recalculado ao salvar"),
                 "favorecido": st.column_config.TextColumn("Favorecido",
                                                           width="medium"),
                 "situação": st.column_config.SelectboxColumn(
@@ -319,7 +319,7 @@ def pagina(usuario_logado=None):
             if _mudou_dinheiro:
                 campos["valor"] = _v_novo
                 campos["envio"] = _e_novo
-                # A mercadoria acompanha, sempre: ela é valor − frete, e deixá-la
+                # O estoque acompanha, sempre: ele é valor − envio, e deixá-lo
                 # com o número antigo faria a linha parar de fechar.
                 campos["estoque"] = round(_v_novo - _e_novo, 2)
 
