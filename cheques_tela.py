@@ -79,6 +79,29 @@ def pagina(usuario_logado=None):
                    "não foi apresentado — nos dois casos é trabalho parado.")
     c3.metric(f"Vence em {hoje.month:02d}/{hoje.year}", _brl(no_mes))
 
+    # As linhas cuja conta não fecha. A planilha é mantida à mão desde 2023, e
+    # uma linha fora da soma é erro de digitação lá — o Studio mostra, e não
+    # corrige: trocar o número dele pelo meu sem pedir seria inventar dado.
+    _tortas = _ch.nao_fecham(linhas)
+    if _tortas:
+        with st.expander(f"🧮 {len(_tortas)} linha(s) em que valor ≠ frete + "
+                         "mercadoria"):
+            st.caption("Vieram assim da planilha. Confira lá — aqui nada foi "
+                       "alterado.")
+            st.dataframe(
+                pd.DataFrame([{
+                    "folha": l.get("folha", ""),
+                    "vencimento": l.get("vencimento"),
+                    "valor": _ch._num(l.get("valor")),
+                    "frete": _ch._num(l.get("envio")),
+                    "mercadoria": _ch._num(l.get("estoque")),
+                    "diferença": _ch.divergencia_da_soma(l),
+                } for l in _tortas[:50]]),
+                use_container_width=True, hide_index=True,
+                column_config={c: st.column_config.NumberColumn(format="R$ %.2f")
+                               for c in ("valor", "frete", "mercadoria",
+                                         "diferença")})
+
     atrasados = _ch.vencidos_sem_baixa(linhas, hoje)
     if atrasados:
         with st.expander(f"⚠️ {len(atrasados)} venceram e não baixaram"):
@@ -104,12 +127,23 @@ def pagina(usuario_logado=None):
             compra = g1.date_input("Compra", value=hoje, format="DD/MM/YYYY")
             venc = g2.date_input("Vencimento", value=hoje, format="DD/MM/YYYY")
             situacao = g3.selectbox("Situação", _ch.SITUACOES)
-            h1, h2, h3 = st.columns(3)
-            envio = h1.number_input("Envio (frete)", min_value=0.0, step=50.0,
-                                    format="%.2f")
-            estoque = h2.number_input("Estoque (mercadoria)", min_value=0.0,
-                                      step=50.0, format="%.2f")
-            favorecido = h3.text_input("Favorecido")
+            h1, h2 = st.columns(2)
+            # ESTOQUE saiu do formulário: ele é VALOR − ENVIO, e campo que se
+            # calcula e mesmo assim se pede é convite a erro de digitação —
+            # um erro que não aparece em lugar nenhum, porque a soma do cheque
+            # continua certa.
+            #
+            # Também não dá para mostrá-lo vivo AQUI: dentro de `st.form` o
+            # Streamlit só entrega o que foi digitado no envio, então um campo
+            # "calculado" ficaria parado em zero enquanto a pessoa digita — e
+            # número parado na tela é pior do que número nenhum.
+            envio = h1.number_input(
+                "Envio (frete)", min_value=0.0, step=50.0, format="%.2f",
+                help="Quanto deste cheque foi frete. O resto é mercadoria, e o "
+                     "Studio calcula sozinho.")
+            favorecido = h2.text_input("Favorecido")
+            st.caption("**Estoque (mercadoria) = valor − envio**, calculado ao "
+                       "cadastrar. Não precisa digitar.")
             obs = st.text_input("Observação")
             criar = st.form_submit_button("💾 Cadastrar", type="primary",
                                           use_container_width=True)
@@ -118,10 +152,16 @@ def pagina(usuario_logado=None):
                 st.error("Cheque sem valor não entra — seria uma linha que "
                          "ocupa lugar e não conta nada.")
             else:
+                if envio > valor:
+                    st.warning(
+                        f"O frete ({_brl(envio)}) é maior que o cheque "
+                        f"({_brl(valor)}) — a mercadoria fica negativa em "
+                        f"{_brl(valor - envio)}. Acontece quando o cheque paga "
+                        "só parte do frete; se não for o caso, confira o envio.")
                 novas, repetidas, erro = _ch.gravar([{
                     "folha": folha, "tipo": tipo, "compra": compra,
                     "vencimento": venc, "valor": valor, "envio": envio,
-                    "estoque": estoque, "favorecido": favorecido,
+                    "favorecido": favorecido,
                     "situacao": situacao, "observacao": obs,
                 }], usuario_logado)
                 if erro:
@@ -129,7 +169,10 @@ def pagina(usuario_logado=None):
                 elif repetidas:
                     st.warning("Este cheque já estava cadastrado — nada mudou.")
                 else:
-                    st.success(f"Cheque {folha or ''} cadastrado.")
+                    st.success(
+                        f"Cheque {folha or ''} cadastrado · valor "
+                        f"{_brl(valor)} = frete {_brl(envio)} + mercadoria "
+                        f"{_brl(round(valor - envio, 2))}.")
                     linhas = _ch.carregar()
 
     if not linhas:

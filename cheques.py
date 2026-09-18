@@ -206,16 +206,46 @@ def normalizar(linha, seq=0):
         "vencimento": texto_data(linha.get("vencimento")),
         "valor": round(_num(linha.get("valor")), 2),
         "envio": round(_num(linha.get("envio")), 2),
+        # ESTOQUE NÃO SE DIGITA: é VALOR − ENVIO, conferido nas 604 linhas da
+        # planilha do dono. Campo que se calcula e mesmo assim se pede é convite
+        # a erro de digitação — e um erro aqui não aparece em lugar nenhum,
+        # porque a soma do cheque continua certa.
+        #
+        # Quando vem preenchido (a importação do Controle MS traz), o valor
+        # informado é respeitado: é o histórico dele, e reescrever passado com
+        # conta minha seria inventar número.
         "estoque": round(_num(linha.get("estoque")), 2),
         "favorecido": texto(linha.get("favorecido"))[:80],
         "situacao": situacao_de(linha.get("situacao")),
         "observacao": texto(linha.get("observacao"))[:200],
     }
+    if not fora["estoque"] and fora["valor"]:
+        fora["estoque"] = round(fora["valor"] - fora["envio"], 2)
     fora["id"] = identidade(fora)
     if seq:
         fora["id"] = hashlib.sha1(
             f"{fora['id']}|{seq}".encode("utf-8")).hexdigest()[:16]
     return fora
+
+
+def divergencia_da_soma(linha, tolerancia=0.01):
+    """Quanto VALOR − ENVIO − ESTOQUE dá de diferença. 0 quando fecha.
+
+    Serve para a importação: a planilha do dono é mantida à mão desde 2023, e
+    uma linha que não fecha é erro de digitação lá, não aqui. O Studio mostra;
+    não corrige sozinho — corrigir seria trocar o número dele pelo meu sem
+    ninguém pedir.
+    """
+    d = round(_num(linha.get("valor")) - _num(linha.get("envio"))
+              - _num(linha.get("estoque")), 2)
+    return 0.0 if abs(d) <= tolerancia else d
+
+
+def nao_fecham(linhas):
+    """As linhas cuja soma não bate, da maior diferença para a menor."""
+    fora = [(divergencia_da_soma(l), l) for l in (linhas or [])]
+    fora = [(d, l) for d, l in fora if d]
+    return [l for _, l in sorted(fora, key=lambda x: -abs(x[0]))]
 
 
 def do_mes(linhas, ano, mes):
@@ -497,6 +527,31 @@ if __name__ == "__main__":
                    "valor": 1409.89})["id"]
        != normalizar({"folha": _nan, "vencimento": "2026-09-12",
                       "valor": 4330.98})["id"])
+
+    # ESTOQUE E CONTA, e nao campo: VALOR - ENVIO.
+    ok("estoque sai da conta quando nao vem preenchido",
+       normalizar({"valor": 1605.80, "envio": 1600.00})["estoque"] == 5.80)
+    ok("cheque inteiro de mercadoria da envio zero",
+       normalizar({"valor": 2500.0})["estoque"] == 2500.0)
+    ok("envio maior que o valor da estoque negativo, e nao zero",
+       normalizar({"valor": 875.39, "envio": 1200.00})["estoque"] == -324.61)
+    ok("estoque informado e respeitado — e o historico do dono",
+       normalizar({"valor": 1000.0, "envio": 100.0,
+                   "estoque": 950.0})["estoque"] == 950.0)
+    ok("sem valor, nao inventa estoque",
+       normalizar({"envio": 100.0})["estoque"] == 0.0)
+
+    ok("a linha que nao fecha e apontada, e nao corrigida",
+       divergencia_da_soma({"valor": 1000, "envio": 100, "estoque": 950}) == -50.0)
+    ok("centavo de arredondamento nao vira divergencia",
+       divergencia_da_soma({"valor": 1000.0, "envio": 100.0,
+                            "estoque": 899.995}) == 0.0)
+    ok("e a lista vem da maior diferenca para a menor",
+       [l["valor"] for l in nao_fecham([
+           {"valor": 100, "envio": 0, "estoque": 90},      # -10
+           {"valor": 200, "envio": 0, "estoque": 100},     # -100
+           {"valor": 300, "envio": 100, "estoque": 200},   # fecha
+       ])] == [200, 100])
 
     ok("a folha vem sem o .0 do Excel",
        normalizar({"folha": 159.0, "valor": 1})["folha"] == "159")
