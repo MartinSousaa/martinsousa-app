@@ -228,6 +228,52 @@ def normalizar(linha, seq=0):
     return fora
 
 
+def dividir_em(total, n):
+    """`total` repartido em `n` partes que SOMAM o total. [] se n < 1.
+
+    O centavo é o motivo desta função existir. R$ 3.211,61 em dois cheques dá
+    1.605,805 cada: arredondar os dois para 1.605,81 cria um centavo que não
+    existe, e para 1.605,80 some com um. Nenhum dos dois aparece na hora — os
+    dois aparecem no fechamento do mês, quando a soma dos cheques não bate com
+    a compra e ninguém sabe de onde veio a diferença.
+
+    Aqui a sobra vai para os PRIMEIROS cheques, um centavo cada, até acabar. O
+    primeiro a vencer paga o centavo a mais — e a soma fecha sempre.
+    """
+    n = int(n or 0)
+    if n < 1:
+        return []
+    centavos = int(round(abs(_num(total)) * 100))
+    base, sobra = divmod(centavos, n)
+    return [round((base + (1 if i < sobra else 0)) / 100.0, 2)
+            for i in range(n)]
+
+
+def lote(comum, folhas, vencimentos, valor_total, envio_total=0.0):
+    """Os N cheques de uma compra só. Lista pronta para `gravar`.
+
+    `comum` é o que não muda entre eles — compra, favorecido, tipo, situação.
+    Folha e vencimento são de cada um; valor e envio saem da divisão.
+
+    Existe porque é assim que a compra acontece: o Renan fecha R$ 3.211,60 com
+    o fornecedor e deixa dois cheques de R$ 1.605,80 para datas diferentes.
+    Preencher a mesma compra duas vezes é trabalho repetido — e trabalho
+    repetido é onde entra o erro de digitação que ninguém confere.
+    """
+    n = max(len(folhas or []), len(vencimentos or []))
+    if not n:
+        return []
+    valores = dividir_em(valor_total, n)
+    envios = dividir_em(envio_total, n)
+    fora = []
+    for i in range(n):
+        f = (folhas or [])[i] if i < len(folhas or []) else ""
+        v = (vencimentos or [])[i] if i < len(vencimentos or []) else ""
+        fora.append({**(comum or {}), "folha": f, "vencimento": v,
+                     "valor": valores[i], "envio": envios[i]})
+    return fora
+
+
 def divergencia_da_soma(linha, tolerancia=0.01):
     """Quanto VALOR − ENVIO − ESTOQUE dá de diferença. 0 quando fecha.
 
@@ -552,6 +598,50 @@ if __name__ == "__main__":
            {"valor": 200, "envio": 0, "estoque": 100},     # -100
            {"valor": 300, "envio": 100, "estoque": 200},   # fecha
        ])] == [200, 100])
+
+    # ── O LOTE: uma compra, varios cheques ───────────────────────────────
+    #
+    # O centavo e o motivo de `dividir_em` existir: 3.211,61 em dois da
+    # 1.605,805, e arredondar os dois para o mesmo lado inventa ou some com um
+    # centavo — que so aparece no fechamento do mes, sem origem.
+    ok("divisao exata da partes iguais",
+       dividir_em(3211.60, 2) == [1605.80, 1605.80])
+    ok("e a soma fecha sempre", sum(dividir_em(3211.60, 2)) == 3211.60)
+    ok("o centavo que sobra vai para o primeiro",
+       dividir_em(3211.61, 2) == [1605.81, 1605.80])
+    ok("com tres, sobram dois centavos, um para cada um dos dois primeiros",
+       dividir_em(100.02, 3) == [33.34, 33.34, 33.34]
+       and sum(dividir_em(100.01, 3)) == 100.01)
+    ok("um cheque so leva tudo", dividir_em(1605.80, 1) == [1605.80])
+    ok("zero cheques nao divide nada", dividir_em(100, 0) == []
+       and dividir_em(100, -1) == [])
+    ok("total zero da zeros, e nao vazio", dividir_em(0, 2) == [0.0, 0.0])
+
+    # O caso que o dono descreveu: compra de 3.211,60 em dois cheques, 569 e
+    # 572, vencimentos diferentes, 1.400 de frete dividido entre eles.
+    _l = lote({"favorecido": "LEXTACK", "compra": "2026-09-18",
+               "situacao": "EM ABERTO"},
+              ["569", "572"], ["2026-10-02", "2026-11-02"],
+              3211.60, 1400.00)
+    ok("o lote gera um cheque por folha", len(_l) == 2)
+    ok("com o valor dividido igualmente",
+       [c["valor"] for c in _l] == [1605.80, 1605.80])
+    ok("e o frete tambem", [c["envio"] for c in _l] == [700.00, 700.00])
+    ok("cada um com seu vencimento",
+       [c["vencimento"] for c in _l] == ["2026-10-02", "2026-11-02"])
+    ok("e o que e comum se repete em todos",
+       all(c["favorecido"] == "LEXTACK" and c["compra"] == "2026-09-18"
+           for c in _l))
+    ok("a soma dos cheques do lote e a compra",
+       round(sum(c["valor"] for c in _l), 2) == 3211.60)
+    # E cada um deles, normalizado, ja traz a mercadoria calculada.
+    _n = [normalizar(c) for c in _l]
+    ok("e a mercadoria de cada um sai da conta",
+       [c["estoque"] for c in _n] == [905.80, 905.80])
+    ok("dois cheques do mesmo lote sao dois registros",
+       _n[0]["id"] != _n[1]["id"])
+    ok("lote sem folha nem vencimento nao inventa cheque",
+       lote({}, [], [], 1000) == [])
 
     ok("a folha vem sem o .0 do Excel",
        normalizar({"folha": 159.0, "valor": 1})["folha"] == "159")

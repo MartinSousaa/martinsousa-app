@@ -116,63 +116,98 @@ def pagina(usuario_logado=None):
                     format="R$ %.2f")})
 
     # ── cadastrar ────────────────────────────────────────────────────────
-    with st.expander("➕ Cadastrar cheque"):
+    with st.expander("➕ Cadastrar cheque(s) de uma compra"):
+        # QUANTOS CHEQUES — fora do formulário, de propósito.
+        #
+        # O número de linhas do formulário depende dele, e dentro de `st.form`
+        # o Streamlit só entrega o valor no envio: escolher "3" não desenharia
+        # as três linhas até alguém enviar. Aqui ele é um seletor solto, que é
+        # seguro — o problema do botão solto era o clique perdido ao lado de
+        # uma grade em edição, e não existe grade aqui.
+        n = st.number_input(
+            "Quantos cheques nesta compra?", min_value=1, max_value=12,
+            value=1, step=1, key="ch_qtd",
+            help="Uma compra fechada em vários cheques. Compra, favorecido, "
+                 "valor total e frete são os mesmos; folha e vencimento são "
+                 "de cada um.")
+
         with st.form("ch_novo"):
+            st.markdown("**A compra** — vale para todos os cheques")
             f1, f2, f3 = st.columns(3)
-            folha = f1.text_input("Folha (nº do cheque)")
+            favorecido = f1.text_input("Favorecido")
             tipo = f2.selectbox("Tipo", _ch.TIPOS)
-            valor = f3.number_input("Valor (R$)", min_value=0.0, step=100.0,
-                                    format="%.2f")
+            compra = f3.date_input("Data da compra", value=hoje,
+                                   format="DD/MM/YYYY")
             g1, g2, g3 = st.columns(3)
-            compra = g1.date_input("Compra", value=hoje, format="DD/MM/YYYY")
-            venc = g2.date_input("Vencimento", value=hoje, format="DD/MM/YYYY")
+            valor_total = g1.number_input(
+                "Valor TOTAL da compra (R$)", min_value=0.0, step=100.0,
+                format="%.2f",
+                help="O total fechado com o fornecedor. O Studio divide em "
+                     "partes iguais entre os cheques.")
+            envio_total = g2.number_input(
+                "Frete TOTAL (R$)", min_value=0.0, step=50.0, format="%.2f",
+                help="Também dividido entre os cheques. O que sobra do valor "
+                     "é mercadoria.")
             situacao = g3.selectbox("Situação", _ch.SITUACOES)
-            h1, h2 = st.columns(2)
-            # ESTOQUE saiu do formulário: ele é VALOR − ENVIO, e campo que se
-            # calcula e mesmo assim se pede é convite a erro de digitação —
-            # um erro que não aparece em lugar nenhum, porque a soma do cheque
-            # continua certa.
-            #
-            # Também não dá para mostrá-lo vivo AQUI: dentro de `st.form` o
-            # Streamlit só entrega o que foi digitado no envio, então um campo
-            # "calculado" ficaria parado em zero enquanto a pessoa digita — e
-            # número parado na tela é pior do que número nenhum.
-            envio = h1.number_input(
-                "Envio (frete)", min_value=0.0, step=50.0, format="%.2f",
-                help="Quanto deste cheque foi frete. O resto é mercadoria, e o "
-                     "Studio calcula sozinho.")
-            favorecido = h2.text_input("Favorecido")
-            st.caption("**Estoque (mercadoria) = valor − envio**, calculado ao "
-                       "cadastrar. Não precisa digitar.")
-            obs = st.text_input("Observação")
+
+            st.markdown(f"**Os {int(n)} cheque(s)** — folha e vencimento de cada")
+            folhas, vencs = [], []
+            for _i in range(int(n)):
+                c1, c2 = st.columns([1, 2])
+                folhas.append(c1.text_input(
+                    f"Folha do {_i + 1}º", key=f"ch_folha_{_i}"))
+                vencs.append(c2.date_input(
+                    f"Vencimento do {_i + 1}º", value=hoje,
+                    format="DD/MM/YYYY", key=f"ch_venc_{_i}"))
+
+            obs = st.text_input("Observação (vale para todos)")
             criar = st.form_submit_button("💾 Cadastrar", type="primary",
                                           use_container_width=True)
+
         if criar:
-            if not valor:
-                st.error("Cheque sem valor não entra — seria uma linha que "
-                         "ocupa lugar e não conta nada.")
+            if not valor_total:
+                st.error("Compra sem valor não entra — seriam linhas que "
+                         "ocupam lugar e não contam nada.")
+            elif envio_total > valor_total:
+                st.error(
+                    f"O frete ({_brl(envio_total)}) é maior que a compra "
+                    f"({_brl(valor_total)}). Confira antes de cadastrar.")
             else:
-                if envio > valor:
-                    st.warning(
-                        f"O frete ({_brl(envio)}) é maior que o cheque "
-                        f"({_brl(valor)}) — a mercadoria fica negativa em "
-                        f"{_brl(valor - envio)}. Acontece quando o cheque paga "
-                        "só parte do frete; se não for o caso, confira o envio.")
-                novas, repetidas, erro = _ch.gravar([{
-                    "folha": folha, "tipo": tipo, "compra": compra,
-                    "vencimento": venc, "valor": valor, "envio": envio,
-                    "favorecido": favorecido,
-                    "situacao": situacao, "observacao": obs,
-                }], usuario_logado)
+                cheques_do_lote = _ch.lote(
+                    {"favorecido": favorecido, "tipo": tipo, "compra": compra,
+                     "situacao": situacao, "observacao": obs},
+                    folhas, vencs, valor_total, envio_total)
+                novas, repetidas, erro = _ch.gravar(cheques_do_lote,
+                                                    usuario_logado)
                 if erro:
                     st.error(f"Não consegui gravar: {erro}")
-                elif repetidas:
-                    st.warning("Este cheque já estava cadastrado — nada mudou.")
+                elif not novas:
+                    st.warning("Todos já estavam cadastrados — nada mudou.")
                 else:
+                    _v = cheques_do_lote[0]["valor"]
+                    _e = cheques_do_lote[0]["envio"]
                     st.success(
-                        f"Cheque {folha or ''} cadastrado · valor "
-                        f"{_brl(valor)} = frete {_brl(envio)} + mercadoria "
-                        f"{_brl(round(valor - envio, 2))}.")
+                        f"{novas} cheque(s) cadastrado(s)"
+                        + (f" · {repetidas} já existia(m)" if repetidas else "")
+                        + f"\n\nCada um: {_brl(_v)} = frete {_brl(_e)} + "
+                        f"mercadoria {_brl(round(_v - _e, 2))}")
+                    # A prova de que a divisão fechou: a soma tem de ser a
+                    # compra. Centavo perdido numa divisão só aparece no
+                    # fechamento do mês, e lá ninguém sabe de onde veio.
+                    st.dataframe(
+                        pd.DataFrame([{
+                            "folha": c["folha"], "vencimento": c["vencimento"],
+                            "valor": c["valor"], "frete": c["envio"],
+                            "mercadoria": round(c["valor"] - c["envio"], 2),
+                        } for c in cheques_do_lote]),
+                        use_container_width=True, hide_index=True,
+                        column_config={x: st.column_config.NumberColumn(
+                            format="R$ %.2f")
+                            for x in ("valor", "frete", "mercadoria")})
+                    st.caption(
+                        "Soma dos cheques: "
+                        + _brl(round(sum(c["valor"] for c in cheques_do_lote), 2))
+                        + f" · compra: {_brl(valor_total)}")
                     linhas = _ch.carregar()
 
     if not linhas:

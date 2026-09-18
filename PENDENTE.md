@@ -244,3 +244,23 @@ local, não de uma importação de verdade.
 
 **Por que está aqui.** Ele interrompeu no meio para tratar uma urgência e
 pediu, com estas palavras, para não deixar esquecer.
+
+---
+
+## Cheque pelo WhatsApp, do jeito que o Renan manda  ·  18/09/2026
+
+**O que ele manda.** Uma foto dos canhotos (folha, data, valor, "Pago a
+LEXTACK"), e duas linhas soltas: `1.400 envio` e `Pix / 30 / 45 dias`.
+
+**O que falta construir.** A leitura dessa mensagem — foto + texto — virando o
+lote de cheques. As peças que já existem: `cheques.lote()` monta os N cheques a
+partir de folha, vencimento, valor total e frete; a mesma IA que lê o texto das
+imagens sabe ler um canhoto. O que não existe é o pedaço que interpreta
+`Pix / 30 / 45 dias` como "uma entrada no Pix e vencimentos em 30 e 45 dias" e
+casa isso com as folhas da foto.
+
+**O que bloqueia.** A entrada por WhatsApp depende de número WhatsApp Business
+API, que o dono ainda não tem — todas as linhas dele já usam WhatsApp comum.
+
+**Enquanto isso.** O cadastro em lote na tela já resolve o trabalho repetido, e
+a leitura do canhoto pode entrar primeiro por upload, sem depender da Meta.
