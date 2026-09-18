@@ -3417,6 +3417,29 @@ def pagina_imagem(usuario_logado):
         fotos_bytes_ajuste, _nm_aj, _av_aj, _er_aj = revisar_anexos(fotos_ajuste_upload)
         mostrar_anexos(_av_aj, _er_aj)
 
+        # AS FOTOS DO PRODUTO, e não só a arte.
+        #
+        # Sem elas este modo trabalhava pela metade: a única referência que a
+        # IA recebia era a própria peça já montada. Dá para mexer num detalhe
+        # assim, mas não dá para recompor o quadro nem mostrar o produto de
+        # outro ângulo — e o Studio ainda assim oferecia "refazer do zero",
+        # que devolvia a mesma imagem.
+        #
+        # Opcional de propósito: quem só quer corrigir uma palavra não precisa
+        # ir atrás das fotos. Quem quer recompor, precisa — e agora pode.
+        fotos_prod_upload = st.file_uploader(
+            "Fotos do produto (opcional — só se quiser recompor a imagem)",
+            type=None, accept_multiple_files=True, key="img_ajuste_prod",
+            help="As fotos originais do produto. Com elas a IA pode mudar o "
+                 "enquadramento e mostrar o produto de outro jeito. Sem elas, "
+                 "o ajuste fica limitado a editar a peça que já existe.",
+        )
+        fotos_bytes_prod, _nm_pr, _av_pr, _er_pr = revisar_anexos(fotos_prod_upload)
+        mostrar_anexos(_av_pr, _er_pr)
+        if fotos_bytes_prod:
+            st.caption(f"📷 {len(fotos_bytes_prod)} foto(s) do produto — "
+                       "recompor o quadro está liberado.")
+
         if fotos_bytes_ajuste:
             _cols_aj = st.columns(4)
             for _i, _fb in enumerate(fotos_bytes_ajuste[:4]):
@@ -3454,10 +3477,14 @@ def pagina_imagem(usuario_logado):
             _res_af = {"img": None, "relato": None, "done": False}
 
             def _rodar_af(_ref=fotos_bytes_ajuste[0], _ins=instrucao_ajuste.strip(),
-                          _r=_res_af):
+                          _rf=list(fotos_bytes_prod or []), _r=_res_af):
                 try:
+                    # `referencias` é o que faltava aqui e as outras duas
+                    # modalidades já passavam. Vazio quando ninguém subiu foto
+                    # — e aí é vazio de verdade, não vazio por esquecimento.
                     _r["img"], _r["relato"] = ajustar_com_conferencia(
-                        _ref, _ins, aviso=lambda t: _r.__setitem__("fase", t))
+                        _ref, _ins, referencias=_rf,
+                        aviso=lambda t: _r.__setitem__("fase", t))
                 except Exception as _e:
                     _r["img"], _r["relato"] = None, {
                         "ok": False, "tentativas": 0, "erro": str(_e)[:160],
@@ -3515,7 +3542,13 @@ def pagina_imagem(usuario_logado):
                 # "refeita do zero". Era a resposta para "ele confirma o que eu
                 # pedi, diz que corrigiu, e não corrigiu".
                 st.session_state["img_fotos_ajuste"] = fotos_bytes_ajuste
-                st.session_state["img_fotos_sao_arte"] = True
+                # Com fotos do produto, o refazer do zero passa a ser possível
+                # — e elas, e não a arte, é que são "as fotos originais".
+                if fotos_bytes_prod:
+                    st.session_state["img_fotos_originais"] = fotos_bytes_prod
+                    st.session_state["img_fotos_sao_arte"] = False
+                else:
+                    st.session_state["img_fotos_sao_arte"] = True
                 st.session_state["img_dados_descricao"] = dados_descricao or {}
                 st.session_state["img_instrucoes_originais"] = instrucao_ajuste
                 import atividades
@@ -4554,10 +4587,28 @@ def pagina_imagem(usuario_logado):
             st.info(f"📁 Será criada uma nova pasta no Drive: **{nome_pasta_novo}**")
             pasta_destino_id = None  # será criada no momento do clique
 
+        # QUAIS imagens, e não "todas ou uma".
+        #
+        # Os dois botões abaixo eram tudo-ou-nada, e o seletor de imagem ativa
+        # servia só para ver e baixar de uma em uma. Quem quer 2 das 3 tinha
+        # que baixar as três e apagar uma, ou clicar três vezes no botão
+        # individual. Aqui ela marca as que quer, e os dois botões passam a
+        # agir sobre a marcação.
+        _sel_idx = st.multiselect(
+            "Quais imagens salvar / baixar",
+            list(range(len(galeria))),
+            default=list(range(len(galeria))),
+            key="img_sel_salvar",
+            format_func=lambda i: f"Imagem {i + 1} · {galeria[i].get('tipo', '?')}")
+        _escolhidas = [galeria[i] for i in _sel_idx] or list(galeria)
+        if not _sel_idx:
+            st.caption("Nenhuma marcada — os botões abaixo valem para as "
+                       f"{len(galeria)} imagens.")
+
         col_aprovar, col_zip = st.columns(2)
 
         if col_aprovar.button(
-            f"☁️ APROVAR E SALVAR no Drive ({len(galeria)} imagens)",
+            f"☁️ APROVAR E SALVAR no Drive ({len(_escolhidas)} imagens)",
             type="primary",
             use_container_width=True,
             disabled=_busca_falhou,
@@ -4591,9 +4642,15 @@ def pagina_imagem(usuario_logado):
                 links_salvos = []
                 falhas = []
                 barra_salvar = st.progress(0.0, text="Salvando imagens...")
-                for i, g in enumerate(galeria):
-                    barra_salvar.progress(i / len(galeria), text=f"Salvando: {g['tipo'][:30]}...")
-                    nome_arq = f"{g['tipo'][:30]}.{extensao_de(g['bytes'])}"
+                for i, g in enumerate(_escolhidas):
+                    barra_salvar.progress(
+                        i / len(_escolhidas),
+                        text=f"Salvando: {g['tipo'][:30]}...")
+                    # O número entra no nome do arquivo: três ajustes finos
+                    # com a mesma instrução geram três rótulos idênticos, e no
+                    # Drive um sobrescreveria o outro sem ninguém ver.
+                    nome_arq = (f"{i + 1:02d} - {g['tipo'][:30]}"
+                                f".{extensao_de(g['bytes'])}")
                     link, err_up = upload_para_pasta(g["bytes"], nome_arq, pasta_destino_id)
                     if err_up:
                         falhas.append((g["tipo"], err_up))
@@ -4612,7 +4669,11 @@ def pagina_imagem(usuario_logado):
                         codigo=codigo_gal,
                         link_pasta=link_pasta,
                     )
-                    st.session_state["img_galeria_salva"] = len(links_salvos)
+                    # Só conta como "tudo salvo" quando o que se salvou foi a
+                    # galeria inteira. Salvar 2 de 3 e o aviso sumir esconderia
+                    # que a terceira ainda só existe nesta sessão.
+                    st.session_state["img_galeria_salva"] = (
+                        len(galeria) if len(links_salvos) >= len(galeria) else 0)
                     st.success(
                         f"✅ {len(links_salvos)} imagem(ns) salvas no Drive! "
                         f"[Abrir pasta]({link_pasta})"
@@ -4629,10 +4690,10 @@ def pagina_imagem(usuario_logado):
                         "garantir que nada se perca."
                     )
 
-        # ZIP sempre disponível
-        zip_bytes = criar_zip_galeria(galeria, nome_gal)
+        # ZIP sempre disponível, com o que estiver marcado
+        zip_bytes = criar_zip_galeria(_escolhidas, nome_gal)
         col_zip.download_button(
-            f"⬇️ Baixar todas em ZIP ({len(galeria)} imagens)",
+            f"⬇️ Baixar em ZIP ({len(_escolhidas)} imagens)",
             data=zip_bytes,
             file_name=f"{nome_gal}_imagens.zip",
             mime="application/zip",

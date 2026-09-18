@@ -542,9 +542,16 @@ def _secao_registro(usuario_logado: str, eh_master: bool):
                        "da equipe. Marque em Análise de Metas → Configuração de "
                        "Metas → Equipe.")
             return
-        nomes_disp = [MEMBROS[u] for u in usernames]
-        nome_sel = col_user.selectbox("👤 Colaborador", nomes_disp, key="pt_user")
-        username_sel = usernames[nomes_disp.index(nome_sel)]
+        # O seletor escolhe o USERNAME, e não o nome que aparece na tela.
+        #
+        # `nomes_disp.index(nome_sel)` devolve sempre a PRIMEIRA posição do
+        # nome: dois colaboradores chamados "Ana Silva" viram um só, e o ponto
+        # de uma seria batido no cartão da outra — sem erro nenhum, e
+        # descoberto no fechamento do mês. Homônimo não é hipótese remota numa
+        # equipe que cresce; username é único por definição.
+        username_sel = col_user.selectbox(
+            "👤 Colaborador", usernames, key="pt_user",
+            format_func=lambda u: MEMBROS.get(u, u))
         _sem_relogio = [MEMBROS[u] for u in MEMBROS if u in _fora]
         if _sem_relogio:
             col_user.caption("Fora da lista (não batem ponto): "
