@@ -54,6 +54,8 @@ from datetime import date, datetime, timezone, timedelta
 import pandas as pd
 import streamlit as st
 
+import rotulos as _rot
+
 ABA_NOME = "folha_salarial"
 
 # As verbas do gestor. `salario` e `bonus` saíram: gestor não tem salário, e o
@@ -312,7 +314,7 @@ def pagina(usuario_logado=None):
             use_container_width=True,
             hide_index=True,
             key="ed_folha_salarial",
-            column_config={
+            column_config={**_rot.config(["pessoa", "bruto", "pro_labore", "inss", "beneficios"], st), 
                 "pessoa": st.column_config.TextColumn(
                     "Pessoa", required=True, width="small"),
                 **{v: dinheiro(ROTULOS[v]) for v in VERBAS},

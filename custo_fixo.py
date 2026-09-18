@@ -38,6 +38,8 @@ from datetime import datetime, timezone, timedelta
 import pandas as pd
 import streamlit as st
 
+import rotulos as _rot
+
 # A ordem aqui é a ordem das colunas na planilha e na tela.
 COLUNAS = ["item", "valor_mensal", "vigente_desde", "dia_debito",
            "forma_pagamento", "atualizado_em", "atualizado_por"]
@@ -281,7 +283,7 @@ def pagina(usuario_logado=None, grade="custo_fixo"):
             # compartilhariam o estado do editor e a folha abriria com as linhas
             # do custo fixo desenhadas dentro dela.
             key=f"ed_{aba_nome}",
-            column_config={
+            column_config={**_rot.config(["item", "valor_mensal", "vigente_desde", "dia_debito", "forma_pagamento"], st), 
                 "item": st.column_config.TextColumn(
                     cfg["rotulo_item"], required=True, width="medium",
                     help=cfg["ajuda_item"]),

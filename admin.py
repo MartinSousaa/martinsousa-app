@@ -655,9 +655,9 @@ def pagina_admin(usuario_logado):
         )
 
         st.markdown("---")
-        _cid = st.text_input("client_id", key="oauth_cid",
+        _cid = st.text_input("Client ID", key="oauth_cid",
                              placeholder="...apps.googleusercontent.com")
-        _csec = st.text_input("client_secret", key="oauth_csec", type="password")
+        _csec = st.text_input("Client secret", key="oauth_csec", type="password")
 
         if _cid and _csec:
             from urllib.parse import urlencode as _urlencode
@@ -686,7 +686,7 @@ def pagina_admin(usuario_logado):
                 "importa está na barra de endereço: copie o trecho entre `code=` e `&scope`."
             )
             st.markdown("**Passo 2 —** cole aqui o valor do `code` que apareceu na URL:")
-            _codigo = st.text_input("code", key="oauth_code")
+            _codigo = st.text_input("Código de autorização", key="oauth_code")
 
             # Sem `disabled=`: a condicao dependia de o Streamlit ter confirmado o
             # campo de texto, e em producao o botao ficava apagado com o codigo

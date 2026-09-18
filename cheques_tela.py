@@ -26,6 +26,7 @@ def pagina(usuario_logado=None):
     import pandas as pd
     import cheques as _ch
     import placar_core as _pc
+    import rotulos as _rot
 
     st.markdown("#### 🧾 Cheques")
     st.caption(
@@ -98,9 +99,11 @@ def pagina(usuario_logado=None):
                     "diferença": _ch.divergencia_da_soma(l),
                 } for l in _tortas[:50]]),
                 use_container_width=True, hide_index=True,
-                column_config={c: st.column_config.NumberColumn(format="R$ %.2f")
-                               for c in ("valor", "frete", "mercadoria",
-                                         "diferença")})
+                column_config=_rot.config(
+                    ["folha", "vencimento", "valor", "frete", "mercadoria",
+                     "diferença"], st,
+                    tipos={c: "brl" for c in ("valor", "frete", "mercadoria",
+                                              "diferença")}))
 
     atrasados = _ch.vencidos_sem_baixa(linhas, hoje)
     if atrasados:
@@ -112,8 +115,9 @@ def pagina(usuario_logado=None):
                                "favorecido": l.get("favorecido", "")}
                               for l in atrasados]),
                 use_container_width=True, hide_index=True,
-                column_config={"valor": st.column_config.NumberColumn(
-                    format="R$ %.2f")})
+                column_config=_rot.config(
+                    ["folha", "vencimento", "valor", "favorecido"], st,
+                    tipos={"valor": "brl"}))
 
     # ── cadastrar ────────────────────────────────────────────────────────
     with st.expander("➕ Cadastrar cheque(s) de uma compra"):
@@ -201,9 +205,11 @@ def pagina(usuario_logado=None):
                             "mercadoria": round(c["valor"] - c["envio"], 2),
                         } for c in cheques_do_lote]),
                         use_container_width=True, hide_index=True,
-                        column_config={x: st.column_config.NumberColumn(
-                            format="R$ %.2f")
-                            for x in ("valor", "frete", "mercadoria")})
+                        column_config=_rot.config(
+                            ["folha", "vencimento", "valor", "frete",
+                             "mercadoria"], st,
+                            tipos={x: "brl" for x in ("valor", "frete",
+                                                      "mercadoria")}))
                     st.caption(
                         "Soma dos cheques: "
                         + _brl(round(sum(c["valor"] for c in cheques_do_lote), 2))
@@ -245,27 +251,33 @@ def pagina(usuario_logado=None):
         editado = st.data_editor(
             df, use_container_width=True, hide_index=True, key="ch_ed",
             column_config={
+                **_rot.config(
+                    ["folha", "vencimento", "valor", "envio", "estoque",
+                     "favorecido", "situação", "apagar"], st,
+                    tipos={"valor": "brl", "envio": "brl", "estoque": "brl"}),
                 "id": None,
-                "folha": st.column_config.TextColumn(width="small",
+                "folha": st.column_config.TextColumn(_rot.rotular("folha"),
+                                                     width="small",
                                                      disabled=True),
                 # Vencimento, valor e frete ABREM para edição: cheque
                 # cadastrado com a data errada tem de ser corrigido aqui, e não
                 # apagado e digitado de novo — apagar perde a baixa e o
                 # histórico da linha.
                 "vencimento": st.column_config.TextColumn(
-                    width="small",
+                    "Vencimento", width="small",
                     help="AAAA-MM-DD ou DD/MM/AAAA. O Studio entende os dois."),
-                "valor": st.column_config.NumberColumn(format="R$ %.2f",
+                "valor": st.column_config.NumberColumn("Valor", format="R$ %.2f",
                                                        min_value=0.0),
-                "envio": st.column_config.NumberColumn(format="R$ %.2f",
+                "envio": st.column_config.NumberColumn("Frete", format="R$ %.2f",
                                                        min_value=0.0),
                 # A mercadoria continua travada: ela é conta, não campo.
                 "estoque": st.column_config.NumberColumn(
-                    format="R$ %.2f", disabled=True,
+                    "Mercadoria", format="R$ %.2f", disabled=True,
                     help="valor − frete, recalculado ao salvar"),
-                "favorecido": st.column_config.TextColumn(width="medium"),
+                "favorecido": st.column_config.TextColumn("Favorecido",
+                                                          width="medium"),
                 "situação": st.column_config.SelectboxColumn(
-                    options=list(_ch.SITUACOES), width="small",
+                    "Situação", options=list(_ch.SITUACOES), width="small",
                     help="Dar baixa aqui tira o cheque do comprometido do mês. "
                          "O extrato faz isso sozinho quando o débito aparece."),
                 "apagar": st.column_config.CheckboxColumn(

@@ -20,6 +20,8 @@ mostra o que ficou sem classificação, para o dono responder uma vez.
 
 import streamlit as st
 
+import rotulos as _rot
+
 
 def _fmt(v):
     return f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
@@ -224,7 +226,7 @@ def _ver_mes(_fv, _lan, usuario_logado):
 
     editado = st.data_editor(
         df, use_container_width=True, hide_index=True, key="ext_ed",
-        column_config={
+        column_config={**_rot.config(["data", "descricao", "descrição", "favorecido", "valor", "tipo", "finalidade", "conta", "observacao", "apagar", "forma", "total", "sentido", "exemplo", "datas"], st), 
             "apagar": st.column_config.CheckboxColumn("🗑️", width="small"),
             "data": st.column_config.TextColumn("Data", disabled=True,
                                                 width="small"),
@@ -273,7 +275,7 @@ def _ver_mes(_fv, _lan, usuario_logado):
                 pd.DataFrame([{"finalidade": k, "total": v}
                               for k, v in _res.items()]),
                 use_container_width=True, hide_index=True,
-                column_config={"total": st.column_config.NumberColumn(
+                column_config={**_rot.config(["data", "descricao", "descrição", "favorecido", "valor", "tipo", "finalidade", "conta", "observacao", "apagar", "forma", "total", "sentido", "exemplo", "datas"], st), "total": st.column_config.NumberColumn(
                     format="R$ %.2f")})
             st.caption("Transferência entre contas e aplicação ficam de fora: "
                        "não são despesa.")

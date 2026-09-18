@@ -42,6 +42,8 @@ from datetime import date, datetime, timezone, timedelta
 import pandas as pd
 import streamlit as st
 
+import rotulos as _rot
+
 ABA_MOVIMENTOS = "headcount_movimentos"
 ABA_PARAMS = "headcount_parametros"
 
@@ -510,7 +512,7 @@ def pagina(usuario_logado=None):
             use_container_width=True,
             hide_index=True,
             key="ed_headcount",
-            column_config={
+            column_config={**_rot.config(["tipo", "data", "quantidade", "observacao"], st), 
                 "tipo": st.column_config.SelectboxColumn(
                     "Tipo", options=TIPOS, required=True, width="small"),
                 "data": st.column_config.TextColumn(

@@ -109,6 +109,16 @@ div[class*="StatusWidget"]                      { display: none !important; }
 .stApp > header [data-testid="stStatus"]        { display: none !important; }
 iframe[title="st_autorefresh"]                  { display: none !important; }
 [data-testid="stAppRunningIndicator"]           { display: none !important; }
+
+/* O menu de coluna das tabelas — "Sort ascending", "Pin column", "Hide column".
+   E do proprio Streamlit, em ingles, e a versao 1.46 nao traduz nem permite
+   trocar o texto. Regra do dono: nada em ingles no Studio.
+   O que se perde: ordenar clicando no cabecalho. O que se ganha: nenhuma
+   palavra em ingles na tela. Ordenar continua existindo no filtro de cada
+   tela, que e em portugues. */
+[data-testid="stDataFrameColumnMenuButton"]     { display: none !important; }
+div[data-testid="stDataFrameColumnMenu"]        { display: none !important; }
+.glideDataEditor button[aria-label*="column"]   { display: none !important; }
 div[class*="AppRunningIndicator"]               { display: none !important; }
 /* Impede o escurecimento dos containers principais durante o rerun */
 .stApp, .main,

@@ -12,6 +12,8 @@ lugar certo — no lançamento, a correção valeria para uma linha só.
 
 import streamlit as st
 
+import rotulos as _rot
+
 
 def pagina(usuario_logado=None):
     import favorecidos as _fv
@@ -75,7 +77,7 @@ def pagina(usuario_logado=None):
         editado = st.data_editor(
             df, use_container_width=True, hide_index=True, key="fin_ed",
             num_rows="dynamic",
-            column_config={
+            column_config={**_rot.config(["favorecido", "finalidade", "sentido", "observação", "n", "total"], st), 
                 "favorecido": st.column_config.TextColumn("Favorecido",
                                                           required=True),
                 "sentido": st.column_config.SelectboxColumn(

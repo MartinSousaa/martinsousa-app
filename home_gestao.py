@@ -53,6 +53,8 @@ import calendar
 
 import streamlit as st
 
+import rotulos as _rot
+
 # Estado, não identidade. As três nunca aparecem lado a lado disputando
 # significado: cada barra mostra uma só, e sempre com a frase ao lado.
 VERDE = "#1BAF7A"
@@ -446,7 +448,7 @@ def _bloco_gastos(usuario_logado=None, d=None):
                        "ainda vai sair": x["falta_sair"],
                        "conta no mês": x["conta"]} for x in combinado]),
         use_container_width=True, hide_index=True,
-        column_config={
+        column_config={**_rot.config(["finalidade", "valor", "% do mês", "forma", "já saiu", "ainda vai sair", "conta no mês"], st), 
             "já saiu": st.column_config.NumberColumn(format="R$ %.2f"),
             "ainda vai sair": st.column_config.NumberColumn(format="R$ %.2f"),
             "conta no mês": st.column_config.NumberColumn(format="R$ %.2f"),
@@ -474,7 +476,7 @@ def _bloco_gastos(usuario_logado=None, d=None):
                            "% do mês": v / sum(res.values()) * 100}
                           for k, v in por_fin.items()]),
             use_container_width=True, hide_index=True,
-            column_config={
+            column_config={**_rot.config(["finalidade", "valor", "% do mês", "forma", "já saiu", "ainda vai sair", "conta no mês"], st), 
                 "valor": st.column_config.NumberColumn(format="R$ %.2f"),
                 "% do mês": st.column_config.ProgressColumn(
                     format="%.1f%%", min_value=0.0,
@@ -493,7 +495,7 @@ def _bloco_gastos(usuario_logado=None, d=None):
         st.dataframe(
             pd.DataFrame([{"forma": k, "valor": v} for k, v in formas.items()]),
             use_container_width=True, hide_index=True,
-            column_config={"valor": st.column_config.NumberColumn(
+            column_config={**_rot.config(["finalidade", "valor", "% do mês", "forma", "já saiu", "ainda vai sair", "conta no mês"], st), "valor": st.column_config.NumberColumn(
                 format="R$ %.2f")})
 
     sem = res.get("SEM CLASSIFICAÇÃO", 0.0)

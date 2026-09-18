@@ -52,6 +52,8 @@ from datetime import date, datetime, timezone, timedelta
 import pandas as pd
 import streamlit as st
 
+import rotulos as _rot
+
 ABA_NOME = "nao_operacional"
 
 COLUNAS = ["programa", "conta_aporte", "data_contratacao", "carencia_meses",
@@ -432,7 +434,7 @@ def pagina(usuario_logado=None):
             use_container_width=True,
             hide_index=True,
             key="ed_nao_operacional",
-            column_config={
+            column_config={**_rot.config(["programa", "parcela", "inicio", "carencia", "aporte"], st), 
                 "programa": st.column_config.TextColumn(
                     "Programa", required=True, width="medium",
                     help="PRONAMP LG, PRONAMP MS…"),
