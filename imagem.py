@@ -3288,6 +3288,34 @@ def pagina_imagem(usuario_logado):
                 st.rerun()
 
     MODELO_DIAG = "gemini-3.1-flash-image"
+    # ── Saúde do processo ────────────────────────────────────────────────
+    #
+    # A faixa "Reconectando ao servidor" tem três causas possíveis, e só uma
+    # delas apaga o histórico do chat: o processo REINICIAR. As outras duas —
+    # deploy e script preso — não apagam nada.
+    #
+    # Sem este número, a diferença entre elas é opinião. Com ele, é uma linha:
+    # se o "de pé há" volta para segundos toda vez que a tela reconecta, o
+    # processo está morrendo e voltando, e a causa é memória.
+    try:
+        import saude as _sd
+        _sd.contar_passada()
+        _s = _sd.resumo(st.session_state)
+        _linha = (f"⚙️ Processo de pé há **{_s['de_pe_ha']}** · "
+                  f"{_s['passadas']} passada(s) · memória "
+                  f"**{_s['memoria_mb']} MB**"
+                  + (f" de {_s['limite_mb']} MB ({_s['pct_memoria']}%)"
+                     if _s['limite_mb'] else "")
+                  + (f" · imagens nesta sessão: {_s['imagens_na_sessao_mb']} MB"
+                     if _s['imagens_na_sessao_mb'] else ""))
+        if _s["pct_memoria"] >= 80:
+            st.warning(_linha + "  \n⚠️ Memória perto do limite do container — "
+                       "é aqui que ele reinicia e o histórico do chat some.")
+        else:
+            st.caption(_linha)
+    except Exception:
+        pass
+
     with st.expander("🔧 Diagnóstico das APIs de Imagem", expanded=False):
         st.caption("Testa OpenAI gpt-image-2 (motor primário) e Gemini Flash (fallback) para confirmar que estão funcionando.")
         if st.button("Testar APIs agora", key="btn_diag_gemini"):

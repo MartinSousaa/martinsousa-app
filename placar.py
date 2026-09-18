@@ -2740,6 +2740,13 @@ def pagina_placar(usuario_logado, headless=False):
 
 _TV_INTERVALO_SEG = 60
 
+# Com gente no Studio, a volta é adiada de 30 em 30s até a casa esvaziar — e,
+# se ninguém sair, ela acontece assim mesmo depois de _TV_TETO_ESPERA_SEG. A TV
+# não pode congelar durante o expediente inteiro; ela só deixa de ser
+# prioridade.
+_TV_INTERVALO_OCUPADO_SEG = 20
+_TV_TETO_ESPERA_SEG = 90
+
 # Estado da regeneração, para a falha parar de ser invisível.
 #
 # A thread engolia qualquer exceção com `except: pass`. A intenção estava certa
@@ -2757,6 +2764,15 @@ _TV_INTERVALO_SEG = 60
 # que a volta nao chegou la.
 TV_STATUS = {
     "voltas": 0, "erros": 0,
+    # O CUSTO DE UMA VOLTA, medido — e não deduzido.
+    #
+    # Sem estes três campos, "a TV está pesando no Studio" é opinião. Com
+    # eles, é número: se a volta leva 0,4s, não é ela; se leva 8s num
+    # container de 1 vCPU, é ela e dá para provar.
+    "duracao_seg": None,        # a última volta
+    "duracao_max_seg": None,    # a pior desde que o processo subiu
+    "memoria_mb": None,         # o worker, depois da volta
+    "esperando_gente": 0,       # voltas adiadas porque havia gente no Studio
     "ultimo_ok": None,       # epoch da última regeneração que de fato gravou
     "ultimo_erro": None,     # epoch da última falha
     "erro": "",              # a mensagem, resumida
@@ -2853,7 +2869,36 @@ def _loop_regenerador_tv():
     _log_tv.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context"
                       ).setLevel(_log_tv.ERROR)
     while True:
+        # NÃO TRABALHAR EM CIMA DE QUEM ESTÁ TRABALHANDO.
+        #
+        # Uma volta é o Painel de Metas inteiro — 713 linhas de cálculo, Trello
+        # e planilha — e ela rodava a cada 60s, 24h por dia, dentro do MESMO
+        # container do Studio. De minuto em minuto ela tomava a CPU, o
+        # Streamlit não respondia ao navegador a tempo, e a tela da
+        # colaboradora mostrava "Reconectando ao servidor… os cliques não
+        # estão sendo enviados".
+        #
+        # Com gente dentro, a TV espera. Ela é um painel de parede: atualizar
+        # a cada 5 minutos não muda a vida de ninguém — travar o Studio de
+        # quem está produzindo, muda.
+        try:
+            import presenca as _pres_tv
+            _ultimo = TV_STATUS.get("ultimo_ok") or 0
+            _esperando_ha = _t_tv.time() - _ultimo if _ultimo else 0
+            # Janela curta: o que se quer evitar é a volta cair EM CIMA do
+            # clique, não o dia inteiro. Quem parou há 30s não está esperando
+            # resposta da tela.
+            if (_pres_tv.alguem_usando(janela_seg=20)
+                    and _esperando_ha < _TV_TETO_ESPERA_SEG):
+                TV_STATUS["esperando_gente"] = TV_STATUS.get(
+                    "esperando_gente", 0) + 1
+                _t_tv.sleep(_TV_INTERVALO_OCUPADO_SEG)
+                continue
+        except Exception:
+            pass                       # sem sinal, segue o ritmo normal
+
         TV_STATUS["voltas"] += 1
+        _t_volta = _t_tv.time()
         try:
             TV_STATUS["motivo"] = "a volta terminou sem chegar na gravação"
             pagina_placar("martinsousa", headless=True)
@@ -2891,6 +2936,16 @@ def _loop_regenerador_tv():
         # Fora do try/except da volta, de proposito: a volta que falhou e
         # justamente a que precisa aparecer no arquivo.
         _write_tv_status()
+        # O custo desta volta, sempre — inclusive quando ela falhou.
+        try:
+            _d = round(_t_tv.time() - _t_volta, 2)
+            TV_STATUS["duracao_seg"] = _d
+            TV_STATUS["duracao_max_seg"] = max(
+                _d, TV_STATUS.get("duracao_max_seg") or 0)
+            import saude as _sd_tv
+            TV_STATUS["memoria_mb"] = _sd_tv.memoria_mb()[0]
+        except Exception:
+            pass
         _t_tv.sleep(_TV_INTERVALO_SEG)
 
 

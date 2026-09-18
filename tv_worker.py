@@ -32,7 +32,28 @@ import sys
 import time
 
 
+def _sair_da_frente():
+    """Põe este processo na última prioridade da CPU.
+
+    Ele divide o container com o Streamlit, e o Streamlit atende gente. Com a
+    prioridade mais baixa, o sistema operacional só dá CPU à TV quando ninguém
+    está esperando por ela — e o "Reconectando ao servidor" deixa de depender
+    de o worker ter a educação de esperar.
+
+    É cinto e suspensório junto com a espera por presença: a espera cobre o
+    caso normal, o `nice` cobre a volta que acontece mesmo assim.
+    """
+    try:
+        os.nice(19)
+        print("[tv_worker] prioridade de CPU rebaixada (nice 19)",
+              file=sys.stderr, flush=True)
+    except Exception as e:
+        print(f"[tv_worker] nao consegui rebaixar a prioridade: {e}",
+              file=sys.stderr, flush=True)
+
+
 def main():
+    _sair_da_frente()
     # A thread do app não pode subir junto: duas regenerações do mesmo arquivo
     # dobram as chamadas ao Trello e a memória do container sem entregar nada.
     # O Procfile marca o processo do Streamlit com TV_WORKER=1, e é assim que
