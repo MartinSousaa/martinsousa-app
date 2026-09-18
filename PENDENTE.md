@@ -226,3 +226,21 @@ interrupção, ou o texto muda?
 O dono decidiu: o Studio **provisiona** e o extrato **confere**. Linha de
 extrato ligada a um item de custo fixo atualiza o item em vez de entrar como
 gasto novo; divergência ajusta o valor daquele mês. Ver `FLUXO.md`.
+
+---
+
+## Importação dos cheques, conferida na tela  ·  17/09/2026, à noite
+
+**Onde parou.** `cheques.py` e `cheques_tela.py` estão em produção, com os três
+defeitos da primeira importação corrigidos (NaT derrubando a tela, `nan`
+colapsando 69 cheques em um, folha `159.0`). Conferido contra o `Controle_MS`
+de verdade: 604 linhas, 604 ids, em aberto R$ 88.675,44, pendente R$ 33.093,82,
+vence em 09/26 R$ 51.117,23.
+
+**O que falta.** O dono clicar em **Financeiro › 🧾 Cheques › Importar do
+Controle MS** e conferir os três números na tela contra a planilha dele. Nada
+foi gravado na aba `cheques` ainda — o número acima saiu de uma simulação
+local, não de uma importação de verdade.
+
+**Por que está aqui.** Ele interrompeu no meio para tratar uma urgência e
+pediu, com estas palavras, para não deixar esquecer.
