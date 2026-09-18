@@ -4187,11 +4187,13 @@ def pagina_imagem(usuario_logado):
             )
 
         with st.expander("🔍 Prompt e motor usados em cada imagem", expanded=bool(_sem_foto)):
-            _opcoes_diag = [g["tipo"] for g in galeria]
-            _tipo_diag = st.selectbox(
-                "Imagem", _opcoes_diag, key="img_diag_sel", label_visibility="collapsed"
-            )
-            _g_diag = next((g for g in galeria if g["tipo"] == _tipo_diag), None)
+            # Pelo índice, pelo mesmo motivo do seletor de cima: com rótulos
+            # repetidos, o diagnóstico mostrado era o da primeira imagem.
+            _i_diag = st.selectbox(
+                "Imagem", list(range(len(galeria))), key="img_diag_sel",
+                label_visibility="collapsed",
+                format_func=lambda i: f"Imagem {i + 1} · {galeria[i].get('tipo', '?')}")
+            _g_diag = galeria[_i_diag] if 0 <= _i_diag < len(galeria) else None
             _d = (_g_diag or {}).get("diag") or {}
 
             if not _d:
@@ -4213,7 +4215,6 @@ def pagina_imagem(usuario_logado):
                 st.code(_d.get("prompt_final", "—"), language="text")
 
         # Miniaturas clicáveis
-        nomes_galeria = [g["tipo"] for g in galeria]
         _cols_gal = st.columns(4)
         for i, g in enumerate(galeria):
             with _cols_gal[i % 4]:
@@ -4242,9 +4243,22 @@ def pagina_imagem(usuario_logado):
                     # grita: ela nao e aprovacao.
                     (st.error if _t.get("ok") is False else st.warning)(_aviso_txt)
 
-        # Seleção da imagem ativa
-        escolha = st.selectbox("Imagem ativa (para ajustar ou baixar individualmente)", nomes_galeria, key="img_escolha")
-        idx_ativo = nomes_galeria.index(escolha)
+        # Seleção da imagem ativa — pelo ÍNDICE, e não pelo rótulo.
+        #
+        # A lista era `[g["tipo"] for g in galeria]` e o índice saía de
+        # `nomes_galeria.index(escolha)`. Duas imagens com o mesmo rótulo
+        # faziam `.index()` devolver SEMPRE a primeira: a colaboradora
+        # selecionava a Imagem 3, aparecia a 1, e os botões de salvar e
+        # ajustar agiam na 1. Ela mexia numa e via outra.
+        #
+        # Rótulo igual não é acidente: três ajustes finos seguidos com a mesma
+        # instrução geram três "Ajuste Fino — chat melhora a cor dourada…".
+        # Índice é único por construção, e não depende de ninguém escrever
+        # nomes diferentes.
+        idx_ativo = st.selectbox(
+            "Imagem ativa (para ajustar ou baixar individualmente)",
+            list(range(len(galeria))), key="img_escolha",
+            format_func=lambda i: f"Imagem {i + 1} · {galeria[i].get('tipo', '?')}")
         imagem_ativa = galeria[idx_ativo]["bytes"]
         tipo_ativo = galeria[idx_ativo]["tipo"]
 
