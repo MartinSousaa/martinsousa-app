@@ -249,7 +249,8 @@ def dividir_em(total, n):
             for i in range(n)]
 
 
-def lote(comum, folhas, vencimentos, valor_total, envio_total=0.0):
+def lote(comum, folhas, vencimentos, valor_total, envio_total=0.0,
+         estoque_total=None):
     """Os N cheques de uma compra só. Lista pronta para `gravar`.
 
     `comum` é o que não muda entre eles — compra, favorecido, tipo, situação.
@@ -265,12 +266,19 @@ def lote(comum, folhas, vencimentos, valor_total, envio_total=0.0):
         return []
     valores = dividir_em(valor_total, n)
     envios = dividir_em(envio_total, n)
+    # O estoque digitado também se divide. Em branco, cada cheque calcula o
+    # seu em `normalizar` — e aí a divisão do valor e a do envio já garantem
+    # que a soma fecha.
+    estoques = dividir_em(estoque_total, n) if estoque_total else None
     fora = []
     for i in range(n):
         f = (folhas or [])[i] if i < len(folhas or []) else ""
         v = (vencimentos or [])[i] if i < len(vencimentos or []) else ""
-        fora.append({**(comum or {}), "folha": f, "vencimento": v,
-                     "valor": valores[i], "envio": envios[i]})
+        item = {**(comum or {}), "folha": f, "vencimento": v,
+                "valor": valores[i], "envio": envios[i]}
+        if estoques:
+            item["estoque"] = estoques[i]
+        fora.append(item)
     return fora
 
 
@@ -640,6 +648,16 @@ if __name__ == "__main__":
        [c["estoque"] for c in _n] == [905.80, 905.80])
     ok("dois cheques do mesmo lote sao dois registros",
        _n[0]["id"] != _n[1]["id"])
+    # O estoque digitado tambem se divide, e cada cheque fica fechando.
+    _le = lote({}, ["1", "2"], ["2026-10-01", "2026-11-01"], 1000.0, 300.0, 700.0)
+    ok("estoque informado e dividido entre os cheques",
+       [c["estoque"] for c in _le] == [350.0, 350.0])
+    ok("e cada cheque do lote fecha",
+       all(divergencia_da_soma(c) == 0.0 for c in _le))
+    ok("sem estoque informado, cada cheque calcula o seu",
+       [normalizar(c)["estoque"]
+        for c in lote({}, ["1", "2"], ["x", "y"], 1000.0, 300.0)] == [350.0, 350.0])
+
     ok("lote sem folha nem vencimento nao inventa cheque",
        lote({}, [], [], 1000) == [])
 
