@@ -293,6 +293,22 @@ def _aba():
         return nova
 
 
+def _limpar_caches():
+    """Esquece o que ficou velho — aqui E no comprometido do mês.
+
+    Cheque que entra muda o comprometido da Home na hora, e não daqui a cinco
+    minutos: `previsto.do_mes` tem cache próprio, e quem grava cheque é quem
+    sabe que ele venceu. Sem esta linha, o dono importava 604 cheques e a Home
+    continuava mostrando o número de antes, sem nada na tela explicando por quê.
+    """
+    carregar.clear()
+    try:
+        import previsto as _pv
+        _pv.do_mes.clear()
+    except Exception:
+        pass
+
+
 @st.cache_data(ttl=120)
 def carregar():
     """[{...}] da aba. Lista vazia em qualquer falha."""
@@ -338,7 +354,7 @@ def gravar(novas, usuario=""):
             aba.append_rows(linhas, value_input_option="RAW")
     except Exception as e:
         return 0, 0, str(e)[:200]
-    carregar.clear()
+    _limpar_caches()
     return len(linhas), repetidas, ""
 
 
@@ -365,7 +381,7 @@ def atualizar(id_cheque, campos, usuario=""):
                    value_input_option="RAW")
     except Exception as e:
         return False, str(e)[:200]
-    carregar.clear()
+    _limpar_caches()
     return True, "Alterado."
 
 
@@ -383,7 +399,7 @@ def apagar(ids):
             aba.delete_rows(i + 2)
     except Exception as e:
         return 0, str(e)[:200]
-    carregar.clear()
+    _limpar_caches()
     return len(fora), ""
 
 
