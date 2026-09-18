@@ -83,14 +83,48 @@ def pagina(usuario_logado=None):
     atual = next((l for l in linhas if l["mes"] == _mg.texto_mes(ano, hoje.month)),
                  None)
     if atual and atual["meta"]:
-        c1, c2, c3 = st.columns(3)
+        # O COMPROMETIDO, e não só o que já saiu.
+        #
+        # A tabela abaixo é do ano inteiro e mostra o REALIZADO, que é o que o
+        # extrato viu — está certo para mês fechado. Mas para o mês corrente
+        # essa é a metade barata da história: cheque a vencer, folha, aluguel e
+        # fatura do cartão já estão devidos. Decidir compra pelo realizado do
+        # dia 18 é decidir com metade do mês escondida.
+        #
+        # Só do mês corrente: o previsto custa caro (uma das fontes abre o
+        # Controle MS inteiro) e, para os meses fechados, não acrescenta nada.
+        _prev, _erros_prev, _comp, _a_sair = {}, [], atual["realizado"], 0.0
+        try:
+            import previsto as _pv
+            import lancamentos as _lan_t
+            _prev, _erros_prev = _pv.do_mes(ano, hoje.month)
+            _res_t = _lan_t.resumo_por_finalidade(
+                _lan_t.do_mes(ano, hoje.month))
+            _linhas_c, _comp = _pv.combinar(_res_t, _prev)
+            _a_sair = round(sum(x["falta_sair"] for x in _linhas_c), 2)
+        except Exception as _e_prev:
+            _erros_prev = [str(_e_prev)[:120]]
+
+        c1, c2, c3, c4 = st.columns(4)
         c1.metric("Meta de " + atual["rotulo"].split()[0],
                   f"R$ {_fmt(atual['meta'])}")
-        c2.metric("Realizado", f"R$ {_fmt(atual['realizado'])}",
-                  help=f"origem: {atual['origem']}")
-        c3.metric("Saldo", f"R$ {_fmt(atual['saldo'])}",
-                  delta=f"{atual['pct']:.0f}% consumido",
+        c2.metric("Já saiu", f"R$ {_fmt(atual['realizado'])}",
+                  help=f"o que o extrato mostra · origem: {atual['origem']}")
+        c3.metric("Comprometido", f"R$ {_fmt(_comp)}",
+                  delta=(f"+{_fmt(_a_sair)} ainda vai sair" if _a_sair else None),
+                  delta_color="inverse",
+                  help="já saiu, mais custo fixo, folha, não operacional, "
+                       "cheque a vencer e fatura do cartão deste mês")
+        _sobra = round(atual["meta"] - _comp, 2)
+        c4.metric("Sobra da meta", f"R$ {_fmt(_sobra)}",
+                  delta=f"{(_comp / atual['meta'] * 100):.0f}% comprometido",
                   delta_color="inverse")
+        if _erros_prev:
+            st.caption("⚠️ Não consegui ler o previsto de: "
+                       + " · ".join(_erros_prev))
+        if _prev:
+            st.caption("Provisionado neste mês — " + " · ".join(
+                f"{k} R$ {_fmt(v)}" for k, v in _prev.items() if v))
 
     ORIGEM = {"extrato": "📄 extrato", "informado": "✍️ informado",
               "sem dado": "— sem dado"}
