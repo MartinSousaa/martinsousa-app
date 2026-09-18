@@ -1,6 +1,8 @@
 import idioma as _idioma
 import os
 import streamlit as st
+
+import chaves as _chaves
 import anthropic
 import triagem
 import palavras_chave
@@ -15,7 +17,12 @@ CAMPOS_TRIAGEM = ["nome_comercial", "categoria", "material", "variacao_cores",
 
 
 def gerar_titulos(dados, palavras_lista):
-    api_key = st.secrets.get("ANTHROPIC_API_KEY", "") or os.environ.get("ANTHROPIC_API_KEY", "")
+    api_key, _falta_chave = _chaves.exigir("ANTHROPIC_API_KEY")
+    if _falta_chave:
+        # Chave vazia ia direto para a API, e o colaborador recebia um erro de
+        # autenticação que não diz o que fazer. Agora ele lê o que parou de
+        # funcionar e onde se resolve.
+        raise ValueError(_falta_chave.replace("**", ""))
     tem_variacao_cor = "," in (dados.get("variacao_cores") or "")
 
     prompt = f"""Gere 2 títulos de anúncio para o produto abaixo, pra usar em qualquer marketplace
@@ -59,7 +66,7 @@ Responda SOMENTE com os 2 títulos, um por linha, sem numeração, sem aspas, se
 
 def ajustar_titulos(titulos_atuais, instrucao, dados, palavras_lista):
     """Recebe os títulos atuais e uma instrução. Retorna 2 títulos ajustados."""
-    api_key = st.secrets.get("ANTHROPIC_API_KEY", "") or os.environ.get("ANTHROPIC_API_KEY", "")
+    api_key = _chaves.ler("ANTHROPIC_API_KEY")
     titulos_str = "\n".join(f"{i+1}. {t}" for i, t in enumerate(titulos_atuais))
     prompt = f"""Você gerou os seguintes títulos para o produto "{dados.get('nome_comercial','')}":
 
