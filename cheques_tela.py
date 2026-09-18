@@ -248,14 +248,21 @@ def pagina(usuario_logado=None):
                 "id": None,
                 "folha": st.column_config.TextColumn(width="small",
                                                      disabled=True),
-                "vencimento": st.column_config.TextColumn(width="small",
-                                                          disabled=True),
+                # Vencimento, valor e frete ABREM para edição: cheque
+                # cadastrado com a data errada tem de ser corrigido aqui, e não
+                # apagado e digitado de novo — apagar perde a baixa e o
+                # histórico da linha.
+                "vencimento": st.column_config.TextColumn(
+                    width="small",
+                    help="AAAA-MM-DD ou DD/MM/AAAA. O Studio entende os dois."),
                 "valor": st.column_config.NumberColumn(format="R$ %.2f",
-                                                       disabled=True),
+                                                       min_value=0.0),
                 "envio": st.column_config.NumberColumn(format="R$ %.2f",
-                                                       disabled=True),
-                "estoque": st.column_config.NumberColumn(format="R$ %.2f",
-                                                         disabled=True),
+                                                       min_value=0.0),
+                # A mercadoria continua travada: ela é conta, não campo.
+                "estoque": st.column_config.NumberColumn(
+                    format="R$ %.2f", disabled=True,
+                    help="valor − frete, recalculado ao salvar"),
                 "favorecido": st.column_config.TextColumn(width="medium"),
                 "situação": st.column_config.SelectboxColumn(
                     options=list(_ch.SITUACOES), width="small",
@@ -280,6 +287,30 @@ def pagina(usuario_logado=None):
                 campos["situacao"] = r["situação"]
             if str(a.get("favorecido", "") or "") != str(r["favorecido"] or ""):
                 campos["favorecido"] = str(r["favorecido"] or "")
+
+            # Data digitada que o Studio não entende NÃO vira data vazia: a
+            # linha é recusada com o número da folha, e o resto da grade salva
+            # normalmente. Gravar "" aqui tiraria o cheque do mês sem aviso.
+            _venc_novo = _ch.texto_data(r["vencimento"])
+            if str(r["vencimento"] or "").strip() and not _venc_novo:
+                erros.append(
+                    f"Cheque {a.get('folha') or '(sem folha)'}: não entendi a "
+                    f"data «{r['vencimento']}» — use 02/10/2026 ou 2026-10-02.")
+                continue
+            if _venc_novo and _venc_novo != _ch.texto_data(a.get("vencimento")):
+                campos["vencimento"] = _venc_novo
+
+            _v_novo = round(float(r["valor"] or 0), 2)
+            _e_novo = round(float(r["envio"] or 0), 2)
+            _mudou_dinheiro = (_v_novo != round(_ch._num(a.get("valor")), 2)
+                               or _e_novo != round(_ch._num(a.get("envio")), 2))
+            if _mudou_dinheiro:
+                campos["valor"] = _v_novo
+                campos["envio"] = _e_novo
+                # A mercadoria acompanha, sempre: ela é valor − frete, e deixá-la
+                # com o número antigo faria a linha parar de fechar.
+                campos["estoque"] = round(_v_novo - _e_novo, 2)
+
             if not campos:
                 continue
             ok, msg = _ch.atualizar(r["id"], campos, usuario_logado)

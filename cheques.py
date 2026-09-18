@@ -726,4 +726,68 @@ if __name__ == "__main__":
     ok("e soma o valor de cada uma",
        _r["EM ABERTO"]["total"] == round(1409.89 + 4330.98 + 3476.60 + 999.0, 2))
 
+    # ── Gravar, alterar e apagar, contra uma aba falsa ───────────────────
+    #
+    # O caso que motivou: o dono cadastrou o lote e esqueceu de mudar o
+    # vencimento do segundo cheque. Corrigir na tela tem de funcionar — apagar
+    # e cadastrar de novo perderia a baixa e o historico da linha.
+    class _AbaFalsa:
+        def __init__(self):
+            self.linhas = [COLUNAS]
+
+        def get_all_records(self):
+            return [dict(zip(self.linhas[0], l)) for l in self.linhas[1:]]
+
+        def append_rows(self, linhas, **kw):
+            self.linhas += [[str(c) for c in l] for l in linhas]
+
+        def update(self, values, range_name=None, **kw):
+            assert isinstance(values, list), "values vem PRIMEIRO no gspread 6"
+            i = int(range_name.split(":")[0][1:]) - 1
+            self.linhas[i] = [str(c) for c in values[0]]
+
+        def delete_rows(self, indice, **kw):
+            del self.linhas[indice - 1]
+
+    _falsa = _AbaFalsa()
+    globals()["_aba"] = lambda: _falsa
+    carregar.clear()
+
+    _lote = lote({"favorecido": "LEXTACK", "compra": "2026-09-18",
+                  "situacao": "EM ABERTO"},
+                 ["569", "572"], ["2026-10-02", "2026-10-02"], 3211.60, 1400.00)
+    _n, _r, _e = gravar(_lote, "leo")
+    carregar.clear()
+    ok("o lote grava os dois cheques", (_n, _r, _e) == (2, 0, ""))
+    _atual = carregar()
+    ok("e os dois voltam na leitura", len(_atual) == 2)
+
+    _alvo = next(c for c in _atual if c["folha"] == "572")
+    _ok_a, _ = atualizar(_alvo["id"], {"vencimento": texto_data("16/11/2026")},
+                         "leo")
+    carregar.clear()
+    _depois = {c["folha"]: c for c in carregar()}
+    ok("o vencimento esquecido e corrigido", _ok_a is True
+       and _depois["572"]["vencimento"] == "2026-11-16")
+    ok("e o outro cheque do lote nao e tocado",
+       _depois["569"]["vencimento"] == "2026-10-02")
+
+    _ok_v, _ = atualizar(_depois["569"]["id"],
+                         {"valor": 1700.0, "envio": 700.0, "estoque": 1000.0},
+                         "leo")
+    carregar.clear()
+    _f = next(c for c in carregar() if c["folha"] == "569")
+    ok("alterar valor e frete deixa a linha fechando",
+       _ok_v is True and divergencia_da_soma(_f) == 0.0)
+
+    ok("alterar cheque que nao existe e recusado, e nao silencioso",
+       atualizar("nao-existe", {"valor": 1})[0] is False)
+    ok("alterar sem id tambem", atualizar("", {"valor": 1})[0] is False)
+
+    _q, _err = apagar([_f["id"]])
+    carregar.clear()
+    ok("apagar remove so o pedido", (_q, _err) == (1, "")
+       and [c["folha"] for c in carregar()] == ["572"])
+    ok("apagar lista vazia nao mexe em nada", apagar([]) == (0, ""))
+
     print("\nfalhas:", falhas)
