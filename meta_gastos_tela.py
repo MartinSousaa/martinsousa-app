@@ -8,6 +8,8 @@ não valem a mesma coisa na hora de decidir.
 
 import streamlit as st
 
+import rotulos as _rot
+
 
 def _fmt(v):
     return f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
@@ -152,7 +154,7 @@ def pagina(usuario_logado=None):
     with st.form("mg_form"):
         editado = st.data_editor(
             df, use_container_width=True, hide_index=True, key="mg_ed",
-            column_config={
+            column_config={**_rot.config(["mês", "meta", "realizado", "de onde", "saldo", "informado", "observação"], st), 
                 "mês": st.column_config.TextColumn(disabled=True,
                                                    width="small"),
                 "meta": st.column_config.NumberColumn(

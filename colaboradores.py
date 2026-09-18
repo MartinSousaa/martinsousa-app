@@ -66,6 +66,8 @@ from datetime import date, datetime, timezone, timedelta
 import pandas as pd
 import streamlit as st
 
+import rotulos as _rot
+
 ABA_NOME = "colaboradores"
 ABA_PARAMS = "clt_parametros"
 
@@ -760,7 +762,7 @@ def bloco(usuario_logado=None, taxas=None):
             use_container_width=True,
             hide_index=True,
             key="ed_colaboradores",
-            column_config={
+            column_config={**_rot.config(["funcionario", "cargo", "salario_base", "admissao", "dias_uteis", "no_aporte", "vale_transporte"], st), 
                 "funcionario": st.column_config.TextColumn(
                     "Funcionário", required=True, width="small"),
                 "cargo": st.column_config.TextColumn("Cargo", width="medium"),

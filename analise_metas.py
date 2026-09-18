@@ -6794,7 +6794,7 @@ def _secao_configuracao(dados=None, carregar_periodo=None):
             value=int(cfg_atual["max_retrab_maxx"]), step=1
         , key=f"cfg_max_retrab_maxx_{ano_cfg}_{mes_cfg_num}")
         nova_cfg["min_membro_pct"] = c3.number_input(
-            "% mín. cartões com membro", min_value=0, max_value=100,
+            "Mínimo de cartões com membro (%)", min_value=0, max_value=100,
             value=int(cfg_atual["min_membro_pct"]), step=1
         , key=f"cfg_min_membro_pct_{ano_cfg}_{mes_cfg_num}")
 

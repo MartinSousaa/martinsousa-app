@@ -34,6 +34,8 @@ from datetime import date, datetime, timezone, timedelta
 import pandas as pd
 import streamlit as st
 
+import rotulos as _rot
+
 ABA_NOME = "ajustes"
 
 COLUNAS = ["grade", "item", "valor_novo", "vigente_desde", "observacao",
@@ -340,7 +342,7 @@ def pagina(usuario_logado=None):
             use_container_width=True,
             hide_index=True,
             key="ed_ajustes",
-            column_config={
+            column_config={**_rot.config(["alvo", "item", "valor", "desde", "observacao"], st), 
                 "alvo": st.column_config.SelectboxColumn(
                     "O que muda", options=opcoes, required=True, width="large",
                     help="A lista vem do que já está cadastrado nas grades."),
