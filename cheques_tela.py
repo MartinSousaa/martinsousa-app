@@ -149,10 +149,26 @@ def pagina(usuario_logado=None):
                 help="O total fechado com o fornecedor. O Studio divide em "
                      "partes iguais entre os cheques.")
             envio_total = g2.number_input(
-                "ENVIO total da compra (R$)", min_value=0.0, step=50.0, format="%.2f",
-                help="Também dividido entre os cheques. O que sobra do valor "
-                     "é estoque.")
+                "ENVIO total da compra (R$)", min_value=0.0, step=50.0,
+                format="%.2f",
+                help="A parte que a plataforma devolve com data marcada.")
             situacao = g3.selectbox("Situação", _ch.SITUACOES)
+
+            # ESTOQUE volta a ser campo, a pedido do dono.
+            #
+            # A conta `valor − envio` continua valendo — e é o que preenche
+            # quando ele deixa em branco. Mas quem digita os dois recebe a
+            # CONFERÊNCIA: se envio + estoque não fecha com o valor da compra,
+            # a tela diz, em vez de escolher um dos dois em silêncio.
+            #
+            # A divisão não é contábil: envio volta da plataforma com data,
+            # estoque só volta quando a peça vender. Errar aqui erra a previsão
+            # de caixa, e não um rótulo.
+            estoque_total = st.number_input(
+                "ESTOQUE total da compra (R$) — deixe 0 para o Studio calcular",
+                min_value=0.0, step=50.0, format="%.2f", key="ch_estoque_total",
+                help="A parte que só volta quando a mercadoria vender. Em "
+                     "branco, o Studio usa valor − envio.")
 
             st.markdown(f"**Os {int(n)} cheque(s)** — folha e vencimento de cada")
             folhas, vencs = [], []
@@ -176,11 +192,25 @@ def pagina(usuario_logado=None):
                 st.error(
                     f"O envio ({_brl(envio_total)}) é maior que a compra "
                     f"({_brl(valor_total)}). Confira antes de cadastrar.")
+            elif (estoque_total
+                  and abs(envio_total + estoque_total - valor_total) > 0.01):
+                # A soma que não fecha é recusada, e não ajustada: o Studio não
+                # sabe qual dos três números está errado, e escolher um deles
+                # seria inventar. A diferença vai escrita, para a conferência
+                # ser de trinta segundos.
+                _dif = round(envio_total + estoque_total - valor_total, 2)
+                st.error(
+                    f"Envio ({_brl(envio_total)}) + estoque "
+                    f"({_brl(estoque_total)}) = "
+                    f"{_brl(envio_total + estoque_total)}, e a compra é "
+                    f"{_brl(valor_total)} — sobra "
+                    f"{_brl(abs(_dif))}. Confira os três antes de cadastrar.")
             else:
                 cheques_do_lote = _ch.lote(
                     {"favorecido": favorecido, "tipo": tipo, "compra": compra,
                      "situacao": situacao, "observacao": obs},
-                    folhas, vencs, valor_total, envio_total)
+                    folhas, vencs, valor_total, envio_total,
+                    estoque_total or None)
                 novas, repetidas, erro = _ch.gravar(cheques_do_lote,
                                                     usuario_logado)
                 if erro:
@@ -272,8 +302,9 @@ def pagina(usuario_logado=None):
                                                        min_value=0.0),
                 # O estoque continua travado: ele é conta, não campo.
                 "estoque": st.column_config.NumberColumn(
-                    "Estoque", format="R$ %.2f", disabled=True,
-                    help="valor − envio, recalculado ao salvar"),
+                    "Estoque", format="R$ %.2f", min_value=0.0,
+                    help="A parte que só volta quando a mercadoria vender. "
+                         "Em branco, o Studio usa valor − envio."),
                 "favorecido": st.column_config.TextColumn("Favorecido",
                                                           width="medium"),
                 "situação": st.column_config.SelectboxColumn(
@@ -316,12 +347,16 @@ def pagina(usuario_logado=None):
             _e_novo = round(float(r["envio"] or 0), 2)
             _mudou_dinheiro = (_v_novo != round(_ch._num(a.get("valor")), 2)
                                or _e_novo != round(_ch._num(a.get("envio")), 2))
-            if _mudou_dinheiro:
+            _s_novo = round(float(r["estoque"] or 0), 2)
+            _mudou_estoque = _s_novo != round(_ch._num(a.get("estoque")), 2)
+            if _mudou_dinheiro or _mudou_estoque:
                 campos["valor"] = _v_novo
                 campos["envio"] = _e_novo
-                # O estoque acompanha, sempre: ele é valor − envio, e deixá-lo
-                # com o número antigo faria a linha parar de fechar.
-                campos["estoque"] = round(_v_novo - _e_novo, 2)
+                # Quem mexeu no estoque manda nele. Quem mexeu só no valor ou
+                # no envio deixa a conta refazer — senão a linha para de fechar
+                # sem ninguém ver.
+                campos["estoque"] = (_s_novo if _mudou_estoque
+                                     else round(_v_novo - _e_novo, 2))
 
             if not campos:
                 continue
