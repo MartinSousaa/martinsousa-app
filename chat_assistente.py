@@ -162,13 +162,9 @@ def _mime_tipo(data: bytes) -> str:
 
 
 def _api_key():
-    try:
-        k = st.secrets.get("ANTHROPIC_API_KEY", "") or os.environ.get("ANTHROPIC_API_KEY", "")
-        if k:
-            return k
-    except Exception:
-        pass
-    return os.environ.get("ANTHROPIC_API_KEY", "")
+    """Pelo módulo `chaves`: um jeito só de ler, em todo o Studio."""
+    import chaves as _ch
+    return _ch.ler("ANTHROPIC_API_KEY")
 
 
 def _contexto_atual() -> str:

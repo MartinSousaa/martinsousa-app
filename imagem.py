@@ -51,8 +51,9 @@ _GEMINI_LIMITER = _get_gemini_limiter()
 
 
 def _get_openai_api_key():
-    """Retorna OPENAI_API_KEY das secrets ou variável de ambiente."""
-    return st.secrets.get("OPENAI_API_KEY", "") or os.environ.get("OPENAI_API_KEY", "")
+    """A chave da OpenAI, pelo módulo que lê os dois lugares sem levantar."""
+    import chaves as _ch
+    return _ch.ler("OPENAI_API_KEY")
 
 
 # ── PADRÃO VISUAL MARTINSOUSA (hardcoded em todos os prompts) ──────────────────
@@ -2329,11 +2330,8 @@ def _chave_anthropic():
     LEVANTA em vez de devolver o padrão. Chamado de dentro de um try alheio,
     isso virava "falha ao conferir" com uma mensagem que não dizia o motivo.
     """
-    try:
-        chave = st.secrets.get("ANTHROPIC_API_KEY", "")
-    except Exception:
-        chave = ""
-    return chave or os.environ.get("ANTHROPIC_API_KEY", "")
+    import chaves as _ch
+    return _ch.ler("ANTHROPIC_API_KEY")
 
 
 def motores_de_imagem():
@@ -2344,12 +2342,9 @@ def motores_de_imagem():
     descobrir isso pelo crédito do RESERVA acabando é descobrir tarde, com as
     imagens já pagas e erradas.
     """
-    tem_openai = bool(_get_openai_api_key())
-    try:
-        tem_gemini = bool(st.secrets.get("GEMINI_API_KEY", "")
-                          or os.environ.get("GEMINI_API_KEY", ""))
-    except Exception:
-        tem_gemini = bool(os.environ.get("GEMINI_API_KEY", ""))
+    import chaves as _ch
+    tem_openai = _ch.tem("OPENAI_API_KEY")
+    tem_gemini = _ch.tem("GEMINI_API_KEY")
 
     if tem_openai and tem_gemini:
         return True, ""
