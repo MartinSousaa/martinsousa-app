@@ -45,8 +45,15 @@ FUSO = timezone(timedelta(hours=-3))
 def _num(v, padrao=0.0):
     if v is None:
         return padrao
-    if isinstance(v, (int, float)):
-        return float(v)
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        _f = float(v)
+        # `nan` E float: sem esta linha ele atravessa o isinstance
+        # inteiro e vai parar na planilha, que recusa gravar — "Out of
+        # range float values are not JSON compliant: nan". Foi assim
+        # que a importacao de 604 cheques morreu depois de ler tudo.
+        if _f != _f or _f in (float('inf'), float('-inf')):
+            return padrao
+        return _f
     t = str(v).strip().replace("%", "").replace(" ", "")
     if not t:
         return padrao

@@ -95,8 +95,15 @@ def _num(v):
     """O valor como float. None quando a célula está vazia."""
     if v is None:
         return None
-    if isinstance(v, (int, float)):
-        return float(v)
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        _f = float(v)
+        # `nan` E float: sem esta linha ele atravessa o isinstance
+        # inteiro e vai parar na planilha, que recusa gravar — "Out of
+        # range float values are not JSON compliant: nan". Foi assim
+        # que a importacao de 604 cheques morreu depois de ler tudo.
+        if _f != _f or _f in (float('inf'), float('-inf')):
+            return None          # aqui o vazio é None, e não zero
+        return _f
     t = str(v).strip().replace("R$", "").replace(" ", "")
     if not t:
         return None
