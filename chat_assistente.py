@@ -448,7 +448,12 @@ REGRAS DOS COMANDOS:
 - "preencher_dados_triagem": use quando o colaborador fornecer dados que estavam faltando para imagens BLOQUEADAS.
   O campo "dados" deve conter APENAS os campos que o colaborador informou (peso, medidas, material, capacidade, etc.).
   A triagem será refeita automaticamente com esses dados e as imagens bloqueadas serão reavaliadas.
-- Use APENAS UM bloco <CMD> por resposta
+- EMITA TODOS OS COMANDOS NA MESMA RESPOSTA. Três pedidos numa mensagem viram
+  três blocos <CMD>, um embaixo do outro. Nunca faça o primeiro e deixe os
+  outros para depois: quem pediu três coisas e viu uma acontecer tem de cobrar
+  as outras duas, e você não é quem decide o que fica para a próxima mensagem.
+  (Esta linha dizia o contrário — "APENAS UM bloco por resposta" — e era por
+  isso que o segundo e o terceiro pedido sumiam sem explicação.)
 - Para dúvidas sem alteração de conteúdo: responda normalmente, SEM bloco <CMD>"""
 
     return f"{SYSTEM_BASE}{instrucao_cmd}"
