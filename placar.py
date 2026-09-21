@@ -2740,12 +2740,27 @@ def pagina_placar(usuario_logado, headless=False):
 
 _TV_INTERVALO_SEG = 60
 
-# Com gente no Studio, a volta é adiada de 30 em 30s até a casa esvaziar — e,
-# se ninguém sair, ela acontece assim mesmo depois de _TV_TETO_ESPERA_SEG. A TV
-# não pode congelar durante o expediente inteiro; ela só deixa de ser
-# prioridade.
+# Com gente no Studio, a volta é adiada até a casa esvaziar — e, se ninguém
+# sair, ela acontece assim mesmo depois de _TV_TETO_ESPERA_SEG.
+#
+# O TETO ERA 90s, E ERA ELE QUE DERRUBAVA A SESSÃO.
+#
+# Quem está no Ajuste Fino fica na tela por vários minutos seguidos. Com teto
+# de 90s, a conta é esta: a cada minuto e meio o Painel de Metas inteiro
+# rodava por cima dela — umas 40 vezes por hora. A espera por presença
+# funcionava; o teto a cancelava antes de ela valer de alguma coisa.
+#
+# 15 minutos, escolhido pelo dono: a TV é um painel de parede, e ninguém lê a
+# meta com precisão de minuto. O `tv.html` mostra a hora da última
+# atualização, então o atraso é visível em vez de silencioso.
+#
+# ISTO NÃO É A SOLUÇÃO, É O ESTRAGO REDUZIDO — de ~40 interrupções por hora
+# para ~4. Enquanto os dois processos dividirem o mesmo container, a volta da
+# TV vai continuar caindo em cima de alguém de vez em quando. O que resolve de
+# vez é o worker virar serviço próprio no Railway (~US$5/mês), e isso está
+# registrado no PENDENTE.md.
 _TV_INTERVALO_OCUPADO_SEG = 20
-_TV_TETO_ESPERA_SEG = 90
+_TV_TETO_ESPERA_SEG = 900
 
 # Estado da regeneração, para a falha parar de ser invisível.
 #
@@ -2834,6 +2849,17 @@ def _write_tv_status() -> None:
             "ultimo_erro": TV_STATUS["ultimo_erro"],
             "erro": TV_STATUS["erro"],
             "motivo": TV_STATUS["motivo"],
+            # O CUSTO DA VOLTA TEM DE CHEGAR DO OUTRO LADO.
+            #
+            # Estes quatro campos foram criados para responder "a TV esta
+            # pesando no Studio?" com numero em vez de opiniao — e ficaram de
+            # fora daqui. O worker e OUTRO processo: o TV_STATUS que o Painel
+            # de Metas le e o dicionario vazio do proprio processo dele. A
+            # medida existia e nao saia do lugar onde foi tirada.
+            "duracao_seg": TV_STATUS["duracao_seg"],
+            "duracao_max_seg": TV_STATUS["duracao_max_seg"],
+            "memoria_mb": TV_STATUS["memoria_mb"],
+            "esperando_gente": TV_STATUS["esperando_gente"],
             "gravado_em": _t_st.time(),
         }
         _tmp = _path + ".tmp"
@@ -2933,10 +2959,11 @@ def _loop_regenerador_tv():
                       file=__import__("sys").stderr)
             except Exception:
                 pass
-        # Fora do try/except da volta, de proposito: a volta que falhou e
-        # justamente a que precisa aparecer no arquivo.
-        _write_tv_status()
         # O custo desta volta, sempre — inclusive quando ela falhou.
+        #
+        # ANTES de `_write_tv_status()`, e nao depois. Estava depois, e o
+        # arquivo saia com a duracao da volta ANTERIOR: a medida existia, era
+        # gravada, e apontava para a volta errada.
         try:
             _d = round(_t_tv.time() - _t_volta, 2)
             TV_STATUS["duracao_seg"] = _d
@@ -2946,6 +2973,9 @@ def _loop_regenerador_tv():
             TV_STATUS["memoria_mb"] = _sd_tv.memoria_mb()[0]
         except Exception:
             pass
+        # Fora do try/except da volta, de proposito: a volta que falhou e
+        # justamente a que precisa aparecer no arquivo.
+        _write_tv_status()
         _t_tv.sleep(_TV_INTERVALO_SEG)
 
 
@@ -2980,7 +3010,16 @@ def tv_diagnostico():
         return ("error", "O arquivo da TV não existe. Ela está sem nada para "
                          "mostrar desde o último deploy." + porque)
 
-    if idade_arq > 300:
+    # ELE PRECISA FICAR ACIMA DO TETO DE ESPERA.
+    #
+    # Com o teto em 600s, um arquivo de 10 minutos durante o expediente é o
+    # comportamento CORRETO — a TV está esperando a colaboradora. Um limiar de
+    # 5 minutos passaria o dia inteiro gritando "a TV está congelada" sobre uma
+    # TV que está exatamente onde deveria estar, e o aviso que grita à toa é o
+    # aviso que ninguém lê mais quando ela congelar de verdade.
+    _LIMIAR_CONGELADA = _TV_TETO_ESPERA_SEG + 300
+
+    if idade_arq > _LIMIAR_CONGELADA:
         if not est:
             # Sem arquivo de estado: ninguem gravou estado nenhum. Isso sim e
             # sinal de laco que nao subiu — e agora a frase so aparece quando
@@ -3013,9 +3052,30 @@ def tv_diagnostico():
                            f"Fora do expediente a TV vai congelar.{porque}")
 
     visto = f"{(agora - ok)/60:.0f} min" if ok else "—"
+
+    # O CUSTO DA VOLTA, NA TELA.
+    #
+    # Estes números existiam desde a semana passada e nunca saíram do processo
+    # do worker. Eles respondem a única pergunta que importa aqui — "a TV é o
+    # que derruba a sessão de quem está trabalhando?" — com medida e não com
+    # opinião: uma volta de 0,4s não derruba ninguém; uma de 8s num container
+    # de 1 vCPU derruba, e dá para provar.
+    _dur = est.get("duracao_seg")
+    _dur_max = est.get("duracao_max_seg")
+    _mem = est.get("memoria_mb")
+    _esperou = est.get("esperando_gente") or 0
+    _custo = []
+    if _dur is not None:
+        _custo.append(f"volta de {_dur:.1f}s (pior: {_dur_max or _dur:.1f}s)")
+    if _mem:
+        _custo.append(f"{_mem:.0f} MB no worker")
+    if _esperou:
+        _custo.append(f"{_esperou} volta(s) adiada(s) por haver gente no Studio")
+    _linha_custo = (" · " + " · ".join(_custo)) if _custo else ""
+
     return ("caption", f"📺 TV: arquivo com {idade_arq/60:.0f} min · última "
                        f"regeneração há {visto} · {voltas} voltas · "
-                       f"{erros} falha(s)")
+                       f"{erros} falha(s)" + _linha_custo)
 
 
 @st.cache_resource

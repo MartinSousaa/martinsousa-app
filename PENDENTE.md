@@ -264,3 +264,122 @@ API, que o dono ainda não tem — todas as linhas dele já usam WhatsApp comum.
 
 **Enquanto isso.** O cadastro em lote na tela já resolve o trabalho repetido, e
 a leitura do canhoto pode entrar primeiro por upload, sem depender da Meta.
+
+---
+
+## Triagem: editar, apagar e barrar o nome repetido  ·  21/09/2026
+
+Pedido do dono, em stand-by: **sobe junto com a próxima autorização.**
+
+### O que ele pediu
+
+1. Editar uma triagem já salva — hoje corrigir um erro cria uma triagem nova.
+2. Selecionar uma triagem e apagá-la.
+3. Barrar o cadastro quando já existe triagem com aquele nome, e avisar.
+
+### O que o código faz hoje
+
+| Onde | O que está lá |
+|---|---|
+| `triagem.py:118` `salvar_triagem` | Só `append_row` (linha 135). **Não existe nenhum caminho de UPDATE no módulo.** |
+| `triagem.py:358` `_limpar_form_triagem` | Roda depois de salvar; o formulário sempre nasce vazio. Editar hoje = redigitar tudo e gerar linha nova. |
+| `triagem.py` inteiro | Nenhum `delete_rows`. **Apagar não existe.** (`cheques.py` e `meta_gastos.py` já têm o padrão pronto.) |
+| `triagem.py:13` `COLUNAS` | 14 colunas, **nenhuma é identificador**. Nada identifica uma linha. |
+
+### O item 3 tem um problema, e ele precisa decidir
+
+**Nome repetido é recurso, não defeito.** `_chave_variante` (`triagem.py:165`)
+identifica a variante por **nome + medidas + peso + cores**, e
+`buscar_triagens_por_trecho` (`triagem.py:176`) devolve uma entrada por
+variante — é o que faz `widget_seletor_produto` mostrar as opções ao
+colaborador. O exemplo está escrito no próprio código (`triagem.py:182`):
+*"Caixa de relógio 5 posições" vs "10 posições"*.
+
+Barrar por nome **acaba com isso**: as duas caixas deixam de poder existir.
+
+### DECIDIDO pelo dono em 21/09: opção B — barra por NOME
+
+Ele escolheu B sabendo o que ela custa (a alternativa A foi posta ao lado e
+recusada). **Barra por `nome_comercial`, ponto.** Salvar com um nome que já
+existe é recusado, com o aviso de que já há triagem com aquele nome e o botão
+de editar a existente.
+
+Consequência aceita: **não nascem mais variantes novas.** As que já estão na
+aba `triagens` continuam lá e `widget_seletor_produto` segue mostrando elas —
+o bloqueio vale para cadastro novo, não apaga o que existe. Quem precisar de
+duas caixas de relógio passa a diferenciar no próprio nome
+("Caixa de relógio 5 posições" / "Caixa de relógio 10 posições").
+
+A regra abaixo fica registrada porque foi a alternativa avaliada — NÃO é a que
+se implementa:
+
+~~**A regra que resolve o problema dele sem quebrar a variante:**~~
+
+- Repetiu a **chave inteira** (nome + medidas + peso + cores) → barra. É
+  duplicata de verdade.
+- Repetiu **só o nome**, com specs diferentes → não barra; mostra as que já
+  existem e pergunta: *"é outra variante ou você quer editar aquela?"* — com o
+  botão de editar ao lado.
+
+### O que falta existir antes: um identificador
+
+Para editar ou apagar é preciso saber **qual linha**. Duas saídas:
+
+- **(a) Coluna `id` nova (uuid).** É o padrão que `cheques.py` já usa (a FOLHA é
+  a identidade). Estável mesmo se alguém mexer na planilha à mão.
+- **(b) Número da linha na planilha.** **Frágil** — `carregar_triagens` é
+  `@st.cache_data(ttl=600)` e `get_all_records` não devolve o número da linha;
+  se alguém apagar uma linha direto na planilha, o índice cacheado passa a
+  apontar para outra. É a mesma classe de defeito de "escolher o item pelo
+  texto da tela", que já custou caro nesta base.
+
+**Recomendação: (a).**
+
+### O estrago a mapear antes de aplicar (Regra 3)
+
+- **Quem consome a triagem:** `imagem.py:3621`, `descricao.py:451`,
+  `tit_ml.py:116`, `palavras_chave.py:133`, `video.py:222`,
+  `ferramentas_chat.py:186`. Apagar uma triagem tira a fonte de dados desses
+  seis — aceitável se for duplicata, não se for a boa.
+- **O cache.** Editar e apagar têm que chamar `carregar_triagens.clear()`,
+  como `salvar_triagem` já faz (`triagem.py:136`). Sem isso a tela mostra o
+  antigo por 10 minutos e o colaborador edita de novo.
+- **`data_hora` decide quem é "a mais recente":** `buscar_triagem_por_nome`
+  pega `.iloc[-1]` (`triagem.py:221`) e `buscar_triagens_por_trecho` faz
+  `keep="last"` (`triagem.py:197`). **Editar NÃO pode atualizar `data_hora`** —
+  senão corrigir uma variante velha faz ela pular na frente da nova.
+
+### Um defeito achado no caminho, que não é do pedido
+
+`triagem.py:193` — `filtradas.sort_values("data_hora")` ordena **texto**, não
+data: `data_hora` é gravada como `"%d/%m/%Y %H:%M"` (`triagem.py:128`). Em
+string, `"31/12/2025"` vem depois de `"01/01/2026"`, porque compara o dia
+primeiro. Ou seja: **a "mais recente" de cada variante pode ser a mais antiga**,
+e vira mês. Conserto: converter para data antes de ordenar
+(`pd.to_datetime(..., format="%d/%m/%Y %H:%M", errors="coerce")`).
+
+Vale corrigir junto — é a mesma função que a edição vai mexer.
+
+---
+
+## A TV e o Studio no mesmo container  ·  21/09/2026
+
+**O que resolve de vez, e custa dinheiro.** O `tv_worker.py` roda o Painel de
+Metas inteiro dentro do MESMO container do Studio (`Procfile`). Enquanto for
+assim, a volta da TV vai cair em cima de alguém de vez em quando — `nice 19`
+reparte CPU, mas não reparte memória, e é a memória que reinicia o container
+(e reiniciar é o que apaga o histórico do chat).
+
+**A saída:** o worker vira serviço próprio no Railway, ~US$ 5/mês. Aí não há
+o que repartir.
+
+**O que foi feito em 21/09, que é estrago reduzido e não solução:**
+`_TV_TETO_ESPERA_SEG` de 90s para 900s (`placar.py`), valor escolhido pelo
+dono. Com teto de 90s, quem ficava no Ajuste Fino levava o Painel de Metas por
+cima a cada minuto e meio — ~40 vezes por hora. Agora são ~4.
+
+**O que medir antes de gastar os US$ 5.** Os quatro campos de custo passaram a
+viajar no `tv-status.json` e aparecem no rodapé do Painel de Metas: duração da
+volta, pior duração, memória do worker, voltas adiadas. Se a volta levar
+décimos de segundo, a TV não é a causa e o serviço separado não resolve nada —
+é memória do próprio Streamlit, e a conta é outra.
