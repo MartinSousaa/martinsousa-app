@@ -458,8 +458,11 @@ def pagina(usuario_logado=None):
                                                           width="medium"),
                 "situação": st.column_config.SelectboxColumn(
                     "Situação", options=list(_ch.SITUACOES), width="small",
-                    help="Dar baixa aqui tira o cheque do comprometido do mês. "
-                         "O extrato faz isso sozinho quando o débito aparece."),
+                    help="Dar baixa aqui tira o cheque do comprometido do "
+                         "mês. Ao importar o extrato, o Studio baixa sozinho "
+                         "os cheques cujo débito bate em valor E data; os de "
+                         "data próxima ele mostra para você confirmar, em vez "
+                         "de arriscar baixar o cheque errado."),
                 "apagar": st.column_config.CheckboxColumn(
                     "🗑️", help="Marque e salve para remover a linha."),
             })

@@ -496,6 +496,105 @@ def ordem_da_folha(linha):
         return (1, 0, f)
 
 
+# ── A baixa pelo extrato ─────────────────────────────────────────────────────
+#
+# O DÉBITO DO CHEQUE JÁ ESTAVA NO EXTRATO, E NINGUÉM LIGAVA OS DOIS.
+#
+# A tela chegava a AFIRMAR que ligava — "o extrato faz isso sozinho quando o
+# débito aparece" —, e não havia uma linha de código fazendo isso. Quem lesse
+# aquilo deixava de dar baixa esperando que o Studio desse, e o cheque ficava
+# em aberto para sempre, inflando o comprometido do mês.
+#
+# Um cheque debitado aparece no extrato como saída, no valor exato, na data do
+# vencimento ou perto dela. É o mesmo casamento que `comprovantes.casar` faz,
+# e por isso a lógica não é reescrita aqui: o que muda é de onde vem a data.
+
+# Quantos dias o banco pode demorar além do vencimento. O cheque é apresentado
+# no dia, mas cai no extrato do dia seguinte com frequência, e fim de semana
+# empurra mais dois.
+TOLERANCIA_BAIXA_DIAS = 4
+
+
+def _saidas_do_extrato(lancamentos):
+    """As saídas do extrato, no formato que `comprovantes.casar` entende."""
+    fora = []
+    for l in (lancamentos or []):
+        v = _num(l.get("valor"))
+        if v >= 0:
+            continue
+        fora.append(dict(l))
+    return fora
+
+
+def baixas_pelo_extrato(linhas, lancamentos, tolerancia=TOLERANCIA_BAIXA_DIAS):
+    """Que cheques o extrato mostra como debitados. (certas, duvidosas).
+
+    DUAS LISTAS, E NÃO UMA — é a parte que importa.
+
+    `certas` são os casamentos EXATOS: mesma data e mesmo valor. Aí não há o
+    que interpretar, e a baixa pode ser dada sozinha.
+
+    `duvidosas` são os que bateram no valor mas com a data a alguns dias. Elas
+    NÃO são aplicadas: dois cheques de R$ 1.500 na mesma semana casariam com a
+    saída errada, e dar baixa no cheque errado tira do comprometido do mês um
+    valor que ainda vai sair — um erro que se disfarça de conferência feita, e
+    que ninguém descobre olhando o total.
+
+    Só entram cheques ainda em aberto: o que já foi baixado não se baixa de
+    novo, e reimportar o mesmo extrato não pode mexer em nada.
+    """
+    import comprovantes as _cp
+
+    abertos = [l for l in (linhas or []) if esta_aberto(l)]
+    if not abertos:
+        return [], []
+
+    # O cheque no formato do comprovante: o que o casamento pede é valor e
+    # data de pagamento, e a data de pagamento de um cheque é o vencimento.
+    como_comprovante = []
+    for c in abertos:
+        como_comprovante.append({
+            "_cheque": c,
+            "valor": _num(c.get("valor")),
+            "data_pagamento": texto_data(c.get("vencimento")),
+        })
+
+    pares, _ = _cp.casar(como_comprovante, _saidas_do_extrato(lancamentos),
+                         tolerancia_dias=tolerancia)
+    certas, duvidosas = [], []
+    for par in pares:
+        registro = {
+            "cheque": par["comprovante"]["_cheque"],
+            "lancamento": par["lancamento"],
+            "dias": par.get("dias", 0),
+        }
+        (certas if par.get("exato") else duvidosas).append(registro)
+    return certas, duvidosas
+
+
+def aplicar_baixas(certas, usuario=""):
+    """Marca como DEBITADO o que o extrato confirmou. (quantos, [erros]).
+
+    A observação guarda de onde veio a baixa. Sem isso, o cheque aparece
+    baixado e ninguém sabe se foi alguém na tela ou o extrato — e a primeira
+    pergunta diante de um número estranho é sempre "quem mexeu nisto?".
+    """
+    feitas, erros = 0, []
+    for b in (certas or []):
+        c = b.get("cheque") or {}
+        lan = b.get("lancamento") or {}
+        _obs = (str(c.get("observacao", "") or "").strip()
+                + (" · " if c.get("observacao") else "")
+                + f"baixa automática pelo extrato em {texto_data(lan.get('data'))}")
+        ok, msg = atualizar(c.get("id"),
+                            {"situacao": "DEBITADO", "observacao": _obs[:300]},
+                            usuario)
+        feitas += bool(ok)
+        if not ok:
+            erros.append(f"Folha {c.get('folha') or '(sem folha)'}: {msg}")
+    return feitas, erros
+
+
 def folhas_ja_cadastradas(folhas, ignorando_id="", linhas=None):
     """Quais destas folhas JÁ existem na carteira. {folha: linha_existente}.
 
@@ -1026,5 +1125,56 @@ if __name__ == "__main__":
     ok("sem compra nao inventa data", vencimento_sugerido(None) is None)
     ok("vira o mes sem quebrar",
        vencimento_sugerido(_d(2026, 1, 31)) == _d(2026, 3, 2))
+
+    # ── A baixa pelo extrato ─────────────────────────────────────────────
+    _CHS = [
+        {"id": "c1", "folha": "700", "valor": 1500.0,
+         "vencimento": "2026-09-10", "situacao": "EM ABERTO"},
+        {"id": "c2", "folha": "701", "valor": 1500.0,
+         "vencimento": "2026-09-12", "situacao": "EM ABERTO"},
+        {"id": "c3", "folha": "702", "valor": 980.0,
+         "vencimento": "2026-09-15", "situacao": "DEBITADO"},
+        {"id": "c4", "folha": "703", "valor": 2200.0,
+         "vencimento": "2026-09-20", "situacao": "EM ABERTO"},
+    ]
+    _EXT = [
+        {"id": "e1", "valor": -1500.0, "data": "2026-09-10"},   # exato -> c1
+        {"id": "e2", "valor": -980.0, "data": "2026-09-15"},    # c3 ja baixado
+        {"id": "e3", "valor": -2200.0, "data": "2026-09-22"},   # 2 dias -> c4
+        {"id": "e4", "valor": 5000.0, "data": "2026-09-10"},    # ENTRADA
+    ]
+    _certas, _duv = baixas_pelo_extrato(_CHS, _EXT)
+    ok("o casamento exato entra como certo",
+       [b["cheque"]["id"] for b in _certas] == ["c1"])
+    ok("e o de data proxima fica em duvida, sem ser aplicado",
+       [b["cheque"]["id"] for b in _duv] == ["c4"])
+    ok("com quantos dias de diferenca", _duv and _duv[0]["dias"] == 2)
+
+    # O cheque ja baixado nao volta a ser tocado, por mais que a saida esteja
+    # la — reimportar o mesmo extrato nao pode mexer em nada.
+    ok("cheque ja DEBITADO fica de fora",
+       all(b["cheque"]["id"] != "c3" for b in _certas + _duv))
+
+    # ENTRADA nao baixa cheque. Um credito do mesmo valor no mesmo dia daria
+    # baixa num cheque que ainda vai sair.
+    ok("entrada do mesmo valor nao baixa nada",
+       all(b["lancamento"]["id"] != "e4" for b in _certas + _duv))
+
+    # Duas saidas iguais na mesma semana: cada uma casa UMA vez.
+    _CH2 = [{"id": "d1", "folha": "1", "valor": 300.0,
+             "vencimento": "2026-09-01", "situacao": "EM ABERTO"},
+            {"id": "d2", "folha": "2", "valor": 300.0,
+             "vencimento": "2026-09-02", "situacao": "EM ABERTO"}]
+    _E2 = [{"id": "x1", "valor": -300.0, "data": "2026-09-01"},
+           {"id": "x2", "valor": -300.0, "data": "2026-09-02"}]
+    _c2, _d2 = baixas_pelo_extrato(_CH2, _E2)
+    ok("cada saida casa com um cheque so",
+       len({b["lancamento"]["id"] for b in _c2 + _d2}) == len(_c2 + _d2))
+    ok("e os dois sao exatos", len(_c2) == 2 and not _d2)
+
+    ok("sem extrato, nada e baixado", baixas_pelo_extrato(_CHS, []) == ([], []))
+    ok("sem cheque em aberto, nada e baixado",
+       baixas_pelo_extrato([{"id": "z", "valor": 1.0, "vencimento": "2026-09-10",
+                             "situacao": "PAGO"}], _EXT) == ([], []))
 
     print("\nfalhas:", falhas)

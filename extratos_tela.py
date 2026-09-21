@@ -97,6 +97,63 @@ def _processar(arq, _itau, _inter, _fv, _lan, usuario_logado):
         + (f" · {repetidos} já estavam lá (não duplicados)" if repetidos else "")
     )
 
+    # ── A BAIXA DOS CHEQUES, AQUI, JUNTO COM O RESTO ─────────────────────
+    #
+    # O débito do cheque já estava no extrato e ninguém ligava os dois. Pior: a
+    # tela dos cheques AFIRMAVA que ligava, e quem lia aquilo deixava de dar
+    # baixa esperando que o Studio desse — o cheque ficava em aberto para
+    # sempre, inflando o comprometido do mês.
+    #
+    # É o mesmo momento em que o extrato já ensina a finalidade de cada linha:
+    # o arquivo acabou de chegar, e é aqui que ele tem o que dizer.
+    #
+    # SÓ O CASAMENTO EXATO É APLICADO SOZINHO. O de data próxima é mostrado
+    # para conferência: dois cheques de R$ 1.500 na mesma semana casariam com
+    # a saída errada, e baixar o cheque errado tira do comprometido do mês um
+    # valor que ainda vai sair — erro que se disfarça de conferência feita.
+    try:
+        import cheques as _chq
+        _cert, _duv = _chq.baixas_pelo_extrato(_chq.carregar(), classificados)
+        if _cert:
+            _feitas, _erros_baixa = _chq.aplicar_baixas(_cert, usuario_logado)
+            if _feitas:
+                st.success(
+                    f"🧾 **{_feitas} cheque(s) baixado(s) pelo extrato** — "
+                    + ", ".join(
+                        f"folha {b['cheque'].get('folha') or '—'} "
+                        f"({_rot.tela('R$ ' + _fmt(_chq._num(b['cheque'].get('valor'))))})"
+                        for b in _cert[:8])
+                    + ("…" if len(_cert) > 8 else ""))
+            for _e in _erros_baixa:
+                st.warning(_e)
+        if _duv:
+            with st.expander(
+                    f"🧾 {len(_duv)} cheque(s) podem ter sido debitados — "
+                    "confira antes"):
+                st.caption(
+                    "O valor bate, mas a data do extrato não é a do "
+                    "vencimento. Não dei baixa: se houver dois cheques do "
+                    "mesmo valor na semana, a baixa iria no errado. Confirme "
+                    "na aba Cheques.")
+                import pandas as _pd_baixa
+                st.dataframe(
+                    _pd_baixa.DataFrame([{
+                        "folha": b["cheque"].get("folha", ""),
+                        "vencimento": _chq.data_br(b["cheque"].get("vencimento")),
+                        "valor": _chq._num(b["cheque"].get("valor")),
+                        "saiu em": _chq.data_br(b["lancamento"].get("data")),
+                        "dias": b["dias"],
+                    } for b in _duv]),
+                    use_container_width=True, hide_index=True,
+                    column_config=_rot.config(
+                        ["folha", "vencimento", "valor", "saiu em", "dias"],
+                        st, tipos={"valor": "brl"}))
+    except Exception as _e_baixa:
+        # A baixa nunca pode impedir a importação do extrato: o extrato é o
+        # dado, a baixa é a conveniência.
+        st.caption(f"Não consegui conferir os cheques deste extrato: "
+                   f"{type(_e_baixa).__name__}")
+
     _saida = sum(-l["valor"] for l in classificados if l["valor"] < 0)
     _entrada = sum(l["valor"] for l in classificados if l["valor"] > 0)
     c1, c2, c3 = st.columns(3)
