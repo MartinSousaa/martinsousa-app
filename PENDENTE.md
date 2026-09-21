@@ -362,7 +362,7 @@ Vale corrigir junto — é a mesma função que a edição vai mexer.
 
 ---
 
-## A TV e o Studio no mesmo container  ·  21/09/2026
+## ~~A TV e o Studio no mesmo container~~ — RESOLVIDO em 21/09 (serviço próprio)
 
 **O que resolve de vez, e custa dinheiro.** O `tv_worker.py` roda o Painel de
 Metas inteiro dentro do MESMO container do Studio (`Procfile`). Enquanto for
@@ -386,7 +386,7 @@ décimos de segundo, a TV não é a causa e o serviço separado não resolve nad
 
 ---
 
-## A TV como serviço próprio no Railway  ·  autorizado em 21/09/2026, NÃO subiu
+## ~~A TV como serviço próprio no Railway~~ — NO AR em 21/09/2026
 
 O dono autorizou ("serviço do Railway imediatamente") e logo em seguida pediu
 para segurar: havia gente usando o Studio e o deploy derruba a sessão.
