@@ -449,3 +449,57 @@ porta.
 
 Ordem certa: sobe o serviço novo → confere a TV no domínio novo → só então tira
 o worker do Procfile.
+
+---
+
+## Cheques: envio maior que a compra é normal, e o Studio bloqueia  ·  21/09/2026
+
+Em stand-by, para subir com a próxima autorização.
+
+### O que ele disse
+
+Parte da compra sai no PIX ou no cartão e o resto em cheque. Pode acontecer de
+o cheque cobrir só mercadoria e o ENVIO da compra inteira ser maior do que a
+soma dos cheques. **Não é erro de digitação.**
+
+### O que o código faz hoje
+
+`cheques_tela.py:234` — `elif envio_total > valor_cada * int(n)` cai num
+`st.error` e **não cadastra**. É bloqueio, não aviso: o caso real dele não
+entra no Studio de jeito nenhum.
+
+E os dados dele já provam que o caso existe: na carteira importada há cheque
+com Estoque **R$ −629,91** — envio maior que o valor, gravado, vindo da
+planilha dele.
+
+### O conserto
+
+Vira aviso, não bloqueio: o Studio diz o que notou e cadastra assim mesmo.
+
+**Falta uma decisão dele, que não vou chutar:** quando o envio passa do valor
+dos cheques, o `estoque` (= valor − envio, `cheques.py`) fica **negativo** ou
+**zero**? Negativo diz "esta compra tinha mais envio do que este cheque
+cobre"; zero diz "este cheque é todo envio". Os dois são defensáveis e mudam a
+previsão de caixa, que é para isso que a divisão existe.
+
+---
+
+## O `$` do real virando fórmula de LaTeX  ·  achado em 21/09/2026
+
+Na mesma tela: o aviso saiu como
+`O envio (R2.300,00)émaiorqueacompra(R 1.814,20)` — sem os cifrões, tudo
+grudado e em itálico. O markdown do Streamlit leu `$…$` como matemática.
+
+**Dois `R$` no mesmo texto de tela = fórmula.** Já foi resolvido em quatro
+lugares com `R\$` (`app.py:1490`, `financeiro.py:276`, `:295`, `:302`) e em
+nenhum outro — a correção ficou num caminho só, de novo.
+
+**E a varredura por AST não acha o resto.** Onde o `R$` vem de um helper
+(`_brl`, `formatar_br`), o literal não está na chamada: `cheques_tela.py:234`
+passou limpo pela peneira e é exatamente o caso que quebrou na tela. Escapar
+call site por call site não fecha a classe — o próximo `_brl` novo reabre.
+
+**O conserto certo é um lugar só:** um `texto_de_tela(s)` que escapa `$` antes
+de entregar ao `st.*`, e as telas passam a usá-lo em vez de escapar na mão.
+`_brl` continua devolvendo `R$` puro — ele também alimenta tabela e HTML, onde
+a barra invertida apareceria escrita.
