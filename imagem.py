@@ -57,25 +57,76 @@ def _get_openai_api_key():
 
 
 # ── PADRÃO VISUAL MARTINSOUSA (hardcoded em todos os prompts) ──────────────────
+# ── O SISTEMA VISUAL DA LOJA ────────────────────────────────────────────────
+#
+# A PALETA FIXA ERA O QUE IMPEDIA A IMAGEM BOA.
+#
+# Aqui estava escrito "Fundo: #E8EEF5", "texto #1A3A6B", "destaque #4A7EC7" e
+# "NÃO use marrom, laranja, vermelho ou verde". Em todas as peças, de todos os
+# produtos.
+#
+# O dono mostrou três referências que ele quer copiar: um álbum marfim (madeira
+# clara, flores brancas, luz alta), uma caixa de relógios preta (nogueira
+# escura, mármore, dourado, luz baixa) e marcadores coloridos (branco com
+# acentos nas cores das peças). A regra acima PROIBIA a segunda — nogueira e
+# dourado são marrom e laranja — e achatava as três na mesma cara azul.
+#
+# A identidade de uma loja não é uma cor repetida. É tipografia, hierarquia,
+# desenho dos ícones e dos cards, espaçamento e acabamento. A cor é direção de
+# arte, e direção de arte é do produto.
+#
+# Decidido pelo dono em 21/09/2026: "o azul deixa de ser obrigatório sim".
 PADRAO_VISUAL = """
-PADRÃO VISUAL OBRIGATÓRIO DA EMPRESA (aplique em todas as peças de marketing):
+SISTEMA VISUAL DA LOJA — IDENTIDADE FIXA, DIREÇÃO DE ARTE ADAPTATIVA
 
-ATENÇÃO — ESCOPO DAS CORES DA MARCA (regra que precede todas as outras):
-As cores abaixo valem EXCLUSIVAMENTE para fundo, texto, ícones, painéis e
-elementos gráficos. Elas NUNCA se aplicam ao produto. O produto mantém a cor
-real das fotos de referência, mesmo que ela destoe da paleta. É proibido
-"harmonizar", tingir, esfriar ou aproximar a cor do produto da paleta da marca.
+Todas as imagens desta loja pertencem à mesma família visual, mas NÃO
+compartilham a mesma paleta de cores.
 
-- Fundo: #E8EEF5 (azul-cinza claro suave)
-- Cor de texto e elementos gráficos: #1A3A6B (azul marinho) — NUNCA no produto
-- Cor de destaque secundária: #4A7EC7 (azul médio) — NUNCA no produto
-- Fonte: Montserrat ou Poppins — nunca fontes serifadas
-- Ícones: estilo line-art clean, traço fino, monocromáticos em azul marinho
-- Elementos decorativos: círculos ou manchas suaves em azul marinho ou azul médio,
-  usados como moldura ou destaque atrás do produto ou dos ícones
-- Texto sempre em português do Brasil, sem erros ortográficos, sem caixa alta excessiva
-- Visual limpo, arejado, profissional — sem poluição visual
-- NÃO use marrom, laranja, vermelho ou verde como cores principais
+IDENTIDADE FIXA (igual em todo produto, é ela que diz "mesma loja"):
+- Tipografia: Montserrat ou Poppins — limpa, moderna, sem serifa. Nunca serifada.
+- Hierarquia: título curto e forte; texto secundário menor e leve.
+- Ícones: line-art clean, traço fino, geometria simples e consistente.
+- Cards e callouts: cantos arredondados, construção minimalista, acabamento premium.
+- Espaçamento: composição arejada, alinhamentos precisos, margens consistentes.
+- Texto sempre em português do Brasil, sem erro de ortografia, sem caixa alta excessiva.
+- Fotografia: produto nítido e protagonista, luz profissional, integração realista.
+
+DIREÇÃO DE ARTE ADAPTATIVA (muda a cada produto):
+- NÃO existe cor de fundo obrigatória. Analise o produto — cor, material,
+  categoria, ocasião de uso e público provável — e escolha a paleta, a
+  iluminação, o cenário e os materiais que melhor valorizem ESTE produto.
+- As cores dos elementos gráficos saem da direção de arte escolhida para esta
+  peça, com contraste suficiente para legibilidade.
+- Produtos diferentes podem ter paletas completamente diferentes. Produto claro
+  e delicado pede cena clara e suave; produto preto e premium pede cena escura
+  e dramática; produto colorido pede fundo neutro com acentos nas cores dele.
+- O PRODUTO NUNCA É RECOLORIDO para combinar com a direção de arte. A paleta
+  vale para fundo, texto e elementos gráficos — jamais para o produto.
+- Quando houver imagem de referência de layout, copie a ESTRUTURA: hierarquia,
+  densidade, organização dos blocos. NÃO copie a paleta, o cenário, a
+  iluminação nem os objetos dela.
+"""
+
+# ── O PRODUTO É O DESTAQUE, E ISSO VIRA NÚMERO ──────────────────────────────
+#
+# "o maior possível" não é instrução: é opinião, e o modelo tem a dele. O
+# resultado era produto pequeno no meio de um cenário amplo, que foi a primeira
+# reclamação do dono — "imagens extremamente pequenas considerando a dimensão".
+#
+# Ocupação medida resolve, e a ordem de montagem importa tanto quanto o número:
+# enquadrar o produto PRIMEIRO e distribuir o resto no que sobrar é diferente
+# de desenhar a peça e encaixar o produto num quadrante.
+INSTRUCAO_PROTAGONISMO = """
+O PRODUTO É O DESTAQUE — SEMPRE, E ANTES DE TUDO:
+- Em peças COM texto, o produto ocupa de 55% a 70% da dimensão útil do quadro.
+- Em peças SEM texto, de 65% a 80%.
+- Determine o enquadramento do produto PRIMEIRO. Só depois distribua cenário,
+  props e texto no espaço que sobrar.
+- Faltando espaço, reduza os elementos secundários — NUNCA o produto.
+- Nunca deixe o produto pequeno no centro de um cenário amplo.
+- Quando o cenário ou o texto competirem com o produto, use profundidade de
+  campo: fundo desfocado, produto nítido. O olho vai no produto primeiro, na
+  informação depois, no cenário por último.
 """
 
 INSTRUCAO_FIDELIDADE = """
@@ -250,7 +301,7 @@ PRESETS = {
     ),
     "2 — Benefícios do produto": (
         "IMAGEM DE MARKETING — BENEFÍCIOS: produto em zona central limpa (SEM texto sobre ele). "
-        "Fundo padrão da marca (#E8EEF5). De 3 a 5 benefícios em cartões laterais, inferiores ou em grade — siga a referência de layout quando houver: "
+        "Fundo deduzido do produto — sem cor de marca fixa. De 3 a 5 benefícios em cartões laterais, inferiores ou em grade — siga a referência de layout quando houver: "
         "ícone line-art azul marinho + título curto (2-3 palavras) + frase direta (máximo 7 palavras). "
         "Visual arejado, muito whitespace — jamais comprima ou empilhe os blocos de benefício. "
         "Os textos dos benefícios vêm dos diferenciais e características do produto informados."
@@ -292,7 +343,7 @@ PRESETS = {
         "em destaque e de 3 a 4 blocos de pergunta+resposta ao lado, em cartões de cantos arredondados — siga a referência de layout quando houver. "
         "Cada bloco: pergunta curta (máximo 5 palavras) em destaque + check verde + resposta direta "
         "(máximo 8 palavras). As objeções são baseadas nos diferenciais e características do produto. "
-        "Visual arejado, muito whitespace, fundo padrão da marca (#E8EEF5)."
+        "Visual arejado, muito whitespace, fundo e paleta deduzidos do produto e da ocasião."
     ),
     "7 — Presenteie": (
         "IMAGEM EMOCIONAL — PRESENTEAR: composição elegante com produto como presente especial. "
@@ -301,13 +352,20 @@ PRESETS = {
         "Visual limpo, clean, tons suaves e elegantes — produto e contexto de presente como únicos elementos. "
         "Se nenhuma frase específica foi fornecida, crie uma frase genérica adequada ao produto."
     ),
+    # A contradição morava AQUI também, e não só no bloco de padrão visual:
+    # "ZERO TEXTO" e, duas linhas depois, "escreva Imagem meramente
+    # ilustrativa". E a lista de cômodos — escritório, quarto de estudos,
+    # estante de livros — é semanticamente errada para metade do catálogo: um
+    # marcador de taça não pertence a nenhum deles.
     "8 — Ambientação realista (sem texto)": (
-        "FOTO EDITORIAL — PRODUTO NO AMBIENTE NATURAL DE USO: ZERO TEXTO, ZERO ÍCONE, ZERO BENEFÍCIO. "
-        "Identifique o ambiente mais natural para este produto (escritório, quarto de estudos, sala, "
-        "mesa de trabalho, estante de livros, etc.) e integre o produto como peça protagonista. "
-        "Cena real com mobiliário, iluminação natural suave, tons neutros e composição editorial elegante. "
-        "Apenas a frase discreta 'Imagem meramente ilustrativa' no canto inferior em tipografia fina. "
-        "Tom: revista de decoração/lifestyle — parece uma foto editorial real, não montagem digital."
+        "FOTO EDITORIAL — PRODUTO NO AMBIENTE NATURAL DE USO. "
+        "Deduza das fotos e dos dados onde ESTE produto é de fato usado, e por "
+        "quem; não escolha de uma lista pronta de cômodos. Construa a cena com "
+        "a paleta, a luz e os materiais que valorizem este produto — sem cor "
+        "de fundo padrão. O produto é a peça protagonista, grande e nítido; "
+        "quando o cenário competir com ele, desfoque o fundo. "
+        "Tom: revista de decoração/lifestyle — parece fotografia real, não "
+        "montagem digital. A regra de texto está detalhada mais abaixo."
     ),
 }
 
@@ -867,14 +925,45 @@ def _chamar_gemini_geracao_texto(prompt_final, imagens_bytes=None, ref_layout=No
                     }
                 })
             parts.append({"text": prompt_final})
-            body = {
-                "contents": [{"role": "user", "parts": parts}],
-                "generationConfig": {
-                    "responseModalities": ["IMAGE", "TEXT"],
-                },
+            # A PROPORÇÃO, QUE NUNCA IA — e era ela que criava as tarjas.
+            #
+            # O corpo só tinha `responseModalities`. O modelo escolhia o
+            # formato, costumava devolver retangular, e o enquadramento do
+            # Studio preenchia as sobras com faixa de cor lisa: as "margens
+            # laterais" que o dono viu, e o produto encolhido no meio.
+            #
+            # PEDIR E, SE FOR RECUSADO, REPETIR SEM PEDIR.
+            #
+            # A documentação do Google se contradiz sobre o nome do campo —
+            # `responseFormat.image.aspectRatio` no generateContent, e
+            # `response_format.aspect_ratio` na Interactions API, que é outra
+            # coisa. Não dá para ter certeza sem tentar, e chutar errado em
+            # silêncio seria o pior dos dois mundos: acharíamos que está
+            # resolvido. Então manda; se a API recusar o formato (400), repete
+            # sem ele, e o log diz qual das duas valeu.
+            _base_body = {"contents": [{"role": "user", "parts": parts}]}
+            _com_proporcao = dict(_base_body)
+            _com_proporcao["generationConfig"] = {
+                "responseModalities": ["IMAGE"],
+                "responseFormat": {"image": {"aspectRatio": "1:1",
+                                             "imageSize": "1K"}},
             }
-            resp = requests.post(url, json=body, headers=headers, timeout=120,
+            _sem_proporcao = dict(_base_body)
+            _sem_proporcao["generationConfig"] = {
+                "responseModalities": ["IMAGE", "TEXT"],
+            }
+
+            resp = requests.post(url, json=_com_proporcao, headers=headers,
+                                 timeout=120,
                                  proxies={"http": None, "https": None})
+            if resp.status_code == 400:
+                import sys as _sys_ar
+                print("[gemini] proporcao recusada pela API — repetindo sem "
+                      f"ela. Resposta: {resp.text[:200]}",
+                      file=_sys_ar.stderr, flush=True)
+                resp = requests.post(url, json=_sem_proporcao, headers=headers,
+                                     timeout=120,
+                                     proxies={"http": None, "https": None})
             if resp.status_code == 429:
                 try:
                     _ej = resp.json()
@@ -1185,6 +1274,106 @@ def _data_url(img_bytes):
     return f"data:{mime};base64,{base64.b64encode(dados).decode('utf-8')}"
 
 
+# ── O MODELO DE IMAGEM, NUM LUGAR SÓ ────────────────────────────────────────
+#
+# O NOME ESTAVA ERRADO, E ESCRITO À MÃO EM CINCO LUGARES.
+#
+# `gpt-image-2` não existe. Os modelos de imagem da OpenAI são
+# `gpt-image-2.5-sunburst` (o mais capaz) e `gpt-image-2.5-flare` (rápido) —
+# confirmado na documentação, em duas páginas. Toda chamada devolvia
+# `404 model_not_found`, o motor primário nunca gerava nada, e TUDO caía no
+# Gemini: o reserva, que não aceita `size` nem `input_fidelity`.
+#
+# Daí as duas reclamações do dono na mesma tela: "imagens extremamente
+# pequenas" e "fotos com margens laterais". Sem `size=1024x1024`, o Gemini
+# devolve retangular; o enquadramento então preenche as sobras com faixa lisa
+# (imagem.py, passo 6) e o produto encolhe no meio do quadro. Não era o prompt.
+#
+# E O CONSERTO NÃO É TROCAR O NOME NOS CINCO LUGARES.
+#
+# Trocar o nome resolve hoje e reabre no dia em que a OpenAI renomear de novo —
+# que é exatamente o que acabou de acontecer. O defeito é o Studio DEPENDER de
+# um nome que alguém escreveu à mão e que ninguém confere.
+#
+# Então: o nome mora aqui, vem do Railway quando configurado, e quando a conta
+# responde `model_not_found` o Studio PERGUNTA À PRÓPRIA CONTA quais modelos de
+# imagem ela tem e usa o primeiro. Um rename futuro passa a custar uma chamada
+# extra, e não um dia de geração perdida.
+MODELO_IMAGEM_PADRAO = "gpt-image-2.5-sunburst"
+
+# A ordem em que se tenta quando é preciso escolher sozinho: o mais capaz
+# primeiro, porque a fidelidade ao produto é o que o Studio está comprando.
+MODELOS_IMAGEM_CONHECIDOS = ("gpt-image-2.5-sunburst", "gpt-image-2.5-flare")
+
+# Descoberto em execução, quando o nome configurado não existe. Vive no
+# processo: perguntar uma vez por container basta, e uma chamada a cada geração
+# seria custo recorrente para resolver um problema de uma vez só.
+_MODELO_DESCOBERTO = {"nome": None}
+
+
+def modelo_de_imagem():
+    """O modelo que a geração usa. Configurável pelo Railway.
+
+    `OPENAI_MODELO_IMAGEM` manda, depois o que foi descoberto na conta, depois
+    o padrão. O dia em que a OpenAI lançar um modelo melhor, trocar é uma
+    variável — não é deploy.
+    """
+    import chaves as _ch_mod
+    return (_ch_mod.ler("OPENAI_MODELO_IMAGEM")
+            or _MODELO_DESCOBERTO["nome"]
+            or MODELO_IMAGEM_PADRAO)
+
+
+def modelos_de_imagem_da_conta(cliente=None):
+    """Que modelos de imagem ESTA conta tem. [] quando não dá para saber.
+
+    É a pergunta que faltava. Enquanto ninguém a fazia, o Studio insistia num
+    nome inventado e o erro chegava à tela como "404" — um número que não diz
+    a ninguém o que fazer.
+    """
+    try:
+        if cliente is None:
+            from openai import OpenAI as _OAI_list
+            _k = _get_openai_api_key()
+            if not _k:
+                return []
+            cliente = _OAI_list(api_key=_k)
+        nomes = [getattr(m, "id", "") for m in cliente.models.list()]
+    except Exception:
+        return []
+    # "gpt-image" cobre a família inteira sem depender da versão — que é o que
+    # este bloco existe para parar de fazer.
+    achados = sorted(n for n in nomes if "image" in str(n).lower()
+                     and "gpt" in str(n).lower())
+    # Os conhecidos primeiro, na ordem de capacidade; o resto depois.
+    preferidos = [m for m in MODELOS_IMAGEM_CONHECIDOS if m in achados]
+    return preferidos + [a for a in achados if a not in preferidos]
+
+
+def redescobrir_modelo_de_imagem(cliente=None):
+    """A conta não tem o modelo configurado: acha um que ela tenha. "" se não há.
+
+    Chamado SÓ depois de um `model_not_found` — não no caminho normal. Listar
+    modelos a cada geração seria pagar todo dia por um problema que acontece
+    uma vez por rename.
+    """
+    for nome in modelos_de_imagem_da_conta(cliente):
+        _MODELO_DESCOBERTO["nome"] = nome
+        import sys as _sys_desc
+        print(f"[imagem] modelo de imagem redescoberto na conta: {nome}",
+              file=_sys_desc.stderr, flush=True)
+        return nome
+    return ""
+
+
+def _modelo_nao_existe(excecao):
+    """O erro é «esse modelo não existe / você não tem acesso»?"""
+    t = str(excecao).lower()
+    return ("model_not_found" in t
+            or "does not exist" in t
+            or "do not have access to it" in t)
+
+
 # Falha da OpenAI que as OUTRAS tentativas não resolvem.
 #
 # `_chamar_openai_geracao` tenta três endpoints em sequência e as duas
@@ -1209,8 +1398,9 @@ def _erro_openai_terminal(excecao):
 
 
 def _chamar_openai_geracao(prompt_final, imagens_bytes=None, ref_layout=None,
-                           ref_layout_nome="", diagnostico=None):
-    """Chama gpt-image-2 da OpenAI (motor primário de geração). Retorna (img_bytes, erro).
+                           ref_layout_nome="", diagnostico=None,
+                           _ja_redescobriu=False):
+    """Chama o motor primário de imagem da OpenAI. Retorna (img_bytes, erro).
 
     Quando `imagens_bytes` é fornecido, usa a Responses API com as fotos do produto
     como referência visual direta — o mesmo comportamento do ChatGPT.
@@ -1222,6 +1412,7 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None, ref_layout=None,
     try:
         from openai import OpenAI as _OpenAI
         client = _OpenAI(api_key=api_key)
+        _modelo = modelo_de_imagem()
 
         # ── COM FOTOS: Responses API (fotos como referência visual direta, igual ao ChatGPT) ──
         if imagens_bytes:
@@ -1255,7 +1446,7 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None, ref_layout=None,
             # o pior caso é exatamente o comportamento de hoje, nunca menos.
             try:
                 resp = client.responses.create(
-                    model="gpt-image-2",
+                    model=_modelo,
                     input=entrada,
                     tools=[{
                         "type": "image_generation",
@@ -1267,22 +1458,22 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None, ref_layout=None,
                 img = _extrair(resp)
                 if img:
                     import sys as _sys
-                    print("[DEBUG gpt-image-2] Operation: generate/edit | "
+                    print(f"[DEBUG {_modelo}] Operation: generate/edit | "
                           f"References sent: {len(imagens_bytes)} | size=1024x1024 | "
                           "input_fidelity=high", file=_sys.stderr)
                     if diagnostico is not None:
-                        diagnostico["motor"] = "gpt-image-2 (Responses + tools)"
+                        diagnostico["motor"] = f"{_modelo} (Responses + tools)"
                         diagnostico["size_pedido"] = "1024x1024"
                         diagnostico["input_fidelity"] = "high"
                         diagnostico["refs_enviadas"] = len(imagens_bytes[:3])
                     return img, None
             except Exception as _e_tool:
                 import sys as _sys
-                print(f"[DEBUG gpt-image-2] tools recusado ({str(_e_tool)[:120]}) — "
+                print(f"[DEBUG {_modelo}] tools recusado ({str(_e_tool)[:120]}) — "
                       "tentando images.edit", file=_sys.stderr)
                 _term = _erro_openai_terminal(_e_tool)
                 if _term:
-                    return None, f"Erro OpenAI gpt-image-2: {_term}"
+                    return None, f"Erro OpenAI {_modelo}: {_term}"
 
             # Tentativa 2: endpoint de edição — aceita as fotos como referência e,
             # diferente da Responses API, size e input_fidelity são parâmetros
@@ -1297,7 +1488,7 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None, ref_layout=None,
                 if ref_layout:
                     arquivos.append(_arquivo_para_openai(ref_layout, "layout_referencia"))
                 edit = client.images.edit(
-                    model="gpt-image-2",
+                    model=_modelo,
                     image=arquivos,
                     prompt=prompt_final,
                     size="1024x1024",
@@ -1307,30 +1498,31 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None, ref_layout=None,
                 _d = edit.data[0]
                 if getattr(_d, "b64_json", None):
                     import sys as _sys
-                    print("[DEBUG gpt-image-2] Operation: edit | "
+                    print(f"[DEBUG {_modelo}] Operation: edit | "
                           f"References sent: {len(arquivos)} | size=1024x1024 | "
                           "input_fidelity=high", file=_sys.stderr)
                     if diagnostico is not None:
-                        diagnostico["motor"] = "gpt-image-2 (images.edit)"
+                        diagnostico["motor"] = f"{_modelo} (images.edit)"
                         diagnostico["size_pedido"] = "1024x1024"
                         diagnostico["input_fidelity"] = "high"
                         diagnostico["refs_enviadas"] = len(arquivos)
                     return base64.b64decode(_d.b64_json), None
             except Exception as _e_edit:
                 import sys as _sys
-                print(f"[DEBUG gpt-image-2] images.edit recusado ({str(_e_edit)[:120]}) — "
+                print(f"[DEBUG {_modelo}] images.edit recusado ({str(_e_edit)[:120]}) — "
                       "usando chamada simples", file=_sys.stderr)
                 _term = _erro_openai_terminal(_e_edit)
                 if _term:
-                    return None, f"Erro OpenAI gpt-image-2: {_term}"
+                    return None, f"Erro OpenAI {_modelo}: {_term}"
 
-            resp = client.responses.create(model="gpt-image-2", input=entrada)
+            resp = client.responses.create(model=_modelo, input=entrada)
             img = _extrair(resp)
             if img:
                 import sys as _sys
-                print(f"[DEBUG gpt-image-2] Operation: generate/edit | References sent: {len(imagens_bytes)} | Model: gpt-image-2", file=_sys.stderr)
+                print(f"[DEBUG {_modelo}] Operation: generate/edit | "
+                      f"References sent: {len(imagens_bytes)}", file=_sys.stderr)
                 if diagnostico is not None:
-                    diagnostico["motor"] = "gpt-image-2 (Responses simples — SEM size)"
+                    diagnostico["motor"] = f"{_modelo} (Responses simples — SEM size)"
                     diagnostico["size_pedido"] = "nenhum (modelo escolhe)"
                     diagnostico["refs_enviadas"] = len(imagens_bytes[:3])
                 return img, None
@@ -1338,17 +1530,18 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None, ref_layout=None,
 
         # ── SEM FOTOS: geração texto puro ──
         response = client.images.generate(
-            model="gpt-image-2",
+            model=_modelo,
             prompt=prompt_final,
             n=1,
             size="1024x1024",
             quality="high",
         )
         img_data = response.data[0]
-        # gpt-image-2 retorna b64_json por padrão
+        # O modelo retorna b64_json por padrão
         if hasattr(img_data, "b64_json") and img_data.b64_json:
             import sys as _sys
-            print(f"[DEBUG gpt-image-2] Operation: generate | References sent: 0 | Model: gpt-image-2 | Quality: high | Size: 1024x1024", file=_sys.stderr)
+            print(f"[DEBUG {_modelo}] Operation: generate | References sent: 0 | "
+                  f"Quality: high | Size: 1024x1024", file=_sys.stderr)
             return base64.b64decode(img_data.b64_json), None
         # Fallback: URL temporária
         if hasattr(img_data, "url") and img_data.url:
@@ -1357,7 +1550,29 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None, ref_layout=None,
                 return r.content, None
         return None, "Sem dados de imagem na resposta OpenAI."
     except Exception as e:
-        return None, f"Erro OpenAI gpt-image-2: {str(e)[:300]}"
+        # O NOME DO MODELO NÃO EXISTE — E ISSO TEM CONSERTO SOZINHO.
+        #
+        # Foi o que derrubou a geração inteira: `gpt-image-2` escrito à mão,
+        # 404 em toda chamada, tudo caindo no reserva. Em vez de devolver o
+        # erro e esperar alguém ler o log, o Studio pergunta à conta o que ela
+        # tem e tenta outra vez — UMA vez, para um nome que não existe não
+        # virar laço infinito.
+        if _modelo_nao_existe(e) and not _ja_redescobriu:
+            _novo = redescobrir_modelo_de_imagem(client)
+            if _novo and _novo != _modelo:
+                return _chamar_openai_geracao(
+                    prompt_final, imagens_bytes=imagens_bytes,
+                    ref_layout=ref_layout, ref_layout_nome=ref_layout_nome,
+                    diagnostico=diagnostico, _ja_redescobriu=True)
+            _quais = modelos_de_imagem_da_conta(client)
+            return None, (
+                f"O modelo «{_modelo}» não existe nesta conta da OpenAI. "
+                + (f"Os que ela tem: {', '.join(_quais[:6])}. Configure "
+                   f"OPENAI_MODELO_IMAGEM no Railway com um deles."
+                   if _quais else
+                   "E a conta não devolveu nenhum modelo de imagem — é acesso "
+                   "ao modelo, em platform.openai.com → Settings."))
+        return None, f"Erro OpenAI {modelo_de_imagem()}: {str(e)[:300]}"
 
 
 def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
@@ -1368,7 +1583,7 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
     1. Claude Vision analisa fotos → descrição de apoio (usada apenas quando não há OpenAI)
     2. Claude descreve estilo das refs de layout (se houver) → texto de composição
     3. Monta prompt único preservando preset completo do tipo (sem double-prompt)
-    4. Tenta gpt-image-2 (OpenAI) como motor primário — fotos enviadas diretamente
+    4. Tenta o motor primário da OpenAI — fotos enviadas diretamente
     5. Fallback: Gemini Flash Image com texto-apenas
     6. Retorna imagem com proporções exatas preservadas (sem deformação)
     """
@@ -1422,7 +1637,7 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
     #   capa            -> branco puro
     #   ambientação     -> o próprio ambiente da cena, sem cor imposta
     #   personalizado   -> o colaborador manda, não impomos nada
-    #   demais (2 a 7)  -> padrão da marca #E8EEF5
+    #   demais (2 a 7)  -> DEDUZIDO DO PRODUTO, e não mais o azul da marca
     if _is_fundo_branco:
         _background = (
             "Pure white background (#FFFFFF) — absolutely clean, no gradients, no shadows, "
@@ -1439,9 +1654,20 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
             "Background follows the collaborator's instructions. Do not impose a brand background."
         )
     else:
+        # AQUI ESTAVA O AZUL OBRIGATÓRIO PELA SEGUNDA VEZ.
+        #
+        # Tirar a paleta fixa do `PADRAO_VISUAL` e deixar esta linha em pé
+        # seria trocar a regra num lugar e manter a ordem contrária no outro —
+        # e o modelo recebe as duas na mesma mensagem. A cor do fundo agora
+        # sai do produto, aqui também.
         _background = (
-            "Soft blue-gray background (#E8EEF5) — clean, professional MS Studio brand standard. "
-            "This is MANDATORY: do NOT use plain white for this image type."
+            "Background color is DERIVED FROM THE PRODUCT, not from a fixed "
+            "brand palette. Analyse the product colour, material, category and "
+            "occasion, then choose a background that makes THIS product stand "
+            "out: light and airy for delicate products, deep and dramatic for "
+            "dark premium products, neutral with accents from the product's own "
+            "colours for colourful ones. Never recolour the product to match "
+            "the background. Do not default to plain white for this image type."
         )
 
     _text_rule = (
@@ -1641,9 +1867,12 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
         # limpa nao existe nem um nem outro — e uma cor de marca sem onde ser
         # aplicada vira cor de fundo. Era a segunda ordem contraria que a capa
         # recebia junto com "branco puro".
-        + (f"Brand accents: Navy blue (#1A3A6B) for text and graphic elements, "
-           f"medium blue (#4A7EC7) as secondary accent.\n"
-           f"Typography: Clean geometric sans-serif (Montserrat or Poppins style).\n"
+        + (f"Graphic accents: derive text and graphic element colours from the "
+           f"art direction chosen for THIS product, keeping enough contrast for "
+           f"legibility. There is no fixed brand colour.\n"
+           f"Typography: Clean geometric sans-serif (Montserrat or Poppins style) "
+           f"— this IS fixed, and it is what makes every piece look like the "
+           f"same shop.\n"
            if not _is_clean_photo else
            "NO brand color anywhere: this image has no text and no graphic "
            "elements, so no brand accent color may appear — not in the "
@@ -1718,7 +1947,7 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
     if diagnostico is not None:
         diagnostico["ref_layout"] = _ref_layout_nome or "nenhuma correspondeu ao tipo"
 
-    # 4. Tenta gpt-image-2 (OpenAI) como motor primário
+    # 4. Tenta o motor primário da OpenAI
     img_bytes = None
     erro_primario = None
     _usando_openai = bool(_get_openai_api_key())
@@ -1732,13 +1961,13 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
         # sobrou na tela falava só de crédito do Gemini — escondendo que o
         # primário nunca tinha entrado em campo.
         erro_primario = ("OPENAI_API_KEY não está configurada no Railway — o "
-                         "motor primário (gpt-image-2) não chegou a ser "
+                         "motor primário de imagem não chegou a ser "
                          "tentado, e TODA a geração caiu no reserva.")
         if diagnostico is not None:
             diagnostico["erro_openai"] = erro_primario
 
     if _usando_openai:
-        # Passa as fotos do produto diretamente ao gpt-image-2 via Responses API
+        # Passa as fotos do produto diretamente ao modelo via Responses API
         # (igual ao ChatGPT) — o modelo VÊ as fotos em vez de receber só texto.
         # Se não houver fotos, cai em geração texto-puro.
         _fotos_para_openai = imagens_referencia if imagens_referencia else None
@@ -1748,7 +1977,7 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
             diagnostico=diagnostico
         )
         if not img_bytes:
-            erro_primario = f"OpenAI gpt-image-2: {erro}"
+            erro_primario = f"OpenAI {modelo_de_imagem()}: {erro}"
 
     if diagnostico is not None:
         diagnostico["prompt_final"] = prompt_geracao
@@ -1778,7 +2007,7 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
         if erro_primario:
             return None, (f"{motivo}\n\n**E o motor primário falhou antes:** "
                           f"{erro_primario}")
-        return None, (f"{motivo}\n\nO motor primário (gpt-image-2) também não "
+        return None, (f"{motivo}\n\nO motor primário de imagem também não "
                       "entregou nesta tentativa.")
 
     # 5. Fallback: Gemini texto-apenas
@@ -1873,6 +2102,19 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
             import sys as _sys_fmt
             print(f"[DEBUG enquadramento] modelo devolveu {pil_w}x{pil_h} "
                   "(esperado 1024x1024) — preenchendo", file=_sys_fmt.stderr)
+            # O PREENCHIMENTO PASSA A APARECER NA TELA.
+            #
+            # Ele existia só no stderr do Railway — e foi assim que as tarjas
+            # ficaram sem explicação por semanas: o Studio SABIA que estava
+            # preenchendo, anotava, e ninguém lia. Quem vê a imagem com margem
+            # é a colaboradora, e é a ela que a informação serve.
+            #
+            # A rede fica: devolver imagem com margem é melhor do que devolver
+            # imagem quebrada. Mas deixa de ser invisível.
+            if diagnostico is not None:
+                diagnostico["enquadramento"] = (
+                    f"o motor devolveu {pil_w}x{pil_h} em vez de quadrada — "
+                    f"as faixas laterais foram preenchidas pelo Studio")
 
             # NÃO recortar. Uma tentativa anterior cortava até 18% do lado maior
             # para diminuir as faixas, e isso decepava os painéis de texto das
@@ -2068,8 +2310,30 @@ def bloco_texto_exato(textos):
     )
 
 
+def _campo_ambientacao(sufixo):
+    """O campo onde quem vende diz em que ambiente o produto é usado.
+
+    OPCIONAL, e a palavra importa. Quem vende sabe coisa que nenhuma análise da
+    foto descobre: um marcador de taça é jantar, casamento, confraternização —
+    olhando a peça de silicone colorido não se chega nisso.
+
+    Três telas perguntam a mesma coisa (uma imagem, selecionar, as oito), e por
+    isso a pergunta mora aqui: escrita em três lugares, as três passam a
+    divergir — a questão é só quando.
+    """
+    return st.text_area(
+        "Ambientação (opcional) — onde e como o produto é usado",
+        height=68, key=f"img_ambientacao_{sufixo}",
+        placeholder="ex: jantar entre amigos, mesa posta, taças de vinho, "
+                    "festa de casamento, confraternização",
+        help="É TEMA, não roteiro: o Studio varia a cena entre as imagens sem "
+             "sair desse universo. A paleta e a luz continuam saindo do "
+             "produto. Deixe em branco e o Studio deduz sozinho.")
+
+
 def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
-                         refs_layout_nomes=None, instrucao_layout="", plano_triagem=None):
+                         refs_layout_nomes=None, instrucao_layout="",
+                         plano_triagem=None, ambientacao=""):
     """Monta o prompt completo para geração.
 
     Para os tipos padrão (1-7): aplica PADRAO_VISUAL + INSTRUCAO_COMPOSICAO
@@ -2098,6 +2362,29 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
                 # errava as letras no caminho. A copy ja vem pronta da triagem;
                 # aqui ela deixa de ser sugestao e vira o texto literal.
                 bloco_plano_triagem += bloco_texto_exato(_textos)
+
+    # ── O TEMA DA AMBIENTAÇÃO, quando o colaborador escreveu um ───────────
+    #
+    # Campo OPCIONAL, e a palavra importa: quem vende sabe onde o produto é
+    # usado melhor do que qualquer dedução a partir da foto. Um marcador de
+    # taça é "jantar, casamento, confraternização" — nenhuma análise de imagem
+    # chega nisso olhando uma peça de silicone colorido.
+    #
+    # É TEMA, NÃO ROTEIRO. O dono foi explícito: "ele não deve manter o mesmo
+    # padrão de ambientação em todas as fotos, o ideal é ir mudando sem fugir
+    # do tema". Então o texto dele delimita o universo, e cada uma das oito
+    # imagens escolhe uma cena diferente dentro dele.
+    bloco_ambientacao = ""
+    _amb = str(ambientacao or "").strip()
+    if _amb:
+        bloco_ambientacao = (
+            "\nAMBIENTAÇÃO PEDIDA POR QUEM VENDE O PRODUTO (é TEMA, não roteiro):\n"
+            f"{_amb}\n"
+            "- Use isto para entender o universo de uso: lugar, ocasião, quem usa.\n"
+            "- NÃO repita a mesma cena nas outras imagens do conjunto. Varie o\n"
+            "  ângulo, o momento, os props e o recorte DENTRO desse tema.\n"
+            "- O tema orienta o cenário; a direção de arte (paleta, luz,\n"
+            "  materiais) continua saindo do produto.\n")
 
     contexto_produto = f"PRODUTO: {nome_produto}\n"
     # A trava entra SEMPRE — com a cor nomeada quando a triagem tem o campo,
@@ -2172,7 +2459,7 @@ PADRÃO VISUAL PARA FOTO DE PRODUTO — REGRA ABSOLUTA:
 TIPO DE IMAGEM: {tipo}
 {base}
 {bloco_plano_triagem}
-{bloco_contexto_interno}
+{bloco_contexto_interno}{bloco_ambientacao}
 {bloco_refs}
 
 {PADRAO_VISUAL_FUNDO_BRANCO}
@@ -2182,27 +2469,66 @@ TIPO DE IMAGEM: {tipo}
 """
     elif eh_ambientacao:
         # Tipo 8: ambientação realista — SEM texto (exceto "Imagem meramente ilustrativa")
+        # ── AMBIENTAÇÃO: a cena é deduzida do produto, não escolhida de uma lista
+        #
+        # O que estava aqui: "escritório, quarto de estudos, sala de estar, mesa
+        # de trabalho" + "tons neutros" + "iluminação natural suave". Três
+        # problemas de uma vez:
+        #
+        #   a lista de ambientes é semanticamente errada para metade dos
+        #   produtos — um marcador de taça não pertence a estante de livros;
+        #
+        #   "tons neutros" e "luz natural suave" achatam todo produto na mesma
+        #   cena clara e bege, e proíbem a cena escura da caixa de relógios que
+        #   o dono mostrou como referência;
+        #
+        #   "ZERO TEXTO" seguido de "escreva Imagem meramente ilustrativa" é
+        #   uma contradição, e contradição em prompt é brecha: o modelo resolve
+        #   escrevendo mais coisa.
         PADRAO_VISUAL_AMBIENTACAO = """
-PADRÃO VISUAL PARA AMBIENTAÇÃO REALISTA — REGRA ABSOLUTA:
-- Cena editorial aspiracional com produto integrado ao ambiente natural de uso
-- Use o contexto do produto para escolher o ambiente: escritório, quarto de estudos,
-  sala de estar, mesa de trabalho, ou outro ambiente adequado ao produto específico
-- Iluminação natural suave, tons neutros, composição elegante
-- PROIBIÇÃO DE TEXTO: NENHUM título, headline, benefício, ícone, legenda ou elemento
-  gráfico. APENAS a frase discreta "Imagem meramente ilustrativa" no canto inferior
-  em tipografia fina e sem destaque. Nada mais escrito.
-- Tom de revista de decoração/lifestyle — foto editorial, não peça de marketing
-- NUNCA adicione pessoas, modelos ou figuras humanas nesta imagem
+DIREÇÃO DE ARTE ADAPTATIVA — A CENA É DEDUZIDA DESTE PRODUTO:
+- Analise primeiro as fotos e os dados. ANTES de compor, decida qual contexto,
+  atmosfera, paleta e iluminação valorizam ESTE produto.
+- NÃO existe ambiente, paleta, material ou luz padrão. Nada de lista fixa de
+  cômodos: deduza o lugar onde este produto é de fato usado, e por quem.
+- Raciocínio de exemplo, para NÃO copiar literalmente: produto claro e
+  delicado, ligado a casamento ou presente, pede madeira clara, tecidos
+  suaves, flores discretas e luz difusa; acessório preto e premium pede
+  madeira escura, pedra, couro, metal quente e luz dramática; produto pequeno
+  e colorido pede fundo claro e pequenos elementos nas cores dele.
+- Escolha props com relação direta ao uso, ao comprador ou à ocasião. Nada de
+  objeto decorativo genérico só para preencher espaço.
+- A cena tem de parecer feita para ESTE produto. Produtos diferentes devem
+  resultar em cenários claramente diferentes.
+- Integre o produto fotograficamente: sombra de contato, perspectiva coerente,
+  profundidade real. O resultado é fotografia comercial — não produto
+  recortado sobre um fundo.
+- A luz do cenário pode mudar; a cor percebida do produto, não.
+
+REGRA DE TEXTO — EXCEÇÃO ÚNICA E EXPLÍCITA:
+- Não gere título, headline, benefício, legenda, selo, marca, logotipo, ícone
+  com texto, número ou palavra decorativa.
+- A ÚNICA sequência de caracteres permitida na imagem inteira é:
+  "Imagem meramente ilustrativa"
+- Renderize essa frase UMA vez, discreta, no rodapé, pequena e legível. Ela não
+  vira selo, headline nem elemento promocional.
+- Os objetos do cenário não podem ter texto legível: livro, embalagem, tela,
+  etiqueta e demais props aparecem sem inscrição.
+- Nenhuma outra letra ou número em qualquer parte da imagem.
+
+- Sem pessoas nem figuras humanas nesta imagem.
 """
+
         return f"""MS_FUNDO: ambiente
 {contexto_produto}
 TIPO DE IMAGEM: {tipo}
 {base}
 {bloco_plano_triagem}
-{bloco_contexto_interno}
+{bloco_contexto_interno}{bloco_ambientacao}
 {bloco_refs}
 
 {PADRAO_VISUAL_AMBIENTACAO}
+{INSTRUCAO_PROTAGONISMO}
 {INSTRUCAO_FIDELIDADE}
 {INSTRUCAO_PROPORCAO}
 {INSTRUCAO_COMPOSICAO}
@@ -2215,10 +2541,11 @@ TIPO DE IMAGEM: {tipo}
 TIPO DE IMAGEM: {tipo}
 {base}
 {bloco_plano_triagem}
-{bloco_contexto_interno}
+{bloco_contexto_interno}{bloco_ambientacao}
 {bloco_refs}
 
 {PADRAO_VISUAL}
+{INSTRUCAO_PROTAGONISMO}
 {INSTRUCAO_LAYOUT_MARKETING}
 {INSTRUCAO_FIDELIDADE}
 {INSTRUCAO_PROPORCAO}
@@ -2280,6 +2607,7 @@ def prompt_para_regerar(tipo, instrucoes, dados_descricao, nome_produto):
         refs_layout_nomes=cfg.get("refs_layout_nomes", []),
         instrucao_layout=cfg.get("instrucao_layout", ""),
         plano_triagem=plano_do_tipo(tipo),
+        ambientacao=cfg.get("ambientacao", ""),
     )
 
 
@@ -3456,33 +3784,54 @@ def pagina_imagem(usuario_logado):
         pass
 
     with st.expander("🔧 Diagnóstico das APIs de Imagem", expanded=False):
-        st.caption("Testa OpenAI gpt-image-2 (motor primário) e Gemini Flash (fallback) para confirmar que estão funcionando.")
+        st.caption("Testa o motor primário da OpenAI e Gemini Flash (fallback) para confirmar que estão funcionando.")
         if st.button("Testar APIs agora", key="btn_diag_gemini"):
             # Testa OpenAI
             _oai_key = _get_openai_api_key()
             if _oai_key:
-                with st.spinner("Testando OpenAI gpt-image-2..."):
+                _modelo = modelo_de_imagem()
+                # O QUE A CONTA TEM, DITO ANTES DO TESTE.
+                #
+                # Era esta a pergunta que faltava: o Studio insistia num nome
+                # inventado e a tela mostrava "404", um número que não diz a
+                # ninguém o que fazer. Agora a lista vem junto, e escolher o
+                # certo deixa de depender de alguém adivinhar.
+                _disp = modelos_de_imagem_da_conta()
+                if _disp:
+                    st.caption("Modelos de imagem desta conta: "
+                               + ", ".join(_disp[:8])
+                               + f"  ·  em uso: **{_modelo}**")
+                    if _modelo not in _disp:
+                        st.error(
+                            f"O modelo em uso (**{_modelo}**) NÃO está na "
+                            f"conta. Configure `OPENAI_MODELO_IMAGEM` no "
+                            f"Railway com um da lista acima — ou deixe como "
+                            f"está: o Studio troca sozinho na primeira falha.")
+                else:
+                    st.caption("Não consegui listar os modelos desta conta.")
+                with st.spinner(f"Testando {_modelo}…"):
                     import time as _td
                     _t0_oai = _td.time()
                     try:
                         from openai import OpenAI as _OAITest
                         _oai_client = _OAITest(api_key=_oai_key)
                         _oai_resp = _oai_client.images.generate(
-                            model="gpt-image-2",
+                            model=_modelo,
                             prompt="A small red circle on white background, minimal.",
                             n=1, size="1024x1024", quality="low",
                         )
                         _oai_ms = int((_td.time() - _t0_oai) * 1000)
                         _oai_img = getattr(_oai_resp.data[0], "b64_json", None) or getattr(_oai_resp.data[0], "url", None)
                         if _oai_img:
-                            st.success(f"✅ **gpt-image-2** — gerou imagem ({_oai_ms}ms)")
+                            st.success(f"✅ **{_modelo}** — gerou imagem ({_oai_ms}ms)")
                         else:
-                            st.warning(f"⚠️ **gpt-image-2** — sem imagem na resposta ({_oai_ms}ms)")
+                            st.warning(f"⚠️ **{_modelo}** — sem imagem na resposta ({_oai_ms}ms)")
                     except Exception as _e_oai:
                         _oai_ms = int((_td.time() - _t0_oai) * 1000)
-                        st.error(f"❌ **gpt-image-2** — {str(_e_oai)[:300]} ({_oai_ms}ms)")
+                        st.error(f"❌ **{_modelo}** — {str(_e_oai)[:300]} ({_oai_ms}ms)")
             else:
-                st.warning("⚠️ **gpt-image-2** — OPENAI_API_KEY não configurada nas secrets do Railway.")
+                st.warning("⚠️ **Motor primário** — OPENAI_API_KEY não configurada nas "
+                           "variáveis do Railway.")
 
             # Testa Gemini
             with st.spinner(f"Testando {MODELO_DIAG} via Gemini API (pode levar ~30s)..."):
@@ -3991,6 +4340,7 @@ def pagina_imagem(usuario_logado):
                 placeholder="ex: título 'Guarda suas memórias com estilo', 3 benefícios: durabilidade, capa dura, folhas pretas...",
             )
             tipos_selecionados = [tipo_unico]
+            ambientacao = _campo_ambientacao("unico")
 
         elif modo == "Selecionar":
             tipos_selecionados = st.multiselect(
@@ -4005,6 +4355,7 @@ def pagina_imagem(usuario_logado):
                 placeholder="ex: produto tem versão preta e branca, foca nos dois no fundo branco",
                 key="img_instr_multi",
             )
+            ambientacao = _campo_ambientacao("multi")
 
         else:  # todas as do padrão
             tipos_selecionados = TIPOS_PADRAO
@@ -4019,6 +4370,7 @@ def pagina_imagem(usuario_logado):
                             "Rotação de 360°. Base estável. Ideal para presente.",
                 key="img_instr_lote",
             )
+            ambientacao = _campo_ambientacao("lote")
 
         # ── BOTÃO DE TRIAGEM ──────────────────────────────────────────────────
         st.markdown("---")
@@ -4046,7 +4398,7 @@ def pagina_imagem(usuario_logado):
                     )
 
                 # A triagem e um PLANEJAMENTO, nao um pre-requisito tecnico: ela
-                # roda no Claude, enquanto as imagens saem no gpt-image-2 ou no
+                # roda no Claude, enquanto as imagens saem no motor primário ou no
                 # Gemini. Fazer a falha dela travar tudo significa que uma conta
                 # sem saldo em UM fornecedor derruba o Studio inteiro — foi o que
                 # aconteceu em producao com "credit balance is too low".
@@ -4087,6 +4439,12 @@ def pagina_imagem(usuario_logado):
                         "codigo": codigo_input,
                         "tipos": tipos_selecionados,
                         "instrucoes_extras": instrucoes_extras,
+                        # Viaja no cfg como o resto: sem isto, o botão de
+                        # regerar e o chat montariam o prompt SEM a ambientação
+                        # e a peça refeita sairia diferente da que nasceu —
+                        # que é exatamente o defeito que `prompt_para_regerar`
+                        # existe para não deixar acontecer.
+                        "ambientacao": ambientacao,
                         "fotos_bytes": fotos_bytes,
                         "dados_descricao": dados_descricao,
                         # Referências de layout (opcional)
@@ -4350,6 +4708,7 @@ def pagina_imagem(usuario_logado):
                             instrucao_layout=cfg.get("instrucao_layout", ""),
                             plano_triagem=(_plano_por_tipo.get(tipo)
                                            or plano_do_tipo(tipo)),
+                            ambientacao=cfg.get("ambientacao", ""),
                         )
                         # ── Geração em thread separada ──────────────────────────
                         # Mantém o WebSocket vivo durante a chamada Gemini (30-60s)
@@ -5314,15 +5673,15 @@ if __name__ == "__main__":
         if erro_primario:
             return None, (f"{motivo}\n\n**E o motor primário falhou antes:** "
                           f"{erro_primario}")
-        return None, (f"{motivo}\n\nO motor primário (gpt-image-2) também não "
+        return None, (f"{motivo}\n\nO motor primário de imagem também não "
                       "entregou nesta tentativa.")
 
-    _, _t = _falha_simulada("OpenAI gpt-image-2: sem saldo", "Erro HTTP 402")
+    _, _t = _falha_simulada("OpenAI: sem saldo", "Erro HTTP 402")
     ok("a mensagem do reserva leva junto o erro do primario",
        "motor primário falhou antes" in _t and "sem saldo" in _t)
     _, _t = _falha_simulada("", "Erro HTTP 402")
     ok("e sem erro do primario ela ainda fala dele",
-       "gpt-image-2" in _t)
+       "motor primário" in _t)
 
     # ── A OpenAI nao engole mais o motivo terminal ───────────────────────────
     ok("saldo da OpenAI e terminal — nao adianta tentar os outros endpoints",
@@ -5331,6 +5690,166 @@ if __name__ == "__main__":
        _erro_openai_terminal(Exception("invalid_api_key")) != "")
     ok("erro passageiro nao e terminal — segue para a proxima tentativa",
        _erro_openai_terminal(Exception("Connection reset by peer")) == "")
+
+    # ── O MODELO DE IMAGEM: o defeito que derrubou a geracao inteira ─────
+    #
+    # `gpt-image-2` nao existe. Estava escrito a mao em CINCO lugares, dava
+    # 404 em toda chamada, o primario nunca gerava, e tudo caia no Gemini —
+    # que nao aceita size nem input_fidelity. Dai "imagens extremamente
+    # pequenas" e "fotos com margens laterais" na mesma tela.
+    ok("o padrao e um modelo que existe",
+       MODELO_IMAGEM_PADRAO == "gpt-image-2.5-sunburst")
+    ok("e o nome antigo nao esta mais em lugar nenhum",
+       "gpt-image-2" not in MODELOS_IMAGEM_CONHECIDOS)
+
+    _env_mod = os.environ.get("OPENAI_MODELO_IMAGEM")
+    _desc_antes = _MODELO_DESCOBERTO["nome"]
+    _MODELO_DESCOBERTO["nome"] = None
+    os.environ.pop("OPENAI_MODELO_IMAGEM", None)
+    ok("sem nada configurado, vale o padrao",
+       modelo_de_imagem() == MODELO_IMAGEM_PADRAO)
+
+    # O descoberto em execucao vale mais que o padrao: e ele que existe DE FATO
+    # na conta, e o padrao e so o palpite bom.
+    _MODELO_DESCOBERTO["nome"] = "gpt-image-9-novo"
+    ok("o descoberto na conta manda no padrao",
+       modelo_de_imagem() == "gpt-image-9-novo")
+
+    # E a variavel do Railway manda em todos: trocar de modelo nao pode ser
+    # deploy.
+    os.environ["OPENAI_MODELO_IMAGEM"] = "gpt-image-2.5-flare"
+    ok("e a variavel do Railway manda em todos",
+       modelo_de_imagem() == "gpt-image-2.5-flare")
+    os.environ.pop("OPENAI_MODELO_IMAGEM", None)
+    _MODELO_DESCOBERTO["nome"] = _desc_antes
+    if _env_mod:
+        os.environ["OPENAI_MODELO_IMAGEM"] = _env_mod
+
+    # Reconhecer "esse modelo nao existe" e o que dispara a redescoberta. Se
+    # esta funcao errar, o Studio volta a insistir num nome inventado.
+    ok("404 de modelo inexistente e reconhecido",
+       _modelo_nao_existe(Exception(
+           "Error code: 404 - {'error': {'message': \"The model "
+           "'gpt-image-2' does not exist or you do not have access to it.\", "
+           "'code': 'model_not_found'}}")) is True)
+    ok("pelo codigo tambem", _modelo_nao_existe(Exception("model_not_found")))
+    ok("falta de saldo NAO e modelo inexistente",
+       _modelo_nao_existe(Exception("insufficient_quota")) is False)
+    ok("nem queda de rede",
+       _modelo_nao_existe(Exception("Connection reset by peer")) is False)
+
+    # A lista da conta poe os conhecidos na frente, na ordem de capacidade —
+    # e nao descarta o que nao conhece, senao um modelo novo ficaria invisivel.
+    class _FakeModelos:
+        def list(self):
+            class _M:
+                def __init__(self, i):
+                    self.id = i
+            return [_M("gpt-4o"), _M("gpt-image-2.5-flare"),
+                    _M("gpt-image-3-futuro"), _M("gpt-image-2.5-sunburst"),
+                    _M("whisper-1")]
+
+    class _FakeCliente:
+        models = _FakeModelos()
+
+    _achados = modelos_de_imagem_da_conta(_FakeCliente())
+    ok("so os modelos de imagem entram",
+       all("image" in m for m in _achados))
+    ok("o mais capaz vem primeiro",
+       _achados[0] == "gpt-image-2.5-sunburst")
+    ok("e o modelo novo, que o codigo nao conhece, NAO fica invisivel",
+       "gpt-image-3-futuro" in _achados)
+    ok("conta que nao responde nao derruba nada",
+       modelos_de_imagem_da_conta(object()) == [])
+
+    # ── A DIRECAO DE ARTE DEIXOU DE SER AZUL FIXO ────────────────────────
+    #
+    # "Fundo: #E8EEF5" e "NAO use marrom, laranja, vermelho ou verde" em toda
+    # peca de todo produto. Era essa regra que proibia a cena da caixa de
+    # relogios — nogueira e dourado sao marrom e laranja — e achatava os tres
+    # produtos de referencia na mesma cara azul.
+    ok("a paleta fixa saiu do padrao visual",
+       "#E8EEF5" not in PADRAO_VISUAL and "#1A3A6B" not in PADRAO_VISUAL)
+    ok("e a proibicao de marrom e laranja tambem",
+       "marrom" not in PADRAO_VISUAL.lower())
+    ok("a identidade fixa continua: tipografia",
+       "Montserrat" in PADRAO_VISUAL)
+    ok("e a trava do produto continua",
+       "NUNCA É RECOLORIDO" in PADRAO_VISUAL)
+
+    # O produto e o destaque, e isso virou numero — "o maior possivel" e
+    # opiniao, e o modelo tem a dele.
+    ok("a ocupacao e medida, com e sem texto",
+       "55% a 70%" in INSTRUCAO_PROTAGONISMO
+       and "65% a 80%" in INSTRUCAO_PROTAGONISMO)
+    ok("e a ordem de montagem esta dita",
+       "PRIMEIRO" in INSTRUCAO_PROTAGONISMO)
+    ok("o fundo desfocado tem lugar",
+       "desfocado" in INSTRUCAO_PROTAGONISMO)
+
+    # ── A AMBIENTACAO DO COLABORADOR: tema, e nao roteiro ────────────────
+    _DADOS_T = {"nome_comercial": "Marcador de Taça", "material": "Acrílico"}
+    _sem = montar_prompt_imagem("8 — Ambientação realista (sem texto)", "",
+                                _DADOS_T, "Marcador de Taça")
+    ok("sem ambientacao, o prompt nao inventa bloco nenhum",
+       "AMBIENTAÇÃO PEDIDA" not in _sem)
+
+    _com = montar_prompt_imagem("8 — Ambientação realista (sem texto)", "",
+                                _DADOS_T, "Marcador de Taça",
+                                ambientacao="jantar entre amigos, mesa posta")
+    ok("com ambientacao, o texto do colaborador chega inteiro",
+       "jantar entre amigos, mesa posta" in _com)
+    ok("e chega como TEMA, mandando variar a cena",
+       "NÃO repita a mesma cena" in _com)
+    ok("espaco em branco nao vira bloco",
+       "AMBIENTAÇÃO PEDIDA" not in montar_prompt_imagem(
+           "8 — Ambientação realista (sem texto)", "", _DADOS_T, "x",
+           ambientacao="   "))
+
+    # A contradicao do tipo 8: "ZERO TEXTO" seguido de "escreva esta frase".
+    # Contradicao em prompt e brecha: o modelo resolve escrevendo mais coisa.
+    ok("o tipo 8 nao diz mais ZERO TEXTO e depois manda escrever",
+       "ZERO TEXTO" not in _sem)
+    ok("e a excecao esta dita como excecao unica",
+       "EXCEÇÃO ÚNICA" in _sem and "Imagem meramente ilustrativa" in _sem)
+
+    # A lista fixa de comodos era semanticamente errada para metade dos
+    # produtos: marcador de taca nao pertence a estante de livros.
+    ok("a lista fixa de ambientes saiu",
+       "quarto de estudos" not in _sem.split("PADRÃO VISUAL")[0]
+       or "NÃO existe ambiente" in _sem)
+
+    # O protagonismo vale nos tipos COM texto tambem, e nao so na ambientacao.
+    _t2 = montar_prompt_imagem("2 — Benefícios do produto", "", _DADOS_T, "x")
+    ok("o protagonismo entra tambem nas pecas com texto",
+       "O PRODUTO É O DESTAQUE" in _t2)
+    ok("e a direcao de arte adaptativa tambem",
+       "DIREÇÃO DE ARTE ADAPTATIVA" in _t2)
+
+    # A VARREDURA, porque a correcao ficou num caminho so TRES vezes seguidas.
+    #
+    # Trocar a paleta no PADRAO_VISUAL e deixar "#E8EEF5" no preset do tipo 2,
+    # no preset do 7 e no bloco em ingles de gerar_imagem_ia seria mandar ao
+    # modelo a regra nova e a ordem contraria na MESMA mensagem. Este caso
+    # reprova qualquer cor de marca que volte a ser escrita como obrigatoria,
+    # em qualquer um dos oito tipos.
+    import re as _re_cor
+    _cores_fixas = ("#E8EEF5", "#1A3A6B", "#4A7EC7")
+    _com_cor = []
+    for _t in TIPOS_PADRAO:
+        _p = montar_prompt_imagem(_t, "", _DADOS_T, "x")
+        for _c in _cores_fixas:
+            if _c in _p:
+                _com_cor.append(f"{_t}: {_c}")
+    ok("nenhum tipo manda mais cor de marca fixa (%s)" % (_com_cor or "limpo"),
+       _com_cor == [])
+
+    # O branco da capa CONTINUA obrigatorio: ele nao e cor de marca, e
+    # exigencia de marketplace. Soltar a cor nao pode soltar isso junto.
+    _capa = montar_prompt_imagem("1 — Capa do anúncio (fundo branco)", "",
+                                 _DADOS_T, "x")
+    ok("mas o fundo branco da capa continua de pe",
+       "branco" in _capa.lower())
     for _k, _v in _env_antes.items():
         if _v:
             os.environ[_k] = _v
