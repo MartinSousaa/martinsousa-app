@@ -636,3 +636,56 @@ feito**: com o primário de volta, o reserva deixa de ser o caminho normal, e o
 remendo pode esperar a próxima vez que ele for usado de verdade.
 
 18 casos novos de conferência.
+
+---
+
+## Direção de arte adaptativa: a paleta azul fixa saiu  ·  21/09/2026 — PRONTO
+
+Em `homologacao`, **não subiu**. Mexe na cara de todo anúncio; ele quis ver antes.
+
+### A decisão dele
+
+> "o azul deixa de ser obrigatório sim (…) o destaque é e sempre será O PRODUTO
+> (…) em diversos momentos o fundo precisa estar desfocado (…) ele não deve
+> manter o mesmo padrão de ambientação em todas as fotos, o ideal é ir mudando
+> sem fugir do tema"
+
+### O que estava travando
+
+`imagem.py` fixava `#E8EEF5` / `#1A3A6B` / `#4A7EC7` e proibia **marrom,
+laranja, vermelho e verde** em todas as peças. Isso proibia literalmente a cena
+da caixa de relógios que ele mostrou como referência — nogueira e dourado são
+marrom e laranja — e achatava os três produtos de referência na mesma cara
+azul.
+
+### O que passou a valer
+
+| | |
+|---|---|
+| Identidade da loja | Tipografia, ícones, cards, hierarquia, espaçamento — **não a cor** |
+| Direção de arte | **Deduzida do produto**: cor, material, categoria, ocasião |
+| Protagonismo | **55–70%** do quadro com texto, **65–80%** sem. Produto enquadrado primeiro |
+| Fundo desfocado | Quando cenário ou texto competirem com o produto |
+| **Campo Ambientação** | Opcional. É TEMA, não roteiro: a cena varia entre as 8 sem sair do universo |
+| Tipo 8 | A contradição "ZERO TEXTO + escreva esta frase" virou exceção única e explícita |
+| Gemini | Passa a pedir `responseFormat.image.aspectRatio: "1:1"`, e **repete sem o campo** se a API recusar |
+| Preenchimento de faixa | Continua como último recurso, mas **aparece no diagnóstico da tela** — antes só existia no log do Railway |
+
+### A correção ficou num caminho só TRÊS vezes, e por isso há uma varredura
+
+Trocar a paleta no `PADRAO_VISUAL` e deixar `#E8EEF5` no preset do tipo 2, no
+do 7 e no bloco em inglês de `gerar_imagem_ia` seria mandar ao modelo a regra
+nova e a ordem contrária **na mesma mensagem**. Um caso de conferência monta os
+8 prompts e reprova qualquer cor de marca que volte a aparecer como
+obrigatória.
+
+**O branco da capa continua de pé** — ele não é cor de marca, é exigência de
+marketplace. Soltar a cor não podia soltar isso junto, e há caso para isso.
+
+### O que falta para ver o resultado
+
+O motor. Com o Gemini, sem `input_fidelity`, o álbum marfim volta bege. A
+correção do nome do modelo (`gpt-image-2.5-sunburst`) está no mesmo branch e
+precisa subir junto — sem ela, nada disto aparece.
+
+21 casos novos de conferência.
