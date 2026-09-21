@@ -264,3 +264,82 @@ API, que o dono ainda não tem — todas as linhas dele já usam WhatsApp comum.
 
 **Enquanto isso.** O cadastro em lote na tela já resolve o trabalho repetido, e
 a leitura do canhoto pode entrar primeiro por upload, sem depender da Meta.
+
+---
+
+## Triagem: editar, apagar e barrar o nome repetido  ·  21/09/2026
+
+Pedido do dono, em stand-by: **sobe junto com a próxima autorização.**
+
+### O que ele pediu
+
+1. Editar uma triagem já salva — hoje corrigir um erro cria uma triagem nova.
+2. Selecionar uma triagem e apagá-la.
+3. Barrar o cadastro quando já existe triagem com aquele nome, e avisar.
+
+### O que o código faz hoje
+
+| Onde | O que está lá |
+|---|---|
+| `triagem.py:118` `salvar_triagem` | Só `append_row` (linha 135). **Não existe nenhum caminho de UPDATE no módulo.** |
+| `triagem.py:358` `_limpar_form_triagem` | Roda depois de salvar; o formulário sempre nasce vazio. Editar hoje = redigitar tudo e gerar linha nova. |
+| `triagem.py` inteiro | Nenhum `delete_rows`. **Apagar não existe.** (`cheques.py` e `meta_gastos.py` já têm o padrão pronto.) |
+| `triagem.py:13` `COLUNAS` | 14 colunas, **nenhuma é identificador**. Nada identifica uma linha. |
+
+### O item 3 tem um problema, e ele precisa decidir
+
+**Nome repetido é recurso, não defeito.** `_chave_variante` (`triagem.py:165`)
+identifica a variante por **nome + medidas + peso + cores**, e
+`buscar_triagens_por_trecho` (`triagem.py:176`) devolve uma entrada por
+variante — é o que faz `widget_seletor_produto` mostrar as opções ao
+colaborador. O exemplo está escrito no próprio código (`triagem.py:182`):
+*"Caixa de relógio 5 posições" vs "10 posições"*.
+
+Barrar por nome **acaba com isso**: as duas caixas deixam de poder existir.
+
+**A regra que resolve o problema dele sem quebrar a variante:**
+
+- Repetiu a **chave inteira** (nome + medidas + peso + cores) → barra. É
+  duplicata de verdade.
+- Repetiu **só o nome**, com specs diferentes → não barra; mostra as que já
+  existem e pergunta: *"é outra variante ou você quer editar aquela?"* — com o
+  botão de editar ao lado.
+
+### O que falta existir antes: um identificador
+
+Para editar ou apagar é preciso saber **qual linha**. Duas saídas:
+
+- **(a) Coluna `id` nova (uuid).** É o padrão que `cheques.py` já usa (a FOLHA é
+  a identidade). Estável mesmo se alguém mexer na planilha à mão.
+- **(b) Número da linha na planilha.** **Frágil** — `carregar_triagens` é
+  `@st.cache_data(ttl=600)` e `get_all_records` não devolve o número da linha;
+  se alguém apagar uma linha direto na planilha, o índice cacheado passa a
+  apontar para outra. É a mesma classe de defeito de "escolher o item pelo
+  texto da tela", que já custou caro nesta base.
+
+**Recomendação: (a).**
+
+### O estrago a mapear antes de aplicar (Regra 3)
+
+- **Quem consome a triagem:** `imagem.py:3621`, `descricao.py:451`,
+  `tit_ml.py:116`, `palavras_chave.py:133`, `video.py:222`,
+  `ferramentas_chat.py:186`. Apagar uma triagem tira a fonte de dados desses
+  seis — aceitável se for duplicata, não se for a boa.
+- **O cache.** Editar e apagar têm que chamar `carregar_triagens.clear()`,
+  como `salvar_triagem` já faz (`triagem.py:136`). Sem isso a tela mostra o
+  antigo por 10 minutos e o colaborador edita de novo.
+- **`data_hora` decide quem é "a mais recente":** `buscar_triagem_por_nome`
+  pega `.iloc[-1]` (`triagem.py:221`) e `buscar_triagens_por_trecho` faz
+  `keep="last"` (`triagem.py:197`). **Editar NÃO pode atualizar `data_hora`** —
+  senão corrigir uma variante velha faz ela pular na frente da nova.
+
+### Um defeito achado no caminho, que não é do pedido
+
+`triagem.py:193` — `filtradas.sort_values("data_hora")` ordena **texto**, não
+data: `data_hora` é gravada como `"%d/%m/%Y %H:%M"` (`triagem.py:128`). Em
+string, `"31/12/2025"` vem depois de `"01/01/2026"`, porque compara o dia
+primeiro. Ou seja: **a "mais recente" de cada variante pode ser a mais antiga**,
+e vira mês. Conserto: converter para data antes de ordenar
+(`pd.to_datetime(..., format="%d/%m/%Y %H:%M", errors="coerce")`).
+
+Vale corrigir junto — é a mesma função que a edição vai mexer.
