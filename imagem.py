@@ -784,6 +784,36 @@ def _descrever_produto_via_claude(imagens_referencia, nome_produto="produto", da
     return descricao_produto, estilo_layout
 
 
+# Quando a resposta do gerador significa DINHEIRO ACABANDO, e não sorte.
+#
+# Só o 429 era tratado como cota. O 402 — que é o que o Google devolve quando o
+# SALDO PRÉ-PAGO zera, e não a cota por minuto — passava direto pelo
+# `return resp, None` como se fosse resposta boa, e chegava à tela como
+# "Erro HTTP 402: Your prepayment credits are depleted", sem dizer que o que
+# faltava era saldo. Tentar de novo nunca resolve este caso.
+_HTTP_SEM_CREDITO = (402,)  # Payment Required — saldo zerado, jamais transitório
+_PALAVRAS_DE_COTA = (
+    "quota", "exhausted", "resource_exhausted", "billing", "credit",
+    "prepayment", "depleted", "insufficient", "saldo",
+)
+
+
+def _resposta_sem_credito(status, mensagem="", estado=""):
+    """A resposta do gerador é 'acabou o crédito'? Vale para qualquer motor.
+
+    O que muda entre motores é o código e o texto; a consequência é a mesma —
+    repetir a chamada não traz imagem, e quem lê a tela precisa saber que o que
+    falta é saldo. Um 429 sem nenhuma dessas palavras continua sendo lentidão,
+    e continua valendo a pena repetir.
+    """
+    if status in _HTTP_SEM_CREDITO:
+        return True
+    if estado == "RESOURCE_EXHAUSTED":
+        return True
+    texto = (mensagem or "").lower()
+    return any(p in texto for p in _PALAVRAS_DE_COTA)
+
+
 def _chamar_gemini_geracao_texto(prompt_final, imagens_bytes=None, ref_layout=None):
     """Chama Gemini Flash Image COM as fotos do produto como referência visual.
 
@@ -853,15 +883,23 @@ def _chamar_gemini_geracao_texto(prompt_final, imagens_bytes=None, ref_layout=No
                 except Exception:
                     _msg = resp.text[:300]
                     _st = ""
-                _cota = any(k in _msg.lower() for k in [
-                    "quota", "exhausted", "resource_exhausted", "billing",
-                ]) or _st == "RESOURCE_EXHAUSTED"
-                if _cota:
+                if _resposta_sem_credito(429, _msg, _st):
                     return None, f"COTA_ESGOTADA:{_msg[:200]}"
                 if tentativa >= MAX_TENTATIVAS:
                     return None, f"HTTP 429: {_msg[:200]}"
                 _time.sleep(60)
                 continue
+            if resp.status_code != 200:
+                # QUALQUER não-200 pode ser falta de crédito, não só o 429 —
+                # e era exatamente aqui que o 402 escapava.
+                try:
+                    _ej = resp.json()
+                    _msg = _ej.get("error", {}).get("message", "") or resp.text[:300]
+                    _st = _ej.get("error", {}).get("status", "")
+                except Exception:
+                    _msg, _st = resp.text[:300], ""
+                if _resposta_sem_credito(resp.status_code, _msg, _st):
+                    return None, f"COTA_ESGOTADA:HTTP {resp.status_code} — {_msg[:200]}"
             return resp, None
         except Exception as e:
             if tentativa >= MAX_TENTATIVAS:
@@ -1147,6 +1185,29 @@ def _data_url(img_bytes):
     return f"data:{mime};base64,{base64.b64encode(dados).decode('utf-8')}"
 
 
+# Falha da OpenAI que as OUTRAS tentativas não resolvem.
+#
+# `_chamar_openai_geracao` tenta três endpoints em sequência e as duas
+# primeiras tentativas mandavam o motivo só para o stderr do Railway. Quando o
+# motivo é saldo, chave ou acesso ao modelo, as três falham igual — e o que
+# sobrava na tela era a mensagem genérica da terceira, enquanto a causa real
+# ficava num log que ninguém abre. Se é terminal, o motivo sobe na hora.
+_OPENAI_TERMINAL = (
+    "insufficient_quota", "billing", "quota", "credit", "exceeded your current",
+    "invalid_api_key", "incorrect api key", "authentication", "401",
+    "does not have access to model", "model_not_found",
+)
+
+
+def _erro_openai_terminal(excecao):
+    """O texto do erro quando repetir não adianta; "" quando vale tentar o próximo."""
+    texto = str(excecao)
+    baixo = texto.lower()
+    if any(p in baixo for p in _OPENAI_TERMINAL):
+        return texto[:300]
+    return ""
+
+
 def _chamar_openai_geracao(prompt_final, imagens_bytes=None, ref_layout=None,
                            ref_layout_nome="", diagnostico=None):
     """Chama gpt-image-2 da OpenAI (motor primário de geração). Retorna (img_bytes, erro).
@@ -1219,6 +1280,9 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None, ref_layout=None,
                 import sys as _sys
                 print(f"[DEBUG gpt-image-2] tools recusado ({str(_e_tool)[:120]}) — "
                       "tentando images.edit", file=_sys.stderr)
+                _term = _erro_openai_terminal(_e_tool)
+                if _term:
+                    return None, f"Erro OpenAI gpt-image-2: {_term}"
 
             # Tentativa 2: endpoint de edição — aceita as fotos como referência e,
             # diferente da Responses API, size e input_fidelity são parâmetros
@@ -1256,6 +1320,9 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None, ref_layout=None,
                 import sys as _sys
                 print(f"[DEBUG gpt-image-2] images.edit recusado ({str(_e_edit)[:120]}) — "
                       "usando chamada simples", file=_sys.stderr)
+                _term = _erro_openai_terminal(_e_edit)
+                if _term:
+                    return None, f"Erro OpenAI gpt-image-2: {_term}"
 
             resp = client.responses.create(model="gpt-image-2", input=entrada)
             img = _extrair(resp)
@@ -1689,6 +1756,31 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
         if erro_primario:
             diagnostico["erro_openai"] = erro_primario
 
+    def _falha(motivo, cota=False):
+        """A ÚNICA saída de erro da geração — e ela SEMPRE diz dos dois motores.
+
+        Havia seis `return None, ...` no bloco abaixo e só dois carregavam
+        `erro_primario`. Foi assim que a tela mostrou oito vezes "Erro HTTP 402"
+        do RESERVA sem uma palavra sobre o primário, que é quem devia ter
+        gerado — e o dono ficou sem a única informação que explicava o resto:
+        por que o reserva estava em campo.
+
+        Corrigir a linha que apareceu não resolve: o defeito é uma função com
+        várias saídas de erro, onde consertar uma deixa as outras. Por isso a
+        montagem da mensagem mora aqui, e não em cada `return`.
+        """
+        if cota:
+            motivo = (
+                "⛔ Cota ou créditos da GEMINI_API_KEY esgotados. Crie uma nova "
+                "chave em aistudio.google.com/apikey vinculada ao projeto GCP e "
+                f"atualize GEMINI_API_KEY no Railway. Detalhe: {motivo[:200]}"
+            )
+        if erro_primario:
+            return None, (f"{motivo}\n\n**E o motor primário falhou antes:** "
+                          f"{erro_primario}")
+        return None, (f"{motivo}\n\nO motor primário (gpt-image-2) também não "
+                      "entregou nesta tentativa.")
+
     # 5. Fallback: Gemini texto-apenas
     #
     # ATENCAO: este caminho NAO recebe as fotos do produto — so o texto. O
@@ -1708,36 +1800,28 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
         if erro_fatal:
             msg = erro_fatal.replace("COTA_ESGOTADA:", "")
             if erro_fatal.startswith("COTA_ESGOTADA:"):
-                # O erro do PRIMÁRIO vai junto. Sem ele, a tela dizia só
-                # "créditos do Gemini esgotados" — e a pergunta que sobrava
-                # para o dono era "como acabaram, se ele é o reserva?". A
-                # resposta estava nesta variável, que a mensagem jogava fora.
-                return None, (
-                    "⛔ Cota ou créditos da GEMINI_API_KEY esgotados. "
-                    "Crie uma nova chave em aistudio.google.com/apikey vinculada ao projeto GCP "
-                    f"e atualize GEMINI_API_KEY no Railway. Detalhe: {msg[:200]}"
-                    + (f"\n\n**E o motor primário falhou antes:** {erro_primario}"
-                       if erro_primario else
-                       "\n\nO motor primário (gpt-image-2) também não "
-                       "entregou nesta tentativa.")
-                )
-            erro_fallback = f"Gemini: {msg[:300]}"
-            return None, (f"{erro_primario} | {erro_fallback}" if erro_primario else erro_fallback)
+                return _falha(msg, cota=True)
+            return _falha(f"Gemini: {msg[:300]}")
 
         if resp is None:
-            return None, "Falha ao conectar ao gerador de imagem."
+            return _falha("Falha ao conectar ao gerador de imagem.")
 
         if resp.status_code != 200:
             try:
                 _err = resp.json().get("error", {}).get("message", resp.text[:300])
             except Exception:
                 _err = resp.text[:300]
-            return None, f"Erro HTTP {resp.status_code}: {_err}"
+            # Mesmo com a peneira de crédito já aplicada no motor, este ramo
+            # repete a pergunta: um código novo não pode voltar a virar só
+            # "Erro HTTP nnn" na tela.
+            _sem_credito = _resposta_sem_credito(resp.status_code, _err)
+            return _falha(f"Erro HTTP {resp.status_code}: {_err}"
+                          if not _sem_credito else _err, cota=_sem_credito)
 
         try:
             dados = resp.json()
         except Exception:
-            return None, "Resposta inválida do gerador (não é JSON)."
+            return _falha("Resposta inválida do gerador (não é JSON).")
 
         img_b64 = ""
         for candidate in dados.get("candidates", []):
@@ -1754,9 +1838,10 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
                 _detail = dados.get("error", {}).get("message", "") or str(dados)[:300]
             except Exception:
                 _detail = str(dados)[:300]
-            return None, (
-                f"Gerador não retornou imagem (possível bloqueio ou créditos esgotados). "
-                f"Detalhe: {_detail}"
+            return _falha(
+                "Gerador não retornou imagem (possível bloqueio ou créditos "
+                f"esgotados). Detalhe: {_detail}",
+                cota=_resposta_sem_credito(200, _detail),
             )
 
         img_bytes = base64.b64decode(img_b64)
@@ -5174,6 +5259,78 @@ if __name__ == "__main__":
     ok("sem nenhum dos dois, e erro", _ok_m is False and "Nenhum motor" in _av_m)
     _ok_m, _av_m = _com_chaves("o", "g")
     ok("com os dois, a tela nao avisa a toa", _ok_m is True and _av_m == "")
+
+    # ── "Acabou o credito" reconhecido em qualquer codigo ────────────────────
+    # O 402 do saldo pre-pago zerado passava pelo `return resp, None` como se
+    # fosse resposta boa, e chegava a tela como "Erro HTTP 402".
+    ok("402 e falta de credito, seja qual for o texto",
+       _resposta_sem_credito(402) is True)
+    ok("e a mensagem do Google e reconhecida pelo texto tambem",
+       _resposta_sem_credito(402, "Your prepayment credits are depleted") is True)
+    ok("429 com RESOURCE_EXHAUSTED e cota",
+       _resposta_sem_credito(429, "rate", "RESOURCE_EXHAUSTED") is True)
+    ok("429 com 'quota' no texto e cota",
+       _resposta_sem_credito(429, "You exceeded your current quota") is True)
+    ok("429 sem nada disso continua sendo lentidao — vale repetir",
+       _resposta_sem_credito(429, "Too many requests, slow down") is False)
+    ok("200 limpo nunca e falta de credito",
+       _resposta_sem_credito(200, "tudo certo") is False)
+    ok("403 de faturamento tambem e credito",
+       _resposta_sem_credito(403, "Billing account not configured") is True)
+
+    # ── A saida de erro carrega SEMPRE os dois motores ───────────────────────
+    # Eram seis `return None, ...` e so dois levavam `erro_primario`: a tela
+    # mostrou oito vezes o erro do RESERVA sem dizer nada do primario.
+    import ast as _ast_saida
+    _fonte = open(__file__, encoding="utf-8").read()
+    _arv = _ast_saida.parse(_fonte)
+    _ger = next(n for n in _ast_saida.walk(_arv)
+                if isinstance(n, _ast_saida.FunctionDef) and n.name == "gerar_imagem_ia")
+    _falha_def = next((n for n in _ast_saida.walk(_ger)
+                       if isinstance(n, _ast_saida.FunctionDef) and n.name == "_falha"), None)
+    ok("gerar_imagem_ia tem a saida unica de erro", _falha_def is not None)
+
+    # Nenhum `return None, <texto>` solto sobrou no corpo da geracao — se um
+    # voltar, ele volta escondendo o motor primario de novo.
+    _soltos = []
+    _dentro_da_falha = {id(_x) for _x in _ast_saida.walk(_falha_def)} if _falha_def else set()
+    for _n in _ast_saida.walk(_ger):
+        if not isinstance(_n, _ast_saida.Return) or id(_n) in _dentro_da_falha:
+            continue
+        _v = _n.value
+        if (isinstance(_v, _ast_saida.Tuple) and len(_v.elts) == 2
+                and isinstance(_v.elts[0], _ast_saida.Constant)
+                and _v.elts[0].value is None):
+            _soltos.append(getattr(_n, "lineno", "?"))
+    ok("nenhum return de erro escapa da saida unica (linhas: %s)" % _soltos,
+       _soltos == [])
+
+    # O texto montado nomeia os DOIS motores, com e sem erro do primario.
+    def _falha_simulada(erro_primario, motivo, cota=False):
+        if cota:
+            motivo = ("⛔ Cota ou créditos da GEMINI_API_KEY esgotados. Crie uma nova "
+                      "chave em aistudio.google.com/apikey vinculada ao projeto GCP e "
+                      f"atualize GEMINI_API_KEY no Railway. Detalhe: {motivo[:200]}")
+        if erro_primario:
+            return None, (f"{motivo}\n\n**E o motor primário falhou antes:** "
+                          f"{erro_primario}")
+        return None, (f"{motivo}\n\nO motor primário (gpt-image-2) também não "
+                      "entregou nesta tentativa.")
+
+    _, _t = _falha_simulada("OpenAI gpt-image-2: sem saldo", "Erro HTTP 402")
+    ok("a mensagem do reserva leva junto o erro do primario",
+       "motor primário falhou antes" in _t and "sem saldo" in _t)
+    _, _t = _falha_simulada("", "Erro HTTP 402")
+    ok("e sem erro do primario ela ainda fala dele",
+       "gpt-image-2" in _t)
+
+    # ── A OpenAI nao engole mais o motivo terminal ───────────────────────────
+    ok("saldo da OpenAI e terminal — nao adianta tentar os outros endpoints",
+       _erro_openai_terminal(Exception("Error code: 429 - insufficient_quota")) != "")
+    ok("chave invalida tambem",
+       _erro_openai_terminal(Exception("invalid_api_key")) != "")
+    ok("erro passageiro nao e terminal — segue para a proxima tentativa",
+       _erro_openai_terminal(Exception("Connection reset by peer")) == "")
     for _k, _v in _env_antes.items():
         if _v:
             os.environ[_k] = _v
