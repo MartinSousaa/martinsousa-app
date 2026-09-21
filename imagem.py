@@ -1185,6 +1185,106 @@ def _data_url(img_bytes):
     return f"data:{mime};base64,{base64.b64encode(dados).decode('utf-8')}"
 
 
+# ── O MODELO DE IMAGEM, NUM LUGAR SÓ ────────────────────────────────────────
+#
+# O NOME ESTAVA ERRADO, E ESCRITO À MÃO EM CINCO LUGARES.
+#
+# `gpt-image-2` não existe. Os modelos de imagem da OpenAI são
+# `gpt-image-2.5-sunburst` (o mais capaz) e `gpt-image-2.5-flare` (rápido) —
+# confirmado na documentação, em duas páginas. Toda chamada devolvia
+# `404 model_not_found`, o motor primário nunca gerava nada, e TUDO caía no
+# Gemini: o reserva, que não aceita `size` nem `input_fidelity`.
+#
+# Daí as duas reclamações do dono na mesma tela: "imagens extremamente
+# pequenas" e "fotos com margens laterais". Sem `size=1024x1024`, o Gemini
+# devolve retangular; o enquadramento então preenche as sobras com faixa lisa
+# (imagem.py, passo 6) e o produto encolhe no meio do quadro. Não era o prompt.
+#
+# E O CONSERTO NÃO É TROCAR O NOME NOS CINCO LUGARES.
+#
+# Trocar o nome resolve hoje e reabre no dia em que a OpenAI renomear de novo —
+# que é exatamente o que acabou de acontecer. O defeito é o Studio DEPENDER de
+# um nome que alguém escreveu à mão e que ninguém confere.
+#
+# Então: o nome mora aqui, vem do Railway quando configurado, e quando a conta
+# responde `model_not_found` o Studio PERGUNTA À PRÓPRIA CONTA quais modelos de
+# imagem ela tem e usa o primeiro. Um rename futuro passa a custar uma chamada
+# extra, e não um dia de geração perdida.
+MODELO_IMAGEM_PADRAO = "gpt-image-2.5-sunburst"
+
+# A ordem em que se tenta quando é preciso escolher sozinho: o mais capaz
+# primeiro, porque a fidelidade ao produto é o que o Studio está comprando.
+MODELOS_IMAGEM_CONHECIDOS = ("gpt-image-2.5-sunburst", "gpt-image-2.5-flare")
+
+# Descoberto em execução, quando o nome configurado não existe. Vive no
+# processo: perguntar uma vez por container basta, e uma chamada a cada geração
+# seria custo recorrente para resolver um problema de uma vez só.
+_MODELO_DESCOBERTO = {"nome": None}
+
+
+def modelo_de_imagem():
+    """O modelo que a geração usa. Configurável pelo Railway.
+
+    `OPENAI_MODELO_IMAGEM` manda, depois o que foi descoberto na conta, depois
+    o padrão. O dia em que a OpenAI lançar um modelo melhor, trocar é uma
+    variável — não é deploy.
+    """
+    import chaves as _ch_mod
+    return (_ch_mod.ler("OPENAI_MODELO_IMAGEM")
+            or _MODELO_DESCOBERTO["nome"]
+            or MODELO_IMAGEM_PADRAO)
+
+
+def modelos_de_imagem_da_conta(cliente=None):
+    """Que modelos de imagem ESTA conta tem. [] quando não dá para saber.
+
+    É a pergunta que faltava. Enquanto ninguém a fazia, o Studio insistia num
+    nome inventado e o erro chegava à tela como "404" — um número que não diz
+    a ninguém o que fazer.
+    """
+    try:
+        if cliente is None:
+            from openai import OpenAI as _OAI_list
+            _k = _get_openai_api_key()
+            if not _k:
+                return []
+            cliente = _OAI_list(api_key=_k)
+        nomes = [getattr(m, "id", "") for m in cliente.models.list()]
+    except Exception:
+        return []
+    # "gpt-image" cobre a família inteira sem depender da versão — que é o que
+    # este bloco existe para parar de fazer.
+    achados = sorted(n for n in nomes if "image" in str(n).lower()
+                     and "gpt" in str(n).lower())
+    # Os conhecidos primeiro, na ordem de capacidade; o resto depois.
+    preferidos = [m for m in MODELOS_IMAGEM_CONHECIDOS if m in achados]
+    return preferidos + [a for a in achados if a not in preferidos]
+
+
+def redescobrir_modelo_de_imagem(cliente=None):
+    """A conta não tem o modelo configurado: acha um que ela tenha. "" se não há.
+
+    Chamado SÓ depois de um `model_not_found` — não no caminho normal. Listar
+    modelos a cada geração seria pagar todo dia por um problema que acontece
+    uma vez por rename.
+    """
+    for nome in modelos_de_imagem_da_conta(cliente):
+        _MODELO_DESCOBERTO["nome"] = nome
+        import sys as _sys_desc
+        print(f"[imagem] modelo de imagem redescoberto na conta: {nome}",
+              file=_sys_desc.stderr, flush=True)
+        return nome
+    return ""
+
+
+def _modelo_nao_existe(excecao):
+    """O erro é «esse modelo não existe / você não tem acesso»?"""
+    t = str(excecao).lower()
+    return ("model_not_found" in t
+            or "does not exist" in t
+            or "do not have access to it" in t)
+
+
 # Falha da OpenAI que as OUTRAS tentativas não resolvem.
 #
 # `_chamar_openai_geracao` tenta três endpoints em sequência e as duas
@@ -1209,8 +1309,9 @@ def _erro_openai_terminal(excecao):
 
 
 def _chamar_openai_geracao(prompt_final, imagens_bytes=None, ref_layout=None,
-                           ref_layout_nome="", diagnostico=None):
-    """Chama gpt-image-2 da OpenAI (motor primário de geração). Retorna (img_bytes, erro).
+                           ref_layout_nome="", diagnostico=None,
+                           _ja_redescobriu=False):
+    """Chama o motor primário de imagem da OpenAI. Retorna (img_bytes, erro).
 
     Quando `imagens_bytes` é fornecido, usa a Responses API com as fotos do produto
     como referência visual direta — o mesmo comportamento do ChatGPT.
@@ -1222,6 +1323,7 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None, ref_layout=None,
     try:
         from openai import OpenAI as _OpenAI
         client = _OpenAI(api_key=api_key)
+        _modelo = modelo_de_imagem()
 
         # ── COM FOTOS: Responses API (fotos como referência visual direta, igual ao ChatGPT) ──
         if imagens_bytes:
@@ -1255,7 +1357,7 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None, ref_layout=None,
             # o pior caso é exatamente o comportamento de hoje, nunca menos.
             try:
                 resp = client.responses.create(
-                    model="gpt-image-2",
+                    model=_modelo,
                     input=entrada,
                     tools=[{
                         "type": "image_generation",
@@ -1267,22 +1369,22 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None, ref_layout=None,
                 img = _extrair(resp)
                 if img:
                     import sys as _sys
-                    print("[DEBUG gpt-image-2] Operation: generate/edit | "
+                    print(f"[DEBUG {_modelo}] Operation: generate/edit | "
                           f"References sent: {len(imagens_bytes)} | size=1024x1024 | "
                           "input_fidelity=high", file=_sys.stderr)
                     if diagnostico is not None:
-                        diagnostico["motor"] = "gpt-image-2 (Responses + tools)"
+                        diagnostico["motor"] = f"{_modelo} (Responses + tools)"
                         diagnostico["size_pedido"] = "1024x1024"
                         diagnostico["input_fidelity"] = "high"
                         diagnostico["refs_enviadas"] = len(imagens_bytes[:3])
                     return img, None
             except Exception as _e_tool:
                 import sys as _sys
-                print(f"[DEBUG gpt-image-2] tools recusado ({str(_e_tool)[:120]}) — "
+                print(f"[DEBUG {_modelo}] tools recusado ({str(_e_tool)[:120]}) — "
                       "tentando images.edit", file=_sys.stderr)
                 _term = _erro_openai_terminal(_e_tool)
                 if _term:
-                    return None, f"Erro OpenAI gpt-image-2: {_term}"
+                    return None, f"Erro OpenAI {_modelo}: {_term}"
 
             # Tentativa 2: endpoint de edição — aceita as fotos como referência e,
             # diferente da Responses API, size e input_fidelity são parâmetros
@@ -1297,7 +1399,7 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None, ref_layout=None,
                 if ref_layout:
                     arquivos.append(_arquivo_para_openai(ref_layout, "layout_referencia"))
                 edit = client.images.edit(
-                    model="gpt-image-2",
+                    model=_modelo,
                     image=arquivos,
                     prompt=prompt_final,
                     size="1024x1024",
@@ -1307,30 +1409,31 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None, ref_layout=None,
                 _d = edit.data[0]
                 if getattr(_d, "b64_json", None):
                     import sys as _sys
-                    print("[DEBUG gpt-image-2] Operation: edit | "
+                    print(f"[DEBUG {_modelo}] Operation: edit | "
                           f"References sent: {len(arquivos)} | size=1024x1024 | "
                           "input_fidelity=high", file=_sys.stderr)
                     if diagnostico is not None:
-                        diagnostico["motor"] = "gpt-image-2 (images.edit)"
+                        diagnostico["motor"] = f"{_modelo} (images.edit)"
                         diagnostico["size_pedido"] = "1024x1024"
                         diagnostico["input_fidelity"] = "high"
                         diagnostico["refs_enviadas"] = len(arquivos)
                     return base64.b64decode(_d.b64_json), None
             except Exception as _e_edit:
                 import sys as _sys
-                print(f"[DEBUG gpt-image-2] images.edit recusado ({str(_e_edit)[:120]}) — "
+                print(f"[DEBUG {_modelo}] images.edit recusado ({str(_e_edit)[:120]}) — "
                       "usando chamada simples", file=_sys.stderr)
                 _term = _erro_openai_terminal(_e_edit)
                 if _term:
-                    return None, f"Erro OpenAI gpt-image-2: {_term}"
+                    return None, f"Erro OpenAI {_modelo}: {_term}"
 
-            resp = client.responses.create(model="gpt-image-2", input=entrada)
+            resp = client.responses.create(model=_modelo, input=entrada)
             img = _extrair(resp)
             if img:
                 import sys as _sys
-                print(f"[DEBUG gpt-image-2] Operation: generate/edit | References sent: {len(imagens_bytes)} | Model: gpt-image-2", file=_sys.stderr)
+                print(f"[DEBUG {_modelo}] Operation: generate/edit | "
+                      f"References sent: {len(imagens_bytes)}", file=_sys.stderr)
                 if diagnostico is not None:
-                    diagnostico["motor"] = "gpt-image-2 (Responses simples — SEM size)"
+                    diagnostico["motor"] = f"{_modelo} (Responses simples — SEM size)"
                     diagnostico["size_pedido"] = "nenhum (modelo escolhe)"
                     diagnostico["refs_enviadas"] = len(imagens_bytes[:3])
                 return img, None
@@ -1338,17 +1441,18 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None, ref_layout=None,
 
         # ── SEM FOTOS: geração texto puro ──
         response = client.images.generate(
-            model="gpt-image-2",
+            model=_modelo,
             prompt=prompt_final,
             n=1,
             size="1024x1024",
             quality="high",
         )
         img_data = response.data[0]
-        # gpt-image-2 retorna b64_json por padrão
+        # O modelo retorna b64_json por padrão
         if hasattr(img_data, "b64_json") and img_data.b64_json:
             import sys as _sys
-            print(f"[DEBUG gpt-image-2] Operation: generate | References sent: 0 | Model: gpt-image-2 | Quality: high | Size: 1024x1024", file=_sys.stderr)
+            print(f"[DEBUG {_modelo}] Operation: generate | References sent: 0 | "
+                  f"Quality: high | Size: 1024x1024", file=_sys.stderr)
             return base64.b64decode(img_data.b64_json), None
         # Fallback: URL temporária
         if hasattr(img_data, "url") and img_data.url:
@@ -1357,7 +1461,29 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None, ref_layout=None,
                 return r.content, None
         return None, "Sem dados de imagem na resposta OpenAI."
     except Exception as e:
-        return None, f"Erro OpenAI gpt-image-2: {str(e)[:300]}"
+        # O NOME DO MODELO NÃO EXISTE — E ISSO TEM CONSERTO SOZINHO.
+        #
+        # Foi o que derrubou a geração inteira: `gpt-image-2` escrito à mão,
+        # 404 em toda chamada, tudo caindo no reserva. Em vez de devolver o
+        # erro e esperar alguém ler o log, o Studio pergunta à conta o que ela
+        # tem e tenta outra vez — UMA vez, para um nome que não existe não
+        # virar laço infinito.
+        if _modelo_nao_existe(e) and not _ja_redescobriu:
+            _novo = redescobrir_modelo_de_imagem(client)
+            if _novo and _novo != _modelo:
+                return _chamar_openai_geracao(
+                    prompt_final, imagens_bytes=imagens_bytes,
+                    ref_layout=ref_layout, ref_layout_nome=ref_layout_nome,
+                    diagnostico=diagnostico, _ja_redescobriu=True)
+            _quais = modelos_de_imagem_da_conta(client)
+            return None, (
+                f"O modelo «{_modelo}» não existe nesta conta da OpenAI. "
+                + (f"Os que ela tem: {', '.join(_quais[:6])}. Configure "
+                   f"OPENAI_MODELO_IMAGEM no Railway com um deles."
+                   if _quais else
+                   "E a conta não devolveu nenhum modelo de imagem — é acesso "
+                   "ao modelo, em platform.openai.com → Settings."))
+        return None, f"Erro OpenAI {modelo_de_imagem()}: {str(e)[:300]}"
 
 
 def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
@@ -1368,7 +1494,7 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
     1. Claude Vision analisa fotos → descrição de apoio (usada apenas quando não há OpenAI)
     2. Claude descreve estilo das refs de layout (se houver) → texto de composição
     3. Monta prompt único preservando preset completo do tipo (sem double-prompt)
-    4. Tenta gpt-image-2 (OpenAI) como motor primário — fotos enviadas diretamente
+    4. Tenta o motor primário da OpenAI — fotos enviadas diretamente
     5. Fallback: Gemini Flash Image com texto-apenas
     6. Retorna imagem com proporções exatas preservadas (sem deformação)
     """
@@ -1718,7 +1844,7 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
     if diagnostico is not None:
         diagnostico["ref_layout"] = _ref_layout_nome or "nenhuma correspondeu ao tipo"
 
-    # 4. Tenta gpt-image-2 (OpenAI) como motor primário
+    # 4. Tenta o motor primário da OpenAI
     img_bytes = None
     erro_primario = None
     _usando_openai = bool(_get_openai_api_key())
@@ -1732,13 +1858,13 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
         # sobrou na tela falava só de crédito do Gemini — escondendo que o
         # primário nunca tinha entrado em campo.
         erro_primario = ("OPENAI_API_KEY não está configurada no Railway — o "
-                         "motor primário (gpt-image-2) não chegou a ser "
+                         "motor primário de imagem não chegou a ser "
                          "tentado, e TODA a geração caiu no reserva.")
         if diagnostico is not None:
             diagnostico["erro_openai"] = erro_primario
 
     if _usando_openai:
-        # Passa as fotos do produto diretamente ao gpt-image-2 via Responses API
+        # Passa as fotos do produto diretamente ao modelo via Responses API
         # (igual ao ChatGPT) — o modelo VÊ as fotos em vez de receber só texto.
         # Se não houver fotos, cai em geração texto-puro.
         _fotos_para_openai = imagens_referencia if imagens_referencia else None
@@ -1748,7 +1874,7 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
             diagnostico=diagnostico
         )
         if not img_bytes:
-            erro_primario = f"OpenAI gpt-image-2: {erro}"
+            erro_primario = f"OpenAI {modelo_de_imagem()}: {erro}"
 
     if diagnostico is not None:
         diagnostico["prompt_final"] = prompt_geracao
@@ -1778,7 +1904,7 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
         if erro_primario:
             return None, (f"{motivo}\n\n**E o motor primário falhou antes:** "
                           f"{erro_primario}")
-        return None, (f"{motivo}\n\nO motor primário (gpt-image-2) também não "
+        return None, (f"{motivo}\n\nO motor primário de imagem também não "
                       "entregou nesta tentativa.")
 
     # 5. Fallback: Gemini texto-apenas
@@ -3456,33 +3582,54 @@ def pagina_imagem(usuario_logado):
         pass
 
     with st.expander("🔧 Diagnóstico das APIs de Imagem", expanded=False):
-        st.caption("Testa OpenAI gpt-image-2 (motor primário) e Gemini Flash (fallback) para confirmar que estão funcionando.")
+        st.caption("Testa o motor primário da OpenAI e Gemini Flash (fallback) para confirmar que estão funcionando.")
         if st.button("Testar APIs agora", key="btn_diag_gemini"):
             # Testa OpenAI
             _oai_key = _get_openai_api_key()
             if _oai_key:
-                with st.spinner("Testando OpenAI gpt-image-2..."):
+                _modelo = modelo_de_imagem()
+                # O QUE A CONTA TEM, DITO ANTES DO TESTE.
+                #
+                # Era esta a pergunta que faltava: o Studio insistia num nome
+                # inventado e a tela mostrava "404", um número que não diz a
+                # ninguém o que fazer. Agora a lista vem junto, e escolher o
+                # certo deixa de depender de alguém adivinhar.
+                _disp = modelos_de_imagem_da_conta()
+                if _disp:
+                    st.caption("Modelos de imagem desta conta: "
+                               + ", ".join(_disp[:8])
+                               + f"  ·  em uso: **{_modelo}**")
+                    if _modelo not in _disp:
+                        st.error(
+                            f"O modelo em uso (**{_modelo}**) NÃO está na "
+                            f"conta. Configure `OPENAI_MODELO_IMAGEM` no "
+                            f"Railway com um da lista acima — ou deixe como "
+                            f"está: o Studio troca sozinho na primeira falha.")
+                else:
+                    st.caption("Não consegui listar os modelos desta conta.")
+                with st.spinner(f"Testando {_modelo}…"):
                     import time as _td
                     _t0_oai = _td.time()
                     try:
                         from openai import OpenAI as _OAITest
                         _oai_client = _OAITest(api_key=_oai_key)
                         _oai_resp = _oai_client.images.generate(
-                            model="gpt-image-2",
+                            model=_modelo,
                             prompt="A small red circle on white background, minimal.",
                             n=1, size="1024x1024", quality="low",
                         )
                         _oai_ms = int((_td.time() - _t0_oai) * 1000)
                         _oai_img = getattr(_oai_resp.data[0], "b64_json", None) or getattr(_oai_resp.data[0], "url", None)
                         if _oai_img:
-                            st.success(f"✅ **gpt-image-2** — gerou imagem ({_oai_ms}ms)")
+                            st.success(f"✅ **{_modelo}** — gerou imagem ({_oai_ms}ms)")
                         else:
-                            st.warning(f"⚠️ **gpt-image-2** — sem imagem na resposta ({_oai_ms}ms)")
+                            st.warning(f"⚠️ **{_modelo}** — sem imagem na resposta ({_oai_ms}ms)")
                     except Exception as _e_oai:
                         _oai_ms = int((_td.time() - _t0_oai) * 1000)
-                        st.error(f"❌ **gpt-image-2** — {str(_e_oai)[:300]} ({_oai_ms}ms)")
+                        st.error(f"❌ **{_modelo}** — {str(_e_oai)[:300]} ({_oai_ms}ms)")
             else:
-                st.warning("⚠️ **gpt-image-2** — OPENAI_API_KEY não configurada nas secrets do Railway.")
+                st.warning("⚠️ **Motor primário** — OPENAI_API_KEY não configurada nas "
+                           "variáveis do Railway.")
 
             # Testa Gemini
             with st.spinner(f"Testando {MODELO_DIAG} via Gemini API (pode levar ~30s)..."):
@@ -4046,7 +4193,7 @@ def pagina_imagem(usuario_logado):
                     )
 
                 # A triagem e um PLANEJAMENTO, nao um pre-requisito tecnico: ela
-                # roda no Claude, enquanto as imagens saem no gpt-image-2 ou no
+                # roda no Claude, enquanto as imagens saem no motor primário ou no
                 # Gemini. Fazer a falha dela travar tudo significa que uma conta
                 # sem saldo em UM fornecedor derruba o Studio inteiro — foi o que
                 # aconteceu em producao com "credit balance is too low".
@@ -5314,15 +5461,15 @@ if __name__ == "__main__":
         if erro_primario:
             return None, (f"{motivo}\n\n**E o motor primário falhou antes:** "
                           f"{erro_primario}")
-        return None, (f"{motivo}\n\nO motor primário (gpt-image-2) também não "
+        return None, (f"{motivo}\n\nO motor primário de imagem também não "
                       "entregou nesta tentativa.")
 
-    _, _t = _falha_simulada("OpenAI gpt-image-2: sem saldo", "Erro HTTP 402")
+    _, _t = _falha_simulada("OpenAI: sem saldo", "Erro HTTP 402")
     ok("a mensagem do reserva leva junto o erro do primario",
        "motor primário falhou antes" in _t and "sem saldo" in _t)
     _, _t = _falha_simulada("", "Erro HTTP 402")
     ok("e sem erro do primario ela ainda fala dele",
-       "gpt-image-2" in _t)
+       "motor primário" in _t)
 
     # ── A OpenAI nao engole mais o motivo terminal ───────────────────────────
     ok("saldo da OpenAI e terminal — nao adianta tentar os outros endpoints",
@@ -5331,6 +5478,77 @@ if __name__ == "__main__":
        _erro_openai_terminal(Exception("invalid_api_key")) != "")
     ok("erro passageiro nao e terminal — segue para a proxima tentativa",
        _erro_openai_terminal(Exception("Connection reset by peer")) == "")
+
+    # ── O MODELO DE IMAGEM: o defeito que derrubou a geracao inteira ─────
+    #
+    # `gpt-image-2` nao existe. Estava escrito a mao em CINCO lugares, dava
+    # 404 em toda chamada, o primario nunca gerava, e tudo caia no Gemini —
+    # que nao aceita size nem input_fidelity. Dai "imagens extremamente
+    # pequenas" e "fotos com margens laterais" na mesma tela.
+    ok("o padrao e um modelo que existe",
+       MODELO_IMAGEM_PADRAO == "gpt-image-2.5-sunburst")
+    ok("e o nome antigo nao esta mais em lugar nenhum",
+       "gpt-image-2" not in MODELOS_IMAGEM_CONHECIDOS)
+
+    _env_mod = os.environ.get("OPENAI_MODELO_IMAGEM")
+    _desc_antes = _MODELO_DESCOBERTO["nome"]
+    _MODELO_DESCOBERTO["nome"] = None
+    os.environ.pop("OPENAI_MODELO_IMAGEM", None)
+    ok("sem nada configurado, vale o padrao",
+       modelo_de_imagem() == MODELO_IMAGEM_PADRAO)
+
+    # O descoberto em execucao vale mais que o padrao: e ele que existe DE FATO
+    # na conta, e o padrao e so o palpite bom.
+    _MODELO_DESCOBERTO["nome"] = "gpt-image-9-novo"
+    ok("o descoberto na conta manda no padrao",
+       modelo_de_imagem() == "gpt-image-9-novo")
+
+    # E a variavel do Railway manda em todos: trocar de modelo nao pode ser
+    # deploy.
+    os.environ["OPENAI_MODELO_IMAGEM"] = "gpt-image-2.5-flare"
+    ok("e a variavel do Railway manda em todos",
+       modelo_de_imagem() == "gpt-image-2.5-flare")
+    os.environ.pop("OPENAI_MODELO_IMAGEM", None)
+    _MODELO_DESCOBERTO["nome"] = _desc_antes
+    if _env_mod:
+        os.environ["OPENAI_MODELO_IMAGEM"] = _env_mod
+
+    # Reconhecer "esse modelo nao existe" e o que dispara a redescoberta. Se
+    # esta funcao errar, o Studio volta a insistir num nome inventado.
+    ok("404 de modelo inexistente e reconhecido",
+       _modelo_nao_existe(Exception(
+           "Error code: 404 - {'error': {'message': \"The model "
+           "'gpt-image-2' does not exist or you do not have access to it.\", "
+           "'code': 'model_not_found'}}")) is True)
+    ok("pelo codigo tambem", _modelo_nao_existe(Exception("model_not_found")))
+    ok("falta de saldo NAO e modelo inexistente",
+       _modelo_nao_existe(Exception("insufficient_quota")) is False)
+    ok("nem queda de rede",
+       _modelo_nao_existe(Exception("Connection reset by peer")) is False)
+
+    # A lista da conta poe os conhecidos na frente, na ordem de capacidade —
+    # e nao descarta o que nao conhece, senao um modelo novo ficaria invisivel.
+    class _FakeModelos:
+        def list(self):
+            class _M:
+                def __init__(self, i):
+                    self.id = i
+            return [_M("gpt-4o"), _M("gpt-image-2.5-flare"),
+                    _M("gpt-image-3-futuro"), _M("gpt-image-2.5-sunburst"),
+                    _M("whisper-1")]
+
+    class _FakeCliente:
+        models = _FakeModelos()
+
+    _achados = modelos_de_imagem_da_conta(_FakeCliente())
+    ok("so os modelos de imagem entram",
+       all("image" in m for m in _achados))
+    ok("o mais capaz vem primeiro",
+       _achados[0] == "gpt-image-2.5-sunburst")
+    ok("e o modelo novo, que o codigo nao conhece, NAO fica invisivel",
+       "gpt-image-3-futuro" in _achados)
+    ok("conta que nao responde nao derruba nada",
+       modelos_de_imagem_da_conta(object()) == [])
     for _k, _v in _env_antes.items():
         if _v:
             os.environ[_k] = _v

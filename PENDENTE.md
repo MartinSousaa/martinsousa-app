@@ -575,3 +575,64 @@ mostra e pergunta, em vez de escolher.
 os lançamentos JÁ GRAVADOS, não só os do arquivo: a outra perna da
 transferência costuma vir no extrato da outra conta, importado em outro
 momento.
+
+---
+
+## O nome do modelo de imagem estava errado  ·  21/09/2026 — PRONTO, aguardando ordem
+
+Em `homologacao`, **não subiu**: ele pediu para segurar.
+
+### O erro
+
+`gpt-image-2` **não existe**. Os modelos de imagem da OpenAI são
+`gpt-image-2.5-sunburst` (o mais capaz) e `gpt-image-2.5-flare` — confirmado em
+duas páginas da documentação. O nome estava escrito à mão em **cinco lugares**
+do `imagem.py`, e toda chamada voltava `404 model_not_found`.
+
+### Por que as imagens saíram "catastróficas"
+
+É a mesma causa, e a corrente inteira estava no código:
+
+1. O primário nunca gerava nada — 404 em toda chamada.
+2. **Tudo caía no Gemini**, que é o reserva.
+3. O pedido ao Gemini **não manda tamanho** (o corpo só tem
+   `responseModalities`), então ele devolve retangular.
+4. O enquadramento (passo 6 de `gerar_imagem_ia`) detecta que não é quadrada e
+   **preenche as sobras com faixa de cor lisa**.
+
+Daí as duas reclamações na mesma tela: *"imagens extremamente pequenas"* e
+*"fotos com margens laterais"*. **Não era o prompt.** `size=1024x1024` e
+`input_fidelity=high` só existem no caminho da OpenAI — sem o primário, o
+Studio perdia enquadramento E fidelidade ao produto de uma vez.
+
+### Eu disse errado antes, e corrijo aqui
+
+Afirmei que o 404 era provavelmente verificação de organização na OpenAI e que
+só o dono poderia resolver. **Era nome de modelo errado, no meu código.**
+
+### O conserto NÃO é trocar o nome nos cinco lugares
+
+Trocar o nome resolve hoje e reabre no dia em que a OpenAI renomear de novo —
+que é exatamente o que acabou de acontecer. O defeito é o Studio DEPENDER de um
+nome escrito à mão que ninguém confere.
+
+| Agora | |
+|---|---|
+| O nome mora **num lugar só** | `MODELO_IMAGEM_PADRAO` |
+| Configurável pelo Railway | `OPENAI_MODELO_IMAGEM` — trocar de modelo deixa de ser deploy |
+| **Auto-recuperação** | Em `model_not_found`, o Studio **pergunta à conta** quais modelos de imagem ela tem e repete com o primeiro. Uma vez, para nome inexistente não virar laço |
+| O diagnóstico mostra a lista | Aba Imagem → Diagnóstico das APIs: os modelos da conta e qual está em uso |
+
+Um rename futuro passa a custar uma chamada extra, e não um dia de geração
+perdida.
+
+### O que continua em aberto
+
+O pedido ao **Gemini** segue sem proporção. A documentação que alcancei se
+contradiz sobre o nome do campo (`response_format.aspect_ratio` numa página,
+inexistente na outra). O jeito de resolver sem chutar é mandar o parâmetro e,
+se a API recusar, repetir sem ele — registrando qual funcionou. **Não foi
+feito**: com o primário de volta, o reserva deixa de ser o caminho normal, e o
+remendo pode esperar a próxima vez que ele for usado de verdade.
+
+18 casos novos de conferência.
