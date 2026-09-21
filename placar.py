@@ -2872,8 +2872,71 @@ def _write_tv_status() -> None:
         pass  # estado da TV nunca pode derrubar a regeneração da TV
 
 
+# ONDE MORA A TV, AGORA QUE ELA NÃO MORA MAIS AQUI.
+#
+# O regenerador virou serviço próprio no Railway, com container próprio — e
+# containers não dividem disco. O `static/tv.html` e o `tv-status.json` que
+# interessam são os DE LÁ; os daqui, se existirem, são restos de quando alguém
+# abriu o Painel de Metas.
+#
+# Sem isto, tirar o worker do Procfile faria o aviso de "TV congelada" acusar
+# congelamento todo dia, olhando para um arquivo local que ninguém mais
+# reescreve — e o aviso que grita à toa é o aviso que ninguém lê quando ela
+# congelar de verdade.
+#
+# Configurável pelo Railway (`TV_SERVICO_URL`) porque o domínio é dele, não do
+# código: o dia em que o serviço mudar de endereço, isto não vira deploy.
+TV_SERVICO_URL_PADRAO = "https://painel-tv-production-3bc8.up.railway.app"
+
+
+def tv_servico_url():
+    """O endereço do serviço da TV, sem barra no fim. "" desliga a consulta."""
+    try:
+        v = st.secrets.get("TV_SERVICO_URL", None)
+    except Exception:
+        v = None
+    if v is None:
+        v = os.environ.get("TV_SERVICO_URL")
+    if v is None:
+        v = TV_SERVICO_URL_PADRAO
+    return str(v or "").strip().rstrip("/")
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _tv_status_remoto(url):
+    """O estado do serviço da TV. `{}` quando não dá para saber.
+
+    Cacheado: o Painel de Metas redesenha a cada clique, e uma ida à rede por
+    clique é o tipo de custo que ninguém vê chegar. Sessenta segundos é menos
+    do que uma volta da TV, então o número nunca fica velho de verdade.
+
+    `timeout` curto de propósito: se o serviço da TV estiver fora, quem abre o
+    Painel de Metas não pode ficar esperando por ele — o diagnóstico é um
+    rodapé, e rodapé não segura a tela.
+    """
+    try:
+        r = requests.get(f"{url}/{_TV_STATUS_ARQ}", timeout=4,
+                         proxies={"http": None, "https": None})
+        if r.status_code != 200:
+            return {}
+        d = r.json()
+        return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
 def tv_status_lido():
-    """O estado gravado pelo processo do laço. `{}` quando não há arquivo."""
+    """O estado do laço que regenera a TV. `{}` quando não dá para saber.
+
+    Primeiro o serviço próprio, que é quem a TV lê de verdade. O arquivo local
+    continua valendo como reserva: em desenvolvimento não há serviço nenhum, e
+    é a thread deste processo que escreve.
+    """
+    _url = tv_servico_url()
+    if _url:
+        _remoto = _tv_status_remoto(_url)
+        if _remoto:
+            return _remoto
     try:
         import json as _json_l
         _path = os.path.join(os.path.dirname(__file__), "static",
@@ -2998,11 +3061,23 @@ def tv_diagnostico():
     voltas = est.get("voltas", 0)
     erros = est.get("erros", 0)
     ok, erro = est.get("ultimo_ok"), est.get("erro") or ""
-    caminho = _os_d.path.join(_os_d.path.dirname(__file__), "static", "tv.html")
-    try:
-        idade_arq = agora - _os_d.path.getmtime(caminho)
-    except Exception:
-        idade_arq = None
+    # A IDADE VEM DO ESTADO, E NÃO DO ARQUIVO DAQUI.
+    #
+    # `ultimo_ok` é o instante em que o laço GRAVOU o tv.html — e o laço mora
+    # em outro container. O mtime do arquivo local não diz mais nada sobre a
+    # TV: ele só se mexe quando alguém abre o Painel de Metas.
+    #
+    # Sem estado nenhum sobra o arquivo local, que é o caso do
+    # desenvolvimento, onde a thread deste processo é quem escreve.
+    if ok:
+        idade_arq = agora - float(ok)
+    else:
+        caminho = _os_d.path.join(_os_d.path.dirname(__file__), "static",
+                                  "tv.html")
+        try:
+            idade_arq = agora - _os_d.path.getmtime(caminho)
+        except Exception:
+            idade_arq = None
 
     porque = f" Motivo: {erro}" if erro else ""
 

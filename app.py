@@ -38,9 +38,15 @@ import placar_core as _pc_login
 # ficava pedindo um arquivo que ainda não tinha sido escrito.
 #
 # A thread daqui continua como reserva, para quem roda o app sem o Procfile —
-# desenvolvimento local. Com o worker de pé (TV_WORKER=1), ela não sobe: duas
-# regenerações do mesmo arquivo dobram as chamadas ao Trello e a memória do
-# container sem entregar nada.
+# desenvolvimento local. Com `TV_WORKER=1`, ela não sobe.
+#
+# E ELA NÃO PODE VOLTAR A SUBIR. O regenerador saiu do Procfile porque virou
+# serviço próprio no Railway, com container próprio — foi assim que a volta da
+# TV deixou de cair em cima de quem está no Studio. O `TV_WORKER=1` continua no
+# Procfile justamente para tapar esta porta: sem ele, a regeneração renasce
+# AQUI DENTRO, no processo do Streamlit, e o "Reconectando ao servidor" volta
+# pela terceira vez — pior, porque agora seriam duas regenerações do mesmo
+# painel, uma em cada container.
 if os.environ.get("TV_WORKER") != "1":
     try:
         placar.iniciar_regenerador_tv()

@@ -1,5 +1,22 @@
 """Mantém o static/tv.html vivo, sem depender de ninguém abrir o Studio.
 
+NÃO É MAIS ELE QUE RODA EM PRODUÇÃO — veja `tv_servico.py`.
+----------------------------------------------------------
+Este arquivo subia pelo Procfile, DENTRO do container do Studio, e era daí que
+vinha o "Reconectando ao servidor… os cliques não estão sendo enviados": uma
+volta é o Painel de Metas inteiro, e ela caía em cima de quem estava
+trabalhando. Repartir o container falhou três vezes (nice, espera por presença,
+teto de espera), e a terceira falhou porque o próprio teto é o que atropela
+quem entra perto do fim dele.
+
+Desde 21/09/2026 a regeneração é um SERVIÇO à parte no Railway
+(`tv_servico.py`), que além do laço serve o `static/` por HTTP — porque
+containers separados não dividem disco.
+
+Este continua aqui para rodar o laço à mão, fora do Railway, quando se quer
+regenerar a TV sem subir o servidor estático junto.
+
+
 O PROBLEMA QUE ISTO RESOLVE
 ---------------------------
 A thread que regenera o painel da TV era ligada em `app.py`, e `app.py` é o
