@@ -383,3 +383,69 @@ viajar no `tv-status.json` e aparecem no rodapé do Painel de Metas: duração d
 volta, pior duração, memória do worker, voltas adiadas. Se a volta levar
 décimos de segundo, a TV não é a causa e o serviço separado não resolve nada —
 é memória do próprio Streamlit, e a conta é outra.
+
+---
+
+## A TV como serviço próprio no Railway  ·  autorizado em 21/09/2026, NÃO subiu
+
+O dono autorizou ("serviço do Railway imediatamente") e logo em seguida pediu
+para segurar: havia gente usando o Studio e o deploy derruba a sessão.
+**Está pronto em `homologacao`, esperando ordem.**
+
+### Por que repartir o container não resolveu
+
+| Tentativa | Por que falhou |
+|---|---|
+| `nice 19` | Reparte CPU, não reparte o resto |
+| Esperar por presença | Só adia; alguém sempre está dentro |
+| Teto de espera (90s → 900s) | **É o próprio teto que cai em cima da pessoa.** Quem entra a 100s do fim leva a volta na cara — foi o dono quem apontou |
+
+E o trabalho que derruba a sessão de quem produz **não serve a ninguém que
+produz**: nenhuma tela do Studio lê o `static/tv.html`. Quem lê é o navegador da
+TV, e só ele.
+
+### O que já está escrito
+
+`tv_servico.py` — sobe num container próprio e faz duas coisas: serve o
+diretório `static/` por HTTP na porta que o Railway der, e roda o laço de
+regeneração. Ele abre a porta ANTES de importar `placar` (o import leva
+segundos, e o Railway derruba serviço que demora a atender), e repete o passo
+do Procfile que monta o `.streamlit/secrets.toml` a partir de
+`STREAMLIT_SECRETS` — sem isso o Trello sobe sem credencial e toda volta
+termina em "credenciais do Trello não configuradas".
+
+No container próprio o `_TV_TETO_ESPERA_SEG` vai a 0: a espera existia para não
+atrapalhar o Studio, que não mora mais ao lado.
+
+### Os passos no Railway, que são dele
+
+1. No mesmo projeto, **New → GitHub Repo** → o mesmo repositório.
+2. Nesse serviço novo, **Settings → Start Command**: `python tv_servico.py`
+   (sem isso ele obedece ao Procfile e sobe outro Studio).
+3. **Variables**: copiar `STREAMLIT_SECRETS` e `PLANILHA_ID` do serviço do
+   Studio.
+4. **Settings → Networking → Generate Domain**. O endereço que sair é a nova
+   URL da TV.
+
+### A CONSEQUÊNCIA QUE PRECISA SER DITA (Regra 3)
+
+**Containers separados não dividem disco.** O `tv.html` que o serviço novo
+escreve não aparece no serviço do Studio — então **a URL da TV muda**: passa a
+ser o domínio do serviço novo, e não mais
+`app.martinsousa.com.br/app/static/tv.html`. Alguém precisa trocar o endereço
+na TV de parede uma vez.
+
+O Studio continua escrevendo o próprio `tv.html` quando alguém abre o Painel de
+Metas (`placar.py:2508`). Esse arquivo passa a não servir a ninguém — fica onde
+está porque tirá-lo quebraria o modo `?tv=` de desenvolvimento.
+
+### O que falta decidir antes de subir
+
+O `Procfile` ainda sobe o `tv_worker.py` dentro do container do Studio. Depois
+que o serviço novo estiver de pé, ele sai de lá — mas `TV_WORKER=1` tem de
+CONTINUAR na variável do Studio, senão `app.py:43` volta a ligar a thread de
+regeneração dentro do processo do Streamlit e o problema renasce pela terceira
+porta.
+
+Ordem certa: sobe o serviço novo → confere a TV no domínio novo → só então tira
+o worker do Procfile.
