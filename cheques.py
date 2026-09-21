@@ -54,6 +54,25 @@ FUSO = timezone(timedelta(hours=-3))
 
 TIPOS = ("CHEQUE", "BOLETO")
 
+# Cheque é sempre para o mesmo favorecido, disse o dono. O campo nasce
+# preenchido e continua editável — é padrão, não trava: o dia em que houver
+# cheque para outro nome, basta apagar e escrever.
+#
+# Vale também na gravação, e não só na tela: quem apaga o campo por engano num
+# CHEQUE fica com a linha sem favorecido, e uma carteira com favorecido em
+# branco é a carteira que ele já tem hoje na planilha.
+FAVORECIDO_PADRAO_CHEQUE = "LEXTACK"
+
+
+def favorecido_do_tipo(tipo, favorecido=""):
+    """O favorecido que vale, já com o padrão do cheque aplicado."""
+    t = str(favorecido or "").strip()
+    if t:
+        return t
+    if str(tipo or "").strip().upper() == "CHEQUE":
+        return FAVORECIDO_PADRAO_CHEQUE
+    return ""
+
 # As situações que o dono já usa na planilha dele, e mais nada. "EM ABERTO" é o
 # vazio dele, escrito por extenso: célula em branco e "ainda não baixou" eram a
 # mesma coisa, e não dá para filtrar o que não tem nome.
@@ -127,6 +146,24 @@ def texto_folha(v):
     except ValueError:
         pass
     return t
+
+
+def data_br(v):
+    """A mesma data, escrita como o dono escreve: "10/10/2026". "" quando não dá.
+
+    POR QUE DUAS FUNÇÕES, E NÃO UMA
+    -------------------------------
+    `texto_data` devolve AAAA-MM-DD e continua sendo a forma GRAVADA: ela
+    ordena sozinha como texto, e é com ela que `identidade`, os filtros de mês
+    e a comparação com a planilha trabalham. Trocar o formato de gravação
+    quebraria tudo isso de uma vez, e em silêncio.
+
+    O que muda é só o que se LÊ na tela. A carteira mostrava "2026-09-14" para
+    quem digita "14/09/2026" — o dono lia a data de trás para frente a cada
+    linha.
+    """
+    iso = texto_data(v)
+    return f"{iso[8:10]}/{iso[5:7]}/{iso[0:4]}" if len(iso) == 10 else ""
 
 
 def texto_data(v):
@@ -408,6 +445,80 @@ def carregar():
             continue
         fora.append({c: r.get(c, "") for c in COLUNAS})
     return fora
+
+
+def ordem_da_folha(linha):
+    """A chave que põe a carteira NA SEQUÊNCIA DO TALÃO.
+
+    O dono pediu assim, e o motivo é o talão: os cheques saem em ordem de
+    folha, e é nessa ordem que ele confere — 564, 565, 566. Ordenar por
+    vencimento embaralhava a sequência, porque a mesma compra sai com datas
+    espalhadas e compras diferentes se intercalam.
+
+    A folha é NÚMERO, e por isso não se ordena como texto: em string, "1000"
+    vem antes de "999". As que não são número (folha com letra, se houver) vêm
+    depois das numéricas, em ordem alfabética; as sem folha nenhuma vão para o
+    fim, entre si por vencimento — elas não têm sequência, e enfiá-las no meio
+    quebraria justamente a leitura que esta ordem existe para dar.
+    """
+    f = texto_folha(linha.get("folha"))
+    if not f:
+        return (2, 0, texto_data(linha.get("vencimento")))
+    try:
+        return (0, int(f), "")
+    except ValueError:
+        return (1, 0, f)
+
+
+def folhas_ja_cadastradas(folhas, ignorando_id="", linhas=None):
+    """Quais destas folhas JÁ existem na carteira. {folha: linha_existente}.
+
+    DUAS FOLHAS IGUAIS SÃO DOIS CHEQUES ONDE HÁ UM
+    ----------------------------------------------
+    O número do talão é único por definição — é ele que o banco debita. Dois
+    registros com a mesma folha fazem o mesmo dinheiro ser contado duas vezes
+    no comprometido do mês, e a baixa dada num deles deixa o outro em aberto
+    para sempre.
+
+    `gravar` já descartava a repetida, porque a folha é a identidade. Mas
+    descartava EM SILÊNCIO, devolvendo só uma contagem: quem cadastrava um lote
+    de quatro cheques e digitava um número errado via "cadastrados" e ia
+    embora, sem saber qual tinha ficado de fora nem por quê. Recusar sem dizer
+    o número é quase tão ruim quanto aceitar.
+
+    `ignorando_id` é a própria linha, ao corrigir a folha na carteira: ela não
+    pode ser recusada por causa de si mesma.
+    """
+    alvo = {texto_folha(f) for f in (folhas or []) if texto_folha(f)}
+    if not alvo:
+        return {}
+    fora = {}
+    for l in (carregar() if linhas is None else linhas):
+        f = texto_folha(l.get("folha"))
+        if not f or f not in alvo:
+            continue
+        if ignorando_id and str(l.get("id", "")).strip() == str(ignorando_id).strip():
+            continue
+        fora.setdefault(f, l)
+    return fora
+
+
+def folhas_repetidas_na_lista(folhas):
+    """As folhas que se repetem DENTRO do próprio lote, na ordem em que vêm.
+
+    O lote de quatro cheques é digitado de uma vez, e dois campos com o mesmo
+    número não chegam a existir na carteira para `folhas_ja_cadastradas` achar.
+    Sem esta conferência, o segundo virava "repetida" numa contagem muda.
+    """
+    vistas, repetidas = set(), []
+    for f in (folhas or []):
+        t = texto_folha(f)
+        if not t:
+            continue
+        if t in vistas and t not in repetidas:
+            repetidas.append(t)
+        vistas.add(t)
+    return repetidas
 
 
 def gravar(novas, usuario=""):
@@ -810,5 +921,70 @@ if __name__ == "__main__":
     ok("apagar remove so o pedido", (_q, _err) == (1, "")
        and [c["folha"] for c in carregar()] == ["572"])
     ok("apagar lista vazia nao mexe em nada", apagar([]) == (0, ""))
+
+    # ── A data como o dono escreve ───────────────────────────────────────
+    ok("iso vira dd/mm/aaaa", data_br("2026-10-10") == "10/10/2026")
+    ok("e o que ja vem em dd/mm/aaaa continua igual",
+       data_br("10/10/2026") == "10/10/2026")
+    ok("datetime tambem", data_br(datetime(2026, 9, 14)) == "14/09/2026")
+    ok("o que nao e data nao inventa", data_br("") == "" and data_br(None) == "")
+    ok("nan e NaT nao viram data", data_br("nan") == "" and data_br("NaT") == "")
+    ok("e o GRAVADO continua sendo iso — data_br nao contamina",
+       texto_data("10/10/2026") == "2026-10-10")
+
+    # ── Folha repetida barra, e diz o numero ─────────────────────────────
+    _CARTEIRA = [
+        {"id": "i1", "folha": "576", "valor": 100.0},
+        {"id": "i2", "folha": "577", "valor": 200.0},
+        {"id": "i3", "folha": "", "valor": 300.0},
+    ]
+    ok("folha que ja existe e apontada",
+       list(folhas_ja_cadastradas(["576"], linhas=_CARTEIRA)) == ["576"])
+    ok("e vem com a linha, para a tela dizer de quem e",
+       folhas_ja_cadastradas(["576"], linhas=_CARTEIRA)["576"]["id"] == "i1")
+    ok("folha nova passa", folhas_ja_cadastradas(["999"], linhas=_CARTEIRA) == {})
+    ok("'576.0' do Excel e o mesmo cheque que '576'",
+       list(folhas_ja_cadastradas(["576.0"], linhas=_CARTEIRA)) == ["576"])
+    ok("folha vazia nao casa com as linhas sem folha",
+       folhas_ja_cadastradas(["", None], linhas=_CARTEIRA) == {})
+    ok("a propria linha nao se barra",
+       folhas_ja_cadastradas(["576"], ignorando_id="i1", linhas=_CARTEIRA) == {})
+    ok("mas a de outra linha continua barrando",
+       folhas_ja_cadastradas(["576"], ignorando_id="i2", linhas=_CARTEIRA) != {})
+
+    ok("duas iguais DENTRO do lote sao apontadas",
+       folhas_repetidas_na_lista(["10", "11", "10"]) == ["10"])
+    ok("e so uma vez, por mais que se repita",
+       folhas_repetidas_na_lista(["10", "10", "10"]) == ["10"])
+    ok("lote sem repeticao passa",
+       folhas_repetidas_na_lista(["10", "11", "12"]) == [])
+    ok("folha em branco nao conta como repetida",
+       folhas_repetidas_na_lista(["", "", "10"]) == [])
+
+    # ── A carteira na sequencia do talao ─────────────────────────────────
+    _DESORDEM = [
+        {"folha": "1000", "vencimento": "2026-01-01"},
+        {"folha": "999", "vencimento": "2026-12-31"},
+        {"folha": "", "vencimento": "2026-03-03"},
+        {"folha": "", "vencimento": "2026-02-02"},
+        {"folha": "564", "vencimento": "2026-06-06"},
+    ]
+    _ord = [texto_folha(l["folha"]) or "(sem folha) " + l["vencimento"]
+            for l in sorted(_DESORDEM, key=ordem_da_folha)]
+    ok("999 vem antes de 1000 — folha e numero, nao texto",
+       _ord[:3] == ["564", "999", "1000"])
+    ok("as sem folha vao para o fim",
+       _ord[3].startswith("(sem folha)") and _ord[4].startswith("(sem folha)"))
+    ok("e entre si por vencimento", _ord[3].endswith("2026-02-02"))
+
+    # ── Cheque nasce para a LEXTACK ──────────────────────────────────────
+    ok("cheque sem favorecido recebe o padrao",
+       favorecido_do_tipo("CHEQUE", "") == "LEXTACK")
+    ok("e o que foi escrito manda sempre",
+       favorecido_do_tipo("CHEQUE", "OUTRO FORNECEDOR") == "OUTRO FORNECEDOR")
+    ok("boleto NAO recebe o padrao do cheque",
+       favorecido_do_tipo("BOLETO", "") == "")
+    ok("so espaco conta como vazio",
+       favorecido_do_tipo("CHEQUE", "   ") == "LEXTACK")
 
     print("\nfalhas:", falhas)

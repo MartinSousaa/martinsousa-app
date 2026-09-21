@@ -92,7 +92,7 @@ def pagina(usuario_logado=None):
             st.dataframe(
                 pd.DataFrame([{
                     "folha": l.get("folha", ""),
-                    "vencimento": l.get("vencimento"),
+                    "vencimento": _ch.data_br(l.get("vencimento")),
                     "valor": _ch._num(l.get("valor")),
                     "envio": _ch._num(l.get("envio")),
                     "estoque": _ch._num(l.get("estoque")),
@@ -110,7 +110,7 @@ def pagina(usuario_logado=None):
         with st.expander(f"⚠️ {len(atrasados)} venceram e não baixaram"):
             st.dataframe(
                 pd.DataFrame([{"folha": l.get("folha", ""),
-                               "vencimento": l.get("vencimento"),
+                               "vencimento": _ch.data_br(l.get("vencimento")),
                                "valor": _ch._num(l.get("valor")),
                                "favorecido": l.get("favorecido", "")}
                               for l in atrasados]),
@@ -184,7 +184,13 @@ def pagina(usuario_logado=None):
         with st.form(f"ch_novo_{_g}"):
             st.markdown("**A compra** — vale para todos os cheques")
             f1, f2, f3 = st.columns(3)
-            favorecido = f1.text_input("Favorecido", key=f"ch_favorecido_{_g}")
+            # Nasce preenchido com o favorecido dos cheques, e editável: o
+            # dia em que houver cheque para outro nome, basta apagar.
+            favorecido = f1.text_input(
+                "Favorecido", value=_ch.FAVORECIDO_PADRAO_CHEQUE,
+                key=f"ch_favorecido_{_g}",
+                help="Cheque vai para a LEXTACK por padrão. Apague e escreva "
+                     "outro se for o caso.")
             tipo = f2.selectbox("Tipo", _ch.TIPOS, key=f"ch_tipo_{_g}")
             compra = f3.date_input("Data da compra", value=hoje,
                                    format="DD/MM/YYYY", key=f"ch_compra_{_g}")
@@ -228,17 +234,73 @@ def pagina(usuario_logado=None):
                                           use_container_width=True)
 
         if criar:
+            # FOLHA REPETIDA NÃO ENTRA, E O STUDIO DIZ QUAL.
+            #
+            # O número do talão é único: é ele que o banco debita. Dois
+            # registros com a mesma folha contam o mesmo dinheiro duas vezes no
+            # comprometido do mês, e a baixa dada num deixa o outro em aberto
+            # para sempre.
+            #
+            # `gravar` já descartava a repetida — a folha é a identidade —, mas
+            # EM SILÊNCIO, devolvendo só uma contagem. Quem cadastrava quatro
+            # cheques e errava um número via "cadastrados" e ia embora, sem
+            # saber qual ficou de fora. Recusar sem dizer o número é quase tão
+            # ruim quanto aceitar.
+            _repetidas_no_lote = _ch.folhas_repetidas_na_lista(folhas)
+            _ja_na_carteira = _ch.folhas_ja_cadastradas(folhas, linhas=linhas)
+
             if not valor_cada:
                 st.error("Cheque sem valor não entra — seriam linhas que "
                          "ocupam lugar e não contam nada.")
-            elif envio_total > valor_cada * int(n):
+            elif _repetidas_no_lote:
                 st.error(
-                    f"O envio ({_brl(envio_total)}) é maior que a compra "
-                    f"({_brl(valor_cada * int(n))} = {int(n)} × "
-                    f"{_brl(valor_cada)}). Confira antes de cadastrar.")
+                    "Você repetiu a folha "
+                    + ", ".join(f"**{f}**" for f in _repetidas_no_lote)
+                    + " dentro deste mesmo cadastro. Cada cheque tem o seu "
+                      "número — confira o talão antes de cadastrar.")
+            elif _ja_na_carteira:
+                _linhas_erro = []
+                for _f, _l in _ja_na_carteira.items():
+                    _linhas_erro.append(
+                        f"- Folha **{_f}** já está cadastrada: "
+                        f"{_ch.data_br(_l.get('vencimento')) or 'sem vencimento'}"
+                        f", {_brl(_ch._num(_l.get('valor')))}"
+                        + (f", {_l.get('favorecido')}" if _l.get("favorecido")
+                           else "")
+                        + f" — {_ch.situacao_de(_l.get('situacao'))}")
+                st.error(_rot.tela(
+                    "Não cadastrei: já existe cheque com esse número.\n\n"
+                    + "\n".join(_linhas_erro)
+                    + "\n\nSe o número estiver errado aqui, corrija. Se o "
+                      "errado for o que já está na carteira, corrija a folha "
+                      "lá embaixo — ela abre para edição."))
             else:
+                # ENVIO MAIOR QUE A COMPRA NÃO É ERRO — E BLOQUEAVA.
+                #
+                # Parte da compra sai no PIX ou no cartão e o resto em cheque.
+                # O cheque pode cobrir só uma fatia, e o ENVIO da compra
+                # inteira passar da soma dos cheques. Isto era um `st.error`
+                # com `elif`: o caso real do dono não entrava no Studio de
+                # jeito nenhum.
+                #
+                # Os dados dele já provavam que o caso existe — há cheque
+                # importado da planilha com estoque −629,91, gravado e válido.
+                # Bloquear o que a própria fonte já contém é o Studio
+                # discordando do dono sobre o negócio dele.
+                #
+                # Vira aviso: o Studio diz o que notou, e cadastra.
+                if envio_total > valor_cada * int(n):
+                    st.info(
+                        _rot.tela(
+                            f"O envio ({_brl(envio_total)}) passa da soma dos "
+                            f"cheques ({_brl(valor_cada * int(n))}). Cadastrei "
+                            f"assim mesmo — é o caso de parte da compra ter "
+                            f"saído no PIX ou no cartão. O estoque fica "
+                            f"negativo, e é essa a leitura: este cheque cobre "
+                            f"menos envio do que a compra tem."))
                 cheques_do_lote = _ch.lote(
-                    {"favorecido": favorecido, "tipo": tipo, "compra": compra,
+                    {"favorecido": _ch.favorecido_do_tipo(tipo, favorecido),
+                     "tipo": tipo, "compra": compra,
                      "situacao": situacao, "observacao": obs},
                     folhas, vencs, valor_cada, envio_total)
                 novas, repetidas, erro = _ch.gravar(cheques_do_lote,
@@ -263,7 +325,8 @@ def pagina(usuario_logado=None):
                             + f"\n\nCompra: {_brl(_soma)} = {novas} × "
                             f"{_brl(_v)}"),
                         "tabela": [{
-                            "folha": c["folha"], "vencimento": c["vencimento"],
+                            "folha": c["folha"],
+                            "vencimento": _ch.data_br(c["vencimento"]),
                             "valor": c["valor"], "envio": c["envio"],
                             "estoque": round(c["valor"] - c["envio"], 2),
                         } for c in cheques_do_lote],
@@ -299,7 +362,9 @@ def pagina(usuario_logado=None):
         st.caption("Nenhum cheque com esses filtros.")
         return
 
-    vis.sort(key=lambda l: _ch.texto_data(l.get("vencimento")))
+    # NA SEQUÊNCIA DO TALÃO, e não por vencimento: é a ordem em que os
+    # cheques saem e em que o dono confere.
+    vis.sort(key=_ch.ordem_da_folha)
     df = pd.DataFrame([{
         "id": l.get("id"),
         "folha": str(l.get("folha", "") or ""),
@@ -307,8 +372,11 @@ def pagina(usuario_logado=None):
         # preenchida no cadastro (`ch_compra_`), mas não aparecia em lugar
         # nenhum depois — o dono cadastrava e nunca mais via. Dado que se
         # escreve e não se lê é dado que ninguém confere.
-        "compra": _ch.texto_data(l.get("compra")),
-        "vencimento": _ch.texto_data(l.get("vencimento")),
+        # Na tela, DD/MM/AAAA — o formato em que o dono digita. O gravado
+        # continua AAAA-MM-DD (`_ch.texto_data`), que é o que ordena e o que a
+        # identidade usa; o que muda é só o que se lê.
+        "compra": _ch.data_br(l.get("compra")),
+        "vencimento": _ch.data_br(l.get("vencimento")),
         "valor": _ch._num(l.get("valor")),
         "envio": _ch._num(l.get("envio")),
         "estoque": _ch._num(l.get("estoque")),
@@ -326,9 +394,19 @@ def pagina(usuario_logado=None):
                      "estoque", "favorecido", "situação", "apagar"], st,
                     tipos={"valor": "brl", "envio": "brl", "estoque": "brl"}),
                 "id": None,
-                "folha": st.column_config.TextColumn(_rot.rotular("folha"),
-                                                     width="small",
-                                                     disabled=True),
+                # A FOLHA ABRE. Ela estava travada porque é a identidade do
+                # cheque — mas travar o campo não protege a identidade, só
+                # impede de consertar. O dono cadastrou um lote sem o número
+                # do talão em mãos e ficou sem caminho nenhum para incluí-lo:
+                # editar era impossível, e apagar perderia a linha.
+                #
+                # O `id` da linha não muda ao salvar (`_ch.atualizar` escreve
+                # campos, não reescreve o id), então preencher a folha aqui
+                # corrige o cadastro sem mexer em quem a linha é.
+                "folha": st.column_config.TextColumn(
+                    _rot.rotular("folha"), width="small",
+                    help="O número do talão. Dá para preencher depois, se ele "
+                         "não estava em mãos na hora do cadastro."),
                 # Vencimento, valor e envio ABREM para edição: cheque
                 # cadastrado com a data errada tem de ser corrigido aqui, e não
                 # apagado e digitado de novo — apagar perde a baixa e o
@@ -376,6 +454,22 @@ def pagina(usuario_logado=None):
                 campos["situacao"] = r["situação"]
             if str(a.get("favorecido", "") or "") != str(r["favorecido"] or ""):
                 campos["favorecido"] = str(r["favorecido"] or "")
+
+            _folha_nova = _ch.texto_folha(r["folha"])[:20]
+            if _folha_nova != _ch.texto_folha(a.get("folha")):
+                # A MESMA REGRA DO CADASTRO, aqui também. Abrir a folha para
+                # edição sem esta conferência seria abrir a porta que o
+                # cadastro acabou de fechar.
+                _colide = _ch.folhas_ja_cadastradas(
+                    [_folha_nova], ignorando_id=r["id"], linhas=linhas)
+                if _colide:
+                    erros.append(
+                        f"Folha {_folha_nova} já é de outro cheque — o da "
+                        f"linha com vencimento "
+                        f"{_ch.data_br(_colide[_folha_nova].get('vencimento'))}"
+                        f". Nada foi alterado nesta linha.")
+                    continue
+                campos["folha"] = _folha_nova
 
             # Data digitada que o Studio não entende NÃO vira data vazia: a
             # linha é recusada com o número da folha, e o resto da grade salva

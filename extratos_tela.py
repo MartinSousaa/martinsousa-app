@@ -168,12 +168,12 @@ def _perguntar(fila, _fv, usuario_logado):
             _quando = (f" · {_datas[0][8:10]}/{_datas[0][5:7]}" if len(_datas) == 1
                        else f" · {_datas[0][8:10]}/{_datas[0][5:7]} a "
                             f"{_datas[-1][8:10]}/{_datas[-1][5:7]}")
-        c1.markdown(
+        c1.markdown(_rot.tela(
             f"{SETA.get(item['sentido'], '')} **R$ {_fmt(item['total'])}**"
             f" · {item['n']}x{_quando}  \n"
             f"**{item['favorecido'][:46]}**  \n"
             f"<span style='font-size:11px;opacity:.65'>na conta "
-            f"{item.get('conta', '')} · {item.get('exemplo', '')}</span>",
+            f"{item.get('conta', '')} · {item.get('exemplo', '')}</span>"),
             unsafe_allow_html=True)
         _fin = c2.selectbox("Finalidade", _opcoes, key=f"ext_fin_{i}",
                             label_visibility="collapsed")
@@ -243,7 +243,8 @@ def _ver_mes(_fv, _lan, usuario_logado):
     )
 
     _sai = sum(-float(l["valor"]) for l in linhas if float(l["valor"]) < 0)
-    st.caption(f"{len(linhas)} lançamento(s) · R$ {_fmt(_sai)} de saída")
+    st.caption(_rot.tela(
+        f"{len(linhas)} lançamento(s) · R$ {_fmt(_sai)} de saída"))
 
     ca, cb = st.columns(2)
     if ca.button("💾 Salvar alterações", type="primary",
