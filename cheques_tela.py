@@ -303,6 +303,11 @@ def pagina(usuario_logado=None):
     df = pd.DataFrame([{
         "id": l.get("id"),
         "folha": str(l.get("folha", "") or ""),
+        # A DATA DA COMPRA. Ela era gravada desde sempre (`cheques.COLUNAS`) e
+        # preenchida no cadastro (`ch_compra_`), mas não aparecia em lugar
+        # nenhum depois — o dono cadastrava e nunca mais via. Dado que se
+        # escreve e não se lê é dado que ninguém confere.
+        "compra": _ch.texto_data(l.get("compra")),
         "vencimento": _ch.texto_data(l.get("vencimento")),
         "valor": _ch._num(l.get("valor")),
         "envio": _ch._num(l.get("envio")),
@@ -317,8 +322,8 @@ def pagina(usuario_logado=None):
             df, use_container_width=True, hide_index=True, key="ch_ed",
             column_config={
                 **_rot.config(
-                    ["folha", "vencimento", "valor", "envio", "estoque",
-                     "favorecido", "situação", "apagar"], st,
+                    ["folha", "compra", "vencimento", "valor", "envio",
+                     "estoque", "favorecido", "situação", "apagar"], st,
                     tipos={"valor": "brl", "envio": "brl", "estoque": "brl"}),
                 "id": None,
                 "folha": st.column_config.TextColumn(_rot.rotular("folha"),
@@ -328,6 +333,11 @@ def pagina(usuario_logado=None):
                 # cadastrado com a data errada tem de ser corrigido aqui, e não
                 # apagado e digitado de novo — apagar perde a baixa e o
                 # histórico da linha.
+                # Compra e vencimento ABREM juntos, e pela mesma razão: data
+                # errada se corrige aqui, não se apaga a linha e digita de novo.
+                "compra": st.column_config.TextColumn(
+                    "Compra", width="small",
+                    help="Data da compra. AAAA-MM-DD ou DD/MM/AAAA."),
                 "vencimento": st.column_config.TextColumn(
                     "Vencimento", width="small",
                     help="AAAA-MM-DD ou DD/MM/AAAA. O Studio entende os dois."),
@@ -370,6 +380,20 @@ def pagina(usuario_logado=None):
             # Data digitada que o Studio não entende NÃO vira data vazia: a
             # linha é recusada com o número da folha, e o resto da grade salva
             # normalmente. Gravar "" aqui tiraria o cheque do mês sem aviso.
+            # A compra passa pela MESMA peneira do vencimento. Escrever a
+            # recusa só para um dos dois campos de data seria consertar metade:
+            # data que o Studio não entende viraria data VAZIA na planilha, sem
+            # ninguém avisado.
+            _compra_nova = _ch.texto_data(r["compra"])
+            if str(r["compra"] or "").strip() and not _compra_nova:
+                erros.append(
+                    f"Cheque {a.get('folha') or '(sem folha)'}: não entendi a "
+                    f"data da compra «{r['compra']}» — use 02/10/2026 ou "
+                    f"2026-10-02.")
+                continue
+            if _compra_nova != _ch.texto_data(a.get("compra")):
+                campos["compra"] = _compra_nova
+
             _venc_novo = _ch.texto_data(r["vencimento"])
             if str(r["vencimento"] or "").strip() and not _venc_novo:
                 erros.append(
