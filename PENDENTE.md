@@ -267,7 +267,7 @@ a leitura do canhoto pode entrar primeiro por upload, sem depender da Meta.
 
 ---
 
-## Triagem: editar, apagar e barrar o nome repetido  ·  21/09/2026
+## ~~Triagem: editar, apagar e barrar o nome repetido~~ — FEITO em 21/09
 
 Pedido do dono, em stand-by: **sobe junto com a próxima autorização.**
 
@@ -452,7 +452,7 @@ o worker do Procfile.
 
 ---
 
-## Cheques: envio maior que a compra é normal, e o Studio bloqueia  ·  21/09/2026
+## ~~Cheques: envio maior que a compra é normal~~ — FEITO em 21/09
 
 Em stand-by, para subir com a próxima autorização.
 
@@ -484,7 +484,7 @@ previsão de caixa, que é para isso que a divisão existe.
 
 ---
 
-## O `$` do real virando fórmula de LaTeX  ·  achado em 21/09/2026
+## ~~O `$` do real virando fórmula de LaTeX~~ — FEITO em 21/09 (`rotulos.tela`)
 
 Na mesma tela: o aviso saiu como
 `O envio (R2.300,00)émaiorqueacompra(R 1.814,20)` — sem os cifrões, tudo

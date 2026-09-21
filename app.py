@@ -24,6 +24,7 @@ import atividades
 import auth
 import cronometro
 import presenca
+import rotulos
 import chat_assistente
 import placar
 import analise_metas
@@ -1487,7 +1488,9 @@ def _render_analise_venda_tab():
                     linhas_av.append((uc_label, uc_desc, classe_card, p_ml_av, p_sp_av, p_sh_av))
 
             st.markdown("### Preços mínimos para anunciar")
-            st.caption(f"LPV: R\\${_lpv_av:.2f} · NF: {_nf_av*100:.1f}% · Op: R\\${custo_op_av:.2f}")
+            st.caption(rotulos.tela(
+                f"LPV: R$ {_lpv_av:.2f} · NF: {_nf_av*100:.1f}% · "
+                f"Op: R$ {custo_op_av:.2f}"))
             st.markdown("")
 
             for uc_label, uc_desc, classe_card, p_ml, p_sp, p_sh in linhas_av:

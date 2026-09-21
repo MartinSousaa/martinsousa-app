@@ -5,6 +5,7 @@ import pandas as pd
 from datetime import date
 
 import planilha as _plan
+import rotulos as _rot
 # Nome vindo do ambiente: producao usa o padrao, homologacao usa a copia.
 PLANILHA_NOME = _plan.nome()
 ABA_NOME = "financeiro"
@@ -273,7 +274,7 @@ def pagina_financeiro(usuario_logado=None):
         if lpv is None and txt_lpv:
             st.error(f"{nome_mes}: valor não reconhecido.")
         elif lpv is not None:
-            st.caption(f"Entendido como -> R\\${formatar_br(lpv)}")
+            st.caption(_rot.tela(f"Entendido como -> R$ {formatar_br(lpv)}"))
 
         lpv_meses.append(lpv)
 
@@ -292,13 +293,14 @@ def pagina_financeiro(usuario_logado=None):
     if lpv:
         _atraso = meses_de_atraso_lpv(df)
         if _atraso >= 1:
-            st.warning(
-                f"⚠️ LPV em uso: R\\${formatar_br(lpv)}, de **{origem}** — "
+            st.warning(_rot.tela(
+                f"⚠️ LPV em uso: R$ {formatar_br(lpv)}, de **{origem}** — "
                 f"{_atraso} {'mês' if _atraso == 1 else 'meses'} atrás. "
                 "Toda análise de viabilidade está saindo com custo defasado. "
-                "Preencha os meses que faltam abaixo."
-            )
+                "Preencha os meses que faltam abaixo."))
         else:
-            st.success(f"LPV vigente: R\\${formatar_br(lpv)}  \nÚltimo mês informado: {origem}")
+            st.success(_rot.tela(
+                f"LPV vigente: R$ {formatar_br(lpv)}  \n"
+                f"Último mês informado: {origem}"))
     else:
         st.warning(f"Ainda não há LPV informado ({origem}).")
