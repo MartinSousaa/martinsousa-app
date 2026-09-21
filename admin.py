@@ -89,6 +89,17 @@ def _secao_controle_ms():
         else:
             st.caption(f"{len(_df.columns)} coluna(s). Primeiras linhas:")
             st.dataframe(_df, use_container_width=True, hide_index=True)
+            # OS NOMES DAS COLUNAS, EM TEXTO.
+            #
+            # A grade rola de lado. Numa aba de 46 colunas — BASE DE VENDAS —
+            # descobrir como se chama a coluna de custo exigia arrastar a
+            # barra quatro vezes e ler de esguelha. O nome da coluna é o que se
+            # escreve no código para ler dali; ele precisa ser copiável, não
+            # espiável.
+            with st.expander(f"Os nomes das {len(_df.columns)} colunas"):
+                st.code("\n".join(
+                    f"{_i + 1:>3}. {_c}" for _i, _c in enumerate(_df.columns)),
+                    language=None)
 
 
 def _secao_cartoes_parados():
