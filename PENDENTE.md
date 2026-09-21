@@ -503,3 +503,75 @@ call site por call site não fecha a classe — o próximo `_brl` novo reabre.
 de entregar ao `st.*`, e as telas passam a usá-lo em vez de escapar na mão.
 `_brl` continua devolvendo `R$` puro — ele também alimenta tabela e HTML, onde
 a barra invertida apareceria escrita.
+
+---
+
+## Transferência entre contas: achar o par sozinho  ·  21/09/2026
+
+Em stand-by — havia gente no Studio. **Sobe com a próxima autorização.**
+
+### O que ele pediu
+
+> "eu transfiro dinheiro entre as contas, logo, aparecerá saída de uma conta e
+> entrada na outra através dos extratos… o sistema deve cruzar as informações
+> do dia e hora da movimentação e saber que realoquei o valor… o valor de
+> movimentação não deve entrar como custo ou gasto"
+
+### Metade já existe
+
+`favorecidos.NAO_CONSOME_META` (`favorecidos.py:252`) já tem
+`TRANSFERENCIA ENTRE CONTAS` e `TRANSFERENCIA`, e `NAO_E_FATURAMENTO`
+(`favorecidos.py:258`) também. **Uma vez classificada, a transferência já fica
+de fora do gasto do mês E do faturamento.** O comentário lá diz exatamente o
+motivo: *"dinheiro indo de uma conta nossa para outra não é despesa: contá-lo
+dobraria o gasto do mês"*.
+
+O que falta é o **reconhecimento automático**. Hoje alguém tem que classificar
+o favorecido como TRANSFERENCIA; enquanto não classifica, a saída conta como
+gasto.
+
+### O que construir
+
+Um casamento entre contas, na importação do extrato — mesmo lugar onde a baixa
+dos cheques já entra. O par é:
+
+| | |
+|---|---|
+| Sinais opostos | uma saída e uma entrada |
+| **Contas diferentes** | `lancamentos.py:36` guarda `conta` em cada linha |
+| Valor idêntico | ao centavo |
+| Data igual, ou ±1 dia | TED enviada às 17h cai no dia seguinte |
+
+Achado o par, as DUAS linhas recebem `finalidade = "TRANSFERENCIA ENTRE
+CONTAS"`, e o resto do Studio já sabe o que fazer com isso.
+
+### A HORA NÃO EXISTE — e ele pediu por ela
+
+Ele disse "dia e hora". **O extrato não traz hora**: `lancamentos.COLUNAS`
+(`lancamentos.py:36`) guarda `data`, e nem o leitor do Inter nem o do Itaú
+extraem horário. Cruzar por hora não é possível sem mudar a fonte.
+
+Na prática não faz falta — valor idêntico, sinais opostos e contas diferentes
+no mesmo dia já é um par quase inequívoco. Mas **ele precisa saber que a regra
+é essa**, e não a que pediu.
+
+### O estrago a mapear (Regra 3)
+
+Marcar transferência errada tira do gasto do mês um valor que FOI gasto — e o
+número fica menor do que a realidade, que é o erro mais caro que existe aqui:
+ninguém desconfia de um gasto menor.
+
+O caso que gera falso par: uma venda entrando numa conta no mesmo dia e no
+mesmo valor de uma despesa saindo da outra. É raro, não é impossível.
+
+**Por isso, a mesma regra da baixa dos cheques:** par único e sem ambiguidade
+entra sozinho; havendo mais de um candidato para a mesma linha, o Studio
+mostra e pergunta, em vez de escolher.
+
+### Onde entra
+
+`extratos_tela.py`, logo depois de `_lan.gravar`, ao lado da baixa dos cheques
+— o extrato acabou de chegar e é ali que ele tem o que dizer. E precisa olhar
+os lançamentos JÁ GRAVADOS, não só os do arquivo: a outra perna da
+transferência costuma vir no extrato da outra conta, importado em outro
+momento.
