@@ -297,7 +297,23 @@ colaborador. O exemplo está escrito no próprio código (`triagem.py:182`):
 
 Barrar por nome **acaba com isso**: as duas caixas deixam de poder existir.
 
-**A regra que resolve o problema dele sem quebrar a variante:**
+### DECIDIDO pelo dono em 21/09: opção B — barra por NOME
+
+Ele escolheu B sabendo o que ela custa (a alternativa A foi posta ao lado e
+recusada). **Barra por `nome_comercial`, ponto.** Salvar com um nome que já
+existe é recusado, com o aviso de que já há triagem com aquele nome e o botão
+de editar a existente.
+
+Consequência aceita: **não nascem mais variantes novas.** As que já estão na
+aba `triagens` continuam lá e `widget_seletor_produto` segue mostrando elas —
+o bloqueio vale para cadastro novo, não apaga o que existe. Quem precisar de
+duas caixas de relógio passa a diferenciar no próprio nome
+("Caixa de relógio 5 posições" / "Caixa de relógio 10 posições").
+
+A regra abaixo fica registrada porque foi a alternativa avaliada — NÃO é a que
+se implementa:
+
+~~**A regra que resolve o problema dele sem quebrar a variante:**~~
 
 - Repetiu a **chave inteira** (nome + medidas + peso + cores) → barra. É
   duplicata de verdade.
