@@ -50,6 +50,7 @@ venda. Trocar a fonte é trocar o dicionário por uma leitura; a tela não muda.
 """
 
 import calendar
+from datetime import datetime
 
 import streamlit as st
 
@@ -509,16 +510,151 @@ def _bloco_gastos(usuario_logado=None, d=None):
                "gasto.")
 
 
+# ── Os números de verdade ────────────────────────────────────────────────────
+#
+# DUAS FONTES, CADA UMA NO QUE ELA SABE. É a ordem que o dono deu:
+#
+#     "ele precisa computar o faturamento em tempo real considerando as vendas
+#      que caem no Bling, agora, as demais informações precisa buscar na
+#      planilha conforme elas forem sendo atualizadas por nós"
+#
+# E a razão é dele também: "não temos os custos cadastrados no Bling para que o
+# sistema obtenha esses números". O Bling sabe o que VENDEU; quanto cada peça
+# custou está na BASE DE VENDAS, digitado por eles.
+#
+# Os dois faturamentos não vão bater — a planilha é de tempos em tempos, o
+# Bling é agora. A tela diz de onde veio cada número, porque número sem origem
+# é número que ninguém consegue conferir.
+
+# A meta por quadrimestre, como a planilha dele calcula: percentual sobre o
+# faturamento do ano anterior. Os valores estão na aba DINAMICA, no bloco
+# "REF. ANO ANTERIOR" — foram LIDOS de lá, não arbitrados aqui.
+#
+# Ficam no código porque a aba é uma tabela dinâmica, e ler tabela dinâmica por
+# fora do Excel devolve o cache dela, não a conta. Quando a meta mudar, muda
+# aqui — e é por isso que este comentário diz de onde ela veio.
+META_POR_QUADRIMESTRE = {1: 211_283.28, 2: 219_222.19, 3: 250_831.99}
+
+
+def meta_do_mes(mes):
+    """A meta de faturamento daquele mês. None quando não se sabe."""
+    try:
+        return META_POR_QUADRIMESTRE.get((int(mes) - 1) // 4 + 1)
+    except (TypeError, ValueError):
+        return None
+
+
+def _faturamento_bling(ano, mes):
+    """(realizado, avisos) — a soma dos dois CNPJs, líquida de cancelados.
+
+    Quem soma as duas contas é `bling_api.faturamento_do_mes_total`, que já
+    existe e já trata conta não configurada, erro por conta e o aviso de
+    leitura incompleta. Reescrever a soma aqui seria a segunda resposta para a
+    mesma pergunta — e duas respostas para a mesma pergunta passam a discordar,
+    a questão é só quando.
+    """
+    try:
+        import bling_api as _bl
+        total, avisos = _bl.faturamento_do_mes_total(int(ano), int(mes))
+    except Exception as e:
+        return None, [f"Bling indisponível: {type(e).__name__}"]
+    if not total or not total.get("por_conta"):
+        return None, avisos or ["Nenhuma conta do Bling respondeu."]
+    return float(total.get("liquido") or 0.0), avisos
+
+
+def dados_reais(ano, mes, dia):
+    """O dicionário que `pagina` desenha, montado das fontes de verdade.
+
+    (dados, avisos). `dados` None quando nem a planilha respondeu — aí a tela
+    diz o que faltou em vez de mostrar zero, que passaria por dado.
+    """
+    import base_vendas as _bv
+    avisos = []
+
+    ind, erro_bv = _bv.do_mes(ano, mes)
+    if erro_bv:
+        avisos.append(f"BASE DE VENDAS: {erro_bv}")
+    if not ind:
+        return None, avisos
+
+    fat_bling, avisos_bl = _faturamento_bling(ano, mes)
+    avisos.extend(f"Bling: {a}" for a in (avisos_bl or []))
+
+    # O FATURAMENTO DA TELA É O DO BLING QUANDO ELE RESPONDE.
+    # Sem ele, o da planilha — e a tela diz que é o da planilha, porque a
+    # diferença entre "agora" e "até onde atualizaram" muda a leitura de tudo.
+    realizado = fat_bling if fat_bling is not None else ind["faturamento_liquido"]
+    fonte_fat = "Bling, em tempo real" if fat_bling is not None         else "BASE DE VENDAS (o Bling não respondeu)"
+
+    import financeiro_equilibrio as _eq
+    linhas_eq = _eq.linhas_de_equilibrio()
+
+    def _card(rotulo, sub, valor, necessario, fmt, acumula):
+        return {"rotulo": rotulo, "sub": sub, "realizado": valor,
+                "necessario": necessario, "fmt": fmt,
+                "maior_melhor": True, "acumula": acumula}
+
+    _mb = ind["margem_bruta"]
+    _ml = ind["margem_contribuicao_pct"]
+    return {
+        "dia": dia, "mes": mes, "ano": ano,
+        "fonte_faturamento": fonte_fat,
+        "linhas_base_vendas": ind.get("linhas", 0),
+        "faturamento": {
+            "realizado": realizado,
+            "meta": meta_do_mes(mes) or 0.0,
+            "operacional": linhas_eq.get("operacional") or 0.0,
+            "nao_operacional": linhas_eq.get("caixa") or 0.0,
+        },
+        "cards": [
+            _card("Lucro bruto", "no mês", ind["lucro_bruto"],
+                  ind["lucro_bruto"], "brl0", True),
+            _card("Margem bruta", "sobre o faturado", _mb or 0.0,
+                  _eq.margem_de_contribuicao() * 100.0, "pct", False),
+            _card("LPV", "lucro por venda", ind["lpv"] or 0.0,
+                  ind["lpv"] or 0.0, "brl", False),
+            _card("Margem de contribuição", "sobre o faturado", _ml or 0.0,
+                  _eq.margem_de_contribuicao() * 100.0, "pct", False),
+            _card("Devoluções", "no mês", ind["devolucao"],
+                  ind["devolucao"], "brl0", True),
+            _card("UC", "unidade de contribuição, média por venda",
+                  ind["uc"] or 0.0, ind["uc"] or 0.0, "razao", False),
+        ],
+    }, avisos
+
+
 def pagina(usuario_logado=None, dados=None):
-    d = dados or EXEMPLO
     st.markdown("### 🏠 Home")
     st.caption("O resumo do mês: onde o faturamento está contra o que ele "
                "precisa ser. **O ponto de equilíbrio vem primeiro** — meta de "
                "faturamento é consequência dele.")
 
+    # OS NÚMEROS DE VERDADE, sem ninguém pedir.
+    #
+    # A tela nasceu com dados de exemplo, para aprovar o layout, e o layout foi
+    # aprovado há tempo. Manter o exemplo depois disso é pior do que não ter
+    # tela: o número inventado é plausível, fica bonito ao lado dos outros, e
+    # alguém decide em cima dele.
+    _avisos = []
     if dados is None:
-        st.warning("**Números de exemplo**, para aprovar o layout. Nenhum "
-                   "deles vem da operação ainda.")
+        import placar_core as _pc
+        _agora = datetime.now(_pc.FUSO)
+        with st.spinner("Lendo o Bling e a BASE DE VENDAS…"):
+            dados, _avisos = dados_reais(_agora.year, _agora.month, _agora.day)
+
+    if dados is None:
+        st.error(
+            "**Não consegui montar os indicadores.** Eles vêm do Bling (o "
+            "faturamento de agora) e da aba BASE DE VENDAS do Controle MS "
+            "(lucro, margem, LPV e UC). Enquanto uma das duas não responde, a "
+            "tela prefere não mostrar número nenhum a mostrar um número que "
+            "parece certo.")
+        for _a in (_avisos or []):
+            st.caption(f"· {_a}")
+        return
+
+    d = dados
 
     _, _, _, dia, dias = ritmo(d)
     _bloco_faturamento(d)
@@ -530,6 +666,20 @@ def pagina(usuario_logado=None, dados=None):
         + "".join(_card(c, dia, dias) for c in d["cards"])
         + '</div>',
         unsafe_allow_html=True)
+
+    # DE ONDE VEIO CADA NÚMERO. Sem isto, os dois faturamentos que não batem
+    # viram uma discussão sem saída — a planilha é de tempos em tempos, o
+    # Bling é agora, e os dois estão certos no que cada um mede.
+    if d.get("fonte_faturamento"):
+        st.caption(
+            f"Faturamento: **{d['fonte_faturamento']}**. Lucro, margem, LPV e "
+            f"UC: aba **BASE DE VENDAS** do Controle MS"
+            + (f" ({d['linhas_base_vendas']} venda(s) no mês)"
+               if d.get("linhas_base_vendas") else "")
+            + ". As duas fontes não batem no faturamento, e não precisam: a "
+              "planilha vai até onde vocês atualizaram.")
+    for _a in (_avisos or []):
+        st.warning(_a)
 
     st.caption(
         f"Mês de referência {d['mes']:02d}/{d['ano']}, fechado no dia "
@@ -606,5 +756,15 @@ if __name__ == "__main__":
     # As tres cores sao ESTADO: cada barra mostra uma so, e sempre com frase.
     ok("as três cores de estado são distintas",
        len({VERDE, AMARELO, VERMELHO}) == 3)
+
+    # ── A meta por quadrimestre, como a planilha dele calcula ────────────
+    ok("janeiro a abril sao o 1o quadrimestre",
+       all(meta_do_mes(m) == 211_283.28 for m in (1, 2, 3, 4)))
+    ok("maio a agosto, o 2o",
+       all(meta_do_mes(m) == 219_222.19 for m in (5, 6, 7, 8)))
+    ok("setembro a dezembro, o 3o",
+       all(meta_do_mes(m) == 250_831.99 for m in (9, 10, 11, 12)))
+    ok("mes que nao existe nao inventa meta", meta_do_mes(13) is None)
+    ok("nem texto", meta_do_mes("setembro") is None)
 
     print("\nfalhas:", falhas)
