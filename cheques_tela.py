@@ -174,16 +174,29 @@ def pagina(usuario_logado=None):
             for _k in _velhas:
                 st.session_state.pop(_k, None)
 
-        n = st.number_input(
+        # QUANTIDADE E DATA DA COMPRA FICAM FORA DO FORMULÁRIO.
+        #
+        # Widget dentro de `st.form` não reexecuta a tela ao mudar. Se a data
+        # da compra ficasse lá dentro, os campos de vencimento nunca a
+        # enxergariam e continuariam nascendo com a data de HOJE — que não é
+        # vencimento de cheque nenhum. Aqui fora, mudar a compra reexecuta, e
+        # os vencimentos renascem a 30, 60, 90 dias dela. `n` já morava aqui
+        # exatamente pelo mesmo motivo.
+        q1, q2 = st.columns(2)
+        n = q1.number_input(
             "Quantos cheques nesta compra?", min_value=1, max_value=12,
             value=1, step=1, key=f"ch_qtd_{_g}",
             help="Uma compra fechada em vários cheques. Compra, favorecido, "
                  "valor total e envio são os mesmos; folha e vencimento são "
                  "de cada um.")
+        compra = q2.date_input("Data da compra", value=hoje,
+                               format="DD/MM/YYYY", key=f"ch_compra_{_g}",
+                               help="Os vencimentos abaixo nascem a 30, 60 e "
+                                    "90 dias desta data.")
 
         with st.form(f"ch_novo_{_g}"):
             st.markdown("**A compra** — vale para todos os cheques")
-            f1, f2, f3 = st.columns(3)
+            f1, f2 = st.columns(2)
             # Nasce preenchido com o favorecido dos cheques, e editável: o
             # dia em que houver cheque para outro nome, basta apagar.
             favorecido = f1.text_input(
@@ -192,8 +205,6 @@ def pagina(usuario_logado=None):
                 help="Cheque vai para a LEXTACK por padrão. Apague e escreva "
                      "outro se for o caso.")
             tipo = f2.selectbox("Tipo", _ch.TIPOS, key=f"ch_tipo_{_g}")
-            compra = f3.date_input("Data da compra", value=hoje,
-                                   format="DD/MM/YYYY", key=f"ch_compra_{_g}")
             g1, g2, g3 = st.columns(3)
             # O VALOR É O DE UM CHEQUE, e não o da compra.
             #
@@ -224,9 +235,23 @@ def pagina(usuario_logado=None):
                 c1, c2 = st.columns([1, 2])
                 folhas.append(c1.text_input(
                     f"Folha do {_i + 1}º", key=f"ch_folha_{_g}_{_i}"))
+                # A DATA DA COMPRA ENTRA NA CHAVE, e é por isso que funciona.
+                #
+                # `st.date_input` com `key` ignora o `value` depois da primeira
+                # vez: o valor passa a morar no session_state e o padrão nunca
+                # mais é lido. Mudar a compra não mexeria em nada — o campo
+                # continuaria com os 30 dias da data anterior, e a sugestão
+                # seria uma promessa que a tela não cumpre.
+                #
+                # Com a compra na chave, mudá-la cria um widget NOVO, que nasce
+                # no padrão novo. O preço é perder um vencimento editado à mão
+                # quando a compra muda depois — e é o certo: os três voltam a
+                # ser 30/60/90 da data nova.
                 vencs.append(c2.date_input(
-                    f"Vencimento do {_i + 1}º", value=hoje,
-                    format="DD/MM/YYYY", key=f"ch_venc_{_g}_{_i}"))
+                    f"Vencimento do {_i + 1}º",
+                    value=_ch.vencimento_sugerido(compra, _i) or hoje,
+                    format="DD/MM/YYYY",
+                    key=f"ch_venc_{_g}_{_i}_{_ch.texto_data(compra)}"))
 
             obs = st.text_input("Observação (vale para todos)",
                                 key=f"ch_obs_{_g}")

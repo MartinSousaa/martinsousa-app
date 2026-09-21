@@ -63,6 +63,32 @@ TIPOS = ("CHEQUE", "BOLETO")
 # branco é a carteira que ele já tem hoje na planilha.
 FAVORECIDO_PADRAO_CHEQUE = "LEXTACK"
 
+# Prazo mínimo de um cheque, dito pelo dono: "os cheques possuem no mínimo 30
+# dias de vencimento". O formulário nascia com o vencimento em HOJE — uma data
+# que nenhum cheque tem, e que alguém precisava corrigir em todas as linhas
+# antes de cadastrar.
+DIAS_PRIMEIRO_VENCIMENTO = 30
+
+
+def vencimento_sugerido(compra, ordem=0, dias=DIAS_PRIMEIRO_VENCIMENTO):
+    """A data que o campo já vem preenchida. `ordem` 0 é o primeiro cheque.
+
+    Cada cheque seguinte cai 30 dias depois do anterior — 30, 60, 90 —, que é
+    como o talão costuma sair. É SUGESTÃO: o campo continua aberto, e o Renan
+    manda lote com intervalo diferente ("Pix / 30 / 45 dias") de vez em quando.
+
+    O que importa é o padrão deixar de ser HOJE, que não é vencimento de cheque
+    nenhum e obrigava a corrigir linha por linha.
+    """
+    from datetime import date as _date, timedelta as _td
+    base = compra if isinstance(compra, _date) else None
+    if base is None:
+        iso = texto_data(compra)
+        if len(iso) != 10:
+            return None
+        base = _date(int(iso[0:4]), int(iso[5:7]), int(iso[8:10]))
+    return base + _td(days=int(dias) * (int(ordem) + 1))
+
 
 def favorecido_do_tipo(tipo, favorecido=""):
     """O favorecido que vale, já com o padrão do cheque aplicado."""
@@ -986,5 +1012,19 @@ if __name__ == "__main__":
        favorecido_do_tipo("BOLETO", "") == "")
     ok("so espaco conta como vazio",
        favorecido_do_tipo("CHEQUE", "   ") == "LEXTACK")
+
+    # ── O vencimento ja nasce a 30 dias da compra ────────────────────────
+    from datetime import date as _d
+    ok("o primeiro cai 30 dias depois da compra",
+       vencimento_sugerido(_d(2026, 9, 21)) == _d(2026, 10, 21))
+    ok("o segundo, 60", vencimento_sugerido(_d(2026, 9, 21), 1) == _d(2026, 11, 20))
+    ok("o terceiro, 90", vencimento_sugerido(_d(2026, 9, 21), 2) == _d(2026, 12, 20))
+    ok("texto tambem serve de base",
+       vencimento_sugerido("2026-09-21") == _d(2026, 10, 21))
+    ok("e o formato do dono tambem",
+       vencimento_sugerido("21/09/2026") == _d(2026, 10, 21))
+    ok("sem compra nao inventa data", vencimento_sugerido(None) is None)
+    ok("vira o mes sem quebrar",
+       vencimento_sugerido(_d(2026, 1, 31)) == _d(2026, 3, 2))
 
     print("\nfalhas:", falhas)
