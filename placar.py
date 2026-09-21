@@ -2750,17 +2750,17 @@ _TV_INTERVALO_SEG = 60
 # rodava por cima dela — umas 40 vezes por hora. A espera por presença
 # funcionava; o teto a cancelava antes de ela valer de alguma coisa.
 #
-# 10 minutos: a TV é um painel de parede, e ninguém lê a meta com precisão de
-# minuto. O `tv.html` mostra a hora da última atualização, então o atraso é
-# visível em vez de silencioso.
+# 15 minutos, escolhido pelo dono: a TV é um painel de parede, e ninguém lê a
+# meta com precisão de minuto. O `tv.html` mostra a hora da última
+# atualização, então o atraso é visível em vez de silencioso.
 #
 # ISTO NÃO É A SOLUÇÃO, É O ESTRAGO REDUZIDO — de ~40 interrupções por hora
-# para ~6. Enquanto os dois processos dividirem o mesmo container, a volta da
+# para ~4. Enquanto os dois processos dividirem o mesmo container, a volta da
 # TV vai continuar caindo em cima de alguém de vez em quando. O que resolve de
 # vez é o worker virar serviço próprio no Railway (~US$5/mês), e isso está
 # registrado no PENDENTE.md.
 _TV_INTERVALO_OCUPADO_SEG = 20
-_TV_TETO_ESPERA_SEG = 600
+_TV_TETO_ESPERA_SEG = 900
 
 # Estado da regeneração, para a falha parar de ser invisível.
 #

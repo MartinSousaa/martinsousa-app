@@ -374,9 +374,9 @@ reparte CPU, mas não reparte memória, e é a memória que reinicia o container
 o que repartir.
 
 **O que foi feito em 21/09, que é estrago reduzido e não solução:**
-`_TV_TETO_ESPERA_SEG` de 90s para 600s (`placar.py`). Com teto de 90s, quem
-ficava no Ajuste Fino levava o Painel de Metas por cima a cada minuto e meio —
-~40 vezes por hora. Agora são ~6.
+`_TV_TETO_ESPERA_SEG` de 90s para 900s (`placar.py`), valor escolhido pelo
+dono. Com teto de 90s, quem ficava no Ajuste Fino levava o Painel de Metas por
+cima a cada minuto e meio — ~40 vezes por hora. Agora são ~4.
 
 **O que medir antes de gastar os US$ 5.** Os quatro campos de custo passaram a
 viajar no `tv-status.json` e aparecem no rodapé do Painel de Metas: duração da
