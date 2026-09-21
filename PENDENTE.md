@@ -359,3 +359,27 @@ e vira mês. Conserto: converter para data antes de ordenar
 (`pd.to_datetime(..., format="%d/%m/%Y %H:%M", errors="coerce")`).
 
 Vale corrigir junto — é a mesma função que a edição vai mexer.
+
+---
+
+## A TV e o Studio no mesmo container  ·  21/09/2026
+
+**O que resolve de vez, e custa dinheiro.** O `tv_worker.py` roda o Painel de
+Metas inteiro dentro do MESMO container do Studio (`Procfile`). Enquanto for
+assim, a volta da TV vai cair em cima de alguém de vez em quando — `nice 19`
+reparte CPU, mas não reparte memória, e é a memória que reinicia o container
+(e reiniciar é o que apaga o histórico do chat).
+
+**A saída:** o worker vira serviço próprio no Railway, ~US$ 5/mês. Aí não há
+o que repartir.
+
+**O que foi feito em 21/09, que é estrago reduzido e não solução:**
+`_TV_TETO_ESPERA_SEG` de 90s para 600s (`placar.py`). Com teto de 90s, quem
+ficava no Ajuste Fino levava o Painel de Metas por cima a cada minuto e meio —
+~40 vezes por hora. Agora são ~6.
+
+**O que medir antes de gastar os US$ 5.** Os quatro campos de custo passaram a
+viajar no `tv-status.json` e aparecem no rodapé do Painel de Metas: duração da
+volta, pior duração, memória do worker, voltas adiadas. Se a volta levar
+décimos de segundo, a TV não é a causa e o serviço separado não resolve nada —
+é memória do próprio Streamlit, e a conta é outra.
