@@ -24,6 +24,36 @@ SIGLAS = {"ml", "cnpj", "cpf", "id", "pix", "ted", "doc", "das", "nf", "sku",
           "tv", "ia", "cmv", "vt", "vr"}
 
 
+def tela(texto):
+    """O texto de um `st.error`/`st.info`/`st.warning`, sem virar matemática.
+
+    O AVISO QUE SAIU ASSIM
+    ----------------------
+        O envio (R2.300,00)émaiorqueacompra(R 1.814,20)
+
+    O markdown do Streamlit lê `$…$` como fórmula de LaTeX. DOIS `R$` no mesmo
+    texto fecham um par: os cifrões somem, o miolo gruda e sai em itálico. O
+    número continua lá — e ilegível, que é pior do que sumir.
+
+    POR QUE AQUI, E NÃO EM CADA CHAMADA
+    -----------------------------------
+    Já estava resolvido com `R\$` escrito à mão em quatro lugares
+    (`app.py:1490`, `financeiro.py:276`, `:295`, `:302`) e em nenhum outro — a
+    correção num caminho só, de novo.
+
+    E escapar chamada por chamada não fecha a classe: onde o `R$` vem de um
+    helper (`_brl`, `formatar_br`), o cifrão não está escrito na chamada. Uma
+    varredura por AST passa por ela sem ver nada, e foi exatamente o que
+    aconteceu com `cheques_tela.py` — a peneira aprovou justo a linha que
+    quebrou na tela.
+
+    `_brl` continua devolvendo `R$` puro: ela também alimenta tabela e HTML,
+    onde a barra invertida apareceria escrita. Quem escapa é quem entrega ao
+    `st.*`, que é este lugar.
+    """
+    return str(texto if texto is not None else "").replace("$", "\\$")
+
+
 def rotular(chave):
     """`"data pagamento"` -> `"Data pagamento"`. Só a primeira letra sobe.
 
@@ -159,5 +189,16 @@ if __name__ == "__main__":
         APELIDOS)
     ok("nenhum cabecalho comeca em minuscula",
        all(r[0].isupper() for r in _todos.values() if r[0].isalpha()))
+
+    # ── O cifrao do real nao vira formula ────────────────────────────────
+    ok("dois R$ no mesmo texto saem escapados",
+       tela("de R$ 10,00 para R$ 20,00")
+       == "de R\\$ 10,00 para R\\$ 20,00")
+    ok("um R$ sozinho tambem — nao se adivinha quem faz par",
+       tela("R$ 5,00") == "R\\$ 5,00")
+    ok("texto sem cifrao passa intacto",
+       tela("Nada mudou.") == "Nada mudou.")
+    ok("None nao vira 'None' na tela", tela(None) == "")
+    ok("numero tambem passa", tela(12) == "12")
 
     print("\nfalhas:", falhas)

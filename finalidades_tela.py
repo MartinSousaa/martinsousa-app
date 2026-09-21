@@ -40,8 +40,8 @@ def pagina(usuario_logado=None):
         st.caption(f"{len(fila)} nome(s), do que mais pesou para o menor.")
         for i, item in enumerate(fila[:20]):
             c1, c2, c3 = st.columns([3, 2, 1])
-            c1.markdown(f"**{item['favorecido'][:40]}**  \n"
-                        f"{item['n']}x · R$ {item['total']:,.2f}")
+            c1.markdown(_rot.tela(f"**{item['favorecido'][:40]}**  \n"
+                                  f"{item['n']}x · R$ {item['total']:,.2f}"))
             _f = c2.selectbox("Finalidade", _opcoes, key=f"fin_q_{i}",
                               label_visibility="collapsed")
             if c3.button("Salvar", key=f"fin_s_{i}", use_container_width=True):

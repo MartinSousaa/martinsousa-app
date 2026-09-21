@@ -11,6 +11,17 @@ PLANILHA_NOME = _plan.nome()
 ABA_NOME = "triagens"
 
 COLUNAS = [
+    # `id` PRIMEIRO, e por isso ele existe: sem identificador não se diz QUAL
+    # linha editar ou apagar. A alternativa era o número da linha na planilha —
+    # e ele é frágil: `carregar_triagens` é cacheada e `get_all_records` não
+    # devolve o número da linha, então quem apagasse uma linha à mão na
+    # planilha faria o índice guardado apontar para outra. É a mesma classe de
+    # defeito de "escolher o item pelo texto da tela", que já custou caro aqui.
+    #
+    # `cheques.py` já usa este padrão (lá a FOLHA é a identidade). As linhas
+    # antigas nasceram sem id; `_id_novo` preenche a primeira vez que a linha
+    # é editada, e quem não tem continua sendo lido normalmente.
+    "id",
     "data_hora", "usuario", "nome_comercial", "categoria", "material", "variacao_cores",
     "medidas", "peso", "caracteristicas", "diferenciais", "uso",
     "termos_busca", "termos_evitar", "foto_drive_id",
@@ -127,6 +138,9 @@ def salvar_triagem(usuario, dados):
         valores = dict(dados or {})
         valores["data_hora"] = datetime.now().strftime("%d/%m/%Y %H:%M")
         valores["usuario"] = usuario
+        # Toda triagem nova nasce com identificador. É ele que a edição e o
+        # apagar usam depois para dizer QUAL linha.
+        valores.setdefault("id", _id_novo())
         try:
             cabecalho_real = aba.row_values(1) or list(COLUNAS)
         except Exception:
@@ -136,6 +150,139 @@ def salvar_triagem(usuario, dados):
         carregar_triagens.clear()
     except Exception as e:
         raise RuntimeError(f"Não consegui salvar a triagem no Google Sheets: {e}") from e
+
+
+def _id_novo():
+    """Identificador estável de uma triagem. Não depende do conteúdo.
+
+    De propósito: se o id saísse do nome, renomear o produto mudaria a
+    identidade da linha e a edição viraria uma linha nova — que é exatamente o
+    defeito que esta função existe para acabar.
+    """
+    import uuid
+    return uuid.uuid4().hex[:12]
+
+
+def id_da_linha(linha):
+    """O id de uma triagem já gravada, ou "" quando ela é das antigas."""
+    return str((linha or {}).get("id", "") or "").strip()
+
+
+def nome_ja_usado(nome_comercial, ignorando_id=""):
+    """Já existe triagem com este nome? Devolve a linha achada, ou None.
+
+    A REGRA É POR NOME, E FOI ESCOLHA DO DONO
+    -----------------------------------------
+    Foi posta ao lado da alternativa — barrar só quando repetem nome, medidas,
+    peso e cores, deixando conviver "Caixa de relógio 5 posições" e "10
+    posições" como variantes — e ele escolheu barrar por NOME, sabendo o que
+    custa: variantes novas passam a se diferenciar no próprio nome.
+
+    As variantes que já estão gravadas continuam onde estão, e
+    `widget_seletor_produto` segue mostrando todas. O bloqueio vale para
+    cadastro novo; ele não apaga nada.
+
+    `ignorando_id` é a própria linha, ao editar: salvar sem mexer no nome não
+    pode ser recusado por causa de si mesma.
+    """
+    alvo = _normalizar(str(nome_comercial)).strip()
+    if not alvo:
+        return None
+    df = carregar_triagens()
+    if df.empty or "nome_comercial" not in df.columns:
+        return None
+    nomes = df["nome_comercial"].astype(str).apply(_normalizar).str.strip()
+    iguais = df[nomes == alvo]
+    if iguais.empty:
+        return None
+    if ignorando_id:
+        iguais = iguais[iguais.get("id", "").astype(str).str.strip()
+                        != str(ignorando_id).strip()]
+        if iguais.empty:
+            return None
+    return iguais.iloc[-1].to_dict()
+
+
+def _linha_na_planilha(aba, id_triagem):
+    """O número da linha daquele id na planilha. None quando não está lá.
+
+    Lê a coluna do id de uma vez e procura nela, em vez de baixar a aba
+    inteira: editar uma triagem não pode custar a leitura de todas.
+    """
+    cab = aba.row_values(1) or []
+    norm = [str(c).strip().lower() for c in cab]
+    if "id" not in norm:
+        return None
+    coluna = norm.index("id") + 1
+    valores = aba.col_values(coluna)
+    alvo = str(id_triagem).strip()
+    for i, v in enumerate(valores[1:], start=2):     # pula o cabeçalho
+        if str(v).strip() == alvo:
+            return i
+    return None
+
+
+def atualizar_triagem(id_triagem, dados, usuario=""):
+    """Reescreve UMA triagem. (ok, erro).
+
+    `data_hora` NÃO é tocada de propósito. Ela é o critério de "mais recente"
+    em `buscar_triagem_por_nome` (.iloc[-1]) e em `buscar_triagens_por_trecho`
+    (keep="last"). Carimbar a edição com a hora de agora faria corrigir um
+    produto antigo jogá-lo na frente dos novos — a correção mudaria de lugar
+    coisas que ninguém pediu para mexer.
+    """
+    if not str(id_triagem or "").strip():
+        return False, "Triagem sem identificador — não dá para saber qual editar."
+    try:
+        aba = _aba()
+        linha_n = _linha_na_planilha(aba, id_triagem)
+        if not linha_n:
+            return False, "Não achei essa triagem na planilha. Recarregue a tela."
+        cab = aba.row_values(1) or list(COLUNAS)
+        atual = aba.row_values(linha_n) or []
+        atual += [""] * (len(cab) - len(atual))
+        valores = dict(dados or {})
+        novo = []
+        for i, c in enumerate(cab):
+            chave = str(c).strip().lower()
+            if chave in valores:
+                novo.append(valores[chave])
+            elif chave == "usuario" and usuario:
+                novo.append(usuario)
+            else:
+                novo.append(atual[i] if i < len(atual) else "")
+        # O intervalo sai do gspread, e não de `chr(64 + n)`: essa conta
+        # quebra na coluna 27, onde o Excel passa a usar AA. A aba já tem 15
+        # colunas e cresce sozinha em `_aba()` — contar com "nunca chega a 27"
+        # é apostar que ninguém vai acrescentar campo.
+        from gspread.utils import rowcol_to_a1 as _a1
+        aba.update([novo], f"{_a1(linha_n, 1)}:{_a1(linha_n, len(cab))}")
+        carregar_triagens.clear()
+        return True, ""
+    except Exception as e:
+        return False, f"Não consegui salvar a triagem: {e}"
+
+
+def apagar_triagem(id_triagem):
+    """Remove UMA triagem. (ok, erro).
+
+    Quem consome a triagem: `imagem.py`, `descricao.py`, `tit_ml.py`,
+    `palavras_chave.py`, `video.py` e `ferramentas_chat.py`. Apagar tira a
+    fonte de dados desses seis para aquele produto — aceitável quando é
+    duplicata, e por isso a tela mostra o que vai sumir antes de perguntar.
+    """
+    if not str(id_triagem or "").strip():
+        return False, "Triagem sem identificador — não dá para saber qual apagar."
+    try:
+        aba = _aba()
+        linha_n = _linha_na_planilha(aba, id_triagem)
+        if not linha_n:
+            return False, "Não achei essa triagem na planilha. Recarregue a tela."
+        aba.delete_rows(linha_n)
+        carregar_triagens.clear()
+        return True, ""
+    except Exception as e:
+        return False, f"Não consegui apagar a triagem: {e}"
 
 
 @st.cache_data(ttl=600)
@@ -190,7 +337,16 @@ def buscar_triagens_por_trecho(trecho):
     filtradas = df[df["nome_comercial"].astype(str).apply(_normalizar).str.contains(trecho_l, na=False)]
     if filtradas.empty:
         return []
-    filtradas = filtradas.sort_values("data_hora")
+    # DATA ORDENADA COMO DATA, E NÃO COMO TEXTO.
+    #
+    # `data_hora` é gravada "%d/%m/%Y %H:%M" (triagem.py, salvar_triagem). Em
+    # string, "31/12/2025" vem DEPOIS de "01/01/2026", porque a comparação
+    # começa pelo dia. Como o `keep="last"` logo abaixo escolhe a "mais
+    # recente" de cada variante por esta ordem, a mais recente podia ser a mais
+    # antiga — e virar o mês inteiro sem ninguém notar.
+    filtradas = filtradas.sort_values(
+        "data_hora", key=lambda col: pd.to_datetime(
+            col, format="%d/%m/%Y %H:%M", errors="coerce"))
     # Deduplica por variante composta (não só pelo nome)
     filtradas = filtradas.copy()
     filtradas["_chave"] = filtradas.apply(_chave_variante, axis=1)
@@ -474,6 +630,22 @@ def pagina_triagem(usuario_logado):
                 "Preencha pelo menos o **Nome comercial** para salvar a triagem.")
             st.rerun()
 
+        # NOME REPETIDO NÃO ENTRA — regra escolhida pelo dono em 21/09.
+        #
+        # Antes, cada "Salvar" fazia uma linha nova. Corrigir um erro de
+        # digitação criava uma segunda triagem do mesmo produto, e a busca
+        # passava a devolver a mais recente das duas — sem ninguém saber que
+        # havia duas.
+        _ja = nome_ja_usado(nome_comercial)
+        if _ja is not None:
+            st.session_state["triagem_msg_erro"] = (
+                f"Já existe uma triagem chamada **{nome_comercial}** "
+                f"(cadastrada por {_ja.get('usuario') or '—'} em "
+                f"{_ja.get('data_hora') or '—'}). Para mudar alguma coisa, use "
+                f"**Buscar triagem existente**, ali embaixo, e edite aquela — "
+                f"salvar de novo aqui criaria uma segunda.")
+            st.rerun()
+
         # Salva a categoria escolhida para a próxima triagem
         st.session_state["triagem_ultima_categoria"] = categoria
 
@@ -526,5 +698,164 @@ def pagina_triagem(usuario_logado):
         encontrada = buscar_triagem_por_nome(nome_busca)
         if encontrada:
             _cartao_triagem(encontrada)
+            _editar_ou_apagar(encontrada, usuario_logado)
         else:
             st.info("Nenhuma triagem encontrada com esse nome ainda.")
+
+
+# ── Editar e apagar ──────────────────────────────────────────────────────────
+# Antes não havia nem um nem outro: cada "Salvar" era uma linha nova, e o jeito
+# de corrigir um erro de digitação era cadastrar tudo de novo. Ficavam duas
+# triagens do mesmo produto, e a busca devolvia a mais recente das duas.
+
+_EDITAVEIS = [
+    ("nome_comercial", "Nome comercial", "texto"),
+    ("material", "Material", "texto"),
+    ("variacao_cores", "Variação de cores", "texto"),
+    ("medidas", "Medidas (AxLxP, cm)", "texto"),
+    ("peso", "Peso", "texto"),
+    ("uso", "Uso / ocasião", "texto"),
+    ("caracteristicas", "Características técnicas", "area"),
+    ("diferenciais", "Diferenciais", "area"),
+    ("termos_busca", "Termos que o cliente busca", "texto"),
+    ("termos_evitar", "Termos a evitar", "texto"),
+]
+
+
+def _editar_ou_apagar(dados, usuario_logado):
+    _id = id_da_linha(dados)
+    if not _id:
+        st.caption(
+            "Esta triagem é anterior ao identificador e não pode ser editada "
+            "aqui ainda. Cadastre-a de novo com outro nome, ou me avise para "
+            "preencher os identificadores das antigas de uma vez.")
+        return
+
+    with st.expander("✏️ Editar esta triagem"):
+        # Formulário, e não botões soltos: um clique que tira o foco de uma
+        # célula em edição é consumido pelo rerun, e o colaborador clica duas
+        # vezes sem entender por quê.
+        with st.form(f"form_edit_{_id}"):
+            _novos = {}
+            _cats = sorted(ML_COMISSAO_POR_CATEGORIA.keys())
+            _cat_atual = str(dados.get("categoria", "") or "")
+            c1, c2 = st.columns(2)
+            _novos["nome_comercial"] = c1.text_input(
+                "Nome comercial", value=str(dados.get("nome_comercial", "") or ""),
+                key=f"ed_nome_{_id}")
+            _novos["categoria"] = c2.selectbox(
+                "Categoria no ML", _cats,
+                index=_cats.index(_cat_atual) if _cat_atual in _cats else 0,
+                key=f"ed_cat_{_id}")
+            for _ch, _rot, _tipo in _EDITAVEIS:
+                if _ch == "nome_comercial":
+                    continue
+                _fn = st.text_area if _tipo == "area" else st.text_input
+                _novos[_ch] = _fn(_rot, value=str(dados.get(_ch, "") or ""),
+                                  key=f"ed_{_ch}_{_id}")
+            _salvar = st.form_submit_button("💾 Salvar alterações",
+                                            type="primary",
+                                            use_container_width=True)
+
+        if _salvar:
+            if not str(_novos["nome_comercial"]).strip():
+                st.error("O nome comercial não pode ficar vazio.")
+            else:
+                # O nome pode ter mudado — e o novo não pode colidir com outra
+                # triagem. `ignorando_id` é esta linha: salvar sem mexer no
+                # nome não pode ser recusado por causa de si mesma.
+                _colide = nome_ja_usado(_novos["nome_comercial"],
+                                        ignorando_id=_id)
+                if _colide is not None:
+                    st.error(
+                        f"Já existe outra triagem chamada "
+                        f"**{_novos['nome_comercial']}**. Escolha outro nome.")
+                else:
+                    _ok, _erro = atualizar_triagem(_id, _novos, usuario_logado)
+                    if _ok:
+                        st.success("Triagem atualizada! ✅")
+                        st.rerun()
+                    else:
+                        st.error(_erro)
+
+    with st.expander("🗑️ Apagar esta triagem"):
+        # O que some, dito ANTES de perguntar. Seis telas leem a triagem —
+        # imagem, descrição, título, palavras-chave, vídeo e o chat — e o
+        # colaborador que apaga a errada só descobre quando uma delas não
+        # acha mais o produto.
+        st.warning(
+            f"**{dados.get('nome_comercial', '(sem nome)')}** sai da aba "
+            "`triagens` e deixa de alimentar Imagem, Descrição, Título, "
+            "Palavras-chave, Vídeo e o Assistente. Não tem desfazer.")
+        _confirma = st.text_input(
+            "Para confirmar, escreva APAGAR", key=f"del_conf_{_id}")
+        if st.button("Apagar definitivamente", key=f"del_btn_{_id}",
+                     disabled=_confirma.strip().upper() != "APAGAR"):
+            _ok, _erro = apagar_triagem(_id)
+            if _ok:
+                st.success("Triagem apagada.")
+                st.rerun()
+            else:
+                st.error(_erro)
+
+
+# ── Conferência ──────────────────────────────────────────────────────────────
+if __name__ == "__main__":
+    falhas = 0
+
+    def ok(nome, cond):
+        global falhas
+        falhas += not cond
+        print(("ok    " if cond else "FALHA ") + nome)
+
+    _BASE = pd.DataFrame([
+        {"id": "aaa", "nome_comercial": "Caixa de relógio 5 posições",
+         "medidas": "20x10x8", "peso": "700g", "variacao_cores": "Preto",
+         "data_hora": "31/12/2025 10:00", "usuario": "leo"},
+        {"id": "bbb", "nome_comercial": "Caixa de relógio 5 posições",
+         "medidas": "20x10x8", "peso": "700g", "variacao_cores": "Preto",
+         "data_hora": "01/01/2026 09:00", "usuario": "leo"},
+        {"id": "ccc", "nome_comercial": "Álbum de fotos 200",
+         "medidas": "33x33x6", "peso": "900g", "variacao_cores": "Azul",
+         "data_hora": "15/03/2026 08:00", "usuario": "bru"},
+    ])
+    globals()["carregar_triagens"] = lambda: _BASE
+
+    # ── Nome repetido barra (opção B, escolhida pelo dono) ───────────────
+    ok("nome ja usado e encontrado",
+       (nome_ja_usado("Caixa de relógio 5 posições") or {}).get("id") == "bbb")
+    ok("acento e caixa nao escapam da regra",
+       nome_ja_usado("ALBUM DE FOTOS 200") is not None)
+    ok("nome novo passa", nome_ja_usado("Bengala de metal") is None)
+    ok("nome vazio nao acusa nada", nome_ja_usado("   ") is None)
+
+    # Editar a propria linha sem mexer no nome NAO pode ser recusado por
+    # causa de si mesma — e com duas gemeas, a outra ainda barra.
+    ok("a propria linha nao se barra",
+       nome_ja_usado("Álbum de fotos 200", ignorando_id="ccc") is None)
+    ok("mas a gemea de outra linha continua barrando",
+       nome_ja_usado("Caixa de relógio 5 posições",
+                     ignorando_id="bbb") is not None)
+
+    # ── A data ordenada como DATA, e nao como texto ──────────────────────
+    # "31/12/2025" vem DEPOIS de "01/01/2026" em ordem alfabetica: a "mais
+    # recente" de cada variante era a mais antiga, e virava o mes.
+    _achadas = buscar_triagens_por_trecho("caixa de relogio")
+    ok("uma entrada por variante", len(_achadas) == 1)
+    ok("e a mais recente e a de 2026, nao a de 31/12/2025",
+       _achadas and _achadas[0]["id"] == "bbb")
+
+    # ── O identificador ──────────────────────────────────────────────────
+    ok("id novo nao repete", _id_novo() != _id_novo())
+    ok("id novo tem tamanho fixo", len(_id_novo()) == 12)
+    ok("linha antiga sem id devolve vazio", id_da_linha({"nome_comercial": "x"}) == "")
+    ok("e a linha com id devolve o id", id_da_linha({"id": " abc "}) == "abc")
+
+    ok("COLUNAS comeca pelo id", COLUNAS[0] == "id")
+
+    # Sem identificador, editar e apagar recusam em vez de mexer na linha
+    # errada — que e o unico jeito de errar aqui que nao tem volta.
+    ok("editar sem id recusa", atualizar_triagem("", {"nome_comercial": "x"})[0] is False)
+    ok("apagar sem id recusa", apagar_triagem("")[0] is False)
+
+    print("\nfalhas:", falhas)
