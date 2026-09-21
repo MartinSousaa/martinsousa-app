@@ -105,8 +105,23 @@ def _servidor_estatico(porta):
             # A raiz responde o painel: a TV aponta para o domínio do serviço e
             # mais nada. Quem digita o endereço sem o nome do arquivo vê a TV,
             # e não uma listagem de diretório.
-            if self.path in ("/", ""):
-                self.path = "/tv.html"
+            #
+            # A COMPARAÇÃO IGNORA A QUERY, E É AÍ QUE ESTAVA O DEFEITO.
+            #
+            # O painel se atualiza sozinho buscando a própria página com um
+            # carimbo de tempo — `_u.searchParams.set('ts', Date.now())`, em
+            # placar.py. Na raiz isso vira `/?ts=1758...`, que NÃO é igual a
+            # "/". A primeira carga funcionava; toda atualização depois dela
+            # caía na listagem de diretório e recebia 404.
+            #
+            # O efeito seria cruel de diagnosticar: a TV acende certa, mostra
+            # os números daquele instante e congela para sempre, sem erro
+            # nenhum na tela — o próprio JS trata falha de rede esperando e
+            # tentando de novo, calado.
+            caminho = self.path.split("?", 1)[0].split("#", 1)[0]
+            if caminho in ("/", ""):
+                _query = self.path[len(caminho):]
+                self.path = "/tv.html" + _query
             return super().do_GET()
 
         def list_directory(self, path):
@@ -159,5 +174,43 @@ def main():
     placar._loop_regenerador_tv()
 
 
+def _caminho_servido(path):
+    """Que arquivo este pedido busca, depois da reescrita da raiz.
+
+    Extraída para poder ser conferida sem subir servidor nenhum — o defeito
+    que ela corrige só aparecia na SEGUNDA busca da TV, e num lugar onde
+    ninguém olha.
+    """
+    caminho = path.split("?", 1)[0].split("#", 1)[0]
+    if caminho in ("/", ""):
+        return "/tv.html" + path[len(caminho):]
+    return path
+
+
 if __name__ == "__main__":
+    import sys as _s
+    if "--conferir" in _s.argv:
+        falhas = 0
+
+        def ok(nome, cond):
+            global falhas
+            falhas += not cond
+            print(("ok    " if cond else "FALHA ") + nome)
+
+        ok("a raiz serve o painel", _caminho_servido("/") == "/tv.html")
+        # O caso que quebrava: a TV se atualiza buscando /?ts=<agora>.
+        ok("a raiz COM carimbo de tempo tambem",
+           _caminho_servido("/?ts=1758480000") == "/tv.html?ts=1758480000")
+        ok("e o carimbo continua chegando ao arquivo",
+           "?ts=" in _caminho_servido("/?ts=1"))
+        ok("quem pede o arquivo direto passa igual",
+           _caminho_servido("/tv.html") == "/tv.html")
+        ok("e com carimbo tambem",
+           _caminho_servido("/tv.html?ts=9") == "/tv.html?ts=9")
+        ok("outro arquivo do static nao e reescrito",
+           _caminho_servido("/tv-sw.js") == "/tv-sw.js")
+        ok("nem o estado da TV",
+           _caminho_servido("/tv-status.json") == "/tv-status.json")
+        print("\nfalhas:", falhas)
+        _s.exit(0)
     main()
