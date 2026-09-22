@@ -98,6 +98,109 @@ SUGESTOES = [
 ]
 
 
+def _aba():
+    """A aba deste ambiente, criada na primeira vez.
+
+    Sem `cache_resource`: o objeto guarda a aba encontrada, e uma aba criada
+    depois do cache ficaria invisível até o container reiniciar.
+    """
+    import gspread
+    import sheets as _sh
+    planilha = _sh.planilha()
+    try:
+        aba = planilha.worksheet(ABA)
+    except gspread.exceptions.WorksheetNotFound:
+        aba = planilha.add_worksheet(title=ABA, rows=200, cols=len(COLUNAS))
+        aba.append_row(COLUNAS, value_input_option="RAW")
+        return aba
+    # Coluna nova no código entra no FIM da planilha, nunca no meio: linha
+    # gravada por posição iria para o campo do vizinho a partir dali.
+    cabecalho = aba.row_values(1)
+    if not cabecalho:
+        aba.update("A1", [COLUNAS], value_input_option="RAW")
+        return aba
+    for col in COLUNAS:
+        if col not in cabecalho:
+            aba.add_cols(1)
+            aba.update_cell(1, len(cabecalho) + 1, col)
+            cabecalho.append(col)
+    return aba
+
+
+def carregar():
+    """[{...}] do cadastro. Lista vazia quando a aba não existe ou falha."""
+    try:
+        registros = _aba().get_all_records(
+            value_render_option="UNFORMATTED_VALUE")
+    except Exception:
+        return []
+    fora = []
+    for r in registros:
+        linha = {str(k).strip().lower(): v for k, v in (r or {}).items()}
+        if not str(linha.get("item", "")).strip():
+            continue
+        linha["valor_mensal"] = _num(linha.get("valor_mensal"))
+        linha["periodicidade"] = (
+            ANUAL if str(linha.get("periodicidade", "")).strip().lower()
+            .startswith("anu") else MENSAL)
+        fora.append({c: linha.get(c, "") for c in COLUNAS})
+    return fora
+
+
+def salvar(linhas, usuario=""):
+    """Regrava a aba inteira. Devolve (ok, mensagem).
+
+    Regravar tudo, e não linha a linha: são dezenas de linhas, não milhares, e
+    atualização parcial é onde nascem os casos de linha apagada por índice
+    deslocado.
+    """
+    import datetime as _dt
+    agora = _dt.datetime.now(FUSO).strftime("%d/%m/%Y %H:%M:%S")
+    limpas = []
+    for l in (linhas or []):
+        item = str(l.get("item", "") or "").strip()
+        if not item:
+            # Linha em branco é o resto de quem clicou em "+" e desistiu.
+            continue
+        limpas.append({
+            "item": item,
+            "valor_mensal": _num(l.get("valor_mensal")),
+            "periodicidade": (ANUAL if str(l.get("periodicidade", ""))
+                              .strip().lower().startswith("anu") else MENSAL),
+            "favorecido": str(l.get("favorecido", "") or "").strip().upper(),
+            "forma_pagamento": str(l.get("forma_pagamento", "") or "").strip(),
+            "vigente_desde": str(l.get("vigente_desde", "") or "").strip(),
+            "observacao": str(l.get("observacao", "") or "").strip()[:200],
+            "atualizado_em": agora,
+            "atualizado_por": str(usuario or "")[:40],
+        })
+    try:
+        aba = _aba()
+        cabecalho = aba.row_values(1) or list(COLUNAS)
+        corpo = [[l.get(str(c).strip().lower(), "") for c in cabecalho]
+                 for l in limpas]
+        aba.clear()
+        aba.update("A1", [cabecalho] + corpo, value_input_option="RAW")
+    except Exception as e:
+        # Só o tipo: a mensagem do gspread carrega a URL da planilha.
+        return False, type(e).__name__
+    return True, f"{len(limpas)} assinatura(s) gravada(s)"
+
+
+def sugestoes_como_linhas():
+    """As 15 que o dono levantou, prontas para a grade vazia.
+
+    Elas aparecem na tela e NÃO são gravadas sozinhas: viram linha na planilha
+    só quando ele salvar. Gravar por conta própria criaria dado que ninguém
+    digitou — e dado que ninguém digitou é dado em que ninguém confia.
+    """
+    return [{"item": i, "valor_mensal": v, "periodicidade": p,
+             "favorecido": f, "forma_pagamento": "Cartão",
+             "vigente_desde": "", "observacao": "",
+             "atualizado_em": "", "atualizado_por": ""}
+            for i, v, p, f in SUGESTOES]
+
+
 def _num(v, padrao=0.0):
     """Número a partir do que a planilha devolver. '1.234,56' inclusive."""
     if v is None or v == "":

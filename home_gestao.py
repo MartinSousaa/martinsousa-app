@@ -563,6 +563,86 @@ def _faturamento_bling(ano, mes):
     return float(total.get("liquido") or 0.0), avisos
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def _partes_fixas(ano, mes):
+    """(custo fixo, assinaturas, gerência, headcount, avisos) do mês.
+
+    Cacheada por cinco minutos porque são QUATRO leituras de planilha e esta é
+    a tela de entrada do Studio. Sem cache, cada clique na Home pagaria as
+    quatro de novo — e foi lentidão de tela que já derrubou sessão aqui.
+
+    Cada parte falha sozinha: planilha de colaboradores fora do ar não pode
+    apagar o custo fixo que já foi lido. O que faltar vira aviso, e o aviso
+    aparece na tela — número incompleto sem aviso é número errado.
+    """
+    avisos, cf, assin, ger, head = [], 0.0, 0.0, 0.0, 0.0
+
+    try:
+        import previsto as _pv
+        cf = _pv._custo_fixo(ano, mes)
+    except Exception as e:
+        avisos.append(f"Custo fixo não lido ({type(e).__name__}) — "
+                      "o equilíbrio está por baixo.")
+    try:
+        import assinaturas as _as
+        assin = _as.total_mensal(_as.carregar())
+        if not assin:
+            avisos.append("Nenhuma assinatura cadastrada — cadastre em "
+                          "**Gestão › Assinaturas** para o equilíbrio ficar "
+                          "completo.")
+    except Exception as e:
+        avisos.append(f"Assinaturas não lidas ({type(e).__name__}).")
+    try:
+        import ajustes as _aj
+        import folha_salarial as _fs
+        ger = float(_fs.total_da_folha(_fs.carregar(), ano, mes,
+                                       _aj.carregar()) or 0.0)
+    except Exception as e:
+        avisos.append(f"Folha Gerência não lida ({type(e).__name__}).")
+    try:
+        import ajustes as _aj2
+        import colaboradores as _co
+        import custo_time as _ct
+        clt = _co.folha_clt(_co.carregar(), ano, mes, _co.carregar_taxas(),
+                            _aj2.carregar())
+        head = _ct.headcount(clt)["total"]
+    except Exception as e:
+        avisos.append(f"Folha Headcount não lida ({type(e).__name__}).")
+
+    return cf, assin, ger, head, avisos
+
+
+def composicao_do_mes(ano, mes, faturamento):
+    """(composição, avisos) — o ponto de equilíbrio com os números do cadastro.
+
+    Aqui morava `linhas_de_equilibrio()` sem argumento, que usa as constantes
+    chumbadas de 2026. O dono perguntou "quais custos o sistema está
+    considerando... se é com base no meu preenchimento" — e não era.
+    """
+    import composicao as _cp
+    import financeiro_equilibrio as _eq
+
+    cf, assin, ger, head, avisos = _partes_fixas(ano, mes)
+
+    resumo = {}
+    try:
+        import lancamentos as _lan
+        resumo = _lan.resumo_por_finalidade(_lan.do_mes(ano, mes))
+    except Exception as e:
+        avisos.append(f"Lançamentos do mês não lidos ({type(e).__name__}) — "
+                      "o custo operacional ficou de fora da margem.")
+
+    comp = _cp.montar(resumo, faturamento, _eq.TAXAS_VARIAVEIS,
+                      custo_fixo=cf, assinaturas=assin, gerencia=ger,
+                      headcount=head,
+                      teto_outros=_eq.TETO_OUTROS_PADRAO)
+    for nome, valor in comp.get("desconhecidas", [])[:3]:
+        avisos.append(
+            f"A finalidade **{nome}** (R$ {valor:,.2f}) não está classificada "
+            "e ficou FORA da conta. Diga se ela é custo fixo ou variável.")
+    return comp, avisos
+
+
 def dados_reais(ano, mes, dia):
     """O dicionário que `pagina` desenha, montado das fontes de verdade.
 
@@ -605,7 +685,8 @@ def dados_reais(ano, mes, dia):
     fonte_fat = "Bling, em tempo real" if fat_bling is not None         else "BASE DE VENDAS (o Bling não respondeu)"
 
     import financeiro_equilibrio as _eq
-    linhas_eq = _eq.linhas_de_equilibrio()
+    comp, avisos_comp = composicao_do_mes(ano, mes, realizado)
+    avisos.extend(avisos_comp)
 
     def _card(rotulo, sub, valor, necessario, fmt, acumula):
         return {"rotulo": rotulo, "sub": sub, "realizado": valor,
@@ -627,19 +708,31 @@ def dados_reais(ano, mes, dia):
         "linhas_base_vendas": ind.get("linhas", 0),
         "faturamento": {
             "realizado": realizado,
-            "meta": meta_do_mes(mes) or 0.0,
-            "operacional": linhas_eq.get("operacional") or 0.0,
-            "nao_operacional": linhas_eq.get("caixa") or 0.0,
+            # A META É O PONTO DE EQUILÍBRIO, e não mais o percentual sobre o
+            # ano anterior. Pedido do dono, e ele tem razão: meta que ignora o
+            # custo é número que não decide nada. Bater a meta velha e não
+            # pagar a conta era possível.
+            "meta": comp.get("equilibrio_com_headcount")
+                    or comp.get("equilibrio_hoje") or 0.0,
+            "operacional": comp.get("equilibrio_hoje") or 0.0,
+            "nao_operacional": comp.get("equilibrio_de_caixa") or 0.0,
         },
+        "equilibrio": comp,
         "cards": [
             _card("Lucro bruto", _sub_media, ind["lucro_bruto"],
                   ind["lucro_bruto"], "brl0", True),
             _card("Margem bruta", "sobre o faturado · " + _periodo_curto, _mb or 0.0,
-                  _eq.margem_de_contribuicao() * 100.0, "pct", False),
+                  (comp.get("margem") or _eq.margem_de_contribuicao()) * 100.0,
+                  "pct", False),
             _card("LPV", "lucro por venda · " + _periodo_curto, ind["lpv"] or 0.0,
                   ind["lpv"] or 0.0, "brl", False),
+            # O necessário é a margem REAL do mês — a medida em 17.793
+            # vendas MENOS o custo operacional que ela não conhece. Comparar
+            # com os 29,82% puros dizia "está acima do necessário" enquanto a
+            # conta do mês não fechava.
             _card("Margem de contribuição", "sobre o faturado · " + _periodo_curto, _ml or 0.0,
-                  _eq.margem_de_contribuicao() * 100.0, "pct", False),
+                  (comp.get("margem") or _eq.margem_de_contribuicao()) * 100.0,
+                  "pct", False),
             _card("Devoluções", _sub_media, ind["devolucao"],
                   ind["devolucao"], "brl0", True),
             _card("UC", "unidades por venda · " + _periodo_curto,
@@ -721,6 +814,8 @@ def pagina(usuario_logado=None, dados=None):
 
 # ── Conferência ──────────────────────────────────────────────────────────────
 if __name__ == "__main__":
+    import inspect
+    s_home = open(__file__, encoding="utf-8").read()
     falhas = 0
 
     def ok(nome, cond):
@@ -826,6 +921,32 @@ if __name__ == "__main__":
 
     # O bloco de gastos continua no mes de hoje.
     _bg = _fonte_home[_fonte_home.index("def _bloco_gastos"):]
+    # ── A META E O PONTO DE EQUILIBRIO, E ELE VEM DO CADASTRO ───────────
+    #
+    # O defeito: `linhas_de_equilibrio()` sem argumento usa as constantes
+    # chumbadas de 2026. O que o dono cadastra nao chegava a conta.
+    _corpo_dr = inspect.getsource(dados_reais)
+    ok("a Home nao usa mais as constantes de equilibrio",
+       "linhas_de_equilibrio()" not in _corpo_dr)
+    ok("ela monta a composicao do mes", "composicao_do_mes(" in _corpo_dr)
+    ok("e a meta passa a ser o equilibrio",
+       "equilibrio_com_headcount" in _corpo_dr)
+
+    _corpo_cp = inspect.getsource(composicao_do_mes)
+    ok("a composicao le o custo fixo, as assinaturas e as duas folhas",
+       "_partes_fixas(" in _corpo_cp)
+    ok("e o resumo por finalidade do mes",
+       "resumo_por_finalidade" in _corpo_cp)
+    ok("finalidade nao classificada vira aviso, e nao some",
+       "desconhecidas" in _corpo_cp)
+
+    _corpo_pf = inspect.getsource(_partes_fixas)
+    ok("cada leitura de planilha falha sozinha",
+       _corpo_pf.count("except Exception") >= 4)
+    ok("e a que falha vira aviso", _corpo_pf.count("avisos.append") >= 4)
+    ok("as quatro leituras sao cacheadas",
+       "cache_data" in s_home.split("def _partes_fixas")[0][-200:])
+
     ok("os gastos continuam saindo do mes de referencia da Home",
        'd or {}).get("mes")' in _bg)
 
