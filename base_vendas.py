@@ -193,34 +193,150 @@ def indicadores(somas):
 
 
 @st.cache_data(ttl=600, show_spinner=False)
-def do_mes(ano, mes):
-    """Os indicadores do mês, lidos do Controle MS. (dados, erro).
+def somas_por_mes():
+    """{(ano, mes): somas} de TODOS os meses da aba. (mapa, erro).
 
-    Cacheado dez minutos: a leitura abre um `.xlsx` de 11 MB vindo do OneDrive,
-    e a Home redesenha a cada clique.
+    UMA LEITURA, TODOS OS MESES.
+    ---------------------------
+    Abrir a aba custa baixar um `.xlsx` de 11 MB do OneDrive. Enquanto a Home
+    pedia um mês só, um download por tela era caro mas tolerável. Agora ela
+    pede a média dos três últimos — e um download por mês seriam TRÊS, na tela
+    que passou a ser a primeira que o dono vê ao entrar.
+
+    Então lê uma vez e soma tudo. Quem quer um mês pega um; quem quer três,
+    pega três, sem voltar ao disco.
     """
     try:
         import controle_ms as _cms
         df, erro = _cms.ler(ABA)
         if erro:
-            return None, erro
+            return {}, erro
         if df is None or df.empty:
-            return None, f"A aba «{ABA}» do Controle MS veio vazia."
-        linhas = df.to_dict("records")
-        somas = somar(linhas, list(df.columns), int(ano), int(mes))
-        if not somas["linhas"]:
-            return None, (f"Não achei nenhuma venda de {int(mes):02d}/{int(ano)} "
-                          f"na aba «{ABA}».")
-        fora = indicadores(somas)
-        fora["linhas"] = somas["linhas"]
+            return {}, f"A aba «{ABA}» do Controle MS veio vazia."
+        colunas = list(df.columns)
+        mapa = _mapa_de_colunas(colunas)
+        col_data = next((c for c in colunas if _chave(c) == "data"), None)
+        col_mes_ano = next(
+            (c for c in colunas if _chave(c) in ("mes/ano", "mes ano")), None)
+
+        fora = {}
+        for l in df.to_dict("records"):
+            a, m = _mes_da_linha(l, col_data, col_mes_ano)
+            if a is None:
+                continue
+            alvo = fora.setdefault((a, m), {k: 0.0 for k in COLUNAS})
+            alvo.setdefault("linhas", 0)
+            alvo["linhas"] += 1
+            for interno, real in mapa.items():
+                alvo[interno] += _num(l.get(real))
         return fora, ""
     except Exception as e:
-        return None, f"Não consegui ler a BASE DE VENDAS: {str(e)[:200]}"
+        return {}, f"Não consegui ler a BASE DE VENDAS: {str(e)[:200]}"
+
+
+def meses_com_venda(mapa, ate_ano=None, ate_mes=None, quantos=3):
+    """Os `quantos` meses mais recentes que TÊM venda, do mais novo para trás.
+
+    "Últimos três meses" não é "os três meses anteriores ao de hoje": em
+    22/09/2026 a planilha ia até agosto, e contar julho–setembro daria um mês
+    vazio no meio da conta. O que vale é o que está lançado.
+    """
+    chaves = sorted((k for k, v in (mapa or {}).items() if v.get("linhas")),
+                    reverse=True)
+    if ate_ano is not None:
+        chaves = [(a, m) for (a, m) in chaves
+                  if (a, m) <= (int(ate_ano), int(ate_mes))]
+    return chaves[:int(quantos)]
+
+
+def media_dos_meses(mapa, chaves):
+    """Os indicadores médios desses meses. Função pura.
+
+    DUAS MÉDIAS DIFERENTES, E CONFUNDI-LAS DÁ NÚMERO ERRADO:
+
+    - Valor em R$ (lucro bruto, devolução) -> MÉDIA ARITMÉTICA dos meses. É a
+      resposta para "quanto costuma dar num mês".
+    - Razão (margem, LPV, UC) -> das SOMAS do período. Média de três margens
+      trataria um mês de R$ 10 mil igual a um de R$ 250 mil, e o resultado não
+      seria a margem de ninguém.
+    """
+    if not chaves:
+        return None
+    total = {k: 0.0 for k in COLUNAS}
+    total["linhas"] = 0
+    for k in chaves:
+        for campo, valor in (mapa.get(k) or {}).items():
+            total[campo] = total.get(campo, 0.0) + valor
+    fora = indicadores(total)          # as razões, já a partir das somas
+    n = len(chaves)
+    # Os valores em R$ viram média do período; as razões ficam como estão.
+    for campo in ("faturamento", "faturamento_liquido", "devolucao",
+                  "lucro_bruto", "margem_contribuicao", "custo_total",
+                  "custo_op", "vendas", "unidades"):
+        if fora.get(campo) is not None:
+            fora[campo] = fora[campo] / n
+    fora["meses"] = n
+    fora["linhas"] = total["linhas"]
+    return fora
+
+
+def do_mes(ano, mes):
+    """Os indicadores de UM mês. (dados, erro). Mantida para quem já usava."""
+    mapa, erro = somas_por_mes()
+    if erro:
+        return None, erro
+    somas = mapa.get((int(ano), int(mes)))
+    if not somas or not somas.get("linhas"):
+        return None, (f"Não achei nenhuma venda de {int(mes):02d}/{int(ano)} "
+                      f"na aba «{ABA}».")
+    fora = indicadores(somas)
+    fora["linhas"] = somas["linhas"]
+    return fora, ""
+
+
+def media_recente(ate_ano, ate_mes, quantos=3):
+    """A média dos `quantos` meses lançados mais recentes. (dados, erro).
+
+    É o que a Home usa: o dono pediu "média dos últimos 3 meses" justamente
+    porque o mês corrente ainda não foi lançado na planilha, e um mês pela
+    metade não descreve o negócio.
+    """
+    mapa, erro = somas_por_mes()
+    if erro:
+        return None, erro
+    chaves = meses_com_venda(mapa, ate_ano, ate_mes, quantos)
+    if not chaves:
+        return None, f"A aba «{ABA}» não tem venda lançada em mês nenhum."
+    fora = media_dos_meses(mapa, chaves)
+    fora["periodo"] = _texto_periodo(chaves)
+    fora["chaves"] = chaves
+    return fora, ""
+
+
+_MES_CURTO = ("jan", "fev", "mar", "abr", "mai", "jun",
+              "jul", "ago", "set", "out", "nov", "dez")
+
+
+def _texto_periodo(chaves):
+    """"jun–ago/2026" ou "ago/2026" — o que a tela mostra ao lado do número.
+
+    Número sem período é número que ninguém consegue conferir, e aqui o
+    período muda sozinho conforme eles lançam a planilha.
+    """
+    if not chaves:
+        return ""
+    novos = sorted(chaves)
+    (a1, m1), (a2, m2) = novos[0], novos[-1]
+    if (a1, m1) == (a2, m2):
+        return f"{_MES_CURTO[m1 - 1]}/{a1}"
+    if a1 == a2:
+        return f"{_MES_CURTO[m1 - 1]}–{_MES_CURTO[m2 - 1]}/{a1}"
+    return f"{_MES_CURTO[m1 - 1]}/{a1}–{_MES_CURTO[m2 - 1]}/{a2}"
 
 
 def limpar_cache():
     try:
-        do_mes.clear()
+        somas_por_mes.clear()
     except Exception:
         pass
 
@@ -309,5 +425,80 @@ if __name__ == "__main__":
                   "FAT - DEV": 7.0, "L.B": 1.0, "VENDAS": 1, "UNI. CONT.": 1}]
     ok("linha sem Data cai no MES/ANO",
        somar(_sem_data, COLS, 2026, 9)["faturamento"] == 7.0)
+
+    # ── A MEDIA DOS ULTIMOS MESES ────────────────────────────────────────
+    #
+    # O dono pediu isso porque o mes corrente ainda nao foi lancado na
+    # planilha: "setembro ainda nao, precisamos configurar para que o sistema
+    # considere o faturamento atraves do bling (...) os outros indicadores
+    # preciso que seja considerado a media dos ultimos 3 meses".
+    _MAPA = {
+        (2026, 6): {"linhas": 1, "faturamento": 100.0, "fat_liquido": 100.0,
+                    "lucro_bruto": 10.0, "vendas": 1, "unidades": 1,
+                    "devolucao": 0.0, "margem_contribuicao": 0.0,
+                    "custo_total": 0.0, "custo_op": 0.0},
+        (2026, 7): {"linhas": 1, "faturamento": 200.0, "fat_liquido": 200.0,
+                    "lucro_bruto": 20.0, "vendas": 1, "unidades": 3,
+                    "devolucao": 0.0, "margem_contribuicao": 0.0,
+                    "custo_total": 0.0, "custo_op": 0.0},
+        (2026, 8): {"linhas": 1, "faturamento": 300.0, "fat_liquido": 300.0,
+                    "lucro_bruto": 30.0, "vendas": 2, "unidades": 2,
+                    "devolucao": 0.0, "margem_contribuicao": 0.0,
+                    "custo_total": 0.0, "custo_op": 0.0},
+        (2026, 5): {"linhas": 1, "faturamento": 999.0, "fat_liquido": 999.0,
+                    "lucro_bruto": 999.0, "vendas": 1, "unidades": 1,
+                    "devolucao": 0.0, "margem_contribuicao": 0.0,
+                    "custo_total": 0.0, "custo_op": 0.0},
+        (2026, 9): {"linhas": 0},          # setembro existe e esta VAZIO
+    }
+
+    # "Ultimos tres meses" e os tres LANCADOS, e nao os tres anteriores ao de
+    # hoje: em 22/09 a planilha ia ate agosto, e contar jul-set poria um mes
+    # vazio no meio da conta.
+    _ch = meses_com_venda(_MAPA, 2026, 9, 3)
+    ok("os tres meses lancados mais recentes, do novo para tras",
+       _ch == [(2026, 8), (2026, 7), (2026, 6)])
+    ok("o mes vazio fica de fora", (2026, 9) not in _ch)
+    ok("e o quarto mais antigo tambem", (2026, 5) not in _ch)
+    ok("pedindo 2, vem 2", len(meses_com_venda(_MAPA, 2026, 9, 2)) == 2)
+    ok("mapa vazio nao devolve mes nenhum", meses_com_venda({}, 2026, 9) == [])
+
+    _m = media_dos_meses(_MAPA, _ch)
+    # Valor em R$ -> media aritmetica: (100+200+300)/3 = 200
+    ok("o faturamento e a MEDIA dos meses", abs(_m["faturamento"] - 200.0) < 0.01)
+    ok("e o lucro tambem", abs(_m["lucro_bruto"] - 20.0) < 0.01)
+    # Razao -> das SOMAS: 60/600 = 10%. A media das tres margens daria 10%
+    # tambem neste exemplo simetrico; o caso que separa as duas contas esta
+    # logo abaixo.
+    ok("a margem sai das somas", abs(_m["margem_bruta"] - 10.0) < 0.01)
+    ok("o LPV e lucro total / vendas totais, e nao media de LPVs",
+       abs(_m["lpv"] - (60.0 / 4)) < 0.01)
+    ok("e o UC idem", abs(_m["uc"] - (6.0 / 4)) < 0.01)
+    ok("o periodo vem junto do numero", _m["meses"] == 3)
+
+    # O CASO QUE SEPARA AS DUAS CONTAS: um mes pequeno com margem alta e um
+    # grande com margem baixa. Media de margens diria 50%; a conta certa, 10,8%.
+    _DESIGUAL = {
+        (2026, 7): {"linhas": 1, "faturamento": 10.0, "fat_liquido": 10.0,
+                    "lucro_bruto": 9.0, "vendas": 1, "unidades": 1},
+        (2026, 8): {"linhas": 1, "faturamento": 1000.0, "fat_liquido": 1000.0,
+                    "lucro_bruto": 100.0, "vendas": 1, "unidades": 1},
+    }
+    _md = media_dos_meses(_DESIGUAL, [(2026, 8), (2026, 7)])
+    ok("margem do periodo e ponderada, nao media de percentuais",
+       abs(_md["margem_bruta"] - 10.792) < 0.01)
+    ok("e nao os 50% que a media de margens daria", _md["margem_bruta"] < 20)
+
+    # O texto do periodo, que e o que impede o numero de ficar sem origem.
+    ok("periodo de tres meses do mesmo ano",
+       _texto_periodo([(2026, 6), (2026, 7), (2026, 8)]) == "jun–ago/2026")
+    ok("um mes so nao vira intervalo",
+       _texto_periodo([(2026, 8)]) == "ago/2026")
+    ok("virada de ano aparece inteira",
+       _texto_periodo([(2025, 12), (2026, 1)]) == "dez/2025–jan/2026")
+    ok("sem mes, sem periodo", _texto_periodo([]) == "")
+
+    ok("sem mes nenhum, a media nao inventa numero",
+       media_dos_meses(_MAPA, []) is None)
 
     print("\nfalhas:", falhas)
