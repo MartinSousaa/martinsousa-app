@@ -1875,11 +1875,25 @@ if _eh_admin:
     _SECOES = ["indicadores", "operacao"]
     if auth.eh_dono(usuario_logado):
         _SECOES.insert(0, "gestao")
-    # Onde a sessão começa quando a URL não diz. Gestão é a primeira na barra,
-    # mas ainda está em branco: abrir o Studio num aviso de "em construção"
-    # todo dia pareceria defeito. Continua sendo Indicadores até Gestão ter
-    # conteúdo — trocar depois é mudar esta linha.
-    _SECAO_PADRAO = "indicadores"
+    # ONDE A SESSÃO COMEÇA — E ISSO CUSTAVA 21 SEGUNDOS A TODO MUNDO.
+    #
+    # Era "indicadores" para todos, e a primeira aba de Indicadores é o Painel
+    # de Metas: a tela mais cara do Studio. O cronômetro dela mediu 21,1s em 13
+    # chamadas externas, 97% em Trello (15,0s) e RHiD (5,4s). Quem entrava —
+    # dono ou colaboradora — pagava isso antes de ver qualquer coisa, todo dia,
+    # inclusive quem ia direto para outra tela.
+    #
+    # Não é otimização: é a porta de entrada. Cada perfil passa a começar onde
+    # ele de fato trabalha, e o Painel de Metas continua a um clique.
+    #
+    #   dono         -> Gestão, que abre na Home (faturamento, lucro, margens)
+    #   todo o resto -> Operação, que abre na Análise de Viabilidade
+    #
+    # O comentário que estava aqui dizia que Gestão ficava de fora do padrão
+    # porque ainda estava em branco — "abrir o Studio num aviso de em
+    # construção todo dia pareceria defeito". Isso deixou de valer: a Home foi
+    # ligada ao Bling e à BASE DE VENDAS e mostra número de verdade.
+    _SECAO_PADRAO = "gestao" if auth.eh_dono(usuario_logado) else "operacao"
 
     if "secao_admin" not in st.session_state:
         _secao_url = str(st.query_params.get("secao", "")).strip().lower()
