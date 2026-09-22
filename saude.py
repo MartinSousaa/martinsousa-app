@@ -136,6 +136,154 @@ def resumo(estado=None):
     }
 
 
+# ── O DIÁRIO DE REINÍCIOS ───────────────────────────────────────────────────
+#
+# POR QUE ELE PRECISOU EXISTIR
+#
+# A linha de saúde na tela responde a pergunta certa — mas exige que alguém
+# esteja olhando na hora. O dono tentou: "não dá tempo da colaboradora subir a
+# tela e tirar print, as vezes aparece a informação e some em segundos."
+#
+# Está certo. Pedir à pessoa que produz para virar instrumento de medição é
+# trocar o trabalho dela por diagnóstico — e ainda assim perder o evento
+# metade das vezes. Quem tem que registrar é o Studio.
+#
+# COMO SE SABE QUE REINICIOU, SEM PERGUNTAR A NINGUÉM
+#
+# Todo processo tem um PID e um instante de nascimento. A cada passada, o
+# Studio compara o PID de agora com o último que ele mesmo anotou em disco.
+# PID diferente = processo novo = o anterior morreu. Não há o que interpretar.
+#
+# E o arquivo guarda, do processo que morreu, a última memória medida: é ela
+# que diz se a morte foi por memória ou por outra coisa. Esse número não
+# existe em lugar nenhum depois que o processo morre — nem no log do Railway,
+# que mostra o container e não o processo.
+#
+# ONDE ELE MORA
+#
+# No mesmo disco do rascunho, pelo mesmo motivo e com a mesma limitação: sem
+# volume no Railway, ele não atravessa deploy. Atravessar o REINÍCIO já basta
+# aqui — é justamente o reinício que se quer flagrar.
+
+_DIARIO = os.path.join(
+    os.environ.get("RASCUNHO_DIR") or "/tmp", "ms_studio_saude.json")
+_MAX_EVENTOS = 50
+
+
+def _ler_diario():
+    import json
+    try:
+        with open(_DIARIO, encoding="utf-8") as fh:
+            d = json.load(fh)
+        return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
+def _gravar_diario(d):
+    import json
+    try:
+        os.makedirs(os.path.dirname(_DIARIO), exist_ok=True)
+        with open(_DIARIO, "w", encoding="utf-8") as fh:
+            json.dump(d, fh)
+        return True
+    except Exception:
+        # Diário é apoio, nunca requisito: disco cheio não pode impedir
+        # ninguém de gerar imagem.
+        return False
+
+
+def anotar_passada(usuario="", tela=""):
+    """Anota que este processo está vivo e, se for novo, registra o reinício.
+
+    Chamada a cada passada do script. Devolve o evento de reinício quando ele
+    ACABOU de ser detectado, e None nas outras vezes — assim a tela pode
+    avisar na hora, uma única vez.
+    """
+    agora = time.time()
+    pid = os.getpid()
+    d = _ler_diario()
+    anterior = d.get("processo") or {}
+    evento = None
+
+    if anterior and anterior.get("pid") != pid:
+        # O processo anotado não é este: o outro morreu.
+        evento = {
+            "quando": agora,
+            "pid_morto": anterior.get("pid"),
+            "viveu_seg": round(max(0.0, (anterior.get("visto_em") or agora)
+                                   - (anterior.get("nasceu_em") or agora)), 1),
+            "memoria_final_mb": anterior.get("memoria_mb"),
+            "limite_mb": anterior.get("limite_mb"),
+            "usuario": anterior.get("usuario", ""),
+            "tela": anterior.get("tela", ""),
+            "imagens_mb": anterior.get("imagens_mb", 0.0),
+        }
+        eventos = list(d.get("eventos") or [])
+        eventos.append(evento)
+        d["eventos"] = eventos[-_MAX_EVENTOS:]
+
+    usada, limite = memoria_mb()
+    d["processo"] = {
+        "pid": pid, "nasceu_em": _NASCIMENTO, "visto_em": agora,
+        "memoria_mb": usada, "limite_mb": limite,
+        "usuario": str(usuario or anterior.get("usuario", ""))[:40],
+        "tela": str(tela or anterior.get("tela", ""))[:40],
+        "imagens_mb": anterior.get("imagens_mb", 0.0),
+    }
+    _gravar_diario(d)
+    return evento
+
+
+def anotar_peso(mb):
+    """Guarda quanta imagem esta sessão carrega, para o evento saber dizer."""
+    d = _ler_diario()
+    proc = d.get("processo") or {}
+    proc["imagens_mb"] = round(float(mb or 0.0), 2)
+    d["processo"] = proc
+    return _gravar_diario(d)
+
+
+def reinicios(limite=20):
+    """Os reinícios registrados, do mais recente para o mais antigo."""
+    return list(reversed((_ler_diario().get("eventos") or [])))[:limite]
+
+
+def explicar(evento):
+    """A frase que o dono lê. Ela diz a CAUSA quando o número permite.
+
+    Memória acima de 85% do limite do container é reinício por memória, e não
+    coincidência: é o container sendo morto por estourar o teto. Abaixo disso,
+    a causa está fora deste processo — deploy ou o próprio Railway —, e dizer
+    "foi memória" seria inventar.
+    """
+    if not evento:
+        return ""
+    from datetime import datetime, timedelta, timezone
+    fuso = timezone(timedelta(hours=-3))
+    hora = datetime.fromtimestamp(evento["quando"], fuso).strftime("%H:%M:%S")
+    mem = evento.get("memoria_final_mb") or 0.0
+    lim = evento.get("limite_mb") or 0.0
+    pct = (mem / lim * 100) if lim else 0.0
+    viveu = texto_tempo(evento.get("viveu_seg") or 0)
+    quem = evento.get("usuario") or "alguém"
+    onde = evento.get("tela") or "o Studio"
+    imgs = evento.get("imagens_mb") or 0.0
+
+    if lim and pct >= 85:
+        causa = (f"**memória** — estava em {mem:.0f} MB de {lim:.0f} MB "
+                 f"({pct:.0f}%)")
+    elif lim:
+        causa = (f"**não foi memória** — estava em {mem:.0f} MB de "
+                 f"{lim:.0f} MB ({pct:.0f}%). Deploy ou o próprio Railway")
+    else:
+        causa = "**causa desconhecida** — não consegui ler o limite do container"
+
+    extra = f" · {imgs:.0f} MB de imagem na sessão" if imgs else ""
+    return (f"🔁 {hora} — o processo reiniciou depois de {viveu} de pé. "
+            f"Causa: {causa}. Quem estava dentro: {quem}, em {onde}{extra}.")
+
+
 # ── Conferência ──────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     falhas = 0
@@ -168,5 +316,59 @@ if __name__ == "__main__":
        _r["pid"] > 0 and "de_pe_ha" in _r)
     ok("memoria sem /proc nao derruba, devolve zero",
        isinstance(_r["memoria_mb"], float))
+
+    # ── o diario de reinicios ────────────────────────────────────────────
+    # Disco proprio, para o teste nao mexer no diario de verdade.
+    import tempfile as _tmp
+    _DIARIO = os.path.join(_tmp.mkdtemp(), "saude_teste.json")
+    globals()["_DIARIO"] = _DIARIO
+
+    ok("diario vazio nao tem reinicio nenhum", reinicios() == [])
+    ok("a primeira passada nao acusa reinicio",
+       anotar_passada("Beatriz", "Imagem") is None)
+    ok("nem a segunda, que e o mesmo processo",
+       anotar_passada("Beatriz", "Imagem") is None)
+
+    # Um processo que morre: o diario guarda outro PID.
+    import json as _json
+    _d = _ler_diario()
+    _d["processo"]["pid"] = os.getpid() + 1          # finge outro processo
+    _d["processo"]["nasceu_em"] = time.time() - 600  # que viveu 10 minutos
+    _d["processo"]["memoria_mb"] = 7200.0
+    _d["processo"]["limite_mb"] = 8192.0
+    _d["processo"]["visto_em"] = time.time()
+    _gravar_diario(_d)
+
+    _ev = anotar_passada("Beatriz", "Imagem")
+    ok("PID diferente e reinicio detectado", _ev is not None)
+    ok("e o diario sabe quanto o morto viveu", 590 < _ev["viveu_seg"] < 610)
+    ok("guardou a memoria final dele", _ev["memoria_final_mb"] == 7200.0)
+    ok("e quem estava dentro", _ev["usuario"] == "Beatriz")
+
+    # A frase que o dono le.
+    _txt = explicar(_ev)
+    ok("a frase acusa memoria quando passou de 85%", "memória" in _txt)
+    ok("com o percentual escrito", "87%" in _txt or "88%" in _txt)
+    ok("e diz quanto tempo o processo viveu", "10min" in _txt)
+
+    # Memoria baixa NAO pode ser chamada de causa.
+    _ev2 = dict(_ev, memoria_final_mb=500.0)
+    ok("memoria baixa e dito como NAO sendo memoria",
+       "não foi memória" in explicar(_ev2))
+    ok("sem limite lido, a causa e declarada desconhecida",
+       "desconhecida" in explicar(dict(_ev, limite_mb=0)))
+    ok("evento vazio devolve texto vazio", explicar(None) == "")
+
+    ok("o reinicio fica guardado no diario", len(reinicios()) == 1)
+    ok("e a passada seguinte NAO duplica o evento",
+       anotar_passada() is None and len(reinicios()) == 1)
+
+    ok("o peso das imagens e anotado",
+       anotar_peso(120.5) and _ler_diario()["processo"]["imagens_mb"] == 120.5)
+
+    # Disco impossivel nunca pode derrubar a tela.
+    globals()["_DIARIO"] = "/proc/impossivel/saude.json"
+    ok("disco que nao aceita escrita nao levanta excecao",
+       anotar_passada() is None and reinicios() == [])
 
     print("\nfalhas:", falhas)
