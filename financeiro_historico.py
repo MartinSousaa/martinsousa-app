@@ -72,6 +72,44 @@ INDICE_SAZONAL = {
     12: 1.3966,   # ±0.119
 }
 
+# ── Medido: peso de cada mês em QUANTIDADE DE VENDAS ────────────────────────
+# A mesma conta do INDICE_SAZONAL, sobre pedidos em vez de reais: coluna
+# `TT VENDAS - DEV` de 2024 e 2025, `TOTAL VENDAS` em 2023. 83.415 vendas.
+#
+# POR QUE DOIS ÍNDICES, E NÃO UM
+# O UC é `custo fixo ÷ quantidade de vendas`, e quantidade não é dinheiro.
+# Dezembro fatura 1,40 mês médio mas vende 1,28 — a diferença é ticket, não
+# pedido. E na virada que interessa os dois discordam feio:
+#
+#     dez -> jan em REAIS    1,3966 -> 0,9964   = -28,7%
+#     dez -> jan em PEDIDOS  1,2832 -> 1,0519   = -18,0%
+#
+# Estimar pedidos de janeiro pelo índice do faturamento tiraria 10 pontos a
+# mais de vendas do mês — e o UC, que divide por elas, sairia inflado logo no
+# mês em que ele é olhado com mais atenção.
+INDICE_SAZONAL_VENDAS = {
+     1: 1.0519,   # ±0.115
+     2: 1.0201,   # ±0.124
+     3: 0.7737,   # ±0.209
+     4: 0.8363,   # ±0.150
+     5: 0.8534,   # ±0.066
+     6: 0.9332,   # ±0.067
+     7: 0.9881,   # ±0.143
+     8: 0.9540,   # ±0.136
+     9: 1.0001,   # ±0.095
+    10: 1.1146,   # ±0.113
+    11: 1.1913,   # ±0.135
+    12: 1.2832,   # ±0.124
+}
+
+# O desvio entre os três anos, que vira a faixa da estimativa. Está separado
+# do dicionário acima porque ali ele é comentário, e comentário não se lê em
+# tempo de execução.
+DESVIO_SAZONAL_VENDAS = {
+     1: 0.115,  2: 0.124,  3: 0.209,  4: 0.150,  5: 0.066,  6: 0.067,
+     7: 0.143,  8: 0.136,  9: 0.095, 10: 0.113, 11: 0.135, 12: 0.124,
+}
+
 # ── Medido: fração do mês já faturada ao fim do dia N ───────────────────────
 # (média dos 36 meses, desvio entre eles)
 CURVA_DO_MES = {
@@ -200,6 +238,57 @@ def posicao(realizado, dia, ano, mes, base_anual=None, crescimento=None):
     }
 
 
+def vendas_estimadas(mes, vendas_por_mes, quantos=3):
+    """Quantas vendas esperar no `mes`, a partir dos meses já fechados.
+
+    `vendas_por_mes` é {(ano, mês): quantidade}. Devolve
+    (estimativa, piso, teto, meses_usados) — ou (None, None, None, []) quando
+    não há mês fechado nenhum para se apoiar.
+
+    A CONTA, E POR QUE ELA NÃO É "O MÊS PASSADO"
+    O dono disse a armadilha com todas as letras: *"janeiro não pode ter a
+    base de dezembro"*. Dezembro vende 1,28 mês médio e janeiro 1,05; repetir
+    dezembro em janeiro superestima as vendas em 22%, e o UC — que divide por
+    elas — sairia baixo demais justamente na virada do ano.
+
+    Então os meses recentes são primeiro TIRADOS da própria sazonalidade, o
+    que sobra é o ritmo do negócio, e a sazonalidade do mês alvo é reposta:
+
+        ritmo       = média(vendas do mês / índice daquele mês)
+        estimativa  = ritmo × índice do mês alvo
+
+    Assim o crescimento do ano continua dentro do número — ele está no ritmo —
+    e a subida de novembro ou a queda de abril deixam de contaminar o mês
+    seguinte.
+
+    A FAIXA É PARTE DA RESPOSTA
+    O índice tem desvio medido entre os três anos (março discorda 21%,
+    maio 6,6%). Devolver só o ponto médio daria um número que parece exato e
+    não é; a faixa diz de quanto se pode errar antes de alguém decidir em cima
+    dela.
+    """
+    m = int(mes)
+    if m not in INDICE_SAZONAL_VENDAS:
+        return None, None, None, []
+    # Os `quantos` meses mais recentes COM venda. Mês zerado não é ritmo baixo:
+    # é mês que ainda não foi lançado, e entraria puxando a média para baixo.
+    chaves = sorted((k for k, v in (vendas_por_mes or {}).items()
+                     if v and v > 0), reverse=True)[:max(1, int(quantos))]
+    if not chaves:
+        return None, None, None, []
+    ritmos = [vendas_por_mes[k] / INDICE_SAZONAL_VENDAS[k[1]]
+              for k in chaves if INDICE_SAZONAL_VENDAS.get(k[1])]
+    if not ritmos:
+        return None, None, None, []
+    ritmo = sum(ritmos) / len(ritmos)
+    indice = INDICE_SAZONAL_VENDAS[m]
+    desvio = DESVIO_SAZONAL_VENDAS.get(m, 0.0)
+    return (ritmo * indice,
+            ritmo * max(0.0, indice - desvio),
+            ritmo * (indice + desvio),
+            sorted(chaves))
+
+
 # ── Conferência ──────────────────────────────────────────────────────────────
 # `python3 financeiro_historico.py`. Os casos moram aqui porque este
 # repositório não tem suíte: teste que não viaja junto do código é teste que
@@ -224,6 +313,53 @@ if __name__ == "__main__":
        ERRO_PROJECAO[5][0] > ERRO_PROJECAO[15][0] > ERRO_PROJECAO[25][0])
 
     ok("dezembro pesa mais que abril", INDICE_SAZONAL[12] > INDICE_SAZONAL[4])
+
+    # ── O índice de VENDAS, que não é o de reais ─────────────────────────
+    ok("os 12 meses do índice de vendas existem",
+       sorted(INDICE_SAZONAL_VENDAS) == list(range(1, 13)))
+    ok("ele também soma 12", abs(sum(INDICE_SAZONAL_VENDAS.values()) - 12) < 0.02)
+    ok("todo mês tem desvio medido",
+       sorted(DESVIO_SAZONAL_VENDAS) == list(range(1, 13)))
+    # O motivo de o bloco existir: se os dois fossem iguais, um bastava.
+    ok("dezembro em pedidos pesa MENOS que em reais",
+       INDICE_SAZONAL_VENDAS[12] < INDICE_SAZONAL[12] - 0.05)
+    ok("e janeiro em pedidos pesa MAIS que em reais",
+       INDICE_SAZONAL_VENDAS[1] > INDICE_SAZONAL[1] + 0.03)
+
+    # ── A estimativa de vendas ───────────────────────────────────────────
+    # Um negócio de ritmo perfeitamente constante: cada mês vende exatamente o
+    # índice dele. A estimativa tem que devolver o índice do mês alvo.
+    _reg = {(2025, m): 1000 * INDICE_SAZONAL_VENDAS[m] for m in range(1, 13)}
+    _e, _p, _t, _u = vendas_estimadas(1, {(2025, 10): _reg[(2025, 10)],
+                                          (2025, 11): _reg[(2025, 11)],
+                                          (2025, 12): _reg[(2025, 12)]})
+    ok("ritmo constante devolve o índice do mês alvo",
+       abs(_e - 1000 * INDICE_SAZONAL_VENDAS[1]) < 0.01)
+    ok("a faixa envolve a estimativa", _p < _e < _t)
+    ok("e ela diz quais meses usou", _u == [(2025, 10), (2025, 11), (2025, 12)])
+
+    # A armadilha que o dono apontou: janeiro herdando dezembro.
+    _dez = _reg[(2025, 12)]
+    ok("janeiro NÃO repete dezembro", _e < _dez * 0.90)
+    ok("e a queda é a dos pedidos (-18%), não a dos reais (-29%)",
+       abs(_e / _dez - INDICE_SAZONAL_VENDAS[1] / INDICE_SAZONAL_VENDAS[12]) < 0.001)
+
+    # Mês zerado é mês não lançado, não ritmo baixo.
+    _e2, _, _, _u2 = vendas_estimadas(1, {(2025, 10): _reg[(2025, 10)],
+                                          (2025, 11): _reg[(2025, 11)],
+                                          (2025, 12): _reg[(2025, 12)],
+                                          (2026, 1): 0})
+    ok("mês sem venda fica fora da média", (2026, 1) not in _u2)
+    ok("sem histórico nenhum devolve None",
+       vendas_estimadas(1, {})[0] is None)
+    ok("mês inválido devolve None", vendas_estimadas(13, _reg)[0] is None)
+
+    # Crescimento: o ritmo carrega o aumento do ano, o índice só o molda.
+    _cresc = {(2025, 10): _reg[(2025, 10)] * 2,
+              (2025, 11): _reg[(2025, 11)] * 2,
+              (2025, 12): _reg[(2025, 12)] * 2}
+    ok("o dobro de ritmo dobra a estimativa",
+       abs(vendas_estimadas(1, _cresc)[0] - 2 * _e) < 0.01)
     ok("no dia 15 espera-se pouco mais da metade do mês",
        0.50 < CURVA_DO_MES[15][0] < 0.53)
 

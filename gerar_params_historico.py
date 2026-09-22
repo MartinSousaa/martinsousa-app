@@ -74,9 +74,21 @@ def _ler_ano(caminho):
     cabecalho = list(next(it))
 
     def coluna(*nomes):
+        """O indice da coluna, procurando NA ORDEM DOS NOMES.
+
+        A ordem importa e nao e detalhe. A mesma planilha traz `TT VENDAS -
+        DEV` e `TOTAL VENDAS2`; varrer as colunas da esquerda para a direita
+        devolveria a que aparecesse primeiro na aba, que muda de ano para ano.
+        Procurando por nome, o primeiro nome da lista e o preferido — e e o
+        que casa com o faturamento usado aqui (`TT FAT - DEV`).
+        """
+        mapa = {}
         for i, c in enumerate(cabecalho):
-            if c and str(c).strip().upper() in nomes:
-                return i
+            if c:
+                mapa.setdefault(str(c).strip().upper(), i)
+        for n in nomes:
+            if n in mapa:
+                return mapa[n]
         return None
 
     i_data = coluna("DATA")
@@ -85,9 +97,14 @@ def _ler_ano(caminho):
     # ja mudaram os do faturamento — entao se procura por varios, e se IMPRIME
     # qual foi usado. Coluna adivinhada em silencio e numero em que ninguem
     # confia depois.
-    i_qtd = coluna("VENDAS", "QTD VENDAS", "QTD. VENDAS", "QUANTIDADE",
-                   "QTD", "QTDE", "PEDIDOS", "N VENDAS", "Nº VENDAS",
-                   "TOTAL VENDAS", "VENDAS DIA")
+    # `TT VENDAS - DEV` primeiro: e a contagem liquida de devolucao, o par
+    # exato do `TT FAT - DEV` que ja se usa aqui. Em 2023 as duas colunas
+    # tinham outro nome (`TOTAL FAT` / `TOTAL VENDAS`), e o par se mantem.
+    # `TOTAL VENDAS2` fica de fora de proposito: e o acumulado do mes repetido
+    # na linha do dia, e somaria o mes inteiro a cada dia.
+    i_qtd = coluna("TT VENDAS - DEV", "TOTAL VENDAS", "QTD VENDAS",
+                   "QTD. VENDAS", "QUANTIDADE", "QTD", "QTDE", "PEDIDOS",
+                   "N VENDAS", "Nº VENDAS", "VENDAS DIA", "VENDAS")
     if i_qtd is None:
         print(f"# {caminho}: sem coluna de QUANTIDADE de vendas — "
               f"colunas: {[str(c) for c in cabecalho if c]}", file=sys.stderr)
