@@ -1397,6 +1397,58 @@ def _erro_openai_terminal(excecao):
     return ""
 
 
+def guardar_rascunho(usuario, motivo=""):
+    """Grava a galeria da sessao no disco. Devolve (ok, erro).
+
+    POR QUE ELA PASSOU A SER CHAMADA EM TODO LUGAR
+
+    O rascunho so era gravado durante a GERACAO — `_rasc.salvar` aparecia uma
+    unica vez no arquivo inteiro, dentro do laco das oito imagens. Nenhum
+    ajuste era gravado.
+
+    Entao uma tarde inteira de correcoes vivia so em `st.session_state`. Quando
+    o processo reiniciou, ela sumiu: nem a sessao tinha, nem o disco — o disco
+    guardava as oito ORIGINAIS, sem nenhuma correcao. Recuperar traria o
+    trabalho de antes das horas de ajuste.
+
+    E FALHA AQUI NAO PODE MAIS SER MUDA
+
+    A gravacao vivia dentro de `except Exception: pass`. Disco cheio, volume
+    desmontado, permissao errada — tudo dava no mesmo: silencio, e o
+    colaborador so descobria quando ja tinha perdido. O erro continua nao
+    derrubando a tela, mas agora ele APARECE.
+    """
+    try:
+        import rascunho as _rasc
+        galeria = st.session_state.get("img_galeria") or []
+        if not galeria:
+            return True, ""
+        _rasc.salvar(st.session_state.get("usuario") or usuario or "anon",
+                     st.session_state.get("img_nome_produto", ""),
+                     galeria, st.session_state.get("img_codigo", ""))
+        return True, ""
+    except Exception as e:
+        erro = f"{type(e).__name__}: {str(e)[:120]}"
+        st.session_state["img_rascunho_erro"] = erro
+        return False, erro
+
+
+def aviso_de_rascunho():
+    """Mostra, uma vez, que a copia de seguranca falhou.
+
+    Fica separado de `guardar_rascunho` porque a gravacao acontece dentro de
+    laco e de thread, onde escrever na tela ou nao aparece ou aparece no lugar
+    errado. Aqui e o comeco da pagina, que e onde a pessoa olha.
+    """
+    erro = st.session_state.pop("img_rascunho_erro", "")
+    if erro:
+        st.error(
+            "💾 **A copia de seguranca das imagens falhou.** Elas existem "
+            "apenas nesta sessao: se a tela reiniciar agora, o trabalho se "
+            "perde. Salve no Drive antes de continuar.\n\n"
+            f"Motivo tecnico: {erro}")
+
+
 def _chamar_openai_geracao(prompt_final, imagens_bytes=None, ref_layout=None,
                            ref_layout_nome="", diagnostico=None,
                            _ja_redescobriu=False):
@@ -3560,6 +3612,9 @@ def consumir_comandos_do_chat(usuario_logado=""):
             _mudou_rf = True
             _msgs_rf.append(f"🔁 Imagem {_i + 1} refeita do zero.")
         if _mudou_rf:
+            # Pelo helper, e nao direto: e ele que faz a falha aparecer na
+            # tela em vez de sumir num `except: pass`.
+            guardar_rascunho(usuario_logado, "refazer do zero")
             try:
                 import rascunho as _rasc_rf
                 _rasc_rf.salvar(usuario_logado, _nome_rf, galeria,
@@ -3643,6 +3698,9 @@ def consumir_comandos_do_chat(usuario_logado=""):
                 st.session_state["img_galeria"][idx_alvo]["bytes"] = nova_img
                 _mudou = True
                 _resultado_log = "imagem atualizada"
+                # A copia de seguranca acompanha o ajuste. Sem esta linha o
+                # disco continuava com a imagem de antes da correcao.
+                guardar_rascunho(usuario_logado, "ajuste do chat")
             try:
                 import log_imagem
                 log_imagem.registrar("ajuste_aplicado", instrucao, num_foto,
@@ -3708,6 +3766,9 @@ def pagina_imagem(usuario_logado):
     _mot_ok, _mot_aviso = motores_de_imagem()
     if _mot_aviso:
         (st.error if not _mot_ok else st.warning)("🖼️ " + _mot_aviso)
+
+    # A copia de seguranca falhou na passada anterior? Aqui e onde se diz.
+    aviso_de_rascunho()
 
     # ── Recuperacao apos queda de conexao ────────────────────────────────────
     # Se a sessao morreu no meio de uma geracao, o session_state veio vazio mas o
@@ -4172,6 +4233,7 @@ def pagina_imagem(usuario_logado):
                     "aprovado": False,
                 })
                 st.session_state["img_galeria"] = galeria_atual
+                guardar_rascunho(usuario_logado, "ajuste fino (imagem nova)")
                 # O veredito viaja com o indice da imagem nova, para aparecer
                 # ao lado dela na galeria depois do rerun.
                 st.session_state["img_af_relato"] = (len(galeria_atual) - 1,
@@ -4809,12 +4871,12 @@ def pagina_imagem(usuario_logado):
                         # ja tinha sido gerado — e pago. Agora cada imagem pronta
                         # ja esta no session_state e em disco.
                         st.session_state["img_galeria"] = list(galeria)
-                        try:
-                            import rascunho as _rasc
-                            _rasc.salvar(usuario_logado, cfg.get("nome_produto", ""),
-                                         galeria, cfg.get("codigo", ""))
-                        except Exception:
-                            pass
+                        st.session_state.setdefault("img_nome_produto",
+                                                    cfg.get("nome_produto", ""))
+                        st.session_state.setdefault("img_codigo",
+                                                    cfg.get("codigo", ""))
+                        # Pelo helper: falha de gravacao deixa de ser muda.
+                        guardar_rascunho(usuario_logado, "geracao")
                     except Exception as _e_img:
                         st.warning(f"⚠️ Erro inesperado em '{tipo}': {_e_img}")
                         continue
@@ -5094,6 +5156,7 @@ def pagina_imagem(usuario_logado):
                         st.error(f"❌ Erro: {err_regen}")
                     else:
                         st.session_state["img_galeria"][idx_ativo]["bytes"] = nova_img_regen
+                        guardar_rascunho(usuario_logado, "regerar imagem")
                         st.rerun()
 
         # ── AJUSTE FINO NA GALERIA ────────────────────────────────────────────
@@ -5186,6 +5249,7 @@ def pagina_imagem(usuario_logado):
                     st.session_state["img_af_relato"] = (idx_ativo, _rel_afg)
                     if nova_img_af:
                         st.session_state["img_galeria"][idx_ativo]["bytes"] = nova_img_af
+                        guardar_rascunho(usuario_logado, "ajuste fino")
                         st.rerun()
                     else:
                         st.error(f"❌ {relato_em_texto(idx_ativo + 1, _rel_afg)}")
@@ -5872,6 +5936,38 @@ if __name__ == "__main__":
         _os_t.environ.pop("ANTHROPIC_API_KEY", None)
     else:
         _os_t.environ["ANTHROPIC_API_KEY"] = _guardado
+    # ── A COPIA DE SEGURANCA ACOMPANHA TODO AJUSTE ──────────────────────
+    #
+    # O defeito que estes casos travam: `_rasc.salvar` existia uma vez so, no
+    # laco da geracao. Uma tarde de ajustes vivia apenas em session_state, e o
+    # disco guardava as originais. Reiniciou, perdeu — e recuperar traria o
+    # trabalho de antes das correcoes.
+    #
+    # E como o defeito e "faltou chamar em algum lugar", o teste tem de olhar
+    # o ARQUIVO, e nao uma funcao. Nenhum teste de unidade pega uma chamada
+    # que nao existe.
+    import re as _re_conf
+    _src = open(__file__, encoding="utf-8").read()
+    _corpo = "\n".join(l for l in _src.split("\n")
+                       if not l.lstrip().startswith("#"))
+
+    _chamadas = len(_re_conf.findall(r"(?<!def )guardar_rascunho\(", _corpo))
+    ok("o rascunho e gravado em varios pontos, nao so na geracao",
+       _chamadas >= 6)
+
+    # Todo lugar que troca os bytes de uma imagem da galeria tem de gravar.
+    _trocas = [m.start() for m in
+               _re_conf.finditer(r'img_galeria"\]\[\w+\]\["bytes"\]\s*=', _corpo)]
+    _sem_guarda = [i for i in _trocas
+                   if "guardar_rascunho" not in _corpo[i:i + 400]]
+    ok("toda troca de bytes na galeria grava o rascunho logo depois",
+       _trocas and not _sem_guarda)
+
+    ok("a falha de gravacao tem onde aparecer",
+       "def aviso_de_rascunho" in _src and "aviso_de_rascunho()" in _corpo)
+    ok("e ela NAO e mais engolida em silencio",
+       "img_rascunho_erro" in _src)
+
     ok("registrar_revisao fora da tela nao derruba",
        registrar_revisao({"ok": None, "erro": "x"}) is None)
 
