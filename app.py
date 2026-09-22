@@ -1956,6 +1956,8 @@ if _eh_admin:
         # aba sem trancar a porta so troca o cadeado por uma cortina, porque a
         # URL continua levando la.
         if auth.eh_dono(usuario_logado):
+            _abas_gestao["🏦 Reserva"] = \
+                lambda: _abrir('reserva_tela', 'pagina', usuario_logado)
             _abas_gestao["🔎 Análise de Gargalos"] = \
                 lambda: _abrir('gargalos_tela', 'pagina', usuario_logado)
         _navegar(_abas_gestao, "aba_gf")
