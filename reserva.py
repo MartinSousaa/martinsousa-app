@@ -41,6 +41,47 @@ no começo e para mais no fim; e a diferença entre sacar em 09/02 e em 11/02
 
 from datetime import date, timedelta
 
+# ── A POSIÇÃO, COMO O DONO A INFORMOU ───────────────────────────────────────
+#
+# Tirada do extrato do Itaú de 22/09/2026, que ele mandou por print. Cada
+# número aqui é lido de lá, nenhum é arbitrado:
+#
+#     CDB-DI · início 14/08/2026 · vencimento 13/08/2031
+#     aplicado R$ 270.000,00 · 100,0000% do DI
+#     saldo bruto R$ 273.642,89 · saldo líquido R$ 272.823,24
+#     liquidez diária a partir de 17/08/2026 · renovação automática NÃO
+#
+# FICA NO CÓDIGO COMO PONTO DE PARTIDA, E NÃO COMO VERDADE ETERNA
+#
+# O saldo muda todo dia. A tela deixa colar uma posição nova, e a partir daí é
+# ela que vale — estes números só servem enquanto ninguém tiver colado nada.
+# Repetir a planilha aqui seria a segunda resposta para a mesma pergunta; mas
+# começar vazio seria pior: a tela abriria pedindo um dado que ele já deu.
+POSICAO_INICIAL = {
+    "produto": "CDB-DI Itaú",
+    "aplicado": 270_000.00,
+    "inicio": "2026-08-14",
+    "vencimento": "2031-08-13",
+    "bruto": 273_642.89,
+    "liquido": 272_823.24,
+    "posicao_em": "2026-09-22",
+    "liquidez_desde": "2026-08-17",
+    "remuneracao": "100% do DI",
+}
+
+# QUANDO O DINHEIRO SAI, E POR QUE SÃO DOIS SAQUES
+#
+# Ele definiu: "Preciso sacar 1 dia antes ou se for liquidez imediata, no
+# próprio dia 30" — a folha cai no dia 30. E o bônus é outro saque: "precisa
+# virar o mês para sabermos, logo, esse valor, se alcançado e quanto
+# alcançado, precisa ser sacado após a apuração da meta deles".
+#
+# Juntar os dois num saque só adiantaria o bônus em um mês e faria a reserva
+# parecer mais curta do que é.
+DIA_DO_SAQUE_DA_FOLHA = 30
+DIA_UTIL_DO_SAQUE_DO_BONUS = 5
+
+
 # ── A tabela regressiva do IR de renda fixa (Lei 11.033/2004) ───────────────
 # (dias corridos desde a aplicação, alíquota sobre o RENDIMENTO)
 FAIXAS_IR = ((180, 0.225), (360, 0.200), (720, 0.175), (10**9, 0.150))

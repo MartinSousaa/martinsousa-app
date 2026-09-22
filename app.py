@@ -1941,13 +1941,26 @@ if _eh_admin:
         # Param próprio (`aba_gf`), e não o `aba_g` de Indicadores: as duas
         # seções têm abas de nomes diferentes, e um param só faria cada troca de
         # seção cair na primeira aba da outra.
-        _navegar({
+        _abas_gestao = {
             "🏠 Home":        lambda: gestao.pagina_home(usuario_logado),
             # `_navegar` vai de carona: o Financeiro tem abas proprias e usa o
             # mesmo seletor, em vez de uma segunda copia dele la dentro.
             "💼 Financeiro":  lambda: gestao.pagina_financeiro(usuario_logado,
                                                                navegar=_navegar),
-        }, "aba_gf")
+        }
+        # A Analise de Gargalos mede as pessoas pelo NOME. Medir gente em
+        # publico muda o que a gente escreve, e a partir dai o log passa a
+        # descrever o que a equipe acha que o chefe quer ler — o dado que a
+        # tela existe para produzir morre na origem. Some da barra para quem
+        # nao e dono, e a propria pagina recusa por conta propria: esconder a
+        # aba sem trancar a porta so troca o cadeado por uma cortina, porque a
+        # URL continua levando la.
+        if auth.eh_dono(usuario_logado):
+            _abas_gestao["🏦 Reserva"] = \
+                lambda: _abrir('reserva_tela', 'pagina', usuario_logado)
+            _abas_gestao["🔎 Análise de Gargalos"] = \
+                lambda: _abrir('gargalos_tela', 'pagina', usuario_logado)
+        _navegar(_abas_gestao, "aba_gf")
     elif _secao == "indicadores":
         if _eh_martinsousa:
             _abas_ind = {
