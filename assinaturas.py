@@ -41,6 +41,8 @@ Studio só garante que nada passe despercebido.
 
 import re
 import unicodedata
+
+import streamlit as st
 from datetime import timezone, timedelta
 
 FUSO = timezone(timedelta(hours=-3))
@@ -127,8 +129,14 @@ def _aba():
     return aba
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def carregar():
-    """[{...}] do cadastro. Lista vazia quando a aba não existe ou falha."""
+    """[{...}] do cadastro. Lista vazia quando a aba não existe ou falha.
+
+    Cacheada: a Home lê isto para montar o ponto de equilíbrio, e a Home é a
+    tela de entrada. Sem cache, cada clique dela pagava uma ida à planilha
+    para buscar quinze linhas que mudam uma vez por mês.
+    """
     try:
         registros = _aba().get_all_records(
             value_render_option="UNFORMATTED_VALUE")
@@ -184,6 +192,7 @@ def salvar(linhas, usuario=""):
     except Exception as e:
         # Só o tipo: a mensagem do gspread carrega a URL da planilha.
         return False, type(e).__name__
+    carregar.clear()
     return True, f"{len(limpas)} assinatura(s) gravada(s)"
 
 

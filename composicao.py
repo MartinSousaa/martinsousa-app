@@ -57,7 +57,7 @@ import unicodedata
 # Só os nomes que o Studio usa (`finalidades_tela.py:118`). O que não estiver
 # aqui cai em DESCONHECIDA e APARECE na tela — finalidade nova entrando muda
 # de lado sozinha em silêncio é como a conta passa a mentir sem ninguém ver.
-NUMERADOR = ("CUSTO FIXO", "SERVIÇO", "SERVIÇOS")
+NUMERADOR = ("CUSTO FIXO", "SERVIÇO", "SERVIÇOS", "FOLHA")
 
 # JÁ MEDIDO DENTRO DA MARGEM — e por isso NÃO pode ser somado de novo.
 #
@@ -91,7 +91,15 @@ SEGUNDA_LINHA = ("NÃO OPERACIONAL", "NAO OPERACIONAL", "EMPRESTIMO PRONAMP",
 
 FORA = ("TRANSFERENCIA ENTRE CONTAS", "TRANSFERÊNCIA ENTRE CONTAS",
         "TRANSFERENCIA", "APLICACAO", "APLICAÇÃO", "RATEIO CUSTO FIXO",
-        "REEMBOLSO")
+        "REEMBOLSO",
+        # FATURA DO CARTÃO é FORMA DE PAGAMENTO, não finalidade. O que foi
+        # comprado dentro dela já entra pela finalidade de cada compra;
+        # somar a fatura inteira por cima contaria tudo duas vezes. Foi a
+        # regra que o dono deu: "ele não pode planilhar gastos fixos cobrados
+        # nos cartões e depois pegar o total da fatura que contém alguns
+        # desses custos e somar, vai duplicar".
+        "FATURA DO CARTÃO", "FATURA DO CARTAO", "FATURA CARTÃO",
+        "CHEQUE", "CHEQUES")
 
 
 def _chave(t):
@@ -189,16 +197,33 @@ def margem(taxas_medidas, taxa_op=0.0):
 
 
 def numerador(custo_fixo=0.0, assinaturas=0.0, gerencia=0.0, headcount=0.0,
-              teto_outros=0.0):
-    """O custo que não varia com a venda, somado.
+              teto_outros=0.0, saiu_no_extrato=0.0):
+    """O custo que não varia com a venda. VALE O MAIOR entre cadastro e extrato.
 
     `headcount` entra como ZERO no equilíbrio de hoje — enquanto a Reserva
     cobre, quem paga a folha do quadro é a verba aplicada, e não a operação.
-    Quem quer o outro número chama de novo com ele preenchido.
+
+    POR QUE O MAIOR, E NÃO A SOMA
+    -----------------------------
+    Regra do dono, dita sobre o custo fixo: *"o que vier nos extratos servirá
+    de conferência dos valores contidos no custo fixo"*. Somar os dois
+    contaria o mesmo aluguel duas vezes — uma no cadastro, outra quando ele
+    sai da conta.
+
+    E POR QUE ISSO SALVOU A TELA
+    ----------------------------
+    Em 22/09 a Home abriu com meta de R$ 34.899 — quatro vezes menos que o
+    real. A causa: o cadastro de custo fixo somava R$ 585,81, e a conta
+    confiou nele. O extrato do mês, esse, tinha os gastos de verdade.
+
+    Com "vale o maior", cadastro vazio deixa de produzir número errado: a
+    conta cai no que de fato saiu da conta bancária, que é sempre verdade.
     """
-    return round(sum(max(0.0, float(v or 0.0)) for v in
-                     (custo_fixo, assinaturas, gerencia, headcount,
-                      teto_outros)), 2)
+    do_cadastro = sum(max(0.0, float(v or 0.0)) for v in
+                      (custo_fixo, assinaturas, gerencia, headcount))
+    do_extrato = max(0.0, float(saiu_no_extrato or 0.0))
+    return round(max(do_cadastro, do_extrato)
+                 + max(0.0, float(teto_outros or 0.0)), 2)
 
 
 def equilibrio(num, marg):
@@ -233,9 +258,12 @@ def montar(resumo_por_finalidade, faturamento, taxas_medidas,
     t_op = taxa_operacional(lados["operacional"], faturamento)
     m = margem(taxas_medidas, t_op)
 
-    num_hoje = numerador(custo_fixo, assinaturas, gerencia, 0.0, teto_outros)
+    # O extrato entra como piso do numerador. Quando o cadastro está completo
+    # ele ganha, porque o cadastro inclui o que ainda não saiu da conta.
+    num_hoje = numerador(custo_fixo, assinaturas, gerencia, 0.0, teto_outros,
+                         saiu_no_extrato=lados["numerador"])
     num_depois = numerador(custo_fixo, assinaturas, gerencia, headcount,
-                           teto_outros)
+                           teto_outros, saiu_no_extrato=lados["numerador"])
 
     hoje = equilibrio(num_hoje, m)
     depois = equilibrio(num_depois, m)
@@ -256,6 +284,10 @@ def montar(resumo_por_finalidade, faturamento, taxas_medidas,
         "ja_na_margem": lados["ja_na_margem"],
         "fora_da_conta": lados["fora"],
         "desconhecidas": desconhecidas,
+        "numerador_veio_do_extrato":
+            lados["numerador"] > sum(max(0.0, float(v or 0.0)) for v in
+                                     (custo_fixo, assinaturas, gerencia)),
+        "saiu_no_extrato": lados["numerador"],
         "partes": {"custo fixo": round(float(custo_fixo or 0), 2),
                    "assinaturas": round(float(assinaturas or 0), 2),
                    "folha gerência": round(float(gerencia or 0), 2),
@@ -371,6 +403,36 @@ if __name__ == "__main__":
                              205891.79)))
     ok("contar a mercadoria duas vezes infla o equilíbrio em mais de R$ 100 mil",
        _errado - r["equilibrio_hoje"] > 100_000)
+
+    # ── A REGRA DO MAIOR, QUE SALVOU A TELA EM 22/09 ────────────────────
+    #
+    # A Home abriu com meta de R$ 34.899 — quatro vezes menos que o real —
+    # porque o cadastro de custo fixo somava R$ 585,81 e a conta confiou nele.
+    ok("cadastro vazio cai no que saiu do extrato",
+       numerador(custo_fixo=585.81, saiu_no_extrato=29838.0) == 29838.0)
+    ok("cadastro completo ganha do extrato",
+       numerador(custo_fixo=29838.0, assinaturas=2350.35,
+                 saiu_no_extrato=1000.0) == 32188.35)
+    ok("os dois somam com o teto de outros, e não entre si",
+       numerador(custo_fixo=20000.0, saiu_no_extrato=30000.0,
+                 teto_outros=9500.0) == 39500.0)
+    ok("nunca soma cadastro com extrato",
+       numerador(custo_fixo=10000.0, saiu_no_extrato=10000.0) == 10000.0)
+
+    # As duas finalidades que apareceram na tela do dono e ficavam de fora.
+    ok("FOLHA é numerador", lado("FOLHA") == "numerador")
+    ok("FATURA DO CARTÃO fica FORA — é forma de pagamento",
+       lado("FATURA DO CARTÃO") == "fora")
+    ok("cheque também — o gasto já entrou pela finalidade dele",
+       lado("CHEQUES") == "fora")
+
+    _r2 = montar({"CUSTO FIXO": -21557.0, "FOLHA": -8000.0},
+                 200000.0, TAXAS, custo_fixo=585.81, assinaturas=0.0,
+                 gerencia=0.0, teto_outros=9500.0)
+    ok("a tela sabe dizer que o número veio do extrato",
+       _r2["numerador_veio_do_extrato"])
+    ok("e o equilíbrio volta para a ordem de grandeza certa",
+       120_000 < _r2["equilibrio_hoje"] < 160_000)
 
     # ── bordas ───────────────────────────────────────────────────────────
     _vazio, _d = separar({})
