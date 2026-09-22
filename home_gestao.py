@@ -612,6 +612,23 @@ def _partes_fixas(ano, mes):
     return cf, assin, ger, head, avisos
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def _gastos_por_finalidade(ano, mes):
+    """({finalidade: total}, aviso) do mês, dos lançamentos já classificados.
+
+    Cacheada à parte das outras leituras porque é a mais cara das quatro: ela
+    varre TODOS os lançamentos e filtra pelo mês. `lancamentos.carregar` tem
+    cache de 120s, mas o filtro e a aplicação do cadastro rodavam de novo a
+    cada clique na Home — e a Home é a tela de entrada do Studio.
+    """
+    try:
+        import lancamentos as _lan
+        return _lan.resumo_por_finalidade(_lan.do_mes(ano, mes)), ""
+    except Exception as e:
+        return {}, (f"Lançamentos do mês não lidos ({type(e).__name__}) — "
+                    "o custo operacional ficou de fora da margem.")
+
+
 def composicao_do_mes(ano, mes, faturamento):
     """(composição, avisos) — o ponto de equilíbrio com os números do cadastro.
 
@@ -623,14 +640,9 @@ def composicao_do_mes(ano, mes, faturamento):
     import financeiro_equilibrio as _eq
 
     cf, assin, ger, head, avisos = _partes_fixas(ano, mes)
-
-    resumo = {}
-    try:
-        import lancamentos as _lan
-        resumo = _lan.resumo_por_finalidade(_lan.do_mes(ano, mes))
-    except Exception as e:
-        avisos.append(f"Lançamentos do mês não lidos ({type(e).__name__}) — "
-                      "o custo operacional ficou de fora da margem.")
+    resumo, aviso_lan = _gastos_por_finalidade(ano, mes)
+    if aviso_lan:
+        avisos.append(aviso_lan)
 
     comp = _cp.montar(resumo, faturamento, _eq.TAXAS_VARIAVEIS,
                       custo_fixo=cf, assinaturas=assin, gerencia=ger,
@@ -640,6 +652,13 @@ def composicao_do_mes(ano, mes, faturamento):
         avisos.append(
             f"A finalidade **{nome}** (R$ {valor:,.2f}) não está classificada "
             "e ficou FORA da conta. Diga se ela é custo fixo ou variável.")
+    if comp.get("numerador_veio_do_extrato"):
+        avisos.append(
+            "O ponto de equilíbrio está sendo calculado pelo que **saiu da "
+            f"conta** (R$ {comp.get('saiu_no_extrato', 0):,.2f}), e não pelos "
+            "cadastros — eles somam menos que isso e estão incompletos. "
+            "O número está certo; completar os cadastros deixa de depender "
+            "de o mês já ter acontecido.")
     return comp, avisos
 
 
@@ -935,8 +954,12 @@ if __name__ == "__main__":
     _corpo_cp = inspect.getsource(composicao_do_mes)
     ok("a composicao le o custo fixo, as assinaturas e as duas folhas",
        "_partes_fixas(" in _corpo_cp)
-    ok("e o resumo por finalidade do mes",
-       "resumo_por_finalidade" in _corpo_cp)
+    # O resumo por finalidade saiu daqui para uma funcao cacheada a parte —
+    # e a mais cara das quatro leituras, e rodava a cada clique na Home.
+    ok("e os gastos por finalidade do mes",
+       "_gastos_por_finalidade(" in _corpo_cp)
+    ok("que sao lidos uma vez e guardados",
+       "cache_data" in s_home.split("def _gastos_por_finalidade")[0][-200:])
     ok("finalidade nao classificada vira aviso, e nao some",
        "desconhecidas" in _corpo_cp)
 
