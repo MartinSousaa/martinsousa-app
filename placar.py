@@ -1834,6 +1834,7 @@ function _minSemAtualizar() {{
 // esta fora do ar volta, e a proxima volta encontra o servidor de pe.
 var _reloadDaVersao = false;
 var _okSeguidos = 0;          // buscas boas em sequencia
+var _falhasSeguidas = 0;      // voltas perdidas em sequencia
 
 // A rede de seguranca: registrada uma vez, vive fora da pagina. E ela que
 // atende a navegacao quando o servidor esta fora do ar, devolvendo a ultima
@@ -1860,16 +1861,82 @@ function _agendar(ms) {{
   window._tvProxima = Date.now() + (ms || 60000);
 }}
 
+// A URL da volta, montada NA MAO.
+//
+// Aqui morava `new URL(location.href)`. O navegador da TV de parede nao e o
+// Chrome do escritorio: e o embutido da LG, e ele nao tem as mesmas coisas.
+// Se `URL` faltar, esta linha lanca — e lancar aqui dentro matava o laco para
+// sempre, porque o `_agendar` da proxima volta so acontecia DEPOIS, dentro do
+// `.then`. A TV acendia certa e congelava; so quem fosse ate la e recarregasse
+// na mao a fazia andar de novo, ate a primeira volta matar o laco outra vez.
+function _urlDaVolta() {{
+  var u = location.href.split('#')[0];
+  var corte = u.indexOf('?');
+  var base = corte < 0 ? u : u.slice(0, corte);
+  var q = corte < 0 ? '' : u.slice(corte + 1);
+  var partes = [];
+  if (q) {{
+    var itens = q.split('&');
+    for (var i = 0; i < itens.length; i++) {{
+      if (itens[i] && itens[i].split('=')[0] !== 'ts') partes.push(itens[i]);
+    }}
+  }}
+  partes.push('ts=' + Date.now());
+  return base + '?' + partes.join('&');
+}}
+
+// Busca o HTML da volta. `fetch` quando existe, XMLHttpRequest quando nao —
+// e o XHR existe em tudo que liga uma tela desde 2010.
+//
+// Sem este degrau, um navegador sem `fetch` nao dava erro de rede: dava
+// TypeError SINCRONO, que nao cai no `.catch` de promessa nenhuma.
+function _buscarHTML(url, ok, falha) {{
+  if (typeof fetch === 'function') {{
+    fetch(url, {{cache: 'no-store'}})
+      .then(function(r) {{ if (!r.ok) throw new Error(r.status); return r.text(); }})
+      .then(ok)
+      .catch(falha);
+    return;
+  }}
+  try {{
+    var x = new XMLHttpRequest();
+    x.open('GET', url, true);
+    x.onreadystatechange = function() {{
+      if (x.readyState !== 4) return;
+      if (x.status >= 200 && x.status < 300) ok(x.responseText);
+      else falha();
+    }};
+    x.onerror = falha;
+    x.send();
+  }} catch (e) {{ falha(); }}
+}}
+
+// O que fazer quando a busca falha, seja qual for o motivo. UMA porta de
+// saida: enquanto houvesse mais de uma, uma delas esquecia de reagendar.
+function _falhouAVolta() {{
+  _okSeguidos = 0;
+  _falhasSeguidas++;
+  // Dez falhas seguidas sao dez minutos parados. A esta altura nao e a rede
+  // oscilando: e algo que so uma pagina nova resolve. O service worker
+  // devolve a ultima copia boa se o servidor estiver fora do ar, entao
+  // recarregar aqui nao apaga a TV.
+  if (_falhasSeguidas >= 10) {{ _falhasSeguidas = 0; location.reload(); return; }}
+  _agendar(20000);
+}}
+
 function _atualizarPainel() {{
   window._tvUltimaTentativa = Date.now();
-  // Cada volta usa uma URL nova. Sem isso o navegador revalida com
-  // If-None-Match e o servidor estatico responde 304 com o ETag velho — o
-  // conteudo novo nunca chega, por mais que o arquivo mude no disco.
-  var _u = new URL(location.href);
-  _u.searchParams.set('ts', Date.now());   // 'v' nao: o Tornado da 10 anos de cache
-  fetch(_u.toString(), {{cache: 'no-store'}})
-    .then(function(r) {{ if (!r.ok) throw new Error(r.status); return r.text(); }})
-    .then(function(html) {{
+  // TUDO dentro de try: o corpo desta funcao roda de um timer, e uma excecao
+  // aqui sem reagendamento e a TV congelada.
+  var url;
+  try {{
+    // Cada volta usa uma URL nova. Sem isso o navegador revalida com
+    // If-None-Match e o servidor estatico responde 304 com o ETag velho — o
+    // conteudo novo nunca chega, por mais que o arquivo mude no disco.
+    url = _urlDaVolta();   // 'ts', nao 'v': o Tornado da 10 anos de cache
+  }} catch (e) {{ _falhouAVolta(); return; }}
+  _buscarHTML(url, function(html) {{
+    try {{
       _okSeguidos++;
       _guardarCopia(html);
       var sv = html.match(/var SCRIPT_VER = "([^"]+)";/);
@@ -1918,15 +1985,20 @@ function _atualizarPainel() {{
         _autoEscala();
         checkAndPlay();
       }} catch (e) {{}}
+      _falhasSeguidas = 0;
       _agendar(60000);
-    }})
-    .catch(function() {{
-      // Servidor fora do ar ou rede oscilando: esperar e tentar de novo. Um
-      // reload aqui e o que matava a TV — a pagina de erro do navegador nao
-      // tem script para tentar outra vez.
-      _okSeguidos = 0;
-      _agendar(20000);
-    }});
+    }} catch (e) {{
+      // Falhou DEPOIS de o HTML chegar: DOMParser ausente, .tv-root faltando,
+      // qualquer coisa. Continua sendo uma volta perdida — e continua tendo
+      // que reagendar, senao a TV para aqui.
+      _falhouAVolta();
+    }}
+  }}, function() {{
+    // Servidor fora do ar ou rede oscilando: esperar e tentar de novo. Um
+    // reload imediato aqui e o que matava a TV — a pagina de erro do navegador
+    // nao tem script para tentar outra vez.
+    _falhouAVolta();
+  }});
 }}
 _agendar(60000);
 
