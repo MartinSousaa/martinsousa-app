@@ -262,8 +262,15 @@ if __name__ == "__main__":
 
     # A conta não pode morar na tela. Foi assim que a regra do bônus ficou
     # presa dentro de `analise_metas.py` e teve de ser extraída depois.
+    #
+    # O teste olha o CÓDIGO, sem os comentários e sem ele mesmo: a linha que
+    # procura por "def intencao(" contém "def intencao(", e o teste reprovava
+    # a si próprio. Autorreferência é o jeito mais bobo de um teste mentir.
+    _codigo = "\n".join(l for l in _src.split("\n")
+                        if not l.lstrip().startswith(("#", "ok(", '"""')))
+    _codigo = _codigo.split("if __name__")[0]
     ok("a tela não reimplementa a classificação",
-       "INTENCOES = " not in _src and "def intencao(" not in _src)
+       "INTENCOES = " not in _codigo and "def intencao(" not in _codigo)
 
     # Todo diagnóstico e todo assunto que o módulo produz precisa de rótulo:
     # sem isso o dono lê a sigla crua e não sabe o que fazer com ela.
