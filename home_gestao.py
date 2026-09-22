@@ -572,7 +572,24 @@ def dados_reais(ano, mes, dia):
     import base_vendas as _bv
     avisos = []
 
-    ind, erro_bv = _bv.do_mes(ano, mes)
+    # ── TRÊS RELÓGIOS DIFERENTES NA MESMA TELA ───────────────────────────
+    #
+    # O dono definiu cada um, e misturá-los dá número errado em silêncio:
+    #
+    #   faturamento  -> Bling, AGORA. A venda cai lá na hora.
+    #   lucro/margem -> MÉDIA DOS 3 ÚLTIMOS MESES LANÇADOS na planilha.
+    #                   O mês corrente ainda não foi digitado — em 22/09 a
+    #                   BASE DE VENDAS ia até agosto —, e mês pela metade não
+    #                   descreve o negócio.
+    #   gastos       -> o MÊS CORRENTE, dos extratos.
+    #
+    # A ARMADILHA, e é por isso que `ano`/`mes` continuam sendo os de HOJE:
+    # se a Home passasse a dizer que o mês de referência é agosto (que é de
+    # onde vêm as margens), o bloco de gastos herdaria agosto — ele lê
+    # `d["mes"]` — e o dono olharia gasto de mês fechado achando que é o de
+    # agora. O período da média vai num campo PRÓPRIO, e aparece escrito ao
+    # lado dos indicadores.
+    ind, erro_bv = _bv.media_recente(ano, mes, quantos=3)
     if erro_bv:
         avisos.append(f"BASE DE VENDAS: {erro_bv}")
     if not ind:
@@ -597,9 +614,16 @@ def dados_reais(ano, mes, dia):
 
     _mb = ind["margem_bruta"]
     _ml = ind["margem_contribuicao_pct"]
+    _periodo_curto = ind.get("periodo", "") or "período lançado"
+    _sub_media = f"média de {_periodo_curto}"
     return {
+        # HOJE — e é isto que o bloco de gastos e o ritmo do faturamento usam.
         "dia": dia, "mes": mes, "ano": ano,
         "fonte_faturamento": fonte_fat,
+        # O período da MÉDIA, que é outro. Ele existe para o número não ficar
+        # sem origem: "margem de 70%" sem dizer de quando não dá para conferir.
+        "periodo_indicadores": ind.get("periodo", ""),
+        "meses_na_media": ind.get("meses", 0),
         "linhas_base_vendas": ind.get("linhas", 0),
         "faturamento": {
             "realizado": realizado,
@@ -608,17 +632,17 @@ def dados_reais(ano, mes, dia):
             "nao_operacional": linhas_eq.get("caixa") or 0.0,
         },
         "cards": [
-            _card("Lucro bruto", "no mês", ind["lucro_bruto"],
+            _card("Lucro bruto", _sub_media, ind["lucro_bruto"],
                   ind["lucro_bruto"], "brl0", True),
-            _card("Margem bruta", "sobre o faturado", _mb or 0.0,
+            _card("Margem bruta", "sobre o faturado · " + _periodo_curto, _mb or 0.0,
                   _eq.margem_de_contribuicao() * 100.0, "pct", False),
-            _card("LPV", "lucro por venda", ind["lpv"] or 0.0,
+            _card("LPV", "lucro por venda · " + _periodo_curto, ind["lpv"] or 0.0,
                   ind["lpv"] or 0.0, "brl", False),
-            _card("Margem de contribuição", "sobre o faturado", _ml or 0.0,
+            _card("Margem de contribuição", "sobre o faturado · " + _periodo_curto, _ml or 0.0,
                   _eq.margem_de_contribuicao() * 100.0, "pct", False),
-            _card("Devoluções", "no mês", ind["devolucao"],
+            _card("Devoluções", _sub_media, ind["devolucao"],
                   ind["devolucao"], "brl0", True),
-            _card("UC", "unidade de contribuição, média por venda",
+            _card("UC", "unidades por venda · " + _periodo_curto,
                   ind["uc"] or 0.0, ind["uc"] or 0.0, "razao", False),
         ],
     }, avisos
@@ -671,13 +695,17 @@ def pagina(usuario_logado=None, dados=None):
     # viram uma discussão sem saída — a planilha é de tempos em tempos, o
     # Bling é agora, e os dois estão certos no que cada um mede.
     if d.get("fonte_faturamento"):
+        _per = d.get("periodo_indicadores") or ""
+        _n = d.get("meses_na_media") or 0
         st.caption(
-            f"Faturamento: **{d['fonte_faturamento']}**. Lucro, margem, LPV e "
-            f"UC: aba **BASE DE VENDAS** do Controle MS"
-            + (f" ({d['linhas_base_vendas']} venda(s) no mês)"
+            f"**Faturamento:** {d['fonte_faturamento']}.  \n"
+            f"**Lucro, margem, LPV e UC:** média de "
+            f"{_n} mês(es) — **{_per}** — da aba BASE DE VENDAS do Controle MS"
+            + (f", {d['linhas_base_vendas']} venda(s)"
                if d.get("linhas_base_vendas") else "")
-            + ". As duas fontes não batem no faturamento, e não precisam: a "
-              "planilha vai até onde vocês atualizaram.")
+            + ". O mês corrente ainda não foi lançado lá; um mês pela metade "
+              "não descreve o negócio.  \n"
+            f"**Gastos:** o mês corrente, dos extratos — o bloco abaixo.")
     for _a in (_avisos or []):
         st.warning(_a)
 
@@ -766,5 +794,39 @@ if __name__ == "__main__":
        all(meta_do_mes(m) == 250_831.99 for m in (9, 10, 11, 12)))
     ok("mes que nao existe nao inventa meta", meta_do_mes(13) is None)
     ok("nem texto", meta_do_mes("setembro") is None)
+
+    # ── OS TRES RELOGIOS NAO PODEM SE MISTURAR ───────────────────────────
+    #
+    # A Home usa a media dos 3 ultimos meses LANCADOS para lucro e margens,
+    # mas `ano`/`mes` tem de continuar sendo os de HOJE: o bloco de gastos le
+    # `d["mes"]`, e se ele herdasse o mes da media o dono olharia gasto de mes
+    # fechado achando que e o de agora — numero errado em silencio, que e o
+    # erro mais caro que existe nesta tela.
+    import ast as _ast_home
+    _fonte_home = open(__file__, encoding="utf-8").read()
+    _arv_home = _ast_home.parse(_fonte_home)
+    _dr = next(n for n in _ast_home.walk(_arv_home)
+               if isinstance(n, _ast_home.FunctionDef) and n.name == "dados_reais")
+    _chaves = set()
+    for _n in _ast_home.walk(_dr):
+        if isinstance(_n, _ast_home.Dict):
+            for _k in _n.keys:
+                if isinstance(_k, _ast_home.Constant) and isinstance(_k.value, str):
+                    _chaves.add(_k.value)
+    ok("a Home devolve dia/mes/ano, que sao os de HOJE",
+       {"dia", "mes", "ano"} <= _chaves)
+    ok("e o periodo da media vai num campo PROPRIO, separado",
+       "periodo_indicadores" in _chaves and "meses_na_media" in _chaves)
+
+    # `dados_reais` pede a MEDIA, e nao um mes so.
+    _corpo = _fonte_home[_fonte_home.index("def dados_reais"):
+                         _fonte_home.index("def pagina(")]
+    ok("os indicadores vem da media recente", "media_recente" in _corpo)
+    ok("e nao de um mes solto", "_bv.do_mes(" not in _corpo)
+
+    # O bloco de gastos continua no mes de hoje.
+    _bg = _fonte_home[_fonte_home.index("def _bloco_gastos"):]
+    ok("os gastos continuam saindo do mes de referencia da Home",
+       'd or {}).get("mes")' in _bg)
 
     print("\nfalhas:", falhas)
