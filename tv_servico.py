@@ -187,6 +187,41 @@ def _caminho_servido(path):
     return path
 
 
+def _conferir_laco_da_tv():
+    """O laco de atualizacao da TV sobrevive a um navegador pobre?
+
+    Isto mora aqui, e nao no placar, porque e este processo que serve a TV de
+    parede — e foi a TV de parede que congelou. O navegador embutido da LG nao
+    e o Chrome do escritorio: o que falta nele lanca excecao, e excecao dentro
+    do laco sem reagendamento e a TV parada ate alguem ir la recarregar na mao.
+    """
+    import re
+    js = open(os.path.join(_AQUI, "placar.py"), encoding="utf-8").read()
+    ini = js.index("var _okSeguidos = 0;")
+    fim = js.index("setTimeout(checkAndPlay, 4000);", ini)
+    laco = js[ini:fim]
+    # Comentario nao e codigo: o proprio comentario que explica por que
+    # `new URL` saiu daqui contem as palavras `new URL`, e reprovaria o teste.
+    laco = "\n".join(l for l in laco.split("\n")
+                     if not l.lstrip().startswith("//"))
+    falhas = 0
+
+    def ok(nome, cond):
+        nonlocal falhas
+        falhas += not cond
+        print(("ok    " if cond else "FALHA ") + nome)
+
+    ok("a URL da volta nao depende de new URL()", "new URL(" not in laco)
+    ok("a busca nao chama fetch direto", re.search(r"(?<![_\w])fetch\(", laco.replace("typeof fetch", "")) is None or "_buscarHTML" in laco)
+    ok("existe degrau para navegador sem fetch", "XMLHttpRequest" in laco)
+    ok("toda falha passa por uma porta so", laco.count("function _falhouAVolta()") == 1)
+    ok("e essa porta reagenda", "_agendar(20000)" in laco)
+    ok("falha em sequencia acaba recarregando", "location.reload()" in laco)
+    ok("o corpo do _atualizarPainel esta protegido",
+       "}} catch (e) {{ _falhouAVolta(); return; }}" in laco)
+    return falhas
+
+
 if __name__ == "__main__":
     import sys as _s
     if "--conferir" in _s.argv:
@@ -211,6 +246,8 @@ if __name__ == "__main__":
            _caminho_servido("/tv-sw.js") == "/tv-sw.js")
         ok("nem o estado da TV",
            _caminho_servido("/tv-status.json") == "/tv-status.json")
+        print()
+        falhas += _conferir_laco_da_tv()
         print("\nfalhas:", falhas)
         _s.exit(0)
     main()
