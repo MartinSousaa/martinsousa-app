@@ -3720,25 +3720,27 @@ def consumir_comandos_do_chat(usuario_logado=""):
         _dados_rf = st.session_state.get("img_dados_descricao") or {}
         _nome_rf = _cfg_rf.get("nome_produto", "")
         _msgs_rf, _mudou_rf = [], False
-        _so_arte = bool(st.session_state.get("img_fotos_sao_arte"))
         for _c in refazer_pend:
             _i = int(_c.get("num", 1)) - 1
             if _i < 0 or _i >= len(galeria):
                 _msgs_rf.append(f"⚠️ Imagem {_i + 1} não existe.")
                 continue
-            if not _fotos_rf or _so_arte:
+            # A recusa vale so quando NAO HA foto de produto nenhuma. Ter a
+            # marca ligada com fotos na mao era o caso falso que travava a
+            # colaboradora: o Studio tinha tudo de que precisava e dizia que
+            # nao tinha.
+            if not _fotos_rf:
                 # Dizer "não dá" é o que faltava. Gerando do zero com a arte
                 # errada como referência, ela voltava idêntica — e o
                 # assistente anunciava sucesso em cima disso.
                 _msgs_rf.append(
-                    "⚠️ **Não dá para refazer do zero por aqui.** Esta imagem "
-                    "entrou pelo modo Ajuste Fino: o que o Studio tem dela é a "
-                    "própria arte, não as fotos do produto — e gerar de novo a "
-                    "partir da arte devolve a arte.\n\n"
-                    "Para recompor o quadro: aba **Imagem** › **1 imagem "
-                    "específica**, suba as fotos do produto e descreva a "
-                    "composição em «Descreva o que você quer nessa imagem». "
-                    "Para mexer só num ponto, siga pelo Ajuste Fino mesmo.")
+                    "⚠️ **Preciso das fotos do produto para refazer do zero.** "
+                    "O Studio não tem nenhuma nesta sessão — e gerar a partir "
+                    "da própria arte devolve a arte.\n\n"
+                    "Suba as fotos do produto em **Fotos de referência do "
+                    "produto**, aqui mesmo na aba Imagem, e me peça de novo. "
+                    "Para mexer só num ponto sem refazer, o Ajuste Fino "
+                    "funciona sem elas.")
                 break
             _tp = tipo_para_gerar(galeria[_i])
             _ins = (_c.get("instrucao") or "").strip()
@@ -5045,6 +5047,19 @@ def pagina_imagem(usuario_logado):
                     st.session_state["img_nome_produto"] = cfg["nome_produto"]
                     st.session_state["img_codigo"] = cfg.get("codigo", "")
                     st.session_state["img_fotos_originais"] = cfg["fotos_bytes"]
+                    # A MARCA DE "ISSO E ARTE" TEM DE SER DESLIGADA AQUI.
+                    #
+                    # `img_fotos_sao_arte` so era LIGADA, nunca desligada. Quem
+                    # usasse o Ajuste Fino avulso uma vez carregava a marca
+                    # para sempre na sessao — e a geracao seguinte, com fotos
+                    # de produto de verdade, ainda recusava refazer dizendo
+                    # "esta imagem entrou pelo modo Ajuste Fino". Era mentira,
+                    # e foi o que a colaboradora leu tres vezes seguidas
+                    # enquanto pedia para refazer a Imagem 1.
+                    #
+                    # O que esta em `cfg["fotos_bytes"]` aqui sao as fotos do
+                    # PRODUTO, subidas nesta geracao. Entao a marca cai.
+                    st.session_state["img_fotos_sao_arte"] = False
                     st.session_state["img_dados_descricao"] = cfg.get("dados_descricao") or {}
                     if st.session_state["img_dados_descricao"] and not st.session_state["img_dados_descricao"].get("peso"):
                         st.session_state["img_dados_descricao"]["peso"] = st.session_state.get("desc_dados_atual", {}).get("peso", "")
@@ -6128,6 +6143,24 @@ if __name__ == "__main__":
         l for l in _codigo_img.split("\n") if not l.lstrip().startswith("#"))
     ok("a cor da marca nao e PINTADA em faixa nenhuma",
        "232, 238, 245" not in _sem_comentario)
+    # ── A MARCA QUE SO ERA LIGADA ───────────────────────────────────────
+    #
+    # `img_fotos_sao_arte` era ligada pelo Ajuste Fino avulso e NUNCA
+    # desligada. Quem usasse o Ajuste Fino uma vez carregava a marca pela
+    # sessao inteira, e a geracao seguinte — com fotos de produto de verdade —
+    # ainda recusava refazer: "esta imagem entrou pelo modo Ajuste Fino".
+    # Era mentira, e a colaboradora leu isso tres vezes seguidas enquanto
+    # pedia para refazer a Imagem 1.
+    ok("a marca de arte e ligada em algum lugar",
+       '_sao_arte"] = True' in _sem_comentario)
+    ok("E DESLIGADA quando ha fotos de produto",
+       _sem_comentario.count('_sao_arte"] = False') >= 2)
+    ok("a recusa de refazer olha a FOTO, e nao a marca",
+       "if not _fotos_rf:" in _sem_comentario
+       and "_so_arte" not in _sem_comentario)
+    ok("e a mensagem diz o que falta, nao de onde a imagem veio",
+       "Preciso das fotos do produto para refazer" in _sem_comentario)
+
     ok("o unico preenchimento fixo que resta e o branco da capa",
        _sem_comentario.count("bg_color = (") == 1
        and "255, 255, 255" in _sem_comentario)
