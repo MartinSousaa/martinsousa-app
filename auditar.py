@@ -58,6 +58,28 @@ CONHECIDOS = {
         "diário de reinícios é apoio, não requisito",
     ("log_imagem.py", "except Exception:"):
         "registro não pode impedir o colaborador de gerar imagem",
+    # ── Revisados em 23/09, um a um ─────────────────────────────────────
+    ("imagem.py", "except Exception:"):
+        "registro em log e limpeza de cache; a gravação de verdade passa "
+        "por guardar_rascunho, que mostra a falha na tela",
+    ("chat_assistente.py", "except Exception:"):
+        "registro do comando na planilha — nunca interrompe o fluxo",
+    ("base_vendas.py", "except Exception:"):
+        "limpar cache que talvez nem exista não é erro",
+    ("cheques.py", "except Exception:"):
+        "idem — invalidar cache de outro módulo é melhor-esforço",
+    ("controle_ms.py", "except Exception:"): "limpeza de cache",
+    ("metas_config.py", "except Exception:"): "limpeza de cache",
+    ("financeiro.py", "except Exception:"): "limpeza de cache",
+    ("placar.py", "except Exception:"): "limpeza de cache",
+    ("analise_metas.py", "except Exception:"): "limpeza de cache",
+    ("app.py", "_trabalho_restaurado"):
+        "guarda de 'uma vez por sessão' — ligar e nunca desligar É o "
+        "comportamento pedido",
+    ("admin.py", "cms_testar"):
+        "botão de teste; a marca morre com o rerun",
+    ("admin.py", "adm_parados"):
+        "botão de listagem; a marca morre com o rerun",
 }
 
 

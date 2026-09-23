@@ -3771,13 +3771,12 @@ def consumir_comandos_do_chat(usuario_logado=""):
         if _mudou_rf:
             # Pelo helper, e nao direto: e ele que faz a falha aparecer na
             # tela em vez de sumir num `except: pass`.
+            # UMA gravacao, e nao duas. A chamada direta ao `rascunho.salvar`
+            # que existia aqui sobreviveu a criacao do helper e virava a
+            # segunda escrita do mesmo dado — silenciosa, porque tinha o
+            # `except: pass` proprio. Duas respostas para a mesma pergunta:
+            # se uma falhasse, ninguem saberia qual.
             guardar_rascunho(usuario_logado, "refazer do zero")
-            try:
-                import rascunho as _rasc_rf
-                _rasc_rf.salvar(usuario_logado, _nome_rf, galeria,
-                                _cfg_rf.get("codigo", ""))
-            except Exception:
-                pass
         if _msgs_rf:
             st.session_state.setdefault("ms_chat_hist", []).append(
                 {"role": "assistant", "content": "\n".join(_msgs_rf)})
@@ -4464,6 +4463,50 @@ def pagina_imagem(usuario_logado):
                 st.caption(f"+ {len(fotos_bytes) - 5} foto(s) adicionais carregadas.")
 
         # ── IMAGENS DE REFERÊNCIA DE LAYOUT (opcional) ────────────────────────
+        # ── REFERÊNCIAS DE AMBIENTAÇÃO ───────────────────────────────────
+        #
+        # Separadas das de LAYOUT porque a escolha é feita de outro jeito, e
+        # essa é a diferença inteira. Layout casa pelo NOME do arquivo — o
+        # colaborador batiza "presentear.jpg" e a peça 7 pega. Para cenário
+        # isso não funciona: ninguém nomeia uma foto de bar por tipo de peça,
+        # e a mesma sala cabe em três peças diferentes.
+        #
+        # Pedido do dono: "não tem que ir pelo nome da imagem, tem que olhar
+        # todas e entender qual ambientação se enquadra melhor em cada tipo".
+        with st.expander("🏙️ Imagens de referência de AMBIENTAÇÃO (opcional)",
+                         expanded=False):
+            st.caption(
+                "Suba fotos de **cenários** que você quer como clima das "
+                "peças — o cômodo, a luz, os materiais. O Studio **olha "
+                "todas** e decide sozinho qual cabe em cada tipo de imagem: "
+                "não vai pelo nome do arquivo."
+            )
+            st.info(
+                "🎯 O produto que aparece nessas fotos é **ignorado de "
+                "propósito**. O Studio copia o ambiente, a luz e o clima — "
+                "e coloca o SEU produto dentro dele, no tamanho real dele."
+            )
+            refs_amb_upload = st.file_uploader(
+                "Referências de ambientação (JPG, PNG, WebP)",
+                type=None, accept_multiple_files=True,
+                key="img_refs_amb_upload",
+                help="Ex.: a foto de um bar à noite para o clima das peças "
+                     "deste cinzeiro.",
+            )
+            refs_amb_bytes = []
+            if refs_amb_upload:
+                (refs_amb_bytes, _nomes_amb,
+                 _av_ra, _er_ra) = revisar_anexos(refs_amb_upload)
+                mostrar_anexos(_av_ra, _er_ra)
+                _cols_ra = st.columns(4)
+                for _i, _rb in enumerate(refs_amb_bytes[:4]):
+                    _cols_ra[_i].image(_rb, use_container_width=True)
+                if len(refs_amb_bytes) > 8:
+                    st.caption(f"Subiu {len(refs_amb_bytes)} — o Studio lê as "
+                               "8 primeiras. Acima disso a leitura fica cara "
+                               "e a escolha não melhora.")
+            st.session_state["img_refs_ambientacao"] = refs_amb_bytes
+
         with st.expander("🖼️ Imagens de referência de layout (opcional)", expanded=False):
             st.caption(
                 "Suba imagens de outros produtos que mostram o **layout, posições, estilo ou texto** "
@@ -4664,6 +4707,12 @@ def pagina_imagem(usuario_logado):
                         # que é exatamente o defeito que `prompt_para_regerar`
                         # existe para não deixar acontecer.
                         "ambientacao": ambientacao,
+                        # As fotos de cenario viajam na config, e nao numa
+                        # variavel solta: a geracao roda em thread e o
+                        # `st.session_state` nao existe la dentro. Foi por
+                        # isso que a referencia de layout ja viaja assim.
+                        "refs_ambientacao": st.session_state.get(
+                            "img_refs_ambientacao") or [],
                         "fotos_bytes": fotos_bytes,
                         "dados_descricao": dados_descricao,
                         # Referências de layout (opcional)
@@ -4911,6 +4960,32 @@ def pagina_imagem(usuario_logado):
                 for _pi in _plano_items:
                     _plano_por_tipo[_pi.get("tipo", "")] = _pi
 
+                # ── O STUDIO OLHA AS REFERÊNCIAS DE AMBIENTAÇÃO ─────────
+                #
+                # UMA leitura para as oito peças. Uma por imagem seria pagar
+                # oito vezes pela mesma foto — e a escolha não melhora, porque
+                # a pergunta ("que cenário é este?") é a mesma nas oito.
+                #
+                # Falhar aqui não pode impedir a geração: sem descrição, a
+                # peça sai com a ambientação que o colaborador escreveu, que é
+                # exatamente o comportamento de antes deste bloco.
+                _amb_desc = {"cenarios": []}
+                _refs_amb = cfg.get("refs_ambientacao") or []
+                if _refs_amb:
+                    barra.progress(0.0, text="Olhando as referências de "
+                                             "ambientação…")
+                    import ambientacao_ref as _ar
+                    _amb_desc = _ar.descrever(_refs_amb, list(tipos),
+                                              cfg.get("nome_produto", ""))
+                    if _amb_desc.get("erro"):
+                        st.warning(
+                            "🏙️ Não consegui ler as referências de "
+                            f"ambientação ({_amb_desc['erro']}). As imagens "
+                            "saem com o tema escrito, sem elas.")
+                    else:
+                        for _l in _ar.resumo(_amb_desc, list(tipos)):
+                            st.caption("🏙️ " + _l)
+
                 for i, tipo in enumerate(tipos):
                     barra.progress(i / len(tipos), text=f"Gerando {i+1}/{len(tipos)}: {tipo[:50]}...")
                     # Sem sleep aqui — o _GEMINI_LIMITER em gerar_imagem_ia já respeita o RPM
@@ -4927,7 +5002,14 @@ def pagina_imagem(usuario_logado):
                             instrucao_layout=cfg.get("instrucao_layout", ""),
                             plano_triagem=(_plano_por_tipo.get(tipo)
                                            or plano_do_tipo(tipo)),
-                            ambientacao=cfg.get("ambientacao", ""),
+                            # O que o colaborador escreveu MAIS o cenário
+                            # que a visão escolheu para ESTE tipo. O texto
+                            # dele vem primeiro: quem digitou manda.
+                            ambientacao=(
+                                (cfg.get("ambientacao", "") or "")
+                                + ("\n\n" + _bloco_amb if (_bloco_amb := (
+                                    __import__("ambientacao_ref")
+                                    .para_o_tipo(_amb_desc, tipo))) else "")),
                         )
                         # ── Geração em thread separada ──────────────────────────
                         # Mantém o WebSocket vivo durante a chamada Gemini (30-60s)
@@ -6158,6 +6240,26 @@ if __name__ == "__main__":
     ok("a recusa de refazer olha a FOTO, e nao a marca",
        "if not _fotos_rf:" in _sem_comentario
        and "_so_arte" not in _sem_comentario)
+    # ── REFERENCIA DE AMBIENTACAO: OLHAR, E NAO LER O NOME ──────────────
+    #
+    # Pedido do dono: "nao tem que ir pelo nome da imagem, tem que olhar todas
+    # e entender qual ambientacao se enquadra melhor em cada tipo".
+    ok("existe campo proprio para referencia de ambientacao",
+       "img_refs_ambientacao" in _sem_comentario)
+    ok("as fotos viajam na config, e nao em variavel solta",
+       '"refs_ambientacao": st.session_state.get(' in _sem_comentario)
+    ok("a leitura acontece UMA vez, antes do laco das pecas",
+       _sem_comentario.index("_ar.descrever(")
+       < _sem_comentario.index("for i, tipo in enumerate(tipos):"))
+    ok("e o cenario escolhido entra na ambientacao daquele tipo",
+       "para_o_tipo(_amb_desc, tipo)" in _sem_comentario)
+    ok("o texto do colaborador vem antes do cenario da visao",
+       _sem_comentario.index('cfg.get("ambientacao", "") or ""')
+       < _sem_comentario.index("para_o_tipo(_amb_desc, tipo)"))
+    ok("falha de visao NAO impede a geracao",
+       '_amb_desc.get("erro")' in _sem_comentario
+       and "saem com o tema escrito" in _sem_comentario)
+
     ok("e a mensagem diz o que falta, nao de onde a imagem veio",
        "Preciso das fotos do produto para refazer" in _sem_comentario)
 
