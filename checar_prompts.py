@@ -102,6 +102,17 @@ REGRAS = [
     ("a exceção única de texto da ambientação",
      "EXCEÇÃO ÚNICA", (TIPO_AMBIENTE,), TIPOS_COM_TEXTO),
 
+    # CENARIO REAL EM TODAS AS PECAS DE MARKETING.
+    #
+    # O dono apontou as imagens 2, 5, 6 e 7 com fundo chapado: "com fundo sem
+    # ambientacao". Era desenho meu — so os tipos 3 e 8 pediam cenario; os
+    # outros pediam "fundo deduzido do produto", e o modelo entregava
+    # gradiente liso. A capa fica de fora: ela E foto em branco puro.
+    ("o cenário real nas peças de marketing", "CENÁRIO REAL EM TODAS AS PEÇAS",
+     TIPOS_COM_TEXTO, (TIPO_CAPA,)),
+    ("a legibilidade mandando no fundo", "legibilidade manda no tratamento",
+     TIPOS_COM_TEXTO, (TIPO_CAPA,)),
+
     ("o marcador de modo de fundo", "MS_FUNDO:", None, ()),
 ]
 

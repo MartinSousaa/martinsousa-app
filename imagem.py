@@ -105,6 +105,19 @@ DIREÇÃO DE ARTE ADAPTATIVA (muda a cada produto):
 - Quando houver imagem de referência de layout, copie a ESTRUTURA: hierarquia,
   densidade, organização dos blocos. NÃO copie a paleta, o cenário, a
   iluminação nem os objetos dela.
+
+CENÁRIO REAL EM TODAS AS PEÇAS — NÃO APENAS NA 3 E NA 8:
+- O fundo é o AMBIENTE DE USO do produto, fotografado: o cômodo, a bancada, a
+  mesa, o espaço onde ele de fato vive. Nunca superfície chapada, nunca
+  gradiente liso, nunca "estúdio neutro" como cenário.
+- O ambiente aparece em profundidade de campo SUAVE — presente e reconhecível,
+  desfocado o bastante para não competir com o produto nem com o texto.
+- Onde houver cartão, bloco ou frase, a área atrás dele fica mais desfocada e
+  com contraste controlado, para o texto permanecer legível sobre a cena. A
+  legibilidade manda no tratamento do fundo; o fundo nunca manda na
+  legibilidade.
+- Se a peça exigir área limpa para informação técnica, use uma faixa ou cartão
+  sólido SOBRE a cena — e não a cena inteira trocada por fundo liso.
 """
 
 # ── O PRODUTO É O DESTAQUE, E ISSO VIRA NÚMERO ──────────────────────────────
