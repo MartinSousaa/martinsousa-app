@@ -70,6 +70,18 @@ REGRAS = [
      "Nunca deixe o produto pequeno", TIPOS_COM_TEXTO, (TIPO_AMBIENTE,)),
     ("a escala real do ambiente", "ESCALA REAL", (TIPO_AMBIENTE,),
      TIPOS_COM_TEXTO + (TIPO_CAPA,)),
+
+    # A CAPA NAO ESTAVA EM LISTA NENHUMA — E FOI ASSIM QUE ELA FICOU SEM
+    # REGRA DE TAMANHO E SAIU PEQUENA.
+    #
+    # Esta tabela so protege o que ela nomeia. Tipo que nao aparece em nenhuma
+    # linha passa livre, e a varredura da "ok" mentindo por omissao. A capa
+    # entra agora com regra propria: e a peca em que o produto DEVE encher o
+    # quadro, porque nao ha texto nem cenario dividindo espaco com ele.
+    ("a ocupacao maxima da capa", "80% a 92%", (TIPO_CAPA,),
+     TIPOS_COM_TEXTO + (TIPO_AMBIENTE,)),
+    ("a proibicao de produto pequeno no branco",
+     "produto pequeno no meio de um fundo branco", (TIPO_CAPA,), ()),
     ("o produto pousado com sombra real", "POUSADO", (TIPO_AMBIENTE,),
      TIPOS_COM_TEXTO),
 
@@ -130,6 +142,21 @@ def main():
             if trecho in prompts[t]:
                 print(f"FALHA  {desc}: NAO DEVIA estar em '{t}'")
                 falhas += 1
+
+    # TIPO QUE NAO APARECE EM REGRA NENHUMA PASSA LIVRE.
+    #
+    # Foi o que aconteceu com a Capa: ela nao estava em nenhuma das listas de
+    # ocupacao, entao a varredura dava "ok" e o prompt dela nao falava de
+    # tamanho em lugar nenhum. A tabela so protege o que ela nomeia — e uma
+    # varredura que mente por omissao e pior que nao ter varredura.
+    _citados = set()
+    for _d, _t, _deve, _nao in REGRAS:
+        _citados |= set(TODOS if _deve is None else _deve) | set(_nao)
+    for t in TODOS:
+        if t not in _citados:
+            print(f"FALHA  o tipo '{t}' nao aparece em regra nenhuma — "
+                  "a varredura nao esta olhando para ele")
+            falhas += 1
 
     # Prompt vazio ou minúsculo é sintoma de branch que deixou de montar.
     for t, p in prompts.items():

@@ -45,8 +45,16 @@ FAIXA_MINIMA_PCT = 1.5
 # Fora desta janela o produto está pequeno demais ou estourando o quadro.
 # Só vale para peça de fundo limpo: em cena ambientada a escala é a real, e
 # medir ocupação ali seria repetir o erro que fez o produto ficar gigante.
-OCUPACAO_MINIMA_PCT = 35.0
-OCUPACAO_MAXIMA_PCT = 92.0
+#
+# O MÍNIMO COMEÇOU EM 35% E ESTAVA ERRADO.
+#
+# 35% deixava passar exatamente a capa que o dono reclamou: produtinho no meio
+# de um quadro branco vazio. A frase dele é a medida: "ele tem que preencher o
+# máximo possível da dimensão da imagem". Numa foto limpa, sem texto e sem
+# cenário, não há nada dividindo espaço — 70% é o piso do aceitável, e o
+# prompt pede de 80% a 92%.
+OCUPACAO_MINIMA_PCT = 70.0
+OCUPACAO_MAXIMA_PCT = 96.0
 
 
 def _abrir(dados):
@@ -273,11 +281,18 @@ if __name__ == "__main__":
     ok("ocupacao de 60% e medida como ~60", 55 <= ocupacao(_limpa(60)) <= 65)
     ok("produto minusculo e acusado",
        any("ocupa" in p for p in problemas(_limpa(12), fundo_chapado=True)))
+    ok("o piso e 70%, e nao os 35% que deixavam a capa passar",
+       OCUPACAO_MINIMA_PCT == 70.0)
     ok("produto estourando tambem",
        any("estourando" in p
            for p in problemas(_limpa(97), fundo_chapado=True)))
     ok("ocupacao boa nao acusa nada",
-       not problemas(_limpa(65), fundo_chapado=True))
+       not problemas(_limpa(85), fundo_chapado=True))
+    # A CAPA QUE O DONO RECLAMOU: produtinho no meio do branco.
+    ok("capa com 40% do quadro e reprovada",
+       any("ocupa" in p for p in problemas(_limpa(40), fundo_chapado=True)))
+    ok("e com 65% tambem — 'o maximo possivel' e a medida dele",
+       any("ocupa" in p for p in problemas(_limpa(65), fundo_chapado=True)))
 
     # A REGRA QUE FEZ O PRODUTO FICAR GIGANTE NAO PODE VOLTAR POR AQUI.
     ok("em cena ambientada a ocupacao NAO e cobrada",

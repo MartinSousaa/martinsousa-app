@@ -162,6 +162,35 @@ O PRODUTO É O DESTAQUE — MAS PELA ATENÇÃO, NÃO PELO TAMANHO:
   superfície: o produto está POUSADO no ambiente, com contato e sombra reais.
 """
 
+# ── A CAPA É A MAIS EXIGENTE DAS TRÊS, E NÃO TINHA REGRA NENHUMA ───────────
+#
+# O dono, depois de ver a capa sair pequena: *"Já falei MIL VEZES que a
+# prioridade é destacar o produto, ele tem que preencher o máximo possível da
+# dimensão da imagem!!!"*
+#
+# Ele tinha razão de estar irritado. A capa (tipo 1) não recebia
+# `INSTRUCAO_PROTAGONISMO` nem nada equivalente: o prompt dela não falava de
+# tamanho em lugar nenhum, e o modelo escolhia. Saía produtinho no meio de um
+# quadro branco vazio.
+#
+# Ela é foto limpa em fundo branco: não tem texto, não tem cenário, não tem
+# nada para dividir espaço. Então é a única peça em que o produto deve mesmo
+# encher o quadro.
+INSTRUCAO_PROTAGONISMO_CAPA = """
+O PRODUTO PREENCHE O QUADRO — ESTA É A REGRA MAIS IMPORTANTE DESTA PEÇA:
+- O produto ocupa de 80% a 92% da MAIOR dimensão do quadro. Não é sugestão: é
+  a medida da peça.
+- Margem de respiro uniforme e MÍNIMA em volta — só o suficiente para o
+  produto não encostar na borda. Nada de vazio grande em cima, embaixo ou dos
+  lados.
+- Produto inteiro, centralizado, nenhuma parte cortada.
+- É ERRO grave entregar o produto pequeno no meio de um fundo branco vazio:
+  esta é a foto que aparece na busca do marketplace, e produto pequeno ali
+  perde a venda antes de alguém clicar.
+- Se a proporção do produto não preencher os dois eixos, aproxime a câmera até
+  encher o eixo mais longo dele.
+"""
+
 INSTRUCAO_FIDELIDADE = """
 REGRA DE FIDELIDADE AO PRODUTO (a mais importante de todas — sem exceções):
 - Reproduza o produto EXATAMENTE como aparece nas imagens de referência: mesma cor,
@@ -2614,6 +2643,7 @@ TIPO DE IMAGEM: {tipo}
 {bloco_refs}
 
 {PADRAO_VISUAL_FUNDO_BRANCO}
+{INSTRUCAO_PROTAGONISMO_CAPA}
 {INSTRUCAO_FIDELIDADE}
 {INSTRUCAO_PROPORCAO}
 {INSTRUCAO_COMPOSICAO}
