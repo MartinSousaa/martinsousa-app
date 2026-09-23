@@ -129,6 +129,39 @@ O PRODUTO É O DESTAQUE — SEMPRE, E ANTES DE TUDO:
   informação depois, no cenário por último.
 """
 
+# ── O PROTAGONISMO NA AMBIENTAÇÃO É OUTRO, E POR ISSO TEM TEXTO PRÓPRIO ─────
+#
+# A regra de cima manda o produto ocupar de 65% a 80% do quadro nas peças sem
+# texto — e a ambientação é uma peça sem texto. O resultado foi o relato do
+# dono: *"criando ambientação com o produto desproporcional ao que ele é no
+# ambiente, parece que ele é GIGANTE"*.
+#
+# Ele está certo, e a culpa é desta linha: "Nunca deixe o produto pequeno no
+# centro de um cenário amplo." Produto no centro de um cenário amplo é
+# EXATAMENTE o que uma foto de ambientação é. A instrução proibia o objetivo
+# da peça, e o modelo obedeceu inflando o produto até caber nos 70%.
+#
+# Numa foto ambientada o produto não domina por TAMANHO — domina por FOCO:
+# ele está nítido, iluminado, em primeiro plano, e o resto é contexto
+# desfocado. A escala continua sendo a real: uma meia sobre a cama é do
+# tamanho de uma meia.
+INSTRUCAO_PROTAGONISMO_AMBIENTE = """
+O PRODUTO É O DESTAQUE — MAS PELA ATENÇÃO, NÃO PELO TAMANHO:
+- ESCALA REAL, REGRA INVIOLÁVEL: o produto aparece no tamanho que ele tem de
+  verdade em relação ao ambiente e aos objetos ao redor. Uma peça de vestuário
+  sobre uma cama tem o tamanho de uma peça de vestuário; um objeto de mesa não
+  pode ficar do tamanho da mesa.
+- Ele domina a cena por FOCO e por LUZ: nítido e bem iluminado em primeiro
+  plano, com o ambiente em profundidade de campo mais suave atrás.
+- O enquadramento é fechado ou médio NO PRODUTO — a câmera chega perto dele.
+  Aproximar a câmera é o que o destaca; ampliar o objeto o deforma.
+- É correto e desejável que o produto ocupe uma fração modesta do quadro se é
+  isso que a escala real determina. Cenário amplo com o produto em evidência
+  pelo foco é o objetivo desta peça, não um defeito dela.
+- Nada de objeto flutuando, apoio impossível ou sombra que não bate com a
+  superfície: o produto está POUSADO no ambiente, com contato e sombra reais.
+"""
+
 INSTRUCAO_FIDELIDADE = """
 REGRA DE FIDELIDADE AO PRODUTO (a mais importante de todas — sem exceções):
 - Reproduza o produto EXATAMENTE como aparece nas imagens de referência: mesma cor,
@@ -1628,7 +1661,8 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None, ref_layout=None,
 
 
 def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
-                    refs_layout_nomes=None, tipo="", diagnostico=None):
+                    refs_layout_nomes=None, tipo="", diagnostico=None,
+                    _ja_repetiu_quadrada=False):
     """Arquitetura de geração — fotos do produto vão diretamente ao modelo via Responses API.
 
     Fluxo:
@@ -2168,6 +2202,35 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
                     f"o motor devolveu {pil_w}x{pil_h} em vez de quadrada — "
                     f"as faixas laterais foram preenchidas pelo Studio")
 
+            # UMA REPETIÇÃO ANTES DE ENTREGAR TORTA.
+            #
+            # O Studio SABIA que estava preenchendo faixa — anotava no
+            # diagnóstico — e entregava assim mesmo. A colaboradora recebia a
+            # imagem com margem, pedia correção, e a correção quebrava outra
+            # coisa: o laço que custou 41 gerações num produto só.
+            #
+            # Uma geração automática custa menos que três rodadas dela. Só
+            # UMA: se o motor devolver torta duas vezes seguidas, é o motor
+            # ignorando o pedido de 1024x1024, e insistir vira dinheiro
+            # queimado sem mudar o resultado.
+            if not _ja_repetiu_quadrada:
+                import sys as _sys_rep
+                print(f"[DEBUG enquadramento] repetindo UMA vez para tentar "
+                      f"sair quadrada (veio {pil_w}x{pil_h})",
+                      file=_sys_rep.stderr, flush=True)
+                _nova, _erro_rep = gerar_imagem_ia(
+                    prompt_texto, imagens_referencia, refs_layout,
+                    refs_layout_nomes, tipo, diagnostico,
+                    _ja_repetiu_quadrada=True)
+                if _nova and not _erro_rep:
+                    return _nova, None
+                # Falhou a repetição: segue com a imagem que já existe. Ela
+                # está paga, e entregar com margem é melhor que não entregar.
+                if diagnostico is not None:
+                    diagnostico["enquadramento"] = (
+                        diagnostico.get("enquadramento", "")
+                        + " · repeti uma vez e voltou torta de novo")
+
             # NÃO recortar. Uma tentativa anterior cortava até 18% do lado maior
             # para diminuir as faixas, e isso decepava os painéis de texto das
             # peças de marketing, que ficam justamente nas laterais — frases
@@ -2580,7 +2643,7 @@ TIPO DE IMAGEM: {tipo}
 {bloco_refs}
 
 {PADRAO_VISUAL_AMBIENTACAO}
-{INSTRUCAO_PROTAGONISMO}
+{INSTRUCAO_PROTAGONISMO_AMBIENTE}
 {INSTRUCAO_FIDELIDADE}
 {INSTRUCAO_PROPORCAO}
 {INSTRUCAO_COMPOSICAO}
@@ -5850,6 +5913,51 @@ if __name__ == "__main__":
        "PRIMEIRO" in INSTRUCAO_PROTAGONISMO)
     ok("o fundo desfocado tem lugar",
        "desfocado" in INSTRUCAO_PROTAGONISMO)
+
+    # ── O PRODUTO GIGANTE NA AMBIENTACAO ────────────────────────────────
+    #
+    # O dono: "criando ambientacao com o produto desproporcional ao que ele e
+    # no ambiente, parece que ele e GIGANTE". A causa era a regra de cima
+    # aplicada a ambientacao: 65% a 80% do quadro numa peca sem texto, mais a
+    # linha "Nunca deixe o produto pequeno no centro de um cenario amplo" —
+    # que e exatamente o que uma foto ambientada e. O modelo obedeceu
+    # inflando o produto ate caber nos 70%.
+    _amb = montar_prompt_imagem("8 — Ambientação realista (sem texto)", "",
+                                {"nome_comercial": "Meia"}, "Meia")
+    ok("a ambientacao NAO carrega a regra de 65% a 80%",
+       "65% a 80%" not in _amb)
+    ok("nem a proibicao de produto pequeno em cenario amplo",
+       "Nunca deixe o produto pequeno" not in _amb)
+    ok("ela exige ESCALA REAL", "ESCALA REAL" in _amb)
+    ok("e diz que o destaque vem do foco, nao do tamanho",
+       "FOCO" in _amb and "tamanho" in _amb.lower())
+    ok("o produto pousado, com contato e sombra reais",
+       "POUSADO" in _amb)
+
+    # E as pecas de marketing continuam com a regra de tamanho — elas TEM
+    # texto e o produto precisa dominar o quadro.
+    _mkt = montar_prompt_imagem("2 — Benefícios do produto", "",
+                                {"nome_comercial": "Meia"}, "Meia")
+    ok("a peca de marketing mantem a ocupacao medida",
+       "55% a 70%" in _mkt)
+    ok("e ela NAO recebe a regra da ambientacao",
+       "ESCALA REAL" not in _mkt)
+
+    # ── A MARGEM: repetir UMA vez antes de entregar torta ───────────────
+    #
+    # O Studio media que tinha preenchido faixa e entregava assim mesmo. A
+    # pessoa recebia a imagem com margem, pedia correcao, e a correcao
+    # quebrava outra coisa — o laco que custou 41 geracoes num produto so.
+    import inspect as _insp
+    _corpo_g = _insp.getsource(gerar_imagem_ia)
+    ok("a geracao aceita a marca de repeticao",
+       "_ja_repetiu_quadrada" in _corpo_g)
+    ok("e ela repete quando a imagem vem torta",
+       "if not _ja_repetiu_quadrada:" in _corpo_g)
+    ok("uma unica vez — a segunda chamada ja vai marcada",
+       "_ja_repetiu_quadrada=True" in _corpo_g)
+    ok("e se voltar torta de novo, entrega em vez de descartar o que foi pago",
+       "repeti uma vez e voltou torta" in _corpo_g)
 
     # ── A AMBIENTACAO DO COLABORADOR: tema, e nao roteiro ────────────────
     _DADOS_T = {"nome_comercial": "Marcador de Taça", "material": "Acrílico"}
