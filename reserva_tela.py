@@ -316,7 +316,7 @@ def pagina(usuario_logado=None):
 
     with st.expander("📆 Mês a mês (piso)", expanded=False):
         st.caption(
-            "Repare no saque bruto subindo: sacar R$ X do CDB **não** põe R$ X "
+            "Repare no saque bruto subindo: sacar R\\$ X do CDB **não** põe R\\$ X "
             "na conta, porque o IR come um pedaço do rendimento resgatado. O "
             "Studio calcula ao contrário — quanto sacar para SOBRAR o que "
             "precisa."
