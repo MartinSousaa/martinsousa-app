@@ -493,6 +493,39 @@ def casos_a_abrir(sep, pag=None):
     return [caso_de(r, pago=True) for r in conferir if r["numero"] in pagas]
 
 
+def fiscais_repetidas(sep, casos=None):
+    """Cobranças fiscais de MESMO nome e MESMO valor em datas diferentes.
+
+    Nasceu de um documento, não de uma suposição. Na conta Little Glass o ML
+    lançou "Cobrança do diferencial de alíquota interestadual (ICMS-DIFAL)"
+    de R$ 69,60 em 15/07/2026 e de novo em 30/07/2026 — duas faturas
+    seguidas, mesmo rótulo, mesmo centavo. Valor fiscal que se repete igual é
+    duplicidade até que se prove o contrário, e ninguém acha isso olhando
+    uma fatura por vez: cada uma tem uma linha só.
+
+    Compara o relatório com ele mesmo E com os casos já gravados, que é como
+    a repetição ENTRE meses aparece.
+    """
+    fiscais = [r for r in (sep or {}).get("conferir", [])
+               if r["natureza"] == "fiscal"]
+    antigos = [c for c in (casos or [])
+               if str(c.get("natureza", "")) == "fiscal"]
+    fora = []
+    for r in fiscais:
+        iguais = [x for x in fiscais
+                  if x is not r and x["detalhe"] == r["detalhe"]
+                  and abs(x["valor"] - r["valor"]) < 0.01]
+        iguais += [c for c in antigos
+                   if str(c.get("detalhe", "")) == r["detalhe"]
+                   and abs(_num(c.get("valor")) - r["valor"]) < 0.01
+                   and str(c.get("numero", "")) != r["numero"]]
+        if iguais:
+            datas = sorted({str(x.get("data", "")) for x in iguais
+                            if str(x.get("data", ""))})
+            fora.append((r, datas))
+    return fora
+
+
 def fiscais_sem_venda(sep):
     """As cobranças fiscais que NÃO dá para ligar a nenhuma venda.
 
@@ -827,6 +860,37 @@ if __name__ == "__main__":
        len(fiscais_sem_venda(sep)) == 1)
     ok("e a venda devolvida fica listada para conferir no painel do ML",
        vendas_devolvidas(sep) == ["2000017601814770"])
+
+    # 9a. Valor fiscal repetido — o R$ 69,60 cobrado em 15/07 e de novo em
+    # 30/07 na conta Little Glass. Uma fatura por vez, ninguém vê.
+    _difal = "Cobrança do diferencial de alíquota interestadual (ICMS-DIFAL)"
+    ok("não acusa repetição onde não há", fiscais_repetidas(sep) == [])
+    _sep2 = separar([
+        {COL_DETALHE: _difal, COL_VALOR: 69.60, COL_DESCONTADO: "Não",
+         COL_NUMERO: 111.0, COL_DATA: datetime(2026, 7, 15)},
+        {COL_DETALHE: _difal, COL_VALOR: 69.60, COL_DESCONTADO: "Não",
+         COL_NUMERO: 222.0, COL_DATA: datetime(2026, 7, 30)},
+    ])
+    _rep = fiscais_repetidas(_sep2)
+    ok("dois R$ 69,60 na mesma planilha: as duas linhas saem marcadas",
+       len(_rep) == 2)
+    ok("e cada uma aponta a data da outra",
+       _rep[0][1] == ["2026-07-30"] and _rep[1][1] == ["2026-07-15"])
+    _hist = [{"detalhe": _difal, "valor": 69.60, "natureza": "fiscal",
+              "numero": "111", "data": "2026-07-15"}]
+    _um = separar([{COL_DETALHE: _difal, COL_VALOR: 69.60,
+                    COL_DESCONTADO: "Não", COL_NUMERO: 222.0,
+                    COL_DATA: datetime(2026, 7, 30)}])
+    ok("repetição ENTRE meses também é achada, contra os casos gravados",
+       len(fiscais_repetidas(_um, _hist)) == 1)
+    ok("a mesma tarifa reimportada não é repetição dela mesma",
+       fiscais_repetidas(_um, [dict(_hist[0], numero="222")]) == [])
+    ok("valor fiscal diferente não é repetição",
+       fiscais_repetidas(separar([
+           {COL_DETALHE: _difal, COL_VALOR: 69.60, COL_DESCONTADO: "Não",
+            COL_NUMERO: 111.0},
+           {COL_DETALHE: _difal, COL_VALOR: 658.90, COL_DESCONTADO: "Não",
+            COL_NUMERO: 222.0}])) == [])
 
     # 9b. Persistência — é o coração do caso em aberto do dono.
     novos_casos = [caso_de(r, pago=r["numero"] in set(pag["por_numero"]))

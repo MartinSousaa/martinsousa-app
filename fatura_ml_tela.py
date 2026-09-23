@@ -172,6 +172,15 @@ def _conferencia(_fm, sep, pag, usuario_logado):
                 f"Outras {nao_pagas} cobrança(s) de devolução apareceram na "
                 "fatura e não foram cobradas — estão na tabela acima.")
 
+    repetidas = _fm.fiscais_repetidas(sep, _fm.carregar())
+    for r, datas in repetidas:
+        st.error(
+            f"**Valor fiscal repetido: {_md(r['valor'])}** em "
+            f"*{r['detalhe']}* ({r['data']}) — o mesmo nome e o mesmo centavo "
+            f"já apareceram em {', '.join(datas)}. Na conta Little Glass o ML "
+            "lançou R\\$ 69,60 de ICMS-DIFAL em 15/07/2026 e de novo em "
+            "30/07/2026. Confira as duas guias antes de aceitar a segunda.")
+
     sem_venda = _fm.fiscais_sem_venda(sep)
     devolvidas = _fm.vendas_devolvidas(sep)
     if sem_venda and devolvidas:
