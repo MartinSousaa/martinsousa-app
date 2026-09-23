@@ -144,14 +144,67 @@ def _resumo(_fm, sep, pag):
                 "processando. É dinheiro voltando; confira no mês que vem se "
                 "entrou.")
 
-    st.markdown("###### O que foi cobrado, por tipo")
-    tipos = _fm.por_tipo(sep["na_fatura"])
-    st.dataframe(
-        [{"Cobrança": k, "Valor": _brl(v)} for k, v in tipos.items()],
-        hide_index=True, use_container_width=True)
-    st.caption(
-        "É esta a quebra que faltava: sem ela, a fatura inteira entrava nas "
-        "saídas como se fosse tudo ADS.")
+    _grupos(_fm, sep, pag)
+
+
+def _grupos(_fm, sep, pag):
+    """O custo devido, nos nomes da aba ADS E CROSS do Controle MS.
+
+    Mostrar "Tarifa pelo serviço de armazenamento Full" e deixar ele traduzir
+    para "ENVIOS FULL" toda vez é jogar a conferência de volta para ele. A
+    tela fala a língua da planilha; o nome cru do ML fica embaixo, para quando
+    ele precisar rastrear a linha.
+    """
+    st.markdown("##### O custo devido, por grupo")
+    grupos = _fm.por_grupo(sep["na_fatura"])
+    pagas = set((pag or {}).get("por_numero", {}))
+
+    # Quanto de cada grupo saiu MESMO do cartão. É o número que vai para a
+    # planilha dele; o cobrado inclui o que o ML abateu depois.
+    pago_do_grupo = {}
+    if pag:
+        for r in sep["na_fatura"]:
+            if r["numero"] in pagas:
+                g = _fm.grupo_de(r["detalhe"])
+                pago_do_grupo[g] = round(
+                    pago_do_grupo.get(g, 0.0) + r["valor"], 2)
+
+    linhas = []
+    for nome, d in grupos.items():
+        if nome == _fm.NOVO and not d["n"]:
+            continue
+        linha = {"Grupo": nome, "Lançamentos": d["n"],
+                 "Cobrado": _brl(d["total"])}
+        if pag:
+            linha["Pago"] = _brl(pago_do_grupo.get(nome, 0.0))
+        linhas.append(linha)
+    st.dataframe(linhas, hide_index=True, use_container_width=True)
+
+    if not grupos["Flex"]["n"]:
+        # Regra: dizer onde a resposta está, em vez de desenhar um zero e
+        # deixar ele procurar. O custo de Flex não vem neste relatório — ele
+        # cai no extrato bancário, e é de lá que o Studio já o lê.
+        st.caption(
+            "**Flex não vem neste relatório.** O ML não o lança como tarifa "
+            "de fatura; ele chega pelo extrato bancário, que o Studio lê em "
+            "Financeiro › Extratos. O zero acima é ausência de lançamento, "
+            "não custo zero.")
+
+    novas = _fm.novidades(sep["na_fatura"])
+    if novas:
+        st.error(
+            "**Cobrança que o Studio nunca viu:** "
+            + "; ".join(f"*{k}* — {_md(v)}" for k, v in novas)
+            + ". Não está em ADS, Cross, Flex, Página da loja, Afiliados, "
+            "Devoluções nem Impostos. Confira o que é antes de aceitar — "
+            "cobrança nova entrando calada dentro de 'outros' foi como uma "
+            "multa de R\\$ 69,60 passou.")
+
+    with st.expander("Ver o nome cru de cada cobrança no ML"):
+        st.dataframe(
+            [{"Grupo": nome, "Cobrança (nome do ML)": k, "Valor": _brl(v)}
+             for nome, d in grupos.items() for k, v in d["itens"].items()],
+            hide_index=True, use_container_width=True)
 
 
 def _conferencia(_fm, sep, pag, usuario_logado):

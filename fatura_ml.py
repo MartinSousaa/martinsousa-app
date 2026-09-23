@@ -249,6 +249,77 @@ def separar(linhas):
     }
 
 
+# ── Os grupos com os nomes DELE ─────────────────────────────────────────────
+# Vieram da aba `ADS E CROSS` do Controle MS, que ele mantém à mão:
+# PUBLICIDADE, ENVIOS FULL, PÁGINA DO ML, IMPOSTOS (ICMS-DIFAL), AFILIADOS.
+# Traduzir o texto do ML para o vocabulário dele não é enfeite: é o que
+# permite conferir esta tela contra a planilha sem reinterpretar oito nomes.
+#
+# A ordem importa — o primeiro grupo que casar leva a linha. "Tarifa de
+# devolução por envio externo" tem "envio" e tem "devolução"; devolução vem
+# antes porque é o que ela é.
+GRUPOS = (
+    ("Impostos", FISCAIS),
+    ("Devoluções", DEVOLUCAO),
+    ("ADS", ("campanha de publicidade", "product ads", "publicidade")),
+    ("Cross (envios Full)", ("coleta full", "armazenamento full",
+                             "estoque antigo no full", "envios full",
+                             "servico de coleta", "cross")),
+    ("Flex", ("flex",)),
+    ("Página da loja", ("minha pagina", "minha página", "pagina do ml")),
+    ("Afiliados", ("afiliado",)),
+    ("Parcelamento", ("parcelamento",)),
+)
+
+NOVO = "❓ Novo — nunca visto"
+
+# A ordem de CASAMENTO (GRUPOS) e a de LEITURA não são a mesma. Imposto e
+# devolução precisam casar primeiro porque são os nomes mais específicos; mas
+# na tela ele quer o custo devido em cima — é o que ele copia para a planilha
+# — e o que precisa de conferência embaixo, onde termina a leitura.
+ORDEM_NA_TELA = ("ADS", "Cross (envios Full)", "Flex", "Página da loja",
+                 "Afiliados", "Parcelamento", "Devoluções", "Impostos", NOVO)
+
+
+def grupo_de(detalhe):
+    """O nome DELE para esta cobrança, ou `NOVO` se o ML inventou um.
+
+    Cobrança que não casa com nenhum grupo é o pedido em uma palavra: *"caso
+    haja custo com imposto ou algo novo, preciso que o Studio sinalize"*.
+    Somar o desconhecido calado dentro de "outros" é justamente o que deixou
+    R$ 69,60 de multa passar.
+    """
+    d = _chave(detalhe)
+    for nome, pedacos in GRUPOS:
+        if any(x in d for x in pedacos):
+            return nome
+    return NOVO
+
+
+def por_grupo(linhas):
+    """{grupo: {'total', 'n', 'itens': {detalhe: total}}} na ordem de GRUPOS.
+
+    Os grupos com zero também vêm: Flex ausente é informação — ele espera um
+    custo de Flex e precisa ver que ELE NÃO ESTÁ AQUI, em vez de procurar uma
+    linha que a tela simplesmente não desenhou.
+    """
+    fora = {nome: {"total": 0.0, "n": 0, "itens": {}}
+            for nome in ORDEM_NA_TELA}
+    for r in (linhas or []):
+        g = fora[grupo_de(r["detalhe"])]
+        g["n"] += 1
+        g["total"] = round(g["total"] + r["valor"], 2)
+        g["itens"][r["detalhe"]] = round(
+            g["itens"].get(r["detalhe"], 0.0) + r["valor"], 2)
+    return fora
+
+
+def novidades(linhas):
+    """[(detalhe, total)] do que não se encaixou em nenhum grupo conhecido."""
+    g = por_grupo(linhas)[NOVO]
+    return sorted(g["itens"].items(), key=lambda kv: -abs(kv[1]))
+
+
 def por_tipo(linhas):
     """{detalhe: total}, do maior para o menor. É o resumo que a fatura mostra."""
     fora = {}
@@ -788,6 +859,52 @@ if __name__ == "__main__":
     ok("o cancelamento aponta a tarifa 2",
        sep["cancelamentos"].get("2", {}).get("numero") == "3")
     ok("a data virou texto", sep["conferir"][0]["data"] == "2026-07-30")
+
+    # 4b. Os grupos com o vocabulário dele, e o alarme do que for novo.
+    #
+    # Os oito nomes abaixo são EXATAMENTE os que o ML mandou em ago/2026.
+    # Se um deles deixar de casar, a tela passa a mostrar "Novo" para uma
+    # cobrança de sempre — e o alarme que existe para o desconhecido vira
+    # ruído que ninguém lê.
+    DE_AGOSTO = {
+        "Tarifa por campanha de publicidade de Product Ads": "ADS",
+        "Custo do serviço de coleta Full": "Cross (envios Full)",
+        "Tarifa pelo serviço de armazenamento Full": "Cross (envios Full)",
+        "Tarifa por estoque antigo no Full": "Cross (envios Full)",
+        "Tarifa de manutenção da Minha página": "Página da loja",
+        "Cobrança do diferencial de alíquota interestadual (ICMS-DIFAL)":
+            "Impostos",
+        "Tarifa de devolução": "Devoluções",
+        "Tarifa de devolução por envio externo ou intermunicipal":
+            "Devoluções",
+    }
+    for _texto, _esperado in DE_AGOSTO.items():
+        ok(f"'{_texto[:42]}…' → {_esperado}",
+           grupo_de(_texto) == _esperado)
+    ok("devolução ganha de envio na mesma linha",
+       grupo_de("Tarifa de devolução por envio externo ou intermunicipal")
+       == "Devoluções")
+    ok("imposto ganha de tudo",
+       grupo_de("Cancelamento de ICMS por devolução de publicidade")
+       == "Impostos")
+    ok("cobrança que o ML inventar cai em NOVO",
+       grupo_de("Tarifa de assinatura Mercado Livre Mais") == NOVO)
+
+    _grupos = por_grupo([{"detalhe": t, "valor": 10.0, "natureza": natureza(t)}
+                         for t in DE_AGOSTO])
+    ok("Flex aparece mesmo zerado — ausência dele é informação",
+       "Flex" in _grupos and _grupos["Flex"]["total"] == 0.0)
+    ok("nada de agosto caiu em NOVO", _grupos[NOVO]["n"] == 0)
+    ok("ADS somou a sua linha", _grupos["ADS"]["total"] == 10.0)
+    ok("custo devido em cima, conferência embaixo",
+       list(_grupos)[:2] == ["ADS", "Cross (envios Full)"]
+       and list(_grupos)[-3:] == ["Devoluções", "Impostos", NOVO])
+    ok("todo grupo que casa tem lugar na ordem da tela",
+       all(nome in ORDEM_NA_TELA for nome, _ in GRUPOS))
+    ok("Cross somou as três dele", _grupos["Cross (envios Full)"]["n"] == 3)
+    ok("novidades() nomeia o que é novo",
+       novidades([{"detalhe": "Tarifa nova do ML", "valor": 12.0}])
+       == [("Tarifa nova do ML", 12.0)])
 
     # 5. Pagamento — é ele que manda nas saídas.
     resumo_pg = [
