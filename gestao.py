@@ -138,11 +138,18 @@ def _cheques(usuario_logado=None):
     _cht.pagina(usuario_logado)
 
 
+def _fatura_ml(usuario_logado=None):
+    """A fatura do ML: o que foi abatido, o que virou fatura, o que foi pago."""
+    import fatura_ml_tela as _fml
+    _fml.pagina(usuario_logado)
+
+
 SUBTELAS = {
     "🧱 Custo fixo": _custo_fixo,
     "🎯 Meta de gastos": _meta_gastos,
     "💳 Extratos": _extratos,
     "🧾 Cheques": _cheques,
+    "🛒 ADS-Cross": _fatura_ml,
     "🏷️ Finalidades": _finalidades,
     "🧮 Balanço headcount": _balanco_headcount,
     "📈 Ajuste de valor": _ajuste_de_valor,

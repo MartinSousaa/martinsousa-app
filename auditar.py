@@ -264,6 +264,60 @@ def classe_except_mudo():
     return achados
 
 
+# ── CLASSE 7: cifrão cru em texto que passa pelo markdown ───────────────────
+# O markdown do Streamlit lê `$...$` como LaTeX. Uma frase com DOIS cifrões
+# perde tudo o que está entre eles dentro de uma fórmula matemática — e é
+# justamente a frase que compara dois valores, que é sempre a mais importante.
+# Aconteceu com o alerta de ICMS-DIFAL da fatura do ML (o aviso central da
+# tela saiu ilegível), e a varredura achou o mesmo defeito vivo em outras
+# duas telas que ninguém tinha reclamado ainda.
+#
+# Procura a FORMA — dois cifrões não escapados no mesmo texto —, e não a
+# palavra "DIFAL": a TV escapa porque monta a página sem markdown.
+_MD_ST = ("markdown", "caption", "warning", "info", "success", "error",
+          "write")
+
+
+def _texto_do_argumento(no, ast):
+    if isinstance(no, ast.Constant):
+        return no.value if isinstance(no.value, str) else "\x00"
+    if isinstance(no, ast.JoinedStr):
+        return "".join(_texto_do_argumento(v, ast) for v in no.values)
+    if isinstance(no, ast.BinOp) and isinstance(no.op, ast.Add):
+        return (_texto_do_argumento(no.left, ast)
+                + _texto_do_argumento(no.right, ast))
+    return "\x00"
+
+
+def classe_cifrao_vira_formula():
+    import ast
+    achados = []
+    for arq in ARQUIVOS:
+        try:
+            arvore = ast.parse(open(arq, encoding="utf-8").read())
+        except (SyntaxError, OSError):
+            continue
+        for no in ast.walk(arvore):
+            if not (isinstance(no, ast.Call)
+                    and isinstance(no.func, ast.Attribute)
+                    and no.func.attr in _MD_ST
+                    and isinstance(no.func.value, ast.Name)
+                    and no.func.value.id in ("st", "_st") and no.args):
+                continue
+            # HTML cru não passa pelo LaTeX do markdown.
+            if any(k.arg == "unsafe_allow_html" for k in no.keywords):
+                continue
+            texto = _texto_do_argumento(no.args[0], ast)
+            crus = len(re.findall(r"(?<!\\)\$", texto))
+            campos = texto.count("\x00")
+            # Dois crus já fecham a fórmula. Um cru mais um campo também: o
+            # campo costuma trazer outro "R$" formatado.
+            if crus >= 2 or (crus >= 1 and campos):
+                achados.append((arq, f"linha {no.lineno}: cifrão cru em "
+                                     "markdown — vira fórmula LaTeX"))
+    return achados
+
+
 CLASSES = [
     ("marca de estado que só liga", classe_marca_so_liga),
     ("cor fixa da marca fora do prompt", classe_cor_de_marca),
@@ -271,6 +325,7 @@ CLASSES = [
     ("casamento por pedaço de palavra", classe_substring),
     ("grava em planilha sem limpar o cache", classe_cache_sem_clear),
     ("except que engole o erro sem explicar", classe_except_mudo),
+    ("cifrão cru em markdown vira fórmula", classe_cifrao_vira_formula),
 ]
 
 

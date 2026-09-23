@@ -711,7 +711,7 @@ def painel_taxas(taxas):
             "confirmou: no Simples a contribuição previdenciária já está "
             "dentro do **DAS**, calculada sobre o faturamento e não sobre o "
             "salário — contratar não gera guia nova. Os 3,8139% são a alíquota "
-            "efetiva do DAS (R$ 4.397,83 sobre R$ 115.310,92 em jul/2026), "
+            "efetiva do DAS (R\\$ 4.397,83 sobre R\\$ 115.310,92 em jul/2026), "
             "usada só para compor um custo por pessoa.\n\n"
             "Por isso ele **não entra no custo de caixa**: o DAS é o mesmo com "
             "um ou com dez funcionários, e já está lançado na aba "
