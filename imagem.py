@@ -2285,12 +2285,25 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
             max_dim = max(pil_w, pil_h)
             if _is_fundo_branco:
                 bg_color = (255, 255, 255, 255)
-            elif _is_ambientacao or _is_personalizado:
-                # Cena real: usa a cor média da borda para a faixa desaparecer
-                # em vez de virar tarja lisa.
-                bg_color = tuple(pil.resize((1, 1), _PILImage.LANCZOS).getpixel((0, 0)))
             else:
-                bg_color = (232, 238, 245, 255)  # padrão da marca
+                # A COR DA FAIXA SAI DA PRÓPRIA IMAGEM — NUNCA DA MARCA.
+                #
+                # Aqui estava `(232, 238, 245)`, o azul-claro da marca, para
+                # todas as peças de marketing. Foi a QUARTA sobrevivência da
+                # paleta fixa nesta base: tiramos do texto do prompt três
+                # vezes, e ela continuava sendo PINTADA no pós-processamento.
+                #
+                # É literalmente o que o dono viu: "faixas azul-claras nas
+                # laterais das imagens 2, 3, 4, 6, 7 e 8". A cor da marca
+                # virando tarja num quadro que o modelo compôs com outra
+                # paleta.
+                #
+                # A média da borda faz a faixa sumir dentro da própria cena,
+                # em vez de anunciar que houve preenchimento. A regra passa a
+                # valer para TODA peça que não seja fundo branco — e não só
+                # para ambientação e personalizado, como estava.
+                bg_color = tuple(
+                    pil.resize((1, 1), _PILImage.LANCZOS).getpixel((0, 0)))
 
             bg = _PILImage.new("RGBA", (max_dim, max_dim), bg_color)
             offset = ((max_dim - pil_w) // 2, (max_dim - pil_h) // 2)
@@ -6096,6 +6109,29 @@ if __name__ == "__main__":
     import re as _re_cor
     _cores_fixas = ("#E8EEF5", "#1A3A6B", "#4A7EC7")
     _com_cor = []
+
+    # A PALETA FIXA SOBREVIVEU UMA QUARTA VEZ — FORA DO PROMPT.
+    #
+    # Tiramos o azul do texto tres vezes, e ele continuava sendo PINTADO no
+    # pos-processamento: a faixa de preenchimento das pecas de marketing usava
+    # (232, 238, 245), o azul-claro da marca. E literalmente o que o dono viu
+    # — "faixas azul-claras nas laterais das imagens 2, 3, 4, 6, 7 e 8".
+    #
+    # Procurar a cor so no PADRAO_VISUAL nunca ia achar isso. Este caso olha o
+    # arquivo inteiro.
+    _fonte_img = open(__file__, encoding="utf-8").read()
+    # Sem comentarios E sem o proprio bloco de conferencia: a linha que
+    # procura pela cor CONTEM a cor, e o teste reprovaria a si mesmo. E a
+    # segunda vez hoje que caio nisso.
+    _codigo_img = _fonte_img.split('if __name__ == "__main__":')[0]
+    _sem_comentario = "\n".join(
+        l for l in _codigo_img.split("\n") if not l.lstrip().startswith("#"))
+    ok("a cor da marca nao e PINTADA em faixa nenhuma",
+       "232, 238, 245" not in _sem_comentario)
+    ok("o unico preenchimento fixo que resta e o branco da capa",
+       _sem_comentario.count("bg_color = (") == 1
+       and "255, 255, 255" in _sem_comentario)
+
     for _t in TIPOS_PADRAO:
         _p = montar_prompt_imagem(_t, "", _DADOS_T, "x")
         for _c in _cores_fixas:
