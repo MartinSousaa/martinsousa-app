@@ -2262,6 +2262,42 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
     except Exception:
         pass
 
+    # ── A RÉGUA PASSA NA IMAGEM ANTES DE ELA SAIR DAQUI ──────────────────
+    #
+    # Cobrança do dono: "Eu testo o código, não a imagem. Você precisa
+    # conferir isso!!!". Estava certo — todo teste desta base conferia que o
+    # prompt tinha a frase certa, e quem via o resultado era a colaboradora,
+    # depois de gerado e pago.
+    #
+    # A medição é geométrica e determinística: formato, faixa lisa na borda e
+    # ocupação do produto. Ela NÃO julga fidelidade — haste virar três
+    # cilindros não se mede com régua, e isso continua sendo da conferência
+    # por visão. Medir o que dá para medir não é medir tudo, e é honesto
+    # dizer onde a régua acaba.
+    #
+    # Em cena ambientada a ocupação NÃO é cobrada: ali a escala do produto é
+    # a real, e exigir que ele encha o quadro foi exatamente o que produziu o
+    # produto gigante.
+    try:
+        import medir_imagem as _md
+        _probs = _md.problemas(img_bytes, fundo_chapado=_is_fundo_branco,
+                               ambientada=_is_ambientacao)
+        if diagnostico is not None and _probs:
+            diagnostico["medida"] = " · ".join(_probs)
+        if _probs and not _ja_repetiu_quadrada:
+            import sys as _sys_md
+            print(f"[DEBUG medida] {'; '.join(_probs)} — repetindo uma vez",
+                  file=_sys_md.stderr, flush=True)
+            _nova2, _err2 = gerar_imagem_ia(
+                prompt_texto, imagens_referencia, refs_layout,
+                refs_layout_nomes, tipo, diagnostico,
+                _ja_repetiu_quadrada=True)
+            if _nova2 and not _err2:
+                return _nova2, None
+    except Exception:
+        # A régua nunca pode impedir a entrega: a imagem já foi paga.
+        pass
+
     # Fora do try acima de proposito: mesmo que o enquadramento falhe, o peso
     # maximo da plataforma continua valendo.
     img_bytes = comprimir_para_limite(img_bytes)
@@ -5958,6 +5994,15 @@ if __name__ == "__main__":
        "_ja_repetiu_quadrada=True" in _corpo_g)
     ok("e se voltar torta de novo, entrega em vez de descartar o que foi pago",
        "repeti uma vez e voltou torta" in _corpo_g)
+
+    # ── A REGUA NA IMAGEM, E NAO SO NO PROMPT ───────────────────────────
+    ok("a geracao mede a imagem antes de entregar",
+       "medir_imagem" in _corpo_g and "_md.problemas(" in _corpo_g)
+    ok("e repete quando a medida acusa", "repetindo uma vez" in _corpo_g)
+    ok("a ambientacao NAO tem ocupacao cobrada",
+       "ambientada=_is_ambientacao" in _corpo_g)
+    ok("a regua nunca impede a entrega do que ja foi pago",
+       "A régua nunca pode impedir a entrega" in _corpo_g)
 
     # ── A AMBIENTACAO DO COLABORADOR: tema, e nao roteiro ────────────────
     _DADOS_T = {"nome_comercial": "Marcador de Taça", "material": "Acrílico"}
