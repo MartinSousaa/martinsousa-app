@@ -149,7 +149,7 @@ SUBTELAS = {
     "🎯 Meta de gastos": _meta_gastos,
     "💳 Extratos": _extratos,
     "🧾 Cheques": _cheques,
-    "🛒 Fatura ML": _fatura_ml,
+    "🛒 ADS-Cross": _fatura_ml,
     "🏷️ Finalidades": _finalidades,
     "🧮 Balanço headcount": _balanco_headcount,
     "📈 Ajuste de valor": _ajuste_de_valor,
