@@ -100,7 +100,19 @@ Desenvolver em `homologacao`. O merge para `main` é feito pelo GitHub MCP
 ```
 python3 -m compileall -q .      # sintaxe
 python3 checar_ordem.py *.py    # nome lido antes de existir (UnboundLocalError)
+python3 checar_prompts.py       # regra de imagem que ficou faltando ou sobrando
 ```
+
+O terceiro existe porque eu corrigia regra de imagem NO LUGAR ONDE O PROBLEMA
+APARECEU, e não em todos onde ela alcançava. A paleta azul fixa voltou três
+vezes; o "ZERO TEXTO" sobreviveu num preset depois de eu o remover; a regra de
+ocupar 65-80% do quadro pegou a ambientação e o produto saiu do tamanho do
+ambiente. Nos três casos procurei pelo TEXTO do sintoma em vez do ALCANCE da
+regra.
+
+`checar_prompts.py` monta o prompt real dos nove tipos e confere, um a um, o
+que cada um TEM de conter e o que NÃO PODE. Mexeu numa regra de imagem sem
+passar por ele, ela reaparece na tela de alguém daqui a três semanas.
 
 O segundo existe porque `UnboundLocalError` derrubou o Painel de Metas duas
 vezes seguidas: sintaxe válida, nome conhecido, só explode em execução. Numa

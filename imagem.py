@@ -105,6 +105,19 @@ DIREÇÃO DE ARTE ADAPTATIVA (muda a cada produto):
 - Quando houver imagem de referência de layout, copie a ESTRUTURA: hierarquia,
   densidade, organização dos blocos. NÃO copie a paleta, o cenário, a
   iluminação nem os objetos dela.
+
+CENÁRIO REAL EM TODAS AS PEÇAS — NÃO APENAS NA 3 E NA 8:
+- O fundo é o AMBIENTE DE USO do produto, fotografado: o cômodo, a bancada, a
+  mesa, o espaço onde ele de fato vive. Nunca superfície chapada, nunca
+  gradiente liso, nunca "estúdio neutro" como cenário.
+- O ambiente aparece em profundidade de campo SUAVE — presente e reconhecível,
+  desfocado o bastante para não competir com o produto nem com o texto.
+- Onde houver cartão, bloco ou frase, a área atrás dele fica mais desfocada e
+  com contraste controlado, para o texto permanecer legível sobre a cena. A
+  legibilidade manda no tratamento do fundo; o fundo nunca manda na
+  legibilidade.
+- Se a peça exigir área limpa para informação técnica, use uma faixa ou cartão
+  sólido SOBRE a cena — e não a cena inteira trocada por fundo liso.
 """
 
 # ── O PRODUTO É O DESTAQUE, E ISSO VIRA NÚMERO ──────────────────────────────
@@ -127,6 +140,68 @@ O PRODUTO É O DESTAQUE — SEMPRE, E ANTES DE TUDO:
 - Quando o cenário ou o texto competirem com o produto, use profundidade de
   campo: fundo desfocado, produto nítido. O olho vai no produto primeiro, na
   informação depois, no cenário por último.
+"""
+
+# ── O PROTAGONISMO NA AMBIENTAÇÃO É OUTRO, E POR ISSO TEM TEXTO PRÓPRIO ─────
+#
+# A regra de cima manda o produto ocupar de 65% a 80% do quadro nas peças sem
+# texto — e a ambientação é uma peça sem texto. O resultado foi o relato do
+# dono: *"criando ambientação com o produto desproporcional ao que ele é no
+# ambiente, parece que ele é GIGANTE"*.
+#
+# Ele está certo, e a culpa é desta linha: "Nunca deixe o produto pequeno no
+# centro de um cenário amplo." Produto no centro de um cenário amplo é
+# EXATAMENTE o que uma foto de ambientação é. A instrução proibia o objetivo
+# da peça, e o modelo obedeceu inflando o produto até caber nos 70%.
+#
+# Numa foto ambientada o produto não domina por TAMANHO — domina por FOCO:
+# ele está nítido, iluminado, em primeiro plano, e o resto é contexto
+# desfocado. A escala continua sendo a real: uma meia sobre a cama é do
+# tamanho de uma meia.
+INSTRUCAO_PROTAGONISMO_AMBIENTE = """
+O PRODUTO É O DESTAQUE — MAS PELA ATENÇÃO, NÃO PELO TAMANHO:
+- ESCALA REAL, REGRA INVIOLÁVEL: o produto aparece no tamanho que ele tem de
+  verdade em relação ao ambiente e aos objetos ao redor. Uma peça de vestuário
+  sobre uma cama tem o tamanho de uma peça de vestuário; um objeto de mesa não
+  pode ficar do tamanho da mesa.
+- Ele domina a cena por FOCO e por LUZ: nítido e bem iluminado em primeiro
+  plano, com o ambiente em profundidade de campo mais suave atrás.
+- O enquadramento é fechado ou médio NO PRODUTO — a câmera chega perto dele.
+  Aproximar a câmera é o que o destaca; ampliar o objeto o deforma.
+- É correto e desejável que o produto ocupe uma fração modesta do quadro se é
+  isso que a escala real determina. Cenário amplo com o produto em evidência
+  pelo foco é o objetivo desta peça, não um defeito dela.
+- Nada de objeto flutuando, apoio impossível ou sombra que não bate com a
+  superfície: o produto está POUSADO no ambiente, com contato e sombra reais.
+"""
+
+# ── A CAPA É A MAIS EXIGENTE DAS TRÊS, E NÃO TINHA REGRA NENHUMA ───────────
+#
+# O dono, depois de ver a capa sair pequena: *"Já falei MIL VEZES que a
+# prioridade é destacar o produto, ele tem que preencher o máximo possível da
+# dimensão da imagem!!!"*
+#
+# Ele tinha razão de estar irritado. A capa (tipo 1) não recebia
+# `INSTRUCAO_PROTAGONISMO` nem nada equivalente: o prompt dela não falava de
+# tamanho em lugar nenhum, e o modelo escolhia. Saía produtinho no meio de um
+# quadro branco vazio.
+#
+# Ela é foto limpa em fundo branco: não tem texto, não tem cenário, não tem
+# nada para dividir espaço. Então é a única peça em que o produto deve mesmo
+# encher o quadro.
+INSTRUCAO_PROTAGONISMO_CAPA = """
+O PRODUTO PREENCHE O QUADRO — ESTA É A REGRA MAIS IMPORTANTE DESTA PEÇA:
+- O produto ocupa de 80% a 92% da MAIOR dimensão do quadro. Não é sugestão: é
+  a medida da peça.
+- Margem de respiro uniforme e MÍNIMA em volta — só o suficiente para o
+  produto não encostar na borda. Nada de vazio grande em cima, embaixo ou dos
+  lados.
+- Produto inteiro, centralizado, nenhuma parte cortada.
+- É ERRO grave entregar o produto pequeno no meio de um fundo branco vazio:
+  esta é a foto que aparece na busca do marketplace, e produto pequeno ali
+  perde a venda antes de alguém clicar.
+- Se a proporção do produto não preencher os dois eixos, aproxime a câmera até
+  encher o eixo mais longo dele.
 """
 
 INSTRUCAO_FIDELIDADE = """
@@ -1628,7 +1703,8 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None, ref_layout=None,
 
 
 def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
-                    refs_layout_nomes=None, tipo="", diagnostico=None):
+                    refs_layout_nomes=None, tipo="", diagnostico=None,
+                    _ja_repetiu_quadrada=False):
     """Arquitetura de geração — fotos do produto vão diretamente ao modelo via Responses API.
 
     Fluxo:
@@ -2168,6 +2244,35 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
                     f"o motor devolveu {pil_w}x{pil_h} em vez de quadrada — "
                     f"as faixas laterais foram preenchidas pelo Studio")
 
+            # UMA REPETIÇÃO ANTES DE ENTREGAR TORTA.
+            #
+            # O Studio SABIA que estava preenchendo faixa — anotava no
+            # diagnóstico — e entregava assim mesmo. A colaboradora recebia a
+            # imagem com margem, pedia correção, e a correção quebrava outra
+            # coisa: o laço que custou 41 gerações num produto só.
+            #
+            # Uma geração automática custa menos que três rodadas dela. Só
+            # UMA: se o motor devolver torta duas vezes seguidas, é o motor
+            # ignorando o pedido de 1024x1024, e insistir vira dinheiro
+            # queimado sem mudar o resultado.
+            if not _ja_repetiu_quadrada:
+                import sys as _sys_rep
+                print(f"[DEBUG enquadramento] repetindo UMA vez para tentar "
+                      f"sair quadrada (veio {pil_w}x{pil_h})",
+                      file=_sys_rep.stderr, flush=True)
+                _nova, _erro_rep = gerar_imagem_ia(
+                    prompt_texto, imagens_referencia, refs_layout,
+                    refs_layout_nomes, tipo, diagnostico,
+                    _ja_repetiu_quadrada=True)
+                if _nova and not _erro_rep:
+                    return _nova, None
+                # Falhou a repetição: segue com a imagem que já existe. Ela
+                # está paga, e entregar com margem é melhor que não entregar.
+                if diagnostico is not None:
+                    diagnostico["enquadramento"] = (
+                        diagnostico.get("enquadramento", "")
+                        + " · repeti uma vez e voltou torta de novo")
+
             # NÃO recortar. Uma tentativa anterior cortava até 18% do lado maior
             # para diminuir as faixas, e isso decepava os painéis de texto das
             # peças de marketing, que ficam justamente nas laterais — frases
@@ -2180,12 +2285,25 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
             max_dim = max(pil_w, pil_h)
             if _is_fundo_branco:
                 bg_color = (255, 255, 255, 255)
-            elif _is_ambientacao or _is_personalizado:
-                # Cena real: usa a cor média da borda para a faixa desaparecer
-                # em vez de virar tarja lisa.
-                bg_color = tuple(pil.resize((1, 1), _PILImage.LANCZOS).getpixel((0, 0)))
             else:
-                bg_color = (232, 238, 245, 255)  # padrão da marca
+                # A COR DA FAIXA SAI DA PRÓPRIA IMAGEM — NUNCA DA MARCA.
+                #
+                # Aqui estava `(232, 238, 245)`, o azul-claro da marca, para
+                # todas as peças de marketing. Foi a QUARTA sobrevivência da
+                # paleta fixa nesta base: tiramos do texto do prompt três
+                # vezes, e ela continuava sendo PINTADA no pós-processamento.
+                #
+                # É literalmente o que o dono viu: "faixas azul-claras nas
+                # laterais das imagens 2, 3, 4, 6, 7 e 8". A cor da marca
+                # virando tarja num quadro que o modelo compôs com outra
+                # paleta.
+                #
+                # A média da borda faz a faixa sumir dentro da própria cena,
+                # em vez de anunciar que houve preenchimento. A regra passa a
+                # valer para TODA peça que não seja fundo branco — e não só
+                # para ambientação e personalizado, como estava.
+                bg_color = tuple(
+                    pil.resize((1, 1), _PILImage.LANCZOS).getpixel((0, 0)))
 
             bg = _PILImage.new("RGBA", (max_dim, max_dim), bg_color)
             offset = ((max_dim - pil_w) // 2, (max_dim - pil_h) // 2)
@@ -2197,6 +2315,42 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
         pil.save(buf, format="PNG")
         img_bytes = buf.getvalue()
     except Exception:
+        pass
+
+    # ── A RÉGUA PASSA NA IMAGEM ANTES DE ELA SAIR DAQUI ──────────────────
+    #
+    # Cobrança do dono: "Eu testo o código, não a imagem. Você precisa
+    # conferir isso!!!". Estava certo — todo teste desta base conferia que o
+    # prompt tinha a frase certa, e quem via o resultado era a colaboradora,
+    # depois de gerado e pago.
+    #
+    # A medição é geométrica e determinística: formato, faixa lisa na borda e
+    # ocupação do produto. Ela NÃO julga fidelidade — haste virar três
+    # cilindros não se mede com régua, e isso continua sendo da conferência
+    # por visão. Medir o que dá para medir não é medir tudo, e é honesto
+    # dizer onde a régua acaba.
+    #
+    # Em cena ambientada a ocupação NÃO é cobrada: ali a escala do produto é
+    # a real, e exigir que ele encha o quadro foi exatamente o que produziu o
+    # produto gigante.
+    try:
+        import medir_imagem as _md
+        _probs = _md.problemas(img_bytes, fundo_chapado=_is_fundo_branco,
+                               ambientada=_is_ambientacao)
+        if diagnostico is not None and _probs:
+            diagnostico["medida"] = " · ".join(_probs)
+        if _probs and not _ja_repetiu_quadrada:
+            import sys as _sys_md
+            print(f"[DEBUG medida] {'; '.join(_probs)} — repetindo uma vez",
+                  file=_sys_md.stderr, flush=True)
+            _nova2, _err2 = gerar_imagem_ia(
+                prompt_texto, imagens_referencia, refs_layout,
+                refs_layout_nomes, tipo, diagnostico,
+                _ja_repetiu_quadrada=True)
+            if _nova2 and not _err2:
+                return _nova2, None
+    except Exception:
+        # A régua nunca pode impedir a entrega: a imagem já foi paga.
         pass
 
     # Fora do try acima de proposito: mesmo que o enquadramento falhe, o peso
@@ -2515,6 +2669,7 @@ TIPO DE IMAGEM: {tipo}
 {bloco_refs}
 
 {PADRAO_VISUAL_FUNDO_BRANCO}
+{INSTRUCAO_PROTAGONISMO_CAPA}
 {INSTRUCAO_FIDELIDADE}
 {INSTRUCAO_PROPORCAO}
 {INSTRUCAO_COMPOSICAO}
@@ -2580,7 +2735,7 @@ TIPO DE IMAGEM: {tipo}
 {bloco_refs}
 
 {PADRAO_VISUAL_AMBIENTACAO}
-{INSTRUCAO_PROTAGONISMO}
+{INSTRUCAO_PROTAGONISMO_AMBIENTE}
 {INSTRUCAO_FIDELIDADE}
 {INSTRUCAO_PROPORCAO}
 {INSTRUCAO_COMPOSICAO}
@@ -3565,25 +3720,27 @@ def consumir_comandos_do_chat(usuario_logado=""):
         _dados_rf = st.session_state.get("img_dados_descricao") or {}
         _nome_rf = _cfg_rf.get("nome_produto", "")
         _msgs_rf, _mudou_rf = [], False
-        _so_arte = bool(st.session_state.get("img_fotos_sao_arte"))
         for _c in refazer_pend:
             _i = int(_c.get("num", 1)) - 1
             if _i < 0 or _i >= len(galeria):
                 _msgs_rf.append(f"⚠️ Imagem {_i + 1} não existe.")
                 continue
-            if not _fotos_rf or _so_arte:
+            # A recusa vale so quando NAO HA foto de produto nenhuma. Ter a
+            # marca ligada com fotos na mao era o caso falso que travava a
+            # colaboradora: o Studio tinha tudo de que precisava e dizia que
+            # nao tinha.
+            if not _fotos_rf:
                 # Dizer "não dá" é o que faltava. Gerando do zero com a arte
                 # errada como referência, ela voltava idêntica — e o
                 # assistente anunciava sucesso em cima disso.
                 _msgs_rf.append(
-                    "⚠️ **Não dá para refazer do zero por aqui.** Esta imagem "
-                    "entrou pelo modo Ajuste Fino: o que o Studio tem dela é a "
-                    "própria arte, não as fotos do produto — e gerar de novo a "
-                    "partir da arte devolve a arte.\n\n"
-                    "Para recompor o quadro: aba **Imagem** › **1 imagem "
-                    "específica**, suba as fotos do produto e descreva a "
-                    "composição em «Descreva o que você quer nessa imagem». "
-                    "Para mexer só num ponto, siga pelo Ajuste Fino mesmo.")
+                    "⚠️ **Preciso das fotos do produto para refazer do zero.** "
+                    "O Studio não tem nenhuma nesta sessão — e gerar a partir "
+                    "da própria arte devolve a arte.\n\n"
+                    "Suba as fotos do produto em **Fotos de referência do "
+                    "produto**, aqui mesmo na aba Imagem, e me peça de novo. "
+                    "Para mexer só num ponto sem refazer, o Ajuste Fino "
+                    "funciona sem elas.")
                 break
             _tp = tipo_para_gerar(galeria[_i])
             _ins = (_c.get("instrucao") or "").strip()
@@ -3614,13 +3771,12 @@ def consumir_comandos_do_chat(usuario_logado=""):
         if _mudou_rf:
             # Pelo helper, e nao direto: e ele que faz a falha aparecer na
             # tela em vez de sumir num `except: pass`.
+            # UMA gravacao, e nao duas. A chamada direta ao `rascunho.salvar`
+            # que existia aqui sobreviveu a criacao do helper e virava a
+            # segunda escrita do mesmo dado — silenciosa, porque tinha o
+            # `except: pass` proprio. Duas respostas para a mesma pergunta:
+            # se uma falhasse, ninguem saberia qual.
             guardar_rascunho(usuario_logado, "refazer do zero")
-            try:
-                import rascunho as _rasc_rf
-                _rasc_rf.salvar(usuario_logado, _nome_rf, galeria,
-                                _cfg_rf.get("codigo", ""))
-            except Exception:
-                pass
         if _msgs_rf:
             st.session_state.setdefault("ms_chat_hist", []).append(
                 {"role": "assistant", "content": "\n".join(_msgs_rf)})
@@ -4307,6 +4463,50 @@ def pagina_imagem(usuario_logado):
                 st.caption(f"+ {len(fotos_bytes) - 5} foto(s) adicionais carregadas.")
 
         # ── IMAGENS DE REFERÊNCIA DE LAYOUT (opcional) ────────────────────────
+        # ── REFERÊNCIAS DE AMBIENTAÇÃO ───────────────────────────────────
+        #
+        # Separadas das de LAYOUT porque a escolha é feita de outro jeito, e
+        # essa é a diferença inteira. Layout casa pelo NOME do arquivo — o
+        # colaborador batiza "presentear.jpg" e a peça 7 pega. Para cenário
+        # isso não funciona: ninguém nomeia uma foto de bar por tipo de peça,
+        # e a mesma sala cabe em três peças diferentes.
+        #
+        # Pedido do dono: "não tem que ir pelo nome da imagem, tem que olhar
+        # todas e entender qual ambientação se enquadra melhor em cada tipo".
+        with st.expander("🏙️ Imagens de referência de AMBIENTAÇÃO (opcional)",
+                         expanded=False):
+            st.caption(
+                "Suba fotos de **cenários** que você quer como clima das "
+                "peças — o cômodo, a luz, os materiais. O Studio **olha "
+                "todas** e decide sozinho qual cabe em cada tipo de imagem: "
+                "não vai pelo nome do arquivo."
+            )
+            st.info(
+                "🎯 O produto que aparece nessas fotos é **ignorado de "
+                "propósito**. O Studio copia o ambiente, a luz e o clima — "
+                "e coloca o SEU produto dentro dele, no tamanho real dele."
+            )
+            refs_amb_upload = st.file_uploader(
+                "Referências de ambientação (JPG, PNG, WebP)",
+                type=None, accept_multiple_files=True,
+                key="img_refs_amb_upload",
+                help="Ex.: a foto de um bar à noite para o clima das peças "
+                     "deste cinzeiro.",
+            )
+            refs_amb_bytes = []
+            if refs_amb_upload:
+                (refs_amb_bytes, _nomes_amb,
+                 _av_ra, _er_ra) = revisar_anexos(refs_amb_upload)
+                mostrar_anexos(_av_ra, _er_ra)
+                _cols_ra = st.columns(4)
+                for _i, _rb in enumerate(refs_amb_bytes[:4]):
+                    _cols_ra[_i].image(_rb, use_container_width=True)
+                if len(refs_amb_bytes) > 8:
+                    st.caption(f"Subiu {len(refs_amb_bytes)} — o Studio lê as "
+                               "8 primeiras. Acima disso a leitura fica cara "
+                               "e a escolha não melhora.")
+            st.session_state["img_refs_ambientacao"] = refs_amb_bytes
+
         with st.expander("🖼️ Imagens de referência de layout (opcional)", expanded=False):
             st.caption(
                 "Suba imagens de outros produtos que mostram o **layout, posições, estilo ou texto** "
@@ -4507,6 +4707,12 @@ def pagina_imagem(usuario_logado):
                         # que é exatamente o defeito que `prompt_para_regerar`
                         # existe para não deixar acontecer.
                         "ambientacao": ambientacao,
+                        # As fotos de cenario viajam na config, e nao numa
+                        # variavel solta: a geracao roda em thread e o
+                        # `st.session_state` nao existe la dentro. Foi por
+                        # isso que a referencia de layout ja viaja assim.
+                        "refs_ambientacao": st.session_state.get(
+                            "img_refs_ambientacao") or [],
                         "fotos_bytes": fotos_bytes,
                         "dados_descricao": dados_descricao,
                         # Referências de layout (opcional)
@@ -4754,6 +4960,32 @@ def pagina_imagem(usuario_logado):
                 for _pi in _plano_items:
                     _plano_por_tipo[_pi.get("tipo", "")] = _pi
 
+                # ── O STUDIO OLHA AS REFERÊNCIAS DE AMBIENTAÇÃO ─────────
+                #
+                # UMA leitura para as oito peças. Uma por imagem seria pagar
+                # oito vezes pela mesma foto — e a escolha não melhora, porque
+                # a pergunta ("que cenário é este?") é a mesma nas oito.
+                #
+                # Falhar aqui não pode impedir a geração: sem descrição, a
+                # peça sai com a ambientação que o colaborador escreveu, que é
+                # exatamente o comportamento de antes deste bloco.
+                _amb_desc = {"cenarios": []}
+                _refs_amb = cfg.get("refs_ambientacao") or []
+                if _refs_amb:
+                    barra.progress(0.0, text="Olhando as referências de "
+                                             "ambientação…")
+                    import ambientacao_ref as _ar
+                    _amb_desc = _ar.descrever(_refs_amb, list(tipos),
+                                              cfg.get("nome_produto", ""))
+                    if _amb_desc.get("erro"):
+                        st.warning(
+                            "🏙️ Não consegui ler as referências de "
+                            f"ambientação ({_amb_desc['erro']}). As imagens "
+                            "saem com o tema escrito, sem elas.")
+                    else:
+                        for _l in _ar.resumo(_amb_desc, list(tipos)):
+                            st.caption("🏙️ " + _l)
+
                 for i, tipo in enumerate(tipos):
                     barra.progress(i / len(tipos), text=f"Gerando {i+1}/{len(tipos)}: {tipo[:50]}...")
                     # Sem sleep aqui — o _GEMINI_LIMITER em gerar_imagem_ia já respeita o RPM
@@ -4770,7 +5002,14 @@ def pagina_imagem(usuario_logado):
                             instrucao_layout=cfg.get("instrucao_layout", ""),
                             plano_triagem=(_plano_por_tipo.get(tipo)
                                            or plano_do_tipo(tipo)),
-                            ambientacao=cfg.get("ambientacao", ""),
+                            # O que o colaborador escreveu MAIS o cenário
+                            # que a visão escolheu para ESTE tipo. O texto
+                            # dele vem primeiro: quem digitou manda.
+                            ambientacao=(
+                                (cfg.get("ambientacao", "") or "")
+                                + ("\n\n" + _bloco_amb if (_bloco_amb := (
+                                    __import__("ambientacao_ref")
+                                    .para_o_tipo(_amb_desc, tipo))) else "")),
                         )
                         # ── Geração em thread separada ──────────────────────────
                         # Mantém o WebSocket vivo durante a chamada Gemini (30-60s)
@@ -4890,6 +5129,19 @@ def pagina_imagem(usuario_logado):
                     st.session_state["img_nome_produto"] = cfg["nome_produto"]
                     st.session_state["img_codigo"] = cfg.get("codigo", "")
                     st.session_state["img_fotos_originais"] = cfg["fotos_bytes"]
+                    # A MARCA DE "ISSO E ARTE" TEM DE SER DESLIGADA AQUI.
+                    #
+                    # `img_fotos_sao_arte` so era LIGADA, nunca desligada. Quem
+                    # usasse o Ajuste Fino avulso uma vez carregava a marca
+                    # para sempre na sessao — e a geracao seguinte, com fotos
+                    # de produto de verdade, ainda recusava refazer dizendo
+                    # "esta imagem entrou pelo modo Ajuste Fino". Era mentira,
+                    # e foi o que a colaboradora leu tres vezes seguidas
+                    # enquanto pedia para refazer a Imagem 1.
+                    #
+                    # O que esta em `cfg["fotos_bytes"]` aqui sao as fotos do
+                    # PRODUTO, subidas nesta geracao. Entao a marca cai.
+                    st.session_state["img_fotos_sao_arte"] = False
                     st.session_state["img_dados_descricao"] = cfg.get("dados_descricao") or {}
                     if st.session_state["img_dados_descricao"] and not st.session_state["img_dados_descricao"].get("peso"):
                         st.session_state["img_dados_descricao"]["peso"] = st.session_state.get("desc_dados_atual", {}).get("peso", "")
@@ -5851,6 +6103,60 @@ if __name__ == "__main__":
     ok("o fundo desfocado tem lugar",
        "desfocado" in INSTRUCAO_PROTAGONISMO)
 
+    # ── O PRODUTO GIGANTE NA AMBIENTACAO ────────────────────────────────
+    #
+    # O dono: "criando ambientacao com o produto desproporcional ao que ele e
+    # no ambiente, parece que ele e GIGANTE". A causa era a regra de cima
+    # aplicada a ambientacao: 65% a 80% do quadro numa peca sem texto, mais a
+    # linha "Nunca deixe o produto pequeno no centro de um cenario amplo" —
+    # que e exatamente o que uma foto ambientada e. O modelo obedeceu
+    # inflando o produto ate caber nos 70%.
+    _amb = montar_prompt_imagem("8 — Ambientação realista (sem texto)", "",
+                                {"nome_comercial": "Meia"}, "Meia")
+    ok("a ambientacao NAO carrega a regra de 65% a 80%",
+       "65% a 80%" not in _amb)
+    ok("nem a proibicao de produto pequeno em cenario amplo",
+       "Nunca deixe o produto pequeno" not in _amb)
+    ok("ela exige ESCALA REAL", "ESCALA REAL" in _amb)
+    ok("e diz que o destaque vem do foco, nao do tamanho",
+       "FOCO" in _amb and "tamanho" in _amb.lower())
+    ok("o produto pousado, com contato e sombra reais",
+       "POUSADO" in _amb)
+
+    # E as pecas de marketing continuam com a regra de tamanho — elas TEM
+    # texto e o produto precisa dominar o quadro.
+    _mkt = montar_prompt_imagem("2 — Benefícios do produto", "",
+                                {"nome_comercial": "Meia"}, "Meia")
+    ok("a peca de marketing mantem a ocupacao medida",
+       "55% a 70%" in _mkt)
+    ok("e ela NAO recebe a regra da ambientacao",
+       "ESCALA REAL" not in _mkt)
+
+    # ── A MARGEM: repetir UMA vez antes de entregar torta ───────────────
+    #
+    # O Studio media que tinha preenchido faixa e entregava assim mesmo. A
+    # pessoa recebia a imagem com margem, pedia correcao, e a correcao
+    # quebrava outra coisa — o laco que custou 41 geracoes num produto so.
+    import inspect as _insp
+    _corpo_g = _insp.getsource(gerar_imagem_ia)
+    ok("a geracao aceita a marca de repeticao",
+       "_ja_repetiu_quadrada" in _corpo_g)
+    ok("e ela repete quando a imagem vem torta",
+       "if not _ja_repetiu_quadrada:" in _corpo_g)
+    ok("uma unica vez — a segunda chamada ja vai marcada",
+       "_ja_repetiu_quadrada=True" in _corpo_g)
+    ok("e se voltar torta de novo, entrega em vez de descartar o que foi pago",
+       "repeti uma vez e voltou torta" in _corpo_g)
+
+    # ── A REGUA NA IMAGEM, E NAO SO NO PROMPT ───────────────────────────
+    ok("a geracao mede a imagem antes de entregar",
+       "medir_imagem" in _corpo_g and "_md.problemas(" in _corpo_g)
+    ok("e repete quando a medida acusa", "repetindo uma vez" in _corpo_g)
+    ok("a ambientacao NAO tem ocupacao cobrada",
+       "ambientada=_is_ambientacao" in _corpo_g)
+    ok("a regua nunca impede a entrega do que ja foi pago",
+       "A régua nunca pode impedir a entrega" in _corpo_g)
+
     # ── A AMBIENTACAO DO COLABORADOR: tema, e nao roteiro ────────────────
     _DADOS_T = {"nome_comercial": "Marcador de Taça", "material": "Acrílico"}
     _sem = montar_prompt_imagem("8 — Ambientação realista (sem texto)", "",
@@ -5900,6 +6206,67 @@ if __name__ == "__main__":
     import re as _re_cor
     _cores_fixas = ("#E8EEF5", "#1A3A6B", "#4A7EC7")
     _com_cor = []
+
+    # A PALETA FIXA SOBREVIVEU UMA QUARTA VEZ — FORA DO PROMPT.
+    #
+    # Tiramos o azul do texto tres vezes, e ele continuava sendo PINTADO no
+    # pos-processamento: a faixa de preenchimento das pecas de marketing usava
+    # (232, 238, 245), o azul-claro da marca. E literalmente o que o dono viu
+    # — "faixas azul-claras nas laterais das imagens 2, 3, 4, 6, 7 e 8".
+    #
+    # Procurar a cor so no PADRAO_VISUAL nunca ia achar isso. Este caso olha o
+    # arquivo inteiro.
+    _fonte_img = open(__file__, encoding="utf-8").read()
+    # Sem comentarios E sem o proprio bloco de conferencia: a linha que
+    # procura pela cor CONTEM a cor, e o teste reprovaria a si mesmo. E a
+    # segunda vez hoje que caio nisso.
+    _codigo_img = _fonte_img.split('if __name__ == "__main__":')[0]
+    _sem_comentario = "\n".join(
+        l for l in _codigo_img.split("\n") if not l.lstrip().startswith("#"))
+    ok("a cor da marca nao e PINTADA em faixa nenhuma",
+       "232, 238, 245" not in _sem_comentario)
+    # ── A MARCA QUE SO ERA LIGADA ───────────────────────────────────────
+    #
+    # `img_fotos_sao_arte` era ligada pelo Ajuste Fino avulso e NUNCA
+    # desligada. Quem usasse o Ajuste Fino uma vez carregava a marca pela
+    # sessao inteira, e a geracao seguinte — com fotos de produto de verdade —
+    # ainda recusava refazer: "esta imagem entrou pelo modo Ajuste Fino".
+    # Era mentira, e a colaboradora leu isso tres vezes seguidas enquanto
+    # pedia para refazer a Imagem 1.
+    ok("a marca de arte e ligada em algum lugar",
+       '_sao_arte"] = True' in _sem_comentario)
+    ok("E DESLIGADA quando ha fotos de produto",
+       _sem_comentario.count('_sao_arte"] = False') >= 2)
+    ok("a recusa de refazer olha a FOTO, e nao a marca",
+       "if not _fotos_rf:" in _sem_comentario
+       and "_so_arte" not in _sem_comentario)
+    # ── REFERENCIA DE AMBIENTACAO: OLHAR, E NAO LER O NOME ──────────────
+    #
+    # Pedido do dono: "nao tem que ir pelo nome da imagem, tem que olhar todas
+    # e entender qual ambientacao se enquadra melhor em cada tipo".
+    ok("existe campo proprio para referencia de ambientacao",
+       "img_refs_ambientacao" in _sem_comentario)
+    ok("as fotos viajam na config, e nao em variavel solta",
+       '"refs_ambientacao": st.session_state.get(' in _sem_comentario)
+    ok("a leitura acontece UMA vez, antes do laco das pecas",
+       _sem_comentario.index("_ar.descrever(")
+       < _sem_comentario.index("for i, tipo in enumerate(tipos):"))
+    ok("e o cenario escolhido entra na ambientacao daquele tipo",
+       "para_o_tipo(_amb_desc, tipo)" in _sem_comentario)
+    ok("o texto do colaborador vem antes do cenario da visao",
+       _sem_comentario.index('cfg.get("ambientacao", "") or ""')
+       < _sem_comentario.index("para_o_tipo(_amb_desc, tipo)"))
+    ok("falha de visao NAO impede a geracao",
+       '_amb_desc.get("erro")' in _sem_comentario
+       and "saem com o tema escrito" in _sem_comentario)
+
+    ok("e a mensagem diz o que falta, nao de onde a imagem veio",
+       "Preciso das fotos do produto para refazer" in _sem_comentario)
+
+    ok("o unico preenchimento fixo que resta e o branco da capa",
+       _sem_comentario.count("bg_color = (") == 1
+       and "255, 255, 255" in _sem_comentario)
+
     for _t in TIPOS_PADRAO:
         _p = montar_prompt_imagem(_t, "", _DADOS_T, "x")
         for _c in _cores_fixas:
