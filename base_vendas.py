@@ -277,6 +277,12 @@ def media_dos_meses(mapa, chaves):
             fora[campo] = fora[campo] / n
     fora["meses"] = n
     fora["linhas"] = total["linhas"]
+    # As SOMAS cruas viajam junto. `indicadores` devolve só as razões e os
+    # valores que a Home desenha, e comissão, frete e NF ficavam de fora —
+    # mas são justamente eles que dizem quanto do faturamento cai na conta,
+    # que é o divisor da meta. Recalcular isso noutro lugar seria ler a
+    # planilha de 11 MB uma segunda vez.
+    fora["somas"] = dict(total)
     return fora
 
 
@@ -291,6 +297,7 @@ def do_mes(ano, mes):
                       f"na aba «{ABA}».")
     fora = indicadores(somas)
     fora["linhas"] = somas["linhas"]
+    fora["somas"] = dict(somas)
     return fora, ""
 
 

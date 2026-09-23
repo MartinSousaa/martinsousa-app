@@ -79,7 +79,20 @@ EXEMPLO = {
     "dia": 14, "mes": 9, "ano": 2026,
     "faturamento": {
         "realizado": 148_320.00,
-        "meta": 240_000.00,
+        # A meta ILUSTRADA e a conta de verdade, com os numeros de
+        # jun-ago/2026: R$ 170.000 de meta de gastos divididos pelos 65,2%
+        # que sobram depois de comissao, frete, NF e devolucao. Exemplo com
+        # numero redondo inventado ensinaria a conta errada a quem abre o
+        # arquivo para entender a tela.
+        "meta_de_gastos": 170_000.00,
+        "taxa_de_entrada": 0.6524,
+        "meta": round(170_000.00 / 0.6524, 2),
+        "descontos": [
+            {"nome": "comissão", "valor": 127_512.06, "pct": 16.4},
+            {"nome": "frete", "valor": 60_045.61, "pct": 7.7},
+            {"nome": "NF / imposto", "valor": 60_879.32, "pct": 7.8},
+            {"nome": "devoluções", "valor": 21_471.76, "pct": 2.8},
+        ],
         "operacional": 131_918.00, "nao_operacional": 183_940.00,
     },
     # Três por linha: bruto em cima, líquido embaixo, e cada valor em R$ ao
@@ -122,6 +135,12 @@ def _fmt(valor, como):
     return _brl(valor)
 
 
+# Quanto do faturamento pode virar devolução antes de virar problema. É TETO,
+# não meta: o cartão fica vermelho quando PASSA disto. Em jan–ago/2026 o real
+# foi 2,54% (R$ 46.989,61 de R$ 1.852.806,88).
+TETO_DEVOLUCAO_PCT = 3.0
+
+
 def ritmo(d):
     """Meta gradual e ritmo médio: o mês repartido pelos dias que já passaram.
 
@@ -136,12 +155,21 @@ def ritmo(d):
     A projeção é o ritmo médio vezes os dias do mês — UM método só, porque
     duas projeções discordando na mesma tela não informam, escolhem por você.
     """
+    import equilibrio_caixa as _ec
     f = d["faturamento"]
     dias = int(d.get("dias_mes") or calendar.monthrange(d["ano"], d["mes"])[1])
     dia = min(max(int(d["dia"]), 1), dias)
-    alvo = f.get("meta", 0.0) * dia / dias
+    # A FRAÇÃO INCLUI A HORA DE HOJE — pedido do dono: "22 dias fechados e
+    # mais 17h do dia de hoje". Cobrar o dia inteiro assim que ele começa
+    # fazia a tela dizer que a manhã estava atrasada todo santo dia; às 9h
+    # do dia 1º ela já cobrava um dia de faturamento que não teve como
+    # acontecer. `agora` chega de fora nos testes; na tela é o relógio.
+    fracao = _ec.fracao_do_mes(d.get("agora"), dias)
+    if not fracao:                       # primeiro instante do mês
+        fracao = dia / dias
+    alvo = f.get("meta", 0.0) * fracao
     por_dia = f["realizado"] / dia
-    return alvo, por_dia, por_dia * dias, dia, dias
+    return alvo, por_dia, f["realizado"] / fracao, dia, dias
 
 
 def projetar(valor, dia, dias, acumula):
@@ -152,6 +180,21 @@ def projetar(valor, dia, dias, acumula):
     daria um número sem significado.
     """
     return valor / dia * dias if acumula else valor
+
+
+def _de_onde_vem_a_meta(f):
+    """A conta da meta, escrita ao lado dela.
+
+    Numero sem origem e numero que ninguem confere — e esta meta ja esteve
+    errada por meses (R$ 34.865 num mes de R$ 270 mil) sem ninguem saber de
+    onde ela saia. Agora a frase diz: meta de gastos / o que cai na conta.
+    """
+    gastos = f.get("meta_de_gastos") or 0.0
+    taxa = f.get("taxa_de_entrada")
+    if not gastos or not taxa:
+        return ""
+    return (f' <span style="opacity:.8;">= meta de gastos '
+            f'{_brl(gastos, 0)} ÷ {taxa * 100:.1f}% que cai na conta</span>')
 
 
 def _bloco_faturamento(d):
@@ -171,7 +214,15 @@ def _bloco_faturamento(d):
     meta, real = f.get("meta", 0.0), f["realizado"]
     alvo_hoje, por_dia, proj, dia, dias = ritmo(d)
 
-    if proj >= cx:
+    # A META ENTRA NO VEREDITO. Ele comparava a projecao so com as duas
+    # linhas de equilibrio do cadastro e dizia "fecha acima das duas linhas"
+    # em verde enquanto a projecao (R$ 235.972) nao alcancava a meta
+    # (R$ 260.576) — verde por cima de um mes que nao fecha.
+    if meta and proj < meta and proj >= cx:
+        cor_proj, veredito = AMARELO, "paga as contas, mas nao bate a meta"
+    elif proj >= max(cx, meta or 0):
+        cor_proj, veredito = VERDE, "fecha acima da meta e das duas linhas"
+    elif proj >= cx:
         cor_proj, veredito = VERDE, "fecha acima das duas linhas"
     elif proj >= op:
         cor_proj, veredito = AMARELO, "paga o operacional, não o resto"
@@ -257,7 +308,8 @@ def _bloco_faturamento(d):
         f'flex-wrap:wrap;font-size:11px;color:var(--ms-texto-sec);'
         f'margin-top:8px;">'
         f'<span>Meta do mês <b style="color:var(--ms-texto);">{_brl(meta, 0)}</b>'
-        f' · até o dia {dia} deveria ter <b style="color:var(--ms-texto);">'
+        f'{_de_onde_vem_a_meta(f)}'
+        f' · até agora deveria ter <b style="color:var(--ms-texto);">'
         f'{_brl(alvo_hoje, 0)}</b></span>'
         f'<span>Ritmo médio <b style="color:var(--ms-texto);">'
         f'{_brl(por_dia, 0)}/dia</b> em {dia} dias</span></div>'
@@ -290,6 +342,39 @@ def atingiu(c):
     return r >= n if c["maior_melhor"] else r <= n
 
 
+def _card_sem_regua(c, dia=1, dias=1):
+    """O cartão de quem ainda não tem meta: só o número, a origem e a projeção.
+
+    `estimado` marca o que foi CALCULADO a partir do faturamento de agora e da
+    margem dos meses fechados, em vez de medido. Número que parece medido e
+    não é, é o que faz decisão errada — e aqui ele aparece com a palavra
+    "estimado" do lado, não escondido numa legenda.
+    """
+    r = float(c["realizado"])
+    fecha = projetar(r, dia, dias, c.get("acumula", False))
+    selo = ""
+    if c.get("estimado"):
+        selo = ('<span style="font-size:9px;font-weight:700;'
+                'color:var(--ms-texto-sec);border:1px solid '
+                'var(--ms-metric-bd);border-radius:4px;padding:1px 4px;'
+                'margin-left:6px;">estimado</span>')
+    return (
+        f'<div style="background:var(--ms-metric-bg);'
+        f'border:1px solid var(--ms-metric-bd);border-radius:10px;'
+        f'padding:12px 14px;height:100%;">'
+        f'<div style="font-size:11.5px;font-weight:700;'
+        f'color:var(--ms-texto);letter-spacing:.2px;">{c["rotulo"]}{selo}</div>'
+        f'<div style="font-size:9px;color:var(--ms-texto-sec);'
+        f'margin-bottom:6px;">{c["sub"]}</div>'
+        f'<div style="font-size:26px;font-weight:700;color:var(--ms-texto);'
+        f'line-height:1.1;">{_fmt(r, c["fmt"])}</div>'
+        f'<div style="margin-top:10px;padding-top:6px;'
+        f'border-top:1px solid var(--ms-metric-bd);font-size:9.5px;'
+        f'color:var(--ms-texto-sec);">'
+        f'{"No ritmo, fecha em <b style=color:var(--ms-texto);>" + _fmt(fecha, c["fmt"]) + "</b>" if c.get("acumula") else "Sem meta definida para este indicador."}'
+        f'</div></div>')
+
+
 def _card(c, dia=1, dias=1):
     """Um indicador: realizado contra necessário, e onde ele fecha o mês.
 
@@ -297,13 +382,29 @@ def _card(c, dia=1, dias=1):
     nos lucros e na unidade de contribuição, mais é melhor; num custo, menos.
     Sem isso, a mesma cor diria coisas opostas em cartões vizinhos.
     """
-    r, n = float(c["realizado"]), float(c["necessario"])
+    r = float(c["realizado"])
+    # SEM RÉGUA NÃO HÁ VEREDITO.
+    #
+    # Quatro cartões passavam o próprio valor como "necessário" e diziam
+    # "✔ R$ 0 acima do necessário" para sempre — nunca podiam ficar
+    # vermelhos. Eram dados de exemplo que ficaram. Agora, cartão sem régua
+    # mostra o NÚMERO e de quando ele é, sem barra e sem veredito: barra que
+    # não pode apontar para baixo é enfeite que finge informar.
+    if c.get("necessario") is None:
+        return _card_sem_regua(c, dia, dias)
+    n = float(c["necessario"])
     bateu = atingiu(c)
     perto = abs(r - n) / (abs(n) or 1) <= 0.08
     cor = VERDE if bateu else (AMARELO if perto else VERMELHO)
     falta = (n - r) if c["maior_melhor"] else (r - n)
-    verbo = "acima do necessário" if bateu else (
-        "abaixo do necessário" if c["maior_melhor"] else "acima do necessário")
+    # QUEM TEM TETO SE LÊ AO CONTRÁRIO. A frase era sempre "acima do
+    # necessário" quando batia — e num cartão de teto, bater é estar ABAIXO
+    # dele. A tela dizia "✔ R$ 929 acima do necessário" para R$ 4.429 de
+    # devolução contra um teto de R$ 5.359.
+    if c["maior_melhor"]:
+        verbo = "acima do necessário" if bateu else "abaixo do necessário"
+    else:
+        verbo = "abaixo do teto" if bateu else "ACIMA DO TETO"
     # Diferenca entre duas porcentagens e ponto percentual, nao porcentagem:
     # "1,9%" ao lado de "48,0%" faz o olho ler 1,9% DE 48, que e outro numero.
     dif = (_num(abs(falta), 1, " p.p.") if c["fmt"] == "pct"
@@ -332,7 +433,8 @@ def _card(c, dia=1, dias=1):
         f'left:{min(n / escala * 100, 100):.1f}%;width:3px;margin-left:-1.5px;'
         f'border-radius:2px;background:var(--ms-texto);"></div></div>'
         f'<div style="font-size:9.5px;color:var(--ms-texto-sec);">'
-        f'Necessário <b style="color:var(--ms-texto);">'
+        f'{"Teto" if not c["maior_melhor"] else "Necessário"} '
+        f'<b style="color:var(--ms-texto);">'
         f'{_fmt(n, c["fmt"])}</b></div>'
         f'<div style="font-size:10.5px;font-weight:700;color:{cor};'
         f'margin-top:4px;">{"✔" if bateu else "▸"} {dif} {verbo}</div>'
@@ -707,15 +809,61 @@ def dados_reais(ano, mes, dia):
     comp, avisos_comp = composicao_do_mes(ano, mes, realizado)
     avisos.extend(avisos_comp)
 
-    def _card(rotulo, sub, valor, necessario, fmt, acumula):
+    def _card(rotulo, sub, valor, necessario, fmt, acumula,
+              maior_melhor=True, estimado=False):
         return {"rotulo": rotulo, "sub": sub, "realizado": valor,
                 "necessario": necessario, "fmt": fmt,
-                "maior_melhor": True, "acumula": acumula}
+                "maior_melhor": maior_melhor, "acumula": acumula,
+                "estimado": estimado}
+
+    # ── A META DE FATURAMENTO ────────────────────────────────────────────
+    # Ela não sai dos indicadores da planilha, e sim da META DE GASTOS que o
+    # dono cadastra. Por isso é montada aqui e não dentro de `composicao`:
+    # são duas perguntas diferentes e elas não podem virar o mesmo número.
+    import equilibrio_caixa as _ec
+    import meta_gastos as _mg
+    try:
+        _linha_meta = _mg.linha_do_mes(ano, mes)
+        _meta_gastos = _linha_meta.get("meta", 0.0)
+    except Exception as e:
+        _meta_gastos = 0.0
+        avisos.append(f"Meta de gastos: {str(e)[:100]}")
+    quadro_meta, _av_meta = _ec.montar(_meta_gastos, ind.get("somas"),
+                                       realizado, dias_mes=None)
+    avisos.extend(_av_meta or [])
 
     _mb = ind["margem_bruta"]
     _ml = ind["margem_contribuicao_pct"]
+
     _periodo_curto = ind.get("periodo", "") or "período lançado"
     _sub_media = f"média de {_periodo_curto}"
+    # ── O QUE DÁ PARA SABER DO MÊS CORRENTE ──────────────────────────────
+    #
+    # A planilha só recebe o mês depois que ele acaba, e o dono disse que o
+    # preenchimento diário "provavelmente não teremos". Então o mês corrente
+    # é ESTIMADO: a margem dos meses fechados aplicada ao faturamento que o
+    # Bling já sabe. Estimado sai escrito na tela — número que parece medido
+    # e não é, é o que faz decisão errada.
+    _lucro_estimado = round(realizado * (_mb or 0.0) / 100.0, 2)
+    _sub_estimado = (f"faturado de agora × margem de {_periodo_curto}"
+                     if _mb else _sub_media)
+
+    # As devoluções do mês vêm da aba `devolucoes`, preenchida no dia a dia —
+    # esta é a única do bloco que é MEDIDA e não estimada. Sem a aba (ou
+    # antes de alguém cadastrar), cai na média dos meses fechados.
+    _dev_valor, _sub_dev = ind["devolucao"], _sub_media
+    try:
+        import devolucoes as _dv
+        _do_mes = _dv.do_mes(_dv.carregar(), f"{ano:04d}-{mes:02d}")
+        if _do_mes:
+            _dev_valor = _dv.resumo(_do_mes)["valor"]
+            _sub_dev = f"medido no mês · {len(_do_mes)} devolução(ões)"
+    except Exception as e:
+        avisos.append(f"Devoluções: {str(e)[:100]}")
+
+    # O TETO, e não um piso: devolver menos é melhor. 3% do faturado é a
+    # régua que o dono citou; em jan–ago/2026 o real foi 2,54%.
+    _dev_teto = round(realizado * TETO_DEVOLUCAO_PCT / 100.0, 2) or None
     return {
         # HOJE — e é isto que o bloco de gastos e o ritmo do faturamento usam.
         "dia": dia, "mes": mes, "ano": ano,
@@ -727,24 +875,44 @@ def dados_reais(ano, mes, dia):
         "linhas_base_vendas": ind.get("linhas", 0),
         "faturamento": {
             "realizado": realizado,
-            # A META É O PONTO DE EQUILÍBRIO, e não mais o percentual sobre o
-            # ano anterior. Pedido do dono, e ele tem razão: meta que ignora o
-            # custo é número que não decide nada. Bater a meta velha e não
-            # pagar a conta era possível.
-            "meta": comp.get("equilibrio_com_headcount")
-                    or comp.get("equilibrio_hoje") or 0.0,
+            # A META É A META DE GASTOS DIVIDIDA PELO QUE CAI NA CONTA.
+            #
+            # Ditada pelo dono: "se eu coloquei como meta de gastos 170k…
+            # tenho os custos fixos, cheques, os parciais dos cartões… o que
+            # ainda será gasto consumirá da meta". A meta de gastos é TUDO o
+            # que sai no mês, então a pergunta é de CAIXA, e o divisor é a
+            # fatia do faturamento que sobrevive até o banco — 65,2% em
+            # jun–ago/2026, depois de comissão, frete, NF e devolução.
+            #
+            # A conta anterior dividia pela margem de contribuição do
+            # cadastro e devolvia R$ 34.865 num mês de R$ 270 mil faturados:
+            # a tela dizia "R$ 151 mil acima do ritmo" quando o certo era
+            # R$ 18 mil ABAIXO. Era essa leitura que decidia comprar.
+            "meta": (quadro_meta or {}).get("meta") or 0.0,
+            "taxa_de_entrada": (quadro_meta or {}).get("taxa_de_entrada"),
+            "descontos": (quadro_meta or {}).get("descontos") or [],
+            "meta_de_gastos": (quadro_meta or {}).get("meta_de_gastos") or 0.0,
+            # O equilíbrio do cadastro continua vindo junto, agora como
+            # SEGUNDA leitura e com nome próprio. Ele responde outra
+            # pergunta — quanto custa operar — e some se for apagado daqui.
             "operacional": comp.get("equilibrio_hoje") or 0.0,
             "nao_operacional": comp.get("equilibrio_de_caixa") or 0.0,
         },
         "equilibrio": comp,
         "cards": [
-            _card("Lucro bruto", _sub_media, ind["lucro_bruto"],
-                  ind["lucro_bruto"], "brl0", True),
-            _card("Margem bruta", "sobre o faturado · " + _periodo_curto, _mb or 0.0,
-                  (comp.get("margem") or _eq.margem_de_contribuicao()) * 100.0,
-                  "pct", False),
-            _card("LPV", "lucro por venda · " + _periodo_curto, ind["lpv"] or 0.0,
-                  ind["lpv"] or 0.0, "brl", False),
+            # ESTIMADO: a margem dos meses fechados aplicada ao faturamento
+            # de AGORA. A planilha só recebe o mês corrente depois que ele
+            # acaba; sem isto o cartão mostraria a média de três meses
+            # atrás com cara de "hoje".
+            _card("Lucro bruto", _sub_estimado, _lucro_estimado,
+                  None, "brl0", False, estimado=True),
+            # A régua daqui era a margem de CONTRIBUIÇÃO (29%) comparada
+            # com a margem BRUTA (75%): "46 p.p. acima do necessário", com
+            # duas réguas diferentes. Margem bruta não tem meta própria.
+            _card("Margem bruta", "sobre o faturado · " + _periodo_curto,
+                  _mb or 0.0, None, "pct", False),
+            _card("LPV", "lucro por venda · " + _periodo_curto,
+                  ind["lpv"] or 0.0, None, "brl", False),
             # O necessário é a margem REAL do mês — a medida em 17.793
             # vendas MENOS o custo operacional que ela não conhece. Comparar
             # com os 29,82% puros dizia "está acima do necessário" enquanto a
@@ -752,10 +920,13 @@ def dados_reais(ano, mes, dia):
             _card("Margem de contribuição", "sobre o faturado · " + _periodo_curto, _ml or 0.0,
                   (comp.get("margem") or _eq.margem_de_contribuicao()) * 100.0,
                   "pct", False),
-            _card("Devoluções", _sub_media, ind["devolucao"],
-                  ind["devolucao"], "brl0", True),
+            # DEVOLVER MAIS É PIOR. O cartão estava marcado como "maior é
+            # melhor": com uma régua de verdade, ele ficaria verde no mês em
+            # que mais produto voltou.
+            _card("Devoluções", _sub_dev, _dev_valor, _dev_teto, "brl0",
+                  False, maior_melhor=False),
             _card("UC", "unidades por venda · " + _periodo_curto,
-                  ind["uc"] or 0.0, ind["uc"] or 0.0, "razao", False),
+                  ind["uc"] or 0.0, None, "razao", False),
         ],
     }, avisos
 
@@ -858,6 +1029,12 @@ if __name__ == "__main__":
     ok("a meta do mês fica acima do não operacional",
        EXEMPLO["faturamento"]["meta"]
        > EXEMPLO["faturamento"]["nao_operacional"])
+    # A meta ilustrada tem que ser COERENTE com a conta nova, senao o
+    # exemplo ensina errado quem abre o arquivo para entender a tela.
+    ok("no exemplo, meta = meta de gastos ÷ taxa de entrada",
+       abs(EXEMPLO["faturamento"]["meta"]
+           - EXEMPLO["faturamento"].get("meta_de_gastos", 0.0)
+           / (EXEMPLO["faturamento"].get("taxa_de_entrada") or 1)) < 1.0)
 
     # As margens em % e os lucros em R$ sao o MESMO fato em duas unidades: se
     # um dia discordarem, a tela mente em dois cartoes vizinhos.
@@ -872,18 +1049,34 @@ if __name__ == "__main__":
 
     # Ritmo: meta repartida pelos dias CORRIDOS, e a projecao saindo do
     # proprio ritmo — nunca de um numero escrito a mao em outro lugar.
-    _alvo, _dia_a_dia, _proj, _dia, _dias = ritmo(EXEMPLO)
+    # `agora` entra de fora para o teste nao depender do relogio — sem ele a
+    # fracao do mes seria a de hoje e a conferencia daria resultado diferente
+    # a cada execucao, que e o teste que nao serve para nada.
+    from datetime import datetime as _dt
+    import equilibrio_caixa as _eq_c
+    _MEIO = _dt(2026, 9, 14, 12, 0, tzinfo=_eq_c.FUSO)     # dia 14, meio-dia
+    _EX = dict(EXEMPLO, agora=_MEIO)
+    _alvo, _dia_a_dia, _proj, _dia, _dias = ritmo(_EX)
     ok("setembro tem 30 dias", _dias == 30)
-    ok("o ritmo do dia 14 é 14/30 da meta", abs(_alvo - 240_000 * 14 / 30) < 0.01)
+    # 13 dias fechados + meio dia = 13,5/30, e NAO 14/30. A diferenca e meio
+    # dia de meta que a tela cobrava antes de o dia acontecer.
+    _f = (13 + 0.5) / 30
+    _meta_ex = EXEMPLO["faturamento"]["meta"]
+    ok("o ritmo do dia 14 ao meio-dia é 13,5/30 da meta",
+       abs(_alvo - _meta_ex * _f) < 0.01)
+    ok("e NAO é 14/30 — isso cobrava o dia inteiro logo que ele comecava",
+       abs(_alvo - _meta_ex * 14 / 30) > 1_000)
     ok("o ritmo médio é o faturado dividido pelos dias corridos",
        abs(_dia_a_dia - 148_320 / 14) < 0.01)
-    ok("a projeção é o ritmo médio vezes os dias do mês",
-       abs(_proj - _dia_a_dia * 30) < 0.01)
-    ok("no último dia do mês, ritmo e projeção encontram o realizado",
-       abs(ritmo(dict(EXEMPLO, dia=30))[0] - 240_000) < 0.01
-       and abs(ritmo(dict(EXEMPLO, dia=30))[2] - 148_320) < 0.01)
+    ok("a projeção é o realizado esticado pela fração do mês",
+       abs(_proj - 148_320 / _f) < 0.01)
+    _FIM = _dt(2026, 9, 30, 23, 59, 59, tzinfo=_eq_c.FUSO)
+    ok("no último instante do mês, o alvo encontra a meta",
+       abs(ritmo(dict(EXEMPLO, dia=30, agora=_FIM))[0] - _meta_ex) < 60)
+    ok("e a projeção encontra o realizado",
+       abs(ritmo(dict(EXEMPLO, dia=30, agora=_FIM))[2] - 148_320) < 60)
     ok("um dia além do fim do mês não estica a projeção",
-       abs(ritmo(dict(EXEMPLO, dia=44))[2] - 148_320) < 0.01)
+       abs(ritmo(dict(EXEMPLO, dia=44, agora=_FIM))[2] - 148_320) < 60)
 
     # O que ACUMULA se estica; o que ja e media fecha onde esta. Esticar uma
     # razao pelo tempo daria um numero sem significado.
@@ -948,8 +1141,61 @@ if __name__ == "__main__":
     ok("a Home nao usa mais as constantes de equilibrio",
        "linhas_de_equilibrio()" not in _corpo_dr)
     ok("ela monta a composicao do mes", "composicao_do_mes(" in _corpo_dr)
-    ok("e a meta passa a ser o equilibrio",
-       "equilibrio_com_headcount" in _corpo_dr)
+    # A META DE FATURAMENTO SAI DA META DE GASTOS, e nao mais da margem de
+    # contribuicao do cadastro. A conta velha devolvia R$ 34.865 num mes de
+    # R$ 270 mil faturados, e a tela dizia "R$ 151 mil acima do ritmo"
+    # quando o certo era R$ 18 mil ABAIXO. Se alguem religar a meta na
+    # composicao, esta linha reprova.
+    ok("a meta vem da meta de gastos cadastrada",
+       "meta_gastos" in _corpo_dr and "linha_do_mes(" in _corpo_dr)
+    ok("dividida pelo que cai na conta", "equilibrio_caixa" in _corpo_dr)
+    ok("e NAO mais pela margem de contribuicao do cadastro",
+       '"meta": comp.get("equilibrio' not in _corpo_dr)
+    # O equilibrio do cadastro continua vindo — como SEGUNDA leitura, nao
+    # como meta. Apagar isto tiraria da tela quanto custa operar.
+    ok("o equilibrio do cadastro continua na tela, com nome proprio",
+       "composicao_do_mes(" in _corpo_dr and "operacional" in _corpo_dr)
+
+    # ── CARTAO SEM REGUA NAO DA VEREDITO ────────────────────────────────
+    #
+    # Quatro cartoes passavam o proprio valor como "necessario" e diziam
+    # "acima do necessario" para sempre. Eram dados de exemplo que ficaram.
+    _corpo_cards = inspect.getsource(dados_reais)
+    ok("nenhum cartao usa o proprio valor como regua",
+       'ind["lucro_bruto"],\n                  ind["lucro_bruto"]' not in _corpo_cards
+       and 'ind["uc"] or 0.0, ind["uc"] or 0.0' not in _corpo_cards
+       and 'ind["lpv"] or 0.0,\n                  ind["lpv"] or 0.0' not in _corpo_cards)
+    ok("devolver MAIS nao conta como bom",
+       "maior_melhor=False" in _corpo_cards)
+    ok("o lucro do mes corrente sai marcado como estimado",
+       "estimado=True" in _corpo_cards)
+    ok("e a regua de devolucao e um TETO sobre o faturado",
+       "TETO_DEVOLUCAO_PCT" in _corpo_cards)
+
+    _sem = {"rotulo": "LPV", "sub": "x", "realizado": 84.73,
+            "necessario": None, "fmt": "brl", "maior_melhor": True,
+            "acumula": False}
+    _html = _card(_sem, 14, 30)
+    ok("cartao sem regua nao desenha barra nem veredito",
+       "necessário" not in _html.lower() and "✔" not in _html)
+    ok("mas mostra o numero", "84,73" in _html)
+    ok("e diz que nao ha meta", "Sem meta definida" in _html)
+    ok("com 'estimado', a palavra aparece no cartao",
+       "estimado" in _card(dict(_sem, estimado=True), 14, 30))
+
+    # CARTAO DE TETO SE LE AO CONTRARIO. Devolucao de R$ 4.429 contra um teto
+    # de R$ 5.359 esta ABAIXO do teto — e a tela dizia "acima do necessario".
+    _teto = {"rotulo": "Devoluções", "sub": "x", "realizado": 4_429.10,
+             "necessario": 5_359.00, "fmt": "brl0", "maior_melhor": False,
+             "acumula": False}
+    _h = _card(_teto, 23, 30)
+    ok("dentro do teto, o cartao diz ABAIXO do teto",
+       "abaixo do teto" in _h and "acima do necessário" not in _h)
+    ok("e chama a regua de Teto, nao de Necessario",
+       "Teto" in _h and "Necessário" not in _h)
+    _h2 = _card(dict(_teto, realizado=9_000.0), 23, 30)
+    ok("passando do teto, ele grita", "ACIMA DO TETO" in _h2)
+    ok("e fica vermelho", VERMELHO in _h2)
 
     _corpo_cp = inspect.getsource(composicao_do_mes)
     ok("a composicao le o custo fixo, as assinaturas e as duas folhas",
