@@ -793,8 +793,6 @@ def dados_reais(ano, mes, dia):
     ind, erro_bv = _bv.media_recente(ano, mes, quantos=3)
     if erro_bv:
         avisos.append(f"BASE DE VENDAS: {erro_bv}")
-    if not ind:
-        return None, avisos
 
     fat_bling, avisos_bl = _faturamento_bling(ano, mes)
     avisos.extend(f"Bling: {a}" for a in (avisos_bl or []))
@@ -802,6 +800,24 @@ def dados_reais(ano, mes, dia):
     # O FATURAMENTO DA TELA É O DO BLING QUANDO ELE RESPONDE.
     # Sem ele, o da planilha — e a tela diz que é o da planilha, porque a
     # diferença entre "agora" e "até onde atualizaram" muda a leitura de tudo.
+    # UMA FONTE FORA DO AR NÃO DERRUBA A TELA INTEIRA.
+    #
+    # A Home bebe de TRÊS fontes independentes — Bling, BASE DE VENDAS e os
+    # extratos — e recusava desenhar qualquer coisa se uma falhasse. Foi o
+    # que aconteceu no ambiente de testes: o Drive não entregou o Controle
+    # MS e a tela virou uma caixa vermelha, escondendo o faturamento e o
+    # bloco de gastos, que estavam inteiros. Perder um pedaço é perder um
+    # pedaço; perder a tela é outra coisa.
+    if not ind and fat_bling is None:
+        return None, avisos
+    if not ind:
+        return {"dia": dia, "mes": mes, "ano": ano,
+                "fonte_faturamento": "Bling, em tempo real",
+                "sem_indicadores": True,
+                "faturamento": {"realizado": fat_bling, "meta": 0.0,
+                                "operacional": 0.0, "nao_operacional": 0.0},
+                "cards": []}, avisos
+
     realizado = fat_bling if fat_bling is not None else ind["faturamento_liquido"]
     fonte_fat = "Bling, em tempo real" if fat_bling is not None         else "BASE DE VENDAS (o Bling não respondeu)"
 
@@ -962,6 +978,19 @@ def pagina(usuario_logado=None, dados=None):
         return
 
     d = dados
+
+    if d.get("sem_indicadores"):
+        st.warning(
+            "**Os indicadores estão fora do ar, o resto não.** Lucro, margem, "
+            "LPV, UC e a meta de faturamento vêm da aba BASE DE VENDAS do "
+            "Controle MS, e ela não respondeu. O faturamento de agora e o "
+            "bloco de gastos continuam valendo.")
+        for _a in (_avisos or []):
+            st.caption(f"· {_a}")
+        st.metric("Faturado no mês", _brl(d["faturamento"]["realizado"], 0))
+        st.markdown("---")
+        _bloco_gastos(usuario_logado, d)
+        return
 
     _, _, _, dia, dias = ritmo(d)
     _bloco_faturamento(d)
@@ -1196,6 +1225,18 @@ if __name__ == "__main__":
     _h2 = _card(dict(_teto, realizado=9_000.0), 23, 30)
     ok("passando do teto, ele grita", "ACIMA DO TETO" in _h2)
     ok("e fica vermelho", VERMELHO in _h2)
+
+    # UMA FONTE FORA DO AR NAO DERRUBA A TELA. No ambiente de testes o Drive
+    # nao entregou o Controle MS e a Home virou uma caixa vermelha, escondendo
+    # o faturamento e o bloco de gastos, que estavam inteiros.
+    _dr = inspect.getsource(dados_reais)
+    ok("sem BASE DE VENDAS, a tela ainda entrega o que tem",
+       '"sem_indicadores": True' in _dr)
+    ok("so devolve None quando as DUAS fontes falham",
+       "if not ind and fat_bling is None:" in _dr)
+    _pg = inspect.getsource(pagina)
+    ok("e a pagina desenha os gastos mesmo sem indicadores",
+       'd.get("sem_indicadores")' in _pg and "_bloco_gastos(" in _pg)
 
     _corpo_cp = inspect.getsource(composicao_do_mes)
     ok("a composicao le o custo fixo, as assinaturas e as duas folhas",

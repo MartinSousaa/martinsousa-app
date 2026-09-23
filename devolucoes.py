@@ -462,6 +462,138 @@ def apagar(ids):
     return len(linhas), ""
 
 
+# ── Importar o histórico do Controle MS ─────────────────────────────────────
+
+ABA_HISTORICO = "DEVOLUÇÕES 2026"
+ABA_VENDAS = "BASE DE VENDAS 2026"
+
+# Como as colunas se chamam lá. Procuradas pelo NOME, nunca pela posição: a
+# planilha é mantida à mão desde 2023 e ganha coluna sem avisar.
+DE_PARA = {"data_solic": "DATA SOLIC", "pedido": "PEDIDO", "envios": "ENVIOS",
+           "usuario": "USUÁRIO", "nome": "NOME", "produto": "PRODUTO",
+           "quantidade": "QTT", "valor": "R$", "frete": "FRETE",
+           "motivo": "MOTIVO", "conta": "CONTA",
+           "conferencia": "CONFERÊNCIA", "situacao": "SITUAÇÃO",
+           "nf_devolucao": "NF DEVOLUÇÃO"}
+
+
+def _coluna(df, nome):
+    """A coluna pelo nome, ignorando acento e caixa. None quando não existe."""
+    alvo = _chave(nome)
+    for c in df.columns:
+        if _chave(c) == alvo:
+            return c
+    return None
+
+
+def itens_do_pedido(vendas, pedido):
+    """[{produto, sku, quantidade, valor, data, plataforma}] de um pedido."""
+    return [i for i in (vendas or {}).get(str(pedido or "").strip(), [])]
+
+
+def reconstruir(linha, itens):
+    """Completa a devolução do histórico com os itens que o VALOR indica.
+
+    Devolve (linha, nota). `nota` explica o que foi feito, e fica gravada —
+    daqui a seis meses ninguém lembra por que aquela linha tem dois produtos.
+
+    Três desfechos:
+        uma combinação fecha   -> produto e SKU vêm dos itens
+        mais de uma fecha      -> fica como veio, MARCADA para conferência
+        nenhuma fecha          -> fica como veio, sem nota (pedido fora da base)
+    """
+    r = dict(linha or {})
+    if not itens:
+        return r, ""
+    idx, ambiguo = combinacao_que_fecha(
+        [i.get("valor") for i in itens], r.get("valor"))
+    if ambiguo:
+        return r, ("Duas ou mais combinações de itens fecham este valor — "
+                   "não dá para saber qual produto voltou. Confira no pedido.")
+    if not idx:
+        r.setdefault("data_venda", texto_data(itens[0].get("data")))
+        return r, ""
+    j = juntar(itens, idx)
+    escrito = str(r.get("produto", "") or "").strip()
+    r.update({k: v for k, v in j.items() if v not in ("", 0, 0.0)})
+    nota = ""
+    if len(idx) > 1:
+        nota = (f"O nome escrito era «{escrito}»; o valor fecha com "
+                f"{len(idx)} itens do pedido, e são eles que estão aqui.")
+    return r, nota
+
+
+def do_controle_ms(limite=None):
+    """As devoluções do Controle MS, prontas para gravar. (linhas, avisos).
+
+    O histórico vira base: o preenchimento passa a ser no Studio. Por isso a
+    importação roda uma vez e é idempotente — reimportar não duplica, porque
+    a identidade sai de data + pedido + produto + valor.
+    """
+    import controle_ms as _cms
+    avisos = []
+    df, erro = _cms.ler(ABA_HISTORICO, limite=limite)
+    if erro:
+        return [], [f"Não consegui ler «{ABA_HISTORICO}»: {erro}"]
+
+    # A BASE DE VENDAS entra para reconstruir o que voltou nos pedidos de mais
+    # de um item. Sem ela a importação continua — só não conserta o nome.
+    vendas = {}
+    dfv, erro_v = _cms.ler(ABA_VENDAS)
+    if erro_v:
+        avisos.append(f"Sem «{ABA_VENDAS}» ({erro_v}), os pedidos de mais de "
+                      "um produto entram com o nome resumido que estiver lá.")
+    else:
+        cp = _coluna(dfv, "Pedido")
+        cols = {k: _coluna(dfv, v) for k, v in
+                (("produto", "Produto"), ("sku", "SKU"),
+                 ("quantidade", "Quantidade"),
+                 ("valor", "Total dos Produtos"), ("data", "Data"),
+                 ("plataforma", "Plataforma"))}
+        if cp:
+            for _, l in dfv.iterrows():
+                ped = str(l.get(cp, "") or "").strip()
+                if not ped:
+                    continue
+                vendas.setdefault(ped, []).append(
+                    {k: (l.get(c) if c else "") for k, c in cols.items()})
+
+    achadas = {k: _coluna(df, v) for k, v in DE_PARA.items()}
+    faltando = [DE_PARA[k] for k, c in achadas.items() if c is None]
+    if faltando:
+        avisos.append("Colunas que não achei e entraram vazias: "
+                      + ", ".join(faltando))
+
+    fora, ambiguas, reconstruidas = [], 0, 0
+    for _, l in df.iterrows():
+        reg = {k: (l.get(c) if c else "") for k, c in achadas.items()}
+        if not texto_data(reg.get("data_solic")):
+            continue                      # as 169 linhas vazias da planilha
+        reg = normalizar(reg)
+        reg, nota = reconstruir(reg, itens_do_pedido(vendas, reg["pedido"]))
+        if nota:
+            if "combinações" in nota:
+                ambiguas += 1
+                reg["status"] = nota
+            else:
+                reconstruidas += 1
+                reg["status"] = nota
+        # A identidade tem que ser recalculada DEPOIS de reconstruir: o
+        # produto mudou, e com ele a chave. Sem isto, reimportar criaria uma
+        # segunda linha para a mesma devolução.
+        reg["id"] = identidade(reg)
+        fora.append(reg)
+
+    if reconstruidas:
+        avisos.append(f"{reconstruidas} devolução(ões) de pedido com mais de "
+                      "um produto tiveram os itens reconstruídos pelo valor.")
+    if ambiguas:
+        avisos.append(f"⚠️ {ambiguas} ficaram AMBÍGUAS — mais de uma "
+                      "combinação de itens fecha o valor. Estão marcadas no "
+                      "Status, em aberto, para você conferir.")
+    return fora, avisos
+
+
 # ── Conferência ──────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -648,6 +780,46 @@ if __name__ == "__main__":
     pv = por_mes_da_venda(MES)
     ok("a devolução pertence ao mês da VENDA, não ao do pedido",
        pv["2026-07"] == round(29.99 + 99.00, 2) and pv["2026-08"] == 99.98)
+
+    # 10b. Reconstruir o que voltou — os casos REAIS do historico dele.
+    _urso = [{"produto": "Dupla De Ursos", "sku": "MS-2160", "quantidade": 1,
+              "valor": 66.34, "data": datetime(2026, 3, 11),
+              "plataforma": "MercadoLivre1"},
+             {"produto": "Kit 3 Mini Bailarinas", "sku": "MS-3114",
+              "quantidade": 1, "valor": 78.99, "data": datetime(2026, 3, 11),
+              "plataforma": "MercadoLivre1"}]
+    _r, _n = reconstruir({"produto": "URSINHOS", "valor": 66.34}, _urso)
+    ok("'URSINHOS' R$ 66,34 vira o produto certo, sozinho",
+       _r["produto"] == "Dupla De Ursos" and _r["sku"] == "MS-2160")
+    ok("e sem nota, porque nao houve nada a explicar", _n == "")
+
+    _meia = [{"produto": "Meião Masculino", "sku": "MS-901", "quantidade": 1,
+              "valor": 19.99, "data": datetime(2026, 8, 15),
+              "plataforma": "MercadoLivre2"}] * 2
+    _r2, _n2 = reconstruir({"produto": "MEIÃO", "valor": 39.98}, _meia)
+    ok("'MEIÃO' R$ 39,98 vira os DOIS meiões",
+       _r2["quantidade"] == 2 and _r2["valor"] == 39.98)
+    ok("e a nota conta que o nome escrito era outro",
+       "MEIÃO" in _n2 and "2 itens" in _n2)
+
+    _amb = [{"produto": "Máquina A4", "sku": "MS-500", "quantidade": 1,
+             "valor": 956.36, "data": datetime(2026, 8, 25),
+             "plataforma": "MercadoLivre1"}] * 2
+    _r3, _n3 = reconstruir({"produto": "MÁQUINA A4", "valor": 956.36}, _amb)
+    ok("o caso ambiguo NAO e resolvido no chute",
+       _r3["produto"] == "MÁQUINA A4" and "Duas ou mais" in _n3)
+
+    _r4, _n4 = reconstruir({"produto": "CARRINHO", "valor": 49.99}, [])
+    ok("pedido fora da BASE DE VENDAS fica como veio",
+       _r4["produto"] == "CARRINHO" and _n4 == "")
+
+    # A identidade e recalculada DEPOIS de reconstruir: o produto mudou, e com
+    # ele a chave. Sem isso, reimportar criaria uma segunda linha.
+    _antes = identidade({"data_solic": "2026-03-18", "pedido": "1",
+                         "produto": "URSINHOS", "valor": 66.34})
+    _depois = identidade(dict(_r, data_solic="2026-03-18", pedido="1"))
+    ok("reconstruir muda a identidade — por isso ela e refeita na importacao",
+       _antes != _depois)
 
     # 11. Gravar, editar, apagar.
     n, rep, erro = gravar(MES, "leo")
