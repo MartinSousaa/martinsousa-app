@@ -138,6 +138,12 @@ def _cheques(usuario_logado=None):
     _cht.pagina(usuario_logado)
 
 
+def _devolucoes(usuario_logado=None):
+    """O que voltou: quanto, por quê, de quem foi a culpa e o que está aberto."""
+    import devolucoes_tela as _dvt
+    _dvt.pagina(usuario_logado)
+
+
 def _fatura_ml(usuario_logado=None):
     """A fatura do ML: o que foi abatido, o que virou fatura, o que foi pago."""
     import fatura_ml_tela as _fml
@@ -150,6 +156,7 @@ SUBTELAS = {
     "💳 Extratos": _extratos,
     "🧾 Cheques": _cheques,
     "🛒 ADS-Cross": _fatura_ml,
+    "🔄 Devoluções": _devolucoes,
     "🏷️ Finalidades": _finalidades,
     "🧮 Balanço headcount": _balanco_headcount,
     "📈 Ajuste de valor": _ajuste_de_valor,
