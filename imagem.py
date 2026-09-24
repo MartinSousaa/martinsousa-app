@@ -648,7 +648,16 @@ def gerar_triagem_ia(nome_produto, tipos_selecionados, dados_descricao, instruco
     if not api_key:
         return None, "ANTHROPIC_API_KEY não configurada."
 
-    tipos_str = "\n".join(f"- {t}: {PRESETS.get(t,'')[:300]}..." for t in tipos_selecionados)
+    # NUMERADA PELA POSICAO, E DITO COM TODAS AS LETRAS.
+    #
+    # A IA reordenava e renomeava os tipos, e devolvia `numero` como a
+    # sequencia do plano DELA. So que `tipo_canonico` usa esse numero como
+    # indice na lista — entao o cartao "Caracteristicas Tecnicas" com
+    # numero 2 virava "2 — Beneficios do produto", e o infografico de medidas
+    # ia ao gerador com as regras de painel de beneficios.
+    tipos_str = "\n".join(
+        f"[{i}] {t}\n     {PRESETS.get(t, '')[:300]}..."
+        for i, t in enumerate(tipos_selecionados, 1))
 
     contexto_descricao = ""
     if dados_descricao:
@@ -691,8 +700,20 @@ PRODUTO: {nome_produto}
 FOTOS ENVIADAS: {len(fotos_bytes)} foto(s) de referência
 {f"INSTRUÇÕES EXTRAS: {instrucoes_extras}" if instrucoes_extras else ""}
 
-TIPOS A CRIAR:
+TIPOS A CRIAR — são estes, nesta ordem, e o número entre colchetes é o que
+vale:
 {tipos_str}
+
+REGRA DE IDENTIDADE DOS TIPOS, ANTES DE QUALQUER OUTRA COISA:
+- O campo "numero" é o NÚMERO ENTRE COLCHETES do tipo, e nada mais. Não é a
+  ordem do seu plano, não é uma contagem sua.
+- O campo "tipo" é o nome do tipo COPIADO LETRA POR LETRA da lista acima,
+  incluindo o prefixo "N — ". Não reescreva, não resuma, não melhore, não
+  traduza.
+- Devolva UM item por tipo, na MESMA ORDEM da lista. Não junte dois tipos num
+  item, não invente tipo que não está na lista, não troque a posição.
+- Isto não é formalidade: o Studio acha as regras de cada peça por esse
+  número. Número trocado gera a peça com as regras da peça errada.
 
 TAREFA: duas coisas, nesta ordem.
 
@@ -5524,11 +5545,22 @@ def pagina_imagem(usuario_logado):
             )
 
         # ── Itens viáveis ─────────────────────────────────────────────────────
+        # O TITULO DO CARTAO E O TIPO OFICIAL — E O QUE VAI DECIDIR AS REGRAS.
+        #
+        # O cartao mostrava o apelido que a IA inventou ("Caracteristicas
+        # Tecnicas"), e o Studio gerava pelo tipo que o `numero` apontava
+        # ("2 — Beneficios do produto"). Os dois divergiam e a tela escondia
+        # a divergencia: so dava para descobrir olhando a imagem pronta.
+        _tipos_cfg = cfg.get("tipos") or TIPOS_PADRAO
         for item in itens_viaveis:
             flags = item.get("flags", [])
+            _oficial = tipo_canonico(item, _tipos_cfg)
+            _apelido = str(item.get("tipo", "") or "").strip()
             with st.container(border=True):
                 col_title, col_flag = st.columns([5, 1])
-                col_title.markdown(f"**{item.get('numero', '')}. {item.get('tipo', '')}**")
+                col_title.markdown(f"**{_oficial}**")
+                if _apelido and _chave_tipo(_apelido) != _chave_tipo(_oficial):
+                    col_title.caption(f"a análise chamou de: “{_apelido}”")
                 if flags:
                     col_flag.caption("⚠️ aviso")
                 st.caption(item.get("composicao", ""))
@@ -5543,6 +5575,30 @@ def pagina_imagem(usuario_logado):
                 if flags:
                     with st.expander("Ver aviso", expanded=False):
                         st.warning(flags[0])
+
+        # ── O PLANO COBRE OS TIPOS PEDIDOS? ───────────────────────────────────
+        #
+        # A IA reordenou e renomeou, e dois itens caíram no mesmo tipo oficial:
+        # a peça de medidas foi gerada com as regras de painel de benefícios, e
+        # ninguém viu até a imagem ficar pronta. Isto deixa de ser silencioso.
+        _resolvidos = [tipo_canonico(_it, _tipos_cfg) for _it in itens_plano]
+        _repetidos = sorted({_t for _t in _resolvidos if _resolvidos.count(_t) > 1})
+        _faltando = [_t for _t in _tipos_cfg if _t not in _resolvidos]
+        if _repetidos or _faltando:
+            _linhas = []
+            if _repetidos:
+                _linhas.append("Dois ou mais cartões caíram no MESMO tipo: "
+                               + ", ".join(f"**{_t}**" for _t in _repetidos))
+            if _faltando:
+                _linhas.append("Tipo(s) pedido(s) que ficaram de fora: "
+                               + ", ".join(f"**{_t}**" for _t in _faltando))
+            st.error(
+                "⚠️ **A análise embaralhou os tipos.**\n\n"
+                + "\n\n".join(_linhas)
+                + "\n\nGerar assim entrega peça com as regras de outra peça — "
+                "infográfico de medidas com painel de benefícios, por exemplo. "
+                "Clique em **Analisar novamente** antes de confirmar."
+            )
 
         # ── Itens bloqueados (informação faltante) ────────────────────────────
         if itens_bloqueados:
