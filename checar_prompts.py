@@ -175,6 +175,22 @@ REGRAS = [
      "NEVER add people", TIPOS_COM_TEXTO[:5] + (TIPO_CAPA, TIPO_AMBIENTE),
      ("7 — Presenteie",)),
 
+    # A DIRECAO DE ARTE DECIDIDA UMA VEZ, HERDADA PELAS OITO.
+    #
+    # `PADRAO_VISUAL` mandava, nos OITO prompts, "escolha a paleta, a
+    # iluminacao, o cenario e os materiais". Oito pecas decidindo a estetica
+    # sozinhas — o dono chamou pelo nome: "6 direcoes de arte diferentes".
+    ("a direção de arte herdada", "JÁ DECIDIDA, NÃO SE DECIDE DE NOVO", None, ()),
+    ("a paleta-mãe", "PALETA-MÃE", None, ()),
+    ("a trava do produto na direção", "TRAVA DO PRODUTO", None, ()),
+    ("o risco de reflexo", "Risco de reflexo", None, ()),
+    ("as cenas diferentes entre as peças", "Cena desta peça",
+     TIPOS_COM_TEXTO, ()),
+    # E A ORDEM CONTRARIA NAO PODE SOBREVIVER AO LADO DELA.
+    ("a ordem de deduzir a paleta", "escolha a paleta", (), TODOS),
+    ("a frase de desempate", "The product NEVER adapts to the environment",
+     None, ()),
+
     ("o marcador de modo de fundo", "MS_FUNDO:", (), TODOS),
 ]
 
@@ -217,8 +233,30 @@ def _sem_streamlit():
 _DADOS = {"nome_comercial": "Produto de Teste", "cor": "preto",
           "medidas": "71x14x14", "peso": "350 g", "material": "Metal"}
 _PLANO = {"composicao": "produto à esquerda, cartões à direita",
+          "cena": "superfície de nogueira, caderno fechado, câmera em 3/4",
           "textos": ["Aquece rápido", "Cerâmica premium",
                      "Alça confortável", "Presente perfeito"]}
+
+# A DIRECAO DE ARTE DECIDIDA UMA VEZ, PARA AS OITO.
+_DIRECAO = {
+    "nome": "Executivo Quente Contemporâneo",
+    "posicionamento": "premium contemporâneo",
+    "atmosfera": "escritório sofisticado, quente e contido",
+    "paleta": {
+        "fundo":  {"nome": "Marfim Quente", "hex": "#F2EEE6"},
+        "painel": {"nome": "Pedra Quente", "hex": "#D5C9B8"},
+        "titulo": {"nome": "Grafite Espresso", "hex": "#292520"},
+        "apoio":  {"nome": "Nogueira", "hex": "#695445"},
+        "acento": {"nome": "Dourado Envelhecido", "hex": "#B18A4A"},
+    },
+    "materiais": ["nogueira escura", "travertino claro", "couro marrom"],
+    "luz": "quente-neutra, lateral suave, contraste médio",
+    "saturacao": "BAIXA",
+    "props_preferidos": ["caneta", "caderno fechado"],
+    "props_proibidos": ["planta grande", "papelaria colorida"],
+    "risco_de_reflexo": "MEDIO",
+    "trava_do_produto": "cerâmica azul cobalto, acabamento fosco",
+}
 
 
 def _foto():
@@ -266,7 +304,8 @@ def _prompts(tipo):
         pt = imagem.montar_prompt_imagem(
             tipo, "quero o produto virado para a direita" if tipo == TIPO_LIVRE else "",
             _DADOS, "Produto de Teste", plano_triagem=plano,
-            ambientacao="mesa de jantar" if tipo == TIPO_AMBIENTE else "")
+            ambientacao="mesa de jantar" if tipo == TIPO_AMBIENTE else "",
+            direcao_arte=_DIRECAO)
         imagem.gerar_imagem_ia(pt, [_foto()], tipo=tipo)
     finally:
         (imagem._chamar_openai_geracao,
@@ -374,6 +413,37 @@ def main():
         if not _img.preset_do_tipo(_oficial):
             print(f"FALHA  '{_rotulo_ia}' -> preset vazio")
             falhas += 1
+
+    # ── 4C. O PLANO DA TRIAGEM TEM DE ACHAR A PECA ─────────────────────────
+    #
+    # O indice do plano era feito com o rotulo que a IA inventou, e a busca
+    # vinha com o tipo canonico. Nunca casava — e a peca ia ao gerador sem a
+    # composicao planejada, sem a cena e sem a COPY EXATA. Sem copy exata o
+    # gerador volta a redigir a frase sozinho, que e de onde vieram
+    # "Portatile" e "apoliando" na tela do gestor.
+    _item_ia = {"numero": 2, "tipo": "Imagem de marketing — benefícios",
+                "composicao": "produto à esquerda", "cena": "nogueira, caneta",
+                "textos": ["AQUECE RAPIDO: em segundos"], "viavel": True}
+    _indice = {}
+    for _it in (_item_ia,):
+        _indice[_it.get("tipo", "")] = _it
+        _indice[_img.tipo_canonico(_it)] = _it
+    _tipo_ofc = _img.tipo_canonico(_item_ia)
+    _achado = _indice.get(_tipo_ofc)
+    if _achado is None:
+        print("FALHA  o plano da triagem nao e achado pelo tipo canonico — "
+              "a peca vai ao gerador sem composicao, sem cena e sem copy")
+        falhas += 1
+    else:
+        _p_plano = _img.montar_prompt_imagem(
+            _tipo_ofc, "", {"cor": "preto"}, "Produto de Teste",
+            plano_triagem=_achado, direcao_arte=_DIRECAO)
+        for _desc, _trecho in (("a copy exata", "AQUECE RAPIDO"),
+                               ("o bloco de texto exato", _img.MARCA_TEXTO_EXATO),
+                               ("a cena da peca", "nogueira, caneta")):
+            if _trecho not in _p_plano:
+                print(f"FALHA  {_desc} nao chega ao prompt da peca planejada")
+                falhas += 1
 
     # ── 5. TIPO QUE NAO APARECE EM REGRA NENHUMA PASSA LIVRE ───────────────
     _citados = set()
