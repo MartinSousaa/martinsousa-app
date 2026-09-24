@@ -5472,6 +5472,57 @@ def pagina_imagem(usuario_logado):
         itens_viaveis   = [item for item in itens_plano if item.get("viavel", True)]
         itens_bloqueados = [item for item in itens_plano if not item.get("viavel", True)]
 
+        # ── A DIREÇÃO DE ARTE, ANTES DE GASTAR ────────────────────────────────
+        #
+        # Ela era escrita só depois do clique em Confirmar, no meio da barra de
+        # progresso. Quem precisa conferir se a estética está certa é o dono, e
+        # o momento de conferir é ANTES da geração — depois já são oito peças
+        # pagas. O plano existe justamente para isso.
+        _dir_plano = plano.get("direcao_de_arte") or {}
+        if _dir_plano:
+            with st.container(border=True):
+                st.markdown(
+                    "🎨 **Direção de arte das 8** — "
+                    + str(_dir_plano.get("nome", "sem nome"))
+                    + (f" · {_dir_plano['posicionamento']}"
+                       if _dir_plano.get("posicionamento") else ""))
+                if _dir_plano.get("atmosfera"):
+                    st.caption(str(_dir_plano["atmosfera"]))
+                _pal = _dir_plano.get("paleta") or {}
+                if isinstance(_pal, dict) and _pal:
+                    # Tarja de cor em vez de nome de cor: ler "#D5C9B8" não diz
+                    # nada a ninguém, e é a paleta que decide o conjunto.
+                    _quadros = ""
+                    for _ch in ("fundo", "painel", "titulo", "apoio", "acento"):
+                        _c = _pal.get(_ch) or {}
+                        _hex = str(_c.get("hex", "") or "").strip()
+                        if not _hex.startswith("#"):
+                            continue
+                        _quadros += (
+                            f"<span style='display:inline-block;width:56px;"
+                            f"height:26px;background:{_hex};border-radius:5px;"
+                            f"margin-right:6px;border:1px solid #0003' "
+                            f"title='{_ch}: {_c.get('nome','')} {_hex}'></span>")
+                    if _quadros:
+                        st.markdown(_quadros, unsafe_allow_html=True)
+                        st.caption(" · ".join(
+                            f"{_ch}: {(_pal.get(_ch) or {}).get('nome', '')}"
+                            for _ch in ("fundo", "painel", "titulo", "apoio", "acento")
+                            if (_pal.get(_ch) or {}).get("nome")))
+                _mat = _dir_plano.get("materiais")
+                if isinstance(_mat, list) and _mat:
+                    st.caption("Materiais: " + ", ".join(str(m) for m in _mat))
+                if _dir_plano.get("luz"):
+                    st.caption("Luz: " + str(_dir_plano["luz"]))
+                if _dir_plano.get("trava_do_produto"):
+                    st.caption("Trava do produto: " + str(_dir_plano["trava_do_produto"]))
+        else:
+            st.info(
+                "Este plano não tem direção de arte — cada peça vai deduzir a "
+                "própria paleta, que é o comportamento antigo. Clique em "
+                "**Analisar novamente** para a triagem decidir uma só para as oito."
+            )
+
         # ── Itens viáveis ─────────────────────────────────────────────────────
         for item in itens_viaveis:
             flags = item.get("flags", [])
@@ -5481,6 +5532,11 @@ def pagina_imagem(usuario_logado):
                 if flags:
                     col_flag.caption("⚠️ aviso")
                 st.caption(item.get("composicao", ""))
+                # A cena e o que impede as oito de sairem com a mesma mesa. Se
+                # duas vierem iguais, da para ver aqui — antes de pagar.
+                _cena_item = str(item.get("cena", "") or "").strip()
+                if _cena_item:
+                    st.caption("🎬 Cena: " + _cena_item)
                 textos = item.get("textos", [])
                 if textos:
                     st.caption("Textos: " + " · ".join(f'"{t}"' for t in textos[:4]))
