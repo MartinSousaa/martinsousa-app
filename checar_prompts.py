@@ -159,6 +159,22 @@ REGRAS = [
     ("o bloco de protagonismo da capa", "O PRODUTO PREENCHE O QUADRO",
      (TIPO_CAPA,), (TIPO_AMBIENTE,)),
 
+    # O PRESENTEIE E A UNICA PECA QUE PEDE FIGURA HUMANA.
+    #
+    # Pedido do dono: "uma pessoa entregando o produto como presente para
+    # outra". A linha generica em ingles abre com "NEVER add people", e numa
+    # peca que EXISTE para ter duas pessoas isso e a ordem contraria. As duas
+    # nunca podem estar na mesma mensagem.
+    ("a cena de entrega do presente", "DUAS PESSOAS na cena",
+     ("7 — Presenteie",), (TIPO_CAPA, TIPO_AMBIENTE)),
+    ("o par que combina com o produto", "O PAR SAI DO PRODUTO",
+     ("7 — Presenteie",), (TIPO_CAPA, TIPO_AMBIENTE)),
+    ("as pessoas exigidas tambem em ingles", "PEOPLE ARE REQUIRED",
+     ("7 — Presenteie",), (TIPO_CAPA, TIPO_AMBIENTE) + TIPOS_COM_TEXTO[:5]),
+    ("a proibicao generica de pessoas fora do Presenteie",
+     "NEVER add people", TIPOS_COM_TEXTO[:5] + (TIPO_CAPA, TIPO_AMBIENTE),
+     ("7 — Presenteie",)),
+
     ("o marcador de modo de fundo", "MS_FUNDO:", (), TODOS),
 ]
 

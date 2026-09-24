@@ -168,8 +168,12 @@ OCUPACAO = {
         "The text panels occupy a dedicated zone of the remaining frame — they never "
         "overlap the product, and the product is never shrunk to make room for them. "
         "If the text does not fit in its zone, write FEWER blocks."),
-    7: (55, 70,
-        "Full product: preferably YES. Gift props frame the product, never crowd it."),
+    7: (30, 45,
+        "This is a HANDOVER SCENE with two people, so the product does not fill the "
+        "frame — it leads by position and focus: front and centre between the hands, "
+        "sharp, fully visible and uncropped, while the people stay softer behind it. "
+        "Full product: YES. Never enlarge the product beyond its real scale in the "
+        "hands that hold it."),
     # A ambientacao NAO tem faixa: o tamanho dela e a escala real do objeto no
     # ambiente. Por um numero aqui e o produto volta gigante.
     8: None,
@@ -577,10 +581,25 @@ PRESETS = {
         "Visual arejado, muito whitespace, fundo e paleta deduzidos do produto e da ocasião."
     ),
     "7 — Presenteie": (
-        "IMAGEM EMOCIONAL — PRESENTEAR: composição elegante com produto como presente especial. "
-        "Contexto visual de presente: laço de fita, embrulho decorativo, ou cena de entrega. "
-        "Frase grande e impactante em destaque: 'Presenteie com' + nome do produto, ou frase emotiva. "
-        "Visual limpo, clean, tons suaves e elegantes — produto e contexto de presente como únicos elementos. "
+        "IMAGEM EMOCIONAL — A ENTREGA DO PRESENTE: DUAS PESSOAS na cena, uma "
+        "ENTREGANDO o produto à outra como presente. Não é o produto sozinho com um "
+        "laço: é o momento da entrega, com as mãos de quem dá e de quem recebe "
+        "visíveis e o produto entre elas. "
+        "O PAR SAI DO PRODUTO, não de uma escolha aleatória — deduza das fotos e dos "
+        "dados para quem este produto é: "
+        "produto infantil, um pai ou mãe entregando ao filho ou filha; "
+        "produto de adulto, um homem entregando a uma mulher; "
+        "quando as fotos e os dados não permitirem decidir, duas pessoas adultas numa "
+        "entrega afetuosa, sem forçar relação nenhuma. "
+        "O produto aparece INTEIRO e NÍTIDO, no primeiro plano, entre as mãos — nunca "
+        "escondido pelos dedos, nunca cortado, nunca desfocado. As pessoas são o "
+        "contexto: enquadre do tronco para baixo, ou com os rostos suaves e em segundo "
+        "plano, para que o olho vá ao produto primeiro. "
+        "Contexto visual de presente — embrulho, fita ou caixa — quando fizer sentido "
+        "para o produto, sempre secundário à entrega. "
+        "Frase grande e impactante em destaque: \'Presenteie com\' + nome do produto, "
+        "ou frase emotiva. "
+        "Visual limpo, tons suaves e elegantes, luz natural. "
         "Se nenhuma frase específica foi fornecida, crie uma frase genérica adequada ao produto."
     ),
     # A contradição morava AQUI também, e não só no bloco de padrão visual:
@@ -2182,6 +2201,10 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
     # recebia as duas e escolhia.
     _product_dominance_rule = ocupacao_em_ingles(_tipo_str)
 
+    # O Presenteie e a UNICA peca do padrao que pede figura humana, e o pedido
+    # e do dono: "uma pessoa entregando o produto como presente para outra".
+    _pede_pessoas = numero_do_tipo(_tipo_str) == 7
+
     # Referencia de layout nao se aplica a foto limpa.
     #
     # A capa e o produto sobre branco puro; a ambientacao e a cena real. O
@@ -2339,7 +2362,16 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
         f"- Example: do NOT place 20 drill bits next to a drill — this implies they are included\n"
         f"- Only include accessories explicitly mentioned in product data or user brief\n\n"
         f"ADDITIONAL RULES:\n"
-        f"- NEVER add people or human figures unless the image type or collaborator brief explicitly requests them\n"
+        + (
+            "- PEOPLE ARE REQUIRED in this image type: two people, one handing the "
+            "product to the other. The pair must match the product's audience, as "
+            "SECTION 1 defines. Hands and the product must read clearly; faces stay "
+            "secondary.\n"
+            if _pede_pessoas else
+            "- NEVER add people or human figures unless the image type or collaborator "
+            "brief explicitly requests them\n"
+        )
+        +
         f"- All text visible in the image must be in Brazilian Portuguese\n"
         f"- Generate a completely new professional image — not a literal copy of any reference photo"
     )
