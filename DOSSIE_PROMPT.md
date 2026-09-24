@@ -1,15 +1,64 @@
 # Dossiê do prompt de imagem — o que tem de estar, e por quê
 
-Este documento existe para que uma sessão do Claude consiga **julgar** um
-prompt do MS Studio, e não apenas descrevê-lo. Julgar exige saber o que cada
-pedaço deveria conter, de onde ele vem, e qual prejuízo nasceu quando ele
-faltou.
+Este documento existe para que o Claude consiga **julgar** um prompt do MS
+Studio, e não apenas descrevê-lo. Julgar exige saber o que cada pedaço deveria
+conter, de onde ele vem, e qual prejuízo nasceu quando ele faltou.
 
-> Regra que vale acima de tudo o que está escrito aqui: **nada neste arquivo
-> substitui o código.** Toda afirmação abaixo traz o `arquivo:linha` que a
-> sustenta. Se o código e este documento discordarem, **o código está certo e
-> este documento está velho** — corrija o documento, e acrescente a regra em
-> `checar_prompts.py` para que a discordância nunca mais passe calada.
+---
+
+## LEIA ISTO PRIMEIRO — o que você pode afirmar
+
+Este dossiê é lido em dois lugares muito diferentes. **Descubra em qual você
+está antes de continuar.**
+
+### Se você está numa CONVERSA, e este documento foi anexado
+
+Você **não** tem o código. Você tem: este dossiê e os prompts que o dono
+colar ou anexar. Então:
+
+**O que você PODE afirmar, lendo só o prompt:**
+
+- que dois números se contradizem — duas faixas de ocupação, dois tetos de
+  blocos, duas contagens de texto;
+- que uma ordem e a contraordem estão na mesma mensagem — "escolha a paleta"
+  ao lado de uma paleta já decidida; "nenhum texto" ao lado de "escreva X";
+  "NEVER add people" numa peça que pede duas pessoas;
+- que um bloco obrigatório da seção 2 deste dossiê **não está** no prompt;
+- que um trecho proibido **está** — cor de marca fixa, lista pronta de
+  cômodos, `{faixa}` e outros buracos de molde vazados;
+- que o `IMAGE TYPE:` não bate com o conteúdo da peça;
+- que as oito peças do mesmo produto repetem cenário, props ou ângulo.
+
+Tudo isso se vê **no texto do prompt**, e é a maior parte dos defeitos.
+
+**O que você NÃO pode afirmar, e não deve fingir:**
+
+- que rodou qualquer comando. Você não rodou. Os comandos citados aqui são
+  para quem tem o repositório;
+- que conferiu um `arquivo:linha`. As referências existem para o dono saber
+  onde mandar corrigir — você não as leu;
+- que a imagem vai sair certa. O prompt certo não garante a imagem certa;
+- que uma paleta é "boa" para o produto sem ver a foto dele. Se a foto não
+  foi anexada, diga que depende dela.
+
+**Quando faltar informação, declare a dúvida.** Palpite que acerta não
+economiza nada; palpite que erra custa um deploy.
+
+**Como entregar o achado.** Um por linha, nesta forma — é o que permite
+corrigir sem ida e volta:
+
+```
+SEÇÃO / peça   →   o que está escrito   →   por que é defeito   →   o que deveria estar
+```
+
+### Se você está numa sessão com o REPOSITÓRIO
+
+Vale tudo o que está acima, mais os comandos das seções 6.1 e 6.5, e mais uma
+regra: **nada neste arquivo substitui o código.** Toda afirmação traz o
+`arquivo:linha` que a sustenta. Se o código e este documento discordarem, **o
+código está certo e este documento está velho** — corrija o documento, e
+acrescente a regra em `checar_prompts.py` para que a discordância nunca mais
+passe calada.
 
 ---
 

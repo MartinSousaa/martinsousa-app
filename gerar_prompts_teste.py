@@ -368,6 +368,10 @@ def main():
                          "quatro). Padrão: album")
     ap.add_argument("--listar", action="store_true",
                     help="lista os cenários e os produtos, e sai")
+    ap.add_argument("--anexo", action="store_true",
+                    help="além dos .txt, escreve UM .md por produto+cenário "
+                         "com as nove peças dentro — para anexar numa conversa "
+                         "do Claude, que não lê o repositório")
     args = ap.parse_args()
 
     if args.listar:
@@ -421,6 +425,7 @@ def main():
               "— está em `DOSSIE_PROMPT.md`.",
               ""]
     total = 0
+    anexo = []
     for produto in produtos:
         indice += [f"# Produto: {PRODUTOS[produto]['dados']['nome_comercial']}",
                    "", f"_{PRODUTOS[produto]['_porque']}_", ""]
@@ -446,8 +451,36 @@ def main():
                         encoding="utf-8").write(en)
                 indice.append(f"| `{produto}/{cenario}/{base}_ENVIADO.txt` "
                               f"| {tipo} | {len(en)} |")
+                if args.anexo:
+                    anexo.append(f"\n\n## Peça {numero if numero else 'P'} — {tipo}\n")
+                    anexo.append(f"_{len(en)} caracteres._\n")
+                    anexo.append("```\n" + en + "\n```\n")
                 total += 1
             indice.append("")
+            if args.anexo:
+                # UM ARQUIVO POR PRODUTO+CENARIO, PARA ANEXAR NA CONVERSA.
+                #
+                # Quem analisa numa conversa do Claude nao le o repositorio e
+                # nao roda script: so enxerga o que for anexado. Trinta e seis
+                # .txt soltos nao se anexam; um .md com as nove pecas, sim.
+                _cab = [
+                    f"# Prompts enviados — {PRODUTOS[produto]['dados']['nome_comercial']}",
+                    "",
+                    f"**Cenário:** `{cenario}` — {CENARIOS[cenario]}",
+                    "",
+                    f"**Produto:** {PRODUTOS[produto]['_porque']}",
+                    "",
+                    "Estes são os textos EXATOS que o MS Studio enviaria ao "
+                    "motor de imagem. Nenhuma imagem foi gerada.",
+                    "",
+                    "Leia junto com `DOSSIE_PROMPT.md`, que diz o que cada "
+                    "seção TEM de conter e o que NÃO PODE.",
+                ]
+                io.open(os.path.join(args.saida,
+                                     f"ANEXO_{produto}_{cenario}.md"),
+                        "w", encoding="utf-8").write(
+                    "\n".join(_cab) + "".join(anexo) + "\n")
+                anexo = []
 
     io.open(os.path.join(args.saida, "_INDICE.md"), "w",
             encoding="utf-8").write("\n".join(indice) + "\n")
