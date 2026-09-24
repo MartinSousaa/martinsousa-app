@@ -30,10 +30,20 @@ PASSO A PASSO
 2. Preencha "Nome do produto".
 3. Marque "As 8 imagens do padrao".
 4. Suba as fotos do produto.
-5. **Suba tambem uma imagem em "Imagens de referencia de LAYOUT"** — nesta
-   rodada ela e obrigatoria para o teste. Serve qualquer peca de marketing de
-   outra loja, de preferencia uma que tenha cor forte e pessoas: e isso que
-   coloca o filtro a prova.
+5. **Suba tambem uma imagem em "Imagens de referencia de LAYOUT"** — ela e
+   obrigatoria para o teste do filtro. Serve qualquer peca de marketing de
+   outra loja, de preferencia uma com cor forte e pessoas: e isso que coloca o
+   filtro a prova.
+
+   **O NOME DO ARQUIVO IMPORTA, E ISSO NAO ESTAVA ESCRITO AQUI.** A tela
+   recusa a referencia quando o nome nao casa com nenhuma peca, e avisa:
+   "nao serao usados porque o nome nao corresponde a nenhuma peca". Use uma
+   destas palavras no nome: beneficios, medidas, presente, cenario, close,
+   objecao, ambiente ou capa.
+
+   Se o arquivo for recusado, o bloco de layout tambem some — e pelo motivo
+   errado. E um TERCEIRO desfecho, e confundi-lo com o filtro funcionando ja
+   custou uma analise.
 6. Se tiver referencias de AMBIENTACAO, pode subir — mas se a analise demorar,
    veja a PARTE A3 antes de recarregar.
 7. Clique em "Analisar e mostrar plano antes de gerar".

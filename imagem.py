@@ -656,6 +656,11 @@ PRESETS = {
         "Recorte e amplie UMA área específica do produto: textura do material, acabamento, encaixe, "
         "mecanismo, superfície, ou detalhe que justifique qualidade e diferencial. "
         "Fundo desfocado (bokeh) com produto em foco nítido no primeiro plano. "
+        "A MONTAGEM TEM NOME, E ELE ESTÁ NOS DADOS: se o campo de material disser "
+        "espiral, Wire-O, costura, colagem, rebite ou encaixe, é ESSA a montagem "
+        "que aparece no close. Não escreva nem desenhe outra — um álbum de espiral "
+        "ampliado numa costura que ele não tem é a pior imagem possível desta peça, "
+        "porque é justamente a que existe para provar a construção. "
         "A SUPERFÍCIE É A DAS FOTOS, NÃO UMA INVENTADA: aproxime APENAS de uma área "
         "que apareça nítida nas fotos de referência, e reproduza o relevo, a "
         "granulação, as marcas e as manchas exatamente como estão lá. Não acrescente "
@@ -905,6 +910,13 @@ PORTUGUÊS EM TODOS OS CAMPOS, E NÃO SÓ NA COPY:
   "background desfocado" — em campos que ninguém estava conferindo.
 - Escreva "momentos", "sem dureza", "ao fundo". Nome de cor, de material e de
   tipografia seguem a mesma regra.
+
+A MONTAGEM SÓ TEM O NOME QUE OS DADOS DEREM:
+- Se o campo de material nomear a montagem — espiral, Wire-O, costura, colagem,
+  rebite, encaixe —, use ESSE nome. Não troque por outro que soe parecido.
+- Se os dados NÃO nomearem a montagem, não invente uma: escreva "a montagem
+  visível nas fotos". A peça de close existe para provar a construção, e
+  ampliar uma costura num álbum de espiral é o pior erro que ela pode ter.
 
 O CAMPO "trava_do_produto" CONSTATA, NUNCA DEDUZ:
 - Escreva o que as fotos MOSTRAM: material, acabamento, geometria, montagem.
@@ -1561,10 +1573,33 @@ def motivos_para_descartar_layout(texto):
     return motivos
 
 
+# O ULTIMO DESCARTE, PARA A TELA PODER CONTAR.
+#
+# O filtro jogava a descricao fora em silencio. O colaborador subia uma
+# referencia de layout, ela ia para o lixo, e ele achava que o layout tinha
+# sido copiado — as oito pecas saiam sem orientacao de composicao nenhuma e
+# ninguem ficava sabendo que pagou esse preco.
+#
+# Vive no processo, como o modelo descoberto: a tela le logo depois de montar
+# o prompt, e um registro por container basta.
+_ULTIMO_DESCARTE_LAYOUT = {"motivo": "", "trecho": ""}
+
+
+def descarte_de_layout():
+    """O ultimo descarte de descricao de layout. {} quando nao houve."""
+    return dict(_ULTIMO_DESCARTE_LAYOUT) if _ULTIMO_DESCARTE_LAYOUT["motivo"] else {}
+
+
+def esquecer_descarte_de_layout():
+    _ULTIMO_DESCARTE_LAYOUT.update({"motivo": "", "trecho": ""})
+
+
 def limpar_descricao_de_layout(texto):
     """A descricao, ou "" quando ela desobedeceu as regras do pedido."""
     motivos = motivos_para_descartar_layout(texto)
     if motivos:
+        _ULTIMO_DESCARTE_LAYOUT.update(
+            {"motivo": "; ".join(motivos), "trecho": str(texto)[:200]})
         try:
             import log_imagem
             log_imagem.registrar(
@@ -2878,8 +2913,11 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
             "\n\nIMAGENS ENVIADAS — o que é cada uma:\n"
             f"- As primeiras imagens são FOTOS DO PRODUTO REAL. Reproduza o produto "
             f"exatamente como aparece nelas: cor, forma, proporções, acabamento.\n"
-            f"- A ÚLTIMA imagem é apenas REFERÊNCIA DE LAYOUT (arquivo "
-            f"\"{_ref_layout_nome}\"). Use dela SOMENTE a composição: posição dos "
+            # O nome do arquivo saiu daqui tambem: a ordem ja identifica a
+            # referencia, e o nome era porta para objeto e pessoa entrarem.
+            f"- A ÚLTIMA imagem é apenas REFERÊNCIA DE LAYOUT (a última das "
+            f"enviadas"
+            f"). Use dela SOMENTE a composição: posição dos "
             f"blocos, hierarquia, estilo dos textos, uso do espaço.\n"
             f"- PROIBIDO copiar o produto, as cores do produto, marcas ou textos da "
             f"imagem de referência de layout. O produto da peça final é o das "
@@ -3725,8 +3763,22 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
     # Bloco de referências de layout
     bloco_refs = ""
     if refs_layout_nomes:
-        nomes_str = ", ".join(refs_layout_nomes)
-        bloco_refs = f"\nREFERÊNCIAS DE LAYOUT FORNECIDAS: {nomes_str}"
+        # O NOME DO ARQUIVO NAO VAI AO MODELO. ELE E PORTA DE ENTRADA.
+        #
+        # A referencia subida numa analise se chamava `ref_cinzeiro_casal.png`,
+        # e "cinzeiro" e "casal" entraram nos oito prompts: um nome de objeto
+        # e uma palavra de pessoa — exatamente o que
+        # `limpar_descricao_de_layout` existe para remover da descricao.
+        #
+        # O filtro limpava a descricao e deixava o nome passar ao lado dela.
+        # Higienizar o nome seria caçar as mesmas palavras num segundo lugar;
+        # o conserto barato e ele nao ir. O modelo ja sabe qual imagem e a
+        # referencia pela ORDEM — ela vai sempre por ultimo, e o prompt diz
+        # isso com todas as letras. O nome do arquivo nao acrescenta nada a
+        # ele; serve so aqui dentro, para `ref_layout_do_tipo` casar a
+        # referencia com a peca.
+        bloco_refs = (f"\nREFERÊNCIAS DE LAYOUT FORNECIDAS: "
+                      f"{len(refs_layout_nomes)} imagem(ns)")
         if instrucao_layout:
             bloco_refs += f"\nO que cada referência representa: {instrucao_layout}"
         bloco_refs += f"\n{INSTRUCAO_REFERENCIA_LAYOUT}"
@@ -6123,6 +6175,16 @@ def pagina_imagem(usuario_logado):
             st.rerun()
         if _ver_prompts:
             _c_btn2.caption("não gera imagem · não gasta geração")
+            # O DESCARTE DA REFERENCIA DEIXA DE SER SILENCIOSO.
+            #
+            # A descricao da referencia de layout e jogada fora quando menciona
+            # cor, paleta ou pessoa — e ate agora isso acontecia calado. Quem
+            # subiu a imagem achava que o layout tinha sido copiado, e as oito
+            # pecas saiam sem orientacao de composicao nenhuma.
+            #
+            # A leitura vem DEPOIS de montar os prompts: e ali que o filtro
+            # roda. Por isso o aviso mora junto do botao, e nao no topo.
+            esquecer_descarte_de_layout()
 
         for item in itens_viaveis:
             flags = item.get("flags", [])
@@ -6176,6 +6238,21 @@ def pagina_imagem(usuario_logado):
                             "lido delas é acrescentado no fim."
                         )
                         st.code(_en_peca, language=None)
+
+        _desc = descarte_de_layout() if _ver_prompts else {}
+        if _desc:
+            st.warning(
+                "🧹 **A descrição da referência de layout foi descartada.**\n\n"
+                "Ela voltou mencionando " + _desc["motivo"] + ", e isso entraria "
+                "no prompt logo acima da linha que proíbe copiar cor, produto e "
+                "pessoas da referência — foi assim que um prompt de caneca "
+                "ganhou \"chaleira vermelha\".\n\n"
+                "**O preço:** as peças ficam sem a orientação de composição "
+                "dessa referência. A imagem foi enviada ao gerador; a descrição "
+                "dela, não.\n\n"
+                "Para aproveitar a referência, suba uma peça de layout mais "
+                "neutra — sem pessoas e sem cor dominante."
+            )
 
         # ── O PLANO COBRE OS TIPOS PEDIDOS? ───────────────────────────────────
         #
