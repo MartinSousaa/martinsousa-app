@@ -222,6 +222,18 @@ REGRAS = [
     ("a ordem de deixar respiro nas bordas", "respiro nas bordas", (), TODOS),
     ("o pedido de muito whitespace", "muito whitespace", (), TODOS),
 
+    # O NOME DO ARQUIVO DA REFERENCIA ERA PORTA DE ENTRADA.
+    #
+    # A referencia subida numa analise se chamava `ref_cinzeiro_casal.png`, e
+    # "cinzeiro" e "casal" entraram nos oito prompts — um nome de objeto e uma
+    # palavra de pessoa, exatamente o que o filtro da descricao existe para
+    # remover. O filtro limpava a descricao e deixava o nome passar ao lado.
+    ("o nome cru do arquivo de referência", ".png", (), TODOS),
+    ("o objeto que vinha no nome do arquivo", "cinzeiro", (), TODOS),
+    ("a pessoa que vinha no nome do arquivo", "casal", (), TODOS),
+    ("e a referência ainda é anunciada, sem nome",
+     "REFERÊNCIAS DE LAYOUT FORNECIDAS", None, ()),
+
     ("o marcador de modo de fundo", "MS_FUNDO:", (), TODOS),
 ]
 
@@ -340,10 +352,19 @@ def _prompts(tipo):
     imagem._get_openai_api_key = lambda: "sk-varredura"
     try:
         plano = None if tipo in (TIPO_CAPA, TIPO_AMBIENTE, TIPO_LIVRE) else _PLANO
+        # O NOME DA REFERENCIA ENTRA ENVENENADO, DE PROPOSITO.
+        #
+        # Sem referencia nenhuma, a regra que proibe o nome cru no prompt nao
+        # protege nada: ela passa porque nao ha nome. Guarda vazia e o defeito
+        # que esta base ja documentou tres vezes.
+        #
+        # `ref_cinzeiro_casal.png` e o nome real que levou "cinzeiro" e
+        # "casal" para os oito prompts.
         pt = imagem.montar_prompt_imagem(
             tipo, "quero o produto virado para a direita" if tipo == TIPO_LIVRE else "",
             _DADOS, "Produto de Teste", plano_triagem=plano,
             ambientacao="mesa de jantar" if tipo == TIPO_AMBIENTE else "",
+            refs_layout_nomes=["ref_cinzeiro_casal.png"],
             direcao_arte=_DIRECAO)
         imagem.gerar_imagem_ia(pt, [_foto()], tipo=tipo)
         # O PREVIEW, MONTADO AQUI DENTRO.
