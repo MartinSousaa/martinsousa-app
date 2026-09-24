@@ -740,7 +740,17 @@ PRESETS = {
 def gerar_triagem_ia(nome_produto, tipos_selecionados, dados_descricao, instrucoes_extras, fotos_bytes):
     """Pede para a IA analisar o que ela criaria para cada tipo de imagem,
     ANTES de gastar com a geração real. Retorna lista de dicts com o plano."""
-    api_key = st.secrets.get("ANTHROPIC_API_KEY", "") or os.environ.get("ANTHROPIC_API_KEY", "")
+    # PELA FUNCAO, E NAO POR `st.secrets.get` DIRETO.
+    #
+    # `st.secrets.get` nao e dicionario comum: sem arquivo de secrets ele
+    # LEVANTA em vez de devolver o padrao — e o `or os.environ.get(...)` que
+    # vinha depois nunca chegava a rodar. Numa maquina que guarda a chave so
+    # em variavel de ambiente, a triagem morria com
+    # `StreamlitSecretNotFoundError` em vez de usar a chave que estava la.
+    #
+    # `_chave_anthropic` existe exatamente por isso, e o comentario dela
+    # descreve esta armadilha. Tres lugares nao a usavam.
+    api_key = _chave_anthropic()
     if not api_key:
         return None, "ANTHROPIC_API_KEY não configurada."
 
@@ -1196,7 +1206,9 @@ def _gerar_imagem_thread(prompt_texto, imagens_ref, resultado, refs_layout=None,
 
 def _get_gemini_api_key():
     """Retorna a GEMINI_API_KEY das secrets ou variável de ambiente."""
-    key = st.secrets.get("GEMINI_API_KEY", "") or os.environ.get("GEMINI_API_KEY", "")
+    # Mesma armadilha do `st.secrets.get` que levanta sem arquivo de secrets.
+    import chaves as _ch_gem
+    key = _ch_gem.ler("GEMINI_API_KEY")
     return key
 
 
@@ -1250,7 +1262,7 @@ def _descrever_produto_via_claude(imagens_referencia, nome_produto="produto", da
     Esta é a peça mais crítica da nova arquitetura: a qualidade da descrição
     determina diretamente a qualidade da imagem gerada.
     """
-    api_key = st.secrets.get("ANTHROPIC_API_KEY", "") or os.environ.get("ANTHROPIC_API_KEY", "")
+    api_key = _chave_anthropic()
 
     descricao_produto = f"Product: {nome_produto}. Visual details not available."
     estilo_layout = ""
@@ -5905,6 +5917,24 @@ def pagina_imagem(usuario_logado):
                             "A geração das imagens continua funcionando normalmente; você "
                             "só não vai ver o plano de criação antes."
                         )
+                    elif "timeout" in _e_txt.lower() or "timed out" in _e_txt.lower():
+                        # O TEMPO ESGOTADO TEM CONSELHO PROPRIO.
+                        #
+                        # Antes a espera era infinita: uma analise ficou sete
+                        # minutos no spinner sem plano e sem erro, e quem
+                        # estava na tela recarregou achando que tinha travado.
+                        # Agora ela morre em tres minutos — e morrer sem dizer
+                        # o que fazer seria trocar um silencio por outro.
+                        st.warning(
+                            "⏱️ A análise passou de 3 minutos e foi encerrada. "
+                            "Costuma ser volume de imagem: cada foto e cada "
+                            "referência de ambientação entra na leitura.\n\n"
+                            "**Você pode gerar assim mesmo** — o plano abaixo "
+                            "traz os tipos escolhidos, só sem a prévia.\n\n"
+                            "Para ter a prévia: clique em **Analisar "
+                            "novamente** com menos referências de ambientação, "
+                            "ou com fotos menores."
+                        )
                     else:
                         st.warning(
                             f"⚠️ Não consegui montar a prévia do plano, mas você pode gerar "
@@ -5913,7 +5943,11 @@ def pagina_imagem(usuario_logado):
                     plano = {
                         "plano": [
                             {"tipo": _t, "numero": _i + 1, "composicao": "",
-                             "textos": [], "flags": [], "viavel": True,
+                             # `cena` existe aqui tambem, para o plano neutro
+                             # ter a mesma forma do plano cheio: campo que
+                             # existe num e falta no outro e o comeco de um
+                             # `KeyError` tres telas adiante.
+                             "cena": "", "textos": [], "flags": [], "viavel": True,
                              "pergunta_info": ""}
                             for _i, _t in enumerate(tipos_selecionados)
                         ],
