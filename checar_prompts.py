@@ -317,6 +317,48 @@ def main():
                   f"contrarios ao motor: {sorted(tetos)}")
             falhas += 1
 
+    # ── 4B. O ROTULO QUE A IA INVENTA TEM DE VOLTAR AO TIPO OFICIAL ────────
+    #
+    # A IA do plano reescreve o nome: "8 — Ambientacao realista (sem texto)"
+    # vira "Foto editorial — ambientacao realista". Sem numero na frente,
+    # `modo_fundo_do_tipo` devolvia "padrao" e `pode_ter_texto` devolvia True
+    # — e a ambientacao, que e foto editorial sem texto, saiu com titulo,
+    # selo de beneficio e um botao "COMPRAR AGORA" desenhado na imagem.
+    #
+    # `tipo_canonico` desfaz isso pelo `numero` do plano. Esta conferencia
+    # existe para que ele nunca volte a desfazer pela metade.
+    _sem_numero = [
+        (1, "Capa do anúncio (fundo branco)"),
+        (2, "Imagem de marketing — benefícios"),
+        (3, "Produto no ambiente de uso real"),
+        (4, "Close nos detalhes"),
+        (5, "Infográfico técnico de medidas"),
+        (6, "Quebra de objeção"),
+        (7, "Imagem emocional — presentear"),
+        (8, "Foto editorial — ambientação realista"),
+    ]
+    import imagem as _img
+    for _n, _rotulo_ia in _sem_numero:
+        _oficial = _img.tipo_canonico({"numero": _n, "tipo": _rotulo_ia})
+        _esperado = TODOS[0] if _n == 1 else None
+        if _img.numero_do_tipo(_oficial) != _n:
+            print(f"FALHA  o rotulo da IA '{_rotulo_ia}' nao volta ao tipo {_n} "
+                  f"— virou '{_oficial}'")
+            falhas += 1
+            continue
+        _fundo = _img.modo_fundo_do_tipo(_oficial)
+        _fundo_certo = {1: "branco", 8: "ambiente"}.get(_n, "padrao")
+        if _fundo != _fundo_certo:
+            print(f"FALHA  '{_rotulo_ia}' -> modo de fundo '{_fundo}', "
+                  f"esperado '{_fundo_certo}'")
+            falhas += 1
+        if _img.pode_ter_texto(_oficial) != (_n not in (1, 8)):
+            print(f"FALHA  '{_rotulo_ia}' -> revisao de texto no tipo errado")
+            falhas += 1
+        if not _img.preset_do_tipo(_oficial):
+            print(f"FALHA  '{_rotulo_ia}' -> preset vazio")
+            falhas += 1
+
     # ── 5. TIPO QUE NAO APARECE EM REGRA NENHUMA PASSA LIVRE ───────────────
     _citados = set()
     for _d, _t, _deve, _nao in REGRAS:

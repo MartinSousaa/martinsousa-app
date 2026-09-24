@@ -190,7 +190,12 @@ BLOCOS = {
     2: (3, 5),   # beneficios em cartoes
     3: (2, 3),   # frases de destaque sobre a cena
     4: (1, 2),   # callouts discretos de close
-    5: (1, 4),   # um cartao de cota por medida informada
+    # SEIS, E NAO QUATRO. A caneca veio com cinco cotas — altura, largura,
+    # alca profundidade, alca abertura e peso — e um teto de 4 cortaria a
+    # ultima da copy, apagando o peso da peca. Cartao de cota e DADO, nao
+    # argumento de venda: o teto existe para impedir parede de texto, e
+    # medida informada nao vira parede.
+    5: (1, 6),   # um cartao de cota por medida informada
     6: (3, 4),   # pergunta + resposta
     7: (1, 1),   # uma frase emocional
     8: (0, 0),   # ambientacao: so "Imagem meramente ilustrativa"
@@ -532,6 +537,12 @@ PRESETS = {
         "Recorte e amplie UMA área específica do produto: textura do material, acabamento, encaixe, "
         "mecanismo, superfície, ou detalhe que justifique qualidade e diferencial. "
         "Fundo desfocado (bokeh) com produto em foco nítido no primeiro plano. "
+        "A SUPERFÍCIE É A DAS FOTOS, NÃO UMA INVENTADA: aproxime APENAS de uma área "
+        "que apareça nítida nas fotos de referência, e reproduza o relevo, a "
+        "granulação, as marcas e as manchas exatamente como estão lá. Não acrescente "
+        "textura, poro, rachadura, desgaste, veio ou mancha de cor que não exista na "
+        "foto. Se nenhuma área estiver nítida o bastante para um macro, aproxime "
+        "menos — enquadramento mais aberto e fiel vale mais que macro inventado. "
         "Callouts discretos com linha fina + legenda de até 4 palavras — a quantidade vem da "
         "regra de densidade —, posicionados "
         "em área limpa FORA do produto. Tom: premium, artesanal, qualidade perceptível. "
@@ -549,6 +560,9 @@ PRESETS = {
         "Os cartões ficam distribuídos ao redor do produto — em cima, nas laterais e "
         "embaixo — cada um junto da medida que representa, nunca empilhados num canto. "
         "Setas nas duas pontas das linhas de cota, no eixo correto de cada medida. "
+        "CADA MEDIDA APARECE UMA VEZ SÓ na peça inteira, e apenas dentro do cartão "
+        "dela: a linha de cota não leva número solto ao lado da seta. Valor repetido "
+        "em dois lugares é erro. "
         "Os cartões de cota são áreas sólidas SOBRE a cena — a cena não vira fundo chapado "
         "por causa deles. ZERO ícones decorativos, ZERO blocos de benefício, ZERO frases de venda. "
         "Use APENAS os valores informados nos dados do produto — JAMAIS invente ou estime medidas. "
@@ -3624,6 +3638,17 @@ def conferir_texto(imagem, pedido=""):
             "'seis materia' são erros, mesmo parecendo palavra. Palavra "
             "truncada, letra trocada, concordância errada e frase sem "
             "sentido contam como erro.\n\n"
+            "NÃO são erro, e reprovar por elas é o defeito oposto:\n"
+            "- estrangeirismo consagrado no comércio brasileiro — premium, "
+            "design, kit, gift, home, office, light, fit, blend, style — "
+            "escrito corretamente;\n"
+            "- palavra em CAIXA ALTA, que é escolha de tipografia;\n"
+            "- nome próprio, marca ou nome de produto;\n"
+            "- unidade e abreviação (cm, ml, g, kg, un.);\n"
+            "- frase curta sem ponto final, que é estilo de peça gráfica.\n"
+            "Só reprove o que um leitor brasileiro leria como escrito "
+            "ERRADO. Reprovar palavra certa custa três gerações pagas e "
+            "barra uma peça boa.\n\n"
             "Em `texto_correto`, escreva TODO o texto da imagem já "
             "corrigido, mantendo a mesma ordem e a mesma divisão em blocos "
             "— é isso que vai ser mandado ao gerador para refazer a peça."
@@ -5357,6 +5382,8 @@ def pagina_imagem(usuario_logado):
                     st.session_state["img_triagem_config"] = cfg
 
                 galeria = []
+                st.session_state["img_fotos_originais"] = cfg["fotos_bytes"]
+                st.session_state["img_fotos_sao_arte"] = False
                 # O MOTIVO DA FALHA PRECISA SOBREVIVER AO RERUN.
                 #
                 # Cada peca que falhava escrevia `st.warning("Falhou em X:
@@ -5401,6 +5428,28 @@ def pagina_imagem(usuario_logado):
                 tipos_viaveis = [tipo_canonico(item, cfg.get("tipos"))
                                  for item in itens_viaveis]
                 tipos = tipos_viaveis if tipos_viaveis else cfg["tipos"]
+
+                # SE AINDA SOBROU TIPO SEM NUMERO, ISSO TEM DE APARECER.
+                #
+                # Tipo sem numero nao acha preset, cai em `modo_fundo_do_tipo`
+                # = "padrao" e em `pode_ter_texto` = True. Foi assim que a
+                # ambientacao — foto editorial sem texto — saiu com titulo,
+                # selo de beneficio e um "COMPRAR AGORA" desenhado. O
+                # `tipo_canonico` resolve pelo numero do plano; quando nem
+                # isso houver, o Studio diz, em vez de gerar errado calado.
+                _sem_numero = [t for t in tipos
+                               if numero_do_tipo(t) is None
+                               and t != PERSONALIZADO
+                               and not eh_rotulo_de_ajuste(t)]
+                if _sem_numero:
+                    st.warning(
+                        "⚠️ Não reconheci o tipo oficial de: "
+                        + ", ".join(f"**{t}**" for t in _sem_numero)
+                        + ". Essas peças vão sair com as regras genéricas — "
+                        "sem o preset do tipo, e a de ambientação pode vir "
+                        "com texto. Clique em **Analisar novamente** antes de "
+                        "publicar o que sair delas."
+                    )
 
                 import time as _time_gen
                 import threading as _threading
