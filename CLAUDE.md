@@ -101,7 +101,27 @@ Desenvolver em `homologacao`. O merge para `main` é feito pelo GitHub MCP
 python3 -m compileall -q .      # sintaxe
 python3 checar_ordem.py *.py    # nome lido antes de existir (UnboundLocalError)
 python3 checar_prompts.py       # regra de imagem que ficou faltando ou sobrando
+python3 checar_impacto.py       # quem mais lê o que este commit mudou
 ```
+
+O quarto existe porque três correções seguidas precisaram de uma segunda
+correção, e o padrão era sempre o mesmo: **mudei uma coisa e não listei quem
+lê ela.**
+
+`tipo_canonico` passou a devolver o rótulo oficial — e o índice do plano era
+feito com o rótulo cru. A copy exata sumiu do prompt, em produção. O limite de
+fotos subiu de três para seis — e ninguém perguntou o que limita além da
+quantidade: seis fotos de 10MB são timeout. `BLOCOS[5]` virou 4 — e a caneca
+tinha cinco cotas.
+
+Ele não julga qualidade: só pergunta se o nome que mudou tem leitor em outro
+arquivo e se existe alguma guarda citando ele. Nome mudado, com leitor fora, e
+sem guarda: reprova.
+
+**E a guarda se escreve ANTES da mudança.** Escrita depois, ela sai parecida
+com o que já foi feito — foi assim que três guardas minhas nasceram erradas
+nesta base: a que descartava "margens generosas" por conter "rosa", a que
+acusava a própria trava de cor, e a que se encontrava a si mesma.
 
 O terceiro existe porque eu corrigia regra de imagem NO LUGAR ONDE O PROBLEMA
 APARECEU, e não em todos onde ela alcançava. A paleta azul fixa voltou três
