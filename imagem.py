@@ -129,10 +129,145 @@ CENÁRIO REAL EM TODAS AS PEÇAS — NÃO APENAS NA 3 E NA 8:
 # Ocupação medida resolve, e a ordem de montagem importa tanto quanto o número:
 # enquadrar o produto PRIMEIRO e distribuir o resto no que sobrar é diferente
 # de desenhar a peça e encaixar o produto num quadrante.
+# ── A OCUPACAO DO QUADRO TEM UMA FONTE SO ───────────────────────────────────
+#
+# Ela estava escrita em TRES lugares que nao se falavam:
+#
+#   o preset do tipo         — a capa pedia "90-95% do frame"
+#   o bloco de protagonismo  — "55% a 70%" com texto, "65% a 80%" sem
+#   a composicao em ingles   — a capa, "Product occupancy 85-92% of frame"
+#
+# Os tres chegavam na MESMA mensagem ao modelo, e a parte em portugues ia
+# rotulada como "override any conflicting generic rule below". Tres numeros
+# diferentes para a mesma medida, com um deles mandando nos outros: o gerador
+# escolhia, e escolhia pequeno.
+#
+# Numero que aparece duas vezes e numero que vai discordar de si mesmo. Aqui
+# ele aparece uma vez, e as duas linguas saem dele.
+#
+# (minimo, maximo ou None para "pelo menos", complemento em ingles)
+OCUPACAO = {
+    1: (85, 92,
+        "Full product: YES — completely visible, no cropping. Minimal environment. "
+        "The product must nearly touch the edges of the frame — leave only a thin "
+        "breathing margin. Empty background is wasted space."),
+    2: (60, 75,
+        "The product is the subject, the panels are the caption. Full product: "
+        "preferably YES. Callouts and benefit panels live in the remaining margin, "
+        "never shrinking the product to fit them."),
+    3: (45, None,
+        "Product is the protagonist; the environment supports it and never "
+        "dominates. Full product: preferably YES."),
+    4: (80, 92,
+        "Macro close-up of ONE detail. Do NOT show the full product. Full product: NO."),
+    5: (50, 65,
+        "The text panels occupy a dedicated zone of the remaining frame — they never "
+        "overlap the product, and the product is never shrunk to make room for them. "
+        "If the text does not fit in its zone, write FEWER blocks."),
+    6: (50, 65,
+        "The text panels occupy a dedicated zone of the remaining frame — they never "
+        "overlap the product, and the product is never shrunk to make room for them. "
+        "If the text does not fit in its zone, write FEWER blocks."),
+    7: (30, 45,
+        "This is a HANDOVER SCENE with two people, so the product does not fill the "
+        "frame — it leads by position and focus: front and centre between the hands, "
+        "sharp, fully visible and uncropped, while the people stay softer behind it. "
+        "Full product: YES. Never enlarge the product beyond its real scale in the "
+        "hands that hold it."),
+    # A ambientacao NAO tem faixa: o tamanho dela e a escala real do objeto no
+    # ambiente. Por um numero aqui e o produto volta gigante.
+    8: None,
+}
+
+
+# ── QUANTOS BLOCOS DE INFORMACAO, TAMBEM DE UMA FONTE SO ────────────────────
+#
+# O Close chegava ao modelo com TRES numeros para a mesma coisa: "Máximo 2
+# callouts" (preset), "use de 3 a 5 blocos" (regra generica de layout) e
+# "Maximum 4 information elements" (montado a partir da copy da triagem).
+# Nenhum deles sabia dos outros. Na Caneca Medieval o gerador empilhou os
+# quatro cartoes e passou por cima do produto.
+#
+# (minimo, maximo) de blocos de texto por tipo.
+BLOCOS = {
+    1: (0, 0),   # capa: zero texto
+    2: (3, 5),   # beneficios em cartoes
+    3: (2, 3),   # frases de destaque sobre a cena
+    4: (1, 2),   # callouts discretos de close
+    # SEIS, E NAO QUATRO. A caneca veio com cinco cotas — altura, largura,
+    # alca profundidade, alca abertura e peso — e um teto de 4 cortaria a
+    # ultima da copy, apagando o peso da peca. Cartao de cota e DADO, nao
+    # argumento de venda: o teto existe para impedir parede de texto, e
+    # medida informada nao vira parede.
+    5: (1, 6),   # um cartao de cota por medida informada
+    6: (3, 4),   # pergunta + resposta
+    7: (1, 1),   # uma frase emocional
+    8: (0, 0),   # ambientacao: so "Imagem meramente ilustrativa"
+}
+
+
+def faixa_de_blocos(tipo):
+    """(minimo, maximo) de blocos de texto do tipo. (0, 0) quando nao ha texto."""
+    return BLOCOS.get(numero_do_tipo(tipo), (3, 5))
+
+
+def blocos_em_portugues(tipo, pedidos=0):
+    """A linha de densidade que entra no prompt em portugues.
+
+    `pedidos` e quantos blocos a copy da triagem de fato trouxe. Quando ela
+    existe, o numero deixa de ser faixa: a peca tem AQUELES blocos, e o
+    prompt nao pode dizer "use de 3 a 5" ao lado de uma copy de 4 — sao dois
+    numeros sobre a mesma coisa, e o gerador escolhe.
+    """
+    minimo, maximo = faixa_de_blocos(tipo)
+    if maximo == 0:
+        return "- Esta peça não tem blocos de texto."
+    if pedidos:
+        return (f"- Esta peça tem exatamente {pedidos} bloco(s) de texto, e são "
+                f"os do bloco de TEXTO EXATO. Não acrescente nenhum outro.")
+    if minimo == maximo:
+        return (f"- Sem referência: exatamente {maximo} bloco de texto. "
+                f"É o teto desta peça — nenhuma outra instrução autoriza mais.")
+    return (f"- Sem referência: use de {minimo} a {maximo} blocos informativos, "
+            f"conforme o conteúdo disponível. {maximo} é o teto desta peça — "
+            f"nenhuma outra instrução autoriza mais.")
+
+
+def faixa_de_ocupacao(tipo):
+    """(minimo, maximo, complemento) do tipo, ou None quando nao ha faixa."""
+    return OCUPACAO.get(numero_do_tipo(tipo))
+
+
+def ocupacao_em_portugues(tipo):
+    """A linha de ocupacao que entra no prompt em portugues."""
+    faixa = faixa_de_ocupacao(tipo)
+    if not faixa:
+        return ("- O tamanho do produto no quadro e a ESCALA REAL dele no ambiente, "
+                "nunca uma porcentagem imposta.")
+    minimo, maximo, _ = faixa
+    if maximo is None:
+        return (f"- O produto ocupa NO MINIMO {minimo}% da dimensao util do quadro.")
+    return (f"- O produto ocupa de {minimo}% a {maximo}% da dimensao util do quadro. "
+            f"Nao e sugestao: e a medida desta peca.")
+
+
+def ocupacao_em_ingles(tipo):
+    """A mesma medida, na linha de COMPOSITION do prompt final."""
+    faixa = faixa_de_ocupacao(tipo)
+    if not faixa:
+        return ("- COMPOSITION: the product appears at its REAL SCALE inside the "
+                "scene — never enlarged to fill the frame. It leads by focus and "
+                "light, not by size: sharp and well lit in the foreground, the "
+                "environment softer behind it.")
+    minimo, maximo, complemento = faixa
+    medida = (f"at least {minimo}% of frame" if maximo is None
+              else f"{minimo}\u2013{maximo}% of frame")
+    return f"- COMPOSITION: Product occupancy {medida}. {complemento}"
+
+
 INSTRUCAO_PROTAGONISMO = """
 O PRODUTO É O DESTAQUE — SEMPRE, E ANTES DE TUDO:
-- Em peças COM texto, o produto ocupa de 55% a 70% da dimensão útil do quadro.
-- Em peças SEM texto, de 65% a 80%.
+{faixa}
 - Determine o enquadramento do produto PRIMEIRO. Só depois distribua cenário,
   props e texto no espaço que sobrar.
 - Faltando espaço, reduza os elementos secundários — NUNCA o produto.
@@ -191,8 +326,7 @@ O PRODUTO É O DESTAQUE — MAS PELA ATENÇÃO, NÃO PELO TAMANHO:
 # encher o quadro.
 INSTRUCAO_PROTAGONISMO_CAPA = """
 O PRODUTO PREENCHE O QUADRO — ESTA É A REGRA MAIS IMPORTANTE DESTA PEÇA:
-- O produto ocupa de 80% a 92% da MAIOR dimensão do quadro. Não é sugestão: é
-  a medida da peça.
+{faixa}
 - Margem de respiro uniforme e MÍNIMA em volta — só o suficiente para o
   produto não encostar na borda. Nada de vazio grande em cima, embaixo ou dos
   lados.
@@ -252,14 +386,23 @@ INSTRUÇÃO DE COMPOSIÇÃO:
   produto diferente do fotografado nunca é uma composição nova — é um erro.
 """
 
+# ── ESTE BLOCO FALAVA DE TAMANHO, E ERA A TERCEIRA VOZ A FAZER ISSO ────────
+#
+# Ele ia colado em TODOS os tipos, ambientacao inclusive, dizendo "Ocupe o
+# maior espaço possível no frame" e "NUNCA minimize o produto" — ao lado do
+# bloco de ESCALA REAL, que diz o contrario com todas as letras: "é correto e
+# desejável que o produto ocupe uma fração modesta do quadro". Enquanto o
+# recorte por regex cortava os dois, ninguem via; sem o recorte, as duas
+# ordens chegam juntas.
+#
+# O tamanho agora e assunto de `OCUPACAO`, e de mais ninguem. O que sobra
+# aqui e o que so este bloco dizia: a proibicao de deformar.
 INSTRUCAO_PROPORCAO = """
-REGRA DE PROPORÇÃO E DESTAQUE DO PRODUTO (obrigatória):
-- O produto deve ser o elemento principal e dominante da composição
-- Ocupe o maior espaço possível no frame — o produto deve ser grande, imponente, bem visível
-- NUNCA minimize ou reduza o produto para dar espaço a elementos decorativos
-- Para imagens de marketing com texto (benefícios, características, frases): produto e texto coexistem de forma equilibrada — o texto é parte essencial da composição, não elemento secundário
-- Para fotos limpas de produto (capa do anúncio): produto ocupa o máximo espaço, sem texto
-- Mantenha as proporções exatas do produto: não alongue, não achate, não deforme
+REGRA DE PROPORÇÃO DO PRODUTO (obrigatória):
+- O produto é o elemento principal da composição — o olho vai nele primeiro.
+- Mantenha as proporções exatas do produto: não alongue, não achate, não deforme.
+- A medida de quanto ele ocupa do quadro está no bloco de protagonismo desta
+  peça, e é de lá que ela sai — não estime outra.
 """
 
 INSTRUCAO_LAYOUT_MARKETING = """
@@ -281,7 +424,7 @@ REGRA DE DENSIDADE:
   quantidade de blocos, o mesmo tamanho de texto e a mesma densidade que ela
   mostra — mesmo que sejam 5 ou 6 blocos. A referência é o padrão aprovado da
   empresa; qualquer número abaixo desta regra não se aplica a ela.
-- Sem referência: use de 3 a 5 blocos informativos, conforme o conteúdo disponível
+{blocos}
 - Cada bloco: título curto em CAIXA ALTA (2-5 palavras) + descrição de 8 a 16
   palavras. Descrição de 3 palavras deixa a peça pobre e sem argumento de venda.
 - Blocos em cartões de cantos arredondados, com ícone próprio, alinhados em
@@ -366,27 +509,31 @@ PRESETS = {
         "CAPA DO ANÚNCIO — FOTO PRINCIPAL DO PRODUTO: REGRA ABSOLUTA: ZERO TEXTO, ZERO TÍTULO, ZERO ÍCONE. "
         "APENAS o produto sobre fundo branco puro — esta é a primeira imagem que o comprador vê. "
         "FUNDO: branco puro (#FFFFFF), absolutamente liso, sem gradiente, sem sombra, sem elementos. "
-        "Produto centralizado e O MAIOR POSSÍVEL: deve ocupar 90-95% do frame, "
-        "encostando quase nas bordas, sem cortar nenhuma parte e sem distorcer as "
-        "proporções reais. Margem branca mínima — sobra de fundo é desperdício de "
-        "área nesta imagem, que é a primeira que o comprador vê. "
+        "Produto centralizado e O MAIOR POSSÍVEL, encostando quase nas bordas, sem "
+        "cortar nenhuma parte e sem distorcer as proporções reais. Margem branca "
+        "mínima — sobra de fundo é desperdício de área nesta imagem, que é a "
+        "primeira que o comprador vê. A medida exata da ocupação está no bloco de "
+        "protagonismo, mais abaixo. "
         "Iluminação profissional de estúdio: luz suave e uniforme, sombra mínima e delicada embaixo. "
         "Posição: ângulo frontal ligeiramente 3/4 que mostra melhor o produto, ou frontal direto. "
         "Resultado: foto de e-commerce de alta qualidade — limpa, profissional, produto é tudo."
     ),
     "2 — Benefícios do produto": (
         "IMAGEM DE MARKETING — BENEFÍCIOS: produto em zona central limpa (SEM texto sobre ele). "
-        "Fundo deduzido do produto — sem cor de marca fixa. De 3 a 5 benefícios em cartões laterais, inferiores ou em grade — siga a referência de layout quando houver: "
-        "ícone line-art azul marinho + título curto (2-3 palavras) + frase direta (máximo 7 palavras). "
+        "Fundo deduzido do produto — sem cor de marca fixa. Benefícios em cartões laterais, inferiores ou em grade — a quantidade vem da regra de densidade; siga a referência de layout quando houver: "
+        "ícone line-art na cor da direção de arte escolhida para ESTE produto — não existe cor "
+        "de ícone fixa — + título curto (2-3 palavras) + frase direta (máximo 7 palavras). "
         "Visual arejado, muito whitespace — jamais comprima ou empilhe os blocos de benefício. "
         "Os textos dos benefícios vêm dos diferenciais e características do produto informados."
     ),
     "3 — Benefícios no cenário de uso": (
-        "IMAGEM DE MARKETING — PRODUTO NO AMBIENTE DE USO REAL: escolha o cenário mais natural "
-        "para este produto específico (escritório, quarto, sala de estudo, cozinha, etc.). "
-        "Produto protagonista em cena aspiracional com iluminação natural suave. "
-        "Máximo 2-3 frases de destaque em painéis fora do produto (nunca sobre ele). "
-        "Cada frase: curta, impactante, máximo 6 palavras. Fundo e cores da marca presentes. "
+        "IMAGEM DE MARKETING — PRODUTO NO AMBIENTE DE USO REAL: deduza das fotos e dos dados "
+        "onde ESTE produto é de fato usado, e por quem — não escolha de uma lista pronta de "
+        "cômodos. Produto protagonista em cena aspiracional, com a luz e a paleta que "
+        "valorizem este produto. Frases de destaque em painéis fora do produto (nunca sobre "
+        "ele) — a quantidade vem da regra de densidade. Cada frase: curta, impactante, "
+        "máximo 6 palavras. Sem cor de "
+        "marca fixa: fundo e elementos gráficos saem da direção de arte deste produto. "
         "Visual editorial — parece foto de lifestyle de qualidade, não montagem amadora."
     ),
     "4 — Close nos detalhes": (
@@ -394,7 +541,14 @@ PRESETS = {
         "Recorte e amplie UMA área específica do produto: textura do material, acabamento, encaixe, "
         "mecanismo, superfície, ou detalhe que justifique qualidade e diferencial. "
         "Fundo desfocado (bokeh) com produto em foco nítido no primeiro plano. "
-        "Máximo 2 callouts discretos com linha fina + legenda de até 4 palavras, posicionados "
+        "A SUPERFÍCIE É A DAS FOTOS, NÃO UMA INVENTADA: aproxime APENAS de uma área "
+        "que apareça nítida nas fotos de referência, e reproduza o relevo, a "
+        "granulação, as marcas e as manchas exatamente como estão lá. Não acrescente "
+        "textura, poro, rachadura, desgaste, veio ou mancha de cor que não exista na "
+        "foto. Se nenhuma área estiver nítida o bastante para um macro, aproxime "
+        "menos — enquadramento mais aberto e fiel vale mais que macro inventado. "
+        "Callouts discretos com linha fina + legenda de até 4 palavras — a quantidade vem da "
+        "regra de densidade —, posicionados "
         "em área limpa FORA do produto. Tom: premium, artesanal, qualidade perceptível. "
         "ZERO medidas, ZERO setas de dimensão — isso é uma foto de qualidade, não infográfico técnico."
     ),
@@ -403,28 +557,49 @@ PRESETS = {
         "centralizado, fotografado nítido, ocupando o miolo da peça. "
         "CADA dimensão recebe SEU PRÓPRIO indicador, nunca uma linha de texto corrida: "
         "uma seta ou linha de cota TRACEJADA saindo da borda exata que está sendo medida, "
-        "terminando num CARTÃO de cantos arredondados, fundo branco e borda fina azul, "
+        "terminando num CARTÃO de cantos arredondados, fundo branco e borda fina na cor da "
+        "direção de arte deste produto — não existe cor de borda fixa —, "
         "contendo o rótulo em caixa alta pequena (ALTURA, LARGURA, PROFUNDIDADE, PESO) e, "
         "logo abaixo, o valor em número grande e negrito. "
         "Os cartões ficam distribuídos ao redor do produto — em cima, nas laterais e "
         "embaixo — cada um junto da medida que representa, nunca empilhados num canto. "
         "Setas nas duas pontas das linhas de cota, no eixo correto de cada medida. "
-        "Fundo claro liso. ZERO ícones decorativos, ZERO blocos de benefício, ZERO frases de venda. "
+        "CADA MEDIDA APARECE UMA VEZ SÓ na peça inteira, e apenas dentro do cartão "
+        "dela: a linha de cota não leva número solto ao lado da seta. Valor repetido "
+        "em dois lugares é erro. "
+        "Os cartões de cota são áreas sólidas SOBRE a cena — a cena não vira fundo chapado "
+        "por causa deles. ZERO ícones decorativos, ZERO blocos de benefício, ZERO frases de venda. "
         "Use APENAS os valores informados nos dados do produto — JAMAIS invente ou estime medidas. "
         "Se medidas não foram informadas, omita-as completamente — não crie números fictícios."
     ),
     "6 — Quebra de objeção": (
         "IMAGEM DE MARKETING — RESPONDENDO DÚVIDAS DO COMPRADOR: layout clean com produto "
-        "em destaque e de 3 a 4 blocos de pergunta+resposta ao lado, em cartões de cantos arredondados — siga a referência de layout quando houver. "
+        "em destaque e blocos de pergunta+resposta ao lado, em cartões de cantos arredondados "
+        "— a quantidade vem da regra de densidade; siga a referência de layout quando houver. "
         "Cada bloco: pergunta curta (máximo 5 palavras) em destaque + check verde + resposta direta "
         "(máximo 8 palavras). As objeções são baseadas nos diferenciais e características do produto. "
         "Visual arejado, muito whitespace, fundo e paleta deduzidos do produto e da ocasião."
     ),
     "7 — Presenteie": (
-        "IMAGEM EMOCIONAL — PRESENTEAR: composição elegante com produto como presente especial. "
-        "Contexto visual de presente: laço de fita, embrulho decorativo, ou cena de entrega. "
-        "Frase grande e impactante em destaque: 'Presenteie com' + nome do produto, ou frase emotiva. "
-        "Visual limpo, clean, tons suaves e elegantes — produto e contexto de presente como únicos elementos. "
+        "IMAGEM EMOCIONAL — A ENTREGA DO PRESENTE: DUAS PESSOAS na cena, uma "
+        "ENTREGANDO o produto à outra como presente. Não é o produto sozinho com um "
+        "laço: é o momento da entrega, com as mãos de quem dá e de quem recebe "
+        "visíveis e o produto entre elas. "
+        "O PAR SAI DO PRODUTO, não de uma escolha aleatória — deduza das fotos e dos "
+        "dados para quem este produto é: "
+        "produto infantil, um pai ou mãe entregando ao filho ou filha; "
+        "produto de adulto, um homem entregando a uma mulher; "
+        "quando as fotos e os dados não permitirem decidir, duas pessoas adultas numa "
+        "entrega afetuosa, sem forçar relação nenhuma. "
+        "O produto aparece INTEIRO e NÍTIDO, no primeiro plano, entre as mãos — nunca "
+        "escondido pelos dedos, nunca cortado, nunca desfocado. As pessoas são o "
+        "contexto: enquadre do tronco para baixo, ou com os rostos suaves e em segundo "
+        "plano, para que o olho vá ao produto primeiro. "
+        "Contexto visual de presente — embrulho, fita ou caixa — quando fizer sentido "
+        "para o produto, sempre secundário à entrega. "
+        "Frase grande e impactante em destaque: \'Presenteie com\' + nome do produto, "
+        "ou frase emotiva. "
+        "Visual limpo, tons suaves e elegantes, luz natural. "
         "Se nenhuma frase específica foi fornecida, crie uma frase genérica adequada ao produto."
     ),
     # A contradição morava AQUI também, e não só no bloco de padrão visual:
@@ -786,6 +961,47 @@ def _get_gemini_api_key():
     return key
 
 
+# A descrição de produto e de layout, guardada por conteúdo. Vive no processo:
+# uma geração de 8 peças acontece numa passada só, e é aí que os 7 repetidos
+# acontecem. Pequeno de propósito — não é cache de sessão, é de lote.
+_DESCRICAO_CACHE = {}
+_DESCRICAO_CACHE_MAX = 8
+
+
+def _assinatura_das_fotos(imagens, refs_layout, nome_produto, dados):
+    """A chave do cache: o conteúdo, não o nome. Trocar a foto troca a chave."""
+    import hashlib
+    h = hashlib.sha1()
+    h.update(str(nome_produto or "").encode("utf-8"))
+    h.update(repr(sorted((dados or {}).items())).encode("utf-8"))
+    for grupo in (imagens or [], refs_layout or []):
+        h.update(b"|")
+        for b in grupo:
+            try:
+                h.update(hashlib.sha1(bytes(b)).digest())
+            except Exception:
+                h.update(b"?")
+    return h.hexdigest()
+
+
+def _descricao_do_produto_cacheada(imagens_referencia, nome_produto="produto",
+                                   dados_descricao=None, refs_layout=None):
+    """`_descrever_produto_via_claude`, uma vez por conjunto de fotos."""
+    chave = _assinatura_das_fotos(imagens_referencia, refs_layout,
+                                  nome_produto, dados_descricao)
+    if chave in _DESCRICAO_CACHE:
+        return _DESCRICAO_CACHE[chave]
+    fora = _descrever_produto_via_claude(
+        imagens_referencia, nome_produto, dados_descricao, refs_layout)
+    # Só guarda o que deu certo: descrição vazia por falha de rede não pode
+    # virar a resposta das sete peças seguintes.
+    if fora and fora[0]:
+        if len(_DESCRICAO_CACHE) >= _DESCRICAO_CACHE_MAX:
+            _DESCRICAO_CACHE.pop(next(iter(_DESCRICAO_CACHE)))
+        _DESCRICAO_CACHE[chave] = fora
+    return fora
+
+
 def _descrever_produto_via_claude(imagens_referencia, nome_produto="produto", dados_descricao=None, refs_layout=None):
     """Claude Vision analisa as fotos do produto e retorna:
     - descricao_produto: descrição ultra-detalhada em inglês (substitui inlineData)
@@ -895,10 +1111,29 @@ def _descrever_produto_via_claude(imagens_referencia, nome_produto="produto", da
                 "- Overall layout zones (product placement, text placement, proportions)\n"
                 "- Text hierarchy (headers vs subheads vs callouts — size, weight, position)\n"
                 "- Visual style (clean/dense, flat/layered, minimal/rich)\n"
-                "- Color distribution and use of whitespace\n"
+                "- Use of whitespace and breathing room\n"
                 "- Grid/alignment structure (centered, left-aligned, asymmetric)\n"
-                "- Element count and spacing feel\n"
-                "- Overall aesthetic and professional mood\n\n"
+                "- Element count and spacing feel\n\n"
+                # NEM COR, NEM O QUE O PRODUTO DA REFERÊNCIA É.
+                #
+                # Aqui se pedia "Color distribution", e a descrição voltava
+                # com "aquecedor vermelho", "azul-marinho corporativo",
+                # "personagens interagindo" — o produto e a paleta de OUTRA
+                # empresa. Esse texto entrava no prompt logo acima da linha
+                # que PROÍBE copiar produto e cores da referência: ordem e
+                # contraordem na mesma mensagem, e o gerador pegava a cor.
+                #
+                # A referência serve para POSIÇÃO, HIERARQUIA e RESPIRO. A
+                # cor sai do produto, e só dele.
+                "HARD RULES for your description:\n"
+                "- NEVER name or describe the object shown in the reference. "
+                "Call it only 'the product'. Writing 'red heater', 'red "
+                "kettle' or any object name is a failure.\n"
+                "- NEVER mention any colour, hue, palette or tone — not of "
+                "the product, not of the text, not of the background.\n"
+                "- NEVER mention people, hands, models or scenes.\n"
+                "- Describe ONLY geometry: where blocks sit, how big, how "
+                "they align, how much space between them.\n\n"
                 "Write ONLY the composition description. Start directly."
             )
         })
@@ -1780,7 +2015,19 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
         dados_descricao["peso"] = _m_pes.group(1).strip()
 
     # 1. Claude descreve produto e layout em texto puro
-    descricao_produto, estilo_layout = _descrever_produto_via_claude(
+    #
+    # UMA LEITURA POR PRODUTO, NÃO UMA POR PEÇA.
+    #
+    # Isto rodava a cada uma das 8 gerações, sobre as MESMAS fotos e as
+    # MESMAS referências. Oito chamadas de visão, oito textos diferentes —
+    # no produto de 24/09 a mesma dupla de referências virou "chaleira
+    # vermelha" numa peça, "bule vermelho" noutra e "aquecedor vermelho" na
+    # sexta. Cada peça recebia uma instrução de layout distinta, e não havia
+    # como o conjunto sair coerente.
+    #
+    # A chave é o conteúdo: as mesmas fotos e as mesmas referências dão a
+    # mesma descrição. Foto nova, leitura nova.
+    descricao_produto, estilo_layout = _descricao_do_produto_cacheada(
         imagens_referencia, nome_produto, dados_descricao, refs_layout
     )
 
@@ -1843,13 +2090,33 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
             "the background. Do not default to plain white for this image type."
         )
 
-    _text_rule = (
-        "ZERO TEXT RULE: This image MUST contain ABSOLUTELY NO text, titles, labels, icons, badges, "
-        "callouts, or any written element whatsoever. Any visible text is a critical failure."
-        if _is_clean_photo else
-        "TEXT ZONES RULE: ALL text must appear ONLY in dedicated panel zones completely separate from the "
-        "product area. NEVER overlay text directly on the product. Product zone must be clean and text-free."
-    )
+    # A AMBIENTACAO TEM UMA EXCECAO DE TEXTO, E ELA ERA NEGADA AQUI.
+    #
+    # O brief em portugues da ambientacao diz: "A ÚNICA sequência de caracteres
+    # permitida na imagem inteira é: Imagem meramente ilustrativa". Esta linha
+    # dizia, na mesma mensagem, "ABSOLUTELY NO text ... Any visible text is a
+    # critical failure". Duas ordens opostas sobre a mesma frase — e o modelo
+    # resolve contradicao escrevendo mais coisa, nao menos.
+    if _is_fundo_branco:
+        _text_rule = (
+            "ZERO TEXT RULE: This image MUST contain ABSOLUTELY NO text, titles, labels, "
+            "icons, badges, callouts, or any written element whatsoever. Any visible text "
+            "is a critical failure."
+        )
+    elif _is_ambientacao:
+        _text_rule = (
+            "ZERO TEXT RULE, ONE EXPLICIT EXCEPTION: no title, headline, caption, badge, "
+            "logo, icon with text, number or decorative word anywhere. The ONLY string "
+            "allowed in the whole image is the Portuguese sentence \"Imagem meramente "
+            "ilustrativa\", rendered once, small and discreet in the footer. Scene props "
+            "(books, packaging, screens, labels) carry no readable text at all."
+        )
+    else:
+        _text_rule = (
+            "TEXT ZONES RULE: ALL text must appear ONLY in dedicated panel zones completely "
+            "separate from the product area. NEVER overlay text directly on the product. "
+            "Product zone must be clean and text-free."
+        )
 
     # ── Extrai conteúdo visual do colaborador (modo Personalizado) ou contexto interno (padrão) ──
     _colab_match = _re.search(
@@ -1863,77 +2130,80 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
     _colaborador_brief = _colab_match.group(1).strip() if _colab_match else ""
     _colaborador_contexto = _context_match.group(1).strip() if _context_match else ""
 
-    # ── Extrai conteúdo específico do preset (instruções do tipo, ex: Close, Fundo Branco…) ──
-    # Isso resolve o problema do double-prompt: o preset não era passado ao gerador.
-    _preset_match = _re.search(
-        r"TIPO DE IMAGEM:[^\n]+\n(.*?)(?=\n(?:CONTEXTO INTERNO|REFERÊNCIAS|PADRÃO VISUAL|INSTRUÇÕES VISUAIS|REGRA DE|INSTRUÇÃO DE|MODO |$))",
-        prompt_texto, _re.DOTALL
-    )
-    _preset_content = _preset_match.group(1).strip() if _preset_match else ""
+    # ── O BRIEF INTEIRO VAI PARA O MODELO — ANTES, DOIS TERCOS DELE ERAM
+    #    CORTADOS FORA, E NINGUEM VIA ────────────────────────────────────────
+    #
+    # Aqui havia um recorte por regex: pegava de "TIPO DE IMAGEM:" ate o
+    # primeiro titulo que casasse com "PADRÃO VISUAL|REGRA DE|INSTRUÇÃO DE|
+    # CONTEXTO INTERNO|REFERÊNCIAS|INSTRUÇÕES VISUAIS|MODO ". Tudo depois
+    # disso era JOGADO FORA, em silencio.
+    #
+    # O que nunca chegava ao gerador, medido nos nove tipos:
+    #
+    #   TRAVA DE COR       — a cor real do produto e a proibicao de repintar.
+    #                        Em TODOS os tipos. O album preto que saiu
+    #                        azul-marinho tinha a trava escrita no prompt
+    #                        portugues e cortada do prompt que foi enviado.
+    #   Medidas e peso     — os numeros exatos. E o tipo 5 e o INFOGRAFICO DE
+    #                        MEDIDAS: ele pedia "use APENAS os valores
+    #                        informados" com os valores ausentes da mensagem.
+    #   REGRA DE FIDELIDADE — "a mais importante de todas".
+    #   REGRA DE LAYOUT     — "JAMAIS sobreponha texto sobre o produto" (os
+    #                        quadrados em cima da caneca) e a REGRA DE TEXTO
+    #                        REAL, que proibe palavra inventada (o erro de
+    #                        portugues).
+    #   Capa               — o bloco inteiro de "O PRODUTO PREENCHE O QUADRO",
+    #                        escrito depois do "Já falei MIL VEZES".
+    #   Ambientacao        — a ESCALA REAL e a excecao "Imagem meramente
+    #                        ilustrativa".
+    #
+    # E `checar_prompts.py` dava "ok" em todas elas, porque conferia o prompt
+    # em portugues — o texto de onde o recorte era feito, nao o que era
+    # enviado. A regra estava escrita, a varredura via, o modelo nao.
+    #
+    # Nao ha recorte mais. Sai so a linha de controle `MS_`, que e marcador
+    # interno e nao instrucao.
+    _preset_content = "\n".join(
+        linha for linha in prompt_texto.splitlines()
+        if not linha.startswith("MS_")
+    ).strip()
+    # Tres linhas em branco seguidas viravam quatro e cinco a cada bloco vazio
+    # concatenado. Ruido no meio de instrucao e instrucao mais fraca.
+    _preset_content = _re.sub(r"\n{3,}", "\n\n", _preset_content)
 
     _tipo_match = _re.search(r"TIPO DE IMAGEM:\s*(.+?)(?:\n|$)", prompt_texto)
     _tipo_str = _tipo_match.group(1).strip() if _tipo_match else "produto"
 
-    # ── Composição específica por tipo (sem regras conflitantes — a regra genérica só aparece
-    #    quando o tipo não define a sua própria) ──
-    _is_close = (
-        "4 — Close" in prompt_texto or
-        "CLOSE NO PRODUTO" in prompt_texto
-    )
-    _is_capa = "1 — Capa" in prompt_texto or "CAPA DO ANÚNCIO" in prompt_texto
-    _is_beneficios = "2 — Benefícios do produto" in prompt_texto
-    _is_beneficios_cena = "3 — Benefícios no cenário" in prompt_texto
-    _is_lifestyle = "8 — Ambientação" in prompt_texto
-    _is_presenteie = "7 — Presenteie" in prompt_texto
-
-    # As ocupacoes subiram por decisao do dono: "a distribuicao da imagem dentro
-    # dos 1200x1200 precisa ser a maior possivel". Os numeros antigos mandavam
-    # o modelo deixar de 40% a 65% do quadro vazio — o produto saia pequeno e
-    # longe, e isso nao era desobediencia do modelo, era o que o prompt pedia.
+    # Seis sinalizadores de tipo (_is_close, _is_capa, _is_beneficios…) moravam
+    # aqui só para escolher a porcentagem de ocupação. A porcentagem agora sai
+    # de `OCUPACAO`, pelo número do tipo, e eles não tinham mais leitor: nome
+    # vivo sem uso é o que faz a próxima pessoa achar que a regra está aqui.
     #
-    # "Contextual", sem numero, era pior ainda: sem piso, o modelo escolhia — e
-    # escolhia pequeno. Todo tipo agora tem um MINIMO escrito.
-    if _is_close:
-        _product_dominance_rule = (
-            "- COMPOSITION (Close): Detail occupancy 80–92% of frame. Macro close-up. "
-            "Do NOT show the full product. Full product: NO."
-        )
-    elif _is_capa:
-        _product_dominance_rule = (
-            "- COMPOSITION (Capa): Product occupancy 85–92% of frame. Full product: YES — "
-            "completely visible, no cropping. Minimal environment. "
-            "The product must nearly touch the edges of the frame — leave only a thin "
-            "breathing margin. Empty background is wasted space."
-        )
-    elif _is_beneficios:
-        _product_dominance_rule = (
-            "- COMPOSITION (Benefícios): Product occupancy 60–75% of frame — the product "
-            "is the subject, the panels are the caption. Full product: preferably YES. "
-            "Callouts and benefit panels live in the remaining margin, never shrinking "
-            "the product to fit them."
-        )
-    elif _is_beneficios_cena:
-        _product_dominance_rule = (
-            "- COMPOSITION (Benefícios no Cenário): Product occupancy at least 45% of "
-            "frame. Product is the protagonist; the environment supports it and never "
-            "dominates. Full product: preferably YES."
-        )
-    elif _is_lifestyle:
-        _product_dominance_rule = (
-            "- COMPOSITION (Lifestyle): Product occupancy at least 35% of frame and "
-            "clearly readable at thumbnail size. Full product: optional. "
-            "Environment sets the mood but the product stays identifiable."
-        )
-    elif _is_presenteie:
-        _product_dominance_rule = (
-            "- COMPOSITION (Presenteie): Product occupancy 55–70% of frame. "
-            "Full product: preferably YES. Gift props frame the product, never crowd it."
-        )
-    else:
-        _product_dominance_rule = (
-            "- Product occupancy at least 70% of frame — large, prominent, fully visible, "
-            "nearly filling the canvas"
-        )
+    # A peça tem painel de texto? É o que decide o teto de blocos de informação.
+    _tem_texto_em_painel = MARCA_TEXTO_EXATO in prompt_texto
+    # Quantos blocos a copy pediu de fato. O prompt numera "  1. ", "  2. "…
+    _teto_blocos = faixa_de_blocos(_tipo_str)[1]
+    _max_blocos = _teto_blocos or 3
+    if _tem_texto_em_painel:
+        import re as _re_bl
+        _pedidos = len(_re_bl.findall(r"^  \d+\. ", prompt_texto, _re_bl.M))
+        if _pedidos:
+            # O teto da peça manda. Antes o piso era 3 e o teto 5 para todo
+            # tipo: o Close, que comporta 2 callouts, recebia "Maximum 4".
+            _max_blocos = min(_pedidos, _teto_blocos or _pedidos)
+
+    # A MEDIDA VEM DE `OCUPACAO`, A MESMA QUE ALIMENTA O PROMPT EM PORTUGUES.
+    #
+    # Aqui existia uma segunda tabela de porcentagens, escrita a mao, que
+    # discordava da primeira em TODOS os tipos: capa 85-92 contra 90-95 do
+    # preset e 80-92 do bloco de protagonismo; close 80-92 contra os 55-70
+    # genericos; ambientacao "at least 35%" contra "escala real". O modelo
+    # recebia as duas e escolhia.
+    _product_dominance_rule = ocupacao_em_ingles(_tipo_str)
+
+    # O Presenteie e a UNICA peca do padrao que pede figura humana, e o pedido
+    # e do dono: "uma pessoa entregando o produto como presente para outra".
+    _pede_pessoas = numero_do_tipo(_tipo_str) == 7
 
     # Referencia de layout nao se aplica a foto limpa.
     #
@@ -2024,8 +2294,10 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
         f"Create a professional e-commerce marketing image.\n\n"
         f"IMAGE TYPE: {_tipo_str}\n\n"
 
-        f"━━━ SECTION 1: TYPE-SPECIFIC INSTRUCTIONS ━━━\n"
-        f"(Follow these exactly. They define the image type and override any conflicting generic rule below.)\n"
+        f"━━━ SECTION 1: THE COMPLETE BRIEF FOR THIS PIECE (Brazilian Portuguese) ━━━\n"
+        f"(This is the contract. Follow every line of it. The English sections below "
+        f"restate it for the renderer and never replace it — if you ever read a "
+        f"conflict, this section wins.)\n"
         f"{_preset_content}\n\n"
 
         f"━━━ SECTION 2: PRODUCT REFERENCE ━━━\n"
@@ -2057,10 +2329,19 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
         f"COMPOSITION:\n"
         f"{_product_dominance_rule}\n"
         f"- Maintain product exact proportions — NEVER stretch, compress, or distort\n"
-        + ("- Maximum 3 information elements if text present — never cluttered\n"
+        # O LIMITE DE BLOCOS SAI DO TEXTO QUE FOI PEDIDO.
+        #
+        # Estava fixo em 3. O plano da triagem pede 4 cartões e a composição
+        # manda no máximo 3 — duas ordens contrárias no mesmo prompt, e o
+        # gerador decide sozinho o que cortar. Na Caneca Medieval ele
+        # empilhou os quatro e passou por cima do produto.
+        #
+        # Agora o teto é o que a copy pediu, com um máximo de 5: mais que
+        # isso vira parede de texto em miniatura de marketplace.
+        + (f"- Maximum {_max_blocos} information elements if text present — never cluttered\n"
            if not _is_clean_photo else
-           "- No text elements at all, so no whitespace is needed for them: the "
-           "product fills the canvas\n")
+           "- No text elements at all: no whitespace has to be reserved for "
+           "them. The occupancy stated above is the only rule about size.\n")
         + 
         f"- Professional studio quality — high-end e-commerce agency standard"
         f"{_layout_section}\n\n"
@@ -2081,7 +2362,16 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
         f"- Example: do NOT place 20 drill bits next to a drill — this implies they are included\n"
         f"- Only include accessories explicitly mentioned in product data or user brief\n\n"
         f"ADDITIONAL RULES:\n"
-        f"- NEVER add people or human figures unless the image type or collaborator brief explicitly requests them\n"
+        + (
+            "- PEOPLE ARE REQUIRED in this image type: two people, one handing the "
+            "product to the other. The pair must match the product's audience, as "
+            "SECTION 1 defines. Hands and the product must read clearly; faces stay "
+            "secondary.\n"
+            if _pede_pessoas else
+            "- NEVER add people or human figures unless the image type or collaborator "
+            "brief explicitly requests them\n"
+        )
+        +
         f"- All text visible in the image must be in Brazilian Portuguese\n"
         f"- Generate a completely new professional image — not a literal copy of any reference photo"
     )
@@ -2428,8 +2718,8 @@ def _trava_cor_produto(cor):
         return (
             "TRAVA DE COR (regra inviolável): a cor do produto é a que aparece nas fotos "
             "de referência. Reproduza-a exatamente, seja ela qual for.\n"
-            "É PROIBIDO recolorir o produto para harmonizar com a paleta azul da empresa, "
-            "com o fundo, com o cenário ou com a iluminação. A paleta da marca vale para "
+            "É PROIBIDO recolorir o produto para harmonizar com a direção de arte da peça, "
+            "com o fundo, com o cenário ou com a iluminação. A direção de arte vale para "
             "fundo, texto e elementos gráficos — nunca para o produto.\n"
             f"É PROIBIDO tingir o produto de: {', '.join(desvios)}, "
             "a menos que essa seja de fato a cor nas fotos.\n"
@@ -2441,8 +2731,8 @@ def _trava_cor_produto(cor):
         f"não uma escolha estética. O produto DEVE aparecer em {cor} exatamente como "
         f"nas fotos de referência.\n"
         f"É PROIBIDO reinterpretar essa cor como: {', '.join(desvios)}.\n"
-        f"É PROIBIDO recolorir o produto para harmonizar com a paleta da marca, com o "
-        f"fundo, com o cenário ou com a iluminação. A paleta azul da empresa vale para "
+        f"É PROIBIDO recolorir o produto para harmonizar com a direção de arte da peça, "
+        f"com o fundo, com o cenário ou com a iluminação. A direção de arte vale para "
         f"fundo, texto e elementos gráficos — nunca para o produto.\n"
     )
 
@@ -2545,6 +2835,36 @@ def bloco_texto_exato(textos):
     )
 
 
+MARCA_TEXTO_EXATO = "━━━ TEXTO EXATO A ESCREVER (copie letra por letra) ━━━"
+
+
+def trocar_texto_exato(prompt, textos):
+    """O prompt com o bloco de texto SUBSTITUÍDO — nunca somado.
+
+    O QUE ISTO CONSERTA
+    -------------------
+    A revisão fazia `prompt_base + bloco_texto_exato(corrigido)`. Só que
+    `prompt_base` JÁ trazia o bloco com o texto errado, escrito pela triagem.
+    A peça refeita ia para o gerador com DOIS blocos "TEXTO EXATO A
+    ESCREVER", cada um mandando escrever uma coisa, e os dois dizendo "acima
+    de qualquer outra instrução de texto".
+
+    Era por isso que refazer não consertava: em 24/09 a peça saiu três vezes
+    com "Interior em inox atua isolante" e "400ml ideal para todas bebidas",
+    e as três rodadas de revisão foram gastas mandando o gerador escolher
+    entre duas ordens contrárias.
+    """
+    base = str(prompt or "")
+    i = base.find(MARCA_TEXTO_EXATO)
+    if i >= 0:
+        # O bloco vai até a próxima seção "━━━" ou até o fim.
+        j = base.find("━━━", i + len(MARCA_TEXTO_EXATO))
+        # `find` acha o fecho da própria marca; pula os dois do cabeçalho.
+        j = base.find("━━━", i + len(MARCA_TEXTO_EXATO) + 1)
+        base = (base[:i].rstrip("\n") + ("\n\n" + base[j:] if j > 0 else "")).rstrip()
+    return base + bloco_texto_exato(textos)
+
+
 def _campo_ambientacao(sufixo):
     """O campo onde quem vende diz em que ambiente o produto é usado.
 
@@ -2566,6 +2886,111 @@ def _campo_ambientacao(sufixo):
              "produto. Deixe em branco e o Studio deduz sozinho.")
 
 
+def tipo_canonico(item, tipos_selecionados=None):
+    """O rótulo OFICIAL da peça, a partir do item do plano de triagem.
+
+    A IA que escreve o plano reescreve o nome do tipo: "2 — Benefícios do
+    produto" vira "Imagem de marketing — benefícios", "8 — Ambientação
+    realista (sem texto)" vira "Foto editorial — ambientação realista". O
+    rótulo dela é bonito e é o que aparecia na galeria — e era com ele que o
+    Studio ia procurar o preset, que é indexado pelo nome oficial.
+
+    O `numero` do plano é o índice do tipo escolhido, e é ele que não muda
+    quando a IA reescreve. Por isso a ordem é: número primeiro, rótulo
+    depois, cru por último.
+    """
+    it = item if isinstance(item, dict) else {}
+    lista = list(tipos_selecionados or TIPOS_PADRAO)
+    try:
+        n = int(it.get("numero"))
+    except (TypeError, ValueError):
+        n = None
+    if n and 1 <= n <= len(lista):
+        return lista[n - 1]
+    rotulo = str(it.get("tipo", "") or "").strip()
+    if rotulo in PRESETS:
+        return rotulo
+    alvo = _chave_tipo(rotulo)
+    for chave in PRESETS:
+        if alvo and _chave_tipo(chave) == alvo:
+            return chave
+    return rotulo
+
+
+def _chave_tipo(tipo):
+    """O rótulo do tipo sem o número, sem acento e sem caixa.
+
+    "1 — Capa do anúncio (fundo branco)" e "Capa do anúncio (fundo branco)"
+    viram a mesma coisa. Comparação exata depois disso — nunca por pedaço:
+    "Capa" casaria com qualquer rótulo que tivesse "capa" dentro, e casar por
+    pedaço de palavra já trocou produto por produto nesta base.
+    """
+    import unicodedata as _u
+    t = str(tipo or "").strip()
+    # tira "N — ", "N - ", "N. " e o que mais venha antes do nome
+    i = 0
+    while i < len(t) and (t[i].isdigit() or t[i] in " -—–.:"):
+        i += 1
+    t = t[i:] if i < len(t) else t
+    t = _u.normalize("NFKD", t)
+    return "".join(c for c in t if not _u.combining(c)).lower().strip()
+
+
+def numero_do_tipo(tipo):
+    """O número que abre o rótulo do tipo. None quando não há.
+
+    "1 — Capa do anúncio (fundo branco)" -> 1
+    "Capa do anúncio (fundo branco)"     -> None
+    """
+    t = str(tipo or "").strip()
+    n = ""
+    for c in t:
+        if c.isdigit():
+            n += c
+        else:
+            break
+    return int(n) if n else None
+
+
+def preset_do_tipo(tipo):
+    """As regras daquele tipo de imagem. "" quando o tipo não é um dos padrão.
+
+    POR QUE NÃO É `PRESETS.get(tipo)` DIRETO — E O QUE ISSO CUSTOU
+    ---------------------------------------------------------------
+    As chaves dos presets são "1 — Capa do anúncio (fundo branco)". O tipo
+    que chega na geração vem do PLANO DE TRIAGEM, escrito pela IA
+    (`imagem.py`, `tipos_viaveis`), e ela escreve "Capa do anúncio (fundo
+    branco)" — SEM o número. `PRESETS.get` devolvia "" e a peça era gerada
+    sem as regras do tipo. Nos oito, nenhum casava.
+
+    O prompt real de 24/09 provou: a SEÇÃO 1 levava só o plano da triagem, e
+    o "produto ocupa 90-95% do frame" da capa, o "ZERO TEXTO", a escala real
+    da ambientação e o enquadramento do close simplesmente não iam. Sobrava o
+    genérico "at least 70%" — que é o produto pequeno que o dono via.
+
+    Então a busca passa a ser pelo NÚMERO, que é o que não muda quando a IA
+    reescreve o rótulo. Nome exato primeiro (o caminho de sempre), número
+    depois, e nada de casar por pedaço de palavra: "Capa" casaria com
+    qualquer coisa que tivesse "capa" dentro.
+    """
+    t = str(tipo or "").strip()
+    if t in PRESETS:
+        return PRESETS[t]
+    n = numero_do_tipo(t)
+    if n is None:
+        # Sem número na frente: casa pelo RESTO do rótulo, ignorando o
+        # prefixo numérico das chaves. É o caso do plano da triagem.
+        alvo = _chave_tipo(t)
+        for chave, texto in PRESETS.items():
+            if alvo and _chave_tipo(chave) == alvo:
+                return texto
+        return ""
+    for chave, texto in PRESETS.items():
+        if numero_do_tipo(chave) == n:
+            return texto
+    return ""
+
+
 def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
                          refs_layout_nomes=None, instrucao_layout="",
                          plano_triagem=None, ambientacao=""):
@@ -2580,13 +3005,25 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
     refs_layout_nomes: lista de nomes de arquivo das imagens de referência de layout
     instrucao_layout: texto descrevendo o que cada referência representa
     """
-    base = PRESETS.get(tipo, "")
+    base = preset_do_tipo(tipo)
 
     # ── Bloco do plano da triagem (composição e textos decididos pela IA antes da geração) ──
     bloco_plano_triagem = ""
+    _blocos_da_copy = 0
     if plano_triagem and not (tipo == "Personalizado (descrevo o que quero)"):
         _composicao = plano_triagem.get("composicao", "").strip()
         _textos = [t for t in plano_triagem.get("textos", []) if t and str(t).strip()]
+        # O TETO DA PECA CORTA A COPY AQUI, E NAO NO GERADOR.
+        #
+        # A triagem nao sabe quantos blocos o tipo comporta: ela escrevia 4
+        # frases para um Close de 2 callouts, o bloco de texto exato mandava
+        # escrever as 4 "letra por letra" e a regra de densidade dizia 2. Tres
+        # ordens sobre a mesma coisa. Cortar aqui e a unica forma de as duas
+        # que sobram concordarem.
+        _teto_do_tipo = faixa_de_blocos(tipo)[1]
+        if _teto_do_tipo:
+            _textos = _textos[:_teto_do_tipo]
+        _blocos_da_copy = len(_textos)
         if _composicao or _textos:
             bloco_plano_triagem = "\nPLANO DE CRIAÇÃO (definido pela análise do produto — siga este planejamento):\n"
             if _composicao:
@@ -2661,6 +3098,18 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
             bloco_refs += f"\nO que cada referência representa: {instrucao_layout}"
         bloco_refs += f"\n{INSTRUCAO_REFERENCIA_LAYOUT}"
 
+    # A MEDIDA DA OCUPACAO SAI DE `OCUPACAO`, E DE MAIS LUGAR NENHUM.
+    # O mesmo numero alimenta esta linha e a linha de COMPOSITION do prompt
+    # final em ingles — foi a divergencia entre as duas que mandava tres
+    # numeros contrarios ao modelo na mesma mensagem.
+    _protagonismo = (
+        INSTRUCAO_PROTAGONISMO_CAPA if modo_fundo_do_tipo(tipo) == "branco"
+        else INSTRUCAO_PROTAGONISMO
+    ).format(faixa=ocupacao_em_portugues(tipo))
+    _layout_marketing = INSTRUCAO_LAYOUT_MARKETING.format(
+        blocos=blocos_em_portugues(tipo, _blocos_da_copy)
+    )
+
     _modo = modo_fundo_do_tipo(tipo)
     eh_personalizado = _modo == "personalizado"
     eh_fundo_branco  = _modo == "branco"
@@ -2698,7 +3147,7 @@ TIPO DE IMAGEM: {tipo}
 {bloco_refs}
 
 {PADRAO_VISUAL_FUNDO_BRANCO}
-{INSTRUCAO_PROTAGONISMO_CAPA}
+{_protagonismo}
 {INSTRUCAO_FIDELIDADE}
 {INSTRUCAO_PROPORCAO}
 {INSTRUCAO_COMPOSICAO}
@@ -2781,8 +3230,8 @@ TIPO DE IMAGEM: {tipo}
 {bloco_refs}
 
 {PADRAO_VISUAL}
-{INSTRUCAO_PROTAGONISMO}
-{INSTRUCAO_LAYOUT_MARKETING}
+{_protagonismo}
+{_layout_marketing}
 {INSTRUCAO_FIDELIDADE}
 {INSTRUCAO_PROPORCAO}
 {INSTRUCAO_COMPOSICAO}
@@ -3221,6 +3670,17 @@ def conferir_texto(imagem, pedido=""):
             "'seis materia' são erros, mesmo parecendo palavra. Palavra "
             "truncada, letra trocada, concordância errada e frase sem "
             "sentido contam como erro.\n\n"
+            "NÃO são erro, e reprovar por elas é o defeito oposto:\n"
+            "- estrangeirismo consagrado no comércio brasileiro — premium, "
+            "design, kit, gift, home, office, light, fit, blend, style — "
+            "escrito corretamente;\n"
+            "- palavra em CAIXA ALTA, que é escolha de tipografia;\n"
+            "- nome próprio, marca ou nome de produto;\n"
+            "- unidade e abreviação (cm, ml, g, kg, un.);\n"
+            "- frase curta sem ponto final, que é estilo de peça gráfica.\n"
+            "Só reprove o que um leitor brasileiro leria como escrito "
+            "ERRADO. Reprovar palavra certa custa três gerações pagas e "
+            "barra uma peça boa.\n\n"
             "Em `texto_correto`, escreva TODO o texto da imagem já "
             "corrigido, mantendo a mesma ordem e a mesma divisão em blocos "
             "— é isso que vai ser mandado ao gerador para refazer a peça."
@@ -3292,7 +3752,7 @@ def revisar_texto(img, tipo, pedido="", gerar=None, prompt_base="",
             return img, {"ok": False, "rodadas": n, "erro": "",
                          "erros": erros or erros_1a}
         _diz(f"Texto errado ({erros[:60]}). Refazendo com as palavras certas…")
-        nova_img, erro_g = gerar(prompt_base + bloco_texto_exato(certo))
+        nova_img, erro_g = gerar(trocar_texto_exato(prompt_base, certo))
         if erro_g or not nova_img:
             return img, {"ok": False, "rodadas": n, "erro": "",
                          "erros": erros or erros_1a}
@@ -4954,6 +5414,18 @@ def pagina_imagem(usuario_logado):
                     st.session_state["img_triagem_config"] = cfg
 
                 galeria = []
+                st.session_state["img_fotos_originais"] = cfg["fotos_bytes"]
+                st.session_state["img_fotos_sao_arte"] = False
+                # O MOTIVO DA FALHA PRECISA SOBREVIVER AO RERUN.
+                #
+                # Cada peca que falhava escrevia `st.warning("Falhou em X:
+                # motivo")` na pagina. No fim do laco vem `st.rerun()`, que
+                # redesenha a tela do zero — e leva os avisos junto. O
+                # colaborador via "8 no plano, 1 na galeria" e nada mais. Foi
+                # literalmente a frase dele: "gerou somente 4 imagens sem
+                # motivo algum". O motivo tinha sido escrito, e apagado.
+                falhas_geracao = []
+                st.session_state.pop("img_falhas_geracao", None)
                 st.session_state.pop("img_galeria_salva", None)
                 # ARQUIVAR, nao apagar. Apagar aqui desarmava a rede de
                 # seguranca exatamente no momento em que ela era necessaria:
@@ -4977,8 +5449,39 @@ def pagina_imagem(usuario_logado):
                     pass
 
                 # Gera APENAS os tipos viáveis aprovados na triagem
-                tipos_viaveis = [item["tipo"] for item in itens_viaveis]
+                # O RÓTULO OFICIAL, NÃO O QUE A IA ESCREVEU.
+                #
+                # `item["tipo"]` é o nome que a IA do plano inventou —
+                # "Imagem de marketing — benefícios" no lugar de "2 —
+                # Benefícios do produto". Levar esse nome adiante fazia o
+                # preset do tipo não ser achado, e a peça ia para o gerador
+                # SEM as regras dela. O prompt real de 24/09 mostrou isso nas
+                # oito de uma vez.
+                tipos_viaveis = [tipo_canonico(item, cfg.get("tipos"))
+                                 for item in itens_viaveis]
                 tipos = tipos_viaveis if tipos_viaveis else cfg["tipos"]
+
+                # SE AINDA SOBROU TIPO SEM NUMERO, ISSO TEM DE APARECER.
+                #
+                # Tipo sem numero nao acha preset, cai em `modo_fundo_do_tipo`
+                # = "padrao" e em `pode_ter_texto` = True. Foi assim que a
+                # ambientacao — foto editorial sem texto — saiu com titulo,
+                # selo de beneficio e um "COMPRAR AGORA" desenhado. O
+                # `tipo_canonico` resolve pelo numero do plano; quando nem
+                # isso houver, o Studio diz, em vez de gerar errado calado.
+                _sem_numero = [t for t in tipos
+                               if numero_do_tipo(t) is None
+                               and t != PERSONALIZADO
+                               and not eh_rotulo_de_ajuste(t)]
+                if _sem_numero:
+                    st.warning(
+                        "⚠️ Não reconheci o tipo oficial de: "
+                        + ", ".join(f"**{t}**" for t in _sem_numero)
+                        + ". Essas peças vão sair com as regras genéricas — "
+                        "sem o preset do tipo, e a de ambientação pode vir "
+                        "com texto. Clique em **Analisar novamente** antes de "
+                        "publicar o que sair delas."
+                    )
 
                 import time as _time_gen
                 import threading as _threading
@@ -5015,7 +5518,26 @@ def pagina_imagem(usuario_logado):
                         for _l in _ar.resumo(_amb_desc, list(tipos)):
                             st.caption("🏙️ " + _l)
 
+                # TRES FALHAS IGUAIS SEGUIDAS NAO SAO AZAR — E O MOTOR FORA
+                # DO AR, E INSISTIR CUSTA O TEMPO DELE.
+                #
+                # Com o primario 404 e o reserva sem cota, cada peca ainda
+                # esperava ate 5 minutos antes de desistir. Oito pecas assim
+                # sao 40 minutos de barra andando para entregar o que ja se
+                # sabia na terceira. Quando o motivo e o MESMO tres vezes, o
+                # laco para e diz por que.
+                _abortou = ""
                 for i, tipo in enumerate(tipos):
+                    _ultimas = [m for _t, m in falhas_geracao[-3:]]
+                    if len(_ultimas) == 3 and len(set(_ultimas)) == 1:
+                        _abortou = _ultimas[0]
+                        for _t_resto in tipos[i:]:
+                            falhas_geracao.append(
+                                (_t_resto, "não foi tentada: os três motores "
+                                           "anteriores falharam pelo mesmo "
+                                           "motivo, então parei."))
+                        st.session_state["img_falhas_geracao"] = list(falhas_geracao)
+                        break
                     barra.progress(i / len(tipos), text=f"Gerando {i+1}/{len(tipos)}: {tipo[:50]}...")
                     # Sem sleep aqui — o _GEMINI_LIMITER em gerar_imagem_ia já respeita o RPM
                     try:
@@ -5071,6 +5593,14 @@ def pagina_imagem(usuario_logado):
                         img_bytes, erro_gen = _res["img"], _res["erro"]
                         # ────────────────────────────────────────────────────────
                         if erro_gen:
+                            falhas_geracao.append((tipo, str(erro_gen)))
+                            st.session_state["img_falhas_geracao"] = list(falhas_geracao)
+                            try:
+                                log_imagem.registrar(
+                                    "gerar_falhou", cfg.get("instrucoes_extras", ""),
+                                    tipo=tipo, resultado=str(erro_gen)[:400])
+                            except Exception:
+                                pass
                             st.warning(f"⚠️ Falhou em '{tipo}': {erro_gen}")
                             continue
 
@@ -5146,10 +5676,28 @@ def pagina_imagem(usuario_logado):
                         # Pelo helper: falha de gravacao deixa de ser muda.
                         guardar_rascunho(usuario_logado, "geracao")
                     except Exception as _e_img:
+                        falhas_geracao.append(
+                            (tipo, f"{type(_e_img).__name__}: {_e_img}"))
+                        st.session_state["img_falhas_geracao"] = list(falhas_geracao)
+                        try:
+                            log_imagem.registrar(
+                                "gerar_falhou", cfg.get("instrucoes_extras", ""),
+                                tipo=tipo,
+                                resultado=f"{type(_e_img).__name__}: {_e_img}"[:400])
+                        except Exception:
+                            pass
                         st.warning(f"⚠️ Erro inesperado em '{tipo}': {_e_img}")
                         continue
 
                 barra.progress(1.0, text=f"Concluído! {len(galeria)}/{len(tipos)} imagens geradas.")
+                if _abortou:
+                    st.session_state["img_abortou_geracao"] = _abortou
+                else:
+                    st.session_state.pop("img_abortou_geracao", None)
+                # Este placar morre no rerun como os avisos. Guardado, ele
+                # aparece em cima da galeria: "1 de 8" com nome e motivo das 7.
+                st.session_state["img_placar_geracao"] = (len(galeria), len(tipos))
+                st.session_state["img_falhas_geracao"] = list(falhas_geracao)
 
                 if galeria:
                     for k in [k for k in st.session_state if k.startswith("_pasta_")]:
@@ -5196,6 +5744,43 @@ def pagina_imagem(usuario_logado):
                     f"❌ Erro durante a geração: {_e_gerar}\n\n"
                     "Suas sessões e dados estão preservados. Tente novamente ou reduza o número de imagens."
                 )
+
+    # ── O PLACAR DA ÚLTIMA GERAÇÃO, E O MOTIVO DE CADA FALTA ──────────────────
+    #
+    # Fica FORA do `if img_galeria`: quando nenhuma peça sai, é justamente
+    # quando o motivo é mais necessário.
+    #
+    # Ele existe porque o laço de geração termina em `st.rerun()`, e o rerun
+    # redesenha a página do zero. Os `st.warning("Falhou em X: motivo")` que o
+    # laço escreveu morrem ali, e o que sobra na tela é a galeria com menos
+    # peças do que o plano prometeu — sem uma palavra sobre as que faltam.
+    _placar = st.session_state.get("img_placar_geracao")
+    _falhas_ger = st.session_state.get("img_falhas_geracao") or []
+    if _placar and _placar[0] < _placar[1]:
+        _feitas, _pedidas = _placar
+        st.markdown("---")
+        st.error(
+            f"⚠️ A última geração entregou **{_feitas} de {_pedidas}** imagens. "
+            f"As {_pedidas - _feitas} que faltam falharam — o motivo de cada uma "
+            "está abaixo."
+        )
+        _motivo_aborto = st.session_state.get("img_abortou_geracao")
+        if _motivo_aborto:
+            st.info(
+                "⏹️ Parei antes do fim: três peças seguidas falharam pelo mesmo "
+                "motivo, e insistir nas outras só gastaria tempo. Resolva o "
+                "motivo abaixo e clique em **Analisar novamente**.\n\n"
+                + str(_motivo_aborto).replace("$", r"\$")
+            )
+        for _t_falha, _motivo in _falhas_ger:
+            # Cifrão cru vira fórmula no markdown do Streamlit, e mensagem de
+            # erro de cobrança tem cifrão.
+            st.warning(f"**{_t_falha}** — " + str(_motivo).replace("$", r"\$"))
+        if st.button("Entendi, esconder este aviso", key="img_limpa_placar"):
+            st.session_state.pop("img_placar_geracao", None)
+            st.session_state.pop("img_falhas_geracao", None)
+            st.session_state.pop("img_abortou_geracao", None)
+            st.rerun()
 
     # ── GALERIA ───────────────────────────────────────────────────────────────
     if "img_galeria" in st.session_state and st.session_state["img_galeria"]:
@@ -6124,9 +6709,28 @@ if __name__ == "__main__":
 
     # O produto e o destaque, e isso virou numero — "o maior possivel" e
     # opiniao, e o modelo tem a dele.
-    ok("a ocupacao e medida, com e sem texto",
-       "55% a 70%" in INSTRUCAO_PROTAGONISMO
-       and "65% a 80%" in INSTRUCAO_PROTAGONISMO)
+    # A medida saiu do texto e virou dicionario: `INSTRUCAO_PROTAGONISMO` tem
+    # o buraco `{faixa}`, e quem o preenche e `OCUPACAO` — a mesma fonte que
+    # alimenta a linha de COMPOSITION em ingles. Conferir o numero literal
+    # aqui era o que permitia os dois discordarem.
+    ok("a ocupacao e medida, e o texto so tem o buraco dela",
+       "{faixa}" in INSTRUCAO_PROTAGONISMO
+       and "%" not in INSTRUCAO_PROTAGONISMO)
+    ok("e ela sai de OCUPACAO, nas duas linguas",
+       "60% a 75%" in ocupacao_em_portugues("2 — Benefícios do produto")
+       and "60\u201375% of frame" in ocupacao_em_ingles("2 — Benefícios do produto"))
+    ok("a ambientacao NAO ganha porcentagem em lingua nenhuma",
+       "%" not in ocupacao_em_portugues("8 — Ambientação realista (sem texto)")
+       and "%" not in ocupacao_em_ingles("8 — Ambientação realista (sem texto)"))
+    ok("o teto de blocos tambem tem fonte unica",
+       faixa_de_blocos("4 — Close nos detalhes") == (1, 2)
+       and faixa_de_blocos("2 — Benefícios do produto") == (3, 5))
+    ok("e a copy da triagem e cortada nesse teto",
+       len(montar_prompt_imagem(
+           "4 — Close nos detalhes", "", {"cor": "preto"}, "Teste",
+           plano_triagem={"composicao": "x",
+                          "textos": ["um", "dois", "tres", "quatro"]}
+       ).split("  3. ")) == 1)
     ok("e a ordem de montagem esta dita",
        "PRIMEIRO" in INSTRUCAO_PROTAGONISMO)
     ok("o fundo desfocado tem lugar",
@@ -6157,7 +6761,7 @@ if __name__ == "__main__":
     _mkt = montar_prompt_imagem("2 — Benefícios do produto", "",
                                 {"nome_comercial": "Meia"}, "Meia")
     ok("a peca de marketing mantem a ocupacao medida",
-       "55% a 70%" in _mkt)
+       "60% a 75%" in _mkt)
     ok("e ela NAO recebe a regra da ambientacao",
        "ESCALA REAL" not in _mkt)
 

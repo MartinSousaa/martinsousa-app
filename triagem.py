@@ -575,6 +575,28 @@ def pagina_triagem(usuario_logado):
     if _msg_erro:
         st.warning(_msg_erro)
 
+    # ── BUSCAR ANTES DE CADASTRAR ─────────────────────────────────────────
+    #
+    # A busca morava no rodape, depois do formulario inteiro e do botao
+    # Salvar. Quem chegava para CONFERIR uma triagem ja salva tinha de rolar
+    # a tela toda por cima de um formulario em branco para achar o campo — e
+    # quem nao rolava cadastrava de novo, criando a segunda triagem do mesmo
+    # produto que a busca depois devolvia pela data.
+    #
+    # Pedido do dono: "o campo de pesquisar uma triagem existente precisa
+    # estar no topo".
+    st.markdown("#### Buscar triagem existente")
+    nome_busca = st.text_input(
+        "Digite o nome comercial pra ver a triagem já salva", key="busca_nome")
+    if nome_busca:
+        encontrada = buscar_triagem_por_nome(nome_busca)
+        if encontrada:
+            _cartao_triagem(encontrada)
+            _editar_ou_apagar(encontrada, usuario_logado)
+        else:
+            st.info("Nenhuma triagem encontrada com esse nome ainda.")
+    st.markdown("---")
+
     # Persiste a última categoria selecionada entre reruns
     _CATS = sorted(ML_COMISSAO_POR_CATEGORIA.keys())
     if "triagem_ultima_categoria" not in st.session_state:
@@ -642,7 +664,7 @@ def pagina_triagem(usuario_logado):
                 f"Já existe uma triagem chamada **{nome_comercial}** "
                 f"(cadastrada por {_ja.get('usuario') or '—'} em "
                 f"{_ja.get('data_hora') or '—'}). Para mudar alguma coisa, use "
-                f"**Buscar triagem existente**, ali embaixo, e edite aquela — "
+                f"**Buscar triagem existente**, no topo desta aba, e edite aquela — "
                 f"salvar de novo aqui criaria uma segunda.")
             st.rerun()
 
@@ -691,16 +713,6 @@ def pagina_triagem(usuario_logado):
             st.error(str(e))
             st.info("Nada do que você preencheu foi perdido — corrija e tente salvar de novo.")
 
-    st.markdown("---")
-    st.markdown("#### Buscar triagem existente")
-    nome_busca = st.text_input("Digite o nome comercial pra ver a triagem já salva", key="busca_nome")
-    if nome_busca:
-        encontrada = buscar_triagem_por_nome(nome_busca)
-        if encontrada:
-            _cartao_triagem(encontrada)
-            _editar_ou_apagar(encontrada, usuario_logado)
-        else:
-            st.info("Nenhuma triagem encontrada com esse nome ainda.")
 
 
 # ── Editar e apagar ──────────────────────────────────────────────────────────

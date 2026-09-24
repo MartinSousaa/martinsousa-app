@@ -51,8 +51,11 @@ FAIXA_MINIMA_PCT = 1.5
 # 35% deixava passar exatamente a capa que o dono reclamou: produtinho no meio
 # de um quadro branco vazio. A frase dele é a medida: "ele tem que preencher o
 # máximo possível da dimensão da imagem". Numa foto limpa, sem texto e sem
-# cenário, não há nada dividindo espaço — 70% é o piso do aceitável, e o
-# prompt pede de 80% a 92%.
+# cenário, não há nada dividindo espaço — 70% é o piso do aceitável.
+#
+# O que o PROMPT pede é outro número, de propósito mais apertado, e ele mora
+# em `imagem.OCUPACAO` — não copie o valor para cá. Foi copiar porcentagem de
+# um lugar para outro que pôs três medidas contrárias no mesmo prompt.
 OCUPACAO_MINIMA_PCT = 70.0
 OCUPACAO_MAXIMA_PCT = 96.0
 
