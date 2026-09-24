@@ -1264,11 +1264,104 @@ def _descrever_produto_via_claude(imagens_referencia, nome_produto="produto", da
                 max_tokens=800,
                 messages=[{"role": "user", "content": _idioma.com_regra(content_layout)}]
             )
-            estilo_layout = msg.content[0].text.strip()
+            estilo_layout = limpar_descricao_de_layout(
+                msg.content[0].text.strip())
         except Exception:
             pass
 
     return descricao_produto, estilo_layout
+
+
+# ── PEDIR GENTILMENTE AO MODELO NAO E GARANTIA ──────────────────────────────
+#
+# A descricao da referencia de layout e pedida com HARD RULES claras: nao
+# nomeie o objeto, nao mencione cor nenhuma, nao mencione pessoas, descreva so
+# geometria. Mesmo assim ela voltou com "chaleira vermelha", "bule vermelho",
+# "titulos em azul-marinho", "paleta monocromatica (azul-marinho + preto +
+# branco)" e "dois personagens interagem naturalmente".
+#
+# E esse texto entra no prompt final logo acima da linha que PROIBE copiar
+# produto, cores e pessoas da referencia. Ordem e contraordem na mesma
+# mensagem — com a contraordem em quatro paragrafos e a ordem em uma linha.
+#
+# E A PALETA AZUL VOLTANDO PELA SEXTA VEZ, por um caminho que nenhuma
+# varredura alcancava: as outras cinco estavam em texto FIXO do codigo, e
+# `checar_prompts.py` pega cor fixa em template. Esta nasce em tempo de
+# execucao, escrita por outro modelo, e nao existe no arquivo para ser
+# encontrada.
+#
+# Instrucao no pedido e um convite. Filtro na volta e uma regra. Isto e o
+# filtro: a descricao que desobedece e DESCARTADA inteira, porque uma
+# descricao contaminada vale menos que nenhuma — sem ela o tipo ainda tem as
+# proprias regras de layout; com ela, o gerador recebe a cor de outra empresa.
+_CORES_PROIBIDAS_NO_LAYOUT = (
+    "azul", "vermelh", "verde", "amarel", "laranja", "roxo", "rosa",
+    "marrom", "bege", "dourad", "prate", "preto", "branco", "cinza",
+    "marinho", "turquesa", "violeta", "bordo", "salmao", "salmão",
+    "blue", "red", "green", "yellow", "orange", "purple", "pink",
+    "brown", "beige", "gold", "silver", "black", "white", "grey", "gray",
+    "navy", "teal", "crimson", "magenta", "cyan",
+    "colour", "color", "palette", "paleta", "tonalidade", "matiz",
+)
+# Pessoa na descricao contradiz "NEVER add people" na mesma mensagem.
+_PESSOAS_NO_LAYOUT = (
+    "pessoa", "personagem", "homem", "mulher", "crianca", "criança",
+    "mao", "mão", "person", "people", "character", "hand",
+    # "model" fica de fora: "modelo de grade" e "modular" sao legitimos numa
+    # descricao de composicao, e o custo de descartar a descricao boa e alto.
+)
+
+
+def _acha_radicais(texto, radicais):
+    """Os radicais que aparecem NO COMECO de uma palavra do texto.
+
+    INICIO DE PALAVRA, E NAO PEDACO DELA — a diferenca nao e detalhe.
+    A primeira versao disto procurava por pedaco, e o meu proprio teste
+    reprovou na primeira linha: "margens generosas" foi descartada por conter
+    "rosa" dentro de "generosas". Uma descricao de layout perfeita, jogada
+    fora por casamento cego.
+    
+    Casar por pedaco de palavra ja trocou produto por produto nesta base, e a
+    regra do dono e explicita sobre isso. Com `\b` no inicio e `\w*` no fim,
+    "azul" pega "azul", "azulado" e "azul-marinho" (o hifen e limite de
+    palavra), e nao pega "generosas".
+    """
+    import re as _re_rad
+    achados = set()
+    for radical in radicais:
+        if _re_rad.search(r"\b" + _re_rad.escape(radical) + r"\w*", texto):
+            achados.add(radical)
+    return sorted(achados)
+
+
+def motivos_para_descartar_layout(texto):
+    """Por que esta descricao de layout nao pode entrar no prompt. [] se pode."""
+    t = str(texto or "").lower()
+    if not t.strip():
+        return []
+    motivos = []
+    achadas = _acha_radicais(t, _CORES_PROIBIDAS_NO_LAYOUT)
+    if achadas:
+        motivos.append("menciona cor ou paleta: " + ", ".join(achadas[:6]))
+    pessoas = _acha_radicais(t, _PESSOAS_NO_LAYOUT)
+    if pessoas:
+        motivos.append("menciona pessoas: " + ", ".join(pessoas[:4]))
+    return motivos
+
+
+def limpar_descricao_de_layout(texto):
+    """A descricao, ou "" quando ela desobedeceu as regras do pedido."""
+    motivos = motivos_para_descartar_layout(texto)
+    if motivos:
+        try:
+            import log_imagem
+            log_imagem.registrar(
+                "layout_descartado", "",
+                resultado="; ".join(motivos) + " | " + str(texto)[:300])
+        except Exception:
+            pass
+        return ""
+    return str(texto or "").strip()
 
 
 # Quando a resposta do gerador significa DINHEIRO ACABANDO, e não sorte.
@@ -1336,7 +1429,7 @@ def _chamar_gemini_geracao_texto(prompt_final, imagens_bytes=None, ref_layout=No
             # As fotos do produto vão PRIMEIRO, para o modelo ancorar nelas, e o
             # texto depois. Mesmo limite de 3 usado no caminho da OpenAI.
             parts = []
-            for img_b in (imagens_bytes or [])[:3]:
+            for img_b in fotos_para_o_motor(imagens_bytes):
                 _d_norm, _m_norm, _ = normalizar_imagem(img_b)
                 parts.append({
                     "inline_data": {
@@ -1697,6 +1790,24 @@ def _arquivo_para_openai(img_bytes, nome_base):
     return (f"{nome_base}.{ext}", _io_prep.BytesIO(dados), mime)
 
 
+# ── QUANTAS FOTOS DO PRODUTO VAO AO MOTOR ───────────────────────────────────
+#
+# Era `[:3]`, escrito a mao em CINCO lugares. O colaborador subia nove fotos e
+# o diagnostico dizia "3 de 9 disponiveis" — seis angulos do produto jogados
+# fora sem ninguem decidir isso. Num produto de acabamento metalico, cada
+# angulo a menos e detalhe que o gerador inventa.
+#
+# Tres nao era uma decisao: era um numero que ficou. Sobe para seis, que e o
+# que os modelos de imagem aceitam com folga, e passa a ter UM lugar. Se um
+# dia precisar mudar, muda aqui — e nao em cinco arquivos que discordam.
+MAX_FOTOS_AO_MOTOR = 6
+
+
+def fotos_para_o_motor(imagens_bytes):
+    """As fotos do produto que cabem numa chamada. Lista, nunca None."""
+    return list(imagens_bytes or [])[:MAX_FOTOS_AO_MOTOR]
+
+
 def _data_url(img_bytes):
     """data: URL já normalizada, para os caminhos que enviam imagem embutida."""
     dados, mime, _ = normalizar_imagem(img_bytes)
@@ -1914,7 +2025,7 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None, ref_layout=None,
         # ── COM FOTOS: Responses API (fotos como referência visual direta, igual ao ChatGPT) ──
         if imagens_bytes:
             content = []
-            for img_b in imagens_bytes[:3]:
+            for img_b in fotos_para_o_motor(imagens_bytes):
                 content.append({"type": "input_image", "image_url": _data_url(img_b)})
             # Referência de layout por ÚLTIMO — a ordem é o que diz ao modelo
             # que ela é molde de composição, não o produto a reproduzir.
@@ -1962,7 +2073,7 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None, ref_layout=None,
                         diagnostico["motor"] = f"{_modelo} (Responses + tools)"
                         diagnostico["size_pedido"] = "1024x1024"
                         diagnostico["input_fidelity"] = "high"
-                        diagnostico["refs_enviadas"] = len(imagens_bytes[:3])
+                        diagnostico["refs_enviadas"] = len(fotos_para_o_motor(imagens_bytes))
                     return img, None
             except Exception as _e_tool:
                 import sys as _sys
@@ -2009,7 +2120,7 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None, ref_layout=None,
                 import io as _io_edit
                 arquivos = [
                     _arquivo_para_openai(img_b, f"produto{_i}")
-                    for _i, img_b in enumerate(imagens_bytes[:3])
+                    for _i, img_b in enumerate(fotos_para_o_motor(imagens_bytes))
                 ]
                 if ref_layout:
                     arquivos.append(_arquivo_para_openai(ref_layout, "layout_referencia"))
@@ -2050,7 +2161,7 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None, ref_layout=None,
                 if diagnostico is not None:
                     diagnostico["motor"] = f"{_modelo} (Responses simples — SEM size)"
                     diagnostico["size_pedido"] = "nenhum (modelo escolhe)"
-                    diagnostico["refs_enviadas"] = len(imagens_bytes[:3])
+                    diagnostico["refs_enviadas"] = len(fotos_para_o_motor(imagens_bytes))
                 return img, None
             return None, "Sem imagem na resposta Responses API."
 
@@ -2625,7 +2736,7 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
     # caminho de forma bem visivel.
     if not img_bytes:
         if diagnostico is not None:
-            _n_refs = len((imagens_referencia or [])[:3])
+            _n_refs = len(fotos_para_o_motor(imagens_referencia))
             diagnostico["motor"] = "Gemini 3.1 Flash Image (fallback, COM fotos)"
             diagnostico["refs_enviadas"] = _n_refs
             diagnostico["size_pedido"] = "não suportado neste motor"
@@ -7244,6 +7355,46 @@ if __name__ == "__main__":
 
     # E as pecas de marketing continuam com a regra de tamanho — elas TEM
     # texto e o produto precisa dominar o quadro.
+    # ── AS FOTOS DO PRODUTO QUE CHEGAM AO MOTOR ─────────────────────────
+    #
+    # Era `[:3]` escrito a mao em cinco lugares. O colaborador subia nove
+    # fotos e o diagnostico dizia "3 de 9 disponiveis": seis angulos jogados
+    # fora sem ninguem decidir isso. Num produto de acabamento metalico, cada
+    # angulo a menos e detalhe que o gerador inventa.
+    ok("o limite de fotos tem um lugar so",
+       MAX_FOTOS_AO_MOTOR >= 6)
+    ok("e ele corta de verdade",
+       len(fotos_para_o_motor(list(range(20)))) == MAX_FOTOS_AO_MOTOR)
+    ok("lista vazia ou None nao quebra",
+       fotos_para_o_motor(None) == [] and fotos_para_o_motor([]) == [])
+    ok("nove fotos passam a ir alem de tres",
+       len(fotos_para_o_motor(list(range(9)))) > 3)
+    # O TESTE ESTAVA SE ENCONTRANDO. A primeira versao procurava o literal
+    # o literal do corte antigo e reprovava — porque a unica ocorrencia no
+    # arquivo era ela mesma, escrita aqui. Montado em pedacos, o texto nao
+    # existe no fonte, e a conferencia volta a medir o codigo.
+    _alvo_corte = "imagens_bytes" + "[:" + "3]"
+    ok("nenhum corte de fotos sobrou espalhado no codigo",
+       open(__file__, encoding="utf-8").read().count(_alvo_corte) == 0)
+
+    # ── A DESCRICAO DE LAYOUT E TEXTO DE OUTRO MODELO ────────────────────
+    #
+    # Sexta volta da paleta azul, e a primeira por um caminho que nenhuma
+    # varredura de template alcanca: o texto nasce em tempo de execucao.
+    ok("descricao com cor e descartada",
+       limpar_descricao_de_layout("Títulos em azul-marinho, paleta fria.") == "")
+    ok("descricao que nomeia o objeto e descartada",
+       limpar_descricao_de_layout("A chaleira vermelha ao centro.") == "")
+    ok("descricao com pessoas e descartada",
+       limpar_descricao_de_layout("Dois personagens ao fundo.") == "")
+    # E O CONTRARIO TAMBEM E DEFEITO: descartar tudo nao protege, cega.
+    ok("descricao limpa PASSA — 'generosas' nao e 'rosa'",
+       limpar_descricao_de_layout(
+           "Duas colunas, blocos à esquerda, margens generosas.") != "")
+    ok("e 'modular' nao e 'model'",
+       limpar_descricao_de_layout(
+           "Composição modular, blocos empilhados, respiro amplo.") != "")
+
     # ── A DIRECAO DE ARTE DECIDIDA UMA VEZ, HERDADA PELAS OITO ──────────
     #
     # O dono, vendo o conjunto: "6 direcoes de arte diferentes". A causa

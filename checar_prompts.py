@@ -494,6 +494,82 @@ def main():
               "uma geracao por peca")
         falhas += 1
 
+    # ── 4E. A DESCRICAO DE LAYOUT E TEXTO DE OUTRO MODELO, E PODE VIR SUJA ──
+    #
+    # Esta e a sexta volta da paleta azul, e a primeira que nenhuma varredura
+    # alcancava. As outras cinco estavam em texto FIXO do codigo — esta nasce
+    # em tempo de execucao, escrita por outro modelo, e nao existe no arquivo
+    # para ser encontrada.
+    #
+    # O pedido tem HARD RULES: nao nomeie o objeto, nao mencione cor, nao
+    # mencione pessoas. E a descricao voltou assim mesmo:
+    #
+    #     "o item de destaque (chaleira vermelha)"
+    #     "titulos em azul-marinho", "paleta monocromatica (azul-marinho...)"
+    #     "dois personagens interagem naturalmente"
+    #
+    # e entrou no prompt logo ACIMA da linha que proibe copiar produto, cores
+    # e pessoas da referencia. Instrucao no pedido e convite; filtro na volta
+    # e regra.
+    _sujas = [
+        ("cor nomeada", "Títulos em azul-marinho, paleta monocromática."),
+        ("objeto nomeado", "A chaleira vermelha ocupa o primeiro plano."),
+        ("pessoas", "Dois personagens interagem ao fundo desfocado."),
+        ("cor em ingles", "Navy blue headings with circular icons."),
+    ]
+    for _qual, _texto in _sujas:
+        if _img.limpar_descricao_de_layout(_texto):
+            print(f"FALHA  descricao de layout com {_qual} NAO foi descartada: "
+                  f"{_texto!r}")
+            falhas += 1
+    # E a descricao limpa tem de passar — descartar tudo tambem e defeito.
+    _limpas = [
+        "Layout de duas colunas: blocos à esquerda, margens generosas.",
+        "Grid de três colunas, ícones circulares, hierarquia tipográfica clara.",
+        "Composição modular: blocos empilhados, espaço negativo amplo.",
+    ]
+    for _texto in _limpas:
+        if not _img.limpar_descricao_de_layout(_texto):
+            print(f"FALHA  descricao de layout LIMPA foi descartada: {_texto!r} "
+                  f"— {_img.motivos_para_descartar_layout(_texto)}")
+            falhas += 1
+
+    # E o teste que importa: a suja nao pode CHEGAR ao prompt montado.
+    _orig_desc = _img._descricao_do_produto_cacheada
+    _img._descricao_do_produto_cacheada = lambda *a, **k: (
+        "descrição do produto",
+        _img.limpar_descricao_de_layout(
+            "Títulos em azul-marinho sobre bule vermelho, dois personagens."),
+    )
+    try:
+        _pt_suja = _img.montar_prompt_imagem(
+            TIPOS_COM_TEXTO[0], "", _DADOS, "Produto de Teste",
+            plano_triagem=_PLANO, direcao_arte=_DIRECAO)
+        _en_suja = _img.prompt_que_sera_enviado(
+            _pt_suja, [_foto()], tipo=TIPOS_COM_TEXTO[0])
+    finally:
+        _img._descricao_do_produto_cacheada = _orig_desc
+
+    # PROCURAR "azul-marinho" NO PROMPT INTEIRO SERIA CASAMENTO CEGO — E A
+    # PRIMEIRA VERSAO DESTA CONFERENCIA ERROU ASSIM.
+    #
+    # Ela reprovou, e a culpa era dela: "azul-marinho" esta no prompt de
+    # propositio, dentro da TRAVA DE COR, na lista de desvios PROIBIDOS para um
+    # produto preto. A guarda estava acusando a propria protecao.
+    #
+    # O que se confere e a SECAO da descricao de layout: descartada a
+    # descricao, a secao inteira nao pode existir.
+    _MARCA_LAYOUT = "COMPOSITION STYLE TO REPLICATE"
+    if _MARCA_LAYOUT in _en_suja:
+        _trecho = _en_suja.split(_MARCA_LAYOUT, 1)[1][:400]
+        print(f"FALHA  a descricao de layout suja chegou ao prompt: {_trecho[:120]!r}")
+        falhas += 1
+    for _proibido in ("bule vermelho", "personagens"):
+        if _proibido in _en_suja:
+            print(f"FALHA  '{_proibido}' chegou ao prompt pela descricao de "
+                  "layout — a paleta de outra empresa entrou na peca")
+            falhas += 1
+
     # ── 5. TIPO QUE NAO APARECE EM REGRA NENHUMA PASSA LIVRE ───────────────
     _citados = set()
     for _d, _t, _deve, _nao in REGRAS:
