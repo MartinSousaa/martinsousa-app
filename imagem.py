@@ -1898,10 +1898,38 @@ def _arquivo_para_openai(img_bytes, nome_base):
 # dia precisar mudar, muda aqui — e nao em cinco arquivos que discordam.
 MAX_FOTOS_AO_MOTOR = 6
 
+# E UM TETO DE BYTES, PORQUE CONTAR FOTO NAO BASTA.
+#
+# As fotos vao CRUAS: `revisar_arquivo` confere formato e integridade e
+# devolve os bytes como vieram, sem comprimir. Seis fotos de 10MB sao 60MB,
+# que em base64 viram uns 80MB numa chamada — e ai nao e "menos qualidade", e
+# timeout ou recusa da API. Subir de tres para seis sem este teto era trocar
+# um limite arbitrario por um risco de travar.
+#
+# Doze megabytes e o orcamento. Acima disso entram menos fotos, que e
+# exatamente o comportamento antigo — nunca menos de uma.
+ORCAMENTO_FOTOS_BYTES = 12 * 1024 * 1024
+
 
 def fotos_para_o_motor(imagens_bytes):
-    """As fotos do produto que cabem numa chamada. Lista, nunca None."""
-    return list(imagens_bytes or [])[:MAX_FOTOS_AO_MOTOR]
+    """As fotos do produto que cabem numa chamada. Lista, nunca None.
+
+    Corta por quantidade E por peso. A primeira entra sempre, mesmo sozinha e
+    grande: uma foto pesada e melhor que nenhuma — sem nenhuma, o modelo nao
+    ve o produto e inventa.
+    """
+    escolhidas = []
+    total = 0
+    for foto in list(imagens_bytes or [])[:MAX_FOTOS_AO_MOTOR]:
+        try:
+            peso = len(foto)
+        except TypeError:
+            peso = 0
+        if escolhidas and total + peso > ORCAMENTO_FOTOS_BYTES:
+            break
+        escolhidas.append(foto)
+        total += peso
+    return escolhidas
 
 
 def _data_url(img_bytes):
@@ -7572,7 +7600,20 @@ if __name__ == "__main__":
     ok("o limite de fotos tem um lugar so",
        MAX_FOTOS_AO_MOTOR >= 6)
     ok("e ele corta de verdade",
-       len(fotos_para_o_motor(list(range(20)))) == MAX_FOTOS_AO_MOTOR)
+       len(fotos_para_o_motor([b"x"] * 20)) == MAX_FOTOS_AO_MOTOR)
+    # O TETO DE BYTES, QUE E O QUE IMPEDE DE TRAVAR.
+    #
+    # As fotos vao cruas. Seis de 10MB sao 60MB numa chamada, e isso nao e
+    # "menos qualidade": e timeout. Subir de tres para seis sem este teto era
+    # trocar um limite arbitrario por um risco de travar.
+    _pesada = b"x" * (5 * 1024 * 1024)
+    ok("seis fotos pesadas nao passam do orcamento",
+       sum(len(f) for f in fotos_para_o_motor([_pesada] * 6))
+       <= ORCAMENTO_FOTOS_BYTES)
+    ok("mas seis fotos leves passam todas",
+       len(fotos_para_o_motor([b"x" * 1000] * 6)) == 6)
+    ok("uma foto gigante sozinha AINDA vai — melhor que nenhuma",
+       len(fotos_para_o_motor([b"x" * (40 * 1024 * 1024)])) == 1)
     ok("lista vazia ou None nao quebra",
        fotos_para_o_motor(None) == [] and fotos_para_o_motor([]) == [])
     ok("nove fotos passam a ir alem de tres",
