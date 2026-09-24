@@ -1,22 +1,25 @@
 ================================================================================
 MS STUDIO — ROTEIRO DA REANALISE
-Rodada de 24/09/2026, depois do PR #163
+Rodada 3 — depois dos PRs #164, #165 e #166
 ================================================================================
 
-Voce ja analisou estes prompts antes. Isto aqui diz o que MUDOU desde entao e
-o que conferir agora. Leia junto com o CONTEXTO_PARA_ANALISE.txt (a historia)
-e o DOSSIE_PROMPT.md (o contrato).
+Voce ja analisou duas vezes. Este roteiro SUBSTITUI o anterior: diz o que mudou
+desde a sua ultima leitura e o que conferir agora. Leia junto com o
+CONTEXTO_PARA_ANALISE.txt e o DOSSIE_PROMPT.md.
 
 
 --------------------------------------------------------------------------------
-ANTES DE COMECAR — DUAS COISAS
+ANTES DE COMECAR
 --------------------------------------------------------------------------------
 
-1. O SISTEMA NO AR FOI ATUALIZADO. Prompts que voce tenha guardado de antes
-   nao servem de comparacao direta: eles sao de outra versao. Colete de novo.
+1. O SISTEMA NO AR FOI ATUALIZADO DE NOVO. Colete do zero.
 
-2. NUNCA clique em "Confirmar e gerar". Gasta oito chamadas pagas por produto.
-   O caminho de graca esta no passo 5 abaixo.
+2. NUNCA clique em "Confirmar e gerar".
+
+3. UMA COISA NOVA NESTA RODADA, E E IMPORTANTE: **suba uma REFERENCIA DE
+   LAYOUT.** Nas duas rodadas anteriores voce nao subiu, e por isso o filtro
+   da descricao de layout nunca foi testado — sem referencia o sistema nao
+   pede descricao nenhuma, e nao ha o que filtrar. Ver a PARTE A2.
 
 
 --------------------------------------------------------------------------------
@@ -26,153 +29,195 @@ PASSO A PASSO
 1. Studio -> aba "Imagem".
 2. Preencha "Nome do produto".
 3. Marque "As 8 imagens do padrao".
-4. Suba as fotos. Se tiver referencias de AMBIENTACAO, suba tambem.
-5. Clique em "Analisar e mostrar plano antes de gerar". (Unica despesa
-   autorizada: uma analise.)
-6. No plano, ANTES de qualquer coisa, anote:
-   - o cartao "Direcao de arte das 8" (nome, cinco cores, materiais, luz,
-     trava do produto);
-   - a "Cena:" de cada um dos oito cartoes;
-   - QUALQUER aviso amarelo ou erro vermelho que apareca.
-7. Clique em "Ver o prompt que sera enviado em cada peca".
-8. Abra o expansor de cada cartao e copie o texto inteiro. Sao nove.
+4. Suba as fotos do produto.
+5. **Suba tambem uma imagem em "Imagens de referencia de LAYOUT"** — nesta
+   rodada ela e obrigatoria para o teste. Serve qualquer peca de marketing de
+   outra loja, de preferencia uma que tenha cor forte e pessoas: e isso que
+   coloca o filtro a prova.
+6. Se tiver referencias de AMBIENTACAO, pode subir — mas se a analise demorar,
+   veja a PARTE A3 antes de recarregar.
+7. Clique em "Analisar e mostrar plano antes de gerar".
+8. No plano, anote ANTES de tudo: a direcao de arte inteira, a "Cena:" de cada
+   cartao, e qualquer aviso amarelo ou erro vermelho.
+9. Clique em "Ver o prompt que sera enviado em cada peca" e copie os oito.
 
 
 --------------------------------------------------------------------------------
-PARTE A — O QUE MUDOU, E COMO CONFERIR
+PARTE A — O QUE MUDOU DESDE A SUA ULTIMA LEITURA
 --------------------------------------------------------------------------------
 
-Cinco mudancas desde a sua ultima analise. Para cada uma, a busca exata e o
-resultado esperado. **Os numeros abaixo foram medidos no codigo atual** — se o
-que voce achar for diferente, isso e achado.
+Quatro dos cinco itens abaixo saem de achados SEUS. Os numeros foram medidos
+no codigo atual, e o denominador e 8 (os oito tipos; o Personalizado nao
+existe quando se marca "As 8 imagens do padrao").
 
 
-A1. MARGEM E SOBREPOSICAO GANHARAM REGRA PROPRIA
+A1. A TRAVA DO PRODUTO PAROU DE DEDUZIR COR   [era o seu P1]
 --------------------------------------------------------------------------------
 
-Antes: so a capa tinha teto de margem. Os tipos 2 a 7 diziam "respiro nas
-bordas da peca" (que PEDE margem sem dizer quanto) e os presets 2 e 6 pediam
-"muito whitespace". E nada proibia cartao sobre cartao, prop na frente do
-produto, ou produto cortado pela borda.
+Voce achou, na `TRAVA DO PRODUTO`:
 
-Procure, e confira a contagem:
+    "peso 700g — cor nao informada, mas deducao visual e tom neutro/escuro
+     que harmoniza com universo de repouso visual"
 
-    "REGRA DE ESPACO DESTA PECA"        deve aparecer em  9 de 9
-    "NADA SOBREPOE O PRODUTO"           deve aparecer em  8 de 9  (falta na 8)
-    "NOTHING overlaps the product"      deve aparecer em  8 de 9  (falta na 8)
-    "never overlap each other"          deve aparecer em  8 de 9  (falta na 8)
-    "IT IS NOT EMPTY SPACE"             deve aparecer em  6 de 9  (falta na 1, 4, 8)
-    "no part cut by the frame edge"     deve aparecer em  8 de 9  (falta na 4)
-    "UNOBSTRUCTED"                      deve aparecer SO na 8
-    "The chosen detail FILLS the frame" deve aparecer SO na 4
+no MESMO prompt em que a `TRAVA DE COR` diz "e PROIBIDO recolorir o produto
+para harmonizar". Duas travas de cor, de fontes diferentes: uma escrita por
+codigo a partir do cadastro, outra deduzida pela analise.
 
-AS AUSENCIAS SAO PROPOSITAIS, e cada uma tem razao:
+O campo agora e filtrado: as frases que DEDUZEM sao cortadas, e so elas. O
+corte e por frase, nao o campo inteiro — "Album quadrado 30x30 com capa dura
+fosca" e informacao boa e fica.
 
-    peca 8  nao tem cartoes de texto, entao nao ha "cartao sobre cartao"; e
-            ela nao tem margem nenhuma porque o quadro inteiro e cena — por
-            isso diz UNOBSTRUCTED em vez de NADA SOBREPOE;
-    peca 4  e macro: ela CORTA de proposito, entao nao pode ter "produto
-            inteiro"; e nao tem margem porque o detalhe preenche o quadro;
-    peca 1  e foto limpa em branco: a regra dela e "margem uniforme e minima",
-            nao "o que sobra e painel".
+Procure, e confira:
 
-Se uma dessas ausencias aparecer onde NAO deveria, ou uma presenca faltar, e
-achado.
+    "TRAVA DO PRODUTO (material, acabamento e geometria"   8 de 8
+    "a COR tem trava propria"                              8 de 8
+    "TRAVA DE COR"                                         8 de 8
 
-E o que PEDIA margem tem de ter sumido:
+E dentro da TRAVA DO PRODUTO **nao pode** haver: "deducao", "deduzido", "cor
+nao informada", "provavelmente", "harmoniza", "presumo", "estimado".
 
-    "respiro nas bordas"    deve aparecer em  0 de 9
-    "muito whitespace"      deve aparecer em  0 de 9
+Se aparecer qualquer uma delas, o filtro falhou — e isso e defeito de
+MONTAGEM, nao de plano.
 
 
-A2. A DESCRICAO DA REFERENCIA DE LAYOUT PASSOU A SER FILTRADA
+A2. O FILTRO DA DESCRICAO DE LAYOUT — O TESTE QUE FALTA   [era o seu achado]
 --------------------------------------------------------------------------------
 
-Este foi o SEU achado da rodada passada, e era o mais grave: o bloco
-"COMPOSITION STYLE TO REPLICATE" nomeava o objeto da referencia ("chaleira
-vermelha", "bule vermelho"), nomeava cores ("azul-marinho") e mencionava
-pessoas ("dois personagens") — dentro da mesma mensagem que proibe copiar
-produto, cores e pessoas da referencia.
+Este e o item mais importante desta rodada, e depende de voce subir a
+referencia.
 
-Agora a descricao e DESCARTADA INTEIRA quando menciona cor, paleta ou pessoa.
+Voce achou, na rodada 1, que o bloco `COMPOSITION STYLE TO REPLICATE` vinha
+com "chaleira vermelha", "titulos em azul-marinho" e "dois personagens" —
+dentro da mesma mensagem que proibe copiar produto, cor e pessoas da
+referencia.
 
-Confira: se o bloco "COMPOSITION STYLE TO REPLICATE" existir no prompt, ele
-NAO pode conter nome de cor, nome de objeto nem pessoa — so geometria (onde os
-blocos ficam, tamanho, alinhamento, respiro).
+O sistema agora DESCARTA a descricao inteira quando ela menciona cor, paleta
+ou pessoa. Isso foi testado em laboratorio com texto envenenado, mas **nunca
+com uma referencia real**.
 
-ATENCAO A UM FALSO POSITIVO QUE EU MESMO QUASE COMETI: procurar nome de cor no
-prompt INTEIRO acusa a propria protecao. "azul-marinho" aparece de proposito
-dentro da TRAVA DE COR, na lista de desvios PROIBIDOS. Confira SO dentro do
-bloco de layout.
+Com a referencia subida, dois desfechos, e os dois sao informacao:
 
-Se o bloco nao aparecer em nenhuma peca, tambem pode ser correto: significa
-que a descricao veio suja e foi descartada, ou que nao havia referencia de
-layout. Nao e defeito.
+    O bloco APARECE, e so tem geometria (onde os blocos ficam, tamanho,
+    alinhamento, respiro) — o filtro deixou passar uma descricao limpa. Bom.
+
+    O bloco NAO APARECE em nenhuma peca — a descricao veio suja e foi
+    descartada. Tambem bom: e o filtro funcionando.
+
+O DEFEITO seria: o bloco aparecer COM nome de cor, nome de objeto ou pessoa.
+
+CUIDADO COM O FALSO POSITIVO, que eu mesmo quase cometi: procurar nome de cor
+no prompt inteiro acusa a propria protecao — "azul-marinho" esta la de
+proposito, dentro da TRAVA DE COR, na lista de desvios PROIBIDOS. Confira
+SO dentro do bloco de layout.
+
+Se der para dizer qual dos dois desfechos aconteceu, diga. E se o bloco sumiu,
+vale anotar: isso significa que a peca perdeu a orientacao de composicao da
+referencia, o que e o preco de descartar — e o dono precisa saber que pagou
+esse preco.
 
 
-A3. O PLANO PASSOU A SER CONFERIDO NA TELA
+A3. A ANALISE GANHOU PRAZO E O SPINNER GANHOU VOZ   [era o seu achado]
 --------------------------------------------------------------------------------
 
-Dois dos seis defeitos que voce reportou sao agora verificados automaticamente
-e aparecem como aviso no plano, antes de gastar:
+Voce relatou: sete minutos de spinner, sem plano e sem erro, e teve de
+recarregar — gastando duas analises.
 
-    pessoas planejadas em peca que as proibe (so a 7 leva figura humana);
-    duas pecas descrevendo a mesma superficie de cena.
+Agora a chamada morre em 3 minutos, e:
 
-ENTAO, SE VOCE ACHAR UM DESSES E A TELA NAO TIVER AVISADO, isso e defeito de
-codigo — e vale reportar como conserto definitivo, nao como "defeito desta
-rodada".
+    o spinner diz quantas fotos, quantas pecas, quanto costuma levar e qual o
+    limite;
+    se estourar, aparece um aviso ⏱️ dizendo que costuma ser volume de imagem,
+    que da para gerar assim mesmo, e que a previa volta com menos referencias.
 
-Se a tela avisou e voce concorda com o aviso, registre que o sistema pegou
-sozinho.
+ENTAO, SE DEMORAR DE NOVO: **nao recarregue.** Espere os 3 minutos. Se
+aparecer o aviso, o sistema funcionou — anote quantas imagens voce tinha
+subido, que e o dado que falta para saber se o limite esta no lugar certo.
+
+Se passar de 3 minutos e meio sem aviso nenhum, ai sim e defeito, e um dos
+graves: significa que o prazo nao esta pegando.
 
 
-A4. AS FOTOS
+A4. O MATERIAL DO CADASTRO PASSOU A CHEGAR   [era o seu P6 — Wire-O]
 --------------------------------------------------------------------------------
 
-Antes iam no maximo tres, de qualquer quantidade subida. Agora vao ate seis,
-com teto de peso de 12MB no total.
+Voce achou que "wire-o", "espiral" e "garra" apareciam em 0 de 8 — justo com a
+peca 4 sendo o close da encadernacao.
 
-No diagnostico da peca, procure "Fotos enviadas". Se voce subiu seis ou mais e
-foram menos que seis, pode ser o teto de peso — pergunte ao dono o tamanho dos
-arquivos antes de reportar como defeito.
+A causa nao era filtro nem corte: o campo "Material" do cadastro nao era
+escrito em lugar nenhum. Nem no brief, nem no contexto que a analise le. O
+resumo dizia "material/caracteristicas informados" — a palavra, sem o valor.
+
+Procure:
+
+    "Material e montagem"                 8 de 8
+    "use exatamente isto, nao deduza"     8 de 8
+
+E, se o cadastro do produto tiver a montagem escrita (Wire-O, espiral, costura
+lombada, encaixe), ela tem de aparecer no texto. Confira especialmente a
+**peca 4**, que e o close: ela agora tem como saber o que esta ampliando.
+
+Se o campo Material do cadastro estiver vazio, isso nao e defeito do sistema —
+e cadastro. Diga qual dos dois e.
 
 
-A5. O RESTO DA SUA LISTA ANTERIOR
+A5. PORTUGUES EM TODOS OS CAMPOS   [era o seu P5]
 --------------------------------------------------------------------------------
 
-Estes ja estavam corrigidos quando voce reanalisou e devem continuar:
+Voce achou "moments de intimidade", "sem harshness" e "background desfocado"
+no brief. A regra de portugues so cobria a copy; agora cobre "atmosfera",
+"luz", "composicao", "cena" e "trava_do_produto".
+
+Procure estrangeirismo nesses campos. Se achar, continua sendo defeito de
+PLANO — a analise escreve diferente a cada rodada.
+
+Excecao: os titulos das secoes em ingles (SECTION 1, TEXT RULE, COMPOSITION,
+THE TIE-BREAKER) sao a estrutura do prompt e nao contam.
+
+
+--------------------------------------------------------------------------------
+PARTE B — O QUE TEM DE CONTINUAR INTEIRO
+--------------------------------------------------------------------------------
+
+Tudo que voce ja validou nas duas rodadas. Se algum voltou ao estado antigo, e
+REGRESSAO, e tem prioridade sobre tudo:
 
     SECTION 1 com o brief inteiro (nao "TYPE-SPECIFIC INSTRUCTIONS")
-    THE TIE-BREAKER no fim das nove
-    TRAVA DE COR e Medidas EXATAS nas nove
+    THE TIE-BREAKER no fim das oito
+    TRAVA DE COR e Medidas EXATAS nas oito
     IMAGE TYPE: com o numero na frente
+    PALETA-MAE nas oito
     ocupacao diferente por tipo; a peca 8 SEM porcentagem nenhuma
-    PALETA-MAE nas nove
-    peca 7 exigindo pessoas; todas as outras proibindo
+    peca 7 exigindo pessoas, as outras proibindo
     peca 8 com ZERO TEXT RULE, ONE EXPLICIT EXCEPTION
 
-Se qualquer um voltou ao estado antigo, e REGRESSAO — reporte com prioridade.
+    REGRA DE ESPACO DESTA PECA        8 de 8
+    NADA SOBREPOE O PRODUTO           7 de 8  (falta na 8, que usa UNOBSTRUCTED)
+    never overlap each other          7 de 8  (falta na 8 — nao tem cartoes)
+    IT IS NOT EMPTY SPACE             5 de 8  (falta na 1, 4 e 8)
+    no part cut by the frame edge     7 de 8  (falta na 4 — o close corta)
+    "respiro nas bordas"              0 de 8
+    "muito whitespace"                0 de 8
 
 
 --------------------------------------------------------------------------------
-PARTE B — O QUE PROCURAR ALEM DISSO
+PARTE C — OS DOIS AVISOS QUE O SISTEMA DA SOZINHO
 --------------------------------------------------------------------------------
 
-Depois de conferir A1 a A5, faca a leitura normal: os onze criterios da Parte 3
-do CONTEXTO, na ordem da Parte 5 (contradicao numerica, ordem e contraordem,
-bloco ausente, trecho proibido, tipo x conteudo).
+Na tela do plano, antes de gastar, o Studio ja confere duas coisas:
 
-E a leitura de CONJUNTO, que so aparece olhando as oito juntas:
+    pessoa planejada em peca que proibe figura humana (so a 7 leva);
+    duas pecas descrevendo a mesma superficie de cena.
 
-    as oito cenas sao diferentes entre si?
-    a paleta e a mesma nas oito?
-    a familia de materiais e a mesma?
-    a direcao de arte combina com ESTE produto, ou caiu num padrao neutro?
+Na rodada passada os dois dispararam e acharam MAIS que voce — tambem a peca
+8 com pessoa, e as duplas 2/8 e 6/8.
+
+Entao: se voce achar um desses e a tela NAO tiver avisado, e defeito de
+CODIGO, e vale reportar como conserto definitivo. Se a tela avisou, registre
+que o sistema pegou sozinho e concorde ou discorde do aviso.
 
 
 --------------------------------------------------------------------------------
-PARTE C — COMO ENTREGAR
+PARTE D — COMO ENTREGAR
 --------------------------------------------------------------------------------
 
 Lista, um achado por linha:
@@ -180,19 +225,21 @@ Lista, um achado por linha:
     SECAO / peca  ->  o que esta escrito  ->  por que e defeito  ->  o que
     deveria estar
 
-E separe em tres grupos, porque o conserto de cada um e diferente:
+Separado em tres grupos, porque o conserto de cada um e diferente:
 
-    REGRESSAO      — estava corrigido e voltou. Prioridade maxima.
-    MONTAGEM       — defeito no texto montado por codigo. Conserto definitivo.
-    PLANO          — defeito na copy, composicao ou cena, escritos por IA a
-                     cada analise. Escreva "defeito NESTA RODADA", e diga se e
-                     um dos dois que o sistema ja confere sozinho.
+    REGRESSAO   estava corrigido e voltou. Prioridade maxima.
+    MONTAGEM    defeito no texto montado por codigo. Conserto definitivo.
+    PLANO       defeito na copy, composicao ou cena — escritos por IA a cada
+                analise. Escreva "defeito NESTA RODADA", nunca "corrigido", e
+                diga se e um dos dois que o sistema ja confere sozinho.
 
-Se nao achar nada num grupo, escreva "nenhum" — a ausencia tambem e
-informacao.
+Grupo sem achado: escreva "nenhum". A ausencia tambem e informacao.
+
+E responda explicitamente, porque e o que falta ha duas rodadas:
+
+    O FILTRO DE LAYOUT FOI TESTADO? Qual dos dois desfechos?
 
 Nao afirme que rodou comando, que conferiu arquivo:linha, ou que a imagem vai
 sair certa. Operar o Studio pelo navegador nao e rodar a varredura do sistema.
-Duvida declarada vale mais que afirmacao confiante e errada.
 
 ================================================================================
