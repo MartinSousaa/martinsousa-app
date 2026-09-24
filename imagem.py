@@ -1582,6 +1582,17 @@ def motivos_para_descartar_layout(texto):
 #
 # Vive no processo, como o modelo descoberto: a tela le logo depois de montar
 # o prompt, e um registro por container basta.
+#
+# LIMITE CONHECIDO, E DITO: o `session_state` do Streamlit e por sessao, mas
+# isto aqui e do PROCESSO. Com dois colaboradores no mesmo container, um
+# descarte de um poderia aparecer na tela do outro. A tela chama
+# `esquecer_descarte_de_layout()` imediatamente antes de montar os prompts e
+# le logo depois, o que fecha quase toda a janela — mas nao toda.
+#
+# Fica assim de proposito: `limpar_descricao_de_layout` roda de dentro de uma
+# thread, onde `session_state` nao existe (e a mesma armadilha documentada em
+# `registrar_revisao`), e o pior caso aqui e um aviso a mais na tela de
+# alguem. Prompt errado, nao — o texto enviado nao depende deste registro.
 _ULTIMO_DESCARTE_LAYOUT = {"motivo": "", "trecho": ""}
 
 
