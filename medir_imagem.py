@@ -136,12 +136,17 @@ def faixas(dados, tolerancia=TOLERANCIA_FAIXA):
     return fora
 
 
-def ocupacao(dados, tolerancia=12):
-    """Quanto do quadro o assunto ocupa, em %, contra um fundo chapado.
+def caixa_do_assunto(dados, tolerancia=12):
+    """(x0, y0, x1, y1) do que NÃO é da cor do canto. None quando não dá.
 
-    Mede a caixa que envolve tudo que NÃO é da cor do canto. Só faz sentido
-    em peça de fundo limpo; numa cena ambientada o "fundo" tem conteúdo e a
-    caixa daria o quadro inteiro. Devolve None quando não dá para medir.
+    É a mesma medida que `ocupacao` usava por dentro, agora com nome próprio:
+    quem enquadra precisa da CAIXA, e quem mede precisa da porcentagem. Duas
+    contas separadas da mesma coisa acabariam discordando.
+
+    Atenção ao que a caixa CONTÉM: numa peça de marketing, o painel de texto
+    lateral também difere do fundo, então ele entra na caixa. É por isso que
+    recortar em volta dela preserva o texto — o recorte cego de antes decepava
+    justamente essas frases.
     """
     try:
         im = _abrir(dados)
@@ -165,6 +170,26 @@ def ocupacao(dados, tolerancia=12):
                 x1, y1 = max(x1, x), max(y1, y)
     if x1 < 0:
         return None
+    # O passo pula pixels: devolve a caixa com a folga de um passo, para não
+    # cortar a borda do assunto por causa da amostragem.
+    return (max(0, x0 - passo), max(0, y0 - passo),
+            min(w - 1, x1 + passo), min(h - 1, y1 + passo))
+
+
+def ocupacao(dados, tolerancia=12):
+    """Quanto do quadro o assunto ocupa, em %. None quando não dá para medir.
+
+    Só faz sentido em peça de fundo limpo; numa cena ambientada o "fundo" tem
+    conteúdo e a caixa daria o quadro inteiro.
+    """
+    caixa = caixa_do_assunto(dados, tolerancia)
+    if not caixa:
+        return None
+    try:
+        w, h = _abrir(dados).size
+    except Exception:
+        return None
+    x0, y0, x1, y1 = caixa
     return round(max((x1 - x0) / w, (y1 - y0) / h) * 100.0, 1)
 
 
