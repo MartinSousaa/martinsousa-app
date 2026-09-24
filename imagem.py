@@ -1457,12 +1457,51 @@ _CORES_PROIBIDAS_NO_LAYOUT = (
     "colour", "color", "palette", "paleta", "tonalidade", "matiz",
 )
 # Pessoa na descricao contradiz "NEVER add people" na mesma mensagem.
-_PESSOAS_NO_LAYOUT = (
+# OS RADICAIS SAO BILINGUES; O AVISO NA TELA, NAO.
+#
+# O aviso saiu assim: "Ela voltou mencionando menciona cor ou paleta: branco,
+# red". Duas coisas numa frase — o verbo duplicado, porque o motivo ja trazia
+# "menciona" e o texto do aviso acrescentava "mencionando"; e "red" em ingles
+# num aviso em portugues, porque o radical achado ia cru para a tela.
+#
+# Quem le esse aviso e o colaborador, e ele decide trocar a referencia por
+# causa dele.
+_EM_PORTUGUES = {
+    "blue": "azul", "red": "vermelho", "green": "verde", "yellow": "amarelo",
+    "orange": "laranja", "purple": "roxo", "pink": "rosa", "brown": "marrom",
+    "beige": "bege", "gold": "dourado", "silver": "prateado", "black": "preto",
+    "white": "branco", "grey": "cinza", "gray": "cinza", "navy": "azul-marinho",
+    "teal": "verde-azulado", "crimson": "carmesim", "magenta": "magenta",
+    "cyan": "ciano", "colour": "cor", "color": "cor", "palette": "paleta",
+    "person": "pessoa", "people": "pessoas", "character": "personagem",
+    "hand": "mão", "vermelh": "vermelho", "amarel": "amarelo",
+    "dourad": "dourado", "prate": "prateado", "deduzid": "deduzido",
+}
+
+# ── FIGURA HUMANA TEM UMA LISTA SO ──────────────────────────────────────────
+#
+# Eram DUAS, e elas discordavam. A do layout nao tinha "casal", "familia",
+# "bebe", "menino", "menina" nem "maos" no plural; a da cena nao tinha
+# "person", "people", "character" nem "hand". Uma descricao de referencia com
+# "um casal ao fundo" passava pelo filtro; um plano em ingles passava pelo
+# aviso da tela.
+#
+# O CLAUDE.md desta base chama isso pelo nome: uma regra e uma regra, e nao
+# uma copia. Quando a mesma pergunta tem duas respostas no codigo, elas passam
+# a discordar — a questao e so quando.
+PESSOAS = (
     "pessoa", "personagem", "homem", "mulher", "crianca", "criança",
-    "mao", "mão", "person", "people", "character", "hand",
-    # "model" fica de fora: "modelo de grade" e "modular" sao legitimos numa
-    # descricao de composicao, e o custo de descartar a descricao boa e alto.
+    "casal", "familia", "família", "bebe", "bebê", "menino", "menina",
+    "mao", "mão", "maos", "mãos",
+    "person", "people", "character", "hand", "couple", "family",
+    "child", "kid", "baby", "man", "woman",
+    # "model" e "modelo" ficam de fora: "modelo de grade" e "composicao
+    # modular" sao legitimos, e descartar uma descricao boa tambem e defeito.
 )
+
+# Os dois nomes antigos continuam existindo para quem ja lia por eles, mas
+# apontam para a MESMA lista — que e o ponto.
+_PESSOAS_NO_LAYOUT = PESSOAS
 
 
 def _acha_radicais(texto, radicais):
@@ -1566,10 +1605,12 @@ def motivos_para_descartar_layout(texto):
     motivos = []
     achadas = _acha_radicais(t, _CORES_PROIBIDAS_NO_LAYOUT)
     if achadas:
-        motivos.append("menciona cor ou paleta: " + ", ".join(achadas[:6]))
+        motivos.append("cor ou paleta (" + ", ".join(
+            _EM_PORTUGUES.get(c, c) for c in achadas[:6]) + ")")
     pessoas = _acha_radicais(t, _PESSOAS_NO_LAYOUT)
     if pessoas:
-        motivos.append("menciona pessoas: " + ", ".join(pessoas[:4]))
+        motivos.append("pessoas (" + ", ".join(
+            _EM_PORTUGUES.get(p, p) for p in pessoas[:4]) + ")")
     return motivos
 
 
@@ -4042,11 +4083,10 @@ def prompt_que_sera_enviado(prompt_texto, imagens_referencia, refs_layout=None,
 # Entao a conferencia dele tem de rodar SEMPRE, na tela, antes de gastar. Duas
 # destas sao verificaveis sem ambiguidade; as outras quatro dependem do
 # produto e ficam para o olho humano.
-_PESSOAS_NA_CENA = (
-    "pessoa", "personagem", "homem", "mulher", "crianca", "criança",
-    "casal", "familia", "família", "mao", "mão", "maos", "mãos",
-    "bebe", "bebê", "menino", "menina", "modelo",
-)
+# A MESMA lista do filtro de layout — ver `PESSOAS`, la em cima. Eram duas, e
+# discordavam: esta nao tinha "person", "people", "character" nem "hand",
+# entao um plano escrito em ingles passava pelo aviso da tela.
+_PESSOAS_NA_CENA = PESSOAS
 
 
 def pessoas_em_peca_errada(itens, tipos_selecionados=None):
@@ -7929,6 +7969,39 @@ if __name__ == "__main__":
     ok("plano vazio nao quebra nenhuma das duas",
        pessoas_em_peca_errada([], TIPOS_PADRAO) == []
        and cenas_repetidas(None, TIPOS_PADRAO) == [])
+
+    # ── FIGURA HUMANA TINHA DUAS LISTAS, E ELAS DISCORDAVAM ─────────────
+    #
+    # A do filtro de layout nao tinha "casal", "familia", "bebe", "menino",
+    # "menina" nem "maos"; a da cena nao tinha "person", "people",
+    # "character" nem "hand". "Um casal ao fundo" passava pelo filtro; um
+    # plano em ingles passava pelo aviso da tela.
+    ok("as duas leituras de pessoa saem da MESMA lista",
+       _PESSOAS_NO_LAYOUT is PESSOAS and _PESSOAS_NA_CENA is PESSOAS)
+    ok("casal e pego no filtro de layout",
+       limpar_descricao_de_layout("Blocos à esquerda, um casal ao fundo.") == "")
+    ok("familia tambem",
+       limpar_descricao_de_layout("Composição com uma família na mesa.") == "")
+    ok("e o plano em ingles e pego pelo aviso da tela",
+       pessoas_em_peca_errada(
+           [{"numero": 3, "tipo": "3 — Benefícios no cenário de uso",
+             "cena": "a couple holding the album", "composicao": ""}],
+           TIPOS_PADRAO))
+    # E NAO PODE CASAR DEMAIS: "modular" e "modelo de grade" sao legitimos.
+    ok("composição modular continua passando",
+       limpar_descricao_de_layout(
+           "Blocos à esquerda, margens generosas, composição modular.") != "")
+
+    # O AVISO DA TELA E EM PORTUGUES, E O RADICAL ACHADO PODE SER EM INGLES.
+    #
+    # Saiu assim: "Ela voltou mencionando menciona cor ou paleta: branco,
+    # red" — verbo duplicado, porque o motivo ja trazia "menciona", e "red"
+    # cru num aviso em portugues.
+    _mot = "; ".join(motivos_para_descartar_layout(
+        "White background with red accents and two people."))
+    ok("o motivo nao repete o verbo do aviso", "menciona" not in _mot)
+    ok("e sai em portugues",
+       "vermelho" in _mot and "red" not in _mot)
 
     # ── O CAMPO MATERIAL, E O CORTE QUE EXIGIA TEXTO ────────────────────
     #

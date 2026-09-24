@@ -222,6 +222,74 @@ def _linha_na_planilha(aba, id_triagem):
     return None
 
 
+def preencher_identificadores_antigos():
+    """Dá identificador às triagens gravadas antes de ele existir. (n, erro).
+
+    POR QUE ISTO EXISTE
+    -------------------
+    Uma triagem sem `id` nao pode ser editada: `_editar_ou_apagar` recusa, e
+    `atualizar_triagem` tambem — ela precisa do id para achar a linha. A tela
+    dizia "cadastre-a de novo com outro nome, ou me avise para preencher os
+    identificadores das antigas de uma vez".
+
+    Cadastrar de novo com outro nome e pior do que parece: a busca devolve a
+    mais recente, e passariam a existir duas triagens do mesmo produto
+    discordando — o defeito que `nome_ja_usado` existe para impedir.
+
+    E a segunda saida, a que a propria mensagem oferecia, nunca tinha sido
+    construida. Resultado real: o album estava gravado com "weri-o" em dois
+    campos, o conserto era digitar, e a tela nao deixava digitar.
+
+    O QUE ELA NAO FAZ
+    -----------------
+    Nao toca em linha que JA tem id, nem em linha sem nome comercial — linha
+    em branco no fim da aba nao vira cadastro. So preenche vazio.
+    """
+    try:
+        aba = _aba()
+        cab = aba.row_values(1) or []
+        norm = [str(c).strip().lower() for c in cab]
+        if "id" not in norm:
+            return 0, "A aba não tem coluna `id`. Avise o Léo."
+        col_id = norm.index("id") + 1
+        col_nome = (norm.index("nome_comercial") + 1
+                    if "nome_comercial" in norm else 0)
+
+        ids = aba.col_values(col_id)
+        nomes = aba.col_values(col_nome) if col_nome else []
+
+        def _valor(lista, i):
+            return str(lista[i - 1]).strip() if 0 < i <= len(lista) else ""
+
+        # Quantas linhas a aba tem de fato: a coluna do id pode ser mais curta
+        # que a do nome justamente porque o id falta.
+        ultima = max(len(ids), len(nomes))
+        celulas = []
+        for linha_n in range(2, ultima + 1):
+            if _valor(ids, linha_n):
+                continue                      # ja tem id: nao se toca
+            if col_nome and not _valor(nomes, linha_n):
+                continue                      # linha sem produto: nao e cadastro
+            celulas.append((linha_n, _id_novo()))
+
+        if not celulas:
+            return 0, ""
+
+        import gspread.utils as _gu
+        # A LETRA DA COLUNA PODE TER DUAS. `rowcol_to_a1(1, 28)` devolve
+        # "AB1", e pegar `[0]` dali daria "A" — ou seja, o identificador
+        # gravado na coluna errada, por cima do dado de outra pessoa. Hoje o
+        # id e a coluna 1 e ninguem veria; no dia em que alguem reordenar a
+        # aba, veria de uma vez so.
+        letra = _gu.rowcol_to_a1(1, col_id).rstrip("0123456789")
+        aba.batch_update([
+            {"range": f"{letra}{n}", "values": [[v]]} for n, v in celulas
+        ])
+        return len(celulas), ""
+    except Exception as e:
+        return 0, f"{type(e).__name__}: {e}"
+
+
 def atualizar_triagem(id_triagem, dados, usuario=""):
     """Reescreve UMA triagem. (ok, erro).
 
@@ -737,10 +805,33 @@ _EDITAVEIS = [
 def _editar_ou_apagar(dados, usuario_logado):
     _id = id_da_linha(dados)
     if not _id:
-        st.caption(
-            "Esta triagem é anterior ao identificador e não pode ser editada "
-            "aqui ainda. Cadastre-a de novo com outro nome, ou me avise para "
-            "preencher os identificadores das antigas de uma vez.")
+        # A MENSAGEM PROMETIA UMA SAIDA QUE NAO EXISTIA.
+        #
+        # Ela dizia "me avise para preencher os identificadores das antigas de
+        # uma vez" — e nao havia como fazer isso. Quem precisava corrigir um
+        # dado numa triagem antiga ficava sem caminho: o conserto era digitar,
+        # e a tela nao deixava digitar. Um album gravado com "weri-o" em dois
+        # campos chegou assim aos oito prompts por causa disto.
+        st.warning(
+            "Esta triagem foi cadastrada antes de as triagens terem "
+            "identificador, e por isso não dá para editá-la ainda.\n\n"
+            "O botão abaixo dá identificador a **todas** as antigas de uma "
+            "vez. Ele não altera nenhum dado do produto — só preenche a "
+            "coluna que faltava — e não toca nas que já têm.")
+        if st.button("🔑 Dar identificador às triagens antigas",
+                     key=f"btn_ids_{abs(hash(str(dados.get('nome_comercial'))))}"):
+            with st.spinner("Preenchendo os identificadores…"):
+                quantas, erro_ids = preencher_identificadores_antigos()
+            if erro_ids:
+                st.error(f"Não consegui: {erro_ids}")
+            elif quantas:
+                st.success(
+                    f"{quantas} triagem(ns) ganharam identificador. "
+                    "Busque o produto de novo — agora ele abre para edição.")
+                st.cache_data.clear()
+            else:
+                st.info("Nenhuma triagem estava sem identificador. "
+                        "Recarregue a tela e busque de novo.")
         return
 
     with st.expander("✏️ Editar esta triagem"):
@@ -869,5 +960,58 @@ if __name__ == "__main__":
     # errada — que e o unico jeito de errar aqui que nao tem volta.
     ok("editar sem id recusa", atualizar_triagem("", {"nome_comercial": "x"})[0] is False)
     ok("apagar sem id recusa", apagar_triagem("")[0] is False)
+
+    # ── PREENCHER OS IDs DAS ANTIGAS ─────────────────────────────────────
+    #
+    # Esta funcao ESCREVE na planilha, e escrever na coluna errada nao tem
+    # volta. Entao ela e conferida contra uma aba de mentira antes de existir
+    # de verdade: so pode tocar em linha SEM id, e so na coluna do id.
+    class _AbaFalsa:
+        def __init__(self, cab, linhas):
+            self.cab, self.linhas, self.escritas = cab, linhas, []
+
+        def row_values(self, n):
+            return self.cab if n == 1 else []
+
+        def col_values(self, c):
+            return [self.cab[c - 1]] + [l[c - 1] for l in self.linhas]
+
+        def batch_update(self, pedidos):
+            self.escritas = [(p["range"], p["values"][0][0]) for p in pedidos]
+
+    _falsa = _AbaFalsa(
+        ["id", "data_hora", "nome_comercial"],
+        [["aaa", "01/01/2026", "Com id"],     # linha 2: nao se toca
+         ["",    "02/01/2026", "Sem id"],     # linha 3: preenche
+         ["",    "",           ""]])          # linha 4: vazia, nao e cadastro
+    globals()["_aba"] = lambda: _falsa
+    _n, _e = preencher_identificadores_antigos()
+    ok("so a linha sem id foi preenchida", (_n, _e) == (1, ""))
+    ok("e foi na linha 3, na coluna do id",
+       len(_falsa.escritas) == 1 and _falsa.escritas[0][0] == "A3")
+    ok("o id gravado tem o tamanho de um id",
+       _falsa.escritas and len(_falsa.escritas[0][1]) == 12)
+
+    # Rodar de novo nao regrava nada: a linha 3 ja teria id na planilha real.
+    _falsa.linhas[1][0] = _falsa.escritas[0][1]
+    ok("segunda passada nao mexe em nada",
+       preencher_identificadores_antigos() == (0, ""))
+
+    # A COLUNA DO ID PODE PASSAR DO Z. `rowcol_to_a1(1, 28)` e "AB1": pegar a
+    # primeira letra daria "A" — id gravado por cima da coluna de outro dado.
+    _larga = _AbaFalsa(
+        ["c%d" % i for i in range(1, 27)] + ["nome_comercial", "id"],
+        [["x"] * 26 + ["Produto", ""]])
+    globals()["_aba"] = lambda: _larga
+    preencher_identificadores_antigos()
+    ok("coluna depois do Z nao vira coluna A",
+       _larga.escritas and _larga.escritas[0][0] == "AB2")
+
+    # Aba sem coluna de id nao e adivinhada: avisa e nao escreve.
+    _sem = _AbaFalsa(["data_hora", "nome_comercial"], [["01/01", "Produto"]])
+    globals()["_aba"] = lambda: _sem
+    _n2, _e2 = preencher_identificadores_antigos()
+    ok("aba sem coluna de id avisa e nao escreve",
+       _n2 == 0 and "id" in _e2 and _sem.escritas == [])
 
     print("\nfalhas:", falhas)
