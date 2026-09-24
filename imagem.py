@@ -252,6 +252,102 @@ def blocos_em_portugues(tipo, pedidos=0):
             f"nenhuma outra instrução autoriza mais.")
 
 
+# ── O ESPACO DO QUADRO: QUEM OCUPA O QUE, E O QUE NAO ENCOSTA EM NADA ──────
+#
+# Duas queixas do dono que nunca tiveram regra propria: "margem" e "quadrados
+# sobrepondo a imagem". Auditado o prompt real, os dois buracos:
+#
+#   MARGEM — so a capa tinha teto. Nos tipos 2 a 7 a unica linha sobre borda
+#   era "respiro nas bordas da peca", que PEDE margem sem dizer quanto, e os
+#   presets 2 e 6 ainda pediam "muito whitespace". Faltava a frase que fecha:
+#   o que nao e produto e painel ou cenario — nao e vazio.
+#
+#   SOBREPOSICAO — "jamais sobreponha texto ao produto" existia. Nao existia
+#   nada sobre cartao em cima de cartao, prop na frente do produto, nem
+#   produto cortado pela borda do quadro. Cortar o produto na borda e o quadro
+#   sobrepondo o produto, e nos tipos 2 a 7 nao havia uma linha proibindo.
+#
+# As duas sao a mesma pergunta — quem ocupa cada pedaco do quadro — e por isso
+# saem de um lugar so, variando por tipo.
+def regra_de_espaco(tipo):
+    """(texto em portugues, linha em ingles) sobre margem e sobreposicao."""
+    n = numero_do_tipo(tipo)
+
+    comum_pt = (
+        "- NADA SOBREPÕE O PRODUTO: nem texto, nem ícone, nem cartão, nem\n"
+        "  faixa, nem prop de cenário. Objeto de cena fica ATRÁS ou AO LADO,\n"
+        "  nunca à frente tampando parte dele.\n"
+        "- Os blocos de texto não se sobrepõem entre si: cada cartão tem sua\n"
+        "  área, com folga visível entre um e outro.\n")
+    comum_en = (
+        "- NOTHING overlaps the product: not text, not icons, not cards, not "
+        "bands, not scene props. Scene objects sit BEHIND or BESIDE it, never "
+        "in front covering any part of it.\n"
+        "- Text blocks never overlap each other: every card has its own area, "
+        "with visible clearance between them.\n")
+
+    if n == 4:
+        # O close corta de proposito: o recorte E a peca.
+        pt = ("REGRA DE ESPAÇO DESTA PEÇA:\n"
+              "- O detalhe escolhido PREENCHE o quadro. Não há margem de\n"
+              "  respiro nesta peça: borda vazia num macro é erro.\n"
+              + comum_pt)
+        en = ("- The chosen detail FILLS the frame. No breathing margin here: "
+              "empty border in a macro shot is a mistake.\n" + comum_en)
+        return pt, en
+
+    if n == 8:
+        pt = ("REGRA DE ESPAÇO DESTA PEÇA:\n"
+              "- O quadro é cena inteira: não existe margem, existe ambiente.\n"
+              "  Nenhuma faixa vazia em volta, nenhum fundo liso nas bordas.\n"
+              "- O produto aparece DESOBSTRUÍDO: nada do cenário passa na\n"
+              "  frente dele, nem em parte.\n"
+              "- O produto aparece INTEIRO: nenhuma parte cortada pela borda\n"
+              "  do quadro.\n")
+        en = ("- The frame is a full scene: there is no margin, there is "
+              "environment. No empty band around it, no flat backdrop at the "
+              "edges.\n"
+              "- The product is UNOBSTRUCTED: nothing in the scene passes in "
+              "front of it, not even partly.\n"
+              "- The product appears WHOLE: no part cut by the frame edge.\n")
+        return pt, en
+
+    if n == 1:
+        pt = ("REGRA DE ESPAÇO DESTA PEÇA:\n"
+              "- A margem branca é UNIFORME e MÍNIMA nos quatro lados — só o\n"
+              "  suficiente para o produto não encostar na borda. Vazio\n"
+              "  concentrado em cima, embaixo ou de um lado é erro.\n"
+              "- O produto aparece INTEIRO: nenhuma parte cortada pela borda.\n"
+              + comum_pt)
+        en = ("- The white margin is UNIFORM and MINIMAL on all four sides — "
+              "only enough to keep the product off the edge. Empty space "
+              "concentrated at the top, bottom or one side is a mistake.\n"
+              "- The product appears WHOLE: no part cut by the frame edge.\n"
+              + comum_en)
+        return pt, en
+
+    # Tipos 2, 3, 5, 6, 7 e Personalizado: produto mais painel de texto.
+    pt = ("REGRA DE ESPAÇO DESTA PEÇA:\n"
+          "- O QUE NÃO É PRODUTO É PAINEL OU CENÁRIO — NÃO É VAZIO. O espaço\n"
+          "  que sobra depois de enquadrar o produto pertence aos blocos de\n"
+          "  texto e ao ambiente. Faixa vazia em volta da peça é área\n"
+          "  desperdiçada, e o anúncio paga por ela.\n"
+          "- A margem de segurança é uniforme e pequena nos quatro lados: só\n"
+          "  o suficiente para nada encostar na borda.\n"
+          "- O produto aparece INTEIRO: nenhuma parte cortada pela borda do\n"
+          "  quadro.\n"
+          + comum_pt)
+    en = ("- WHAT IS NOT PRODUCT IS PANEL OR SCENE — IT IS NOT EMPTY SPACE. "
+          "Whatever remains after framing the product belongs to the text "
+          "blocks and the environment. An empty band around the piece is "
+          "wasted area.\n"
+          "- The safety margin is uniform and small on all four sides: only "
+          "enough to keep everything off the edge.\n"
+          "- The product appears WHOLE: no part cut by the frame edge.\n"
+          + comum_en)
+    return pt, en
+
+
 def faixa_de_ocupacao(tipo):
     """(minimo, maximo, complemento) do tipo, ou None quando nao ha faixa."""
     return OCUPACAO.get(numero_do_tipo(tipo))
@@ -448,7 +544,7 @@ REGRA DE DENSIDADE:
   palavras. Descrição de 3 palavras deixa a peça pobre e sem argumento de venda.
 - Blocos em cartões de cantos arredondados, com ícone próprio, alinhados em
   coluna ou grade — não como texto solto sobre o fundo
-- Espaçamento uniforme entre blocos; respiro nas bordas da peça
+- Espaçamento uniforme entre blocos, sem que um encoste no outro
 - NUNCA adicione tags, selos, rodapés, ícones de compatibilidade ou elementos
   decorativos além dos blocos pedidos
 
@@ -542,7 +638,7 @@ PRESETS = {
         "Fundo deduzido do produto — sem cor de marca fixa. Benefícios em cartões laterais, inferiores ou em grade — a quantidade vem da regra de densidade; siga a referência de layout quando houver: "
         "ícone line-art na cor da direção de arte escolhida para ESTE produto — não existe cor "
         "de ícone fixa — + título curto (2-3 palavras) + frase direta (máximo 7 palavras). "
-        "Visual arejado, muito whitespace — jamais comprima ou empilhe os blocos de benefício. "
+        "Visual arejado — jamais comprima ou empilhe os blocos de benefício, e jamais deixe faixa vazia em volta da peça. "
         "Os textos dos benefícios vêm dos diferenciais e características do produto informados."
     ),
     "3 — Benefícios no cenário de uso": (
@@ -597,7 +693,7 @@ PRESETS = {
         "— a quantidade vem da regra de densidade; siga a referência de layout quando houver. "
         "Cada bloco: pergunta curta (máximo 5 palavras) em destaque + check verde + resposta direta "
         "(máximo 8 palavras). As objeções são baseadas nos diferenciais e características do produto. "
-        "Visual arejado, muito whitespace, fundo e paleta deduzidos do produto e da ocasião."
+        "Visual arejado, sem faixa vazia em volta da peça; fundo e paleta deduzidos do produto e da ocasião."
     ),
     "7 — Presenteie": (
         "IMAGEM EMOCIONAL — A ENTREGA DO PRESENTE: DUAS PESSOAS na cena, uma "
@@ -2430,6 +2526,7 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
     # genericos; ambientacao "at least 35%" contra "escala real". O modelo
     # recebia as duas e escolhia.
     _product_dominance_rule = ocupacao_em_ingles(_tipo_str)
+    _, _espaco_en = regra_de_espaco(_tipo_str)
 
     # O Presenteie e a UNICA peca do padrao que pede figura humana, e o pedido
     # e do dono: "uma pessoa entregando o produto como presente para outra".
@@ -2572,8 +2669,8 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
            if not _is_clean_photo else
            "- No text elements at all: no whitespace has to be reserved for "
            "them. The occupancy stated above is the only rule about size.\n")
-        + 
-        f"- Professional studio quality — high-end e-commerce agency standard"
+        + _espaco_en
+        + f"- Professional studio quality — high-end e-commerce agency standard"
         f"{_layout_section}\n\n"
         f"{_marketing_content}"
 
@@ -3474,6 +3571,8 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
     # comportamento de antes e o menos ruim dos dois.
     _bloco_direcao = bloco_direcao_de_arte(direcao_arte)
     _padrao_visual = padrao_visual(direcao_arte)
+    # Margem e sobreposicao saem do MESMO lugar, e variam por tipo.
+    _espaco_pt, _ = regra_de_espaco(tipo)
 
     _modo = modo_fundo_do_tipo(tipo)
     eh_personalizado = _modo == "personalizado"
@@ -3489,6 +3588,7 @@ TIPO DE IMAGEM: Personalizado
 {bloco_instrucao_visual}
 {bloco_refs}
 {_bloco_direcao}
+{_espaco_pt}
 
 {INSTRUCAO_PERSONALIZADO}
 {INSTRUCAO_FIDELIDADE}
@@ -3512,6 +3612,7 @@ TIPO DE IMAGEM: {tipo}
 {bloco_contexto_interno}{bloco_ambientacao}
 {bloco_refs}
 {_bloco_direcao}
+{_espaco_pt}
 
 {PADRAO_VISUAL_FUNDO_BRANCO}
 {_protagonismo}
@@ -3579,6 +3680,7 @@ TIPO DE IMAGEM: {tipo}
 {bloco_contexto_interno}{bloco_ambientacao}
 {bloco_refs}
 {_bloco_direcao}
+{_espaco_pt}
 
 {PADRAO_VISUAL_AMBIENTACAO}
 {INSTRUCAO_PROTAGONISMO_AMBIENTE}
@@ -3597,6 +3699,7 @@ TIPO DE IMAGEM: {tipo}
 {bloco_contexto_interno}{bloco_ambientacao}
 {bloco_refs}
 {_bloco_direcao}
+{_espaco_pt}
 
 {_padrao_visual}
 {_protagonismo}

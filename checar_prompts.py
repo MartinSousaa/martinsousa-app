@@ -191,6 +191,33 @@ REGRAS = [
     ("a frase de desempate", "The product NEVER adapts to the environment",
      None, ()),
 
+    # ── MARGEM E SOBREPOSICAO — as duas queixas que nunca tiveram regra ────
+    #
+    # Auditado o prompt real: so a CAPA tinha teto de margem. Nos tipos 2 a 7 a
+    # unica linha sobre borda era "respiro nas bordas da peca", que PEDE
+    # margem sem dizer quanto, e os presets 2 e 6 ainda pediam "muito
+    # whitespace". E "jamais sobreponha texto ao produto" existia, mas nada
+    # sobre cartao em cima de cartao, prop na frente do produto, ou produto
+    # cortado pela borda — que e o quadro sobrepondo o produto.
+    ("a regra de espaço da peça", "REGRA DE ESPAÇO DESTA PEÇA", None, ()),
+    ("nada sobrepõe o produto", "NADA SOBREPÕE O PRODUTO",
+     TIPOS_COM_TEXTO + (TIPO_CAPA,), ()),
+    ("e o mesmo dito ao motor", "NOTHING overlaps the product",
+     TIPOS_COM_TEXTO + (TIPO_CAPA,), ()),
+    ("o produto desobstruído na ambientação", "UNOBSTRUCTED",
+     (TIPO_AMBIENTE,), (TIPO_CAPA,)),
+    ("os cartões não se sobrepõem entre si", "never overlap each other",
+     TIPOS_COM_TEXTO, (TIPO_AMBIENTE,)),
+    ("o que sobra é painel, não vazio", "IT IS NOT EMPTY SPACE",
+     tuple(t for t in TIPOS_COM_TEXTO if not t.startswith("4 —")),
+     (TIPO_CAPA, TIPO_AMBIENTE)),
+    ("o produto inteiro, sem corte pela borda", "no part cut by the frame edge",
+     tuple(t for t in TIPOS_COM_TEXTO if not t.startswith("4 —"))
+     + (TIPO_CAPA, TIPO_AMBIENTE), ("4 — Close nos detalhes",)),
+    # E O QUE PEDIA MARGEM NAO PODE VOLTAR.
+    ("a ordem de deixar respiro nas bordas", "respiro nas bordas", (), TODOS),
+    ("o pedido de muito whitespace", "muito whitespace", (), TODOS),
+
     ("o marcador de modo de fundo", "MS_FUNDO:", (), TODOS),
 ]
 
