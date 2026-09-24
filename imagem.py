@@ -5357,6 +5357,16 @@ def pagina_imagem(usuario_logado):
                     st.session_state["img_triagem_config"] = cfg
 
                 galeria = []
+                # O MOTIVO DA FALHA PRECISA SOBREVIVER AO RERUN.
+                #
+                # Cada peca que falhava escrevia `st.warning("Falhou em X:
+                # motivo")` na pagina. No fim do laco vem `st.rerun()`, que
+                # redesenha a tela do zero — e leva os avisos junto. O
+                # colaborador via "8 no plano, 1 na galeria" e nada mais. Foi
+                # literalmente a frase dele: "gerou somente 4 imagens sem
+                # motivo algum". O motivo tinha sido escrito, e apagado.
+                falhas_geracao = []
+                st.session_state.pop("img_falhas_geracao", None)
                 st.session_state.pop("img_galeria_salva", None)
                 # ARQUIVAR, nao apagar. Apagar aqui desarmava a rede de
                 # seguranca exatamente no momento em que ela era necessaria:
@@ -5427,7 +5437,26 @@ def pagina_imagem(usuario_logado):
                         for _l in _ar.resumo(_amb_desc, list(tipos)):
                             st.caption("🏙️ " + _l)
 
+                # TRES FALHAS IGUAIS SEGUIDAS NAO SAO AZAR — E O MOTOR FORA
+                # DO AR, E INSISTIR CUSTA O TEMPO DELE.
+                #
+                # Com o primario 404 e o reserva sem cota, cada peca ainda
+                # esperava ate 5 minutos antes de desistir. Oito pecas assim
+                # sao 40 minutos de barra andando para entregar o que ja se
+                # sabia na terceira. Quando o motivo e o MESMO tres vezes, o
+                # laco para e diz por que.
+                _abortou = ""
                 for i, tipo in enumerate(tipos):
+                    _ultimas = [m for _t, m in falhas_geracao[-3:]]
+                    if len(_ultimas) == 3 and len(set(_ultimas)) == 1:
+                        _abortou = _ultimas[0]
+                        for _t_resto in tipos[i:]:
+                            falhas_geracao.append(
+                                (_t_resto, "não foi tentada: os três motores "
+                                           "anteriores falharam pelo mesmo "
+                                           "motivo, então parei."))
+                        st.session_state["img_falhas_geracao"] = list(falhas_geracao)
+                        break
                     barra.progress(i / len(tipos), text=f"Gerando {i+1}/{len(tipos)}: {tipo[:50]}...")
                     # Sem sleep aqui — o _GEMINI_LIMITER em gerar_imagem_ia já respeita o RPM
                     try:
@@ -5483,6 +5512,14 @@ def pagina_imagem(usuario_logado):
                         img_bytes, erro_gen = _res["img"], _res["erro"]
                         # ────────────────────────────────────────────────────────
                         if erro_gen:
+                            falhas_geracao.append((tipo, str(erro_gen)))
+                            st.session_state["img_falhas_geracao"] = list(falhas_geracao)
+                            try:
+                                log_imagem.registrar(
+                                    "gerar_falhou", cfg.get("instrucoes_extras", ""),
+                                    tipo=tipo, resultado=str(erro_gen)[:400])
+                            except Exception:
+                                pass
                             st.warning(f"⚠️ Falhou em '{tipo}': {erro_gen}")
                             continue
 
@@ -5558,10 +5595,28 @@ def pagina_imagem(usuario_logado):
                         # Pelo helper: falha de gravacao deixa de ser muda.
                         guardar_rascunho(usuario_logado, "geracao")
                     except Exception as _e_img:
+                        falhas_geracao.append(
+                            (tipo, f"{type(_e_img).__name__}: {_e_img}"))
+                        st.session_state["img_falhas_geracao"] = list(falhas_geracao)
+                        try:
+                            log_imagem.registrar(
+                                "gerar_falhou", cfg.get("instrucoes_extras", ""),
+                                tipo=tipo,
+                                resultado=f"{type(_e_img).__name__}: {_e_img}"[:400])
+                        except Exception:
+                            pass
                         st.warning(f"⚠️ Erro inesperado em '{tipo}': {_e_img}")
                         continue
 
                 barra.progress(1.0, text=f"Concluído! {len(galeria)}/{len(tipos)} imagens geradas.")
+                if _abortou:
+                    st.session_state["img_abortou_geracao"] = _abortou
+                else:
+                    st.session_state.pop("img_abortou_geracao", None)
+                # Este placar morre no rerun como os avisos. Guardado, ele
+                # aparece em cima da galeria: "1 de 8" com nome e motivo das 7.
+                st.session_state["img_placar_geracao"] = (len(galeria), len(tipos))
+                st.session_state["img_falhas_geracao"] = list(falhas_geracao)
 
                 if galeria:
                     for k in [k for k in st.session_state if k.startswith("_pasta_")]:
@@ -5608,6 +5663,43 @@ def pagina_imagem(usuario_logado):
                     f"❌ Erro durante a geração: {_e_gerar}\n\n"
                     "Suas sessões e dados estão preservados. Tente novamente ou reduza o número de imagens."
                 )
+
+    # ── O PLACAR DA ÚLTIMA GERAÇÃO, E O MOTIVO DE CADA FALTA ──────────────────
+    #
+    # Fica FORA do `if img_galeria`: quando nenhuma peça sai, é justamente
+    # quando o motivo é mais necessário.
+    #
+    # Ele existe porque o laço de geração termina em `st.rerun()`, e o rerun
+    # redesenha a página do zero. Os `st.warning("Falhou em X: motivo")` que o
+    # laço escreveu morrem ali, e o que sobra na tela é a galeria com menos
+    # peças do que o plano prometeu — sem uma palavra sobre as que faltam.
+    _placar = st.session_state.get("img_placar_geracao")
+    _falhas_ger = st.session_state.get("img_falhas_geracao") or []
+    if _placar and _placar[0] < _placar[1]:
+        _feitas, _pedidas = _placar
+        st.markdown("---")
+        st.error(
+            f"⚠️ A última geração entregou **{_feitas} de {_pedidas}** imagens. "
+            f"As {_pedidas - _feitas} que faltam falharam — o motivo de cada uma "
+            "está abaixo."
+        )
+        _motivo_aborto = st.session_state.get("img_abortou_geracao")
+        if _motivo_aborto:
+            st.info(
+                "⏹️ Parei antes do fim: três peças seguidas falharam pelo mesmo "
+                "motivo, e insistir nas outras só gastaria tempo. Resolva o "
+                "motivo abaixo e clique em **Analisar novamente**.\n\n"
+                + str(_motivo_aborto).replace("$", r"\$")
+            )
+        for _t_falha, _motivo in _falhas_ger:
+            # Cifrão cru vira fórmula no markdown do Streamlit, e mensagem de
+            # erro de cobrança tem cifrão.
+            st.warning(f"**{_t_falha}** — " + str(_motivo).replace("$", r"\$"))
+        if st.button("Entendi, esconder este aviso", key="img_limpa_placar"):
+            st.session_state.pop("img_placar_geracao", None)
+            st.session_state.pop("img_falhas_geracao", None)
+            st.session_state.pop("img_abortou_geracao", None)
+            st.rerun()
 
     # ── GALERIA ───────────────────────────────────────────────────────────────
     if "img_galeria" in st.session_state and st.session_state["img_galeria"]:
