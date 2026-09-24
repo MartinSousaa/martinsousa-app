@@ -3488,10 +3488,30 @@ def plano_do_tipo(tipo):
         itens = (st.session_state.get("img_triagem_plano") or {}).get("plano") or []
     except Exception:
         return None
+    # A BUSCA E PELO TIPO CANONICO, E NAO PELO ROTULO CRU.
+    #
+    # `it["tipo"]` e o nome que a IA do plano inventou — "Imagem de marketing
+    # — beneficios". O `tipo` que chega aqui ja passou por `tipo_canonico` e e
+    # "2 — Beneficios do produto". Comparar os dois crus nunca casava, e o
+    # plano inteiro — composicao, CENA e a COPY EXATA — sumia do prompt. O
+    # gerador voltava a redigir a frase sozinho, que e de onde vieram
+    # "Portatile" e "apoliando".
+    alvo = tipo_canonico({"tipo": tipo, "numero": numero_do_tipo(tipo)})
     for it in itens:
         if str(it.get("tipo", "")).strip() == str(tipo or "").strip():
             return it
+    for it in itens:
+        if tipo_canonico(it) == alvo:
+            return it
     return None
+
+
+def _direcao_de_arte_da_sessao():
+    """A direção de arte que a triagem decidiu para o produto aberto. {} se não há."""
+    try:
+        return (st.session_state.get("img_triagem_plano") or {}).get("direcao_de_arte") or {}
+    except Exception:
+        return {}
 
 
 def prompt_para_regerar(tipo, instrucoes, dados_descricao, nome_produto):
@@ -3513,6 +3533,7 @@ def prompt_para_regerar(tipo, instrucoes, dados_descricao, nome_produto):
         instrucao_layout=cfg.get("instrucao_layout", ""),
         plano_triagem=plano_do_tipo(tipo),
         ambientacao=cfg.get("ambientacao", ""),
+        direcao_arte=_direcao_de_arte_da_sessao(),
     )
 
 
@@ -5721,10 +5742,17 @@ def pagina_imagem(usuario_logado):
                                   if _direcao_arte.get("posicionamento") else ""))
 
                 # Indexa os itens da triagem por tipo para lookup rápido
+                # INDEXADO PELO TIPO CANONICO — e pelo rotulo cru tambem.
+                #
+                # A chave era so `_pi["tipo"]`, o nome inventado pela IA, e a
+                # busca vinha com o tipo canonico: nunca casava, e a peca ia
+                # ao gerador sem a composicao planejada, sem a cena e sem a
+                # copy exata.
                 _plano_por_tipo = {}
                 _plano_items = st.session_state.get("img_triagem_plano", {}).get("plano", [])
                 for _pi in _plano_items:
                     _plano_por_tipo[_pi.get("tipo", "")] = _pi
+                    _plano_por_tipo[tipo_canonico(_pi, cfg.get("tipos"))] = _pi
 
                 # ── O STUDIO OLHA AS REFERÊNCIAS DE AMBIENTAÇÃO ─────────
                 #

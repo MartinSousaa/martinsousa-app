@@ -414,6 +414,37 @@ def main():
             print(f"FALHA  '{_rotulo_ia}' -> preset vazio")
             falhas += 1
 
+    # ── 4C. O PLANO DA TRIAGEM TEM DE ACHAR A PECA ─────────────────────────
+    #
+    # O indice do plano era feito com o rotulo que a IA inventou, e a busca
+    # vinha com o tipo canonico. Nunca casava — e a peca ia ao gerador sem a
+    # composicao planejada, sem a cena e sem a COPY EXATA. Sem copy exata o
+    # gerador volta a redigir a frase sozinho, que e de onde vieram
+    # "Portatile" e "apoliando" na tela do gestor.
+    _item_ia = {"numero": 2, "tipo": "Imagem de marketing — benefícios",
+                "composicao": "produto à esquerda", "cena": "nogueira, caneta",
+                "textos": ["AQUECE RAPIDO: em segundos"], "viavel": True}
+    _indice = {}
+    for _it in (_item_ia,):
+        _indice[_it.get("tipo", "")] = _it
+        _indice[_img.tipo_canonico(_it)] = _it
+    _tipo_ofc = _img.tipo_canonico(_item_ia)
+    _achado = _indice.get(_tipo_ofc)
+    if _achado is None:
+        print("FALHA  o plano da triagem nao e achado pelo tipo canonico — "
+              "a peca vai ao gerador sem composicao, sem cena e sem copy")
+        falhas += 1
+    else:
+        _p_plano = _img.montar_prompt_imagem(
+            _tipo_ofc, "", {"cor": "preto"}, "Produto de Teste",
+            plano_triagem=_achado, direcao_arte=_DIRECAO)
+        for _desc, _trecho in (("a copy exata", "AQUECE RAPIDO"),
+                               ("o bloco de texto exato", _img.MARCA_TEXTO_EXATO),
+                               ("a cena da peca", "nogueira, caneta")):
+            if _trecho not in _p_plano:
+                print(f"FALHA  {_desc} nao chega ao prompt da peca planejada")
+                falhas += 1
+
     # ── 5. TIPO QUE NAO APARECE EM REGRA NENHUMA PASSA LIVRE ───────────────
     _citados = set()
     for _d, _t, _deve, _nao in REGRAS:
