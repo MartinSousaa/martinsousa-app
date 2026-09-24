@@ -15,26 +15,53 @@ basta:
       saiu do tamanho do ambiente
 
 Nos três casos eu procurei pelo TEXTO do sintoma, e não pelo ALCANCE da regra.
-Corrigi onde o problema apareceu e deixei onde ele ainda não tinha aparecido.
+
+E ESTE ARQUIVO JÁ MENTIU UMA VEZ — POR OLHAR O ARTEFATO ERRADO
+--------------------------------------------------------------
+A primeira versão conferia o que `montar_prompt_imagem()` devolve: o brief em
+português. Só que `gerar_imagem_ia()` NÃO enviava aquilo. Ela recortava o
+texto com um regex, de "TIPO DE IMAGEM:" até o primeiro título que casasse
+com "PADRÃO VISUAL|REGRA DE|INSTRUÇÃO DE|…", e jogava o resto fora em
+silêncio. Dois terços do brief morriam ali.
+
+Morriam, medido nos nove tipos: a TRAVA DE COR (a cor real do produto e a
+proibição de repintar), as medidas e o peso exatos, a REGRA DE FIDELIDADE —
+"a mais importante de todas" —, a proibição de sobrepor texto ao produto, a
+regra contra palavra inventada, o bloco inteiro de protagonismo da capa e a
+exceção "Imagem meramente ilustrativa" da ambientação.
+
+E esta varredura dava **ok** em todas elas. A regra estava escrita, a
+varredura via, o modelo não.
+
+Por isso ela agora monta o prompt QUE É ENVIADO — capturando o texto na porta
+do motor — e é nele que confere. Conferir o texto de onde o recorte era feito
+é conferir a intenção; o que chega na tela de alguém é o outro.
 
 O QUE ELE FAZ
 -------------
 Monta o prompt REAL dos nove tipos — os oito do padrão mais o Personalizado —
-e confere, um por um, o que cada um TEM de conter e o que NÃO PODE conter.
+e confere, um por um:
+
+    1. o que cada um TEM de conter e o que NÃO PODE conter (tabela REGRAS);
+    2. que nada do brief em português se perdeu no caminho até o motor;
+    3. que cada peça declara UMA medida de ocupação, e não três;
+    4. que cada peça declara UM teto de blocos de texto, e não três;
+    5. que nenhuma cor de marca fixa voltou.
 
 Não é teste de unidade: é varredura. A pergunta que ele responde não é "esta
-função funciona", e sim "esta regra chegou em todos os lugares onde deveria, e
-em nenhum onde não deveria".
+função funciona", e sim "esta regra chegou em todos os lugares onde deveria,
+e em nenhum onde não deveria".
 
 COMO USAR
 ---------
     python3 checar_prompts.py
 
 Entra no ritual de antes de subir, ao lado do `compileall` e do
-`checar_ordem.py`. Regra nova mexida em `imagem.py` sem passar por aqui é
-regra que vai reaparecer daqui a três semanas na tela de alguém.
+`checar_ordem.py`.
 """
 
+import io
+import re
 import sys
 
 TIPOS_COM_TEXTO = (
@@ -63,9 +90,15 @@ REGRAS = [
     ("a proibição de trocar o produto", "PROIBIÇÃO ABSOLUTA", None, ()),
     ("a fidelidade às fotos de referência", "REGRA DE FIDELIDADE", None, ()),
 
-    # A REGRA QUE CAUSOU O PRODUTO GIGANTE.
-    ("a ocupação medida do quadro (55-70% / 65-80%)", "55% a 70%",
-     TIPOS_COM_TEXTO, (TIPO_AMBIENTE,)),
+    # A MEDIDA DA OCUPACAO, AGORA DE UMA FONTE SO (`imagem.OCUPACAO`).
+    #
+    # Os numeros literais sairam desta tabela de proposito: eles moravam aqui
+    # e em tres lugares do `imagem.py`, e mudar um sem mudar os outros era o
+    # que fazia a peca chegar ao modelo com tres medidas contrarias. A
+    # conferencia de numero esta em `_uma_so_ocupacao`, que compara o prompt
+    # com o dicionario — nao com uma copia escrita a mao.
+    ("a ocupação medida do quadro", "dimensao util do quadro",
+     TIPOS_COM_TEXTO + (TIPO_CAPA,), (TIPO_AMBIENTE,)),
     ("a proibição de produto pequeno em cenário amplo",
      "Nunca deixe o produto pequeno", TIPOS_COM_TEXTO, (TIPO_AMBIENTE,)),
     ("a escala real do ambiente", "ESCALA REAL", (TIPO_AMBIENTE,),
@@ -73,93 +106,218 @@ REGRAS = [
 
     # A CAPA NAO ESTAVA EM LISTA NENHUMA — E FOI ASSIM QUE ELA FICOU SEM
     # REGRA DE TAMANHO E SAIU PEQUENA.
-    #
-    # Esta tabela so protege o que ela nomeia. Tipo que nao aparece em nenhuma
-    # linha passa livre, e a varredura da "ok" mentindo por omissao. A capa
-    # entra agora com regra propria: e a peca em que o produto DEVE encher o
-    # quadro, porque nao ha texto nem cenario dividindo espaco com ele.
-    ("a ocupacao maxima da capa", "80% a 92%", (TIPO_CAPA,),
-     TIPOS_COM_TEXTO + (TIPO_AMBIENTE,)),
     ("a proibicao de produto pequeno no branco",
      "produto pequeno no meio de um fundo branco", (TIPO_CAPA,), ()),
     ("o produto pousado com sombra real", "POUSADO", (TIPO_AMBIENTE,),
      TIPOS_COM_TEXTO),
 
-    # A PALETA AZUL FIXA, QUE VOLTOU TRÊS VEZES.
+    # A PALETA AZUL FIXA, QUE JÁ VOLTOU CINCO VEZES.
     ("a cor de marca imposta ao fundo", "#1A3A6B", (), TODOS),
     ("a paleta azul como regra de fundo", "fundo azul da marca", (), TODOS),
+    ("o ícone azul marinho do preset 2", "azul marinho", (), TODOS),
+    ("a borda azul do preset 5", "borda fina azul", (), TODOS),
+    ("as cores da marca no preset 3", "cores da marca presentes", (), TODOS),
+    ("a paleta azul da empresa na trava de cor",
+     "paleta azul da empresa", (), TODOS),
+
+    # A LISTA FIXA DE CÔMODOS — tirada do tipo 8 e deixada no 3.
+    ("a lista pronta de cômodos", "escritório, quarto, sala de estudo",
+     (), TODOS),
 
     # O "ZERO TEXTO" QUE SOBREVIVEU NUM PRESET.
-    #
-    # A primeira versao desta tabela proibia a frase em TODOS os tipos — e a
-    # varredura reprovou na hora, apontando a Capa. Ela estava certa e eu
-    # errado: a capa e foto limpa em fundo branco, e ali "zero texto" e a
-    # regra correta. O erro nunca foi a frase existir; foi ela existir nos
-    # tipos que precisam de texto, e no tipo 8, que tem UMA excecao explicita
-    # ("Imagem meramente ilustrativa").
     ("a proibição total de texto", "ZERO TEXTO", (),
      TIPOS_COM_TEXTO + (TIPO_AMBIENTE,)),
     ("a exceção única de texto da ambientação",
      "EXCEÇÃO ÚNICA", (TIPO_AMBIENTE,), TIPOS_COM_TEXTO),
+    # E O INGLES TEM DE CONCORDAR COM ELA. A linha "ABSOLUTELY NO text ...
+    # Any visible text is a critical failure" ia junto com "escreva Imagem
+    # meramente ilustrativa" na mesma mensagem.
+    ("a mesma exceção dita ao motor, em inglês",
+     "ONE EXPLICIT EXCEPTION", (TIPO_AMBIENTE,), (TIPO_CAPA,)),
+    ("a frase da ambientação chega ao motor",
+     "Imagem meramente ilustrativa", (TIPO_AMBIENTE,),
+     TIPOS_COM_TEXTO + (TIPO_CAPA,)),
 
     # CENARIO REAL EM TODAS AS PECAS DE MARKETING.
-    #
-    # O dono apontou as imagens 2, 5, 6 e 7 com fundo chapado: "com fundo sem
-    # ambientacao". Era desenho meu — so os tipos 3 e 8 pediam cenario; os
-    # outros pediam "fundo deduzido do produto", e o modelo entregava
-    # gradiente liso. A capa fica de fora: ela E foto em branco puro.
     ("o cenário real nas peças de marketing", "CENÁRIO REAL EM TODAS AS PEÇAS",
      TIPOS_COM_TEXTO, (TIPO_CAPA,)),
     ("a legibilidade mandando no fundo", "legibilidade manda no tratamento",
      TIPOS_COM_TEXTO, (TIPO_CAPA,)),
 
-    ("o marcador de modo de fundo", "MS_FUNDO:", None, ()),
+    # O QUE O RECORTE POR REGEX MATAVA — e que a varredura antiga nao via,
+    # porque olhava o texto de ANTES do recorte.
+    ("a proibição de sobrepor texto ao produto",
+     "JAMAIS sobreponha texto", TIPOS_COM_TEXTO, ()),
+    ("a proibição de palavra inventada", "REGRA DE TEXTO REAL",
+     TIPOS_COM_TEXTO, ()),
+    ("a proibição de inventar medidas",
+     "PROIBIÇÃO ABSOLUTA DE INVENTAR DADOS TÉCNICOS", None, ()),
+    ("as medidas exatas do produto", "Medidas EXATAS", None, ()),
+
+    # O bloco de tamanho da capa — escrito depois do "Já falei MIL VEZES", e
+    # cortado fora antes de chegar ao motor.
+    ("o bloco de protagonismo da capa", "O PRODUTO PREENCHE O QUADRO",
+     (TIPO_CAPA,), (TIPO_AMBIENTE,)),
+
+    ("o marcador de modo de fundo", "MS_FUNDO:", (), TODOS),
 ]
 
+# Padrões que descrevem tamanho de produto no quadro. Cada um devolve a faixa
+# como um par ordenado; duas faixas diferentes na mesma peça é o defeito.
+_OCUPACAO_RE = (
+    re.compile(r"ocupa de (\d{1,3})% a (\d{1,3})%", re.I),
+    re.compile(r"occupancy (\d{1,3})[–-](\d{1,3})% of frame", re.I),
+    re.compile(r"occupancy at least (\d{1,3})% of frame", re.I),
+    re.compile(r"ocupa NO M[IÍ]NIMO (\d{1,3})%", re.I),
+    re.compile(r"ocupar (\d{1,3})-(\d{1,3})% do frame", re.I),
+    re.compile(r"(\d{1,3})% a (\d{1,3})% da MAIOR dimens", re.I),
+)
+_TETO_RE = (
+    re.compile(r"Maximum (\d+) information elements", re.I),
+    re.compile(r"use de (\d+) a (\d+) blocos", re.I),
+    re.compile(r"M[aá]ximo (\d+)(?:-(\d+))? (?:callouts|frases|blocos|benef)", re.I),
+    re.compile(r"de (\d+) a (\d+) (?:blocos de pergunta|benef[ií]cios)", re.I),
+    # A linha que a copy escreve. Sem ela a varredura so via o numero em
+    # ingles, e um "Maximum 7" ao lado de uma copy de 4 passava batido.
+    re.compile(r"exatamente (\d+) bloco", re.I),
+)
 
-def _prompt(tipo):
-    # O aviso de "missing ScriptRunContext" do Streamlit polui a saida e
-    # esconde justamente a linha que interessa: a falha.
+
+def _faixas(texto, padroes):
+    achadas = set()
+    for rx in padroes:
+        for m in rx.finditer(texto):
+            achadas.add(tuple(g for g in m.groups() if g))
+    return achadas
+
+
+def _sem_streamlit():
     import logging
-    logging.getLogger("streamlit").setLevel(logging.ERROR)
-    logging.getLogger(
-        "streamlit.runtime.scriptrunner_utils.script_run_context"
-    ).setLevel(logging.ERROR)
+    for nome in ("streamlit",
+                 "streamlit.runtime.scriptrunner_utils.script_run_context"):
+        logging.getLogger(nome).setLevel(logging.ERROR)
+
+
+_DADOS = {"nome_comercial": "Produto de Teste", "cor": "preto",
+          "medidas": "71x14x14", "peso": "350 g", "material": "Metal"}
+_PLANO = {"composicao": "produto à esquerda, cartões à direita",
+          "textos": ["Aquece rápido", "Cerâmica premium",
+                     "Alça confortável", "Presente perfeito"]}
+
+
+def _foto():
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", (64, 64), (200, 120, 60)).save(buf, "PNG")
+    return buf.getvalue()
+
+
+def _prompts(tipo):
+    """(brief em português, prompt REALMENTE enviado ao motor).
+
+    O segundo é capturado na porta do motor: os dois geradores são trocados
+    por funções que guardam o texto e devolvem falha. Nada sai para a rede.
+    """
+    _sem_streamlit()
     import imagem
-    return imagem.montar_prompt_imagem(
-        tipo, "", {"nome_comercial": "Produto de Teste", "cor": "preto",
-                   "medidas": "71x14x14", "material": "Metal"},
-        "Produto de Teste")
+
+    capturado = {}
+
+    def _openai(prompt_final, imagens_bytes=None, ref_layout=None,
+                ref_layout_nome="", diagnostico=None):
+        capturado["prompt"] = prompt_final
+        return None, "motor desligado na varredura"
+
+    def _gemini(prompt_final, imagens_bytes=None, ref_layout=None):
+        capturado.setdefault("prompt", prompt_final)
+        return None, "motor desligado na varredura"
+
+    def _descricao(imagens_referencia, nome_produto="produto",
+                   dados_descricao=None, refs_layout=None):
+        return ("Descrição de apoio do produto de teste.",
+                "Layout de duas colunas: produto à esquerda, blocos à direita.")
+
+    originais = (imagem._chamar_openai_geracao,
+                 imagem._chamar_gemini_geracao_texto,
+                 imagem._descricao_do_produto_cacheada,
+                 imagem._get_openai_api_key)
+    imagem._chamar_openai_geracao = _openai
+    imagem._chamar_gemini_geracao_texto = _gemini
+    imagem._descricao_do_produto_cacheada = _descricao
+    imagem._get_openai_api_key = lambda: "sk-varredura"
+    try:
+        plano = None if tipo in (TIPO_CAPA, TIPO_AMBIENTE, TIPO_LIVRE) else _PLANO
+        pt = imagem.montar_prompt_imagem(
+            tipo, "quero o produto virado para a direita" if tipo == TIPO_LIVRE else "",
+            _DADOS, "Produto de Teste", plano_triagem=plano,
+            ambientacao="mesa de jantar" if tipo == TIPO_AMBIENTE else "")
+        imagem.gerar_imagem_ia(pt, [_foto()], tipo=tipo)
+    finally:
+        (imagem._chamar_openai_geracao,
+         imagem._chamar_gemini_geracao_texto,
+         imagem._descricao_do_produto_cacheada,
+         imagem._get_openai_api_key) = originais
+    return pt, capturado.get("prompt", "")
 
 
 def main():
-    prompts = {}
+    briefs, enviados = {}, {}
     for t in TODOS:
         try:
-            prompts[t] = _prompt(t)
+            briefs[t], enviados[t] = _prompts(t)
         except Exception as e:
             print(f"FALHA  nao consegui montar o prompt de '{t}': "
                   f"{type(e).__name__}: {e}")
             return 1
+        if not enviados[t]:
+            print(f"FALHA  o prompt de '{t}' nao chegou a porta do motor")
+            return 1
 
     falhas = 0
+
+    # ── 1. A tabela de regras, conferida no texto QUE É ENVIADO ────────────
     for desc, trecho, deve, nao_pode in REGRAS:
         alvo_deve = TODOS if deve is None else deve
         for t in alvo_deve:
-            if trecho not in prompts[t]:
+            if trecho not in enviados[t]:
                 print(f"FALHA  {desc}: FALTA em '{t}'")
                 falhas += 1
         for t in nao_pode:
-            if trecho in prompts[t]:
+            if trecho in enviados[t]:
                 print(f"FALHA  {desc}: NAO DEVIA estar em '{t}'")
                 falhas += 1
 
-    # TIPO QUE NAO APARECE EM REGRA NENHUMA PASSA LIVRE.
+    # ── 2. NADA DO BRIEF SE PERDE NO CAMINHO ───────────────────────────────
     #
-    # Foi o que aconteceu com a Capa: ela nao estava em nenhuma das listas de
-    # ocupacao, entao a varredura dava "ok" e o prompt dela nao falava de
-    # tamanho em lugar nenhum. A tabela so protege o que ela nomeia — e uma
-    # varredura que mente por omissao e pior que nao ter varredura.
+    # Esta é a conferência que faltava. O recorte por regex matava linhas
+    # inteiras do brief sem erro nenhum, e a varredura não tinha como saber:
+    # ela olhava o brief. Agora ela olha os dois e compara.
+    for t in TODOS:
+        perdidas = [ln.strip() for ln in briefs[t].splitlines()
+                    if ln.strip() and not ln.startswith("MS_")
+                    and ln.strip() not in enviados[t]]
+        if perdidas:
+            print(f"FALHA  {len(perdidas)} linha(s) do brief de '{t}' NAO chegaram "
+                  f"ao motor. A primeira: {perdidas[0][:90]!r}")
+            falhas += 1
+
+    # ── 3. UMA MEDIDA DE OCUPACAO POR PECA ─────────────────────────────────
+    for t in TODOS:
+        faixas = _faixas(enviados[t], _OCUPACAO_RE)
+        if len(faixas) > 1:
+            print(f"FALHA  '{t}' manda {len(faixas)} medidas de ocupacao "
+                  f"contrarias ao motor: {sorted(faixas)}")
+            falhas += 1
+
+    # ── 4. UM TETO DE BLOCOS POR PECA ──────────────────────────────────────
+    for t in TIPOS_COM_TEXTO:
+        tetos = {max(int(n) for n in f) for f in _faixas(enviados[t], _TETO_RE)}
+        if len(tetos) > 1:
+            print(f"FALHA  '{t}' manda {len(tetos)} tetos de blocos "
+                  f"contrarios ao motor: {sorted(tetos)}")
+            falhas += 1
+
+    # ── 5. TIPO QUE NAO APARECE EM REGRA NENHUMA PASSA LIVRE ───────────────
     _citados = set()
     for _d, _t, _deve, _nao in REGRAS:
         _citados |= set(TODOS if _deve is None else _deve) | set(_nao)
@@ -169,15 +327,16 @@ def main():
                   "a varredura nao esta olhando para ele")
             falhas += 1
 
-    # Prompt vazio ou minúsculo é sintoma de branch que deixou de montar.
-    for t, p in prompts.items():
-        if len(p) < 800:
-            print(f"FALHA  o prompt de '{t}' tem so {len(p)} caracteres")
+    # ── 6. Prompt vazio ou minúsculo é sintoma de branch que parou de montar
+    for t in TODOS:
+        if len(enviados[t]) < 2000:
+            print(f"FALHA  o prompt enviado de '{t}' tem so "
+                  f"{len(enviados[t])} caracteres")
             falhas += 1
 
     if not falhas:
-        print(f"ok    {len(TODOS)} tipos, {len(REGRAS)} regras varridas, "
-              "nenhuma fora do lugar")
+        print(f"ok    {len(TODOS)} tipos, {len(REGRAS)} regras varridas no "
+              "prompt ENVIADO, nenhuma fora do lugar")
     print(f"\nfalhas: {falhas}")
     return falhas
 
