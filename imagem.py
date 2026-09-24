@@ -648,7 +648,16 @@ def gerar_triagem_ia(nome_produto, tipos_selecionados, dados_descricao, instruco
     if not api_key:
         return None, "ANTHROPIC_API_KEY não configurada."
 
-    tipos_str = "\n".join(f"- {t}: {PRESETS.get(t,'')[:300]}..." for t in tipos_selecionados)
+    # NUMERADA PELA POSICAO, E DITO COM TODAS AS LETRAS.
+    #
+    # A IA reordenava e renomeava os tipos, e devolvia `numero` como a
+    # sequencia do plano DELA. So que `tipo_canonico` usa esse numero como
+    # indice na lista — entao o cartao "Caracteristicas Tecnicas" com
+    # numero 2 virava "2 — Beneficios do produto", e o infografico de medidas
+    # ia ao gerador com as regras de painel de beneficios.
+    tipos_str = "\n".join(
+        f"[{i}] {t}\n     {PRESETS.get(t, '')[:300]}..."
+        for i, t in enumerate(tipos_selecionados, 1))
 
     contexto_descricao = ""
     if dados_descricao:
@@ -691,8 +700,20 @@ PRODUTO: {nome_produto}
 FOTOS ENVIADAS: {len(fotos_bytes)} foto(s) de referência
 {f"INSTRUÇÕES EXTRAS: {instrucoes_extras}" if instrucoes_extras else ""}
 
-TIPOS A CRIAR:
+TIPOS A CRIAR — são estes, nesta ordem, e o número entre colchetes é o que
+vale:
 {tipos_str}
+
+REGRA DE IDENTIDADE DOS TIPOS, ANTES DE QUALQUER OUTRA COISA:
+- O campo "numero" é o NÚMERO ENTRE COLCHETES do tipo, e nada mais. Não é a
+  ordem do seu plano, não é uma contagem sua.
+- O campo "tipo" é o nome do tipo COPIADO LETRA POR LETRA da lista acima,
+  incluindo o prefixo "N — ". Não reescreva, não resuma, não melhore, não
+  traduza.
+- Devolva UM item por tipo, na MESMA ORDEM da lista. Não junte dois tipos num
+  item, não invente tipo que não está na lista, não troque a posição.
+- Isto não é formalidade: o Studio acha as regras de cada peça por esse
+  número. Número trocado gera a peça com as regras da peça errada.
 
 TAREFA: duas coisas, nesta ordem.
 
@@ -1243,11 +1264,104 @@ def _descrever_produto_via_claude(imagens_referencia, nome_produto="produto", da
                 max_tokens=800,
                 messages=[{"role": "user", "content": _idioma.com_regra(content_layout)}]
             )
-            estilo_layout = msg.content[0].text.strip()
+            estilo_layout = limpar_descricao_de_layout(
+                msg.content[0].text.strip())
         except Exception:
             pass
 
     return descricao_produto, estilo_layout
+
+
+# ── PEDIR GENTILMENTE AO MODELO NAO E GARANTIA ──────────────────────────────
+#
+# A descricao da referencia de layout e pedida com HARD RULES claras: nao
+# nomeie o objeto, nao mencione cor nenhuma, nao mencione pessoas, descreva so
+# geometria. Mesmo assim ela voltou com "chaleira vermelha", "bule vermelho",
+# "titulos em azul-marinho", "paleta monocromatica (azul-marinho + preto +
+# branco)" e "dois personagens interagem naturalmente".
+#
+# E esse texto entra no prompt final logo acima da linha que PROIBE copiar
+# produto, cores e pessoas da referencia. Ordem e contraordem na mesma
+# mensagem — com a contraordem em quatro paragrafos e a ordem em uma linha.
+#
+# E A PALETA AZUL VOLTANDO PELA SEXTA VEZ, por um caminho que nenhuma
+# varredura alcancava: as outras cinco estavam em texto FIXO do codigo, e
+# `checar_prompts.py` pega cor fixa em template. Esta nasce em tempo de
+# execucao, escrita por outro modelo, e nao existe no arquivo para ser
+# encontrada.
+#
+# Instrucao no pedido e um convite. Filtro na volta e uma regra. Isto e o
+# filtro: a descricao que desobedece e DESCARTADA inteira, porque uma
+# descricao contaminada vale menos que nenhuma — sem ela o tipo ainda tem as
+# proprias regras de layout; com ela, o gerador recebe a cor de outra empresa.
+_CORES_PROIBIDAS_NO_LAYOUT = (
+    "azul", "vermelh", "verde", "amarel", "laranja", "roxo", "rosa",
+    "marrom", "bege", "dourad", "prate", "preto", "branco", "cinza",
+    "marinho", "turquesa", "violeta", "bordo", "salmao", "salmão",
+    "blue", "red", "green", "yellow", "orange", "purple", "pink",
+    "brown", "beige", "gold", "silver", "black", "white", "grey", "gray",
+    "navy", "teal", "crimson", "magenta", "cyan",
+    "colour", "color", "palette", "paleta", "tonalidade", "matiz",
+)
+# Pessoa na descricao contradiz "NEVER add people" na mesma mensagem.
+_PESSOAS_NO_LAYOUT = (
+    "pessoa", "personagem", "homem", "mulher", "crianca", "criança",
+    "mao", "mão", "person", "people", "character", "hand",
+    # "model" fica de fora: "modelo de grade" e "modular" sao legitimos numa
+    # descricao de composicao, e o custo de descartar a descricao boa e alto.
+)
+
+
+def _acha_radicais(texto, radicais):
+    """Os radicais que aparecem NO COMECO de uma palavra do texto.
+
+    INICIO DE PALAVRA, E NAO PEDACO DELA — a diferenca nao e detalhe.
+    A primeira versao disto procurava por pedaco, e o meu proprio teste
+    reprovou na primeira linha: "margens generosas" foi descartada por conter
+    "rosa" dentro de "generosas". Uma descricao de layout perfeita, jogada
+    fora por casamento cego.
+    
+    Casar por pedaco de palavra ja trocou produto por produto nesta base, e a
+    regra do dono e explicita sobre isso. Com `\b` no inicio e `\w*` no fim,
+    "azul" pega "azul", "azulado" e "azul-marinho" (o hifen e limite de
+    palavra), e nao pega "generosas".
+    """
+    import re as _re_rad
+    achados = set()
+    for radical in radicais:
+        if _re_rad.search(r"\b" + _re_rad.escape(radical) + r"\w*", texto):
+            achados.add(radical)
+    return sorted(achados)
+
+
+def motivos_para_descartar_layout(texto):
+    """Por que esta descricao de layout nao pode entrar no prompt. [] se pode."""
+    t = str(texto or "").lower()
+    if not t.strip():
+        return []
+    motivos = []
+    achadas = _acha_radicais(t, _CORES_PROIBIDAS_NO_LAYOUT)
+    if achadas:
+        motivos.append("menciona cor ou paleta: " + ", ".join(achadas[:6]))
+    pessoas = _acha_radicais(t, _PESSOAS_NO_LAYOUT)
+    if pessoas:
+        motivos.append("menciona pessoas: " + ", ".join(pessoas[:4]))
+    return motivos
+
+
+def limpar_descricao_de_layout(texto):
+    """A descricao, ou "" quando ela desobedeceu as regras do pedido."""
+    motivos = motivos_para_descartar_layout(texto)
+    if motivos:
+        try:
+            import log_imagem
+            log_imagem.registrar(
+                "layout_descartado", "",
+                resultado="; ".join(motivos) + " | " + str(texto)[:300])
+        except Exception:
+            pass
+        return ""
+    return str(texto or "").strip()
 
 
 # Quando a resposta do gerador significa DINHEIRO ACABANDO, e não sorte.
@@ -1315,7 +1429,7 @@ def _chamar_gemini_geracao_texto(prompt_final, imagens_bytes=None, ref_layout=No
             # As fotos do produto vão PRIMEIRO, para o modelo ancorar nelas, e o
             # texto depois. Mesmo limite de 3 usado no caminho da OpenAI.
             parts = []
-            for img_b in (imagens_bytes or [])[:3]:
+            for img_b in fotos_para_o_motor(imagens_bytes):
                 _d_norm, _m_norm, _ = normalizar_imagem(img_b)
                 parts.append({
                     "inline_data": {
@@ -1676,6 +1790,24 @@ def _arquivo_para_openai(img_bytes, nome_base):
     return (f"{nome_base}.{ext}", _io_prep.BytesIO(dados), mime)
 
 
+# ── QUANTAS FOTOS DO PRODUTO VAO AO MOTOR ───────────────────────────────────
+#
+# Era `[:3]`, escrito a mao em CINCO lugares. O colaborador subia nove fotos e
+# o diagnostico dizia "3 de 9 disponiveis" — seis angulos do produto jogados
+# fora sem ninguem decidir isso. Num produto de acabamento metalico, cada
+# angulo a menos e detalhe que o gerador inventa.
+#
+# Tres nao era uma decisao: era um numero que ficou. Sobe para seis, que e o
+# que os modelos de imagem aceitam com folga, e passa a ter UM lugar. Se um
+# dia precisar mudar, muda aqui — e nao em cinco arquivos que discordam.
+MAX_FOTOS_AO_MOTOR = 6
+
+
+def fotos_para_o_motor(imagens_bytes):
+    """As fotos do produto que cabem numa chamada. Lista, nunca None."""
+    return list(imagens_bytes or [])[:MAX_FOTOS_AO_MOTOR]
+
+
 def _data_url(img_bytes):
     """data: URL já normalizada, para os caminhos que enviam imagem embutida."""
     dados, mime, _ = normalizar_imagem(img_bytes)
@@ -1893,7 +2025,7 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None, ref_layout=None,
         # ── COM FOTOS: Responses API (fotos como referência visual direta, igual ao ChatGPT) ──
         if imagens_bytes:
             content = []
-            for img_b in imagens_bytes[:3]:
+            for img_b in fotos_para_o_motor(imagens_bytes):
                 content.append({"type": "input_image", "image_url": _data_url(img_b)})
             # Referência de layout por ÚLTIMO — a ordem é o que diz ao modelo
             # que ela é molde de composição, não o produto a reproduzir.
@@ -1941,7 +2073,7 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None, ref_layout=None,
                         diagnostico["motor"] = f"{_modelo} (Responses + tools)"
                         diagnostico["size_pedido"] = "1024x1024"
                         diagnostico["input_fidelity"] = "high"
-                        diagnostico["refs_enviadas"] = len(imagens_bytes[:3])
+                        diagnostico["refs_enviadas"] = len(fotos_para_o_motor(imagens_bytes))
                     return img, None
             except Exception as _e_tool:
                 import sys as _sys
@@ -1988,7 +2120,7 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None, ref_layout=None,
                 import io as _io_edit
                 arquivos = [
                     _arquivo_para_openai(img_b, f"produto{_i}")
-                    for _i, img_b in enumerate(imagens_bytes[:3])
+                    for _i, img_b in enumerate(fotos_para_o_motor(imagens_bytes))
                 ]
                 if ref_layout:
                     arquivos.append(_arquivo_para_openai(ref_layout, "layout_referencia"))
@@ -2029,7 +2161,7 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None, ref_layout=None,
                 if diagnostico is not None:
                     diagnostico["motor"] = f"{_modelo} (Responses simples — SEM size)"
                     diagnostico["size_pedido"] = "nenhum (modelo escolhe)"
-                    diagnostico["refs_enviadas"] = len(imagens_bytes[:3])
+                    diagnostico["refs_enviadas"] = len(fotos_para_o_motor(imagens_bytes))
                 return img, None
             return None, "Sem imagem na resposta Responses API."
 
@@ -2082,7 +2214,7 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None, ref_layout=None,
 
 def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
                     refs_layout_nomes=None, tipo="", diagnostico=None,
-                    _ja_repetiu_quadrada=False):
+                    _ja_repetiu_quadrada=False, so_montar=False):
     """Arquitetura de geração — fotos do produto vão diretamente ao modelo via Responses API.
 
     Fluxo:
@@ -2514,6 +2646,23 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
         )
     if diagnostico is not None:
         diagnostico["ref_layout"] = _ref_layout_nome or "nenhuma correspondeu ao tipo"
+        diagnostico["prompt"] = prompt_geracao
+
+    # ── PARAR AQUI, SEM GASTAR ────────────────────────────────────────────
+    #
+    # O prompt esta pronto e nenhum motor foi chamado ainda. `so_montar`
+    # devolve exatamente este texto — o que SERIA enviado — para a tela do
+    # plano mostrar antes de o dono confirmar.
+    #
+    # Tem de sair daqui, e nao de uma segunda montagem numa funcao de
+    # preview: duas montagens do mesmo prompt discordam, e a discordancia
+    # aparece tres semanas depois na tela de alguem. Ja aconteceu nesta base
+    # com a varredura, que conferia o prompt em portugues enquanto o motor
+    # recebia outro.
+    #
+    # A tupla continua sendo (imagem, erro); o texto viaja no diagnostico.
+    if so_montar:
+        return None, ""
 
     # 4. Tenta o motor primário da OpenAI
     img_bytes = None
@@ -2587,7 +2736,7 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
     # caminho de forma bem visivel.
     if not img_bytes:
         if diagnostico is not None:
-            _n_refs = len((imagens_referencia or [])[:3])
+            _n_refs = len(fotos_para_o_motor(imagens_referencia))
             diagnostico["motor"] = "Gemini 3.1 Flash Image (fallback, COM fotos)"
             diagnostico["refs_enviadas"] = _n_refs
             diagnostico["size_pedido"] = "não suportado neste motor"
@@ -3504,6 +3653,34 @@ def plano_do_tipo(tipo):
         if tipo_canonico(it) == alvo:
             return it
     return None
+
+
+def prompt_que_sera_enviado(prompt_texto, imagens_referencia, refs_layout=None,
+                            refs_layout_nomes=None, tipo=""):
+    """O texto EXATO que iria ao motor, sem chamar motor nenhum. ("" em erro.)
+
+    Existe para o plano de criacao poder mostrar o prompt antes de o dono
+    confirmar. O pedido dele foi direto: *"economiza dinheiro, fazendo testes
+    gerando imagens com prompt ainda errado"*.
+
+    Ele passa pelo MESMO caminho da geracao — `gerar_imagem_ia` com
+    `so_montar` — e nao por uma segunda montagem. Montar o prompt em dois
+    lugares e garantir que um dia os dois discordem, e ai o que a tela mostra
+    deixa de ser o que o motor recebe. Foi exatamente o que aconteceu com a
+    varredura desta base.
+
+    Custo: a leitura de visao do produto, que e CACHEADA por produto e que a
+    geracao pagaria de qualquer jeito. Nenhuma imagem e gerada.
+    """
+    diag = {}
+    try:
+        gerar_imagem_ia(prompt_texto, imagens_referencia,
+                        refs_layout=refs_layout,
+                        refs_layout_nomes=refs_layout_nomes,
+                        tipo=tipo, diagnostico=diag, so_montar=True)
+    except Exception as e:
+        return f"(não consegui montar o prompt: {type(e).__name__}: {e})"
+    return diag.get("prompt", "") or "(o prompt saiu vazio — isso é defeito)"
 
 
 def _direcao_de_arte_da_sessao():
@@ -5524,11 +5701,45 @@ def pagina_imagem(usuario_logado):
             )
 
         # ── Itens viáveis ─────────────────────────────────────────────────────
+        # O TITULO DO CARTAO E O TIPO OFICIAL — E O QUE VAI DECIDIR AS REGRAS.
+        #
+        # O cartao mostrava o apelido que a IA inventou ("Caracteristicas
+        # Tecnicas"), e o Studio gerava pelo tipo que o `numero` apontava
+        # ("2 — Beneficios do produto"). Os dois divergiam e a tela escondia
+        # a divergencia: so dava para descobrir olhando a imagem pronta.
+        _tipos_cfg = cfg.get("tipos") or TIPOS_PADRAO
+
+        # ── O PROMPT DE CADA PECA, ANTES DE PAGAR POR ELA ─────────────────
+        #
+        # Pedido do dono: *"coloque para que o Studio carregue nessa aba de
+        # plano de criacao os prompts que ele enviara para a criacao de cada
+        # imagem. Dessa forma podemos fazer testes e verificar se esta correto
+        # ou nao. E isso economiza dinheiro, fazendo testes gerando imagens
+        # com prompt ainda errado."*
+        #
+        # Atras de um botao de proposito: montar os oito le a descricao de
+        # visao do produto, e o plano nao pode ficar lento para quem so quer
+        # conferir a copy.
+        _ver_prompts = st.session_state.get("img_ver_prompts", False)
+        _c_btn1, _c_btn2 = st.columns([3, 1])
+        if _c_btn1.button(
+                "🔍 Esconder os prompts" if _ver_prompts
+                else "🔍 Ver o prompt que será enviado em cada peça",
+                use_container_width=True, key="btn_ver_prompts"):
+            st.session_state["img_ver_prompts"] = not _ver_prompts
+            st.rerun()
+        if _ver_prompts:
+            _c_btn2.caption("não gera imagem · não gasta geração")
+
         for item in itens_viaveis:
             flags = item.get("flags", [])
+            _oficial = tipo_canonico(item, _tipos_cfg)
+            _apelido = str(item.get("tipo", "") or "").strip()
             with st.container(border=True):
                 col_title, col_flag = st.columns([5, 1])
-                col_title.markdown(f"**{item.get('numero', '')}. {item.get('tipo', '')}**")
+                col_title.markdown(f"**{_oficial}**")
+                if _apelido and _chave_tipo(_apelido) != _chave_tipo(_oficial):
+                    col_title.caption(f"a análise chamou de: “{_apelido}”")
                 if flags:
                     col_flag.caption("⚠️ aviso")
                 st.caption(item.get("composicao", ""))
@@ -5543,6 +5754,59 @@ def pagina_imagem(usuario_logado):
                 if flags:
                     with st.expander("Ver aviso", expanded=False):
                         st.warning(flags[0])
+
+                if _ver_prompts:
+                    with st.expander("🔍 Prompt que será enviado ao motor",
+                                     expanded=False):
+                        _pt_peca = montar_prompt_imagem(
+                            _oficial,
+                            cfg.get("instrucoes_extras", ""),
+                            cfg.get("dados_descricao"),
+                            cfg.get("nome_produto", ""),
+                            refs_layout_nomes=cfg.get("refs_layout_nomes", []),
+                            instrucao_layout=cfg.get("instrucao_layout", ""),
+                            plano_triagem=item,
+                            ambientacao=cfg.get("ambientacao", ""),
+                            direcao_arte=_dir_plano,
+                        )
+                        _en_peca = prompt_que_sera_enviado(
+                            _pt_peca,
+                            cfg.get("fotos_bytes") or [],
+                            refs_layout=cfg.get("refs_layout_bytes") or None,
+                            refs_layout_nomes=cfg.get("refs_layout_nomes", []),
+                            tipo=_oficial,
+                        )
+                        st.caption(
+                            f"{len(_en_peca)} caracteres · é este texto, exato, "
+                            "que vai ao gerador. Uma diferença na hora de gerar: "
+                            "quando houver referências de AMBIENTAÇÃO, o cenário "
+                            "lido delas é acrescentado no fim."
+                        )
+                        st.code(_en_peca, language=None)
+
+        # ── O PLANO COBRE OS TIPOS PEDIDOS? ───────────────────────────────────
+        #
+        # A IA reordenou e renomeou, e dois itens caíram no mesmo tipo oficial:
+        # a peça de medidas foi gerada com as regras de painel de benefícios, e
+        # ninguém viu até a imagem ficar pronta. Isto deixa de ser silencioso.
+        _resolvidos = [tipo_canonico(_it, _tipos_cfg) for _it in itens_plano]
+        _repetidos = sorted({_t for _t in _resolvidos if _resolvidos.count(_t) > 1})
+        _faltando = [_t for _t in _tipos_cfg if _t not in _resolvidos]
+        if _repetidos or _faltando:
+            _linhas = []
+            if _repetidos:
+                _linhas.append("Dois ou mais cartões caíram no MESMO tipo: "
+                               + ", ".join(f"**{_t}**" for _t in _repetidos))
+            if _faltando:
+                _linhas.append("Tipo(s) pedido(s) que ficaram de fora: "
+                               + ", ".join(f"**{_t}**" for _t in _faltando))
+            st.error(
+                "⚠️ **A análise embaralhou os tipos.**\n\n"
+                + "\n\n".join(_linhas)
+                + "\n\nGerar assim entrega peça com as regras de outra peça — "
+                "infográfico de medidas com painel de benefícios, por exemplo. "
+                "Clique em **Analisar novamente** antes de confirmar."
+            )
 
         # ── Itens bloqueados (informação faltante) ────────────────────────────
         if itens_bloqueados:
@@ -6902,6 +7166,20 @@ if __name__ == "__main__":
     # voltar, ele volta escondendo o motor primario de novo.
     _soltos = []
     _dentro_da_falha = {id(_x) for _x in _ast_saida.walk(_falha_def)} if _falha_def else set()
+    # A SAIDA DE `so_montar` NAO E SAIDA DE ERRO, E POR ISSO E ISENTA — MAS
+    # NOMINALMENTE, E NAO AFROUXANDO A REGRA.
+    #
+    # Ela devolve (None, "") depois de montar o prompt e antes de chamar motor
+    # nenhum: e o caminho que a tela do plano usa para mostrar o texto sem
+    # gastar geracao. Isentar "qualquer return que volte None" abriria de novo
+    # a porta que esta conferencia fechou — os seis `return None, <erro>` que
+    # escondiam o motor primario. Entao a isencao e so a de dentro do
+    # `if so_montar:`.
+    for _if in _ast_saida.walk(_ger):
+        if (isinstance(_if, _ast_saida.If)
+                and isinstance(_if.test, _ast_saida.Name)
+                and _if.test.id == "so_montar"):
+            _dentro_da_falha |= {id(_x) for _x in _ast_saida.walk(_if)}
     for _n in _ast_saida.walk(_ger):
         if not isinstance(_n, _ast_saida.Return) or id(_n) in _dentro_da_falha:
             continue
@@ -7077,6 +7355,46 @@ if __name__ == "__main__":
 
     # E as pecas de marketing continuam com a regra de tamanho — elas TEM
     # texto e o produto precisa dominar o quadro.
+    # ── AS FOTOS DO PRODUTO QUE CHEGAM AO MOTOR ─────────────────────────
+    #
+    # Era `[:3]` escrito a mao em cinco lugares. O colaborador subia nove
+    # fotos e o diagnostico dizia "3 de 9 disponiveis": seis angulos jogados
+    # fora sem ninguem decidir isso. Num produto de acabamento metalico, cada
+    # angulo a menos e detalhe que o gerador inventa.
+    ok("o limite de fotos tem um lugar so",
+       MAX_FOTOS_AO_MOTOR >= 6)
+    ok("e ele corta de verdade",
+       len(fotos_para_o_motor(list(range(20)))) == MAX_FOTOS_AO_MOTOR)
+    ok("lista vazia ou None nao quebra",
+       fotos_para_o_motor(None) == [] and fotos_para_o_motor([]) == [])
+    ok("nove fotos passam a ir alem de tres",
+       len(fotos_para_o_motor(list(range(9)))) > 3)
+    # O TESTE ESTAVA SE ENCONTRANDO. A primeira versao procurava o literal
+    # o literal do corte antigo e reprovava — porque a unica ocorrencia no
+    # arquivo era ela mesma, escrita aqui. Montado em pedacos, o texto nao
+    # existe no fonte, e a conferencia volta a medir o codigo.
+    _alvo_corte = "imagens_bytes" + "[:" + "3]"
+    ok("nenhum corte de fotos sobrou espalhado no codigo",
+       open(__file__, encoding="utf-8").read().count(_alvo_corte) == 0)
+
+    # ── A DESCRICAO DE LAYOUT E TEXTO DE OUTRO MODELO ────────────────────
+    #
+    # Sexta volta da paleta azul, e a primeira por um caminho que nenhuma
+    # varredura de template alcanca: o texto nasce em tempo de execucao.
+    ok("descricao com cor e descartada",
+       limpar_descricao_de_layout("Títulos em azul-marinho, paleta fria.") == "")
+    ok("descricao que nomeia o objeto e descartada",
+       limpar_descricao_de_layout("A chaleira vermelha ao centro.") == "")
+    ok("descricao com pessoas e descartada",
+       limpar_descricao_de_layout("Dois personagens ao fundo.") == "")
+    # E O CONTRARIO TAMBEM E DEFEITO: descartar tudo nao protege, cega.
+    ok("descricao limpa PASSA — 'generosas' nao e 'rosa'",
+       limpar_descricao_de_layout(
+           "Duas colunas, blocos à esquerda, margens generosas.") != "")
+    ok("e 'modular' nao e 'model'",
+       limpar_descricao_de_layout(
+           "Composição modular, blocos empilhados, respiro amplo.") != "")
+
     # ── A DIRECAO DE ARTE DECIDIDA UMA VEZ, HERDADA PELAS OITO ──────────
     #
     # O dono, vendo o conjunto: "6 direcoes de arte diferentes". A causa

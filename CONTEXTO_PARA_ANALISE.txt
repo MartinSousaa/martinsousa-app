@@ -1,0 +1,592 @@
+================================================================================
+MS STUDIO — CONTEXTO PARA QUEM VAI ANALISAR OS PROMPTS DE GERACAO DE IMAGEM
+================================================================================
+
+Escrito em 24/09/2026.
+
+Este arquivo e para voce, que vai ler os prompts que o MS Studio envia ao
+gerador de imagem e dizer o que esta errado.
+
+Voce esta chegando no meio de uma historia. Sem ela, voce vai olhar um prompt
+de dezesseis mil caracteres, achar tudo razoavel, e devolver "parece correto" —
+que e a resposta inutil. Com ela, voce sabe onde ja doeu, e olha para la
+primeiro.
+
+Leia este arquivo inteiro antes de olhar qualquer prompt. Depois leia o
+DOSSIE_PROMPT.md, que e o contrato tecnico: o que cada secao TEM de conter e o
+que NAO PODE.
+
+
+--------------------------------------------------------------------------------
+PARTE 1 — O QUE E O MS STUDIO, EM TRES PARAGRAFOS
+--------------------------------------------------------------------------------
+
+O MS Studio e o sistema interno de uma loja brasileira que vende no Mercado
+Livre, Shopee e Shein. Uma parte dele gera as imagens do anuncio: o
+colaborador sobe as fotos reais do produto, o sistema analisa, planeja oito
+pecas e manda cada uma para um gerador de imagem por inteligencia artificial.
+
+As oito pecas tem funcoes diferentes. A 1 e a capa do anuncio — produto sobre
+fundo branco, sem texto nenhum, porque e ela que aparece na busca do
+marketplace. As pecas 2 a 7 sao de marketing e levam texto: beneficios,
+beneficios no cenario de uso, close nos detalhes, medidas tecnicas, quebra de
+objecao e "presenteie". A 8 e uma foto editorial do produto no ambiente de uso,
+tambem sem texto.
+
+Cada peca vira um prompt — um texto longo, em ingles, que descreve exatamente o
+que o gerador deve desenhar. E sobre esse texto que voce vai opinar. Ele tem
+entre nove e dezessete mil caracteres, e e montado automaticamente juntando
+pedacos: as regras do tipo de imagem, os dados do produto, o que a analise
+planejou, a direcao de arte, e as regras gerais da loja.
+
+
+--------------------------------------------------------------------------------
+PARTE 2 — POR QUE ISTO EXISTE: O QUE ESTAVA DANDO ERRADO
+--------------------------------------------------------------------------------
+
+O dono da loja vinha recebendo imagens ruins havia semanas. Ele reclamou, em
+palavras dele, de: margem sobrando, produto pequeno, produto gigante, quadrados
+sobrepondo a imagem, erro de portugues, imagem fora do padrao, seis direcoes de
+arte diferentes no mesmo anuncio, e cenario repetido.
+
+Cada uma dessas reclamacoes tinha uma causa concreta no codigo. Nenhuma era
+"a IA errou". Isto importa, e e o motivo deste arquivo existir: **o gerador
+obedecia; o prompt e que pedia coisas contraditorias.**
+
+Abaixo, cada defeito. Para cada um: o que se via na tela, o que era de fato, e
+como esta agora.
+
+
+2.1 — O DEFEITO QUE CAUSOU QUASE TODOS OS OUTROS: DOIS TERCOS DO PROMPT ERAM
+      JOGADOS FORA, EM SILENCIO
+--------------------------------------------------------------------------------
+
+O QUE SE VIA: produto trocado, cor errada, texto por cima do produto, medidas
+inventadas, palavras que nao existem.
+
+O QUE ERA: o sistema montava um texto completo em portugues — o "brief" — com
+todas as regras. Na hora de enviar, um trecho de codigo recortava esse texto
+com uma busca por padrao, do titulo "TIPO DE IMAGEM:" ate o primeiro titulo
+seguinte que casasse com uma lista. Tudo depois disso era DESCARTADO, sem erro,
+sem aviso, sem registro.
+
+Medido nos nove tipos de imagem, o que NUNCA chegava ao gerador:
+
+  - a trava de cor do produto (a cor real e a proibicao de repintar);
+  - as medidas e o peso exatos — e a peca 5 e justamente o infografico de
+    medidas: ela pedia "use APENAS os valores informados" com os valores
+    ausentes da mensagem;
+  - a regra de fidelidade as fotos, descrita no proprio codigo como "a mais
+    importante de todas";
+  - a proibicao de sobrepor texto ao produto;
+  - a regra que proibe palavra inventada;
+  - o bloco inteiro de enquadramento da capa;
+  - a escala real da ambientacao, e a excecao que permite a frase "Imagem
+    meramente ilustrativa".
+
+E havia uma verificacao automatica que deveria pegar isso. Ela dava "ok" em
+todas essas regras — porque conferia o texto em portugues, que e de onde o
+recorte era feito, e nao o texto que era enviado. A regra estava escrita, a
+verificacao via, o gerador nao.
+
+COMO ESTA AGORA: nao ha mais recorte. O brief inteiro vai. A verificacao passou
+a montar o texto ENVIADO e conferir nele.
+
+LICAO PARA VOCE: sempre pergunte "isto chegou?". Uma regra escrita em algum
+lugar do sistema nao e uma regra que o gerador recebeu.
+
+
+2.2 — TRES MEDIDAS DE OCUPACAO CONTRADITORIAS NA MESMA MENSAGEM
+--------------------------------------------------------------------------------
+
+O QUE SE VIA: produto pequeno no meio de um quadro vazio; ou produto gigante,
+desproporcional ao ambiente.
+
+O QUE ERA: quanto do quadro o produto deve ocupar estava escrito em TRES
+lugares que nao se falavam. Na capa, por exemplo, chegavam ao gerador, na mesma
+mensagem:
+
+    "deve ocupar 90-95% do frame"        (regra do tipo)
+    "o produto ocupa de 80% a 92%"       (bloco de enquadramento)
+    "Product occupancy 85-92% of frame"  (regra de composicao, em ingles)
+
+Tres numeros diferentes para a mesma medida. E a parte em portugues ia rotulada
+como "override any conflicting rule below" — ou seja, mandando nas outras. O
+gerador escolhia, e escolhia pequeno.
+
+COMO ESTA AGORA: a medida sai de um dicionario unico no codigo, e as duas
+linguas saem dele. Um numero, um lugar.
+
+LICAO PARA VOCE: **duas faixas de ocupacao no mesmo prompt e sempre defeito**,
+mesmo que as faixas se sobreponham. Procure por isso primeiro.
+
+
+2.3 — A MARGEM
+--------------------------------------------------------------------------------
+
+O QUE SE VIA: faixa vazia em volta do produto, sobretudo em cima e embaixo.
+
+O QUE ERA: duas coisas somadas. Primeiro, o prompt pedia pouca ocupacao (ver
+2.2). Segundo, quando a imagem voltava do gerador com formato diferente do
+quadrado, o sistema PREENCHIA as bordas com fundo para deixar quadrada — e isso
+e literalmente fabricar margem.
+
+COMO ESTA AGORA: o sistema RECORTA em vez de preencher, com uma folga minima, e
+so recorta quando o que ele detectou e o assunto, nao a cena inteira. A
+ocupacao pedida subiu.
+
+LICAO PARA VOCE: a margem tem duas origens. Uma voce ve no prompt (a ocupacao
+pedida). A outra nao — acontece depois, no tratamento da imagem. Se o prompt
+pede 85-92% e a imagem sai com margem, o problema nao e o prompt.
+
+
+2.4 — ERRO DE PORTUGUES NA IMAGEM
+--------------------------------------------------------------------------------
+
+O QUE SE VIA: palavras que nao existem, desenhadas dentro da peca: "Portatile e
+compacto", "Apretica newtona estetico", "relievarriamento do stresse",
+"diferencia de canecas decorativas comuns".
+
+O QUE ERA: tres causas somadas.
+
+  (a) A regra que proibe palavra inventada estava no brief — e era cortada,
+      pelo defeito 2.1.
+
+  (b) A analise do produto escreve a copy pronta, palavra por palavra, num
+      bloco chamado TEXTO EXATO. Esse bloco parou de chegar ao prompt por um
+      defeito de indexacao: o sistema guardava o plano sob o nome que a IA
+      inventou ("Imagem de marketing — beneficios") e procurava pelo nome
+      oficial ("2 — Beneficios do produto"). Nunca casava. Sem copy pronta, o
+      gerador redige a frase sozinho — e gerador de imagem nao escreve, ele
+      DESENHA letras. Ele erra.
+
+  (c) Depois de gerar, uma conferencia le o texto da imagem e manda refazer se
+      estiver errado. Ela estava reprovando "PREMIUM" e "Premium" como erro de
+      portugues. Gastava tres geracoes pagas tentando consertar uma palavra
+      certa, e no fim bloqueava a peca.
+
+COMO ESTA AGORA: (a) o brief inteiro chega; (b) o plano e indexado pelo tipo
+oficial; (c) a conferencia sabe que estrangeirismo consagrado no comercio
+brasileiro, caixa alta, nome proprio, unidade e frase sem ponto final NAO sao
+erro.
+
+LICAO PARA VOCE: no prompt, procure o bloco "TEXTO EXATO A ESCREVER". Se a peca
+tem texto e esse bloco nao esta la, o gerador vai inventar a frase — e isso e
+defeito grave, mesmo que o resto do prompt esteja impecavel.
+
+
+2.5 — QUADRADOS SOBREPONDO O PRODUTO
+--------------------------------------------------------------------------------
+
+O QUE SE VIA: cartoes de texto desenhados em cima do produto.
+
+O QUE ERA: duas ordens que nao cabem no mesmo quadrado, na mesma mensagem:
+
+    "Product occupancy at least 70% of frame — nearly filling the canvas"
+    "ALL text must appear ONLY in panel zones completely separate from the
+     product area"
+
+Se o produto enche o quadro, nao sobra zona separada para o texto. O gerador
+resolveu do unico jeito possivel: pos os cartoes em cima.
+
+Somava-se a isso o numero de cartoes. A analise planejava quatro cartoes e a
+composicao mandava no maximo tres — mais duas ordens contrarias.
+
+COMO ESTA AGORA: quando a peca tem painel de texto, a ocupacao vira uma faixa
+menor e o painel ganha lugar proprio. O teto de cartoes sai de um dicionario
+unico por tipo, e a copy da analise e cortada nesse teto antes de virar prompt.
+
+LICAO PARA VOCE: leia a ocupacao e a regra de texto JUNTAS. Se a soma nao fecha
+em 100% do quadro, e defeito.
+
+
+2.6 — A PALETA AZUL FIXA, QUE VOLTOU CINCO VEZES
+--------------------------------------------------------------------------------
+
+O QUE SE VIA: todos os produtos com a mesma cara azul-acinzentada, e as vezes o
+proprio produto repintado de azul-marinho.
+
+O QUE ERA: a loja tinha uma cor de marca fixa escrita no prompt. Ela foi
+removida — e voltou cinco vezes, em lugares diferentes, porque cada correcao
+tirava a cor do lugar onde o problema tinha aparecido, e deixava nos outros:
+
+    #1A3A6B e #E8EEF5 no padrao visual da loja
+    "icone line-art azul marinho" na regra da peca 2
+    "borda fina azul" na regra da peca 5
+    "fundo e cores da marca presentes" na regra da peca 3
+    "a paleta azul da empresa" na trava de cor — em TODO tipo, de TODO produto
+
+COMO ESTA AGORA: todas removidas, e existe uma verificacao automatica que
+reprova se qualquer uma voltar.
+
+LICAO PARA VOCE: procure por cor fixa em qualquer forma — nome de cor, codigo
+hexadecimal, "cor da marca". A unica coisa fixa que pode existir no prompt e a
+tipografia (Montserrat ou Poppins).
+
+
+2.7 — A AMBIENTACAO SAIA COMO PECA DE MARKETING, COM "COMPRAR AGORA"
+--------------------------------------------------------------------------------
+
+O QUE SE VIA: a peca 8, que e foto editorial sem texto, saiu com titulo, selos
+de beneficio, "ACOMPANHA 2 CANETAS DE LUXO" e um botao "COMPRAR AGORA"
+desenhado dentro da imagem.
+
+O QUE ERA: a inteligencia que escreve o plano RENOMEIA os tipos. Em vez de
+"8 — Ambientacao realista (sem texto)" ela escreve "Foto editorial —
+ambientacao realista". Sem o numero na frente, o sistema nao reconhecia o tipo:
+
+    regras do tipo  -> vazio      (a peca ia sem as regras dela)
+    modo de fundo   -> "padrao"   (recebia tratamento de marketing)
+    pode ter texto  -> sim        (a foto editorial ganhou titulo e selo)
+
+COMO ESTA AGORA: o sistema volta ao tipo oficial pelo numero do plano, a tela
+mostra o nome oficial, e avisa em vermelho quando dois cartoes caem no mesmo
+tipo ou quando um tipo fica de fora.
+
+LICAO PARA VOCE: confira sempre o "IMAGE TYPE:" no topo do prompt. Ele tem de
+trazer o rotulo oficial, com o numero na frente. E confira se o conteudo bate
+com o tipo — infografico de medidas com regras de painel de beneficios ja
+aconteceu.
+
+
+2.8 — PRODUTO GIGANTE NA AMBIENTACAO
+--------------------------------------------------------------------------------
+
+O QUE SE VIA: "criando ambientacao com o produto desproporcional ao que ele e
+no ambiente, parece que ele e GIGANTE" — palavras do dono.
+
+O QUE ERA: a regra geral mandava o produto ocupar de 65% a 80% nas pecas sem
+texto, e a ambientacao e uma peca sem texto. Havia ainda a linha "nunca deixe o
+produto pequeno no centro de um cenario amplo" — que e EXATAMENTE o que uma
+foto de ambientacao e. A instrucao proibia o objetivo da peca, e o gerador
+obedeceu inflando o produto ate caber nos 70%.
+
+COMO ESTA AGORA: a ambientacao nao tem porcentagem nenhuma. Ela tem escala
+real: o produto aparece no tamanho que tem de verdade, e domina por FOCO e LUZ,
+nao por tamanho.
+
+LICAO PARA VOCE: se voce vir uma porcentagem de ocupacao no prompt da peca 8, e
+defeito. Ela nao pode ter uma.
+
+
+2.9 — O CLOSE INVENTAVA A SUPERFICIE
+--------------------------------------------------------------------------------
+
+O QUE SE VIA: na peca de close, textura de pedra exagerada e uma mancha dourada
+que o produto real nao tem.
+
+O QUE ERA: macro e o enquadramento de maior risco. A foto de referencia nao tem
+resolucao no detalhe, e o gerador preenche o que nao enxerga. O prompt dizia
+"reproduza exatamente", mas nao dizia o que fazer quando a foto nao mostra.
+
+COMO ESTA AGORA: a regra da peca manda aproximar APENAS de area que apareca
+nitida nas fotos, reproduzir relevo e manchas como estao, e abrir o
+enquadramento quando nenhuma area estiver nitida o bastante — enquadramento
+mais aberto e fiel vale mais que macro inventado.
+
+LICAO PARA VOCE: instrucao negativa ("nao invente") e fraca com gerador de
+imagem. Procure a instrucao POSITIVA equivalente ("aproxime so de onde a foto
+mostra").
+
+
+2.10 — A MESMA MEDIDA DUAS VEZES NA PECA DE COTAS
+--------------------------------------------------------------------------------
+
+O QUE SE VIA: "2,4cm" escrito na seta e, ao lado, um cartao "Alca abertura:
+2,4cm". O mesmo dado duas vezes.
+
+O QUE ERA: a regra da peca descrevia a linha de cota e o cartao, e nao proibia o
+valor aparecer nos dois.
+
+COMO ESTA AGORA: cada medida aparece uma vez so, dentro do cartao dela. A linha
+de cota nao leva numero solto.
+
+
+2.11 — OITO PECAS PLANEJADAS, UMA GERADA, "SEM MOTIVO ALGUM"
+--------------------------------------------------------------------------------
+
+O QUE SE VIA: o plano prometia oito imagens, a galeria trazia uma, e nenhuma
+palavra sobre as outras sete.
+
+O QUE ERA: o motivo existia e era apagado. Cada falha escrevia um aviso na
+pagina; no fim do laco a pagina era redesenhada do zero, e os avisos iam junto.
+
+COMO ESTA AGORA: o motivo de cada peca que faltou e gravado e aparece em cima
+da galeria. E tres falhas seguidas pelo mesmo motivo param o laco — antes, com
+o motor fora do ar, cada peca ainda esperava cinco minutos antes de desistir:
+quarenta minutos para entregar o que ja se sabia na terceira.
+
+
+2.12 — O MOTOR PRINCIPAL ESTAVA FORA, E TUDO RODAVA NO RESERVA
+--------------------------------------------------------------------------------
+
+O QUE ERA: o modelo de imagem configurado nao existia na conta, e o sistema nao
+achava nenhum outro. Toda geracao caia no motor reserva, que e menos capaz — e
+boa parte da qualidade ruim vinha simplesmente disso.
+
+COMO ESTA AGORA: resolvido. Os dois motores respondem. Isto importa para voce:
+**imagens geradas antes de 24/09/2026 as 15h nao servem de referencia de
+qualidade**, porque saiam do motor errado.
+
+
+2.13 — SEIS DIRECOES DE ARTE DIFERENTES NO MESMO ANUNCIO
+--------------------------------------------------------------------------------
+
+O QUE SE VIA: as oito pecas do mesmo produto pareciam de lojas diferentes — uma
+azul corporativa, outra bege, outra preta, outra cinza.
+
+O QUE ERA: o prompt mandava, nas OITO pecas, cada uma decidir a estetica
+sozinha:
+
+    "NAO existe cor de fundo obrigatoria. Analise o produto ... e escolha a
+     paleta, a iluminacao, o cenario e os materiais"
+
+Oito decisoes independentes sobre a mesma coisa. Nao era desobediencia do
+gerador: era o que o prompt pedia.
+
+COMO ESTA AGORA: a decisao acontece UMA vez, na analise do produto, que ja e
+uma chamada com as fotos antes das oito. Ela devolve uma direcao de arte com
+paleta de cinco cores funcionais (fundo, painel, titulo, apoio, acento),
+materiais do cenario, luz, saturacao, props permitidos e proibidos, risco de
+reflexo e a trava do produto. As oito HERDAM.
+
+LICAO PARA VOCE: com direcao herdada, a ordem de deduzir NAO pode aparecer.
+"escolha a paleta" ao lado de uma paleta pronta sao duas ordens sobre a mesma
+coisa, e e exatamente o defeito que a direcao de arte existe para fechar.
+
+
+2.14 — CENARIO REPETIDO ENTRE AS PECAS
+--------------------------------------------------------------------------------
+
+O QUE SE VIA: escrivaninha com caneta na peca 3, na 7 e na 8.
+
+O QUE ERA: nada no sistema pedia variedade. Consistencia virava "mesmo
+cenario" — tecnicamente coerente, e o anuncio repetitivo.
+
+COMO ESTA AGORA: cada peca do plano tem uma CENA propria (superficie, props,
+angulo), e a analise recebe a regra de que consistencia e mesma paleta, mesmo
+material e mesma luz — nao a mesma mesa.
+
+LICAO PARA VOCE: leia as oito cenas do mesmo produto lado a lado. Se duas
+descrevem a mesma superficie com os mesmos props, e defeito.
+
+
+2.15 — "AQUECEDOR VERMELHO" NUM PROMPT DE CANECA
+--------------------------------------------------------------------------------
+
+O QUE SE VIA: o prompt de uma caneca medieval mencionava um "aquecedor
+vermelho".
+
+O QUE ERA: quando ha imagem de referencia de layout, o sistema pede a uma IA
+que descreva a COMPOSICAO dela. A descricao voltava nomeando o objeto da
+referencia e a paleta dela — e esse texto entrava no prompt logo acima da linha
+que PROIBE copiar produto e cores da referencia. Ordem e contraordem na mesma
+mensagem.
+
+COMO ESTA AGORA: a descricao e proibida de nomear o objeto, de mencionar
+qualquer cor e de mencionar pessoas. Ela descreve so geometria: onde os blocos
+ficam, tamanho, alinhamento, respiro.
+
+LICAO PARA VOCE: no bloco "COMPOSITION STYLE TO REPLICATE", qualquer nome de
+objeto ou de cor e defeito.
+
+
+--------------------------------------------------------------------------------
+PARTE 3 — COMO PRECISA FICAR
+--------------------------------------------------------------------------------
+
+O alvo, em uma frase: **um prompt onde nenhuma instrucao contradiz outra, e
+onde tudo que o sistema sabe sobre o produto chegou ate o gerador.**
+
+Traduzido em criterios verificaveis:
+
+  1. UMA medida de ocupacao por peca. Nunca duas.
+  2. UM teto de blocos de texto por peca. Nunca dois.
+  3. UMA regra de texto por peca — ou zero texto, ou texto em painel, ou a
+     excecao unica da ambientacao.
+  4. Nenhuma cor fixa de marca, em nenhuma forma.
+  5. A cor real do produto e a proibicao de repinta-lo, presentes em toda peca.
+  6. As medidas e o peso reais presentes quando informados; nenhum numero
+     inventado quando nao informados.
+  7. A copy pronta presente em toda peca que leva texto.
+  8. O tipo oficial no topo, e o conteudo batendo com o tipo.
+  9. Com direcao de arte herdada: a paleta-mae presente e a ordem de deduzir
+     ausente.
+ 10. As oito cenas diferentes entre si, dentro da mesma familia visual.
+ 11. A frase de desempate no fim: o ambiente se adapta ao produto, nunca o
+     contrario; se algo conflitar com a foto real, ignore a instrucao e
+     preserve o produto.
+
+Quando os onze estiverem verdadeiros nos oito tipos e em produtos diferentes,
+o prompt esta no alvo.
+
+
+--------------------------------------------------------------------------------
+PARTE 4 — O QUE E ERRO E O QUE E EVOLUCAO
+--------------------------------------------------------------------------------
+
+Voce vai encontrar coisas que parecem estranhas e sao propositais. Saber a
+diferenca evita que voce mande corrigir o que ja foi corrigido.
+
+E EVOLUCAO (nao mexa, e proposital):
+
+  - A secao 1 do prompt estar em PORTUGUES dentro de um prompt em ingles. O
+    brief e em portugues porque a copy da imagem e em portugues, e traduzir
+    seria uma chance a mais de errar letra.
+  - O prompt ser longo (nove a dezessete mil caracteres). Ele encolheu
+    quando estava errado, nao quando estava certo: o recorte silencioso
+    descartava dois tercos.
+  - A peca 8 nao ter porcentagem de ocupacao. Ver 2.8.
+  - A peca 7 ter ocupacao baixa (30-45%). Ela virou cena de entrega com duas
+    pessoas: pedir 55-70% ali so fecharia inflando o produto ao tamanho de um
+    torso.
+  - A peca 7 EXIGIR pessoas, enquanto todas as outras as proibem.
+  - Repeticao entre a secao 1 e as secoes em ingles. Algumas regras aparecem
+    nas duas de proposito, para reforcar. Isso so e defeito quando as duas
+    DISCORDAM.
+  - Codigo hexadecimal de cor na paleta. Ele e ancora visual, nao ordem de
+    pintar o produto — e o proprio prompt diz isso.
+
+E ERRO (reporte):
+
+  - Dois numeros diferentes para a mesma coisa.
+  - Uma ordem e sua contraordem.
+  - Um bloco obrigatorio ausente.
+  - Um trecho proibido presente.
+  - Texto literal de molde vazado: {faixa}, {blocos}, {direcao}.
+  - Tipo que nao bate com o conteudo.
+  - Cenas iguais entre pecas.
+
+
+--------------------------------------------------------------------------------
+PARTE 5 — O QUE VOCE TEM DE FAZER, NA ORDEM
+--------------------------------------------------------------------------------
+
+PASSO 1 — Leia o DOSSIE_PROMPT.md. Ele traz a anatomia do prompt secao por
+secao, a tabela do que cada tipo deve ter (ocupacao, blocos, fundo, texto,
+pessoas) e a lista do que ja quebrou.
+
+PASSO 2 — Leia os prompts anexados. Um produto por vez.
+
+PASSO 3 — Para CADA peca, percorra os onze criterios da Parte 3. Nesta ordem,
+porque ela vai do mais barato de achar ao mais caro:
+
+    a) contradicao numerica  — duas ocupacoes, dois tetos
+    b) ordem e contraordem   — deduzir x herdar, texto x sem texto, pessoas
+    c) bloco ausente         — trava de cor, medidas, copy exata, fidelidade
+    d) trecho proibido       — cor fixa, lista de comodos, molde vazado
+    e) tipo x conteudo       — a peca e o que diz ser?
+
+PASSO 4 — Depois de ler as oito, leia-as COMO CONJUNTO. Esta e a parte que so
+aparece olhando tudo junto:
+
+    - as oito cenas sao diferentes?
+    - a paleta e a mesma nas oito?
+    - a familia de materiais e a mesma?
+    - a direcao de arte combina com o produto, ou caiu num padrao neutro?
+
+PASSO 5 — Entregue os achados em lista, um por linha, nesta forma:
+
+    SECAO / peca  ->  o que esta escrito  ->  por que e defeito  ->  o que
+    deveria estar
+
+Sem paragrafo, sem elogio, sem resumo no fim. O dono le tabela, nao texto
+corrido.
+
+
+--------------------------------------------------------------------------------
+PARTE 6 — O QUE PERGUNTAR, QUANDO FALTAR INFORMACAO
+--------------------------------------------------------------------------------
+
+Voce vai esbarrar em coisas que nao da para decidir so lendo o prompt.
+**Pergunte, nao chute.** Palpite que acerta nao economiza nada; palpite que
+erra custa um deploy.
+
+Perguntas legitimas, e por que cada uma:
+
+  - "Qual e a foto real deste produto?" — sem ela voce nao pode julgar se a
+    paleta separa o produto do fundo, nem se o risco de reflexo esta certo.
+  - "Esta peca saiu com que aparencia?" — o prompt certo nao garante a imagem
+    certa. Se ha imagem, peca.
+  - "Este produto e vendido para quem?" — decide o par da peca 7 e o cenario.
+  - "Estas medidas estao no cadastro?" — se nao estao, a peca 5 nao pode
+    trazer numero nenhum, e nem deveria ser gerada.
+  - "Este prompt e de producao ou de teste?" — os prompts de teste usam uma
+    direcao de arte escrita a mao. Se a duvida e sobre a QUALIDADE da direcao,
+    ela so se julga com a analise real, no sistema, com fotos reais.
+
+O que NAO perguntar: nada que esteja escrito no prompt que voce tem na mao.
+
+
+--------------------------------------------------------------------------------
+PARTE 7 — O QUE VOCE NAO PODE AFIRMAR
+--------------------------------------------------------------------------------
+
+Isto e serio, e ja custou caro nesta base. Voce NAO tem o codigo e NAO roda
+nada. Entao:
+
+  - nao diga que rodou comando, script ou verificacao;
+  - nao diga que conferiu uma linha de arquivo. As referencias tipo
+    "imagem.py:168" existem para o dono saber onde mandar corrigir — voce nao
+    as leu;
+  - nao garanta que a imagem vai sair certa. Voce esta julgando o pedido, nao
+    o resultado;
+  - nao julgue se uma paleta e boa para o produto sem ver a foto dele. Diga
+    que depende da foto;
+  - nao chame de erro uma coisa da lista "E EVOLUCAO" da Parte 4 sem antes
+    reler a razao dela.
+
+Quando nao souber, escreva "duvida:" e a pergunta. Duvida declarada vale mais
+que afirmacao confiante e errada.
+
+
+--------------------------------------------------------------------------------
+PARTE 8 — O QUE AINDA ESTA EM ABERTO
+--------------------------------------------------------------------------------
+
+Honestidade sobre o estado atual, para voce nao reportar como novidade:
+
+  - NAO EXISTE ainda um auditor automatico que compare a imagem gerada com a
+    foto real do produto (cor, geometria, material, componente inventado).
+    Isso e planejado, nao feito.
+  - O nome do produto continua editavel depois de escolhida a analise. Foi
+    assim que "Guerreiro porta CANETA" virou "Guerreiro porta CANECA" — erro de
+    digitacao que passou para o prompt inteiro. Ainda em aberto.
+  - A QUALIDADE da direcao de arte decidida pela analise ainda nao foi
+    validada em producao com produtos reais. A estrutura esta pronta; o
+    julgamento dela, nao.
+  - Parte das correcoes descritas neste arquivo esta em homologacao, e ainda
+    nao em producao. Se voce esta analisando um prompt copiado do sistema no
+    ar, ele pode nao ter todas elas. Pergunte ao dono de onde veio o prompt.
+
+
+--------------------------------------------------------------------------------
+PARTE 9 — AS REGRAS DE TRABALHO DO DONO
+--------------------------------------------------------------------------------
+
+Ele ditou estas, e elas valem para voce tambem:
+
+  1. RESUMIR. Respostas de 3 a 6 linhas. Tabela em vez de paragrafo. "Sim ou
+     nao" recebe "sim" ou "nao".
+  2. NUNCA responder de cabeca. Citar o que sustenta a afirmacao, ou declarar
+     a duvida.
+  3. MAPEAR O ESTRAGO antes de sugerir. Toda mudanca passa pela pergunta: que
+     bug isto pode causar?
+  4. O TEMPO DELE e o recurso mais caro. Entre duas solucoes, vence a que
+     exige menos dele.
+  5. ACHAR A RAIZ, nao otimizar em volta dela. A pergunta certa e "o que falta
+     neste sistema para isto nao acontecer de novo?".
+  6. RESOLVER O PROBLEMA, nao necessariamente atender o pedido.
+  7. A CAUSA PODE ESTAR NA OPERACAO, nao no sistema.
+
+E uma consequencia direta da regra 5, que e a licao mais cara desta base:
+
+    Corrigir o texto NO LUGAR ONDE O PROBLEMA APARECEU, e nao em todos os
+    lugares onde a regra alcanca, e como a paleta azul voltou cinco vezes.
+
+Se voce achar um defeito, pergunte antes de reportar: **em que outros lugares
+esta mesma regra existe?** Reportar um de cinco e trabalho pela metade.
+
+================================================================================
+FIM
+================================================================================

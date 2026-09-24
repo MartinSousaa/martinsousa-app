@@ -307,19 +307,27 @@ def _prompts(tipo):
             ambientacao="mesa de jantar" if tipo == TIPO_AMBIENTE else "",
             direcao_arte=_DIRECAO)
         imagem.gerar_imagem_ia(pt, [_foto()], tipo=tipo)
+        # O PREVIEW, MONTADO AQUI DENTRO.
+        #
+        # Fora do bloco as trocas ja foram desfeitas: sem chave, sem visao, o
+        # preview cairia noutro caminho e a comparacao mediria o ambiente em
+        # vez do codigo. Foi o que a primeira versao desta conferencia fez —
+        # acusou 224 contra 17293 caracteres e a culpa era do teste.
+        capturado["preview"] = imagem.prompt_que_sera_enviado(
+            pt, [_foto()], tipo=tipo)
     finally:
         (imagem._chamar_openai_geracao,
          imagem._chamar_gemini_geracao_texto,
          imagem._descricao_do_produto_cacheada,
          imagem._get_openai_api_key) = originais
-    return pt, capturado.get("prompt", "")
+    return pt, capturado.get("prompt", ""), capturado.get("preview", "")
 
 
 def main():
-    briefs, enviados = {}, {}
+    briefs, enviados, previews = {}, {}, {}
     for t in TODOS:
         try:
-            briefs[t], enviados[t] = _prompts(t)
+            briefs[t], enviados[t], previews[t] = _prompts(t)
         except Exception as e:
             print(f"FALHA  nao consegui montar o prompt de '{t}': "
                   f"{type(e).__name__}: {e}")
@@ -444,6 +452,123 @@ def main():
             if _trecho not in _p_plano:
                 print(f"FALHA  {_desc} nao chega ao prompt da peca planejada")
                 falhas += 1
+
+    # ── 4D. O PREVIEW MOSTRA O MESMO TEXTO QUE O MOTOR RECEBE ──────────────
+    #
+    # A tela do plano mostra o prompt antes de gerar, para o dono conferir sem
+    # gastar. Isso so vale se o texto mostrado for o MESMO que sai. Montar o
+    # prompt em dois lugares e garantir que um dia os dois discordem — e ai a
+    # tela passa a mentir com confianca. Ja aconteceu nesta base: a varredura
+    # conferia o prompt em portugues enquanto o motor recebia outro.
+    #
+    # E o preview nao pode chamar motor: se chamar, "conferir de graca" custa
+    # uma geracao por peca.
+    for t in TODOS:
+        if previews[t] != enviados[t]:
+            print(f"FALHA  em '{t}' o prompt que a tela mostra NAO e o que o "
+                  f"motor recebe ({len(previews[t])} contra "
+                  f"{len(enviados[t])} caracteres)")
+            falhas += 1
+
+    # E o preview nao pode chamar motor: se chamar, "conferir de graca" custa
+    # uma geracao por peca.
+    _chamou = {"motor": False}
+
+    def _bomba(*a, **k):
+        _chamou["motor"] = True
+        return None, "o preview nao pode chamar motor"
+
+    _orig = (_img._chamar_openai_geracao, _img._chamar_gemini_geracao_texto,
+             _img._descricao_do_produto_cacheada, _img._get_openai_api_key)
+    _img._chamar_openai_geracao = _bomba
+    _img._chamar_gemini_geracao_texto = _bomba
+    _img._descricao_do_produto_cacheada = lambda *a, **k: ("d", "l")
+    _img._get_openai_api_key = lambda: "sk-varredura"
+    try:
+        _img.prompt_que_sera_enviado(briefs[TODOS[0]], [_foto()], tipo=TODOS[0])
+    finally:
+        (_img._chamar_openai_geracao, _img._chamar_gemini_geracao_texto,
+         _img._descricao_do_produto_cacheada, _img._get_openai_api_key) = _orig
+    if _chamou["motor"]:
+        print("FALHA  o preview do prompt chamou o motor — conferir custaria "
+              "uma geracao por peca")
+        falhas += 1
+
+    # ── 4E. A DESCRICAO DE LAYOUT E TEXTO DE OUTRO MODELO, E PODE VIR SUJA ──
+    #
+    # Esta e a sexta volta da paleta azul, e a primeira que nenhuma varredura
+    # alcancava. As outras cinco estavam em texto FIXO do codigo — esta nasce
+    # em tempo de execucao, escrita por outro modelo, e nao existe no arquivo
+    # para ser encontrada.
+    #
+    # O pedido tem HARD RULES: nao nomeie o objeto, nao mencione cor, nao
+    # mencione pessoas. E a descricao voltou assim mesmo:
+    #
+    #     "o item de destaque (chaleira vermelha)"
+    #     "titulos em azul-marinho", "paleta monocromatica (azul-marinho...)"
+    #     "dois personagens interagem naturalmente"
+    #
+    # e entrou no prompt logo ACIMA da linha que proibe copiar produto, cores
+    # e pessoas da referencia. Instrucao no pedido e convite; filtro na volta
+    # e regra.
+    _sujas = [
+        ("cor nomeada", "Títulos em azul-marinho, paleta monocromática."),
+        ("objeto nomeado", "A chaleira vermelha ocupa o primeiro plano."),
+        ("pessoas", "Dois personagens interagem ao fundo desfocado."),
+        ("cor em ingles", "Navy blue headings with circular icons."),
+    ]
+    for _qual, _texto in _sujas:
+        if _img.limpar_descricao_de_layout(_texto):
+            print(f"FALHA  descricao de layout com {_qual} NAO foi descartada: "
+                  f"{_texto!r}")
+            falhas += 1
+    # E a descricao limpa tem de passar — descartar tudo tambem e defeito.
+    _limpas = [
+        "Layout de duas colunas: blocos à esquerda, margens generosas.",
+        "Grid de três colunas, ícones circulares, hierarquia tipográfica clara.",
+        "Composição modular: blocos empilhados, espaço negativo amplo.",
+    ]
+    for _texto in _limpas:
+        if not _img.limpar_descricao_de_layout(_texto):
+            print(f"FALHA  descricao de layout LIMPA foi descartada: {_texto!r} "
+                  f"— {_img.motivos_para_descartar_layout(_texto)}")
+            falhas += 1
+
+    # E o teste que importa: a suja nao pode CHEGAR ao prompt montado.
+    _orig_desc = _img._descricao_do_produto_cacheada
+    _img._descricao_do_produto_cacheada = lambda *a, **k: (
+        "descrição do produto",
+        _img.limpar_descricao_de_layout(
+            "Títulos em azul-marinho sobre bule vermelho, dois personagens."),
+    )
+    try:
+        _pt_suja = _img.montar_prompt_imagem(
+            TIPOS_COM_TEXTO[0], "", _DADOS, "Produto de Teste",
+            plano_triagem=_PLANO, direcao_arte=_DIRECAO)
+        _en_suja = _img.prompt_que_sera_enviado(
+            _pt_suja, [_foto()], tipo=TIPOS_COM_TEXTO[0])
+    finally:
+        _img._descricao_do_produto_cacheada = _orig_desc
+
+    # PROCURAR "azul-marinho" NO PROMPT INTEIRO SERIA CASAMENTO CEGO — E A
+    # PRIMEIRA VERSAO DESTA CONFERENCIA ERROU ASSIM.
+    #
+    # Ela reprovou, e a culpa era dela: "azul-marinho" esta no prompt de
+    # propositio, dentro da TRAVA DE COR, na lista de desvios PROIBIDOS para um
+    # produto preto. A guarda estava acusando a propria protecao.
+    #
+    # O que se confere e a SECAO da descricao de layout: descartada a
+    # descricao, a secao inteira nao pode existir.
+    _MARCA_LAYOUT = "COMPOSITION STYLE TO REPLICATE"
+    if _MARCA_LAYOUT in _en_suja:
+        _trecho = _en_suja.split(_MARCA_LAYOUT, 1)[1][:400]
+        print(f"FALHA  a descricao de layout suja chegou ao prompt: {_trecho[:120]!r}")
+        falhas += 1
+    for _proibido in ("bule vermelho", "personagens"):
+        if _proibido in _en_suja:
+            print(f"FALHA  '{_proibido}' chegou ao prompt pela descricao de "
+                  "layout — a paleta de outra empresa entrou na peca")
+            falhas += 1
 
     # ── 5. TIPO QUE NAO APARECE EM REGRA NENHUMA PASSA LIVRE ───────────────
     _citados = set()
