@@ -3683,6 +3683,87 @@ def prompt_que_sera_enviado(prompt_texto, imagens_referencia, refs_layout=None,
     return diag.get("prompt", "") or "(o prompt saiu vazio — isso é defeito)"
 
 
+# ── O PLANO E ESCRITO POR IA, E POR ISSO NAO SE CONFERE UMA VEZ SO ─────────
+#
+# A analise de 24/09 voltou limpa de seis defeitos que a rodada anterior tinha:
+# a peca 3 pedindo "maos do casal" numa peca que proibe pessoas, sete das sete
+# pecas falando em "costura" num album Wire-O, "ouro" como material do produto,
+# a palavra inventada "sobas", e madeira em quatro das sete cenas.
+#
+# Eles nao foram CORRIGIDOS. Eles NAO APARECERAM naquela rodada.
+#
+# A diferenca e tudo. O prompt e montado por codigo: conferir uma vez basta,
+# porque ele nao muda sozinho. O plano e escrito por um modelo a cada analise,
+# e pode voltar diferente amanha — com os mesmos defeitos ou com outros.
+#
+# Entao a conferencia dele tem de rodar SEMPRE, na tela, antes de gastar. Duas
+# destas sao verificaveis sem ambiguidade; as outras quatro dependem do
+# produto e ficam para o olho humano.
+_PESSOAS_NA_CENA = (
+    "pessoa", "personagem", "homem", "mulher", "crianca", "criança",
+    "casal", "familia", "família", "mao", "mão", "maos", "mãos",
+    "bebe", "bebê", "menino", "menina", "modelo",
+)
+
+
+def pessoas_em_peca_errada(itens, tipos_selecionados=None):
+    """Pecas cujo plano pede pessoas, mas cujo tipo as proibe. [] se nenhuma.
+
+    So a peca 7 (Presenteie) leva figura humana — e ela EXIGE duas. Em
+    qualquer outra, pessoa no plano vira ordem contraria a "NEVER add people"
+    que o proprio prompt carrega, e o gerador resolve contradicao desenhando
+    mais coisa, nao menos.
+    """
+    achadas = []
+    for it in itens or []:
+        if not isinstance(it, dict):
+            continue
+        oficial = tipo_canonico(it, tipos_selecionados)
+        if numero_do_tipo(oficial) == 7:
+            continue
+        texto = " ".join(str(it.get(c, "") or "")
+                         for c in ("composicao", "cena")).lower()
+        achou = _acha_radicais(texto, _PESSOAS_NA_CENA)
+        if achou:
+            achadas.append((oficial, ", ".join(achou[:3])))
+    return achadas
+
+
+def cenas_repetidas(itens, tipos_selecionados=None):
+    """Pares de pecas cuja cena descreve a mesma superficie. [] se nenhum.
+
+    Consistencia e mesma paleta, mesmo material e mesma luz — nao a mesma
+    mesa. Eram escrivaninha com caneta na 3, na 7 e na 8; depois madeira em
+    quatro das sete. Comparar por SUPERFICIE, e nao pela frase inteira, porque
+    a frase sempre muda um pouco e a mesa continua a mesma.
+    """
+    superficies = (
+        "madeira", "nogueira", "carvalho", "marmore", "mármore", "pedra",
+        "travertino", "linho", "algodao", "algodão", "tecido", "veludo",
+        "couro", "vidro", "concreto", "cimento", "papel", "ceramica",
+        "cerâmica", "metal", "escrivaninha", "mesa de jantar", "bancada",
+        "prateleira", "estante", "sofa", "sofá", "cama", "tapete",
+    )
+    por_peca = []
+    for it in itens or []:
+        if not isinstance(it, dict):
+            continue
+        cena = str(it.get("cena", "") or "").lower()
+        if not cena.strip():
+            continue
+        achadas = set(_acha_radicais(cena, superficies))
+        if achadas:
+            por_peca.append((tipo_canonico(it, tipos_selecionados), achadas))
+    pares = []
+    for i in range(len(por_peca)):
+        for j in range(i + 1, len(por_peca)):
+            comum = por_peca[i][1] & por_peca[j][1]
+            if comum:
+                pares.append((por_peca[i][0], por_peca[j][0],
+                              ", ".join(sorted(comum))))
+    return pares
+
+
 def _direcao_de_arte_da_sessao():
     """A direção de arte que a triagem decidiu para o produto aberto. {} se não há."""
     try:
@@ -5808,6 +5889,30 @@ def pagina_imagem(usuario_logado):
                 "Clique em **Analisar novamente** antes de confirmar."
             )
 
+        # ── O PLANO PEDE PESSOAS ONDE O TIPO AS PROIBE? ───────────────────────
+        _pessoas_erradas = pessoas_em_peca_errada(itens_viaveis, _tipos_cfg)
+        if _pessoas_erradas:
+            st.warning(
+                "👥 **Pessoas planejadas em peça que as proíbe.** Só a "
+                "*7 — Presenteie* leva figura humana; nas outras, pessoa no "
+                "plano vira ordem contrária à regra que o próprio prompt "
+                "carrega.\n\n"
+                + "\n".join(f"- **{_t}** — {_p}" for _t, _p in _pessoas_erradas)
+                + "\n\nCorrija no texto da peça ou clique em **Analisar "
+                "novamente**."
+            )
+
+        # ── DUAS PEÇAS NA MESMA SUPERFÍCIE? ───────────────────────────────────
+        _repetidas = cenas_repetidas(itens_viaveis, _tipos_cfg)
+        if _repetidas:
+            st.warning(
+                "🎬 **Cenas repetidas entre peças.** Consistência é mesma "
+                "paleta, mesmo material e mesma luz — não a mesma mesa. Oito "
+                "peças no mesmo cenário deixam o anúncio repetitivo.\n\n"
+                + "\n".join(f"- **{_a}** e **{_b}** — {_c}"
+                             for _a, _b, _c in _repetidas[:6])
+            )
+
         # ── Itens bloqueados (informação faltante) ────────────────────────────
         if itens_bloqueados:
             st.markdown("---")
@@ -7376,6 +7481,41 @@ if __name__ == "__main__":
     _alvo_corte = "imagens_bytes" + "[:" + "3]"
     ok("nenhum corte de fotos sobrou espalhado no codigo",
        open(__file__, encoding="utf-8").read().count(_alvo_corte) == 0)
+
+    # ── O PLANO E ESCRITO POR IA, E VOLTA DIFERENTE A CADA ANALISE ──────
+    #
+    # A rodada de 24/09 voltou limpa de seis defeitos que a anterior tinha.
+    # Eles nao foram corrigidos — nao apareceram. Montagem se confere uma vez;
+    # plano se confere SEMPRE, porque um modelo o reescreve a cada analise.
+    _plano_ruim = [
+        {"numero": 3, "tipo": "3 — Benefícios no cenário de uso",
+         "composicao": "as mãos do casal folheiam o álbum",
+         "cena": "mesa de madeira clara com fotos"},
+        {"numero": 7, "tipo": "7 — Presenteie",
+         "composicao": "entrega do presente",
+         "cena": "mesa de linho, duas pessoas"},
+        {"numero": 8, "tipo": "8 — Ambientação realista (sem texto)",
+         "composicao": "álbum na estante",
+         "cena": "prateleira de madeira escura"},
+        {"numero": 1, "tipo": "1 — Capa do anúncio (fundo branco)",
+         "composicao": "álbum de frente", "cena": "superfície branca pura"},
+    ]
+    _pess = pessoas_em_peca_errada(_plano_ruim, TIPOS_PADRAO)
+    ok("pessoa planejada na peca 3 e apontada",
+       any(numero_do_tipo(t) == 3 for t, _ in _pess))
+    ok("e a peca 7 NAO e apontada — ela exige duas pessoas",
+       not any(numero_do_tipo(t) == 7 for t, _ in _pess))
+    ok("capa sem pessoa passa limpa",
+       not any(numero_do_tipo(t) == 1 for t, _ in _pess))
+    _rep = cenas_repetidas(_plano_ruim, TIPOS_PADRAO)
+    ok("madeira na 3 e na 8 e apontada como cena repetida",
+       any("madeira" in c for _a, _b, c in _rep))
+    ok("cena sem superficie conhecida nao inventa par",
+       cenas_repetidas([{"numero": 1, "tipo": "1 — Capa do anúncio (fundo branco)",
+                         "cena": "composição centralizada"}], TIPOS_PADRAO) == [])
+    ok("plano vazio nao quebra nenhuma das duas",
+       pessoas_em_peca_errada([], TIPOS_PADRAO) == []
+       and cenas_repetidas(None, TIPOS_PADRAO) == [])
 
     # ── A DESCRICAO DE LAYOUT E TEXTO DE OUTRO MODELO ────────────────────
     #

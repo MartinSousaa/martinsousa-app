@@ -654,6 +654,57 @@ que afirmacao confiante e errada.
 
 
 --------------------------------------------------------------------------------
+PARTE 7B — "SUMIU" NAO E "FOI CORRIGIDO"
+--------------------------------------------------------------------------------
+
+Esta e a distincao mais importante deste arquivo para quem analisa mais de uma
+vez, e ela nasceu de uma analise real.
+
+Numa rodada, seis defeitos apareceram: a peca 3 pedindo "maos do casal" numa
+peca que proibe pessoas; sete das sete pecas falando em "costura" num album
+Wire-O; "ouro" listado como material do produto; a palavra inventada "sobas";
+a trava de cor mandando tres cores com fotos pretas; e madeira em quatro das
+sete cenas.
+
+Na rodada seguinte, com a variante certa e as referencias de ambientacao, os
+seis nao estavam la. **Isso nao significa que foram corrigidos.**
+
+O sistema tem duas partes, e elas se comportam de formas opostas:
+
+    A MONTAGEM DO PROMPT e feita por CODIGO.
+    Ela nao muda sozinha. Conferir uma vez basta. Defeito achado aqui e
+    corrigido no codigo e fica corrigido.
+
+    O PLANO — a copy, a composicao e a cena de cada peca — e escrito por um
+    MODELO, a cada analise.
+    Ele volta diferente toda vez. Um defeito que nao apareceu nesta rodada
+    pode aparecer na proxima, e um defeito novo pode nascer sem que nada tenha
+    mudado no codigo.
+
+Entao, ao reportar:
+
+  - defeito de MONTAGEM  ->  diga "defeito", e ele sera corrigido de vez;
+  - defeito de PLANO     ->  diga "defeito nesta rodada", e diga se e um dos
+                             que o sistema ja confere sozinho.
+
+E quando um defeito de plano desaparecer, escreva "nao apareceu nesta rodada",
+nunca "corrigido". A diferenca entre as duas frases e alguem confiar num
+conserto que nao existe.
+
+DOIS DELES O SISTEMA JA CONFERE SOZINHO, na tela do plano, antes de gastar:
+
+  - pessoa planejada em peca que proibe pessoas (so a 7 leva figura humana);
+  - duas pecas descrevendo a mesma superficie de cena.
+
+Se voce vir um desses e a tela NAO tiver avisado, isso e um defeito de
+montagem — e ai sim vale reportar como conserto definitivo.
+
+Os outros quatro dependem do produto e continuam sendo trabalho de olho
+humano: nome de acabamento que o produto nao tem, material inventado, palavra
+que nao existe, e cor pedida que briga com a foto.
+
+
+--------------------------------------------------------------------------------
 PARTE 8 — O QUE AINDA ESTA EM ABERTO
 --------------------------------------------------------------------------------
 
