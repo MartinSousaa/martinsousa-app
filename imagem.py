@@ -3679,22 +3679,36 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
         # dono e Wire-O, e a palavra aparecia em 0 dos 8 prompts — justo com a
         # peca 4 sendo o CLOSE da encadernacao. Ela ia ampliar uma montagem
         # que o texto nunca descreveu, e o gerador desenhava a que achasse.
-        if dados_descricao.get("material"):
+        # O CORTE PRECISA DE TEXTO, E A PLANILHA NEM SEMPRE MANDA TEXTO.
+        #
+        # `[:200]` num inteiro levanta TypeError, e a tela cai inteira. Uma
+        # celula de gramatura digitada como "300" volta do gspread como int —
+        # e o campo Material com "300" e realista. O mesmo valia para
+        # diferenciais, caracteristicas e uso, que ja faziam o corte direto
+        # antes desta linha existir: o defeito e antigo, so nunca tinha
+        # encostado num campo que fosse numero.
+        def _texto_do_campo(chave, limite):
+            valor = dados_descricao.get(chave)
+            if valor is None:
+                return ""
+            return str(valor).strip()[:limite]
+
+        if _texto_do_campo("material", 200):
             contexto_produto += (
                 f"Material e montagem (use exatamente isto, não deduza): "
-                f"{dados_descricao['material'][:200]}\n")
+                f"{_texto_do_campo('material', 200)}\n")
         # DUZENTOS CARACTERES CORTAVAM ESPECIFICACAO DE VERDADE.
         #
         # "60 folhas, encadernacao Wire-O preta, papel 300g, cantos
         # arredondados, capa dura revestida" ja passa disso. O corte existe
         # para o campo nao virar um texto inteiro no prompt; quatrocentos
         # cabem a especificacao e continuam sendo teto.
-        if dados_descricao.get("diferenciais"):
-            contexto_produto += f"Diferenciais principais: {dados_descricao['diferenciais'][:400]}\n"
-        if dados_descricao.get("caracteristicas"):
-            contexto_produto += f"Características: {dados_descricao['caracteristicas'][:400]}\n"
-        if dados_descricao.get("uso"):
-            contexto_produto += f"Uso principal: {dados_descricao['uso'][:100]}\n"
+        if _texto_do_campo("diferenciais", 400):
+            contexto_produto += f"Diferenciais principais: {_texto_do_campo('diferenciais', 400)}\n"
+        if _texto_do_campo("caracteristicas", 400):
+            contexto_produto += f"Características: {_texto_do_campo('caracteristicas', 400)}\n"
+        if _texto_do_campo("uso", 100):
+            contexto_produto += f"Uso principal: {_texto_do_campo('uso', 100)}\n"
 
     # IMPORTANTE: instrucoes_extras é CONTEXTO INTERNO para a IA, não conteúdo visual.
     # Para tipos padrão (1-8), é marcado como contexto — nunca renderizado na imagem.
@@ -7827,6 +7841,35 @@ if __name__ == "__main__":
     ok("plano vazio nao quebra nenhuma das duas",
        pessoas_em_peca_errada([], TIPOS_PADRAO) == []
        and cenas_repetidas(None, TIPOS_PADRAO) == [])
+
+    # ── O CAMPO MATERIAL, E O CORTE QUE EXIGIA TEXTO ────────────────────
+    #
+    # O album do dono e Wire-O, esta escrito na triagem, e a palavra aparecia
+    # em 0 dos 8 prompts — justo com a peca 4 sendo o close da encadernacao.
+    # O campo "Material" nao era escrito em lugar nenhum.
+    _p_mat = montar_prompt_imagem(
+        "4 — Close nos detalhes", "",
+        {"cor": "preto", "material": "Capa dura, encadernação Wire-O preta"},
+        "Álbum")
+    ok("o material do cadastro chega ao brief",
+       "Material e montagem" in _p_mat and "Wire-O" in _p_mat)
+    ok("e com a ordem de nao deduzir",
+       "use exatamente isto, não deduza" in _p_mat)
+
+    # E O CORTE PRECISA DE TEXTO. `[:200]` num inteiro levanta TypeError e
+    # derruba a tela: uma celula de gramatura digitada como "300" volta do
+    # gspread como int. O defeito era antigo — diferenciais, caracteristicas
+    # e uso ja cortavam direto — e so nunca tinha encostado num numero.
+    for _campo in ("material", "diferenciais", "caracteristicas", "uso"):
+        for _v in (None, "", 123, 3.5, ["a"], {"a": 1}):
+            try:
+                montar_prompt_imagem("4 — Close nos detalhes", "",
+                                     {"cor": "preto", _campo: _v}, "T")
+                _quebrou = False
+            except Exception:
+                _quebrou = True
+            ok(f"campo {_campo} com {type(_v).__name__} nao derruba a tela",
+               not _quebrou)
 
     # ── DUAS TRAVAS DE COR NO MESMO PROMPT ──────────────────────────────
     #
