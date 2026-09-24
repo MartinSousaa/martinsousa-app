@@ -153,6 +153,10 @@ REGRAS = [
     ("a proibição de inventar medidas",
      "PROIBIÇÃO ABSOLUTA DE INVENTAR DADOS TÉCNICOS", None, ()),
     ("as medidas exatas do produto", "Medidas EXATAS", None, ()),
+    # O MATERIAL DO CADASTRO, QUE MORRIA NO CADASTRO.
+    ("o material e a montagem", "Material e montagem", None, ()),
+    ("a montagem nomeada chega ao motor", "encadernação Wire-O", None, ()),
+    ("e com a ordem de não deduzir", "use exatamente isto, não deduza", None, ()),
 
     # O bloco de tamanho da capa — escrito depois do "Já falei MIL VEZES", e
     # cortado fora antes de chegar ao motor.
@@ -257,8 +261,16 @@ def _sem_streamlit():
         logging.getLogger(nome).setLevel(logging.ERROR)
 
 
+# O MATERIAL ENTRA COM UMA MONTAGEM NOMEADA, DE PROPOSITO.
+#
+# O campo "Material" do cadastro nao chegava a lugar nenhum: nem ao brief,
+# nem ao contexto que a analise le. O album do dono e Wire-O, e a palavra
+# aparecia em 0 dos 8 prompts — justo com a peca 4 sendo o CLOSE da
+# encadernacao. "encadernação Wire-O" aqui e a sentinela disso.
 _DADOS = {"nome_comercial": "Produto de Teste", "cor": "preto",
-          "medidas": "71x14x14", "peso": "350 g", "material": "Metal"}
+          "medidas": "71x14x14", "peso": "350 g",
+          "material": "Metal escovado, encadernação Wire-O preta",
+          "caracteristicas": "60 folhas, cantos arredondados"}
 _PLANO = {"composicao": "produto à esquerda, cartões à direita",
           "cena": "superfície de nogueira, caderno fechado, câmera em 3/4",
           "textos": ["Aquece rápido", "Cerâmica premium",

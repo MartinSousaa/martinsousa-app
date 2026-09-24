@@ -770,7 +770,9 @@ def gerar_triagem_ia(nome_produto, tipos_selecionados, dados_descricao, instruco
         contexto_descricao = f"""
 DADOS DA DESCRIÇÃO DO PRODUTO (vinculados pelo código):
 - Cor: {dados_descricao.get('cor', 'não informada')}
+- Material e montagem: {dados_descricao.get('material', 'não informado')}
 - Medidas: {dados_descricao.get('medidas', 'não informadas')}
+- Peso: {dados_descricao.get('peso', 'não informado')}
 - Categoria: {dados_descricao.get('categoria', 'não informada')}
 - Diferenciais: {dados_descricao.get('diferenciais', 'não informados')}
 - Características: {dados_descricao.get('caracteristicas', 'não informadas')}
@@ -786,8 +788,15 @@ DADOS DA DESCRIÇÃO DO PRODUTO (vinculados pelo código):
         if dados_descricao.get("peso"): dados_disponiveis.append(f"peso: {dados_descricao['peso']}")
         else: dados_faltantes.append("peso")
         if dados_descricao.get("cor"): dados_disponiveis.append(f"cor: {dados_descricao['cor']}")
-        if dados_descricao.get("material") or dados_descricao.get("caracteristicas"):
-            dados_disponiveis.append("material/características informados")
+        if dados_descricao.get("material"):
+            # DIZER "MATERIAL INFORMADO" NAO E INFORMAR O MATERIAL.
+            #
+            # Era isto que a analise recebia: a palavra "informados", sem o
+            # valor. Com o valor ela pode nomear a encadernacao Wire-O na
+            # peca de close em vez de inventar uma costura.
+            dados_disponiveis.append(f"material: {dados_descricao['material']}")
+        elif dados_descricao.get("caracteristicas"):
+            dados_disponiveis.append("características informadas")
         else: dados_faltantes.append("material")
     else:
         dados_faltantes = ["medidas", "peso", "material"]
@@ -3663,10 +3672,27 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
             contexto_produto += f"Medidas EXATAS (use esses números, não invente): {dados_descricao['medidas']}\n"
         if dados_descricao.get("peso"):
             contexto_produto += f"Peso EXATO (use esse número, não invente): {dados_descricao['peso']}\n"
+        # O MATERIAL NUNCA CHEGAVA — NEM AQUI, NEM NA TRIAGEM.
+        #
+        # O cadastro tem o campo "Material" e ele nao era escrito em lugar
+        # nenhum: nem no brief, nem no contexto que a analise le. O album do
+        # dono e Wire-O, e a palavra aparecia em 0 dos 8 prompts — justo com a
+        # peca 4 sendo o CLOSE da encadernacao. Ela ia ampliar uma montagem
+        # que o texto nunca descreveu, e o gerador desenhava a que achasse.
+        if dados_descricao.get("material"):
+            contexto_produto += (
+                f"Material e montagem (use exatamente isto, não deduza): "
+                f"{dados_descricao['material'][:200]}\n")
+        # DUZENTOS CARACTERES CORTAVAM ESPECIFICACAO DE VERDADE.
+        #
+        # "60 folhas, encadernacao Wire-O preta, papel 300g, cantos
+        # arredondados, capa dura revestida" ja passa disso. O corte existe
+        # para o campo nao virar um texto inteiro no prompt; quatrocentos
+        # cabem a especificacao e continuam sendo teto.
         if dados_descricao.get("diferenciais"):
-            contexto_produto += f"Diferenciais principais: {dados_descricao['diferenciais'][:200]}\n"
+            contexto_produto += f"Diferenciais principais: {dados_descricao['diferenciais'][:400]}\n"
         if dados_descricao.get("caracteristicas"):
-            contexto_produto += f"Características: {dados_descricao['caracteristicas'][:200]}\n"
+            contexto_produto += f"Características: {dados_descricao['caracteristicas'][:400]}\n"
         if dados_descricao.get("uso"):
             contexto_produto += f"Uso principal: {dados_descricao['uso'][:100]}\n"
 
