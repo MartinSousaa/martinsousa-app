@@ -2103,7 +2103,7 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None, ref_layout=None,
 
 def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
                     refs_layout_nomes=None, tipo="", diagnostico=None,
-                    _ja_repetiu_quadrada=False):
+                    _ja_repetiu_quadrada=False, so_montar=False):
     """Arquitetura de geração — fotos do produto vão diretamente ao modelo via Responses API.
 
     Fluxo:
@@ -2535,6 +2535,23 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
         )
     if diagnostico is not None:
         diagnostico["ref_layout"] = _ref_layout_nome or "nenhuma correspondeu ao tipo"
+        diagnostico["prompt"] = prompt_geracao
+
+    # ── PARAR AQUI, SEM GASTAR ────────────────────────────────────────────
+    #
+    # O prompt esta pronto e nenhum motor foi chamado ainda. `so_montar`
+    # devolve exatamente este texto — o que SERIA enviado — para a tela do
+    # plano mostrar antes de o dono confirmar.
+    #
+    # Tem de sair daqui, e nao de uma segunda montagem numa funcao de
+    # preview: duas montagens do mesmo prompt discordam, e a discordancia
+    # aparece tres semanas depois na tela de alguem. Ja aconteceu nesta base
+    # com a varredura, que conferia o prompt em portugues enquanto o motor
+    # recebia outro.
+    #
+    # A tupla continua sendo (imagem, erro); o texto viaja no diagnostico.
+    if so_montar:
+        return None, ""
 
     # 4. Tenta o motor primário da OpenAI
     img_bytes = None
@@ -3525,6 +3542,34 @@ def plano_do_tipo(tipo):
         if tipo_canonico(it) == alvo:
             return it
     return None
+
+
+def prompt_que_sera_enviado(prompt_texto, imagens_referencia, refs_layout=None,
+                            refs_layout_nomes=None, tipo=""):
+    """O texto EXATO que iria ao motor, sem chamar motor nenhum. ("" em erro.)
+
+    Existe para o plano de criacao poder mostrar o prompt antes de o dono
+    confirmar. O pedido dele foi direto: *"economiza dinheiro, fazendo testes
+    gerando imagens com prompt ainda errado"*.
+
+    Ele passa pelo MESMO caminho da geracao — `gerar_imagem_ia` com
+    `so_montar` — e nao por uma segunda montagem. Montar o prompt em dois
+    lugares e garantir que um dia os dois discordem, e ai o que a tela mostra
+    deixa de ser o que o motor recebe. Foi exatamente o que aconteceu com a
+    varredura desta base.
+
+    Custo: a leitura de visao do produto, que e CACHEADA por produto e que a
+    geracao pagaria de qualquer jeito. Nenhuma imagem e gerada.
+    """
+    diag = {}
+    try:
+        gerar_imagem_ia(prompt_texto, imagens_referencia,
+                        refs_layout=refs_layout,
+                        refs_layout_nomes=refs_layout_nomes,
+                        tipo=tipo, diagnostico=diag, so_montar=True)
+    except Exception as e:
+        return f"(não consegui montar o prompt: {type(e).__name__}: {e})"
+    return diag.get("prompt", "") or "(o prompt saiu vazio — isso é defeito)"
 
 
 def _direcao_de_arte_da_sessao():
@@ -5552,6 +5597,29 @@ def pagina_imagem(usuario_logado):
         # ("2 — Beneficios do produto"). Os dois divergiam e a tela escondia
         # a divergencia: so dava para descobrir olhando a imagem pronta.
         _tipos_cfg = cfg.get("tipos") or TIPOS_PADRAO
+
+        # ── O PROMPT DE CADA PECA, ANTES DE PAGAR POR ELA ─────────────────
+        #
+        # Pedido do dono: *"coloque para que o Studio carregue nessa aba de
+        # plano de criacao os prompts que ele enviara para a criacao de cada
+        # imagem. Dessa forma podemos fazer testes e verificar se esta correto
+        # ou nao. E isso economiza dinheiro, fazendo testes gerando imagens
+        # com prompt ainda errado."*
+        #
+        # Atras de um botao de proposito: montar os oito le a descricao de
+        # visao do produto, e o plano nao pode ficar lento para quem so quer
+        # conferir a copy.
+        _ver_prompts = st.session_state.get("img_ver_prompts", False)
+        _c_btn1, _c_btn2 = st.columns([3, 1])
+        if _c_btn1.button(
+                "🔍 Esconder os prompts" if _ver_prompts
+                else "🔍 Ver o prompt que será enviado em cada peça",
+                use_container_width=True, key="btn_ver_prompts"):
+            st.session_state["img_ver_prompts"] = not _ver_prompts
+            st.rerun()
+        if _ver_prompts:
+            _c_btn2.caption("não gera imagem · não gasta geração")
+
         for item in itens_viaveis:
             flags = item.get("flags", [])
             _oficial = tipo_canonico(item, _tipos_cfg)
@@ -5575,6 +5643,35 @@ def pagina_imagem(usuario_logado):
                 if flags:
                     with st.expander("Ver aviso", expanded=False):
                         st.warning(flags[0])
+
+                if _ver_prompts:
+                    with st.expander("🔍 Prompt que será enviado ao motor",
+                                     expanded=False):
+                        _pt_peca = montar_prompt_imagem(
+                            _oficial,
+                            cfg.get("instrucoes_extras", ""),
+                            cfg.get("dados_descricao"),
+                            cfg.get("nome_produto", ""),
+                            refs_layout_nomes=cfg.get("refs_layout_nomes", []),
+                            instrucao_layout=cfg.get("instrucao_layout", ""),
+                            plano_triagem=item,
+                            ambientacao=cfg.get("ambientacao", ""),
+                            direcao_arte=_dir_plano,
+                        )
+                        _en_peca = prompt_que_sera_enviado(
+                            _pt_peca,
+                            cfg.get("fotos_bytes") or [],
+                            refs_layout=cfg.get("refs_layout_bytes") or None,
+                            refs_layout_nomes=cfg.get("refs_layout_nomes", []),
+                            tipo=_oficial,
+                        )
+                        st.caption(
+                            f"{len(_en_peca)} caracteres · é este texto, exato, "
+                            "que vai ao gerador. Uma diferença na hora de gerar: "
+                            "quando houver referências de AMBIENTAÇÃO, o cenário "
+                            "lido delas é acrescentado no fim."
+                        )
+                        st.code(_en_peca, language=None)
 
         # ── O PLANO COBRE OS TIPOS PEDIDOS? ───────────────────────────────────
         #
@@ -6958,6 +7055,20 @@ if __name__ == "__main__":
     # voltar, ele volta escondendo o motor primario de novo.
     _soltos = []
     _dentro_da_falha = {id(_x) for _x in _ast_saida.walk(_falha_def)} if _falha_def else set()
+    # A SAIDA DE `so_montar` NAO E SAIDA DE ERRO, E POR ISSO E ISENTA — MAS
+    # NOMINALMENTE, E NAO AFROUXANDO A REGRA.
+    #
+    # Ela devolve (None, "") depois de montar o prompt e antes de chamar motor
+    # nenhum: e o caminho que a tela do plano usa para mostrar o texto sem
+    # gastar geracao. Isentar "qualquer return que volte None" abriria de novo
+    # a porta que esta conferencia fechou — os seis `return None, <erro>` que
+    # escondiam o motor primario. Entao a isencao e so a de dentro do
+    # `if so_montar:`.
+    for _if in _ast_saida.walk(_ger):
+        if (isinstance(_if, _ast_saida.If)
+                and isinstance(_if.test, _ast_saida.Name)
+                and _if.test.id == "so_montar"):
+            _dentro_da_falha |= {id(_x) for _x in _ast_saida.walk(_if)}
     for _n in _ast_saida.walk(_ger):
         if not isinstance(_n, _ast_saida.Return) or id(_n) in _dentro_da_falha:
             continue

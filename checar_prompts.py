@@ -307,19 +307,27 @@ def _prompts(tipo):
             ambientacao="mesa de jantar" if tipo == TIPO_AMBIENTE else "",
             direcao_arte=_DIRECAO)
         imagem.gerar_imagem_ia(pt, [_foto()], tipo=tipo)
+        # O PREVIEW, MONTADO AQUI DENTRO.
+        #
+        # Fora do bloco as trocas ja foram desfeitas: sem chave, sem visao, o
+        # preview cairia noutro caminho e a comparacao mediria o ambiente em
+        # vez do codigo. Foi o que a primeira versao desta conferencia fez —
+        # acusou 224 contra 17293 caracteres e a culpa era do teste.
+        capturado["preview"] = imagem.prompt_que_sera_enviado(
+            pt, [_foto()], tipo=tipo)
     finally:
         (imagem._chamar_openai_geracao,
          imagem._chamar_gemini_geracao_texto,
          imagem._descricao_do_produto_cacheada,
          imagem._get_openai_api_key) = originais
-    return pt, capturado.get("prompt", "")
+    return pt, capturado.get("prompt", ""), capturado.get("preview", "")
 
 
 def main():
-    briefs, enviados = {}, {}
+    briefs, enviados, previews = {}, {}, {}
     for t in TODOS:
         try:
-            briefs[t], enviados[t] = _prompts(t)
+            briefs[t], enviados[t], previews[t] = _prompts(t)
         except Exception as e:
             print(f"FALHA  nao consegui montar o prompt de '{t}': "
                   f"{type(e).__name__}: {e}")
@@ -444,6 +452,47 @@ def main():
             if _trecho not in _p_plano:
                 print(f"FALHA  {_desc} nao chega ao prompt da peca planejada")
                 falhas += 1
+
+    # ── 4D. O PREVIEW MOSTRA O MESMO TEXTO QUE O MOTOR RECEBE ──────────────
+    #
+    # A tela do plano mostra o prompt antes de gerar, para o dono conferir sem
+    # gastar. Isso so vale se o texto mostrado for o MESMO que sai. Montar o
+    # prompt em dois lugares e garantir que um dia os dois discordem — e ai a
+    # tela passa a mentir com confianca. Ja aconteceu nesta base: a varredura
+    # conferia o prompt em portugues enquanto o motor recebia outro.
+    #
+    # E o preview nao pode chamar motor: se chamar, "conferir de graca" custa
+    # uma geracao por peca.
+    for t in TODOS:
+        if previews[t] != enviados[t]:
+            print(f"FALHA  em '{t}' o prompt que a tela mostra NAO e o que o "
+                  f"motor recebe ({len(previews[t])} contra "
+                  f"{len(enviados[t])} caracteres)")
+            falhas += 1
+
+    # E o preview nao pode chamar motor: se chamar, "conferir de graca" custa
+    # uma geracao por peca.
+    _chamou = {"motor": False}
+
+    def _bomba(*a, **k):
+        _chamou["motor"] = True
+        return None, "o preview nao pode chamar motor"
+
+    _orig = (_img._chamar_openai_geracao, _img._chamar_gemini_geracao_texto,
+             _img._descricao_do_produto_cacheada, _img._get_openai_api_key)
+    _img._chamar_openai_geracao = _bomba
+    _img._chamar_gemini_geracao_texto = _bomba
+    _img._descricao_do_produto_cacheada = lambda *a, **k: ("d", "l")
+    _img._get_openai_api_key = lambda: "sk-varredura"
+    try:
+        _img.prompt_que_sera_enviado(briefs[TODOS[0]], [_foto()], tipo=TODOS[0])
+    finally:
+        (_img._chamar_openai_geracao, _img._chamar_gemini_geracao_texto,
+         _img._descricao_do_produto_cacheada, _img._get_openai_api_key) = _orig
+    if _chamou["motor"]:
+        print("FALHA  o preview do prompt chamou o motor — conferir custaria "
+              "uma geracao por peca")
+        falhas += 1
 
     # ── 5. TIPO QUE NAO APARECE EM REGRA NENHUMA PASSA LIVRE ───────────────
     _citados = set()
