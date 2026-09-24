@@ -880,6 +880,20 @@ O CAMPO "textos" É A COPY FINAL, PALAVRA POR PALAVRA — leia com atenção:
 - Para os tipos SEM texto (capa em fundo branco e ambientação), "textos" vem
   como lista vazia.
 
+PORTUGUÊS EM TODOS OS CAMPOS, E NÃO SÓ NA COPY:
+- "atmosfera", "luz", "composicao", "cena" e "trava_do_produto" também são
+  português do Brasil. Saíram "moments de intimidade", "sem harshness" e
+  "background desfocado" — em campos que ninguém estava conferindo.
+- Escreva "momentos", "sem dureza", "ao fundo". Nome de cor, de material e de
+  tipografia seguem a mesma regra.
+
+O CAMPO "trava_do_produto" CONSTATA, NUNCA DEDUZ:
+- Escreva o que as fotos MOSTRAM: material, acabamento, geometria, montagem.
+- NÃO escreva cor deduzida, nem "cor não informada", nem "provavelmente", nem
+  "harmoniza com". A cor do produto tem trava própria, montada pelo sistema a
+  partir do cadastro e das fotos — e ela PROÍBE deduzir cor para harmonizar.
+  Duas travas discordando na mesma mensagem é pior que uma só.
+
 O CAMPO "cena" — OITO CENAS, UM UNIVERSO SÓ
 --------------------------------------------
 Consistência NÃO é repetir o mesmo cenário. Oito imagens com a mesma mesa, os
@@ -939,8 +953,18 @@ Responda SOMENTE com JSON válido, sem texto antes ou depois:
 
     client = anthropic.Anthropic(api_key=api_key)
     try:
+        # SETE MINUTOS DE SPINNER SEM MENSAGEM NENHUMA.
+        #
+        # Aconteceu na analise de 24/09, com 14 imagens: a chamada ficou
+        # pendurada mais de sete minutos, sem plano e sem erro, e quem estava
+        # na tela teve de recarregar e refazer — gastando duas analises.
+        #
+        # Sem prazo, a espera e infinita, e o colaborador le "travou". Com
+        # prazo, ela vira erro em tres minutos, e o erro tem nome — que e o
+        # que o `except` abaixo transforma em plano de emergencia.
         msg = client.messages.create(
             model="claude-haiku-4-5",
+            timeout=180.0,
             max_tokens=6144,
             messages=[{"role": "user", "content": _idioma.com_regra(prompt)}]
         )
@@ -1428,6 +1452,77 @@ def _acha_radicais(texto, radicais):
         if _re_rad.search(r"\b" + _re_rad.escape(radical) + r"\w*", texto):
             achados.add(radical)
     return sorted(achados)
+
+
+# ── DUAS TRAVAS DE COR NO MESMO PROMPT, DE FONTES DIFERENTES ────────────────
+#
+# A analise escreveu, no campo `trava_do_produto`:
+#
+#     "peso 700g — cor nao informada, mas deducao visual e tom neutro/escuro
+#      que harmoniza com universo de repouso visual"
+#
+# E no MESMO prompt, `_trava_cor_produto` escreve:
+#
+#     "a cor do produto e a que aparece nas fotos. Reproduza-a exatamente,
+#      seja ela qual for. E PROIBIDO recolorir o produto para harmonizar com
+#      a direcao de arte"
+#
+# A analise fez exatamente o que a outra trava proibe: DEDUZIU cor para
+# harmonizar. E as cinco fotos eram inequivocamente pretas — nao era "cor nao
+# informada", era cor nao DIGITADA no cadastro.
+#
+# A regra da casa e uma fonte por regra. A cor do produto tem dona:
+# `_trava_cor_produto`, que sai do cadastro e das fotos. O campo da analise
+# descreve material, acabamento e geometria — nunca cor deduzida.
+#
+# O corte e por FRASE, e nao o campo inteiro: "Album quadrado 30x30 com capa
+# dura fosca" e informacao boa, e jogar fora junto com a deducao seria trocar
+# um defeito por outro.
+_DEDUCAO_NA_TRAVA = (
+    "deducao", "dedução", "deduzid", "deduzo", "nao informada", "não informada",
+    "nao informado", "não informado", "harmoniza", "harmonizar", "presumo",
+    "presumivel", "presumível", "provavelmente", "suponho", "imagino",
+    "aparenta ser", "parece ser", "estimad",
+)
+
+
+def limpar_trava_do_produto(texto):
+    """A trava da analise, sem as frases que DEDUZEM em vez de constatar.
+
+    Devolve ("", motivo) quando nao sobra frase nenhuma.
+    """
+    bruto = str(texto or "").strip()
+    if not bruto:
+        return "", ""
+    import re as _re_tv
+    # CORTAR SO NO PONTO NAO BASTA — a deducao vem colada por travessao.
+    #
+    # O caso real: "Album quadrado 30x30 com capa dura fosca, folhas pretas
+    # internas, peso 700g — cor nao informada, mas deducao visual e tom
+    # neutro/escuro". Uma frase so, pelo ponto: cortando so no ponto, ou some
+    # tudo (inclusive a informacao boa) ou nao some nada. A primeira versao
+    # disto apagou a trava inteira, e o teste pegou.
+    #
+    # Entao o corte tambem e no travessao e no ", mas " — que e onde a
+    # constatacao acaba e a especulacao comeca.
+    frases = [f.strip(" ,;")
+              for f in _re_tv.split(r"(?<=[.;])\s+|\s+—\s+|,\s+mas\s+", bruto)
+              if f and f.strip(" ,;")]
+    ficam, saem = [], []
+    for f in frases:
+        if _acha_radicais(f.lower(), _DEDUCAO_NA_TRAVA):
+            saem.append(f)
+        else:
+            ficam.append(f)
+    if not saem:
+        return bruto, ""
+    motivo = "frase(s) de dedução removida(s): " + " | ".join(s[:90] for s in saem[:3])
+    try:
+        import log_imagem
+        log_imagem.registrar("trava_deduzida", "", resultado=motivo[:400])
+    except Exception:
+        pass
+    return " ".join(ficam).strip(), motivo
 
 
 def motivos_para_descartar_layout(texto):
@@ -3370,8 +3465,10 @@ def bloco_direcao_de_arte(direcao):
             "Risco de reflexo " + str(d["risco_de_reflexo"]).strip().upper() +
             ": nada de superfície grande e saturada perto do produto — o "
             "reflexo do ambiente muda a cor percebida dele.")
-    if d.get("trava_do_produto"):
-        linhas.append(f"\nTRAVA DO PRODUTO: {d['trava_do_produto']}")
+    _trava_limpa, _ = limpar_trava_do_produto(d.get("trava_do_produto"))
+    if _trava_limpa:
+        linhas.append(f"\nTRAVA DO PRODUTO (material, acabamento e geometria — "
+                      f"a COR tem trava própria, acima): {_trava_limpa}")
 
     linhas.append(
         "\nCOMO ESTA DIREÇÃO SE APLICA:\n"
@@ -5772,7 +5869,17 @@ def pagina_imagem(usuario_logado):
                 st.stop()
 
             try:
-                with st.spinner("Analisando produto e montando o plano de criação..."):
+                # A ESPERA TEM DE DIZER QUANTO E O QUE, SENAO E "TRAVOU".
+                #
+                # O spinner dizia so "Analisando produto...". Numa analise que
+                # passou de sete minutos, quem olhava nao tinha como saber se
+                # estava andando, quanto faltava, ou se ja tinha morrido.
+                _n_fotos = len(fotos_bytes or [])
+                with st.spinner(
+                    f"Analisando {_n_fotos} foto(s) e montando o plano das "
+                    f"{len(tipos_selecionados)} peças… costuma levar de 20 a 60 "
+                    "segundos, e o limite é 3 minutos. Não feche a aba."
+                ):
                     plano, erro_triagem = gerar_triagem_ia(
                         nome_produto, tipos_selecionados, dados_descricao,
                         instrucoes_extras, fotos_bytes,
@@ -7660,6 +7767,32 @@ if __name__ == "__main__":
     ok("plano vazio nao quebra nenhuma das duas",
        pessoas_em_peca_errada([], TIPOS_PADRAO) == []
        and cenas_repetidas(None, TIPOS_PADRAO) == [])
+
+    # ── DUAS TRAVAS DE COR NO MESMO PROMPT ──────────────────────────────
+    #
+    # A analise escreveu "cor nao informada, mas deducao visual e tom
+    # neutro/escuro que harmoniza com universo de repouso visual" no mesmo
+    # prompt em que a trava de cor diz "e PROIBIDO recolorir o produto para
+    # harmonizar". Ela fez o que a outra trava proibe — e as cinco fotos eram
+    # pretas: nao era cor nao informada, era cor nao DIGITADA no cadastro.
+    _trava_suja = ("Álbum quadrado 30x30 com capa dura fosca, folhas pretas "
+                   "internas, peso 700g — cor não informada, mas dedução "
+                   "visual é tom neutro/escuro que harmoniza com o universo")
+    _limpa, _motivo = limpar_trava_do_produto(_trava_suja)
+    ok("a frase que deduz cor sai da trava",
+       "dedução" not in _limpa and "harmoniza" not in _limpa)
+    ok("mas o que a foto MOSTRA fica",
+       "capa dura fosca" in _limpa and "folhas pretas" in _limpa)
+    ok("e o motivo e registrado, nao engolido", bool(_motivo))
+    # CORTAR DEMAIS TAMBEM E DEFEITO: a primeira versao apagou a trava inteira
+    # porque a deducao vinha colada por travessao, e o teste pegou.
+    ok("trava que so constata passa inteira",
+       limpar_trava_do_produto(
+           "Resina dourada escura com acabamento acetinado. Nunca rosé."
+       )[0].startswith("Resina dourada"))
+    ok("trava vazia nao quebra",
+       limpar_trava_do_produto(None) == ("", "")
+       and limpar_trava_do_produto("") == ("", ""))
 
     # ── A DESCRICAO DE LAYOUT E TEXTO DE OUTRO MODELO ────────────────────
     #
