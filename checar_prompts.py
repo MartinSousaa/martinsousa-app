@@ -175,6 +175,22 @@ REGRAS = [
      "NEVER add people", TIPOS_COM_TEXTO[:5] + (TIPO_CAPA, TIPO_AMBIENTE),
      ("7 — Presenteie",)),
 
+    # A DIRECAO DE ARTE DECIDIDA UMA VEZ, HERDADA PELAS OITO.
+    #
+    # `PADRAO_VISUAL` mandava, nos OITO prompts, "escolha a paleta, a
+    # iluminacao, o cenario e os materiais". Oito pecas decidindo a estetica
+    # sozinhas — o dono chamou pelo nome: "6 direcoes de arte diferentes".
+    ("a direção de arte herdada", "JÁ DECIDIDA, NÃO SE DECIDE DE NOVO", None, ()),
+    ("a paleta-mãe", "PALETA-MÃE", None, ()),
+    ("a trava do produto na direção", "TRAVA DO PRODUTO", None, ()),
+    ("o risco de reflexo", "Risco de reflexo", None, ()),
+    ("as cenas diferentes entre as peças", "Cena desta peça",
+     TIPOS_COM_TEXTO, ()),
+    # E A ORDEM CONTRARIA NAO PODE SOBREVIVER AO LADO DELA.
+    ("a ordem de deduzir a paleta", "escolha a paleta", (), TODOS),
+    ("a frase de desempate", "The product NEVER adapts to the environment",
+     None, ()),
+
     ("o marcador de modo de fundo", "MS_FUNDO:", (), TODOS),
 ]
 
@@ -217,8 +233,30 @@ def _sem_streamlit():
 _DADOS = {"nome_comercial": "Produto de Teste", "cor": "preto",
           "medidas": "71x14x14", "peso": "350 g", "material": "Metal"}
 _PLANO = {"composicao": "produto à esquerda, cartões à direita",
+          "cena": "superfície de nogueira, caderno fechado, câmera em 3/4",
           "textos": ["Aquece rápido", "Cerâmica premium",
                      "Alça confortável", "Presente perfeito"]}
+
+# A DIRECAO DE ARTE DECIDIDA UMA VEZ, PARA AS OITO.
+_DIRECAO = {
+    "nome": "Executivo Quente Contemporâneo",
+    "posicionamento": "premium contemporâneo",
+    "atmosfera": "escritório sofisticado, quente e contido",
+    "paleta": {
+        "fundo":  {"nome": "Marfim Quente", "hex": "#F2EEE6"},
+        "painel": {"nome": "Pedra Quente", "hex": "#D5C9B8"},
+        "titulo": {"nome": "Grafite Espresso", "hex": "#292520"},
+        "apoio":  {"nome": "Nogueira", "hex": "#695445"},
+        "acento": {"nome": "Dourado Envelhecido", "hex": "#B18A4A"},
+    },
+    "materiais": ["nogueira escura", "travertino claro", "couro marrom"],
+    "luz": "quente-neutra, lateral suave, contraste médio",
+    "saturacao": "BAIXA",
+    "props_preferidos": ["caneta", "caderno fechado"],
+    "props_proibidos": ["planta grande", "papelaria colorida"],
+    "risco_de_reflexo": "MEDIO",
+    "trava_do_produto": "cerâmica azul cobalto, acabamento fosco",
+}
 
 
 def _foto():
@@ -266,7 +304,8 @@ def _prompts(tipo):
         pt = imagem.montar_prompt_imagem(
             tipo, "quero o produto virado para a direita" if tipo == TIPO_LIVRE else "",
             _DADOS, "Produto de Teste", plano_triagem=plano,
-            ambientacao="mesa de jantar" if tipo == TIPO_AMBIENTE else "")
+            ambientacao="mesa de jantar" if tipo == TIPO_AMBIENTE else "",
+            direcao_arte=_DIRECAO)
         imagem.gerar_imagem_ia(pt, [_foto()], tipo=tipo)
     finally:
         (imagem._chamar_openai_geracao,

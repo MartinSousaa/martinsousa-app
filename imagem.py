@@ -91,15 +91,7 @@ IDENTIDADE FIXA (igual em todo produto, é ela que diz "mesma loja"):
 - Texto sempre em português do Brasil, sem erro de ortografia, sem caixa alta excessiva.
 - Fotografia: produto nítido e protagonista, luz profissional, integração realista.
 
-DIREÇÃO DE ARTE ADAPTATIVA (muda a cada produto):
-- NÃO existe cor de fundo obrigatória. Analise o produto — cor, material,
-  categoria, ocasião de uso e público provável — e escolha a paleta, a
-  iluminação, o cenário e os materiais que melhor valorizem ESTE produto.
-- As cores dos elementos gráficos saem da direção de arte escolhida para esta
-  peça, com contraste suficiente para legibilidade.
-- Produtos diferentes podem ter paletas completamente diferentes. Produto claro
-  e delicado pede cena clara e suave; produto preto e premium pede cena escura
-  e dramática; produto colorido pede fundo neutro com acentos nas cores dele.
+{direcao}
 - O PRODUTO NUNCA É RECOLORIDO para combinar com a direção de arte. A paleta
   vale para fundo, texto e elementos gráficos — jamais para o produto.
 - Quando houver imagem de referência de layout, copie a ESTRUTURA: hierarquia,
@@ -119,6 +111,33 @@ CENÁRIO REAL EM TODAS AS PEÇAS — NÃO APENAS NA 3 E NA 8:
 - Se a peça exigir área limpa para informação técnica, use uma faixa ou cartão
   sólido SOBRE a cena — e não a cena inteira trocada por fundo liso.
 """
+
+# O QUE ENTRA NO BURACO `{direcao}` DO PADRAO VISUAL.
+#
+# Sem direcao herdada, vale o texto de sempre: a peca deduz. Com direcao
+# herdada, a peca NAO deduz — e a diferenca precisa estar escrita, senao o
+# prompt manda decidir e entrega a decisao pronta na mesma mensagem.
+DIRECAO_A_DEDUZIR = """DIREÇÃO DE ARTE ADAPTATIVA (muda a cada produto):
+- NÃO existe cor de fundo obrigatória. Analise o produto — cor, material,
+  categoria, ocasião de uso e público provável — e escolha a paleta, a
+  iluminação, o cenário e os materiais que melhor valorizem ESTE produto.
+- As cores dos elementos gráficos saem da direção de arte escolhida para esta
+  peça, com contraste suficiente para legibilidade.
+- Produtos diferentes podem ter paletas completamente diferentes. Produto claro
+  e delicado pede cena clara e suave; produto preto e premium pede cena escura
+  e dramática; produto colorido pede fundo neutro com acentos nas cores dele."""
+
+DIRECAO_JA_DECIDIDA = """DIREÇÃO DE ARTE: JÁ DECIDIDA PARA ESTE PRODUTO.
+- Ela está escrita no bloco DIREÇÃO DE ARTE DESTE PRODUTO, acima. NÃO escolha
+  paleta, material, luz ou cenário: herde os de lá.
+- Esta peça é uma das oito do mesmo catálogo, e as oito herdam a mesma."""
+
+
+def padrao_visual(direcao=None):
+    """O padrão visual da loja, com ou sem direção de arte herdada."""
+    return PADRAO_VISUAL.format(
+        direcao=(DIRECAO_JA_DECIDIDA if direcao else DIRECAO_A_DEDUZIR))
+
 
 # ── O PRODUTO É O DESTAQUE, E ISSO VIRA NÚMERO ──────────────────────────────
 #
@@ -675,7 +694,45 @@ FOTOS ENVIADAS: {len(fotos_bytes)} foto(s) de referência
 TIPOS A CRIAR:
 {tipos_str}
 
-TAREFA: Para cada tipo, analise se é VIÁVEL gerar com as informações e fotos disponíveis.
+TAREFA: duas coisas, nesta ordem.
+
+PRIMEIRO — A DIREÇÃO DE ARTE DO PRODUTO, DECIDIDA UMA VEZ SÓ
+-------------------------------------------------------------
+Antes de planejar qualquer imagem, olhe as fotos e decida o universo visual
+DESTE produto. Essa decisão vale para as 8 peças e não se repete: cada peça
+vai HERDAR o que você decidir aqui, não decidir de novo.
+
+Como decidir, em ordem de peso:
+1. Cor real e distribuição de cor do produto (30%) — dominante, secundárias,
+   detalhes de contraste, temperatura.
+2. Material e acabamento (20%) — fosco, acetinado, brilhante, metálico,
+   translúcido, texturizado, natural, sintético. O cenário complementa o
+   material.
+3. Posicionamento (20%) — premium, elegante, técnico, divertido, delicado,
+   romântico, industrial, minimalista, contemporâneo, rústico, prático.
+4. Ambiente natural de uso (15%) — deduzido do produto, nunca de uma lista
+   pronta de cômodos.
+5. Ocasião e público (10%) — uso pessoal, profissional, decoração,
+   organização, presente, celebração.
+6. Legibilidade gráfica (5%) — contraste para título, cota, ícone e callout.
+
+O AMBIENTE SE ADAPTA AO PRODUTO, NUNCA O CONTRÁRIO. A paleta manda em fundo,
+superfície, props, painel, tipografia e ícone — e em nada do produto. Nunca
+escolha uma direção que exija repintar o produto.
+
+SEPARAÇÃO, NÃO COMBINAÇÃO. Não derive o fundo da cor do produto: produto
+escuro pede entorno mais claro ou contraste controlado; produto claro pede
+separação média ou mais escura; produto muito colorido pede entorno neutro.
+Fundo parecido demais com o produto mata a separação, que é o contrário de
+valorizar.
+
+REFLEXO. Se o produto é brilhante, metálico, espelhado ou transparente,
+evite superfície grande e saturada perto dele: o reflexo do ambiente muda a
+cor percebida do produto. Classifique o risco em BAIXO, MEDIO ou ALTO.
+
+SEGUNDO — O PLANO DAS 8, COM CENAS DIFERENTES
+----------------------------------------------
+Para cada tipo, analise se é VIÁVEL gerar com as informações e fotos disponíveis.
 
 REGRAS DE VIABILIDADE — CRÍTICO:
 1. "Características técnicas (medidas/peso/material)" → SOMENTE viável se medidas E peso estiverem nos dados disponíveis acima. Se qualquer um faltar, marque viavel: false e peça os dados exatos.
@@ -706,13 +763,53 @@ O CAMPO "textos" É A COPY FINAL, PALAVRA POR PALAVRA — leia com atenção:
 - Para os tipos SEM texto (capa em fundo branco e ambientação), "textos" vem
   como lista vazia.
 
+O CAMPO "cena" — OITO CENAS, UM UNIVERSO SÓ
+--------------------------------------------
+Consistência NÃO é repetir o mesmo cenário. Oito imagens com a mesma mesa, os
+mesmos props e o mesmo ângulo estão tecnicamente consistentes e o anúncio
+fica repetitivo — foi o que aconteceu: escrivaninha com caneta na 3, na 7 e
+na 8.
+
+Pense como fotógrafo de produto planejando o catálogo inteiro de uma vez.
+Mantenha igual em todas: família de cor, vocabulário de materiais, caráter da
+luz, nível de acabamento, posicionamento. Varie de propósito em cada uma:
+superfície, arquitetura do fundo, ângulo de câmera, recorte, profundidade,
+escolha e arranjo de props, espaço negativo.
+
+Escreva em "cena" UMA frase curta com a superfície, os props e o ângulo DESTA
+peça — e confira que nenhuma outra das oito repete a mesma combinação. Não
+reutilize o mesmo prop decorativo em duas peças sem motivo forte.
+
+Capa (fundo branco) e Características técnicas são as exceções: nelas "cena"
+descreve só a superfície e a sombra, sem props.
+
 Responda SOMENTE com JSON válido, sem texto antes ou depois:
 {{
+  "direcao_de_arte": {{
+    "nome": "nome curto da direção, ex: Executivo Quente Contemporâneo",
+    "posicionamento": "premium / delicado / técnico / divertido / ...",
+    "atmosfera": "uma frase sobre o universo visual deste produto",
+    "paleta": {{
+      "fundo":   {{"nome": "Marfim Quente", "hex": "#F2EEE6"}},
+      "painel":  {{"nome": "Pedra Quente", "hex": "#D5C9B8"}},
+      "titulo":  {{"nome": "Grafite Espresso", "hex": "#292520"}},
+      "apoio":   {{"nome": "Nogueira", "hex": "#695445"}},
+      "acento":  {{"nome": "Dourado Envelhecido", "hex": "#B18A4A"}}
+    }},
+    "materiais": ["3 a 5 materiais de cenário deste universo"],
+    "luz": "temperatura, qualidade e contraste numa frase",
+    "saturacao": "MUITO BAIXA / BAIXA / MEDIA / ALTA",
+    "props_preferidos": ["props que reforçam uso, escala ou posicionamento"],
+    "props_proibidos": ["props que competem com o produto ou parecem acompanhar"],
+    "risco_de_reflexo": "BAIXO / MEDIO / ALTO",
+    "trava_do_produto": "uma frase com o que JAMAIS muda: cor, material e acabamento reais"
+  }},
   "plano": [
     {{
       "tipo": "nome do tipo",
       "numero": 1,
       "composicao": "1-2 frases curtas descrevendo a imagem (só se viavel: true)",
+      "cena": "superfície, props e ângulo desta peça — diferente das outras sete",
       "textos": ["TÍTULO CURTO: frase pronta em português", "OUTRO TÍTULO: outra frase pronta"],
       "flags": [],
       "viavel": true,
@@ -727,7 +824,7 @@ Responda SOMENTE com JSON válido, sem texto antes ou depois:
     try:
         msg = client.messages.create(
             model="claude-haiku-4-5",
-            max_tokens=2048,
+            max_tokens=6144,
             messages=[{"role": "user", "content": _idioma.com_regra(prompt)}]
         )
         texto = msg.content[0].text.strip()
@@ -776,6 +873,7 @@ Responda SOMENTE com JSON válido, sem texto antes ou depois:
                     "tipo": t,
                     "numero": i + 1,
                     "composicao": PRESETS.get(t, ""),
+                    "cena": "",
                     "textos": [],
                     "flags": [],
                     "viavel": True,
@@ -2373,7 +2471,14 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
         )
         +
         f"- All text visible in the image must be in Brazilian Portuguese\n"
-        f"- Generate a completely new professional image — not a literal copy of any reference photo"
+        f"- Generate a completely new professional image — not a literal copy of any reference photo\n\n"
+        f"━━━ THE TIE-BREAKER ━━━\n"
+        f"The environment adapts to the product. The product NEVER adapts to the "
+        f"environment.\n"
+        f"The real product photographs have higher priority than the palette, the art "
+        f"direction, the lighting, the styling and the scene.\n"
+        f"If any instruction in this message conflicts with the real product reference, "
+        f"IGNORE that instruction and preserve the product exactly as photographed."
     )
 
     # Ajuste fino manda sobre o prompt de criacao: aqui a imagem ja existe e o
@@ -2917,6 +3022,101 @@ def tipo_canonico(item, tipos_selecionados=None):
     return rotulo
 
 
+# ── A DIRECAO DE ARTE, DECIDIDA UMA VEZ E HERDADA PELAS OITO ───────────────
+#
+# O DEFEITO QUE ISTO FECHA
+# ------------------------
+# `PADRAO_VISUAL` dizia, nos OITO prompts: "NÃO existe cor de fundo
+# obrigatória. Analise o produto ... e escolha a paleta, a iluminação, o
+# cenário e os materiais". Oito pecas recebendo, cada uma, a ordem de decidir
+# a estetica sozinha. O dono viu o resultado e chamou pelo nome: "6 direcoes
+# de arte diferentes" no mesmo anuncio.
+#
+# Nao era desobediencia do gerador. Era o que o prompt pedia.
+#
+# A decisao agora acontece UMA vez, na triagem — que ja e uma chamada com as
+# fotos, antes das oito, e por isso isto nao custa chamada nenhuma. As pecas
+# HERDAM.
+def bloco_direcao_de_arte(direcao):
+    """O universo visual do produto, em texto, para entrar no brief.
+
+    "" quando nao ha direcao — plano antigo, triagem que falhou, geracao
+    avulsa. Nesses casos o `PADRAO_VISUAL` de sempre continua valendo: sem
+    direcao herdada, mandar a peca decidir e o comportamento menos ruim.
+    """
+    d = direcao if isinstance(direcao, dict) else {}
+    if not d:
+        return ""
+    _p = d.get("paleta") if isinstance(d.get("paleta"), dict) else {}
+
+    def _cor(chave, rotulo, onde):
+        c = _p.get(chave) if isinstance(_p.get(chave), dict) else {}
+        nome = str(c.get("nome", "") or "").strip()
+        hexa = str(c.get("hex", "") or "").strip()
+        if not nome and not hexa:
+            return ""
+        medida = f"{nome} ({hexa})" if nome and hexa else (nome or hexa)
+        return f"- {rotulo}: {medida} — {onde}\n"
+
+    def _lista(chave):
+        v = d.get(chave)
+        return ", ".join(str(x).strip() for x in v if str(x).strip()) if isinstance(v, list) else ""
+
+    linhas = ["\nDIREÇÃO DE ARTE DESTE PRODUTO — JÁ DECIDIDA, NÃO SE DECIDE DE NOVO:"]
+    if d.get("nome"):
+        linhas.append(f"Direção: {d['nome']}")
+    if d.get("posicionamento"):
+        linhas.append(f"Posicionamento: {d['posicionamento']}")
+    if d.get("atmosfera"):
+        linhas.append(f"Atmosfera: {d['atmosfera']}")
+
+    paleta = ("".join([
+        _cor("fundo",  "FUNDO",  "fundo e superfícies do ambiente"),
+        _cor("painel", "PAINEL", "cartões, faixas e áreas secundárias"),
+        _cor("titulo", "TÍTULO", "tipografia principal"),
+        _cor("apoio",  "APOIO",  "texto secundário, linhas e ícones"),
+        _cor("acento", "ACENTO", "ênfase pontual, selo, detalhe — com parcimônia"),
+    ]))
+    if paleta:
+        linhas.append("\nPALETA-MÃE (o hex é âncora visual, não ordem de pintar o produto):")
+        linhas.append(paleta.rstrip("\n"))
+
+    if _lista("materiais"):
+        linhas.append(f"\nMateriais do cenário: {_lista('materiais')}")
+    if d.get("luz"):
+        linhas.append(f"Luz: {d['luz']}")
+    if d.get("saturacao"):
+        linhas.append(f"Saturação: {d['saturacao']}")
+    if _lista("props_preferidos"):
+        linhas.append(f"Props permitidos: {_lista('props_preferidos')}")
+    if _lista("props_proibidos"):
+        linhas.append(f"Props PROIBIDOS: {_lista('props_proibidos')}")
+    if str(d.get("risco_de_reflexo", "")).strip().upper() in ("MEDIO", "MÉDIO", "ALTO"):
+        linhas.append(
+            "Risco de reflexo " + str(d["risco_de_reflexo"]).strip().upper() +
+            ": nada de superfície grande e saturada perto do produto — o "
+            "reflexo do ambiente muda a cor percebida dele.")
+    if d.get("trava_do_produto"):
+        linhas.append(f"\nTRAVA DO PRODUTO: {d['trava_do_produto']}")
+
+    linhas.append(
+        "\nCOMO ESTA DIREÇÃO SE APLICA:\n"
+        "- Ela vale para fundo, superfície, cenário, props, painel, tipografia,\n"
+        "  ícone e elemento gráfico. NÃO vale para o produto.\n"
+        "- O AMBIENTE SE ADAPTA AO PRODUTO, NUNCA O CONTRÁRIO. As fotos do\n"
+        "  produto têm prioridade maior que a paleta, a luz e o cenário: se\n"
+        "  qualquer instrução conflitar com o que está na foto, IGNORE a\n"
+        "  instrução e preserve o produto.\n"
+        "- Esta peça é UMA das oito do mesmo catálogo. Ela não escolhe paleta\n"
+        "  nova, material novo nem outra família de luz.\n"
+        "- Consistência NÃO é repetir o cenário. A cena desta peça é a que\n"
+        "  está escrita no plano, e ela é diferente das outras sete de\n"
+        "  propósito: mesma campanha, cenas diferentes.\n"
+        "- Cor incidental do mundo real pode aparecer onde for fisicamente\n"
+        "  inevitável; cor dominante fora da paleta, não.")
+    return "\n".join(linhas) + "\n"
+
+
 def _chave_tipo(tipo):
     """O rótulo do tipo sem o número, sem acento e sem caixa.
 
@@ -2993,7 +3193,7 @@ def preset_do_tipo(tipo):
 
 def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
                          refs_layout_nomes=None, instrucao_layout="",
-                         plano_triagem=None, ambientacao=""):
+                         plano_triagem=None, ambientacao="", direcao_arte=None):
     """Monta o prompt completo para geração.
 
     Para os tipos padrão (1-7): aplica PADRAO_VISUAL + INSTRUCAO_COMPOSICAO
@@ -3012,6 +3212,7 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
     _blocos_da_copy = 0
     if plano_triagem and not (tipo == "Personalizado (descrevo o que quero)"):
         _composicao = plano_triagem.get("composicao", "").strip()
+        plano_triagem_item_cena = plano_triagem.get("cena", "")
         _textos = [t for t in plano_triagem.get("textos", []) if t and str(t).strip()]
         # O TETO DA PECA CORTA A COPY AQUI, E NAO NO GERADOR.
         #
@@ -3028,6 +3229,15 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
             bloco_plano_triagem = "\nPLANO DE CRIAÇÃO (definido pela análise do produto — siga este planejamento):\n"
             if _composicao:
                 bloco_plano_triagem += f"Composição: {_composicao}\n"
+            # A CENA DESTA PECA, QUE E DIFERENTE DAS OUTRAS SETE DE PROPOSITO.
+            #
+            # Sem isto, "consistencia" virava "mesmo cenario": escrivaninha
+            # com caneta na 3, na 7 e na 8. A triagem planeja as oito de uma
+            # vez e por isso consegue variar superficie, props e angulo sem
+            # sair do universo.
+            _cena = str(plano_triagem_item_cena or "").strip()
+            if _cena:
+                bloco_plano_triagem += f"Cena desta peça: {_cena}\n"
             if _textos:
                 # "Textos a incluir" era uma SUGESTAO, e o gerador a tratava
                 # como tal: reescrevia a frase com as proprias palavras e
@@ -3109,6 +3319,12 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
     _layout_marketing = INSTRUCAO_LAYOUT_MARKETING.format(
         blocos=blocos_em_portugues(tipo, _blocos_da_copy)
     )
+    # A direcao de arte vem decidida da triagem e e HERDADA por esta peca. Sem
+    # ela — plano antigo, triagem que falhou, geracao avulsa — o bloco sai
+    # vazio e o padrao visual volta a mandar a peca deduzir, que e o
+    # comportamento de antes e o menos ruim dos dois.
+    _bloco_direcao = bloco_direcao_de_arte(direcao_arte)
+    _padrao_visual = padrao_visual(direcao_arte)
 
     _modo = modo_fundo_do_tipo(tipo)
     eh_personalizado = _modo == "personalizado"
@@ -3123,6 +3339,7 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
 TIPO DE IMAGEM: Personalizado
 {bloco_instrucao_visual}
 {bloco_refs}
+{_bloco_direcao}
 
 {INSTRUCAO_PERSONALIZADO}
 {INSTRUCAO_FIDELIDADE}
@@ -3145,6 +3362,7 @@ TIPO DE IMAGEM: {tipo}
 {bloco_plano_triagem}
 {bloco_contexto_interno}{bloco_ambientacao}
 {bloco_refs}
+{_bloco_direcao}
 
 {PADRAO_VISUAL_FUNDO_BRANCO}
 {_protagonismo}
@@ -3211,6 +3429,7 @@ TIPO DE IMAGEM: {tipo}
 {bloco_plano_triagem}
 {bloco_contexto_interno}{bloco_ambientacao}
 {bloco_refs}
+{_bloco_direcao}
 
 {PADRAO_VISUAL_AMBIENTACAO}
 {INSTRUCAO_PROTAGONISMO_AMBIENTE}
@@ -3228,8 +3447,9 @@ TIPO DE IMAGEM: {tipo}
 {bloco_plano_triagem}
 {bloco_contexto_interno}{bloco_ambientacao}
 {bloco_refs}
+{_bloco_direcao}
 
-{PADRAO_VISUAL}
+{_padrao_visual}
 {_protagonismo}
 {_layout_marketing}
 {INSTRUCAO_FIDELIDADE}
@@ -5486,6 +5706,20 @@ def pagina_imagem(usuario_logado):
                 import time as _time_gen
                 import threading as _threading
 
+                # A DIRECAO DE ARTE DECIDIDA NA TRIAGEM, HERDADA PELAS OITO.
+                #
+                # Ela sai da MESMA chamada que ja montava o plano — nao ha
+                # chamada nova. Plano antigo, salvo antes deste campo existir,
+                # devolve {} e cada peca volta a deduzir: e o comportamento de
+                # antes, que continua valendo enquanto o colaborador nao
+                # clicar em "Analisar novamente".
+                _direcao_arte = (st.session_state.get("img_triagem_plano", {})
+                                 .get("direcao_de_arte") or {})
+                if _direcao_arte.get("nome"):
+                    st.caption(f"🎨 Direção de arte das 8: **{_direcao_arte['nome']}**"
+                               + (f" · {_direcao_arte.get('posicionamento','')}"
+                                  if _direcao_arte.get("posicionamento") else ""))
+
                 # Indexa os itens da triagem por tipo para lookup rápido
                 _plano_por_tipo = {}
                 _plano_items = st.session_state.get("img_triagem_plano", {}).get("plano", [])
@@ -5553,6 +5787,7 @@ def pagina_imagem(usuario_logado):
                             instrucao_layout=cfg.get("instrucao_layout", ""),
                             plano_triagem=(_plano_por_tipo.get(tipo)
                                            or plano_do_tipo(tipo)),
+                            direcao_arte=_direcao_arte,
                             # O que o colaborador escreveu MAIS o cenário
                             # que a visão escolheu para ESTE tipo. O texto
                             # dele vem primeiro: quem digitou manda.
@@ -6758,6 +6993,39 @@ if __name__ == "__main__":
 
     # E as pecas de marketing continuam com a regra de tamanho — elas TEM
     # texto e o produto precisa dominar o quadro.
+    # ── A DIRECAO DE ARTE DECIDIDA UMA VEZ, HERDADA PELAS OITO ──────────
+    #
+    # O dono, vendo o conjunto: "6 direcoes de arte diferentes". A causa
+    # estava escrita em `PADRAO_VISUAL`, e ia nos OITO prompts: "escolha a
+    # paleta, a iluminacao, o cenario e os materiais". Oito pecas decidindo a
+    # estetica sozinhas — nao era desobediencia do gerador, era o pedido.
+    _dir = {"nome": "Executivo Quente", "posicionamento": "premium",
+            "paleta": {"fundo": {"nome": "Marfim", "hex": "#F2EEE6"}},
+            "materiais": ["nogueira"], "risco_de_reflexo": "ALTO",
+            "trava_do_produto": "resina dourada fosca"}
+    _com_dir = montar_prompt_imagem("2 — Benefícios do produto", "",
+                                    {"cor": "dourado"}, "x", direcao_arte=_dir)
+    _sem_dir = montar_prompt_imagem("2 — Benefícios do produto", "",
+                                    {"cor": "dourado"}, "x")
+    ok("com direcao herdada, a peca NAO escolhe a paleta",
+       "escolha a paleta" not in _com_dir)
+    ok("e sem direcao ela volta a deduzir — o comportamento de antes",
+       "escolha a paleta" in _sem_dir)
+    ok("a paleta-mae chega inteira", "#F2EEE6" in _com_dir
+       and "PALETA-MÃE" in _com_dir)
+    ok("a trava do produto vem junto",
+       "resina dourada fosca" in _com_dir)
+    ok("risco de reflexo alto vira instrucao",
+       "Risco de reflexo ALTO" in _com_dir)
+    ok("direcao vazia nao quebra nem inventa bloco",
+       bloco_direcao_de_arte(None) == ""
+       and bloco_direcao_de_arte({}) == "")
+    ok("a cena da peca entra quando o plano traz",
+       "Cena desta peça: nogueira, caneta" in montar_prompt_imagem(
+           "2 — Benefícios do produto", "", {}, "x",
+           plano_triagem={"composicao": "c", "cena": "nogueira, caneta",
+                          "textos": []}))
+
     _mkt = montar_prompt_imagem("2 — Benefícios do produto", "",
                                 {"nome_comercial": "Meia"}, "Meia")
     ok("a peca de marketing mantem a ocupacao medida",
