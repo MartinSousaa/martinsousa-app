@@ -1034,7 +1034,7 @@ def _chamar_gemini_geracao_texto(prompt_final, imagens_bytes=None, ref_layout=No
             if resp.status_code == 400:
                 import sys as _sys_ar
                 print("[gemini] proporcao recusada pela API — repetindo sem "
-                      f"ela. Resposta: {resp.text[:200]}",
+                      f"ela. Resposta: {resp.text[:1500]}",
                       file=_sys_ar.stderr, flush=True)
                 resp = requests.post(url, json=_sem_proporcao, headers=headers,
                                      timeout=120,
@@ -1042,10 +1042,10 @@ def _chamar_gemini_geracao_texto(prompt_final, imagens_bytes=None, ref_layout=No
             if resp.status_code == 429:
                 try:
                     _ej = resp.json()
-                    _msg = _ej.get("error", {}).get("message", resp.text[:300])
+                    _msg = _ej.get("error", {}).get("message", resp.text[:1500])
                     _st = _ej.get("error", {}).get("status", "")
                 except Exception:
-                    _msg = resp.text[:300]
+                    _msg = resp.text[:1500]
                     _st = ""
                 if _resposta_sem_credito(429, _msg, _st):
                     return None, f"COTA_ESGOTADA:{_msg[:200]}"
@@ -1058,10 +1058,10 @@ def _chamar_gemini_geracao_texto(prompt_final, imagens_bytes=None, ref_layout=No
                 # e era exatamente aqui que o 402 escapava.
                 try:
                     _ej = resp.json()
-                    _msg = _ej.get("error", {}).get("message", "") or resp.text[:300]
+                    _msg = _ej.get("error", {}).get("message", "") or resp.text[:1500]
                     _st = _ej.get("error", {}).get("status", "")
                 except Exception:
-                    _msg, _st = resp.text[:300], ""
+                    _msg, _st = resp.text[:1500], ""
                 if _resposta_sem_credito(resp.status_code, _msg, _st):
                     return None, f"COTA_ESGOTADA:HTTP {resp.status_code} — {_msg[:200]}"
             return resp, None
@@ -1425,6 +1425,22 @@ def modelos_de_imagem_da_conta(cliente=None):
     return preferidos + [a for a in achados if a not in preferidos]
 
 
+# As frases com que a OpenAI diz "esse modelo não é seu". São TEXTO da API, e
+# por isso são procuradas por pedaço: o formato muda, o sentido não.
+_DIZ_QUE_NAO_EXISTE = ("does not exist", "model_not_found",
+                       "do not have access")
+
+
+def _e_modelo_inexistente(exc):
+    """O erro é o NOME do modelo, e não a chamada? Função pura.
+
+    Separar isso é o que liga a redescoberta. Enquanto os dois erros eram a
+    mesma coisa, o Studio insistia no nome errado em dois endpoints seguidos.
+    """
+    t = str(exc or "").lower()
+    return any(p in t for p in _DIZ_QUE_NAO_EXISTE)
+
+
 def redescobrir_modelo_de_imagem(cliente=None):
     """A conta não tem o modelo configurado: acha um que ela tenha. "" se não há.
 
@@ -1596,6 +1612,35 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None, ref_layout=None,
                     return img, None
             except Exception as _e_tool:
                 import sys as _sys
+                # MODELO QUE NÃO EXISTE NÃO É "TOOLS RECUSADO".
+                #
+                # O 404 `The model does not exist or you do not have access`
+                # caía aqui, virava "tools recusado" e ia para o images.edit —
+                # com o MESMO nome de modelo, que também não existe. A
+                # redescoberta (`redescobrir_modelo_de_imagem`) existia e
+                # nunca era chamada, porque este ramo nunca perguntava se o
+                # problema era o NOME.
+                #
+                # O log de 24/09 mostrou o preço: 404 em toda geração, a
+                # OpenAI nunca rodando, e todas as imagens saindo do Gemini
+                # sem controle de proporção.
+                if _e_modelo_inexistente(_e_tool) and not _ja_redescobriu:
+                    _novo = redescobrir_modelo_de_imagem()
+                    if _novo and _novo != _modelo:
+                        print(f"[imagem] {_modelo} não existe nesta conta; "
+                              f"refazendo com {_novo}", file=_sys.stderr,
+                              flush=True)
+                        # UMA vez só: `_ja_redescobriu` impede o laço quando
+                        # nem o modelo achado servir.
+                        return _chamar_openai_geracao(
+                            prompt_final, imagens_bytes, ref_layout,
+                            ref_layout_nome, diagnostico,
+                            _ja_redescobriu=True)
+                    return None, (
+                        f"O modelo de imagem «{_modelo}» não existe nesta "
+                        "conta da OpenAI, e não achei nenhum outro. Configure "
+                        "`OPENAI_MODELO_IMAGEM` no Railway com um modelo que "
+                        "a conta tenha.")
                 print(f"[DEBUG {_modelo}] tools recusado ({str(_e_tool)[:120]}) — "
                       "tentando images.edit", file=_sys.stderr)
                 _term = _erro_openai_terminal(_e_tool)
@@ -2165,9 +2210,9 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
 
         if resp.status_code != 200:
             try:
-                _err = resp.json().get("error", {}).get("message", resp.text[:300])
+                _err = resp.json().get("error", {}).get("message", resp.text[:1500])
             except Exception:
-                _err = resp.text[:300]
+                _err = resp.text[:1500]
             # Mesmo com a peneira de crédito já aplicada no motor, este ramo
             # repete a pergunta: um código novo não pode voltar a virar só
             # "Erro HTTP nnn" na tela.
@@ -2273,42 +2318,26 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
                         diagnostico.get("enquadramento", "")
                         + " · repeti uma vez e voltou torta de novo")
 
-            # NÃO recortar. Uma tentativa anterior cortava até 18% do lado maior
-            # para diminuir as faixas, e isso decepava os painéis de texto das
-            # peças de marketing, que ficam justamente nas laterais — frases
-            # saíam pela metade. Recorte só destrói conteúdo; preencher, no
-            # máximo, deixa margem.
+            # O ENQUADRAMENTO SAIU DAQUI PARA `enquadrar.py`.
             #
-            # A saída de verdade é a imagem já chegar quadrada (size=1024x1024
-            # na geração). Isto aqui é o último recurso quando a API recusa o
-            # parâmetro — e o log acima registra quando acontece.
-            max_dim = max(pil_w, pil_h)
-            if _is_fundo_branco:
-                bg_color = (255, 255, 255, 255)
-            else:
-                # A COR DA FAIXA SAI DA PRÓPRIA IMAGEM — NUNCA DA MARCA.
-                #
-                # Aqui estava `(232, 238, 245)`, o azul-claro da marca, para
-                # todas as peças de marketing. Foi a QUARTA sobrevivência da
-                # paleta fixa nesta base: tiramos do texto do prompt três
-                # vezes, e ela continuava sendo PINTADA no pós-processamento.
-                #
-                # É literalmente o que o dono viu: "faixas azul-claras nas
-                # laterais das imagens 2, 3, 4, 6, 7 e 8". A cor da marca
-                # virando tarja num quadro que o modelo compôs com outra
-                # paleta.
-                #
-                # A média da borda faz a faixa sumir dentro da própria cena,
-                # em vez de anunciar que houve preenchimento. A regra passa a
-                # valer para TODA peça que não seja fundo branco — e não só
-                # para ambientação e personalizado, como estava.
-                bg_color = tuple(
-                    pil.resize((1, 1), _PILImage.LANCZOS).getpixel((0, 0)))
-
-            bg = _PILImage.new("RGBA", (max_dim, max_dim), bg_color)
-            offset = ((max_dim - pil_w) // 2, (max_dim - pil_h) // 2)
-            bg.paste(pil, offset, pil)
-            pil = bg
+            # Aqui morava "NÃO recortar": recortar já tinha sido tentado, às
+            # cegas, 18% do lado maior, e decepava os painéis de texto. A
+            # conclusão foi preencher sempre — e o log de 24/09 mostrou o
+            # preço disso: 768x1365 virando quadrado com 597 px de faixa, em
+            # TODA geração, porque o Gemini nunca devolve quadrado.
+            #
+            # `enquadrar.quadrar` recorta em volta da CAIXA DO ASSUNTO, que
+            # inclui o painel de texto — e só preenche quando o assunto
+            # realmente não cabe. Não é o recorte cego com outro nome.
+            import enquadrar as _enq
+            _cru = _io.BytesIO()
+            pil.save(_cru, format="PNG")
+            img_bytes, _relato = _enq.quadrar(
+                _cru.getvalue(), fundo_branco=_is_fundo_branco,
+                lado_final=1200)
+            if _relato and diagnostico is not None:
+                diagnostico["enquadramento"] = _relato
+            pil = _PILImage.open(_io.BytesIO(img_bytes)).convert("RGBA")
 
         pil = pil.resize((1200, 1200), _PILImage.LANCZOS)
         buf = _io.BytesIO()
@@ -6263,9 +6292,20 @@ if __name__ == "__main__":
     ok("e a mensagem diz o que falta, nao de onde a imagem veio",
        "Preciso das fotos do produto para refazer" in _sem_comentario)
 
-    ok("o unico preenchimento fixo que resta e o branco da capa",
-       _sem_comentario.count("bg_color = (") == 1
-       and "255, 255, 255" in _sem_comentario)
+    # O PREENCHIMENTO SAIU DESTE ARQUIVO.
+    #
+    # Ele morava aqui e pintava a faixa; agora quem enquadra e
+    # `enquadrar.py`, que RECORTA em volta do assunto e so preenche no caso
+    # em que o assunto nao cabe. A guarda muda de forma junto: aqui nao pode
+    # sobrar pintura nenhuma, e a guarda da cor vive la, no teste do proprio
+    # `enquadrar`.
+    ok("imagem.py nao pinta mais faixa nenhuma",
+       "bg_color = (" not in _sem_comentario)
+    ok("e delega o enquadramento para o modulo proprio",
+       "enquadrar" in _sem_comentario and "_enq.quadrar(" in _sem_comentario)
+    import enquadrar as _enq_t
+    ok("o modulo de enquadramento passa na propria conferencia",
+       hasattr(_enq_t, "quadrar") and hasattr(_enq_t, "janela"))
 
     for _t in TIPOS_PADRAO:
         _p = montar_prompt_imagem(_t, "", _DADOS_T, "x")

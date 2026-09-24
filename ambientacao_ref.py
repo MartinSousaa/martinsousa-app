@@ -70,6 +70,32 @@ def _sem_visao(motivo):
     return {"cenarios": [], "erro": motivo}
 
 
+# As assinaturas de arquivo que a visão da Anthropic aceita. Declarar o tipo
+# errado não degrada a leitura: ela é RECUSADA inteira, com 400.
+_ASSINATURAS = (
+    (b"\x89PNG\r\n\x1a\n", "image/png"),
+    (b"\xff\xd8\xff", "image/jpeg"),
+    (b"GIF87a", "image/gif"),
+    (b"GIF89a", "image/gif"),
+    (b"RIFF", "image/webp"),
+)
+
+
+def _mime(dados):
+    """O tipo real dos bytes. JPEG quando não der para saber.
+
+    O padrão é JPEG e não PNG de propósito: é o que sai de câmera, de celular
+    e do Drive, e era o que estava sendo declarado como PNG.
+    """
+    b = bytes(dados or b"")[:12]
+    for assinatura, tipo in _ASSINATURAS:
+        if b.startswith(assinatura):
+            if tipo == "image/webp" and b[8:12] != b"WEBP":
+                continue
+            return tipo
+    return "image/jpeg"
+
+
 def descrever(imagens_bytes, tipos_disponiveis, nome_produto="", api_key=None):
     """Descreve o CENÁRIO de cada referência e diz em que peça cada uma cabe.
 
@@ -99,7 +125,15 @@ def descrever(imagens_bytes, tipos_disponiveis, nome_produto="", api_key=None):
         conteudo.append({"type": "text", "text": f"Referência {i}:"})
         conteudo.append({
             "type": "image",
-            "source": {"type": "base64", "media_type": "image/png",
+            # O TIPO SAI DOS BYTES, NUNCA DE UM PALPITE.
+            #
+            # Aqui estava "image/png" fixo. A colaboradora sobe JPEG — que é
+            # o que sai de celular e do Drive —, a Anthropic conferiu os bytes
+            # contra o tipo declarado e recusou a requisição inteira com
+            # `messages.0.content.1.image.source`. Na tela virou "Não
+            # consegui ler as referências de ambientação", e as oito peças
+            # saíram sem cenário nenhum.
+            "source": {"type": "base64", "media_type": _mime(b),
                        "data": base64.b64encode(b).decode("utf-8")},
         })
     conteudo.append({"type": "text", "text": (
@@ -261,6 +295,24 @@ if __name__ == "__main__":
     ok("falha vira erro declarado, e não silêncio",
        _f["cenarios"] == [] and _f["erro"] == "timeout")
     ok("e a escolha sobre uma falha devolve vazio", para_o_tipo(_f, T3) == "")
+
+    # O TIPO DO ARQUIVO — o que derrubou a leitura das referencias em 24/09.
+    ok("PNG e reconhecido",
+       _mime(b"\x89PNG\r\n\x1a\n\x00\x00\x00\x0d") == "image/png")
+    ok("JPEG e reconhecido",
+       _mime(b"\xff\xd8\xff\xe0\x00\x10JFIF") == "image/jpeg")
+    ok("GIF e reconhecido", _mime(b"GIF89a\x00\x00") == "image/gif")
+    ok("WEBP e reconhecido",
+       _mime(b"RIFF\x00\x00\x00\x00WEBPVP8 ") == "image/webp")
+    ok("RIFF que nao e WEBP nao passa por WEBP",
+       _mime(b"RIFF\x00\x00\x00\x00WAVEfmt ") == "image/jpeg")
+    ok("bytes desconhecidos caem em JPEG, nao em PNG",
+       _mime(b"qualquer coisa") == "image/jpeg")
+    ok("vazio nao quebra", _mime(b"") == "image/jpeg")
+    # A regressao em uma linha: o tipo NAO pode voltar a ser fixo.
+    _fonte_ar = open(__file__, encoding="utf-8").read().split("if __name__")[0]
+    ok('nenhum "image/png" fixo no bloco de imagem',
+       chr(34) + "media_type" + chr(34) + ': "image/png"' not in _fonte_ar)
 
     print("\nfalhas:", falhas)
     sys.exit(falhas)
