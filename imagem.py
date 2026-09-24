@@ -252,6 +252,102 @@ def blocos_em_portugues(tipo, pedidos=0):
             f"nenhuma outra instrução autoriza mais.")
 
 
+# ── O ESPACO DO QUADRO: QUEM OCUPA O QUE, E O QUE NAO ENCOSTA EM NADA ──────
+#
+# Duas queixas do dono que nunca tiveram regra propria: "margem" e "quadrados
+# sobrepondo a imagem". Auditado o prompt real, os dois buracos:
+#
+#   MARGEM — so a capa tinha teto. Nos tipos 2 a 7 a unica linha sobre borda
+#   era "respiro nas bordas da peca", que PEDE margem sem dizer quanto, e os
+#   presets 2 e 6 ainda pediam "muito whitespace". Faltava a frase que fecha:
+#   o que nao e produto e painel ou cenario — nao e vazio.
+#
+#   SOBREPOSICAO — "jamais sobreponha texto ao produto" existia. Nao existia
+#   nada sobre cartao em cima de cartao, prop na frente do produto, nem
+#   produto cortado pela borda do quadro. Cortar o produto na borda e o quadro
+#   sobrepondo o produto, e nos tipos 2 a 7 nao havia uma linha proibindo.
+#
+# As duas sao a mesma pergunta — quem ocupa cada pedaco do quadro — e por isso
+# saem de um lugar so, variando por tipo.
+def regra_de_espaco(tipo):
+    """(texto em portugues, linha em ingles) sobre margem e sobreposicao."""
+    n = numero_do_tipo(tipo)
+
+    comum_pt = (
+        "- NADA SOBREPÕE O PRODUTO: nem texto, nem ícone, nem cartão, nem\n"
+        "  faixa, nem prop de cenário. Objeto de cena fica ATRÁS ou AO LADO,\n"
+        "  nunca à frente tampando parte dele.\n"
+        "- Os blocos de texto não se sobrepõem entre si: cada cartão tem sua\n"
+        "  área, com folga visível entre um e outro.\n")
+    comum_en = (
+        "- NOTHING overlaps the product: not text, not icons, not cards, not "
+        "bands, not scene props. Scene objects sit BEHIND or BESIDE it, never "
+        "in front covering any part of it.\n"
+        "- Text blocks never overlap each other: every card has its own area, "
+        "with visible clearance between them.\n")
+
+    if n == 4:
+        # O close corta de proposito: o recorte E a peca.
+        pt = ("REGRA DE ESPAÇO DESTA PEÇA:\n"
+              "- O detalhe escolhido PREENCHE o quadro. Não há margem de\n"
+              "  respiro nesta peça: borda vazia num macro é erro.\n"
+              + comum_pt)
+        en = ("- The chosen detail FILLS the frame. No breathing margin here: "
+              "empty border in a macro shot is a mistake.\n" + comum_en)
+        return pt, en
+
+    if n == 8:
+        pt = ("REGRA DE ESPAÇO DESTA PEÇA:\n"
+              "- O quadro é cena inteira: não existe margem, existe ambiente.\n"
+              "  Nenhuma faixa vazia em volta, nenhum fundo liso nas bordas.\n"
+              "- O produto aparece DESOBSTRUÍDO: nada do cenário passa na\n"
+              "  frente dele, nem em parte.\n"
+              "- O produto aparece INTEIRO: nenhuma parte cortada pela borda\n"
+              "  do quadro.\n")
+        en = ("- The frame is a full scene: there is no margin, there is "
+              "environment. No empty band around it, no flat backdrop at the "
+              "edges.\n"
+              "- The product is UNOBSTRUCTED: nothing in the scene passes in "
+              "front of it, not even partly.\n"
+              "- The product appears WHOLE: no part cut by the frame edge.\n")
+        return pt, en
+
+    if n == 1:
+        pt = ("REGRA DE ESPAÇO DESTA PEÇA:\n"
+              "- A margem branca é UNIFORME e MÍNIMA nos quatro lados — só o\n"
+              "  suficiente para o produto não encostar na borda. Vazio\n"
+              "  concentrado em cima, embaixo ou de um lado é erro.\n"
+              "- O produto aparece INTEIRO: nenhuma parte cortada pela borda.\n"
+              + comum_pt)
+        en = ("- The white margin is UNIFORM and MINIMAL on all four sides — "
+              "only enough to keep the product off the edge. Empty space "
+              "concentrated at the top, bottom or one side is a mistake.\n"
+              "- The product appears WHOLE: no part cut by the frame edge.\n"
+              + comum_en)
+        return pt, en
+
+    # Tipos 2, 3, 5, 6, 7 e Personalizado: produto mais painel de texto.
+    pt = ("REGRA DE ESPAÇO DESTA PEÇA:\n"
+          "- O QUE NÃO É PRODUTO É PAINEL OU CENÁRIO — NÃO É VAZIO. O espaço\n"
+          "  que sobra depois de enquadrar o produto pertence aos blocos de\n"
+          "  texto e ao ambiente. Faixa vazia em volta da peça é área\n"
+          "  desperdiçada, e o anúncio paga por ela.\n"
+          "- A margem de segurança é uniforme e pequena nos quatro lados: só\n"
+          "  o suficiente para nada encostar na borda.\n"
+          "- O produto aparece INTEIRO: nenhuma parte cortada pela borda do\n"
+          "  quadro.\n"
+          + comum_pt)
+    en = ("- WHAT IS NOT PRODUCT IS PANEL OR SCENE — IT IS NOT EMPTY SPACE. "
+          "Whatever remains after framing the product belongs to the text "
+          "blocks and the environment. An empty band around the piece is "
+          "wasted area.\n"
+          "- The safety margin is uniform and small on all four sides: only "
+          "enough to keep everything off the edge.\n"
+          "- The product appears WHOLE: no part cut by the frame edge.\n"
+          + comum_en)
+    return pt, en
+
+
 def faixa_de_ocupacao(tipo):
     """(minimo, maximo, complemento) do tipo, ou None quando nao ha faixa."""
     return OCUPACAO.get(numero_do_tipo(tipo))
@@ -448,7 +544,7 @@ REGRA DE DENSIDADE:
   palavras. Descrição de 3 palavras deixa a peça pobre e sem argumento de venda.
 - Blocos em cartões de cantos arredondados, com ícone próprio, alinhados em
   coluna ou grade — não como texto solto sobre o fundo
-- Espaçamento uniforme entre blocos; respiro nas bordas da peça
+- Espaçamento uniforme entre blocos, sem que um encoste no outro
 - NUNCA adicione tags, selos, rodapés, ícones de compatibilidade ou elementos
   decorativos além dos blocos pedidos
 
@@ -542,7 +638,7 @@ PRESETS = {
         "Fundo deduzido do produto — sem cor de marca fixa. Benefícios em cartões laterais, inferiores ou em grade — a quantidade vem da regra de densidade; siga a referência de layout quando houver: "
         "ícone line-art na cor da direção de arte escolhida para ESTE produto — não existe cor "
         "de ícone fixa — + título curto (2-3 palavras) + frase direta (máximo 7 palavras). "
-        "Visual arejado, muito whitespace — jamais comprima ou empilhe os blocos de benefício. "
+        "Visual arejado — jamais comprima ou empilhe os blocos de benefício, e jamais deixe faixa vazia em volta da peça. "
         "Os textos dos benefícios vêm dos diferenciais e características do produto informados."
     ),
     "3 — Benefícios no cenário de uso": (
@@ -597,7 +693,7 @@ PRESETS = {
         "— a quantidade vem da regra de densidade; siga a referência de layout quando houver. "
         "Cada bloco: pergunta curta (máximo 5 palavras) em destaque + check verde + resposta direta "
         "(máximo 8 palavras). As objeções são baseadas nos diferenciais e características do produto. "
-        "Visual arejado, muito whitespace, fundo e paleta deduzidos do produto e da ocasião."
+        "Visual arejado, sem faixa vazia em volta da peça; fundo e paleta deduzidos do produto e da ocasião."
     ),
     "7 — Presenteie": (
         "IMAGEM EMOCIONAL — A ENTREGA DO PRESENTE: DUAS PESSOAS na cena, uma "
@@ -1802,10 +1898,38 @@ def _arquivo_para_openai(img_bytes, nome_base):
 # dia precisar mudar, muda aqui — e nao em cinco arquivos que discordam.
 MAX_FOTOS_AO_MOTOR = 6
 
+# E UM TETO DE BYTES, PORQUE CONTAR FOTO NAO BASTA.
+#
+# As fotos vao CRUAS: `revisar_arquivo` confere formato e integridade e
+# devolve os bytes como vieram, sem comprimir. Seis fotos de 10MB sao 60MB,
+# que em base64 viram uns 80MB numa chamada — e ai nao e "menos qualidade", e
+# timeout ou recusa da API. Subir de tres para seis sem este teto era trocar
+# um limite arbitrario por um risco de travar.
+#
+# Doze megabytes e o orcamento. Acima disso entram menos fotos, que e
+# exatamente o comportamento antigo — nunca menos de uma.
+ORCAMENTO_FOTOS_BYTES = 12 * 1024 * 1024
+
 
 def fotos_para_o_motor(imagens_bytes):
-    """As fotos do produto que cabem numa chamada. Lista, nunca None."""
-    return list(imagens_bytes or [])[:MAX_FOTOS_AO_MOTOR]
+    """As fotos do produto que cabem numa chamada. Lista, nunca None.
+
+    Corta por quantidade E por peso. A primeira entra sempre, mesmo sozinha e
+    grande: uma foto pesada e melhor que nenhuma — sem nenhuma, o modelo nao
+    ve o produto e inventa.
+    """
+    escolhidas = []
+    total = 0
+    for foto in list(imagens_bytes or [])[:MAX_FOTOS_AO_MOTOR]:
+        try:
+            peso = len(foto)
+        except TypeError:
+            peso = 0
+        if escolhidas and total + peso > ORCAMENTO_FOTOS_BYTES:
+            break
+        escolhidas.append(foto)
+        total += peso
+    return escolhidas
 
 
 def _data_url(img_bytes):
@@ -2430,6 +2554,7 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
     # genericos; ambientacao "at least 35%" contra "escala real". O modelo
     # recebia as duas e escolhia.
     _product_dominance_rule = ocupacao_em_ingles(_tipo_str)
+    _, _espaco_en = regra_de_espaco(_tipo_str)
 
     # O Presenteie e a UNICA peca do padrao que pede figura humana, e o pedido
     # e do dono: "uma pessoa entregando o produto como presente para outra".
@@ -2572,8 +2697,8 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
            if not _is_clean_photo else
            "- No text elements at all: no whitespace has to be reserved for "
            "them. The occupancy stated above is the only rule about size.\n")
-        + 
-        f"- Professional studio quality — high-end e-commerce agency standard"
+        + _espaco_en
+        + f"- Professional studio quality — high-end e-commerce agency standard"
         f"{_layout_section}\n\n"
         f"{_marketing_content}"
 
@@ -3474,6 +3599,8 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
     # comportamento de antes e o menos ruim dos dois.
     _bloco_direcao = bloco_direcao_de_arte(direcao_arte)
     _padrao_visual = padrao_visual(direcao_arte)
+    # Margem e sobreposicao saem do MESMO lugar, e variam por tipo.
+    _espaco_pt, _ = regra_de_espaco(tipo)
 
     _modo = modo_fundo_do_tipo(tipo)
     eh_personalizado = _modo == "personalizado"
@@ -3489,6 +3616,7 @@ TIPO DE IMAGEM: Personalizado
 {bloco_instrucao_visual}
 {bloco_refs}
 {_bloco_direcao}
+{_espaco_pt}
 
 {INSTRUCAO_PERSONALIZADO}
 {INSTRUCAO_FIDELIDADE}
@@ -3512,6 +3640,7 @@ TIPO DE IMAGEM: {tipo}
 {bloco_contexto_interno}{bloco_ambientacao}
 {bloco_refs}
 {_bloco_direcao}
+{_espaco_pt}
 
 {PADRAO_VISUAL_FUNDO_BRANCO}
 {_protagonismo}
@@ -3579,6 +3708,7 @@ TIPO DE IMAGEM: {tipo}
 {bloco_contexto_interno}{bloco_ambientacao}
 {bloco_refs}
 {_bloco_direcao}
+{_espaco_pt}
 
 {PADRAO_VISUAL_AMBIENTACAO}
 {INSTRUCAO_PROTAGONISMO_AMBIENTE}
@@ -3597,6 +3727,7 @@ TIPO DE IMAGEM: {tipo}
 {bloco_contexto_interno}{bloco_ambientacao}
 {bloco_refs}
 {_bloco_direcao}
+{_espaco_pt}
 
 {_padrao_visual}
 {_protagonismo}
@@ -3681,6 +3812,87 @@ def prompt_que_sera_enviado(prompt_texto, imagens_referencia, refs_layout=None,
     except Exception as e:
         return f"(não consegui montar o prompt: {type(e).__name__}: {e})"
     return diag.get("prompt", "") or "(o prompt saiu vazio — isso é defeito)"
+
+
+# ── O PLANO E ESCRITO POR IA, E POR ISSO NAO SE CONFERE UMA VEZ SO ─────────
+#
+# A analise de 24/09 voltou limpa de seis defeitos que a rodada anterior tinha:
+# a peca 3 pedindo "maos do casal" numa peca que proibe pessoas, sete das sete
+# pecas falando em "costura" num album Wire-O, "ouro" como material do produto,
+# a palavra inventada "sobas", e madeira em quatro das sete cenas.
+#
+# Eles nao foram CORRIGIDOS. Eles NAO APARECERAM naquela rodada.
+#
+# A diferenca e tudo. O prompt e montado por codigo: conferir uma vez basta,
+# porque ele nao muda sozinho. O plano e escrito por um modelo a cada analise,
+# e pode voltar diferente amanha — com os mesmos defeitos ou com outros.
+#
+# Entao a conferencia dele tem de rodar SEMPRE, na tela, antes de gastar. Duas
+# destas sao verificaveis sem ambiguidade; as outras quatro dependem do
+# produto e ficam para o olho humano.
+_PESSOAS_NA_CENA = (
+    "pessoa", "personagem", "homem", "mulher", "crianca", "criança",
+    "casal", "familia", "família", "mao", "mão", "maos", "mãos",
+    "bebe", "bebê", "menino", "menina", "modelo",
+)
+
+
+def pessoas_em_peca_errada(itens, tipos_selecionados=None):
+    """Pecas cujo plano pede pessoas, mas cujo tipo as proibe. [] se nenhuma.
+
+    So a peca 7 (Presenteie) leva figura humana — e ela EXIGE duas. Em
+    qualquer outra, pessoa no plano vira ordem contraria a "NEVER add people"
+    que o proprio prompt carrega, e o gerador resolve contradicao desenhando
+    mais coisa, nao menos.
+    """
+    achadas = []
+    for it in itens or []:
+        if not isinstance(it, dict):
+            continue
+        oficial = tipo_canonico(it, tipos_selecionados)
+        if numero_do_tipo(oficial) == 7:
+            continue
+        texto = " ".join(str(it.get(c, "") or "")
+                         for c in ("composicao", "cena")).lower()
+        achou = _acha_radicais(texto, _PESSOAS_NA_CENA)
+        if achou:
+            achadas.append((oficial, ", ".join(achou[:3])))
+    return achadas
+
+
+def cenas_repetidas(itens, tipos_selecionados=None):
+    """Pares de pecas cuja cena descreve a mesma superficie. [] se nenhum.
+
+    Consistencia e mesma paleta, mesmo material e mesma luz — nao a mesma
+    mesa. Eram escrivaninha com caneta na 3, na 7 e na 8; depois madeira em
+    quatro das sete. Comparar por SUPERFICIE, e nao pela frase inteira, porque
+    a frase sempre muda um pouco e a mesa continua a mesma.
+    """
+    superficies = (
+        "madeira", "nogueira", "carvalho", "marmore", "mármore", "pedra",
+        "travertino", "linho", "algodao", "algodão", "tecido", "veludo",
+        "couro", "vidro", "concreto", "cimento", "papel", "ceramica",
+        "cerâmica", "metal", "escrivaninha", "mesa de jantar", "bancada",
+        "prateleira", "estante", "sofa", "sofá", "cama", "tapete",
+    )
+    por_peca = []
+    for it in itens or []:
+        if not isinstance(it, dict):
+            continue
+        cena = str(it.get("cena", "") or "").lower()
+        if not cena.strip():
+            continue
+        achadas = set(_acha_radicais(cena, superficies))
+        if achadas:
+            por_peca.append((tipo_canonico(it, tipos_selecionados), achadas))
+    pares = []
+    for i in range(len(por_peca)):
+        for j in range(i + 1, len(por_peca)):
+            comum = por_peca[i][1] & por_peca[j][1]
+            if comum:
+                pares.append((por_peca[i][0], por_peca[j][0],
+                              ", ".join(sorted(comum))))
+    return pares
 
 
 def _direcao_de_arte_da_sessao():
@@ -5808,6 +6020,30 @@ def pagina_imagem(usuario_logado):
                 "Clique em **Analisar novamente** antes de confirmar."
             )
 
+        # ── O PLANO PEDE PESSOAS ONDE O TIPO AS PROIBE? ───────────────────────
+        _pessoas_erradas = pessoas_em_peca_errada(itens_viaveis, _tipos_cfg)
+        if _pessoas_erradas:
+            st.warning(
+                "👥 **Pessoas planejadas em peça que as proíbe.** Só a "
+                "*7 — Presenteie* leva figura humana; nas outras, pessoa no "
+                "plano vira ordem contrária à regra que o próprio prompt "
+                "carrega.\n\n"
+                + "\n".join(f"- **{_t}** — {_p}" for _t, _p in _pessoas_erradas)
+                + "\n\nCorrija no texto da peça ou clique em **Analisar "
+                "novamente**."
+            )
+
+        # ── DUAS PEÇAS NA MESMA SUPERFÍCIE? ───────────────────────────────────
+        _repetidas = cenas_repetidas(itens_viaveis, _tipos_cfg)
+        if _repetidas:
+            st.warning(
+                "🎬 **Cenas repetidas entre peças.** Consistência é mesma "
+                "paleta, mesmo material e mesma luz — não a mesma mesa. Oito "
+                "peças no mesmo cenário deixam o anúncio repetitivo.\n\n"
+                + "\n".join(f"- **{_a}** e **{_b}** — {_c}"
+                             for _a, _b, _c in _repetidas[:6])
+            )
+
         # ── Itens bloqueados (informação faltante) ────────────────────────────
         if itens_bloqueados:
             st.markdown("---")
@@ -7364,7 +7600,20 @@ if __name__ == "__main__":
     ok("o limite de fotos tem um lugar so",
        MAX_FOTOS_AO_MOTOR >= 6)
     ok("e ele corta de verdade",
-       len(fotos_para_o_motor(list(range(20)))) == MAX_FOTOS_AO_MOTOR)
+       len(fotos_para_o_motor([b"x"] * 20)) == MAX_FOTOS_AO_MOTOR)
+    # O TETO DE BYTES, QUE E O QUE IMPEDE DE TRAVAR.
+    #
+    # As fotos vao cruas. Seis de 10MB sao 60MB numa chamada, e isso nao e
+    # "menos qualidade": e timeout. Subir de tres para seis sem este teto era
+    # trocar um limite arbitrario por um risco de travar.
+    _pesada = b"x" * (5 * 1024 * 1024)
+    ok("seis fotos pesadas nao passam do orcamento",
+       sum(len(f) for f in fotos_para_o_motor([_pesada] * 6))
+       <= ORCAMENTO_FOTOS_BYTES)
+    ok("mas seis fotos leves passam todas",
+       len(fotos_para_o_motor([b"x" * 1000] * 6)) == 6)
+    ok("uma foto gigante sozinha AINDA vai — melhor que nenhuma",
+       len(fotos_para_o_motor([b"x" * (40 * 1024 * 1024)])) == 1)
     ok("lista vazia ou None nao quebra",
        fotos_para_o_motor(None) == [] and fotos_para_o_motor([]) == [])
     ok("nove fotos passam a ir alem de tres",
@@ -7376,6 +7625,41 @@ if __name__ == "__main__":
     _alvo_corte = "imagens_bytes" + "[:" + "3]"
     ok("nenhum corte de fotos sobrou espalhado no codigo",
        open(__file__, encoding="utf-8").read().count(_alvo_corte) == 0)
+
+    # ── O PLANO E ESCRITO POR IA, E VOLTA DIFERENTE A CADA ANALISE ──────
+    #
+    # A rodada de 24/09 voltou limpa de seis defeitos que a anterior tinha.
+    # Eles nao foram corrigidos — nao apareceram. Montagem se confere uma vez;
+    # plano se confere SEMPRE, porque um modelo o reescreve a cada analise.
+    _plano_ruim = [
+        {"numero": 3, "tipo": "3 — Benefícios no cenário de uso",
+         "composicao": "as mãos do casal folheiam o álbum",
+         "cena": "mesa de madeira clara com fotos"},
+        {"numero": 7, "tipo": "7 — Presenteie",
+         "composicao": "entrega do presente",
+         "cena": "mesa de linho, duas pessoas"},
+        {"numero": 8, "tipo": "8 — Ambientação realista (sem texto)",
+         "composicao": "álbum na estante",
+         "cena": "prateleira de madeira escura"},
+        {"numero": 1, "tipo": "1 — Capa do anúncio (fundo branco)",
+         "composicao": "álbum de frente", "cena": "superfície branca pura"},
+    ]
+    _pess = pessoas_em_peca_errada(_plano_ruim, TIPOS_PADRAO)
+    ok("pessoa planejada na peca 3 e apontada",
+       any(numero_do_tipo(t) == 3 for t, _ in _pess))
+    ok("e a peca 7 NAO e apontada — ela exige duas pessoas",
+       not any(numero_do_tipo(t) == 7 for t, _ in _pess))
+    ok("capa sem pessoa passa limpa",
+       not any(numero_do_tipo(t) == 1 for t, _ in _pess))
+    _rep = cenas_repetidas(_plano_ruim, TIPOS_PADRAO)
+    ok("madeira na 3 e na 8 e apontada como cena repetida",
+       any("madeira" in c for _a, _b, c in _rep))
+    ok("cena sem superficie conhecida nao inventa par",
+       cenas_repetidas([{"numero": 1, "tipo": "1 — Capa do anúncio (fundo branco)",
+                         "cena": "composição centralizada"}], TIPOS_PADRAO) == [])
+    ok("plano vazio nao quebra nenhuma das duas",
+       pessoas_em_peca_errada([], TIPOS_PADRAO) == []
+       and cenas_repetidas(None, TIPOS_PADRAO) == [])
 
     # ── A DESCRICAO DE LAYOUT E TEXTO DE OUTRO MODELO ────────────────────
     #

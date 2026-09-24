@@ -495,6 +495,120 @@ corrido.
 
 
 --------------------------------------------------------------------------------
+<<<<<<< HEAD
+PARTE 5B — SE VOCE OPERA O STUDIO PELO NAVEGADOR
+--------------------------------------------------------------------------------
+
+Vale quando voce esta no Chrome com o login do dono, e nao so lendo texto
+colado. Leia esta parte inteira ANTES do primeiro clique.
+
+
+A REGRA QUE VEM ANTES DE TODAS: O BOTAO QUE VOCE NAO PODE APERTAR
+--------------------------------------------------------------------------------
+
+    ***  NUNCA clique em "Confirmar e gerar".  ***
+
+Esse botao gasta dinheiro de verdade: oito chamadas a um gerador de imagem
+pago, por produto, mais as conferencias de texto. Se o prompt estiver errado —
+e e justamente isso que voce foi conferir —, o dinheiro sai e o resultado nao
+serve.
+
+Existe um caminho que mostra o mesmo texto de graca, e e o unico que voce deve
+usar. Esta descrito abaixo.
+
+Tambem nao clique em:
+
+  - "Analisar novamente" com uma galeria de imagens ja pronta na tela, se
+    houver aviso de descarte. Isso joga fora imagens ja pagas.
+  - "Testar APIs agora" mais de uma vez. Cada clique gera duas imagens de
+    teste, e e dinheiro.
+  - Nada na aba "Financeiro", "Metas", "Ponto" ou "Devolucoes". Sao dados
+    reais da operacao, e voce nao tem o que fazer neles.
+
+Se uma tela pedir confirmacao para apagar, sobrescrever ou descartar qualquer
+coisa: PARE e pergunte ao dono.
+
+
+O CAMINHO, PASSO A PASSO
+--------------------------------------------------------------------------------
+
+ 1. Entre no Studio e va na aba "Imagem".
+
+ 2. Se aparecer "Diagnostico das APIs de Imagem", NAO clique em testar. So
+    olhe, se estiver aberto, qual modelo esta em uso — serve de contexto.
+
+ 3. Preencha "Nome do produto".
+
+ 4. Em "O que gerar?", marque "As 8 imagens do padrao".
+    Sem isso o botao de analisar nao aparece.
+
+ 5. Em "Fotos de referencia do produto", suba as fotos que o dono forneceu.
+    As duas caixas seguintes — AMBIENTACAO e layout — sao opcionais; use se o
+    dono tiver dado referencias.
+
+ 6. Clique em "Analisar e mostrar plano antes de gerar".
+    ISTO CUSTA UMA CHAMADA DE ANALISE, que e barata e necessaria. E a unica
+    despesa autorizada deste roteiro.
+
+ 7. O "Plano de criacao" aparece. Antes de mais nada, LEIA O TOPO:
+
+    - Ha um cartao "Direcao de arte das 8" com nome, paleta em tarjas,
+      materiais, luz e trava do produto? Anote tudo.
+      Se em vez dele houver o aviso "Este plano nao tem direcao de arte",
+      isso ja e um achado: registre e siga.
+
+    - Ha um erro em vermelho dizendo que "a analise embaralhou os tipos"?
+      Se houver, registre e NAO tente consertar clicando: e defeito do
+      sistema, nao seu.
+
+ 8. Leia os oito cartoes. Cada um deve trazer o TIPO OFICIAL como titulo
+    (comecando com o numero: "1 — Capa do anuncio…"). Se o titulo vier sem
+    numero, ou se dois cartoes tiverem o mesmo titulo, isso e achado.
+    Anote tambem a linha "Cena:" de cada um.
+
+ 9. Clique em "Ver o prompt que sera enviado em cada peca".
+
+    ESTE E O CAMINHO DE GRACA. Ele monta o texto exato que iria ao gerador e
+    NAO gera imagem nenhuma. A propria tela diz: "nao gera imagem, nao gasta
+    geracao".
+
+10. Abra o expansor "Prompt que sera enviado ao motor" dentro de cada cartao e
+    copie o texto inteiro. Sao nove — os oito tipos mais o Personalizado, se
+    aparecer.
+
+11. Agora sim, analise. Volte para a PARTE 3 (os onze criterios) e a PARTE 5
+    (a ordem de leitura) deste arquivo, e para o DOSSIE_PROMPT.md.
+
+
+O QUE COLETAR, ALEM DO PROMPT
+--------------------------------------------------------------------------------
+
+Estas informacoes mudam o diagnostico e estao na tela:
+
+  - o nome exato do produto, como foi digitado;
+  - quantas fotos foram subidas;
+  - a direcao de arte inteira (nome, cinco cores, materiais, luz, trava);
+  - a cena de cada uma das oito pecas;
+  - se apareceu algum aviso ou erro em vermelho;
+  - se houver galeria antiga na tela, quantas imagens ela tem — mas nao mexa
+    nela.
+
+
+SE ALGUMA COISA NAO ESTIVER ONDE ESTE ROTEIRO DIZ
+--------------------------------------------------------------------------------
+
+O sistema muda. Se um botao tiver outro nome, ou uma secao nao existir:
+
+  - NAO improvise clicando em coisas parecidas;
+  - descreva ao dono o que voce esta vendo e pergunte;
+  - desconfie de que voce pode estar numa versao anterior do sistema — e isso
+    por si so explica muitos defeitos. Pergunte ao dono se o deploy da versao
+    nova ja passou.
+
+
+--------------------------------------------------------------------------------
+=======
+>>>>>>> origin/main
 PARTE 6 — O QUE PERGUNTAR, QUANDO FALTAR INFORMACAO
 --------------------------------------------------------------------------------
 
@@ -525,7 +639,13 @@ PARTE 7 — O QUE VOCE NAO PODE AFIRMAR
 Isto e serio, e ja custou caro nesta base. Voce NAO tem o codigo e NAO roda
 nada. Entao:
 
+<<<<<<< HEAD
+  - nao diga que rodou comando, script ou verificacao. Operar o Studio pelo
+    navegador NAO e rodar verificacao: voce clicou numa tela, nao executou a
+    varredura do sistema;
+=======
   - nao diga que rodou comando, script ou verificacao;
+>>>>>>> origin/main
   - nao diga que conferiu uma linha de arquivo. As referencias tipo
     "imagem.py:168" existem para o dono saber onde mandar corrigir — voce nao
     as leu;
@@ -541,6 +661,60 @@ que afirmacao confiante e errada.
 
 
 --------------------------------------------------------------------------------
+<<<<<<< HEAD
+PARTE 7B — "SUMIU" NAO E "FOI CORRIGIDO"
+--------------------------------------------------------------------------------
+
+Esta e a distincao mais importante deste arquivo para quem analisa mais de uma
+vez, e ela nasceu de uma analise real.
+
+Numa rodada, seis defeitos apareceram: a peca 3 pedindo "maos do casal" numa
+peca que proibe pessoas; sete das sete pecas falando em "costura" num album
+Wire-O; "ouro" listado como material do produto; a palavra inventada "sobas";
+a trava de cor mandando tres cores com fotos pretas; e madeira em quatro das
+sete cenas.
+
+Na rodada seguinte, com a variante certa e as referencias de ambientacao, os
+seis nao estavam la. **Isso nao significa que foram corrigidos.**
+
+O sistema tem duas partes, e elas se comportam de formas opostas:
+
+    A MONTAGEM DO PROMPT e feita por CODIGO.
+    Ela nao muda sozinha. Conferir uma vez basta. Defeito achado aqui e
+    corrigido no codigo e fica corrigido.
+
+    O PLANO — a copy, a composicao e a cena de cada peca — e escrito por um
+    MODELO, a cada analise.
+    Ele volta diferente toda vez. Um defeito que nao apareceu nesta rodada
+    pode aparecer na proxima, e um defeito novo pode nascer sem que nada tenha
+    mudado no codigo.
+
+Entao, ao reportar:
+
+  - defeito de MONTAGEM  ->  diga "defeito", e ele sera corrigido de vez;
+  - defeito de PLANO     ->  diga "defeito nesta rodada", e diga se e um dos
+                             que o sistema ja confere sozinho.
+
+E quando um defeito de plano desaparecer, escreva "nao apareceu nesta rodada",
+nunca "corrigido". A diferenca entre as duas frases e alguem confiar num
+conserto que nao existe.
+
+DOIS DELES O SISTEMA JA CONFERE SOZINHO, na tela do plano, antes de gastar:
+
+  - pessoa planejada em peca que proibe pessoas (so a 7 leva figura humana);
+  - duas pecas descrevendo a mesma superficie de cena.
+
+Se voce vir um desses e a tela NAO tiver avisado, isso e um defeito de
+montagem — e ai sim vale reportar como conserto definitivo.
+
+Os outros quatro dependem do produto e continuam sendo trabalho de olho
+humano: nome de acabamento que o produto nao tem, material inventado, palavra
+que nao existe, e cor pedida que briga com a foto.
+
+
+--------------------------------------------------------------------------------
+=======
+>>>>>>> origin/main
 PARTE 8 — O QUE AINDA ESTA EM ABERTO
 --------------------------------------------------------------------------------
 
