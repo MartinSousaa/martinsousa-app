@@ -33,15 +33,24 @@ def pagina(usuario_logado=None):
     import favorecidos as _fv
     import lancamentos as _lan
 
-    st.markdown("#### 💳 Extratos — subir e conferir")
+    st.markdown("#### 💳 Extratos e faturas — subir e conferir")
     st.caption(
-        "Itaú em `.xlsx`, Inter em `.csv`. O que já tem histórico entra "
-        "classificado; o que é novo cai na fila para você responder uma vez. "
-        "Subir o mesmo arquivo duas vezes não duplica nada."
+        "Suba tudo aqui: extrato do Itaú (`.xlsx`), do Inter (`.csv`) e "
+        "fatura do cartão (`.csv` ou `.pdf`). O Studio identifica o que é "
+        "cada um pelo conteúdo, não pelo nome do arquivo. O que já tem "
+        "histórico entra classificado; o que é novo cai na fila para você "
+        "responder uma vez. Subir o mesmo arquivo duas vezes não duplica nada."
     )
 
+    # ── TUDO NO MESMO LUGAR ──────────────────────────────────────────────
+    #
+    # Pedido do dono, repetido em 25/09: "eu quero poder anexar tudo no mesmo
+    # lugar, o sistema identifica o que é extrato da conta e o que é fatura
+    # do cartão". Ele tentou a tarde inteira e o seletor apagava os PDFs —
+    # `type=["xlsx","csv"]` — sem que nada na tela dissesse por quê.
     arquivos = st.file_uploader(
-        "Extrato", type=["xlsx", "csv"], accept_multiple_files=True,
+        "Extrato ou fatura", type=["xlsx", "csv", "pdf"],
+        accept_multiple_files=True,
         key="ext_up", label_visibility="collapsed")
 
     if arquivos:
@@ -58,6 +67,11 @@ def pagina(usuario_logado=None):
         # segunda pergunta nunca teve resposta própria.
         fila_total = []
         for arq in arquivos:
+            import fatura_pdf as _fpdf
+            _tipo_arq = _fpdf.identificar(arq.name, arq.getvalue())
+            if _tipo_arq in ("fatura_pdf", "fatura_inter"):
+                _fatura(arq, _tipo_arq, usuario_logado)
+                continue
             fila_total += _processar(
                 arq, _itau, _inter, _fv, _lan, usuario_logado) or []
         fila_total = juntar_filas(fila_total)
@@ -68,6 +82,68 @@ def pagina(usuario_logado=None):
 
     st.markdown("---")
     _ver_mes(_fv, _lan, usuario_logado)
+
+
+def _fatura(arq, tipo_arq, usuario_logado):
+    """A fatura do cartão: lê, MOSTRA e deixa a pessoa conferir. Não grava.
+
+    POR QUE ELA NÃO ENTRA SOZINHA
+    -----------------------------
+    O extrato é uma planilha com colunas: o banco garante a forma. A fatura
+    em PDF é um desenho, e o texto sai na ordem em que foi impresso — o banco
+    muda o layout numa atualização e o leitor passa a devolver número errado,
+    sem erro nenhum na tela. Num sistema de dinheiro, essa é a pior falha
+    possível.
+
+    Então aqui se lê e se mostra. Gravar sozinho viria depois, quando o
+    layout deste banco tiver sido conferido contra uma fatura de verdade —
+    e o dono souber que foi conferido.
+    """
+    import fatura_pdf as _fpdf
+    nome = arq.name
+    with st.spinner(f"Lendo {nome}…"):
+        if tipo_arq == "fatura_pdf":
+            lancs, texto, erro = _fpdf.ler(arq.getvalue())
+        else:
+            import fatura_inter as _fi
+            lancs, cab, erro = _fi.ler(arq.getvalue())
+            texto = ""
+
+    st.markdown(f"##### 🧾 {nome} — fatura de cartão")
+    if erro:
+        st.warning(f"**{nome}:** {erro}")
+        if texto:
+            with st.expander("O texto que saiu do PDF"):
+                st.code(texto[:20000], language=None)
+        return
+
+    _compras = [l for l in lancs if not l.get("pagamento")]
+    _total = sum(abs(float(l.get("valor") or 0)) for l in _compras)
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Lançamentos lidos", len(lancs))
+    c2.metric("Compras", len(_compras))
+    c3.metric("Total das compras", f"R$ {_fmt(_total)}")
+
+    st.info(
+        "**Confira antes de usar.** A fatura foi lida, mas **não foi "
+        "gravada**: o Studio ainda não conhece o layout deste banco bem o "
+        "bastante para lançar sozinho. Compare com a fatura aberta — se "
+        "bater, me avise que eu ligo o lançamento automático.")
+    import pandas as _pd
+    st.dataframe(
+        _pd.DataFrame([{
+            "data": l.get("data", ""), "descrição": l.get("descricao", ""),
+            "valor": l.get("valor"),
+            "parcela": (f"{l['parcela_n']}/{l['parcela_de']}"
+                        if l.get("parcela_n") else ""),
+            "é pagamento da fatura": "sim" if l.get("pagamento") else "",
+        } for l in lancs]),
+        use_container_width=True, hide_index=True,
+        column_config={"valor": st.column_config.NumberColumn(
+            format="R$ %.2f")})
+    if texto:
+        with st.expander("O texto cru do PDF — para conferir o que ficou de fora"):
+            st.code(texto[:20000], language=None)
 
 
 def _processar(arq, _itau, _inter, _fv, _lan, usuario_logado):
