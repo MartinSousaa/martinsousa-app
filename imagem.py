@@ -5129,9 +5129,16 @@ def salvar_prompts_na_pasta(pasta_id, nome_produto, quando=None):
                           for c in (nome_produto or "produto"))[:40].strip()
                 + f" - {_agora.strftime('%Y-%m-%d %H%M')}.txt")
 
-    import gdrive
-    info, err = gdrive.upload(texto.encode("utf-8"), nome_arq, pasta_id,
-                              mimetype="text/plain")
+    # O `import` TAMBÉM PRECISA ESTAR COBERTO. `gdrive.upload` já devolve o
+    # erro em vez de levantar, mas o import dele não: uma dependência do
+    # Google fora do lugar levantaria AQUI, depois de as imagens já terem
+    # subido — o pior ponto possível para uma exceção nascer.
+    try:
+        import gdrive
+        info, err = gdrive.upload(texto.encode("utf-8"), nome_arq, pasta_id,
+                                  mimetype="text/plain")
+    except Exception as e:
+        return "", f"{type(e).__name__}: {str(e)[:120]}"
     if err:
         return "", err
     return nome_arq, ""
@@ -8280,6 +8287,40 @@ if __name__ == "__main__":
     # O PRODUTO DO LADO NAO ENTRA NO ARQUIVO DESTE.
     ok("so os prompts deste produto entram",
        b"Prompt de outro produto" not in _subido.get("dados", b""))
+
+    # O ERRO AQUI E RECADO, NUNCA EXCECAO: as imagens ja subiram quando esta
+    # funcao roda, e uma excecao aqui estragaria o salvamento delas.
+    class _GdriveQueExplode:
+        @staticmethod
+        def upload(*a, **k):
+            raise RuntimeError("Google fora do ar")
+
+    _mods2 = dict(sys.modules)
+    sys.modules["gdrive"] = _GdriveQueExplode
+    sys.modules["log_imagem"] = _LogFalso
+    try:
+        _n2, _e2 = salvar_prompts_na_pasta("PASTA123", "Caneca")
+    finally:
+        sys.modules.clear()
+        sys.modules.update(_mods2)
+    ok("Drive fora do ar vira recado, e nao excecao",
+       _n2 == "" and "Google fora do ar" in _e2)
+
+    # SEM PROMPT REGISTRADO, tambem nao explode — so diz que nao ha o que subir.
+    class _LogVazio:
+        @staticmethod
+        def ler(n=500):
+            return []
+
+    _mods3 = dict(sys.modules)
+    sys.modules["log_imagem"] = _LogVazio
+    try:
+        _n3, _e3 = salvar_prompts_na_pasta("PASTA123", "Caneca")
+    finally:
+        sys.modules.clear()
+        sys.modules.update(_mods3)
+    ok("sem prompt registrado, avisa em vez de subir arquivo vazio",
+       _n3 == "" and "nenhum prompt" in _e3)
 
     # ── A PECA PRECISA SER VISIVEL DE DENTRO DA THREAD ──────────────────
     #
