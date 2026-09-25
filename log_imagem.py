@@ -99,8 +99,16 @@ def _garantir_coluna_prompt(aba):
         cab = aba.row_values(1) or []
         if len(cab) >= len(COLUNAS):
             return
-        aba.update(f"A1:{chr(ord('A') + len(COLUNAS) - 1)}1", [COLUNAS],
-                   value_input_option="RAW")
+        # SÓ A CÉLULA QUE FALTA. A primeira versão reescrevia `A1:I1` com
+        # COLUNAS inteiro — e isso RENOMEIA as oito colunas que já existem.
+        # Se um dia a aba tiver sido editada à mão, ou se a ordem de COLUNAS
+        # mudar, o registro antigo passa a ser lido sob outro nome, em
+        # silêncio. Escrever só o que falta não tem esse alcance.
+        import gspread.utils as _gu
+        faltando = COLUNAS[len(cab):]
+        for i, nome in enumerate(faltando):
+            celula = _gu.rowcol_to_a1(1, len(cab) + 1 + i)
+            aba.update(celula, [[nome]], value_input_option="RAW")
     except Exception:
         pass
 
@@ -112,3 +120,56 @@ def ler(limite=200):
     except Exception:
         return []
     return list(reversed(linhas))[:limite]
+
+
+# ── Conferência ──────────────────────────────────────────────────────────────
+# `python3 log_imagem.py`. Só o cabeçalho — o resto é planilha.
+if __name__ == "__main__":
+    falhas = 0
+
+    def ok(nome, cond):
+        global falhas
+        falhas += not cond
+        print(("ok    " if cond else "FALHA ") + nome)
+
+    class _AbaFalsa:
+        def __init__(self, cab):
+            self.cab, self.escritas = list(cab), []
+
+        def row_values(self, n):
+            return self.cab
+
+        def update(self, faixa, vals, **kw):
+            self.escritas.append((faixa, vals[0][0]))
+
+    def _rodar(cab):
+        globals()["_cabecalho_conferido"] = False
+        a = _AbaFalsa(cab)
+        _garantir_coluna_prompt(a)
+        return a
+
+    # A ABA ANTIGA TEM 8 COLUNAS; a nona precisa existir para o prompt ser
+    # LIDO de volta. Registro que não se consegue ler não é registro.
+    _a = _rodar(COLUNAS[:-1])
+    ok("a coluna que falta e escrita", _a.escritas == [("I1", "prompt")])
+    # E SÓ ELA. Reescrever A1:I1 renomearia as oito que já existem — se a aba
+    # tiver sido editada à mão, o registro antigo passa a ser lido sob outro
+    # nome, em silêncio.
+    ok("e nenhuma das que ja existem e tocada",
+       all(f != "A1" for f, _ in _a.escritas))
+    ok("aba completa nao e tocada", _rodar(COLUNAS).escritas == [])
+    ok("aba curta ganha todas as que faltam",
+       len(_rodar(COLUNAS[:2]).escritas) == len(COLUNAS) - 2)
+
+    # UMA VEZ POR PROCESSO: oito imagens nao podem virar oito leituras a mais
+    # do Drive no meio da geracao.
+    _a2 = _AbaFalsa(COLUNAS[:-1])
+    globals()["_cabecalho_conferido"] = False
+    _garantir_coluna_prompt(_a2)
+    _garantir_coluna_prompt(_a2)
+    _garantir_coluna_prompt(_a2)
+    ok("tres chamadas, uma escrita so", len(_a2.escritas) == 1)
+
+    ok("a coluna do prompt e a ultima", COLUNAS[-1] == "prompt")
+
+    print("\nfalhas:", falhas)

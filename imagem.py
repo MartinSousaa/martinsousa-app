@@ -4269,20 +4269,40 @@ def marcar_peca_em_ajuste(num):
 
     O rótulo não serve de chave: depois de um ajuste ele vira outra coisa
     (ver `tipo_canonico`), e a cadeia se partiria no meio.
+
+    POR QUE NÃO VAI SÓ NO `session_state`
+    -------------------------------------
+    O ajuste roda numa THREAD (`_rodar_cmd`, `_rodar_afg`), e é de dentro
+    dela que `gerar_imagem_ia` registra o prompt. Fora da thread do script,
+    `st.session_state` não tem contexto: a leitura volta vazia. A peça
+    chegaria em branco ao registro e a cadeia — a coisa inteira que isto
+    existe para montar — ficaria sem chave, em silêncio.
+
+    Então o valor mora também num global do módulo, que a thread enxerga. O
+    `session_state` continua sendo escrito porque é onde a tela procura.
+
+    O QUE ISSO CUSTA, DITO EM VOZ ALTA: o global é do processo, não da
+    sessão. Dois colaboradores ajustando peças diferentes no mesmo segundo
+    podem trocar o número entre si. A consequência é uma linha de REGISTRO
+    com a peça errada — nunca uma imagem errada, e nunca um erro de tela.
+    Resolver de vez pede a peça viajando por parâmetro até o motor, que são
+    três assinaturas e todas as chamadas delas.
     """
+    global _PECA_EM_AJUSTE
+    _PECA_EM_AJUSTE = "" if num is None else str(num)
     try:
-        st.session_state["img_peca_em_ajuste"] = ("" if num is None
-                                                  else str(num))
+        st.session_state["img_peca_em_ajuste"] = _PECA_EM_AJUSTE
     except Exception:
         pass
 
 
+# A peça que está sendo ajustada agora. Global porque a thread precisa ver.
+_PECA_EM_AJUSTE = ""
+
+
 def peca_em_ajuste():
     """A peça marcada, ou "" quando o ajuste não é de uma peça da galeria."""
-    try:
-        return str(st.session_state.get("img_peca_em_ajuste") or "")
-    except Exception:
-        return ""
+    return _PECA_EM_AJUSTE or ""
 
 
 def montar_prompt_ajuste_fino(instrucao, tipo=None, cor_produto=None):
@@ -8127,6 +8147,23 @@ if __name__ == "__main__":
         "4 — Close nos detalhes", "",
         {"cor": "preto", "material": "Capa dura, encadernação Wire-O preta"},
         "Álbum")
+    # ── A PECA PRECISA SER VISIVEL DE DENTRO DA THREAD ──────────────────
+    #
+    # O ajuste roda em `threading.Thread`, e e de la que o prompt e
+    # registrado. Se a peca morasse so no `session_state`, a leitura de
+    # dentro da thread voltaria vazia e a cadeia ficaria sem chave — em
+    # silencio, que e o pior jeito de um registro falhar.
+    import threading as _th_teste
+    marcar_peca_em_ajuste(4)
+    _visto = {}
+    _t = _th_teste.Thread(target=lambda: _visto.__setitem__("n", peca_em_ajuste()))
+    _t.start(); _t.join()
+    ok("a peca marcada e vista de dentro de uma thread", _visto.get("n") == "4")
+    marcar_peca_em_ajuste(None)
+    ok("e limpar limpa", peca_em_ajuste() == "")
+    ok("ajuste de foto avulsa nao inventa numero de peca",
+       peca_em_ajuste() == "")
+
     ok("o material do cadastro chega ao brief",
        "Material e montagem" in _p_mat and "Wire-O" in _p_mat)
     ok("e com a ordem de nao deduzir",
