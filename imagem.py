@@ -5080,6 +5080,63 @@ def upload_para_pasta(imagem_bytes, nome_arquivo, pasta_id):
     return info.get("webViewLink"), None
 
 
+def salvar_prompts_na_pasta(pasta_id, nome_produto, quando=None):
+    """Sobe o histórico de prompts deste produto para a pasta dele. (nome, erro).
+
+    POR QUE AUTOMÁTICO, JUNTO COM AS IMAGENS
+    ----------------------------------------
+    O dono: *"ele precisa salvar automaticamente quando o colaborador clicar
+    em salvar as imagens — isso evita do colaborador esquecer de salvar esse
+    prompt também"*.
+
+    Um passo a mais para quem salva é um passo que vai ser esquecido, e o
+    esquecimento só aparece meses depois, quando alguém procura o prompt de
+    um caso específico e ele não está lá. O arquivo entra na MESMA pasta das
+    imagens: quem achar a imagem acha o prompt dela, sem precisar saber que
+    existe um lugar separado.
+
+    NUNCA PODE DERRUBAR O SALVAMENTO DAS IMAGENS. As imagens são o trabalho;
+    o prompt é o rastro. Quem chama trata o erro como recado, não como falha.
+    """
+    try:
+        import log_imagem as _li
+        import comparar_prompt as _cmp
+        linhas = _li.ler(500)
+        nome = str(nome_produto or "").strip()
+        if nome:
+            linhas = [l for l in linhas
+                      if str(l.get("produto", "")).strip() == nome]
+        if not _cmp.cadeias(linhas):
+            return "", "nenhum prompt registrado para este produto"
+        texto = _cmp.relatorio_txt(linhas)
+    except Exception as e:
+        return "", f"{type(e).__name__}: {str(e)[:120]}"
+
+    # O NOME CARREGA A DATA, e é de propósito: salvar de novo amanhã não pode
+    # sobrescrever o arquivo de hoje. O histórico de um produto é a sequência
+    # das rodadas dele, e uma rodada apagando a anterior seria o contrário
+    # do que isto existe para fazer.
+    # O RELÓGIO DO CONTAINER É UTC (CLAUDE.md). Sem o fuso, um arquivo
+    # salvo às 22h daqui sai com a data do dia seguinte no nome.
+    from datetime import datetime as _dt
+    try:
+        import placar_core as _pc
+        _agora = quando or _dt.now(_pc.FUSO)
+    except Exception:
+        _agora = quando or _dt.now()
+    nome_arq = ("prompts - "
+                + "".join(c if c.isalnum() or c in " -_" else "_"
+                          for c in (nome_produto or "produto"))[:40].strip()
+                + f" - {_agora.strftime('%Y-%m-%d %H%M')}.txt")
+
+    import gdrive
+    info, err = gdrive.upload(texto.encode("utf-8"), nome_arq, pasta_id,
+                              mimetype="text/plain")
+    if err:
+        return "", err
+    return nome_arq, ""
+
+
 def criar_zip_galeria(galeria, nome_produto):
     """Cria ZIP em memória com todas as imagens da galeria. Retorna bytes."""
     buf = io.BytesIO()
@@ -7517,8 +7574,30 @@ def pagina_imagem(usuario_logado):
                     else:
                         links_salvos.append(link)
 
+                # ── O HISTÓRICO DE PROMPTS VAI JUNTO, SOZINHO ─────────
+                #
+                # Pedido do dono: "ele precisa salvar automaticamente quando
+                # o colaborador clicar em salvar as imagens — isso evita do
+                # colaborador esquecer de salvar esse prompt também".
+                #
+                # Na MESMA pasta das imagens: quem achar a imagem acha o
+                # prompt dela. E o erro aqui é recado, não falha — as imagens
+                # são o trabalho, o prompt é o rastro.
+                barra_salvar.progress(0.98, text="Salvando o histórico de prompts...")
+                _arq_prompts, _err_prompts = salvar_prompts_na_pasta(
+                    pasta_destino_id, nome_gal)
+
                 barra_salvar.progress(1.0, text="Concluído!")
                 link_pasta = f"https://drive.google.com/drive/folders/{pasta_destino_id}"
+
+                if _arq_prompts:
+                    st.caption(f"📄 Histórico de prompts salvo na mesma pasta: "
+                               f"**{_arq_prompts}**")
+                elif _err_prompts:
+                    st.caption(f"📄 As imagens foram salvas. O histórico de "
+                               f"prompts, não — {_err_prompts}. Use o botão "
+                               f"\"Preparar histórico de prompts\" para "
+                               f"baixá-lo e guardá-lo à mão.")
 
                 if links_salvos:
                     import atividades
@@ -8147,6 +8226,61 @@ if __name__ == "__main__":
         "4 — Close nos detalhes", "",
         {"cor": "preto", "material": "Capa dura, encadernação Wire-O preta"},
         "Álbum")
+    # ── O HISTORICO DE PROMPTS VAI PARA A PASTA DO PRODUTO ──────────────
+    #
+    # "Ele precisa salvar automaticamente quando o colaborador clicar em
+    # salvar as imagens" — dono, 25/09. Um passo a mais para quem salva e um
+    # passo que vai ser esquecido, e o esquecimento so aparece meses depois.
+    _subido = {}
+
+    class _GdriveFalso:
+        @staticmethod
+        def upload(dados, nome, pasta, mimetype="image/png", publico=True):
+            _subido.update({"dados": dados, "nome": nome, "pasta": pasta,
+                            "mime": mimetype})
+            return {"webViewLink": "http://exemplo", "na_raiz": False}, None
+
+    class _LogFalso:
+        @staticmethod
+        def ler(n=500):
+            return [
+                {"quando": "25/09/2026 10:00:00", "produto": "Caneca",
+                 "imagem": "1", "acao": "prompt_geracao", "usuario": "myrella",
+                 "prompt": "O produto ocupa 85-92% do quadro."},
+                {"quando": "25/09/2026 10:10:00", "produto": "Caneca",
+                 "imagem": "1", "acao": "prompt_ajuste", "usuario": "myrella",
+                 "prompt": "MODO AJUSTE FINO\nA alca virada para a direita."},
+                {"quando": "25/09/2026 10:20:00", "produto": "Outro produto",
+                 "imagem": "1", "acao": "prompt_geracao", "usuario": "leo",
+                 "prompt": "Prompt de outro produto qualquer aqui."},
+            ]
+
+    import sys as _sys_t
+    sys = _sys_t
+    _mods = dict(sys.modules)
+    sys.modules["gdrive"] = _GdriveFalso
+    sys.modules["log_imagem"] = _LogFalso
+    try:
+        _nome_arq, _err = salvar_prompts_na_pasta("PASTA123", "Caneca")
+    finally:
+        sys.modules.clear()
+        sys.modules.update(_mods)
+
+    ok("o historico sobe sozinho, sem erro", _err == "" and _nome_arq)
+    ok("vai para a pasta das imagens", _subido.get("pasta") == "PASTA123")
+    ok("e como texto, nao como imagem", _subido.get("mime") == "text/plain")
+    ok("o nome diz o que e e de que produto",
+       "prompts" in _nome_arq and "Caneca" in _nome_arq)
+    # SALVAR DE NOVO NAO PODE SOBRESCREVER A RODADA ANTERIOR: o historico de
+    # um produto e a sequencia das rodadas dele.
+    ok("o nome carrega a data e a hora",
+       len([c for c in _nome_arq if c.isdigit()]) >= 10)
+    ok("e o arquivo e texto legivel",
+       b"O produto ocupa 85-92%" in _subido.get("dados", b""))
+    # O PRODUTO DO LADO NAO ENTRA NO ARQUIVO DESTE.
+    ok("so os prompts deste produto entram",
+       b"Prompt de outro produto" not in _subido.get("dados", b""))
+
     # ── A PECA PRECISA SER VISIVEL DE DENTRO DA THREAD ──────────────────
     #
     # O ajuste roda em `threading.Thread`, e e de la que o prompt e
