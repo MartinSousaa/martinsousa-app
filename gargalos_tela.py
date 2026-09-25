@@ -243,7 +243,65 @@ def pagina(usuario_logado=None):
     st.markdown("---")
     _tabela_pessoas(linhas)
     st.markdown("---")
+    _prompts_lado_a_lado(linhas)
+    st.markdown("---")
     _reinicios()
+
+
+def _prompts_lado_a_lado(linhas):
+    """O prompt que gerou × o prompt que corrigiu, e o que os separa.
+
+    Pedido do dono em 25/09. O valor não está em ver os dois textos — é em
+    saber QUAL DOS DOIS DIAGNÓSTICOS é o desta correção:
+
+        frase só na correção  ->  falta no prompt de geração. Escrever resolve.
+        frase nos dois        ->  o modelo ignorou. Escrever NÃO resolve.
+
+    O segundo é o caro, e é invisível sem esta tela: a regra estava lá, a
+    imagem saiu errada, e a reação natural é escrever a regra de novo — que é
+    exatamente o que já não funcionou.
+    """
+    import comparar_prompt as _cmp
+
+    st.markdown("##### 🔬 Prompt da geração × prompt da correção")
+    pares = _cmp.parear(linhas)
+    if not pares:
+        st.caption(
+            "Nenhum par ainda. Cada geração e cada correção passam a gravar o "
+            "texto que foi ao motor; o par aparece aqui quando uma correção "
+            "acontece depois de uma geração do mesmo produto.")
+        return
+
+    _rotulos = [f"{c.get('quando', '')} · {c.get('produto', '') or 'sem nome'}"
+                for _g, c in pares]
+    _i = st.selectbox("Correção", range(len(pares)),
+                      format_func=lambda i: _rotulos[i], key="garg_par")
+    ger, cor = pares[_i]
+    _nome, _frase = _cmp.veredito(ger.get("prompt"), cor.get("prompt"))
+    (st.error if _nome == "desobedecido" else
+     st.warning if _nome == "os dois" else st.info)(
+        f"**{_nome.upper()}** — {_frase}")
+
+    so_cor, dois, so_ger = _cmp.comparar(ger.get("prompt"), cor.get("prompt"))
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown(f"**Só na correção ({len(so_cor)})** — falta na geração")
+        for f in so_cor[:40]:
+            st.markdown(f"- {f}")
+    with c2:
+        st.markdown(f"**Nos dois ({len(dois)})** — já estava escrito e não "
+                    "foi cumprido")
+        for f in dois[:40]:
+            st.markdown(f"- {f}")
+
+    with st.expander(f"Só na geração ({len(so_ger)}) — o que a correção não repetiu"):
+        for f in so_ger[:60]:
+            st.markdown(f"- {f}")
+    with st.expander("Os dois prompts, inteiros"):
+        st.caption(f"Geração · {ger.get('quando', '')}")
+        st.code(str(ger.get("prompt") or ""), language=None)
+        st.caption(f"Correção · {cor.get('quando', '')}")
+        st.code(str(cor.get("prompt") or ""), language=None)
 
 
 # ── Conferência ──────────────────────────────────────────────────────────────

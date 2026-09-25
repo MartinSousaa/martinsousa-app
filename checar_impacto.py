@@ -62,7 +62,12 @@ import sys
 #
 # É o mesmo defeito que ele existe para achar: uma guarda que combina com o
 # que eu já tinha escrito. Quem confere não pode ser a própria cobertura.
-GUARDAS = ("checar_prompts.py", "checar_ordem.py", "auditar.py")
+# `checar_tela.py` entra aqui porque ele É uma guarda: desenha a tela inteira
+# e reprova o que quebra. Sem ele na lista, toda função de tela que ele cobre
+# aparecia como "sem guarda" — e um verificador que acusa o que já está
+# coberto ensina a ignorar o verificador.
+GUARDAS = ("checar_prompts.py", "checar_ordem.py", "auditar.py",
+           "checar_tela.py")
 
 # Nomes cuja mudança não precisa de guarda: são texto de tela, não regra.
 IGNORAR = re.compile(r"^(_?[a-z]*(msg|titulo|label|rotulo|texto_ajuda)[a-z_]*)$")

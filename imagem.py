@@ -2995,6 +2995,32 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
     if so_montar:
         return None, ""
 
+    # ── O PROMPT QUE FOI AO MOTOR FICA GRAVADO ────────────────────────────
+    #
+    # Pedido do dono em 25/09: *"preciso ter acesso do prompt original que
+    # gerou as imagens, e do prompt que o sistema utilizou para corrigir"* —
+    # para cruzar um com o outro.
+    #
+    # AQUI, E NÃO EM CADA CHAMADOR. Esta é a única porta do motor: geração,
+    # ajuste fino, refação e o que vier depois passam todos por ela. Registrar
+    # em cada chamador é a receita para o quinto esquecer.
+    #
+    # O marcador do ajuste está no próprio texto (`montar_prompt_ajuste_fino`
+    # abre com "MODO AJUSTE FINO"), então a linha sabe qual dos dois é sem
+    # precisar de parâmetro novo em quinze lugares.
+    #
+    # NUNCA pode derrubar a geração: `registrar` engole a própria exceção, e
+    # este `try` cobre até o import.
+    try:
+        import log_imagem as _li
+        _eh_ajuste = "MODO AJUSTE FINO" in (prompt_geracao or "")
+        _li.registrar(
+            "prompt_ajuste" if _eh_ajuste else "prompt_geracao",
+            instrucao="", tipo=(tipo or ""), resultado="enviado ao motor",
+            prompt=prompt_geracao)
+    except Exception:
+        pass
+
     # 4. Tenta o motor primário da OpenAI
     img_bytes = None
     erro_primario = None

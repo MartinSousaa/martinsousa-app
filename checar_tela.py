@@ -54,6 +54,17 @@ class _Falso:
         self.errors = types.SimpleNamespace(
             StreamlitDuplicateElementKey=ChaveRepetida)
 
+    # COLUNA E CONTAINER SAO CONTEXTO NO STREAMLIT DE VERDADE: `with c1:` é
+    # uso corrente. Sem estes dois métodos o duplo acusava o inocente —
+    # "'_Falso' object does not support the context manager protocol" — numa
+    # tela que funciona. É a mesma lição do `linha_do_mes`: dublê mais pobre
+    # que a realidade dá alarme falso, e alarme falso ensina a ignorar.
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
     # ── widgets: o que tem `key` entra no registro ───────────────────────
     def _registra(self, nome, kw):
         k = kw.get("key")
@@ -310,6 +321,37 @@ def _extratos(conta):
               f"explodiu por outro motivo: {type(e).__name__}: {e}")
 
 
+def _gargalos(conta):
+    """O bloco que compara o prompt da geração com o da correção."""
+    import gargalos_tela as gt
+
+    _log = [
+        {"quando": "25/09/2026 10:00:00", "produto": "Caneca", "usuario": "leo",
+         "acao": "prompt_geracao", "imagem": "", "tipo": "1", "instrucao": "",
+         "resultado": "enviado ao motor",
+         "prompt": "O produto ocupa 85-92% do quadro.\n"
+                   "Nenhuma parte do produto cortada pela borda."},
+        {"quando": "25/09/2026 10:10:00", "produto": "Caneca", "usuario": "leo",
+         "acao": "prompt_ajuste", "imagem": "3", "tipo": "1", "instrucao": "",
+         "resultado": "enviado ao motor",
+         "prompt": "MODO AJUSTE FINO\n"
+                   "Nenhuma parte do produto cortada pela borda.\n"
+                   "A alca da caneca fica virada para a direita."},
+    ]
+    for nome, linhas in (("Gargalos: com par de prompts", _log),
+                         ("Gargalos: sem par nenhum", []),
+                         ("Gargalos: correção órfã", _log[1:])):
+        _falso = instalar()
+        gt.st = _falso
+        try:
+            gt._prompts_lado_a_lado(linhas)
+            conta(nome, True, "")
+        except (_Rerun, _Parou):
+            conta(nome, True, "")
+        except Exception as e:
+            conta(nome, False, f"{type(e).__name__}: {e}")
+
+
 def main():
     instalar()
     falhas = []
@@ -322,6 +364,7 @@ def main():
 
     _home(falhas, conta)
     _extratos(conta)
+    _gargalos(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0
