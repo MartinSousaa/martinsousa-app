@@ -808,9 +808,12 @@ def _chamar_ia(historico: list, mensagem_usuario: str, imagens_bytes: list = Non
         # O teto de 8 rodadas existe porque laço sem fim é conta aberta: são
         # 64 mil tokens de resposta, muito além das nove peças. Se ele for
         # alcançado, a tela diz — não se finge que a resposta veio inteira.
+        # `texto_raw` vazio significa que a resposta foi só tool_use — e um
+        # turno de assistente com conteúdo vazio é recusado pela API. Sem
+        # esta condição, o conserto do corte viraria um erro novo.
         _rodadas_cont = 0
         while (getattr(resp, "stop_reason", "") == "max_tokens"
-               and _rodadas_cont < 8):
+               and texto_raw.strip() and _rodadas_cont < 8):
             _rodadas_cont += 1
             msgs_cont = list(msgs) + [
                 {"role": "assistant", "content": texto_raw}]
@@ -1128,6 +1131,11 @@ if __name__ == "__main__":
     ok("o aviso da tela nao manda a pessoa dividir a mensagem",
        ("duas " + "mensagens") not in _aviso)
     ok("o teto de tokens comporta as nove pecas", "max_tokens=8000" in _corpo)
+    # RESPOSTA SO DE FERRAMENTA nao pode entrar no laco: um turno de
+    # assistente com conteudo vazio e recusado pela API, e o conserto do
+    # corte viraria um erro novo.
+    ok("resposta sem texto nao entra na continuacao",
+       "and texto_raw.strip()" in _corpo)
 
     # ── A LINGUAGEM COM QUEM USA ────────────────────────────────────────
     #
