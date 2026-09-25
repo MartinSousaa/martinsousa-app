@@ -4960,11 +4960,31 @@ def _relato_base(num, relato):
         if colateral:
             txt += f"\n   ⚠️ Mudou também, sem ter sido pedido: {colateral}"
         return txt
-    falta = relato.get("falta") or "a alteração pedida não apareceu"
-    return (f"❌ Imagem {num}: **não consegui fazer** em "
-            f"{relato['tentativas']} tentativa(s). Falta: {falta}\n"
-            f"   A imagem ficou como estava. Tente descrever de outro jeito, "
-            f"dizendo o que DEVE existir em vez do que não deve.")
+    # ── A FALHA NÃO DEVOLVE A LIÇÃO DE CASA PARA QUEM PEDIU ─────────────
+    #
+    # Esta mensagem dizia: "Tente descrever de outro jeito, dizendo o que
+    # DEVE existir em vez do que não deve". Em 25/09 a colaboradora recebeu
+    # isso em quatro das sete peças, depois de ter descrito cada defeito com
+    # clareza — "a frase está cortada nas laterais", "o material está errado,
+    # é veludo e acrílico". O pedido dela estava certo; quem não conseguiu
+    # traduzir foi o sistema, e a conta voltava para ela.
+    #
+    # E o texto de `falta` vem do conferidor, escrito para o GERADOR: sai
+    # cheio de "6% da base do quadro" e "grade 2x2". Na tela de quem
+    # trabalha, isso é ruído — o dono pediu em 25/09 que a comunicação seja
+    # didática e simples.
+    falta = (relato.get("falta") or "").strip()
+    _pedaco = f" O que faltou: {falta}" if falta and len(falta) < 180 else ""
+    if relato.get("produto_alterado"):
+        return (f"❌ Imagem {num}: não consegui — toda vez que tentei, o "
+                f"produto mudava junto, e produto errado é pior que peça sem "
+                f"correção. Ela ficou como estava.\n"
+                f"   Me diga o que fazer: posso refazer a peça do zero com "
+                f"esse ajuste desde o começo, ou deixar como está.")
+    return (f"❌ Imagem {num}: não consegui em {relato['tentativas']} "
+            f"tentativa(s), e a imagem ficou como estava.{_pedaco}\n"
+            f"   Não precisa reescrever nada — me peça de novo e eu tento "
+            f"por outro caminho.")
 
 
 def _drive_service():
@@ -5745,26 +5765,73 @@ def pagina_imagem(usuario_logado):
         _sel_triagem_key = "img_triagem_sel_idx"
         _busca_prev_key = "img_triagem_busca_prev"
 
-        # Limpa seleção se nome_produto mudou
+        # Limpa seleção se nome_produto mudou. O "ignorar" vai junto: ele é
+        # a resposta sobre UM produto, e levá-la para o próximo faria a
+        # triagem certa ser descartada sem ninguém pedir.
         if st.session_state.get(_busca_prev_key) != nome_produto:
             st.session_state[_sel_triagem_key] = None
+            st.session_state["img_triagem_ignorar"] = False
             st.session_state[_busca_prev_key] = nome_produto
 
         _encontrados_t = _triagem_img.buscar_triagens_por_trecho(nome_produto)
 
         if len(_encontrados_t) == 1:
-            # Variante única → auto-seleciona e completa specs faltantes
+            # ── UMA TRIAGEM SÓ TAMBÉM PRECISA SER ANUNCIADA ──────────────
+            #
+            # O DEFEITO QUE ISTO CORRIGE, relatado em 25/09: "ele puxou da
+            # triagem da caneca de pedra e colocou que o porta-joias é de
+            # veludo e resina".
+            #
+            # A busca é por TRECHO do nome (`buscar_triagens_por_trecho`), e
+            # quando ela devolvia UMA, esta tela preenchia material, medidas,
+            # peso, cor e características **em silêncio** — nenhuma linha na
+            # tela dizia de qual produto aquilo tinha vindo. Com duas ou mais
+            # ela avisa e deixa trocar; com uma, não avisava nada. A pessoa
+            # só descobria o produto errado na imagem pronta, depois de
+            # gastar a geração.
+            #
+            # E não havia como recusar. Ela pediu ao chat para ignorar a
+            # triagem, e o chat não tem como: o material entra aqui, antes de
+            # qualquer conversa.
             _t = _encontrados_t[0]
-            if not dados_descricao:
-                dados_descricao = {}
-            for _fld, _val in [
-                ("medidas", _t.get("medidas")), ("peso", _t.get("peso")),
-                ("material", _t.get("material")), ("cor", _t.get("variacao_cores")),
-                ("caracteristicas", _t.get("caracteristicas")),
-                ("diferenciais", _t.get("diferenciais")),
-            ]:
-                if _val and not dados_descricao.get(_fld):
-                    dados_descricao[_fld] = _val
+            _ignora_key = "img_triagem_ignorar"
+            _ignorando = bool(st.session_state.get(_ignora_key))
+
+            _c_tri, _c_btn_tri = st.columns([5, 1])
+            if _ignorando:
+                _c_tri.warning(
+                    f"🚫 Triagem **ignorada** por sua escolha: "
+                    f"{_t.get('nome_comercial', '')}. Material, medidas e "
+                    f"peso NÃO serão preenchidos por ela — use o campo de "
+                    f"instruções para dizer o material certo.")
+                if _c_btn_tri.button("Usar de novo", key="img_tri_voltar",
+                                     use_container_width=True):
+                    st.session_state[_ignora_key] = False
+                    st.rerun()
+            else:
+                _c_tri.info(
+                    f"📋 Usando a triagem **{_t.get('nome_comercial', '')}**"
+                    f"{' · ' + _triagem_img._label_variante(_t) if _triagem_img._label_variante(_t) else ''}"
+                    f"  \nMaterial: **{_t.get('material') or '—'}** · "
+                    f"Medidas: {_t.get('medidas') or '—'} · "
+                    f"Peso: {_t.get('peso') or '—'}")
+                if _c_btn_tri.button("Não é esta", key="img_tri_ignorar",
+                                     use_container_width=True,
+                                     help="Ignora esta triagem nesta geração"):
+                    st.session_state[_ignora_key] = True
+                    st.rerun()
+
+            if not _ignorando:
+                if not dados_descricao:
+                    dados_descricao = {}
+                for _fld, _val in [
+                    ("medidas", _t.get("medidas")), ("peso", _t.get("peso")),
+                    ("material", _t.get("material")), ("cor", _t.get("variacao_cores")),
+                    ("caracteristicas", _t.get("caracteristicas")),
+                    ("diferenciais", _t.get("diferenciais")),
+                ]:
+                    if _val and not dados_descricao.get(_fld):
+                        dados_descricao[_fld] = _val
 
         elif len(_encontrados_t) > 1:
             _selecionado_t_idx = st.session_state.get(_sel_triagem_key)
@@ -8233,6 +8300,35 @@ if __name__ == "__main__":
         "4 — Close nos detalhes", "",
         {"cor": "preto", "material": "Capa dura, encadernação Wire-O preta"},
         "Álbum")
+    # ── A FALHA DO AJUSTE NAO DEVOLVE A LICAO DE CASA ───────────────────
+    #
+    # Em 25/09 a colaboradora recebeu "tente descrever de outro jeito" em
+    # quatro das sete pecas, depois de ter descrito cada defeito com clareza.
+    # O pedido dela estava certo; quem nao conseguiu traduzir foi o sistema.
+    _r_prod = _relato_base(5, {"tentativas": 2, "ok": False,
+                               "produto_alterado": True, "falta": "x" * 300})
+    ok("a falha nao manda a pessoa reescrever o pedido",
+       ("Tente descrever de outro " + "jeito") not in _r_prod)
+    ok("quando o produto mudava, a tela explica e oferece o caminho",
+       "produto mudava junto" in _r_prod and "refazer a peça do zero" in _r_prod)
+    _r_falta = _relato_base(5, {"tentativas": 2, "ok": False,
+                                "falta": "os cards devem caber inteiros"})
+    ok("o que faltou sai quando e curto o bastante para ajudar",
+       "os cards devem caber inteiros" in _r_falta)
+    # O TEXTO DO CONFERIDOR E ESCRITO PARA O GERADOR: sai com "6% da base do
+    # quadro" e "grade 2x2". Na tela de quem trabalha isso e ruido.
+    _r_tec = _relato_base(5, {"tentativas": 2, "ok": False,
+                              "falta": "Reduza os quatro cards e organize-os "
+                                       "em grade 2x2 ocupando a metade "
+                                       "inferior, com a borda terminando a "
+                                       "pelo menos 6% da base do quadro, e os "
+                                       "textos completos e legiveis em cada "
+                                       "um dos quatro."})
+    ok("instrucao tecnica longa nao vai para a tela dela",
+       "6%" not in _r_tec and "grade 2x2" not in _r_tec)
+    ok("e ela sabe que nao precisa reescrever",
+       "Não precisa reescrever nada" in _r_tec)
+
     # ── O HISTORICO DE PROMPTS VAI PARA A PASTA DO PRODUTO ──────────────
     #
     # "Ele precisa salvar automaticamente quando o colaborador clicar em
