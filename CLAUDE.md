@@ -95,6 +95,27 @@ Desenvolver em `homologacao`. O merge para `main` é feito pelo GitHub MCP
 (`create_pull_request` + `merge_pull_request`) — comandos `git checkout main` /
 `git merge` via Bash são bloqueados neste ambiente.
 
+**A análise de risco não se pede: ela é obrigatória em todo merge.**
+
+O dono escreveu a condição dele dezenas de vezes — *"se for corrigir e não for
+travar ou gerar nada errado, pode subir"* — e em 25/09 perguntou o óbvio: *"se
+eu não mandar todas as vezes, você não analisa?"*. Analisar era para ser o
+padrão, e não um favor que se pede a cada mensagem.
+
+Então nenhum merge para `main` acontece sem que estas três respostas existam,
+escritas antes do merge e não depois:
+
+1. **Os cinco verificadores passaram?** Não "devem passar": rodaram, e a saída
+   está no commit.
+2. **O que este commit muda que alguém mais lê?** `checar_impacto` responde
+   metade; a outra metade é abrir o arquivo de quem lê.
+3. **A guarda nova reprova o defeito?** Reintroduzir o defeito e ver a guarda
+   falhar. Guarda que nunca viu o defeito é guarda que nunca foi testada —
+   três desta base nasceram erradas assim.
+
+Verde nos cinco não é licença para subir com produção em uso: com gente
+trabalhando no Studio, quem decide a hora é o dono.
+
 ## Antes de todo push, os três verificadores
 
 ```
@@ -102,7 +123,26 @@ python3 -m compileall -q .      # sintaxe
 python3 checar_ordem.py *.py    # nome lido antes de existir (UnboundLocalError)
 python3 checar_prompts.py       # regra de imagem que ficou faltando ou sobrando
 python3 checar_impacto.py       # quem mais lê o que este commit mudou
+python3 checar_tela.py          # a tela monta sem quebrar?
 ```
+
+O quinto existe porque os outros quatro **não desenham nada**, e uma tela
+quebrada passou por todos eles. Em 25/09 a Home caiu em produção com
+`TypeError: string indices must be integers`: `_lpv_card` devolvia o cartão já
+renderizado numa lista em que todo o resto era dicionário. O auto-teste
+conferia o HTML dessa função isolada — exatamente o único lugar onde o tipo
+errado parecia certo.
+
+`checar_tela.py` troca o Streamlit por um duplo, põe dado de mentira no lugar
+das planilhas e manda a página se desenhar inteira, em cinco cenários: com
+tudo, sem LPV, sem custo fixo, sem Bling, sem a BASE DE VENDAS. O duplo também
+guarda toda chave de widget e explode na repetida — foi assim que a tela de
+Extratos caiu no mesmo dia, com `StreamlitDuplicateElementKey: ext_fin_0`.
+
+**Só o que vai à planilha ou à rede é substituído.** A primeira versão dele
+trocava `linha_do_mes` por um dicionário mais pobre que a realidade e acusou o
+inocente. Verificador que dá alarme falso é pior que nenhum: ensina a
+ignorá-lo.
 
 O quarto existe porque três correções seguidas precisaram de uma segunda
 correção, e o padrão era sempre o mesmo: **mudei uma coisa e não listei quem

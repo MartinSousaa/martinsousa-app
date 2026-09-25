@@ -2995,6 +2995,36 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
     if so_montar:
         return None, ""
 
+    # ── O PROMPT QUE FOI AO MOTOR FICA GRAVADO ────────────────────────────
+    #
+    # Pedido do dono em 25/09: *"preciso ter acesso do prompt original que
+    # gerou as imagens, e do prompt que o sistema utilizou para corrigir"* —
+    # para cruzar um com o outro.
+    #
+    # AQUI, E NÃO EM CADA CHAMADOR. Esta é a única porta do motor: geração,
+    # ajuste fino, refação e o que vier depois passam todos por ela. Registrar
+    # em cada chamador é a receita para o quinto esquecer.
+    #
+    # O marcador do ajuste está no próprio texto (`montar_prompt_ajuste_fino`
+    # abre com "MODO AJUSTE FINO"), então a linha sabe qual dos dois é sem
+    # precisar de parâmetro novo em quinze lugares.
+    #
+    # NUNCA pode derrubar a geração: `registrar` engole a própria exceção, e
+    # este `try` cobre até o import.
+    try:
+        import log_imagem as _li
+        _eh_ajuste = "MODO AJUSTE FINO" in (prompt_geracao or "")
+        # A PEÇA É A CHAVE DA CADEIA. Na geração ela é o número do tipo (a
+        # peça 4 é a peça 4 do plano); no ajuste, a que o chat marcou.
+        _peca = (peca_em_ajuste() if _eh_ajuste
+                 else str(numero_do_tipo(tipo) or ""))
+        _li.registrar(
+            "prompt_ajuste" if _eh_ajuste else "prompt_geracao",
+            instrucao="", imagem=_peca, tipo=(tipo or ""),
+            resultado="enviado ao motor", prompt=prompt_geracao)
+    except Exception:
+        pass
+
     # 4. Tenta o motor primário da OpenAI
     img_bytes = None
     erro_primario = None
@@ -4178,6 +4208,103 @@ def prompt_para_regerar(tipo, instrucoes, dados_descricao, nome_produto):
     )
 
 
+def _baixar_historico_de_prompts():
+    """Um botão que leva TODO o histórico de prompts deste produto num .txt.
+
+    POR QUE AQUI, NA TELA DE QUEM GERA
+    ----------------------------------
+    O dono: *"copiar todos os prompts vai gerar muito trabalho e a
+    possibilidade de erros manuais... nem que tenha um botão de extração TXT
+    de todo o histórico de prompts daquela sessão"*. Quem vive esta tela é
+    quem gera e quem corrige; obrigá-la a ir até Gargalos para levar o
+    histórico é uma ida a mais por rodada.
+
+    DOIS CLIQUES, E É DE PROPÓSITO. O `download_button` precisa do arquivo
+    PRONTO para desenhar — ou seja, um botão de um clique só leria a planilha
+    a cada vez que esta tela fosse desenhada, que é a cada clique em qualquer
+    coisa. O primeiro clique monta, o segundo baixa, e a tela não fica lenta
+    para quem só queria ver a copy.
+    """
+    _produto = str(st.session_state.get("img_nome_produto", "")
+                   or st.session_state.get("nome_produto", "") or "").strip()
+    if st.button("📄 Preparar histórico de prompts (.txt)",
+                 use_container_width=True, key="btn_hist_prompts"):
+        try:
+            import log_imagem as _li
+            _linhas = _li.ler(500)
+            if _produto:
+                _linhas = [l for l in _linhas
+                           if str(l.get("produto", "")).strip() == _produto]
+            import comparar_prompt as _cmp
+            st.session_state["img_hist_txt"] = _cmp.relatorio_txt(_linhas)
+        except Exception as e:
+            st.session_state["img_hist_txt"] = ""
+            st.error(f"Não consegui montar o histórico: {type(e).__name__}")
+    _txt = st.session_state.get("img_hist_txt") or ""
+    if _txt:
+        st.download_button(
+            "⬇️ Baixar o histórico de prompts",
+            data=_txt.encode("utf-8"),
+            file_name=f"prompts_{(_produto or 'studio').replace(' ', '_')}.txt",
+            mime="text/plain", use_container_width=True,
+            key="btn_hist_prompts_baixar")
+        st.caption(f"{len(_txt):,} caracteres · geração e todas as correções "
+                   "de cada peça deste produto".replace(",", "."))
+
+
+def marcar_peca_em_ajuste(num):
+    """Diz qual peça da galeria está sendo ajustada agora. `None` limpa.
+
+    POR QUE POR AQUI, E NÃO POR PARÂMETRO
+    -------------------------------------
+    O registro do prompt acontece na PORTA DO MOTOR (`gerar_imagem_ia`), que
+    é o único ponto por onde geração e ajuste passam os dois. Mas a peça só é
+    conhecida lá em cima, no comando do chat — e levá-la até a porta exigiria
+    um parâmetro novo em três assinaturas e em todas as chamadas delas, com a
+    certeza de que a quarta chamada nasceria sem ele.
+
+    Sem a peça, a rastreabilidade que o dono pediu não existe: as correções
+    de oito imagens diferentes virariam uma fila só, e a cadeia de cada uma
+    ficaria impossível de reconstruir.
+
+    O rótulo não serve de chave: depois de um ajuste ele vira outra coisa
+    (ver `tipo_canonico`), e a cadeia se partiria no meio.
+
+    POR QUE NÃO VAI SÓ NO `session_state`
+    -------------------------------------
+    O ajuste roda numa THREAD (`_rodar_cmd`, `_rodar_afg`), e é de dentro
+    dela que `gerar_imagem_ia` registra o prompt. Fora da thread do script,
+    `st.session_state` não tem contexto: a leitura volta vazia. A peça
+    chegaria em branco ao registro e a cadeia — a coisa inteira que isto
+    existe para montar — ficaria sem chave, em silêncio.
+
+    Então o valor mora também num global do módulo, que a thread enxerga. O
+    `session_state` continua sendo escrito porque é onde a tela procura.
+
+    O QUE ISSO CUSTA, DITO EM VOZ ALTA: o global é do processo, não da
+    sessão. Dois colaboradores ajustando peças diferentes no mesmo segundo
+    podem trocar o número entre si. A consequência é uma linha de REGISTRO
+    com a peça errada — nunca uma imagem errada, e nunca um erro de tela.
+    Resolver de vez pede a peça viajando por parâmetro até o motor, que são
+    três assinaturas e todas as chamadas delas.
+    """
+    global _PECA_EM_AJUSTE
+    _PECA_EM_AJUSTE = "" if num is None else str(num)
+    try:
+        st.session_state["img_peca_em_ajuste"] = _PECA_EM_AJUSTE
+    except Exception:
+        pass
+
+
+# A peça que está sendo ajustada agora. Global porque a thread precisa ver.
+_PECA_EM_AJUSTE = ""
+
+
+def peca_em_ajuste():
+    """A peça marcada, ou "" quando o ajuste não é de uma peça da galeria."""
+    return _PECA_EM_AJUSTE or ""
+
+
 def montar_prompt_ajuste_fino(instrucao, tipo=None, cor_produto=None):
     """Monta prompt para edição cirúrgica de uma imagem existente.
 
@@ -4953,6 +5080,70 @@ def upload_para_pasta(imagem_bytes, nome_arquivo, pasta_id):
     return info.get("webViewLink"), None
 
 
+def salvar_prompts_na_pasta(pasta_id, nome_produto, quando=None):
+    """Sobe o histórico de prompts deste produto para a pasta dele. (nome, erro).
+
+    POR QUE AUTOMÁTICO, JUNTO COM AS IMAGENS
+    ----------------------------------------
+    O dono: *"ele precisa salvar automaticamente quando o colaborador clicar
+    em salvar as imagens — isso evita do colaborador esquecer de salvar esse
+    prompt também"*.
+
+    Um passo a mais para quem salva é um passo que vai ser esquecido, e o
+    esquecimento só aparece meses depois, quando alguém procura o prompt de
+    um caso específico e ele não está lá. O arquivo entra na MESMA pasta das
+    imagens: quem achar a imagem acha o prompt dela, sem precisar saber que
+    existe um lugar separado.
+
+    NUNCA PODE DERRUBAR O SALVAMENTO DAS IMAGENS. As imagens são o trabalho;
+    o prompt é o rastro. Quem chama trata o erro como recado, não como falha.
+    """
+    try:
+        import log_imagem as _li
+        import comparar_prompt as _cmp
+        linhas = _li.ler(500)
+        nome = str(nome_produto or "").strip()
+        if nome:
+            linhas = [l for l in linhas
+                      if str(l.get("produto", "")).strip() == nome]
+        if not _cmp.cadeias(linhas):
+            return "", "nenhum prompt registrado para este produto"
+        texto = _cmp.relatorio_txt(linhas)
+    except Exception as e:
+        return "", f"{type(e).__name__}: {str(e)[:120]}"
+
+    # O NOME CARREGA A DATA, e é de propósito: salvar de novo amanhã não pode
+    # sobrescrever o arquivo de hoje. O histórico de um produto é a sequência
+    # das rodadas dele, e uma rodada apagando a anterior seria o contrário
+    # do que isto existe para fazer.
+    # O RELÓGIO DO CONTAINER É UTC (CLAUDE.md). Sem o fuso, um arquivo
+    # salvo às 22h daqui sai com a data do dia seguinte no nome.
+    from datetime import datetime as _dt
+    try:
+        import placar_core as _pc
+        _agora = quando or _dt.now(_pc.FUSO)
+    except Exception:
+        _agora = quando or _dt.now()
+    nome_arq = ("prompts - "
+                + "".join(c if c.isalnum() or c in " -_" else "_"
+                          for c in (nome_produto or "produto"))[:40].strip()
+                + f" - {_agora.strftime('%Y-%m-%d %H%M')}.txt")
+
+    # O `import` TAMBÉM PRECISA ESTAR COBERTO. `gdrive.upload` já devolve o
+    # erro em vez de levantar, mas o import dele não: uma dependência do
+    # Google fora do lugar levantaria AQUI, depois de as imagens já terem
+    # subido — o pior ponto possível para uma exceção nascer.
+    try:
+        import gdrive
+        info, err = gdrive.upload(texto.encode("utf-8"), nome_arq, pasta_id,
+                                  mimetype="text/plain")
+    except Exception as e:
+        return "", f"{type(e).__name__}: {str(e)[:120]}"
+    if err:
+        return "", err
+    return nome_arq, ""
+
+
 def criar_zip_galeria(galeria, nome_produto):
     """Cria ZIP em memória com todas as imagens da galeria. Retorna bytes."""
     buf = io.BytesIO()
@@ -5175,6 +5366,10 @@ def consumir_comandos_do_chat(usuario_logado=""):
             # resposta dele sai do veredito, e nao do envio.
             _res_cmd = {"img": None, "relato": None, "done": False}
             _barra_cmd = st.progress(0.0, text=f"Assistente IA: ajuste na Imagem {num_foto}...")
+
+            # Antes de ajustar, diz QUAL peça é — é o que liga o prompt da
+            # correção ao prompt que gerou esta imagem, e não a outra.
+            marcar_peca_em_ajuste(num_foto)
 
             def _rodar_cmd(_ref=img_ref_cmd[0] if img_ref_cmd else None,
                            _ins=instrucao, _tp=tipo_alvo,
@@ -6226,6 +6421,7 @@ def pagina_imagem(usuario_logado):
             st.rerun()
         if _ver_prompts:
             _c_btn2.caption("não gera imagem · não gasta geração")
+            _baixar_historico_de_prompts()
             # O DESCARTE DA REFERENCIA DEIXA DE SER SILENCIOSO.
             #
             # A descricao da referencia de layout e jogada fora quando menciona
@@ -7197,6 +7393,9 @@ def pagina_imagem(usuario_logado):
                     import time as _time_afg
                     import threading as _threading_afg
                     _res_afg = {"img": None, "relato": None, "done": False}
+                    # A peça que está na tela é a que vai ser ajustada — sem
+                    # isto a correção entraria na cadeia de outra imagem.
+                    marcar_peca_em_ajuste(idx_ativo + 1)
 
                     def _rodar_afg(_ref=imagem_ativa,
                                    _ins=instrucao_af_gal.strip(),
@@ -7382,8 +7581,30 @@ def pagina_imagem(usuario_logado):
                     else:
                         links_salvos.append(link)
 
+                # ── O HISTÓRICO DE PROMPTS VAI JUNTO, SOZINHO ─────────
+                #
+                # Pedido do dono: "ele precisa salvar automaticamente quando
+                # o colaborador clicar em salvar as imagens — isso evita do
+                # colaborador esquecer de salvar esse prompt também".
+                #
+                # Na MESMA pasta das imagens: quem achar a imagem acha o
+                # prompt dela. E o erro aqui é recado, não falha — as imagens
+                # são o trabalho, o prompt é o rastro.
+                barra_salvar.progress(0.98, text="Salvando o histórico de prompts...")
+                _arq_prompts, _err_prompts = salvar_prompts_na_pasta(
+                    pasta_destino_id, nome_gal)
+
                 barra_salvar.progress(1.0, text="Concluído!")
                 link_pasta = f"https://drive.google.com/drive/folders/{pasta_destino_id}"
+
+                if _arq_prompts:
+                    st.caption(f"📄 Histórico de prompts salvo na mesma pasta: "
+                               f"**{_arq_prompts}**")
+                elif _err_prompts:
+                    st.caption(f"📄 As imagens foram salvas. O histórico de "
+                               f"prompts, não — {_err_prompts}. Use o botão "
+                               f"\"Preparar histórico de prompts\" para "
+                               f"baixá-lo e guardá-lo à mão.")
 
                 if links_salvos:
                     import atividades
@@ -8012,6 +8233,112 @@ if __name__ == "__main__":
         "4 — Close nos detalhes", "",
         {"cor": "preto", "material": "Capa dura, encadernação Wire-O preta"},
         "Álbum")
+    # ── O HISTORICO DE PROMPTS VAI PARA A PASTA DO PRODUTO ──────────────
+    #
+    # "Ele precisa salvar automaticamente quando o colaborador clicar em
+    # salvar as imagens" — dono, 25/09. Um passo a mais para quem salva e um
+    # passo que vai ser esquecido, e o esquecimento so aparece meses depois.
+    _subido = {}
+
+    class _GdriveFalso:
+        @staticmethod
+        def upload(dados, nome, pasta, mimetype="image/png", publico=True):
+            _subido.update({"dados": dados, "nome": nome, "pasta": pasta,
+                            "mime": mimetype})
+            return {"webViewLink": "http://exemplo", "na_raiz": False}, None
+
+    class _LogFalso:
+        @staticmethod
+        def ler(n=500):
+            return [
+                {"quando": "25/09/2026 10:00:00", "produto": "Caneca",
+                 "imagem": "1", "acao": "prompt_geracao", "usuario": "myrella",
+                 "prompt": "O produto ocupa 85-92% do quadro."},
+                {"quando": "25/09/2026 10:10:00", "produto": "Caneca",
+                 "imagem": "1", "acao": "prompt_ajuste", "usuario": "myrella",
+                 "prompt": "MODO AJUSTE FINO\nA alca virada para a direita."},
+                {"quando": "25/09/2026 10:20:00", "produto": "Outro produto",
+                 "imagem": "1", "acao": "prompt_geracao", "usuario": "leo",
+                 "prompt": "Prompt de outro produto qualquer aqui."},
+            ]
+
+    import sys as _sys_t
+    sys = _sys_t
+    _mods = dict(sys.modules)
+    sys.modules["gdrive"] = _GdriveFalso
+    sys.modules["log_imagem"] = _LogFalso
+    try:
+        _nome_arq, _err = salvar_prompts_na_pasta("PASTA123", "Caneca")
+    finally:
+        sys.modules.clear()
+        sys.modules.update(_mods)
+
+    ok("o historico sobe sozinho, sem erro", _err == "" and _nome_arq)
+    ok("vai para a pasta das imagens", _subido.get("pasta") == "PASTA123")
+    ok("e como texto, nao como imagem", _subido.get("mime") == "text/plain")
+    ok("o nome diz o que e e de que produto",
+       "prompts" in _nome_arq and "Caneca" in _nome_arq)
+    # SALVAR DE NOVO NAO PODE SOBRESCREVER A RODADA ANTERIOR: o historico de
+    # um produto e a sequencia das rodadas dele.
+    ok("o nome carrega a data e a hora",
+       len([c for c in _nome_arq if c.isdigit()]) >= 10)
+    ok("e o arquivo e texto legivel",
+       b"O produto ocupa 85-92%" in _subido.get("dados", b""))
+    # O PRODUTO DO LADO NAO ENTRA NO ARQUIVO DESTE.
+    ok("so os prompts deste produto entram",
+       b"Prompt de outro produto" not in _subido.get("dados", b""))
+
+    # O ERRO AQUI E RECADO, NUNCA EXCECAO: as imagens ja subiram quando esta
+    # funcao roda, e uma excecao aqui estragaria o salvamento delas.
+    class _GdriveQueExplode:
+        @staticmethod
+        def upload(*a, **k):
+            raise RuntimeError("Google fora do ar")
+
+    _mods2 = dict(sys.modules)
+    sys.modules["gdrive"] = _GdriveQueExplode
+    sys.modules["log_imagem"] = _LogFalso
+    try:
+        _n2, _e2 = salvar_prompts_na_pasta("PASTA123", "Caneca")
+    finally:
+        sys.modules.clear()
+        sys.modules.update(_mods2)
+    ok("Drive fora do ar vira recado, e nao excecao",
+       _n2 == "" and "Google fora do ar" in _e2)
+
+    # SEM PROMPT REGISTRADO, tambem nao explode — so diz que nao ha o que subir.
+    class _LogVazio:
+        @staticmethod
+        def ler(n=500):
+            return []
+
+    _mods3 = dict(sys.modules)
+    sys.modules["log_imagem"] = _LogVazio
+    try:
+        _n3, _e3 = salvar_prompts_na_pasta("PASTA123", "Caneca")
+    finally:
+        sys.modules.clear()
+        sys.modules.update(_mods3)
+    ok("sem prompt registrado, avisa em vez de subir arquivo vazio",
+       _n3 == "" and "nenhum prompt" in _e3)
+
+    # ── A PECA PRECISA SER VISIVEL DE DENTRO DA THREAD ──────────────────
+    #
+    # O ajuste roda em `threading.Thread`, e e de la que o prompt e
+    # registrado. Se a peca morasse so no `session_state`, a leitura de
+    # dentro da thread voltaria vazia e a cadeia ficaria sem chave — em
+    # silencio, que e o pior jeito de um registro falhar.
+    import threading as _th_teste
+    marcar_peca_em_ajuste(4)
+    _visto = {}
+    _t = _th_teste.Thread(target=lambda: _visto.__setitem__("n", peca_em_ajuste()))
+    _t.start(); _t.join()
+    ok("a peca marcada e vista de dentro de uma thread", _visto.get("n") == "4")
+    marcar_peca_em_ajuste(None)
+    ok("e limpar limpa", peca_em_ajuste() == "")
+    ok("ajuste de foto avulsa nao inventa numero de peca",
+       peca_em_ajuste() == "")
+
     ok("o material do cadastro chega ao brief",
        "Material e montagem" in _p_mat and "Wire-O" in _p_mat)
     ok("e com a ordem de nao deduzir",

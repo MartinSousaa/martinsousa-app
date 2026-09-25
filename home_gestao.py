@@ -895,6 +895,15 @@ def _lpv_card(ind, de_onde, lpv=None, origem="", atraso=0):
     O lucro por venda não se perde: desce para o rodapé do cartão, com o nome
     que ele tem. Dois números com nomes certos informam; um número com o nome
     do outro decide errado.
+
+    DEVOLVE UMA ESPECIFICAÇÃO, E NÃO HTML
+    -------------------------------------
+    Esta função já devolveu o cartão JÁ RENDERIZADO, e isso derrubou a Home
+    em produção: `pagina` monta a grade com `_card(c, dia, dias)` para cada
+    item de `d["cards"]`, e um item que já era texto chegava ao renderizador
+    como string — `c["realizado"]` num str é `TypeError: string indices must
+    be integers`. Todos os outros itens da lista são dicionários; este era o
+    único que não era. Quem entra na lista de cartões entra como dicionário.
     """
     # Financeiro fora do ar não derruba os outros cartões: `_do_financeiro`
     # devolve None e o cartão diz o que fazer.
@@ -904,20 +913,20 @@ def _lpv_card(ind, de_onde, lpv=None, origem="", atraso=0):
               f'{_brl(lucro_venda)}</b>' if lucro_venda else "")
 
     if valor is None:
-        return _card_sem_regua({
+        return {
             "rotulo": "LPV", "sub": "custo fixo médio por venda · Financeiro",
             "realizado": 0.0, "necessario": None, "fmt": "brl",
-            "maior_melhor": False, "acumula": False,
+            "maior_melhor": False, "acumula": False, "estimado": False,
             "rodape": ("Nenhum LPV informado — preencha em "
-                       f"Gestão → Financeiro. {rodape}")})
+                       f"Gestão → Financeiro. {rodape}")}
 
     sub = f"custo fixo médio por venda · Financeiro · {origem}"
     if atraso:
         sub += f" · {atraso} mês(es) atrasado"
-    return _card_sem_regua({
+    return {
         "rotulo": "LPV", "sub": sub, "realizado": valor, "necessario": None,
         "fmt": "brl", "maior_melhor": False, "acumula": False,
-        "rodape": rodape})
+        "estimado": False, "rodape": rodape}
 
 
 def dados_reais(ano, mes, dia):
@@ -1612,15 +1621,60 @@ if __name__ == "__main__":
     ok("Financeiro fora do ar não derruba a tela",
        "except Exception" in _corpo_fin
        and "Gestão → Financeiro" in _corpo_lpv)
-    _h_lpv = _lpv_card({"lucro_por_venda": 82.24},
-                       " · BASE DE VENDAS · jun-ago/2026", 19.68,
-                       "Junho/2026", 3)
+    # ── O QUE ENTRA NA LISTA DE CARTOES ENTRA COMO DICIONARIO ───────────
+    #
+    # ISTO DERRUBOU A HOME EM PRODUCAO, em 25/09. `_lpv_card` devolvia o
+    # cartao JA RENDERIZADO, e `pagina` monta a grade com `_card(c, ...)`
+    # para cada item de `d["cards"]`. O item que ja era texto chegava ao
+    # renderizador como string: `c["realizado"]` num str e
+    # "TypeError: string indices must be integers, not 'str'".
+    #
+    # Os auto-testes nao pegaram porque conferiam o HTML de `_lpv_card`
+    # isolado — o unico lugar onde o tipo errado parecia certo. A guarda
+    # agora confere o TIPO e atravessa o renderizador de verdade.
+    _esp_lpv = _lpv_card({"lucro_por_venda": 82.24},
+                         " · BASE DE VENDAS · jun-ago/2026", 19.68,
+                         "Junho/2026", 3)
+    ok("o cartão de LPV é uma especificação, e não HTML",
+       isinstance(_esp_lpv, dict))
+    ok("com todas as chaves que o renderizador lê",
+       {"rotulo", "sub", "realizado", "necessario", "fmt", "maior_melhor",
+        "acumula"} <= set(_esp_lpv))
+    ok("e sem LPV também", isinstance(_lpv_card({}, "", None, "", 0), dict))
+    _h_lpv = _card(_esp_lpv, 25, 30)          # como a pagina faz
     ok("o número grande do cartão é o LPV do Financeiro", "19,68" in _h_lpv)
     ok("e os R$ 82,24 aparecem como LUCRO por venda, no rodapé",
        "82,24" in _h_lpv and "Lucro por venda" in _h_lpv)
     ok("o atraso do LPV sai escrito", "3 mês(es) atrasado" in _h_lpv)
     ok("sem LPV, o cartão manda preencher",
-       "Gestão → Financeiro" in _lpv_card({}, "", None, "", 0))
+       "Gestão → Financeiro" in _card(_lpv_card({}, "", None, "", 0), 25, 30))
+
+    # E A LISTA INTEIRA: todo item de `cards` tem de ser dicionario. A lista
+    # e montada em `dados_reais`, que precisa de planilha — entao a guarda
+    # le a ARVORE: cada item ou e uma chamada a `_card`/`_lpv_card`, e os
+    # dois sao conferidos acima como devolvendo dicionario.
+    _arv_dr = _ast_home.parse(_fonte_home)
+    _f_dr = next(n for n in _ast_home.walk(_arv_dr)
+                 if isinstance(n, _ast_home.FunctionDef) and n.name == "dados_reais")
+    # Sao DUAS listas de cartoes: a de verdade e a vazia do caminho
+    # "sem indicadores". A guarda olha as duas, e exige item de construtor
+    # em todas — a vazia passa sozinha, e a cheia e a que importa.
+    _listas_cards = []
+    for _n in _ast_home.walk(_f_dr):
+        if isinstance(_n, _ast_home.Dict):
+            for _k, _v in zip(_n.keys, _n.values):
+                if (isinstance(_k, _ast_home.Constant) and _k.value == "cards"
+                        and isinstance(_v, _ast_home.List)):
+                    _listas_cards.append(_v)
+    _nomes_card = set()
+    for _lista in _listas_cards:
+        for _item in _lista.elts:
+            _nomes_card.add(_item.func.id if isinstance(_item, _ast_home.Call)
+                            and isinstance(_item.func, _ast_home.Name) else "?")
+    ok("a lista de cartões foi encontrada na árvore, e não está vazia",
+       _listas_cards and any(l.elts for l in _listas_cards))
+    ok("e todo item dela sai de um construtor de cartão, nunca de HTML",
+       _nomes_card and _nomes_card <= {"_card", "_lpv_card"})
 
     # A legenda do rodape nao pode continuar dizendo que o LPV vem da
     # BASE DE VENDAS — era ela que sustentava o numero errado.

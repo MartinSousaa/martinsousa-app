@@ -243,7 +243,90 @@ def pagina(usuario_logado=None):
     st.markdown("---")
     _tabela_pessoas(linhas)
     st.markdown("---")
+    _prompts_lado_a_lado(linhas)
+    st.markdown("---")
     _reinicios()
+
+
+def _prompts_lado_a_lado(linhas):
+    """O prompt que gerou × o prompt que corrigiu, e o que os separa.
+
+    Pedido do dono em 25/09. O valor não está em ver os dois textos — é em
+    saber QUAL DOS DOIS DIAGNÓSTICOS é o desta correção:
+
+        frase só na correção  ->  falta no prompt de geração. Escrever resolve.
+        frase nos dois        ->  o modelo ignorou. Escrever NÃO resolve.
+
+    O segundo é o caro, e é invisível sem esta tela: a regra estava lá, a
+    imagem saiu errada, e a reação natural é escrever a regra de novo — que é
+    exatamente o que já não funcionou.
+    """
+    import comparar_prompt as _cmp
+
+    st.markdown("##### 🔬 Prompt da geração × prompt da correção")
+
+    # ── O ARQUIVO, ANTES DE QUALQUER COISA ───────────────────────────────
+    #
+    # "Copiar todos os prompts vai gerar muito trabalho e a possibilidade de
+    # erros manuais" — dono, 25/09. Um clique leva TUDO: as cadeias de todas
+    # as peças, o veredito de cada uma e os prompts inteiros.
+    #
+    # O botão vem antes da leitura na tela de propósito: quem chega aqui para
+    # levar o histórico não precisa rolar nada.
+    _cads = _cmp.cadeias(linhas)
+    _n_corr = sum(len(c) - 1 for _p, _pe, c in _cads)
+    st.download_button(
+        f"⬇️ Baixar TODO o histórico de prompts (.txt) — {len(_cads)} peça(s), "
+        f"{_n_corr} correção(ões)",
+        data=_cmp.relatorio_txt(linhas).encode("utf-8"),
+        file_name="prompts_ms_studio.txt", mime="text/plain",
+        key="garg_baixar_prompts", use_container_width=True,
+        disabled=not _cads)
+    if not _cads:
+        st.caption(
+            "Ainda não há prompt registrado neste período. O registro começa "
+            "na próxima geração: cada peça grava o texto que foi ao motor, e "
+            "cada correção grava o dela.")
+        return
+
+    pares = _cmp.parear(linhas)
+    if not pares:
+        st.caption(
+            "Nenhum par ainda. Cada geração e cada correção passam a gravar o "
+            "texto que foi ao motor; o par aparece aqui quando uma correção "
+            "acontece depois de uma geração do mesmo produto.")
+        return
+
+    _rotulos = [f"{c.get('quando', '')} · {c.get('produto', '') or 'sem nome'}"
+                for _g, c in pares]
+    _i = st.selectbox("Correção", range(len(pares)),
+                      format_func=lambda i: _rotulos[i], key="garg_par")
+    ger, cor = pares[_i]
+    _nome, _frase = _cmp.veredito(ger.get("prompt"), cor.get("prompt"))
+    (st.error if _nome == "desobedecido" else
+     st.warning if _nome == "os dois" else st.info)(
+        f"**{_nome.upper()}** — {_frase}")
+
+    so_cor, dois, so_ger = _cmp.comparar(ger.get("prompt"), cor.get("prompt"))
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown(f"**Só na correção ({len(so_cor)})** — falta na geração")
+        for f in so_cor[:40]:
+            st.markdown(f"- {f}")
+    with c2:
+        st.markdown(f"**Nos dois ({len(dois)})** — já estava escrito e não "
+                    "foi cumprido")
+        for f in dois[:40]:
+            st.markdown(f"- {f}")
+
+    with st.expander(f"Só na geração ({len(so_ger)}) — o que a correção não repetiu"):
+        for f in so_ger[:60]:
+            st.markdown(f"- {f}")
+    with st.expander("Os dois prompts, inteiros"):
+        st.caption(f"Geração · {ger.get('quando', '')}")
+        st.code(str(ger.get("prompt") or ""), language=None)
+        st.caption(f"Correção · {cor.get('quando', '')}")
+        st.code(str(cor.get("prompt") or ""), language=None)
 
 
 # ── Conferência ──────────────────────────────────────────────────────────────
