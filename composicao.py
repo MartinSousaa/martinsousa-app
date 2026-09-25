@@ -198,32 +198,45 @@ def margem(taxas_medidas, taxa_op=0.0):
 
 def numerador(custo_fixo=0.0, assinaturas=0.0, gerencia=0.0, headcount=0.0,
               teto_outros=0.0, saiu_no_extrato=0.0):
-    """O custo que não varia com a venda. VALE O MAIOR entre cadastro e extrato.
+    """O custo que não varia com a venda. **Vem do CADASTRO.** None se vazio.
 
     `headcount` entra como ZERO no equilíbrio de hoje — enquanto a Reserva
     cobre, quem paga a folha do quadro é a verba aplicada, e não a operação.
 
-    POR QUE O MAIOR, E NÃO A SOMA
-    -----------------------------
-    Regra do dono, dita sobre o custo fixo: *"o que vier nos extratos servirá
-    de conferência dos valores contidos no custo fixo"*. Somar os dois
-    contaria o mesmo aluguel duas vezes — uma no cadastro, outra quando ele
-    sai da conta.
+    O CADASTRO MANDA, O EXTRATO CONFERE
+    -----------------------------------
+    Regra do dono, dita com todas as letras em 25/09: *"por que o sistema
+    está utilizando os gastos via extrato para calcular meu custo fixo se já
+    montamos o que ele compõe? O extrato é somente para atualizar os gastos
+    mensais e conferir os valores dos custos fixos — e caso esteja diferente
+    do projetado, ele alterará na base do custo fixo daquele mês para o valor
+    real contido no extrato ou nas faturas"*.
 
-    E POR QUE ISSO SALVOU A TELA
-    ----------------------------
-    Em 22/09 a Home abriu com meta de R$ 34.899 — quatro vezes menos que o
-    real. A causa: o cadastro de custo fixo somava R$ 585,81, e a conta
-    confiou nele. O extrato do mês, esse, tinha os gastos de verdade.
+    Ou seja: quem compõe o custo fixo é o cadastro. O extrato **corrige um
+    item** quando o valor real vem diferente — e essa correção é uma
+    atualização do cadastro, não uma substituição do total.
 
-    Com "vale o maior", cadastro vazio deixa de produzir número errado: a
-    conta cai no que de fato saiu da conta bancária, que é sempre verdade.
+    O QUE ESTAVA ERRADO
+    -------------------
+    A conta fazia `max(cadastro, extrato)`. Com extrato pendente, o mês mal
+    começado mandava no número; com extrato completo, ele substituía o
+    cadastro inteiro. Nos dois casos o equilíbrio passava a depender de o mês
+    já ter acontecido — e era por isso que a tela mostrava R$ 40.834 de
+    equilíbrio com R$ 170.000 de meta de gastos.
+
+    E O QUE A REGRA ANTIGA PROTEGIA
+    -------------------------------
+    Em 22/09 a Home abriu com meta de R$ 34.899 porque o cadastro somava
+    R$ 585,81. O `max` escondia isso: mostrava um número plausível vindo de
+    outro lugar. Agora o cadastro vazio devolve **None** — e a tela diz que
+    falta cadastrar, em vez de desenhar uma linha de equilíbrio inventada.
+    Um número que ninguém consegue conferir é pior que um espaço em branco.
     """
     do_cadastro = sum(max(0.0, float(v or 0.0)) for v in
                       (custo_fixo, assinaturas, gerencia, headcount))
-    do_extrato = max(0.0, float(saiu_no_extrato or 0.0))
-    return round(max(do_cadastro, do_extrato)
-                 + max(0.0, float(teto_outros or 0.0)), 2)
+    if do_cadastro <= 0:
+        return None
+    return round(do_cadastro + max(0.0, float(teto_outros or 0.0)), 2)
 
 
 def equilibrio(num, marg):
@@ -258,16 +271,17 @@ def montar(resumo_por_finalidade, faturamento, taxas_medidas,
     t_op = taxa_operacional(lados["operacional"], faturamento)
     m = margem(taxas_medidas, t_op)
 
-    # O extrato entra como piso do numerador. Quando o cadastro está completo
-    # ele ganha, porque o cadastro inclui o que ainda não saiu da conta.
-    num_hoje = numerador(custo_fixo, assinaturas, gerencia, 0.0, teto_outros,
-                         saiu_no_extrato=lados["numerador"])
+    # O CADASTRO MANDA. O extrato vem junto, mas como conferência — ver
+    # `numerador`. Sem cadastro, os dois numeradores são None e a tela diz
+    # que falta cadastrar, em vez de desenhar um equilíbrio inventado.
+    num_hoje = numerador(custo_fixo, assinaturas, gerencia, 0.0, teto_outros)
     num_depois = numerador(custo_fixo, assinaturas, gerencia, headcount,
-                           teto_outros, saiu_no_extrato=lados["numerador"])
+                           teto_outros)
 
-    hoje = equilibrio(num_hoje, m)
-    depois = equilibrio(num_depois, m)
-    caixa = equilibrio(num_hoje + lados["segunda_linha"], m)
+    hoje = equilibrio(num_hoje, m) if num_hoje is not None else None
+    depois = equilibrio(num_depois, m) if num_depois is not None else None
+    caixa = (equilibrio(num_hoje + lados["segunda_linha"], m)
+             if num_hoje is not None else None)
 
     return {
         "margem": round(m, 4),
@@ -277,6 +291,8 @@ def montar(resumo_por_finalidade, faturamento, taxas_medidas,
         "equilibrio_hoje": hoje,
         "equilibrio_com_headcount": depois,
         "equilibrio_de_caixa": caixa,
+        "cadastro_do_mes": round(sum(max(0.0, float(v or 0.0)) for v in
+                                     (custo_fixo, assinaturas, gerencia)), 2),
         "falta_subir": (round(depois - hoje, 2)
                         if (hoje is not None and depois is not None) else None),
         "segunda_linha": lados["segunda_linha"],
@@ -284,9 +300,16 @@ def montar(resumo_por_finalidade, faturamento, taxas_medidas,
         "ja_na_margem": lados["ja_na_margem"],
         "fora_da_conta": lados["fora"],
         "desconhecidas": desconhecidas,
-        "numerador_veio_do_extrato":
-            lados["numerador"] > sum(max(0.0, float(v or 0.0)) for v in
-                                     (custo_fixo, assinaturas, gerencia)),
+        # SEM CADASTRO NÃO HÁ EQUILÍBRIO, e a tela precisa dizer isso.
+        "cadastro_vazio": num_hoje is None,
+        # O EXTRATO COMO CONFERÊNCIA: quando o que já saiu da conta passa do
+        # que está cadastrado, o cadastro está desatualizado — e é ELE que
+        # precisa ser corrigido, com o valor real do extrato ou da fatura.
+        # O número da tela não muda por causa disto; o aviso, sim.
+        "extrato_passou_o_cadastro": (
+            num_hoje is not None
+            and lados["numerador"] > sum(max(0.0, float(v or 0.0)) for v in
+                                         (custo_fixo, assinaturas, gerencia))),
         "saiu_no_extrato": lados["numerador"],
         "partes": {"custo fixo": round(float(custo_fixo or 0), 2),
                    "assinaturas": round(float(assinaturas or 0), 2),
@@ -404,20 +427,49 @@ if __name__ == "__main__":
     ok("contar a mercadoria duas vezes infla o equilíbrio em mais de R$ 100 mil",
        _errado - r["equilibrio_hoje"] > 100_000)
 
-    # ── A REGRA DO MAIOR, QUE SALVOU A TELA EM 22/09 ────────────────────
+    # ── O CADASTRO MANDA, O EXTRATO CONFERE ─────────────────────────────
     #
-    # A Home abriu com meta de R$ 34.899 — quatro vezes menos que o real —
-    # porque o cadastro de custo fixo somava R$ 585,81 e a conta confiou nele.
-    ok("cadastro vazio cai no que saiu do extrato",
-       numerador(custo_fixo=585.81, saiu_no_extrato=29838.0) == 29838.0)
-    ok("cadastro completo ganha do extrato",
+    # Regra do dono, 25/09: "por que o sistema esta utilizando os gastos via
+    # extrato para calcular meu custo fixo se ja montamos o que ele compoe?
+    # O extrato e somente para conferir — e caso esteja diferente, ele
+    # alterara na base do custo fixo daquele mes para o valor real".
+    ok("o extrato NAO manda no custo fixo",
+       numerador(custo_fixo=29838.0, saiu_no_extrato=1_000_000.0) == 29838.0)
+    ok("e nem quando o extrato esta pela metade",
        numerador(custo_fixo=29838.0, assinaturas=2350.35,
-                 saiu_no_extrato=1000.0) == 32188.35)
-    ok("os dois somam com o teto de outros, e não entre si",
-       numerador(custo_fixo=20000.0, saiu_no_extrato=30000.0,
-                 teto_outros=9500.0) == 39500.0)
+                 saiu_no_extrato=3000.0) == 32188.35)
     ok("nunca soma cadastro com extrato",
        numerador(custo_fixo=10000.0, saiu_no_extrato=10000.0) == 10000.0)
+    ok("o teto de outros soma ao cadastro",
+       numerador(custo_fixo=20000.0, teto_outros=9500.0) == 29500.0)
+    # SEM CADASTRO, NENHUM NUMERO. Em 22/09 a Home abriu com meta de
+    # R$ 34.899 porque o cadastro somava R$ 585,81 — e a regra do `max`
+    # escondia isso mostrando um numero plausivel vindo de outro lugar.
+    ok("cadastro vazio devolve None, e nao um numero de outro lugar",
+       numerador(custo_fixo=0.0, saiu_no_extrato=29838.0) is None)
+    _sem_cad = montar({"CUSTO FIXO": -21557.0}, 200000.0, TAXAS,
+                      custo_fixo=0.0, teto_outros=9500.0)
+    ok("sem cadastro nao ha equilibrio nenhum",
+       _sem_cad["equilibrio_hoje"] is None
+       and _sem_cad["equilibrio_de_caixa"] is None
+       and _sem_cad["equilibrio_com_headcount"] is None)
+    ok("e a tela sabe dizer por que", _sem_cad["cadastro_vazio"])
+    ok("sem os dois lados, nao ha 'falta subir'",
+       _sem_cad["falta_subir"] is None)
+
+    # O EXTRATO COMO CONFERENCIA: passou do cadastro, o cadastro e que esta
+    # desatualizado. O numero nao muda por isso; o aviso, sim.
+    _confere = montar({"CUSTO FIXO": -40000.0}, 200000.0, TAXAS,
+                      custo_fixo=22842.0, assinaturas=2350.35)
+    ok("extrato acima do cadastro vira aviso, e nao troca a conta",
+       _confere["extrato_passou_o_cadastro"]
+       and _confere["numerador_hoje"] == round(22842.0 + 2350.35, 2))
+    _ok_cad = montar({"CUSTO FIXO": -1000.0}, 200000.0, TAXAS,
+                     custo_fixo=22842.0, assinaturas=2350.35)
+    ok("extrato abaixo do cadastro nao acusa nada",
+       not _ok_cad["extrato_passou_o_cadastro"])
+    ok("e o cadastro do mes sai escrito para conferencia",
+       _ok_cad["cadastro_do_mes"] == round(22842.0 + 2350.35, 2))
 
     # As duas finalidades que apareceram na tela do dono e ficavam de fora.
     ok("FOLHA é numerador", lado("FOLHA") == "numerador")
@@ -426,13 +478,18 @@ if __name__ == "__main__":
     ok("cheque também — o gasto já entrou pela finalidade dele",
        lado("CHEQUES") == "fora")
 
+    # O CASO DE 22/09, AGORA COM A REGRA NOVA: cadastro de R$ 585,81 contra
+    # R$ 29.557 que ja sairam da conta. Antes o `max` trocava o numero em
+    # silencio; agora a conta continua sendo a do cadastro E a tela acusa
+    # que ele esta desatualizado — o conserto e corrigir o cadastro, que e
+    # exatamente o que o dono disse que o extrato serve para fazer.
     _r2 = montar({"CUSTO FIXO": -21557.0, "FOLHA": -8000.0},
                  200000.0, TAXAS, custo_fixo=585.81, assinaturas=0.0,
                  gerencia=0.0, teto_outros=9500.0)
-    ok("a tela sabe dizer que o número veio do extrato",
-       _r2["numerador_veio_do_extrato"])
-    ok("e o equilíbrio volta para a ordem de grandeza certa",
-       120_000 < _r2["equilibrio_hoje"] < 160_000)
+    ok("a tela acusa que o extrato passou o cadastro",
+       _r2["extrato_passou_o_cadastro"])
+    ok("e o numero continua sendo o do cadastro, nao o do extrato",
+       _r2["numerador_hoje"] == round(585.81 + 9500.0, 2))
 
     # ── bordas ───────────────────────────────────────────────────────────
     _vazio, _d = separar({})
