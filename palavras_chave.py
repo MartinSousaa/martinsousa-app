@@ -183,7 +183,12 @@ def pagina_palavras_chave(usuario_logado):
             tendencias, erro_tendencia = buscar_tendencias_ml()
 
         import atividades
-        atividades.registrar_atividade(usuario_logado, "Palavras-chave", nome_comercial, f"{len(palavras)} termos gerados")
+        # Os termos, e nao a contagem deles: e o que se compara com a
+        # proxima rodada para saber o que mudou.
+        atividades.registrar_atividade(
+            usuario_logado, "Palavras-chave", nome_comercial,
+            f"{len(palavras)} termos gerados",
+            conteudo=", ".join(str(p) for p in palavras))
 
         # Persiste no session_state para não perder ao trocar de aba
         st.session_state["pc_palavras_geradas"] = palavras

@@ -8,9 +8,19 @@ import planilha as _plan
 # Nome vindo do ambiente: producao usa o padrao, homologacao usa a copia.
 PLANILHA_NOME = _plan.nome()
 ABA_NOME = "atividades"
+# `conteudo` guarda O QUE FOI GERADO — o texto da descrição, os títulos, as
+# palavras-chave. Todas as outras colunas descrevem o CADASTRO do produto ou
+# o evento; nenhuma guardava o resultado do trabalho.
+#
+# O dono, 25/09: *"a gente não consegue consultar na aba históricos a
+# descrição que foi gerada"*. Não conseguia porque ela não estava lá: a
+# descrição entrava como "1.847 caracteres" (`descricao.py:615`) e os títulos
+# como "10 títulos gerados" (`tit_ml.py:198`) — a contagem, não o conteúdo.
+# O texto não era gravado em lugar nenhum do Studio.
 COLUNAS = ["data_hora", "usuario", "tipo", "produto", "resumo",
            "codigo", "cor", "medidas", "peso", "link_capa", "link_pasta",
-           "material", "caracteristicas", "diferenciais", "uso", "categoria"]
+           "material", "caracteristicas", "diferenciais", "uso", "categoria",
+           "conteudo"]
 
 
 # Reutiliza a conexao entre reruns. Sem isso cada chamada refazia
@@ -72,10 +82,35 @@ def _limpar_markdown(texto):
     return _re_md.sub(r"\s+", " ", s).strip()
 
 
+def _garantir_colunas(aba, cabecalho_real):
+    """Acrescenta no cabeçalho as colunas que a aba ainda não tem. (novo cab).
+
+    Escreve SÓ as que faltam, uma célula por vez. Reescrever a linha inteira
+    renomearia as que já existem — e como esta função grava POR NOME, uma
+    coluna renomeada passa a receber o valor de outra, em silêncio. Foi assim
+    que o peso preenchido chegava vazio na aba Imagem.
+    """
+    faltando = [c for c in COLUNAS if c not in
+                [str(x).strip().lower() for x in cabecalho_real]]
+    if not faltando:
+        return cabecalho_real
+    try:
+        import gspread.utils as _gu
+        novo = list(cabecalho_real)
+        for nome in faltando:
+            novo.append(nome)
+            aba.update(_gu.rowcol_to_a1(1, len(novo)), [[nome]],
+                       value_input_option="RAW")
+        return novo
+    except Exception:
+        return cabecalho_real
+
+
 def registrar_atividade(usuario, tipo, produto, resumo,
                         codigo="", cor="", medidas="", peso="",
                         link_capa="", link_pasta="",
-                        material="", caracteristicas="", diferenciais="", uso="", categoria=""):
+                        material="", caracteristicas="", diferenciais="", uso="", categoria="",
+                        conteudo=""):
     """Grava uma linha no historico. Retorna True/False.
 
     Uma falha aqui nunca derruba a tela principal -- mas tambem nao passa em
@@ -104,6 +139,11 @@ def registrar_atividade(usuario, tipo, produto, resumo,
             "peso": peso, "link_capa": link_capa, "link_pasta": link_pasta,
             "material": material, "caracteristicas": caracteristicas,
             "diferenciais": diferenciais, "uso": uso, "categoria": categoria,
+            # A célula do Sheets aceita 50 mil caracteres. Uma descrição dá
+            # uns 2 mil; dez títulos, 600. O corte é folga, não aperto — e
+            # guardar pela metade seria pior que não guardar, porque quem
+            # consulta não teria como saber que falta pedaço.
+            "conteudo": str(conteudo or "")[:45000],
         }
         try:
             cabecalho_real = aba.row_values(1)
@@ -111,6 +151,10 @@ def registrar_atividade(usuario, tipo, produto, resumo,
             cabecalho_real = list(COLUNAS)
         if not cabecalho_real:
             cabecalho_real = list(COLUNAS)
+        # A COLUNA NOVA PRECISA EXISTIR NO CABEÇALHO. Esta função grava por
+        # NOME contra o cabeçalho real: sem a coluna lá, o conteúdo é
+        # descartado sem um aviso sequer.
+        cabecalho_real = _garantir_colunas(aba, cabecalho_real)
         linha = [valores.get(str(c).strip().lower(), "") for c in cabecalho_real]
         aba.append_row(linha, value_input_option="RAW")
         carregar_atividades.clear()
@@ -237,6 +281,29 @@ def _imagens_da_pasta(pasta_id):
         fields="files(id,name)",
     )
     return [(a.get("id", ""), a.get("name", "")) for a in arquivos if a.get("id")]
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _prompts_da_pasta(pasta_id):
+    """Os .txt de histórico de prompts que estão na pasta do produto.
+
+    Eles são salvos junto com as imagens (`imagem.salvar_prompts_na_pasta`),
+    um por rodada, com a data no nome. Aqui só se lista — abrir é no Drive,
+    que já sabe mostrar texto.
+
+    Mesmo cache das imagens, e pelo mesmo motivo: o Histórico redesenha a
+    cada interação, e uma chamada de rede por card deixaria a aba lenta.
+    """
+    if not pasta_id:
+        return []
+    import gdrive
+    arquivos = gdrive.listar(
+        f"'{pasta_id}' in parents and trashed=false "
+        f"and mimeType='text/plain'",
+        fields="files(id,name)",
+    )
+    return [(a.get("id", ""), a.get("name", "")) for a in arquivos
+            if a.get("id")]
 
 
 def _id_da_pasta(link_pasta):
@@ -394,19 +461,47 @@ def pagina_historico():
             st.markdown("---")
 
             # Lista de etapas (mais recente primeiro)
-            for _, row in grupo.iterrows():
+            #
+            # ── O QUE FOI GERADO, E NÃO SÓ QUE FOI ──────────────────────
+            #
+            # O dono, 25/09: "a gente não consegue consultar na aba
+            # históricos a descrição que foi gerada". A linha dizia "1.847
+            # caracteres" e o texto não estava em lugar nenhum.
+            #
+            # O botão só desenha o texto quando alguém pede: um `st.code` de
+            # dois mil caracteres por etapa, em todos os cards abertos, é
+            # página pesada para quem só queria ver quem fez o quê.
+            #
+            # E é BOTÃO, não expander: este bloco já está dentro de um
+            # expander, e o Streamlit não aninha um dentro do outro.
+            for _i_etapa, (_, row) in enumerate(grupo.iterrows()):
                 resumo_txt = str(row.get("resumo", "")).strip()
                 resumo_curto = resumo_txt[:120] + ("…" if len(resumo_txt) > 120 else "")
                 col_d, col_u, col_t, col_r = st.columns([2, 1, 2, 4])
                 col_d.caption(str(row.get("data_hora", "")))
                 col_u.caption(str(row.get("usuario", "")))
                 col_t.markdown(f"**{row.get('tipo', '')}**")
-                col_r.caption(resumo_curto or "—")
+                _conteudo = str(row.get("conteudo", "") or "").strip()
+                if not _conteudo:
+                    col_r.caption(resumo_curto or "—")
+                    continue
+                _k_cont = f"_hist_cont_{chave}_{_i_etapa}"
+                if col_r.button(
+                        f"📄 {resumo_curto or 'ver o que foi gerado'}",
+                        key=f"btn_cont_{chave}_{_i_etapa}",
+                        use_container_width=True,
+                        help="Mostra o texto que foi gerado nesta etapa"):
+                    st.session_state[_k_cont] = not st.session_state.get(_k_cont, False)
+                if st.session_state.get(_k_cont):
+                    # `st.code` porque ele vem com o botão de copiar do
+                    # Streamlit: quem consulta quase sempre quer levar o
+                    # texto, e copiar da tela à mão perde quebra de linha.
+                    st.code(_conteudo, language=None)
 
             st.markdown("---")
 
             # Ações do card — colunas sempre renderizadas (estrutura fixa)
-            col_drive, col_ver, col_btn = st.columns([1, 1, 1])
+            col_drive, col_ver, col_prompt, col_btn = st.columns([1, 1, 1, 1])
             col_drive.markdown(f"[📁 Abrir pasta no Drive]({link_pasta})" if link_pasta else "")
 
             # Visualizar as imagens sem sair do Studio.
@@ -422,6 +517,34 @@ def pagina_historico():
                     st.session_state[_chave_ver] = not st.session_state.get(_chave_ver, False)
             else:
                 col_ver.empty()  # placeholder fixo — mantém a estrutura estável
+
+            # ── O HISTORICO DE PROMPTS DESTE PRODUTO ────────────────
+            #
+            # Os .txt sobem junto com as imagens, um por rodada. Aqui eles
+            # sao listados; abrir e no Drive, que ja sabe mostrar texto.
+            _chave_prm = f"_hist_ver_prompts_{chave}"
+            if _pasta_id:
+                if col_prompt.button("📄 Prompts", key=f"ver_prm_{chave}",
+                                     use_container_width=True,
+                                     help="Histórico de prompts salvo com as "
+                                          "imagens deste produto"):
+                    st.session_state[_chave_prm] = not st.session_state.get(
+                        _chave_prm, False)
+            else:
+                col_prompt.empty()
+
+            if st.session_state.get(_chave_prm) and _pasta_id:
+                _prms = _prompts_da_pasta(_pasta_id)
+                if not _prms:
+                    st.info(
+                        "Nenhum histórico de prompts nesta pasta. Ele passa a "
+                        "ser salvo junto com as imagens a partir de 25/09 — o "
+                        "que foi gerado antes disso não foi registrado.")
+                else:
+                    for _pid, _pnome in _prms:
+                        st.markdown(
+                            f"📄 [{_pnome}]"
+                            f"(https://drive.google.com/file/d/{_pid}/view)")
 
             if st.session_state.get(_chave_ver) and _pasta_id:
                 _imgs = _imagens_da_pasta(_pasta_id)
@@ -456,3 +579,112 @@ def pagina_historico():
                     st.rerun()
             else:
                 col_btn.empty()  # placeholder fixo
+
+
+# ── Conferência ──────────────────────────────────────────────────────────────
+# `python3 atividades.py`. Só o que é função pura e a gravação, contra uma aba
+# de mentira — a tela se confere em `checar_tela.py`.
+if __name__ == "__main__":
+    import inspect as _insp
+
+    falhas = 0
+
+    def ok(nome, cond):
+        global falhas
+        falhas += not cond
+        print(("ok    " if cond else "FALHA ") + nome)
+
+    class _AbaFalsa:
+        def __init__(self, cab):
+            self.cab, self.escritas, self.linhas = list(cab), [], []
+
+        def row_values(self, n):
+            return self.cab
+
+        def update(self, faixa, vals, **kw):
+            self.escritas.append((faixa, vals[0][0]))
+            self.cab.append(vals[0][0])
+
+        def append_row(self, linha, **kw):
+            self.linhas.append(linha)
+
+    # ── A COLUNA DO CONTEUDO ────────────────────────────────────────────
+    #
+    # "A gente nao consegue consultar na aba historicos a descricao que foi
+    # gerada" — dono, 25/09. Nao conseguia porque ela nao estava la: a
+    # descricao entrava como "1.847 caracteres" e o texto nao era gravado em
+    # lugar nenhum do Studio.
+    ok("conteudo e uma coluna do historico", "conteudo" in COLUNAS)
+    ok("e ela e a ultima, para nao mexer na ordem das que ja existem",
+       COLUNAS[-1] == "conteudo")
+
+    # ── A ABA ANTIGA GANHA A COLUNA QUE FALTA ───────────────────────────
+    _a = _AbaFalsa(COLUNAS[:-1])
+    _novo = _garantir_colunas(_a, list(_a.cab))
+    ok("a coluna que falta e acrescentada", "conteudo" in _novo)
+    ok("uma escrita so, na celula certa",
+       len(_a.escritas) == 1 and _a.escritas[0][1] == "conteudo")
+    # E SO ELA: reescrever a linha inteira renomearia as que ja existem, e
+    # como esta funcao grava POR NOME, uma coluna renomeada passa a receber o
+    # valor de outra. Foi assim que o peso chegava vazio na aba Imagem.
+    ok("nenhuma coluna existente e reescrita",
+       all(f != "A1" for f, _ in _a.escritas))
+    ok("aba ja completa nao e tocada",
+       _AbaFalsa(COLUNAS).escritas == []
+       and _garantir_colunas(_AbaFalsa(COLUNAS), list(COLUNAS)) == list(COLUNAS))
+
+    # ── A GRAVACAO E POR NOME, E O CONTEUDO CHEGA ───────────────────────
+    _aba_teste = _AbaFalsa(COLUNAS[:-1])
+    globals()["_aba"] = lambda: _aba_teste
+    globals()["carregar_atividades"] = type(
+        "F", (), {"clear": staticmethod(lambda: None)})()
+    _ok_grav = registrar_atividade(
+        "myrella", "Descrição", "Caneca Medieval", "1847 caracteres",
+        codigo="MS-CAN-1", conteudo="Esta caneca de 400ml em aco inox…")
+    ok("a gravacao devolve sucesso", _ok_grav is True)
+    _linha = dict(zip(_aba_teste.cab, _aba_teste.linhas[0]))
+    ok("o conteudo chega na coluna dele",
+       _linha.get("conteudo", "").startswith("Esta caneca"))
+    ok("e as outras colunas continuam no lugar",
+       _linha.get("produto") == "Caneca Medieval"
+       and _linha.get("codigo") == "MS-CAN-1"
+       and _linha.get("tipo") == "Descrição")
+    # SEM CONTEUDO continua funcionando: o historico e mais antigo que a coluna.
+    _aba2 = _AbaFalsa(list(COLUNAS))
+    globals()["_aba"] = lambda: _aba2
+    registrar_atividade("leo", "Triagem de Produto", "Album", "categoria")
+    ok("quem nao gera texto grava conteudo vazio",
+       dict(zip(_aba2.cab, _aba2.linhas[0])).get("conteudo") == "")
+
+    # UM TEXTO ABSURDO NAO ESTOURA A CELULA DO SHEETS (limite 50 mil).
+    _aba3 = _AbaFalsa(list(COLUNAS))
+    globals()["_aba"] = lambda: _aba3
+    registrar_atividade("leo", "Descrição", "X", "y", conteudo="a" * 80_000)
+    ok("texto gigante e cortado antes de ir para a planilha",
+       len(dict(zip(_aba3.cab, _aba3.linhas[0]))["conteudo"]) == 45_000)
+
+    # ── QUEM GERA TEXTO PASSA O TEXTO ───────────────────────────────────
+    #
+    # A guarda le os ARQUIVOS de quem gera: sem isto, a coluna existe e
+    # continua vazia — que e o mesmo buraco com outro nome.
+    for _arq, _oquê in (("descricao.py", "conteudo=descricao"),
+                        ("tit_ml.py", "conteudo="),
+                        ("palavras_chave.py", "conteudo=")):
+        _fonte = open(_arq, encoding="utf-8").read()
+        ok(f"{_arq} grava o que gerou", _oquê in _fonte)
+
+    # ── A TELA MOSTRA, E SEM ANINHAR EXPANDER ───────────────────────────
+    _pg = _insp.getsource(pagina_historico)
+    ok("o card mostra o conteudo quando existe", '"conteudo"' in _pg)
+    ok("por botao, e nao por expander dentro de expander",
+       "btn_cont_" in _pg and "st.expander" not in _pg.split("Lista de etapas")[1])
+    ok("e o historico de prompts tem botao proprio",
+       "_prompts_da_pasta(" in _pg and "ver_prm_" in _pg)
+    _pp = _insp.getsource(_prompts_da_pasta)
+    ok("o listador de prompts pede SO texto, e nao imagem",
+       "text/plain" in _pp and "image/" not in _pp)
+    ok("e e cacheado, como o das imagens",
+       "cache_data" in open(__file__, encoding="utf-8").read()
+       .split("def _prompts_da_pasta")[0][-120:])
+
+    print("\nfalhas:", falhas)
