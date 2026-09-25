@@ -352,6 +352,67 @@ def _gargalos(conta):
             conta(nome, False, f"{type(e).__name__}: {e}")
 
 
+def _historico(conta):
+    """A aba Histórico, que passou a mostrar o que foi gerado."""
+    import pandas as pd
+    import atividades as at
+
+    _linhas = [
+        {"data_hora": "25/09/2026 10:00", "usuario": "myrella",
+         "tipo": "Descrição", "produto": "Caneca", "resumo": "1847 caracteres",
+         "codigo": "MS-CAN-1", "cor": "Preto", "medidas": "10x8", "peso": "400g",
+         "link_capa": "", "link_pasta": "", "material": "aço",
+         "caracteristicas": "", "diferenciais": "", "uso": "", "categoria": "",
+         "conteudo": "Esta caneca de 400ml em aço inox mantém a bebida…"},
+        {"data_hora": "25/09/2026 09:00", "usuario": "myrella",
+         "tipo": "Título", "produto": "Caneca", "resumo": "10 títulos",
+         "codigo": "MS-CAN-1", "cor": "", "medidas": "", "peso": "",
+         "link_capa": "", "link_pasta": "", "material": "",
+         "caracteristicas": "", "diferenciais": "", "uso": "", "categoria": "",
+         "conteudo": "Caneca Térmica 400ml\nCaneca Medieval Inox"},
+        # A LINHA ANTIGA, de antes da coluna existir: não pode quebrar a tela.
+        {"data_hora": "01/08/2026 08:00", "usuario": "leo",
+         "tipo": "Triagem de Produto", "produto": "Álbum", "resumo": "Papelaria",
+         "codigo": "", "cor": "", "medidas": "", "peso": "", "link_capa": "",
+         "link_pasta": "", "material": "", "caracteristicas": "",
+         "diferenciais": "", "uso": "", "categoria": ""},
+    ]
+    for nome, dados in (
+            ("Histórico com conteúdo gerado", pd.DataFrame(_linhas)),
+            ("Histórico sem a coluna conteudo (aba antiga)",
+             pd.DataFrame(_linhas).drop(columns=["conteudo"])),
+            ("Histórico vazio", pd.DataFrame())):
+        _falso = instalar()
+        at.st = _falso
+        at.carregar_atividades = lambda d=dados: d
+        try:
+            at.pagina_historico()
+            conta(nome, True, "")
+        except (_Rerun, _Parou):
+            conta(nome, True, "")
+        except Exception as e:
+            conta(nome, False, f"{type(e).__name__}: {e}")
+
+    # ── O TEXTO ABERTO, E NÃO SÓ O BOTÃO ────────────────────────────────
+    #
+    # O duplo devolve False em todo botão, então sem isto o `st.code` do
+    # conteúdo nunca era desenhado — e a guarda estaria conferindo a tela
+    # com a parte nova desligada.
+    _falso = instalar()
+    at.st = _falso
+    at.carregar_atividades = lambda: pd.DataFrame(_linhas)
+    _falso.session_state["_hist_cont_Caneca__MS-CAN-1_0"] = True
+    _falso.session_state["_hist_ver_prompts_Caneca__MS-CAN-1"] = True
+    try:
+        at.pagina_historico()
+        conta("Histórico com o texto gerado ABERTO", True, "")
+    except (_Rerun, _Parou):
+        conta("Histórico com o texto gerado ABERTO", True, "")
+    except Exception as e:
+        conta("Histórico com o texto gerado ABERTO", False,
+              f"{type(e).__name__}: {e}")
+
+
 def main():
     instalar()
     falhas = []
@@ -365,6 +426,7 @@ def main():
     _home(falhas, conta)
     _extratos(conta)
     _gargalos(conta)
+    _historico(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0

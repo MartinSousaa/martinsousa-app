@@ -622,6 +622,10 @@ def pagina_descricao(usuario_logado):
                 diferenciais=dados.get("diferenciais", ""),
                 uso=dados.get("uso", ""),
                 categoria=dados.get("categoria", ""),
+                # O TEXTO, e nao so o tamanho dele. O resumo dizia "1.847
+                # caracteres" e a descricao nao ficava em lugar nenhum:
+                # fechada a tela, ela so existia no anuncio.
+                conteudo=descricao,
             )
 
             # Persiste categoria para uso nos outros módulos

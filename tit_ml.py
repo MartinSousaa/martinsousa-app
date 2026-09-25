@@ -195,7 +195,12 @@ def pagina_titulo(usuario_logado):
             return
 
         import atividades
-        atividades.registrar_atividade(usuario_logado, "Título", nome_comercial, f"{len(titulos)} títulos gerados")
+        # Os titulos INTEIROS, um por linha. "10 titulos gerados" nao
+        # responde "qual titulo foi para o anuncio?" tres semanas depois.
+        atividades.registrar_atividade(
+            usuario_logado, "Título", nome_comercial,
+            f"{len(titulos)} títulos gerados",
+            conteudo="\n".join(str(t) for t in titulos))
 
         # Persiste no session_state para não perder ao trocar de aba
         st.session_state["tt_titulos_gerados"] = titulos
