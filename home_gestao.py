@@ -830,7 +830,23 @@ def composicao_do_mes(ano, mes, faturamento):
     return comp, avisos
 
 
-def _lpv_card(ind, de_onde):
+def _do_financeiro():
+    """O LPV vigente, de que mês ele é e quantos meses está atrasado.
+
+    Uma leitura só: ela alimenta o cartão de LPV, o Lucro líquido e a UC.
+    Ler três vezes abriria a porta para os três discordarem entre si no
+    mesmo instante — que é o defeito que esta tela acabou de corrigir.
+    """
+    try:
+        import financeiro as _fin
+        _df = _fin.carregar_dados()
+        valor, origem = _fin.lpv_vigente(_df)
+        return valor, origem, _fin.meses_de_atraso_lpv(_df)
+    except Exception:
+        return None, "Financeiro não respondeu", 0
+
+
+def _lpv_card(ind, de_onde, lpv=None, origem="", atraso=0):
     """O LPV — e ele é o CUSTO FIXO médio por venda, digitado em Financeiro.
 
     O DEFEITO QUE ELE CORRIGE
@@ -853,16 +869,9 @@ def _lpv_card(ind, de_onde):
     que ele tem. Dois números com nomes certos informam; um número com o nome
     do outro decide errado.
     """
-    valor, origem, atraso = None, "", 0
-    try:
-        import financeiro as _fin
-        _df = _fin.carregar_dados()
-        valor, origem = _fin.lpv_vigente(_df)
-        atraso = _fin.meses_de_atraso_lpv(_df)
-    except Exception:
-        # Financeiro fora do ar não derruba os outros cinco cartões.
-        valor, origem = None, "Financeiro não respondeu"
-
+    # Financeiro fora do ar não derruba os outros cartões: `_do_financeiro`
+    # devolve None e o cartão diz o que fazer.
+    valor = lpv
     lucro_venda = ind.get("lucro_por_venda")
     rodape = (f'Lucro por venda{de_onde}: <b style="color:var(--ms-texto);">'
               f'{_brl(lucro_venda)}</b>' if lucro_venda else "")
@@ -946,11 +955,11 @@ def dados_reais(ano, mes, dia):
     avisos.extend(avisos_comp)
 
     def _card(rotulo, sub, valor, necessario, fmt, acumula,
-              maior_melhor=True, estimado=False):
+              maior_melhor=True, estimado=False, rodape=""):
         return {"rotulo": rotulo, "sub": sub, "realizado": valor,
                 "necessario": necessario, "fmt": fmt,
                 "maior_melhor": maior_melhor, "acumula": acumula,
-                "estimado": estimado}
+                "estimado": estimado, "rodape": rodape}
 
     # ── A META DE FATURAMENTO ────────────────────────────────────────────
     # Ela não sai dos indicadores da planilha, e sim da META DE GASTOS que o
@@ -980,6 +989,28 @@ def dados_reais(ano, mes, dia):
     # dizia apenas que o numero vem da BASE DE VENDAS. Qual conta, nao dizia.
     # Numero sem conta escrita e numero que ninguem confere sozinho.
     _de = f" · BASE DE VENDAS · {_periodo_curto}"
+
+    # ── MARGEM DE CONTRIBUIÇÃO, LPV, LUCRO LÍQUIDO E UC SÃO UMA CONTA SÓ ─
+    #
+    # Ditado pelo dono em 25/09: "considere a coluna de margem de
+    # contribuição e subtraia o LPV, o que sobrar é lucro líquido", e "a
+    # margem de contribuição é a base para calcular a UC".
+    #
+    #     margem de contribuição por venda  =  coluna MARGEM C. ÷ nº de vendas
+    #     lucro líquido por venda           =  MC por venda − LPV
+    #     UC                                =  MC por venda ÷ LPV
+    #
+    # UC ≥ 1 e lucro líquido ≥ 0 são a MESMA frase dita de dois jeitos — e é
+    # assim que a Viabilidade já decide produto (`app.py:979`).
+    #
+    # OS DOIS LADOS VÊM DE RELÓGIOS DIFERENTES, e isso sai escrito: a MC é a
+    # média dos meses lançados, o LPV é o do mês vigente do Financeiro.
+    _lpv, _lpv_origem, _lpv_atraso = _do_financeiro()
+    _vendas = ind.get("vendas") or 0.0
+    _mc_venda = (ind.get("margem_contribuicao") or 0.0) / _vendas if _vendas else None
+    _ll_venda = (_mc_venda - _lpv) if (_mc_venda is not None and _lpv) else None
+    _uc_paga = (_mc_venda / _lpv) if (_mc_venda is not None and _lpv) else None
+    _de_lpv = (f" · LPV de {_lpv_origem}" if _lpv_origem and _lpv else "")
     # ── O QUE DÁ PARA SABER DO MÊS CORRENTE ──────────────────────────────
     #
     # A planilha só recebe o mês depois que ele acaba, e o dono disse que o
@@ -1054,21 +1085,47 @@ def dados_reais(ano, mes, dia):
             # duas réguas diferentes. Margem bruta não tem meta própria.
             _card("Margem bruta", "lucro bruto ÷ faturado líquido" + _de,
                   _mb or 0.0, None, "pct", False),
-            _lpv_card(ind, _de),
-            # O necessário é a margem REAL do mês — a medida em 17.793
-            # vendas MENOS o custo operacional que ela não conhece. Comparar
-            # com os 29,82% puros dizia "está acima do necessário" enquanto a
-            # conta do mês não fechava.
+            _lpv_card(ind, _de, _lpv, _lpv_origem, _lpv_atraso),
+            # NAO EXISTE META DE MARGEM DE CONTRIBUICAO. O dono: "mas desde
+            # quando tenho meta de margem de contribuição?". A regua vinha de
+            # `composicao.margem` — que e a margem USADA no calculo do ponto
+            # de equilibrio, nao um alvo que alguem definiu. O cartao dizia
+            # "8,8 p.p. abaixo do necessário" contra um necessario inventado.
             _card("Margem de contribuição",
                   "margem de contribuição ÷ faturado líquido" + _de, _ml or 0.0,
-                  (comp.get("margem") or _eq.margem_de_contribuicao()) * 100.0,
-                  "pct", False),
+                  None, "pct", False),
+            # LUCRO LIQUIDO = MC − LPV. Ditado pelo dono; e o que sobra da
+            # venda depois de o custo fixo dela ser pago.
+            _card("Lucro líquido",
+                  "(margem de contribuição por venda − LPV) × nº de vendas"
+                  + _de + _de_lpv,
+                  _ll_venda * _vendas if _ll_venda is not None else 0.0,
+                  None, "brl0", False,
+                  rodape=(f'Por venda: <b style="color:var(--ms-texto);">'
+                          f'{_brl(_ll_venda)}</b> = {_brl(_mc_venda)} de margem '
+                          f'− {_brl(_lpv)} de LPV'
+                          if _ll_venda is not None else
+                          "Falta o LPV — preencha em Gestão → Financeiro.")),
+            # UC = quantas vezes a venda paga o custo fixo dela. E a mesma
+            # conta da Viabilidade (`app.py:979`), e o UC_MINIMO de la e a
+            # regua: abaixo de 1,0 a venda nao paga o proprio custo fixo.
+            _card("UC", "margem de contribuição por venda ÷ LPV"
+                  + _de + _de_lpv,
+                  _uc_paga if _uc_paga is not None else 0.0,
+                  1.0 if _uc_paga is not None else None, "razao", False,
+                  rodape="" if _uc_paga is not None else
+                  "Falta o LPV — preencha em Gestão → Financeiro."),
             # DEVOLVER MAIS É PIOR. O cartão estava marcado como "maior é
             # melhor": com uma régua de verdade, ele ficaria verde no mês em
             # que mais produto voltou.
             _card("Devoluções", _sub_dev, _dev_valor, _dev_teto, "brl0",
                   False, maior_melhor=False),
-            _card("UC", "unidades ÷ nº de vendas" + _de,
+            # ERA ESTE O CARTAO CHAMADO "UC" NA HOME: unidades ÷ vendas,
+            # que e quantas pecas saem por pedido. Nao e a UC do Studio — a
+            # UC decide produto na Viabilidade e vale lucro liquido ÷ LPV
+            # (`app.py:979`). Mesmo nome, mesma notacao "x/1", duas contas.
+            # E o mesmo defeito do LPV, uma tela depois.
+            _card("Peças por pedido", "unidades ÷ nº de vendas" + _de,
                   ind["uc"] or 0.0, None, "razao", False),
         ],
     }, avisos
@@ -1459,8 +1516,12 @@ if __name__ == "__main__":
        "margem de contribuição ÷ faturado líquido" in _corpo_cards)
     ok("e a margem bruta", "lucro bruto ÷ faturado líquido" in _corpo_cards)
     ok("o UC idem", "unidades ÷ nº de vendas" in _corpo_cards)
-    ok("os três dizem de que aba e de que período vêm",
-       _corpo_cards.count("+ _de") == 3 and "BASE DE VENDAS · " in _corpo_cards)
+    # `\b` porque "+ _de" tambem casa dentro de "+ _de_lpv", e a guarda
+    # contaria o mesmo cartao duas vezes.
+    import re as _re_home
+    ok("todo cartão da BASE DE VENDAS diz de que aba e período vem",
+       len(_re_home.findall(r"\+ _de\b", _corpo_cards)) == 5
+       and "BASE DE VENDAS · " in _corpo_cards)
 
     # ── O LPV E O CUSTO FIXO POR VENDA, E SO ELE ────────────────────────
     #
@@ -1468,40 +1529,65 @@ if __name__ == "__main__":
     # O dono: "Eu nao disse que o LPV era o meu custo fixo dividido pelo
     # numero de vendas?". Disse, e esta no repositorio desde antes desta
     # tela: financeiro.py:261, chat_assistente.py:115, app.py:1533.
+    _corpo_fin = inspect.getsource(_do_financeiro)
     _corpo_lpv = inspect.getsource(_lpv_card)
-    ok("o cartão de LPV lê o Financeiro", "lpv_vigente(" in _corpo_lpv)
-    ok("e NÃO o lucro por venda da BASE DE VENDAS",
+    ok("o LPV vem do Financeiro", "lpv_vigente(" in _corpo_fin)
+    ok("e é lido UMA vez para os três cartões que dependem dele",
+       _corpo_cards.count("_do_financeiro()") == 1
+       and "lpv_vigente(" not in _corpo_cards)
+    ok("e NÃO do lucro por venda da BASE DE VENDAS",
        'ind["lucro_por_venda"]' not in _corpo_cards
        and ("ind[" + '"lpv"]') not in _corpo_cards)
-    ok("ele diz que é custo fixo por venda",
+    ok("o cartão diz que é custo fixo por venda",
        "custo fixo médio por venda" in _corpo_lpv)
     ok("diz de que mês o LPV veio", "origem" in _corpo_lpv)
     ok("e avisa quando ele está atrasado",
-       "meses_de_atraso_lpv(" in _corpo_lpv and "atrasado" in _corpo_lpv)
+       "meses_de_atraso_lpv(" in _corpo_fin and "atrasado" in _corpo_lpv)
     ok("o lucro por venda não some — desce para o rodapé",
        "Lucro por venda" in _corpo_lpv)
-    # O Financeiro fora do ar nao pode derrubar os outros cinco cartoes.
-    ok("sem Financeiro, o cartão ainda aparece e diz o que fazer",
-       "except Exception" in _corpo_lpv
+    ok("Financeiro fora do ar não derruba a tela",
+       "except Exception" in _corpo_fin
        and "Gestão → Financeiro" in _corpo_lpv)
-    _fake = {"lucro_por_venda": 82.24}
-    import financeiro as _fin_t
-    _guardado = _fin_t.lpv_vigente
-    _fin_t.lpv_vigente = lambda *a, **k: (19.68, "Junho/2026")
-    _fin_t.meses_de_atraso_lpv = lambda *a, **k: 3
-    _fin_t.carregar_dados = lambda: None
-    _h_lpv = _lpv_card(_fake, " · BASE DE VENDAS · jun-ago/2026")
-    _fin_t.lpv_vigente = _guardado
-    ok("o número grande do cartão é o LPV do Financeiro",
-       "19,68" in _h_lpv)
+    _h_lpv = _lpv_card({"lucro_por_venda": 82.24},
+                       " · BASE DE VENDAS · jun-ago/2026", 19.68,
+                       "Junho/2026", 3)
+    ok("o número grande do cartão é o LPV do Financeiro", "19,68" in _h_lpv)
     ok("e os R$ 82,24 aparecem como LUCRO por venda, no rodapé",
        "82,24" in _h_lpv and "Lucro por venda" in _h_lpv)
     ok("o atraso do LPV sai escrito", "3 mês(es) atrasado" in _h_lpv)
+    ok("sem LPV, o cartão manda preencher",
+       "Gestão → Financeiro" in _lpv_card({}, "", None, "", 0))
 
     # A legenda do rodape nao pode continuar dizendo que o LPV vem da
     # BASE DE VENDAS — era ela que sustentava o numero errado.
     ok("o rodapé da página não atribui mais o LPV à BASE DE VENDAS",
        ("Lucro, margem, " + "LPV e UC") not in _pg)
     ok("e diz onde o LPV mora", "Gestão → Financeiro" in _pg)
+
+    # ── MC, LPV, LUCRO LIQUIDO E UC SAO UMA CONTA SO ────────────────────
+    #
+    # Ditado pelo dono em 25/09: "considere a coluna de margem de
+    # contribuicao e subtraia o LPV, o que sobrar e lucro liquido", e "a
+    # margem de contribuicao e a base para calcular a UC".
+    ok("não existe mais régua de margem de contribuição",
+       "margem de contribuição ÷ faturado líquido" in _corpo_cards
+       and "_eq.margem_de_contribuicao()) * 100.0" not in _corpo_cards)
+    ok("o lucro líquido é margem de contribuição menos LPV",
+       "_ll_venda = (_mc_venda - _lpv)" in _corpo_cards)
+    ok("a UC é margem de contribuição por venda dividida pelo LPV",
+       "_uc_paga = (_mc_venda / _lpv)" in _corpo_cards)
+    ok("e a régua da UC é 1,0 — abaixo disso a venda não se paga",
+       "1.0 if _uc_paga is not None else None" in _corpo_cards)
+    # UC >= 1 e lucro liquido >= 0 sao a MESMA frase: se um dia discordarem,
+    # a tela mente em dois cartoes vizinhos.
+    for _mc, _l in ((25.0, 19.68), (19.68, 19.68), (10.0, 19.68)):
+        ok(f"UC≥1 e lucro líquido≥0 concordam (MC {_mc})",
+           ((_mc / _l) >= 1.0) == ((_mc - _l) >= 0))
+    # O QUE SE CHAMAVA UC NA HOME ERA OUTRA COISA — o mesmo defeito do LPV.
+    ok("unidades ÷ vendas não se chama mais UC",
+       '_card("Peças por pedido"' in _corpo_cards
+       and '_card("UC", "unidades' not in _corpo_cards)
+    ok("sem LPV, o lucro líquido não finge ser a margem",
+       "Falta o LPV" in _corpo_cards)
 
     print("\nfalhas:", falhas)
