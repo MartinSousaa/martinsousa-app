@@ -219,7 +219,7 @@ def _bloco_faturamento(d):
     # em verde enquanto a projecao (R$ 235.972) nao alcancava a meta
     # (R$ 260.576) — verde por cima de um mes que nao fecha.
     if meta and proj < meta and proj >= cx:
-        cor_proj, veredito = AMARELO, "paga as contas, mas nao bate a meta"
+        cor_proj, veredito = AMARELO, "paga as contas, mas não bate a meta"
     elif proj >= max(cx, meta or 0):
         cor_proj, veredito = VERDE, "fecha acima da meta e das duas linhas"
     elif proj >= cx:
@@ -266,13 +266,15 @@ def _bloco_faturamento(d):
         f'<span style="font-size:40px;font-weight:700;color:var(--ms-texto);'
         f'line-height:1;">{_brl(real, 0)}</span>'
         f'<span style="font-size:12px;color:var(--ms-texto-sec);">'
-        f'faturado até o dia {dia} de {dias}</span>'
+        f'Faturamento em tempo real</span>'
         + selo +
         f'<span style="margin-left:auto;text-align:right;line-height:1.2;">'
         f'<span style="display:block;font-size:11px;'
         f'color:var(--ms-texto-sec);">Se mantiver o ritmo, fecha em</span>'
         f'<span style="font-size:24px;font-weight:700;color:{cor_proj};">'
-        f'{_brl(proj, 0)}</span></span>'
+        f'{_brl(proj, 0)}</span>'
+        + _projecao_contra_a_meta(proj, meta, cor_proj) +
+        f'</span>'
         f'</div>'
 
         # Duas trilhas na mesma escala, com rótulo à esquerda: o que a coluna
@@ -299,9 +301,8 @@ def _bloco_faturamento(d):
 
         f'<div></div>'
         f'<div style="position:relative;height:15px;">'
-        + _rotulo(x(op), "▲ Operacional")
-        + _rotulo(x(cx), "▲ Não operacional")
-        + _rotulo(x(meta), "▲ Meta") +
+        + _rotulos([(x(op), "Operacional"), (x(cx), "Não operacional"),
+                    (x(meta), "Meta")]) +
         f'</div></div>'
 
         f'<div style="display:flex;justify-content:space-between;gap:12px;'
@@ -319,15 +320,80 @@ def _bloco_faturamento(d):
         f'margin-top:4px;">'
         f'<span>Projeção = ritmo médio × {dias} dias</span>'
         f'<span>Projeção: <b style="color:{cor_proj};">{veredito}</b></span>'
-        f'<span>Operacional {_brl(op, 0)} · Não operacional {_brl(cx, 0)}</span>'
+        f'<span>{_as_duas_linhas(op, cx, d)}</span>'
         f'</div></div>',
         unsafe_allow_html=True)
 
 
 def _rotulo(pos, texto):
+    # NO FIM DA REGUA, CENTRAR TRANSBORDA O CARTAO. "▲ Meta" mora em ~95% e
+    # metade dele cai fora da borda direita; no comeco acontece o espelho.
+    desloc = "0" if pos <= 6 else ("-100%" if pos >= 94 else "-50%")
     return (f'<span style="position:absolute;left:{pos:.1f}%;'
-            f'transform:translateX(-50%);font-size:9px;font-weight:700;'
-            f'white-space:nowrap;color:var(--ms-texto);">{texto}</span>')
+            f'transform:translateX({desloc});font-size:9px;font-weight:700;'
+            f'white-space:nowrap;color:var(--ms-texto);">▲ {texto}</span>')
+
+
+def _rotulos(marcas, limiar=9.0):
+    """Os rótulos da régua, e nenhum por cima do outro.
+
+    O DEFEITO QUE ELE CORRIGE
+    -------------------------
+    Em 25/09 a tela imprimiu "▲ Nãopoperacionall" — "▲ Operacional" e "▲ Não
+    operacional" no MESMO ponto, um sobre o outro, ilegíveis. Não era acaso:
+    o equilíbrio Não operacional é `equilibrio(num_hoje + segunda_linha, m)`
+    (`composicao.py:273`), então ele É o Operacional sempre que o mês não tem
+    parcela de PRONAMP classificada. Ou seja, todo mês sem PRONAMP na conta
+    cai aqui.
+
+    Dois rótulos no mesmo lugar não informam nenhum dos dois — viram sujeira
+    em cima do único gráfico da tela. Juntos numa frase só, informam os dois
+    E dizem o fato novo: as duas linhas coincidem.
+
+    `limiar` em 9% da largura porque perto também se toca: numa barra de
+    1.600px isso são 144px, e "Não operacional" a 9px ocupa uns 110px.
+    """
+    grupos = []
+    for pos, txt in sorted(marcas, key=lambda m: m[0]):
+        if grupos and pos - grupos[-1][-1][0] <= limiar:
+            grupos[-1].append((pos, txt))
+        else:
+            grupos.append([(pos, txt)])
+    return "".join(
+        _rotulo(sum(p for p, _ in g) / len(g), " = ".join(t for _, t in g))
+        for g in grupos)
+
+
+def _projecao_contra_a_meta(proj, meta, cor):
+    """Quanto falta (ou sobra) para a meta, no ritmo de agora.
+
+    A tela dizia onde o mês fecha — R$ 233.725 — e deixava a subtração para
+    quem lê: "isso é acima ou abaixo da meta, e por quanto?". O número que
+    decide é a DISTÂNCIA, e ele não estava escrito em lugar nenhum.
+    """
+    if not meta:
+        return ""
+    d = proj - meta
+    return (f'<span style="display:block;font-size:10.5px;font-weight:700;'
+            f'color:{cor};">{"▲" if d >= 0 else "▼"} {_brl(abs(d), 0)} '
+            f'{"acima" if d >= 0 else "abaixo"} da meta</span>')
+
+
+def _as_duas_linhas(op, cx, d=None):
+    """As duas linhas de equilíbrio — e, quando são a mesma, por quê.
+
+    "Operacional R$ 40.834 · Não operacional R$ 40.834" lado a lado parece
+    erro de leitura. Não é: sem parcela de PRONAMP classificada no mês, a
+    segunda linha não tem o que somar. Dizer isso custa uma frase; não dizer
+    custa a confiança no número.
+    """
+    segunda = float(((d or {}).get("equilibrio") or {}).get("segunda_linha") or 0.0)
+    if abs(float(cx) - float(op)) < 1.0:
+        motivo = ("nenhuma parcela de PRONAMP classificada neste mês"
+                  if not segunda else "a segunda linha não mudou o resultado")
+        return (f'Operacional e Não operacional coincidem em {_brl(op, 0)} — '
+                f'{motivo}')
+    return f'Operacional {_brl(op, 0)} · Não operacional {_brl(cx, 0)}'
 
 
 def _marcador(pos):
@@ -853,6 +919,13 @@ def dados_reais(ano, mes, dia):
 
     _periodo_curto = ind.get("periodo", "") or "período lançado"
     _sub_media = f"média de {_periodo_curto}"
+    # A ORIGEM VAI NO CARTAO, NAO SO NO RODAPE.
+    #
+    # "De onde saiu esse LPV de R$ 82,24? Que conta foi feita?" — perguntado
+    # olhando para a tela. A conta esta em `base_vendas.py:188`, e o rodape
+    # dizia apenas que o numero vem da BASE DE VENDAS. Qual conta, nao dizia.
+    # Numero sem conta escrita e numero que ninguem confere sozinho.
+    _de = f" · BASE DE VENDAS · {_periodo_curto}"
     # ── O QUE DÁ PARA SABER DO MÊS CORRENTE ──────────────────────────────
     #
     # A planilha só recebe o mês depois que ele acaba, e o dono disse que o
@@ -861,13 +934,13 @@ def dados_reais(ano, mes, dia):
     # Bling já sabe. Estimado sai escrito na tela — número que parece medido
     # e não é, é o que faz decisão errada.
     _lucro_estimado = round(realizado * (_mb or 0.0) / 100.0, 2)
-    _sub_estimado = (f"faturado de agora × margem de {_periodo_curto}"
+    _sub_estimado = (f"faturado de agora × margem bruta de {_periodo_curto}"
                      if _mb else _sub_media)
 
     # As devoluções do mês vêm da aba `devolucoes`, preenchida no dia a dia —
     # esta é a única do bloco que é MEDIDA e não estimada. Sem a aba (ou
     # antes de alguém cadastrar), cai na média dos meses fechados.
-    _dev_valor, _sub_dev = ind["devolucao"], _sub_media
+    _dev_valor, _sub_dev = ind["devolucao"], f"média de {_periodo_curto}"
     try:
         import devolucoes as _dv
         _do_mes = _dv.do_mes(_dv.carregar(), f"{ano:04d}-{mes:02d}")
@@ -925,15 +998,16 @@ def dados_reais(ano, mes, dia):
             # A régua daqui era a margem de CONTRIBUIÇÃO (29%) comparada
             # com a margem BRUTA (75%): "46 p.p. acima do necessário", com
             # duas réguas diferentes. Margem bruta não tem meta própria.
-            _card("Margem bruta", "sobre o faturado · " + _periodo_curto,
+            _card("Margem bruta", "lucro bruto ÷ faturado líquido" + _de,
                   _mb or 0.0, None, "pct", False),
-            _card("LPV", "lucro por venda · " + _periodo_curto,
+            _card("LPV", "lucro bruto ÷ nº de vendas" + _de,
                   ind["lpv"] or 0.0, None, "brl", False),
             # O necessário é a margem REAL do mês — a medida em 17.793
             # vendas MENOS o custo operacional que ela não conhece. Comparar
             # com os 29,82% puros dizia "está acima do necessário" enquanto a
             # conta do mês não fechava.
-            _card("Margem de contribuição", "sobre o faturado · " + _periodo_curto, _ml or 0.0,
+            _card("Margem de contribuição",
+                  "margem de contribuição ÷ faturado líquido" + _de, _ml or 0.0,
                   (comp.get("margem") or _eq.margem_de_contribuicao()) * 100.0,
                   "pct", False),
             # DEVOLVER MAIS É PIOR. O cartão estava marcado como "maior é
@@ -941,7 +1015,7 @@ def dados_reais(ano, mes, dia):
             # que mais produto voltou.
             _card("Devoluções", _sub_dev, _dev_valor, _dev_teto, "brl0",
                   False, maior_melhor=False),
-            _card("UC", "unidades por venda · " + _periodo_curto,
+            _card("UC", "unidades ÷ nº de vendas" + _de,
                   ind["uc"] or 0.0, None, "razao", False),
         ],
     }, avisos
@@ -949,9 +1023,12 @@ def dados_reais(ano, mes, dia):
 
 def pagina(usuario_logado=None, dados=None):
     st.markdown("### 🏠 Home")
-    st.caption("O resumo do mês: onde o faturamento está contra o que ele "
-               "precisa ser. **O ponto de equilíbrio vem primeiro** — meta de "
-               "faturamento é consequência dele.")
+    # O QUE A TELA MOSTRA, E NAO POR QUE ELA EXISTE.
+    #
+    # Aqui havia tres linhas explicando a filosofia do painel — "o ponto de
+    # equilibrio vem primeiro, meta e consequencia dele". Isso e apresentacao,
+    # e quem abre a tela ja sabe. A legenda diz o que o grafico mede.
+    st.caption("Faturamento do mês contra o ponto de equilíbrio e a meta.")
 
     # OS NÚMEROS DE VERDADE, sem ninguém pedir.
     #
@@ -1259,5 +1336,74 @@ if __name__ == "__main__":
 
     ok("os gastos continuam saindo do mes de referencia da Home",
        'd or {}).get("mes")' in _bg)
+
+    # ── DOIS ROTULOS NO MESMO PONTO NAO INFORMAM NENHUM DOS DOIS ────────
+    #
+    # Em 25/09 a tela imprimiu "▲ Nãopoperacionall": Operacional e Não
+    # operacional caem no MESMO x sempre que o mes nao tem PRONAMP
+    # classificado, e um foi impresso por cima do outro.
+    _r_junto = _rotulos([(14.5, "Operacional"), (14.5, "Não operacional"),
+                         (94.3, "Meta")])
+    ok("dois marcadores no mesmo ponto viram UM rótulo",
+       _r_junto.count("<span") == 2)
+    ok("e a frase mostra os dois nomes",
+       "Operacional = Não operacional" in _r_junto)
+    ok("o ▲ aparece uma vez por rótulo, e não por nome",
+       _r_junto.count("▲") == 2)
+    _r_longe = _rotulos([(10.0, "Operacional"), (40.0, "Não operacional"),
+                         (90.0, "Meta")])
+    ok("marcadores separados continuam separados",
+       _r_longe.count("<span") == 3 and " = " not in _r_longe)
+    ok("rótulo no fim da régua não transborda",
+       "translateX(-100%)" in _rotulos([(97.0, "Meta")]))
+    ok("nem no começo", "translateX(0)" in _rotulos([(1.0, "Meta")]))
+    ok("e no meio ele continua centrado",
+       "translateX(-50%)" in _rotulos([(50.0, "Meta")]))
+
+    # E O RODAPE EXPLICA A COINCIDENCIA, em vez de repetir o numero duas
+    # vezes como se fosse erro de leitura.
+    _txt = _as_duas_linhas(40_834.0, 40_834.0, {"equilibrio": {"segunda_linha": 0.0}})
+    ok("coincidindo, o rodapé diz que coincidem e por quê",
+       "coincidem" in _txt and "PRONAMP" in _txt)
+    ok("diferentes, ele mostra os dois números",
+       _as_duas_linhas(131_918.0, 183_940.0).count("R$") == 2)
+
+    # ── ONDE O MES FECHA CONTRA A META ──────────────────────────────────
+    #
+    # A tela dizia "fecha em R$ 233.725" e deixava a subtracao para quem le.
+    _abaixo = _projecao_contra_a_meta(233_725.0, 265_542.0, VERMELHO)
+    ok("abaixo da meta, a distância sai escrita",
+       "31.817" in _abaixo and "abaixo da meta" in _abaixo)
+    ok("e com a seta para baixo", "▼" in _abaixo and "▲" not in _abaixo)
+    _acima = _projecao_contra_a_meta(280_000.0, 265_542.0, VERDE)
+    ok("acima, o texto inverte", "acima da meta" in _acima and "▲" in _acima)
+    ok("sem meta, não inventa comparação",
+       _projecao_contra_a_meta(200_000.0, 0.0, VERDE) == "")
+
+    # ── A TELA NAO SE APRESENTA, ELA MEDE ───────────────────────────────
+    ok("a legenda não explica a filosofia do painel",
+       "ponto de equilíbrio vem primeiro" not in _pg)
+    # A BUSCA E NO BLOCO, NAO NO ARQUIVO INTEIRO — senao a guarda encontra o
+    # proprio literal que ela procura e passa sozinha. Ja aconteceu tres
+    # vezes nesta base; o CLAUDE.md registra as tres.
+    _bf = inspect.getsource(_bloco_faturamento)
+    ok("o cabeçalho não diz mais o dia corrido ao lado do valor",
+       ("faturado at" + "é o dia") not in _bf)
+    ok("ele diz que o faturamento é de agora",
+       "Faturamento em tempo real" in _bf)
+    ok("e o veredito da projeção está acentuado",
+       ("nao bate" + " a meta") not in _bf and "não bate a meta" in _bf)
+
+    # ── CADA CARTAO CARREGA A CONTA E A FONTE ───────────────────────────
+    #
+    # "De onde saiu esse LPV de R$ 82,24? Que conta foi feita?" — a resposta
+    # esta em `base_vendas.py:188` e agora esta tambem no cartao.
+    ok("o LPV diz a conta dele", "lucro bruto ÷ nº de vendas" in _corpo_cards)
+    ok("a margem de contribuição também",
+       "margem de contribuição ÷ faturado líquido" in _corpo_cards)
+    ok("e a margem bruta", "lucro bruto ÷ faturado líquido" in _corpo_cards)
+    ok("o UC idem", "unidades ÷ nº de vendas" in _corpo_cards)
+    ok("os quatro dizem de que aba e de que período vêm",
+       _corpo_cards.count("+ _de") == 4 and "BASE DE VENDAS · " in _corpo_cards)
 
     print("\nfalhas:", falhas)
