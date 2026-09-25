@@ -176,6 +176,41 @@ def ler(dados, ano_padrao=None):
     return lancs, texto, ""
 
 
+def identificar(nome_arquivo, dados):
+    """De que arquivo se trata, pelo CONTEÚDO — o nome é só o desempate.
+
+    Devolve "extrato_itau", "extrato_inter", "fatura_inter", "fatura_pdf" ou
+    "" quando não dá para saber.
+
+    O NOME NÃO DECIDE. "Fatura final 3417 Novembro.pdf" e "Extrato Itaú MS
+    09.2026.xlsx" são digitados à mão, e já chegaram trocados. O que manda é
+    a forma do arquivo: os quatro formatos têm estruturas diferentes, e
+    distingui-las é leitura, não adivinhação.
+    """
+    nome = str(nome_arquivo or "").lower()
+    if nome.endswith(".pdf") or (dados or b"")[:5] == b"%PDF-":
+        return "fatura_pdf"
+    if nome.endswith(".xlsx") or (dados or b"")[:2] == b"PK":
+        return "extrato_itau"
+    if not nome.endswith(".csv"):
+        return ""
+
+    # Os dois CSV: o do EXTRATO do Inter é separado por `;` com uma linha de
+    # título antes dos lançamentos; o da FATURA vem com a linha inteira entre
+    # aspas e traz "Cartão Principal", "Vencimento" ou "Total" no cabeçalho.
+    texto = ""
+    for cod in ("utf-8-sig", "utf-8", "latin-1"):
+        try:
+            texto = (dados or b"").decode(cod)
+            break
+        except (UnicodeDecodeError, AttributeError):
+            continue
+    alto = _sem_acento(texto[:4000]).upper()
+    if any(m in alto for m in ("CARTAO PRINCIPAL", "VENCIMENTO", "LIMITE")):
+        return "fatura_inter"
+    return "extrato_inter"
+
+
 # ── Conferência ──────────────────────────────────────────────────────────────
 # `python3 fatura_pdf.py`. Tudo aqui é função pura sobre TEXTO — o PDF de
 # verdade entra na tela, e o que ele produzir aparece para a pessoa conferir.
@@ -266,5 +301,51 @@ Limite disponivel R$ 3.000,00
     ok("arquivo que nao e PDF vira recado", _t2 == "" and _e2)
 
     ok("ler() devolve o texto cru junto", len(ler(b"nao e pdf")) == 3)
+
+    # ── O MES, QUE VEM DE TRES JEITOS NA MESMA FATURA ───────────────────
+    ok("mes em numero", _mes("9") == 9 and _mes("09") == 9)
+    ok("mes por extenso curto", _mes("set") == 9 and _mes("SET") == 9)
+    ok("com acento tambem", _mes("mar") == 3 and _mes("MAR") == 3)
+    ok("mes que nao existe e None", _mes("13") is None and _mes("0") is None)
+    ok("texto qualquer e None", _mes("xyz") is None and _mes("") is None)
+    ok("None nao quebra", _mes(None) is None)
+    # O VALOR, que muda de forma conforme o banco.
+    ok("milhar com ponto", _num("1.234,56") == 1234.56)
+    ok("sem milhar", _num("23,50") == 23.50)
+    ok("texto nao vira numero", _num("abc") is None and _num(None) is None)
+
+    # ── QUEM E QUEM, PELO CONTEUDO ──────────────────────────────────────
+    #
+    # "Eu quero poder anexar tudo no mesmo lugar, o sistema identifica o que
+    # e extrato da conta e o que e fatura do cartao" — dono, 25/09.
+    #
+    # O NOME NAO DECIDE: "Fatura final 3417 Novembro.pdf" e "Extrato Itau MS
+    # 09.2026.xlsx" sao digitados a mao e ja chegaram trocados.
+    _CSV_EXT = "Conta;123\nData;Descricao;Valor\n01/09;Pix;-10,00"
+    _CSV_FAT = ('"Cartao Principal","x"\n'
+                '"16/09","1924","ZUL","TRANSPORTE","a vista","-R$ 6,95"')
+    ok("PDF e reconhecido pelo nome",
+       identificar("Fatura final 3312.pdf", b"") == "fatura_pdf")
+    ok("e pela assinatura do arquivo, mesmo com nome errado",
+       identificar("planilha.bin", b"%PDF-1.7 x") == "fatura_pdf")
+    ok("xlsx e extrato do Itau",
+       identificar("Extrato Itau.xlsx", b"PK\x03\x04") == "extrato_itau")
+    ok("e pelo cabecalho do zip, mesmo sem extensao",
+       identificar("arquivo", b"PK\x03\x04") == "extrato_itau")
+    # OS DOIS CSV SAO O CASO DIFICIL: mesma extensao, bancos diferentes.
+    ok("csv com linha de titulo e extrato do Inter",
+       identificar("qualquer.csv", _CSV_EXT.encode()) == "extrato_inter")
+    ok("csv com Cartao Principal e fatura do Inter",
+       identificar("qualquer.csv", _CSV_FAT.encode()) == "fatura_inter")
+    ok("e o nome do arquivo nao inverte isso",
+       identificar("Extrato.csv", _CSV_FAT.encode()) == "fatura_inter"
+       and identificar("Fatura.csv", _CSV_EXT.encode()) == "extrato_inter")
+    ok("latin-1 tambem e lido",
+       identificar("x.csv", "Cartao Principal;Vencimento".encode("latin-1"))
+       == "fatura_inter")
+    ok("formato desconhecido nao e chutado",
+       identificar("foto.jpeg", b"\xff\xd8\xff") == "")
+    ok("arquivo vazio nao quebra", identificar("", b"") == "")
+    ok("None nao quebra", identificar(None, None) == "")
 
     print("\nfalhas:", falhas)

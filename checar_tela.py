@@ -413,6 +413,39 @@ def _historico(conta):
               f"{type(e).__name__}: {e}")
 
 
+def _faturas(conta):
+    """A tela de Extratos recebendo fatura de cartão — o caminho novo."""
+    import extratos_tela as et
+
+    class _Arq:
+        def __init__(self, nome, dados):
+            self.name, self._d = nome, dados
+
+        def getvalue(self):
+            return self._d
+
+    _casos = [
+        ("Fatura em PDF ilegível",
+         _Arq("Fatura final 3312.pdf", b"isso nao e um pdf de verdade")),
+        ("Fatura do Inter em CSV",
+         _Arq("Fatura Inter.csv",
+              ('"Cartao Principal","x"\n'
+               '"16/09","1924","ZUL 1 cartao","TRANSPORTE",'
+               '"Compra a vista","-R$ 6,95"').encode())),
+    ]
+    for nome, arq in _casos:
+        _falso = instalar()
+        et.st = _falso
+        try:
+            et._fatura(arq, "fatura_pdf" if arq.name.endswith(".pdf")
+                       else "fatura_inter", "leo")
+            conta(nome, True, "")
+        except (_Rerun, _Parou):
+            conta(nome, True, "")
+        except Exception as e:
+            conta(nome, False, f"{type(e).__name__}: {e}")
+
+
 def main():
     instalar()
     falhas = []
@@ -427,6 +460,7 @@ def main():
     _extratos(conta)
     _gargalos(conta)
     _historico(conta)
+    _faturas(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0
