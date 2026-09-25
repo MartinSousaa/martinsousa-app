@@ -1,4 +1,19 @@
-"""base_vendas.py — lucro, margem, LPV e UC saem da BASE DE VENDAS do Controle MS.
+"""base_vendas.py — lucro, margem e UC saem da BASE DE VENDAS do Controle MS.
+
+O QUE NAO SAI DAQUI: O LPV
+--------------------------
+Este arquivo já calculou um "LPV" — lucro bruto ÷ nº de vendas — e a Home o
+mostrou com esse nome. **Não é o LPV.** No Studio inteiro, LPV é o CUSTO FIXO
+MÉDIO POR VENDA, que o dono digita mês a mês em Gestão → Financeiro; é ele que
+`financeiro.lpv_vigente` devolve (`financeiro.py:148`), é ele que a Análise de
+Viabilidade usa (`app.py:1533`) e é ele que o assistente responde
+(`ferramentas_chat.py:210`).
+
+Ou seja: o Studio inteiro concordava com a definição do dono, e só a Home
+discordava — mostrando R$ 82,24 onde o LPV real era outro número, sob o mesmo
+nome, na mesma tela que decide compra.
+
+A razão daqui continua existindo, com o nome que ela tem: `lucro_por_venda`.
 
 POR QUE DAQUI, E NÃO DO BLING
 -----------------------------
@@ -9,8 +24,9 @@ cada peça custou está na planilha, digitado por eles.
 Então a Home passa a beber de duas fontes, cada uma no que ela sabe:
 
     faturamento do mês   -> Bling, em tempo real (a venda cai lá na hora)
-    lucro, margem, LPV,  -> BASE DE VENDAS 2026, conforme eles atualizam
-    UC, devoluções
+    lucro, margem, UC,   -> BASE DE VENDAS 2026, conforme eles atualizam
+    devoluções
+    LPV                  -> Gestão → Financeiro, digitado pelo dono
 
 Os dois números de faturamento NÃO vão bater, e isso não é defeito: a planilha
 é atualizada de tempos em tempos, o Bling é agora. Por isso a tela diz de onde
@@ -185,7 +201,9 @@ def indicadores(somas):
         "margem_bruta": _div(lb * 100.0, base),
         "margem_contribuicao": mc,
         "margem_contribuicao_pct": _div(mc * 100.0, base),
-        "lpv": _div(lb, vendas),
+        # LUCRO por venda. NÃO é o LPV: LPV no Studio é o CUSTO FIXO médio
+        # por venda, digitado em Gestão → Financeiro. Ver o topo do arquivo.
+        "lucro_por_venda": _div(lb, vendas),
         "uc": _div(uni, vendas),
         "custo_total": somas.get("custo_total") or 0.0,
         "custo_op": somas.get("custo_op") or 0.0,
@@ -404,7 +422,13 @@ if __name__ == "__main__":
     ok("a margem sai da SOMA, e nao da media das margens",
        abs(i["margem_bruta"] - 10.792) < 0.01)
     ok("e nao dos 50% que a media daria", i["margem_bruta"] < 20)
-    ok("LPV e lucro por VENDA", abs(i["lpv"] - 54.5) < 0.01)
+    ok("lucro por venda e lucro bruto / vendas",
+       abs(i["lucro_por_venda"] - 54.5) < 0.01)
+    # O NOME "LPV" NAO PODE VOLTAR PARA CA. Ele e o custo fixo por venda, e
+    # mora em `financeiro.lpv_vigente`. Duas respostas para o mesmo nome ja
+    # puseram R$ 82,24 na Home no lugar do LPV de verdade.
+    ok("nenhum indicador daqui se chama LPV",
+       not any("lpv" in k for k in i))
     ok("UC e unidade por venda", abs(i["uc"] - 2.0) < 0.001)
 
     # ── A devolucao sai da base do percentual ────────────────────────────
@@ -421,7 +445,8 @@ if __name__ == "__main__":
                         "unidades": 0})
     ok("sem FAT - DEV usa o FAT TOTAL",
        abs(_sem["margem_bruta"] - 25.0) < 0.001)
-    ok("sem venda nenhuma o LPV e None, e nao zero", _sem["lpv"] is None)
+    ok("sem venda nenhuma o lucro por venda e None, e nao zero",
+       _sem["lucro_por_venda"] is None)
     ok("e o UC tambem", _sem["uc"] is None)
 
     # Mes sem venda nenhuma nao devolve zeros que parecem dado.
@@ -479,7 +504,7 @@ if __name__ == "__main__":
     # logo abaixo.
     ok("a margem sai das somas", abs(_m["margem_bruta"] - 10.0) < 0.01)
     ok("o LPV e lucro total / vendas totais, e nao media de LPVs",
-       abs(_m["lpv"] - (60.0 / 4)) < 0.01)
+       abs(_m["lucro_por_venda"] - (60.0 / 4)) < 0.01)
     ok("e o UC idem", abs(_m["uc"] - (6.0 / 4)) < 0.01)
     ok("o periodo vem junto do numero", _m["meses"] == 3)
 

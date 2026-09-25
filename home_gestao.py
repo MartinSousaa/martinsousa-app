@@ -437,7 +437,7 @@ def _card_sem_regua(c, dia=1, dias=1):
         f'<div style="margin-top:10px;padding-top:6px;'
         f'border-top:1px solid var(--ms-metric-bd);font-size:9.5px;'
         f'color:var(--ms-texto-sec);">'
-        f'{"No ritmo, fecha em <b style=color:var(--ms-texto);>" + _fmt(fecha, c["fmt"]) + "</b>" if c.get("acumula") else "Sem meta definida para este indicador."}'
+        f'{c.get("rodape") or ("No ritmo, fecha em <b style=color:var(--ms-texto);>" + _fmt(fecha, c["fmt"]) + "</b>" if c.get("acumula") else "Sem meta definida para este indicador.")}'
         f'</div></div>')
 
 
@@ -830,6 +830,60 @@ def composicao_do_mes(ano, mes, faturamento):
     return comp, avisos
 
 
+def _lpv_card(ind, de_onde):
+    """O LPV — e ele é o CUSTO FIXO médio por venda, digitado em Financeiro.
+
+    O DEFEITO QUE ELE CORRIGE
+    -------------------------
+    Este cartão mostrava R$ 82,24 chamando de LPV o lucro bruto ÷ nº de
+    vendas. O dono corrigiu na tela: *"Eu não disse que o LPV era o meu custo
+    fixo dividido pelo número de vendas?"*. Disse — e está escrito no
+    repositório desde antes desta Home existir:
+
+        `financeiro.py:261`     "Informe o LPV que você já calculou"
+        `chat_assistente.py:115` "LPV = custo fixo médio por venda"
+        `app.py:1533`           a Viabilidade decide com `lpv_vigente`
+        `ferramentas_chat.py:210` o assistente responde o mesmo número
+
+    O Studio inteiro concordava com a definição dele. Só esta tela discordava,
+    e mostrava outro número sob o mesmo nome — do lado de fora ninguém tem
+    como saber qual dos dois está lendo.
+
+    O lucro por venda não se perde: desce para o rodapé do cartão, com o nome
+    que ele tem. Dois números com nomes certos informam; um número com o nome
+    do outro decide errado.
+    """
+    valor, origem, atraso = None, "", 0
+    try:
+        import financeiro as _fin
+        _df = _fin.carregar_dados()
+        valor, origem = _fin.lpv_vigente(_df)
+        atraso = _fin.meses_de_atraso_lpv(_df)
+    except Exception:
+        # Financeiro fora do ar não derruba os outros cinco cartões.
+        valor, origem = None, "Financeiro não respondeu"
+
+    lucro_venda = ind.get("lucro_por_venda")
+    rodape = (f'Lucro por venda{de_onde}: <b style="color:var(--ms-texto);">'
+              f'{_brl(lucro_venda)}</b>' if lucro_venda else "")
+
+    if valor is None:
+        return _card_sem_regua({
+            "rotulo": "LPV", "sub": "custo fixo médio por venda · Financeiro",
+            "realizado": 0.0, "necessario": None, "fmt": "brl",
+            "maior_melhor": False, "acumula": False,
+            "rodape": ("Nenhum LPV informado — preencha em "
+                       f"Gestão → Financeiro. {rodape}")})
+
+    sub = f"custo fixo médio por venda · Financeiro · {origem}"
+    if atraso:
+        sub += f" · {atraso} mês(es) atrasado"
+    return _card_sem_regua({
+        "rotulo": "LPV", "sub": sub, "realizado": valor, "necessario": None,
+        "fmt": "brl", "maior_melhor": False, "acumula": False,
+        "rodape": rodape})
+
+
 def dados_reais(ano, mes, dia):
     """O dicionário que `pagina` desenha, montado das fontes de verdade.
 
@@ -1000,8 +1054,7 @@ def dados_reais(ano, mes, dia):
             # duas réguas diferentes. Margem bruta não tem meta própria.
             _card("Margem bruta", "lucro bruto ÷ faturado líquido" + _de,
                   _mb or 0.0, None, "pct", False),
-            _card("LPV", "lucro bruto ÷ nº de vendas" + _de,
-                  ind["lpv"] or 0.0, None, "brl", False),
+            _lpv_card(ind, _de),
             # O necessário é a margem REAL do mês — a medida em 17.793
             # vendas MENOS o custo operacional que ela não conhece. Comparar
             # com os 29,82% puros dizia "está acima do necessário" enquanto a
@@ -1047,7 +1100,7 @@ def pagina(usuario_logado=None, dados=None):
         st.error(
             "**Não consegui montar os indicadores.** Eles vêm do Bling (o "
             "faturamento de agora) e da aba BASE DE VENDAS do Controle MS "
-            "(lucro, margem, LPV e UC). Enquanto uma das duas não responde, a "
+            "(lucro, margem e UC). Enquanto uma das duas não responde, a "
             "tela prefere não mostrar número nenhum a mostrar um número que "
             "parece certo.")
         for _a in (_avisos or []):
@@ -1059,7 +1112,7 @@ def pagina(usuario_logado=None, dados=None):
     if d.get("sem_indicadores"):
         st.warning(
             "**Os indicadores estão fora do ar, o resto não.** Lucro, margem, "
-            "LPV, UC e a meta de faturamento vêm da aba BASE DE VENDAS do "
+            "UC e a meta de faturamento vêm da aba BASE DE VENDAS do "
             "Controle MS, e ela não respondeu. O faturamento de agora e o "
             "bloco de gastos continuam valendo.")
         for _a in (_avisos or []):
@@ -1088,12 +1141,14 @@ def pagina(usuario_logado=None, dados=None):
         _n = d.get("meses_na_media") or 0
         st.caption(
             f"**Faturamento:** {d['fonte_faturamento']}.  \n"
-            f"**Lucro, margem, LPV e UC:** média de "
+            f"**Lucro, margem e UC:** média de "
             f"{_n} mês(es) — **{_per}** — da aba BASE DE VENDAS do Controle MS"
             + (f", {d['linhas_base_vendas']} venda(s)"
                if d.get("linhas_base_vendas") else "")
             + ". O mês corrente ainda não foi lançado lá; um mês pela metade "
               "não descreve o negócio.  \n"
+            "**LPV:** o custo fixo médio por venda que você digita em "
+            "Gestão → Financeiro — não sai da BASE DE VENDAS.  \n"
             f"**Gastos:** o mês corrente, dos extratos — o bloco abaixo.")
     for _a in (_avisos or []):
         st.warning(_a)
@@ -1398,12 +1453,55 @@ if __name__ == "__main__":
     #
     # "De onde saiu esse LPV de R$ 82,24? Que conta foi feita?" — a resposta
     # esta em `base_vendas.py:188` e agora esta tambem no cartao.
-    ok("o LPV diz a conta dele", "lucro bruto ÷ nº de vendas" in _corpo_cards)
-    ok("a margem de contribuição também",
+    # (O LPV saiu desta lista: ele nao e uma razao da BASE DE VENDAS. Ver o
+    # bloco proprio dele, logo abaixo.)
+    ok("a margem de contribuição diz a conta dela",
        "margem de contribuição ÷ faturado líquido" in _corpo_cards)
     ok("e a margem bruta", "lucro bruto ÷ faturado líquido" in _corpo_cards)
     ok("o UC idem", "unidades ÷ nº de vendas" in _corpo_cards)
-    ok("os quatro dizem de que aba e de que período vêm",
-       _corpo_cards.count("+ _de") == 4 and "BASE DE VENDAS · " in _corpo_cards)
+    ok("os três dizem de que aba e de que período vêm",
+       _corpo_cards.count("+ _de") == 3 and "BASE DE VENDAS · " in _corpo_cards)
+
+    # ── O LPV E O CUSTO FIXO POR VENDA, E SO ELE ────────────────────────
+    #
+    # A Home mostrava R$ 82,24 — lucro bruto ÷ vendas — com o nome LPV.
+    # O dono: "Eu nao disse que o LPV era o meu custo fixo dividido pelo
+    # numero de vendas?". Disse, e esta no repositorio desde antes desta
+    # tela: financeiro.py:261, chat_assistente.py:115, app.py:1533.
+    _corpo_lpv = inspect.getsource(_lpv_card)
+    ok("o cartão de LPV lê o Financeiro", "lpv_vigente(" in _corpo_lpv)
+    ok("e NÃO o lucro por venda da BASE DE VENDAS",
+       'ind["lucro_por_venda"]' not in _corpo_cards
+       and ("ind[" + '"lpv"]') not in _corpo_cards)
+    ok("ele diz que é custo fixo por venda",
+       "custo fixo médio por venda" in _corpo_lpv)
+    ok("diz de que mês o LPV veio", "origem" in _corpo_lpv)
+    ok("e avisa quando ele está atrasado",
+       "meses_de_atraso_lpv(" in _corpo_lpv and "atrasado" in _corpo_lpv)
+    ok("o lucro por venda não some — desce para o rodapé",
+       "Lucro por venda" in _corpo_lpv)
+    # O Financeiro fora do ar nao pode derrubar os outros cinco cartoes.
+    ok("sem Financeiro, o cartão ainda aparece e diz o que fazer",
+       "except Exception" in _corpo_lpv
+       and "Gestão → Financeiro" in _corpo_lpv)
+    _fake = {"lucro_por_venda": 82.24}
+    import financeiro as _fin_t
+    _guardado = _fin_t.lpv_vigente
+    _fin_t.lpv_vigente = lambda *a, **k: (19.68, "Junho/2026")
+    _fin_t.meses_de_atraso_lpv = lambda *a, **k: 3
+    _fin_t.carregar_dados = lambda: None
+    _h_lpv = _lpv_card(_fake, " · BASE DE VENDAS · jun-ago/2026")
+    _fin_t.lpv_vigente = _guardado
+    ok("o número grande do cartão é o LPV do Financeiro",
+       "19,68" in _h_lpv)
+    ok("e os R$ 82,24 aparecem como LUCRO por venda, no rodapé",
+       "82,24" in _h_lpv and "Lucro por venda" in _h_lpv)
+    ok("o atraso do LPV sai escrito", "3 mês(es) atrasado" in _h_lpv)
+
+    # A legenda do rodape nao pode continuar dizendo que o LPV vem da
+    # BASE DE VENDAS — era ela que sustentava o numero errado.
+    ok("o rodapé da página não atribui mais o LPV à BASE DE VENDAS",
+       ("Lucro, margem, " + "LPV e UC") not in _pg)
+    ok("e diz onde o LPV mora", "Gestão → Financeiro" in _pg)
 
     print("\nfalhas:", falhas)
