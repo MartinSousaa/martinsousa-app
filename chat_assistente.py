@@ -311,6 +311,32 @@ perguntarem COMO FAZER alguma coisa.
 """
 
 
+# ── A LINGUAGEM COM QUEM USA, E ELA VALE SEMPRE ─────────────────────────────
+#
+# Relato de 25/09: "ele está exigindo linguagem técnica, está falando sobre
+# diminuir a imagem com % e sobre espaçamento". E a mensagem de falha do
+# ajuste devolvia a lição de casa para quem pediu: "tente descrever de outro
+# jeito".
+#
+# Esta regra morava no ramo de quem JÁ tem conteúdo gerado — e a conversa
+# começa antes disso. Agora ela é do sistema inteiro.
+LINGUAGEM = """
+
+COMO VOCÊ FALA COM A PESSOA
+Duas linguagens, e não se misturam:
+- A instrução que vai DENTRO do <CMD> é para o gerador de imagem. Ali pode e
+  deve ser técnica: porcentagem de margem, posição, tamanho relativo.
+- O que você escreve FORA do <CMD> é para uma pessoa que está trabalhando.
+  Ali nada de pixel, porcentagem, "espaçamento", "enquadramento", "resolução"
+  ou "proporção". Diga em palavras do dia a dia: "os textos estão encostando
+  na borda", "a caixa preta aparece e não devia", "a frase está cortada".
+
+E NUNCA peça que ela escreva de outro jeito, nem que divida o pedido, nem que
+use termo técnico. O pedido dela já está claro — o trabalho de traduzir para
+o gerador é SEU. Se uma correção não saiu, diga o que você já tentou e o que
+vai tentar agora, em uma linha."""
+
+
 def _montar_system(usuario="", eh_admin=None) -> str:
     """Monta o system prompt completo com contexto dinâmico."""
     ctx = _contexto_atual() + _bloco_quem_fala(usuario, eh_admin)
@@ -335,7 +361,7 @@ def _montar_system(usuario="", eh_admin=None) -> str:
             "e preencher os campos necessários conforme descrito na seção ORIENTAÇÃO SEM PRODUTO ABERTO acima. "
             "Nunca sugira ações como clicar em 'Editar' ou 'Salvar produto' — esses botões não existem."
         )
-        return f"{SYSTEM_BASE}{nota_orientacao}"
+        return f"{SYSTEM_BASE}{nota_orientacao}{LINGUAGEM}"
 
     cmds_exemplo = []
     if tem_titulos:
@@ -452,7 +478,7 @@ REGRAS DOS COMANDOS:
   isso que o segundo e o terceiro pedido sumiam sem explicação.)
 - Para dúvidas sem alteração de conteúdo: responda normalmente, SEM bloco <CMD>"""
 
-    return f"{SYSTEM_BASE}{instrucao_cmd}"
+    return f"{SYSTEM_BASE}{instrucao_cmd}{LINGUAGEM}"
 
 
 def _log(acao, instrucao="", imagem=None, tipo="", resultado=""):
@@ -722,7 +748,22 @@ def _chamar_ia(historico: list, mensagem_usuario: str, imagens_bytes: list = Non
         for _ in range(5):
             resp = client.messages.create(
                 model=MODELO_CHAT,
-                max_tokens=2000,
+                # ── SETE COMANDOS NÃO CABIAM EM 2000 ──────────────────────
+                #
+                # 25/09, produção: a colaboradora pediu correção nas sete
+                # peças de uma vez. A resposta cortou no meio do JSON do
+                # quarto comando — sem `</CMD>` —, o `findall` abaixo não
+                # casou nada, NENHUM comando foi executado, e o JSON cru
+                # apareceu na tela dela.
+                #
+                # Do lado dela isso se leu como "ele diz que vai fazer e se
+                # recusa a fazer". Não era recusa: era a resposta cortada.
+                #
+                # Um comando de ajuste com a instrução escrita por extenso dá
+                # uns 250 tokens; sete passam de 1.700 só neles, antes da
+                # tabela que o assistente escreve antes. 8000 cobre as nove
+                # peças com folga.
+                max_tokens=8000,
                 system=sistema,
                 messages=msgs,
                 **({"tools": ferramentas} if ferramentas else {}),
@@ -740,8 +781,54 @@ def _chamar_ia(historico: list, mensagem_usuario: str, imagens_bytes: list = Non
                 for u in usos
             ]})
 
-        texto_raw = "\n".join(b.text for b in (resp.content if resp else [])
-                              if getattr(b, "type", "") == "text").strip()
+        def _texto_de(r):
+            return "\n".join(b.text for b in (r.content if r else [])
+                              if getattr(b, "type", "") == "text")
+
+        texto_raw = _texto_de(resp)
+
+        # ── A RESPOSTA CORTADA CONTINUA SOZINHA ───────────────────────────
+        #
+        # O DEFEITO, 25/09, em produção: a colaboradora pediu correção nas
+        # sete peças de uma vez. A resposta cortou no meio do JSON do quarto
+        # comando, sem `</CMD>`, NENHUM comando foi executado, e o JSON cru
+        # apareceu na tela dela. Do lado dela isso se leu como "ele diz que
+        # vai fazer e se recusa a fazer".
+        #
+        # NÃO PODE HAVER LIMITE DE COMANDOS — ordem do dono, e ela está
+        # certa: pedir para dividir em duas mensagens é empurrar o problema
+        # para quem já fez a parte dele. Então quando a resposta corta, ela
+        # é CONTINUADA de onde parou, e os pedaços viram um texto só.
+        #
+        # A continuação é o próprio texto parcial devolvido como turno do
+        # assistente: o modelo segue de onde estava, sem repetir o que já
+        # escreveu — é por isso que os pedaços podem ser simplesmente
+        # colados.
+        #
+        # O teto de 8 rodadas existe porque laço sem fim é conta aberta: são
+        # 64 mil tokens de resposta, muito além das nove peças. Se ele for
+        # alcançado, a tela diz — não se finge que a resposta veio inteira.
+        _rodadas_cont = 0
+        while (getattr(resp, "stop_reason", "") == "max_tokens"
+               and _rodadas_cont < 8):
+            _rodadas_cont += 1
+            msgs_cont = list(msgs) + [
+                {"role": "assistant", "content": texto_raw}]
+            try:
+                resp = client.messages.create(
+                    model=MODELO_CHAT, max_tokens=8000, system=sistema,
+                    messages=msgs_cont,
+                    **({"tools": ferramentas} if ferramentas else {}),
+                )
+            except Exception:
+                break
+            _pedaco = _texto_de(resp)
+            if not _pedaco:
+                break
+            texto_raw += _pedaco
+
+        _cortada = getattr(resp, "stop_reason", "") == "max_tokens"
+        texto_raw = texto_raw.strip()
         if not texto_raw:
             texto_raw = ("Consultei os dados mas não consegui formar a resposta. "
                          "Pergunte de novo, por favor.")
@@ -754,23 +841,67 @@ def _chamar_ia(historico: list, mensagem_usuario: str, imagens_bytes: list = Non
         # passou a dizer "so posso um comando por vez", que nunca foi verdade:
         # era este `search` no lugar de um `findall`. A fila do lado da aba
         # Imagem sempre foi uma lista e sempre rodou em laco.
-        cmds = []
-        for bloco in re.findall(r"<CMD>\s*(\{.*?\})\s*</CMD>", texto_raw,
-                                re.DOTALL):
-            try:
-                cmds.append(json.loads(bloco))
-            except Exception:
-                # Um JSON torto nao pode derrubar os outros dois que vieram
-                # certos na mesma resposta.
-                continue
-        if cmds:
-            texto_raw = re.sub(r"\s*<CMD>.*?</CMD>", "", texto_raw,
-                               flags=re.DOTALL).strip()
+        cmds = ler_comandos(texto_raw)
+        # ── O MARCADOR NUNCA APARECE PARA QUEM USA ────────────────────
+        #
+        # A limpeza só rodava quando ALGUM comando tinha sido lido (`if
+        # cmds:`) — então justamente no caso ruim, o do bloco cortado, o
+        # `<CMD>{"acao":"refazer_imagem"...` ia inteiro para a tela.
+        #
+        # Agora limpa sempre: os blocos fechados e também o fragmento sem
+        # fechamento, que é o rastro da resposta cortada.
+        texto_raw, _teve_fragmento = limpar_marcadores(texto_raw)
+
+        # Só sobra aviso quando nem oito continuações deram conta — e aí o
+        # que se diz é o que aconteceu, com o número de comandos que saiu.
+        if _cortada or _teve_fragmento:
+            texto_raw = ((texto_raw + "\n\n") if texto_raw else "") + (
+                "⚠️ **A resposta ficou grande demais mesmo continuando.** "
+                + (f"Foram enviados {len(cmds)} comando(s); pode haver mais "
+                   "que não saiu." if cmds else
+                   "Nenhum comando foi enviado — nada foi alterado.")
+                + " Me peça de novo e eu sigo daqui.")
 
         return texto_raw, cmds
 
     except Exception as e:
         return f"⚠️ Erro ao conectar com o assistente: {e}", []
+
+
+def ler_comandos(texto):
+    """Os comandos <CMD>{...}</CMD> do texto. Lista, na ordem. Função pura.
+
+    TODOS os blocos, nao so o primeiro. Era `re.search`: o primeiro comando
+    era executado e os demais caiam fora em silencio. Quem pedisse tres
+    mudancas via uma acontecer — e o proprio assistente passou a dizer "so
+    posso um comando por vez", que nunca foi verdade.
+
+    Um JSON torto nao derruba os outros que vieram certos na mesma resposta.
+    """
+    fora = []
+    for bloco in re.findall(r"<CMD>\s*(\{.*?\})\s*</CMD>", str(texto or ""),
+                            re.DOTALL):
+        try:
+            fora.append(json.loads(bloco))
+        except Exception:
+            continue
+    return fora
+
+
+def limpar_marcadores(texto):
+    """Tira do texto tudo que é marcador de comando. (texto, tinha_fragmento).
+
+    O DEFEITO QUE ISTO CORRIGE: a limpeza só rodava quando algum comando
+    tinha sido LIDO. Na resposta cortada — o caso ruim — nenhum era lido, a
+    limpeza não rodava, e o `<CMD>{"acao":"refazer_imagem"…` cru ia para a
+    tela da colaboradora, em 25/09.
+
+    O fragmento sem fechamento é o rastro de uma resposta cortada, e quem
+    chama usa esse `True` para dizer o que houve.
+    """
+    t = re.sub(r"\s*<CMD>.*?</CMD>", "", str(texto or ""), flags=re.DOTALL)
+    tinha = "<CMD>" in t
+    return re.sub(r"\s*<CMD>.*$", "", t, flags=re.DOTALL).strip(), tinha
 
 
 def renderizar_chat(usuario_logado=""):
@@ -909,3 +1040,130 @@ def iniciar_conversa(mensagem: str):
     if "ms_chat_hist" not in st.session_state:
         st.session_state["ms_chat_hist"] = []
     st.session_state["ms_chat_hist"].append({"role": "assistant", "content": mensagem})
+
+
+# ── Conferência ──────────────────────────────────────────────────────────────
+# `python3 chat_assistente.py`. Só as funções puras — a conversa com o modelo
+# não se testa sem rede, e a tela se confere em `checar_tela.py`.
+if __name__ == "__main__":
+    falhas = 0
+
+    def ok(nome, cond):
+        global falhas
+        falhas += not cond
+        print(("ok    " if cond else "FALHA ") + nome)
+
+    # ── O CASO DE 25/09, EM PRODUCAO ────────────────────────────────────
+    #
+    # Sete correcoes pedidas de uma vez. A resposta cortou no meio do JSON do
+    # quarto comando, sem `</CMD>`. Nenhum comando foi executado, e o texto
+    # cru apareceu na tela da colaboradora. Do lado dela: "ele diz que vai
+    # fazer e se recusa a fazer".
+    _CORTADA = (
+        'Olhei as 7. Vou de ajuste fino.\n'
+        '<CMD>{"acao":"refazer_imagem","imagem":1,"instrucao":"so a cinza"}</CMD>\n'
+        '<CMD>{"acao":"refazer_imagem","imagem":2,"instrucao":"cards inteiros"}</CMD>\n'
+        '<CMD>{"acao":"refazer_imagem","imagem":4,"instrucao":"Close macro do '
+        'interior do porta-joias CINZA, com tres callouts brancos e margem de '
+        'pelo menos 6% ate as bordas: VELUDO PREMIUM - toque macio; '
+        'DIVISORIAS PRECISAS - espaco')
+
+    _cmds = ler_comandos(_CORTADA)
+    ok("os comandos inteiros continuam sendo lidos", len(_cmds) == 2)
+    ok("e na ordem em que foram escritos",
+       [c["imagem"] for c in _cmds] == [1, 2])
+    ok("o bloco cortado NAO vira comando",
+       all(c["imagem"] != 4 for c in _cmds))
+
+    # O QUE A TELA MOSTRA: nunca o marcador.
+    _txt, _frag = limpar_marcadores(_CORTADA)
+    ok("o fragmento cortado e detectado", _frag is True)
+    ok("e o marcador nao sobra no texto da tela", "<CMD>" not in _txt)
+    ok("nem o JSON dele", "refazer_imagem" not in _txt)
+    ok("o que o assistente escreveu para a pessoa continua",
+       _txt.startswith("Olhei as 7"))
+
+    # RESPOSTA INTEIRA: limpa igual, e sem acusar fragmento.
+    _INTEIRA = ('Vou corrigir as tres.\n'
+                '<CMD>{"acao":"ajustar_imagem","imagem":1}</CMD>\n'
+                '<CMD>{"acao":"ajustar_imagem","imagem":2}</CMD>\n'
+                '<CMD>{"acao":"ajustar_imagem","imagem":3}</CMD>')
+    _c2 = ler_comandos(_INTEIRA)
+    _t2, _f2 = limpar_marcadores(_INTEIRA)
+    ok("os tres comandos saem", len(_c2) == 3)
+    ok("sem fragmento, nao acusa corte", _f2 is False)
+    ok("e o texto fica so com a frase", _t2 == "Vou corrigir as tres.")
+
+    # UM JSON TORTO NO MEIO nao pode derrubar os que vieram certos.
+    _TORTO = ('<CMD>{"acao":"a","imagem":1}</CMD>'
+              '<CMD>{isso nao e json}</CMD>'
+              '<CMD>{"acao":"a","imagem":3}</CMD>')
+    ok("o torto e pulado e os bons passam",
+       [c["imagem"] for c in ler_comandos(_TORTO)] == [1, 3])
+    ok("e nenhum marcador sobra na tela",
+       "<CMD>" not in limpar_marcadores(_TORTO)[0])
+
+    # BORDAS
+    ok("texto vazio nao quebra",
+       ler_comandos("") == [] and limpar_marcadores("") == ("", False))
+    ok("None tambem nao",
+       ler_comandos(None) == [] and limpar_marcadores(None) == ("", False))
+    ok("texto sem comando nenhum passa inteiro",
+       limpar_marcadores("Oi, tudo bem?") == ("Oi, tudo bem?", False))
+
+    # ── E A RESPOSTA CORTADA CONTINUA SOZINHA ───────────────────────────
+    #
+    # "NAO PODE HAVER LIMITE DE COMANDOS" — dono, 25/09. Mandar dividir em
+    # duas mensagens e empurrar o problema para quem ja fez a parte dele.
+    import inspect as _insp
+    _corpo = _insp.getsource(_chamar_ia)
+    ok("a resposta cortada e continuada, e nao devolvida pela metade",
+       'stop_reason", "") == "max_tokens"' in _corpo and "while" in _corpo)
+    ok("a continuacao devolve o texto parcial como turno do assistente",
+       '"role": "assistant", "content": texto_raw' in _corpo)
+    ok("os pedacos sao colados", "texto_raw += _pedaco" in _corpo)
+    ok("e o laco tem teto, para nao virar conta aberta",
+       "_rodadas_cont < 8" in _corpo)
+    _aviso = _corpo.split("_cortada or _teve_fragmento")[1][:600]
+    ok("o aviso da tela nao manda a pessoa dividir a mensagem",
+       ("duas " + "mensagens") not in _aviso)
+    ok("o teto de tokens comporta as nove pecas", "max_tokens=8000" in _corpo)
+
+    # ── A LINGUAGEM COM QUEM USA ────────────────────────────────────────
+    #
+    # Relato de 25/09: "ele esta exigindo linguagem tecnica, esta falando
+    # sobre diminuir a imagem com % e sobre espacamento". E a mensagem de
+    # falha do ajuste ainda devolvia a lição de casa para ela: "tente
+    # descrever de outro jeito".
+    # OS DOIS RAMOS: sem conteudo gerado (so perguntas) e com conteudo. A
+    # regra tem de valer nos dois — ela morava so no segundo, e a conversa
+    # comeca no primeiro.
+    _sis = _montar_system("myrella", False)
+    st.session_state["img_galeria"] = [{"tipo": "1", "bytes": b""}]
+    _sis_com = _montar_system("myrella", False)
+    st.session_state.pop("img_galeria", None)
+    ok("a regra vale tambem com conteudo gerado na tela",
+       "COMO VOCÊ FALA COM A PESSOA" in _sis_com)
+    ok("a regra das duas linguagens esta no system",
+       "COMO VOCÊ FALA COM A PESSOA" in _sis)
+    ok("e ela nomeia os termos proibidos na conversa",
+       "pixel" in _sis and "espaçamento" in _sis)
+    ok("e proibe devolver a licao de casa para quem pediu",
+       "NUNCA peça que ela escreva de outro jeito" in _sis)
+    ok("dizendo de quem e o trabalho de traduzir",
+       "o trabalho de traduzir para\no gerador é SEU" in _sis
+       or "traduzir para o gerador é SEU" in _sis.replace("\n", " "))
+
+    # ── O AVISO AUTOMATICO DO APP ───────────────────────────────────────
+    # Ele entra na conversa como fala do assistente; se a lista nao existir,
+    # nasce. O aviso que nao chega ao chat e aviso que ninguem le.
+    st.session_state.pop("ms_chat_hist", None)
+    iniciar_conversa("Faltou o peso do produto.")
+    _h = st.session_state.get("ms_chat_hist") or []
+    ok("o aviso do app entra no historico do chat", len(_h) == 1)
+    ok("e entra como fala do assistente", _h[0]["role"] == "assistant")
+    iniciar_conversa("E as medidas.")
+    ok("o segundo aviso nao apaga o primeiro",
+       len(st.session_state["ms_chat_hist"]) == 2)
+
+    print("\nfalhas:", falhas)
