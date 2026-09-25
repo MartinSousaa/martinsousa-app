@@ -3014,10 +3014,14 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
     try:
         import log_imagem as _li
         _eh_ajuste = "MODO AJUSTE FINO" in (prompt_geracao or "")
+        # A PEÇA É A CHAVE DA CADEIA. Na geração ela é o número do tipo (a
+        # peça 4 é a peça 4 do plano); no ajuste, a que o chat marcou.
+        _peca = (peca_em_ajuste() if _eh_ajuste
+                 else str(numero_do_tipo(tipo) or ""))
         _li.registrar(
             "prompt_ajuste" if _eh_ajuste else "prompt_geracao",
-            instrucao="", tipo=(tipo or ""), resultado="enviado ao motor",
-            prompt=prompt_geracao)
+            instrucao="", imagem=_peca, tipo=(tipo or ""),
+            resultado="enviado ao motor", prompt=prompt_geracao)
     except Exception:
         pass
 
@@ -4204,6 +4208,83 @@ def prompt_para_regerar(tipo, instrucoes, dados_descricao, nome_produto):
     )
 
 
+def _baixar_historico_de_prompts():
+    """Um botão que leva TODO o histórico de prompts deste produto num .txt.
+
+    POR QUE AQUI, NA TELA DE QUEM GERA
+    ----------------------------------
+    O dono: *"copiar todos os prompts vai gerar muito trabalho e a
+    possibilidade de erros manuais... nem que tenha um botão de extração TXT
+    de todo o histórico de prompts daquela sessão"*. Quem vive esta tela é
+    quem gera e quem corrige; obrigá-la a ir até Gargalos para levar o
+    histórico é uma ida a mais por rodada.
+
+    DOIS CLIQUES, E É DE PROPÓSITO. O `download_button` precisa do arquivo
+    PRONTO para desenhar — ou seja, um botão de um clique só leria a planilha
+    a cada vez que esta tela fosse desenhada, que é a cada clique em qualquer
+    coisa. O primeiro clique monta, o segundo baixa, e a tela não fica lenta
+    para quem só queria ver a copy.
+    """
+    _produto = str(st.session_state.get("img_nome_produto", "")
+                   or st.session_state.get("nome_produto", "") or "").strip()
+    if st.button("📄 Preparar histórico de prompts (.txt)",
+                 use_container_width=True, key="btn_hist_prompts"):
+        try:
+            import log_imagem as _li
+            _linhas = _li.ler(500)
+            if _produto:
+                _linhas = [l for l in _linhas
+                           if str(l.get("produto", "")).strip() == _produto]
+            import comparar_prompt as _cmp
+            st.session_state["img_hist_txt"] = _cmp.relatorio_txt(_linhas)
+        except Exception as e:
+            st.session_state["img_hist_txt"] = ""
+            st.error(f"Não consegui montar o histórico: {type(e).__name__}")
+    _txt = st.session_state.get("img_hist_txt") or ""
+    if _txt:
+        st.download_button(
+            "⬇️ Baixar o histórico de prompts",
+            data=_txt.encode("utf-8"),
+            file_name=f"prompts_{(_produto or 'studio').replace(' ', '_')}.txt",
+            mime="text/plain", use_container_width=True,
+            key="btn_hist_prompts_baixar")
+        st.caption(f"{len(_txt):,} caracteres · geração e todas as correções "
+                   "de cada peça deste produto".replace(",", "."))
+
+
+def marcar_peca_em_ajuste(num):
+    """Diz qual peça da galeria está sendo ajustada agora. `None` limpa.
+
+    POR QUE POR AQUI, E NÃO POR PARÂMETRO
+    -------------------------------------
+    O registro do prompt acontece na PORTA DO MOTOR (`gerar_imagem_ia`), que
+    é o único ponto por onde geração e ajuste passam os dois. Mas a peça só é
+    conhecida lá em cima, no comando do chat — e levá-la até a porta exigiria
+    um parâmetro novo em três assinaturas e em todas as chamadas delas, com a
+    certeza de que a quarta chamada nasceria sem ele.
+
+    Sem a peça, a rastreabilidade que o dono pediu não existe: as correções
+    de oito imagens diferentes virariam uma fila só, e a cadeia de cada uma
+    ficaria impossível de reconstruir.
+
+    O rótulo não serve de chave: depois de um ajuste ele vira outra coisa
+    (ver `tipo_canonico`), e a cadeia se partiria no meio.
+    """
+    try:
+        st.session_state["img_peca_em_ajuste"] = ("" if num is None
+                                                  else str(num))
+    except Exception:
+        pass
+
+
+def peca_em_ajuste():
+    """A peça marcada, ou "" quando o ajuste não é de uma peça da galeria."""
+    try:
+        return str(st.session_state.get("img_peca_em_ajuste") or "")
+    except Exception:
+        return ""
+
+
 def montar_prompt_ajuste_fino(instrucao, tipo=None, cor_produto=None):
     """Monta prompt para edição cirúrgica de uma imagem existente.
 
@@ -5201,6 +5282,10 @@ def consumir_comandos_do_chat(usuario_logado=""):
             # resposta dele sai do veredito, e nao do envio.
             _res_cmd = {"img": None, "relato": None, "done": False}
             _barra_cmd = st.progress(0.0, text=f"Assistente IA: ajuste na Imagem {num_foto}...")
+
+            # Antes de ajustar, diz QUAL peça é — é o que liga o prompt da
+            # correção ao prompt que gerou esta imagem, e não a outra.
+            marcar_peca_em_ajuste(num_foto)
 
             def _rodar_cmd(_ref=img_ref_cmd[0] if img_ref_cmd else None,
                            _ins=instrucao, _tp=tipo_alvo,
@@ -6252,6 +6337,7 @@ def pagina_imagem(usuario_logado):
             st.rerun()
         if _ver_prompts:
             _c_btn2.caption("não gera imagem · não gasta geração")
+            _baixar_historico_de_prompts()
             # O DESCARTE DA REFERENCIA DEIXA DE SER SILENCIOSO.
             #
             # A descricao da referencia de layout e jogada fora quando menciona
@@ -7223,6 +7309,9 @@ def pagina_imagem(usuario_logado):
                     import time as _time_afg
                     import threading as _threading_afg
                     _res_afg = {"img": None, "relato": None, "done": False}
+                    # A peça que está na tela é a que vai ser ajustada — sem
+                    # isto a correção entraria na cadeia de outra imagem.
+                    marcar_peca_em_ajuste(idx_ativo + 1)
 
                     def _rodar_afg(_ref=imagem_ativa,
                                    _ins=instrucao_af_gal.strip(),

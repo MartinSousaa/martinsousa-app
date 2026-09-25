@@ -159,6 +159,143 @@ def parear(linhas):
     return list(reversed(pares))
 
 
+def cadeias(linhas):
+    """A vida inteira de cada peça: a geração e TODAS as correções dela.
+
+    Devolve [(produto, peca, [linha_geracao, correcao1, correcao2, ...])], da
+    peça mais recentemente mexida para a mais antiga.
+
+    POR QUE A CADEIA INTEIRA, E NÃO SÓ O ÚLTIMO PAR
+    -----------------------------------------------
+    Ditado pelo dono em 25/09: *"quando a imagem estiver com todos os ajustes
+    que o colaborador solicitou, precisamos comparar com os anteriores de
+    comandos que não deram certo. Pois o prompt da imagem final correta
+    precisava ter sido construído na primeira geração."*
+
+    É outro diagnóstico, e mais fundo que o do par: a diferença entre o
+    primeiro prompt e o último é a lista do que o sistema deveria ter sabido
+    desde o começo. E as correções do meio, as que não deram certo, dizem
+    quantas rodadas custou cada item dessa lista.
+
+    A CHAVE É (produto, peça), e a peça vem da coluna `imagem`. Pelo rótulo
+    não daria: depois de um ajuste ele vira outra coisa, e a cadeia se
+    partiria no meio.
+    """
+    def _quando(l):
+        t = str(l.get("quando") or "")
+        return (t[6:10], t[3:5], t[0:2], t[11:])
+
+    em_ordem = sorted(linhas or [], key=_quando)
+    por_peca, ordem = {}, []
+    for l in em_ordem:
+        acao = str(l.get("acao") or "")
+        if acao not in ("prompt_geracao", "prompt_ajuste"):
+            continue
+        if not str(l.get("prompt") or "").strip():
+            continue
+        chave = (str(l.get("produto") or "").strip(),
+                 str(l.get("imagem") or "").strip())
+        if acao == "prompt_geracao":
+            # Geração nova começa uma cadeia NOVA: a peça foi refeita do
+            # zero, e juntar com as correções da versão anterior misturaria
+            # duas histórias diferentes.
+            por_peca[chave] = [l]
+        elif chave in por_peca:
+            por_peca[chave].append(l)
+        else:
+            continue
+        if chave in ordem:
+            ordem.remove(chave)
+        ordem.append(chave)
+    return [(p, pe, por_peca[(p, pe)]) for p, pe in reversed(ordem)]
+
+
+def _faixa(titulo):
+    return f"\n{'=' * 78}\n{titulo}\n{'=' * 78}\n"
+
+
+def relatorio_txt(linhas):
+    """TODO o histórico de prompts, em um texto só, pronto para copiar.
+
+    POR QUE UM ARQUIVO, E NÃO A TELA
+    --------------------------------
+    O dono: *"copiar todos os prompts vai gerar muito trabalho e a
+    possibilidade de erros manuais"*. Copiar oito prompts de seis mil
+    caracteres da tela, um a um, é trabalho braçal com chance de faltar
+    pedaço — e um prompt copiado pela metade leva a análise para o lado
+    errado, que é pior do que não ter o arquivo.
+
+    A ordem do texto é a da leitura: primeiro o veredito de cada peça, depois
+    os prompts inteiros. Quem abre o arquivo vê o diagnóstico antes das seis
+    mil linhas.
+    """
+    cads = cadeias(linhas)
+    if not cads:
+        return ("Nenhum prompt registrado ainda.\n\nO registro começa na "
+                "próxima geração: cada peça grava o texto que foi ao motor, "
+                "e cada correção grava o dela.\n")
+
+    partes = [_faixa("MS STUDIO — HISTÓRICO DE PROMPTS"),
+              f"{len(cads)} peça(s) com prompt registrado.\n",
+              "COMO LER ESTE ARQUIVO",
+              "  frase SÓ na correção -> faltava no prompt de geração;",
+              "                          escrever na geração resolve.",
+              "  frase NOS DOIS       -> a regra já estava escrita e a imagem",
+              "                          saiu errada assim mesmo: o modelo",
+              "                          ignorou, e escrever de novo não",
+              "                          resolve.",
+              "\nA diferença entre o PRIMEIRO prompt e o ÚLTIMO é a lista do",
+              "que o sistema deveria ter sabido desde a primeira geração.\n"]
+
+    # ── 1. O resumo, peça a peça ─────────────────────────────────────────
+    partes.append(_faixa("RESUMO"))
+    for produto, peca, cad in cads:
+        ger, correcoes = cad[0], cad[1:]
+        nome = f"{produto or 'sem nome'} · peça {peca or '?'}"
+        if not correcoes:
+            partes.append(f"{nome}: gerada e não corrigida. "
+                          f"{ger.get('quando', '')}")
+            continue
+        _n, _frase = veredito(ger.get("prompt"), correcoes[-1].get("prompt"))
+        so_cor, dois, _ = comparar(ger.get("prompt"),
+                                   correcoes[-1].get("prompt"))
+        partes.append(
+            f"{nome}: {len(correcoes)} correção(ões) · veredito da última: "
+            f"{_n.upper()}\n    {_frase}\n"
+            f"    só na correção: {len(so_cor)} frase(s) · "
+            f"nos dois: {len(dois)} frase(s)")
+
+    # ── 2. O que faltava na geração, peça a peça ────────────────────────
+    partes.append(_faixa(
+        "O QUE A ÚLTIMA CORREÇÃO TINHA E A GERAÇÃO NÃO TINHA"))
+    for produto, peca, cad in cads:
+        if len(cad) < 2:
+            continue
+        so_cor, dois, _ = comparar(cad[0].get("prompt"),
+                                   cad[-1].get("prompt"))
+        partes.append(f"\n--- {produto or 'sem nome'} · peça {peca or '?'} ---")
+        partes.append("SÓ NA CORREÇÃO (faltava na geração):")
+        partes.extend(f"  + {f}" for f in so_cor) if so_cor else \
+            partes.append("  (nenhuma)")
+        partes.append("NOS DOIS (estava escrito e não foi cumprido):")
+        partes.extend(f"  = {f}" for f in dois) if dois else \
+            partes.append("  (nenhuma)")
+
+    # ── 3. Os prompts inteiros, na ordem em que aconteceram ─────────────
+    partes.append(_faixa("OS PROMPTS, INTEIROS"))
+    for produto, peca, cad in cads:
+        partes.append(f"\n{'-' * 78}")
+        partes.append(f"{produto or 'sem nome'} · peça {peca or '?'} · "
+                      f"{len(cad)} prompt(s)")
+        partes.append("-" * 78)
+        for i, l in enumerate(cad):
+            rotulo = ("GERAÇÃO" if i == 0 else f"CORREÇÃO {i}")
+            partes.append(f"\n[{rotulo}] {l.get('quando', '')} · "
+                          f"{l.get('usuario', '')} · tipo: {l.get('tipo', '')}")
+            partes.append(str(l.get("prompt") or ""))
+    return "\n".join(partes) + "\n"
+
+
 # ── Conferência ──────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     falhas = 0
@@ -268,5 +405,73 @@ A alca da caneca fica virada para a direita.
                             "prompt": "Outra correcao qualquer aqui."}])
     ok("o mais recente vem primeiro",
        _tres[0][1]["quando"] > _tres[1][1]["quando"])
+
+    # ── A CADEIA INTEIRA DE CADA PECA ───────────────────────────────────
+    #
+    # "O prompt da imagem final correta precisava ter sido construido na
+    # primeira geracao" — dono, 25/09. Entao a cadeia guarda a geracao E
+    # todas as correcoes, na ordem em que aconteceram.
+    _CAD = [
+        {"quando": "25/09/2026 10:00:00", "produto": "Caneca", "imagem": "1",
+         "acao": "prompt_geracao", "prompt": _GER, "usuario": "myrella"},
+        {"quando": "25/09/2026 10:05:00", "produto": "Caneca", "imagem": "4",
+         "acao": "prompt_geracao", "prompt": _GER, "usuario": "myrella"},
+        {"quando": "25/09/2026 10:10:00", "produto": "Caneca", "imagem": "1",
+         "acao": "prompt_ajuste", "prompt": _COR, "usuario": "myrella"},
+        {"quando": "25/09/2026 10:20:00", "produto": "Caneca", "imagem": "1",
+         "acao": "prompt_ajuste", "usuario": "myrella",
+         "prompt": "MODO AJUSTE FINO\nA alca da caneca virada para a direita."},
+    ]
+    _cads = cadeias(_CAD)
+    ok("uma cadeia por peca", len(_cads) == 2)
+    _p1 = next(c for c in _cads if c[1] == "1")
+    ok("a peca 1 tem a geracao e as DUAS correcoes", len(_p1[2]) == 3)
+    ok("a geracao vem primeiro", _p1[2][0]["acao"] == "prompt_geracao")
+    ok("e as correcoes na ordem em que aconteceram",
+       _p1[2][1]["quando"] < _p1[2][2]["quando"])
+    _p4 = next(c for c in _cads if c[1] == "4")
+    ok("a peca 4 nao herda correcao da peca 1", len(_p4[2]) == 1)
+
+    # GERACAO NOVA COMECA CADEIA NOVA: a peca foi refeita do zero, e juntar
+    # com as correcoes da versao anterior misturaria duas historias.
+    _refeita = cadeias(_CAD + [
+        {"quando": "25/09/2026 11:00:00", "produto": "Caneca", "imagem": "1",
+         "acao": "prompt_geracao", "prompt": _GER, "usuario": "myrella"}])
+    ok("refazer a peca zera a cadeia dela",
+       len(next(c for c in _refeita if c[1] == "1")[2]) == 1)
+
+    # CORRECAO SEM GERACAO NA JANELA nao inventa cadeia.
+    ok("correcao orfa nao vira cadeia",
+       cadeias([{"quando": "25/09/2026 12:00:00", "produto": "X",
+                 "imagem": "2", "acao": "prompt_ajuste", "prompt": _COR}]) == [])
+    ok("acao que nao e prompt fica de fora",
+       cadeias([{"quando": "25/09/2026 09:00:00", "produto": "Caneca",
+                 "imagem": "1", "acao": "ajuste_aplicado",
+                 "prompt": ""}]) == [])
+    ok("registro vazio nao quebra", cadeias([]) == [] and cadeias(None) == [])
+
+    # ── O ARQUIVO QUE SE BAIXA COM UM CLIQUE ────────────────────────────
+    #
+    # "Copiar todos os prompts vai gerar muito trabalho e a possibilidade de
+    # erros manuais" — dono, 25/09.
+    _txt = relatorio_txt(_CAD)
+    ok("o relatorio traz o resumo antes dos prompts",
+       _txt.index("RESUMO") < _txt.index("OS PROMPTS, INTEIROS"))
+    ok("cada peca aparece no resumo",
+       "peça 1" in _txt and "peça 4" in _txt)
+    ok("os prompts inteiros estao la, nao um resumo deles",
+       _GER.strip().splitlines()[1] in _txt
+       and "A alca da caneca virada para a direita." in _txt)
+    ok("a geracao e as correcoes sao rotuladas",
+       "[GERAÇÃO]" in _txt and "[CORREÇÃO 1]" in _txt
+       and "[CORREÇÃO 2]" in _txt)
+    ok("o veredito de cada peca sai escrito",
+       "veredito da última:" in _txt)
+    ok("e o arquivo explica como se le",
+       "COMO LER ESTE ARQUIVO" in _txt)
+    ok("sem registro, o arquivo diz isso em vez de vir vazio",
+       "Nenhum prompt registrado" in relatorio_txt([]))
+    # UM ARQUIVO QUE NAO ABRE NAO SERVE: nada de bytes estranhos.
+    ok("o texto e texto", isinstance(_txt, str) and _txt.encode("utf-8"))
 
     print("\nfalhas:", falhas)

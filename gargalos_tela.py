@@ -264,6 +264,31 @@ def _prompts_lado_a_lado(linhas):
     import comparar_prompt as _cmp
 
     st.markdown("##### 🔬 Prompt da geração × prompt da correção")
+
+    # ── O ARQUIVO, ANTES DE QUALQUER COISA ───────────────────────────────
+    #
+    # "Copiar todos os prompts vai gerar muito trabalho e a possibilidade de
+    # erros manuais" — dono, 25/09. Um clique leva TUDO: as cadeias de todas
+    # as peças, o veredito de cada uma e os prompts inteiros.
+    #
+    # O botão vem antes da leitura na tela de propósito: quem chega aqui para
+    # levar o histórico não precisa rolar nada.
+    _cads = _cmp.cadeias(linhas)
+    _n_corr = sum(len(c) - 1 for _p, _pe, c in _cads)
+    st.download_button(
+        f"⬇️ Baixar TODO o histórico de prompts (.txt) — {len(_cads)} peça(s), "
+        f"{_n_corr} correção(ões)",
+        data=_cmp.relatorio_txt(linhas).encode("utf-8"),
+        file_name="prompts_ms_studio.txt", mime="text/plain",
+        key="garg_baixar_prompts", use_container_width=True,
+        disabled=not _cads)
+    if not _cads:
+        st.caption(
+            "Ainda não há prompt registrado neste período. O registro começa "
+            "na próxima geração: cada peça grava o texto que foi ao motor, e "
+            "cada correção grava o dela.")
+        return
+
     pares = _cmp.parear(linhas)
     if not pares:
         st.caption(
