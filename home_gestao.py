@@ -210,7 +210,9 @@ def _bloco_faturamento(d):
     de barra é mais barato para o olho que comparar dois números escritos.
     """
     f = d["faturamento"]
-    op, cx = f["operacional"], f["nao_operacional"]
+    # None = não dá para calcular (custo fixo não cadastrado). Zero seria
+    # uma afirmação: "a operação se paga com R$ 0". Ver `_marcas_da_regua`.
+    op, cx = f.get("operacional") or 0.0, f.get("nao_operacional") or 0.0
     meta, real = f.get("meta", 0.0), f["realizado"]
     alvo_hoje, por_dia, proj, dia, dias = ritmo(d)
 
@@ -259,7 +261,7 @@ def _bloco_faturamento(d):
 
         f'<div style="font-size:11px;color:var(--ms-texto-sec);'
         f'letter-spacing:.3px;">'
-        f'Faturamento × ponto de equilíbrio × meta</div>'
+        f'Balanço Mensal</div>'
 
         f'<div style="display:flex;align-items:center;gap:12px;'
         f'flex-wrap:wrap;margin-top:6px;">'
@@ -287,9 +289,7 @@ def _bloco_faturamento(d):
         f'background:var(--ms-metric-bd);position:relative;">'
         f'<div style="position:absolute;left:0;top:0;height:100%;'
         f'width:{x(real):.1f}%;background:{cor};border-radius:9px;"></div>'
-        + _marcador(x(op))
-        + _marcador(x(cx))
-        + _marcador(x(meta)) +
+        + "".join(_marcador(pos) for pos, _ in _marcas_da_regua(x, op, cx, meta)) +
         f'</div>'
 
         f'<div style="{rot}">Ritmo do dia {dia}</div>'
@@ -301,8 +301,7 @@ def _bloco_faturamento(d):
 
         f'<div></div>'
         f'<div style="position:relative;height:15px;">'
-        + _rotulos([(x(op), "Operacional"), (x(cx), "Não operacional"),
-                    (x(meta), "Meta")]) +
+        + _rotulos(_marcas_da_regua(x, op, cx, meta)) +
         f'</div></div>'
 
         f'<div style="display:flex;justify-content:space-between;gap:12px;'
@@ -323,6 +322,18 @@ def _bloco_faturamento(d):
         f'<span>{_as_duas_linhas(op, cx, d)}</span>'
         f'</div></div>',
         unsafe_allow_html=True)
+
+
+def _marcas_da_regua(x, op, cx, meta):
+    """Os marcadores que existem — e só eles. [(posição, nome)].
+
+    Sem custo fixo cadastrado não há ponto de equilíbrio, e a tela recebia
+    `0.0` no lugar. Um marcador desenhado no zero não diz "não sei": diz que
+    a operação se paga com R$ 0 faturado. Some o marcador, fica o aviso.
+    """
+    return [(x(v), nome) for v, nome in
+            ((op, "Operacional"), (cx, "Não operacional"), (meta, "Meta"))
+            if v]
 
 
 def _rotulo(pos, texto):
@@ -388,6 +399,8 @@ def _as_duas_linhas(op, cx, d=None):
     custa a confiança no número.
     """
     segunda = float(((d or {}).get("equilibrio") or {}).get("segunda_linha") or 0.0)
+    if not op and not cx:
+        return ("Ponto de equilíbrio: falta cadastrar o custo fixo do mês")
     if abs(float(cx) - float(op)) < 1.0:
         motivo = ("nenhuma parcela de PRONAMP classificada neste mês"
                   if not segunda else "a segunda linha não mudou o resultado")
@@ -820,13 +833,27 @@ def composicao_do_mes(ano, mes, faturamento):
         avisos.append(
             f"A finalidade **{nome}** (R$ {valor:,.2f}) não está classificada "
             "e ficou FORA da conta. Diga se ela é custo fixo ou variável.")
-    if comp.get("numerador_veio_do_extrato"):
+    # O CADASTRO MANDA, O EXTRATO CONFERE — e é o cadastro que se corrige.
+    #
+    # Este aviso já disse o contrário: que o equilíbrio estava sendo
+    # calculado pelo extrato e que "o número está certo". Não estava: a
+    # conta passava a depender de o mês já ter acontecido, e com extrato
+    # pendente ela ficava menor do que a realidade.
+    if comp.get("cadastro_vazio"):
         avisos.append(
-            "O ponto de equilíbrio está sendo calculado pelo que **saiu da "
-            f"conta** (R$ {comp.get('saiu_no_extrato', 0):,.2f}), e não pelos "
-            "cadastros — eles somam menos que isso e estão incompletos. "
-            "O número está certo; completar os cadastros deixa de depender "
-            "de o mês já ter acontecido.")
+            "**Não dá para calcular o ponto de equilíbrio:** o custo fixo "
+            "do mês não está cadastrado. Preencha em Gestão → Financeiro "
+            "(custo fixo, assinaturas e folha). Até lá a barra do Balanço "
+            "Mensal fica sem as linhas de equilíbrio — melhor um espaço em "
+            "branco do que uma linha que ninguém consegue conferir.")
+    elif comp.get("extrato_passou_o_cadastro"):
+        avisos.append(
+            f"**O cadastro do custo fixo está desatualizado.** Já saíram da "
+            f"conta R$ {comp.get('saiu_no_extrato', 0):,.2f} em custo fixo, "
+            f"serviços e folha, e o cadastro soma "
+            f"R$ {comp.get('cadastro_do_mes', 0):,.2f}. O equilíbrio "
+            "continua sendo calculado pelo cadastro — corrija nele os itens "
+            "que vieram diferentes no extrato ou na fatura.")
     return comp, avisos
 
 
@@ -1069,8 +1096,8 @@ def dados_reais(ano, mes, dia):
             # O equilíbrio do cadastro continua vindo junto, agora como
             # SEGUNDA leitura e com nome próprio. Ele responde outra
             # pergunta — quanto custa operar — e some se for apagado daqui.
-            "operacional": comp.get("equilibrio_hoje") or 0.0,
-            "nao_operacional": comp.get("equilibrio_de_caixa") or 0.0,
+            "operacional": comp.get("equilibrio_hoje"),
+            "nao_operacional": comp.get("equilibrio_de_caixa"),
         },
         "equilibrio": comp,
         "cards": [
@@ -1491,6 +1518,43 @@ if __name__ == "__main__":
     ok("acima, o texto inverte", "acima da meta" in _acima and "▲" in _acima)
     ok("sem meta, não inventa comparação",
        _projecao_contra_a_meta(200_000.0, 0.0, VERDE) == "")
+
+    # ── O CADASTRO MANDA, O EXTRATO CONFERE ─────────────────────────────
+    #
+    # Dito pelo dono em 25/09: "por que o sistema esta utilizando os gastos
+    # via extrato para calcular meu custo fixo se ja montamos o que ele
+    # compoe? O extrato e somente para conferir". Com extrato pendente, a
+    # regra antiga (`max`) fazia o mes mal comecado mandar no numero.
+    _corpo_comp = inspect.getsource(composicao_do_mes)
+    ok("sem custo fixo cadastrado, a tela diz que falta cadastrar",
+       "cadastro_vazio" in _corpo_comp)
+    ok("e o aviso manda preencher, em vez de dizer que o número está certo",
+       "não está cadastrado" in _corpo_comp
+       and "O número está certo" not in _corpo_comp)
+    ok("extrato acima do cadastro vira pedido de correção DO CADASTRO",
+       "extrato_passou_o_cadastro" in _corpo_comp
+       and "desatualizado" in _corpo_comp)
+
+    # E A BARRA NAO DESENHA O QUE NAO EXISTE. Um marcador no zero nao diz
+    # "nao sei": diz que a operacao se paga com R$ 0 faturado.
+    _x = lambda v: min(max(v / 300_000.0 * 100, 0), 100)
+    ok("sem equilíbrio, só a meta é marcada",
+       _marcas_da_regua(_x, 0.0, 0.0, 265_542.0) == [(_x(265_542.0), "Meta")])
+    ok("com equilíbrio, os três aparecem",
+       len(_marcas_da_regua(_x, 40_834.0, 60_000.0, 265_542.0)) == 3)
+    ok("e o rodapé diz que falta cadastrar",
+       "falta cadastrar" in _as_duas_linhas(0.0, 0.0, {}))
+    _dr_comp = inspect.getsource(dados_reais)
+    ok("o equilíbrio ausente chega como None, e não como zero",
+       'comp.get("equilibrio_hoje"),' in _dr_comp
+       and 'comp.get("equilibrio_hoje") or 0.0' not in _dr_comp)
+
+    # ── O QUADRO TEM NOME ───────────────────────────────────────────────
+    _bloco_fat = inspect.getsource(_bloco_faturamento)
+    ok("o quadro do topo se chama Balanço Mensal",
+       "Balanço Mensal</div>" in _bloco_fat)
+    ok("e não mais pelo nome antigo",
+       ("Faturamento × ponto" + " de equilíbrio × meta") not in _bloco_fat)
 
     # ── A TELA NAO SE APRESENTA, ELA MEDE ───────────────────────────────
     ok("a legenda não explica a filosofia do painel",
