@@ -16,7 +16,7 @@ Mensagem com `@` e mais nada significa: aplique o PROTOCOLO DE CONFERÊNCIA
 inteiro, sem pedir para repetir o que ele é. Ele está escrito em "O RETRABALHO
 QUE EU GERO", mais abaixo, e são sete passos:
 
-1. Rodar os **seis verificadores**, e colar a saída — não "devem passar".
+1. Rodar os **sete verificadores**, e colar a saída — não "devem passar".
 2. Rodar o auto-teste de **todo arquivo tocado**, e os 60+ do repositório.
 3. Responder *"qual verificador leu a linha que eu mudei?"* para cada nome
    novo ou alterado. Nome sem guarda: escrever a guarda, ou dizer em voz alta
@@ -136,7 +136,7 @@ padrão, e não um favor que se pede a cada mensagem.
 Então nenhum merge para `main` acontece sem que estas três respostas existam,
 escritas antes do merge e não depois:
 
-1. **Os cinco verificadores passaram?** Não "devem passar": rodaram, e a saída
+1. **Os sete verificadores passaram?** Não "devem passar": rodaram, e a saída
    está no commit.
 2. **O que este commit muda que alguém mais lê?** `checar_impacto` responde
    metade; a outra metade é abrir o arquivo de quem lê.
@@ -344,7 +344,7 @@ o `dueComplete` invisível no mapa de pontos, o chat que recusava HEIC, o
 
 ---
 
-## Antes de todo push, os seis verificadores
+## Antes de todo push, os sete verificadores
 
 ```
 python3 -m compileall -q .      # sintaxe
@@ -353,7 +353,35 @@ python3 checar_prompts.py       # regra de imagem que ficou faltando ou sobrando
 python3 checar_impacto.py       # quem mais lê o que este commit mudou
 python3 checar_tela.py          # a tela monta sem quebrar?
 python3 checar_alcance.py       # a correção chegou em TODOS os irmãos?
+python3 checar_mutacao.py       # as guardas VEEM o defeito? reintroduz e exige vermelho
 ```
+
+O sétimo nasceu de uma pergunta do dono, depois da terceira conferência
+seguida: *"tem certeza? você falou isso da primeira vez, mandei revisar e
+pegou novos dois erros quando tinha acabado de revisar!"*
+
+Ele estava certo, e a medição deu razão a ele. Em três rodadas do protocolo os
+seis acharam **zero** defeitos novos; o passo 5, feito à mão, achou **quatro**.
+Os seis rodam igual sempre — a mutação (passo 4) e o mapa de risco (passo 5)
+dependiam de eu lembrar, e à mão eu não faço igual duas vezes.
+
+`checar_mutacao.py` tira o passo 4 da minha mão. Cada entrada é um defeito que
+JÁ aconteceu aqui, com o trecho certo e o errado: ele reintroduz o defeito,
+roda o verificador que deveria pegá-lo, e exige **vermelho**. Guarda que fica
+verde com o defeito de volta nunca foi guarda.
+
+Na primeira execução ele reprovou três. **Duas eram mutação minha malfeita** —
+um `or` que deixava a chamada na árvore (e a guarda é por AST, então ela via,
+certíssima) e um corte pela metade. Lição própria: mutação que não reintroduz
+o defeito dá alarme falso, e alarme falso ensina a ignorar o verificador —
+quase reescrevi duas guardas que estavam certas. **A terceira era guarda fraca
+de verdade**, e do tipo que eu não acharia à mão: tirando a conferência do laço
+da geração, `checar_tela` continuava verde porque a chamada do chat ainda
+estava lá. Ela perguntava "existe em algum lugar" e não via a peça que deixou
+de ser conferida.
+
+O arquivo é sempre restaurado, inclusive quando o verificador estoura no meio:
+verificador que deixa o repositório mutado é pior que nenhum.
 
 O sexto existe porque a forma mais cara de retrabalho desta base é corrigir
 **no lugar onde o problema apareceu** em vez de em todos onde a regra alcança.
