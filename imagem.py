@@ -5421,8 +5421,9 @@ def revisar_tudo(img, tipo, fotos_ref=None, gerar=None, prompt_base="",
     preservar o quadro, e o conserto de `revisar_peca` é recompor — as duas
     brigariam, e quem perde é quem pediu para mexer só numa palavra.
     """
-    img, rel_txt = revisar_texto(img, tipo, pedido=pedido, gerar=gerar,
-                                 prompt_base=prompt_base, aviso=aviso)
+    img, rel_txt, prompt_base = revisar_texto(
+        img, tipo, pedido=pedido, gerar=gerar, prompt_base=prompt_base,
+        aviso=aviso)
     # A BASE CORRIGIDA SEGUE PARA A SEGUNDA REVISAO.
     #
     # Sem isto, `revisar_peca` refazia a partir do prompt ORIGINAL — com a
@@ -5432,7 +5433,6 @@ def revisar_tudo(img, tipo, fotos_ref=None, gerar=None, prompt_base="",
     #
     # O prompt SAI do relato aqui: senao ele viajaria com a peca ate a galeria
     # e o disco, 24 mil caracteres por imagem, sem ninguem ler.
-    prompt_base = (rel_txt or {}).pop("prompt", None) or prompt_base
     img, rel_peca = revisar_peca(img, tipo, fotos_ref=fotos_ref, gerar=gerar,
                                  prompt_base=prompt_base, aviso=aviso)
     return img, rel_txt, rel_peca
@@ -5440,7 +5440,23 @@ def revisar_tudo(img, tipo, fotos_ref=None, gerar=None, prompt_base="",
 
 def revisar_texto(img, tipo, pedido="", gerar=None, prompt_base="",
                   rodadas=3, aviso=None):
-    """Lê o texto escrito na imagem e refaz até sair certo. (imagem, relato).
+    """Lê o texto escrito na imagem e refaz até sair certo.
+
+    Devolve (imagem, relato, prompt_final) — TRÊS coisas, e a terceira é de
+    propósito.
+
+    POR QUE NÃO VAI DENTRO DO RELATO
+
+    O prompt com que esta função terminou é o que a revisão seguinte precisa
+    para refazer sem desfazer a correção da copy. Ele chegou a viajar dentro
+    do `relato`, e o relato é guardado em `galeria[i]["texto"]`: são 24 mil
+    caracteres por imagem, 200 mil numa geração de oito, redesenhados a cada
+    tecla digitada. `revisar_tudo` tirava ele de lá — e o outro leitor,
+    `ajustar_com_conferencia`, não tirava. Corrigir um leitor e esquecer o
+    irmão é a Forma 1, e ela já custou caro nesta base.
+
+    Com três valores, quem chama não tem como esquecer: ou desempacota, ou
+    não compila.
 
     `gerar(prompt) -> (bytes, erro)` é como esta função pede outra imagem. Ela
     não conhece o gerador de propósito: a tela gera numa thread (para o
@@ -5466,7 +5482,7 @@ def revisar_texto(img, tipo, pedido="", gerar=None, prompt_base="",
                 pass
 
     if not img or not pode_ter_texto(tipo):
-        return img, None
+        return img, None, prompt_base
 
     erros_1a = ""
     for n in range(1, max(1, rodadas) + 1):
@@ -5474,16 +5490,16 @@ def revisar_texto(img, tipo, pedido="", gerar=None, prompt_base="",
         veredito, erro_conf = conferir_texto(img, pedido)
         if erro_conf:
             return img, {"ok": None, "rodadas": n, "erro": erro_conf,
-                         "erros": erros_1a, "prompt": prompt_base}
+                         "erros": erros_1a}, prompt_base
         if not veredito.get("tem_texto") or veredito.get("correto"):
             return img, {"ok": True, "rodadas": n, "erro": "",
-                         "erros": erros_1a, "prompt": prompt_base}
+                         "erros": erros_1a}, prompt_base
         erros = (veredito.get("erros") or "").strip()
         erros_1a = erros_1a or erros
         certo = (veredito.get("texto_correto") or "").strip()
         if n >= rodadas or not gerar or not certo:
             return img, {"ok": False, "rodadas": n, "erro": "",
-                         "erros": erros or erros_1a, "prompt": prompt_base}
+                         "erros": erros or erros_1a}, prompt_base
         _diz(f"Texto errado ({erros[:60]}). Refazendo com as palavras certas…")
         # A BASE MUDA JUNTO COM A COPY.
         #
@@ -5496,9 +5512,9 @@ def revisar_texto(img, tipo, pedido="", gerar=None, prompt_base="",
         nova_img, erro_g = gerar(prompt_base)
         if erro_g or not nova_img:
             return img, {"ok": False, "rodadas": n, "erro": "",
-                         "erros": erros or erros_1a, "prompt": prompt_base}
+                         "erros": erros or erros_1a}, prompt_base
         img = nova_img
-    return img, {"ok": False, "rodadas": rodadas, "erro": "", "erros": erros_1a, "prompt": prompt_base}
+    return img, {"ok": False, "rodadas": rodadas, "erro": "", "erros": erros_1a}, prompt_base
 
 
 def texto_em_aviso(relato):
@@ -5547,7 +5563,7 @@ def ajustar_com_conferencia(imagem, instrucao, tipo=None, tentativas=2,
         return gerar_imagem_ia(prompt_corrigido, [img] + _refs_fix,
                                tipo=_t or "")
 
-    img_ok, rel_txt = revisar_texto(
+    img_ok, rel_txt, _ = revisar_texto(
         img, tipo,
         pedido=instrucao,
         gerar=_refazer,
@@ -8810,14 +8826,14 @@ if __name__ == "__main__":
         return b"nova", None
 
     conferir_texto = _leitor(_CERTO)
-    _img, _rel = revisar_texto(b"x", "2 — Benefícios do produto", gerar=_gera)
+    _img, _rel, _ = revisar_texto(b"x", "2 — Benefícios do produto", gerar=_gera)
     ok("texto certo passa de primeira, sem refazer",
        _rel["ok"] is True and _rel["rodadas"] == 1 and not _geradas)
 
     # O caso que deixou a peça errada chegar ao gestor: refez e ninguem releu.
     _geradas.clear()
     conferir_texto = _leitor(_ERRADO, _CERTO)
-    _img, _rel = revisar_texto(b"x", "2 — Benefícios do produto", gerar=_gera,
+    _img, _rel, _ = revisar_texto(b"x", "2 — Benefícios do produto", gerar=_gera,
                                prompt_base="BASE")
     ok("texto errado é refeito e RELIDO, e a segunda leitura aprova",
        _rel["ok"] is True and _rel["rodadas"] == 2 and _img == b"nova")
@@ -8827,7 +8843,7 @@ if __name__ == "__main__":
 
     _geradas.clear()
     conferir_texto = _leitor(_ERRADO, _ERRADO, _ERRADO)
-    _img, _rel = revisar_texto(b"x", "2 — Benefícios do produto", gerar=_gera,
+    _img, _rel, _ = revisar_texto(b"x", "2 — Benefícios do produto", gerar=_gera,
                                rodadas=3)
     ok("errado até o fim sai como errado, e não como “refeita, confira”",
        _rel["ok"] is False and _rel["rodadas"] == 3)
@@ -8835,22 +8851,22 @@ if __name__ == "__main__":
        len(_geradas) == 2)
 
     conferir_texto = _leitor("sem chave")
-    _img, _rel = revisar_texto(b"x", "2 — Benefícios do produto", gerar=_gera)
+    _img, _rel, _ = revisar_texto(b"x", "2 — Benefícios do produto", gerar=_gera)
     ok("falha de leitura NÃO vira aprovação", _rel["ok"] is None)
     ok("e a tela avisa em voz alta",
        "NÃO foi conferido" in texto_em_aviso(_rel))
 
     conferir_texto = _leitor(_ERRADO)
-    _img, _rel = revisar_texto(b"x", "2 — Benefícios", gerar=None)
+    _img, _rel, _ = revisar_texto(b"x", "2 — Benefícios", gerar=None)
     ok("sem gerador, confere e reporta — não trava",
        _rel["ok"] is False and _img == b"x")
 
     conferir_texto = _leitor(_ERRADO)
-    _img, _rel = revisar_texto(b"x", "1 — Capa do anúncio (fundo branco)",
+    _img, _rel, _ = revisar_texto(b"x", "1 — Capa do anúncio (fundo branco)",
                                gerar=_gera)
     ok("tipo sem texto nem é lido", _rel is None and _img == b"x")
     conferir_texto = _leitor(_CERTO)
-    _img, _rel = revisar_texto(b"x", "Ajuste Fino — aumente o produto",
+    _img, _rel, _ = revisar_texto(b"x", "Ajuste Fino — aumente o produto",
                                gerar=_gera)
     ok("peça já ajustada, sem número no rótulo, continua sendo lida",
        _rel is not None and _rel["ok"] is True)
@@ -9130,6 +9146,33 @@ if __name__ == "__main__":
     # A primeira versao desta conferencia perguntou isso a um dicionario
     # VAZIO que eu montei na hora, e passou verde sem medir nada. Agora ela
     # olha o relato que `revisar_tudo` REALMENTE devolve.
+    # O PROMPT NAO VIAJA NO RELATO — em nenhuma saida, e nao so na que eu
+    # lembrei de testar.
+    #
+    # A primeira versao desta guarda chamava `ajustar_com_conferencia` e
+    # passou VERDE sem chegar perto de `revisar_texto`: sem chave de API
+    # aquela funcao retorna antes. Verde por caminho nao percorrido e pior que
+    # vermelho.
+    #
+    # Agora a pergunta e feita a TODAS as saidas de `revisar_texto`, forcando
+    # cada uma: aprovou de primeira, reprovou ate o fim, e falhou a leitura.
+    conferir_texto = _leitor(_CERTO)
+    _s1 = revisar_texto(b"x", "2 — Benefícios do produto", gerar=_gera,
+                        prompt_base="BASE")
+    conferir_texto = _leitor(_ERRADO, _ERRADO)
+    _s2 = revisar_texto(b"x", "2 — Benefícios do produto", gerar=_gera,
+                        prompt_base="BASE", rodadas=2)
+    conferir_texto = _leitor("sem chave")
+    _s3 = revisar_texto(b"x", "2 — Benefícios do produto", gerar=_gera,
+                        prompt_base="BASE")
+    _s4 = revisar_texto(b"x", "1 — Capa do anúncio (fundo branco)",
+                        gerar=_gera, prompt_base="BASE")
+    ok("revisar_texto devolve TRES coisas em toda saida",
+       all(len(_s) == 3 for _s in (_s1, _s2, _s3, _s4)))
+    ok("e NENHUM relato dela carrega o prompt",
+       all("prompt" not in (_s[1] or {}) for _s in (_s1, _s2, _s3, _s4)))
+    ok("e a base final volta separada, sempre",
+       all(isinstance(_s[2], str) and _s[2] for _s in (_s1, _s2, _s3, _s4)))
     ok("o prompt sai do relato — ele nao viaja ate a galeria",
        "prompt" not in (_rt or {}))
     ok("e o que a peca precisa saber continua la",
