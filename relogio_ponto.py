@@ -138,6 +138,26 @@ def _carregar_ponto_todos() -> list[dict]:
     return resultado
 
 
+def agora_local():
+    """A hora de Brasília. NUNCA `datetime.now()` cru neste arquivo.
+
+    O container do Railway roda em UTC, e o horário do ponto é DIGITADO por
+    uma pessoa (`time_input`, mais abaixo) — ou seja, Brasília. Comparar os
+    dois dava três horas de diferença no painel "quem está disponível agora".
+    """
+    return datetime.now(_pc.FUSO).replace(tzinfo=None)
+
+
+def hoje_local():
+    """A data de Brasília.
+
+    `date.today()` no container vira o dia seguinte às 21h locais, e o painel
+    passava a procurar os registros de AMANHÃ — que não existem. Todo mundo
+    aparecia como "não registrado" a partir das nove da noite.
+    """
+    return agora_local().date()
+
+
 def _get_registros(data_str: str, username: Optional[str] = None) -> list[dict]:
     """Retorna registros de ponto de uma data (YYYY-MM-DD), opcionalmente filtrado por usuário."""
     todos = _carregar_ponto_todos()
@@ -395,9 +415,9 @@ def get_disponiveis_agora(data_str: Optional[str] = None) -> dict:
     Retorna dict {username: status} onde status é:
       'disponivel' | 'almoco' | 'encerrado' | 'ausente' | 'nao_registrado'
     """
-    d = data_str or date.today().isoformat()
+    d = data_str or hoje_local().isoformat()
     regs = _get_registros(d)
-    agora = datetime.now().time()
+    agora = agora_local().time()
 
     resultado = {u: "nao_registrado" for u in MEMBROS}
 
@@ -462,7 +482,7 @@ def _fmt_min(m: float) -> str:
 
 def _secao_status_hoje():
     """Painel de status atual de todos os colaboradores."""
-    hoje = date.today().isoformat()
+    hoje = hoje_local().isoformat()
     status_map = get_disponiveis_agora(hoje)
     regs = _get_registros(hoje)
 
@@ -2067,3 +2087,63 @@ def pagina_ponto(usuario_logado: str):
     with tab_historico:
         st.markdown("#### Histórico mensal de ponto")
         _secao_historico_mensal(eh_master, usuario_logado)
+
+
+# ── Conferência ──────────────────────────────────────────────────────────────
+# `python3 relogio_ponto.py`. Este arquivo não tinha auto-teste nenhum, e é
+# folha de pagamento: a varredura das seis Formas o apontou em 28/09.
+#
+# O DEFEITO QUE ELAS IMPEDEM: o container do Railway roda em UTC, e o horário
+# do ponto é DIGITADO por uma pessoa (`time_input`, linha ~590) — ou seja,
+# Brasília. Comparar os dois dava três horas de diferença, e depois das 21h
+# locais o `date.today()` já era o dia seguinte: o painel "quem está
+# disponível agora" ficava com todo mundo em "não registrado".
+if __name__ == "__main__":
+    falhas = 0
+
+    def ok(nome, cond):
+        global falhas
+        falhas += not cond
+        print(("ok    " if cond else "FALHA ") + nome)
+
+    import inspect as _insp_rp
+    import re as _re_rp
+
+    # A HORA E A DATA DO PAINEL SAO DE BRASILIA, e nao do container.
+    #
+    # Ler o CODIGO-FONTE do bloco, e nao o arquivo: guarda que varre o
+    # arquivo se encontra a si mesma — ja aconteceu cinco vezes nesta base.
+    for _fn in (get_disponiveis_agora, _secao_status_hoje):
+        _corpo = _insp_rp.getsource(_fn)
+        # Fora comentario e texto entre crases: a explicacao do problema nao
+        # e o problema.
+        _codigo = "\n".join(
+            _re_rp.sub(r"`[^`]*`", "", l.split("#", 1)[0])
+            for l in _corpo.splitlines())
+        ok(f"{_fn.__name__}: nenhum datetime.now() sem fuso",
+           not _re_rp.search(r"datetime\.now\(\s*\)", _codigo))
+        ok(f"{_fn.__name__}: nenhum date.today() sem fuso",
+           not _re_rp.search(r"date\.today\(\s*\)", _codigo))
+
+    # E O FUSO E O DA BASE, e nao um escrito a mao aqui dentro.
+    #
+    # A guarda olha `agora_local`, e nao mais `get_disponiveis_agora`: o fuso
+    # passou a morar num helper so dele, que e o que faz as duas telas darem
+    # a MESMA resposta. Escrever "-3" aqui dentro seria a Forma 5 nascendo de
+    # novo — duas definicoes do mesmo fuso, discordando no horario de verao.
+    _c_ag = _insp_rp.getsource(agora_local)
+    ok("o fuso vem de placar_core, e nao de um literal local",
+       "_pc.FUSO" in _c_ag and "-3" not in _c_ag)
+    # E QUEM PRECISA DA HORA USA O HELPER, nao o datetime cru.
+    ok("get_disponiveis_agora usa o helper",
+       "agora_local()" in _insp_rp.getsource(get_disponiveis_agora))
+
+    # O COMPORTAMENTO: a data do painel tem de ser a de Brasilia.
+    from datetime import datetime as _dt_rp
+    _utc = _dt_rp.now(_pc.FUSO).replace(tzinfo=None)
+    ok("hoje_local devolve a data de Brasilia",
+       hoje_local().isoformat() == _utc.date().isoformat())
+    ok("agora_local devolve a hora de Brasilia",
+       agora_local().hour == _utc.hour)
+
+    print("\nfalhas:", falhas)

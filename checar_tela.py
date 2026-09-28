@@ -49,7 +49,29 @@ class _Falso:
         # o Streamlit de verdade também as vê como um espaço só.
         self._chaves = {} if chaves is None else chaves
         self.session_state = _Estado()
-        self.secrets = {}
+        # OS SEGREDOS EXISTEM, com valor de mentira.
+        #
+        # `sheets.py:74` lê `st.secrets["gcp_service_account"]` com COLCHETE:
+        # ausente, ele levanta KeyError cru. Um duplo com `secrets` vazio
+        # fazia a tela de Ponto "quebrar" aqui — mas em produção a chave
+        # existe, e o defeito era do duplo, não do código. Duplo mais pobre
+        # que a realidade acusa o inocente.
+        #
+        # NENHUM VALOR REAL, e nenhum vai à rede: quem fala com o Google é
+        # substituído logo abaixo, no lugar certo (a fronteira de I/O).
+        # `st.query_params` É DICT no Streamlit de verdade, e no duplo caía
+        # no `__getattr__` virando função — `gestao.py:94` fazia `.get()` nela
+        # e recebia AttributeError. Duplo mais pobre que a realidade acusa o
+        # inocente: a tela estava certa.
+        self.query_params = {}
+        self.secrets = {
+            "gcp_service_account": {"type": "service_account",
+                                    "project_id": "conferencia",
+                                    "private_key": "-----BEGIN-----\nx\n-----END-----\n",
+                                    "client_email": "x@conferencia.local"},
+            "TRELLO_KEY": "", "TRELLO_TOKEN": "", "BOARD_ID": "",
+            "OPENAI_API_KEY": "", "ANTHROPIC_API_KEY": "", "GEMINI_API_KEY": "",
+        }
         self.column_config = _Qualquer()
         self.errors = types.SimpleNamespace(
             StreamlitDuplicateElementKey=ChaveRepetida)
@@ -831,6 +853,129 @@ def _contexto_do_log(conta):
           callable(getattr(_li_c, "marcar_contexto", None)), "")
 
 
+# As telas que NENHUM verificador desenhava ate 28/09. A varredura das seis
+# Formas apontou doze; estas sao as que a assinatura permite chamar direto.
+#
+# `pagina_analise_metas` e `pagina_pedir_abono` ficaram de fora de proposito:
+# elas leem o Trello e a planilha em cadeias fundas, e um duplo pobre demais
+# acusaria o inocente — foi o que a primeira versao de checar_tela fez com
+# `linha_do_mes`. Verificador que da alarme falso ensina a ser ignorado.
+TELAS_SEM_GUARDA = [
+    ("admin", "pagina_admin"),
+    ("descricao", "pagina_descricao"),
+    ("gestao", "pagina_home"),
+    ("gestao", "pagina_financeiro"),
+    ("financeiro", "pagina_financeiro"),
+    ("palavras_chave", "pagina_palavras_chave"),
+    ("relogio_ponto", "pagina_ponto"),
+    ("tit_ml", "pagina_titulo"),
+    ("triagem", "pagina_triagem"),
+    ("video", "pagina_video"),
+]
+
+
+class _AbaVazia:
+    """Uma aba de planilha que existe e não tem nada dentro.
+
+    A FRONTEIRA DE I/O É AQUI, e não no `st.secrets`. A primeira tentativa foi
+    dar segredos de mentira ao duplo — e o código seguiu em frente até bater
+    no `google.auth` de verdade, pedindo `token_uri`. Trocar o segredo é
+    mentir mais fundo; trocar a planilha é trocar exatamente o que vai à rede.
+    """
+
+    def get_all_records(self, **kw):
+        return []
+
+    def get_all_values(self, **kw):
+        return []
+
+    def row_values(self, _n):
+        return []
+
+    def col_values(self, _n):
+        return []
+
+    def append_row(self, *a, **kw):
+        return None
+
+    def update_cell(self, *a, **kw):
+        return None
+
+    def update(self, *a, **kw):
+        return None
+
+    def add_cols(self, *a, **kw):
+        return None
+
+    def delete_rows(self, *a, **kw):
+        return None
+
+    def find(self, *a, **kw):
+        return None
+
+
+class _PlanilhaVazia:
+    def worksheet(self, _nome):
+        return _AbaVazia()
+
+    def add_worksheet(self, **kw):
+        return _AbaVazia()
+
+    def worksheets(self):
+        return []
+
+
+def _sem_planilha():
+    """Troca o acesso ao Google Sheets por um duplo. Devolve o que restaurar."""
+    import sheets as _sh
+    guardado = (_sh.planilha, _sh.cliente)
+    _sh.planilha = lambda *a, **k: _PlanilhaVazia()
+    _sh.cliente = lambda *a, **k: None
+    return _sh, guardado
+
+
+def _telas_restantes(conta):
+    """Desenha as telas que nenhum verificador alcancava.
+
+    NAO CONFEREM CONTEUDO — so que a pagina MONTA. E pouco, e e exatamente o
+    que faltava: a Home caiu em producao com `TypeError: string indices must
+    be integers`, e os quatro verificadores de entao passaram verdes porque
+    nenhum deles desenhava nada.
+
+    Cada uma roda com o Streamlit falso e sem credencial: o caminho que o
+    colaborador ve quando a planilha ou o Trello estao fora do ar.
+    """
+    import importlib
+    import sys as _sys_t
+
+    _sh, _guardado = _sem_planilha()
+    for modulo, funcao in TELAS_SEM_GUARDA:
+        nome = f"{funcao} monta ({modulo}.py)"
+        _falso = instalar()
+        try:
+            _m = importlib.import_module(modulo)
+            # O FALSO VAI PARA A CADEIA INTEIRA, e nao so para o modulo de
+            # entrada. `gestao.pagina_home` desenha via `home_gestao`, e o
+            # `st` dele tinha ficado apontando para o falso de um cenario
+            # ANTERIOR — cujo registro de chaves ja tinha `hg_gasto_mes`.
+            # Resultado: ChaveRepetida acusando codigo que esta certo.
+            # Alarme falso ensina a ignorar o verificador.
+            for _nm, _mod in list(_sys_t.modules.items()):
+                if getattr(_mod, "st", None) is not None and not _nm.startswith(
+                        ("streamlit", "checar_")):
+                    try:
+                        _mod.st = _falso
+                    except Exception:
+                        pass
+            getattr(_m, funcao)("martinsousa")
+            conta(nome, True, "")
+        except (_Rerun, _Parou):
+            conta(nome, True, "")
+        except Exception as e:
+            conta(nome, False, f"{type(e).__name__}: {str(e)[:160]}")
+    _sh.planilha, _sh.cliente = _guardado
+
+
 def main():
     instalar()
     falhas = []
@@ -841,6 +986,14 @@ def main():
         print(("ok    " if ok else "FALHA ") + nome
               + (f"\n      {detalhe}" if detalhe else ""))
 
+    # AS TELAS GERAIS PRIMEIRO, e isso e de proposito.
+    #
+    # Os cenarios especificos abaixo trocam funcoes de modulo para forcar o
+    # caminho que querem (`_pc._num`, `_ps.ler`, `_pc._buscar_board`), e nem
+    # todos devolvem o original. Rodando depois deles, a tela do Financeiro
+    # "quebrava" — e passava sozinha. Alarme falso por ordem de execucao e
+    # pior que nenhum teste: ensina a ignorar a saida.
+    _telas_restantes(conta)
     _home(falhas, conta)
     _extratos(conta)
     _gargalos(conta)
