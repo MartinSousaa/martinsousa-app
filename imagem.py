@@ -542,8 +542,24 @@ REGRA DE DENSIDADE:
 {blocos}
 - Cada bloco: título curto em CAIXA ALTA (2-5 palavras) + descrição de 8 a 16
   palavras. Descrição de 3 palavras deixa a peça pobre e sem argumento de venda.
-- Blocos em cartões de cantos arredondados, com ícone próprio, alinhados em
-  coluna ou grade — não como texto solto sobre o fundo
+- FORMA DO CARTÃO, IGUAL EM TODAS AS PEÇAS: retângulo de cantos arredondados,
+  fundo claro sólido, ícone line-art próprio, todos com a MESMA largura e o
+  mesmo estilo dentro da peça.
+- POSIÇÃO, quando NÃO houver referência de layout: UMA coluna vertical única,
+  encostada em UM dos lados do quadro (esquerda ou direita), com os cartões
+  empilhados e espaçamento igual entre eles. NUNCA em grade, NUNCA
+  distribuídos pelos quatro cantos, NUNCA uma fileira no rodapé, NUNCA metade
+  de um lado e metade do outro.
+- QUANDO HOUVER referência de layout, a POSIÇÃO é a dela — inclusive se for
+  grade. A referência é o padrão aprovado da empresa e manda sobre a coluna
+  única; o que NÃO muda com ela é a folga das bordas logo abaixo: mesmo
+  copiando a referência, nenhum cartão toca ou cruza a borda.
+- CADA CARTÃO INTEIRO DENTRO DO QUADRO: o primeiro começa pelo menos 6% abaixo
+  do topo e o último termina pelo menos 6% acima da base, com o fundo da cena
+  aparecendo acima do primeiro e abaixo do último. Cartão que toca a borda é
+  peça reprovada.
+- SE NÃO COUBEREM TODOS na coluna com essa folga, use MENOS cartões e maiores —
+  nunca comprima, nunca empilhe até a borda, nunca deixe um pela metade.
 - Espaçamento uniforme entre blocos, sem que um encoste no outro
 - NUNCA adicione tags, selos, rodapés, ícones de compatibilidade ou elementos
   decorativos além dos blocos pedidos
@@ -635,7 +651,7 @@ PRESETS = {
     ),
     "2 — Benefícios do produto": (
         "IMAGEM DE MARKETING — BENEFÍCIOS: produto em zona central limpa (SEM texto sobre ele). "
-        "Fundo deduzido do produto — sem cor de marca fixa. Benefícios em cartões laterais, inferiores ou em grade — a quantidade vem da regra de densidade; siga a referência de layout quando houver: "
+        "Fundo deduzido do produto — sem cor de marca fixa. Benefícios em cartões — a POSIÇÃO, a FORMA e a quantidade deles saem da regra de densidade, não daqui; siga a referência de layout quando houver: "
         "ícone line-art na cor da direção de arte escolhida para ESTE produto — não existe cor "
         "de ícone fixa — + título curto (2-3 palavras) + frase direta (máximo 7 palavras). "
         "Visual arejado — jamais comprima ou empilhe os blocos de benefício, e jamais deixe faixa vazia em volta da peça. "
@@ -645,8 +661,8 @@ PRESETS = {
         "IMAGEM DE MARKETING — PRODUTO NO AMBIENTE DE USO REAL: deduza das fotos e dos dados "
         "onde ESTE produto é de fato usado, e por quem — não escolha de uma lista pronta de "
         "cômodos. Produto protagonista em cena aspiracional, com a luz e a paleta que "
-        "valorizem este produto. Frases de destaque em painéis fora do produto (nunca sobre "
-        "ele) — a quantidade vem da regra de densidade. Cada frase: curta, impactante, "
+        "valorizem este produto. Frases de destaque em cartões fora do produto (nunca sobre "
+        "ele) — posição, forma e quantidade saem da regra de densidade. Cada frase: curta, impactante, "
         "máximo 6 palavras. Sem cor de "
         "marca fixa: fundo e elementos gráficos saem da direção de arte deste produto. "
         "Visual editorial — parece foto de lifestyle de qualidade, não montagem amadora."
@@ -694,8 +710,8 @@ PRESETS = {
     ),
     "6 — Quebra de objeção": (
         "IMAGEM DE MARKETING — RESPONDENDO DÚVIDAS DO COMPRADOR: layout clean com produto "
-        "em destaque e blocos de pergunta+resposta ao lado, em cartões de cantos arredondados "
-        "— a quantidade vem da regra de densidade; siga a referência de layout quando houver. "
+        "em destaque e blocos de pergunta+resposta em cartões — posição, forma e "
+        "quantidade saem da regra de densidade, não daqui; siga a referência de layout quando houver. "
         "Cada bloco: pergunta curta (máximo 5 palavras) em destaque + check verde + resposta direta "
         "(máximo 8 palavras). As objeções são baseadas nos diferenciais e características do produto. "
         "Visual arejado, sem faixa vazia em volta da peça; fundo e paleta deduzidos do produto e da ocasião."
@@ -873,6 +889,34 @@ cor percebida do produto. Classifique o risco em BAIXO, MEDIO ou ALTO.
 
 SEGUNDO — O PLANO DAS 8, COM CENAS DIFERENTES
 ----------------------------------------------
+
+DUAS PEÇAS NUNCA REPETEM O MESMO AMBIENTE. Dito pelo dono em 28/09:
+"temos diversas opções de ambientação, então o estúdio não pode utilizar dois
+ambientes iguais, exatamente iguais".
+- Consistência é mesma PALETA, mesmo MATERIAL e mesma LUZ — não a mesma mesa.
+- Duas cenas sobre madeira são a mesma cena, ainda que uma diga "madeira
+  clara" e a outra "madeira escura". Vale para linho, mármore, concreto,
+  couro, vidro, cerâmica: a SUPERFÍCIE só aparece uma vez no plano inteiro.
+- Antes de escrever a cena de uma peça, olhe as que você já escreveu e
+  escolha uma superfície e um ambiente que ainda não usou.
+- Se acabarem as superfícies plausíveis para este produto, mude o ÂNGULO e a
+  distância em vez de repetir a mesa — nunca repita para preencher.
+
+E O PRODUTO NÃO APARECE SEMPRE DO MESMO LADO. Também dito pelo dono:
+"o produto às vezes tem dois lados com desenhos diferentes; o estúdio precisa
+variar, não colocar sempre o mesmo lado. Não sempre de frente, às vezes de
+lado, mostrar a parte de trás também, caso tenha".
+- OLHE AS FOTOS: se elas mostram frente, verso, lateral, tampa ou base com
+  acabamentos, gravações ou desenhos DIFERENTES, o plano tem de mostrar essas
+  faces ao longo das peças — não a mesma foto oito vezes.
+- Distribua os ângulos: frontal, três-quartos, lateral, traseiro, superior.
+  Duas peças seguidas no mesmo ângulo é plano mal feito.
+- SÓ O QUE EXISTE NAS FOTOS. Se nenhuma foto mostra o verso, NÃO invente um:
+  desenhe o que há e escreva no campo `pergunta_info` da peça que uma foto do
+  verso ampliaria a variação. Inventar o lado que ninguém fotografou é o
+  mesmo erro de inventar textura.
+- No campo "cena" de cada peça, diga qual face e qual ângulo aparecem.
+
 Para cada tipo, analise se é VIÁVEL gerar com as informações e fotos disponíveis.
 
 REGRAS DE VIABILIDADE — CRÍTICO:
@@ -4119,6 +4163,61 @@ def prompt_que_sera_enviado(prompt_texto, imagens_referencia, refs_layout=None,
 _PESSOAS_NA_CENA = PESSOAS
 
 
+# Os angulos que uma peca pode mostrar, e as palavras com que o plano os
+# escreve. Sao SINONIMOS agrupados: "de frente" e "frontal" sao o mesmo
+# angulo, e contar os dois como distintos deixaria passar a repeticao.
+ANGULOS = {
+    "frontal": ("frontal", "de frente", "frente do produto", "vista frontal"),
+    "tres quartos": ("tres quartos", "três quartos", "3/4", "tres-quartos",
+                     "três-quartos", "diagonal"),
+    "lateral": ("lateral", "de lado", "perfil", "vista lateral"),
+    "traseiro": ("traseir", "de costas", "verso", "parte de tras",
+                 "parte de trás", "fundo do produto"),
+    "superior": ("superior", "de cima", "vista de cima", "topo", "aereo",
+                 "aéreo", "flat lay"),
+    "macro": ("macro", "close", "aproximad"),
+}
+
+
+def faces_repetidas(itens, tipos_selecionados=None):
+    """Pares de pecas que mostram o produto no MESMO angulo. [] se nenhum.
+
+    POR QUE ISTO EXISTE
+    -------------------
+    Ditado pelo dono em 28/09: *"o produto as vezes tem dois lados com
+    desenhos diferentes; o estudio precisa variar, nao colocar sempre o mesmo
+    lado. Nao sempre de frente, as vezes de lado, mostrar a parte de tras
+    tambem, caso tenha"*.
+
+    Oito pecas com o produto na mesma pose vendem uma face so — e um produto
+    com gravacao no verso fica com metade do argumento de venda sem aparecer.
+
+    A peca 4 (close) fica de fora: o angulo dela E o macro, por definicao, e
+    apontar isso como repeticao seria ruido em toda analise.
+    """
+    por_peca = []
+    for it in itens or []:
+        if not isinstance(it, dict):
+            continue
+        oficial = tipo_canonico(it, tipos_selecionados)
+        if numero_do_tipo(oficial) == 4:
+            continue
+        texto = " ".join(str(it.get(c, "") or "")
+                         for c in ("cena", "composicao")).lower()
+        achados = {nome for nome, palavras in ANGULOS.items()
+                   if _acha_radicais(texto, palavras)}
+        if achados:
+            por_peca.append((oficial, achados))
+    pares = []
+    for i in range(len(por_peca)):
+        for j in range(i + 1, len(por_peca)):
+            comuns = por_peca[i][1] & por_peca[j][1]
+            if comuns:
+                pares.append((por_peca[i][0], por_peca[j][0],
+                              ", ".join(sorted(comuns))))
+    return pares
+
+
 def pessoas_em_peca_errada(itens, tipos_selecionados=None):
     """Pecas cujo plano pede pessoas, mas cujo tipo as proibe. [] se nenhuma.
 
@@ -6616,6 +6715,24 @@ def pagina_imagem(usuario_logado):
                              for _a, _b, _c in _repetidas[:6])
             )
 
+        # ── DUAS PEÇAS NO MESMO ÂNGULO? ───────────────────────────────────────
+        #
+        # Pedido do dono em 28/09: o produto não pode aparecer sempre do mesmo
+        # lado. Um produto com gravação no verso vende metade do argumento
+        # quando as oito peças o mostram de frente.
+        _mesmas_faces = faces_repetidas(itens_viaveis, _tipos_cfg)
+        if _mesmas_faces:
+            st.warning(
+                "🔄 **O produto aparece no mesmo ângulo em mais de uma peça.** "
+                "Se ele tem faces diferentes — gravação no verso, acabamento "
+                "na lateral, tampa —, o anúncio inteiro mostra só um lado.\n\n"
+                + "\n".join(f"- **{_a}** e **{_b}** — {_c}"
+                             for _a, _b, _c in _mesmas_faces[:6])
+                + "\n\nSe as fotos não mostram outras faces, isso é o certo: "
+                "o Studio não inventa o lado que ninguém fotografou. Para "
+                "variar, suba uma foto do verso ou da lateral."
+            )
+
         # ── Itens bloqueados (informação faltante) ────────────────────────────
         if itens_bloqueados:
             st.markdown("---")
@@ -8300,6 +8417,54 @@ if __name__ == "__main__":
         "4 — Close nos detalhes", "",
         {"cor": "preto", "material": "Capa dura, encadernação Wire-O preta"},
         "Álbum")
+    # ── DOIS AMBIENTES IGUAIS, E O PRODUTO SEMPRE DO MESMO LADO ─────────
+    #
+    # Dono, 28/09: "temos diversas opcoes de ambientacao, entao o estudio nao
+    # pode utilizar dois ambientes iguais" e "o produto as vezes tem dois
+    # lados com desenhos diferentes; o estudio precisa variar, nao colocar
+    # sempre o mesmo lado".
+    _plano_faces = [
+        {"numero": 1, "tipo": "1 — Capa do anúncio (fundo branco)",
+         "cena": "produto de frente sobre fundo branco"},
+        {"numero": 2, "tipo": "2 — Benefícios do produto",
+         "cena": "vista frontal do produto com cartões ao lado"},
+        {"numero": 3, "tipo": "3 — Benefícios no cenário de uso",
+         "cena": "produto de lado sobre bancada"},
+        {"numero": 4, "tipo": "4 — Close nos detalhes",
+         "cena": "macro da alça, aproximado"},
+    ]
+    _fr = faces_repetidas(_plano_faces, TIPOS_PADRAO)
+    ok("duas pecas de frente sao apontadas",
+       any("frontal" in c for _a, _b, c in _fr))
+    ok("e a peca de lado nao entra no par",
+       not any("lateral" in c for _a, _b, c in _fr))
+    # A PECA 4 E MACRO POR DEFINICAO: aponta-la seria ruido em toda analise.
+    ok("o close nao conta como angulo repetido",
+       not any("Close" in a or "Close" in b for a, b, _c in _fr))
+    ok("sinonimo e o mesmo angulo: 'de frente' e 'vista frontal'",
+       len(_fr) == 1)
+    ok("plano sem angulo declarado nao inventa par",
+       faces_repetidas([{"numero": 1, "tipo": "1 — Capa do anúncio (fundo branco)",
+                         "cena": "produto sobre fundo branco"}],
+                       TIPOS_PADRAO) == [])
+    ok("plano vazio nao quebra",
+       faces_repetidas([], TIPOS_PADRAO) == [] and faces_repetidas(None) == [])
+
+    # E AS DUAS REGRAS TEM DE CHEGAR A ANALISE, que e quem escreve o plano.
+    import inspect as _insp_tri
+    _corpo_tri = _insp_tri.getsource(gerar_triagem_ia)
+    ok("a analise e proibida de repetir ambiente",
+       "NUNCA REPETEM O MESMO AMBIENTE" in _corpo_tri)
+    ok("e sabe que madeira clara e madeira escura sao a mesma cena",
+       "madeira\n  clara" in _corpo_tri and "são a mesma cena" in _corpo_tri)
+    ok("a analise distribui os angulos",
+       "NÃO APARECE SEMPRE DO MESMO LADO" in _corpo_tri
+       and "frontal, três-quartos, lateral, traseiro" in _corpo_tri)
+    # E NAO PODE INVENTAR O LADO QUE NINGUEM FOTOGRAFOU — e o mesmo erro de
+    # inventar textura, e ja custou caro nesta base.
+    ok("mas nao inventa a face que as fotos nao mostram",
+       "SÓ O QUE EXISTE NAS FOTOS" in _corpo_tri)
+
     # ── A FALHA DO AJUSTE NAO DEVOLVE A LICAO DE CASA ───────────────────
     #
     # Em 25/09 a colaboradora recebeu "tente descrever de outro jeito" em

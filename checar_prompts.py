@@ -86,6 +86,41 @@ TODOS = (TIPO_CAPA,) + TIPOS_COM_TEXTO + (TIPO_AMBIENTE, TIPO_LIVRE)
 # regra em `imagem.py` sem mexer aqui faz a varredura reprovar, que é
 # exatamente o ponto.
 REGRAS = [
+    # ── O CARTÃO TEM UMA FORMA SÓ, E UMA POSIÇÃO SÓ ─────────────────────
+    #
+    # 28/09, produção: as oito peças saíram com o cartão de texto em quatro
+    # arranjos diferentes — coluna na 3 e na 4, grade com a fileira de baixo
+    # CORTADA na 2, quatro cantos com os de baixo cortados na 6. O dono
+    # escolheu o da 3 e pediu para padronizar.
+    #
+    # A causa eram quatro vozes sobre o mesmo objeto: a regra compartilhada
+    # autorizava "coluna OU grade", e cada preset trazia a própria redação
+    # ("laterais, inferiores ou em grade" na 2, "ao lado" na 6, nada na 3).
+    # O gerador obedecia a mais específica, e ela mudava por peça.
+    #
+    # Agora a posição é assunto da REGRA DE DENSIDADE e de mais ninguém.
+    # Estas quatro linhas existem para que voltar a escrever posição dentro
+    # de um preset reprove a varredura.
+    ("a forma única do cartão", "FORMA DO CARTÃO, IGUAL EM TODAS AS PEÇAS",
+     TIPOS_COM_TEXTO, (TIPO_AMBIENTE,)),
+    ("a coluna única como posição", "UMA coluna vertical única",
+     TIPOS_COM_TEXTO, (TIPO_AMBIENTE,)),
+    # A COLUNA UNICA NAO PODE CONTRADIZER A REFERENCIA DE LAYOUT.
+    #
+    # Logo acima o prompt diz "quando houver imagem de referencia de layout,
+    # ELA manda". Sem dizer qual das duas vale, o prompt chegaria ao gerador
+    # com duas ordens contrarias sobre a mesma coisa — que e o defeito que
+    # esta base ja pagou caro tres vezes. A precedencia sai escrita.
+    ("a precedência da referência de layout sobre a coluna",
+     "a POSIÇÃO é a dela", TIPOS_COM_TEXTO, (TIPO_AMBIENTE,)),
+    ("a folga de 6% no topo e na base", "6% acima da base",
+     TIPOS_COM_TEXTO, (TIPO_AMBIENTE,)),
+    # `None` em "onde deve" quer dizer "em todos"; em "onde nao pode" ele nao
+    # existe — para proibir em toda parte, a lista e TODOS.
+    ("nenhum preset manda pôr cartão em grade", "ou em grade", (), TODOS),
+    ("nem manda pôr ao lado por conta própria",
+     "blocos de pergunta+resposta ao lado", (), TODOS),
+
     ("a trava de cor do produto", "TRAVA DE COR", None, ()),
     ("a proibição de trocar o produto", "PROIBIÇÃO ABSOLUTA", None, ()),
     ("a fidelidade às fotos de referência", "REGRA DE FIDELIDADE", None, ()),
