@@ -4353,6 +4353,81 @@ def recado_do_historico(todas, achadas, nome):
             f"sem filtrar.")
 
 
+def prompt_de_cada_peca(itens, cfg, tipos_selecionados=None, direcao_arte=""):
+    """O prompt EXATO de cada peça do plano. [(rótulo, texto), ...].
+
+    FONTE ÚNICA. A tela mostra um por um dentro de um expander, e o `.txt`
+    consolidado sai daqui também — se cada um montasse o seu, os dois
+    discordariam, e a questão seria só quando (Forma 5 do CLAUDE.md).
+
+    NÃO CHAMA MOTOR NENHUM: `prompt_que_sera_enviado` só monta o texto. Ver o
+    prompt continua custando zero geração, que é o motivo de ele existir.
+    """
+    fora = []
+    for item in (itens or []):
+        oficial = tipo_canonico(item, tipos_selecionados)
+        bruto = montar_prompt_imagem(
+            oficial,
+            cfg.get("instrucoes_extras", ""),
+            cfg.get("dados_descricao"),
+            cfg.get("nome_produto", ""),
+            refs_layout_nomes=cfg.get("refs_layout_nomes", []),
+            instrucao_layout=cfg.get("instrucao_layout", ""),
+            plano_triagem=item,
+            ambientacao=cfg.get("ambientacao", ""),
+            direcao_arte=direcao_arte,
+        )
+        fora.append((oficial, prompt_que_sera_enviado(
+            bruto,
+            cfg.get("fotos_bytes") or [],
+            refs_layout=cfg.get("refs_layout_bytes") or None,
+            refs_layout_nomes=cfg.get("refs_layout_nomes", []),
+            tipo=oficial,
+        )))
+    return fora
+
+
+def txt_dos_prompts(pares, nome_produto="", direcao_arte=""):
+    """Os prompts de todas as peças num arquivo só.
+
+    Dono, 28/09: *"não tem como ter um botão que consolida o que será enviado
+    de todas as imagens para que eu não precise abrir e copiar um por um?"*.
+    Eram oito expanders, oito cliques e oito colagens — e a chance de errar
+    uma no meio.
+
+    O cabeçalho diz o que o arquivo é e o que ele NÃO é: a ambientação lida
+    das referências entra só na hora de gerar, e não aparece aqui.
+    """
+    from datetime import datetime as _dt_txt
+    import placar_core as _pc_txt
+    linhas = [
+        "=" * 78,
+        "MS STUDIO — PROMPTS QUE SERÃO ENVIADOS AO MOTOR",
+        "=" * 78,
+        "",
+        f"Produto: {nome_produto or '(sem nome)'}",
+        f"Gerado em: {_pc_txt.agora_br():%d/%m/%Y %H:%M}",
+        f"Peças: {len(pares)}",
+        "",
+        "COMO LER",
+        "-" * 78,
+        "Este é o texto EXATO que vai ao gerador de cada peça, montado antes",
+        "de gastar geração nenhuma. Uma única diferença na hora de gerar:",
+        "quando houver referências de AMBIENTAÇÃO, o cenário lido delas é",
+        "acrescentado no fim — ele não aparece aqui porque ainda não foi lido.",
+        "",
+    ]
+    if direcao_arte:
+        linhas += ["DIREÇÃO DE ARTE (a mesma para todas as peças)",
+                   "-" * 78, direcao_arte.strip(), ""]
+    for i, (rotulo, texto) in enumerate(pares, 1):
+        linhas += ["=" * 78,
+                   f"PEÇA {i} — {rotulo}",
+                   f"{len(texto)} caracteres",
+                   "=" * 78, "", texto.strip(), ""]
+    return "\n".join(linhas) + "\n"
+
+
 def _baixar_historico_de_prompts(sufixo=""):
     """Um botão que leva TODO o histórico de prompts deste produto num .txt.
 
@@ -6690,6 +6765,39 @@ def pagina_imagem(usuario_logado):
         _ver_prompts = st.session_state.get("img_ver_prompts", False)
         if _ver_prompts:
             _c_btn2.caption("não gera imagem · não gasta geração")
+            # ── OS OITO PROMPTS NUM ARQUIVO SO ────────────────────────────
+            #
+            # Dono, 28/09: "nao tem como ter um botao que consolida o que
+            # sera enviado de todas as imagens para que eu nao precise abrir
+            # e copiar um por um?". Eram oito expanders, oito cliques e oito
+            # colagens — e a chance de perder uma no meio.
+            #
+            # DOIS CLIQUES, e e de proposito: `download_button` precisa do
+            # arquivo PRONTO para desenhar, entao um botao de um clique so
+            # montaria os oito prompts a cada redesenho da tela.
+            if st.button("📄 Preparar os prompts de TODAS as peças (.txt)",
+                         use_container_width=True, key="btn_txt_prompts"):
+                try:
+                    st.session_state["img_txt_prompts"] = txt_dos_prompts(
+                        prompt_de_cada_peca(itens_viaveis, cfg, _tipos_cfg,
+                                            _dir_plano),
+                        cfg.get("nome_produto", ""), _dir_plano)
+                except Exception as _e_txt:
+                    st.session_state["img_txt_prompts"] = ""
+                    st.error(f"Não consegui montar o arquivo: "
+                             f"{type(_e_txt).__name__}: {str(_e_txt)[:160]}")
+            _txt_pr = st.session_state.get("img_txt_prompts") or ""
+            if _txt_pr:
+                _nm_pr = (cfg.get("nome_produto", "") or "studio").replace(" ", "_")
+                st.download_button(
+                    f"⬇️ Baixar os {len(itens_viaveis)} prompts",
+                    data=_txt_pr.encode("utf-8"),
+                    file_name=f"prompts_que_serao_enviados_{_nm_pr}.txt",
+                    mime="text/plain", use_container_width=True,
+                    key="btn_txt_prompts_baixar")
+                st.caption(f"{len(_txt_pr):,} caracteres · os "
+                           f"{len(itens_viaveis)} prompts, na ordem do plano"
+                           .replace(",", "."))
             _baixar_historico_de_prompts(sufixo="_plano")
             # O DESCARTE DA REFERENCIA DEIXA DE SER SILENCIOSO.
             #
@@ -6729,24 +6837,11 @@ def pagina_imagem(usuario_logado):
                 if _ver_prompts:
                     with st.expander("🔍 Prompt que será enviado ao motor",
                                      expanded=False):
-                        _pt_peca = montar_prompt_imagem(
-                            _oficial,
-                            cfg.get("instrucoes_extras", ""),
-                            cfg.get("dados_descricao"),
-                            cfg.get("nome_produto", ""),
-                            refs_layout_nomes=cfg.get("refs_layout_nomes", []),
-                            instrucao_layout=cfg.get("instrucao_layout", ""),
-                            plano_triagem=item,
-                            ambientacao=cfg.get("ambientacao", ""),
-                            direcao_arte=_dir_plano,
-                        )
-                        _en_peca = prompt_que_sera_enviado(
-                            _pt_peca,
-                            cfg.get("fotos_bytes") or [],
-                            refs_layout=cfg.get("refs_layout_bytes") or None,
-                            refs_layout_nomes=cfg.get("refs_layout_nomes", []),
-                            tipo=_oficial,
-                        )
+                        # PELA FUNCAO UNICA, e nao por uma copia daqui: o
+                        # `.txt` consolidado sai da mesma, e duas montagens
+                        # discordariam — a questao seria so quando.
+                        _en_peca = prompt_de_cada_peca(
+                            [item], cfg, _tipos_cfg, _dir_plano)[0][1]
                         st.caption(
                             f"{len(_en_peca)} caracteres · é este texto, exato, "
                             "que vai ao gerador. Uma diferença na hora de gerar: "

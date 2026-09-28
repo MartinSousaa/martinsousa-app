@@ -438,6 +438,30 @@ LABELS_INTERRUPCAO = {LABEL_INTERROMPIDO_MS, LABEL_INTERROMPIDO,
 # converter, o corte pelo horário de trabalho erraria em 3 horas.
 FUSO = timezone(timedelta(hours=-3))
 
+
+def agora_br():
+    """A hora de Brasília, sem fuso colado — a PORTA ÚNICA deste repositório.
+
+    O container do Railway roda em UTC. `datetime.now()` cru serve enquanto os
+    dois lados da conta são UTC (expiração de token contra token gravado, por
+    exemplo), e NÃO serve em dois casos:
+
+      1. o valor é LIDO POR GENTE — o carimbo do Histórico mostrava 17h para
+         quem tinha gerado às 14h;
+      2. o valor vira MÊS ou DIA — às 21h do dia 30 o container já está no dia
+         1º, e o chat respondia a pontuação do mês errado.
+
+    Devolve sem `tzinfo` de propósito: quase todo leitor desta base compara com
+    data ingênua, e devolver com fuso trocaria um erro de três horas por um
+    `TypeError` — que já derrubou produção duas vezes aqui.
+    """
+    return datetime.now(FUSO).replace(tzinfo=None)
+
+
+def hoje_br():
+    """A data de Brasília. Ver `agora_br`."""
+    return agora_br().date()
+
 # Expediente — fonte única (relogio_ponto.py importa daqui).
 HORARIO_PADRAO = {"entrada": time(9, 0), "fim": time(18, 0)}
 HORARIOS = {"myrelladesouza": {"entrada": time(8, 45), "fim": time(17, 45)}}
@@ -2908,3 +2932,69 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
                 d["pts_membro"][u] += cada
                 d["qtd_membro"][u] = d["qtd_membro"].get(u, 0) + 1
     return d
+
+
+# ── Conferência ──────────────────────────────────────────────────────────────
+# `python3 placar_core.py`. Este arquivo não tinha auto-teste, e `agora_br`
+# virou a porta única da hora de Brasília para nove arquivos — o quarto
+# verificador cobrou a guarda em 28/09.
+#
+# O DEFEITO QUE ELA IMPEDE: o container do Railway roda em UTC. Sem converter,
+# o Histórico carimbava 17h no que o colaborador gerou às 14h, e às 21h do dia
+# 30 o chat respondia a pontuação do mês seguinte.
+if __name__ == "__main__":
+    falhas = 0
+
+    def ok(nome, cond):
+        global falhas
+        falhas += not cond
+        print(("ok    " if cond else "FALHA ") + nome)
+
+    _utc = datetime.now(timezone.utc)
+    _br = agora_br()
+
+    ok("agora_br devolve datetime", isinstance(_br, datetime))
+
+    # A ORDEM AQUI IMPORTA, e custou uma mutação para descobrir.
+    #
+    # A conta das três horas subtrai dois datetimes ingênuos. Com `agora_br`
+    # devolvendo COM fuso, essa subtração levanta TypeError e o auto-teste
+    # MORRE antes de reprovar qualquer coisa — a mutação passava verde por
+    # ausência de saída, não por acerto. Guarda que explode não reprova: ela
+    # só some. Por isso o teste do fuso vem primeiro.
+    ok("agora_br vem SEM fuso colado", _br.tzinfo is None)
+
+    # TRÊS HORAS ATRÁS DO UTC, que é o ponto inteiro.
+    if _br.tzinfo is None:
+        _dif = (_utc.replace(tzinfo=None) - _br).total_seconds() / 3600
+        ok("e está três horas atrás do UTC", 2.9 < _dif < 3.1)
+    else:
+        ok("e está três horas atrás do UTC", False)
+
+    # SEM tzinfo, E ISSO É DE PROPÓSITO.
+    #
+    # Quase todo leitor desta base compara com data ingênua. Devolver com fuso
+    # trocaria um erro de três horas por `TypeError: can't compare offset-naive
+    # and offset-aware datetimes` — que já derrubou produção duas vezes aqui, e
+    # só aparece no clique, nunca no import.
+    try:
+        _ = _br < datetime(2030, 1, 1)
+        _compara = True
+    except TypeError:
+        _compara = False
+    ok("entao compara com data ingenua sem levantar TypeError", _compara)
+
+    ok("hoje_br e a data de agora_br", hoje_br() == agora_br().date())
+    ok("e e date, nao datetime",
+       hoje_br().__class__.__name__ == "date")
+
+    # O FUSO É O DA CONSTANTE, e não um número escrito de novo aqui dentro.
+    # Duas definições do mesmo fuso discordariam no horário de verão — é a
+    # Forma 5 do CLAUDE.md nascendo outra vez.
+    import inspect as _insp_pc
+    _c = _insp_pc.getsource(agora_br)
+    ok("o fuso vem da constante FUSO", "FUSO" in _c and "-3" not in _c)
+    ok("e hoje_br nao redefine o fuso",
+       "FUSO" not in _insp_pc.getsource(hoje_br))
+
+    print("\nfalhas:", falhas)

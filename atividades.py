@@ -5,6 +5,7 @@ import pandas as pd
 from datetime import datetime
 
 import planilha as _plan
+import placar_core as _pc_br   # a porta unica da hora de Brasilia
 # Nome vindo do ambiente: producao usa o padrao, homologacao usa a copia.
 PLANILHA_NOME = _plan.nome()
 ABA_NOME = "atividades"
@@ -133,7 +134,7 @@ def registrar_atividade(usuario, tipo, produto, resumo,
         # rotulo errado. Foi assim que o peso preenchido chegava vazio na aba
         # Imagem enquanto medidas e material passavam.
         valores = {
-            "data_hora": datetime.now().strftime("%d/%m/%Y %H:%M"),
+            "data_hora": _pc_br.agora_br().strftime("%d/%m/%Y %H:%M"),
             "usuario": usuario, "tipo": tipo, "produto": produto,
             "resumo": resumo, "codigo": codigo, "cor": cor, "medidas": medidas,
             "peso": peso, "link_capa": link_capa, "link_pasta": link_pasta,

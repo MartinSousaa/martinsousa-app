@@ -49,7 +49,29 @@ class _Falso:
         # o Streamlit de verdade também as vê como um espaço só.
         self._chaves = {} if chaves is None else chaves
         self.session_state = _Estado()
-        self.secrets = {}
+        # OS SEGREDOS EXISTEM, com valor de mentira.
+        #
+        # `sheets.py:74` lê `st.secrets["gcp_service_account"]` com COLCHETE:
+        # ausente, ele levanta KeyError cru. Um duplo com `secrets` vazio
+        # fazia a tela de Ponto "quebrar" aqui — mas em produção a chave
+        # existe, e o defeito era do duplo, não do código. Duplo mais pobre
+        # que a realidade acusa o inocente.
+        #
+        # NENHUM VALOR REAL, e nenhum vai à rede: quem fala com o Google é
+        # substituído logo abaixo, no lugar certo (a fronteira de I/O).
+        # `st.query_params` É DICT no Streamlit de verdade, e no duplo caía
+        # no `__getattr__` virando função — `gestao.py:94` fazia `.get()` nela
+        # e recebia AttributeError. Duplo mais pobre que a realidade acusa o
+        # inocente: a tela estava certa.
+        self.query_params = {}
+        self.secrets = {
+            "gcp_service_account": {"type": "service_account",
+                                    "project_id": "conferencia",
+                                    "private_key": "-----BEGIN-----\nx\n-----END-----\n",
+                                    "client_email": "x@conferencia.local"},
+            "TRELLO_KEY": "", "TRELLO_TOKEN": "", "BOARD_ID": "",
+            "OPENAI_API_KEY": "", "ANTHROPIC_API_KEY": "", "GEMINI_API_KEY": "",
+        }
         self.column_config = _Qualquer()
         self.errors = types.SimpleNamespace(
             StreamlitDuplicateElementKey=ChaveRepetida)
@@ -825,10 +847,230 @@ def _contexto_do_log(conta):
     conta("e marca ANTES de abrir a primeira thread",
           _l_ctx is not None and (_l_th is None or _l_ctx < _l_th),
           f"marcar_contexto na linha {_l_ctx}, primeira Thread na {_l_th}")
+    # ── A DATA DO PAINEL E A DE BRASILIA ────────────────────────────────
+    #
+    # `pagina_placar` monta `agora = datetime.now()` — UTC no container — e
+    # esse `agora` decide DOIS numeros: a janela do "por que mudou entre dois
+    # dias" e a DATA DO RETRATO DIARIO. Depois das 21h locais ja e o dia
+    # seguinte em UTC: o retrato de sexta seria gravado como sabado, e a
+    # comparacao que o dono pediu ("sexta 102%, hoje 98%") pegaria a linha
+    # errada. O defeito nasceu no proprio commit que criou o retrato.
+    import placar as _pl_h
+    _corpo_pl = _insp_c.getsource(_pl_h.pagina_placar)
+    _codigo_pl = "\n".join(
+        l.split("#", 1)[0] for l in _corpo_pl.splitlines())
+    conta("a data do Painel de Metas vem com fuso",
+          "datetime.now()" not in _codigo_pl.replace(" ", ""),
+          "datetime.now() cru no Painel: o retrato diario grava o dia errado "
+          "depois das 21h")
+
     # E A FUNCAO EXISTE do outro lado: a tela chamar um nome que sumiu
     # levantaria AttributeError dentro de um `try` que engole tudo.
     conta("e `marcar_contexto` existe em log_imagem",
           callable(getattr(_li_c, "marcar_contexto", None)), "")
+
+
+# As telas que NENHUM verificador desenhava ate 28/09. A varredura das seis
+# Formas apontou doze; estas sao as que a assinatura permite chamar direto.
+#
+# `pagina_analise_metas` e `pagina_pedir_abono` ficaram de fora de proposito:
+# elas leem o Trello e a planilha em cadeias fundas, e um duplo pobre demais
+# acusaria o inocente — foi o que a primeira versao de checar_tela fez com
+# `linha_do_mes`. Verificador que da alarme falso ensina a ser ignorado.
+TELAS_SEM_GUARDA = [
+    ("admin", "pagina_admin"),
+    ("descricao", "pagina_descricao"),
+    ("gestao", "pagina_home"),
+    ("gestao", "pagina_financeiro"),
+    ("financeiro", "pagina_financeiro"),
+    ("palavras_chave", "pagina_palavras_chave"),
+    ("relogio_ponto", "pagina_ponto"),
+    ("tit_ml", "pagina_titulo"),
+    ("triagem", "pagina_triagem"),
+    ("video", "pagina_video"),
+]
+
+
+class _AbaVazia:
+    """Uma aba de planilha que existe e não tem nada dentro.
+
+    A FRONTEIRA DE I/O É AQUI, e não no `st.secrets`. A primeira tentativa foi
+    dar segredos de mentira ao duplo — e o código seguiu em frente até bater
+    no `google.auth` de verdade, pedindo `token_uri`. Trocar o segredo é
+    mentir mais fundo; trocar a planilha é trocar exatamente o que vai à rede.
+    """
+
+    def get_all_records(self, **kw):
+        return []
+
+    def get_all_values(self, **kw):
+        return []
+
+    def row_values(self, _n):
+        return []
+
+    def col_values(self, _n):
+        return []
+
+    def append_row(self, *a, **kw):
+        return None
+
+    def update_cell(self, *a, **kw):
+        return None
+
+    def update(self, *a, **kw):
+        return None
+
+    def add_cols(self, *a, **kw):
+        return None
+
+    def delete_rows(self, *a, **kw):
+        return None
+
+    def find(self, *a, **kw):
+        return None
+
+
+class _PlanilhaVazia:
+    def worksheet(self, _nome):
+        return _AbaVazia()
+
+    def add_worksheet(self, **kw):
+        return _AbaVazia()
+
+    def worksheets(self):
+        return []
+
+
+def _sem_planilha():
+    """Troca o acesso ao Google Sheets por um duplo. Devolve o que restaurar."""
+    import sheets as _sh
+    guardado = (_sh.planilha, _sh.cliente)
+    _sh.planilha = lambda *a, **k: _PlanilhaVazia()
+    _sh.cliente = lambda *a, **k: None
+    return _sh, guardado
+
+
+def _telas_restantes(conta):
+    """Desenha as telas que nenhum verificador alcancava.
+
+    NAO CONFEREM CONTEUDO — so que a pagina MONTA. E pouco, e e exatamente o
+    que faltava: a Home caiu em producao com `TypeError: string indices must
+    be integers`, e os quatro verificadores de entao passaram verdes porque
+    nenhum deles desenhava nada.
+
+    Cada uma roda com o Streamlit falso e sem credencial: o caminho que o
+    colaborador ve quando a planilha ou o Trello estao fora do ar.
+    """
+    import importlib
+    import sys as _sys_t
+
+    _sh, _guardado = _sem_planilha()
+    for modulo, funcao in TELAS_SEM_GUARDA:
+        nome = f"{funcao} monta ({modulo}.py)"
+        _falso = instalar()
+        try:
+            _m = importlib.import_module(modulo)
+            # O FALSO VAI PARA A CADEIA INTEIRA, e nao so para o modulo de
+            # entrada. `gestao.pagina_home` desenha via `home_gestao`, e o
+            # `st` dele tinha ficado apontando para o falso de um cenario
+            # ANTERIOR — cujo registro de chaves ja tinha `hg_gasto_mes`.
+            # Resultado: ChaveRepetida acusando codigo que esta certo.
+            # Alarme falso ensina a ignorar o verificador.
+            for _nm, _mod in list(_sys_t.modules.items()):
+                if getattr(_mod, "st", None) is not None and not _nm.startswith(
+                        ("streamlit", "checar_")):
+                    try:
+                        _mod.st = _falso
+                    except Exception:
+                        pass
+            getattr(_m, funcao)("martinsousa")
+            conta(nome, True, "")
+        except (_Rerun, _Parou):
+            conta(nome, True, "")
+        except Exception as e:
+            conta(nome, False, f"{type(e).__name__}: {str(e)[:160]}")
+    _sh.planilha, _sh.cliente = _guardado
+
+
+def _txt_consolidado(conta):
+    """O .txt com os prompts de TODAS as pecas de uma vez.
+
+    Dono, 28/09: "nao tem como ter um botao que consolida o que sera enviado
+    de todas as imagens para que eu nao precise abrir e copiar um por um?".
+    Eram oito expanders, oito cliques, oito colagens.
+
+    O QUE ESTA GUARDA IMPEDE: que o arquivo saia com peca faltando, com a
+    ordem trocada, ou sem dizer o que ele NAO contem — a ambientacao lida das
+    referencias so entra na hora de gerar, e um arquivo que nao avisa isso
+    faz quem le procurar defeito onde nao ha.
+    """
+    import imagem as _img_t
+
+    _pares = [("1 — Capa do anúncio (fundo branco)", "TEXTO DA PECA UM " * 4),
+              ("4 — Close nos detalhes", "TEXTO DA PECA QUATRO " * 4),
+              ("5 — Características técnicas", "TEXTO DA PECA CINCO " * 4)]
+    _txt = _img_t.txt_dos_prompts(_pares, "Caneca Medieval", "Medieval Rústico")
+
+    # TODA PECA ENTRA, e nenhuma some no meio.
+    conta("o txt traz as tres pecas",
+          all(f"PEÇA {i} —" in _txt for i in (1, 2, 3)), "")
+    conta("e o texto de cada uma", all(p[1].strip()[:20] in _txt for p in _pares), "")
+    # A ORDEM E A DO PLANO: peca 1 antes da 4, e a 4 antes da 5.
+    conta("na ordem do plano",
+          _txt.index("PEÇA 1") < _txt.index("PEÇA 2") < _txt.index("PEÇA 3"), "")
+    # O CABECALHO DIZ O QUE FALTA. Sem isso, quem le acha que o arquivo e o
+    # prompt final e procura defeito no lugar errado.
+    conta("o cabecalho avisa que a ambientacao entra so na geracao",
+          "AMBIENTAÇÃO" in _txt and "acrescentado no fim" in _txt, "")
+    conta("e nomeia o produto", "Caneca Medieval" in _txt, "")
+    conta("e traz a direcao de arte uma vez so",
+          _txt.count("Medieval Rústico") == 1, "")
+
+    # BORDAS: plano vazio nao pode gerar arquivo quebrado.
+    _vazio = _img_t.txt_dos_prompts([], "")
+    conta("plano vazio gera arquivo legivel, e nao vazio",
+          "Peças: 0" in _vazio and "(sem nome)" in _vazio, "")
+    # E O ARQUIVO TEM DE SER TEXTO DE VERDADE: bytes tortos nao abrem.
+    try:
+        _vazio.encode("utf-8"); _txt.encode("utf-8")
+        _cod = True
+    except Exception:
+        _cod = False
+    conta("o arquivo codifica em utf-8", _cod, "")
+
+    # A FONTE E UNICA: a tela e o txt tem de sair da MESMA funcao, senao os
+    # dois discordam — e a questao e so quando (Forma 5).
+    import inspect as _insp_t
+    _corpo_pag = _insp_t.getsource(_img_t.pagina_imagem)
+    conta("a tela monta os prompts pela funcao unica",
+          "prompt_de_cada_peca(" in _corpo_pag,
+          "a tela voltou a montar o prompt por conta propria")
+    # E O BLOCO DO PREVIEW NAO MONTA O SEU.
+    #
+    # Duas versoes desta guarda nasceram erradas, e as duas por mutacao:
+    #
+    #   1. procurar so o nome da funcao unica: ela era encontrada no bloco do
+    #      BOTAO, entao o expander podia voltar a montar o proprio sem
+    #      reprovar nada;
+    #   2. proibir `montar_prompt_imagem` na PAGINA INTEIRA: isso acusava o
+    #      caminho da GERACAO (`imagem.py:7252`), que legitimamente monta o
+    #      seu — ele acrescenta a ambientacao lida das referencias, que o
+    #      preview nao tem como ter. E a diferenca que o cabecalho do .txt
+    #      avisa. Alarme falso em cima de codigo certo ensina a ignorar.
+    #
+    # A assercao certa e sobre o BLOCO DO PREVIEW, e so ele.
+    _ini_pv = _corpo_pag.find("if _ver_prompts:")
+    _fim_pv = _corpo_pag.find("_desc = descarte_de_layout()")
+    _bloco_pv = (_corpo_pag[_ini_pv:_fim_pv]
+                 if 0 <= _ini_pv < _fim_pv else "")
+    conta("o bloco do preview foi encontrado", bool(_bloco_pv),
+          "a guarda ficou cega — o bloco mudou de forma")
+    for _cru in ("montar_prompt_imagem(", "prompt_que_sera_enviado("):
+        conta(f"e o preview nao chama {_cru[:-1]} direto",
+              bool(_bloco_pv) and _cru not in _bloco_pv,
+              "a montagem voltou para dentro do preview: duas fontes para o "
+              "mesmo prompt discordam, e a questao e so quando")
 
 
 def main():
@@ -841,6 +1083,14 @@ def main():
         print(("ok    " if ok else "FALHA ") + nome
               + (f"\n      {detalhe}" if detalhe else ""))
 
+    # AS TELAS GERAIS PRIMEIRO, e isso e de proposito.
+    #
+    # Os cenarios especificos abaixo trocam funcoes de modulo para forcar o
+    # caminho que querem (`_pc._num`, `_ps.ler`, `_pc._buscar_board`), e nem
+    # todos devolvem o original. Rodando depois deles, a tela do Financeiro
+    # "quebrava" — e passava sozinha. Alarme falso por ordem de execucao e
+    # pior que nenhum teste: ensina a ignorar a saida.
+    _telas_restantes(conta)
     _home(falhas, conta)
     _extratos(conta)
     _gargalos(conta)
@@ -853,6 +1103,7 @@ def main():
     _retrato_no_painel(conta)
     _historico_de_prompts(conta)
     _contexto_do_log(conta)
+    _txt_consolidado(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0

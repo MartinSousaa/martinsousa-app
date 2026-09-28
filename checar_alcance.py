@@ -59,6 +59,11 @@ _EXT_IMAGEM = {"png", "jpg", "jpeg", "webp", "heic", "heif", "avif", "gif",
 _ROTULO_QUE_MENTE = re.compile(r"\((?:[A-Za-z]{3,4}\s*,\s*)+[A-Za-z]{3,4}\)")
 
 
+# Este arquivo FALA de marcador de conflito para saber achá-lo — procurar o
+# texto nele mesmo seria a sexta vez nesta base que uma guarda se encontra.
+IGNORAR_CONFLITO = {"checar_alcance.py"}
+
+
 def _arquivos(raiz="."):
     for nome in sorted(os.listdir(raiz)):
         if nome.endswith(".py") and not nome.startswith("checar_"):
@@ -205,6 +210,76 @@ def main():
                     f"session_state volta VAZIO: o campo é gravado em branco, "
                     f"sem erro nenhum. Leia de um global de módulo, como "
                     f"`_PECA_EM_AJUSTE` faz.")
+
+    # ── 6. O CARIMBO QUE GENTE LÊ, E O MÊS QUE O SISTEMA CALCULA ───────────
+    #
+    # Forma 6a. O container roda em UTC. `datetime.now()` cru SERVE quando os
+    # dois lados da conta são UTC — expiração de token contra token gravado,
+    # idade de cartão do Trello contra ação do Trello. Não serve em dois
+    # casos, e são estes que esta varredura reprova:
+    #
+    #   1. o valor é LIDO POR GENTE. O Histórico carimbava 17h em cima do que
+    #      o colaborador gerou às 14h.
+    #   2. o valor vira MÊS ou DIA. Às 21h do dia 30 o container já está no
+    #      dia 1º: o chat respondia a pontuação do mês errado, e o retrato do
+    #      placar seria gravado com a data de amanhã.
+    #
+    # A porta única é `placar_core.agora_br()` / `hoje_br()`.
+    _CARIMBO = re.compile(r"datetime\.now\(\s*\)\s*\.(strftime|date)\b")
+    _VIRA_MES = re.compile(r"datetime\.now\(\s*\)(?![^\n]*timedelta)")
+    # Onde o `datetime.now()` cru continua CERTO, e por quê. Comparação de
+    # UTC com UTC não tem erro de fuso: trocar um lado só é que teria.
+    _CONSISTENTES = {
+        "auth.py": "expiração de token contra token gravado, os dois em UTC",
+        "rhid_api.py": "validade do token da RHiD contra a hora de emissão",
+        "gargalos_tela.py": "idade do cartão contra a ação do Trello, ambos UTC",
+        "fechar_expediente.py": "é o fallback do except; o caminho normal usa FUSO",
+        "placar_core.py": "é onde `agora_br` mora",
+        "varredura_formas.py": "é a varredura que PROCURA este padrão",
+    }
+    for nome, fonte in ((n, f) for n in _arquivos()
+                        for f in [open(n, encoding="utf-8").read()]):
+        if nome in _CONSISTENTES:
+            continue
+        # Fora do bloco de conferência: a guarda que procura `datetime.now()`
+        # contém o texto `datetime.now()`. É a sexta vez nesta base.
+        corpo = fonte.split('if __name__ == "__main__":')[0]
+        for i, linha in enumerate(corpo.splitlines(), 1):
+            codigo = re.sub(r"`[^`]*`", "", linha.split("#", 1)[0])
+            if not _VIRA_MES.search(codigo):
+                continue
+            reprova(
+                f"{nome}:{i} — `datetime.now()` sem fuso. O container roda em "
+                f"UTC: se este valor é lido por gente, sai 3h adiantado; se "
+                f"vira mês ou dia, erra depois das 21h. Use "
+                f"`placar_core.agora_br()` ou `hoje_br()`.")
+
+    # ── 7. MARCADOR DE CONFLITO COMMITADO ──────────────────────────────────
+    #
+    # 28/09: resolvi um merge nos tres arquivos `.py` que o git listou e NAO
+    # olhei o `CLAUDE.md` — que tambem estava em conflito. O arquivo subiu com
+    # `<<<<<<< HEAD` dentro, e nenhum dos seis verificadores leu: todos olham
+    # codigo. E a Forma 1 na resolucao de conflito.
+    #
+    # Varre TODO arquivo de texto, e nao so `.py`: o defeito nasceu justamente
+    # no que nao e codigo.
+    import glob as _glob
+    for _nome in sorted(_glob.glob("*.py") + _glob.glob("*.md")
+                        + _glob.glob("*.txt") + _glob.glob("*.toml")):
+        if _nome in IGNORAR_CONFLITO:
+            continue
+        try:
+            with open(_nome, encoding="utf-8") as fh:
+                _linhas = fh.read().splitlines()
+        except (OSError, UnicodeDecodeError):
+            continue
+        for _i, _l in enumerate(_linhas, 1):
+            if _l.startswith(("<<<<<<< ", ">>>>>>> ")):
+                reprova(
+                    f"{_nome}:{_i} — marcador de conflito de merge no arquivo "
+                    f"commitado. Resolver os `.py` que o git listou e esquecer "
+                    f"o resto e a Forma 1 na resolucao de conflito.")
+                break
 
     # ── 4. O PROMPT DO PLANO ────────────────────────────────────────────────
     #

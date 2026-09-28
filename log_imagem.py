@@ -19,6 +19,7 @@ import streamlit as st
 from datetime import datetime
 
 import planilha as _plan
+import placar_core as _pc_br   # a porta unica da hora de Brasilia
 # Nome vindo do ambiente: producao usa o padrao, homologacao usa a copia.
 PLANILHA_NOME = _plan.nome()
 ABA_LOG = "log_imagem"
@@ -97,7 +98,7 @@ def registrar(acao, instrucao="", imagem=None, tipo="", resultado="",
         _garantir_coluna_prompt(_ab)
         _ab.append_row(
             [
-                datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+                _pc_br.agora_br().strftime("%d/%m/%Y %H:%M:%S"),
                 _do_contexto("usuario", "usuario") or "?",
                 _do_contexto("produto", "img_nome_produto", "nome_produto"),
                 str(acao),

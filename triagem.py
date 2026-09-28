@@ -6,6 +6,7 @@ from datetime import datetime
 from params_oficiais import ML_COMISSAO_POR_CATEGORIA
 
 import planilha as _plan
+import placar_core as _pc_br   # a porta unica da hora de Brasilia
 # Nome vindo do ambiente: producao usa o padrao, homologacao usa a copia.
 PLANILHA_NOME = _plan.nome()
 ABA_NOME = "triagens"
@@ -136,7 +137,7 @@ def salvar_triagem(usuario, dados):
         # Por NOME de coluna, nao por posicao — foi o que fez o peso se perder
         # no historico de atividades. Aqui a armadilha e a mesma.
         valores = dict(dados or {})
-        valores["data_hora"] = datetime.now().strftime("%d/%m/%Y %H:%M")
+        valores["data_hora"] = _pc_br.agora_br().strftime("%d/%m/%Y %H:%M")
         valores["usuario"] = usuario
         # Toda triagem nova nasce com identificador. É ele que a edição e o
         # apagar usam depois para dizer QUAL linha.
@@ -745,7 +746,7 @@ def pagina_triagem(usuario_logado):
             with st.spinner("Enviando foto para o Drive..."):
                 imagem_bytes = foto_upload.read()
                 ext = foto_upload.name.rsplit(".", 1)[-1].lower() if "." in foto_upload.name else "jpg"
-                nome_arquivo = f"{nome_comercial.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d%H%M%S')}.{ext}"
+                nome_arquivo = f"{nome_comercial.replace(' ', '_')}_{_pc_br.agora_br().strftime('%Y%m%d%H%M%S')}.{ext}"
                 file_id, err_foto = upload_foto_triagem(imagem_bytes, nome_arquivo)
                 if err_foto:
                     st.warning(

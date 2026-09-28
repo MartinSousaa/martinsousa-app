@@ -198,7 +198,6 @@ segundo dono e duas peças sumiram. `LPV` e `UC` tinham duas definições cada.
 **Regra:** um nome, uma resposta. Quando a mesma pergunta tem duas respostas
 no código, elas passam a discordar — a questão é só quando.
 
-<<<<<<< HEAD
 ### Forma 6 — descobrir uma restrição de ambiente e aplicá-la a UM leitor
 
 Esta é a Forma 1 com um agravante: eu **já sabia** o fato, escrevi sobre ele,
@@ -237,8 +236,6 @@ empilhada na primeira.
 **Guarda:** `checar_alcance.py` passa a procurar leitura de `st.session_state`
 dentro de função alcançável por `threading.Thread`, e reprova.
 
-=======
->>>>>>> origin/main
 ### O que eu mapeei e o que NÃO mapeei
 
 **Mapeado e corrigido:** os cinco defeitos acima, as peças 7 e 8, o produto
