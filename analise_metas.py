@@ -15,7 +15,6 @@ import metas_config as mc
 import placar_core as _pc
 import filtros as _filtros
 import explicacao_metas as _expl
-import placar_core as _pc_br   # a porta unica da hora de Brasilia
 try:
     import relogio_ponto as _rp
     _PONTO_DISPONIVEL = True
@@ -185,7 +184,7 @@ def _extend_dados_ano(dados):
     """Preenche com entradas zeradas para todos os meses de Jan até o mês atual do ano corrente.
     Garante que o gráfico anual sempre mostre Jan–mês_atual mesmo quando o período selecionado
     é apenas 'Dentro do mês' ou outro intervalo curto."""
-    agora = _pc_br.agora_br()
+    agora = _pc.agora_br()
     ano_atual, mes_atual = agora.year, agora.month
     existentes = {(r["ano"], r["mes"]) for r in dados}
     resultado = list(dados)
@@ -1114,7 +1113,7 @@ def _dias_uteis_periodo(dados, hoje=None):
     começou fica de fora dos dois — contar dias que não existem faria o ritmo
     exigido parecer menor do que é.
     """
-    hoje = hoje or _pc_br.agora_br()
+    hoje = hoje or _pc.agora_br()
     uteis = dec = 0
     for r in dados or []:
         fm = r.get("filtro_mes")
@@ -3859,7 +3858,7 @@ def _chart_linha_do_tempo(dados, username):
             f'{_fmt_hhmm(hora)}</text>')
         hora += 60
 
-    hoje = _pc_br.agora_br().date()
+    hoje = _pc.agora_br().date()
     medias, parados = [], []
     for d in range(1, ultimo + 1):
         data = datetime(ano, mes, d).date()
@@ -4102,7 +4101,7 @@ def _chart_atividade_dia(dados, username, por_mes=False):
                     'color:var(--ms-texto-sec);">Sem mês definido</div>')
         ano, mes = ym
         ultimo = calendar.monthrange(ano, mes)[1]
-        hoje = _pc_br.agora_br().date()
+        hoje = _pc.agora_br().date()
         rotulos, regs, uteis = [], [], []
         for d in range(1, ultimo + 1):
             data = datetime(ano, mes, d).date()
@@ -4750,7 +4749,7 @@ def _desempenho_individual(dados, username, nome, carregar_periodo=None,
     # As chaves nao levam o username: trocar de colaborador mantem o periodo
     # escolhido. Comparar duas pessoas no mesmo mes e o uso normal daqui, e
     # reescolher o mes a cada troca seria trabalho a toa.
-    _hoje = _pc_br.agora_br()
+    _hoje = _pc.agora_br()
 
     def _recuar(ate):
         """Os `ate` ultimos meses, do mais antigo para o mais recente."""
@@ -6246,7 +6245,7 @@ def _secao_configuracao(dados=None, carregar_periodo=None):
     st.markdown("#### ⚙️ Configurar Metas por Mês")
     st.caption("Configure as metas de qualquer mês, inclusive meses futuros. As configurações são salvas automaticamente no banco de dados.")
 
-    agora = _pc_br.agora_br()
+    agora = _pc.agora_br()
     col_a, col_m, col_go_cfg = st.columns([1, 2, 1])
 
     anos_disp = list(range(agora.year + 1, agora.year - 2, -1))
@@ -6835,7 +6834,7 @@ def pagina_analise_metas(usuario_logado):
         st.warning("🔒 Acesso restrito à equipe.")
         return
 
-    agora = _pc_br.agora_br()
+    agora = _pc.agora_br()
     st.markdown("### 📊 Análise de Metas")
 
     # ── SELETOR DE PERÍODO ─────────────────────────────────────────────────
