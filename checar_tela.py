@@ -174,6 +174,19 @@ def _retorno_de(nome, a, kw):
         return [] if kw.get("accept_multiple_files") else None
     if nome in ("text_input", "text_area"):
         return ""
+    # DATA E HORA DEVOLVEM DATA E HORA. O duplo devolvia um `_Falso`, e
+    # `datetime.combine` com ele levanta TypeError — numa tela que funciona.
+    # Mesma licao do `linha_do_mes` e do `with c1:`: duble mais pobre que a
+    # realidade acusa o inocente.
+    if nome in ("date_input", "time_input"):
+        import datetime as _dt_falso
+        v = kw.get("value")
+        if v is None and len(a) > 1:
+            v = a[1]
+        if v is not None:
+            return v
+        return (_dt_falso.date.today() if nome == "date_input"
+                else _dt_falso.time(0, 0))
     if nome in ("number_input", "slider"):
         v = kw.get("value")
         return v if v is not None else (a[3] if len(a) > 3 else 0)
@@ -446,6 +459,71 @@ def _faturas(conta):
             conta(nome, False, f"{type(e).__name__}: {e}")
 
 
+def _queda_de_pontos(conta):
+    """O bloco que explica a queda de pontuação — ele lê o log do Trello."""
+    import placar as _pl
+    import placar_core as _pc
+    from datetime import datetime as _dt, timezone as _tz
+
+    _acoes = {"c1": [{"type": "updateCard", "date": "2026-09-26T14:00:00.000Z",
+                      "data": {"card": {"id": "c1", "name": "Vídeo caneca",
+                                        "closed": True},
+                               "old": {"closed": False}}}],
+              "c2": [{"type": "createCard", "date": "2026-09-26T09:00:00.000Z",
+                      "data": {"card": {"id": "c2", "name": "Atraso"},
+                               "list": {"name": "PENALIDADES"}}}]}
+    _agora = _dt(2026, 9, 28, 12, 0, tzinfo=_tz.utc)
+
+    casos = [
+        ("Queda de pontos: com mudanças no período",
+         lambda *a, **k: dict(_acoes),
+         lambda: ([], [{"id": "c2"}], {}, "idp", "idt", "idi")),
+        # NENHUMA MUDANÇA: a tela tem de dizer o que conta como mudança, e
+        # não ficar em branco.
+        ("Queda de pontos: período sem mudança nenhuma",
+         lambda *a, **k: {},
+         lambda: ([], [], {}, "idp", "idt", "idi")),
+        # O TRELLO FORA DO AR não pode derrubar o Painel de Metas inteiro.
+        ("Queda de pontos: Trello fora do ar",
+         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("timeout")),
+         lambda: ([], [], {}, "idp", "idt", "idi")),
+    ]
+    # O PAINEL INTEIRO TAMBEM E DESENHADO — o bloco novo entrou dentro dele,
+    # e trocar codigo inline por uma chamada e exatamente o tipo de mexida
+    # que quebra o arquivo inteiro sem que o bloco isolado acuse nada.
+    _falso = instalar()
+    _pl.st = _falso
+    _guardado = _pc.TRELLO_KEY
+    _pc.TRELLO_KEY = ""          # sem credencial: caminho de saida antecipada
+    _pl.TRELLO_KEY = ""
+    try:
+        _pl.pagina_placar("leo")
+        conta("Painel de Metas monta sem credencial do Trello", True, "")
+    except (_Rerun, _Parou):
+        conta("Painel de Metas monta sem credencial do Trello", True, "")
+    except Exception as e:
+        conta("Painel de Metas monta sem credencial do Trello", False,
+              f"{type(e).__name__}: {e}")
+    finally:
+        _pc.TRELLO_KEY = _guardado
+        _pl.TRELLO_KEY = _guardado
+
+    for nome, _acoes_fn, _board_fn in casos:
+        _falso = instalar()
+        _pl.st = _falso
+        _pc._buscar_acoes_board = _acoes_fn
+        _pc._buscar_board = _board_fn
+        _pc._num = lambda c, i: 50
+        _falso.session_state["qp_rodar"] = True
+        try:
+            _pl.bloco_queda_de_pontos(_agora)
+            conta(nome, True, "")
+        except (_Rerun, _Parou):
+            conta(nome, True, "")
+        except Exception as e:
+            conta(nome, False, f"{type(e).__name__}: {e}")
+
+
 def main():
     instalar()
     falhas = []
@@ -461,6 +539,7 @@ def main():
     _gargalos(conta)
     _historico(conta)
     _faturas(conta)
+    _queda_de_pontos(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0

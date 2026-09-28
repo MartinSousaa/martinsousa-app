@@ -5859,6 +5859,26 @@ def pagina_imagem(usuario_logado):
     # ── TRIAGEM: specs do produto (quando não veio de código de descrição) ─────
     # Preenche medidas/peso/material/etc. automaticamente a partir da triagem.
     # Se houver múltiplas variantes com o mesmo nome, exibe seletor visual.
+    #
+    # ── O CAMPO NÃO PODE ACEITAR O NOME E NÃO FAZER NADA ──────────────────
+    #
+    # Relatado em 28/09: "anexei primeiro o código da descrição, o sistema
+    # identificou, mas quando preencho o nome do produto e dou enter para
+    # buscar a triagem, não busca, não faz nada".
+    #
+    # Não fazia mesmo, e é a condição da linha abaixo: com uma descrição que
+    # já traz medidas, a triagem inteira é pulada — de propósito, porque a
+    # descrição é a fonte mais específica. O defeito não é a regra: é o
+    # SILÊNCIO. O campo continua aceitando texto, o Enter recarrega a tela, e
+    # nada aparece — nem o dado, nem o motivo.
+    if nome_produto and dados_descricao and dados_descricao.get("medidas"):
+        st.caption(
+            "ℹ️ Os dados deste produto estão vindo da **descrição** "
+            f"(código `{codigo_input}`), que é a fonte mais completa — por "
+            "isso a triagem não é consultada agora, e digitar o nome aqui não "
+            "muda nada. Para usar a triagem no lugar, apague o código."
+        )
+
     if nome_produto and not (dados_descricao and dados_descricao.get("medidas")):
         import triagem as _triagem_img
         _sel_triagem_key = "img_triagem_sel_idx"
@@ -8417,6 +8437,23 @@ if __name__ == "__main__":
         "4 — Close nos detalhes", "",
         {"cor": "preto", "material": "Capa dura, encadernação Wire-O preta"},
         "Álbum")
+    # ── O CAMPO DE NOME NAO PODE FICAR MUDO ─────────────────────────────
+    #
+    # 28/09: "anexei o codigo da descricao, o sistema identificou, mas quando
+    # preencho o nome do produto e dou enter para buscar a triagem, nao
+    # busca, nao faz nada". Nao fazia: com descricao que ja traz medidas, a
+    # triagem e pulada de proposito — e a tela nao dizia isso.
+    _corpo_tela = (open(__file__, encoding="utf-8").read()
+                   .split("TRIAGEM: specs do produto")[1][:1400])
+    ok("com descricao completa, a tela explica por que nao busca",
+       "a triagem não é consultada agora" in _corpo_tela)
+    ok("e diz como usar a triagem no lugar",
+       "apague o código" in _corpo_tela)
+    # O AVISO SO APARECE QUANDO HA NOME DIGITADO: sem nome, nao ha pergunta
+    # a responder, e o recado viraria ruido em toda abertura da tela.
+    ok("o aviso exige nome digitado",
+       "if nome_produto and dados_descricao and dados_descricao.get" in _corpo_tela)
+
     # ── DOIS AMBIENTES IGUAIS, E O PRODUTO SEMPRE DO MESMO LADO ─────────
     #
     # Dono, 28/09: "temos diversas opcoes de ambientacao, entao o estudio nao
