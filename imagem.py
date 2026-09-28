@@ -3594,10 +3594,30 @@ def bloco_texto_exato(textos):
     correção que a revisão devolveu. Uma redação só — se as duas divergissem,
     a peça refeita sairia diferente da peça planejada.
     """
+    # UMA LINHA QUEBRADA NÃO É UM BLOCO NOVO.
+    #
+    # O texto corrigido volta da revisão como TEXTO, e texto volta com quebra
+    # de linha onde a frase era longa. Cortar por linha transformava
+    # "METAL E INOX: durável para uso diário intenso" em três blocos, e a
+    # numeração saía 1., 4., 7. nos títulos — foi o "embaralhado" que o dono
+    # viu na peça 2 em 28/09.
+    #
+    # O que começa um bloco é o TÍTULO: palavra(s) em caixa alta seguidas de
+    # dois-pontos, que é o formato que a triagem escreve e que a revisão
+    # devolve. Linha sem título é continuação da anterior.
     if isinstance(textos, str):
-        linhas = [t.strip() for t in textos.splitlines() if t.strip()]
+        linhas = []
+        for bruto in textos.splitlines():
+            t = bruto.strip()
+            if not t:
+                continue
+            if linhas and not _INICIO_DE_BLOCO.match(t):
+                linhas[-1] = (linhas[-1] + " " + t).strip()
+            else:
+                linhas.append(t)
     else:
-        linhas = [str(t).strip() for t in (textos or []) if str(t).strip()]
+        linhas = [" ".join(str(t).split()) for t in (textos or [])
+                  if str(t).strip()]
     if not linhas:
         return ""
     corpo = "\n".join(f"  {i}. {t}" for i, t in enumerate(linhas, 1))
@@ -3607,6 +3627,16 @@ def bloco_texto_exato(textos):
         "REGRAS DESTE TEXTO, acima de qualquer outra instrução de texto:\n"
         "- Escreva EXATAMENTE estas palavras, letra por letra, com os mesmos "
         "acentos. Não reescreva, não resuma, não traduza, não melhore.\n"
+        # O NÚMERO É MEU, NÃO É DA PEÇA.
+        #
+        # "1. ", "2. " servem para contar os blocos — e o gerador copiava o
+        # número junto com o texto, porque a linha acima manda escrever
+        # EXATAMENTE o que está escrito. Os cartões do dono saíram com
+        # "1. METAL E INOX", "2. DESIGN ÚNICO", "3. 400ML", e o mesmo formato
+        # está no histórico de outro produto, de semanas antes.
+        "- Os números **1.**, **2.**, **3.** são apenas a contagem dos blocos: "
+        "NÃO desenhe o número na imagem. O que se escreve é só o que vem "
+        "depois do ponto.\n"
         "- NÃO escreva nenhuma outra palavra na imagem além destas.\n"
         "- Tudo em português do Brasil. NENHUMA palavra em inglês na imagem, "
         "em lugar nenhum — nem em livro, tela, etiqueta, embalagem ou objeto "
@@ -3614,10 +3644,19 @@ def bloco_texto_exato(textos):
         "em português, ou não aparecer.\n"
         "- Se não couber tudo, escreva MENOS blocos — nunca invente palavra "
         "para preencher espaço.\n"
+        + MARCA_FIM_TEXTO_EXATO + "\n"
     )
 
 
+_INICIO_DE_BLOCO = __import__("re").compile(r"^[0-9A-ZÀ-Ú][^:]{0,44}:")
+
 MARCA_TEXTO_EXATO = "━━━ TEXTO EXATO A ESCREVER (copie letra por letra) ━━━"
+# O BLOCO DIZ ONDE ELE ACABA.
+#
+# Sem esta marca, quem troca a copy tinha de adivinhar o fim do bloco, e
+# adivinhou pela proxima "━━━" — que e a SECTION 2, doze mil caracteres
+# adiante. Tudo que estava no meio (as seis regras da peca) ia junto.
+MARCA_FIM_TEXTO_EXATO = "━━━ FIM DO TEXTO EXATO ━━━"
 
 
 def trocar_texto_exato(prompt, textos):
@@ -3636,15 +3675,43 @@ def trocar_texto_exato(prompt, textos):
     e as três rodadas de revisão foram gastas mandando o gerador escolher
     entre duas ordens contrárias.
     """
+    # O FIM DO BLOCO VEM DA MARCA DELE, E NÃO DE ADIVINHAÇÃO.
+    #
+    # O QUE ISTO CONSERTA — e é um estrago que esta função causava:
+    #
+    # A versão anterior procurava a próxima "━━━" depois do bloco de texto.
+    # A próxima "━━━" é a SECTION 2 — doze mil caracteres adiante. Entre uma e
+    # outra está TODA a Seção 1 depois da copy: a regra da borda, o bloco de
+    # protagonismo, a regra de densidade, a de texto real, a de fidelidade e a
+    # instrução de composição. Tudo isso era apagado.
+    #
+    # Medido no prompt real de 28/09 às 18:17: a peça 2 foi ao motor com 8.259
+    # caracteres contra 24.000 das irmãs, sem nenhuma dessas regras. E como
+    # `revisar_texto` chama esta troca SEMPRE que acha erro de português, toda
+    # peça refeita pela revisão ia ao motor sem regra nenhuma — justamente a
+    # peça que já tinha dado problema.
+    #
+    # Agora `bloco_texto_exato` fecha com `MARCA_FIM_TEXTO_EXATO`, e a troca
+    # recorta exatamente entre as duas marcas. O bloco novo entra NO LUGAR do
+    # antigo, e não no fim do prompt: ordem importa, e o texto tem de continuar
+    # antes das regras que falam dele.
     base = str(prompt or "")
     i = base.find(MARCA_TEXTO_EXATO)
-    if i >= 0:
-        # O bloco vai até a próxima seção "━━━" ou até o fim.
-        j = base.find("━━━", i + len(MARCA_TEXTO_EXATO))
-        # `find` acha o fecho da própria marca; pula os dois do cabeçalho.
-        j = base.find("━━━", i + len(MARCA_TEXTO_EXATO) + 1)
-        base = (base[:i].rstrip("\n") + ("\n\n" + base[j:] if j > 0 else "")).rstrip()
-    return base + bloco_texto_exato(textos)
+    novo = bloco_texto_exato(textos)
+    if i < 0:
+        return base + novo
+    f = base.find(MARCA_FIM_TEXTO_EXATO, i)
+    if f >= 0:
+        fim = f + len(MARCA_FIM_TEXTO_EXATO)
+    else:
+        # PROMPT ANTIGO, sem a marca de fim: o bloco termina na última linha
+        # que `bloco_texto_exato` escreve. Cortar até a próxima "━━━" é o que
+        # levava as regras junto, e não se faz mais.
+        _ultima = "para preencher espaço."
+        _u = base.find(_ultima, i)
+        fim = (_u + len(_ultima)) if _u >= 0 else i + len(MARCA_TEXTO_EXATO)
+    return (base[:i].rstrip("\n") + "\n" + novo.lstrip("\n")
+            + "\n" + base[fim:].lstrip("\n")).rstrip() + "\n"
 
 
 def _campo_ambientacao(sufixo):
@@ -8772,6 +8839,86 @@ if __name__ == "__main__":
     ok("pode_ter_texto só dispensa capa e ambientação",
        pode_ter_texto("Personalizado (descrevo o que quero)")
        and not pode_ter_texto("8 — Ambientação realista (sem texto)"))
+
+    # ── A TROCA DA COPY APAGAVA TODAS AS REGRAS DA PECA ─────────────────
+    #
+    # O DEFEITO, medido no prompt real de 28/09 as 18:17: a peca 2 foi ao
+    # motor com 8.259 caracteres; as irmas, com 24.000. Ela nao recebeu a
+    # regra da borda, nem a de protagonismo, nem a de densidade, nem a de
+    # texto real, nem a de fidelidade. Foi gerada praticamente sem regra — e
+    # e a peca que o dono refez QUATRO vezes.
+    #
+    # A causa: `trocar_texto_exato` apagava do bloco de texto ate a
+    # "━━━ SECTION 2", e na Secao 1 TODAS as regras vem DEPOIS do bloco de
+    # texto. Como `revisar_texto` chama essa troca sempre que acha erro de
+    # portugues, toda peca refeita pela revisao ia ao motor sem regra nenhuma.
+    #
+    # E o defeito e meu: essa funcao nasceu para consertar os DOIS blocos de
+    # texto contrarios, e levou junto tudo o que estava entre um e outro.
+    _BLOCOS_DE_REGRA = ("REGRA DE ESPAÇO DESTA PEÇA", "O PRODUTO É O DESTAQUE",
+                        "REGRA DE DENSIDADE", "REGRA DE TEXTO REAL",
+                        "REGRA DE FIDELIDADE AO PRODUTO",
+                        "INSTRUÇÃO DE COMPOSIÇÃO")
+    _p_int = montar_prompt_imagem(
+        "2 — Benefícios do produto", "", {"cor": "Cinza"}, "Caneca",
+        plano_triagem={"composicao": "caneca ao centro", "cena": "bancada",
+                       "textos": ["METAL E INOX: durável para uso diário",
+                                  "ACABAMENTO ÚNICO: imita pedra medieval",
+                                  "400ML: ideal para café e chá"]},
+        refs_layout_nomes=["r.jpg"], instrucao_layout="coluna à direita")
+    ok("o prompt inteiro tem as seis regras",
+       all(b in _p_int for b in _BLOCOS_DE_REGRA))
+
+    _p_troc = trocar_texto_exato(_p_int, ["METAL E INOX: durável para uso"])
+    _perdidos = [b for b in _BLOCOS_DE_REGRA if b not in _p_troc]
+    ok("e trocar a copy NAO apaga nenhuma delas", not _perdidos)
+    ok("a copy nova entra", "durável para uso" in _p_troc)
+    ok("e a copy velha sai — nunca DOIS blocos de texto contrarios",
+       "imita pedra medieval" not in _p_troc
+       and _p_troc.count(MARCA_TEXTO_EXATO) == 1)
+    ok("e o prompt nao encolhe pela metade",
+       len(_p_troc) > len(_p_int) * 0.85)
+
+    # O PROMPT SEM A MARCA DE FIM — o formato de ontem, que ainda chega aqui
+    # por um rascunho recuperado ou por um prompt guardado no log. E tambem o
+    # unico caso em que a mutacao de verdade aparece: com a marca presente, o
+    # codigo velho acerta por tabela, porque a marca TAMBEM e uma "━━━".
+    _p_velho = _p_int.replace(MARCA_FIM_TEXTO_EXATO, "")
+    _t_velho = trocar_texto_exato(_p_velho, ["METAL E INOX: durável"])
+    ok("prompt sem a marca de fim tambem nao perde as regras",
+       not [b for b in _BLOCOS_DE_REGRA if b not in _t_velho])
+    ok("e nele a copy velha sai do mesmo jeito",
+       "imita pedra medieval" not in _t_velho)
+
+    # ── A COPY QUEBRADA EM LINHAS VIRAVA UM ITEM POR LINHA ───────────────
+    #
+    # No mesmo prompt de 18:17: "METAL E INOX: durável para uso diário
+    # intenso" chegou quebrada e virou os itens 1, 2 e 3. Os titulos ficaram
+    # numerados 1., 4. e 7. — o "embaralhado" que o dono apontou, e que eu na
+    # hora chamei de coisa do modelo. O texto abaixo e o do arquivo dele.
+    _CRU = ("METAL E INOX: durável para uso\ndiário intenso\n"
+            "ACABAMENTO ÚNICO: acabamento que\nimita pedra medieval\n"
+            "400ML: ideal para café, chá\ne bebidas quentes")
+    _b_cru = bloco_texto_exato(_CRU)
+    # A ASSERCAO ERRADA ERA MINHA: com tres blocos, o item "3." existe e esta
+    # certo. O que nao pode existir e o QUARTO — nove linhas viravam nove.
+    ok("linha quebrada NAO vira bloco novo — tres blocos, e nao nove",
+       "  3. " in _b_cru and "  4. " not in _b_cru)
+    ok("e cada bloco volta inteiro",
+       "1. METAL E INOX: durável para uso diário intenso" in _b_cru
+       and "3. 400ML: ideal para café, chá e bebidas quentes" in _b_cru)
+
+    # ── O NUMERO DA LISTA NAO E PARA DESENHAR ───────────────────────────
+    #
+    # Isto e antigo e vale para TODO produto: o bloco manda "escreva
+    # EXATAMENTE estas palavras" com "1. ", "2. " colados, e nada diz que o
+    # numero nao faz parte. O gerador copia o numero. Na tela do dono, os
+    # cartoes sairam escritos "1. METAL E INOX", "2. DESIGN ÚNICO",
+    # "3. 400ML" — e o mesmo formato esta no historico do Guerreiro Porta
+    # Caneta, de semanas antes.
+    ok("o bloco avisa que o numero nao vai para a imagem",
+       "não desenhe o número" in _b_cru.lower()
+       or "não escreva o número" in _b_cru.lower())
 
     # ── O PLANO NAO MANDA TAMANHO ───────────────────────────────────────
     #
