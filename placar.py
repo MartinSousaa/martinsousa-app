@@ -2129,9 +2129,10 @@ def bloco_queda_de_pontos(agora):
             st.info(
                 "Nenhuma mudança que mexa em pontuação nesse período. "
                 "O que muda ponto é: penalidade criada, cartão "
-                "arquivado ou excluído, cartão mudando de lista, o "
-                "campo PONTOS alterado, e membro entrando ou saindo "
-                "do cartão. Etiqueta, comentário e anexo não mexem.")
+                "arquivado ou excluído, o **concluído** desmarcado, "
+                "cartão mudando de lista, o campo PONTOS alterado, e "
+                "membro entrando ou saindo do cartão. Etiqueta, "
+                "comentário e anexo não mexem.")
         else:
             st.caption(" · ".join(f"**{_o}**: {_n}"
                                   for _o, _n in _qp.resumo(_ext)))
