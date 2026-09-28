@@ -1177,10 +1177,42 @@ def _peca_olhada(conta):
     # bloco vive em `consumir_comandos_do_chat`, outra funcao. Guarda que le
     # metade do caminho mede metade do caminho — e foi o caminho de fora o
     # unico que nunca teve conferencia nenhuma.
+    # CADA FUNCAO CONTADA POR SI, e nao as duas num bolo so.
+    #
+    # A primeira versao juntava as duas e perguntava "existe chamada?". O
+    # setimo verificador mostrou o buraco: tirando a conferencia do LACO DA
+    # GERACAO, a guarda continuava verde — porque a chamada do chat ainda
+    # estava la. Guarda que pergunta "existe em algum lugar" nao ve a peca
+    # que deixou de ser conferida.
+    _arvores = {}
+    for _f in (_m.pagina_imagem, _m.consumir_comandos_do_chat):
+        _arvores[_f.__name__] = _ast_po.parse(
+            _ast_po.unparse(_ast_po.parse(_insp_po.getsource(_f).lstrip())))
     _corpo = "\n".join(
-        _ast_po.unparse(_ast_po.parse(_insp_po.getsource(_f).lstrip()))
-        for _f in (_m.pagina_imagem, _m.consumir_comandos_do_chat))
+        _ast_po.unparse(_a) for _a in _arvores.values())
     _arv = _ast_po.parse(_corpo)
+
+    def _conta_chamadas(arvore, nome):
+        return sum(1 for _n in _ast_po.walk(arvore)
+                   if isinstance(_n, _ast_po.Call)
+                   and (getattr(_n.func, "attr", "")
+                        or getattr(_n.func, "id", "")) == nome)
+
+    # Tres lugares geram uma peca inteira e tem de conferir: o laco e o botao
+    # de refazer, em `pagina_imagem`; o refazer do chat, em
+    # `consumir_comandos_do_chat`.
+    _na_tela = _conta_chamadas(_arvores["pagina_imagem"], "revisar_tudo")
+    _no_chat = _conta_chamadas(_arvores["consumir_comandos_do_chat"],
+                               "revisar_tudo")
+    conta("a TELA confere nos dois lugares que geram do zero",
+          _na_tela >= 2,
+          f"`pagina_imagem` chama revisar_tudo {_na_tela}x — sao dois "
+          "caminhos que geram peca inteira: o laco da geracao e o botao de "
+          "refazer. Um deles esta entregando sem conferir")
+    conta("e o CHAT confere no dele",
+          _no_chat >= 1,
+          "`consumir_comandos_do_chat` nao confere: o refazer do chat volta "
+          "a entregar sem ler o texto e sem olhar a peca")
 
     _chamadas = {}
     for _n in _ast_po.walk(_arv):
