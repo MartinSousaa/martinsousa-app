@@ -34,6 +34,7 @@ Regras que valem para toda ferramenta daqui:
 * Respeita perfil: o que é de admin só responde para admin.
 """
 import streamlit as st
+import placar_core as _pc_br   # a porta unica da hora de Brasilia
 
 
 # ── Definições enviadas à API ────────────────────────────────────────────────
@@ -233,7 +234,7 @@ def _ler_painel_metas():
         listas, cards, membros_map, id_p, id_t, id_i = _pc._buscar_board()
         if not cards:
             return "Não consegui falar com o Trello agora."
-        agora = datetime.now()
+        agora = _pc_br.agora_br()
         d = _placar._processar(listas, cards, membros_map, id_p, id_t, id_i,
                                filtro_mes=(agora.year, agora.month))
     except Exception as e:

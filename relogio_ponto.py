@@ -17,6 +17,7 @@ from typing import Optional
 
 import placar_core as _pc
 import rhid_api as _rhid
+import placar_core as _pc_br   # a porta unica da hora de Brasilia
 
 # ── Constantes ─────────────────────────────────────────────────────────────────
 MEMBROS = _pc.MEMBROS_ATIVOS          # {"username": "Nome", ...}
@@ -139,7 +140,7 @@ def _carregar_ponto_todos() -> list[dict]:
 
 
 def agora_local():
-    """A hora de Brasília. NUNCA `datetime.now()` cru neste arquivo.
+    """A hora de Brasília. NUNCA `_pc_br.agora_br()` cru neste arquivo.
 
     O container do Railway roda em UTC, e o horário do ponto é DIGITADO por
     uma pessoa (`time_input`, mais abaixo) — ou seja, Brasília. Comparar os
@@ -186,7 +187,7 @@ def _salvar_registro(data_str, username, tipo, horario_str, observacao, criado_p
     """
     try:
         aba       = _aba_ponto()
-        criado_em = datetime.now().strftime("%d/%m/%Y %H:%M")
+        criado_em = _pc_br.agora_br().strftime("%d/%m/%Y %H:%M")
         nova_linha = [
             data_str, username, tipo,
             horario_str or "", observacao or "",
@@ -665,7 +666,7 @@ def _secao_registro(usuario_logado: str, eh_master: bool):
 
 def _secao_historico_mensal(eh_master: bool, usuario_logado: str):
     """Resumo mensal de ponto por colaborador."""
-    agora = datetime.now()
+    agora = _pc_br.agora_br()
     import filtros as _filtros
     col_a, col_m, col_go, _ = st.columns([1, 2, 1, 2])
     ano_sel = col_a.selectbox("Ano", list(range(agora.year, agora.year - 3, -1)), key="pt_h_ano")
@@ -2077,7 +2078,7 @@ def pagina_ponto(usuario_logado: str):
 
     with tab_hoje:
         st.markdown("#### Status atual da equipe")
-        st.caption(f"Atualizado em {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+        st.caption(f"Atualizado em {_pc_br.agora_br().strftime('%d/%m/%Y %H:%M')}")
         _secao_status_hoje()
 
     with tab_registro:

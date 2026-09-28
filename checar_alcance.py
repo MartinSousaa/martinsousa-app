@@ -206,6 +206,49 @@ def main():
                     f"sem erro nenhum. Leia de um global de módulo, como "
                     f"`_PECA_EM_AJUSTE` faz.")
 
+    # ── 6. O CARIMBO QUE GENTE LÊ, E O MÊS QUE O SISTEMA CALCULA ───────────
+    #
+    # Forma 6a. O container roda em UTC. `datetime.now()` cru SERVE quando os
+    # dois lados da conta são UTC — expiração de token contra token gravado,
+    # idade de cartão do Trello contra ação do Trello. Não serve em dois
+    # casos, e são estes que esta varredura reprova:
+    #
+    #   1. o valor é LIDO POR GENTE. O Histórico carimbava 17h em cima do que
+    #      o colaborador gerou às 14h.
+    #   2. o valor vira MÊS ou DIA. Às 21h do dia 30 o container já está no
+    #      dia 1º: o chat respondia a pontuação do mês errado, e o retrato do
+    #      placar seria gravado com a data de amanhã.
+    #
+    # A porta única é `placar_core.agora_br()` / `hoje_br()`.
+    _CARIMBO = re.compile(r"datetime\.now\(\s*\)\s*\.(strftime|date)\b")
+    _VIRA_MES = re.compile(r"datetime\.now\(\s*\)(?![^\n]*timedelta)")
+    # Onde o `datetime.now()` cru continua CERTO, e por quê. Comparação de
+    # UTC com UTC não tem erro de fuso: trocar um lado só é que teria.
+    _CONSISTENTES = {
+        "auth.py": "expiração de token contra token gravado, os dois em UTC",
+        "rhid_api.py": "validade do token da RHiD contra a hora de emissão",
+        "gargalos_tela.py": "idade do cartão contra a ação do Trello, ambos UTC",
+        "fechar_expediente.py": "é o fallback do except; o caminho normal usa FUSO",
+        "placar_core.py": "é onde `agora_br` mora",
+        "varredura_formas.py": "é a varredura que PROCURA este padrão",
+    }
+    for nome, fonte in ((n, f) for n in _arquivos()
+                        for f in [open(n, encoding="utf-8").read()]):
+        if nome in _CONSISTENTES:
+            continue
+        # Fora do bloco de conferência: a guarda que procura `datetime.now()`
+        # contém o texto `datetime.now()`. É a sexta vez nesta base.
+        corpo = fonte.split('if __name__ == "__main__":')[0]
+        for i, linha in enumerate(corpo.splitlines(), 1):
+            codigo = re.sub(r"`[^`]*`", "", linha.split("#", 1)[0])
+            if not _VIRA_MES.search(codigo):
+                continue
+            reprova(
+                f"{nome}:{i} — `datetime.now()` sem fuso. O container roda em "
+                f"UTC: se este valor é lido por gente, sai 3h adiantado; se "
+                f"vira mês ou dia, erra depois das 21h. Use "
+                f"`placar_core.agora_br()` ou `hoje_br()`.")
+
     # ── 4. O PROMPT DO PLANO ────────────────────────────────────────────────
     #
     # 28/09: as peças 7 e 8 sumiram e o produto saiu torto. A causa estava no

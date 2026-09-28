@@ -3,6 +3,7 @@ import hashlib
 from datetime import datetime
 import auth
 import planilha as _plan
+import placar_core as _pc_br   # a porta unica da hora de Brasilia
 
 
 def _hash(senha):
@@ -13,7 +14,7 @@ def _criar_usuario(login, senha, eh_admin):
     aba = auth._aba_usuarios()
     aba.append_row(
         [login, _hash(senha), "Sim", "Sim" if eh_admin else "Não",
-         datetime.now().strftime("%d/%m/%Y %H:%M")],
+         _pc_br.agora_br().strftime("%d/%m/%Y %H:%M")],
         value_input_option="RAW",
     )
 

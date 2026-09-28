@@ -10,6 +10,7 @@ import random
 import string
 from datetime import datetime
 from params_oficiais import ML_COMISSAO_POR_CATEGORIA
+import placar_core as _pc_br   # a porta unica da hora de Brasilia
 
 
 def gerar_codigo(nome_produto):
@@ -17,7 +18,7 @@ def gerar_codigo(nome_produto):
     Formato: MS-[ABREV]-[MMDD][3 chars aleatórios]
     Ex: MS-BENG-07174K2"""
     abrev = re.sub(r"[^A-Za-z]", "", nome_produto or "PROD").upper()[:4] or "PROD"
-    sufixo = datetime.now().strftime("%m%d") + "".join(
+    sufixo = _pc_br.agora_br().strftime("%m%d") + "".join(
         random.choices(string.ascii_uppercase + string.digits, k=3)
     )
     return f"MS-{abrev}-{sufixo}"

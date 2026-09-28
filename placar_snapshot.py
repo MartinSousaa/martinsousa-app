@@ -30,6 +30,7 @@ o fim do dia contra o começo do outro — e a queda apareceria onde não houve.
 
 import json
 from datetime import datetime
+import placar_core as _pc_br   # a porta unica da hora de Brasilia
 
 ABA = "placar_diario"
 COLUNAS = ["data", "pts_equipe", "pen_total", "saldo", "meta", "pct", "cartoes"]
@@ -193,7 +194,7 @@ def gravar(d, meta, quando=None, aba=None, filtro_mes=None):
     de hoje faria a comparação de amanhã acusar uma queda de mês inteiro que
     nunca houve.
     """
-    quando = quando or datetime.now()
+    quando = quando or _pc_br.agora_br()
     if filtro_mes and tuple(filtro_mes) != (quando.year, quando.month):
         return "mes_errado"
     nova = linha(d, meta, quando)

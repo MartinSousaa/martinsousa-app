@@ -100,10 +100,16 @@ def forma6_datetime_sem_fuso():
     local dá diferença de três horas — e o arquivo que já importa FUSO mostra
     que alguém ali sabia disso, e alguma linha ficou para trás.
     """
+    # TODO ARQUIVO, e nao so os que ja usam FUSO.
+    #
+    # A primeira versao exigia `FUSO` no arquivo — ou seja, so achava onde
+    # alguem JA SABIA do problema. `atividades.py` e `triagem.py` gravam
+    # `data_hora` com `datetime.now()` e nunca ouviram falar de fuso: o
+    # Historico mostrava a hora tres horas adiantada, e a varredura passava
+    # reto. E a Forma 1 dentro da propria varredura — escopar no lugar onde
+    # o sintoma ja tinha sido notado.
     fora = []
     for nome, fonte in _fontes():
-        if "FUSO" not in fonte:
-            continue
         for i, linha in enumerate(fonte.splitlines(), 1):
             # Fora o comentário `#` e o texto entre crases: `datetime.now()`
             # dentro de uma docstring explicando o problema NÃO é o problema.
