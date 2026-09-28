@@ -739,6 +739,52 @@ def _retrato_no_painel(conta):
     _ps._memoria_limpar()
 
 
+def _historico_de_prompts(conta):
+    """O .txt do historico — e o que ele diz quando volta vazio.
+
+    28/09: o dono baixou e recebeu "Nenhum prompt registrado ainda". Isso
+    pode significar DUAS coisas muito diferentes:
+
+      - o log esta mesmo vazio (a geracao foi antes de a coluna existir), ou
+      - o log TEM linhas, mas nenhuma bateu com o nome do produto — porque
+        `imagem.py` filtrava por igualdade EXATA de string.
+
+    Dizer "nenhum prompt registrado" no segundo caso e afirmar o que nao se
+    sabe, e manda quem le procurar no lugar errado.
+    """
+    import imagem as _img_h
+
+    _linhas = [
+        {"produto": "Caneca Medieval", "peca": "1", "prompt": "a" * 40,
+         "origem": "geracao"},
+        {"produto": "Caneca Medieval", "peca": "1", "prompt": "b" * 40,
+         "origem": "correcao"},
+    ]
+    # NOME COM CAIXA E ESPACO DIFERENTES continua sendo o mesmo produto.
+    for _nome, _esperado in (("Caneca Medieval", 2), ("  caneca medieval  ", 2),
+                             ("CANECA MEDIEVAL", 2)):
+        conta(f"o filtro do historico acha o produto com {_nome!r}",
+              len(_img_h.filtrar_por_produto(_linhas, _nome)) == _esperado,
+              "")
+    # E PRODUTO DIFERENTE NAO ENTRA. Foi puxar material do produto errado
+    # que gerou o relato da colaboradora em 28/09.
+    conta("e nao traz o produto errado junto",
+          _img_h.filtrar_por_produto(_linhas, "Porta Joias") == [], "")
+    # SEM NOME, vem tudo — o colaborador pediu o historico, nao um filtro.
+    conta("sem nome digitado, vem tudo",
+          len(_img_h.filtrar_por_produto(_linhas, "")) == 2, "")
+
+    # A MENSAGEM TEM DE SEPARAR OS DOIS CASOS.
+    conta("log vazio diz que o log esta vazio",
+          "não há nenhum" in _img_h.recado_do_historico([], [], "Caneca"),
+          _img_h.recado_do_historico([], [], "Caneca"))
+    _r = _img_h.recado_do_historico(_linhas, [], "Porta Joias")
+    conta("log cheio e nome que nao bate diz OUTRA coisa",
+          "Porta Joias" in _r and "não há nenhum" not in _r, _r)
+    conta("e oferece baixar o histórico inteiro",
+          "sem filtrar" in _r or "todos" in _r.lower(), _r)
+
+
 def main():
     instalar()
     falhas = []
@@ -759,6 +805,7 @@ def main():
     _processar_cards_pts(conta)
     _chat(conta)
     _retrato_no_painel(conta)
+    _historico_de_prompts(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0
