@@ -17,6 +17,7 @@ O QUE MEXE EM PONTO, E SÓ ISSO
 ------------------------------
     createCard em PENALIDADES      tira pontos de quem está no cartão
     updateCard com closed: true    o cartão foi ARQUIVADO — os pontos somem
+    updateCard com dueComplete     o "concluído" foi desmarcado — os pontos somem
     updateCard com listBefore/After  mudou de lista; pode entrar ou sair da conta
     updateCustomFieldItem          o campo PONTOS foi alterado
     addMemberToCard                alguém passou a receber o ponto
@@ -108,6 +109,17 @@ def classificar(acao, listas_de_penalidade=("PENALIDADES",)):
                         "detalhe": "os pontos dele saíram do total"}
             return {"o_que": "cartão desarquivado",
                     "detalhe": "os pontos dele voltaram ao total"}
+        # O "CONCLUÍDO" DESMARCADO é o ponto cego mais silencioso dos dois.
+        # `placar.py:621` — `if not ok: d["abertos"] += 1; continue`: o cartão
+        # só pontua com dueComplete MARCADO. Desmarcar tira os pontos
+        # inteiros, e o cartão fica onde estava, na mesma lista, com o campo
+        # PONTOS intacto. Arquivar pelo menos some da tela; isto não.
+        if "dueComplete" in velho:
+            if card.get("dueComplete"):
+                return {"o_que": "concluído marcado",
+                        "detalhe": "os pontos dele entraram no total"}
+            return {"o_que": "concluído desmarcado",
+                    "detalhe": "os pontos dele saíram do total"}
         antes = str((d.get("listBefore") or {}).get("name") or "")
         depois = str((d.get("listAfter") or {}).get("name") or "")
         if antes or depois:
@@ -223,6 +235,41 @@ if __name__ == "__main__":
     # com e sem fuso levanta TypeError — que so apareceria ao clicar.
     ok("a data volta com fuso, senao a comparacao da janela explode",
        _quando({"date": "2026-09-26T14:00:00.000Z"}).tzinfo is not None)
+
+    # ── O "CONCLUIDO" DESMARCADO, o segundo ponto cego ──────────────────
+    #
+    # `placar.py:621` — `if not ok: d["abertos"] += 1; continue`. O cartao so
+    # pontua com dueComplete MARCADO. Desmarcar tira os pontos INTEIROS, e o
+    # cartao continua no quadro, na mesma lista, com o campo PONTOS intacto:
+    # nao ha nada para ver. A primeira versao deste modulo nao enxergava isso.
+    _desmarc = _ac("updateCard", "2026-09-26T16:00:00.000Z",
+                   {"card": {"id": "c10", "name": "Álbum 30x30",
+                             "dueComplete": False},
+                    "old": {"dueComplete": True}})
+    _cd = classificar(_desmarc)
+    ok("desmarcar o concluido e reconhecido",
+       _cd and _cd["o_que"] == "concluído desmarcado")
+    ok("e a tela diz o efeito", "saíram do total" in _cd["detalhe"])
+    _marc = _ac("updateCard", "2026-09-26T16:05:00.000Z",
+                {"card": {"id": "c10", "name": "Álbum 30x30",
+                          "dueComplete": True},
+                 "old": {"dueComplete": False}})
+    ok("marcar como concluido tambem, com o efeito oposto",
+       classificar(_marc)["o_que"] == "concluído marcado")
+    # ARQUIVAR MANDA MAIS QUE DESMARCAR: um updateCard pode trazer os dois
+    # campos em `old`, e o arquivamento e o que explica o cartao sumir.
+    _dois = _ac("updateCard", "2026-09-26T16:10:00.000Z",
+                {"card": {"id": "c11", "name": "Dois de uma vez",
+                          "closed": True, "dueComplete": False},
+                 "old": {"closed": False, "dueComplete": True}})
+    ok("arquivar tem precedencia sobre desmarcar",
+       classificar(_dois)["o_que"] == "cartão arquivado")
+    # OUTRO updateCard QUALQUER continua fora: mudar a descricao ou a data de
+    # entrega nao mexe em ponto, e listar isso encheria o extrato de ruido.
+    ok("mudar a descricao do cartao continua fora do extrato",
+       classificar(_ac("updateCard", "2026-09-26T16:20:00.000Z",
+                       {"card": {"id": "c12", "name": "x", "desc": "novo"},
+                        "old": {"desc": "velho"}})) is None)
 
     # ── A PENALIDADE, que explica queda no coletivo E em pessoas ────────
     _pen = _ac("createCard", "2026-09-26T09:00:00.000Z",
