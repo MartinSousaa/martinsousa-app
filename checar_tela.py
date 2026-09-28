@@ -33,6 +33,7 @@ do dono e são os outros verificadores. Ele responde uma pergunta só, a que
 faltava: **a tela monta sem quebrar?**
 """
 
+import os
 import sys
 import types
 
@@ -1148,6 +1149,378 @@ def _txt_consolidado(conta):
               "mesmo prompt discordam, e a questao e so quando")
 
 
+def _refazer_cego(conta):
+    """A peca refeita pelo chat nascia sem nome, sem plano e sem layout.
+
+    A PROVA veio do .txt do dono, 28/09 17:34: a linha 47 do prompt enviado
+    ao modelo era `PRODUTO: ` — vazia. A caneca tinha nome; o prompt nao.
+
+    POR QUE: o refazer le o nome em `img_triagem_config` (imagem.py:5600), e
+    o laco da geracao APAGA essa chave ao terminar (imagem.py:7596-7597).
+    Junto com ela vao o plano da peca (composicao + a COPY EXATA), a direcao
+    de arte, a referencia de layout e a ambientacao — tudo o que
+    `prompt_para_regerar` busca ali.
+
+    O nome aparecia no LOG porque o log le OUTRA chave (`img_nome_produto`,
+    log_imagem.py:79). Duas respostas para a mesma pergunta: e a Forma 5, e
+    elas discordaram.
+
+    O `del` faz DOIS trabalhos num campo so: sinaliza "plano ja consumido"
+    (e e ele que impede o painel de reaparecer, imagem.py:6816) e joga o dado
+    fora. Esta guarda trava o segundo sem tocar no primeiro.
+
+    O ESTADO AQUI NAO E INVENTADO: e o que o bloco de imagem.py:7586-7597
+    deixa na sessao, chave por chave (Forma 7).
+    """
+    import importlib
+    import inspect as _insp_rc
+    import sys as _sys_rc
+
+    _falso = instalar()
+    _m = importlib.import_module("imagem")
+    for _nm, _mod in list(_sys_rc.modules.items()):
+        if getattr(_mod, "st", None) is not None and not _nm.startswith(
+                ("streamlit", "checar_")):
+            try:
+                _mod.st = _falso
+            except Exception:
+                pass
+
+    _tipo = "2 — Benefícios do produto"
+    _cfg = {"nome_produto": "Caneca Térmica Medieval 400Ml",
+            "ambientacao": "bar medieval a luz de vela",
+            "refs_layout_nomes": ["ref_beneficios.jpg"],
+            "instrucao_layout": "coluna de cartoes a direita"}
+    _plano = {"direcao_de_arte": {"nome": "Medieval Rustico"},
+              "plano": [{"tipo": _tipo, "numero": 2,
+                         "composicao": "caneca a esquerda, cartoes a direita",
+                         "cena": "bancada de pedra",
+                         "textos": ["INTERIOR INOX: sabor melhor que resina pura"],
+                         "viavel": True}]}
+
+    # ── A CHAMADA, E NAO A FUNCAO ───────────────────────────────────────
+    #
+    # A primeira versao desta guarda chamava `guardar_plano_gerado()` ELA
+    # MESMA e depois apagava as chaves na mao. As duas mutacoes passaram
+    # verdes: eu estava exercitando a funcao que acabara de escrever, e nao a
+    # TELA. E a Forma 6 de novo, e foi pega pelo passo 4 do protocolo.
+    #
+    # O defeito e "faltou chamar em algum lugar", e nenhum teste de unidade
+    # pega uma chamada que nao existe. Entao a guarda le o CODIGO de
+    # `pagina_imagem`: todo `del` das chaves vivas tem de vir logo depois de
+    # uma chamada a `guardar_plano_gerado` (gerou) ou `limpar_plano_gerado`
+    # (cancelou). Por AST, e nao por texto: guarda que varre texto se
+    # encontra no proprio comentario.
+    import ast as _ast_rc
+    _corpo = _insp_rc.getsource(_m.pagina_imagem)
+    _arv = _ast_rc.parse(_ast_rc.unparse(_ast_rc.parse(_corpo.lstrip())))
+
+    _dels, _guardas = [], []
+    for _n in _ast_rc.walk(_arv):
+        if isinstance(_n, _ast_rc.Delete):
+            for _al in _n.targets:
+                if (isinstance(_al, _ast_rc.Subscript)
+                        and getattr(_al.slice, "value", None)
+                        in ("img_triagem_plano", "img_triagem_config")):
+                    _dels.append(_n.lineno)
+        if isinstance(_n, _ast_rc.Call):
+            _alvo = getattr(_n.func, "attr", "") or getattr(_n.func, "id", "")
+            if _alvo in ("guardar_plano_gerado", "limpar_plano_gerado"):
+                _guardas.append(_n.lineno)
+
+    _orfaos = [d for d in _dels
+               if not any(0 < d - g <= 8 for g in _guardas)]
+    conta("todo `del` das chaves de triagem trata o dado antes",
+          _dels and not _orfaos,
+          f"{len(_orfaos)} `del` sem guardar/limpar logo acima (linhas "
+          f"{_orfaos} do corpo de pagina_imagem) — o plano, a copy e o nome "
+          "do produto vao junto, e a peca refeita nasce cega")
+
+    # E O SINAL TEM DE CAIR. Guardar o dado sem apagar a chave viva e a meia
+    # correcao: o painel de confirmacao volta por cima da galeria.
+    conta("e o `del` continua existindo — o painel nao volta",
+          len(_dels) >= 4,
+          f"achei {len(_dels)} `del` das chaves vivas; sem eles o painel do "
+          "plano reaparece depois de gerar")
+
+    _st = _falso.session_state
+    _st["img_nome_produto"] = _cfg["nome_produto"]
+    _st["img_galeria"] = [{"tipo": _tipo, "bytes": b"x"}]
+    _st[_m.CHAVE_CONFIG_GERADA] = dict(_cfg)
+    _st[_m.CHAVE_PLANO_GERADO] = dict(_plano)
+
+    # O QUE O CHAT LE PARA REFAZER (imagem.py:5598-5600).
+    _cfg_rf = _m.config_da_geracao()
+    _nome_rf = _cfg_rf.get("nome_produto", "")
+    conta("o refazer do chat ainda sabe o nome do produto",
+          _nome_rf == _cfg["nome_produto"],
+          f"leu {_nome_rf!r} — o prompt sai com `PRODUTO: ` vazio, que foi "
+          "o que o dono recebeu no .txt de 28/09")
+
+    _p = _m.prompt_para_regerar(_tipo, "cartoes inteiros",
+                                {"cor": "Cinza", "medidas": "12x14",
+                                 "peso": "326"}, _nome_rf)
+    conta("e o nome chega ao prompt enviado ao modelo",
+          f"PRODUTO: {_cfg['nome_produto']}" in _p,
+          "a linha PRODUTO do prompt esta vazia")
+    conta("o PLANO da peca sobrevive a geracao",
+          "PLANO DE CRIAÇÃO" in _p and "caneca a esquerda" in _p,
+          "a peca refeita perde a composicao planejada")
+    conta("a COPY EXATA sobrevive — e quem evita 'Portatile'",
+          "INTERIOR INOX" in _p,
+          "sem a copy pronta o gerador volta a redigir a frase sozinho")
+    conta("a direcao de arte sobrevive",
+          "Medieval Rustico" in _p, "a peca refeita muda de paleta")
+    conta("a ambientacao sobrevive",
+          "bar medieval a luz de vela" in _p,
+          "a peca refeita perde o cenario que o colaborador pediu")
+    conta("a referencia de layout sobrevive",
+          "ref_beneficios.jpg" in _p or "coluna de cartoes a direita" in _p,
+          "a peca refeita ignora o layout aprovado")
+
+    # ── OS IRMAOS QUE O PASSO 5 ACHOU ───────────────────────────────────
+    #
+    # `prompt_para_regerar` nao e o unico que buscava em `img_triagem_config`.
+    # Corrigir so ele seria a Forma 1 de novo: consertar onde o sintoma
+    # apareceu, e nao onde a regra alcanca.
+    import chat_assistente as _ca_rc
+    _ca_rc.st = _falso
+
+    # A PORTA QUE O CHAT USA, conferida pelo nome. `checar_impacto` reprovou
+    # aqui: `plano_da_geracao` tinha leitor em outro arquivo e nenhuma guarda
+    # citando ela. Exercitar por tabela nao basta — quem trocar a assinatura
+    # dela amanha precisa que algum teste fale o nome.
+    conta("plano_da_geracao devolve a copia quando a chave viva ja caiu",
+          _m.plano_da_geracao().get("direcao_de_arte", {}).get("nome")
+          == "Medieval Rustico",
+          "a porta do plano voltou vazia depois da geracao")
+    conta("e config_da_geracao idem",
+          _m.config_da_geracao().get("nome_produto") == _cfg["nome_produto"],
+          "a porta da config voltou vazia depois da geracao")
+
+    # 1. O CONTEXTO DO ASSISTENTE. Sem o plano, ele nao sabe o que cada peca
+    #    deveria ser — e tem de deduzir o arranjo olhando a imagem pronta,
+    #    que foi o que custou tres rodadas na caneca.
+    # A ASSERCAO E SOBRE A LINHA QUE SO O PLANO PRODUZ.
+    #
+    # Duas versoes anteriores desta guarda passaram verdes medindo outra
+    # coisa: a primeira procurava o nome do produto (que chega ali por outro
+    # caminho), a segunda o nome do TIPO (que vem da listagem da galeria,
+    # logo abaixo, e existe com ou sem plano). So "Plano de triagem:"
+    # (chat_assistente.py:240) nasce do plano e de mais nada.
+    _ctx = _ca_rc._contexto_atual()
+    conta("o assistente ainda enxerga o plano depois de gerar",
+          "Plano de triagem:" in _ctx,
+          "o contexto do chat perde a linha do plano assim que a geracao "
+          "termina — ele passa a conversar so com a lista da galeria")
+
+    # 2. `gerar_imagens_faltantes` respondia "nao ha produto aberto na aba
+    #    Imagem" — com o produto aberto. A mentira sai do mesmo `cfg` vazio.
+    _resp = _ca_rc._executar_comando(
+        {"acao": "gerar_imagens_faltantes"}) or ""
+    conta("completar a galeria nao diz mais que nao ha produto aberto",
+          "não há produto aberto" not in str(_resp).lower(),
+          f"respondeu: {str(_resp)[:120]!r}")
+
+
+def _fotos_perdidas(conta):
+    """As fotos anexadas somem quando o Studio reinicia — e a tela oferece de volta.
+
+    28/09, 17:17. O dono mandou o print: tres fotos listadas no campo de
+    upload, e o botao respondendo "Suba pelo menos uma foto do produto".
+
+    Por que acontece: a lista de NOMES fica no navegador, e os BYTES ficam na
+    memoria do PROCESSO do Streamlit
+    (`streamlit/runtime/memory_uploaded_file_manager.py`, `file_storage` — um
+    dicionario). Deploy, queda ou troca de container matam o processo; o
+    navegador nao sabe e continua mostrando os nomes. O Python recebe ZERO
+    arquivo, e a mensagem que ele da e uma mentira do ponto de vista de quem
+    esta olhando a tela.
+
+    Esta guarda desenha a PAGINA INTEIRA, com fotos guardadas no disco do
+    rascunho e o campo de upload vazio — que e exatamente o estado depois do
+    reinicio — e confere que o botao de recuperar foi OFERECIDO. Conferir que
+    a funcao de disco grava e le e outra coisa, e ela vive em rascunho.py: o
+    defeito aqui foi na TELA, entao e a tela que tem de ser desenhada.
+    """
+    import importlib
+    import shutil as _sh_fp
+    import sys as _sys_fp
+    import tempfile as _tmp_fp
+
+    import rascunho as _rasc_fp
+
+    _base = _tmp_fp.mkdtemp()
+    _pasta_real = _rasc_fp._pasta
+    _rasc_fp._pasta = lambda u, _b=_base: os.path.join(_b, str(u))
+    _sh, _guardado = _sem_planilha()
+    try:
+        _estado_ft = {}
+        _revisar_real = None
+        _PNG = b"\x89PNG\r\n\x1a\n" + b"z" * 3000
+        _rasc_fp.salvar_fotos("martinsousa", [_PNG, _PNG],
+                              ["frente.jpeg", "lado.jpeg"])
+
+        _falso = instalar()
+        _m = importlib.import_module("imagem")
+        _revisar_real = _m.revisar_anexos
+        for _nm, _mod in list(_sys_fp.modules.items()):
+            if getattr(_mod, "st", None) is not None and not _nm.startswith(
+                    ("streamlit", "checar_")):
+                try:
+                    _mod.st = _falso
+                except Exception:
+                    pass
+        try:
+            _m.pagina_imagem("martinsousa")
+        except (_Rerun, _Parou):
+            pass
+        except Exception as e:
+            conta("a tela de Imagem monta com o upload vazio", False,
+                  f"{type(e).__name__}: {str(e)[:160]}")
+            return
+        conta("a tela de Imagem monta com o upload vazio", True, "")
+
+        # O CONTEUDO, e nao "nao explodiu". Foi essa a Forma 1 do protocolo:
+        # guarda que so confere que a tela montou nao ve campo vazio.
+        conta("com fotos no disco, a tela OFERECE recuperar",
+              "img_recuperar_fotos" in _falso._chaves,
+              "o botao de recuperar nao foi desenhado — quem perdeu as fotos "
+              "no reinicio nao tem como pega-las de volta")
+
+        # E sem nada no disco ele NAO aparece: botao que promete o que nao
+        # existe e pior do que botao nenhum.
+        _rasc_fp.limpar_fotos("martinsousa")
+        _falso2 = instalar()
+        for _nm, _mod in list(_sys_fp.modules.items()):
+            if getattr(_mod, "st", None) is not None and not _nm.startswith(
+                    ("streamlit", "checar_")):
+                try:
+                    _mod.st = _falso2
+                except Exception:
+                    pass
+        try:
+            _m.pagina_imagem("martinsousa")
+        except (_Rerun, _Parou):
+            pass
+        except Exception:
+            pass
+        conta("sem fotos no disco, o botao nao aparece",
+              "img_recuperar_fotos" not in _falso2._chaves,
+              "o botao apareceu sem ter o que recuperar")
+
+        # ── E A GRAVACAO NAO PODE ACONTECER A CADA TECLA ────────────────
+        #
+        # O Streamlit redesenha a pagina inteira a cada tecla digitada. A
+        # primeira versao desta correcao chamava `salvar_fotos` em toda
+        # passada: seis fotos de 5 MB dariam 30 MB escritos no disco por
+        # tecla. E o mesmo defeito que fez a Home levar 15 segundos.
+        #
+        # Aqui a tela e desenhada TRES vezes com as MESMAS fotos, e o disco
+        # so pode ter sido escrito na primeira.
+        _gravou = []
+        _salvar_real = _rasc_fp.salvar_fotos
+        _rasc_fp.salvar_fotos = (
+            lambda u, f, n=(), campo="produto", _r=_salvar_real:
+            (_gravou.append(1), _r(u, f, n, campo))[1])
+        _PNG2 = b"\x89PNG\r\n\x1a\n" + b"y" * 4000
+        try:
+            for _ in range(3):
+                _f3 = instalar()
+                for _nm, _mod in list(_sys_fp.modules.items()):
+                    if getattr(_mod, "st", None) is not None and not _nm.startswith(
+                            ("streamlit", "checar_")):
+                        try:
+                            _mod.st = _f3
+                        except Exception:
+                            pass
+                _f3.session_state.update(_estado_ft)
+                _m.revisar_anexos = lambda *a, **k: (
+                    [_PNG2], ["frente.jpeg"], [], [])
+                try:
+                    _m.pagina_imagem("martinsousa")
+                except (_Rerun, _Parou):
+                    pass
+                _estado_ft = dict(_f3.session_state)
+        finally:
+            _rasc_fp.salvar_fotos = _salvar_real
+            _m.revisar_anexos = _revisar_real
+        conta("as fotos vao ao disco UMA vez, e nao a cada tecla",
+              len(_gravou) == 1,
+              f"gravou {len(_gravou)} vez(es) em 3 passadas iguais — "
+              "com seis fotos de 5 MB isso e 30 MB por tecla digitada")
+
+        # O `DeletedFile` que o Streamlit entrega no lugar do upload perdido
+        # tem guarda propria em `imagem.py` (auto-teste), com a classe de
+        # verdade. Aqui nao da para importa-la: o duplo ja ocupou
+        # `sys.modules["streamlit"]`.
+    finally:
+        _rasc_fp._pasta = _pasta_real
+        _sh.planilha, _sh.cliente = _guardado
+        _sh_fp.rmtree(_base, ignore_errors=True)
+
+
+def _fatura_confirmada(conta):
+    """A fatura em PDF so grava DEPOIS de o dono confirmar na tela.
+
+    Ate 28/09 o caminho era: ler, mostrar, o dono conferir contra a fatura
+    aberta, AVISAR-ME, eu ligar o lancamento e subir um deploy. Dias, para um
+    clique. E enquanto isso os lancamentos do cartao nao entravam.
+
+    O risco que travava isso esta escrito em `extratos_tela.py:90`: a fatura
+    e um DESENHO, nao uma planilha. O banco muda o layout e o leitor passa a
+    devolver numero errado sem erro nenhum na tela — num sistema de dinheiro,
+    a pior falha possivel.
+
+    A saida nao e ligar sozinho: e o dono confirmar. Ele ja compara com a
+    fatura aberta; o que faltava era o botao. Estas guardas fixam as tres
+    coisas que tornam isso seguro:
+
+      1. NADA e gravado sem confirmacao explicita;
+      2. o botao so aparece quando ha lancamento lido e nenhum erro;
+      3. gravar duas vezes nao duplica — `lancamentos.gravar` ja filtra pela
+         identidade, e a tela tem de DIZER quantos foram repetidos.
+    """
+    import inspect as _insp_f
+    import extratos_tela as _et_f
+    import lancamentos as _lan_f
+
+    _corpo = _insp_f.getsource(_et_f._fatura)
+
+    conta("a fatura tem botao de confirmar e lancar",
+          "st.button(" in _corpo and "CONFIRMO" in _corpo.upper(),
+          "sem botao, o caminho continua sendo me avisar e esperar deploy")
+    # GRAVAR SO DEPOIS DO CLIQUE. A chamada nao pode estar solta no corpo.
+    _i_grav = _corpo.find("_lan.gravar(")
+    if _i_grav < 0:
+        _i_grav = _corpo.find(".gravar(")
+    conta("a gravacao existe no caminho da fatura", _i_grav >= 0, "")
+    if _i_grav >= 0:
+        _antes = _corpo[:_i_grav]
+        conta("e ela vem DEPOIS de um if de botao",
+              "st.button(" in _antes,
+              "gravar fora do if do botao grava em todo desenho da tela")
+
+    # A DEDUPLICACAO E O QUE TORNA O CLIQUE REPETIDO INOFENSIVO.
+    _l = [{"data": "01/09/2026", "descricao": "MERCADO X", "valor": -50.0}]
+    _id1 = _lan_f.com_identidade(list(_l), "cartao")[0]["id"]
+    _id2 = _lan_f.com_identidade(list(_l), "cartao")[0]["id"]
+    conta("o mesmo lancamento tem sempre a mesma identidade", _id1 == _id2, "")
+    _outro = _lan_f.com_identidade(
+        [{"data": "01/09/2026", "descricao": "MERCADO X", "valor": -51.0}],
+        "cartao")[0]["id"]
+    conta("e valor diferente muda a identidade", _id1 != _outro, "")
+    # DUAS LINHAS IGUAIS NO MESMO ARQUIVO sao dois fatos, e nao um repetido.
+    _dois = _lan_f.com_identidade(_l + list(_l), "cartao")
+    conta("duas linhas identicas do mesmo arquivo nao viram uma",
+          _dois[0]["id"] != _dois[1]["id"], "")
+
+    # E A TELA TEM DE DIZER O QUE ACONTECEU, inclusive os repetidos: gravar
+    # 12 de 40 sem explicar por que faz o dono achar que perdeu 28.
+    conta("a tela informa quantos foram gravados e quantos repetidos",
+          "repetid" in _corpo.lower(), "")
+
+
 def main():
     instalar()
     falhas = []
@@ -1166,6 +1539,9 @@ def main():
     # "quebrava" — e passava sozinha. Alarme falso por ordem de execucao e
     # pior que nenhum teste: ensina a ignorar a saida.
     _telas_restantes(conta)
+    _fatura_confirmada(conta)
+    _fotos_perdidas(conta)
+    _refazer_cego(conta)
     _home(falhas, conta)
     _extratos(conta)
     _gargalos(conta)

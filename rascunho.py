@@ -305,6 +305,118 @@ def limpar(usuario):
         pass
 
 
+# ── As FOTOS ANEXADAS ────────────────────────────────────────────────────────
+#
+# Este módulo nasceu guardando o RESULTADO — a galeria já gerada. A ENTRADA
+# ficou de fora, e ela se perde pelo mesmo motivo: os bytes do upload moram na
+# memória do processo do Streamlit
+# (`streamlit/runtime/memory_uploaded_file_manager.py`, `file_storage`), e a
+# lista de NOMES fica no navegador. Quando o processo reinicia — deploy, queda,
+# troca de container — os nomes seguem na tela e os bytes já não existem.
+#
+# Foi o que aconteceu em 28/09 às 17:17: três fotos listadas na tela, e o botão
+# respondendo "Suba pelo menos uma foto do produto". Quem olha não tem como
+# entender: as fotos ESTÃO ali.
+#
+# Elas moram numa SUBPASTA, e isso é de propósito: `_so_a_galeria`, `limpar` e
+# `arquivar` mexem só em arquivos soltos da pasta. As fotos atravessam o ciclo
+# inteiro da galeria — que é o que precisa acontecer, porque gerar de novo pede
+# justamente as MESMAS fotos.
+FOTOS = "fotos"
+MANIFESTO_FOTOS = "fotos.json"
+
+
+def _pasta_fotos(usuario, campo="produto"):
+    return os.path.join(_pasta(usuario), FOTOS, _slug(campo))
+
+
+def salvar_fotos(usuario, fotos, nomes=(), campo="produto"):
+    """Grava as fotos anexadas. True se escreveu. Nunca levanta."""
+    if not usuario or not fotos:
+        return False
+    try:
+        pasta = _pasta_fotos(usuario, campo)
+        shutil.rmtree(pasta, ignore_errors=True)
+        os.makedirs(pasta, exist_ok=True)
+        itens = []
+        for i, dados in enumerate(fotos):
+            if not dados:
+                continue
+            arq = f"{i:02d}.{_ext(dados)}"
+            with open(os.path.join(pasta, arq), "wb") as fh:
+                fh.write(dados)
+            nome = nomes[i] if i < len(nomes) else ""
+            itens.append({"arquivo": arq, "nome": nome})
+        if not itens:
+            return False
+        with open(os.path.join(pasta, MANIFESTO_FOTOS), "w",
+                  encoding="utf-8") as fh:
+            json.dump({"quando": time.time(), "itens": itens}, fh)
+        return True
+    except Exception:
+        return False
+
+
+def carregar_fotos(usuario, campo="produto"):
+    """[{"bytes":..., "nome":...}] na ordem em que foram anexadas, ou []."""
+    if not usuario:
+        return []
+    try:
+        pasta = _pasta_fotos(usuario, campo)
+        caminho = os.path.join(pasta, MANIFESTO_FOTOS)
+        if not os.path.exists(caminho):
+            return []
+        with open(caminho, encoding="utf-8") as fh:
+            guardado = json.load(fh)
+        if time.time() - float(guardado.get("quando", 0)) > VALIDADE_HORAS * 3600:
+            shutil.rmtree(pasta, ignore_errors=True)
+            return []
+        saida = []
+        for it in guardado.get("itens") or []:
+            alvo = os.path.join(pasta, it.get("arquivo", ""))
+            if not os.path.isfile(alvo):
+                continue
+            with open(alvo, "rb") as fh:
+                saida.append({"bytes": fh.read(), "nome": it.get("nome", "")})
+        return saida
+    except Exception:
+        return []
+
+
+def resumo_fotos(usuario, campo="produto"):
+    """[{"nome":...}] das fotos guardadas, SEM ler um byte de imagem.
+
+    Existe pelo mesmo motivo que `resumo`: o aviso na tela e desenhado a cada
+    passada do Streamlit, e ler 3 MB de foto do disco a cada tecla digitada
+    trava a tela. O caro e o BYTE; o manifesto e um JSON de duas linhas.
+    """
+    if not usuario:
+        return []
+    try:
+        pasta = _pasta_fotos(usuario, campo)
+        caminho = os.path.join(pasta, MANIFESTO_FOTOS)
+        if not os.path.exists(caminho):
+            return []
+        with open(caminho, encoding="utf-8") as fh:
+            guardado = json.load(fh)
+        if time.time() - float(guardado.get("quando", 0)) > VALIDADE_HORAS * 3600:
+            shutil.rmtree(pasta, ignore_errors=True)
+            return []
+        return [{"nome": it.get("nome", "")}
+                for it in (guardado.get("itens") or [])
+                if os.path.isfile(os.path.join(pasta, it.get("arquivo", "")))]
+    except Exception:
+        return []
+
+
+def limpar_fotos(usuario, campo="produto"):
+    """Descarta as fotos guardadas. Devolve None sempre — é só um descarte."""
+    if not usuario:
+        return None
+    shutil.rmtree(_pasta_fotos(usuario, campo), ignore_errors=True)
+    return None
+
+
 # ── Trabalho da sessão ───────────────────────────────────────────────────────
 #
 # Um F5 apagava título, descrição, palavras-chave e o histórico do chat. O login
@@ -449,6 +561,64 @@ if __name__ == "__main__":
 
     ok("usuario sem rascunho nao derruba", resumo("ninguem") is None)
     ok("usuario vazio tambem", resumo("") is None and carregar("") is None)
+
+    # ── AS FOTOS ANEXADAS: a ENTRADA tambem se perde ────────────────────
+    #
+    # Este modulo guardava so o RESULTADO — a galeria. A ENTRADA (as fotos do
+    # produto que a pessoa anexou) vivia apenas na memoria do processo do
+    # Streamlit, e sumia junto com ele.
+    #
+    # 28/09, 17:17: a tela listava tres fotos anexadas e o botao respondia
+    # "Suba pelo menos uma foto do produto". A lista de NOMES fica no
+    # navegador; os BYTES ficam no processo. Reiniciou o processo, os nomes
+    # continuam na tela e os bytes nao existem mais.
+    _F1 = b"\x89PNG\r\n\x1a\n" + b"a" * 2000
+    _F2 = b"\xff\xd8" + b"b" * 2000
+
+    ok("sem fotos guardadas, nao ha o que recuperar", carregar_fotos("bia") == [])
+    ok("salvar sem usuario nao derruba", salvar_fotos("", [_F1]) is False)
+    ok("salvar lista vazia nao derruba", salvar_fotos("bia", []) is False)
+
+    ok("as fotos sao gravadas", salvar_fotos("bia", [_F1, _F2],
+                                             ["frente.png", "lado.jpg"]) is True)
+    _fts = carregar_fotos("bia")
+    ok("e voltam inteiras, na mesma ordem",
+       [f["bytes"] for f in _fts] == [_F1, _F2])
+    ok("com o nome de cada uma",
+       [f["nome"] for f in _fts] == ["frente.png", "lado.jpg"])
+
+    # O ciclo da galeria NAO pode levar as fotos junto: gerar de novo apaga a
+    # galeria antiga, e quem esta gerando de novo precisa das MESMAS fotos.
+    salvar("bia", "Urso Prata", [{"tipo": "1", "bytes": _IMG}])
+    ok("gravar a galeria nao apaga as fotos anexadas",
+       len(carregar_fotos("bia")) == 2)
+    limpar("bia")
+    ok("limpar a galeria tambem nao", len(carregar_fotos("bia")) == 2)
+    arquivar("bia")
+    ok("arquivar a galeria tambem nao", len(carregar_fotos("bia")) == 2)
+
+    # O aviso na tela e desenhado a cada tecla digitada: ele nao pode ler os
+    # bytes das fotos do disco toda vez.
+    _res_ft = resumo_fotos("bia")
+    ok("o resumo das fotos traz os nomes",
+       [f["nome"] for f in _res_ft] == ["frente.png", "lado.jpg"])
+    ok("e NAO le um unico byte de foto",
+       all("bytes" not in f for f in _res_ft))
+
+    # CADA CAMPO GUARDA O SEU. A pagina de Imagem tem quatro campos de
+    # imagem; se todos escrevessem na mesma pasta, anexar uma referencia de
+    # layout apagaria as fotos do produto — e o defeito voltaria pela porta
+    # que eu acabei de fechar.
+    salvar_fotos("bia", [_F1], ["ref.png"], campo="layout")
+    ok("o campo novo nao mexe no campo do produto",
+       len(carregar_fotos("bia")) == 2 and len(carregar_fotos("bia", campo="layout")) == 1)
+    ok("e limpar um nao limpa o outro",
+       limpar_fotos("bia", campo="layout") is None
+       and carregar_fotos("bia", campo="layout") == []
+       and len(carregar_fotos("bia")) == 2)
+
+    ok("e da para descartar so as fotos", limpar_fotos("bia") is None
+       and carregar_fotos("bia") == [] and resumo_fotos("bia") == [])
 
     _sh_t.rmtree(_base, ignore_errors=True)
     print("\nfalhas:", falhas)

@@ -95,9 +95,19 @@ def _fatura(arq, tipo_arq, usuario_logado):
     sem erro nenhum na tela. Num sistema de dinheiro, essa é a pior falha
     possível.
 
-    Então aqui se lê e se mostra. Gravar sozinho viria depois, quando o
-    layout deste banco tiver sido conferido contra uma fatura de verdade —
-    e o dono souber que foi conferido.
+    Então aqui se lê, se mostra, E SE PEDE CONFIRMAÇÃO. Gravar sozinho
+    continua fora — o layout de um banco não se confere sozinho.
+
+    O QUE MUDOU EM 28/09: antes o caminho era ler, mostrar, o dono conferir
+    contra a fatura aberta, me avisar, eu ligar o lançamento e subir um
+    deploy. Dias, para um clique — e enquanto isso o cartão ficava de fora
+    do financeiro.
+
+    Quem confere é quem tem a fatura aberta na frente, e é ele quem clica.
+    Nada é gravado sem esse clique. Clicar duas vezes não duplica: a
+    identidade de `lancamentos` é a mesma para o mesmo fato, e `gravar`
+    devolve quantos foram repetidos — número que esta tela mostra, porque
+    gravar 12 de 40 sem dizer por quê faz o dono achar que perdeu 28.
     """
     import fatura_pdf as _fpdf
     nome = arq.name
@@ -125,10 +135,11 @@ def _fatura(arq, tipo_arq, usuario_logado):
     c3.metric("Total das compras", f"R$ {_fmt(_total)}")
 
     st.info(
-        "**Confira antes de usar.** A fatura foi lida, mas **não foi "
-        "gravada**: o Studio ainda não conhece o layout deste banco bem o "
-        "bastante para lançar sozinho. Compare com a fatura aberta — se "
-        "bater, me avise que eu ligo o lançamento automático.")
+        "**Confira antes de lançar.** A fatura foi lida e **ainda não foi "
+        "gravada**. O Studio não lança fatura sozinho de propósito: ela é um "
+        "desenho, e uma mudança de layout do banco vira número errado sem "
+        "erro na tela. Compare a tabela abaixo com a fatura aberta — os "
+        "valores, o total e as parcelas. Batendo, clique no botão no fim.")
     import pandas as _pd
     st.dataframe(
         _pd.DataFrame([{
@@ -144,6 +155,37 @@ def _fatura(arq, tipo_arq, usuario_logado):
     if texto:
         with st.expander("O texto cru do PDF — para conferir o que ficou de fora"):
             st.code(texto[:20000], language=None)
+
+    # ── O CLIQUE QUE LANÇA ────────────────────────────────────────────────
+    #
+    # A chave carrega o NOME DO ARQUIVO: duas faturas na mesma tela têm dois
+    # botões, e não um que grava a errada. Foi chave repetida que derrubou
+    # esta tela em 25/09 (`StreamlitDuplicateElementKey: ext_fin_0`).
+    _k_fat = "fat_ok_" + "".join(c for c in nome if c.isalnum())[:40]
+    st.caption(
+        "Ao clicar você declara que conferiu estes valores contra a fatura. "
+        "Nada foi gravado até aqui.")
+    if st.button(f"✅ CONFIRMO que confere — lançar {len(lancs)} lançamento(s)",
+                 key=_k_fat, use_container_width=True):
+        # O IMPORT VEM AQUI, e nao de fora: `_fatura` recebe (arq, tipo_arq,
+        # usuario_logado) e NAO o modulo. A primeira versao usava `_lan` como
+        # se ele existisse neste escopo — `NameError` no clique, e so no
+        # clique. Foi o segundo verificador que pegou, que e para isso que
+        # ele existe: nome lido antes de existir nao aparece no import.
+        import lancamentos as _lan_fat
+        _conta_fat = f"cartão · {nome}"
+        _novos, _reps, _err = _lan_fat.gravar(lancs, _conta_fat,
+                                              usuario_logado)
+        if _err:
+            st.error(f"Não consegui gravar: {_err}")
+        else:
+            # OS REPETIDOS TÊM NOME. Sem este número, gravar 12 de 40 parece
+            # perda de 28 — e o dono refaz o trabalho à toa.
+            _msg = f"✅ {_novos} lançamento(s) gravado(s)."
+            if _reps:
+                _msg += (f" {_reps} já estavam lá e foram ignorados — é o "
+                         f"esperado se você já subiu esta fatura antes.")
+            st.success(_msg)
 
 
 def _processar(arq, _itau, _inter, _fv, _lan, usuario_logado):
