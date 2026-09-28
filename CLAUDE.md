@@ -11,6 +11,24 @@ Mensagem com `!` significa: resuma a resposta anterior. Sem explicação nova,
 sem justificativa, sem repetir o que já foi dito — só o essencial do que eu
 acabei de escrever, em poucas linhas.
 
+**0-bis. O sinal `@` sozinho é ordem de conferência.**
+Mensagem com `@` e mais nada significa: aplique o PROTOCOLO DE CONFERÊNCIA
+inteiro, sem pedir para repetir o que ele é. Ele está escrito em "O RETRABALHO
+QUE EU GERO", mais abaixo, e são cinco passos:
+
+1. Rodar os **seis verificadores**, e colar a saída — não "devem passar".
+2. Rodar o auto-teste de **todo arquivo tocado**, e os 60+ do repositório.
+3. Responder *"qual verificador leu a linha que eu mudei?"* para cada nome
+   novo ou alterado. Nome sem guarda: escrever a guarda, ou dizer em voz alta
+   que aquela linha sobe sem rede.
+4. **Mutação** em toda guarda nova: reintroduzir o defeito e ver a guarda
+   falhar. Guarda que nunca viu o defeito nunca foi testada.
+5. Mapear o risco do diff: import circular, chave de widget repetida, chamada
+   de rede dentro de laço de render, e quem mais lê o que mudou.
+
+`@` sozinho pede o protocolo. `@arquivo.py` continua sendo referência a
+arquivo, e não tem nada a ver com isto.
+
 **1. Resumir. Ser preciso e didático.**
 Respostas de 3 a 6 linhas. Tabela em vez de parágrafo. "Sim ou não" recebe "sim"
 ou "não". *("Se eu tiver que ler todos os textos que me manda meu cérebro irá
