@@ -64,6 +64,25 @@ _ROTULO_QUE_MENTE = re.compile(r"\((?:[A-Za-z]{3,4}\s*,\s*)+[A-Za-z]{3,4}\)")
 IGNORAR_CONFLITO = {"checar_alcance.py"}
 
 
+# Onde o `datetime.now()` cru continua CERTO, e por quê. Comparação de UTC
+# com UTC não tem erro de fuso: trocar um lado só é que teria.
+#
+# `varredura_formas.py` lê esta lista daqui. Duas listas discordam, e a
+# questão é só quando — a varredura mostrava como "achado" o que este
+# portão já tinha decidido que está certo, e relatório com ruído ninguém
+# lê até o fim.
+CONSISTENTES_UTC = {
+    "checar_tela.py": "é a guarda que PROCURA `datetime.now()` no Painel",
+    "auth.py": "expiração de token contra token gravado, os dois em UTC",
+    "rhid_api.py": "validade do token da RHiD contra a hora de emissão",
+    "gargalos_tela.py": "idade do cartão contra a ação do Trello, ambos UTC",
+    "fechar_expediente.py": "é o fallback do except; o caminho normal usa FUSO",
+
+    "varredura_formas.py": "é a varredura que PROCURA este padrão",
+}
+
+
+
 def _arquivos(raiz="."):
     for nome in sorted(os.listdir(raiz)):
         if nome.endswith(".py") and not nome.startswith("checar_"):
@@ -114,6 +133,30 @@ def uploads_de_imagem(fonte, arquivo=""):
                                  and _ROTULO_QUE_MENTE.search(rotulo)),
         })
     return achados
+
+
+def _conferir_isentos():
+    """A lista de isentos tem de ser HONESTA, e `varredura_formas` a lê daqui.
+
+    Isentar é dizer "aqui o `datetime.now()` cru está certo", e uma isenção
+    larga demais esconde defeito: eu tinha isentado o ARQUIVO `placar_core`
+    inteiro "porque é onde `agora_br` mora", e isso escondeu `ritmo_do_mes`,
+    que calcula mês e dia — o velocímetro da Meta Mensal perdia a cor no fim
+    do mês.
+    """
+    fora = []
+    for nome, motivo in CONSISTENTES_UTC.items():
+        if not os.path.exists(nome):
+            fora.append(f"{nome} está na lista de isentos e não existe mais")
+        if not motivo or len(motivo) < 15:
+            fora.append(f"{nome} está isento sem motivo escrito")
+    # `placar_core.py` NÃO pode estar na lista: a isenção dele é da FUNÇÃO
+    # `agora_br`, feita dentro da varredura, e não do arquivo.
+    if "placar_core.py" in CONSISTENTES_UTC:
+        fora.append("placar_core.py isento por arquivo — a isenção é só da "
+                    "função `agora_br`, senão `ritmo_do_mes` volta a se "
+                    "esconder atrás dela")
+    return fora
 
 
 def main():
@@ -229,14 +272,7 @@ def main():
     _VIRA_MES = re.compile(r"datetime\.now\(\s*\)(?![^\n]*timedelta)")
     # Onde o `datetime.now()` cru continua CERTO, e por quê. Comparação de
     # UTC com UTC não tem erro de fuso: trocar um lado só é que teria.
-    _CONSISTENTES = {
-        "auth.py": "expiração de token contra token gravado, os dois em UTC",
-        "rhid_api.py": "validade do token da RHiD contra a hora de emissão",
-        "gargalos_tela.py": "idade do cartão contra a ação do Trello, ambos UTC",
-        "fechar_expediente.py": "é o fallback do except; o caminho normal usa FUSO",
-        "placar_core.py": "é onde `agora_br` mora",
-        "varredura_formas.py": "é a varredura que PROCURA este padrão",
-    }
+    _CONSISTENTES = CONSISTENTES_UTC
     for nome, fonte in ((n, f) for n in _arquivos()
                         for f in [open(n, encoding="utf-8").read()]):
         if nome in _CONSISTENTES:
@@ -244,6 +280,14 @@ def main():
         # Fora do bloco de conferência: a guarda que procura `datetime.now()`
         # contém o texto `datetime.now()`. É a sexta vez nesta base.
         corpo = fonte.split('if __name__ == "__main__":')[0]
+        # `agora_br` É a definição da porta: ela tem de chamar o
+        # `datetime.now()` cru, senão não existe porta nenhuma. Isentar o
+        # ARQUIVO inteiro por causa dela foi largo demais — escondeu o
+        # `ritmo_do_mes`, que calcula mês e dia e perdia a cor do velocímetro
+        # no fim do mês. Isenta-se a função, não o arquivo.
+        if nome == "placar_core.py":
+            corpo = corpo.split("def agora_br(")[0] + "".join(
+                corpo.split("def agora_br(")[1].split("\n\n\n")[1:])
         for i, linha in enumerate(corpo.splitlines(), 1):
             codigo = re.sub(r"`[^`]*`", "", linha.split("#", 1)[0])
             if not _VIRA_MES.search(codigo):
@@ -294,6 +338,9 @@ def main():
             "(`gerar_triagem_ia`). Ele decide quais peças são viáveis e qual "
             "ângulo usar — e foi ali que as peças 7 e 8 sumiram em 28/09, com "
             "os cinco verificadores verdes.")
+
+    for _m in _conferir_isentos():
+        reprova(_m)
 
     print()
     if falhas:

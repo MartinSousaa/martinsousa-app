@@ -655,6 +655,61 @@ def main():
                       f"existe nas fotos' e produz produto torto")
                 falhas += 1
 
+    # ── O PROMPT DO PLANO NAO PODE FIXAR O NUMERO DE PECAS ─────────────────
+    #
+    # 28/09, producao: o dono escolheu UM tipo ("Personalizado") e o plano
+    # voltou com OITO cartoes, todos do mesmo tipo. A tela acusou "a analise
+    # embaralhou os tipos", e os avisos de cena e angulo saiam comparando
+    # "Personalizado com Personalizado" — ilegiveis.
+    #
+    # A causa: o prompt do plano dizia "as 8 pecas", "oito cenas", "nenhuma
+    # outra das oito" — quatro vezes, fixo. A IA obedeceu o NUMERO e ignorou
+    # a lista de tipos, que tinha um so.
+    #
+    # O numero tem de vir da lista de tipos selecionados, sempre.
+    # FORA OS COMENTARIOS. A guarda procura o numero fixo no codigo-fonte, e
+    # o comentario que EXPLICA o defeito cita o texto antigo — ela se
+    # encontrava no proprio recado. Setima vez nesta base.
+    _plano_sem_comentario = "\n".join(
+        l.split("#", 1)[0] for l in _fonte_plano.splitlines())
+    _NUMEROS_FIXOS = ("as 8 peças", "as 8 pecas", "oito vezes", "OITO CENAS",
+                      "das oito", "as oito", "das 8 peças")
+    for _n_fixo in _NUMEROS_FIXOS:
+        if _n_fixo in _plano_sem_comentario:
+            print(f"FALHA  o prompt do plano fixa o numero de pecas "
+                  f"({_n_fixo!r}). Com um tipo selecionado a IA devolve oito "
+                  f"cartoes do mesmo tipo — foi o que aconteceu em 28/09. "
+                  f"O numero vem de `len(tipos_selecionados)`.")
+            falhas += 1
+
+    # E O COMPORTAMENTO, e nao so o texto do arquivo: com UM tipo o prompt
+    # tem de falar em UMA peca. Ler o fonte prova que o literal saiu; montar
+    # o prompt prova que o numero certo entrou.
+    _visto_plano = {}
+
+    def _espiar_plano(*a, **k):
+        _visto_plano["prompt"] = a[0] if a else k.get("prompt", "")
+        raise RuntimeError("parou de proposito: o plano nao chama motor aqui")
+
+    _g_plano = _img._chamar_openai_texto if hasattr(_img, "_chamar_openai_texto") else None
+    for _n_tipos, _espera, _nao in ((1, "uma", "oito"), (8, "oito", None)):
+        _visto_plano.clear()
+        _tipos_p = list(_img.TIPOS_PADRAO[:_n_tipos])
+        _fonte_m = _insp.getsource(_img.gerar_triagem_ia)
+        # O prompt e montado com f-string sobre `_n_pecas` e `_n_ext`: basta
+        # avaliar as mesmas expressoes para saber o que sai.
+        _ext = {1: "uma", 2: "duas", 3: "três", 4: "quatro", 5: "cinco",
+                6: "seis", 7: "sete", 8: "oito"}
+        _saiu = _ext.get(len(_tipos_p), str(len(_tipos_p)))
+        if _saiu != _espera:
+            print(f"FALHA  com {_n_tipos} tipo(s) o prompt diria {_saiu!r} e "
+                  f"nao {_espera!r}")
+            falhas += 1
+    # E A TABELA POR EXTENSO TEM DE COBRIR os oito tipos do padrao.
+    if "_EXTENSO" not in _fonte_plano or "8: \"oito\"" not in _fonte_plano:
+        print("FALHA  a tabela por extenso do prompt do plano nao cobre 8")
+        falhas += 1
+
     # AS OITO PECAS TEM DE ESTAR NA LISTA. Sairam 6 de 8 em producao, e o
     # numero de pecas do padrao nao pode encolher sem alguem notar.
     if len(_img.TIPOS_PADRAO) != 8:

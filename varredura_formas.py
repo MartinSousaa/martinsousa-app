@@ -108,8 +108,27 @@ def forma6_datetime_sem_fuso():
     # Historico mostrava a hora tres horas adiantada, e a varredura passava
     # reto. E a Forma 1 dentro da propria varredura — escopar no lugar onde
     # o sintoma ja tinha sido notado.
+    # A MESMA LISTA DE ISENTOS DO PORTAO, lida de la.
+    #
+    # `checar_alcance.CONSISTENTES_UTC` diz onde o `datetime.now()` cru esta
+    # CERTO — auth e rhid_api comparam expiracao contra token gravado, os dois
+    # em UTC. Repetir a lista aqui seria a Forma 5: duas listas discordando, e
+    # a varredura mostrando como "achado" o que o portao ja aprovou.
+    # CONSISTENTES_UTC: a lista de isentos, lida do portao. Ela tem guarda
+    # propria la (`_conferir_isentos`), que reprova isento sem motivo escrito,
+    # isento de arquivo que nao existe mais, e a isencao larga de
+    # `placar_core.py` — a que escondeu `ritmo_do_mes`.
+    try:
+        from checar_alcance import CONSISTENTES_UTC as _ISENTOS
+    except Exception:
+        _ISENTOS = {}
     fora = []
     for nome, fonte in _fontes():
+        if nome in _ISENTOS:
+            continue
+        # E fora do bloco de conferencia: a guarda que procura
+        # `datetime.now()` contem o texto `datetime.now()`.
+        fonte = fonte.split('if __name__ == "__main__":')[0]
         for i, linha in enumerate(fonte.splitlines(), 1):
             # Fora o comentário `#` e o texto entre crases: `datetime.now()`
             # dentro de uma docstring explicando o problema NÃO é o problema.
@@ -162,20 +181,39 @@ def forma6_sessao_em_thread():
 
 
 # ── FORMA 2 — a guarda que se encontra a si mesma ────────────────────────────
-def forma2_guarda_le_o_arquivo():
-    """Verificador que lê o ARQUIVO inteiro em vez do bloco.
+def forma2_guarda_que_se_encontra():
+    """Guarda cuja asserção POSITIVA só bate no próprio texto do teste.
 
-    Cinco guardas desta base já se acharam no próprio texto. `inspect.
-    getsource` do bloco só vê a função; `open(__file__).read()` vê a guarda.
+    A PERGUNTA MUDOU, E POR MEDICAO. A primeira versao listava todo
+    `open(__file__)` — quatorze ocorrencias — como se o padrao fosse o
+    defeito. Nao e: ler o arquivo e legitimo quando o literal procurado vive
+    no codigo de producao. Mutei as quatorze e TODAS reprovaram o defeito.
+    Listar codigo certo e alarme falso, e alarme falso ensina a ignorar.
+
+    O defeito de verdade e mais estreito: uma assercao `"x" in fonte` onde
+    `"x"` NAO existe na producao e so aparece no proprio bloco de
+    conferencia. Ai ela passa verde para sempre, medindo a si mesma.
+
+    `not in` fica de fora: afirmar que um texto NAO existe e justamente o
+    caso em que ele so pode estar no teste.
     """
     fora = []
     for nome, fonte in _fontes():
-        if not (nome.startswith("checar_") or '__name__ == "__main__"' in fonte):
+        corpo, _, teste = fonte.partition('if __name__ == "__main__":')
+        if not teste:
             continue
-        for i, linha in enumerate(fonte.splitlines(), 1):
-            if "open(__file__" in linha:
-                fora.append(f"{nome}:{i}  lê o próprio arquivo — "
-                            f"use inspect.getsource(bloco)")
+        for m in re.finditer(
+                r'"([^"\n]{8,80})"\s+in\s+(_?[a-z_]*(?:fonte|src|corpo|arquivo)'
+                r'[a-z_]*)', teste):
+            lit, var = m.group(1), m.group(2)
+            # So quando a variavel e o ARQUIVO inteiro: `inspect.getsource` de
+            # um bloco nao alcanca o teste, entao nao ha como se encontrar.
+            if f"{var} = open(__file__" not in teste and f"{var}=open(__file__" not in teste:
+                continue
+            if corpo.count(lit) == 0:
+                linha = teste[:m.start()].count("\n") + corpo.count("\n") + 1
+                fora.append(f"{nome}:{linha}  \"{lit[:50]}\" só existe no "
+                            f"teste — a guarda mede a si mesma")
     return fora
 
 
@@ -230,17 +268,75 @@ def forma1_retorno_engolido():
     return fora
 
 
+def _autoteste():
+    """A varredura se confere, e por casos plantados — nao por inspecao.
+
+    `forma2_guarda_que_se_encontra` nasceu de uma pergunta REESCRITA: a
+    primeira listava todo `open(__file__)` e a medicao mostrou que o padrao
+    nao e o defeito. Uma pergunta reescrita precisa provar que continua
+    enxergando o que importa, senao ela so ficou silenciosa.
+
+    O passo 3 do protocolo pergunta "qual verificador leu a linha que eu
+    mudei?". Para esta linha, a resposta era "nenhum": eu tinha plantado um
+    defeito a mao e apagado depois. Isso nao e repetivel — e o que nao e
+    repetivel nao e guarda.
+    """
+    import tempfile
+    falhas = 0
+
+    def ok(nome, cond):
+        nonlocal falhas
+        falhas += not cond
+        print(("ok    " if cond else "FALHA ") + nome)
+
+    _COM = ('def f():\n    return 1\n\n'
+            'if __name__ == "__main__":\n'
+            '    _fonte = open(__file__, encoding="utf-8").read()\n'
+            '    ok("x", "FRASE QUE NAO EXISTE NA PRODUCAO" in _fonte)\n')
+    _SEM = ('def f():\n    return "FRASE QUE EXISTE NA PRODUCAO"\n\n'
+            'if __name__ == "__main__":\n'
+            '    _fonte = open(__file__, encoding="utf-8").read()\n'
+            '    ok("x", "FRASE QUE EXISTE NA PRODUCAO" in _fonte)\n')
+    # `not in` e legitimo: afirmar ausencia so pode ter o literal no teste.
+    _NEG = ('def f():\n    return 1\n\n'
+            'if __name__ == "__main__":\n'
+            '    _fonte = open(__file__, encoding="utf-8").read()\n'
+            '    ok("x", "ORDEM QUE NAO PODE VOLTAR" not in _fonte)\n')
+
+    import os as _os
+    with tempfile.TemporaryDirectory() as _d:
+        _antes = _os.getcwd()
+        try:
+            _os.chdir(_d)
+            for _nome, _txt, _espera in (("com.py", _COM, True),
+                                         ("sem.py", _SEM, False),
+                                         ("neg.py", _NEG, False)):
+                open(_nome, "w", encoding="utf-8").write(_txt)
+            _achados = forma2_guarda_que_se_encontra()
+        finally:
+            _os.chdir(_antes)
+
+    _texto = " ".join(_achados)
+    ok("acha a guarda que so bate em si mesma", "com.py" in _texto)
+    ok("e nao acusa a que bate na producao", "sem.py" not in _texto)
+    ok("nem a assercao NEGATIVA, que e legitima", "neg.py" not in _texto)
+    print("\nfalhas:", falhas)
+    return falhas
+
+
 def main():
+    if "--autoteste" in sys.argv:
+        return 1 if _autoteste() else 0
     blocos = [
         ("FORMA 1 — gravação com falha silenciosa (precisa de guarda de CONTEÚDO)",
          forma1_retorno_engolido()),
-        ("FORMA 2 — guarda que lê o próprio arquivo",
-         forma2_guarda_le_o_arquivo()),
+        ("FORMA 2 — guarda cuja asserção só bate em si mesma",
+         forma2_guarda_que_se_encontra()),
         ("FORMA 3 — tela que nenhum verificador desenha",
          forma3_tela_sem_guarda()),
         ("FORMA 5 — arquivos gêmeos (um é cópia do outro)",
          forma5_arquivos_gemeos()),
-        ("FORMA 6a — datetime.now() sem fuso, em arquivo que usa FUSO",
+        ("FORMA 6a — datetime.now() sem fuso (fora os isentos do portão)",
          forma6_datetime_sem_fuso()),
         ("FORMA 6b — session_state dentro de alvo de Thread",
          forma6_sessao_em_thread()),

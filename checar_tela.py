@@ -1006,6 +1006,71 @@ def _txt_consolidado(conta):
     faz quem le procurar defeito onde nao ha.
     """
     import imagem as _img_t
+    # O import vem ANTES do primeiro uso, e nao la embaixo: a primeira versao
+    # usava `_insp_t` neste bloco e so o importava depois — UnboundLocalError,
+    # que ja derrubou producao duas vezes nesta base e e exatamente o que o
+    # segundo verificador existe para achar.
+    import inspect as _insp_t
+
+    # ── A CADEIA REAL, E NAO TEXTO DE MENTIRA ───────────────────────────
+    #
+    # ESTA GUARDA FALTAVA, E O BOTAO QUEBROU EM PRODUCAO COM ELA VERDE.
+    #
+    # A primeira versao chamava `txt_dos_prompts` com pares de string que eu
+    # mesmo escrevi, e com `direcao_arte="Medieval Rústico"` — uma STRING.
+    # Na realidade a direcao de arte e um DICIONARIO (`imagem.py:6681`:
+    # `plano.get("direcao_de_arte") or {}`), e o `.strip()` nela levantava
+    # `AttributeError: 'dict' object has no attribute 'strip'`.
+    #
+    # Duplo mais pobre que a realidade acusa o inocente — e aqui fez pior:
+    # absolveu o culpado. A guarda agora chama `prompt_de_cada_peca` de
+    # verdade, com um plano e um cfg com a forma que a tela monta.
+    _cfg_real = {"instrucoes_extras": "", "dados_descricao": None,
+                 "nome_produto": "Caneca Medieval", "refs_layout_nomes": [],
+                 "instrucao_layout": "", "ambientacao": "",
+                 "fotos_bytes": [], "refs_layout_bytes": None}
+    _dir_dict = {"nome": "Medieval Mineral", "descricao": "pedra e metal",
+                 "paleta": {"fundo": "Cimento Claro", "painel": "Antracita"},
+                 "materiais": "concreto, metal oxidado",
+                 "luz": "natural e difusa", "trava_produto": "cinza em metal"}
+    _plano_real = [
+        {"numero": 1, "tipo": "1 — Capa do anúncio (fundo branco)",
+         "cena": "produto sobre fundo branco", "textos": [], "viavel": True},
+        {"numero": 4, "tipo": "4 — Close nos detalhes",
+         "cena": "close na alça", "textos": ["DETALHE: acabamento"],
+         "viavel": True},
+    ]
+    _guardadas = (_img_t._chamar_openai_geracao, _img_t._get_openai_api_key,
+                  _img_t._descricao_do_produto_cacheada)
+    _img_t._chamar_openai_geracao = lambda *a, **k: (_ for _ in ()).throw(
+        AssertionError("o preview NAO pode chamar motor"))
+    _img_t._get_openai_api_key = lambda: "sk-conferencia"
+    _img_t._descricao_do_produto_cacheada = lambda *a, **k: ("d", "l")
+    try:
+        _reais = _img_t.prompt_de_cada_peca(
+            _plano_real, _cfg_real, _img_t.TIPOS_PADRAO, _dir_dict)
+        conta("prompt_de_cada_peca roda com a direcao de arte em DICIONARIO",
+              len(_reais) == 2 and all(isinstance(t, str) for _r, t in _reais),
+              str(type(_reais[0][1]) if _reais else None))
+        _txt_real = _img_t.txt_dos_prompts(_reais, "Caneca Medieval", _dir_dict)
+        conta("e o .txt sai da cadeia real sem explodir",
+              "PEÇA 1" in _txt_real and "PEÇA 2" in _txt_real, "")
+        conta("com a direcao de arte legivel, e nao o dicionario cru",
+              "Medieval Mineral" in _txt_real and "{'nome'" not in _txt_real, "")
+        # E PELA MESMA FUNCAO QUE O PROMPT USA. `bloco_direcao_de_arte` ja
+        # renderiza a direcao para o brief; um segundo renderizador dentro do
+        # .txt seria a Forma 5 — dois textos para a mesma direcao,
+        # discordando um dia.
+        conta("e renderizada por `bloco_direcao_de_arte`, a mesma do prompt",
+              "bloco_direcao_de_arte(" in _insp_t.getsource(
+                  _img_t.txt_dos_prompts),
+              "o .txt ganhou um renderizador proprio da direcao de arte")
+    except Exception as e:
+        conta("prompt_de_cada_peca roda com a direcao de arte em DICIONARIO",
+              False, f"{type(e).__name__}: {str(e)[:140]}")
+    finally:
+        (_img_t._chamar_openai_geracao, _img_t._get_openai_api_key,
+         _img_t._descricao_do_produto_cacheada) = _guardadas
 
     _pares = [("1 — Capa do anúncio (fundo branco)", "TEXTO DA PECA UM " * 4),
               ("4 — Close nos detalhes", "TEXTO DA PECA QUATRO " * 4),
@@ -1041,7 +1106,6 @@ def _txt_consolidado(conta):
 
     # A FONTE E UNICA: a tela e o txt tem de sair da MESMA funcao, senao os
     # dois discordam — e a questao e so quando (Forma 5).
-    import inspect as _insp_t
     _corpo_pag = _insp_t.getsource(_img_t.pagina_imagem)
     conta("a tela monta os prompts pela funcao unica",
           "prompt_de_cada_peca(" in _corpo_pag,

@@ -66,8 +66,14 @@ import sys
 # e reprova o que quebra. Sem ele na lista, toda função de tela que ele cobre
 # aparecia como "sem guarda" — e um verificador que acusa o que já está
 # coberto ensina a ignorar o verificador.
+# `checar_alcance.py` entra pela MESMA razao do `checar_tela.py`: ele E uma
+# guarda — varre o repositorio inteiro e reprova capacidade que existe num
+# irmao e falta no outro. Sem ele na lista, tudo que nasce dentro dele
+# (`CONSISTENTES_UTC`, por exemplo) aparecia como "sem guarda" tendo guarda
+# propria ao lado. Verificador que acusa o que ja esta coberto ensina a ser
+# ignorado.
 GUARDAS = ("checar_prompts.py", "checar_ordem.py", "auditar.py",
-           "checar_tela.py")
+           "checar_tela.py", "checar_alcance.py")
 
 # Nomes cuja mudança não precisa de guarda: são texto de tela, não regra.
 IGNORAR = re.compile(r"^(_?[a-z]*(msg|titulo|label|rotulo|texto_ajuda)[a-z_]*)$")

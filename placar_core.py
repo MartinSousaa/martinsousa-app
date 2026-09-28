@@ -329,7 +329,11 @@ def ritmo_do_mes(filtro_mes, meta_eq, saldo_eq, hoje=None):
     diz onde a equipe chegou, o ritmo diz se ela chega. No comeco do mes qualquer
     equipe esta longe da meta, e um mostrador vermelho no dia 2 nao informa nada.
     """
-    hoje = hoje or datetime.now()
+    # BRASILIA, e nao o container: esta funcao decide MES e DIA. As 21h do
+    # dia 30 o container ja esta no dia 1 do mes seguinte, e `ritmo_do_mes`
+    # devolvia None — o velocimetro da Meta Mensal perdia a cor no fim do mes,
+    # justo quando ela importa.
+    hoje = hoje or agora_br()
     if not filtro_mes or (filtro_mes[0], filtro_mes[1]) != (hoje.year, hoje.month):
         return None
     total_uteis, decorridos = dias_uteis_do_mes(
@@ -2996,5 +3000,29 @@ if __name__ == "__main__":
     ok("o fuso vem da constante FUSO", "FUSO" in _c and "-3" not in _c)
     ok("e hoje_br nao redefine o fuso",
        "FUSO" not in _insp_pc.getsource(hoje_br))
+
+    # ── `ritmo_do_mes` CALCULA MES E DIA ────────────────────────────────
+    #
+    # Era ele o defeito que a isencao larga escondia: eu tinha isentado o
+    # ARQUIVO placar_core inteiro da varredura de fuso "porque e onde
+    # `agora_br` mora". `ritmo_do_mes` usa `hoje.year`, `hoje.month` e
+    # `hoje.day` — as 21h do dia 30 o container ja esta no dia 1 do mes
+    # seguinte, e a funcao devolvia None: o velocimetro da Meta Mensal
+    # perdia a cor justo no fim do mes, quando ela importa.
+    _mes_atual = (agora_br().year, agora_br().month)
+    ok("ritmo_do_mes responde para o mes corrente",
+       ritmo_do_mes(_mes_atual, 5000, 2000) is not None)
+    # E NAO RESPONDE PARA OUTRO MES: sem isso, o teste acima passaria mesmo
+    # com a funcao ignorando o filtro.
+    ok("e devolve None para um mes que nao e o de hoje",
+       ritmo_do_mes((2020, 1), 5000, 2000) is None)
+    # A DATA PADRAO E A DE BRASILIA, e nao a do container. Passando `hoje`
+    # explicito a funcao tem de continuar obedecendo quem chamou.
+    _c_ritmo = _insp_pc.getsource(ritmo_do_mes)
+    ok("o padrao de `hoje` e a hora de Brasilia",
+       "hoje or agora_br()" in _c_ritmo)
+    ok("mas `hoje` explicito continua mandando",
+       ritmo_do_mes((2020, 1), 5000, 2000,
+                    hoje=datetime(2020, 1, 15)) is not None)
 
     print("\nfalhas:", falhas)
