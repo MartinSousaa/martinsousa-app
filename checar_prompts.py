@@ -589,6 +589,60 @@ def main():
               "uma geracao por peca")
         falhas += 1
 
+    # ── 4D-TER. A REGRA DE BORDA NAO PODE TER DUAS VOZES ───────────────────
+    #
+    # 28/09, producao: o dono relatou texto CORTADO nas pecas 4 e 5. O prompt
+    # baixado pelo botao novo mostrou por que — duas vozes sobre o mesmo
+    # objeto, no MESMO texto enviado ao motor:
+    #
+    #   PECA 4: "O detalhe escolhido PREENCHE o quadro. NAO HA MARGEM DE
+    #           RESPIRO nesta peca" ... e, adiante, "cada cartao comeca pelo
+    #           menos 6% abaixo do topo".
+    #   PECA 5: "Os cartoes ficam distribuidos ao redor do produto — em cima,
+    #           nas laterais e embaixo" ... e, adiante, "UMA coluna vertical
+    #           unica ... NUNCA distribuidos pelos quatro cantos".
+    #
+    # O gerador obedece a mais proxima e a mais especifica, e ela muda por
+    # peca. E a mesma doenca do cartao de texto com quatro vozes, que ja
+    # custou um deploy — so que sobrevivendo nos presets da 4 e da 5.
+    #
+    # A REGRA: seja qual for a peca, a folga da borda MANDA. Preencher o
+    # quadro vale para o PRODUTO; o texto nunca encosta.
+    _PECA4 = "4 — Close nos detalhes"
+    _PECA5 = "5 — Características técnicas (medidas/peso/material)"
+    for _tp, _proibidas in (
+        (_PECA4, ("Não há margem de respiro",)),
+        (_PECA5, ("margem de segurança é uniforme e pequena",)),
+    ):
+        # ESPACO NORMALIZADO. A frase da peca 4 nasce quebrada em duas
+        # linhas no codigo ("Não há margem de\n  respiro"), e a busca
+        # literal nao a achava — a guarda passava verde sobre o defeito que
+        # estava la. Procurar o que o motor LE, e nao o que eu escrevi.
+        _envio = enviados.get(_tp, "")
+        _liso = " ".join(_envio.split())
+        for _pr in _proibidas:
+            if _pr in _liso:
+                print(f"FALHA  '{_tp}' diz {_pr!r} E manda o cartao ficar a "
+                      f"6% da borda no mesmo texto. O gerador obedece a mais "
+                      f"proxima, e o texto sai cortado — foi o relato de "
+                      f"28/09.")
+                falhas += 1
+        # A PECA TEM DE DIZER QUE A FOLGA MANDA, para a ordem de preencher
+        # o quadro nao ser lida como "pode cortar o texto".
+        _i_manda = _liso.find("A FOLGA DA BORDA MANDA")
+        if _i_manda < 0:
+            print(f"FALHA  '{_tp}' nao diz que a folga da borda manda sobre "
+                  f"o resto — sem isso as duas ordens ficam empatadas")
+            falhas += 1
+        # E O NUMERO TEM DE ESTAR NESSA FRASE, e nao em qualquer lugar do
+        # prompt. A primeira versao procurava "6%" no texto inteiro, e a
+        # regra compartilhada ja o cita: tirar o 6% DA PECA passava verde.
+        # Precedencia sem numero e opiniao; com numero, e medida.
+        elif "6%" not in _liso[_i_manda:_i_manda + 260]:
+            print(f"FALHA  '{_tp}' diz que a folga manda mas nao diz QUANTO "
+                  f"— precedencia sem numero o gerador negocia")
+            falhas += 1
+
     # ── 4D-BIS. O PROMPT DO PLANO, QUE NENHUMA VARREDURA OLHAVA ────────────
     #
     # 28/09, producao: a caneca saiu torta, com duas alcas, e um modelo
