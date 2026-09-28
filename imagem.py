@@ -786,6 +786,19 @@ def gerar_triagem_ia(nome_produto, tipos_selecionados, dados_descricao, instruco
         f"[{i}] {t}\n     {PRESETS.get(t, '')[:300]}..."
         for i, t in enumerate(tipos_selecionados, 1))
 
+    # QUANTAS PEÇAS, E POR EXTENSO — o número vem da LISTA, nunca escrito.
+    #
+    # 28/09, produção: o dono escolheu UM tipo e o plano voltou com OITO
+    # cartões, todos iguais. O prompt dizia "as 8 peças", "oito cenas",
+    # "nenhuma outra das oito" — quatro vezes, fixo. A IA obedeceu o NÚMERO
+    # e ignorou a lista de tipos, que tinha um só. A tela acusou "a análise
+    # embaralhou os tipos" e os avisos saíam comparando "Personalizado com
+    # Personalizado".
+    _n_pecas = len(tipos_selecionados)
+    _EXTENSO = {1: "uma", 2: "duas", 3: "três", 4: "quatro", 5: "cinco",
+                6: "seis", 7: "sete", 8: "oito", 9: "nove", 10: "dez"}
+    _n_ext = _EXTENSO.get(_n_pecas, str(_n_pecas))
+
     contexto_descricao = ""
     if dados_descricao:
         contexto_descricao = f"""
@@ -856,7 +869,7 @@ TAREFA: duas coisas, nesta ordem.
 PRIMEIRO — A DIREÇÃO DE ARTE DO PRODUTO, DECIDIDA UMA VEZ SÓ
 -------------------------------------------------------------
 Antes de planejar qualquer imagem, olhe as fotos e decida o universo visual
-DESTE produto. Essa decisão vale para as 8 peças e não se repete: cada peça
+DESTE produto. Essa decisão vale para as {_n_pecas} peça(s) e não se repete: cada peça
 vai HERDAR o que você decidir aqui, não decidir de novo.
 
 Como decidir, em ordem de peso:
@@ -908,7 +921,7 @@ variar, não colocar sempre o mesmo lado. Não sempre de frente, às vezes de
 lado, mostrar a parte de trás também, caso tenha".
 - OLHE AS FOTOS: se elas mostram frente, verso, lateral, tampa ou base com
   acabamentos, gravações ou desenhos DIFERENTES, o plano tem de mostrar essas
-  faces ao longo das peças — não a mesma foto oito vezes.
+  faces ao longo das peças — não a mesma foto {_n_ext} vezes.
 - AS FOTOS MANDAM, E ESTA REGRA VEM DEPOIS DELAS. Varie o ângulo APENAS entre
   os ângulos que as fotos realmente mostram. Se todas as fotos mostram o mesmo
   lado, TODAS as peças usam esse lado — repetir o ângulo que existe é certo;
@@ -971,7 +984,7 @@ O CAMPO "trava_do_produto" CONSTATA, NUNCA DEDUZ:
   partir do cadastro e das fotos — e ela PROÍBE deduzir cor para harmonizar.
   Duas travas discordando na mesma mensagem é pior que uma só.
 
-O CAMPO "cena" — OITO CENAS, UM UNIVERSO SÓ
+O CAMPO "cena" — {_n_ext.upper()} CENA(S), UM UNIVERSO SÓ
 --------------------------------------------
 Consistência NÃO é repetir o mesmo cenário. Oito imagens com a mesma mesa, os
 mesmos props e o mesmo ângulo estão tecnicamente consistentes e o anúncio
@@ -985,7 +998,7 @@ superfície, arquitetura do fundo, ângulo de câmera, recorte, profundidade,
 escolha e arranjo de props, espaço negativo.
 
 Escreva em "cena" UMA frase curta com a superfície, os props e o ângulo DESTA
-peça — e confira que nenhuma outra das oito repete a mesma combinação. Não
+peça — e confira que nenhuma outra das {_n_ext} repete a mesma combinação. Não
 reutilize o mesmo prop decorativo em duas peças sem motivo forte.
 
 Capa (fundo branco) e Características técnicas são as exceções: nelas "cena"
