@@ -343,27 +343,86 @@ def regra_de_espaco(tipo):
         return pt, en
 
     # Tipos 2, 3, 5, 6, 7 e Personalizado: produto mais painel de texto.
+    # UMA VOZ SOBRE A MARGEM, E ELA E A DA FOLGA.
+    #
+    # Aqui havia DUAS ordens contrarias, uma embaixo da outra: "faixa vazia em
+    # volta da peca e area desperdicada, e o anuncio paga por ela" e "folga de
+    # pelo menos 6% em cada lado". Mais uma terceira em ingles, logo abaixo:
+    # "the safety margin is uniform and small". O gerador obedeceu a primeira,
+    # encostou os cartoes na borda, e o texto saiu cortado — na peca 2, na 5, e
+    # de novo depois de eu "corrigir".
+    #
+    # Porque a minha correcao de 26/09 (as pecas 4 e 5) ACRESCENTOU a regra da
+    # folga e deixou a que brigava no lugar. Virei a terceira voz em vez de
+    # calar a que contradizia, e o defeito voltou.
+    #
+    # O trabalho que a linha removida fazia — nao deixar o produto pequeno
+    # perdido num quadro amplo — ja tem dono: e o bloco de protagonismo, que
+    # diz a porcentagem exata de cada tipo. Duas respostas para a mesma
+    # pergunta discordam; a questao e so quando.
     pt = ("REGRA DE ESPAÇO DESTA PEÇA:\n"
-          "- O QUE NÃO É PRODUTO É PAINEL OU CENÁRIO — NÃO É VAZIO. O espaço\n"
-          "  que sobra depois de enquadrar o produto pertence aos blocos de\n"
-          "  texto e ao ambiente. Faixa vazia em volta da peça é área\n"
-          "  desperdiçada, e o anúncio paga por ela.\n"
           "- A FOLGA DA BORDA MANDA: pelo menos 6% em cada lado, e nenhum\n"
-          "  cartão de cota, seta ou legenda cruza ou toca a borda. A regra\n"
-          "  de aproveitar o quadro vale para o PRODUTO e para a cena, e\n"
-          "  nunca autoriza encostar texto na margem.\n"
+          "  cartão de cota, seta ou legenda cruza ou toca a borda. Nada\n"
+          "  encosta na margem — nem texto, nem ícone, nem cartão, nem seta.\n"
+          "- DENTRO dessa folga, o espaço que sobra depois de enquadrar o\n"
+          "  produto pertence aos blocos de texto e ao ambiente: distribua a\n"
+          "  informação nele, sem nunca alcançar a margem.\n"
           "- O produto aparece INTEIRO: nenhuma parte cortada pela borda do\n"
           "  quadro.\n"
           + comum_pt)
-    en = ("- WHAT IS NOT PRODUCT IS PANEL OR SCENE — IT IS NOT EMPTY SPACE. "
-          "Whatever remains after framing the product belongs to the text "
-          "blocks and the environment. An empty band around the piece is "
-          "wasted area.\n"
-          "- The safety margin is uniform and small on all four sides: only "
-          "enough to keep everything off the edge.\n"
+    en = ("- THE EDGE CLEARANCE RULES: at least 6% on every side, and no card, "
+          "callout, arrow or caption may cross or touch the frame edge.\n"
+          "- INSIDE that clearance, whatever remains after framing the "
+          "product belongs to the text blocks and the environment — fill it, "
+          "but never reach the margin.\n"
           "- The product appears WHOLE: no part cut by the frame edge.\n"
           + comum_en)
     return pt, en
+
+
+import re as _re_quadro
+
+_MEDIDA_DE_QUADRO = _re_quadro.compile(
+    r"[,;]?\s*(?:e\s+)?(?:com\s+)?(?:o\s+)?(?:produto\s+)?"
+    r"[^,;.]*?\d{1,3}\s?%[^,;.]*(?:[,;.]|$)", _re_quadro.I)
+
+
+def sem_medida_de_quadro(texto):
+    """A frase do plano, sem a porcentagem de quadro que ela não pode mandar.
+
+    POR QUE ESTA FUNÇÃO EXISTE
+
+    O campo `cena` é escrito pela IA do plano, e o prompt dela pede
+    SUPERFÍCIE, PROPS e ÂNGULO — nada de tamanho. Em 28/09 ela escreveu
+    "Fundo branco puro sem sombra projetada; produto centralizado ocupando
+    60% do espaço vertical" numa peça cuja regra mandava 85% a 92%.
+
+    Duas ordens contrárias sobre a mesma coisa, no mesmo prompt. O gerador
+    obedeceu a do plano, a caneca saiu pequena na capa, e o dono teve de pedir
+    para aumentar — uma rodada inteira por causa de uma frase.
+
+    E a varredura passou VERDE: ela procura as frases que o SISTEMA escreve
+    ("ocupa de X% a Y%"), e a IA escreve em português livre. Guarda que só
+    conhece o próprio vocabulário não vê a voz de fora.
+
+    POR QUE LIMPAR E NÃO PEDIR
+
+    Pedir no prompt do plano seria mais uma regra de texto — e regra de texto
+    é justamente o que o modelo ignora. O tamanho tem um dono só
+    (`ocupacao_em_portugues`), e quem não é dono não fala.
+
+    Corta a ORAÇÃO inteira, e não só o número: "ocupando 60%" sem o número
+    vira "ocupando", que continua mandando tamanho sem dizer quanto.
+    """
+    t = str(texto or "").strip()
+    if not t or "%" not in t:
+        return t
+    limpo = _MEDIDA_DE_QUADRO.sub(", ", t)
+    limpo = _re_quadro.sub(r"\s*,\s*(?=,|\.|$)", "", limpo)
+    limpo = _re_quadro.sub(r"\s{2,}", " ", limpo).strip(" ,;")
+    # Sobrou frase? Se a limpeza comeu tudo, o certo é devolver vazio: cena
+    # que só falava de tamanho não tinha nada a dizer sobre cenário.
+    return (limpo + "." if limpo and not limpo.endswith(".") else limpo)
 
 
 def faixa_de_ocupacao(tipo):
@@ -3831,7 +3890,7 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
     bloco_plano_triagem = ""
     _blocos_da_copy = 0
     if plano_triagem and not (tipo == "Personalizado (descrevo o que quero)"):
-        _composicao = plano_triagem.get("composicao", "").strip()
+        _composicao = sem_medida_de_quadro(plano_triagem.get("composicao", ""))
         plano_triagem_item_cena = plano_triagem.get("cena", "")
         _textos = [t for t in plano_triagem.get("textos", []) if t and str(t).strip()]
         # O TETO DA PECA CORTA A COPY AQUI, E NAO NO GERADOR.
@@ -3855,7 +3914,7 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
             # com caneta na 3, na 7 e na 8. A triagem planeja as oito de uma
             # vez e por isso consegue variar superficie, props e angulo sem
             # sair do universo.
-            _cena = str(plano_triagem_item_cena or "").strip()
+            _cena = sem_medida_de_quadro(plano_triagem_item_cena)
             if _cena:
                 bloco_plano_triagem += f"Cena desta peça: {_cena}\n"
             if _textos:
@@ -8713,6 +8772,52 @@ if __name__ == "__main__":
     ok("pode_ter_texto só dispensa capa e ambientação",
        pode_ter_texto("Personalizado (descrevo o que quero)")
        and not pode_ter_texto("8 — Ambientação realista (sem texto)"))
+
+    # ── O PLANO NAO MANDA TAMANHO ───────────────────────────────────────
+    #
+    # 28/09: a capa saiu com a caneca pequena, e o dono pediu para aumentar.
+    # Nao era o modelo desobedecendo: o prompt mandava DUAS coisas.
+    #
+    #   regra da peca : "O produto ocupa de 85% a 92% da dimensao util"
+    #   cena do plano : "produto centralizado ocupando 60% do espaco vertical"
+    #
+    # A cena e escrita pela IA do plano, e o prompt dela pede superficie,
+    # props e angulo — nada de tamanho. Ela legislou fora da area dela, e o
+    # gerador obedeceu a ela.
+    #
+    # A ENTRADA DESTE TESTE VEM DO .TXT DO DONO, palavra por palavra, e nao
+    # de uma frase que eu inventaria (Forma 7). A frase abaixo e a que
+    # realmente foi ao motor em 28/09 as 18:47.
+    _CENA_REAL = ("Fundo branco puro sem sombra projetada; produto "
+                  "centralizado ocupando 60% do espaço vertical.")
+    ok("a medida sai da cena, e a cena continua dizendo o cenario",
+       sem_medida_de_quadro(_CENA_REAL) == "Fundo branco puro sem sombra projetada.")
+    ok("cena sem medida passa intacta",
+       sem_medida_de_quadro("superfície de nogueira, caderno fechado, câmera em 3/4")
+       == "superfície de nogueira, caderno fechado, câmera em 3/4")
+    ok("a medida no MEIO sai sem levar o resto junto",
+       sem_medida_de_quadro("Bancada de mármore, produto ocupando 85% da altura, luz lateral")
+       == "Bancada de mármore, luz lateral.")
+    # A ORACAO INTEIRA, e nao so o numero: "ocupando" sem o numero continua
+    # mandando tamanho, so que sem dizer quanto — que e pior.
+    ok("nao sobra 'ocupando' orfao",
+       "ocupando" not in sem_medida_de_quadro(_CENA_REAL)
+       and "ocupando" not in sem_medida_de_quadro(
+           "produto ocupando 70% do quadro"))
+    ok("cena que so falava de tamanho vira vazia, e nao lixo",
+       sem_medida_de_quadro("produto ocupando 70% do quadro") == "")
+    ok("vazio e None nao derrubam",
+       sem_medida_de_quadro("") == "" and sem_medida_de_quadro(None) == "")
+
+    # E A LIMPEZA TEM DE ESTAR NO CAMINHO, nao so existir. Nenhum teste de
+    # unidade pega uma funcao que ninguem chama — foi o erro de hoje de manha,
+    # duas vezes.
+    _p_capa = montar_prompt_imagem(
+        "1 — Capa do anúncio (fundo branco)", "", {}, "Caneca",
+        plano_triagem={"composicao": "produto centralizado",
+                       "cena": _CENA_REAL, "textos": []})
+    ok("e a cena chega ao prompt JA limpa",
+       "60%" not in _p_capa and "Fundo branco puro" in _p_capa)
 
     # ── A PECA E OLHADA, E NAO SO LIDA ──────────────────────────────────
     #

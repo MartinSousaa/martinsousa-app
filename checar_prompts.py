@@ -247,7 +247,15 @@ REGRAS = [
      (TIPO_AMBIENTE,), (TIPO_CAPA,)),
     ("os cartões não se sobrepõem entre si", "never overlap each other",
      TIPOS_COM_TEXTO, (TIPO_AMBIENTE,)),
-    ("o que sobra é painel, não vazio", "IT IS NOT EMPTY SPACE",
+    # A REGRA CONTINUA, A FRASE MUDOU. Ela existe para o espaco que sobra
+    # virar painel e cenario em vez de faixa morta. O que saiu foi a parte
+    # que mandava ENCHER ate a borda — porque brigava com a folga de 6% na
+    # linha seguinte, e o gerador obedecia a primeira. Agora a mesma ideia
+    # vem subordinada: preencher DENTRO da folga.
+    ("o que sobra é painel, e dentro da folga", "never reach the margin",
+     tuple(t for t in TIPOS_COM_TEXTO if not t.startswith("4 —")),
+     (TIPO_CAPA, TIPO_AMBIENTE)),
+    ("e a folga da borda manda, em uma voz so", "THE EDGE CLEARANCE RULES",
      tuple(t for t in TIPOS_COM_TEXTO if not t.startswith("4 —")),
      (TIPO_CAPA, TIPO_AMBIENTE)),
     ("o produto inteiro, sem corte pela borda", "no part cut by the frame edge",
@@ -318,8 +326,22 @@ _DADOS = {"nome_comercial": "Produto de Teste", "cor": "preto",
           "medidas": "71x14x14", "peso": "350 g",
           "material": "Metal escovado, encadernação Wire-O preta",
           "caracteristicas": "60 folhas, cantos arredondados"}
+# A CENA VEM COM MEDIDA DENTRO, PORQUE NA REALIDADE ELA VEM.
+#
+# O plano de mentira daqui tinha uma cena limpa — superficie, props e angulo,
+# que e o que o prompt do plano PEDE. A cena de verdade, no .txt que o dono
+# baixou em 28/09, dizia: "Fundo branco puro sem sombra projetada; produto
+# centralizado ocupando 60% do espaco vertical" — e a regra daquela peca
+# mandava 85% a 92%.
+#
+# Duas medidas contrarias no mesmo prompt, e esta varredura passou VERDE,
+# porque o duplo dela era mais pobre que a realidade. A caneca saiu pequena
+# na capa, e o dono teve de pedir para aumentar.
+#
+# Agora o duplo carrega o defeito que a realidade carrega.
 _PLANO = {"composicao": "produto à esquerda, cartões à direita",
-          "cena": "superfície de nogueira, caderno fechado, câmera em 3/4",
+          "cena": "superfície de nogueira, caderno fechado, câmera em 3/4, "
+                  "produto centralizado ocupando 60% do espaço vertical",
           "textos": ["Aquece rápido", "Cerâmica premium",
                      "Alça confortável", "Presente perfeito"]}
 
@@ -386,7 +408,17 @@ def _prompts(tipo):
     imagem._descricao_do_produto_cacheada = _descricao
     imagem._get_openai_api_key = lambda: "sk-varredura"
     try:
-        plano = None if tipo in (TIPO_CAPA, TIPO_AMBIENTE, TIPO_LIVRE) else _PLANO
+        # A CAPA E A AMBIENTACAO TAMBEM RECEBEM PLANO.
+        #
+        # Elas entravam aqui com `plano = None`, e era exatamente na CAPA que
+        # a cena mandou 60% contra os 85-92% da regra. A varredura era cega no
+        # unico lugar onde o defeito aconteceu.
+        #
+        # O TIPO_LIVRE continua sem plano, e isso nao e esquecimento:
+        # `montar_prompt_imagem` ignora o plano nele de proposito (o
+        # colaborador escreve a peca inteira), e forcar um aqui seria alarme
+        # falso em cima de codigo certo.
+        plano = None if tipo == TIPO_LIVRE else _PLANO
         # O NOME DA REFERENCIA ENTRA ENVENENADO, DE PROPOSITO.
         #
         # Sem referencia nenhuma, a regra que proibe o nome cru no prompt nao
@@ -465,6 +497,54 @@ def main():
         if len(faixas) > 1:
             print(f"FALHA  '{t}' manda {len(faixas)} medidas de ocupacao "
                   f"contrarias ao motor: {sorted(faixas)}")
+            falhas += 1
+
+    # ── 3-bis. A CENA E A COMPOSICAO NAO MANDAM TAMANHO ────────────────────
+    #
+    # A checagem 3 acima procura as frases que o SISTEMA escreve ("ocupa de
+    # X% a Y%", "occupancy X–Y% of frame"). A cena e a composicao sao escritas
+    # pela IA do plano, em portugues livre — e ela escreveu "produto
+    # centralizado ocupando 60% do espaco vertical" numa peca cuja regra
+    # mandava 85% a 92%. Nenhum padrao da checagem 3 casa com essa frase, e a
+    # varredura passou verde com as duas ordens contrarias no mesmo prompt.
+    #
+    # Aqui a pergunta e outra e nao depende de vocabulario: a linha do PLANO
+    # traz porcentagem? Se traz, ela esta legislando sobre tamanho, e tamanho
+    # tem um dono so. O plano diz SUPERFICIE, PROPS e ANGULO — e o prompt do
+    # proprio plano pede exatamente isso.
+    _LINHA_PLANO = re.compile(r"^(?:Cena desta peça|Composição): (.+)$",
+                              re.M)
+    for t in TODOS:
+        for _m in _LINHA_PLANO.finditer(enviados[t]):
+            _achou = re.findall(r"\d{1,3}\s?%", _m.group(1))
+            if _achou:
+                print(f"FALHA  a linha do plano de '{t}' manda tamanho "
+                      f"({', '.join(_achou)}): {_m.group(1)[:70]!r} — o "
+                      "tamanho ja tem dono, e duas ordens contrarias no mesmo "
+                      "prompt foi o que deixou a capa com o produto pequeno")
+                falhas += 1
+
+    # ── 3-ter. UMA VOZ SO SOBRE A MARGEM ───────────────────────────────────
+    #
+    # O mesmo prompt mandava "faixa vazia em volta da peca e area
+    # desperdicada" E "folga de pelo menos 6% em cada lado" E, em ingles,
+    # "the safety margin is uniform and small". Tres ordens sobre a mesma
+    # borda; o modelo escolheu a primeira e o texto saiu cortado.
+    #
+    # A correcao de 26/09 (as pecas 4 e 5) acrescentou a regra da folga e
+    # deixou a que briga no lugar — virou a terceira voz em vez de calar a
+    # que contradizia.
+    _BRIGAM = (
+        "Faixa vazia em volta da peça é área",
+        "An empty band around the piece is wasted area",
+        "The safety margin is uniform and small",
+    )
+    for t in TODOS:
+        _presentes = [b for b in _BRIGAM if b in enviados[t]]
+        if _presentes and "A FOLGA DA BORDA MANDA" in enviados[t]:
+            print(f"FALHA  '{t}' manda encher a borda E deixar folga: "
+                  f"{_presentes} — duas ordens sobre a mesma margem, e o "
+                  "texto sai cortado")
             falhas += 1
 
     # ── 4. UM TETO DE BLOCOS POR PECA ──────────────────────────────────────
