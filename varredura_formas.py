@@ -181,20 +181,39 @@ def forma6_sessao_em_thread():
 
 
 # ── FORMA 2 — a guarda que se encontra a si mesma ────────────────────────────
-def forma2_guarda_le_o_arquivo():
-    """Verificador que lê o ARQUIVO inteiro em vez do bloco.
+def forma2_guarda_que_se_encontra():
+    """Guarda cuja asserção POSITIVA só bate no próprio texto do teste.
 
-    Cinco guardas desta base já se acharam no próprio texto. `inspect.
-    getsource` do bloco só vê a função; `open(__file__).read()` vê a guarda.
+    A PERGUNTA MUDOU, E POR MEDICAO. A primeira versao listava todo
+    `open(__file__)` — quatorze ocorrencias — como se o padrao fosse o
+    defeito. Nao e: ler o arquivo e legitimo quando o literal procurado vive
+    no codigo de producao. Mutei as quatorze e TODAS reprovaram o defeito.
+    Listar codigo certo e alarme falso, e alarme falso ensina a ignorar.
+
+    O defeito de verdade e mais estreito: uma assercao `"x" in fonte` onde
+    `"x"` NAO existe na producao e so aparece no proprio bloco de
+    conferencia. Ai ela passa verde para sempre, medindo a si mesma.
+
+    `not in` fica de fora: afirmar que um texto NAO existe e justamente o
+    caso em que ele so pode estar no teste.
     """
     fora = []
     for nome, fonte in _fontes():
-        if not (nome.startswith("checar_") or '__name__ == "__main__"' in fonte):
+        corpo, _, teste = fonte.partition('if __name__ == "__main__":')
+        if not teste:
             continue
-        for i, linha in enumerate(fonte.splitlines(), 1):
-            if "open(__file__" in linha:
-                fora.append(f"{nome}:{i}  lê o próprio arquivo — "
-                            f"use inspect.getsource(bloco)")
+        for m in re.finditer(
+                r'"([^"\n]{8,80})"\s+in\s+(_?[a-z_]*(?:fonte|src|corpo|arquivo)'
+                r'[a-z_]*)', teste):
+            lit, var = m.group(1), m.group(2)
+            # So quando a variavel e o ARQUIVO inteiro: `inspect.getsource` de
+            # um bloco nao alcanca o teste, entao nao ha como se encontrar.
+            if f"{var} = open(__file__" not in teste and f"{var}=open(__file__" not in teste:
+                continue
+            if corpo.count(lit) == 0:
+                linha = teste[:m.start()].count("\n") + corpo.count("\n") + 1
+                fora.append(f"{nome}:{linha}  \"{lit[:50]}\" só existe no "
+                            f"teste — a guarda mede a si mesma")
     return fora
 
 
@@ -253,8 +272,8 @@ def main():
     blocos = [
         ("FORMA 1 — gravação com falha silenciosa (precisa de guarda de CONTEÚDO)",
          forma1_retorno_engolido()),
-        ("FORMA 2 — guarda que lê o próprio arquivo",
-         forma2_guarda_le_o_arquivo()),
+        ("FORMA 2 — guarda cuja asserção só bate em si mesma",
+         forma2_guarda_que_se_encontra()),
         ("FORMA 3 — tela que nenhum verificador desenha",
          forma3_tela_sem_guarda()),
         ("FORMA 5 — arquivos gêmeos (um é cópia do outro)",
