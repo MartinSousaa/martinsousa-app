@@ -690,6 +690,55 @@ def _chat(conta):
           ".normalizar_imagem(" in _corpo, "")
 
 
+def _retrato_no_painel(conta):
+    """A gravacao do retrato roda DENTRO de `pagina_placar` — na thread da
+    TV, a cada volta, de minuto em minuto. E a unica linha deste diff que
+    fala com a rede em todo desenho de tela.
+
+    O cenario "sem credencial do Trello" nao a alcanca: ele sai antes. Esta
+    guarda existe porque o protocolo de 28/09 pergunta, antes de subir, qual
+    verificador leu a linha que mudou — e nenhum lia esta.
+    """
+    import inspect as _insp_r
+    import placar as _pl
+    import placar_snapshot as _ps
+
+    _corpo = _insp_r.getsource(_pl.pagina_placar)
+    _i = _corpo.find("placar_snapshot")
+    _trecho = _corpo[max(0, _i - 400):_i + 400] if _i >= 0 else ""
+    # PROTEGIDA POR try/except: uma planilha fora do ar nao pode derrubar o
+    # Painel de Metas nem congelar a TV.
+    conta("a gravacao do retrato esta dentro de um try",
+          bool(_trecho) and "try:" in _trecho and "except Exception:" in _trecho,
+          "a chamada esta desprotegida — planilha fora do ar derruba a tela")
+    # E O MES VAI JUNTO: sem ele, olhar agosto no seletor gravaria agosto
+    # como o retrato de hoje, e a comparacao de amanha acusaria uma queda de
+    # mes inteiro que nunca houve.
+    conta("e o mes que a tela mostra vai junto na chamada",
+          "filtro_mes=filtro_mes" in _trecho,
+          "sem filtro_mes, olhar um mes passado grava retrato mentiroso")
+
+    # E A GRAVACAO EM SI, com a planilha quebrada, nao levanta excecao.
+    class _AbaMorta:
+        def get_all_records(self):
+            raise RuntimeError("sem rede")
+
+        def append_row(self, *a, **k):
+            raise RuntimeError("sem rede")
+
+    _ps._memoria_limpar()
+    try:
+        _r = _ps.gravar({"pts_equipe": 10.0, "pen_total": 0.0,
+                         "cards_pts": [{"id": "a", "pts": 10}]},
+                        5000, aba=_AbaMorta())
+        conta("planilha morta devolve 'falhou' em vez de explodir",
+              _r == "falhou", str(_r))
+    except Exception as e:
+        conta("planilha morta devolve 'falhou' em vez de explodir", False,
+              f"{type(e).__name__}: {e}")
+    _ps._memoria_limpar()
+
+
 def main():
     instalar()
     falhas = []
@@ -709,6 +758,7 @@ def main():
     _mapa_de_pontos(conta)
     _processar_cards_pts(conta)
     _chat(conta)
+    _retrato_no_painel(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0
