@@ -1006,6 +1006,11 @@ def _txt_consolidado(conta):
     faz quem le procurar defeito onde nao ha.
     """
     import imagem as _img_t
+    # O import vem ANTES do primeiro uso, e nao la embaixo: a primeira versao
+    # usava `_insp_t` neste bloco e so o importava depois — UnboundLocalError,
+    # que ja derrubou producao duas vezes nesta base e e exatamente o que o
+    # segundo verificador existe para achar.
+    import inspect as _insp_t
 
     # ── A CADEIA REAL, E NAO TEXTO DE MENTIRA ───────────────────────────
     #
@@ -1052,6 +1057,14 @@ def _txt_consolidado(conta):
               "PEÇA 1" in _txt_real and "PEÇA 2" in _txt_real, "")
         conta("com a direcao de arte legivel, e nao o dicionario cru",
               "Medieval Mineral" in _txt_real and "{'nome'" not in _txt_real, "")
+        # E PELA MESMA FUNCAO QUE O PROMPT USA. `bloco_direcao_de_arte` ja
+        # renderiza a direcao para o brief; um segundo renderizador dentro do
+        # .txt seria a Forma 5 — dois textos para a mesma direcao,
+        # discordando um dia.
+        conta("e renderizada por `bloco_direcao_de_arte`, a mesma do prompt",
+              "bloco_direcao_de_arte(" in _insp_t.getsource(
+                  _img_t.txt_dos_prompts),
+              "o .txt ganhou um renderizador proprio da direcao de arte")
     except Exception as e:
         conta("prompt_de_cada_peca roda com a direcao de arte em DICIONARIO",
               False, f"{type(e).__name__}: {str(e)[:140]}")
@@ -1093,7 +1106,6 @@ def _txt_consolidado(conta):
 
     # A FONTE E UNICA: a tela e o txt tem de sair da MESMA funcao, senao os
     # dois discordam — e a questao e so quando (Forma 5).
-    import inspect as _insp_t
     _corpo_pag = _insp_t.getsource(_img_t.pagina_imagem)
     conta("a tela monta os prompts pela funcao unica",
           "prompt_de_cada_peca(" in _corpo_pag,

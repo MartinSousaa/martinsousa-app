@@ -268,7 +268,65 @@ def forma1_retorno_engolido():
     return fora
 
 
+def _autoteste():
+    """A varredura se confere, e por casos plantados — nao por inspecao.
+
+    `forma2_guarda_que_se_encontra` nasceu de uma pergunta REESCRITA: a
+    primeira listava todo `open(__file__)` e a medicao mostrou que o padrao
+    nao e o defeito. Uma pergunta reescrita precisa provar que continua
+    enxergando o que importa, senao ela so ficou silenciosa.
+
+    O passo 3 do protocolo pergunta "qual verificador leu a linha que eu
+    mudei?". Para esta linha, a resposta era "nenhum": eu tinha plantado um
+    defeito a mao e apagado depois. Isso nao e repetivel — e o que nao e
+    repetivel nao e guarda.
+    """
+    import tempfile
+    falhas = 0
+
+    def ok(nome, cond):
+        nonlocal falhas
+        falhas += not cond
+        print(("ok    " if cond else "FALHA ") + nome)
+
+    _COM = ('def f():\n    return 1\n\n'
+            'if __name__ == "__main__":\n'
+            '    _fonte = open(__file__, encoding="utf-8").read()\n'
+            '    ok("x", "FRASE QUE NAO EXISTE NA PRODUCAO" in _fonte)\n')
+    _SEM = ('def f():\n    return "FRASE QUE EXISTE NA PRODUCAO"\n\n'
+            'if __name__ == "__main__":\n'
+            '    _fonte = open(__file__, encoding="utf-8").read()\n'
+            '    ok("x", "FRASE QUE EXISTE NA PRODUCAO" in _fonte)\n')
+    # `not in` e legitimo: afirmar ausencia so pode ter o literal no teste.
+    _NEG = ('def f():\n    return 1\n\n'
+            'if __name__ == "__main__":\n'
+            '    _fonte = open(__file__, encoding="utf-8").read()\n'
+            '    ok("x", "ORDEM QUE NAO PODE VOLTAR" not in _fonte)\n')
+
+    import os as _os
+    with tempfile.TemporaryDirectory() as _d:
+        _antes = _os.getcwd()
+        try:
+            _os.chdir(_d)
+            for _nome, _txt, _espera in (("com.py", _COM, True),
+                                         ("sem.py", _SEM, False),
+                                         ("neg.py", _NEG, False)):
+                open(_nome, "w", encoding="utf-8").write(_txt)
+            _achados = forma2_guarda_que_se_encontra()
+        finally:
+            _os.chdir(_antes)
+
+    _texto = " ".join(_achados)
+    ok("acha a guarda que so bate em si mesma", "com.py" in _texto)
+    ok("e nao acusa a que bate na producao", "sem.py" not in _texto)
+    ok("nem a assercao NEGATIVA, que e legitima", "neg.py" not in _texto)
+    print("\nfalhas:", falhas)
+    return falhas
+
+
 def main():
+    if "--autoteste" in sys.argv:
+        return 1 if _autoteste() else 0
     blocos = [
         ("FORMA 1 — gravação com falha silenciosa (precisa de guarda de CONTEÚDO)",
          forma1_retorno_engolido()),
