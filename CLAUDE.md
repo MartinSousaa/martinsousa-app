@@ -14,7 +14,7 @@ acabei de escrever, em poucas linhas.
 **0-bis. O sinal `@` sozinho é ordem de conferência.**
 Mensagem com `@` e mais nada significa: aplique o PROTOCOLO DE CONFERÊNCIA
 inteiro, sem pedir para repetir o que ele é. Ele está escrito em "O RETRABALHO
-QUE EU GERO", mais abaixo, e são cinco passos:
+QUE EU GERO", mais abaixo, e são sete passos:
 
 1. Rodar os **seis verificadores**, e colar a saída — não "devem passar".
 2. Rodar o auto-teste de **todo arquivo tocado**, e os 60+ do repositório.
@@ -25,6 +25,15 @@ QUE EU GERO", mais abaixo, e são cinco passos:
    falhar. Guarda que nunca viu o defeito nunca foi testada.
 5. Mapear o risco do diff: import circular, chave de widget repetida, chamada
    de rede dentro de laço de render, e quem mais lê o que mudou.
+6. **De onde veio o dado do teste?** Valor escrito à mão no teste mede o meu
+   entendimento do sistema, e é o meu entendimento que costuma estar errado.
+   Abrir a linha que PRODUZ aquele valor e conferir o tipo — e fazer ao menos
+   uma asserção partir da cadeia real, não do meio dela. *(O botão dos oito
+   prompts quebrou com a guarda verde: eu passei `direcao_arte` como texto, e
+   no sistema ela é dicionário.)*
+7. **Conflito de merge:** a lista vem de `git diff --name-only
+   --diff-filter=U`, nunca do que coube na tela — e depois de resolver, varrer
+   o repositório inteiro atrás de marcador, inclusive fora do código.
 
 `@` sozinho pede o protocolo. `@arquivo.py` continua sendo referência a
 arquivo, e não tem nada a ver com isto.
@@ -235,6 +244,57 @@ empilhada na primeira.
 
 **Guarda:** `checar_alcance.py` passa a procurar leitura de `st.session_state`
 dentro de função alcançável por `threading.Thread`, e reprova.
+
+### Forma 7 — a guarda alimentada com dado que eu mesmo inventei
+
+O botão dos oito prompts quebrou em produção — `AttributeError: 'dict'
+object has no attribute 'strip'` — **com a guarda dele verde**.
+
+Por quê: a guarda chamava `txt_dos_prompts` com pares de string que eu
+escrevi na hora, e com `direcao_arte="Medieval Rústico"`. Na realidade a
+direção de arte é um **dicionário** (`imagem.py:6681`). O teste nunca tocou
+`prompt_de_cada_peca`, que é quem monta os pares de verdade.
+
+**Isto é diferente das Formas 2 e 6.** Ali a guarda travava a redação, ou
+exercitava a função isolada. Aqui ela exercitava a função certa — só que
+com uma ENTRADA que não existe no sistema. Duplo mais pobre que a realidade
+"acusa o inocente"; duplo com o TIPO errado faz pior: **absolve o culpado**.
+
+**Três regras:**
+
+1. **A entrada do teste vem do sistema, não da minha cabeça.** Antes de
+   escrever um valor no teste, abrir o lugar que o produz e conferir o
+   TIPO. `cfg.get("direcao_de_arte")` devolve `{}`, não `""` — está escrito
+   na linha que monta o `cfg`.
+
+2. **Toda função nova é exercitada pela CADEIA, ao menos uma vez.** Testar
+   `txt_dos_prompts` sozinha é legítimo para as bordas; mas uma das
+   asserções tem de partir de `prompt_de_cada_peca` de verdade, com o `cfg`
+   na forma que a tela monta. Foi isso que faltou.
+
+3. **Valor de teste escrito à mão é suspeito por definição.** Quando a
+   guarda é a única coisa que produz aquele dado, ela está medindo o meu
+   entendimento do sistema — e o meu entendimento é justamente o que estava
+   errado.
+
+### Forma 8 — resolver conflito só onde o git apontou na tela
+
+Duas vezes no mesmo dia. `CLAUDE.md` subiu **commitado com `<<<<<<< HEAD`
+dentro**: resolvi os três `.py` que li na saída do merge e não olhei o
+resto. Depois a guarda nova achou um segundo, `CONTEXTO_PARA_ANALISE.txt`,
+commitado havia semanas. E no merge seguinte eram **seis** arquivos, não
+três — o `tail -6` da saída tinha escondido metade.
+
+**Duas regras:**
+
+1. **A lista de conflitos vem de `git diff --name-only --diff-filter=U`**,
+   que é a fonte, e nunca do que coube na tela.
+2. **Depois de resolver, varrer o repositório inteiro** atrás de marcador —
+   inclusive fora do código. Nenhum dos seis verificadores lia `.md` ou
+   `.txt` antes disto.
+
+**Guarda:** `checar_alcance.py` varre `.py`, `.md`, `.txt` e `.toml` e
+reprova marcador de conflito commitado.
 
 ### O que eu mapeei e o que NÃO mapeei
 

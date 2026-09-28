@@ -4417,9 +4417,21 @@ def txt_dos_prompts(pares, nome_produto="", direcao_arte=""):
         "acrescentado no fim — ele não aparece aqui porque ainda não foi lido.",
         "",
     ]
-    if direcao_arte:
+    # A DIREÇÃO DE ARTE É UM DICIONÁRIO, e não texto.
+    #
+    # `imagem.py:6681` — `plano.get("direcao_de_arte") or {}`. Chamar
+    # `.strip()` nela levantava `AttributeError: 'dict' object has no
+    # attribute 'strip'`, e o botão quebrava com a guarda verde: o teste
+    # passava uma string que eu mesmo tinha escrito.
+    #
+    # `bloco_direcao_de_arte` é a MESMA função que o prompt usa para
+    # renderizá-la. Escrever um segundo renderizador aqui seria a Forma 5:
+    # dois textos para a mesma direção, discordando um dia.
+    _dir_txt = (direcao_arte if isinstance(direcao_arte, str)
+                else bloco_direcao_de_arte(direcao_arte))
+    if str(_dir_txt or "").strip():
         linhas += ["DIREÇÃO DE ARTE (a mesma para todas as peças)",
-                   "-" * 78, direcao_arte.strip(), ""]
+                   "-" * 78, str(_dir_txt).strip(), ""]
     for i, (rotulo, texto) in enumerate(pares, 1):
         linhas += ["=" * 78,
                    f"PEÇA {i} — {rotulo}",
