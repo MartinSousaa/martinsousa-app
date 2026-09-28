@@ -5631,6 +5631,28 @@ def pagina_imagem(usuario_logado):
     st.subheader("Imagem")
     st.caption("Gere imagens profissionais para o anúncio. A IA mostra o que vai criar antes de gastar com a geração.")
 
+    # ── QUEM ESTÁ GERANDO, E O QUE — marcado AQUI, na thread principal ───────
+    #
+    # A geração roda em `threading.Thread` (linha ~7162), e de dentro de uma
+    # thread `st.session_state` volta VAZIO — sem erro, sem aviso. O registro
+    # do prompt lia produto e usuário de lá, então TODA linha do log gravou
+    # produto em branco: o filtro por nome nunca batia e o histórico de
+    # prompts voltava sempre vazio.
+    #
+    # AQUI, e não junto de cada `Thread(...)`: são seis lugares que abrem
+    # thread nesta tela, e marcar em cada um é a receita para o sétimo
+    # esquecer — o mesmo motivo de o registro do prompt morar na porta do
+    # motor. Esta linha roda uma vez por desenho da página, antes de todas.
+    try:
+        import log_imagem as _li_ctx
+        _li_ctx.marcar_contexto(
+            produto=(st.session_state.get("img_nome_produto", "")
+                     or st.session_state.get("nome_produto", "")),
+            usuario=usuario_logado)
+    except Exception:
+        # Marcar contexto é apoio, não requisito: nunca pode derrubar a tela.
+        pass
+
     # O que o Assistente IA pediu roda AQUI, antes de qualquer ramo de modo.
     # Dentro do `else` do seletor, como estava, ele era mudo no ✏️ Ajuste Fino:
     # o chat prometia "Imagem 1 será refeita do zero" e a fila ficava parada.

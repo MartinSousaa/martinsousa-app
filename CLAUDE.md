@@ -198,6 +198,44 @@ segundo dono e duas peças sumiram. `LPV` e `UC` tinham duas definições cada.
 **Regra:** um nome, uma resposta. Quando a mesma pergunta tem duas respostas
 no código, elas passam a discordar — a questão é só quando.
 
+### Forma 6 — descobrir uma restrição de ambiente e aplicá-la a UM leitor
+
+Esta é a Forma 1 com um agravante: eu **já sabia** o fato, escrevi sobre ele,
+e ainda assim parei no primeiro campo.
+
+Descobri nesta base que **`st.session_state` é ilegível dentro de uma
+`threading.Thread`**. Apliquei a descoberta ao número da peça — virou
+`_PECA_EM_AJUSTE`, global de módulo — e escrevi até uma guarda que abre uma
+Thread de verdade para provar (`imagem.py:8717`).
+
+E deixei `produto` e `usuario` lendo do `session_state` **no mesmo
+`append_row`, duas linhas ao lado** (`log_imagem.py:59-61`). A geração inteira
+roda em thread (`imagem.py:7162`), então toda linha do log gravou produto
+vazio; o filtro por nome nunca bateu; e o `.txt` do histórico sempre voltou
+vazio, dizendo "nenhum prompt registrado" — que era a segunda mentira
+empilhada na primeira.
+
+**Três regras saem daqui:**
+
+1. **Restrição de ambiente se varre, não se corrige.** Achou que thread não lê
+   `session_state`, que o container roda em UTC, que o Python é 3.11? A
+   correção não é a linha que doeu: é **listar todos os leitores daquele
+   recurso** e conferir um a um. `grep` do nome do recurso, não do sintoma.
+
+2. **A guarda exercita o CAMINHO INTEIRO no ambiente real.** A minha abria uma
+   Thread e chamava `peca_em_ajuste()` sozinha — a função que eu tinha acabado
+   de escrever. Se tivesse chamado `registrar()` de dentro da Thread e olhado a
+   linha gravada, os três campos vazios apareciam de uma vez.
+
+3. **Campo que pode sair vazio em silêncio precisa de guarda de CONTEÚDO.**
+   `registrar` engole a própria exceção de propósito — registro não pode
+   derrubar geração — e grava `""`. "Produto vazio" ficou indistinguível de
+   "não digitou nome". Guarda que só confere "não explodiu" não vê isso:
+   ela tem de conferir **o que foi escrito**.
+
+**Guarda:** `checar_alcance.py` passa a procurar leitura de `st.session_state`
+dentro de função alcançável por `threading.Thread`, e reprova.
+
 ### O que eu mapeei e o que NÃO mapeei
 
 **Mapeado e corrigido:** os cinco defeitos acima, as peças 7 e 8, o produto
