@@ -966,7 +966,12 @@ def renderizar_chat(usuario_logado=""):
         versao_anexo = st.session_state.get("chat_anexo_versao", 0)
         anexos = st.file_uploader(
             "📎 Anexar imagem",
-            type=["png", "jpg", "jpeg", "webp"],
+            # QUALQUER FORMATO. O Studio tem `normalizar_imagem`, que
+            # converte HEIC, AVIF, GIF, BMP e TIFF — e este campo era o
+            # único que recusava antes de o conversor existir. Quem
+            # fotografa o produto no iPhone manda HEIC, e o chat dizia
+            # apenas que o arquivo não servia.
+            type=None,
             accept_multiple_files=True,
             key=f"chat_anexos_{versao_anexo}",
             label_visibility="collapsed",
@@ -1018,7 +1023,18 @@ def renderizar_chat(usuario_logado=""):
         imagens_bytes = []
         for arq in (anexos or []):
             try:
-                imagens_bytes.append(arq.getvalue())
+                _cru = arq.getvalue()
+                # O CONVERSOR NO CAMINHO, como em todo o resto do Studio.
+                # Sem ele o HEIC ia cru para o modelo e voltava erro
+                # genérico, sem dizer ao colaborador qual era o problema.
+                try:
+                    import imagem as _img_norm
+                    _cru, _, _ = _img_norm.normalizar_imagem(_cru)
+                except Exception:
+                    # Converter é melhor-esforço: se falhar, manda o
+                    # original — que é exatamente o que acontecia antes.
+                    pass
+                imagens_bytes.append(_cru)
             except Exception:
                 pass
 

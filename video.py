@@ -27,6 +27,25 @@ def _mime(data: bytes) -> str:
     return "image/jpeg"
 
 
+def _preparar_frame(data: bytes):
+    """O frame em formato que a API aceita. Devolve (bytes, mime) ou (None, "").
+
+    O CONVERSOR NO CAMINHO, como no resto do Studio. Sem ele o HEIC do iPhone
+    ia cru e `_mime` o rotulava "image/jpeg" — a API recusava o par, e o
+    colaborador recebia um erro que não dizia nada sobre o formato.
+    """
+    if not data:
+        return None, ""
+    try:
+        import imagem as _img_v
+        prontos, mime, _ = _img_v.normalizar_imagem(data)
+        return prontos, mime
+    except Exception:
+        # Melhor-esforço: se o conversor falhar, manda o original — que é
+        # exatamente o que acontecia antes desta função existir.
+        return data, _mime(data)
+
+
 def _gerar_prompt_video(dados_produto: dict, acao: str, observacoes: str,
                          frame_inicial: bytes | None, frame_final: bytes | None) -> tuple:
     """Chama a API Anthropic para gerar o prompt de vídeo.
@@ -126,24 +145,26 @@ RESPOND ONLY with valid JSON:
         )
     })
 
-    if frame_inicial:
+    _fi_dados, _fi_mime = _preparar_frame(frame_inicial)
+    if _fi_dados:
         partes_user.append({
             "type": "image",
             "source": {
                 "type": "base64",
-                "media_type": _mime(frame_inicial),
-                "data": base64.b64encode(frame_inicial).decode(),
+                "media_type": _fi_mime,
+                "data": base64.b64encode(_fi_dados).decode(),
             }
         })
         partes_user.append({"type": "text", "text": "↑ Frame inicial (quadro de abertura do vídeo)"})
 
-    if frame_final:
+    _ff_dados, _ff_mime = _preparar_frame(frame_final)
+    if _ff_dados:
         partes_user.append({
             "type": "image",
             "source": {
                 "type": "base64",
-                "media_type": _mime(frame_final),
-                "data": base64.b64encode(frame_final).decode(),
+                "media_type": _ff_mime,
+                "data": base64.b64encode(_ff_dados).decode(),
             }
         })
         partes_user.append({"type": "text", "text": "↑ Frame final (quadro de encerramento do vídeo)"})

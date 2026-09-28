@@ -652,6 +652,44 @@ def _processar_cards_pts(conta):
         _pc.entradas_se_preciso = _g_ent
 
 
+def _chat(conta):
+    """O chat do sidebar — ele desenha, e nenhuma guarda o desenhava.
+
+    O campo de anexo passou a aceitar QUALQUER formato e a converter antes de
+    mandar ao modelo. Era o unico campo de imagem do Studio que recusava
+    HEIC: quem fotografa o produto no iPhone recebia so "arquivo nao serve".
+    """
+    import chat_assistente as _ca
+
+    _falso = instalar()
+    _ca.st = _falso
+    try:
+        _ca.renderizar_chat("myrelladesouza")
+        conta("O chat do sidebar monta", True, "")
+    except (_Rerun, _Parou):
+        conta("O chat do sidebar monta", True, "")
+    except Exception as e:
+        conta("O chat do sidebar monta", False, f"{type(e).__name__}: {e}")
+
+    # O CAMPO DE ANEXO NAO PODE VOLTAR A LISTAR EXTENSOES. Ler a chamada no
+    # codigo-fonte da funcao, e nao o arquivo: guarda que varre o arquivo se
+    # encontra a si mesma — ja aconteceu quatro vezes nesta base.
+    import inspect as _insp_ch
+    _corpo = _insp_ch.getsource(_ca.renderizar_chat)
+    _ini = _corpo.find("Anexar imagem")
+    _trecho = _corpo[_ini:_ini + 900] if _ini >= 0 else ""
+    conta("o anexo do chat aceita qualquer formato",
+          bool(_trecho) and "type=None" in _trecho,
+          "o campo voltou a listar extensoes — HEIC de iPhone seria recusado")
+    # E O CONVERSOR TEM DE ESTAR NO CAMINHO: sem ele o arquivo cru vai ao
+    # modelo e volta erro generico, sem dizer qual e o problema.
+    # PROCURAR A CHAMADA, NAO A PALAVRA. A primeira versao procurava
+    # "normalizar_imagem" no corpo — e achava a propria mencao no comentario
+    # acima da chamada. Tirar a chamada de verdade nao reprovava nada.
+    conta("e converte antes de mandar ao modelo",
+          ".normalizar_imagem(" in _corpo, "")
+
+
 def main():
     instalar()
     falhas = []
@@ -670,6 +708,7 @@ def main():
     _queda_de_pontos(conta)
     _mapa_de_pontos(conta)
     _processar_cards_pts(conta)
+    _chat(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0

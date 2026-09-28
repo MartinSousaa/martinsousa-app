@@ -116,7 +116,90 @@ escritas antes do merge e não depois:
 Verde nos cinco não é licença para subir com produção em uso: com gente
 trabalhando no Studio, quem decide a hora é o dono.
 
-## Antes de todo push, os três verificadores
+## O RETRABALHO QUE EU GERO — a varredura de 28/09 e o que ela mudou
+
+O dono: *"só de retrabalho gerado por erros seus é infinitamente superior a
+qualquer outra coisa"*. Varri a conversa inteira. O retrabalho não é variado:
+são **cinco formas**, e cada uma se repetiu.
+
+### Forma 1 — corrigir onde o sintoma apareceu, não onde a regra alcança
+
+| O que aconteceu | O custo |
+|---|---|
+| `additionalProperties` escrito em `imagem.py`, faltando em `ambientacao_ref.py` | erro 400 na tela, com a linha certa já no repositório |
+| paleta azul fixa | voltou **três** vezes |
+| "ZERO TEXTO" removido em um lugar | sobreviveu num preset |
+| regra de ocupar 65-80% | pegou a ambientação e o produto saiu do tamanho do ambiente |
+| cartão de texto | quatro vozes: a regra e três presets |
+| campo de imagem aceita todo formato | **um** campo (o chat) recusava, e o `video.py` mandava o frame cru |
+
+**Guarda:** `checar_alcance.py`, o sexto verificador. Ele não julga qualidade —
+pergunta se a mesma capacidade existe nos irmãos dela.
+
+### Forma 2 — a guarda escrita DEPOIS trava a redação, não o comportamento
+
+Os dois auto-testes sobre a variação de ângulo exigiam a frase
+`"frontal, três-quartos, lateral, traseiro"` — ou seja, exigiam **a ordem que
+quebrou**. Passaram verdes enquanto a produção entregava caneca torta, alça a
+mais e um modelo que não existe.
+
+Três guardas desta base já nasceram assim, e uma quarta nasceu se encontrando
+a si mesma (reprovava qualquer menção a `pergunta_info`, inclusive a que o
+proíbe).
+
+**Regra:** a guarda se escreve ANTES, e se confere por **mutação** —
+reintroduzir o defeito e ver a guarda falhar. Guarda que nunca viu o defeito
+nunca foi testada. E ela procura no **bloco** (`inspect.getsource`), nunca no
+arquivo: guarda que varre o arquivo se encontra a si mesma.
+
+### Forma 3 — dizer "verde" sobre um texto que o verificador não lia
+
+Em 28/09 relatei "cinco verificadores verdes" depois de editar o **prompt do
+plano**. Os cinco não liam esse texto: `checar_prompts.py` monta o prompt da
+IMAGEM. Sessenta regras verdes mediam outro arquivo, e o defeito estava ao lado.
+
+**Regra:** antes de dizer verde, responder *"qual verificador leu a linha que
+eu mudei?"*. Se nenhum leu, o verde não vale para ela — e ou se escreve o
+verificador, ou se diz em voz alta que aquela mudança subiu sem rede.
+
+### Forma 4 — otimizar em volta da raiz
+
+O chat cortava em `max_tokens=2000` e parecia recusar comandos. Minha primeira
+resposta foi *"divida em duas mensagens"* — processo, quando faltava
+capacidade. Igual aos DIAS perdidos ajustando o texto do pedido de correção
+enquanto o sistema não enxergava a imagem.
+
+**Regra 5 já dizia isso.** O que faltava era aplicá-la à minha própria resposta.
+
+### Forma 5 — o mesmo cálculo em dois lugares
+
+`_processar` existe em `placar.py` e em `placar_core.py`. Já discordaram em
+**330 pontos** no mesmo mês e na mesma sessão. `pergunta_info` ganhou um
+segundo dono e duas peças sumiram. `LPV` e `UC` tinham duas definições cada.
+
+**Regra:** um nome, uma resposta. Quando a mesma pergunta tem duas respostas
+no código, elas passam a discordar — a questão é só quando.
+
+### O que eu mapeei e o que NÃO mapeei
+
+**Mapeado e corrigido:** os cinco defeitos acima, as peças 7 e 8, o produto
+torto, o `st.rerun()` que apagava a tela, o botão de histórico no lugar errado,
+o `dueComplete` invisível no mapa de pontos, o chat que recusava HEIC, o
+`video.py` que mandava frame cru, os quatro rótulos que mentiam.
+
+**NÃO mapeado — dito em voz alta em vez de escondido:**
+
+| Aberto | Por quê |
+|---|---|
+| corte de texto nas peças 4 e 5 | preciso do prompt real; não sei se é o layout ou o modelo desobedecendo |
+| `_processar` duplicado | unificar é mudança grande; o risco tem de ser mapeado antes |
+| retrato do placar antes de 28/09 | não existe e não volta |
+| prompts gerados antes do deploy do log | perdidos |
+| fatura PDF | é lida e mostrada, nunca gravada — falta conferir contra uma fatura real |
+
+---
+
+## Antes de todo push, os seis verificadores
 
 ```
 python3 -m compileall -q .      # sintaxe
@@ -124,7 +207,17 @@ python3 checar_ordem.py *.py    # nome lido antes de existir (UnboundLocalError)
 python3 checar_prompts.py       # regra de imagem que ficou faltando ou sobrando
 python3 checar_impacto.py       # quem mais lê o que este commit mudou
 python3 checar_tela.py          # a tela monta sem quebrar?
+python3 checar_alcance.py       # a correção chegou em TODOS os irmãos?
 ```
+
+O sexto existe porque a forma mais cara de retrabalho desta base é corrigir
+**no lugar onde o problema apareceu** em vez de em todos onde a regra alcança.
+Ele varre os campos que recebem imagem (todos têm de aceitar todo formato — o
+Studio tem `normalizar_imagem`), confere se quem manda imagem a um modelo passa
+pelo conversor, reprova rótulo que promete menos do que o campo aceita, e exige
+que `checar_prompts.py` leia o prompt do PLANO — que era o único texto de
+prompt que varredura nenhuma lia, e onde as peças 7 e 8 sumiram com os cinco
+verificadores verdes.
 
 O quinto existe porque os outros quatro **não desenham nada**, e uma tela
 quebrada passou por todos eles. Em 25/09 a Home caiu em produção com

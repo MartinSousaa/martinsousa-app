@@ -6018,7 +6018,7 @@ def pagina_imagem(usuario_logado):
         )
 
         fotos_ajuste_upload = st.file_uploader(
-            "Imagem a ajustar (JPG, PNG, WebP)",
+            "Imagem a ajustar — qualquer formato, inclusive foto de iPhone",
             type=None,  # qualquer formato — normalizar_imagem converte o que precisar
             accept_multiple_files=True,
             key="img_ajuste_upload",
@@ -6184,7 +6184,7 @@ def pagina_imagem(usuario_logado):
         st.markdown("**Fotos de referência do produto**")
         st.caption("Suba quantas fotos quiser — ângulos diferentes ajudam a IA a ser mais fiel.")
         fotos_upload = st.file_uploader(
-            "Fotos do produto (JPG, PNG, WebP)",
+            "Fotos do produto — qualquer formato, inclusive foto de iPhone",
             type=None,  # qualquer formato — normalizar_imagem converte o que precisar
             accept_multiple_files=True,
             key="img_fotos_upload",
@@ -6241,7 +6241,7 @@ def pagina_imagem(usuario_logado):
                 "e coloca o SEU produto dentro dele, no tamanho real dele."
             )
             refs_amb_upload = st.file_uploader(
-                "Referências de ambientação (JPG, PNG, WebP)",
+                "Referências de ambientação — qualquer formato",
                 type=None, accept_multiple_files=True,
                 key="img_refs_amb_upload",
                 help="Ex.: a foto de um bar à noite para o clima das peças "
@@ -6274,7 +6274,7 @@ def pagina_imagem(usuario_logado):
                 "o nome do arquivo indica para qual tipo de imagem a referência se aplica."
             )
             refs_layout_upload = st.file_uploader(
-                "Imagens de referência de layout (JPG, PNG, WebP)",
+                "Imagens de referência de layout — qualquer formato",
                 type=None,  # qualquer formato — normalizar_imagem converte o que precisar
                 accept_multiple_files=True,
                 key="img_refs_layout_upload",
