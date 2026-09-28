@@ -159,6 +159,80 @@ def _conferir_isentos():
     return fora
 
 
+# Nomes que EXISTEM nos dois arquivos de placar e podem continuar assim: sao
+# copias que dao a MESMA resposta, conferidas uma a uma por teste diferencial
+# em 28/09. Ficam aqui nomeadas para que a lista nao cresca em silencio.
+GEMEAS_TOLERADAS = {
+    "_req_get": "identicas, byte a byte",
+    "_mes_card_criacao": "identicas, byte a byte",
+    "_fmt_tempo": "mesma resposta em 12 entradas",
+    "_labels": "mesma resposta em 4 entradas",
+    "_users": "mesma resposta em 5 entradas",
+    "_num": "mesma resposta em 7 entradas",
+    "_data_card": "mesma resposta; difere so no `now()` de fallback",
+    "_buscar_board": "o do placar e um envelope do core",
+    "_calcular_fila": "contas diferentes, cada tela le a sua",
+    "_processar": "o do core faz 3 consultas a mais ao Trello",
+}
+
+
+def _gemeas_do_placar():
+    """Funcao de topo com o mesmo nome em `placar.py` e `placar_core.py`.
+
+    A Forma 5 do CLAUDE.md: `_processar` ja discordou em 330 PONTOS no mesmo
+    mes e na mesma sessao. A lista das gemeas nao pode CRESCER sem alguem
+    olhar, e uma delas nunca pode ficar MORTA — funcao sem chamador, com o
+    nome de outra que existe ao lado e faz a conta certa, e uma armadilha
+    esperando o proximo a chamar sem saber qual das duas pegou.
+
+    `placar._mes_card` era exatamente isso: zero chamadores, e por baixo a
+    conta que causou os 330 pontos, com o proprio docstring dizendo
+    "OBSOLETA — nao use".
+    """
+    fora = []
+    try:
+        with open("placar.py", encoding="utf-8") as fh:
+            src_a = fh.read()
+        with open("placar_core.py", encoding="utf-8") as fh:
+            src_b = fh.read()
+    except OSError:
+        return fora
+    try:
+        arv_a, arv_b = ast.parse(src_a), ast.parse(src_b)
+    except SyntaxError:
+        return fora
+    topo_a = {n.name: n for n in arv_a.body if isinstance(n, ast.FunctionDef)}
+    topo_b = {n.name for n in arv_b.body if isinstance(n, ast.FunctionDef)}
+    gemeas = sorted(set(topo_a) & topo_b)
+
+    # Chamadas LOCAIS, sem prefixo de modulo: sao as que pegam a copia daqui.
+    chamadas = {}
+    for no in ast.walk(arv_a):
+        if isinstance(no, ast.Call):
+            nome = getattr(no.func, "id", None)
+            if nome:
+                chamadas[nome] = chamadas.get(nome, 0) + 1
+
+    for g in gemeas:
+        if g not in GEMEAS_TOLERADAS:
+            fora.append(
+                f"placar.py:{topo_a[g].lineno} — `{g}` passou a existir nos "
+                f"DOIS arquivos de placar e nao esta em GEMEAS_TOLERADAS. "
+                f"Duas respostas para a mesma pergunta discordam, e a questao "
+                f"e so quando: `_processar` ja custou 330 pontos.")
+        elif chamadas.get(g, 0) == 0:
+            fora.append(
+                f"placar.py:{topo_a[g].lineno} — `{g}` nao tem chamador "
+                f"nenhum em placar.py e existe igual no core. Copia morta com "
+                f"o nome da viva e armadilha: apague, ou diga por que fica.")
+    # E a lista nao pode guardar nome que ja sumiu dos dois.
+    for g in GEMEAS_TOLERADAS:
+        if g not in gemeas:
+            fora.append(f"`{g}` esta em GEMEAS_TOLERADAS e ja nao e gemea — "
+                        f"tire da lista para ela nao virar decoracao")
+    return fora
+
+
 def main():
     falhas = []
 
@@ -340,6 +414,8 @@ def main():
             "os cinco verificadores verdes.")
 
     for _m in _conferir_isentos():
+        reprova(_m)
+    for _m in _gemeas_do_placar():
         reprova(_m)
 
     print()
