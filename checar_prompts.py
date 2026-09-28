@@ -589,6 +589,82 @@ def main():
               "uma geracao por peca")
         falhas += 1
 
+    # ── 4D-BIS. O PROMPT DO PLANO, QUE NENHUMA VARREDURA OLHAVA ────────────
+    #
+    # 28/09, producao: a caneca saiu torta, com duas alcas, e um modelo
+    # diferente do real. E as pecas 7 e 8 (Presenteie e Ambientacao) NAO
+    # foram geradas — sairam 6 de 8.
+    #
+    # As duas causas estavam no prompt do PLANO, que esta varredura nunca
+    # tinha lido: ela confere o prompt da IMAGEM, e o plano e outro texto.
+    # Sessenta regras passaram verdes enquanto o defeito estava ao lado.
+    #
+    #   1. `pergunta_info` GANHOU UM SEGUNDO DONO. O prompt diz, uma vez,
+    #      que esse campo e de peca INVIAVEL. A regra de variacao de angulo
+    #      mandava escrever nele quando faltasse foto de um lado — e o
+    #      modelo, coerente, marcou a peca como inviavel e a descartou.
+    #
+    #   2. "Distribua os angulos / duas pecas no mesmo angulo e plano mal
+    #      feito" era ORDEM, e brigava com "so o que existe nas fotos" duas
+    #      linhas abaixo. Com o produto fotografado de um lado so, a ordem
+    #      venceu e o modelo inventou os outros lados.
+    #
+    # Ler o CODIGO-FONTE do bloco, e nao o arquivo inteiro: guarda que
+    # procura no arquivo se encontra a si mesma — ja aconteceu tres vezes.
+    import inspect as _insp
+    _fonte_plano = _insp.getsource(_img.gerar_triagem_ia)
+
+    # O bloco da variacao de angulo vai do titulo dele ate as regras de
+    # viabilidade. E DENTRO dele que `pergunta_info` nao pode aparecer.
+    _ini = _fonte_plano.find("NÃO APARECE SEMPRE DO MESMO LADO")
+    _fim = _fonte_plano.find("REGRAS DE VIABILIDADE")
+    if _ini < 0 or _fim < 0 or _fim <= _ini:
+        print("FALHA  nao achei o bloco de variacao de angulo no prompt do "
+              "plano — a guarda ficou cega")
+        falhas += 1
+    else:
+        _bloco = _fonte_plano[_ini:_fim]
+        # PROCURAR A ORDEM, NAO A PALAVRA. A primeira versao desta guarda
+        # reprovava qualquer mencao a `pergunta_info` — e reprovou a PROPRIA
+        # correcao, que precisa citar o campo para PROIBI-LO. E a quarta vez
+        # nesta base que uma guarda se encontra a si mesma.
+        for _ordem in ("escreva no campo " + "`pergunta_info`",
+                       "preencha " + "`pergunta_info`"):
+            if _ordem in _bloco:
+                print("FALHA  a regra de angulo manda escrever em "
+                      "`pergunta_info`, que e o campo de peca INVIAVEL — foi "
+                      "assim que as pecas 7 e 8 sumiram em 28/09")
+                falhas += 1
+        # E A PROIBICAO TEM DE ESTAR LA, escrita.
+        if "NÃO escreva nada em" not in _bloco:
+            print("FALHA  o prompt do plano nao proibe escrever em "
+                  "`pergunta_info` por causa de angulo")
+            falhas += 1
+        # A FOTO MANDA SOBRE A VARIACAO, e isso tem de estar escrito.
+        if "AS FOTOS MANDAM" not in _bloco:
+            print("FALHA  o prompt do plano nao diz que as fotos mandam sobre "
+                  "a variacao de angulo — sem isso o modelo inventa o lado "
+                  "que ninguem fotografou")
+            falhas += 1
+        # E A ORDEM QUE CAUSOU O ESTRAGO NAO PODE VOLTAR.
+        for _proibida in ("Distribua os ângulos",
+                          "mesmo ângulo é plano mal feito"):
+            if _proibida in _bloco:
+                print(f"FALHA  o prompt do plano voltou a ORDENAR variacao de "
+                      f"angulo ({_proibida!r}) — isso briga com 'so o que "
+                      f"existe nas fotos' e produz produto torto")
+                falhas += 1
+
+    # AS OITO PECAS TEM DE ESTAR NA LISTA. Sairam 6 de 8 em producao, e o
+    # numero de pecas do padrao nao pode encolher sem alguem notar.
+    if len(_img.TIPOS_PADRAO) != 8:
+        print(f"FALHA  o padrao tem {len(_img.TIPOS_PADRAO)} tipos, e nao 8")
+        falhas += 1
+    for _n in ("7 — Presenteie", "8 — Ambientação realista (sem texto)"):
+        if _n not in _img.TIPOS_PADRAO:
+            print(f"FALHA  o tipo {_n!r} sumiu do padrao")
+            falhas += 1
+
     # ── 4E. A DESCRICAO DE LAYOUT E TEXTO DE OUTRO MODELO, E PODE VIR SUJA ──
     #
     # Esta e a sexta volta da paleta azul, e a primeira que nenhuma varredura
