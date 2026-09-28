@@ -167,6 +167,32 @@ def _api_key():
     return _ch.ler("ANTHROPIC_API_KEY")
 
 
+def _da_geracao(qual):
+    """O plano ou a config da geracao em vigor — a viva, ou a que gerou.
+
+    Por que nao ler `img_triagem_config` direto: essa chave e APAGADA quando o
+    laco de geracao termina (ela tambem serve de sinal de "plano ja
+    consumido"). Quem le depois disso enxerga vazio — e foi assim que o
+    `gerar_imagens_faltantes` respondeu "nao ha produto aberto na aba Imagem"
+    com o produto aberto, e que o prompt da peca refeita saiu com
+    `PRODUTO: ` em branco.
+
+    A porta esta em imagem.py, e e de la que a resposta sai — uma pergunta,
+    uma resposta. Import local porque `imagem` importa este modulo.
+    """
+    try:
+        import imagem as _img_ger
+        return (_img_ger.plano_da_geracao() if qual == "plano"
+                else _img_ger.config_da_geracao())
+    except Exception:
+        try:
+            return st.session_state.get(
+                "img_triagem_plano" if qual == "plano"
+                else "img_triagem_config") or {}
+        except Exception:
+            return {}
+
+
 def _contexto_atual() -> str:
     """Monta bloco de contexto com o que está aberto no app."""
     partes = []
@@ -199,8 +225,8 @@ def _contexto_atual() -> str:
     # Estado atual do formulário de imagem (o que o colaborador está configurando)
     img_nome_form = st.session_state.get("img_nome_produto_input", "")
     img_codigo_form = st.session_state.get("img_codigo_input", "")
-    img_triagem = st.session_state.get("img_triagem_plano")
-    img_triagem_cfg = st.session_state.get("img_triagem_config", {})
+    img_triagem = _da_geracao("plano")
+    img_triagem_cfg = _da_geracao("config")
 
     if img_nome_form or img_codigo_form or img_triagem:
         info_img = []
@@ -630,7 +656,7 @@ def _executar_comando(cmd: dict) -> str | None:
 
     if acao == "gerar_imagens_faltantes":
         galeria = st.session_state.get("img_galeria") or []
-        cfg = st.session_state.get("img_triagem_config") or {}
+        cfg = _da_geracao("config")
         if not cfg.get("nome_produto"):
             return ("⚠️ Não há produto aberto na aba Imagem para completar a galeria.")
         try:

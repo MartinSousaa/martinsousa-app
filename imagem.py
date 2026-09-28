@@ -4156,7 +4156,7 @@ def plano_do_tipo(tipo):
     gerador voltava a redigir a frase sozinho. Uma regra num lugar só.
     """
     try:
-        itens = (st.session_state.get("img_triagem_plano") or {}).get("plano") or []
+        itens = plano_da_geracao().get("plano") or []
     except Exception:
         return None
     # A BUSCA E PELO TIPO CANONICO, E NAO PELO ROTULO CRU.
@@ -4340,10 +4340,77 @@ def cenas_repetidas(itens, tipos_selecionados=None):
     return pares
 
 
+# ── O PLANO SOBREVIVE À GERAÇÃO QUE ELE MANDOU FAZER ────────────────────────
+#
+# O DEFEITO, provado pelo .txt do dono em 28/09 17:34: a linha 47 do prompt
+# enviado ao modelo era `PRODUTO: ` — vazia. A caneca tinha nome; o prompt não.
+#
+# Por quê: `img_triagem_config` e `img_triagem_plano` eram APAGADAS no fim do
+# laço de geração, e é nelas que quem refaz UMA peça busca tudo — o nome do
+# produto, a composição planejada, a COPY EXATA palavra por palavra, a direção
+# de arte, a referência de layout e a ambientação. Toda peça refeita pelo chat
+# nascia cega, e o gerador voltava a redigir a frase sozinho (que é de onde
+# vieram "Portátile" e "apoliando").
+#
+# E o nome aparecia no LOG porque o log lê OUTRA chave (`img_nome_produto`).
+# Duas respostas para a mesma pergunta — a Forma 5 —, e elas discordaram.
+#
+# POR QUE NÃO BASTA TIRAR O `del`: aquela chave faz DOIS trabalhos. Ela também
+# é o sinal de "plano já consumido" que impede o painel de confirmação de
+# reaparecer por cima da galeria (`imagem.py`, o `if` que desenha o painel).
+# Apagar continua sendo certo para o SINAL e errado para o DADO. Então o dado
+# muda de chave antes de o sinal cair.
+CHAVE_PLANO_GERADO = "img_plano_gerado"
+CHAVE_CONFIG_GERADA = "img_config_gerada"
+
+
+def guardar_plano_gerado():
+    """Copia plano e config para as chaves que sobrevivem ao fim da geração.
+
+    Chame ANTES de apagar as chaves vivas. Nunca levanta.
+    """
+    try:
+        _pl = st.session_state.get("img_triagem_plano")
+        _cf = st.session_state.get("img_triagem_config")
+        if _pl:
+            st.session_state[CHAVE_PLANO_GERADO] = _pl
+        if _cf:
+            st.session_state[CHAVE_CONFIG_GERADA] = _cf
+    except Exception:
+        pass
+
+
+def limpar_plano_gerado():
+    """Descarta a cópia. É o que o Cancelar faz: não houve geração nenhuma."""
+    try:
+        st.session_state.pop(CHAVE_PLANO_GERADO, None)
+        st.session_state.pop(CHAVE_CONFIG_GERADA, None)
+    except Exception:
+        pass
+
+
+def plano_da_geracao():
+    """O plano em vigor: o vivo, e a cópia da geração quando ele já caiu."""
+    try:
+        return (st.session_state.get("img_triagem_plano")
+                or st.session_state.get(CHAVE_PLANO_GERADO) or {})
+    except Exception:
+        return {}
+
+
+def config_da_geracao():
+    """A config em vigor: a viva, e a cópia da geração quando ela já caiu."""
+    try:
+        return (st.session_state.get("img_triagem_config")
+                or st.session_state.get(CHAVE_CONFIG_GERADA) or {})
+    except Exception:
+        return {}
+
+
 def _direcao_de_arte_da_sessao():
     """A direção de arte que a triagem decidiu para o produto aberto. {} se não há."""
     try:
-        return (st.session_state.get("img_triagem_plano") or {}).get("direcao_de_arte") or {}
+        return plano_da_geracao().get("direcao_de_arte") or {}
     except Exception:
         return {}
 
@@ -4356,11 +4423,7 @@ def prompt_para_regerar(tipo, instrucoes, dados_descricao, nome_produto):
     entre a peça nascida na geração e a mesma peça refeita pelo botão ou pelo
     chat.
     """
-    cfg = {}
-    try:
-        cfg = st.session_state.get("img_triagem_config") or {}
-    except Exception:
-        cfg = {}
+    cfg = config_da_geracao()
     return montar_prompt_imagem(
         tipo, instrucoes, dados_descricao, nome_produto,
         refs_layout_nomes=cfg.get("refs_layout_nomes", []),
@@ -5571,7 +5634,7 @@ def consumir_comandos_do_chat(usuario_logado=""):
     if _refazer is not None:
         _inst = (_refazer or {}).get("instrucao", "").strip()
         if _inst:
-            _cfg_rf = st.session_state.get("img_triagem_config") or {}
+            _cfg_rf = dict(config_da_geracao())
             _cfg_rf["instrucoes_extras"] = (
                 (_cfg_rf.get("instrucoes_extras", "") + "\n\n" + _inst).strip()
             )
@@ -5595,7 +5658,7 @@ def consumir_comandos_do_chat(usuario_logado=""):
     refazer_pend = st.session_state.pop("chat_refazer_imagem", [])
     if refazer_pend:
         _fotos_rf = st.session_state.get("img_fotos_originais") or []
-        _cfg_rf = st.session_state.get("img_triagem_config") or {}
+        _cfg_rf = config_da_geracao()
         _dados_rf = st.session_state.get("img_dados_descricao") or {}
         _nome_rf = _cfg_rf.get("nome_produto", "")
         _msgs_rf, _mudou_rf = [], False
@@ -7236,6 +7299,9 @@ def pagina_imagem(usuario_logado):
             )
 
         if cancelar_clicado:
+            # Cancelar nao gerou nada: a copia nao pode ficar para tras e ser
+            # lida como "o plano da geracao" numa proxima peca refeita.
+            limpar_plano_gerado()
             del st.session_state["img_triagem_plano"]
             del st.session_state["img_triagem_config"]
             st.rerun()
@@ -7593,6 +7659,11 @@ def pagina_imagem(usuario_logado):
                         cor=cfg.get("dados_descricao", {}).get("cor", "") if cfg.get("dados_descricao") else "",
                         medidas=cfg.get("dados_descricao", {}).get("medidas", "") if cfg.get("dados_descricao") else "",
                     )
+                    # O DADO ANTES DO SINAL. As duas chaves abaixo sao o
+                    # sinal de "plano ja consumido", e e ele que impede o
+                    # painel de confirmacao de voltar por cima da galeria.
+                    # Elas caem; o que estava dentro delas fica.
+                    guardar_plano_gerado()
                     del st.session_state["img_triagem_plano"]
                     del st.session_state["img_triagem_config"]
                     st.rerun()
