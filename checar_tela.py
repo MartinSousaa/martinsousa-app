@@ -1189,6 +1189,7 @@ def _peca_olhada(conta):
             if _alvo in ("revisar_texto", "revisar_peca", "revisar_tudo",
                          "peca_em_aviso"):
                 _chamadas.setdefault(_alvo, []).append(_n.lineno)
+    _chamadas_diretas = {k: list(v) for k, v in _chamadas.items()}
     # `revisar_tudo` E as duas: ela le o texto e olha a peca, nesta ordem.
     # Contar so o nome direto reprovaria quem passou a usar a porta — alarme
     # falso em cima de codigo certo, que e o que ensina a ignorar a saida.
@@ -1211,13 +1212,23 @@ def _peca_olhada(conta):
           "o laco de geracao nao chama revisar_peca — texto cortado, cartao "
           "sobre o produto e alca a mais saem para a tela do colaborador")
 
-    # A ORDEM IMPORTA, e custa dinheiro. Trocar a copy e uma troca de string;
-    # refazer o quadro e uma geracao paga. O barato primeiro.
-    conta("e olha DEPOIS de ler — o barato primeiro",
-          _chamadas.get("revisar_texto") and _chamadas.get("revisar_peca")
-          and min(_chamadas["revisar_peca"]) > min(_chamadas["revisar_texto"]),
-          "revisar_peca roda antes de revisar_texto: cada rodada dela e uma "
-          "geracao paga, e a troca de copy resolveria de graca")
+    # ── UMA PERGUNTA, UMA RESPOSTA (Forma 5) ────────────────────────────
+    #
+    # A porta `revisar_tudo` existe justamente para os tres caminhos
+    # concordarem — inclusive na ORDEM, que custa dinheiro: trocar a copy e
+    # uma troca de string, refazer o quadro e uma geracao paga.
+    #
+    # A primeira versao desta correcao deixou o LACO chamando as duas soltas e
+    # os outros dois usando a porta. Duas respostas para a mesma pergunta
+    # passam a discordar — a questao e so quando —, e a guarda teve de
+    # aceitar os dois jeitos, o que e exatamente o que a enfraquece.
+    _soltas = [l for l in (_chamadas_diretas.get("revisar_texto", [])
+                           + _chamadas_diretas.get("revisar_peca", []))]
+    conta("ninguem chama as duas conferencias fora da porta unica",
+          not _soltas,
+          f"{len(_soltas)} chamada(s) diretas a revisar_texto/revisar_peca "
+          f"(linhas {_soltas}) — a ordem e as rodadas passam a depender de "
+          "quem escreveu cada trecho")
 
     # E AS FOTOS TEM DE CHEGAR LA.
     #
@@ -1227,10 +1238,13 @@ def _peca_olhada(conta):
     # silencioso de desligar a conferencia inteira: `fotos_ref=[]` e a
     # geracao volta a entregar sem ninguem olhar, com todas as guardas
     # verdes. Foi a mutacao D, e ela passou.
+    # As DUAS portas: quem chama a conferencia direto e quem chama pela
+    # `revisar_tudo`. Olhar so uma delas deixaria o outro caminho desligar a
+    # conferencia em silencio — foi a mutacao D, e ela ja passou verde uma vez.
     _ch_peca = [_n for _n in _ast_po.walk(_arv)
                 if isinstance(_n, _ast_po.Call)
                 and (getattr(_n.func, "attr", "") or getattr(_n.func, "id", ""))
-                == "revisar_peca"]
+                in ("revisar_peca", "revisar_tudo")]
     _fotos_vazias = []
     for _c in _ch_peca:
         _kw = {k.arg: k.value for k in _c.keywords}

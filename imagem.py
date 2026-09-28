@@ -7797,11 +7797,24 @@ def pagina_imagem(usuario_logado):
                                 _time_gen.sleep(1)
                             return _r["img"], _r["erro"]
 
-                        img_bytes, _rel_txt = revisar_texto(
+                        # AS DUAS CONFERENCIAS, pela porta unica.
+                        #
+                        # A revisao de texto le o que esta ESCRITO; a da peca
+                        # OLHA a imagem ao lado das fotos. Texto primeiro
+                        # porque trocar a copy e uma troca de string, e
+                        # refazer o quadro e uma geracao paga.
+                        #
+                        # Pela porta, e nao pelas duas soltas: este laco e os
+                        # dois caminhos de refazer respondem a MESMA pergunta,
+                        # e duas respostas passam a discordar — a questao e so
+                        # quando. Foi a Forma 5 dentro da propria correcao que
+                        # a criou.
+                        img_bytes, _rel_txt, _rel_peca = revisar_tudo(
                             img_bytes, tipo,
-                            pedido=cfg.get("instrucoes_extras", ""),
+                            fotos_ref=cfg["fotos_bytes"],
                             gerar=_gerar_de_novo,
                             prompt_base=prompt_final,
+                            pedido=cfg.get("instrucoes_extras", ""),
                             aviso=lambda t, _i=i: barra.progress(
                                 _i / len(tipos), text=t[:70]),
                         )
@@ -7809,25 +7822,6 @@ def pagina_imagem(usuario_logado):
                         # embaixo desta imagem: quem chega depois precisa saber
                         # que a revisao esta fora do ar ANTES de gerar de novo.
                         registrar_revisao(_rel_txt)
-
-                        # ── E AGORA A PECA E OLHADA ─────────────────────────
-                        #
-                        # A revisao acima le o que esta ESCRITO. Ela nao ve
-                        # texto cortado pela borda, cartao sobre o produto,
-                        # nem alca a mais — e foi assim que a caneca saiu com
-                        # duas alcas e o portugues perfeito.
-                        #
-                        # DEPOIS do texto, e nao antes: trocar a copy custa
-                        # uma troca de string; refazer o quadro custa uma
-                        # geracao paga. O barato primeiro.
-                        img_bytes, _rel_peca = revisar_peca(
-                            img_bytes, tipo,
-                            fotos_ref=cfg["fotos_bytes"],
-                            gerar=_gerar_de_novo,
-                            prompt_base=prompt_final,
-                            aviso=lambda t, _i=i: barra.progress(
-                                _i / len(tipos), text=t[:70]),
-                        )
 
                         galeria.append({
                             "tipo": tipo,
