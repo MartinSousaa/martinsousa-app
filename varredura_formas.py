@@ -263,8 +263,29 @@ def forma1_retorno_engolido():
             trecho = ast.get_source_segment(fonte, no) or ""
             if not re.search(r"append_row|update_cell|\.upload|insert_row", trecho):
                 continue
-            if re.search(r"except Exception:\s*\n\s*(#[^\n]*\n\s*)*pass", trecho):
-                fora.append(f"{nome}:{no.lineno}  {no.name}")
+            if not re.search(r"except Exception:\s*\n\s*(#[^\n]*\n\s*)*pass",
+                             trecho):
+                continue
+            # SILENCIOSA NAO E O DEFEITO — e SILENCIOSA E SEM GUARDA.
+            #
+            # `registrar` engole a excecao de proposito: registro nao pode
+            # derrubar geracao. O que falta, quando falta, e alguem CONFERIR
+            # O QUE FOI ESCRITO. Tres das cinco que esta varredura listava ja
+            # tinham essa guarda no proprio auto-teste, e lista-las era
+            # alarme falso.
+            #
+            # Conta como coberta: a funcao AVISA a tela ou devolve
+            # True/False, ou o auto-teste do modulo grava com uma aba falsa e
+            # olha a linha.
+            avisa = ("st.warning" in trecho or "st.error" in trecho
+                     or "return True" in trecho or "return False" in trecho)
+            _, _, teste = fonte.partition('if __name__ == "__main__":')
+            tem_guarda = bool(teste) and any(
+                x in teste for x in ("append_row", "_AbaFalsa", "linhas_falsas",
+                                     "_AbaFalsaLog"))
+            if not (avisa or tem_guarda):
+                fora.append(f"{nome}:{no.lineno}  {no.name} — nem avisa, nem "
+                            f"devolve resultado, nem tem guarda de conteudo")
     return fora
 
 

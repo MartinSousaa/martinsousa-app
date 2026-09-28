@@ -879,6 +879,10 @@ def _contexto_do_log(conta):
 # `linha_do_mes`. Verificador que da alarme falso ensina a ser ignorado.
 TELAS_SEM_GUARDA = [
     ("admin", "pagina_admin"),
+    # `verificar_login` DESENHA a tela de login e nenhum verificador a
+    # alcancava — o quarto cobrou em 28/09. E a primeira tela que todo
+    # colaborador ve: se ela quebra, ninguem entra.
+    ("auth", "verificar_login"),
     ("descricao", "pagina_descricao"),
     ("gestao", "pagina_home"),
     ("gestao", "pagina_financeiro"),
@@ -984,7 +988,14 @@ def _telas_restantes(conta):
                         _mod.st = _falso
                     except Exception:
                         pass
-            getattr(_m, funcao)("martinsousa")
+            # A maioria recebe o usuario logado; `verificar_login` nao —
+            # ela E quem o descobre. Chamar com a assinatura errada seria
+            # alarme falso em cima de codigo certo.
+            import inspect as _insp_tr
+            if _insp_tr.signature(getattr(_m, funcao)).parameters:
+                getattr(_m, funcao)("martinsousa")
+            else:
+                getattr(_m, funcao)()
             conta(nome, True, "")
         except (_Rerun, _Parou):
             conta(nome, True, "")
