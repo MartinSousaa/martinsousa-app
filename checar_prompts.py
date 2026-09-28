@@ -105,6 +105,14 @@ REGRAS = [
      TIPOS_COM_TEXTO, (TIPO_AMBIENTE,)),
     ("a coluna única como posição", "UMA coluna vertical única",
      TIPOS_COM_TEXTO, (TIPO_AMBIENTE,)),
+    # A COLUNA UNICA NAO PODE CONTRADIZER A REFERENCIA DE LAYOUT.
+    #
+    # Logo acima o prompt diz "quando houver imagem de referencia de layout,
+    # ELA manda". Sem dizer qual das duas vale, o prompt chegaria ao gerador
+    # com duas ordens contrarias sobre a mesma coisa — que e o defeito que
+    # esta base ja pagou caro tres vezes. A precedencia sai escrita.
+    ("a precedência da referência de layout sobre a coluna",
+     "a POSIÇÃO é a dela", TIPOS_COM_TEXTO, (TIPO_AMBIENTE,)),
     ("a folga de 6% no topo e na base", "6% acima da base",
      TIPOS_COM_TEXTO, (TIPO_AMBIENTE,)),
     # `None` em "onde deve" quer dizer "em todos"; em "onde nao pode" ele nao

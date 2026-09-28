@@ -545,10 +545,15 @@ REGRA DE DENSIDADE:
 - FORMA DO CARTÃO, IGUAL EM TODAS AS PEÇAS: retângulo de cantos arredondados,
   fundo claro sólido, ícone line-art próprio, todos com a MESMA largura e o
   mesmo estilo dentro da peça.
-- POSIÇÃO: UMA coluna vertical única, encostada em UM dos lados do quadro
-  (esquerda ou direita), com os cartões empilhados e espaçamento igual entre
-  eles. NUNCA em grade, NUNCA distribuídos pelos quatro cantos, NUNCA uma
-  fileira no rodapé, NUNCA metade de um lado e metade do outro.
+- POSIÇÃO, quando NÃO houver referência de layout: UMA coluna vertical única,
+  encostada em UM dos lados do quadro (esquerda ou direita), com os cartões
+  empilhados e espaçamento igual entre eles. NUNCA em grade, NUNCA
+  distribuídos pelos quatro cantos, NUNCA uma fileira no rodapé, NUNCA metade
+  de um lado e metade do outro.
+- QUANDO HOUVER referência de layout, a POSIÇÃO é a dela — inclusive se for
+  grade. A referência é o padrão aprovado da empresa e manda sobre a coluna
+  única; o que NÃO muda com ela é a folga das bordas logo abaixo: mesmo
+  copiando a referência, nenhum cartão toca ou cruza a borda.
 - CADA CARTÃO INTEIRO DENTRO DO QUADRO: o primeiro começa pelo menos 6% abaixo
   do topo e o último termina pelo menos 6% acima da base, com o fundo da cena
   aparecendo acima do primeiro e abaixo do último. Cartão que toca a borda é
