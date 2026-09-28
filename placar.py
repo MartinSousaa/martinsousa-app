@@ -410,23 +410,19 @@ def _data_card(card):
         except: pass
     return datetime.now(timezone.utc)
 
-def _mes_card(card):
-    """OBSOLETA — não use. Mantida só para não quebrar chamador esquecido.
-
-    Usava a última atividade como mês de conclusão, o que fazia um cartão de
-    julho pontuar em agosto ao receber um comentário. O mês de conclusão de
-    verdade vem de placar_core._mes_card(card, conclusoes, janela), que lê a
-    ação que virou dueComplete. Duas contas para a mesma pergunta foi o que fez
-    o Painel e a Análise discordarem em 330 pontos.
-    """
-    d = card.get("dateLastActivity", "")
-    if d:
-        try:
-            dt = datetime.fromisoformat(d.replace("Z", "+00:00"))
-            return (dt.year, dt.month)
-        except Exception:
-            pass
-    return None
+# `_mes_card` MORAVA AQUI, E FOI APAGADA EM 28/09.
+#
+# Ela usava a ultima atividade como mes de conclusao: um cartao de julho
+# pontuava em agosto ao receber um comentario. Foi essa conta que fez o
+# Painel e a Analise discordarem em 330 PONTOS no mesmo mes.
+#
+# O docstring dela dizia "OBSOLETA — nao use. Mantida so para nao quebrar
+# chamador esquecido". A medicao mostrou que chamador esquecido NAO EXISTIA:
+# zero chamadas locais, zero de fora. O que existia era uma armadilha — a
+# conta errada, com o nome da certa, ao lado dela.
+#
+# Quem responde e `placar_core._mes_card(card, conclusoes, janela)`, que le a
+# acao que virou dueComplete. UM NOME, UMA RESPOSTA.
 
 def _mes_card_criacao(card):
     """Mês do cartão pela data de CRIAÇÃO (ID Trello = ObjectID MongoDB) —
