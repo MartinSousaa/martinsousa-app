@@ -2018,8 +2018,30 @@ def revisar_anexos(arquivos):
     do primeiro arquivo recusado.
     """
     prontos, nomes, avisos, erros = [], [], [], []
+    _perdidos = 0
     for arq in (arquivos or []):
-        dados = arq.getvalue() if hasattr(arq, "getvalue") else arq
+        # O ARQUIVO QUE O NAVEGADOR AINDA LISTA E O SERVIDOR JA PERDEU.
+        #
+        # Os bytes do upload moram na memoria do PROCESSO do Streamlit
+        # (`memory_uploaded_file_manager.py`, `file_storage`), e a lista de
+        # NOMES fica no NAVEGADOR. Reiniciou o processo — deploy, queda, troca
+        # de container — e os dois deixam de concordar: os nomes seguem na
+        # tela, os bytes nao existem mais.
+        #
+        # Nesse caso o Streamlit devolve `DeletedFile(file_id=...)` no lugar do
+        # arquivo (`file_uploader.py`, `_get_upload_files`), e `deserialize`
+        # NAO tira esses objetos da lista — eles chegam aqui misturados com os
+        # bons. `DeletedFile` e uma tupla: tem fatia, e nao tem `.getvalue()`
+        # nem `.name`. O codigo antigo mandava o objeto inteiro para
+        # `_detectar_mime`, que faz `data[:400].lstrip()`, e a tela caia com
+        # `AttributeError: 'tuple' object has no attribute 'lstrip'`.
+        if hasattr(arq, "getvalue"):
+            dados = arq.getvalue()
+        elif isinstance(arq, (bytes, bytearray)):
+            dados = bytes(arq)
+        else:
+            _perdidos += 1
+            continue
         nome = getattr(arq, "name", "")
         ok, aviso, erro = revisar_arquivo(dados, nome)
         if erro:
@@ -2029,6 +2051,15 @@ def revisar_anexos(arquivos):
             avisos.append(aviso)
         prontos.append(ok)
         nomes.append(nome)
+    if _perdidos:
+        # Um erro so para o lote inteiro: repetir a mesma frase seis vezes nao
+        # informa mais, so enche a tela.
+        erros.append(
+            f"O servidor perdeu o conteudo de **{_perdidos} arquivo(s)** que o "
+            f"seu navegador ainda mostra na lista. Isso acontece quando o "
+            f"Studio reinicia com a pagina aberta — o nome fica, o arquivo "
+            f"nao. **Recarregue a pagina (F5) e anexe de novo**, ou use o "
+            f"botao de recuperar as fotos anexadas antes.")
     return prontos, nomes, avisos, erros
 
 
@@ -6379,6 +6410,78 @@ def pagina_imagem(usuario_logado):
         fotos_bytes, _nomes_ft, _av_ft, _er_ft = revisar_anexos(fotos_upload)
         mostrar_anexos(_av_ft, _er_ft)
 
+        # ── AS FOTOS ANEXADAS TEM DE SOBREVIVER AO REINICIO ──────────────────
+        #
+        # O que se perdia: os bytes do upload moram na memoria do processo do
+        # Streamlit, e a lista de nomes fica no navegador. Quando o Studio
+        # reinicia com a pagina aberta — deploy, queda, troca de container — a
+        # tela continua mostrando "3 fotos anexadas" e o Python recebe zero.
+        # O botao entao respondia "Suba pelo menos uma foto do produto" com as
+        # fotos ali na tela, e nao havia nada a fazer alem de refazer tudo.
+        #
+        # O disco do `rascunho` ja guardava o RESULTADO. Agora guarda tambem a
+        # ENTRADA, que e a parte cara de refazer (achar de novo as fotos certas
+        # do produto).
+        #
+        # A recuperacao e um BOTAO, e nunca automatica: repor foto sozinho
+        # ressuscitaria justamente a que a pessoa acabou de tirar com o X, e
+        # ela geraria oito pecas do produto errado sem saber por que.
+        import rascunho as _rasc_ft
+        if fotos_bytes:
+            # GRAVAR SO QUANDO MUDOU.
+            #
+            # A primeira versao desta linha chamava `salvar_fotos` a cada
+            # passada. O Streamlit redesenha a pagina A CADA TECLA digitada no
+            # campo de contexto — seis fotos de 5 MB seriam 30 MB escritos no
+            # disco por tecla, e a tela ficaria inutilizavel. E o mesmo defeito
+            # que fez a Home levar 15 segundos para abrir.
+            #
+            # A assinatura e nome + tamanho: nao le byte nenhum, e muda quando
+            # a pessoa troca, tira ou acrescenta foto — que e exatamente
+            # quando gravar de novo faz sentido.
+            _assin_ft = tuple(zip(_nomes_ft, (len(b) for b in fotos_bytes)))
+            if st.session_state.get("img_fotos_no_disco") != _assin_ft:
+                if _rasc_ft.salvar_fotos(usuario_logado, fotos_bytes, _nomes_ft):
+                    st.session_state["img_fotos_no_disco"] = _assin_ft
+            st.session_state.pop("img_fotos_recuperadas", None)
+        else:
+            _usar = st.session_state.get("img_fotos_recuperadas") or []
+            if _usar:
+                fotos_bytes = [f["bytes"] for f in _usar]
+                _nomes_ft = [f["nome"] for f in _usar]
+                st.success(
+                    f"✅ Usando **{len(fotos_bytes)} foto(s)** recuperadas do "
+                    "disco: " + ", ".join(n or "sem nome" for n in _nomes_ft[:5])
+                    + ". Para trocar, anexe outras no campo acima.")
+                if st.button("Descartar essas e anexar outras",
+                             key="img_descartar_fotos"):
+                    st.session_state.pop("img_fotos_recuperadas", None)
+                    _rasc_ft.limpar_fotos(usuario_logado)
+                    st.rerun()
+            else:
+                # `resumo_fotos` e nao `carregar_fotos`: esta linha roda a cada
+                # tecla digitada na pagina, e ler 3 MB de foto do disco a cada
+                # passada trava a tela. Os bytes so sobem no clique do botao.
+                _guardadas = _rasc_ft.resumo_fotos(usuario_logado)
+                if _guardadas:
+                    st.info(
+                        f"📎 Tenho **{len(_guardadas)} foto(s)** que você "
+                        "anexou antes guardadas em disco: "
+                        + ", ".join(f["nome"] or "sem nome"
+                                    for f in _guardadas[:5])
+                        + (f" (+{len(_guardadas) - 5})"
+                           if len(_guardadas) > 5 else "")
+                        + ". Se a lista de arquivos acima parece cheia mas o "
+                          "Studio diz que não há foto, é isto: o Studio "
+                          "reiniciou e perdeu os arquivos que o navegador "
+                          "ainda mostra.")
+                    if st.button("📎 Usar essas fotos de novo",
+                                 key="img_recuperar_fotos",
+                                 use_container_width=True):
+                        st.session_state["img_fotos_recuperadas"] = \
+                            _rasc_ft.carregar_fotos(usuario_logado)
+                        st.rerun()
+
         if fotos_bytes:
             LIMITE_MB = 10
             # Pelos nomes que a revisao devolveu, e nao pelo upload original:
@@ -6590,7 +6693,14 @@ def pagina_imagem(usuario_logado):
                 st.warning("Informe o nome do produto.")
                 st.stop()
             if not fotos_bytes:
-                st.warning("Suba pelo menos uma foto do produto — é ela que garante fidelidade.")
+                st.warning(
+                    "Suba pelo menos uma foto do produto — é ela que garante "
+                    "fidelidade.\n\n"
+                    "Se o campo acima **está mostrando arquivos** e mesmo "
+                    "assim eu digo que não há foto, o Studio reiniciou com "
+                    "esta página aberta: a lista de nomes fica no navegador, "
+                    "o conteúdo dos arquivos fica no servidor. **Recarregue a "
+                    "página (F5) e anexe de novo.**")
                 st.stop()
 
             try:
@@ -9210,6 +9320,66 @@ if __name__ == "__main__":
 
     ok("registrar_revisao fora da tela nao derruba",
        registrar_revisao({"ok": None, "erro": "x"}) is None)
+
+    # ── O ARQUIVO QUE O NAVEGADOR AINDA LISTA E O SERVIDOR JA PERDEU ─────
+    #
+    # 28/09, 17:17: a tela mostrava tres fotos anexadas e o botao respondia
+    # "Suba pelo menos uma foto do produto". O dono tinha as fotos na tela,
+    # e o Studio dizia que nao tinha nenhuma.
+    #
+    # O que acontece por baixo: os bytes do upload moram na MEMORIA DO
+    # PROCESSO (streamlit/runtime/memory_uploaded_file_manager.py,
+    # `file_storage` — um dicionario), e o navegador guarda a LISTA DE NOMES
+    # por conta propria. Quando o processo reinicia — deploy, queda, troca de
+    # container — os nomes continuam na tela e os bytes nao existem mais.
+    # O Streamlit entao devolve `DeletedFile(file_id=...)` no lugar do
+    # arquivo (streamlit/elements/widgets/file_uploader.py,
+    # `_get_upload_files`), e `deserialize` NAO tira esses objetos da lista:
+    # eles chegam em `revisar_anexos` misturados com os arquivos bons.
+    #
+    # `DeletedFile` nao tem `.getvalue()` nem `.name`, e e verdadeiro num
+    # `if`. O codigo antigo mandava o objeto inteiro para `_detectar_mime`,
+    # que faz `data[:8]` — e a tela inteira caia com
+    # `TypeError: 'DeletedFile' object is not subscriptable`.
+    #
+    # A entrada deste teste vem do Streamlit, e nao da minha cabeca: e a
+    # classe de verdade, a mesma que a tela recebe.
+    from streamlit.runtime.uploaded_file_manager import DeletedFile as _DelFile
+
+    class _UpFalso:
+        def __init__(self, nome, dados):
+            self.name, self._d = nome, dados
+
+        def getvalue(self):
+            return self._d
+
+    _png1x1 = (b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01'
+               b'\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89'
+               b'\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01'
+               b'\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82')
+
+    _perdido = _DelFile("id-que-o-servidor-nao-tem")
+    try:
+        _b_del, _n_del, _a_del, _e_del = revisar_anexos([_perdido])
+        _caiu = ""
+    except Exception as _e_dl:
+        _b_del = _n_del = _a_del = _e_del = []
+        _caiu = f"{type(_e_dl).__name__}: {_e_dl}"
+
+    ok("arquivo perdido pelo servidor NAO derruba a tela", not _caiu)
+    ok("e ele nao entra como foto boa", _b_del == [])
+    ok("o erro diz o que fazer — recarregar e anexar de novo",
+       len(_e_del) == 1 and "recarregue" in _e_del[0].lower()
+       and "anexe" in _e_del[0].lower())
+
+    # E o lote nao pode morrer junto: quem anexou tres e o servidor perdeu
+    # uma ainda tem duas boas.
+    _b_mix, _n_mix, _a_mix, _e_mix = revisar_anexos(
+        [_UpFalso("boa1.png", _png1x1), _perdido, _UpFalso("boa2.png", _png1x1)])
+    ok("as fotos que sobreviveram continuam valendo", len(_b_mix) == 2)
+    ok("e os nomes seguem alinhados com os bytes",
+       _n_mix == ["boa1.png", "boa2.png"])
+    ok("o arquivo perdido vira um erro so", len(_e_mix) == 1)
 
     conferir_texto = _real
     print("\nfalhas:", falhas)

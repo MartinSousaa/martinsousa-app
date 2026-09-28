@@ -33,6 +33,7 @@ do dono e são os outros verificadores. Ele responde uma pergunta só, a que
 faltava: **a tela monta sem quebrar?**
 """
 
+import os
 import sys
 import types
 
@@ -1148,6 +1149,143 @@ def _txt_consolidado(conta):
               "mesmo prompt discordam, e a questao e so quando")
 
 
+def _fotos_perdidas(conta):
+    """As fotos anexadas somem quando o Studio reinicia — e a tela oferece de volta.
+
+    28/09, 17:17. O dono mandou o print: tres fotos listadas no campo de
+    upload, e o botao respondendo "Suba pelo menos uma foto do produto".
+
+    Por que acontece: a lista de NOMES fica no navegador, e os BYTES ficam na
+    memoria do PROCESSO do Streamlit
+    (`streamlit/runtime/memory_uploaded_file_manager.py`, `file_storage` — um
+    dicionario). Deploy, queda ou troca de container matam o processo; o
+    navegador nao sabe e continua mostrando os nomes. O Python recebe ZERO
+    arquivo, e a mensagem que ele da e uma mentira do ponto de vista de quem
+    esta olhando a tela.
+
+    Esta guarda desenha a PAGINA INTEIRA, com fotos guardadas no disco do
+    rascunho e o campo de upload vazio — que e exatamente o estado depois do
+    reinicio — e confere que o botao de recuperar foi OFERECIDO. Conferir que
+    a funcao de disco grava e le e outra coisa, e ela vive em rascunho.py: o
+    defeito aqui foi na TELA, entao e a tela que tem de ser desenhada.
+    """
+    import importlib
+    import shutil as _sh_fp
+    import sys as _sys_fp
+    import tempfile as _tmp_fp
+
+    import rascunho as _rasc_fp
+
+    _base = _tmp_fp.mkdtemp()
+    _pasta_real = _rasc_fp._pasta
+    _rasc_fp._pasta = lambda u, _b=_base: os.path.join(_b, str(u))
+    _sh, _guardado = _sem_planilha()
+    try:
+        _estado_ft = {}
+        _revisar_real = None
+        _PNG = b"\x89PNG\r\n\x1a\n" + b"z" * 3000
+        _rasc_fp.salvar_fotos("martinsousa", [_PNG, _PNG],
+                              ["frente.jpeg", "lado.jpeg"])
+
+        _falso = instalar()
+        _m = importlib.import_module("imagem")
+        _revisar_real = _m.revisar_anexos
+        for _nm, _mod in list(_sys_fp.modules.items()):
+            if getattr(_mod, "st", None) is not None and not _nm.startswith(
+                    ("streamlit", "checar_")):
+                try:
+                    _mod.st = _falso
+                except Exception:
+                    pass
+        try:
+            _m.pagina_imagem("martinsousa")
+        except (_Rerun, _Parou):
+            pass
+        except Exception as e:
+            conta("a tela de Imagem monta com o upload vazio", False,
+                  f"{type(e).__name__}: {str(e)[:160]}")
+            return
+        conta("a tela de Imagem monta com o upload vazio", True, "")
+
+        # O CONTEUDO, e nao "nao explodiu". Foi essa a Forma 1 do protocolo:
+        # guarda que so confere que a tela montou nao ve campo vazio.
+        conta("com fotos no disco, a tela OFERECE recuperar",
+              "img_recuperar_fotos" in _falso._chaves,
+              "o botao de recuperar nao foi desenhado — quem perdeu as fotos "
+              "no reinicio nao tem como pega-las de volta")
+
+        # E sem nada no disco ele NAO aparece: botao que promete o que nao
+        # existe e pior do que botao nenhum.
+        _rasc_fp.limpar_fotos("martinsousa")
+        _falso2 = instalar()
+        for _nm, _mod in list(_sys_fp.modules.items()):
+            if getattr(_mod, "st", None) is not None and not _nm.startswith(
+                    ("streamlit", "checar_")):
+                try:
+                    _mod.st = _falso2
+                except Exception:
+                    pass
+        try:
+            _m.pagina_imagem("martinsousa")
+        except (_Rerun, _Parou):
+            pass
+        except Exception:
+            pass
+        conta("sem fotos no disco, o botao nao aparece",
+              "img_recuperar_fotos" not in _falso2._chaves,
+              "o botao apareceu sem ter o que recuperar")
+
+        # ── E A GRAVACAO NAO PODE ACONTECER A CADA TECLA ────────────────
+        #
+        # O Streamlit redesenha a pagina inteira a cada tecla digitada. A
+        # primeira versao desta correcao chamava `salvar_fotos` em toda
+        # passada: seis fotos de 5 MB dariam 30 MB escritos no disco por
+        # tecla. E o mesmo defeito que fez a Home levar 15 segundos.
+        #
+        # Aqui a tela e desenhada TRES vezes com as MESMAS fotos, e o disco
+        # so pode ter sido escrito na primeira.
+        _gravou = []
+        _salvar_real = _rasc_fp.salvar_fotos
+        _rasc_fp.salvar_fotos = (
+            lambda u, f, n=(), campo="produto", _r=_salvar_real:
+            (_gravou.append(1), _r(u, f, n, campo))[1])
+        _PNG2 = b"\x89PNG\r\n\x1a\n" + b"y" * 4000
+        try:
+            for _ in range(3):
+                _f3 = instalar()
+                for _nm, _mod in list(_sys_fp.modules.items()):
+                    if getattr(_mod, "st", None) is not None and not _nm.startswith(
+                            ("streamlit", "checar_")):
+                        try:
+                            _mod.st = _f3
+                        except Exception:
+                            pass
+                _f3.session_state.update(_estado_ft)
+                _m.revisar_anexos = lambda *a, **k: (
+                    [_PNG2], ["frente.jpeg"], [], [])
+                try:
+                    _m.pagina_imagem("martinsousa")
+                except (_Rerun, _Parou):
+                    pass
+                _estado_ft = dict(_f3.session_state)
+        finally:
+            _rasc_fp.salvar_fotos = _salvar_real
+            _m.revisar_anexos = _revisar_real
+        conta("as fotos vao ao disco UMA vez, e nao a cada tecla",
+              len(_gravou) == 1,
+              f"gravou {len(_gravou)} vez(es) em 3 passadas iguais — "
+              "com seis fotos de 5 MB isso e 30 MB por tecla digitada")
+
+        # O `DeletedFile` que o Streamlit entrega no lugar do upload perdido
+        # tem guarda propria em `imagem.py` (auto-teste), com a classe de
+        # verdade. Aqui nao da para importa-la: o duplo ja ocupou
+        # `sys.modules["streamlit"]`.
+    finally:
+        _rasc_fp._pasta = _pasta_real
+        _sh.planilha, _sh.cliente = _guardado
+        _sh_fp.rmtree(_base, ignore_errors=True)
+
+
 def _fatura_confirmada(conta):
     """A fatura em PDF so grava DEPOIS de o dono confirmar na tela.
 
@@ -1228,6 +1366,7 @@ def main():
     # pior que nenhum teste: ensina a ignorar a saida.
     _telas_restantes(conta)
     _fatura_confirmada(conta)
+    _fotos_perdidas(conta)
     _home(falhas, conta)
     _extratos(conta)
     _gargalos(conta)
