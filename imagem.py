@@ -542,8 +542,19 @@ REGRA DE DENSIDADE:
 {blocos}
 - Cada bloco: título curto em CAIXA ALTA (2-5 palavras) + descrição de 8 a 16
   palavras. Descrição de 3 palavras deixa a peça pobre e sem argumento de venda.
-- Blocos em cartões de cantos arredondados, com ícone próprio, alinhados em
-  coluna ou grade — não como texto solto sobre o fundo
+- FORMA DO CARTÃO, IGUAL EM TODAS AS PEÇAS: retângulo de cantos arredondados,
+  fundo claro sólido, ícone line-art próprio, todos com a MESMA largura e o
+  mesmo estilo dentro da peça.
+- POSIÇÃO: UMA coluna vertical única, encostada em UM dos lados do quadro
+  (esquerda ou direita), com os cartões empilhados e espaçamento igual entre
+  eles. NUNCA em grade, NUNCA distribuídos pelos quatro cantos, NUNCA uma
+  fileira no rodapé, NUNCA metade de um lado e metade do outro.
+- CADA CARTÃO INTEIRO DENTRO DO QUADRO: o primeiro começa pelo menos 6% abaixo
+  do topo e o último termina pelo menos 6% acima da base, com o fundo da cena
+  aparecendo acima do primeiro e abaixo do último. Cartão que toca a borda é
+  peça reprovada.
+- SE NÃO COUBEREM TODOS na coluna com essa folga, use MENOS cartões e maiores —
+  nunca comprima, nunca empilhe até a borda, nunca deixe um pela metade.
 - Espaçamento uniforme entre blocos, sem que um encoste no outro
 - NUNCA adicione tags, selos, rodapés, ícones de compatibilidade ou elementos
   decorativos além dos blocos pedidos
@@ -635,7 +646,7 @@ PRESETS = {
     ),
     "2 — Benefícios do produto": (
         "IMAGEM DE MARKETING — BENEFÍCIOS: produto em zona central limpa (SEM texto sobre ele). "
-        "Fundo deduzido do produto — sem cor de marca fixa. Benefícios em cartões laterais, inferiores ou em grade — a quantidade vem da regra de densidade; siga a referência de layout quando houver: "
+        "Fundo deduzido do produto — sem cor de marca fixa. Benefícios em cartões — a POSIÇÃO, a FORMA e a quantidade deles saem da regra de densidade, não daqui; siga a referência de layout quando houver: "
         "ícone line-art na cor da direção de arte escolhida para ESTE produto — não existe cor "
         "de ícone fixa — + título curto (2-3 palavras) + frase direta (máximo 7 palavras). "
         "Visual arejado — jamais comprima ou empilhe os blocos de benefício, e jamais deixe faixa vazia em volta da peça. "
@@ -645,8 +656,8 @@ PRESETS = {
         "IMAGEM DE MARKETING — PRODUTO NO AMBIENTE DE USO REAL: deduza das fotos e dos dados "
         "onde ESTE produto é de fato usado, e por quem — não escolha de uma lista pronta de "
         "cômodos. Produto protagonista em cena aspiracional, com a luz e a paleta que "
-        "valorizem este produto. Frases de destaque em painéis fora do produto (nunca sobre "
-        "ele) — a quantidade vem da regra de densidade. Cada frase: curta, impactante, "
+        "valorizem este produto. Frases de destaque em cartões fora do produto (nunca sobre "
+        "ele) — posição, forma e quantidade saem da regra de densidade. Cada frase: curta, impactante, "
         "máximo 6 palavras. Sem cor de "
         "marca fixa: fundo e elementos gráficos saem da direção de arte deste produto. "
         "Visual editorial — parece foto de lifestyle de qualidade, não montagem amadora."
@@ -694,8 +705,8 @@ PRESETS = {
     ),
     "6 — Quebra de objeção": (
         "IMAGEM DE MARKETING — RESPONDENDO DÚVIDAS DO COMPRADOR: layout clean com produto "
-        "em destaque e blocos de pergunta+resposta ao lado, em cartões de cantos arredondados "
-        "— a quantidade vem da regra de densidade; siga a referência de layout quando houver. "
+        "em destaque e blocos de pergunta+resposta em cartões — posição, forma e "
+        "quantidade saem da regra de densidade, não daqui; siga a referência de layout quando houver. "
         "Cada bloco: pergunta curta (máximo 5 palavras) em destaque + check verde + resposta direta "
         "(máximo 8 palavras). As objeções são baseadas nos diferenciais e características do produto. "
         "Visual arejado, sem faixa vazia em volta da peça; fundo e paleta deduzidos do produto e da ocasião."
