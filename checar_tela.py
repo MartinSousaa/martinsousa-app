@@ -1149,6 +1149,182 @@ def _txt_consolidado(conta):
               "mesmo prompt discordam, e a questao e so quando")
 
 
+def _peca_olhada(conta):
+    """A conferencia de IMAGEM roda na geracao, e o defeito aparece na peca.
+
+    Dono, 28/09: "por que o prompt continua gerando imagens erradas mudando o
+    produto e posicionando informacoes cortadas?"
+
+    Porque a conferencia que existia le o que esta ESCRITO. As regras de
+    borda, de sobreposicao e de fidelidade estavam TODAS no prompt — 5, 6 e 7
+    vezes nos 9 prompts dele — e o modelo passou por cima. Regra nos dois
+    lados nao se resolve escrevendo de novo: se resolve OLHANDO o que saiu.
+
+    Esta guarda nao chama `revisar_peca`: ela le o CODIGO de `pagina_imagem`.
+    O defeito e "faltou chamar em algum lugar", e nenhum teste de unidade pega
+    uma chamada que nao existe — foi assim que duas mutacoes minhas passaram
+    verdes hoje de manha.
+    """
+    import ast as _ast_po
+    import importlib
+    import inspect as _insp_po
+
+    _m = importlib.import_module("imagem")
+    # AS DUAS FUNCOES, e nao so a tela.
+    #
+    # A primeira versao desta guarda lia so `pagina_imagem`, e a mutacao que
+    # tirava a conferencia do "refazer do zero" do chat passou VERDE: aquele
+    # bloco vive em `consumir_comandos_do_chat`, outra funcao. Guarda que le
+    # metade do caminho mede metade do caminho — e foi o caminho de fora o
+    # unico que nunca teve conferencia nenhuma.
+    _corpo = "\n".join(
+        _ast_po.unparse(_ast_po.parse(_insp_po.getsource(_f).lstrip()))
+        for _f in (_m.pagina_imagem, _m.consumir_comandos_do_chat))
+    _arv = _ast_po.parse(_corpo)
+
+    _chamadas = {}
+    for _n in _ast_po.walk(_arv):
+        if isinstance(_n, _ast_po.Call):
+            _alvo = getattr(_n.func, "attr", "") or getattr(_n.func, "id", "")
+            if _alvo in ("revisar_texto", "revisar_peca", "revisar_tudo",
+                         "peca_em_aviso"):
+                _chamadas.setdefault(_alvo, []).append(_n.lineno)
+    _chamadas_diretas = {k: list(v) for k, v in _chamadas.items()}
+    # `revisar_tudo` E as duas: ela le o texto e olha a peca, nesta ordem.
+    # Contar so o nome direto reprovaria quem passou a usar a porta — alarme
+    # falso em cima de codigo certo, que e o que ensina a ignorar a saida.
+    for _porta in _chamadas.get("revisar_tudo", []):
+        _chamadas.setdefault("revisar_texto", []).append(_porta)
+        _chamadas.setdefault("revisar_peca", []).append(_porta + 1)
+
+    # E A PORTA NAO PODE VIRAR OCA. Se `revisar_tudo` deixar de chamar uma
+    # das duas, todas as asercoes acima continuam verdes e nada e conferido.
+    _porta_src = _ast_po.parse(_insp_po.getsource(_m.revisar_tudo).lstrip())
+    _dentro = {(getattr(_n.func, "attr", "") or getattr(_n.func, "id", ""))
+               for _n in _ast_po.walk(_porta_src) if isinstance(_n, _ast_po.Call)}
+    conta("a porta unica chama MESMO as duas conferencias",
+          {"revisar_texto", "revisar_peca"} <= _dentro,
+          f"revisar_tudo chama {sorted(_dentro)} — a porta virou oca e todo "
+          "caminho que passa por ela deixa de conferir, em silencio")
+
+    conta("a geracao OLHA a peca, e nao so le o texto dela",
+          "revisar_peca" in _chamadas,
+          "o laco de geracao nao chama revisar_peca — texto cortado, cartao "
+          "sobre o produto e alca a mais saem para a tela do colaborador")
+
+    # ── UMA PERGUNTA, UMA RESPOSTA (Forma 5) ────────────────────────────
+    #
+    # A porta `revisar_tudo` existe justamente para os tres caminhos
+    # concordarem — inclusive na ORDEM, que custa dinheiro: trocar a copy e
+    # uma troca de string, refazer o quadro e uma geracao paga.
+    #
+    # A primeira versao desta correcao deixou o LACO chamando as duas soltas e
+    # os outros dois usando a porta. Duas respostas para a mesma pergunta
+    # passam a discordar — a questao e so quando —, e a guarda teve de
+    # aceitar os dois jeitos, o que e exatamente o que a enfraquece.
+    _soltas = [l for l in (_chamadas_diretas.get("revisar_texto", [])
+                           + _chamadas_diretas.get("revisar_peca", []))]
+    conta("ninguem chama as duas conferencias fora da porta unica",
+          not _soltas,
+          f"{len(_soltas)} chamada(s) diretas a revisar_texto/revisar_peca "
+          f"(linhas {_soltas}) — a ordem e as rodadas passam a depender de "
+          "quem escreveu cada trecho")
+
+    # E AS FOTOS TEM DE CHEGAR LA.
+    #
+    # `revisar_peca` sem fotos devolve None e nao confere nada — de
+    # proposito, porque julgar fidelidade sem ter com o que comparar e o
+    # alarme falso mais caro que existe. So que isso tambem e o jeito mais
+    # silencioso de desligar a conferencia inteira: `fotos_ref=[]` e a
+    # geracao volta a entregar sem ninguem olhar, com todas as guardas
+    # verdes. Foi a mutacao D, e ela passou.
+    # As DUAS portas: quem chama a conferencia direto e quem chama pela
+    # `revisar_tudo`. Olhar so uma delas deixaria o outro caminho desligar a
+    # conferencia em silencio — foi a mutacao D, e ela ja passou verde uma vez.
+    _ch_peca = [_n for _n in _ast_po.walk(_arv)
+                if isinstance(_n, _ast_po.Call)
+                and (getattr(_n.func, "attr", "") or getattr(_n.func, "id", ""))
+                in ("revisar_peca", "revisar_tudo")]
+    _fotos_vazias = []
+    for _c in _ch_peca:
+        _kw = {k.arg: k.value for k in _c.keywords}
+        _v = _kw.get("fotos_ref")
+        if _v is None:
+            _fotos_vazias.append(("sem fotos_ref", _c.lineno))
+        elif isinstance(_v, (_ast_po.List, _ast_po.Tuple)) and not _v.elts:
+            _fotos_vazias.append(("fotos_ref vazio", _c.lineno))
+        elif isinstance(_v, _ast_po.Constant) and not _v.value:
+            _fotos_vazias.append(("fotos_ref constante vazia", _c.lineno))
+    conta("as fotos do produto CHEGAM a conferencia",
+          _ch_peca and not _fotos_vazias,
+          f"{_fotos_vazias} — sem fotos ela devolve None e nao confere nada; "
+          "a geracao volta a entregar sem ninguem olhar, e verde")
+
+    # ── E TODO CAMINHO QUE GERA DO ZERO PASSA PELAS DUAS ────────────────
+    #
+    # O laco nao e o unico que gera uma peca inteira. O "refazer do zero" do
+    # chat e o botao de refazer da tela montam o prompt por
+    # `prompt_para_regerar` e escrevem os bytes novos direto na galeria — sem
+    # ler o texto e sem olhar a peca. Foi o caminho mais usado no dia da
+    # caneca, e era o unico sem conferencia nenhuma. Forma 1: a correcao tem
+    # de chegar em todos os irmaos, e nao so onde o sintoma apareceu.
+    #
+    # O AJUSTE fica de fora de propósito, e isso NAO e esquecimento: o ajuste
+    # promete preservar o quadro, e o conserto de `revisar_peca` e recompor.
+    # Ligar uma na outra poria as duas para brigar.
+    _regera = [_n.lineno for _n in _ast_po.walk(_arv)
+               if isinstance(_n, _ast_po.Call)
+               and (getattr(_n.func, "attr", "") or getattr(_n.func, "id", ""))
+               == "prompt_para_regerar"]
+    _revisoes = sorted(_chamadas.get("revisar_peca", []))
+    _sem_olho = [l for l in _regera
+                 if not any(0 < r - l <= 80 for r in _revisoes)]
+    conta("todo caminho que REGERA do zero tambem olha a peca",
+          _regera and not _sem_olho,
+          f"{len(_sem_olho)} caminho(s) montam o prompt de regeracao e "
+          f"entregam sem conferir (linhas {_sem_olho} do corpo de "
+          "pagina_imagem) — o refazer do chat e o botao de refazer")
+
+    conta("e tambem le o texto dela",
+          _regera and not [l for l in _regera
+                           if not any(0 < r - l <= 80
+                                      for r in sorted(_chamadas.get("revisar_texto", [])))],
+          "regeracao sem revisao de texto: volta 'Portatile' e 'apoliando'")
+
+    # ── E DA PARA CONFERIR SEM GASTAR GERACAO ───────────────────────────
+    #
+    # A conferencia decide sozinha se refaz — e refazer custa. Antes de
+    # confiar nela para gastar, o dono precisa poder OLHAR o veredito dela
+    # nas pecas que ele JA tem, inclusive as que ele sabe que estao erradas.
+    # Uma leitura custa centavos; uma geracao, nao.
+    #
+    # Sem isto a unica forma de saber se o leitor enxerga o defeito seria
+    # gerar um produto inteiro de teste — que e exatamente o retrabalho que
+    # esta correcao existe para acabar.
+    conta("da para conferir a peca que ja esta na tela, sem gerar de novo",
+          any(isinstance(_n, _ast_po.Constant)
+              and isinstance(_n.value, str)
+              and _n.value.startswith("conf_peca_")
+              for _n in _ast_po.walk(_arv)),
+          "nao ha botao de conferir na galeria: para saber se a conferencia "
+          "enxerga o defeito seria preciso gerar um produto inteiro de teste")
+
+    conta("e o defeito encontrado aparece NA PECA, na tela",
+          "peca_em_aviso" in _chamadas,
+          "o veredito da imagem e calculado e nao e mostrado — o colaborador "
+          "publica a peca sem saber que ela foi reprovada")
+
+    # E O VEREDITO VIAJA COM A IMAGEM. Sem isso a tela tem um aviso geral
+    # ("uma delas tem defeito") e obriga a procurar qual — que e o que
+    # ninguem faz.
+    _guarda_campo = [
+        _n for _n in _ast_po.walk(_arv)
+        if isinstance(_n, _ast_po.Constant) and _n.value == "peca"]
+    conta("o veredito da peca e guardado junto dela na galeria",
+          bool(_guarda_campo),
+          "a galeria nao carrega o campo `peca`: o aviso vira alerta geral")
+
+
 def _refazer_cego(conta):
     """A peca refeita pelo chat nascia sem nome, sem plano e sem layout.
 
@@ -1542,6 +1718,7 @@ def main():
     _fatura_confirmada(conta)
     _fotos_perdidas(conta)
     _refazer_cego(conta)
+    _peca_olhada(conta)
     _home(falhas, conta)
     _extratos(conta)
     _gargalos(conta)
