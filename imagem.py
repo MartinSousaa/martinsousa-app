@@ -5423,6 +5423,16 @@ def revisar_tudo(img, tipo, fotos_ref=None, gerar=None, prompt_base="",
     """
     img, rel_txt = revisar_texto(img, tipo, pedido=pedido, gerar=gerar,
                                  prompt_base=prompt_base, aviso=aviso)
+    # A BASE CORRIGIDA SEGUE PARA A SEGUNDA REVISAO.
+    #
+    # Sem isto, `revisar_peca` refazia a partir do prompt ORIGINAL — com a
+    # copy errada que a revisao de texto acabou de gastar uma geracao para
+    # tirar. A peca voltava com "Portatile" de novo, e a segunda correcao
+    # desfazia a primeira.
+    #
+    # O prompt SAI do relato aqui: senao ele viajaria com a peca ate a galeria
+    # e o disco, 24 mil caracteres por imagem, sem ninguem ler.
+    prompt_base = (rel_txt or {}).pop("prompt", None) or prompt_base
     img, rel_peca = revisar_peca(img, tipo, fotos_ref=fotos_ref, gerar=gerar,
                                  prompt_base=prompt_base, aviso=aviso)
     return img, rel_txt, rel_peca
@@ -5464,23 +5474,31 @@ def revisar_texto(img, tipo, pedido="", gerar=None, prompt_base="",
         veredito, erro_conf = conferir_texto(img, pedido)
         if erro_conf:
             return img, {"ok": None, "rodadas": n, "erro": erro_conf,
-                         "erros": erros_1a}
+                         "erros": erros_1a, "prompt": prompt_base}
         if not veredito.get("tem_texto") or veredito.get("correto"):
             return img, {"ok": True, "rodadas": n, "erro": "",
-                         "erros": erros_1a}
+                         "erros": erros_1a, "prompt": prompt_base}
         erros = (veredito.get("erros") or "").strip()
         erros_1a = erros_1a or erros
         certo = (veredito.get("texto_correto") or "").strip()
         if n >= rodadas or not gerar or not certo:
             return img, {"ok": False, "rodadas": n, "erro": "",
-                         "erros": erros or erros_1a}
+                         "erros": erros or erros_1a, "prompt": prompt_base}
         _diz(f"Texto errado ({erros[:60]}). Refazendo com as palavras certas…")
-        nova_img, erro_g = gerar(trocar_texto_exato(prompt_base, certo))
+        # A BASE MUDA JUNTO COM A COPY.
+        #
+        # Quem revisar esta peça depois — `revisar_peca` — vai refazer a
+        # partir de um prompt, e esse prompt tem de ser o CORRIGIDO. Com o
+        # original, a peça voltaria com a palavra inventada que acabou de
+        # custar uma geração para sair: a segunda correção desfazendo a
+        # primeira.
+        prompt_base = trocar_texto_exato(prompt_base, certo)
+        nova_img, erro_g = gerar(prompt_base)
         if erro_g or not nova_img:
             return img, {"ok": False, "rodadas": n, "erro": "",
-                         "erros": erros or erros_1a}
+                         "erros": erros or erros_1a, "prompt": prompt_base}
         img = nova_img
-    return img, {"ok": False, "rodadas": rodadas, "erro": "", "erros": erros_1a}
+    return img, {"ok": False, "rodadas": rodadas, "erro": "", "erros": erros_1a, "prompt": prompt_base}
 
 
 def texto_em_aviso(relato):
@@ -9068,6 +9086,56 @@ if __name__ == "__main__":
     ok("reprovada ate o fim sai como reprovada, e nao como aprovada",
        _rel["ok"] is False)
     ok("duas rodadas gastam UMA refacao, e nao duas", len(_geradas) == 1)
+
+    # ── A SEGUNDA REVISAO NAO PODE DESFAZER A PRIMEIRA ──────────────────
+    #
+    # `revisar_tudo` corrige o texto e DEPOIS olha a peca. Se a peca tambem
+    # tiver defeito de imagem, ela e refeita — e era refeita com o prompt
+    # ORIGINAL, que ainda traz a copy ERRADA que acabou de ser corrigida.
+    #
+    # Ou seja: a peca voltava com "Portatile" e "apoliando" de novo, depois de
+    # a revisao de texto ja ter gasto uma geracao para tirar. Duas correcoes
+    # brigando, e a segunda desfazendo a primeira.
+    #
+    # Achado pelo passo 5 — "quem mais le o que mudou?" —, e nao em producao.
+    _base_vista = []
+
+    def _gera_vendo(prompt):
+        _base_vista.append(prompt)
+        return b"nova", None
+
+    conferir_texto = _leitor(_ERRADO, _CERTO)
+    conferir_peca = _olho(_CORTADA, _APROVADA)
+    _base_ini = montar_prompt_imagem(
+        "2 — Benefícios do produto", "", {"cor": "Cinza"}, "Caneca",
+        plano_triagem={"composicao": "x", "cena": "y",
+                       "textos": ["TITULO ERRADO: apoliando o stresse"]})
+    _img_t, _rt, _rp = revisar_tudo(
+        b"x", "2 — Benefícios do produto", fotos_ref=[b"foto"],
+        gerar=_gera_vendo, prompt_base=_base_ini)
+    ok("a revisao de texto e a da peca rodaram as duas",
+       _rt and _rp and len(_base_vista) == 2)
+    ok("e a refacao DA PECA ja parte da copy CORRIGIDA",
+       len(_base_vista) == 2 and "apoliando" not in _base_vista[1])
+    ok("nao havendo, ela levaria de volta o erro que a primeira tirou",
+       len(_base_vista) == 2
+       and "PERFEITO PARA ESCRITÓRIO" in _base_vista[1])
+    # E O PROMPT NAO VIAJA COM A PECA.
+    #
+    # O relato de texto e guardado em `galeria[i]["texto"]` e vai para a tela
+    # e para o disco. Com o prompt dentro, sao 24 mil caracteres por imagem —
+    # 200 mil numa geracao de oito — carregados a cada passada do Streamlit,
+    # sem ninguem ler. E o mesmo custo por passada do passo 8.
+    #
+    # A primeira versao desta conferencia perguntou isso a um dicionario
+    # VAZIO que eu montei na hora, e passou verde sem medir nada. Agora ela
+    # olha o relato que `revisar_tudo` REALMENTE devolve.
+    ok("o prompt sai do relato — ele nao viaja ate a galeria",
+       "prompt" not in (_rt or {}))
+    ok("e o que a peca precisa saber continua la",
+       set(_rt or {}) >= {"ok", "rodadas", "erros"})
+
+    conferir_peca = _real_peca
 
     # ── A REFACAO PIOR NAO PODE SUBSTITUIR A ORIGINAL ───────────────────
     #
