@@ -847,6 +847,23 @@ def _contexto_do_log(conta):
     conta("e marca ANTES de abrir a primeira thread",
           _l_ctx is not None and (_l_th is None or _l_ctx < _l_th),
           f"marcar_contexto na linha {_l_ctx}, primeira Thread na {_l_th}")
+    # ── A DATA DO PAINEL E A DE BRASILIA ────────────────────────────────
+    #
+    # `pagina_placar` monta `agora = datetime.now()` — UTC no container — e
+    # esse `agora` decide DOIS numeros: a janela do "por que mudou entre dois
+    # dias" e a DATA DO RETRATO DIARIO. Depois das 21h locais ja e o dia
+    # seguinte em UTC: o retrato de sexta seria gravado como sabado, e a
+    # comparacao que o dono pediu ("sexta 102%, hoje 98%") pegaria a linha
+    # errada. O defeito nasceu no proprio commit que criou o retrato.
+    import placar as _pl_h
+    _corpo_pl = _insp_c.getsource(_pl_h.pagina_placar)
+    _codigo_pl = "\n".join(
+        l.split("#", 1)[0] for l in _corpo_pl.splitlines())
+    conta("a data do Painel de Metas vem com fuso",
+          "datetime.now()" not in _codigo_pl.replace(" ", ""),
+          "datetime.now() cru no Painel: o retrato diario grava o dia errado "
+          "depois das 21h")
+
     # E A FUNCAO EXISTE do outro lado: a tela chamar um nome que sumiu
     # levantaria AttributeError dentro de um `try` que engole tudo.
     conta("e `marcar_contexto` existe em log_imagem",

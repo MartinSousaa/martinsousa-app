@@ -2275,7 +2275,15 @@ def pagina_placar(usuario_logado, headless=False):
         st.error("Credenciais do Trello não configuradas."); return
 
     st.markdown(CSS,unsafe_allow_html=True)
-    agora=datetime.now()
+    # A HORA DE BRASILIA, e nao a do container.
+    #
+    # Este `agora` decide DOIS numeros: a janela do "por que a pontuacao mudou
+    # entre dois dias" e a DATA DO RETRATO DIARIO. O container roda em UTC, e
+    # depois das 21h locais ja e o dia seguinte la: o retrato de sexta seria
+    # gravado como sabado, e a comparacao que o dono pediu — "sexta 102%, hoje
+    # 98%" — pegaria a linha errada. O defeito nasceu no proprio commit que
+    # criou o retrato, e a varredura das seis Formas o achou no mesmo dia.
+    agora=datetime.now(_pc_core.FUSO).replace(tzinfo=None)
     params=st.query_params
     modo_tv = headless or (bool(_TV_TOKEN) and params.get("tv","") == _TV_TOKEN)
 
