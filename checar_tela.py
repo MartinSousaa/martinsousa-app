@@ -524,6 +524,221 @@ def _queda_de_pontos(conta):
             conta(nome, False, f"{type(e).__name__}: {e}")
 
 
+def _mapa_de_pontos(conta):
+    """O bloco que mostra de onde vem cada ponto — Painel e TV."""
+    import placar as _pl
+    import placar_snapshot as _ps
+
+    _d = {"cards_pts": [{"id": "a", "card": "Álbum 30x30",
+                         "lista": "CRIATIVO FOTOS (NOVAS: 10/VAR.:2)",
+                         "pts": 128, "membros": ["myrelladesouza"]},
+                        {"id": "b", "card": "Relógio de parede",
+                         "lista": "DESATIVAR (50)", "pts": 80,
+                         "membros": ["gabriel_borges", "beatriz51"]}],
+          "pen_total": 100.0,
+          "pen_cards": [{"card": "Atraso na entrega", "valor": 100,
+                         "membros": ["nicollas1"]}]}
+
+    # UM RETRATO SO: a aba de comparar tem de DIZER que falta dia, e nao
+    # ficar em branco nem explodir no `next()`.
+    _um = [{"data": "2026-09-28", "pts_equipe": 208, "pen_total": 100,
+            "saldo": 108, "meta": 5000, "pct": 2.16,
+            "cartoes": '{"a":128,"b":80}'}]
+    _dois = _um + [{"data": "2026-09-29", "pts_equipe": 128, "pen_total": 100,
+                    "saldo": 28, "meta": 5000, "pct": 0.56,
+                    "cartoes": '{"a":128}'}]
+    casos = [
+        ("Mapa de pontos: com cartões e penalidade", _d, lambda *a, **k: _dois),
+        # SEM RETRATO NENHUM: a tela explica que o historico comecou agora.
+        ("Mapa de pontos: nenhum retrato ainda", _d, lambda *a, **k: []),
+        ("Mapa de pontos: um retrato so, nao da para comparar", _d,
+         lambda *a, **k: _um),
+        # MES SEM CARTAO NENHUM somando — nao pode quebrar no sorted/sum.
+        ("Mapa de pontos: nenhum cartão somando",
+         {"cards_pts": [], "pen_total": 0.0, "pen_cards": []},
+         lambda *a, **k: []),
+        # PLANILHA FORA DO AR: `ler` ja devolve [], e a tela segue de pe.
+        ("Mapa de pontos: planilha fora do ar", _d, lambda *a, **k: []),
+    ]
+    _ler_guardado = _ps.ler
+    try:
+        for nome, _dd, _ler_fn in casos:
+            _falso = instalar()
+            _pl.st = _falso
+            _ps.ler = _ler_fn
+            try:
+                _pl.bloco_mapa_de_pontos(_dd, 5000)
+                conta(nome, True, "")
+            except (_Rerun, _Parou):
+                conta(nome, True, "")
+            except Exception as e:
+                conta(nome, False, f"{type(e).__name__}: {e}")
+    finally:
+        _ps.ler = _ler_guardado
+
+    # A VARIACAO DA TV e texto puro, e tem de sair legivel de longe.
+    _ps._memoria_limpar()
+    conta("Variação da TV: sem retrato anterior devolve None",
+          _ps.variacao(100.0) is None, "")
+
+
+def _processar_cards_pts(conta):
+    """`_processar` passou a guardar cada cartao que soma. A invariante e que
+    eles somem EXATAMENTE o total — e o retrato diario inteiro depende disso:
+    `placar_snapshot.confere` so fecha em zero se a lista for completa.
+
+    `ferramentas_chat.py` tambem le o retorno de `_processar` (linha 237), e
+    e por isso que o quarto verificador pediu esta guarda.
+    """
+    import placar as _pl
+    import placar_core as _pc
+
+    # SO A REDE E TROCADA. `_processar` roda inteira: e a soma dela que
+    # precisa ser conferida, nao o gspread nem o Trello.
+    _g_tempos, _g_mov, _g_ent = (_pc.tempos_do_board, _pc.acoes_movimento,
+                                 _pc.entradas_se_preciso)
+    _pc.tempos_do_board = lambda *a, **k: {}
+    _pc.acoes_movimento = lambda *a, **k: {}
+    _pc.entradas_se_preciso = lambda *a, **k: {}
+    try:
+        _listas = {"L1": "DESATIVAR (50)", "L2": "TRIAGEM",
+                   "L3": "CONFERENCIA VÍDEO (10)"}
+        _cf = lambda v: [{"idCustomField": "idp", "value": {"number": str(v)}}]
+        _cards = [
+            # SOMA: concluido, em lista que pontua, com o campo PONTOS.
+            {"id": "c1", "name": "Desativar carimbos", "idList": "L1",
+             "idMembers": [], "labels": [], "idLabels": [], "due": None,
+             "dueComplete": True, "customFieldItems": _cf(50),
+             "dateLastActivity": "2020-01-01T00:00:00.000Z"},
+            {"id": "c2", "name": "Conferência vídeo", "idList": "L3",
+             "idMembers": [], "labels": [], "idLabels": [], "due": None,
+             "dueComplete": True, "customFieldItems": _cf(10),
+             "dateLastActivity": "2020-01-01T00:00:00.000Z"},
+            # NAO SOMA: TRIAGEM esta em LISTAS_SEM_PONTUACAO.
+            {"id": "c3", "name": "Na triagem", "idList": "L2",
+             "idMembers": [], "labels": [], "idLabels": [], "due": None,
+             "dueComplete": True, "customFieldItems": _cf(100),
+             "dateLastActivity": "2020-01-01T00:00:00.000Z"},
+            # NAO SOMA: o "concluido" nao esta marcado. `placar.py:621`.
+            {"id": "c4", "name": "Aberto ainda", "idList": "L1",
+             "idMembers": [], "labels": [], "idLabels": [], "due": None,
+             "dueComplete": False, "customFieldItems": _cf(80),
+             "dateLastActivity": "2020-01-01T00:00:00.000Z"},
+        ]
+        _falso = instalar()
+        _pl.st = _falso
+        _d = _pl._processar(_listas, _cards, {}, "idp", "idt", "idi",
+                            filtro_mes=(2020, 1))
+        _soma = sum(c["pts"] for c in _d["cards_pts"])
+        conta("cards_pts soma EXATAMENTE o total da equipe",
+              _soma == _d["pts_equipe"],
+              f"cards_pts={_soma} · pts_equipe={_d['pts_equipe']}")
+        conta("so os cartoes que somam entram na lista",
+              sorted(c["id"] for c in _d["cards_pts"]) == ["c1", "c2"],
+              str(sorted(c["id"] for c in _d["cards_pts"])))
+        conta("cada cartao traz id, nome, lista e pontos",
+              all({"id", "card", "lista", "pts", "membros"} <= set(c)
+                  for c in _d["cards_pts"]), "")
+        # QUEM MAIS LE: ferramentas_chat.py:243 monta o saldo com estas duas
+        # chaves. Acrescentar cards_pts nao pode ter mexido nelas.
+        conta("ferramentas_chat continua achando pts_equipe e pen_total",
+              _d.get("pts_equipe") == 60 and _d.get("pen_total") == 0,
+              f"{_d.get('pts_equipe')} / {_d.get('pen_total')}")
+    except Exception as e:
+        conta("cards_pts soma EXATAMENTE o total da equipe", False,
+              f"{type(e).__name__}: {e}")
+    finally:
+        _pc.tempos_do_board, _pc.acoes_movimento = _g_tempos, _g_mov
+        _pc.entradas_se_preciso = _g_ent
+
+
+def _chat(conta):
+    """O chat do sidebar — ele desenha, e nenhuma guarda o desenhava.
+
+    O campo de anexo passou a aceitar QUALQUER formato e a converter antes de
+    mandar ao modelo. Era o unico campo de imagem do Studio que recusava
+    HEIC: quem fotografa o produto no iPhone recebia so "arquivo nao serve".
+    """
+    import chat_assistente as _ca
+
+    _falso = instalar()
+    _ca.st = _falso
+    try:
+        _ca.renderizar_chat("myrelladesouza")
+        conta("O chat do sidebar monta", True, "")
+    except (_Rerun, _Parou):
+        conta("O chat do sidebar monta", True, "")
+    except Exception as e:
+        conta("O chat do sidebar monta", False, f"{type(e).__name__}: {e}")
+
+    # O CAMPO DE ANEXO NAO PODE VOLTAR A LISTAR EXTENSOES. Ler a chamada no
+    # codigo-fonte da funcao, e nao o arquivo: guarda que varre o arquivo se
+    # encontra a si mesma — ja aconteceu quatro vezes nesta base.
+    import inspect as _insp_ch
+    _corpo = _insp_ch.getsource(_ca.renderizar_chat)
+    _ini = _corpo.find("Anexar imagem")
+    _trecho = _corpo[_ini:_ini + 900] if _ini >= 0 else ""
+    conta("o anexo do chat aceita qualquer formato",
+          bool(_trecho) and "type=None" in _trecho,
+          "o campo voltou a listar extensoes — HEIC de iPhone seria recusado")
+    # E O CONVERSOR TEM DE ESTAR NO CAMINHO: sem ele o arquivo cru vai ao
+    # modelo e volta erro generico, sem dizer qual e o problema.
+    # PROCURAR A CHAMADA, NAO A PALAVRA. A primeira versao procurava
+    # "normalizar_imagem" no corpo — e achava a propria mencao no comentario
+    # acima da chamada. Tirar a chamada de verdade nao reprovava nada.
+    conta("e converte antes de mandar ao modelo",
+          ".normalizar_imagem(" in _corpo, "")
+
+
+def _retrato_no_painel(conta):
+    """A gravacao do retrato roda DENTRO de `pagina_placar` — na thread da
+    TV, a cada volta, de minuto em minuto. E a unica linha deste diff que
+    fala com a rede em todo desenho de tela.
+
+    O cenario "sem credencial do Trello" nao a alcanca: ele sai antes. Esta
+    guarda existe porque o protocolo de 28/09 pergunta, antes de subir, qual
+    verificador leu a linha que mudou — e nenhum lia esta.
+    """
+    import inspect as _insp_r
+    import placar as _pl
+    import placar_snapshot as _ps
+
+    _corpo = _insp_r.getsource(_pl.pagina_placar)
+    _i = _corpo.find("placar_snapshot")
+    _trecho = _corpo[max(0, _i - 400):_i + 400] if _i >= 0 else ""
+    # PROTEGIDA POR try/except: uma planilha fora do ar nao pode derrubar o
+    # Painel de Metas nem congelar a TV.
+    conta("a gravacao do retrato esta dentro de um try",
+          bool(_trecho) and "try:" in _trecho and "except Exception:" in _trecho,
+          "a chamada esta desprotegida — planilha fora do ar derruba a tela")
+    # E O MES VAI JUNTO: sem ele, olhar agosto no seletor gravaria agosto
+    # como o retrato de hoje, e a comparacao de amanha acusaria uma queda de
+    # mes inteiro que nunca houve.
+    conta("e o mes que a tela mostra vai junto na chamada",
+          "filtro_mes=filtro_mes" in _trecho,
+          "sem filtro_mes, olhar um mes passado grava retrato mentiroso")
+
+    # E A GRAVACAO EM SI, com a planilha quebrada, nao levanta excecao.
+    class _AbaMorta:
+        def get_all_records(self):
+            raise RuntimeError("sem rede")
+
+        def append_row(self, *a, **k):
+            raise RuntimeError("sem rede")
+
+    _ps._memoria_limpar()
+    try:
+        _r = _ps.gravar({"pts_equipe": 10.0, "pen_total": 0.0,
+                         "cards_pts": [{"id": "a", "pts": 10}]},
+                        5000, aba=_AbaMorta())
+        conta("planilha morta devolve 'falhou' em vez de explodir",
+              _r == "falhou", str(_r))
+    except Exception as e:
+        conta("planilha morta devolve 'falhou' em vez de explodir", False,
+              f"{type(e).__name__}: {e}")
+    _ps._memoria_limpar()
+
+
 def main():
     instalar()
     falhas = []
@@ -540,6 +755,10 @@ def main():
     _historico(conta)
     _faturas(conta)
     _queda_de_pontos(conta)
+    _mapa_de_pontos(conta)
+    _processar_cards_pts(conta)
+    _chat(conta)
+    _retrato_no_painel(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0

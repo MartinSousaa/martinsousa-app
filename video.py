@@ -27,6 +27,25 @@ def _mime(data: bytes) -> str:
     return "image/jpeg"
 
 
+def _preparar_frame(data: bytes):
+    """O frame em formato que a API aceita. Devolve (bytes, mime) ou (None, "").
+
+    O CONVERSOR NO CAMINHO, como no resto do Studio. Sem ele o HEIC do iPhone
+    ia cru e `_mime` o rotulava "image/jpeg" — a API recusava o par, e o
+    colaborador recebia um erro que não dizia nada sobre o formato.
+    """
+    if not data:
+        return None, ""
+    try:
+        import imagem as _img_v
+        prontos, mime, _ = _img_v.normalizar_imagem(data)
+        return prontos, mime
+    except Exception:
+        # Melhor-esforço: se o conversor falhar, manda o original — que é
+        # exatamente o que acontecia antes desta função existir.
+        return data, _mime(data)
+
+
 def _gerar_prompt_video(dados_produto: dict, acao: str, observacoes: str,
                          frame_inicial: bytes | None, frame_final: bytes | None) -> tuple:
     """Chama a API Anthropic para gerar o prompt de vídeo.
@@ -126,24 +145,26 @@ RESPOND ONLY with valid JSON:
         )
     })
 
-    if frame_inicial:
+    _fi_dados, _fi_mime = _preparar_frame(frame_inicial)
+    if _fi_dados:
         partes_user.append({
             "type": "image",
             "source": {
                 "type": "base64",
-                "media_type": _mime(frame_inicial),
-                "data": base64.b64encode(frame_inicial).decode(),
+                "media_type": _fi_mime,
+                "data": base64.b64encode(_fi_dados).decode(),
             }
         })
         partes_user.append({"type": "text", "text": "↑ Frame inicial (quadro de abertura do vídeo)"})
 
-    if frame_final:
+    _ff_dados, _ff_mime = _preparar_frame(frame_final)
+    if _ff_dados:
         partes_user.append({
             "type": "image",
             "source": {
                 "type": "base64",
-                "media_type": _mime(frame_final),
-                "data": base64.b64encode(frame_final).decode(),
+                "media_type": _ff_mime,
+                "data": base64.b64encode(_ff_dados).decode(),
             }
         })
         partes_user.append({"type": "text", "text": "↑ Frame final (quadro de encerramento do vídeo)"})
@@ -425,3 +446,65 @@ def pagina_video(usuario_logado):
             )
 
         st.rerun()
+
+
+# ── Conferência ──────────────────────────────────────────────────────────────
+# `python3 video.py`. Só `_preparar_frame` é conferida aqui: ela é a função
+# que decide o que vai para a API, e nasceu sem guarda nenhuma — foi o
+# protocolo de 28/09 ("qual verificador leu a linha que eu mudei?") que cobrou.
+#
+# O DEFEITO QUE ELA IMPEDE: `_mime` devolve "image/jpeg" para tudo que não
+# reconhece. Um HEIC de iPhone ia rotulado como JPEG, a API recusava o par, e
+# o erro que voltava não falava de formato nenhum.
+if __name__ == "__main__":
+    falhas = 0
+
+    def ok(nome, cond):
+        global falhas
+        falhas += not cond
+        print(("ok    " if cond else "FALHA ") + nome)
+
+    import io as _io_t
+    try:
+        from PIL import Image as _PIL_t
+    except Exception:
+        _PIL_t = None
+
+    # NADA ENTRA, NADA SAI — e sem explodir no `if not data`.
+    ok("frame vazio devolve nada", _preparar_frame(b"") == (None, ""))
+    ok("frame None devolve nada", _preparar_frame(None) == (None, ""))
+
+    if _PIL_t is None:
+        print("\n(sem Pillow neste ambiente — só as bordas foram conferidas)")
+    else:
+        _buf = _io_t.BytesIO()
+        _PIL_t.new("RGB", (8, 8), (10, 20, 30)).save(_buf, format="PNG")
+        _png = _buf.getvalue()
+        _d, _m = _preparar_frame(_png)
+        ok("PNG passa direto, sem reconverter", _d == _png)
+        ok("e com o mime certo", _m == "image/png")
+
+        # O FORMATO QUE A API NÃO ACEITA tem de sair convertido, e NUNCA
+        # rotulado com o mime de origem. É o defeito que motivou a função.
+        _buf2 = _io_t.BytesIO()
+        _PIL_t.new("RGB", (8, 8), (90, 90, 90)).save(_buf2, format="BMP")
+        _d2, _m2 = _preparar_frame(_buf2.getvalue())
+        ok("BMP e convertido, e nao segue cru", _d2 != _buf2.getvalue())
+        ok("e o mime devolvido e o do arquivo convertido",
+           _m2 in ("image/jpeg", "image/png"))
+        # E O QUE SAI TEM DE ABRIR: mime certo com bytes quebrados seria pior
+        # que o defeito original, porque pareceria certo.
+        try:
+            _PIL_t.open(_io_t.BytesIO(_d2)).load()
+            _abre = True
+        except Exception:
+            _abre = False
+        ok("e os bytes convertidos abrem de verdade", _abre)
+
+    # ARQUIVO QUE NAO E IMAGEM nao pode derrubar a tela: a funcao e
+    # melhor-esforco, e devolve o original para o erro vir da API, e nao daqui.
+    _lixo = b"isso nao e imagem nenhuma"
+    _d3, _m3 = _preparar_frame(_lixo)
+    ok("arquivo invalido nao levanta excecao", _d3 == _lixo and bool(_m3))
+
+    print("\nfalhas:", falhas)

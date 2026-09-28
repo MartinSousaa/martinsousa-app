@@ -582,6 +582,8 @@ def _processar(listas,cards,membros_map,id_p,id_t,id_i,filtro_mes=None):
         "tempo_lista":{},"desativar":0,"reativar":0,"pend_lista":{},
         "correcao_concl":0,"total_concl":0,
         "concluido_sem_membro":[],
+        # Os cartões que SOMAM, um a um. Ver o append lá embaixo.
+        "cards_pts":[],
     }
     for card in cards:
         nl=listas.get(card["idList"],"")
@@ -693,6 +695,12 @@ def _processar(listas,cards,membros_map,id_p,id_t,id_i,filtro_mes=None):
         if pt is None: continue
         if nl in LISTAS_SEM_PONTUACAO: continue
         d["pts_equipe"]+=pt
+        # CADA CARTÃO QUE SOMA, NOMEADO. O total já era calculado aqui e a
+        # parcela jogada fora: o Painel dizia 4.900 e não sabia de onde. É
+        # esta lista que o retrato diário congela, e é a diferença entre dois
+        # retratos que transforma "por que caiu 300?" em subtração.
+        d["cards_pts"].append({"id":card["id"],"card":card["name"],
+                               "lista":nl,"pts":pt,"membros":us})
         ma=[u for u in us if u in MEMBROS_ATIVOS]
         if ma:
             cada=pt/len(ma)
@@ -1147,6 +1155,10 @@ def _tv_full_html(
     n_urgentes, n_sem_mb, agora_str,
     meta_ind_map=None,
     ritmo_tv_html="",
+    # A VARIACAO DESDE O RETRATO ANTERIOR. Tabela de 200 cartoes nao se le
+    # numa TV; "-200 desde 25/09" se le de longe, e e a pergunta que o dono
+    # fez. Vazio quando ainda nao ha um retrato anterior para comparar.
+    variacao_txt="",
     # Cor do velocimetro da META MENSAL, vinda de ritmo_do_mes(). Verde e so o
     # padrao de quando nao ha ritmo a mostrar (mes passado, mes recem-comecado).
     # A META MAXX nao usa isto: ela continua dourada sempre.
@@ -1475,7 +1487,7 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
       <div class="bloco-titulo verde">🏆 Meta Mensal</div>
       <div class="mini-cards">
         <div class="mini-card verde"><span class="mc-label verde">Meta</span><span class="mc-val verde">{meta_eq:,.0f}</span><span class="mc-sub verde">pts/mês</span></div>
-        <div class="mini-card amarelo"><span class="mc-label amarelo">Atual</span><span class="mc-val amarelo">{saldo_eq:,.0f}</span><span class="mc-sub amarelo">{fp(pct_eq)} da meta</span></div>
+        <div class="mini-card amarelo"><span class="mc-label amarelo">Atual</span><span class="mc-val amarelo">{saldo_eq:,.0f}</span><span class="mc-sub amarelo">{fp(pct_eq)} da meta{variacao_txt}</span></div>
         <div class="mini-card {_cl_f_n}"><span class="mc-label {_cl_f_n}">Faltam</span><span class="mc-val {_cl_f_n}">{_v_f_n}</span><span class="mc-sub {_cl_f_n}">{_sub_f_n}</span></div>
         <div class="mini-card amarelo"><span class="mc-label amarelo">Em Aberto</span><span class="mc-val amarelo">{pts_pendentes:,.0f}</span><span class="mc-sub amarelo">pendentes</span></div>
       </div>
@@ -2155,6 +2167,96 @@ def bloco_queda_de_pontos(agora):
                 "vazio — o Studio não inventa o valor que ele tinha.")
 
 
+def bloco_mapa_de_pontos(d, meta_eq):
+    """Cartão a cartão: o que soma hoje, e o que mudou desde outro dia.
+
+    O Painel mostrava 4.900 pts e não sabia dizer de onde. O total era somado
+    e a parcela jogada fora — `_processar` agora guarda `cards_pts`.
+
+    FUNÇÃO PRÓPRIA PARA PODER SER CONFERIDA, como o bloco da queda.
+    """
+    import placar_snapshot as _ps
+    _cards = sorted((d.get("cards_pts") or []), key=lambda c: -(c.get("pts") or 0))
+    _somam = sum(c.get("pts") or 0 for c in _cards)
+    import pandas as _pd_mp
+
+    _t1, _t2 = st.tabs(["Hoje, cartão a cartão", "Comparar com outro dia"])
+
+    with _t1:
+        st.caption(f"**{len(_cards)} cartões somam {_somam:,.0f} pts** · "
+                   f"penalidades tiram {d.get('pen_total') or 0:,.0f} pts · "
+                   f"saldo {(_somam - (d.get('pen_total') or 0)):,.0f} de "
+                   f"{meta_eq:,.0f}".replace(",", "."))
+        if not _cards:
+            st.info("Nenhum cartão somando pontos neste mês.")
+        else:
+            st.dataframe(_pd_mp.DataFrame([{
+                "cartão": c.get("card"), "lista": c.get("lista"),
+                "pts": c.get("pts"),
+                "quem": ", ".join(MEMBROS_ATIVOS.get(u, u)
+                                  for u in (c.get("membros") or [])) or "—",
+            } for c in _cards]), use_container_width=True, hide_index=True)
+        if d.get("pen_cards"):
+            st.caption("**Subtraindo:**")
+            st.dataframe(_pd_mp.DataFrame([{
+                "cartão": p.get("card"), "pts": -abs(p.get("valor") or 0),
+                "quem": ", ".join(MEMBROS_ATIVOS.get(u, u)
+                                  for u in (p.get("membros") or [])) or "—",
+            } for p in d["pen_cards"]]), use_container_width=True,
+                hide_index=True)
+
+    with _t2:
+        _retratos = _ps.ler()
+        if len(_retratos) < 2:
+            # DIZER A VERDADE SOBRE O QUE AINDA NÃO EXISTE. O retrato começou
+            # a ser gravado agora; dias anteriores a isso não voltam.
+            st.info(
+                f"O retrato diário começou a ser gravado agora — há "
+                f"**{len(_retratos)}** dia(s) guardado(s), e comparar precisa "
+                f"de dois. A partir de amanhã esta aba responde a pergunta "
+                f"por subtração, sem depender do log do Trello. Para os dias "
+                f"anteriores, use **Por que a pontuação mudou entre dois "
+                f"dias?** logo abaixo.")
+        else:
+            _datas = [str(r.get("data")) for r in _retratos]
+            _c1, _c2 = st.columns(2)
+            _de = _c1.selectbox("De", _datas, index=max(0, len(_datas) - 2),
+                                key="mp_de")
+            _ate = _c2.selectbox("Até", _datas, index=len(_datas) - 1,
+                                 key="mp_ate")
+            _a = next(r for r in _retratos if str(r.get("data")) == _de)
+            _b = next(r for r in _retratos if str(r.get("data")) == _ate)
+            # Os nomes vêm do quadro de HOJE. Cartão que saiu não está lá, e
+            # o nome vem vazio — o mesmo critério do valor.
+            _nomes = {c.get("id"): c.get("card") for c in _cards}
+            _dif = _ps.comparar(_a, _b, _nomes)
+            _cf = _ps.confere(_a, _b, _dif)
+            st.caption(
+                f"**{_de}**: {_a.get('pct')}% da meta · "
+                f"**{_ate}**: {_b.get('pct')}% da meta")
+            if not _dif:
+                st.info("Nenhum cartão mudou de valor entre os dois dias.")
+            else:
+                st.dataframe(_pd_mp.DataFrame([{
+                    "cartão": x["cartao"] or "(saiu do quadro)",
+                    "o que mudou": x["o_que"], "antes": x["antes"],
+                    "depois": x["depois"], "delta": x["delta"],
+                } for x in _dif]), use_container_width=True, hide_index=True)
+            if _cf:
+                _d_saldo, _soma, _sobra = _cf
+                st.caption(f"Diferença de saldo: **{_d_saldo:+,.0f}** · "
+                           f"somando os cartões: **{_soma:+,.0f}**"
+                           .replace(",", "."))
+                if _sobra:
+                    # A CONTA QUE NÃO FECHA SE ANUNCIA. Lista incompleta que
+                    # parece completa é pior que nenhuma lista.
+                    st.warning(
+                        f"Faltam **{_sobra:+,.0f}** pts para a conta fechar — "
+                        f"essa diferença são as penalidades do período, que "
+                        f"não entram no mapa de cartões."
+                        .replace(",", "."))
+
+
 def pagina_placar(usuario_logado, headless=False):
     """Renderiza o Painel de Metas.
 
@@ -2289,6 +2391,28 @@ def pagina_placar(usuario_logado, headless=False):
     listas,cards,membros_map,id_p,id_t,id_i=dados
     d=_processar(listas,cards,membros_map,id_p,id_t,id_i,filtro_mes)
     fila=_calcular_fila(listas,cards,membros_map)
+
+    # ── O RETRATO DO DIA ──────────────────────────────────────────────────────
+    #
+    # 28/09: "na sexta a meta coletiva estava em 102% e agora está em 98%;
+    # quais cartões somaram e quais subtraíram?". Não havia resposta: o Studio
+    # lê o Trello AO VIVO, e os 102% de sexta não existiam em lugar nenhum.
+    #
+    # Uma foto por dia resolve de vez — a partir dela a pergunta deixa de ser
+    # investigação no log do Trello e vira subtração entre dois dias.
+    #
+    # `filtro_mes` vai junto de propósito: o master pode estar olhando agosto
+    # no seletor, e gravar agosto como o retrato de hoje inventaria uma queda
+    # de mês inteiro amanhã.
+    #
+    # Quem chega primeiro no dia grava — a thread da TV ou o próprio painel.
+    # Depois disso é um `if` em memória, sem rede.
+    try:
+        import placar_snapshot as _ps_dia
+        _ps_dia.gravar(d, meta_eq, agora, filtro_mes=filtro_mes)
+    except Exception:
+        # Um retrato que falha não pode derrubar o Painel nem a TV.
+        pass
 
     # ── ALERTA: cartões em andamento ou concluídos sem membro ─────────────────
     _and_sem_mb = [
@@ -2623,7 +2747,29 @@ def pagina_placar(usuario_logado, headless=False):
             f'<div class="rit-p" style="color:{_c};">'
             f'{_ritmo_tv["icone"]} {_r_txt_tv}</div>'
             f'<div class="rit-s">{_r_extra_tv}</div></div>')
+    # A VARIAÇÃO DESDE O RETRATO ANTERIOR, para a TV.
+    #
+    # Não consulta a planilha: `variacao` lê o retrato que `gravar` já guardou
+    # na leitura do dia. A TV redesenha de minuto em minuto, e uma consulta
+    # por volta seriam 1.400 por dia para mostrar o mesmo número.
+    #
+    # Fica vazio no primeiro dia — não há com o que comparar, e escrever
+    # "0" ali diria que nada mudou, que é outra coisa.
+    _var_txt = ""
+    try:
+        import placar_snapshot as _ps_var
+        _v_tv = _ps_var.variacao(saldo_eq)
+        if _v_tv:
+            _d_dia, _s_dia = _v_tv["desde"], _v_tv["delta"]
+            # 2026-09-25 → 25/09, que é como se lê numa TV.
+            _p_dia = _d_dia.split("-")
+            _dia_br = f"{_p_dia[2]}/{_p_dia[1]}" if len(_p_dia) == 3 else _d_dia
+            _var_txt = f" · {_s_dia:+,.0f} desde {_dia_br}".replace(",", ".")
+    except Exception:
+        # Um retrato que falha não pode derrubar a TV.
+        _var_txt = ""
     _html_tv = _tv_full_html(
+        variacao_txt=_var_txt,
         pct_eq=pct_eq, pct_maxx=pct_maxx,
         saldo_eq=saldo_eq, meta_eq=meta_eq, faltam=faltam,
         pts_pendentes=d["pts_pendentes"],
@@ -2874,6 +3020,11 @@ def pagina_placar(usuario_logado, headless=False):
     # ver a pontuação.
     if not modo_tv and eh_master:
         st.markdown('<hr style="border:none;border-top:1px solid var(--ms-divisor);margin:10px 0 8px 0;"/>',unsafe_allow_html=True)
+        # O MAPA vem ANTES do extrato do Trello de propósito: ele responde a
+        # mesma pergunta sem consultar a rede, e a partir de dois retratos
+        # responde com certeza em vez de reconstrução.
+        with st.expander("📋 De onde vêm os pontos — cartão a cartão"):
+            bloco_mapa_de_pontos(d, meta_eq)
         with st.expander("🔎 Por que a pontuação mudou entre dois dias?"):
             bloco_queda_de_pontos(agora)
 

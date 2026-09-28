@@ -909,12 +909,14 @@ lado, mostrar a parte de trás também, caso tenha".
 - OLHE AS FOTOS: se elas mostram frente, verso, lateral, tampa ou base com
   acabamentos, gravações ou desenhos DIFERENTES, o plano tem de mostrar essas
   faces ao longo das peças — não a mesma foto oito vezes.
-- Distribua os ângulos: frontal, três-quartos, lateral, traseiro, superior.
-  Duas peças seguidas no mesmo ângulo é plano mal feito.
-- SÓ O QUE EXISTE NAS FOTOS. Se nenhuma foto mostra o verso, NÃO invente um:
-  desenhe o que há e escreva no campo `pergunta_info` da peça que uma foto do
-  verso ampliaria a variação. Inventar o lado que ninguém fotografou é o
-  mesmo erro de inventar textura.
+- AS FOTOS MANDAM, E ESTA REGRA VEM DEPOIS DELAS. Varie o ângulo APENAS entre
+  os ângulos que as fotos realmente mostram. Se todas as fotos mostram o mesmo
+  lado, TODAS as peças usam esse lado — repetir o ângulo que existe é certo;
+  inventar um que não existe é o mesmo erro de inventar textura, e produz
+  produto torto, alça a mais e produto diferente do real.
+- NÃO escreva nada em `pergunta_info` por causa de ângulo. Esse campo é
+  EXCLUSIVO de peça inviável, e preenchê-lo aqui faz a peça ser descartada.
+  Falta de foto de um ângulo NUNCA torna uma peça inviável.
 - No campo "cena" de cada peça, diga qual face e qual ângulo aparecem.
 
 Para cada tipo, analise se é VIÁVEL gerar com as informações e fotos disponíveis.
@@ -4307,7 +4309,7 @@ def prompt_para_regerar(tipo, instrucoes, dados_descricao, nome_produto):
     )
 
 
-def _baixar_historico_de_prompts():
+def _baixar_historico_de_prompts(sufixo=""):
     """Um botão que leva TODO o histórico de prompts deste produto num .txt.
 
     POR QUE AQUI, NA TELA DE QUEM GERA
@@ -4327,7 +4329,7 @@ def _baixar_historico_de_prompts():
     _produto = str(st.session_state.get("img_nome_produto", "")
                    or st.session_state.get("nome_produto", "") or "").strip()
     if st.button("📄 Preparar histórico de prompts (.txt)",
-                 use_container_width=True, key="btn_hist_prompts"):
+                 use_container_width=True, key=f"btn_hist_prompts{sufixo}"):
         try:
             import log_imagem as _li
             _linhas = _li.ler(500)
@@ -4335,18 +4337,18 @@ def _baixar_historico_de_prompts():
                 _linhas = [l for l in _linhas
                            if str(l.get("produto", "")).strip() == _produto]
             import comparar_prompt as _cmp
-            st.session_state["img_hist_txt"] = _cmp.relatorio_txt(_linhas)
+            st.session_state[f"img_hist_txt{sufixo}"] = _cmp.relatorio_txt(_linhas)
         except Exception as e:
-            st.session_state["img_hist_txt"] = ""
+            st.session_state[f"img_hist_txt{sufixo}"] = ""
             st.error(f"Não consegui montar o histórico: {type(e).__name__}")
-    _txt = st.session_state.get("img_hist_txt") or ""
+    _txt = st.session_state.get(f"img_hist_txt{sufixo}") or ""
     if _txt:
         st.download_button(
             "⬇️ Baixar o histórico de prompts",
             data=_txt.encode("utf-8"),
             file_name=f"prompts_{(_produto or 'studio').replace(' ', '_')}.txt",
             mime="text/plain", use_container_width=True,
-            key="btn_hist_prompts_baixar")
+            key=f"btn_hist_prompts_baixar{sufixo}")
         st.caption(f"{len(_txt):,} caracteres · geração e todas as correções "
                    "de cada peça deste produto".replace(",", "."))
 
@@ -6016,7 +6018,7 @@ def pagina_imagem(usuario_logado):
         )
 
         fotos_ajuste_upload = st.file_uploader(
-            "Imagem a ajustar (JPG, PNG, WebP)",
+            "Imagem a ajustar — qualquer formato, inclusive foto de iPhone",
             type=None,  # qualquer formato — normalizar_imagem converte o que precisar
             accept_multiple_files=True,
             key="img_ajuste_upload",
@@ -6182,7 +6184,7 @@ def pagina_imagem(usuario_logado):
         st.markdown("**Fotos de referência do produto**")
         st.caption("Suba quantas fotos quiser — ângulos diferentes ajudam a IA a ser mais fiel.")
         fotos_upload = st.file_uploader(
-            "Fotos do produto (JPG, PNG, WebP)",
+            "Fotos do produto — qualquer formato, inclusive foto de iPhone",
             type=None,  # qualquer formato — normalizar_imagem converte o que precisar
             accept_multiple_files=True,
             key="img_fotos_upload",
@@ -6239,7 +6241,7 @@ def pagina_imagem(usuario_logado):
                 "e coloca o SEU produto dentro dele, no tamanho real dele."
             )
             refs_amb_upload = st.file_uploader(
-                "Referências de ambientação (JPG, PNG, WebP)",
+                "Referências de ambientação — qualquer formato",
                 type=None, accept_multiple_files=True,
                 key="img_refs_amb_upload",
                 help="Ex.: a foto de um bar à noite para o clima das peças "
@@ -6272,7 +6274,7 @@ def pagina_imagem(usuario_logado):
                 "o nome do arquivo indica para qual tipo de imagem a referência se aplica."
             )
             refs_layout_upload = st.file_uploader(
-                "Imagens de referência de layout (JPG, PNG, WebP)",
+                "Imagens de referência de layout — qualquer formato",
                 type=None,  # qualquer formato — normalizar_imagem converte o que precisar
                 accept_multiple_files=True,
                 key="img_refs_layout_upload",
@@ -6604,10 +6606,22 @@ def pagina_imagem(usuario_logado):
                 else "🔍 Ver o prompt que será enviado em cada peça",
                 use_container_width=True, key="btn_ver_prompts"):
             st.session_state["img_ver_prompts"] = not _ver_prompts
-            st.rerun()
+        # O `st.rerun()` QUE ESTAVA AQUI APAGAVA A TELA.
+        #
+        # Dono, 28/09: "cliquei em ver o prompt de cada imagem para copiar e
+        # te mandar, e ao clicar a tela atualizou e voltou do zero".
+        #
+        # `st.rerun()` interrompe a execução atual e recomeça a página — tudo
+        # que esta passada ainda não tinha desenhado é perdido. Ele estava aí
+        # porque `_ver_prompts` foi lido ANTES do clique, então sem recomeçar
+        # o bloco abaixo ainda veria o valor velho.
+        #
+        # Reler a chave depois do clique resolve o mesmo problema sem jogar a
+        # tela fora: o clique já provoca um rerun do Streamlit por si só.
+        _ver_prompts = st.session_state.get("img_ver_prompts", False)
         if _ver_prompts:
             _c_btn2.caption("não gera imagem · não gasta geração")
-            _baixar_historico_de_prompts()
+            _baixar_historico_de_prompts(sufixo="_plano")
             # O DESCARTE DA REFERENCIA DEIXA DE SER SILENCIOSO.
             #
             # A descricao da referencia de layout e jogada fora quando menciona
@@ -7850,6 +7864,23 @@ def pagina_imagem(usuario_logado):
             use_container_width=True,
         )
 
+        # ── O HISTÓRICO DE PROMPTS, AQUI ──────────────────────────────────
+        #
+        # Dono, 28/09: "precisa ter um botão Baixar histórico de prompt, onde
+        # terá desde o primeiro até o último de todas as imagens geradas".
+        #
+        # Ele já existia — escondido atrás do botão "Ver o prompt que será
+        # enviado", lá no PLANO, antes de gerar. Ou seja: no único momento em
+        # que não há prompt nenhum para baixar. Quem acabou de ver o
+        # resultado ruim e quer o prompt que o produziu estava aqui embaixo,
+        # e daqui não havia caminho.
+        st.markdown("---")
+        st.markdown("**📄 Histórico de prompts**")
+        st.caption(
+            "Geração e TODAS as correções de cada peça deste produto, da "
+            "primeira à última, em um .txt.")
+        _baixar_historico_de_prompts(sufixo="_galeria")
+
 
 # ── Conferência da revisão de texto ──────────────────────────────────────────
 # `python3 imagem.py` roda os casos abaixo. Eles moram aqui, e não num arquivo
@@ -8494,13 +8525,28 @@ if __name__ == "__main__":
        "NUNCA REPETEM O MESMO AMBIENTE" in _corpo_tri)
     ok("e sabe que madeira clara e madeira escura sao a mesma cena",
        "madeira\n  clara" in _corpo_tri and "são a mesma cena" in _corpo_tri)
-    ok("a analise distribui os angulos",
-       "NÃO APARECE SEMPRE DO MESMO LADO" in _corpo_tri
-       and "frontal, três-quartos, lateral, traseiro" in _corpo_tri)
-    # E NAO PODE INVENTAR O LADO QUE NINGUEM FOTOGRAFOU — e o mesmo erro de
-    # inventar textura, e ja custou caro nesta base.
-    ok("mas nao inventa a face que as fotos nao mostram",
-       "SÓ O QUE EXISTE NAS FOTOS" in _corpo_tri)
+    # ESTES DOIS TESTES NASCERAM ERRADOS, e o custo apareceu em producao.
+    #
+    # A versao original exigia a frase "frontal, tres-quartos, lateral,
+    # traseiro" dentro do prompt — ou seja, exigia a ORDEM de variar o
+    # angulo. Eles foram escritos DEPOIS da mudanca, entao sairam parecidos
+    # com o que eu tinha acabado de escrever: travavam a redacao em vez de
+    # conferir o comportamento. Passaram verdes enquanto o Studio entregava
+    # caneca torta, caneca com duas alcas e um modelo que nao existe.
+    #
+    # Agora eles conferem a PRECEDENCIA, que e o que importa: a foto manda
+    # sobre a variacao. Repetir o angulo que existe e certo; inventar um que
+    # nao existe e o mesmo erro de inventar textura.
+    ok("a analise varia o angulo",
+       "NÃO APARECE SEMPRE DO MESMO LADO" in _corpo_tri)
+    ok("mas a foto manda sobre a variacao",
+       "AS FOTOS MANDAM" in _corpo_tri)
+    ok("e ordenar variacao de angulo nao volta",
+       "Distribua os ângulos" not in _corpo_tri)
+    # FALTA DE FOTO DE UM ANGULO NAO TORNA A PECA INVIAVEL. Foi por aqui que
+    # as pecas 7 e 8 sumiram: `pergunta_info` ganhou um segundo dono.
+    ok("falta de angulo nao descarta a peca",
+       "NUNCA torna uma peça inviável" in _corpo_tri)
 
     # ── A FALHA DO AJUSTE NAO DEVOLVE A LICAO DE CASA ───────────────────
     #
