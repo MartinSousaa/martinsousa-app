@@ -2083,6 +2083,77 @@ def _meta_ind_item(titulo, pct, descricao, cor=None, aguardando=False):
 </div>"""
 
 # ── PÁGINA ─────────────────────────────────────────────────────────────────────
+def bloco_queda_de_pontos(agora):
+    """Por que a pontuação mudou entre dois dias. Desenha dentro do expander.
+
+    FUNÇÃO PRÓPRIA PARA PODER SER CONFERIDA. Inline dentro de
+    `pagina_placar`, este bloco só rodaria com o Trello de verdade na mão —
+    e `checar_tela.py` existe justamente para desenhar a tela sem isso. Um
+    bloco que nenhum verificador alcança é um bloco que quebra em produção.
+    """
+    import queda_pontos as _qp
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+    _hoje = agora.date()
+    _c1, _c2, _c3 = st.columns([2, 2, 1])
+    _de = _c1.date_input("De", _hoje - _td(days=3), key="qp_de")
+    _ate = _c2.date_input("Até", _hoje, key="qp_ate")
+    _c3.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+    if _c3.button("Puxar", key="qp_ir", use_container_width=True):
+        st.session_state["qp_rodar"] = True
+    if st.session_state.get("qp_rodar"):
+        _ini = _dt.combine(_de, _dt.min.time()).replace(tzinfo=_tz.utc)
+        _fim = _dt.combine(_ate, _dt.max.time()).replace(tzinfo=_tz.utc)
+        with st.spinner("Lendo o histórico do Trello…"):
+            try:
+                _por_card = _pc_core._buscar_acoes_board(
+                    desde_iso=_ini.isoformat(), max_paginas=10,
+                    filtro=_qp.FILTRO)
+                _acoes = [a for lista in _por_card.values() for a in lista]
+            except Exception as _e_qp:
+                _acoes = []
+                st.error(f"Não consegui ler o histórico: "
+                         f"{type(_e_qp).__name__}: {str(_e_qp)[:160]}")
+            # O valor de cada cartão vem do quadro de HOJE. Cartão
+            # arquivado não está lá — e por isso sai sem valor.
+            _vals = {}
+            try:
+                _l, _cards, _m, _idp, _idt, _idi = _pc_core._buscar_board()
+                for _cd in (_cards or []):
+                    _v = _pc_core._num(_cd, _idp)
+                    if _v:
+                        _vals[_cd.get("id")] = _v
+            except Exception:
+                pass
+        _ext = _qp.mapear(_acoes, _ini, _fim, _vals)
+        if not _ext:
+            st.info(
+                "Nenhuma mudança que mexa em pontuação nesse período. "
+                "O que muda ponto é: penalidade criada, cartão "
+                "arquivado ou excluído, cartão mudando de lista, o "
+                "campo PONTOS alterado, e membro entrando ou saindo "
+                "do cartão. Etiqueta, comentário e anexo não mexem.")
+        else:
+            st.caption(" · ".join(f"**{_o}**: {_n}"
+                                  for _o, _n in _qp.resumo(_ext)))
+            import pandas as _pd_qp
+            st.dataframe(
+                _pd_qp.DataFrame([{
+                    "quando": (e["quando"].astimezone(_pc_core.FUSO)
+                               .strftime("%d/%m %H:%M")
+                               if e["quando"] else ""),
+                    "cartão": e["cartao"],
+                    "o que mudou": e["o_que"],
+                    "detalhe": e["detalhe"],
+                    "quem": e["quem"],
+                    "pontos hoje": e["valor"],
+                } for e in _ext]),
+                use_container_width=True, hide_index=True)
+            st.caption(
+                "**pontos hoje** vem do quadro atual. Cartão "
+                "arquivado ou excluído não está mais lá, então vem "
+                "vazio — o Studio não inventa o valor que ele tinha.")
+
+
 def pagina_placar(usuario_logado, headless=False):
     """Renderiza o Painel de Metas.
 
@@ -2785,6 +2856,25 @@ def pagina_placar(usuario_logado, headless=False):
               </div>
               <div style="font-size:10px;color:var(--ms-texto-sec);margin-top:2px;">{ms}</div>
             </div>""",unsafe_allow_html=True)
+
+    # ══ POR QUE A PONTUAÇÃO MUDOU ENTRE DOIS DIAS ══════════════════════
+    #
+    # 28/09: "estavam com 102% na sexta e hoje caiu para 98%; queda de 300
+    # pontos e a pontuação de 3 colaboradores reduziu. Dá para puxar o
+    # motivo?". Não dava: este painel lê o Trello AO VIVO — sabe quanto vale
+    # o quadro agora e nada sobre ontem.
+    #
+    # Um cartão arquivado é o pior caso: ele some do total sem erro, sem
+    # aviso, sem uma linha dizendo que sumiu. O log do Trello guarda tudo, e
+    # é dele que este bloco monta o extrato.
+    #
+    # SÓ RODA QUANDO O MASTER PEDE. São até 10 páginas de ações do board; ler
+    # isso a cada abertura do painel deixaria a tela lenta para quem só quer
+    # ver a pontuação.
+    if not modo_tv and eh_master:
+        st.markdown('<hr style="border:none;border-top:1px solid var(--ms-divisor);margin:10px 0 8px 0;"/>',unsafe_allow_html=True)
+        with st.expander("🔎 Por que a pontuação mudou entre dois dias?"):
+            bloco_queda_de_pontos(agora)
 
     # ══ BLOCO FINAL — rodapé normal ══
     if False:  # modo_tv já fez return acima
