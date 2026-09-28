@@ -5230,6 +5230,19 @@ def revisar_peca(img, tipo, fotos_ref=None, gerar=None, prompt_base="",
     if not img or not fotos_ref:
         return img, None
 
+    # A MELHOR DAS DUAS, E NAO A ULTIMA.
+    #
+    # `img = nova_img` incondicional entregava a segunda peca mesmo quando ela
+    # saia PIOR. Na revisao de texto isso e razoavel — a refacao recebe a copy
+    # certa e tende a melhorar. Aqui nao: o gerador pode responder a "tire a
+    # alca a mais" tirando as duas, e o Studio entregaria a pior das duas com
+    # um aviso dizendo que esta errada. Isso e retrabalho fabricado pela
+    # propria correcao.
+    #
+    # O criterio e a CONTAGEM de problemas vistos, que e o unico numero
+    # comparavel que a conferencia devolve. Empate fica com a mais nova, que
+    # e a que ao menos recebeu a instrucao.
+    melhor_img, melhor_n = img, None
     problemas_1a = []
     for n in range(1, max(1, rodadas) + 1):
         _diz(f"Olhando a peça ({n}ª conferência)…")
@@ -5242,10 +5255,13 @@ def revisar_peca(img, tipo, fotos_ref=None, gerar=None, prompt_base="",
                          "problemas": problemas_1a}
         problemas = [str(p) for p in (veredito.get("problemas") or []) if p]
         problemas_1a = problemas_1a or problemas
+        if melhor_n is None or len(problemas) <= melhor_n:
+            melhor_img, melhor_n = img, len(problemas)
+            melhores_problemas = problemas
         instrucao = (veredito.get("instrucao") or "").strip()
         if n >= rodadas or not gerar or not instrucao:
-            return img, {"ok": False, "rodadas": n, "erro": "",
-                         "problemas": problemas or problemas_1a}
+            return melhor_img, {"ok": False, "rodadas": n, "erro": "",
+                                "problemas": melhores_problemas}
         _diz(f"Peça com defeito ({'; '.join(problemas)[:60]}). Refazendo…")
         nova_img, erro_g = gerar(
             prompt_base + "\n\n"
@@ -5254,11 +5270,11 @@ def revisar_peca(img, tipo, fotos_ref=None, gerar=None, prompt_base="",
             + "\n".join(f"- {p}" for p in problemas)
             + "\n\nO que fazer diferente agora: " + instrucao)
         if erro_g or not nova_img:
-            return img, {"ok": False, "rodadas": n, "erro": "",
-                         "problemas": problemas or problemas_1a}
+            return melhor_img, {"ok": False, "rodadas": n, "erro": "",
+                                "problemas": melhores_problemas}
         img = nova_img
-    return img, {"ok": False, "rodadas": rodadas, "erro": "",
-                 "problemas": problemas_1a}
+    return melhor_img, {"ok": False, "rodadas": rodadas, "erro": "",
+                        "problemas": melhores_problemas}
 
 
 def revisar_tudo(img, tipo, fotos_ref=None, gerar=None, prompt_base="",
@@ -8088,6 +8104,43 @@ def pagina_imagem(usuario_logado):
         # A revisao automatica ja leu esta imagem quando ela foi gerada; este
         # botao e para reler quando se quer ver A LISTA das palavras erradas,
         # ou depois de um ajuste feito fora do fluxo.
+        # ── CONFERIR A PECA, SEM GERAR NADA ──────────────────────────────
+        #
+        # A conferencia automatica decide sozinha se REFAZ, e refazer custa
+        # uma geracao. Antes de confiar nela para gastar, o dono tem de poder
+        # ver o veredito dela numa peca que ele JA tem — inclusive numa que
+        # ele sabe que esta errada. Uma leitura custa centavos.
+        #
+        # Sem este botao, a unica forma de descobrir se o leitor enxerga o
+        # defeito seria gerar um produto inteiro de teste, que e o retrabalho
+        # que esta correcao existe para acabar.
+        _fotos_conf = st.session_state.get("img_fotos_originais") or []
+        if st.button("🔎 Conferir esta peça (não gera nada)",
+                     use_container_width=True,
+                     key=f"conf_peca_{idx_ativo}",
+                     disabled=not _fotos_conf,
+                     help=("Olha a peça ao lado das fotos do produto e diz o "
+                           "que achou de errado. Só lê — não refaz, não gasta "
+                           "geração.")
+                     if _fotos_conf else
+                     "Precisa das fotos do produto desta sessão."):
+            with st.spinner("Olhando a peça ao lado das fotos…"):
+                _vd, _er_vd = conferir_peca(imagem_ativa, _fotos_conf,
+                                            tipo_ativo)
+            if _er_vd:
+                st.error(f"**Não consegui conferir:** {_er_vd}\n\n"
+                         "Enquanto isto aparecer, NENHUMA peça está sendo "
+                         "olhada na geração — elas saem sem ninguém ver.")
+            elif _vd.get("aprovada"):
+                st.success("✅ Sem defeito de imagem: nada cortado, nada por "
+                           "cima do produto, e o produto bate com as fotos.")
+            else:
+                st.error("❌ **A peça tem defeito:**\n\n"
+                         + "\n".join(f"- {p}" for p in
+                                      (_vd.get("problemas") or []))
+                         + (f"\n\n**Como refazer:** {_vd['instrucao']}"
+                            if _vd.get("instrucao") else ""))
+
         if st.button("🔤 Ler o texto desta imagem", use_container_width=True,
                      key=f"ler_txt_{idx_ativo}"):
             with st.spinner("Lendo o que está escrito na imagem…"):
@@ -8763,6 +8816,40 @@ if __name__ == "__main__":
     ok("reprovada ate o fim sai como reprovada, e nao como aprovada",
        _rel["ok"] is False)
     ok("duas rodadas gastam UMA refacao, e nao duas", len(_geradas) == 1)
+
+    # ── A REFACAO PIOR NAO PODE SUBSTITUIR A ORIGINAL ───────────────────
+    #
+    # Achado pela pergunta "que estrago isto pode causar?", e nao por um
+    # defeito em producao — desta vez antes, e nao depois.
+    #
+    # `img = nova_img` era incondicional: a segunda peca virava a entregue
+    # mesmo reprovada. Na revisao de TEXTO isso e razoavel, porque a refacao
+    # recebe a copy certa e tende a melhorar. Aqui nao: o gerador pode
+    # responder a "tire a alca a mais" tirando as duas, e eu entregaria a
+    # pior das duas com um aviso dizendo que esta errada.
+    _UM_PROBLEMA = {"aprovada": False, "problemas": ["texto cortado"],
+                    "instrucao": "cartoes inteiros dentro do quadro"}
+    _TRES_PROBLEMAS = {"aprovada": False,
+                       "problemas": ["texto cortado", "alca a mais",
+                                     "produto deformado"],
+                       "instrucao": "refaca"}
+    _geradas.clear()
+    conferir_peca = _olho(_UM_PROBLEMA, _TRES_PROBLEMAS)
+    _img, _rel = revisar_peca(b"original", "2 — Benefícios do produto",
+                              fotos_ref=[b"f"], gerar=_gera,
+                              prompt_base="BASE", rodadas=2)
+    ok("refacao PIOR e descartada — fica a original",
+       _img == b"original")
+    ok("e o relato reporta os problemas da que FICOU",
+       _rel["problemas"] == ["texto cortado"])
+
+    _geradas.clear()
+    conferir_peca = _olho(_TRES_PROBLEMAS, _UM_PROBLEMA)
+    _img, _rel = revisar_peca(b"original", "2 — Benefícios do produto",
+                              fotos_ref=[b"f"], gerar=_gera,
+                              prompt_base="BASE", rodadas=2)
+    ok("refacao MELHOR substitui — mesmo sem chegar a passar",
+       _img == b"nova" and _rel["problemas"] == ["texto cortado"])
 
     conferir_peca = _olho("sem chave")
     _img, _rel = revisar_peca(b"x", "2 — Benefícios do produto",

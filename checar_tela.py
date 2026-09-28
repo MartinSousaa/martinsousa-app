@@ -1291,6 +1291,24 @@ def _peca_olhada(conta):
                                       for r in sorted(_chamadas.get("revisar_texto", [])))],
           "regeracao sem revisao de texto: volta 'Portatile' e 'apoliando'")
 
+    # ── E DA PARA CONFERIR SEM GASTAR GERACAO ───────────────────────────
+    #
+    # A conferencia decide sozinha se refaz — e refazer custa. Antes de
+    # confiar nela para gastar, o dono precisa poder OLHAR o veredito dela
+    # nas pecas que ele JA tem, inclusive as que ele sabe que estao erradas.
+    # Uma leitura custa centavos; uma geracao, nao.
+    #
+    # Sem isto a unica forma de saber se o leitor enxerga o defeito seria
+    # gerar um produto inteiro de teste — que e exatamente o retrabalho que
+    # esta correcao existe para acabar.
+    conta("da para conferir a peca que ja esta na tela, sem gerar de novo",
+          any(isinstance(_n, _ast_po.Constant)
+              and isinstance(_n.value, str)
+              and _n.value.startswith("conf_peca_")
+              for _n in _ast_po.walk(_arv)),
+          "nao ha botao de conferir na galeria: para saber se a conferencia "
+          "enxerga o defeito seria preciso gerar um produto inteiro de teste")
+
     conta("e o defeito encontrado aparece NA PECA, na tela",
           "peca_em_aviso" in _chamadas,
           "o veredito da imagem e calculado e nao e mostrado — o colaborador "
