@@ -34,6 +34,10 @@ QUE EU GERO", mais abaixo, e são sete passos:
 7. **Conflito de merge:** a lista vem de `git diff --name-only
    --diff-filter=U`, nunca do que coube na tela — e depois de resolver, varrer
    o repositório inteiro atrás de marcador, inclusive fora do código.
+8. **Custo por passada:** linha nova que grava, lê ou chama rede dentro do
+   desenho da tela roda A CADA TECLA digitada. Perguntar quantas vezes ela
+   roda, e quanto custa cada uma. *(A primeira versão da gravação das fotos
+   escrevia 30 MB no disco por tecla.)*
 
 `@` sozinho pede o protocolo. `@arquivo.py` continua sendo referência a
 arquivo, e não tem nada a ver com isto.
@@ -295,6 +299,31 @@ três — o `tail -6` da saída tinha escondido metade.
 
 **Guarda:** `checar_alcance.py` varre `.py`, `.md`, `.txt` e `.toml` e
 reprova marcador de conflito commitado.
+
+### Forma 9 — subir com gente no meio do trabalho
+
+28/09, 17:07: fiz o merge para `main` enquanto o dono gerava imagens. 17:17:
+ele me mandou o print com três fotos anexadas na tela e o Studio respondendo
+"Suba pelo menos uma foto do produto".
+
+O deploy reinicia o processo. A lista de NOMES do upload fica no NAVEGADOR; os
+BYTES ficam na memória do PROCESSO. Reiniciou, os dois deixam de concordar — e
+quem está olhando a tela vê as fotos lá, anexadas.
+
+A regra já existia, escrita em "Como o trabalho chega em produção": *"verde nos
+cinco não é licença para subir com produção em uso: com gente trabalhando no
+Studio, quem decide a hora é o dono"*. Eu subi mesmo assim.
+
+**Duas regras:**
+
+1. **Antes de todo merge para `main`, perguntar se pode subir AGORA** — e a
+   pergunta é uma linha, não um relatório. Quem está no Studio aparece em "NO
+   STUDIO AGORA", na barra lateral.
+2. **Deploy no meio de um trabalho tem de ser recuperável.** O que a pessoa
+   perde num reinício é o que o sistema não guardou em disco. A galeria já era
+   guardada; as fotos anexadas não eram. Toda vez que o reinício custar
+   trabalho, a pergunta não é "como evitar o reinício" — é *"o que falta gravar
+   para que ele não custe nada?"*.
 
 ### O que eu mapeei e o que NÃO mapeei
 
