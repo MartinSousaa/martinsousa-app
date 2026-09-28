@@ -993,6 +993,86 @@ def _telas_restantes(conta):
     _sh.planilha, _sh.cliente = _guardado
 
 
+def _txt_consolidado(conta):
+    """O .txt com os prompts de TODAS as pecas de uma vez.
+
+    Dono, 28/09: "nao tem como ter um botao que consolida o que sera enviado
+    de todas as imagens para que eu nao precise abrir e copiar um por um?".
+    Eram oito expanders, oito cliques, oito colagens.
+
+    O QUE ESTA GUARDA IMPEDE: que o arquivo saia com peca faltando, com a
+    ordem trocada, ou sem dizer o que ele NAO contem — a ambientacao lida das
+    referencias so entra na hora de gerar, e um arquivo que nao avisa isso
+    faz quem le procurar defeito onde nao ha.
+    """
+    import imagem as _img_t
+
+    _pares = [("1 — Capa do anúncio (fundo branco)", "TEXTO DA PECA UM " * 4),
+              ("4 — Close nos detalhes", "TEXTO DA PECA QUATRO " * 4),
+              ("5 — Características técnicas", "TEXTO DA PECA CINCO " * 4)]
+    _txt = _img_t.txt_dos_prompts(_pares, "Caneca Medieval", "Medieval Rústico")
+
+    # TODA PECA ENTRA, e nenhuma some no meio.
+    conta("o txt traz as tres pecas",
+          all(f"PEÇA {i} —" in _txt for i in (1, 2, 3)), "")
+    conta("e o texto de cada uma", all(p[1].strip()[:20] in _txt for p in _pares), "")
+    # A ORDEM E A DO PLANO: peca 1 antes da 4, e a 4 antes da 5.
+    conta("na ordem do plano",
+          _txt.index("PEÇA 1") < _txt.index("PEÇA 2") < _txt.index("PEÇA 3"), "")
+    # O CABECALHO DIZ O QUE FALTA. Sem isso, quem le acha que o arquivo e o
+    # prompt final e procura defeito no lugar errado.
+    conta("o cabecalho avisa que a ambientacao entra so na geracao",
+          "AMBIENTAÇÃO" in _txt and "acrescentado no fim" in _txt, "")
+    conta("e nomeia o produto", "Caneca Medieval" in _txt, "")
+    conta("e traz a direcao de arte uma vez so",
+          _txt.count("Medieval Rústico") == 1, "")
+
+    # BORDAS: plano vazio nao pode gerar arquivo quebrado.
+    _vazio = _img_t.txt_dos_prompts([], "")
+    conta("plano vazio gera arquivo legivel, e nao vazio",
+          "Peças: 0" in _vazio and "(sem nome)" in _vazio, "")
+    # E O ARQUIVO TEM DE SER TEXTO DE VERDADE: bytes tortos nao abrem.
+    try:
+        _vazio.encode("utf-8"); _txt.encode("utf-8")
+        _cod = True
+    except Exception:
+        _cod = False
+    conta("o arquivo codifica em utf-8", _cod, "")
+
+    # A FONTE E UNICA: a tela e o txt tem de sair da MESMA funcao, senao os
+    # dois discordam — e a questao e so quando (Forma 5).
+    import inspect as _insp_t
+    _corpo_pag = _insp_t.getsource(_img_t.pagina_imagem)
+    conta("a tela monta os prompts pela funcao unica",
+          "prompt_de_cada_peca(" in _corpo_pag,
+          "a tela voltou a montar o prompt por conta propria")
+    # E O BLOCO DO PREVIEW NAO MONTA O SEU.
+    #
+    # Duas versoes desta guarda nasceram erradas, e as duas por mutacao:
+    #
+    #   1. procurar so o nome da funcao unica: ela era encontrada no bloco do
+    #      BOTAO, entao o expander podia voltar a montar o proprio sem
+    #      reprovar nada;
+    #   2. proibir `montar_prompt_imagem` na PAGINA INTEIRA: isso acusava o
+    #      caminho da GERACAO (`imagem.py:7252`), que legitimamente monta o
+    #      seu — ele acrescenta a ambientacao lida das referencias, que o
+    #      preview nao tem como ter. E a diferenca que o cabecalho do .txt
+    #      avisa. Alarme falso em cima de codigo certo ensina a ignorar.
+    #
+    # A assercao certa e sobre o BLOCO DO PREVIEW, e so ele.
+    _ini_pv = _corpo_pag.find("if _ver_prompts:")
+    _fim_pv = _corpo_pag.find("_desc = descarte_de_layout()")
+    _bloco_pv = (_corpo_pag[_ini_pv:_fim_pv]
+                 if 0 <= _ini_pv < _fim_pv else "")
+    conta("o bloco do preview foi encontrado", bool(_bloco_pv),
+          "a guarda ficou cega — o bloco mudou de forma")
+    for _cru in ("montar_prompt_imagem(", "prompt_que_sera_enviado("):
+        conta(f"e o preview nao chama {_cru[:-1]} direto",
+              bool(_bloco_pv) and _cru not in _bloco_pv,
+              "a montagem voltou para dentro do preview: duas fontes para o "
+              "mesmo prompt discordam, e a questao e so quando")
+
+
 def main():
     instalar()
     falhas = []
@@ -1023,6 +1103,7 @@ def main():
     _retrato_no_painel(conta)
     _historico_de_prompts(conta)
     _contexto_do_log(conta)
+    _txt_consolidado(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0

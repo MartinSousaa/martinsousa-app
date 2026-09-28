@@ -495,7 +495,6 @@ corrido.
 
 
 --------------------------------------------------------------------------------
-<<<<<<< HEAD
 PARTE 5B — SE VOCE OPERA O STUDIO PELO NAVEGADOR
 --------------------------------------------------------------------------------
 
@@ -607,8 +606,6 @@ O sistema muda. Se um botao tiver outro nome, ou uma secao nao existir:
 
 
 --------------------------------------------------------------------------------
-=======
->>>>>>> origin/main
 PARTE 6 — O QUE PERGUNTAR, QUANDO FALTAR INFORMACAO
 --------------------------------------------------------------------------------
 
@@ -639,13 +636,9 @@ PARTE 7 — O QUE VOCE NAO PODE AFIRMAR
 Isto e serio, e ja custou caro nesta base. Voce NAO tem o codigo e NAO roda
 nada. Entao:
 
-<<<<<<< HEAD
   - nao diga que rodou comando, script ou verificacao. Operar o Studio pelo
     navegador NAO e rodar verificacao: voce clicou numa tela, nao executou a
     varredura do sistema;
-=======
-  - nao diga que rodou comando, script ou verificacao;
->>>>>>> origin/main
   - nao diga que conferiu uma linha de arquivo. As referencias tipo
     "imagem.py:168" existem para o dono saber onde mandar corrigir — voce nao
     as leu;
@@ -661,7 +654,6 @@ que afirmacao confiante e errada.
 
 
 --------------------------------------------------------------------------------
-<<<<<<< HEAD
 PARTE 7B — "SUMIU" NAO E "FOI CORRIGIDO"
 --------------------------------------------------------------------------------
 
@@ -713,8 +705,6 @@ que nao existe, e cor pedida que briga com a foto.
 
 
 --------------------------------------------------------------------------------
-=======
->>>>>>> origin/main
 PARTE 8 — O QUE AINDA ESTA EM ABERTO
 --------------------------------------------------------------------------------
 
