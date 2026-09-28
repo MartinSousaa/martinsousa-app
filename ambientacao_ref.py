@@ -59,10 +59,24 @@ _ESQUEMA = {
                 },
                 "required": ["indice", "ambiente", "luz", "materiais",
                              "clima", "serve_para"],
+                # SAIDA ESTRUTURADA EXIGE ISTO EM TODO OBJETO.
+                #
+                # Sem `additionalProperties: false`, a API recusa a requisicao
+                # inteira com 400 `output_config.format.schema`. Em producao,
+                # 28/09, a mensagem na tela foi "Nao consegui ler as
+                # referencias de ambientacao" — e as oito pecas sairam com o
+                # tema escrito, sem olhar nenhuma das referencias que o dono
+                # tinha subido.
+                #
+                # O esquema da conferencia de ajuste (`imagem.py`) sempre teve
+                # a linha; este nasceu sem ela. Mesma regra, dois lugares, uma
+                # resposta so — e foi o que faltou.
+                "additionalProperties": False,
             },
         },
     },
     "required": ["cenarios"],
+    "additionalProperties": False,
 }
 
 
@@ -163,7 +177,11 @@ def descrever(imagens_bytes, tipos_disponiveis, nome_produto="", api_key=None):
         bruto = "".join(getattr(b, "text", "") for b in resp.content)
         dados = json.loads(bruto)
     except Exception as e:
-        return _sem_visao(f"{type(e).__name__}: {str(e)[:120]}")
+        # 120 CARACTERES ESCONDIAM A CAUSA. A mensagem da API dizia
+        # `output_config.format.schema: ` e o resto — o nome do campo que
+        # faltava — caia fora do corte. Ficou na tela um erro que nao
+        # ensinava nada a ninguem.
+        return _sem_visao(f"{type(e).__name__}: {str(e)[:400]}")
     if not isinstance(dados, dict) or "cenarios" not in dados:
         return _sem_visao("resposta da visão fora do formato")
     return dados
@@ -313,6 +331,43 @@ if __name__ == "__main__":
     _fonte_ar = open(__file__, encoding="utf-8").read().split("if __name__")[0]
     ok('nenhum "image/png" fixo no bloco de imagem',
        chr(34) + "media_type" + chr(34) + ': "image/png"' not in _fonte_ar)
+
+    # ── O ESQUEMA DA SAIDA ESTRUTURADA ──────────────────────────────────
+    #
+    # 28/09, producao: "Nao consegui ler as referencias de ambientacao
+    # (BadRequestError: 400 ... output_config.format.schema)". A API recusa o
+    # esquema inteiro quando um objeto nao declara `additionalProperties`.
+    # As oito pecas sairam com o tema escrito, sem olhar NENHUMA das
+    # referencias que o dono tinha subido.
+    def _objetos(no, caminho="raiz"):
+        """Todo objeto do esquema, com o caminho ate ele."""
+        fora = []
+        if isinstance(no, dict):
+            if no.get("type") == "object":
+                fora.append((caminho, no))
+            for ch, v in no.items():
+                fora += _objetos(v, f"{caminho}.{ch}")
+        elif isinstance(no, list):
+            for i, v in enumerate(no):
+                fora += _objetos(v, f"{caminho}[{i}]")
+        return fora
+
+    _objs = _objetos(_ESQUEMA)
+    ok("o esquema tem os dois objetos (a raiz e o cenario)", len(_objs) == 2)
+    _sem = [c for c, o in _objs if o.get("additionalProperties") is not False]
+    ok("todo objeto declara additionalProperties: false", not _sem)
+    _sem_req = [c for c, o in _objs if not o.get("required")]
+    ok("e todo objeto declara required", not _sem_req)
+    # REQUIRED TEM DE LISTAR TODAS AS PROPRIEDADES, senao a API tambem recusa.
+    _faltando = [(c, set(o["properties"]) - set(o.get("required") or []))
+                 for c, o in _objs if o.get("properties")]
+    ok("required lista todas as propriedades",
+       all(not f for _c, f in _faltando))
+
+    # O MOTIVO DO ERRO NAO PODE VOLTAR CORTADO: 120 caracteres escondiam
+    # justamente o nome do campo que faltava.
+    ok("o motivo do erro chega inteiro na tela",
+       "[:400]" in _fonte_ar and "[:120]" not in _fonte_ar)
 
     print("\nfalhas:", falhas)
     sys.exit(falhas)
