@@ -499,6 +499,51 @@ def main():
                   f"contrarias ao motor: {sorted(faixas)}")
             falhas += 1
 
+    # ── 1-bis. O PROMPT DA REFACAO TAMBEM E VARRIDO ────────────────────────
+    #
+    # ESTE ERA O BURACO MAIOR, e ele e a Forma 3 do protocolo: dizer verde
+    # sobre um texto que o verificador nao lia.
+    #
+    # A varredura acima le o prompt da PRIMEIRA geracao. Mas quando a revisao
+    # de texto acha um erro de portugues, ela refaz a peca com o prompt
+    # passado por `trocar_texto_exato` — e e ESSE o prompt que chega ao motor
+    # na segunda rodada, justamente na peca que ja tinha dado problema.
+    #
+    # Em 28/09 esse prompt chegou ao motor com 8.259 caracteres contra 24.000
+    # da primeira rodada, sem a regra da borda, sem protagonismo, sem
+    # densidade, sem texto real, sem fidelidade e sem composicao. As 60 regras
+    # daqui estavam verdes o tempo todo: elas mediam o outro prompt.
+    #
+    # Agora as MESMAS regras sao varridas nos dois.
+    import imagem as _img_ref
+    refeitos = {}
+    for t in TODOS:
+        try:
+            refeitos[t] = _img_ref.trocar_texto_exato(
+                enviados[t], ["TITULO NOVO: frase corrigida de exemplo"])
+        except Exception as e:
+            print(f"FALHA  nao consegui montar o prompt da refacao de '{t}': "
+                  f"{type(e).__name__}: {e}")
+            falhas += 1
+            refeitos[t] = enviados[t]
+
+    for desc, trecho, deve, nao_pode in REGRAS:
+        for t in (TODOS if deve is None else deve):
+            if trecho in enviados[t] and trecho not in refeitos[t]:
+                print(f"FALHA  {desc}: existia na geracao de '{t}' e SUMIU na "
+                      "refacao — a peca refeita vai ao motor sem essa regra")
+                falhas += 1
+
+    for t in TODOS:
+        if len(refeitos[t]) < len(enviados[t]) * 0.85:
+            print(f"FALHA  a refacao de '{t}' encolheu de {len(enviados[t])} "
+                  f"para {len(refeitos[t])} caracteres — regra foi junto")
+            falhas += 1
+        if refeitos[t].count(_img_ref.MARCA_TEXTO_EXATO) > 1:
+            print(f"FALHA  a refacao de '{t}' ficou com DOIS blocos de texto "
+                  "exato, cada um mandando escrever uma coisa")
+            falhas += 1
+
     # ── 3-bis. A CENA E A COMPOSICAO NAO MANDAM TAMANHO ────────────────────
     #
     # A checagem 3 acima procura as frases que o SISTEMA escreve ("ocupa de
