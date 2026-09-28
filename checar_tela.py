@@ -1148,6 +1148,67 @@ def _txt_consolidado(conta):
               "mesmo prompt discordam, e a questao e so quando")
 
 
+def _fatura_confirmada(conta):
+    """A fatura em PDF so grava DEPOIS de o dono confirmar na tela.
+
+    Ate 28/09 o caminho era: ler, mostrar, o dono conferir contra a fatura
+    aberta, AVISAR-ME, eu ligar o lancamento e subir um deploy. Dias, para um
+    clique. E enquanto isso os lancamentos do cartao nao entravam.
+
+    O risco que travava isso esta escrito em `extratos_tela.py:90`: a fatura
+    e um DESENHO, nao uma planilha. O banco muda o layout e o leitor passa a
+    devolver numero errado sem erro nenhum na tela — num sistema de dinheiro,
+    a pior falha possivel.
+
+    A saida nao e ligar sozinho: e o dono confirmar. Ele ja compara com a
+    fatura aberta; o que faltava era o botao. Estas guardas fixam as tres
+    coisas que tornam isso seguro:
+
+      1. NADA e gravado sem confirmacao explicita;
+      2. o botao so aparece quando ha lancamento lido e nenhum erro;
+      3. gravar duas vezes nao duplica — `lancamentos.gravar` ja filtra pela
+         identidade, e a tela tem de DIZER quantos foram repetidos.
+    """
+    import inspect as _insp_f
+    import extratos_tela as _et_f
+    import lancamentos as _lan_f
+
+    _corpo = _insp_f.getsource(_et_f._fatura)
+
+    conta("a fatura tem botao de confirmar e lancar",
+          "st.button(" in _corpo and "CONFIRMO" in _corpo.upper(),
+          "sem botao, o caminho continua sendo me avisar e esperar deploy")
+    # GRAVAR SO DEPOIS DO CLIQUE. A chamada nao pode estar solta no corpo.
+    _i_grav = _corpo.find("_lan.gravar(")
+    if _i_grav < 0:
+        _i_grav = _corpo.find(".gravar(")
+    conta("a gravacao existe no caminho da fatura", _i_grav >= 0, "")
+    if _i_grav >= 0:
+        _antes = _corpo[:_i_grav]
+        conta("e ela vem DEPOIS de um if de botao",
+              "st.button(" in _antes,
+              "gravar fora do if do botao grava em todo desenho da tela")
+
+    # A DEDUPLICACAO E O QUE TORNA O CLIQUE REPETIDO INOFENSIVO.
+    _l = [{"data": "01/09/2026", "descricao": "MERCADO X", "valor": -50.0}]
+    _id1 = _lan_f.com_identidade(list(_l), "cartao")[0]["id"]
+    _id2 = _lan_f.com_identidade(list(_l), "cartao")[0]["id"]
+    conta("o mesmo lancamento tem sempre a mesma identidade", _id1 == _id2, "")
+    _outro = _lan_f.com_identidade(
+        [{"data": "01/09/2026", "descricao": "MERCADO X", "valor": -51.0}],
+        "cartao")[0]["id"]
+    conta("e valor diferente muda a identidade", _id1 != _outro, "")
+    # DUAS LINHAS IGUAIS NO MESMO ARQUIVO sao dois fatos, e nao um repetido.
+    _dois = _lan_f.com_identidade(_l + list(_l), "cartao")
+    conta("duas linhas identicas do mesmo arquivo nao viram uma",
+          _dois[0]["id"] != _dois[1]["id"], "")
+
+    # E A TELA TEM DE DIZER O QUE ACONTECEU, inclusive os repetidos: gravar
+    # 12 de 40 sem explicar por que faz o dono achar que perdeu 28.
+    conta("a tela informa quantos foram gravados e quantos repetidos",
+          "repetid" in _corpo.lower(), "")
+
+
 def main():
     instalar()
     falhas = []
@@ -1166,6 +1227,7 @@ def main():
     # "quebrava" — e passava sozinha. Alarme falso por ordem de execucao e
     # pior que nenhum teste: ensina a ignorar a saida.
     _telas_restantes(conta)
+    _fatura_confirmada(conta)
     _home(falhas, conta)
     _extratos(conta)
     _gargalos(conta)
