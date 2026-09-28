@@ -108,8 +108,27 @@ def forma6_datetime_sem_fuso():
     # Historico mostrava a hora tres horas adiantada, e a varredura passava
     # reto. E a Forma 1 dentro da propria varredura — escopar no lugar onde
     # o sintoma ja tinha sido notado.
+    # A MESMA LISTA DE ISENTOS DO PORTAO, lida de la.
+    #
+    # `checar_alcance.CONSISTENTES_UTC` diz onde o `datetime.now()` cru esta
+    # CERTO — auth e rhid_api comparam expiracao contra token gravado, os dois
+    # em UTC. Repetir a lista aqui seria a Forma 5: duas listas discordando, e
+    # a varredura mostrando como "achado" o que o portao ja aprovou.
+    # CONSISTENTES_UTC: a lista de isentos, lida do portao. Ela tem guarda
+    # propria la (`_conferir_isentos`), que reprova isento sem motivo escrito,
+    # isento de arquivo que nao existe mais, e a isencao larga de
+    # `placar_core.py` — a que escondeu `ritmo_do_mes`.
+    try:
+        from checar_alcance import CONSISTENTES_UTC as _ISENTOS
+    except Exception:
+        _ISENTOS = {}
     fora = []
     for nome, fonte in _fontes():
+        if nome in _ISENTOS:
+            continue
+        # E fora do bloco de conferencia: a guarda que procura
+        # `datetime.now()` contem o texto `datetime.now()`.
+        fonte = fonte.split('if __name__ == "__main__":')[0]
         for i, linha in enumerate(fonte.splitlines(), 1):
             # Fora o comentário `#` e o texto entre crases: `datetime.now()`
             # dentro de uma docstring explicando o problema NÃO é o problema.
@@ -240,7 +259,7 @@ def main():
          forma3_tela_sem_guarda()),
         ("FORMA 5 — arquivos gêmeos (um é cópia do outro)",
          forma5_arquivos_gemeos()),
-        ("FORMA 6a — datetime.now() sem fuso, em arquivo que usa FUSO",
+        ("FORMA 6a — datetime.now() sem fuso (fora os isentos do portão)",
          forma6_datetime_sem_fuso()),
         ("FORMA 6b — session_state dentro de alvo de Thread",
          forma6_sessao_em_thread()),
