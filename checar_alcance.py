@@ -165,6 +165,47 @@ def main():
                 f"motor, e formato que ele não aceita vira erro genérico de "
                 f"geração — sem dizer ao colaborador qual é o problema.")
 
+    # ── 5. `session_state` LIDO DE DENTRO DE UMA THREAD ────────────────────
+    #
+    # Forma 6 do CLAUDE.md, e a que gerou o retrabalho de 28/09.
+    #
+    # `st.session_state` e ILEGIVEL dentro de `threading.Thread`. Eu sabia
+    # disso, apliquei ao numero da peca (`_PECA_EM_AJUSTE`) e escrevi ate uma
+    # guarda com Thread de verdade para provar. E deixei `produto` e `usuario`
+    # lendo do session_state NO MESMO append_row, duas linhas ao lado.
+    #
+    # Resultado: toda linha do log gravou produto vazio, o filtro por nome
+    # nunca bateu, e o historico de prompts voltava sempre vazio — em
+    # silencio, porque `registrar` engole a propria excecao de proposito.
+    #
+    # Esta varredura acha o padrao: funcao que grava registro e le
+    # `session_state` no corpo. Ela nao adivinha a pilha de chamadas; olha
+    # quem ESCREVE e quem LE, que e onde o dano mora.
+    _GRAVAM_REGISTRO = ("log_imagem.py", "atividades.py")
+    for nome in _arquivos():
+        if nome not in _GRAVAM_REGISTRO:
+            continue
+        with open(nome, encoding="utf-8") as fh:
+            fonte = fh.read()
+        try:
+            arvore = ast.parse(fonte)
+        except SyntaxError:
+            continue
+        for no in ast.walk(arvore):
+            if not isinstance(no, ast.FunctionDef):
+                continue
+            trecho = ast.get_source_segment(fonte, no) or ""
+            if "append_row" not in trecho:
+                continue
+            if "session_state" in trecho:
+                reprova(
+                    f"{nome}:{no.lineno} — `{no.name}` grava registro E lê "
+                    f"`st.session_state`. A geração roda em "
+                    f"`threading.Thread` (imagem.py:7162), e de lá o "
+                    f"session_state volta VAZIO: o campo é gravado em branco, "
+                    f"sem erro nenhum. Leia de um global de módulo, como "
+                    f"`_PECA_EM_AJUSTE` faz.")
+
     # ── 4. O PROMPT DO PLANO ────────────────────────────────────────────────
     #
     # 28/09: as peças 7 e 8 sumiram e o produto saiu torto. A causa estava no

@@ -4309,6 +4309,50 @@ def prompt_para_regerar(tipo, instrucoes, dados_descricao, nome_produto):
     )
 
 
+def filtrar_por_produto(linhas, nome):
+    """As linhas do log deste produto. Sem nome, devolve tudo.
+
+    O FILTRO ERA IGUALDADE EXATA DE STRING, e "Caneca Medieval" não batia com
+    "caneca medieval " — o histórico voltava vazio dizendo "nenhum prompt
+    registrado", que é outra afirmação.
+
+    Normaliza caixa e espaço, e SÓ isso. Continua sendo comparação exata
+    depois de normalizar: afrouxar para "contém" faria a caneca de pedra
+    puxar material da caneca de metal, que é o defeito que a colaboradora
+    relatou em 28/09.
+    """
+    alvo = " ".join(str(nome or "").split()).casefold()
+    if not alvo:
+        return list(linhas or [])
+    return [l for l in (linhas or [])
+            if " ".join(str(l.get("produto", "")).split()).casefold() == alvo]
+
+
+def recado_do_historico(todas, achadas, nome):
+    """O que dizer quando o histórico volta vazio. "" quando não voltou.
+
+    DUAS COISAS MUITO DIFERENTES cabiam na mesma frase:
+      - o log está vazio (a geração foi antes de a coluna existir), e
+      - o log tem linhas, mas nenhuma é deste produto.
+
+    Dizer "nenhum prompt registrado" no segundo caso é afirmar o que não se
+    sabe, e manda quem lê procurar no lugar errado.
+    """
+    if achadas:
+        return ""
+    if not todas:
+        return ("O log de prompts ainda está vazio — **não há nenhum** "
+                "registro. Ele começa na próxima geração: cada peça grava o "
+                "texto que foi ao motor, e cada correção grava o dela. "
+                "Imagens geradas antes desta atualização não têm prompt "
+                "guardado.")
+    return (f"O log tem **{len(todas)}** registro(s), mas nenhum com o nome "
+            f"**{nome}**. O nome é o que foi digitado na geração — se lá "
+            f"estava escrito de outro jeito, não bate. Apague o nome do "
+            f"produto e prepare de novo para baixar **todos** os prompts, "
+            f"sem filtrar.")
+
+
 def _baixar_historico_de_prompts(sufixo=""):
     """Um botão que leva TODO o histórico de prompts deste produto num .txt.
 
@@ -4332,15 +4376,18 @@ def _baixar_historico_de_prompts(sufixo=""):
                  use_container_width=True, key=f"btn_hist_prompts{sufixo}"):
         try:
             import log_imagem as _li
-            _linhas = _li.ler(500)
-            if _produto:
-                _linhas = [l for l in _linhas
-                           if str(l.get("produto", "")).strip() == _produto]
+            _todas = _li.ler(500)
+            _linhas = filtrar_por_produto(_todas, _produto)
             import comparar_prompt as _cmp
             st.session_state[f"img_hist_txt{sufixo}"] = _cmp.relatorio_txt(_linhas)
+            st.session_state[f"img_hist_recado{sufixo}"] = recado_do_historico(
+                _todas, _linhas, _produto or "(sem nome)")
         except Exception as e:
             st.session_state[f"img_hist_txt{sufixo}"] = ""
             st.error(f"Não consegui montar o histórico: {type(e).__name__}")
+    _recado = st.session_state.get(f"img_hist_recado{sufixo}") or ""
+    if _recado:
+        st.info(_recado)
     _txt = st.session_state.get(f"img_hist_txt{sufixo}") or ""
     if _txt:
         st.download_button(
@@ -5583,6 +5630,28 @@ def consumir_comandos_do_chat(usuario_logado=""):
 def pagina_imagem(usuario_logado):
     st.subheader("Imagem")
     st.caption("Gere imagens profissionais para o anúncio. A IA mostra o que vai criar antes de gastar com a geração.")
+
+    # ── QUEM ESTÁ GERANDO, E O QUE — marcado AQUI, na thread principal ───────
+    #
+    # A geração roda em `threading.Thread` (linha ~7162), e de dentro de uma
+    # thread `st.session_state` volta VAZIO — sem erro, sem aviso. O registro
+    # do prompt lia produto e usuário de lá, então TODA linha do log gravou
+    # produto em branco: o filtro por nome nunca batia e o histórico de
+    # prompts voltava sempre vazio.
+    #
+    # AQUI, e não junto de cada `Thread(...)`: são seis lugares que abrem
+    # thread nesta tela, e marcar em cada um é a receita para o sétimo
+    # esquecer — o mesmo motivo de o registro do prompt morar na porta do
+    # motor. Esta linha roda uma vez por desenho da página, antes de todas.
+    try:
+        import log_imagem as _li_ctx
+        _li_ctx.marcar_contexto(
+            produto=(st.session_state.get("img_nome_produto", "")
+                     or st.session_state.get("nome_produto", "")),
+            usuario=usuario_logado)
+    except Exception:
+        # Marcar contexto é apoio, não requisito: nunca pode derrubar a tela.
+        pass
 
     # O que o Assistente IA pediu roda AQUI, antes de qualquer ramo de modo.
     # Dentro do `else` do seletor, como estava, ele era mudo no ✏️ Ajuste Fino:

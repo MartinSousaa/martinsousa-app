@@ -739,6 +739,98 @@ def _retrato_no_painel(conta):
     _ps._memoria_limpar()
 
 
+def _historico_de_prompts(conta):
+    """O .txt do historico — e o que ele diz quando volta vazio.
+
+    28/09: o dono baixou e recebeu "Nenhum prompt registrado ainda". Isso
+    pode significar DUAS coisas muito diferentes:
+
+      - o log esta mesmo vazio (a geracao foi antes de a coluna existir), ou
+      - o log TEM linhas, mas nenhuma bateu com o nome do produto — porque
+        `imagem.py` filtrava por igualdade EXATA de string.
+
+    Dizer "nenhum prompt registrado" no segundo caso e afirmar o que nao se
+    sabe, e manda quem le procurar no lugar errado.
+    """
+    import imagem as _img_h
+
+    _linhas = [
+        {"produto": "Caneca Medieval", "peca": "1", "prompt": "a" * 40,
+         "origem": "geracao"},
+        {"produto": "Caneca Medieval", "peca": "1", "prompt": "b" * 40,
+         "origem": "correcao"},
+    ]
+    # NOME COM CAIXA E ESPACO DIFERENTES continua sendo o mesmo produto.
+    for _nome, _esperado in (("Caneca Medieval", 2), ("  caneca medieval  ", 2),
+                             ("CANECA MEDIEVAL", 2)):
+        conta(f"o filtro do historico acha o produto com {_nome!r}",
+              len(_img_h.filtrar_por_produto(_linhas, _nome)) == _esperado,
+              "")
+    # E PRODUTO DIFERENTE NAO ENTRA. Foi puxar material do produto errado
+    # que gerou o relato da colaboradora em 28/09.
+    conta("e nao traz o produto errado junto",
+          _img_h.filtrar_por_produto(_linhas, "Porta Joias") == [], "")
+    # SEM NOME, vem tudo — o colaborador pediu o historico, nao um filtro.
+    conta("sem nome digitado, vem tudo",
+          len(_img_h.filtrar_por_produto(_linhas, "")) == 2, "")
+
+    # A MENSAGEM TEM DE SEPARAR OS DOIS CASOS.
+    conta("log vazio diz que o log esta vazio",
+          "não há nenhum" in _img_h.recado_do_historico([], [], "Caneca"),
+          _img_h.recado_do_historico([], [], "Caneca"))
+    _r = _img_h.recado_do_historico(_linhas, [], "Porta Joias")
+    conta("log cheio e nome que nao bate diz OUTRA coisa",
+          "Porta Joias" in _r and "não há nenhum" not in _r, _r)
+    conta("e oferece baixar o histórico inteiro",
+          "sem filtrar" in _r or "todos" in _r.lower(), _r)
+
+
+def _contexto_do_log(conta):
+    """A tela marca quem está gerando ANTES de abrir qualquer thread?
+
+    ESTA GUARDA NASCEU DE UMA MUTACAO QUE PASSOU. Corrigido o registro para
+    ler de um global de modulo, mutei a TELA — tirei o `marcar_contexto` — e
+    nenhuma das guardas reprovou. O registro ficaria correto e gravando
+    vazio do mesmo jeito, em silencio, porque o global nunca seria
+    preenchido. Meia correcao parece correcao inteira ate alguem baixar o
+    arquivo.
+    """
+    import inspect as _insp_c
+    import imagem as _img_c
+    import log_imagem as _li_c
+
+    _corpo = _insp_c.getsource(_img_c.pagina_imagem)
+    # PROCURAR A CHAMADA, nao a palavra: o comentario acima dela cita o nome,
+    # e uma guarda que busca o nome se encontra no proprio comentario.
+    conta("a tela marca o contexto do log",
+          ".marcar_contexto(" in _corpo,
+          "sem isto o global fica vazio e o log grava produto em branco")
+    # E ANTES DA PRIMEIRA THREAD: marcar depois nao serve para a geracao que
+    # ja partiu.
+    # A CHAMADA REAL, e nao o texto. A primeira versao procurava "Thread("
+    # cru e se achou no COMENTARIO logo acima — que explica justamente por
+    # que a marcacao nao fica junto de cada Thread. E a quinta vez nesta
+    # base que uma guarda se encontra a si mesma. `ast` so ve codigo.
+    import ast as _ast_c
+    _arv = _ast_c.parse(_ast_c.unparse(_ast_c.parse(_corpo.lstrip())))
+    _l_ctx = _l_th = None
+    for _n in _ast_c.walk(_arv):
+        if not isinstance(_n, _ast_c.Call):
+            continue
+        _alvo = getattr(_n.func, "attr", "") or getattr(_n.func, "id", "")
+        if _alvo == "marcar_contexto" and _l_ctx is None:
+            _l_ctx = _n.lineno
+        elif _alvo == "Thread" and _l_th is None:
+            _l_th = _n.lineno
+    conta("e marca ANTES de abrir a primeira thread",
+          _l_ctx is not None and (_l_th is None or _l_ctx < _l_th),
+          f"marcar_contexto na linha {_l_ctx}, primeira Thread na {_l_th}")
+    # E A FUNCAO EXISTE do outro lado: a tela chamar um nome que sumiu
+    # levantaria AttributeError dentro de um `try` que engole tudo.
+    conta("e `marcar_contexto` existe em log_imagem",
+          callable(getattr(_li_c, "marcar_contexto", None)), "")
+
+
 def main():
     instalar()
     falhas = []
@@ -759,6 +851,8 @@ def main():
     _processar_cards_pts(conta)
     _chat(conta)
     _retrato_no_painel(conta)
+    _historico_de_prompts(conta)
+    _contexto_do_log(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0
