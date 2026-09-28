@@ -288,12 +288,28 @@ def regra_de_espaco(tipo):
 
     if n == 4:
         # O close corta de proposito: o recorte E a peca.
+        # "PREENCHE O QUADRO" E DO PRODUTO, E NAO DO TEXTO.
+        #
+        # 28/09: o dono relatou texto CORTADO nesta peca. O prompt dizia
+        # "nao ha margem de respiro nesta peca" e, adiante, "cada cartao
+        # comeca pelo menos 6% abaixo do topo" — duas vozes sobre a mesma
+        # borda, no mesmo texto. O gerador obedece a mais proxima, e ela
+        # muda por peca. Mesma doenca do cartao com quatro vozes.
         pt = ("REGRA DE ESPAÇO DESTA PEÇA:\n"
-              "- O detalhe escolhido PREENCHE o quadro. Não há margem de\n"
-              "  respiro nesta peça: borda vazia num macro é erro.\n"
+              "- O PRODUTO preenche o quadro: borda vazia em volta do\n"
+              "  detalhe, num macro, é erro. Isto vale para o PRODUTO.\n"
+              "- A FOLGA DA BORDA MANDA sobre a ordem acima. Callout,\n"
+              "  legenda e cartão continuam a pelo menos 6% da borda,\n"
+              "  inteiros dentro do quadro. Preencher o quadro com o\n"
+              "  produto nunca autoriza cortar texto.\n"
               + comum_pt)
-        en = ("- The chosen detail FILLS the frame. No breathing margin here: "
-              "empty border in a macro shot is a mistake.\n" + comum_en)
+        en = ("- The PRODUCT fills the frame: an empty border around the "
+              "detail, in a macro shot, is a mistake. This applies to the "
+              "PRODUCT.\n"
+              "- THE BORDER MARGIN OVERRIDES the rule above. Callouts, "
+              "captions and cards stay at least 6% from the edge, whole "
+              "inside the frame. Filling the frame with the product never "
+              "authorises cropping text.\n" + comum_en)
         return pt, en
 
     if n == 8:
@@ -332,8 +348,10 @@ def regra_de_espaco(tipo):
           "  que sobra depois de enquadrar o produto pertence aos blocos de\n"
           "  texto e ao ambiente. Faixa vazia em volta da peça é área\n"
           "  desperdiçada, e o anúncio paga por ela.\n"
-          "- A margem de segurança é uniforme e pequena nos quatro lados: só\n"
-          "  o suficiente para nada encostar na borda.\n"
+          "- A FOLGA DA BORDA MANDA: pelo menos 6% em cada lado, e nenhum\n"
+          "  cartão de cota, seta ou legenda cruza ou toca a borda. A regra\n"
+          "  de aproveitar o quadro vale para o PRODUTO e para a cena, e\n"
+          "  nunca autoriza encostar texto na margem.\n"
           "- O produto aparece INTEIRO: nenhuma parte cortada pela borda do\n"
           "  quadro.\n"
           + comum_pt)

@@ -592,3 +592,87 @@ def verificar_login():
                 st.error("Usuário ou senha incorretos.")
 
     st.stop()
+
+
+# ── Conferência ──────────────────────────────────────────────────────────────
+# `python3 auth.py`. Este arquivo não tinha auto-teste, e a varredura das seis
+# Formas apontou `_salvar_token_sheets` em 28/09: ela engole a própria exceção.
+#
+# O `except: pass` ali é DE PROPÓSITO e continua — o token funciona na sessão
+# atual mesmo sem persistir, e travar o login por causa da planilha seria pior.
+# O que faltava era guarda de CONTEÚDO: ninguém conferia O QUE é escrito.
+#
+# E o que importa não é "escreveu": é que a ESCRITA e a LEITURA concordem.
+# O formato da data aparece duas vezes neste arquivo — `strftime` ao gravar e
+# `strptime` ao ler. Se um mudar sozinho, o token passa a expirar na hora (ou
+# a nunca expirar), sem erro nenhum na tela. Um nome, uma resposta.
+if __name__ == "__main__":
+    falhas = 0
+
+    def ok(nome, cond):
+        global falhas
+        falhas += not cond
+        print(("ok    " if cond else "FALHA ") + nome)
+
+    import inspect as _insp_au
+
+    _linhas_tok = []
+
+    class _AbaTokFalsa:
+        """Só a planilha é trocada. `_salvar_token_sheets` roda inteira."""
+
+        def append_row(self, linha, **kw):
+            _linhas_tok.append(list(linha))
+
+    _real = _aba_tokens
+    _aba_tokens = lambda: _AbaTokFalsa()      # noqa: E731 — duplo do I/O
+    try:
+        _salvar_token_sheets("tok-abc", "myrelladesouza")
+    finally:
+        _aba_tokens = _real
+
+    ok("a linha do token é gravada", len(_linhas_tok) == 1)
+    _l = _linhas_tok[0] if _linhas_tok else ["", "", ""]
+    ok("com três colunas: token, usuario, criado_em", len(_l) == 3)
+    ok("o token vai na primeira", _l[0] == "tok-abc")
+    ok("o usuário na segunda", _l[1] == "myrelladesouza")
+
+    # A DATA GRAVADA TEM DE SER LEGÍVEL PELA PRÓPRIA LEITURA.
+    #
+    # Esta é a asserção que importa: ela liga os dois literais de formato.
+    # Trocar um sozinho deixa de compilar aqui, e não em produção três
+    # semanas depois com o colaborador sendo deslogado sem explicação.
+    from datetime import datetime as _dt_au
+    try:
+        _dt_au.strptime(_l[2], "%d/%m/%Y %H:%M")
+        _legivel = True
+    except (ValueError, TypeError):
+        _legivel = False
+    ok("e a data gravada é lida de volta pelo mesmo formato", _legivel)
+
+    # OS DOIS LADOS CITAM O MESMO FORMATO, e isso se confere no código: a
+    # asserção acima passaria se AMBOS mudassem juntos para um formato torto.
+    _fmt = "%d/%m/%Y %H:%M"
+    _c_grava = _insp_au.getsource(_salvar_token_sheets)
+    _c_le = _insp_au.getsource(_garantir_tokens_carregados)
+    ok("o formato da escrita é o de sempre", _fmt in _c_grava)
+    ok("e o da leitura é o mesmo", _fmt in _c_le)
+
+    # PLANILHA FORA DO AR não pode derrubar o login — o `except` é
+    # deliberado, e esta guarda existe para vigiar o conteúdo, não para
+    # transformar a falha em erro de tela.
+    class _AbaTokMorta:
+        def append_row(self, *a, **kw):
+            raise RuntimeError("sem rede")
+
+    _real2 = _aba_tokens
+    _aba_tokens = lambda: _AbaTokMorta()      # noqa: E731
+    try:
+        _salvar_token_sheets("x", "y")
+        ok("planilha fora do ar não levanta exceção", True)
+    except Exception:
+        ok("planilha fora do ar não levanta exceção", False)
+    finally:
+        _aba_tokens = _real2
+
+    print("\nfalhas:", falhas)

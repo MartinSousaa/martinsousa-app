@@ -281,3 +281,150 @@ def colunas_da_funcao(username=None):
     if username is not None:
         return mapa.get(str(username).strip().lower(), [])
     return mapa
+
+
+# ── Conferência ──────────────────────────────────────────────────────────────
+# `python3 equipe_config.py`. Este arquivo não tinha auto-teste, e a varredura
+# das seis Formas apontou `_garantir_colunas` em 28/09: ela engole a própria
+# exceção e não avisa ninguém.
+#
+# O DEFEITO QUE ELA IMPEDE está escrito no docstring da própria função: sem a
+# coluna no cabeçalho, `bate_ponto` vai para uma coluna SEM NOME e ninguém
+# consegue ler de volta — foi o que aconteceu com `foto_drive_id` na aba de
+# triagem. A falha é silenciosa dos dois lados: nada explode na hora, e o dado
+# some na leitura.
+#
+# Guarda de CONTEÚDO, e não de execução: "não explodiu" não vê coluna faltando.
+if __name__ == "__main__":
+    falhas = 0
+
+    def ok(nome, cond):
+        global falhas
+        falhas += not cond
+        print(("ok    " if cond else "FALHA ") + nome)
+
+    class _AbaFalsa:
+        """Só a planilha é trocada. `_garantir_colunas` roda inteira."""
+
+        def __init__(self, cabecalho):
+            self.cabecalho = list(cabecalho)
+            self.escritas = []
+            self.cols_add = 0
+
+        def row_values(self, _n):
+            return list(self.cabecalho)
+
+        def add_cols(self, n):
+            self.cols_add += n
+
+        def update_cell(self, linha, col, valor):
+            self.escritas.append((linha, col, valor))
+            while len(self.cabecalho) < col:
+                self.cabecalho.append("")
+            self.cabecalho[col - 1] = valor
+
+    # ABA NOVA, COM AS QUATRO ORIGINAIS: as que faltam têm de ser escritas.
+    _ab = _AbaFalsa(COLUNAS[:4])
+    _garantir_colunas(_ab)
+    _faltavam = COLUNAS[4:]
+    ok("as colunas que faltavam foram escritas",
+       [v for _l, _c, v in _ab.escritas] == _faltavam)
+    ok("e o cabeçalho ficou completo, na ordem",
+       _ab.cabecalho == list(COLUNAS))
+    # `bate_ponto` É A QUE DECIDE quem aparece na tela de ponto. Se ela some,
+    # o Studio lê vazio e o colaborador some — está no docstring da função.
+    ok("`bate_ponto` está entre as escritas",
+       "bate_ponto" in [v for _l, _c, v in _ab.escritas])
+    # UMA COLUNA POR VEZ: `add_cols` tem de acompanhar as escritas, senão a
+    # célula cai fora da planilha.
+    ok("uma coluna criada para cada escrita",
+       _ab.cols_add == len(_faltavam))
+
+    # ABA COMPLETA NÃO É TOCADA: escrever de novo renomearia o que já existe.
+    _ab2 = _AbaFalsa(COLUNAS)
+    _garantir_colunas(_ab2)
+    ok("aba completa não é tocada", _ab2.escritas == [] and _ab2.cols_add == 0)
+
+    # ABA VAZIA ganha todas.
+    _ab3 = _AbaFalsa([])
+    _garantir_colunas(_ab3)
+    ok("aba vazia ganha todas as colunas",
+       [v for _l, _c, v in _ab3.escritas] == list(COLUNAS))
+
+    # PLANILHA FORA DO AR não pode derrubar a tela — o `except` é de
+    # propósito. O que não pode é a falha passar sem ninguém notar; por isso
+    # esta guarda existe, e não porque o `except` esteja errado.
+    class _AbaMorta:
+        def row_values(self, _n):
+            raise RuntimeError("sem rede")
+
+    try:
+        _garantir_colunas(_AbaMorta())
+        ok("planilha fora do ar não levanta exceção", True)
+    except Exception as _e:
+        ok("planilha fora do ar não levanta exceção", False)
+
+    # ── `colunas_da_funcao`, lida por quem marca a tela de gargalos ─────
+    #
+    # O quarto verificador cobrou: ela tem leitor fora deste arquivo e nao
+    # tinha guarda. O docstring dela diz a regra que importa — pessoa SEM
+    # nada cadastrado significa SEM RESTRICAO, e nao "restrita a nada".
+    # Marcar por omissao acusaria todo mundo no dia em que o campo nascesse.
+    class _AbaEquipe:
+        def __init__(self, regs):
+            self.regs = regs
+
+        def get_all_records(self):
+            return list(self.regs)
+
+    _real_aba = _aba
+    _aba = lambda: _AbaEquipe([                      # noqa: E731 — duplo do I/O
+        {"username_trello": "myrelladesouza",
+         "colunas_funcao": "CRIATIVO VÍDEO; DEMANDA BLING"},
+        {"username_trello": "beatriz51", "colunas_funcao": ""},
+    ])
+    try:
+        try:
+            colunas_da_funcao.clear()
+        except Exception:
+            pass
+        _mapa = colunas_da_funcao()
+        ok("o mapa traz a lista de quem tem cadastro",
+           _mapa.get("myrelladesouza") == ["CRIATIVO VÍDEO", "DEMANDA BLING"])
+        # SEM CADASTRO E LISTA VAZIA, que na tela quer dizer SEM RESTRICAO.
+        ok("quem nao tem cadastro vem com lista vazia",
+           _mapa.get("beatriz51") == [])
+        ok("com username devolve so a lista dela",
+           colunas_da_funcao("myrelladesouza") == ["CRIATIVO VÍDEO",
+                                                   "DEMANDA BLING"])
+        ok("e username desconhecido devolve lista vazia",
+           colunas_da_funcao("ninguem") == [])
+    finally:
+        _aba = _real_aba
+
+    # PLANILHA FORA DO AR devolve vazio, e nao explode: a tela de gargalos
+    # nao pode cair porque a aba de equipe nao respondeu.
+    class _AbaMorta2:
+        def get_all_records(self):
+            raise RuntimeError("sem rede")
+
+    import sys as _sys_eq
+    _mod_eq = _sys_eq.modules[__name__]
+    _real_aba2 = _mod_eq._aba
+    _mod_eq._aba = lambda: _AbaMorta2()
+    # `colunas_da_funcao` tem `@st.cache_data`: sem limpar, ela devolve o
+    # resultado da chamada ANTERIOR e a guarda mede o cache, nao o codigo.
+    # Foi o proprio teste que mostrou isso — ele reprovava com o codigo certo.
+    try:
+        colunas_da_funcao.clear()
+    except Exception:
+        pass
+    try:
+        ok("planilha fora do ar devolve vazio em vez de explodir",
+           colunas_da_funcao() == {})
+    except Exception:
+        ok("planilha fora do ar devolve vazio em vez de explodir", False)
+    finally:
+        _mod_eq._aba = _real_aba2
+
+    print("\nfalhas:", falhas)
