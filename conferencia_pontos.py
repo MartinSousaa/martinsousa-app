@@ -50,23 +50,27 @@ MOTIVOS = {
 }
 
 
-def _pontos_do_card(card, id_pontos):
-    """O número do campo de pontuação, ou None. Nunca levanta."""
-    for it in (card.get("customFieldItems") or []):
-        if it.get("idCustomField") != id_pontos:
-            continue
-        v = (it.get("value") or {}).get("number")
-        if v in (None, ""):
-            return None
-        try:
-            return float(v)
-        except (TypeError, ValueError):
-            return None
-    return None
+# A LEITURA DA PONTUAÇÃO NÃO MORA AQUI — E ISSO É O PONTO.
+#
+# A primeira versão deste arquivo tinha um `_pontos_do_card` próprio, lendo
+# `customFieldItems`. `placar.py:372` já tem `_num`, que faz exatamente isso,
+# e é ele que produz o número que a tela mostra.
+#
+# Duas leituras do mesmo campo, na tela criada para ENCERRAR a discussão
+# sobre o número: se divergissem em qualquer borda — valor com vírgula, campo
+# vazio, texto no lugar de número —, a conferência acusaria uma diferença que
+# não existe, e a equipe passaria a desconfiar da ferramenta de conferir.
+#
+# `checar_impacto` pegou isto: "nome mudado com leitor em outro arquivo e sem
+# guarda nenhuma". Uma pergunta, uma resposta.
+#
+# Quem chama PASSA a função de ler. Sem valor padrão de propósito: um padrão
+# aqui seria a segunda resposta de volta, escondida atrás de um
+# `ler_pontos=None`.
 
 
 def contagem_crua(cards, listas, membros_map, id_pontos, membros_ativos,
-                  listas_sem_pontuacao):
+                  listas_sem_pontuacao, ler_pontos):
     """A soma sem regra de mês: todo concluído com pontuação, e de quem é.
 
     É de propósito que ela ignore o mês. O mês é justamente a regra sob
@@ -82,7 +86,7 @@ def contagem_crua(cards, listas, membros_map, id_pontos, membros_ativos,
     for card in cards:
         nl = listas.get(card.get("idList"), "")
         concl = bool(card.get("dueComplete"))
-        pt = _pontos_do_card(card, id_pontos)
+        pt = ler_pontos(card, id_pontos)
         us = [membros_map.get(m) for m in (card.get("idMembers") or [])]
         us = [u for u in us if u]
         if concl:
@@ -119,7 +123,7 @@ def contagem_crua(cards, listas, membros_map, id_pontos, membros_ativos,
 
 
 def motivo_de_fora(card, listas, id_pontos, listas_sem_pontuacao,
-                   mes_do_card, filtro_mes):
+                   mes_do_card, filtro_mes, ler_pontos):
     """Por que este cartão não somou no sistema? None quando ele somou.
 
     A ordem é a MESMA de `placar.py:660-692`, e isso não é detalhe: lá o
@@ -134,7 +138,7 @@ def motivo_de_fora(card, listas, id_pontos, listas_sem_pontuacao,
             return "mes_desconhecido"
         if mes_do_card != filtro_mes:
             return "outro_mes"
-    if _pontos_do_card(card, id_pontos) is None:
+    if ler_pontos(card, id_pontos) is None:
         return "sem_pontuacao"
     if listas.get(card.get("idList"), "") in listas_sem_pontuacao:
         return "coluna_sem_pontuacao"
@@ -218,7 +222,14 @@ if __name__ == "__main__":
         card(8, "l2", ["m3"], 80),              # de quem NÃO está na equipe
     ]
 
-    crua = contagem_crua(CARDS, LISTAS, MEMBROS, ID_P, ATIVOS, SEM_PTS)
+    # A LEITURA VEM DO `placar._num`, que e quem produz o numero da tela.
+    # Escrever uma leitura so para o teste seria a segunda resposta de volta.
+    import checar_tela as _ct0
+    _ct0.instalar()
+    import placar as _pl0
+    LER = _pl0._num
+
+    crua = contagem_crua(CARDS, LISTAS, MEMBROS, ID_P, ATIVOS, SEM_PTS, LER)
 
     # 30 + 25 + 50 + 15 + 80 = 200. O da coluna TRIAGEM e o sem pontuação ficam
     # de fora; o aberto também.
@@ -240,22 +251,22 @@ if __name__ == "__main__":
 
     # ── O MOTIVO SAI NA MESMA ORDEM DO `placar._processar` ───────────────
     ok("cartão aberto: o motivo é não estar concluído",
-       motivo_de_fora(CARDS[3], LISTAS, ID_P, SEM_PTS, None, (2026, 9))
+       motivo_de_fora(CARDS[3], LISTAS, ID_P, SEM_PTS, None, (2026, 9), LER)
        == "nao_concluido")
     ok("mês indeterminado tem motivo PRÓPRIO, e não vira 'outro mês'",
-       motivo_de_fora(CARDS[0], LISTAS, ID_P, SEM_PTS, None, (2026, 9))
+       motivo_de_fora(CARDS[0], LISTAS, ID_P, SEM_PTS, None, (2026, 9), LER)
        == "mes_desconhecido")
     ok("concluído em agosto: outro mês",
-       motivo_de_fora(CARDS[0], LISTAS, ID_P, SEM_PTS, (2026, 8), (2026, 9))
+       motivo_de_fora(CARDS[0], LISTAS, ID_P, SEM_PTS, (2026, 8), (2026, 9), LER)
        == "outro_mes")
     ok("sem pontuação, estando no mês certo",
-       motivo_de_fora(CARDS[6], LISTAS, ID_P, SEM_PTS, (2026, 9), (2026, 9))
+       motivo_de_fora(CARDS[6], LISTAS, ID_P, SEM_PTS, (2026, 9), (2026, 9), LER)
        == "sem_pontuacao")
     ok("coluna que não pontua",
-       motivo_de_fora(CARDS[5], LISTAS, ID_P, SEM_PTS, (2026, 9), (2026, 9))
+       motivo_de_fora(CARDS[5], LISTAS, ID_P, SEM_PTS, (2026, 9), (2026, 9), LER)
        == "coluna_sem_pontuacao")
     ok("e quem somou não tem motivo nenhum",
-       motivo_de_fora(CARDS[0], LISTAS, ID_P, SEM_PTS, (2026, 9), (2026, 9))
+       motivo_de_fora(CARDS[0], LISTAS, ID_P, SEM_PTS, (2026, 9), (2026, 9), LER)
        is None)
     ok("todo motivo tem texto escrito para a tela",
        all(m in MOTIVOS for m in ("mes_desconhecido", "outro_mes",
@@ -304,6 +315,38 @@ if __name__ == "__main__":
     except Exception as _e:
         ok(f"a comparação contra o _processar real rodou ({type(_e).__name__}: "
            f"{str(_e)[:80]})", False)
+
+    # ── UMA LEITURA SÓ, E ISSO É ESTRUTURA, NÃO NÚMERO ──────────────────
+    #
+    # A mutação que devolveu uma leitura própria a este arquivo passou VERDE:
+    # nos cartões do teste ela dava o mesmo número. Guarda que compara
+    # RESULTADO não vê duas fontes concordando por acaso — e o dia em que
+    # divergirem é justamente o dia em que a conferência acusa uma diferença
+    # que não existe.
+    #
+    # A pergunta certa é estrutural: este arquivo lê `customFieldItems`?
+    import ast as _ast_cf
+    _fonte_cf = open(__file__, encoding="utf-8").read()
+    _corpo_cf = _fonte_cf.split('if __name__ == "__main__":')[0]
+    _le_campo = any(
+        isinstance(_n, _ast_cf.Constant) and _n.value == "customFieldItems"
+        for _n in _ast_cf.walk(_ast_cf.parse(_corpo_cf)))
+    ok("este arquivo NÃO lê o campo de pontuação por conta própria",
+       not _le_campo)
+
+    # E QUEM CHAMA PASSA A LEITURA DA TELA — por AST, no `placar.py`.
+    import inspect as _insp_cf
+    _arv_pl = _ast_cf.parse(_ast_cf.unparse(_ast_cf.parse(
+        _insp_cf.getsource(_pl.bloco_conferencia_de_pontos).lstrip())))
+    _passou_num = False
+    for _n in _ast_cf.walk(_arv_pl):
+        if (isinstance(_n, _ast_cf.Call)
+                and (getattr(_n.func, "attr", "")
+                     or getattr(_n.func, "id", "")) == "contagem_crua"):
+            _passou_num = any(
+                isinstance(_a, _ast_cf.Name) and _a.id == "_num"
+                for _a in list(_n.args) + [k.value for k in _n.keywords])
+    ok("e a tela passa o `_num` dela para a contagem crua", _passou_num)
 
     print("\nfalhas:", falhas)
     sys.exit(1 if falhas else 0)

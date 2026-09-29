@@ -2183,8 +2183,14 @@ def bloco_conferencia_de_pontos(listas, cards, membros_map, id_p, d,
     import conferencia_pontos as _cf
     import placar_core as _pc_cf
 
+    # A LEITURA DA PONTUAÇÃO É A DESTA TELA, e não uma segunda.
+    #
+    # `_num` é quem produz o número que o Painel mostra. Se a conferência
+    # lesse o campo por conta própria, ela acusaria diferença em qualquer
+    # borda onde as duas leituras divergissem — e a ferramenta feita para
+    # encerrar a discussão viraria mais um motivo de desconfiança.
     _crua = _cf.contagem_crua(cards, listas, membros_map, id_p,
-                              MEMBROS_ATIVOS, LISTAS_SEM_PONTUACAO)
+                              MEMBROS_ATIVOS, LISTAS_SEM_PONTUACAO, _num)
     _dif, _por = _cf.comparar(_crua, d)
 
     # O MOTIVO DE CADA UM QUE FICOU DE FORA — pelo mesmo caminho que a conta
@@ -2206,12 +2212,12 @@ def bloco_conferencia_de_pontos(listas, cards, membros_map, id_p, d,
     for _c in cards:
         if _c.get("id") in _somaram:
             continue
-        _pt = _cf._pontos_do_card(_c, id_p)
+        _pt = _num(_c, id_p)
         if _pt is None or not _c.get("dueComplete"):
             continue
         _mes = _pc_cf._mes_card(_c, _concl, _janela)
         _mot = _cf.motivo_de_fora(_c, listas, id_p, LISTAS_SEM_PONTUACAO,
-                                  _mes, filtro_mes)
+                                  _mes, filtro_mes, _num)
         if _mot:
             _descartes.append({"card": _c.get("name", ""), "pts": _pt,
                                "motivo": _mot,

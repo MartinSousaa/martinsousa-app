@@ -621,7 +621,7 @@ def _conferencia_de_pontos(conta):
     # ── O CONTEUDO, e nao "nao explodiu" ────────────────────────────────
     import conferencia_pontos as _cf
     _crua = _cf.contagem_crua(_cards, _listas, _membros, "idp",
-                              {"ana": "Ana", "bruno": "Bruno"}, set())
+                              {"ana": "Ana", "bruno": "Bruno"}, set(), _pl._num)
     conta("a conta crua soma os tres cartoes concluidos",
           _crua["total"] == 240.0,
           f"somou {_crua['total']} — deveria ser 120+80+40")
@@ -637,7 +637,7 @@ def _conferencia_de_pontos(conta):
           "que o coletivo")
     conta("o motivo do mes indeterminado nao se confunde com 'outro mes'",
           _cf.motivo_de_fora(_cards[0], _listas, "idp", set(), None,
-                             (2026, 9)) == "mes_desconhecido",
+                             (2026, 9), _pl._num) == "mes_desconhecido",
           "sem motivo proprio, a queda por janela truncada fica indistinguivel "
           "de cartao de outro mes — e e justamente ela que some sozinha")
 

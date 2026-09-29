@@ -99,6 +99,22 @@ MUTACOES = [
         ["python3", "conferir.py", "--rapido"],
     ),
     (
+        "checar_impacto volta a ser cego a arquivo novo nao rastreado",
+        "checar_impacto.py",
+        '    novos = [n for n in _git("ls-files", "--others", "--exclude-standard",\n'
+        '                             "--", "*.py").split() if n.endswith(".py")]',
+        "    novos = []",
+        ["python3", "checar_impacto.py", "--autoteste"],
+    ),
+    (
+        "a conferencia volta a ler a pontuacao por conta propria",
+        "conferencia_pontos.py",
+        "        pt = ler_pontos(card, id_pontos)",
+        "        pt = float(((card.get('customFieldItems') or [{}])[0]"
+        ".get('value') or {}).get('number') or 0)",
+        ["python3", "conferencia_pontos.py"],
+    ),
+    (
         "o mes indeterminado volta a se confundir com 'outro mes'",
         "conferencia_pontos.py",
         '        if mes_do_card is None:\n            return "mes_desconhecido"',

@@ -88,9 +88,22 @@ def _git(*args):
 
 
 def nomes_mudados(contra):
-    """{arquivo: [nomes de topo tocados pelo diff]}."""
+    """{arquivo: [nomes de topo tocados pelo diff]}.
+
+    ARQUIVO NOVO AINDA NÃO RASTREADO CONTA COMO MUDANÇA INTEIRA.
+
+    `git diff` não enxerga arquivo que nunca foi adicionado — e por isso um
+    MÓDULO INTEIRO podia subir sem passar por aqui. Aconteceu em 29/09 com o
+    `conferencia_pontos.py`: ele só foi acusado DEPOIS do commit, quando já
+    tinha ido junto um `_pontos_do_card` que duplicava o `placar._num`.
+
+    "Ainda não commitado" é exatamente quando este verificador mais serve:
+    depois do push, a pergunta "quem mais lê isto?" já custou um deploy.
+    """
     diff = _git("diff", "-U0", contra, "--", "*.py")
-    if not diff.strip():
+    novos = [n for n in _git("ls-files", "--others", "--exclude-standard",
+                             "--", "*.py").split() if n.endswith(".py")]
+    if not diff.strip() and not novos:
         return {}
     por_arquivo, atual = {}, None
     for linha in diff.splitlines():
@@ -112,6 +125,23 @@ def nomes_mudados(contra):
             m = re.match(r"([A-Z_][A-Z0-9_]{2,})\s*=", corpo)
             if m:
                 por_arquivo[atual].add(m.group(1))
+    # O arquivo novo entra INTEIRO: todo nome de topo dele é nome novo.
+    import ast as _ast_imp
+    for _n in novos:
+        try:
+            _arv = _ast_imp.parse(open(_n, encoding="utf-8").read())
+        except (SyntaxError, OSError):
+            continue
+        _nomes = por_arquivo.setdefault(_n, set())
+        for _t in _arv.body:
+            if isinstance(_t, (_ast_imp.FunctionDef, _ast_imp.AsyncFunctionDef,
+                               _ast_imp.ClassDef)):
+                _nomes.add(_t.name)
+            elif (isinstance(_t, _ast_imp.Assign) and len(_t.targets) == 1
+                  and isinstance(_t.targets[0], _ast_imp.Name)
+                  and _t.targets[0].id.isupper()):
+                _nomes.add(_t.targets[0].id)
+
     return {a: sorted(n for n in ns if n and not IGNORAR.match(n))
             for a, ns in por_arquivo.items() if ns}
 
@@ -220,5 +250,53 @@ def main():
     return falhas
 
 
+def _autoteste():
+    """Ele enxerga ARQUIVO NOVO ainda não rastreado?
+
+    29/09: `conferencia_pontos.py` subiu sem passar por aqui, porque `git
+    diff` não vê arquivo que nunca foi adicionado. Foi junto um
+    `_pontos_do_card` que duplicava o `placar._num` — duas leituras do mesmo
+    campo, na tela criada para encerrar a discussão sobre o número.
+
+    "Ainda não commitado" é exatamente quando este verificador mais serve.
+
+    O caso é PLANTADO num arquivo temporário do próprio repositório, e
+    apagado no `finally`: verificador que deixa lixo atrás é pior que
+    verificador nenhum.
+    """
+    falhas = 0
+
+    def ok(nome, cond):
+        nonlocal falhas
+        falhas += not cond
+        print(("ok    " if cond else "FALHA ") + nome)
+
+    alvo = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "zz_autoteste_impacto.py")
+    try:
+        with open(alvo, "w", encoding="utf-8") as fh:
+            fh.write("def _zz_funcao_plantada(x):\n    return x\n\n\n"
+                     "ZZ_CONSTANTE_PLANTADA = 1\n")
+        achados = nomes_mudados("origin/main")
+        nomes = achados.get("zz_autoteste_impacto.py", [])
+        ok("arquivo novo NÃO rastreado entra na varredura",
+           "zz_autoteste_impacto.py" in achados)
+        ok("e todo nome de topo dele conta como nome novo",
+           "_zz_funcao_plantada" in nomes and "ZZ_CONSTANTE_PLANTADA" in nomes)
+    finally:
+        try:
+            os.remove(alvo)
+        except OSError:
+            pass
+
+    achados = nomes_mudados("origin/main")
+    ok("e ele some da varredura quando o arquivo some",
+       "zz_autoteste_impacto.py" not in achados)
+    print("\nfalhas:", falhas)
+    return falhas
+
+
 if __name__ == "__main__":
+    if "--autoteste" in sys.argv:
+        sys.exit(1 if _autoteste() else 0)
     sys.exit(main())
