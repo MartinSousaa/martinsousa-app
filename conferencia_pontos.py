@@ -50,6 +50,86 @@ MOTIVOS = {
 }
 
 
+# ── O QUE É REGRA, E O QUE É PERDA ──────────────────────────────────────────
+#
+# 29/09, com a tela já no ar, o cabeçalho anunciou "Diferença 12506 pts". Dos
+# 12506, 11836 eram cartões concluídos em OUTRO MÊS — e `contagem_crua` ignora
+# o mês DE PROPÓSITO, porque o mês é justamente a regra sob suspeita. Ou seja:
+# 94,6% do alarme era o sistema funcionando, anunciado como rombo.
+#
+# "Verificador que dá alarme falso é pior que nenhum: ensina a ignorá-lo"
+# (CLAUDE.md). A tela feita para ENCERRAR a discussão ia ensinar a equipe a
+# desconfiar dela também.
+#
+# Por isso todo motivo cai num dos dois grupos, e o autoteste reprova motivo
+# novo que não caia em nenhum: motivo sem grupo é o alarme falso de volta.
+MOTIVOS_ESPERADOS = frozenset({
+    "outro_mes",            # a conta crua é que ignora o mês, não o sistema
+    "coluna_sem_pontuacao",  # a coluna não pontua, por configuração
+    "nao_concluido",        # ainda não terminou
+})
+
+MOTIVOS_SILENCIOSOS = frozenset({
+    "mes_desconhecido",  # o Studio PERDEU a data de conclusão — some do total
+    "sem_pontuacao",     # concluído e sem valor no campo: ninguém preencheu
+})
+
+
+def perda_silenciosa(descartes):
+    """Pontos que somem sem que nenhuma regra explique. É ESTE o número.
+
+    É o que a equipe chama de "minha pontuação caiu": cartão concluído, com
+    pontos, dentro do quadro — e que não soma em mês nenhum.
+    """
+    return round(sum(d.get("pts") or 0.0 for d in descartes
+                     if d.get("motivo") not in MOTIVOS_ESPERADOS), 2)
+
+
+def explicado_pela_regra(descartes):
+    """O resto: pontos que ficaram de fora porque alguma regra mandou."""
+    return round(sum(d.get("pts") or 0.0 for d in descartes
+                     if d.get("motivo") in MOTIVOS_ESPERADOS), 2)
+
+
+def perda_por_membro(descartes, membros_ativos):
+    """{usuario: pontos que sumiram DELE sem regra que explique}.
+
+    A subtração "Trello menos Studio" por pessoa não serve: a coluna crua soma
+    todos os meses e a do Studio só o mês filtrado, então ela acusa o mês dos
+    outros como perda. A pessoa lê 5.699 e entende que foi roubada.
+
+    A divisão é a MESMA do placar (`placar.py:700-702`): o cartão se reparte
+    igual entre os ativos marcados nele.
+    """
+    por = {}
+    for d in descartes or []:
+        if d.get("motivo") in MOTIVOS_ESPERADOS:
+            continue
+        ativos = [u for u in (d.get("membros") or []) if u in membros_ativos]
+        if not ativos:
+            continue
+        cada = (d.get("pts") or 0.0) / len(ativos)
+        for u in ativos:
+            por[u] = round(por.get(u, 0.0) + cada, 2)
+    return por
+
+
+def sem_dono_no_mes(cards_pts, membros_ativos):
+    """Pontos que somam no time e em pessoa nenhuma, DENTRO do mês analisado.
+
+    `contagem_crua` responde a mesma pergunta sem filtro de mês — e foi assim
+    que o aviso da tela anunciou o acumulado de quatro meses embaixo de um
+    painel de setembro. A entrada certa é `cards_pts`, a lista que o
+    `_processar` devolve com o mês já aplicado (`placar.py:698`).
+
+    É este o número que explica a soma dos individuais dar MENOS que o
+    coletivo: `placar.py:700` só divide entre quem está em `MEMBROS_ATIVOS`.
+    """
+    return round(sum(
+        c.get("pts") or 0.0 for c in (cards_pts or [])
+        if not any(u in membros_ativos for u in (c.get("membros") or []))), 2)
+
+
 # A LEITURA DA PONTUAÇÃO NÃO MORA AQUI — E ISSO É O PONTO.
 #
 # A primeira versão deste arquivo tinha um `_pontos_do_card` próprio, lendo
@@ -347,6 +427,110 @@ if __name__ == "__main__":
                 isinstance(_a, _ast_cf.Name) and _a.id == "_num"
                 for _a in list(_n.args) + [k.value for k in _n.keywords])
     ok("e a tela passa o `_num` dela para a contagem crua", _passou_num)
+
+    # ── O CABEÇALHO NÃO PODE CHAMAR DE PERDA O QUE É REGRA ──────────────
+    #
+    # 29/09, com a tela no ar: "Diferença 12506 pts" em vermelho. Dos 12506,
+    # 11836 eram cartões concluídos em OUTRO MÊS — e a conta crua ignora o mês
+    # DE PROPÓSITO (`contagem_crua`, logo acima). Ou seja: 94,6% do alarme era
+    # comportamento correto, anunciado como rombo.
+    #
+    # "Verificador que dá alarme falso é pior que nenhum: ensina a ignorá-lo"
+    # — CLAUDE.md. A tela feita para encerrar a discussão ia ensinar a equipe
+    # a não olhar para ela.
+    #
+    # Então todo motivo é CLASSIFICADO: ou a regra explica, ou é perda.
+    ok("todo motivo está classificado — esperado ou silencioso",
+       MOTIVOS_ESPERADOS | MOTIVOS_SILENCIOSOS == set(MOTIVOS))
+    ok("e os dois grupos não se sobrepõem",
+       not (MOTIVOS_ESPERADOS & MOTIVOS_SILENCIOSOS))
+    ok("'outro mês' é regra, e não perda", "outro_mes" in MOTIVOS_ESPERADOS)
+    ok("'mês desconhecido' é perda, e não regra",
+       "mes_desconhecido" in MOTIVOS_SILENCIOSOS)
+
+    _dsc = [{"motivo": "outro_mes", "pts": 11836.0},
+            {"motivo": "mes_desconhecido", "pts": 1070.0},
+            {"motivo": "coluna_sem_pontuacao", "pts": 400.0}]
+    ok("a perda sem explicação deixa 'outro mês' de fora",
+       perda_silenciosa(_dsc) == 1070.0)
+    ok("e o que a regra explica sai somado à parte",
+       explicado_pela_regra(_dsc) == 12236.0)
+    ok("sem descarte nenhum, a perda é zero", perda_silenciosa([]) == 0.0)
+
+    # ── O PONTO SEM DONO TAMBÉM É DO MÊS, E NÃO DE SEMPRE ───────────────
+    #
+    # O mesmo erro do cabeçalho, no aviso amarelo: "800 pontos somam no time e
+    # em pessoa nenhuma" saía de `contagem_crua`, que ignora o mês. O Painel
+    # mostra SETEMBRO, e o aviso somava cartão sem dono de qualquer mês.
+    #
+    # A entrada vem de `cards_pts`, que é a lista que o `_processar` já
+    # devolve — mês aplicado, cartão a cartão (`placar.py:698`).
+    ok("sem dono conta só o cartão que o MÊS já aprovou",
+       sem_dono_no_mes(_sis["cards_pts"], ATIVOS) == 0.0)
+    _cp = [{"pts": 15.0, "membros": []},
+           {"pts": 80.0, "membros": ["ex_pessoa"]},
+           {"pts": 30.0, "membros": ["ana"]},
+           {"pts": 50.0, "membros": ["ana", "ex_pessoa"]}]
+    ok("cartão sem membro e cartão de quem saiu da equipe somam",
+       sem_dono_no_mes(_cp, ATIVOS) == 95.0)
+    ok("e cartão com UM ativo junto não entra — ele já tem dono",
+       sem_dono_no_mes(_cp[3:], ATIVOS) == 0.0)
+
+    # ── A TABELA POR PESSOA NÃO PODE ACUSAR O MÊS DOS OUTROS ────────────
+    #
+    # "Myrella — Trello 7772, Studio 2073, Diferença 5699". Ela leu isso como
+    # 5.699 pontos roubados dela. Eram os meses de junho, julho e agosto: a
+    # coluna crua soma todos os meses e a do Studio só setembro, então a
+    # subtração das duas NÃO é o que ela perdeu.
+    #
+    # O que ela perdeu é a fatia DELA nos descartes silenciosos — e só isso.
+    _dsc_m = [
+        {"motivo": "outro_mes", "pts": 300.0, "membros": ["ana"]},
+        {"motivo": "mes_desconhecido", "pts": 60.0, "membros": ["ana"]},
+        {"motivo": "mes_desconhecido", "pts": 40.0, "membros": ["ana", "bruno"]},
+        {"motivo": "mes_desconhecido", "pts": 90.0, "membros": []},
+    ]
+    _pm = perda_por_membro(_dsc_m, ATIVOS)
+    ok("a perda da pessoa ignora o que é de outro mês", _pm["ana"] == 80.0)
+    ok("e cartão de dois divide igual, como o placar divide",
+       _pm["bruno"] == 20.0)
+    ok("cartão sem dono não vira perda de ninguém",
+       sum(_pm.values()) == 100.0)
+
+    # ESTA GUARDA JA NASCEU FRACA UMA VEZ, e a mutação a pegou no mesmo dia.
+    #
+    # A primeira versão perguntava "a tela CHAMA `perda_por_membro`?". A
+    # mutação trocou o valor da coluna de volta para `_v["diferenca"]` e
+    # deixou a chamada onde estava — guarda verde, alarme falso de volta na
+    # tela. Chamar não é usar. A pergunta certa é de onde sai o VALOR daquela
+    # coluna, e ela se responde no nó do dicionário, não no arquivo.
+    _COL = "Perdeu sem explicação"
+    _valor_ok = False
+    for _n in _ast_cf.walk(_arv_pl):
+        if not isinstance(_n, _ast_cf.Dict):
+            continue
+        for _k, _v_no in zip(_n.keys, _n.values):
+            if isinstance(_k, _ast_cf.Constant) and _k.value == _COL:
+                _valor_ok = any(
+                    isinstance(_x, _ast_cf.Name) and _x.id == "_perda_pm"
+                    for _x in _ast_cf.walk(_v_no))
+    ok(f"a coluna '{_COL}' sai de `perda_por_membro`, e não da subtração",
+       _valor_ok)
+
+    _mostra_sem_dono = any(
+        isinstance(_n, _ast_cf.Call)
+        and (getattr(_n.func, "attr", "") or getattr(_n.func, "id", ""))
+        == "sem_dono_no_mes"
+        for _n in _ast_cf.walk(_arv_pl))
+    ok("e o aviso da tela chama `sem_dono_no_mes`", _mostra_sem_dono)
+
+    # E A TELA MOSTRA A PERDA, não a diferença crua — por AST.
+    _mostra_perda = any(
+        isinstance(_n, _ast_cf.Call)
+        and (getattr(_n.func, "attr", "") or getattr(_n.func, "id", ""))
+        == "perda_silenciosa"
+        for _n in _ast_cf.walk(_arv_pl))
+    ok("e o cabeçalho da tela chama `perda_silenciosa`", _mostra_perda)
 
     print("\nfalhas:", falhas)
     sys.exit(1 if falhas else 0)

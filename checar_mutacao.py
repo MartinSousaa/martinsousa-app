@@ -122,6 +122,34 @@ MUTACOES = [
         ["python3", "conferencia_pontos.py"],
     ),
     (
+        # 29/09: o cabecalho anunciou "Diferenca 12506 pts" e 11836 deles eram
+        # cartoes de OUTRO MES, que a conta crua ignora de proposito. Alarme
+        # falso ensina a equipe a ignorar a tela de conferir.
+        "'outro mes' volta a ser contado como perda no cabecalho",
+        "conferencia_pontos.py",
+        '                     if d.get("motivo") not in MOTIVOS_ESPERADOS), 2)',
+        "                     ), 2)",
+        ["python3", "conferencia_pontos.py"],
+    ),
+    (
+        # O mesmo alarme falso, por pessoa: a Myrella leu "Diferenca 5699" como
+        # 5.699 pontos roubados dela, e eram junho, julho e agosto.
+        "a tabela por pessoa volta a subtrair duas colunas de escopos diferentes",
+        "placar.py",
+        '          "Perdeu sem explicação": _perda_pm.get(_u, 0.0),',
+        '          "Perdeu sem explicação": _v["diferenca"],',
+        ["python3", "conferencia_pontos.py"],
+    ),
+    (
+        # O aviso amarelo saia de `contagem_crua`, que ignora o mes: embaixo de
+        # um painel de setembro ele anunciava o acumulado de quatro meses.
+        "o aviso de ponto sem dono volta a somar todos os meses",
+        "placar.py",
+        '    _sem_dono = _cf.sem_dono_no_mes(d.get("cards_pts"), MEMBROS_ATIVOS)',
+        '    _sem_dono = _crua["qtd"]["pontos_fora_do_quadro"]',
+        ["python3", "conferencia_pontos.py"],
+    ),
+    (
         "o ponto sem dono para de ser contado a parte",
         "conferencia_pontos.py",
         '            qtd["pontos_fora_do_quadro"] += pt',
