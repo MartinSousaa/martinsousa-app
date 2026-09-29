@@ -689,16 +689,22 @@ def _autoteste_das_cinco():
     finally:
         shutil.rmtree(base, ignore_errors=True)
 
+    # DEVOLVE A CONTAGEM, como `_autoteste`. Uma pergunta, uma resposta.
+    #
+    # Esta funcao devolvia BOOLEANO ("passou?") e a irma devolvia CONTAGEM
+    # ("quantas falharam?"). Duas convencoes para a mesma pergunta, e quem
+    # somou as duas inverteu o sentido: com zero falhas, o `and` dava falso e
+    # a varredura reprovava SEMPRE. Ninguem viu porque ninguem rodava o
+    # codigo de saida — ate `conferir.py` existir.
     print(f"\nfalhas das cinco varreduras: {len(falhas)}")
-    return not falhas
+    return len(falhas)
 
 
 def main():
     if "--autoteste" in sys.argv:
-        _ok_antigo = _autoteste()
-        print()
-        _ok_novo = _autoteste_das_cinco()
-        return 0 if (_ok_antigo and _ok_novo) else 1
+        # As DUAS contam falhas, e o codigo de saida e a soma. Nao ha `and`
+        # de coisas com sentidos opostos aqui.
+        return 1 if (_autoteste() + _autoteste_das_cinco()) else 0
     blocos = [
         ("FORMA 1 — gravação com falha silenciosa (precisa de guarda de CONTEÚDO)",
          forma1_retorno_engolido()),

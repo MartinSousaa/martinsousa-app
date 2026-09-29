@@ -344,7 +344,33 @@ o `dueComplete` invisível no mapa de pontos, o chat que recusava HEIC, o
 
 ---
 
-## Antes de todo push, os sete verificadores
+## Antes de todo push: `python3 conferir.py`
+
+**Um comando.** Ele roda os sete verificadores, os 66 auto-testes de módulo, a
+conferência da varredura e a checagem de conflito, e dá um veredito só.
+
+E ele **descobre** os verificadores no disco em vez de ter uma lista escrita:
+verificador novo entra sozinho. Com lista, o defeito seria o de sempre —
+alguém escreve o oitavo, esquece de somar, e a conferência segue dizendo
+"verde" medindo sete.
+
+Ele existe porque rodar sete comandos à mão, na ordem certa, toda vez, era a
+peça mais boba e mais cara do protocolo. Esquecer um é gratuito e silencioso:
+foi assim que relatei "cinco verificadores verdes" depois de editar um texto
+que nenhum dos cinco lia.
+
+**Ele cobre os passos 1, 2 e 7.** Os passos 3, 5, 6 e 8 continuam sendo
+leitura — e é neles que os últimos seis defeitos apareceram.
+
+Na primeira execução ele reprovou quatro, e um era defeito meu de horas antes:
+`varredura_formas.py --autoteste` saía com código 1 **sempre**, porque uma
+função devolvia contagem de falhas e a irmã devolvia booleano, e eu somei as
+duas com `and`. Ninguém tinha visto porque ninguém lia o código de saída — e
+pior: a 16ª entrada do `checar_mutacao.py` estava **verde por acidente**, já
+que "reprova com o defeito de volta" era verdade sem medir nada. Daí o
+`checar_mutacao.py` passar a conferir que o comando PASSA antes de mutar.
+
+Os sete, se precisar rodar um de cada vez:
 
 ```
 python3 -m compileall -q .      # sintaxe

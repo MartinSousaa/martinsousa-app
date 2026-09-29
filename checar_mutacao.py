@@ -92,6 +92,13 @@ MUTACOES = [
         ["python3", "checar_tela.py"],
     ),
     (
+        "o sinal do codigo de saida da varredura volta a ser invertido",
+        "varredura_formas.py",
+        "        return 1 if (_autoteste() + _autoteste_das_cinco()) else 0",
+        "        return 0 if (_autoteste() and _autoteste_das_cinco()) else 1",
+        ["python3", "conferir.py", "--rapido"],
+    ),
+    (
         "uma varredura emudece e devolve lista vazia",
         "varredura_formas.py",
         "    fora = []\n    for nome, sites in sorted(chamadas.items()):",
@@ -200,6 +207,25 @@ def _reprovou(codigo, saida):
 
 def main():
     falhas = 0
+
+    # ANTES DE MUTAR, O VERDE TEM DE SER VERDE.
+    #
+    # A 16a entrada — "uma varredura emudece" — passou verde por ACIDENTE: o
+    # `varredura_formas.py --autoteste` estava saindo com codigo 1 SEMPRE,
+    # por uma inversao de sinal, e entao "reprovou com o defeito de volta"
+    # era verdade sem medir nada.
+    #
+    # Mutacao so mede alguma coisa se o comando passar ANTES de mutar. Sem
+    # esta conferencia, toda entrada deste arquivo pode estar verde porque o
+    # verificador dela ja estava vermelho.
+    _comandos = {tuple(m[4]) for m in MUTACOES}
+    for cmd in sorted(_comandos):
+        codigo, saida = _roda(list(cmd))
+        if _reprovou(codigo, saida):
+            print(f"FALHA  `{' '.join(cmd)}` ja reprova SEM mutacao nenhuma "
+                  "— toda entrada que depende dele esta verde por acidente")
+            falhas += 1
+
     for nome, arquivo, certo, errado, cmd in MUTACOES:
         caminho = os.path.join(RAIZ, arquivo)
         with open(caminho, encoding="utf-8") as fh:
