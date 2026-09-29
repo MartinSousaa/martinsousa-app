@@ -99,6 +99,20 @@ MUTACOES = [
         ["python3", "conferir.py", "--rapido"],
     ),
     (
+        "o mes indeterminado volta a se confundir com 'outro mes'",
+        "conferencia_pontos.py",
+        '        if mes_do_card is None:\n            return "mes_desconhecido"',
+        '        if mes_do_card is None:\n            return "outro_mes"',
+        ["python3", "conferencia_pontos.py"],
+    ),
+    (
+        "o ponto sem dono para de ser contado a parte",
+        "conferencia_pontos.py",
+        '            qtd["pontos_fora_do_quadro"] += pt',
+        "            pass",
+        ["python3", "conferencia_pontos.py"],
+    ),
+    (
         "uma varredura emudece e devolve lista vazia",
         "varredura_formas.py",
         "    fora = []\n    for nome, sites in sorted(chamadas.items()):",

@@ -547,6 +547,137 @@ def _queda_de_pontos(conta):
             conta(nome, False, f"{type(e).__name__}: {e}")
 
 
+def _conferencia_de_pontos(conta):
+    """A conferencia contra o Trello cru DESENHA, e diz o que ficou de fora.
+
+    Dono, 29/09: "o pessoal continua reclamando que a pontuacao deles no painel
+    continua caindo, evidenciando inclusive com imagens".
+
+    O bloco novo e o unico lugar onde a queda vira numero conferivel — entao
+    ele nao pode so "nao explodir": tem de MOSTRAR a diferenca, o motivo de
+    cada cartao que ficou de fora, e o aviso de janela truncada. Guarda que so
+    confere montagem nao ve campo vazio (Forma 1 do protocolo).
+
+    O ESTADO AQUI E O QUE O BOARD PRODUZ QUANDO A JANELA E TRUNCADA: cartoes
+    concluidos, com pontuacao, e NENHUMA data de conclusao lida. Nao inventei
+    o cenario — e o que `acoes_movimento` devolve quando o teto de 5.000 acoes
+    e atingido antes de alcancar a conclusao do cartao.
+    """
+    import importlib
+    import sys as _sys_cp
+
+    _falso = instalar()
+    _pl = importlib.import_module("placar")
+    _pc = importlib.import_module("placar_core")
+    for _nm, _mod in list(_sys_cp.modules.items()):
+        if getattr(_mod, "st", None) is not None and not _nm.startswith(
+                ("streamlit", "checar_")):
+            try:
+                _mod.st = _falso
+            except Exception:
+                pass
+
+    _guardado = (_pc.acoes_movimento, _pc.tempos_do_board,
+                 dict(_pc.DIAGNOSTICO_POR_FILTRO))
+    _pc.acoes_movimento = lambda *a, **k: {}
+    _pc.tempos_do_board = lambda *a, **k: {}
+    _pc.DIAGNOSTICO_POR_FILTRO[_pc.FILTRO_MOVIMENTO] = {"truncado": True}
+    _pc.MEMBROS_ATIVOS.clear()
+    _pc.MEMBROS_ATIVOS.update({"ana": "Ana", "bruno": "Bruno"})
+    _pl.MEMBROS_ATIVOS = _pc.MEMBROS_ATIVOS
+
+    _listas = {"l1": "CONCLUÍDO"}
+    _membros = {"m1": "ana", "m2": "bruno"}
+
+    def _card(i, membros, pts):
+        return {"id": f"x{i}", "name": f"Peça {i}", "idList": "l1",
+                "idMembers": membros, "labels": [], "idLabels": [],
+                "dueComplete": True,
+                "dateLastActivity": "2026-09-25T10:00:00.000Z",
+                "customFieldItems": [{"idCustomField": "idp",
+                                      "value": {"number": str(pts)}}]}
+
+    _cards = [_card(1, ["m1"], 120), _card(2, ["m2"], 80), _card(3, [], 40)]
+    # O sistema nao contou NADA: e o estado da janela truncada.
+    _d = {"pts_equipe": 0.0, "pts_membro": {"ana": 0.0, "bruno": 0.0},
+          "cards_pts": []}
+
+    _erros = []
+    try:
+        _pl.bloco_conferencia_de_pontos(_listas, _cards, _membros, "idp", _d,
+                                        (2026, 9))
+    except (_Rerun, _Parou):
+        pass
+    except Exception as e:
+        _erros.append(f"{type(e).__name__}: {str(e)[:150]}")
+    finally:
+        (_pc.acoes_movimento, _pc.tempos_do_board, _antigo) = _guardado
+        _pc.DIAGNOSTICO_POR_FILTRO.clear()
+        _pc.DIAGNOSTICO_POR_FILTRO.update(_antigo)
+
+    conta("a conferencia de pontos monta", not _erros,
+          "; ".join(_erros))
+
+    # ── O CONTEUDO, e nao "nao explodiu" ────────────────────────────────
+    import conferencia_pontos as _cf
+    _crua = _cf.contagem_crua(_cards, _listas, _membros, "idp",
+                              {"ana": "Ana", "bruno": "Bruno"}, set())
+    conta("a conta crua soma os tres cartoes concluidos",
+          _crua["total"] == 240.0,
+          f"somou {_crua['total']} — deveria ser 120+80+40")
+    _dif, _por = _cf.comparar(_crua, _d)
+    conta("e a diferenca contra o sistema e o tamanho do buraco",
+          _dif == 240.0,
+          f"a diferenca deu {_dif}, e o sistema mostrou "
+          f"{_d['pts_equipe']} — se ela some, a queda volta a ser invisivel")
+    conta("o ponto sem dono e contado a parte",
+          _crua["qtd"]["pontos_fora_do_quadro"] == 40.0,
+          "o cartao concluido sem membro soma no time e em ninguem, e isso "
+          "tem de aparecer: e por isso que a soma dos individuais da menos "
+          "que o coletivo")
+    conta("o motivo do mes indeterminado nao se confunde com 'outro mes'",
+          _cf.motivo_de_fora(_cards[0], _listas, "idp", set(), None,
+                             (2026, 9)) == "mes_desconhecido",
+          "sem motivo proprio, a queda por janela truncada fica indistinguivel "
+          "de cartao de outro mes — e e justamente ela que some sozinha")
+
+    # E O AVISO DE TRUNCAMENTO TEM DE ESTAR NO CODIGO DA TELA.
+    #
+    # `diag["truncado"]` existia desde sempre em `placar_core.py:698` e
+    # NENHUMA tela lia. Calcular e nao mostrar e o mesmo que nao calcular.
+    # POR AST, E NAO PELO TEXTO. A primeira versao procurava a palavra
+    # "truncado" no fonte — e a mutacao que APAGOU o aviso passou verde,
+    # porque a palavra continuava no comentario que explica o aviso. E a
+    # guarda que se encontra a si mesma, pela enesima vez nesta base.
+    #
+    # A pergunta certa tem duas partes: existe um `if` que LE "truncado", e
+    # dentro dele alguem ESCREVE na tela? Calcular e nao mostrar e o mesmo
+    # que nao calcular.
+    import ast as _ast_cp
+    import inspect as _insp_cp
+    _arv_cp = _ast_cp.parse(
+        _ast_cp.unparse(_ast_cp.parse(
+            _insp_cp.getsource(_pl.bloco_conferencia_de_pontos).lstrip())))
+    _avisa = False
+    for _n in _ast_cp.walk(_arv_cp):
+        if not isinstance(_n, _ast_cp.If):
+            continue
+        _le = any(isinstance(_c, _ast_cp.Constant) and _c.value == "truncado"
+                  for _c in _ast_cp.walk(_n.test))
+        if not _le:
+            continue
+        _escreve = any(
+            (getattr(_c.func, "attr", "") in ("error", "warning", "info"))
+            for _c in _ast_cp.walk(_ast_cp.Module(body=_n.body,
+                                                  type_ignores=[]))
+            if isinstance(_c, _ast_cp.Call))
+        _avisa = _avisa or _escreve
+    conta("a tela LE a marca de janela truncada E avisa na tela",
+          _avisa,
+          "nao ha `if` lendo 'truncado' com aviso dentro: a perda de pontos "
+          "volta a ser silenciosa, que e exatamente o defeito de origem")
+
+
 def _mapa_de_pontos(conta):
     """O bloco que mostra de onde vem cada ponto — Painel e TV."""
     import placar as _pl
@@ -1758,6 +1889,7 @@ def main():
     _faturas(conta)
     _queda_de_pontos(conta)
     _mapa_de_pontos(conta)
+    _conferencia_de_pontos(conta)
     _processar_cards_pts(conta)
     _chat(conta)
     _retrato_no_painel(conta)
