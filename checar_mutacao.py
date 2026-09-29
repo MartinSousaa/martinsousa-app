@@ -92,6 +92,13 @@ MUTACOES = [
         ["python3", "checar_tela.py"],
     ),
     (
+        "uma categoria de comissao fica com uma tarifa so",
+        "params_oficiais.py",
+        "    'Outros': (0.10, 0.16),\n}",
+        "    'Outros': (0.10,),\n}",
+        ["python3", "params_oficiais.py"],
+    ),
+    (
         "a isencao de fuso volta a ser por ARQUIVO, e esconde o irmao",
         "checar_alcance.py",
         '    "auth.py:_salvar_token_sheets": "grava o `criado_em` que aquela comparação lê; trocar um lado só é que criaria o erro",\n',

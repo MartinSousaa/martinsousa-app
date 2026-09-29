@@ -111,3 +111,105 @@ ML_COMISSAO_POR_CATEGORIA = {
     'TV, Vídeo e DVD': (0.10, 0.16),
     'Outros': (0.10, 0.16),
 }
+
+
+# ── Conferência ──────────────────────────────────────────────────────────────
+#
+# `python3 params_oficiais.py` roda os casos abaixo.
+#
+# POR QUE ESTE ARQUIVO PASSOU A TER GUARDA
+#
+# Varredura de 29/09 no repositório inteiro: 224 funções públicas sem nenhuma
+# guarda que as cite. As de maior risco de negócio estavam no `app.py` —
+# `calcular_frete_ml`, `calcular_comissao_ml`, `calcular_comissao_shopee`,
+# `calcular_resultado`, `calcular_peso_taxado` — e todas leem as tabelas
+# daqui. Conta de dinheiro errada não derruba tela: ela devolve um número, e
+# o número vira decisão.
+#
+# O QUE ESTA GUARDA CONFERE, E O QUE NÃO
+#
+# Ela NÃO julga se o valor da tabela está certo: isso é a tabela oficial do
+# marketplace, e quem confere é o dono contra o extrato. Ela confere a
+# ESTRUTURA — que é o que quebra em silêncio quando alguém edita uma linha:
+# faixa que deixou de ser alcançável, ordem trocada, categoria com uma tarifa
+# só, faixa de preço com buraco maior que um centavo.
+#
+# O dado sai das próprias tabelas, e não de números que eu escrevesse aqui:
+# valor escrito à mão num teste mede o meu entendimento do sistema, e é o meu
+# entendimento que costuma estar errado.
+if __name__ == "__main__":
+    falhas = 0
+
+    def ok(nome, cond):
+        global falhas
+        falhas += not cond
+        print(("ok    " if cond else "FALHA ") + nome)
+
+    # ── ML: frete por peso ───────────────────────────────────────────────
+    _lim = [p for p, _ in ML_FRETE_TABELA]
+    ok("a tabela de frete do ML está ordenada por peso",
+       _lim == sorted(_lim))
+    ok("e não repete limite de peso", len(_lim) == len(set(_lim)))
+    _n_col = {len(v) for _, v in ML_FRETE_TABELA}
+    ok("toda faixa de frete tem a MESMA quantidade de colunas de reputação",
+       len(_n_col) == 1)
+
+    # TODA FAIXA TEM DE SER ALCANÇÁVEL. Uma linha que nenhum peso atinge é
+    # dinheiro que nunca será cobrado do jeito certo — e some em silêncio.
+    _alcancadas = set()
+    for _peso in _lim:
+        for _i, (_p, _) in enumerate(ML_FRETE_TABELA):
+            if _peso <= _p:
+                _alcancadas.add(_i)
+                break
+    ok("toda faixa de frete é alcançável por algum peso",
+       len(_alcancadas) == len(ML_FRETE_TABELA))
+
+    # ── ML: comissão por categoria ───────────────────────────────────────
+    ok("existe a categoria de fallback 'Outros'",
+       "Outros" in ML_COMISSAO_POR_CATEGORIA)
+    _erradas = [c for c, t in ML_COMISSAO_POR_CATEGORIA.items()
+                if not (isinstance(t, (tuple, list)) and len(t) == 2)]
+    ok("toda categoria tem exatamente DUAS tarifas (clássico e premium)",
+       not _erradas)
+    _invertidas = [c for c, t in ML_COMISSAO_POR_CATEGORIA.items()
+                   if len(t) == 2 and t[0] > t[1]]
+    ok("e a do clássico nunca é maior que a do premium",
+       not _invertidas)
+    _fora = [c for c, t in ML_COMISSAO_POR_CATEGORIA.items()
+             if any(not (0 < x < 1) for x in t)]
+    ok("toda tarifa é fração, e não porcentagem inteira", not _fora)
+
+    # ── Shopee: faixas de preço ──────────────────────────────────────────
+    ok("as faixas da Shopee estão ordenadas",
+       [f[0] for f in SHOPEE_FAIXAS] == sorted(f[0] for f in SHOPEE_FAIXAS))
+    ok("e nenhuma faixa começa depois de terminar",
+       all(f[0] <= f[1] for f in SHOPEE_FAIXAS))
+
+    # BURACO MAIOR QUE UM CENTAVO é defeito; de meio centavo não é.
+    #
+    # A varredura acusou "buraco" entre 79.99 e 80.00 — e 79.995 não existe
+    # em preço de venda. Reprovar isso seria alarme falso, e alarme falso
+    # ensina a ignorar o verificador. O que se confere é o buraco que um
+    # preço de VERDADE alcança.
+    _buracos = [(SHOPEE_FAIXAS[i][1], SHOPEE_FAIXAS[i + 1][0])
+                for i in range(len(SHOPEE_FAIXAS) - 1)
+                if round(SHOPEE_FAIXAS[i + 1][0] - SHOPEE_FAIXAS[i][1], 2) > 0.01]
+    ok("nenhum preço de dois decimais cai fora de todas as faixas",
+       not _buracos)
+    _pcts = [f[2] for f in SHOPEE_FAIXAS]
+    ok("toda comissão da Shopee é fração", all(0 < x < 1 for x in _pcts))
+
+    # ── SHEIN ────────────────────────────────────────────────────────────
+    ok("a comissão da SHEIN é uma fração",
+       isinstance(SHEIN_COMISSAO, (int, float)) and 0 < SHEIN_COMISSAO < 1)
+    _lim_sh = [p for p, _ in SHEIN_FRETE_TABELA]
+    ok("a tabela de frete da SHEIN está ordenada", _lim_sh == sorted(_lim_sh))
+
+    # ── Os oficiais do negócio ───────────────────────────────────────────
+    ok("LPV e NF oficiais são números positivos",
+       LPV_OFICIAL > 0 and NF_OFICIAL > 0)
+
+    print("\nfalhas:", falhas)
+    import sys as _sys
+    _sys.exit(1 if falhas else 0)
