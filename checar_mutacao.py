@@ -92,6 +92,13 @@ MUTACOES = [
         ["python3", "checar_tela.py"],
     ),
     (
+        "uma varredura emudece e devolve lista vazia",
+        "varredura_formas.py",
+        "    fora = []\n    for nome, sites in sorted(chamadas.items()):",
+        "    return []\n    fora = []\n    for nome, sites in sorted(chamadas.items()):",
+        ["python3", "varredura_formas.py", "--autoteste"],
+    ),
+    (
         "uma categoria de comissao fica com uma tarifa so",
         "params_oficiais.py",
         "    'Outros': (0.10, 0.16),\n}",
@@ -228,6 +235,20 @@ def main():
             # SEMPRE. Inclusive se o verificador estourar no meio.
             with open(caminho, "w", encoding="utf-8") as fh:
                 fh.write(original)
+            # E CONFERE QUE RESTAUROU.
+            #
+            # Escrever de volta e uma coisa; ter voltado e outra. Disco cheio,
+            # permissao, escrita parcial — e o repositorio fica mutado EM
+            # SILENCIO, com o defeito de volta e todo mundo achando que rodou
+            # uma conferencia. Seria o pior defeito possivel num arquivo cujo
+            # trabalho e justamente nao deixar defeito passar calado.
+            with open(caminho, encoding="utf-8") as fh:
+                if fh.read() != original:
+                    print(f"FALHA  '{nome}': NAO consegui restaurar "
+                          f"{arquivo} — o repositorio esta MUTADO agora. "
+                          "Rode `git checkout` neste arquivo antes de "
+                          "qualquer outra coisa.")
+                    falhas += 1
 
         if _reprovou(codigo, saida):
             print(f"ok    com o defeito de volta, {' '.join(cmd)} reprova "

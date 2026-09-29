@@ -367,7 +367,7 @@ def _sem_autoteste(src):
     return src.partition('if __name__ == "__main__":')[0]
 
 
-def varredura_chamadas_irmas():
+def varredura_chamadas_irmas(raiz="."):
     """A mesma função chamada em N lugares, e UM não passa o que os outros passam.
 
     É a forma exata dos defeitos de 28/09: `fotos_ref` faltando numa chamada,
@@ -378,11 +378,11 @@ def varredura_chamadas_irmas():
     """
     import collections
     defs, chamadas = set(), collections.defaultdict(list)
-    arqs = [a for a in sorted(os.listdir("."))
+    arqs = [a for a in sorted(os.listdir(raiz))
             if a.endswith(".py") and not a.startswith(("checar_", "varredura"))]
     for arq in arqs:
         try:
-            arv = ast.parse(open(arq, encoding="utf-8").read())
+            arv = ast.parse(open(os.path.join(raiz, arq), encoding="utf-8").read())
         except SyntaxError:
             continue
         for n in ast.walk(arv):
@@ -390,7 +390,7 @@ def varredura_chamadas_irmas():
                 defs.add(n.name)
     for arq in arqs:
         try:
-            arv = ast.parse(_sem_autoteste(open(arq, encoding="utf-8").read()))
+            arv = ast.parse(_sem_autoteste(open(os.path.join(raiz, arq), encoding="utf-8").read()))
         except SyntaxError:
             continue
         for n in ast.walk(arv):
@@ -414,7 +414,7 @@ def varredura_chamadas_irmas():
     return fora
 
 
-def varredura_gravacao_muda():
+def varredura_gravacao_muda(raiz="."):
     """`except: pass` em cima de uma GRAVAÇÃO, sem uma linha dizendo por quê.
 
     Gravação que falha calada é o defeito mais caro desta base: o log gravou
@@ -426,10 +426,10 @@ def varredura_gravacao_muda():
     GRAVA = ("append_row", "update", "upload", "salvar", "gravar", "registrar",
              "write", "insert", "batch_update", "add_worksheet")
     fora = []
-    for arq in sorted(os.listdir(".")):
+    for arq in sorted(os.listdir(raiz)):
         if not arq.endswith(".py") or arq.startswith(("checar_", "varredura")):
             continue
-        src = open(arq, encoding="utf-8").read()
+        src = open(os.path.join(raiz, arq), encoding="utf-8").read()
         linhas = src.split("\n")
         try:
             arv = ast.parse(_sem_autoteste(src))
@@ -456,7 +456,7 @@ def varredura_gravacao_muda():
     return fora
 
 
-def varredura_constante_homonima():
+def varredura_constante_homonima(raiz="."):
     """Mesmo NOME de constante em arquivos diferentes, com valores diferentes.
 
     Alias (`X = _outro.X`) é o padrão CERTO e não entra: ele tem uma fonte
@@ -465,11 +465,11 @@ def varredura_constante_homonima():
     """
     import collections
     defs = collections.defaultdict(dict)
-    for arq in sorted(os.listdir(".")):
+    for arq in sorted(os.listdir(raiz)):
         if not arq.endswith(".py") or arq.startswith(("checar_", "varredura")):
             continue
         try:
-            arv = ast.parse(_sem_autoteste(open(arq, encoding="utf-8").read()))
+            arv = ast.parse(_sem_autoteste(open(os.path.join(raiz, arq), encoding="utf-8").read()))
         except SyntaxError:
             continue
         for n in arv.body:
@@ -490,7 +490,7 @@ def varredura_constante_homonima():
     return fora
 
 
-def varredura_sem_rede():
+def varredura_sem_rede(raiz="."):
     """Função pública que nenhuma guarda cita — sobe sem rede.
 
     Responde mecanicamente o passo 3 do protocolo ("qual verificador leu a
@@ -499,14 +499,14 @@ def varredura_sem_rede():
     """
     import collections
     guardas = ""
-    for a in sorted(os.listdir(".")):
+    for a in sorted(os.listdir(raiz)):
         if a.endswith(".py") and a.startswith(("checar_", "varredura")):
-            guardas += open(a, encoding="utf-8").read()
+            guardas += open(os.path.join(raiz, a), encoding="utf-8").read()
     sem = collections.defaultdict(list)
-    for arq in sorted(os.listdir(".")):
+    for arq in sorted(os.listdir(raiz)):
         if not arq.endswith(".py") or arq.startswith(("checar_", "varredura")):
             continue
-        src = open(arq, encoding="utf-8").read()
+        src = open(os.path.join(raiz, arq), encoding="utf-8").read()
         cabeca, _, teste = src.partition('if __name__ == "__main__":')
         try:
             arv = ast.parse(cabeca)
@@ -522,7 +522,7 @@ def varredura_sem_rede():
             for a, f in sorted(sem.items(), key=lambda x: -len(x[1]))[:10]]
 
 
-def varredura_duplo_pobre():
+def varredura_duplo_pobre(raiz="."):
     """Duplo de teste sem uma chave que a função lê SEM default.
 
     A leitura com `.get()` não entra: chave ausente ali é o comportamento que
@@ -535,10 +535,10 @@ def varredura_duplo_pobre():
     """
     import collections
     fora = []
-    for arq in sorted(os.listdir(".")):
+    for arq in sorted(os.listdir(raiz)):
         if not arq.endswith(".py"):
             continue
-        src = open(arq, encoding="utf-8").read()
+        src = open(os.path.join(raiz, arq), encoding="utf-8").read()
         if 'if __name__ == "__main__":' not in src:
             continue
         cabeca, _, teste = src.partition('if __name__ == "__main__":')
@@ -591,9 +591,114 @@ def varredura_duplo_pobre():
     return fora
 
 
+def _autoteste_das_cinco():
+    """As cinco varreduras novas veem o defeito? Por casos PLANTADOS.
+
+    POR QUE ISTO EXISTE
+    -------------------
+    Protocolo de 29/09, passo 5: as cinco varreduras novas nao tinham guarda
+    nenhuma. Se uma delas quebrasse e devolvesse lista vazia, ela imprimiria
+    "(nada)" — que e exatamente o que ela imprime quando o repositorio esta
+    limpo. Verificador mudo e indistinguivel de verificador satisfeito, e a
+    diferenca entre os dois e todo o valor dele.
+
+    E a minha primeira conferencia disto foi FALSA: perguntei se o nome da
+    funcao aparecia entre `_autoteste` e `main`, e aparecia — porque elas
+    foram escritas nesse intervalo. Aparecer no arquivo nao e ser exercitada.
+    A pergunta certa e por AST: `_autoteste` CHAMA a funcao?
+
+    Cada caso abaixo planta o defeito num diretorio temporario, e nao no
+    repositorio: varredura que suja o repositorio para se testar e pior que
+    varredura nenhuma.
+    """
+    import shutil
+    import tempfile
+
+    falhas = []
+
+    def ok(nome, cond):
+        if not cond:
+            falhas.append(nome)
+        print(("ok    " if cond else "FALHA ") + nome)
+
+    base = tempfile.mkdtemp()
+    try:
+        # A — a terceira chamada esquece o `fotos_ref` que as outras passam.
+        with open(os.path.join(base, "alvo.py"), "w", encoding="utf-8") as fh:
+            fh.write(
+                "def conferir(img, fotos_ref=None, tipo=''):\n    return 1\n\n"
+                "def a():\n    return conferir(1, fotos_ref=[2], tipo='x')\n\n"
+                "def b():\n    return conferir(1, fotos_ref=[3], tipo='y')\n\n"
+                "def c():\n    return conferir(1, tipo='z')\n")
+        ok("A vê a chamada irmã que esqueceu um argumento",
+           any("conferir" in x for x in varredura_chamadas_irmas(base)))
+
+        # B — gravação engolida, sem uma linha dizendo por quê.
+        with open(os.path.join(base, "muda.py"), "w", encoding="utf-8") as fh:
+            fh.write("def grava(aba):\n    try:\n        aba.append_row([1])\n"
+                     "    except Exception:\n        pass\n")
+        ok("B vê a gravação que falha calada",
+           any("muda.py" in x for x in varredura_gravacao_muda(base)))
+
+        # B-bis — a MESMA gravação, com o motivo escrito, NÃO pode aparecer.
+        # Alarme falso ensina a ignorar o verificador.
+        with open(os.path.join(base, "muda.py"), "w", encoding="utf-8") as fh:
+            fh.write("def grava(aba):\n    try:\n        aba.append_row([1])\n"
+                     "    except Exception:\n"
+                     "        pass  # registro nao pode derrubar a tela\n")
+        ok("e NÃO acusa a que tem o motivo escrito",
+           not any("muda.py" in x for x in varredura_gravacao_muda(base)))
+
+        # C — a mesma constante, escrita literalmente em dois arquivos.
+        for nome, val in (("um.py", "10"), ("dois.py", "20")):
+            with open(os.path.join(base, nome), "w", encoding="utf-8") as fh:
+                fh.write(f"LIMITE_DIAS = {val}\n")
+        ok("C vê a constante homônima com valores diferentes",
+           any("LIMITE_DIAS" in x for x in varredura_constante_homonima(base)))
+
+        # C-bis — o ALIAS é o padrão certo e não pode ser acusado.
+        with open(os.path.join(base, "dois.py"), "w", encoding="utf-8") as fh:
+            fh.write("import um as _um\nLIMITE_DIAS = _um.LIMITE_DIAS\n")
+        ok("e NÃO acusa o alias, que é o padrão certo",
+           not any("LIMITE_DIAS" in x for x in varredura_constante_homonima(base)))
+
+        # D — função pública sem nenhuma guarda que a cite.
+        with open(os.path.join(base, "nu.py"), "w", encoding="utf-8") as fh:
+            fh.write("def calcular_frete(x):\n    return x * 2\n\n"
+                     'if __name__ == "__main__":\n    print(1)\n')
+        ok("D vê a função pública que nenhuma guarda cita",
+           any("nu.py" in x for x in varredura_sem_rede(base)))
+
+        # E — duplo sem a chave que a função lê SEM default.
+        with open(os.path.join(base, "pobre.py"), "w", encoding="utf-8") as fh:
+            fh.write("def montar(cfg):\n    return cfg['peso']\n\n"
+                     'if __name__ == "__main__":\n'
+                     "    montar({'nome': 'x'})\n")
+        ok("E vê o duplo sem a chave lida sem default",
+           any("pobre.py" in x for x in varredura_duplo_pobre(base)))
+
+        # E-bis — com `.get()`, a ausência é o comportamento testado.
+        with open(os.path.join(base, "pobre.py"), "w", encoding="utf-8") as fh:
+            fh.write("def montar(cfg):\n"
+                     "    if cfg.get('peso'):\n        return cfg['peso']\n"
+                     "    return 0\n\n"
+                     'if __name__ == "__main__":\n'
+                     "    montar({'nome': 'x'})\n")
+        ok("e NÃO acusa a leitura protegida por `.get()`",
+           not any("pobre.py" in x for x in varredura_duplo_pobre(base)))
+    finally:
+        shutil.rmtree(base, ignore_errors=True)
+
+    print(f"\nfalhas das cinco varreduras: {len(falhas)}")
+    return not falhas
+
+
 def main():
     if "--autoteste" in sys.argv:
-        return 1 if _autoteste() else 0
+        _ok_antigo = _autoteste()
+        print()
+        _ok_novo = _autoteste_das_cinco()
+        return 0 if (_ok_antigo and _ok_novo) else 1
     blocos = [
         ("FORMA 1 — gravação com falha silenciosa (precisa de guarda de CONTEÚDO)",
          forma1_retorno_engolido()),
