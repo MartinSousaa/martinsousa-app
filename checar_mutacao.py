@@ -375,6 +375,52 @@ MUTACOES = [
         ["python3", "imagem.py"],
     ),
     (
+        # Historico do Tigre, peca 7: a regra mandava 30% a 45% e a critica da
+        # peca, mais abaixo no mesmo prompt, mandava "ocupando mais da metade
+        # do quadro". O gerador obedeceu a ultima.
+        "a critica da peca volta a mandar tamanho no prompt",
+        "imagem.py",
+        "        _probs = [sem_medida_de_quadro(p) for p in problemas]\n"
+        "        _probs = [p for p in _probs if p.strip()]\n",
+        "        _probs = problemas\n",
+        ["python3", "imagem.py"],
+    ),
+    (
+        "a instrucao da refacao volta a mandar tamanho",
+        "imagem.py",
+        '            + "\\n\\nO que fazer diferente agora: "\n'
+        "            + sem_medida_de_quadro(instrucao))",
+        '            + "\\n\\nO que fazer diferente agora: " + instrucao)',
+        ["python3", "imagem.py"],
+    ),
+    (
+        # "mais da metade do quadro" nao tem `%`, e a limpeza saia cedo.
+        "a limpeza volta a so conhecer tamanho escrito em porcentagem",
+        "imagem.py",
+        '_MEDIDA_DE_QUADRO = _re_quadro.compile(\n    r"[^,;.]*?(?:\\d{1,3}\\s?%|"\n    r"(?:mais\\s+da\\s+|menos\\s+da\\s+|cerca\\s+de\\s+|quase\\s+)?"\n    r"(?:metade|dois\\s+ter[c\\u00e7]os|um\\s+ter[c\\u00e7]o|tr[e\\u00ea]s\\s+quartos|"\n    r"um\\s+quarto)\\s+(?:d[oa]\\s+)?(?:quadro|imagem|enquadramento|frame))"\n    r"[^,;.]*", _re_quadro.I)',
+        '_MEDIDA_DE_QUADRO = _re_quadro.compile(\n    r"[^,;.]*?\\d{1,3}\\s?%[^,;.]*", _re_quadro.I)',
+        ["python3", "imagem.py"],
+    ),
+    (
+        # 29/09: a tela dizia "Tigre · 10x21x5 · Resina" e as oito pecas
+        # sairam com "pendulo balança / 14x13x11 / Plastico". Oito pecas
+        # pagas do produto errado, sem aviso.
+        "a tela para de conferir se o plano e deste produto",
+        "imagem.py",
+        "        _div_prod = divergencia_de_produto(cfg, nome_produto, dados_descricao)\n"
+        '        if _div_prod:\n            st.error("🚫 " + _div_prod)\n',
+        "",
+        ["python3", "imagem.py"],
+    ),
+    (
+        "a divergencia de produto para de olhar as medidas",
+        "imagem.py",
+        '    for campo, rotulo in (("medidas", "medidas"), ("peso", "peso"),\n'
+        '                          ("material", "material")):',
+        '    for campo, rotulo in ():',
+        ["python3", "imagem.py"],
+    ),
+    (
         "o ponto sem dono para de ser contado a parte",
         "conferencia_pontos.py",
         '            qtd["pontos_fora_do_quadro"] += pt',
