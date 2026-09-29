@@ -202,6 +202,52 @@ MUTACOES = [
         ["python3", "analise_do_mes.py", "--autoteste"],
     ),
     (
+        # Myrella 2.143 -> 2.163 -> 2.133 em minutos, sem ninguem tocar no
+        # quadro. As bordas das fatias vinham de now() cru e mudavam a cada
+        # leitura; a acao de conclusao perto de uma borda entrava e saia, e
+        # com ela o cartao inteiro.
+        "as bordas das fatias voltam a se mover a cada leitura",
+        "placar_core.py",
+        "    fim = (agora or datetime.now(timezone.utc)).replace(\n"
+        "        minute=0, second=0, microsecond=0)",
+        "    fim = agora or datetime.now(timezone.utc)",
+        ["python3", "placar_core.py"],
+    ),
+    (
+        # O aviso de janela truncada lia a chave do filtro; o caminho cru
+        # publica em "cru". A tela recebia {} e ficava muda — e foi isso que
+        # me fez concluir que nao havia truncamento.
+        "o diagnostico volta a olhar so a chave do filtro",
+        "placar_core.py",
+        '    for chave in ("cru", FILTRO_MOVIMENTO):',
+        "    for chave in (FILTRO_MOVIMENTO,):",
+        ["python3", "placar_core.py"],
+    ),
+    (
+        "a tela volta a ler o diagnostico por chave escrita a mao",
+        "placar.py",
+        "        _diag = _pc_cf.diagnostico_do_movimento()",
+        "        _diag = dict(_pc_cf.DIAGNOSTICO_POR_FILTRO.get(\n"
+        "            _pc_cf.FILTRO_MOVIMENTO) or {})",
+        ["python3", "placar_core.py"],
+    ),
+    (
+        # 250 acoes/dia por fatia era o teto real. O board passou disso e as
+        # conclusoes antigas de cada fatia comecaram a ficar de fora.
+        "o teto de paginas volta a ser dividido entre as fatias",
+        "placar_core.py",
+        "    por_fatia = PAGINAS_POR_FATIA",
+        "    por_fatia = max(2, -(-max_paginas // len(fatias)) + 1)",
+        ["python3", "placar_core.py"],
+    ),
+    (
+        "o teto por fatia volta a ser pequeno",
+        "placar_core.py",
+        "PAGINAS_POR_FATIA = 30",
+        "PAGINAS_POR_FATIA = 5",
+        ["python3", "placar_core.py"],
+    ),
+    (
         "o ponto sem dono para de ser contado a parte",
         "conferencia_pontos.py",
         '            qtd["pontos_fora_do_quadro"] += pt',

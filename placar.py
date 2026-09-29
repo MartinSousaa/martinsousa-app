@@ -2238,10 +2238,16 @@ def bloco_conferencia_de_pontos(listas, cards, membros_map, id_p, d,
     # `DIAGNOSTICO_POR_FILTRO` e o registro que `_publicar_diag` alimenta
     # (`placar_core.py:784`). O diagnostico do filtro de MOVIMENTO e o que
     # interessa aqui: e ele que traz a acao de conclusao.
+    # A CHAVE ERRADA DEIXAVA ESTE AVISO MUDO.
+    #
+    # Esta leitura era `DIAGNOSTICO_POR_FILTRO[FILTRO_MOVIMENTO]`. Quando
+    # `acoes_movimento` cai no caminho cru — que é o que roda quando o filtro
+    # de etiqueta não serve — o diagnóstico é publicado sob `"cru"`, e esta
+    # linha recebia `{}`: truncado falso, aviso mudo, janela truncada do
+    # outro lado. Agora quem responde é uma função só.
     _diag = {}
     try:
-        _diag = dict(_pc_cf.DIAGNOSTICO_POR_FILTRO.get(
-            _pc_cf.FILTRO_MOVIMENTO) or {})
+        _diag = _pc_cf.diagnostico_do_movimento()
     except Exception:
         _diag = {}
     if _diag.get("truncado"):
