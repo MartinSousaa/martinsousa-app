@@ -54,15 +54,10 @@ def analisar(filtro_mes):
     crua = cf.contagem_crua(cards, listas, membros_map, id_p,
                             pl.MEMBROS_ATIVOS, pl.LISTAS_SEM_PONTUACAO, pl._num)
 
-    # POR COLUNA, e só do que o mês aprovou: é a pergunta "quanto tem na
-    # TRIAGEM?" respondida pela mesma lista que soma o total.
-    por_coluna = {}
-    for c in (d.get("cards_pts") or []):
-        e = por_coluna.setdefault(c.get("lista") or "(sem coluna)",
-                                  {"qtd": 0, "pts": 0.0})
-        e["qtd"] += 1
-        e["pts"] += c.get("pts") or 0.0
-    return d, crua, por_coluna
+    # POR COLUNA — a MESMA função que a tela usa (`conferencia_pontos`).
+    # Uma cópia aqui seria a segunda resposta para a mesma pergunta, e nesta
+    # base `_processar` duplicado já discordou em 330 pontos.
+    return d, crua, cf.por_coluna(d.get("cards_pts"))
 
 
 def relatorio(filtro_mes):
@@ -151,6 +146,11 @@ if __name__ == "__main__":
         # nunca apareceria na lista e a pergunta ficaria sem resposta.
         ok("TRIAGEM paga pontos, então aparece no relatório por coluna",
            "TRIAGEM" not in _pc.LISTAS_SEM_PONTUACAO)
+
+        # O POR-COLUNA É O DA TELA, e isso é estrutural.
+        ok("o por-coluna vem de `conferencia_pontos`, e não de uma cópia",
+           "cf.por_coluna" in inspect.getsource(analisar)
+           and "por_coluna = {}" not in _fonte)
 
         print("\nfalhas:", falhas)
         sys.exit(1 if falhas else 0)

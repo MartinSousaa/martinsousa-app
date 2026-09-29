@@ -91,6 +91,26 @@ def explicado_pela_regra(descartes):
                      if d.get("motivo") in MOTIVOS_ESPERADOS), 2)
 
 
+def por_coluna(cards_pts):
+    """{coluna: {"qtd", "pts"}} — onde os pontos DO MÊS estão, coluna a coluna.
+
+    É a resposta a "quanto tem na TRIAGEM?" saindo da MESMA lista que soma o
+    total (`cards_pts`, montada em `placar.py:698`). Uma segunda varredura do
+    quadro daria um segundo número, e o dia em que discordassem ninguém
+    saberia qual acreditar — `_processar` já duplicado nesta base discordou em
+    330 pontos no mesmo mês.
+    """
+    fora = {}
+    for c in (cards_pts or []):
+        e = fora.setdefault(c.get("lista") or "(sem coluna)",
+                            {"qtd": 0, "pts": 0.0})
+        e["qtd"] += 1
+        e["pts"] += c.get("pts") or 0.0
+    for e in fora.values():
+        e["pts"] = round(e["pts"], 2)
+    return fora
+
+
 def perda_por_membro(descartes, membros_ativos):
     """{usuario: pontos que sumiram DELE sem regra que explique}.
 
@@ -516,6 +536,32 @@ if __name__ == "__main__":
                     for _x in _ast_cf.walk(_v_no))
     ok(f"a coluna '{_COL}' sai de `perda_por_membro`, e não da subtração",
        _valor_ok)
+
+    # ── ONDE OS PONTOS DO MÊS ESTÃO, COLUNA A COLUNA ───────────────────
+    #
+    # Dono, 29/09: "quero o resumo geral, por colaborador, e o que tem na
+    # TRIAGEM". As duas primeiras a tela já dava; a terceira não — e era
+    # justamente a TRIAGEM que estava comendo a pontuação.
+    #
+    # A entrada é `cards_pts`, a MESMA lista que soma o total.
+    _pc_col = por_coluna(_sis["cards_pts"])
+    ok("o por-coluna soma o mesmo total que a equipe",
+       round(sum(v["pts"] for v in _pc_col.values()), 2)
+       == round(_sis["pts_equipe"], 2))
+    _cp_col = [{"lista": "TRIAGEM", "pts": 100.0},
+               {"lista": "TRIAGEM", "pts": 70.0},
+               {"lista": "DESATIVAR (50)", "pts": 50.0}]
+    ok("e diz quanto cada coluna tem, com a contagem",
+       por_coluna(_cp_col)["TRIAGEM"] == {"qtd": 2, "pts": 170.0})
+    ok("cartão sem coluna não some da conta",
+       por_coluna([{"pts": 10.0}])["(sem coluna)"]["pts"] == 10.0)
+
+    _mostra_col = any(
+        isinstance(_n, _ast_cf.Call)
+        and (getattr(_n.func, "attr", "") or getattr(_n.func, "id", ""))
+        == "por_coluna"
+        for _n in _ast_cf.walk(_arv_pl))
+    ok("e a tela mostra o por-coluna", _mostra_col)
 
     _mostra_sem_dono = any(
         isinstance(_n, _ast_cf.Call)

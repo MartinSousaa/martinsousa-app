@@ -2339,6 +2339,25 @@ def bloco_conferencia_de_pontos(listas, cards, membros_map, id_p, d,
         "A última coluna é o acumulado de TODOS os meses, e serve só de "
         "referência: ela ser maior que a do mês é o esperado, não é perda.")
 
+    # ONDE OS PONTOS DO MÊS ESTÃO — coluna a coluna.
+    #
+    # "Quanto tem na TRIAGEM?" não tinha resposta na tela, e era a TRIAGEM
+    # que estava comendo a pontuação: em 28/09 foram 18 cartões concluídos
+    # movidos para lá. Sai da MESMA lista que soma o total.
+    _por_col = _cf.por_coluna(d.get("cards_pts"))
+    if _por_col:
+        st.markdown("**Onde os pontos deste mês estão:**")
+        st.dataframe(
+            [{"Coluna": _nl, "Pontos": _v["pts"], "Cartões": _v["qtd"]}
+             for _nl, _v in sorted(_por_col.items(),
+                                   key=lambda x: -x[1]["pts"])],
+            use_container_width=True, hide_index=True)
+        st.caption(
+            f"Somando {sum(_v['pts'] for _v in _por_col.values()):,.0f} pts em "
+            f"{sum(_v['qtd'] for _v in _por_col.values())} cartões — o mesmo "
+            "total da coletiva, conferido cartão a cartão."
+            .replace(",", "."))
+
 
 def bloco_mapa_de_pontos(d, meta_eq):
     """Cartão a cartão: o que soma hoje, e o que mudou desde outro dia.
