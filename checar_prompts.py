@@ -349,7 +349,13 @@ _PLANO = {"composicao": "produto à esquerda, cartões à direita",
 _DIRECAO = {
     "nome": "Executivo Quente Contemporâneo",
     "posicionamento": "premium contemporâneo",
-    "atmosfera": "escritório sofisticado, quente e contido",
+    # A ATMOSFERA VEM COM MEDIDA DENTRO, PELO MESMO MOTIVO QUE A CENA.
+    #
+    # A direcao de arte e prosa livre escrita pela IA, igual a cena — e a
+    # cena, na realidade, veio com "produto centralizado ocupando 60% do
+    # espaco vertical". Duplo sem o defeito que a realidade tem deixa a
+    # guarda verde sem medir nada (Forma 7).
+    "atmosfera": "escritório sofisticado, com o produto ocupando 70% do quadro",
     "paleta": {
         "fundo":  {"nome": "Marfim Quente", "hex": "#F2EEE6"},
         "painel": {"nome": "Pedra Quente", "hex": "#D5C9B8"},
@@ -557,8 +563,19 @@ def main():
     # traz porcentagem? Se traz, ela esta legislando sobre tamanho, e tamanho
     # tem um dono so. O plano diz SUPERFICIE, PROPS e ANGULO — e o prompt do
     # proprio plano pede exatamente isso.
-    _LINHA_PLANO = re.compile(r"^(?:Cena desta peça|Composição): (.+)$",
-                              re.M)
+    # TODA LINHA ESCRITA PELA IA, e nao so as duas que eu lembrei.
+    #
+    # A cena nao e o unico texto que a IA do plano injeta no prompt: a direcao
+    # de arte escreve "Atmosfera", "Luz", "Posicionamento", "Materiais do
+    # cenario" e os props — tudo prosa livre, e qualquer uma delas pode
+    # legislar sobre tamanho do mesmo jeito que a cena legislou.
+    #
+    # Corrigir so a cena seria a Forma 1 pela enesima vez: a correcao no lugar
+    # onde o sintoma apareceu, e nao em todos onde a regra alcanca.
+    _LINHA_PLANO = re.compile(
+        r"^(?:Cena desta peça|Composição|Direção|Posicionamento|Atmosfera|"
+        r"Luz|Materiais do cenário|Props permitidos|Props PROIBIDOS|"
+        r"Trava do produto): (.+)$", re.M)
     for t in TODOS:
         for _m in _LINHA_PLANO.finditer(enviados[t]):
             _achou = re.findall(r"\d{1,3}\s?%", _m.group(1))

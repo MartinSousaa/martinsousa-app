@@ -3791,6 +3791,18 @@ def bloco_direcao_de_arte(direcao):
     d = direcao if isinstance(direcao, dict) else {}
     if not d:
         return ""
+    # A DIREÇÃO DE ARTE TAMBÉM NÃO MANDA TAMANHO.
+    #
+    # Ela é prosa livre escrita pela mesma IA que escreve a cena — e a cena
+    # veio com "produto centralizado ocupando 60% do espaço vertical" numa
+    # peça cuja regra mandava 85% a 92%. Nada impedia a atmosfera, a luz ou o
+    # posicionamento de fazerem igual.
+    #
+    # Limpar só a cena teria sido a Forma 1 de novo: a correção no lugar onde
+    # o sintoma apareceu, e não em todos onde a regra alcança. O tamanho tem
+    # um dono, e é `ocupacao_em_portugues`.
+    d = {k: (sem_medida_de_quadro(v) if isinstance(v, str) else v)
+         for k, v in d.items()}
     _p = d.get("paleta") if isinstance(d.get("paleta"), dict) else {}
 
     def _cor(chave, rotulo, onde):

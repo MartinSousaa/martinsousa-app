@@ -92,6 +92,14 @@ MUTACOES = [
         ["python3", "checar_tela.py"],
     ),
     (
+        "a direcao de arte volta a poder mandar tamanho",
+        "imagem.py",
+        "    d = {k: (sem_medida_de_quadro(v) if isinstance(v, str) else v)\n"
+        "         for k, v in d.items()}\n",
+        "",
+        ["python3", "checar_prompts.py"],
+    ),
+    (
         "a cena do plano volta a mandar tamanho",
         "imagem.py",
         "        _cena = sem_medida_de_quadro(plano_triagem_item_cena)",
