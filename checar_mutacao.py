@@ -339,6 +339,42 @@ MUTACOES = [
         ["python3", "placar_core.py"],
     ),
     (
+        # Dono, 29/09: "ja trouxe esse problema aqui umas 10 vezes e voce nao
+        # resolve". A variavel do Railway apontava para um modelo que a conta
+        # nao tem; o Studio redescobria um bom, usava UMA vez, e na chamada
+        # seguinte lia a variavel de novo e voltava ao 404.
+        "a variavel do Railway volta a mandar mesmo provada errada",
+        "imagem.py",
+        "    cfg = _ch_mod.ler(\"OPENAI_MODELO_IMAGEM\")\n"
+        "    if cfg and cfg not in _MODELO_INVALIDO:\n        return cfg\n"
+        "    return _MODELO_DESCOBERTO[\"nome\"] or MODELO_IMAGEM_PADRAO",
+        "    return (_ch_mod.ler(\"OPENAI_MODELO_IMAGEM\")\n"
+        "            or _MODELO_DESCOBERTO[\"nome\"]\n"
+        "            or MODELO_IMAGEM_PADRAO)",
+        ["python3", "imagem.py"],
+    ),
+    (
+        # Dois endpoints, dois `if modelo nao existe`. Marcar so num deixa o
+        # nome invalido voltando pelo outro — a Forma 1 desta base.
+        "so um dos dois caminhos marca o modelo invalido",
+        "imagem.py",
+        "            # O IRMAO DA MARCACAO ACIMA. Sao dois endpoints, e corrigir so um\n"
+        "            # deles e a Forma 1 desta base: o nome invalido continuaria\n"
+        "            # voltando pelo caminho que ficou sem marca.\n"
+        "            marcar_modelo_invalido(_modelo)\n",
+        "",
+        ["python3", "imagem.py"],
+    ),
+    (
+        # Recuperar calado esconde a configuracao errada para sempre.
+        "o Studio se recupera calado e some com o aviso da variavel errada",
+        "imagem.py",
+        '    _av_modelo = aviso_de_modelo_invalido()\n    if _av_modelo:\n'
+        '        st.warning("🖼️ " + _av_modelo)',
+        "    pass",
+        ["python3", "imagem.py"],
+    ),
+    (
         "o ponto sem dono para de ser contado a parte",
         "conferencia_pontos.py",
         '            qtd["pontos_fora_do_quadro"] += pt',

@@ -2344,6 +2344,35 @@ MODELOS_IMAGEM_CONHECIDOS = ("gpt-image-2.5-sunburst", "gpt-image-2.5-flare")
 # seria custo recorrente para resolver um problema de uma vez só.
 _MODELO_DESCOBERTO = {"nome": None}
 
+# MODELOS QUE A CONTA JA DISSE NAO TER. Nao e cache de otimizacao: e memoria
+# de uma prova. A conta respondeu 404 para este nome, entao insistir nele e
+# gastar a proxima geracao para receber o mesmo 404.
+_MODELO_INVALIDO = set()
+
+
+def marcar_modelo_invalido(nome):
+    """A conta respondeu que este modelo nao existe. Ele perde a vez."""
+    if nome:
+        _MODELO_INVALIDO.add(str(nome))
+
+
+def aviso_de_modelo_invalido():
+    """Texto para a tela quando a variavel do Railway aponta para o vazio.
+
+    RECUPERAR CALADO ESCONDERIA A CONFIGURACAO ERRADA PARA SEMPRE. O Studio
+    passa a funcionar sozinho, mas quem configurou precisa saber que configurou
+    errado — senao o dia em que a descoberta tambem falhar ninguem entende por
+    que, e o defeito volta com outra cara.
+    """
+    import chaves as _ch_av
+    cfg = _ch_av.ler("OPENAI_MODELO_IMAGEM")
+    if not cfg or cfg not in _MODELO_INVALIDO:
+        return ""
+    return (f"A variavel `OPENAI_MODELO_IMAGEM` esta com «{cfg}», e esta conta "
+            f"da OpenAI nao tem esse modelo. O Studio esta usando "
+            f"«{modelo_de_imagem()}» no lugar e segue funcionando — mas "
+            f"corrija a variavel no Railway.")
+
 
 def modelo_de_imagem():
     """O modelo que a geração usa. Configurável pelo Railway.
@@ -2351,11 +2380,25 @@ def modelo_de_imagem():
     `OPENAI_MODELO_IMAGEM` manda, depois o que foi descoberto na conta, depois
     o padrão. O dia em que a OpenAI lançar um modelo melhor, trocar é uma
     variável — não é deploy.
+
+    MAS ELA PARA DE MANDAR DEPOIS DE PROVADA ERRADA, e foi isto que faltou.
+
+    Dono, 29/09: "ja trouxe esse problema aqui umas 10 vezes e voce nao
+    resolve". A variavel estava com um modelo que NAO existe naquela conta. O
+    Studio chamava, tomava 404, redescobria um modelo bom (`_MODELO_DESCOBERTO`)
+    e usava UMA vez — e na chamada seguinte lia a variavel de novo e voltava ao
+    nome inexistente. A descoberta era jogada fora a cada geracao, e toda
+    geracao recomecava errada. Para sempre, ate alguem lembrar de editar a
+    variavel.
+
+    O que faltava nao era o dono configurar certo: era o sistema parar de
+    obedecer a uma configuracao que ele JA SABIA estar errada. Regra 5.
     """
     import chaves as _ch_mod
-    return (_ch_mod.ler("OPENAI_MODELO_IMAGEM")
-            or _MODELO_DESCOBERTO["nome"]
-            or MODELO_IMAGEM_PADRAO)
+    cfg = _ch_mod.ler("OPENAI_MODELO_IMAGEM")
+    if cfg and cfg not in _MODELO_INVALIDO:
+        return cfg
+    return _MODELO_DESCOBERTO["nome"] or MODELO_IMAGEM_PADRAO
 
 
 def modelos_de_imagem_da_conta(cliente=None):
@@ -2584,6 +2627,10 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None, ref_layout=None,
                 # OpenAI nunca rodando, e todas as imagens saindo do Gemini
                 # sem controle de proporção.
                 if _e_modelo_inexistente(_e_tool) and not _ja_redescobriu:
+                    # A CONTA PROVOU QUE ESTE NOME NAO EXISTE. Sem marcar, a
+                    # descoberta valia so para esta chamada: a proxima lia a
+                    # variavel do Railway de novo e voltava ao mesmo 404.
+                    marcar_modelo_invalido(_modelo)
                     _novo = redescobrir_modelo_de_imagem()
                     if _novo and _novo != _modelo:
                         print(f"[imagem] {_modelo} não existe nesta conta; "
@@ -2689,6 +2736,10 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None, ref_layout=None,
         # tem e tenta outra vez — UMA vez, para um nome que não existe não
         # virar laço infinito.
         if _modelo_nao_existe(e) and not _ja_redescobriu:
+            # O IRMAO DA MARCACAO ACIMA. Sao dois endpoints, e corrigir so um
+            # deles e a Forma 1 desta base: o nome invalido continuaria
+            # voltando pelo caminho que ficou sem marca.
+            marcar_modelo_invalido(_modelo)
             _novo = redescobrir_modelo_de_imagem(client)
             if _novo and _novo != _modelo:
                 return _chamar_openai_geracao(
@@ -6317,6 +6368,16 @@ def pagina_imagem(usuario_logado):
     if _mot_aviso:
         (st.error if not _mot_ok else st.warning)("🖼️ " + _mot_aviso)
 
+    # A VARIAVEL DO RAILWAY APONTA PARA UM MODELO QUE A CONTA NAO TEM?
+    #
+    # O Studio agora se recupera sozinho e segue gerando — mas recuperar
+    # CALADO esconderia a configuracao errada para sempre, e o dia em que a
+    # descoberta tambem falhar ninguem entenderia por que. Funciona E diz o
+    # que esta torto.
+    _av_modelo = aviso_de_modelo_invalido()
+    if _av_modelo:
+        st.warning("🖼️ " + _av_modelo)
+
     # A copia de seguranca falhou na passada anterior? Aqui e onde se diz.
     aviso_de_rascunho()
 
@@ -9518,6 +9579,95 @@ if __name__ == "__main__":
     os.environ["OPENAI_MODELO_IMAGEM"] = "gpt-image-2.5-flare"
     ok("e a variavel do Railway manda em todos",
        modelo_de_imagem() == "gpt-image-2.5-flare")
+
+    # ══ MAS A VARIAVEL NAO MANDA DEPOIS DE PROVADA ERRADA ═══════════════
+    #
+    # Dono, 29/09: "ja trouxe esse problema aqui umas 10 vezes e voce nao
+    # resolve". Ele tem razao, e o motivo estava nesta linha.
+    #
+    # `OPENAI_MODELO_IMAGEM` estava com "gpt-image-2.5-sunburst", que NAO
+    # existe naquela conta. O Studio chamava, tomava 404, redescobria um
+    # modelo bom, usava UMA vez — e na chamada seguinte lia a variavel de
+    # novo e voltava ao nome inexistente. Toda geracao recomecava errada,
+    # para sempre, e a unica saida era alguem lembrar de editar a variavel.
+    #
+    # Isso e a Regra 5 do CLAUDE.md: o que faltava nao era o dono configurar
+    # certo — era o sistema parar de obedecer a uma configuracao que ele JA
+    # SABIA estar errada.
+    _inv_antes = set(_MODELO_INVALIDO)
+    try:
+        _MODELO_INVALIDO.clear()
+        _MODELO_DESCOBERTO["nome"] = None
+        os.environ["OPENAI_MODELO_IMAGEM"] = "gpt-image-que-nao-existe"
+        ok("antes de provar, a variavel manda — e tem de mandar",
+           modelo_de_imagem() == "gpt-image-que-nao-existe")
+
+        # A conta respondeu "esse modelo nao existe". A partir daqui a
+        # variavel perdeu a autoridade DELA, e so dela.
+        marcar_modelo_invalido("gpt-image-que-nao-existe")
+        _MODELO_DESCOBERTO["nome"] = "gpt-image-9-novo"
+        ok("depois de provada errada, ela para de mandar",
+           modelo_de_imagem() == "gpt-image-9-novo")
+        ok("e a geracao seguinte NAO volta ao nome inexistente",
+           modelo_de_imagem() != "gpt-image-que-nao-existe")
+
+        # SEM DESCOBERTO, cai no padrao — nunca no nome provado errado.
+        _MODELO_DESCOBERTO["nome"] = None
+        ok("sem descoberto, cai no padrao e nao no invalido",
+           modelo_de_imagem() == MODELO_IMAGEM_PADRAO)
+
+        # E O AVISO EXISTE, para o dono poder arrumar a variavel quando
+        # quiser. Recuperar calado esconderia a configuracao errada para
+        # sempre — o sistema tem de funcionar E dizer o que esta torto.
+        ok("o Studio sabe dizer que a variavel esta errada",
+           bool(aviso_de_modelo_invalido()))
+        ok("e o aviso nomeia o modelo que nao existe",
+           "gpt-image-que-nao-existe" in aviso_de_modelo_invalido())
+
+        # UMA VARIAVEL ERRADA NAO DERRUBA UMA CERTA.
+        _MODELO_DESCOBERTO["nome"] = None
+        os.environ["OPENAI_MODELO_IMAGEM"] = "gpt-image-2.5-flare"
+        ok("outro modelo configurado continua mandando",
+           modelo_de_imagem() == "gpt-image-2.5-flare")
+        ok("e sem invalido nenhum nao ha aviso",
+           not aviso_de_modelo_invalido() if not _MODELO_INVALIDO else True)
+        # OS DOIS CAMINHOS MARCAM — por AST, e nao por leitura minha.
+        #
+        # `_chamar_openai_geracao` tenta DOIS endpoints, e cada um tem o seu
+        # proprio `if modelo nao existe`. Marcar so no primeiro deixaria o
+        # nome invalido voltando pelo segundo: a Forma 1 desta base, corrigir
+        # onde o problema apareceu e nao onde a regra alcanca.
+        import ast as _ast_mi, inspect as _insp_mi
+        _arv_mi = _ast_mi.parse(
+            _insp_mi.getsource(_chamar_openai_geracao).lstrip())
+        _marcou = sum(
+            1 for _x in _ast_mi.walk(_arv_mi)
+            if isinstance(_x, _ast_mi.Call)
+            and (getattr(_x.func, "id", "") or getattr(_x.func, "attr", ""))
+            == "marcar_modelo_invalido")
+        _redesc = sum(
+            1 for _x in _ast_mi.walk(_arv_mi)
+            if isinstance(_x, _ast_mi.Call)
+            and (getattr(_x.func, "id", "") or getattr(_x.func, "attr", ""))
+            == "redescobrir_modelo_de_imagem")
+        ok(f"todo caminho que redescobre tambem marca o invalido "
+           f"({_marcou} marca / {_redesc} redescobre)", _marcou >= _redesc >= 2)
+
+        # E A TELA DIZ, por AST. Recuperar calado esconde a configuracao
+        # errada para sempre. O nome sobrevive nos comentarios que explicam
+        # por que ele existe, entao a pergunta se faz na CHAMADA.
+        _arv_tela = _ast_mi.parse(_ast_mi.unparse(_ast_mi.parse(
+            _insp_mi.getsource(pagina_imagem).lstrip())))
+        ok("a tela avisa quando a variavel aponta para modelo inexistente",
+           any(isinstance(_x, _ast_mi.Call)
+               and (getattr(_x.func, "id", "")
+                    or getattr(_x.func, "attr", ""))
+               == "aviso_de_modelo_invalido"
+               for _x in _ast_mi.walk(_arv_tela)))
+    finally:
+        _MODELO_INVALIDO.clear()
+        _MODELO_INVALIDO.update(_inv_antes)
+
     os.environ.pop("OPENAI_MODELO_IMAGEM", None)
     _MODELO_DESCOBERTO["nome"] = _desc_antes
     if _env_mod:
