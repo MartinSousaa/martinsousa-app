@@ -457,7 +457,7 @@ def _calcular_fila(listas,cards,membros_map):
     pendentes=[]
     for card in cards:
         nl=listas.get(card["idList"],"")
-        if nl in COLUNAS_SKIP: continue
+        if _pc_core.coluna_em(nl, COLUNAS_SKIP): continue
         if card.get("dueComplete",False): continue
         lb=_labels(card)
         if "EM ANDAMENTO" in lb: continue
@@ -589,7 +589,7 @@ def _processar(listas,cards,membros_map,id_p,id_t,id_i,filtro_mes=None):
         pt=_num(card,id_p); tempo=_num(card,id_t); interr=_num(card,id_i) or 0
 
         # ── PENALIDADES: contam no mês em que foram CRIADAS (data de criação) ────
-        if nl in LISTAS_PENALIDADE:
+        if _pc_core.coluna_em(nl, LISTAS_PENALIDADE):
             if filtro_mes:
                 mc=_mes_card_criacao(card)  # data de criação — não vaza penalidades antigas
                 if mc and mc!=filtro_mes: continue
@@ -689,7 +689,7 @@ def _processar(listas,cards,membros_map,id_p,id_t,id_i,filtro_mes=None):
 
         # ── PONTUAÇÃO: somente concluídos no mês selecionado ───────────────────
         if pt is None: continue
-        if nl in LISTAS_SEM_PONTUACAO: continue
+        if _pc_core.coluna_em(nl, LISTAS_SEM_PONTUACAO): continue
         d["pts_equipe"]+=pt
         # CADA CARTÃO QUE SOMA, NOMEADO. O total já era calculado aqui e a
         # parcela jogada fora: o Painel dizia 4.900 e não sabia de onde. É
@@ -995,7 +995,7 @@ def _alertas_tv_list(listas, cards, membros_map):
 
     for card in cards:
         nl = listas.get(card["idList"], "")
-        if nl in COLUNAS_SKIP:
+        if _pc_core.coluna_em(nl, COLUNAS_SKIP):
             continue
         lb = _labels(card)
         us = _users(card, membros_map)
@@ -1013,7 +1013,7 @@ def _alertas_tv_list(listas, cards, membros_map):
 
     for card in cards:
         nl = listas.get(card["idList"], "")
-        if nl in COLUNAS_SKIP:
+        if _pc_core.coluna_em(nl, COLUNAS_SKIP):
             continue
 
         lb          = _labels(card)
@@ -3226,7 +3226,7 @@ def pagina_placar(usuario_logado, headless=False):
             # exatamente o que COLUNAS_SKIP responde. Com a TRIAGEM passando a
             # pagar pontos, a lista à mão a traria para cá de brinde.
             listas_t=[nl for nl in set(listas.values())
-                      if nl not in COLUNAS_SKIP]
+                      if not _pc_core.coluna_em(nl, COLUNAS_SKIP)]
             listas_ord=sorted(listas_t)
             cols_t=st.columns(3)
             for i,nl in enumerate(listas_ord[:18]):

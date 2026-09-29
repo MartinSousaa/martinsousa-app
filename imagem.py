@@ -382,9 +382,27 @@ def regra_de_espaco(tipo):
 
 import re as _re_quadro
 
+# TAMANHO DE QUADRO — nas duas formas em que alguém o escreve.
+#
+# Em porcentagem ("ocupando 60%") é como o SISTEMA escreve. Por extenso
+# ("ocupando mais da metade do quadro") é como a IA que critica a peça
+# escreve, em português livre — e foi por aí que a ordem de tamanho voltou ao
+# prompt do Tigre, contra os 30% a 45% escritos acima no mesmo texto.
 _MEDIDA_DE_QUADRO = _re_quadro.compile(
-    r"[,;]?\s*(?:e\s+)?(?:com\s+)?(?:o\s+)?(?:produto\s+)?"
-    r"[^,;.]*?\d{1,3}\s?%[^,;.]*(?:[,;.]|$)", _re_quadro.I)
+    r"[^,;.]*?(?:\d{1,3}\s?%|"
+    r"(?:mais\s+da\s+|menos\s+da\s+|cerca\s+de\s+|quase\s+)?"
+    r"(?:metade|dois\s+ter[c\u00e7]os|um\s+ter[c\u00e7]o|tr[e\u00ea]s\s+quartos|"
+    r"um\s+quarto)\s+(?:d[oa]\s+)?(?:quadro|imagem|enquadramento|frame))"
+    r"[^,;.]*", _re_quadro.I)
+
+# O QUE SEPARA DUAS ORDENS DENTRO DA MESMA ORAÇÃO.
+#
+# "Reenquadre os cartões para dentro e deixe o produto ocupando 80% do quadro"
+# não tem vírgula nenhuma. Cortar pelo padrão guloso comia a frase inteira e
+# o gerador recebia a refação SEM instrução — trocar ordem contraditória por
+# ordem nenhuma é pior, não melhor.
+_CONECTIVO_DE_ORACAO = _re_quadro.compile(
+    r"\s+(?:e|com|que|deixe|mantenha|mas)\s+", _re_quadro.I)
 
 
 def sem_medida_de_quadro(texto):
@@ -415,14 +433,86 @@ def sem_medida_de_quadro(texto):
     vira "ocupando", que continua mandando tamanho sem dizer quanto.
     """
     t = str(texto or "").strip()
-    if not t or "%" not in t:
+    if not t or not _MEDIDA_DE_QUADRO.search(t):
         return t
-    limpo = _MEDIDA_DE_QUADRO.sub(", ", t)
-    limpo = _re_quadro.sub(r"\s*,\s*(?=,|\.|$)", "", limpo)
-    limpo = _re_quadro.sub(r"\s{2,}", " ", limpo).strip(" ,;")
+
+    saida = []
+    for parte in _re_quadro.split(r"([,;.])", t):
+        if parte in (",", ";", "."):
+            if saida:
+                saida.append(parte)
+            continue
+        if not parte.strip():
+            continue
+        # Dentro da oração, o conectivo pode separar duas ordens: uma útil e
+        # uma de tamanho. Fica a primeira que não fala de tamanho.
+        pedacos = _CONECTIVO_DE_ORACAO.split(parte)
+        bons = [p for p in pedacos
+                if p.strip() and not _MEDIDA_DE_QUADRO.fullmatch(p.strip())]
+        if len(bons) == len(pedacos):
+            saida.append(parte)
+        elif bons:
+            saida.append(bons[0].strip())
+    limpo = "".join(saida)
+    limpo = _re_quadro.sub(r"\s*([,;])\s*(?=[,;.]|$)", "", limpo)
+    limpo = _re_quadro.sub(r"\s{2,}", " ", limpo).strip(" ,;.")
     # Sobrou frase? Se a limpeza comeu tudo, o certo é devolver vazio: cena
     # que só falava de tamanho não tinha nada a dizer sobre cenário.
-    return (limpo + "." if limpo and not limpo.endswith(".") else limpo)
+    return (limpo + ".") if limpo else ""
+
+
+def divergencia_de_produto(cfg, nome_da_tela, dados_da_tela):
+    """O plano congelado é de OUTRO produto? Devolve o aviso, ou "" quando bate.
+
+    POR QUE ESTA FUNÇÃO EXISTE
+
+    Dono, 29/09. A tela dizia, em verde: "Descrição encontrada: Tigre ·
+    Dourado com Strass · 10x21x5 · 299 · Resina". O prompt das oito peças saiu
+    com "PRODUTO: pendulo balança / 14x13x11 / 202g / Plástico", direção de
+    arte "Técnico Automotivo Minimalista", cena "Interior de carro" e o texto
+    "CABE EM MEU CARRO?".
+
+    Um tigre decorativo gerado com o brief de um pêndulo automotivo. Oito
+    peças pagas, todas do produto errado, sem um aviso.
+
+    A tela relê a descrição a cada abertura; o `img_triagem_config` é
+    congelado quando o PLANO é gerado, e é dele que o prompt tira nome,
+    medidas, peso e material. Trocar o código na tela sem refazer o plano
+    deixa os dois discordando — e o sistema tinha os DOIS dados na mão e
+    nunca os comparou.
+
+    Nenhuma regra de prompt conserta isso: o prompt estava obedecendo
+    direitinho ao produto que lhe deram. O que faltava era perguntar.
+
+    O aviso nomeia os dois lados. "Os dados não batem" manda o colaborador
+    adivinhar qual está errado — e adivinhar custa outra rodada.
+    """
+    if not cfg:
+        return ""
+
+    def _norm(v):
+        return " ".join(str(v or "").split()).strip().lower()
+
+    nome_cfg = _norm(cfg.get("nome_produto"))
+    nome_tela = _norm(nome_da_tela)
+    dd_cfg = cfg.get("dados_descricao") or {}
+    dd_tela = dados_da_tela or {}
+
+    difs = []
+    if nome_cfg and nome_tela and nome_cfg != nome_tela:
+        difs.append(f"nome: o plano tem «{cfg.get('nome_produto')}» e a tela "
+                    f"tem «{nome_da_tela}»")
+    for campo, rotulo in (("medidas", "medidas"), ("peso", "peso"),
+                          ("material", "material")):
+        a_, b_ = _norm(dd_cfg.get(campo)), _norm(dd_tela.get(campo))
+        if a_ and b_ and a_ != b_:
+            difs.append(f"{rotulo}: o plano tem «{dd_cfg.get(campo)}» e a "
+                        f"tela tem «{dd_tela.get(campo)}»")
+    if not difs:
+        return ""
+    return ("O plano foi feito para OUTRO produto — gerar agora produz peças "
+            "do produto errado. " + "; ".join(difs)
+            + ". Refaça o plano ('Analisar e mostrar plano') antes de gerar.")
 
 
 def faixa_de_ocupacao(tipo):
@@ -2344,6 +2434,35 @@ MODELOS_IMAGEM_CONHECIDOS = ("gpt-image-2.5-sunburst", "gpt-image-2.5-flare")
 # seria custo recorrente para resolver um problema de uma vez só.
 _MODELO_DESCOBERTO = {"nome": None}
 
+# MODELOS QUE A CONTA JA DISSE NAO TER. Nao e cache de otimizacao: e memoria
+# de uma prova. A conta respondeu 404 para este nome, entao insistir nele e
+# gastar a proxima geracao para receber o mesmo 404.
+_MODELO_INVALIDO = set()
+
+
+def marcar_modelo_invalido(nome):
+    """A conta respondeu que este modelo nao existe. Ele perde a vez."""
+    if nome:
+        _MODELO_INVALIDO.add(str(nome))
+
+
+def aviso_de_modelo_invalido():
+    """Texto para a tela quando a variavel do Railway aponta para o vazio.
+
+    RECUPERAR CALADO ESCONDERIA A CONFIGURACAO ERRADA PARA SEMPRE. O Studio
+    passa a funcionar sozinho, mas quem configurou precisa saber que configurou
+    errado — senao o dia em que a descoberta tambem falhar ninguem entende por
+    que, e o defeito volta com outra cara.
+    """
+    import chaves as _ch_av
+    cfg = _ch_av.ler("OPENAI_MODELO_IMAGEM")
+    if not cfg or cfg not in _MODELO_INVALIDO:
+        return ""
+    return (f"A variavel `OPENAI_MODELO_IMAGEM` esta com «{cfg}», e esta conta "
+            f"da OpenAI nao tem esse modelo. O Studio esta usando "
+            f"«{modelo_de_imagem()}» no lugar e segue funcionando — mas "
+            f"corrija a variavel no Railway.")
+
 
 def modelo_de_imagem():
     """O modelo que a geração usa. Configurável pelo Railway.
@@ -2351,11 +2470,25 @@ def modelo_de_imagem():
     `OPENAI_MODELO_IMAGEM` manda, depois o que foi descoberto na conta, depois
     o padrão. O dia em que a OpenAI lançar um modelo melhor, trocar é uma
     variável — não é deploy.
+
+    MAS ELA PARA DE MANDAR DEPOIS DE PROVADA ERRADA, e foi isto que faltou.
+
+    Dono, 29/09: "ja trouxe esse problema aqui umas 10 vezes e voce nao
+    resolve". A variavel estava com um modelo que NAO existe naquela conta. O
+    Studio chamava, tomava 404, redescobria um modelo bom (`_MODELO_DESCOBERTO`)
+    e usava UMA vez — e na chamada seguinte lia a variavel de novo e voltava ao
+    nome inexistente. A descoberta era jogada fora a cada geracao, e toda
+    geracao recomecava errada. Para sempre, ate alguem lembrar de editar a
+    variavel.
+
+    O que faltava nao era o dono configurar certo: era o sistema parar de
+    obedecer a uma configuracao que ele JA SABIA estar errada. Regra 5.
     """
     import chaves as _ch_mod
-    return (_ch_mod.ler("OPENAI_MODELO_IMAGEM")
-            or _MODELO_DESCOBERTO["nome"]
-            or MODELO_IMAGEM_PADRAO)
+    cfg = _ch_mod.ler("OPENAI_MODELO_IMAGEM")
+    if cfg and cfg not in _MODELO_INVALIDO:
+        return cfg
+    return _MODELO_DESCOBERTO["nome"] or MODELO_IMAGEM_PADRAO
 
 
 def modelos_de_imagem_da_conta(cliente=None):
@@ -2584,6 +2717,10 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None, ref_layout=None,
                 # OpenAI nunca rodando, e todas as imagens saindo do Gemini
                 # sem controle de proporção.
                 if _e_modelo_inexistente(_e_tool) and not _ja_redescobriu:
+                    # A CONTA PROVOU QUE ESTE NOME NAO EXISTE. Sem marcar, a
+                    # descoberta valia so para esta chamada: a proxima lia a
+                    # variavel do Railway de novo e voltava ao mesmo 404.
+                    marcar_modelo_invalido(_modelo)
                     _novo = redescobrir_modelo_de_imagem()
                     if _novo and _novo != _modelo:
                         print(f"[imagem] {_modelo} não existe nesta conta; "
@@ -2689,6 +2826,10 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None, ref_layout=None,
         # tem e tenta outra vez — UMA vez, para um nome que não existe não
         # virar laço infinito.
         if _modelo_nao_existe(e) and not _ja_redescobriu:
+            # O IRMAO DA MARCACAO ACIMA. Sao dois endpoints, e corrigir so um
+            # deles e a Forma 1 desta base: o nome invalido continuaria
+            # voltando pelo caminho que ficou sem marca.
+            marcar_modelo_invalido(_modelo)
             _novo = redescobrir_modelo_de_imagem(client)
             if _novo and _novo != _modelo:
                 return _chamar_openai_geracao(
@@ -5401,12 +5542,23 @@ def revisar_peca(img, tipo, fotos_ref=None, gerar=None, prompt_base="",
             return melhor_img, {"ok": False, "rodadas": n, "erro": "",
                                 "problemas": melhores_problemas}
         _diz(f"Peça com defeito ({'; '.join(problemas)[:60]}). Refazendo…")
+        # O TAMANHO TEM UM DONO SO, E A CRITICA NAO E ELE.
+        #
+        # `problemas` e `instrucao` sao escritos pela IA que OLHA a peca, e
+        # ela escreve em portugues livre: "ocupando mais da metade do quadro".
+        # Esse texto entra DEPOIS da regra de ocupacao, entao fala por ultimo
+        # — e o gerador obedeceu a ele, com 30% a 45% escrito acima no mesmo
+        # prompt (historico do Tigre, peca 7). Aqui a medida sai; o resto da
+        # critica, que e o que importa, passa inteiro.
+        _probs = [sem_medida_de_quadro(p) for p in problemas]
+        _probs = [p for p in _probs if p.strip()]
         nova_img, erro_g = gerar(
             prompt_base + "\n\n"
             + "CORREÇÃO OBRIGATÓRIA — a versão anterior desta peça saiu com "
               "estes defeitos, e eles foram VISTOS na imagem gerada:\n"
-            + "\n".join(f"- {p}" for p in problemas)
-            + "\n\nO que fazer diferente agora: " + instrucao)
+            + "\n".join(f"- {p}" for p in _probs)
+            + "\n\nO que fazer diferente agora: "
+            + sem_medida_de_quadro(instrucao))
         if erro_g or not nova_img:
             return melhor_img, {"ok": False, "rodadas": n, "erro": "",
                                 "problemas": melhores_problemas}
@@ -6316,6 +6468,16 @@ def pagina_imagem(usuario_logado):
     _mot_ok, _mot_aviso = motores_de_imagem()
     if _mot_aviso:
         (st.error if not _mot_ok else st.warning)("🖼️ " + _mot_aviso)
+
+    # A VARIAVEL DO RAILWAY APONTA PARA UM MODELO QUE A CONTA NAO TEM?
+    #
+    # O Studio agora se recupera sozinho e segue gerando — mas recuperar
+    # CALADO esconderia a configuracao errada para sempre, e o dia em que a
+    # descoberta tambem falhar ninguem entenderia por que. Funciona E diz o
+    # que esta torto.
+    _av_modelo = aviso_de_modelo_invalido()
+    if _av_modelo:
+        st.warning("🖼️ " + _av_modelo)
 
     # A copia de seguranca falhou na passada anterior? Aqui e onde se diz.
     aviso_de_rascunho()
@@ -7313,6 +7475,21 @@ def pagina_imagem(usuario_logado):
         itens_plano = plano.get("plano", [])
         itens_viaveis   = [item for item in itens_plano if item.get("viavel", True)]
         itens_bloqueados = [item for item in itens_plano if not item.get("viavel", True)]
+
+        # ── O PLANO É DESTE PRODUTO? ANTES DE GASTAR ──────────────────────────
+        #
+        # 29/09: a tela dizia "Descrição encontrada: Tigre · 10x21x5 · 299 ·
+        # Resina" e as oito peças saíram com "PRODUTO: pendulo balança /
+        # 14x13x11 / 202g / Plástico", direção "Técnico Automotivo
+        # Minimalista" e o texto "CABE EM MEU CARRO?".
+        #
+        # O `cfg` é congelado quando o plano é gerado; a descrição é relida a
+        # cada abertura. Trocar o código sem refazer o plano deixa os dois
+        # discordando — e o sistema tinha os dois na mão sem nunca comparar.
+        # Oito peças pagas do produto errado, em silêncio.
+        _div_prod = divergencia_de_produto(cfg, nome_produto, dados_descricao)
+        if _div_prod:
+            st.error("🚫 " + _div_prod)
 
         # ── A DIREÇÃO DE ARTE, ANTES DE GASTAR ────────────────────────────────
         #
@@ -8999,6 +9176,140 @@ if __name__ == "__main__":
            "produto ocupando 70% do quadro"))
     ok("cena que so falava de tamanho vira vazia, e nao lixo",
        sem_medida_de_quadro("produto ocupando 70% do quadro") == "")
+
+    # ══ A CORRECAO OBRIGATORIA TAMBEM MANDAVA TAMANHO ═══════════════════
+    #
+    # Dono, 29/09, com o historico de prompts do Tigre na mao. No MESMO
+    # prompt da peca 7:
+    #
+    #   linha 163: "O produto ocupa de 30% a 45% da dimensao util do quadro.
+    #               Nao e sugestao: e a medida desta peca."
+    #   linha 289: "mostre o pendulo apoiado e desobstruido, OCUPANDO MAIS DA
+    #               METADE DO QUADRO"
+    #
+    # Duas ordens contrarias sobre a mesma coisa, no mesmo prompt — o defeito
+    # que `sem_medida_de_quadro` existe para impedir. Eu a apliquei em `cena`,
+    # `composicao` e `direcao_arte` e deixei DE FORA o texto que o proprio
+    # conferidor escreve, que e o unico que entra DEPOIS da regra de tamanho e
+    # por isso fala por ultimo. Forma 1: corrigir onde doeu, nao onde a regra
+    # alcanca.
+    #
+    # O tamanho tem um dono so (`ocupacao_em_portugues`). Quem nao e dono nao
+    # fala — nem o plano, nem a direcao de arte, nem a critica da peca.
+    _crit = ["O cartao branco esta cortado pela borda direita",
+             "mostre o pendulo desobstruido, ocupando mais da metade do quadro",
+             "o produto deve ocupar 80% do quadro"]
+    _limpo = [sem_medida_de_quadro(_c) for _c in _crit]
+    ok("a critica que nao fala de tamanho passa inteira",
+       _limpo[0] == _crit[0])
+    ok("'mais da metade do quadro' sai da critica",
+       "metade do quadro" not in _limpo[1])
+    ok("e o resto da critica sobrevive",
+       "desobstruido" in _limpo[1])
+    ok("porcentagem na critica tambem sai",
+       "80%" not in _limpo[2])
+
+    # A CADEIA REAL, E NAO O NO DA CHAMADA.
+    #
+    # A primeira versao desta guarda procurava por AST se `revisar_peca`
+    # CHAMAVA `sem_medida_de_quadro`. Ela achava UMA das duas chamadas — a
+    # dos `problemas` ou a da `instrucao` — e ficava verde com a outra
+    # removida. A mutacao pegou as duas, uma de cada vez.
+    #
+    # Aqui quem responde e o PROMPT que de fato sai: `revisar_peca` recebe o
+    # gerador como parametro, entao um duplo captura o texto inteiro e a
+    # pergunta passa a ser a unica que importa — o gerador recebeu ordem de
+    # tamanho?
+    _capturado = {}
+
+    def _gerar_falso(prompt_recebido):
+        _capturado["prompt"] = prompt_recebido
+        return b"nova-imagem", ""
+
+    _conf_antes = globals()["conferir_peca"]
+    try:
+        globals()["conferir_peca"] = lambda *a, **k: ({
+            "aprovada": False,
+            "problemas": [
+                "os cartoes estao cortados pela borda direita",
+                "o produto aparece ocupando mais da metade do quadro"],
+            "instrucao": ("Reenquadre os cartoes para dentro e deixe o "
+                          "produto ocupando 80% do quadro"),
+        }, "")
+        revisar_peca(b"img", "6 — Quebra de objeção", fotos_ref=[b"foto"],
+                     gerar=_gerar_falso,
+                     prompt_base="PROMPT BASE DA PECA", rodadas=2)
+        _pf = _capturado.get("prompt", "")
+        ok("o gerador recebeu o prompt da refacao", "CORREÇÃO" in _pf)
+        ok("e a critica chegou nele", "cortados pela borda" in _pf)
+        ok("mas NENHUMA ordem de tamanho foi junto",
+           "metade do quadro" not in _pf and "80%" not in _pf)
+        ok("o resto da instrucao sobreviveu", "Reenquadre" in _pf)
+    finally:
+        globals()["conferir_peca"] = _conf_antes
+
+    # ══ O PROMPT SAIU COM OUTRO PRODUTO ═════════════════════════════════
+    #
+    # Dono, 29/09, com o histórico do Tigre e o print da tela na mão. A tela
+    # dizia, em verde:
+    #
+    #   "Descrição encontrada: Tigre · Dourado com Strass · 10x21x5 · 299 ·
+    #    Resina"
+    #
+    # E o prompt das oito peças saiu com:
+    #
+    #   PRODUTO: pendulo balança / 14x13x11 / 202g / Plástico
+    #   Direção: "Técnico Automotivo Minimalista"
+    #   Cena: "Interior de carro"
+    #   Texto: "CABE EM MEU CARRO?"
+    #
+    # Um tigre decorativo gerado com o brief de um pêndulo automotivo. Oito
+    # peças pagas, todas do produto errado, sem um aviso.
+    #
+    # POR QUE: a tela relê a descrição a cada abertura; o `img_triagem_config`
+    # é congelado quando o PLANO é gerado (`imagem.py:7364`) e é dele que o
+    # prompt tira nome, medidas, peso e material (`:7993-7994`). Trocar o
+    # código na tela sem refazer o plano deixa os dois discordando — e o
+    # sistema tinha os dois dados na mão e não comparava.
+    #
+    # Nenhuma regra de prompt conserta isto: o prompt estava obedecendo
+    # direitinho ao produto que lhe deram.
+    ok("mesmo produto nos dois lados: nada a dizer",
+       not divergencia_de_produto(
+           {"nome_produto": "Tigre", "dados_descricao": {"medidas": "10x21x5"}},
+           "Tigre", {"medidas": "10x21x5"}))
+    _div = divergencia_de_produto(
+        {"nome_produto": "pendulo balança",
+         "dados_descricao": {"medidas": "14x13x11", "peso": "202g",
+                             "material": "Plástico"}},
+        "Tigre", {"medidas": "10x21x5", "peso": "299", "material": "Resina"})
+    ok("produto diferente é acusado", bool(_div))
+    ok("e o aviso nomeia OS DOIS, para não virar adivinhação",
+       "pendulo balança" in _div and "Tigre" in _div)
+    ok("as medidas divergentes também aparecem",
+       "14x13x11" in _div and "10x21x5" in _div)
+    ok("plano sem config nenhuma não inventa divergência",
+       not divergencia_de_produto(None, "Tigre", {"medidas": "10x21x5"}))
+    ok("e tela sem descrição carregada também não",
+       not divergencia_de_produto(
+           {"nome_produto": "Tigre", "dados_descricao": {}}, "", None))
+    # CAIXA E ESPAÇO NÃO SÃO DIVERGÊNCIA. Alarme falso aqui trava a geração
+    # de quem não fez nada errado, e verificador que dá alarme falso ensina a
+    # ignorá-lo.
+    ok("caixa e espaço sobrando não acusam nada",
+       not divergencia_de_produto(
+           {"nome_produto": " tigre ", "dados_descricao": {"medidas": "10x21x5"}},
+           "TIGRE", {"medidas": "10x21x5"}))
+
+    # E A TELA PARA ANTES DE GASTAR — por AST, na chamada.
+    import ast as _ast_dv, inspect as _insp_dv
+    _arv_dv = _ast_dv.parse(_ast_dv.unparse(_ast_dv.parse(
+        _insp_dv.getsource(pagina_imagem).lstrip())))
+    ok("a tela confere o produto antes de gerar",
+       any(isinstance(_x, _ast_dv.Call)
+           and (getattr(_x.func, "id", "") or getattr(_x.func, "attr", ""))
+           == "divergencia_de_produto"
+           for _x in _ast_dv.walk(_arv_dv)))
     ok("vazio e None nao derrubam",
        sem_medida_de_quadro("") == "" and sem_medida_de_quadro(None) == "")
 
@@ -9518,6 +9829,95 @@ if __name__ == "__main__":
     os.environ["OPENAI_MODELO_IMAGEM"] = "gpt-image-2.5-flare"
     ok("e a variavel do Railway manda em todos",
        modelo_de_imagem() == "gpt-image-2.5-flare")
+
+    # ══ MAS A VARIAVEL NAO MANDA DEPOIS DE PROVADA ERRADA ═══════════════
+    #
+    # Dono, 29/09: "ja trouxe esse problema aqui umas 10 vezes e voce nao
+    # resolve". Ele tem razao, e o motivo estava nesta linha.
+    #
+    # `OPENAI_MODELO_IMAGEM` estava com "gpt-image-2.5-sunburst", que NAO
+    # existe naquela conta. O Studio chamava, tomava 404, redescobria um
+    # modelo bom, usava UMA vez — e na chamada seguinte lia a variavel de
+    # novo e voltava ao nome inexistente. Toda geracao recomecava errada,
+    # para sempre, e a unica saida era alguem lembrar de editar a variavel.
+    #
+    # Isso e a Regra 5 do CLAUDE.md: o que faltava nao era o dono configurar
+    # certo — era o sistema parar de obedecer a uma configuracao que ele JA
+    # SABIA estar errada.
+    _inv_antes = set(_MODELO_INVALIDO)
+    try:
+        _MODELO_INVALIDO.clear()
+        _MODELO_DESCOBERTO["nome"] = None
+        os.environ["OPENAI_MODELO_IMAGEM"] = "gpt-image-que-nao-existe"
+        ok("antes de provar, a variavel manda — e tem de mandar",
+           modelo_de_imagem() == "gpt-image-que-nao-existe")
+
+        # A conta respondeu "esse modelo nao existe". A partir daqui a
+        # variavel perdeu a autoridade DELA, e so dela.
+        marcar_modelo_invalido("gpt-image-que-nao-existe")
+        _MODELO_DESCOBERTO["nome"] = "gpt-image-9-novo"
+        ok("depois de provada errada, ela para de mandar",
+           modelo_de_imagem() == "gpt-image-9-novo")
+        ok("e a geracao seguinte NAO volta ao nome inexistente",
+           modelo_de_imagem() != "gpt-image-que-nao-existe")
+
+        # SEM DESCOBERTO, cai no padrao — nunca no nome provado errado.
+        _MODELO_DESCOBERTO["nome"] = None
+        ok("sem descoberto, cai no padrao e nao no invalido",
+           modelo_de_imagem() == MODELO_IMAGEM_PADRAO)
+
+        # E O AVISO EXISTE, para o dono poder arrumar a variavel quando
+        # quiser. Recuperar calado esconderia a configuracao errada para
+        # sempre — o sistema tem de funcionar E dizer o que esta torto.
+        ok("o Studio sabe dizer que a variavel esta errada",
+           bool(aviso_de_modelo_invalido()))
+        ok("e o aviso nomeia o modelo que nao existe",
+           "gpt-image-que-nao-existe" in aviso_de_modelo_invalido())
+
+        # UMA VARIAVEL ERRADA NAO DERRUBA UMA CERTA.
+        _MODELO_DESCOBERTO["nome"] = None
+        os.environ["OPENAI_MODELO_IMAGEM"] = "gpt-image-2.5-flare"
+        ok("outro modelo configurado continua mandando",
+           modelo_de_imagem() == "gpt-image-2.5-flare")
+        ok("e sem invalido nenhum nao ha aviso",
+           not aviso_de_modelo_invalido() if not _MODELO_INVALIDO else True)
+        # OS DOIS CAMINHOS MARCAM — por AST, e nao por leitura minha.
+        #
+        # `_chamar_openai_geracao` tenta DOIS endpoints, e cada um tem o seu
+        # proprio `if modelo nao existe`. Marcar so no primeiro deixaria o
+        # nome invalido voltando pelo segundo: a Forma 1 desta base, corrigir
+        # onde o problema apareceu e nao onde a regra alcanca.
+        import ast as _ast_mi, inspect as _insp_mi
+        _arv_mi = _ast_mi.parse(
+            _insp_mi.getsource(_chamar_openai_geracao).lstrip())
+        _marcou = sum(
+            1 for _x in _ast_mi.walk(_arv_mi)
+            if isinstance(_x, _ast_mi.Call)
+            and (getattr(_x.func, "id", "") or getattr(_x.func, "attr", ""))
+            == "marcar_modelo_invalido")
+        _redesc = sum(
+            1 for _x in _ast_mi.walk(_arv_mi)
+            if isinstance(_x, _ast_mi.Call)
+            and (getattr(_x.func, "id", "") or getattr(_x.func, "attr", ""))
+            == "redescobrir_modelo_de_imagem")
+        ok(f"todo caminho que redescobre tambem marca o invalido "
+           f"({_marcou} marca / {_redesc} redescobre)", _marcou >= _redesc >= 2)
+
+        # E A TELA DIZ, por AST. Recuperar calado esconde a configuracao
+        # errada para sempre. O nome sobrevive nos comentarios que explicam
+        # por que ele existe, entao a pergunta se faz na CHAMADA.
+        _arv_tela = _ast_mi.parse(_ast_mi.unparse(_ast_mi.parse(
+            _insp_mi.getsource(pagina_imagem).lstrip())))
+        ok("a tela avisa quando a variavel aponta para modelo inexistente",
+           any(isinstance(_x, _ast_mi.Call)
+               and (getattr(_x.func, "id", "")
+                    or getattr(_x.func, "attr", ""))
+               == "aviso_de_modelo_invalido"
+               for _x in _ast_mi.walk(_arv_tela)))
+    finally:
+        _MODELO_INVALIDO.clear()
+        _MODELO_INVALIDO.update(_inv_antes)
+
     os.environ.pop("OPENAI_MODELO_IMAGEM", None)
     _MODELO_DESCOBERTO["nome"] = _desc_antes
     if _env_mod:

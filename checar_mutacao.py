@@ -172,7 +172,7 @@ MUTACOES = [
         "o tempo medio por coluna volta a ter lista escrita a mao",
         "placar.py",
         "            listas_t=[nl for nl in set(listas.values())\n"
-        "                      if nl not in COLUNAS_SKIP]",
+        "                      if not _pc_core.coluna_em(nl, COLUNAS_SKIP)]",
         "            listas_t=[nl for nl in set(listas.values())\n"
         '                      if nl not in LISTAS_PENALIDADE and nl!="TABELA DE PONTUAÇÃO"\n'
         "                      and nl not in LISTAS_SEM_PONTUACAO]",
@@ -319,6 +319,106 @@ MUTACOES = [
         "                              _sit_pen[\"bateu_maxx\"],\n"
         "                              pts_salvar=_pts_salvar_maxx),",
         ["python3", "placar_core.py"],
+    ),
+    (
+        # Dono, 29/09: "temos um monte de demanda na coluna CHAT (PROBLEMAS
+        # -30) que nao estao entrando na fila". No codigo a chave era
+        # "CHAT (PROBLEMAS-30)", sem o espaco: um caractere, e a config
+        # inteira da coluna sumia.
+        "o nome da coluna volta a ser comparado caractere a caractere",
+        "placar_core.py",
+        '    return _re_col.sub(r"\\s+", "", t)',
+        "    return str(nome or \"\")",
+        ["python3", "placar_core.py"],
+    ),
+    (
+        "a fila volta a comparar a coluna com `in` exato",
+        "placar.py",
+        "        if _pc_core.coluna_em(nl, COLUNAS_SKIP): continue",
+        "        if nl in COLUNAS_SKIP: continue",
+        ["python3", "placar_core.py"],
+    ),
+    (
+        # Dono, 29/09: "ja trouxe esse problema aqui umas 10 vezes e voce nao
+        # resolve". A variavel do Railway apontava para um modelo que a conta
+        # nao tem; o Studio redescobria um bom, usava UMA vez, e na chamada
+        # seguinte lia a variavel de novo e voltava ao 404.
+        "a variavel do Railway volta a mandar mesmo provada errada",
+        "imagem.py",
+        "    cfg = _ch_mod.ler(\"OPENAI_MODELO_IMAGEM\")\n"
+        "    if cfg and cfg not in _MODELO_INVALIDO:\n        return cfg\n"
+        "    return _MODELO_DESCOBERTO[\"nome\"] or MODELO_IMAGEM_PADRAO",
+        "    return (_ch_mod.ler(\"OPENAI_MODELO_IMAGEM\")\n"
+        "            or _MODELO_DESCOBERTO[\"nome\"]\n"
+        "            or MODELO_IMAGEM_PADRAO)",
+        ["python3", "imagem.py"],
+    ),
+    (
+        # Dois endpoints, dois `if modelo nao existe`. Marcar so num deixa o
+        # nome invalido voltando pelo outro — a Forma 1 desta base.
+        "so um dos dois caminhos marca o modelo invalido",
+        "imagem.py",
+        "            # O IRMAO DA MARCACAO ACIMA. Sao dois endpoints, e corrigir so um\n"
+        "            # deles e a Forma 1 desta base: o nome invalido continuaria\n"
+        "            # voltando pelo caminho que ficou sem marca.\n"
+        "            marcar_modelo_invalido(_modelo)\n",
+        "",
+        ["python3", "imagem.py"],
+    ),
+    (
+        # Recuperar calado esconde a configuracao errada para sempre.
+        "o Studio se recupera calado e some com o aviso da variavel errada",
+        "imagem.py",
+        '    _av_modelo = aviso_de_modelo_invalido()\n    if _av_modelo:\n'
+        '        st.warning("🖼️ " + _av_modelo)',
+        "    pass",
+        ["python3", "imagem.py"],
+    ),
+    (
+        # Historico do Tigre, peca 7: a regra mandava 30% a 45% e a critica da
+        # peca, mais abaixo no mesmo prompt, mandava "ocupando mais da metade
+        # do quadro". O gerador obedeceu a ultima.
+        "a critica da peca volta a mandar tamanho no prompt",
+        "imagem.py",
+        "        _probs = [sem_medida_de_quadro(p) for p in problemas]\n"
+        "        _probs = [p for p in _probs if p.strip()]\n",
+        "        _probs = problemas\n",
+        ["python3", "imagem.py"],
+    ),
+    (
+        "a instrucao da refacao volta a mandar tamanho",
+        "imagem.py",
+        '            + "\\n\\nO que fazer diferente agora: "\n'
+        "            + sem_medida_de_quadro(instrucao))",
+        '            + "\\n\\nO que fazer diferente agora: " + instrucao)',
+        ["python3", "imagem.py"],
+    ),
+    (
+        # "mais da metade do quadro" nao tem `%`, e a limpeza saia cedo.
+        "a limpeza volta a so conhecer tamanho escrito em porcentagem",
+        "imagem.py",
+        '_MEDIDA_DE_QUADRO = _re_quadro.compile(\n    r"[^,;.]*?(?:\\d{1,3}\\s?%|"\n    r"(?:mais\\s+da\\s+|menos\\s+da\\s+|cerca\\s+de\\s+|quase\\s+)?"\n    r"(?:metade|dois\\s+ter[c\\u00e7]os|um\\s+ter[c\\u00e7]o|tr[e\\u00ea]s\\s+quartos|"\n    r"um\\s+quarto)\\s+(?:d[oa]\\s+)?(?:quadro|imagem|enquadramento|frame))"\n    r"[^,;.]*", _re_quadro.I)',
+        '_MEDIDA_DE_QUADRO = _re_quadro.compile(\n    r"[^,;.]*?\\d{1,3}\\s?%[^,;.]*", _re_quadro.I)',
+        ["python3", "imagem.py"],
+    ),
+    (
+        # 29/09: a tela dizia "Tigre · 10x21x5 · Resina" e as oito pecas
+        # sairam com "pendulo balança / 14x13x11 / Plastico". Oito pecas
+        # pagas do produto errado, sem aviso.
+        "a tela para de conferir se o plano e deste produto",
+        "imagem.py",
+        "        _div_prod = divergencia_de_produto(cfg, nome_produto, dados_descricao)\n"
+        '        if _div_prod:\n            st.error("🚫 " + _div_prod)\n',
+        "",
+        ["python3", "imagem.py"],
+    ),
+    (
+        "a divergencia de produto para de olhar as medidas",
+        "imagem.py",
+        '    for campo, rotulo in (("medidas", "medidas"), ("peso", "peso"),\n'
+        '                          ("material", "material")):',
+        '    for campo, rotulo in ():',
+        ["python3", "imagem.py"],
     ),
     (
         "o ponto sem dono para de ser contado a parte",
