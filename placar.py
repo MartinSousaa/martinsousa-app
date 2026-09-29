@@ -2652,8 +2652,9 @@ def pagina_placar(usuario_logado, headless=False):
         )
 
     saldo_eq=d["pts_equipe"]-d["pen_total"]
-    pct_eq=(saldo_eq/meta_eq*100) if meta_eq>0 else 0
-    pct_maxx=(saldo_eq/meta_maxx_pts*100) if meta_maxx_pts>0 else 0
+    # pct_eq e pct_maxx SAEM DAQUI de proposito: eles passaram a depender de
+    # `_sit_pen`, que so existe algumas linhas abaixo. Calcular aqui e
+    # recalcular la seria a mesma pergunta com duas respostas.
     # Um mes so — e o que esta tela mostra. A conta e a mesma da Analise de
     # Metas, e o texto tambem: duas telas montando a propria frase a partir dos
     # mesmos numeros e como elas passam a discordar.
@@ -2666,6 +2667,32 @@ def pagina_placar(usuario_logado, headless=False):
     # quem decidia era so `saldo >= meta`.
     _sit_pen = _pc_membro.situacao_metas(saldo_eq, meta_eq, meta_maxx_pts,
                                          len(d["pen_cards"]), cfg_mes)
+
+    # A PORCENTAGEM CONTA O QUE TRAVA A META, e nao so a pontuacao.
+    #
+    # Dono, 29/09: "se faltam 660 pontos para reduzirem uma das penalidades
+    # para baterem a meta MAXX, nao deve aparecer como 103%". Ele esta certo:
+    # o numero era `saldo / meta`, so pontos, enquanto a moldura do MESMO
+    # velocimetro ja recebia `bateu_maxx`, que conta o abatimento. A peca
+    # dizia duas coisas ao mesmo tempo, e a equipe le o numero.
+    pct_eq = _pc_membro.pct_da_meta(saldo_eq, meta_eq,
+                                    _sit_pen.get("pts_destrava_col"))
+    pct_maxx = _pc_membro.pct_da_meta(saldo_eq, meta_maxx_pts,
+                                      _sit_pen.get("pts_destrava_maxx"))
+
+    # O NÚMERO QUE A EQUIPE PRECISA BATER, e é ele que vai para a tela.
+    #
+    # Dono, 29/09: "se há pontuação necessária para bater a meta MAXX,
+    # precisa subir de 10.800 para 11.800 a meta". Com o teto de penalidades
+    # estourado, bater 10.800 NÃO entrega a MAXX — mostrar 10.800 manda a
+    # equipe mirar num número que não resolve nada.
+    #
+    # `meta_maxx_pts` continua sendo a meta CONFIGURADA, e é ela que o
+    # velocímetro usa: `_fatia_salvar` soma a sobra por conta própria para
+    # desenhar a marca da meta e o trecho extra (`placar.py:764`). Passar a
+    # efetiva ali somaria a sobra duas vezes.
+    meta_maxx_alvo = _sit_pen.get("meta_maxx_efetiva") or meta_maxx_pts
+    meta_eq_alvo = _sit_pen.get("meta_col_efetiva") or meta_eq
     # Quanto falta ALEM da meta para salvar cada uma. Zero quando o teto nao
     # foi estourado — e ai o mostrador nao ganha fatia nenhuma.
     def _salvar(teto, destrava):
@@ -2800,7 +2827,7 @@ def pagina_placar(usuario_logado, headless=False):
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;">
   <div style="background:#2a2000;border:1px solid #FFD700;border-radius:6px;padding:6px 8px;">
     <div style="font-size:7px;color:#FFD700;text-transform:uppercase;">Maxx</div>
-    <div style="font-size:13px;font-weight:700;color:#fff5cc;">{meta_maxx_pts:,.0f}</div>
+    <div style="font-size:13px;font-weight:700;color:#fff5cc;">{meta_maxx_alvo:,.0f}</div>
     <div style="font-size:7px;color:#FFD700;">+{maxx_pct-100}% da meta</div>
   </div>
   <div style="background:#2a1e05;border:1px solid #EDA100;border-radius:6px;padding:6px 8px;">
@@ -2911,9 +2938,18 @@ def pagina_placar(usuario_logado, headless=False):
     max_retrab_n  = int(cfg_mes.get("max_retrab_normal", 10))
     max_retrab_x  = int(cfg_mes.get("max_retrab_maxx", 5))
 
-    # Penalidades: acumulam de 0% (sem pen.) até 100% (no limite) — barra VERMELHA
-    pct_pen_normal = min(qtd_pen / (max_pen_n + 1) * 100, 100) if max_pen_n >= 0 else 0
-    pct_pen_maxx   = min(qtd_pen / (max_pen_x + 1) * 100, 100) if max_pen_x >= 0 else 0
+    # PENALIDADES: a barra mede o critério CUMPRIDO, como todas as outras
+    # da fileira. Ela media o teto CONSUMIDO, e por isso dizia "Menos de 4
+    # penalidades — 100%" com "4 ocorrência(s) / máx 3" logo abaixo: cem por
+    # cento significando o oposto do que significa na barra de cima e na de
+    # baixo. Num painel lido de relance, o número vale mais que a cor.
+    # `_sit_pen` ja respondeu isso algumas linhas acima, na mesma funcao.
+    # Chamar `situacao_metas` de novo aqui seria a mesma pergunta com duas
+    # respostas — e nesta base duas respostas sempre acabam discordando.
+    pct_pen_normal = _pc_membro.pct_criterio_penalidade(
+        qtd_pen, max_pen_n, _sit_pen.get("pts_destrava_col"), saldo_eq)
+    pct_pen_maxx = _pc_membro.pct_criterio_penalidade(
+        qtd_pen, max_pen_x, _sit_pen.get("pts_destrava_maxx"), saldo_eq)
 
     # Retrabalho: calcula do processamento do mês (via _processar já aplicou filtro_mes)
     _total_concl  = d.get("total_concl", 0)
@@ -2979,7 +3015,7 @@ def pagina_placar(usuario_logado, headless=False):
         pct_eq=pct_eq, pct_maxx=pct_maxx,
         saldo_eq=saldo_eq, meta_eq=meta_eq, faltam=faltam,
         pts_pendentes=d["pts_pendentes"],
-        meta_maxx_pts=meta_maxx_pts, faltam_maxx=faltam_maxx,
+        meta_maxx_pts=meta_maxx_alvo, faltam_maxx=faltam_maxx,
         maxx_pct=maxx_pct, pen_total=d["pen_total"], n_pen=len(d["pen_cards"]),
         d=d, fila=fila, alertas=_alertas_tv, pend_lista=d["pend_lista"],
         pct_pri_ok=pct_prioritarios_ok,
@@ -3053,7 +3089,7 @@ def pagina_placar(usuario_logado, headless=False):
         _cor_rtnx = "#FFD700" if pct_retrab_barra_x   >= 100 else "#E34948"
         _cor_cmbx = "#FFD700" if pct_com_membro       >= 99.5 else "#E34948"
         _sem_mb_desc_x = _sem_mb_desc_meta
-        b += _barra_meta(f"Pontuação +{maxx_pct-100}% acima da meta", pct_maxx, f"{saldo_eq:,.0f} / {meta_maxx_pts:,.0f} pts (c/ penalidades -{ d['pen_total']:.0f})", _cor_mx)
+        b += _barra_meta(f"Pontuação +{maxx_pct-100}% acima da meta", pct_maxx, f"{saldo_eq:,.0f} / {meta_maxx_alvo:,.0f} pts (c/ penalidades -{ d['pen_total']:.0f})", _cor_mx)
         b += _barra_meta("Zero prioritários em atraso", pct_prioritarios_ok, _desc_pri, _cor_prix)
         b += _barra_meta(f"Retrabalho abaixo de {max_retrab_x}%", pct_retrab_barra_x, _desc_retrab, _cor_rtnx)
         b += _barra_meta(f"Menos de {max_pen_x+1} penalidades", pct_pen_maxx,

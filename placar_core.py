@@ -2473,7 +2473,30 @@ def situacao_metas(saldo, meta_eq, meta_maxx, pen_qtd, cfg):
         precisa = pen_qtd - teto            # ocorrências a apagar
         return max(0.0, float(base or 0) + precisa * por_pen - saldo)
 
+    # A META QUE A EQUIPE PRECISA BATER DE VERDADE.
+    #
+    # Dono, 29/09: "se há pontuação necessária para bater a meta MAXX,
+    # precisa subir de 10.800 para 11.800 a meta".
+    #
+    # Está certo, e é melhor do que só ajustar a porcentagem: com o teto de
+    # penalidades estourado, 10.800 não é mais o alvo — bater 10.800 não
+    # entrega a MAXX. O alvo é 10.800 mais o bloco de pontos que apaga a
+    # ocorrência sobrando. Mostrar 10.800 manda a equipe mirar num número que
+    # não resolve nada, e foi isso que produziu "103%" ao lado de "faltam
+    # 660 pts".
+    #
+    # Por construção, `saldo + pts_destrava_X == meta_X_efetiva`: as duas
+    # saem da mesma conta, então a tela nunca pode mostrar uma porcentagem
+    # que discorde do que falta.
+    def _alvo(meta, teto):
+        m = float(meta or 0)
+        if pen_qtd <= teto or por_pen <= 0:
+            return m
+        return float(base or 0) + (pen_qtd - teto) * por_pen
+
     return {
+        "meta_col_efetiva": _alvo(meta_eq, max_n),
+        "meta_maxx_efetiva": _alvo(meta_maxx, max_x),
         "em_risco": em_risco, "precisa": precisa,
         "pen_qtd": pen_qtd, "pen_efetiva": pen_efetiva, "abatidas": abatidas,
         "max_n": max_n, "max_x": max_x, "por_pen": por_pen,
@@ -2489,6 +2512,51 @@ def situacao_metas(saldo, meta_eq, meta_maxx, pen_qtd, cfg):
         "bateu_col": saldo >= float(meta_eq or 0) and pen_efetiva <= max_n,
         "bateu_maxx": saldo >= float(meta_maxx or 0) and pen_efetiva <= max_x,
     }
+
+
+def pct_da_meta(saldo, meta_pts, pts_destrava=None):
+    """% da meta, contando TAMBÉM o que ainda trava ela.
+
+    Dono, 29/09: "se faltam 660 pontos para reduzirem uma das penalidades
+    para baterem a meta MAXX, não deve aparecer como 103%".
+
+    O velocímetro mostrava `saldo / meta`, só pontuação. Mas com o teto de
+    penalidades estourado a meta NÃO está batida — e o painel anunciava 103%
+    ao lado de "faltam 660 pts". A moldura do mesmo velocímetro já sabia
+    disso (recebe `bateu_maxx`, que conta o abatimento): a peça dizia duas
+    coisas ao mesmo tempo, e a equipe lê o número.
+
+    Com a meta travada, o alvo de verdade é o saldo MAIS o que falta para
+    apagar a ocorrência que a derruba — que é exatamente o que
+    `situacao_metas` devolve em `pts_destrava_maxx`. Assim 100% passa a
+    significar uma coisa só: a meta está batida de verdade.
+    """
+    saldo = float(saldo or 0)
+    alvo = float(meta_pts or 0)
+    if pts_destrava:
+        alvo = saldo + float(pts_destrava)
+    return (saldo / alvo * 100) if alvo > 0 else 0.0
+
+
+def pct_criterio_penalidade(qtd, teto, pts_destrava, saldo):
+    """% do critério "estar dentro do teto de penalidades" — CUMPRIDO, não consumido.
+
+    A barra dizia "Menos de 4 penalidades — 100%" com "4 ocorrência(s) / máx
+    3" embaixo. Ela media o teto CONSUMIDO; todas as outras barras da mesma
+    fileira medem o critério CUMPRIDO. Cem por cento queria dizer o oposto do
+    que quer dizer em cima e embaixo dela, e num painel lido de relance o
+    número vale mais que a cor vermelha.
+
+    Dentro do teto: cumprido, 100%. Estourado: o caminho já andado rumo ao
+    destrave, pela mesma conta do velocímetro — e nunca 100, porque enquanto
+    faltar um ponto o critério não está cumprido.
+    """
+    if int(qtd or 0) <= int(teto or 0):
+        return 100.0
+    if not pts_destrava:
+        # Estourado e sem abatimento configurado: não há caminho de volta.
+        return 0.0
+    return min(pct_da_meta(saldo, 0, pts_destrava), 99.9)
 
 
 def _pts_br(v):
@@ -3486,5 +3554,117 @@ if __name__ == "__main__":
     _trecho_pts = _f_proc.split("PENALIDADES")[-1]
     ok("nenhuma etiqueta decide pontuação",
        'in lb' not in _trecho_pts.split("pts_equipe")[0][-900:])
+
+    # ══ 103% COM 660 PONTOS FALTANDO ════════════════════════════════════
+    #
+    # Dono, 29/09: "se faltam 660 pontos para reduzirem uma das penalidades
+    # para baterem a meta MAXX, não deve aparecer como 103% até que esses 660
+    # pontos sejam realizados".
+    #
+    # Ele está certo. O número do velocímetro era `saldo / meta_maxx`, só
+    # pontuação — e o teto de penalidades, que é o que de fato trava a meta,
+    # não entrava. A MOLDURA do mesmo velocímetro já recebia `bateu_maxx`,
+    # que conta o abatimento: a mesma peça dizia duas coisas ao mesmo tempo.
+    #
+    # Com a meta travada, o alvo de verdade não é a meta: é a meta MAIS o que
+    # falta para apagar a ocorrência que a derruba. É esse o denominador.
+    ok("sem trava, a porcentagem é a da meta, como sempre foi",
+       abs(pct_da_meta(11140, 10800, 0) - 103.15) < 0.05)
+    ok("com 660 travando, o alvo vira saldo+660 e a conta cai abaixo de 100",
+       abs(pct_da_meta(11140, 10800, 660) - 94.41) < 0.05)
+    ok("e ela NUNCA chega a 100 enquanto faltar um ponto para destravar",
+       pct_da_meta(11799, 10800, 1) < 100)
+    ok("no ponto exato do destrave, bate 100",
+       abs(pct_da_meta(11800, 10800, 0) - 109.26) < 0.05)
+    ok("meta zerada não levanta divisão por zero",
+       pct_da_meta(500, 0, 0) == 0.0)
+    ok("e destrave None é tratado como sem trava",
+       abs(pct_da_meta(11140, 10800, None) - 103.15) < 0.05)
+
+    # ══ A BARRA DE PENALIDADE DIZIA 100% COM O TETO ESTOURADO ═══════════
+    #
+    # "Menos de 4 penalidades — 100%", em vermelho, com "4 ocorrência(s) /
+    # máx 3" logo abaixo. Naquela fileira toda barra em 100% significa
+    # CRITÉRIO CUMPRIDO; só esta queria dizer "teto consumido", o oposto.
+    # Num painel que a equipe lê de relance, o número vale mais que a cor.
+    ok("dentro do teto, o critério está cumprido: 100%",
+       pct_criterio_penalidade(2, 3, 0, 11140) == 100.0)
+    ok("no limite exato ainda está cumprido",
+       pct_criterio_penalidade(3, 3, 0, 11140) == 100.0)
+    ok("estourado, NUNCA mostra 100",
+       pct_criterio_penalidade(4, 3, 660, 11140) < 100)
+    ok("e o que mostra é o caminho andado rumo ao destrave",
+       abs(pct_criterio_penalidade(4, 3, 660, 11140) - 94.41) < 0.05)
+    ok("estourado sem abatimento configurado, mostra zero",
+       pct_criterio_penalidade(4, 3, None, 11140) == 0.0)
+
+    # ══ A META SOBE ENQUANTO A PENALIDADE TRAVA ═════════════════════════
+    #
+    # Dono, 29/09: "se há pontuação necessária para bater a meta MAXX,
+    # precisa subir de 10.800 para 11.800 a meta". Bater 10.800 com 4
+    # penalidades e teto 3 não entrega a MAXX: o alvo real inclui o bloco de
+    # pontos que apaga a ocorrência sobrando.
+    _cfg_t = {"max_pen_normal": 5, "max_pen_maxx": 3,
+              "pts_por_penalidade": 1000}
+    _sit_t = situacao_metas(11140, 9000, 10800, 4, _cfg_t)
+    ok("com o teto estourado, a meta MAXX exibida sobe para 11.800",
+       _sit_t["meta_maxx_efetiva"] == 11800.0)
+    ok("e faltam 660 — o número que a tela já mostrava",
+       _sit_t["pts_destrava_maxx"] == 660.0)
+    ok("saldo + o que falta É a meta efetiva: as duas não podem discordar",
+       11140 + _sit_t["pts_destrava_maxx"] == _sit_t["meta_maxx_efetiva"])
+    ok("a coletiva está dentro do teto, então a meta dela NÃO sobe",
+       _sit_t["meta_col_efetiva"] == 9000.0)
+    ok("e a MAXX continua não batida", _sit_t["bateu_maxx"] is False)
+
+    # SEM PENALIDADE NENHUMA, NADA SOBE. Sem isto a guarda acima passaria
+    # com uma função que somasse sempre, e o painel pediria pontos que a
+    # equipe não deve.
+    _sit_ok = situacao_metas(11140, 9000, 10800, 0, _cfg_t)
+    ok("sem penalidade, as duas metas ficam como foram configuradas",
+       (_sit_ok["meta_col_efetiva"], _sit_ok["meta_maxx_efetiva"])
+       == (9000.0, 10800.0))
+    ok("e a MAXX está batida", _sit_ok["bateu_maxx"] is True)
+
+    # SEM ABATIMENTO CONFIGURADO não existe caminho de volta por pontos, e a
+    # meta não pode subir prometendo um destrave que não acontece.
+    _sit_sem = situacao_metas(11140, 9000, 10800, 4,
+                              {"max_pen_normal": 5, "max_pen_maxx": 3,
+                               "pts_por_penalidade": 0})
+    ok("sem pontos por penalidade, a meta não sobe",
+       _sit_sem["meta_maxx_efetiva"] == 10800.0)
+
+    # E A PORCENTAGEM SAI DA META EFETIVA.
+    ok("11.140 de 11.800 dá 94%, e não 103%",
+       abs(pct_da_meta(11140, _sit_t["meta_maxx_efetiva"]) - 94.41) < 0.05)
+
+    # E AS DUAS TELAS PERGUNTAM À MESMA FUNÇÃO — uma pergunta, uma resposta.
+    _src_pl = _insp_pc.getsource(_pl_diag)
+    ok("o Painel calcula a porcentagem MAXX pela função",
+       "pct_da_meta" in _src_pl)
+    ok("e a barra de penalidade também",
+       "pct_criterio_penalidade" in _src_pl)
+
+    # E A TELA MOSTRA A META EFETIVA, não a configurada — por AST, porque o
+    # nome antigo continua no arquivo de propósito: é ele que o velocímetro
+    # usa, e trocar lá somaria a sobra duas vezes.
+    import ast as _ast_mx
+    _arv_pg = _ast_mx.parse(_ast_mx.unparse(_ast_mx.parse(
+        _insp_pc.getsource(_pl_diag.pagina_placar).lstrip())))
+    _nomes_pg = {getattr(_x, "id", "") for _x in _ast_mx.walk(_arv_pg)
+                 if isinstance(_x, _ast_mx.Name)}
+    ok("o Painel calcula a meta MAXX efetiva", "meta_maxx_alvo" in _nomes_pg)
+    # E ELA CHEGA NA TV. O painel da TV monta o card "Maxx" com o valor que
+    # recebe; se continuasse recebendo a configurada, a TV mostraria 10.800
+    # enquanto a tela mostra 11.800 — duas respostas para a mesma pergunta,
+    # e a TV é justamente a que a equipe olha o dia inteiro.
+    _kw_tv = set()
+    for _x in _ast_mx.walk(_arv_pg):
+        if isinstance(_x, _ast_mx.Call):
+            for _k in _x.keywords:
+                if _k.arg == "meta_maxx_pts":
+                    _kw_tv.add(getattr(_k.value, "id", ""))
+    ok("e a TV recebe a efetiva, não a configurada",
+       _kw_tv == {"meta_maxx_alvo"})
 
     print("\nfalhas:", falhas)
