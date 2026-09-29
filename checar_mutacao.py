@@ -270,6 +270,57 @@ MUTACOES = [
         ["python3", "placar_core.py"],
     ),
     (
+        # Dono, 29/09: "se faltam 660 pontos para reduzirem uma das
+        # penalidades para baterem a meta MAXX, nao deve aparecer como 103%".
+        "a porcentagem da meta volta a ignorar o que trava ela",
+        "placar_core.py",
+        "    if pts_destrava:\n        alvo = saldo + float(pts_destrava)",
+        "    if False:\n        alvo = saldo + float(pts_destrava)",
+        ["python3", "placar_core.py"],
+    ),
+    (
+        # "Menos de 4 penalidades - 100%" com "4 ocorrencia(s) / max 3".
+        "a barra de penalidade volta a dizer 100% com o teto estourado",
+        "placar_core.py",
+        "    return min(pct_da_meta(saldo, 0, pts_destrava), 99.9)",
+        "    return 100.0",
+        ["python3", "placar_core.py"],
+    ),
+    (
+        # Dono, 29/09: "se ha pontuacao necessaria para bater a meta maxx,
+        # precisa subir de 10.800 para 11.800 a meta".
+        "a meta exibida volta a ser a configurada, e nao a que destrava",
+        "placar_core.py",
+        "        return float(base or 0) + (pen_qtd - teto) * por_pen",
+        "        return m",
+        ["python3", "placar_core.py"],
+    ),
+    (
+        "a TV volta a receber a meta configurada enquanto a tela mostra a efetiva",
+        "placar.py",
+        "        meta_maxx_pts=meta_maxx_alvo, faltam_maxx=faltam_maxx,",
+        "        meta_maxx_pts=meta_maxx_pts, faltam_maxx=faltam_maxx,",
+        ["python3", "placar_core.py"],
+    ),
+    (
+        # Dono, 29/09: "o 100% dela tem que ser quando baterem o que precisam
+        # para diminuir a penalidade".
+        "o termometro MAXX volta a terminar na meta configurada",
+        "placar.py",
+        "        st.markdown(_vel_maxx(pct_maxx, meta_maxx_alvo, saldo_eq,",
+        "        st.markdown(_vel_maxx(pct_maxx, meta_maxx_pts, saldo_eq,",
+        ["python3", "placar_core.py"],
+    ),
+    (
+        "a fatia SALVAR volta e conta o trecho extra duas vezes",
+        "placar.py",
+        "                              _sit_pen[\"bateu_maxx\"],\n"
+        "                              pts_salvar=0),",
+        "                              _sit_pen[\"bateu_maxx\"],\n"
+        "                              pts_salvar=_pts_salvar_maxx),",
+        ["python3", "placar_core.py"],
+    ),
+    (
         "o ponto sem dono para de ser contado a parte",
         "conferencia_pontos.py",
         '            qtd["pontos_fora_do_quadro"] += pt',
