@@ -721,10 +721,10 @@ REGRA DE DENSIDADE:
   grade. A referência é o padrão aprovado da empresa e manda sobre a coluna
   única; o que NÃO muda com ela é a folga das bordas logo abaixo: mesmo
   copiando a referência, nenhum cartão toca ou cruza a borda.
-- CADA CARTÃO INTEIRO DENTRO DO QUADRO: o primeiro começa pelo menos 6% abaixo
-  do topo e o último termina pelo menos 6% acima da base, com o fundo da cena
-  aparecendo acima do primeiro e abaixo do último. Cartão que toca a borda é
-  peça reprovada.
+- CADA CARTÃO INTEIRO DENTRO DO QUADRO, respeitando a folga da borda definida
+  na REGRA DE ESPAÇO DESTA PEÇA: o primeiro começa abaixo do topo e o último
+  termina acima da base, com o fundo da cena aparecendo acima do primeiro e
+  abaixo do último. Cartão que toca a borda é peça reprovada.
 - SE NÃO COUBEREM TODOS na coluna com essa folga, use MENOS cartões e maiores —
   nunca comprima, nunca empilhe até a borda, nunca deixe um pela metade.
 - Espaçamento uniforme entre blocos, sem que um encoste no outro
@@ -8390,6 +8390,42 @@ def pagina_imagem(usuario_logado):
                     f"**Tamanho pedido / recebido**  \n"
                     f"{_d.get('size_pedido', '—')} → {_d.get('tamanho_bruto', '—')}"
                 )
+                # O QUE O SISTEMA MEDIU E NÃO CONTAVA A NINGUÉM.
+                #
+                # `checar_comunicacao.py` achou cinco campos gravados no
+                # diagnóstico e nunca mostrados. Três deles respondem
+                # exatamente as perguntas que custaram o dia 29/09:
+                #
+                #   input_fidelity  a peça foi gerada PRESERVANDO o produto?
+                #                   O Gemini não aceita esse parâmetro; sem
+                #                   ele, o produto é redesenhado — e era isso
+                #                   que fazia o Ajuste Fino reprovar sem que
+                #                   ninguém soubesse por quê.
+                #   medida          os defeitos MEDIDOS na peça, por
+                #                   `medir_imagem.problemas`. O sistema já
+                #                   media e guardava para si.
+                #   ref_layout      a referência de layout enviada
+                #                   correspondeu ao tipo, ou foi ignorada?
+                #
+                # `size_pedido` já estava na tela e `input_fidelity` não, a
+                # duas linhas de distância no código que os grava: a Forma 1
+                # desta base, de novo.
+                _fid = _d.get("input_fidelity")
+                st.markdown(
+                    "**Produto preservado**  \n"
+                    + ("✅ sim — `input_fidelity=" + str(_fid) + "`" if _fid
+                       else "⚠️ NÃO — este motor não preserva o produto, "
+                            "então ele foi redesenhado")
+                )
+                if _d.get("ref_layout"):
+                    st.markdown(f"**Referência de layout**  \n{_d['ref_layout']}")
+                if _d.get("medida"):
+                    st.warning(
+                        "📐 **O que a medição encontrou nesta peça:** "
+                        + str(_d["medida"]))
+                _pf, _ff = _d.get("peso_final"), _d.get("formato_final")
+                if _pf or _ff:
+                    st.caption(f"Arquivo final: {_ff or '—'} · {_pf or '—'}")
                 if _d.get("erro_openai"):
                     st.warning(f"**Erro do gerador principal:**\n\n{_d['erro_openai']}")
                 st.markdown("**Prompt exato enviado ao modelo:**")

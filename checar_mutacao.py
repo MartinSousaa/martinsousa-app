@@ -450,6 +450,38 @@ MUTACOES = [
         ["python3", "imagem.py"],
     ),
     (
+        # O oitavo verificador: "o sistema sabe e nao conta". Cinco campos
+        # eram gravados no diagnostico e nunca mostrados — entre eles o
+        # `input_fidelity`, que diz se a peca preservou o produto.
+        "o diagnostico volta a esconder se o produto foi preservado",
+        "imagem.py",
+        '                _fid = _d.get("input_fidelity")',
+        "                _fid = None",
+        ["python3", "checar_comunicacao.py"],
+    ),
+    (
+        "a medicao da peca volta a ser guardada so para o sistema",
+        "imagem.py",
+        '                if _d.get("medida"):\n'
+        '                    st.warning(\n'
+        '                        "📐 **O que a medição encontrou nesta peça:** "\n'
+        '                        + str(_d["medida"]))\n',
+        "",
+        ["python3", "checar_comunicacao.py"],
+    ),
+    (
+        # Duas vozes com numero sobre o mesmo assunto discordam — a questao
+        # e so quando. Era o defeito da peca 7 do Tigre.
+        "a folga da borda volta a ter duas vozes com numero",
+        "imagem.py",
+        "- CADA CARTÃO INTEIRO DENTRO DO QUADRO, respeitando a folga da borda definida\n"
+        "  na REGRA DE ESPAÇO DESTA PEÇA: o primeiro começa abaixo do topo e o último\n"
+        "  termina acima da base",
+        "- CADA CARTÃO INTEIRO DENTRO DO QUADRO: o primeiro começa pelo menos 6% abaixo\n"
+        "  do topo e o último termina pelo menos 6% acima da base",
+        ["python3", "checar_comunicacao.py"],
+    ),
+    (
         "o ponto sem dono para de ser contado a parte",
         "conferencia_pontos.py",
         '            qtd["pontos_fora_do_quadro"] += pt',
