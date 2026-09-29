@@ -2163,6 +2163,136 @@ def bloco_queda_de_pontos(agora):
                 "vazio — o Studio não inventa o valor que ele tinha.")
 
 
+def bloco_conferencia_de_pontos(listas, cards, membros_map, id_p, d,
+                                filtro_mes):
+    """A conta CRUA do Trello, ao lado da do sistema, com a diferença nomeada.
+
+    POR QUE ESTA TELA EXISTE
+
+    Dono, 29/09: "o pessoal continua reclamando que a pontuação deles no painel
+    continua caindo, evidenciando inclusive com imagens".
+
+    Até aqui, conferir o número do Painel custava refazer a conta à mão no
+    Trello, cartão por cartão — e era isso que a equipe estava fazendo. Com a
+    conferência custando uma tarde, a discussão fica sendo "o sistema está
+    errado" contra "o sistema está certo", sem ninguém poder provar nada.
+
+    Esta tela faz a conta duas vezes a partir dos MESMOS cartões e mostra
+    quem sobrou, com o motivo de cada um.
+    """
+    import conferencia_pontos as _cf
+    import placar_core as _pc_cf
+
+    # A LEITURA DA PONTUAÇÃO É A DESTA TELA, e não uma segunda.
+    #
+    # `_num` é quem produz o número que o Painel mostra. Se a conferência
+    # lesse o campo por conta própria, ela acusaria diferença em qualquer
+    # borda onde as duas leituras divergissem — e a ferramenta feita para
+    # encerrar a discussão viraria mais um motivo de desconfiança.
+    _crua = _cf.contagem_crua(cards, listas, membros_map, id_p,
+                              MEMBROS_ATIVOS, LISTAS_SEM_PONTUACAO, _num)
+    _dif, _por = _cf.comparar(_crua, d)
+
+    # O MOTIVO DE CADA UM QUE FICOU DE FORA — pelo mesmo caminho que a conta
+    # do sistema percorre, e não por uma segunda leitura das regras.
+    _desde = _pc_cf._desde_padrao()
+    try:
+        _acoes = _pc_cf.acoes_movimento(_desde, max_paginas=5)
+    except Exception:
+        _acoes = {}
+    _concl = _pc_cf.datas_de_conclusao(_acoes)
+    try:
+        from datetime import datetime as _dt_cf
+        _janela = _dt_cf.fromisoformat(_desde.replace("Z", "+00:00"))
+    except Exception:
+        _janela = None
+
+    _somaram = {i["id"] for i in (d.get("cards_pts") or [])}
+    _descartes = []
+    for _c in cards:
+        if _c.get("id") in _somaram:
+            continue
+        _pt = _num(_c, id_p)
+        if _pt is None or not _c.get("dueComplete"):
+            continue
+        _mes = _pc_cf._mes_card(_c, _concl, _janela)
+        _mot = _cf.motivo_de_fora(_c, listas, id_p, LISTAS_SEM_PONTUACAO,
+                                  _mes, filtro_mes, _num)
+        if _mot:
+            _descartes.append({"card": _c.get("name", ""), "pts": _pt,
+                               "motivo": _mot,
+                               "lista": listas.get(_c.get("idList"), "")})
+
+    # ── A JANELA FOI TRUNCADA? ──────────────────────────────────────────
+    #
+    # `_buscar_acoes_board` já marcava `diag["truncado"]` e NENHUMA tela lia.
+    # Quando a janela é cortada, a ação que concluiu o cartão fica de fora, o
+    # mês vira indeterminado e os pontos somem — em silêncio, e cada vez mais,
+    # porque board movimentado gera mais ação e as 5.000 cobrem menos dias.
+    # `DIAGNOSTICO_POR_FILTRO` e o registro que `_publicar_diag` alimenta
+    # (`placar_core.py:784`). O diagnostico do filtro de MOVIMENTO e o que
+    # interessa aqui: e ele que traz a acao de conclusao.
+    _diag = {}
+    try:
+        _diag = dict(_pc_cf.DIAGNOSTICO_POR_FILTRO.get(
+            _pc_cf.FILTRO_MOVIMENTO) or {})
+    except Exception:
+        _diag = {}
+    if _diag.get("truncado"):
+        st.error(
+            "⚠️ **O histórico do Trello não coube na leitura.** A janela é de "
+            "120 dias no teto de 5.000 ações, e ela foi atingida: existem "
+            "cartões concluídos cuja ação de conclusão não foi lida. Esses "
+            "cartões ficam sem mês conhecido e **não somam em mês nenhum** — "
+            "é esta a pontuação que 'some sozinha'.")
+
+    _c1, _c2, _c3 = st.columns(3)
+    _c1.metric("Trello (conta crua)", f"{_crua['total']:.0f} pts")
+    _c2.metric("Studio (o que a tela mostra)",
+               f"{float(d.get('pts_equipe', 0)):.0f} pts")
+    _c3.metric("Diferença", f"{_dif:.0f} pts",
+               delta=None if not _dif else f"{-_dif:.0f}")
+
+    st.caption(
+        f"Cartões no quadro: {_crua['qtd']['cards']} · concluídos: "
+        f"{_crua['qtd']['concluidos']} · com pontuação: "
+        f"{_crua['qtd']['com_pontos']} · com membro: "
+        f"{_crua['qtd']['com_membro']}")
+
+    if _crua["qtd"]["pontos_fora_do_quadro"]:
+        st.warning(
+            f"🧾 **{_crua['qtd']['pontos_fora_do_quadro']:.0f} pontos somam no "
+            "time e em pessoa nenhuma** — cartão concluído sem membro, ou com "
+            "membro que não está na aba `equipe` da planilha. É por isso que a "
+            "soma dos individuais dá menos que o coletivo.")
+
+    if _descartes:
+        _fora = _cf.resumo_dos_descartes(_descartes)
+        st.markdown("**O que ficou de fora da pontuação do mês:**")
+        for _m, _v in sorted(_fora.items(), key=lambda x: -x[1]["pts"]):
+            st.markdown(
+                f"- **{_v['pts']:.0f} pts** em {_v['qtd']} cartão(ões) — "
+                f"{_cf.MOTIVOS.get(_m, _m)}")
+        with st.expander(f"Ver os {len(_descartes)} cartões, um a um"):
+            st.dataframe(
+                [{"Cartão": _d["card"], "Coluna": _d["lista"],
+                  "Pontos": _d["pts"], "Motivo": _cf.MOTIVOS.get(_d["motivo"],
+                                                                 _d["motivo"])}
+                 for _d in sorted(_descartes, key=lambda x: -x["pts"])],
+                use_container_width=True, hide_index=True)
+    elif not _dif:
+        st.success("✅ A conta do Studio bate com o Trello, cartão a cartão.")
+
+    st.markdown("**Por colaborador:**")
+    st.dataframe(
+        [{"Colaborador": MEMBROS_ATIVOS.get(_u, _u),
+          "Trello": _v["crua"], "Studio": _v["sistema"],
+          "Diferença": _v["diferenca"]}
+         for _u, _v in sorted(_por.items(),
+                              key=lambda x: -abs(x[1]["diferenca"]))],
+        use_container_width=True, hide_index=True)
+
+
 def bloco_mapa_de_pontos(d, meta_eq):
     """Cartão a cartão: o que soma hoje, e o que mudou desde outro dia.
 
@@ -3029,6 +3159,14 @@ def pagina_placar(usuario_logado, headless=False):
         # responde com certeza em vez de reconstrução.
         with st.expander("📋 De onde vêm os pontos — cartão a cartão"):
             bloco_mapa_de_pontos(d, meta_eq)
+        # A CONFERÊNCIA CONTRA O TRELLO CRU.
+        #
+        # O mapa acima mostra o que o sistema CONTOU. Esta mostra o que ele
+        # DEIXOU DE CONTAR, e por quê — que é a pergunta que a equipe vinha
+        # respondendo com print de tela.
+        with st.expander("⚖️ Conferir contra o Trello — o que não entrou, e por quê"):
+            bloco_conferencia_de_pontos(listas, cards, membros_map, id_p,
+                                        d, filtro_mes)
         with st.expander("🔎 Por que a pontuação mudou entre dois dias?"):
             bloco_queda_de_pontos(agora)
 
