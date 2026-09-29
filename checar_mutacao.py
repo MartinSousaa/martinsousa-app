@@ -172,7 +172,7 @@ MUTACOES = [
         "o tempo medio por coluna volta a ter lista escrita a mao",
         "placar.py",
         "            listas_t=[nl for nl in set(listas.values())\n"
-        "                      if nl not in COLUNAS_SKIP]",
+        "                      if not _pc_core.coluna_em(nl, COLUNAS_SKIP)]",
         "            listas_t=[nl for nl in set(listas.values())\n"
         '                      if nl not in LISTAS_PENALIDADE and nl!="TABELA DE PONTUAÇÃO"\n'
         "                      and nl not in LISTAS_SEM_PONTUACAO]",
@@ -318,6 +318,24 @@ MUTACOES = [
         "                              pts_salvar=0),",
         "                              _sit_pen[\"bateu_maxx\"],\n"
         "                              pts_salvar=_pts_salvar_maxx),",
+        ["python3", "placar_core.py"],
+    ),
+    (
+        # Dono, 29/09: "temos um monte de demanda na coluna CHAT (PROBLEMAS
+        # -30) que nao estao entrando na fila". No codigo a chave era
+        # "CHAT (PROBLEMAS-30)", sem o espaco: um caractere, e a config
+        # inteira da coluna sumia.
+        "o nome da coluna volta a ser comparado caractere a caractere",
+        "placar_core.py",
+        '    return _re_col.sub(r"\\s+", "", t)',
+        "    return str(nome or \"\")",
+        ["python3", "placar_core.py"],
+    ),
+    (
+        "a fila volta a comparar a coluna com `in` exato",
+        "placar.py",
+        "        if _pc_core.coluna_em(nl, COLUNAS_SKIP): continue",
+        "        if nl in COLUNAS_SKIP: continue",
         ["python3", "placar_core.py"],
     ),
     (

@@ -1774,7 +1774,7 @@ def intervalos_por_membro(cards, acoes_board, membros_map=None, agora=None,
         acoes_c = acoes_board.get(c["id"], [])
         _col = str(listas.get(c.get("idList"), "")).strip().upper()
         _todos = (set(c.get("idMembers") or [])
-                  if _col in LISTAS_ANALISE else None)
+                  if coluna_em(_col, LISTAS_ANALISE) else None)
         for s in intervalos_do_cartao(acoes_c, agora, c.get("idMembers"),
                                       labels_do_card(c)):
             # Na analise, quem esta no cartao agora recebe o trecho inteiro.
@@ -1941,7 +1941,7 @@ def execucoes_por_dia(cards, acoes_board, membros_map=None, agora=None,
                                 # e trabalho, e o dia nao pode parecer vazio --,
                                 # mas fica fora da media: ela mede execucao de
                                 # demanda.
-                                "analise": col in LISTAS_ANALISE}))
+                                "analise": coluna_em(col, LISTAS_ANALISE)}))
                         cursor = fim_p
     for dias in por.values():
         for lista in dias.values():
@@ -2280,6 +2280,51 @@ def _card_atrasado(card, nome_lista, tempos=None, entradas=None):
     return est > 0 and decorrido > est
 
 
+def chave_coluna(nome):
+    """O nome da coluna reduzido ao que importa para reconhecê-la.
+
+    QUEM CRIA A COLUNA DIGITA O NOME NO TRELLO, e a comparação era exata.
+
+    Dono, 29/09: "temos um monte de demanda na coluna 'CHAT (PROBLEMAS -30)'
+    que não estão entrando na fila". No código a chave é
+    "CHAT (PROBLEMAS-30)", sem o espaço antes do traço — um caractere, e a
+    configuração inteira da coluna some: tempo estimado, prioridade, espera
+    de terceiro. O cartão continua na fila, mas com tempo padrão de 60 em vez
+    de 120, e a previsão de entrega passa a mentir pela metade.
+
+    Esta base já conhecia o problema e o resolveu duplicando a entrada:
+    `LISTAS_ANALISE` tem as duas grafias de "ANÁLISE DE DEMANDAS", com o
+    comentário "as duas escritas sao aceitas porque quem cria a coluna digita
+    no Trello". Duplicar é a Forma 5 — a terceira grafia ninguém lembra de
+    somar, e as duas passam a discordar.
+
+    O que se ignora é só ruído de digitação: caixa, acento, espaço sobrando e
+    espaço colado na pontuação. O NÚMERO entre parênteses continua valendo —
+    "DESATIVAR (50)" e "DESATIVAR (30)" são colunas diferentes, e confundir
+    as duas trocaria o tempo estimado de todo mundo.
+    """
+    import re as _re_col
+    import unicodedata
+    t = str(nome or "").strip().upper()
+    if not t:
+        return ""
+    t = "".join(c for c in unicodedata.normalize("NFD", t)
+                if unicodedata.category(c) != "Mn")
+    return _re_col.sub(r"\s+", "", t)
+
+
+def coluna_em(nome, conjunto):
+    """Esta coluna está no conjunto, ignorando ruído de digitação?
+
+    Os conjuntos (`COLUNAS_SKIP`, `LISTAS_SEM_PONTUACAO`, `LISTAS_PENALIDADE`)
+    respondem perguntas que mudam dinheiro e tempo. Um espaço a mais no nome
+    fazia a TRIAGEM deixar de ser TRIAGEM — e aí ela volta a entrar na conta
+    de tempo de execução, calada.
+    """
+    alvo = chave_coluna(nome)
+    return any(alvo == chave_coluna(x) for x in (conjunto or ()))
+
+
 def cfg_coluna(nome_lista):
     """Configuracao da coluna, com a planilha mandando sobre o codigo.
 
@@ -2287,17 +2332,30 @@ def cfg_coluna(nome_lista):
     o padrao. Coluna que nao esta em lugar nenhum fica registrada, para virar
     aviso em vez de sumir.
     """
-    base = dict(COLUNAS_CONFIG.get(nome_lista) or {})
+    def _acha(d):
+        # Pela grafia exata primeiro — é o caminho de sempre e o mais barato.
+        # Só quando ela não bate é que o ruído de digitação entra em cena.
+        if nome_lista in (d or {}):
+            return d[nome_lista]
+        k = chave_coluna(nome_lista)
+        if not k:
+            return None
+        for nome, v in (d or {}).items():
+            if chave_coluna(nome) == k:
+                return v
+        return None
+
+    base = dict(_acha(COLUNAS_CONFIG) or {})
     try:
         import colunas_config as _cc
-        editado = _cc.carregar().get(nome_lista)
+        editado = _acha(_cc.carregar())
     except Exception:
         editado = None
     if editado:
         base.update(editado)
     if base:
         return base
-    if nome_lista and nome_lista not in COLUNAS_SKIP:
+    if nome_lista and not coluna_em(nome_lista, COLUNAS_SKIP):
         COLUNAS_DESCONHECIDAS.add(nome_lista)
     return dict(CFG_PADRAO_COLUNA)
 
@@ -2305,7 +2363,8 @@ def cfg_coluna(nome_lista):
 def colunas_do_board():
     """Nomes das colunas que existem no Trello agora, fora as ignoradas."""
     listas = (_buscar_board() or (None,))[0] or {}
-    return sorted(n for n in listas.values() if n and n not in COLUNAS_SKIP)
+    return sorted(n for n in listas.values()
+                  if n and not coluna_em(n, COLUNAS_SKIP))
 
 
 def _num(card, id_c):
@@ -2613,7 +2672,7 @@ def cartoes_interrompidos(cards, listas, membros_map, acoes_board=None,
 
     for card in cards:
         nl = listas.get(card.get("idList"), "")
-        if nl in COLUNAS_SKIP or card.get("dueComplete", False):
+        if coluna_em(nl, COLUNAS_SKIP) or card.get("dueComplete", False):
             continue
         rotulos = {(lb.get("name") or "").upper().strip()
                    for lb in (card.get("labels") or [])}
@@ -2847,7 +2906,7 @@ def _calcular_fila(listas, cards, membros_map):
     pendentes = []
     for card in cards:
         nl = listas.get(card["idList"], "")
-        if nl in COLUNAS_SKIP:
+        if coluna_em(nl, COLUNAS_SKIP):
             continue
         if card.get("dueComplete", False):
             continue
@@ -2973,7 +3032,7 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
         interr = _num(card, id_i) or 0
 
         # ── PENALIDADES ────────────────────────────────────────────────────────
-        if nl in LISTAS_PENALIDADE:
+        if coluna_em(nl, LISTAS_PENALIDADE):
             if filtro_mes:
                 mc = _mes_card_criacao(card)  # data de CRIAÇÃO — não vaza penalidades antigas
                 if mc and mc != filtro_mes:
@@ -3060,8 +3119,8 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
         # alternando EM ANDAMENTO e INTERROMPIDO --, e por isso raramente
         # chegava ate aqui. "Raramente" nao e "nunca": basta alguem marcar o
         # cartao como concluido uma vez para o mes inteiro sair torto.
-        _destino = "analise_lista" if nl in LISTAS_ANALISE else "tempo_lista"
-        _destino_mb = ("analise_membro_lista" if nl in LISTAS_ANALISE
+        _destino = "analise_lista" if coluna_em(nl, LISTAS_ANALISE) else "tempo_lista"
+        _destino_mb = ("analise_membro_lista" if coluna_em(nl, LISTAS_ANALISE)
                        else "tempo_membro_lista")
         if minutos > 0:
             d.setdefault(_destino, {}).setdefault(nl, []).append(minutos)
@@ -3107,7 +3166,7 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
 
         if pt is None:
             continue
-        if nl in LISTAS_SEM_PONTUACAO:
+        if coluna_em(nl, LISTAS_SEM_PONTUACAO):
             continue
         d["pts_equipe"] += pt
         d["pts_lista"][nl]  = d["pts_lista"].get(nl, 0.0)  + pt
@@ -3687,5 +3746,154 @@ if __name__ == "__main__":
                     _kw_tv.add(getattr(_k.value, "id", ""))
     ok("e a TV recebe a efetiva, não a configurada",
        _kw_tv == {"meta_maxx_alvo"})
+
+    # ══ O NOME DA COLUNA É DIGITADO NO TRELLO ═══════════════════════════
+    #
+    # Dono, 29/09: "temos um monte de demanda na coluna 'CHAT (PROBLEMAS
+    # -30)' que não estão entrando na fila". No código a chave é
+    # "CHAT (PROBLEMAS-30)", SEM o espaço antes do traço.
+    #
+    # Quem cria a coluna digita o nome à mão, e a comparação era exata: um
+    # espaço a mais e a configuração inteira da coluna sumia — tempo
+    # estimado, prioridade, espera de terceiro. O cartão continua na fila,
+    # mas com tempo padrão de 60 em vez de 120, e a previsão de entrega passa
+    # a mentir pela metade.
+    #
+    # Esta base JÁ conhecia o problema e o resolveu duplicando a entrada:
+    # `LISTAS_ANALISE` tem "ANÁLISE DE DEMANDAS" e "ANALISE DE DEMANDAS",
+    # com o comentário "as duas escritas sao aceitas porque quem cria a
+    # coluna digita no Trello". Duplicar é a Forma 5: a terceira grafia
+    # ninguém lembra de somar.
+    ok("espaço antes do traço não muda a coluna",
+       chave_coluna("CHAT (PROBLEMAS -30)") == chave_coluna("CHAT (PROBLEMAS-30)"))
+    ok("espaço a mais no meio também não",
+       chave_coluna("CHAT  (PROBLEMAS-30)") == chave_coluna("CHAT (PROBLEMAS-30)"))
+    ok("nem espaço sobrando nas pontas",
+       chave_coluna("  CHAT (PROBLEMAS-30) ") == chave_coluna("CHAT (PROBLEMAS-30)"))
+    ok("nem caixa alta ou baixa",
+       chave_coluna("chat (problemas-30)") == chave_coluna("CHAT (PROBLEMAS-30)"))
+    ok("nem o acento, que ninguém digita igual duas vezes",
+       chave_coluna("ANALISE DE DEMANDAS") == chave_coluna("ANÁLISE DE DEMANDAS"))
+
+    # E COLUNAS DIFERENTES CONTINUAM DIFERENTES. Sem isto a normalização
+    # poderia colapsar tudo e a guarda acima passaria com uma função que
+    # devolvesse sempre a mesma coisa — todas as colunas com a mesma config.
+    ok("colunas de verdade diferentes não se confundem",
+       chave_coluna("CHAT (PROBLEMAS-30)") != chave_coluna("CHAT (PROBLEMAS-20)"))
+    ok("e o número entre parênteses importa",
+       chave_coluna("DESATIVAR (50)") != chave_coluna("DESATIVAR (30)"))
+    ok("nome vazio não vira chave", chave_coluna("") == "")
+    ok("e None não explode", chave_coluna(None) == "")
+
+    # A CONFIGURAÇÃO CHEGA PELA GRAFIA DO TRELLO.
+    _cfg_chat = cfg_coluna("CHAT (PROBLEMAS -30)")
+    ok("a coluna com espaço recebe a config de verdade, e não o padrão",
+       _cfg_chat.get("tempo_min") == 120 and _cfg_chat.get("prioridade") == 5)
+    ok("e a espera de terceiro também chega pela grafia digitada",
+       cfg_coluna("CONFERENCIA  DE CHAMADOS (20)").get("espera_h") == 36)
+    ok("coluna que não existe mesmo continua caindo no padrão",
+       cfg_coluna("COLUNA QUE NAO EXISTE") == CFG_PADRAO_COLUNA)
+
+    # E OS CONJUNTOS TAMBÉM: a Forma 1 desta base é corrigir num lugar e
+    # deixar o irmão. TRIAGEM com espaço a mais tem de continuar sendo
+    # TRIAGEM, ou ela volta a pagar tempo de execução.
+    ok("a coluna que não pontua é reconhecida com a grafia digitada",
+       coluna_em("TABELA  DE PONTUAÇÃO", LISTAS_SEM_PONTUACAO))
+    ok("e a que não é etapa de execução também",
+       coluna_em(" triagem ", COLUNAS_SKIP))
+    ok("e a de penalidade", coluna_em("penalidades", LISTAS_PENALIDADE))
+    ok("e coluna de trabalho NÃO é confundida com elas",
+       not coluna_em("CHAT (PROBLEMAS -30)", LISTAS_SEM_PONTUACAO))
+
+    # E NENHUM IRMÃO FICOU PARA TRÁS — por AST, no repositório inteiro.
+    #
+    # A Forma 1 desta base é corrigir onde o problema apareceu e deixar o
+    # irmão: o `in` exato sobreviveu em quatro arquivos nas vezes anteriores.
+    # Aqui a pergunta não é "corrigi o da fila?", é "sobrou algum?".
+    import ast as _ast_col, os as _os_col
+    _CONJ = {"COLUNAS_SKIP", "LISTAS_SEM_PONTUACAO", "LISTAS_PENALIDADE",
+             "LISTAS_ANALISE"}
+    _sobrou = []
+    for _arq in sorted(_os_col.listdir(_os_col.path.dirname(__file__) or ".")):
+        if not _arq.endswith(".py") or _arq.startswith("checar_"):
+            continue
+        try:
+            _src = open(_arq, encoding="utf-8").read()
+            _arv = _ast_col.parse(_src.split('if __name__ == "__main__":')[0])
+        except Exception:
+            continue
+        for _n2 in _ast_col.walk(_arv):
+            if not (isinstance(_n2, _ast_col.Compare) and len(_n2.ops) == 1
+                    and isinstance(_n2.ops[0], (_ast_col.In, _ast_col.NotIn))):
+                continue
+            _alvo2 = _n2.comparators[0]
+            _nome2 = getattr(_alvo2, "id", "") or getattr(_alvo2, "attr", "")
+            if _nome2 not in _CONJ:
+                continue
+            # `"TRIAGEM" in COLUNAS_SKIP` com texto fixo é declaração de
+            # configuração, não teste de coluna vinda do Trello.
+            if isinstance(_n2.left, _ast_col.Constant):
+                continue
+            _sobrou.append(f"{_arq}:{_n2.lineno}")
+    ok("nenhum lugar ainda compara nome de coluna com `in` exato"
+       + (" — sobrou em " + " · ".join(_sobrou[:4]) if _sobrou else ""),
+       not _sobrou)
+
+    # ══ AS TRÊS QUE O `checar_impacto` COBROU ═══════════════════════════
+    #
+    # Mudaram nesta rodada, têm leitor em `placar.py` e não tinham guarda
+    # nenhuma. Guarda escrita DEPOIS sai parecida com o que já foi feito —
+    # então estas partem do comportamento que a tela espera, não do código.
+
+    # `colunas_do_board` alimenta a tela de Configuração de Colunas. Se ela
+    # devolvesse coluna ignorada, o gestor veria TRIAGEM e PENALIDADES
+    # pedindo tempo estimado; se engolisse coluna de trabalho, a coluna nova
+    # ficaria invisível para configurar — e rodaria no padrão para sempre.
+    _lst_cb = {"a": "CHAT (PROBLEMAS-30)", "b": " triagem ",
+               "c": "PENALIDADES", "d": "DESATIVAR (50)", "e": ""}
+    _bk_bb = globals().get("_buscar_board")
+    try:
+        globals()["_buscar_board"] = lambda *a, **k: (_lst_cb, [], {}, "", "", "")
+        _cols = colunas_do_board()
+        ok("as colunas do board trazem as de trabalho",
+           _cols == ["CHAT (PROBLEMAS-30)", "DESATIVAR (50)"])
+        ok("e a ignorada não aparece nem com a grafia torta",
+           not any("TRIAGEM" in c.upper() for c in _cols))
+    finally:
+        if _bk_bb is not None:
+            globals()["_buscar_board"] = _bk_bb
+
+    # `_card_atrasado`: parado por etiqueta NÃO atrasa. O relógio de execução
+    # já parava, mas o prazo de entrega continuava correndo — cartão parado
+    # há dois meses esperando terceiro aparecia como atraso da equipe, por um
+    # tempo que não era dela.
+    _ontem = (datetime.now(timezone.utc) - timedelta(days=3)).strftime(
+        "%Y-%m-%dT%H:%M:%S.000Z")
+
+    def _c_atr(labels):
+        return {"id": "x", "name": "n", "due": _ontem, "dueComplete": False,
+                "labels": [{"name": l} for l in labels], "idLabels": [],
+                "idMembers": [], "dateLastActivity": _ontem}
+
+    ok("cartão com entrega vencida está atrasado",
+       _card_atrasado(_c_atr([]), "CHAT (PROBLEMAS-30)") is True)
+    ok("mas INTERROMPIDO não atrasa — o tempo não é da equipe",
+       _card_atrasado(_c_atr([LABEL_INTERROMPIDO]),
+                      "CHAT (PROBLEMAS-30)") is False)
+    ok("e FIM DE EXPEDIENTE também não",
+       _card_atrasado(_c_atr([LABEL_FIM_EXPEDIENTE]),
+                      "CHAT (PROBLEMAS-30)") is False)
+
+    # `cartoes_interrompidos`: o cartão parado volta à tela. Sem isto ele some
+    # dos indicadores sem sair do board, e ficar parado deixa de ter custo.
+    _cards_int = [_c_atr([LABEL_INTERROMPIDO]), _c_atr([])]
+    _cards_int[0]["id"], _cards_int[1]["id"] = "p1", "p2"
+    _par = cartoes_interrompidos(_cards_int, {"L": "CHAT (PROBLEMAS-30)"}, {})
+    ok("o cartão parado aparece na lista de parados",
+       any(c.get("id") == "p1" for c in _par))
+    ok("e o que não está parado NÃO aparece",
+       all(c.get("id") != "p2" for c in _par))
+    ok("sem histórico da ação, o `desde` vem vazio em vez de inventado",
+       all(c.get("desde") is None for c in _par))
 
     print("\nfalhas:", falhas)
