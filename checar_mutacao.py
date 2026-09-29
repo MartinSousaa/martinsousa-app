@@ -421,6 +421,35 @@ MUTACOES = [
         ["python3", "imagem.py"],
     ),
     (
+        # Dono, 29/09: "eles mandaram a imagem no chat para ficar claro o que
+        # ele pediu". O anexo parava no chat e o motor recebia so a frase.
+        "o comando de ajuste volta a nao levar a referencia do pedido",
+        "chat_assistente.py",
+        '                {"num": foto_num, "instrucao": instrucao,\n'
+        '                 "referencia": referencia_do_pedido(\n'
+        '                     st.session_state.get("ms_chat_hist"))}',
+        '                {"num": foto_num, "instrucao": instrucao}',
+        ["python3", "chat_assistente.py"],
+    ),
+    (
+        # Anexo de vinte mensagens atras, sobre outra peca, viraria referencia
+        # do pedido de agora — e referencia errada e pior que nenhuma.
+        "o anexo antigo volta a valer como referencia do pedido novo",
+        "chat_assistente.py",
+        "    falas = list(historico or [])[-FALAS_QUE_O_ANEXO_ALCANCA:]",
+        "    falas = list(historico or [])",
+        ["python3", "chat_assistente.py"],
+    ),
+    (
+        # A referencia nao pode substituir as fotos do produto: elas sao a
+        # trava de fidelidade, e sem elas o motor perde a cor e a forma.
+        "a referencia do pedido toma o lugar das fotos do produto",
+        "imagem.py",
+        "            _refs_cmd = _ref_pedido + list(fotos_ref_aj or [])",
+        "            _refs_cmd = _ref_pedido",
+        ["python3", "imagem.py"],
+    ),
+    (
         "o ponto sem dono para de ser contado a parte",
         "conferencia_pontos.py",
         '            qtd["pontos_fora_do_quadro"] += pt',
