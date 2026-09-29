@@ -303,6 +303,24 @@ MUTACOES = [
         ["python3", "placar_core.py"],
     ),
     (
+        # Dono, 29/09: "o 100% dela tem que ser quando baterem o que precisam
+        # para diminuir a penalidade".
+        "o termometro MAXX volta a terminar na meta configurada",
+        "placar.py",
+        "        st.markdown(_vel_maxx(pct_maxx, meta_maxx_alvo, saldo_eq,",
+        "        st.markdown(_vel_maxx(pct_maxx, meta_maxx_pts, saldo_eq,",
+        ["python3", "placar_core.py"],
+    ),
+    (
+        "a fatia SALVAR volta e conta o trecho extra duas vezes",
+        "placar.py",
+        "                              _sit_pen[\"bateu_maxx\"],\n"
+        "                              pts_salvar=0),",
+        "                              _sit_pen[\"bateu_maxx\"],\n"
+        "                              pts_salvar=_pts_salvar_maxx),",
+        ["python3", "placar_core.py"],
+    ),
+    (
         "o ponto sem dono para de ser contado a parte",
         "conferencia_pontos.py",
         '            qtd["pontos_fora_do_quadro"] += pt',

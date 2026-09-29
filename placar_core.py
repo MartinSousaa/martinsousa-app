@@ -3654,6 +3654,27 @@ if __name__ == "__main__":
     _nomes_pg = {getattr(_x, "id", "") for _x in _ast_mx.walk(_arv_pg)
                  if isinstance(_x, _ast_mx.Name)}
     ok("o Painel calcula a meta MAXX efetiva", "meta_maxx_alvo" in _nomes_pg)
+
+    # ══ O TERMÔMETRO TERMINA NA META QUE DESTRAVA ═══════════════════════
+    #
+    # Dono, 29/09: "o 100% dela tem que ser quando baterem o que precisam
+    # para diminuir a penalidade".
+    #
+    # O arco ia até 10.800 e pendurava uma FATIA vermelha depois da marca da
+    # meta, rotulada "SALVAR", para o trecho extra. O ponteiro até andava na
+    # escala certa, mas o fim do mostrador não era o alvo: a equipe lia
+    # "cheguei na meta" com a MAXX ainda travada. Agora o arco inteiro vai
+    # de 0 à meta EFETIVA, e 100% quer dizer uma coisa só — destravou.
+    _src_vel = _insp_pc.getsource(_pl_diag.pagina_placar)
+    _ch_maxx = [l for l in _src_vel.split("\n") if "_vel_maxx(" in l]
+    ok("o velocímetro MAXX recebe a meta efetiva",
+       any("meta_maxx_alvo" in l for l in _ch_maxx))
+    _dep_maxx = _src_vel.split("_vel_maxx(")[-1][:300]
+    ok("e não pendura mais fatia de salvar depois da meta",
+       "pts_salvar=0" in _dep_maxx)
+    _ch_col = [l for l in _src_vel.split("\n") if "_vel_meta(" in l]
+    ok("e a coletiva recebe a efetiva dela — o irmão não fica para trás",
+       not _ch_col or any("meta_eq_alvo" in l for l in _ch_col))
     # E ELA CHEGA NA TV. O painel da TV monta o card "Maxx" com o valor que
     # recebe; se continuasse recebendo a configurada, a TV mostraria 10.800
     # enquanto a tela mostra 11.800 — duas respostas para a mesma pergunta,

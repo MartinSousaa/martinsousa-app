@@ -2809,16 +2809,30 @@ def pagina_placar(usuario_logado, headless=False):
 </div>""", unsafe_allow_html=True)
 
 
+    # O MOSTRADOR TERMINA NA META QUE DESTRAVA — 100% é destravou.
+    #
+    # Dono, 29/09: "o 100% dela tem que ser quando baterem o que precisam
+    # para diminuir a penalidade".
+    #
+    # O arco ia até a meta configurada e pendurava depois dela uma fatia
+    # vermelha rotulada "SALVAR", para o trecho extra. O ponteiro andava na
+    # escala certa, mas o FIM do mostrador não era o alvo: quem olhasse via
+    # o ponteiro encostar no fim da faixa dourada e entendia "bati a MAXX",
+    # com ela ainda travada por penalidade.
+    #
+    # Agora a meta efetiva é o fim do arco, e `pts_salvar=0` tira a fatia:
+    # ela somava a sobra por conta própria (`placar.py:764`), o que com a
+    # meta já efetiva contaria o mesmo trecho duas vezes.
     with col_vm:
-        st.markdown(_vel_meta(pct_eq, meta_eq, saldo_eq, faltam,
+        st.markdown(_vel_meta(pct_eq, meta_eq_alvo, saldo_eq, faltam,
                               cor=(_ritmo or {}).get("cor"),
-                              pts_salvar=_pts_salvar_col),
+                              pts_salvar=0),
                     unsafe_allow_html=True)
 
     with col_vx:
-        st.markdown(_vel_maxx(pct_maxx, meta_maxx_pts, saldo_eq,
+        st.markdown(_vel_maxx(pct_maxx, meta_maxx_alvo, saldo_eq,
                               _sit_pen["bateu_maxx"],
-                              pts_salvar=_pts_salvar_maxx),
+                              pts_salvar=0),
                     unsafe_allow_html=True)
 
     with col_cx:
