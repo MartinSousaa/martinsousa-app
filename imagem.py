@@ -343,27 +343,86 @@ def regra_de_espaco(tipo):
         return pt, en
 
     # Tipos 2, 3, 5, 6, 7 e Personalizado: produto mais painel de texto.
+    # UMA VOZ SOBRE A MARGEM, E ELA E A DA FOLGA.
+    #
+    # Aqui havia DUAS ordens contrarias, uma embaixo da outra: "faixa vazia em
+    # volta da peca e area desperdicada, e o anuncio paga por ela" e "folga de
+    # pelo menos 6% em cada lado". Mais uma terceira em ingles, logo abaixo:
+    # "the safety margin is uniform and small". O gerador obedeceu a primeira,
+    # encostou os cartoes na borda, e o texto saiu cortado — na peca 2, na 5, e
+    # de novo depois de eu "corrigir".
+    #
+    # Porque a minha correcao de 26/09 (as pecas 4 e 5) ACRESCENTOU a regra da
+    # folga e deixou a que brigava no lugar. Virei a terceira voz em vez de
+    # calar a que contradizia, e o defeito voltou.
+    #
+    # O trabalho que a linha removida fazia — nao deixar o produto pequeno
+    # perdido num quadro amplo — ja tem dono: e o bloco de protagonismo, que
+    # diz a porcentagem exata de cada tipo. Duas respostas para a mesma
+    # pergunta discordam; a questao e so quando.
     pt = ("REGRA DE ESPAÇO DESTA PEÇA:\n"
-          "- O QUE NÃO É PRODUTO É PAINEL OU CENÁRIO — NÃO É VAZIO. O espaço\n"
-          "  que sobra depois de enquadrar o produto pertence aos blocos de\n"
-          "  texto e ao ambiente. Faixa vazia em volta da peça é área\n"
-          "  desperdiçada, e o anúncio paga por ela.\n"
           "- A FOLGA DA BORDA MANDA: pelo menos 6% em cada lado, e nenhum\n"
-          "  cartão de cota, seta ou legenda cruza ou toca a borda. A regra\n"
-          "  de aproveitar o quadro vale para o PRODUTO e para a cena, e\n"
-          "  nunca autoriza encostar texto na margem.\n"
+          "  cartão de cota, seta ou legenda cruza ou toca a borda. Nada\n"
+          "  encosta na margem — nem texto, nem ícone, nem cartão, nem seta.\n"
+          "- DENTRO dessa folga, o espaço que sobra depois de enquadrar o\n"
+          "  produto pertence aos blocos de texto e ao ambiente: distribua a\n"
+          "  informação nele, sem nunca alcançar a margem.\n"
           "- O produto aparece INTEIRO: nenhuma parte cortada pela borda do\n"
           "  quadro.\n"
           + comum_pt)
-    en = ("- WHAT IS NOT PRODUCT IS PANEL OR SCENE — IT IS NOT EMPTY SPACE. "
-          "Whatever remains after framing the product belongs to the text "
-          "blocks and the environment. An empty band around the piece is "
-          "wasted area.\n"
-          "- The safety margin is uniform and small on all four sides: only "
-          "enough to keep everything off the edge.\n"
+    en = ("- THE EDGE CLEARANCE RULES: at least 6% on every side, and no card, "
+          "callout, arrow or caption may cross or touch the frame edge.\n"
+          "- INSIDE that clearance, whatever remains after framing the "
+          "product belongs to the text blocks and the environment — fill it, "
+          "but never reach the margin.\n"
           "- The product appears WHOLE: no part cut by the frame edge.\n"
           + comum_en)
     return pt, en
+
+
+import re as _re_quadro
+
+_MEDIDA_DE_QUADRO = _re_quadro.compile(
+    r"[,;]?\s*(?:e\s+)?(?:com\s+)?(?:o\s+)?(?:produto\s+)?"
+    r"[^,;.]*?\d{1,3}\s?%[^,;.]*(?:[,;.]|$)", _re_quadro.I)
+
+
+def sem_medida_de_quadro(texto):
+    """A frase do plano, sem a porcentagem de quadro que ela não pode mandar.
+
+    POR QUE ESTA FUNÇÃO EXISTE
+
+    O campo `cena` é escrito pela IA do plano, e o prompt dela pede
+    SUPERFÍCIE, PROPS e ÂNGULO — nada de tamanho. Em 28/09 ela escreveu
+    "Fundo branco puro sem sombra projetada; produto centralizado ocupando
+    60% do espaço vertical" numa peça cuja regra mandava 85% a 92%.
+
+    Duas ordens contrárias sobre a mesma coisa, no mesmo prompt. O gerador
+    obedeceu a do plano, a caneca saiu pequena na capa, e o dono teve de pedir
+    para aumentar — uma rodada inteira por causa de uma frase.
+
+    E a varredura passou VERDE: ela procura as frases que o SISTEMA escreve
+    ("ocupa de X% a Y%"), e a IA escreve em português livre. Guarda que só
+    conhece o próprio vocabulário não vê a voz de fora.
+
+    POR QUE LIMPAR E NÃO PEDIR
+
+    Pedir no prompt do plano seria mais uma regra de texto — e regra de texto
+    é justamente o que o modelo ignora. O tamanho tem um dono só
+    (`ocupacao_em_portugues`), e quem não é dono não fala.
+
+    Corta a ORAÇÃO inteira, e não só o número: "ocupando 60%" sem o número
+    vira "ocupando", que continua mandando tamanho sem dizer quanto.
+    """
+    t = str(texto or "").strip()
+    if not t or "%" not in t:
+        return t
+    limpo = _MEDIDA_DE_QUADRO.sub(", ", t)
+    limpo = _re_quadro.sub(r"\s*,\s*(?=,|\.|$)", "", limpo)
+    limpo = _re_quadro.sub(r"\s{2,}", " ", limpo).strip(" ,;")
+    # Sobrou frase? Se a limpeza comeu tudo, o certo é devolver vazio: cena
+    # que só falava de tamanho não tinha nada a dizer sobre cenário.
+    return (limpo + "." if limpo and not limpo.endswith(".") else limpo)
 
 
 def faixa_de_ocupacao(tipo):
@@ -3535,10 +3594,30 @@ def bloco_texto_exato(textos):
     correção que a revisão devolveu. Uma redação só — se as duas divergissem,
     a peça refeita sairia diferente da peça planejada.
     """
+    # UMA LINHA QUEBRADA NÃO É UM BLOCO NOVO.
+    #
+    # O texto corrigido volta da revisão como TEXTO, e texto volta com quebra
+    # de linha onde a frase era longa. Cortar por linha transformava
+    # "METAL E INOX: durável para uso diário intenso" em três blocos, e a
+    # numeração saía 1., 4., 7. nos títulos — foi o "embaralhado" que o dono
+    # viu na peça 2 em 28/09.
+    #
+    # O que começa um bloco é o TÍTULO: palavra(s) em caixa alta seguidas de
+    # dois-pontos, que é o formato que a triagem escreve e que a revisão
+    # devolve. Linha sem título é continuação da anterior.
     if isinstance(textos, str):
-        linhas = [t.strip() for t in textos.splitlines() if t.strip()]
+        linhas = []
+        for bruto in textos.splitlines():
+            t = bruto.strip()
+            if not t:
+                continue
+            if linhas and not _INICIO_DE_BLOCO.match(t):
+                linhas[-1] = (linhas[-1] + " " + t).strip()
+            else:
+                linhas.append(t)
     else:
-        linhas = [str(t).strip() for t in (textos or []) if str(t).strip()]
+        linhas = [" ".join(str(t).split()) for t in (textos or [])
+                  if str(t).strip()]
     if not linhas:
         return ""
     corpo = "\n".join(f"  {i}. {t}" for i, t in enumerate(linhas, 1))
@@ -3548,6 +3627,16 @@ def bloco_texto_exato(textos):
         "REGRAS DESTE TEXTO, acima de qualquer outra instrução de texto:\n"
         "- Escreva EXATAMENTE estas palavras, letra por letra, com os mesmos "
         "acentos. Não reescreva, não resuma, não traduza, não melhore.\n"
+        # O NÚMERO É MEU, NÃO É DA PEÇA.
+        #
+        # "1. ", "2. " servem para contar os blocos — e o gerador copiava o
+        # número junto com o texto, porque a linha acima manda escrever
+        # EXATAMENTE o que está escrito. Os cartões do dono saíram com
+        # "1. METAL E INOX", "2. DESIGN ÚNICO", "3. 400ML", e o mesmo formato
+        # está no histórico de outro produto, de semanas antes.
+        "- Os números **1.**, **2.**, **3.** são apenas a contagem dos blocos: "
+        "NÃO desenhe o número na imagem. O que se escreve é só o que vem "
+        "depois do ponto.\n"
         "- NÃO escreva nenhuma outra palavra na imagem além destas.\n"
         "- Tudo em português do Brasil. NENHUMA palavra em inglês na imagem, "
         "em lugar nenhum — nem em livro, tela, etiqueta, embalagem ou objeto "
@@ -3555,10 +3644,19 @@ def bloco_texto_exato(textos):
         "em português, ou não aparecer.\n"
         "- Se não couber tudo, escreva MENOS blocos — nunca invente palavra "
         "para preencher espaço.\n"
+        + MARCA_FIM_TEXTO_EXATO + "\n"
     )
 
 
+_INICIO_DE_BLOCO = __import__("re").compile(r"^[0-9A-ZÀ-Ú][^:]{0,44}:")
+
 MARCA_TEXTO_EXATO = "━━━ TEXTO EXATO A ESCREVER (copie letra por letra) ━━━"
+# O BLOCO DIZ ONDE ELE ACABA.
+#
+# Sem esta marca, quem troca a copy tinha de adivinhar o fim do bloco, e
+# adivinhou pela proxima "━━━" — que e a SECTION 2, doze mil caracteres
+# adiante. Tudo que estava no meio (as seis regras da peca) ia junto.
+MARCA_FIM_TEXTO_EXATO = "━━━ FIM DO TEXTO EXATO ━━━"
 
 
 def trocar_texto_exato(prompt, textos):
@@ -3577,15 +3675,43 @@ def trocar_texto_exato(prompt, textos):
     e as três rodadas de revisão foram gastas mandando o gerador escolher
     entre duas ordens contrárias.
     """
+    # O FIM DO BLOCO VEM DA MARCA DELE, E NÃO DE ADIVINHAÇÃO.
+    #
+    # O QUE ISTO CONSERTA — e é um estrago que esta função causava:
+    #
+    # A versão anterior procurava a próxima "━━━" depois do bloco de texto.
+    # A próxima "━━━" é a SECTION 2 — doze mil caracteres adiante. Entre uma e
+    # outra está TODA a Seção 1 depois da copy: a regra da borda, o bloco de
+    # protagonismo, a regra de densidade, a de texto real, a de fidelidade e a
+    # instrução de composição. Tudo isso era apagado.
+    #
+    # Medido no prompt real de 28/09 às 18:17: a peça 2 foi ao motor com 8.259
+    # caracteres contra 24.000 das irmãs, sem nenhuma dessas regras. E como
+    # `revisar_texto` chama esta troca SEMPRE que acha erro de português, toda
+    # peça refeita pela revisão ia ao motor sem regra nenhuma — justamente a
+    # peça que já tinha dado problema.
+    #
+    # Agora `bloco_texto_exato` fecha com `MARCA_FIM_TEXTO_EXATO`, e a troca
+    # recorta exatamente entre as duas marcas. O bloco novo entra NO LUGAR do
+    # antigo, e não no fim do prompt: ordem importa, e o texto tem de continuar
+    # antes das regras que falam dele.
     base = str(prompt or "")
     i = base.find(MARCA_TEXTO_EXATO)
-    if i >= 0:
-        # O bloco vai até a próxima seção "━━━" ou até o fim.
-        j = base.find("━━━", i + len(MARCA_TEXTO_EXATO))
-        # `find` acha o fecho da própria marca; pula os dois do cabeçalho.
-        j = base.find("━━━", i + len(MARCA_TEXTO_EXATO) + 1)
-        base = (base[:i].rstrip("\n") + ("\n\n" + base[j:] if j > 0 else "")).rstrip()
-    return base + bloco_texto_exato(textos)
+    novo = bloco_texto_exato(textos)
+    if i < 0:
+        return base + novo
+    f = base.find(MARCA_FIM_TEXTO_EXATO, i)
+    if f >= 0:
+        fim = f + len(MARCA_FIM_TEXTO_EXATO)
+    else:
+        # PROMPT ANTIGO, sem a marca de fim: o bloco termina na última linha
+        # que `bloco_texto_exato` escreve. Cortar até a próxima "━━━" é o que
+        # levava as regras junto, e não se faz mais.
+        _ultima = "para preencher espaço."
+        _u = base.find(_ultima, i)
+        fim = (_u + len(_ultima)) if _u >= 0 else i + len(MARCA_TEXTO_EXATO)
+    return (base[:i].rstrip("\n") + "\n" + novo.lstrip("\n")
+            + "\n" + base[fim:].lstrip("\n")).rstrip() + "\n"
 
 
 def _campo_ambientacao(sufixo):
@@ -3665,6 +3791,18 @@ def bloco_direcao_de_arte(direcao):
     d = direcao if isinstance(direcao, dict) else {}
     if not d:
         return ""
+    # A DIREÇÃO DE ARTE TAMBÉM NÃO MANDA TAMANHO.
+    #
+    # Ela é prosa livre escrita pela mesma IA que escreve a cena — e a cena
+    # veio com "produto centralizado ocupando 60% do espaço vertical" numa
+    # peça cuja regra mandava 85% a 92%. Nada impedia a atmosfera, a luz ou o
+    # posicionamento de fazerem igual.
+    #
+    # Limpar só a cena teria sido a Forma 1 de novo: a correção no lugar onde
+    # o sintoma apareceu, e não em todos onde a regra alcança. O tamanho tem
+    # um dono, e é `ocupacao_em_portugues`.
+    d = {k: (sem_medida_de_quadro(v) if isinstance(v, str) else v)
+         for k, v in d.items()}
     _p = d.get("paleta") if isinstance(d.get("paleta"), dict) else {}
 
     def _cor(chave, rotulo, onde):
@@ -3831,7 +3969,7 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
     bloco_plano_triagem = ""
     _blocos_da_copy = 0
     if plano_triagem and not (tipo == "Personalizado (descrevo o que quero)"):
-        _composicao = plano_triagem.get("composicao", "").strip()
+        _composicao = sem_medida_de_quadro(plano_triagem.get("composicao", ""))
         plano_triagem_item_cena = plano_triagem.get("cena", "")
         _textos = [t for t in plano_triagem.get("textos", []) if t and str(t).strip()]
         # O TETO DA PECA CORTA A COPY AQUI, E NAO NO GERADOR.
@@ -3855,7 +3993,7 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
             # com caneta na 3, na 7 e na 8. A triagem planeja as oito de uma
             # vez e por isso consegue variar superficie, props e angulo sem
             # sair do universo.
-            _cena = str(plano_triagem_item_cena or "").strip()
+            _cena = sem_medida_de_quadro(plano_triagem_item_cena)
             if _cena:
                 bloco_plano_triagem += f"Cena desta peça: {_cena}\n"
             if _textos:
@@ -5295,8 +5433,18 @@ def revisar_tudo(img, tipo, fotos_ref=None, gerar=None, prompt_base="",
     preservar o quadro, e o conserto de `revisar_peca` é recompor — as duas
     brigariam, e quem perde é quem pediu para mexer só numa palavra.
     """
-    img, rel_txt = revisar_texto(img, tipo, pedido=pedido, gerar=gerar,
-                                 prompt_base=prompt_base, aviso=aviso)
+    img, rel_txt, prompt_base = revisar_texto(
+        img, tipo, pedido=pedido, gerar=gerar, prompt_base=prompt_base,
+        aviso=aviso)
+    # A BASE CORRIGIDA SEGUE PARA A SEGUNDA REVISAO.
+    #
+    # Sem isto, `revisar_peca` refazia a partir do prompt ORIGINAL — com a
+    # copy errada que a revisao de texto acabou de gastar uma geracao para
+    # tirar. A peca voltava com "Portatile" de novo, e a segunda correcao
+    # desfazia a primeira.
+    #
+    # O prompt SAI do relato aqui: senao ele viajaria com a peca ate a galeria
+    # e o disco, 24 mil caracteres por imagem, sem ninguem ler.
     img, rel_peca = revisar_peca(img, tipo, fotos_ref=fotos_ref, gerar=gerar,
                                  prompt_base=prompt_base, aviso=aviso)
     return img, rel_txt, rel_peca
@@ -5304,7 +5452,23 @@ def revisar_tudo(img, tipo, fotos_ref=None, gerar=None, prompt_base="",
 
 def revisar_texto(img, tipo, pedido="", gerar=None, prompt_base="",
                   rodadas=3, aviso=None):
-    """Lê o texto escrito na imagem e refaz até sair certo. (imagem, relato).
+    """Lê o texto escrito na imagem e refaz até sair certo.
+
+    Devolve (imagem, relato, prompt_final) — TRÊS coisas, e a terceira é de
+    propósito.
+
+    POR QUE NÃO VAI DENTRO DO RELATO
+
+    O prompt com que esta função terminou é o que a revisão seguinte precisa
+    para refazer sem desfazer a correção da copy. Ele chegou a viajar dentro
+    do `relato`, e o relato é guardado em `galeria[i]["texto"]`: são 24 mil
+    caracteres por imagem, 200 mil numa geração de oito, redesenhados a cada
+    tecla digitada. `revisar_tudo` tirava ele de lá — e o outro leitor,
+    `ajustar_com_conferencia`, não tirava. Corrigir um leitor e esquecer o
+    irmão é a Forma 1, e ela já custou caro nesta base.
+
+    Com três valores, quem chama não tem como esquecer: ou desempacota, ou
+    não compila.
 
     `gerar(prompt) -> (bytes, erro)` é como esta função pede outra imagem. Ela
     não conhece o gerador de propósito: a tela gera numa thread (para o
@@ -5330,7 +5494,7 @@ def revisar_texto(img, tipo, pedido="", gerar=None, prompt_base="",
                 pass
 
     if not img or not pode_ter_texto(tipo):
-        return img, None
+        return img, None, prompt_base
 
     erros_1a = ""
     for n in range(1, max(1, rodadas) + 1):
@@ -5338,23 +5502,31 @@ def revisar_texto(img, tipo, pedido="", gerar=None, prompt_base="",
         veredito, erro_conf = conferir_texto(img, pedido)
         if erro_conf:
             return img, {"ok": None, "rodadas": n, "erro": erro_conf,
-                         "erros": erros_1a}
+                         "erros": erros_1a}, prompt_base
         if not veredito.get("tem_texto") or veredito.get("correto"):
             return img, {"ok": True, "rodadas": n, "erro": "",
-                         "erros": erros_1a}
+                         "erros": erros_1a}, prompt_base
         erros = (veredito.get("erros") or "").strip()
         erros_1a = erros_1a or erros
         certo = (veredito.get("texto_correto") or "").strip()
         if n >= rodadas or not gerar or not certo:
             return img, {"ok": False, "rodadas": n, "erro": "",
-                         "erros": erros or erros_1a}
+                         "erros": erros or erros_1a}, prompt_base
         _diz(f"Texto errado ({erros[:60]}). Refazendo com as palavras certas…")
-        nova_img, erro_g = gerar(trocar_texto_exato(prompt_base, certo))
+        # A BASE MUDA JUNTO COM A COPY.
+        #
+        # Quem revisar esta peça depois — `revisar_peca` — vai refazer a
+        # partir de um prompt, e esse prompt tem de ser o CORRIGIDO. Com o
+        # original, a peça voltaria com a palavra inventada que acabou de
+        # custar uma geração para sair: a segunda correção desfazendo a
+        # primeira.
+        prompt_base = trocar_texto_exato(prompt_base, certo)
+        nova_img, erro_g = gerar(prompt_base)
         if erro_g or not nova_img:
             return img, {"ok": False, "rodadas": n, "erro": "",
-                         "erros": erros or erros_1a}
+                         "erros": erros or erros_1a}, prompt_base
         img = nova_img
-    return img, {"ok": False, "rodadas": rodadas, "erro": "", "erros": erros_1a}
+    return img, {"ok": False, "rodadas": rodadas, "erro": "", "erros": erros_1a}, prompt_base
 
 
 def texto_em_aviso(relato):
@@ -5403,7 +5575,7 @@ def ajustar_com_conferencia(imagem, instrucao, tipo=None, tentativas=2,
         return gerar_imagem_ia(prompt_corrigido, [img] + _refs_fix,
                                tipo=_t or "")
 
-    img_ok, rel_txt = revisar_texto(
+    img_ok, rel_txt, _ = revisar_texto(
         img, tipo,
         pedido=instrucao,
         gerar=_refazer,
@@ -8666,14 +8838,14 @@ if __name__ == "__main__":
         return b"nova", None
 
     conferir_texto = _leitor(_CERTO)
-    _img, _rel = revisar_texto(b"x", "2 — Benefícios do produto", gerar=_gera)
+    _img, _rel, _ = revisar_texto(b"x", "2 — Benefícios do produto", gerar=_gera)
     ok("texto certo passa de primeira, sem refazer",
        _rel["ok"] is True and _rel["rodadas"] == 1 and not _geradas)
 
     # O caso que deixou a peça errada chegar ao gestor: refez e ninguem releu.
     _geradas.clear()
     conferir_texto = _leitor(_ERRADO, _CERTO)
-    _img, _rel = revisar_texto(b"x", "2 — Benefícios do produto", gerar=_gera,
+    _img, _rel, _ = revisar_texto(b"x", "2 — Benefícios do produto", gerar=_gera,
                                prompt_base="BASE")
     ok("texto errado é refeito e RELIDO, e a segunda leitura aprova",
        _rel["ok"] is True and _rel["rodadas"] == 2 and _img == b"nova")
@@ -8683,7 +8855,7 @@ if __name__ == "__main__":
 
     _geradas.clear()
     conferir_texto = _leitor(_ERRADO, _ERRADO, _ERRADO)
-    _img, _rel = revisar_texto(b"x", "2 — Benefícios do produto", gerar=_gera,
+    _img, _rel, _ = revisar_texto(b"x", "2 — Benefícios do produto", gerar=_gera,
                                rodadas=3)
     ok("errado até o fim sai como errado, e não como “refeita, confira”",
        _rel["ok"] is False and _rel["rodadas"] == 3)
@@ -8691,28 +8863,154 @@ if __name__ == "__main__":
        len(_geradas) == 2)
 
     conferir_texto = _leitor("sem chave")
-    _img, _rel = revisar_texto(b"x", "2 — Benefícios do produto", gerar=_gera)
+    _img, _rel, _ = revisar_texto(b"x", "2 — Benefícios do produto", gerar=_gera)
     ok("falha de leitura NÃO vira aprovação", _rel["ok"] is None)
     ok("e a tela avisa em voz alta",
        "NÃO foi conferido" in texto_em_aviso(_rel))
 
     conferir_texto = _leitor(_ERRADO)
-    _img, _rel = revisar_texto(b"x", "2 — Benefícios", gerar=None)
+    _img, _rel, _ = revisar_texto(b"x", "2 — Benefícios", gerar=None)
     ok("sem gerador, confere e reporta — não trava",
        _rel["ok"] is False and _img == b"x")
 
     conferir_texto = _leitor(_ERRADO)
-    _img, _rel = revisar_texto(b"x", "1 — Capa do anúncio (fundo branco)",
+    _img, _rel, _ = revisar_texto(b"x", "1 — Capa do anúncio (fundo branco)",
                                gerar=_gera)
     ok("tipo sem texto nem é lido", _rel is None and _img == b"x")
     conferir_texto = _leitor(_CERTO)
-    _img, _rel = revisar_texto(b"x", "Ajuste Fino — aumente o produto",
+    _img, _rel, _ = revisar_texto(b"x", "Ajuste Fino — aumente o produto",
                                gerar=_gera)
     ok("peça já ajustada, sem número no rótulo, continua sendo lida",
        _rel is not None and _rel["ok"] is True)
     ok("pode_ter_texto só dispensa capa e ambientação",
        pode_ter_texto("Personalizado (descrevo o que quero)")
        and not pode_ter_texto("8 — Ambientação realista (sem texto)"))
+
+    # ── A TROCA DA COPY APAGAVA TODAS AS REGRAS DA PECA ─────────────────
+    #
+    # O DEFEITO, medido no prompt real de 28/09 as 18:17: a peca 2 foi ao
+    # motor com 8.259 caracteres; as irmas, com 24.000. Ela nao recebeu a
+    # regra da borda, nem a de protagonismo, nem a de densidade, nem a de
+    # texto real, nem a de fidelidade. Foi gerada praticamente sem regra — e
+    # e a peca que o dono refez QUATRO vezes.
+    #
+    # A causa: `trocar_texto_exato` apagava do bloco de texto ate a
+    # "━━━ SECTION 2", e na Secao 1 TODAS as regras vem DEPOIS do bloco de
+    # texto. Como `revisar_texto` chama essa troca sempre que acha erro de
+    # portugues, toda peca refeita pela revisao ia ao motor sem regra nenhuma.
+    #
+    # E o defeito e meu: essa funcao nasceu para consertar os DOIS blocos de
+    # texto contrarios, e levou junto tudo o que estava entre um e outro.
+    _BLOCOS_DE_REGRA = ("REGRA DE ESPAÇO DESTA PEÇA", "O PRODUTO É O DESTAQUE",
+                        "REGRA DE DENSIDADE", "REGRA DE TEXTO REAL",
+                        "REGRA DE FIDELIDADE AO PRODUTO",
+                        "INSTRUÇÃO DE COMPOSIÇÃO")
+    _p_int = montar_prompt_imagem(
+        "2 — Benefícios do produto", "", {"cor": "Cinza"}, "Caneca",
+        plano_triagem={"composicao": "caneca ao centro", "cena": "bancada",
+                       "textos": ["METAL E INOX: durável para uso diário",
+                                  "ACABAMENTO ÚNICO: imita pedra medieval",
+                                  "400ML: ideal para café e chá"]},
+        refs_layout_nomes=["r.jpg"], instrucao_layout="coluna à direita")
+    ok("o prompt inteiro tem as seis regras",
+       all(b in _p_int for b in _BLOCOS_DE_REGRA))
+
+    _p_troc = trocar_texto_exato(_p_int, ["METAL E INOX: durável para uso"])
+    _perdidos = [b for b in _BLOCOS_DE_REGRA if b not in _p_troc]
+    ok("e trocar a copy NAO apaga nenhuma delas", not _perdidos)
+    ok("a copy nova entra", "durável para uso" in _p_troc)
+    ok("e a copy velha sai — nunca DOIS blocos de texto contrarios",
+       "imita pedra medieval" not in _p_troc
+       and _p_troc.count(MARCA_TEXTO_EXATO) == 1)
+    ok("e o prompt nao encolhe pela metade",
+       len(_p_troc) > len(_p_int) * 0.85)
+
+    # O PROMPT SEM A MARCA DE FIM — o formato de ontem, que ainda chega aqui
+    # por um rascunho recuperado ou por um prompt guardado no log. E tambem o
+    # unico caso em que a mutacao de verdade aparece: com a marca presente, o
+    # codigo velho acerta por tabela, porque a marca TAMBEM e uma "━━━".
+    _p_velho = _p_int.replace(MARCA_FIM_TEXTO_EXATO, "")
+    _t_velho = trocar_texto_exato(_p_velho, ["METAL E INOX: durável"])
+    ok("prompt sem a marca de fim tambem nao perde as regras",
+       not [b for b in _BLOCOS_DE_REGRA if b not in _t_velho])
+    ok("e nele a copy velha sai do mesmo jeito",
+       "imita pedra medieval" not in _t_velho)
+
+    # ── A COPY QUEBRADA EM LINHAS VIRAVA UM ITEM POR LINHA ───────────────
+    #
+    # No mesmo prompt de 18:17: "METAL E INOX: durável para uso diário
+    # intenso" chegou quebrada e virou os itens 1, 2 e 3. Os titulos ficaram
+    # numerados 1., 4. e 7. — o "embaralhado" que o dono apontou, e que eu na
+    # hora chamei de coisa do modelo. O texto abaixo e o do arquivo dele.
+    _CRU = ("METAL E INOX: durável para uso\ndiário intenso\n"
+            "ACABAMENTO ÚNICO: acabamento que\nimita pedra medieval\n"
+            "400ML: ideal para café, chá\ne bebidas quentes")
+    _b_cru = bloco_texto_exato(_CRU)
+    # A ASSERCAO ERRADA ERA MINHA: com tres blocos, o item "3." existe e esta
+    # certo. O que nao pode existir e o QUARTO — nove linhas viravam nove.
+    ok("linha quebrada NAO vira bloco novo — tres blocos, e nao nove",
+       "  3. " in _b_cru and "  4. " not in _b_cru)
+    ok("e cada bloco volta inteiro",
+       "1. METAL E INOX: durável para uso diário intenso" in _b_cru
+       and "3. 400ML: ideal para café, chá e bebidas quentes" in _b_cru)
+
+    # ── O NUMERO DA LISTA NAO E PARA DESENHAR ───────────────────────────
+    #
+    # Isto e antigo e vale para TODO produto: o bloco manda "escreva
+    # EXATAMENTE estas palavras" com "1. ", "2. " colados, e nada diz que o
+    # numero nao faz parte. O gerador copia o numero. Na tela do dono, os
+    # cartoes sairam escritos "1. METAL E INOX", "2. DESIGN ÚNICO",
+    # "3. 400ML" — e o mesmo formato esta no historico do Guerreiro Porta
+    # Caneta, de semanas antes.
+    ok("o bloco avisa que o numero nao vai para a imagem",
+       "não desenhe o número" in _b_cru.lower()
+       or "não escreva o número" in _b_cru.lower())
+
+    # ── O PLANO NAO MANDA TAMANHO ───────────────────────────────────────
+    #
+    # 28/09: a capa saiu com a caneca pequena, e o dono pediu para aumentar.
+    # Nao era o modelo desobedecendo: o prompt mandava DUAS coisas.
+    #
+    #   regra da peca : "O produto ocupa de 85% a 92% da dimensao util"
+    #   cena do plano : "produto centralizado ocupando 60% do espaco vertical"
+    #
+    # A cena e escrita pela IA do plano, e o prompt dela pede superficie,
+    # props e angulo — nada de tamanho. Ela legislou fora da area dela, e o
+    # gerador obedeceu a ela.
+    #
+    # A ENTRADA DESTE TESTE VEM DO .TXT DO DONO, palavra por palavra, e nao
+    # de uma frase que eu inventaria (Forma 7). A frase abaixo e a que
+    # realmente foi ao motor em 28/09 as 18:47.
+    _CENA_REAL = ("Fundo branco puro sem sombra projetada; produto "
+                  "centralizado ocupando 60% do espaço vertical.")
+    ok("a medida sai da cena, e a cena continua dizendo o cenario",
+       sem_medida_de_quadro(_CENA_REAL) == "Fundo branco puro sem sombra projetada.")
+    ok("cena sem medida passa intacta",
+       sem_medida_de_quadro("superfície de nogueira, caderno fechado, câmera em 3/4")
+       == "superfície de nogueira, caderno fechado, câmera em 3/4")
+    ok("a medida no MEIO sai sem levar o resto junto",
+       sem_medida_de_quadro("Bancada de mármore, produto ocupando 85% da altura, luz lateral")
+       == "Bancada de mármore, luz lateral.")
+    # A ORACAO INTEIRA, e nao so o numero: "ocupando" sem o numero continua
+    # mandando tamanho, so que sem dizer quanto — que e pior.
+    ok("nao sobra 'ocupando' orfao",
+       "ocupando" not in sem_medida_de_quadro(_CENA_REAL)
+       and "ocupando" not in sem_medida_de_quadro(
+           "produto ocupando 70% do quadro"))
+    ok("cena que so falava de tamanho vira vazia, e nao lixo",
+       sem_medida_de_quadro("produto ocupando 70% do quadro") == "")
+    ok("vazio e None nao derrubam",
+       sem_medida_de_quadro("") == "" and sem_medida_de_quadro(None) == "")
+
+    # E A LIMPEZA TEM DE ESTAR NO CAMINHO, nao so existir. Nenhum teste de
+    # unidade pega uma funcao que ninguem chama — foi o erro de hoje de manha,
+    # duas vezes.
+    _p_capa = montar_prompt_imagem(
+        "1 — Capa do anúncio (fundo branco)", "", {}, "Caneca",
+        plano_triagem={"composicao": "produto centralizado",
+                       "cena": _CENA_REAL, "textos": []})
+    ok("e a cena chega ao prompt JA limpa",
+       "60%" not in _p_capa and "Fundo branco puro" in _p_capa)
 
     # ── A PECA E OLHADA, E NAO SO LIDA ──────────────────────────────────
     #
@@ -8816,6 +9114,83 @@ if __name__ == "__main__":
     ok("reprovada ate o fim sai como reprovada, e nao como aprovada",
        _rel["ok"] is False)
     ok("duas rodadas gastam UMA refacao, e nao duas", len(_geradas) == 1)
+
+    # ── A SEGUNDA REVISAO NAO PODE DESFAZER A PRIMEIRA ──────────────────
+    #
+    # `revisar_tudo` corrige o texto e DEPOIS olha a peca. Se a peca tambem
+    # tiver defeito de imagem, ela e refeita — e era refeita com o prompt
+    # ORIGINAL, que ainda traz a copy ERRADA que acabou de ser corrigida.
+    #
+    # Ou seja: a peca voltava com "Portatile" e "apoliando" de novo, depois de
+    # a revisao de texto ja ter gasto uma geracao para tirar. Duas correcoes
+    # brigando, e a segunda desfazendo a primeira.
+    #
+    # Achado pelo passo 5 — "quem mais le o que mudou?" —, e nao em producao.
+    _base_vista = []
+
+    def _gera_vendo(prompt):
+        _base_vista.append(prompt)
+        return b"nova", None
+
+    conferir_texto = _leitor(_ERRADO, _CERTO)
+    conferir_peca = _olho(_CORTADA, _APROVADA)
+    _base_ini = montar_prompt_imagem(
+        "2 — Benefícios do produto", "", {"cor": "Cinza"}, "Caneca",
+        plano_triagem={"composicao": "x", "cena": "y",
+                       "textos": ["TITULO ERRADO: apoliando o stresse"]})
+    _img_t, _rt, _rp = revisar_tudo(
+        b"x", "2 — Benefícios do produto", fotos_ref=[b"foto"],
+        gerar=_gera_vendo, prompt_base=_base_ini)
+    ok("a revisao de texto e a da peca rodaram as duas",
+       _rt and _rp and len(_base_vista) == 2)
+    ok("e a refacao DA PECA ja parte da copy CORRIGIDA",
+       len(_base_vista) == 2 and "apoliando" not in _base_vista[1])
+    ok("nao havendo, ela levaria de volta o erro que a primeira tirou",
+       len(_base_vista) == 2
+       and "PERFEITO PARA ESCRITÓRIO" in _base_vista[1])
+    # E O PROMPT NAO VIAJA COM A PECA.
+    #
+    # O relato de texto e guardado em `galeria[i]["texto"]` e vai para a tela
+    # e para o disco. Com o prompt dentro, sao 24 mil caracteres por imagem —
+    # 200 mil numa geracao de oito — carregados a cada passada do Streamlit,
+    # sem ninguem ler. E o mesmo custo por passada do passo 8.
+    #
+    # A primeira versao desta conferencia perguntou isso a um dicionario
+    # VAZIO que eu montei na hora, e passou verde sem medir nada. Agora ela
+    # olha o relato que `revisar_tudo` REALMENTE devolve.
+    # O PROMPT NAO VIAJA NO RELATO — em nenhuma saida, e nao so na que eu
+    # lembrei de testar.
+    #
+    # A primeira versao desta guarda chamava `ajustar_com_conferencia` e
+    # passou VERDE sem chegar perto de `revisar_texto`: sem chave de API
+    # aquela funcao retorna antes. Verde por caminho nao percorrido e pior que
+    # vermelho.
+    #
+    # Agora a pergunta e feita a TODAS as saidas de `revisar_texto`, forcando
+    # cada uma: aprovou de primeira, reprovou ate o fim, e falhou a leitura.
+    conferir_texto = _leitor(_CERTO)
+    _s1 = revisar_texto(b"x", "2 — Benefícios do produto", gerar=_gera,
+                        prompt_base="BASE")
+    conferir_texto = _leitor(_ERRADO, _ERRADO)
+    _s2 = revisar_texto(b"x", "2 — Benefícios do produto", gerar=_gera,
+                        prompt_base="BASE", rodadas=2)
+    conferir_texto = _leitor("sem chave")
+    _s3 = revisar_texto(b"x", "2 — Benefícios do produto", gerar=_gera,
+                        prompt_base="BASE")
+    _s4 = revisar_texto(b"x", "1 — Capa do anúncio (fundo branco)",
+                        gerar=_gera, prompt_base="BASE")
+    ok("revisar_texto devolve TRES coisas em toda saida",
+       all(len(_s) == 3 for _s in (_s1, _s2, _s3, _s4)))
+    ok("e NENHUM relato dela carrega o prompt",
+       all("prompt" not in (_s[1] or {}) for _s in (_s1, _s2, _s3, _s4)))
+    ok("e a base final volta separada, sempre",
+       all(isinstance(_s[2], str) and _s[2] for _s in (_s1, _s2, _s3, _s4)))
+    ok("o prompt sai do relato — ele nao viaja ate a galeria",
+       "prompt" not in (_rt or {}))
+    ok("e o que a peca precisa saber continua la",
+       set(_rt or {}) >= {"ok", "rodadas", "erros"})
+
+    conferir_peca = _real_peca
 
     # ── A REFACAO PIOR NAO PODE SUBSTITUIR A ORIGINAL ───────────────────
     #

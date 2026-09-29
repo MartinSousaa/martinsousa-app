@@ -71,14 +71,31 @@ IGNORAR_CONFLITO = {"checar_alcance.py"}
 # questão é só quando — a varredura mostrava como "achado" o que este
 # portão já tinha decidido que está certo, e relatório com ruído ninguém
 # lê até o fim.
+# ISENTA-SE A FUNÇÃO, NUNCA O ARQUIVO.
+#
+# Esta lista era por arquivo, com UMA exceção escrita à mão para o
+# `placar_core.py` — a correção no lugar onde o sintoma apareceu, e os outros
+# cinco continuavam isentos inteiros.
+#
+# O estrago que originou a exceção: isentei `placar_core` "porque é onde
+# `agora_br` mora", e isso escondeu `ritmo_do_mes`, que calcula mês e dia — o
+# velocímetro da Meta Mensal perdia a cor no fim do mês.
+#
+# E o mesmo desenho estava vivo aqui: a isenção do `auth.py` dizia
+# "expiração de token contra token gravado", que descreve UMA função, e o
+# arquivo tem outra que escreve hora legível na planilha. Hoje os dois lados
+# são UTC e não há erro; amanhã um terceiro uso entrava sem ninguém ver.
+#
+# A chave é "arquivo.py:funcao". Uso fora das funções nomeadas reprova, mesmo
+# em arquivo que já tem isenção.
 CONSISTENTES_UTC = {
-    "checar_tela.py": "é a guarda que PROCURA `datetime.now()` no Painel",
-    "auth.py": "expiração de token contra token gravado, os dois em UTC",
-    "rhid_api.py": "validade do token da RHiD contra a hora de emissão",
-    "gargalos_tela.py": "idade do cartão contra a ação do Trello, ambos UTC",
-    "fechar_expediente.py": "é o fallback do except; o caminho normal usa FUSO",
-
-    "varredura_formas.py": "é a varredura que PROCURA este padrão",
+    "checar_tela.py:_contexto_do_log": "é a guarda que PROCURA `datetime.now()` no registro",
+    "auth.py:_garantir_tokens_carregados": "compara a expiração com o `criado_em` gravado, os dois em UTC",
+    "auth.py:_salvar_token_sheets": "grava o `criado_em` que aquela comparação lê; trocar um lado só é que criaria o erro",
+    "rhid_api.py:_token_valido": "compara com `rhid_token_exp`, que foi gravado pelo mesmo relógio",
+    "gargalos_tela.py:_dentro_do_periodo": "idade do cartão contra a ação do Trello, ambos UTC",
+    "fechar_expediente.py:_log": "é o fallback do except; o caminho normal usa FUSO, logo acima",
+    "varredura_formas.py:main": "é a varredura que PROCURA este padrão",
 }
 
 
@@ -145,17 +162,22 @@ def _conferir_isentos():
     do mês.
     """
     fora = []
-    for nome, motivo in CONSISTENTES_UTC.items():
+    for chave, motivo in CONSISTENTES_UTC.items():
+        if ":" not in chave:
+            fora.append(f"{chave} está isento por ARQUIVO — a isenção é da "
+                        "FUNÇÃO, senão um segundo uso se esconde atrás do "
+                        "primeiro (foi o que aconteceu com `ritmo_do_mes`)")
+            continue
+        nome, funcao = chave.split(":", 1)
         if not os.path.exists(nome):
             fora.append(f"{nome} está na lista de isentos e não existe mais")
+        elif f"def {funcao}(" not in open(nome, encoding="utf-8").read():
+            fora.append(f"{chave}: a função isenta não existe mais em {nome} "
+                        "— isenção órfã dá impressão de cobertura")
         if not motivo or len(motivo) < 15:
-            fora.append(f"{nome} está isento sem motivo escrito")
-    # `placar_core.py` NÃO pode estar na lista: a isenção dele é da FUNÇÃO
-    # `agora_br`, feita dentro da varredura, e não do arquivo.
-    if "placar_core.py" in CONSISTENTES_UTC:
-        fora.append("placar_core.py isento por arquivo — a isenção é só da "
-                    "função `agora_br`, senão `ritmo_do_mes` volta a se "
-                    "esconder atrás dela")
+            fora.append(f"{chave} está isento sem motivo escrito")
+    # A exceção escrita à mão para o `placar_core.py` saiu: agora TODA isenção
+    # é por função, e a regra que ela representava virou a checagem acima.
     return fora
 
 
@@ -347,27 +369,52 @@ def main():
     # Onde o `datetime.now()` cru continua CERTO, e por quê. Comparação de
     # UTC com UTC não tem erro de fuso: trocar um lado só é que teria.
     _CONSISTENTES = CONSISTENTES_UTC
+    # ── ISENTA-SE A FUNÇÃO, NUNCA O ARQUIVO ────────────────────────────
+    #
+    # A isenção era por ARQUIVO, com UMA exceção escrita à mão para o
+    # `placar_core.py`. Isso é corrigir onde o sintoma apareceu: os outros
+    # cinco continuavam isentos inteiros.
+    #
+    # O estrago já documentado: isentei `placar_core` "porque é onde
+    # `agora_br` mora", e isso escondeu `ritmo_do_mes`, que calcula mês e dia
+    # — o velocímetro da Meta Mensal perdia a cor no fim do mês.
+    #
+    # E o mesmo desenho estava vivo no `auth.py`: a isenção dele diz
+    # "expiração de token contra token gravado, os dois em UTC", que cobre a
+    # comparação — e o arquivo tem OUTRO `datetime.now()`, que escreve hora
+    # legível na planilha. Hoje os dois lados são UTC e não há erro; amanhã,
+    # um terceiro uso entra sem ninguém ver.
+    #
+    # Agora cada isenção nomeia a FUNÇÃO: "arquivo.py:funcao". Uso fora das
+    # funções isentas reprova, mesmo em arquivo isento.
+    import ast as _ast_utc
     for nome, fonte in ((n, f) for n in _arquivos()
                         for f in [open(n, encoding="utf-8").read()]):
-        if nome in _CONSISTENTES:
-            continue
         # Fora do bloco de conferência: a guarda que procura `datetime.now()`
         # contém o texto `datetime.now()`. É a sexta vez nesta base.
         corpo = fonte.split('if __name__ == "__main__":')[0]
-        # `agora_br` É a definição da porta: ela tem de chamar o
-        # `datetime.now()` cru, senão não existe porta nenhuma. Isentar o
-        # ARQUIVO inteiro por causa dela foi largo demais — escondeu o
-        # `ritmo_do_mes`, que calcula mês e dia e perdia a cor do velocímetro
-        # no fim do mês. Isenta-se a função, não o arquivo.
-        if nome == "placar_core.py":
-            corpo = corpo.split("def agora_br(")[0] + "".join(
-                corpo.split("def agora_br(")[1].split("\n\n\n")[1:])
+        _isentas = {c.split(":", 1)[1] for c in _CONSISTENTES
+                    if c.startswith(nome + ":")}
+        # De que função é cada linha — por AST, e não por indentação.
+        _dona = {}
+        try:
+            for _n in _ast_utc.walk(_ast_utc.parse(corpo)):
+                if isinstance(_n, (_ast_utc.FunctionDef,
+                                   _ast_utc.AsyncFunctionDef)):
+                    for _l in range(_n.lineno,
+                                    (_n.end_lineno or _n.lineno) + 1):
+                        _dona.setdefault(_l, _n.name)
+        except SyntaxError:
+            pass
         for i, linha in enumerate(corpo.splitlines(), 1):
             codigo = re.sub(r"`[^`]*`", "", linha.split("#", 1)[0])
             if not _VIRA_MES.search(codigo):
                 continue
+            if _dona.get(i) in _isentas:
+                continue
             reprova(
-                f"{nome}:{i} — `datetime.now()` sem fuso. O container roda em "
+                f"{nome}:{i} (em `{_dona.get(i) or 'fora de função'}`) — "
+                f"`datetime.now()` sem fuso. O container roda em "
                 f"UTC: se este valor é lido por gente, sai 3h adiantado; se "
                 f"vira mês ou dia, erra depois das 21h. Use "
                 f"`placar_core.agora_br()` ou `hoje_br()`.")

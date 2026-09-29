@@ -247,7 +247,15 @@ REGRAS = [
      (TIPO_AMBIENTE,), (TIPO_CAPA,)),
     ("os cartões não se sobrepõem entre si", "never overlap each other",
      TIPOS_COM_TEXTO, (TIPO_AMBIENTE,)),
-    ("o que sobra é painel, não vazio", "IT IS NOT EMPTY SPACE",
+    # A REGRA CONTINUA, A FRASE MUDOU. Ela existe para o espaco que sobra
+    # virar painel e cenario em vez de faixa morta. O que saiu foi a parte
+    # que mandava ENCHER ate a borda — porque brigava com a folga de 6% na
+    # linha seguinte, e o gerador obedecia a primeira. Agora a mesma ideia
+    # vem subordinada: preencher DENTRO da folga.
+    ("o que sobra é painel, e dentro da folga", "never reach the margin",
+     tuple(t for t in TIPOS_COM_TEXTO if not t.startswith("4 —")),
+     (TIPO_CAPA, TIPO_AMBIENTE)),
+    ("e a folga da borda manda, em uma voz so", "THE EDGE CLEARANCE RULES",
      tuple(t for t in TIPOS_COM_TEXTO if not t.startswith("4 —")),
      (TIPO_CAPA, TIPO_AMBIENTE)),
     ("o produto inteiro, sem corte pela borda", "no part cut by the frame edge",
@@ -318,8 +326,22 @@ _DADOS = {"nome_comercial": "Produto de Teste", "cor": "preto",
           "medidas": "71x14x14", "peso": "350 g",
           "material": "Metal escovado, encadernação Wire-O preta",
           "caracteristicas": "60 folhas, cantos arredondados"}
+# A CENA VEM COM MEDIDA DENTRO, PORQUE NA REALIDADE ELA VEM.
+#
+# O plano de mentira daqui tinha uma cena limpa — superficie, props e angulo,
+# que e o que o prompt do plano PEDE. A cena de verdade, no .txt que o dono
+# baixou em 28/09, dizia: "Fundo branco puro sem sombra projetada; produto
+# centralizado ocupando 60% do espaco vertical" — e a regra daquela peca
+# mandava 85% a 92%.
+#
+# Duas medidas contrarias no mesmo prompt, e esta varredura passou VERDE,
+# porque o duplo dela era mais pobre que a realidade. A caneca saiu pequena
+# na capa, e o dono teve de pedir para aumentar.
+#
+# Agora o duplo carrega o defeito que a realidade carrega.
 _PLANO = {"composicao": "produto à esquerda, cartões à direita",
-          "cena": "superfície de nogueira, caderno fechado, câmera em 3/4",
+          "cena": "superfície de nogueira, caderno fechado, câmera em 3/4, "
+                  "produto centralizado ocupando 60% do espaço vertical",
           "textos": ["Aquece rápido", "Cerâmica premium",
                      "Alça confortável", "Presente perfeito"]}
 
@@ -327,7 +349,13 @@ _PLANO = {"composicao": "produto à esquerda, cartões à direita",
 _DIRECAO = {
     "nome": "Executivo Quente Contemporâneo",
     "posicionamento": "premium contemporâneo",
-    "atmosfera": "escritório sofisticado, quente e contido",
+    # A ATMOSFERA VEM COM MEDIDA DENTRO, PELO MESMO MOTIVO QUE A CENA.
+    #
+    # A direcao de arte e prosa livre escrita pela IA, igual a cena — e a
+    # cena, na realidade, veio com "produto centralizado ocupando 60% do
+    # espaco vertical". Duplo sem o defeito que a realidade tem deixa a
+    # guarda verde sem medir nada (Forma 7).
+    "atmosfera": "escritório sofisticado, com o produto ocupando 70% do quadro",
     "paleta": {
         "fundo":  {"nome": "Marfim Quente", "hex": "#F2EEE6"},
         "painel": {"nome": "Pedra Quente", "hex": "#D5C9B8"},
@@ -386,7 +414,17 @@ def _prompts(tipo):
     imagem._descricao_do_produto_cacheada = _descricao
     imagem._get_openai_api_key = lambda: "sk-varredura"
     try:
-        plano = None if tipo in (TIPO_CAPA, TIPO_AMBIENTE, TIPO_LIVRE) else _PLANO
+        # A CAPA E A AMBIENTACAO TAMBEM RECEBEM PLANO.
+        #
+        # Elas entravam aqui com `plano = None`, e era exatamente na CAPA que
+        # a cena mandou 60% contra os 85-92% da regra. A varredura era cega no
+        # unico lugar onde o defeito aconteceu.
+        #
+        # O TIPO_LIVRE continua sem plano, e isso nao e esquecimento:
+        # `montar_prompt_imagem` ignora o plano nele de proposito (o
+        # colaborador escreve a peca inteira), e forcar um aqui seria alarme
+        # falso em cima de codigo certo.
+        plano = None if tipo == TIPO_LIVRE else _PLANO
         # O NOME DA REFERENCIA ENTRA ENVENENADO, DE PROPOSITO.
         #
         # Sem referencia nenhuma, a regra que proibe o nome cru no prompt nao
@@ -465,6 +503,110 @@ def main():
         if len(faixas) > 1:
             print(f"FALHA  '{t}' manda {len(faixas)} medidas de ocupacao "
                   f"contrarias ao motor: {sorted(faixas)}")
+            falhas += 1
+
+    # ── 1-bis. O PROMPT DA REFACAO TAMBEM E VARRIDO ────────────────────────
+    #
+    # ESTE ERA O BURACO MAIOR, e ele e a Forma 3 do protocolo: dizer verde
+    # sobre um texto que o verificador nao lia.
+    #
+    # A varredura acima le o prompt da PRIMEIRA geracao. Mas quando a revisao
+    # de texto acha um erro de portugues, ela refaz a peca com o prompt
+    # passado por `trocar_texto_exato` — e e ESSE o prompt que chega ao motor
+    # na segunda rodada, justamente na peca que ja tinha dado problema.
+    #
+    # Em 28/09 esse prompt chegou ao motor com 8.259 caracteres contra 24.000
+    # da primeira rodada, sem a regra da borda, sem protagonismo, sem
+    # densidade, sem texto real, sem fidelidade e sem composicao. As 60 regras
+    # daqui estavam verdes o tempo todo: elas mediam o outro prompt.
+    #
+    # Agora as MESMAS regras sao varridas nos dois.
+    import imagem as _img_ref
+    refeitos = {}
+    for t in TODOS:
+        try:
+            refeitos[t] = _img_ref.trocar_texto_exato(
+                enviados[t], ["TITULO NOVO: frase corrigida de exemplo"])
+        except Exception as e:
+            print(f"FALHA  nao consegui montar o prompt da refacao de '{t}': "
+                  f"{type(e).__name__}: {e}")
+            falhas += 1
+            refeitos[t] = enviados[t]
+
+    for desc, trecho, deve, nao_pode in REGRAS:
+        for t in (TODOS if deve is None else deve):
+            if trecho in enviados[t] and trecho not in refeitos[t]:
+                print(f"FALHA  {desc}: existia na geracao de '{t}' e SUMIU na "
+                      "refacao — a peca refeita vai ao motor sem essa regra")
+                falhas += 1
+
+    for t in TODOS:
+        if len(refeitos[t]) < len(enviados[t]) * 0.85:
+            print(f"FALHA  a refacao de '{t}' encolheu de {len(enviados[t])} "
+                  f"para {len(refeitos[t])} caracteres — regra foi junto")
+            falhas += 1
+        if refeitos[t].count(_img_ref.MARCA_TEXTO_EXATO) > 1:
+            print(f"FALHA  a refacao de '{t}' ficou com DOIS blocos de texto "
+                  "exato, cada um mandando escrever uma coisa")
+            falhas += 1
+
+    # ── 3-bis. A CENA E A COMPOSICAO NAO MANDAM TAMANHO ────────────────────
+    #
+    # A checagem 3 acima procura as frases que o SISTEMA escreve ("ocupa de
+    # X% a Y%", "occupancy X–Y% of frame"). A cena e a composicao sao escritas
+    # pela IA do plano, em portugues livre — e ela escreveu "produto
+    # centralizado ocupando 60% do espaco vertical" numa peca cuja regra
+    # mandava 85% a 92%. Nenhum padrao da checagem 3 casa com essa frase, e a
+    # varredura passou verde com as duas ordens contrarias no mesmo prompt.
+    #
+    # Aqui a pergunta e outra e nao depende de vocabulario: a linha do PLANO
+    # traz porcentagem? Se traz, ela esta legislando sobre tamanho, e tamanho
+    # tem um dono so. O plano diz SUPERFICIE, PROPS e ANGULO — e o prompt do
+    # proprio plano pede exatamente isso.
+    # TODA LINHA ESCRITA PELA IA, e nao so as duas que eu lembrei.
+    #
+    # A cena nao e o unico texto que a IA do plano injeta no prompt: a direcao
+    # de arte escreve "Atmosfera", "Luz", "Posicionamento", "Materiais do
+    # cenario" e os props — tudo prosa livre, e qualquer uma delas pode
+    # legislar sobre tamanho do mesmo jeito que a cena legislou.
+    #
+    # Corrigir so a cena seria a Forma 1 pela enesima vez: a correcao no lugar
+    # onde o sintoma apareceu, e nao em todos onde a regra alcanca.
+    _LINHA_PLANO = re.compile(
+        r"^(?:Cena desta peça|Composição|Direção|Posicionamento|Atmosfera|"
+        r"Luz|Materiais do cenário|Props permitidos|Props PROIBIDOS|"
+        r"Trava do produto): (.+)$", re.M)
+    for t in TODOS:
+        for _m in _LINHA_PLANO.finditer(enviados[t]):
+            _achou = re.findall(r"\d{1,3}\s?%", _m.group(1))
+            if _achou:
+                print(f"FALHA  a linha do plano de '{t}' manda tamanho "
+                      f"({', '.join(_achou)}): {_m.group(1)[:70]!r} — o "
+                      "tamanho ja tem dono, e duas ordens contrarias no mesmo "
+                      "prompt foi o que deixou a capa com o produto pequeno")
+                falhas += 1
+
+    # ── 3-ter. UMA VOZ SO SOBRE A MARGEM ───────────────────────────────────
+    #
+    # O mesmo prompt mandava "faixa vazia em volta da peca e area
+    # desperdicada" E "folga de pelo menos 6% em cada lado" E, em ingles,
+    # "the safety margin is uniform and small". Tres ordens sobre a mesma
+    # borda; o modelo escolheu a primeira e o texto saiu cortado.
+    #
+    # A correcao de 26/09 (as pecas 4 e 5) acrescentou a regra da folga e
+    # deixou a que briga no lugar — virou a terceira voz em vez de calar a
+    # que contradizia.
+    _BRIGAM = (
+        "Faixa vazia em volta da peça é área",
+        "An empty band around the piece is wasted area",
+        "The safety margin is uniform and small",
+    )
+    for t in TODOS:
+        _presentes = [b for b in _BRIGAM if b in enviados[t]]
+        if _presentes and "A FOLGA DA BORDA MANDA" in enviados[t]:
+            print(f"FALHA  '{t}' manda encher a borda E deixar folga: "
+                  f"{_presentes} — duas ordens sobre a mesma margem, e o "
+                  "texto sai cortado")
             falhas += 1
 
     # ── 4. UM TETO DE BLOCOS POR PECA ──────────────────────────────────────
