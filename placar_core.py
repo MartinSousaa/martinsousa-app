@@ -3411,4 +3411,80 @@ if __name__ == "__main__":
     ok("o teto por fatia é generoso o bastante para o board de hoje",
        PAGINAS_POR_FATIA >= 20)
 
+    # ══ AS DUAS REGRAS QUE O DONO DITOU EM 29/09 ════════════════════════
+    #
+    #   1. "se um cartão for concluído e depois houver modificações nele,
+    #      inclusão de comentário ou descrição, ele não pode somar a
+    #      pontuação novamente"
+    #   2. "se for concluído, remover o botão de concluído, colocar uma
+    #      etiqueta e depois for concluído de novo, o sistema conta 2 vezes?"
+    #
+    # O comportamento já era o certo — e é exatamente por isso que a guarda
+    # precisa existir. Regra que ninguém mede é regra que a próxima mudança
+    # quebra em silêncio, e esta mexe em dinheiro de gente.
+    def _ac(cid, quando, de, para):
+        return {"type": "updateCard", "date": quando,
+                "data": {"card": {"id": cid, "dueComplete": para},
+                         "old": {"dueComplete": de}}}
+
+    # 1. COMENTAR E EDITAR NÃO CONCLUEM NADA.
+    _hist = {"k1": [
+        _ac("k1", "2026-08-10T10:00:00.000Z", False, True),   # concluiu em AGOSTO
+        {"type": "commentCard", "date": "2026-09-20T10:00:00.000Z",
+         "data": {"card": {"id": "k1"}, "text": "olha isso"}},
+        {"type": "updateCard", "date": "2026-09-21T10:00:00.000Z",
+         "data": {"card": {"id": "k1"}, "old": {"desc": "antes"}}},
+        {"type": "addLabelToCard", "date": "2026-09-22T10:00:00.000Z",
+         "data": {"card": {"id": "k1"}}},
+    ]}
+    _fim = datas_de_conclusao(_hist)
+    ok("comentário e edição depois da conclusão NÃO mudam o mês",
+       (_fim["k1"].year, _fim["k1"].month) == (2026, 8))
+    _card_k1 = {"id": "k1", "dueComplete": True,
+                "dateLastActivity": "2026-09-22T10:00:00.000Z"}
+    ok("e o cartão continua sendo de agosto, não do mês do comentário",
+       _mes_card(_card_k1, _fim) == (2026, 8))
+
+    # 2. REABRIR E RECONCLUIR NÃO DUPLICA — MIGRA.
+    _hist2 = {"k2": [
+        _ac("k2", "2026-08-10T10:00:00.000Z", False, True),   # concluiu
+        _ac("k2", "2026-09-05T10:00:00.000Z", True, False),   # desmarcou
+        {"type": "addLabelToCard", "date": "2026-09-05T10:05:00.000Z",
+         "data": {"card": {"id": "k2"}}},                     # etiquetou
+        _ac("k2", "2026-09-06T10:00:00.000Z", False, True),   # concluiu de novo
+    ]}
+    _fim2 = datas_de_conclusao(_hist2)
+    ok("reabrir e reconcluir guarda UMA data, e não duas",
+       isinstance(_fim2.get("k2"), datetime))
+    ok("e essa data é a da ÚLTIMA conclusão",
+       (_fim2["k2"].year, _fim2["k2"].month, _fim2["k2"].day)
+       == (2026, 9, 6))
+    ok("então o cartão conta em setembro, UMA vez",
+       _mes_card({"id": "k2", "dueComplete": True,
+                  "dateLastActivity": "2026-09-06T10:00:00.000Z"},
+                 _fim2) == (2026, 9))
+    ok("e NÃO conta mais em agosto — migrou, não duplicou",
+       _mes_card({"id": "k2", "dueComplete": True,
+                  "dateLastActivity": "2026-09-06T10:00:00.000Z"},
+                 _fim2) != (2026, 8))
+
+    # E A DUPLICAÇÃO É IMPOSSÍVEL POR ESTRUTURA, não por sorte: a soma
+    # percorre a LISTA DE CARTÕES, um cartão por volta. Somar duas vezes
+    # exigiria o mesmo cartão duas vezes na lista do Trello.
+    import ast as _ast_dup
+    _arv_proc = _ast_dup.parse(_insp_pc.getsource(_pl_diag._processar).lstrip())
+    _laco_por_card = any(
+        isinstance(_x, _ast_dup.For)
+        and isinstance(_x.target, _ast_dup.Name) and _x.target.id == "card"
+        for _x in _ast_dup.walk(_arv_proc))
+    ok("a soma percorre os CARTÕES, um por volta — duplicar é impossível",
+       _laco_por_card)
+
+    # A ETIQUETA NÃO ENCOSTA NA PONTUAÇÃO. Ela conta tempo e trabalho em
+    # andamento; quem paga é a coluna, o campo PONTOS e o `dueComplete`.
+    _f_proc = _insp_pc.getsource(_pl_diag._processar)
+    _trecho_pts = _f_proc.split("PENALIDADES")[-1]
+    ok("nenhuma etiqueta decide pontuação",
+       'in lb' not in _trecho_pts.split("pts_equipe")[0][-900:])
+
     print("\nfalhas:", falhas)

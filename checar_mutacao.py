@@ -248,6 +248,28 @@ MUTACOES = [
         ["python3", "placar_core.py"],
     ),
     (
+        # Dono, 29/09: "se um cartao for concluido e depois houver
+        # modificacoes nele, comentario ou descricao, ele nao pode somar a
+        # pontuacao novamente".
+        "comentar um cartao antigo volta a mover a pontuacao de mes",
+        "placar_core.py",
+        '            if ac.get("type") != "updateCard":\n                continue\n'
+        '            dados = ac.get("data", {}) or {}\n'
+        '            if (dados.get("old") or {}).get("dueComplete") is False and \\\n'
+        '               (dados.get("card") or {}).get("dueComplete") is True:',
+        '            dados = ac.get("data", {}) or {}\n            if True:',
+        ["python3", "placar_core.py"],
+    ),
+    (
+        # Dono, 29/09: "se for concluido, desmarcado e concluido de novo, o
+        # sistema conta 2 vezes?" Nao — vale a ULTIMA conclusao.
+        "reabrir e reconcluir volta a valer a PRIMEIRA data",
+        "placar_core.py",
+        "                if cid not in fim or dt > fim[cid]:",
+        "                if cid not in fim:",
+        ["python3", "placar_core.py"],
+    ),
+    (
         "o ponto sem dono para de ser contado a parte",
         "conferencia_pontos.py",
         '            qtd["pontos_fora_do_quadro"] += pt',
