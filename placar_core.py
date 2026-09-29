@@ -44,14 +44,41 @@ def _req_get(url, **kw):
         return _RespFalha(f"{type(e).__name__}: {e}")
 
 
-# ── Tenta ler secrets do Streamlit; falha silenciosa fora do contexto ──────────
-try:
-    import streamlit as st
-    TRELLO_KEY   = st.secrets["trello"]["api_key"]
-    TRELLO_TOKEN = st.secrets["trello"]["token"]
-    BOARD_ID     = st.secrets["trello"]["board_id"]
-except Exception:
-    TRELLO_KEY = TRELLO_TOKEN = BOARD_ID = ""
+# ── A CREDENCIAL DO TRELLO: secrets do Streamlit, e o ambiente como reserva ────
+#
+# Em produção quem responde é `st.secrets` — e continua sendo, porque ele vem
+# primeiro. A reserva existe para o caso em que NÃO há Streamlit rodando: uma
+# análise no terminal, um script de conferência, uma sessão de manutenção.
+#
+# Sem ela, conferir o quadro fora da tela era impossível, e a saída era pedir
+# ao dono que abrisse o Studio e lesse o número — empurrar para ele o trabalho
+# que o sistema tem de fazer.
+#
+# NENHUM VALOR MORA NO REPOSITÓRIO. `.streamlit/secrets.toml` está no
+# `.gitignore` desde que um commit dele derrubou o Fim de Expediente; a reserva
+# lê variável de ambiente, que também não se commita.
+import os as _os_cred
+
+
+def _cred(chave_secrets, *nomes_env):
+    """O valor de `st.secrets["trello"][chave]`, ou a primeira env var que tiver."""
+    try:
+        import streamlit as st
+        v = st.secrets["trello"][chave_secrets]
+        if v:
+            return str(v)
+    except Exception:
+        pass
+    for n in nomes_env:
+        v = _os_cred.environ.get(n)
+        if v:
+            return str(v)
+    return ""
+
+
+TRELLO_KEY   = _cred("api_key",  "TRELLO_API_KEY", "TRELLO_KEY")
+TRELLO_TOKEN = _cred("token",    "TRELLO_TOKEN")
+BOARD_ID     = _cred("board_id", "TRELLO_BOARD_ID", "BOARD_ID")
 
 # ── Constantes ─────────────────────────────────────────────────────────────────
 # Equipe de origem. A lista real vem da planilha (aba "equipe") e e aplicada por
@@ -126,8 +153,19 @@ MASTERS = {"martinsousa", "renan"}
 # As duas escritas sao aceitas porque quem cria a coluna digita no Trello.
 LISTAS_ANALISE = {"ANÁLISE DE DEMANDAS", "ANALISE DE DEMANDAS"}
 
+# TRIAGEM NÃO ESTÁ AQUI, E ISSO É DECISÃO DO DONO (29/09): "configure para a
+# triagem contabilizar pontos sim".
+#
+# Ela estava. Em 28/09 a equipe moveu 18 cartões CONCLUÍDOS para a TRIAGEM
+# entre 10:50 e 17:32 — GUERREIRO PORTA CANETA (100), padronização de fotos
+# (90 e 70), Leopardo + filhote (80), Abacaxi (80), pendulo 9x7 (70) — e os
+# pontos saíram inteiros, da pessoa e da coletiva, sem aviso nenhum. Era essa
+# a "pontuação que está caindo".
+#
+# TRIAGEM continua em COLUNAS_SKIP: ela paga pontos, mas não é etapa de
+# execução com tempo estimado. São duas perguntas diferentes.
 LISTAS_SEM_PONTUACAO = {
-    "TABELA DE PONTUAÇÃO","TRIAGEM","CORREÇÃO DE FOTOS: 0 PONTOS",
+    "TABELA DE PONTUAÇÃO","CORREÇÃO DE FOTOS: 0 PONTOS",
     "RENAN","GUSTAVO","MYRELLA","URGENTES!!!!","Vídeos pendentes",
     "CRIAR ANÚNCIO","CRIAR ANÚNCIO DO ZERO",
 } | LISTAS_ANALISE
@@ -3024,5 +3062,108 @@ if __name__ == "__main__":
     ok("mas `hoje` explicito continua mandando",
        ritmo_do_mes((2020, 1), 5000, 2000,
                     hoje=datetime(2020, 1, 15)) is not None)
+
+    # ── TRIAGEM PONTUA, E TRIAGEM NÃO É ETAPA DE TEMPO ──────────────────
+    #
+    # Dono, 29/09: "configure para a triagem contabilizar pontos sim".
+    #
+    # Em 28/09 a equipe moveu 18 cartões CONCLUÍDOS para a TRIAGEM entre
+    # 10:50 e 17:32. Como TRIAGEM estava em `LISTAS_SEM_PONTUACAO`, os pontos
+    # saíram inteiros — da pessoa e da coletiva — sem aviso nenhum
+    # (`placar.py:692`, `placar_core.py:2927`). Foi essa a "pontuação que
+    # está caindo".
+    #
+    # DUAS LISTAS, DUAS PERGUNTAS DIFERENTES, e é por isso que ela sai de uma
+    # e fica na outra:
+    #
+    #   LISTAS_SEM_PONTUACAO  "esta coluna paga pontos?"  → TRIAGEM paga
+    #   COLUNAS_SKIP          "esta coluna é etapa de
+    #                          execução, com tempo e
+    #                          capacidade?"               → TRIAGEM não é
+    #
+    # Tirar de uma e esquecer a outra é a Forma 1 desta base. A guarda cobra
+    # as duas.
+    ok("TRIAGEM paga pontos", "TRIAGEM" not in LISTAS_SEM_PONTUACAO)
+    ok("e continua fora da conta de tempo e capacidade",
+       "TRIAGEM" in COLUNAS_SKIP)
+    ok("a TABELA DE PONTUAÇÃO continua sem pagar — é a legenda do quadro",
+       "TABELA DE PONTUAÇÃO" in LISTAS_SEM_PONTUACAO)
+    ok("e as colunas de análise também",
+       LISTAS_ANALISE <= LISTAS_SEM_PONTUACAO)
+
+    # E O TEMPO MÉDIO POR COLUNA NÃO GANHA A TRIAGEM DE BRINDE.
+    #
+    # `placar.py:3150` escolhia as colunas com uma lista escrita à mão
+    # ("não é penalidade, não é TABELA DE PONTUAÇÃO, não está em
+    # LISTAS_SEM_PONTUACAO") — três respostas para a pergunta que
+    # `COLUNAS_SKIP` já responde. Com TRIAGEM saindo de LISTAS_SEM_PONTUACAO,
+    # essa lista à mão deixaria a TRIAGEM entrar no mostrador de tempo.
+    # Uma pergunta, uma resposta: a tela passa a usar COLUNAS_SKIP.
+    import checar_tela as _ct_pc
+    _ct_pc.instalar()
+    import placar as _pl_pc
+    _fonte_tela = _insp_pc.getsource(_pl_pc.pagina_placar)
+    ok("o tempo médio por coluna filtra por COLUNAS_SKIP",
+       "COLUNAS_SKIP" in _fonte_tela)
+    ok("e não por uma lista escrita à mão ao lado dela",
+       'nl!="TABELA DE PONTUAÇÃO"' not in _fonte_tela)
+
+    # ── A CREDENCIAL: st.secrets manda, o ambiente é reserva ────────────
+    #
+    # A ordem importa. Se a env var viesse primeiro, uma variável esquecida
+    # numa máquina apontaria a produção para o quadro errado — e o Painel
+    # mostraria número de outro board sem ninguém desconfiar.
+    # ESTA GUARDA JA NASCEU FRACA, e a mutação a pegou no mesmo dia.
+    #
+    # A primeira versão comparava `fonte.index("st.secrets")` com
+    # `fonte.index("environ")`. Ficou VERDE com a ordem invertida, porque
+    # `st.secrets` aparece na DOCSTRING da função, antes de qualquer código.
+    # É a mesma armadilha das outras três desta base: guarda que procura
+    # TEXTO no arquivo acaba se encontrando a si mesma. A pergunta se faz na
+    # estrutura, e depois no comportamento.
+    import ast as _ast_cred
+    _corpo = _ast_cred.parse(
+        _insp_pc.getsource(_cred).lstrip()).body[0].body
+    if _corpo and isinstance(_corpo[0], _ast_cred.Expr) and isinstance(
+            getattr(_corpo[0], "value", None), _ast_cred.Constant):
+        _corpo = _corpo[1:]  # fora a docstring
+    ok("o secrets do Streamlit é o PRIMEIRO caminho do corpo",
+       bool(_corpo) and isinstance(_corpo[0], _ast_cred.Try))
+    ok("e a varredura das variáveis de ambiente vem depois dele",
+       any(isinstance(_x, _ast_cred.For) for _x in _corpo[1:]))
+
+    # E O COMPORTAMENTO, com os DOIS presentes: quem vence?
+    #
+    # A estrutura sozinha não basta — um `try` primeiro que não devolvesse
+    # nada passaria. Aqui os dois respondem, e o teste exige o do Streamlit.
+    # Se a env var vencesse, uma variável esquecida numa máquina apontaria a
+    # produção para outro quadro, calada.
+    import checar_tela as _ct_cred
+    _falso_st = _ct_cred.instalar()
+    _falso_st.secrets = {"trello": {"campo_de_teste": "veio-do-secrets"}}
+    _os_cred.environ["_TESTE_CRED_MS"] = "veio-do-ambiente"
+    import sys as _sys_cred
+    _st_antes = _sys_cred.modules.get("streamlit")
+    _sys_cred.modules["streamlit"] = _falso_st
+    try:
+        ok("com os dois presentes, o secrets vence",
+           _cred("campo_de_teste", "_TESTE_CRED_MS") == "veio-do-secrets")
+        ok("e a reserva responde quando o secrets não tem o campo",
+           _cred("campo_que_nao_existe", "_TESTE_CRED_MS") == "veio-do-ambiente")
+        ok("sem nenhum dos dois devolve vazio, e não explode",
+           _cred("nao_existe", "_TAMBEM_NAO_EXISTE_MS") == "")
+    finally:
+        if _st_antes is not None:
+            _sys_cred.modules["streamlit"] = _st_antes
+        else:
+            _sys_cred.modules.pop("streamlit", None)
+        del _os_cred.environ["_TESTE_CRED_MS"]
+
+    # NENHUM VALOR DE SECRET NO REPOSITÓRIO. Um commit de secrets.toml já
+    # derrubou o Fim de Expediente.
+    import subprocess as _sp_pc
+    _rastreado = _sp_pc.run(["git", "ls-files", ".streamlit/secrets.toml"],
+                            capture_output=True, text=True).stdout.strip()
+    ok("`.streamlit/secrets.toml` NÃO está versionado", _rastreado == "")
 
     print("\nfalhas:", falhas)

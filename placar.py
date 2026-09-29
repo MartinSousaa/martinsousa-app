@@ -3146,9 +3146,12 @@ def pagina_placar(usuario_logado, headless=False):
 
         with col_tempo:
             st.markdown("**⏱️ Tempo Médio por Coluna**")
+            # UMA PERGUNTA, UMA RESPOSTA. Esta linha tinha três critérios
+            # escritos à mão para dizer "é coluna de trabalho?" — que é
+            # exatamente o que COLUNAS_SKIP responde. Com a TRIAGEM passando a
+            # pagar pontos, a lista à mão a traria para cá de brinde.
             listas_t=[nl for nl in set(listas.values())
-                      if nl not in LISTAS_PENALIDADE and nl!="TABELA DE PONTUAÇÃO"
-                      and nl not in LISTAS_SEM_PONTUACAO]
+                      if nl not in COLUNAS_SKIP]
             listas_ord=sorted(listas_t)
             cols_t=st.columns(3)
             for i,nl in enumerate(listas_ord[:18]):

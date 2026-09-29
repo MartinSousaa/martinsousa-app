@@ -150,6 +150,58 @@ MUTACOES = [
         ["python3", "conferencia_pontos.py"],
     ),
     (
+        # 28/09: 18 cartoes CONCLUIDOS foram movidos para a TRIAGEM entre
+        # 10:50 e 17:32 e os pontos sairam inteiros, sem aviso. O dono decidiu
+        # em 29/09: "configure para a triagem contabilizar pontos sim".
+        "a TRIAGEM volta a nao pagar pontos",
+        "placar_core.py",
+        'LISTAS_SEM_PONTUACAO = {\n    "TABELA DE PONTUAÇÃO","CORREÇÃO DE FOTOS: 0 PONTOS",',
+        'LISTAS_SEM_PONTUACAO = {\n    "TABELA DE PONTUAÇÃO","TRIAGEM","CORREÇÃO DE FOTOS: 0 PONTOS",',
+        ["python3", "placar_core.py"],
+    ),
+    (
+        # A Forma 1 desta base: corrigir numa lista e esquecer a irma.
+        "a TRIAGEM sai tambem da lista de colunas que nao sao etapa",
+        "placar_core.py",
+        'COLUNAS_SKIP = {\n    "TABELA DE PONTUAÇÃO","TRIAGEM","PENALIDADES",',
+        'COLUNAS_SKIP = {\n    "TABELA DE PONTUAÇÃO","PENALIDADES",',
+        ["python3", "placar_core.py"],
+    ),
+    (
+        # A lista escrita a mao trazia a TRIAGEM para o mostrador de tempo.
+        "o tempo medio por coluna volta a ter lista escrita a mao",
+        "placar.py",
+        "            listas_t=[nl for nl in set(listas.values())\n"
+        "                      if nl not in COLUNAS_SKIP]",
+        "            listas_t=[nl for nl in set(listas.values())\n"
+        '                      if nl not in LISTAS_PENALIDADE and nl!="TABELA DE PONTUAÇÃO"\n'
+        "                      and nl not in LISTAS_SEM_PONTUACAO]",
+        ["python3", "placar_core.py"],
+    ),
+    (
+        # Se a env var viesse primeiro, uma variavel esquecida numa maquina
+        # apontaria a producao para o quadro errado, calada.
+        "a variavel de ambiente passa na frente do st.secrets",
+        "placar_core.py",
+        "    try:\n        import streamlit as st\n        v = st.secrets[\"trello\"][chave_secrets]\n"
+        "        if v:\n            return str(v)\n    except Exception:\n        pass\n"
+        "    for n in nomes_env:\n        v = _os_cred.environ.get(n)\n        if v:\n"
+        "            return str(v)\n    return \"\"",
+        "    for n in nomes_env:\n        v = _os_cred.environ.get(n)\n        if v:\n"
+        "            return str(v)\n    try:\n        import streamlit as st\n"
+        "        v = st.secrets[\"trello\"][chave_secrets]\n        if v:\n"
+        "            return str(v)\n    except Exception:\n        pass\n    return \"\"",
+        ["python3", "placar_core.py"],
+    ),
+    (
+        # Zero calado vira numero em relatorio. A recusa e a feature.
+        "a analise do mes devolve zero em vez de recusar sem credencial",
+        "analise_do_mes.py",
+        '        raise RuntimeError(\n            "sem credencial do Trello: defina TRELLO_API_KEY, TRELLO_TOKEN e "\n            "TRELLO_BOARD_ID no ambiente (ou em .streamlit/secrets.toml)")',
+        "        pass",
+        ["python3", "analise_do_mes.py", "--autoteste"],
+    ),
+    (
         "o ponto sem dono para de ser contado a parte",
         "conferencia_pontos.py",
         '            qtd["pontos_fora_do_quadro"] += pt',

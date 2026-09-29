@@ -50,9 +50,40 @@ NAO_SAO_AUTOTESTE = {
     "fechar_expediente_conferencia.py": "tem duplo proprio e roda o job",
     "fechar_expediente.py": "o __main__ EXECUTA o fechamento, nao confere",
     "gerar_params_historico.py": "gerador de uma vez so, roda o job",
-    "varredura_formas.py": "roda com --autoteste, logo abaixo",
     "conferir.py": "sou eu",
 }
+
+
+def pede_autoteste(nome):
+    """Este módulo só confere quando chamado com `--autoteste`?
+
+    A pergunta se responde no arquivo: um `__main__` que testa
+    `"--autoteste" in sys.argv` tem DOIS caminhos — o da conferência e o do
+    trabalho de verdade. Rodar sem a flag executa o trabalho, e num script
+    que lê o Trello isso é uma chamada de rede que estoura sem credencial.
+
+    Descobrir em vez de listar é o motivo de este arquivo existir: com lista
+    escrita à mão, alguém escreve o terceiro módulo assim, esquece de somar,
+    e a conferência segue dizendo verde medindo dois.
+
+    POR AST, E NÃO POR TEXTO. A primeira versão lia os 400 primeiros
+    caracteres depois do `__main__` — e `varredura_formas.py` lê a flag lá
+    dentro de `main()`, na linha 704. Guarda que procura texto num recorte
+    do arquivo erra por onde o autor escolheu escrever.
+    """
+    import ast
+    try:
+        arv = ast.parse(open(os.path.join(RAIZ, nome), encoding="utf-8").read())
+    except Exception:
+        return False
+    for n in ast.walk(arv):
+        # `"--autoteste" in sys.argv`, escrito onde for.
+        if (isinstance(n, ast.Compare) and len(n.ops) == 1
+                and isinstance(n.ops[0], ast.In)
+                and isinstance(n.left, ast.Constant)
+                and n.left.value == "--autoteste"):
+            return True
+    return False
 
 
 def _roda(cmd, limite=900):
@@ -131,7 +162,13 @@ def main():
     mods = modulos_com_autoteste()
     ruins = []
     for m in mods:
-        cod, saida = _roda([sys.executable, m], limite=90)
+        # A FLAG QUANDO O MÓDULO PEDE. Sem isto, `analise_do_mes.py` ia ao
+        # Trello de verdade e reprovava por falta de credencial — um módulo
+        # são derrubando o protocolo inteiro.
+        _cmd = [sys.executable, m]
+        if pede_autoteste(m):
+            _cmd.append("--autoteste")
+        cod, saida = _roda(_cmd, limite=300)
         if _reprovou(cod, saida):
             ruins.append(m)
             print(f"  FALHA  {m}")
@@ -142,14 +179,8 @@ def main():
           f"{len(ruins)} com falha")
     falhas += ruins
 
-    # A varredura das Formas tem conferência própria, e ela precisa rodar:
-    # varredura muda é indistinguível de varredura satisfeita.
-    cod, saida = _roda([sys.executable, "varredura_formas.py", "--autoteste"],
-                       limite=300)
-    ruim = _reprovou(cod, saida)
-    print(f"  {'FALHA' if ruim else 'ok   '}  varredura_formas --autoteste")
-    if ruim:
-        falhas.append("varredura_formas --autoteste")
+    # A varredura das Formas roda no laço acima, como todo mundo: quem pede
+    # `--autoteste` recebe a flag por descoberta, não por nome escrito aqui.
 
     print()
     print("═" * 62)
@@ -218,6 +249,25 @@ if __name__ == "__main__":
         ok("e não tenta rodar o serviço da TV nem a si mesmo",
            "tv_servico.py" not in modulos_com_autoteste()
            and "conferir.py" not in modulos_com_autoteste())
+
+        # QUEM PEDE `--autoteste` SE DESCOBRE, NÃO SE LISTA.
+        #
+        # `analise_do_mes.py` sem a flag vai ao Trello de verdade e estoura
+        # por falta de credencial: o protocolo reprovava um módulo são. A
+        # saída fácil era acrescentá-lo à exceção escrita à mão ao lado de
+        # `varredura_formas.py` — e aí o defeito é o de sempre: alguém
+        # escreve o terceiro, esquece de somar, e a conferência segue
+        # dizendo "verde" medindo dois.
+        ok("`analise_do_mes.py` é reconhecido como quem pede --autoteste",
+           pede_autoteste("analise_do_mes.py"))
+        ok("e `varredura_formas.py` também",
+           pede_autoteste("varredura_formas.py"))
+        ok("e um módulo que roda sozinho NÃO recebe a flag",
+           not pede_autoteste("queda_pontos.py"))
+        ok("varredura_formas deixou de ser exceção escrita à mão",
+           "varredura_formas.py" not in NAO_SAO_AUTOTESTE)
+        ok("e analise_do_mes nunca virou exceção",
+           "analise_do_mes.py" not in NAO_SAO_AUTOTESTE)
         # Reprova por CÓDIGO ou por FALHA impressa: os verificadores desta
         # base não concordam, e exigir um só deixaria metade passar.
         ok("reprova quem sai com código != 0", _reprovou(1, ""))
