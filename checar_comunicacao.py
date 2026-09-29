@@ -286,6 +286,59 @@ def folgas_divergentes(prompts_por_tipo):
     return por_medida if len(por_medida) > 1 else {}
 
 
+# ── REGRA 4: COMANDO QUE O CHAT MANDA E NINGUÉM EXECUTA ────────────────────
+#
+# Dono, 29/09: *"localizar inconsistências e comandos sem conexão (...)
+# informações e comandos ignorados ou que se perdem"*.
+#
+# O chat e a aba Imagem conversam por uma fila no `session_state`: o chat
+# escreve `chat_algo`, a aba lê e executa. Quando a fila é escrita e ninguém
+# lê, o chat RESPONDE QUE VAI FAZER e nada acontece — e o colaborador fica
+# esperando uma coisa que nunca foi enfileirada para ninguém.
+#
+# Foi o caso de `chat_gerar_faltantes`: o chat dizia "🖼️ Vou gerar as 7
+# imagens que faltam, abra a aba Imagem para acompanhar", escrevia a chave, e
+# NENHUMA linha do sistema a lia. Está na transcrição de 29/09 que o dono
+# mandou: a colaboradora pediu, ele prometeu sete peças, e nunca gerou uma.
+#
+# Mentira que o sistema conta por engano é pior que recusa: a pessoa espera.
+_CHAVE_DE_FILA = _re_voz.compile(r'session_state\[?\.?\(?["\'](chat_\w+)["\']')
+_LEITURA_DE_FILA = _re_voz.compile(r'\.(?:get|pop)\(\s*["\'](chat_\w+)["\']')
+ARQS_DO_CHAT = ("chat_assistente.py", "imagem.py", "ferramentas_chat.py")
+
+
+def filas_do_chat(raiz=None):
+    """({fila: [onde escreve]}, {fila: [onde lê]}) entre o chat e as abas."""
+    base = raiz or RAIZ
+    escritas, lidas = {}, {}
+    for arq in ARQS_DO_CHAT:
+        try:
+            src = open(os.path.join(base, arq), encoding="utf-8").read()
+        except Exception:
+            continue
+        for m in _CHAVE_DE_FILA.finditer(src):
+            linha = src[:m.start()].count("\n") + 1
+            trecho = src[max(0, m.start() - 40):m.end() + 30]
+            onde = (escritas if _re_voz.search(r"\]\s*=|setdefault|\.pop", trecho)
+                    else lidas)
+            onde.setdefault(m.group(1), []).append(f"{arq}:{linha}")
+        for m in _LEITURA_DE_FILA.finditer(src):
+            lidas.setdefault(m.group(1), []).append(
+                f"{arq}:{src[:m.start()].count(chr(10)) + 1}")
+    return escritas, lidas
+
+
+def filas_orfas(raiz=None):
+    """[(fila, [onde escreve])] — escritas e que ninguém consome."""
+    escritas, lidas = filas_do_chat(raiz)
+    fora = []
+    for fila, onde in sorted(escritas.items()):
+        leitores = [x for x in lidas.get(fila, []) if x not in onde]
+        if not leitores:
+            fora.append((fila, onde))
+    return fora
+
+
 def main():
     falhas = 0
     orfas = isencoes_orfas()
@@ -357,6 +410,16 @@ def main():
                   "obedece a um número e metade a outro.")
     except Exception:
         pass
+
+    # REGRA 4 — o chat manda e alguém executa?
+    _orfas = filas_orfas()
+    if _orfas:
+        falhas += 1
+        print(f"FALHA  {len(_orfas)} comando(s) do chat que ninguém executa:")
+        for _f, _onde in _orfas:
+            print(f"         «{_f}» escrito em {', '.join(_onde[:2])}")
+        print("       O chat responde que vai fazer e nada acontece — a "
+              "pessoa fica esperando.")
 
     if not falhas:
         print("ok    todo diagnóstico chega a alguém, e cada assunto tem um dono")

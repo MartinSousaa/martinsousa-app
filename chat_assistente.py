@@ -591,6 +591,45 @@ def _resolver_imagem(alvo, galeria):
 FALAS_QUE_O_ANEXO_ALCANCA = 4
 
 
+def tipos_que_faltam(galeria, padrao):
+    """Os tipos do padrão que a galeria ainda não tem, na ordem do padrão."""
+    ja_tem = {(g or {}).get("tipo") for g in (galeria or [])}
+    return [t for t in (padrao or []) if t not in ja_tem]
+
+
+def preparar_geracao_dos_faltantes(faltam):
+    """Deixa a aba Imagem PRONTA para gerar o que falta, sem gerar nada.
+
+    POR QUE ASSIM, E NÃO GERANDO
+
+    Dono, 29/09: *"comandos sem conexão (...) informações e comandos
+    ignorados ou que se perdem"*.
+
+    `gerar_imagens_faltantes` respondia "🖼️ Vou gerar as 7 imagens que
+    faltam — abra a aba Imagem para acompanhar", escrevia `chat_gerar_faltantes`
+    e NENHUMA linha do sistema lia essa chave. Está na transcrição de 29/09: a
+    colaboradora pediu, o chat prometeu sete peças, e nunca gerou uma. Mentira
+    que o sistema conta por engano é pior que recusa — a pessoa espera.
+
+    A correção NÃO é um segundo motor de geração. A aba já tem o modo
+    "Selecionar" com o multiselect `img_tipos_multi`: aqui os tipos que faltam
+    são marcados nele e a aba abre nesse modo. Quem confirma o gasto continua
+    sendo o colaborador — e é ele quem tem de confirmar, porque são oito
+    gerações pagas.
+
+    Um segundo laço de geração seria a Forma 5 desta base: duas respostas para
+    a mesma pergunta, e elas passam a discordar.
+
+    SEM FALTANTE, NÃO MEXE NA TELA. Trocar o modo de quem não pediu nada é
+    tirar a tela do lugar debaixo da mão de quem está trabalhando.
+    """
+    if not faltam:
+        return False
+    st.session_state["img_tipos_multi"] = list(faltam)
+    st.session_state["img_modo"] = "Selecionar"
+    return True
+
+
 def referencia_do_pedido(historico):
     """Os bytes que o colaborador anexou para MOSTRAR o que está pedindo.
 
@@ -705,16 +744,23 @@ def _executar_comando(cmd: dict) -> str | None:
             padrao = list(_img.TIPOS_PADRAO)
         except Exception:
             return "⚠️ Não consegui ler a lista de tipos padrão."
-        ja_tem = {g.get("tipo") for g in galeria}
-        faltam = [t for t in padrao if t not in ja_tem]
+        faltam = tipos_que_faltam(galeria, padrao)
         if not faltam:
             return "✅ A galeria já tem todos os tipos do padrão."
-        st.session_state["chat_gerar_faltantes"] = faltam
+        # A CHAVE ANTIGA (`chat_gerar_faltantes`) NÃO EXISTE MAIS: ela era
+        # escrita e ninguém a lia. Aqui a aba fica PRONTA, no modo que ela
+        # já tem, com os tipos marcados — e quem confirma o gasto é o
+        # colaborador, porque são gerações pagas.
+        preparar_geracao_dos_faltantes(faltam)
         _log("gerar_faltantes", ", ".join(faltam), resultado=f"{len(faltam)} tipo(s)")
         lista = "\n".join(f"- {t}" for t in faltam)
         return (
-            f"🖼️ Vou gerar as **{len(faltam)} imagens que faltam**:\n{lista}\n\n"
-            "Abra a aba **Imagem** para acompanhar. As que já existem não serão tocadas."
+            f"🖼️ Deixei **{len(faltam)} imagem(ns)** marcadas para gerar:\n{lista}\n\n"
+            "Abra a aba **Imagem** — elas já estão selecionadas em "
+            "**Selecionar**. Confira e clique em gerar; as que já existem não "
+            "serão tocadas.\n\n"
+            "_Não gero sozinho de propósito: cada peça é uma geração paga, e "
+            "quem confirma o gasto é você._"
         )
 
     if acao == "refazer_todas_imagens":
@@ -1320,5 +1366,50 @@ if __name__ == "__main__":
             if "num" in _chaves and "instrucao" in _chaves:
                 _leva = "referencia" in _chaves
     ok("o comando de ajuste leva a referência do pedido", _leva)
+
+    # ══ O COMANDO QUE O CHAT MANDAVA E NINGUÉM EXECUTAVA ════════════════
+    #
+    # Dono, 29/09: *"localizar comandos sem conexão (...) informações e
+    # comandos ignorados ou que se perdem"*. O oitavo verificador achou UM em
+    # todo o fluxo do chat, e era este.
+    #
+    # `gerar_imagens_faltantes` respondia "🖼️ Vou gerar as 7 imagens que
+    # faltam — abra a aba Imagem para acompanhar", escrevia
+    # `chat_gerar_faltantes` e NENHUMA linha do sistema lia essa chave. Está
+    # na transcrição que o dono mandou: a colaboradora pediu, ele prometeu
+    # sete peças, e nunca gerou uma. Mentira que o sistema conta por engano é
+    # pior que recusa, porque a pessoa espera.
+    #
+    # A CORREÇÃO NÃO É UM SEGUNDO MOTOR DE GERAÇÃO. A aba Imagem já tem o
+    # modo "Selecionar" com o multiselect `img_tipos_multi`: o chat deixa a
+    # aba PRONTA, com os tipos que faltam já marcados, e quem confirma o
+    # gasto é o colaborador. Criar aqui um segundo laço de geração seria a
+    # Forma 5 — duas respostas para a mesma pergunta, e elas discordam.
+    import imagem as _img_gf
+    _padrao = list(_img_gf.TIPOS_PADRAO)
+    st.session_state.clear()
+    st.session_state["img_galeria"] = [{"tipo": _padrao[0]}, {"tipo": _padrao[2]}]
+    _falta = tipos_que_faltam(st.session_state["img_galeria"], _padrao)
+    ok("acha os tipos que faltam na galeria", len(_falta) == len(_padrao) - 2)
+    ok("e não repete os que já existem",
+       _padrao[0] not in _falta and _padrao[2] not in _falta)
+    ok("galeria vazia: falta o padrão inteiro",
+       len(tipos_que_faltam([], _padrao)) == len(_padrao))
+    ok("galeria completa: não falta nada",
+       tipos_que_faltam([{"tipo": t} for t in _padrao], _padrao) == [])
+
+    # E O PEDIDO CHEGA NA ABA, na chave que o seletor de verdade lê.
+    preparar_geracao_dos_faltantes(_falta)
+    ok("os tipos faltantes vão para o multiselect da aba",
+       st.session_state.get("img_tipos_multi") == _falta)
+    ok("e a aba já abre no modo Selecionar",
+       st.session_state.get("img_modo") == "Selecionar")
+
+    # SEM FALTANTE, NÃO MEXE NA TELA. Trocar o modo de quem não pediu nada é
+    # tirar a tela do lugar debaixo da mão do colaborador.
+    st.session_state.clear()
+    preparar_geracao_dos_faltantes([])
+    ok("sem faltante nenhum, a tela não é mexida",
+       "img_modo" not in st.session_state)
 
     print("\nfalhas:", falhas)

@@ -482,6 +482,24 @@ MUTACOES = [
         ["python3", "checar_comunicacao.py"],
     ),
     (
+        # O chat prometia "vou gerar as 7 imagens que faltam", escrevia a
+        # chave e ninguem lia. A colaboradora esperou sete pecas que nunca
+        # vieram.
+        "o comando de gerar faltantes volta a cair no vazio",
+        "chat_assistente.py",
+        "        preparar_geracao_dos_faltantes(faltam)",
+        '        st.session_state["chat_gerar_faltantes"] = faltam',
+        ["python3", "checar_comunicacao.py"],
+    ),
+    (
+        "preparar a aba para de marcar os tipos que faltam",
+        "chat_assistente.py",
+        '    st.session_state["img_tipos_multi"] = list(faltam)\n'
+        '    st.session_state["img_modo"] = "Selecionar"\n    return True',
+        "    return True",
+        ["python3", "chat_assistente.py"],
+    ),
+    (
         "o ponto sem dono para de ser contado a parte",
         "conferencia_pontos.py",
         '            qtd["pontos_fora_do_quadro"] += pt',
