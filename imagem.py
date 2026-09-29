@@ -6329,9 +6329,24 @@ def consumir_comandos_do_chat(usuario_logado=""):
             # correção ao prompt que gerou esta imagem, e não a outra.
             marcar_peca_em_ajuste(num_foto)
 
+            # A IMAGEM QUE O COLABORADOR ANEXOU ENTRA COMO REFERÊNCIA.
+            #
+            # Dono, 29/09: "eles mandaram a imagem no chat para ficar claro o
+            # que ele pediu". Ela chegava ao chat e parava lá: o motor recebia
+            # a peça mais uma frase, e ONDE está cortado, QUAL cota trocar e o
+            # que foi circulado se perdia na tradução para texto — que é o
+            # trabalho que anexar a imagem existe para evitar.
+            #
+            # Ela entra ANTES das fotos do produto, e não no lugar delas: as
+            # fotos são a trava de fidelidade (é delas que sai a cor e a
+            # forma), a referência é o que se pede. Trocar uma pela outra faria
+            # o motor copiar a arte marcada em vez de corrigir a peça.
+            _ref_pedido = [b for b in (cmd.get("referencia") or []) if b]
+            _refs_cmd = _ref_pedido + list(fotos_ref_aj or [])
+
             def _rodar_cmd(_ref=img_ref_cmd[0] if img_ref_cmd else None,
                            _ins=instrucao, _tp=tipo_alvo,
-                           _rf=list(fotos_ref_aj or []), _r=_res_cmd):
+                           _rf=_refs_cmd, _r=_res_cmd):
                 try:
                     _r["img"], _r["relato"] = ajustar_com_conferencia(
                         _ref, _ins, tipo=_tp, referencias=_rf,
@@ -9247,6 +9262,33 @@ if __name__ == "__main__":
         ok("o resto da instrucao sobreviveu", "Reenquadre" in _pf)
     finally:
         globals()["conferir_peca"] = _conf_antes
+
+    # ══ A REFERÊNCIA DO PEDIDO CHEGA AO MOTOR ═══════════════════════════
+    #
+    # Dono, 29/09: "eles mandaram a imagem no chat para ficar claro o que ele
+    # pediu". A imagem anexada parava no chat: o motor recebia a peça e uma
+    # frase, e ONDE está cortado, QUAL cota trocar e o que foi circulado se
+    # perdia na tradução para texto.
+    #
+    # A ORDEM IMPORTA, e é o que esta guarda mede. A referência entra ANTES
+    # das fotos do produto e NÃO no lugar delas: as fotos são a trava de
+    # fidelidade (é delas que saem a cor e a forma), a referência é o que se
+    # pede. Trocar uma pela outra faria o motor copiar a arte marcada em vez
+    # de corrigir a peça — e produto errado é o defeito mais grave daqui.
+    import ast as _ast_rp, inspect as _insp_rp
+    _src_pi = _insp_rp.getsource(consumir_comandos_do_chat)
+    _arv_pi = _ast_rp.parse(_ast_rp.unparse(_ast_rp.parse(_src_pi.lstrip())))
+    _nomes_pi = {getattr(_x, "id", "") for _x in _ast_rp.walk(_arv_pi)
+                 if isinstance(_x, _ast_rp.Name)}
+    ok("o ajuste do chat lê a referência que veio no comando",
+       "_ref_pedido" in _nomes_pi)
+    ok("e ela é somada às fotos do produto, não trocada por elas",
+       "_refs_cmd" in _nomes_pi
+       and "_ref_pedido + list(fotos_ref_aj" in _src_pi.replace("\n", " "))
+    # A PECA A CORRIGIR CONTINUA SENDO A PECA. A referencia nao pode virar o
+    # alvo do ajuste: o motor editaria a arte marcada e devolveria ela.
+    ok("a peça ajustada continua saindo da galeria",
+       "img_ref_cmd[0] if img_ref_cmd else None" in _src_pi)
 
     # ══ O PROMPT SAIU COM OUTRO PRODUTO ═════════════════════════════════
     #

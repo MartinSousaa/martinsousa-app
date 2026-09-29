@@ -80,7 +80,16 @@ FERRAMENTAS = [
             "sair errada e o colaborador ter que pedir de novo.\n\n"
             "Use também quando ele perguntar o que tem numa imagem, pedir "
             "opinião sobre ela, ou quando você precisar conferir se um ajuste "
-            "que já foi feito resolveu."
+            "que já foi feito resolveu.\n\n"
+            "A IMAGEM QUE ELE ANEXOU NÃO É A PEÇA DA GALERIA. Quando o "
+            "colaborador manda uma imagem no chat, ela é a REFERÊNCIA do "
+            "pedido — ele está mostrando o que quer, marcado. A peça a "
+            "corrigir continua sendo uma da galeria, pelo número. São duas "
+            "imagens diferentes: ABRA A PEÇA com esta ferramenta antes de "
+            "falar dela, e nunca descreva a peça a partir do anexo.\n"
+            "Se o anexo não parecer com a peça que ele indicou, DIGA ISSO e "
+            "pergunte o número — não adivinhe. Descrever a peça errada "
+            "queima uma geração e faz ele pedir de novo."
         ),
         "input_schema": {
             "type": "object",

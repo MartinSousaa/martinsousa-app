@@ -581,6 +581,42 @@ def _resolver_imagem(alvo, galeria):
     return None
 
 
+# Quantas falas atrás um anexo ainda conta como referência do pedido.
+#
+# Duas: a mensagem em que ele veio e a seguinte, que é onde o colaborador
+# costuma explicar o que quer ("olha essa" → "muda a cota para 25"). Mais que
+# isso e um anexo de outra peça, mandado há vinte mensagens, entraria como
+# referência do que se pede agora — e referência errada é pior que referência
+# nenhuma, porque o motor tenta parecer com ela.
+FALAS_QUE_O_ANEXO_ALCANCA = 4
+
+
+def referencia_do_pedido(historico):
+    """Os bytes que o colaborador anexou para MOSTRAR o que está pedindo.
+
+    POR QUE ESTA FUNÇÃO EXISTE
+
+    Dono, 29/09: "eles mandaram a imagem no chat para ficar claro o que ele
+    pediu".
+
+    O anexo chegava ao chat e parava nele. O comando de ajuste guardava só
+    `{"num", "instrucao"}` — texto — e o motor recebia a peça mais a frase.
+    Toda a informação visual (ONDE está cortado, QUAL cota trocar, o que foi
+    circulado) se perdia na tradução para texto, que é justamente o trabalho
+    que o colaborador anexou a imagem para não ter de fazer.
+
+    Foi por isso que a conversa do Tigre virou vai-e-vem: o chat descreveu o
+    ANEXO numa resposta e a PEÇA 2 da galeria na seguinte, e as duas não
+    batiam — são imagens diferentes, e ele não tinha como dizer isso.
+    """
+    falas = list(historico or [])[-FALAS_QUE_O_ANEXO_ALCANCA:]
+    for fala in reversed(falas):
+        bytes_ = (fala or {}).get("img_bytes") or []
+        if bytes_:
+            return list(bytes_)
+    return []
+
+
 def _executar_comando(cmd: dict) -> str | None:
     """Executa o comando extraído da resposta da IA. Retorna texto de feedback."""
     acao = cmd.get("acao", "")
@@ -619,8 +655,13 @@ def _executar_comando(cmd: dict) -> str | None:
                 )
             if "chat_img_pendente" not in st.session_state:
                 st.session_state["chat_img_pendente"] = []
+            # A REFERÊNCIA VIAJA JUNTO. Sem ela o motor recebe a peça e uma
+            # frase, e a imagem que o colaborador anexou para mostrar o que
+            # quer nunca sai do chat.
             st.session_state["chat_img_pendente"].append(
-                {"num": foto_num, "instrucao": instrucao}
+                {"num": foto_num, "instrucao": instrucao,
+                 "referencia": referencia_do_pedido(
+                     st.session_state.get("ms_chat_hist"))}
             )
             _log("ajustar_imagem", instrucao, imagem=foto_num,
                  tipo=galeria[foto_num - 1].get("tipo", ""))
@@ -1215,5 +1256,69 @@ if __name__ == "__main__":
     iniciar_conversa("E as medidas.")
     ok("o segundo aviso nao apaga o primeiro",
        len(st.session_state["ms_chat_hist"]) == 2)
+
+    # ══ A IMAGEM QUE O COLABORADOR ANEXA TEM DE VIAJAR ══════════════════
+    #
+    # Dono, 29/09: "eles mandaram a imagem no chat para ficar claro o que ele
+    # pediu".
+    #
+    # O anexo chegava ao chat e parava nele. O comando guardava só
+    # `{"num", "instrucao"}` — texto — e o motor recebia a peça mais a frase.
+    # Toda a informação visual (ONDE está cortado, QUAL cota trocar, o que
+    # foi circulado) se perdia na tradução para texto, que é justamente o que
+    # o colaborador anexou a imagem para não ter de fazer.
+    #
+    # Foi por isso que a conversa do Tigre virou vai-e-vem: o chat descreveu
+    # o ANEXO numa resposta e a PEÇA 2 da galeria na seguinte, e as duas não
+    # batiam — porque são imagens diferentes, e ele não tinha como dizer isso.
+    _h_anexo = [
+        {"role": "user", "content": "olha essa",
+         "img_bytes": [b"arte-marcada-1", b"arte-marcada-2"]},
+        {"role": "assistant", "content": "vi"},
+        {"role": "user", "content": "muda a cota para 25"},
+    ]
+    ok("a referência é a do ÚLTIMO anexo da conversa",
+       referencia_do_pedido(_h_anexo) == [b"arte-marcada-1", b"arte-marcada-2"])
+
+    # ANEXO ANTIGO NÃO VALE PARA PEDIDO NOVO. Uma imagem mandada há vinte
+    # mensagens, sobre outra peça, entraria como referência do que se pede
+    # agora — e referência errada é pior que referência nenhuma: o motor
+    # tenta parecer com ela.
+    _h_velho = [{"role": "user", "content": "olha", "img_bytes": [b"antiga"]}]
+    _h_velho += [{"role": "assistant", "content": "ok"},
+                 {"role": "user", "content": "a"}] * 4
+    ok("anexo de muitas mensagens atrás não vira referência",
+       referencia_do_pedido(_h_velho) == [])
+    ok("conversa sem anexo nenhum devolve vazio",
+       referencia_do_pedido([{"role": "user", "content": "muda a cota"}]) == [])
+    ok("histórico vazio não explode", referencia_do_pedido([]) == [])
+    ok("e None também não", referencia_do_pedido(None) == [])
+
+    # O CHAT SABE QUE SÃO DUAS IMAGENS DIFERENTES.
+    #
+    # Ele descreveu o ANEXO numa resposta e a PEÇA 2 da galeria na seguinte,
+    # como se fossem a mesma — e disse "não tem nenhum número escrito" sobre
+    # uma arte cheia de cotas. A ferramenta que ele usa para olhar peça passa
+    # a dizer, na própria descrição, que o anexo é a REFERÊNCIA do pedido e
+    # não a peça.
+    import ferramentas_chat as _fc_anexo
+    _desc_ver = next(
+        (f.get("description", "") for f in _fc_anexo.FERRAMENTAS
+         if f.get("name") == "ver_imagem"), "")
+    ok("a ferramenta de olhar peça distingue o anexo da galeria",
+       "NÃO É A PEÇA DA GALERIA" in _desc_ver)
+    ok("e manda perguntar em vez de adivinhar",
+       "pergunte o número" in _desc_ver)
+
+    # E O COMANDO LEVA A REFERÊNCIA JUNTO — por AST, na montagem do comando.
+    import ast as _ast_ax, inspect as _insp_ax
+    _arv_ax = _ast_ax.parse(_insp_ax.getsource(_executar_comando).lstrip())
+    _leva = False
+    for _n_ax in _ast_ax.walk(_arv_ax):
+        if isinstance(_n_ax, _ast_ax.Dict):
+            _chaves = {getattr(_k, "value", None) for _k in _n_ax.keys}
+            if "num" in _chaves and "instrucao" in _chaves:
+                _leva = "referencia" in _chaves
+    ok("o comando de ajuste leva a referência do pedido", _leva)
 
     print("\nfalhas:", falhas)
