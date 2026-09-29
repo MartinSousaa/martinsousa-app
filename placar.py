@@ -2221,7 +2221,13 @@ def bloco_conferencia_de_pontos(listas, cards, membros_map, id_p, d,
         if _mot:
             _descartes.append({"card": _c.get("name", ""), "pts": _pt,
                                "motivo": _mot,
-                               "lista": listas.get(_c.get("idList"), "")})
+                               "lista": listas.get(_c.get("idList"), ""),
+                               # DE QUEM ERA. Sem isto a tabela por pessoa só
+                               # sabe subtrair duas colunas de escopos
+                               # diferentes — que foi o alarme falso de 29/09.
+                               "membros": [membros_map.get(_m) for _m
+                                           in (_c.get("idMembers") or [])
+                                           if membros_map.get(_m)]})
 
     # ── A JANELA FOI TRUNCADA? ──────────────────────────────────────────
     #
@@ -2232,10 +2238,16 @@ def bloco_conferencia_de_pontos(listas, cards, membros_map, id_p, d,
     # `DIAGNOSTICO_POR_FILTRO` e o registro que `_publicar_diag` alimenta
     # (`placar_core.py:784`). O diagnostico do filtro de MOVIMENTO e o que
     # interessa aqui: e ele que traz a acao de conclusao.
+    # A CHAVE ERRADA DEIXAVA ESTE AVISO MUDO.
+    #
+    # Esta leitura era `DIAGNOSTICO_POR_FILTRO[FILTRO_MOVIMENTO]`. Quando
+    # `acoes_movimento` cai no caminho cru — que é o que roda quando o filtro
+    # de etiqueta não serve — o diagnóstico é publicado sob `"cru"`, e esta
+    # linha recebia `{}`: truncado falso, aviso mudo, janela truncada do
+    # outro lado. Agora quem responde é uma função só.
     _diag = {}
     try:
-        _diag = dict(_pc_cf.DIAGNOSTICO_POR_FILTRO.get(
-            _pc_cf.FILTRO_MOVIMENTO) or {})
+        _diag = _pc_cf.diagnostico_do_movimento()
     except Exception:
         _diag = {}
     if _diag.get("truncado"):
@@ -2246,12 +2258,37 @@ def bloco_conferencia_de_pontos(listas, cards, membros_map, id_p, d,
             "cartões ficam sem mês conhecido e **não somam em mês nenhum** — "
             "é esta a pontuação que 'some sozinha'.")
 
+    # O CABEÇALHO MOSTRA A PERDA, E NÃO A DIFERENÇA CRUA.
+    #
+    # A primeira versão desta tela anunciou "Diferença 12506 pts" — e 11836
+    # deles eram cartões de OUTRO MÊS, que a conta crua ignora de propósito.
+    # Alarme de 12 mil pontos que em 94,6% era o sistema certo: a tela feita
+    # para encerrar a discussão ensinaria a equipe a ignorá-la. O número que
+    # merece vermelho é só o que some sem regra que explique.
+    _perda = _cf.perda_silenciosa(_descartes)
+    _explicado = _cf.explicado_pela_regra(_descartes)
+
     _c1, _c2, _c3 = st.columns(3)
-    _c1.metric("Trello (conta crua)", f"{_crua['total']:.0f} pts")
-    _c2.metric("Studio (o que a tela mostra)",
-               f"{float(d.get('pts_equipe', 0)):.0f} pts")
-    _c3.metric("Diferença", f"{_dif:.0f} pts",
-               delta=None if not _dif else f"{-_dif:.0f}")
+    _c1.metric("Studio (este mês)", f"{float(d.get('pts_equipe', 0)):.0f} pts")
+    _c2.metric("Perda sem explicação", f"{_perda:.0f} pts",
+               delta=None if not _perda else f"-{_perda:.0f}",
+               delta_color="inverse")
+    _c3.metric("Trello (todos os meses)", f"{_crua['total']:.0f} pts")
+
+    if _perda:
+        st.error(
+            f"🔴 **{_perda:.0f} pts de cartões concluídos, com pontuação, que "
+            "não somam em mês nenhum.** É esta a pontuação que 'some sozinha' "
+            "— o detalhe de cada cartão está na lista abaixo.")
+    else:
+        st.success(
+            "✅ **Nenhum ponto sumiu.** Todo cartão que ficou de fora tem uma "
+            "regra que explica.")
+    st.caption(
+        f"A conta crua ignora o filtro de mês de propósito, então a diferença "
+        f"de {_dif:.0f} pts entre as duas pontas NÃO é rombo: "
+        f"{_explicado:.0f} pts dela são cartões de outro mês, de coluna que "
+        f"não pontua, ou ainda em aberto.")
 
     st.caption(
         f"Cartões no quadro: {_crua['qtd']['cards']} · concluídos: "
@@ -2259,12 +2296,19 @@ def bloco_conferencia_de_pontos(listas, cards, membros_map, id_p, d,
         f"{_crua['qtd']['com_pontos']} · com membro: "
         f"{_crua['qtd']['com_membro']}")
 
-    if _crua["qtd"]["pontos_fora_do_quadro"]:
+    # SEM DONO, MAS DENTRO DO MÊS.
+    #
+    # Este aviso saía de `contagem_crua`, que ignora o filtro de mês: embaixo
+    # de um painel de setembro ele anunciava o acumulado de quatro meses. O
+    # número certo vem de `cards_pts`, que já teve o mês aplicado.
+    _sem_dono = _cf.sem_dono_no_mes(d.get("cards_pts"), MEMBROS_ATIVOS)
+    if _sem_dono:
         st.warning(
-            f"🧾 **{_crua['qtd']['pontos_fora_do_quadro']:.0f} pontos somam no "
-            "time e em pessoa nenhuma** — cartão concluído sem membro, ou com "
-            "membro que não está na aba `equipe` da planilha. É por isso que a "
-            "soma dos individuais dá menos que o coletivo.")
+            f"🧾 **{_sem_dono:.0f} pontos deste mês somam no time e em pessoa "
+            "nenhuma** — cartão concluído sem membro marcado, ou com membro "
+            "que não está na aba `equipe` da planilha. É por isso que a soma "
+            "dos individuais dá menos que o coletivo. A correção é no Trello: "
+            "marcar a pessoa no cartão.")
 
     if _descartes:
         _fora = _cf.resumo_dos_descartes(_descartes)
@@ -2283,14 +2327,42 @@ def bloco_conferencia_de_pontos(listas, cards, membros_map, id_p, d,
     elif not _dif:
         st.success("✅ A conta do Studio bate com o Trello, cartão a cartão.")
 
-    st.markdown("**Por colaborador:**")
+    # POR PESSOA: O QUE ELA PERDEU, e não a subtração de duas colunas de
+    # escopos diferentes. "Trello 7772 / Studio 2073 / Diferença 5699" era
+    # junho, julho e agosto sendo apresentados a ela como roubo.
+    _perda_pm = _cf.perda_por_membro(_descartes, MEMBROS_ATIVOS)
+    st.markdown("**Por colaborador, neste mês:**")
     st.dataframe(
         [{"Colaborador": MEMBROS_ATIVOS.get(_u, _u),
-          "Trello": _v["crua"], "Studio": _v["sistema"],
-          "Diferença": _v["diferenca"]}
+          "Pontos no Studio": _v["sistema"],
+          "Perdeu sem explicação": _perda_pm.get(_u, 0.0),
+          "Trello (todos os meses)": _v["crua"]}
          for _u, _v in sorted(_por.items(),
-                              key=lambda x: -abs(x[1]["diferenca"]))],
+                              key=lambda x: (-_perda_pm.get(x[0], 0.0),
+                                             -x[1]["sistema"]))],
         use_container_width=True, hide_index=True)
+    st.caption(
+        "A última coluna é o acumulado de TODOS os meses, e serve só de "
+        "referência: ela ser maior que a do mês é o esperado, não é perda.")
+
+    # ONDE OS PONTOS DO MÊS ESTÃO — coluna a coluna.
+    #
+    # "Quanto tem na TRIAGEM?" não tinha resposta na tela, e era a TRIAGEM
+    # que estava comendo a pontuação: em 28/09 foram 18 cartões concluídos
+    # movidos para lá. Sai da MESMA lista que soma o total.
+    _por_col = _cf.por_coluna(d.get("cards_pts"))
+    if _por_col:
+        st.markdown("**Onde os pontos deste mês estão:**")
+        st.dataframe(
+            [{"Coluna": _nl, "Pontos": _v["pts"], "Cartões": _v["qtd"]}
+             for _nl, _v in sorted(_por_col.items(),
+                                   key=lambda x: -x[1]["pts"])],
+            use_container_width=True, hide_index=True)
+        st.caption(
+            f"Somando {sum(_v['pts'] for _v in _por_col.values()):,.0f} pts em "
+            f"{sum(_v['qtd'] for _v in _por_col.values())} cartões — o mesmo "
+            "total da coletiva, conferido cartão a cartão."
+            .replace(",", "."))
 
 
 def bloco_mapa_de_pontos(d, meta_eq):
@@ -3099,9 +3171,12 @@ def pagina_placar(usuario_logado, headless=False):
 
         with col_tempo:
             st.markdown("**⏱️ Tempo Médio por Coluna**")
+            # UMA PERGUNTA, UMA RESPOSTA. Esta linha tinha três critérios
+            # escritos à mão para dizer "é coluna de trabalho?" — que é
+            # exatamente o que COLUNAS_SKIP responde. Com a TRIAGEM passando a
+            # pagar pontos, a lista à mão a traria para cá de brinde.
             listas_t=[nl for nl in set(listas.values())
-                      if nl not in LISTAS_PENALIDADE and nl!="TABELA DE PONTUAÇÃO"
-                      and nl not in LISTAS_SEM_PONTUACAO]
+                      if nl not in COLUNAS_SKIP]
             listas_ord=sorted(listas_t)
             cols_t=st.columns(3)
             for i,nl in enumerate(listas_ord[:18]):

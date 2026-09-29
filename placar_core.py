@@ -44,14 +44,41 @@ def _req_get(url, **kw):
         return _RespFalha(f"{type(e).__name__}: {e}")
 
 
-# ── Tenta ler secrets do Streamlit; falha silenciosa fora do contexto ──────────
-try:
-    import streamlit as st
-    TRELLO_KEY   = st.secrets["trello"]["api_key"]
-    TRELLO_TOKEN = st.secrets["trello"]["token"]
-    BOARD_ID     = st.secrets["trello"]["board_id"]
-except Exception:
-    TRELLO_KEY = TRELLO_TOKEN = BOARD_ID = ""
+# ── A CREDENCIAL DO TRELLO: secrets do Streamlit, e o ambiente como reserva ────
+#
+# Em produção quem responde é `st.secrets` — e continua sendo, porque ele vem
+# primeiro. A reserva existe para o caso em que NÃO há Streamlit rodando: uma
+# análise no terminal, um script de conferência, uma sessão de manutenção.
+#
+# Sem ela, conferir o quadro fora da tela era impossível, e a saída era pedir
+# ao dono que abrisse o Studio e lesse o número — empurrar para ele o trabalho
+# que o sistema tem de fazer.
+#
+# NENHUM VALOR MORA NO REPOSITÓRIO. `.streamlit/secrets.toml` está no
+# `.gitignore` desde que um commit dele derrubou o Fim de Expediente; a reserva
+# lê variável de ambiente, que também não se commita.
+import os as _os_cred
+
+
+def _cred(chave_secrets, *nomes_env):
+    """O valor de `st.secrets["trello"][chave]`, ou a primeira env var que tiver."""
+    try:
+        import streamlit as st
+        v = st.secrets["trello"][chave_secrets]
+        if v:
+            return str(v)
+    except Exception:
+        pass
+    for n in nomes_env:
+        v = _os_cred.environ.get(n)
+        if v:
+            return str(v)
+    return ""
+
+
+TRELLO_KEY   = _cred("api_key",  "TRELLO_API_KEY", "TRELLO_KEY")
+TRELLO_TOKEN = _cred("token",    "TRELLO_TOKEN")
+BOARD_ID     = _cred("board_id", "TRELLO_BOARD_ID", "BOARD_ID")
 
 # ── Constantes ─────────────────────────────────────────────────────────────────
 # Equipe de origem. A lista real vem da planilha (aba "equipe") e e aplicada por
@@ -126,8 +153,19 @@ MASTERS = {"martinsousa", "renan"}
 # As duas escritas sao aceitas porque quem cria a coluna digita no Trello.
 LISTAS_ANALISE = {"ANÁLISE DE DEMANDAS", "ANALISE DE DEMANDAS"}
 
+# TRIAGEM NÃO ESTÁ AQUI, E ISSO É DECISÃO DO DONO (29/09): "configure para a
+# triagem contabilizar pontos sim".
+#
+# Ela estava. Em 28/09 a equipe moveu 18 cartões CONCLUÍDOS para a TRIAGEM
+# entre 10:50 e 17:32 — GUERREIRO PORTA CANETA (100), padronização de fotos
+# (90 e 70), Leopardo + filhote (80), Abacaxi (80), pendulo 9x7 (70) — e os
+# pontos saíram inteiros, da pessoa e da coletiva, sem aviso nenhum. Era essa
+# a "pontuação que está caindo".
+#
+# TRIAGEM continua em COLUNAS_SKIP: ela paga pontos, mas não é etapa de
+# execução com tempo estimado. São duas perguntas diferentes.
 LISTAS_SEM_PONTUACAO = {
-    "TABELA DE PONTUAÇÃO","TRIAGEM","CORREÇÃO DE FOTOS: 0 PONTOS",
+    "TABELA DE PONTUAÇÃO","CORREÇÃO DE FOTOS: 0 PONTOS",
     "RENAN","GUSTAVO","MYRELLA","URGENTES!!!!","Vídeos pendentes",
     "CRIAR ANÚNCIO","CRIAR ANÚNCIO DO ZERO",
 } | LISTAS_ANALISE
@@ -826,14 +864,55 @@ CAMPOS_ACAO_CRIACAO = {"fields": "type,date,data,idMemberCreator",
 # cada uma pagina por conta propria e todas correm juntas.
 FATIAS_PARALELAS = 6
 
+# QUANTAS PÁGINAS CADA FATIA PODE PEDIR — e por que este número subiu.
+#
+# Era 5, calculado como "o orçamento de páginas dividido pelas fatias". Com
+# 6 fatias cobrindo 120 dias, cada uma cobre 20 dias: 5.000 ações para 20
+# dias são 250 AÇÕES POR DIA antes de truncar. Um board de 685 cartões com a
+# equipe trabalhando passa disso sem esforço — cada movimento, etiqueta,
+# membro, comentário e campo alterado conta uma.
+#
+# E truncar aqui não é perder "um pedaço qualquer": `_paginar_fatia` vai do
+# mais NOVO para o mais ANTIGO, então o que fica de fora são as ações mais
+# antigas da fatia — que são justamente as CONCLUSÕES. Sem a ação de
+# conclusão, `_mes_card` devolve None e o cartão sai do mês. Foi essa a
+# pontuação que a equipe viu cair a partir de 25/09.
+#
+# ISTO NÃO CUSTA REQUISIÇÃO À TOA. `_paginar_fatia` para sozinha assim que
+# um lote volta com menos de 1000: quem tem pouco histórico continua fazendo
+# uma ou duas páginas. O teto existe para não girar sem fim, e não para
+# caber num orçamento — e agora, quando ele é alcançado, é sinal de verdade,
+# e o aviso de janela truncada sobe na tela.
+PAGINAS_POR_FATIA = 30
 
-def _fatias_do_periodo(desde_iso, n):
-    """Divide [desde, agora] em n intervalos (mais novo primeiro)."""
+
+def _fatias_do_periodo(desde_iso, n, agora=None):
+    """Divide [desde, agora] em n intervalos (mais novo primeiro).
+
+    AS BORDAS SÃO ANCORADAS NA HORA CHEIA, e isso é o conserto de um defeito
+    que custou caro.
+
+    Elas vinham de `datetime.now()` cru, então MUDAVAM a cada leitura. Uma
+    ação de conclusão perto de uma borda caía na fatia A numa leitura e na
+    fatia B na seguinte; se a fatia que a recebeu estourasse o teto de
+    páginas, ela se perdia — `_paginar_fatia` vai do mais NOVO para o mais
+    ANTIGO, então o que fica de fora é justamente a conclusão antiga. Sem
+    ela, `_mes_card` devolve None e o cartão SAI do mês. Na leitura seguinte
+    as bordas mudavam outra vez e o cartão voltava.
+
+    O sintoma na tela: Myrella 2.143 → 2.163 → 2.133 em minutos, sem ninguém
+    tocar no quadro (dono, 29/09). Do tamanho de um cartão, para cima e para
+    baixo, porque era um cartão mesmo.
+
+    Ancorar na hora cheia não perde nada: a fatia mais nova continua ABERTA
+    (`None`), então tudo o que aconteceu depois dela entra do mesmo jeito.
+    """
     try:
         ini = datetime.fromisoformat((desde_iso or "").replace("Z", "+00:00"))
     except (ValueError, AttributeError):
         return [(desde_iso, None)]
-    fim = datetime.now(timezone.utc)
+    fim = (agora or datetime.now(timezone.utc)).replace(
+        minute=0, second=0, microsecond=0)
     if fim <= ini:
         return [(desde_iso, None)]
     passo = (fim - ini) / n
@@ -907,8 +986,13 @@ def _acoes_cru(desde_iso, max_paginas, diag):
 
     n = min(FATIAS_PARALELAS, max(1, max_paginas))
     fatias = _fatias_do_periodo(desde_iso, n)
-    # Folga de uma pagina: as fatias nao tem o mesmo volume de acoes.
-    por_fatia = max(2, -(-max_paginas // len(fatias)) + 1)
+    # O TETO NÃO SE DIVIDE MAIS ENTRE AS FATIAS.
+    #
+    # Dividir o orçamento dava 5 páginas por fatia — 250 ações/dia — e as
+    # fatias não têm o mesmo volume: a que pega uma semana de pico trunca
+    # enquanto as outras sobram. Cada uma vai até o fim do que tem, com o
+    # mesmo teto de segurança.
+    por_fatia = PAGINAS_POR_FATIA
 
     with ThreadPoolExecutor(max_workers=len(fatias)) as ex:
         resultados = list(ex.map(
@@ -974,6 +1058,37 @@ def _acoes_cru_cache(desde_iso, max_paginas):
            f"MISS chave={chave[:34]} · {len(_acoes_cache)} entradas")
     _podar(_acoes_cache, agora)
     return por_card
+
+
+def diagnostico_do_movimento():
+    """O diagnóstico da leitura de ações que `acoes_movimento` REALMENTE fez.
+
+    DUAS CHAVES, E A TELA LIA A ERRADA. `acoes_movimento` tem dois caminhos:
+    o filtrado, que publica o diagnóstico em `DIAGNOSTICO_POR_FILTRO`
+    sob `FILTRO_MOVIMENTO`, e o cru — o que roda quando o filtro de etiqueta
+    não serve —, que publica sob `"cru"`. Quem perguntava pela chave do
+    filtro recebia `{}` no segundo caso: `truncado` falso, aviso mudo, com a
+    janela truncada do outro lado.
+
+    Foi isso que me fez concluir, em 29/09, que "não houve truncamento".
+    Não havia era leitor na chave certa.
+
+    Qualquer um dos dois truncado significa que uma ação de conclusão pode
+    ter ficado de fora — e é a conclusão que decide o mês. Então o aviso sobe
+    se QUALQUER leitura truncou, e não só a do caminho de hoje: `truncado`
+    não é opinião sobre qual caminho rodou, é risco de ponto sumido.
+    """
+    saida = {}
+    for chave in ("cru", FILTRO_MOVIMENTO):
+        d = DIAGNOSTICO_POR_FILTRO.get(chave)
+        if not d:
+            continue
+        for k, v in d.items():
+            if k == "truncado":
+                saida["truncado"] = bool(saida.get("truncado")) or bool(v)
+            else:
+                saida.setdefault(k, v)
+    return saida
 
 
 def acoes_movimento(desde_iso, max_paginas=5):
@@ -3024,5 +3139,352 @@ if __name__ == "__main__":
     ok("mas `hoje` explicito continua mandando",
        ritmo_do_mes((2020, 1), 5000, 2000,
                     hoje=datetime(2020, 1, 15)) is not None)
+
+    # ── TRIAGEM PONTUA, E TRIAGEM NÃO É ETAPA DE TEMPO ──────────────────
+    #
+    # Dono, 29/09: "configure para a triagem contabilizar pontos sim".
+    #
+    # Em 28/09 a equipe moveu 18 cartões CONCLUÍDOS para a TRIAGEM entre
+    # 10:50 e 17:32. Como TRIAGEM estava em `LISTAS_SEM_PONTUACAO`, os pontos
+    # saíram inteiros — da pessoa e da coletiva — sem aviso nenhum
+    # (`placar.py:692`, `placar_core.py:2927`). Foi essa a "pontuação que
+    # está caindo".
+    #
+    # DUAS LISTAS, DUAS PERGUNTAS DIFERENTES, e é por isso que ela sai de uma
+    # e fica na outra:
+    #
+    #   LISTAS_SEM_PONTUACAO  "esta coluna paga pontos?"  → TRIAGEM paga
+    #   COLUNAS_SKIP          "esta coluna é etapa de
+    #                          execução, com tempo e
+    #                          capacidade?"               → TRIAGEM não é
+    #
+    # Tirar de uma e esquecer a outra é a Forma 1 desta base. A guarda cobra
+    # as duas.
+    ok("TRIAGEM paga pontos", "TRIAGEM" not in LISTAS_SEM_PONTUACAO)
+    ok("e continua fora da conta de tempo e capacidade",
+       "TRIAGEM" in COLUNAS_SKIP)
+    ok("a TABELA DE PONTUAÇÃO continua sem pagar — é a legenda do quadro",
+       "TABELA DE PONTUAÇÃO" in LISTAS_SEM_PONTUACAO)
+    ok("e as colunas de análise também",
+       LISTAS_ANALISE <= LISTAS_SEM_PONTUACAO)
+
+    # E O TEMPO MÉDIO POR COLUNA NÃO GANHA A TRIAGEM DE BRINDE.
+    #
+    # `placar.py:3150` escolhia as colunas com uma lista escrita à mão
+    # ("não é penalidade, não é TABELA DE PONTUAÇÃO, não está em
+    # LISTAS_SEM_PONTUACAO") — três respostas para a pergunta que
+    # `COLUNAS_SKIP` já responde. Com TRIAGEM saindo de LISTAS_SEM_PONTUACAO,
+    # essa lista à mão deixaria a TRIAGEM entrar no mostrador de tempo.
+    # Uma pergunta, uma resposta: a tela passa a usar COLUNAS_SKIP.
+    import checar_tela as _ct_pc
+    _ct_pc.instalar()
+    import placar as _pl_pc
+    _fonte_tela = _insp_pc.getsource(_pl_pc.pagina_placar)
+    ok("o tempo médio por coluna filtra por COLUNAS_SKIP",
+       "COLUNAS_SKIP" in _fonte_tela)
+    ok("e não por uma lista escrita à mão ao lado dela",
+       'nl!="TABELA DE PONTUAÇÃO"' not in _fonte_tela)
+
+    # ── A CREDENCIAL: st.secrets manda, o ambiente é reserva ────────────
+    #
+    # A ordem importa. Se a env var viesse primeiro, uma variável esquecida
+    # numa máquina apontaria a produção para o quadro errado — e o Painel
+    # mostraria número de outro board sem ninguém desconfiar.
+    # ESTA GUARDA JA NASCEU FRACA, e a mutação a pegou no mesmo dia.
+    #
+    # A primeira versão comparava `fonte.index("st.secrets")` com
+    # `fonte.index("environ")`. Ficou VERDE com a ordem invertida, porque
+    # `st.secrets` aparece na DOCSTRING da função, antes de qualquer código.
+    # É a mesma armadilha das outras três desta base: guarda que procura
+    # TEXTO no arquivo acaba se encontrando a si mesma. A pergunta se faz na
+    # estrutura, e depois no comportamento.
+    import ast as _ast_cred
+    _corpo = _ast_cred.parse(
+        _insp_pc.getsource(_cred).lstrip()).body[0].body
+    if _corpo and isinstance(_corpo[0], _ast_cred.Expr) and isinstance(
+            getattr(_corpo[0], "value", None), _ast_cred.Constant):
+        _corpo = _corpo[1:]  # fora a docstring
+    ok("o secrets do Streamlit é o PRIMEIRO caminho do corpo",
+       bool(_corpo) and isinstance(_corpo[0], _ast_cred.Try))
+    ok("e a varredura das variáveis de ambiente vem depois dele",
+       any(isinstance(_x, _ast_cred.For) for _x in _corpo[1:]))
+
+    # E O COMPORTAMENTO, com os DOIS presentes: quem vence?
+    #
+    # A estrutura sozinha não basta — um `try` primeiro que não devolvesse
+    # nada passaria. Aqui os dois respondem, e o teste exige o do Streamlit.
+    # Se a env var vencesse, uma variável esquecida numa máquina apontaria a
+    # produção para outro quadro, calada.
+    import checar_tela as _ct_cred
+    _falso_st = _ct_cred.instalar()
+    _falso_st.secrets = {"trello": {"campo_de_teste": "veio-do-secrets"}}
+    _os_cred.environ["_TESTE_CRED_MS"] = "veio-do-ambiente"
+    import sys as _sys_cred
+    _st_antes = _sys_cred.modules.get("streamlit")
+    _sys_cred.modules["streamlit"] = _falso_st
+    try:
+        ok("com os dois presentes, o secrets vence",
+           _cred("campo_de_teste", "_TESTE_CRED_MS") == "veio-do-secrets")
+        ok("e a reserva responde quando o secrets não tem o campo",
+           _cred("campo_que_nao_existe", "_TESTE_CRED_MS") == "veio-do-ambiente")
+        ok("sem nenhum dos dois devolve vazio, e não explode",
+           _cred("nao_existe", "_TAMBEM_NAO_EXISTE_MS") == "")
+    finally:
+        if _st_antes is not None:
+            _sys_cred.modules["streamlit"] = _st_antes
+        else:
+            _sys_cred.modules.pop("streamlit", None)
+        del _os_cred.environ["_TESTE_CRED_MS"]
+
+    # NENHUM VALOR DE SECRET NO REPOSITÓRIO. Um commit de secrets.toml já
+    # derrubou o Fim de Expediente.
+    import subprocess as _sp_pc
+    _rastreado = _sp_pc.run(["git", "ls-files", ".streamlit/secrets.toml"],
+                            capture_output=True, text=True).stdout.strip()
+    ok("`.streamlit/secrets.toml` NÃO está versionado", _rastreado == "")
+
+    # ══ A PONTUAÇÃO QUE OSCILA EM MINUTOS ═══════════════════════════════
+    #
+    # Dono, 29/09, com três prints: Myrella 2.143 → 2.163 → 2.133. Sobe 20,
+    # cai 30, em minutos, sem ninguém tocar no quadro. Não é TRIAGEM, não é
+    # mês, não é membro entrando: é do TAMANHO DE UM CARTÃO entrando e
+    # saindo da conta sozinho.
+    #
+    # `_fatias_do_periodo` dividia [desde, AGORA] em 6 pedaços usando
+    # `datetime.now()` — as bordas MUDAVAM a cada leitura. Uma ação de
+    # conclusão perto de uma borda caía na fatia A numa leitura e na fatia B
+    # na seguinte; a fatia que a recebia podia estourar o teto de páginas, e
+    # `_paginar_fatia` pagina do mais NOVO para o mais ANTIGO, então o que se
+    # perde é justamente a conclusão. Sem a ação de conclusão, `_mes_card`
+    # devolve None e o cartão SAI do mês. Na leitura seguinte as bordas
+    # mudaram de novo e ele volta.
+    #
+    # A janela tem de ser a MESMA entre duas leituras próximas, ou a conta
+    # não é reprodutível — e conta que não é reprodutível não é conta.
+    _d0 = "2026-06-01T00:00:00.000Z"
+    _t1 = datetime(2026, 9, 29, 14, 3, 11, tzinfo=timezone.utc)
+    _t2 = datetime(2026, 9, 29, 14, 47, 52, tzinfo=timezone.utc)
+    ok("as fatias não mudam entre duas leituras da mesma hora",
+       _fatias_do_periodo(_d0, 6, agora=_t1)
+       == _fatias_do_periodo(_d0, 6, agora=_t2))
+    _f = _fatias_do_periodo(_d0, 6, agora=_t1)
+    ok("e continuam sendo seis", len(_f) == 6)
+    ok("a fatia mais nova segue ABERTA, para pegar o que acabou de acontecer",
+       _f[0][1] is None)
+    # SEM BURACO ENTRE FATIAS: ação que cai num buraco é conclusão perdida, e
+    # o cartão sai do mês em silêncio. A sobreposição de um minuto é de
+    # propósito — ação repetida é inofensiva, ação faltando não é.
+    _ord = sorted(_f, key=lambda x: x[0])
+    _sem_buraco = all(_ord[i + 1][0] <= (_ord[i][1] or "9999")
+                      for i in range(len(_ord) - 1))
+    ok("e não há buraco entre elas", _sem_buraco)
+    ok("a mais antiga começa na borda da janela pedida",
+       _ord[0][0][:10] <= _d0[:10])
+
+    # ══ O AVISO DE JANELA TRUNCADA LIA A CHAVE ERRADA ═══════════════════
+    #
+    # Pior que o defeito: ele me fez CONCLUIR que não houve truncamento.
+    #
+    # `acoes_movimento` cai em `_acoes_cru_cache` quando o filtro de etiqueta
+    # não serve, e esse caminho publica o diagnóstico em
+    # `DIAGNOSTICO_POR_FILTRO["cru"]`. A tela lia a chave `FILTRO_MOVIMENTO`
+    # ("updateCard"), que nesse caminho nunca é escrita: `{}`, `truncado`
+    # falso, aviso mudo — com a janela truncada do outro lado.
+    #
+    # A guarda que eu escrevi para isso conferia que existe um `if` lendo
+    # 'truncado' com aviso dentro. Existia. Ela nunca perguntou se a CHAVE
+    # era a que alguém escreve. Forma 3, de novo: verde medindo outro lugar.
+    _bk = dict(DIAGNOSTICO_POR_FILTRO)
+    try:
+        DIAGNOSTICO_POR_FILTRO.clear()
+        DIAGNOSTICO_POR_FILTRO["cru"] = {"truncado": True, "acoes": 12000}
+        ok("truncamento publicado em 'cru' CHEGA a quem pergunta",
+           diagnostico_do_movimento().get("truncado") is True)
+        DIAGNOSTICO_POR_FILTRO.clear()
+        DIAGNOSTICO_POR_FILTRO[FILTRO_MOVIMENTO] = {"truncado": True}
+        ok("e publicado na chave do filtro, também",
+           diagnostico_do_movimento().get("truncado") is True)
+        DIAGNOSTICO_POR_FILTRO.clear()
+        DIAGNOSTICO_POR_FILTRO["cru"] = {"truncado": False, "acoes": 10}
+        ok("sem truncamento nenhum, não inventa alarme",
+           diagnostico_do_movimento().get("truncado") is not True)
+        DIAGNOSTICO_POR_FILTRO.clear()
+        ok("e sem diagnóstico nenhum devolve vazio, sem explodir",
+           diagnostico_do_movimento() == {})
+    finally:
+        DIAGNOSTICO_POR_FILTRO.clear()
+        DIAGNOSTICO_POR_FILTRO.update(_bk)
+
+    # E A TELA PERGUNTA A ELA, não a uma chave escrita à mão.
+    import checar_tela as _ct_diag
+    _ct_diag.instalar()
+    import placar as _pl_diag
+    # POR AST, e não por texto: o nome antigo sobrevive nos COMENTÁRIOS que
+    # explicam por que ele saiu, e uma guarda textual se acharia neles. É a
+    # armadilha que já derrubou três guardas desta base.
+    import ast as _ast_diag
+    _arv_conf = _ast_diag.parse(_ast_diag.unparse(_ast_diag.parse(
+        _insp_pc.getsource(_pl_diag.bloco_conferencia_de_pontos).lstrip())))
+    _nomes = {getattr(_x, "attr", "") or getattr(_x, "id", "")
+              for _x in _ast_diag.walk(_arv_conf)
+              if isinstance(_x, (_ast_diag.Attribute, _ast_diag.Name))}
+    ok("a tela pergunta pela função do diagnóstico",
+       "diagnostico_do_movimento" in _nomes)
+    ok("e não lê o registro por chave escrita à mão",
+       "DIAGNOSTICO_POR_FILTRO" not in _nomes)
+
+    # ══ A FATIA TEM DE IR ATÉ O FIM ═════════════════════════════════════
+    #
+    # Dono, 29/09: "a queda de ponto vem acontecendo desde o dia 25/09".
+    #
+    # A conta que explica a data: a janela é de 120 dias em 6 fatias, cada
+    # uma cobrindo 20 dias com teto de 5 páginas = 5.000 ações. Isso são
+    # 250 AÇÕES POR DIA antes de truncar. Um board de 685 cartões com a
+    # equipe trabalhando passa disso — cada movimento, etiqueta, membro,
+    # comentário e campo alterado é uma ação. Quando o volume diário cruzou
+    # esse patamar, as fatias começaram a truncar, e truncar aqui significa
+    # perder as ações MAIS ANTIGAS da fatia, que são as conclusões.
+    #
+    # Ancorar as bordas na hora (acima) fez a perda parar de OSCILAR. Não
+    # fez ela parar de acontecer: fatia que trunca continua perdendo
+    # conclusão. O teto é a raiz, e é ele que sobe aqui.
+    #
+    # Não custa requisição à toa: `_paginar_fatia` para sozinha quando o lote
+    # volta com menos de 1000, então o teto só é alcançado por quem realmente
+    # tem aquele volume. Ele existe para não girar sem fim, não para caber
+    # num orçamento.
+    _paginas_pedidas = []
+
+    class _RespFalsa:
+        ok, status_code = True, 200
+
+        def __init__(self, quantas):
+            self._q = quantas
+
+        def json(self):
+            return [{"type": "updateCard", "date": "2026-09-01T00:00:00.000Z",
+                     "data": {"card": {"id": "c1"}}} for _ in range(self._q)]
+
+    def _get_falso(url, params=None, timeout=None):
+        # Oito páginas CHEIAS na mesma fatia: com o teto de 5, a leitura
+        # parava na quinta e as três mais antigas — as conclusões — sumiam.
+        _paginas_pedidas.append(params)
+        return _RespFalsa(1000 if len(_paginas_pedidas) <= 8 else 10)
+
+    # PELA CADEIA, E NÃO PELA FUNÇÃO SOLTA. A primeira versão desta guarda
+    # chamava `_paginar_fatia` passando `PAGINAS_POR_FATIA` À MÃO — e a
+    # mutação que devolvia a divisão do orçamento passou VERDE, com razão:
+    # quem decide o teto é `_acoes_cru`, e a guarda nunca o executava. É a
+    # Forma 7 desta base: exercitar a função certa com uma entrada que o
+    # sistema não produz. Aqui quem roda é `_acoes_cru`.
+    _req_antes = requests.get
+    _bk_key, _bk_board = TRELLO_KEY, BOARD_ID
+    try:
+        requests.get = _get_falso
+        TRELLO_KEY, BOARD_ID = "k", "b"
+        _diag_t = {"erro": None, "paginas": 0, "acoes": 0, "cartoes": 0,
+                   "http": None, "filtro": "cru", "tipos": {}}
+        _por_card = _acoes_cru("2026-09-01T00:00:00.000Z", 20, _diag_t)
+        # Oito páginas CHEIAS na primeira fatia atendida: com o teto antigo
+        # de 5, a leitura parava na quinta e as três mais antigas — as
+        # conclusões — sumiam, marcando truncado.
+        ok("a fatia pagina até o fim, e não para no teto antigo de 5",
+           _diag_t["paginas"] >= 9 and not _diag_t.get("truncado"))
+        ok("e traz as ações das páginas que antes ficavam de fora",
+           _diag_t["acoes"] >= 8000)
+    finally:
+        requests.get = _req_antes
+        TRELLO_KEY, BOARD_ID = _bk_key, _bk_board
+
+    # E O TETO CONTINUA EXISTINDO: sem ele, um board em laço gira sem fim.
+    _paginas_pedidas.clear()
+    try:
+        requests.get = lambda url, params=None, timeout=None: (
+            _paginas_pedidas.append(1) or _RespFalsa(1000))
+        _a2, _t2, _e2, _h2, _p2, _tr2 = _paginar_fatia(
+            "2026-09-01T00:00:00.000Z", None, PAGINAS_POR_FATIA)
+        ok("com página cheia sem fim, ela PARA no teto", _p2 == PAGINAS_POR_FATIA)
+        ok("e marca truncado, para o aviso subir na tela", _tr2 is True)
+    finally:
+        requests.get = _req_antes
+
+    ok("o teto por fatia é generoso o bastante para o board de hoje",
+       PAGINAS_POR_FATIA >= 20)
+
+    # ══ AS DUAS REGRAS QUE O DONO DITOU EM 29/09 ════════════════════════
+    #
+    #   1. "se um cartão for concluído e depois houver modificações nele,
+    #      inclusão de comentário ou descrição, ele não pode somar a
+    #      pontuação novamente"
+    #   2. "se for concluído, remover o botão de concluído, colocar uma
+    #      etiqueta e depois for concluído de novo, o sistema conta 2 vezes?"
+    #
+    # O comportamento já era o certo — e é exatamente por isso que a guarda
+    # precisa existir. Regra que ninguém mede é regra que a próxima mudança
+    # quebra em silêncio, e esta mexe em dinheiro de gente.
+    def _ac(cid, quando, de, para):
+        return {"type": "updateCard", "date": quando,
+                "data": {"card": {"id": cid, "dueComplete": para},
+                         "old": {"dueComplete": de}}}
+
+    # 1. COMENTAR E EDITAR NÃO CONCLUEM NADA.
+    _hist = {"k1": [
+        _ac("k1", "2026-08-10T10:00:00.000Z", False, True),   # concluiu em AGOSTO
+        {"type": "commentCard", "date": "2026-09-20T10:00:00.000Z",
+         "data": {"card": {"id": "k1"}, "text": "olha isso"}},
+        {"type": "updateCard", "date": "2026-09-21T10:00:00.000Z",
+         "data": {"card": {"id": "k1"}, "old": {"desc": "antes"}}},
+        {"type": "addLabelToCard", "date": "2026-09-22T10:00:00.000Z",
+         "data": {"card": {"id": "k1"}}},
+    ]}
+    _fim = datas_de_conclusao(_hist)
+    ok("comentário e edição depois da conclusão NÃO mudam o mês",
+       (_fim["k1"].year, _fim["k1"].month) == (2026, 8))
+    _card_k1 = {"id": "k1", "dueComplete": True,
+                "dateLastActivity": "2026-09-22T10:00:00.000Z"}
+    ok("e o cartão continua sendo de agosto, não do mês do comentário",
+       _mes_card(_card_k1, _fim) == (2026, 8))
+
+    # 2. REABRIR E RECONCLUIR NÃO DUPLICA — MIGRA.
+    _hist2 = {"k2": [
+        _ac("k2", "2026-08-10T10:00:00.000Z", False, True),   # concluiu
+        _ac("k2", "2026-09-05T10:00:00.000Z", True, False),   # desmarcou
+        {"type": "addLabelToCard", "date": "2026-09-05T10:05:00.000Z",
+         "data": {"card": {"id": "k2"}}},                     # etiquetou
+        _ac("k2", "2026-09-06T10:00:00.000Z", False, True),   # concluiu de novo
+    ]}
+    _fim2 = datas_de_conclusao(_hist2)
+    ok("reabrir e reconcluir guarda UMA data, e não duas",
+       isinstance(_fim2.get("k2"), datetime))
+    ok("e essa data é a da ÚLTIMA conclusão",
+       (_fim2["k2"].year, _fim2["k2"].month, _fim2["k2"].day)
+       == (2026, 9, 6))
+    ok("então o cartão conta em setembro, UMA vez",
+       _mes_card({"id": "k2", "dueComplete": True,
+                  "dateLastActivity": "2026-09-06T10:00:00.000Z"},
+                 _fim2) == (2026, 9))
+    ok("e NÃO conta mais em agosto — migrou, não duplicou",
+       _mes_card({"id": "k2", "dueComplete": True,
+                  "dateLastActivity": "2026-09-06T10:00:00.000Z"},
+                 _fim2) != (2026, 8))
+
+    # E A DUPLICAÇÃO É IMPOSSÍVEL POR ESTRUTURA, não por sorte: a soma
+    # percorre a LISTA DE CARTÕES, um cartão por volta. Somar duas vezes
+    # exigiria o mesmo cartão duas vezes na lista do Trello.
+    import ast as _ast_dup
+    _arv_proc = _ast_dup.parse(_insp_pc.getsource(_pl_diag._processar).lstrip())
+    _laco_por_card = any(
+        isinstance(_x, _ast_dup.For)
+        and isinstance(_x.target, _ast_dup.Name) and _x.target.id == "card"
+        for _x in _ast_dup.walk(_arv_proc))
+    ok("a soma percorre os CARTÕES, um por volta — duplicar é impossível",
+       _laco_por_card)
+
+    # A ETIQUETA NÃO ENCOSTA NA PONTUAÇÃO. Ela conta tempo e trabalho em
+    # andamento; quem paga é a coluna, o campo PONTOS e o `dueComplete`.
+    _f_proc = _insp_pc.getsource(_pl_diag._processar)
+    _trecho_pts = _f_proc.split("PENALIDADES")[-1]
+    ok("nenhuma etiqueta decide pontuação",
+       'in lb' not in _trecho_pts.split("pts_equipe")[0][-900:])
 
     print("\nfalhas:", falhas)

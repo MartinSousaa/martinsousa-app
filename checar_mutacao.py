@@ -122,6 +122,154 @@ MUTACOES = [
         ["python3", "conferencia_pontos.py"],
     ),
     (
+        # 29/09: o cabecalho anunciou "Diferenca 12506 pts" e 11836 deles eram
+        # cartoes de OUTRO MES, que a conta crua ignora de proposito. Alarme
+        # falso ensina a equipe a ignorar a tela de conferir.
+        "'outro mes' volta a ser contado como perda no cabecalho",
+        "conferencia_pontos.py",
+        '                     if d.get("motivo") not in MOTIVOS_ESPERADOS), 2)',
+        "                     ), 2)",
+        ["python3", "conferencia_pontos.py"],
+    ),
+    (
+        # O mesmo alarme falso, por pessoa: a Myrella leu "Diferenca 5699" como
+        # 5.699 pontos roubados dela, e eram junho, julho e agosto.
+        "a tabela por pessoa volta a subtrair duas colunas de escopos diferentes",
+        "placar.py",
+        '          "Perdeu sem explicação": _perda_pm.get(_u, 0.0),',
+        '          "Perdeu sem explicação": _v["diferenca"],',
+        ["python3", "conferencia_pontos.py"],
+    ),
+    (
+        # O aviso amarelo saia de `contagem_crua`, que ignora o mes: embaixo de
+        # um painel de setembro ele anunciava o acumulado de quatro meses.
+        "o aviso de ponto sem dono volta a somar todos os meses",
+        "placar.py",
+        '    _sem_dono = _cf.sem_dono_no_mes(d.get("cards_pts"), MEMBROS_ATIVOS)',
+        '    _sem_dono = _crua["qtd"]["pontos_fora_do_quadro"]',
+        ["python3", "conferencia_pontos.py"],
+    ),
+    (
+        # 28/09: 18 cartoes CONCLUIDOS foram movidos para a TRIAGEM entre
+        # 10:50 e 17:32 e os pontos sairam inteiros, sem aviso. O dono decidiu
+        # em 29/09: "configure para a triagem contabilizar pontos sim".
+        "a TRIAGEM volta a nao pagar pontos",
+        "placar_core.py",
+        'LISTAS_SEM_PONTUACAO = {\n    "TABELA DE PONTUAÇÃO","CORREÇÃO DE FOTOS: 0 PONTOS",',
+        'LISTAS_SEM_PONTUACAO = {\n    "TABELA DE PONTUAÇÃO","TRIAGEM","CORREÇÃO DE FOTOS: 0 PONTOS",',
+        ["python3", "placar_core.py"],
+    ),
+    (
+        # A Forma 1 desta base: corrigir numa lista e esquecer a irma.
+        "a TRIAGEM sai tambem da lista de colunas que nao sao etapa",
+        "placar_core.py",
+        'COLUNAS_SKIP = {\n    "TABELA DE PONTUAÇÃO","TRIAGEM","PENALIDADES",',
+        'COLUNAS_SKIP = {\n    "TABELA DE PONTUAÇÃO","PENALIDADES",',
+        ["python3", "placar_core.py"],
+    ),
+    (
+        # A lista escrita a mao trazia a TRIAGEM para o mostrador de tempo.
+        "o tempo medio por coluna volta a ter lista escrita a mao",
+        "placar.py",
+        "            listas_t=[nl for nl in set(listas.values())\n"
+        "                      if nl not in COLUNAS_SKIP]",
+        "            listas_t=[nl for nl in set(listas.values())\n"
+        '                      if nl not in LISTAS_PENALIDADE and nl!="TABELA DE PONTUAÇÃO"\n'
+        "                      and nl not in LISTAS_SEM_PONTUACAO]",
+        ["python3", "placar_core.py"],
+    ),
+    (
+        # Se a env var viesse primeiro, uma variavel esquecida numa maquina
+        # apontaria a producao para o quadro errado, calada.
+        "a variavel de ambiente passa na frente do st.secrets",
+        "placar_core.py",
+        "    try:\n        import streamlit as st\n        v = st.secrets[\"trello\"][chave_secrets]\n"
+        "        if v:\n            return str(v)\n    except Exception:\n        pass\n"
+        "    for n in nomes_env:\n        v = _os_cred.environ.get(n)\n        if v:\n"
+        "            return str(v)\n    return \"\"",
+        "    for n in nomes_env:\n        v = _os_cred.environ.get(n)\n        if v:\n"
+        "            return str(v)\n    try:\n        import streamlit as st\n"
+        "        v = st.secrets[\"trello\"][chave_secrets]\n        if v:\n"
+        "            return str(v)\n    except Exception:\n        pass\n    return \"\"",
+        ["python3", "placar_core.py"],
+    ),
+    (
+        # Zero calado vira numero em relatorio. A recusa e a feature.
+        "a analise do mes devolve zero em vez de recusar sem credencial",
+        "analise_do_mes.py",
+        '        raise RuntimeError(\n            "sem credencial do Trello: defina TRELLO_API_KEY, TRELLO_TOKEN e "\n            "TRELLO_BOARD_ID no ambiente (ou em .streamlit/secrets.toml)")',
+        "        pass",
+        ["python3", "analise_do_mes.py", "--autoteste"],
+    ),
+    (
+        # Myrella 2.143 -> 2.163 -> 2.133 em minutos, sem ninguem tocar no
+        # quadro. As bordas das fatias vinham de now() cru e mudavam a cada
+        # leitura; a acao de conclusao perto de uma borda entrava e saia, e
+        # com ela o cartao inteiro.
+        "as bordas das fatias voltam a se mover a cada leitura",
+        "placar_core.py",
+        "    fim = (agora or datetime.now(timezone.utc)).replace(\n"
+        "        minute=0, second=0, microsecond=0)",
+        "    fim = agora or datetime.now(timezone.utc)",
+        ["python3", "placar_core.py"],
+    ),
+    (
+        # O aviso de janela truncada lia a chave do filtro; o caminho cru
+        # publica em "cru". A tela recebia {} e ficava muda — e foi isso que
+        # me fez concluir que nao havia truncamento.
+        "o diagnostico volta a olhar so a chave do filtro",
+        "placar_core.py",
+        '    for chave in ("cru", FILTRO_MOVIMENTO):',
+        "    for chave in (FILTRO_MOVIMENTO,):",
+        ["python3", "placar_core.py"],
+    ),
+    (
+        "a tela volta a ler o diagnostico por chave escrita a mao",
+        "placar.py",
+        "        _diag = _pc_cf.diagnostico_do_movimento()",
+        "        _diag = dict(_pc_cf.DIAGNOSTICO_POR_FILTRO.get(\n"
+        "            _pc_cf.FILTRO_MOVIMENTO) or {})",
+        ["python3", "placar_core.py"],
+    ),
+    (
+        # 250 acoes/dia por fatia era o teto real. O board passou disso e as
+        # conclusoes antigas de cada fatia comecaram a ficar de fora.
+        "o teto de paginas volta a ser dividido entre as fatias",
+        "placar_core.py",
+        "    por_fatia = PAGINAS_POR_FATIA",
+        "    por_fatia = max(2, -(-max_paginas // len(fatias)) + 1)",
+        ["python3", "placar_core.py"],
+    ),
+    (
+        "o teto por fatia volta a ser pequeno",
+        "placar_core.py",
+        "PAGINAS_POR_FATIA = 30",
+        "PAGINAS_POR_FATIA = 5",
+        ["python3", "placar_core.py"],
+    ),
+    (
+        # Dono, 29/09: "se um cartao for concluido e depois houver
+        # modificacoes nele, comentario ou descricao, ele nao pode somar a
+        # pontuacao novamente".
+        "comentar um cartao antigo volta a mover a pontuacao de mes",
+        "placar_core.py",
+        '            if ac.get("type") != "updateCard":\n                continue\n'
+        '            dados = ac.get("data", {}) or {}\n'
+        '            if (dados.get("old") or {}).get("dueComplete") is False and \\\n'
+        '               (dados.get("card") or {}).get("dueComplete") is True:',
+        '            dados = ac.get("data", {}) or {}\n            if True:',
+        ["python3", "placar_core.py"],
+    ),
+    (
+        # Dono, 29/09: "se for concluido, desmarcado e concluido de novo, o
+        # sistema conta 2 vezes?" Nao — vale a ULTIMA conclusao.
+        "reabrir e reconcluir volta a valer a PRIMEIRA data",
+        "placar_core.py",
+        "                if cid not in fim or dt > fim[cid]:",
+        "                if cid not in fim:",
+        ["python3", "placar_core.py"],
+    ),
+    (
         "o ponto sem dono para de ser contado a parte",
         "conferencia_pontos.py",
         '            qtd["pontos_fora_do_quadro"] += pt',

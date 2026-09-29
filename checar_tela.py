@@ -756,7 +756,8 @@ def _processar_cards_pts(conta):
     _pc.entradas_se_preciso = lambda *a, **k: {}
     try:
         _listas = {"L1": "DESATIVAR (50)", "L2": "TRIAGEM",
-                   "L3": "CONFERENCIA VÍDEO (10)"}
+                   "L3": "CONFERENCIA VÍDEO (10)",
+                   "L4": "TABELA DE PONTUAÇÃO"}
         _cf = lambda v: [{"idCustomField": "idp", "value": {"number": str(v)}}]
         _cards = [
             # SOMA: concluido, em lista que pontua, com o campo PONTOS.
@@ -768,10 +769,20 @@ def _processar_cards_pts(conta):
              "idMembers": [], "labels": [], "idLabels": [], "due": None,
              "dueComplete": True, "customFieldItems": _cf(10),
              "dateLastActivity": "2020-01-01T00:00:00.000Z"},
-            # NAO SOMA: TRIAGEM esta em LISTAS_SEM_PONTUACAO.
+            # SOMA, E ISSO MUDOU EM 29/09. A TRIAGEM pagava zero, e em
+            # 28/09 a equipe moveu 18 cartoes CONCLUIDOS para la: os pontos
+            # sumiram da pessoa e da coletiva, sem aviso. O dono decidiu que
+            # a TRIAGEM paga. Este cartao e a prova viva da decisao.
             {"id": "c3", "name": "Na triagem", "idList": "L2",
              "idMembers": [], "labels": [], "idLabels": [], "due": None,
              "dueComplete": True, "customFieldItems": _cf(100),
+             "dateLastActivity": "2020-01-01T00:00:00.000Z"},
+            # NAO SOMA: a TABELA DE PONTUACAO e a legenda do quadro, nao
+            # trabalho. Sem um cartao aqui, a guarda deixaria de medir
+            # LISTAS_SEM_PONTUACAO e ficaria verde com a lista inteira vazia.
+            {"id": "c5", "name": "Legenda de pontos", "idList": "L4",
+             "idMembers": [], "labels": [], "idLabels": [], "due": None,
+             "dueComplete": True, "customFieldItems": _cf(200),
              "dateLastActivity": "2020-01-01T00:00:00.000Z"},
             # NAO SOMA: o "concluido" nao esta marcado. `placar.py:621`.
             {"id": "c4", "name": "Aberto ainda", "idList": "L1",
@@ -788,15 +799,21 @@ def _processar_cards_pts(conta):
               _soma == _d["pts_equipe"],
               f"cards_pts={_soma} · pts_equipe={_d['pts_equipe']}")
         conta("so os cartoes que somam entram na lista",
-              sorted(c["id"] for c in _d["cards_pts"]) == ["c1", "c2"],
+              sorted(c["id"] for c in _d["cards_pts"]) == ["c1", "c2", "c3"],
               str(sorted(c["id"] for c in _d["cards_pts"])))
+        conta("a TRIAGEM paga pontos — decisao do dono em 29/09",
+              any(c["id"] == "c3" for c in _d["cards_pts"]),
+              "cartao concluido na TRIAGEM tem de somar")
+        conta("e a TABELA DE PONTUACAO continua sem pagar",
+              all(c["id"] != "c5" for c in _d["cards_pts"]),
+              "a legenda do quadro nao e trabalho")
         conta("cada cartao traz id, nome, lista e pontos",
               all({"id", "card", "lista", "pts", "membros"} <= set(c)
                   for c in _d["cards_pts"]), "")
         # QUEM MAIS LE: ferramentas_chat.py:243 monta o saldo com estas duas
         # chaves. Acrescentar cards_pts nao pode ter mexido nelas.
         conta("ferramentas_chat continua achando pts_equipe e pen_total",
-              _d.get("pts_equipe") == 60 and _d.get("pen_total") == 0,
+              _d.get("pts_equipe") == 160 and _d.get("pen_total") == 0,
               f"{_d.get('pts_equipe')} / {_d.get('pen_total')}")
     except Exception as e:
         conta("cards_pts soma EXATAMENTE o total da equipe", False,
