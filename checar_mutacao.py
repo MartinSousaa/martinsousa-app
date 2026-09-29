@@ -92,6 +92,13 @@ MUTACOES = [
         ["python3", "checar_tela.py"],
     ),
     (
+        "a isencao de fuso volta a ser por ARQUIVO, e esconde o irmao",
+        "checar_alcance.py",
+        '    "auth.py:_salvar_token_sheets": "grava o `criado_em` que aquela comparação lê; trocar um lado só é que criaria o erro",\n',
+        "",
+        ["python3", "checar_alcance.py"],
+    ),
+    (
         "a direcao de arte volta a poder mandar tamanho",
         "imagem.py",
         "    d = {k: (sem_medida_de_quadro(v) if isinstance(v, str) else v)\n"
