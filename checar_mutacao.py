@@ -500,6 +500,58 @@ MUTACOES = [
         ["python3", "chat_assistente.py"],
     ),
     (
+        # "Temos um monte de demanda na coluna CHAT que nao esta entrando na
+        # fila." Estavam — abaixo do corte de 4, sem ninguem dizer.
+        "a fila volta a cortar em 4 sem dizer quantas ficaram de fora",
+        "placar.py",
+        '            _corte = _pc_core.aviso_de_corte(len(fila), FILA_VISIVEL, "demanda")\n'
+        '            if _corte:\n                st.caption("📋 " + _corte)\n',
+        "",
+        ["python3", "placar_core.py"],
+    ),
+    (
+        "o aviso de corte some do painel da TV, e so a tela avisa",
+        "placar.py",
+        '        _corte_tv = _pc_core.aviso_de_corte(len(fila), FILA_VISIVEL, "demanda")',
+        "        _corte_tv = None",
+        ["python3", "placar_core.py"],
+    ),
+    (
+        "o aviso de corte deixa de dizer o total",
+        "placar_core.py",
+        '    return (f"Mostrando {mostrados} de {total} — {total - mostrados} "\n'
+        '            f"{nome}(ns) abaixo do corte, por prioridade e data.")',
+        '    return "Alguns itens ficaram de fora."',
+        ["python3", "placar_core.py"],
+    ),
+    (
+        # "O chat vai conseguir em 2 ou mais tentativas?" Sao 2 fixas, e o
+        # sistema encerrava sem oferecer a terceira.
+        "a recusa por produto alterado volta a tirar a opcao de insistir",
+        "imagem.py",
+        '        return (f"❌ Imagem {num}: não consegui em {_n_tent} tentativa(s) — "',
+        '        return (f"❌ Imagem {num}: não consegui — "',
+        ["python3", "imagem.py"],
+    ),
+    (
+        # Tres escritores para a mesma pergunta e a Forma 5.
+        "o produto da sessao volta a ser escrito por fora da porta",
+        "imagem.py",
+        "                    definir_produto_da_sessao(cfg[\"nome_produto\"],\n"
+        "                                              codigo=cfg.get(\"codigo\", \"\"))",
+        '                    st.session_state["img_nome_produto"] = cfg["nome_produto"]',
+        ["python3", "imagem.py"],
+    ),
+    (
+        # Nome vazio trocava o produto por um rotulo generico.
+        "nome vazio volta a apagar o produto da sessao",
+        "imagem.py",
+        "    nome = str(nome or \"\").strip()\n    if nome:\n"
+        '        st.session_state["img_nome_produto"] = nome',
+        '    st.session_state["img_nome_produto"] = str(nome or "").strip()',
+        ["python3", "imagem.py"],
+    ),
+    (
         "o ponto sem dono para de ser contado a parte",
         "conferencia_pontos.py",
         '            qtd["pontos_fora_do_quadro"] += pt',

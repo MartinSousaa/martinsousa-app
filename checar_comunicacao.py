@@ -339,6 +339,46 @@ def filas_orfas(raiz=None):
     return fora
 
 
+# ── REGRA 5: A MESMA REGRA NAS DUAS LÍNGUAS ────────────────────────────────
+#
+# Dono, 29/09: *"localizar inconsistências (...) comandos em diferentes
+# linguagens"*.
+#
+# O prompt diz cada regra DUAS vezes: o brief em português (SECTION 1, que o
+# próprio texto chama de "the contract") e as seções em inglês que o repetem
+# para o renderizador. 13% do prompt é inglês repetindo o português.
+#
+# Isso é de propósito e funciona — mas cada NÚMERO passa a existir em dois
+# lugares. Mudar a ocupação de 50-65% para 40-55% no português e esquecer o
+# inglês manda duas ordens contrárias ao motor, e o inglês está MAIS PERTO do
+# fim do prompt, que é onde o modelo presta mais atenção.
+#
+# É a Forma 5 desta base atravessando a barreira do idioma: um nome, duas
+# respostas.
+PARES_PT_EN = {
+    "ocupação do quadro": (r"ocupa de (\d+)% a (\d+)%",
+                           r"[Oo]ccupancy (\d+)[–-](\d+)%"),
+    "folga da borda": (r"pelo menos (\d+)% (?:em cada lado|da borda)",
+                       r"at least (\d+)% on every side"),
+    "nº de blocos de texto": (r"exatamente (\d+) bloco",
+                              r"[Mm]aximum (\d+) information"),
+}
+
+
+def pares_divergentes(prompt):
+    """{assunto: (valores PT, valores EN)} quando as duas línguas discordam."""
+    fora = {}
+    for assunto, (pt, en) in PARES_PT_EN.items():
+        mpt = _re_voz.search(pt, prompt or "")
+        men = _re_voz.search(en, prompt or "")
+        # SÓ UMA DAS DUAS NÃO É DIVERGÊNCIA: nem toda regra é dobrada, e
+        # exigir o par de todas reprovaria o prompt inteiro. O defeito é o
+        # par EXISTIR e os números não baterem.
+        if mpt and men and mpt.groups() != men.groups():
+            fora[assunto] = (mpt.groups(), men.groups())
+    return fora
+
+
 def main():
     falhas = 0
     orfas = isencoes_orfas()
@@ -408,6 +448,28 @@ def main():
                 print(f"         {_m}% em: {', '.join(t[:22] for t in _tps)}")
             print("       Mesma regra com medidas diferentes: metade das peças "
                   "obedece a um número e metade a outro.")
+    except Exception:
+        pass
+
+    # REGRA 5 — as duas línguas do prompt dizem o mesmo número?
+    try:
+        _pares = {}
+        for _tipo in _img.TIPOS_PADRAO:
+            _base = _img.montar_prompt_imagem(
+                _tipo, "", _dados, "Produto", plano_triagem=_plano,
+                direcao_arte=_dir)
+            _cheio = _img.prompt_que_sera_enviado(
+                _base, [b"foto"], tipo=_tipo) or _base
+            for _a, _v in pares_divergentes(_cheio).items():
+                _pares.setdefault(f"{_a} · {_tipo[:16]}", _v)
+        if _pares:
+            falhas += 1
+            print(f"FALHA  {len(_pares)} regra(s) com números diferentes em "
+                  "português e inglês, no mesmo prompt:")
+            for _a, (_pt, _en) in _pares.items():
+                print(f"         {_a}:  PT={_pt}  EN={_en}")
+            print("       O inglês fica mais perto do fim do prompt, que é "
+                  "onde o modelo presta mais atenção.")
     except Exception:
         pass
 
@@ -528,6 +590,37 @@ if __name__ == "__main__":
         ok("e o aviso nomeia as duas medidas", set(_d3) == {"6", "8"})
         ok("prompt sem medida de folga não inventa divergência",
            not folgas_divergentes({"1 — Capa": "nada encosta na margem"}))
+
+        # ── REGRA 5, com o defeito que ela existe para pegar ────────────
+        _pt_en_ok = ("- O produto ocupa de 50% a 65% da dimensao util\n"
+                     "COMPOSITION: Product occupancy 50–65% of frame.\n")
+        ok("as duas línguas com o mesmo número passam",
+           not pares_divergentes(_pt_en_ok))
+        _pt_en_mau = ("- O produto ocupa de 40% a 55% da dimensao util\n"
+                      "COMPOSITION: Product occupancy 50–65% of frame.\n")
+        _dv = pares_divergentes(_pt_en_mau)
+        ok("português e inglês discordando é acusado", bool(_dv))
+        ok("e o aviso mostra OS DOIS valores",
+           _dv.get("ocupação do quadro") == (("40", "55"), ("50", "65")))
+        ok("só o português, sem o par em inglês, NÃO é divergência",
+           not pares_divergentes("- O produto ocupa de 40% a 55% da dimensao"))
+        ok("e só o inglês também não",
+           not pares_divergentes("COMPOSITION: Product occupancy 50–65%"))
+
+        # ── REGRA 4, com o comando órfão que ela pegou ──────────────────
+        import tempfile as _tf2
+        with _tf2.TemporaryDirectory() as _t2:
+            open(os.path.join(_t2, "chat_assistente.py"), "w",
+                 encoding="utf-8").write(
+                'st.session_state["chat_orfa"] = 1\n'
+                'st.session_state["chat_lida"] = 2\n')
+            open(os.path.join(_t2, "imagem.py"), "w", encoding="utf-8").write(
+                'x = st.session_state.pop("chat_lida", [])\n')
+            open(os.path.join(_t2, "ferramentas_chat.py"), "w",
+                 encoding="utf-8").write("")
+            _of = dict(filas_orfas(_t2))
+            ok("fila escrita e nunca consumida é acusada", "chat_orfa" in _of)
+            ok("e a fila com consumidor NÃO é", "chat_lida" not in _of)
 
         # NO REPOSITÓRIO DE VERDADE: o `motor` tem leitor. Se esta asserção
         # cair, o verificador voltou a dar o alarme falso de origem.

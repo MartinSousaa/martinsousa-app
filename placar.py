@@ -1252,7 +1252,9 @@ def _tv_full_html(
     if not and_html:
         and_html = '<div style="font-size:10px;color:#555;padding:8px;">Nenhum em andamento</div>'
 
-    # Próximas 5 da fila — visual idêntico aos cards de alerta
+    # Próximas da fila — visual idêntico aos cards de alerta. O AVISO DE
+    # CORTE VAI JUNTO: a TV é a que a equipe olha o dia inteiro, e foi lá que
+    # a demanda "sumida" foi procurada primeiro.
     fila_html = ""
     for i, item in enumerate(fila[:FILA_VISIVEL]):
         p = item["prioridade"]
@@ -1271,6 +1273,14 @@ def _tv_full_html(
                       f'</div>')
     if not fila_html:
         fila_html = '<div style="font-size:10px;color:#555;padding:8px;">Fila vazia 🎉</div>'
+    else:
+        # O IRMÃO DA TELA. Corrigir o corte só no Painel e deixar a TV muda
+        # seria a Forma 1 desta base — e a TV é justamente a que a equipe
+        # olha o dia inteiro, onde a demanda "sumida" foi procurada primeiro.
+        _corte_tv = _pc_core.aviso_de_corte(len(fila), FILA_VISIVEL, "demanda")
+        if _corte_tv:
+            fila_html += (f'<div style="font-size:9px;color:#888;'
+                          f'padding:4px 8px;">{_corte_tv}</div>')
 
     # Alertas JS
     n_alerta_urg = sum(1 for a in alertas if a.get("tipo") == "urgente")
@@ -3188,6 +3198,15 @@ def pagina_placar(usuario_logado, headless=False):
         if fila:
             for item in fila[:FILA_VISIVEL]:
                 st.markdown(_fila_html(item),unsafe_allow_html=True)
+            # O QUE FICOU DE FORA TEM DE SER DITO.
+            #
+            # 29/09: "temos um monte de demanda na coluna CHAT que não estão
+            # entrando na fila". Estavam — abaixo do corte de 4, por
+            # prioridade. Um limite que corta e não diz que cortou vira
+            # defeito aos olhos de quem trabalha.
+            _corte = _pc_core.aviso_de_corte(len(fila), FILA_VISIVEL, "demanda")
+            if _corte:
+                st.caption("📋 " + _corte)
         else:
             st.caption("Fila vazia 🎉")
 
