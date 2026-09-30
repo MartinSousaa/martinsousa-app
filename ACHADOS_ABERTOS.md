@@ -33,6 +33,29 @@ motivo — mas é uma resposta honesta, e escrita ela para de ser esquecimento.
 
 ## ABERTOS
 
+### Por que as oito peças do «Compasso Cortador Colorido» saíram erradas
+ONDE: toda a cadeia · evidência em `log_imagem.py` (contexto do log)
+POR QUE AINDA NÃO: a análise do dia 30/09 foi feita em cima do `.txt` do
+histórico que o dono baixou, e aquele arquivo **misturava as rodadas de duas
+pessoas** — o contexto do log era um global de processo, então o histórico de
+um produto veio com peças de outro dentro, carimbadas com o nome de quem não
+as gerou. O global foi corrigido (contexto por thread, com herança na criação
+da thread), mas o log ANTIGO não se conserta: as linhas já gravadas continuam
+com produto e usuário errados. A pergunta original — por que as peças dele
+saíram com moldura, texto cortado e produto fora de escala — precisa ser
+refeita com um histórico novo, gerado depois desta correção. Dito em voz alta
+em vez de escondido: **eu afirmei que o plano estava misturado entre dois
+produtos, e essa afirmação não se sustenta.** Ela saiu do log corrompido.
+
+### A trava do plano misturado ficou pronta e foi retirada
+ONDE: imagem.py:576 (`plano_misturado`) e o painel de confirmação
+POR QUE AINDA NÃO: a função fica, e o aviso também — com um plano coerente ela
+devolve `""` e não custa nada. O que saiu foi a TRAVA do botão Confirmar:
+trancar a geração com base num defeito que eu não consigo mais provar é alarme
+falso, e alarme falso ensina a desviar do alarme verdadeiro junto. A trava
+volta no dia em que um plano real vier misturado.
+
+
 ### O `dall-e-3` é encontrado, mas o Studio não sabe FALAR com ele
 ONDE: imagem.py:_chamar_openai_geracao
 POR QUE AINDA NÃO: o filtro de modelos foi corrigido e a conta que só tem

@@ -16,6 +16,7 @@ registro se perde mas o trabalho continua.
 """
 
 import streamlit as st
+import threading as _threading_ctx
 from datetime import datetime
 
 import planilha as _plan
@@ -59,15 +60,85 @@ def _aba():
 # O número da peça já tinha sido movido para um global (`_PECA_EM_AJUSTE`, em
 # `imagem.py`) exatamente por isso. Estes dois campos ficaram para trás, no
 # mesmo `append_row`, duas linhas ao lado.
-_CONTEXTO = {"produto": "", "usuario": ""}
+# ── E UM GLOBAL DE PROCESSO ERA UM DONO SÓ PARA A EQUIPE INTEIRA ─────
+#
+# A primeira versão disto era `_CONTEXTO = {"produto": "", "usuario": ""}`:
+# um dicionário de módulo. O Streamlit serve TODOS os colaboradores no MESMO
+# processo, e `marcar_contexto` roda a cada desenho de página — então,
+# enquanto a geração da Myrella corria (quatro minutos numa thread), qualquer
+# outra pessoa que abrisse a tela Imagem sobrescrevia produto e usuário, e as
+# linhas seguintes do log saíam com o nome do produto e da pessoa ERRADOS.
+#
+# Isso não é o mesmo defeito de antes com outra cara: é PIOR. O campo vazio a
+# gente vê ("nenhum prompt registrado"); o campo errado se lê como verdade. O
+# histórico do «Compasso Cortador Colorido» de 30/09 veio com quatro peças de
+# OUTRO produto dentro, todas carimbadas "Myrella", e a análise que saiu dele
+# apontou um defeito que não existia.
+#
+# POR THREAD, E NÃO POR PROCESSO. Cada sessão do Streamlit roda o script na
+# própria thread, então guardar por thread já separa os colaboradores sem
+# nenhum trabalho a mais. Quem abre uma thread de trabalho HERDA o contexto
+# de quem a criou, por `alvo_com_contexto` — capturado no momento da criação,
+# que é o único instante em que as duas threads se conhecem.
+_CONTEXTO = {}          # ident da thread -> {"produto": ..., "usuario": ...}
+_TETO_CONTEXTO = 256    # threads de script são reusadas; isto é só sanidade
+
+
+def _meu():
+    """O contexto desta thread. Cria vazio na primeira vez."""
+    ident = _threading_ctx.get_ident()
+    ctx = _CONTEXTO.get(ident)
+    if ctx is None:
+        if len(_CONTEXTO) >= _TETO_CONTEXTO:
+            # Poda só o que não tem mais dono: thread morta não volta.
+            vivas = {t.ident for t in _threading_ctx.enumerate()}
+            for k in [k for k in _CONTEXTO if k not in vivas]:
+                _CONTEXTO.pop(k, None)
+        ctx = {"produto": "", "usuario": ""}
+        _CONTEXTO[ident] = ctx
+    return ctx
 
 
 def marcar_contexto(produto=None, usuario=None):
-    """Diz quem está gerando e o que. A tela chama; a thread lê."""
+    """Diz quem está gerando e o que. A tela chama; a thread lê.
+
+    Vale só para a thread que chamou — e é isso que separa um colaborador do
+    outro dentro do mesmo processo.
+    """
+    ctx = _meu()
     if produto is not None:
-        _CONTEXTO["produto"] = str(produto or "")
+        ctx["produto"] = str(produto or "")
     if usuario is not None:
-        _CONTEXTO["usuario"] = str(usuario or "")
+        ctx["usuario"] = str(usuario or "")
+
+
+def contexto_atual():
+    """Cópia do contexto desta thread. Para quem vai criar outra."""
+    return dict(_meu())
+
+
+def alvo_com_contexto(func):
+    """Embrulha o alvo de uma Thread para ela HERDAR quem a criou.
+
+    A captura acontece AQUI, na thread que cria — o único instante em que as
+    duas se conhecem. Dentro da thread nova não há como descobrir a mãe: o
+    Python não guarda esse laço.
+
+    Sem isto, a thread de geração nasce com contexto vazio e volta a gravar
+    produto em branco, que é o defeito que originou este módulo.
+    """
+    herdado = contexto_atual()
+
+    def _dentro(*a, **kw):
+        _CONTEXTO[_threading_ctx.get_ident()] = dict(herdado)
+        try:
+            return func(*a, **kw)
+        finally:
+            _CONTEXTO.pop(_threading_ctx.get_ident(), None)
+
+    _dentro.__name__ = getattr(func, "__name__", "alvo")
+    _dentro.__doc__ = getattr(func, "__doc__", None)
+    return _dentro
 
 
 def _do_contexto(chave, *chaves_sessao):
@@ -77,7 +148,7 @@ def _do_contexto(chave, *chaves_sessao):
     session_state fica como rede para quem ainda não chamou `marcar_contexto`
     (uma tela antiga, um caminho que roda na thread principal).
     """
-    v = str(_CONTEXTO.get(chave) or "")
+    v = str(_meu().get(chave) or "")
     if v:
         return v
     for k in chaves_sessao:
@@ -207,9 +278,9 @@ if __name__ == "__main__":
     _cabecalho_conferido = True
     try:
         marcar_contexto(produto="Caneca Medieval", usuario="myrelladesouza")
-        _t_lg = _th_lg.Thread(target=lambda: registrar(
+        _t_lg = _th_lg.Thread(target=alvo_com_contexto(lambda: registrar(
             "prompt_geracao", imagem="4", tipo="4 — Close",
-            resultado="enviado ao motor", prompt="x" * 30))
+            resultado="enviado ao motor", prompt="x" * 30)))
         _t_lg.start(); _t_lg.join()
         _l = _linhas_falsas[-1] if _linhas_falsas else {}
         ok("a linha e gravada de dentro da thread", bool(_l))
@@ -226,6 +297,91 @@ if __name__ == "__main__":
         _t2.start(); _t2.join()
         ok("sem contexto marcado, o produto sai vazio e nao inventado",
            _linhas_falsas and _linhas_falsas[-1].get("produto") == "")
+
+        # ── DOIS COLABORADORES AO MESMO TEMPO, NO MESMO PROCESSO ────────
+        #
+        # ESTA E A GUARDA QUE FALTAVA, e a falta dela custou um dia inteiro
+        # de analise em cima de dado falso.
+        #
+        # O contexto era um dicionario de modulo. O Streamlit serve todo
+        # mundo no MESMO processo, e `marcar_contexto` roda a cada desenho
+        # de pagina — entao a segunda pessoa a abrir a tela sobrescrevia a
+        # primeira, e o log da primeira passava a gravar o produto e o
+        # usuario da segunda. O historico do «Compasso Cortador Colorido»
+        # de 30/09 veio com quatro pecas de OUTRO produto dentro, todas
+        # carimbadas com o nome de quem nao as gerou.
+        #
+        # A guarda anterior NAO via isso: ela marcava um contexto so e
+        # conferia que ele chegava. Com um dono so, global e por-thread dao
+        # a mesma resposta. O defeito so aparece com DOIS.
+        _linhas_falsas.clear()
+        _porta = _th_lg.Barrier(2)
+
+        def _colaborador(produto, usuario):
+            def _corpo():
+                marcar_contexto(produto=produto, usuario=usuario)
+                _porta.wait()          # os dois marcam ANTES de qualquer um gravar
+                registrar("prompt_geracao", tipo="1 — Capa", prompt="p")
+            return _corpo
+
+        _a = _th_lg.Thread(target=_colaborador("Compasso Cortador", "myrella"))
+        _b = _th_lg.Thread(target=_colaborador("Caixa de Relogio", "beatriz"))
+        _a.start(); _b.start(); _a.join(); _b.join()
+        _por_usuario = {l.get("usuario"): l.get("produto") for l in _linhas_falsas}
+        ok("duas pessoas gerando ao mesmo tempo: duas linhas",
+           len(_linhas_falsas) == 2)
+        ok("cada linha guarda o produto de QUEM a gerou",
+           _por_usuario.get("myrella") == "Compasso Cortador"
+           and _por_usuario.get("beatriz") == "Caixa de Relogio")
+
+        # E A THREAD DE TRABALHO HERDA DE QUEM A CRIOU — com a mae ainda
+        # viva e com OUTRA thread marcando outro produto no meio.
+        _linhas_falsas.clear()
+
+        def _intruso_corpo():
+            # Marca OUTRO produto e grava — no meio do caminho da mae.
+            marcar_contexto(produto="Outro Produto", usuario="luiz")
+            registrar("prompt_geracao", tipo="1 — Capa", prompt="p")
+
+        def _mae():
+            marcar_contexto(produto="Album Wire-O", usuario="gabriel")
+            # O EMBRULHO E FEITO AQUI, na mae: e este o instante em que o
+            # contexto e capturado. Criar a filha DEPOIS do intruso e de
+            # proposito — com global de processo, ela herdaria "Outro
+            # Produto", que e exatamente o defeito.
+            _filha = _th_lg.Thread(
+                target=alvo_com_contexto(lambda: registrar("prompt_geracao")))
+            _intruso = _th_lg.Thread(target=_intruso_corpo)
+            _intruso.start(); _intruso.join()
+            _filha.start(); _filha.join()
+
+        _m = _th_lg.Thread(target=_mae); _m.start(); _m.join()
+        _da_filha = [l for l in _linhas_falsas if l.get("usuario") == "gabriel"]
+        ok("a thread de trabalho herda o contexto de quem a criou",
+           len(_da_filha) == 1 and _da_filha[0].get("produto") == "Album Wire-O")
+
+        # ── E O DICIONARIO NAO CRESCE PARA SEMPRE ───────────────────────
+        #
+        # A thread de trabalho limpa a propria entrada ao terminar (o
+        # `finally` de `alvo_com_contexto`). A thread de SCRIPT nao: ela
+        # chama `marcar_contexto` direto, e quem a criou foi o Streamlit.
+        # Entao o que segura o tamanho e a poda por ident morto.
+        #
+        # A PRIMEIRA VERSAO DESTA GUARDA EXIGIA VAZAMENTO ZERO e reprovou —
+        # ela media uma propriedade que o desenho nao tem nem promete. Guarda
+        # que cobra o que o codigo nao faz e alarme falso, e alarme falso
+        # ensina a ignorar o verificador. O que importa e o TETO.
+        _teto_real = _TETO_CONTEXTO
+        globals()["_TETO_CONTEXTO"] = 8
+        try:
+            for _i in range(40):
+                _t = _th_lg.Thread(
+                    target=lambda: marcar_contexto(produto="x", usuario="y"))
+                _t.start(); _t.join()
+            ok("o contexto nao cresce sem limite: threads mortas sao podadas",
+               len(_CONTEXTO) <= 8 + 1)
+        finally:
+            globals()["_TETO_CONTEXTO"] = _teto_real
     finally:
         _aba, _cabecalho_conferido = _aba_real, _cab_real
         marcar_contexto(produto="", usuario="")

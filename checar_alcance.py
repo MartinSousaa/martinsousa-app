@@ -295,6 +295,35 @@ def main():
     _SINAIS_DE_MODELO = ("anthropic.Anthropic", "messages.create",
                          "chat.completions", "images.generate",
                          "generate_content", "_chamar_ia")
+    def _nomes_de_alvo(no):
+        """Todo nome de funcao que pode acabar rodando como alvo da thread.
+
+        O ALVO PODE VIR EMBRULHADO, E O EMBRULHO CEGAVA ESTA REGRA.
+        `target=_gerar_imagem_thread` era lido com um `.split(".")[-1]`, que
+        so enxerga um nome cru. Quando o alvo passou a ser
+        `target=_li_thread.alvo_com_contexto(_gerar_imagem_thread)` — para a
+        thread herdar o contexto do log —, o que sobrava era
+        "alvo_com_contexto(_gerar_imagem_thread)", que nao e funcao nenhuma
+        deste arquivo: as NOVE threads da tela de imagem sumiram do alcance
+        de uma vez, e a regra ficou verde sem medir nada.
+
+        Foi `checar_mutacao` que pegou, e e exatamente para isso que ele
+        existe: a mutacao 'o aviso do motor reserva volta para dentro da
+        thread' ficou VERDE com o defeito de volta.
+
+        Entao o alvo se le por dentro: o nome, e tambem os argumentos quando
+        ele e uma chamada — que e onde a funcao de verdade viaja.
+        """
+        fora = set()
+        if isinstance(no, ast.Call):
+            for arg in list(no.args) + [k.value for k in no.keywords]:
+                fora |= _nomes_de_alvo(arg)
+            fora |= _nomes_de_alvo(no.func)
+            return fora
+        if isinstance(no, (ast.Name, ast.Attribute)):
+            fora.add(ast.unparse(no).split(".")[-1])
+        return fora
+
     for nome in _arquivos():
         with open(nome, encoding="utf-8") as fh:
             fonte = fh.read()
@@ -405,7 +434,7 @@ def main():
             if isinstance(n, ast.Call) and "Thread" in ast.unparse(n.func):
                 for kw in n.keywords:
                     if kw.arg == "target":
-                        alvos.add(ast.unparse(kw.value).split(".")[-1])
+                        alvos |= _nomes_de_alvo(kw.value)
         # fecho transitivo: quem a thread chama, e quem esses chamam
         alcanca, fila = set(), [a for a in alvos
                                 if a in funcs and a not in THREADS_SEM_TELA]
@@ -442,8 +471,7 @@ def main():
             if isinstance(n, ast.Call) and "Thread" in ast.unparse(n.func):
                 for kw in n.keywords:
                     if kw.arg == "target":
-                        _threads_existentes.add(
-                            ast.unparse(kw.value).split(".")[-1])
+                        _threads_existentes |= _nomes_de_alvo(kw.value)
     for _isenta in sorted(THREADS_SEM_TELA):
         if _isenta not in _threads_existentes:
             reprova(f"a isencao de tela para `{_isenta}` sobrou: essa thread "

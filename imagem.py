@@ -8,6 +8,14 @@ import zipfile
 import json
 import anthropic
 import threading as _threading_limiter
+# APELIDO PROPRIO, E DE PROPOSITO.
+#
+# Meia duzia de funcoes desta tela fazem `import log_imagem` DENTRO do corpo,
+# e isso torna o nome LOCAL na funcao inteira: uma chamada antes daquela linha
+# estoura UnboundLocalError — que e o defeito que derrubou o Painel de Metas
+# duas vezes e o motivo de `checar_ordem.py` existir. Um apelido que ninguem
+# mais usa nao pode ser sombreado.
+import log_imagem as _li_thread
 import time as _time_limiter
 from collections import deque as _deque
 
@@ -187,12 +195,25 @@ OCUPACAO = {
         "The text panels occupy a dedicated zone of the remaining frame — they never "
         "overlap the product, and the product is never shrunk to make room for them. "
         "If the text does not fit in its zone, write FEWER blocks."),
-    7: (30, 45,
-        "This is a HANDOVER SCENE with two people, so the product does not fill the "
-        "frame — it leads by position and focus: front and centre between the hands, "
-        "sharp, fully visible and uncropped, while the people stay softer behind it. "
-        "Full product: YES. Never enlarge the product beyond its real scale in the "
-        "hands that hold it."),
+    # ── A PECA 7 TAMBEM E CENA, E TAMBEM PERDEU A PORCENTAGEM ──────────
+    #
+    # Dono, 30/09: "o produto esta GIGANTE nas maos da crianca".
+    #
+    # Ela tinha (30, 45) com a frase "Nao e sugestao: e a medida desta peca"
+    # — e, no MESMO prompt, "Never enlarge the product beyond its real scale
+    # in the hands that hold it". Duas ordens sobre o mesmo assunto, e a que
+    # ganha e a que se declara inegociavel. Um compasso de 16 cm ocupando
+    # 30% a 45% de um quadro, na mao de uma crianca, E gigante: a escala
+    # real dele ali e um terco disso.
+    #
+    # O raciocinio ja estava escrito duas linhas abaixo, para a peca 8 — "Por
+    # um numero aqui e o produto volta gigante" — e eu o apliquei so la. Esta
+    # e a Forma 1 do CLAUDE.md na forma mais pura: a correcao chegou num
+    # irmao e nao no outro, com o comentario que a explica logo ao lado.
+    #
+    # Entrega de presente e cena com gente: o tamanho do produto nela e a
+    # escala real dele nas maos, e nenhuma porcentagem sabe disso.
+    7: None,
     # A ambientacao NAO tem faixa: o tamanho dela e a escala real do objeto no
     # ambiente. Por um numero aqui e o produto volta gigante.
     8: None,
@@ -700,9 +721,7 @@ O PRODUTO É O DESTAQUE — SEMPRE, E ANTES DE TUDO:
 INSTRUCAO_PROTAGONISMO_AMBIENTE = """
 O PRODUTO É O DESTAQUE — MAS PELA ATENÇÃO, NÃO PELO TAMANHO:
 - ESCALA REAL, REGRA INVIOLÁVEL: o produto aparece no tamanho que ele tem de
-  verdade em relação ao ambiente e aos objetos ao redor. Uma peça de vestuário
-  sobre uma cama tem o tamanho de uma peça de vestuário; um objeto de mesa não
-  pode ficar do tamanho da mesa.
+  verdade em relação ao que está ao redor dele.
 - Ele domina a cena por FOCO e por LUZ: nítido e bem iluminado em primeiro
   plano, com o ambiente em profundidade de campo mais suave atrás.
 - O enquadramento é fechado ou médio NO PRODUTO — a câmera chega perto dele.
@@ -710,9 +729,52 @@ O PRODUTO É O DESTAQUE — MAS PELA ATENÇÃO, NÃO PELO TAMANHO:
 - É correto e desejável que o produto ocupe uma fração modesta do quadro se é
   isso que a escala real determina. Cenário amplo com o produto em evidência
   pelo foco é o objetivo desta peça, não um defeito dela.
-- Nada de objeto flutuando, apoio impossível ou sombra que não bate com a
-  superfície: o produto está POUSADO no ambiente, com contato e sombra reais.
+{apoio}
 """
+
+# O QUE MUDA ENTRE A AMBIENTACAO E A ENTREGA E SO ONDE O PRODUTO SE APOIA.
+#
+# Duas copias do bloco inteiro seriam a Forma 5: a terceira regra que alguem
+# acrescentar num deles nao chega no outro, e os dois passam a discordar. O
+# que difere sao duas linhas, e sao elas que viram parametro.
+APOIO_AMBIENTE = """- Uma peça de vestuário sobre uma cama tem o tamanho de uma peça de
+  vestuário; um objeto de mesa não pode ficar do tamanho da mesa.
+- Nada de objeto flutuando, apoio impossível ou sombra que não bate com a
+  superfície: o produto está POUSADO no ambiente, com contato e sombra reais."""
+
+APOIO_PRESENTE = """- O que cabe na mão tem o tamanho do que cabe na mão: o produto NUNCA fica
+  maior que o antebraço de quem o segura, nem tapa o tronco dessa pessoa. Se
+  ele estiver competindo em tamanho com a pessoa, está errado.
+- Nada de objeto flutuando entre as mãos: os dedos ENCOSTAM nele, seguram
+  mesmo, com contato e sombra reais — e nunca escondem parte dele."""
+
+# ── QUAL BLOCO DE TAMANHO CADA PECA RECEBE — UMA PORTA SO ─────────────────
+#
+# A escolha vivia inline no montador, e era um `if` de dois ramos: capa ou
+# resto. A ambientacao escapava por outro caminho (ela monta o proprio
+# f-string), e a peca 7 — que e cena com gente, igual a ambientacao — caia no
+# "resto" e recebia "Nunca deixe o produto pequeno no centro de um cenario
+# amplo". Produto no centro de uma cena com duas pessoas e EXATAMENTE o que a
+# peca 7 e: a instrucao proibia o objetivo da peca, e o modelo obedeceu
+# inflando o produto. Foi o mesmo texto, palavra por palavra, que ja tinha
+# feito a ambientacao sair gigante em 29/09.
+#
+# Tres perguntas e tres respostas, num lugar so. Peca nova entra aqui e nao em
+# tres `if` espalhados.
+TIPOS_DE_CENA = (7, 8)   # o tamanho delas e a escala real, nunca porcentagem
+
+
+def protagonismo_do_tipo(tipo):
+    """O bloco de TAMANHO desta peca, ja formatado. Uma pergunta, uma resposta."""
+    if modo_fundo_do_tipo(tipo) == "branco":
+        return INSTRUCAO_PROTAGONISMO_CAPA.format(
+            faixa=ocupacao_em_portugues(tipo))
+    if numero_do_tipo(tipo) in TIPOS_DE_CENA:
+        return INSTRUCAO_PROTAGONISMO_AMBIENTE.format(
+            apoio=(APOIO_AMBIENTE if numero_do_tipo(tipo) == 8
+                   else APOIO_PRESENTE))
+    return INSTRUCAO_PROTAGONISMO.format(faixa=ocupacao_em_portugues(tipo))
+
 
 # ── A CAPA É A MAIS EXIGENTE DAS TRÊS, E NÃO TINHA REGRA NENHUMA ───────────
 #
@@ -4627,10 +4689,7 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
     # O mesmo numero alimenta esta linha e a linha de COMPOSITION do prompt
     # final em ingles — foi a divergencia entre as duas que mandava tres
     # numeros contrarios ao modelo na mesma mensagem.
-    _protagonismo = (
-        INSTRUCAO_PROTAGONISMO_CAPA if modo_fundo_do_tipo(tipo) == "branco"
-        else INSTRUCAO_PROTAGONISMO
-    ).format(faixa=ocupacao_em_portugues(tipo))
+    _protagonismo = protagonismo_do_tipo(tipo)
     _layout_marketing = INSTRUCAO_LAYOUT_MARKETING.format(
         blocos=blocos_em_portugues(tipo, _blocos_da_copy)
     )
@@ -4752,7 +4811,7 @@ TIPO DE IMAGEM: {tipo}
 {_espaco_pt}
 
 {PADRAO_VISUAL_AMBIENTACAO}
-{INSTRUCAO_PROTAGONISMO_AMBIENTE}
+{_protagonismo}
 {INSTRUCAO_FIDELIDADE}
 {INSTRUCAO_PROPORCAO}
 {INSTRUCAO_COMPOSICAO}
@@ -6657,7 +6716,7 @@ def consumir_comandos_do_chat(usuario_logado=""):
             _r = {"img": None, "erro": None, "done": False}
             _b = st.progress(0.0, text=f"Refazendo a Imagem {_i + 1}…")
             import threading as _th_rf, time as _tm_rf
-            _th_rf.Thread(target=_gerar_imagem_thread,
+            _th_rf.Thread(target=_li_thread.alvo_com_contexto(_gerar_imagem_thread),
                           args=(_prompt, _fotos_rf, _r), daemon=True).start()
             _t0 = _tm_rf.time()
             while not _r["done"]:
@@ -6680,7 +6739,7 @@ def consumir_comandos_do_chat(usuario_logado=""):
             # enquanto o dono corrigia a mao.
             def _gerar_rf(_p, _fr=_fotos_rf, _t=_tp):
                 _rr = {"img": None, "erro": None, "done": False}
-                _tt = _th_rf.Thread(target=_gerar_imagem_thread,
+                _tt = _th_rf.Thread(target=_li_thread.alvo_com_contexto(_gerar_imagem_thread),
                                     args=(_p, _fr, _rr), daemon=True)
                 _tt.start()
                 _t0g = _tm_rf.time()
@@ -6773,7 +6832,8 @@ def consumir_comandos_do_chat(usuario_logado=""):
                 finally:
                     _r["done"] = True
 
-            _threading_cmd.Thread(target=_rodar_cmd, daemon=True).start()
+            _threading_cmd.Thread(target=_li_thread.alvo_com_contexto(_rodar_cmd),
+                                  daemon=True).start()
             _t0_cmd = _time_cmd.time()
             while not _res_cmd["done"]:
                 _seg_cmd = int(_time_cmd.time() - _t0_cmd)
@@ -7405,7 +7465,8 @@ def pagina_imagem(usuario_logado):
                 finally:
                     _r["done"] = True
 
-            _threading_af.Thread(target=_rodar_af, daemon=True).start()
+            _threading_af.Thread(target=_li_thread.alvo_com_contexto(_rodar_af),
+                                 daemon=True).start()
             _barra_af = st.progress(0.0, text="Aplicando ajuste fino...")
             _t0_af = _time_af.time()
             while not _res_af["done"]:
@@ -8341,31 +8402,21 @@ def pagina_imagem(usuario_logado):
                     key="img_confirma_descarte",
                 )
 
-            # PLANO MISTURADO TRANCA O BOTÃO — MAS COM CHAVE POR FORA.
+            # A TRAVA DO PLANO MISTURADO SAIU DAQUI — E A RETIRADA E O PONTO.
             #
-            # O aviso vermelho lá em cima já existia para a divergência de
-            # cadastro, e ele é ignorável: quem clica em Confirmar não rola a
-            # tela de volta para reler. Foram oito peças pagas do produto
-            # errado. Aviso que não segura a mão não evitou nada.
+            # Ela ficou pronta e medida em 30/09, e eu a tirei no mesmo dia.
             #
-            # A chave por fora existe porque esta é uma MEDIDA, não um fato:
-            # uma peça de close legítima pode não nomear o produto. Guarda que
-            # dá alarme falso e não tem saída ensina a desviar dela — e da
-            # próxima vez a pessoa desvia do alarme verdadeiro junto.
+            # A prova de que "o plano estava misturado entre dois produtos"
+            # vinha do .txt do historico que o dono baixou. Aquele arquivo
+            # misturava as rodadas de DUAS pessoas, porque o contexto do log
+            # era um global de processo (`log_imagem.py`, corrigido no mesmo
+            # commit). A mistura era do LOG, nao do plano.
             #
-            # O `and` VEM DEPOIS, E NÃO NO LUGAR.
-            #
-            # A primeira versão desta trava ficava ACIMA do bloco da galeria,
-            # e o `_ciente` dela era sobrescrito duas linhas abaixo: com
-            # galeria cheia, a trava sumia justamente na hora mais cara.
-            # As duas perguntas são independentes, então as duas caixas se
-            # desenham SEMPRE, e o botão só abre com as duas marcadas.
-            if _plano_mist:
-                _ciente_plano = st.checkbox(
-                    "Já conferi: o plano está certo, gerar assim mesmo",
-                    key="img_confirma_plano_misturado",
-                )
-                _ciente = bool(_ciente) and bool(_ciente_plano)
+            # `plano_misturado` continua avisando la em cima, porque com um
+            # plano coerente ela devolve "" e nao custa nada. Mas TRANCAR o
+            # botao com base num defeito que eu nao consigo provar e alarme
+            # falso — e alarme falso ensina a desviar do alarme verdadeiro
+            # junto. A trava volta quando um plano real vier misturado.
 
             col_cancelar, col_confirmar = st.columns(2)
             cancelar_clicado = col_cancelar.button("❌ Cancelar", use_container_width=True)
@@ -8574,7 +8625,7 @@ def pagina_imagem(usuario_logado):
                         _refs_layout_arg = cfg.get("refs_layout_bytes") or None
                         _res = {"img": None, "erro": None, "done": False}
                         _thread = _threading.Thread(
-                            target=_gerar_imagem_thread,
+                            target=_li_thread.alvo_com_contexto(_gerar_imagem_thread),
                             args=(prompt_final, cfg["fotos_bytes"], _res),
                             kwargs={
                                 "refs_layout": _refs_layout_arg,
@@ -8622,7 +8673,7 @@ def pagina_imagem(usuario_logado):
                         def _gerar_de_novo(_p, _refs=_refs_layout_arg, _t=tipo):
                             _r = {"img": None, "erro": None, "done": False}
                             _th = _threading.Thread(
-                                target=_gerar_imagem_thread,
+                                target=_li_thread.alvo_com_contexto(_gerar_imagem_thread),
                                 args=(_p, cfg["fotos_bytes"], _r),
                                 kwargs={"refs_layout": _refs,
                                         "refs_layout_nomes": cfg.get("refs_layout_nomes", []),
@@ -9137,7 +9188,7 @@ def pagina_imagem(usuario_logado):
                         tipo_ativo, instrucoes_orig, dados_desc, nome_gal)
                     _res_regen = {"img": None, "erro": None, "done": False}
                     _threading_regen.Thread(
-                        target=_gerar_imagem_thread,
+                        target=_li_thread.alvo_com_contexto(_gerar_imagem_thread),
                         args=(prompt_regen, fotos_orig, _res_regen),
                         daemon=True,
                     ).start()
@@ -9162,7 +9213,7 @@ def pagina_imagem(usuario_logado):
                         def _gerar_rg(_p, _fo=fotos_orig, _t=tipo_ativo):
                             _rr = {"img": None, "erro": None, "done": False}
                             _tt = _threading_regen.Thread(
-                                target=_gerar_imagem_thread,
+                                target=_li_thread.alvo_com_contexto(_gerar_imagem_thread),
                                 args=(_p, _fo, _rr), daemon=True)
                             _tt.start()
                             _t0g = _time_regen.time()
@@ -9252,7 +9303,8 @@ def pagina_imagem(usuario_logado):
                         finally:
                             _r["done"] = True
 
-                    _threading_afg.Thread(target=_rodar_afg, daemon=True).start()
+                    _threading_afg.Thread(target=_li_thread.alvo_com_contexto(_rodar_afg),
+                                          daemon=True).start()
                     _barra_afg = st.progress(0.0, text="Aplicando ajuste fino...")
                     _t0_afg = _time_afg.time()
                     while not _res_afg["done"]:

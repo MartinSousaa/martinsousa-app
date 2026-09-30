@@ -74,6 +74,20 @@ TIPOS_COM_TEXTO = (
 )
 TIPO_CAPA = "1 — Capa do anúncio (fundo branco)"
 TIPO_AMBIENTE = "8 — Ambientação realista (sem texto)"
+# ── A PECA 7 MUDOU DE GRUPO, E A GUARDA MUDA COM ELA ──────────────────────
+#
+# Dono, 30/09: "o produto esta GIGANTE nas maos da crianca". A entrega de
+# presente e CENA COM GENTE, igual a ambientacao: o tamanho do produto nela e
+# a escala real nas maos, e nao uma porcentagem. Ela recebia (30, 45) com
+# "Nao e sugestao" E, no mesmo prompt, "never enlarge beyond its real scale".
+#
+# Mover a regra sem mover a guarda deixaria estas linhas exigindo do tipo 7
+# exatamente o defeito que acabou de sair. Por isso os grupos sao nomeados: a
+# proxima peca de cena entra aqui, e as tres regras de tamanho a seguem.
+TIPO_PRESENTE = "7 — Presenteie"
+TIPOS_DE_CENA = (TIPO_AMBIENTE, TIPO_PRESENTE)
+TIPOS_COM_TEXTO_MEDIDO = tuple(t for t in TIPOS_COM_TEXTO
+                               if t not in TIPOS_DE_CENA)
 TIPO_LIVRE = "Personalizado (descrevo o que quero)"
 
 TODOS = (TIPO_CAPA,) + TIPOS_COM_TEXTO + (TIPO_AMBIENTE, TIPO_LIVRE)
@@ -162,11 +176,38 @@ REGRAS = [
     # conferencia de numero esta em `_uma_so_ocupacao`, que compara o prompt
     # com o dicionario — nao com uma copia escrita a mao.
     ("a ocupação medida do quadro", "dimensao util do quadro",
-     TIPOS_COM_TEXTO + (TIPO_CAPA,), (TIPO_AMBIENTE,)),
+     TIPOS_COM_TEXTO_MEDIDO + (TIPO_CAPA,), TIPOS_DE_CENA),
+    # ESTA LINHA E A QUE INFLOU O PRODUTO, DUAS VEZES.
+    #
+    # "Produto no centro de um cenario amplo" e EXATAMENTE o que a
+    # ambientacao e — e e tambem o que a entrega de presente e. A instrucao
+    # proibia o objetivo da peca, e o modelo obedeceu inflando o produto ate
+    # caber. Em 29/09 na ambientacao; em 30/09 nas maos da crianca.
     ("a proibição de produto pequeno em cenário amplo",
-     "Nunca deixe o produto pequeno", TIPOS_COM_TEXTO, (TIPO_AMBIENTE,)),
-    ("a escala real do ambiente", "ESCALA REAL", (TIPO_AMBIENTE,),
-     TIPOS_COM_TEXTO + (TIPO_CAPA,)),
+     "Nunca deixe o produto pequeno", TIPOS_COM_TEXTO_MEDIDO, TIPOS_DE_CENA),
+    ("a escala real da cena", "ESCALA REAL", TIPOS_DE_CENA,
+     TIPOS_COM_TEXTO_MEDIDO + (TIPO_CAPA,)),
+    # ── E A PORCENTAGEM EM INGLES, QUE ESTA GUARDA NAO VIA ──────────────
+    #
+    # A regra de cima procura "dimensao util do quadro", que e a linha em
+    # PORTUGUES. O mesmo prompt traz a linha de COMPOSITION em ingles, e ela
+    # sai de `ocupacao_em_ingles` — outra funcao, outra fonte.
+    #
+    # Descobri isto tentando MUTAR: devolvi a faixa (30, 45) para a peca 7 e
+    # o verificador ficou VERDE. O bloco em portugues ja vinha do roteamento
+    # novo e dizia "escala real", enquanto o ingles voltava a mandar
+    # "Product occupancy 30-45% of frame" — as duas vozes de novo, uma em
+    # cada idioma, e nenhuma das 66 regras olhava a segunda.
+    #
+    # Mutacao que nao fica vermelha nao prova que o codigo esta certo: prova
+    # que a guarda nao mede. Esta linha e o que faltava.
+    ("a porcentagem imposta em inglês", "Product occupancy",
+     TIPOS_COM_TEXTO_MEDIDO + (TIPO_CAPA,), TIPOS_DE_CENA),
+    # E O APOIO E DE CADA UMA: na ambientacao o produto esta POUSADO numa
+    # superficie; na entrega ele esta SEGURO por maos. Trocar os dois manda
+    # o presente pousar no nada.
+    ("o limite da escala nas mãos", "antebraço de quem o segura",
+     (TIPO_PRESENTE,), (TIPO_AMBIENTE,)),
 
     # A CAPA NAO ESTAVA EM LISTA NENHUMA — E FOI ASSIM QUE ELA FICOU SEM
     # REGRA DE TAMANHO E SAIU PEQUENA.

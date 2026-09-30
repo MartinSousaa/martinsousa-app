@@ -35,6 +35,69 @@ RAIZ = os.path.dirname(os.path.abspath(__file__))
 # esta entrada virou letra morta — e isso também é reprovado, porque mutação
 # que não se aplica dá a impressão de cobertura que não existe.
 MUTACOES = [
+    # ── 30/09: A PECA 7 VOLTA A TER UMA PORCENTAGEM IMPOSTA ────────────
+    #
+    # Dono: "o produto esta GIGANTE nas maos da crianca".
+    #
+    # A peca "Presenteie" mandava, no MESMO prompt, "O produto ocupa de 30% a
+    # 45% da dimensao util do quadro. Nao e sugestao: e a medida desta peca" e
+    # "Never enlarge the product beyond its real scale in the hands that hold
+    # it". Duas ordens sobre o mesmo assunto; ganha a que se declara
+    # inegociavel. Um compasso de 16 cm a 30-45% do quadro, na mao de uma
+    # crianca, E gigante.
+    #
+    # A mutacao devolve a faixa. O verificador tem de ficar VERMELHO em duas
+    # frentes: a medida volta a aparecer numa peca de cena, e a "ESCALA REAL"
+    # sai dela.
+    (
+        "a peca do presente volta a receber porcentagem imposta",
+        "imagem.py",
+        [("    7: None,", "    7: (30, 45, 'handover'),")],
+        None,
+        ["python3", "checar_prompts.py"],
+    ),
+    # ── E A OUTRA METADE DA MESMA CORRECAO: O ROTEAMENTO ───────────────
+    #
+    # Tirar a porcentagem de `OCUPACAO` nao basta sozinho: quem decide QUAL
+    # bloco de tamanho a peca recebe e `protagonismo_do_tipo`, e era por ali
+    # que a peca 7 pegava "Nunca deixe o produto pequeno no centro de um
+    # cenario amplo" — a MESMA linha que ja tinha inflado a ambientacao em
+    # 29/09, com o comentario que explica o defeito escrito logo acima dela.
+    #
+    # Duas metades, duas mutacoes. Uma entrada so deixaria a outra sem rede.
+    (
+        "a peca do presente volta a receber a regra das pecas de produto",
+        "imagem.py",
+        [("TIPOS_DE_CENA = (7, 8)", "TIPOS_DE_CENA = (8,)")],
+        None,
+        ["python3", "checar_prompts.py"],
+    ),
+    # ── 30/09: O CONTEXTO DO LOG ERA UM DONO SO PARA A EQUIPE INTEIRA ──
+    #
+    # `log_imagem._CONTEXTO` era um dicionario de MODULO, e o Streamlit serve
+    # todos os colaboradores no mesmo processo. `marcar_contexto` roda a cada
+    # desenho de pagina: a segunda pessoa a abrir a tela Imagem sobrescrevia a
+    # primeira, e o log da primeira passava a gravar o produto e o usuario da
+    # segunda.
+    #
+    # O custo nao foi so o log torto. O historico do «Compasso Cortador
+    # Colorido» voltou com quatro pecas de OUTRO produto dentro, carimbadas
+    # com o nome de quem nao as gerou — e a analise feita em cima dele
+    # apontou um defeito no PLANO que nao existia. Campo vazio a gente ve;
+    # campo errado se le como verdade.
+    #
+    # A guarda ANTERIOR nao via isso: ela marcava UM contexto e conferia que
+    # ele chegava. Com um dono so, global e por-thread dao a mesma resposta.
+    # A mutacao volta `ident` para uma constante, que e exatamente o global
+    # de processo de antes, e exige vermelho.
+    (
+        "o log volta a ter um contexto so para todos os colaboradores",
+        "log_imagem.py",
+        [("    ident = _threading_ctx.get_ident()\n",
+          "    ident = 0\n")],
+        None,
+        ["python3", "log_imagem.py"],
+    ),
     # A MUTACAO TEM DE REINTRODUZIR O DEFEITO DE VERDADE.
     #
     # A primeira versao desta entrada so tirava a marca de fim do bloco — e o
