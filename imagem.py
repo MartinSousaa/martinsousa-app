@@ -190,11 +190,13 @@ OCUPACAO = {
     5: (50, 65,
         "The text panels occupy a dedicated zone of the remaining frame — they never "
         "overlap the product, and the product is never shrunk to make room for them. "
-        "If the text does not fit in its zone, write FEWER blocks."),
+        "The number of blocks is fixed by the Studio: render exactly those, and keep "
+        "every one of them fully inside the frame."),
     6: (50, 65,
         "The text panels occupy a dedicated zone of the remaining frame — they never "
         "overlap the product, and the product is never shrunk to make room for them. "
-        "If the text does not fit in its zone, write FEWER blocks."),
+        "The number of blocks is fixed by the Studio: render exactly those, and keep "
+        "every one of them fully inside the frame."),
     # ── A PECA 7 TAMBEM E CENA, E TAMBEM PERDEU A PORCENTAGEM ──────────
     #
     # Dono, 30/09: "o produto esta GIGANTE nas maos da crianca".
@@ -912,6 +914,44 @@ REGRA DE PROPORÇÃO DO PRODUTO (obrigatória):
   produto por precaução.
 """
 
+# ── QUANTAS PALAVRAS CABEM NUM BLOCO — UMA FONTE, DOIS LEITORES ───────────
+#
+# Dono, 30/09: "as escritas estao sendo cortadas (...) aplicadas numa regiao
+# que nao da para ser escrita totalmente e ai fica a margem para fora".
+#
+# A copy e escrita por um prompt (o do PLANO) e desenhada por outro (o da
+# IMAGEM), e os dois nunca concordaram sobre o tamanho dela. Eram CINCO vozes:
+#
+#   - regra de densidade:  titulo 2-5 palavras, descricao de 8 a 16
+#   - a mesma regra, 33 linhas abaixo: titulo de 2 a 4, frase de 4 a 9
+#   - preset da peca 2:    titulo 2-3 palavras, frase maximo 7
+#   - preset da peca 3:    frase maximo 6 palavras
+#   - preset da peca 6:    pergunta maximo 5, resposta maximo 8
+#   - prompt do PLANO:     titulo de 2 a 4; frase de 4 a 9
+#
+# Seis, contando o plano. A IA da copy escrevia no tamanho de uma delas e o
+# desenhista recebia outra — frase longa num cartao dimensionado para frase
+# curta transborda pela borda, e e o quadrado para fora que ele viu.
+#
+# A faixa da frase e a UNICA que as duas regras de densidade permitiam ao
+# mesmo tempo: 8 a 9. Nao foi escolha minha, e a interseccao de [8,16] com
+# [4,9]. Se o dono quiser outra, muda aqui e muda nos dois prompts.
+PALAVRAS_TITULO = (2, 4)
+PALAVRAS_FRASE = (8, 9)
+
+
+def medida_do_bloco():
+    """A frase, em portugues, sobre o tamanho de um bloco de texto.
+
+    UMA FUNCAO, E NAO UM TEXTO COPIADO: o prompt da IMAGEM e o prompt do
+    PLANO leem os dois daqui. Era a copia entre eles que fazia a IA escrever
+    num tamanho e o desenhista dimensionar para outro.
+    """
+    return (f"titulo curto em CAIXA ALTA ({PALAVRAS_TITULO[0]} a "
+            f"{PALAVRAS_TITULO[1]} palavras) + frase de {PALAVRAS_FRASE[0]} a "
+            f"{PALAVRAS_FRASE[1]} palavras").replace("titulo", "título")
+
+
 INSTRUCAO_LAYOUT_MARKETING = """
 REGRA DE LAYOUT PARA IMAGENS DE MARKETING (obrigatória para tipos 2, 3, 4, 5, 6 e 7):
 - PROIBIÇÃO ABSOLUTA: JAMAIS sobreponha texto, ícone, título ou qualquer elemento gráfico
@@ -932,8 +972,9 @@ REGRA DE DENSIDADE:
   mostra — mesmo que sejam 5 ou 6 blocos. A referência é o padrão aprovado da
   empresa; qualquer número abaixo desta regra não se aplica a ela.
 {blocos}
-- Cada bloco: título curto em CAIXA ALTA (2-5 palavras) + descrição de 8 a 16
-  palavras. Descrição de 3 palavras deixa a peça pobre e sem argumento de venda.
+- Cada bloco: {palavras}. Descrição de 3 palavras deixa a peça pobre e sem
+  argumento de venda; descrição longa não cabe no cartão e transborda pela
+  borda.
 - FORMA DO CARTÃO, IGUAL EM TODAS AS PEÇAS: retângulo de cantos arredondados,
   fundo claro sólido, ícone line-art próprio, todos com a MESMA largura e o
   mesmo estilo dentro da peça.
@@ -965,11 +1006,10 @@ REGRA DE TEXTO REAL (o erro mais constrangedor):
   lombada de livro, capa de caderno, tela de computador, etiqueta, embalagem e
   placa. Se um objeto do cenário teria texto, escreva-o em português do Brasil
   — ou desenhe o objeto sem texto legível.
-- Frase curta é o que sai certo. Título de 2 a 4 palavras, frase de 4 a 9.
-  Quanto mais longa a frase, mais letra inventada aparece nela.
+- Quanto mais longa a frase, mais letra inventada aparece nela: a medida do
+  bloco está escrita uma vez só, na REGRA DE DENSIDADE acima.
 - Pontuação fechada: parêntese que abre, fecha. Nada de "(exemplo," solto no
   meio de uma frase.
-- Se não houver informação suficiente para preencher um bloco, use MENOS blocos.
   Bloco a menos é melhor que bloco com texto inventado.
 - PROIBIDO desenhar logotipo, marca, monograma ou assinatura sobre o produto ou
   na peça. O produto não tem logo — não crie um.
@@ -1049,7 +1089,8 @@ PRESETS = {
         "IMAGEM DE MARKETING — BENEFÍCIOS: produto em zona central limpa (SEM texto sobre ele). "
         "Fundo deduzido do produto — sem cor de marca fixa. Benefícios em cartões — a POSIÇÃO, a FORMA e a quantidade deles saem da regra de densidade, não daqui; siga a referência de layout quando houver: "
         "ícone line-art na cor da direção de arte escolhida para ESTE produto — não existe cor "
-        "de ícone fixa — + título curto (2-3 palavras) + frase direta (máximo 7 palavras). "
+        "de ícone fixa — + título curto + frase direta, no tamanho que a REGRA DE "
+        "DENSIDADE manda. "
         "Visual arejado — jamais comprima ou empilhe os blocos de benefício, e jamais deixe faixa vazia em volta da peça. "
         "Os textos dos benefícios vêm dos diferenciais e características do produto informados."
     ),
@@ -1058,8 +1099,8 @@ PRESETS = {
         "onde ESTE produto é de fato usado, e por quem — não escolha de uma lista pronta de "
         "cômodos. Produto protagonista em cena aspiracional, com a luz e a paleta que "
         "valorizem este produto. Frases de destaque em cartões fora do produto (nunca sobre "
-        "ele) — posição, forma e quantidade saem da regra de densidade. Cada frase: curta, impactante, "
-        "máximo 6 palavras. Sem cor de "
+        "ele) — posição, forma, quantidade e TAMANHO saem da regra de densidade. "
+        "Cada frase: curta e impactante. Sem cor de "
         "marca fixa: fundo e elementos gráficos saem da direção de arte deste produto. "
         "Visual editorial — parece foto de lifestyle de qualidade, não montagem amadora."
     ),
@@ -1108,8 +1149,9 @@ PRESETS = {
         "IMAGEM DE MARKETING — RESPONDENDO DÚVIDAS DO COMPRADOR: layout clean com produto "
         "em destaque e blocos de pergunta+resposta em cartões — posição, forma e "
         "quantidade saem da regra de densidade, não daqui; siga a referência de layout quando houver. "
-        "Cada bloco: pergunta curta (máximo 5 palavras) em destaque + check verde + resposta direta "
-        "(máximo 8 palavras). As objeções são baseadas nos diferenciais e características do produto. "
+        "Cada bloco: pergunta em destaque + check verde + resposta direta, as duas no "
+        "tamanho que a REGRA DE DENSIDADE manda. As objeções são baseadas nos "
+        "diferenciais e características do produto. "
         "Visual arejado, sem faixa vazia em volta da peça; fundo e paleta deduzidos do produto e da ocasião."
     ),
     "7 — Presenteie": (
@@ -1346,8 +1388,8 @@ O CAMPO "textos" É A COPY FINAL, PALAVRA POR PALAVRA — leia com atenção:
   "relievarriamento do stresse" — palavras que não existem, numa peça que foi
   parar na tela do gestor. Quem escreve a frase é VOCÊ, aqui, e ele só copia.
 - Escreva cada bloco já pronto, no formato "TÍTULO CURTO: frase curta".
-  Título de 2 a 4 palavras; frase de 4 a 9 palavras. Frase longa é o que ele
-  erra: quanto mais palavra, mais letra inventada.
+  {medida_do_bloco()}. Frase longa é o que ele erra: quanto mais palavra, mais
+  letra inventada — e frase que não cabe no cartão transborda pela borda.
 - Português do Brasil, e SÓ português do Brasil. Nenhuma palavra em inglês,
   nem "premium", "design", "kit", "home office" ou nome técnico em inglês.
   Se o termo só existe em inglês, escreva o equivalente em português.
@@ -3965,6 +4007,40 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
     except Exception:
         pass
 
+    # ── QUAL MOTOR FEZ ESTA PEÇA — NA LINHA DO LOG, E NÃO SÓ NA TELA ─────
+    #
+    # Dono, 30/09, quando pedi que ele conferisse numa tela qual motor a conta
+    # tinha: *"eu que tenho que confirmar? você que codificou o sistema..."*.
+    #
+    # Ele estava certo, e o defeito é este: o Studio SABE qual motor fez cada
+    # peça — grava em `diagnostico["motor"]` nos cinco caminhos — e a linha
+    # do log, que é o registro que sobrevive à sessão, dizia
+    # `resultado="enviado ao motor"`. "O motor". Sem dizer qual.
+    #
+    # E é a pergunta mais importante que existe sobre uma peça torta: margem
+    # e produto redesenhado vêm de a peça ter sido feita pelo RESERVA, que
+    # não aceita `size=1024x1024` nem `input_fidelity=high`. Sem o nome do
+    # motor na linha, o `.txt` do histórico não responde isso, e a pergunta
+    # cai numa pessoa.
+    #
+    # Uma linha por peça, no mesmo lugar em que a peça fica pronta — não é
+    # laço de tela, não roda por tecla.
+    try:
+        import log_imagem as _li_motor
+        _d_mot = diagnostico or {}
+        _motor_usado = str(_d_mot.get("motor") or "").strip()
+        _li_motor.registrar(
+            "motor_da_peca",
+            instrucao=str(_d_mot.get("enquadramento") or ""),
+            imagem=(peca_em_ajuste() if "MODO AJUSTE FINO" in (prompt_texto or "")
+                    else str(numero_do_tipo(tipo) or "")),
+            tipo=(tipo or ""),
+            resultado=(_motor_usado or "motor não registrado"),
+        )
+    except Exception:
+        # Registro é apoio, não requisito: nunca pode derrubar a geração.
+        pass
+
     # ── A RÉGUA PASSA NA IMAGEM ANTES DE ELA SAIR DAQUI ──────────────────
     #
     # Cobrança do dono: "Eu testo o código, não a imagem. Você precisa
@@ -4189,7 +4265,7 @@ def bloco_texto_exato(textos):
         "em lugar nenhum — nem em livro, tela, etiqueta, embalagem ou objeto "
         "do cenário. Texto de cenário que apareceria em inglês deve aparecer "
         "em português, ou não aparecer.\n"
-        "- Se não couber tudo, escreva MENOS blocos — nunca invente palavra "
+        "- Nunca invente palavra "
         "para preencher espaço.\n"
         + MARCA_FIM_TEXTO_EXATO + "\n"
     )
@@ -4691,7 +4767,8 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
     # numeros contrarios ao modelo na mesma mensagem.
     _protagonismo = protagonismo_do_tipo(tipo)
     _layout_marketing = INSTRUCAO_LAYOUT_MARKETING.format(
-        blocos=blocos_em_portugues(tipo, _blocos_da_copy)
+        blocos=blocos_em_portugues(tipo, _blocos_da_copy),
+        palavras=medida_do_bloco(),
     )
     # A direcao de arte vem decidida da triagem e e HERDADA por esta peca. Sem
     # ela — plano antigo, triagem que falhou, geracao avulsa — o bloco sai

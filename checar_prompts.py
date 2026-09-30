@@ -164,6 +164,22 @@ REGRAS = [
     ("nem manda pôr ao lado por conta própria",
      "blocos de pergunta+resposta ao lado", (), TODOS),
 
+    # ── A ORDEM QUE O MODELO NAO CONSEGUE OBEDECER ─────────────────────
+    #
+    # "Se nao couber tudo, escreva MENOS blocos" convivia, no mesmo prompt,
+    # com "Escreva EXATAMENTE estas palavras, letra por letra" e com "Esta
+    # peca tem exatamente 5 bloco(s)". A copy vem pronta da triagem: o modelo
+    # NAO PODE escrever menos sem desobedecer as outras duas.
+    #
+    # Ordem impossivel nao fica sem efeito — ela vira licenca. O modelo
+    # desenha os cinco e deixa transbordar, que foi o que o dono recebeu.
+    #
+    # Quem decide quantos blocos cabem e o Studio, ANTES de montar o prompt
+    # (`_textos[:_teto_do_tipo]`). O prompt so informa o numero.
+    ("nenhuma ordem de decidir o numero de blocos no meio do desenho",
+     "MENOS blocos", (), TODOS),
+    ("nem a versao em inglês dela", "FEWER blocks", (), TODOS),
+
     ("a trava de cor do produto", "TRAVA DE COR", None, ()),
     ("a proibição de trocar o produto", "PROIBIÇÃO ABSOLUTA", None, ()),
     ("a fidelidade às fotos de referência", "REGRA DE FIDELIDADE", None, ()),
@@ -360,6 +376,30 @@ _OCUPACAO_RE = (
     re.compile(r"ocupar (\d{1,3})-(\d{1,3})% do frame", re.I),
     re.compile(r"(\d{1,3})% a (\d{1,3})% da MAIOR dimens", re.I),
 )
+# ── QUANTAS PALAVRAS CABEM NUM BLOCO — E ERAM DUAS RESPOSTAS ───────────
+#
+# Dono, 30/09: "as escritas estao sendo cortadas (...) aplicadas numa regiao
+# que nao da para ser escrita totalmente e ai fica a margem para fora".
+#
+# `INSTRUCAO_LAYOUT_MARKETING` mandava, no MESMO bloco e a 33 linhas de
+# distancia:
+#
+#   "Cada bloco: titulo curto (2-5 palavras) + descricao de 8 a 16 palavras"
+#   "Frase curta e o que sai certo. Titulo de 2 a 4 palavras, frase de 4 a 9."
+#
+# Descricao de 16 palavras e frase de 9 palavras nao podem ser a mesma regra.
+# O modelo escrevia longo, e longo nao cabe no cartao: transborda pela borda,
+# que e o quadrado para fora que ele viu.
+#
+# A faixa que sobrou e a UNICA que as duas regras permitiam ao mesmo tempo:
+# 8 a 9 palavras. Nao foi escolha minha — e a interseccao.
+_PALAVRAS_RE = (
+    re.compile(r"descri[cç][aã]o de (\d+) a (\d+)\s*\n?\s*palavras", re.I),
+    re.compile(r"frase de (\d+) a (\d+)", re.I),
+    re.compile(r"t[ií]tulo(?: curto)?(?: em CAIXA ALTA)? \((\d+)[-a ]+(\d+) palavras\)", re.I),
+    re.compile(r"T[ií]tulo de (\d+) a (\d+) palavras", re.I),
+)
+
 _TETO_RE = (
     re.compile(r"Maximum (\d+) information elements", re.I),
     re.compile(r"use de (\d+) a (\d+) blocos", re.I),
@@ -941,6 +981,34 @@ def main():
                   f"contrarias ao motor: {sorted(faixas)}")
             falhas += 1
 
+    # ── 3-bis. UMA MEDIDA DE TAMANHO DE BLOCO POR PECA ─────────────────────
+    #
+    # A irma da regra acima. A de cima conta as medidas de OCUPACAO do
+    # produto; esta conta as de TAMANHO DO TEXTO, que e o outro numero que o
+    # mesmo prompt trazia em duas versoes — "descricao de 8 a 16 palavras" e
+    # "frase de 4 a 9", a 33 linhas de distancia, no mesmo bloco.
+    #
+    # Duas faixas para a mesma coisa e o modelo escolhendo: ele escrevia
+    # longo, e longo transborda o cartao.
+    for t in TODOS:
+        _pal = _faixas(enviados[t], _PALAVRAS_RE)
+        # Titulo e descricao sao assuntos DIFERENTES e podem ter faixas
+        # diferentes: o que nao pode e duas faixas para o MESMO. Por isso a
+        # conta e por padrao, e nao no monte.
+        for _rx in _PALAVRAS_RE:
+            _dessa = {m.groups() for m in _rx.finditer(enviados[t])}
+            if len(_dessa) > 1:
+                print(f"FALHA  '{t}' manda {len(_dessa)} tamanhos contrarios "
+                      f"para o mesmo bloco de texto: {sorted(_dessa)}")
+                falhas += 1
+        # E as duas faixas de DESCRICAO (a longa e a curta) nao podem
+        # coexistir: era esse o par que se contradizia.
+        _desc = _faixas(enviados[t], (_PALAVRAS_RE[0], _PALAVRAS_RE[1]))
+        if len(_desc) > 1:
+            print(f"FALHA  '{t}' diz o tamanho da frase de {len(_desc)} jeitos "
+                  f"diferentes: {sorted(_desc)}")
+            falhas += 1
+
     # ── 1-bis. O PROMPT DA REFACAO TAMBEM E VARRIDO ────────────────────────
     #
     # ESTE ERA O BURACO MAIOR, e ele e a Forma 3 do protocolo: dizer verde
@@ -1264,6 +1332,43 @@ def main():
     # procura no arquivo se encontra a si mesma — ja aconteceu tres vezes.
     import inspect as _insp
     _fonte_plano = _insp.getsource(_img.gerar_triagem_ia)
+
+    # ── QUEM ESCREVE A COPY E QUEM A DESENHA CONCORDAM NO TAMANHO? ────────
+    #
+    # Dono, 30/09: "as escritas estao sendo cortadas (...) aplicadas numa
+    # regiao que nao da para ser escrita totalmente".
+    #
+    # A copy e escrita pelo prompt do PLANO e desenhada pelo prompt da
+    # IMAGEM. Eram SEIS textos dizendo quanto uma frase pode ter — dois na
+    # mesma regra de densidade, tres em presets e um no plano — e nenhum
+    # deles lia o outro. A IA escrevia no tamanho de um e o desenhista
+    # dimensionava o cartao pelo outro: frase longa em cartao curto
+    # transborda pela borda.
+    #
+    # A conferencia e por AST, e nao por texto: o que importa e que os dois
+    # leiam a MESMA funcao. Procurar a frase renderizada travaria a redacao
+    # (Forma 2) e ficaria verde no dia em que alguem reescrevesse a frase
+    # mantendo duas fontes.
+    import ast as _ast_med
+    _chama_medida = {
+        _n.func.id
+        for _n in _ast_med.walk(_ast_med.parse(_fonte_plano.lstrip()))
+        if isinstance(_n, _ast_med.Call) and isinstance(_n.func, _ast_med.Name)
+    }
+    if "medida_do_bloco" not in _chama_medida:
+        print("FALHA  o prompt do PLANO nao le `medida_do_bloco()`: quem "
+              "escreve a copy voltou a ter medida propria, e frase longa em "
+              "cartao curto transborda pela borda")
+        falhas += 1
+    _medida = _img.medida_do_bloco()
+    for t in TODOS:
+        if t in (TIPO_CAPA, TIPO_AMBIENTE, TIPO_LIVRE):
+            continue          # sem bloco de texto, sem medida de bloco
+        if _medida not in enviados[t]:
+            print(f"FALHA  '{t}' nao recebeu a medida do bloco vinda da fonte "
+                  f"unica: {_medida!r}")
+            falhas += 1
+
 
     # O bloco da variacao de angulo vai do titulo dele ate as regras de
     # viabilidade. E DENTRO dele que `pergunta_info` nao pode aparecer.

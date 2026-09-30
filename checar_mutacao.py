@@ -35,6 +35,67 @@ RAIZ = os.path.dirname(os.path.abspath(__file__))
 # esta entrada virou letra morta — e isso também é reprovado, porque mutação
 # que não se aplica dá a impressão de cobertura que não existe.
 MUTACOES = [
+    # ── 30/09: SEIS VOZES SOBRE QUANTO UMA FRASE PODE TER ──────────────
+    #
+    # Dono: "as escritas estao sendo cortadas (...) aplicadas numa regiao que
+    # nao da para ser escrita totalmente e ai fica a margem para fora".
+    #
+    # A copy e ESCRITA pelo prompt do plano e DESENHADA pelo prompt da
+    # imagem. Havia seis textos dizendo o tamanho dela — dois na mesma regra
+    # de densidade, a 33 linhas um do outro, tres em presets de peca e um no
+    # plano — e nenhum lia o outro. Frase longa num cartao dimensionado para
+    # frase curta transborda pela borda.
+    #
+    # Duas mutacoes, as duas pontas: a medida volta a ter duas vozes no
+    # prompt da imagem, e o prompt do plano volta a ter medida propria.
+    (
+        "a regra de densidade volta a dizer o tamanho da frase duas vezes",
+        "imagem.py",
+        [("- Quanto mais longa a frase, mais letra inventada aparece nela: a medida do",
+          "- Frase curta e o que sai certo. Titulo de 2 a 4 palavras, frase de 4 a 9.\n"
+          "- Quanto mais longa a frase, mais letra inventada aparece nela: a medida do")],
+        None,
+        ["python3", "checar_prompts.py"],
+    ),
+    (
+        "quem escreve a copy volta a ter medida propria, sem ler a fonte unica",
+        "imagem.py",
+        [("  {medida_do_bloco()}. Frase longa \u00e9 o que ele erra",
+          "  Titulo de 2 a 4 palavras; frase de 4 a 9. Frase longa \u00e9 o que ele erra")],
+        None,
+        ["python3", "checar_prompts.py"],
+    ),
+    # ── 30/09: O MOTOR ERA GRAVADO E NUNCA MOSTRADO ────────────────────
+    #
+    # Dono, depois de eu pedir que ELE abrisse uma tela para conferir qual
+    # motor a conta tinha: "eu que tenho que confirmar? voce que codificou o
+    # sistema...".
+    #
+    # O Studio sabe qual motor fez cada peca e o registro dizia "enviado ao
+    # motor" — sem dizer qual. E essa e a pergunta mais importante sobre uma
+    # peca torta: margem e produto redesenhado vem de a peca ter sido feita
+    # pelo RESERVA, que nao aceita `size=1024x1024` nem `input_fidelity`.
+    #
+    # A PRIMEIRA CORRECAO TROPECOU NO MESMO DEFEITO: gravei a linha e
+    # `cadeias` descarta toda acao que nao e prompt — o dado ia ser escrito
+    # e nunca lido. Gravar sem ninguem ler nao e registro.
+    #
+    # Duas mutacoes porque sao duas pontas da mesma cadeia: quem ESCREVE e
+    # quem MOSTRA. Cortar so uma deixaria a outra sem rede.
+    (
+        "o relatorio volta a ignorar qual motor fez a peca",
+        "comparar_prompt.py",
+        [("    mots = motores(linhas)", "    mots = {}")],
+        None,
+        ["python3", "comparar_prompt.py"],
+    ),
+    (
+        "a linha do motor deixa de ser gravada com o nome que o leitor procura",
+        "imagem.py",
+        [('            "motor_da_peca",', '            "motor_da_peca_renomeado",')],
+        None,
+        ["python3", "comparar_prompt.py"],
+    ),
     # ── 30/09: A PECA 7 VOLTA A TER UMA PORCENTAGEM IMPOSTA ────────────
     #
     # Dono: "o produto esta GIGANTE nas maos da crianca".
