@@ -849,6 +849,27 @@ MUTACOES = [
         "    _eh_ajuste_fino = False\n",
         ["python3", "checar_prompts.py"],
     ),
+    (
+        # Dono, 30/09: "o Gemini devolve o que o sistema pede, ue". Certo —
+        # e o pedido tem DUAS metades. O texto tinha 65 regras; os
+        # PARAMETROS nao tinham nenhuma. Sem `input_fidelity` o produto e
+        # redesenhado, e os oito verificadores seguiam verdes.
+        "o motor volta a ser chamado sem input_fidelity",
+        "imagem.py",
+        '                        "input_fidelity": "high",\n',
+        "",
+        ["python3", "checar_comunicacao.py"],
+    ),
+    (
+        # O caminho da OpenAI SEM fotos entregava a peca sem gravar o motor:
+        # a tela mostrava "Motor —" justamente no caminho onde o produto tem
+        # mais chance de sair errado, porque o modelo nao ve as fotos.
+        "um caminho volta a entregar imagem sem dizer por onde ela veio",
+        "imagem.py",
+        '            diagnostico["motor"] = f"{_modelo} (images.generate — SEM fotos)"\n',
+        "",
+        ["python3", "checar_comunicacao.py"],
+    ),
 ]
 
 

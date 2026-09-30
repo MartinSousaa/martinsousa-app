@@ -2914,6 +2914,25 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None, ref_layout=None,
             return None, "Sem imagem na resposta Responses API."
 
         # ── SEM FOTOS: geração texto puro ──
+        #
+        # ESTE CAMINHO ENTREGAVA A PECA SEM DIZER QUEM ELE ERA.
+        #
+        # Os outros tres gravam `diagnostico["motor"]`; este nao gravava
+        # nada — nem motor, nem tamanho, nem quantas fotos foram. A tela de
+        # diagnostico mostrava "Motor —", e quem olhava nao tinha como saber
+        # que aquela peca saiu por um caminho que NEM RECEBEU as fotos do
+        # produto, e portanto reconstruiu tudo a partir do texto.
+        #
+        # E o caminho onde a peca tem mais chance de sair "nada a ver com o
+        # produto original" — justamente o menos identificado.
+        if diagnostico is not None:
+            diagnostico["motor"] = f"{_modelo} (images.generate — SEM fotos)"
+            diagnostico["size_pedido"] = "1024x1024"
+            diagnostico["refs_enviadas"] = 0
+            diagnostico["sem_fotos"] = (
+                "esta peça foi gerada SEM as fotos do produto: o modelo "
+                "reconstruiu o produto a partir do texto, então ele pode "
+                "não ter nada a ver com o real")
         response = client.images.generate(
             model=_modelo,
             prompt=prompt_final,
@@ -8712,6 +8731,9 @@ def pagina_imagem(usuario_logado):
                         "por isso ela voltou retangular e precisou de "
                         "preenchimento. Detalhe: "
                         + str(_d["proporcao_recusada"]))
+                if _d.get("sem_fotos"):
+                    st.error("📷 **Esta peça foi feita SEM as fotos do "
+                             "produto.** " + str(_d["sem_fotos"]))
                 if _d.get("motor_reserva"):
                     # O AVISO QUE MORAVA NUMA THREAD E NUNCA APARECIA.
                     st.error(
