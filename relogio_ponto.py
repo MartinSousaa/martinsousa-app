@@ -781,7 +781,21 @@ def _janelas_do_dia(data, entrada, saida_almoco, volta_almoco, saida):
 
 
 # De onde vieram as tolerancias do ultimo dia classificado.
-TOLERANCIA_DETALHE = {"entrada": 0, "almoco": 0}
+# ── O DETALHE DA TOLERANCIA VIAJA NO RETORNO, E NAO NUM GLOBAL ───────────
+#
+# Ele morava em `TOLERANCIA_DETALHE`, um dicionario de MODULO: a funcao
+# escrevia nele e o laco lia duas linhas depois. O Streamlit atende todos os
+# colaboradores no MESMO processo, e entre a escrita e a leitura outra sessao
+# podia classificar as batidas de OUTRA pessoa e sobrescrever os dois campos.
+#
+# A janela e curta, mas o que ela corrompe nao e: sao as tolerancias de
+# entrada e de almoco que aparecem no Painel de Metas — numeros que entram na
+# conta do bonus. Numero errado ali custa dinheiro de alguem.
+#
+# E era a MESMA familia de tres outros defeitos do dia 30/09: valor por
+# pessoa guardado numa caixa do processo. Valor de retorno se RETORNA; quando
+# ele viaja por um global, a questao nao e se vai trocar, e quando.
+_TOLERANCIA_ZERADA = {"entrada": 0, "almoco": 0}
 
 
 def _classificar_batidas(username, entrada, saida_almoco=None, volta_almoco=None):
@@ -800,7 +814,7 @@ def _classificar_batidas(username, entrada, saida_almoco=None, volta_almoco=None
     sete vezes, e não havia como descobrir que as outras seis eram do almoço.
     """
     tol = atr_ent = atr_alm = 0
-    TOLERANCIA_DETALHE["entrada"] = TOLERANCIA_DETALHE["almoco"] = 0
+    detalhe = dict(_TOLERANCIA_ZERADA)
     minutos_almoco = 0.0
 
     if entrada:
@@ -809,7 +823,7 @@ def _classificar_batidas(username, entrada, saida_almoco=None, volta_almoco=None
             atr_ent = 1
         elif _diff_min(h["entrada"], entrada) > FOLGA_ENTRADA_MIN:
             tol = 1
-            TOLERANCIA_DETALHE["entrada"] = 1
+            detalhe["entrada"] = 1
 
     excedeu = 0.0
     if saida_almoco and volta_almoco:
@@ -821,7 +835,7 @@ def _classificar_batidas(username, entrada, saida_almoco=None, volta_almoco=None
     if excedeu > FOLGA_ALMOCO_MIN:
         atr_alm = 1
 
-    return tol, atr_ent, atr_alm, minutos_almoco
+    return tol, atr_ent, atr_alm, minutos_almoco, detalhe
 
 
 @st.cache_data(ttl=300)   # 5 min — o painel precisa acompanhar o dia
@@ -915,11 +929,11 @@ def _pontualidade_rhid(ano: int, mes: int):
             volta   = _parse_horario(reg.get("volta_almoco"))
             if not entrada and not volta:
                 continue
-            tol, atr_ent, atr_alm, min_almoco = _classificar_batidas(
+            tol, atr_ent, atr_alm, min_almoco, _det_tol = _classificar_batidas(
                 u, entrada, saida_a, volta)
             acc["tolerancias"]     += tol
-            acc["tol_entrada"]     += TOLERANCIA_DETALHE["entrada"]
-            acc["tol_almoco"]      += TOLERANCIA_DETALHE["almoco"]
+            acc["tol_entrada"]     += _det_tol["entrada"]
+            acc["tol_almoco"]      += _det_tol["almoco"]
             acc["atrasos_entrada"] += atr_ent
             acc["atrasos_almoco"]  += atr_alm
             acc["atrasos"]         += atr_ent + atr_alm
@@ -2108,6 +2122,82 @@ if __name__ == "__main__":
 
     import inspect as _insp_rp
     import re as _re_rp
+
+    # ── DOIS COLABORADORES CLASSIFICANDO AO MESMO TEMPO ──────────────────
+    #
+    # O detalhe da tolerancia morava em `TOLERANCIA_DETALHE`, um dicionario de
+    # MODULO: a funcao escrevia e o laco lia duas linhas depois. O Streamlit
+    # atende todo mundo no MESMO processo — entre a escrita e a leitura, outra
+    # sessao podia classificar as batidas de OUTRA pessoa e sobrescrever os
+    # dois campos. O que isso corrompe sao as tolerancias de entrada e de
+    # almoco do Painel de Metas, que entram na conta do bonus.
+    #
+    # A guarda poe duas threads classificando pessoas DIFERENTES ao mesmo
+    # tempo, com uma barreira para garantir que as duas escrevem antes de
+    # qualquer uma ler — que e a janela exata do defeito. Com o global, uma
+    # das duas lia o detalhe da outra.
+    import threading as _th_rp
+    _porta_rp = _th_rp.Barrier(2)
+    _res_rp = {}
+
+    # A PRIMEIRA VERSAO DESTA GUARDA PASSAVA SEM MEDIR NADA.
+    #
+    # Ela comparava 9h30 com 7h55 — as duas dao tolerancia ZERO, entao os dois
+    # detalhes eram iguais com defeito e sem defeito, e a assercao ainda tinha
+    # um `or` que a salvava. Guarda fraca e pior que guarda nenhuma: ela
+    # assina embaixo.
+    #
+    # Medido no proprio modulo: a entrada e 08:45 e o limite 08:55, entao
+    # 08:52 da tolerancia de ENTRADA (detalhe {entrada: 1}) e 09:30 da
+    # ATRASO (detalhe {entrada: 0}). Sao dois resultados diferentes, e e
+    # justamente isso que o global trocava.
+    def _classifica(rotulo, entrada):
+        def _corpo():
+            _t, _ae, _aa, _m, _det = _classificar_batidas("myrelladesouza",
+                                                          entrada)
+            _porta_rp.wait()      # os dois classificam ANTES de qualquer leitura
+            _res_rp[rotulo] = (_t, dict(_det))
+        return _corpo
+
+    from datetime import time as _time_rp
+    _a_rp = _th_rp.Thread(target=_classifica("tolerancia", _time_rp(8, 52)))
+    _b_rp = _th_rp.Thread(target=_classifica("atraso", _time_rp(9, 30)))
+    _a_rp.start(); _b_rp.start(); _a_rp.join(); _b_rp.join()
+    ok("quem teve tolerancia recebe o detalhe DELE",
+       _res_rp["tolerancia"] == (1, {"entrada": 1, "almoco": 0}))
+    ok("e quem se atrasou recebe o detalhe dele, e nao o do outro",
+       _res_rp["atraso"] == (0, {"entrada": 0, "almoco": 0}))
+    # E ELE VEM NO RETORNO, nao de uma caixa do modulo: sem isso a guarda
+    # acima passaria com o defeito de volta, porque as duas leituras
+    # aconteceriam DEPOIS das duas escritas e veriam o mesmo valor.
+    # ── `_pontualidade_rhid` E LIDO PELO PAINEL DE METAS ────────────────
+    #
+    # O quarto verificador cobrou guarda por ele: `analise_metas.py` o lê, e
+    # eu mudei o que acontece dentro dele — o detalhe da tolerância passou a
+    # vir no RETORNO de `_classificar_batidas` em vez de numa caixa de módulo.
+    #
+    # A guarda é no CONTRATO entre os dois, por AST: se alguém voltar a
+    # desempacotar quatro valores, o `ValueError` só aparece em produção, no
+    # meio do mês, na tela que decide bônus. Ler o código-fonte do bloco, e
+    # não o arquivo: guarda que varre o arquivo se encontra a si mesma.
+    import ast as _ast_rp
+    _arv_pr = _ast_rp.parse(_insp_rp.getsource(_pontualidade_rhid).lstrip())
+    _desempacota = [
+        _n for _n in _ast_rp.walk(_arv_pr)
+        if isinstance(_n, _ast_rp.Assign)
+        and isinstance(_n.value, _ast_rp.Call)
+        and getattr(_n.value.func, "id", "") == "_classificar_batidas"
+    ]
+    ok("o painel de metas chama a classificacao de batidas",
+       bool(_desempacota))
+    ok("e desempacota os CINCO valores, com o detalhe entre eles",
+       all(isinstance(_n.targets[0], _ast_rp.Tuple)
+           and len(_n.targets[0].elts) == 5 for _n in _desempacota))
+
+    ok("o detalhe da tolerancia e devolvido pela funcao",
+       len(_classificar_batidas("myrelladesouza", _time_rp(9, 30))) == 5)
+    ok("e nao existe mais caixa de modulo para ele",
+       "TOLERANCIA_DETALHE" not in globals())
 
     # A HORA E A DATA DO PAINEL SAO DE BRASILIA, e nao do container.
     #

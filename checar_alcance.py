@@ -478,6 +478,131 @@ def main():
                     "nao existe mais, e a isencao passa a mentir para quem "
                     "ler depois")
 
+    # ── 5-quater. ESTADO DE PESSOA GUARDADO NUMA CAIXA DO PROCESSO ───────
+    #
+    # 30/09. Esta e a familia de defeito mais cara do dia, e ela apareceu
+    # QUATRO vezes em tres arquivos diferentes:
+    #
+    #   log_imagem._CONTEXTO ....... produto e usuario trocados entre
+    #                                colaboradores; o historico do «Compasso
+    #                                Cortador» voltou com pecas de OUTRO
+    #                                produto dentro, e a analise feita em cima
+    #                                dele apontou um defeito que nao existia
+    #   imagem._PECA_EM_AJUSTE ..... a peca do ajuste trocada entre duas
+    #                                pessoas; o custo estava DECLARADO na
+    #                                docstring e nao consertado
+    #   relogio_ponto.TOLERANCIA_DETALHE  o detalhe da tolerancia escrito por
+    #                                uma sessao e lido por outra — e esses
+    #                                numeros entram na conta do bonus
+    #
+    # O Streamlit atende TODOS os colaboradores no MESMO processo. Um
+    # dicionario de modulo nao e "uma variavel": e uma caixa compartilhada por
+    # toda a equipe. O defeito nao e raro nem teorico — e so questao de duas
+    # pessoas usarem a tela ao mesmo tempo, que e o dia normal aqui.
+    #
+    # POR QUE UMA LISTA, E NAO UM JULGAMENTO AUTOMATICO
+    #
+    # Cache de board, modelo descoberto na conta, nome de campo que a API usa:
+    # esses SAO do processo por natureza, e acusa-los seria alarme falso —
+    # verificador que da alarme falso ensina a ignora-lo. O que a maquina nao
+    # consegue decidir e se aquele valor e de UMA PESSOA ou de TODAS.
+    #
+    # Entao cada caixa e classificada UMA vez, com o motivo escrito, igual ao
+    # que esta base ja faz com `MUDAS_POR_ESCOLHA` e `THREADS_SEM_TELA`. Caixa
+    # nova reprova ate alguem responder a pergunta — e a pergunta e sempre a
+    # mesma: "dois colaboradores ao mesmo tempo trocam isto entre si?".
+    ESTADO_DE_PROCESSO = {
+        # Caches e memorias de consulta: a resposta e a mesma para todo mundo.
+        "auth.py:_ULTIMOS_USUARIOS_OK": "lista de usuarios da planilha, igual para todos",
+        "batidas.py:_CACHE": "cache da RHiD com chave propria",
+        "bling_api.py:_ABA_CACHE": "aba da planilha, uma por processo",
+        "bling_api.py:_CACHE": "token do Bling, da conta e nao da pessoa",
+        "bling_api.py:_CANAIS_CACHE": "canais de venda da conta",
+        "bling_api.py:_MES_CACHE": "faturamento do mes, com chave de mes",
+        "bling_api.py:_SITUACOES_CACHE": "situacoes de pedido da conta",
+        "imagem.py:_DESCRICAO_CACHE": "descricao de visao, com chave do produto",
+        "placar_core.py:_acoes_cache": "acoes do Trello, com chave de janela",
+        "placar_core.py:_board_cache": "board do Trello, um so",
+        "placar_core.py:_tempos_cache": "tempos do board, com chave",
+        "placar_core.py:_MAPA_LABELS": "etiquetas do board, iguais para todos",
+        "sheets.py:ID_RECUSADO": "id de planilha que o Drive recusou",
+        # Capacidades da CONTA e da API: nao variam por pessoa.
+        "imagem.py:_MODELO_DESCOBERTO": "modelo de imagem que a conta tem",
+        "imagem.py:_FORMA_PROPORCAO": "qual campo de proporcao esta API aceita",
+        "rhid_api.py:ULTIMA_ORIGEM_ABONO": "nome do campo que a RHiD usa",
+        "rhid_api.py:ULTIMA_ORIGEM_BATIDAS": "nome do campo que a RHiD usa",
+        "placar_core.py:ALINHAMENTO_OLD": "formato que a API do Trello devolve",
+        "placar_core.py:AMOSTRA_ACAO_ETIQUETA": "amostra do formato da acao",
+        "placar_core.py:DIAGNOSTICO_POR_FILTRO": "diagnostico da consulta ao Trello",
+        "placar_core.py:ULTIMO_DIAGNOSTICO_ACOES": "idem, da ultima consulta",
+        # Cadastro e tabelas: sao da EMPRESA, nao de quem esta olhando.
+        "placar_core.py:MEMBROS_ATIVOS": "a equipe cadastrada na planilha",
+        "placar_core.py:MAPA_RHID": "de nome na RHiD para usuario do Trello",
+        "metas_config.py:COLUNAS": "colunas da aba de metas",
+        "metas_config.py:DEFAULTS": "padroes das metas",
+        "metas_config.py:LABELS": "rotulos dos campos de meta",
+        "cor_pedido.py:CORES": "registro de cores, montado no import",
+        "fechar_expediente_conferencia.py:POSTS": "registro de conferencias",
+        "placar.py:TV_STATUS": "estado da TV, que e uma tela so para todos",
+        "placar_snapshot.py:_ULTIMO_DIA": "dia do ultimo retrato gravado",
+        # POR THREAD, que e o conserto desta familia.
+        "log_imagem.py:_CONTEXTO": "guardado POR THREAD (ident), nao por processo",
+        # DECLARADO COM O CUSTO, e nao escondido.
+        "imagem.py:_ULTIMO_DESCARTE_LAYOUT":
+            "escrito DENTRO da thread e lido pela tela depois — por thread "
+            "quebraria, porque a heranca e so de quem cria para quem e criado. "
+            "O pior caso e um aviso a mais na tela de alguem; o prompt enviado "
+            "nao depende dele. Consertar de vez pede o valor viajando no "
+            "retorno por tres assinaturas.",
+    }
+    _caixas = {}
+    for nome in _arquivos():
+        try:
+            _arv_ep = ast.parse(open(nome, encoding="utf-8").read())
+        except (SyntaxError, OSError):
+            continue
+        _mut = {}
+        for _n in _arv_ep.body:
+            if isinstance(_n, ast.Assign) and isinstance(
+                    _n.value, (ast.Dict, ast.List, ast.Set)):
+                for _t in _n.targets:
+                    if isinstance(_t, ast.Name):
+                        _mut[_t.id] = _n.lineno
+        for _fn in [x for x in ast.walk(_arv_ep)
+                    if isinstance(x, ast.FunctionDef)]:
+            for _c in ast.walk(_fn):
+                _alvo = None
+                if (isinstance(_c, ast.Call)
+                        and isinstance(_c.func, ast.Attribute)
+                        and _c.func.attr in ("update", "clear", "append",
+                                             "pop", "setdefault", "add")
+                        and isinstance(_c.func.value, ast.Name)):
+                    _alvo = _c.func.value.id
+                elif isinstance(_c, ast.Assign):
+                    for _t in _c.targets:
+                        if (isinstance(_t, ast.Subscript)
+                                and isinstance(_t.value, ast.Name)):
+                            _alvo = _t.value.id
+                if _alvo and _alvo in _mut:
+                    _caixas[f"{nome}:{_alvo}"] = (_mut[_alvo], _fn.name)
+    for _chave in sorted(_caixas):
+        if _chave not in ESTADO_DE_PROCESSO:
+            _ln, _quem = _caixas[_chave]
+            reprova(
+                f"{_chave.replace(':', ':' + str(_ln) + ' — ')} e escrito em "
+                f"execucao por `{_quem}`, e e um dicionario de MODULO: no "
+                "Streamlit ele e compartilhado por TODA a equipe no mesmo "
+                "processo. Responda se isto e de uma pessoa ou de todas: "
+                "se e de uma, guarde por thread (ver `log_imagem`) ou "
+                "devolva no retorno; se e de todas, declare em "
+                "ESTADO_DE_PROCESSO com o motivo.")
+    # ISENCAO ORFA MENTE PARA QUEM LE DEPOIS — igual as outras duas listas.
+    for _chave in sorted(ESTADO_DE_PROCESSO):
+        if _chave not in _caixas:
+            reprova(f"a declaracao de ESTADO_DE_PROCESSO para `{_chave}` "
+                    "sobrou: essa caixa nao existe mais, e a declaracao passa "
+                    "a mentir para quem ler depois")
+
     # ── 5-ter. O ACHADO QUE FOI MAPEADO E NAO FOI TRATADO ─────────────────
     #
     # Dono, 30/09: "eu sinceramente ainda nao entendi como mapeou isso e nao

@@ -196,12 +196,195 @@ def ocupacao(dados, tolerancia=12):
     return round(max((x1 - x0) / w, (y1 - y0) / h) * 100.0, 1)
 
 
-def problemas(dados, fundo_chapado=False, ambientada=False):
+# ── TEXTO CORTADO PELA BORDA — O QUE ELE PARECE, EM PIXEL ─────────────────
+#
+# Dono, 30/09: "imagem 2 e imagem 5 com texto cortando (...) elas sao aplicadas
+# numa regiao que nao da para ser escrita totalmente e ai fica a margem para
+# fora, quadrados para fora". E depois, duas vezes: "os textos cortados foram
+# corrigidos na causa raiz?".
+#
+# A resposta honesta era NAO enquanto esta funcao nao existisse: a regua
+# conferia formato, faixa lisa e ocupacao, e ninguem olhava se o texto tinha
+# ficado inteiro dentro do quadro. Tirar a contradicao do prompt e tratar a
+# causa; sem medir o resultado, e hipotese.
+#
+# COMO SE RECONHECE, E POR QUE NAO E O OBVIO
+#
+# A primeira versao contou as trocas claro/escuro na coluna da borda. Medido:
+#
+#   painel inteiro dentro ....... 0 trocas
+#   painel cortado .............. 8 a 14 trocas
+#   AMBIENTACAO (ruido ate a borda) 469 trocas
+#
+# Ou seja: a medida obvia acusaria TODA ambientacao — verificador que da
+# alarme falso ensina a ignora-lo. O que separa os dois nao e a quantidade de
+# troca: e que o cartao cortado e um bloco de DUAS CORES (o cartao claro e o
+# glifo escuro), enquanto a cena e um continuo. Medido na mesma bateria:
+#
+#   caso                 tom dominante  e claro?  pixels escuros
+#   inteiro dentro ..... 100%           sim       0
+#   cortado ............ 94 a 95%       sim       56 a 73
+#   ambientacao ........ 28%            NAO       456
+#
+# Os limites abaixo saem desses numeros, com folga dos dois lados.
+DOMINANTE_MINIMA_PCT = 70    # medido: 94-95 no defeito, 28 na ambientacao
+ESCUROS_MINIMOS = 20         # medido: 56-73 no defeito, 0 quando esta inteiro
+TROCAS_MINIMAS = 4           # medido: 8-14 no defeito, 0 quando esta inteiro
+_NIVEL_CLARO = 5             # em passos de 32: 5 -> 160 de luminancia
+_NIVEL_ESCURO = 2            # 2 -> ate 95
+
+
+def texto_na_borda(dados):
+    """{'esq','dir','topo','baixo'}: True onde ha cartao de texto cortado.
+
+    Funcao pura. So faz sentido em peca COM texto — numa capa ou numa
+    ambientacao o que encosta na borda e produto ou cenario, e acusar ali
+    seria alarme falso. Quem sabe disso e quem chama.
+    """
+    try:
+        im = _abrir(dados).convert("L")
+    except Exception:
+        return {}
+    w, h = im.size
+    px = im.load()
+
+    def _corta(valores):
+        if not valores:
+            return False
+        q = [v // 32 for v in valores]
+        trocas = sum(1 for a, b in zip(q, q[1:]) if a != b)
+        escuros = sum(1 for v in q if v <= _NIVEL_ESCURO)
+        dominante = max(set(q), key=q.count)
+        dom_pct = 100.0 * q.count(dominante) / len(q)
+        # UM CARTAO: fundo claro dominando a borda, com glifo escuro dentro.
+        return (dominante >= _NIVEL_CLARO
+                and dom_pct >= DOMINANTE_MINIMA_PCT
+                and escuros >= ESCUROS_MINIMOS
+                and trocas >= TROCAS_MINIMAS)
+
+    return {
+        "esq": _corta([px[0, y] for y in range(h)]),
+        "dir": _corta([px[w - 1, y] for y in range(h)]),
+        "topo": _corta([px[x, 0] for x in range(w)]),
+        "baixo": _corta([px[x, h - 1] for x in range(w)]),
+    }
+
+
+# ── A PECA SE PARECE COM O PRODUTO DAS FOTOS? ─────────────────────────────
+#
+# Dono, 30/09: "por que que as imagens acabam sendo geradas diferente do que o
+# produto de fato e, onde que esta o erro para ele ser corrigido?". E, duas
+# vezes: "foram corrigidos NA CAUSA RAIZ?".
+#
+# A resposta era NAO enquanto isto nao existisse. O Studio manda "TRAVA DE COR
+# (regra inviolavel)" e "PROIBICAO ABSOLUTA: JAMAIS substitua o produto das
+# fotos" — e entregava sem NUNCA comparar a peca com as fotos. Regra que
+# ninguem confere e torcida, nao regra.
+#
+# O QUE ESTA MEDIDA VE, E O QUE ELA NAO VE
+#
+# Ela compara a PALETA DO ASSUNTO: recorta a caixa do assunto dos dois lados,
+# quantiza a cor em passos de 48 e mede quanto da paleta da foto reaparece na
+# peca. Pega o defeito mais relatado e mais caro — o produto repintado, a cor
+# trocada, o objeto substituido por outro de cor diferente.
+#
+# Ela NAO ve forma: produto da cor certa e formato errado passa. Isso esta
+# declarado no ACHADOS_ABERTOS.md — responder forma exige visao, e visao custa
+# uma chamada paga por peca. Medida barata que pega o caso comum vale mais que
+# medida cara que ninguem liga.
+#
+# OS LIMITES SAIRAM DE MEDICAO, e a bateria esta no auto-teste:
+#
+#   mesma cor, mesma forma ................. 99%
+#   mesma cor, forma diferente ............. 75%
+#   produto tricolor reproduzido ........... 94%
+#   foto limpa x peca ambientada, mesma cor  75%
+#   ---------------------------------------------
+#   tricolor virou monocromatico ........... 30%
+#   cor trocada ............................ 21%
+#   cor trocada, peca ambientada ............  0%
+#
+# O piso fica em 45: folga de 30 pontos para o pior caso legitimo e de 15 para
+# o melhor caso defeituoso.
+PARECENCA_MINIMA_PCT = 45
+_PASSO_COR = 48
+_MAX_FOTOS_COMPARADAS = 3
+
+
+def paleta_do_assunto(dados, cores=6):
+    """[(cor_quantizada, pct)] do ASSUNTO — nao do quadro inteiro.
+
+    Recortar a caixa do assunto e o que faz a medida funcionar numa peca
+    ambientada: sem isso, a paleta seria a do cenario, e cenario e livre.
+    """
+    try:
+        im = _abrir(dados).convert("RGB")
+    except Exception:
+        return []
+    caixa = caixa_do_assunto(dados)
+    if caixa:
+        try:
+            im = im.crop(caixa)
+        except Exception:
+            pass
+    try:
+        im = im.resize((64, 64))
+    except Exception:
+        return []
+    from collections import Counter
+    q = [(r // _PASSO_COR, g // _PASSO_COR, b // _PASSO_COR)
+         for r, g, b in im.getdata()]
+    if not q:
+        return []
+    return [(c, 100.0 * n / len(q)) for c, n in Counter(q).most_common(cores)]
+
+
+def parecenca(peca, foto):
+    """Quanto da paleta do assunto da FOTO reaparece na PECA, em %.
+
+    Funcao pura. 0 quando nao da para medir um dos dois — e quem chama
+    decide o que fazer com isso, porque "nao consegui medir" nao e "esta
+    errado" (acusar o inocente e pior que nao medir).
+    """
+    p_foto = paleta_do_assunto(foto)
+    p_peca = {c for c, _ in paleta_do_assunto(peca)}
+    if not p_foto or not p_peca:
+        return None
+    return sum(pct for c, pct in p_foto if c in p_peca)
+
+
+def produto_diferente(peca, fotos):
+    """O aviso quando a peca nao se parece com NENHUMA das fotos, ou "".
+
+    NENHUMA, e nao "a primeira": as fotos mostram angulos e recortes
+    diferentes do mesmo produto, e uma delas pode ser um detalhe. Basta a
+    peca casar com uma para a trava de cor ter sido respeitada.
+    """
+    notas = []
+    for foto in (fotos or [])[:_MAX_FOTOS_COMPARADAS]:
+        n = parecenca(peca, foto)
+        if n is not None:
+            notas.append(n)
+    if not notas:
+        return ""
+    melhor = max(notas)
+    if melhor >= PARECENCA_MINIMA_PCT:
+        return ""
+    return (f"o produto da peca nao bate com as fotos: so {melhor:.0f}% da cor "
+            f"do produto reapareceu (minimo {PARECENCA_MINIMA_PCT}%)")
+
+
+def problemas(dados, fundo_chapado=False, ambientada=False,
+              com_texto=False):
     """O que está errado nesta imagem, em português. [] quando está boa.
 
     `ambientada` desliga a checagem de ocupação: numa cena a escala do
     produto é a REAL, e exigir que ele encha o quadro foi exatamente o que
     produziu o produto gigante que o dono reclamou.
+
+    `com_texto` LIGA a checagem de texto cortado, e só ela: numa capa ou numa
+    ambientação o que encosta na borda é produto ou cenário, e acusar ali
+    seria alarme falso.
     """
     fora = []
     w, h, quadrada = formato(dados)
@@ -217,6 +400,16 @@ def problemas(dados, fundo_chapado=False, ambientada=False):
                            ("topo", "topo"), ("baixo", "base")):
             if f.get(lado, 0) >= limite:
                 fora.append(f"faixa lisa de {f[lado]}px na {nome}")
+
+    if com_texto:
+        # UMA medicao, e nao uma por lado: `texto_na_borda` abre a imagem e
+        # varre as quatro bordas de uma vez. Chamar dentro do laco a abriria
+        # quatro vezes por peca.
+        _bordas = texto_na_borda(dados)
+        for lado, nome in (("esq", "esquerda"), ("dir", "direita"),
+                           ("topo", "topo"), ("baixo", "base")):
+            if _bordas.get(lado):
+                fora.append(f"texto cortado pela borda {nome}")
 
     if fundo_chapado and not ambientada:
         oc = ocupacao(dados)
@@ -294,6 +487,150 @@ if __name__ == "__main__":
     ok("a faixa da esquerda e medida", 110 <= f["esq"] <= 130)
     ok("a da direita tambem", 110 <= f["dir"] <= 130)
     ok("e o topo continua limpo", f["topo"] < 5)
+
+    # ── O TEXTO CORTADO PELA BORDA ───────────────────────────────────────
+    #
+    # As imagens sao montadas aqui com o defeito REAL: um painel de texto que
+    # comeca fora do quadro, como o dono descreveu — "os titulos aparecem
+    # como 'TE DE MEDIDA / ISO'".
+    def _fonte_t(tam):
+        from PIL import ImageFont
+        for c in ("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+                  "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"):
+            try:
+                return ImageFont.truetype(c, tam)
+            except Exception:
+                pass
+        return ImageFont.load_default()
+
+    def _peca_com_texto(x_painel):
+        """Peca de marketing: produto a direita, tres cartoes a esquerda.
+
+        `x_painel` negativo = o painel comeca fora do quadro, que e o defeito.
+        """
+        im = Image.new("RGB", (1200, 1200), (235, 230, 220))
+        d = ImageDraw.Draw(im)
+        d.ellipse([620, 400, 1100, 880], fill=(40, 90, 150))
+        f = _fonte_t(54)
+        for i, txt in enumerate(("FITA DE MEDIDA", "PRECISO", "ATE 150 MM")):
+            y = 260 + i * 180
+            d.rounded_rectangle([x_painel, y, x_painel + 470, y + 130], 18,
+                                fill=(255, 255, 255))
+            d.text((x_painel + 28, y + 40), txt, font=f, fill=(20, 20, 20))
+        return _png(im)
+
+    def _ambientada_ruidosa():
+        """Cena com ruido ate a borda — o caso que a medida obvia acusaria."""
+        import random
+        random.seed(3)
+        im = Image.new("RGB", (1200, 1200))
+        px = im.load()
+        for y in range(0, 1200, 2):
+            for x in range(0, 1200, 2):
+                v = random.randint(60, 210)
+                for dy in range(2):
+                    for dx in range(2):
+                        px[x + dx, y + dy] = (v, int(v * 0.8), int(v * 0.6))
+        ImageDraw.Draw(im).ellipse([400, 500, 800, 900], fill=(30, 30, 40))
+        return _png(im)
+
+    ok("painel inteiro dentro do quadro nao acusa nada",
+       not any(texto_na_borda(_peca_com_texto(60)).values()))
+    ok("painel que comeca fora do quadro e acusado na esquerda",
+       texto_na_borda(_peca_com_texto(-120)).get("esq"))
+    ok("e mesmo muito cortado continua sendo acusado",
+       texto_na_borda(_peca_com_texto(-300)).get("esq"))
+    ok("so a borda que tem o defeito e acusada",
+       not any(texto_na_borda(_peca_com_texto(-120))[k]
+               for k in ("dir", "topo", "baixo")))
+    # O ALARME FALSO QUE A PRIMEIRA VERSAO DARIA.
+    #
+    # Contar trocas claro/escuro na borda acusava a ambientacao com 469
+    # trocas — toda cena ambientada seria reprovada. Verificador que da
+    # alarme falso e pior que nenhum: ensina a ignora-lo.
+    ok("cena ambientada com ruido ate a borda NAO e acusada",
+       not any(texto_na_borda(_ambientada_ruidosa()).values()))
+    ok("e ela so e medida quando a peca TEM texto",
+       not any("texto cortado" in p
+               for p in problemas(_peca_com_texto(-120)))
+       and any("texto cortado" in p
+               for p in problemas(_peca_com_texto(-120), com_texto=True)))
+    ok("lixo nao derruba a medida", texto_na_borda(b"nao sou imagem") == {})
+
+    # ── A PECA SE PARECE COM O PRODUTO DAS FOTOS? ────────────────────────
+    #
+    # A bateria que produziu os limites da medida. Ela esta aqui inteira de
+    # proposito: se alguem mexer no piso, tem de ver o que cada caso dava.
+    def _prod(cor, forma="elipse"):
+        im = Image.new("RGB", (900, 900), (250, 250, 250))
+        d = ImageDraw.Draw(im)
+        if forma == "elipse":
+            d.ellipse([180, 180, 720, 720], fill=cor)
+        else:
+            d.rectangle([180, 180, 720, 720], fill=cor)
+        return _png(im)
+
+    def _tricolor(cores):
+        im = Image.new("RGB", (900, 900), (250, 250, 250))
+        d = ImageDraw.Draw(im)
+        for i, c in enumerate(cores):
+            d.rectangle([180 + i * 180, 300, 180 + (i + 1) * 180, 600], fill=c)
+        return _png(im)
+
+    def _ambientada(cor):
+        """Produto sobre mesa de madeira, fundo com textura — o caso em que
+        medir o QUADRO em vez do ASSUNTO daria alarme falso."""
+        import random
+        random.seed(11)
+        im = Image.new("RGB", (900, 900), (150, 120, 90))
+        px = im.load()
+        for y in range(0, 900, 3):
+            for x in range(0, 900, 3):
+                v = random.randint(-25, 25)
+                r, g, b = im.getpixel((x, y))
+                for dy in range(3):
+                    for dx in range(3):
+                        px[x + dx, y + dy] = (max(0, min(255, r + v)),
+                                              max(0, min(255, g + v)),
+                                              max(0, min(255, b + v)))
+        ImageDraw.Draw(im).ellipse([330, 330, 570, 570], fill=cor)
+        return _png(im)
+
+    _VERDE, _AZUL, _VERM = (40, 160, 70), (40, 70, 170), (200, 50, 40)
+
+    ok("mesma cor e mesma forma: parecenca quase total",
+       parecenca(_prod(_VERDE), _prod(_VERDE)) >= 90)
+    ok("forma diferente com a cor certa ainda passa",
+       parecenca(_prod(_VERDE, "quad"), _prod(_VERDE)) >= PARECENCA_MINIMA_PCT)
+    ok("produto tricolor reproduzido passa",
+       parecenca(_tricolor([_VERDE, _AZUL, _VERM]),
+                 _tricolor([_VERDE, _AZUL, _VERM])) >= PARECENCA_MINIMA_PCT)
+    # O DEFEITO: o produto repintado.
+    ok("cor trocada e REPROVADA",
+       parecenca(_prod(_AZUL), _prod(_VERDE)) < PARECENCA_MINIMA_PCT)
+    ok("tricolor que virou monocromatico tambem",
+       parecenca(_tricolor([_AZUL, _AZUL, _AZUL]),
+                 _tricolor([_VERDE, _AZUL, _VERM])) < PARECENCA_MINIMA_PCT)
+    # O ALARME FALSO QUE MEDIR O QUADRO INTEIRO DARIA: numa peca ambientada o
+    # cenario domina os pixels. Recortar a caixa do assunto e o que salva.
+    ok("peca ambientada com a cor certa NAO e acusada",
+       parecenca(_ambientada(_VERDE), _prod(_VERDE)) >= PARECENCA_MINIMA_PCT)
+    ok("e ambientada com a cor trocada e acusada",
+       parecenca(_ambientada(_AZUL), _prod(_VERDE)) < PARECENCA_MINIMA_PCT)
+
+    # BASTA CASAR COM UMA DAS FOTOS: elas sao angulos do mesmo produto, e uma
+    # pode ser um detalhe de outra cor.
+    ok("casar com a segunda foto ja basta",
+       not produto_diferente(_prod(_VERDE), [_prod(_VERM), _prod(_VERDE)]))
+    ok("nao casar com nenhuma vira aviso",
+       "nao bate com as fotos" in produto_diferente(
+           _prod(_AZUL), [_prod(_VERM), _prod(_VERDE)]))
+    # NAO CONSEGUI MEDIR NAO E "ESTA ERRADO": acusar o inocente e pior que
+    # nao medir, e foi assim que a primeira versao do checar_tela nasceu.
+    ok("sem foto nenhuma nao acusa nada",
+       produto_diferente(_prod(_AZUL), []) == "")
+    ok("foto ilegivel nao acusa nada",
+       produto_diferente(_prod(_AZUL), [b"nao sou imagem"]) == "")
 
     ok("120px de faixa viram problema",
        any("faixa" in p for p in problemas(_com_faixa(120))))

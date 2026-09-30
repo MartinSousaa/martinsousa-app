@@ -85,7 +85,19 @@ TIPO_AMBIENTE = "8 — Ambientação realista (sem texto)"
 # exatamente o defeito que acabou de sair. Por isso os grupos sao nomeados: a
 # proxima peca de cena entra aqui, e as tres regras de tamanho a seguem.
 TIPO_PRESENTE = "7 — Presenteie"
-TIPOS_DE_CENA = (TIPO_AMBIENTE, TIPO_PRESENTE)
+# ── E A PECA 3 ERA CENA TAMBEM, E EU SO VI NA TERCEIRA VEZ ───────────────
+#
+# O preset dela comeca com "PRODUTO NO AMBIENTE DE USO REAL: deduza (...) onde
+# ESTE produto e de fato usado, e POR QUEM". Cena com gente — e ela carregava
+# "ocupa NO MINIMO 45%" mais "Nunca deixe o produto pequeno no centro de um
+# cenario amplo". Um compasso de 16 cm a 45% do quadro, na mao de uma crianca,
+# e gigante, que foi exatamente o relato.
+#
+# Tres pecas, tres correcoes separadas, o mesmo defeito: 8 em 29/09, 7 de
+# manha em 30/09, 3 a noite. Por isso o grupo tem NOME: peca de cena nova
+# entra aqui, e as regras de tamanho a seguem sozinhas.
+TIPO_CENARIO = "3 — Benefícios no cenário de uso"
+TIPOS_DE_CENA = (TIPO_AMBIENTE, TIPO_PRESENTE, TIPO_CENARIO)
 TIPOS_COM_TEXTO_MEDIDO = tuple(t for t in TIPOS_COM_TEXTO
                                if t not in TIPOS_DE_CENA)
 TIPO_LIVRE = "Personalizado (descrevo o que quero)"

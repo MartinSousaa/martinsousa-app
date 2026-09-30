@@ -94,22 +94,38 @@ def _meu():
             vivas = {t.ident for t in _threading_ctx.enumerate()}
             for k in [k for k in _CONTEXTO if k not in vivas]:
                 _CONTEXTO.pop(k, None)
-        ctx = {"produto": "", "usuario": ""}
+        ctx = {"produto": "", "usuario": "", "peca": ""}
         _CONTEXTO[ident] = ctx
     return ctx
 
 
-def marcar_contexto(produto=None, usuario=None):
-    """Diz quem está gerando e o que. A tela chama; a thread lê.
+def marcar_contexto(produto=None, usuario=None, peca=None):
+    """Diz quem está gerando, o quê, e em qual peça. A tela chama; a thread lê.
 
     Vale só para a thread que chamou — e é isso que separa um colaborador do
     outro dentro do mesmo processo.
+
+    A PEÇA ENTROU AQUI DEPOIS, E O MOTIVO IMPORTA
+    ---------------------------------------------
+    Ela vivia num global de módulo em `imagem.py` (`_PECA_EM_AJUSTE`), com o
+    custo declarado em voz alta na própria docstring: *"o global é do processo,
+    não da sessão. Dois colaboradores ajustando peças diferentes no mesmo
+    segundo podem trocar o número entre si"*. Era o MESMO defeito que o
+    produto e o usuário tinham, no mesmo registro, três campos lado a lado —
+    e eu corrigi dois e deixei o terceiro.
+
+    Declarar o custo é melhor que escondê-lo, mas não é conserto. Com o
+    contexto já sendo por thread e já sendo herdado pela thread de trabalho, a
+    peça passa a viajar pelo mesmo caminho: um mecanismo, três campos, e a
+    família inteira de defeito fecha em vez de fechar dois terços dela.
     """
     ctx = _meu()
     if produto is not None:
         ctx["produto"] = str(produto or "")
     if usuario is not None:
         ctx["usuario"] = str(usuario or "")
+    if peca is not None:
+        ctx["peca"] = str(peca or "")
 
 
 def contexto_atual():
@@ -359,6 +375,23 @@ if __name__ == "__main__":
         _da_filha = [l for l in _linhas_falsas if l.get("usuario") == "gabriel"]
         ok("a thread de trabalho herda o contexto de quem a criou",
            len(_da_filha) == 1 and _da_filha[0].get("produto") == "Album Wire-O")
+
+        # ── `contexto_atual` E LIDO DE FORA, E POR ISSO TEM GUARDA ──────
+        #
+        # `imagem.peca_em_ajuste()` le a peca por ele. Se o formato mudar —
+        # um campo a menos, outro nome — a leitura de la volta vazia em
+        # silencio, e a linha do registro perde a chave da cadeia. O quarto
+        # verificador cobrou esta guarda pelo nome.
+        marcar_contexto(produto="Caneca", usuario="myrella", peca="4")
+        _ctx = contexto_atual()
+        ok("contexto_atual devolve os TRES campos, com os nomes de sempre",
+           set(_ctx) == {"produto", "usuario", "peca"})
+        ok("e com os valores de quem chamou",
+           (_ctx["produto"], _ctx["usuario"], _ctx["peca"])
+           == ("Caneca", "myrella", "4"))
+        ok("e e uma COPIA: mexer nela nao mexe no contexto da thread",
+           (_ctx.update({"peca": "9"}) or contexto_atual()["peca"]) == "4")
+        marcar_contexto(produto="", usuario="", peca="")
 
         # ── E O DICIONARIO NAO CRESCE PARA SEMPRE ───────────────────────
         #

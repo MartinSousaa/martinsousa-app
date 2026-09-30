@@ -77,12 +77,15 @@ verificador — que já é a parte mais lenta do protocolo. O risco de deixar
 assim está declarado: uma regra que só faz sentido com dado preenchido pode
 estar quebrada no vazio sem ninguém ver.
 
-### Nenhum verificador olha a imagem que o Gemini devolve
-ONDE: toda a cadeia
-POR QUE AINDA NÃO: é construção nova, não correção — precisaria medir a peça
-gerada (tamanho do produto no quadro, moldura, texto cortado) e reprovar
-sozinha. O dono foi avisado três vezes de que este buraco existe, e a decisão
-de construir é dele.
+### A régua não vê a FORMA do produto, só a cor
+ONDE: medir_imagem.py:produto_diferente
+POR QUE AINDA NÃO: a comparação com as fotos passou a existir em 30/09 e pega
+o defeito mais relatado — o produto repintado, a cor trocada, o objeto
+substituído por outro de cor diferente. O que ela NÃO vê é forma: produto da
+cor certa e formato errado passa. Responder forma exige visão, e visão custa
+uma chamada paga por peça — oito por geração. Medida barata que pega o caso
+comum vale mais que medida cara que ninguém liga; quando o dono quiser pagar
+por isso, a porta já existe (`_descrever_produto_via_claude`).
 
 ### `_processar` duplicado em placar.py e placar_core.py
 ONDE: placar.py, placar_core.py
