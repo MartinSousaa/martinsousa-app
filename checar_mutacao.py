@@ -891,6 +891,18 @@ MUTACOES = [
         "POR QUE AINDA NAO ESCRITO: ",
         ["python3", "checar_alcance.py"],
     ),
+    (
+        # 30/09: "Imagem 2 e imagem 5 com texto cortando". `enquadrar.janela`
+        # fazia recorte CENTRAL sempre que a caixa do assunto cobria o quadro,
+        # com o comentario "nao ha painel de texto para decepar". Numa peca de
+        # marketing o cenario vai ate as bordas, a caixa cobre 100%, e o corte
+        # come a lateral onde o texto mora.
+        "o enquadramento volta a decepar o texto da peca",
+        "imagem.py",
+        "                lado_final=1200, tem_texto=not _is_clean_photo)\n",
+        "                lado_final=1200)\n",
+        ["python3", "imagem.py", "--autoteste"],
+    ),
 ]
 
 

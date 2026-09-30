@@ -61,7 +61,8 @@ def cor_de_fundo(pil):
     return tuple(pil.resize((1, 1), Image.LANCZOS).getpixel((0, 0)))
 
 
-def janela(largura, altura, caixa, folga_pct=FOLGA_PCT):
+def janela(largura, altura, caixa, folga_pct=FOLGA_PCT,
+           tem_texto=False):
     """Onde recortar o quadrado. (x0, y0, lado, coube). Função pura.
 
     `coube` diz se o assunto inteiro (mais a folga) entrou. Quando não entra,
@@ -84,6 +85,24 @@ def janela(largura, altura, caixa, folga_pct=FOLGA_PCT):
     # faixas apareciam. Cena se recorta pelo centro, com segurança: não há
     # painel de texto para decepar.
     if (x1 - x0) >= 0.9 * largura and (y1 - y0) >= 0.9 * altura:
+        # ── AQUI O STUDIO DECEPAVA O TEXTO, E O COMENTARIO GARANTIA QUE NAO
+        #
+        # Dono, 30/09: "Imagem 2 e imagem 5 com texto cortando". O relato foi
+        # exato: "todo o bloco de texto da esquerda esta cortado pela borda
+        # esquerda; os titulos aparecem como 'TE DE MEDIDA / ISO'".
+        #
+        # A linha acima dizia "nao ha painel de texto para decepar". Isso era
+        # SUPOSICAO, nao medida: numa peca de marketing o fundo tem conteudo
+        # — cartoes, paineis, cenario — entao a caixa do assunto cobre o
+        # quadro inteiro, e o recorte central come a lateral onde o texto
+        # mora.
+        #
+        # Com texto, `coube=False`: quem chama PREENCHE em vez de recortar.
+        # Margem e feia; titulo decepado torna a peca inutilizavel. Entre as
+        # duas, a peca com margem ainda pode ser publicada — a com o titulo
+        # cortado, nao.
+        if tem_texto:
+            return ((largura - lado) // 2, (altura - lado) // 2, lado, False)
         return ((largura - lado) // 2, (altura - lado) // 2, lado, True)
 
     cx, cy = (x0 + x1) / 2.0, (y0 + y1) / 2.0
@@ -99,7 +118,8 @@ def janela(largura, altura, caixa, folga_pct=FOLGA_PCT):
     return (jx, jy, lado, perdido <= folga_pct)
 
 
-def quadrar(dados, fundo_branco=False, lado_final=None):
+def quadrar(dados, fundo_branco=False, lado_final=None,
+            tem_texto=False):
     """A imagem quadrada. (bytes, relato).
 
     `relato` é "" quando não houve nada a fazer, e uma frase em português
@@ -121,7 +141,8 @@ def quadrar(dados, fundo_branco=False, lado_final=None):
             caixa = _md.caixa_do_assunto(dados)
         except Exception:
             caixa = None
-        jx, jy, lado, coube = janela(w, h, caixa)
+        jx, jy, lado, coube = janela(w, h, caixa,
+                                     tem_texto=tem_texto)
         if coube:
             pil = pil.crop((jx, jy, jx + lado, jy + lado))
             relato = (f"o motor devolveu {w}x{h} em vez de quadrada; o Studio "
@@ -222,6 +243,66 @@ if __name__ == "__main__":
         _px.getpixel((x, y))[0] > 120 and _px.getpixel((x, y))[1] < 90
         for y in range(0, _px.size[1], 7) for x in range(0, _px.size[0], 7))
     ok("e o painel continua na imagem depois do recorte", _achou_vermelho)
+
+    # 4-bis. O CASO QUE DECEPOU O TEXTO EM PRODUCAO (30/09)
+    #
+    # Dono: "Imagem 2 e imagem 5 com texto cortando". O relato da conferencia
+    # foi exato: "todo o bloco de texto da esquerda esta cortado pela borda
+    # esquerda do quadro; os titulos aparecem como 'TE DE MEDIDA / ISO'".
+    #
+    # A causa esta em `janela`: quando a caixa do assunto cobre >=90% do
+    # quadro, ela faz RECORTE CENTRAL e devolve `coube=True`, com o
+    # comentario "nao ha painel de texto para decepar". Isso e SUPOSICAO, nao
+    # medida. Numa peca de marketing o fundo tem conteudo — cartoes, paineis,
+    # cenario — entao a caixa cobre tudo, e o corte central come a lateral
+    # onde o texto mora.
+    #
+    # A peca com texto passa a PREENCHER em vez de recortar. Margem e feia;
+    # titulo decepado torna a peca inutilizavel, e foi o que o dono recebeu.
+    # O DADO DO TESTE E O CASO MEDIDO, E NAO UM QUE EU ACHEI PARECIDO.
+    #
+    # A primeira versao deste teste pintava um fundo quase liso: a caixa dava
+    # 82% x 77%, nao chegava nos 90%, e o teste nem tocava o ramo que eu
+    # tinha mudado. Passava verde sem medir nada.
+    #
+    # O caso REAL e a peca de marketing: cenario com conteudo ATE AS BORDAS,
+    # entao a caixa do assunto cobre 100% x 100%. Medido: o corte central
+    # comeca em x=200 e o painel de texto vai de 30 a 430 — decepado.
+    import random as _rnd_tx
+    _rnd_tx.seed(7)
+
+    def _texto_com_fundo_vivo(d):
+        for _ in range(9000):                                  # cenario ate a borda
+            _x, _y = _rnd_tx.randint(0, 1399), _rnd_tx.randint(0, 999)
+            d.point((_x, _y), fill=(_rnd_tx.randint(150, 230),) * 3)
+        d.ellipse((800, 400, 1250, 850), fill=(20, 120, 40))   # produto a direita
+        d.rectangle((30, 120, 430, 880), fill=(180, 30, 30))   # PAINEL DE TEXTO
+    _marketing = png(1400, 1000, _texto_com_fundo_vivo)
+    _cx = _md.caixa_do_assunto(_marketing)
+    ok("o caso do teste e mesmo o que quebrou: a caixa cobre o quadro",
+       _cx is not None and (_cx[2] - _cx[0]) >= 0.9 * 1400
+       and (_cx[3] - _cx[1]) >= 0.9 * 1000)
+    # Com o defeito de volta (sem `tem_texto`), o corte comeca DEPOIS do painel.
+    _jx_sem, _, _lado_sem, _coube_sem = janela(1400, 1000, _cx)
+    ok("e sem a correcao ele DECEPA mesmo o painel — senao o teste nao mede "
+       "nada", _coube_sem and _jx_sem > 30)
+    _jx, _jy, _lado, _coube = janela(1400, 1000, _cx, tem_texto=True)
+    ok("peca COM TEXTO nao pode ser recortada quando a caixa cobre o quadro "
+       "— o corte central decepa o painel lateral",
+       (not _coube) or (_jx <= 30 and _jx + _lado >= 430))
+    _saida_mk, _rel_mk = quadrar(_marketing, tem_texto=True)
+    _pm = Image.open(io.BytesIO(_saida_mk)).convert("RGB")
+    _achou_painel = any(
+        _pm.getpixel((x, y))[0] > 140 and _pm.getpixel((x, y))[1] < 80
+        for y in range(0, _pm.size[1], 5) for x in range(0, _pm.size[0], 5))
+    ok("e o painel de texto continua inteiro na peca entregue", _achou_painel)
+    # E A PECA SEM TEXTO continua recortando — senao eu troco um defeito por
+    # outro: ambientacao com faixa nas laterais e o que o dono ja reclamou.
+    _saida_amb, _rel_amb = quadrar(_marketing, tem_texto=False)
+    ok("peca SEM texto continua recortando, e nao ganha faixa",
+       "recortou" in _rel_amb)
+    ok("e a peca COM texto preenche, dizendo isso no relato",
+       "preencheu" in _rel_mk)
 
     # 5. Cena ambientada (sem fundo chapado): recorte central, nunca faixa.
     import random

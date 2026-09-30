@@ -567,6 +567,76 @@ def divergencia_de_produto(cfg, nome_da_tela, dados_da_tela):
             + ". Refaça o plano ('Analisar e mostrar plano') antes de gerar.")
 
 
+def _sem_acento(texto):
+    import unicodedata as _u
+    return "".join(c for c in _u.normalize("NFD", str(texto or "").lower())
+                   if _u.category(c) != "Mn")
+
+
+def plano_misturado(plano, nome_produto):
+    """O plano descreve MAIS DE UM produto? Devolve o aviso, ou "".
+
+    POR QUE ESTA FUNÇÃO EXISTE (30/09)
+    ----------------------------------
+    O dono gerou oito peças do «Compasso Cortador Colorido» e recebeu:
+    ambientação "completamente errada", produto irreconhecível nas mãos de
+    uma criança, e texto cortado. Ele mandou ler o prompt que o sistema
+    enviou, e o prompt estava obedecendo — ao produto ERRADO:
+
+        peça 8: "Caixa aberta ... RELÓGIO DE PULSO elegante dentro"
+        peça 7: "duas mãos ... a CAIXA DE MADEIRA entre elas"
+        peça 4: "textura do GRÃO DA MADEIRA ... construção da CAIXA"
+
+    Cinco dos nove planos descreviam uma caixa de madeira para relógios; os
+    outros quatro diziam "Compasso cortador". Um plano, dois produtos.
+
+    POR QUE `divergencia_de_produto` NÃO PEGOU
+    Ela compara nome, medidas, peso e material entre o plano congelado e a
+    tela — e esses quatro estavam CERTOS. O que o plano DESCREVE, que é o
+    texto que vira a imagem, nunca era comparado com nada.
+
+    A MEDIDA, E NÃO O PALPITE
+    Cada peça do plano nomeia o produto (uma palavra do nome dele) ou fala
+    dele genericamente ("o produto"). Quando ALGUMAS nomeiam e outras não, o
+    plano não é de um produto só — e foi exatamente esse o padrão medido:
+    4 peças citavam "Compasso", 5 não citavam nem isso nem "produto".
+
+    Exigir que TODAS nomeiem daria alarme falso numa peça de close legítima
+    ("ampliação da textura em foco"). Por isso a pergunta é sobre a MISTURA:
+    o plano concorda consigo mesmo?
+    """
+    itens = (plano or {}).get("plano") or []
+    if len(itens) < 3:
+        return ""
+    palavras = [p for p in _sem_acento(nome_produto).split() if len(p) > 3]
+    if not palavras:
+        return ""
+
+    citam, mudas = [], []
+    for item in itens:
+        texto = _sem_acento(" ".join(str(item.get(c, "") or "")
+                                     for c in ("composicao", "cena")))
+        if not texto.strip():
+            continue
+        rotulo = str(item.get("tipo", "") or "?")[:28]
+        if any(p in texto for p in palavras) or "produto" in texto:
+            citam.append(rotulo)
+        else:
+            mudas.append(rotulo)
+
+    if not citam or not mudas:
+        return ""
+    return (
+        "O plano não é de um produto só. "
+        f"{len(citam)} peça(s) descrevem «{nome_produto}» e {len(mudas)} "
+        f"descrevem outra coisa: {', '.join(mudas[:4])}"
+        + ("…" if len(mudas) > 4 else "")
+        + ". Gerar agora produz peças do produto errado — foi assim que o "
+          "Compasso Cortador virou uma caixa de madeira em cinco das nove. "
+          "Refaça o plano ('Analisar e mostrar plano') antes de gerar."
+    )
+
+
 def faixa_de_ocupacao(tipo):
     """(minimo, maximo, complemento) do tipo, ou None quando nao ha faixa."""
     return OCUPACAO.get(numero_do_tipo(tipo))
@@ -3806,9 +3876,22 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
             import enquadrar as _enq
             _cru = _io.BytesIO()
             pil.save(_cru, format="PNG")
+            # A PECA DIZ SE TEM TEXTO, E O ENQUADRAMENTO OBEDECE.
+            #
+            # Dono, 30/09: "Imagem 2 e imagem 5 com texto cortando". O corte
+            # para quadrado decepava o painel lateral: `enquadrar.janela`
+            # fazia recorte CENTRAL sempre que a caixa do assunto cobria o
+            # quadro, com o comentario "nao ha painel de texto para decepar".
+            #
+            # Numa peca de marketing o cenario vai ate as bordas, entao a
+            # caixa cobre 100% — e o corte come a lateral onde o texto mora.
+            # Medido: corte comecando em x=200 com o painel indo de 30 a 430.
+            #
+            # `_is_clean_photo` ja sabia a resposta: capa e ambientacao sao
+            # as duas sem texto. Ela so nunca tinha sido passada adiante.
             img_bytes, _relato = _enq.quadrar(
                 _cru.getvalue(), fundo_branco=_is_fundo_branco,
-                lado_final=1200)
+                lado_final=1200, tem_texto=not _is_clean_photo)
             if _relato and diagnostico is not None:
                 diagnostico["enquadramento"] = _relato
             pil = _PILImage.open(_io.BytesIO(img_bytes)).convert("RGBA")
@@ -7840,6 +7923,22 @@ def pagina_imagem(usuario_logado):
         if _div_prod:
             st.error("🚫 " + _div_prod)
 
+        # ── E O PLANO CONCORDA CONSIGO MESMO? ────────────────────────────────
+        #
+        # 30/09. A guarda acima comparou nome, medidas, peso e material do
+        # «Compasso Cortador Colorido» — e os quatro batiam. As oito peças
+        # saíram assim mesmo: a peça 8 descrevia "caixa aberta com um RELÓGIO
+        # DE PULSO dentro", a 7 "a CAIXA DE MADEIRA entre duas mãos", a 4 "o
+        # GRÃO DA MADEIRA". Um plano, dois produtos, e nenhuma das duas metades
+        # sabia da outra.
+        #
+        # O que o plano DESCREVE — a cena e a composição, que é o texto que
+        # vira a imagem — nunca era comparado com nada. Comparar campo de
+        # cadastro não alcança isso: os campos estavam certos.
+        _plano_mist = plano_misturado(plano, nome_produto)
+        if _plano_mist:
+            st.error("🚫 " + _plano_mist)
+
         # ── A DIREÇÃO DE ARTE, ANTES DE GASTAR ────────────────────────────────
         #
         # Ela era escrita só depois do clique em Confirmar, no meio da barra de
@@ -8228,6 +8327,7 @@ def pagina_imagem(usuario_logado):
             # aprovado. Antes isso acontecia com um clique e sem aviso.
             _ja_tem = len(st.session_state.get("img_galeria") or [])
             _ciente = True
+
             if _ja_tem:
                 st.warning(
                     f"⚠️ Você já tem **{_ja_tem} imagem(ns) gerada(s)**. Gerar de novo "
@@ -8240,6 +8340,32 @@ def pagina_imagem(usuario_logado):
                     f"Sim, descartar as {_ja_tem} imagens e gerar tudo de novo",
                     key="img_confirma_descarte",
                 )
+
+            # PLANO MISTURADO TRANCA O BOTÃO — MAS COM CHAVE POR FORA.
+            #
+            # O aviso vermelho lá em cima já existia para a divergência de
+            # cadastro, e ele é ignorável: quem clica em Confirmar não rola a
+            # tela de volta para reler. Foram oito peças pagas do produto
+            # errado. Aviso que não segura a mão não evitou nada.
+            #
+            # A chave por fora existe porque esta é uma MEDIDA, não um fato:
+            # uma peça de close legítima pode não nomear o produto. Guarda que
+            # dá alarme falso e não tem saída ensina a desviar dela — e da
+            # próxima vez a pessoa desvia do alarme verdadeiro junto.
+            #
+            # O `and` VEM DEPOIS, E NÃO NO LUGAR.
+            #
+            # A primeira versão desta trava ficava ACIMA do bloco da galeria,
+            # e o `_ciente` dela era sobrescrito duas linhas abaixo: com
+            # galeria cheia, a trava sumia justamente na hora mais cara.
+            # As duas perguntas são independentes, então as duas caixas se
+            # desenham SEMPRE, e o botão só abre com as duas marcadas.
+            if _plano_mist:
+                _ciente_plano = st.checkbox(
+                    "Já conferi: o plano está certo, gerar assim mesmo",
+                    key="img_confirma_plano_misturado",
+                )
+                _ciente = bool(_ciente) and bool(_ciente_plano)
 
             col_cancelar, col_confirmar = st.columns(2)
             cancelar_clicado = col_cancelar.button("❌ Cancelar", use_container_width=True)
@@ -10501,6 +10627,79 @@ if __name__ == "__main__":
 
     class _FakeCliente:
         models = _FakeModelos()
+
+    # ── O TEXTO DA PECA NAO PODE SER DECEPADO PELO ENQUADRAMENTO ────────
+    #
+    # Dono, 30/09: "Imagem 2 e imagem 5 com texto cortando".
+    #
+    # A CADEIA INTEIRA, e nao a chamada: o motor devolve uma peca RETANGULAR
+    # de marketing (cenario ate as bordas, painel de texto na esquerda), e o
+    # que se mede e se o painel sobrevive na imagem ENTREGUE. Conferir que a
+    # chamada leva `tem_texto=` nao mede nada — foi assim que a guarda do
+    # material passou verde com o campo sumindo.
+    import io as _io_tx, random as _rnd_tx
+    from PIL import Image as _Im_tx, ImageDraw as _Dr_tx
+
+    def _peca_retangular_com_texto():
+        _rnd_tx.seed(7)
+        im = _Im_tx.new("RGB", (1400, 1000), (255, 255, 255))
+        d = _Dr_tx.Draw(im)
+        for _ in range(9000):                       # cenario ate a borda
+            d.point((_rnd_tx.randint(0, 1399), _rnd_tx.randint(0, 999)),
+                    fill=(_rnd_tx.randint(150, 230),) * 3)
+        d.ellipse((800, 400, 1250, 850), fill=(20, 120, 40))   # produto
+        d.rectangle((30, 120, 430, 880), fill=(180, 30, 30))   # PAINEL DE TEXTO
+        # A PRIMEIRA LETRA DO TITULO, marcada em azul.
+        #
+        # Sem esta marca a guarda era fraca: o corte comeca em x=200 e o
+        # painel vai de 30 a 430, entao SOBRA metade dele — e "achei
+        # vermelho" continuava verdadeiro com o titulo decepado, que e
+        # exatamente o defeito. O dono viu 'TE DE MEDIDA' no lugar de
+        # 'CORTE DE MEDIDA': o que se perde e o COMECO da linha.
+        d.rectangle((35, 200, 95, 320), fill=(30, 60, 220))
+        _b = _io_tx.BytesIO()
+        im.save(_b, format="PNG")
+        return _b.getvalue()
+
+    def _tem_painel(dados):
+        """O COMECO do titulo continua na peca? (a marca azul)"""
+        _p = _Im_tx.open(_io_tx.BytesIO(dados)).convert("RGB")
+        return any(_p.getpixel((x, y))[2] > 150
+                   and _p.getpixel((x, y))[0] < 90
+                   and _p.getpixel((x, y))[1] < 110
+                   for y in range(0, _p.size[1], 3)
+                   for x in range(0, _p.size[0], 3))
+
+    _orig_tx = (_chamar_openai_geracao, _chamar_gemini_geracao_texto,
+                _descricao_do_produto_cacheada, _get_openai_api_key)
+    try:
+        import base64 as _b64_tx
+
+        class _RespFalsa:
+            status_code = 200
+
+            @staticmethod
+            def json():
+                return {"candidates": [{"content": {"parts": [
+                    {"inlineData": {"data": _b64_tx.b64encode(
+                        _peca_retangular_com_texto()).decode()}}]}}]}
+
+        globals()["_chamar_openai_geracao"] = lambda *a, **k: (None, "desligado")
+        globals()["_chamar_gemini_geracao_texto"] = \
+            lambda *a, **k: (_RespFalsa(), None)
+        globals()["_descricao_do_produto_cacheada"] = \
+            lambda *a, **k: ("desc", "lay")
+        globals()["_get_openai_api_key"] = lambda: ""
+        _saida_mk, _err_mk = gerar_imagem_ia(
+            "MS_FUNDO: padrao\nTIPO DE IMAGEM: 2 — Benefícios do produto\n",
+            [b"foto"], tipo="2 — Benefícios do produto")
+        ok("peca COM texto: o painel lateral sobrevive ao enquadramento",
+           bool(_saida_mk) and _tem_painel(_saida_mk))
+    finally:
+        (globals()["_chamar_openai_geracao"],
+         globals()["_chamar_gemini_geracao_texto"],
+         globals()["_descricao_do_produto_cacheada"],
+         globals()["_get_openai_api_key"]) = _orig_tx
 
     _achados = modelos_de_imagem_da_conta(_FakeCliente())
     ok("so os modelos de imagem entram",
