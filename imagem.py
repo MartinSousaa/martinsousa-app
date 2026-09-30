@@ -273,18 +273,41 @@ def regra_de_espaco(tipo):
     """(texto em portugues, linha em ingles) sobre margem e sobreposicao."""
     n = numero_do_tipo(tipo)
 
+    # A FOLGA E ESPACO DA CENA, E NAO UMA MOLDURA DESENHADA.
+    #
+    # Dono, 30/09: "imagens com margem". Uma das causas e o motor devolver
+    # retangular e o Studio preencher (isso agora aparece no diagnostico). A
+    # OUTRA e esta: "6% em cada lado, nada toca a borda" e facil de ler como
+    # "desenhe uma faixa de 6% em volta" — e ai a peca volta com moldura e o
+    # produto encolhido dentro dela.
+    #
+    # A regra vale nos NOVE tipos, e nao so no Close: corrigir onde o
+    # sintoma apareceu e a Forma 1 desta base.
+    # UM ASSUNTO, UM DONO: a frase da moldura mora aqui e e usada por
+    # todos — inclusive pelo tipo 8, que tinha a SUA propria versao dela.
+    # Duas redacoes que concordam hoje sao a Forma 5 esperando acontecer.
+    _SEM_MOLDURA_PT = (
+        "- NÃO DESENHE MARGEM, moldura, faixa lisa ou borda de cor em volta\n"
+        "  da imagem. A folga é espaço da própria cena, e não um quadro\n"
+        "  desenhado. A imagem sangra até a borda.\n")
+    _SEM_MOLDURA_EN = (
+        "- DO NOT DRAW a margin, frame, flat band or coloured border around "
+        "the image. The clearance is scene space, not a drawn frame. The "
+        "image bleeds to the edge.\n")
     comum_pt = (
         "- NADA SOBREPÕE O PRODUTO: nem texto, nem ícone, nem cartão, nem\n"
         "  faixa, nem prop de cenário. Objeto de cena fica ATRÁS ou AO LADO,\n"
         "  nunca à frente tampando parte dele.\n"
         "- Os blocos de texto não se sobrepõem entre si: cada cartão tem sua\n"
-        "  área, com folga visível entre um e outro.\n")
+        "  área, com folga visível entre um e outro.\n"
+        + _SEM_MOLDURA_PT)
     comum_en = (
         "- NOTHING overlaps the product: not text, not icons, not cards, not "
         "bands, not scene props. Scene objects sit BEHIND or BESIDE it, never "
         "in front covering any part of it.\n"
         "- Text blocks never overlap each other: every card has its own area, "
-        "with visible clearance between them.\n")
+        "with visible clearance between them.\n"
+        + _SEM_MOLDURA_EN)
 
     if n == 4:
         # O close corta de proposito: o recorte E a peca.
@@ -298,31 +321,33 @@ def regra_de_espaco(tipo):
         pt = ("REGRA DE ESPAÇO DESTA PEÇA:\n"
               "- O PRODUTO preenche o quadro: borda vazia em volta do\n"
               "  detalhe, num macro, é erro. Isto vale para o PRODUTO.\n"
-              "- A FOLGA DA BORDA MANDA sobre a ordem acima. Callout,\n"
-              "  legenda e cartão continuam a pelo menos 6% da borda,\n"
-              "  inteiros dentro do quadro. Preencher o quadro com o\n"
-              "  produto nunca autoriza cortar texto.\n"
+              "- A FOLGA DE 6% VALE PARA TEXTO, NUNCA PARA O PRODUTO:\n"
+              "  callout, legenda e cartão ficam a pelo menos 6% da borda,\n"
+              "  inteiros dentro do quadro. O produto continua preenchendo\n"
+              "  o quadro — preenchê-lo nunca autoriza cortar texto.\n"
+
               + comum_pt)
         en = ("- The PRODUCT fills the frame: an empty border around the "
               "detail, in a macro shot, is a mistake. This applies to the "
               "PRODUCT.\n"
-              "- THE BORDER MARGIN OVERRIDES the rule above. Callouts, "
-              "captions and cards stay at least 6% from the edge, whole "
-              "inside the frame. Filling the frame with the product never "
-              "authorises cropping text.\n" + comum_en)
+              "- THE 6% CLEARANCE APPLIES TO TEXT, NEVER TO THE PRODUCT: "
+              "callouts, captions and cards stay at least 6% from the edge, "
+              "whole inside the frame. The product keeps filling the frame — "
+              "filling it never authorises cropping text.\n"
+ + comum_en)
         return pt, en
 
     if n == 8:
         pt = ("REGRA DE ESPAÇO DESTA PEÇA:\n"
-              "- O quadro é cena inteira: não existe margem, existe ambiente.\n"
-              "  Nenhuma faixa vazia em volta, nenhum fundo liso nas bordas.\n"
+              + _SEM_MOLDURA_PT +
+              "- O quadro é cena inteira: existe ambiente até a borda.\n"
               "- O produto aparece DESOBSTRUÍDO: nada do cenário passa na\n"
               "  frente dele, nem em parte.\n"
               "- O produto aparece INTEIRO: nenhuma parte cortada pela borda\n"
               "  do quadro.\n")
-        en = ("- The frame is a full scene: there is no margin, there is "
-              "environment. No empty band around it, no flat backdrop at the "
-              "edges.\n"
+        en = (_SEM_MOLDURA_EN +
+              "- The frame is a full scene: environment all the way to the "
+              "edge.\n"
               "- The product is UNOBSTRUCTED: nothing in the scene passes in "
               "front of it, not even partly.\n"
               "- The product appears WHOLE: no part cut by the frame edge.\n")
@@ -647,7 +672,7 @@ O PRODUTO PREENCHE O QUADRO — ESTA É A REGRA MAIS IMPORTANTE DESTA PEÇA:
   encher o eixo mais longo dele.
 """
 
-INSTRUCAO_FIDELIDADE = """
+INSTRUCAO_FIDELIDADE_ABERTURA = """
 REGRA DE FIDELIDADE AO PRODUTO (a mais importante de todas — sem exceções):
 - Reproduza o produto EXATAMENTE como aparece nas imagens de referência: mesma cor,
   mesmo formato, mesmas proporções, mesmos detalhes visíveis
@@ -666,6 +691,32 @@ REGRA DE FIDELIDADE AO PRODUTO (a mais importante de todas — sem exceções):
   (mesa, laço decorativo, props, ambiente, contexto) são permitidos quando o tipo de
   imagem exige (ex: Presenteie, Ambientação). O produto deve ser apresentado exatamente
   como aparece nas fotos — sem modificações nos seus componentes.
+"""
+
+# ─────────────────────────────────────────────────────────────────────────
+# O QUE VALE SO NA CRIACAO, E NAO NO AJUSTE FINO
+#
+# Dono, 30/09, sobre o ajuste que nao saiu: "o erro esta na solicitacao
+# do sistema (...) por ele estar fazendo algo errado, seja na comunicacao
+# ou na analise do que precisa fazer". Ele estava certo.
+#
+# Estas duas clausulas sao CERTAS quando o sistema CRIA uma peca a
+# partir de fotos do produto: a foto pode ter texto de embalagem, e
+# medida inventada e pior que medida ausente.
+#
+# No AJUSTE FINO elas viram o contrario. Ali a imagem enviada e a
+# PROPRIA PECA, com o texto dela — e "ignore completamente qualquer
+# texto visivel nas imagens" manda ignorar justamente o texto que o
+# colaborador pediu para trocar. E o numero que ele digitou no pedido
+# nao esta "nos campos do produto", entao a segunda clausula manda NAO
+# escreve-lo. Pedido: "trocar o texto: diametro 25 cm e peso 476 g".
+# Duas regras absolutas proibindo, e o modelo obedeceu.
+#
+# UM TEXTO SO, usado em dois lugares — e nao duas copias que discordam
+# daqui a tres semanas. A criacao recebe nucleo + estas; o ajuste
+# recebe o nucleo e diz a SUA propria regra sobre inventar numero.
+# ─────────────────────────────────────────────────────────────────────────
+INSTRUCAO_FIDELIDADE_SO_CRIACAO = """
 - NÃO copie nem reproduza nenhum texto, palavra ou rótulo que apareça escrito
   nas fotos de referência — ignore completamente qualquer texto visível nas imagens
 - PROIBIÇÃO ABSOLUTA DE INVENTAR DADOS TÉCNICOS: JAMAIS crie, estime ou invente
@@ -674,6 +725,9 @@ REGRA DE FIDELIDADE AO PRODUTO (a mais importante de todas — sem exceções):
   Imagem com dados inventados é pior do que imagem sem dados.
 - Só use medidas e peso na imagem se eles estiverem EXPLICITAMENTE informados
   nos dados do produto fornecidos — nunca estime por conta própria
+"""
+
+_FIDELIDADE_ESTRUTURAL = """
 
 INTEGRIDADE ESTRUTURAL (o que fazer quando você NÃO sabe como o produto funciona):
 - NÃO invente mecânica interna: folhas soltas, páginas saindo, miolo exposto,
@@ -684,6 +738,15 @@ INTEGRIDADE ESTRUTURAL (o que fazer quando você NÃO sabe como o produto funcio
   desconhecido com algo plausível é erro grave, não criatividade
 - Mantenha a estrutura visível exatamente como está: espessura, encadernação,
   acabamento, quantidade de partes"""
+
+# A CRIACAO RECEBE EXATAMENTE O QUE RECEBIA ANTES — byte por byte. O ajuste
+# recebe o nucleo. Uma fonte para os dois: a regra do produto nao pode ter
+# duas versoes que passam a discordar.
+INSTRUCAO_FIDELIDADE = (INSTRUCAO_FIDELIDADE_ABERTURA
+                        + INSTRUCAO_FIDELIDADE_SO_CRIACAO.strip("\n")
+                        + _FIDELIDADE_ESTRUTURAL)
+INSTRUCAO_FIDELIDADE_NUCLEO = (INSTRUCAO_FIDELIDADE_ABERTURA
+                               + _FIDELIDADE_ESTRUTURAL)
 
 INSTRUCAO_COMPOSICAO = """
 INSTRUÇÃO DE COMPOSIÇÃO:
@@ -711,7 +774,10 @@ REGRA DE PROPORÇÃO DO PRODUTO (obrigatória):
 - O produto é o elemento principal da composição — o olho vai nele primeiro.
 - Mantenha as proporções exatas do produto: não alongue, não achate, não deforme.
 - A medida de quanto ele ocupa do quadro está no bloco de protagonismo desta
-  peça, e é de lá que ela sai — não estime outra.
+  peça, e é de lá que ela sai — não estime outra. Se esta peça NÃO trouxer
+  essa medida, é porque ela não tem número fixo: o produto aparece na escala
+  real da cena. Nesse caso NÃO invente uma porcentagem e NÃO encolha o
+  produto por precaução.
 """
 
 INSTRUCAO_LAYOUT_MARKETING = """
@@ -799,10 +865,14 @@ MODO AJUSTE FINO — EDIÇÃO CIRÚRGICA — REGRAS ABSOLUTAS E INVIOLÁVEIS:
 1. Faça SOMENTE a modificação descrita na instrução — absolutamente nada mais
 2. Preserve a composição inteira: fundo, cenário, iluminação, cores, perspectiva,
    todos os objetos e todos os detalhes visuais
-3. Preserve exatamente todos os textos que já existem na imagem
-   (não adicione nem remova nenhum texto)
-4. Preserve a aparência exata do produto: mesma cor, mesmos detalhes,
-   mesmos elementos visíveis (furos, padrões, logotipos na embalagem, etc.)
+3. Preserve os textos que já existem na imagem — EXCETO o texto que a
+   modificação pedida mandar trocar, corrigir ou acrescentar. Se o pedido
+   for sobre texto, faça exatamente esse texto e deixe todos os outros
+   intactos. Não mexa em texto que o pedido não citou.
+4. Preserve a aparência do produto: mesma cor, mesmos detalhes, mesmos
+   elementos visíveis (furos, padrões, logotipos na embalagem, etc.) —
+   EXCETO no ponto que a modificação pedida citar. Preservar o produto
+   nunca é motivo para deixar de fazer o que foi pedido.
 5. NÃO "melhore", "enriqueça", "atualize" ou "harmonize" nada além do pedido
 6. NÃO aplique identidade visual, branding, cores ou fontes da empresa
 7. NÃO adicione nenhum objeto, efeito, texto ou elemento não mencionado
@@ -1946,7 +2016,8 @@ def _resposta_sem_credito(status, mensagem="", estado=""):
     return any(p in texto for p in _PALAVRAS_DE_COTA)
 
 
-def _chamar_gemini_geracao_texto(prompt_final, imagens_bytes=None, ref_layout=None):
+def _chamar_gemini_geracao_texto(prompt_final, imagens_bytes=None,
+                                 ref_layout=None, diagnostico=None):
     """Chama Gemini Flash Image COM as fotos do produto como referência visual.
 
     Antes esta função mandava só texto — havia até um comentário declarando
@@ -2022,9 +2093,15 @@ def _chamar_gemini_geracao_texto(prompt_final, imagens_bytes=None, ref_layout=No
                 "responseFormat": {"image": {"aspectRatio": "1:1",
                                              "imageSize": "1K"}},
             }
+            # UMA VARIAVEL POR VEZ, SENAO NAO SE APRENDE NADA.
+            #
+            # A segunda tentativa mudava DUAS coisas ao mesmo tempo: tirava a
+            # proporcao E trocava `["IMAGE"]` por `["IMAGE","TEXT"]`. Quando a
+            # API recusava, ficava impossivel saber qual das duas ela recusou
+            # — e o Studio seguia repetindo o mesmo par para sempre.
             _sem_proporcao = dict(_base_body)
             _sem_proporcao["generationConfig"] = {
-                "responseModalities": ["IMAGE", "TEXT"],
+                "responseModalities": ["IMAGE"],
             }
 
             resp = requests.post(url, json=_com_proporcao, headers=headers,
@@ -2035,6 +2112,19 @@ def _chamar_gemini_geracao_texto(prompt_final, imagens_bytes=None, ref_layout=No
                 print("[gemini] proporcao recusada pela API — repetindo sem "
                       f"ela. Resposta: {resp.text[:1500]}",
                       file=_sys_ar.stderr, flush=True)
+                # E A COLABORADORA PRECISA SABER, NAO SO O LOG DO RAILWAY.
+                #
+                # Recusado o pedido de quadrada, a imagem volta retangular, o
+                # Studio preenche as sobras — e a pessoa recebe a peca com
+                # MARGEM sem uma linha explicando por que. Dono, 30/09:
+                # "imagens com margem". O sistema sabia; so nao contava.
+                if diagnostico is not None:
+                    try:
+                        _det = resp.json().get("error", {}).get("message", "")
+                    except Exception:
+                        _det = ""
+                    diagnostico["proporcao_recusada"] = (
+                        _det or resp.text[:200] or "a API respondeu 400")
                 resp = requests.post(url, json=_sem_proporcao, headers=headers,
                                      timeout=120,
                                      proxies={"http": None, "https": None})
@@ -2890,21 +2980,51 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
     import re as _re
 
     # Extrai metadados do prompt para contextualizar a descrição
+    # ── O QUE O STUDIO ESCREVEU, E O QUE ESTA LEITURA OUVIA ──────────────
+    #
+    # Dono, 30/09: "certifique-se de o estudio estar falando A e o resultado
+    # ser A e nao B". Aqui ele falava A e esta leitura ouvia outra coisa —
+    # em silencio, nos NOVE tipos.
+    #
+    #   COR       o prompt escreve "COR REAL DO PRODUTO: preto"; a busca
+    #             procurava "Cor:" e NUNCA casava. A cor cadastrada jamais
+    #             entrou em "Known specs" da analise de visao — e a analise
+    #             e quem descreve o produto para o gerador.
+    #   MATERIAL  o prompt escreve "Material e montagem (...): ..." e ninguem
+    #             procurava por ele, embora `_descrever_produto_via_claude`
+    #             tenha campo proprio para material (linha ~1612).
+    #   NOME      `PRODUTO:` sem ancora casava NO MEIO de outra frase. No
+    #             prompt do AJUSTE FINO ele casava dentro de "PROIBICAO DE
+    #             MODIFICAR O PRODUTO: JAMAIS adicione base, pedestal..." — e
+    #             esse pedaco virava o NOME DO PRODUTO na analise de visao e
+    #             na CHAVE DO CACHE.
+    #
+    # Cor e material sao justamente os dois campos que decidem se a peca
+    # parece o produto. Eram os dois que nunca chegavam.
+    #
+    # ANCORADAS NO INICIO DA LINHA, as tres: rotulo de cadastro comeca linha.
     nome_produto = ""
-    _m = _re.search(r"PRODUTO:\s*(.+?)(?:\n|$)", prompt_texto)
+    _m = _re.search(r"^PRODUTO:\s*(.+?)$", prompt_texto, _re.MULTILINE)
     if _m:
         nome_produto = _m.group(1).strip()
 
     dados_descricao = {}
-    _m_cor = _re.search(r"Cor:\s*(.+?)(?:\n|$)", prompt_texto)
-    _m_med = _re.search(r"Medidas EXATAS[^:]*:\s*(.+?)(?:\n|$)", prompt_texto)
-    _m_pes = _re.search(r"Peso EXATO[^:]*:\s*(.+?)(?:\n|$)", prompt_texto)
+    _m_cor = _re.search(r"^COR REAL DO PRODUTO:\s*(.+?)$", prompt_texto,
+                        _re.MULTILINE)
+    _m_med = _re.search(r"^Medidas EXATAS[^:]*:\s*(.+?)$", prompt_texto,
+                        _re.MULTILINE)
+    _m_pes = _re.search(r"^Peso EXATO[^:]*:\s*(.+?)$", prompt_texto,
+                        _re.MULTILINE)
+    _m_mat = _re.search(r"^Material e montagem[^:]*:\s*(.+?)$", prompt_texto,
+                        _re.MULTILINE)
     if _m_cor:
         dados_descricao["cor"] = _m_cor.group(1).strip()
     if _m_med:
         dados_descricao["medidas"] = _m_med.group(1).strip()
     if _m_pes:
         dados_descricao["peso"] = _m_pes.group(1).strip()
+    if _m_mat:
+        dados_descricao["material"] = _m_mat.group(1).strip()
 
     # 1. Claude descreve produto e layout em texto puro
     #
@@ -2919,9 +3039,30 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
     #
     # A chave é o conteúdo: as mesmas fotos e as mesmas referências dão a
     # mesma descrição. Foto nova, leitura nova.
-    descricao_produto, estilo_layout = _descricao_do_produto_cacheada(
-        imagens_referencia, nome_produto, dados_descricao, refs_layout
-    )
+    # ── NO AJUSTE FINO, A ANALISE DE VISAO E DINHEIRO JOGADO FORA ────────
+    #
+    # A descricao que ela produz alimenta a secao PRODUCT DESCRIPTION do
+    # prompt de CRIACAO. No ajuste fino essa secao nem chega ao motor: o
+    # prompt do ajuste SUBSTITUI o de criacao inteiro (`prompt_geracao =
+    # _prompt_ajuste`, adiante neste mesmo arquivo).
+    #
+    # Ou seja: toda tentativa de ajuste pagava uma leitura de visao cujo
+    # resultado era descartado na linha seguinte. Sao 2 tentativas por
+    # ajuste, entao 2 leituras pagas por pedido do colaborador.
+    #
+    # E ela rodava com o nome do produto ERRADO, ainda por cima: o regex sem
+    # ancora pegava "JAMAIS adicione base, pedestal, suporte, embalagem" de
+    # dentro de uma proibicao do proprio prompt.
+    #
+    # O marcador do ajuste esta na PRIMEIRA linha do texto, entao da para
+    # saber antes de gastar.
+    _eh_ajuste_fino = "MODO AJUSTE FINO" in prompt_texto[:400]
+    if _eh_ajuste_fino:
+        descricao_produto, estilo_layout = "", ""
+    else:
+        descricao_produto, estilo_layout = _descricao_do_produto_cacheada(
+            imagens_referencia, nome_produto, dados_descricao, refs_layout
+        )
 
     # 2. Modo de fundo — lido do marcador que montar_prompt_imagem escreve.
     #
@@ -3437,7 +3578,8 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
             diagnostico["refs_enviadas"] = _n_refs
             diagnostico["size_pedido"] = "não suportado neste motor"
         resp, erro_fatal = _chamar_gemini_geracao_texto(
-            prompt_geracao, imagens_bytes=imagens_referencia, ref_layout=_ref_layout_bytes
+            prompt_geracao, imagens_bytes=imagens_referencia,
+            ref_layout=_ref_layout_bytes, diagnostico=diagnostico
         )
         if erro_fatal:
             msg = erro_fatal.replace("COTA_ESGOTADA:", "")
@@ -3487,9 +3629,32 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
             )
 
         img_bytes = base64.b64decode(img_b64)
-        # OpenAI falhou mas Gemini funcionou — avisa para o usuário saber
-        if erro_primario:
-            st.warning(f"⚠️ {erro_primario} → usando Gemini como fallback.")
+        # ── AQUI MORAVA UM `st.warning` QUE NINGUEM NUNCA VIU ─────────────
+        #
+        # Dono, 30/09: "fotos menores que a dimensao da imagem, informacoes
+        # recortadas, fotos nada a ver com o produto original, imagens com
+        # margem". Os quatro sao o MESMO estado: o motor primario nao
+        # atendeu e tudo caiu no reserva, que NAO aceita `size` nem
+        # `input_fidelity` — volta retangular, o Studio preenche (margem), o
+        # produto encolhe, e sem `input_fidelity` ele e redesenhado.
+        #
+        # A unica mensagem que explicava isso era este `st.warning`. E
+        # `gerar_imagem_ia` roda DENTRO de uma `threading.Thread`
+        # (`_gerar_imagem_thread`): thread nao fala com a tela do Streamlit,
+        # e a frase era descartada em silencio, toda vez.
+        #
+        # E a Forma 6 desta base — restricao de ambiente aplicada a UM
+        # leitor. `st.session_state` ja tinha sido varrido; `st.warning`
+        # ficou. Agora a varredura pega as duas (checar_alcance).
+        #
+        # O recado passa a viajar no DIAGNOSTICO, que a thread pode escrever,
+        # e quem desenha e a tela — do lado certo do balcao.
+        if erro_primario and diagnostico is not None:
+            diagnostico["motor_reserva"] = (
+                f"{erro_primario} — a peça foi feita pelo motor reserva, que "
+                "não aceita pedido de imagem quadrada nem preservação do "
+                "produto. É por isso que ela pode vir com margem, com o "
+                "produto menor ou com o produto redesenhado.")
 
     # 6. Processa imagem — preserva proporções exatas (sem deformação)
     try:
@@ -4195,6 +4360,33 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
             "  materiais) continua saindo do produto.\n")
 
     contexto_produto = f"PRODUTO: {nome_produto}\n"
+    # ── O TIPO 5 SEM CADASTRO: A PEÇA QUE PEDIA O QUE ELA MESMA PROIBIA ──
+    #
+    # Dono, 30/09: "informações recortadas".
+    #
+    # O tipo 5 manda "INFOGRÁFICO TÉCNICO DE MEDIDAS — estilo cota de
+    # catálogo". E o mesmo prompt traz "JAMAIS crie, estime ou invente
+    # medidas (...) se esses dados não foram fornecidos nos campos do
+    # produto, NÃO os coloque na imagem sob nenhuma hipótese".
+    #
+    # Com o cadastro preenchido as duas convivem. Com o cadastro VAZIO elas
+    # se anulam: infográfico de cotas sem poder escrever cota nenhuma — e o
+    # prompt não dizia em lugar nenhum que a medida não existe. O modelo
+    # resolve contradição inventando, e a peça sai com número errado.
+    #
+    # As 61 regras nunca mediram este caso: o cadastro do teste sempre teve
+    # medida. É o mesmo ponto cego do termômetro — amostra de um caso só.
+    _dd = dados_descricao or {}
+    if (str(tipo).startswith("5 —")
+            and not any(str(_dd.get(_c, "")).strip()
+                        for _c in ("medidas", "peso", "material"))):
+        contexto_produto += (
+            "SEM DADOS TÉCNICOS CADASTRADOS: este produto não tem medidas, "
+            "peso nem material informados. Faça a peça técnica SEM nenhuma "
+            "cota, seta de dimensão, número ou unidade — destaque o produto "
+            "e os detalhes construtivos que a FOTO mostra. NÃO estime e NÃO "
+            "invente nenhum número: peça sem cota é correta, peça com cota "
+            "inventada é peça errada.\n")
     # A trava entra SEMPRE — com a cor nomeada quando a triagem tem o campo,
     # e na versão genérica quando não tem. Condicioná-la ao campo preenchido
     # era o que deixava o produto livre para ser repintado de azul da marca.
@@ -4995,9 +5187,20 @@ A imagem fornecida é a imagem atual que deve ser editada.
 MODIFICAÇÃO SOLICITADA — o único e exclusivo ponto a alterar:
 {instrucao}
 
+QUEM MANDA NESTE PEDIDO (leia antes de tudo o que vem abaixo):
+A MODIFICAÇÃO SOLICITADA acima é o objetivo, e ela tem prioridade sobre TODAS
+as regras deste texto. As regras abaixo existem para dizer o que NÃO muda
+junto — elas nunca proíbem aquilo que foi pedido. Se alguma regra abaixo
+parecer proibir a modificação pedida, entenda que ela vale para TODO O RESTO
+da imagem, e não para o ponto pedido.
+FAZER O QUE FOI PEDIDO NÃO É OPCIONAL. Devolver a imagem sem a modificação é
+falha, não segurança.
+NÚMEROS: use os que estiverem na MODIFICAÇÃO SOLICITADA ou já escritos na
+imagem. Não estime, não arredonde e não invente nenhum outro.
+
 {INSTRUCAO_AJUSTE_FINO}
 
-{INSTRUCAO_FIDELIDADE}
+{INSTRUCAO_FIDELIDADE_NUCLEO}
 {_trava_cor_produto(cor_do_produto_atual() if cor_produto is None else cor_produto)}
 
 O PRODUTO NÃO É PARTE DO AJUSTE — regra acima de qualquer instrução:
@@ -5009,9 +5212,11 @@ O PRODUTO NÃO É PARTE DO AJUSTE — regra acima de qualquer instrução:
 - "Melhorar", "realçar", "deixar mais bonito" NUNCA autorizam redesenhar o
   produto. Se o pedido for sobre cor, luz ou fundo, mexa na cor, na luz ou no
   fundo — e no produto, em nada.
-- Se a modificação pedida só puder ser feita alterando o produto, NÃO a faça:
-  devolva a imagem como está. Entregar o produto errado é pior do que não
-  atender ao pedido.
+- Se a modificação pedida for SOBRE o produto (tamanho na cena, posição,
+  recorte, um texto escrito sobre ele), faça exatamente o que foi pedido e
+  preserve todo o resto do produto: a mesma peça, a mesma superfície, o mesmo
+  acabamento. Fazer o pedido nunca autoriza REDESENHAR o produto — e não fazer
+  o pedido também não é saída.
 
 Reproduza a imagem fornecida com fidelidade absoluta, aplicando APENAS a modificação acima.
 Trate qualquer elemento que não foi mencionado na instrução como intocável.
@@ -8486,6 +8691,32 @@ def pagina_imagem(usuario_logado):
                 _pf, _ff = _d.get("peso_final"), _d.get("formato_final")
                 if _pf or _ff:
                     st.caption(f"Arquivo final: {_ff or '—'} · {_pf or '—'}")
+                if _d.get("enquadramento"):
+                    # A EXPLICACAO DA MARGEM, QUE O SISTEMA SABIA E NAO DIZIA.
+                    #
+                    # Dono, 30/09: "imagens com margem". O Studio MEDIA isso —
+                    # gravava "o motor devolveu 1536x1024 em vez de quadrada,
+                    # as faixas laterais foram preenchidas pelo Studio" — e o
+                    # campo nao chegava a tela. O oitavo verificador dava verde
+                    # porque a unica leitura dele era a linha que concatena a
+                    # mensagem NELA MESMA, do mesmo lado do balcao.
+                    st.warning(
+                        "🖼️ **Por que esta peça tem margem:** "
+                        + str(_d["enquadramento"]))
+                if _d.get("proporcao_recusada"):
+                    # A MESMA FAMILIA: o pedido de imagem quadrada foi RECUSADO
+                    # pela API, o Studio repetiu sem ele, e a unica pista disso
+                    # morava no stderr do Railway.
+                    st.warning(
+                        "📏 **O motor recusou o pedido de imagem quadrada** — "
+                        "por isso ela voltou retangular e precisou de "
+                        "preenchimento. Detalhe: "
+                        + str(_d["proporcao_recusada"]))
+                if _d.get("motor_reserva"):
+                    # O AVISO QUE MORAVA NUMA THREAD E NUNCA APARECIA.
+                    st.error(
+                        "⚙️ **Esta peça NÃO foi feita pelo motor principal.** "
+                        + str(_d["motor_reserva"]))
                 if _d.get("erro_openai"):
                     st.warning(f"**Erro do gerador principal:**\n\n{_d['erro_openai']}")
                 st.markdown("**Prompt exato enviado ao modelo:**")

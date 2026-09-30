@@ -115,6 +115,35 @@ REGRAS = [
      "a POSIÇÃO é a dela", TIPOS_COM_TEXTO, (TIPO_AMBIENTE,)),
     ("a medida da folga da borda chega à peça", "6%",
      TIPOS_COM_TEXTO, ()),
+    # ── A FOLGA É ESPAÇO DA CENA, E NÃO UMA MOLDURA DESENHADA ───────────
+    #
+    # Dono, 30/09: "imagens com margem". Duas causas, e esta é a do texto:
+    # "6% em cada lado, nada toca a borda" lê-se como "desenhe uma faixa de
+    # 6% em volta" — e a peça volta com moldura e o produto encolhido dentro
+    # dela.
+    #
+    # Pior: o tipo 4 dizia "THE BORDER MARGIN OVERRIDES the rule above", e a
+    # regra acima era "o PRODUTO preenche o quadro". Duas linhas seguidas,
+    # uma mandando na outra, e a margem ganhando.
+    #
+    # A proibição vale nos NOVE tipos, nas duas línguas: corrigir só onde o
+    # sintoma apareceu é a Forma 1 desta base.
+    ("a proibição de desenhar moldura, em português",
+     "NÃO DESENHE MARGEM", None, ()),
+    ("a proibição de desenhar moldura, em inglês",
+     "DO NOT DRAW a margin", None, ()),
+    # `None` em "onde nao pode" nao vale (a tabela avisa isso logo acima):
+    # aqui a proibicao e em TODOS, e escrita com todas as letras.
+    ("a folga NÃO pode mandar sobre o produto",
+     "BORDER MARGIN OVERRIDES", (), TODOS),
+    # ── O QUE FAZER QUANDO A PEÇA NÃO TEM MEDIDA FIXA ───────────────────
+    #
+    # `INSTRUCAO_PROPORCAO` mandava buscar a medida "no bloco de protagonismo
+    # desta peça" — e a ambientação e o Personalizado NÃO TÊM esse bloco, de
+    # propósito: neles o produto aparece na escala real da cena. O ponteiro
+    # apontava para o vazio, e o modelo encolhia o produto por precaução.
+    ("o que fazer quando a peça não tem medida fixa",
+     "não tem número fixo", None, ()),
     # `None` em "onde deve" quer dizer "em todos"; em "onde nao pode" ele nao
     # existe — para proibir em toda parte, a lista e TODOS.
     ("nenhum preset manda pôr cartão em grade", "ou em grade", (), TODOS),
@@ -380,7 +409,7 @@ def _foto():
     return buf.getvalue()
 
 
-def _prompts(tipo):
+def _prompts(tipo, dados=None):
     """(brief em português, prompt REALMENTE enviado ao motor).
 
     O segundo é capturado na porta do motor: os dois geradores são trocados
@@ -396,12 +425,25 @@ def _prompts(tipo):
         capturado["prompt"] = prompt_final
         return None, "motor desligado na varredura"
 
-    def _gemini(prompt_final, imagens_bytes=None, ref_layout=None):
+    # A ASSINATURA DO DUPLO ACOMPANHA A DE VERDADE, DE PROPOSITO.
+    #
+    # Se o motor ganhar um parametro novo e o duplo nao, esta varredura
+    # quebra ALTO — que e o certo. Duplo com `**kwargs` engoliria a mudanca
+    # calado, e a varredura seguiria medindo um motor que nao existe mais.
+    def _gemini(prompt_final, imagens_bytes=None, ref_layout=None,
+                diagnostico=None):
         capturado.setdefault("prompt", prompt_final)
         return None, "motor desligado na varredura"
 
     def _descricao(imagens_referencia, nome_produto="produto",
                    dados_descricao=None, refs_layout=None):
+        # O QUE A ANALISE DE VISAO RECEBE DE VERDADE FICA GUARDADO AQUI.
+        #
+        # Conferir so a expressao regular nao basta: tirar a linha que
+        # ATRIBUI `dados_descricao["material"]` deixava a expressao casando e
+        # o campo sumindo do mesmo jeito. Quem mede o caminho inteiro e isto.
+        capturado["nome_para_visao"] = nome_produto
+        capturado["dados_para_visao"] = dict(dados_descricao or {})
         return ("Descrição de apoio do produto de teste.",
                 "Layout de duas colunas: produto à esquerda, blocos à direita.")
 
@@ -435,7 +477,9 @@ def _prompts(tipo):
         # "casal" para os oito prompts.
         pt = imagem.montar_prompt_imagem(
             tipo, "quero o produto virado para a direita" if tipo == TIPO_LIVRE else "",
-            _DADOS, "Produto de Teste", plano_triagem=plano,
+            dados if dados is not None else _DADOS,
+            (dados or _DADOS).get("nome_comercial", "Produto de Teste"),
+            plano_triagem=plano,
             ambientacao="mesa de jantar" if tipo == TIPO_AMBIENTE else "",
             refs_layout_nomes=["ref_cinzeiro_casal.png"],
             direcao_arte=_DIRECAO)
@@ -453,14 +497,320 @@ def _prompts(tipo):
          imagem._chamar_gemini_geracao_texto,
          imagem._descricao_do_produto_cacheada,
          imagem._get_openai_api_key) = originais
-    return pt, capturado.get("prompt", ""), capturado.get("preview", "")
+    return (pt, capturado.get("prompt", ""), capturado.get("preview", ""),
+            {"nome": capturado.get("nome_para_visao"),
+             "dados": capturado.get("dados_para_visao") or {}})
+
+
+
+# ── O PROMPT DO AJUSTE FINO ──────────────────────────────────────────────
+#
+# POR QUE ESTA SECAO EXISTE
+#
+# Dono, 30/09: "se nao consegue nao e por recusa do GEMINI e sim por ele estar
+# fazendo algo errado, seja na comunicacao ou na analise do que precisa fazer".
+#
+# Ele estava certo, e a medicao deu razao a ele. O pedido era "trocar o texto:
+# diametro 25 cm e peso 476 g", e o MESMO prompt levava TRES proibicoes
+# absolutas contra ele:
+#
+#   "nao adicione nem remova nenhum texto"
+#   "ignore completamente qualquer texto visivel nas imagens"
+#   "se esses dados nao foram fornecidos nos campos do produto, NAO os
+#    coloque na imagem sob nenhuma hipotese"   (o numero veio NO PEDIDO)
+#
+# Mais uma quarta que mandava desistir: "se a modificacao so puder ser feita
+# alterando o produto, NAO a faca: devolva a imagem como esta". E tres blocos
+# diferentes se declarando supremos, enquanto o pedido do colaborador nao
+# tinha prioridade declarada em lugar nenhum.
+#
+# O modelo obedeceu. Nao houve recusa: houve ordem nossa, contraditoria.
+#
+# E SOBREVIVEU PORQUE NINGUEM LIA. `checar_prompts` montava os nove tipos da
+# CRIACAO; `checar_alcance` e `checar_comunicacao` nao tocavam neste texto.
+# Zero ocorrencias de `montar_prompt_ajuste_fino` nos tres. E a Forma 3 desta
+# base — "dizer verde sobre um texto que o verificador nao lia" — e ela custou
+# o ajuste fino inteiro.
+#
+# AS REGRAS SAO POR COMPORTAMENTO, NAO POR REDACAO. Cada "nao pode" abaixo e
+# uma frase que JA BARROU um pedido real; cada "tem de ter" e uma capacidade,
+# nao uma palavra escolhida.
+_AJUSTE_NAO_PODE = [
+    ("proibir mexer em texto",
+     "não adicione nem remova nenhum texto"),
+    ("mandar ignorar o texto da propria peca",
+     "ignore completamente qualquer texto visível"),
+    ("proibir numero que veio no pedido",
+     "NÃO os coloque na imagem sob nenhuma hipótese"),
+    ("so aceitar medida vinda do cadastro",
+     "Só use medidas e peso na imagem se eles"),
+    ("mandar desistir quando o pedido toca o produto",
+     "NÃO a faça:"),
+]
+
+_AJUSTE_TEM_DE_TER = [
+    ("o pedido manda sobre as regras", "prioridade sobre TODAS"),
+    ("fazer o pedido nao e opcional", "NÃO É OPCIONAL"),
+    ("de onde vem numero", "MODIFICAÇÃO SOLICITADA ou já escritos"),
+    ("a trava do produto continua", "não pode sair liso"),
+    ("a trava de cor continua", "TRAVA DE COR"),
+]
+
+# PEDIDOS DE VERDADE, e nao frases que eu inventei para o teste passar. O
+# primeiro e o do dono, 30/09, palavra por palavra.
+_PEDIDOS_REAIS = [
+    "trocar o texto: diametro 25 cm e peso 476 g",
+    "tire a borda branca em volta",
+    "deixe o fundo mais claro",
+    "aumente o produto dentro do quadro",
+]
+
+
+def _conferir_ajuste_fino():
+    """O prompt do ajuste manda fazer, ou manda desistir? Devolve nº de falhas."""
+    _sem_streamlit()
+    import imagem
+
+    falhas = 0
+    for pedido in _PEDIDOS_REAIS:
+        for tipo in (None, "5 — Características técnicas (medidas/peso/material)",
+                     "1 — Capa do anúncio (fundo branco)"):
+            p = imagem.montar_prompt_ajuste_fino(pedido, tipo)
+            _onde = f"ajuste fino [{(tipo or 'sem tipo')[:18]}] pedido {pedido[:28]!r}"
+            if pedido not in p:
+                print(f"FALHA  {_onde}: o pedido do colaborador nao chegou "
+                      "ao prompt")
+                falhas += 1
+            for nome, trecho in _AJUSTE_NAO_PODE:
+                if trecho in p:
+                    print(f"FALHA  {_onde}: o prompt volta a {nome} "
+                          f"— {trecho!r}")
+                    falhas += 1
+            for nome, trecho in _AJUSTE_TEM_DE_TER:
+                if trecho not in p:
+                    print(f"FALHA  {_onde}: sumiu do prompt — {nome} "
+                          f"({trecho!r})")
+                    falhas += 1
+
+    # ── O AJUSTE NAO PAGA LEITURA DE VISAO QUE ELE DESCARTA ────────────
+    #
+    # A descricao produzida pela analise de visao alimenta a secao PRODUCT
+    # DESCRIPTION do prompt de CRIACAO. No ajuste fino essa secao nem chega
+    # ao motor: `prompt_geracao = _prompt_ajuste` substitui o prompt inteiro.
+    #
+    # Ou seja, toda tentativa de ajuste pagava uma leitura de visao jogada
+    # fora na linha seguinte — 2 por pedido do colaborador, porque sao 2
+    # tentativas. E rodava com o nome do produto errado ainda por cima.
+    #
+    # A conferencia exercita a CADEIA: chama `gerar_imagem_ia` de verdade,
+    # com os motores desligados, e conta as leituras.
+    _chamadas = {"n": 0}
+    _orig = (imagem._descricao_do_produto_cacheada,
+             imagem._chamar_openai_geracao,
+             imagem._chamar_gemini_geracao_texto,
+             imagem._get_openai_api_key)
+    try:
+        imagem._descricao_do_produto_cacheada = (
+            lambda *a, **k: (_chamadas.__setitem__("n", _chamadas["n"] + 1)
+                             or ("desc", "layout")))
+        imagem._chamar_openai_geracao = lambda *a, **k: (None, "desligado")
+        imagem._chamar_gemini_geracao_texto = lambda *a, **k: (None, "desligado")
+        imagem._get_openai_api_key = lambda: ""
+        imagem.gerar_imagem_ia(
+            imagem.montar_prompt_ajuste_fino("tire a borda branca", None),
+            [b"foto"], tipo="")
+        _no_ajuste = _chamadas["n"]
+        _chamadas["n"] = 0
+        imagem.gerar_imagem_ia(
+            imagem.montar_prompt_imagem(
+                "2 — Benefícios do produto", "", _DADOS, "Produto de Teste",
+                plano_triagem=_PLANO, refs_layout_nomes=[],
+                direcao_arte=_DIRECAO),
+            [b"foto"], tipo="2 — Benefícios do produto")
+        _na_criacao = _chamadas["n"]
+    finally:
+        (imagem._descricao_do_produto_cacheada,
+         imagem._chamar_openai_geracao,
+         imagem._chamar_gemini_geracao_texto,
+         imagem._get_openai_api_key) = _orig
+    if _no_ajuste:
+        print(f"FALHA  o ajuste fino pagou {_no_ajuste} leitura(s) de visao "
+              "e descarta o resultado — o prompt do ajuste substitui a secao "
+              "que usaria essa descricao")
+        falhas += 1
+    if not _na_criacao:
+        print("FALHA  a CRIACAO deixou de pedir a analise de visao — e ela "
+              "que descreve o produto para o gerador")
+        falhas += 1
+
+    # A SEPARACAO NAO PODE VAZAR PARA O LADO ERRADO: o que saiu do ajuste tem
+    # de continuar na CRIACAO, senao eu troquei um defeito por outro.
+    for nome, trecho in _AJUSTE_NAO_PODE[1:4]:
+        if trecho not in imagem.INSTRUCAO_FIDELIDADE:
+            print(f"FALHA  a regra de CRIACAO '{nome}' sumiu junto — ela esta "
+                  "certa la, e so estava errada no ajuste")
+            falhas += 1
+    return falhas
+
+
+
+# ── IDA E VOLTA DO CADASTRO ──────────────────────────────────────────────
+#
+# Dono, 30/09: "certifique-se de o estudio estar falando A e o resultado ser
+# A e nao B ou A+".
+#
+# `gerar_imagem_ia` nao recebe os campos do produto: ela os RELE do proprio
+# prompt, por expressao regular. Se a expressao nao casar, o campo some em
+# silencio — e some do lugar mais caro, porque e ele que alimenta a analise
+# de visao que descreve o produto para o gerador.
+#
+# Em 30/09 duas nao casavam, nos NOVE tipos:
+#   `Cor:`       o prompt escreve `COR REAL DO PRODUTO:` — a cor cadastrada
+#                NUNCA chegou a analise de visao
+#   material     ninguem procurava por ele, embora a analise tenha campo
+# E uma casava DEMAIS: `PRODUTO:` sem ancora pegava o meio de outra frase.
+# No prompt do ajuste fino o "nome do produto" virava
+# "JAMAIS adicione base, pedestal, suporte, embalagem".
+#
+# ESTA CONFERENCIA MEDE A IDA E A VOLTA, e nao a redacao: escreve um valor
+# conhecido no cadastro, monta o prompt de verdade, e exige que a releitura
+# devolva EXATAMENTE o mesmo valor.
+_IDA_E_VOLTA = [
+    ("nome",     "nome_comercial", r"^PRODUTO:\s*(.+?)$"),
+    ("cor",      "cor",            r"^COR REAL DO PRODUTO:\s*(.+?)$"),
+    ("medidas",  "medidas",        r"^Medidas EXATAS[^:]*:\s*(.+?)$"),
+    ("peso",     "peso",           r"^Peso EXATO[^:]*:\s*(.+?)$"),
+    ("material", "material",       r"^Material e montagem[^:]*:\s*(.+?)$"),
+]
+
+
+def _regexes_de_gerar_imagem_ia():
+    """As expressoes que `gerar_imagem_ia` usa para reler o prompt.
+
+    Lidas do CODIGO, por AST — nao copiadas para ca. Copia vira a Forma 5:
+    alguem muda a do codigo, esta segue medindo a antiga e diz verde.
+    """
+    import ast
+    import os as _os_rx
+    _raiz = _os_rx.path.dirname(_os_rx.path.abspath(__file__))
+    arv = ast.parse(open(_os_rx.path.join(_raiz, "imagem.py"),
+                         encoding="utf-8").read())
+    fn = next(n for n in ast.walk(arv)
+              if isinstance(n, ast.FunctionDef) and n.name == "gerar_imagem_ia")
+    fora = []
+    for n in ast.walk(fn):
+        if (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                and n.func.attr == "search" and n.args
+                and isinstance(n.args[0], ast.Constant)
+                and len(n.args) > 1 and getattr(n.args[1], "id", "") == "prompt_texto"):
+            fora.append((n.lineno, n.args[0].value))
+    return fora
+
+
+def _prompts_com_cadastro(dados, tipo="2 — Benefícios do produto"):
+    """O que a analise de visao recebe, com ESTE cadastro. Cadeia de verdade."""
+    _pt, _env, _pv, visao = _prompts(tipo, dados)
+    return visao
+
+
+def _conferir_ida_e_volta():
+    _sem_streamlit()
+    import imagem
+    import re as _re
+
+    falhas = 0
+    marcado = {"nome_comercial": "ProdutoMarcado-XYZ", "cor": "verde-abacate",
+               "medidas": "11x22x33", "peso": "987 g",
+               "material": "liga de titanio escovado",
+               "caracteristicas": "marcado para conferencia"}
+    for tipo in TODOS:
+        plano = None if tipo == TIPO_LIVRE else _PLANO
+        pt = imagem.montar_prompt_imagem(
+            tipo, "quero o produto virado" if tipo == TIPO_LIVRE else "",
+            marcado, marcado["nome_comercial"], plano_triagem=plano,
+            ambientacao="mesa" if tipo == TIPO_AMBIENTE else "",
+            refs_layout_nomes=[], direcao_arte=_DIRECAO)
+        for nome, campo, rx in _IDA_E_VOLTA:
+            m = _re.search(rx, pt, _re.MULTILINE)
+            lido = m.group(1).strip() if m else None
+            if lido != marcado[campo]:
+                print(f"FALHA  '{tipo}': o Studio escreveu {nome}="
+                      f"{marcado[campo]!r} e a releitura ouviu {lido!r} — "
+                      "esse campo nao chega a analise de visao")
+                falhas += 1
+
+    # A CADEIA INTEIRA, E NAO SO A EXPRESSAO.
+    #
+    # Tirar a linha que ATRIBUI `dados_descricao["material"]` deixava a
+    # expressao casando e o campo sumindo do mesmo jeito. O que mede isso e
+    # olhar o que a analise de visao RECEBEU, no fim do caminho.
+    _visao = _prompts_com_cadastro(marcado)
+    if _visao["nome"] != marcado["nome_comercial"]:
+        print(f"FALHA  a analise de visao recebeu o nome {_visao['nome']!r} "
+              f"em vez de {marcado['nome_comercial']!r}")
+        falhas += 1
+    for campo in ("cor", "medidas", "peso", "material"):
+        if (_visao["dados"] or {}).get(campo) != marcado[campo]:
+            print(f"FALHA  a analise de visao NAO recebeu '{campo}': chegou "
+                  f"{(_visao['dados'] or {}).get(campo)!r}, cadastrado "
+                  f"{marcado[campo]!r} — e e ela quem descreve o produto "
+                  "para o gerador")
+            falhas += 1
+        # E AS EXPRESSOES DO CODIGO TEM DE SER ESTAS. Se alguem mudar uma la
+        # e nao aqui, esta conferencia passaria medindo a antiga.
+    _no_codigo = {rx for _ln, rx in _regexes_de_gerar_imagem_ia()}
+    for nome, _campo, rx in _IDA_E_VOLTA:
+        if rx not in _no_codigo:
+            print(f"FALHA  a expressao de '{nome}' desta conferencia nao "
+                  f"existe mais em gerar_imagem_ia: {rx!r}")
+            falhas += 1
+
+    # ── O TIPO 5 COM O CADASTRO VAZIO ────────────────────────────────
+    #
+    # Ele manda "INFOGRAFICO TECNICO DE MEDIDAS — estilo cota de catalogo" e
+    # o mesmo prompt proibe escrever medida que nao veio do cadastro. Com o
+    # cadastro cheio as duas convivem; com ele VAZIO se anulam, e o modelo
+    # resolve contradicao inventando numero.
+    #
+    # As 61 regras nunca mediram isto: o cadastro do teste sempre teve
+    # medida. Mesmo ponto cego do termometro — amostra de um caso so.
+    _vazio = {"nome_comercial": "ProdutoMarcado-XYZ", "cor": "", "medidas": "",
+              "peso": "", "material": "", "caracteristicas": ""}
+    _t5 = "5 — Características técnicas (medidas/peso/material)"
+    _p5 = imagem.montar_prompt_imagem(_t5, "", _vazio, _vazio["nome_comercial"],
+                                      plano_triagem=_PLANO, refs_layout_nomes=[],
+                                      direcao_arte=_DIRECAO)
+    if "SEM DADOS TÉCNICOS CADASTRADOS" not in _p5:
+        print("FALHA  o tipo 5 com cadastro VAZIO manda fazer infografico de "
+              "cotas e proibe escrever cota, sem dizer que a medida nao "
+              "existe — o modelo resolve isso inventando numero")
+        falhas += 1
+    # E COM CADASTRO CHEIO ELE NAO PODE APARECER: aviso fora de hora vira
+    # ordem de NAO escrever a medida que existe.
+    _p5c = imagem.montar_prompt_imagem(_t5, "", marcado, marcado["nome_comercial"],
+                                       plano_triagem=_PLANO, refs_layout_nomes=[],
+                                       direcao_arte=_DIRECAO)
+    if "SEM DADOS TÉCNICOS CADASTRADOS" in _p5c:
+        print("FALHA  o aviso de 'sem dados tecnicos' aparece com o cadastro "
+              "CHEIO — isso manda o modelo NAO escrever a medida que existe")
+        falhas += 1
+
+    # O AJUSTE FINO NAO TEM CADASTRO — e nao pode INVENTAR um.
+    aj = imagem.montar_prompt_ajuste_fino(
+        "trocar o texto: diametro 25 cm", "5 — Características técnicas (medidas/peso/material)")
+    m = _re.search(r"^PRODUTO:\s*(.+?)$", aj, _re.MULTILINE)
+    if m:
+        print(f"FALHA  no ajuste fino o 'nome do produto' virou {m.group(1)!r} "
+              "— um pedaco de outra frase do proprio prompt")
+        falhas += 1
+    return falhas
 
 
 def main():
     briefs, enviados, previews = {}, {}, {}
     for t in TODOS:
         try:
-            briefs[t], enviados[t], previews[t] = _prompts(t)
+            briefs[t], enviados[t], previews[t], _ = _prompts(t)
         except Exception as e:
             print(f"FALHA  nao consegui montar o prompt de '{t}': "
                   f"{type(e).__name__}: {e}")
@@ -769,20 +1119,39 @@ def main():
                       f"proxima, e o texto sai cortado — foi o relato de "
                       f"28/09.")
                 falhas += 1
-        # A PECA TEM DE DIZER QUE A FOLGA MANDA, para a ordem de preencher
-        # o quadro nao ser lida como "pode cortar o texto".
-        _i_manda = _liso.find("A FOLGA DA BORDA MANDA")
+        # A PECA TEM DE RESOLVER O EMPATE, E A GUARDA MEDE ISSO — NAO A FRASE.
+        #
+        # Ela exigia a expressao "A FOLGA DA BORDA MANDA". Isso e travar a
+        # REDACAO, a Forma 2 desta base: em 30/09 a peca 4 passou a dizer o
+        # MESMO de um jeito melhor — "a folga de 6% vale para TEXTO, nunca
+        # para o PRODUTO" — e esta guarda reprovou a correcao.
+        #
+        # Resolver por ESCOPO e melhor que resolver por "quem ganha": a
+        # versao antiga ("a folga manda sobre a ordem acima") foi lida pelo
+        # gerador como "a margem vence o produto", e a peca voltou com
+        # moldura e o produto encolhido. O que a peca precisa dizer e A QUEM
+        # a folga se aplica, com o numero junto.
+        _i_manda = max(_liso.find("A FOLGA DA BORDA MANDA"),
+                       _liso.find("A FOLGA DE 6% VALE PARA TEXTO"))
         if _i_manda < 0:
-            print(f"FALHA  '{_tp}' nao diz que a folga da borda manda sobre "
-                  f"o resto — sem isso as duas ordens ficam empatadas")
+            print(f"FALHA  '{_tp}' nao diz A QUEM a folga da borda se aplica "
+                  f"— sem isso as duas ordens ficam empatadas, e o gerador "
+                  f"escolhe a mais proxima")
             falhas += 1
         # E O NUMERO TEM DE ESTAR NESSA FRASE, e nao em qualquer lugar do
         # prompt. A primeira versao procurava "6%" no texto inteiro, e a
         # regra compartilhada ja o cita: tirar o 6% DA PECA passava verde.
         # Precedencia sem numero e opiniao; com numero, e medida.
         elif "6%" not in _liso[_i_manda:_i_manda + 260]:
-            print(f"FALHA  '{_tp}' diz que a folga manda mas nao diz QUANTO "
-                  f"— precedencia sem numero o gerador negocia")
+            print(f"FALHA  '{_tp}' diz a quem a folga se aplica mas nao diz "
+                  f"QUANTO — precedencia sem numero o gerador negocia")
+            falhas += 1
+        # E ELA NAO PODE MANDAR SOBRE O PRODUTO. Era essa leitura que
+        # desenhava a moldura e encolhia a peca.
+        if "manda sobre a ordem acima" in _liso or "MARGIN OVERRIDES" in _liso:
+            print(f"FALHA  '{_tp}' volta a dizer que a folga manda sobre a "
+                  f"ordem acima — e a ordem acima e 'o produto preenche o "
+                  f"quadro'. Foi assim que a peca saiu com margem.")
             falhas += 1
 
     # ── 4D-BIS. O PROMPT DO PLANO, QUE NENHUMA VARREDURA OLHAVA ────────────
@@ -1009,9 +1378,15 @@ def main():
                   f"{len(enviados[t])} caracteres")
             falhas += 1
 
+    # ── 7. O PROMPT DO AJUSTE FINO, QUE NINGUEM LIA ────────────────────
+    falhas += _conferir_ajuste_fino()
+
+    # ── 8. IDA E VOLTA: o que o Studio escreve, o sistema ouve? ────────
+    falhas += _conferir_ida_e_volta()
+
     if not falhas:
         print(f"ok    {len(TODOS)} tipos, {len(REGRAS)} regras varridas no "
-              "prompt ENVIADO, nenhuma fora do lugar")
+              "prompt ENVIADO e no do AJUSTE FINO, nenhuma fora do lugar")
     print(f"\nfalhas: {falhas}")
     return falhas
 
