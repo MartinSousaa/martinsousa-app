@@ -645,6 +645,19 @@ MUTACOES = [
         "            if True:",
         ["python3", "checar_tela.py"],
     ),
+    (
+        # 30/09: a mutacao saiu "falhas: 2" e depois "falhas: 0" no comando
+        # seguinte. Eu tinha DUAS instancias rodando — este arquivo escreve
+        # nos arquivos do repositorio, e elas se sobrescreveram. Sem a
+        # trava, `main` roda junto de outra e as duas mentem o resultado.
+        "duas instancias mutando ao mesmo tempo",
+        "checar_mutacao.py",
+        '    if not _tomei:\n        print(f"FALHA  {_motivo}")\n'
+        "        return 1\n",
+        '    if not _tomei and False:\n        print(f"FALHA  {_motivo}")\n'
+        "        return 1\n",
+        ["python3", "checar_mutacao.py", "--autoteste"],
+    ),
 ]
 
 
@@ -665,8 +678,128 @@ def _reprovou(codigo, saida):
     return codigo != 0 or "FALHA" in saida
 
 
+
+# ─────────────────────────────────────────────────────────────────────────
+# A TRAVA: DUAS INSTANCIAS DESTE ARQUIVO SE DESTROEM
+#
+# Dono, 30/09: a mutacao saiu "falhas: 2" e, no comando seguinte, "falhas:
+# 0". Nao-determinismo num verificador e pior que um defeito, porque ensina
+# a rodar de novo ate dar verde.
+#
+# A causa nao era o codigo: eu rodei DUAS instancias ao mesmo tempo, uma em
+# background e outra a frente. Este arquivo ESCREVE nos arquivos do
+# repositorio — a instancia A muta `imagem.py`, a instancia B le `imagem.py`
+# mutado como se fosse o original, e depois "restaura" o defeito da A por
+# cima. As duas terminam dizendo que restauraram, e as duas estao erradas.
+#
+# A restauracao em `finally` ja existia e e correta; ela so nao protege de
+# outra instancia. A regra de ouro do topo deste arquivo ("o repositorio
+# nunca fica mutado") nao se sustenta sem exclusao.
+#
+# Ela RECUSA, nao espera: conferencia que roda junto de outra nao mediu
+# nada, e ficar na fila esconderia isso atras de uma demora.
+# ─────────────────────────────────────────────────────────────────────────
+def _caminho_da_trava():
+    """Onde fica a trava. O env var existe para o auto-teste poder usar a
+    trava DE VERDADE num diretorio temporario, em vez de um duplo."""
+    return (os.environ.get("CHECAR_MUTACAO_TRAVA")
+            or os.path.join(RAIZ, ".checar_mutacao.trava"))
+
+
+def _dono_vivo(pid):
+    """O processo que pegou a trava ainda existe?
+
+    PermissionError e VIVO: o processo esta la, de outro usuario. Tratar
+    como morto derrubaria a trava justamente quando ela vale.
+    """
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return True
+    return True
+
+
+def tomar_a_trava(caminho=None, pid=None, vivo=_dono_vivo):
+    """(True, "") se tomou a trava; (False, motivo) se outra instancia roda.
+
+    Trava de dono MORTO e tomada, nao respeitada: um Ctrl-C no meio deixa o
+    arquivo para tras, e uma trava eterna quebraria toda conferencia
+    seguinte — que e exatamente o tipo de defeito silencioso que este
+    arquivo existe para nao deixar passar.
+    """
+    caminho = caminho or _caminho_da_trava()
+    pid = os.getpid() if pid is None else pid
+    for _ in range(2):
+        try:
+            fd = os.open(caminho, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        except FileExistsError:
+            try:
+                with open(caminho, encoding="utf-8") as fh:
+                    dono = int((fh.read() or "").strip() or 0)
+            except (OSError, ValueError):
+                dono = 0
+            if dono and dono != pid and vivo(dono):
+                return False, (
+                    f"outra conferencia de mutacao ja esta rodando "
+                    f"(processo {dono}). Este arquivo ESCREVE nos arquivos "
+                    "do repositorio: duas instancias se sobrescrevem e as "
+                    "duas mentem sobre o resultado. Espere a outra terminar."
+                )
+            try:
+                os.unlink(caminho)
+            except FileNotFoundError:
+                pass
+            continue
+        with os.fdopen(fd, "w") as fh:
+            fh.write(str(pid))
+        return True, ""
+    return False, "nao consegui tomar a trava da mutacao"
+
+
+def soltar_a_trava(caminho=None, pid=None):
+    """Solta a trava, e SO se ela for minha. True se soltou.
+
+    Apagar trava alheia seria o mesmo defeito por outro caminho: eu saio, a
+    outra instancia fica sem protecao, e uma terceira entra por cima dela.
+    """
+    caminho = caminho or _caminho_da_trava()
+    pid = os.getpid() if pid is None else pid
+    try:
+        with open(caminho, encoding="utf-8") as fh:
+            if int((fh.read() or "").strip() or 0) != pid:
+                return False
+    except (OSError, ValueError):
+        return False
+    try:
+        os.unlink(caminho)
+    except OSError:
+        return False
+    return True
+
+
 def main():
     falhas = 0
+
+    # A TRAVA PRIMEIRO, ANTES DE QUALQUER LEITURA.
+    #
+    # Nao adianta travar so na hora de escrever: a instancia que LE o
+    # arquivo ja mutado pela outra guarda o "original" errado, e restaura o
+    # defeito por cima no fim.
+    _tomei, _motivo = tomar_a_trava()
+    if not _tomei:
+        print(f"FALHA  {_motivo}")
+        return 1
+    try:
+        return _conferir_as_mutacoes(falhas)
+    finally:
+        soltar_a_trava()
+
+
+def _conferir_as_mutacoes(falhas):
 
     # ANTES DE MUTAR, O VERDE TEM DE SER VERDE.
     #
@@ -752,5 +885,91 @@ def main():
     return 1 if falhas else 0
 
 
+def _autoteste():
+    """A trava recusa a segunda instancia? E o `main` OBEDECE a recusa?
+
+    A ultima asserção e a que importa: as tres primeiras medem a funcao
+    isolada — foi assim que a guarda da thread nasceu fraca, exercitando a
+    funcao que eu tinha acabado de escrever em vez do caminho inteiro.
+
+    O `main` de verdade roda num diretorio TEMPORARIO, com uma copia deste
+    arquivo. Assim, se a trava for desobedecida, ele muta arquivos que nao
+    existem ali e nao encosta no repositorio — verificador que pode deixar
+    o repositorio mutado e pior do que nenhum, e isso vale para o
+    auto-teste dele tambem.
+    """
+    import shutil
+    import tempfile
+
+    falhas = []
+
+    def ok(cond, msg):
+        if not cond:
+            falhas.append(msg)
+
+    dir_ = tempfile.mkdtemp(prefix="trava_")
+    dorminhoco = None
+    try:
+        alvo = os.path.join(dir_, "t1")
+
+        # 1. tomo a trava; outro pid VIVO e recusado
+        tomou, _ = tomar_a_trava(alvo, pid=111, vivo=lambda _p: True)
+        ok(tomou, "nao consegui tomar a trava livre")
+        tomou2, motivo = tomar_a_trava(alvo, pid=222, vivo=lambda _p: True)
+        ok(not tomou2, "a trava deixou uma SEGUNDA instancia entrar")
+        ok("111" in motivo, f"a recusa nao diz quem e o dono: {motivo!r}")
+
+        # 2. trava de dono MORTO e tomada, nao respeitada para sempre
+        tomou3, _ = tomar_a_trava(alvo, pid=333, vivo=lambda _p: False)
+        ok(tomou3, "trava de processo morto travou a conferencia seguinte")
+
+        # 3. so o dono solta
+        ok(not soltar_a_trava(alvo, pid=444),
+           "um estranho apagou a trava de outro processo")
+        ok(soltar_a_trava(alvo, pid=333), "o dono nao conseguiu soltar")
+        ok(not os.path.exists(alvo), "soltou e o arquivo ficou no disco")
+
+        # 4. A CADEIA: o `main` de verdade recusa e NAO muta nada.
+        copia = os.path.join(dir_, "checar_mutacao.py")
+        shutil.copy(os.path.abspath(__file__), copia)
+        trava_real = os.path.join(dir_, "t2")
+        dorminhoco = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(120)"])
+        with open(trava_real, "w", encoding="utf-8") as fh:
+            fh.write(str(dorminhoco.pid))
+
+        amb = dict(os.environ, CHECAR_MUTACAO_TRAVA=trava_real)
+        try:
+            p = subprocess.run([sys.executable, "checar_mutacao.py"],
+                               cwd=dir_, capture_output=True, text=True,
+                               timeout=180, env=amb)
+            saida = (p.stdout or "") + (p.stderr or "")
+            codigo = p.returncode
+        except subprocess.TimeoutExpired:
+            saida, codigo = "", 0
+            falhas.append("o main IGNOROU a trava e foi rodar a suite "
+                          "inteira com outra instancia viva")
+
+        ok(codigo == 1 or "outra conferencia" in saida,
+           f"o main nao reprovou com a trava tomada (codigo {codigo})")
+        ok("outra conferencia de mutacao" in saida,
+           f"o main nao disse POR QUE parou: {saida[:200]!r}")
+        ok("SEM mutacao nenhuma" not in saida,
+           "o main passou da trava e comecou a conferir os verificadores")
+    finally:
+        if dorminhoco is not None:
+            dorminhoco.kill()
+            dorminhoco.wait()
+        shutil.rmtree(dir_, ignore_errors=True)
+
+    for f in falhas:
+        print(f"FALHA  {f}")
+    if not falhas:
+        print("ok    a trava recusa a segunda instancia, e o main obedece")
+    return 1 if falhas else 0
+
+
 if __name__ == "__main__":
+    if "--autoteste" in sys.argv:
+        sys.exit(_autoteste())
     sys.exit(main())
