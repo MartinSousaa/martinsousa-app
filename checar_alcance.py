@@ -450,6 +450,55 @@ def main():
                     "nao existe mais, e a isencao passa a mentir para quem "
                     "ler depois")
 
+    # ── 5-ter. O ACHADO QUE FOI MAPEADO E NAO FOI TRATADO ─────────────────
+    #
+    # Dono, 30/09: "eu sinceramente ainda nao entendi como mapeou isso e nao
+    # resolveu (...) como me garante que nao ha outros erros que mapeou e nao
+    # tratou?".
+    #
+    # A resposta honesta e que eu nao garanto por promessa. Naquele dia varri
+    # a cadeia Studio -> Gemini, achei treze defeitos, escrevi todos numa
+    # lista minha, corrigi onze e DEIXEI DOIS — entre eles o `_tem_fotos`,
+    # que e uma das causas de "produto nada a ver com o original". Ficou
+    # aberto por horas enquanto eu relatava "APROVADO".
+    #
+    # Os oito verificadores guardam o CODIGO. Nada guardava a LISTA. Achado
+    # anotado num bilhete depende de eu lembrar, e a mao eu nao faco igual
+    # duas vezes — e a mesma razao pela qual `checar_mutacao.py` existe.
+    #
+    # Entao a lista deixa de ser bilhete: `ACHADOS_ABERTOS.md` fica no
+    # repositorio, e todo item aberto tem de dizer POR QUE AINDA NAO foi
+    # tratado. Sem o motivo escrito, a conferencia REPROVA. "Esqueci" nao e
+    # motivo — mas escrito, ele para de ser esquecimento.
+    _raiz_ab = os.path.dirname(os.path.abspath(__file__))
+    _lista = os.path.join(_raiz_ab, "ACHADOS_ABERTOS.md")
+    if not os.path.exists(_lista):
+        reprova("ACHADOS_ABERTOS.md sumiu do repositorio — e a trava que "
+                "impede um defeito mapeado de ficar aberto em silencio")
+    else:
+        with open(_lista, encoding="utf-8") as fh:
+            _txt = fh.read()
+        _itens, _atual = [], None
+        for _ln in _txt.split("\n"):
+            if _ln.startswith("### "):
+                _atual = {"titulo": _ln[4:].strip(), "onde": False,
+                          "porque": False}
+                _itens.append(_atual)
+            elif _atual is not None:
+                if _ln.startswith("ONDE:"):
+                    _atual["onde"] = bool(_ln[5:].strip())
+                elif _ln.startswith("POR QUE AINDA NÃO:"):
+                    _atual["porque"] = bool(_ln[18:].strip())
+        for _it in _itens:
+            if not _it["porque"]:
+                reprova(f"o achado aberto «{_it['titulo'][:60]}» nao diz POR "
+                        "QUE AINDA NAO foi tratado. Achado sem motivo escrito "
+                        "e defeito esperando ser esquecido — foi assim que o "
+                        "`_tem_fotos` ficou aberto enquanto eu dizia verde")
+            if not _it["onde"]:
+                reprova(f"o achado aberto «{_it['titulo'][:60]}» nao diz ONDE "
+                        "— sem arquivo nem linha, quem ler depois nao acha")
+
     # ── 6. O CARIMBO QUE GENTE LÊ, E O MÊS QUE O SISTEMA CALCULA ───────────
     #
     # Forma 6a. O container roda em UTC. `datetime.now()` cru SERVE quando os

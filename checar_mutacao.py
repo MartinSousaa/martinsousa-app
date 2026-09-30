@@ -870,6 +870,27 @@ MUTACOES = [
         "",
         ["python3", "checar_comunicacao.py"],
     ),
+    (
+        # Sem a chave da OpenAI, o prompt mandava recriar o produto A PARTIR
+        # DO TEXTO — enquanto as fotos iam ao Gemini junto. O modelo nunca
+        # era avisado de que elas sao a referencia.
+        "o prompt volta a mandar recriar o produto de uma descricao",
+        "imagem.py",
+        "    _tem_fotos = bool(imagens_referencia)\n",
+        "    _tem_fotos = bool(imagens_referencia) and bool(_get_openai_api_key())\n",
+        ["python3", "checar_prompts.py"],
+    ),
+    (
+        # 30/09: achei treze defeitos na cadeia, corrigi onze e deixei dois
+        # — entre eles o `_tem_fotos`, causa de "produto nada a ver com o
+        # original", aberto por horas enquanto eu dizia "APROVADO". Os
+        # verificadores guardam o codigo; nada guardava a minha lista.
+        "achado aberto volta a poder ficar sem motivo escrito",
+        "ACHADOS_ABERTOS.md",
+        "POR QUE AINDA NÃO: hoje só o tipo 5 é conferido com o cadastro vazio",
+        "POR QUE AINDA NAO ESCRITO: ",
+        ["python3", "checar_alcance.py"],
+    ),
 ]
 
 

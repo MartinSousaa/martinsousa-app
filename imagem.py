@@ -2993,7 +2993,7 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
     2. Claude descreve estilo das refs de layout (se houver) → texto de composição
     3. Monta prompt único preservando preset completo do tipo (sem double-prompt)
     4. Tenta o motor primário da OpenAI — fotos enviadas diretamente
-    5. Fallback: Gemini Flash Image com texto-apenas
+    5. Reserva: Gemini Flash Image — COM as fotos do produto
     6. Retorna imagem com proporções exatas preservadas (sem deformação)
     """
     import re as _re
@@ -3282,7 +3282,23 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
     # 3. Monta prompt de geração
     # Quando enviado via Responses API (com fotos), a seção PRODUCT DESCRIPTION é
     # substituída por uma instrução de referência visual — o modelo VÊ as fotos.
-    _tem_fotos = bool(imagens_referencia) and bool(_get_openai_api_key())
+    # ── AS FOTOS VIAJAM NOS DOIS MOTORES, ENTAO O TEXTO TEM DE DIZER ISSO
+    #
+    # Isto olhava a CHAVE DA OPENAI para decidir o TEXTO do prompt. Era certo
+    # quando so o caminho da OpenAI levava fotos. Hoje o Gemini tambem leva
+    # (`imagens_bytes=imagens_referencia`, adiante neste arquivo).
+    #
+    # Sem a chave da OpenAI, entao, o prompt dizia "PRODUCT DESCRIPTION —
+    # recreate this product exactly from the description" enquanto as fotos
+    # iam junto, e o modelo NUNCA era avisado de que elas sao a referencia.
+    # Ele reconstruia o produto a partir de palavras, com as fotos na mao.
+    #
+    # E a explicacao direta de "produto nada a ver com o original", e ela
+    # acontece exatamente na configuracao em que o Gemini e o motor
+    # principal.
+    #
+    # A pergunta certa nao e "qual motor vai atender", e sim "as fotos vao?".
+    _tem_fotos = bool(imagens_referencia)
     _product_section = (
         "PRODUCT REFERENCE: Use the product photos provided as the exact visual reference. "
         "Reproduce EVERY detail visible in those photos — same colors, shapes, proportions, "
@@ -3583,13 +3599,24 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
         return None, (f"{motivo}\n\nO motor primário de imagem também não "
                       "entregou nesta tentativa.")
 
-    # 5. Fallback: Gemini texto-apenas
+    # 5. RESERVA: Gemini Flash Image — E ELE RECEBE AS FOTOS.
     #
-    # ATENCAO: este caminho NAO recebe as fotos do produto — so o texto. O
-    # modelo nunca ve o produto real, entao inventa um a partir da descricao.
-    # E a explicacao mais provavel para um produto preto sair azul-marinho:
-    # sem foto, sobra a paleta da marca. Por isso o diagnostico marca este
-    # caminho de forma bem visivel.
+    # ESTE COMENTARIO MENTIA, E A MENTIRA CUSTOU HORAS.
+    #
+    # Ele dizia "ATENCAO: este caminho NAO recebe as fotos do produto — so o
+    # texto". Isso foi verdade um dia; hoje a linha logo abaixo manda
+    # `imagens_bytes=imagens_referencia`. Alguem corrigiu o codigo e nao o
+    # comentario.
+    #
+    # Em 30/09 eu li este comentario, acreditei nele, e por isso demorei a
+    # ver que `_tem_fotos` decidia o TEXTO do prompt pela chave da OpenAI
+    # enquanto as fotos viajavam de qualquer jeito. O defeito estava a vinte
+    # linhas daqui, escondido atras de uma documentacao desatualizada.
+    #
+    # O que continua verdade: este motor NAO aceita `size` nem
+    # `input_fidelity`. Sem eles a imagem volta retangular (o Studio
+    # preenche, e isso e a margem) e o produto e redesenhado. Por isso o
+    # diagnostico marca este caminho de forma bem visivel, e a tela diz.
     if not img_bytes:
         if diagnostico is not None:
             _n_refs = len(fotos_para_o_motor(imagens_referencia))
