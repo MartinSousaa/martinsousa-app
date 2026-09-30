@@ -144,7 +144,19 @@ def main():
         cmd = [sys.executable, v]
         if v == "checar_ordem.py":
             cmd += [n for n in sorted(os.listdir(RAIZ)) if n.endswith(".py")]
-        cod, saida = _roda(cmd)
+        # O SETIMO DEMORA MAIS QUE OS OUTROS, E MATA-LO E PERIGOSO.
+        #
+        # 30/09: com 69 mutacoes ele passou de 900s, levou SIGKILL no meio
+        # e deixou `imagem.py` MUTADO no disco — SIGKILL nao roda `finally`.
+        # O passo 2 entao mediu o arquivo mutado e acusou quatro falhas que
+        # nao existiam. Ele ganha um teto proprio, e depois dele o socorro
+        # roda de qualquer jeito: se sobrou arquivo mutado, volta aqui.
+        _teto = 2700 if v == "checar_mutacao.py" else 900
+        cod, saida = _roda(cmd, limite=_teto)
+        if v == "checar_mutacao.py":
+            _c2, _s2 = _roda([sys.executable, v, "--socorro"], limite=120)
+            if "nada a restaurar" not in _s2:
+                print(f"  AVISO  {_s2.strip()[:100]}")
         ruim = _reprovou(cod, saida)
         ultima = [l for l in saida.strip().split("\n") if l.strip()]
         print(f"  {'FALHA' if ruim else 'ok   '}  {v:22} "
