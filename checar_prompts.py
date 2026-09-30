@@ -456,6 +456,106 @@ def _prompts(tipo):
     return pt, capturado.get("prompt", ""), capturado.get("preview", "")
 
 
+
+# ── O PROMPT DO AJUSTE FINO ──────────────────────────────────────────────
+#
+# POR QUE ESTA SECAO EXISTE
+#
+# Dono, 30/09: "se nao consegue nao e por recusa do GEMINI e sim por ele estar
+# fazendo algo errado, seja na comunicacao ou na analise do que precisa fazer".
+#
+# Ele estava certo, e a medicao deu razao a ele. O pedido era "trocar o texto:
+# diametro 25 cm e peso 476 g", e o MESMO prompt levava TRES proibicoes
+# absolutas contra ele:
+#
+#   "nao adicione nem remova nenhum texto"
+#   "ignore completamente qualquer texto visivel nas imagens"
+#   "se esses dados nao foram fornecidos nos campos do produto, NAO os
+#    coloque na imagem sob nenhuma hipotese"   (o numero veio NO PEDIDO)
+#
+# Mais uma quarta que mandava desistir: "se a modificacao so puder ser feita
+# alterando o produto, NAO a faca: devolva a imagem como esta". E tres blocos
+# diferentes se declarando supremos, enquanto o pedido do colaborador nao
+# tinha prioridade declarada em lugar nenhum.
+#
+# O modelo obedeceu. Nao houve recusa: houve ordem nossa, contraditoria.
+#
+# E SOBREVIVEU PORQUE NINGUEM LIA. `checar_prompts` montava os nove tipos da
+# CRIACAO; `checar_alcance` e `checar_comunicacao` nao tocavam neste texto.
+# Zero ocorrencias de `montar_prompt_ajuste_fino` nos tres. E a Forma 3 desta
+# base — "dizer verde sobre um texto que o verificador nao lia" — e ela custou
+# o ajuste fino inteiro.
+#
+# AS REGRAS SAO POR COMPORTAMENTO, NAO POR REDACAO. Cada "nao pode" abaixo e
+# uma frase que JA BARROU um pedido real; cada "tem de ter" e uma capacidade,
+# nao uma palavra escolhida.
+_AJUSTE_NAO_PODE = [
+    ("proibir mexer em texto",
+     "não adicione nem remova nenhum texto"),
+    ("mandar ignorar o texto da propria peca",
+     "ignore completamente qualquer texto visível"),
+    ("proibir numero que veio no pedido",
+     "NÃO os coloque na imagem sob nenhuma hipótese"),
+    ("so aceitar medida vinda do cadastro",
+     "Só use medidas e peso na imagem se eles"),
+    ("mandar desistir quando o pedido toca o produto",
+     "NÃO a faça:"),
+]
+
+_AJUSTE_TEM_DE_TER = [
+    ("o pedido manda sobre as regras", "prioridade sobre TODAS"),
+    ("fazer o pedido nao e opcional", "NÃO É OPCIONAL"),
+    ("de onde vem numero", "MODIFICAÇÃO SOLICITADA ou já escritos"),
+    ("a trava do produto continua", "não pode sair liso"),
+    ("a trava de cor continua", "TRAVA DE COR"),
+]
+
+# PEDIDOS DE VERDADE, e nao frases que eu inventei para o teste passar. O
+# primeiro e o do dono, 30/09, palavra por palavra.
+_PEDIDOS_REAIS = [
+    "trocar o texto: diametro 25 cm e peso 476 g",
+    "tire a borda branca em volta",
+    "deixe o fundo mais claro",
+    "aumente o produto dentro do quadro",
+]
+
+
+def _conferir_ajuste_fino():
+    """O prompt do ajuste manda fazer, ou manda desistir? Devolve nº de falhas."""
+    _sem_streamlit()
+    import imagem
+
+    falhas = 0
+    for pedido in _PEDIDOS_REAIS:
+        for tipo in (None, "5 — Características técnicas (medidas/peso/material)",
+                     "1 — Capa do anúncio (fundo branco)"):
+            p = imagem.montar_prompt_ajuste_fino(pedido, tipo)
+            _onde = f"ajuste fino [{(tipo or 'sem tipo')[:18]}] pedido {pedido[:28]!r}"
+            if pedido not in p:
+                print(f"FALHA  {_onde}: o pedido do colaborador nao chegou "
+                      "ao prompt")
+                falhas += 1
+            for nome, trecho in _AJUSTE_NAO_PODE:
+                if trecho in p:
+                    print(f"FALHA  {_onde}: o prompt volta a {nome} "
+                          f"— {trecho!r}")
+                    falhas += 1
+            for nome, trecho in _AJUSTE_TEM_DE_TER:
+                if trecho not in p:
+                    print(f"FALHA  {_onde}: sumiu do prompt — {nome} "
+                          f"({trecho!r})")
+                    falhas += 1
+
+    # A SEPARACAO NAO PODE VAZAR PARA O LADO ERRADO: o que saiu do ajuste tem
+    # de continuar na CRIACAO, senao eu troquei um defeito por outro.
+    for nome, trecho in _AJUSTE_NAO_PODE[1:4]:
+        if trecho not in imagem.INSTRUCAO_FIDELIDADE:
+            print(f"FALHA  a regra de CRIACAO '{nome}' sumiu junto — ela esta "
+                  "certa la, e so estava errada no ajuste")
+            falhas += 1
+    return falhas
+
+
 def main():
     briefs, enviados, previews = {}, {}, {}
     for t in TODOS:
@@ -1009,9 +1109,12 @@ def main():
                   f"{len(enviados[t])} caracteres")
             falhas += 1
 
+    # ── 7. O PROMPT DO AJUSTE FINO, QUE NINGUEM LIA ────────────────────
+    falhas += _conferir_ajuste_fino()
+
     if not falhas:
         print(f"ok    {len(TODOS)} tipos, {len(REGRAS)} regras varridas no "
-              "prompt ENVIADO, nenhuma fora do lugar")
+              "prompt ENVIADO e no do AJUSTE FINO, nenhuma fora do lugar")
     print(f"\nfalhas: {falhas}")
     return falhas
 

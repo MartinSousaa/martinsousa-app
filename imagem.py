@@ -647,7 +647,7 @@ O PRODUTO PREENCHE O QUADRO — ESTA É A REGRA MAIS IMPORTANTE DESTA PEÇA:
   encher o eixo mais longo dele.
 """
 
-INSTRUCAO_FIDELIDADE = """
+INSTRUCAO_FIDELIDADE_ABERTURA = """
 REGRA DE FIDELIDADE AO PRODUTO (a mais importante de todas — sem exceções):
 - Reproduza o produto EXATAMENTE como aparece nas imagens de referência: mesma cor,
   mesmo formato, mesmas proporções, mesmos detalhes visíveis
@@ -666,6 +666,32 @@ REGRA DE FIDELIDADE AO PRODUTO (a mais importante de todas — sem exceções):
   (mesa, laço decorativo, props, ambiente, contexto) são permitidos quando o tipo de
   imagem exige (ex: Presenteie, Ambientação). O produto deve ser apresentado exatamente
   como aparece nas fotos — sem modificações nos seus componentes.
+"""
+
+# ─────────────────────────────────────────────────────────────────────────
+# O QUE VALE SO NA CRIACAO, E NAO NO AJUSTE FINO
+#
+# Dono, 30/09, sobre o ajuste que nao saiu: "o erro esta na solicitacao
+# do sistema (...) por ele estar fazendo algo errado, seja na comunicacao
+# ou na analise do que precisa fazer". Ele estava certo.
+#
+# Estas duas clausulas sao CERTAS quando o sistema CRIA uma peca a
+# partir de fotos do produto: a foto pode ter texto de embalagem, e
+# medida inventada e pior que medida ausente.
+#
+# No AJUSTE FINO elas viram o contrario. Ali a imagem enviada e a
+# PROPRIA PECA, com o texto dela — e "ignore completamente qualquer
+# texto visivel nas imagens" manda ignorar justamente o texto que o
+# colaborador pediu para trocar. E o numero que ele digitou no pedido
+# nao esta "nos campos do produto", entao a segunda clausula manda NAO
+# escreve-lo. Pedido: "trocar o texto: diametro 25 cm e peso 476 g".
+# Duas regras absolutas proibindo, e o modelo obedeceu.
+#
+# UM TEXTO SO, usado em dois lugares — e nao duas copias que discordam
+# daqui a tres semanas. A criacao recebe nucleo + estas; o ajuste
+# recebe o nucleo e diz a SUA propria regra sobre inventar numero.
+# ─────────────────────────────────────────────────────────────────────────
+INSTRUCAO_FIDELIDADE_SO_CRIACAO = """
 - NÃO copie nem reproduza nenhum texto, palavra ou rótulo que apareça escrito
   nas fotos de referência — ignore completamente qualquer texto visível nas imagens
 - PROIBIÇÃO ABSOLUTA DE INVENTAR DADOS TÉCNICOS: JAMAIS crie, estime ou invente
@@ -674,6 +700,9 @@ REGRA DE FIDELIDADE AO PRODUTO (a mais importante de todas — sem exceções):
   Imagem com dados inventados é pior do que imagem sem dados.
 - Só use medidas e peso na imagem se eles estiverem EXPLICITAMENTE informados
   nos dados do produto fornecidos — nunca estime por conta própria
+"""
+
+_FIDELIDADE_ESTRUTURAL = """
 
 INTEGRIDADE ESTRUTURAL (o que fazer quando você NÃO sabe como o produto funciona):
 - NÃO invente mecânica interna: folhas soltas, páginas saindo, miolo exposto,
@@ -684,6 +713,15 @@ INTEGRIDADE ESTRUTURAL (o que fazer quando você NÃO sabe como o produto funcio
   desconhecido com algo plausível é erro grave, não criatividade
 - Mantenha a estrutura visível exatamente como está: espessura, encadernação,
   acabamento, quantidade de partes"""
+
+# A CRIACAO RECEBE EXATAMENTE O QUE RECEBIA ANTES — byte por byte. O ajuste
+# recebe o nucleo. Uma fonte para os dois: a regra do produto nao pode ter
+# duas versoes que passam a discordar.
+INSTRUCAO_FIDELIDADE = (INSTRUCAO_FIDELIDADE_ABERTURA
+                        + INSTRUCAO_FIDELIDADE_SO_CRIACAO.strip("\n")
+                        + _FIDELIDADE_ESTRUTURAL)
+INSTRUCAO_FIDELIDADE_NUCLEO = (INSTRUCAO_FIDELIDADE_ABERTURA
+                               + _FIDELIDADE_ESTRUTURAL)
 
 INSTRUCAO_COMPOSICAO = """
 INSTRUÇÃO DE COMPOSIÇÃO:
@@ -799,10 +837,14 @@ MODO AJUSTE FINO — EDIÇÃO CIRÚRGICA — REGRAS ABSOLUTAS E INVIOLÁVEIS:
 1. Faça SOMENTE a modificação descrita na instrução — absolutamente nada mais
 2. Preserve a composição inteira: fundo, cenário, iluminação, cores, perspectiva,
    todos os objetos e todos os detalhes visuais
-3. Preserve exatamente todos os textos que já existem na imagem
-   (não adicione nem remova nenhum texto)
-4. Preserve a aparência exata do produto: mesma cor, mesmos detalhes,
-   mesmos elementos visíveis (furos, padrões, logotipos na embalagem, etc.)
+3. Preserve os textos que já existem na imagem — EXCETO o texto que a
+   modificação pedida mandar trocar, corrigir ou acrescentar. Se o pedido
+   for sobre texto, faça exatamente esse texto e deixe todos os outros
+   intactos. Não mexa em texto que o pedido não citou.
+4. Preserve a aparência do produto: mesma cor, mesmos detalhes, mesmos
+   elementos visíveis (furos, padrões, logotipos na embalagem, etc.) —
+   EXCETO no ponto que a modificação pedida citar. Preservar o produto
+   nunca é motivo para deixar de fazer o que foi pedido.
 5. NÃO "melhore", "enriqueça", "atualize" ou "harmonize" nada além do pedido
 6. NÃO aplique identidade visual, branding, cores ou fontes da empresa
 7. NÃO adicione nenhum objeto, efeito, texto ou elemento não mencionado
@@ -4995,9 +5037,20 @@ A imagem fornecida é a imagem atual que deve ser editada.
 MODIFICAÇÃO SOLICITADA — o único e exclusivo ponto a alterar:
 {instrucao}
 
+QUEM MANDA NESTE PEDIDO (leia antes de tudo o que vem abaixo):
+A MODIFICAÇÃO SOLICITADA acima é o objetivo, e ela tem prioridade sobre TODAS
+as regras deste texto. As regras abaixo existem para dizer o que NÃO muda
+junto — elas nunca proíbem aquilo que foi pedido. Se alguma regra abaixo
+parecer proibir a modificação pedida, entenda que ela vale para TODO O RESTO
+da imagem, e não para o ponto pedido.
+FAZER O QUE FOI PEDIDO NÃO É OPCIONAL. Devolver a imagem sem a modificação é
+falha, não segurança.
+NÚMEROS: use os que estiverem na MODIFICAÇÃO SOLICITADA ou já escritos na
+imagem. Não estime, não arredonde e não invente nenhum outro.
+
 {INSTRUCAO_AJUSTE_FINO}
 
-{INSTRUCAO_FIDELIDADE}
+{INSTRUCAO_FIDELIDADE_NUCLEO}
 {_trava_cor_produto(cor_do_produto_atual() if cor_produto is None else cor_produto)}
 
 O PRODUTO NÃO É PARTE DO AJUSTE — regra acima de qualquer instrução:
@@ -5009,9 +5062,11 @@ O PRODUTO NÃO É PARTE DO AJUSTE — regra acima de qualquer instrução:
 - "Melhorar", "realçar", "deixar mais bonito" NUNCA autorizam redesenhar o
   produto. Se o pedido for sobre cor, luz ou fundo, mexa na cor, na luz ou no
   fundo — e no produto, em nada.
-- Se a modificação pedida só puder ser feita alterando o produto, NÃO a faça:
-  devolva a imagem como está. Entregar o produto errado é pior do que não
-  atender ao pedido.
+- Se a modificação pedida for SOBRE o produto (tamanho na cena, posição,
+  recorte, um texto escrito sobre ele), faça exatamente o que foi pedido e
+  preserve todo o resto do produto: a mesma peça, a mesma superfície, o mesmo
+  acabamento. Fazer o pedido nunca autoriza REDESENHAR o produto — e não fazer
+  o pedido também não é saída.
 
 Reproduza a imagem fornecida com fidelidade absoluta, aplicando APENAS a modificação acima.
 Trate qualquer elemento que não foi mencionado na instrução como intocável.

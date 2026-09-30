@@ -728,6 +728,45 @@ MUTACOES = [
         '        copia = os.path.join(dir_, "checar_mutacao.py")\n',
         ["python3", "checar_mutacao.py", "--autoteste"],
     ),
+    # ── AS QUATRO DO AJUSTE FINO ─────────────────────────────────────────
+    #
+    # Dono, 30/09: "se nao consegue nao e por recusa do GEMINI e sim por ele
+    # estar fazendo algo errado (...) na comunicacao ou na analise do que
+    # precisa fazer". O pedido era "trocar o texto: diametro 25 cm e peso
+    # 476 g", e o mesmo prompt levava TRES proibicoes absolutas contra ele,
+    # mais uma quarta mandando desistir. O modelo obedeceu.
+    (
+        "o prompt do ajuste volta a proibir mexer em texto",
+        "imagem.py",
+        "3. Preserve os textos que já existem na imagem — EXCETO o texto que a\n",
+        "3. Preserve exatamente todos os textos que já existem na imagem\n"
+        "   (não adicione nem remova nenhum texto)\n",
+        ["python3", "checar_prompts.py"],
+    ),
+    (
+        "o pedido do colaborador perde a prioridade declarada",
+        "imagem.py",
+        "A MODIFICAÇÃO SOLICITADA acima é o objetivo, e ela tem prioridade sobre TODAS\n",
+        "A MODIFICAÇÃO SOLICITADA acima é o objetivo, e ela vale junto com\n",
+        ["python3", "checar_prompts.py"],
+    ),
+    (
+        # As duas clausulas so-de-criacao voltando ao ajuste: "ignore todo
+        # texto visivel" e "nao escreva medida que nao veio do cadastro".
+        "o ajuste volta a receber as regras que so valem na criacao",
+        "imagem.py",
+        "{INSTRUCAO_FIDELIDADE_NUCLEO}\n",
+        "{INSTRUCAO_FIDELIDADE}\n",
+        ["python3", "checar_prompts.py"],
+    ),
+    (
+        "o prompt do ajuste volta a mandar desistir",
+        "imagem.py",
+        "- Se a modificação pedida for SOBRE o produto (tamanho na cena, posição,\n",
+        "- Se a modificação pedida só puder ser feita alterando o produto, NÃO a faça:\n"
+        "  devolva a imagem como está.\n",
+        ["python3", "checar_prompts.py"],
+    ),
 ]
 
 
