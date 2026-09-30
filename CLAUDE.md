@@ -370,17 +370,58 @@ pior: a 16ª entrada do `checar_mutacao.py` estava **verde por acidente**, já
 que "reprova com o defeito de volta" era verdade sem medir nada. Daí o
 `checar_mutacao.py` passar a conferir que o comando PASSA antes de mutar.
 
-Os sete, se precisar rodar um de cada vez:
+Os oito, se precisar rodar um de cada vez:
 
 ```
-python3 -m compileall -q .      # sintaxe
-python3 checar_ordem.py *.py    # nome lido antes de existir (UnboundLocalError)
-python3 checar_prompts.py       # regra de imagem que ficou faltando ou sobrando
-python3 checar_impacto.py       # quem mais lê o que este commit mudou
-python3 checar_tela.py          # a tela monta sem quebrar?
-python3 checar_alcance.py       # a correção chegou em TODOS os irmãos?
-python3 checar_mutacao.py       # as guardas VEEM o defeito? reintroduz e exige vermelho
+python3 -m compileall -q .        # sintaxe
+python3 checar_ordem.py *.py      # nome lido antes de existir (UnboundLocalError)
+python3 checar_prompts.py         # regra de imagem que ficou faltando ou sobrando
+python3 checar_impacto.py         # quem mais lê o que este commit mudou
+python3 checar_tela.py            # a tela monta sem quebrar?
+python3 checar_alcance.py         # a correção chegou em TODOS os irmãos?
+python3 checar_mutacao.py         # as guardas VEEM o defeito? reintroduz e exige vermelho
+python3 checar_comunicacao.py     # o sistema CONTA o que sabe? um assunto, um dono
 ```
+
+O OITAVO nasceu de uma proposta do dono, em 29/09: *"precisaria pegar a
+codificação, linguagem de comunicação do sistema com o Gemini, prompt (...)
+fazer um fluxograma de criação e resposta para pegar essas inconsistências de
+comunicação"*.
+
+O recorte dele era melhor que o meu. Os sete perguntam **"isto está certo?"**;
+nenhum perguntava **"o que este caminho não consegue fazer, e ele avisa quando
+não consegue?"**. Os sete defeitos daquele dia são **um padrão só — limite
+silencioso**: o teto de páginas comia pontos, `diag["truncado"]` era escrito e
+ninguém lia, a fila mostrava 4 de 17, o ajuste tinha 2 tentativas fixas, o
+Gemini não preservava o produto sem dizer, a variável do Railway vencia o
+modelo descoberto, o chat recebia anexo e agia na galeria. Não são sete bugs:
+é a mesma falha de projeto sete vezes.
+
+Ele pergunta três coisas:
+
+1. **Todo dado gravado no diagnóstico chega a alguém?** Achou cinco mudos —
+   entre eles `input_fidelity`, que diz se a peça preservou o produto, e
+   `medida`, que são os defeitos MEDIDOS nela. `size_pedido` já estava na tela
+   e `input_fidelity` não, a duas linhas de distância no código que os grava.
+2. **Dois blocos do mesmo prompt trazem número sobre o mesmo assunto?** Era o
+   defeito da peça 7 do Tigre: "30% a 45%" e "mais da metade do quadro" no
+   mesmo texto.
+3. **Todas as peças concordam sobre quanto é a folga?** A mesma regra está
+   escrita de dois jeitos — "6% em cada lado" nos tipos 2,3,5,6,7 e "6% da
+   borda" nos tipos 1,4,8. Hoje concordam; é a Forma 5 esperando acontecer.
+
+**E ele mesmo deu dois alarmes falsos enquanto era construído**, os dois
+viraram asserção do auto-teste dele. O primeiro procurou `.get("motor")` com
+aspas DUPLAS e a tela usa simples: anunciou que o motor não chegava à tela,
+quando ele está no expander que o dono tinha no print. O segundo acusou a
+REGRA DE DENSIDADE de falar da folga porque o bloco continha "NUNCA metade de
+um lado" — que é posição, não folga. Por isso ele lê por AST e exige o número
+NA LINHA do assunto.
+
+**Ele também reprovou uma guarda do terceiro verificador, com razão.**
+`checar_prompts` exigia a frase "6% acima da base", que vivia na segunda voz;
+travava a redação, não o comportamento — a Forma 2. Passou a exigir a MEDIDA,
+não a frase.
 
 O sétimo nasceu de uma pergunta do dono, depois da terceira conferência
 seguida: *"tem certeza? você falou isso da primeira vez, mandei revisar e

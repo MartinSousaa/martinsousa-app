@@ -113,8 +113,8 @@ REGRAS = [
     # esta base ja pagou caro tres vezes. A precedencia sai escrita.
     ("a precedência da referência de layout sobre a coluna",
      "a POSIÇÃO é a dela", TIPOS_COM_TEXTO, (TIPO_AMBIENTE,)),
-    ("a folga de 6% no topo e na base", "6% acima da base",
-     TIPOS_COM_TEXTO, (TIPO_AMBIENTE,)),
+    ("a medida da folga da borda chega à peça", "6%",
+     TIPOS_COM_TEXTO, ()),
     # `None` em "onde deve" quer dizer "em todos"; em "onde nao pode" ele nao
     # existe — para proibir em toda parte, a lista e TODOS.
     ("nenhum preset manda pôr cartão em grade", "ou em grade", (), TODOS),

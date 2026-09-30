@@ -4,6 +4,7 @@ placar_core.py — Constantes e funções puras compartilhadas entre placar.py e
 IMPORTANTE: Este módulo NÃO importa streamlit e NÃO contém nenhuma UI.
 Pode ser importado com segurança por qualquer módulo sem causar efeitos colaterais.
 """
+import os
 import requests
 from datetime import datetime, timezone, timedelta, time, date
 
@@ -2618,6 +2619,35 @@ def pct_criterio_penalidade(qtd, teto, pts_destrava, saldo):
     return min(pct_da_meta(saldo, 0, pts_destrava), 99.9)
 
 
+def aviso_de_corte(total, mostrados, nome="item"):
+    """"Mostrando N de M" quando uma lista é cortada. "" quando não corta.
+
+    POR QUE ESTA FUNÇÃO EXISTE
+
+    Dono, 29/09: *"temos um monte de demanda na coluna CHAT (PROBLEMAS-30)
+    que não estão entrando na fila do painel"*.
+
+    Estavam. A fila mostra 4 (`placar.py:446`) e o quadro tinha 17 pendentes;
+    os cartões do CHAT, prioridade 5, ficavam abaixo do corte. Não era bug —
+    era um limite que corta e não diz que cortou, e quem olha conclui que o
+    cartão não entrou.
+
+    É o mesmo padrão que custou o dia 29/09 inteiro: o teto de páginas comia
+    pontos em silêncio, `diag["truncado"]` era escrito e nenhuma tela lia, o
+    ajuste parava em 2 tentativas sem oferecer a terceira. Todo número que
+    corta tem de dizer quanto ficou de fora — senão o limite vira defeito
+    aos olhos de quem trabalha.
+    """
+    try:
+        total, mostrados = int(total or 0), int(mostrados or 0)
+    except (TypeError, ValueError):
+        return ""
+    if total <= mostrados or total <= 0:
+        return ""
+    return (f"Mostrando {mostrados} de {total} — {total - mostrados} "
+            f"{nome}(ns) abaixo do corte, por prioridade e data.")
+
+
 def _pts_br(v):
     """1500 -> "1.500". Ponto como separador de milhar, como se escreve aqui."""
     return f"{float(v or 0):,.0f}".replace(",", ".")
@@ -3895,5 +3925,43 @@ if __name__ == "__main__":
        all(c.get("id") != "p2" for c in _par))
     ok("sem histórico da ação, o `desde` vem vazio em vez de inventado",
        all(c.get("desde") is None for c in _par))
+
+    # ══ O QUE FICOU DE FORA TEM DE SER DITO ═════════════════════════════
+    #
+    # Dono, 29/09: "temos um monte de demanda na coluna CHAT (PROBLEMAS-30)
+    # que não estão entrando na fila do painel".
+    #
+    # Estavam. A fila mostra 4 e o quadro tinha 17 pendentes — os do CHAT,
+    # prioridade 5, ficavam abaixo do corte. Não era bug: era um limite que
+    # corta e não diz que cortou, e quem olha conclui que o cartão sumiu.
+    #
+    # É o padrão que custou o dia 29/09 inteiro — o teto de páginas comia
+    # pontos, `truncado` era escrito e ninguém lia, a fila cortava em 4.
+    # Todo número que corta tem de dizer quanto ficou de fora.
+    ok("sem corte, não há o que dizer", aviso_de_corte(3, 3) == "")
+    ok("nem quando sobra vaga", aviso_de_corte(2, 4) == "")
+    _av = aviso_de_corte(17, 4)
+    ok("com corte, o aviso existe", bool(_av))
+    ok("e diz os DOIS números — mostrado e total", "4" in _av and "17" in _av)
+    ok("e diz quantos ficaram de fora", "13" in _av)
+    ok("lista vazia não inventa aviso", aviso_de_corte(0, 4) == "")
+
+    # E OS DOIS LUGARES QUE CORTAM USAM O AVISO — por AST.
+    #
+    # A função existir não basta: o defeito é a TELA cortar calada. E são
+    # DOIS lugares — o Painel e a TV. Corrigir só um seria a Forma 1 desta
+    # base, e a TV é justamente a que a equipe olha o dia inteiro, onde a
+    # demanda "sumida" foi procurada primeiro.
+    import ast as _ast_ct
+    _src_pl_ct = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                   "placar.py"), encoding="utf-8").read()
+    _chamadas_ct = [
+        _x for _x in _ast_ct.walk(_ast_ct.parse(_src_pl_ct))
+        if isinstance(_x, _ast_ct.Call)
+        and (getattr(_x.func, "attr", "") or getattr(_x.func, "id", ""))
+        == "aviso_de_corte"]
+    ok(f"o Painel E a TV avisam o corte da fila "
+       f"({len(_chamadas_ct)} chamada(s), precisa de 2)",
+       len(_chamadas_ct) >= 2)
 
     print("\nfalhas:", falhas)

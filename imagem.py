@@ -461,6 +461,33 @@ def sem_medida_de_quadro(texto):
     return (limpo + ".") if limpo else ""
 
 
+def definir_produto_da_sessao(nome, codigo=None):
+    """A porta ÚNICA para dizer qual produto a aba Imagem está tratando.
+
+    POR QUE ESTA FUNÇÃO EXISTE
+
+    `img_nome_produto` era escrito em TRÊS lugares — recuperar rascunho,
+    ajuste fino avulso e fim da geração — e `img_codigo` em dois. Três
+    escritores para a mesma pergunta é a Forma 5 desta base: um nome, duas
+    respostas, e elas passam a discordar. Foi por um buraco dessa família que
+    o Tigre foi gerado com o brief de um pêndulo.
+
+    NOME VAZIO NÃO APAGA O QUE ESTAVA. O ajuste fino avulso escrevia
+    `nome_produto or "produto-ajustado"`: um campo em branco trocava o produto
+    da sessão por um rótulo genérico, e a geração seguinte saía sem nome — o
+    mesmo defeito que fez o log gravar produto vazio em toda linha.
+
+    A unificação do estado inteiro da aba continua aberta e declarada: é
+    mudança grande, e o risco tem de ser mapeado antes.
+    """
+    nome = str(nome or "").strip()
+    if nome:
+        st.session_state["img_nome_produto"] = nome
+    if codigo:
+        st.session_state["img_codigo"] = str(codigo).strip()
+    return st.session_state.get("img_nome_produto", "")
+
+
 def divergencia_de_produto(cfg, nome_da_tela, dados_da_tela):
     """O plano congelado é de OUTRO produto? Devolve o aviso, ou "" quando bate.
 
@@ -721,10 +748,10 @@ REGRA DE DENSIDADE:
   grade. A referência é o padrão aprovado da empresa e manda sobre a coluna
   única; o que NÃO muda com ela é a folga das bordas logo abaixo: mesmo
   copiando a referência, nenhum cartão toca ou cruza a borda.
-- CADA CARTÃO INTEIRO DENTRO DO QUADRO: o primeiro começa pelo menos 6% abaixo
-  do topo e o último termina pelo menos 6% acima da base, com o fundo da cena
-  aparecendo acima do primeiro e abaixo do último. Cartão que toca a borda é
-  peça reprovada.
+- CADA CARTÃO INTEIRO DENTRO DO QUADRO, respeitando a folga da borda definida
+  na REGRA DE ESPAÇO DESTA PEÇA: o primeiro começa abaixo do topo e o último
+  termina acima da base, com o fundo da cena aparecendo acima do primeiro e
+  abaixo do último. Cartão que toca a borda é peça reprovada.
 - SE NÃO COUBEREM TODOS na coluna com essa folga, use MENOS cartões e maiores —
   nunca comprima, nunca empilhe até a borda, nunca deixe um pela metade.
 - Espaçamento uniforme entre blocos, sem que um encoste no outro
@@ -5888,11 +5915,28 @@ def _relato_base(num, relato):
     falta = (relato.get("falta") or "").strip()
     _pedaco = f" O que faltou: {falta}" if falta and len(falta) < 180 else ""
     if relato.get("produto_alterado"):
-        return (f"❌ Imagem {num}: não consegui — toda vez que tentei, o "
-                f"produto mudava junto, e produto errado é pior que peça sem "
-                f"correção. Ela ficou como estava.\n"
-                f"   Me diga o que fazer: posso refazer a peça do zero com "
-                f"esse ajuste desde o começo, ou deixar como está.")
+        # A TERCEIRA TENTATIVA É DELE, E NÃO MINHA.
+        #
+        # Dono, 29/09: "o chat vai conseguir realizar o que hoje ele informa
+        # não conseguir em 2 ou mais tentativas?".
+        #
+        # São 2 tentativas fixas (`ajustar_com_conferencia`, tentativas=2), e
+        # quando o produto muda o sistema ENCERRAVA: oferecia refazer do zero
+        # ou deixar como está. Quando o ajuste apenas NÃO SAI, ele diz "me
+        # peça de novo e eu tento por outro caminho" — dá para insistir.
+        #
+        # Exatamente no caso mais difícil, o sistema tirava do colaborador a
+        # opção de insistir, e a decisão de parar era minha, escrita no
+        # código. O número de tentativas aparece, e insistir volta a ser uma
+        # das saídas.
+        _n_tent = relato.get("tentativas") or 2
+        return (f"❌ Imagem {num}: não consegui em {_n_tent} tentativa(s) — "
+                f"toda vez o produto mudava junto, e produto errado é pior "
+                f"que peça sem correção. Ela ficou como estava.\n"
+                f"   Três saídas, e a escolha é sua: **me peça de novo** "
+                f"(cada rodada parte da imagem original, não da tentativa "
+                f"falha), **refazer a peça do zero** com esse ajuste desde o "
+                f"começo, ou **deixar como está**.")
     return (f"❌ Imagem {num}: não consegui em {relato['tentativas']} "
             f"tentativa(s), e a imagem ficou como estava.{_pedaco}\n"
             f"   Não precisa reescrever nada — me peça de novo e eu tento "
@@ -6532,7 +6576,7 @@ def pagina_imagem(usuario_logado):
                     st.error("As imagens do rascunho não estão mais no disco.")
                 else:
                     st.session_state["img_galeria"] = _cheio["galeria"]
-                    st.session_state["img_nome_produto"] = _cheio["nome_produto"]
+                    definir_produto_da_sessao(_cheio["nome_produto"])
                     st.rerun()
             if _c_desc.button("Descartar", use_container_width=True,
                               key="img_descartar_rascunho"):
@@ -7032,8 +7076,10 @@ def pagina_imagem(usuario_logado):
                 # ao lado dela na galeria depois do rerun.
                 st.session_state["img_af_relato"] = (len(galeria_atual) - 1,
                                                      _rel_af)
-                st.session_state["img_nome_produto"] = nome_produto or "produto-ajustado"
-                st.session_state["img_codigo"] = codigo_input
+                # `or "produto-ajustado"` SAIU: nome em branco trocava o
+                # produto da sessão por um rótulo genérico, e a geração
+                # seguinte saía sem nome. A porta ignora o vazio.
+                definir_produto_da_sessao(nome_produto, codigo=codigo_input)
                 # A imagem que ela subiu é a ARTE PRONTA, e não foto do
                 # produto. Gravá-la como "fotos originais" fazia o refazer
                 # gerar do zero usando a própria arte errada como referência —
@@ -8261,8 +8307,8 @@ def pagina_imagem(usuario_logado):
                     for k in [k for k in st.session_state if k.startswith("_pasta_")]:
                         del st.session_state[k]
                     st.session_state["img_galeria"] = galeria
-                    st.session_state["img_nome_produto"] = cfg["nome_produto"]
-                    st.session_state["img_codigo"] = cfg.get("codigo", "")
+                    definir_produto_da_sessao(cfg["nome_produto"],
+                                              codigo=cfg.get("codigo", ""))
                     st.session_state["img_fotos_originais"] = cfg["fotos_bytes"]
                     # A MARCA DE "ISSO E ARTE" TEM DE SER DESLIGADA AQUI.
                     #
@@ -8390,6 +8436,42 @@ def pagina_imagem(usuario_logado):
                     f"**Tamanho pedido / recebido**  \n"
                     f"{_d.get('size_pedido', '—')} → {_d.get('tamanho_bruto', '—')}"
                 )
+                # O QUE O SISTEMA MEDIU E NÃO CONTAVA A NINGUÉM.
+                #
+                # `checar_comunicacao.py` achou cinco campos gravados no
+                # diagnóstico e nunca mostrados. Três deles respondem
+                # exatamente as perguntas que custaram o dia 29/09:
+                #
+                #   input_fidelity  a peça foi gerada PRESERVANDO o produto?
+                #                   O Gemini não aceita esse parâmetro; sem
+                #                   ele, o produto é redesenhado — e era isso
+                #                   que fazia o Ajuste Fino reprovar sem que
+                #                   ninguém soubesse por quê.
+                #   medida          os defeitos MEDIDOS na peça, por
+                #                   `medir_imagem.problemas`. O sistema já
+                #                   media e guardava para si.
+                #   ref_layout      a referência de layout enviada
+                #                   correspondeu ao tipo, ou foi ignorada?
+                #
+                # `size_pedido` já estava na tela e `input_fidelity` não, a
+                # duas linhas de distância no código que os grava: a Forma 1
+                # desta base, de novo.
+                _fid = _d.get("input_fidelity")
+                st.markdown(
+                    "**Produto preservado**  \n"
+                    + ("✅ sim — `input_fidelity=" + str(_fid) + "`" if _fid
+                       else "⚠️ NÃO — este motor não preserva o produto, "
+                            "então ele foi redesenhado")
+                )
+                if _d.get("ref_layout"):
+                    st.markdown(f"**Referência de layout**  \n{_d['ref_layout']}")
+                if _d.get("medida"):
+                    st.warning(
+                        "📐 **O que a medição encontrou nesta peça:** "
+                        + str(_d["medida"]))
+                _pf, _ff = _d.get("peso_final"), _d.get("formato_final")
+                if _pf or _ff:
+                    st.caption(f"Arquivo final: {_ff or '—'} · {_pf or '—'}")
                 if _d.get("erro_openai"):
                     st.warning(f"**Erro do gerador principal:**\n\n{_d['erro_openai']}")
                 st.markdown("**Prompt exato enviado ao modelo:**")
@@ -9262,6 +9344,84 @@ if __name__ == "__main__":
         ok("o resto da instrucao sobreviveu", "Reenquadre" in _pf)
     finally:
         globals()["conferir_peca"] = _conf_antes
+
+    # ══ O PRODUTO DA SESSÃO TEM UMA PORTA SÓ ════════════════════════════
+    #
+    # Dono, 29/09, depois do Tigre gerado com brief de pêndulo: *"ataque
+    # tudo"*.
+    #
+    # `img_nome_produto` era escrito em TRÊS lugares e `img_codigo` em dois,
+    # cada um a seu modo — recuperar rascunho, ajuste fino avulso, fim da
+    # geração. Três escritores para a mesma pergunta é a Forma 5 desta base:
+    # um nome, duas respostas, e elas passam a discordar.
+    #
+    # A unificação do ESTADO INTEIRO da aba é mudança grande e a produção
+    # está em uso; o que dá para fazer com segurança hoje é a porta única —
+    # os três momentos continuam existindo, mas escrevem pelo mesmo lugar.
+    import checar_tela as _ct_prod
+    _ct_prod.instalar()
+    st.session_state.clear()
+    definir_produto_da_sessao("Tigre", codigo="MS-TIGR-0929GUF")
+    ok("a porta grava o nome", st.session_state.get("img_nome_produto") == "Tigre")
+    ok("e o código", st.session_state.get("img_codigo") == "MS-TIGR-0929GUF")
+
+    # NOME VAZIO NÃO APAGA O QUE ESTAVA. O ajuste fino avulso passava
+    # `nome_produto or "produto-ajustado"`; um None ali zerava o produto da
+    # sessão e a geração seguinte saía sem nome.
+    definir_produto_da_sessao("", codigo="")
+    ok("nome vazio não apaga o produto que já estava",
+       st.session_state.get("img_nome_produto") == "Tigre")
+    ok("nem o código", st.session_state.get("img_codigo") == "MS-TIGR-0929GUF")
+
+    definir_produto_da_sessao("Pêndulo", codigo="MS-PEND-01")
+    ok("mas trocar de produto de verdade funciona",
+       st.session_state.get("img_nome_produto") == "Pêndulo")
+
+    # E NINGUÉM ESCREVE POR FORA — por AST, no arquivo inteiro.
+    import ast as _ast_pp
+    _arv_pp = _ast_pp.parse(open(__file__, encoding="utf-8").read()
+                            .split('if __name__ == "__main__":')[0])
+    _porta = next((_x for _x in _ast_pp.walk(_arv_pp)
+                   if isinstance(_x, _ast_pp.FunctionDef)
+                   and _x.name == "definir_produto_da_sessao"), None)
+    _linhas_da_porta = ({_x.lineno for _x in _ast_pp.walk(_porta)
+                         if hasattr(_x, "lineno")} if _porta else set())
+    _por_fora = []
+    for _n_pp in _ast_pp.walk(_arv_pp):
+        if isinstance(_n_pp, _ast_pp.Assign) and _n_pp.lineno not in _linhas_da_porta:
+            for _t_pp in _n_pp.targets:
+                if (isinstance(_t_pp, _ast_pp.Subscript)
+                        and isinstance(_t_pp.slice, _ast_pp.Constant)
+                        and _t_pp.slice.value in ("img_nome_produto",
+                                                  "img_codigo")):
+                    _por_fora.append(_n_pp.lineno)
+    ok(f"ninguém escreve o produto por fora da porta "
+       f"({len(_por_fora)} fora: {_por_fora[:3]})", not _por_fora)
+
+    # ══ O LIMITE DE TENTATIVAS APARECE, E INSISTIR É UMA SAÍDA ══════════
+    #
+    # Dono, 29/09: "o chat vai conseguir realizar o que hoje ele informa não
+    # conseguir em 2 ou mais tentativas?". São 2 fixas, e quando o produto
+    # mudava o sistema ENCERRAVA — sem oferecer a terceira. Quando o ajuste
+    # apenas não sai, ele já dizia "me peça de novo". No caso mais difícil,
+    # tirava essa opção.
+    _rel_alt = {"ok": False, "produto_alterado": True, "tentativas": 2,
+                "falta": "", "colateral": "o produto foi redesenhado",
+                "saiu": "", "erro": ""}
+    _txt_alt = relato_em_texto(2, _rel_alt)
+    ok("a recusa por produto alterado diz QUANTAS tentativas houve",
+       "2 tentativa" in _txt_alt)
+    ok("e oferece insistir, não só refazer ou desistir",
+       "me peça de novo" in _txt_alt.lower())
+    ok("e continua dizendo que a peça ficou como estava",
+       "ficou como estava" in _txt_alt)
+    # E A RECUSA COMUM NÃO PERDEU O CONVITE que ela já tinha.
+    _txt_nao = relato_em_texto(2, {"ok": False, "produto_alterado": False,
+                                   "tentativas": 2, "erro": "",
+                                   "falta": "os cartões seguem cortados",
+                                   "colateral": "", "saiu": ""})
+    ok("a recusa comum segue convidando a pedir de novo",
+       "me peça de novo" in _txt_nao.lower())
 
     # ══ A REFERÊNCIA DO PEDIDO CHEGA AO MOTOR ═══════════════════════════
     #
