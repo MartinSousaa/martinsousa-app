@@ -2594,7 +2594,20 @@ def pct_da_meta(saldo, meta_pts, pts_destrava=None):
     saldo = float(saldo or 0)
     alvo = float(meta_pts or 0)
     if pts_destrava:
-        alvo = saldo + float(pts_destrava)
+        # O MAIOR DOS DOIS ALVOS, NUNCA A TROCA DE UM PELO OUTRO.
+        #
+        # A primeira versao fazia `alvo = saldo + destrava` e JOGAVA FORA a
+        # meta. No fim do mes isso acerta, porque o saldo ja passou dela —
+        # e foi so esse caso que eu testei, tirado do print do dono. No meio
+        # do mes ela lisonjeia: 1.000 pontos de 10.800, com 660 de
+        # destrave, apareciam como 60,2% em vez de 9,3%.
+        #
+        # E o MESMO defeito que o dono reclamou, virado do avesso — "nao
+        # deve aparecer como 103%" e "nao deve aparecer como 60%" sao a
+        # mesma frase. A meta so esta batida quando o saldo passa da meta
+        # CONFIGURADA **e** nao ha nada travando; entao o alvo e o maior
+        # dos dois, e 100% continua querendo dizer uma coisa so.
+        alvo = max(alvo, saldo + float(pts_destrava))
     return (saldo / alvo * 100) if alvo > 0 else 0.0
 
 
@@ -3669,6 +3682,21 @@ if __name__ == "__main__":
        pct_da_meta(500, 0, 0) == 0.0)
     ok("e destrave None é tratado como sem trava",
        abs(pct_da_meta(11140, 10800, None) - 103.15) < 0.05)
+    # O BURACO: SALDO ABAIXO DA META, COM DESTRAVE.
+    #
+    # Todo valor testado aqui saiu do print de 29/09, onde o saldo (11.140)
+    # ja passava da meta (10.800). No meio do mes o saldo esta ABAIXO — e a
+    # conta antiga trocava a meta pelo destrave e inflava a barra.
+    ok("pct meio do mes: 5.000 de 10.800 com destrave nao vira 88%",
+       abs(pct_da_meta(5000, 10800, 660) - 46.30) < 0.05)
+    ok("pct comeco do mes: 1.000 de 10.800 com destrave nao vira 60%",
+       abs(pct_da_meta(1000, 10800, 660) - 9.26) < 0.05)
+    ok("pct com destrave nunca e maior do que sem destrave",
+       all(pct_da_meta(s, 10800, 660) <= pct_da_meta(s, 10800, 0) + 1e-9
+           for s in (0, 1000, 5000, 10799, 10800, 11140, 20000)))
+    ok("pct so chega a 100 quando o saldo passa da meta E nada trava",
+       pct_da_meta(10800, 10800, 660) < 100 and
+       pct_da_meta(10800, 10800, 0) >= 100)
 
     # ══ A BARRA DE PENALIDADE DIZIA 100% COM O TETO ESTOURADO ═══════════
     #

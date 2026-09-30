@@ -25,6 +25,7 @@ não ter verificador nenhum.
 import os
 import subprocess
 import sys
+import time
 
 RAIZ = os.path.dirname(os.path.abspath(__file__))
 
@@ -274,8 +275,8 @@ MUTACOES = [
         # penalidades para baterem a meta MAXX, nao deve aparecer como 103%".
         "a porcentagem da meta volta a ignorar o que trava ela",
         "placar_core.py",
-        "    if pts_destrava:\n        alvo = saldo + float(pts_destrava)",
-        "    if False:\n        alvo = saldo + float(pts_destrava)",
+        "        alvo = max(alvo, saldo + float(pts_destrava))",
+        "        alvo = float(meta_pts or 0)",
         ["python3", "placar_core.py"],
     ),
     (
@@ -388,9 +389,8 @@ MUTACOES = [
     (
         "a instrucao da refacao volta a mandar tamanho",
         "imagem.py",
-        '            + "\\n\\nO que fazer diferente agora: "\n'
-        "            + sem_medida_de_quadro(instrucao))",
-        '            + "\\n\\nO que fazer diferente agora: " + instrucao)',
+        "        _instr = sem_medida_de_quadro(instrucao).strip()",
+        "        _instr = instrucao.strip()",
         ["python3", "imagem.py"],
     ),
     (
@@ -658,6 +658,76 @@ MUTACOES = [
         "        return 1\n",
         ["python3", "checar_mutacao.py", "--autoteste"],
     ),
+    (
+        # 30/09: o destrave TROCAVA a meta em vez de disputar com ela. No
+        # fim do mes acerta (o saldo ja passou da meta) — e foi so esse
+        # caso que eu testei, tirado do print do dono. No meio do mes
+        # inflava: 1.000 de 10.800 com 660 de destrave davam 60,2%.
+        "o destrave troca a meta em vez de ser o maior dos dois",
+        "placar_core.py",
+        "        alvo = max(alvo, saldo + float(pts_destrava))\n",
+        "        alvo = saldo + float(pts_destrava)\n",
+        ["python3", "placar_core.py", "--autoteste"],
+    ),
+    (
+        # 30/09: quando o UNICO defeito da peca era o enquadramento, o
+        # corte da medida esvaziava a lista e o sistema pagava uma geracao
+        # pedindo NADA — com o risco conhecido de voltar com o produto
+        # trocado. A guarda de `instrucao` vazia rodava ANTES do corte.
+        "geracao paga com o pedido de correcao em branco",
+        "imagem.py",
+        "        if not _probs and not _instr:\n",
+        "        if False:\n",
+        ["python3", "imagem.py", "--autoteste"],
+    ),
+    (
+        # 30/09: o `conferir.py` matou este verificador em 900s e SIGKILL
+        # nao roda `finally` — `imagem.py` ficou MUTADO no disco, e o passo
+        # 2 seguinte mediu o arquivo mutado. Sem guardar o original ANTES
+        # de escrever, nao ha como desfazer o que um tiro deixou.
+        "um KILL no meio deixa o repositorio mutado, sem volta",
+        "checar_mutacao.py",
+        "        _guardar_original(arquivo, original)\n",
+        "        pass\n",
+        ["python3", "checar_mutacao.py", "--autoteste"],
+    ),
+    (
+        # 30/09, 12:58: a conferencia inteira foi RECUSADA por uma trava de
+        # 12:31 cujo processo ja tinha sido morto a tiro. `os.kill(pid, 0)`
+        # respondia "vivo" porque era um ZUMBI ainda nao recolhido — e a
+        # mensagem mandava "esperar a outra terminar". Nao havia outra.
+        "zumbi e pid reciclado voltam a segurar a trava para sempre",
+        "checar_mutacao.py",
+        '    if os.path.isdir("/proc/self"):\n',
+        "    if False:\n",
+        ["python3", "checar_mutacao.py", "--autoteste"],
+    ),
+    (
+        # 30/09: a copia de socorro era salva como `.py` DENTRO do
+        # repositorio. O `compileall` compilou, deixou um `__pycache__` la
+        # dentro, e `checar_tela`, `auditar` e a pre-conferencia deste
+        # arquivo reprovaram lendo o codigo duplicado. O socorro passou a
+        # causar o estrago que existe para desfazer.
+        "a copia de socorro volta a ter cara de codigo",
+        "checar_mutacao.py",
+        '    return arquivo.replace("/", "__") + ".original"\n',
+        '    return arquivo.replace("/", "__")\n',
+        ["python3", "checar_mutacao.py", "--autoteste"],
+    ),
+    (
+        # 30/09: a copia usada na conferencia do `main` se chamava
+        # `checar_mutacao.py` — o mesmo nome que um dos comandos da
+        # pre-conferencia. Ela chamava a si mesma, e com a trava quebrada
+        # (que e o que outra mutacao daqui faz DE PROPOSITO) a recursao
+        # nao tinha fundo: 1.810 processos, 14 de 16 GB, e CINCO
+        # verificadores sem defeito nenhum reprovando por falta de
+        # memoria — morrer calado vira "FALHA" sem explicacao.
+        "a copia da conferencia volta a ter o nome que ela mesma chama",
+        "checar_mutacao.py",
+        '        copia = os.path.join(dir_, "sob_teste.py")\n',
+        '        copia = os.path.join(dir_, "checar_mutacao.py")\n',
+        ["python3", "checar_mutacao.py", "--autoteste"],
+    ),
 ]
 
 
@@ -706,19 +776,161 @@ def _caminho_da_trava():
             or os.path.join(RAIZ, ".checar_mutacao.trava"))
 
 
-def _dono_vivo(pid):
-    """O processo que pegou a trava ainda existe?
+# ─────────────────────────────────────────────────────────────────────────
+# O SOCORRO: UM KILL NAO RODA `finally`
+#
+# 30/09: o `conferir.py` mata cada verificador em 900s. Com 69 mutacoes
+# este arquivo passou desse tempo, levou SIGKILL no meio — e SIGKILL NAO
+# executa o `finally`. O `imagem.py` ficou no disco COM O DEFEITO DENTRO,
+# e o passo 2 seguinte mediu o arquivo mutado e acusou quatro falhas que
+# nao existiam. Se eu tivesse commitado ali, o defeito injetado subiria
+# para producao.
+#
+# A trava resolve duas instancias; ela nao resolve uma instancia morta a
+# tiro. A regra de ouro do topo deste arquivo — "o repositorio nunca fica
+# mutado" — so se sustenta se a restauracao sobreviver ao processo.
+#
+# Entao o original vai para o DISCO antes de mutar, e a proxima execucao
+# devolve o que ficou para tras, EM VOZ ALTA. Serve para SIGKILL, Ctrl-C,
+# falta de memoria e queda de energia igual.
+# ─────────────────────────────────────────────────────────────────────────
+def _caminho_do_socorro():
+    return (os.environ.get("CHECAR_MUTACAO_SOCORRO")
+            or os.path.join(RAIZ, ".checar_mutacao.socorro"))
 
-    PermissionError e VIVO: o processo esta la, de outro usuario. Tratar
-    como morto derrubaria a trava justamente quando ela vale.
+
+def _guardado_como(arquivo):
+    """O nome da copia: caminho achatado, e SEM extensao de codigo."""
+    return arquivo.replace("/", "__") + ".original"
+
+
+def _de_volta_para(nome):
+    """O caminho original, a partir do nome da copia."""
+    return nome[:-len(".original")].replace("__", "/")
+
+
+def _guardar_original(arquivo, texto):
+    pasta = _caminho_do_socorro()
+    os.makedirs(pasta, exist_ok=True)
+    # `.original`, E NAO `.py`: a copia de socorro fica DENTRO do
+    # repositorio, e com cara de codigo ela vira codigo. Em 30/09 o
+    # `compileall` compilou a copia (criando `__pycache__` la dentro),
+    # `checar_tela` e `auditar` leram o arquivo duplicado e reprovaram — e
+    # a pre-conferencia do proprio verificador caiu junto. O socorro
+    # passou a causar o estrago que ele existe para desfazer.
+    with open(os.path.join(pasta, _guardado_como(arquivo)), "w",
+              encoding="utf-8") as fh:
+        fh.write(texto)
+
+
+def _esquecer_original(arquivo):
+    pasta = _caminho_do_socorro()
+    try:
+        os.unlink(os.path.join(pasta, _guardado_como(arquivo)))
+    except OSError:
+        pass
+    try:
+        os.rmdir(pasta)
+    except OSError:
+        pass
+
+
+def socorrer(raiz=None, pasta=None):
+    """Devolve os arquivos que uma execucao morta deixou mutados.
+
+    Lista dos nomes restaurados — vazia quando nao havia nada. Ela nao
+    pergunta se o arquivo "parece" mutado: compara com o original guardado
+    e devolve o original quando diferem. Comparar e mais barato que
+    reescrever, e reescrever igual ainda assim nao faria mal.
+    """
+    raiz = raiz or RAIZ
+    pasta = pasta or _caminho_do_socorro()
+    if not os.path.isdir(pasta):
+        return []
+    voltaram = []
+    for nome in sorted(os.listdir(pasta)):
+        guardado_em = os.path.join(pasta, nome)
+        # SO COPIA. Qualquer outra coisa ali (um `__pycache__`, por
+        # exemplo) nao e original de ninguem, e tratar como se fosse
+        # deixaria a pasta viva para sempre — `os.rmdir` nao apaga pasta
+        # com coisa dentro, e o socorro ficaria pendurado.
+        if not nome.endswith(".original") or not os.path.isfile(guardado_em):
+            continue
+        alvo = os.path.join(raiz, _de_volta_para(nome))
+        try:
+            with open(guardado_em, encoding="utf-8") as fh:
+                original = fh.read()
+        except OSError:
+            continue
+        atual = None
+        try:
+            with open(alvo, encoding="utf-8") as fh:
+                atual = fh.read()
+        except OSError:
+            pass
+        if atual != original:
+            with open(alvo, "w", encoding="utf-8") as fh:
+                fh.write(original)
+            voltaram.append(_de_volta_para(nome))
+        try:
+            os.unlink(guardado_em)
+        except OSError:
+            pass
+    # A PASTA SOME INTEIRA, inclusive o `__pycache__` que o `compileall`
+    # deixou la dentro enquanto a copia ainda tinha cara de codigo.
+    import shutil as _sh_soc
+    _sh_soc.rmtree(pasta, ignore_errors=True)
+    return voltaram
+
+
+def _nascimento(pid):
+    """A hora em que ESTE processo nasceu. "" quando ele nao esta rodando.
+
+    SO O PID NAO BASTA, E ISSO CUSTOU UMA CONFERENCIA EM 30/09.
+    Uma execucao morta a tiro deixou a trava para tras. Na execucao
+    seguinte `os.kill(pid, 0)` respondeu "vivo" — o numero ja pertencia a
+    outra coisa — e a conferencia inteira foi recusada, com a mensagem
+    mandando "esperar a outra terminar". Nao havia outra.
+
+    O par (pid, nascimento) e unico: pid reciclado nasce noutra hora, e a
+    trava dele deixa de bater. Zumbi conta como MORTO — um filho que ainda
+    nao foi recolhido responde a sinal 0 como se estivesse vivo, e foi
+    exatamente assim que a trava de 12:31 bloqueou a das 12:58.
+
+    Fora do Linux nao ha `/proc`: devolve "" e a decisao volta a ser so
+    pelo pid, que e o que se tinha antes.
     """
     try:
-        os.kill(pid, 0)
+        with open(f"/proc/{int(pid)}/stat", encoding="utf-8") as fh:
+            # o nome do programa vem entre parenteses e pode ter espaco
+            campos = fh.read().rsplit(") ", 1)[1].split()
+    except (OSError, ValueError, IndexError):
+        return ""
+    if not campos or campos[0] == "Z":
+        return ""
+    return campos[19] if len(campos) > 19 else ""
+
+
+def _dono_vivo(pid, nascimento=""):
+    """O dono da trava ainda e o mesmo processo?
+
+    Com `/proc`, a resposta e exata. Sem ele, cai no sinal 0 — e ai
+    PermissionError conta como VIVO: o processo esta la, de outro usuario.
+    """
+    # ONDE HA `/proc`, ELE E A AUTORIDADE — inclusive quando diz "nao esta
+    # rodando". A primeira versao caia no sinal 0 sempre que `_nascimento`
+    # voltava vazio, e vazio era justamente a resposta para o ZUMBI: o
+    # sinal 0 dizia "vivo" e o defeito voltava inteiro.
+    if os.path.isdir("/proc/self"):
+        agora = _nascimento(pid)
+        return bool(agora) and (not nascimento or agora == nascimento)
+    try:
+        os.kill(int(pid), 0)
     except ProcessLookupError:
         return False
     except PermissionError:
         return True
-    except OSError:
+    except (OSError, ValueError):
         return True
     return True
 
@@ -739,15 +951,32 @@ def tomar_a_trava(caminho=None, pid=None, vivo=_dono_vivo):
         except FileExistsError:
             try:
                 with open(caminho, encoding="utf-8") as fh:
-                    dono = int((fh.read() or "").strip() or 0)
-            except (OSError, ValueError):
-                dono = 0
-            if dono and dono != pid and vivo(dono):
+                    _lido = (fh.read() or "").split()
+                dono = int(_lido[0]) if _lido else 0
+                nasceu = _lido[1] if len(_lido) > 1 else ""
+            except (OSError, ValueError, IndexError):
+                dono, nasceu = 0, ""
+            if dono and dono != pid and vivo(dono, nasceu):
+                # A SAIDA TEM DE ESTAR NA MENSAGEM.
+                #
+                # Um SIGKILL no meio deixa o arquivo para tras, e se o
+                # sistema reciclar aquele pid para qualquer processo sem
+                # relacao nenhuma, `vivo` diz "sim" e esta conferencia
+                # recusa PARA SEMPRE. "Espere a outra terminar" seria
+                # conselho errado e beco sem saida: ninguem esta rodando.
+                # Entao a recusa diz o caminho e a idade, e quem le decide.
+                try:
+                    idade = int(time.time() - os.path.getmtime(caminho))
+                except OSError:
+                    idade = -1
                 return False, (
                     f"outra conferencia de mutacao ja esta rodando "
                     f"(processo {dono}). Este arquivo ESCREVE nos arquivos "
                     "do repositorio: duas instancias se sobrescrevem e as "
-                    "duas mentem sobre o resultado. Espere a outra terminar."
+                    "duas mentem sobre o resultado. Espere a outra "
+                    f"terminar. Se NINGUEM estiver rodando, a trava ficou "
+                    f"de um processo morto cujo pid foi reciclado: apague "
+                    f"{caminho} (feita ha {idade}s)."
                 )
             try:
                 os.unlink(caminho)
@@ -755,7 +984,7 @@ def tomar_a_trava(caminho=None, pid=None, vivo=_dono_vivo):
                 pass
             continue
         with os.fdopen(fd, "w") as fh:
-            fh.write(str(pid))
+            fh.write(f"{pid} {_nascimento(pid)}".strip())
         return True, ""
     return False, "nao consegui tomar a trava da mutacao"
 
@@ -770,7 +999,8 @@ def soltar_a_trava(caminho=None, pid=None):
     pid = os.getpid() if pid is None else pid
     try:
         with open(caminho, encoding="utf-8") as fh:
-            if int((fh.read() or "").strip() or 0) != pid:
+            _l = (fh.read() or "").split()
+            if not _l or int(_l[0]) != pid:
                 return False
     except (OSError, ValueError):
         return False
@@ -794,6 +1024,16 @@ def main():
         print(f"FALHA  {_motivo}")
         return 1
     try:
+        # O SOCORRO ANTES DE TUDO, E EM VOZ ALTA.
+        #
+        # Se a execucao anterior morreu a tiro, o repositorio esta mutado
+        # AGORA. Restaurar calado seria pior: quem viu a conferencia
+        # quebrar precisa saber que o arquivo dele foi mexido e voltou.
+        _voltaram = socorrer()
+        if _voltaram:
+            print("AVISO  a execucao anterior foi morta no meio e deixou "
+                  f"{', '.join(_voltaram)} MUTADO(S). Devolvi ao original "
+                  "antes de comecar.")
         return _conferir_as_mutacoes(falhas)
     finally:
         soltar_a_trava()
@@ -823,6 +1063,8 @@ def _conferir_as_mutacoes(falhas):
         caminho = os.path.join(RAIZ, arquivo)
         with open(caminho, encoding="utf-8") as fh:
             original = fh.read()
+        # O ORIGINAL VAI PARA O DISCO ANTES DE QUALQUER ESCRITA.
+        _guardar_original(arquivo, original)
 
         # UM DEFEITO PODE PRECISAR DE DOIS CORTES.
         #
@@ -862,12 +1104,16 @@ def _conferir_as_mutacoes(falhas):
             # uma conferencia. Seria o pior defeito possivel num arquivo cujo
             # trabalho e justamente nao deixar defeito passar calado.
             with open(caminho, encoding="utf-8") as fh:
-                if fh.read() != original:
-                    print(f"FALHA  '{nome}': NAO consegui restaurar "
-                          f"{arquivo} — o repositorio esta MUTADO agora. "
-                          "Rode `git checkout` neste arquivo antes de "
-                          "qualquer outra coisa.")
-                    falhas += 1
+                _voltou = fh.read() == original
+            if _voltou:
+                # So agora o socorro pode ser esquecido: o disco confirmou.
+                _esquecer_original(arquivo)
+            else:
+                print(f"FALHA  '{nome}': NAO consegui restaurar "
+                      f"{arquivo} — o repositorio esta MUTADO agora. "
+                      f"O original esta guardado em {_caminho_do_socorro()} "
+                      "e a proxima execucao devolve ele sozinha.")
+                falhas += 1
 
         if _reprovou(codigo, saida):
             print(f"ok    com o defeito de volta, {' '.join(cmd)} reprova "
@@ -901,9 +1147,49 @@ def _autoteste():
     import shutil
     import tempfile
 
+    # ── PROFUNDIDADE 1, E NUNCA MAIS FUNDO ────────────────────────────
+    #
+    # Esta conferencia COPIA este arquivo para uma pasta temporaria e roda
+    # o `main` de la — e uma das mutacoes permanentes QUEBRA a trava de
+    # proposito. Com a trava quebrada aquele `main` nao recusa: ele vai
+    # para a pre-conferencia, que roda `--autoteste`, que copia o arquivo
+    # de novo e roda outro `main`.
+    #
+    # 30/09: foi exatamente isso. Dezenas de processos, 14 de 16 GB de
+    # memoria ocupados, e a conferencia inteira passou a reprovar
+    # verificadores que passavam sozinhos — `checar_alcance`,
+    # `checar_prompts`, `checar_tela`, `chat_assistente`, `lancamentos`.
+    # Nenhum deles tinha defeito: eles morriam por falta de memoria, e
+    # morrer calado vira "FALHA" sem uma linha de explicacao.
+    #
+    # Todo processo que esta conferencia abre leva a marca. Quem nasce com
+    # ela nao abre mais ninguem — e diz isso, em vez de fingir que mediu.
+    if os.environ.get("CHECAR_MUTACAO_NIVEL"):
+        print("ok    (aninhado: nao abro processo, para nao virar bomba)")
+        return 0
+    _AMB_FILHO = dict(os.environ, CHECAR_MUTACAO_NIVEL="1")
+
     falhas = []
 
-    def ok(cond, msg):
+    def ok(msg, cond):
+        # (MENSAGEM, CONDICAO) — a ordem do resto da base.
+        #
+        # Esta funcao ja nasceu com a ordem INVERTIDA aqui dentro, e a
+        # secao nova foi escrita na ordem dos outros arquivos: a condicao
+        # virou uma string nao-vazia, sempre verdadeira, e a guarda passava
+        # SEMPRE. Quem pegou foi a mutacao — a guarda ficou verde com o
+        # defeito de volta, que e a definicao de guarda que nao e guarda.
+        #
+        # Duas ordens para a mesma pergunta e a Forma 5. Agora e uma so, e
+        # a troca ESTOURA em vez de mentir.
+        if not isinstance(msg, str):
+            raise TypeError(
+                f"ok(mensagem, condicao) — veio {type(msg).__name__} na "
+                "mensagem. A ordem trocada faz a guarda passar sempre.")
+        if isinstance(cond, str):
+            raise TypeError(
+                "ok(mensagem, condicao) — veio texto na condicao. A ordem "
+                "trocada faz a guarda passar sempre.")
         if not cond:
             falhas.append(msg)
 
@@ -913,34 +1199,63 @@ def _autoteste():
         alvo = os.path.join(dir_, "t1")
 
         # 1. tomo a trava; outro pid VIVO e recusado
-        tomou, _ = tomar_a_trava(alvo, pid=111, vivo=lambda _p: True)
-        ok(tomou, "nao consegui tomar a trava livre")
-        tomou2, motivo = tomar_a_trava(alvo, pid=222, vivo=lambda _p: True)
-        ok(not tomou2, "a trava deixou uma SEGUNDA instancia entrar")
-        ok("111" in motivo, f"a recusa nao diz quem e o dono: {motivo!r}")
+        tomou, _ = tomar_a_trava(alvo, pid=111, vivo=lambda *_a: True)
+        ok("nao consegui tomar a trava livre", tomou)
+        tomou2, motivo = tomar_a_trava(alvo, pid=222, vivo=lambda *_a: True)
+        ok("a trava deixou uma SEGUNDA instancia entrar", not tomou2)
+        ok(f"a recusa nao diz quem e o dono: {motivo!r}", "111" in motivo)
+        # E A SAIDA: trava de pid reciclado recusaria para sempre, e quem
+        # le precisa saber QUAL arquivo apagar. Recusa sem saida e beco.
+        ok(f"a recusa nao diz onde esta a trava: {motivo!r}",
+           alvo in motivo)
 
         # 2. trava de dono MORTO e tomada, nao respeitada para sempre
-        tomou3, _ = tomar_a_trava(alvo, pid=333, vivo=lambda _p: False)
-        ok(tomou3, "trava de processo morto travou a conferencia seguinte")
+        tomou3, _ = tomar_a_trava(alvo, pid=333, vivo=lambda *_a: False)
+        ok("trava de processo morto travou a conferencia seguinte", tomou3)
 
         # 3. so o dono solta
-        ok(not soltar_a_trava(alvo, pid=444),
-           "um estranho apagou a trava de outro processo")
-        ok(soltar_a_trava(alvo, pid=333), "o dono nao conseguiu soltar")
-        ok(not os.path.exists(alvo), "soltou e o arquivo ficou no disco")
+        ok("um estranho apagou a trava de outro processo",
+           not soltar_a_trava(alvo, pid=444))
+        ok("o dono nao conseguiu soltar", soltar_a_trava(alvo, pid=333))
+        ok("soltou e o arquivo ficou no disco", not os.path.exists(alvo))
 
         # 4. A CADEIA: o `main` de verdade recusa e NAO muta nada.
-        copia = os.path.join(dir_, "checar_mutacao.py")
+        # A COPIA TEM OUTRO NOME, E ISSO NAO E DETALHE.
+        #
+        # Chamada `checar_mutacao.py`, ela e o alvo de um dos comandos da
+        # pre-conferencia (`python3 checar_mutacao.py --autoteste`) — entao
+        # ela chama a si mesma. Com a trava quebrada, que e o que UMA DAS
+        # MUTACOES PERMANENTES FAZ DE PROPOSITO, a recursao nao tem fundo.
+        #
+        # 30/09: 1.810 processos, 14 de 16 GB de memoria, e cinco
+        # verificadores SEM DEFEITO NENHUM passaram a reprovar — eles
+        # morriam por falta de memoria, e morrer calado vira "FALHA" sem
+        # uma linha de explicacao. Levei tres rodadas para achar, porque o
+        # sintoma aparecia longe da causa.
+        #
+        # Com outro nome, o comando da pre-conferencia nao encontra nada
+        # nesta pasta e falha na hora. A marca de profundidade continua
+        # valendo; esta aqui e a que nao depende de variavel de ambiente.
+        copia = os.path.join(dir_, "sob_teste.py")
         shutil.copy(os.path.abspath(__file__), copia)
+        # E A PROVA DISSO, que custa nada e nao depende de ambiente: o
+        # nome da copia nao pode ser alvo de nenhum comando que o `main`
+        # roda. Se voltar a ser, ela chama a si mesma.
+        _alvos = {os.path.basename(_c[1]) for _, _, _, _, _c in MUTACOES
+                  if len(_c) > 1}
+        ok(f"a copia se chama {os.path.basename(copia)}, que e alvo de um "
+           "comando da pre-conferencia — ela vai chamar a si mesma",
+           os.path.basename(copia) not in _alvos)
         trava_real = os.path.join(dir_, "t2")
         dorminhoco = subprocess.Popen(
-            [sys.executable, "-c", "import time; time.sleep(120)"])
+            [sys.executable, "-c", "import time; time.sleep(120)"],
+            env=_AMB_FILHO)
         with open(trava_real, "w", encoding="utf-8") as fh:
             fh.write(str(dorminhoco.pid))
 
-        amb = dict(os.environ, CHECAR_MUTACAO_TRAVA=trava_real)
+        amb = dict(_AMB_FILHO, CHECAR_MUTACAO_TRAVA=trava_real)
         try:
-            p = subprocess.run([sys.executable, "checar_mutacao.py"],
+            p = subprocess.run([sys.executable, "sob_teste.py"],
                                cwd=dir_, capture_output=True, text=True,
                                timeout=180, env=amb)
             saida = (p.stdout or "") + (p.stderr or "")
@@ -950,26 +1265,178 @@ def _autoteste():
             falhas.append("o main IGNOROU a trava e foi rodar a suite "
                           "inteira com outra instancia viva")
 
-        ok(codigo == 1 or "outra conferencia" in saida,
-           f"o main nao reprovou com a trava tomada (codigo {codigo})")
-        ok("outra conferencia de mutacao" in saida,
-           f"o main nao disse POR QUE parou: {saida[:200]!r}")
-        ok("SEM mutacao nenhuma" not in saida,
-           "o main passou da trava e comecou a conferir os verificadores")
+        ok(f"o main nao reprovou com a trava tomada (codigo {codigo})",
+           codigo == 1)
+        ok(f"o main nao disse POR QUE parou: {saida[:200]!r}",
+           "outra conferencia de mutacao" in saida)
+        ok("o main passou da trava e comecou a conferir os verificadores",
+           "SEM mutacao nenhuma" not in saida)
     finally:
         if dorminhoco is not None:
             dorminhoco.kill()
             dorminhoco.wait()
         shutil.rmtree(dir_, ignore_errors=True)
 
+    # ── 4-bis. PID RECICLADO E ZUMBI NAO SEGURAM A TRAVA ──────────────
+    #
+    # 30/09, o caso real: a execucao das 12:31 foi morta a tiro e deixou a
+    # trava. As 12:58 `os.kill(pid, 0)` respondeu "vivo" — o processo era
+    # um ZUMBI ainda nao recolhido — e a conferencia inteira foi recusada,
+    # com a mensagem mandando "esperar a outra terminar". Nao havia outra.
+    #
+    # Aqui um processo de verdade vira zumbi de verdade (morto, sem o pai
+    # recolher), e o que se mede e a decisao da trava sobre ele.
+    dir3 = tempfile.mkdtemp(prefix="zumbi_")
+    z = None
+    try:
+        t3 = os.path.join(dir3, "t3")
+        ok("o nascimento do proprio processo tem de ser legivel",
+           bool(_nascimento(os.getpid())))
+        ok("pid que nunca existiu nao segura a trava",
+           not _dono_vivo(999999, "1"))
+        ok("o MESMO processo, com o mesmo nascimento, segura",
+           _dono_vivo(os.getpid(), _nascimento(os.getpid())))
+        ok("pid RECICLADO (mesmo numero, outro nascimento) NAO segura",
+           not _dono_vivo(os.getpid(), "1"))
+
+        # zumbi de verdade: morre, e o pai nao chama wait()
+        z = subprocess.Popen([sys.executable, "-c", "pass"], env=_AMB_FILHO)
+        _t0 = time.time()
+        while time.time() - _t0 < 10 and _nascimento(z.pid):
+            time.sleep(0.05)
+        ok("processo ZUMBI conta como morto, e nao como dono da trava",
+           not _dono_vivo(z.pid))
+
+        # e a trava dele e tomada, nao respeitada para sempre
+        with open(t3, "w", encoding="utf-8") as fh:
+            fh.write(f"{z.pid} 999999")
+        tomou_z, _m = tomar_a_trava(t3, pid=os.getpid())
+        ok("a trava de um processo morto a tiro nao bloqueia a conferencia "
+           "seguinte", tomou_z)
+    finally:
+        if z is not None:
+            z.wait()
+        shutil.rmtree(dir3, ignore_errors=True)
+
+    # ── 4-ter. O ANINHADO PARA SOZINHO ────────────────────────────────
+    #
+    # A marca de profundidade so vale se quem nasce com ela OBEDECER. Sem
+    # esta asserção, tirar a marca nao quebra nada de imediato — e a
+    # bomba de 30/09 so aparece meia hora depois, quando a memoria acaba
+    # e cinco verificadores sem defeito nenhum passam a reprovar.
+    try:
+        _p = subprocess.run(
+            [sys.executable, "checar_mutacao.py", "--autoteste"],
+            cwd=RAIZ, env=_AMB_FILHO, capture_output=True, text=True,
+            timeout=20)
+        _sa = (_p.stdout or "") + (_p.stderr or "")
+        ok(f"um --autoteste aninhado nao parou sozinho: {_sa[:120]!r}",
+           _p.returncode == 0 and "aninhado" in _sa)
+    except subprocess.TimeoutExpired:
+        falhas.append("o --autoteste aninhado IGNOROU a marca e foi rodar "
+                      "inteiro — e cada rodada dele abre mais processos")
+
+    # ── 5. O SOCORRO: UM KILL NAO RODA `finally` ──────────────────────
+    #
+    # Nao e cenario inventado: aconteceu em 30/09. O `conferir.py` matou
+    # este verificador em 900s e `imagem.py` ficou mutado no disco.
+    #
+    # Aqui um processo de verdade e MORTO A TIRO (SIGKILL) no meio de uma
+    # mutacao de verdade, e o que se mede e o que sobrou no disco depois.
+    dir2 = tempfile.mkdtemp(prefix="socorro_")
+    vitima = None
+    try:
+        alvo_py = os.path.join(dir2, "vitima.py")
+        original = "VALOR = 1\n"
+        with open(alvo_py, "w", encoding="utf-8") as fh:
+            fh.write(original)
+        pasta = os.path.join(dir2, "socorro")
+
+        # o que o laco de mutacao faz, na ordem em que ele faz
+        amb2 = dict(_AMB_FILHO, CHECAR_MUTACAO_SOCORRO=pasta)
+        # A VITIMA RODA O LACO DE VERDADE, e nao `_guardar_original`
+        # sozinha. A primeira versao desta guarda chamava a funcao que eu
+        # tinha acabado de escrever — e ficou VERDE com o laco mutado para
+        # nao guardar nada. Guarda que nao exercita o caminho nao e guarda.
+        #
+        # O comando so dorme quando o arquivo JA esta mutado: assim a
+        # pre-conferencia ("o verde tem de ser verde") passa rapido, e o
+        # processo fica parado no meio do laco, com o defeito no disco.
+        cmd_vitima = (
+            "import time;"
+            "c = open('vitima.py').read();"
+            "time.sleep(60) if '999' in c else None")
+        codigo_vitima = (
+            "import sys\n"
+            "sys.path.insert(0, %r)\n" % RAIZ +
+            "import checar_mutacao as m\n"
+            "m.RAIZ = %r\n" % dir2 +
+            "m.MUTACOES = [('teste', 'vitima.py', %r, %r,\n"
+            % (original, "VALOR = 999  # DEFEITO\n") +
+            "               [sys.executable, '-c', %r])]\n" % cmd_vitima +
+            "print('indo', flush=True)\n"
+            "m._conferir_as_mutacoes(0)\n")
+        vitima = subprocess.Popen([sys.executable, "-c", codigo_vitima],
+                                  cwd=dir2, env=amb2,
+                                  stdout=subprocess.PIPE, text=True)
+        vitima.stdout.readline()
+        _t0 = time.time()
+        while time.time() - _t0 < 30:
+            with open(alvo_py, encoding="utf-8") as fh:
+                if fh.read() != original:
+                    break
+            time.sleep(0.2)
+        vitima.kill()              # SIGKILL: nenhum `finally` roda
+        vitima.wait()
+
+        with open(alvo_py, encoding="utf-8") as fh:
+            ok("o KILL deixa mesmo o arquivo mutado (senao o teste nao mede "
+               "nada)", fh.read() != original)
+
+        # A COPIA NAO PODE TER CARA DE CODIGO.
+        #
+        # 30/09: ela era salva como `.py`, dentro do repositorio. O
+        # `compileall` compilou, deixou um `__pycache__` la dentro, e
+        # `checar_tela`, `auditar` e a pre-conferencia do proprio
+        # verificador reprovaram lendo o arquivo duplicado. O socorro
+        # passou a causar o estrago que existe para desfazer.
+        _dentro = os.listdir(pasta) if os.path.isdir(pasta) else []
+        ok(f"a copia de socorro tem cara de codigo: {_dentro}",
+           _dentro and not any(n.endswith((".py", ".md", ".txt", ".toml"))
+                               for n in _dentro))
+        # e lixo de terceiro nao pode segurar a pasta viva para sempre
+        os.makedirs(os.path.join(pasta, "__pycache__"), exist_ok=True)
+
+        voltaram = socorrer(raiz=dir2, pasta=pasta)
+        ok("o socorro devolve o arquivo que o KILL deixou mutado",
+           voltaram == ["vitima.py"])
+        with open(alvo_py, encoding="utf-8") as fh:
+            ok("e o conteudo e o ORIGINAL, nao um remendo",
+               fh.read() == original)
+        ok("e a pasta do socorro some depois de usada",
+           not os.path.isdir(pasta))
+        ok("socorro sem nada para fazer devolve lista vazia",
+           socorrer(raiz=dir2, pasta=pasta) == [])
+    finally:
+        if vitima is not None and vitima.poll() is None:
+            vitima.kill()
+        shutil.rmtree(dir2, ignore_errors=True)
+
     for f in falhas:
         print(f"FALHA  {f}")
     if not falhas:
-        print("ok    a trava recusa a segunda instancia, e o main obedece")
+        print("ok    a trava recusa a segunda instancia, o main obedece, "
+              "e o socorro devolve o que um KILL deixou mutado")
     return 1 if falhas else 0
 
 
 if __name__ == "__main__":
     if "--autoteste" in sys.argv:
         sys.exit(_autoteste())
+    if "--socorro" in sys.argv:
+        # Chamado pelo `conferir.py` logo depois de matar este verificador
+        # por tempo: o passo 2 nao pode medir um arquivo mutado.
+        _v = socorrer()
+        print(f"socorro: {', '.join(_v) if _v else 'nada a restaurar'}")
+        sys.exit(0)
     sys.exit(main())

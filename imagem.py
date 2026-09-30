@@ -5579,13 +5579,27 @@ def revisar_peca(img, tipo, fotos_ref=None, gerar=None, prompt_base="",
         # critica, que e o que importa, passa inteiro.
         _probs = [sem_medida_de_quadro(p) for p in problemas]
         _probs = [p for p in _probs if p.strip()]
+        _instr = sem_medida_de_quadro(instrucao).strip()
+        # SE NADA SOBROU, NAO SE PAGA UMA GERACAO PARA NAO PEDIR NADA.
+        #
+        # A guarda de `instrucao` vazia ja existe la em cima, mas ela roda
+        # ANTES deste corte — ve o texto inteiro, nao o que resta dele.
+        # Quando o unico defeito da peca e o enquadramento (o mais comum
+        # nestas pecas), tudo e cortado e o pedido chegava em branco ao
+        # gerador: dinheiro gasto para nao pedir coisa nenhuma, com o risco
+        # conhecido de a refacao voltar com o produto trocado.
+        #
+        # Os problemas CRUS seguem para a tela em `melhores_problemas`:
+        # quem trabalha le a medida e decide. O sistema e que para.
+        if not _probs and not _instr:
+            return melhor_img, {"ok": False, "rodadas": n, "erro": "",
+                                "problemas": melhores_problemas}
         nova_img, erro_g = gerar(
             prompt_base + "\n\n"
             + "CORREÇÃO OBRIGATÓRIA — a versão anterior desta peça saiu com "
               "estes defeitos, e eles foram VISTOS na imagem gerada:\n"
             + "\n".join(f"- {p}" for p in _probs)
-            + "\n\nO que fazer diferente agora: "
-            + sem_medida_de_quadro(instrucao))
+            + "\n\nO que fazer diferente agora: " + _instr)
         if erro_g or not nova_img:
             return melhor_img, {"ok": False, "rodadas": n, "erro": "",
                                 "problemas": melhores_problemas}
@@ -9745,6 +9759,39 @@ if __name__ == "__main__":
     ok("falha de leitura da peca NAO vira aprovacao", _rel["ok"] is None)
     ok("e a tela avisa em voz alta",
        "NÃO foi conferida" in peca_em_aviso(_rel))
+
+    # ── NADA SOBROU PARA PEDIR: NAO SE PAGA UMA GERACAO EM BRANCO ──────
+    #
+    # `sem_medida_de_quadro` tira a medida de quadro da critica, porque o
+    # tamanho tem um dono so e a critica nao e ele. Quando a peca sai com
+    # UM defeito e ele e justamente o enquadramento — o caso mais comum
+    # nestas pecas — tudo e cortado, e a lista de correcao chegava VAZIA
+    # ao gerador: "CORRECAO OBRIGATORIA: (nada). O que fazer diferente
+    # agora: (nada)".
+    #
+    # Isso e uma geracao PAGA que nao pede coisa nenhuma, e o proprio dono
+    # relatou o estrago de refazer a toa: a peca volta com o produto
+    # trocado. A guarda de `instrucao` vazia ja existia, mas roda ANTES do
+    # corte — ela nao via o que sobrava depois dele.
+    #
+    # Os problemas CRUS continuam indo para a tela: quem trabalha le "o
+    # produto ocupa 30% do quadro" e decide. O que nao acontece e o sistema
+    # gastar dinheiro para nao pedir nada.
+    _geradas.clear()
+    _SO_ENQUADRAMENTO = {
+        "aprovada": False,
+        "problemas": ["o produto ocupa 30% do quadro",
+                      "deveria ocupar mais da metade do quadro"],
+        "instrucao": "aumente o produto para ocupar 65% do quadro"}
+    conferir_peca = _olho(_SO_ENQUADRAMENTO, _SO_ENQUADRAMENTO)
+    _img, _rel = revisar_peca(b"original", "2 — Benefícios do produto",
+                              fotos_ref=[b"f"], gerar=_gera,
+                              prompt_base="BASE", rodadas=2)
+    ok("defeito SO de enquadramento NAO paga uma geracao pedindo nada",
+       not _geradas)
+    ok("e a peca original e a que fica", _img == b"original")
+    ok("e os problemas CRUS chegam a quem trabalha, com a medida e tudo",
+       any("30%" in _p for _p in (_rel or {}).get("problemas") or []))
 
     conferir_peca = _olho(_CORTADA)
     _img, _rel = revisar_peca(b"x", "2 — Benefícios", fotos_ref=[b"f"],
