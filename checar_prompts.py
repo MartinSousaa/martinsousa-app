@@ -592,6 +592,51 @@ def _conferir_ajuste_fino():
                           f"({trecho!r})")
                     falhas += 1
 
+    # ── AS FOTOS VAO: ENTAO O PROMPT TEM DE DIZER QUE ELAS SAO A REFERENCIA
+    #
+    # `_tem_fotos` decidia o texto olhando a CHAVE DA OPENAI, e nao se as
+    # fotos viajam. Hoje os DOIS motores recebem as fotos — o Gemini leva
+    # `imagens_bytes=imagens_referencia`. Sem a chave da OpenAI, entao, o
+    # prompt dizia "PRODUCT DESCRIPTION (recreate this product exactly from
+    # the description)" — texto — enquanto as fotos iam junto e o modelo
+    # NUNCA era avisado de que elas sao a referencia.
+    #
+    # Ele reconstroi o produto a partir de uma descricao em palavras, com as
+    # fotos na mao. E a explicacao direta de "produto nada a ver com o
+    # original", e acontece exatamente na configuracao em que o Gemini e o
+    # motor principal.
+    _capt = {}
+    _orig2 = (imagem._chamar_openai_geracao, imagem._chamar_gemini_geracao_texto,
+              imagem._descricao_do_produto_cacheada, imagem._get_openai_api_key)
+    try:
+        imagem._chamar_openai_geracao = lambda *a, **k: (None, "desligado")
+        def _pega(prompt_final, *a, **k):
+            _capt["prompt"] = prompt_final
+            return None, "desligado"
+        imagem._chamar_gemini_geracao_texto = _pega
+        imagem._descricao_do_produto_cacheada = lambda *a, **k: ("desc", "lay")
+        imagem._get_openai_api_key = lambda: ""      # SEM chave da OpenAI
+        imagem.gerar_imagem_ia(
+            imagem.montar_prompt_imagem(
+                "2 — Benefícios do produto", "", _DADOS, "Produto de Teste",
+                plano_triagem=_PLANO, refs_layout_nomes=[],
+                direcao_arte=_DIRECAO),
+            [b"foto-do-produto"], tipo="2 — Benefícios do produto")
+    finally:
+        (imagem._chamar_openai_geracao, imagem._chamar_gemini_geracao_texto,
+         imagem._descricao_do_produto_cacheada,
+         imagem._get_openai_api_key) = _orig2
+    _pp = _capt.get("prompt", "")
+    if "PRODUCT REFERENCE" not in _pp:
+        print("FALHA  sem a chave da OpenAI, as fotos vao ao Gemini mas o "
+              "prompt manda recriar o produto A PARTIR DO TEXTO — o modelo "
+              "nunca e avisado de que as fotos sao a referencia")
+        falhas += 1
+    if "PRODUCT DESCRIPTION (recreate this product exactly" in _pp:
+        print("FALHA  o prompt manda recriar de uma DESCRICAO mesmo com as "
+              "fotos viajando junto")
+        falhas += 1
+
     # ── O AJUSTE NAO PAGA LEITURA DE VISAO QUE ELE DESCARTA ────────────
     #
     # A descricao produzida pela analise de visao alimenta a secao PRODUCT

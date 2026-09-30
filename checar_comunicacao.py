@@ -432,6 +432,160 @@ def pares_divergentes(prompt):
     return fora
 
 
+
+# ── REGRA 6: O PEDIDO TEM DUAS METADES, E SÓ UMA ERA CONFERIDA ───────────
+#
+# Dono, 30/09: "o Gemini devolve o que o sistema pede, ué".
+#
+# Ele está certo, e é por isso que o trabalho todo é no PEDIDO. Só que o
+# pedido tem duas metades:
+#
+#   o TEXTO         — 65 regras em `checar_prompts`, mais a ida e volta dos
+#                     campos do cadastro e o prompt do ajuste fino
+#   os PARÂMETROS   — `size=1024x1024`, `input_fidelity=high`, `aspectRatio
+#                     1:1`. NENHUM verificador olhava para eles.
+#
+# E os parâmetros são a metade que produziu os quatro defeitos relatados no
+# mesmo dia: sem `size` a imagem volta retangular e o Studio preenche — é a
+# MARGEM, e o produto encolhe dentro dela; sem `input_fidelity` o produto é
+# REDESENHADO. Alguém tira uma dessas linhas amanhã e os oito verificadores
+# seguem verdes.
+#
+# A segunda metade desta regra: TODO CAMINHO QUE ENTREGA UMA IMAGEM DIZ POR
+# ONDE ELA VEIO. Achado aqui: o caminho da OpenAI sem fotos
+# (`client.images.generate`) devolvia a peça e não gravava diagnóstico
+# nenhum — a tela mostrava "Motor —", e quem olha não tinha como saber que
+# aquela peça saiu por um caminho que nem recebeu as fotos do produto.
+
+# (funcao, o que a chamada TEM de mandar, por que)
+# `devolve_imagem` separa quem entrega BYTES de quem entrega a resposta HTTP
+# crua. `_chamar_gemini_geracao_texto` devolve `(resp, erro)`: quem extrai a
+# imagem e grava o diagnostico e o CHAMADOR, antes de chamar. A primeira
+# versao desta regra acusou essa funcao — alarme falso meu, e verificador que
+# da alarme falso ensina a ignora-lo.
+PARAMETROS_DO_MOTOR = [
+    ("imagem.py", "_chamar_openai_geracao", "image_generation",
+     ("size", "input_fidelity"), True,
+     "sem `size` a imagem volta retangular e o Studio preenche (margem); "
+     "sem `input_fidelity` o produto e redesenhado"),
+    ("imagem.py", "_chamar_gemini_geracao_texto", "responseFormat",
+     ("aspectRatio",), False,
+     "sem pedir a proporcao o Gemini escolhe o formato e costuma devolver "
+     "retangular — e ai a margem volta"),
+]
+
+
+def parametros_do_motor(raiz=None):
+    """[(funcao, faltando, motivo)] — parametro que o motor precisa e nao vai."""
+    fora = []
+    for arq, func, marca, exigidos, _img, motivo in PARAMETROS_DO_MOTOR:
+        arv = _arvore(os.path.join(raiz or RAIZ, arq))
+        if arv is None:
+            continue
+        fn = next((n for n in ast.walk(arv)
+                   if isinstance(n, ast.FunctionDef) and n.name == func), None)
+        if fn is None:
+            fora.append((f"{arq}:{func}", list(exigidos),
+                         "a funcao nem existe mais"))
+            continue
+        # o dicionario/chamada que carrega a marca daquele caminho
+        achou = set()
+        for n in ast.walk(fn):
+            texto = ast.unparse(n) if isinstance(n, (ast.Dict, ast.Call)) else ""
+            if marca not in texto:
+                continue
+            for p in exigidos:
+                if f"'{p}'" in texto or f'"{p}"' in texto or f"{p}=" in texto:
+                    achou.add(p)
+        faltando = [p for p in exigidos if p not in achou]
+        if faltando:
+            fora.append((f"{arq}:{func}", faltando, motivo))
+    return fora
+
+
+def _grava_motor(no):
+    """`diagnostico["motor"] = ...`, direto ou dentro de `if diagnostico:`."""
+    if isinstance(no, ast.Assign):
+        for alvo in no.targets:
+            if (isinstance(alvo, ast.Subscript)
+                    and isinstance(alvo.value, ast.Name)
+                    and alvo.value.id in DICTS_DIAG
+                    and isinstance(alvo.slice, ast.Constant)
+                    and alvo.slice.value == "motor"):
+                return True
+        return False
+    # o embrulho `if diagnostico is not None:` conta; um `if` sobre OUTRA
+    # coisa, nao — ele pode gravar so num dos ramos.
+    # `ast.walk(no)` INCLUI o proprio `no`: recursao infinita. Olha o corpo.
+    if isinstance(no, ast.If) and any(
+            d in ast.unparse(no.test) for d in DICTS_DIAG):
+        for dentro in no.body + no.orelse:
+            for x in ast.walk(dentro):
+                if isinstance(x, ast.Assign) and _grava_motor(x):
+                    return True
+    return False
+
+
+def _entrega_imagem(no):
+    """`return <imagem>, None` — a saida de SUCESSO de um motor."""
+    return (isinstance(no, ast.Return) and isinstance(no.value, ast.Tuple)
+            and len(no.value.elts) == 2
+            and not (isinstance(no.value.elts[0], ast.Constant)
+                     and no.value.elts[0].value is None)
+            and isinstance(no.value.elts[1], ast.Constant)
+            and no.value.elts[1].value is None)
+
+
+def entregas_mudas(raiz=None):
+    """[(arquivo:linha, funcao)] — entrega imagem sem dizer por onde ela veio.
+
+    Sobe pelos blocos que contem o `return` e procura, ANTES dele, a
+    gravacao de `diagnostico["motor"]`. Olhar so a funcao inteira nao serve:
+    um caminho grava e o irmao dele nao, e foi exatamente o que aconteceu.
+    """
+    fora = []
+    for arq, func, _marca, _ex, devolve_imagem, _mot in PARAMETROS_DO_MOTOR:
+        if not devolve_imagem:
+            continue
+        arv = _arvore(os.path.join(raiz or RAIZ, arq))
+        if arv is None:
+            continue
+        fn = next((n for n in ast.walk(arv)
+                   if isinstance(n, ast.FunctionDef) and n.name == func), None)
+        if fn is None:
+            continue
+        pai = {}
+        for n in ast.walk(fn):
+            for f, valor in ast.iter_fields(n):
+                if isinstance(valor, list):
+                    for item in valor:
+                        if isinstance(item, ast.AST):
+                            pai[item] = (n, valor)
+        for n in ast.walk(fn):
+            if not _entrega_imagem(n):
+                continue
+            # sobe: em cada bloco, olha os irmaos ANTERIORES
+            atual, disse = n, False
+            while atual in pai and not disse:
+                _p, irmaos = pai[atual]
+                for irmao in irmaos[:irmaos.index(atual)]:
+                    # SO CONTA O QUE DOMINA ESTE `return`.
+                    #
+                    # A primeira versao fazia `ast.unparse(irmao)` do bloco
+                    # inteiro e procurava o texto dentro. Um `if
+                    # imagens_bytes:` vizinho, que grava o motor no ramo
+                    # DELE, fazia o caminho SEM fotos passar como se
+                    # tivesse gravado. Foi assim que a entrega muda da
+                    # OpenAI escapou desta regra.
+                    if _grava_motor(irmao):
+                        disse = True
+                        break
+                atual = _p
+            if not disse:
+                fora.append((f"{arq}:{n.lineno}", func))
+    return fora
+
+
 def main():
     falhas = 0
     orfas = isencoes_orfas()
@@ -450,6 +604,21 @@ def main():
             print(f"         «{chave}» gravado em {', '.join(onde[:2])}")
         print("       Mostre na tela de diagnóstico, ou declare em "
               "MUDAS_POR_ESCOLHA com o motivo escrito.")
+
+    # ── 6. OS PARAMETROS DO PEDIDO, E QUEM ENTREGA SEM SE IDENTIFICAR ──
+    _pm = parametros_do_motor()
+    if _pm:
+        falhas += 1
+        for onde, faltando, motivo in _pm:
+            print(f"FALHA  {onde} nao manda {', '.join(faltando)} ao motor "
+                  f"— {motivo}")
+    _em = entregas_mudas()
+    if _em:
+        falhas += 1
+        for onde, func in _em:
+            print(f"FALHA  {onde} entrega uma imagem sem gravar "
+                  f"`diagnostico['motor']` — a tela mostra 'Motor —' e "
+                  f"ninguem sabe por onde a peca saiu ({func})")
 
     # REGRA 2 — no prompt REAL dos nove tipos, e não num texto de exemplo.
     try:
