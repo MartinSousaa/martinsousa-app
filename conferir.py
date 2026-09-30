@@ -151,7 +151,10 @@ def main():
         # O passo 2 entao mediu o arquivo mutado e acusou quatro falhas que
         # nao existiam. Ele ganha um teto proprio, e depois dele o socorro
         # roda de qualquer jeito: se sobrou arquivo mutado, volta aqui.
-        _teto = 2700 if v == "checar_mutacao.py" else 900
+        # 84 mutacoes, e sete delas rodam `checar_prompts` (~100s cada).
+        # Teto apertado aqui NAO e conferencia mais rapida: e um KILL no
+        # meio, e o KILL foi o que deixou o repositorio mutado em 30/09.
+        _teto = 7200 if v == "checar_mutacao.py" else 900
         cod, saida = _roda(cmd, limite=_teto)
         if v == "checar_mutacao.py":
             _c2, _s2 = _roda([sys.executable, v, "--socorro"], limite=120)

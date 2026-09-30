@@ -141,15 +141,68 @@ def chaves_na_tela(raiz=None):
     return fora
 
 
+def _le_para_reescrever(raiz=None):
+    """{chave: [linhas]} — leituras que só alimentam a escrita da MESMA chave.
+
+    POR QUE ISTO EXISTE (30/09)
+    --------------------------
+    `diagnostico["enquadramento"]` é a frase que explica a MARGEM que o dono
+    vê na peça: "o motor devolveu 1536x1024 em vez de quadrada — as faixas
+    laterais foram preenchidas pelo Studio".
+
+    Esta regra dava VERDE para ela, e a frase nunca chegou à tela. O motivo:
+
+        diagnostico["enquadramento"] = (
+            diagnostico.get("enquadramento", "")      <-- contado como LEITOR
+            + " · repeti uma vez e voltou torta de novo")
+
+    Ler o próprio campo para concatenar nele NÃO é entregar a ninguém. É a
+    mesma leitura, do mesmo lado do balcão — e foi assim que o campo mais
+    procurado desta base passou semanas escondido com o verificador verde.
+    """
+    achados = {}
+    for arq in sorted(os.listdir(raiz or RAIZ)):
+        if not arq.endswith(".py") or _eh_verificador(arq):
+            continue
+        arv = _arvore(os.path.join(raiz or RAIZ, arq))
+        if arv is None:
+            continue
+        for n in ast.walk(arv):
+            # alvo: d["chave"] = <expressao que contem d.get("chave")>
+            if not isinstance(n, ast.Assign) or len(n.targets) != 1:
+                continue
+            alvo = n.targets[0]
+            if not (isinstance(alvo, ast.Subscript)
+                    and isinstance(alvo.value, ast.Name)
+                    and alvo.value.id in DICTS_DIAG
+                    and isinstance(alvo.slice, ast.Constant)
+                    and isinstance(alvo.slice.value, str)):
+                continue
+            chave = alvo.slice.value
+            for c in ast.walk(n.value):
+                if (isinstance(c, ast.Call)
+                        and isinstance(c.func, ast.Attribute)
+                        and c.func.attr == "get"
+                        and isinstance(c.func.value, ast.Name)
+                        and c.func.value.id in DICTS_DIAG
+                        and c.args and isinstance(c.args[0], ast.Constant)
+                        and c.args[0].value == chave):
+                    achados.setdefault(chave, []).append(f"{arq}:{c.lineno}")
+    return achados
+
+
 def mudas(raiz=None):
     """[(chave, [onde grava])] — gravadas e que não chegam a ninguém."""
     grava, le = gravadas_e_lidas(raiz)
     na_tela = chaves_na_tela(raiz)
+    so_para_reescrever = _le_para_reescrever(raiz)
     fora = []
     for chave, onde in sorted(grava.items()):
         if chave in MUDAS_POR_ESCOLHA:
             continue
-        leitores = [x for x in le.get(chave, []) if x not in onde]
+        # LER PARA REESCREVER A PROPRIA CHAVE NAO E LEITOR.
+        descartar = set(onde) | set(so_para_reescrever.get(chave, []))
+        leitores = [x for x in le.get(chave, []) if x not in descartar]
         if not leitores and chave not in na_tela:
             fora.append((chave, onde))
     return fora

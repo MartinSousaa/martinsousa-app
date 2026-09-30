@@ -350,6 +350,106 @@ def main():
                     f"sem erro nenhum. Leia de um global de módulo, como "
                     f"`_PECA_EM_AJUSTE` faz.")
 
+    # ── 5-bis. CHAMADA DE TELA DE DENTRO DE UMA THREAD ────────────────────
+    #
+    # A MESMA FORMA 6, E EU A APLIQUEI A UM LEITOR SÓ.
+    #
+    # Em 28/09 descobri que `st.session_state` é ilegível dentro de uma
+    # `threading.Thread`, varri o session_state — e parei ali. A restrição
+    # não é do session_state: é do Streamlit inteiro. `st.warning` chamado de
+    # uma thread não desenha nada, e não levanta erro nenhum.
+    #
+    # O QUE ISSO CUSTOU (achado em 30/09): havia EXATAMENTE UMA chamada de
+    # tela dentro de `gerar_imagem_ia` — `st.warning("OpenAI falhou → usando
+    # Gemini como fallback")`. Ela nunca apareceu para ninguém.
+    #
+    # E era a única frase que explicava os quatro defeitos que o dono relatou
+    # no mesmo dia: "fotos menores que a dimensão da imagem, informações
+    # recortadas, fotos nada a ver com o produto original, imagens com
+    # margem". Os quatro são o mesmo estado — o motor reserva em campo, que
+    # não aceita `size` nem `input_fidelity`. O sistema sabia, tentou contar,
+    # e a frase morreu na thread.
+    #
+    # A regra: quem roda em thread escreve no DIAGNÓSTICO; quem desenha é a
+    # tela, do lado certo do balcão.
+    # ── ONDE A THREAD NAO QUER FALAR COM NINGUEM, E POR QUE ───────────
+    #
+    # A primeira versao desta regra deu ALARME FALSO em `placar.py`, com 9
+    # linhas: o regenerador da TV chama `pagina_placar(headless=True)` de
+    # dentro de uma thread DE PROPOSITO, para gravar o retrato da parede. O
+    # proprio codigo diz (placar.py:3555): "as chamadas de UI viram no-op".
+    #
+    # Verificador que da alarme falso ensina a ignora-lo — foi por pouco que
+    # eu nao reescrevi codigo certo. A isencao e por THREAD, com motivo
+    # escrito, e nao por arquivo: isentar `placar.py` inteiro esconderia a
+    # proxima thread de la que QUEIRA falar com alguem.
+    THREADS_SEM_TELA = {
+        "_loop_regenerador_tv":
+            "desenha a pagina em modo headless para gravar o retrato da TV; "
+            "as chamadas de tela sao no-op de proposito, e nao ha ninguem "
+            "olhando do outro lado",
+    }
+    _UI_ST = {"warning", "error", "info", "success", "toast", "write",
+              "markdown", "caption", "progress", "rerun", "image", "code"}
+    for nome in _arquivos():
+        with open(nome, encoding="utf-8") as fh:
+            fonte = fh.read()
+        try:
+            arvore = ast.parse(fonte)
+        except SyntaxError:
+            continue
+        funcs = {n.name: n for n in ast.walk(arvore)
+                 if isinstance(n, ast.FunctionDef)}
+        alvos = set()
+        for n in ast.walk(arvore):
+            if isinstance(n, ast.Call) and "Thread" in ast.unparse(n.func):
+                for kw in n.keywords:
+                    if kw.arg == "target":
+                        alvos.add(ast.unparse(kw.value).split(".")[-1])
+        # fecho transitivo: quem a thread chama, e quem esses chamam
+        alcanca, fila = set(), [a for a in alvos
+                                if a in funcs and a not in THREADS_SEM_TELA]
+        while fila:
+            f = fila.pop()
+            if f in alcanca:
+                continue
+            alcanca.add(f)
+            for c in ast.walk(funcs[f]):
+                if (isinstance(c, ast.Call) and isinstance(c.func, ast.Name)
+                        and c.func.id in funcs):
+                    fila.append(c.func.id)
+        for f in sorted(alcanca):
+            for c in ast.walk(funcs[f]):
+                if (isinstance(c, ast.Call)
+                        and isinstance(c.func, ast.Attribute)
+                        and c.func.attr in _UI_ST
+                        and ast.unparse(c.func.value) == "st"):
+                    reprova(
+                        f"{nome}:{c.lineno} — `st.{c.func.attr}` dentro de "
+                        f"`{f}`, que roda em `threading.Thread`. De uma "
+                        "thread o Streamlit NÃO desenha e NÃO levanta erro: "
+                        "a mensagem some em silêncio. Grave no diagnóstico e "
+                        "deixe a tela desenhar.")
+
+    # ISENCAO ORFA MENTE PARA QUEM LE DEPOIS.
+    _threads_existentes = set()
+    for nome in _arquivos():
+        try:
+            _arv = ast.parse(open(nome, encoding="utf-8").read())
+        except (SyntaxError, OSError):
+            continue
+        for n in ast.walk(_arv):
+            if isinstance(n, ast.Call) and "Thread" in ast.unparse(n.func):
+                for kw in n.keywords:
+                    if kw.arg == "target":
+                        _threads_existentes.add(
+                            ast.unparse(kw.value).split(".")[-1])
+    for _isenta in sorted(THREADS_SEM_TELA):
+        if _isenta not in _threads_existentes:
+            reprova(f"a isencao de tela para `{_isenta}` sobrou: essa thread "
+                    "nao existe mais, e a isencao passa a mentir para quem "
+                    "ler depois")
+
     # ── 6. O CARIMBO QUE GENTE LÊ, E O MÊS QUE O SISTEMA CALCULA ───────────
     #
     # Forma 6a. O container roda em UTC. `datetime.now()` cru SERVE quando os

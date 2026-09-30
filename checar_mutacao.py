@@ -767,6 +767,88 @@ MUTACOES = [
         "  devolva a imagem como está.\n",
         ["python3", "checar_prompts.py"],
     ),
+    # ── A VARREDURA DA CADEIA STUDIO -> GEMINI (30/09) ───────────────────
+    (
+        # O prompt escreve "COR REAL DO PRODUTO:"; a releitura procurava
+        # "Cor:" e NUNCA casava, nos nove tipos. A cor cadastrada jamais
+        # chegou a analise de visao — e e ela quem descreve o produto.
+        "a cor cadastrada volta a nao chegar na analise de visao",
+        "imagem.py",
+        '    _m_cor = _re.search(r"^COR REAL DO PRODUTO:\\s*(.+?)$", prompt_texto,\n',
+        '    _m_cor = _re.search(r"Cor:\\s*(.+?)(?:\\n|$)", prompt_texto,\n',
+        ["python3", "checar_prompts.py"],
+    ),
+    (
+        # `PRODUTO:` sem ancora casava NO MEIO de outra frase. No prompt do
+        # ajuste fino o nome do produto virava "JAMAIS adicione base,
+        # pedestal, suporte, embalagem".
+        "o nome do produto volta a ser lido do meio de outra frase",
+        "imagem.py",
+        '    _m = _re.search(r"^PRODUTO:\\s*(.+?)$", prompt_texto, _re.MULTILINE)\n',
+        '    _m = _re.search(r"PRODUTO:\\s*(.+?)(?:\\n|$)", prompt_texto)\n',
+        ["python3", "checar_prompts.py"],
+    ),
+    (
+        # O material tem campo proprio na analise de visao e nunca era
+        # extraido. A guarda so pegou isso quando passou a olhar o que a
+        # analise RECEBE, e nao so se a expressao casa.
+        "o material volta a nao chegar na analise de visao",
+        "imagem.py",
+        '    if _m_mat:\n        dados_descricao["material"] = _m_mat.group(1).strip()\n',
+        "    if _m_mat:\n        pass\n",
+        ["python3", "checar_prompts.py"],
+    ),
+    (
+        # "THE BORDER MARGIN OVERRIDES the rule above" — a intencao era
+        # "cartoes a 6% da borda", e o modelo lia "a margem vence o produto":
+        # margem desenhada e produto encolhido.
+        "a folga da borda volta a mandar sobre o produto",
+        "imagem.py",
+        '        + _SEM_MOLDURA_PT)',
+        '        )',
+        ["python3", "checar_prompts.py"],
+    ),
+    (
+        # O aviso de que a peca foi feita pelo motor reserva morava num
+        # `st.warning` DENTRO da thread: nunca apareceu para ninguem.
+        "o aviso do motor reserva volta para dentro da thread",
+        "imagem.py",
+        "        if erro_primario and diagnostico is not None:\n",
+        "        if erro_primario:\n"
+        '            st.warning(f"aviso {erro_primario}")\n'
+        "        if erro_primario and diagnostico is not None:\n",
+        ["python3", "checar_alcance.py"],
+    ),
+    (
+        # Tipo 5 com cadastro vazio: manda infografico de cotas E proibe
+        # escrever cota, sem dizer que a medida nao existe.
+        "o tipo 5 sem cadastro volta a pedir cota que ele mesmo proibe",
+        "imagem.py",
+        '            "SEM DADOS TÉCNICOS CADASTRADOS: este produto não tem medidas, "\n',
+        '            "" "" "" "" ""  # bloco removido\n',
+        ["python3", "checar_prompts.py"],
+    ),
+    (
+        # O ponteiro do tamanho apontava para um bloco que os tipos 8 e
+        # Personalizado NAO tem: o modelo encolhia o produto por precaucao.
+        "o ponteiro do tamanho volta a apontar para o vazio",
+        "imagem.py",
+        "  peça, e é de lá que ela sai — não estime outra. Se esta peça NÃO trouxer\n"
+        "  essa medida, é porque ela não tem número fixo: o produto aparece na escala\n"
+        "  real da cena. Nesse caso NÃO invente uma porcentagem e NÃO encolha o\n"
+        "  produto por precaução.\n",
+        "  peça, e é de lá que ela sai — não estime outra.\n",
+        ["python3", "checar_prompts.py"],
+    ),
+    (
+        # Toda tentativa de ajuste pagava uma leitura de visao descartada na
+        # linha seguinte — 2 por pedido, porque sao 2 tentativas.
+        "o ajuste fino volta a pagar leitura de visao que ele descarta",
+        "imagem.py",
+        '    _eh_ajuste_fino = "MODO AJUSTE FINO" in prompt_texto[:400]\n',
+        "    _eh_ajuste_fino = False\n",
+        ["python3", "checar_prompts.py"],
+    ),
 ]
 
 
