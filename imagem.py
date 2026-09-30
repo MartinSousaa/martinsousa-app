@@ -2542,9 +2542,17 @@ def _data_url(img_bytes):
 # extra, e não um dia de geração perdida.
 MODELO_IMAGEM_PADRAO = "gpt-image-2.5-sunburst"
 
-# A ordem em que se tenta quando é preciso escolher sozinho: o mais capaz
-# primeiro, porque a fidelidade ao produto é o que o Studio está comprando.
-MODELOS_IMAGEM_CONHECIDOS = ("gpt-image-2.5-sunburst", "gpt-image-2.5-flare")
+# A ORDEM DE PREFERÊNCIA, E NÃO UMA LISTA DE EXIGÊNCIA.
+#
+# Ela diz qual escolher PRIMEIRO entre os que a conta tem — nunca qual a
+# conta precisa ter. Era aí que o Studio se cegava: nome fora desta lista
+# não era considerado, e a conta de 30/09 não tinha nenhum deles.
+#
+# `dall-e-3` entra no fim de propósito: ele desenha, mas não aceita
+# `input_fidelity` nem foto de referência. É melhor que nenhuma imagem e
+# pior que qualquer `gpt-image` — e a tela diz qual motor fez a peça.
+MODELOS_IMAGEM_CONHECIDOS = ("gpt-image-2.5-sunburst", "gpt-image-2.5-flare",
+                             "gpt-image-1", "dall-e-3", "dall-e-2")
 
 # Descoberto em execução, quando o nome configurado não existe. Vive no
 # processo: perguntar uma vez por container basta, e uma chamada a cada geração
@@ -2625,10 +2633,25 @@ def modelos_de_imagem_da_conta(cliente=None):
         nomes = [getattr(m, "id", "") for m in cliente.models.list()]
     except Exception:
         return []
-    # "gpt-image" cobre a família inteira sem depender da versão — que é o que
-    # este bloco existe para parar de fazer.
-    achados = sorted(n for n in nomes if "image" in str(n).lower()
-                     and "gpt" in str(n).lower())
+    # ── O FILTRO EXIGIA "gpt" E "image", E ISSO CEGOU O STUDIO ──────────
+    #
+    # 30/09, produção: a tela disse «gpt-image-2.5-sunburst» não existe nesta
+    # conta da OpenAI, e não achei nenhum outro". A redescoberta RODOU e
+    # voltou vazia — e as oito peças saíram do motor reserva, sem pedido de
+    # imagem quadrada e sem preservação do produto. Daí o texto cortado nas
+    # bordas, o produto encolhido e a peça 6 com um produto que não era o do
+    # cliente.
+    #
+    # A causa: `dall-e-3` É modelo de imagem da OpenAI e NÃO tem "gpt" no
+    # nome. A conta tinha motor e o Studio não enxergava.
+    #
+    # O comentário antigo dizia que "gpt-image" cobria "a família inteira".
+    # Cobria UMA família. Agora a pergunta é a certa: este nome é de um
+    # modelo que faz IMAGEM? — e ela aceita as duas famílias, além de
+    # qualquer nome futuro que traga "image".
+    _n = lambda x: str(x).lower()
+    achados = sorted(n for n in nomes
+                     if "image" in _n(n) or "dall-e" in _n(n))
     # Os conhecidos primeiro, na ordem de capacidade; o resto depois.
     preferidos = [m for m in MODELOS_IMAGEM_CONHECIDOS if m in achados]
     return preferidos + [a for a in achados if a not in preferidos]
@@ -10481,7 +10504,39 @@ if __name__ == "__main__":
 
     _achados = modelos_de_imagem_da_conta(_FakeCliente())
     ok("so os modelos de imagem entram",
-       all("image" in m for m in _achados))
+       all("image" in m or "dall-e" in m for m in _achados))
+
+    # ── A CONTA QUE NAO TEM NENHUM `gpt-image` ───────────────────────────
+    #
+    # 30/09, producao: a tela disse "«gpt-image-2.5-sunburst» nao existe
+    # nesta conta da OpenAI, e nao achei nenhum outro". A redescoberta RODOU
+    # e voltou vazia — entao TODAS as oito pecas sairam do motor reserva,
+    # que nao aceita `size` nem `input_fidelity`. Dai o texto cortado, o
+    # produto encolhido e a peca 6 com um produto que nao era o do cliente.
+    #
+    # A causa era o filtro exigir "gpt" E "image" no nome. `dall-e-3` e
+    # modelo de imagem da OpenAI e nao tem "gpt" no nome: a conta tinha um
+    # motor e o Studio nao enxergava.
+    #
+    # E a conta falsa desta propria guarda so tinha `gpt-image-*` — ela
+    # media a familia feliz. Dado de teste saido da minha cabeca, de novo.
+    class _ContaSoDallE:
+        class models:
+            @staticmethod
+            def list():
+                class _M:
+                    def __init__(self, i):
+                        self.id = i
+                return [_M("gpt-4o"), _M("dall-e-3"), _M("dall-e-2"),
+                        _M("whisper-1"), _M("text-embedding-3-small")]
+
+    _so_dalle = modelos_de_imagem_da_conta(_ContaSoDallE())
+    ok("conta que so tem dall-e NAO fica sem motor de imagem", bool(_so_dalle))
+    ok("e o dall-e-3 vem antes do dall-e-2",
+       _so_dalle[:2] == ["dall-e-3", "dall-e-2"] if len(_so_dalle) > 1 else True)
+    ok("e nenhum modelo que NAO e de imagem entra",
+       not any(m in _so_dalle for m in ("gpt-4o", "whisper-1",
+                                        "text-embedding-3-small")))
     ok("o mais capaz vem primeiro",
        _achados[0] == "gpt-image-2.5-sunburst")
     ok("e o modelo novo, que o codigo nao conhece, NAO fica invisivel",

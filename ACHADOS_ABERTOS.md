@@ -33,6 +33,18 @@ motivo — mas é uma resposta honesta, e escrita ela para de ser esquecimento.
 
 ## ABERTOS
 
+### O `dall-e-3` é encontrado, mas o Studio não sabe FALAR com ele
+ONDE: imagem.py:_chamar_openai_geracao
+POR QUE AINDA NÃO: o filtro de modelos foi corrigido e a conta que só tem
+`dall-e-*` deixa de ficar sem motor — mas as três tentativas do caminho da
+OpenAI usam a Responses API com `tools=[image_generation]`, e o `dall-e-3`
+não atende por ali nem aceita foto de referência. Com fotos, ele falharia nas
+três e cairia no Gemini do mesmo jeito. Fazer o `dall-e-3` funcionar de
+verdade é escrever uma quarta chamada (`images.generate` com as fotos fora),
+e isso é construção, não conserto de filtro. O que mudou hoje: a tela de
+Diagnóstico das APIs passa a MOSTRAR o que a conta tem, e o motor que fez
+cada peça já aparece no diagnóstico dela.
+
 ### As 65 regras do prompt só são medidas com o cadastro CHEIO
 ONDE: checar_prompts.py:_DADOS
 POR QUE AINDA NÃO: hoje só o tipo 5 é conferido com o cadastro vazio, porque
