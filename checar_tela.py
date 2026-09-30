@@ -1035,6 +1035,11 @@ TELAS_SEM_GUARDA = [
     ("descricao", "pagina_descricao"),
     ("gestao", "pagina_home"),
     ("gestao", "pagina_financeiro"),
+    # A aba OPERACIONAL, criada em 30/09 a pedido do dono. Ela entra aqui
+    # pelo mesmo motivo das outras: `checar_impacto` reprovou o nome novo
+    # com leitor em `app.py` e guarda nenhuma — e tela que ninguem desenha
+    # e tela que quebra em producao sem aviso.
+    ("gestao", "pagina_operacional"),
     ("financeiro", "pagina_financeiro"),
     ("palavras_chave", "pagina_palavras_chave"),
     ("relogio_ponto", "pagina_ponto"),
