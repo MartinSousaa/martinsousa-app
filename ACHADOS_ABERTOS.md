@@ -92,8 +92,3 @@ ONDE: placar.py, placar_core.py
 POR QUE AINDA NÃO: unificar é mudança grande e o risco tem de ser mapeado
 antes. Já discordaram em 330 pontos no mesmo mês. Aberto desde 28/09.
 
-### Corte de texto nas peças 4 e 5
-ONDE: imagem.py, prompt dos tipos 4 e 5
-POR QUE AINDA NÃO: preciso do prompt real de uma peça que cortou para separar
-"o layout não cabe" de "o modelo desobedeceu". Sem isso eu estaria chutando.
-Aberto desde 28/09.

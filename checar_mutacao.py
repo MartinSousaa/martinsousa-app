@@ -35,6 +35,33 @@ RAIZ = os.path.dirname(os.path.abspath(__file__))
 # esta entrada virou letra morta — e isso também é reprovado, porque mutação
 # que não se aplica dá a impressão de cobertura que não existe.
 MUTACOES = [
+    # ── 30/09: DOIS CARTOES IDENTICOS NA MESMA PECA ────────────────────
+    #
+    # O item "corte de texto nas pecas 4 e 5" estava ABERTO desde 28/09 com o
+    # motivo "preciso do prompt real para separar 'o layout nao cabe' de 'o
+    # modelo desobedeceu'". O arquivo que o dono mandou tinha o prompt real, e
+    # a peca 4 respondeu sozinha:
+    #
+    #     1. MADEIRA TRABALHADA: / Acabamento e textura
+    #     2. MADEIRA TRABALHADA: / Acabamento e textura
+    #     3. MONTAGEM: / Construcao precisa
+    #
+    # Nao foi o modelo que desobedeceu: foi a NOSSA copy que pediu dois
+    # cartoes iguais, e o teto da peca gastou uma vaga com a repeticao.
+    #
+    # Esta base ja conferia `faces_repetidas` e `cenas_repetidas` entre pecas;
+    # bloco de texto repetido DENTRO da peca, nao. Forma 1 de novo.
+    #
+    # NOTA SOBRE A GUARDA: a primeira versao dela usava `find(...) < find(...)`
+    # e ficava VERDE com a chamada removida, porque `find` devolve -1 quando
+    # nao acha e -1 e menor que tudo. Foi esta mutacao que mostrou.
+    (
+        "o bloco de texto repetido volta a ser enviado ao motor",
+        "imagem.py",
+        [("        _textos, _repetidos = blocos_sem_repeticao(_textos)\n", "")],
+        None,
+        ["python3", "imagem.py", "--autoteste"],
+    ),
     # ── 30/09: A PECA DO AJUSTE VOLTA A SER UMA CAIXA DO PROCESSO ──────
     #
     # `_PECA_EM_AJUSTE` era um global de modulo, com o custo DECLARADO na

@@ -4678,6 +4678,13 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
         _composicao = sem_medida_de_quadro(plano_triagem.get("composicao", ""))
         plano_triagem_item_cena = plano_triagem.get("cena", "")
         _textos = [t for t in plano_triagem.get("textos", []) if t and str(t).strip()]
+        # BLOCO REPETIDO SAI ANTES DO TETO, E A ORDEM IMPORTA.
+        #
+        # A peca 4 do dono recebeu "MADEIRA TRABALHADA: / Acabamento e
+        # textura" DUAS vezes. Cortar primeiro pelo teto e depois deduplicar
+        # entregaria dois cartoes onde cabiam tres — a repeticao gastaria uma
+        # vaga e o terceiro bloco sairia espremido ou cortado.
+        _textos, _repetidos = blocos_sem_repeticao(_textos)
         # O TETO DA PECA CORTA A COPY AQUI, E NAO NO GERADOR.
         #
         # A triagem nao sabe quantos blocos o tipo comporta: ela escrevia 4
@@ -5110,6 +5117,57 @@ ANGULOS = {
                  "aéreo", "flat lay"),
     "macro": ("macro", "close", "aproximad"),
 }
+
+
+def blocos_sem_repeticao(textos):
+    """(copy sem blocos repetidos, os que sairam). Funcao pura.
+
+    POR QUE ESTA FUNCAO EXISTE
+    --------------------------
+    Dono, 30/09: *"as escritas estao sendo cortadas (...) aplicadas numa
+    regiao que nao da para ser escrita totalmente"*. O item ficou aberto
+    porque eu dizia precisar do prompt real para separar "o layout nao cabe"
+    de "o modelo desobedeceu". O arquivo dele tinha o prompt real, e a peca 4
+    respondeu sozinha:
+
+        1. MADEIRA TRABALHADA: / Acabamento e textura
+        2. MADEIRA TRABALHADA: / Acabamento e textura
+        3. MONTAGEM: / Construcao precisa
+
+    Os blocos 1 e 2 sao IDENTICOS. A IA do plano escreveu o mesmo callout
+    duas vezes e o Studio mandou os dois ao gerador sem notar. Nao foi o
+    modelo que desobedeceu: foi a nossa copy que pediu dois cartoes iguais —
+    e o teto da peca gastou uma vaga com a repeticao, espremendo o terceiro.
+
+    E ESTA BASE JA FAZIA ISSO PARA OS IRMAOS. `faces_repetidas` confere se
+    duas pecas mostram a mesma face; `cenas_repetidas`, se duas repetem a
+    cena. Ninguem conferia o bloco de texto repetido DENTRO da peca — a
+    Forma 1 outra vez, a mesma capacidade faltando num irmao.
+
+    A COMPARACAO IGNORA SO RUIDO: caixa, acento, espaco e dois-pontos
+    sobrando. "MONTAGEM: construcao precisa" e "Montagem: Construcao
+    Precisa" sao o mesmo cartao. O que difere em PALAVRA fica.
+    """
+    import re as _re_rep
+    import unicodedata as _uni_rep
+
+    def _chave(t):
+        v = str(t or "").strip().upper()
+        v = "".join(c for c in _uni_rep.normalize("NFD", v)
+                    if _uni_rep.category(c) != "Mn")
+        return _re_rep.sub(r"[\s:/]+", " ", v).strip()
+
+    vistos, fica, sai = set(), [], []
+    for t in (textos or []):
+        k = _chave(t)
+        if not k:
+            continue
+        if k in vistos:
+            sai.append(t)
+            continue
+        vistos.add(k)
+        fica.append(t)
+    return fica, sai
 
 
 def faces_repetidas(itens, tipos_selecionados=None):
@@ -8359,6 +8417,24 @@ def pagina_imagem(usuario_logado):
                 textos = item.get("textos", [])
                 if textos:
                     st.caption("Textos: " + " · ".join(f'"{t}"' for t in textos[:4]))
+                # BLOCO REPETIDO APARECE AQUI, ANTES DE PAGAR.
+                #
+                # A peça 4 do dono recebeu "MADEIRA TRABALHADA: / Acabamento e
+                # textura" DUAS vezes, e as duas foram ao gerador. O Studio
+                # agora descarta a repetida — e dizer isso em voz alta é parte
+                # do conserto: descarte calado é o defeito que o oitavo
+                # verificador existe para pegar, e quem lê aqui pode refazer o
+                # plano em vez de receber uma peça com um argumento a menos.
+                _, _repetidos_item = blocos_sem_repeticao(textos)
+                if _repetidos_item:
+                    st.warning(
+                        f"🔁 **{len(_repetidos_item)} bloco(s) de texto "
+                        "repetido(s)** — a análise escreveu o mesmo cartão "
+                        "mais de uma vez. O repetido é descartado (ele "
+                        "gastaria uma vaga e espremeria os outros): "
+                        + " · ".join(f'"{t}"' for t in _repetidos_item[:3])
+                        + ". Para ter outro argumento no lugar, clique em "
+                        "**Analisar novamente**.")
                 if flags:
                     with st.expander("Ver aviso", expanded=False):
                         st.warning(flags[0])
@@ -10359,6 +10435,56 @@ if __name__ == "__main__":
          "pergunta_info": "Para quem este produto é presenteado?"},
     ]}
     _bloq = pecas_bloqueadas_da_geracao(_PLANO_BLOQ)
+    # ── O BLOCO DE TEXTO REPETIDO DENTRO DA PECA ────────────────────────
+    #
+    # A ENTRADA VEM DO ARQUIVO DO DONO, NAO DA MINHA CABECA. E a copy real
+    # que a peca 4 recebeu em 30/09, copiada do .txt que ele baixou:
+    #
+    #     1. MADEIRA TRABALHADA: / Acabamento e textura
+    #     2. MADEIRA TRABALHADA: / Acabamento e textura
+    #     3. MONTAGEM: / Construcao precisa
+    #
+    # Dois cartoes identicos foram ao gerador. Nao foi o modelo que
+    # desobedeceu — foi a nossa copy que pediu a repeticao, e o teto da peca
+    # gastou uma vaga com ela.
+    _COPY_REAL_PECA4 = ["MADEIRA TRABALHADA: / Acabamento e textura",
+                        "MADEIRA TRABALHADA: / Acabamento e textura",
+                        "MONTAGEM: / Construção precisa"]
+    _fica, _sai = blocos_sem_repeticao(_COPY_REAL_PECA4)
+    ok("o bloco repetido da peca 4 do dono e descartado",
+       len(_fica) == 2 and len(_sai) == 1)
+    ok("e quem fica e a PRIMEIRA ocorrencia, na ordem do plano",
+       _fica == ["MADEIRA TRABALHADA: / Acabamento e textura",
+                 "MONTAGEM: / Construção precisa"])
+    # RUIDO DE DIGITACAO E O MESMO CARTAO: caixa, acento e dois-pontos.
+    ok("caixa e acento nao fazem dois cartoes de um so",
+       blocos_sem_repeticao(["MONTAGEM: Construção precisa",
+                             "montagem: construcao precisa"])[0] ==
+       ["MONTAGEM: Construção precisa"])
+    # E O QUE DIFERE EM PALAVRA FICA — acusar o inocente aqui apagaria um
+    # argumento de venda da peca.
+    ok("cartoes diferentes continuam os dois",
+       len(blocos_sem_repeticao(["MADEIRA: textura",
+                                 "MONTAGEM: encaixe"])[0]) == 2)
+    ok("copy vazia nao quebra", blocos_sem_repeticao([]) == ([], [])
+       and blocos_sem_repeticao(None) == ([], []))
+    # E A DEDUPLICACAO ACONTECE ANTES DO TETO: senao a repeticao gasta a vaga
+    # e o terceiro bloco e que sai.
+    # A PRIMEIRA VERSAO DESTA GUARDA FICOU VERDE COM O DEFEITO DE VOLTA.
+    #
+    # Ela era `fonte.find("blocos_sem_repeticao") < fonte.find("_teto_do_tipo")`
+    # — e `find` devolve -1 quando NAO ACHA. Tirando a chamada inteira, -1 <
+    # indice do teto e VERDADEIRO: a guarda aprovava justamente o estado em
+    # que a deduplicacao nao existe. Foi a mutacao que mostrou, nao a leitura.
+    #
+    # Agora ela exige as duas coisas: que a chamada EXISTA, e que venha antes.
+    _fonte_mp = _insp_tx.getsource(montar_prompt_imagem)
+    _i_dedup = _fonte_mp.find("blocos_sem_repeticao")
+    _i_teto = _fonte_mp.find("_teto_do_tipo")
+    ok("o prompt deduplica a copy antes de montar", _i_dedup >= 0)
+    ok("e o repetido sai ANTES do teto da peca cortar",
+       _i_dedup >= 0 and _i_teto >= 0 and _i_dedup < _i_teto)
+
     ok("a peca bloqueada e encontrada depois da geracao", len(_bloq) == 1)
     ok("e ela vem com o nome, nao so a contagem",
        _bloq[0].get("tipo") == "7 — Presenteie")
