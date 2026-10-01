@@ -35,6 +35,34 @@ RAIZ = os.path.dirname(os.path.abspath(__file__))
 # esta entrada virou letra morta — e isso também é reprovado, porque mutação
 # que não se aplica dá a impressão de cobertura que não existe.
 MUTACOES = [
+    # ── 01/10: SEM FOTO, A PECA SAIA CALADA ────────────────────────────
+    #
+    # Dono: "criacao de uma foto totalmente errada comparada ao produto
+    # original anexado nas imagens do produto".
+    #
+    # `revisar_peca` devolvia `None` quando faltava foto de referencia, e
+    # `peca_em_aviso(None)` devolve "". A peca chegava a galeria com a mesma
+    # cara de uma peca CONFERIDA E APROVADA: sem veredito, sem aviso.
+    #
+    # E "sem foto" e exatamente o caso em que o produto tem mais chance de
+    # sair errado — o motor o reconstroi a partir do texto. A diferenca entre
+    # "conferi e esta boa" e "nao consegui conferir" e a diferenca entre
+    # publicar e nao publicar.
+    #
+    # A guarda ANTIGA exigia `_rel is None`: ela assinava embaixo do silencio.
+    # Foi reescrita para medir a propriedade certa — nao roda a conferencia
+    # (nao ha com o que comparar) mas DIZ que nao rodou.
+    (
+        "a peca sem foto volta a sair sem veredito e sem aviso",
+        "imagem.py",
+        [('    if not fotos_ref:\n'
+          '        return img, {"ok": None, "rodadas": 0, "problemas": [],\n'
+          '                     "erro": "sem foto do produto para comparar — o motor "\n'
+          '                             "montou a peça a partir do texto"}',
+          '    if not fotos_ref:\n        return img, None')],
+        None,
+        ["python3", "imagem.py", "--autoteste"],
+    ),
     # ── 01/10: A TELA SABIA E NAO CONTAVA O QUE AQUILO SIGNIFICA ───────
     #
     # Dono: "margem nas fotos" e "criacao de uma foto totalmente errada

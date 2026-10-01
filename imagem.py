@@ -6366,8 +6366,26 @@ def revisar_peca(img, tipo, fotos_ref=None, gerar=None, prompt_base="",
             except Exception:
                 pass
 
-    if not img or not fotos_ref:
+    # ── SEM FOTO, A PECA SAIA SEM VEREDITO E SEM AVISO ──────────────────
+    #
+    # Dono, 01/10: "criacao de uma foto totalmente errada comparada ao produto
+    # original anexado nas imagens do produto".
+    #
+    # Esta funcao devolvia `None` quando faltava foto de referencia, e
+    # `peca_em_aviso(None)` devolve "". A peca ia para a galeria com a mesma
+    # cara de uma peca CONFERIDA E APROVADA: sem veredito, sem aviso, sem
+    # nada. E "sem foto" e exatamente o caso em que o produto tem mais chance
+    # de sair errado, porque o motor o reconstroi a partir do texto.
+    #
+    # O limite silencioso de novo: o sistema sabia que nao tinha conferido e
+    # nao contava. A diferenca entre "conferi e esta boa" e "nao consegui
+    # conferir" e a diferenca entre publicar e nao publicar.
+    if not img:
         return img, None
+    if not fotos_ref:
+        return img, {"ok": None, "rodadas": 0, "problemas": [],
+                     "erro": "sem foto do produto para comparar — o motor "
+                             "montou a peça a partir do texto"}
 
     # A MELHOR DAS DUAS, E NAO A ULTIMA.
     #
@@ -10794,6 +10812,25 @@ if __name__ == "__main__":
     ok("o teste da tela tambem se adapta ao que o modelo recusa",
        _fonte_tela.count("parametro_recusado") >= 1)
 
+    # ── SEM FOTO, A PECA NAO PODE SAIR CALADA ───────────────────────────
+    #
+    # `revisar_peca` devolvia `None` quando faltava foto, e `peca_em_aviso`
+    # devolve "" para `None`: a peca chegava a galeria com a mesma cara de uma
+    # peca CONFERIDA E APROVADA. E "sem foto" e justamente o caso em que o
+    # produto tem mais chance de sair errado — o motor o reconstroi do texto.
+    _, _rel_sf = revisar_peca(b"bytes", "1 — Capa do anúncio (fundo branco)",
+                              fotos_ref=None)
+    ok("sem foto, a peca volta com veredito em vez de silencio",
+       isinstance(_rel_sf, dict) and _rel_sf.get("ok") is None)
+    ok("e o motivo diz que foi montada a partir do texto",
+       "a partir do texto" in (_rel_sf.get("erro") or ""))
+    ok("e a tela avisa que ela NAO foi conferida",
+       "NÃO foi conferida" in peca_em_aviso(_rel_sf))
+    # SEM IMAGEM continua devolvendo None: nao ha peca para avisar sobre.
+    ok("sem imagem nenhuma, nao inventa veredito",
+       revisar_peca(None, "1 — Capa do anúncio (fundo branco)",
+                    fotos_ref=[b"x"])[1] is None)
+
     ok("a peca e comparada com as fotos antes de sair", bool(_chamadas_dif))
     ok("e a comparacao recebe as FOTOS DE REFERENCIA, nao outra coisa",
        any(any(getattr(_a, "id", "") == "imagens_referencia" for _a in _c.args)
@@ -11153,9 +11190,21 @@ if __name__ == "__main__":
     conferir_peca = _olho(_CORTADA)
     _img, _rel = revisar_peca(b"x", "2 — Benefícios", fotos_ref=[],
                               gerar=_gera)
-    ok("SEM FOTO DE REFERENCIA ela nao roda — nao da para julgar fidelidade "
-       "sem ter com o que comparar",
-       _rel is None and _img == b"x")
+    # ESTA GUARDA MUDOU DE PROPRIEDADE, E DE PROPOSITO.
+    #
+    # Ela exigia `_rel is None` — e `peca_em_aviso(None)` devolve "". Ou
+    # seja: ela assinava embaixo do silencio. A peca sem foto chegava a
+    # galeria com a mesma cara de uma peca conferida e aprovada, e "sem foto"
+    # e justamente o caso em que o produto tem mais chance de sair errado.
+    #
+    # O que continua valendo: ela NAO RODA a conferencia (nao ha com o que
+    # comparar, e julgar sem comparar e o alarme falso mais caro que existe) e
+    # NAO GASTA geracao. O que mudou: ela devolve o veredito "nao conferida",
+    # com o motivo, em vez de nada.
+    ok("SEM FOTO DE REFERENCIA ela nao roda nem gasta geracao",
+       _img == b"x" and _rel.get("rodadas") == 0 and not _rel.get("problemas"))
+    ok("mas ela DIZ que nao conferiu, em vez de sair calada",
+       _rel.get("ok") is None and "NÃO foi conferida" in peca_em_aviso(_rel))
 
     # O AVISO DIZ O DEFEITO, e nao "confira antes de publicar".
     ok("o aviso nomeia o problema encontrado",
