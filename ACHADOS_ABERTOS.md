@@ -68,15 +68,6 @@ e isso é construção, não conserto de filtro. O que mudou hoje: a tela de
 Diagnóstico das APIs passa a MOSTRAR o que a conta tem, e o motor que fez
 cada peça já aparece no diagnóstico dela.
 
-### As 65 regras do prompt só são medidas com o cadastro CHEIO
-ONDE: checar_prompts.py:_DADOS
-POR QUE AINDA NÃO: hoje só o tipo 5 é conferido com o cadastro vazio, porque
-foi onde a contradição aparecia (manda fazer cota e proíbe escrever cota).
-Rodar as 65 regras uma segunda vez, com cadastro vazio, dobra o tempo do
-verificador — que já é a parte mais lenta do protocolo. O risco de deixar
-assim está declarado: uma regra que só faz sentido com dado preenchido pode
-estar quebrada no vazio sem ninguém ver.
-
 ### A régua não vê a FORMA do produto, só a cor
 ONDE: medir_imagem.py:produto_diferente
 POR QUE AINDA NÃO: a comparação com as fotos passou a existir em 30/09 e pega

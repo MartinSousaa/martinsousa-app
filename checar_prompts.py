@@ -423,6 +423,33 @@ _TETO_RE = (
 )
 
 
+# ── AS REGRAS QUE SO EXISTEM COM O CADASTRO PREENCHIDO ────────────────────
+#
+# Medido: com o cadastro VAZIO, 36 regras saem do lugar — e sao 4 regras
+# multiplicadas pelos 9 tipos. Essas quatro falam de medida, peso, material e
+# montagem: sem o dado, a linha nao existe no prompt, e cobrar ela seria
+# alarme falso.
+#
+# TODAS AS OUTRAS TEM DE VALER NO VAZIO. Foi onde o tipo 5 escondeu a
+# contradicao que custou uma rodada: "INFOGRAFICO TECNICO DE MEDIDAS" junto
+# de "JAMAIS invente medidas" — com cadastro as duas conviviam, sem cadastro
+# elas se anulavam, e nenhuma varredura media esse caso.
+#
+# E O MOTIVO QUE EU TINHA ESCRITO PARA NAO FAZER ISTO ERA FALSO.
+#
+# Estava no ACHADOS_ABERTOS.md: "rodar as 65 regras uma segunda vez dobra o
+# tempo do verificador — que ja e a parte mais lenta do protocolo". Medi:
+# `checar_prompts.py` leva 2,8 SEGUNDOS. A parte lenta do protocolo e o
+# `checar_mutacao`, que leva vinte minutos. Eu escrevi um motivo sem medir e
+# ele ficou de pe por dias.
+REGRAS_SO_COM_CADASTRO = {
+    "as medidas exatas do produto",
+    "o material e a montagem",
+    "a montagem nomeada chega ao motor",
+    "e com a ordem de não deduzir",
+}
+
+
 def _faixas(texto, padroes):
     achadas = set()
     for rx in padroes:
@@ -983,6 +1010,46 @@ def main():
         if perdidas:
             print(f"FALHA  {len(perdidas)} linha(s) do brief de '{t}' NAO chegaram "
                   f"ao motor. A primeira: {perdidas[0][:90]!r}")
+            falhas += 1
+
+    # ── 1-ter. AS MESMAS REGRAS, COM O CADASTRO VAZIO ──────────────────────
+    #
+    # O cadastro do teste sempre teve medida, peso e material — e e justamente
+    # no vazio que o tipo 5 se contradizia. Uma amostra de um caso so mede um
+    # caso so.
+    #
+    # Custa 2,8 segundos a mais. O motivo que eu tinha escrito para nao fazer
+    # ("dobra o tempo da parte mais lenta do protocolo") era falso: a parte
+    # lenta e o `checar_mutacao`, com vinte minutos.
+    _vazios = {}
+    for t in TODOS:
+        try:
+            _, _vazios[t], _, _ = _prompts(t, dados={})
+        except Exception as e:
+            print(f"FALHA  nao consegui montar o prompt de '{t}' com o "
+                  f"cadastro vazio: {type(e).__name__}: {e}")
+            falhas += 1
+            _vazios[t] = ""
+    for t in TODOS:
+        if not _vazios[t]:
+            continue
+        for desc, trecho, tem, nao in REGRAS:
+            if desc in REGRAS_SO_COM_CADASTRO:
+                continue
+            _onde_tem = TODOS if tem is None else tem
+            if t in _onde_tem and trecho not in _vazios[t]:
+                print(f"FALHA  com o cadastro VAZIO, '{desc}' FALTA em '{t}'")
+                falhas += 1
+            if t in (nao or ()) and trecho in _vazios[t]:
+                print(f"FALHA  com o cadastro VAZIO, '{desc}' NAO DEVIA estar "
+                      f"em '{t}'")
+                falhas += 1
+    # ISENCAO ORFA MENTE PARA QUEM LE DEPOIS — igual as outras listas da base.
+    _descricoes = {d for d, _, _, _ in REGRAS}
+    for _d in sorted(REGRAS_SO_COM_CADASTRO):
+        if _d not in _descricoes:
+            print(f"FALHA  a isencao de cadastro para '{_d}' sobrou: essa "
+                  "regra nao existe mais, e a isencao mente para quem ler")
             falhas += 1
 
     # ── 3. UMA MEDIDA DE OCUPACAO POR PECA ─────────────────────────────────

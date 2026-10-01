@@ -35,6 +35,30 @@ RAIZ = os.path.dirname(os.path.abspath(__file__))
 # esta entrada virou letra morta — e isso também é reprovado, porque mutação
 # que não se aplica dá a impressão de cobertura que não existe.
 MUTACOES = [
+    # ── 30/09: AS 65 REGRAS SO ERAM MEDIDAS COM O CADASTRO CHEIO ───────
+    #
+    # O cadastro do teste sempre teve medida, peso e material — e e no VAZIO
+    # que o tipo 5 se contradizia: "INFOGRAFICO TECNICO DE MEDIDAS" junto de
+    # "JAMAIS invente medidas". Com dado as duas conviviam; sem dado elas se
+    # anulavam, e o modelo resolvia contradicao inventando numero.
+    #
+    # O MOTIVO QUE EU TINHA ESCRITO PARA NAO FAZER ISTO ERA FALSO. Estava no
+    # ACHADOS_ABERTOS.md: "dobra o tempo do verificador, que ja e a parte mais
+    # lenta do protocolo". Medido: `checar_prompts.py` leva 2,8 SEGUNDOS, e a
+    # segunda passada nao mudou o relogio. A parte lenta e o `checar_mutacao`,
+    # com vinte minutos. Escrevi um motivo sem medir e ele ficou de pe por
+    # dias, segurando uma varredura que custava zero.
+    #
+    # A mutacao tira uma regra da lista de isencao: ela passa a ser cobrada no
+    # vazio, onde a linha nao existe. Nove tipos, nove reprovacoes — e e isso
+    # que prova que a segunda passada roda de verdade.
+    (
+        "a varredura com cadastro vazio deixa de medir",
+        "checar_prompts.py",
+        [('    "o material e a montagem",\n', "")],
+        None,
+        ["python3", "checar_prompts.py"],
+    ),
     # ── 30/09: DOIS CARTOES IDENTICOS NA MESMA PECA ────────────────────
     #
     # O item "corte de texto nas pecas 4 e 5" estava ABERTO desde 28/09 com o
@@ -1207,7 +1231,13 @@ MUTACOES = [
         # verificadores guardam o codigo; nada guardava a minha lista.
         "achado aberto volta a poder ficar sem motivo escrito",
         "ACHADOS_ABERTOS.md",
-        "POR QUE AINDA NÃO: hoje só o tipo 5 é conferido com o cadastro vazio",
+        # A ANCORA ERA O TEXTO DE UM ITEM QUE EU FECHEI, e a mutacao parou de
+        # encontrar alvo — o verificador reprovou por "o trecho certo aparece
+        # 0 vezes", que e o servico dele. Ancora que aponta para um item
+        # especifico morre quando o item e resolvido, que e justamente o que
+        # se espera que aconteca. Agora ela aponta para o PRIMEIRO item
+        # aberto, seja ele qual for.
+        "POR QUE AINDA NÃO: a análise do dia 30/09 foi feita em cima do",
         "POR QUE AINDA NAO ESCRITO: ",
         ["python3", "checar_alcance.py"],
     ),
