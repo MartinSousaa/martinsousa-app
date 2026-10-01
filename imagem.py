@@ -8,6 +8,14 @@ import zipfile
 import json
 import anthropic
 import threading as _threading_limiter
+# APELIDO PROPRIO, E DE PROPOSITO.
+#
+# Meia duzia de funcoes desta tela fazem `import log_imagem` DENTRO do corpo,
+# e isso torna o nome LOCAL na funcao inteira: uma chamada antes daquela linha
+# estoura UnboundLocalError — que e o defeito que derrubou o Painel de Metas
+# duas vezes e o motivo de `checar_ordem.py` existir. Um apelido que ninguem
+# mais usa nao pode ser sombreado.
+import log_imagem as _li_thread
 import time as _time_limiter
 from collections import deque as _deque
 
@@ -174,25 +182,54 @@ OCUPACAO = {
         "The product is the subject, the panels are the caption. Full product: "
         "preferably YES. Callouts and benefit panels live in the remaining margin, "
         "never shrinking the product to fit them."),
-    3: (45, None,
-        "Product is the protagonist; the environment supports it and never "
-        "dominates. Full product: preferably YES."),
+    # ── A PECA 3 TAMBEM E CENA, E EU A DEIXEI PARA TRAS ────────────────
+    #
+    # Dono, 30/09: "o produto esta GIGANTE nas maos da crianca". Eu atribui
+    # isso a peca 7, corrigi a 7 e a 8, e deixei a 3 — que e "PRODUTO NO
+    # AMBIENTE DE USO REAL: deduza (...) onde ESTE produto e de fato usado, e
+    # POR QUEM". Cena com gente, igual as outras duas.
+    #
+    # Ela mandava "o produto ocupa NO MINIMO 45% da dimensao util do quadro"
+    # e, no mesmo prompt, "Nunca deixe o produto pequeno no centro de um
+    # cenario amplo" — a linha que ja tinha inflado a ambientacao em 29/09.
+    # Um compasso de 16 cm a 45% do quadro, na mao de uma crianca, E gigante.
+    #
+    # Esta e a Forma 1 pela TERCEIRA vez no mesmo defeito: 29/09 na peca 8,
+    # 30/09 de manha na 7, e agora na 3. Por isso o grupo passa a ser uma
+    # lista com nome: a proxima peca de cena entra nela, e nao num quarto
+    # lugar que alguem esquece.
+    3: None,
     4: (80, 92,
         "Macro close-up of ONE detail. Do NOT show the full product. Full product: NO."),
     5: (50, 65,
         "The text panels occupy a dedicated zone of the remaining frame — they never "
         "overlap the product, and the product is never shrunk to make room for them. "
-        "If the text does not fit in its zone, write FEWER blocks."),
+        "The number of blocks is fixed by the Studio: render exactly those, and keep "
+        "every one of them fully inside the frame."),
     6: (50, 65,
         "The text panels occupy a dedicated zone of the remaining frame — they never "
         "overlap the product, and the product is never shrunk to make room for them. "
-        "If the text does not fit in its zone, write FEWER blocks."),
-    7: (30, 45,
-        "This is a HANDOVER SCENE with two people, so the product does not fill the "
-        "frame — it leads by position and focus: front and centre between the hands, "
-        "sharp, fully visible and uncropped, while the people stay softer behind it. "
-        "Full product: YES. Never enlarge the product beyond its real scale in the "
-        "hands that hold it."),
+        "The number of blocks is fixed by the Studio: render exactly those, and keep "
+        "every one of them fully inside the frame."),
+    # ── A PECA 7 TAMBEM E CENA, E TAMBEM PERDEU A PORCENTAGEM ──────────
+    #
+    # Dono, 30/09: "o produto esta GIGANTE nas maos da crianca".
+    #
+    # Ela tinha (30, 45) com a frase "Nao e sugestao: e a medida desta peca"
+    # — e, no MESMO prompt, "Never enlarge the product beyond its real scale
+    # in the hands that hold it". Duas ordens sobre o mesmo assunto, e a que
+    # ganha e a que se declara inegociavel. Um compasso de 16 cm ocupando
+    # 30% a 45% de um quadro, na mao de uma crianca, E gigante: a escala
+    # real dele ali e um terco disso.
+    #
+    # O raciocinio ja estava escrito duas linhas abaixo, para a peca 8 — "Por
+    # um numero aqui e o produto volta gigante" — e eu o apliquei so la. Esta
+    # e a Forma 1 do CLAUDE.md na forma mais pura: a correcao chegou num
+    # irmao e nao no outro, com o comentario que a explica logo ao lado.
+    #
+    # Entrega de presente e cena com gente: o tamanho do produto nela e a
+    # escala real dele nas maos, e nenhuma porcentagem sabe disso.
+    7: None,
     # A ambientacao NAO tem faixa: o tamanho dela e a escala real do objeto no
     # ambiente. Por um numero aqui e o produto volta gigante.
     8: None,
@@ -567,6 +604,76 @@ def divergencia_de_produto(cfg, nome_da_tela, dados_da_tela):
             + ". Refaça o plano ('Analisar e mostrar plano') antes de gerar.")
 
 
+def _sem_acento(texto):
+    import unicodedata as _u
+    return "".join(c for c in _u.normalize("NFD", str(texto or "").lower())
+                   if _u.category(c) != "Mn")
+
+
+def plano_misturado(plano, nome_produto):
+    """O plano descreve MAIS DE UM produto? Devolve o aviso, ou "".
+
+    POR QUE ESTA FUNÇÃO EXISTE (30/09)
+    ----------------------------------
+    O dono gerou oito peças do «Compasso Cortador Colorido» e recebeu:
+    ambientação "completamente errada", produto irreconhecível nas mãos de
+    uma criança, e texto cortado. Ele mandou ler o prompt que o sistema
+    enviou, e o prompt estava obedecendo — ao produto ERRADO:
+
+        peça 8: "Caixa aberta ... RELÓGIO DE PULSO elegante dentro"
+        peça 7: "duas mãos ... a CAIXA DE MADEIRA entre elas"
+        peça 4: "textura do GRÃO DA MADEIRA ... construção da CAIXA"
+
+    Cinco dos nove planos descreviam uma caixa de madeira para relógios; os
+    outros quatro diziam "Compasso cortador". Um plano, dois produtos.
+
+    POR QUE `divergencia_de_produto` NÃO PEGOU
+    Ela compara nome, medidas, peso e material entre o plano congelado e a
+    tela — e esses quatro estavam CERTOS. O que o plano DESCREVE, que é o
+    texto que vira a imagem, nunca era comparado com nada.
+
+    A MEDIDA, E NÃO O PALPITE
+    Cada peça do plano nomeia o produto (uma palavra do nome dele) ou fala
+    dele genericamente ("o produto"). Quando ALGUMAS nomeiam e outras não, o
+    plano não é de um produto só — e foi exatamente esse o padrão medido:
+    4 peças citavam "Compasso", 5 não citavam nem isso nem "produto".
+
+    Exigir que TODAS nomeiem daria alarme falso numa peça de close legítima
+    ("ampliação da textura em foco"). Por isso a pergunta é sobre a MISTURA:
+    o plano concorda consigo mesmo?
+    """
+    itens = (plano or {}).get("plano") or []
+    if len(itens) < 3:
+        return ""
+    palavras = [p for p in _sem_acento(nome_produto).split() if len(p) > 3]
+    if not palavras:
+        return ""
+
+    citam, mudas = [], []
+    for item in itens:
+        texto = _sem_acento(" ".join(str(item.get(c, "") or "")
+                                     for c in ("composicao", "cena")))
+        if not texto.strip():
+            continue
+        rotulo = str(item.get("tipo", "") or "?")[:28]
+        if any(p in texto for p in palavras) or "produto" in texto:
+            citam.append(rotulo)
+        else:
+            mudas.append(rotulo)
+
+    if not citam or not mudas:
+        return ""
+    return (
+        "O plano não é de um produto só. "
+        f"{len(citam)} peça(s) descrevem «{nome_produto}» e {len(mudas)} "
+        f"descrevem outra coisa: {', '.join(mudas[:4])}"
+        + ("…" if len(mudas) > 4 else "")
+        + ". Gerar agora produz peças do produto errado — foi assim que o "
+          "Compasso Cortador virou uma caixa de madeira em cinco das nove. "
+          "Refaça o plano ('Analisar e mostrar plano') antes de gerar."
+    )
+
+
 def faixa_de_ocupacao(tipo):
     """(minimo, maximo, complemento) do tipo, ou None quando nao ha faixa."""
     return OCUPACAO.get(numero_do_tipo(tipo))
@@ -630,9 +737,7 @@ O PRODUTO É O DESTAQUE — SEMPRE, E ANTES DE TUDO:
 INSTRUCAO_PROTAGONISMO_AMBIENTE = """
 O PRODUTO É O DESTAQUE — MAS PELA ATENÇÃO, NÃO PELO TAMANHO:
 - ESCALA REAL, REGRA INVIOLÁVEL: o produto aparece no tamanho que ele tem de
-  verdade em relação ao ambiente e aos objetos ao redor. Uma peça de vestuário
-  sobre uma cama tem o tamanho de uma peça de vestuário; um objeto de mesa não
-  pode ficar do tamanho da mesa.
+  verdade em relação ao que está ao redor dele.
 - Ele domina a cena por FOCO e por LUZ: nítido e bem iluminado em primeiro
   plano, com o ambiente em profundidade de campo mais suave atrás.
 - O enquadramento é fechado ou médio NO PRODUTO — a câmera chega perto dele.
@@ -640,9 +745,58 @@ O PRODUTO É O DESTAQUE — MAS PELA ATENÇÃO, NÃO PELO TAMANHO:
 - É correto e desejável que o produto ocupe uma fração modesta do quadro se é
   isso que a escala real determina. Cenário amplo com o produto em evidência
   pelo foco é o objetivo desta peça, não um defeito dela.
-- Nada de objeto flutuando, apoio impossível ou sombra que não bate com a
-  superfície: o produto está POUSADO no ambiente, com contato e sombra reais.
+{apoio}
 """
+
+# O QUE MUDA ENTRE A AMBIENTACAO E A ENTREGA E SO ONDE O PRODUTO SE APOIA.
+#
+# Duas copias do bloco inteiro seriam a Forma 5: a terceira regra que alguem
+# acrescentar num deles nao chega no outro, e os dois passam a discordar. O
+# que difere sao duas linhas, e sao elas que viram parametro.
+APOIO_AMBIENTE = """- Uma peça de vestuário sobre uma cama tem o tamanho de uma peça de
+  vestuário; um objeto de mesa não pode ficar do tamanho da mesa.
+- Nada de objeto flutuando, apoio impossível ou sombra que não bate com a
+  superfície: o produto está POUSADO no ambiente, com contato e sombra reais."""
+
+APOIO_USO = """- O produto aparece no tamanho que ele tem na mao ou no movel de quem o usa:
+  se uma crianca o segura, ele NAO pode ser maior que o antebraco dela, nem
+  tapar o tronco dela. Produto competindo em tamanho com a pessoa esta errado.
+- Nada de objeto flutuando: ele esta apoiado, seguro ou pousado de verdade,
+  com contato e sombra que batem com a superficie."""
+
+APOIO_PRESENTE = """- O que cabe na mão tem o tamanho do que cabe na mão: o produto NUNCA fica
+  maior que o antebraço de quem o segura, nem tapa o tronco dessa pessoa. Se
+  ele estiver competindo em tamanho com a pessoa, está errado.
+- Nada de objeto flutuando entre as mãos: os dedos ENCOSTAM nele, seguram
+  mesmo, com contato e sombra reais — e nunca escondem parte dele."""
+
+# ── QUAL BLOCO DE TAMANHO CADA PECA RECEBE — UMA PORTA SO ─────────────────
+#
+# A escolha vivia inline no montador, e era um `if` de dois ramos: capa ou
+# resto. A ambientacao escapava por outro caminho (ela monta o proprio
+# f-string), e a peca 7 — que e cena com gente, igual a ambientacao — caia no
+# "resto" e recebia "Nunca deixe o produto pequeno no centro de um cenario
+# amplo". Produto no centro de uma cena com duas pessoas e EXATAMENTE o que a
+# peca 7 e: a instrucao proibia o objetivo da peca, e o modelo obedeceu
+# inflando o produto. Foi o mesmo texto, palavra por palavra, que ja tinha
+# feito a ambientacao sair gigante em 29/09.
+#
+# Tres perguntas e tres respostas, num lugar so. Peca nova entra aqui e nao em
+# tres `if` espalhados.
+TIPOS_DE_CENA = (3, 7, 8)   # o tamanho delas e a escala real, nunca porcentagem
+
+
+def protagonismo_do_tipo(tipo):
+    """O bloco de TAMANHO desta peca, ja formatado. Uma pergunta, uma resposta."""
+    if modo_fundo_do_tipo(tipo) == "branco":
+        return INSTRUCAO_PROTAGONISMO_CAPA.format(
+            faixa=ocupacao_em_portugues(tipo))
+    if numero_do_tipo(tipo) in TIPOS_DE_CENA:
+        return INSTRUCAO_PROTAGONISMO_AMBIENTE.format(
+            apoio={8: APOIO_AMBIENTE, 7: APOIO_PRESENTE,
+                   3: APOIO_USO}[numero_do_tipo(tipo)])
+    return INSTRUCAO_PROTAGONISMO.format(faixa=ocupacao_em_portugues(tipo))
+
 
 # ── A CAPA É A MAIS EXIGENTE DAS TRÊS, E NÃO TINHA REGRA NENHUMA ───────────
 #
@@ -780,6 +934,44 @@ REGRA DE PROPORÇÃO DO PRODUTO (obrigatória):
   produto por precaução.
 """
 
+# ── QUANTAS PALAVRAS CABEM NUM BLOCO — UMA FONTE, DOIS LEITORES ───────────
+#
+# Dono, 30/09: "as escritas estao sendo cortadas (...) aplicadas numa regiao
+# que nao da para ser escrita totalmente e ai fica a margem para fora".
+#
+# A copy e escrita por um prompt (o do PLANO) e desenhada por outro (o da
+# IMAGEM), e os dois nunca concordaram sobre o tamanho dela. Eram CINCO vozes:
+#
+#   - regra de densidade:  titulo 2-5 palavras, descricao de 8 a 16
+#   - a mesma regra, 33 linhas abaixo: titulo de 2 a 4, frase de 4 a 9
+#   - preset da peca 2:    titulo 2-3 palavras, frase maximo 7
+#   - preset da peca 3:    frase maximo 6 palavras
+#   - preset da peca 6:    pergunta maximo 5, resposta maximo 8
+#   - prompt do PLANO:     titulo de 2 a 4; frase de 4 a 9
+#
+# Seis, contando o plano. A IA da copy escrevia no tamanho de uma delas e o
+# desenhista recebia outra — frase longa num cartao dimensionado para frase
+# curta transborda pela borda, e e o quadrado para fora que ele viu.
+#
+# A faixa da frase e a UNICA que as duas regras de densidade permitiam ao
+# mesmo tempo: 8 a 9. Nao foi escolha minha, e a interseccao de [8,16] com
+# [4,9]. Se o dono quiser outra, muda aqui e muda nos dois prompts.
+PALAVRAS_TITULO = (2, 4)
+PALAVRAS_FRASE = (8, 9)
+
+
+def medida_do_bloco():
+    """A frase, em portugues, sobre o tamanho de um bloco de texto.
+
+    UMA FUNCAO, E NAO UM TEXTO COPIADO: o prompt da IMAGEM e o prompt do
+    PLANO leem os dois daqui. Era a copia entre eles que fazia a IA escrever
+    num tamanho e o desenhista dimensionar para outro.
+    """
+    return (f"titulo curto em CAIXA ALTA ({PALAVRAS_TITULO[0]} a "
+            f"{PALAVRAS_TITULO[1]} palavras) + frase de {PALAVRAS_FRASE[0]} a "
+            f"{PALAVRAS_FRASE[1]} palavras").replace("titulo", "título")
+
+
 INSTRUCAO_LAYOUT_MARKETING = """
 REGRA DE LAYOUT PARA IMAGENS DE MARKETING (obrigatória para tipos 2, 3, 4, 5, 6 e 7):
 - PROIBIÇÃO ABSOLUTA: JAMAIS sobreponha texto, ícone, título ou qualquer elemento gráfico
@@ -800,8 +992,9 @@ REGRA DE DENSIDADE:
   mostra — mesmo que sejam 5 ou 6 blocos. A referência é o padrão aprovado da
   empresa; qualquer número abaixo desta regra não se aplica a ela.
 {blocos}
-- Cada bloco: título curto em CAIXA ALTA (2-5 palavras) + descrição de 8 a 16
-  palavras. Descrição de 3 palavras deixa a peça pobre e sem argumento de venda.
+- Cada bloco: {palavras}. Descrição de 3 palavras deixa a peça pobre e sem
+  argumento de venda; descrição longa não cabe no cartão e transborda pela
+  borda.
 - FORMA DO CARTÃO, IGUAL EM TODAS AS PEÇAS: retângulo de cantos arredondados,
   fundo claro sólido, ícone line-art próprio, todos com a MESMA largura e o
   mesmo estilo dentro da peça.
@@ -833,11 +1026,10 @@ REGRA DE TEXTO REAL (o erro mais constrangedor):
   lombada de livro, capa de caderno, tela de computador, etiqueta, embalagem e
   placa. Se um objeto do cenário teria texto, escreva-o em português do Brasil
   — ou desenhe o objeto sem texto legível.
-- Frase curta é o que sai certo. Título de 2 a 4 palavras, frase de 4 a 9.
-  Quanto mais longa a frase, mais letra inventada aparece nela.
+- Quanto mais longa a frase, mais letra inventada aparece nela: a medida do
+  bloco está escrita uma vez só, na REGRA DE DENSIDADE acima.
 - Pontuação fechada: parêntese que abre, fecha. Nada de "(exemplo," solto no
   meio de uma frase.
-- Se não houver informação suficiente para preencher um bloco, use MENOS blocos.
   Bloco a menos é melhor que bloco com texto inventado.
 - PROIBIDO desenhar logotipo, marca, monograma ou assinatura sobre o produto ou
   na peça. O produto não tem logo — não crie um.
@@ -917,7 +1109,8 @@ PRESETS = {
         "IMAGEM DE MARKETING — BENEFÍCIOS: produto em zona central limpa (SEM texto sobre ele). "
         "Fundo deduzido do produto — sem cor de marca fixa. Benefícios em cartões — a POSIÇÃO, a FORMA e a quantidade deles saem da regra de densidade, não daqui; siga a referência de layout quando houver: "
         "ícone line-art na cor da direção de arte escolhida para ESTE produto — não existe cor "
-        "de ícone fixa — + título curto (2-3 palavras) + frase direta (máximo 7 palavras). "
+        "de ícone fixa — + título curto + frase direta, no tamanho que a REGRA DE "
+        "DENSIDADE manda. "
         "Visual arejado — jamais comprima ou empilhe os blocos de benefício, e jamais deixe faixa vazia em volta da peça. "
         "Os textos dos benefícios vêm dos diferenciais e características do produto informados."
     ),
@@ -926,8 +1119,8 @@ PRESETS = {
         "onde ESTE produto é de fato usado, e por quem — não escolha de uma lista pronta de "
         "cômodos. Produto protagonista em cena aspiracional, com a luz e a paleta que "
         "valorizem este produto. Frases de destaque em cartões fora do produto (nunca sobre "
-        "ele) — posição, forma e quantidade saem da regra de densidade. Cada frase: curta, impactante, "
-        "máximo 6 palavras. Sem cor de "
+        "ele) — posição, forma, quantidade e TAMANHO saem da regra de densidade. "
+        "Cada frase: curta e impactante. Sem cor de "
         "marca fixa: fundo e elementos gráficos saem da direção de arte deste produto. "
         "Visual editorial — parece foto de lifestyle de qualidade, não montagem amadora."
     ),
@@ -976,8 +1169,9 @@ PRESETS = {
         "IMAGEM DE MARKETING — RESPONDENDO DÚVIDAS DO COMPRADOR: layout clean com produto "
         "em destaque e blocos de pergunta+resposta em cartões — posição, forma e "
         "quantidade saem da regra de densidade, não daqui; siga a referência de layout quando houver. "
-        "Cada bloco: pergunta curta (máximo 5 palavras) em destaque + check verde + resposta direta "
-        "(máximo 8 palavras). As objeções são baseadas nos diferenciais e características do produto. "
+        "Cada bloco: pergunta em destaque + check verde + resposta direta, as duas no "
+        "tamanho que a REGRA DE DENSIDADE manda. As objeções são baseadas nos "
+        "diferenciais e características do produto. "
         "Visual arejado, sem faixa vazia em volta da peça; fundo e paleta deduzidos do produto e da ocasião."
     ),
     "7 — Presenteie": (
@@ -1214,8 +1408,8 @@ O CAMPO "textos" É A COPY FINAL, PALAVRA POR PALAVRA — leia com atenção:
   "relievarriamento do stresse" — palavras que não existem, numa peça que foi
   parar na tela do gestor. Quem escreve a frase é VOCÊ, aqui, e ele só copia.
 - Escreva cada bloco já pronto, no formato "TÍTULO CURTO: frase curta".
-  Título de 2 a 4 palavras; frase de 4 a 9 palavras. Frase longa é o que ele
-  erra: quanto mais palavra, mais letra inventada.
+  {medida_do_bloco()}. Frase longa é o que ele erra: quanto mais palavra, mais
+  letra inventada — e frase que não cabe no cartão transborda pela borda.
 - Português do Brasil, e SÓ português do Brasil. Nenhuma palavra em inglês,
   nem "premium", "design", "kit", "home office" ou nome técnico em inglês.
   Se o termo só existe em inglês, escreva o equivalente em português.
@@ -2087,37 +2281,74 @@ def _chamar_gemini_geracao_texto(prompt_final, imagens_bytes=None,
             # resolvido. Então manda; se a API recusar o formato (400), repete
             # sem ele, e o log diz qual das duas valeu.
             _base_body = {"contents": [{"role": "user", "parts": parts}]}
-            _com_proporcao = dict(_base_body)
-            _com_proporcao["generationConfig"] = {
-                "responseModalities": ["IMAGE"],
-                "responseFormat": {"image": {"aspectRatio": "1:1",
-                                             "imageSize": "1K"}},
-            }
-            # UMA VARIAVEL POR VEZ, SENAO NAO SE APRENDE NADA.
-            #
-            # A segunda tentativa mudava DUAS coisas ao mesmo tempo: tirava a
-            # proporcao E trocava `["IMAGE"]` por `["IMAGE","TEXT"]`. Quando a
-            # API recusava, ficava impossivel saber qual das duas ela recusou
-            # — e o Studio seguia repetindo o mesmo par para sempre.
-            _sem_proporcao = dict(_base_body)
-            _sem_proporcao["generationConfig"] = {
-                "responseModalities": ["IMAGE"],
-            }
 
-            resp = requests.post(url, json=_com_proporcao, headers=headers,
-                                 timeout=120,
-                                 proxies={"http": None, "https": None})
-            if resp.status_code == 400:
+            # PEDIR O QUADRADO DE TODOS OS JEITOS DOCUMENTADOS, ATE UM COLAR.
+            #
+            # 30/09: o Studio mandava UM nome de campo — `responseFormat` —,
+            # a API respondia 400, e ele desistia da proporcao. Toda peca
+            # voltava retangular, o enquadramento preenchia as sobras, e a
+            # pessoa recebia a peca COM MARGEM. Eu cheguei a dizer ao dono que
+            # isso "nao tinha conserto por codigo". Tinha: era o nome do campo.
+            #
+            # A documentacao do Google descreve DOIS formatos diferentes, e os
+            # dois sao oficiais, para endpoints diferentes:
+            #   generateContent .... generationConfig.imageConfig.aspectRatio
+            #   Interactions API ... response_format.aspect_ratio
+            # Chutar qual vale nesta versao do modelo e o que nos trouxe ate
+            # aqui. Entao o Studio nao chuta: ele TENTA, na ordem documentada,
+            # e GUARDA qual colou — igual ao que ja faz com o modelo da OpenAI
+            # ("pergunta a propria conta" em vez de confiar num nome escrito
+            # a mao). Um rename futuro custa uma tentativa a mais, e nao
+            # semanas de peca com margem.
+            _formas = [
+                ("imageConfig", {
+                    "responseModalities": ["IMAGE"],
+                    "imageConfig": {"aspectRatio": "1:1", "imageSize": "1K"}}),
+                ("imageConfig sem tamanho", {
+                    "responseModalities": ["IMAGE"],
+                    "imageConfig": {"aspectRatio": "1:1"}}),
+                ("responseFormat", {
+                    "responseModalities": ["IMAGE"],
+                    "responseFormat": {"image": {"aspectRatio": "1:1",
+                                                 "imageSize": "1K"}}}),
+                # SEM PROPORCAO fica por ultimo e continua existindo: peca com
+                # margem e pior que peca nenhuma? Nao. Entregar e melhor.
+                ("sem proporcao", {"responseModalities": ["IMAGE"]}),
+            ]
+            # UMA VARIAVEL POR VEZ, SENAO NAO SE APRENDE NADA. A versao antiga
+            # mudava a proporcao E os `responseModalities` na mesma tentativa:
+            # quando a API recusava, era impossivel saber qual das duas.
+            if _FORMA_PROPORCAO["nome"]:
+                _formas = ([f for f in _formas if f[0] == _FORMA_PROPORCAO["nome"]]
+                           or _formas)
+
+            resp = None
+            for _nome_forma, _cfg_forma in _formas:
+                _corpo = dict(_base_body)
+                _corpo["generationConfig"] = _cfg_forma
+                resp = requests.post(url, json=_corpo, headers=headers,
+                                     timeout=120,
+                                     proxies={"http": None, "https": None})
+                if resp.status_code != 400:
+                    _FORMA_PROPORCAO["nome"] = _nome_forma
+                    if diagnostico is not None:
+                        diagnostico["proporcao_pedida"] = _nome_forma
+                    break
                 import sys as _sys_ar
-                print("[gemini] proporcao recusada pela API — repetindo sem "
-                      f"ela. Resposta: {resp.text[:1500]}",
+                print(f"[gemini] proporcao por '{_nome_forma}' recusada — "
+                      f"tentando a proxima. {resp.text[:400]}",
                       file=_sys_ar.stderr, flush=True)
+            if resp is not None and resp.status_code == 400:
                 # E A COLABORADORA PRECISA SABER, NAO SO O LOG DO RAILWAY.
                 #
                 # Recusado o pedido de quadrada, a imagem volta retangular, o
                 # Studio preenche as sobras — e a pessoa recebe a peca com
                 # MARGEM sem uma linha explicando por que. Dono, 30/09:
                 # "imagens com margem". O sistema sabia; so nao contava.
+                # TODAS AS FORMAS FORAM RECUSADAS — inclusive a sem
+                # proporcao. Ai o 400 nao e sobre a proporcao, e o aviso nao
+                # pode dizer que e: mentir sobre a causa custa a proxima hora
+                # de quem for procurar.
                 if diagnostico is not None:
                     try:
                         _det = resp.json().get("error", {}).get("message", "")
@@ -2125,9 +2356,6 @@ def _chamar_gemini_geracao_texto(prompt_final, imagens_bytes=None,
                         _det = ""
                     diagnostico["proporcao_recusada"] = (
                         _det or resp.text[:200] or "a API respondeu 400")
-                resp = requests.post(url, json=_sem_proporcao, headers=headers,
-                                     timeout=120,
-                                     proxies={"http": None, "https": None})
             if resp.status_code == 429:
                 try:
                     _ej = resp.json()
@@ -2542,9 +2770,17 @@ def _data_url(img_bytes):
 # extra, e não um dia de geração perdida.
 MODELO_IMAGEM_PADRAO = "gpt-image-2.5-sunburst"
 
-# A ordem em que se tenta quando é preciso escolher sozinho: o mais capaz
-# primeiro, porque a fidelidade ao produto é o que o Studio está comprando.
-MODELOS_IMAGEM_CONHECIDOS = ("gpt-image-2.5-sunburst", "gpt-image-2.5-flare")
+# A ORDEM DE PREFERÊNCIA, E NÃO UMA LISTA DE EXIGÊNCIA.
+#
+# Ela diz qual escolher PRIMEIRO entre os que a conta tem — nunca qual a
+# conta precisa ter. Era aí que o Studio se cegava: nome fora desta lista
+# não era considerado, e a conta de 30/09 não tinha nenhum deles.
+#
+# `dall-e-3` entra no fim de propósito: ele desenha, mas não aceita
+# `input_fidelity` nem foto de referência. É melhor que nenhuma imagem e
+# pior que qualquer `gpt-image` — e a tela diz qual motor fez a peça.
+MODELOS_IMAGEM_CONHECIDOS = ("gpt-image-2.5-sunburst", "gpt-image-2.5-flare",
+                             "gpt-image-1", "dall-e-3", "dall-e-2")
 
 # Descoberto em execução, quando o nome configurado não existe. Vive no
 # processo: perguntar uma vez por container basta, e uma chamada a cada geração
@@ -2555,6 +2791,13 @@ _MODELO_DESCOBERTO = {"nome": None}
 # de uma prova. A conta respondeu 404 para este nome, entao insistir nele e
 # gastar a proxima geracao para receber o mesmo 404.
 _MODELO_INVALIDO = set()
+
+# A FORMA DE PEDIR IMAGEM QUADRADA QUE ESTA API ACEITA, descoberta em execucao.
+#
+# Vive no processo, igual ao modelo descoberto da OpenAI: perguntar uma vez por
+# container basta, e tentar tres corpos a cada peca seria pagar toda geracao
+# para responder uma pergunta de uma vez so.
+_FORMA_PROPORCAO = {"nome": None}
 
 
 def marcar_modelo_invalido(nome):
@@ -2608,6 +2851,56 @@ def modelo_de_imagem():
     return _MODELO_DESCOBERTO["nome"] or MODELO_IMAGEM_PADRAO
 
 
+def capacidade_do_motor(modelos):
+    """O que a conta CONSEGUE garantir numa peça com fotos. (ok, recado).
+
+    Função pura. `ok` é True quando a conta tem um modelo que aceita foto de
+    referência com preservação do produto.
+
+    POR QUE ESTA FUNÇÃO EXISTE
+    --------------------------
+    Dono, 30/09 e 01/10: *"margem nas fotos"*, *"criação de uma foto totalmente
+    errada comparada ao produto original anexado"*.
+
+    As duas vêm da MESMA causa, e ela não é o prompt: a peça foi feita pelo
+    motor reserva, que não aceita `size=1024x1024` nem `input_fidelity=high`.
+    Sem o primeiro a imagem volta retangular e o Studio preenche as sobras —
+    é a margem. Sem o segundo o produto é redesenhado em vez de preservado.
+
+    O Studio SABIA disso e não contava. A tela de diagnóstico listava os
+    modelos da conta e parava aí: um nome de modelo não diz a ninguém que as
+    peças vão sair com margem. É a mesma falha que o oitavo verificador existe
+    para pegar — o sistema tem a informação e não a transforma em recado.
+
+    Dizer isto em voz alta é o conserto possível: o resto está fora do código,
+    e fingir o contrário custaria mais um dia procurando no lugar errado.
+    """
+    nomes = [str(m).lower() for m in (modelos or [])]
+    if not nomes:
+        return False, ("Não consegui listar os modelos desta conta — então "
+                       "não sei dizer o que ela consegue garantir.")
+    tem_gpt_image = any("gpt-image" in n for n in nomes)
+    if tem_gpt_image:
+        return True, ("Esta conta tem um modelo `gpt-image-*`: as peças podem "
+                      "ser pedidas **quadradas** (`size=1024x1024`) e **com "
+                      "preservação do produto** (`input_fidelity=high`). É o "
+                      "cenário em que margem e produto redesenhado não "
+                      "deveriam acontecer.")
+    return False, (
+        "**Esta conta NÃO tem nenhum modelo `gpt-image-*`** — e é isso que "
+        "causa dois dos defeitos relatados:\n\n"
+        "- **Margem nas fotos:** sem `size=1024x1024` a imagem volta "
+        "retangular e o Studio preenche as sobras com faixa lisa.\n"
+        "- **Produto diferente do real:** sem `input_fidelity=high` o produto "
+        "é redesenhado a partir do texto em vez de preservado das fotos.\n\n"
+        "Os outros modelos da conta não aceitam foto de referência nas "
+        "chamadas que o Studio usa, então toda peça COM fotos cai no motor "
+        "reserva. **Nenhuma regra de prompt conserta isso.** O Studio "
+        "compensa: ele mede a peça pronta e manda refazer quando a cor não "
+        "bate com as fotos ou quando há faixa — mas compensar custa gerações "
+        "e não garante o resultado.")
+
+
 def modelos_de_imagem_da_conta(cliente=None):
     """Que modelos de imagem ESTA conta tem. [] quando não dá para saber.
 
@@ -2625,10 +2918,25 @@ def modelos_de_imagem_da_conta(cliente=None):
         nomes = [getattr(m, "id", "") for m in cliente.models.list()]
     except Exception:
         return []
-    # "gpt-image" cobre a família inteira sem depender da versão — que é o que
-    # este bloco existe para parar de fazer.
-    achados = sorted(n for n in nomes if "image" in str(n).lower()
-                     and "gpt" in str(n).lower())
+    # ── O FILTRO EXIGIA "gpt" E "image", E ISSO CEGOU O STUDIO ──────────
+    #
+    # 30/09, produção: a tela disse «gpt-image-2.5-sunburst» não existe nesta
+    # conta da OpenAI, e não achei nenhum outro". A redescoberta RODOU e
+    # voltou vazia — e as oito peças saíram do motor reserva, sem pedido de
+    # imagem quadrada e sem preservação do produto. Daí o texto cortado nas
+    # bordas, o produto encolhido e a peça 6 com um produto que não era o do
+    # cliente.
+    #
+    # A causa: `dall-e-3` É modelo de imagem da OpenAI e NÃO tem "gpt" no
+    # nome. A conta tinha motor e o Studio não enxergava.
+    #
+    # O comentário antigo dizia que "gpt-image" cobria "a família inteira".
+    # Cobria UMA família. Agora a pergunta é a certa: este nome é de um
+    # modelo que faz IMAGEM? — e ela aceita as duas famílias, além de
+    # qualquer nome futuro que traga "image".
+    _n = lambda x: str(x).lower()
+    achados = sorted(n for n in nomes
+                     if "image" in _n(n) or "dall-e" in _n(n))
     # Os conhecidos primeiro, na ordem de capacidade; o resto depois.
     preferidos = [m for m in MODELOS_IMAGEM_CONHECIDOS if m in achados]
     return preferidos + [a for a in achados if a not in preferidos]
@@ -2686,6 +2994,43 @@ _OPENAI_TERMINAL = (
     "invalid_api_key", "incorrect api key", "authentication", "401",
     "does not have access to model", "model_not_found",
 )
+
+
+def parametro_recusado(exc, enviados):
+    """Qual parametro a API recusou, ou "". Funcao pura.
+
+    POR QUE ELA EXISTE, E POR QUE ELA LE O NOME EM VEZ DE SUPOR
+    -----------------------------------------------------------
+    O caminho sem fotos mandava `quality="high"` e `response_format` porque e
+    o que a familia `gpt-image-*` aceita. O `dall-e-3` nao aceita os dois, e a
+    chamada morria com 400 — depois de o Studio ter ENCONTRADO o modelo na
+    conta. Era o item "a conta tinha motor e o Studio nao sabia falar com ele".
+
+    Escrever a mao o que cada modelo aceita e o defeito que ja custou um dia
+    inteiro nesta base: o nome do modelo, o campo da proporcao. Todo valor
+    escrito a mao sobre a API de outro envelhece sem avisar.
+
+    Entao o Studio le o nome do parametro NA RESPOSTA DE ERRO e tira aquele —
+    e so aquele. Devolve "" quando o erro nao e sobre parametro, porque tirar
+    um parametro por causa de falta de credito nao conserta nada e esconde a
+    causa.
+
+    `model`, `prompt` e `n` nunca saem: sem eles nao ha chamada nenhuma, e
+    tira-los transformaria um erro legivel num erro pior.
+    """
+    texto = str(exc or "").lower()
+    if not texto:
+        return ""
+    if not any(p in texto for p in ("unsupported", "unknown parameter",
+                                    "invalid value", "not supported",
+                                    "does not support", "unrecognized")):
+        return ""
+    for nome in sorted(enviados or (), key=len, reverse=True):
+        if nome in ("model", "prompt", "n"):
+            continue
+        if nome in texto:
+            return nome
+    return ""
 
 
 def _erro_openai_terminal(excecao):
@@ -2933,13 +3278,47 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None, ref_layout=None,
                 "esta peça foi gerada SEM as fotos do produto: o modelo "
                 "reconstruiu o produto a partir do texto, então ele pode "
                 "não ter nada a ver com o real")
-        response = client.images.generate(
-            model=_modelo,
-            prompt=prompt_final,
-            n=1,
-            size="1024x1024",
-            quality="high",
-        )
+        # ── A CHAMADA SE ADAPTA AO MODELO, EM VEZ DE EU CHUTAR ──────────
+        #
+        # Este caminho mandava `quality="high"` e lia `b64_json`. Os dois sao
+        # da familia `gpt-image-*`. O `dall-e-3` — que o filtro corrigido em
+        # 30/09 passou a ENCONTRAR na conta — nao aceita `quality="high"` e
+        # devolve URL em vez de base64 quando ninguem pede o contrario.
+        #
+        # Resultado: o Studio achava o modelo, chamava, levava 400, e a peca
+        # morria no caminho que existe justamente para quando nao ha fotos.
+        # "A conta tinha motor e o Studio nao sabia falar com ele" ficou
+        # ABERTO no ACHADOS_ABERTOS.md por isso.
+        #
+        # E O CONSERTO NAO E ESCREVER O QUE EU ACHO QUE O `dall-e-3` ACEITA.
+        #
+        # Foi assim que o nome do modelo e o campo da proporcao viraram
+        # defeito: um valor escrito a mao, que ninguem confere, e que a OpenAI
+        # muda quando quiser. A chamada tenta a forma rica e, se a API recusar
+        # POR CAUSA DE UM PARAMETRO, tira aquele parametro e repete. Modelo
+        # novo passa a funcionar sozinho.
+        _args_gen = {"model": _modelo, "prompt": prompt_final, "n": 1,
+                     "size": "1024x1024", "quality": "high",
+                     "response_format": "b64_json"}
+        _tirados = []
+        while True:
+            try:
+                response = client.images.generate(**_args_gen)
+                break
+            except Exception as _e_gen:
+                _qual = parametro_recusado(_e_gen, _args_gen)
+                if not _qual:
+                    raise
+                _tirados.append(_qual)
+                _args_gen.pop(_qual, None)
+                import sys as _sys_gen
+                print(f"[DEBUG {_modelo}] images.generate recusou "
+                      f"`{_qual}` — repetindo sem ele", file=_sys_gen.stderr,
+                      flush=True)
+        if _tirados and diagnostico is not None:
+            diagnostico["motor"] = (
+                f"{_modelo} (images.generate — SEM fotos, sem "
+                + ", ".join(_tirados) + ")")
         img_data = response.data[0]
         # O modelo retorna b64_json por padrão
         if hasattr(img_data, "b64_json") and img_data.b64_json:
@@ -3783,9 +4162,22 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
             import enquadrar as _enq
             _cru = _io.BytesIO()
             pil.save(_cru, format="PNG")
+            # A PECA DIZ SE TEM TEXTO, E O ENQUADRAMENTO OBEDECE.
+            #
+            # Dono, 30/09: "Imagem 2 e imagem 5 com texto cortando". O corte
+            # para quadrado decepava o painel lateral: `enquadrar.janela`
+            # fazia recorte CENTRAL sempre que a caixa do assunto cobria o
+            # quadro, com o comentario "nao ha painel de texto para decepar".
+            #
+            # Numa peca de marketing o cenario vai ate as bordas, entao a
+            # caixa cobre 100% — e o corte come a lateral onde o texto mora.
+            # Medido: corte comecando em x=200 com o painel indo de 30 a 430.
+            #
+            # `_is_clean_photo` ja sabia a resposta: capa e ambientacao sao
+            # as duas sem texto. Ela so nunca tinha sido passada adiante.
             img_bytes, _relato = _enq.quadrar(
                 _cru.getvalue(), fundo_branco=_is_fundo_branco,
-                lado_final=1200)
+                lado_final=1200, tem_texto=not _is_clean_photo)
             if _relato and diagnostico is not None:
                 diagnostico["enquadramento"] = _relato
             pil = _PILImage.open(_io.BytesIO(img_bytes)).convert("RGBA")
@@ -3795,6 +4187,40 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
         pil.save(buf, format="PNG")
         img_bytes = buf.getvalue()
     except Exception:
+        pass
+
+    # ── QUAL MOTOR FEZ ESTA PEÇA — NA LINHA DO LOG, E NÃO SÓ NA TELA ─────
+    #
+    # Dono, 30/09, quando pedi que ele conferisse numa tela qual motor a conta
+    # tinha: *"eu que tenho que confirmar? você que codificou o sistema..."*.
+    #
+    # Ele estava certo, e o defeito é este: o Studio SABE qual motor fez cada
+    # peça — grava em `diagnostico["motor"]` nos cinco caminhos — e a linha
+    # do log, que é o registro que sobrevive à sessão, dizia
+    # `resultado="enviado ao motor"`. "O motor". Sem dizer qual.
+    #
+    # E é a pergunta mais importante que existe sobre uma peça torta: margem
+    # e produto redesenhado vêm de a peça ter sido feita pelo RESERVA, que
+    # não aceita `size=1024x1024` nem `input_fidelity=high`. Sem o nome do
+    # motor na linha, o `.txt` do histórico não responde isso, e a pergunta
+    # cai numa pessoa.
+    #
+    # Uma linha por peça, no mesmo lugar em que a peça fica pronta — não é
+    # laço de tela, não roda por tecla.
+    try:
+        import log_imagem as _li_motor
+        _d_mot = diagnostico or {}
+        _motor_usado = str(_d_mot.get("motor") or "").strip()
+        _li_motor.registrar(
+            "motor_da_peca",
+            instrucao=str(_d_mot.get("enquadramento") or ""),
+            imagem=(peca_em_ajuste() if "MODO AJUSTE FINO" in (prompt_texto or "")
+                    else str(numero_do_tipo(tipo) or "")),
+            tipo=(tipo or ""),
+            resultado=(_motor_usado or "motor não registrado"),
+        )
+    except Exception:
+        # Registro é apoio, não requisito: nunca pode derrubar a geração.
         pass
 
     # ── A RÉGUA PASSA NA IMAGEM ANTES DE ELA SAIR DAQUI ──────────────────
@@ -3815,8 +4241,30 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
     # produto gigante.
     try:
         import medir_imagem as _md
+        # `com_texto` LIGA a medida do texto cortado, e `_is_clean_photo` ja
+        # sabia a resposta: capa e ambientacao sao as duas SEM texto. Era a
+        # mesma informacao que faltava chegar ao enquadramento, duas funcoes
+        # atras — a diferenca e que agora ela chega aos dois.
         _probs = _md.problemas(img_bytes, fundo_chapado=_is_fundo_branco,
-                               ambientada=_is_ambientacao)
+                               ambientada=_is_ambientacao,
+                               com_texto=not _is_clean_photo)
+        # ── E A PECA SE PARECE COM O PRODUTO DAS FOTOS? ─────────────────
+        #
+        # Dono, 30/09: "por que que as imagens acabam sendo geradas diferente
+        # do que o produto de fato e?".
+        #
+        # O prompt manda "TRAVA DE COR (regra inviolavel)" e "PROIBICAO
+        # ABSOLUTA: JAMAIS substitua o produto das fotos" — e o Studio
+        # entregava sem NUNCA comparar a peca com as fotos. Regra que ninguem
+        # confere e torcida, nao regra.
+        #
+        # A medida compara a PALETA DO ASSUNTO dos dois lados, e basta casar
+        # com UMA das fotos: elas sao angulos do mesmo produto. Ela entra no
+        # mesmo `_probs`, entao reprovar aqui ja refaz a peca uma vez — o
+        # caminho que a faixa lisa ja usava.
+        _dif_prod = _md.produto_diferente(img_bytes, imagens_referencia)
+        if _dif_prod:
+            _probs = list(_probs) + [_dif_prod]
         if diagnostico is not None and _probs:
             diagnostico["medida"] = " · ".join(_probs)
         if _probs and not _ja_repetiu_quadrada:
@@ -4021,7 +4469,7 @@ def bloco_texto_exato(textos):
         "em lugar nenhum — nem em livro, tela, etiqueta, embalagem ou objeto "
         "do cenário. Texto de cenário que apareceria em inglês deve aparecer "
         "em português, ou não aparecer.\n"
-        "- Se não couber tudo, escreva MENOS blocos — nunca invente palavra "
+        "- Nunca invente palavra "
         "para preencher espaço.\n"
         + MARCA_FIM_TEXTO_EXATO + "\n"
     )
@@ -4351,6 +4799,13 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
         _composicao = sem_medida_de_quadro(plano_triagem.get("composicao", ""))
         plano_triagem_item_cena = plano_triagem.get("cena", "")
         _textos = [t for t in plano_triagem.get("textos", []) if t and str(t).strip()]
+        # BLOCO REPETIDO SAI ANTES DO TETO, E A ORDEM IMPORTA.
+        #
+        # A peca 4 do dono recebeu "MADEIRA TRABALHADA: / Acabamento e
+        # textura" DUAS vezes. Cortar primeiro pelo teto e depois deduplicar
+        # entregaria dois cartoes onde cabiam tres — a repeticao gastaria uma
+        # vaga e o terceiro bloco sairia espremido ou cortado.
+        _textos, _repetidos = blocos_sem_repeticao(_textos)
         # O TETO DA PECA CORTA A COPY AQUI, E NAO NO GERADOR.
         #
         # A triagem nao sabe quantos blocos o tipo comporta: ela escrevia 4
@@ -4521,12 +4976,10 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
     # O mesmo numero alimenta esta linha e a linha de COMPOSITION do prompt
     # final em ingles — foi a divergencia entre as duas que mandava tres
     # numeros contrarios ao modelo na mesma mensagem.
-    _protagonismo = (
-        INSTRUCAO_PROTAGONISMO_CAPA if modo_fundo_do_tipo(tipo) == "branco"
-        else INSTRUCAO_PROTAGONISMO
-    ).format(faixa=ocupacao_em_portugues(tipo))
+    _protagonismo = protagonismo_do_tipo(tipo)
     _layout_marketing = INSTRUCAO_LAYOUT_MARKETING.format(
-        blocos=blocos_em_portugues(tipo, _blocos_da_copy)
+        blocos=blocos_em_portugues(tipo, _blocos_da_copy),
+        palavras=medida_do_bloco(),
     )
     # A direcao de arte vem decidida da triagem e e HERDADA por esta peca. Sem
     # ela — plano antigo, triagem que falhou, geracao avulsa — o bloco sai
@@ -4646,7 +5099,7 @@ TIPO DE IMAGEM: {tipo}
 {_espaco_pt}
 
 {PADRAO_VISUAL_AMBIENTACAO}
-{INSTRUCAO_PROTAGONISMO_AMBIENTE}
+{_protagonismo}
 {INSTRUCAO_FIDELIDADE}
 {INSTRUCAO_PROPORCAO}
 {INSTRUCAO_COMPOSICAO}
@@ -4787,6 +5240,57 @@ ANGULOS = {
 }
 
 
+def blocos_sem_repeticao(textos):
+    """(copy sem blocos repetidos, os que sairam). Funcao pura.
+
+    POR QUE ESTA FUNCAO EXISTE
+    --------------------------
+    Dono, 30/09: *"as escritas estao sendo cortadas (...) aplicadas numa
+    regiao que nao da para ser escrita totalmente"*. O item ficou aberto
+    porque eu dizia precisar do prompt real para separar "o layout nao cabe"
+    de "o modelo desobedeceu". O arquivo dele tinha o prompt real, e a peca 4
+    respondeu sozinha:
+
+        1. MADEIRA TRABALHADA: / Acabamento e textura
+        2. MADEIRA TRABALHADA: / Acabamento e textura
+        3. MONTAGEM: / Construcao precisa
+
+    Os blocos 1 e 2 sao IDENTICOS. A IA do plano escreveu o mesmo callout
+    duas vezes e o Studio mandou os dois ao gerador sem notar. Nao foi o
+    modelo que desobedeceu: foi a nossa copy que pediu dois cartoes iguais —
+    e o teto da peca gastou uma vaga com a repeticao, espremendo o terceiro.
+
+    E ESTA BASE JA FAZIA ISSO PARA OS IRMAOS. `faces_repetidas` confere se
+    duas pecas mostram a mesma face; `cenas_repetidas`, se duas repetem a
+    cena. Ninguem conferia o bloco de texto repetido DENTRO da peca — a
+    Forma 1 outra vez, a mesma capacidade faltando num irmao.
+
+    A COMPARACAO IGNORA SO RUIDO: caixa, acento, espaco e dois-pontos
+    sobrando. "MONTAGEM: construcao precisa" e "Montagem: Construcao
+    Precisa" sao o mesmo cartao. O que difere em PALAVRA fica.
+    """
+    import re as _re_rep
+    import unicodedata as _uni_rep
+
+    def _chave(t):
+        v = str(t or "").strip().upper()
+        v = "".join(c for c in _uni_rep.normalize("NFD", v)
+                    if _uni_rep.category(c) != "Mn")
+        return _re_rep.sub(r"[\s:/]+", " ", v).strip()
+
+    vistos, fica, sai = set(), [], []
+    for t in (textos or []):
+        k = _chave(t)
+        if not k:
+            continue
+        if k in vistos:
+            sai.append(t)
+            continue
+        vistos.add(k)
+        fica.append(t)
+    return fica, sai
+
+
 def faces_repetidas(itens, tipos_selecionados=None):
     """Pares de pecas que mostram o produto no MESMO angulo. [] se nenhum.
 
@@ -4922,6 +5426,31 @@ def guardar_plano_gerado():
             st.session_state[CHAVE_CONFIG_GERADA] = _cf
     except Exception:
         pass
+
+
+def pecas_bloqueadas_da_geracao(plano=None):
+    """As peças que a triagem bloqueou e que NÃO chegaram a ser geradas.
+
+    POR QUE ISTO EXISTE
+    -------------------
+    Dono, 30/09: *"não gerou a imagem presenteando"*, e depois *"investigue as
+    fotos não geradas"*.
+
+    Não havia bug — havia um buraco. A peça bloqueada é listada com nome e
+    motivo na tela do PLANO; no fim da geração o Studio apaga
+    `img_triagem_plano` (ela é o sinal de "plano consumido"), o painel das
+    bloqueadas vive dentro do `if` dessa chave e some junto, e o placar compara
+    a galeria com as peças VIÁVEIS — então ele diz "8 de 8", em verde.
+
+    A peça sumia por completo no instante em que a galeria abria: sem nome, sem
+    motivo, sem aviso. Quem gerou via a ausência; a tela nunca a mencionava.
+
+    O dado nunca se perdeu: `guardar_plano_gerado` salva o plano inteiro, com
+    as bloqueadas e o `pergunta_info` de cada uma. Faltava LER essa parte.
+    """
+    itens = ((plano if plano is not None else plano_da_geracao()) or {}
+             ).get("plano") or []
+    return [it for it in itens if not it.get("viavel", True)]
 
 
 def limpar_plano_gerado():
@@ -5192,21 +5721,37 @@ def marcar_peca_em_ajuste(num):
     Resolver de vez pede a peça viajando por parâmetro até o motor, que são
     três assinaturas e todas as chamadas delas.
     """
-    global _PECA_EM_AJUSTE
-    _PECA_EM_AJUSTE = "" if num is None else str(num)
+    _valor = "" if num is None else str(num)
+    # PELO CONTEXTO POR THREAD, e nao mais por um global do processo.
+    #
+    # O global aqui era do PROCESSO: dois colaboradores ajustando pecas
+    # diferentes no mesmo segundo trocavam o numero entre si, e a linha de
+    # registro saia com a peca errada. O custo estava declarado em voz alta
+    # nesta docstring — mas declarar nao e consertar, e era o MESMO defeito
+    # que `produto` e `usuario` tinham no mesmo registro, tres campos lado a
+    # lado. Eu tinha corrigido dois e deixado o terceiro.
     try:
-        st.session_state["img_peca_em_ajuste"] = _PECA_EM_AJUSTE
+        import log_imagem as _li_peca
+        _li_peca.marcar_contexto(peca=_valor)
+    except Exception:
+        pass
+    try:
+        st.session_state["img_peca_em_ajuste"] = _valor
     except Exception:
         pass
 
 
-# A peça que está sendo ajustada agora. Global porque a thread precisa ver.
-_PECA_EM_AJUSTE = ""
-
-
 def peca_em_ajuste():
-    """A peça marcada, ou "" quando o ajuste não é de uma peça da galeria."""
-    return _PECA_EM_AJUSTE or ""
+    """A peça marcada, ou "" quando o ajuste não é de uma peça da galeria.
+
+    Lê do contexto POR THREAD — o mesmo que carrega produto e usuário, e o
+    mesmo que a thread de trabalho herda de quem a criou.
+    """
+    try:
+        import log_imagem as _li_peca
+        return _li_peca.contexto_atual().get("peca", "") or ""
+    except Exception:
+        return ""
 
 
 def montar_prompt_ajuste_fino(instrucao, tipo=None, cor_produto=None):
@@ -5655,9 +6200,46 @@ _PERGUNTAS_DA_PECA = (
     "do produto, tampando qualquer parte dele?",
     "3. O produto da peça é o MESMO das fotos de referência? Compare peça a "
     "peça: número de alças, formato, acabamento, componentes, cor.",
-    "4. O produto está DEFORMADO — esticado, achatado, torto — ou pequeno "
-    "demais, ocupando menos de metade do quadro?",
 )
+
+
+# ── A QUARTA PERGUNTA SAI DA MEDIDA DA PEÇA, E NÃO DE UM "METADE" FIXO ────
+#
+# Ela era: *"o produto está DEFORMADO (...) ou pequeno demais, ocupando menos
+# de metade do quadro?"* — com "metade" escrito à mão.
+#
+# Isso é o defeito do produto gigante, outra vez, e agora DENTRO da
+# conferência. Nas peças de CENA (3, 7 e 8) o produto ocupa uma fração modesta
+# porque é essa a escala real dele: um compasso de 16 cm na mão de uma criança
+# não chega perto de metade do quadro. A pergunta mandava REPROVAR a peça
+# certa — e cada reprovação aqui é uma geração paga que volta com o produto
+# inflado. A conferência fabricaria o defeito que o prompt acabou de parar de
+# pedir.
+#
+# E eram duas vozes sobre o mesmo número: a faixa em `OCUPACAO` e o "metade"
+# daqui. Já aconteceu com a regra de densidade, com a ocupação e com o tamanho
+# da frase. Aqui a medida vem de `OCUPACAO`, que é a fonte única — e nas peças
+# de cena a pergunta deixa de falar em fração e passa a falar em ESCALA REAL,
+# que é o que a peça pede.
+def pergunta_do_tamanho(tipo):
+    """A quarta pergunta da conferência, na medida DESTA peça."""
+    base = ("4. O produto está DEFORMADO — esticado, achatado ou torto — "
+            "em relação às fotos?")
+    if numero_do_tipo(tipo) in TIPOS_DE_CENA:
+        return (base + " E ele aparece na ESCALA REAL que teria nessa cena, "
+                "ou foi inflado — maior que a mão, o móvel ou a pessoa que "
+                "está com ele? Produto ocupando uma fração modesta do quadro "
+                "NÃO é defeito nesta peça: é o que se espera dela.")
+    faixa = faixa_de_ocupacao(tipo)
+    if not faixa or faixa[0] is None:
+        return base
+    return (base + f" E ele ocupa MENOS de {faixa[0]}% do quadro, que é a "
+            f"medida desta peça?")
+
+
+def perguntas_da_peca(tipo=""):
+    """As quatro perguntas da conferência, para ESTE tipo."""
+    return tuple(_PERGUNTAS_DA_PECA) + (pergunta_do_tamanho(tipo),)
 
 
 def conferir_peca(imagem, fotos_ref=None, tipo=""):
@@ -5693,7 +6275,7 @@ def conferir_peca(imagem, fotos_ref=None, tipo=""):
     conteudo.append({"type": "text", "text": (
         f"Tipo da peça: {tipo}" + "\n\n"
         "Responda estas quatro perguntas olhando a peça e comparando com "
-        "as fotos:\n" + "\n".join(_PERGUNTAS_DA_PECA) + "\n\n"
+        "as fotos:\n" + "\n".join(perguntas_da_peca(tipo)) + "\n\n"
         "SEJA CONSERVADOR. Só reprove o que uma pessoa olhando a peça "
         "chamaria de errado sem hesitar: uma palavra que não se lê inteira, "
         "um cartão pela metade, uma alça que existe na peça e não existe nas "
@@ -6551,7 +7133,7 @@ def consumir_comandos_do_chat(usuario_logado=""):
             _r = {"img": None, "erro": None, "done": False}
             _b = st.progress(0.0, text=f"Refazendo a Imagem {_i + 1}…")
             import threading as _th_rf, time as _tm_rf
-            _th_rf.Thread(target=_gerar_imagem_thread,
+            _th_rf.Thread(target=_li_thread.alvo_com_contexto(_gerar_imagem_thread),
                           args=(_prompt, _fotos_rf, _r), daemon=True).start()
             _t0 = _tm_rf.time()
             while not _r["done"]:
@@ -6574,7 +7156,7 @@ def consumir_comandos_do_chat(usuario_logado=""):
             # enquanto o dono corrigia a mao.
             def _gerar_rf(_p, _fr=_fotos_rf, _t=_tp):
                 _rr = {"img": None, "erro": None, "done": False}
-                _tt = _th_rf.Thread(target=_gerar_imagem_thread,
+                _tt = _th_rf.Thread(target=_li_thread.alvo_com_contexto(_gerar_imagem_thread),
                                     args=(_p, _fr, _rr), daemon=True)
                 _tt.start()
                 _t0g = _tm_rf.time()
@@ -6667,7 +7249,8 @@ def consumir_comandos_do_chat(usuario_logado=""):
                 finally:
                     _r["done"] = True
 
-            _threading_cmd.Thread(target=_rodar_cmd, daemon=True).start()
+            _threading_cmd.Thread(target=_li_thread.alvo_com_contexto(_rodar_cmd),
+                                  daemon=True).start()
             _t0_cmd = _time_cmd.time()
             while not _res_cmd["done"]:
                 _seg_cmd = int(_time_cmd.time() - _t0_cmd)
@@ -6906,17 +7489,42 @@ def pagina_imagem(usuario_logado):
                             f"está: o Studio troca sozinho na primeira falha.")
                 else:
                     st.caption("Não consegui listar os modelos desta conta.")
+                # ── E O QUE ISSO SIGNIFICA PARA AS PEÇAS ─────────────────
+                #
+                # A lista de modelos não diz a ninguém que as peças vão sair
+                # com margem. O Studio SABIA e parava no nome do modelo — a
+                # mesma falha que o oitavo verificador existe para pegar:
+                # tem a informação e não a transforma em recado.
+                _cap_ok, _cap_recado = capacidade_do_motor(_disp)
+                (st.success if _cap_ok else st.error)(_cap_recado)
                 with st.spinner(f"Testando {_modelo}…"):
                     import time as _td
                     _t0_oai = _td.time()
                     try:
                         from openai import OpenAI as _OAITest
                         _oai_client = _OAITest(api_key=_oai_key)
-                        _oai_resp = _oai_client.images.generate(
-                            model=_modelo,
-                            prompt="A small red circle on white background, minimal.",
-                            n=1, size="1024x1024", quality="low",
-                        )
+                        # O TESTE SE ADAPTA IGUAL À GERAÇÃO.
+                        #
+                        # Ele mandava `quality="low"` — o mesmo parâmetro que
+                        # o `dall-e-3` recusa e que acabou de ser corrigido no
+                        # caminho de geração. Corrigir num irmão e deixar o
+                        # outro é a Forma 1 desta base, e aqui ela doía duas
+                        # vezes: a tela de diagnóstico diria que o motor não
+                        # funciona quando o problema é o parâmetro do teste.
+                        _args_t = {"model": _modelo,
+                                   "prompt": "A small red circle on white "
+                                             "background, minimal.",
+                                   "n": 1, "size": "1024x1024",
+                                   "quality": "low"}
+                        while True:
+                            try:
+                                _oai_resp = _oai_client.images.generate(**_args_t)
+                                break
+                            except Exception as _e_t:
+                                _q_t = parametro_recusado(_e_t, _args_t)
+                                if not _q_t:
+                                    raise
+                                _args_t.pop(_q_t, None)
                         _oai_ms = int((_td.time() - _t0_oai) * 1000)
                         _oai_img = getattr(_oai_resp.data[0], "b64_json", None) or getattr(_oai_resp.data[0], "url", None)
                         if _oai_img:
@@ -7299,7 +7907,8 @@ def pagina_imagem(usuario_logado):
                 finally:
                     _r["done"] = True
 
-            _threading_af.Thread(target=_rodar_af, daemon=True).start()
+            _threading_af.Thread(target=_li_thread.alvo_com_contexto(_rodar_af),
+                                 daemon=True).start()
             _barra_af = st.progress(0.0, text="Aplicando ajuste fino...")
             _t0_af = _time_af.time()
             while not _res_af["done"]:
@@ -7817,6 +8426,22 @@ def pagina_imagem(usuario_logado):
         if _div_prod:
             st.error("🚫 " + _div_prod)
 
+        # ── E O PLANO CONCORDA CONSIGO MESMO? ────────────────────────────────
+        #
+        # 30/09. A guarda acima comparou nome, medidas, peso e material do
+        # «Compasso Cortador Colorido» — e os quatro batiam. As oito peças
+        # saíram assim mesmo: a peça 8 descrevia "caixa aberta com um RELÓGIO
+        # DE PULSO dentro", a 7 "a CAIXA DE MADEIRA entre duas mãos", a 4 "o
+        # GRÃO DA MADEIRA". Um plano, dois produtos, e nenhuma das duas metades
+        # sabia da outra.
+        #
+        # O que o plano DESCREVE — a cena e a composição, que é o texto que
+        # vira a imagem — nunca era comparado com nada. Comparar campo de
+        # cadastro não alcança isso: os campos estavam certos.
+        _plano_mist = plano_misturado(plano, nome_produto)
+        if _plano_mist:
+            st.error("🚫 " + _plano_mist)
+
         # ── A DIREÇÃO DE ARTE, ANTES DE GASTAR ────────────────────────────────
         #
         # Ela era escrita só depois do clique em Confirmar, no meio da barra de
@@ -7975,6 +8600,24 @@ def pagina_imagem(usuario_logado):
                 textos = item.get("textos", [])
                 if textos:
                     st.caption("Textos: " + " · ".join(f'"{t}"' for t in textos[:4]))
+                # BLOCO REPETIDO APARECE AQUI, ANTES DE PAGAR.
+                #
+                # A peça 4 do dono recebeu "MADEIRA TRABALHADA: / Acabamento e
+                # textura" DUAS vezes, e as duas foram ao gerador. O Studio
+                # agora descarta a repetida — e dizer isso em voz alta é parte
+                # do conserto: descarte calado é o defeito que o oitavo
+                # verificador existe para pegar, e quem lê aqui pode refazer o
+                # plano em vez de receber uma peça com um argumento a menos.
+                _, _repetidos_item = blocos_sem_repeticao(textos)
+                if _repetidos_item:
+                    st.warning(
+                        f"🔁 **{len(_repetidos_item)} bloco(s) de texto "
+                        "repetido(s)** — a análise escreveu o mesmo cartão "
+                        "mais de uma vez. O repetido é descartado (ele "
+                        "gastaria uma vaga e espremeria os outros): "
+                        + " · ".join(f'"{t}"' for t in _repetidos_item[:3])
+                        + ". Para ter outro argumento no lugar, clique em "
+                        "**Analisar novamente**.")
                 if flags:
                     with st.expander("Ver aviso", expanded=False):
                         st.warning(flags[0])
@@ -8205,6 +8848,7 @@ def pagina_imagem(usuario_logado):
             # aprovado. Antes isso acontecia com um clique e sem aviso.
             _ja_tem = len(st.session_state.get("img_galeria") or [])
             _ciente = True
+
             if _ja_tem:
                 st.warning(
                     f"⚠️ Você já tem **{_ja_tem} imagem(ns) gerada(s)**. Gerar de novo "
@@ -8217,6 +8861,22 @@ def pagina_imagem(usuario_logado):
                     f"Sim, descartar as {_ja_tem} imagens e gerar tudo de novo",
                     key="img_confirma_descarte",
                 )
+
+            # A TRAVA DO PLANO MISTURADO SAIU DAQUI — E A RETIRADA E O PONTO.
+            #
+            # Ela ficou pronta e medida em 30/09, e eu a tirei no mesmo dia.
+            #
+            # A prova de que "o plano estava misturado entre dois produtos"
+            # vinha do .txt do historico que o dono baixou. Aquele arquivo
+            # misturava as rodadas de DUAS pessoas, porque o contexto do log
+            # era um global de processo (`log_imagem.py`, corrigido no mesmo
+            # commit). A mistura era do LOG, nao do plano.
+            #
+            # `plano_misturado` continua avisando la em cima, porque com um
+            # plano coerente ela devolve "" e nao custa nada. Mas TRANCAR o
+            # botao com base num defeito que eu nao consigo provar e alarme
+            # falso — e alarme falso ensina a desviar do alarme verdadeiro
+            # junto. A trava volta quando um plano real vier misturado.
 
             col_cancelar, col_confirmar = st.columns(2)
             cancelar_clicado = col_cancelar.button("❌ Cancelar", use_container_width=True)
@@ -8425,7 +9085,7 @@ def pagina_imagem(usuario_logado):
                         _refs_layout_arg = cfg.get("refs_layout_bytes") or None
                         _res = {"img": None, "erro": None, "done": False}
                         _thread = _threading.Thread(
-                            target=_gerar_imagem_thread,
+                            target=_li_thread.alvo_com_contexto(_gerar_imagem_thread),
                             args=(prompt_final, cfg["fotos_bytes"], _res),
                             kwargs={
                                 "refs_layout": _refs_layout_arg,
@@ -8473,7 +9133,7 @@ def pagina_imagem(usuario_logado):
                         def _gerar_de_novo(_p, _refs=_refs_layout_arg, _t=tipo):
                             _r = {"img": None, "erro": None, "done": False}
                             _th = _threading.Thread(
-                                target=_gerar_imagem_thread,
+                                target=_li_thread.alvo_com_contexto(_gerar_imagem_thread),
                                 args=(_p, cfg["fotos_bytes"], _r),
                                 kwargs={"refs_layout": _refs,
                                         "refs_layout_nomes": cfg.get("refs_layout_nomes", []),
@@ -8630,6 +9290,49 @@ def pagina_imagem(usuario_logado):
     # peças do que o plano prometeu — sem uma palavra sobre as que faltam.
     _placar = st.session_state.get("img_placar_geracao")
     _falhas_ger = st.session_state.get("img_falhas_geracao") or []
+
+    # ── A PECA QUE NEM CHEGOU A SER TENTADA ──────────────────────────────
+    #
+    # Dono, 30/09: "nao gerou a imagem presenteando". E depois: "investigue as
+    # fotos nao geradas".
+    #
+    # O caminho, e ele nao tem bug nenhum — tem um BURACO:
+    #   1. a triagem marca a peca como nao viavel por falta de informacao;
+    #   2. a tela do PLANO lista essa peca, com nome e com o que falta;
+    #   3. a geracao roda so as viaveis;
+    #   4. no fim, `img_triagem_plano` e apagada — ela e o sinal de "plano
+    #      consumido", que impede o painel de voltar por cima da galeria;
+    #   5. o painel das bloqueadas vive DENTRO do `if` dessa chave, e some
+    #      junto;
+    #   6. o placar compara a galeria com `len(tipos)`, e `tipos` ja sao so as
+    #      viaveis — entao ele diz "8 de 8", em verde.
+    #
+    # A peca desaparece por completo na hora em que a galeria abre: sem nome,
+    # sem motivo, sem aviso. Quem gerou ve a ausencia; a tela nunca a menciona.
+    #
+    # O DADO NAO SE PERDEU: `guardar_plano_gerado` salva o plano inteiro, com
+    # as bloqueadas e o `pergunta_info` de cada uma, numa chave que sobrevive.
+    # Ninguem lia essa parte dele. Uma leitura resolve — e ela fica FORA do
+    # `if` do placar, porque bloqueada nao e falha de geracao: sao duas
+    # coisas diferentes e as duas precisam de nome.
+    _bloqueadas_ger = pecas_bloqueadas_da_geracao()
+    if _bloqueadas_ger and st.session_state.get("img_galeria"):
+        st.markdown("---")
+        st.warning(
+            f"🚫 **{len(_bloqueadas_ger)} peça(s) não foram geradas** — elas "
+            "ficaram bloqueadas por falta de informação e nem chegaram a ser "
+            "tentadas. Isto é diferente de falha na geração: nada foi gasto "
+            "com elas."
+        )
+        for _it_b in _bloqueadas_ger:
+            _falta = str(_it_b.get("pergunta_info", "") or "").strip()
+            st.markdown(
+                f"- **{_it_b.get('numero', '')}. {_it_b.get('tipo', '?')}** — "
+                + (f"falta: {_falta}" if _falta
+                   else "faltou informação e a triagem não disse qual"))
+        st.caption("Responda no **Assistente IA** ou preencha os dados e "
+                   "clique em **Analisar novamente** para gerar só estas.")
+
     if _placar and _placar[0] < _placar[1]:
         _feitas, _pedidas = _placar
         st.markdown("---")
@@ -8758,6 +9461,29 @@ def pagina_imagem(usuario_logado):
                         "por isso ela voltou retangular e precisou de "
                         "preenchimento. Detalhe: "
                         + str(_d["proporcao_recusada"]))
+                if _d.get("proporcao_pedida"):
+                    # QUAL FORMA DE PEDIR O QUADRADO COLOU — e ela precisa
+                    # aparecer, nao so ser guardada.
+                    #
+                    # O oitavo verificador reprovou esta linha antes de ela
+                    # existir: eu tinha acabado de gravar `proporcao_pedida` e
+                    # nao mostrava a ninguem — o defeito que ele foi escrito
+                    # para pegar, cometido por mim na mesma hora.
+                    #
+                    # E ela responde a pergunta mais cara do dia: "esta peca
+                    # saiu quadrada porque o motor aceitou o pedido, ou por
+                    # acaso?". Com "sem proporcao" aqui, a margem da proxima
+                    # peca ja tem explicacao antes de alguem perguntar.
+                    _forma = str(_d["proporcao_pedida"])
+                    if _forma == "sem proporcao":
+                        st.warning(
+                            "📏 **O motor não aceitou nenhuma forma de pedir "
+                            "imagem quadrada** — a peça vem no formato que ele "
+                            "escolher, e o Studio preenche as sobras. É daí "
+                            "que vem a margem.")
+                    else:
+                        st.caption(f"📏 Imagem quadrada pedida ao motor por "
+                                   f"`{_forma}` — e aceita.")
                 if _d.get("sem_fotos"):
                     st.error("📷 **Esta peça foi feita SEM as fotos do "
                              "produto.** " + str(_d["sem_fotos"]))
@@ -8988,7 +9714,7 @@ def pagina_imagem(usuario_logado):
                         tipo_ativo, instrucoes_orig, dados_desc, nome_gal)
                     _res_regen = {"img": None, "erro": None, "done": False}
                     _threading_regen.Thread(
-                        target=_gerar_imagem_thread,
+                        target=_li_thread.alvo_com_contexto(_gerar_imagem_thread),
                         args=(prompt_regen, fotos_orig, _res_regen),
                         daemon=True,
                     ).start()
@@ -9013,7 +9739,7 @@ def pagina_imagem(usuario_logado):
                         def _gerar_rg(_p, _fo=fotos_orig, _t=tipo_ativo):
                             _rr = {"img": None, "erro": None, "done": False}
                             _tt = _threading_regen.Thread(
-                                target=_gerar_imagem_thread,
+                                target=_li_thread.alvo_com_contexto(_gerar_imagem_thread),
                                 args=(_p, _fo, _rr), daemon=True)
                             _tt.start()
                             _t0g = _time_regen.time()
@@ -9103,7 +9829,8 @@ def pagina_imagem(usuario_logado):
                         finally:
                             _r["done"] = True
 
-                    _threading_afg.Thread(target=_rodar_afg, daemon=True).start()
+                    _threading_afg.Thread(target=_li_thread.alvo_com_contexto(_rodar_afg),
+                                          daemon=True).start()
                     _barra_afg = st.progress(0.0, text="Aplicando ajuste fino...")
                     _t0_afg = _time_afg.time()
                     while not _res_afg["done"]:
@@ -9806,6 +10533,350 @@ if __name__ == "__main__":
            and (getattr(_x.func, "id", "") or getattr(_x.func, "attr", ""))
            == "divergencia_de_produto"
            for _x in _ast_dv.walk(_arv_dv)))
+
+    # ── A REGUA MEDE O TEXTO DA PECA QUE TEM TEXTO ──────────────────────
+    #
+    # Dono, 30/09, duas vezes: "os textos cortados foram corrigidos na causa
+    # raiz?". A resposta honesta foi NAO ate esta linha existir: tirar a
+    # contradicao do prompt trata a causa, mas sem medir o resultado e
+    # hipotese — e hipotese foi o que me fez errar o dia inteiro.
+    #
+    # `medir_imagem.texto_na_borda` so roda quando quem chama diz que a peca
+    # TEM texto. Se a chamada perder esse argumento, a medida some em
+    # silencio e a regua volta a aprovar peca com o titulo decepado — que e
+    # exatamente o estado de antes. Por isso a conferencia e na CHAMADA.
+    import inspect as _insp_tx
+    _arv_tx = _ast_dv.parse(_ast_dv.unparse(_ast_dv.parse(
+        _insp_tx.getsource(gerar_imagem_ia).lstrip())))
+    _chamadas_regua = [
+        _x for _x in _ast_dv.walk(_arv_tx)
+        if isinstance(_x, _ast_dv.Call)
+        and (getattr(_x.func, "attr", "") or getattr(_x.func, "id", "")) == "problemas"
+    ]
+    ok("a regua e chamada na porta do motor", bool(_chamadas_regua))
+    ok("e ela recebe se a peca tem texto — senao a medida some calada",
+       all(any(k.arg == "com_texto" for k in _c.keywords)
+           for _c in _chamadas_regua))
+    # E A CADEIA, COM A PECA DE VERDADE: nao basta o argumento existir, a
+    # medida tem de REPROVAR uma peca com o titulo decepado.
+    import medir_imagem as _md_tx
+    from PIL import Image as _ImgTx, ImageDraw as _DrwTx, ImageFont as _FntTx
+    def _fnt_tx(t):
+        for _c in ("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+                   "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"):
+            try:
+                return _FntTx.truetype(_c, t)
+            except Exception:
+                pass
+        return _FntTx.load_default()
+    def _peca_tx(x):
+        _im = _ImgTx.new("RGB", (1200, 1200), (235, 230, 220))
+        _d = _DrwTx.Draw(_im)
+        _d.ellipse([620, 400, 1100, 880], fill=(40, 90, 150))
+        _f = _fnt_tx(54)
+        for _i, _t in enumerate(("FITA DE MEDIDA", "PRECISO", "ATE 150 MM")):
+            _y = 260 + _i * 180
+            _d.rounded_rectangle([x, _y, x + 470, _y + 130], 18,
+                                 fill=(255, 255, 255))
+            _d.text((x + 28, _y + 40), _t, font=_f, fill=(20, 20, 20))
+        import io as _io_tx
+        _b = _io_tx.BytesIO()
+        _im.save(_b, format="PNG")
+        return _b.getvalue()
+    ok("peca com o titulo decepado e REPROVADA pela regua",
+       any("texto cortado" in _p
+           for _p in _md_tx.problemas(_peca_tx(-120), com_texto=True)))
+    ok("e a mesma peca inteira passa",
+       not any("texto cortado" in _p
+               for _p in _md_tx.problemas(_peca_tx(60), com_texto=True)))
+
+    # ── A PECA E COMPARADA COM AS FOTOS, NA PORTA DO MOTOR ──────────────
+    #
+    # Mesma logica da regua do texto: nao basta a funcao existir, ela tem de
+    # ser CHAMADA no caminho que entrega a peca — e com as fotos de
+    # referencia, nao com outra coisa.
+    _chamadas_dif = [
+        _x for _x in _ast_dv.walk(_arv_tx)
+        if isinstance(_x, _ast_dv.Call)
+        and (getattr(_x.func, "attr", "") or getattr(_x.func, "id", ""))
+        == "produto_diferente"
+    ]
+    # ── A PECA QUE NEM CHEGOU A SER TENTADA TEM NOME NA TELA ────────────
+    #
+    # Dono: "nao gerou a imagem presenteando" / "investigue as fotos nao
+    # geradas". A peca bloqueada sumia no instante em que a galeria abria, e
+    # o placar dizia "8 de 8" em verde porque contava so as viaveis.
+    #
+    # A ENTRADA DO TESTE E A FORMA REAL DO PLANO: `viavel: False` e
+    # `pergunta_info` sao os campos que a triagem escreve (imagem.py, o
+    # esquema que `gerar_triagem_ia` pede). Valor inventado aqui mediria o
+    # meu entendimento, e e ele que costuma estar errado.
+    _PLANO_BLOQ = {"plano": [
+        {"numero": 1, "tipo": "1 — Capa do anúncio (fundo branco)",
+         "viavel": True},
+        {"numero": 7, "tipo": "7 — Presenteie", "viavel": False,
+         "pergunta_info": "Para quem este produto é presenteado?"},
+    ]}
+    _bloq = pecas_bloqueadas_da_geracao(_PLANO_BLOQ)
+    # ── O BLOCO DE TEXTO REPETIDO DENTRO DA PECA ────────────────────────
+    #
+    # A ENTRADA VEM DO ARQUIVO DO DONO, NAO DA MINHA CABECA. E a copy real
+    # que a peca 4 recebeu em 30/09, copiada do .txt que ele baixou:
+    #
+    #     1. MADEIRA TRABALHADA: / Acabamento e textura
+    #     2. MADEIRA TRABALHADA: / Acabamento e textura
+    #     3. MONTAGEM: / Construcao precisa
+    #
+    # Dois cartoes identicos foram ao gerador. Nao foi o modelo que
+    # desobedeceu — foi a nossa copy que pediu a repeticao, e o teto da peca
+    # gastou uma vaga com ela.
+    _COPY_REAL_PECA4 = ["MADEIRA TRABALHADA: / Acabamento e textura",
+                        "MADEIRA TRABALHADA: / Acabamento e textura",
+                        "MONTAGEM: / Construção precisa"]
+    _fica, _sai = blocos_sem_repeticao(_COPY_REAL_PECA4)
+    ok("o bloco repetido da peca 4 do dono e descartado",
+       len(_fica) == 2 and len(_sai) == 1)
+    ok("e quem fica e a PRIMEIRA ocorrencia, na ordem do plano",
+       _fica == ["MADEIRA TRABALHADA: / Acabamento e textura",
+                 "MONTAGEM: / Construção precisa"])
+    # RUIDO DE DIGITACAO E O MESMO CARTAO: caixa, acento e dois-pontos.
+    ok("caixa e acento nao fazem dois cartoes de um so",
+       blocos_sem_repeticao(["MONTAGEM: Construção precisa",
+                             "montagem: construcao precisa"])[0] ==
+       ["MONTAGEM: Construção precisa"])
+    # E O QUE DIFERE EM PALAVRA FICA — acusar o inocente aqui apagaria um
+    # argumento de venda da peca.
+    ok("cartoes diferentes continuam os dois",
+       len(blocos_sem_repeticao(["MADEIRA: textura",
+                                 "MONTAGEM: encaixe"])[0]) == 2)
+    ok("copy vazia nao quebra", blocos_sem_repeticao([]) == ([], [])
+       and blocos_sem_repeticao(None) == ([], []))
+    # E A DEDUPLICACAO ACONTECE ANTES DO TETO: senao a repeticao gasta a vaga
+    # e o terceiro bloco e que sai.
+    # A PRIMEIRA VERSAO DESTA GUARDA FICOU VERDE COM O DEFEITO DE VOLTA.
+    #
+    # Ela era `fonte.find("blocos_sem_repeticao") < fonte.find("_teto_do_tipo")`
+    # — e `find` devolve -1 quando NAO ACHA. Tirando a chamada inteira, -1 <
+    # indice do teto e VERDADEIRO: a guarda aprovava justamente o estado em
+    # que a deduplicacao nao existe. Foi a mutacao que mostrou, nao a leitura.
+    #
+    # Agora ela exige as duas coisas: que a chamada EXISTA, e que venha antes.
+    _fonte_mp = _insp_tx.getsource(montar_prompt_imagem)
+    _i_dedup = _fonte_mp.find("blocos_sem_repeticao")
+    _i_teto = _fonte_mp.find("_teto_do_tipo")
+    ok("o prompt deduplica a copy antes de montar", _i_dedup >= 0)
+    ok("e o repetido sai ANTES do teto da peca cortar",
+       _i_dedup >= 0 and _i_teto >= 0 and _i_dedup < _i_teto)
+
+    ok("a peca bloqueada e encontrada depois da geracao", len(_bloq) == 1)
+    ok("e ela vem com o nome, nao so a contagem",
+       _bloq[0].get("tipo") == "7 — Presenteie")
+    ok("e com o que faltou",
+       "presenteado" in _bloq[0].get("pergunta_info", ""))
+    ok("plano sem bloqueio nao inventa peca sumida",
+       pecas_bloqueadas_da_geracao({"plano": [{"tipo": "x", "viavel": True}]}) == [])
+    ok("plano vazio nao quebra",
+       pecas_bloqueadas_da_geracao({}) == []
+       and pecas_bloqueadas_da_geracao(None) is not None)
+    # E A TELA LE ISSO — senao a funcao existe e a peca continua sumindo.
+    ok("a tela procura as pecas nao geradas depois da galeria",
+       any(isinstance(_x, _ast_dv.Call)
+           and (getattr(_x.func, "id", "") or getattr(_x.func, "attr", ""))
+           == "pecas_bloqueadas_da_geracao"
+           for _x in _ast_dv.walk(_arv_dv)))
+
+    # ── O STUDIO SABE FALAR COM O MODELO QUE ELE ACHOU ──────────────────
+    #
+    # O filtro corrigido em 30/09 passou a ENCONTRAR o `dall-e-3` na conta — e
+    # a chamada sem fotos mandava `quality="high"` e `response_format`, que
+    # sao da familia `gpt-image-*`. O Studio achava o motor e levava 400.
+    #
+    # A ENTRADA DO TESTE E A MENSAGEM QUE A API DEVOLVE, nao uma inventada:
+    # "Unknown parameter: 'response_format'" e o formato que a OpenAI usa.
+    _ENVIADOS = {"model": "dall-e-3", "prompt": "x", "n": 1,
+                 "size": "1024x1024", "quality": "high",
+                 "response_format": "b64_json"}
+    ok("a API recusando `quality` aponta `quality`",
+       parametro_recusado(
+           Exception("400 Unsupported value: 'quality' does not support 'high'"),
+           _ENVIADOS) == "quality")
+    ok("e recusando `response_format` aponta ele",
+       parametro_recusado(
+           Exception("Unknown parameter: 'response_format'."),
+           _ENVIADOS) == "response_format")
+    # O QUE NAO PODE SAIR NUNCA: sem eles nao ha chamada.
+    ok("`model` e `prompt` nunca sao apontados",
+       parametro_recusado(Exception("Unknown parameter: 'model'"),
+                          _ENVIADOS) == ""
+       and parametro_recusado(Exception("invalid value for 'prompt'"),
+                              _ENVIADOS) == "")
+    # E ERRO QUE NAO E DE PARAMETRO NAO PODE VIRAR "TIRA UM PARAMETRO":
+    # esconder falta de credito atras de uma repeticao muda a causa de lugar.
+    ok("falta de credito nao vira parametro recusado",
+       parametro_recusado(Exception("You exceeded your current quota"),
+                          _ENVIADOS) == "")
+    ok("modelo inexistente tambem nao",
+       parametro_recusado(Exception("The model `dall-e-9` does not exist"),
+                          _ENVIADOS) == "")
+    ok("erro vazio nao quebra",
+       parametro_recusado(None, _ENVIADOS) == ""
+       and parametro_recusado(Exception("x"), None) == "")
+    # E A CHAMADA USA ISSO — senao a funcao existe e o 400 continua matando.
+    _fonte_gen = _insp_tx.getsource(_chamar_openai_geracao)
+    ok("a chamada sem fotos se adapta ao que o modelo recusa",
+       "parametro_recusado" in _fonte_gen)
+
+    # ── A CONFERENCIA NAO PODE COBRAR "METADE DO QUADRO" DE UMA CENA ────
+    #
+    # A quarta pergunta era "pequeno demais, ocupando menos de METADE do
+    # quadro?", com o numero escrito a mao. Nas pecas de cena (3, 7, 8) o
+    # produto ocupa uma fracao modesta porque e essa a escala real dele — e a
+    # pergunta mandava REPROVAR a peca certa. Cada reprovacao aqui e uma
+    # geracao paga que volta com o produto inflado: a conferencia fabricaria
+    # o defeito que o prompt acabou de parar de pedir.
+    #
+    # Era a terceira voz sobre o mesmo numero, depois da faixa em OCUPACAO e
+    # do bloco de protagonismo.
+    for _t_cena in ("3 — Benefícios no cenário de uso", "7 — Presenteie",
+                    "8 — Ambientação realista (sem texto)"):
+        _pq = pergunta_do_tamanho(_t_cena)
+        ok(f"a conferencia de '{_t_cena[:14]}' nao cobra fracao do quadro",
+           "ESCALA REAL" in _pq and "%" not in _pq)
+    # E A PECA DE PRODUTO CONTINUA COBRANDO A MEDIDA DELA, da fonte unica.
+    ok("a capa cobra os 85% que estao em OCUPACAO",
+       f"{faixa_de_ocupacao('1 — Capa do anúncio (fundo branco)')[0]}%"
+       in pergunta_do_tamanho("1 — Capa do anúncio (fundo branco)"))
+    ok("e a peca 2 cobra os 60% dela",
+       f"{faixa_de_ocupacao('2 — Benefícios do produto')[0]}%"
+       in pergunta_do_tamanho("2 — Benefícios do produto"))
+    ok("nenhuma pergunta traz 'metade' escrito a mao",
+       not any("metade" in _q.lower()
+               for _t in ("1 — Capa do anúncio (fundo branco)",
+                          "2 — Benefícios do produto", "7 — Presenteie")
+               for _q in perguntas_da_peca(_t)))
+    ok("e sao sempre QUATRO perguntas",
+       len(perguntas_da_peca("2 — Benefícios do produto")) == 4
+       and len(perguntas_da_peca("")) == 4)
+    # E A CONFERENCIA USA A FUNCAO, nao a tupla crua — senao o tipo nunca
+    # chega e todas as pecas voltam a receber a mesma pergunta.
+    _fonte_cp = _insp_tx.getsource(conferir_peca)
+    ok("a conferencia monta as perguntas PARA O TIPO da peca",
+       "perguntas_da_peca(tipo)" in _fonte_cp)
+
+    # ── O STUDIO DIZ O QUE A CONTA CONSEGUE GARANTIR ────────────────────
+    #
+    # Dono: "margem nas fotos" e "criacao de uma foto totalmente errada
+    # comparada ao produto original". As duas vem da MESMA causa — a peca foi
+    # feita pelo motor reserva, que nao aceita `size` nem `input_fidelity`.
+    #
+    # O Studio SABIA e parava no nome do modelo. Um nome de modelo nao diz a
+    # ninguem que as pecas vao sair com margem.
+    _ok_cap, _rec_cap = capacidade_do_motor(["dall-e-3", "dall-e-2"])
+    ok("conta sem gpt-image e reprovada", not _ok_cap)
+    ok("e o recado NOMEIA os dois defeitos que isso causa",
+       "Margem" in _rec_cap and "redesenhado" in _rec_cap)
+    ok("e diz que nenhuma regra de prompt conserta",
+       "Nenhuma regra de prompt" in _rec_cap)
+    _ok2, _rec2 = capacidade_do_motor(["gpt-image-1", "dall-e-3"])
+    ok("conta com gpt-image passa", _ok2 and "input_fidelity" in _rec2)
+    # LISTA VAZIA NAO E "A CONTA NAO TEM": e "nao consegui olhar". Afirmar o
+    # que nao se sabe manda quem le procurar no lugar errado.
+    _ok3, _rec3 = capacidade_do_motor([])
+    ok("sem conseguir listar, ele nao afirma que a conta nao tem",
+       not _ok3 and "não sei dizer" in _rec3)
+    # E A TELA MOSTRA ISSO — senao e mais um dado que o sistema tem e nao conta.
+    _fonte_tela = _insp_tx.getsource(pagina_imagem)
+    ok("a tela de diagnostico mostra a capacidade da conta",
+       "capacidade_do_motor" in _fonte_tela)
+    # E O TESTE DA TELA SE ADAPTA IGUAL A GERACAO: ele mandava `quality="low"`,
+    # o mesmo parametro que o dall-e-3 recusa. Corrigir num irmao e deixar o
+    # outro diria "o motor nao funciona" quando o defeito e o teste.
+    ok("o teste da tela tambem se adapta ao que o modelo recusa",
+       _fonte_tela.count("parametro_recusado") >= 1)
+
+    ok("a peca e comparada com as fotos antes de sair", bool(_chamadas_dif))
+    ok("e a comparacao recebe as FOTOS DE REFERENCIA, nao outra coisa",
+       any(any(getattr(_a, "id", "") == "imagens_referencia" for _a in _c.args)
+           for _c in _chamadas_dif))
+    # E A CADEIA, com produto repintado de verdade.
+    def _bola_tx(cor):
+        _im = _ImgTx.new("RGB", (900, 900), (250, 250, 250))
+        _DrwTx.Draw(_im).ellipse([180, 180, 720, 720], fill=cor)
+        import io as _io_bx
+        _b = _io_bx.BytesIO()
+        _im.save(_b, format="PNG")
+        return _b.getvalue()
+    ok("produto repintado e REPROVADO contra as fotos",
+       "nao bate com as fotos" in _md_tx.produto_diferente(
+           _bola_tx((40, 70, 170)), [_bola_tx((40, 160, 70))]))
+    ok("e o produto da cor certa passa",
+       not _md_tx.produto_diferente(
+           _bola_tx((40, 160, 70)), [_bola_tx((40, 160, 70))]))
+
+    # ── O PEDIDO DE IMAGEM QUADRADA, QUE VIROU MARGEM ───────────────────
+    #
+    # Dono, 30/09: "imagem 3 esta com margem na foto" — e eu cheguei a
+    # responder que aquilo "nao tinha conserto por codigo". Tinha: o Studio
+    # mandava UM nome de campo, a API respondia 400, e ele desistia da
+    # proporcao. Voltava retangular, o enquadramento preenchia as sobras, e a
+    # peca saia com margem. O nome do campo estava errado.
+    #
+    # Esta guarda nao chama a API: ela troca o `requests.post` por um duplo
+    # que RECUSA o nome antigo e ACEITA o documentado, e confere que o Studio
+    # encontra o certo sozinho — e que na proxima peca vai direto nele, sem
+    # pagar as tentativas de novo.
+    import requests as _rq_pr
+    _corpos_vistos = []
+
+    class _RespFalsa:
+        def __init__(self, code):
+            self.status_code = code
+            self.text = "{}" if code == 200 else '{"error":{"message":"unknown name"}}'
+        def json(self):
+            return ({"candidates": [{"content": {"parts": []}}]} if self.status_code == 200
+                    else {"error": {"message": "Unknown name"}})
+
+    def _post_falso(url, json=None, headers=None, **kw):
+        _cfg = (json or {}).get("generationConfig", {})
+        _corpos_vistos.append(sorted(k for k in _cfg if k != "responseModalities"))
+        # A API DESTE DUPLO so aceita `imageConfig` — que e o nome documentado
+        # para o endpoint generateContent.
+        return _RespFalsa(200 if "imageConfig" in _cfg else 400)
+
+    _post_real = _rq_pr.post
+    _chave_real = globals().get("_get_gemini_api_key")
+    _forma_antes = dict(_FORMA_PROPORCAO)
+    try:
+        _rq_pr.post = _post_falso
+        globals()["_get_gemini_api_key"] = lambda: "chave-de-teste"
+        _FORMA_PROPORCAO["nome"] = None
+        _chamar_gemini_geracao_texto("prompt de teste", [])
+        ok("o Studio acha sozinho a forma que a API aceita",
+           _FORMA_PROPORCAO["nome"] == "imageConfig")
+        ok("e ela foi a PRIMEIRA tentada — o nome documentado vem antes",
+           _corpos_vistos and _corpos_vistos[0] == ["imageConfig"])
+        # E NAO PAGA A DESCOBERTA DE NOVO NA PROXIMA PECA.
+        _corpos_vistos.clear()
+        _chamar_gemini_geracao_texto("outra peca", [])
+        ok("na peca seguinte ele vai direto na forma aprendida",
+           len(_corpos_vistos) == 1 and _corpos_vistos[0] == ["imageConfig"])
+        # E SE A API PASSAR A RECUSAR TUDO, ainda assim entrega: peca com
+        # margem e melhor que peca nenhuma.
+        _FORMA_PROPORCAO["nome"] = None
+        _corpos_vistos.clear()
+        _rq_pr.post = lambda url, json=None, headers=None, **kw: (
+            _corpos_vistos.append(sorted(k for k in (json or {}).get(
+                "generationConfig", {}) if k != "responseModalities"))
+            or _RespFalsa(400))
+        _chamar_gemini_geracao_texto("terceira", [])
+        ok("recusando tudo, ele ainda tenta a ultima sem proporcao",
+           [] in _corpos_vistos)
+    finally:
+        _rq_pr.post = _post_real
+        if _chave_real is not None:
+            globals()["_get_gemini_api_key"] = _chave_real
+        _FORMA_PROPORCAO.clear()
+        _FORMA_PROPORCAO.update(_forma_antes)
     ok("vazio e None nao derrubam",
        sem_medida_de_quadro("") == "" and sem_medida_de_quadro(None) == "")
 
@@ -10479,9 +11550,114 @@ if __name__ == "__main__":
     class _FakeCliente:
         models = _FakeModelos()
 
+    # ── O TEXTO DA PECA NAO PODE SER DECEPADO PELO ENQUADRAMENTO ────────
+    #
+    # Dono, 30/09: "Imagem 2 e imagem 5 com texto cortando".
+    #
+    # A CADEIA INTEIRA, e nao a chamada: o motor devolve uma peca RETANGULAR
+    # de marketing (cenario ate as bordas, painel de texto na esquerda), e o
+    # que se mede e se o painel sobrevive na imagem ENTREGUE. Conferir que a
+    # chamada leva `tem_texto=` nao mede nada — foi assim que a guarda do
+    # material passou verde com o campo sumindo.
+    import io as _io_tx, random as _rnd_tx
+    from PIL import Image as _Im_tx, ImageDraw as _Dr_tx
+
+    def _peca_retangular_com_texto():
+        _rnd_tx.seed(7)
+        im = _Im_tx.new("RGB", (1400, 1000), (255, 255, 255))
+        d = _Dr_tx.Draw(im)
+        for _ in range(9000):                       # cenario ate a borda
+            d.point((_rnd_tx.randint(0, 1399), _rnd_tx.randint(0, 999)),
+                    fill=(_rnd_tx.randint(150, 230),) * 3)
+        d.ellipse((800, 400, 1250, 850), fill=(20, 120, 40))   # produto
+        d.rectangle((30, 120, 430, 880), fill=(180, 30, 30))   # PAINEL DE TEXTO
+        # A PRIMEIRA LETRA DO TITULO, marcada em azul.
+        #
+        # Sem esta marca a guarda era fraca: o corte comeca em x=200 e o
+        # painel vai de 30 a 430, entao SOBRA metade dele — e "achei
+        # vermelho" continuava verdadeiro com o titulo decepado, que e
+        # exatamente o defeito. O dono viu 'TE DE MEDIDA' no lugar de
+        # 'CORTE DE MEDIDA': o que se perde e o COMECO da linha.
+        d.rectangle((35, 200, 95, 320), fill=(30, 60, 220))
+        _b = _io_tx.BytesIO()
+        im.save(_b, format="PNG")
+        return _b.getvalue()
+
+    def _tem_painel(dados):
+        """O COMECO do titulo continua na peca? (a marca azul)"""
+        _p = _Im_tx.open(_io_tx.BytesIO(dados)).convert("RGB")
+        return any(_p.getpixel((x, y))[2] > 150
+                   and _p.getpixel((x, y))[0] < 90
+                   and _p.getpixel((x, y))[1] < 110
+                   for y in range(0, _p.size[1], 3)
+                   for x in range(0, _p.size[0], 3))
+
+    _orig_tx = (_chamar_openai_geracao, _chamar_gemini_geracao_texto,
+                _descricao_do_produto_cacheada, _get_openai_api_key)
+    try:
+        import base64 as _b64_tx
+
+        class _RespFalsa:
+            status_code = 200
+
+            @staticmethod
+            def json():
+                return {"candidates": [{"content": {"parts": [
+                    {"inlineData": {"data": _b64_tx.b64encode(
+                        _peca_retangular_com_texto()).decode()}}]}}]}
+
+        globals()["_chamar_openai_geracao"] = lambda *a, **k: (None, "desligado")
+        globals()["_chamar_gemini_geracao_texto"] = \
+            lambda *a, **k: (_RespFalsa(), None)
+        globals()["_descricao_do_produto_cacheada"] = \
+            lambda *a, **k: ("desc", "lay")
+        globals()["_get_openai_api_key"] = lambda: ""
+        _saida_mk, _err_mk = gerar_imagem_ia(
+            "MS_FUNDO: padrao\nTIPO DE IMAGEM: 2 — Benefícios do produto\n",
+            [b"foto"], tipo="2 — Benefícios do produto")
+        ok("peca COM texto: o painel lateral sobrevive ao enquadramento",
+           bool(_saida_mk) and _tem_painel(_saida_mk))
+    finally:
+        (globals()["_chamar_openai_geracao"],
+         globals()["_chamar_gemini_geracao_texto"],
+         globals()["_descricao_do_produto_cacheada"],
+         globals()["_get_openai_api_key"]) = _orig_tx
+
     _achados = modelos_de_imagem_da_conta(_FakeCliente())
     ok("so os modelos de imagem entram",
-       all("image" in m for m in _achados))
+       all("image" in m or "dall-e" in m for m in _achados))
+
+    # ── A CONTA QUE NAO TEM NENHUM `gpt-image` ───────────────────────────
+    #
+    # 30/09, producao: a tela disse "«gpt-image-2.5-sunburst» nao existe
+    # nesta conta da OpenAI, e nao achei nenhum outro". A redescoberta RODOU
+    # e voltou vazia — entao TODAS as oito pecas sairam do motor reserva,
+    # que nao aceita `size` nem `input_fidelity`. Dai o texto cortado, o
+    # produto encolhido e a peca 6 com um produto que nao era o do cliente.
+    #
+    # A causa era o filtro exigir "gpt" E "image" no nome. `dall-e-3` e
+    # modelo de imagem da OpenAI e nao tem "gpt" no nome: a conta tinha um
+    # motor e o Studio nao enxergava.
+    #
+    # E a conta falsa desta propria guarda so tinha `gpt-image-*` — ela
+    # media a familia feliz. Dado de teste saido da minha cabeca, de novo.
+    class _ContaSoDallE:
+        class models:
+            @staticmethod
+            def list():
+                class _M:
+                    def __init__(self, i):
+                        self.id = i
+                return [_M("gpt-4o"), _M("dall-e-3"), _M("dall-e-2"),
+                        _M("whisper-1"), _M("text-embedding-3-small")]
+
+    _so_dalle = modelos_de_imagem_da_conta(_ContaSoDallE())
+    ok("conta que so tem dall-e NAO fica sem motor de imagem", bool(_so_dalle))
+    ok("e o dall-e-3 vem antes do dall-e-2",
+       _so_dalle[:2] == ["dall-e-3", "dall-e-2"] if len(_so_dalle) > 1 else True)
+    ok("e nenhum modelo que NAO e de imagem entra",
+       not any(m in _so_dalle for m in ("gpt-4o", "whisper-1",
+                                        "text-embedding-3-small")))
     ok("o mais capaz vem primeiro",
        _achados[0] == "gpt-image-2.5-sunburst")
     ok("e o modelo novo, que o codigo nao conhece, NAO fica invisivel",
@@ -10872,11 +12048,45 @@ if __name__ == "__main__":
     # dentro da thread voltaria vazia e a cadeia ficaria sem chave — em
     # silencio, que e o pior jeito de um registro falhar.
     import threading as _th_teste
+    import log_imagem as _li_pc
     marcar_peca_em_ajuste(4)
     _visto = {}
-    _t = _th_teste.Thread(target=lambda: _visto.__setitem__("n", peca_em_ajuste()))
+    # A THREAD DE TRABALHO HERDA, e a herança é explícita — `alvo_com_contexto`
+    # captura na criação, que é o único instante em que as duas se conhecem.
+    _t = _th_teste.Thread(target=_li_pc.alvo_com_contexto(
+        lambda: _visto.__setitem__("n", peca_em_ajuste())))
     _t.start(); _t.join()
     ok("a peca marcada e vista de dentro de uma thread", _visto.get("n") == "4")
+
+    # ── E DOIS COLABORADORES NAO TROCAM A PECA ENTRE SI ─────────────────
+    #
+    # ESTE ERA O CUSTO DECLARADO E NAO CONSERTADO. A docstring de
+    # `marcar_peca_em_ajuste` dizia, com todas as letras: "o global e do
+    # processo, nao da sessao. Dois colaboradores ajustando pecas diferentes
+    # no mesmo segundo podem trocar o numero entre si". Declarar e melhor que
+    # esconder, mas nao e conserto — e era o MESMO defeito que produto e
+    # usuario tinham, tres campos lado a lado no mesmo registro. Eu corrigi
+    # dois e deixei o terceiro.
+    #
+    # A guarda anterior marcava UMA peca e conferia que ela chegava: com um
+    # dono so, global e por-thread dao a mesma resposta. O defeito so aparece
+    # com DOIS, e e por isso que ele sobreviveu a ela.
+    _porta_pc = _th_teste.Barrier(2)
+    _lidos = {}
+
+    def _colab_pc(peca):
+        def _corpo():
+            marcar_peca_em_ajuste(peca)
+            _porta_pc.wait()          # os dois marcam ANTES de qualquer leitura
+            _lidos[peca] = peca_em_ajuste()
+        return _li_pc.alvo_com_contexto(_corpo)
+
+    _a_pc = _th_teste.Thread(target=_colab_pc(3))
+    _b_pc = _th_teste.Thread(target=_colab_pc(7))
+    _a_pc.start(); _b_pc.start(); _a_pc.join(); _b_pc.join()
+    ok("dois colaboradores ajustando ao mesmo tempo nao trocam a peca",
+       _lidos.get(3) == "3" and _lidos.get(7) == "7")
+
     marcar_peca_em_ajuste(None)
     ok("e limpar limpa", peca_em_ajuste() == "")
     ok("ajuste de foto avulsa nao inventa numero de peca",

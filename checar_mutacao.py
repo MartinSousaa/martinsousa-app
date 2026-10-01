@@ -35,6 +35,443 @@ RAIZ = os.path.dirname(os.path.abspath(__file__))
 # esta entrada virou letra morta — e isso também é reprovado, porque mutação
 # que não se aplica dá a impressão de cobertura que não existe.
 MUTACOES = [
+    # ── 01/10: A TELA SABIA E NAO CONTAVA O QUE AQUILO SIGNIFICA ───────
+    #
+    # Dono: "margem nas fotos" e "criacao de uma foto totalmente errada
+    # comparada ao produto original". As duas vem da MESMA causa: a conta nao
+    # tem `gpt-image-*`, entao toda peca COM fotos cai no motor reserva, que
+    # nao aceita `size=1024x1024` nem `input_fidelity=high`.
+    #
+    # A tela de diagnostico LISTAVA os modelos da conta e parava ai. Um nome
+    # de modelo nao diz a ninguem que as pecas vao sair com margem. O Studio
+    # tinha a informacao e nao a transformava em recado — a mesma falha que o
+    # oitavo verificador existe para pegar.
+    #
+    # A mutacao faz a tela voltar a nao dizer nada.
+    (
+        "a tela volta a listar os modelos sem dizer o que isso custa",
+        "imagem.py",
+        [("                _cap_ok, _cap_recado = capacidade_do_motor(_disp)",
+          '                _cap_ok, _cap_recado = (True, "")')],
+        None,
+        ["python3", "imagem.py", "--autoteste"],
+    ),
+    # ── 01/10: A CONFERENCIA COBRAVA "METADE DO QUADRO" DE UMA CENA ────
+    #
+    # Dono: "produtos pequenos comparados as dimensoes da imagem" e, antes,
+    # "o produto esta GIGANTE nas maos da crianca". Sao os dois lados do
+    # MESMO defeito, e este aqui estava escondido na CONFERENCIA.
+    #
+    # A quarta pergunta da revisao da peca era "pequeno demais, ocupando
+    # menos de METADE do quadro?" — numero escrito a mao. Nas pecas de cena
+    # (3, 7, 8) o produto ocupa uma fracao modesta porque e essa a escala
+    # real dele: um compasso de 16 cm na mao de uma crianca nao chega perto
+    # de metade do quadro. A pergunta mandava REPROVAR a peca certa, e cada
+    # reprovacao aqui e uma geracao PAGA que volta com o produto inflado.
+    #
+    # A conferencia fabricava o defeito que o prompt acabou de parar de
+    # pedir. E era a TERCEIRA voz sobre o mesmo numero, depois da faixa em
+    # OCUPACAO e do bloco de protagonismo.
+    (
+        "a conferencia volta a cobrar fracao do quadro das pecas de cena",
+        "imagem.py",
+        [("    if numero_do_tipo(tipo) in TIPOS_DE_CENA:\n"
+          "        return (base + \" E ele aparece na ESCALA REAL que teria nessa cena, \"",
+          "    if False:\n"
+          "        return (base + \" E ele aparece na ESCALA REAL que teria nessa cena, \"")],
+        None,
+        ["python3", "imagem.py", "--autoteste"],
+    ),
+    # ── 01/10: O STUDIO ACHAVA O MOTOR E NAO SABIA FALAR COM ELE ───────
+    #
+    # O filtro corrigido em 30/09 passou a ENCONTRAR o `dall-e-3` na conta. E
+    # a chamada sem fotos mandava `quality="high"` e `response_format`, que
+    # sao da familia `gpt-image-*`: o `dall-e-3` recusa os dois. O Studio
+    # achava o motor, chamava e levava 400 — e a peca morria justamente no
+    # caminho que existe para quando nao ha fotos do produto.
+    #
+    # O CONSERTO NAO FOI ESCREVER O QUE EU ACHO QUE CADA MODELO ACEITA. Foi
+    # assim que o nome do modelo e o campo da proporcao viraram defeito nesta
+    # base: valor escrito a mao sobre a API de outro envelhece sem avisar. A
+    # chamada le o nome do parametro NA RESPOSTA DE ERRO e tira aquele.
+    #
+    # A mutacao faz a chamada parar de ler a recusa: o 400 volta a matar a
+    # peca, e a guarda tem de ficar vermelha.
+    (
+        "a chamada sem fotos volta a nao se adaptar ao modelo",
+        "imagem.py",
+        [('                _qual = parametro_recusado(_e_gen, _args_gen)',
+          '                _qual = ""')],
+        None,
+        ["python3", "imagem.py", "--autoteste"],
+    ),
+    # ── 01/10: AS DUAS CONTAS DO MESMO NUMERO ──────────────────────────
+    #
+    # `_processar` existe DUAS vezes: `placar.py` e `placar_core.py`. As duas
+    # estao VIVAS, em telas diferentes — o Painel de Metas (que decide bonus)
+    # chama a do core; o Placar e mais quatro telas chamam a do placar. Elas
+    # ja discordaram em 330 PONTOS, no mesmo mes e na mesma sessao.
+    #
+    # Medido: hoje concordam nas 25 chaves em comum, em 18 cenarios (450
+    # comparacoes). O defeito nao e "discordam agora" — e "vao discordar, e
+    # nada vigia". A mutacao soma 1 ponto de um lado so.
+    #
+    # NOTA: a primeira versao desta guarda deu ALARME FALSO. `python3
+    # placar_core.py` faz este arquivo ser `__main__`, e `import placar` cria
+    # uma SEGUNDA instancia de placar_core — com outro `MEMBROS_ATIVOS`. A
+    # comparacao passou a ser feita na instancia que o `placar` realmente
+    # enxerga, que e a que roda no Studio.
+    (
+        "as duas contas do mesmo numero voltam a poder discordar",
+        "placar.py",
+        [('        d["pts_equipe"]+=pt\n', '        d["pts_equipe"]+=pt+1\n')],
+        None,
+        ["python3", "placar_core.py"],
+    ),
+    # ── 30/09: AS 65 REGRAS SO ERAM MEDIDAS COM O CADASTRO CHEIO ───────
+    #
+    # O cadastro do teste sempre teve medida, peso e material — e e no VAZIO
+    # que o tipo 5 se contradizia: "INFOGRAFICO TECNICO DE MEDIDAS" junto de
+    # "JAMAIS invente medidas". Com dado as duas conviviam; sem dado elas se
+    # anulavam, e o modelo resolvia contradicao inventando numero.
+    #
+    # O MOTIVO QUE EU TINHA ESCRITO PARA NAO FAZER ISTO ERA FALSO. Estava no
+    # ACHADOS_ABERTOS.md: "dobra o tempo do verificador, que ja e a parte mais
+    # lenta do protocolo". Medido: `checar_prompts.py` leva 2,8 SEGUNDOS, e a
+    # segunda passada nao mudou o relogio. A parte lenta e o `checar_mutacao`,
+    # com vinte minutos. Escrevi um motivo sem medir e ele ficou de pe por
+    # dias, segurando uma varredura que custava zero.
+    #
+    # A mutacao tira uma regra da lista de isencao: ela passa a ser cobrada no
+    # vazio, onde a linha nao existe. Nove tipos, nove reprovacoes — e e isso
+    # que prova que a segunda passada roda de verdade.
+    (
+        "a varredura com cadastro vazio deixa de medir",
+        "checar_prompts.py",
+        [('    "o material e a montagem",\n', "")],
+        None,
+        ["python3", "checar_prompts.py"],
+    ),
+    # ── 30/09: DOIS CARTOES IDENTICOS NA MESMA PECA ────────────────────
+    #
+    # O item "corte de texto nas pecas 4 e 5" estava ABERTO desde 28/09 com o
+    # motivo "preciso do prompt real para separar 'o layout nao cabe' de 'o
+    # modelo desobedeceu'". O arquivo que o dono mandou tinha o prompt real, e
+    # a peca 4 respondeu sozinha:
+    #
+    #     1. MADEIRA TRABALHADA: / Acabamento e textura
+    #     2. MADEIRA TRABALHADA: / Acabamento e textura
+    #     3. MONTAGEM: / Construcao precisa
+    #
+    # Nao foi o modelo que desobedeceu: foi a NOSSA copy que pediu dois
+    # cartoes iguais, e o teto da peca gastou uma vaga com a repeticao.
+    #
+    # Esta base ja conferia `faces_repetidas` e `cenas_repetidas` entre pecas;
+    # bloco de texto repetido DENTRO da peca, nao. Forma 1 de novo.
+    #
+    # NOTA SOBRE A GUARDA: a primeira versao dela usava `find(...) < find(...)`
+    # e ficava VERDE com a chamada removida, porque `find` devolve -1 quando
+    # nao acha e -1 e menor que tudo. Foi esta mutacao que mostrou.
+    (
+        "o bloco de texto repetido volta a ser enviado ao motor",
+        "imagem.py",
+        [("        _textos, _repetidos = blocos_sem_repeticao(_textos)\n", "")],
+        None,
+        ["python3", "imagem.py", "--autoteste"],
+    ),
+    # ── 30/09: A PECA DO AJUSTE VOLTA A SER UMA CAIXA DO PROCESSO ──────
+    #
+    # `_PECA_EM_AJUSTE` era um global de modulo, com o custo DECLARADO na
+    # propria docstring: "dois colaboradores ajustando pecas diferentes no
+    # mesmo segundo podem trocar o numero entre si". Declarar e melhor que
+    # esconder, mas nao e conserto — e era o MESMO defeito que `produto` e
+    # `usuario` tinham, tres campos lado a lado no mesmo registro. Eu corrigi
+    # dois e deixei o terceiro.
+    (
+        "a peca do ajuste volta a nao viajar pelo contexto por thread",
+        "imagem.py",
+        [("        _li_peca.marcar_contexto(peca=_valor)", "        pass")],
+        None,
+        ["python3", "imagem.py", "--autoteste"],
+    ),
+    # ── 30/09: O DETALHE DA TOLERANCIA VOLTA A VIAJAR POR UM GLOBAL ────
+    #
+    # `TOLERANCIA_DETALHE` era escrito por `_classificar_batidas` e lido pelo
+    # laco duas linhas depois. Entre as duas, outra sessao podia classificar
+    # OUTRA pessoa e sobrescrever. O que isso corrompe sao as tolerancias de
+    # entrada e de almoco do Painel de Metas — numeros que entram no bonus.
+    #
+    # A mutacao devolve a caixa de modulo. Nota: a guarda ORIGINAL desta
+    # funcao passava com o defeito de volta, porque comparava dois horarios
+    # que davam tolerancia zero. Ela foi reescrita para 08:52 (tolerancia) x
+    # 09:30 (atraso), medidos no proprio modulo — guarda fraca assina embaixo.
+    (
+        "o detalhe da tolerancia volta a morar numa caixa do processo",
+        "relogio_ponto.py",
+        [("    detalhe = dict(_TOLERANCIA_ZERADA)",
+          "    global _TOL_CAIXA\n    _TOL_CAIXA = dict(_TOLERANCIA_ZERADA)\n"
+          "    detalhe = _TOL_CAIXA"),
+         ('_TOLERANCIA_ZERADA = {"entrada": 0, "almoco": 0}',
+          '_TOLERANCIA_ZERADA = {"entrada": 0, "almoco": 0}\n_TOL_CAIXA = {}'),
+         ('            _res_rp[rotulo] = (_t, dict(_det))',
+          '            _res_rp[rotulo] = (_t, dict(_TOL_CAIXA))')],
+        None,
+        ["python3", "relogio_ponto.py"],
+    ),
+    # ── 30/09: A CAIXA DE PROCESSO SEM CLASSIFICACAO ───────────────────
+    #
+    # A regra nova obriga cada dicionario de modulo escrito em execucao a
+    # responder "isto e de uma pessoa ou de todas?". Tirar uma declaracao e
+    # o mesmo que introduzir uma caixa nova sem resposta — e e assim que a
+    # familia inteira volta, num arquivo que ninguem estava olhando.
+    (
+        "uma caixa do processo fica sem classificacao",
+        "checar_alcance.py",
+        [('        "sheets.py:ID_RECUSADO": "id de planilha que o Drive recusou",\n', "")],
+        None,
+        ["python3", "checar_alcance.py"],
+    ),
+    # ── 30/09: A PECA QUE SUMIA SEM NOME ───────────────────────────────
+    #
+    # Dono: "nao gerou a imagem presenteando" e, depois, "investigue as fotos
+    # nao geradas".
+    #
+    # Nao havia bug — havia um buraco. A peca bloqueada pela triagem era
+    # listada com nome e motivo na tela do PLANO; no fim da geracao o Studio
+    # apaga `img_triagem_plano` (ela e o sinal de "plano consumido"), o painel
+    # das bloqueadas vive dentro do `if` dessa chave e some junto, e o placar
+    # compara a galeria com as pecas VIAVEIS — entao dizia "8 de 8", em verde.
+    #
+    # A peca desaparecia no instante em que a galeria abria. Quem gerou via a
+    # ausencia; a tela nunca a mencionava.
+    #
+    # A mutacao devolve a tela ao estado cego: a leitura sai e a lista fica
+    # vazia. A guarda tem de ficar vermelha — ela confere a CHAMADA, porque a
+    # funcao continuaria existindo e passando nos testes dela.
+    (
+        "a tela volta a esconder a peca que nem chegou a ser tentada",
+        "imagem.py",
+        [("    _bloqueadas_ger = pecas_bloqueadas_da_geracao()",
+          "    _bloqueadas_ger = []")],
+        None,
+        ["python3", "imagem.py", "--autoteste"],
+    ),
+    # ── 30/09, A TERCEIRA VEZ DO MESMO DEFEITO ─────────────────────────
+    #
+    # Dono: "o produto esta GIGANTE nas maos da crianca". Eu atribui a peca 7,
+    # corrigi a 7 e a 8, e deixei a 3 — cujo preset comeca com "PRODUTO NO
+    # AMBIENTE DE USO REAL: deduza onde ESTE produto e de fato usado, e POR
+    # QUEM". Cena com gente, igual as outras duas, e carregava "ocupa NO
+    # MINIMO 45%" junto de "Nunca deixe o produto pequeno no centro de um
+    # cenario amplo".
+    #
+    # Mesmo defeito, tres correcoes separadas: peca 8 em 29/09, peca 7 de
+    # manha, peca 3 a noite. A mutacao tira a 3 do grupo de cena, que foi
+    # exatamente o estado em que ela ficou entre uma correcao e outra.
+    (
+        "a peca do cenario de uso volta a receber porcentagem imposta",
+        "imagem.py",
+        [("TIPOS_DE_CENA = (3, 7, 8)", "TIPOS_DE_CENA = (7, 8)")],
+        None,
+        ["python3", "checar_prompts.py"],
+    ),
+    # ── 30/09: O NOME DO CAMPO QUE VIROU MARGEM EM TODA PECA ───────────
+    #
+    # Dono: "imagem 3 esta com margem na foto". E eu cheguei a responder que
+    # isso "nao tinha conserto por codigo". TINHA — era o nome de um campo.
+    #
+    # O Studio pedia imagem quadrada ao Gemini por `responseFormat`, a API
+    # respondia 400, e ele DESISTIA da proporcao. Toda peca voltava
+    # retangular, o enquadramento preenchia as sobras com faixa lisa, e a
+    # pessoa recebia a peca com margem. O nome documentado para o endpoint
+    # generateContent e `imageConfig`.
+    #
+    # A mutacao devolve o nome errado na primeira tentativa. O Studio tem de
+    # continuar achando o certo — mas a guarda exige mais que isso: exige que
+    # o nome DOCUMENTADO seja o primeiro tentado, senao toda peca paga uma
+    # chamada recusada antes de acertar.
+    (
+        "o pedido de imagem quadrada volta a usar o nome errado do campo",
+        "imagem.py",
+        [('                    "imageConfig": {"aspectRatio": "1:1", "imageSize": "1K"}}),\n'
+          '                ("imageConfig sem tamanho", {\n'
+          '                    "responseModalities": ["IMAGE"],\n'
+          '                    "imageConfig": {"aspectRatio": "1:1"}}),',
+          '                    "responseFormat": {"image": {"aspectRatio": "1:1"}}}),\n'
+          '                ("imageConfig sem tamanho", {\n'
+          '                    "responseModalities": ["IMAGE"],\n'
+          '                    "responseFormat": {"image": {"aspectRatio": "1:1"}}}),')],
+        None,
+        ["python3", "imagem.py", "--autoteste"],
+    ),
+    # ── 30/09: A PECA NUNCA ERA COMPARADA COM AS FOTOS ─────────────────
+    #
+    # Dono: "por que que as imagens acabam sendo geradas diferente do que o
+    # produto de fato e?".
+    #
+    # O prompt manda "TRAVA DE COR (regra inviolavel)" e "PROIBICAO ABSOLUTA:
+    # JAMAIS substitua o produto das fotos" — e o Studio entregava sem nunca
+    # comparar a peca com as fotos. Regra que ninguem confere e torcida.
+    #
+    # A mutacao tira a comparacao do caminho que entrega a peca. A funcao
+    # continua existindo e passando nos testes dela: e por isso que a guarda
+    # confere a CHAMADA, e nao a existencia.
+    (
+        "a peca volta a sair sem ser comparada com as fotos do produto",
+        "imagem.py",
+        [("        _dif_prod = _md.produto_diferente(img_bytes, imagens_referencia)\n"
+          "        if _dif_prod:\n"
+          "            _probs = list(_probs) + [_dif_prod]\n", "")],
+        None,
+        ["python3", "imagem.py", "--autoteste"],
+    ),
+    # ── 30/09: A REGUA NAO OLHAVA O TEXTO DA PECA ──────────────────────
+    #
+    # Dono, duas vezes: "os textos cortados foram corrigidos na causa raiz?".
+    #
+    # A resposta honesta era NAO: a regua conferia formato, faixa lisa e
+    # ocupacao, e ninguem olhava se o texto tinha ficado inteiro dentro do
+    # quadro. Tirar a contradicao do prompt trata a causa; sem medir o
+    # resultado, e hipotese — e foi hipotese que me fez errar o dia inteiro.
+    #
+    # A medida so roda quando quem chama diz que a peca TEM texto. Perdido o
+    # argumento, ela some em SILENCIO e a regua volta a aprovar peca com o
+    # titulo decepado. Por isso a mutacao tira o argumento, e nao a funcao.
+    (
+        "a regua volta a nao olhar o texto da peca",
+        "imagem.py",
+        [(",\n                               com_texto=not _is_clean_photo)", ")")],
+        None,
+        ["python3", "imagem.py", "--autoteste"],
+    ),
+    # ── 30/09: SEIS VOZES SOBRE QUANTO UMA FRASE PODE TER ──────────────
+    #
+    # Dono: "as escritas estao sendo cortadas (...) aplicadas numa regiao que
+    # nao da para ser escrita totalmente e ai fica a margem para fora".
+    #
+    # A copy e ESCRITA pelo prompt do plano e DESENHADA pelo prompt da
+    # imagem. Havia seis textos dizendo o tamanho dela — dois na mesma regra
+    # de densidade, a 33 linhas um do outro, tres em presets de peca e um no
+    # plano — e nenhum lia o outro. Frase longa num cartao dimensionado para
+    # frase curta transborda pela borda.
+    #
+    # Duas mutacoes, as duas pontas: a medida volta a ter duas vozes no
+    # prompt da imagem, e o prompt do plano volta a ter medida propria.
+    (
+        "a regra de densidade volta a dizer o tamanho da frase duas vezes",
+        "imagem.py",
+        [("- Quanto mais longa a frase, mais letra inventada aparece nela: a medida do",
+          "- Frase curta e o que sai certo. Titulo de 2 a 4 palavras, frase de 4 a 9.\n"
+          "- Quanto mais longa a frase, mais letra inventada aparece nela: a medida do")],
+        None,
+        ["python3", "checar_prompts.py"],
+    ),
+    (
+        "quem escreve a copy volta a ter medida propria, sem ler a fonte unica",
+        "imagem.py",
+        [("  {medida_do_bloco()}. Frase longa \u00e9 o que ele erra",
+          "  Titulo de 2 a 4 palavras; frase de 4 a 9. Frase longa \u00e9 o que ele erra")],
+        None,
+        ["python3", "checar_prompts.py"],
+    ),
+    # ── 30/09: O MOTOR ERA GRAVADO E NUNCA MOSTRADO ────────────────────
+    #
+    # Dono, depois de eu pedir que ELE abrisse uma tela para conferir qual
+    # motor a conta tinha: "eu que tenho que confirmar? voce que codificou o
+    # sistema...".
+    #
+    # O Studio sabe qual motor fez cada peca e o registro dizia "enviado ao
+    # motor" — sem dizer qual. E essa e a pergunta mais importante sobre uma
+    # peca torta: margem e produto redesenhado vem de a peca ter sido feita
+    # pelo RESERVA, que nao aceita `size=1024x1024` nem `input_fidelity`.
+    #
+    # A PRIMEIRA CORRECAO TROPECOU NO MESMO DEFEITO: gravei a linha e
+    # `cadeias` descarta toda acao que nao e prompt — o dado ia ser escrito
+    # e nunca lido. Gravar sem ninguem ler nao e registro.
+    #
+    # Duas mutacoes porque sao duas pontas da mesma cadeia: quem ESCREVE e
+    # quem MOSTRA. Cortar so uma deixaria a outra sem rede.
+    (
+        "o relatorio volta a ignorar qual motor fez a peca",
+        "comparar_prompt.py",
+        [("    mots = motores(linhas)", "    mots = {}")],
+        None,
+        ["python3", "comparar_prompt.py"],
+    ),
+    (
+        "a linha do motor deixa de ser gravada com o nome que o leitor procura",
+        "imagem.py",
+        [('            "motor_da_peca",', '            "motor_da_peca_renomeado",')],
+        None,
+        ["python3", "comparar_prompt.py"],
+    ),
+    # ── 30/09: A PECA 7 VOLTA A TER UMA PORCENTAGEM IMPOSTA ────────────
+    #
+    # Dono: "o produto esta GIGANTE nas maos da crianca".
+    #
+    # A peca "Presenteie" mandava, no MESMO prompt, "O produto ocupa de 30% a
+    # 45% da dimensao util do quadro. Nao e sugestao: e a medida desta peca" e
+    # "Never enlarge the product beyond its real scale in the hands that hold
+    # it". Duas ordens sobre o mesmo assunto; ganha a que se declara
+    # inegociavel. Um compasso de 16 cm a 30-45% do quadro, na mao de uma
+    # crianca, E gigante.
+    #
+    # A mutacao devolve a faixa. O verificador tem de ficar VERMELHO em duas
+    # frentes: a medida volta a aparecer numa peca de cena, e a "ESCALA REAL"
+    # sai dela.
+    (
+        "a peca do presente volta a receber porcentagem imposta",
+        "imagem.py",
+        [("    7: None,", "    7: (30, 45, 'handover'),")],
+        None,
+        ["python3", "checar_prompts.py"],
+    ),
+    # ── E A OUTRA METADE DA MESMA CORRECAO: O ROTEAMENTO ───────────────
+    #
+    # Tirar a porcentagem de `OCUPACAO` nao basta sozinho: quem decide QUAL
+    # bloco de tamanho a peca recebe e `protagonismo_do_tipo`, e era por ali
+    # que a peca 7 pegava "Nunca deixe o produto pequeno no centro de um
+    # cenario amplo" — a MESMA linha que ja tinha inflado a ambientacao em
+    # 29/09, com o comentario que explica o defeito escrito logo acima dela.
+    #
+    # Duas metades, duas mutacoes. Uma entrada so deixaria a outra sem rede.
+    (
+        "a peca do presente volta a receber a regra das pecas de produto",
+        "imagem.py",
+        # A ANCORA ACOMPANHA O GRUPO. Ela era `(7, 8)` e ficou para tras
+        # quando a peca 3 entrou — o verificador reprovou por "o trecho certo
+        # aparece 0 vezes", que e exatamente o servico dele: mutacao que nao
+        # encontra o alvo nao mede nada e ficaria verde por acidente.
+        [("TIPOS_DE_CENA = (3, 7, 8)", "TIPOS_DE_CENA = (3, 8)")],
+        None,
+        ["python3", "checar_prompts.py"],
+    ),
+    # ── 30/09: O CONTEXTO DO LOG ERA UM DONO SO PARA A EQUIPE INTEIRA ──
+    #
+    # `log_imagem._CONTEXTO` era um dicionario de MODULO, e o Streamlit serve
+    # todos os colaboradores no mesmo processo. `marcar_contexto` roda a cada
+    # desenho de pagina: a segunda pessoa a abrir a tela Imagem sobrescrevia a
+    # primeira, e o log da primeira passava a gravar o produto e o usuario da
+    # segunda.
+    #
+    # O custo nao foi so o log torto. O historico do «Compasso Cortador
+    # Colorido» voltou com quatro pecas de OUTRO produto dentro, carimbadas
+    # com o nome de quem nao as gerou — e a analise feita em cima dele
+    # apontou um defeito no PLANO que nao existia. Campo vazio a gente ve;
+    # campo errado se le como verdade.
+    #
+    # A guarda ANTERIOR nao via isso: ela marcava UM contexto e conferia que
+    # ele chegava. Com um dono so, global e por-thread dao a mesma resposta.
+    # A mutacao volta `ident` para uma constante, que e exatamente o global
+    # de processo de antes, e exige vermelho.
+    (
+        "o log volta a ter um contexto so para todos os colaboradores",
+        "log_imagem.py",
+        [("    ident = _threading_ctx.get_ident()\n",
+          "    ident = 0\n")],
+        None,
+        ["python3", "log_imagem.py"],
+    ),
     # A MUTACAO TEM DE REINTRODUZIR O DEFEITO DE VERDADE.
     #
     # A primeira versao desta entrada so tirava a marca de fim do bloco — e o
@@ -866,8 +1303,26 @@ MUTACOES = [
         # mais chance de sair errado, porque o modelo nao ve as fotos.
         "um caminho volta a entregar imagem sem dizer por onde ela veio",
         "imagem.py",
-        '            diagnostico["motor"] = f"{_modelo} (images.generate — SEM fotos)"\n',
-        "",
+        # DUAS LINHAS, E A SEGUNDA CHEGOU DEPOIS.
+        #
+        # Esta entrada tirava so a primeira gravacao do motor. Em 01/10 a
+        # chamada sem fotos ganhou uma SEGUNDA, para dizer quais parametros o
+        # modelo recusou — e com ela no lugar, tirar a primeira deixava a
+        # chave `motor` ainda com dono: o verificador ficava VERDE com o
+        # defeito meio reintroduzido.
+        #
+        # Foi o proprio `checar_mutacao` que reprovou, e esse e o servico
+        # dele. Mutacao que deixa de reintroduzir o defeito vira guarda que
+        # assina embaixo — e so se descobre medindo.
+        [('            diagnostico["motor"] = f"{_modelo} (images.generate — SEM fotos)"\n', ""),
+         # O BLOCO INTEIRO, E NAO SO A LINHA DE DENTRO.
+         #
+         # Cortar so a gravacao deixava `if _tirados ...:` com corpo vazio, e
+         # o verificador ficava vermelho por IndentationError — vermelho por
+         # acidente, que nao mede guarda nenhuma. Esta base ja aprendeu isso:
+         # "mutacao que nao reintroduz o defeito da alarme falso".
+         ('        if _tirados and diagnostico is not None:\n            diagnostico["motor"] = (\n                f"{_modelo} (images.generate — SEM fotos, sem "\n                + ", ".join(_tirados) + ")")\n', "")],
+        None,
         ["python3", "checar_comunicacao.py"],
     ),
     (
@@ -887,9 +1342,27 @@ MUTACOES = [
         # verificadores guardam o codigo; nada guardava a minha lista.
         "achado aberto volta a poder ficar sem motivo escrito",
         "ACHADOS_ABERTOS.md",
-        "POR QUE AINDA NÃO: hoje só o tipo 5 é conferido com o cadastro vazio",
+        # A ANCORA ERA O TEXTO DE UM ITEM QUE EU FECHEI, e a mutacao parou de
+        # encontrar alvo — o verificador reprovou por "o trecho certo aparece
+        # 0 vezes", que e o servico dele. Ancora que aponta para um item
+        # especifico morre quando o item e resolvido, que e justamente o que
+        # se espera que aconteca. Agora ela aponta para o PRIMEIRO item
+        # aberto, seja ele qual for.
+        "POR QUE AINDA NÃO: a análise do dia 30/09 foi feita em cima do",
         "POR QUE AINDA NAO ESCRITO: ",
         ["python3", "checar_alcance.py"],
+    ),
+    (
+        # 30/09: "Imagem 2 e imagem 5 com texto cortando". `enquadrar.janela`
+        # fazia recorte CENTRAL sempre que a caixa do assunto cobria o quadro,
+        # com o comentario "nao ha painel de texto para decepar". Numa peca de
+        # marketing o cenario vai ate as bordas, a caixa cobre 100%, e o corte
+        # come a lateral onde o texto mora.
+        "o enquadramento volta a decepar o texto da peca",
+        "imagem.py",
+        "                lado_final=1200, tem_texto=not _is_clean_photo)\n",
+        "                lado_final=1200)\n",
+        ["python3", "imagem.py", "--autoteste"],
     ),
 ]
 

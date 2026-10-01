@@ -210,6 +210,57 @@ def cadeias(linhas):
     return [(p, pe, por_peca[(p, pe)]) for p, pe in reversed(ordem)]
 
 
+def motores(linhas):
+    """Qual motor fez cada peça. {(produto, peca): [{quando, motor, enquadramento}]}.
+
+    POR QUE ISTO EXISTE
+    -------------------
+    Dono, 30/09, depois de eu pedir que ELE abrisse uma tela para conferir
+    qual motor a conta tinha: *"eu que tenho que confirmar? você que codificou
+    o sistema..."*.
+
+    Ele estava certo. O Studio sabe qual motor fez cada peça — grava em
+    `diagnostico["motor"]` nos cinco caminhos —, e o registro que sobrevive à
+    sessão dizia `resultado="enviado ao motor"`. "O motor", sem dizer qual.
+
+    E é a pergunta mais importante sobre uma peça torta: margem e produto
+    redesenhado vêm de a peça ter sido feita pelo RESERVA, que não aceita
+    `size=1024x1024` nem `input_fidelity=high`. Sem o nome do motor na linha,
+    o arquivo não responde isso e a pergunta cai numa pessoa.
+
+    A CHAVE É A MESMA DE `cadeias`, (produto, peça), de propósito: é assim que
+    a linha do motor encontra a peça a que pertence.
+    """
+    fora = {}
+    for l in (linhas or []):
+        if str(l.get("acao") or "") != "motor_da_peca":
+            continue
+        chave = (str(l.get("produto") or "").strip(),
+                 str(l.get("imagem") or "").strip())
+        fora.setdefault(chave, []).append({
+            "quando": str(l.get("quando") or ""),
+            "motor": str(l.get("resultado") or "").strip(),
+            "enquadramento": str(l.get("instrucao") or "").strip(),
+        })
+    return fora
+
+
+def linha_do_motor(registros):
+    """Uma linha em português sobre o motor da peça, ou "" quando não há.
+
+    O ÚLTIMO REGISTRO MANDA: a peça pode ter sido refeita, e quem interessa é
+    o motor que fez a versão que está na mão do colaborador.
+    """
+    if not registros:
+        return ""
+    ult = registros[-1]
+    motor = ult.get("motor") or "motor não registrado"
+    txt = f"motor: {motor}"
+    if ult.get("enquadramento"):
+        txt += f"\n    enquadramento: {ult['enquadramento']}"
+    return txt
+
+
 def _faixa(titulo):
     return f"\n{'=' * 78}\n{titulo}\n{'=' * 78}\n"
 
@@ -230,7 +281,17 @@ def relatorio_txt(linhas):
     mil linhas.
     """
     cads = cadeias(linhas)
+    mots = motores(linhas)
     if not cads:
+        # SEM PROMPT, MAS COM MOTOR, o arquivo ainda tem o que dizer — e
+        # devolver "nenhum registro" com linhas na mão seria a segunda
+        # mentira empilhada na primeira.
+        if mots:
+            corpo = ["Nenhum PROMPT registrado — mas há registro de motor:\n"]
+            for (prod, peca), regs in sorted(mots.items()):
+                corpo.append(f"{prod or 'sem nome'} · peça {peca or '?'}: "
+                             + linha_do_motor(regs))
+            return "\n".join(corpo) + "\n"
         return ("Nenhum prompt registrado ainda.\n\nO registro começa na "
                 "próxima geração: cada peça grava o texto que foi ao motor, "
                 "e cada correção grava o dela.\n")
@@ -252,9 +313,11 @@ def relatorio_txt(linhas):
     for produto, peca, cad in cads:
         ger, correcoes = cad[0], cad[1:]
         nome = f"{produto or 'sem nome'} · peça {peca or '?'}"
+        _mot = linha_do_motor(mots.get((produto, peca)))
+        _sufixo_mot = f"\n    {_mot}" if _mot else ""
         if not correcoes:
             partes.append(f"{nome}: gerada e não corrigida. "
-                          f"{ger.get('quando', '')}")
+                          f"{ger.get('quando', '')}{_sufixo_mot}")
             continue
         _n, _frase = veredito(ger.get("prompt"), correcoes[-1].get("prompt"))
         so_cor, dois, _ = comparar(ger.get("prompt"),
@@ -263,7 +326,7 @@ def relatorio_txt(linhas):
             f"{nome}: {len(correcoes)} correção(ões) · veredito da última: "
             f"{_n.upper()}\n    {_frase}\n"
             f"    só na correção: {len(so_cor)} frase(s) · "
-            f"nos dois: {len(dois)} frase(s)")
+            f"nos dois: {len(dois)} frase(s)" + _sufixo_mot)
 
     # ── 2. O que faltava na geração, peça a peça ────────────────────────
     partes.append(_faixa(
@@ -373,6 +436,65 @@ A alca da caneca fica virada para a direita.
     ]
     _pares = parear(_LOG)
     ok("uma correcao casa com a geracao do MESMO produto", len(_pares) == 1)
+
+    # ── O MOTOR DE CADA PECA CHEGA AO ARQUIVO ───────────────────────────
+    #
+    # ESTA GUARDA NASCEU DE UM TROPECO MEU, no mesmo dia.
+    #
+    # Escrevi a linha `motor_da_peca` no log para responder "qual motor fez
+    # esta peca?" — e `cadeias` descarta toda acao que nao seja
+    # `prompt_geracao`/`prompt_ajuste`. O dado seria gravado e NUNCA
+    # mostrado: o mesmo defeito que eu estava corrigindo, um passo adiante.
+    # Gravar sem ninguem ler nao e registro, e lixo com custo de escrita.
+    #
+    # O NOME DA ACAO VEM DO `imagem.py`, E NAO DA MINHA CABECA. Se eu
+    # escrever a string a mao aqui, a guarda passa a medir o que eu ACHO que
+    # o sistema grava — e foi exatamente assim que o botao dos oito prompts
+    # quebrou com a guarda verde (Forma 7 do CLAUDE.md).
+    import ast as _ast_mot, os as _os_mot
+    _fonte_img = open(_os_mot.path.join(
+        _os_mot.path.dirname(_os_mot.path.abspath(__file__)), "imagem.py"),
+        encoding="utf-8").read()
+    _acoes_gravadas = set()
+    for _no in _ast_mot.walk(_ast_mot.parse(_fonte_img)):
+        if (isinstance(_no, _ast_mot.Call)
+                and getattr(_no.func, "attr", "") == "registrar"
+                and _no.args
+                and isinstance(_no.args[0], _ast_mot.Constant)):
+            _acoes_gravadas.add(_no.args[0].value)
+    ok("o imagem.py grava mesmo uma linha de motor por peca",
+       "motor_da_peca" in _acoes_gravadas)
+
+    _LOG_MOT = [
+        {"quando": "30/09/2026 16:24:15", "produto": "Compasso", "imagem": "1",
+         "acao": "prompt_geracao", "prompt": _GER},
+        {"quando": "30/09/2026 16:24:51", "produto": "Compasso", "imagem": "1",
+         "acao": "motor_da_peca", "prompt": "",
+         "resultado": "Gemini 3.1 Flash Image (fallback, COM fotos)",
+         "instrucao": "o motor devolveu 768x1365 e o produto nao cabe num "
+                      "recorte quadrado — o Studio preencheu as faixas."},
+    ]
+    _txt_mot = relatorio_txt(_LOG_MOT)
+    # NAO BASTA "nao explodiu": confere O QUE FOI ESCRITO.
+    ok("o nome do motor aparece no arquivo",
+       "Gemini 3.1 Flash Image" in _txt_mot)
+    ok("e o enquadramento que gerou a margem aparece junto",
+       "preencheu as faixas" in _txt_mot)
+    # A LINHA DO MOTOR NAO PODE VIRAR UMA PECA FANTASMA.
+    #
+    # A primeira versao desta assercao contava "· peça 1" no TEXTO e exigia 1
+    # — e reprovou, com razao do codigo: o nome da peca aparece no RESUMO e
+    # de novo na secao dos prompts inteiros. Eu estava medindo o formato do
+    # relatorio, nao a propriedade. A propriedade e que a linha de motor nao
+    # abre uma cadeia propria.
+    ok("a linha do motor nao vira uma peca fantasma",
+       len(cadeias(_LOG_MOT)) == 1)
+    # E SEM PROMPT NENHUM o arquivo ainda diz o que sabe, em vez de mentir
+    # "nenhum registro" com linha na mao.
+    _so_motor = relatorio_txt([_LOG_MOT[1]])
+    ok("so com a linha de motor, o arquivo nao diz 'nenhum registro'",
+       "Gemini 3.1 Flash Image" in _so_motor
+       and "Nenhum prompt registrado ainda" not in _so_motor)
     ok("e com a do produto certo",
        _pares[0][0]["produto"] == "Caneca" and _pares[0][1]["produto"] == "Caneca")
 

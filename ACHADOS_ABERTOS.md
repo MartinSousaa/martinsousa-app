@@ -33,29 +33,76 @@ motivo — mas é uma resposta honesta, e escrita ela para de ser esquecimento.
 
 ## ABERTOS
 
-### As 65 regras do prompt só são medidas com o cadastro CHEIO
-ONDE: checar_prompts.py:_DADOS
-POR QUE AINDA NÃO: hoje só o tipo 5 é conferido com o cadastro vazio, porque
-foi onde a contradição aparecia (manda fazer cota e proíbe escrever cota).
-Rodar as 65 regras uma segunda vez, com cadastro vazio, dobra o tempo do
-verificador — que já é a parte mais lenta do protocolo. O risco de deixar
-assim está declarado: uma regra que só faz sentido com dado preenchido pode
-estar quebrada no vazio sem ninguém ver.
+### Por que as oito peças do «Compasso Cortador Colorido» saíram erradas
+ONDE: toda a cadeia · evidência em `log_imagem.py` (contexto do log)
+POR QUE AINDA NÃO: a análise do dia 30/09 foi feita em cima do `.txt` do
+histórico que o dono baixou, e aquele arquivo **misturava as rodadas de duas
+pessoas** — o contexto do log era um global de processo, então o histórico de
+um produto veio com peças de outro dentro, carimbadas com o nome de quem não
+as gerou. O global foi corrigido (contexto por thread, com herança na criação
+da thread), mas o log ANTIGO não se conserta: as linhas já gravadas continuam
+com produto e usuário errados. A pergunta original — por que as peças dele
+saíram com moldura, texto cortado e produto fora de escala — precisa ser
+refeita com um histórico novo, gerado depois desta correção. Dito em voz alta
+em vez de escondido: **eu afirmei que o plano estava misturado entre dois
+produtos, e essa afirmação não se sustenta.** Ela saiu do log corrompido.
 
-### Nenhum verificador olha a imagem que o Gemini devolve
-ONDE: toda a cadeia
-POR QUE AINDA NÃO: é construção nova, não correção — precisaria medir a peça
-gerada (tamanho do produto no quadro, moldura, texto cortado) e reprovar
-sozinha. O dono foi avisado três vezes de que este buraco existe, e a decisão
-de construir é dele.
+### A trava do plano misturado ficou pronta e foi retirada
+ONDE: imagem.py:576 (`plano_misturado`) e o painel de confirmação
+POR QUE AINDA NÃO: a função fica, e o aviso também — com um plano coerente ela
+devolve `""` e não custa nada. O que saiu foi a TRAVA do botão Confirmar:
+trancar a geração com base num defeito que eu não consigo mais provar é alarme
+falso, e alarme falso ensina a desviar do alarme verdadeiro junto. A trava
+volta no dia em que um plano real vier misturado.
 
-### `_processar` duplicado em placar.py e placar_core.py
-ONDE: placar.py, placar_core.py
-POR QUE AINDA NÃO: unificar é mudança grande e o risco tem de ser mapeado
-antes. Já discordaram em 330 pontos no mesmo mês. Aberto desde 28/09.
 
-### Corte de texto nas peças 4 e 5
-ONDE: imagem.py, prompt dos tipos 4 e 5
-POR QUE AINDA NÃO: preciso do prompt real de uma peça que cortou para separar
-"o layout não cabe" de "o modelo desobedeceu". Sem isso eu estaria chutando.
-Aberto desde 28/09.
+### Com FOTOS, uma conta sem `gpt-image-*` continua caindo no reserva
+ONDE: imagem.py:_chamar_openai_geracao
+POR QUE AINDA NÃO: o caminho SEM fotos passou a funcionar com `dall-e-3` em
+01/10 — a chamada agora lê na resposta de erro qual parâmetro o modelo recusou
+e repete sem ele, em vez de mandar o que só a família `gpt-image-*` aceita.
+O que continua aberto é o caso COM fotos: as três tentativas da OpenAI usam a
+Responses API com `tools=[image_generation]` e `images.edit`, e o `dall-e-3`
+não atende por ali nem aceita foto de referência. Com fotos ele falharia nas
+três e cairia no Gemini do mesmo jeito — e o Gemini não aceita
+`input_fidelity=high`, que é o que preserva o produto.
+
+Isto NÃO tem conserto por código: nenhuma chamada faz um modelo aceitar foto
+de referência que ele não aceita. A saída é a conta ter um `gpt-image-*`.
+Enquanto não tiver, a régua de parecença (`medir_imagem.produto_diferente`)
+reprova a peça repintada e manda refazer — é compensação, não conserto.
+
+### A régua GEOMÉTRICA não vê a forma — mas a conferência de visão vê
+ONDE: medir_imagem.py:produto_diferente e imagem.py:conferir_peca
+POR QUE AINDA NÃO: corrijo aqui uma afirmação minha que estava incompleta e
+assustava mais do que devia. A régua geométrica compara COR, e de fato não vê
+forma. Mas ela não é a única conferência: `conferir_peca` olha a peça com
+visão, lado a lado com as fotos do produto, e já pergunta pelo número de
+alças, formato, acabamento, componentes e cor — e ela JÁ RODA em toda peça de
+toda geração, pela porta única `revisar_tudo`.
+
+O que falta de verdade é mais estreito: a conferência de visão depende da
+ANTHROPIC_API_KEY e das fotos; sem uma das duas ela não roda e diz isso, e aí
+só a régua de cor sobra. Nesse caso, produto da cor certa e formato errado
+passa. Medir forma geometricamente não serve: testei preenchimento da caixa e
+proporção, e a variação entre ângulos do MESMO produto (26 a 53 pontos) é
+maior que a variação entre produtos DIFERENTES (5 pontos no pior caso).
+Qualquer limite ou deixa passar a troca ou acusa o inocente.
+
+### `_processar` duplicado: travado, ainda não unificado
+ONDE: placar.py:_processar e placar_core.py:_processar
+POR QUE AINDA NÃO: as duas estão VIVAS, em telas diferentes — o Painel de
+Metas chama a do core, o Placar e mais quatro telas chamam a do placar. Elas já
+discordaram em 330 pontos. Medido em 01/10: hoje concordam nas 25 chaves em
+comum, em 18 cenários (450 comparações), e há guarda que reprova se voltarem a
+discordar — então o estrago silencioso acabou.
+
+A unificação de verdade não foi feita, e o motivo é medido: a do core é
+superconjunto da do placar menos três chaves (`cards_pts`, `pausados_lista`,
+`sem_membro_lista`), mas ela faz consultas EXTRAS ao Trello (ações do board,
+movimentação, criadores de cartão) que o Placar hoje não paga. Fazer o placar
+delegar deixaria a tela mais lenta — que é exatamente como uma tela desta base
+já levou 15 segundos para abrir. O caminho certo é extrair o LAÇO COMUM para
+uma função que as duas chamem, sem arrastar os extras junto; é mudança grande
+na tela que decide bônus, e ela merece ser feita com o dono sabendo.
+

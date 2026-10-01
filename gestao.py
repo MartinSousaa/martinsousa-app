@@ -150,17 +150,157 @@ def _fatura_ml(usuario_logado=None):
     _fml.pagina(usuario_logado)
 
 
+def _abrir_tela(modulo, usuario_logado=None, funcao="pagina"):
+    """Abre a tela de outro módulo. Import tardio, como o resto do arquivo."""
+    import importlib
+    getattr(importlib.import_module(modulo), funcao)(usuario_logado)
+
+
+def _lpv_mensal(usuario_logado=None):
+    """O LPV do mês — era a aba «Financeiro» do ambiente Indicadores.
+
+    Dono, 30/09: "está no ambiente Indicadores, mudar o nome para LPV Mensal".
+    Dois «Financeiro» em ambientes diferentes é a Forma 5 desta base: o mesmo
+    rótulo para duas perguntas, e quem procura um acha o outro.
+    """
+    _abrir_tela("financeiro", usuario_logado, "pagina_financeiro")
+
+
+def _faturas(usuario_logado=None):
+    """As faturas — hoje elas moram DENTRO de Conta corrente.
+
+    Dito em voz alta: o PDF do dono pede «Faturas» como pontinho próprio, e
+    esta tela ainda não existe separada. `extratos_tela.pagina` lê o extrato
+    e as faturas na mesma passada. Separar é trabalho de verdade, não de
+    navegação — e inventar uma tela vazia aqui seria pior do que dizer que
+    ela não existe ainda.
+    """
+    st.markdown("### 🧾 Faturas")
+    st.info(
+        "As faturas ainda são lidas **dentro de Conta corrente** — é lá que "
+        "o arquivo é enviado e classificado. Esta aba está reservada para "
+        "quando elas ganharem tela própria; nada foi perdido."
+    )
+
+
+def _com_pontinhos(opcoes, chave, usuario_logado=None):
+    """Desenha os «pontinhos» (o rádio) e só a tela escolhida.
+
+    Rádio e não sub-aba porque são recortes da MESMA pergunta — é o mesmo
+    gesto que o Custo fixo já usava para as três faces dele. A escolha vai
+    para a URL pelo mesmo motivo das abas: o session_state morre quando o
+    Railway reinicia, e sem isso a pessoa volta para o primeiro pontinho a
+    cada deploy.
+    """
+    rotulos = list(opcoes)
+    if chave not in st.session_state:
+        _da_url = str(st.query_params.get(chave, "")).strip()
+        st.session_state[chave] = _da_url if _da_url in rotulos else rotulos[0]
+    escolhido = st.radio("O que você quer ver", rotulos, horizontal=True,
+                         key=chave)
+    if str(st.query_params.get(chave, "")) != escolhido:
+        st.query_params[chave] = escolhido
+    st.markdown("---")
+    opcoes[escolhido](usuario_logado)
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# A ARVORE DO FINANCEIRO, COMO O DONO DESENHOU (30/09)
+#
+# Sao QUATRO niveis, e o dono nomeou cada um:
+#
+#   AMBIENTE   Gestao, Indicadores, Operacao        (os tres botoes de cima)
+#   ABA        Home, Financeiro, Operacional, ...   (a fileira seguinte)
+#   SUB-ABA    Custos fixos, Extratos, Cheques, ... (a terceira fileira)
+#   PONTINHOS  Operacional, Folha salarial, ...     (as bolinhas dentro)
+#
+# O que mudou aqui: cinco telas que eram ABA ou SUB-ABA viraram PONTINHO
+# dentro de "Custos fixos" — Balanco headcount, Reserva, Assinaturas, LPV
+# Mensal e Ajuste de valor. Elas respondem a mesma pergunta ("o que sai todo
+# mes independente de vender"), e estavam espalhadas em tres niveis
+# diferentes.
+#
+# Devolucoes saiu do Financeiro: virou sub-aba da aba OPERACIONAL, junto de
+# Quebras e Estoque. Finalidades virou pontinho dentro de Extratos.
+# AS TRES FACES VEM DE `FACES_DO_CUSTO`, E NAO DE UMA COPIA DELAS.
+# Copiar os rotulos aqui seria a Forma 5: alguem renomeia uma face la e os
+# dois dicionarios passam a discordar.
+_PONTINHOS_CUSTO_FIXO = dict(FACES_DO_CUSTO)
+_PONTINHOS_CUSTO_FIXO.update({
+    "🧮 Balanço headcount":  _balanco_headcount,
+    "🏦 Reserva":            lambda u: _abrir_tela("reserva_tela", u),
+    "🔁 Assinaturas":        lambda u: _abrir_tela("assinaturas_tela", u),
+    "💰 LPV Mensal":         _lpv_mensal,
+    "📈 Ajuste de valor":    _ajuste_de_valor,
+})
+
+_PONTINHOS_EXTRATOS = {
+    "🏦 Conta corrente": _extratos,
+    "🧾 Faturas":        _faturas,
+    "🏷️ Finalidades":    _finalidades,
+}
+
 SUBTELAS = {
-    "🧱 Custo fixo": _custo_fixo,
-    "🎯 Meta de gastos": _meta_gastos,
-    "💳 Extratos": _extratos,
+    "🧱 Custos fixos": lambda u: _com_pontinhos(
+        _PONTINHOS_CUSTO_FIXO, "fin_cf", u),
+    "💳 Extratos": lambda u: _com_pontinhos(
+        _PONTINHOS_EXTRATOS, "fin_ext", u),
     "🧾 Cheques": _cheques,
     "🛒 ADS-Cross": _fatura_ml,
-    "🔄 Devoluções": _devolucoes,
-    "🏷️ Finalidades": _finalidades,
-    "🧮 Balanço headcount": _balanco_headcount,
-    "📈 Ajuste de valor": _ajuste_de_valor,
+    "🎯 Meta de gastos": _meta_gastos,
+    "🔎 Análise de Gargalos": lambda u: _abrir_tela("gargalos_tela", u),
 }
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# ABA OPERACIONAL — nova, pedida pelo dono em 30/09
+#
+# Devolucoes saiu do Financeiro e veio para ca. Faz sentido: ela nao e
+# dinheiro PLANEJADO (que e a pergunta do Financeiro), e sim coisa que
+# aconteceu com a mercadoria — a mesma familia de Quebras e Estoque.
+#
+# QUEBRAS E ESTOQUE AINDA NAO EXISTEM, e isso esta dito na tela em vez de
+# escondido atras de uma aba vazia. O dono escreveu "precisa criar e para
+# configurarmos": sao telas para desenhar com ele, nao para eu inventar.
+def _quebras(usuario_logado=None):
+    st.markdown("### 💔 Quebras")
+    st.info(
+        "**Esta tela ainda não existe.** O dono pediu para criá-la e "
+        "configurá-la junto — o lugar dela na navegação já está aqui, e o "
+        "conteúdo depende de duas respostas: **o que conta como quebra** "
+        "(produto danificado no envio, no estoque, na produção?) e **de onde "
+        "vem o dado** (planilha, Bling, lançamento à mão?)."
+    )
+
+
+def _estoque(usuario_logado=None):
+    st.markdown("### 📦 Estoque")
+    st.info(
+        "**Esta tela ainda não existe.** O dono pediu para criá-la e "
+        "configurá-la junto — o lugar dela na navegação já está aqui, e o "
+        "conteúdo depende de duas respostas: **o que ela precisa mostrar** "
+        "(saldo por SKU, giro, ruptura?) e **qual é a fonte da verdade** "
+        "(Bling, planilha, contagem física?)."
+    )
+
+
+SUBTELAS_OPERACIONAL = {
+    "🔄 Devoluções": _devolucoes,
+    "💔 Quebras":    _quebras,
+    "📦 Estoque":    _estoque,
+}
+
+
+def pagina_operacional(usuario_logado=None, navegar=None):
+    """O que acontece com a mercadoria: devolução, quebra e estoque."""
+    st.markdown("## 📦 Operacional")
+    st.caption("O que acontece com a mercadoria depois que ela existe — "
+               "devolvida, quebrada ou parada no estoque.")
+    if navegar is None:
+        next(iter(SUBTELAS_OPERACIONAL.values()))(usuario_logado)
+        return
+    navegar({rot: (lambda f=fn: f(usuario_logado))
+             for rot, fn in SUBTELAS_OPERACIONAL.items()}, "aba_op")
 
 
 def pagina_financeiro(usuario_logado=None, navegar=None):

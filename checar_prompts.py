@@ -74,6 +74,32 @@ TIPOS_COM_TEXTO = (
 )
 TIPO_CAPA = "1 — Capa do anúncio (fundo branco)"
 TIPO_AMBIENTE = "8 — Ambientação realista (sem texto)"
+# ── A PECA 7 MUDOU DE GRUPO, E A GUARDA MUDA COM ELA ──────────────────────
+#
+# Dono, 30/09: "o produto esta GIGANTE nas maos da crianca". A entrega de
+# presente e CENA COM GENTE, igual a ambientacao: o tamanho do produto nela e
+# a escala real nas maos, e nao uma porcentagem. Ela recebia (30, 45) com
+# "Nao e sugestao" E, no mesmo prompt, "never enlarge beyond its real scale".
+#
+# Mover a regra sem mover a guarda deixaria estas linhas exigindo do tipo 7
+# exatamente o defeito que acabou de sair. Por isso os grupos sao nomeados: a
+# proxima peca de cena entra aqui, e as tres regras de tamanho a seguem.
+TIPO_PRESENTE = "7 — Presenteie"
+# ── E A PECA 3 ERA CENA TAMBEM, E EU SO VI NA TERCEIRA VEZ ───────────────
+#
+# O preset dela comeca com "PRODUTO NO AMBIENTE DE USO REAL: deduza (...) onde
+# ESTE produto e de fato usado, e POR QUEM". Cena com gente — e ela carregava
+# "ocupa NO MINIMO 45%" mais "Nunca deixe o produto pequeno no centro de um
+# cenario amplo". Um compasso de 16 cm a 45% do quadro, na mao de uma crianca,
+# e gigante, que foi exatamente o relato.
+#
+# Tres pecas, tres correcoes separadas, o mesmo defeito: 8 em 29/09, 7 de
+# manha em 30/09, 3 a noite. Por isso o grupo tem NOME: peca de cena nova
+# entra aqui, e as regras de tamanho a seguem sozinhas.
+TIPO_CENARIO = "3 — Benefícios no cenário de uso"
+TIPOS_DE_CENA = (TIPO_AMBIENTE, TIPO_PRESENTE, TIPO_CENARIO)
+TIPOS_COM_TEXTO_MEDIDO = tuple(t for t in TIPOS_COM_TEXTO
+                               if t not in TIPOS_DE_CENA)
 TIPO_LIVRE = "Personalizado (descrevo o que quero)"
 
 TODOS = (TIPO_CAPA,) + TIPOS_COM_TEXTO + (TIPO_AMBIENTE, TIPO_LIVRE)
@@ -150,6 +176,22 @@ REGRAS = [
     ("nem manda pôr ao lado por conta própria",
      "blocos de pergunta+resposta ao lado", (), TODOS),
 
+    # ── A ORDEM QUE O MODELO NAO CONSEGUE OBEDECER ─────────────────────
+    #
+    # "Se nao couber tudo, escreva MENOS blocos" convivia, no mesmo prompt,
+    # com "Escreva EXATAMENTE estas palavras, letra por letra" e com "Esta
+    # peca tem exatamente 5 bloco(s)". A copy vem pronta da triagem: o modelo
+    # NAO PODE escrever menos sem desobedecer as outras duas.
+    #
+    # Ordem impossivel nao fica sem efeito — ela vira licenca. O modelo
+    # desenha os cinco e deixa transbordar, que foi o que o dono recebeu.
+    #
+    # Quem decide quantos blocos cabem e o Studio, ANTES de montar o prompt
+    # (`_textos[:_teto_do_tipo]`). O prompt so informa o numero.
+    ("nenhuma ordem de decidir o numero de blocos no meio do desenho",
+     "MENOS blocos", (), TODOS),
+    ("nem a versao em inglês dela", "FEWER blocks", (), TODOS),
+
     ("a trava de cor do produto", "TRAVA DE COR", None, ()),
     ("a proibição de trocar o produto", "PROIBIÇÃO ABSOLUTA", None, ()),
     ("a fidelidade às fotos de referência", "REGRA DE FIDELIDADE", None, ()),
@@ -162,11 +204,38 @@ REGRAS = [
     # conferencia de numero esta em `_uma_so_ocupacao`, que compara o prompt
     # com o dicionario — nao com uma copia escrita a mao.
     ("a ocupação medida do quadro", "dimensao util do quadro",
-     TIPOS_COM_TEXTO + (TIPO_CAPA,), (TIPO_AMBIENTE,)),
+     TIPOS_COM_TEXTO_MEDIDO + (TIPO_CAPA,), TIPOS_DE_CENA),
+    # ESTA LINHA E A QUE INFLOU O PRODUTO, DUAS VEZES.
+    #
+    # "Produto no centro de um cenario amplo" e EXATAMENTE o que a
+    # ambientacao e — e e tambem o que a entrega de presente e. A instrucao
+    # proibia o objetivo da peca, e o modelo obedeceu inflando o produto ate
+    # caber. Em 29/09 na ambientacao; em 30/09 nas maos da crianca.
     ("a proibição de produto pequeno em cenário amplo",
-     "Nunca deixe o produto pequeno", TIPOS_COM_TEXTO, (TIPO_AMBIENTE,)),
-    ("a escala real do ambiente", "ESCALA REAL", (TIPO_AMBIENTE,),
-     TIPOS_COM_TEXTO + (TIPO_CAPA,)),
+     "Nunca deixe o produto pequeno", TIPOS_COM_TEXTO_MEDIDO, TIPOS_DE_CENA),
+    ("a escala real da cena", "ESCALA REAL", TIPOS_DE_CENA,
+     TIPOS_COM_TEXTO_MEDIDO + (TIPO_CAPA,)),
+    # ── E A PORCENTAGEM EM INGLES, QUE ESTA GUARDA NAO VIA ──────────────
+    #
+    # A regra de cima procura "dimensao util do quadro", que e a linha em
+    # PORTUGUES. O mesmo prompt traz a linha de COMPOSITION em ingles, e ela
+    # sai de `ocupacao_em_ingles` — outra funcao, outra fonte.
+    #
+    # Descobri isto tentando MUTAR: devolvi a faixa (30, 45) para a peca 7 e
+    # o verificador ficou VERDE. O bloco em portugues ja vinha do roteamento
+    # novo e dizia "escala real", enquanto o ingles voltava a mandar
+    # "Product occupancy 30-45% of frame" — as duas vozes de novo, uma em
+    # cada idioma, e nenhuma das 66 regras olhava a segunda.
+    #
+    # Mutacao que nao fica vermelha nao prova que o codigo esta certo: prova
+    # que a guarda nao mede. Esta linha e o que faltava.
+    ("a porcentagem imposta em inglês", "Product occupancy",
+     TIPOS_COM_TEXTO_MEDIDO + (TIPO_CAPA,), TIPOS_DE_CENA),
+    # E O APOIO E DE CADA UMA: na ambientacao o produto esta POUSADO numa
+    # superficie; na entrega ele esta SEGURO por maos. Trocar os dois manda
+    # o presente pousar no nada.
+    ("o limite da escala nas mãos", "antebraço de quem o segura",
+     (TIPO_PRESENTE,), (TIPO_AMBIENTE,)),
 
     # A CAPA NAO ESTAVA EM LISTA NENHUMA — E FOI ASSIM QUE ELA FICOU SEM
     # REGRA DE TAMANHO E SAIU PEQUENA.
@@ -319,6 +388,30 @@ _OCUPACAO_RE = (
     re.compile(r"ocupar (\d{1,3})-(\d{1,3})% do frame", re.I),
     re.compile(r"(\d{1,3})% a (\d{1,3})% da MAIOR dimens", re.I),
 )
+# ── QUANTAS PALAVRAS CABEM NUM BLOCO — E ERAM DUAS RESPOSTAS ───────────
+#
+# Dono, 30/09: "as escritas estao sendo cortadas (...) aplicadas numa regiao
+# que nao da para ser escrita totalmente e ai fica a margem para fora".
+#
+# `INSTRUCAO_LAYOUT_MARKETING` mandava, no MESMO bloco e a 33 linhas de
+# distancia:
+#
+#   "Cada bloco: titulo curto (2-5 palavras) + descricao de 8 a 16 palavras"
+#   "Frase curta e o que sai certo. Titulo de 2 a 4 palavras, frase de 4 a 9."
+#
+# Descricao de 16 palavras e frase de 9 palavras nao podem ser a mesma regra.
+# O modelo escrevia longo, e longo nao cabe no cartao: transborda pela borda,
+# que e o quadrado para fora que ele viu.
+#
+# A faixa que sobrou e a UNICA que as duas regras permitiam ao mesmo tempo:
+# 8 a 9 palavras. Nao foi escolha minha — e a interseccao.
+_PALAVRAS_RE = (
+    re.compile(r"descri[cç][aã]o de (\d+) a (\d+)\s*\n?\s*palavras", re.I),
+    re.compile(r"frase de (\d+) a (\d+)", re.I),
+    re.compile(r"t[ií]tulo(?: curto)?(?: em CAIXA ALTA)? \((\d+)[-a ]+(\d+) palavras\)", re.I),
+    re.compile(r"T[ií]tulo de (\d+) a (\d+) palavras", re.I),
+)
+
 _TETO_RE = (
     re.compile(r"Maximum (\d+) information elements", re.I),
     re.compile(r"use de (\d+) a (\d+) blocos", re.I),
@@ -328,6 +421,33 @@ _TETO_RE = (
     # ingles, e um "Maximum 7" ao lado de uma copy de 4 passava batido.
     re.compile(r"exatamente (\d+) bloco", re.I),
 )
+
+
+# ── AS REGRAS QUE SO EXISTEM COM O CADASTRO PREENCHIDO ────────────────────
+#
+# Medido: com o cadastro VAZIO, 36 regras saem do lugar — e sao 4 regras
+# multiplicadas pelos 9 tipos. Essas quatro falam de medida, peso, material e
+# montagem: sem o dado, a linha nao existe no prompt, e cobrar ela seria
+# alarme falso.
+#
+# TODAS AS OUTRAS TEM DE VALER NO VAZIO. Foi onde o tipo 5 escondeu a
+# contradicao que custou uma rodada: "INFOGRAFICO TECNICO DE MEDIDAS" junto
+# de "JAMAIS invente medidas" — com cadastro as duas conviviam, sem cadastro
+# elas se anulavam, e nenhuma varredura media esse caso.
+#
+# E O MOTIVO QUE EU TINHA ESCRITO PARA NAO FAZER ISTO ERA FALSO.
+#
+# Estava no ACHADOS_ABERTOS.md: "rodar as 65 regras uma segunda vez dobra o
+# tempo do verificador — que ja e a parte mais lenta do protocolo". Medi:
+# `checar_prompts.py` leva 2,8 SEGUNDOS. A parte lenta do protocolo e o
+# `checar_mutacao`, que leva vinte minutos. Eu escrevi um motivo sem medir e
+# ele ficou de pe por dias.
+REGRAS_SO_COM_CADASTRO = {
+    "as medidas exatas do produto",
+    "o material e a montagem",
+    "a montagem nomeada chega ao motor",
+    "e com a ordem de não deduzir",
+}
 
 
 def _faixas(texto, padroes):
@@ -892,12 +1012,80 @@ def main():
                   f"ao motor. A primeira: {perdidas[0][:90]!r}")
             falhas += 1
 
+    # ── 1-ter. AS MESMAS REGRAS, COM O CADASTRO VAZIO ──────────────────────
+    #
+    # O cadastro do teste sempre teve medida, peso e material — e e justamente
+    # no vazio que o tipo 5 se contradizia. Uma amostra de um caso so mede um
+    # caso so.
+    #
+    # Custa 2,8 segundos a mais. O motivo que eu tinha escrito para nao fazer
+    # ("dobra o tempo da parte mais lenta do protocolo") era falso: a parte
+    # lenta e o `checar_mutacao`, com vinte minutos.
+    _vazios = {}
+    for t in TODOS:
+        try:
+            _, _vazios[t], _, _ = _prompts(t, dados={})
+        except Exception as e:
+            print(f"FALHA  nao consegui montar o prompt de '{t}' com o "
+                  f"cadastro vazio: {type(e).__name__}: {e}")
+            falhas += 1
+            _vazios[t] = ""
+    for t in TODOS:
+        if not _vazios[t]:
+            continue
+        for desc, trecho, tem, nao in REGRAS:
+            if desc in REGRAS_SO_COM_CADASTRO:
+                continue
+            _onde_tem = TODOS if tem is None else tem
+            if t in _onde_tem and trecho not in _vazios[t]:
+                print(f"FALHA  com o cadastro VAZIO, '{desc}' FALTA em '{t}'")
+                falhas += 1
+            if t in (nao or ()) and trecho in _vazios[t]:
+                print(f"FALHA  com o cadastro VAZIO, '{desc}' NAO DEVIA estar "
+                      f"em '{t}'")
+                falhas += 1
+    # ISENCAO ORFA MENTE PARA QUEM LE DEPOIS — igual as outras listas da base.
+    _descricoes = {d for d, _, _, _ in REGRAS}
+    for _d in sorted(REGRAS_SO_COM_CADASTRO):
+        if _d not in _descricoes:
+            print(f"FALHA  a isencao de cadastro para '{_d}' sobrou: essa "
+                  "regra nao existe mais, e a isencao mente para quem ler")
+            falhas += 1
+
     # ── 3. UMA MEDIDA DE OCUPACAO POR PECA ─────────────────────────────────
     for t in TODOS:
         faixas = _faixas(enviados[t], _OCUPACAO_RE)
         if len(faixas) > 1:
             print(f"FALHA  '{t}' manda {len(faixas)} medidas de ocupacao "
                   f"contrarias ao motor: {sorted(faixas)}")
+            falhas += 1
+
+    # ── 3-bis. UMA MEDIDA DE TAMANHO DE BLOCO POR PECA ─────────────────────
+    #
+    # A irma da regra acima. A de cima conta as medidas de OCUPACAO do
+    # produto; esta conta as de TAMANHO DO TEXTO, que e o outro numero que o
+    # mesmo prompt trazia em duas versoes — "descricao de 8 a 16 palavras" e
+    # "frase de 4 a 9", a 33 linhas de distancia, no mesmo bloco.
+    #
+    # Duas faixas para a mesma coisa e o modelo escolhendo: ele escrevia
+    # longo, e longo transborda o cartao.
+    for t in TODOS:
+        _pal = _faixas(enviados[t], _PALAVRAS_RE)
+        # Titulo e descricao sao assuntos DIFERENTES e podem ter faixas
+        # diferentes: o que nao pode e duas faixas para o MESMO. Por isso a
+        # conta e por padrao, e nao no monte.
+        for _rx in _PALAVRAS_RE:
+            _dessa = {m.groups() for m in _rx.finditer(enviados[t])}
+            if len(_dessa) > 1:
+                print(f"FALHA  '{t}' manda {len(_dessa)} tamanhos contrarios "
+                      f"para o mesmo bloco de texto: {sorted(_dessa)}")
+                falhas += 1
+        # E as duas faixas de DESCRICAO (a longa e a curta) nao podem
+        # coexistir: era esse o par que se contradizia.
+        _desc = _faixas(enviados[t], (_PALAVRAS_RE[0], _PALAVRAS_RE[1]))
+        if len(_desc) > 1:
+            print(f"FALHA  '{t}' diz o tamanho da frase de {len(_desc)} jeitos "
+                  f"diferentes: {sorted(_desc)}")
             falhas += 1
 
     # ── 1-bis. O PROMPT DA REFACAO TAMBEM E VARRIDO ────────────────────────
@@ -1223,6 +1411,43 @@ def main():
     # procura no arquivo se encontra a si mesma — ja aconteceu tres vezes.
     import inspect as _insp
     _fonte_plano = _insp.getsource(_img.gerar_triagem_ia)
+
+    # ── QUEM ESCREVE A COPY E QUEM A DESENHA CONCORDAM NO TAMANHO? ────────
+    #
+    # Dono, 30/09: "as escritas estao sendo cortadas (...) aplicadas numa
+    # regiao que nao da para ser escrita totalmente".
+    #
+    # A copy e escrita pelo prompt do PLANO e desenhada pelo prompt da
+    # IMAGEM. Eram SEIS textos dizendo quanto uma frase pode ter — dois na
+    # mesma regra de densidade, tres em presets e um no plano — e nenhum
+    # deles lia o outro. A IA escrevia no tamanho de um e o desenhista
+    # dimensionava o cartao pelo outro: frase longa em cartao curto
+    # transborda pela borda.
+    #
+    # A conferencia e por AST, e nao por texto: o que importa e que os dois
+    # leiam a MESMA funcao. Procurar a frase renderizada travaria a redacao
+    # (Forma 2) e ficaria verde no dia em que alguem reescrevesse a frase
+    # mantendo duas fontes.
+    import ast as _ast_med
+    _chama_medida = {
+        _n.func.id
+        for _n in _ast_med.walk(_ast_med.parse(_fonte_plano.lstrip()))
+        if isinstance(_n, _ast_med.Call) and isinstance(_n.func, _ast_med.Name)
+    }
+    if "medida_do_bloco" not in _chama_medida:
+        print("FALHA  o prompt do PLANO nao le `medida_do_bloco()`: quem "
+              "escreve a copy voltou a ter medida propria, e frase longa em "
+              "cartao curto transborda pela borda")
+        falhas += 1
+    _medida = _img.medida_do_bloco()
+    for t in TODOS:
+        if t in (TIPO_CAPA, TIPO_AMBIENTE, TIPO_LIVRE):
+            continue          # sem bloco de texto, sem medida de bloco
+        if _medida not in enviados[t]:
+            print(f"FALHA  '{t}' nao recebeu a medida do bloco vinda da fonte "
+                  f"unica: {_medida!r}")
+            falhas += 1
+
 
     # O bloco da variacao de angulo vai do titulo dele ate as regras de
     # viabilidade. E DENTRO dele que `pergunta_info` nao pode aparecer.
