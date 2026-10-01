@@ -35,6 +35,27 @@ RAIZ = os.path.dirname(os.path.abspath(__file__))
 # esta entrada virou letra morta — e isso também é reprovado, porque mutação
 # que não se aplica dá a impressão de cobertura que não existe.
 MUTACOES = [
+    # ── 01/10: A TELA SABIA E NAO CONTAVA O QUE AQUILO SIGNIFICA ───────
+    #
+    # Dono: "margem nas fotos" e "criacao de uma foto totalmente errada
+    # comparada ao produto original". As duas vem da MESMA causa: a conta nao
+    # tem `gpt-image-*`, entao toda peca COM fotos cai no motor reserva, que
+    # nao aceita `size=1024x1024` nem `input_fidelity=high`.
+    #
+    # A tela de diagnostico LISTAVA os modelos da conta e parava ai. Um nome
+    # de modelo nao diz a ninguem que as pecas vao sair com margem. O Studio
+    # tinha a informacao e nao a transformava em recado — a mesma falha que o
+    # oitavo verificador existe para pegar.
+    #
+    # A mutacao faz a tela voltar a nao dizer nada.
+    (
+        "a tela volta a listar os modelos sem dizer o que isso custa",
+        "imagem.py",
+        [("                _cap_ok, _cap_recado = capacidade_do_motor(_disp)",
+          '                _cap_ok, _cap_recado = (True, "")')],
+        None,
+        ["python3", "imagem.py", "--autoteste"],
+    ),
     # ── 01/10: A CONFERENCIA COBRAVA "METADE DO QUADRO" DE UMA CENA ────
     #
     # Dono: "produtos pequenos comparados as dimensoes da imagem" e, antes,

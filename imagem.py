@@ -2851,6 +2851,56 @@ def modelo_de_imagem():
     return _MODELO_DESCOBERTO["nome"] or MODELO_IMAGEM_PADRAO
 
 
+def capacidade_do_motor(modelos):
+    """O que a conta CONSEGUE garantir numa peça com fotos. (ok, recado).
+
+    Função pura. `ok` é True quando a conta tem um modelo que aceita foto de
+    referência com preservação do produto.
+
+    POR QUE ESTA FUNÇÃO EXISTE
+    --------------------------
+    Dono, 30/09 e 01/10: *"margem nas fotos"*, *"criação de uma foto totalmente
+    errada comparada ao produto original anexado"*.
+
+    As duas vêm da MESMA causa, e ela não é o prompt: a peça foi feita pelo
+    motor reserva, que não aceita `size=1024x1024` nem `input_fidelity=high`.
+    Sem o primeiro a imagem volta retangular e o Studio preenche as sobras —
+    é a margem. Sem o segundo o produto é redesenhado em vez de preservado.
+
+    O Studio SABIA disso e não contava. A tela de diagnóstico listava os
+    modelos da conta e parava aí: um nome de modelo não diz a ninguém que as
+    peças vão sair com margem. É a mesma falha que o oitavo verificador existe
+    para pegar — o sistema tem a informação e não a transforma em recado.
+
+    Dizer isto em voz alta é o conserto possível: o resto está fora do código,
+    e fingir o contrário custaria mais um dia procurando no lugar errado.
+    """
+    nomes = [str(m).lower() for m in (modelos or [])]
+    if not nomes:
+        return False, ("Não consegui listar os modelos desta conta — então "
+                       "não sei dizer o que ela consegue garantir.")
+    tem_gpt_image = any("gpt-image" in n for n in nomes)
+    if tem_gpt_image:
+        return True, ("Esta conta tem um modelo `gpt-image-*`: as peças podem "
+                      "ser pedidas **quadradas** (`size=1024x1024`) e **com "
+                      "preservação do produto** (`input_fidelity=high`). É o "
+                      "cenário em que margem e produto redesenhado não "
+                      "deveriam acontecer.")
+    return False, (
+        "**Esta conta NÃO tem nenhum modelo `gpt-image-*`** — e é isso que "
+        "causa dois dos defeitos relatados:\n\n"
+        "- **Margem nas fotos:** sem `size=1024x1024` a imagem volta "
+        "retangular e o Studio preenche as sobras com faixa lisa.\n"
+        "- **Produto diferente do real:** sem `input_fidelity=high` o produto "
+        "é redesenhado a partir do texto em vez de preservado das fotos.\n\n"
+        "Os outros modelos da conta não aceitam foto de referência nas "
+        "chamadas que o Studio usa, então toda peça COM fotos cai no motor "
+        "reserva. **Nenhuma regra de prompt conserta isso.** O Studio "
+        "compensa: ele mede a peça pronta e manda refazer quando a cor não "
+        "bate com as fotos ou quando há faixa — mas compensar custa gerações "
+        "e não garante o resultado.")
+
+
 def modelos_de_imagem_da_conta(cliente=None):
     """Que modelos de imagem ESTA conta tem. [] quando não dá para saber.
 
@@ -7439,17 +7489,42 @@ def pagina_imagem(usuario_logado):
                             f"está: o Studio troca sozinho na primeira falha.")
                 else:
                     st.caption("Não consegui listar os modelos desta conta.")
+                # ── E O QUE ISSO SIGNIFICA PARA AS PEÇAS ─────────────────
+                #
+                # A lista de modelos não diz a ninguém que as peças vão sair
+                # com margem. O Studio SABIA e parava no nome do modelo — a
+                # mesma falha que o oitavo verificador existe para pegar:
+                # tem a informação e não a transforma em recado.
+                _cap_ok, _cap_recado = capacidade_do_motor(_disp)
+                (st.success if _cap_ok else st.error)(_cap_recado)
                 with st.spinner(f"Testando {_modelo}…"):
                     import time as _td
                     _t0_oai = _td.time()
                     try:
                         from openai import OpenAI as _OAITest
                         _oai_client = _OAITest(api_key=_oai_key)
-                        _oai_resp = _oai_client.images.generate(
-                            model=_modelo,
-                            prompt="A small red circle on white background, minimal.",
-                            n=1, size="1024x1024", quality="low",
-                        )
+                        # O TESTE SE ADAPTA IGUAL À GERAÇÃO.
+                        #
+                        # Ele mandava `quality="low"` — o mesmo parâmetro que
+                        # o `dall-e-3` recusa e que acabou de ser corrigido no
+                        # caminho de geração. Corrigir num irmão e deixar o
+                        # outro é a Forma 1 desta base, e aqui ela doía duas
+                        # vezes: a tela de diagnóstico diria que o motor não
+                        # funciona quando o problema é o parâmetro do teste.
+                        _args_t = {"model": _modelo,
+                                   "prompt": "A small red circle on white "
+                                             "background, minimal.",
+                                   "n": 1, "size": "1024x1024",
+                                   "quality": "low"}
+                        while True:
+                            try:
+                                _oai_resp = _oai_client.images.generate(**_args_t)
+                                break
+                            except Exception as _e_t:
+                                _q_t = parametro_recusado(_e_t, _args_t)
+                                if not _q_t:
+                                    raise
+                                _args_t.pop(_q_t, None)
                         _oai_ms = int((_td.time() - _t0_oai) * 1000)
                         _oai_img = getattr(_oai_resp.data[0], "b64_json", None) or getattr(_oai_resp.data[0], "url", None)
                         if _oai_img:
@@ -10687,6 +10762,37 @@ if __name__ == "__main__":
     _fonte_cp = _insp_tx.getsource(conferir_peca)
     ok("a conferencia monta as perguntas PARA O TIPO da peca",
        "perguntas_da_peca(tipo)" in _fonte_cp)
+
+    # ── O STUDIO DIZ O QUE A CONTA CONSEGUE GARANTIR ────────────────────
+    #
+    # Dono: "margem nas fotos" e "criacao de uma foto totalmente errada
+    # comparada ao produto original". As duas vem da MESMA causa — a peca foi
+    # feita pelo motor reserva, que nao aceita `size` nem `input_fidelity`.
+    #
+    # O Studio SABIA e parava no nome do modelo. Um nome de modelo nao diz a
+    # ninguem que as pecas vao sair com margem.
+    _ok_cap, _rec_cap = capacidade_do_motor(["dall-e-3", "dall-e-2"])
+    ok("conta sem gpt-image e reprovada", not _ok_cap)
+    ok("e o recado NOMEIA os dois defeitos que isso causa",
+       "Margem" in _rec_cap and "redesenhado" in _rec_cap)
+    ok("e diz que nenhuma regra de prompt conserta",
+       "Nenhuma regra de prompt" in _rec_cap)
+    _ok2, _rec2 = capacidade_do_motor(["gpt-image-1", "dall-e-3"])
+    ok("conta com gpt-image passa", _ok2 and "input_fidelity" in _rec2)
+    # LISTA VAZIA NAO E "A CONTA NAO TEM": e "nao consegui olhar". Afirmar o
+    # que nao se sabe manda quem le procurar no lugar errado.
+    _ok3, _rec3 = capacidade_do_motor([])
+    ok("sem conseguir listar, ele nao afirma que a conta nao tem",
+       not _ok3 and "não sei dizer" in _rec3)
+    # E A TELA MOSTRA ISSO — senao e mais um dado que o sistema tem e nao conta.
+    _fonte_tela = _insp_tx.getsource(pagina_imagem)
+    ok("a tela de diagnostico mostra a capacidade da conta",
+       "capacidade_do_motor" in _fonte_tela)
+    # E O TESTE DA TELA SE ADAPTA IGUAL A GERACAO: ele mandava `quality="low"`,
+    # o mesmo parametro que o dall-e-3 recusa. Corrigir num irmao e deixar o
+    # outro diria "o motor nao funciona" quando o defeito e o teste.
+    ok("o teste da tela tambem se adapta ao que o modelo recusa",
+       _fonte_tela.count("parametro_recusado") >= 1)
 
     ok("a peca e comparada com as fotos antes de sair", bool(_chamadas_dif))
     ok("e a comparacao recebe as FOTOS DE REFERENCIA, nao outra coisa",
