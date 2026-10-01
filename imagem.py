@@ -284,9 +284,14 @@ def blocos_em_portugues(tipo, pedidos=0):
     if minimo == maximo:
         return (f"- Sem referência: exatamente {maximo} bloco de texto. "
                 f"É o teto desta peça — nenhuma outra instrução autoriza mais.")
-    return (f"- Sem referência: use de {minimo} a {maximo} blocos informativos, "
-            f"conforme o conteúdo disponível. {maximo} é o teto desta peça — "
-            f"nenhuma outra instrução autoriza mais.")
+    # SEM COPY, O NUMERO E ESCOLHIDO AQUI — NAO PELO MODELO.
+    #
+    # Esta linha dizia "use de {minimo} a {maximo} blocos, conforme o conteudo
+    # disponivel". Quem decidia quantos cartoes desenhar era o gerador, que
+    # nao sabe o que e "conteudo disponivel" e escolhe pelo que couber no
+    # desenho. O sistema sabe: o teto do tipo. Entao ele fecha.
+    return (f"- Esta peça tem exatamente {maximo} bloco(s) de texto. "
+            f"Não acrescente nenhum outro, e não entregue menos.")
 
 
 # ── O ESPACO DO QUADRO: QUEM OCUPA O QUE, E O QUE NAO ENCOSTA EM NADA ──────
@@ -1034,7 +1039,9 @@ REGRA DE TEXTO REAL (o erro mais constrangedor):
   bloco está escrita uma vez só, na REGRA DE DENSIDADE acima.
 - Pontuação fechada: parêntese que abre, fecha. Nada de "(exemplo," solto no
   meio de uma frase.
-  Bloco a menos é melhor que bloco com texto inventado.
+- NÃO INVENTE TEXTO: o conteúdo de cada cartão já veio pronto no bloco de
+  TEXTO EXATO. Não há nada a inventar — e a quantidade de cartões continua
+  sendo a que está na REGRA DE DENSIDADE, aconteça o que acontecer.
 - PROIBIDO desenhar logotipo, marca, monograma ou assinatura sobre o produto ou
   na peça. O produto não tem logo — não crie um.
 """
@@ -2315,9 +2322,23 @@ def _chamar_gemini_geracao_texto(prompt_final, imagens_bytes=None,
                     "responseModalities": ["IMAGE"],
                     "responseFormat": {"image": {"aspectRatio": "1:1",
                                                  "imageSize": "1K"}}}),
-                # SEM PROPORCAO fica por ultimo e continua existindo: peca com
-                # margem e pior que peca nenhuma? Nao. Entregar e melhor.
-                ("sem proporcao", {"responseModalities": ["IMAGE"]}),
+                # A FORMA "SEM PROPORCAO" SAIU DAQUI, EM 01/10.
+                #
+                # Ela era a ultima da fila e dizia, em comentario: "peca com
+                # margem e pior que peca nenhuma? Nao. Entregar e melhor."
+                # Estava errado, e o dono disse por que sem saber que estava
+                # dizendo: "margem nas fotos" e um dos oito defeitos que ele
+                # quer que parem de acontecer.
+                #
+                # Recusadas as formas documentadas, esta passava, o Gemini
+                # escolhia o formato, devolvia retangular, e o enquadramento
+                # preenchia as sobras com faixa lisa. O sistema SABIA que o
+                # pedido tinha falhado — gravava `proporcao_recusada` — e
+                # entregava a peca torta assim mesmo.
+                #
+                # Agora: recusadas todas as formas documentadas, e ERRO, com
+                # o motivo da API no texto. Peca nenhuma, e a pessoa sabe o
+                # que aconteceu, e melhor que peca paga com margem.
             ]
             # UMA VARIAVEL POR VEZ, SENAO NAO SE APRENDE NADA. A versao antiga
             # mudava a proporcao E os `responseModalities` na mesma tentativa:
@@ -2342,6 +2363,7 @@ def _chamar_gemini_geracao_texto(prompt_final, imagens_bytes=None,
                 print(f"[gemini] proporcao por '{_nome_forma}' recusada — "
                       f"tentando a proxima. {resp.text[:400]}",
                       file=_sys_ar.stderr, flush=True)
+            # TODAS AS FORMAS DOCUMENTADAS RECUSADAS: ERRO, NAO DEGRADACAO.
             if resp is not None and resp.status_code == 400:
                 # E A COLABORADORA PRECISA SABER, NAO SO O LOG DO RAILWAY.
                 #
@@ -2360,6 +2382,16 @@ def _chamar_gemini_geracao_texto(prompt_final, imagens_bytes=None,
                         _det = ""
                     diagnostico["proporcao_recusada"] = (
                         _det or resp.text[:200] or "a API respondeu 400")
+                try:
+                    _det400 = resp.json().get("error", {}).get("message", "")
+                except Exception:
+                    _det400 = ""
+                return None, (
+                    "O motor recusou TODAS as formas documentadas de pedir a "
+                    "imagem quadrada, e o Studio não gera sem pedir — peça "
+                    "sem proporção volta retangular e ganha margem. "
+                    + (f"A API respondeu: {_det400[:200]}" if _det400
+                       else f"A API respondeu 400: {resp.text[:200]}"))
             if resp.status_code == 429:
                 try:
                     _ej = resp.json()
@@ -2772,6 +2804,8 @@ def _data_url(img_bytes):
 # responde `model_not_found` o Studio PERGUNTA À PRÓPRIA CONTA quais modelos de
 # imagem ela tem e usa o primeiro. Um rename futuro passa a custar uma chamada
 # extra, e não um dia de geração perdida.
+import re as _re_imp
+
 MODELO_IMAGEM_PADRAO = "gpt-image-2.5-sunburst"
 
 # A ORDEM DE PREFERÊNCIA, E NÃO UMA LISTA DE EXIGÊNCIA.
@@ -3619,10 +3653,12 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
     # Quantos blocos a copy pediu de fato. O prompt numera "  1. ", "  2. "…
     _teto_blocos = faixa_de_blocos(_tipo_str)[1]
     _max_blocos = _teto_blocos or 3
+    _pedidos_fechados = False
     if _tem_texto_em_painel:
         import re as _re_bl
         _pedidos = len(_re_bl.findall(r"^  \d+\. ", prompt_texto, _re_bl.M))
         if _pedidos:
+            _pedidos_fechados = True
             # O teto da peça manda. Antes o piso era 3 e o teto 5 para todo
             # tipo: o Close, que comporta 2 callouts, recebia "Maximum 4".
             _max_blocos = min(_pedidos, _teto_blocos or _pedidos)
@@ -3790,7 +3826,16 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
         #
         # Agora o teto é o que a copy pediu, com um máximo de 5: mais que
         # isso vira parede de texto em miniatura de marketplace.
-        + (f"- Maximum {_max_blocos} information elements if text present — never cluttered\n"
+        # "MAXIMUM N" PERMITE MENOS. O portugues ja disse "exatamente N".
+        #
+        # Quando a copy existe, `_max_blocos` E o numero exato — e dizer
+        # "maximo" ao lado de "exatamente" e enfraquecer a propria ordem, na
+        # metade do prompt que fica mais perto do fim. Com copy: EXACTLY.
+        # Sem copy, nao ha numero fechado, e "maximum" continua certo.
+        + ((f"- EXACTLY {_max_blocos} information element(s) — "
+            f"never fewer, never more, never merged\n"
+            if _pedidos_fechados else
+            f"- Maximum {_max_blocos} information elements if text present — never cluttered\n")
            if not _is_clean_photo else
            "- No text elements at all: no whitespace has to be reserved for "
            "them. The occupancy stated above is the only rule about size.\n")
@@ -10968,23 +11013,66 @@ if __name__ == "__main__":
         _chamar_gemini_geracao_texto("outra peca", [])
         ok("na peca seguinte ele vai direto na forma aprendida",
            len(_corpos_vistos) == 1 and _corpos_vistos[0] == ["imageConfig"])
-        # E SE A API PASSAR A RECUSAR TUDO, ainda assim entrega: peca com
-        # margem e melhor que peca nenhuma.
+        # E SE A API PASSAR A RECUSAR TUDO: ERRO, E NAO PECA COM MARGEM.
+        #
+        # ESTA ASSERCAO DIZIA O CONTRARIO ATE 01/10, e exigia o defeito:
+        # "recusando tudo, ele ainda tenta a ultima sem proporcao". Era a
+        # Forma 2 — a guarda travando a REDACAO do comportamento errado. O
+        # comentario ao lado ate justificava: "peca com margem e melhor que
+        # peca nenhuma". Nao e: "margem nas fotos" e um dos oito defeitos
+        # que o dono quer que parem, e peca paga torta custa mais que um
+        # erro na tela.
+        #
+        # Agora mede o oposto, e mede as DUAS metades: nenhum corpo sai sem
+        # pedir proporcao, E a funcao devolve erro em vez de resposta.
         _FORMA_PROPORCAO["nome"] = None
         _corpos_vistos.clear()
         _rq_pr.post = lambda url, json=None, headers=None, **kw: (
             _corpos_vistos.append(sorted(k for k in (json or {}).get(
                 "generationConfig", {}) if k != "responseModalities"))
             or _RespFalsa(400))
-        _chamar_gemini_geracao_texto("terceira", [])
-        ok("recusando tudo, ele ainda tenta a ultima sem proporcao",
-           [] in _corpos_vistos)
+        _r3, _e3 = _chamar_gemini_geracao_texto("terceira", [])
+        ok("recusando tudo, NENHUM corpo sai sem pedir proporcao",
+           _corpos_vistos and [] not in _corpos_vistos)
+        ok("recusando tudo, a funcao devolve ERRO em vez de peca com margem",
+           _r3 is None and bool(_e3) and "quadrada" in str(_e3))
     finally:
         _rq_pr.post = _post_real
         if _chave_real is not None:
             globals()["_get_gemini_api_key"] = _chave_real
         _FORMA_PROPORCAO.clear()
         _FORMA_PROPORCAO.update(_forma_antes)
+    # ── QUANTOS CARTOES O PROMPT PEDE — NUNCA UMA FAIXA ───────────────────
+    #
+    # `blocos_em_portugues` dizia, quando nao havia copy da triagem: "use de
+    # 2 a 5 blocos informativos, CONFORME O CONTEUDO DISPONIVEL". Quem
+    # decidia quantos cartoes desenhar era o gerador — que nao sabe o que e
+    # "conteudo disponivel" e escolhe pelo que couber no desenho.
+    #
+    # Achado na auditoria externa de 01/10, junto com outras tres rotas de
+    # emergencia. O sistema SABE o numero: e o teto do tipo. Entao ele fecha.
+    #
+    # A guarda mede os dois caminhos, porque so o primeiro tinha cobertura:
+    # com copy o prompt ja dizia "exatamente N"; sem copy e que mandava a
+    # faixa, e e esse o caminho que nenhum verificador percorria.
+    _bp_tipos = [t for t in TIPOS_PADRAO if faixa_de_blocos(t)[1]]
+    ok("ha tipo com bloco de texto para medir", bool(_bp_tipos))
+    _bp_com = [blocos_em_portugues(t, 3) for t in _bp_tipos]
+    ok("com copy, o prompt diz EXATAMENTE quantos blocos a copy trouxe",
+       all("exatamente 3 bloco" in x for x in _bp_com))
+    _bp_sem = [blocos_em_portugues(t, 0) for t in _bp_tipos]
+    ok("sem copy, o prompt tambem fecha o numero — nunca uma faixa",
+       all("exatamente" in x for x in _bp_sem))
+    ok("sem copy, nenhuma frase do tipo 'de N a M blocos'",
+       not any(_re_imp.search(r"de \d+ a \d+ blocos", x) for x in _bp_sem))
+    ok("sem copy, nenhum 'conforme o conteudo'",
+       not any("conforme o conte" in x.lower() for x in _bp_sem))
+    # O NUMERO FECHADO E O TETO DO TIPO, e nao um valor escrito aqui: copiar
+    # a medida para o teste e medir o que eu acho, nao o que o sistema faz.
+    ok("o numero fechado sem copy e o teto do proprio tipo",
+       all(f"exatamente {faixa_de_blocos(t)[1]} bloco" in blocos_em_portugues(t, 0)
+           for t in _bp_tipos))
+
     ok("vazio e None nao derrubam",
        sem_medida_de_quadro("") == "" and sem_medida_de_quadro(None) == "")
 

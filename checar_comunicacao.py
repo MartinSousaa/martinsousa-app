@@ -288,6 +288,14 @@ def blocos_do_prompt(texto):
 _ABRE_ITEM = _re_voz.compile(r"^\s*(?:[-•*]\s|\d+[.)]\s)")
 
 
+_SO_NUMERO = _re_voz.compile(r"\d+|metade|dois ter[cç]os", _re_voz.I)
+
+
+def _assinatura(trecho):
+    """O conjunto de medidas da linha — é por ele que duas vozes discordam."""
+    return frozenset(m.group(0).lower() for m in _SO_NUMERO.finditer(trecho))
+
+
 def _itens_do_bloco(bloco):
     """O bloco partido em ITENS. Marcador abre; linha sem marcador continua.
 
@@ -303,6 +311,35 @@ def _itens_do_bloco(bloco):
     if atual:
         fora.append("\n".join(atual))
     return fora
+
+
+_INICIO_DO_INGLES = "SECTION 2"
+
+
+def metades_do_prompt(prompt):
+    """O prompt partido em [brief PT, metade EN]. Uma só, quando não há EN.
+
+    POR QUE PARTIR, E NÃO COMPARAR NÚMERO
+
+    Quando esta regra passou a ler o prompt INTEIRO (01/10), ela começou a
+    acusar o par português/inglês da MESMA medida — "ocupa de 50% a 65%" e
+    "Product occupancy 50–65%". Uma decisão, duas redações, por desenho do
+    prompt: alarme falso, que é o que este arquivo existe para não dar.
+
+    A primeira correção foi exigir que os números DISCORDASSEM. Estava
+    errada, e o `checar_mutacao` provou na mesma rodada: a entrada "a folga
+    da borda volta a ter duas vozes com numero" reintroduz uma SEGUNDA voz
+    em português com o MESMO 6% — duplicação genuína, Forma 5 esperando
+    acontecer — e a guarda ficou verde.
+
+    O que separa os dois casos não é o número: é a METADE. Duas vozes na
+    mesma língua são duplicação; a mesma voz nas duas línguas é tradução.
+    Divergência de número ENTRE as línguas continua sendo da Regra 5.
+    """
+    i = (prompt or "").find(_INICIO_DO_INGLES)
+    if i < 0:
+        return [prompt or ""]
+    return [prompt[:i], prompt[i:]]
 
 
 def vozes_numericas(prompt):
@@ -344,9 +381,10 @@ def vozes_numericas(prompt):
     itens vizinhos deixam de se esconder um atrás do outro.
     """
     fora = {}
-    for assunto, padrao in ASSUNTOS_DO_PROMPT.items():
+    for metade in metades_do_prompt(prompt):
+      for assunto, padrao in ASSUNTOS_DO_PROMPT.items():
         vozes = []
-        for bloco in blocos_do_prompt(prompt):
+        for bloco in blocos_do_prompt(metade):
             for item in _itens_do_bloco(bloco):
                 linhas = item.splitlines()
                 achou = False
@@ -356,13 +394,14 @@ def vozes_numericas(prompt):
                     trecho = linha + " " + (linhas[i + 1] if i + 1 < len(linhas)
                                             else "")
                     if _TRAZ_NUMERO.search(trecho):
-                        vozes.append(linhas[0].strip()[:78])
+                        vozes.append((_assinatura(trecho),
+                                      linhas[0].strip()[:78]))
                         achou = True
                         break      # uma voz por ITEM, não uma por linha
                 if achou:
                     continue
         if len(vozes) > 1:
-            fora[assunto] = vozes
+            fora.setdefault(assunto, []).extend(l for _, l in vozes)
     return fora
 
 
@@ -397,6 +436,11 @@ REABREM_DECISAO = (
      "entrega ao modelo a decisão de 'o que cortar', que é do sistema"),
     (r"de\s+\d+\s+a\s+\d+\s+(?:cart[õo]es|blocos)|at[ée]\s+\d+\s+cart[õo]es",
      "manda uma FAIXA onde já existe um número fechado"),
+    (r"bloco a menos|um bloco a menos",
+     "autoriza o modelo a entregar um bloco a menos do que o sistema pediu"),
+    (r"maximum\s+\d+\s+information",
+     "diz 'no máximo N' onde o português já disse 'exatamente N' — "
+     "'máximo' permite menos, e é a metade inglesa que fica mais perto do fim"),
 )
 _REABREM = tuple((_re_voz.compile(p, _re_voz.I), motivo)
                  for p, motivo in REABREM_DECISAO)
@@ -580,6 +624,58 @@ PARAMETROS_DO_MOTOR = [
 ]
 
 
+# ── REGRA 6: O PEDIDO DE QUADRADA NAO TEM PLANO B SILENCIOSO ──────────────
+#
+# O Studio tenta varias formas de pedir a imagem quadrada, porque a
+# documentacao do Google descreve mais de um nome de campo. Isso esta certo.
+#
+# O que estava errado era a ULTIMA da fila: uma forma SEM proporcao nenhuma.
+# Recusadas as outras, ela passava, o Gemini escolhia o formato, devolvia
+# retangular, e o enquadramento preenchia as sobras com faixa lisa — a
+# MARGEM que o dono reclama desde 30/09. O sistema sabia que tinha falhado
+# (gravava `proporcao_recusada`) e entregava a peca torta assim mesmo.
+#
+# A analise externa de 01/10 colocou a regra na frase certa: *"recusou ->
+# erro explicito, nao autorizacao para gerar uma imagem que o
+# pos-processamento tera de remendar com faixa"*.
+#
+# Esta guarda reprova qualquer entrada de `_formas` cujo corpo nao peca
+# proporcao. Ela nao limita QUANTAS formas existem — nome de campo pode
+# mudar, e tentar varios e o certo. Ela exige que todas pecam o quadrado.
+FORMAS_DE_PROPORCAO = ("imagem.py", "_chamar_gemini_geracao_texto", "_formas")
+
+
+def formas_sem_proporcao(raiz=None):
+    """[nome] das formas de pedido que NAO pedem proporcao. Vazio = ok."""
+    arq, func, var = FORMAS_DE_PROPORCAO
+    arv = _arvore(os.path.join(raiz or RAIZ, arq))
+    if arv is None:
+        return ["não consegui ler " + arq]
+    fn = next((n for n in ast.walk(arv)
+               if isinstance(n, ast.FunctionDef) and n.name == func), None)
+    if fn is None:
+        return [f"a função {func} nem existe mais"]
+    lista = None
+    for n in ast.walk(fn):
+        if (isinstance(n, ast.Assign) and isinstance(n.value, ast.List)
+                and any(isinstance(a, ast.Name) and a.id == var
+                        for a in n.targets)):
+            lista = n.value
+            break
+    if lista is None:
+        return [f"a lista {var} nem existe mais em {func}"]
+    fora = []
+    for item in lista.elts:
+        texto = ast.unparse(item)
+        if "aspectRatio" not in texto and "aspect_ratio" not in texto:
+            nome = (item.elts[0].value
+                    if isinstance(item, ast.Tuple) and item.elts
+                    and isinstance(item.elts[0], ast.Constant)
+                    else ast.unparse(item)[:40])
+            fora.append(str(nome))
+    return fora
+
+
 def parametros_do_motor(raiz=None):
     """[(funcao, faltando, motivo)] — parametro que o motor precisa e nao vai."""
     fora = []
@@ -710,6 +806,18 @@ def main():
         print("       Mostre na tela de diagnóstico, ou declare em "
               "MUDAS_POR_ESCOLHA com o motivo escrito.")
 
+    # ── 6-bis. O PEDIDO DE QUADRADA SEM PLANO B SILENCIOSO ────────────
+    _fsp = formas_sem_proporcao()
+    if _fsp:
+        falhas += 1
+        print(f"FALHA  {len(_fsp)} forma(s) de pedido ao Gemini que NÃO pedem "
+              "proporção:")
+        for _f in _fsp:
+            print(f"         · «{_f}»")
+        print("       Recusado o quadrado, o certo é ERRO EXPLÍCITO. Gerar "
+              "sem pedir devolve retangular, o enquadramento preenche as "
+              "sobras, e a pessoa recebe a peça COM MARGEM.")
+
     # ── 6. OS PARAMETROS DO PEDIDO, E QUEM ENTREGA SEM SE IDENTIFICAR ──
     _pm = parametros_do_motor()
     if _pm:
@@ -741,9 +849,17 @@ def main():
         _achados = {}
         _reabrem = {}
         for _tipo in _img.TIPOS_PADRAO:
-            _p = _img.montar_prompt_imagem(_tipo, "", _dados, "Produto",
-                                           plano_triagem=_plano,
-                                           direcao_arte=_dir)
+            # O PROMPT INTEIRO, E NAO SO O BRIEF EM PORTUGUES.
+            #
+            # Ate 01/10 esta regra lia so `montar_prompt_imagem` — a SECAO 1.
+            # A metade em ingles e colada depois, por `gerar_imagem_ia`, e e
+            # ela que carrega "Maximum N information elements". O verificador
+            # dizia verde sobre um texto que nao lia: a Forma 3.
+            _base = _img.montar_prompt_imagem(_tipo, "", _dados, "Produto",
+                                              plano_triagem=_plano,
+                                              direcao_arte=_dir)
+            _p = _img.prompt_que_sera_enviado(
+                _base, [b"foto"], tipo=_tipo) or _base
             for _a, _vs in vozes_numericas(_p).items():
                 _achados.setdefault(_a, set()).update(_vs)
             for _l, _mot in ordens_que_reabrem(_p):

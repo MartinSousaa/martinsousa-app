@@ -35,6 +35,60 @@ RAIZ = os.path.dirname(os.path.abspath(__file__))
 # esta entrada virou letra morta — e isso também é reprovado, porque mutação
 # que não se aplica dá a impressão de cobertura que não existe.
 MUTACOES = [
+    # ── 01/10: AS QUATRO ROTAS DE EMERGENCIA DA ANALISE EXTERNA ────────
+    #
+    # Segunda rodada da auditoria. O ChatGPT nomeou o padrao melhor do que
+    # eu: *"o risco principal agora e deixar ROTAS DE EMERGENCIA reabrirem
+    # decisoes que o planejador ja deveria ter encerrado"*. Quatro delas
+    # estavam vivas, e as quatro viraram entrada aqui.
+    (
+        "o prompt volta a dizer que um bloco a menos esta bom",
+        "imagem.py",
+        [("- NÃO INVENTE TEXTO: o conteúdo de cada cartão já veio pronto no bloco de",
+          "  Bloco a menos é melhor que bloco com texto inventado.\n- NÃO INVENTE TEXTO: o conteúdo de cada cartão já veio pronto no bloco de")],
+        None,
+        ["python3", "checar_comunicacao.py"],
+    ),
+    (
+        "o ingles volta a dizer 'no maximo N' onde o portugues diz 'exatamente N'",
+        "imagem.py",
+        [("        + ((f\"- EXACTLY {_max_blocos} information element(s) — \"\n"
+          "            f\"never fewer, never more, never merged\\n\"\n"
+          "            if _pedidos_fechados else\n"
+          "            f\"- Maximum {_max_blocos} information elements if text present — never cluttered\\n\")",
+          "        + ((f\"- Maximum {_max_blocos} information elements if text present — never cluttered\\n\"\n"
+          "            if True else\n"
+          "            f\"- Maximum {_max_blocos} information elements if text present — never cluttered\\n\")")],
+        None,
+        ["python3", "checar_comunicacao.py"],
+    ),
+    (
+        "o pedido de quadrada volta a ter plano B silencioso",
+        "imagem.py",
+        [("                # A FORMA \"SEM PROPORCAO\" SAIU DAQUI, EM 01/10.",
+          "                (\"sem proporcao\", {\"responseModalities\": [\"IMAGE\"]}),\n"
+          "                # A FORMA \"SEM PROPORCAO\" SAIU DAQUI, EM 01/10.")],
+        None,
+        ["python3", "checar_comunicacao.py"],
+    ),
+    (
+        "sem copy, o prompt volta a mandar uma FAIXA de blocos",
+        "imagem.py",
+        [('    return (f"- Esta peça tem exatamente {maximo} bloco(s) de texto. "\n'
+          '            f"Não acrescente nenhum outro, e não entregue menos.")',
+          '    return (f"- Sem referência: use de {minimo} a {maximo} blocos informativos, "\n'
+          '            f"conforme o conteúdo disponível. {maximo} é o teto desta peça — "\n'
+          '            f"nenhuma outra instrução autoriza mais.")')],
+        None,
+        # O COMANDO E O AUTOTESTE DO `imagem.py`, E NAO O `checar_comunicacao`.
+        #
+        # A primeira versao desta entrada apontava para o `checar_comunicacao`
+        # e ficou VERDE com o defeito de volta — ele monta os prompts COM
+        # copy, entao o caminho "sem copy" nunca e percorrido. O verificador
+        # estava certo em reprovar a entrada: guarda que nao passa pela linha
+        # mutada nao e guarda.
+        ["python3", "imagem.py", "--autoteste"],
+    ),
     # ── 01/10: A REFERENCIA DE LAYOUT MANDAVA NA QUANTIDADE DE CARTOES ──
     #
     # ACHADO PELO CHATGPT, lendo o CODIGO_GERACAO_DE_IMAGEM.txt que o dono
