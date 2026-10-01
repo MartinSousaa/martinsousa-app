@@ -17,3 +17,16 @@ static/tv-status.json.tmp
 prompts_teste/
 .checar_mutacao.trava
 .checar_mutacao.socorro/
+
+# EXPORTACOES PARA ANALISE EXTERNA — geradas sob demanda, nunca commitadas.
+#
+# `CODIGO_GERACAO_DE_IMAGEM.txt` e uma COPIA do codigo num instante. Commitada,
+# ela envelhece e passa a discordar da fonte — e aí alguem analisa a versao
+# velha achando que e a de hoje. Esta base ja pagou por isso: o
+# `CONTEXTO_PARA_ANALISE.txt` ficou semanas commitado com um marcador de
+# conflito dentro, e ninguem viu.
+#
+# Quando precisar de novo, gere de novo: a extracao le o codigo em producao e
+# reprova se algum nome pedido nao existir mais.
+CODIGO_GERACAO_DE_IMAGEM.txt
+PROBLEMAS_GERACAO_DE_IMAGEM.txt
