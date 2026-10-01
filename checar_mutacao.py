@@ -35,6 +35,46 @@ RAIZ = os.path.dirname(os.path.abspath(__file__))
 # esta entrada virou letra morta — e isso também é reprovado, porque mutação
 # que não se aplica dá a impressão de cobertura que não existe.
 MUTACOES = [
+    # ── 01/10: O AJUSTE RECUSAVA TODO PEDIDO QUE MEXESSE NO PRODUTO ────
+    #
+    # Cinco pedidos do dono em sequencia, todos recusados: "mudar a cor
+    # interior para preta", "6 divisorias". Mensagem, cinco vezes: "toda vez
+    # o produto mudava junto, e produto errado e pior que peca sem
+    # correcao".
+    #
+    # O produto mudava porque ELE PEDIU que mudasse. Tres vozes proibiam o
+    # pedido ao mesmo tempo: o booleano `produto_alterado` do juiz, o
+    # cabecalho "O PRODUTO NAO E PARTE DO AJUSTE — regra acima de qualquer
+    # instrucao", e a `_trava_cor_produto` colada sem olhar o pedido.
+    (
+        "o ajuste volta a aceitar sem olhar se mudou o que ninguem pediu",
+        "imagem.py",
+        [('        if veredito.get("feito") and not _colateral and not _dano_produto:',
+          '        if veredito.get("feito"):')],
+        None,
+        ["python3", "imagem.py", "--autoteste"],
+    ),
+    (
+        "a trava de cor volta a proibir o que o pedido mandou mudar",
+        "imagem.py",
+        [('    _trava = ("" if _pedido_fala_de_cor(instrucao) else\n'
+          '              _trava_cor_produto(cor_do_produto_atual()\n'
+          '                                 if cor_produto is None else cor_produto))\n'
+          '    if _pedido_fala_de_cor(instrucao):',
+          '    _trava = _trava_cor_produto(cor_do_produto_atual()\n'
+          '                                if cor_produto is None else cor_produto)\n'
+          '    if False:')],
+        None,
+        ["python3", "imagem.py", "--autoteste"],
+    ),
+    (
+        "a revisao de texto volta a redesenhar sem ninguem julgar o resultado",
+        "imagem.py",
+        [('    if relato.get("ok") and img_ok is not None and img_ok != img:',
+          '    if False:')],
+        None,
+        ["python3", "imagem.py", "--autoteste"],
+    ),
     # ── 01/10: AS QUATRO ROTAS DE EMERGENCIA DA ANALISE EXTERNA ────────
     #
     # Segunda rodada da auditoria. O ChatGPT nomeou o padrao melhor do que
@@ -1141,10 +1181,12 @@ MUTACOES = [
     (
         # "O chat vai conseguir em 2 ou mais tentativas?" Sao 2 fixas, e o
         # sistema encerrava sem oferecer a terceira.
-        "a recusa por produto alterado volta a tirar a opcao de insistir",
+        "a recusa por mudanca nao pedida volta a tirar a opcao de insistir",
         "imagem.py",
-        '        return (f"❌ Imagem {num}: não consegui em {_n_tent} tentativa(s) — "',
-        '        return (f"❌ Imagem {num}: não consegui — "',
+        '        return (f"❌ Imagem {num}: a alteração não foi aplicada. Em "\n'
+        '                f"{_n_tent} tentativa(s) ela veio acompanhada de mudanças "',
+        '        return (f"❌ Imagem {num}: a alteração não foi aplicada. "\n'
+        '                f"Mudanças vieram junto. "',
         ["python3", "imagem.py"],
     ),
     (
@@ -1376,10 +1418,11 @@ MUTACOES = [
     (
         "o prompt do ajuste volta a mandar desistir",
         "imagem.py",
-        "- Se a modificação pedida for SOBRE o produto (tamanho na cena, posição,\n",
+        "- O produto PODE ser alterado exatamente nas características que a\n"
+        "  MODIFICAÇÃO SOLICITADA mandar alterar. Essas mudanças são o objetivo.\n",
         "- Se a modificação pedida só puder ser feita alterando o produto, NÃO a faça:\n"
         "  devolva a imagem como está.\n",
-        ["python3", "checar_prompts.py"],
+        ["python3", "imagem.py", "--autoteste"],
     ),
     # ── A VARREDURA DA CADEIA STUDIO -> GEMINI (30/09) ───────────────────
     (

@@ -5833,6 +5833,23 @@ def peca_em_ajuste():
         return ""
 
 
+_PEDIDO_DE_COR = _re_imp.compile(
+    r"(?i)\b(cor(?:es)?|colorir|recolorir|pint(?:ar|e)|tingir|tonalidade|"
+    r"preto|preta|branco|branca|vermelh[oa]|azul|verde|amarel[oa]|"
+    r"dourad[oa]|pratead[oa]|prata|bege|marrom|cinza|rosa|roxo|laranja)\b")
+
+
+def _pedido_fala_de_cor(instrucao):
+    """O pedido autoriza mexer em cor? Então a trava de cor não vale inteira.
+
+    Larga de propósito: errar para o lado de NÃO travar faz o ajuste pedido
+    acontecer e deixa a conferência julgar o resultado. Errar para o lado de
+    travar faz o que aconteceu em 01/10 — cinco pedidos recusados em sequência
+    porque o prompt proibia aquilo que o colaborador tinha pedido.
+    """
+    return bool(_PEDIDO_DE_COR.search(str(instrucao or "")))
+
+
 def montar_prompt_ajuste_fino(instrucao, tipo=None, cor_produto=None):
     """Monta prompt para edição cirúrgica de uma imagem existente.
 
@@ -5849,6 +5866,25 @@ def montar_prompt_ajuste_fino(instrucao, tipo=None, cor_produto=None):
     # Sem tipo conhecido, o correto é NÃO impor nada: a imagem já existe e a
     # edição é cirúrgica. "padrao" imporia o fundo da marca a uma foto qualquer.
     _modo = modo_fundo_do_tipo(tipo) if tipo else "personalizado"
+    # A TRAVA DE COR NÃO PODE SER APLICADA CEGAMENTE.
+    #
+    # `_trava_cor_produto` diz "é PROIBIDO recolorir o produto". Colada num
+    # ajuste cujo pedido é "mudar a cor interior do produto para preta", ela
+    # proíbe exatamente o que se pediu — e era a terceira voz contra o mesmo
+    # pedido, junto com o cabeçalho "O PRODUTO NÃO É PARTE DO AJUSTE" e o
+    # booleano do juiz.
+    #
+    # Quando o pedido fala de cor, a trava sai e entra no lugar a regra que
+    # vale de verdade: muda a cor PEDIDA, preserva as outras.
+    _trava = ("" if _pedido_fala_de_cor(instrucao) else
+              _trava_cor_produto(cor_do_produto_atual()
+                                 if cor_produto is None else cor_produto))
+    if _pedido_fala_de_cor(instrucao):
+        _trava = ("TRAVA DE COR — PARCIAL NESTE AJUSTE: a MODIFICAÇÃO "
+                  "SOLICITADA fala de cor, então a cor que ela cita MUDA. "
+                  "Toda outra cor do produto permanece exatamente como está "
+                  "na imagem, e nenhuma cor é 'harmonizada' com a direção de "
+                  "arte, com o fundo, com o cenário ou com a iluminação.\n")
     return f"""MS_FUNDO: {_modo}
 MODO AJUSTE FINO — EDIÇÃO CIRÚRGICA DE IMAGEM EXISTENTE
 
@@ -5871,25 +5907,31 @@ imagem. Não estime, não arredonde e não invente nenhum outro.
 {INSTRUCAO_AJUSTE_FINO}
 
 {INSTRUCAO_FIDELIDADE_NUCLEO}
-{_trava_cor_produto(cor_do_produto_atual() if cor_produto is None else cor_produto)}
-
-O PRODUTO NÃO É PARTE DO AJUSTE — regra acima de qualquer instrução:
-- O produto que está na imagem continua EXATAMENTE como está: mesma textura,
-  mesmo acabamento, mesmo brilho, mesmos detalhes, mesma superfície.
+{_trava}
+PRESERVAÇÃO DO PRODUTO — É O COMPLEMENTO DO PEDIDO, NUNCA O CONTRÁRIO:
+- O produto PODE ser alterado exatamente nas características que a
+  MODIFICAÇÃO SOLICITADA mandar alterar. Essas mudanças são o objetivo.
+- Toda característica do produto que o pedido NÃO citou é intocável: mesma
+  textura, mesmo acabamento, mesmo brilho, mesmos detalhes, mesma superfície.
 - Pedra, strass, cravejado, relevo, textura, costura, grão: se está no produto
-  da imagem, continua ali, no mesmo lugar e na mesma quantidade. Um urso
-  cravejado de strass no corpo inteiro não pode sair liso.
-- "Melhorar", "realçar", "deixar mais bonito" NUNCA autorizam redesenhar o
-  produto. Se o pedido for sobre cor, luz ou fundo, mexa na cor, na luz ou no
-  fundo — e no produto, em nada.
-- Se a modificação pedida for SOBRE o produto (tamanho na cena, posição,
-  recorte, um texto escrito sobre ele), faça exatamente o que foi pedido e
-  preserve todo o resto do produto: a mesma peça, a mesma superfície, o mesmo
-  acabamento. Fazer o pedido nunca autoriza REDESENHAR o produto — e não fazer
-  o pedido também não é saída.
+  da imagem e o pedido não falou dela, continua ali, no mesmo lugar e na mesma
+  quantidade. Um urso cravejado de strass no corpo inteiro não pode sair liso
+  porque pediram outra cor de fundo.
+- "Melhorar", "realçar", "deixar mais bonito" NÃO citam característica
+  nenhuma, e portanto não autorizam mudar nada no produto. Pedido sobre cor,
+  luz ou fundo mexe na cor, na luz ou no fundo.
+- Exemplos, para não restar dúvida:
+    pedido muda a COR do produto -> mude a cor pedida e preserve forma,
+    textura, material, acabamento, peças e os demais detalhes;
+    pedido muda a QUANTIDADE de peças (divisórias, nichos, alças) -> faça
+    exatamente a quantidade pedida e preserve material, acabamento, cor e o
+    resto;
+    pedido muda só o FUNDO -> nenhuma característica do produto muda;
+    pedido muda o TAMANHO do produto na cena -> mude só a escala aparente,
+    sem redesenhar geometria nem superfície.
 
-Reproduza a imagem fornecida com fidelidade absoluta, aplicando APENAS a modificação acima.
-Trate qualquer elemento que não foi mencionado na instrução como intocável.
+Reproduza a imagem fornecida com fidelidade absoluta, aplicando a modificação
+acima. Trate como intocável todo elemento que a instrução não mencionou.
 """
 
 
@@ -5944,22 +5986,62 @@ _ESQUEMA_CONFERENCIA = {
                            "enquadramento, cores, texto). Vazio se nada além "
                            "do pedido mudou.",
         },
+        # BOOLEANO TAMBEM PARA O COLATERAL GERAL, pela mesma razao do campo
+        # do produto: `colateral` e texto livre, e texto livre nao decide
+        # fluxo. Ou o programa le uma resposta fechada, ou segue adiante sem
+        # ter lido nada.
+        "houve_colateral": {
+            "type": "boolean",
+            "description": "true se algum elemento mudou ALÉM do que era "
+                           "necessário para executar a alteração pedida. "
+                           "Mudança que o pedido autorizou NÃO é colateral.",
+        },
+        "produto_colateral": {
+            "type": "string",
+            "description": "O que mudou no PRODUTO sem o pedido ter "
+                           "autorizado. Vazio quando o produto só mudou "
+                           "naquilo que foi pedido.",
+        },
         # Campo separado, e booleano, porque `colateral` é texto livre: dava
         # para relatar "removeu o strass do corpo do urso" e o código seguir
         # adiante sem nunca ter lido aquilo. Pergunta fechada tem resposta que
         # o programa consegue obedecer.
-        "produto_alterado": {
+        # O NOME MUDOU, E O NOME ERA METADE DO DEFEITO.
+        #
+        # Chamava-se `produto_alterado`, e dizia: "true se o PRODUTO em si
+        # mudou — forma, textura, acabamento, material, detalhes, pecas, COR
+        # DO PROPRIO PRODUTO". O laco revertia a imagem quando vinha true.
+        #
+        # O dono pediu, em 01/10: "mudar a cor interior do produto para
+        # preta" e "mudar a quantidade de divisorias para 6". O gerador fez.
+        # O juiz respondeu true — CERTISSIMO, pela definicao acima. E o
+        # codigo reverteu, cinco vezes seguidas, dizendo "toda vez o produto
+        # mudava junto".
+        #
+        # NENHUM pedido que mexesse no produto conseguia passar: a trava era
+        # inatingivel por construcao. Ela nasceu de outro caso — um urso de
+        # strass que voltou liso depois de um ajuste no FUNDO — e passou a
+        # bloquear o pedido explicito.
+        #
+        # Renomear e parte do conserto, e nao enfeite: a analise externa
+        # disse a frase exata — "mesmo mudando a descricao, daqui a seis
+        # meses alguem le o nome e volta a tratar como 'qualquer mudanca no
+        # produto'". O nome agora carrega a condicao.
+        "produto_alterado_fora_do_pedido": {
             "type": "boolean",
-            "description": "true se o PRODUTO em si mudou — forma, textura, "
-                           "acabamento, material, detalhes, peças, cor do "
-                           "próprio produto. Strass, pedra, relevo ou textura "
-                           "que sumiu, diminuiu ou apareceu conta como true. "
-                           "Fundo, luz, cenário, texto e enquadramento NÃO "
-                           "são o produto.",
+            "description": "true APENAS se o produto mudou em alguma "
+                           "característica que o pedido NÃO mandou alterar — "
+                           "forma, textura, acabamento, material, peças ou "
+                           "cor não citadas no pedido. Strass, pedra, relevo "
+                           "ou textura que sumiu sem ter sido pedido conta "
+                           "como true. Se o pedido mandou mudar aquilo, a "
+                           "mudança é intencional e NÃO conta. Fundo, luz, "
+                           "cenário, texto e enquadramento não são o produto.",
         },
     },
     "required": ["feito", "o_que_saiu", "o_que_falta", "colateral",
-                 "produto_alterado"],
+                 "houve_colateral", "produto_colateral",
+                 "produto_alterado_fora_do_pedido"],
     "additionalProperties": False,
 }
 
@@ -6077,23 +6159,36 @@ def conferir_ajuste(antes, depois, instrucao):
         {"type": "text", "text": (
             "Um colaborador pediu esta alteração, em português do Brasil:\n\n"
             f"\"{instrucao.strip()}\"\n\n"
-            "Compare as duas imagens e responda duas coisas.\n\n"
-            "1. A alteração pedida aconteceu? Julgue SÓ o que foi pedido. "
-            "Seja rigoroso: mudança parcial, ou que só se percebe procurando, "
-            "conta como NÃO feita. Se o pedido foi 'sem borda' e ainda há "
-            "borda, é não. Se foi 'produto maior' e ele cresceu de forma "
-            "imperceptível, é não.\n\n"
-            "2. Mudou alguma coisa que NÃO foi pedida? Este é um modo de "
-            "edição cirúrgica: o produto, o enquadramento, as cores, o texto e "
-            "o fundo deviam continuar idênticos, exceto no ponto pedido. "
-            "Produto redesenhado, objeto que apareceu ou sumiu, cena "
-            "recomposta, texto reescrito — tudo isso é alteração colateral, e "
-            "vale reportar mesmo que o pedido tenha sido atendido.\n\n"
-            "3. O PRODUTO mudou? Responda em `produto_alterado`. Olhe a "
-            "superfície de perto: strass, pedra, cravejado, relevo, textura, "
-            "brilho, costura, acabamento. Um urso cravejado que ficou liso é "
-            "produto alterado, mesmo que a cor pedida tenha melhorado. Fundo, "
-            "luz, cenário, texto e enquadramento não são o produto.\n\n"
+            "O PEDIDO ACIMA DEFINE O QUE ESTÁ AUTORIZADO A MUDAR.\n"
+            "Uma característica não é colateral só porque mudou: se o "
+            "colaborador pediu explicitamente que ela mudasse, a mudança é "
+            "intencional, e é o que se esperava.\n\n"
+            "Compare ANTES e DEPOIS sempre em relação ao PEDIDO.\n\n"
+            "1. O PEDIDO FOI CUMPRIDO? Responda em `feito`. Confira CADA "
+            "alteração pedida, uma a uma; só responda true se todas estão "
+            "claramente visíveis no DEPOIS. Mudança parcial, ou que só se "
+            "percebe procurando, conta como NÃO feita. Havendo QUANTIDADE no "
+            "pedido, conte na imagem: pedido de '6 divisórias' não se cumpre "
+            "com 5, 7 ou 12. Em `o_que_saiu`, diga o que foi realizado; em "
+            "`o_que_falta`, o que ainda precisa acontecer.\n\n"
+            "2. MUDOU ALGO ALÉM DO PEDIDO? Responda em `houve_colateral`. "
+            "Olhe o que o pedido NÃO mandou mudar: cenário, fundo, "
+            "enquadramento, luz, textos, objetos e as partes do produto que "
+            "o pedido não citou. NÃO marque como colateral aquilo que foi "
+            "pedido. NÃO marque consequência visual inevitável da própria "
+            "edição — a sombra que acompanha uma peça que mudou de lugar, o "
+            "reflexo que muda junto com a cor pedida. Em `colateral`, "
+            "descreva só o que mudou sem autorização.\n\n"
+            "3. O PRODUTO MUDOU ALÉM DO QUE O PEDIDO AUTORIZOU? Responda em "
+            "`produto_alterado_fora_do_pedido`. Primeiro liste, para você "
+            "mesmo, quais características do produto o pedido autorizou "
+            "mudar. Depois olhe TODAS AS OUTRAS de perto: strass, pedra, "
+            "cravejado, relevo, textura, brilho, costura, acabamento, "
+            "material, forma, número de peças. Um urso cravejado que ficou "
+            "liso é true — ninguém pediu isso. A cor interior que ficou "
+            "preta porque pediram 'interior preto' é false. Em "
+            "`produto_colateral`, descreva só o que mudou no produto sem o "
+            "pedido ter autorizado.\n\n"
             "Escreva em português do Brasil, direto, sem elogio e sem rodeio. "
             "O texto de 'o_que_falta' vai ser usado como instrução para o "
             "gerador tentar de novo, então escreva o que ELE deve fazer — e "
@@ -6709,6 +6804,42 @@ def ajustar_com_conferencia(imagem, instrucao, tipo=None, tentativas=2,
         aviso=aviso,
     )
     relato["texto"] = rel_txt
+
+    # QUALQUER ETAPA QUE REGERE PIXEL INVALIDA A APROVACAO ANTERIOR.
+    #
+    # `revisar_texto` pode REDESENHAR a peca para consertar o portugues. O
+    # juiz do pedido olhou a imagem de ANTES dessa regeracao e disse "feito".
+    # A imagem que vai para a galeria e OUTRA, e ninguem a julgou: o relato
+    # dizia `ok: True` sobre uma imagem que o conferidor nunca viu.
+    #
+    # A analise externa de 01/10 nomeou isto como invariavel do sistema, e
+    # ela esta certa: "nenhuma imagem pode ser chamada de ajustada porque uma
+    # geracao terminou; so porque o pedido que originou aquela geracao foi
+    # conferido na imagem que efetivamente sera salva".
+    #
+    # So reconfere quando a imagem MUDOU — `revisar_texto` devolve a mesma
+    # quando nao houve o que corrigir, e julgar de novo seria uma chamada
+    # paga por nada.
+    if relato.get("ok") and img_ok is not None and img_ok != img:
+        _v2, _e2 = conferir_ajuste(imagem, img_ok, instrucao)
+        if _e2 or not _v2:
+            # Nao consegui conferir a imagem FINAL. Ela nao pode sair como
+            # aprovada: `ok=None` e o estado "ninguem olhou", e a tela ja
+            # sabe dizer isso.
+            relato["ok"] = None
+            relato["erro"] = (_e2 or "não consegui conferir a imagem final")
+        elif not (_v2.get("feito")
+                  and not _v2.get("houve_colateral")
+                  and not _v2.get("produto_alterado_fora_do_pedido")):
+            relato["ok"] = False
+            relato["falta"] = ((_v2.get("o_que_falta") or "").strip()
+                               or "a correção do texto desfez o ajuste")
+            relato["colateral"] = ((_v2.get("produto_colateral")
+                                    or _v2.get("colateral") or "").strip())
+            relato["produto_alterado_fora_do_pedido"] = bool(
+                _v2.get("produto_alterado_fora_do_pedido")
+                or _v2.get("houve_colateral"))
+            return img, relato      # a imagem que o juiz TINHA aprovado
     return img_ok, relato
 
 
@@ -6768,31 +6899,52 @@ def _ajustar_bruto(imagem, instrucao, tipo=None, tentativas=2,
                           "falta": "", "colateral": "", "historico": historico}
 
         historico.append(veredito)
-        _mexeu_no_produto = bool(veredito.get("produto_alterado"))
-        if veredito.get("feito") and not _mexeu_no_produto:
+        # TRES PERGUNTAS, TRES BOOLEANOS — E O PEDIDO MANDA NOS TRES.
+        #
+        # Era `feito and not produto_alterado`, e `produto_alterado` queria
+        # dizer "o produto mudou", sem olhar se tinham PEDIDO que mudasse.
+        # Pedido de "cor interior preta" cumprido virava fracasso.
+        _dano_produto = bool(veredito.get("produto_alterado_fora_do_pedido"))
+        _colateral = bool(veredito.get("houve_colateral"))
+        if veredito.get("feito") and not _colateral and not _dano_produto:
             return nova, {"ok": True, "tentativas": n, "erro": "",
                           "falta": "", "saiu": veredito.get("o_que_saiu", ""),
                           "colateral": veredito.get("colateral", ""),
                           "historico": historico}
 
-        # Pedido atendido MAS produto alterado não é sucesso — é a peça errada
-        # com a cor certa. A conferência já enxergava isso e o código seguia
-        # adiante mesmo assim: o urso de strass voltou liso, o veredito disse
-        # que o corpo tinha ficado liso, e a tela anunciou "✅ atualizada".
+        # Pedido atendido MAS o produto mudou onde ninguém mandou não é
+        # sucesso — é a peça errada com a cor certa. Foi o urso de strass: o
+        # veredito disse que o corpo tinha ficado liso, e a tela anunciou
+        # "✅ atualizada".
         #
-        # Aqui a próxima tentativa parte da imagem ORIGINAL e leva o que foi
-        # destruído por escrito. Se nem assim der, volta a original: entregar
-        # o produto errado é pior do que não atender ao pedido.
-        if _mexeu_no_produto:
-            _dano = (veredito.get("colateral") or "o produto foi alterado").strip()
-            _diz("O produto mudou — refazendo sem tocar nele.")
+        # A próxima tentativa parte da imagem ORIGINAL e leva o dano por
+        # escrito. A instrução nomeia o que PRESERVAR, e nunca manda desfazer
+        # o pedido: preservar é o complemento do pedido, não o contrário.
+        if _dano_produto:
+            _dano = (veredito.get("produto_colateral")
+                     or veredito.get("colateral")
+                     or "o produto foi alterado onde não foi pedido").strip()
+            _diz("O produto mudou onde não foi pedido — refazendo.")
             pedido = (f"{instrucao.strip()}\n\n"
-                      f"ATENÇÃO — a tentativa anterior estragou o produto: "
-                      f"{_dano}. O produto da imagem original tem de ser "
-                      f"reproduzido EXATAMENTE como está, com a mesma "
-                      f"textura, o mesmo acabamento e os mesmos detalhes de "
-                      f"superfície. Faça a alteração pedida sem redesenhar o "
-                      f"produto.")
+                      f"ATENÇÃO — a tentativa anterior cumpriu o pedido, mas "
+                      f"mudou no produto uma coisa que NÃO foi pedida: "
+                      f"{_dano}. Faça de novo exatamente a alteração pedida "
+                      f"acima e preserve essa característica como está na "
+                      f"imagem original, com a mesma textura, o mesmo "
+                      f"acabamento e os mesmos detalhes de superfície.")
+            continue
+
+        # Colateral FORA do produto — cenário, fundo, enquadramento, texto.
+        # Mesmo tratamento: volta à original e nomeia o que não podia mudar.
+        if _colateral:
+            _col = (veredito.get("colateral")
+                    or "algo mudou sem ter sido pedido").strip()
+            _diz("Mudou algo que não foi pedido — refazendo.")
+            pedido = (f"{instrucao.strip()}\n\n"
+                      f"ATENÇÃO — a tentativa anterior mudou, sem ter sido "
+                      f"pedido: {_col}. Faça SOMENTE a alteração pedida "
+                      f"acima e deixe esse ponto como está na imagem "
+                      f"original.")
             continue
 
         # Nao saiu. A critica vira a instrucao da proxima tentativa — e a
@@ -6804,15 +6956,23 @@ def _ajustar_bruto(imagem, instrucao, tipo=None, tentativas=2,
                   f"acontecer: {falta}") if falta else instrucao
 
     ultimo = historico[-1] if historico else {}
-    _estragou = bool(ultimo.get("produto_alterado"))
+    # DUAS DERROTAS DIFERENTES, E A MENSAGEM TEM DE SABER QUAL FOI.
+    #
+    # "produto errado é pior que peça sem correção" foi dito ao dono cinco
+    # vezes num pedido em que o produto só mudou NAQUILO QUE ELE PEDIU. Dizer
+    # a causa errada custa a próxima hora de quem for procurar.
+    _estragou = bool(ultimo.get("produto_alterado_fora_do_pedido")
+                     or ultimo.get("houve_colateral"))
     return atual, {"ok": False, "tentativas": tentativas, "erro": "",
                    "falta": ((ultimo.get("o_que_falta") or "").strip()
                              if not _estragou else
-                             "o ajuste só saiu alterando o produto, então a "
-                             "imagem foi mantida como estava"),
+                             "a alteração pedida só saiu junto com mudanças "
+                             "que ninguém pediu, então a imagem foi mantida "
+                             "como estava"),
                    "saiu": ultimo.get("o_que_saiu", ""),
-                   "colateral": (ultimo.get("colateral") or "").strip(),
-                   "produto_alterado": _estragou,
+                   "colateral": ((ultimo.get("produto_colateral")
+                                  or ultimo.get("colateral") or "").strip()),
+                   "produto_alterado_fora_do_pedido": _estragou,
                    "historico": historico}
 
 
@@ -6858,7 +7018,7 @@ def _relato_base(num, relato):
     # didática e simples.
     falta = (relato.get("falta") or "").strip()
     _pedaco = f" O que faltou: {falta}" if falta and len(falta) < 180 else ""
-    if relato.get("produto_alterado"):
+    if relato.get("produto_alterado_fora_do_pedido"):
         # A TERCEIRA TENTATIVA É DELE, E NÃO MINHA.
         #
         # Dono, 29/09: "o chat vai conseguir realizar o que hoje ele informa
@@ -6873,10 +7033,21 @@ def _relato_base(num, relato):
         # opção de insistir, e a decisão de parar era minha, escrita no
         # código. O número de tentativas aparece, e insistir volta a ser uma
         # das saídas.
+        # E A FRASE MUDOU, PORQUE A ANTIGA MENTIA SOBRE A CAUSA.
+        #
+        # Ela dizia "toda vez o produto mudava junto". No pedido de 01/10 o
+        # produto mudou NAQUILO QUE O DONO PEDIU — a cor interior — e ele
+        # leu cinco vezes que o produto tinha mudado, como se fosse defeito.
+        # Agora a frase diz o que de fato impede: veio junto o que ninguém
+        # pediu.
         _n_tent = relato.get("tentativas") or 2
-        return (f"❌ Imagem {num}: não consegui em {_n_tent} tentativa(s) — "
-                f"toda vez o produto mudava junto, e produto errado é pior "
-                f"que peça sem correção. Ela ficou como estava.\n"
+        _col_rb = (relato.get("colateral") or "").strip()
+        _por_que = (f" Veio junto, sem ter sido pedido: {_col_rb}."
+                    if _col_rb and len(_col_rb) < 160 else "")
+        return (f"❌ Imagem {num}: a alteração não foi aplicada. Em "
+                f"{_n_tent} tentativa(s) ela veio acompanhada de mudanças "
+                f"que ninguém pediu, então mantive a versão original."
+                f"{_por_que}\n"
                 f"   Três saídas, e a escolha é sua: **me peça de novo** "
                 f"(cada rodada parte da imagem original, não da tentativa "
                 f"falha), **refazer a peça do zero** com esse ajuste desde o "
@@ -7226,6 +7397,9 @@ def consumir_comandos_do_chat(usuario_logado=""):
                 break
             _tp = tipo_para_gerar(galeria[_i])
             _ins = (_c.get("instrucao") or "").strip()
+            # A PECA DE ANTES, guardada antes de ser sobrescrita: e com ela
+            # que o juiz vai comparar para dizer se o pedido aconteceu.
+            _antes_rf = galeria[_i].get("bytes")
             _prompt = prompt_para_regerar(_tp, _ins, _dados_rf, _nome_rf)
             _r = {"img": None, "erro": None, "done": False}
             _b = st.progress(0.0, text=f"Refazendo a Imagem {_i + 1}…")
@@ -7275,7 +7449,41 @@ def consumir_comandos_do_chat(usuario_logado=""):
             galeria[_i]["aprovado"] = False
             st.session_state["img_galeria"] = list(galeria)
             _mudou_rf = True
-            _msgs_rf.append(f"🔁 Imagem {_i + 1} refeita do zero.")
+
+            # "GERADA" NAO E "CUMPRIU O PEDIDO" — e aqui as duas eram a
+            # mesma coisa.
+            #
+            # 01/10: o dono pediu "6 divisorias", a peca foi refeita, e o
+            # Studio anunciou "🔁 Imagem 3 refeita do zero". Ela voltou com
+            # os mesmos 12 nichos. O anuncio saia porque a GERACAO terminou,
+            # sem ninguem perguntar se o pedido tinha acontecido.
+            #
+            # `revisar_tudo` ja conferiu o texto e mediu a peca — mas nenhuma
+            # das duas responde "o que ele pediu esta na imagem?". Quem
+            # responde isso e `conferir_ajuste`, comparando a peca ANTERIOR
+            # com a nova, com o pedido na mao. So faz sentido quando houve
+            # pedido: refazer sem instrucao nao tem o que conferir.
+            _ant_rf = _antes_rf if (_ins and _antes_rf) else None
+            if _ant_rf:
+                _vp_rf, _ep_rf = conferir_ajuste(_ant_rf, _img_rf, _ins)
+                if _ep_rf or not _vp_rf:
+                    _msgs_rf.append(
+                        f"⚠️ Imagem {_i + 1} refeita, mas **não consegui "
+                        f"conferir** se «{_ins[:60]}» aconteceu "
+                        f"({(_ep_rf or '')[:60]}). Olhe antes de usar.")
+                elif _vp_rf.get("feito"):
+                    _msgs_rf.append(
+                        f"✅ Imagem {_i + 1} refeita: "
+                        f"{_vp_rf.get('o_que_saiu') or _ins[:70]}.")
+                else:
+                    _falta_rf = (_vp_rf.get("o_que_falta") or "").strip()
+                    _msgs_rf.append(
+                        f"❌ Imagem {_i + 1} foi refeita, mas o pedido NÃO "
+                        f"saiu: «{_ins[:60]}»."
+                        + (f" Falta: {_falta_rf[:120]}" if _falta_rf else "")
+                        + "\n   Me peça de novo e eu tento por outro caminho.")
+            else:
+                _msgs_rf.append(f"🔁 Imagem {_i + 1} refeita do zero.")
         if _mudou_rf:
             # Pelo helper, e nao direto: e ele que faz a falha aparecer na
             # tela em vez de sumir num `except: pass`.
@@ -10523,18 +10731,25 @@ if __name__ == "__main__":
     # mudava o sistema ENCERRAVA — sem oferecer a terceira. Quando o ajuste
     # apenas não sai, ele já dizia "me peça de novo". No caso mais difícil,
     # tirava essa opção.
-    _rel_alt = {"ok": False, "produto_alterado": True, "tentativas": 2,
-                "falta": "", "colateral": "o produto foi redesenhado",
+    _rel_alt = {"ok": False, "produto_alterado_fora_do_pedido": True,
+                "tentativas": 2, "falta": "",
+                "colateral": "o produto foi redesenhado",
                 "saiu": "", "erro": ""}
     _txt_alt = relato_em_texto(2, _rel_alt)
-    ok("a recusa por produto alterado diz QUANTAS tentativas houve",
+    ok("a recusa por mudança não pedida diz QUANTAS tentativas houve",
        "2 tentativa" in _txt_alt)
     ok("e oferece insistir, não só refazer ou desistir",
        "me peça de novo" in _txt_alt.lower())
-    ok("e continua dizendo que a peça ficou como estava",
-       "ficou como estava" in _txt_alt)
+    ok("e continua dizendo que manteve a versão original",
+       "versão original" in _txt_alt)
+    # E NOMEIA O QUE VEIO JUNTO, em vez de acusar o produto em geral.
+    ok("a recusa diz O QUE mudou sem ter sido pedido",
+       "o produto foi redesenhado" in _txt_alt)
+    ok("e nao diz mais 'produto errado' — a causa antiga era mentira "
+       "quando a mudanca tinha sido pedida",
+       "produto errado" not in _txt_alt)
     # E A RECUSA COMUM NÃO PERDEU O CONVITE que ela já tinha.
-    _txt_nao = relato_em_texto(2, {"ok": False, "produto_alterado": False,
+    _txt_nao = relato_em_texto(2, {"ok": False, "produto_alterado_fora_do_pedido": False,
                                    "tentativas": 2, "erro": "",
                                    "falta": "os cartões seguem cortados",
                                    "colateral": "", "saiu": ""})
@@ -11439,11 +11654,102 @@ if __name__ == "__main__":
        modo_fundo_do_tipo("Ajuste Fino — aumente o produto") == "personalizado")
 
     # ── A trava do produto, no prompt do ajuste ──────────────────────────
-    _pf = montar_prompt_ajuste_fino("deixe o dourado mais vivo", None, "prata")
+    # PEDIDO QUE NAO FALA DE COR: a trava de cor vale inteira.
+    _pf = montar_prompt_ajuste_fino("aumente o produto na cena", None, "prata")
     ok("o ajuste passou a levar a regra de fidelidade",
        "REGRA DE FIDELIDADE AO PRODUTO" in _pf)
     ok("e a trava de cor, que so a geracao tinha", "prata" in _pf.lower())
-    ok("strass e textura estao nomeados na trava", "strass" in _pf.lower())
+    ok("strass e textura estao nomeados na preservacao",
+       "strass" in _pf.lower())
+
+    # ── PIXEL REGERADO INVALIDA A APROVACAO ANTERIOR ───────────────────
+    #
+    # `ajustar_com_conferencia` aprova o ajuste e DEPOIS pode chamar
+    # `revisar_texto`, que REDESENHA a peca para consertar o portugues. A
+    # imagem que ia para a galeria era outra, e o juiz nunca a tinha visto.
+    _pt_conf = []
+
+    def _conf_2x(antes, depois, instrucao):
+        _pt_conf.append(depois)
+        if depois == b"ajustada":
+            return {"feito": True, "o_que_saiu": "ok", "o_que_falta": "",
+                    "colateral": "", "houve_colateral": False,
+                    "produto_colateral": "",
+                    "produto_alterado_fora_do_pedido": False}, ""
+        # a imagem que a revisao de texto devolveu DESFEZ o ajuste
+        return {"feito": False, "o_que_saiu": "", "o_que_falta": "o interior "
+                "voltou a ser bege", "colateral": "", "houve_colateral": False,
+                "produto_colateral": "",
+                "produto_alterado_fora_do_pedido": False}, ""
+
+    _a_conf, _a_bruto, _a_rev, _a_pode = (
+        conferir_ajuste, _ajustar_bruto, revisar_texto, pode_ter_texto)
+    globals()["conferir_ajuste"] = _conf_2x
+    globals()["_ajustar_bruto"] = lambda *a, **k: (
+        b"ajustada", {"ok": True, "tentativas": 1, "erro": "", "falta": "",
+                      "saiu": "interior preto", "colateral": "",
+                      "historico": []})
+    globals()["pode_ter_texto"] = lambda *a, **k: True
+    globals()["revisar_texto"] = lambda *a, **k: (
+        b"redesenhada", {"ok": True, "rodadas": 2, "erro": "", "erros": ""}, "")
+    try:
+        _i_f, _r_f = ajustar_com_conferencia(b"original", "interior preto",
+                                             tipo="2. Benefícios do produto")
+        ok("a imagem FINAL, redesenhada pela revisao, tambem e julgada",
+           b"redesenhada" in _pt_conf)
+        ok("e se a revisao desfez o ajuste, nao sai como sucesso",
+           _r_f.get("ok") is False)
+        ok("e o que volta e a imagem que o juiz TINHA aprovado",
+           _i_f == b"ajustada")
+    finally:
+        globals()["conferir_ajuste"] = _a_conf
+        globals()["_ajustar_bruto"] = _a_bruto
+        globals()["revisar_texto"] = _a_rev
+        globals()["pode_ter_texto"] = _a_pode
+
+    # ── A TRAVA DE COR NAO PODE PROIBIR O QUE O PEDIDO MANDOU ───────────
+    #
+    # 01/10: "mudar a cor interior do produto para a cor preta". O prompt
+    # levava `_trava_cor_produto`, que diz "e PROIBIDO recolorir o produto",
+    # e um cabecalho "O PRODUTO NAO E PARTE DO AJUSTE — regra acima de
+    # qualquer instrucao". Duas vozes proibindo o pedido, dentro do mesmo
+    # texto que dizia "a MODIFICACAO SOLICITADA tem prioridade sobre TODAS
+    # as regras deste texto". Tres autoridades, cada uma acima da outra.
+    _pf_cor = montar_prompt_ajuste_fino(
+        "mudar a cor interior do produto para preta", None, "bege")
+    ok("pedido de cor: o prompt NAO proibe recolorir o produto",
+       "É PROIBIDO recolorir" not in _pf_cor)
+    ok("pedido de cor: a trava vira parcial, e diz o que ainda nao muda",
+       "PARCIAL NESTE AJUSTE" in _pf_cor)
+    ok("o cabecalho 'o produto nao e parte do ajuste' saiu de vez",
+       "NÃO É PARTE DO AJUSTE" not in _pf_cor
+       and "NÃO É PARTE DO AJUSTE" not in _pf)
+    ok("e a preservacao aparece como COMPLEMENTO do pedido",
+       "COMPLEMENTO DO PEDIDO" in _pf_cor)
+    ok("pedido de quantidade de pecas tem exemplo proprio no prompt",
+       "QUANTIDADE de peças" in _pf_cor)
+    # ── O PROMPT NUNCA MANDA DESISTIR ───────────────────────────────────
+    #
+    # Ele ja teve a linha "se a modificacao pedida so puder ser feita
+    # alterando o produto, NAO a faca: devolva a imagem como esta". Devolver
+    # a imagem intacta e o unico desfecho que NAO resolve nada, e era
+    # exatamente o que o dono via: cinco pedidos, cinco imagens iguais.
+    #
+    # Esta era a unica das 33 guardas deste modulo que continuava fraca
+    # depois do codigo de saida — a mutacao reintroduzia a frase e nada
+    # reprovava.
+    for _nome_pf, _txt_pf in (("sem cor", _pf), ("com cor", _pf_cor)):
+        ok(f"o prompt do ajuste ({_nome_pf}) nao manda devolver a imagem "
+           f"como esta",
+           "devolva a imagem como está" not in _txt_pf
+           and "NÃO a faça" not in _txt_pf)
+        ok(f"e diz, ao contrario, que fazer o pedido nao e opcional "
+           f"({_nome_pf})",
+           "NÃO É OPCIONAL" in _txt_pf)
+    # A pergunta "o pedido fala de cor?" e medida nos dois sentidos.
+    ok("'interior preto' fala de cor", _pedido_fala_de_cor("interior preto"))
+    ok("'6 divisorias' nao fala de cor",
+       not _pedido_fala_de_cor("mudar a quantidade de divisorias para 6"))
 
     # ── Pedido atendido com produto estragado NAO e sucesso ──────────────
     #
@@ -11457,9 +11763,13 @@ if __name__ == "__main__":
         if len(_chamadas) == 1:
             return {"feito": True, "o_que_saiu": "cor melhorou",
                     "o_que_falta": "", "colateral": "o strass do corpo sumiu",
-                    "produto_alterado": True}, ""
+                    "houve_colateral": True,
+                    "produto_colateral": "o strass do corpo sumiu",
+                    "produto_alterado_fora_do_pedido": True}, ""
         return {"feito": True, "o_que_saiu": "cor melhorou",
-                "o_que_falta": "", "colateral": "", "produto_alterado": False}, ""
+                "o_que_falta": "", "colateral": "", "houve_colateral": False,
+                "produto_colateral": "",
+                "produto_alterado_fora_do_pedido": False}, ""
 
     # O gerador guarda o prompt: e nele que a segunda tentativa tem de levar o
     # estrago por escrito. A conferencia recebe sempre a instrucao ORIGINAL,
@@ -11488,12 +11798,53 @@ if __name__ == "__main__":
         _chamadas.append(i) or {"feito": True, "o_que_saiu": "cor melhorou",
                                 "o_que_falta": "",
                                 "colateral": "o strass do corpo sumiu",
-                                "produto_alterado": True}, "")
+                                "houve_colateral": True,
+                                "produto_colateral": "o strass do corpo sumiu",
+                                "produto_alterado_fora_do_pedido": True}, "")
     _img2, _rel2 = _ajustar_bruto(b"original", "melhore a cor", tentativas=2)
     ok("produto estragado ate o fim devolve a imagem ORIGINAL",
        _img2 == b"original")
     ok("e o relato diz que nao entregou, em vez de anunciar sucesso",
-       _rel2["ok"] is False and _rel2.get("produto_alterado") is True)
+       _rel2["ok"] is False
+       and _rel2.get("produto_alterado_fora_do_pedido") is True)
+
+    # ── O CASO QUE TRAVOU O DONO EM 01/10, E QUE FALTAVA MEDIR ──────────
+    #
+    # "mudar a cor interior do produto para a cor preta". O produto MUDA —
+    # e muda porque foi isso que pediram. O juiz novo responde
+    # `produto_alterado_fora_do_pedido = False`, e o ajuste tem de ser
+    # ACEITO na primeira. Antes disto o sistema revertia, cinco pedidos
+    # seguidos, dizendo "toda vez o produto mudava junto".
+    _ch_ped = []
+    globals()["conferir_ajuste"] = lambda a, d, i: (
+        _ch_ped.append(i) or {"feito": True,
+                              "o_que_saiu": "o interior ficou preto",
+                              "o_que_falta": "", "colateral": "",
+                              "houve_colateral": False,
+                              "produto_colateral": "",
+                              "produto_alterado_fora_do_pedido": False}, "")
+    _img3, _rel3 = _ajustar_bruto(
+        b"original", "mudar a cor interior do produto para preta",
+        tentativas=2)
+    ok("mudar o PRODUTO porque foi pedido e sucesso, na primeira",
+       _rel3["ok"] is True and len(_ch_ped) == 1 and _img3 == b"nova")
+    ok("e a tela nao diz mais que o produto mudou junto",
+       "produto errado" not in relato_em_texto(3, _rel3))
+
+    # E O COLATERAL FORA DO PRODUTO tambem reprova — cenario, fundo, texto.
+    _ch_col = []
+    globals()["conferir_ajuste"] = lambda a, d, i: (
+        _ch_col.append(i) or {"feito": True, "o_que_saiu": "interior preto",
+                              "o_que_falta": "",
+                              "colateral": "o criado-mudo virou uma mesa",
+                              "houve_colateral": True,
+                              "produto_colateral": "",
+                              "produto_alterado_fora_do_pedido": False}, "")
+    _img4, _rel4 = _ajustar_bruto(b"original", "interior preto", tentativas=2)
+    ok("colateral fora do produto tambem impede o sucesso",
+       _rel4["ok"] is False and _img4 == b"original")
+    ok("e a segunda tentativa nomeia o colateral no prompt",
+       len(_ch_col) == 2 and "criado-mudo" in _prompts[-1].lower())
     globals()["conferir_ajuste"] = _antes_conf
     globals()["gerar_imagem_ia"] = _antes_ger
 
@@ -12137,11 +12488,15 @@ if __name__ == "__main__":
     # quatro das sete pecas, depois de ter descrito cada defeito com clareza.
     # O pedido dela estava certo; quem nao conseguiu traduzir foi o sistema.
     _r_prod = _relato_base(5, {"tentativas": 2, "ok": False,
-                               "produto_alterado": True, "falta": "x" * 300})
+                               "produto_alterado_fora_do_pedido": True, "falta": "x" * 300})
     ok("a falha nao manda a pessoa reescrever o pedido",
        ("Tente descrever de outro " + "jeito") not in _r_prod)
-    ok("quando o produto mudava, a tela explica e oferece o caminho",
-       "produto mudava junto" in _r_prod and "refazer a peça do zero" in _r_prod)
+    # A FRASE "produto mudava junto" SAIU — ela acusava o produto mesmo
+    # quando a mudanca tinha sido PEDIDA, e o dono leu isso cinco vezes
+    # seguidas num pedido legitimo. O que a tela explica agora e que veio
+    # junto o que ninguem pediu.
+    ok("quando veio mudanca nao pedida, a tela explica e oferece o caminho",
+       "que ninguém pediu" in _r_prod and "refazer a peça do zero" in _r_prod)
     _r_falta = _relato_base(5, {"tentativas": 2, "ok": False,
                                 "falta": "os cards devem caber inteiros"})
     ok("o que faltou sai quando e curto o bastante para ajudar",
@@ -12683,3 +13038,18 @@ if __name__ == "__main__":
 
     conferir_texto = _real
     print("\nfalhas:", falhas)
+    # O CODIGO DE SAIDA, QUE NUNCA EXISTIU AQUI — e 33 mutacoes dependiam dele.
+    #
+    # Este auto-teste imprimia "falhas: N" e saia com 0 SEMPRE. O `conferir.py`
+    # lia o texto e enxergava a falha; o `checar_mutacao` le o CODIGO DE SAIDA,
+    # e para ele este arquivo nunca reprovava. Resultado: 33 das 122 entradas
+    # de mutacao — toda guarda deste modulo — estavam verdes por acidente,
+    # medindo coisa nenhuma.
+    #
+    # Foi assim que o defeito apareceu: escrevi a guarda da trava de cor,
+    # reintroduzi o defeito, vi "falhas: 2" na tela E "VERDE" no veredito. A
+    # mesma doenca que o CLAUDE.md ja registra para o `varredura_formas.py`,
+    # pelo lado espelhado: la o codigo era 1 sempre, aqui e 0 sempre, e nos
+    # dois casos ninguem lia.
+    import sys as _sys_fim
+    _sys_fim.exit(1 if falhas else 0)
