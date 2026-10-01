@@ -239,8 +239,20 @@ ASSUNTOS_DO_PROMPT = {
         r"ocupando (?:mais|menos) da",
     "folga da borda":
         r"folga da borda|pelo menos \d+%|edge clearance|cruza ou toca",
+    # O ASSUNTO, E NAO A FRASE QUE JA QUEBROU — e a Forma 2 dentro do
+    # proprio verificador.
+    #
+    # A primeira versao perguntava so por "exatamente N bloco", que e como a
+    # voz do SISTEMA escreve. A segunda voz, na REGRA DE DENSIDADE, escrevia
+    # "reproduza a mesma quantidade de blocos (...) mesmo que sejam 5 ou 6
+    # blocos" — mesmo assunto, outra redacao, e o verificador via UMA voz so.
+    # Foi o ChatGPT, lendo o codigo exportado em 01/10, que achou o que este
+    # verificador existia para achar. Agora ele pergunta pelo ASSUNTO:
+    # "quantidade/numero de blocos|cartoes", em qualquer redacao.
     "quantidade de blocos de texto":
-        r"exatamente \d+ bloco|maximum \d+ information",
+        r"exatamente \d+ bloco|maximum \d+ information|"
+        r"(?:quantidade|n[uú]mero) de (?:blocos|cart[õo]es)|"
+        r"\d+ ou \d+ (?:blocos|cart[õo]es)",
 }
 
 # O que faz duas vozes discordarem: número, fração, contagem.
@@ -273,6 +285,63 @@ def blocos_do_prompt(texto):
     return fora
 
 
+_ABRE_ITEM = _re_voz.compile(r"^\s*(?:[-•*]\s|\d+[.)]\s)")
+
+
+_SO_NUMERO = _re_voz.compile(r"\d+|metade|dois ter[cç]os", _re_voz.I)
+
+
+def _assinatura(trecho):
+    """O conjunto de medidas da linha — é por ele que duas vozes discordam."""
+    return frozenset(m.group(0).lower() for m in _SO_NUMERO.finditer(trecho))
+
+
+def _itens_do_bloco(bloco):
+    """O bloco partido em ITENS. Marcador abre; linha sem marcador continua.
+
+    Bloco sem marcador nenhum devolve o bloco inteiro como um item só — era
+    esse o comportamento antigo, e ele continua valendo onde não há lista.
+    """
+    fora, atual = [], []
+    for linha in (bloco or "").split("\n"):
+        if _ABRE_ITEM.match(linha) and atual:
+            fora.append("\n".join(atual))
+            atual = []
+        atual.append(linha)
+    if atual:
+        fora.append("\n".join(atual))
+    return fora
+
+
+_INICIO_DO_INGLES = "SECTION 2"
+
+
+def metades_do_prompt(prompt):
+    """O prompt partido em [brief PT, metade EN]. Uma só, quando não há EN.
+
+    POR QUE PARTIR, E NÃO COMPARAR NÚMERO
+
+    Quando esta regra passou a ler o prompt INTEIRO (01/10), ela começou a
+    acusar o par português/inglês da MESMA medida — "ocupa de 50% a 65%" e
+    "Product occupancy 50–65%". Uma decisão, duas redações, por desenho do
+    prompt: alarme falso, que é o que este arquivo existe para não dar.
+
+    A primeira correção foi exigir que os números DISCORDASSEM. Estava
+    errada, e o `checar_mutacao` provou na mesma rodada: a entrada "a folga
+    da borda volta a ter duas vozes com numero" reintroduz uma SEGUNDA voz
+    em português com o MESMO 6% — duplicação genuína, Forma 5 esperando
+    acontecer — e a guarda ficou verde.
+
+    O que separa os dois casos não é o número: é a METADE. Duas vozes na
+    mesma língua são duplicação; a mesma voz nas duas línguas é tradução.
+    Divergência de número ENTRE as línguas continua sendo da Regra 5.
+    """
+    i = (prompt or "").find(_INICIO_DO_INGLES)
+    if i < 0:
+        return [prompt or ""]
+    return [prompt[:i], prompt[i:]]
+
+
 def vozes_numericas(prompt):
     """{assunto: [a linha de cada voz COM número]} quando há mais de uma.
 
@@ -289,22 +358,102 @@ def vozes_numericas(prompt):
     A linha SEGUINTE conta junto: uma regra quebrada em duas linhas é uma voz
     só, e o número costuma cair na segunda ("A FOLGA DA BORDA MANDA:\n
     pelo menos 6% em cada lado").
+
+    UMA VOZ É UM ITEM, E NÃO UM BLOCO — e esta correção custou um defeito que
+    ficou de pé em produção por dias.
+
+    A primeira versão parava no primeiro achado de cada BLOCO (`break`), para
+    não contar uma regra quebrada em duas linhas como duas vozes. Só que a
+    REGRA DE DENSIDADE tem DOIS itens contíguos, sem linha em branco entre
+    eles, e eles discordavam:
+
+        - QUANDO HOUVER IMAGEM DE REFERÊNCIA DE LAYOUT, ELA MANDA. Reproduza
+          a mesma quantidade de blocos (...) mesmo que sejam 5 ou 6 blocos.
+        - Esta peça tem exatamente 1 bloco(s) de texto.
+
+    Duas ordens contrárias sobre a mesma coisa, no mesmo bloco, uma delas
+    mandando ignorar a outra com todas as letras — e o verificador via UMA
+    voz só, porque o `break` o fazia sair no primeiro item.
+
+    Agora o recorte é o ITEM: linha que começa com marcador (`- `, `• `,
+    `1. `) abre uma voz; linha sem marcador continua a voz anterior. A
+    proteção original fica de pé (regra em duas linhas = uma voz) e dois
+    itens vizinhos deixam de se esconder um atrás do outro.
     """
     fora = {}
-    for assunto, padrao in ASSUNTOS_DO_PROMPT.items():
+    for metade in metades_do_prompt(prompt):
+      for assunto, padrao in ASSUNTOS_DO_PROMPT.items():
         vozes = []
-        for bloco in blocos_do_prompt(prompt):
-            linhas = bloco.splitlines()
-            for i, linha in enumerate(linhas):
-                if not _re_voz.search(padrao, linha, _re_voz.I):
+        for bloco in blocos_do_prompt(metade):
+            for item in _itens_do_bloco(bloco):
+                linhas = item.splitlines()
+                achou = False
+                for i, linha in enumerate(linhas):
+                    if not _re_voz.search(padrao, linha, _re_voz.I):
+                        continue
+                    trecho = linha + " " + (linhas[i + 1] if i + 1 < len(linhas)
+                                            else "")
+                    if _TRAZ_NUMERO.search(trecho):
+                        vozes.append((_assinatura(trecho),
+                                      linhas[0].strip()[:78]))
+                        achou = True
+                        break      # uma voz por ITEM, não uma por linha
+                if achou:
                     continue
-                trecho = linha + " " + (linhas[i + 1] if i + 1 < len(linhas)
-                                        else "")
-                if _TRAZ_NUMERO.search(trecho):
-                    vozes.append(linha.strip()[:78])
-                    break          # uma voz por bloco, não uma por linha
         if len(vozes) > 1:
-            fora[assunto] = vozes
+            fora.setdefault(assunto, []).extend(l for _, l in vozes)
+    return fora
+
+
+# ── REGRA 2-bis: ORDEM QUE DEVOLVE AO MODELO UMA DECISÃO JÁ FECHADA ───────
+#
+# A Regra 2 só enxerga duas vozes quando as DUAS trazem número. Existe um
+# segundo jeito de criar duas autoridades, e ele passa por baixo dela: uma
+# frase SEM número que autoriza o modelo a mudar o número da outra.
+#
+# O caso, vivo em produção até 01/10 e em 6 dos 9 tipos:
+#
+#     - Esta peça tem exatamente 3 bloco(s) de texto.
+#     - SE NÃO COUBEREM TODOS na coluna com essa folga, use MENOS cartões.
+#
+# A primeira fecha; a segunda reabre. "use MENOS" não tem dígito, então a
+# Regra 2 não via nada — e eu cheguei a relatar ao dono que esta ordem
+# impossível tinha sido removida. Não tinha: a minha varredura procurou
+# "menos blocos" e o texto diz "menos cartões".
+#
+# QUEM ACHOU ISTO FOI O CHATGPT, lendo o código exportado. Ele descreveu o
+# padrão certo: "qualquer coisa que o Python possa calcular não deve virar
+# escolha do modelo". A guarda abaixo é esse padrão virado medida.
+#
+# ELA É ESTREITA DE PROPÓSITO. Guarda larga aqui reprovaria meio prompt e
+# viraria ruído — e ruído ensina a ignorar o verificador. Só entra frase que
+# ENTREGA AO MODELO uma decisão que o sistema já tomou antes da chamada.
+REABREM_DECISAO = (
+    (r"use\s+menos|escreva\s+menos|menos\s+(?:cart[õo]es|blocos)",
+     "autoriza o modelo a mudar a QUANTIDADE, que o sistema já fechou"),
+    (r"se\s+n[ãa]o\s+couber(?:em)?|caso\s+n[ãa]o\s+couber(?:em)?|"
+     r"conforme\s+couber",
+     "entrega ao modelo a decisão de 'o que cortar', que é do sistema"),
+    (r"de\s+\d+\s+a\s+\d+\s+(?:cart[õo]es|blocos)|at[ée]\s+\d+\s+cart[õo]es",
+     "manda uma FAIXA onde já existe um número fechado"),
+    (r"bloco a menos|um bloco a menos",
+     "autoriza o modelo a entregar um bloco a menos do que o sistema pediu"),
+    (r"maximum\s+\d+\s+information",
+     "diz 'no máximo N' onde o português já disse 'exatamente N' — "
+     "'máximo' permite menos, e é a metade inglesa que fica mais perto do fim"),
+)
+_REABREM = tuple((_re_voz.compile(p, _re_voz.I), motivo)
+                 for p, motivo in REABREM_DECISAO)
+
+
+def ordens_que_reabrem(prompt):
+    """[(linha, motivo)] das ordens que devolvem ao modelo decisão fechada."""
+    fora = []
+    for linha in (prompt or "").splitlines():
+        for rx, motivo in _REABREM:
+            if rx.search(linha):
+                fora.append((linha.strip()[:88], motivo))
+                break
     return fora
 
 
@@ -475,6 +624,58 @@ PARAMETROS_DO_MOTOR = [
 ]
 
 
+# ── REGRA 6: O PEDIDO DE QUADRADA NAO TEM PLANO B SILENCIOSO ──────────────
+#
+# O Studio tenta varias formas de pedir a imagem quadrada, porque a
+# documentacao do Google descreve mais de um nome de campo. Isso esta certo.
+#
+# O que estava errado era a ULTIMA da fila: uma forma SEM proporcao nenhuma.
+# Recusadas as outras, ela passava, o Gemini escolhia o formato, devolvia
+# retangular, e o enquadramento preenchia as sobras com faixa lisa — a
+# MARGEM que o dono reclama desde 30/09. O sistema sabia que tinha falhado
+# (gravava `proporcao_recusada`) e entregava a peca torta assim mesmo.
+#
+# A analise externa de 01/10 colocou a regra na frase certa: *"recusou ->
+# erro explicito, nao autorizacao para gerar uma imagem que o
+# pos-processamento tera de remendar com faixa"*.
+#
+# Esta guarda reprova qualquer entrada de `_formas` cujo corpo nao peca
+# proporcao. Ela nao limita QUANTAS formas existem — nome de campo pode
+# mudar, e tentar varios e o certo. Ela exige que todas pecam o quadrado.
+FORMAS_DE_PROPORCAO = ("imagem.py", "_chamar_gemini_geracao_texto", "_formas")
+
+
+def formas_sem_proporcao(raiz=None):
+    """[nome] das formas de pedido que NAO pedem proporcao. Vazio = ok."""
+    arq, func, var = FORMAS_DE_PROPORCAO
+    arv = _arvore(os.path.join(raiz or RAIZ, arq))
+    if arv is None:
+        return ["não consegui ler " + arq]
+    fn = next((n for n in ast.walk(arv)
+               if isinstance(n, ast.FunctionDef) and n.name == func), None)
+    if fn is None:
+        return [f"a função {func} nem existe mais"]
+    lista = None
+    for n in ast.walk(fn):
+        if (isinstance(n, ast.Assign) and isinstance(n.value, ast.List)
+                and any(isinstance(a, ast.Name) and a.id == var
+                        for a in n.targets)):
+            lista = n.value
+            break
+    if lista is None:
+        return [f"a lista {var} nem existe mais em {func}"]
+    fora = []
+    for item in lista.elts:
+        texto = ast.unparse(item)
+        if "aspectRatio" not in texto and "aspect_ratio" not in texto:
+            nome = (item.elts[0].value
+                    if isinstance(item, ast.Tuple) and item.elts
+                    and isinstance(item.elts[0], ast.Constant)
+                    else ast.unparse(item)[:40])
+            fora.append(str(nome))
+    return fora
+
+
 def parametros_do_motor(raiz=None):
     """[(funcao, faltando, motivo)] — parametro que o motor precisa e nao vai."""
     fora = []
@@ -605,6 +806,18 @@ def main():
         print("       Mostre na tela de diagnóstico, ou declare em "
               "MUDAS_POR_ESCOLHA com o motivo escrito.")
 
+    # ── 6-bis. O PEDIDO DE QUADRADA SEM PLANO B SILENCIOSO ────────────
+    _fsp = formas_sem_proporcao()
+    if _fsp:
+        falhas += 1
+        print(f"FALHA  {len(_fsp)} forma(s) de pedido ao Gemini que NÃO pedem "
+              "proporção:")
+        for _f in _fsp:
+            print(f"         · «{_f}»")
+        print("       Recusado o quadrado, o certo é ERRO EXPLÍCITO. Gerar "
+              "sem pedir devolve retangular, o enquadramento preenche as "
+              "sobras, e a pessoa recebe a peça COM MARGEM.")
+
     # ── 6. OS PARAMETROS DO PEDIDO, E QUEM ENTREGA SEM SE IDENTIFICAR ──
     _pm = parametros_do_motor()
     if _pm:
@@ -634,12 +847,32 @@ def main():
                   "cena": "Bancada de mármore", "direcao_de_arte": _dir,
                   "textos": [{"titulo": "DURA?", "descricao": "Resiste"}]}
         _achados = {}
+        _reabrem = {}
         for _tipo in _img.TIPOS_PADRAO:
-            _p = _img.montar_prompt_imagem(_tipo, "", _dados, "Produto",
-                                           plano_triagem=_plano,
-                                           direcao_arte=_dir)
+            # O PROMPT INTEIRO, E NAO SO O BRIEF EM PORTUGUES.
+            #
+            # Ate 01/10 esta regra lia so `montar_prompt_imagem` — a SECAO 1.
+            # A metade em ingles e colada depois, por `gerar_imagem_ia`, e e
+            # ela que carrega "Maximum N information elements". O verificador
+            # dizia verde sobre um texto que nao lia: a Forma 3.
+            _base = _img.montar_prompt_imagem(_tipo, "", _dados, "Produto",
+                                              plano_triagem=_plano,
+                                              direcao_arte=_dir)
+            _p = _img.prompt_que_sera_enviado(
+                _base, [b"foto"], tipo=_tipo) or _base
             for _a, _vs in vozes_numericas(_p).items():
                 _achados.setdefault(_a, set()).update(_vs)
+            for _l, _mot in ordens_que_reabrem(_p):
+                _reabrem.setdefault(_l, _mot)
+        if _reabrem:
+            falhas += 1
+            print(f"FALHA  {len(_reabrem)} ordem(ns) que devolvem ao modelo "
+                  "uma decisão que o sistema já tomou:")
+            for _l, _mot in sorted(_reabrem.items()):
+                print(f"         · {_l}")
+                print(f"           {_mot}")
+            print("       O que o Python pode calcular não vira escolha do "
+                  "modelo. Feche a decisão antes da chamada.")
         if _achados:
             falhas += 1
             print(f"FALHA  {len(_achados)} assunto(s) com DUAS vozes numéricas "

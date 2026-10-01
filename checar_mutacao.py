@@ -35,6 +35,195 @@ RAIZ = os.path.dirname(os.path.abspath(__file__))
 # esta entrada virou letra morta — e isso também é reprovado, porque mutação
 # que não se aplica dá a impressão de cobertura que não existe.
 MUTACOES = [
+    # ── 01/10: O AJUSTE RECUSAVA TODO PEDIDO QUE MEXESSE NO PRODUTO ────
+    #
+    # Cinco pedidos do dono em sequencia, todos recusados: "mudar a cor
+    # interior para preta", "6 divisorias". Mensagem, cinco vezes: "toda vez
+    # o produto mudava junto, e produto errado e pior que peca sem
+    # correcao".
+    #
+    # O produto mudava porque ELE PEDIU que mudasse. Tres vozes proibiam o
+    # pedido ao mesmo tempo: o booleano `produto_alterado` do juiz, o
+    # cabecalho "O PRODUTO NAO E PARTE DO AJUSTE — regra acima de qualquer
+    # instrucao", e a `_trava_cor_produto` colada sem olhar o pedido.
+    (
+        "o ajuste volta a aceitar sem olhar se mudou o que ninguem pediu",
+        "imagem.py",
+        [('        if veredito.get("feito") and not _colateral and not _dano_produto:',
+          '        if veredito.get("feito"):')],
+        None,
+        ["python3", "imagem.py", "--autoteste"],
+    ),
+    (
+        "a trava de cor volta a proibir o que o pedido mandou mudar",
+        "imagem.py",
+        [('    _trava = ("" if _pedido_fala_de_cor(instrucao) else\n'
+          '              _trava_cor_produto(cor_do_produto_atual()\n'
+          '                                 if cor_produto is None else cor_produto))\n'
+          '    if _pedido_fala_de_cor(instrucao):',
+          '    _trava = _trava_cor_produto(cor_do_produto_atual()\n'
+          '                                if cor_produto is None else cor_produto)\n'
+          '    if False:')],
+        None,
+        ["python3", "imagem.py", "--autoteste"],
+    ),
+    (
+        "a revisao de texto volta a redesenhar sem ninguem julgar o resultado",
+        "imagem.py",
+        [('    if relato.get("ok") and img_ok is not None and img_ok != img:',
+          '    if False:')],
+        None,
+        ["python3", "imagem.py", "--autoteste"],
+    ),
+    # ── 01/10: AS QUATRO ROTAS DE EMERGENCIA DA ANALISE EXTERNA ────────
+    #
+    # Segunda rodada da auditoria. O ChatGPT nomeou o padrao melhor do que
+    # eu: *"o risco principal agora e deixar ROTAS DE EMERGENCIA reabrirem
+    # decisoes que o planejador ja deveria ter encerrado"*. Quatro delas
+    # estavam vivas, e as quatro viraram entrada aqui.
+    (
+        "o prompt volta a dizer que um bloco a menos esta bom",
+        "imagem.py",
+        [("- NÃO INVENTE TEXTO: o conteúdo de cada cartão já veio pronto no bloco de",
+          "  Bloco a menos é melhor que bloco com texto inventado.\n- NÃO INVENTE TEXTO: o conteúdo de cada cartão já veio pronto no bloco de")],
+        None,
+        ["python3", "checar_comunicacao.py"],
+    ),
+    (
+        "o ingles volta a dizer 'no maximo N' onde o portugues diz 'exatamente N'",
+        "imagem.py",
+        [("        + ((f\"- EXACTLY {_max_blocos} information element(s) — \"\n"
+          "            f\"never fewer, never more, never merged\\n\"\n"
+          "            if _pedidos_fechados else\n"
+          "            f\"- Maximum {_max_blocos} information elements if text present — never cluttered\\n\")",
+          "        + ((f\"- Maximum {_max_blocos} information elements if text present — never cluttered\\n\"\n"
+          "            if True else\n"
+          "            f\"- Maximum {_max_blocos} information elements if text present — never cluttered\\n\")")],
+        None,
+        ["python3", "checar_comunicacao.py"],
+    ),
+    (
+        "o pedido de quadrada volta a ter plano B silencioso",
+        "imagem.py",
+        [("                # A FORMA \"SEM PROPORCAO\" SAIU DAQUI, EM 01/10.",
+          "                (\"sem proporcao\", {\"responseModalities\": [\"IMAGE\"]}),\n"
+          "                # A FORMA \"SEM PROPORCAO\" SAIU DAQUI, EM 01/10.")],
+        None,
+        ["python3", "checar_comunicacao.py"],
+    ),
+    (
+        "sem copy, o prompt volta a mandar uma FAIXA de blocos",
+        "imagem.py",
+        [('    return (f"- Esta peça tem exatamente {maximo} bloco(s) de texto. "\n'
+          '            f"Não acrescente nenhum outro, e não entregue menos.")',
+          '    return (f"- Sem referência: use de {minimo} a {maximo} blocos informativos, "\n'
+          '            f"conforme o conteúdo disponível. {maximo} é o teto desta peça — "\n'
+          '            f"nenhuma outra instrução autoriza mais.")')],
+        None,
+        # O COMANDO E O AUTOTESTE DO `imagem.py`, E NAO O `checar_comunicacao`.
+        #
+        # A primeira versao desta entrada apontava para o `checar_comunicacao`
+        # e ficou VERDE com o defeito de volta — ele monta os prompts COM
+        # copy, entao o caminho "sem copy" nunca e percorrido. O verificador
+        # estava certo em reprovar a entrada: guarda que nao passa pela linha
+        # mutada nao e guarda.
+        ["python3", "imagem.py", "--autoteste"],
+    ),
+    # ── 01/10: A REFERENCIA DE LAYOUT MANDAVA NA QUANTIDADE DE CARTOES ──
+    #
+    # ACHADO PELO CHATGPT, lendo o CODIGO_GERACAO_DE_IMAGEM.txt que o dono
+    # mandou analisar. Ele escreveu: *"o codigo ainda contem 'a referencia de
+    # layout manda na quantidade de blocos' e, depois, uma regra que permite
+    # usar menos cartoes se nao couber; isso devolve ao Gemini uma decisao
+    # que deveria estar fechada antes da chamada"*. Estava certo nas duas.
+    #
+    # A REGRA DE DENSIDADE tinha, em itens vizinhos, sem linha em branco:
+    #
+    #     - QUANDO HOUVER IMAGEM DE REFERENCIA DE LAYOUT, ELA MANDA.
+    #       Reproduza a mesma quantidade de blocos (...) mesmo que sejam 5 ou
+    #       6 blocos. (...) qualquer numero abaixo desta regra nao se aplica.
+    #     - Esta peca tem exatamente 1 bloco(s) de texto.
+    #
+    # A segunda e o numero que o sistema calculou; a primeira manda ignorar
+    # a segunda COM TODAS AS LETRAS. Duas autoridades sobre o mesmo numero.
+    #
+    # E `checar_comunicacao` nao via: ele parava no primeiro achado de cada
+    # BLOCO, e os dois itens sao do mesmo bloco. A Forma 2 dentro do proprio
+    # verificador — a regra procurava a REDACAO que ja tinha quebrado
+    # ("exatamente N bloco") em vez do ASSUNTO.
+    (
+        "a referencia de layout volta a mandar na quantidade de cartoes",
+        "imagem.py",
+        [("- A IMAGEM DE REFERÊNCIA DE LAYOUT, QUANDO HOUVER, MANDA NO ESTILO: posição\n"
+          "  dos cartões, forma, cor, tipografia, ícones e espaçamento. Ela NÃO manda na\n"
+          "  QUANTIDADE de cartões nem no TAMANHO do texto — esses dois já vêm resolvidos\n"
+          "  nas linhas abaixo, e nada nesta peça os altera.",
+          "- QUANDO HOUVER IMAGEM DE REFERÊNCIA DE LAYOUT, ELA MANDA. Reproduza a mesma\n"
+          "  quantidade de blocos, o mesmo tamanho de texto e a mesma densidade que ela\n"
+          "  mostra — mesmo que sejam 5 ou 6 blocos. A referência é o padrão aprovado da\n"
+          "  empresa; qualquer número abaixo desta regra não se aplica a ela.")],
+        None,
+        ["python3", "checar_comunicacao.py"],
+    ),
+    # ── 01/10: "USE MENOS CARTOES SE NAO COUBER" — A ORDEM IMPOSSIVEL ───
+    #
+    # Eu relatei ao dono que esta ordem tinha sido removida. NAO TINHA: eu
+    # procurei por "menos blocos" e o texto diz "menos cartoes", e procurei
+    # "nao couber" com grep sem dobra de acento, que nao casa "NAO COUBEREM".
+    # Ela estava viva em 6 dos 9 tipos.
+    #
+    #     - Esta peca tem exatamente 3 bloco(s) de texto.
+    #     - SE NAO COUBEREM TODOS na coluna com essa folga, use MENOS cartoes.
+    #
+    # A primeira fecha a decisao; a segunda a reabre. E a Regra 2 nao alcanca
+    # este par, porque "use MENOS" nao tem numero — dai a REGRA 2-bis, que
+    # procura a ordem que DEVOLVE ao modelo uma decisao ja tomada.
+    (
+        "o prompt volta a autorizar o modelo a usar menos cartoes",
+        "imagem.py",
+        [("- A QUANTIDADE DE CARTÕES JÁ CABE: ela foi calculada para ESTA peça, com ESTA\n"
+          "  folga, antes de este texto ser escrito. Não reduza o número para fazer caber,\n"
+          "  não junte dois num só, não deixe nenhum de fora. Faltando espaço, diminua a\n"
+          "  ALTURA e o ESPAÇAMENTO dos cartões — nunca a quantidade, nunca comprima o\n"
+          "  texto a ponto de cortar, nunca empilhe até a borda, nunca deixe um pela\n"
+          "  metade.",
+          "- SE NÃO COUBEREM TODOS na coluna com essa folga, use MENOS cartões e maiores —\n"
+          "  nunca comprima, nunca empilhe até a borda, nunca deixe um pela metade.")],
+        None,
+        ["python3", "checar_comunicacao.py"],
+    ),
+    # ── 01/10: O PROMPT PEDIA 3 CARTOES E ENTREGAVA 1 ──────────────────
+    #
+    # ACHADO NO ARQUIVO DO DONO e reproduzido linha a linha contra o codigo
+    # que estava em producao em 30/09.
+    #
+    # A peca 2 foi ao motor, na REFACAO, assim:
+    #
+    #     - Esta peça tem exatamente 3 bloco(s) de texto.
+    #     1. PROTEÇÃO contra poeira e impactos ORGANIZAÇÃO espaço organizado
+    #        e seguro MADEIRA NATURAL durável e elegante
+    #
+    # A geracao montou 3 blocos e declarou 3. A revisao de texto devolveu a
+    # correcao como UMA STRING com os tres colados, e `trocar_texto_exato`
+    # troca so o bloco TEXTO EXATO — a linha da contagem ficou da geracao.
+    #
+    # Resultado: tres cartoes pedidos, um entregue, numa frase corrida de 108
+    # caracteres sem pontuacao para ser partida em tres. O modelo parte onde
+    # consegue — sao os cartoes embaralhados e sobrepostos que o dono chamou
+    # de "quadrados sobressaindo o outro".
+    #
+    # Trocar o texto sem trocar o numero e deixar duas vozes sobre a mesma
+    # coisa: o defeito que mais custou nesta base.
+    (
+        "a refacao volta a trocar o texto e deixar o numero de blocos para tras",
+        "imagem.py",
+        [('    if _n:\n'
+          '        trocado = _re_quadro.sub(\n'
+          '            r"(- Esta peça tem exatamente )\\d+( bloco)",\n'
+          '            lambda _m: f"{_m.group(1)}{_n}{_m.group(2)}", trocado)\n', "")],
+        None,
+        ["python3", "imagem.py", "--autoteste"],
+    ),
     # ── 01/10: SEM FOTO, A PECA SAIA CALADA ────────────────────────────
     #
     # Dono: "criacao de uma foto totalmente errada comparada ao produto
@@ -518,7 +707,7 @@ MUTACOES = [
         # primeiro nao basta — com a marca no lugar, o codigo antigo acha o
         # fim certo por tabela, e o verificador fica verde com razao.
         [
-            ('    base = str(prompt or "")\n    i = base.find(MARCA_TEXTO_EXATO)\n    novo = bloco_texto_exato(textos)\n    if i < 0:\n        return base + novo\n    f = base.find(MARCA_FIM_TEXTO_EXATO, i)\n    if f >= 0:\n        fim = f + len(MARCA_FIM_TEXTO_EXATO)\n    else:\n        # PROMPT ANTIGO, sem a marca de fim: o bloco termina na última linha\n        # que `bloco_texto_exato` escreve. Cortar até a próxima "━━━" é o que\n        # levava as regras junto, e não se faz mais.\n        _ultima = "para preencher espaço."\n        _u = base.find(_ultima, i)\n        fim = (_u + len(_ultima)) if _u >= 0 else i + len(MARCA_TEXTO_EXATO)\n    return (base[:i].rstrip("\\n") + "\\n" + novo.lstrip("\\n")\n            + "\\n" + base[fim:].lstrip("\\n")).rstrip() + "\\n"',
+            ('    base = str(prompt or "")\n    i = base.find(MARCA_TEXTO_EXATO)\n    novo = bloco_texto_exato(textos)\n    if i < 0:\n        return base + novo\n    f = base.find(MARCA_FIM_TEXTO_EXATO, i)\n    if f >= 0:\n        fim = f + len(MARCA_FIM_TEXTO_EXATO)\n    else:\n        # PROMPT ANTIGO, sem a marca de fim: o bloco termina na última linha\n        # que `bloco_texto_exato` escreve. Cortar até a próxima "━━━" é o que\n        # levava as regras junto, e não se faz mais.\n        _ultima = "para preencher espaço."\n        _u = base.find(_ultima, i)\n        fim = (_u + len(_ultima)) if _u >= 0 else i + len(MARCA_TEXTO_EXATO)\n    trocado = (base[:i].rstrip("\\n") + "\\n" + novo.lstrip("\\n")\n               + "\\n" + base[fim:].lstrip("\\n")).rstrip() + "\\n"',
              '    base = str(prompt or "")\n'
              "    i = base.find(MARCA_TEXTO_EXATO)\n"
              "    if i >= 0:\n"
@@ -992,10 +1181,12 @@ MUTACOES = [
     (
         # "O chat vai conseguir em 2 ou mais tentativas?" Sao 2 fixas, e o
         # sistema encerrava sem oferecer a terceira.
-        "a recusa por produto alterado volta a tirar a opcao de insistir",
+        "a recusa por mudanca nao pedida volta a tirar a opcao de insistir",
         "imagem.py",
-        '        return (f"❌ Imagem {num}: não consegui em {_n_tent} tentativa(s) — "',
-        '        return (f"❌ Imagem {num}: não consegui — "',
+        '        return (f"❌ Imagem {num}: a alteração não foi aplicada. Em "\n'
+        '                f"{_n_tent} tentativa(s) ela veio acompanhada de mudanças "',
+        '        return (f"❌ Imagem {num}: a alteração não foi aplicada. "\n'
+        '                f"Mudanças vieram junto. "',
         ["python3", "imagem.py"],
     ),
     (
@@ -1227,10 +1418,11 @@ MUTACOES = [
     (
         "o prompt do ajuste volta a mandar desistir",
         "imagem.py",
-        "- Se a modificação pedida for SOBRE o produto (tamanho na cena, posição,\n",
+        "- O produto PODE ser alterado exatamente nas características que a\n"
+        "  MODIFICAÇÃO SOLICITADA mandar alterar. Essas mudanças são o objetivo.\n",
         "- Se a modificação pedida só puder ser feita alterando o produto, NÃO a faça:\n"
         "  devolva a imagem como está.\n",
-        ["python3", "checar_prompts.py"],
+        ["python3", "imagem.py", "--autoteste"],
     ),
     # ── A VARREDURA DA CADEIA STUDIO -> GEMINI (30/09) ───────────────────
     (
