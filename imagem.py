@@ -6150,9 +6150,46 @@ _PERGUNTAS_DA_PECA = (
     "do produto, tampando qualquer parte dele?",
     "3. O produto da peça é o MESMO das fotos de referência? Compare peça a "
     "peça: número de alças, formato, acabamento, componentes, cor.",
-    "4. O produto está DEFORMADO — esticado, achatado, torto — ou pequeno "
-    "demais, ocupando menos de metade do quadro?",
 )
+
+
+# ── A QUARTA PERGUNTA SAI DA MEDIDA DA PEÇA, E NÃO DE UM "METADE" FIXO ────
+#
+# Ela era: *"o produto está DEFORMADO (...) ou pequeno demais, ocupando menos
+# de metade do quadro?"* — com "metade" escrito à mão.
+#
+# Isso é o defeito do produto gigante, outra vez, e agora DENTRO da
+# conferência. Nas peças de CENA (3, 7 e 8) o produto ocupa uma fração modesta
+# porque é essa a escala real dele: um compasso de 16 cm na mão de uma criança
+# não chega perto de metade do quadro. A pergunta mandava REPROVAR a peça
+# certa — e cada reprovação aqui é uma geração paga que volta com o produto
+# inflado. A conferência fabricaria o defeito que o prompt acabou de parar de
+# pedir.
+#
+# E eram duas vozes sobre o mesmo número: a faixa em `OCUPACAO` e o "metade"
+# daqui. Já aconteceu com a regra de densidade, com a ocupação e com o tamanho
+# da frase. Aqui a medida vem de `OCUPACAO`, que é a fonte única — e nas peças
+# de cena a pergunta deixa de falar em fração e passa a falar em ESCALA REAL,
+# que é o que a peça pede.
+def pergunta_do_tamanho(tipo):
+    """A quarta pergunta da conferência, na medida DESTA peça."""
+    base = ("4. O produto está DEFORMADO — esticado, achatado ou torto — "
+            "em relação às fotos?")
+    if numero_do_tipo(tipo) in TIPOS_DE_CENA:
+        return (base + " E ele aparece na ESCALA REAL que teria nessa cena, "
+                "ou foi inflado — maior que a mão, o móvel ou a pessoa que "
+                "está com ele? Produto ocupando uma fração modesta do quadro "
+                "NÃO é defeito nesta peça: é o que se espera dela.")
+    faixa = faixa_de_ocupacao(tipo)
+    if not faixa or faixa[0] is None:
+        return base
+    return (base + f" E ele ocupa MENOS de {faixa[0]}% do quadro, que é a "
+            f"medida desta peça?")
+
+
+def perguntas_da_peca(tipo=""):
+    """As quatro perguntas da conferência, para ESTE tipo."""
+    return tuple(_PERGUNTAS_DA_PECA) + (pergunta_do_tamanho(tipo),)
 
 
 def conferir_peca(imagem, fotos_ref=None, tipo=""):
@@ -6188,7 +6225,7 @@ def conferir_peca(imagem, fotos_ref=None, tipo=""):
     conteudo.append({"type": "text", "text": (
         f"Tipo da peça: {tipo}" + "\n\n"
         "Responda estas quatro perguntas olhando a peça e comparando com "
-        "as fotos:\n" + "\n".join(_PERGUNTAS_DA_PECA) + "\n\n"
+        "as fotos:\n" + "\n".join(perguntas_da_peca(tipo)) + "\n\n"
         "SEJA CONSERVADOR. Só reprove o que uma pessoa olhando a peça "
         "chamaria de errado sem hesitar: uma palavra que não se lê inteira, "
         "um cartão pela metade, uma alça que existe na peça e não existe nas "
@@ -10613,6 +10650,43 @@ if __name__ == "__main__":
     _fonte_gen = _insp_tx.getsource(_chamar_openai_geracao)
     ok("a chamada sem fotos se adapta ao que o modelo recusa",
        "parametro_recusado" in _fonte_gen)
+
+    # ── A CONFERENCIA NAO PODE COBRAR "METADE DO QUADRO" DE UMA CENA ────
+    #
+    # A quarta pergunta era "pequeno demais, ocupando menos de METADE do
+    # quadro?", com o numero escrito a mao. Nas pecas de cena (3, 7, 8) o
+    # produto ocupa uma fracao modesta porque e essa a escala real dele — e a
+    # pergunta mandava REPROVAR a peca certa. Cada reprovacao aqui e uma
+    # geracao paga que volta com o produto inflado: a conferencia fabricaria
+    # o defeito que o prompt acabou de parar de pedir.
+    #
+    # Era a terceira voz sobre o mesmo numero, depois da faixa em OCUPACAO e
+    # do bloco de protagonismo.
+    for _t_cena in ("3 — Benefícios no cenário de uso", "7 — Presenteie",
+                    "8 — Ambientação realista (sem texto)"):
+        _pq = pergunta_do_tamanho(_t_cena)
+        ok(f"a conferencia de '{_t_cena[:14]}' nao cobra fracao do quadro",
+           "ESCALA REAL" in _pq and "%" not in _pq)
+    # E A PECA DE PRODUTO CONTINUA COBRANDO A MEDIDA DELA, da fonte unica.
+    ok("a capa cobra os 85% que estao em OCUPACAO",
+       f"{faixa_de_ocupacao('1 — Capa do anúncio (fundo branco)')[0]}%"
+       in pergunta_do_tamanho("1 — Capa do anúncio (fundo branco)"))
+    ok("e a peca 2 cobra os 60% dela",
+       f"{faixa_de_ocupacao('2 — Benefícios do produto')[0]}%"
+       in pergunta_do_tamanho("2 — Benefícios do produto"))
+    ok("nenhuma pergunta traz 'metade' escrito a mao",
+       not any("metade" in _q.lower()
+               for _t in ("1 — Capa do anúncio (fundo branco)",
+                          "2 — Benefícios do produto", "7 — Presenteie")
+               for _q in perguntas_da_peca(_t)))
+    ok("e sao sempre QUATRO perguntas",
+       len(perguntas_da_peca("2 — Benefícios do produto")) == 4
+       and len(perguntas_da_peca("")) == 4)
+    # E A CONFERENCIA USA A FUNCAO, nao a tupla crua — senao o tipo nunca
+    # chega e todas as pecas voltam a receber a mesma pergunta.
+    _fonte_cp = _insp_tx.getsource(conferir_peca)
+    ok("a conferencia monta as perguntas PARA O TIPO da peca",
+       "perguntas_da_peca(tipo)" in _fonte_cp)
 
     ok("a peca e comparada com as fotos antes de sair", bool(_chamadas_dif))
     ok("e a comparacao recebe as FOTOS DE REFERENCIA, nao outra coisa",

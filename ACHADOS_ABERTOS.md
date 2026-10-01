@@ -72,15 +72,22 @@ de referência que ele não aceita. A saída é a conta ter um `gpt-image-*`.
 Enquanto não tiver, a régua de parecença (`medir_imagem.produto_diferente`)
 reprova a peça repintada e manda refazer — é compensação, não conserto.
 
-### A régua não vê a FORMA do produto, só a cor
-ONDE: medir_imagem.py:produto_diferente
-POR QUE AINDA NÃO: a comparação com as fotos passou a existir em 30/09 e pega
-o defeito mais relatado — o produto repintado, a cor trocada, o objeto
-substituído por outro de cor diferente. O que ela NÃO vê é forma: produto da
-cor certa e formato errado passa. Responder forma exige visão, e visão custa
-uma chamada paga por peça — oito por geração. Medida barata que pega o caso
-comum vale mais que medida cara que ninguém liga; quando o dono quiser pagar
-por isso, a porta já existe (`_descrever_produto_via_claude`).
+### A régua GEOMÉTRICA não vê a forma — mas a conferência de visão vê
+ONDE: medir_imagem.py:produto_diferente e imagem.py:conferir_peca
+POR QUE AINDA NÃO: corrijo aqui uma afirmação minha que estava incompleta e
+assustava mais do que devia. A régua geométrica compara COR, e de fato não vê
+forma. Mas ela não é a única conferência: `conferir_peca` olha a peça com
+visão, lado a lado com as fotos do produto, e já pergunta pelo número de
+alças, formato, acabamento, componentes e cor — e ela JÁ RODA em toda peça de
+toda geração, pela porta única `revisar_tudo`.
+
+O que falta de verdade é mais estreito: a conferência de visão depende da
+ANTHROPIC_API_KEY e das fotos; sem uma das duas ela não roda e diz isso, e aí
+só a régua de cor sobra. Nesse caso, produto da cor certa e formato errado
+passa. Medir forma geometricamente não serve: testei preenchimento da caixa e
+proporção, e a variação entre ângulos do MESMO produto (26 a 53 pontos) é
+maior que a variação entre produtos DIFERENTES (5 pontos no pior caso).
+Qualquer limite ou deixa passar a troca ou acusa o inocente.
 
 ### `_processar` duplicado: travado, ainda não unificado
 ONDE: placar.py:_processar e placar_core.py:_processar

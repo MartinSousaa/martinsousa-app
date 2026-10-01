@@ -35,6 +35,32 @@ RAIZ = os.path.dirname(os.path.abspath(__file__))
 # esta entrada virou letra morta — e isso também é reprovado, porque mutação
 # que não se aplica dá a impressão de cobertura que não existe.
 MUTACOES = [
+    # ── 01/10: A CONFERENCIA COBRAVA "METADE DO QUADRO" DE UMA CENA ────
+    #
+    # Dono: "produtos pequenos comparados as dimensoes da imagem" e, antes,
+    # "o produto esta GIGANTE nas maos da crianca". Sao os dois lados do
+    # MESMO defeito, e este aqui estava escondido na CONFERENCIA.
+    #
+    # A quarta pergunta da revisao da peca era "pequeno demais, ocupando
+    # menos de METADE do quadro?" — numero escrito a mao. Nas pecas de cena
+    # (3, 7, 8) o produto ocupa uma fracao modesta porque e essa a escala
+    # real dele: um compasso de 16 cm na mao de uma crianca nao chega perto
+    # de metade do quadro. A pergunta mandava REPROVAR a peca certa, e cada
+    # reprovacao aqui e uma geracao PAGA que volta com o produto inflado.
+    #
+    # A conferencia fabricava o defeito que o prompt acabou de parar de
+    # pedir. E era a TERCEIRA voz sobre o mesmo numero, depois da faixa em
+    # OCUPACAO e do bloco de protagonismo.
+    (
+        "a conferencia volta a cobrar fracao do quadro das pecas de cena",
+        "imagem.py",
+        [("    if numero_do_tipo(tipo) in TIPOS_DE_CENA:\n"
+          "        return (base + \" E ele aparece na ESCALA REAL que teria nessa cena, \"",
+          "    if False:\n"
+          "        return (base + \" E ele aparece na ESCALA REAL que teria nessa cena, \"")],
+        None,
+        ["python3", "imagem.py", "--autoteste"],
+    ),
     # ── 01/10: O STUDIO ACHAVA O MOTOR E NAO SABIA FALAR COM ELE ───────
     #
     # O filtro corrigido em 30/09 passou a ENCONTRAR o `dall-e-3` na conta. E
