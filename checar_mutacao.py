@@ -35,6 +35,38 @@ RAIZ = os.path.dirname(os.path.abspath(__file__))
 # esta entrada virou letra morta — e isso também é reprovado, porque mutação
 # que não se aplica dá a impressão de cobertura que não existe.
 MUTACOES = [
+    # ── 01/10: O PROMPT PEDIA 3 CARTOES E ENTREGAVA 1 ──────────────────
+    #
+    # ACHADO NO ARQUIVO DO DONO e reproduzido linha a linha contra o codigo
+    # que estava em producao em 30/09.
+    #
+    # A peca 2 foi ao motor, na REFACAO, assim:
+    #
+    #     - Esta peça tem exatamente 3 bloco(s) de texto.
+    #     1. PROTEÇÃO contra poeira e impactos ORGANIZAÇÃO espaço organizado
+    #        e seguro MADEIRA NATURAL durável e elegante
+    #
+    # A geracao montou 3 blocos e declarou 3. A revisao de texto devolveu a
+    # correcao como UMA STRING com os tres colados, e `trocar_texto_exato`
+    # troca so o bloco TEXTO EXATO — a linha da contagem ficou da geracao.
+    #
+    # Resultado: tres cartoes pedidos, um entregue, numa frase corrida de 108
+    # caracteres sem pontuacao para ser partida em tres. O modelo parte onde
+    # consegue — sao os cartoes embaralhados e sobrepostos que o dono chamou
+    # de "quadrados sobressaindo o outro".
+    #
+    # Trocar o texto sem trocar o numero e deixar duas vozes sobre a mesma
+    # coisa: o defeito que mais custou nesta base.
+    (
+        "a refacao volta a trocar o texto e deixar o numero de blocos para tras",
+        "imagem.py",
+        [('    if _n:\n'
+          '        trocado = _re_quadro.sub(\n'
+          '            r"(- Esta peça tem exatamente )\\d+( bloco)",\n'
+          '            lambda _m: f"{_m.group(1)}{_n}{_m.group(2)}", trocado)\n', "")],
+        None,
+        ["python3", "imagem.py", "--autoteste"],
+    ),
     # ── 01/10: SEM FOTO, A PECA SAIA CALADA ────────────────────────────
     #
     # Dono: "criacao de uma foto totalmente errada comparada ao produto
@@ -518,7 +550,7 @@ MUTACOES = [
         # primeiro nao basta — com a marca no lugar, o codigo antigo acha o
         # fim certo por tabela, e o verificador fica verde com razao.
         [
-            ('    base = str(prompt or "")\n    i = base.find(MARCA_TEXTO_EXATO)\n    novo = bloco_texto_exato(textos)\n    if i < 0:\n        return base + novo\n    f = base.find(MARCA_FIM_TEXTO_EXATO, i)\n    if f >= 0:\n        fim = f + len(MARCA_FIM_TEXTO_EXATO)\n    else:\n        # PROMPT ANTIGO, sem a marca de fim: o bloco termina na última linha\n        # que `bloco_texto_exato` escreve. Cortar até a próxima "━━━" é o que\n        # levava as regras junto, e não se faz mais.\n        _ultima = "para preencher espaço."\n        _u = base.find(_ultima, i)\n        fim = (_u + len(_ultima)) if _u >= 0 else i + len(MARCA_TEXTO_EXATO)\n    return (base[:i].rstrip("\\n") + "\\n" + novo.lstrip("\\n")\n            + "\\n" + base[fim:].lstrip("\\n")).rstrip() + "\\n"',
+            ('    base = str(prompt or "")\n    i = base.find(MARCA_TEXTO_EXATO)\n    novo = bloco_texto_exato(textos)\n    if i < 0:\n        return base + novo\n    f = base.find(MARCA_FIM_TEXTO_EXATO, i)\n    if f >= 0:\n        fim = f + len(MARCA_FIM_TEXTO_EXATO)\n    else:\n        # PROMPT ANTIGO, sem a marca de fim: o bloco termina na última linha\n        # que `bloco_texto_exato` escreve. Cortar até a próxima "━━━" é o que\n        # levava as regras junto, e não se faz mais.\n        _ultima = "para preencher espaço."\n        _u = base.find(_ultima, i)\n        fim = (_u + len(_ultima)) if _u >= 0 else i + len(MARCA_TEXTO_EXATO)\n    trocado = (base[:i].rstrip("\\n") + "\\n" + novo.lstrip("\\n")\n               + "\\n" + base[fim:].lstrip("\\n")).rstrip() + "\\n"',
              '    base = str(prompt or "")\n'
              "    i = base.find(MARCA_TEXTO_EXATO)\n"
              "    if i >= 0:\n"

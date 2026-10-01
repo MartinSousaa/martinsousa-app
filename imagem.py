@@ -4537,8 +4537,38 @@ def trocar_texto_exato(prompt, textos):
         _ultima = "para preencher espaço."
         _u = base.find(_ultima, i)
         fim = (_u + len(_ultima)) if _u >= 0 else i + len(MARCA_TEXTO_EXATO)
-    return (base[:i].rstrip("\n") + "\n" + novo.lstrip("\n")
-            + "\n" + base[fim:].lstrip("\n")).rstrip() + "\n"
+    trocado = (base[:i].rstrip("\n") + "\n" + novo.lstrip("\n")
+               + "\n" + base[fim:].lstrip("\n")).rstrip() + "\n"
+
+    # ── A CONTAGEM VAI JUNTO COM O BLOCO ────────────────────────────────
+    #
+    # ACHADO NO ARQUIVO DO DONO, 30/09, peça 2, e reproduzido linha a linha.
+    #
+    # O prompt da geração dizia "esta peça tem exatamente 3 bloco(s)" e
+    # listava três. A revisão de texto devolveu a correção como UMA STRING
+    # com os três colados — e esta função troca só o bloco TEXTO EXATO. A
+    # linha da contagem ficou da geração.
+    #
+    # O que foi ao motor na refação:
+    #
+    #     - Esta peça tem exatamente 3 bloco(s) de texto.
+    #     1. PROTEÇÃO contra poeira e impactos ORGANIZAÇÃO espaço organizado
+    #        e seguro MADEIRA NATURAL durável e elegante
+    #
+    # Três blocos pedidos, um entregue — e uma frase corrida de 108
+    # caracteres, sem pontuação, para ser partida em três cartões. O modelo
+    # parte onde consegue: é daí que saem os cartões embaralhados e
+    # sobrepostos que o dono chamou de "quadrados sobressaindo o outro".
+    #
+    # Trocar o texto sem trocar o número é deixar duas vozes sobre a mesma
+    # coisa — o defeito que mais custou nesta base.
+    _n = len([l for l in novo.splitlines()
+              if _re_quadro.match(r"^\s+\d+\.\s", l)])
+    if _n:
+        trocado = _re_quadro.sub(
+            r"(- Esta peça tem exatamente )\d+( bloco)",
+            lambda _m: f"{_m.group(1)}{_n}{_m.group(2)}", trocado)
+    return trocado
 
 
 def _campo_ambientacao(sufixo):
@@ -10830,6 +10860,43 @@ if __name__ == "__main__":
     ok("sem imagem nenhuma, nao inventa veredito",
        revisar_peca(None, "1 — Capa do anúncio (fundo branco)",
                     fotos_ref=[b"x"])[1] is None)
+
+    # ── A CONTAGEM DE BLOCOS SEGUE O BLOCO, NA REFACAO ──────────────────
+    #
+    # ACHADO NO ARQUIVO DO DONO e reproduzido linha a linha. A peca 2 foi ao
+    # motor, na refacao, dizendo "exatamente 3 bloco(s)" e listando UM — uma
+    # frase corrida de 108 caracteres sem pontuacao, para ser partida em tres
+    # cartoes. O modelo parte onde consegue: sao os cartoes embaralhados e
+    # sobrepostos que ele chamou de "quadrados sobressaindo o outro".
+    #
+    # A ENTRADA E A COPY REAL dele, copiada do .txt, e a string colada e a que
+    # a revisao devolveu de verdade.
+    import re as _re_tte
+    _COPY_REAL_P2 = ["PROTEÇÃO: contra poeira e impactos",
+                     "ORGANIZAÇÃO: espaço organizado e seguro",
+                     "MADEIRA NATURAL: durável e elegante"]
+    _p1_tte = montar_prompt_imagem(
+        "2 — Benefícios do produto", "", {"medidas": "8x33x11"}, "caixa",
+        plano_triagem={"composicao": "x", "cena": "y",
+                       "textos": _COPY_REAL_P2})
+
+    def _conta(txt):
+        return (len(_re_tte.findall(r"^  \d+\. ", txt, _re_tte.M)),
+                int(_re_tte.search(r"exatamente (\d+) bloco", txt).group(1)))
+
+    ok("na geracao, listados e declarados ja batiam", _conta(_p1_tte) == (3, 3))
+    _COLADO = ("PROTEÇÃO contra poeira e impactos ORGANIZAÇÃO espaço "
+               "organizado e seguro MADEIRA NATURAL durável e elegante")
+    ok("a refacao que cola os tres num so NAO deixa o numero para tras",
+       _conta(trocar_texto_exato(_p1_tte, _COLADO)) == (1, 1))
+    ok("e com dois blocos o numero vira dois",
+       _conta(trocar_texto_exato(_p1_tte, ["A: um", "B: dois"])) == (2, 2))
+    ok("e com quatro, quatro",
+       _conta(trocar_texto_exato(
+           _p1_tte, ["A: um", "B: dois", "C: tres", "D: quatro"])) == (4, 4))
+    # PROMPT SEM A LINHA DA CONTAGEM nao quebra — a capa nao tem bloco de texto.
+    ok("prompt sem linha de contagem nao quebra",
+       "TEXTO EXATO" in trocar_texto_exato("prompt qualquer", ["A: um"]))
 
     ok("a peca e comparada com as fotos antes de sair", bool(_chamadas_dif))
     ok("e a comparacao recebe as FOTOS DE REFERENCIA, nao outra coisa",
