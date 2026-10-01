@@ -5850,6 +5850,77 @@ def _pedido_fala_de_cor(instrucao):
     return bool(_PEDIDO_DE_COR.search(str(instrucao or "")))
 
 
+# ── AJUSTAR OU REFAZER: QUEM DECIDE É O SISTEMA, E NÃO O COLABORADOR ──────
+#
+# 01/10. O dono pediu, na mesma frase: "mudar a cor interior para preta, e
+# mudar a quantidade de divisorias para 6". São duas coisas de naturezas
+# diferentes, e ele não tem por que saber disso:
+#
+#   cor do interior ..... uma propriedade de uma região que já existe. O
+#                         ajuste fino edita isso bem.
+#   12 nichos -> 6 ...... a geometria interna da caixa muda. Não há o que
+#                         editar: a peça precisa nascer de novo.
+#
+# O ajuste fino é edição cirúrgica — ele preserva o resto do quadro. Pedir
+# recomposição a ele passa do que ele faz, e ele devolve a imagem INTACTA,
+# sem erro nenhum. Foram quatro rodadas assim, e o Studio ainda anunciou
+# "instrução enviada" em cada uma.
+#
+# A REGRA PRÁTICA, e ela é a melhor que achamos: se cumprir o pedido exige
+# INVENTAR PIXEL ESTRUTURAL de uma parte relevante da cena, em vez de editar
+# uma propriedade ou a posição de algo que já está lá, é REFAZER.
+#
+# ELA SÓ ESCALA, NUNCA REBAIXA. "refazer" pedido com todas as letras pelo
+# colaborador continua sendo refazer: a dúvida do sistema não revoga a
+# certeza de quem pediu. Errar para o lado de refazer custa uma geração;
+# errar para o lado de ajustar custa a rodada inteira e devolve a imagem
+# igual — foi o que aconteceu.
+_MARCAS_DE_RECOMPOSICAO = (
+    # quantidade de peças do próprio produto
+    # O NUMERO SOZINHO JA BASTA, desde que venha colado numa PEÇA.
+    #
+    # A primeira versao exigia "para|em|com|ter|sejam" antes do numero, e
+    # deixou passar "colocar 6 divisorias" — que e como alguem pede isso na
+    # vida real. Exigir a preposicao era travar a REDACAO, e nao o assunto.
+    (r"(?:quantidade|n[úu]mero)\s+de\s+\w+|"
+     r"\b\d+\s+"
+     r"(?:divis[óo]ri|nicho|comparti|al[çc]a|gaveta|prateleira|furo|"
+     r"bot[ãa]o|bot[õo]es|pe[çc]a)",
+     "muda a quantidade de peças do produto"),
+    # gente, pose, ação
+    (r"\b(pessoa|pessoas|modelo|m[ãa]o de|crian[çc]a|homem|mulher|casal|"
+     r"entregando|segurando|usando|vestindo|sentad|em p[ée])\b",
+     "muda quem aparece na cena ou o que essa pessoa faz"),
+    # ambiente inteiro
+    (r"\b(cen[áa]rio|ambiente|fundo de|local|lugar|sala|cozinha|quarto|"
+     r"escrit[óo]rio|loja|mesa de|ambienta)\w*\b",
+     "troca o ambiente da cena"),
+    # aberto <-> fechado, ângulo, face
+    (r"\b(aberta?|fechada?|abrir|fechar|de costas|traseir|lateral|"
+     r"de cima|de baixo|outro [âa]ngulo|girar|virar)\b",
+     "pede uma geometria ou uma face que a arte atual não mostra"),
+    # recompor o quadro
+    (r"\b(recompor|reorganizar|refazer o layout|trocar a composi)\w*\b",
+     "reorganiza a composição"),
+)
+_RECOMPOSICAO = tuple(
+    (_re_imp.compile(_p, _re_imp.I), _m) for _p, _m in _MARCAS_DE_RECOMPOSICAO)
+
+
+def classificar_edicao(instrucao):
+    """("ajustar"|"refazer", motivo) para o pedido. O sistema é quem decide.
+
+    O motivo volta junto porque o colaborador merece saber por que a peça
+    inteira está sendo refeita em vez de retocada — e porque, quando a
+    classificação errar, é o motivo que diz onde.
+    """
+    txt = str(instrucao or "")
+    for rx, motivo in _RECOMPOSICAO:
+        if rx.search(txt):
+            return "refazer", motivo
+    return "ajustar", ""
+
+
 def montar_prompt_ajuste_fino(instrucao, tipo=None, cor_produto=None):
     """Monta prompt para edição cirúrgica de uma imagem existente.
 
@@ -11706,6 +11777,42 @@ if __name__ == "__main__":
         globals()["_ajustar_bruto"] = _a_bruto
         globals()["revisar_texto"] = _a_rev
         globals()["pode_ter_texto"] = _a_pode
+
+    # ── O ROTEADOR AJUSTAR x REFAZER, MEDIDO NOS PEDIDOS REAIS ─────────
+    #
+    # 01/10. "mudar a quantidade de divisorias para 6" foi parar no ajuste
+    # fino, que e edicao cirurgica e nao recompoe geometria: ele devolveu a
+    # imagem INTACTA, sem erro nenhum, quatro rodadas seguidas.
+    #
+    # Os casos abaixo sao os da conversa daquele dia, copiados dela — e nao
+    # frases que eu inventei para o teste passar.
+    for _ped_r, _esp_r in (
+            ("mudar a cor interior do produto para a cor preta", "ajustar"),
+            ("mudar a cor interio do produto para a cor preta", "ajustar"),
+            ("mudar a quantidade de divisorias para 6 divisorias", "refazer"),
+            ("na imagem 3 mudar a cor interior para a cor preta, e mudar a "
+             "quantidade de divisorias para 6 divisorias", "refazer"),
+            ("colocar 6 divisorias", "refazer"),
+            ("aumente o produto em 20%", "ajustar"),
+            ("tirar a faixa branca da borda", "ajustar"),
+            ("deixar o fundo mais claro", "ajustar"),
+            ("corrigir o texto do primeiro cartao", "ajustar"),
+            ("uma pessoa entregando o produto para outra", "refazer"),
+            ("mudar a caixa fechada para aberta mostrando seis nichos",
+             "refazer")):
+        ok(f"roteador: «{_ped_r[:46]}» -> {_esp_r}",
+           classificar_edicao(_ped_r)[0] == _esp_r)
+    ok("quando roteia para refazer, o motivo nao vem vazio",
+       bool(classificar_edicao("colocar 6 divisorias")[1]))
+    ok("e quando fica no ajuste, nao inventa motivo",
+       classificar_edicao("deixar o fundo mais claro")[1] == "")
+    # ELE SO ESCALA: a duvida do sistema nao revoga a certeza de quem pediu.
+    ok("nenhum pedido de recomposicao e rebaixado para ajuste",
+       classificar_edicao("6 nichos")[0] == "refazer")
+    # Pedido vazio nao derruba e nao vira refazer por engano.
+    ok("pedido vazio nao derruba o roteador",
+       classificar_edicao("")[0] == "ajustar"
+       and classificar_edicao(None)[0] == "ajustar")
 
     # ── A TRAVA DE COR NAO PODE PROIBIR O QUE O PEDIDO MANDOU ───────────
     #

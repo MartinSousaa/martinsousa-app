@@ -35,6 +35,28 @@ RAIZ = os.path.dirname(os.path.abspath(__file__))
 # esta entrada virou letra morta — e isso também é reprovado, porque mutação
 # que não se aplica dá a impressão de cobertura que não existe.
 MUTACOES = [
+    # ── 01/10: O ROTEADOR AJUSTAR x REFAZER ──────────────────
+    #
+    # "mudar a quantidade de divisorias para 6" ia para o ajuste fino,
+    # que e edicao cirurgica: ele nao recompoe geometria e devolve a
+    # imagem INTACTA, sem erro. Quatro rodadas assim, e o Studio
+    # anunciando "instrucao enviada" em todas.
+    (
+        "o chat volta a decidir sozinho entre ajustar e refazer",
+        "chat_assistente.py",
+        [('            _modo_rot, _por_rot = _img_rot.classificar_edicao(instrucao)',
+          '            _modo_rot, _por_rot = "ajustar", ""')],
+        None,
+        ["python3", "chat_assistente.py", "--autoteste"],
+    ),
+    (
+        "mudar a quantidade de pecas volta a ser tratado como retoque",
+        "imagem.py",
+        [('    (r"(?:quantidade|n[úu]mero)\\s+de\\s+\\w+|"\n     r"\\b\\d+\\s+"\n     r"(?:divis[óo]ri|nicho|comparti|al[çc]a|gaveta|prateleira|furo|"\n     r"bot[ãa]o|bot[õo]es|pe[çc]a)",\n     "muda a quantidade de peças do produto"),',
+          '    (r"ZZZ_NUNCA_CASA_ZZZ",\n     "muda a quantidade de peças do produto"),')],
+        None,
+        ["python3", "imagem.py", "--autoteste"],
+    ),
     # ── 01/10: O AJUSTE RECUSAVA TODO PEDIDO QUE MEXESSE NO PRODUTO ────
     #
     # Cinco pedidos do dono em sequencia, todos recusados: "mudar a cor
@@ -1870,6 +1892,21 @@ def soltar_a_trava(caminho=None, pid=None):
 def main():
     falhas = 0
 
+    # ANTES DE MUTAR QUALQUER COISA: os comandos conseguem reprovar?
+    #
+    # Entrada cujo comando sai 0 sempre esta verde por acidente, e verde por
+    # acidente e pior que vermelho: ele conta como guarda e nao e.
+    _sem_codigo = comandos_sem_codigo_de_saida()
+    if _sem_codigo:
+        falhas += 1
+        _tot = sum(n for _, n, _ in _sem_codigo)
+        print(f"FALHA  {_tot} mutacao(oes) apontam para modulo que NUNCA "
+              f"reprova — elas estao verdes por acidente:")
+        for _m, _n, _por in _sem_codigo:
+            print(f"         {_n:3}x  {_m} — {_por}")
+        print("       Termine o auto-teste com "
+              "`sys.exit(1 if falhas else 0)`.")
+
     # A TRAVA PRIMEIRO, ANTES DE QUALQUER LEITURA.
     #
     # Nao adianta travar so na hora de escrever: a instancia que LE o
@@ -1985,6 +2022,53 @@ def _conferir_as_mutacoes(falhas):
               "todos reprovados")
     print(f"\nfalhas: {falhas}")
     return 1 if falhas else 0
+
+
+def comandos_sem_codigo_de_saida():
+    """[(modulo, n)] cujos comandos NUNCA reprovam: saem 0 sempre.
+
+    O BURACO QUE ESCONDIA 64 MUTACOES — achado em 01/10.
+
+    Este verificador decide "a guarda viu o defeito?" pelo CODIGO DE SAIDA do
+    comando. Mas o auto-teste de quase todo modulo desta base imprime
+    "falhas: N" e termina sem chamar `sys.exit` — ou seja, sai 0 mesmo
+    reprovando. Para ca, esses modulos nunca falham: a mutacao passa, a
+    entrada fica VERDE, e ninguem mede nada.
+
+    Eram 33 entradas apontadas para o `imagem.py` e mais 31 para outros
+    cinco modulos. 64 das 122 — mais da metade.
+
+    Apareceu por acidente: escrevi uma guarda nova, reintroduzi o defeito, e
+    li "falhas: 2" na tela E "verde" no veredito, na mesma rodada.
+
+    E o CLAUDE.md ja registrava a doenca, pelo lado espelhado: o
+    `varredura_formas.py` saia com 1 SEMPRE, porque alguem somou com `and`
+    uma contagem e um booleano. La o verde era impossivel; aqui o vermelho
+    era. Nos dois casos, o defeito era ninguem ler o codigo de saida.
+
+    Esta guarda fecha a classe: entrada cujo comando nao consegue reprovar
+    nao e entrada, e reprova o verificador em vez de mentir para ele.
+    """
+    import collections
+    usados = collections.Counter()
+    for ent in MUTACOES:
+        cmd = ent[-1]
+        if len(cmd) >= 2 and cmd[0] == "python3" and cmd[1].endswith(".py"):
+            usados[cmd[1]] += 1
+    fora = []
+    for mod, n in sorted(usados.items()):
+        caminho = os.path.join(RAIZ, mod)
+        if not os.path.exists(caminho):
+            fora.append((mod, n, "o modulo nem existe"))
+            continue
+        fonte = open(caminho, encoding="utf-8").read()
+        corpo = fonte.split('if __name__ == "__main__":')[-1]
+        if "falhas:" not in corpo:
+            continue        # nao e auto-teste com contagem; nada a exigir
+        if "sys.exit" in corpo or "exit(" in corpo:
+            continue
+        fora.append((mod, n, "imprime 'falhas:' e sai com 0 sempre"))
+    return fora
 
 
 def _autoteste():

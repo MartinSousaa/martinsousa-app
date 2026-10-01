@@ -460,3 +460,8 @@ if __name__ == "__main__":
     ok("a coluna do prompt e a ultima", COLUNAS[-1] == "prompt")
 
     print("\nfalhas:", falhas)
+    # O CODIGO DE SAIDA. Sem ele, quem le `returncode` ve este modulo como
+    # aprovado SEMPRE — e o `checar_mutacao` le exatamente isso. Era assim
+    # que as entradas apontadas para ca ficavam verdes por acidente.
+    import sys as _sys_saida
+    _sys_saida.exit(1 if falhas else 0)

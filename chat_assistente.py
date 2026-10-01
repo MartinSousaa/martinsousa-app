@@ -692,6 +692,36 @@ def _executar_comando(cmd: dict) -> str | None:
                     "⚠️ Não ficou claro **qual imagem** ajustar, então não mexi "
                     "em nenhuma. Me diga o número:\n" + nomes
                 )
+            # ── UM DONO PARA A DECISÃO "AJUSTAR OU REFAZER" ──────────
+            #
+            # O chat entende a INTENÇÃO; quem escolhe a TECNOLOGIA é o
+            # roteador. Antes o modelo conversacional escolhia entre
+            # `ajustar_imagem` e `refazer_imagem`, e pedidos semanticamente
+            # iguais seguiam caminhos diferentes conforme a redação.
+            #
+            # 01/10: "mudar a quantidade de divisorias para 6" foi parar no
+            # ajuste fino, que é edição cirúrgica e não recompõe geometria.
+            # Ele devolveu a imagem INTACTA, sem erro, quatro rodadas
+            # seguidas — e o Studio anunciou "instrução enviada" em todas.
+            #
+            # O roteador só ESCALA (ajustar -> refazer). Quando a pessoa
+            # pede refazer com todas as letras, a dúvida do sistema não
+            # revoga a certeza dela.
+            import imagem as _img_rot
+            _modo_rot, _por_rot = _img_rot.classificar_edicao(instrucao)
+            if _modo_rot == "refazer":
+                st.session_state.setdefault(
+                    "chat_refazer_imagem", []).append(
+                        {"num": foto_num, "instrucao": instrucao})
+                _log("refazer_imagem", instrucao, imagem=foto_num,
+                     tipo=galeria[foto_num - 1].get("tipo", ""),
+                     resultado=f"roteado do ajuste: {_por_rot}")
+                return (
+                    f"🔁 **Imagem {foto_num}** vai ser refeita do zero, e "
+                    f"não retocada — o pedido {_por_rot}, e isso o retoque "
+                    f"não faz: ele devolveria a imagem igual. As demais não "
+                    f"são tocadas."
+                )
             if "chat_img_pendente" not in st.session_state:
                 st.session_state["chat_img_pendente"] = []
             # A REFERÊNCIA VIAJA JUNTO. Sem ela o motor recebe a peça e uma
@@ -1359,13 +1389,56 @@ if __name__ == "__main__":
     # E O COMANDO LEVA A REFERÊNCIA JUNTO — por AST, na montagem do comando.
     import ast as _ast_ax, inspect as _insp_ax
     _arv_ax = _ast_ax.parse(_insp_ax.getsource(_executar_comando).lstrip())
+    # A GUARDA OLHA A FILA DO AJUSTE, E NAO "o ultimo dict com num e
+    # instrucao".
+    #
+    # Ela varria todos os dicts e ficava com o ULTIMO que tivesse `num` e
+    # `instrucao` — e a fila do REFAZER tem os dois e nao tem referencia.
+    # Passava por ordem de aparicao: bastou o roteador acrescentar um
+    # append ao refazer para ela reprovar o ajuste, que estava certo.
+    # Guarda que depende da ordem do arquivo mede o arquivo, nao a regra.
     _leva = False
     for _n_ax in _ast_ax.walk(_arv_ax):
-        if isinstance(_n_ax, _ast_ax.Dict):
-            _chaves = {getattr(_k, "value", None) for _k in _n_ax.keys}
-            if "num" in _chaves and "instrucao" in _chaves:
-                _leva = "referencia" in _chaves
+        if not (isinstance(_n_ax, _ast_ax.Call)
+                and isinstance(_n_ax.func, _ast_ax.Attribute)
+                and _n_ax.func.attr == "append"
+                and _n_ax.args
+                and isinstance(_n_ax.args[0], _ast_ax.Dict)):
+            continue
+        if "chat_img_pendente" not in _ast_ax.unparse(_n_ax.func):
+            continue
+        _chaves = {getattr(_k, "value", None) for _k in _n_ax.args[0].keys}
+        if "num" in _chaves and "instrucao" in _chaves:
+            _leva = "referencia" in _chaves
     ok("o comando de ajuste leva a referência do pedido", _leva)
+
+    # ── O ROTEADOR AJUSTAR x REFAZER ────────────────────────────────────
+    #
+    # 01/10: "mudar a quantidade de divisorias para 6" foi parar no ajuste
+    # fino — edicao cirurgica, que nao recompoe geometria. Devolveu a
+    # imagem intacta quatro rodadas seguidas, sem erro nenhum.
+    _fonte_exec = _insp_ax.getsource(_executar_comando)
+    ok("o chat consulta o roteador antes de enfileirar o ajuste",
+       "classificar_edicao(instrucao)" in _fonte_exec)
+    ok("e o pedido roteado vai para a fila do REFAZER",
+       "chat_refazer_imagem" in _fonte_exec.split(
+           "classificar_edicao(instrucao)")[1][:600])
+    # E A CLASSIFICACAO MEDIDA NOS CASOS REAIS DA CONVERSA DE 01/10.
+    import imagem as _img_cls
+    for _ped, _esp in (
+            ("mudar a cor interior do produto para a cor preta", "ajustar"),
+            ("mudar a quantidade de divisorias para 6 divisorias", "refazer"),
+            ("colocar 6 divisorias", "refazer"),
+            ("mudar a cor interior para preta, e mudar a quantidade de "
+             "divisorias para 6", "refazer"),
+            ("aumente o produto em 20%", "ajustar"),
+            ("tirar a faixa branca da borda", "ajustar"),
+            ("uma pessoa entregando o produto para outra", "refazer"),
+            ("corrigir o texto do primeiro cartao", "ajustar")):
+        ok(f"roteador: «{_ped[:44]}» -> {_esp}",
+           _img_cls.classificar_edicao(_ped)[0] == _esp)
+    ok("e quando roteia, ele diz POR QUE",
+       bool(_img_cls.classificar_edicao("colocar 6 divisorias")[1]))
 
     # ══ O COMANDO QUE O CHAT MANDAVA E NINGUÉM EXECUTAVA ════════════════
     #
@@ -1413,3 +1486,8 @@ if __name__ == "__main__":
        "img_modo" not in st.session_state)
 
     print("\nfalhas:", falhas)
+    # O CODIGO DE SAIDA. Sem ele, quem le `returncode` ve este modulo como
+    # aprovado SEMPRE — e o `checar_mutacao` le exatamente isso. Era assim
+    # que as entradas apontadas para ca ficavam verdes por acidente.
+    import sys as _sys_saida
+    _sys_saida.exit(1 if falhas else 0)
