@@ -2946,6 +2946,43 @@ _OPENAI_TERMINAL = (
 )
 
 
+def parametro_recusado(exc, enviados):
+    """Qual parametro a API recusou, ou "". Funcao pura.
+
+    POR QUE ELA EXISTE, E POR QUE ELA LE O NOME EM VEZ DE SUPOR
+    -----------------------------------------------------------
+    O caminho sem fotos mandava `quality="high"` e `response_format` porque e
+    o que a familia `gpt-image-*` aceita. O `dall-e-3` nao aceita os dois, e a
+    chamada morria com 400 — depois de o Studio ter ENCONTRADO o modelo na
+    conta. Era o item "a conta tinha motor e o Studio nao sabia falar com ele".
+
+    Escrever a mao o que cada modelo aceita e o defeito que ja custou um dia
+    inteiro nesta base: o nome do modelo, o campo da proporcao. Todo valor
+    escrito a mao sobre a API de outro envelhece sem avisar.
+
+    Entao o Studio le o nome do parametro NA RESPOSTA DE ERRO e tira aquele —
+    e so aquele. Devolve "" quando o erro nao e sobre parametro, porque tirar
+    um parametro por causa de falta de credito nao conserta nada e esconde a
+    causa.
+
+    `model`, `prompt` e `n` nunca saem: sem eles nao ha chamada nenhuma, e
+    tira-los transformaria um erro legivel num erro pior.
+    """
+    texto = str(exc or "").lower()
+    if not texto:
+        return ""
+    if not any(p in texto for p in ("unsupported", "unknown parameter",
+                                    "invalid value", "not supported",
+                                    "does not support", "unrecognized")):
+        return ""
+    for nome in sorted(enviados or (), key=len, reverse=True):
+        if nome in ("model", "prompt", "n"):
+            continue
+        if nome in texto:
+            return nome
+    return ""
+
+
 def _erro_openai_terminal(excecao):
     """O texto do erro quando repetir não adianta; "" quando vale tentar o próximo."""
     texto = str(excecao)
@@ -3191,13 +3228,47 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None, ref_layout=None,
                 "esta peça foi gerada SEM as fotos do produto: o modelo "
                 "reconstruiu o produto a partir do texto, então ele pode "
                 "não ter nada a ver com o real")
-        response = client.images.generate(
-            model=_modelo,
-            prompt=prompt_final,
-            n=1,
-            size="1024x1024",
-            quality="high",
-        )
+        # ── A CHAMADA SE ADAPTA AO MODELO, EM VEZ DE EU CHUTAR ──────────
+        #
+        # Este caminho mandava `quality="high"` e lia `b64_json`. Os dois sao
+        # da familia `gpt-image-*`. O `dall-e-3` — que o filtro corrigido em
+        # 30/09 passou a ENCONTRAR na conta — nao aceita `quality="high"` e
+        # devolve URL em vez de base64 quando ninguem pede o contrario.
+        #
+        # Resultado: o Studio achava o modelo, chamava, levava 400, e a peca
+        # morria no caminho que existe justamente para quando nao ha fotos.
+        # "A conta tinha motor e o Studio nao sabia falar com ele" ficou
+        # ABERTO no ACHADOS_ABERTOS.md por isso.
+        #
+        # E O CONSERTO NAO E ESCREVER O QUE EU ACHO QUE O `dall-e-3` ACEITA.
+        #
+        # Foi assim que o nome do modelo e o campo da proporcao viraram
+        # defeito: um valor escrito a mao, que ninguem confere, e que a OpenAI
+        # muda quando quiser. A chamada tenta a forma rica e, se a API recusar
+        # POR CAUSA DE UM PARAMETRO, tira aquele parametro e repete. Modelo
+        # novo passa a funcionar sozinho.
+        _args_gen = {"model": _modelo, "prompt": prompt_final, "n": 1,
+                     "size": "1024x1024", "quality": "high",
+                     "response_format": "b64_json"}
+        _tirados = []
+        while True:
+            try:
+                response = client.images.generate(**_args_gen)
+                break
+            except Exception as _e_gen:
+                _qual = parametro_recusado(_e_gen, _args_gen)
+                if not _qual:
+                    raise
+                _tirados.append(_qual)
+                _args_gen.pop(_qual, None)
+                import sys as _sys_gen
+                print(f"[DEBUG {_modelo}] images.generate recusou "
+                      f"`{_qual}` — repetindo sem ele", file=_sys_gen.stderr,
+                      flush=True)
+        if _tirados and diagnostico is not None:
+            diagnostico["motor"] = (
+                f"{_modelo} (images.generate — SEM fotos, sem "
+                + ", ".join(_tirados) + ")")
         img_data = response.data[0]
         # O modelo retorna b64_json por padrão
         if hasattr(img_data, "b64_json") and img_data.b64_json:
@@ -10501,6 +10572,47 @@ if __name__ == "__main__":
            and (getattr(_x.func, "id", "") or getattr(_x.func, "attr", ""))
            == "pecas_bloqueadas_da_geracao"
            for _x in _ast_dv.walk(_arv_dv)))
+
+    # ── O STUDIO SABE FALAR COM O MODELO QUE ELE ACHOU ──────────────────
+    #
+    # O filtro corrigido em 30/09 passou a ENCONTRAR o `dall-e-3` na conta — e
+    # a chamada sem fotos mandava `quality="high"` e `response_format`, que
+    # sao da familia `gpt-image-*`. O Studio achava o motor e levava 400.
+    #
+    # A ENTRADA DO TESTE E A MENSAGEM QUE A API DEVOLVE, nao uma inventada:
+    # "Unknown parameter: 'response_format'" e o formato que a OpenAI usa.
+    _ENVIADOS = {"model": "dall-e-3", "prompt": "x", "n": 1,
+                 "size": "1024x1024", "quality": "high",
+                 "response_format": "b64_json"}
+    ok("a API recusando `quality` aponta `quality`",
+       parametro_recusado(
+           Exception("400 Unsupported value: 'quality' does not support 'high'"),
+           _ENVIADOS) == "quality")
+    ok("e recusando `response_format` aponta ele",
+       parametro_recusado(
+           Exception("Unknown parameter: 'response_format'."),
+           _ENVIADOS) == "response_format")
+    # O QUE NAO PODE SAIR NUNCA: sem eles nao ha chamada.
+    ok("`model` e `prompt` nunca sao apontados",
+       parametro_recusado(Exception("Unknown parameter: 'model'"),
+                          _ENVIADOS) == ""
+       and parametro_recusado(Exception("invalid value for 'prompt'"),
+                              _ENVIADOS) == "")
+    # E ERRO QUE NAO E DE PARAMETRO NAO PODE VIRAR "TIRA UM PARAMETRO":
+    # esconder falta de credito atras de uma repeticao muda a causa de lugar.
+    ok("falta de credito nao vira parametro recusado",
+       parametro_recusado(Exception("You exceeded your current quota"),
+                          _ENVIADOS) == "")
+    ok("modelo inexistente tambem nao",
+       parametro_recusado(Exception("The model `dall-e-9` does not exist"),
+                          _ENVIADOS) == "")
+    ok("erro vazio nao quebra",
+       parametro_recusado(None, _ENVIADOS) == ""
+       and parametro_recusado(Exception("x"), None) == "")
+    # E A CHAMADA USA ISSO — senao a funcao existe e o 400 continua matando.
+    _fonte_gen = _insp_tx.getsource(_chamar_openai_geracao)
+    ok("a chamada sem fotos se adapta ao que o modelo recusa",
+       "parametro_recusado" in _fonte_gen)
 
     ok("a peca e comparada com as fotos antes de sair", bool(_chamadas_dif))
     ok("e a comparacao recebe as FOTOS DE REFERENCIA, nao outra coisa",

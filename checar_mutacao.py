@@ -35,6 +35,29 @@ RAIZ = os.path.dirname(os.path.abspath(__file__))
 # esta entrada virou letra morta — e isso também é reprovado, porque mutação
 # que não se aplica dá a impressão de cobertura que não existe.
 MUTACOES = [
+    # ── 01/10: O STUDIO ACHAVA O MOTOR E NAO SABIA FALAR COM ELE ───────
+    #
+    # O filtro corrigido em 30/09 passou a ENCONTRAR o `dall-e-3` na conta. E
+    # a chamada sem fotos mandava `quality="high"` e `response_format`, que
+    # sao da familia `gpt-image-*`: o `dall-e-3` recusa os dois. O Studio
+    # achava o motor, chamava e levava 400 — e a peca morria justamente no
+    # caminho que existe para quando nao ha fotos do produto.
+    #
+    # O CONSERTO NAO FOI ESCREVER O QUE EU ACHO QUE CADA MODELO ACEITA. Foi
+    # assim que o nome do modelo e o campo da proporcao viraram defeito nesta
+    # base: valor escrito a mao sobre a API de outro envelhece sem avisar. A
+    # chamada le o nome do parametro NA RESPOSTA DE ERRO e tira aquele.
+    #
+    # A mutacao faz a chamada parar de ler a recusa: o 400 volta a matar a
+    # peca, e a guarda tem de ficar vermelha.
+    (
+        "a chamada sem fotos volta a nao se adaptar ao modelo",
+        "imagem.py",
+        [('                _qual = parametro_recusado(_e_gen, _args_gen)',
+          '                _qual = ""')],
+        None,
+        ["python3", "imagem.py", "--autoteste"],
+    ),
     # ── 01/10: AS DUAS CONTAS DO MESMO NUMERO ──────────────────────────
     #
     # `_processar` existe DUAS vezes: `placar.py` e `placar_core.py`. As duas
@@ -1233,8 +1256,26 @@ MUTACOES = [
         # mais chance de sair errado, porque o modelo nao ve as fotos.
         "um caminho volta a entregar imagem sem dizer por onde ela veio",
         "imagem.py",
-        '            diagnostico["motor"] = f"{_modelo} (images.generate — SEM fotos)"\n',
-        "",
+        # DUAS LINHAS, E A SEGUNDA CHEGOU DEPOIS.
+        #
+        # Esta entrada tirava so a primeira gravacao do motor. Em 01/10 a
+        # chamada sem fotos ganhou uma SEGUNDA, para dizer quais parametros o
+        # modelo recusou — e com ela no lugar, tirar a primeira deixava a
+        # chave `motor` ainda com dono: o verificador ficava VERDE com o
+        # defeito meio reintroduzido.
+        #
+        # Foi o proprio `checar_mutacao` que reprovou, e esse e o servico
+        # dele. Mutacao que deixa de reintroduzir o defeito vira guarda que
+        # assina embaixo — e so se descobre medindo.
+        [('            diagnostico["motor"] = f"{_modelo} (images.generate — SEM fotos)"\n', ""),
+         # O BLOCO INTEIRO, E NAO SO A LINHA DE DENTRO.
+         #
+         # Cortar so a gravacao deixava `if _tirados ...:` com corpo vazio, e
+         # o verificador ficava vermelho por IndentationError — vermelho por
+         # acidente, que nao mede guarda nenhuma. Esta base ja aprendeu isso:
+         # "mutacao que nao reintroduz o defeito da alarme falso".
+         ('        if _tirados and diagnostico is not None:\n            diagnostico["motor"] = (\n                f"{_modelo} (images.generate — SEM fotos, sem "\n                + ", ".join(_tirados) + ")")\n', "")],
+        None,
         ["python3", "checar_comunicacao.py"],
     ),
     (

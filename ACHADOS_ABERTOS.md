@@ -56,17 +56,21 @@ falso, e alarme falso ensina a desviar do alarme verdadeiro junto. A trava
 volta no dia em que um plano real vier misturado.
 
 
-### O `dall-e-3` é encontrado, mas o Studio não sabe FALAR com ele
+### Com FOTOS, uma conta sem `gpt-image-*` continua caindo no reserva
 ONDE: imagem.py:_chamar_openai_geracao
-POR QUE AINDA NÃO: o filtro de modelos foi corrigido e a conta que só tem
-`dall-e-*` deixa de ficar sem motor — mas as três tentativas do caminho da
-OpenAI usam a Responses API com `tools=[image_generation]`, e o `dall-e-3`
-não atende por ali nem aceita foto de referência. Com fotos, ele falharia nas
-três e cairia no Gemini do mesmo jeito. Fazer o `dall-e-3` funcionar de
-verdade é escrever uma quarta chamada (`images.generate` com as fotos fora),
-e isso é construção, não conserto de filtro. O que mudou hoje: a tela de
-Diagnóstico das APIs passa a MOSTRAR o que a conta tem, e o motor que fez
-cada peça já aparece no diagnóstico dela.
+POR QUE AINDA NÃO: o caminho SEM fotos passou a funcionar com `dall-e-3` em
+01/10 — a chamada agora lê na resposta de erro qual parâmetro o modelo recusou
+e repete sem ele, em vez de mandar o que só a família `gpt-image-*` aceita.
+O que continua aberto é o caso COM fotos: as três tentativas da OpenAI usam a
+Responses API com `tools=[image_generation]` e `images.edit`, e o `dall-e-3`
+não atende por ali nem aceita foto de referência. Com fotos ele falharia nas
+três e cairia no Gemini do mesmo jeito — e o Gemini não aceita
+`input_fidelity=high`, que é o que preserva o produto.
+
+Isto NÃO tem conserto por código: nenhuma chamada faz um modelo aceitar foto
+de referência que ele não aceita. A saída é a conta ter um `gpt-image-*`.
+Enquanto não tiver, a régua de parecença (`medir_imagem.produto_diferente`)
+reprova a peça repintada e manda refazer — é compensação, não conserto.
 
 ### A régua não vê a FORMA do produto, só a cor
 ONDE: medir_imagem.py:produto_diferente
