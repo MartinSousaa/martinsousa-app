@@ -3992,4 +3992,111 @@ if __name__ == "__main__":
        f"({len(_chamadas_ct)} chamada(s), precisa de 2)",
        len(_chamadas_ct) >= 2)
 
+    # ── AS DUAS CONTAS DO MESMO NÚMERO TÊM DE CONCORDAR ──────────────────
+    #
+    # `_processar` existe DUAS vezes: aqui e em `placar.py`. As duas estão
+    # VIVAS, em telas diferentes — o Painel de Metas (que decide bônus) chama
+    # a daqui; o Placar e mais quatro telas chamam a de lá. Elas já
+    # discordaram em 330 pontos, no mesmo mês e na mesma sessão.
+    #
+    # MEDIDO HOJE: as duas concordam nas 25 chaves em comum, em 18 cenários.
+    # Então o defeito não é "discordam agora" — é "vão discordar, e nada
+    # vigia". Quando a mesma pergunta tem duas respostas no código, elas
+    # passam a discordar; a questão é só quando.
+    #
+    # POR QUE A TRAVA, E NÃO A UNIFICAÇÃO, HOJE
+    #
+    # A daqui é superconjunto da de lá, menos três chaves — dava para fazer a
+    # de lá delegar. Mas ela faz consultas EXTRAS ao Trello (ações do board,
+    # movimentação, criadores de cartão) que o Placar hoje não paga. Delegar
+    # às cegas deixaria a tela mais lenta, que é exatamente como uma tela
+    # desta base já levou 15 segundos para abrir. A unificação de verdade é
+    # extrair o laço comum para UMA função que as duas chamem, sem arrastar
+    # os extras junto — está declarada no ACHADOS_ABERTOS.md com este mapa de
+    # risco. Até lá, a trava impede o estrago silencioso.
+    import placar as _pl_dup
+    # ── A ARMADILHA DO ARQUIVO RODADO COMO SCRIPT ───────────────────────
+    #
+    # `python3 placar_core.py` faz ESTE arquivo ser `__main__`. Quando
+    # `placar` e importado, ele faz `import placar_core` — e o Python cria uma
+    # SEGUNDA instancia do modulo, sob o nome `placar_core`. As duas tem
+    # dicionarios `MEMBROS_ATIVOS` DIFERENTES.
+    #
+    # A primeira versao desta guarda mexia no daqui e comparava com o que o
+    # `placar` enxergava no de la: ela reprovou com `gabriel_borges` sobrando
+    # de um lado — um alarme FALSO, artefato de rodar o arquivo como script.
+    # Em producao os dois sao importados normalmente e compartilham uma
+    # instancia so.
+    #
+    # Verificador que da alarme falso ensina a ignora-lo. Entao a comparacao e
+    # feita na instancia que o `placar` REALMENTE enxerga, que e a que roda no
+    # Studio.
+    import sys as _sys_dup
+    _pc_vis = _sys_dup.modules.get("placar_core")
+    if _pc_vis is None or _pc_vis is _sys_dup.modules["__main__"]:
+        _pc_vis = _sys_dup.modules["__main__"]
+
+    _LISTAS_D = {"L1": "CRIATIVO FOTOS (NOVAS: 10/VAR.:2)", "L2": "PENALIDADES",
+                 "L3": "ANÁLISE DE DEMANDAS", "L4": "CRIATIVO VIDEO (80)",
+                 "L5": "criativo fotos (novas: 10/var.:2)"}
+    _MEMBROS_D = {"m1": "myrelladesouza", "m2": "beatriz51", "m3": "ja_saiu"}
+    _guarda_mb = dict(_pc_vis.MEMBROS_ATIVOS)
+    _pc_vis.MEMBROS_ATIVOS.clear()
+    _pc_vis.MEMBROS_ATIVOS.update({"myrelladesouza": "Myrella",
+                                   "beatriz51": "Beatriz"})
+
+    def _card_d(cid, lista, pts, membros, due=True,
+                data="2026-09-20T10:00:00.000Z", labels=()):
+        return {"id": cid, "idList": lista, "idMembers": list(membros),
+                "dueComplete": due, "dateLastActivity": data, "name": cid,
+                "labels": [{"name": n} for n in labels], "idLabels": [],
+                "customFieldItems": [{"idCustomField": "idp",
+                                      "value": {"number": str(pts)}}]}
+
+    # OS CENARIOS SAO OS QUE SEPARAM AS DUAS IMPLEMENTACOES: mes de fora,
+    # cartao sem dono, quem saiu da equipe, penalidade, coluna com a grafia
+    # trocada, coluna de analise, cartao nao concluido, etiqueta de
+    # interrupcao e cartao dividido. Um cenario feliz so nao mede nada.
+    _CENARIOS_D = {
+        "mes anterior": [_card_d("a", "L1", 96, ["m1"],
+                                 data="2026-08-10T10:00:00.000Z")],
+        "sem membro": [_card_d("b", "L1", 40, [])],
+        "membro que saiu": [_card_d("c", "L1", 40, ["m3"])],
+        "penalidade": [_card_d("d", "L2", 30, ["m1"]),
+                       _card_d("e", "L1", 100, ["m1"])],
+        "coluna em caixa baixa": [_card_d("f", "L5", 70, ["m1"])],
+        "analise de demandas": [_card_d("g", "L3", 25, ["m1"])],
+        "nao concluido": [_card_d("h", "L1", 55, ["m1"], due=False)],
+        "interrompido": [_card_d("i", "L1", 60, ["m1"],
+                                 labels=("INTERROMPIDO MS",))],
+        "dois membros no cartao": [_card_d("j", "L4", 81, ["m1", "m2"])],
+    }
+    try:
+        _discordam = []
+        _medidas = 0
+        for _nome_d, _cards_d in _CENARIOS_D.items():
+            for _mes_d in (None, (2026, 9)):
+                _la = _pl_dup._processar(_LISTAS_D, _cards_d, _MEMBROS_D,
+                                         "idp", "idt", "idi", _mes_d)
+                _aqui = _pc_vis._processar(_LISTAS_D, _cards_d, _MEMBROS_D,
+                                           "idp", "idt", "idi", _mes_d)
+                _comuns = set(_la) & set(_aqui)
+                _medidas += len(_comuns)
+                for _k in sorted(_comuns):
+                    if _la[_k] != _aqui[_k]:
+                        _discordam.append(
+                            f"{_nome_d}/mes={_mes_d}/{_k}: "
+                            f"placar={_la[_k]!r} core={_aqui[_k]!r}")
+        ok(f"as duas contas do mesmo numero concordam "
+           f"({_medidas} comparacoes em {len(_CENARIOS_D)} cenarios)",
+           not _discordam)
+        for _d in _discordam[:4]:
+            print("       " + _d)
+        # E A COMPARACAO PRECISA TER OLHADO ALGUMA COISA: uma guarda que
+        # compara zero chaves fica verde para sempre.
+        ok("e a comparacao olhou as chaves de verdade", _medidas >= 300)
+    finally:
+        _pc_vis.MEMBROS_ATIVOS.clear()
+        _pc_vis.MEMBROS_ATIVOS.update(_guarda_mb)
+
     print("\nfalhas:", falhas)

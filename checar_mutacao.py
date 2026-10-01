@@ -35,6 +35,29 @@ RAIZ = os.path.dirname(os.path.abspath(__file__))
 # esta entrada virou letra morta — e isso também é reprovado, porque mutação
 # que não se aplica dá a impressão de cobertura que não existe.
 MUTACOES = [
+    # ── 01/10: AS DUAS CONTAS DO MESMO NUMERO ──────────────────────────
+    #
+    # `_processar` existe DUAS vezes: `placar.py` e `placar_core.py`. As duas
+    # estao VIVAS, em telas diferentes — o Painel de Metas (que decide bonus)
+    # chama a do core; o Placar e mais quatro telas chamam a do placar. Elas
+    # ja discordaram em 330 PONTOS, no mesmo mes e na mesma sessao.
+    #
+    # Medido: hoje concordam nas 25 chaves em comum, em 18 cenarios (450
+    # comparacoes). O defeito nao e "discordam agora" — e "vao discordar, e
+    # nada vigia". A mutacao soma 1 ponto de um lado so.
+    #
+    # NOTA: a primeira versao desta guarda deu ALARME FALSO. `python3
+    # placar_core.py` faz este arquivo ser `__main__`, e `import placar` cria
+    # uma SEGUNDA instancia de placar_core — com outro `MEMBROS_ATIVOS`. A
+    # comparacao passou a ser feita na instancia que o `placar` realmente
+    # enxerga, que e a que roda no Studio.
+    (
+        "as duas contas do mesmo numero voltam a poder discordar",
+        "placar.py",
+        [('        d["pts_equipe"]+=pt\n', '        d["pts_equipe"]+=pt+1\n')],
+        None,
+        ["python3", "placar_core.py"],
+    ),
     # ── 30/09: AS 65 REGRAS SO ERAM MEDIDAS COM O CADASTRO CHEIO ───────
     #
     # O cadastro do teste sempre teve medida, peso e material — e e no VAZIO

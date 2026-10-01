@@ -78,8 +78,20 @@ uma chamada paga por peça — oito por geração. Medida barata que pega o caso
 comum vale mais que medida cara que ninguém liga; quando o dono quiser pagar
 por isso, a porta já existe (`_descrever_produto_via_claude`).
 
-### `_processar` duplicado em placar.py e placar_core.py
-ONDE: placar.py, placar_core.py
-POR QUE AINDA NÃO: unificar é mudança grande e o risco tem de ser mapeado
-antes. Já discordaram em 330 pontos no mesmo mês. Aberto desde 28/09.
+### `_processar` duplicado: travado, ainda não unificado
+ONDE: placar.py:_processar e placar_core.py:_processar
+POR QUE AINDA NÃO: as duas estão VIVAS, em telas diferentes — o Painel de
+Metas chama a do core, o Placar e mais quatro telas chamam a do placar. Elas já
+discordaram em 330 pontos. Medido em 01/10: hoje concordam nas 25 chaves em
+comum, em 18 cenários (450 comparações), e há guarda que reprova se voltarem a
+discordar — então o estrago silencioso acabou.
+
+A unificação de verdade não foi feita, e o motivo é medido: a do core é
+superconjunto da do placar menos três chaves (`cards_pts`, `pausados_lista`,
+`sem_membro_lista`), mas ela faz consultas EXTRAS ao Trello (ações do board,
+movimentação, criadores de cartão) que o Placar hoje não paga. Fazer o placar
+delegar deixaria a tela mais lenta — que é exatamente como uma tela desta base
+já levou 15 segundos para abrir. O caminho certo é extrair o LAÇO COMUM para
+uma função que as duas chamem, sem arrastar os extras junto; é mudança grande
+na tela que decide bônus, e ela merece ser feita com o dono sabendo.
 
