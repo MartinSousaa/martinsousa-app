@@ -15,6 +15,8 @@ import base64
 
 # ── PROMPT DO SISTEMA ─────────────────────────────────────────────────────────
 
+import re as _re_ch
+
 SYSTEM_BASE = """Você é o Assistente do MS Studio, aplicativo interno da MartinSousa para
 gestão de produtos em marketplaces (Mercado Livre, Shopee, Shein).
 
@@ -502,6 +504,15 @@ REGRAS DOS COMANDOS:
   as outras duas, e você não é quem decide o que fica para a próxima mensagem.
   (Esta linha dizia o contrário — "APENAS UM bloco por resposta" — e era por
   isso que o segundo e o terceiro pedido sumiam sem explicação.)
+- NUNCA ANUNCIE A EXECUÇÃO EM TEXTO LIVRE. Ao emitir um comando, não escreva
+  "vou ajustar", "vou refazer", "instrução enviada", "estou alterando",
+  "acompanhe na aba Imagem", "as outras não serão alteradas" nem "pronto".
+  Quem conta ao colaborador que a ação foi enfileirada, executada, roteada ou
+  recusada é o SISTEMA — e só ele sabe qual das quatro aconteceu. Você
+  anunciando antes é uma segunda voz dizendo o que ainda não sabe.
+  O QUE VOCÊ ESCREVE é a observação: o que você VIU na imagem e o que vai
+  pedir. "Vi a imagem 3: a caixa está aberta, interior bege, cerca de 12
+  compartimentos em duas fileiras." Isso fica, e é o que prova que você olhou.
 - Para dúvidas sem alteração de conteúdo: responda normalmente, SEM bloco <CMD>"""
 
     return f"{SYSTEM_BASE}{instrucao_cmd}{LINGUAGEM}"
@@ -656,6 +667,50 @@ def referencia_do_pedido(historico):
     return []
 
 
+# ── UM DONO PARA O ANÚNCIO DA AÇÃO ────────────────────────────────────────
+#
+# 01/10, na tela do dono, duas linhas seguidas:
+#
+#   🔄 Instrução enviada para a Imagem 3 — acompanhe na aba Imagem. As
+#      outras imagens ficam como estão.
+#   🔄 Instrução enviada para a Imagem 3 — abra a aba Imagem para ver o
+#      resultado sendo gerado. As demais imagens não serão alteradas.
+#
+# A segunda é a frase fixa do código. A PRIMEIRA é o modelo do chat
+# escrevendo o anúncio por conta própria, em texto livre, antes de emitir o
+# comando. Duas vozes dizendo a mesma coisa — e, pior, a voz do modelo
+# ANUNCIA O QUE AINDA NÃO ACONTECEU: ele não sabe se a fila foi aceita.
+#
+# O dono do anúncio é o CÓDIGO: só ele sabe se enfileirou, se roteou, se
+# recusou. A observação do modelo ("vi a imagem 3: a caixa está aberta, com
+# ~12 compartimentos") CONTINUA — ela é o que prova que ele olhou, e é útil.
+# Some só a linha que repete o que o sistema vai dizer em seguida.
+#
+# A instrução de sistema pede que ele não escreva isso. Esta função existe
+# porque pedir não é garantir: modelo generativo obedece na maioria das
+# vezes, e "na maioria" é o que deixa a linha duplicada aparecer no dia em
+# que o dono está olhando.
+_ANUNCIO_DO_MODELO = _re_ch.compile(
+    r"(?im)^\s*(?:[🔄🔁✅⚠️]\s*)?(?:\*\*)?(?:"
+    r"instru[çc][ãa]o enviada|ajuste enviado|comando enviado|"
+    r"imagem \d+ (?:ser[áa]|vai ser|est[áa] sendo) (?:refeita|ajustada)|"
+    r"(?:vou|estou) (?:ajustar|refazer|enviar|aplicar)\b|"
+    r"imagem \d+ (?:refeita|ajustada) do zero"
+    r").*$")
+_RASTRO_DE_ANUNCIO = _re_ch.compile(
+    r"(?im)^\s*(?:acompanhe na aba|abra a aba|as (?:outras|demais) "
+    r"(?:imagens|\d+)).*$")
+
+
+def sem_anuncio_de_acao(texto):
+    """O texto livre do modelo sem as linhas que o código já vai dizer."""
+    if not texto:
+        return texto or ""
+    limpo = _RASTRO_DE_ANUNCIO.sub("", _ANUNCIO_DO_MODELO.sub("", str(texto)))
+    # Linhas em branco que sobraram viram UMA só, e o resto fica como estava.
+    return _re_ch.sub(r"\n{3,}", "\n\n", limpo).strip()
+
+
 def _executar_comando(cmd: dict) -> str | None:
     """Executa o comando extraído da resposta da IA. Retorna texto de feedback."""
     acao = cmd.get("acao", "")
@@ -710,9 +765,17 @@ def _executar_comando(cmd: dict) -> str | None:
             import imagem as _img_rot
             _modo_rot, _por_rot = _img_rot.classificar_edicao(instrucao)
             if _modo_rot == "refazer":
+                # A REFERÊNCIA VIAJA AQUI TAMBÉM.
+                #
+                # Ela só ia na fila do AJUSTE. Quem anexava uma imagem de
+                # exemplo e caía no refazer — por pedido próprio ou pelo
+                # roteador — perdia o anexo no caminho: o motor recebia a
+                # frase e nenhuma imagem do que a pessoa queria.
                 st.session_state.setdefault(
                     "chat_refazer_imagem", []).append(
-                        {"num": foto_num, "instrucao": instrucao})
+                        {"num": foto_num, "instrucao": instrucao,
+                         "referencia": referencia_do_pedido(
+                             st.session_state.get("ms_chat_hist"))})
                 _log("refazer_imagem", instrucao, imagem=foto_num,
                      tipo=galeria[foto_num - 1].get("tipo", ""),
                      resultado=f"roteado do ajuste: {_por_rot}")
@@ -758,7 +821,9 @@ def _executar_comando(cmd: dict) -> str | None:
                     "número:\n" + nomes)
         instrucao = str(cmd.get("instrucao", "")).strip()
         st.session_state.setdefault("chat_refazer_imagem", []).append(
-            {"num": foto_num, "instrucao": instrucao})
+            {"num": foto_num, "instrucao": instrucao,
+             "referencia": referencia_do_pedido(
+                 st.session_state.get("ms_chat_hist"))})
         _log("refazer_imagem", instrucao, imagem=foto_num,
              tipo=galeria[foto_num - 1].get("tipo", ""))
         return (f"🔁 **Imagem {foto_num}** será refeita do zero. As outras "
@@ -1156,7 +1221,10 @@ def renderizar_chat(usuario_logado=""):
 
         texto_final = resposta
         if feedback:
-            texto_final = (texto_final + "\n\n" + feedback).strip() if texto_final else feedback
+            # O ANÚNCIO É DO CÓDIGO. A observação do modelo fica.
+            texto_final = sem_anuncio_de_acao(resposta)
+            texto_final = ((texto_final + "\n\n" + feedback).strip()
+                           if texto_final else feedback)
 
         hist.append({"role": "assistant", "content": texto_final})
         st.rerun()
@@ -1411,6 +1479,93 @@ if __name__ == "__main__":
         if "num" in _chaves and "instrucao" in _chaves:
             _leva = "referencia" in _chaves
     ok("o comando de ajuste leva a referência do pedido", _leva)
+
+    # ── UM DONO PARA O ANÚNCIO, E A OBSERVAÇÃO FICA ────────────────────
+    #
+    # 01/10: duas linhas seguidas na tela, dizendo a mesma coisa — uma do
+    # modelo em texto livre, outra do código. E a do modelo anuncia o que
+    # ainda não aconteceu: ele não sabe se a fila foi aceita.
+    _resp_real = (
+        "Vi a imagem 3: a caixa está aberta em cima do criado-mudo, com "
+        "interior bege e cerca de 12 compartimentos em duas fileiras.\n"
+        "Vou deixar 6 compartimentos em fileira única e todo o interior "
+        "preto.\n\n"
+        "🔄 Instrução enviada para a **Imagem 3** — acompanhe na aba "
+        "Imagem. As outras imagens ficam como estão.")
+    _limpo = sem_anuncio_de_acao(_resp_real)
+    ok("o anúncio duplicado do modelo sai do texto livre",
+       "Instrução enviada" not in _limpo
+       and "acompanhe na aba" not in _limpo.lower())
+    # A LINHA DE INTERPRETAÇÃO FICA, e a distinção é de propósito.
+    #
+    # "Vou deixar 6 compartimentos em fileira única" é o modelo dizendo o que
+    # ENTENDEU do pedido — é a chance de o colaborador corrigir antes de
+    # gastar uma geração. Não é anúncio de execução, e o sistema não repete
+    # isso. Some só o que ele diz sobre a AÇÃO: "vou ajustar", "vou refazer",
+    # "instrução enviada".
+    ok("o que ele ENTENDEU do pedido fica — é onde dá para corrigir",
+       "Vou deixar 6 compartimentos" in _limpo)
+    ok("mas 'vou ajustar' e 'vou refazer' saem",
+       sem_anuncio_de_acao("Vou ajustar a imagem 3 agora.") == ""
+       and sem_anuncio_de_acao("Vou refazer a peça.") == "")
+    ok("MAS a observação de que ele OLHOU a peça fica",
+       "cerca de 12 compartimentos" in _limpo
+       and "interior bege" in _limpo)
+    ok("texto sem anúncio nenhum volta igual",
+       sem_anuncio_de_acao("A peça 2 tem três cartões.")
+       == "A peça 2 tem três cartões.")
+    ok("vazio e None não derrubam",
+       sem_anuncio_de_acao("") == "" and sem_anuncio_de_acao(None) == "")
+    # E O CÓDIGO É QUEM JUNTA: a limpeza roda no caminho real, e não só
+    # nesta função isolada — foi assim que uma guarda desta base nasceu
+    # fraca, exercitando a função que eu tinha acabado de escrever.
+    import inspect as _insp_an
+    _fonte_pag = _insp_an.getsource(renderizar_chat)
+    ok("a limpeza roda onde o texto e o feedback são juntados",
+       "sem_anuncio_de_acao(resposta)" in _fonte_pag)
+    # O SYSTEM PROMPT TEM DOIS CAMINHOS: sem conteúdo gerado ele é só
+    # perguntas-e-respostas, e nem traz a lista de comandos. A regra do
+    # anúncio mora no caminho COM comandos — medir o outro seria medir um
+    # texto que não é o que o modelo recebe quando há imagens na tela.
+    _gal_antes = st.session_state.get("img_galeria")
+    try:
+        st.session_state["img_galeria"] = [{"tipo": "2. Benefícios"}]
+        _sys_cmd = _montar_system()
+    finally:
+        if _gal_antes is None:
+            st.session_state.pop("img_galeria", None)
+        else:
+            st.session_state["img_galeria"] = _gal_antes
+    ok("a instrução de sistema pede que ele nem escreva o anúncio",
+       "NUNCA ANUNCIE A EXECUÇÃO EM TEXTO LIVRE" in _sys_cmd)
+    ok("e diz o que ELE escreve no lugar — o que viu",
+       "é a observação" in _sys_cmd)
+
+    # ── A REFERÊNCIA ANEXADA VIAJA NAS DUAS FILAS ──────────────────────
+    #
+    # Ela só ia na do AJUSTE. Quem anexava uma imagem de exemplo e caía no
+    # refazer perdia o anexo: o motor recebia a frase e nenhuma imagem do
+    # que a pessoa queria.
+    import ast as _ast_rf
+    _arv_rf = _ast_rf.parse(_insp_an.getsource(_executar_comando).lstrip())
+    _filas = {}
+    for _n_rf in _ast_rf.walk(_arv_rf):
+        if not (isinstance(_n_rf, _ast_rf.Call)
+                and isinstance(_n_rf.func, _ast_rf.Attribute)
+                and _n_rf.func.attr == "append"
+                and _n_rf.args
+                and isinstance(_n_rf.args[0], _ast_rf.Dict)):
+            continue
+        _onde = _ast_rf.unparse(_n_rf.func)
+        _ch = {getattr(_k, "value", None) for _k in _n_rf.args[0].keys}
+        if "num" not in _ch or "instrucao" not in _ch:
+            continue
+        for _fila in ("chat_img_pendente", "chat_refazer_imagem"):
+            if _fila in _onde:
+                _filas.setdefault(_fila, []).append("referencia" in _ch)
+    ok("as duas filas existem no código", len(_filas) == 2)
+    for _fila, _tem in sorted(_filas.items()):
+        ok(f"todo comando de «{_fila}» leva a referência", all(_tem))
 
     # ── O ROTEADOR AJUSTAR x REFAZER ────────────────────────────────────
     #

@@ -7471,12 +7471,23 @@ def consumir_comandos_do_chat(usuario_logado=""):
             # A PECA DE ANTES, guardada antes de ser sobrescrita: e com ela
             # que o juiz vai comparar para dizer se o pedido aconteceu.
             _antes_rf = galeria[_i].get("bytes")
+            # A REFERÊNCIA ANEXADA NO CHAT, quando houver.
+            #
+            # Ela chegava só na fila do AJUSTE. No refazer, o motor recebia a
+            # frase e as fotos do produto, e a imagem de exemplo que a pessoa
+            # anexou para mostrar o que queria ficava no chat.
+            #
+            # ORDEM IMPORTA, e é a mesma do ajuste: a referência primeiro, as
+            # fotos do produto depois. As fotos são a trava de fidelidade; a
+            # referência é o que se pede.
+            _ref_ped_rf = [b for b in (_c.get("referencia") or []) if b]
+            _fotos_desta = _ref_ped_rf + list(_fotos_rf)
             _prompt = prompt_para_regerar(_tp, _ins, _dados_rf, _nome_rf)
             _r = {"img": None, "erro": None, "done": False}
             _b = st.progress(0.0, text=f"Refazendo a Imagem {_i + 1}…")
             import threading as _th_rf, time as _tm_rf
             _th_rf.Thread(target=_li_thread.alvo_com_contexto(_gerar_imagem_thread),
-                          args=(_prompt, _fotos_rf, _r), daemon=True).start()
+                          args=(_prompt, _fotos_desta, _r), daemon=True).start()
             _t0 = _tm_rf.time()
             while not _r["done"]:
                 _sg = int(_tm_rf.time() - _t0)
@@ -7496,7 +7507,7 @@ def consumir_comandos_do_chat(usuario_logado=""):
             # o texto e sem olhar a imagem. Foi por aqui que sairam as pecas
             # com texto cortado e a caneca de duas alcas, uma atras da outra,
             # enquanto o dono corrigia a mao.
-            def _gerar_rf(_p, _fr=_fotos_rf, _t=_tp):
+            def _gerar_rf(_p, _fr=_fotos_desta, _t=_tp):
                 _rr = {"img": None, "erro": None, "done": False}
                 _tt = _th_rf.Thread(target=_li_thread.alvo_com_contexto(_gerar_imagem_thread),
                                     args=(_p, _fr, _rr), daemon=True)
@@ -11777,6 +11788,32 @@ if __name__ == "__main__":
         globals()["_ajustar_bruto"] = _a_bruto
         globals()["revisar_texto"] = _a_rev
         globals()["pode_ter_texto"] = _a_pode
+
+    # ── A REFERENCIA ANEXADA CHEGA AO MOTOR NO REFAZER ─────────────────
+    #
+    # Ela so viajava na fila do AJUSTE. Quem anexava uma imagem de exemplo
+    # e caia no refazer — por pedido proprio ou pelo roteador — perdia o
+    # anexo: o motor recebia a frase e as fotos do produto, e a imagem que
+    # a pessoa anexou para mostrar o que queria ficava no chat.
+    #
+    # Por AST, no caminho real: as duas chamadas de geracao do refazer usam
+    # a lista que SOMA a referencia, e nao `_fotos_rf` cru.
+    import ast as _ast_rr
+    _fonte_cc = _insp_img.getsource(consumir_comandos_do_chat)
+    _arv_cc = _ast_rr.parse(_fonte_cc.lstrip())
+    ok("o refazer monta a lista com a referencia do pedido",
+       "_ref_ped_rf = [b for b in (_c.get(\"referencia\") or []) if b]"
+       in _fonte_cc
+       and "_fotos_desta = _ref_ped_rf + list(_fotos_rf)" in _fonte_cc)
+    # E NENHUMA das geracoes do refazer pode usar `_fotos_rf` direto: foi
+    # exatamente isso que deixou o anexo para tras.
+    _usos_crus = _fonte_cc.count("_fotos_rf, _r)") + _fonte_cc.count(
+        "_fr=_fotos_rf")
+    ok("nenhuma geracao do refazer usa as fotos sem a referencia",
+       _usos_crus == 0)
+    ok("e a referencia vem ANTES das fotos do produto — as fotos sao a "
+       "trava de fidelidade, a referencia e o pedido",
+       _fonte_cc.index("_ref_ped_rf + list(_fotos_rf)") > 0)
 
     # ── O ROTEADOR AJUSTAR x REFAZER, MEDIDO NOS PEDIDOS REAIS ─────────
     #
