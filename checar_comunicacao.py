@@ -239,8 +239,20 @@ ASSUNTOS_DO_PROMPT = {
         r"ocupando (?:mais|menos) da",
     "folga da borda":
         r"folga da borda|pelo menos \d+%|edge clearance|cruza ou toca",
+    # O ASSUNTO, E NAO A FRASE QUE JA QUEBROU — e a Forma 2 dentro do
+    # proprio verificador.
+    #
+    # A primeira versao perguntava so por "exatamente N bloco", que e como a
+    # voz do SISTEMA escreve. A segunda voz, na REGRA DE DENSIDADE, escrevia
+    # "reproduza a mesma quantidade de blocos (...) mesmo que sejam 5 ou 6
+    # blocos" — mesmo assunto, outra redacao, e o verificador via UMA voz so.
+    # Foi o ChatGPT, lendo o codigo exportado em 01/10, que achou o que este
+    # verificador existia para achar. Agora ele pergunta pelo ASSUNTO:
+    # "quantidade/numero de blocos|cartoes", em qualquer redacao.
     "quantidade de blocos de texto":
-        r"exatamente \d+ bloco|maximum \d+ information",
+        r"exatamente \d+ bloco|maximum \d+ information|"
+        r"(?:quantidade|n[uú]mero) de (?:blocos|cart[õo]es)|"
+        r"\d+ ou \d+ (?:blocos|cart[õo]es)",
 }
 
 # O que faz duas vozes discordarem: número, fração, contagem.
@@ -273,6 +285,26 @@ def blocos_do_prompt(texto):
     return fora
 
 
+_ABRE_ITEM = _re_voz.compile(r"^\s*(?:[-•*]\s|\d+[.)]\s)")
+
+
+def _itens_do_bloco(bloco):
+    """O bloco partido em ITENS. Marcador abre; linha sem marcador continua.
+
+    Bloco sem marcador nenhum devolve o bloco inteiro como um item só — era
+    esse o comportamento antigo, e ele continua valendo onde não há lista.
+    """
+    fora, atual = [], []
+    for linha in (bloco or "").split("\n"):
+        if _ABRE_ITEM.match(linha) and atual:
+            fora.append("\n".join(atual))
+            atual = []
+        atual.append(linha)
+    if atual:
+        fora.append("\n".join(atual))
+    return fora
+
+
 def vozes_numericas(prompt):
     """{assunto: [a linha de cada voz COM número]} quando há mais de uma.
 
@@ -289,22 +321,95 @@ def vozes_numericas(prompt):
     A linha SEGUINTE conta junto: uma regra quebrada em duas linhas é uma voz
     só, e o número costuma cair na segunda ("A FOLGA DA BORDA MANDA:\n
     pelo menos 6% em cada lado").
+
+    UMA VOZ É UM ITEM, E NÃO UM BLOCO — e esta correção custou um defeito que
+    ficou de pé em produção por dias.
+
+    A primeira versão parava no primeiro achado de cada BLOCO (`break`), para
+    não contar uma regra quebrada em duas linhas como duas vozes. Só que a
+    REGRA DE DENSIDADE tem DOIS itens contíguos, sem linha em branco entre
+    eles, e eles discordavam:
+
+        - QUANDO HOUVER IMAGEM DE REFERÊNCIA DE LAYOUT, ELA MANDA. Reproduza
+          a mesma quantidade de blocos (...) mesmo que sejam 5 ou 6 blocos.
+        - Esta peça tem exatamente 1 bloco(s) de texto.
+
+    Duas ordens contrárias sobre a mesma coisa, no mesmo bloco, uma delas
+    mandando ignorar a outra com todas as letras — e o verificador via UMA
+    voz só, porque o `break` o fazia sair no primeiro item.
+
+    Agora o recorte é o ITEM: linha que começa com marcador (`- `, `• `,
+    `1. `) abre uma voz; linha sem marcador continua a voz anterior. A
+    proteção original fica de pé (regra em duas linhas = uma voz) e dois
+    itens vizinhos deixam de se esconder um atrás do outro.
     """
     fora = {}
     for assunto, padrao in ASSUNTOS_DO_PROMPT.items():
         vozes = []
         for bloco in blocos_do_prompt(prompt):
-            linhas = bloco.splitlines()
-            for i, linha in enumerate(linhas):
-                if not _re_voz.search(padrao, linha, _re_voz.I):
+            for item in _itens_do_bloco(bloco):
+                linhas = item.splitlines()
+                achou = False
+                for i, linha in enumerate(linhas):
+                    if not _re_voz.search(padrao, linha, _re_voz.I):
+                        continue
+                    trecho = linha + " " + (linhas[i + 1] if i + 1 < len(linhas)
+                                            else "")
+                    if _TRAZ_NUMERO.search(trecho):
+                        vozes.append(linhas[0].strip()[:78])
+                        achou = True
+                        break      # uma voz por ITEM, não uma por linha
+                if achou:
                     continue
-                trecho = linha + " " + (linhas[i + 1] if i + 1 < len(linhas)
-                                        else "")
-                if _TRAZ_NUMERO.search(trecho):
-                    vozes.append(linha.strip()[:78])
-                    break          # uma voz por bloco, não uma por linha
         if len(vozes) > 1:
             fora[assunto] = vozes
+    return fora
+
+
+# ── REGRA 2-bis: ORDEM QUE DEVOLVE AO MODELO UMA DECISÃO JÁ FECHADA ───────
+#
+# A Regra 2 só enxerga duas vozes quando as DUAS trazem número. Existe um
+# segundo jeito de criar duas autoridades, e ele passa por baixo dela: uma
+# frase SEM número que autoriza o modelo a mudar o número da outra.
+#
+# O caso, vivo em produção até 01/10 e em 6 dos 9 tipos:
+#
+#     - Esta peça tem exatamente 3 bloco(s) de texto.
+#     - SE NÃO COUBEREM TODOS na coluna com essa folga, use MENOS cartões.
+#
+# A primeira fecha; a segunda reabre. "use MENOS" não tem dígito, então a
+# Regra 2 não via nada — e eu cheguei a relatar ao dono que esta ordem
+# impossível tinha sido removida. Não tinha: a minha varredura procurou
+# "menos blocos" e o texto diz "menos cartões".
+#
+# QUEM ACHOU ISTO FOI O CHATGPT, lendo o código exportado. Ele descreveu o
+# padrão certo: "qualquer coisa que o Python possa calcular não deve virar
+# escolha do modelo". A guarda abaixo é esse padrão virado medida.
+#
+# ELA É ESTREITA DE PROPÓSITO. Guarda larga aqui reprovaria meio prompt e
+# viraria ruído — e ruído ensina a ignorar o verificador. Só entra frase que
+# ENTREGA AO MODELO uma decisão que o sistema já tomou antes da chamada.
+REABREM_DECISAO = (
+    (r"use\s+menos|escreva\s+menos|menos\s+(?:cart[õo]es|blocos)",
+     "autoriza o modelo a mudar a QUANTIDADE, que o sistema já fechou"),
+    (r"se\s+n[ãa]o\s+couber(?:em)?|caso\s+n[ãa]o\s+couber(?:em)?|"
+     r"conforme\s+couber",
+     "entrega ao modelo a decisão de 'o que cortar', que é do sistema"),
+    (r"de\s+\d+\s+a\s+\d+\s+(?:cart[õo]es|blocos)|at[ée]\s+\d+\s+cart[õo]es",
+     "manda uma FAIXA onde já existe um número fechado"),
+)
+_REABREM = tuple((_re_voz.compile(p, _re_voz.I), motivo)
+                 for p, motivo in REABREM_DECISAO)
+
+
+def ordens_que_reabrem(prompt):
+    """[(linha, motivo)] das ordens que devolvem ao modelo decisão fechada."""
+    fora = []
+    for linha in (prompt or "").splitlines():
+        for rx, motivo in _REABREM:
+            if rx.search(linha):
+                fora.append((linha.strip()[:88], motivo))
+                break
     return fora
 
 
@@ -634,12 +739,24 @@ def main():
                   "cena": "Bancada de mármore", "direcao_de_arte": _dir,
                   "textos": [{"titulo": "DURA?", "descricao": "Resiste"}]}
         _achados = {}
+        _reabrem = {}
         for _tipo in _img.TIPOS_PADRAO:
             _p = _img.montar_prompt_imagem(_tipo, "", _dados, "Produto",
                                            plano_triagem=_plano,
                                            direcao_arte=_dir)
             for _a, _vs in vozes_numericas(_p).items():
                 _achados.setdefault(_a, set()).update(_vs)
+            for _l, _mot in ordens_que_reabrem(_p):
+                _reabrem.setdefault(_l, _mot)
+        if _reabrem:
+            falhas += 1
+            print(f"FALHA  {len(_reabrem)} ordem(ns) que devolvem ao modelo "
+                  "uma decisão que o sistema já tomou:")
+            for _l, _mot in sorted(_reabrem.items()):
+                print(f"         · {_l}")
+                print(f"           {_mot}")
+            print("       O que o Python pode calcular não vira escolha do "
+                  "modelo. Feche a decisão antes da chamada.")
         if _achados:
             falhas += 1
             print(f"FALHA  {len(_achados)} assunto(s) com DUAS vozes numéricas "

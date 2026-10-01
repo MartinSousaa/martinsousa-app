@@ -35,6 +35,69 @@ RAIZ = os.path.dirname(os.path.abspath(__file__))
 # esta entrada virou letra morta — e isso também é reprovado, porque mutação
 # que não se aplica dá a impressão de cobertura que não existe.
 MUTACOES = [
+    # ── 01/10: A REFERENCIA DE LAYOUT MANDAVA NA QUANTIDADE DE CARTOES ──
+    #
+    # ACHADO PELO CHATGPT, lendo o CODIGO_GERACAO_DE_IMAGEM.txt que o dono
+    # mandou analisar. Ele escreveu: *"o codigo ainda contem 'a referencia de
+    # layout manda na quantidade de blocos' e, depois, uma regra que permite
+    # usar menos cartoes se nao couber; isso devolve ao Gemini uma decisao
+    # que deveria estar fechada antes da chamada"*. Estava certo nas duas.
+    #
+    # A REGRA DE DENSIDADE tinha, em itens vizinhos, sem linha em branco:
+    #
+    #     - QUANDO HOUVER IMAGEM DE REFERENCIA DE LAYOUT, ELA MANDA.
+    #       Reproduza a mesma quantidade de blocos (...) mesmo que sejam 5 ou
+    #       6 blocos. (...) qualquer numero abaixo desta regra nao se aplica.
+    #     - Esta peca tem exatamente 1 bloco(s) de texto.
+    #
+    # A segunda e o numero que o sistema calculou; a primeira manda ignorar
+    # a segunda COM TODAS AS LETRAS. Duas autoridades sobre o mesmo numero.
+    #
+    # E `checar_comunicacao` nao via: ele parava no primeiro achado de cada
+    # BLOCO, e os dois itens sao do mesmo bloco. A Forma 2 dentro do proprio
+    # verificador — a regra procurava a REDACAO que ja tinha quebrado
+    # ("exatamente N bloco") em vez do ASSUNTO.
+    (
+        "a referencia de layout volta a mandar na quantidade de cartoes",
+        "imagem.py",
+        [("- A IMAGEM DE REFERÊNCIA DE LAYOUT, QUANDO HOUVER, MANDA NO ESTILO: posição\n"
+          "  dos cartões, forma, cor, tipografia, ícones e espaçamento. Ela NÃO manda na\n"
+          "  QUANTIDADE de cartões nem no TAMANHO do texto — esses dois já vêm resolvidos\n"
+          "  nas linhas abaixo, e nada nesta peça os altera.",
+          "- QUANDO HOUVER IMAGEM DE REFERÊNCIA DE LAYOUT, ELA MANDA. Reproduza a mesma\n"
+          "  quantidade de blocos, o mesmo tamanho de texto e a mesma densidade que ela\n"
+          "  mostra — mesmo que sejam 5 ou 6 blocos. A referência é o padrão aprovado da\n"
+          "  empresa; qualquer número abaixo desta regra não se aplica a ela.")],
+        None,
+        ["python3", "checar_comunicacao.py"],
+    ),
+    # ── 01/10: "USE MENOS CARTOES SE NAO COUBER" — A ORDEM IMPOSSIVEL ───
+    #
+    # Eu relatei ao dono que esta ordem tinha sido removida. NAO TINHA: eu
+    # procurei por "menos blocos" e o texto diz "menos cartoes", e procurei
+    # "nao couber" com grep sem dobra de acento, que nao casa "NAO COUBEREM".
+    # Ela estava viva em 6 dos 9 tipos.
+    #
+    #     - Esta peca tem exatamente 3 bloco(s) de texto.
+    #     - SE NAO COUBEREM TODOS na coluna com essa folga, use MENOS cartoes.
+    #
+    # A primeira fecha a decisao; a segunda a reabre. E a Regra 2 nao alcanca
+    # este par, porque "use MENOS" nao tem numero — dai a REGRA 2-bis, que
+    # procura a ordem que DEVOLVE ao modelo uma decisao ja tomada.
+    (
+        "o prompt volta a autorizar o modelo a usar menos cartoes",
+        "imagem.py",
+        [("- A QUANTIDADE DE CARTÕES JÁ CABE: ela foi calculada para ESTA peça, com ESTA\n"
+          "  folga, antes de este texto ser escrito. Não reduza o número para fazer caber,\n"
+          "  não junte dois num só, não deixe nenhum de fora. Faltando espaço, diminua a\n"
+          "  ALTURA e o ESPAÇAMENTO dos cartões — nunca a quantidade, nunca comprima o\n"
+          "  texto a ponto de cortar, nunca empilhe até a borda, nunca deixe um pela\n"
+          "  metade.",
+          "- SE NÃO COUBEREM TODOS na coluna com essa folga, use MENOS cartões e maiores —\n"
+          "  nunca comprima, nunca empilhe até a borda, nunca deixe um pela metade.")],
+        None,
+        ["python3", "checar_comunicacao.py"],
+    ),
     # ── 01/10: O PROMPT PEDIA 3 CARTOES E ENTREGAVA 1 ──────────────────
     #
     # ACHADO NO ARQUIVO DO DONO e reproduzido linha a linha contra o codigo

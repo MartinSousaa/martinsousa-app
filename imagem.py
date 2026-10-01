@@ -987,10 +987,10 @@ REGRA DE LAYOUT PARA IMAGENS DE MARKETING (obrigatória para tipos 2, 3, 4, 5, 6
   criada por um estúdio de marketing — não de uma foto com texto editado por cima.
 
 REGRA DE DENSIDADE:
-- QUANDO HOUVER IMAGEM DE REFERÊNCIA DE LAYOUT, ELA MANDA. Reproduza a mesma
-  quantidade de blocos, o mesmo tamanho de texto e a mesma densidade que ela
-  mostra — mesmo que sejam 5 ou 6 blocos. A referência é o padrão aprovado da
-  empresa; qualquer número abaixo desta regra não se aplica a ela.
+- A IMAGEM DE REFERÊNCIA DE LAYOUT, QUANDO HOUVER, MANDA NO ESTILO: posição
+  dos cartões, forma, cor, tipografia, ícones e espaçamento. Ela NÃO manda na
+  QUANTIDADE de cartões nem no TAMANHO do texto — esses dois já vêm resolvidos
+  nas linhas abaixo, e nada nesta peça os altera.
 {blocos}
 - Cada bloco: {palavras}. Descrição de 3 palavras deixa a peça pobre e sem
   argumento de venda; descrição longa não cabe no cartão e transborda pela
@@ -1011,8 +1011,12 @@ REGRA DE DENSIDADE:
   na REGRA DE ESPAÇO DESTA PEÇA: o primeiro começa abaixo do topo e o último
   termina acima da base, com o fundo da cena aparecendo acima do primeiro e
   abaixo do último. Cartão que toca a borda é peça reprovada.
-- SE NÃO COUBEREM TODOS na coluna com essa folga, use MENOS cartões e maiores —
-  nunca comprima, nunca empilhe até a borda, nunca deixe um pela metade.
+- A QUANTIDADE DE CARTÕES JÁ CABE: ela foi calculada para ESTA peça, com ESTA
+  folga, antes de este texto ser escrito. Não reduza o número para fazer caber,
+  não junte dois num só, não deixe nenhum de fora. Faltando espaço, diminua a
+  ALTURA e o ESPAÇAMENTO dos cartões — nunca a quantidade, nunca comprima o
+  texto a ponto de cortar, nunca empilhe até a borda, nunca deixe um pela
+  metade.
 - Espaçamento uniforme entre blocos, sem que um encoste no outro
 - NUNCA adicione tags, selos, rodapés, ícones de compatibilidade ou elementos
   decorativos além dos blocos pedidos
