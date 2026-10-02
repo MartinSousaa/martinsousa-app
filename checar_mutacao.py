@@ -36,6 +36,22 @@ RAIZ = os.path.dirname(os.path.abspath(__file__))
 # que não se aplica dá a impressão de cobertura que não existe.
 MUTACOES = [
     (
+        'o campo do formulario da equipe volta a nao ter chave por pessoa',
+        "admin.py",
+        [('                              key=f"eq_user_{_k}",\n',
+          '')],
+        None,
+        ["python3", "checar_tela.py"],
+    ),
+    (
+        'a confirmacao da remocao volta a valer para outra pessoa',
+        "admin.py",
+        [('                key=f"eq_rm_conf_{_k}",\n',
+          '                key="eq_rm_conf",\n')],
+        None,
+        ["python3", "checar_tela.py"],
+    ),
+    (
         'o log volta a gravar produto vazio na geracao pelo codigo',
         "imagem.py",
         [('                try:\n                    import log_imagem as _li_ger\n                    _li_ger.marcar_contexto(\n                        produto=cfg.get("nome_produto", ""),\n                        usuario=usuario_logado)\n                except Exception:',
