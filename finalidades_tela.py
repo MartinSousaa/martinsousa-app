@@ -115,10 +115,10 @@ def pagina(usuario_logado=None):
 
 
 def _finalidades(cad):
-    base = ["MERCADORIA", "EMBALAGEM", "CUSTO FIXO", "NÃO OPERACIONAL",
-            "IMPOSTO", "SERVIÇO", "ESTACIONAMENTO", "FLEX", "CONSUMO INTERNO", "TRANSFERENCIA ENTRE CONTAS",
-            "EMPRESTIMO PRONAMP", "REEMBOLSO PRONAMP", "RATEIO CUSTO FIXO",
-            "MERCADO LIVRE", "SHOPEE", "SHEIN", "TIKTOK", "AMAZON", "SITE", "APLICACAO", "OUTROS"]
-    usadas = {v["finalidade"] for v in (cad or {}).values()
-              if v.get("finalidade")}
-    return sorted(set(base) | usadas)
+    """A lista vem de `favorecidos.FINALIDADES_BASE` — dono único.
+
+    Ela estava escrita aqui E em `extratos_tela.py`, e as duas cópias já
+    discordavam em quatro nomes.
+    """
+    import favorecidos as _fv
+    return _fv.finalidades_conhecidas(cad)

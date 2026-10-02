@@ -39,6 +39,40 @@ COLUNAS = ["favorecido", "finalidade", "tipo", "observacao",
 
 FUSO = timezone(timedelta(hours=-3))
 
+# ── AS FINALIDADES QUE A CASA SEMPRE TEVE — UM NOME, UMA RESPOSTA ──────────
+#
+# Esta lista morava em DOIS arquivos, `finalidades_tela.py` e
+# `extratos_tela.py`, e em 02/10 elas já discordavam: a de Extratos não tinha
+# EMPRESTIMO PRONAMP, REEMBOLSO PRONAMP, RATEIO CUSTO FIXO nem APLICACAO. É a
+# Forma 5 do CLAUDE.md acontecida — a mesma pergunta com duas respostas passa
+# a discordar, a questão é só quando. Ela fica aqui porque é aqui que mora o
+# SIGNIFICADO do gasto (`lancamentos.py` diz isso no cabeçalho dele).
+#
+# As cinco últimas nasceram da fatura do ML em 02/10: a tela ADS-Cross reparte
+# o pagamento do cartão nelas (`fatura_ml.FINALIDADE_DO_GRUPO`). Toda uma
+# delas precisa de lado em `composicao.lado()`, e há guarda exigindo isso —
+# finalidade nova sem lado cai em "desconhecida" e some da conta do LPV.
+FINALIDADES_BASE = (
+    "MERCADORIA", "EMBALAGEM", "CUSTO FIXO", "NÃO OPERACIONAL",
+    "IMPOSTO", "SERVIÇO", "ESTACIONAMENTO", "FLEX", "CONSUMO INTERNO",
+    "TRANSFERENCIA ENTRE CONTAS", "EMPRESTIMO PRONAMP", "REEMBOLSO PRONAMP",
+    "RATEIO CUSTO FIXO", "MERCADO LIVRE", "SHOPEE", "SHEIN", "TIKTOK",
+    "AMAZON", "SITE", "APLICACAO", "OUTROS", "FOLHA", "REEMBOLSO",
+    "ADS", "CROSS DOCKING", "PÁGINA DO ML", "AFILIADOS", "PARCELAMENTO",
+    "DEVOLUÇÃO ML",
+)
+
+
+def finalidades_conhecidas(cad=None):
+    """As da casa, mais toda finalidade já usada no cadastro. Ordenadas."""
+    try:
+        reg = cad if cad is not None else carregar()
+    except Exception:
+        reg = {}
+    usadas = {v["finalidade"] for v in (reg or {}).values()
+              if v.get("finalidade")}
+    return sorted(set(FINALIDADES_BASE) | usadas)
+
 # saida  -> consome a meta de gastos
 # entrada -> é dinheiro entrando, e `finalidade` diz de qual plataforma
 TIPOS = ("saida", "entrada")
@@ -589,5 +623,32 @@ if __name__ == "__main__":
        _c2[0]["finalidade"] == "OUTROS")
     ok("o cadastro vence a finalidade que veio no arquivo",
        _cad_manda[0][0]["finalidade"] == "MERCADORIA")
+
+    # ── FINALIDADES_BASE E finalidades_conhecidas — O DONO UNICO ──────────
+    #
+    # A lista vivia em `finalidades_tela.py` E em `extratos_tela.py`, e as
+    # duas copias JA discordavam em quatro nomes quando foram unificadas aqui
+    # (02/10). A guarda nao e sobre os nomes: e sobre haver um dono so.
+    ok("FINALIDADES_BASE nao tem nome repetido",
+       len(FINALIDADES_BASE) == len(set(FINALIDADES_BASE)))
+    ok("toda finalidade da base esta em caixa alta",
+       all(f == f.upper() for f in FINALIDADES_BASE))
+    ok("finalidades_conhecidas devolve a base inteira, ordenada",
+       set(finalidades_conhecidas({})) >= set(FINALIDADES_BASE)
+       and finalidades_conhecidas({}) == sorted(finalidades_conhecidas({})))
+    ok("e soma o que o cadastro usou, sem repetir",
+       "ALGO NOVO" in finalidades_conhecidas(
+           {"x": {"finalidade": "ALGO NOVO"}}))
+    ok("cadastro sem finalidade nao cria entrada vazia",
+       "" not in finalidades_conhecidas({"x": {"finalidade": ""}}))
+    # AS DUAS TELAS LEEM DAQUI, e nao de uma lista propria. Sem esta
+    # assercao, alguem recria a lista local e a divergencia volta calada.
+    import finalidades_tela as _ft_g
+    import extratos_tela as _et_g
+    ok("a tela de Finalidades le a base deste arquivo",
+       set(_ft_g._finalidades({})) >= set(FINALIDADES_BASE))
+    ok("a tela de Extratos le a MESMA base",
+       set(_et_g._finalidades_conhecidas(
+           __import__("favorecidos"))) >= set(FINALIDADES_BASE))
 
     print("\nfalhas:", falhas)

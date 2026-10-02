@@ -281,17 +281,33 @@ def blocos_em_portugues(tipo, pedidos=0):
     if pedidos:
         return (f"- Esta peça tem exatamente {pedidos} bloco(s) de texto, e são "
                 f"os do bloco de TEXTO EXATO. Não acrescente nenhum outro.")
-    if minimo == maximo:
-        return (f"- Sem referência: exatamente {maximo} bloco de texto. "
-                f"É o teto desta peça — nenhuma outra instrução autoriza mais.")
-    # SEM COPY, O NUMERO E ESCOLHIDO AQUI — NAO PELO MODELO.
+    # SEM COPY NAO SE PEDE CARTAO NENHUM — O TESTE DE 02/10 PROVOU O PORQUE.
     #
-    # Esta linha dizia "use de {minimo} a {maximo} blocos, conforme o conteudo
-    # disponivel". Quem decidia quantos cartoes desenhar era o gerador, que
-    # nao sabe o que e "conteudo disponivel" e escolhe pelo que couber no
-    # desenho. O sistema sabe: o teto do tipo. Entao ele fecha.
-    return (f"- Esta peça tem exatamente {maximo} bloco(s) de texto. "
-            f"Não acrescente nenhum outro, e não entregue menos.")
+    # Aqui havia DOIS ramos, e os dois tinham o mesmo defeito. Um dizia "Sem
+    # referencia: exatamente 1 bloco de texto" (tipo 7); o outro, "Esta peca
+    # tem exatamente {maximo} bloco(s) de texto. Nao acrescente nenhum outro,
+    # e nao entregue menos". Os dois fechavam o NUMERO e esqueciam as
+    # PALAVRAS: quando o plano volta com `textos: []`, o modelo recebia ordem
+    # de desenhar N cartoes e zero palavras para escrever neles. Ele nao
+    # deixa em branco — ele preenche.
+    #
+    # O que ele preencheu, medido na Caneca Termica Medieval em 02/10:
+    #   peca 4 (Close, sem copy): escreveu a DESCRICAO DO CAMPO dentro do
+    #     cartao — "TITULO CURTO EM CAIXA ALTA: TEXTURA UNICA E PROFUNDA".
+    #     A regra de redacao do prompt virou o texto da peca.
+    #   peca 5 (Tecnicas, sem copy): inventou sete cotas, duas repetidas, e
+    #     uma seta de "ALTURA DA ALCA" apontando para o corpo da caneca.
+    #
+    # Nos dois casos as guardas estavam verdes e o prompt estava coerente
+    # consigo mesmo: ele pediu exatamente o que recebeu. O defeito e PEDIR.
+    #
+    # Entao sem copy a peca sai SEM TEXTO. Peca limpa e aproveitavel; peca com
+    # medida inventada e pior que peca nenhuma, porque mente com cara de dado.
+    return ("- Esta peça NÃO recebeu copy: o plano voltou sem texto para ela. "
+            "Por isso ela não tem bloco de texto nenhum. NÃO escreva nenhuma "
+            "palavra, nenhum título, nenhum cartão, nenhuma legenda, nenhum "
+            "rótulo e nenhuma medida na imagem — nem para preencher espaço, "
+            "nem copiando esta instrução. A peça é só a fotografia.")
 
 
 # ── O ESPACO DO QUADRO: QUEM OCUPA O QUE, E O QUE NAO ENCOSTA EM NADA ──────
@@ -613,6 +629,66 @@ def _sem_acento(texto):
     import unicodedata as _u
     return "".join(c for c in _u.normalize("NFD", str(texto or "").lower())
                    if _u.category(c) != "Mn")
+
+
+# ── PROMESSA QUE O PRODUTO NAO FEZ ────────────────────────────────────────
+#
+# A copy da peca 2 da Caneca Termica Medieval veio com "INOX POR DENTRO:
+# DURAVEL e diferente de canecas decorativas". Os dados do produto dizem
+# "interior em inox diferencia de canecas decorativas" — e nao dizem
+# "duravel" em lugar nenhum. A palavra nasceu do material: a IA viu inox e
+# concluiu durabilidade.
+#
+# Isso e propaganda sem lastro, e e a classe de defeito mais cara das oito:
+# ela nao quebra nada, nao aparece em nenhuma guarda, e vai impressa para a
+# pagina do produto. "Mantem a temperatura" numa caneca que nao e termica, ou
+# "impermeavel" num caderno, e o mesmo defeito com outro substantivo.
+#
+# A LISTA SO ACUSA, NAO BLOQUEIA. Casamento por palavra erra: "ideal para
+# festas" pode estar no campo de uso, e bloquear a geracao inteira por uma
+# palavra seria a maquina de alarme falso que esta base ja decidiu nao ter.
+# O aviso aparece ao lado do texto, ANTES de pagar a geracao, e quem decide e
+# quem conhece o produto.
+TERMOS_DE_PROMESSA = (
+    "mantém", "mantem", "temperatura", "térmic", "termic", "conserva",
+    "durável", "duravel", "durabilidade", "resistente", "resistência",
+    "resistencia", "protege", "proteção", "protecao", "impermeável",
+    "impermeavel", "à prova", "a prova", "garante", "garantia", "antiderrapante",
+    "não risca", "nao risca", "não quebra", "nao quebra", "atóxico", "atoxico",
+    "lava-louças", "lava loucas", "micro-ondas", "microondas",
+)
+
+
+def promessas_sem_lastro(textos, dados_descricao=None):
+    """[(texto, [termos])] — as promessas que os dados do produto não sustentam.
+
+    O lastro e o que o COLABORADOR escreveu: material, diferenciais,
+    caracteristicas e uso. Se a palavra da promessa aparece la, ela tem
+    origem e passa. Se nasceu so na copy, ela aparece aqui.
+
+    Guarda de CONTEUDO, e nao de "nao explodiu": o texto sai perfeito em
+    portugues, cabe no cartao e passa por todas as outras conferencias.
+    """
+    dd = dados_descricao or {}
+    lastro = _sem_acento(" ".join(
+        str(dd.get(c, "") or "") for c in
+        ("material", "diferenciais", "caracteristicas", "uso",
+         "nome_comercial", "nome_produto")))
+    fora = []
+    for t in (textos or []):
+        alvo = _sem_acento(t)
+        # A lista tem a forma com e sem acento do mesmo termo (o campo do
+        # colaborador vem dos dois jeitos). Reportar as duas mostraria
+        # "durável, duravel" para uma palavra só — a deduplicacao e pela
+        # forma SEM acento, que e a que foi comparada.
+        achados = {}
+        for x in TERMOS_DE_PROMESSA:
+            chave = _sem_acento(x)
+            if chave in alvo and chave not in lastro:
+                achados.setdefault(chave, x)
+        if achados:
+            fora.append((str(t), sorted(achados.values())))
+    return fora
 
 
 def plano_misturado(plano, nome_produto):
@@ -965,6 +1041,25 @@ PALAVRAS_TITULO = (2, 4)
 PALAVRAS_FRASE = (8, 9)
 
 
+# O CALLOUT DO CLOSE TEM MEDIDA PROPRIA, E ELA NAO E A DO CARTAO.
+#
+# O "ate 4 palavras" vivia dentro do texto do preset do tipo 4
+# (`PRESETS["4 — Close nos detalhes"]`), onde nenhuma varredura o lia, e o
+# prompt do Close recebia AO LADO dele a medida do cartao — "titulo curto em
+# CAIXA ALTA (2 a 4 palavras) + frase de 8 a 9 palavras". Dois tamanhos para
+# o mesmo texto na mesma mensagem: e o padrao que o oitavo verificador existe
+# para pegar, e ele passou porque os dois numeros estavam em blocos
+# diferentes.
+PALAVRAS_CALLOUT = 4
+
+
+def medida_do_callout():
+    """A frase, em portugues, sobre o tamanho da legenda de um callout."""
+    return (f"- Cada legenda de callout: no máximo {PALAVRAS_CALLOUT} "
+            "palavras, sem título e sem frase de apoio. Legenda é etiqueta, "
+            "não argumento de venda.")
+
+
 def medida_do_bloco():
     """A frase, em portugues, sobre o tamanho de um bloco de texto.
 
@@ -977,10 +1072,75 @@ def medida_do_bloco():
             f"{PALAVRAS_FRASE[1]} palavras").replace("titulo", "título")
 
 
+# O texto renderizado obedece as mesmas regras no cartao e no callout: ele
+# e o mesmo defeito nos dois ("Profess commerco" nao fica menos
+# constrangedor por estar numa legenda fina). Por isso vive fora das duas
+# instrucoes de layout e e costurado nas duas — um texto, um dono.
+INSTRUCAO_TEXTO_REAL = """REGRA DE TEXTO REAL (o erro mais constrangedor):
+- TODO texto renderizado deve ser português correto e existir de verdade. É
+  PROIBIDO inventar palavras, misturar idiomas ou desenhar texto decorativo
+  ilegível que "pareça" escrita. Nada de "Profess commerco", "High-resolução"
+  ou variações — isso destrói a credibilidade do anúncio.
+- NENHUMA palavra em inglês na peça, em lugar nenhum. Isso inclui o CENÁRIO:
+  lombada de livro, capa de caderno, tela de computador, etiqueta, embalagem e
+  placa. Se um objeto do cenário teria texto, escreva-o em português do Brasil
+  — ou desenhe o objeto sem texto legível.
+- Quanto mais longa a frase, mais letra inventada aparece nela: a medida do
+  bloco está escrita uma vez só, e em um lugar só nesta mensagem.
+- Pontuação fechada: parêntese que abre, fecha. Nada de "(exemplo," solto no
+  meio de uma frase.
+- NÃO INVENTE TEXTO: o que se escreve já veio pronto no bloco de TEXTO
+  EXATO. Não há nada a inventar, e a quantidade continua sendo a que esta
+  mensagem já fechou — aconteça o que acontecer.
+- PROIBIDO desenhar logotipo, marca, monograma ou assinatura sobre o produto ou
+  na peça. O produto não tem logo — não crie um.
+"""
+
+# "Nada sobre o produto" vale no cartao e no callout, e por isso mora fora
+# dos dois. Escrita duas vezes, ela viraria duas redacoes — e `checar_prompts`
+# procura a FRASE: a copia que mudasse uma palavra passaria a faltar numa das
+# peças sem ninguem ver.
+INSTRUCAO_NADA_SOBRE_O_PRODUTO = (
+    "- PROIBIÇÃO ABSOLUTA: JAMAIS sobreponha texto, ícone, título ou qualquer "
+    "elemento gráfico\n  diretamente sobre o produto. O produto deve estar em "
+    "zona limpa, sem nada sobre ele.")
+
+# ── O CLOSE NAO E PECA DE MARKETING, E RECEBIA A REGRA DELAS ───────────────
+#
+# `INSTRUCAO_LAYOUT_MARKETING` dizia "obrigatória para tipos 2, 3, 4, 5, 6 e 7"
+# e mandava, para TODOS eles: zona de texto com painel, cartao retangular de
+# cantos arredondados, fundo claro solido, icone line-art, coluna vertical
+# encostada num lado.
+#
+# O preset do proprio tipo 4 manda o CONTRARIO, e esta escrito duas telas
+# acima: "Callouts discretos com linha fina + legenda de ate 4 palavras",
+# "ZERO medidas, ZERO setas de dimensao", "isso e uma foto de qualidade, nao
+# infografico tecnico". Duas vozes sobre a mesma peca, e o gerador escolhe —
+# e escolheu a que tinha mais linhas: o close da Caneca Medieval em 02/10
+# saiu com dois cartoes brancos de icone line-art, do tamanho de um terco do
+# quadro, sobre a foto macro.
+#
+# Entao a regra passa a ser POR TIPO. O que vale para os dois caminhos — nada
+# sobre o produto, folga da borda, texto real em portugues, nao inventar —
+# fica no bloco comum; o que e de cartao fica so com quem tem cartao.
+INSTRUCAO_LAYOUT_CLOSE = """
+REGRA DE LAYOUT DO CLOSE (esta peça NÃO é peça gráfica de marketing):
+- Esta é uma FOTOGRAFIA MACRO. Não é infográfico, não é peça de anúncio com
+  cartões. PROIBIDO desenhar cartão, painel, caixa de texto, faixa, selo,
+  ícone line-art, tag ou qualquer bloco gráfico sobre a imagem.
+{nada_sobre_o_produto}
+- Quando — e SOMENTE quando — houver TEXTO EXATO para esta peça, ele aparece
+  como CALLOUT: uma linha fina saindo do ponto do produto até uma legenda
+  curta, em área limpa FORA do produto. Sem fundo, sem moldura, sem ícone.
+- ZERO medidas e ZERO setas de dimensão. Medida é a peça 5, não esta.
+{blocos}
+{palavras_close}
+{texto_real}
+"""
+
 INSTRUCAO_LAYOUT_MARKETING = """
-REGRA DE LAYOUT PARA IMAGENS DE MARKETING (obrigatória para tipos 2, 3, 4, 5, 6 e 7):
-- PROIBIÇÃO ABSOLUTA: JAMAIS sobreponha texto, ícone, título ou qualquer elemento gráfico
-  diretamente sobre o produto. O produto deve estar em zona limpa, sem nada sobre ele.
+REGRA DE LAYOUT PARA IMAGENS DE MARKETING (obrigatória para tipos 2, 3, 5, 6 e 7):
+{nada_sobre_o_produto}
 - A composição é dividida em ZONAS DISTINTAS e separadas:
     ZONA DO PRODUTO: área exclusiva do produto, sem texto, sem overlays, sem elementos
     gráficos sobre ele. O produto é exibido em fundo limpo dentro dessa zona.
@@ -1026,25 +1186,34 @@ REGRA DE DENSIDADE:
 - NUNCA adicione tags, selos, rodapés, ícones de compatibilidade ou elementos
   decorativos além dos blocos pedidos
 
-REGRA DE TEXTO REAL (o erro mais constrangedor):
-- TODO texto renderizado deve ser português correto e existir de verdade. É
-  PROIBIDO inventar palavras, misturar idiomas ou desenhar texto decorativo
-  ilegível que "pareça" escrita. Nada de "Profess commerco", "High-resolução"
-  ou variações — isso destrói a credibilidade do anúncio.
-- NENHUMA palavra em inglês na peça, em lugar nenhum. Isso inclui o CENÁRIO:
-  lombada de livro, capa de caderno, tela de computador, etiqueta, embalagem e
-  placa. Se um objeto do cenário teria texto, escreva-o em português do Brasil
-  — ou desenhe o objeto sem texto legível.
-- Quanto mais longa a frase, mais letra inventada aparece nela: a medida do
-  bloco está escrita uma vez só, na REGRA DE DENSIDADE acima.
-- Pontuação fechada: parêntese que abre, fecha. Nada de "(exemplo," solto no
-  meio de uma frase.
-- NÃO INVENTE TEXTO: o conteúdo de cada cartão já veio pronto no bloco de
-  TEXTO EXATO. Não há nada a inventar — e a quantidade de cartões continua
-  sendo a que está na REGRA DE DENSIDADE, aconteça o que acontecer.
-- PROIBIDO desenhar logotipo, marca, monograma ou assinatura sobre o produto ou
-  na peça. O produto não tem logo — não crie um.
+{texto_real}
 """
+
+def instrucao_de_layout(tipo, blocos, palavras):
+    """A regra de layout DESTA peça. Um dono por tipo, e não uma só para seis.
+
+    O tipo 4 (Close) recebia a regra das peças de marketing e saía
+    infográfico: cartão retangular, fundo claro, ícone line-art — enquanto o
+    preset dele, duas telas acima no mesmo prompt, pedia "callouts discretos
+    com linha fina" e "ZERO setas de dimensão". Duas vozes sobre a mesma
+    peça; o gerador seguiu a que tinha mais linhas.
+
+    Quem não tem texto nenhum (1 e 8) não recebe regra de layout de texto:
+    mandar regra de cartão para a capa em fundo branco é oferecer cartão.
+    """
+    n = numero_do_tipo(tipo)
+    if n in (1, 8):
+        return ""
+    if n == 4:
+        return INSTRUCAO_LAYOUT_CLOSE.format(
+            blocos=blocos, palavras_close=medida_do_callout(),
+            nada_sobre_o_produto=INSTRUCAO_NADA_SOBRE_O_PRODUTO,
+            texto_real=INSTRUCAO_TEXTO_REAL)
+    return INSTRUCAO_LAYOUT_MARKETING.format(
+        blocos=blocos, palavras=palavras,
+        nada_sobre_o_produto=INSTRUCAO_NADA_SOBRE_O_PRODUTO,
+        texto_real=INSTRUCAO_TEXTO_REAL)
+
 
 # ── MODO PERSONALIZADO — sem branding automático ──────────────────────────────
 INSTRUCAO_PERSONALIZADO = """
@@ -1151,8 +1320,13 @@ PRESETS = {
         "textura, poro, rachadura, desgaste, veio ou mancha de cor que não exista na "
         "foto. Se nenhuma área estiver nítida o bastante para um macro, aproxime "
         "menos — enquadramento mais aberto e fiel vale mais que macro inventado. "
-        "Callouts discretos com linha fina + legenda de até 4 palavras — a quantidade vem da "
-        "regra de densidade —, posicionados "
+        # O TAMANHO DA LEGENDA SAIU DAQUI, e foi para `medida_do_callout()`.
+        # Escrito aqui, ele chegava ao modelo ao lado da medida do CARTAO
+        # ("titulo curto em CAIXA ALTA (2 a 4) + frase de 8 a 9"), que o
+        # bloco de layout mandava para todos os seis tipos. Dois tamanhos
+        # para o mesmo texto, em blocos diferentes da mesma mensagem.
+        "Callouts discretos com linha fina, na medida que a regra de layout "
+        "desta peça define, posicionados "
         "em área limpa FORA do produto. Tom: premium, artesanal, qualidade perceptível. "
         "ZERO medidas, ZERO setas de dimensão — isso é uma foto de qualidade, não infográfico técnico."
     ),
@@ -2805,6 +2979,7 @@ def _data_url(img_bytes):
 # imagem ela tem e usa o primeiro. Um rename futuro passa a custar uma chamada
 # extra, e não um dia de geração perdida.
 import re as _re_imp
+import inspect as _inspect_g
 
 MODELO_IMAGEM_PADRAO = "gpt-image-2.5-sunburst"
 
@@ -3963,8 +4138,8 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
             # referencia, e o nome era porta para objeto e pessoa entrarem.
             f"- A ÚLTIMA imagem é apenas REFERÊNCIA DE LAYOUT (a última das "
             f"enviadas"
-            f"). Use dela SOMENTE a composição: posição dos "
-            f"blocos, hierarquia, estilo dos textos, uso do espaço.\n"
+            f"). Use dela SOMENTE a composição: "
+            f"{AUTORIDADE_DA_REFERENCIA}.\n"
             f"- PROIBIDO copiar o produto, as cores do produto, marcas ou textos da "
             f"imagem de referência de layout. O produto da peça final é o das "
             f"primeiras fotos, nunca o da referência."
@@ -4396,11 +4571,30 @@ def gerar_imagem_ia(prompt_texto, imagens_referencia, refs_layout=None,
 
 
 
+# ── A REFERENCIA DE LAYOUT TINHA DUAS AUTORIDADES, E ELAS DISCORDAVAM ─────
+#
+# Em portugues, o bloco anexado ao plano dizia: "USE das referencias:
+# posicionamento, hierarquia de elementos, estilo de texto, USO DE
+# PESSOAS/CENARIOS". Em ingles, o bloco anexado a CHAMADA DO MOTOR dizia:
+# "Use dela SOMENTE a composicao: posicao dos blocos, hierarquia, estilo dos
+# textos, uso do espaco".
+#
+# A segunda e a certa, e a primeira e a porta por onde entraram o "cinzeiro"
+# e o "casal" de uma referencia chamada `ref_cinzeiro_casal.png` — o mesmo
+# vazamento que `limpar_descricao_de_layout` existe para impedir, entrando
+# pelo lado. Uma referencia de layout empresta ESTRUTURA; pessoa e cenario
+# sao conteudo, e conteudo vem do plano e das fotos do produto.
+#
+# Agora a lista e UMA, e os dois textos a leem daqui.
+AUTORIDADE_DA_REFERENCIA = ("posição dos blocos, hierarquia dos elementos, "
+                            "estilo dos textos, uso do espaço")
+
 INSTRUCAO_REFERENCIA_LAYOUT = """
 IMAGENS DE REFERÊNCIA DE LAYOUT — REGRAS ABSOLUTAS:
 - As imagens de referência de layout mostram COMPOSIÇÃO, POSIÇÃO, ESTILO e ESTRUTURA visual
 - O produto nessas imagens de referência NÃO É o produto a ser gerado — é apenas um exemplo de layout
-- USE das referências: posicionamento, hierarquia de elementos, estilo de texto, uso de pessoas/cenários
+- USE das referências SOMENTE isto: {autoridade}
+- NÃO USE delas pessoa, cenário, objeto, prop nem clima: isso é CONTEÚDO, e o conteúdo vem do plano e das fotos do produto
 - NÃO USE das referências: o produto em si, cores do produto de referência, marcas ou logotipos visíveis
 - Aplique o layout/composição da referência ao PRODUTO DO COLABORADOR com as cores MartinSousa
 - Se o arquivo de referência tiver nome indicando o tipo (ex: "fundo_branco", "beneficios"), essa referência se aplica especificamente àquele tipo de imagem
@@ -5104,14 +5298,16 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
                       f"{len(refs_layout_nomes)} imagem(ns)")
         if instrucao_layout:
             bloco_refs += f"\nO que cada referência representa: {instrucao_layout}"
-        bloco_refs += f"\n{INSTRUCAO_REFERENCIA_LAYOUT}"
+        bloco_refs += "\n" + INSTRUCAO_REFERENCIA_LAYOUT.format(
+            autoridade=AUTORIDADE_DA_REFERENCIA)
 
     # A MEDIDA DA OCUPACAO SAI DE `OCUPACAO`, E DE MAIS LUGAR NENHUM.
     # O mesmo numero alimenta esta linha e a linha de COMPOSITION do prompt
     # final em ingles — foi a divergencia entre as duas que mandava tres
     # numeros contrarios ao modelo na mesma mensagem.
     _protagonismo = protagonismo_do_tipo(tipo)
-    _layout_marketing = INSTRUCAO_LAYOUT_MARKETING.format(
+    _layout_marketing = instrucao_de_layout(
+        tipo,
         blocos=blocos_em_portugues(tipo, _blocos_da_copy),
         palavras=medida_do_bloco(),
     )
@@ -9042,6 +9238,23 @@ def pagina_imagem(usuario_logado):
                 textos = item.get("textos", [])
                 if textos:
                     st.caption("Textos: " + " · ".join(f'"{t}"' for t in textos[:4]))
+                # PECA QUE DEVERIA TER TEXTO E VEIO SEM APARECE AQUI, ANTES DE
+                # PAGAR. Medido na Caneca Termica Medieval em 02/10: o plano
+                # voltou com `textos: []` nas pecas 4 e 5, e ate entao isso era
+                # mudo. A peca 4 saiu com "TITULO CURTO EM CAIXA ALTA" escrito
+                # dentro do cartao, e a 5 com sete cotas inventadas.
+                #
+                # Hoje o prompt proibe escrever qualquer palavra quando nao ha
+                # copy (`blocos_em_portugues`), entao a peca sai limpa — mas
+                # limpa sem aviso parece bug. Quem le aqui refaz o plano antes
+                # de gastar a geracao.
+                elif faixa_de_blocos(_oficial)[1]:
+                    st.warning(
+                        "✏️ **A análise não escreveu texto para esta peça.** "
+                        "Ela vai sair só como fotografia, sem cartão e sem "
+                        "legenda — o Studio não inventa palavra. Se esta peça "
+                        "precisa de texto, refaça o plano."
+                    )
                 # BLOCO REPETIDO APARECE AQUI, ANTES DE PAGAR.
                 #
                 # A peça 4 do dono recebeu "MADEIRA TRABALHADA: / Acabamento e
@@ -9050,6 +9263,29 @@ def pagina_imagem(usuario_logado):
                 # do conserto: descarte calado é o defeito que o oitavo
                 # verificador existe para pegar, e quem lê aqui pode refazer o
                 # plano em vez de receber uma peça com um argumento a menos.
+                # PROMESSA SEM LASTRO APARECE AQUI, ANTES DE PAGAR.
+                #
+                # "INOX POR DENTRO: DURÁVEL e diferente de canecas
+                # decorativas" saiu em 02/10 com todas as guardas verdes: o
+                # português está correto, cabe no cartão, não repete outro
+                # bloco. Só que "durável" não está em lugar nenhum dos dados
+                # do produto — nasceu de a IA ver inox e concluir.
+                #
+                # É aviso, não bloqueio: casamento por palavra erra, e
+                # verificador que dá alarme falso ensina a ser ignorado.
+                # Quem conhece o produto decide, e decide antes de gastar.
+                _promessas = promessas_sem_lastro(
+                    textos, cfg.get("dados_descricao"))
+                if _promessas:
+                    st.warning(
+                        "📣 **Promessa que os dados do produto não "
+                        "sustentam** — confira antes de gerar, porque isto "
+                        "vai impresso na peça:\n\n"
+                        + "\n".join(
+                            f'- “{_t}” — a palavra **{", ".join(_x)}** não '
+                            f'aparece no material, nos diferenciais, nas '
+                            f'características nem no uso cadastrados.'
+                            for _t, _x in _promessas))
                 _, _repetidos_item = blocos_sem_repeticao(textos)
                 if _repetidos_item:
                     st.warning(
@@ -11453,18 +11689,31 @@ if __name__ == "__main__":
     _bp_com = [blocos_em_portugues(t, 3) for t in _bp_tipos]
     ok("com copy, o prompt diz EXATAMENTE quantos blocos a copy trouxe",
        all("exatamente 3 bloco" in x for x in _bp_com))
+    # ── SEM COPY, ZERO BLOCO. As tres guardas que viviam aqui exigiam o
+    # CONTRARIO — "sem copy o prompt tambem fecha o numero" — e por isso
+    # ficaram verdes enquanto a peca 4 escrevia "TITULO CURTO EM CAIXA ALTA"
+    # dentro do cartao e a peca 5 inventava sete cotas. Elas guardavam o
+    # defeito. Forma 2 do CLAUDE.md, com um agravante: a guarda nao travava a
+    # redacao, travava a REGRA ERRADA.
     _bp_sem = [blocos_em_portugues(t, 0) for t in _bp_tipos]
-    ok("sem copy, o prompt tambem fecha o numero — nunca uma faixa",
-       all("exatamente" in x for x in _bp_sem))
+    ok("sem copy, o prompt NAO pede numero nenhum de bloco",
+       not any(_re_imp.search(r"exatamente \d+ bloco", x) for x in _bp_sem))
     ok("sem copy, nenhuma frase do tipo 'de N a M blocos'",
        not any(_re_imp.search(r"de \d+ a \d+ blocos", x) for x in _bp_sem))
     ok("sem copy, nenhum 'conforme o conteudo'",
        not any("conforme o conte" in x.lower() for x in _bp_sem))
-    # O NUMERO FECHADO E O TETO DO TIPO, e nao um valor escrito aqui: copiar
-    # a medida para o teste e medir o que eu acho, nao o que o sistema faz.
-    ok("o numero fechado sem copy e o teto do proprio tipo",
-       all(f"exatamente {faixa_de_blocos(t)[1]} bloco" in blocos_em_portugues(t, 0)
-           for t in _bp_tipos))
+    ok("sem copy, o prompt PROIBE escrever qualquer palavra",
+       all("NÃO escreva nenhuma palavra" in x for x in _bp_sem))
+    ok("e diz POR QUE, para a peca limpa nao parecer bug",
+       all("não recebeu copy" in x.lower() for x in _bp_sem))
+    # O tipo 7 tem teto 1 e caia num ramo proprio, que tambem pedia 1 bloco
+    # sem ter palavra. Ele precisa cair na mesma regra dos outros.
+    _t7 = [t for t in TIPOS_PADRAO if numero_do_tipo(t) == 7]
+    ok("o tipo de teto 1 (Presenteie) nao escapa pela porta do lado",
+       _t7 and "NÃO escreva nenhuma palavra" in blocos_em_portugues(_t7[0], 0))
+    # COM copy nada mudou: a peca que TEM texto continua pedindo o numero.
+    ok("com copy, o numero continua fechado",
+       all("exatamente 3 bloco" in x for x in _bp_com))
 
     ok("vazio e None nao derrubam",
        sem_medida_de_quadro("") == "" and sem_medida_de_quadro(None) == "")
@@ -11478,6 +11727,59 @@ if __name__ == "__main__":
                        "cena": _CENA_REAL, "textos": []})
     ok("e a cena chega ao prompt JA limpa",
        "60%" not in _p_capa and "Fundo branco puro" in _p_capa)
+
+    # ── E O AVISO DE PECA SEM COPY ESTA NA TELA, NAO SO NO PROMPT ─────────
+    #
+    # O prompt ja proibe escrever palavra sem copy. Mas peca que sai limpa
+    # sem explicacao parece bug, e quem paga a geracao e o dono. A guarda le
+    # a ARVORE da tela (`ast`), e nao o texto do arquivo: guarda que varre o
+    # arquivo se encontra a si mesma — ja aconteceu tres vezes nesta base.
+    import ast as _ast_g
+    _fonte_tela = _inspect_g.getsource(pagina_imagem)
+    _tem_aviso = any(
+        isinstance(_no, _ast_g.If) and _no.orelse
+        and "faixa_de_blocos" in _ast_g.dump(_ast_g.Module(body=_no.orelse,
+                                                           type_ignores=[]))
+        and "não escreveu texto" in _ast_g.dump(
+            _ast_g.Module(body=_no.orelse, type_ignores=[]))
+        for _no in _ast_g.walk(_ast_g.parse(_fonte_tela)))
+    ok("peca sem copy avisa NA TELA, antes de gastar a geracao", _tem_aviso)
+
+    # ── PROMESSA SEM LASTRO ───────────────────────────────────────────────
+    #
+    # A ENTRADA VEM NA FORMA QUE A TELA MONTA: `dados_descricao` e um
+    # dicionario de campos do colaborador, e nao um texto solto. Escrever uma
+    # string aqui mediria o meu entendimento do sistema — foi assim que o
+    # botao dos oito prompts quebrou em producao com a guarda verde.
+    _dd_real = {"material": "Metal e Resina",
+                "diferenciais": "interior em inox diferencia de canecas "
+                                "decorativas, visual inspirado em pedra",
+                "caracteristicas": "altura: 5,2cm largura: 2,4",
+                "uso": "uso diário, bar, festas temáticas"}
+    _copy_real = ["VERSÁTIL E FUNCIONAL: cabe em qualquer bebida e ocasião",
+                  "INOX POR DENTRO: durável e diferente de canecas decorativas",
+                  "DESIGN ÚNICO: foge do padrão medieval com realismo"]
+    _pr = promessas_sem_lastro(_copy_real, _dd_real)
+    ok("acusa 'durável' — a palavra nao esta em dado nenhum do produto",
+       len(_pr) == 1 and "durável" in _pr[0][1])
+    ok("e NAO acusa as outras duas, que sao atributo e nao promessa",
+       all("VERSÁTIL" not in t and "DESIGN" not in t for t, _ in _pr))
+    ok("promessa que ESTA nos dados passa",
+       not promessas_sem_lastro(
+           ["MANTÉM A TEMPERATURA: por horas"],
+           dict(_dd_real, diferenciais="mantém a temperatura por 6 horas")))
+    ok("sem dados cadastrados, toda promessa e sem lastro",
+       len(promessas_sem_lastro(["RESISTENTE: aguenta queda"], {})) == 1)
+    ok("texto sem promessa nenhuma nao vira aviso",
+       promessas_sem_lastro(["DESIGN ÚNICO: foge do padrão"], _dd_real) == [])
+    ok("o mesmo termo nao sai duas vezes por causa do acento",
+       len(promessas_sem_lastro(["DURÁVEL de verdade"], {})[0][1]) == 1)
+
+    # E o aviso esta NA TELA, pela arvore — nao basta a funcao existir.
+    _tem_promessa = "promessas_sem_lastro" in _ast_g.dump(
+        _ast_g.parse(_fonte_tela))
+    ok("promessa sem lastro avisa NA TELA, antes de gastar a geracao",
+       _tem_promessa)
 
     # ── A PECA E OLHADA, E NAO SO LIDA ──────────────────────────────────
     #

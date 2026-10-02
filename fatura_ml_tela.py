@@ -79,6 +79,8 @@ def pagina(usuario_logado=None):
     st.markdown("---")
     _resumo(_fm, sep, pag)
     st.markdown("---")
+    _levar_para_o_mes(_fm, pag, usuario_logado)
+    st.markdown("---")
     _conferencia(_fm, sep, pag, usuario_logado)
     st.markdown("---")
     _casos_em_aberto(_fm, usuario_logado, sep=sep)
@@ -205,6 +207,118 @@ def _grupos(_fm, sep, pag):
             [{"Grupo": nome, "Cobrança (nome do ML)": k, "Valor": _brl(v)}
              for nome, d in grupos.items() for k, v in d["itens"].items()],
             hide_index=True, use_container_width=True)
+
+
+def _levar_para_o_mes(_fm, pag, usuario_logado):
+    """Repartir a linha do cartão em ADS, Cross, Página e Imposto.
+
+    POR QUE ESTA SEÇÃO EXISTE
+    -------------------------
+    Até 02/10 esta tela sabia tudo e não contava nada: o dono via R$ 2.762,80
+    de ADS aqui, e no "Gastos do mês" aquilo estava dentro de uma linha
+    `MERCADOLIVRE` classificada como CONSUMO INTERNO. Duas telas, dois
+    significados para o mesmo dinheiro.
+
+    POR QUE ELA SUBSTITUI EM VEZ DE LANÇAR
+    ---------------------------------------
+    O valor já entrou pela fatura do cartão. Lançar as partes por cima
+    dobraria o mês, em silêncio. Então o botão só aparece quando ACHA a
+    linha — e quando não acha, diz o que falta em vez de lançar no escuro.
+    """
+    import lancamentos as _lan
+
+    st.markdown("##### Levar para o mês")
+    if not pag:
+        st.info(
+            "Suba o **relatório de pagamento de faturas** para repartir o "
+            "gasto. Sem ele o Studio sabe o que foi **cobrado**, e o que "
+            "entra no mês é o que foi **pago**.")
+        return
+
+    partes = _fm.quebra_do_pago(pag)
+    # `conferir_quebra` compara em módulo: aqui as partes ainda são positivas
+    # (só ganham o sinal da linha do cartão em `linhas_para_lancamentos`).
+    ok_soma, recado = _fm.conferir_quebra(partes, pag)
+    if not ok_soma:
+        st.error(recado)
+        return
+
+    st.caption(
+        f"O cartão pagou {_md(pag['total_pago'])} em uma linha só. Abaixo, "
+        "a mesma quantia repartida nas finalidades do Financeiro — o total "
+        "do mês não muda em um centavo, só o significado dele.")
+    st.dataframe(
+        [{"Grupo": p["grupo"],
+          "Vira a finalidade": p["finalidade"] or "SEM CLASSIFICAÇÃO",
+          "Tarifas": p["n"], "Valor": _brl(p["valor"])} for p in partes],
+        hide_index=True, use_container_width=True)
+
+    sem_nome = [p for p in partes if not p["finalidade"]]
+    if sem_nome:
+        st.warning(
+            "Uma das partes é cobrança que o Studio nunca viu. Ela entra "
+            "**sem finalidade**, e a Home vai mostrá-la no aviso de *sem "
+            "classificação* — de propósito: desconhecido somado dentro de "
+            "'outros' foi como a multa de R\\$ 69,60 passou.")
+
+    try:
+        gravados = _lan.carregar()
+    except Exception as e:
+        st.error(f"Não consegui ler os lançamentos: {str(e)[:120]}")
+        return
+
+    original = _fm.lancamento_do_cartao(pag, gravados)
+    if not original:
+        st.warning(
+            f"**Não achei a linha de {_md(pag['total_pago'])} nos "
+            "lançamentos.** Ela entra pela fatura do cartão, em Financeiro › "
+            "Extratos — suba a fatura do mês do pagamento e volte aqui. Eu "
+            "não lanço sem achá-la: lançar por fora dobraria o mês quando a "
+            "fatura subir depois.")
+        return
+
+    novas = _fm.linhas_para_lancamentos(pag, original)
+    ok2, recado2 = _fm.conferir_quebra(novas, pag)
+    if not ok2:
+        st.error(recado2)
+        return
+
+    # Pré-calculado: f-string com aspas aninhadas só vale do Python 3.12 em
+    # diante, e o container roda 3.11 (está no CLAUDE.md).
+    _quem = original.get("favorecido") or original.get("descricao") or "—"
+    _fin_hoje = original.get("finalidade") or "sem finalidade"
+    st.success(
+        f"Achei a linha: **{original.get('data')} · {_quem} · "
+        f"{_md(original.get('valor'))}** — hoje classificada como "
+        f"*{_fin_hoje}*. O botão apaga esta linha e grava as "
+        f"{len(novas)} acima no lugar dela.")
+
+    if st.button("Repartir esta linha no mês", type="primary",
+                 use_container_width=True, key="ml_quebrar"):
+        # A ORDEM IMPORTA: grava primeiro, apaga depois. Se o Google falhar
+        # no meio, o pior caso é o mês contar duas vezes — visível na hora,
+        # e desfazível com o lápis. Apagar primeiro e falhar na gravação
+        # some com o gasto, e sumiço ninguém vê.
+        conta = str(original.get("conta", ""))
+        n, rep, erro = _lan.gravar(novas, conta, usuario_logado)
+        if erro:
+            st.error(f"Não consegui gravar: {erro}")
+            return
+        if not n:
+            st.info("Estas partes já estavam gravadas. Nada mudou.")
+            return
+        quantos, msg = _lan.apagar([original.get("id", "")])
+        if not quantos:
+            st.error(
+                f"Gravei as {n} partes, mas NÃO consegui apagar a linha "
+                f"original — o mês está contando este valor duas vezes "
+                f"agora. Apague a linha de {_md(original.get('valor'))} à "
+                f"mão em Financeiro › Extratos. ({msg})")
+            return
+        st.success(
+            f"Pronto: {n} linha(s) no lugar de 1, somando o mesmo "
+            f"{_md(pag['total_pago'])}. ADS, Cross, Página e Imposto agora "
+            "aparecem separados no Gastos do mês e no LPV.")
 
 
 def _conferencia(_fm, sep, pag, usuario_logado):

@@ -57,7 +57,10 @@ import unicodedata
 # Só os nomes que o Studio usa (`finalidades_tela.py:118`). O que não estiver
 # aqui cai em DESCONHECIDA e APARECE na tela — finalidade nova entrando muda
 # de lado sozinha em silêncio é como a conta passa a mentir sem ninguém ver.
-NUMERADOR = ("CUSTO FIXO", "SERVIÇO", "SERVIÇOS", "FOLHA")
+# PÁGINA DO ML entra aqui pelo mesmo motivo das assinaturas, explicado no
+# cabeçalho: são R$ 99,00 por mês vendendo 100 ou vendendo 3.000. Custo que
+# não varia com o faturamento é fixo, e fixo vai ao numerador.
+NUMERADOR = ("CUSTO FIXO", "SERVIÇO", "SERVIÇOS", "FOLHA", "PÁGINA DO ML")
 
 # JÁ MEDIDO DENTRO DA MARGEM — e por isso NÃO pode ser somado de novo.
 #
@@ -83,8 +86,14 @@ MEDIDO_NA_MARGEM = ("MERCADORIA", "IMPOSTO",
 # Ele rateia isso por PARTICIPAÇÃO NO FATURAMENTO de cada venda — que é o
 # mesmo que uma taxa sobre o faturamento. Por isso entra no denominador, ao
 # lado de comissão e frete, e não no numerador.
+# As quatro últimas vieram da fatura do ML (02/10). Todas variam com o
+# volume de vendas — coleta e armazenamento no Full, comissão de afiliado,
+# taxa de parcelamento, tarifa de devolução — e nenhuma está dentro das
+# TAXAS_VARIAVEIS já medidas na margem: aquelas são custo do produto,
+# "Custo por vender", frete e NF. Somá-las aqui não duplica nada.
 OPERACIONAL = ("EMBALAGEM", "FLEX", "ADS", "ESTACIONAMENTO", "LIMPEZA",
-               "OUTROS", "CONSUMO INTERNO")
+               "OUTROS", "CONSUMO INTERNO",
+               "CROSS DOCKING", "AFILIADOS", "PARCELAMENTO", "DEVOLUÇÃO ML")
 
 SEGUNDA_LINHA = ("NÃO OPERACIONAL", "NAO OPERACIONAL", "EMPRESTIMO PRONAMP",
                  "REEMBOLSO PRONAMP")
@@ -499,6 +508,35 @@ if __name__ == "__main__":
     ok("None em valor não derruba", separar({"CUSTO FIXO": None})[0] is not None)
     ok("texto impossível não derruba",
        separar({"CUSTO FIXO": "abc"})[0]["numerador"] == 0.0)
+
+    # ── TODA FINALIDADE DA CASA TEM UM LADO ───────────────────────────────
+    #
+    # Esta é a guarda estrutural, e não mais uma asserção sobre um nome. O
+    # defeito que ela impede: alguém cria uma finalidade na tela, ela não
+    # existe aqui, `lado()` devolve "desconhecida" — e o gasto some do LPV
+    # sem erro nenhum na tela. Foi exatamente o que aconteceria com CROSS
+    # DOCKING, PÁGINA DO ML, AFILIADOS e PARCELAMENTO em 02/10.
+    #
+    # A lista NÃO é escrita aqui: ela vem de `favorecidos.FINALIDADES_BASE`,
+    # o dono único. Copiá-la para cá seria a Forma 5 de novo, dentro da
+    # guarda que existe para impedi-la.
+    import favorecidos as _fv_g
+    _sem_lado = [f for f in _fv_g.FINALIDADES_BASE
+                 if lado(f) == "desconhecida"]
+    ok("toda finalidade da casa tem lado — nenhuma some da conta",
+       not _sem_lado)
+    if _sem_lado:
+        print("      sem lado:", _sem_lado)
+
+    # E toda finalidade que a tela ADS-Cross GRAVA é uma da casa. Sem isto,
+    # a quebra da fatura do ML inventaria um nome que nenhuma tela conhece.
+    import fatura_ml as _fm_g
+    _forasteiras = [v for v in _fm_g.FINALIDADE_DO_GRUPO.values()
+                    if v not in _fv_g.FINALIDADES_BASE]
+    ok("a quebra da fatura do ML só grava finalidade que a casa conhece",
+       not _forasteiras)
+    if _forasteiras:
+        print("      forasteiras:", _forasteiras)
 
     print("\nfalhas:", falhas)
     raise SystemExit(falhas)
