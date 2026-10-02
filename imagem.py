@@ -2817,8 +2817,16 @@ MODELO_IMAGEM_PADRAO = "gpt-image-2.5-sunburst"
 # `dall-e-3` entra no fim de propósito: ele desenha, mas não aceita
 # `input_fidelity` nem foto de referência. É melhor que nenhuma imagem e
 # pior que qualquer `gpt-image` — e a tela diz qual motor fez a peça.
+# A ORDEM E DE CAPACIDADE, e ela mudou em 02/10 com o print da conta do dono.
+#
+# `gpt-image-2` ESTA na conta dele e nao estava nesta lista — entrava como
+# "qualquer outro", depois dos conhecidos. E ele e o melhor que a conta tem:
+# o `gpt-image-1` e aposentado em 23/10/2026, e o `gpt-image-2` ja trabalha em
+# alta fidelidade por padrao, sem precisar do `input_fidelity` (que ele nem
+# aceita — mandar o parametro faz a requisicao falhar).
 MODELOS_IMAGEM_CONHECIDOS = ("gpt-image-2.5-sunburst", "gpt-image-2.5-flare",
-                             "gpt-image-1", "dall-e-3", "dall-e-2")
+                             "gpt-image-2", "gpt-image-1.5", "gpt-image-1",
+                             "dall-e-3", "dall-e-2")
 
 # Descoberto em execução, quando o nome configurado não existe. Vive no
 # processo: perguntar uma vez por container basta, e uma chamada a cada geração
@@ -3179,27 +3187,60 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None, ref_layout=None,
             #                       álbum preto de sair azul ou bege.
             # Se a API recusar esse formato de chamada, cai na chamada antiga —
             # o pior caso é exatamente o comportamento de hoje, nunca menos.
+            # O PARAMETRO RECUSADO SAI, E A CHAMADA SE REPETE SEM ELE.
+            #
+            # Este laco existia so no caminho SEM fotos. Os dois caminhos que
+            # mandam foto — este e o `images.edit` — morriam no primeiro 400
+            # e caiam no Gemini, que e o motor sem preservacao de produto.
+            #
+            # 02/10 isto deixou de ser hipotese: o `gpt-image-2`, que a conta
+            # do dono TEM, REMOVEU o `input_fidelity` — ele ja trabalha em
+            # alta fidelidade por padrao, e manda a requisicao falhar quando o
+            # parametro vai junto. Sem este laco, trocar para o modelo novo
+            # devolveria exatamente o defeito que ele veio consertar.
+            #
+            # Le o nome NA RESPOSTA DE ERRO, e tira so aquele. Escrever a mao
+            # o que cada modelo aceita e o defeito que ja custou um dia aqui.
+            _tools_cfg = {
+                "type": "image_generation",
+                "size": "1024x1024",
+                "quality": "high",
+                "input_fidelity": "high",
+            }
             try:
-                resp = client.responses.create(
-                    model=_modelo,
-                    input=entrada,
-                    tools=[{
-                        "type": "image_generation",
-                        "size": "1024x1024",
-                        "quality": "high",
-                        "input_fidelity": "high",
-                    }],
-                )
+                for _tentativa_tool in range(3):
+                    try:
+                        resp = client.responses.create(
+                            model=_modelo, input=entrada,
+                            tools=[dict(_tools_cfg)])
+                        break
+                    except Exception as _e_par:
+                        _qual = parametro_recusado(_e_par, list(_tools_cfg))
+                        if not _qual or _qual == "type":
+                            raise
+                        import sys as _sys_par
+                        print(f"[DEBUG {_modelo}] «{_qual}» recusado pelo "
+                              f"modelo — repetindo sem ele",
+                              file=_sys_par.stderr)
+                        _tools_cfg.pop(_qual, None)
+                        if diagnostico is not None:
+                            diagnostico.setdefault("parametros_recusados",
+                                                   []).append(_qual)
                 img = _extrair(resp)
                 if img:
                     import sys as _sys
                     print(f"[DEBUG {_modelo}] Operation: generate/edit | "
-                          f"References sent: {len(imagens_bytes)} | size=1024x1024 | "
-                          "input_fidelity=high", file=_sys.stderr)
+                          f"References sent: {len(imagens_bytes)} | "
+                          f"enviados: {sorted(_tools_cfg)}", file=_sys.stderr)
                     if diagnostico is not None:
                         diagnostico["motor"] = f"{_modelo} (Responses + tools)"
-                        diagnostico["size_pedido"] = "1024x1024"
-                        diagnostico["input_fidelity"] = "high"
+                        # O QUE FOI MANDADO DE VERDADE, e nao o que o codigo
+                        # queria mandar: a tela dizia "input_fidelity=high"
+                        # mesmo quando o parametro tinha sido recusado.
+                        diagnostico["size_pedido"] = _tools_cfg.get("size", "")
+                        diagnostico["input_fidelity"] = _tools_cfg.get(
+                            "input_fidelity",
+                            "não aceito por este modelo (ele já preserva)")
                         diagnostico["refs_enviadas"] = len(fotos_para_o_motor(imagens_bytes))
                     return img, None
             except Exception as _e_tool:
@@ -3255,24 +3296,38 @@ def _chamar_openai_geracao(prompt_final, imagens_bytes=None, ref_layout=None,
                 ]
                 if ref_layout:
                     arquivos.append(_arquivo_para_openai(ref_layout, "layout_referencia"))
-                edit = client.images.edit(
-                    model=_modelo,
-                    image=arquivos,
-                    prompt=prompt_final,
-                    size="1024x1024",
-                    quality="high",
-                    input_fidelity="high",
-                )
+                _args_edit = {"size": "1024x1024", "quality": "high",
+                              "input_fidelity": "high"}
+                for _tentativa_ed in range(3):
+                    try:
+                        edit = client.images.edit(
+                            model=_modelo, image=arquivos,
+                            prompt=prompt_final, **_args_edit)
+                        break
+                    except Exception as _e_pe:
+                        _qual_e = parametro_recusado(_e_pe, list(_args_edit))
+                        if not _qual_e:
+                            raise
+                        import sys as _sys_pe
+                        print(f"[DEBUG {_modelo}] «{_qual_e}» recusado no "
+                              f"images.edit — repetindo sem ele",
+                              file=_sys_pe.stderr)
+                        _args_edit.pop(_qual_e, None)
+                        if diagnostico is not None:
+                            diagnostico.setdefault("parametros_recusados",
+                                                   []).append(_qual_e)
                 _d = edit.data[0]
                 if getattr(_d, "b64_json", None):
                     import sys as _sys
                     print(f"[DEBUG {_modelo}] Operation: edit | "
-                          f"References sent: {len(arquivos)} | size=1024x1024 | "
-                          "input_fidelity=high", file=_sys.stderr)
+                          f"References sent: {len(arquivos)} | "
+                          f"enviados: {sorted(_args_edit)}", file=_sys.stderr)
                     if diagnostico is not None:
                         diagnostico["motor"] = f"{_modelo} (images.edit)"
-                        diagnostico["size_pedido"] = "1024x1024"
-                        diagnostico["input_fidelity"] = "high"
+                        diagnostico["size_pedido"] = _args_edit.get("size", "")
+                        diagnostico["input_fidelity"] = _args_edit.get(
+                            "input_fidelity",
+                            "não aceito por este modelo (ele já preserva)")
                         diagnostico["refs_enviadas"] = len(arquivos)
                     return base64.b64decode(_d.b64_json), None
             except Exception as _e_edit:
@@ -7471,12 +7526,23 @@ def consumir_comandos_do_chat(usuario_logado=""):
             # A PECA DE ANTES, guardada antes de ser sobrescrita: e com ela
             # que o juiz vai comparar para dizer se o pedido aconteceu.
             _antes_rf = galeria[_i].get("bytes")
+            # A REFERÊNCIA ANEXADA NO CHAT, quando houver.
+            #
+            # Ela chegava só na fila do AJUSTE. No refazer, o motor recebia a
+            # frase e as fotos do produto, e a imagem de exemplo que a pessoa
+            # anexou para mostrar o que queria ficava no chat.
+            #
+            # ORDEM IMPORTA, e é a mesma do ajuste: a referência primeiro, as
+            # fotos do produto depois. As fotos são a trava de fidelidade; a
+            # referência é o que se pede.
+            _ref_ped_rf = [b for b in (_c.get("referencia") or []) if b]
+            _fotos_desta = _ref_ped_rf + list(_fotos_rf)
             _prompt = prompt_para_regerar(_tp, _ins, _dados_rf, _nome_rf)
             _r = {"img": None, "erro": None, "done": False}
             _b = st.progress(0.0, text=f"Refazendo a Imagem {_i + 1}…")
             import threading as _th_rf, time as _tm_rf
             _th_rf.Thread(target=_li_thread.alvo_com_contexto(_gerar_imagem_thread),
-                          args=(_prompt, _fotos_rf, _r), daemon=True).start()
+                          args=(_prompt, _fotos_desta, _r), daemon=True).start()
             _t0 = _tm_rf.time()
             while not _r["done"]:
                 _sg = int(_tm_rf.time() - _t0)
@@ -7496,7 +7562,7 @@ def consumir_comandos_do_chat(usuario_logado=""):
             # o texto e sem olhar a imagem. Foi por aqui que sairam as pecas
             # com texto cortado e a caneca de duas alcas, uma atras da outra,
             # enquanto o dono corrigia a mao.
-            def _gerar_rf(_p, _fr=_fotos_rf, _t=_tp):
+            def _gerar_rf(_p, _fr=_fotos_desta, _t=_tp):
                 _rr = {"img": None, "erro": None, "done": False}
                 _tt = _th_rf.Thread(target=_li_thread.alvo_com_contexto(_gerar_imagem_thread),
                                     args=(_p, _fr, _rr), daemon=True)
@@ -11106,8 +11172,16 @@ if __name__ == "__main__":
        and parametro_recusado(Exception("x"), None) == "")
     # E A CHAMADA USA ISSO — senao a funcao existe e o 400 continua matando.
     _fonte_gen = _insp_tx.getsource(_chamar_openai_geracao)
+    # A GUARDA PRECISOU FICAR ESTREITA.
+    #
+    # Ela perguntava se "parametro_recusado" aparecia na funcao. Em 02/10 os
+    # caminhos COM foto ganharam o mesmo laco, e o nome passou a aparecer tres
+    # vezes: tirar o do caminho SEM fotos deixava a guarda verde, porque os
+    # outros dois respondiam por ele. Guarda que pergunta "existe em algum
+    # lugar" nao ve a peca que deixou de ser conferida — e esta base ja pagou
+    # por isso antes, com o `checar_tela`.
     ok("a chamada sem fotos se adapta ao que o modelo recusa",
-       "parametro_recusado" in _fonte_gen)
+       "_qual = parametro_recusado(_e_gen, _args_gen)" in _fonte_gen)
 
     # ── A CONFERENCIA NAO PODE COBRAR "METADE DO QUADRO" DE UMA CENA ────
     #
@@ -11778,6 +11852,72 @@ if __name__ == "__main__":
         globals()["revisar_texto"] = _a_rev
         globals()["pode_ter_texto"] = _a_pode
 
+    # ── A REFERENCIA ANEXADA CHEGA AO MOTOR NO REFAZER ─────────────────
+    #
+    # Ela so viajava na fila do AJUSTE. Quem anexava uma imagem de exemplo
+    # e caia no refazer — por pedido proprio ou pelo roteador — perdia o
+    # anexo: o motor recebia a frase e as fotos do produto, e a imagem que
+    # a pessoa anexou para mostrar o que queria ficava no chat.
+    #
+    # Por AST, no caminho real: as duas chamadas de geracao do refazer usam
+    # a lista que SOMA a referencia, e nao `_fotos_rf` cru.
+    import ast as _ast_rr
+    _fonte_cc = _insp_img.getsource(consumir_comandos_do_chat)
+    _arv_cc = _ast_rr.parse(_fonte_cc.lstrip())
+    ok("o refazer monta a lista com a referencia do pedido",
+       "_ref_ped_rf = [b for b in (_c.get(\"referencia\") or []) if b]"
+       in _fonte_cc
+       and "_fotos_desta = _ref_ped_rf + list(_fotos_rf)" in _fonte_cc)
+    # E NENHUMA das geracoes do refazer pode usar `_fotos_rf` direto: foi
+    # exatamente isso que deixou o anexo para tras.
+    _usos_crus = _fonte_cc.count("_fotos_rf, _r)") + _fonte_cc.count(
+        "_fr=_fotos_rf")
+    ok("nenhuma geracao do refazer usa as fotos sem a referencia",
+       _usos_crus == 0)
+    ok("e a referencia vem ANTES das fotos do produto — as fotos sao a "
+       "trava de fidelidade, a referencia e o pedido",
+       _fonte_cc.index("_ref_ped_rf + list(_fotos_rf)") > 0)
+
+    # ── O PARAMETRO RECUSADO SAI, NOS CAMINHOS COM FOTO ────────────────
+    #
+    # 02/10: o print da conta do dono mostrou `gpt-image-2`, que REMOVEU o
+    # `input_fidelity` — ele ja preserva por padrao, e a requisicao FALHA
+    # quando o parametro vai junto.
+    #
+    # O laco que tira o parametro recusado existia so no caminho SEM fotos.
+    # Os dois que mandam foto morriam no primeiro 400 e caiam no Gemini —
+    # o motor sem preservacao de produto. Trocar para o modelo novo teria
+    # devolvido exatamente o defeito que ele vem consertar.
+    _fonte_ger = _insp_img.getsource(_chamar_openai_geracao)
+    ok("o caminho Responses+tools tira o parametro recusado",
+       "_qual = parametro_recusado(_e_par, list(_tools_cfg))" in _fonte_ger)
+    ok("o caminho images.edit tira o parametro recusado",
+       "_qual_e = parametro_recusado(_e_pe, list(_args_edit))" in _fonte_ger)
+    ok("nenhum dos dois manda input_fidelity escrito fixo na chamada",
+       'input_fidelity="high",\n                )' not in _fonte_ger)
+    # E O DIAGNOSTICO DIZ O QUE FOI MANDADO, nao o que o codigo queria.
+    #
+    # A tela escrevia "input_fidelity=high" mesmo quando o parametro tinha
+    # sido recusado — mentira sobre a capacidade, no campo que existe
+    # justamente para dizer se a peca preservou o produto.
+    ok("o diagnostico le o que sobrou, e nao um valor fixo",
+       'diagnostico["input_fidelity"] = _tools_cfg.get(' in _fonte_ger
+       and 'diagnostico["input_fidelity"] = _args_edit.get(' in _fonte_ger)
+    ok("e quando o modelo nao aceita, ele DIZ isso em vez de mentir",
+       _fonte_ger.count("não aceito por este modelo (ele já preserva)") == 2)
+    # O modelo da conta do dono entra na ordem de preferencia.
+    ok("gpt-image-2 e conhecido, e vem antes do gpt-image-1",
+       "gpt-image-2" in MODELOS_IMAGEM_CONHECIDOS
+       and (MODELOS_IMAGEM_CONHECIDOS.index("gpt-image-2")
+            < MODELOS_IMAGEM_CONHECIDOS.index("gpt-image-1")))
+    ok("a descoberta acha o gpt-image-2 numa conta que so tem ele",
+       modelos_de_imagem_da_conta(
+           type("C", (), {"models": type("M", (), {
+               "list": staticmethod(lambda: [
+                   type("X", (), {"id": "gpt-4o"})(),
+                   type("X", (), {"id": "gpt-image-2"})()])})()})()
+       ) == ["gpt-image-2"])
+
     # ── O ROTEADOR AJUSTAR x REFAZER, MEDIDO NOS PEDIDOS REAIS ─────────
     #
     # 01/10. "mudar a quantidade de divisorias para 6" foi parar no ajuste
@@ -12066,16 +12206,31 @@ if __name__ == "__main__":
     ok("erro passageiro nao e terminal — segue para a proxima tentativa",
        _erro_openai_terminal(Exception("Connection reset by peer")) == "")
 
-    # ── O MODELO DE IMAGEM: o defeito que derrubou a geracao inteira ─────
+    # ── O MODELO DE IMAGEM, E UMA AFIRMACAO MINHA QUE ERA FALSA ──────────
     #
-    # `gpt-image-2` nao existe. Estava escrito a mao em CINCO lugares, dava
-    # 404 em toda chamada, o primario nunca gerava, e tudo caia no Gemini —
-    # que nao aceita size nem input_fidelity. Dai "imagens extremamente
-    # pequenas" e "fotos com margens laterais" na mesma tela.
-    ok("o padrao e um modelo que existe",
-       MODELO_IMAGEM_PADRAO == "gpt-image-2.5-sunburst")
-    ok("e o nome antigo nao esta mais em lugar nenhum",
-       "gpt-image-2" not in MODELOS_IMAGEM_CONHECIDOS)
+    # ESTE BLOCO DIZIA: "`gpt-image-2` nao existe". E a guarda abaixo exigia
+    # que o nome NAO estivesse em lugar nenhum.
+    #
+    # Era mentira, e ela ficou escrita aqui como se fosse fato medido. Em
+    # 02/10 o dono mandou o print do painel da conta dele: `gpt-image-2`
+    # esta la, com 100.000 TPM e 5 imagens por minuto. A guarda nao media o
+    # sistema — media a minha crenca, e TRAVAVA a correcao: enquanto ela
+    # existisse, ninguem podia pôr na lista o unico modelo bom que a conta
+    # tem.
+    #
+    # O que de fato aconteceu em 30/09 foi outra coisa: o nome configurado
+    # era `gpt-image-2.5-sunburst`, que a conta NAO tem. Dava 404, o
+    # primario nunca gerava, e tudo caia no Gemini — que nao aceita `size`
+    # nem preserva o produto. Dai "imagens extremamente pequenas" e "fotos
+    # com margens laterais" na mesma tela. O defeito era o nome errado, e
+    # nao a existencia do `gpt-image-2`.
+    #
+    # Guarda escrita em cima de uma crenca minha e pior que nenhuma: ela
+    # defende o erro.
+    ok("o padrao continua sendo um nome da familia certa",
+       MODELO_IMAGEM_PADRAO.startswith("gpt-image-"))
+    ok("e `gpt-image-2`, que a conta do dono TEM, e reconhecido",
+       "gpt-image-2" in MODELOS_IMAGEM_CONHECIDOS)
 
     _env_mod = os.environ.get("OPENAI_MODELO_IMAGEM")
     _desc_antes = _MODELO_DESCOBERTO["nome"]

@@ -35,6 +35,46 @@ RAIZ = os.path.dirname(os.path.abspath(__file__))
 # esta entrada virou letra morta — e isso também é reprovado, porque mutação
 # que não se aplica dá a impressão de cobertura que não existe.
 MUTACOES = [
+    (
+        'o caminho Responses+tools volta a morrer no parametro recusado',
+        "imagem.py",
+        [('                        _qual = parametro_recusado(_e_par, list(_tools_cfg))',
+          '                        _qual = ""')],
+        None,
+        ["python3", "imagem.py", "--autoteste"],
+    ),
+    (
+        'o caminho images.edit volta a morrer no parametro recusado',
+        "imagem.py",
+        [('                        _qual_e = parametro_recusado(_e_pe, list(_args_edit))',
+          '                        _qual_e = ""')],
+        None,
+        ["python3", "imagem.py", "--autoteste"],
+    ),
+    (
+        'o chat volta a anunciar a acao em duas vozes',
+        'chat_assistente.py',
+        [('            texto_final = sem_anuncio_de_acao(resposta)',
+          '            texto_final = resposta')],
+        None,
+        ['python3', 'chat_assistente.py', '--autoteste'],
+    ),
+    (
+        'a referencia anexada volta a se perder no refazer',
+        'chat_assistente.py',
+        [('                        {"num": foto_num, "instrucao": instrucao,\n                         "referencia": referencia_do_pedido(\n                             st.session_state.get("ms_chat_hist"))})',
+          '                        {"num": foto_num, "instrucao": instrucao})')],
+        None,
+        ['python3', 'chat_assistente.py', '--autoteste'],
+    ),
+    (
+        'o refazer volta a mandar so as fotos, sem a referencia',
+        'imagem.py',
+        [('                          args=(_prompt, _fotos_desta, _r), daemon=True).start()',
+          '                          args=(_prompt, _fotos_rf, _r), daemon=True).start()')],
+        None,
+        ['python3', 'imagem.py', '--autoteste'],
+    ),
     # ── 01/10: O ROTEADOR AJUSTAR x REFAZER ──────────────────
     #
     # "mudar a quantidade de divisorias para 6" ia para o ajuste fino,
@@ -1535,7 +1575,7 @@ MUTACOES = [
         # redesenhado, e os oito verificadores seguiam verdes.
         "o motor volta a ser chamado sem input_fidelity",
         "imagem.py",
-        '                        "input_fidelity": "high",\n',
+        '                "input_fidelity": "high",\n',
         "",
         ["python3", "checar_comunicacao.py"],
     ),
