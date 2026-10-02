@@ -36,6 +36,22 @@ RAIZ = os.path.dirname(os.path.abspath(__file__))
 # que não se aplica dá a impressão de cobertura que não existe.
 MUTACOES = [
     (
+        'o caminho Responses+tools volta a morrer no parametro recusado',
+        "imagem.py",
+        [('                        _qual = parametro_recusado(_e_par, list(_tools_cfg))',
+          '                        _qual = ""')],
+        None,
+        ["python3", "imagem.py", "--autoteste"],
+    ),
+    (
+        'o caminho images.edit volta a morrer no parametro recusado',
+        "imagem.py",
+        [('                        _qual_e = parametro_recusado(_e_pe, list(_args_edit))',
+          '                        _qual_e = ""')],
+        None,
+        ["python3", "imagem.py", "--autoteste"],
+    ),
+    (
         'o chat volta a anunciar a acao em duas vozes',
         'chat_assistente.py',
         [('            texto_final = sem_anuncio_de_acao(resposta)',
@@ -1559,7 +1575,7 @@ MUTACOES = [
         # redesenhado, e os oito verificadores seguiam verdes.
         "o motor volta a ser chamado sem input_fidelity",
         "imagem.py",
-        '                        "input_fidelity": "high",\n',
+        '                "input_fidelity": "high",\n',
         "",
         ["python3", "checar_comunicacao.py"],
     ),
