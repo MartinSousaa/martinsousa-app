@@ -293,6 +293,26 @@ def _conferencia():
         falhas += not bom
         print(("ok    " if bom else f"FALHA ({achou} != {esperado}) ") + nome)
         _os.remove(cam)
+    # O MODO DE ARQUIVOS TEM DE SAIR COM CODIGO. `conferir.py` chama este
+    # verificador com os .py como argumento, e nesse modo ele so imprimia
+    # "N ocorrencia(s)" e saia com 0: um UnboundLocalError de verdade passava
+    # pela conferencia inteira com a linha "ok". Roda o modo de verdade, num
+    # processo a parte, e le o codigo de saida — nao a ultima linha.
+    import subprocess as _sp
+    for codigo, esperado, nome in (
+            ("def f():\n    print(x)\n    x = 1\n", 1,
+             "modo de arquivos sai com 1 quando acha ocorrencia"),
+            ("def f(x):\n    return x\n", 0,
+             "modo de arquivos sai com 0 quando esta limpo")):
+        fd, cam = tempfile.mkstemp(suffix=".py")
+        with _os.fdopen(fd, "w") as fh:
+            fh.write(codigo)
+        _r = _sp.run([sys.executable, _os.path.abspath(__file__), cam],
+                     capture_output=True, text=True)
+        _os.remove(cam)
+        bom = _r.returncode == esperado
+        falhas += not bom
+        print(("ok    " if bom else f"FALHA (saiu {_r.returncode}) ") + nome)
     print(f"\nfalhas: {falhas}")
     return falhas
 
@@ -311,3 +331,5 @@ for arq in sys.argv[1:]:
                   f"variavel, nem nome do modulo   ({fn})")
         total += 1
 print(f"\n{total} ocorrencia(s)")
+# Ocorrencia e defeito: sai com 1. Sem isto o `conferir.py` lia "ok".
+sys.exit(1 if total else 0)

@@ -51,6 +51,7 @@ NAO_SAO_AUTOTESTE = {
     "fechar_expediente.py": "o __main__ EXECUTA o fechamento, nao confere",
     "gerar_params_historico.py": "gerador de uma vez so, roda o job",
     "conferir.py": "sou eu",
+    "prestart.py": "o __main__ ALTERA o index.html do streamlit instalado",
 }
 
 

@@ -11,7 +11,7 @@ import base64 as _base64
 import streamlit as st
 import requests
 import json as _json
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import math
 import placar_core as _pc_core
 
@@ -432,7 +432,8 @@ def _mes_card_criacao(card):
     if card_id and len(card_id) >= 8:
         try:
             ts = int(card_id[:8], 16)
-            dt = datetime.fromtimestamp(ts, timezone.utc)
+            # Mes de BRASILIA, nao de UTC: criado as 22h do dia 31 e do mes 31.
+            dt = datetime.fromtimestamp(ts, timezone(timedelta(hours=-3)))
             return (dt.year, dt.month)
         except Exception:
             pass
@@ -915,16 +916,18 @@ def _sc(label,valor,badge,cn,bb,bt):
   <span class="pm-badge" style="background:{bb};color:{bt};">{badge}</span>
 </div>"""
 
-def _barra(nome,pts,meta,pen):
-    saldo=pts-pen; pct=min(saldo/meta*100,100) if meta>0 else 0
-    cor="#1BAF7A" if pct>=100 else ("#8BC34A" if pct>=75 else ("#4A90D9" if pct>=0 else "#4A90D9"))
+def _barra(nome,pts,pen,meta_coletiva):
+    # SO A CONTRIBUICAO PARA A COLETIVA (dono, 02/10). A meta individual e o
+    # "bateu" saíram da tela da equipe: cor única, sem "/ meta".
+    saldo,pct=_pc_core.contribuicao_coletiva(pts,pen,meta_coletiva)
+    cor="#1BAF7A"
     pen_h=f'<div style="font-size:9px;color:#E34948;margin-top:2px;">⚠ -{pen:.0f} pts penalidades</div>' if pen>0 else ""
     return (f'<div style="margin-bottom:10px;">'
             f'<div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px;">'
             f'<span style="color:var(--ms-texto);font-weight:600;">{nome}</span>'
-            f'<span style="color:{cor};">{saldo:,.0f} / {meta:,.0f} · {pct:.0f}%</span></div>'
+            f'<span style="color:{cor};">{saldo:,.0f} pts · {pct:.0f}% da coletiva</span></div>'
             f'<div style="background:var(--ms-metric-bd);border-radius:4px;height:8px;overflow:hidden;">'
-            f'<div style="background:{cor};width:{pct:.1f}%;height:100%;border-radius:4px;"></div></div>'
+            f'<div style="background:{cor};width:{min(pct,100):.1f}%;height:100%;border-radius:4px;"></div></div>'
             f'{pen_h}</div>')
 
 def _fila_html(item):
@@ -1149,7 +1152,6 @@ def _tv_full_html(
     pct_pri_ok, pct_retrab_n, pct_pen_n, pct_retrab_x, pct_pen_x,
     pct_com_membro, desc_retrab, max_retrab_n, max_pen_n, max_retrab_x, max_pen_x,
     n_urgentes, n_sem_mb, agora_str,
-    meta_ind_map=None,
     ritmo_tv_html="",
     # A VARIACAO DESDE O RETRATO ANTERIOR. Tabela de 200 cartoes nao se le
     # numa TV; "-200 desde 25/09" se le de longe, e e a pergunta que o dono
@@ -1209,23 +1211,21 @@ def _tv_full_html(
 
     # Desempenho por colaborador (abaixo de pendentes por coluna)
     desempenho_html = ""
+    # So a contribuicao para a COLETIVA, como no Painel (dono, 02/10): a meta
+    # individual nao aparece na TV que a equipe inteira olha.
     _pts_mb = d.get("pts_membro", {})
     _pen_mb = d.get("pen_membro", {})
-    _meta_per = meta_ind_map or {}
-    _meta_base = meta_eq / max(len(MEMBROS_ATIVOS), 1)
     for _u, _nm in MEMBROS_ATIVOS.items():
-        _pts = _pts_mb.get(_u, 0.0)
         _pen = _pen_mb.get(_u, 0.0)
-        _meta_u = _meta_per.get(_u, _meta_base)
-        _pct = min(_pts / _meta_u * 100, 100) if _meta_u > 0 else 0
+        _saldo, _pct = _pc_core.contribuicao_coletiva(
+            _pts_mb.get(_u, 0.0), _pen, meta_eq)
         _pen_str = f" <span style='color:#E34948;font-size:9px;'>-{_pen:.0f}p</span>" if _pen > 0 else ""
-        _pts_fmt  = f"{_pts:,.0f}".replace(",", ".")
-        _meta_fmt = f"{_meta_u:,.0f}".replace(",", ".")
+        _saldo_fmt = f"{_saldo:,.0f}".replace(",", ".")
         desempenho_html += (
             f'<div class="pend-item">'
             f'<div class="pend-header"><span>{_nm}</span>'
-            f'<span class="pend-num" style="color:#1BAF7A;">{_pts_fmt}/{_meta_fmt}{_pen_str}</span></div>'
-            f'<div class="pend-track"><div class="pend-fill" style="width:{_pct:.0f}%;background:#1BAF7A;"></div></div>'
+            f'<span class="pend-num" style="color:#1BAF7A;">{_saldo_fmt} · {_pct:.0f}%{_pen_str}</span></div>'
+            f'<div class="pend-track"><div class="pend-fill" style="width:{min(_pct, 100):.0f}%;background:#1BAF7A;"></div></div>'
             f'</div>'
         )
 
@@ -2119,8 +2119,10 @@ def bloco_queda_de_pontos(agora):
     if _c3.button("Puxar", key="qp_ir", use_container_width=True):
         st.session_state["qp_rodar"] = True
     if st.session_state.get("qp_rodar"):
-        _ini = _dt.combine(_de, _dt.min.time()).replace(tzinfo=_tz.utc)
-        _fim = _dt.combine(_ate, _dt.max.time()).replace(tzinfo=_tz.utc)
+        # As datas escolhidas sao dias de BRASILIA: em UTC o corte andava 3h e
+        # a acao das 22h do dia "Ate" ficava de fora.
+        _ini = _dt.combine(_de, _dt.min.time()).replace(tzinfo=_pc_core.FUSO)
+        _fim = _dt.combine(_ate, _dt.max.time()).replace(tzinfo=_pc_core.FUSO)
         with st.spinner("Lendo o histórico do Trello…"):
             try:
                 _por_card = _pc_core._buscar_acoes_board(
@@ -3051,7 +3053,6 @@ def pagina_placar(usuario_logado, headless=False):
         n_urgentes=d.get("urgentes", 0), n_sem_mb=d.get("sem_membro", 0),
         agora_str=agora.strftime("%d/%m/%Y %H:%M"),
         gerado_epoch=int(agora.timestamp()),
-        meta_ind_map=meta_ind_map,
         ritmo_tv_html=_ritmo_tv_html,
         cor_ritmo=(_ritmo_tv or {}).get("cor") or "#1BAF7A",
         sem_membro_lista=d.get("sem_membro_lista", []),
@@ -3215,7 +3216,7 @@ def pagina_placar(usuario_logado, headless=False):
         barras=""
         for u,nome in MEMBROS_ATIVOS.items():
             pts=d["pts_membro"].get(u,0); pen=d["pen_membro"].get(u,0)
-            barras+=_barra(nome,pts,meta_ind_map.get(u,1500),pen)
+            barras+=_barra(nome,pts,pen,meta_eq)
         st.markdown(f'<div style="padding:4px 0">{barras}</div>',unsafe_allow_html=True)
 
     # ══ BLOCO 4 — PENDENTES + TEMPO MÉDIO (oculto na TV para caber na tela) ══

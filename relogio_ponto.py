@@ -245,8 +245,8 @@ def _diff_min(t1: Optional[time], t2: Optional[time]) -> float:
     """Diferença em minutos (t2 - t1). Retorna 0 se inválido."""
     if not t1 or not t2:
         return 0.0
-    dt1 = datetime.combine(date.today(), t1)
-    dt2 = datetime.combine(date.today(), t2)
+    dt1 = datetime.combine(date.min, t1)
+    dt2 = datetime.combine(date.min, t2)
     return max((dt2 - dt1).total_seconds() / 60, 0)
 
 
@@ -401,7 +401,7 @@ def calcular_resumo_mes(ano: int, mes: int) -> dict:
 
 def get_ausencias_hoje(data_str: Optional[str] = None) -> list[str]:
     """Retorna lista de usernames ausentes hoje (ou na data informada)."""
-    d = data_str or date.today().isoformat()
+    d = data_str or hoje_local().isoformat()
     regs = _get_registros(d)
     ausentes = [r["username"] for r in regs if r["tipo"] == "ausencia"]
     # Presentes são quem registrou qualquer ponto que não seja ausência
@@ -545,7 +545,7 @@ def _secao_status_hoje():
 
 def _secao_registro(usuario_logado: str, eh_master: bool):
     """Formulário de registro de ponto."""
-    hoje = date.today()
+    hoje = hoje_local()
 
     col_data, col_user = st.columns([1, 2])
     data_sel = col_data.date_input("📅 Data", value=hoje, max_value=hoje, key="pt_data")
@@ -751,7 +751,7 @@ def _secao_historico_mensal(eh_master: bool, usuario_logado: str):
 def _dt_soma(t, minutos):
     """Horario mais N minutos, sem sair do tipo time."""
     from datetime import datetime as _d, timedelta as _td
-    return (_d.combine(_d.today().date(), t) + _td(minutes=minutos)).time()
+    return (_d.combine(hoje_local(), t) + _td(minutes=minutos)).time()
 
 
 def _janelas_do_dia(data, entrada, saida_almoco, volta_almoco, saida):
@@ -862,7 +862,7 @@ def _pontualidade_rhid(ano: int, mes: int):
 
     ini = date(ano, mes, 1)
     prox = date(ano + (1 if mes == 12 else 0), 1 if mes == 12 else mes + 1, 1)
-    fim = min(prox - timedelta(days=1), date.today())
+    fim = min(prox - timedelta(days=1), hoje_local())
     if fim < ini:
         diag["erro"] = "Mês ainda não começou."
         return {}, diag
@@ -1264,7 +1264,7 @@ def _secao_relatorio_rhid():
     Mostra: atrasos, desempenho, banco de horas e ociosidade por colaborador.
     """
     # ── Seletor de período ────────────────────────────────────────────────────
-    hoje = date.today()
+    hoje = hoje_local()
     col_ini, col_fim, col_btn = st.columns([1, 1, 1])
     data_ini = col_ini.date_input(
         "De", value=hoje.replace(day=1), max_value=hoje, key="rhid_ini"
@@ -2235,6 +2235,20 @@ if __name__ == "__main__":
        hoje_local().isoformat() == _utc.date().isoformat())
     ok("agora_local devolve a hora de Brasilia",
        agora_local().hour == _utc.hour)
+
+    # NENHUM `.today()` NO MODULO INTEIRO, e nao so nas duas telas acima.
+    # A guarda antiga olhava `get_disponiveis_agora` e `_secao_status_hoje`;
+    # o relatorio do mes (`fim` = hoje) e o seletor de periodo continuavam
+    # com o dia do container, que as 21h ja e amanha. Por AST: o comentario
+    # que explica o defeito nao e o defeito.
+    import ast as _ast_rp
+    with open(__file__, encoding="utf-8") as _fh_rp:
+        _arv_rp = _ast_rp.parse(_fh_rp.read())
+    _todays = [n.lineno for n in _ast_rp.walk(_arv_rp)
+               if isinstance(n, _ast_rp.Call)
+               and getattr(n.func, "attr", "") == "today"]
+    ok(f"nenhum .today() com o dia do container (linhas: {_todays})",
+       not _todays)
 
     print("\nfalhas:", falhas)
     # O CODIGO DE SAIDA. Sem ele, quem le `returncode` ve este modulo como

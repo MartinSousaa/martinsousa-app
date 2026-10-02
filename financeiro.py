@@ -217,6 +217,117 @@ def aliquota_vigente(df, ano=None):
 
 # ── INTERFACE ──────────────────────────────────────────────────────────────────
 
+def _lpv_gravado(df, ano, mes):
+    """O LPV que está na aba `financeiro` para o mês. None quando vazio."""
+    if df is None or df.empty or "lpv" not in df.columns:
+        return None
+    linha = df[(df["ano"] == ano) & (df["mes"] == mes)]
+    if linha.empty:
+        return None
+    v = linha.iloc[0].get("lpv")
+    return float(v) if pd.notna(v) and v else None
+
+
+def _lpv_a_gravar(meses, ano, hoje):
+    """{mes: lpv} que o botão grava: só mês FECHADO e com LPV calculado.
+
+    O mês corrente fica de fora — o C.O dele ainda está crescendo, e gravar o
+    parcial faria a Viabilidade decidir com um custo por venda que muda todo
+    dia. Mês sem cálculo (sem extrato, sem venda) também: o botão não apaga o
+    que alguém digitou à mão.
+    """
+    import lpv_mensal as _lm
+    return {m: r["lpv"] for m, r in (meses or {}).items()
+            if r.get("lpv") is not None and _lm.mes_fechado(ano, m, hoje)}
+
+
+def _secao_lpv_calculado(ano, regime, aliquota, bloqueado, df,
+                         usuario_logado=None):
+    """O LPV que o Studio calcula (`lpv_mensal.py`), ao lado do gravado.
+
+    {mes: resultado}. Nada é gravado sem o clique: os leitores do LPV
+    (Viabilidade, Home, assistente) continuam lendo UMA fonte, a aba
+    `financeiro`, e o botão é quem leva o calculado até ela.
+    """
+    import lpv_mensal as _lm
+    import lancamentos as _lan
+    from datetime import datetime as _dt_lpv
+
+    st.subheader("LPV calculado pelo Studio")
+    st.caption(_rot.tela(
+        "C.O do mês = saídas por PIX, cartão, boleto e tarifa que não são "
+        "mercadoria, custo fixo, assinatura, imposto ou transferência + "
+        "(Flex pago − reembolso do Flex). LPV = C.O ÷ vendas do mês."))
+    try:
+        meses, erro = _lm.do_ano(ano)
+    except Exception as e:
+        st.error(f"Não consegui calcular o LPV: {str(e)[:200]}")
+        return {}
+    if erro:
+        st.warning(_rot.tela(f"BASE DE VENDAS: {erro}"))
+
+    hoje = _dt_lpv.now(_lan.FUSO).date()
+    gravaveis = _lpv_a_gravar(meses, ano, hoje)
+    linhas = []
+    for m in range(1, 13):
+        r = meses.get(m) or {}
+        fechado = _lm.mes_fechado(ano, m, hoje)
+        gravado = _lpv_gravado(df, ano, m)
+        obs = r.get("motivo") or ("" if fechado else "mês em andamento")
+        if r.get("sem_finalidade"):
+            obs = (obs + " · " if obs else "") + (
+                f"R$ {formatar_br(r['sem_finalidade'])} sem finalidade, fora da conta")
+        linhas.append({
+            "Mês": MESES[m - 1],
+            "LPV calculado": (f"R$ {formatar_br(r['lpv'])}"
+                              if r.get("lpv") is not None else "—"),
+            "LPV gravado": (f"R$ {formatar_br(gravado)}"
+                            if gravado is not None else "—"),
+            "C.O": (f"R$ {formatar_br(r['co'])}" if r.get("lpv") is not None
+                    else "—"),
+            "Vendas": int(r.get("vendas") or 0),
+            "Observação": obs,
+        })
+    st.dataframe(pd.DataFrame(linhas), hide_index=True,
+                 use_container_width=True)
+
+    with st.expander("Como cada mês foi calculado"):
+        for m in range(1, 13):
+            r = meses.get(m) or {}
+            if r.get("lpv") is None:
+                continue
+            partes = " · ".join(f"{k} R$ {formatar_br(v)}"
+                                for k, v in r["por_finalidade"].items())
+            st.markdown(_rot.tela(
+                f"**{MESES[m - 1]}** — saídas R$ {formatar_br(r['saidas'])} "
+                f"({partes or 'nenhuma'}) + Flex pago R$ "
+                f"{formatar_br(r['flex_pago'])} − reembolso R$ "
+                f"{formatar_br(r['reembolso_flex'])} = C.O R$ "
+                f"{formatar_br(r['co'])} ÷ {int(r['vendas'])} vendas"))
+
+    if st.button(f"Gravar o LPV calculado nos meses fechados de {ano} "
+                 f"({len(gravaveis)})", type="primary",
+                 use_container_width=True, key=f"lpv_calc_gravar_{ano}",
+                 disabled=bloqueado or not gravaveis):
+        lpv_meses = [gravaveis.get(m, _lpv_gravado(df, ano, m))
+                     for m in range(1, 13)]
+        with st.spinner("Salvando na planilha..."):
+            salvar_ano(ano, regime, aliquota, lpv_meses)
+        # Os campos do mês têm `key`: sem limpar, o Streamlit mostraria o
+        # valor velho digitado e ignoraria o `value=` recém-gravado.
+        for m in range(1, 13):
+            st.session_state.pop(f"lpv_{ano}_{m}", None)
+        if usuario_logado:
+            import atividades as historico
+            historico.registrar_atividade(
+                usuario_logado, "LPV calculado gravado", f"Ano {ano}",
+                ", ".join(f"{MESES[m - 1][:3]} {v}"
+                          for m, v in sorted(gravaveis.items())))
+        st.success("LPV calculado gravado.")
+        st.rerun()
+    return meses
+
+
 def pagina_financeiro(usuario_logado=None):
     st.subheader("Área Financeira")
 
@@ -258,7 +369,11 @@ def pagina_financeiro(usuario_logado=None):
         aliquota_invalida = False
 
     st.markdown("---")
-    st.caption("Informe o LPV que você já calculou internamente pra cada mês. Pode deixar em branco o que ainda não tem.")
+    _calc = _secao_lpv_calculado(ano, regime, aliquota, aliquota_invalida,
+                                 df, usuario_logado)
+
+    st.markdown("---")
+    st.caption("O LPV gravado de cada mês. O botão acima grava o calculado; aqui dá para corrigir um mês à mão.")
 
     lpv_meses = []
     for i, nome_mes in enumerate(MESES, start=1):
@@ -270,6 +385,9 @@ def pagina_financeiro(usuario_logado=None):
         txt_lpv = st.text_input(f"LPV de {nome_mes} (R$)",
                                  value=(formatar_br(v_lpv) if pd.notna(v_lpv) else ""),
                                  key=f"lpv_{ano}_{i}", placeholder="ex: 22,00")
+        _lpv_c = (_calc.get(i) or {}).get("lpv")
+        if _lpv_c is not None:
+            st.caption(_rot.tela(f"Calculado pelo Studio: R$ {formatar_br(_lpv_c)}"))
         lpv = parse_numero_br(txt_lpv)
         if lpv is None and txt_lpv:
             st.error(f"{nome_mes}: valor não reconhecido.")
@@ -304,3 +422,49 @@ def pagina_financeiro(usuario_logado=None):
                 f"Último mês informado: {origem}"))
     else:
         st.warning(f"Ainda não há LPV informado ({origem}).")
+
+
+if __name__ == "__main__":
+    falhas = 0
+
+    def ok(nome, cond):
+        global falhas
+        falhas += not cond
+        print(("ok    " if cond else "FALHA ") + nome)
+
+    import lpv_mensal as _lm_t
+    from datetime import date as _d_t
+    # O `meses` vem de `lpv_mensal.calcular`, como na tela — não à mão.
+    _meses = {m: _lm_t.calcular([], None) for m in range(1, 13)}
+    _meses[8] = _lm_t.calcular(
+        [{"data": "2026-08-05", "valor": -100.0, "finalidade": "ADS"}],
+        {"vendas": 10})
+    _meses[10] = _lm_t.calcular(
+        [{"data": "2026-10-01", "valor": -100.0, "finalidade": "ADS"}],
+        {"vendas": 10})
+    _g = _lpv_a_gravar(_meses, 2026, _d_t(2026, 10, 2))
+    ok("grava o mês fechado com LPV calculado", _g == {8: 10.0})
+    ok("NÃO grava o mês em andamento", 10 not in _g)
+    ok("NÃO apaga mês sem cálculo (o digitado à mão fica)", 9 not in _g)
+
+    import pandas as _pd_t
+    _df = _pd_t.DataFrame([{"ano": 2026, "mes": 9, "lpv": 20.47}])
+    ok("o gravado é lido da aba", _lpv_gravado(_df, 2026, 9) == 20.47)
+    ok("mês vazio na aba é None", _lpv_gravado(_df, 2026, 8) is None)
+
+    # A alíquota é gravada pelo MESMO `salvar_ano` que o botão do LPV
+    # calculado chama, e é lida pela Viabilidade (`app.py`) e pelo assistente.
+    # A forma do `df` é a de `carregar_dados`: colunas em minúsculas, número
+    # já convertido.
+    _df_aliq = _pd_t.DataFrame([
+        {"ano": 2026, "mes": 1, "lpv": 18.59, "regime_tributario": "Simples",
+         "aliquota": 9.0},
+        {"ano": 2026, "mes": 2, "lpv": None, "regime_tributario": "Simples",
+         "aliquota": 500.0}])
+    ok("aliquota_vigente devolve a válida do ano",
+       aliquota_vigente(_df_aliq, 2026) == (9.0, "Simples"))
+    ok("e ignora alíquota absurda", aliquota_vigente(
+        _df_aliq[_df_aliq["mes"] == 2], 2026) == (None, None))
+
+    print("\nfalhas:", falhas)
+    raise SystemExit(1 if falhas else 0)
