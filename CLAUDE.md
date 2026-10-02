@@ -39,6 +39,33 @@ QUE EU GERO", mais abaixo, e são sete passos:
    roda, e quanto custa cada uma. *(A primeira versão da gravação das fotos
    escrevia 30 MB no disco por tecla.)*
 
+9. **Quem escreve este campo, e roda ANTES?** Leitura de `st.session_state`
+   dentro de uma tela só vale se alguma coisa escreveu o campo mais cedo NA
+   MESMA passada. A pergunta não é "de onde eu leio" — é "no instante em que
+   esta linha roda, o valor já existe?". Comparar a linha que lê com a linha
+   que escreve; se a escrita vem depois, a leitura pega vazio. *(O contexto do
+   log era marcado no topo da tela lendo `img_nome_produto`, e o único
+   escritor desse campo roda no FIM da geração: as sete peças da Caneca
+   Medieval foram registradas com produto vazio, e o histórico de prompts
+   dela veio com 143 caracteres — só o cabeçalho.)*
+
+10. **DUAS PASSADAS, e a segunda sobre o código parado.** Nada sobe com uma
+    conferência só. A primeira mede o código; a segunda mede se eu mexi nele
+    depois de medir — e é isso que acontece sempre: rodar, reprovar, corrigir,
+    e subir com a correção conferida UMA vez. A correção da correção é o
+    trecho menos medido de todo commit.
+
+    A trava é mecânica e está no `conferir.py`: ele conta as passadas pela
+    impressão digital dos arquivos versionados e ZERA a cada alteração. Rodar
+    duas vezes e editar no meio conta como uma. Enquanto faltar passada, ele
+    imprime `⛔ NÃO SUBIR`.
+
+    E ele não imprime mais a palavra **APROVADO**. Ela era veredito de
+    protocolo para um comando que mede TRÊS dos dez passos — eu lia a
+    primeira linha e repassava a primeira linha, com o aviso correto logo
+    abaixo, dezenas de vezes no mesmo dia. Agora ele imprime `PASSOS 1, 2 E 7:
+    VERDES` e lista o que falta.
+
 `@` sozinho pede o protocolo. `@arquivo.py` continua sendo referência a
 arquivo, e não tem nada a ver com isto.
 
@@ -146,6 +173,11 @@ escritas antes do merge e não depois:
 
 Verde nos cinco não é licença para subir com produção em uso: com gente
 trabalhando no Studio, quem decide a hora é o dono.
+
+**E nenhum merge acontece com UMA passada do `conferir.py`.** São duas, a
+segunda sobre o código parado — `python3 -c "import conferir; print(conferir.pode_subir())"`
+responde se já valeu. Pedido do dono em 02/10, depois de uma tarde inteira de
+reprovar, corrigir e subir com a correção medida uma vez só.
 
 ## O RETRABALHO QUE EU GERO — a varredura de 28/09 e o que ela mudou
 

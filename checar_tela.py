@@ -1882,6 +1882,62 @@ def _fatura_confirmada(conta):
           "repetid" in _corpo.lower(), "")
 
 
+def _form_da_equipe(conta):
+    """Trocar de pessoa no seletor reconstrói o formulário inteiro?
+
+    Dono, 02/10, com o print: *"Não corrigiu essa parte para eu conseguir
+    remover ou alterar colaboradores?"*. A tela mostrava `bruniellymendonca`
+    no username, nome e RHiD em branco, e o aviso "Username do Trello e nome
+    são obrigatórios" — com o campo preenchido na frente dele.
+
+    A causa: os campos não tinham chave. Sem chave, o Streamlit guarda o que
+    foi DIGITADO e ignora o `value=` na passada seguinte. Trocar a pessoa no
+    seletor deixava o username da anterior parado enquanto o resto esvaziava
+    — meia ficha na tela, e o formulário recusando salvar.
+
+    A guarda é por AST e mede o que conserta: todo widget do formulário tem
+    `key`, e a key depende da SELEÇÃO. Key fixa seria o mesmo defeito com
+    outro nome — um widget só para todas as pessoas.
+    """
+    import ast as _ast_eq
+    import inspect as _insp_eq
+    try:
+        import admin as _adm_eq
+        fonte = _insp_eq.getsource(_adm_eq._secao_equipe)
+    except Exception as e:
+        conta("o formulário da equipe existe para ser medido", False,
+              f"{type(e).__name__}: {str(e)[:90]}")
+        return
+    arv = _ast_eq.parse(fonte.lstrip())
+    WIDGETS = ("text_input", "checkbox", "number_input", "selectbox")
+    sem_chave, chave_fixa = [], []
+    for no in _ast_eq.walk(arv):
+        if not (isinstance(no, _ast_eq.Call)
+                and isinstance(no.func, _ast_eq.Attribute)
+                and no.func.attr in WIDGETS):
+            continue
+        rotulo = (no.args[0].value if no.args
+                  and isinstance(no.args[0], _ast_eq.Constant) else "?")
+        chave = next((k.value for k in no.keywords if k.arg == "key"), None)
+        if chave is None:
+            # O seletor da pessoa é o único que pode ter key própria e fixa:
+            # é ele que DECIDE a seleção, não pode depender dela.
+            if "Editar quem já existe" not in str(rotulo):
+                sem_chave.append(str(rotulo)[:34])
+            continue
+        texto = _ast_eq.unparse(chave)
+        if "_k" not in texto and "Editar quem já existe" not in str(rotulo):
+            chave_fixa.append(f"{str(rotulo)[:28]} -> {texto[:28]}")
+    conta("todo campo do formulário da equipe tem chave",
+          not sem_chave, f"sem chave: {sem_chave}" if sem_chave else "")
+    conta("e a chave muda com a pessoa selecionada",
+          not chave_fixa, f"chave fixa: {chave_fixa}" if chave_fixa else "")
+    # E a chave nasce da seleção, não de um contador qualquer.
+    conta("a chave sai do item escolhido no seletor",
+          "_k = " in fonte and "_sel" in fonte.split("_k = ")[1][:80],
+          "" if "_k = " in fonte else "não achei a montagem da chave")
+
+
 def main():
     instalar()
     falhas = []
@@ -1899,6 +1955,7 @@ def main():
     # todos devolvem o original. Rodando depois deles, a tela do Financeiro
     # "quebrava" — e passava sozinha. Alarme falso por ordem de execucao e
     # pior que nenhum teste: ensina a ignorar a saida.
+    _form_da_equipe(conta)
     _telas_restantes(conta)
     _fatura_confirmada(conta)
     _fotos_perdidas(conta)

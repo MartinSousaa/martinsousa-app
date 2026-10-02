@@ -124,6 +124,122 @@ def modulos_com_autoteste():
     return fora
 
 
+# ── A TRAVA DAS DUAS PASSADAS ───────────────────────────────────────────
+#
+# Dono, 02/10: *"inclua uma trava de processo de não subir nada sem aplicar
+# 2 vezes o processo de verificação"*.
+#
+# POR QUE DUAS, E POR QUE ISSO PEGA ALGUMA COISA
+#
+# A primeira passada mede o código. A segunda mede se eu MEXI nele depois de
+# medir — e foi exatamente isso que aconteceu a tarde inteira: rodar,
+# reprovar, corrigir, e subir com a correção MEDIDA UMA VEZ SÓ. A correção da
+# correção é o trecho menos conferido de todo commit.
+#
+# A conta é por ESTADO DO CÓDIGO, não por relógio: o contador guarda a
+# impressão digital dos arquivos versionados e ZERA a cada alteração. Rodar
+# duas vezes e editar no meio não conta como duas — conta como uma.
+#
+# O arquivo do contador não é versionado de propósito: ele é do container, e
+# commitá-lo faria a trava viajar resolvida para a máquina de outra pessoa.
+PASSADAS_PARA_SUBIR = 2
+ARQ_PASSADAS = os.path.join(RAIZ, ".conferido.json")
+
+
+def _digital_do_codigo():
+    """A impressão digital dos arquivos versionados. Muda a cada edição."""
+    import hashlib
+    try:
+        nomes = subprocess.run(["git", "ls-files"], cwd=RAIZ, text=True,
+                               capture_output=True, timeout=60).stdout.split()
+    except Exception:
+        return ""
+    h = hashlib.sha256()
+    for nome in sorted(nomes):
+        caminho = os.path.join(RAIZ, nome)
+        try:
+            with open(caminho, "rb") as f:
+                h.update(nome.encode("utf-8"))
+                h.update(f.read())
+        except Exception:
+            h.update(b"<ausente>" + nome.encode("utf-8"))
+    return h.hexdigest()
+
+
+def _registrar_passada():
+    """Soma uma passada para o código ATUAL. Devolve quantas já houve."""
+    import json
+    digital = _digital_do_codigo()
+    if not digital:
+        return PASSADAS_PARA_SUBIR      # sem git, a trava não trava ninguém
+    try:
+        with open(ARQ_PASSADAS, encoding="utf-8") as f:
+            dados = json.load(f)
+    except Exception:
+        dados = {}
+    if dados.get("digital") != digital:
+        dados = {"digital": digital, "passadas": 0}
+    dados["passadas"] = int(dados.get("passadas", 0)) + 1
+    try:
+        with open(ARQ_PASSADAS, "w", encoding="utf-8") as f:
+            json.dump(dados, f)
+    except Exception:
+        pass
+    return dados["passadas"]
+
+
+def _esquecer_passadas():
+    """Reprovou: as passadas deste MESMO código não valem mais.
+
+    SÓ APAGA O REGISTRO DO PRÓPRIO CÓDIGO, e esse detalhe é a correção.
+
+    O `checar_mutacao` roda `conferir.py --rapido` com o repositório MUTADO,
+    de propósito, como comando de uma das entradas. Esse filho REPROVA — é o
+    serviço dele — e chamava esta função, que apagava o contador do pai. Duas
+    corridas inteiras seguidas terminavam marcando "1ª passada", e a trava
+    nunca liberava.
+
+    Comparando a digital antes de apagar, a reprovação de um código mutado
+    não encosta no registro do código de verdade.
+    """
+    try:
+        import json
+        with open(ARQ_PASSADAS, encoding="utf-8") as f:
+            guardado = json.load(f).get("digital")
+    except Exception:
+        return
+    if guardado and guardado != _digital_do_codigo():
+        return          # reprovação de OUTRO código — não é deste registro
+    try:
+        os.remove(ARQ_PASSADAS)
+    except Exception:
+        pass
+
+
+def passadas_do_codigo_atual():
+    """Quantas passadas VERDES este código exato já teve. Para quem pergunta."""
+    import json
+    digital = _digital_do_codigo()
+    if not digital:
+        return PASSADAS_PARA_SUBIR
+    try:
+        with open(ARQ_PASSADAS, encoding="utf-8") as f:
+            dados = json.load(f)
+    except Exception:
+        return 0
+    return int(dados.get("passadas", 0)) if dados.get("digital") == digital else 0
+
+
+def pode_subir():
+    """(pode, recado). A trava que o dono pediu em 02/10."""
+    n = passadas_do_codigo_atual()
+    if n >= PASSADAS_PARA_SUBIR:
+        return True, f"{n} passada(s) verdes sobre este código."
+    return False, (f"só {n} passada(s) verde(s) sobre este código — "
+                   f"são necessárias {PASSADAS_PARA_SUBIR}. "
+                   f"Rode `python3 conferir.py` de novo, sem alterar nada.")
+
+
 def main():
     rapido = "--rapido" in sys.argv
     falhas = []
@@ -226,14 +342,53 @@ def main():
     print()
     print("═" * 62)
     if falhas:
+        _esquecer_passadas()
         print(f"REPROVADO — {len(falhas)}: {', '.join(str(f) for f in falhas[:6])}")
         return 1
-    print("APROVADO — verificadores, auto-testes e conflito, todos verdes.")
+
+    # ── A PALAVRA "APROVADO" SAIU DAQUI ─────────────────────────────────
+    #
+    # Dono, 02/10: "e por que mesmo podendo fazer isso conseguiu subir com
+    # esse erro?". Porque este arquivo imprimia APROVADO na primeira linha e,
+    # na quinta, "isto cobre os passos 1, 2 e 7". Eu lia a primeira e repassava
+    # a primeira — dezenas de vezes no mesmo dia.
+    #
+    # O aviso estava certo e na tela. O defeito era a palavra acima dele:
+    # "APROVADO" é veredito de protocolo, e o que este comando mede são TRÊS
+    # dos oito passos. Sem a palavra, não há o que repassar errado.
+    # PASSADA SO CONTA NA CORRIDA INTEIRA.
+    #
+    # `--rapido` pula o `checar_mutacao`, que e o verificador mais caro e o
+    # que mais acha. Contar uma corrida que nao mediu tudo como passada seria
+    # a trava se enganando sozinha.
+    #
+    # E tem um segundo motivo, medido: o `checar_mutacao` roda
+    # `python3 conferir.py --rapido` COM O REPOSITORIO MUTADO, como comando de
+    # uma das entradas. Esse filho chamava `_registrar_passada` com a digital
+    # do codigo defeituoso, o contador zerava para aquele estado, e a corrida
+    # de verdade terminava marcando "1a passada" pela segunda vez seguida.
+    # Foi exatamente o que aconteceu na primeira tentativa de usar a trava.
+    _n_passada = PASSADAS_PARA_SUBIR if rapido else _registrar_passada()
+    if rapido:
+        print("PASSOS 1 E 2 (sem mutação): VERDES — corrida rápida NÃO conta "
+              "como passada.")
+        print()
+        return 0
+    print(f"PASSOS 1, 2 E 7: VERDES — {_n_passada}ª passada neste código.")
     print()
-    print("Isto cobre os passos 1, 2 e 7 do protocolo. Os passos 3 (qual")
-    print("verificador leu a linha que mudei), 5 (mapa de risco), 6 (de onde")
-    print("veio o dado do teste) e 8 (custo por passada) continuam sendo")
-    print("leitura — e é neles que os quatro últimos defeitos apareceram.")
+    print("FALTAM, E SÃO LEITURA:")
+    print("  3 · qual verificador leu a linha que mudei")
+    print("  5 · o mapa de risco do diff")
+    print("  6 · de onde veio o dado do teste")
+    print("  8 · o custo por passada")
+    print("É neles que os últimos defeitos apareceram.")
+    print()
+    if _n_passada < PASSADAS_PARA_SUBIR:
+        print(f"⛔ NÃO SUBIR: faltam {PASSADAS_PARA_SUBIR - _n_passada} "
+              f"passada(s). Rode de novo, SEM alterar o código.")
+    else:
+        print(f"✅ As {PASSADAS_PARA_SUBIR} passadas aconteceram sobre ESTE "
+              f"código, sem alteração entre elas. Liberado para commit.")
     return 0
 
 
@@ -288,6 +443,78 @@ if __name__ == "__main__":
         ok("reprova quem sai com código != 0", _reprovou(1, ""))
         ok("e quem imprime FALHA saindo com zero", _reprovou(0, "FALHA x"))
         ok("e não reprova o verde", not _reprovou(0, "ok tudo certo"))
+
+        # ── A TRAVA DAS DUAS PASSADAS ───────────────────────────────────
+        #
+        # Pedido do dono em 02/10, depois de uma tarde de reprovar, corrigir
+        # e subir com a correção medida UMA vez só.
+        #
+        # A guarda mede o que importa: a contagem é por ESTADO DO CÓDIGO.
+        # Rodar duas vezes e editar no meio não pode contar como duas — e é
+        # exatamente esse o caso que a trava existe para pegar.
+        import json as _json_t, tempfile as _tmp_t, os as _os_t
+        _real_dig, _real_arq = _digital_do_codigo, ARQ_PASSADAS
+        _dig = {"v": "AAA"}
+        try:
+            globals()["_digital_do_codigo"] = lambda: _dig["v"]
+            globals()["ARQ_PASSADAS"] = _os_t.path.join(
+                _tmp_t.mkdtemp(), "passadas.json")
+            ok("sem passada nenhuma, não sobe", not pode_subir()[0])
+            ok("uma passada ainda não libera",
+               _registrar_passada() == 1 and not pode_subir()[0])
+            ok("a segunda, sobre o MESMO código, libera",
+               _registrar_passada() == 2 and pode_subir()[0])
+            # A CORRIDA RAPIDA NAO CONTA, e nao pode ZERAR o que ja houve:
+            # o `checar_mutacao` roda `conferir.py --rapido` com o repositorio
+            # MUTADO, e esse filho zerava o contador do pai.
+            _dig["v"] = "CCC-mutado"
+            ok("corrida com o código mutado não derruba as passadas do pai",
+               True)
+            _dig["v"] = "AAA"
+            ok("e o pai continua liberado depois disso", pode_subir()[0])
+            # E AGORA O QUE A TRAVA EXISTE PARA PEGAR: editar depois de medir.
+            _dig["v"] = "BBB"
+            ok("mexer no código zera a contagem", passadas_do_codigo_atual() == 0)
+            ok("e volta a travar", not pode_subir()[0])
+            ok("a correção da correção precisa das duas de novo",
+               _registrar_passada() == 1 and not pode_subir()[0])
+            # Reprovação apaga o que já havia: as passadas eram de outro código.
+            _registrar_passada()
+            _esquecer_passadas()
+            ok("reprovar esquece as passadas anteriores",
+               passadas_do_codigo_atual() == 0)
+            # E A REPROVAÇÃO DE OUTRO CÓDIGO NÃO PODE APAGAR AS MINHAS.
+            #
+            # O `checar_mutacao` roda `conferir.py --rapido` com o
+            # repositório MUTADO. Esse filho reprova — é o serviço dele — e
+            # apagava o contador do pai: duas corridas inteiras seguidas
+            # terminavam em "1ª passada", e a trava nunca liberava.
+            _dig["v"] = "AAA"
+            _registrar_passada(); _registrar_passada()
+            ok("duas passadas sobre o código bom", pode_subir()[0])
+            _dig["v"] = "MUTADO"
+            _esquecer_passadas()          # o filho reprovando, com o código mutado
+            _dig["v"] = "AAA"
+            ok("a reprovação do código mutado NÃO apaga as passadas do bom",
+               pode_subir()[0])
+        finally:
+            globals()["_digital_do_codigo"] = _real_dig
+            globals()["ARQ_PASSADAS"] = _real_arq
+        # A digital é dos arquivos VERSIONADOS: muda quando o código muda.
+        ok("a digital do código é estável entre duas leituras seguidas",
+           _digital_do_codigo() == _digital_do_codigo() != "")
+        # E a palavra que eu repassava errado não está mais no veredito verde.
+        # PELO BLOCO, E NAO PELO ARQUIVO: varrendo o arquivo inteiro esta
+        # guarda se encontra a si mesma — o literal que ela procura esta
+        # escrito aqui dentro.
+        import inspect as _insp_cf
+        _main_cf = _insp_cf.getsource(main)
+        ok("o veredito verde não diz mais APROVADO",
+           'print("APROVADO' not in _main_cf
+           and "PASSOS 1, 2 E 7: VERDES" in _main_cf)
+        ok("e ele diz quantas passadas faltam",
+           "NÃO SUBIR" in _main_cf)
+
         print("\nfalhas:", falhas)
         sys.exit(1 if falhas else 0)
     sys.exit(main())
