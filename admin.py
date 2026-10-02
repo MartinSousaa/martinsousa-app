@@ -292,8 +292,25 @@ def _secao_equipe():
 
     with st.form("form_equipe"):
         e1, e2, e3 = st.columns([2, 2, 2])
+        # ── CADA PESSOA TEM O SEU FORMULÁRIO ────────────────────────────
+        #
+        # Os campos não tinham chave. Sem chave, o Streamlit guarda o que foi
+        # DIGITADO e ignora o `value=` na passada seguinte — então trocar a
+        # pessoa no seletor deixava o username da anterior parado no campo
+        # enquanto nome e RHiD esvaziavam.
+        #
+        # Dono, 02/10, com o print: "Não corrigiu essa parte para eu conseguir
+        # remover ou alterar colaboradores?". A tela mostrava
+        # `bruniellymendonca` no username, os outros dois em branco, e
+        # "Username do Trello e nome são obrigatórios" — o campo preenchido na
+        # frente dele.
+        #
+        # Com a chave presa à SELEÇÃO, trocar de pessoa cria outro widget, e o
+        # formulário inteiro nasce com a ficha certa.
+        _k = "".join(c for c in _sel if c.isalnum()) or "novo"
         _user = e1.text_input("Username do Trello", value=_f.get("username_trello", ""),
                               placeholder="ex: gabriel_borges",
+                              key=f"eq_user_{_k}",
                               disabled=_editando,
                               help=("O username é a chave da linha e não se "
                                     "edita: trocá-lo criaria outra pessoa em "
@@ -301,15 +318,19 @@ def _secao_equipe():
                                     "username errado, remova e cadastre de novo."
                                     if _editando else None))
         _nome = e2.text_input("Nome no painel", value=_f.get("nome", ""),
+                              key=f"eq_nome_{_k}",
                               placeholder="ex: Gabriel")
         _rhid = e3.text_input("Primeiro nome na RHiD", value=_f.get("nome_rhid", ""),
+                              key=f"eq_rhid_{_k}",
                               placeholder="ex: Gabriel")
         _c_at, _c_bp = st.columns(2)
         _ativo = _c_at.checkbox("Ativo (conta nas metas)",
+                                key=f"eq_ativo_{_k}",
                                 value=_sim(_f.get("ativo", "sim")))
         _funcao_in = st.text_input(
             "Colunas da função (opcional)",
             value=_f.get("colunas_funcao", ""),
+            key=f"eq_func_{_k}",
             placeholder="CRIATIVO VÍDEO; CRIATIVO FOTOS; DESATIVAR",
             help="Separe por ponto e vírgula. Compara por início do nome, então "
                  "'CRIATIVO VÍDEO' pega 'CRIATIVO VÍDEO (80)' mesmo se o número "
@@ -317,6 +338,7 @@ def _secao_equipe():
                  "significa sem restrição, e nada é marcado na tela.")
         _bate = _c_bp.checkbox(
             "Bate ponto no relógio", value=_sim(_f.get("bate_ponto", "sim")),
+            key=f"eq_bate_{_k}",
             help="Desmarque para quem não usa a RHiD. Sem isso a pessoa aparece "
                  "com 0% de desempenho e 'Não registrado' em vermelho, como se "
                  "tivesse faltado.")
@@ -327,12 +349,13 @@ def _secao_equipe():
         _a1, _a2 = st.columns(2)
         _alm_i = _a1.text_input(
             "Almoço — início (opcional)", value=_f.get("almoco_inicio", ""),
-            placeholder="12:00",
+            placeholder="12:00", key=f"eq_almi_{_k}",
             help="Só vale nos dias SEM batida no relógio. Quando a RHiD "
                  "responde, a janela sai do ponto de verdade. Em branco usa o "
                  "padrão da casa, 13:30 às 14:30.")
         _alm_f = _a2.text_input("Almoço — fim (opcional)",
                                 value=_f.get("almoco_fim", ""),
+                                key=f"eq_almf_{_k}",
                                 placeholder="13:00")
         _rot = ("Salvar alteração" if _editando else "Cadastrar colaborador")
         if st.form_submit_button(_rot, use_container_width=True,
@@ -363,9 +386,15 @@ def _secao_equipe():
                 "quem saiu da empresa, prefira desmarcar **Ativo**: apagar "
                 "leva junto a referência do histórico dela."
             )
+            # A CHAVE É DESTA PESSOA, e não do formulário.
+            #
+            # Com key fixa, confirmar a remoção de A e trocar para B deixava o
+            # username de A digitado no campo de B — e o botão "Remover
+            # definitivamente" compara o digitado com o selecionado. Confirmar
+            # um e apagar outro é o pior desfecho possível desta tela.
             _conf = st.text_input(
                 "Digite o username para confirmar",
-                key="eq_rm_conf",
+                key=f"eq_rm_conf_{_k}",
                 placeholder=_f.get("username_trello", ""))
             if st.button("Remover definitivamente", key="eq_rm_btn",
                          disabled=_conf.strip() != _f.get("username_trello", ""),
