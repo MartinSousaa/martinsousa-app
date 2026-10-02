@@ -170,8 +170,14 @@ MUTACOES = [
     (
         "o prompt volta a dizer que um bloco a menos esta bom",
         "imagem.py",
-        [("- NÃO INVENTE TEXTO: o conteúdo de cada cartão já veio pronto no bloco de",
-          "  Bloco a menos é melhor que bloco com texto inventado.\n- NÃO INVENTE TEXTO: o conteúdo de cada cartão já veio pronto no bloco de")],
+        # A ANCORA MUDOU EM 02/10, e o verificador reprovou a entrada velha —
+        # com razao: ela apontava para "o conteúdo de cada cartão já veio
+        # pronto", redacao que saiu quando a REGRA DE TEXTO REAL virou
+        # `INSTRUCAO_TEXTO_REAL`, compartilhada pelo cartao e pelo callout.
+        # Entrada que nao se aplica mais da impressao de cobertura que nao
+        # existe, e e isso que ele cobra.
+        [("- NÃO INVENTE TEXTO: o que se escreve já veio pronto no bloco de TEXTO",
+          "  Bloco a menos é melhor que bloco com texto inventado.\n- NÃO INVENTE TEXTO: o que se escreve já veio pronto no bloco de TEXTO")],
         None,
         ["python3", "checar_comunicacao.py"],
     ),
@@ -198,13 +204,22 @@ MUTACOES = [
         ["python3", "checar_comunicacao.py"],
     ),
     (
-        "sem copy, o prompt volta a mandar uma FAIXA de blocos",
+        "sem copy, o prompt volta a PEDIR bloco de texto que ninguem escreveu",
         "imagem.py",
-        [('    return (f"- Esta peça tem exatamente {maximo} bloco(s) de texto. "\n'
-          '            f"Não acrescente nenhum outro, e não entregue menos.")',
-          '    return (f"- Sem referência: use de {minimo} a {maximo} blocos informativos, "\n'
-          '            f"conforme o conteúdo disponível. {maximo} é o teto desta peça — "\n'
-          '            f"nenhuma outra instrução autoriza mais.")')],
+        # O DEFEITO MUDOU DE FORMA EM 02/10, E A ENTRADA MUDA COM ELE.
+        #
+        # Ate aqui esta entrada media "o prompt volta a mandar uma FAIXA de
+        # blocos". Mas fechar o NUMERO nunca foi o conserto: com `textos: []`
+        # no plano, o prompt mandava desenhar N cartoes e nao dava palavra
+        # nenhuma para por neles. O Gemini escreveu a DESCRICAO DO CAMPO
+        # dentro do cartao — "TITULO CURTO EM CAIXA ALTA: TEXTURA UNICA E
+        # PROFUNDA" — e inventou sete cotas na peca 5.
+        #
+        # Hoje, sem copy, a peca sai SEM TEXTO. A mutacao reintroduz o pedido.
+        [('    return ("- Esta peça NÃO recebeu copy: o plano voltou sem texto para ela. "',
+          '    return (f"- Esta peça tem exatamente {maximo} bloco(s) de texto. "\n'
+          '            f"Não acrescente nenhum outro, e não entregue menos.")\n'
+          '    return ("- Esta peça NÃO recebeu copy: o plano voltou sem texto para ela. "')],
         None,
         # O COMANDO E O AUTOTESTE DO `imagem.py`, E NAO O `checar_comunicacao`.
         #
