@@ -1971,6 +1971,27 @@ def _form_da_equipe(conta):
           "" if "_k = " in fonte else "não achei a montagem da chave")
 
 
+def _contribuicao_coletiva(conta):
+    """Desempenho por Colaborador mostra SO a contribuicao para a coletiva.
+
+    Dono, 02/10: a meta individual e o "bateu" sairam da tela da equipe. O
+    Painel desenha com `_barra` e a TV com `_tv_full_html` — cada um tinha a
+    sua conta, e a TV nem descontava a penalidade. O `_barra` e desenhado de
+    verdade; o `_tv_full_html` pede trinta argumentos, e a guarda dele le o
+    codigo da funcao (o bloco, nao o arquivo).
+    """
+    import inspect
+    import placar as _pl
+    _h = _pl._barra("Myrella", 3100, 33, 9000)
+    conta("Painel: a barra diz pontos e % da coletiva",
+          "3,067 pts" in _h and "34% da coletiva" in _h, _h[:160])
+    conta("Painel: sem '/ meta individual' na barra",
+          " / " not in _h, _h[:160])
+    _src_tv = inspect.getsource(_pl._tv_full_html)
+    conta("TV: o bloco usa a mesma conta do Painel e nao le meta individual",
+          "contribuicao_coletiva" in _src_tv and "meta_ind" not in _src_tv, "")
+
+
 def main():
     instalar()
     falhas = []
@@ -2009,6 +2030,7 @@ def main():
     _historico_de_prompts(conta)
     _contexto_do_log(conta)
     _txt_consolidado(conta)
+    _contribuicao_coletiva(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0
