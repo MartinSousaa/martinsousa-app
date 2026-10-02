@@ -9447,6 +9447,39 @@ def pagina_imagem(usuario_logado):
                     _plano_por_tipo[_pi.get("tipo", "")] = _pi
                     _plano_por_tipo[tipo_canonico(_pi, cfg.get("tipos"))] = _pi
 
+                # ── O NOME DO PRODUTO, MARCADO AQUI E NÃO SÓ NO TOPO ───
+                #
+                # O contexto do log é marcado uma vez por desenho da tela,
+                # lá em cima, lendo `img_nome_produto` do `session_state`.
+                # E `definir_produto_da_sessao` só escreve esse campo no FIM
+                # da geração.
+                #
+                # Resultado, medido no Studio do dono em 02/10: ele gerou a
+                # "Caneca Térmica Medieval 400Ml" pelo código da descrição,
+                # as 7 peças saíram, e o histórico de prompts dela veio com
+                # 143 CARACTERES — só o cabeçalho. O log gravou
+                # `produto = ""` nas sete linhas, e o filtro por nome não
+                # achou nenhuma. É a mesma causa das seis peças "sem nome"
+                # no .txt que ele mandou antes.
+                #
+                # Na passada em que a geração roda, o nome ainda não está no
+                # `session_state` — mas ESTÁ no `cfg`, que é de onde o prompt
+                # tira tudo. Então marca-se aqui, com a fonte certa, antes de
+                # qualquer thread nascer: `alvo_com_contexto` captura o
+                # contexto no NASCIMENTO da thread, e daqui para baixo ele já
+                # tem nome.
+                #
+                # A marcação do topo continua, para os caminhos que não
+                # passam por aqui (ajuste fino avulso, refazer).
+                try:
+                    import log_imagem as _li_ger
+                    _li_ger.marcar_contexto(
+                        produto=cfg.get("nome_produto", ""),
+                        usuario=usuario_logado)
+                except Exception:
+                    # Marcar contexto é apoio, não requisito.
+                    pass
+
                 # ── O STUDIO OLHA AS REFERÊNCIAS DE AMBIENTAÇÃO ─────────
                 #
                 # UMA leitura para as oito peças. Uma por imagem seria pagar
@@ -11877,6 +11910,56 @@ if __name__ == "__main__":
     ok("e a referencia vem ANTES das fotos do produto — as fotos sao a "
        "trava de fidelidade, a referencia e o pedido",
        _fonte_cc.index("_ref_ped_rf + list(_fotos_rf)") > 0)
+
+    # ── O LOG GRAVA O NOME DO PRODUTO DA GERAÇÃO QUE ESTÁ RODANDO ──────
+    #
+    # 02/10, Studio do dono: gerou a "Caneca Térmica Medieval 400Ml" pelo
+    # código da descrição, 7 peças saíram, e o histórico de prompts dela veio
+    # com 143 CARACTERES — só o cabeçalho.
+    #
+    # O contexto do log era marcado UMA vez por desenho da tela, no topo,
+    # lendo `img_nome_produto` do `session_state`; e `definir_produto_da_sessao`
+    # só escreve esse campo no FIM da geração. Na passada em que a geração
+    # roda, o nome ainda não existe ali — a thread herda contexto vazio, o log
+    # grava `produto = ""`, e o filtro por nome não acha nada.
+    #
+    # Era também a causa das seis peças "sem nome" no .txt dele.
+    #
+    # A guarda é por AST e mede a ORDEM, que é o que estava errado: a marcação
+    # com `cfg` tem de vir ANTES da primeira Thread da geração.
+    import ast as _ast_ctx
+    _fonte_pg = _insp_img.getsource(pagina_imagem)
+    ok("a geração marca o contexto do log com o nome do `cfg`",
+       'produto=cfg.get("nome_produto", "")' in _fonte_pg)
+    _i_marca = _fonte_pg.find('_li_ger.marcar_contexto(')
+    _i_thread = _fonte_pg.find('_th_rf.Thread(')
+    ok("e marca ANTES de abrir thread — é no nascimento dela que o "
+       "contexto é capturado",
+       _i_marca > 0 and (_i_thread < 0 or _i_marca < _i_thread))
+    # A marcação do TOPO continua: ela cobre os caminhos que não passam pela
+    # geração (ajuste fino avulso, refazer pelo chat).
+    ok("a marcação do topo da tela continua existindo",
+       _fonte_pg.count("marcar_contexto(") >= 2)
+    # E o que o log grava sai do contexto, e não de uma leitura de tela que a
+    # thread não consegue fazer.
+    import log_imagem as _li_g
+    _ctx_antes = _li_g.contexto_atual()
+    try:
+        _li_g.marcar_contexto(produto="Caneca Térmica Medieval 400Ml")
+        ok("o contexto por thread guarda o produto marcado",
+           _li_g.contexto_atual().get("produto")
+           == "Caneca Térmica Medieval 400Ml")
+        import threading as _th_g
+        _visto = {}
+        _alvo = _li_g.alvo_com_contexto(
+            lambda: _visto.__setitem__("p",
+                                       _li_g.contexto_atual().get("produto")))
+        _t_g = _th_g.Thread(target=_alvo)
+        _t_g.start(); _t_g.join()
+        ok("e a THREAD enxerga o nome — é lá que o log grava",
+           _visto.get("p") == "Caneca Térmica Medieval 400Ml")
+    finally:
+        _li_g.marcar_contexto(produto=_ctx_antes.get("produto", ""))
 
     # ── O PARAMETRO RECUSADO SAI, NOS CAMINHOS COM FOTO ────────────────
     #

@@ -36,6 +36,14 @@ RAIZ = os.path.dirname(os.path.abspath(__file__))
 # que não se aplica dá a impressão de cobertura que não existe.
 MUTACOES = [
     (
+        'o log volta a gravar produto vazio na geracao pelo codigo',
+        "imagem.py",
+        [('                try:\n                    import log_imagem as _li_ger\n                    _li_ger.marcar_contexto(\n                        produto=cfg.get("nome_produto", ""),\n                        usuario=usuario_logado)\n                except Exception:',
+          '                try:\n                    pass\n                except Exception:')],
+        None,
+        ["python3", "imagem.py", "--autoteste"],
+    ),
+    (
         'o caminho Responses+tools volta a morrer no parametro recusado',
         "imagem.py",
         [('                        _qual = parametro_recusado(_e_par, list(_tools_cfg))',
