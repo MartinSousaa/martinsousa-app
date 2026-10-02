@@ -100,6 +100,20 @@ TIPO_CENARIO = "3 — Benefícios no cenário de uso"
 TIPOS_DE_CENA = (TIPO_AMBIENTE, TIPO_PRESENTE, TIPO_CENARIO)
 TIPOS_COM_TEXTO_MEDIDO = tuple(t for t in TIPOS_COM_TEXTO
                                if t not in TIPOS_DE_CENA)
+# ── O CLOSE SAIU DA FAMILIA DE CARTAO, E A GUARDA SAI COM ELE ─────────────
+#
+# Ate 02/10 estas tres linhas exigiam do Close "FORMA DO CARTAO, IGUAL EM
+# TODAS AS PECAS", "UMA coluna vertical unica" e a precedencia da referencia
+# sobre a coluna. Elas estavam VERDES no dia em que o close da Caneca
+# Medieval saiu com dois cartoes brancos de icone line-art sobre a foto
+# macro — porque era exatamente isso que elas exigiam.
+#
+# O Close e fotografia com callout de linha fina; o preset dele ja dizia
+# isso, e era a segunda voz que perdia. Mover a regra sem mover a guarda
+# deixaria estas linhas cobrando de volta o defeito que acabou de sair — foi
+# o que aconteceu com as pecas 3, 7 e 8 e esta anotado logo acima.
+TIPO_CLOSE = "4 — Close nos detalhes"
+TIPOS_COM_CARTAO = tuple(t for t in TIPOS_COM_TEXTO if t != TIPO_CLOSE)
 TIPO_LIVRE = "Personalizado (descrevo o que quero)"
 
 TODOS = (TIPO_CAPA,) + TIPOS_COM_TEXTO + (TIPO_AMBIENTE, TIPO_LIVRE)
@@ -128,9 +142,9 @@ REGRAS = [
     # Estas quatro linhas existem para que voltar a escrever posição dentro
     # de um preset reprove a varredura.
     ("a forma única do cartão", "FORMA DO CARTÃO, IGUAL EM TODAS AS PEÇAS",
-     TIPOS_COM_TEXTO, (TIPO_AMBIENTE,)),
+     TIPOS_COM_CARTAO, (TIPO_AMBIENTE, TIPO_CLOSE)),
     ("a coluna única como posição", "UMA coluna vertical única",
-     TIPOS_COM_TEXTO, (TIPO_AMBIENTE,)),
+     TIPOS_COM_CARTAO, (TIPO_AMBIENTE, TIPO_CLOSE)),
     # A COLUNA UNICA NAO PODE CONTRADIZER A REFERENCIA DE LAYOUT.
     #
     # Logo acima o prompt diz "quando houver imagem de referencia de layout,
@@ -138,7 +152,17 @@ REGRAS = [
     # com duas ordens contrarias sobre a mesma coisa — que e o defeito que
     # esta base ja pagou caro tres vezes. A precedencia sai escrita.
     ("a precedência da referência de layout sobre a coluna",
-     "a POSIÇÃO é a dela", TIPOS_COM_TEXTO, (TIPO_AMBIENTE,)),
+     "a POSIÇÃO é a dela", TIPOS_COM_CARTAO, (TIPO_AMBIENTE, TIPO_CLOSE)),
+    # ── E O CONTRATO PROPRIO DO CLOSE, que nasce junto com a separacao ────
+    ("o Close se declara fotografia, e não peça de marketing",
+     "REGRA DE LAYOUT DO CLOSE", (TIPO_CLOSE,), TIPOS_COM_CARTAO),
+    ("o Close proíbe cartão, painel e ícone",
+     "PROIBIDO desenhar cartão, painel, caixa de texto",
+     (TIPO_CLOSE,), TIPOS_COM_CARTAO),
+    ("o Close manda o texto vir como callout de linha fina",
+     "CALLOUT: uma linha fina", (TIPO_CLOSE,), TIPOS_COM_CARTAO),
+    ("o Close proíbe seta de dimensão — medida é a peça 5",
+     "ZERO medidas e ZERO setas de dimensão", (TIPO_CLOSE,), ()),
     ("a medida da folga da borda chega à peça", "6%",
      TIPOS_COM_TEXTO, ()),
     # ── A FOLGA É ESPAÇO DA CENA, E NÃO UMA MOLDURA DESENHADA ───────────
@@ -1443,6 +1467,19 @@ def main():
     for t in TODOS:
         if t in (TIPO_CAPA, TIPO_AMBIENTE, TIPO_LIVRE):
             continue          # sem bloco de texto, sem medida de bloco
+        if t == TIPO_CLOSE:
+            # O Close nao tem cartao: a medida dele e a do CALLOUT, e exigir
+            # as duas na mesma mensagem foi o defeito de 02/10.
+            _mc = _img.medida_do_callout()
+            if _mc not in enviados[t]:
+                print(f"FALHA  '{t}' nao recebeu a medida do CALLOUT vinda da "
+                      f"fonte unica: {_mc!r}")
+                falhas += 1
+            if _medida in enviados[t]:
+                print(f"FALHA  '{t}' recebeu TAMBEM a medida do cartao "
+                      f"({_medida!r}) — dois tamanhos para o mesmo texto")
+                falhas += 1
+            continue
         if _medida not in enviados[t]:
             print(f"FALHA  '{t}' nao recebeu a medida do bloco vinda da fonte "
                   f"unica: {_medida!r}")
@@ -1653,6 +1690,46 @@ def main():
 
     # ── 8. IDA E VOLTA: o que o Studio escreve, o sistema ouve? ────────
     falhas += _conferir_ida_e_volta()
+
+    # ── A REFERENCIA DE LAYOUT TEM UMA AUTORIDADE SO ──────────────────────
+    #
+    # Dois textos descreviam o que se pode aproveitar de uma referencia: o
+    # portugues, anexado ao plano, autorizava "uso de pessoas/cenarios"; o
+    # ingles, anexado a chamada do motor, dizia "SOMENTE a composicao". Foi
+    # por essa porta que "cinzeiro" e "casal" de um nome de arquivo entraram
+    # nas oito pecas. Agora a lista e uma, e esta guarda cobra os dois lados.
+    _aut = _img.AUTORIDADE_DA_REFERENCIA
+    _pt = _img.INSTRUCAO_REFERENCIA_LAYOUT.format(autoridade=_aut)
+    for _proibido in ("pessoa", "cenário", "cenario"):
+        if _proibido in _aut.lower():
+            print(f"FALHA  a autoridade da referência de layout voltou a "
+                  f"autorizar {_proibido!r} — pessoa e cenário são CONTEÚDO, "
+                  f"e conteúdo vem do plano e das fotos")
+            falhas += 1
+    if "SOMENTE" not in _pt:
+        print("FALHA  o bloco em português da referência deixou de dizer "
+              "SOMENTE: sem isso ele volta a ser uma lista aberta")
+        falhas += 1
+    # E A MESMA LISTA CHEGA AOS DOIS LADOS: o portugues do plano e o ingles
+    # do motor. Guarda que olha so um dos dois nao ve a divergencia — que era
+    # exatamente o estado ate 02/10.
+    # A chamada segue a assinatura real (`prompt_texto, imagens_referencia,
+    # refs_layout, refs_layout_nomes, tipo`): o bloco da referencia so entra
+    # quando HA referencia, e e esse caminho que precisa ser medido.
+    _pt_ref = _img.montar_prompt_imagem(
+        TIPOS_COM_TEXTO[0], "", _DADOS, "Produto de Teste",
+        refs_layout_nomes=["ref.png"])
+    _en = _img.prompt_que_sera_enviado(
+        _pt_ref, [_foto()], refs_layout=[_foto()],
+        refs_layout_nomes=["ref.png"], tipo=TIPOS_COM_TEXTO[0])
+    if _aut not in _pt_ref:
+        print(f"FALHA  o bloco em português da referência não recebeu a "
+              f"autoridade única: {_aut!r}")
+        falhas += 1
+    if _en and _aut not in _en:
+        print(f"FALHA  o prompt do MOTOR não recebeu a mesma autoridade da "
+              f"referência: {_aut!r}")
+        falhas += 1
 
     if not falhas:
         print(f"ok    {len(TODOS)} tipos, {len(REGRAS)} regras varridas no "

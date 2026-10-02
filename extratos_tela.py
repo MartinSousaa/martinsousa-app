@@ -427,16 +427,12 @@ def _perguntar(fila, _fv, usuario_logado):
 
 
 def _finalidades_conhecidas(_fv):
-    """As finalidades já usadas, mais as que a casa sempre teve."""
-    base = ["MERCADORIA", "EMBALAGEM", "CUSTO FIXO", "NÃO OPERACIONAL",
-            "IMPOSTO", "SERVIÇO", "ESTACIONAMENTO", "FLEX", "CONSUMO INTERNO", "TRANSFERENCIA ENTRE CONTAS",
-            "MERCADO LIVRE", "SHOPEE", "SHEIN", "TIKTOK", "AMAZON", "SITE", "OUTROS"]
-    try:
-        usadas = {v["finalidade"] for v in (_fv.carregar() or {}).values()
-                  if v.get("finalidade")}
-    except Exception:
-        usadas = set()
-    return sorted(set(base) | usadas)
+    """As finalidades já usadas, mais as que a casa sempre teve.
+
+    A lista vem de `favorecidos.FINALIDADES_BASE` — dono único. Esta cópia
+    tinha quatro nomes a menos que a de `finalidades_tela.py`.
+    """
+    return _fv.finalidades_conhecidas()
 
 
 def _ver_mes(_fv, _lan, usuario_logado):

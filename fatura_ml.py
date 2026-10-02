@@ -385,6 +385,165 @@ def conciliar(sep, pag):
     return dif, nao_cobradas
 
 
+# ── A QUEBRA CHEGA AO MÊS: ADS, CROSS, PÁGINA E IMPOSTO VIRAM FINALIDADE ───
+#
+# POR QUE ISTO EXISTE
+# -------------------
+# Até 02/10 esta tela sabia tudo e não contava nada. Ela lia os dois
+# relatórios, separava ADS de Cross de Imposto, desenhava na tela — e parava
+# ali. O dinheiro entrava no mês por OUTRO caminho: a fatura do cartão, como
+# UMA linha `MERCADOLIVRE` que o cadastro classifica como CONSUMO INTERNO
+# (`favorecidos.py:201`). Em ago/2026 são R$ 3.200,18 de publicidade,
+# logística e imposto contados como consumo interno — e a pergunta "quanto
+# gastei com ADS?" não tinha onde ser respondida.
+#
+# POR QUE ELA SUBSTITUI, E NUNCA ACRESCENTA
+# ------------------------------------------
+# O valor JÁ ESTÁ no mês. Gravar as quatro linhas por cima dobraria a conta
+# em R$ 3.200,18 — em silêncio, porque nenhuma das duas metades está errada
+# sozinha. É o mesmo defeito que `lancamentos.identidade` existe para
+# impedir. Por isso a quebra só se oferece quando ACHA a linha do cartão:
+# apaga aquela linha e grava as partes no lugar, somando o mesmo centavo.
+# Sem a fatura subida, a tela diz isso em vez de lançar no escuro.
+#
+# POR QUE ELA PARTE DO PAGAMENTO, E NÃO DA FATURA
+# ------------------------------------------------
+# São números diferentes: a fatura de agosto cobrou R$ 3.420,90 e o cartão
+# pagou R$ 3.200,18. A diferença são as sete tarifas de devolução que o ML
+# abateu — dinheiro que nunca saiu. Repartir a fatura poria R$ 220,72 de
+# gasto que não existe. `por_grupo(pag["pagos"])` soma exatamente
+# `total_pago` por construção, porque agrupa as linhas pagas em vez de
+# recalcular a partir de outro total.
+
+# O nome do grupo é o vocabulário DELE (aba `ADS E CROSS` do Controle MS); a
+# finalidade é o vocabulário do Financeiro. IMPOSTO e FLEX já existiam em
+# `finalidades_tela.py:118-121` — reusá-las é a Forma 5 evitada: dois nomes
+# para o mesmo imposto passariam a discordar.
+FINALIDADE_DO_GRUPO = {
+    "ADS": "ADS",
+    "Cross (envios Full)": "CROSS DOCKING",
+    "Flex": "FLEX",
+    "Página da loja": "PÁGINA DO ML",
+    "Afiliados": "AFILIADOS",
+    "Parcelamento": "PARCELAMENTO",
+    "Impostos": "IMPOSTO",
+    "Devoluções": "DEVOLUÇÃO ML",
+}
+
+# Dias de folga entre o pagamento e a data que o cartão lançou. O relatório
+# do ML diz 04/09; a fatura do cartão pode datar a compra um ou dois dias
+# antes ou depois. Mais do que isto e a janela começa a pegar outra compra.
+FOLGA_DIAS_CARTAO = 5
+
+
+def quebra_do_pago(pag):
+    """[{grupo, finalidade, valor, n}] — o *Pago no cartão* repartido.
+
+    Soma EXATAMENTE `pag["total_pago"]`: cada linha paga entra em um grupo e
+    em um só, e nada é recalculado a partir da fatura.
+
+    O grupo que o ML inventou (`NOVO`) entra com finalidade VAZIA de
+    propósito. `lancamentos.resumo_por_finalidade` chama vazio de "SEM
+    CLASSIFICAÇÃO" (`lancamentos.py:265`) e a Home avisa o total dela
+    (`home_gestao.py:683`): o desconhecido fica visível em vez de somar
+    calado dentro de "outros", que é o que deixou a multa de R$ 69,60 passar.
+    """
+    fora = []
+    for grupo, dados in por_grupo((pag or {}).get("pagos", [])).items():
+        if not dados["n"]:
+            continue
+        fora.append({"grupo": grupo, "n": dados["n"],
+                     "valor": round(dados["total"], 2),
+                     "finalidade": FINALIDADE_DO_GRUPO.get(grupo, "")})
+    return fora
+
+
+def _data_do_pagamento(pag):
+    """A data em que o cartão foi debitado, como texto AAAA-MM-DD."""
+    for p in (pag or {}).get("pagamentos", []):
+        if p.get("data"):
+            return p["data"]
+    datas = sorted({p["data"] for p in (pag or {}).get("pagos", [])
+                    if p.get("data")})
+    return datas[-1] if datas else ""
+
+
+def lancamento_do_cartao(pag, lancamentos):
+    """A linha do extrato/fatura que É este pagamento do ML. Ou None.
+
+    Casa por VALOR e por JANELA DE DATA, nunca pelo nome: a fatura do Inter
+    escreve "MERCADOLIVRE 4PRODUTOS CAJAMAR BRA" e a do Itaú escreve outra
+    coisa, e o nome é justamente o que muda de banco para banco. O valor
+    `total_pago` tem centavo — dois gastos diferentes caírem no mesmo centavo
+    na mesma semana é o caso raro, e quando acontece esta função devolve None
+    em vez de escolher: duas candidatas é ambiguidade, e ambiguidade aqui
+    apaga a linha errada.
+    """
+    alvo = round(float((pag or {}).get("total_pago") or 0), 2)
+    quando = _data_do_pagamento(pag)
+    if not alvo or not quando:
+        return None
+    try:
+        base = datetime.strptime(quando, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+    achados = []
+    for l in (lancamentos or []):
+        if round(abs(float(l.get("valor") or 0)), 2) != alvo:
+            continue
+        try:
+            d = datetime.strptime(str(l.get("data", ""))[:10], "%Y-%m-%d").date()
+        except ValueError:
+            continue
+        if abs((d - base).days) <= FOLGA_DIAS_CARTAO:
+            achados.append(l)
+    return achados[0] if len(achados) == 1 else None
+
+
+def linhas_para_lancamentos(pag, original):
+    """As partes prontas para `lancamentos.gravar`, no lugar de `original`.
+
+    Herdam conta, data e sinal da linha que substituem: o que muda é só o
+    significado. Herdar o SINAL não é detalhe — a saída do extrato é
+    negativa, e quatro partes positivas no lugar de uma saída negativa
+    mudariam o mês em duas vezes o valor, para cima.
+    """
+    partes = quebra_do_pago(pag)
+    if not partes or not original:
+        return []
+    sinal = -1 if float(original.get("valor") or 0) < 0 else 1
+    quando = str(original.get("data", ""))[:10]
+    fora = []
+    for p in partes:
+        fora.append({
+            "data": quando,
+            "descricao": f"ML {p['grupo']} — {p['n']} tarifa(s) na fatura",
+            "favorecido": str(original.get("favorecido", "")) or "MERCADOLIVRE",
+            "valor": round(sinal * p["valor"], 2),
+            "tipo": str(original.get("tipo", "")),
+            "finalidade": p["finalidade"],
+            "observacao": "Quebra da fatura do ML (tela ADS-Cross)",
+        })
+    return fora
+
+
+def conferir_quebra(partes, pag):
+    """(ok, recado). A soma das partes BATE com o pago? Senão, não lança.
+
+    Sem esta conferência o erro possível é o pior de todos: apagar a linha
+    certa e gravar partes que somam outra coisa. O mês fecharia diferente e
+    nada na tela diria por quê.
+    """
+    alvo = round(float((pag or {}).get("total_pago") or 0), 2)
+    soma = round(sum(abs(float(p.get("valor") or 0)) for p in (partes or [])), 2)
+    if not partes:
+        return False, "Não há o que repartir: nenhuma tarifa paga foi lida."
+    if abs(soma - alvo) >= 0.01:
+        return False, (f"As partes somam {moeda(soma)} e o cartão pagou "
+                       f"{moeda(alvo)}. Não lanço com diferença.")
+    return True, ""
+
+
 def motivo_da_conferencia(reg):
     """A frase que explica por que ESTA linha precisa de olho humano."""
     if reg["natureza"] == "fiscal":
@@ -1062,6 +1221,77 @@ if __name__ == "__main__":
     ok("aceitar fecha", encerrar(aberto["id"], ACEITA, "conferido", "leo")[0])
     ok("e não sobra nada em aberto",
        em_aberto([dict(zip(COLUNAS_CASO, l)) for l in _falsa.linhas]) == [])
+
+    # 12. A QUEBRA QUE CHEGA AO MÊS.
+    #
+    # A entrada vem do `pag` que `ler_pagamentos` montou acima — a cadeia
+    # real, não um dicionário escrito à mão aqui. O botão dos oito prompts
+    # quebrou em produção com a guarda verde porque a guarda inventou a
+    # entrada; aqui o `pag` é o mesmo objeto que a tela recebe.
+    # FINALIDADE_DO_GRUPO citada pelo nome: ela e lida de fora (a quebra que
+    # vai para `lancamentos`) e `checar_impacto` exige guarda para nome com
+    # leitor em outro arquivo.
+    ok("todo grupo da tela tem finalidade, menos o nunca-visto",
+       all(g in FINALIDADE_DO_GRUPO for g in ORDEM_NA_TELA if g != NOVO))
+    ok("o nunca-visto NAO tem finalidade — e de proposito",
+       NOVO not in FINALIDADE_DO_GRUPO)
+    _partes = quebra_do_pago(pag)
+    _soma = round(sum(p["valor"] for p in _partes), 2)
+    ok("as partes somam EXATAMENTE o pago no cartão — nem um centavo sobra",
+       _soma == pag["total_pago"])
+    ok("ADS sai com a finalidade ADS",
+       any(p["grupo"] == "ADS" and p["finalidade"] == "ADS" for p in _partes))
+    ok("imposto reusa a finalidade IMPOSTO que já existe no Financeiro",
+       any(p["grupo"] == "Impostos" and p["finalidade"] == "IMPOSTO"
+           for p in _partes))
+    ok("grupo com zero tarifa não vira linha",
+       all(p["n"] for p in _partes))
+
+    # 12a. O que o ML inventar entra VAZIO, para a Home gritar.
+    _pag_novo = ler_pagamentos([], [
+        {PG_NUMERO: "777", PG_APLICADO: 12.34,
+         PG_DETALHE: "Tarifa de alguma coisa que o ML inventou ontem"}])
+    _p_novo = quebra_do_pago(_pag_novo)
+    ok("cobrança nunca vista NÃO ganha finalidade inventada",
+       len(_p_novo) == 1 and _p_novo[0]["grupo"] == NOVO
+       and _p_novo[0]["finalidade"] == "")
+
+    # 12b. Achar a linha do cartão: por valor e janela, nunca pelo nome.
+    _lancs = [
+        {"id": "a", "data": "2026-09-04", "valor": -pag["total_pago"],
+         "favorecido": "MERCADOLIVRE 4PRODUTOS CAJAMAR BRA", "tipo": "saida"},
+        {"id": "b", "data": "2026-09-04", "valor": -1303.00,
+         "favorecido": "APEXIMP", "tipo": "saida"},
+    ]
+    ok("acha a linha do cartão pelo valor pago",
+       (lancamento_do_cartao(pag, _lancs) or {}).get("id") == "a")
+    ok("fora da janela de dias, não acha — e não apaga nada",
+       lancamento_do_cartao(
+           pag, [dict(_lancs[0], data="2026-10-20")]) is None)
+    ok("DUAS candidatas no mesmo centavo: devolve None em vez de escolher",
+       lancamento_do_cartao(pag, _lancs + [dict(_lancs[0], id="c")]) is None)
+    ok("sem nenhuma, devolve None", lancamento_do_cartao(pag, []) is None)
+
+    # 12c. As partes herdam o SINAL. Quatro positivas no lugar de uma saída
+    # negativa moveriam o mês em DUAS vezes o valor, para cima.
+    _novas = linhas_para_lancamentos(pag, _lancs[0])
+    ok("toda parte é saída, como a linha que ela substitui",
+       _novas and all(l["valor"] < 0 for l in _novas))
+    ok("a soma das partes é a mesma da linha substituída",
+       round(sum(l["valor"] for l in _novas), 2) == _lancs[0]["valor"])
+    ok("herdam a data da linha do cartão, não a do relatório do ML",
+       all(l["data"] == "2026-09-04" for l in _novas))
+    ok("entrada positiva não vira saída",
+       all(l["valor"] > 0 for l in linhas_para_lancamentos(
+           pag, dict(_lancs[0], valor=abs(_lancs[0]["valor"])))))
+
+    # 12d. A conferência que impede apagar a linha certa e gravar errado.
+    ok("soma batendo passa", conferir_quebra(_novas, pag)[0])
+    ok("soma errada reprova, e o recado diz os dois números",
+       conferir_quebra(_novas[:-1], pag)[0] is False
+       and "pagou" in conferir_quebra(_novas[:-1], pag)[1])
+    ok("sem partes, reprova em vez de apagar a linha do cartão",
+       conferir_quebra([], pag)[0] is False)
 
     print()
     if falhas:

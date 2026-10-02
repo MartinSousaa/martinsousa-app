@@ -1882,6 +1882,37 @@ def _fatura_confirmada(conta):
           "repetid" in _corpo.lower(), "")
 
 
+def _lista_de_finalidades(conta):
+    """As duas telas leem a MESMA lista de finalidades, de um dono so?
+
+    Em 02/10 a lista estava escrita em `finalidades_tela._finalidades` E em
+    `extratos_tela._finalidades_conhecidas`, e as duas copias JA discordavam:
+    a de Extratos nao tinha EMPRESTIMO PRONAMP, REEMBOLSO PRONAMP, RATEIO
+    CUSTO FIXO nem APLICACAO. Classificar um nome numa tela oferecia opcoes
+    que a outra nao oferecia — a Forma 5 do CLAUDE.md acontecida.
+
+    A guarda nao compara as duas listas entre si: isso passaria verde no dia
+    em que alguem recriasse as duas copias iguais. Ela exige que as duas
+    contenham a base de `favorecidos.FINALIDADES_BASE`, que e o dono.
+    """
+    import favorecidos as _fv
+    import finalidades_tela as _ft
+    import extratos_tela as _et
+
+    import composicao as _cp
+
+    base = set(_fv.FINALIDADES_BASE)
+    _falta_ft = sorted(base - set(_ft._finalidades({})))
+    conta("a tela de Finalidades oferece a base inteira", not _falta_ft,
+          "faltando: " + ", ".join(_falta_ft) if _falta_ft else "")
+    _falta_et = sorted(base - set(_et._finalidades_conhecidas(_fv)))
+    conta("a tela de Extratos oferece a MESMA base", not _falta_et,
+          "faltando: " + ", ".join(_falta_et) if _falta_et else "")
+    _sem_lado = sorted(f for f in base if _cp.lado(f) == "desconhecida")
+    conta("e toda finalidade da base tem lado na conta do LPV", not _sem_lado,
+          "sem lado: " + ", ".join(_sem_lado) if _sem_lado else "")
+
+
 def _form_da_equipe(conta):
     """Trocar de pessoa no seletor reconstrói o formulário inteiro?
 
@@ -1956,6 +1987,7 @@ def main():
     # "quebrava" — e passava sozinha. Alarme falso por ordem de execucao e
     # pior que nenhum teste: ensina a ignorar a saida.
     _form_da_equipe(conta)
+    _lista_de_finalidades(conta)
     _telas_restantes(conta)
     _fatura_confirmada(conta)
     _fotos_perdidas(conta)

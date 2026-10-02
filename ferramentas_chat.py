@@ -128,6 +128,26 @@ FERRAMENTAS = [
         "input_schema": {"type": "object", "properties": {}},
     },
     {
+        "name": "ler_gastos_do_mes",
+        "description": (
+            "O que o Studio JÁ TEM gravado de gasto em um mês: o total, o "
+            "valor de cada finalidade (MERCADORIA, CUSTO FIXO, ADS, CROSS "
+            "DOCKING, IMPOSTO, FOLHA...) e quanto está sem classificação. "
+            "São os mesmos números da tela Gestão › Gastos do mês — esta "
+            "ferramenta NÃO calcula nada, ela lê o que já está lá. Use para "
+            "'quanto gastei com X', 'quanto gastei em setembro', 'quanto foi "
+            "de ADS'. Se o mês não tiver extrato subido, ela diz isso em vez "
+            "de devolver zero."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "ano": {"type": "integer", "description": "Ex.: 2026. Vazio = ano corrente."},
+                "mes": {"type": "integer", "description": "1 a 12. Vazio = mês corrente."},
+            },
+        },
+    },
+    {
         "name": "ler_colunas_trello",
         "description": (
             "Colunas do Trello com a prioridade e o tempo estimado de cada uma. "
@@ -232,6 +252,66 @@ def _ler_financeiro():
                       "de viabilidade está saindo com custo defasado.")
     else:
         linhas.append("O LPV está em dia.")
+    return "\n".join(linhas)
+
+
+def _ler_gastos_do_mes(ano=None, mes=None):
+    """O gasto do mês como a tela já o mostra. NÃO recalcula nada.
+
+    A ordem do dono, em 02/10: *"ele não tem que somar, tem que navegar e
+    encontrar a informação que já esteja no sistema"*. Por isso esta função
+    chama `home_gestao._gastos_por_finalidade`, que é exatamente o que a tela
+    Gastos do mês chama (`home_gestao.py:587`). Somar aqui de novo criaria
+    duas respostas para a mesma pergunta — a Forma 5 do CLAUDE.md —, e o dia
+    em que elas discordassem ninguém saberia qual está certa.
+
+    O que falta preencher aparece como falta, não como zero: mês sem extrato
+    diz "nenhum lançamento", e o não classificado sai com nome e com a tela
+    onde se resolve.
+    """
+    # O FUSO NAO E OPCIONAL. O container do Railway roda em UTC: `datetime.now()`
+    # sem fuso devolve UTC, e nas tres primeiras horas de todo dia 1º ele
+    # responderia pelo MES ANTERIOR. `placar_core` e modulo do nucleo e ja
+    # carrega em toda tela — se ele falhar, a resposta e dizer que falhou, e
+    # nao chutar o mes com o relogio errado.
+    import placar_core as _pc
+    from datetime import datetime
+    hoje = datetime.now(_pc.FUSO)
+    ano = int(ano or hoje.year)
+    mes = int(mes or hoje.month)
+    if not 1 <= mes <= 12:
+        return f"Mês {mes} não existe. Use 1 a 12."
+
+    try:
+        import home_gestao as _hg
+        resumo, aviso = _hg._gastos_por_finalidade(ano, mes)
+    except Exception as e:
+        return f"Não consegui ler os gastos de {mes:02d}/{ano}: {e}"
+    if aviso:
+        return aviso
+    if not resumo:
+        return (f"Não há nenhum lançamento gravado em {mes:02d}/{ano}. O "
+                "extrato e a fatura desse mês ainda não foram subidos, em "
+                "Financeiro › 💳 Extratos. Não é gasto zero: é mês vazio.")
+
+    sem = resumo.get("SEM CLASSIFICAÇÃO", 0.0)
+    itens = sorted(((k, v) for k, v in resumo.items() if v),
+                   key=lambda kv: -abs(kv[1]))
+    linhas = [f"Gastos gravados em {mes:02d}/{ano} "
+              f"(tela Gestão › Gastos do mês):",
+              f"Total lançado: R$ {sum(resumo.values()):,.2f}", ""]
+    linhas += [f"  {k}: R$ {v:,.2f}" for k, v in itens]
+    if sem:
+        linhas.append("")
+        linhas.append(
+            f"R$ {sem:,.2f} estão SEM CLASSIFICAÇÃO — são nomes do extrato "
+            "que ninguém respondeu ainda. Resolve-se em Financeiro › 🏷️ "
+            "Finalidades, e a resposta vale para o passado inteiro.")
+    linhas.append("")
+    linhas.append(
+        "CHEQUES, FATURA DO CARTÃO e BOLETO são FORMA de pagamento, não "
+        "finalidade: o que foi comprado dentro deles só aparece quando a "
+        "fatura ou o cheque é aberto.")
     return "\n".join(linhas)
 
 
@@ -352,7 +432,8 @@ def _ver_imagem(numero):
     ]
 
 
-_SO_ADMIN = {"ler_financeiro", "ler_painel_metas", "ler_equipe", "ler_colunas_trello"}
+_SO_ADMIN = {"ler_financeiro", "ler_gastos_do_mes", "ler_painel_metas",
+             "ler_equipe", "ler_colunas_trello"}
 
 
 def para_o_modelo(eh_admin=False):
@@ -379,6 +460,8 @@ def executar(nome, entrada, eh_admin=False):
             return _buscar_triagem(entrada.get("nome", ""))
         if nome == "ler_financeiro":
             return _ler_financeiro()
+        if nome == "ler_gastos_do_mes":
+            return _ler_gastos_do_mes(entrada.get("ano"), entrada.get("mes"))
         if nome == "ler_painel_metas":
             return _ler_painel_metas()
         if nome == "ler_equipe":
@@ -390,3 +473,70 @@ def executar(nome, entrada, eh_admin=False):
     except Exception as e:
         return f"A consulta '{nome}' falhou: {e}"
     return f"Ferramenta desconhecida: {nome}"
+
+
+# ── AUTO-TESTE ────────────────────────────────────────────────────────────
+#
+# Este arquivo não era lido por verificador NENHUM até 02/10. O defeito que
+# ele deixa passar é mudo: a ferramenta entra em `FERRAMENTAS`, o modelo a
+# enxerga, pede por ela — e `executar` cai no `return` final dizendo
+# "Ferramenta desconhecida". Para quem está no chat isso aparece como "não
+# consegui essa informação", que foi exatamente a reclamação do dono.
+#
+# A guarda lê a ÁRVORE de `executar` (`ast`), não o texto do arquivo: guarda
+# que varre o arquivo se encontra a si mesma — já aconteceu três vezes aqui.
+if __name__ == "__main__":
+    import ast
+    import inspect
+    import sys
+
+    falhas = []
+
+    def ok(nome, cond):
+        if not cond:
+            falhas.append(nome)
+        print(("  ok  " if cond else "FALHOU") + "  " + nome)
+
+    _nomes = [f["name"] for f in FERRAMENTAS]
+    ok("nenhuma ferramenta repetida", len(_nomes) == len(set(_nomes)))
+    ok("toda ferramenta tem descrição e esquema",
+       all(f.get("description") and "input_schema" in f for f in FERRAMENTAS))
+
+    # Os nomes comparados em `if nome == "..."` dentro de executar().
+    _arvore = ast.parse(inspect.getsource(executar))
+    _despachadas = {
+        c.value for no in ast.walk(_arvore)
+        if isinstance(no, ast.Compare)
+        for c in no.comparators
+        if isinstance(c, ast.Constant) and isinstance(c.value, str)
+    }
+    _mudas = [n for n in _nomes if n not in _despachadas]
+    ok("toda ferramenta anunciada tem despacho em executar()", not _mudas)
+    if _mudas:
+        print("      anunciadas e sem despacho:", _mudas)
+
+    _fantasmas = [n for n in _despachadas
+                  if n not in _nomes and n not in _SO_ADMIN]
+    ok("executar() não despacha nome que não existe", not _fantasmas)
+    if _fantasmas:
+        print("      despachadas e não anunciadas:", _fantasmas)
+
+    ok("só-admin aponta para ferramentas que existem",
+       all(n in _nomes for n in _SO_ADMIN))
+    ok("usuário comum não enxerga as de gestão",
+       not ({f["name"] for f in para_o_modelo(False)} & _SO_ADMIN))
+    ok("admin enxerga todas",
+       {f["name"] for f in para_o_modelo(True)} == set(_nomes))
+
+    # Gastos: mês impossível é recusado sem ir à planilha.
+    ok("mês 13 é recusado", "não existe" in _ler_gastos_do_mes(2026, 13))
+    # mês 0 é "não informado", não mês inválido: `0 or hoje.month` cai no mês
+    # corrente de propósito. Escrito aqui porque a primeira versão desta
+    # guarda dizia que 0 era recusado, e não é.
+    ok("mês 25 também", "não existe" in _ler_gastos_do_mes(2026, 25))
+
+    print()
+    if falhas:
+        print("FALHOU: " + ", ".join(falhas))
+        sys.exit(1)
+    print("Tudo certo.")
