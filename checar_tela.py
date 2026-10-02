@@ -759,16 +759,18 @@ def _processar_cards_pts(conta):
                    "L3": "CONFERENCIA VÍDEO (10)",
                    "L4": "TABELA DE PONTUAÇÃO"}
         _cf = lambda v: [{"idCustomField": "idp", "value": {"number": str(v)}}]
+        # Meio do mes, e nao 01/01 00:00 UTC: o mes do cartao e o de
+        # Brasilia (02/10), e meia-noite UTC do dia 1o ainda e dezembro aqui.
         _cards = [
             # SOMA: concluido, em lista que pontua, com o campo PONTOS.
             {"id": "c1", "name": "Desativar carimbos", "idList": "L1",
              "idMembers": [], "labels": [], "idLabels": [], "due": None,
              "dueComplete": True, "customFieldItems": _cf(50),
-             "dateLastActivity": "2020-01-01T00:00:00.000Z"},
+             "dateLastActivity": "2020-01-15T12:00:00.000Z"},
             {"id": "c2", "name": "Conferência vídeo", "idList": "L3",
              "idMembers": [], "labels": [], "idLabels": [], "due": None,
              "dueComplete": True, "customFieldItems": _cf(10),
-             "dateLastActivity": "2020-01-01T00:00:00.000Z"},
+             "dateLastActivity": "2020-01-15T12:00:00.000Z"},
             # SOMA, E ISSO MUDOU EM 29/09. A TRIAGEM pagava zero, e em
             # 28/09 a equipe moveu 18 cartoes CONCLUIDOS para la: os pontos
             # sumiram da pessoa e da coletiva, sem aviso. O dono decidiu que
@@ -776,19 +778,19 @@ def _processar_cards_pts(conta):
             {"id": "c3", "name": "Na triagem", "idList": "L2",
              "idMembers": [], "labels": [], "idLabels": [], "due": None,
              "dueComplete": True, "customFieldItems": _cf(100),
-             "dateLastActivity": "2020-01-01T00:00:00.000Z"},
+             "dateLastActivity": "2020-01-15T12:00:00.000Z"},
             # NAO SOMA: a TABELA DE PONTUACAO e a legenda do quadro, nao
             # trabalho. Sem um cartao aqui, a guarda deixaria de medir
             # LISTAS_SEM_PONTUACAO e ficaria verde com a lista inteira vazia.
             {"id": "c5", "name": "Legenda de pontos", "idList": "L4",
              "idMembers": [], "labels": [], "idLabels": [], "due": None,
              "dueComplete": True, "customFieldItems": _cf(200),
-             "dateLastActivity": "2020-01-01T00:00:00.000Z"},
+             "dateLastActivity": "2020-01-15T12:00:00.000Z"},
             # NAO SOMA: o "concluido" nao esta marcado. `placar.py:621`.
             {"id": "c4", "name": "Aberto ainda", "idList": "L1",
              "idMembers": [], "labels": [], "idLabels": [], "due": None,
              "dueComplete": False, "customFieldItems": _cf(80),
-             "dateLastActivity": "2020-01-01T00:00:00.000Z"},
+             "dateLastActivity": "2020-01-15T12:00:00.000Z"},
         ]
         _falso = instalar()
         _pl.st = _falso
