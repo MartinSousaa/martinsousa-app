@@ -1882,6 +1882,60 @@ def _fatura_confirmada(conta):
           "repetid" in _corpo.lower(), "")
 
 
+def _quebra_do_ml(conta):
+    """A tela ADS-Cross DESENHA a seção que mexe em `lancamentos`?
+
+    ACHADO EM 03/10, pelo passo 3 do protocolo. `_levar_para_o_mes` é a
+    função que APAGA a linha do cartão e GRAVA as partes no lugar — é a
+    única coisa deste commit que escreve dinheiro — e nenhum verificador a
+    alcançava. Quebrada de propósito, `checar_tela`, `checar_alcance`,
+    `checar_impacto` e `checar_comunicacao` ficaram os quatro VERDES.
+
+    POR QUE PÔR A TELA EM `TELAS_SEM_GUARDA` NÃO BASTARIA, e esta é a parte
+    que quase me escapou: `pagina()` sem arquivo subido volta no
+    `_casos_em_aberto` e NUNCA chega em `_levar_para_o_mes`. A guarda ficaria
+    verde com o defeito dentro — guarda que não passa pela linha medida não é
+    guarda, e esta base já pagou por isso.
+
+    Então a seção é chamada direto, com um `pag` vindo de
+    `fatura_ml.ler_pagamentos` — a cadeia real, não um dicionário escrito
+    aqui. Valor inventado no teste mede o meu entendimento do sistema, e é
+    ele que costuma estar errado.
+    """
+    import fatura_ml as _fm
+    import fatura_ml_tela as _fmt
+
+    _falso = instalar()
+    _fmt.st = _falso
+    pag = _fm.ler_pagamentos([], [
+        {_fm.PG_NUMERO: "1", _fm.PG_APLICADO: 2762.80,
+         _fm.PG_DETALHE: "Tarifa por campanha de publicidade de Product Ads",
+         _fm.PG_DATA: "2026-09-04"},
+        {_fm.PG_NUMERO: "2", _fm.PG_APLICADO: 69.60,
+         _fm.PG_DETALHE: "Cobrança de ICMS-DIFAL", _fm.PG_DATA: "2026-09-04"},
+    ])
+    try:
+        _fmt._levar_para_o_mes(_fm, pag, "martinsousa")
+        conta("a seção que reparte a fatura do ML desenha", True, "")
+    except (_Rerun, _Parou):
+        conta("a seção que reparte a fatura do ML desenha", True, "")
+    except Exception as e:
+        conta("a seção que reparte a fatura do ML desenha", False,
+              f"{type(e).__name__}: {str(e)[:160]}")
+
+    # E SEM O RELATÓRIO DE PAGAMENTO ela não lança no escuro: sem saber o que
+    # SAIU do cartão, repartir o cobrado poria no mês R$ 220,72 que o ML
+    # abateu e que nunca saiu do bolso.
+    try:
+        _fmt._levar_para_o_mes(_fm, None, "martinsousa")
+        conta("e sem o relatório de pagamento ela não quebra", True, "")
+    except (_Rerun, _Parou):
+        conta("e sem o relatório de pagamento ela não quebra", True, "")
+    except Exception as e:
+        conta("e sem o relatório de pagamento ela não quebra", False,
+              f"{type(e).__name__}: {str(e)[:160]}")
+
+
 def _lista_de_finalidades(conta):
     """As duas telas leem a MESMA lista de finalidades, de um dono so?
 
@@ -1988,6 +2042,7 @@ def main():
     # pior que nenhum teste: ensina a ignorar a saida.
     _form_da_equipe(conta)
     _lista_de_finalidades(conta)
+    _quebra_do_ml(conta)
     _telas_restantes(conta)
     _fatura_confirmada(conta)
     _fotos_perdidas(conta)

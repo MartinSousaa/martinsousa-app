@@ -1263,6 +1263,31 @@ if __name__ == "__main__":
         {"id": "b", "data": "2026-09-04", "valor": -1303.00,
          "favorecido": "APEXIMP", "tipo": "saida"},
     ]
+    # O CAMINHO DE RESERVA DA DATA, que nenhuma asserção percorria.
+    #
+    # `_data_do_pagamento` lê primeiro o resumo ("Pagamento voluntário, Visa,
+    # 04/09") e só cai nas datas das tarifas quando o resumo não traz data.
+    # Mutando o resumo, tudo ficava verde: o teste nunca passava pela
+    # segunda linha. Se o ML mandar um relatório sem data no resumo — e ele
+    # manda, quando o pagamento ainda está em processamento — é esta linha
+    # que decide se a quebra acha a linha do cartão ou não.
+    _pag_sem_resumo = ler_pagamentos([], [
+        {PG_NUMERO: "1", PG_APLICADO: 10.0, PG_DETALHE: "Product Ads",
+         PG_DATA: datetime(2026, 9, 2)},
+        {PG_NUMERO: "2", PG_APLICADO: 5.0, PG_DETALHE: "Product Ads",
+         PG_DATA: datetime(2026, 9, 4)},
+    ])
+    ok("sem data no resumo, a data vem da ÚLTIMA tarifa paga",
+       _data_do_pagamento(_pag_sem_resumo) == "2026-09-04")
+    ok("e a linha do cartão é achada por ela",
+       (lancamento_do_cartao(_pag_sem_resumo, [
+           {"id": "z", "data": "2026-09-05", "valor": -15.0,
+            "favorecido": "MERCADOLIVRE", "tipo": "saida"}]) or {}
+        ).get("id") == "z")
+    ok("sem data nenhuma, não inventa uma",
+       _data_do_pagamento(ler_pagamentos([], [
+           {PG_NUMERO: "1", PG_APLICADO: 10.0}])) == "")
+
     ok("acha a linha do cartão pelo valor pago",
        (lancamento_do_cartao(pag, _lancs) or {}).get("id") == "a")
     ok("fora da janela de dias, não acha — e não apaga nada",
