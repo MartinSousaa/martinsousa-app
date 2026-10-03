@@ -511,6 +511,7 @@ def linhas_para_lancamentos(pag, original):
     partes = quebra_do_pago(pag)
     if not partes or not original:
         return []
+    import lancamentos as _lan_q
     sinal = -1 if float(original.get("valor") or 0) < 0 else 1
     quando = str(original.get("data", ""))[:10]
     fora = []
@@ -522,7 +523,10 @@ def linhas_para_lancamentos(pag, original):
             "valor": round(sinal * p["valor"], 2),
             "tipo": str(original.get("tipo", "")),
             "finalidade": p["finalidade"],
-            "observacao": "Quebra da fatura do ML (tela ADS-Cross)",
+            "observacao": _lan_q.OBS_QUEBRA_ML,
+            # A finalidade da parte e a RESPOSTA da quebra: o cadastro de
+            # favorecidos nao pode trocar ADS por CONSUMO INTERNO na leitura.
+            "fixada": "sim",
         })
     return fora
 
@@ -1317,6 +1321,56 @@ if __name__ == "__main__":
        and "pagou" in conferir_quebra(_novas[:-1], pag)[1])
     ok("sem partes, reprova em vez de apagar a linha do cartão",
        conferir_quebra([], pag)[0] is False)
+
+    # 12e. A QUEBRA TEM DE SOBREVIVER À LEITURA DO MÊS.
+    #
+    # `lancamentos.do_mes` relê a finalidade do cadastro de favorecidos em
+    # toda linha que não está `fixada`. As partes herdam o favorecido da
+    # linha do cartão ("MERCADOLIVRE ..."), que o SEED chama de CONSUMO
+    # INTERNO: sem a trava, a tela gravava ADS, CROSS e IMPOSTO e o mês lia
+    # tudo de volta como CONSUMO INTERNO.
+    #
+    # A CADEIA INTEIRA: `_novas` vem de `ler_pagamentos` -> `linhas_para_
+    # lancamentos`, passa pelo `gravar` de verdade (só a aba é falsa) e volta
+    # pelo `do_mes` de verdade, com o SEED real de `favorecidos`.
+    import lancamentos as _lan_t
+    import favorecidos as _fv_q
+
+    class _AbaLan:
+        def __init__(self):
+            self.linhas = [list(_lan_t.COLUNAS)]
+
+        def get_all_records(self):
+            return [dict(zip(self.linhas[0], l)) for l in self.linhas[1:]]
+
+        def append_rows(self, linhas, **kw):
+            self.linhas.extend([[str(c) for c in l] for l in linhas])
+
+    def _sem_planilha():
+        raise RuntimeError("sem planilha no auto-teste")
+
+    _aba_lan = _AbaLan()
+    _aba_lan_antes, _aba_fv_antes = _lan_t._aba, _fv_q._aba
+    _lan_t._aba, _fv_q._aba = (lambda: _aba_lan), _sem_planilha
+    try:
+        _lan_t.carregar.clear()
+        _fv_q.carregar.clear()
+        ok("o SEED chama a linha do cartão de outra coisa (premissa do teste)",
+           (_fv_q.casar(_lancs[0]["favorecido"], _fv_q.carregar(), "saida")
+            or {}).get("finalidade") not in ("", None, "ADS"))
+        _g = _lan_t.gravar(_novas, "itau", "leo")
+        _lan_t.carregar.clear()
+        _lidas = {l["descricao"]: l["finalidade"]
+                  for l in _lan_t.do_mes(2026, 9)}
+        _gravadas = {l["descricao"]: l["finalidade"] for l in _novas}
+        ok("as partes gravadas voltam do mês com a finalidade da quebra",
+           _g[0] == len(_novas) and _lidas == _gravadas)
+        ok("ADS continua ADS depois da leitura do mês",
+           any(fin == "ADS" for fin in _lidas.values()))
+    finally:
+        _lan_t._aba, _fv_q._aba = _aba_lan_antes, _aba_fv_antes
+        _lan_t.carregar.clear()
+        _fv_q.carregar.clear()
 
     print()
     if falhas:

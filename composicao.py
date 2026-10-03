@@ -111,6 +111,26 @@ FORA = ("TRANSFERENCIA ENTRE CONTAS", "TRANSFERÊNCIA ENTRE CONTAS",
         "CHEQUE", "CHEQUES")
 
 
+# O LPV MENSAL — o que entra nele, decidido com o dono em 02/10.
+#
+# É o balde OPERACIONAL acima, mais estas. Elas NÃO mudam de lado no ponto de
+# equilíbrio: PÁGINA DO ML continua fixa no numerador (R$ 99 por mês vendendo
+# 100 ou 3.000), e BOLETO e TARIFA BANCÁRIA seguem fora do equilíbrio como
+# estavam. Mudar o lado delas aqui mexeria na Home inteira — o pedido foi o LPV.
+#
+# Ficam FORA do LPV, nas palavras dele: mercadoria (com qualquer das duas
+# grafias), custo fixo, assinaturas ("é custo fixo"), imposto e transferência
+# entre contas. Todas já caem fora por não serem "operacional".
+LPV_ALEM_DO_OPERACIONAL = ("PÁGINA DO ML", "BOLETO", "TARIFA BANCÁRIA")
+
+
+def entra_no_lpv(finalidade):
+    """A saída com esta finalidade entra no custo operacional do LPV?"""
+    if lado(finalidade) == "operacional":
+        return True
+    return _chave(finalidade) in {_chave(f) for f in LPV_ALEM_DO_OPERACIONAL}
+
+
 def _chave(t):
     t = unicodedata.normalize("NFKD", str(t or ""))
     return "".join(c for c in t if not unicodedata.combining(c)).upper().strip()
@@ -537,6 +557,20 @@ if __name__ == "__main__":
        not _forasteiras)
     if _forasteiras:
         print("      forasteiras:", _forasteiras)
+
+    # O LPV MENSAL: o que o dono disse que entra e o que não entra (02/10).
+    # `entra_no_lpv` é lido por `lpv_mensal.calcular`.
+    for _f in ("EMBALAGEM", "ADS", "CROSS DOCKING", "FLEX", "OUTROS",
+               "CONSUMO INTERNO", "PÁGINA DO ML", "BOLETO",
+               "TARIFA BANCÁRIA", "Tarifa Bancaria"):
+        ok(f"{_f} entra no LPV", entra_no_lpv(_f))
+    for _f in ("MERCADORIA", "COMPRA DE MERCADORIA", "CUSTO FIXO", "SERVIÇO",
+               "FOLHA", "IMPOSTO", "TRANSFERENCIA ENTRE CONTAS",
+               "FATURA DO CARTÃO", "CHEQUES", "EMPRESTIMO PRONAMP", "",
+               "SHOPEE"):
+        ok(f"{_f or '(vazia)'} NÃO entra no LPV", not entra_no_lpv(_f))
+    ok("e PÁGINA DO ML continua fixa no equilíbrio",
+       lado("PÁGINA DO ML") == "numerador")
 
     print("\nfalhas:", falhas)
     raise SystemExit(falhas)
