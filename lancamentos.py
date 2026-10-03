@@ -136,7 +136,8 @@ def gravar(lancamentos, conta="", usuario=""):
         l["id"], l.get("conta", ""), _txt_data(l.get("data")),
         str(l.get("descricao", ""))[:180], str(l.get("favorecido", ""))[:120],
         round(float(l.get("valor") or 0), 2), str(l.get("tipo", "")),
-        str(l.get("finalidade", "")), "", str(l.get("observacao", ""))[:200],
+        str(l.get("finalidade", "")), _fixada(l),
+        str(l.get("observacao", ""))[:200],
         agora, str(usuario or "")[:60],
     ] for l in novos]
     try:
@@ -204,6 +205,23 @@ def apagar(ids):
     return apagados, f"{apagados} lançamento(s) apagado(s)."
 
 
+# A observacao que a tela ADS-Cross grava em cada parte da quebra da fatura do
+# ML. Ela tambem TRAVA a linha: as partes gravadas antes de 02/10 sairam sem
+# `fixada`, e o cadastro as devolvia todas para a finalidade da linha do cartao.
+OBS_QUEBRA_ML = "Quebra da fatura do ML (tela ADS-Cross)"
+
+
+def _fixada(l):
+    """"sim" quando quem grava ja trava a linha contra o cadastro. Senao, ""."""
+    return "sim" if _eh_fixada(l) else ""
+
+
+def _eh_fixada(l):
+    if str(l.get("fixada", "")).strip().lower() in ("sim", "true", "1"):
+        return True
+    return str(l.get("observacao", "")).strip() == OBS_QUEBRA_ML
+
+
 def aplicar_cadastro(linhas):
     """Relê a finalidade do cadastro de favorecidos, em cima do que está gravado.
 
@@ -224,7 +242,7 @@ def aplicar_cadastro(linhas):
         return linhas
     fora = []
     for l in (linhas or []):
-        if str(l.get("fixada", "")).strip().lower() in ("sim", "true", "1"):
+        if _eh_fixada(l):
             fora.append(l)
             continue
         nome = (l.get("favorecido") or l.get("descricao") or "")
@@ -369,6 +387,13 @@ if __name__ == "__main__":
        _depois[0]["finalidade"] == "MERCADORIA")
     ok("linha fixada no lapis NAO e desfeita pelo cadastro",
        _depois[1]["finalidade"] == "OUTROS")
+    # As partes da quebra do ML gravadas ANTES da trava sairam sem `fixada`.
+    # A observacao que a tela grava nelas tambem trava.
+    _legado = aplicar_cadastro([{"favorecido": "APEXIMP", "valor": -9.0,
+                                 "finalidade": "ADS", "fixada": "",
+                                 "observacao": OBS_QUEBRA_ML}])
+    ok("parte antiga da quebra do ML NAO volta para a finalidade do cadastro",
+       _legado[0]["finalidade"] == "ADS")
     _fv_t.carregar = _guardado
     ok("id inexistente nao altera nada",
        atualizar("nao-existe", {"finalidade": "X"})[0] is False)

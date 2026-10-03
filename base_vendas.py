@@ -82,6 +82,9 @@ COLUNAS = {
     "margem_contribuicao": ("margem c",),
     "vendas": ("vendas",),
     "unidades": ("uni cont",),
+    # O reembolso que a plataforma paga pelo Flex em cada venda (coluna P em
+    # 02/10). O LPV desconta dele o que se paga de Flex: `lpv_mensal.py`.
+    "reembolso_flex": ("reembolso flex",),
 }
 
 
@@ -388,6 +391,9 @@ if __name__ == "__main__":
                                        "lucro_bruto", "vendas", "unidades"})
     ok("coluna que nao existe nao inventa chave",
        "custo_flex" not in _mapa_de_colunas(COLS))
+    ok("a coluna REEMBOLSO FLEX e achada pelo nome, e nao pela letra P",
+       _mapa_de_colunas(COLS + ["Reembolso Flex"]).get("reembolso_flex")
+       == "Reembolso Flex")
 
     # ── Numero, e so ─────────────────────────────────────────────────────
     ok("real brasileiro vira numero", _num("1.234,56") == 1234.56)

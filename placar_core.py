@@ -2435,9 +2435,12 @@ def _mes_card(card, conclusoes=None, inicio_janela=None):
     histórico: devolve None, e o cartão fica de fora do mês analisado em vez de
     pontuar de novo.
     """
+    # O MES E O DE BRASILIA. A acao do Trello vem em UTC: concluido as 22h do
+    # ultimo dia do mes, em UTC ja e dia 1o — e os pontos iam para o mes
+    # seguinte. `_mes_local` converte; data sem fuso fica como veio.
     dt_fim = (conclusoes or {}).get(card.get("id"))
     if dt_fim:
-        return (dt_fim.year, dt_fim.month)
+        return _mes_local(dt_fim)
 
     d = card.get("dateLastActivity", "")
     if not d:
@@ -2448,6 +2451,13 @@ def _mes_card(card, conclusoes=None, inicio_janela=None):
         return None
     if inicio_janela and dt >= inicio_janela:
         return None
+    return _mes_local(dt)
+
+
+def _mes_local(dt):
+    """(ano, mes) de `dt` no fuso de Brasilia. Sem fuso colado, como veio."""
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(FUSO)
     return (dt.year, dt.month)
 
 def situacao_metas(saldo, meta_eq, meta_maxx, pen_qtd, cfg):
@@ -2572,6 +2582,18 @@ def situacao_metas(saldo, meta_eq, meta_maxx, pen_qtd, cfg):
         "bateu_col": saldo >= float(meta_eq or 0) and pen_efetiva <= max_n,
         "bateu_maxx": saldo >= float(meta_maxx or 0) and pen_efetiva <= max_x,
     }
+
+
+def contribuicao_coletiva(pts, pen, meta_coletiva):
+    """(saldo, %) — quanto a pessoa soma para a META COLETIVA.
+
+    É o que o bloco "Desempenho por Colaborador" mostra, no Painel e na TV.
+    A meta INDIVIDUAL não aparece ali: o dono decidiu em 02/10 que a tela da
+    equipe mostra a contribuição para a coletiva, e não quem bateu a própria.
+    """
+    saldo = (pts or 0) - (pen or 0)
+    pct = saldo / meta_coletiva * 100 if meta_coletiva else 0.0
+    return saldo, max(pct, 0.0)
 
 
 def pct_da_meta(saldo, meta_pts, pts_destrava=None):
@@ -2932,7 +2954,8 @@ def _mes_card_criacao(card):
     if card_id and len(card_id) >= 8:
         try:
             ts = int(card_id[:8], 16)
-            dt = datetime.fromtimestamp(ts, timezone.utc)
+            # Mes de BRASILIA, nao de UTC: criado as 22h do dia 31 e do mes 31.
+            dt = datetime.fromtimestamp(ts, timezone(timedelta(hours=-3)))
             return (dt.year, dt.month)
         except Exception:
             pass
@@ -3185,7 +3208,7 @@ def _processar(listas, cards, membros_map, id_p, id_t, id_i, filtro_mes=None):
         _mem_ok = [u for u in us if u in MEMBROS_ATIVOS]
         if _mem_ok:
             _dt_conc = _conclusoes.get(card["id"])
-            _dia = _dt_conc.astimezone().strftime("%Y-%m-%d") if _dt_conc else None
+            _dia = _dt_conc.astimezone(FUSO).strftime("%Y-%m-%d") if _dt_conc else None
             _cada_pt = (pt or 0) / len(_mem_ok)
             for u in _mem_ok:
                 _e = d["entregas_membro"].setdefault(u, {"dias": {}, "colunas": {}})
@@ -3614,6 +3637,70 @@ if __name__ == "__main__":
                 "dateLastActivity": "2026-09-22T10:00:00.000Z"}
     ok("e o cartão continua sendo de agosto, não do mês do comentário",
        _mes_card(_card_k1, _fim) == (2026, 8))
+
+    # 1b. O MÊS É O DE BRASÍLIA. Concluído às 23h30 de 31/08 em Brasília é
+    # 02h30 de 01/09 em UTC: sem converter, os pontos iam para setembro.
+    _fim_noite = datas_de_conclusao(
+        {"kn": [_ac("kn", "2026-09-01T02:30:00.000Z", False, True)]})
+    ok("concluído 23h30 do último dia (Brasília) pontua NAQUELE mês",
+       _mes_card({"id": "kn", "dueComplete": True,
+                  "dateLastActivity": "2026-09-01T02:30:00.000Z"},
+                 _fim_noite) == (2026, 8))
+    ok("e sem ação de conclusão, a última atividade também é lida em Brasília",
+       _mes_card({"id": "kx", "dateLastActivity": "2026-09-01T02:30:00.000Z"},
+                 {}) == (2026, 8))
+    ok("concluído às 03h01 UTC do dia 1º já é do mês novo",
+       _mes_card({"id": "km"}, {"km": datetime(2026, 9, 1, 3, 1,
+                                               tzinfo=timezone.utc)})
+       == (2026, 9))
+    # Criação: o id do Trello traz o segundo em UTC nos 8 primeiros hex.
+    _id_noite = "%08x" % int(datetime(2026, 9, 1, 2, 0,
+                                      tzinfo=timezone.utc).timestamp())
+    ok("cartão criado 23h de 31/08 (Brasília) é penalidade de agosto",
+       _mes_card_criacao({"id": _id_noite + "0" * 16}) == (2026, 8))
+    # As duas cópias de `_mes_card_criacao` (aqui e em placar.py) são
+    # toleradas em `checar_alcance.GEMEAS_TOLERADAS` como "idênticas, byte a
+    # byte". Se uma for corrigida e a outra não, o Painel e a Análise contam
+    # penalidade em meses diferentes — confere-se o CÓDIGO, não a promessa.
+    import ast as _ast_mc
+    def _fonte_topo(arquivo, nome):
+        with open(arquivo, encoding="utf-8") as _fh:
+            _src = _fh.read()
+        for _no in _ast_mc.parse(_src).body:
+            if isinstance(_no, _ast_mc.FunctionDef) and _no.name == nome:
+                return _ast_mc.get_source_segment(_src, _no)
+        return None
+    _mc_core = _fonte_topo(__file__, "_mes_card_criacao")
+    ok("_mes_card_criacao do placar e do core são idênticas",
+       _mc_core is not None
+       and _mc_core == _fonte_topo(
+           _os_cred.path.join(_os_cred.path.dirname(_os_cred.path.abspath(
+               __file__)), "placar.py"), "_mes_card_criacao"))
+    # O dia da entrega também: `.astimezone()` sem argumento usa o fuso do
+    # container, que no Railway é UTC.
+    _src_proc = _fonte_topo(__file__, "_processar") or ""
+    # 1c. DESEMPENHO POR COLABORADOR MOSTRA SÓ A CONTRIBUIÇÃO PARA A
+    # COLETIVA (dono, 02/10): nem a meta individual nem o "bateu". No Painel
+    # e na TV — os dois desenham o bloco, e cada um tinha a sua conta.
+    ok("contribuição = (pontos − penalidade) ÷ meta coletiva",
+       contribuicao_coletiva(3100, 33, 9000) == (3067, 3067 / 9000 * 100))
+    ok("saldo negativo não vira barra negativa",
+       contribuicao_coletiva(10, 50, 9000)[1] == 0.0)
+    ok("sem meta coletiva não divide por zero",
+       contribuicao_coletiva(10, 0, 0) == (10, 0.0))
+    _pl_arq = _os_cred.path.join(_os_cred.path.dirname(
+        _os_cred.path.abspath(__file__)), "placar.py")
+    for _fn_ind in ("_barra", "_tv_full_html"):
+        _src_ind = _fonte_topo(_pl_arq, _fn_ind) or ""
+        ok(f"{_fn_ind} não mostra meta individual",
+           _src_ind and "meta_ind" not in _src_ind
+           and "contribuicao_coletiva" in _src_ind)
+    ok("_processar não converte data com o fuso do container",
+       _src_proc and not any(
+           isinstance(_n, _ast_mc.Call)
+           and getattr(_n.func, "attr", "") == "astimezone"
+           and not _n.args and not _n.keywords
+           for _n in _ast_mc.walk(_ast_mc.parse(_src_proc))))
 
     # 2. REABRIR E RECONCLUIR NÃO DUPLICA — MIGRA.
     _hist2 = {"k2": [

@@ -759,16 +759,18 @@ def _processar_cards_pts(conta):
                    "L3": "CONFERENCIA VÍDEO (10)",
                    "L4": "TABELA DE PONTUAÇÃO"}
         _cf = lambda v: [{"idCustomField": "idp", "value": {"number": str(v)}}]
+        # Meio do mes, e nao 01/01 00:00 UTC: o mes do cartao e o de
+        # Brasilia (02/10), e meia-noite UTC do dia 1o ainda e dezembro aqui.
         _cards = [
             # SOMA: concluido, em lista que pontua, com o campo PONTOS.
             {"id": "c1", "name": "Desativar carimbos", "idList": "L1",
              "idMembers": [], "labels": [], "idLabels": [], "due": None,
              "dueComplete": True, "customFieldItems": _cf(50),
-             "dateLastActivity": "2020-01-01T00:00:00.000Z"},
+             "dateLastActivity": "2020-01-15T12:00:00.000Z"},
             {"id": "c2", "name": "Conferência vídeo", "idList": "L3",
              "idMembers": [], "labels": [], "idLabels": [], "due": None,
              "dueComplete": True, "customFieldItems": _cf(10),
-             "dateLastActivity": "2020-01-01T00:00:00.000Z"},
+             "dateLastActivity": "2020-01-15T12:00:00.000Z"},
             # SOMA, E ISSO MUDOU EM 29/09. A TRIAGEM pagava zero, e em
             # 28/09 a equipe moveu 18 cartoes CONCLUIDOS para la: os pontos
             # sumiram da pessoa e da coletiva, sem aviso. O dono decidiu que
@@ -776,19 +778,19 @@ def _processar_cards_pts(conta):
             {"id": "c3", "name": "Na triagem", "idList": "L2",
              "idMembers": [], "labels": [], "idLabels": [], "due": None,
              "dueComplete": True, "customFieldItems": _cf(100),
-             "dateLastActivity": "2020-01-01T00:00:00.000Z"},
+             "dateLastActivity": "2020-01-15T12:00:00.000Z"},
             # NAO SOMA: a TABELA DE PONTUACAO e a legenda do quadro, nao
             # trabalho. Sem um cartao aqui, a guarda deixaria de medir
             # LISTAS_SEM_PONTUACAO e ficaria verde com a lista inteira vazia.
             {"id": "c5", "name": "Legenda de pontos", "idList": "L4",
              "idMembers": [], "labels": [], "idLabels": [], "due": None,
              "dueComplete": True, "customFieldItems": _cf(200),
-             "dateLastActivity": "2020-01-01T00:00:00.000Z"},
+             "dateLastActivity": "2020-01-15T12:00:00.000Z"},
             # NAO SOMA: o "concluido" nao esta marcado. `placar.py:621`.
             {"id": "c4", "name": "Aberto ainda", "idList": "L1",
              "idMembers": [], "labels": [], "idLabels": [], "due": None,
              "dueComplete": False, "customFieldItems": _cf(80),
-             "dateLastActivity": "2020-01-01T00:00:00.000Z"},
+             "dateLastActivity": "2020-01-15T12:00:00.000Z"},
         ]
         _falso = instalar()
         _pl.st = _falso
@@ -1969,6 +1971,27 @@ def _form_da_equipe(conta):
           "" if "_k = " in fonte else "não achei a montagem da chave")
 
 
+def _contribuicao_coletiva(conta):
+    """Desempenho por Colaborador mostra SO a contribuicao para a coletiva.
+
+    Dono, 02/10: a meta individual e o "bateu" sairam da tela da equipe. O
+    Painel desenha com `_barra` e a TV com `_tv_full_html` — cada um tinha a
+    sua conta, e a TV nem descontava a penalidade. O `_barra` e desenhado de
+    verdade; o `_tv_full_html` pede trinta argumentos, e a guarda dele le o
+    codigo da funcao (o bloco, nao o arquivo).
+    """
+    import inspect
+    import placar as _pl
+    _h = _pl._barra("Myrella", 3100, 33, 9000)
+    conta("Painel: a barra diz pontos e % da coletiva",
+          "3,067 pts" in _h and "34% da coletiva" in _h, _h[:160])
+    conta("Painel: sem '/ meta individual' na barra",
+          " / " not in _h, _h[:160])
+    _src_tv = inspect.getsource(_pl._tv_full_html)
+    conta("TV: o bloco usa a mesma conta do Painel e nao le meta individual",
+          "contribuicao_coletiva" in _src_tv and "meta_ind" not in _src_tv, "")
+
+
 def main():
     instalar()
     falhas = []
@@ -2007,6 +2030,7 @@ def main():
     _historico_de_prompts(conta)
     _contexto_do_log(conta)
     _txt_consolidado(conta)
+    _contribuicao_coletiva(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0

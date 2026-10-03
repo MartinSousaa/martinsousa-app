@@ -160,8 +160,11 @@ def mapa(hoje=None, forcar=False):
     quem chama volta para o horário contratual.
     """
     import time as _t
-    from datetime import date as _date
-    hoje = hoje or _date.today()
+    # O dia de BRASILIA: `date.today()` no container vira amanha as 21h, e o
+    # mapa passava a procurar as batidas de um dia que nao comecou.
+    if hoje is None:
+        import placar_core as _pc_hoje
+        hoje = _pc_hoje.hoje_br()
     chave = hoje.isoformat()
     agora_ts = _t.time()
     if (not forcar and _CACHE["chave"] == chave
@@ -270,5 +273,17 @@ if __name__ == "__main__":
        abs(_min - 469) < 0.5)
 
     ok("limpar() zera o cache", (limpar() or True) and _CACHE["chave"] is None)
+
+    # O DIA PADRAO DO MAPA E O DE BRASILIA. `date.today()` no container vira
+    # amanha as 21h. Por AST, para o comentario nao contar.
+    import ast as _ast_bt
+    with open(__file__, encoding="utf-8") as _fh_bt:
+        _arv_bt = _ast_bt.parse(_fh_bt.read())
+    import inspect as _insp_bt
+    ok("mapa() sem dia pega o dia de Brasilia (hoje_br)",
+       "hoje_br()" in _insp_bt.getsource(mapa))
+    ok("nenhum .today() com o dia do container",
+       not [n for n in _ast_bt.walk(_arv_bt) if isinstance(n, _ast_bt.Call)
+            and getattr(n.func, "attr", "") == "today"])
 
     print("\nfalhas:", falhas)

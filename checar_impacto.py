@@ -212,6 +212,16 @@ def main():
                     help="mostra o mapa e não reprova")
     args = ap.parse_args()
 
+    # Sem a referencia, `git diff` falha calado e a lista vem vazia — e
+    # "lista vazia" e o veredito "nada mudou". Verde sem ter comparado nada.
+    _ref = subprocess.run(["git", "rev-parse", "--verify", "--quiet",
+                           args.contra + "^{commit}"],
+                          capture_output=True, text=True)
+    if _ref.returncode != 0:
+        print(f"FALHA  a referencia nao existe neste clone: {args.contra}. "
+              f"Rode `git fetch origin main` e confira de novo.")
+        return 1
+
     mudados = nomes_mudados(args.contra)
     if not mudados:
         print(f"ok    nenhum nome de topo mudou contra {args.contra}")
@@ -292,6 +302,16 @@ def _autoteste():
     achados = nomes_mudados("origin/main")
     ok("e ele some da varredura quando o arquivo some",
        "zz_autoteste_impacto.py" not in achados)
+
+    # REFERENCIA QUE NAO EXISTE E VERMELHO, NAO "NADA MUDOU". 02/10: num
+    # clone sem `origin/main` o `git diff` falhava calado, a lista vinha
+    # vazia, e a conferencia imprimia "nenhum nome de topo mudou" sem ter
+    # comparado nada. Roda o modo de verdade e le o codigo de saida.
+    _r = subprocess.run([sys.executable, os.path.abspath(__file__),
+                         "--contra", "origin/zz-nao-existe"],
+                        capture_output=True, text=True, timeout=120)
+    ok("contra uma referencia que nao existe, reprova em vez de dizer ok",
+       _r.returncode != 0 and "referencia nao existe" in _r.stdout)
     print("\nfalhas:", falhas)
     return falhas
 
