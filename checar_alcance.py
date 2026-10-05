@@ -543,6 +543,116 @@ def main():
                     "nao existe mais, e a isencao passa a mentir para quem "
                     "ler depois")
 
+    # ── 5-penta. `session_state` ALCANCAVEL POR THREAD, NO imagem.py ─────
+    #
+    # A TERCEIRA VEZ DA MESMA FORMA 6, E A PRIMEIRA EM QUE ELA FOI VARRIDA.
+    #
+    # A varredura 5, acima, le `log_imagem.py` e `atividades.py` — os dois
+    # arquivos onde o defeito apareceu. Parar neles era a Forma 1 colada na
+    # Forma 6: a restricao nao e daqueles dois arquivos, e do PROCESSO.
+    #
+    # O QUE ESTA VARREDURA ACHOU na primeira execucao, 05/10: os tres
+    # ajustes do chat liam `dados_descricao` de dentro da thread —
+    # `_rodar_cmd`, `_rodar_af` e `_rodar_afg`. Dentro dela o
+    # `session_state` volta vazio, e `dados_descricao` e justamente o que
+    # alimenta `copy_sem_medida_inventada` e `copy_sem_promessa`. As duas
+    # barreiras contra medida inventada e claim sem lastro rodavam CEGAS no
+    # caminho que o dono mais usa — o mesmo que entregou "ALTURA 30mm /
+    # PROFUNDIDADE 25mm" num produto cujo cadastro diz 12x14.
+    #
+    # LE A ARVORE, NAO O TEXTO: `gerar_imagem_ia` tem a palavra
+    # `session_state` num COMENTARIO que conta esta mesma historia, e a
+    # varredura por texto a acusaria. Guarda que acusa o inocente ensina a
+    # ser ignorada.
+    _ISENTAS_THREAD = {
+        # Le o contexto POR THREAD primeiro (`log_imagem.contexto_atual`),
+        # que funciona dentro dela; o `session_state` e so o caminho do
+        # desenho da tela. A guarda de `imagem.py --autoteste` abre uma
+        # Thread de verdade e confere que a gravacao sobrevive a ela.
+        "_produto_da_copy",
+    }
+    # NAO FICA MUDA. A primeira versao engolia o erro de leitura e seguia
+    # em silencio — um `imagem.py` que nao parseia desligava a varredura
+    # inteira sem dizer nada, que e a mesma falha de projeto do "limite
+    # silencioso" que originou o oitavo verificador.
+    _arv_th = None
+    try:
+        with open("imagem.py", encoding="utf-8") as _fh_th:
+            _src_th = _fh_th.read()
+        _arv_th = ast.parse(_src_th)
+    except Exception as _e_th:
+        reprova(f"imagem.py — não deu para varrer `session_state` em thread: "
+                f"{type(_e_th).__name__}: {str(_e_th)[:120]}. A varredura "
+                f"ficaria MUDA, e muda ela aprova tudo.")
+    if _arv_th is not None:
+        _fn_th = {}
+        for _n in ast.walk(_arv_th):
+            if isinstance(_n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                _fn_th.setdefault(_n.name, _n)
+        _alvos_th = set()
+        for _n in ast.walk(_arv_th):
+            if isinstance(_n, ast.Call) and "Thread" in ast.dump(_n.func):
+                for _kw in _n.keywords:
+                    if _kw.arg != "target":
+                        continue
+                    _t = ast.unparse(_kw.value)
+                    _t = _t.split("(")[-1].strip(")") if "(" in _t else _t
+                    _alvos_th.add(_t.split(".")[-1])
+
+        def _chamadas_th(_f):
+            return {getattr(_x.func, "attr", "") or getattr(_x.func, "id", "")
+                    for _x in ast.walk(_f) if isinstance(_x, ast.Call)}
+
+        _alcance_th, _fila_th = set(), [a for a in _alvos_th if a in _fn_th]
+        while _fila_th:
+            _c = _fila_th.pop()
+            if _c in _alcance_th:
+                continue
+            _alcance_th.add(_c)
+            if _c in _fn_th:
+                _fila_th += list(_chamadas_th(_fn_th[_c]))
+
+        for _nome_th in sorted(_alcance_th):
+            if _nome_th in _ISENTAS_THREAD:
+                continue
+            _f_th = _fn_th.get(_nome_th)
+            if _f_th is None:
+                continue
+            # O ARGUMENTO PADRAO NAO CONTA, e isso e o ponto da correcao:
+            # ele e avaliado no `def`, na thread que CRIA. Mover a leitura
+            # para la e exatamente como se conserta este defeito.
+            _corpo_th = list(_f_th.body)
+            _achou = []
+            for _no_th in _corpo_th:
+                for _x in ast.walk(_no_th):
+                    if (isinstance(_x, ast.Attribute)
+                            and _x.attr == "session_state"):
+                        _achou.append(getattr(_x, "lineno", _f_th.lineno))
+            if _achou:
+                reprova(
+                    f"imagem.py:{_achou[0]} — `{_nome_th}` lê "
+                    f"`st.session_state` no CORPO, e ela é alcançável por "
+                    f"`threading.Thread`. Dentro da thread a leitura volta "
+                    f"VAZIA, sem erro nenhum: a regra que depende desse "
+                    f"valor roda cega. Leia num ARGUMENTO PADRÃO (avaliado "
+                    f"na thread que cria) ou no contexto por thread do "
+                    f"`log_imagem`.")
+
+        # ELA CONTA O QUE VARREU, e isso nao e enfeite: varredura muda
+        # APROVA TUDO. Desligar a reprovacao acima deixava o verificador
+        # verde, e a mutacao que mede isso nao tinha como ver a diferenca.
+        # Com a contagem, "varri 162 funcoes" e um fato conferivel — e zero
+        # funcao alcancada so acontece se o `imagem.py` deixar de abrir
+        # thread, que nao e o caso ha um ano.
+        print(f"ok    {len(_alcance_th)} função(ões) alcançável(is) por "
+              f"thread varridas em imagem.py")
+        if not _alcance_th:
+            reprova(
+                "nenhuma função alcançável por `threading.Thread` foi "
+                "encontrada em imagem.py. Ou as threads sumiram, ou a "
+                "varredura parou de achar o alvo delas — e varredura que "
+                "não acha nada aprova tudo.")
+
     # ── 5-quater. ESTADO DE PESSOA GUARDADO NUMA CAIXA DO PROCESSO ───────
     #
     # 30/09. Esta e a familia de defeito mais cara do dia, e ela apareceu
@@ -586,6 +696,12 @@ def main():
         "bling_api.py:_MES_CACHE": "faturamento do mes, com chave de mes",
         "bling_api.py:_SITUACOES_CACHE": "situacoes de pedido da conta",
         "imagem.py:_DESCRICAO_CACHE": "descricao de visao, com chave do produto",
+        # A COPY CORRIGIDA TEM DE SER DO PROCESSO, e nao da sessao: quem a
+        # grava e o chat, de DENTRO de uma Thread, onde `session_state` nao
+        # existe. A chave leva o PRODUTO (`_produto_da_copy`), entao dois
+        # colaboradores em produtos diferentes nao se cruzam, e o
+        # `esquecer_copy_vigente` apaga so as linhas do produto dele.
+        "imagem.py:_COPY_VIGENTE": "copy corrigida, com chave de produto e tipo",
         "placar_core.py:_acoes_cache": "acoes do Trello, com chave de janela",
         "placar_core.py:_board_cache": "board do Trello, um so",
         "placar_core.py:_tempos_cache": "tempos do board, com chave",

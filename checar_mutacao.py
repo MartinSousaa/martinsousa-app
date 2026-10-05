@@ -143,12 +143,13 @@ MUTACOES = [
     (
         "a trava de cor volta a proibir o que o pedido mandou mudar",
         "imagem.py",
+        # A ancora perdeu o `cor_do_produto_atual()`: ele lia a tela de
+        # dentro da thread e saiu daqui (05/10). O defeito medido e o
+        # mesmo — a trava volta a valer mesmo quando o pedido fala de cor.
         [('    _trava = ("" if _pedido_fala_de_cor(instrucao) else\n'
-          '              _trava_cor_produto(cor_do_produto_atual()\n'
-          '                                 if cor_produto is None else cor_produto))\n'
+          '              _trava_cor_produto(cor_produto))\n'
           '    if _pedido_fala_de_cor(instrucao):',
-          '    _trava = _trava_cor_produto(cor_do_produto_atual()\n'
-          '                                if cor_produto is None else cor_produto)\n'
+          '    _trava = _trava_cor_produto(cor_produto)\n'
           '    if False:')],
         None,
         ["python3", "imagem.py", "--autoteste"],
@@ -1706,6 +1707,80 @@ MUTACOES = [
         "                lado_final=1200, tem_texto=not _is_clean_photo)\n",
         "                lado_final=1200)\n",
         ["python3", "imagem.py", "--autoteste"],
+    ),
+    # ── 05/10: A FORMA 6 PELA TERCEIRA VEZ, E A PRIMEIRA VARRIDA ────────
+    #
+    # `st.session_state` e ilegivel dentro de `threading.Thread`. Eu sabia,
+    # apliquei ao numero da peca, e escrevi a copy vigente com o defeito.
+    # A varredura por AST (`checar_alcance`, 5-penta) achou mais tres, que
+    # estavam la ha semanas: os tres ajustes do chat liam `dados_descricao`
+    # de dentro da thread, e e ele que alimenta as barreiras contra medida
+    # inventada e claim sem lastro.
+    (
+        "o ajuste do chat volta a ler dados_descricao dentro da thread",
+        "imagem.py",
+        '                           _dd=st.session_state.get(\n'
+        '                               "img_dados_descricao") or {}):\n'
+        "                try:\n",
+        "                           ):\n"
+        '                _dd = st.session_state.get("img_dados_descricao") or {}\n'
+        "                try:\n",
+        ["python3", "checar_alcance.py"],
+    ),
+    (
+        "o ajuste fino volta a ler dados_descricao dentro da thread",
+        "imagem.py",
+        '                          _dd=st.session_state.get(\n'
+        '                              "img_dados_descricao") or {}):\n'
+        "                try:\n",
+        "                          ):\n"
+        '                _dd = st.session_state.get("img_dados_descricao") or {}\n'
+        "                try:\n",
+        ["python3", "checar_alcance.py"],
+    ),
+    (
+        "o ajuste da galeria volta a ler dados_descricao dentro da thread",
+        "imagem.py",
+        '                                   _dd=st.session_state.get(\n'
+        '                                       "img_dados_descricao") or {}):\n'
+        "                        try:\n",
+        "                                   ):\n"
+        '                        _dd = st.session_state.get("img_dados_descricao") or {}\n'
+        "                        try:\n",
+        ["python3", "checar_alcance.py"],
+    ),
+    # A COR TEM DE DESCER, e a mutacao corta a DESCIDA — nao o padrao.
+    #
+    # A primeira mutacao que escrevi devolvia `cor_do_produto_atual()` ao
+    # padrao de `montar_prompt_ajuste_fino` e ficou VERDE: com a cor
+    # descendo, o padrao nunca e usado. Mutacao que nao reintroduz o
+    # defeito da alarme falso, e alarme falso ensina a ignorar o
+    # verificador.
+    (
+        "a cor do cadastro para de descer ate a trava do ajuste",
+        "imagem.py",
+        '                                 cor_produto=(dados_descricao or {}).get("cor")\n'
+        "                                 or None)",
+        "                                 cor_produto=None)",
+        ["python3", "imagem.py", "--autoteste"],
+    ),
+    # A VARREDURA NAO PODE FICAR MUDA, e medir isso deu trabalho.
+    #
+    # A primeira versao desta entrada mutava o `except` que engolia o erro
+    # de leitura e mandava rodar `checar_mutacao --autoteste` — que nao le
+    # a varredura. Ficou verde, e com razao: comando errado.
+    #
+    # E apontar para o `checar_alcance` tambem nao resolveria sozinho:
+    # varredura muda APROVA TUDO, entao ela fica verde justamente quando
+    # esta quebrada. O que torna o defeito visivel e a CONTAGEM: ela
+    # imprime quantas funcoes alcancou e reprova no zero. A mutacao tira o
+    # alvo da varredura, e aí a contagem cai para zero.
+    (
+        "a varredura de thread perde o alvo e passa a aprovar tudo",
+        "checar_alcance.py",
+        '                    _t = ast.unparse(_kw.value)\n',
+        '                    _t = "xxx_nao_existe"\n',
+        ["python3", "checar_alcance.py"],
     ),
 ]
 
