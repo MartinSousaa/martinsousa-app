@@ -289,7 +289,7 @@ def _html_faturamento(d):
         dia_eq = "—"
     return (
         '<div style="background:var(--ms-metric-bg);border:1px solid var(--ms-divisor);'
-        'border-radius:14px;padding:18px 22px;display:flex;flex-direction:column;gap:10px;">'
+        'border-radius:14px;padding:18px 22px;display:flex;flex-direction:column;gap:10px;flex:1;box-sizing:border-box;">'
         '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">'
         '<div><div style="font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;'
         'color:var(--ms-texto-sec);">Balanço mensal · faturamento em tempo real</div>'
@@ -1039,6 +1039,23 @@ def _bar(pct, cor, altura=6):
             f'<div style="width:{p:.0f}%;height:100%;background:{cor};"></div></div>')
 
 
+def _grade_painel(faturamento, indicadores, gastos, devolucoes):
+    """Os quatro quadros numa GRADE SÓ, alinhados como um retângulo.
+
+    Eram duas fileiras de `st.columns`, e cada quadro tinha a altura do
+    próprio conteúdo: o dos lucros saía mais alto que o balanço ao lado, e o
+    conjunto não fechava (dono, 05/10). Numa grade CSS, os quadros da mesma
+    fileira têm a mesma altura e as bordas caem na mesma linha.
+    """
+    def celula(html):
+        return f'<div style="display:flex;flex-direction:column;min-width:0;">{html}</div>'
+    return ('<div class="ms-painel" style="display:grid;'
+            'grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);'
+            'grid-auto-rows:1fr;gap:14px;align-items:stretch;">'
+            + "".join(celula(h) for h in (faturamento, indicadores, gastos, devolucoes))
+            + '</div>')
+
+
 def _html_indicadores(p):
     """Lucro bruto, lucro líquido, LPV e UC num quadro 2×2."""
     def bloco(rot, valor, linha, sub, cor="var(--ms-texto)", borda=False):
@@ -1061,7 +1078,7 @@ def _html_indicadores(p):
     return (
         '<div style="background:var(--ms-metric-bg);border:1px solid var(--ms-divisor);'
         'border-radius:14px;padding:18px 20px;display:grid;'
-        'grid-template-columns:repeat(2,minmax(0,1fr));column-gap:20px;height:100%;box-sizing:border-box;">'
+        'grid-template-columns:repeat(2,minmax(0,1fr));column-gap:20px;flex:1;box-sizing:border-box;align-content:space-between;">'
         + bloco("Lucro bruto", _brl(p.get("lucro_bruto"), 0),
                 pct_linha(p.get("lucro_bruto_pct")),
                 f'estimado · margem de {p.get("periodo") or "—"}')
@@ -1108,7 +1125,7 @@ def _html_gastos(q, erros=None):
              if erros else "")
     return (
         '<div style="background:var(--ms-metric-bg);border:1px solid var(--ms-divisor);'
-        'border-radius:14px;padding:18px 22px;display:flex;flex-direction:column;gap:10px;">'
+        'border-radius:14px;padding:18px 22px;display:flex;flex-direction:column;gap:10px;flex:1;box-sizing:border-box;">'
         '<div style="display:flex;justify-content:space-between;align-items:baseline;">'
         '<span style="font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ms-texto-sec);">Meta de gastos</span>'
         f'<span style="font-size:13px;color:var(--ms-texto-sec);">meta do mês <b style="color:var(--ms-texto);">{_brl(meta, 0) if meta else "não cadastrada"}</b></span></div>'
@@ -1158,7 +1175,7 @@ def _html_devolucoes(p):
         '<div style="font-size:12px;color:var(--ms-texto-sec);">Nenhuma devolução cadastrada no período.</div>')
     return (
         '<div style="background:var(--ms-metric-bg);border:1px solid var(--ms-divisor);'
-        'border-radius:14px;padding:18px 20px;display:flex;flex-direction:column;gap:10px;">'
+        'border-radius:14px;padding:18px 20px;display:flex;flex-direction:column;gap:10px;flex:1;box-sizing:border-box;">'
         '<div style="font-size:12px;color:var(--ms-texto-sec);font-weight:600;">Devoluções</div>'
         '<div style="display:flex;align-items:baseline;gap:10px;">'
         f'<span style="font-size:26px;font-weight:800;">{_brl(p.get("devolucao"), 0)}</span>'
@@ -1470,20 +1487,13 @@ def pagina(usuario_logado=None, dados=None):
     # a meta de gastos (mercadoria em destaque) e as devoluções. O detalhe
     # dos gastos continua inteiro, num expander logo abaixo.
     p = d.get("painel") or {}
-    _l1 = st.columns([1.6, 1])
-    with _l1[0]:
-        st.markdown(_html_faturamento(d), unsafe_allow_html=True)
-    with _l1[1]:
-        st.markdown(_html_indicadores(p), unsafe_allow_html=True)
     try:
         _q, _err_g = _resumo_gastos(int(d["ano"]), int(d["mes"]))
     except Exception as e:
         _q, _err_g = None, [str(e)[:120]]
-    _l2 = st.columns([1.6, 1])
-    with _l2[0]:
-        st.markdown(_html_gastos(_q, _err_g), unsafe_allow_html=True)
-    with _l2[1]:
-        st.markdown(_html_devolucoes(p), unsafe_allow_html=True)
+    st.markdown(_grade_painel(_html_faturamento(d), _html_indicadores(p),
+                              _html_gastos(_q, _err_g), _html_devolucoes(p)),
+                unsafe_allow_html=True)
 
     # DE ONDE VEIO CADA NÚMERO. Sem isto, os dois faturamentos que não batem
     # viram uma discussão sem saída — a planilha é de tempos em tempos, o
@@ -2063,6 +2073,17 @@ if __name__ == "__main__":
                                  _fmt(_p_t["lucro_liquido_pct"], "pct"))))
     ok("nenhum bloco do painel tem quebra de linha (markdown fecharia o HTML)",
        all("\n" not in h for h in (_h_ind, _h_dv, _html_gastos(_q_t))))
+    _grade = _grade_painel("<i>F</i>", "<i>I</i>", "<i>G</i>", "<i>D</i>")
+    ok("os quatro quadros saem numa grade só, com fileiras de mesma altura",
+       _grade.count("display:grid") == 1 and "grid-auto-rows:1fr" in _grade
+       and "align-items:stretch" in _grade
+       and [_grade.index(x) for x in ("<i>F</i>", "<i>I</i>", "<i>G</i>", "<i>D</i>")]
+       == sorted(_grade.index(x) for x in ("<i>F</i>", "<i>I</i>", "<i>G</i>", "<i>D</i>")))
+    ok("cada quadro cresce até a altura da célula",
+       all("flex:1" in h for h in (_h_ind, _h_dv, _html_gastos(_q_t),
+                                   _html_faturamento(_d_fat))))
+    ok("a página não volta a montar os quadros em colunas soltas",
+       "st.columns([1.6, 1])" not in _pg and "_grade_painel(" in _pg)
     ok("a página desenha o painel e guarda o detalhe dos gastos",
        "_html_gastos(" in _pg and "_html_devolucoes(" in _pg
        and "_html_indicadores(" in _pg and "st.expander" in _pg)
