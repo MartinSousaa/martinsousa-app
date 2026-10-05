@@ -1556,7 +1556,14 @@ def _refazer_cego(conta):
             "instrucao_layout": "coluna de cartoes a direita"}
     _plano = {"direcao_de_arte": {"nome": "Medieval Rustico"},
               "plano": [{"tipo": _tipo, "numero": 2,
-                         "composicao": "caneca a esquerda, cartoes a direita",
+                         # A COMPOSICAO TRAZ AS DUAS COISAS DE PROPOSITO:
+                         # uma decisao de POSICAO (que tem dono — e o
+                         # `zonas_da_peca`) e uma decisao de CENA (que so o
+                         # plano tem). A guarda confere que a segunda
+                         # sobrevive e a primeira e cortada.
+                         "composicao": ("caneca a esquerda, cartoes a "
+                                        "direita, vapor subindo da boca "
+                                        "da caneca"),
                          "cena": "bancada de pedra",
                          "textos": ["INTERIOR INOX: sabor melhor que resina pura"],
                          "viavel": True}]}
@@ -1627,8 +1634,31 @@ def _refazer_cego(conta):
           f"PRODUTO: {_cfg['nome_produto']}" in _p,
           "a linha PRODUTO do prompt esta vazia")
     conta("o PLANO da peca sobrevive a geracao",
-          "PLANO DE CRIAÇÃO" in _p and "caneca a esquerda" in _p,
+          "PLANO DE CRIAÇÃO" in _p and "vapor subindo" in _p,
           "a peca refeita perde a composicao planejada")
+    # E A POSICAO TEM UM DONO SO.
+    #
+    # Esta asercao exigia "caneca a esquerda" NO PROMPT, e passou verde por
+    # meses — ate `sem_decisao_do_compilador` entrar. Ela media a Forma 5:
+    # a triagem mandando o produto para a esquerda e `zonas_da_peca`
+    # mandando a mesma coisa em porcentagem, duas vozes sobre o mesmo
+    # assunto. Hoje a triagem cala e o compilador fala — mas CALAR OS DOIS
+    # seria pior que os dois falarem, entao as duas linhas andam juntas.
+    # O FRAGMENTO E SO O DO PLANO, E ISSO IMPORTA.
+    #
+    # A primeira versao desta linha exigia TAMBEM "cartoes a direita"
+    # ausente — e essa frase chega ao prompt por OUTRA porta, a
+    # `instrucao_layout` da referencia de layout ("coluna de cartoes a
+    # direita"), que e legitima e nao e o plano. A asercao reprovaria o
+    # inocente. So "caneca a esquerda" nasce da composicao e de mais nada.
+    conta("e a posicao do plano foi cortada — ela tem dono",
+          "caneca a esquerda" not in _p,
+          "a composicao do plano voltou a mandar na posicao: duas vozes "
+          "sobre o mesmo assunto, e a peca sai torta quando discordam")
+    conta("e quem manda na posicao e a GEOMETRIA calculada",
+          "GEOMETRIA DESTA PEÇA" in _p and "ZONA DO PRODUTO" in _p,
+          "cortei a voz do plano e nao sobrou nenhuma: o modelo escolhe o "
+          "lado sozinho, que e pior que duas vozes concordando")
     conta("a COPY EXATA sobrevive — e quem evita 'Portatile'",
           "INTERIOR INOX" in _p,
           "sem a copy pronta o gerador volta a redigir a frase sozinho")
@@ -2046,6 +2076,67 @@ def _contribuicao_coletiva(conta):
           "contribuicao_coletiva" in _src_tv and "meta_ind" not in _src_tv, "")
 
 
+def _excluir_usuario(conta):
+    """Excluir e desativar usuario do app derrubam o link salvo.
+
+    A reconexao pelo link (`?_s=`) so olha os tokens, e nao a aba de
+    usuarios: sem revogar, quem foi desativado continuava entrando pelo
+    favorito. `_remover_usuario` e `_desativar_usuario` rodam inteiros; so as
+    duas abas da planilha sao trocadas.
+    """
+    import admin as _adm
+    import auth as _au
+
+    class _AbaUsr:
+        def __init__(self):
+            self.linhas = [["login", "senha_hash", "ativo", "admin", "criado_em"],
+                           ["Brumielly", "h", "Não", "Sim", "14/09/2026 15:25"],
+                           ["Brunielly", "h", "Não", "Sim", "15/09/2026 18:03"],
+                           ["Luiz", "h", "Sim", "Sim", "26/08/2026 14:57"]]
+
+        def row_values(self, i):
+            return self.linhas[i - 1]
+
+        def get_all_records(self, **kw):
+            return [dict(zip(self.linhas[0], l)) for l in self.linhas[1:]]
+
+        def update_cell(self, r, c, v):
+            self.linhas[r - 1][c - 1] = v
+
+        def delete_rows(self, i):
+            del self.linhas[i - 1]
+
+    class _AbaTok(_AbaUsr):
+        def __init__(self):
+            self.linhas = [["token", "usuario", "criado_em"],
+                           ["tb", "Brumielly", "01/10/2026 10:00"],
+                           ["tl", "Luiz", "01/10/2026 10:00"]]
+
+    _u, _t = _AbaUsr(), _AbaTok()
+    _g = (_au._aba_usuarios, _au._aba_tokens)
+    _au._aba_usuarios, _au._aba_tokens = (lambda: _u), (lambda: _t)
+    _au._TOKENS.update({"tb": "Brumielly", "tl": "Luiz"})
+    try:
+        _ok, _msg = _adm._remover_usuario("Brumielly", "MartinSousa")
+        conta("excluir apaga so a linha escolhida",
+              _ok and [l[0] for l in _u.linhas[1:]] == ["Brunielly", "Luiz"],
+              _msg)
+        conta("e o link salvo dela deixa de entrar",
+              "tb" not in _au._TOKENS
+              and [l[1] for l in _t.linhas[1:]] == ["Luiz"], "")
+        conta("ninguem exclui o proprio usuario",
+              _adm._remover_usuario("Luiz", "luiz")[0] is False
+              and any(l[0] == "Luiz" for l in _u.linhas), "")
+        _adm._desativar_usuario("Luiz")
+        _luiz = next((l for l in _u.linhas if l[0] == "Luiz"), None)
+        conta("desativar tambem derruba o link salvo",
+              "tl" not in _au._TOKENS and _luiz is not None
+              and _luiz[2] == "Não", "")
+    finally:
+        _au._aba_usuarios, _au._aba_tokens = _g
+        _au._TOKENS.clear()
+
+
 def main():
     instalar()
     falhas = []
@@ -2086,6 +2177,7 @@ def main():
     _contexto_do_log(conta)
     _txt_consolidado(conta)
     _contribuicao_coletiva(conta)
+    _excluir_usuario(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0

@@ -6269,6 +6269,13 @@ def _secao_configuracao(dados=None, carregar_periodo=None):
     cfg_atual = mc.carregar_config(ano_cfg, mes_cfg_num)
 
     st.markdown(f"**Configurando: {mes_cfg} {ano_cfg}**")
+    # Mês sem cadastro herda o último cadastrado (`metas_config.carregar_config`).
+    # A tela diz isso: o número é o de outro mês até alguém salvar este.
+    _herd = cfg_atual.get("herdado_de")
+    if _herd:
+        st.info(f"Este mês ainda não tem meta cadastrada. Os valores abaixo "
+                f"vêm de {MESES_PT[_herd[1]]} {_herd[0]} e já valem no Painel. "
+                f"Salve para fixá-los neste mês.")
 
     # Valor gravado fora da faixa do campo era corrigido em silencio pelo widget
     # e regravado assim — parecia que o numero mudava sozinho.

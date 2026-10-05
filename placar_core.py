@@ -3558,11 +3558,28 @@ if __name__ == "__main__":
             return [{"type": "updateCard", "date": "2026-09-01T00:00:00.000Z",
                      "data": {"card": {"id": "c1"}}} for _ in range(self._q)]
 
+    # AS OITO PÁGINAS CHEIAS VÃO SEMPRE PARA A MESMA FATIA: a mais antiga,
+    # reconhecida pelo `since` que ela manda. Antes o duplo contava as
+    # páginas no total, e as fatias correm em paralelo: quando as threads
+    # dividiam as oito entre si, nenhuma batia no teto e a mutação que
+    # divide o orçamento passava VERDE numa rodada e vermelha na outra
+    # (`checar_mutacao`, 05/10). Guarda que depende da ordem das threads
+    # não é guarda.
+    import threading as _th_pg
+    _trava_pg = _th_pg.Lock()
+    _por_fatia_pg = {}
+
     def _get_falso(url, params=None, timeout=None):
-        # Oito páginas CHEIAS na mesma fatia: com o teto de 5, a leitura
-        # parava na quinta e as três mais antigas — as conclusões — sumiam.
-        _paginas_pedidas.append(params)
-        return _RespFalsa(1000 if len(_paginas_pedidas) <= 8 else 10)
+        with _trava_pg:
+            _paginas_pedidas.append(params)
+            _k = (params or {}).get("since")
+            _por_fatia_pg[_k] = _por_fatia_pg.get(_k, 0) + 1
+            _n = _por_fatia_pg[_k]
+        # A fatia mais antiga começa um minuto ANTES do `desde` (a borda é
+        # ancorada); todas as outras começam dias depois. Texto ISO compara
+        # na ordem do tempo.
+        _cheia = str(_k or "") <= "2026-09-01T00:00:00.000Z" and _n <= 8
+        return _RespFalsa(1000 if _cheia else 10)
 
     # PELA CADEIA, E NÃO PELA FUNÇÃO SOLTA. A primeira versão desta guarda
     # chamava `_paginar_fatia` passando `PAGINAS_POR_FATIA` À MÃO — e a

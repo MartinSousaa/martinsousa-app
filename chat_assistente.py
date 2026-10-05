@@ -81,7 +81,7 @@ O MS Studio tem as seguintes abas (menu lateral esquerdo):
   copia e cola manualmente no Envato Elements junto com as imagens dos frames.
   Após gerar, é possível pedir ajustes via chat de ajuste inline ou aqui mesmo no assistente.
 
-• Financeiro — configuração de LPV (custo fixo por venda) e alíquota tributária, mês a mês por ano.
+• Financeiro — LPV (custo operacional por venda, calculado pelo Studio em LPV Mensal) e alíquota tributária, mês a mês por ano.
   O LPV informado aqui alimenta os cálculos de viabilidade (UC) em Título.
 
 • Administrativo (apenas admin) — é AQUI que ficam: configuração de metas,
@@ -114,7 +114,7 @@ Oriente assim (NUNCA mencione botões que não existem, como "Editar", "Salvar p
   (comprimento × largura × altura / 6.000 — produto embalado)
 - Shopee: comissão 15%–20% + R$4 adicional em produtos até R$79,99; frete grátis (vendedor não paga)
 - Shein: comissão 18% flat; frete por peso real (tabela por faixas de kg)
-- LPV = custo fixo médio por venda (informado manualmente na aba Financeiro)
+- LPV = custo operacional médio por venda: saídas por PIX, cartão e boleto menos mercadoria, custo fixo e imposto, mais o Flex líquido, ÷ vendas do mês. Calculado pelo Studio; vale o último mês fechado
 - NF = alíquota tributária (configurada na aba Financeiro — não é calculada automaticamente)
 - Custo operacional padrão inclui embalagem, logística, ADS e cross docking
 - Peso e dimensões devem ser sempre do produto JÁ EMBALADO
@@ -274,11 +274,41 @@ def _contexto_atual() -> str:
     # Galeria de imagens geradas
     galeria = st.session_state.get("img_galeria")
     if galeria:
-        tipos = [f"  Imagem {i+1}: {g.get('tipo','?')}" for i, g in enumerate(galeria)]
+        # O VEREDITO DE CADA PECA VAI JUNTO COM O TIPO.
+        #
+        # ACHADO NA CONVERSA REAL DE 05/10. Esta lista tinha so o tipo, e o
+        # chat respondeu ao dono "nenhuma deixou de ser gerada — as 8 estao
+        # na galeria" enquanto DUAS delas estavam com "nao publique assim"
+        # na tela. Ele nao estava mentindo: era tudo o que ele enxergava.
+        #
+        # O placar sai de `imagem.placar_do_lote`, o mesmo que a tela usa.
+        # Duas contagens da mesma coisa passam a discordar.
+        def _veredito(g):
+            _p, _t = (g.get("peca") or {}), (g.get("texto") or {})
+            if _p.get("ok") is False or _t.get("ok") is False:
+                _probs = "; ".join((_p.get("problemas") or [])[:2])
+                return "REPROVADA — não publique" + (f" ({_probs})" if _probs else "")
+            if _p.get("ok") is None and _t.get("ok") is None:
+                return "NÃO CONFERIDA — ninguém olhou"
+            return "aprovada"
+
+        tipos = [f"  Imagem {i+1}: {g.get('tipo','?')} — {_veredito(g)}"
+                 for i, g in enumerate(galeria)]
+        try:
+            import imagem as _img_pl
+            _linha_placar = _img_pl.frase_do_placar(
+                _img_pl.placar_do_lote(galeria))
+        except Exception:
+            _linha_placar = ""
         partes.append(
             f"GALERIA DE IMAGENS ({len(galeria)} imagem(ns)):\n" + "\n".join(tipos)
+            + (f"\nPLACAR DO LOTE: {_linha_placar}" if _linha_placar else "")
             + "\n(É por este número que o colaborador se refere a cada imagem — "
               "é o mesmo que aparece na legenda da tela.)"
+            + "\nESTAR NA GALERIA NÃO É ESTAR PRONTA: peça REPROVADA já foi "
+              "gerada e paga, e não pode ser publicada. Quando o colaborador "
+              "perguntar o que deu errado, responda pelo veredito acima — "
+              "nunca conte slots."
         )
 
     return "\n\n".join(partes) if partes else "Nenhum produto em edição no momento."

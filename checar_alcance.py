@@ -284,6 +284,71 @@ def main():
                     f"não tenta.")
     print(f"ok    {total} campo(s) de imagem varrido(s)")
 
+    # ── 1-bis. TODA CHAMADA AO MOTOR LEVA O TIPO E AS REFERENCIAS ──────────
+    #
+    # ACHADO EM PRODUCAO, 05/10, e e a Forma 1 na forma mais cara: a
+    # capacidade existia em UM caminho e faltava nos outros tres.
+    #
+    # O laco que gera as oito pecas chamava `_gerar_imagem_thread` com
+    # `tipo`, `refs_layout` e `refs_layout_nomes`. O refazer pelo chat, a
+    # conferencia dele, o botao "Regenerar esta imagem" e a conferencia DELE
+    # passavam so tres argumentos posicionais — e nenhum dos tres chegava.
+    #
+    # DOIS ESTRAGOS, os dois medidos no teste do dono:
+    #   1. sem `refs_layout`, `ref_layout_do_tipo` nao casa nada e a peca
+    #      refeita vem SEM o padrao aprovado da empresa. A peca 6 voltou com
+    #      os cartoes nos quatro cantos em vez da coluna unica — o defeito
+    #      que o dono ja tinha mandado corrigir uma vez.
+    #   2. sem `tipo`, `numero_do_tipo("")` devolve "" e o registro sai como
+    #      "peca ?", com `tipo:` vazio. O historico perde de qual peca a
+    #      geracao era.
+    #
+    # A guarda e por AST e estrutural: ela nao sabe o que e certo, sabe que
+    # os irmaos tem de receber o mesmo.
+    import ast as _ast_mot
+    _vistas = {}
+    for _nome in _arquivos():
+        try:
+            _arv = _ast_mot.parse(open(_nome, encoding="utf-8").read())
+        except SyntaxError:
+            continue
+        for _no in _ast_mot.walk(_arv):
+            if not isinstance(_no, _ast_mot.Call):
+                continue
+            _d = _ast_mot.dump(_no.func)
+            if "Thread" not in _d:
+                continue
+            _inteiro = _ast_mot.dump(_no)
+            if "_gerar_imagem_thread" not in _inteiro:
+                continue
+            # `Thread(kwargs={...})` — o que chega a funcao-alvo esta DENTRO
+            # do dicionario, e nao e keyword do Thread. A primeira versao
+            # desta guarda olhava `_no.keywords` e reprovou as quatro
+            # chamadas CERTAS: alarme falso em cima de codigo corrigido, que
+            # e o jeito mais rapido de ensinar alguem a ignorar verificador.
+            _chaves = set()
+            for _k in _no.keywords:
+                if _k.arg == "kwargs" and isinstance(_k.value, _ast_mot.Dict):
+                    _chaves |= {_c.value for _c in _k.value.keys
+                                if isinstance(_c, _ast_mot.Constant)}
+                elif _k.arg:
+                    _chaves.add(_k.arg)
+            _faltam = [c for c in ("tipo", "refs_layout", "refs_layout_nomes")
+                       if c not in _chaves]
+            _vistas[(_nome, _no.lineno)] = _faltam
+    print(f"ok    {len(_vistas)} chamada(s) ao motor de imagem varrida(s)")
+    for (_nome, _lin), _faltam in sorted(_vistas.items()):
+        if _faltam:
+            reprova(
+                f"{_nome}:{_lin} — a thread do motor de imagem nao recebe "
+                f"{', '.join(_faltam)}. Sem `tipo` o registro sai como "
+                f"'peca ?' e a regra do tipo nao casa; sem `refs_layout` a "
+                f"peca e gerada IGNORANDO o padrao aprovado da empresa. O "
+                f"laco da geracao passa os tres — este caminho e irmao dele.")
+    if not _vistas:
+        reprova("nenhuma chamada ao motor de imagem foi encontrada — a "
+                "guarda ficou cega, e guarda cega e pior que nenhuma")
+
     # ── 2. O CONVERSOR NO CAMINHO ───────────────────────────────────────────
     #
     # Quem recebe imagem e manda para um modelo tem de passar por

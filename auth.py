@@ -101,6 +101,34 @@ def _salvar_token_sheets(token, usuario):
         pass  # falha silenciosa — token ainda funciona na sessão atual
 
 
+def revogar_tokens(login):
+    """Apaga os tokens de reconexão de `login`. Quantos apagou.
+
+    Chamado ao DESATIVAR e ao EXCLUIR um usuário. A reconexão pelo link
+    (`?_s=`) confia em `_TOKENS` sem reler a aba de usuários — sem isto, quem
+    perdeu o acesso continuava entrando pelo favorito por até 30 dias.
+    Compara sem caixa: "Brumielly" e "brumielly" são o mesmo login aqui.
+    """
+    alvo = str(login or "").strip().lower()
+    if not alvo:
+        return 0
+    n = 0
+    for tok in [t for t, u in _TOKENS.items() if str(u).strip().lower() == alvo]:
+        del _TOKENS[tok]
+        n += 1
+    try:
+        aba = _aba_tokens()
+        regs = aba.get_all_records(value_render_option="UNFORMATTED_VALUE")
+        linhas = [i for i, r in enumerate(regs, start=2)
+                  if str(r.get("usuario", "")).strip().lower() == alvo]
+        for ln in sorted(linhas, reverse=True):   # de baixo para cima
+            aba.delete_rows(ln)
+        n = max(n, len(linhas))
+    except Exception:
+        pass   # a memória já foi limpa; a planilha some no TTL de 30 dias
+    return n
+
+
 # ── HASH ──────────────────────────────────────────────────────────────────────
 
 def _hash(senha):
@@ -674,5 +702,38 @@ if __name__ == "__main__":
         ok("planilha fora do ar não levanta exceção", False)
     finally:
         _aba_tokens = _real2
+
+    # REVOGAR: usuario desativado ou excluido NAO entra mais pelo link salvo.
+    # A reconexao (`?_s=`) so olha `_TOKENS`, e nao a aba de usuarios: sem
+    # revogar, "Desativar acesso" deixava a pessoa entrar pelo favorito.
+    class _AbaTokLista:
+        def __init__(self):
+            self.linhas = [["token", "usuario", "criado_em"],
+                           ["t1", "brumielly", "01/10/2026 10:00"],
+                           ["t2", "luiz", "01/10/2026 10:00"],
+                           ["t3", "Brumielly", "02/10/2026 10:00"]]
+
+        def get_all_records(self, **kw):
+            return [dict(zip(self.linhas[0], l)) for l in self.linhas[1:]]
+
+        def delete_rows(self, i):
+            del self.linhas[i - 1]
+
+    _aba_lista = _AbaTokLista()
+    _real3 = _aba_tokens
+    _aba_tokens = lambda: _aba_lista          # noqa: E731
+    _TOKENS.clear()
+    _TOKENS.update({"t1": "brumielly", "t2": "luiz", "t3": "Brumielly"})
+    try:
+        _n_rev = revogar_tokens("Brumielly")
+    finally:
+        _aba_tokens = _real3
+    ok("revogar tira os tokens da pessoa da memoria (sem olhar a caixa)",
+       "t1" not in _TOKENS and "t3" not in _TOKENS)
+    ok("e da planilha, para nao voltarem no proximo deploy",
+       [l[0] for l in _aba_lista.linhas[1:]] == ["t2"])
+    ok("o token de outra pessoa fica", _TOKENS.get("t2") == "luiz")
+    ok("e devolve quantos revogou", _n_rev == 2)
+    _TOKENS.clear()
 
     print("\nfalhas:", falhas)

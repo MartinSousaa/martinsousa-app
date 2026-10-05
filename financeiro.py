@@ -144,10 +144,66 @@ def salvar_ano(ano, regime, aliquota, lpv_meses):
 
 # ── CALCULOS ─────────────────────────────────────────────────────────────────
 
+def _hoje_br():
+    """A data de Brasília: `date.today()` no container vira amanhã às 21h."""
+    import lancamentos as _lan
+    from datetime import datetime as _dt_h
+    return _dt_h.now(_lan.FUSO).date()
+
+
+def lpv_calculado_recente(hoje=None):
+    """(lpv, ano, mes) do último mês FECHADO que o Studio calculou. Ou None.
+
+    O mês corrente fica de fora: o C.O dele ainda está crescendo. Procura no
+    ano corrente e no anterior (janeiro olha dezembro). Falha de leitura vira
+    None — quem chama cai no digitado, e a Viabilidade não fica sem LPV.
+    """
+    hoje = hoje or _hoje_br()
+    try:
+        import lpv_mensal as _lm
+        for ano in (hoje.year, hoje.year - 1):
+            meses, _erro = _lm.do_ano(ano)
+            for m in range(12, 0, -1):
+                r = (meses or {}).get(m) or {}
+                if r.get("lpv") is not None and _lm.mes_fechado(ano, m, hoje):
+                    return float(r["lpv"]), ano, m
+    except Exception:
+        pass
+    return None
+
+
 def lpv_vigente(df, hoje=None):
+    """(lpv, origem) — o LPV que a Viabilidade, a Home e o assistente usam.
+
+    O ÚLTIMO CALCULADO PELO STUDIO, decidido pelo dono em 05/10: "o sistema
+    calcula o LPV, ele deve considerar o mais recente calculado por ele". O
+    digitado em LPV Mensal fica de RESERVA, para quando não há cálculo
+    (extrato não subido, BASE DE VENDAS fora do ar).
+    """
+    calc = lpv_calculado_recente(hoje)
+    if calc:
+        valor, ano, mes = calc
+        return valor, f"{MESES[mes - 1]}/{ano} · calculado"
+    return _lpv_digitado(df, hoje)
+
+
+def meses_de_atraso_lpv(df, hoje=None):
+    """Meses de defasagem do LPV em uso. Zero quando está em dia.
+
+    O calculado conta a partir do último mês FECHADO: setembro em outubro está
+    em dia. O digitado mantém a conta de antes.
+    """
+    hoje_ = hoje or _hoje_br()
+    calc = lpv_calculado_recente(hoje_)
+    if calc:
+        _v, ano, mes = calc
+        return max((hoje_.year - ano) * 12 + hoje_.month - mes - 1, 0)
+    return _atraso_digitado(df, hoje)
+
+
+def _lpv_digitado(df, hoje=None):
     """LPV do mes mais recente ja preenchido (olhando pra tras a partir do
-    mes/ano atual). O site nao calcula mais o LPV -- so usa o que o
-    usuario informou manualmente."""
+    mes/ano atual), o que o usuario informou manualmente."""
     hoje = hoje or date.today()
     if df.empty or "lpv" not in df.columns:
         return None, "nenhum LPV informado ainda"
@@ -170,7 +226,7 @@ def lpv_vigente(df, hoje=None):
     return float(linha["lpv"]), origem
 
 
-def meses_de_atraso_lpv(df, hoje=None):
+def _atraso_digitado(df, hoje=None):
     """Quantos meses fechados existem depois do último LPV informado.
 
     O LPV alimenta toda decisão de viabilidade. Se ninguém preenche há dois
@@ -465,6 +521,41 @@ if __name__ == "__main__":
        aliquota_vigente(_df_aliq, 2026) == (9.0, "Simples"))
     ok("e ignora alíquota absurda", aliquota_vigente(
         _df_aliq[_df_aliq["mes"] == 2], 2026) == (None, None))
+
+    # O LPV EM USO É O ÚLTIMO CALCULADO PELO STUDIO (dono, 05/10). O digitado
+    # fica de reserva para quando não há cálculo. `meses` vem de
+    # `lpv_mensal.calcular`, como `do_ano` monta — não à mão.
+    _df_dig = _pd_t.DataFrame([{"ano": 2026, "mes": 8, "lpv": 20.94}])
+    _calc = {m: _lm_t.calcular([], None) for m in range(1, 13)}
+    _calc[9] = _lm_t.calcular(
+        [{"data": "2026-09-05", "valor": -1947.0, "finalidade": "ADS"}],
+        {"vendas": 100})
+    _calc[10] = _lm_t.calcular(
+        [{"data": "2026-10-02", "valor": -500.0, "finalidade": "ADS"}],
+        {"vendas": 10})
+    _g_do_ano = _lm_t.do_ano
+    _lm_t.do_ano = lambda ano: (_calc if ano == 2026 else {}, "")
+    try:
+        _v, _o = lpv_vigente(_df_dig, _d_t(2026, 10, 5))
+        ok("usa o LPV calculado do último mês fechado (setembro)",
+           _v == 19.47 and "Setembro/2026" in _o and "calculado" in _o)
+        ok("o mês em andamento não entra, mesmo calculado", _v != 50.0)
+        ok("setembro calculado em outubro não é 'atrasado'",
+           meses_de_atraso_lpv(_df_dig, _d_t(2026, 10, 5)) == 0)
+        _lm_t.do_ano = lambda ano: ({m: _lm_t.calcular([], None)
+                                     for m in range(1, 13)}, "")
+        _v2, _o2 = lpv_vigente(_df_dig, _d_t(2026, 10, 5))
+        ok("sem cálculo, cai no digitado", _v2 == 20.94
+           and "Agosto/2026" in _o2)
+        ok("e o atraso do digitado continua contando",
+           meses_de_atraso_lpv(_df_dig, _d_t(2026, 10, 5)) == 2)
+        def _quebra(ano):
+            raise RuntimeError("planilha fora")
+        _lm_t.do_ano = _quebra
+        ok("cálculo fora do ar não derruba: cai no digitado",
+           lpv_vigente(_df_dig, _d_t(2026, 10, 5))[0] == 20.94)
+    finally:
+        _lm_t.do_ano = _g_do_ano
 
     print("\nfalhas:", falhas)
     raise SystemExit(1 if falhas else 0)
