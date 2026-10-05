@@ -84,6 +84,73 @@ def _sem_visao(motivo):
     return {"cenarios": [], "erro": motivo}
 
 
+# ── O TETO DE TOKENS SAI DA CONTA, E NAO DE UM NUMERO ESCRITO A MAO ───────
+#
+# Era `max_tokens=2000` fixo. Cada referencia devolve ambiente, luz,
+# materiais, clima e a lista de tipos que ela serve — em portugues, que gasta
+# mais token que ingles. Com oito referencias a resposta passa de 2000 e vem
+# CORTADA no meio de uma string.
+#
+# O numero por referencia foi medido no corte real de 05/10: 4586 caracteres
+# em 8 referencias, com a resposta ainda inacabada. A 3,5 caracteres por
+# token isso ja e ~1300 tokens so do que chegou, e faltava fechar. 400 por
+# referencia da folga de duas vezes e meia sobre o observado.
+TOKENS_POR_REFERENCIA = 400
+TOKENS_DE_ABERTURA = 600
+
+
+def teto_de_tokens(quantas):
+    """O `max_tokens` para ler `quantas` referencias. Nunca menor que o fixo
+    antigo — baixar o teto seria trocar um defeito por outro."""
+    return max(2000, TOKENS_DE_ABERTURA + TOKENS_POR_REFERENCIA * int(quantas or 0))
+
+
+def cenarios_inteiros(bruto):
+    """Os cenarios COMPLETOS de um JSON cortado no meio. [] quando nao ha.
+
+    Funcao pura. Ela existe porque perder oito cenarios por causa do oitavo
+    e desperdicio: o que chegou fechado e tao bom quanto se a resposta
+    tivesse terminado ali.
+
+    SO OBJETO FECHADO ENTRA. Meio cenario no prompt seria pior que nenhum —
+    "trocar uma voz contraditoria por voz nenhuma e pior" vale aqui tambem,
+    e um cenario sem `clima` sai do schema que o resto do modulo espera.
+    """
+    import json as _json_ci
+    t = str(bruto or "")
+    i = t.find("[")
+    if i < 0:
+        return []
+    fora, nivel, ini, dentro_str, escapa = [], 0, None, False, False
+    for pos in range(i, len(t)):
+        c = t[pos]
+        if dentro_str:
+            if escapa:
+                escapa = False
+            elif c == "\\":
+                escapa = True
+            elif c == '"':
+                dentro_str = False
+            continue
+        if c == '"':
+            dentro_str = True
+        elif c == "{":
+            if nivel == 0:
+                ini = pos
+            nivel += 1
+        elif c == "}":
+            nivel -= 1
+            if nivel == 0 and ini is not None:
+                try:
+                    _o = _json_ci.loads(t[ini:pos + 1])
+                except Exception:
+                    _o = None
+                if isinstance(_o, dict) and _o.get("ambiente"):
+                    fora.append(_o)
+                ini = None
+    return fora
+
+
 # As assinaturas de arquivo que a visão da Anthropic aceita. Declarar o tipo
 # errado não degrada a leitura: ela é RECUSADA inteira, com 400.
 _ASSINATURAS = (
@@ -169,13 +236,43 @@ def descrever(imagens_bytes, tipos_disponiveis, nome_produto="", api_key=None):
     try:
         cliente = anthropic.Anthropic(api_key=chave)
         resp = cliente.messages.create(
-            model=MODELO_VISAO, max_tokens=2000,
+            model=MODELO_VISAO, max_tokens=teto_de_tokens(len(conteudo) // 2),
             output_config={"format": {"type": "json_schema",
                                       "schema": _ESQUEMA}},
             messages=[{"role": "user", "content": conteudo}],
         )
         bruto = "".join(getattr(b, "text", "") for b in resp.content)
-        dados = json.loads(bruto)
+        # ── O TETO BATEU? O SISTEMA TEM DE DIZER, NAO SO FALHAR ─────────
+        #
+        # 05/10, producao: `JSONDecodeError: Unterminated string starting at:
+        # line 1 column 4587`. O `max_tokens` era 2000 FIXO, e a descricao de
+        # oito referencias nao cabe nele: a resposta vinha cortada no meio de
+        # uma string, o `json.loads` estourava, e a tela dizia "nao consegui
+        # ler as referencias" — uma frase que nao ensina nada e manda procurar
+        # no lugar errado. As oito pecas sairam sem cenario nenhum.
+        #
+        # E o limite silencioso que o oitavo verificador existe para pegar. O
+        # `chat_assistente` ja lia `stop_reason` desde 29/09; este leitor
+        # ficou para tras — a Forma 1, corrigir onde o sintoma apareceu.
+        _cortou = getattr(resp, "stop_reason", "") == "max_tokens"
+        try:
+            dados = json.loads(bruto)
+        except json.JSONDecodeError:
+            # SALVAR O QUE CHEGOU INTEIRO vale mais que perder tudo: seis
+            # cenarios lidos sao seis a mais do que zero. So entra cenario
+            # COMPLETO — meio objeto no prompt seria pior que nenhum.
+            _salvos = cenarios_inteiros(bruto)
+            if not _salvos:
+                return _sem_visao(
+                    "a leitura foi CORTADA no limite de tokens e nao sobrou "
+                    "nenhum cenario inteiro. Suba menos referencias de "
+                    "ambientacao — cada uma custa leitura."
+                    if _cortou else
+                    f"resposta da visao veio quebrada: {bruto[:160]}")
+            return {"cenarios": _salvos,
+                    "erro": (f"a leitura foi CORTADA no limite de tokens: "
+                             f"aproveitei {len(_salvos)} cenario(s) inteiro(s) "
+                             f"e perdi o resto. Suba menos referencias.")}
     except Exception as e:
         # 120 CARACTERES ESCONDIAM A CAUSA. A mensagem da API dizia
         # `output_config.format.schema: ` e o resto — o nome do campo que
@@ -331,6 +428,72 @@ if __name__ == "__main__":
     _fonte_ar = open(__file__, encoding="utf-8").read().split("if __name__")[0]
     ok('nenhum "image/png" fixo no bloco de imagem',
        chr(34) + "media_type" + chr(34) + ': "image/png"' not in _fonte_ar)
+
+    # ── O TETO DE TOKENS, E O QUE SE SALVA QUANDO ELE BATE ──────────────
+    #
+    # 05/10, producao, teste do dono: `JSONDecodeError: Unterminated string
+    # starting at: line 1 column 4587`. O `max_tokens` era 2000 FIXO e oito
+    # referencias nao cabem nele. As oito pecas sairam sem cenario nenhum, e
+    # a tela disse so "nao consegui ler as referencias".
+    ok("o teto cresce com o numero de referencias",
+       teto_de_tokens(8) > teto_de_tokens(2))
+    ok("e oito referencias cabem com folga sobre o corte medido",
+       teto_de_tokens(8) >= 3400)
+    ok("mas o teto nunca fica MENOR que o fixo antigo",
+       teto_de_tokens(0) >= 2000 and teto_de_tokens(1) >= 2000)
+
+    # O CORTE DE VERDADE, com o tamanho medido no erro do dono: 4586
+    # caracteres e a resposta ainda inacabada. O dado NAO e inventado — e o
+    # formato que `_ESQUEMA` manda o modelo devolver, cortado onde o teto
+    # bateu (Forma 7: valor escrito a mao mede o meu entendimento, e e ele
+    # que costuma estar errado).
+    _um = ('{"ambiente":"bar medieval a luz de vela","luz":"quente e baixa",'
+           '"materiais":"pedra e madeira escura","clima":"acolhedor",'
+           '"serve_para":["3 - Produto em uso"]}')
+    # O OBJETO FECHADO MAS VAZIO E O CASO QUE O FILTRO EXISTE PARA PEGAR.
+    #
+    # Um fragmento ABERTO nunca fecha chave, entao ele cai fora sozinho — e
+    # uma guarda feita so com ele nao mede o filtro: a mutacao que troca a
+    # condicao por `True` fica verde. O que o filtro pega e o objeto que o
+    # modelo FECHOU sem conteudo, que acontece quando o corte cai bem na
+    # virada de um cenario para o outro.
+    _vazio = '{"serve_para":[]}'
+    _cortado = ('{"cenarios": [' + ",".join([_um] * 3) + "," + _vazio
+                + ',{"ambiente":"varanda ao entard')
+    _salvos = cenarios_inteiros(_cortado)
+    ok("de um JSON cortado, os cenarios INTEIROS sao salvos",
+       len(_salvos) == 3)
+    ok("e o objeto fechado sem ambiente NAO entra",
+       all(c.get("ambiente") and c.get("clima") for c in _salvos))
+    ok("e o que sobrou e usavel pelo resto do modulo",
+       bool(para_o_tipo({"cenarios": _salvos}, "3 - Produto em uso")))
+    ok("JSON inteiro continua passando inteiro",
+       len(cenarios_inteiros('{"cenarios": [' + _um + "]}")) == 1)
+    ok("lixo sem colchete devolve lista vazia, e nao explode",
+       cenarios_inteiros("desculpe, nao consegui") == []
+       and cenarios_inteiros("") == [])
+    # ASPAS ESCAPADAS NAO PODEM PARTIR O OBJETO NO MEIO.
+    #
+    # O varredor conta chaves FORA de string. Uma aspa escapada dentro do
+    # texto fecharia a string cedo, e dali em diante ele contaria chaves que
+    # estao DENTRO dela.
+    #
+    # E O DADO PRECISA DE UMA CHAVE NO TRECHO ESCAPADO. A primeira versao
+    # usava um numero PAR de aspas escapadas, entao a conta se reequilibrava
+    # sozinha e a mutacao que desliga o escape ficava VERDE — guarda que
+    # nunca viu o defeito nunca foi guarda. Com `{` dentro do trecho
+    # escapado, desligar o escape faz o nivel subir e o objeto nunca fechar.
+    _esc = ('{"ambiente":"bar O Javali","luz":"vela \\"{\\" sombra",'
+            '"materiais":"pedra","clima":"quente","serve_para":["3"]}')
+    ok("aspas escapadas dentro do texto nao partem o cenario",
+       len(cenarios_inteiros("[" + _esc + "]")) == 1)
+
+    # E O `stop_reason` E LIDO. Sem isso o corte vira "resposta quebrada", que
+    # manda procurar no lugar errado — e e o limite silencioso que o oitavo
+    # verificador existe para pegar.
+    _fonte_tk = open(__file__, encoding="utf-8").read().split("if __name__")[0]
+    ok("o corte por teto de tokens e RECONHECIDO, e nao vira erro generico",
+       'stop_reason' in _fonte_tk and "CORTADA no limite de tokens" in _fonte_tk)
 
     # ── O ESQUEMA DA SAIDA ESTRUTURADA ──────────────────────────────────
     #

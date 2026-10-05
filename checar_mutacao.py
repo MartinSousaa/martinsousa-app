@@ -1287,8 +1287,11 @@ MUTACOES = [
     (
         "preparar a aba para de marcar os tipos que faltam",
         "chat_assistente.py",
-        '    st.session_state["img_tipos_multi"] = list(faltam)\n'
-        '    st.session_state["img_modo"] = "Selecionar"\n    return True',
+        # A ancora acompanhou a correcao de 05/10: a funcao deixou de
+        # escrever nas chaves de widget e passa a deixar um PEDIDO, que a
+        # aba aplica antes de desenhar os widgets. O defeito medido e o
+        # mesmo — o chat promete marcar os tipos e nao marca nada.
+        '    st.session_state["img_pedido_faltantes"] = list(faltam)\n    return True',
         "    return True",
         ["python3", "chat_assistente.py"],
     ),
@@ -1875,6 +1878,58 @@ MUTACOES = [
         '        _col_anexo, _col_limpar = st.columns([2, 1], vertical_alignment="center")\n',
         "        _col_anexo = _col_limpar = st.container()\n",
         ["python3", "chat_assistente.py"],
+    ),
+    # ── 05/10, TESTE 2 DO DONO: 6 de 8, e a recuperacao quebrada ────────
+    #
+    # Duas pecas morreram no timeout do Gemini; ele pediu no chat para gerar
+    # as faltantes e o comando morreu com "img_modo cannot be modified after
+    # the widget with key img_modo is instantiated". A guarda antiga media a
+    # funcao com o session_state limpo, onde a regra do Streamlit nao existe.
+    (
+        "o chat volta a escrever na chave do widget para gerar as faltantes",
+        "chat_assistente.py",
+        '    st.session_state["img_pedido_faltantes"] = list(faltam)\n',
+        '    st.session_state["img_tipos_multi"] = list(faltam)\n'
+        '    st.session_state["img_modo"] = "Selecionar"\n',
+        ["python3", "checar_tela.py"],
+    ),
+    (
+        "a aba para de aplicar o pedido de gerar as faltantes",
+        "imagem.py",
+        '    _faltantes_pedidas = st.session_state.pop("img_pedido_faltantes", None)\n',
+        "    _faltantes_pedidas = None\n",
+        ["python3", "checar_tela.py"],
+    ),
+    # O TETO DA PECA E O TIMEOUT DO MOTOR SAO UMA CONTA SO. Subir o timeout e
+    # deixar o teto para tras so troca a mensagem de erro.
+    (
+        "o teto da peca volta a ser menor que o orcamento do motor",
+        "imagem.py",
+        "TETO_POR_PECA_S = orcamento_da_peca() + 60\n",
+        "TETO_POR_PECA_S = 300\n",
+        ["python3", "imagem.py", "--autoteste"],
+    ),
+    # O LIMITE SILENCIOSO DA LEITURA DAS REFERENCIAS DE AMBIENTACAO.
+    (
+        "o teto de tokens das referencias volta a ser fixo",
+        "ambientacao_ref.py",
+        "    return max(2000, TOKENS_DE_ABERTURA + TOKENS_POR_REFERENCIA * int(quantas or 0))\n",
+        "    return 2000\n",
+        ["python3", "ambientacao_ref.py"],
+    ),
+    (
+        "o salvamento do JSON cortado aceita cenario sem conteudo",
+        "ambientacao_ref.py",
+        '                if isinstance(_o, dict) and _o.get("ambiente"):\n',
+        "                if True:\n",
+        ["python3", "ambientacao_ref.py"],
+    ),
+    (
+        "o varredor do JSON cortado ignora aspas escapadas",
+        "ambientacao_ref.py",
+        '            elif c == "\\\\":\n                escapa = True\n',
+        "            elif False:\n                escapa = True\n",
+        ["python3", "ambientacao_ref.py"],
     ),
 ]
 

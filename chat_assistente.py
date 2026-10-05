@@ -663,11 +663,32 @@ def preparar_geracao_dos_faltantes(faltam):
 
     SEM FALTANTE, NÃO MEXE NA TELA. Trocar o modo de quem não pediu nada é
     tirar a tela do lugar debaixo da mão de quem está trabalhando.
+
+    POR QUE UM PEDIDO, E NÃO A ESCRITA DIRETA
+    -----------------------------------------
+    Esta função escrevia `img_modo` e `img_tipos_multi` — que são CHAVES DE
+    WIDGET (`imagem.py:9211` e `imagem.py:9648`). O Streamlit recusa escrever
+    numa chave depois que o widget dela foi desenhado, e o chat é desenhado
+    DEPOIS da página (`app.py:2092`). Resultado medido no teste de 05/10:
+
+        st.session_state.img_modo cannot be modified after the widget
+        with key img_modo is instantiated
+
+    O dono tinha duas peças faltando por timeout, pediu no chat para gerar as
+    duas, e o comando morreu antes de marcar nada.
+
+    A guarda que deveria ter pego chamava esta função com o `session_state`
+    limpo, onde nenhum widget nasceu — media a função num mundo em que a
+    regra não existe. O duplo de `checar_tela` agora conhece a regra, e a
+    guarda nova roda o comando DEPOIS de a tela desenhar.
+
+    Agora a função só deixa o PEDIDO. Quem aplica é `pagina_imagem`, no topo,
+    antes de qualquer widget nascer — que é o único instante em que escrever
+    nessas chaves é legal.
     """
     if not faltam:
         return False
-    st.session_state["img_tipos_multi"] = list(faltam)
-    st.session_state["img_modo"] = "Selecionar"
+    st.session_state["img_pedido_faltantes"] = list(faltam)
     return True
 
 
@@ -1729,19 +1750,38 @@ if __name__ == "__main__":
     ok("galeria completa: não falta nada",
        tipos_que_faltam([{"tipo": t} for t in _padrao], _padrao) == [])
 
-    # E O PEDIDO CHEGA NA ABA, na chave que o seletor de verdade lê.
+    # ── O PEDIDO, E NAO A ESCRITA NA CHAVE DO WIDGET ────────────────────
+    #
+    # ESTA GUARDA ESTAVA ERRADA, e foi ela que deixou o defeito passar.
+    #
+    # Ela exigia `img_tipos_multi` e `img_modo` escritos aqui — que sao chaves
+    # de widget (`imagem.py:9648` e `imagem.py:9211`). Com o `session_state`
+    # deste autoteste, um dicionario puro, a escrita funciona; no Streamlit,
+    # depois de o widget nascer, ela levanta. E o chat e desenhado DEPOIS da
+    # pagina (`app.py:2092`).
+    #
+    # Teste do dono, 05/10: duas pecas faltando por timeout, ele pediu as duas
+    # no chat, e o comando morreu com "img_modo cannot be modified after the
+    # widget with key img_modo is instantiated". A guarda media a funcao num
+    # mundo em que a regra do Streamlit nao existe — Forma 7: duplo mais pobre
+    # que a realidade ABSOLVE o culpado.
+    #
+    # Agora a funcao so deixa o PEDIDO; quem aplica e `pagina_imagem`, antes
+    # dos widgets. E quem confere o caminho inteiro e `checar_tela`, cujo
+    # duplo aprendeu a recusar o que o Streamlit recusa.
     preparar_geracao_dos_faltantes(_falta)
-    ok("os tipos faltantes vão para o multiselect da aba",
-       st.session_state.get("img_tipos_multi") == _falta)
-    ok("e a aba já abre no modo Selecionar",
-       st.session_state.get("img_modo") == "Selecionar")
+    ok("os tipos faltantes viram um PEDIDO para a aba",
+       st.session_state.get("img_pedido_faltantes") == _falta)
+    ok("e nenhuma chave de widget e escrita aqui",
+       "img_modo" not in st.session_state
+       and "img_tipos_multi" not in st.session_state)
 
     # SEM FALTANTE, NÃO MEXE NA TELA. Trocar o modo de quem não pediu nada é
     # tirar a tela do lugar debaixo da mão do colaborador.
     st.session_state.clear()
     preparar_geracao_dos_faltantes([])
     ok("sem faltante nenhum, a tela não é mexida",
-       "img_modo" not in st.session_state)
+       "img_pedido_faltantes" not in st.session_state)
 
     # ══ LIMPAR CHAT ═════════════════════════════════════════════════════
     #
