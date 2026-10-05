@@ -10484,10 +10484,31 @@ def pagina_imagem(usuario_logado):
                 #
                 # A marcação do topo continua, para os caminhos que não
                 # passam por aqui (ajuste fino avulso, refazer).
+                # A PORTA UNICA VEM PRIMEIRO, E O CONTEXTO SAI DELA.
+                #
+                # Aqui havia `produto=cfg.get("nome_produto", "")` — uma
+                # SEGUNDA resposta para "qual produto a aba esta tratando".
+                # A primeira, e a unica que a tela, o chat e a copy vigente
+                # leem, e `session_state["img_nome_produto"]`, cujo escritor
+                # unico e `definir_produto_da_sessao`.
+                #
+                # Elas concordavam por tabela, porque a porta era chamada no
+                # FIM da geracao — mas so `if galeria` (logo abaixo). Geracao
+                # que falha inteira deixava o contexto com o nome do cfg e a
+                # sessao com o nome anterior: o log gravava um e o historico
+                # filtrava o outro, e a copy corrigida ficava numa chave que
+                # ninguem procurava. Nao corrompe — nao e achada, que e pior.
+                #
+                # Chamar a porta AQUI tambem e mais correto em si: a aba JA
+                # esta tratando este produto no instante em que a geracao
+                # comeca, e nao so quando ela da certo. A porta ignora nome
+                # vazio, entao ela nunca apaga o que estava.
                 try:
                     import log_imagem as _li_ger
                     _li_ger.marcar_contexto(
-                        produto=cfg.get("nome_produto", ""),
+                        produto=definir_produto_da_sessao(
+                            cfg.get("nome_produto", ""),
+                            codigo=cfg.get("codigo", "")),
                         usuario=usuario_logado)
                 except Exception:
                     # Marcar contexto é apoio, não requisito.

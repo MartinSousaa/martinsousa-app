@@ -54,7 +54,10 @@ MUTACOES = [
     (
         'o log volta a gravar produto vazio na geracao pelo codigo',
         "imagem.py",
-        [('                try:\n                    import log_imagem as _li_ger\n                    _li_ger.marcar_contexto(\n                        produto=cfg.get("nome_produto", ""),\n                        usuario=usuario_logado)\n                except Exception:',
+        # A ancora acompanhou a correcao de 05/10: o `produto` passou a sair
+        # de `definir_produto_da_sessao`, a porta unica. O defeito medido e o
+        # mesmo — a marcacao sai e o log grava produto vazio.
+        [('                try:\n                    import log_imagem as _li_ger\n                    _li_ger.marcar_contexto(\n                        produto=definir_produto_da_sessao(\n                            cfg.get("nome_produto", ""),\n                            codigo=cfg.get("codigo", "")),\n                        usuario=usuario_logado)\n                except Exception:',
           '                try:\n                    pass\n                except Exception:')],
         None,
         ["python3", "imagem.py", "--autoteste"],
@@ -1781,6 +1784,23 @@ MUTACOES = [
         '                    _t = ast.unparse(_kw.value)\n',
         '                    _t = "xxx_nao_existe"\n',
         ["python3", "checar_alcance.py"],
+    ),
+    # ── 05/10: UM NOME, DUAS RESPOSTAS (Forma 5) ────────────────────────
+    #
+    # A marcacao do contexto na geracao usava `cfg["nome_produto"]`; a tela,
+    # o chat e a copy vigente leem `session_state["img_nome_produto"]`, cujo
+    # escritor unico e `definir_produto_da_sessao`. Concordavam por tabela —
+    # a porta era chamada no FIM da geracao, e so `if galeria`. Geracao que
+    # falha inteira deixava o log gravando um nome e o historico filtrando o
+    # outro, e a copy corrigida numa chave que ninguem procura.
+    (
+        "o contexto da geracao volta a sair do cfg, e nao da porta unica",
+        "imagem.py",
+        '                        produto=definir_produto_da_sessao(\n'
+        '                            cfg.get("nome_produto", ""),\n'
+        '                            codigo=cfg.get("codigo", "")),\n',
+        '                        produto=cfg.get("nome_produto", ""),\n',
+        ["python3", "checar_tela.py"],
     ),
 ]
 

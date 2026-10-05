@@ -998,6 +998,47 @@ def _contexto_do_log(conta):
     conta("e marca ANTES de abrir a primeira thread",
           _l_ctx is not None and (_l_th is None or _l_ctx < _l_th),
           f"marcar_contexto na linha {_l_ctx}, primeira Thread na {_l_th}")
+
+    # ── E O NOME QUE ELA MARCA E O DA PORTA UNICA ───────────────────────
+    #
+    # UM NOME, UMA RESPOSTA — e aqui havia duas.
+    #
+    # A marcacao da geracao usava `cfg.get("nome_produto")`, enquanto a tela
+    # (e o chat, e a copy vigente) le `session_state["img_nome_produto"]`,
+    # cujo escritor unico e `definir_produto_da_sessao`. Os dois concordavam
+    # por tabela, porque a porta era chamada no FIM da geracao — mas so
+    # `if galeria` (imagem.py:10722). Geracao que falha inteira deixava o
+    # contexto com o nome do cfg e a sessao com o nome anterior.
+    #
+    # Divergindo, o log grava um nome e o historico filtra pelo outro, e a
+    # copy corrigida fica guardada numa chave que ninguem procura. Nao
+    # corrompe nada — simplesmente nao e achada, que e a pior forma de
+    # defeito desta base: silenciosa.
+    #
+    # A ASERCAO E SOBRE O ARGUMENTO, por AST. Procurar o texto
+    # "definir_produto_da_sessao" no corpo acha a chamada do FIM da geracao
+    # e fica verde sem medir nada — ela sempre esteve la.
+    _prod_de = []
+    for _n in _ast_c.walk(_arv):
+        if not isinstance(_n, _ast_c.Call):
+            continue
+        if (getattr(_n.func, "attr", "") or getattr(_n.func, "id", "")) \
+                != "marcar_contexto":
+            continue
+        for _kw in _n.keywords:
+            if _kw.arg != "produto":
+                continue
+            _prod_de.append(_ast_c.unparse(_kw.value))
+    conta("e o nome marcado sai da porta unica do produto",
+          bool(_prod_de) and all(
+              "definir_produto_da_sessao" in _v
+              or "img_nome_produto" in _v
+              or "peca" in _v
+              for _v in _prod_de),
+          f"marcar_contexto recebe {_prod_de} — nome que nao vem de "
+          "`definir_produto_da_sessao` e segunda resposta para a mesma "
+          "pergunta: o log grava um, o historico filtra o outro, e a copy "
+          "corrigida fica numa chave que ninguem procura")
     # ── A DATA DO PAINEL E A DE BRASILIA ────────────────────────────────
     #
     # `pagina_placar` monta `agora = datetime.now()` — UTC no container — e
