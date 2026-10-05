@@ -200,6 +200,14 @@ if __name__ == "__main__":
     _vazia = faixas(pd.DataFrame(columns=COLUNAS))
     ok("sem tabela, não inventa desconto",
        do_bonus(2000, 500, _vazia) == (None, None))
+    # O Balanço oferece TRIBUTOS no seletor da tabela, e `salvar` só grava
+    # o que está nela: um nome aqui que `faixas` não lê seria faixa gravada
+    # e nunca usada.
+    ok("os tributos do seletor são exatamente os que a conta lê",
+       TRIBUTOS == ["INSS", "IRRF", "IRRF_ISENTO_ATE"]
+       and all(faixas(pd.DataFrame([{"tributo": t, "ate": 1000,
+                                     "aliquota": 10}])) != faixas(None)
+               for t in TRIBUTOS))
     ok("tributo desconhecido é ignorado",
        faixas(pd.DataFrame([{"tributo": "XPTO", "ate": 1, "aliquota": 1}]))
        == {"inss": [], "irrf": [], "isento_ate": 0.0})
