@@ -365,7 +365,19 @@ def carregar_config(ano: int, mes: int) -> dict:
         mask = (df["ano"] == int(ano)) & (df["mes"] == int(mes))
         linha = df[mask]
         if linha.empty:
-            return cfg
+            # MÊS SEM META CADASTRADA HERDA O ÚLTIMO CADASTRADO ANTES DELE
+            # (dono, 05/10). Virar o mês sem configurar derrubava a coletiva
+            # para os 5.000 do código, a MAXX junto, e a meta individual de
+            # todo mundo para 1.500 — o Painel do dia 1º mostrava uma meta
+            # que ninguém decidiu. Herda a LINHA inteira: metade herdada e
+            # metade padrão daria um mês que nunca existiu.
+            _ant = (df["ano"] * 12 + df["mes"]) < (int(ano) * 12 + int(mes))
+            linha = df[_ant]
+            if linha.empty:
+                return cfg
+            linha = linha.sort_values(["ano", "mes"], kind="stable")
+            _r = linha.iloc[-1]
+            cfg["herdado_de"] = (int(_r["ano"]), int(_r["mes"]))
         row = linha.iloc[-1]
         for k in DEFAULTS:
             val = row.get(k)
@@ -444,3 +456,49 @@ def _letra_coluna(n: int) -> str:
         n, resto = divmod(n - 1, 26)
         letras = chr(65 + resto) + letras
     return letras
+
+
+if __name__ == "__main__":
+    falhas = 0
+
+    def ok(nome, cond):
+        global falhas
+        falhas += not cond
+        print(("ok    " if cond else "FALHA ") + nome)
+
+    # A ENTRADA TEM A FORMA DE `carregar_todas`: colunas em minúsculas, ano e
+    # mês inteiros, o resto como o gspread devolve (UNFORMATTED_VALUE).
+    _equipe = lambda: {"myrelladesouza": "Myrella", "luizhenriqueramos": "Luiz"}
+    _df = pd.DataFrame([
+        {"ano": 2026, "mes": 8, "meta_equipe": 8000, "meta_maxx_acrescimo": 15,
+         "meta_myrelladesouza": 2200, "meta_luizhenriqueramos": 1400},
+        {"ano": 2026, "mes": 9, "meta_equipe": 9000, "meta_maxx_acrescimo": 20,
+         "meta_myrelladesouza": 2500, "meta_luizhenriqueramos": 1500,
+         "max_pen_normal": 5},
+        {"ano": 2025, "mes": 12, "meta_equipe": 1, "meta_maxx_acrescimo": 1,
+         "meta_myrelladesouza": 1, "meta_luizhenriqueramos": 1},
+    ])
+    carregar_todas = lambda: _df
+
+    _out = carregar_config(2026, 10)
+    ok("outubro sem cadastro herda a coletiva de setembro",
+       _out["meta_equipe"] == 9000)
+    ok("e a MAXX", _out["meta_maxx_acrescimo"] == 20)
+    ok("e a meta individual de cada um",
+       _out["meta_myrelladesouza"] == 2500
+       and _out["meta_luizhenriqueramos"] == 1500)
+    ok("e o resto da linha, para não misturar dois meses",
+       _out["max_pen_normal"] == 5)
+    ok("e diz de onde veio", _out.get("herdado_de") == (2026, 9))
+    ok("dois meses sem cadastro herdam o último cadastrado",
+       carregar_config(2026, 12)["meta_equipe"] == 9000)
+    ok("virada de ano: janeiro herda dezembro, não o maior mês do ano",
+       carregar_config(2026, 1)["meta_equipe"] == 1)
+    ok("mês cadastrado lê o próprio, e não herda",
+       carregar_config(2026, 8)["meta_equipe"] == 8000
+       and "herdado_de" not in carregar_config(2026, 8))
+    ok("antes do primeiro cadastro, fica o padrão do código",
+       carregar_config(2025, 1)["meta_equipe"] == 5000)
+
+    print("\nfalhas:", falhas)
+    raise SystemExit(1 if falhas else 0)
