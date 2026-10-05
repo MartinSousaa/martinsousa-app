@@ -6195,7 +6195,26 @@ _MARCAS_DE_RECOMPOSICAO = (
      r"escrit[óo]rio|loja|mesa de|ambienta)\w*\b",
      "troca o ambiente da cena"),
     # aberto <-> fechado, ângulo, face
-    (r"\b(aberta?|fechada?|abrir|fechar|de costas|traseir|lateral|"
+    #
+    # AS PALAVRAS DE POSIÇÃO SÓ VALEM QUANDO FALAM DO PRODUTO.
+    #
+    # ACHADO EM PRODUÇÃO, 05/10. O dono pediu "apenas troque a palavra
+    # «Metal» para «inox»" — um retoque de uma palavra. O chat, para ser
+    # preciso, escreveu ONDE a palavra estava: "o cartão DE BAIXO à
+    # esquerda". A regex casou "de baixo", escalou para REFAZER com o motivo
+    # "pede uma geometria ou uma face que a arte atual não mostra", e a
+    # refação do zero devolveu uma caneca com DUAS alças.
+    #
+    # "de baixo" num cartão é POSIÇÃO DE UM BLOCO DE TEXTO; "de baixo" na
+    # foto é ÂNGULO DE CÂMERA. A regra travava a REDAÇÃO e não o assunto —
+    # a Forma 2 do CLAUDE.md, do lado que acusa o inocente. E alarme falso
+    # aqui não é barato: ele custa uma geração E a imagem que estava certa.
+    #
+    # O recorte: a palavra não escala quando vem ligada a um elemento
+    # GRÁFICO. O resto da lista continua intacto.
+    (r"(?<!cart[ãa]o )(?<!card )(?<!bloco )(?<!selo )(?<![íi]cone )"
+     r"(?<!texto )(?<!legenda )(?<!faixa )"
+     r"\b(aberta?|fechada?|abrir|fechar|de costas|traseir|lateral|"
      r"de cima|de baixo|outro [âa]ngulo|girar|virar)\b",
      "pede uma geometria ou uma face que a arte atual não mostra"),
     # recompor o quadro
@@ -7785,8 +7804,35 @@ def consumir_comandos_do_chat(usuario_logado=""):
             _r = {"img": None, "erro": None, "done": False}
             _b = st.progress(0.0, text=f"Refazendo a Imagem {_i + 1}…")
             import threading as _th_rf, time as _tm_rf
+            # O TIPO E AS REFERENCIAS DE LAYOUT VAO JUNTO — e nao iam.
+            #
+            # ACHADO EM PRODUCAO, 05/10. Este Thread passava TRES argumentos:
+            # prompt, fotos e o dicionario de resultado. O `tipo` ficava ""
+            # e as referencias de layout ficavam None, enquanto o laco da
+            # geracao (`imagem.py` ~9867) passa os tres por kwargs.
+            #
+            # DOIS ESTRAGOS, e os dois apareceram no teste do dono:
+            #
+            # 1. `ref_layout_do_tipo` nao casava referencia nenhuma, entao a
+            #    peca refeita vinha SEM o padrao aprovado da empresa. Foi por
+            #    isso que a peca 6, refeita pelo chat, voltou com os cartoes
+            #    nos quatro cantos em vez da coluna unica da peca 3 — e o
+            #    dono teve de descobrir isso sozinho, em tres rodadas.
+            #
+            # 2. `numero_do_tipo("")` devolve "", e o registro saiu com
+            #    "peca ?" e `tipo:` vazio. O historico de prompts perdeu de
+            #    qual peca aquela geracao era.
+            #
+            # E a Forma 1 do CLAUDE.md na forma mais cara: a capacidade
+            # existia num caminho e faltava nos irmaos dele.
+            _refs_lay_rf = _cfg_rf.get("refs_layout_bytes") or None
             _th_rf.Thread(target=_li_thread.alvo_com_contexto(_gerar_imagem_thread),
-                          args=(_prompt, _fotos_desta, _r), daemon=True).start()
+                          args=(_prompt, _fotos_desta, _r),
+                          kwargs={"refs_layout": _refs_lay_rf,
+                                  "refs_layout_nomes": _cfg_rf.get(
+                                      "refs_layout_nomes", []),
+                                  "tipo": _tp},
+                          daemon=True).start()
             _t0 = _tm_rf.time()
             while not _r["done"]:
                 _sg = int(_tm_rf.time() - _t0)
@@ -7808,8 +7854,16 @@ def consumir_comandos_do_chat(usuario_logado=""):
             # enquanto o dono corrigia a mao.
             def _gerar_rf(_p, _fr=_fotos_desta, _t=_tp):
                 _rr = {"img": None, "erro": None, "done": False}
+                # A conferencia refaz a peca: ela precisa dos MESMOS
+                # argumentos da primeira tentativa, senao a correcao vem com
+                # outro layout que a peca que ela deveria consertar.
                 _tt = _th_rf.Thread(target=_li_thread.alvo_com_contexto(_gerar_imagem_thread),
-                                    args=(_p, _fr, _rr), daemon=True)
+                                    args=(_p, _fr, _rr),
+                                    kwargs={"refs_layout": _refs_lay_rf,
+                                            "refs_layout_nomes": _cfg_rf.get(
+                                                "refs_layout_nomes", []),
+                                            "tipo": _t},
+                                    daemon=True)
                 _tt.start()
                 _t0g = _tm_rf.time()
                 while not _rr["done"]:
@@ -10472,9 +10526,19 @@ def pagina_imagem(usuario_logado):
                     prompt_regen = prompt_para_regerar(
                         tipo_ativo, instrucoes_orig, dados_desc, nome_gal)
                     _res_regen = {"img": None, "erro": None, "done": False}
+                    # O MESMO BURACO DO REFAZER DO CHAT, no botao da galeria:
+                    # sem `tipo` a peca perde a referencia de layout dela e o
+                    # registro sai como "peca ?"; sem `refs_layout` ela e
+                    # regerada ignorando o padrao aprovado da empresa.
+                    _cfg_regen = config_da_geracao()
                     _threading_regen.Thread(
                         target=_li_thread.alvo_com_contexto(_gerar_imagem_thread),
                         args=(prompt_regen, fotos_orig, _res_regen),
+                        kwargs={
+                            "refs_layout": _cfg_regen.get("refs_layout_bytes") or None,
+                            "refs_layout_nomes": _cfg_regen.get("refs_layout_nomes", []),
+                            "tipo": tipo_ativo,
+                        },
                         daemon=True,
                     ).start()
                     _barra_regen = st.progress(0.0, text=f"Regenerando {tipo_ativo[:30]}...")
@@ -10497,9 +10561,20 @@ def pagina_imagem(usuario_logado):
                         # entregava sem ler o texto e sem olhar a imagem.
                         def _gerar_rg(_p, _fo=fotos_orig, _t=tipo_ativo):
                             _rr = {"img": None, "erro": None, "done": False}
+                            # A conferencia refaz a peca: mesmos argumentos
+                            # da primeira tentativa, senao a correcao volta
+                            # com outro layout.
                             _tt = _threading_regen.Thread(
                                 target=_li_thread.alvo_com_contexto(_gerar_imagem_thread),
-                                args=(_p, _fo, _rr), daemon=True)
+                                args=(_p, _fo, _rr),
+                                kwargs={
+                                    "refs_layout": _cfg_regen.get(
+                                        "refs_layout_bytes") or None,
+                                    "refs_layout_nomes": _cfg_regen.get(
+                                        "refs_layout_nomes", []),
+                                    "tipo": _t,
+                                },
+                                daemon=True)
                             _tt.start()
                             _t0g = _time_regen.time()
                             while not _rr["done"]:
@@ -12425,6 +12500,32 @@ if __name__ == "__main__":
     ok("pedido vazio nao derruba o roteador",
        classificar_edicao("")[0] == "ajustar"
        and classificar_edicao(None)[0] == "ajustar")
+
+    # ── POSICAO DE CARTAO NAO E ANGULO DE CAMERA ───────────────────────
+    #
+    # ACHADO EM PRODUCAO, 05/10, e custou uma geracao MAIS a imagem que ja
+    # estava certa. O dono pediu "apenas troque a palavra «Metal» para
+    # «inox»". O chat, para ser preciso, escreveu ONDE a palavra estava: "o
+    # cartao DE BAIXO a esquerda". A regex de angulo casou "de baixo",
+    # escalou para REFAZER, e a refacao do zero devolveu uma caneca com
+    # DUAS alcas.
+    #
+    # Errar para o lado de refazer "custa uma geracao" — e a nota de cima
+    # diz isso. Mas quando a imagem anterior ESTAVA CERTA, custa as duas.
+    for _ped_c, _esp_c in (
+            # o caso real, letra por letra
+            ('Na 5 é o cartão de baixo à esquerda: "MATERIAL / metal e '
+             'resina". Trocar metal por inox', "ajustar"),
+            ("troque a palavra metal por inox no cartão lateral", "ajustar"),
+            ("o bloco de cima diz PROFUNDITUDE, corrija", "ajustar"),
+            ("corrija o texto do selo de baixo", "ajustar"),
+            # e o que a regra existe para pegar continua pegando
+            ("fotografe o produto de baixo", "refazer"),
+            ("mostre a caneca de costas", "refazer"),
+            ("mostre a lateral do produto", "refazer"),
+            ("mudar a caixa fechada para aberta", "refazer")):
+        ok(f"posicao x angulo: «{_ped_c[:42]}» -> {_esp_c}",
+           classificar_edicao(_ped_c)[0] == _esp_c)
 
     # ── A TRAVA DE COR NAO PODE PROIBIR O QUE O PEDIDO MANDOU ───────────
     #
