@@ -62,6 +62,114 @@ UMA DECISÃO QUE ELE TOMOU E DEPOIS DESFEZ (25/09 13:46 → 14:21):
 
 
 ================================================================================
+PARTE 0-bis — AS DUAS CONTAS, COM A LINHA QUE AS SUSTENTA
+================================================================================
+
+Pedido dele em 05/10: "preciso que destaque como são feitas as contas abaixo:
+LPV / Custo Operacional".
+
+
+CUSTO OPERACIONAL DO MÊS  (`lpv_mensal.calcular`, lpv_mensal.py:33)
+-------------------------------------------------------------------
+
+    saidas        = Σ saídas do mês cuja finalidade passa em
+                    `composicao.entra_no_lpv`,  EXCETO Flex
+    flex_pago     = Σ saídas do mês com finalidade FLEX        ← a TM Logística
+    reembolso     = BASE DE VENDAS, coluna REEMBOLSO FLEX      ← lido pelo
+                                                                 TAMANHO (abs)
+    flex_liquido  = flex_pago − reembolso
+
+    CUSTO OPERACIONAL = saidas + flex_liquido
+
+
+LPV  (a mesma função)
+---------------------
+
+    LPV = CUSTO OPERACIONAL ÷ vendas do mês
+
+    vendas = BASE DE VENDAS, coluna VENDAS. NÃO vem do Bling.
+
+
+O QUE NÃO ENTRA
+---------------
+- entradas (`valor >= 0`): só SAÍDA entra, como na DIN FINANÇAS;
+- linha SEM FINALIDADE: não entra na conta E sai escrita à parte
+  (`sem_finalidade`) — somada calada inventaria custo, jogada fora calada
+  esconderia custo;
+- COMPRA DE MERCADORIA e SEM CLASSIFICAÇÃO (`LPV_SEMPRE_FORA`);
+- tudo que não é "operacional" nem "desconhecida", SALVO PÁGINA DO ML,
+  BOLETO e TARIFA BANCÁRIA, que o dono mandou entrar em 02/10
+  (`LPV_ALEM_DO_OPERACIONAL`, composicao.py:124);
+- a FATURA DO CARTÃO inteira — as compras dela entram uma a uma.
+
+
+⚠️  "CUSTO OPERACIONAL" TEM DOIS SIGNIFICADOS NESTE SISTEMA
+-----------------------------------------------------------
+Foi isto que o dono identificou em 05/10: "estou misturando Custo Operacional
+com LPV". Não era erro de conceito dele — são dois números com o mesmo nome.
+
+    1) O C.O DO LPV
+       Soma em REAIS do mês, dividida pelas vendas.
+       Mora em `lpv_mensal.py`.
+
+    2) O CUSTO OPERACIONAL DA MARGEM
+       Já está DESCONTADO na coluna MARGEM C. da planilha, como TAXA sobre o
+       faturamento (comissão 18,92%, frete 7,59%, NF 7,72%, custo do produto
+       35,95% — medidos em 17.793 vendas).
+       Mora em `financeiro_equilibrio.py:46`.
+
+E É POR ISSO que o lucro líquido por venda NÃO subtrai o LPV
+(home_gestao.py:1383-1391): o operacional já saiu na MARGEM C., e subtrair o
+LPV ali contaria o MESMO custo duas vezes. O LPV entra noutro lugar:
+
+    margem de contribuição por venda = coluna MARGEM C. ÷ nº de vendas
+    custo fixo por venda             = custo fixo do mês ÷ vendas do mês
+    lucro líquido por venda          = MC por venda − custo fixo por venda
+    UC                               = MC por venda ÷ LPV
+
+
+================================================================================
+PARTE 0-ter — TM LOGÍSTICA E CROSS DOCKING SÃO COISAS DIFERENTES
+================================================================================
+
+Ditado por ele em 05/10, as duas frases inteiras:
+
+    "TM Logística é a transportadora que realiza nossas entregas Flex
+     Cross Docking é o valor que pagamos ao Mercado Livre para os produtos
+     ficarem no depósito deles, essa cobrança aparece no excel do faturamento
+     do Mercado Livre que eu anexei no sistema"
+
+    "TM não leva até o Full, quem leva é a transportadora do Mercado Livre,
+     a TM só entrega minhas vendas Flex"
+
+    custo                              finalidade      entra no LPV como
+    ---------------------------------  --------------  --------------------
+    TM — entrega das vendas Flex       FLEX            LÍQUIDO
+                                                       (pago − reembolso)
+    ML — depósito/Full (cross docking) CROSS DOCKING   valor cheio
+    ML — transporte até o Full         (é do ML, não   valor cheio
+                                        da TM)
+
+POR QUE A DIFERENÇA IMPORTA, E NÃO É DETALHE
+--------------------------------------------
+A finalidade FLEX entra pelo LÍQUIDO, e o reembolso é o que o ML devolve
+pelas ENTREGAS FLEX. Transporte até o Full não tem reembolso nenhum. Se o
+transporte ao Full fosse lançado como FLEX, parte do `flex_pago` estaria
+sendo abatida por um reembolso que não lhe corresponde, e o LPV sairia
+SUBESTIMADO.
+
+CORREÇÃO FEITA EM 05/10: `favorecidos.py` descrevia a TM LOGISTICA como
+"Transporte da mercadoria até o Full" — errado. Quem lesse aquilo tiraria a TM
+do FLEX "para corrigir" e quebraria o líquido. A descrição passou a ser
+"Entrega das vendas Flex ao cliente (não leva ao Full)", com o motivo escrito
+ao lado. A FINALIDADE nunca esteve errada; a descrição estava.
+
+ONDE O CROSS DOCKING NASCE: na planilha de faturamento do Mercado Livre que o
+dono anexa no Studio. `fatura_ml.py:424` mapeia o grupo "Cross (envios Full)"
+para a finalidade CROSS DOCKING.
+
+
+================================================================================
 PARTE 1 — AS PALAVRAS DO DONO, VERBATIM, EM ORDEM
 ================================================================================
 
@@ -407,10 +515,9 @@ PARTE 3 — O QUE ESTÁ EM ABERTO
     (`lpv_mensal.py`), então a pergunta mudou de lugar — mas vale conferir se
     setembro/2026 fecha com o número que ele tinha na planilha.
 
-2 · "TM LOGÍSTICA" E "CROSS DOCKING" SÃO A MESMA COISA?
-    Ele cita "TM Logística" em 02/10 (duas vezes) como um custo a somar. No
-    código existe CROSS DOCKING (composicao.py:96), que entra no LPV. NÃO
-    CONFIRMEI que são a mesma finalidade — é pergunta para ele, não palpite.
+2 · "TM LOGÍSTICA" E "CROSS DOCKING"  →  RESPONDIDO EM 05/10, FECHADO
+    São coisas diferentes, e a resposta dele está na PARTE 0-ter. A descrição
+    errada no `favorecidos.py` foi corrigida no mesmo dia.
 
 3 · O RATEIO DO LPV POR PRODUTO
     Levantado por ele em 25/09 13:46 e DESCARTADO por ele em 25/09 14:21.

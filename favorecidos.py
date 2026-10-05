@@ -210,9 +210,33 @@ SEED = [
     ("LEONARDO MARTINS BESERRA", "REEMBOLSO", "entrada", ""),
     ("BYTEDANCE BRASIL TECNOLOGIA LTDA", "TIKTOK", "entrada",
      "Repasse do TikTok Shop"),
-    # Flex: transporte da mercadoria até o Full. Aparece como boleto pago à TM
-    # Logistica e, na conta da MS, como SISPAG FORNECEDORES sem nome nenhum.
-    ("TM LOGISTICA", "FLEX", "saida", "Transporte da mercadoria até o Full"),
+    # ── TM LOGISTICA: A ENTREGA DAS VENDAS FLEX, E SÓ ISSO ──────────────
+    #
+    # A DESCRIÇÃO AQUI DIZIA "transporte da mercadoria até o Full", E ESTAVA
+    # ERRADA. Corrigida pelo dono em 05/10, com todas as letras:
+    #
+    #     "TM não leva até o Full, quem leva é a transportadora do Mercado
+    #      Livre, a TM só entrega minhas vendas Flex"
+    #
+    # NÃO É DETALHE, e por isso está escrito aqui. A finalidade FLEX entra no
+    # LPV pelo LÍQUIDO — `flex_pago − reembolso_flex` (lpv_mensal.py) —, e o
+    # reembolso é o que o ML devolve pelas ENTREGAS FLEX. Transporte até o
+    # Full não tem reembolso nenhum: se a TM cobrasse isso também, metade do
+    # `flex_pago` estaria sendo abatida por um reembolso que não lhe
+    # corresponde, e o LPV sairia subestimado.
+    #
+    # Quem ler a descrição antiga tira a TM do FLEX "para corrigir" e quebra
+    # o líquido. Descrição errada não é texto solto: é a próxima decisão
+    # errada esperando alguém que confie nela.
+    #
+    # O transporte até o Full é COBRADO PELO MERCADO LIVRE, aparece na
+    # planilha de faturamento dele e entra como CROSS DOCKING
+    # (fatura_ml.py:424) — valor cheio, sem reembolso.
+    #
+    # Na conta da MS a TM aparece como boleto pago à TM Logistica e, às
+    # vezes, como SISPAG FORNECEDORES sem nome nenhum.
+    ("TM LOGISTICA", "FLEX", "saida",
+     "Entrega das vendas Flex ao cliente (não leva ao Full)"),
     ("SISPAG FORNECEDORES", "FLEX", "saida", "TM Logistica"),
     # O extrato do Itaú não traz favorecido nestas: o nome está só na
     # descrição, e sem elas a linha fica dependendo de quem clicou primeiro.
