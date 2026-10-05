@@ -1042,6 +1042,177 @@ def _elegibilidade(dados, users):
     return fora
 
 
+def _pontualidade_do_periodo(dados, membros):
+    """(pont, ocio, tem_ponto, diags, erro) do relógio de ponto no período.
+
+    Saiu de dentro da tela individual para o Balanço headcount ler o MESMO
+    ponto que decide o bônus — duas leituras seriam duas respostas.
+    """
+    _pont = {u: {"tol": 0, "tol_ent": 0, "tol_alm": 0,
+                 "atr": 0, "atr_ent": 0, "atr_alm": 0, "dias": 0,
+                 "ocorr": [], "min_atr": 0.0, "banco": 0.0}
+             for u in membros}
+    _ocio = {u: {"disp": 0.0, "cards": 0.0, "ocio": 0.0} for u in membros}
+    _tem_ponto = False
+    _diags_pont = []
+    _erro_pont = None
+    try:
+        for r in dados:
+            ym = r.get("filtro_mes")
+            if not ym:
+                continue
+            tc_mes = _min_em_cartoes([r])
+            p_mes, _diag_pont = _rp.get_pontualidade_mes(*ym, com_diagnostico=True)
+            _diags_pont.append((ym, _diag_pont))
+            _iv_mes = {}
+            for _r in dados:
+                if _r.get("filtro_mes") == ym:
+                    _iv_mes.update(_r.get("intervalos_membro") or {})
+            o_mes = _rp.get_ociosidade_mes(ym[0], ym[1], tc_mes, _iv_mes)
+            for u in membros:
+                p = p_mes.get(u)
+                if p:
+                    _pont[u]["tol"]     += p["tolerancias"]
+                    _pont[u]["tol_ent"] += p.get("tol_entrada", 0)
+                    _pont[u]["tol_alm"] += p.get("tol_almoco", 0)
+                    _pont[u]["atr"]     += p["atrasos"]
+                    _pont[u]["atr_ent"] += p["atrasos_entrada"]
+                    _pont[u]["atr_alm"] += p["atrasos_almoco"]
+                    _pont[u]["dias"]    += p["dias_trabalhados"]
+                    _pont[u]["ocorr"].extend(p.get("ocorrencias") or [])
+                    # Minutos de atraso somam; o banco NAO — ele ja vem
+                    # acumulado da RHiD, e somar os meses contaria tudo de novo.
+                    _pont[u]["min_atr"] += float(p.get("minutos_atraso", 0.0) or 0.0)
+                    _pont[u]["banco"] = float(p.get("banco_min", 0.0) or 0.0)
+                o = o_mes.get(u)
+                if o:
+                    _ocio[u]["disp"]  += o["horas_disp_min"]
+                    _ocio[u]["cards"] += o["tempo_cards_min"]
+                    # O valor JA calculado na linha do tempo, com as folgas de
+                    # 10 e 5 minutos e a hora pessoal do dia. Recalcular aqui
+                    # por disp menos cards jogaria fora tudo isso.
+                    _ocio[u]["ocio"]  += o["ociosidade_min"]
+                    # O detalhe viaja junto: sem ele, a pessoa vê o percentual
+                    # e não tem como conferir de onde saiu.
+                    _ocio[u].setdefault("buracos", []).extend(o.get("buracos") or [])
+                    if o.get("ajustado"):
+                        _ocio[u]["ajustado"] = True
+                        _ocio[u]["pct_medido"] = o.get("pct_medido")
+        _tem_ponto = any(v["dias"] > 0 for v in _pont.values())
+    except Exception as e:
+        _tem_ponto = False
+        _erro_pont = str(e)[:200]
+    return _pont, _ocio, _tem_ponto, _diags_pont, _erro_pont
+
+def _criterios_individuais(username, pts, o, p, _tem_ponto, _advs, _cfg_mes,
+                           _medias_exec, ocio_lim, tol_lim, atr_lim, adv_lim,
+                           meta_pts):
+    """[(rotulo, ok|None)] — None e "nao da para medir"."""
+    fora = [(f"pontuação ({_n_br(pts)} de {_n_br(meta_pts)} pts)",
+             meta_pts > 0 and pts >= meta_pts)]
+
+    if _tem_ponto and o["disp"] > 0:
+        _pc_o = o.get("ocio", 0.0) / o["disp"] * 100
+        fora.append((f"ociosidade ({_pc_o:.0f}%, máx {ocio_lim}%)",
+                     _pc_o <= ocio_lim))
+    else:
+        fora.append(("ociosidade", None))
+
+    _ref_i = float(_cfg_mes.get(f"exec_ref_{username}", 0) or 0) or 120.0
+    _mt_i = mc.meta_execucao(_cfg_mes, username, _ref_i)
+    _atual_i = _medias_exec.get(username)
+    if _mt_i["definida"] and _mt_i["alvo"] and _atual_i is not None:
+        fora.append(
+            (f"tempo médio ({_fmt_hm(_atual_i)}, alvo "
+             f"{_fmt_hm(_mt_i['alvo'])})", _atual_i <= _mt_i["alvo"]))
+    else:
+        fora.append(("tempo médio", None))
+
+    if _tem_ponto:
+        fora.append((f"tolerâncias ({p['tol']} de {tol_lim})",
+                     p["tol"] <= tol_lim))
+        fora.append((f"atrasos ({p['atr']} de {atr_lim})",
+                     p["atr"] <= atr_lim))
+    else:
+        fora.append(("tolerâncias", None))
+        fora.append(("atrasos", None))
+
+    fora.append((f"advertências ({_advs} de {adv_lim})",
+                 _advs <= adv_lim))
+    return fora
+
+
+def apuracao_bonus(dados, membros, pont=None, ocio=None, tem_ponto=None,
+                   medias_exec=None):
+    """Quem bateu o quê no período, e quanto % do salário cada um recebe.
+
+    {username: {"col", "maxx", "ind", "ind_maxx", "pct_time", "pct_seu",
+                "crit_n", "crit_x", "el", "sit_pen"}}
+
+    UMA CONTA SÓ para duas telas: o card do colaborador (quanto ele vai
+    ganhar) e o Balanço headcount (quanto o dono vai pagar). Esta conta vivia
+    dentro do card, e o Balanço precisaria de uma cópia — que é como as duas
+    passam a discordar (Forma 5).
+
+    - A metade do TIME paga se o time bateu (com o teto de penalidades) E a
+      pessoa entrou na meta (os dois porteiros de `_elegibilidade`).
+    - A metade INDIVIDUAL paga se TODOS os critérios do card passaram.
+      Critério que não dá para medir não reprova.
+    - Cada metade paga o nível mais alto: a MAXX toma o lugar da mensal.
+    """
+    if not dados:
+        return {}
+    membros = list(membros)
+    if pont is None or ocio is None or tem_ponto is None:
+        pont, ocio, tem_ponto, _, _ = _pontualidade_do_periodo(dados, membros)
+    if medias_exec is None:
+        medias_exec = _media_execucao_por_membro(dados) or {}
+    r_atual = dados[-1]
+    cfg = r_atual["cfg"]
+    max_tol = int(cfg.get("max_tol_normal", 15))
+    max_atr = int(cfg.get("max_atr_normal", 10))
+    max_tol_mx = int(cfg.get("max_tol_maxx", 7))
+    max_atr_mx = int(cfg.get("max_atr_maxx", 5))
+    max_adv_n = int(cfg.get("max_adv_normal", 2) or 0)
+    max_adv_x = int(cfg.get("max_adv_maxx", 1) or 0)
+    sit_pen = _pc.situacao_metas(r_atual.get("saldo", 0.0),
+                                 r_atual.get("meta_eq", 0.0),
+                                 r_atual.get("meta_maxx", 0.0),
+                                 int(r_atual.get("pen_qtd", 0) or 0), cfg)
+    eleg = _elegibilidade(dados, membros)
+    fora = {}
+    for u in membros:
+        pts = sum(r["pts_membro"].get(u, 0) for r in dados)
+        meta_ind = sum(r["cfg"].get(f"meta_{u}", 1500) for r in dados)
+        meta_ind_maxx = sum(
+            mc.maxx_de(r["cfg"].get(f"meta_{u}", mc.META_INDIVIDUAL_PADRAO),
+                       r["cfg"]) for r in dados)
+        advs = sum(int(r["cfg"].get(f"adv_{u}", 0) or 0) for r in dados)
+        o = ocio.get(u, {"disp": 0.0, "cards": 0.0})
+        p = pont.get(u, {"tol": 0, "tol_ent": 0, "tol_alm": 0,
+                         "atr": 0, "atr_ent": 0, "atr_alm": 0,
+                         "ocorr": [], "min_atr": 0.0, "banco": 0.0})
+        el = eleg.get(u, {})
+        col = sit_pen["bateu_col"] and el.get("entra_col", False)
+        maxx = sit_pen["bateu_maxx"] and el.get("entra_maxx", False)
+        crit_n = _criterios_individuais(u, pts, o, p, tem_ponto, advs, cfg,
+                                        medias_exec, OCIO_META_NORMAL,
+                                        max_tol, max_atr, max_adv_n, meta_ind)
+        crit_x = _criterios_individuais(u, pts, o, p, tem_ponto, advs, cfg,
+                                        medias_exec, OCIO_META_MAXX,
+                                        max_tol_mx, max_atr_mx, max_adv_x,
+                                        meta_ind_maxx)
+        ind = meta_ind > 0 and not [r for r, ok in crit_n if ok is False]
+        ind_maxx = (meta_ind_maxx > 0
+                    and not [r for r, ok in crit_x if ok is False])
+        pct_time, pct_seu = _expl.bonus_percentuais(col, maxx, ind, ind_maxx)
+        fora[u] = {"col": col, "maxx": maxx, "ind": ind, "ind_maxx": ind_maxx,
+                   "pct_time": pct_time, "pct_seu": pct_seu,
+                   "crit_n": crit_n, "crit_x": crit_x, "el": el,
+                   "sit_pen": sit_pen}
+    return fora
+
+
 def _item_advertencia(advs, limite_mes, n_meses=1):
     """Card de advertências: a escada disciplinar, com o degrau atual aceso.
 
@@ -1374,60 +1545,12 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
     # ── Relógio de ponto: pontualidade e ociosidade reais ─────────────────────
     # Uma passada por mês do período; se a planilha de ponto não responder, os
     # cards voltam a dizer "aguardando" em vez de mostrar zero como se fosse dado.
-    _pont = {u: {"tol": 0, "tol_ent": 0, "tol_alm": 0,
-                 "atr": 0, "atr_ent": 0, "atr_alm": 0, "dias": 0,
-                 "ocorr": [], "min_atr": 0.0, "banco": 0.0}
-             for u in membros_ativos}
-    _ocio = {u: {"disp": 0.0, "cards": 0.0, "ocio": 0.0} for u in membros_ativos}
-    _tem_ponto = False
-    _diags_pont = []
-    _erro_pont = None
-    try:
-        for r in dados:
-            ym = r.get("filtro_mes")
-            if not ym:
-                continue
-            tc_mes = _min_em_cartoes([r])
-            p_mes, _diag_pont = _rp.get_pontualidade_mes(*ym, com_diagnostico=True)
-            _diags_pont.append((ym, _diag_pont))
-            _iv_mes = {}
-            for _r in dados:
-                if _r.get("filtro_mes") == ym:
-                    _iv_mes.update(_r.get("intervalos_membro") or {})
-            o_mes = _rp.get_ociosidade_mes(ym[0], ym[1], tc_mes, _iv_mes)
-            for u in membros_ativos:
-                p = p_mes.get(u)
-                if p:
-                    _pont[u]["tol"]     += p["tolerancias"]
-                    _pont[u]["tol_ent"] += p.get("tol_entrada", 0)
-                    _pont[u]["tol_alm"] += p.get("tol_almoco", 0)
-                    _pont[u]["atr"]     += p["atrasos"]
-                    _pont[u]["atr_ent"] += p["atrasos_entrada"]
-                    _pont[u]["atr_alm"] += p["atrasos_almoco"]
-                    _pont[u]["dias"]    += p["dias_trabalhados"]
-                    _pont[u]["ocorr"].extend(p.get("ocorrencias") or [])
-                    # Minutos de atraso somam; o banco NAO — ele ja vem
-                    # acumulado da RHiD, e somar os meses contaria tudo de novo.
-                    _pont[u]["min_atr"] += float(p.get("minutos_atraso", 0.0) or 0.0)
-                    _pont[u]["banco"] = float(p.get("banco_min", 0.0) or 0.0)
-                o = o_mes.get(u)
-                if o:
-                    _ocio[u]["disp"]  += o["horas_disp_min"]
-                    _ocio[u]["cards"] += o["tempo_cards_min"]
-                    # O valor JA calculado na linha do tempo, com as folgas de
-                    # 10 e 5 minutos e a hora pessoal do dia. Recalcular aqui
-                    # por disp menos cards jogaria fora tudo isso.
-                    _ocio[u]["ocio"]  += o["ociosidade_min"]
-                    # O detalhe viaja junto: sem ele, a pessoa vê o percentual
-                    # e não tem como conferir de onde saiu.
-                    _ocio[u].setdefault("buracos", []).extend(o.get("buracos") or [])
-                    if o.get("ajustado"):
-                        _ocio[u]["ajustado"] = True
-                        _ocio[u]["pct_medido"] = o.get("pct_medido")
-        _tem_ponto = any(v["dias"] > 0 for v in _pont.values())
-    except Exception as e:
-        _tem_ponto = False
-        _erro_pont = str(e)[:200]
+    _pont, _ocio, _tem_ponto, _diags_pont, _erro_pont = \
+        _pontualidade_do_periodo(dados, membros_ativos)
+    # A apuração do bônus, uma vez para todos: a MESMA função que o Balanço
+    # headcount usa para saber quanto pagar a cada um.
+    _bonus = apuracao_bonus(dados, membros_ativos, _pont, _ocio, _tem_ponto,
+                            _medias_exec)
 
     # Tempo de execução medido pelas etiquetas: % de cartões dentro do estimado
     _CC_ = _pc.COLUNAS_CONFIG
@@ -1756,75 +1879,23 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
             # A mesma conta do relatorio de elegibilidade, e nao uma copia
             # dela: duas contas para a mesma pergunta e como a tela do
             # colaborador passa a discordar da lista do gestor.
-            _el = _elegibilidade(dados, [username]).get(username, {})
+            # A conta toda mora em `apuracao_bonus` — a mesma que o Balanço
+            # headcount usa para pagar. Aqui só se lê o resultado dela.
+            _b = _bonus.get(username) or apuracao_bonus(
+                dados, [username], _pont, _ocio, _tem_ponto,
+                _medias_exec)[username]
+            _el = _b["el"]
             _pct_ind_real = _el.get("pct", 0.0)
             _lim_adv_n = _el.get("lim_adv_n", 0)
             _lim_adv_x = _el.get("lim_adv_x", 0)
             _entra_col = _el.get("entra_col", False)
             _entra_maxx = _el.get("entra_maxx", False)
-
-            # O teto de penalidades da EQUIPE passa a valer, com o
-            # abatimento por pontuacao junto. Ate aqui so a pontuacao decidia,
-            # e a contagem era enfeite no painel.
-            _sit_pen = _pc.situacao_metas(_saldo_eq, _meta_eq, _meta_maxx,
-                                          _pen_qtd_eq, cfg)
-            meta_col_batida  = _sit_pen["bateu_col"] and _entra_col
-            meta_maxx_batida = _sit_pen["bateu_maxx"] and _entra_maxx
-            # BATER A META INDIVIDUAL sao TODOS os criterios do card, nao so
-            # a pontuacao.
-            #
-            # Ate aqui era `pts >= meta` e mais nada: os outros cinco cards que
-            # a pessoa ve — ociosidade, tempo medio, tolerancias, atrasos,
-            # advertencias — nao decidiam nada. Quem tivesse 78% de ociosidade e
-            # 15 atrasos, batendo os pontos, aparecia com "+8% a receber".
-            #
-            # Criterio que NAO DA PARA MEDIR nao reprova. Sem relogio de ponto,
-            # sem alvo de tempo no mes, sem cartao medido — o card mostra
-            # "aguardando" e aqui ele passa. Reprovar por dado que falta seria
-            # zerar o bonus de todo mundo no dia em que a RHiD sair do ar.
-            def _criterios_ind(ocio_lim, tol_lim, atr_lim, adv_lim, meta_pts):
-                """[(rotulo, ok|None)] — None e "nao da para medir"."""
-                fora = [(f"pontuação ({_n_br(pts)} de {_n_br(meta_pts)} pts)",
-                         meta_pts > 0 and pts >= meta_pts)]
-
-                if _tem_ponto and o["disp"] > 0:
-                    _pc_o = o.get("ocio", 0.0) / o["disp"] * 100
-                    fora.append((f"ociosidade ({_pc_o:.0f}%, máx {ocio_lim}%)",
-                                 _pc_o <= ocio_lim))
-                else:
-                    fora.append(("ociosidade", None))
-
-                _ref_i = float(_cfg_mes.get(f"exec_ref_{username}", 0) or 0) or 120.0
-                _mt_i = mc.meta_execucao(_cfg_mes, username, _ref_i)
-                _atual_i = _medias_exec.get(username)
-                if _mt_i["definida"] and _mt_i["alvo"] and _atual_i is not None:
-                    fora.append(
-                        (f"tempo médio ({_fmt_hm(_atual_i)}, alvo "
-                         f"{_fmt_hm(_mt_i['alvo'])})", _atual_i <= _mt_i["alvo"]))
-                else:
-                    fora.append(("tempo médio", None))
-
-                if _tem_ponto:
-                    fora.append((f"tolerâncias ({p['tol']} de {tol_lim})",
-                                 p["tol"] <= tol_lim))
-                    fora.append((f"atrasos ({p['atr']} de {atr_lim})",
-                                 p["atr"] <= atr_lim))
-                else:
-                    fora.append(("tolerâncias", None))
-                    fora.append(("atrasos", None))
-
-                fora.append((f"advertências ({_advs} de {adv_lim})",
-                             _advs <= adv_lim))
-                return fora
-
-            _crit_n = _criterios_ind(OCIO_META_NORMAL, max_tol, max_atr,
-                                     _max_adv_n, meta_ind)
-            _crit_x = _criterios_ind(OCIO_META_MAXX, max_tol_mx, max_atr_mx,
-                                     _max_adv_x, meta_ind_maxx)
-            _falhou_n = [r for r, ok in _crit_n if ok is False]
-            _falhou_x = [r for r, ok in _crit_x if ok is False]
-            meta_ind_batida      = meta_ind > 0 and not _falhou_n
-            meta_ind_maxx_batida = meta_ind_maxx > 0 and not _falhou_x
+            _sit_pen = _b["sit_pen"]
+            meta_col_batida = _b["col"]
+            meta_maxx_batida = _b["maxx"]
+            _crit_n, _crit_x = _b["crit_n"], _b["crit_x"]
+            meta_ind_batida = _b["ind"]
+            meta_ind_maxx_batida = _b["ind_maxx"]
 
             # Quando o time fecha e a pessoa fica de fora, dizer por que. Um
             # bonus que some sem explicacao vira conversa no corredor.
@@ -7185,3 +7256,73 @@ def pagina_analise_metas(usuario_logado):
             _secao_colunas(dados)
         else:
             st.warning("🔒 Configuração de metas restrita ao gestor.")
+
+
+# ── Conferência ──────────────────────────────────────────────────────────────
+# `python3 analise_metas.py`. A apuração do bônus é a que decide dinheiro: o
+# card do colaborador e o Balanço headcount leem ESTA função. Os `dados` têm
+# a forma que `_analisar_meses` devolve (cfg, pts_membro, saldo, meta_eq,
+# meta_maxx, pen_qtd); sem `filtro_mes`, o relógio de ponto fica de fora — e
+# critério sem medição não reprova, que é a regra.
+if __name__ == "__main__":
+    import inspect as _insp
+    falhas = 0
+
+    def ok(nome, cond):
+        global falhas
+        falhas += not cond
+        print(("ok    " if cond else "FALHA ") + nome)
+
+    def _mes(pts, saldo, meta_eq=10000.0, advs=None, pen=0, cfg_extra=None):
+        cfg = {"meta_ana": 1000, "meta_bia": 1000, "max_pen_normal": 99,
+               "max_pen_maxx": 99, **(cfg_extra or {})}
+        for u, n in (advs or {}).items():
+            cfg[f"adv_{u}"] = n
+        return {"cfg": cfg, "pts_membro": pts, "saldo": saldo,
+                "meta_eq": meta_eq, "meta_maxx": mc.maxx_de(meta_eq, cfg),
+                "pen_qtd": pen}
+
+    _m = ["ana", "bia"]
+    # o time bateu a mensal (não a MAXX); Ana fez a meta, Bia ficou em 70%
+    _d = [_mes({"ana": 1000, "bia": 700}, 10000.0)]
+    _b = apuracao_bonus(_d, _m)
+    ok("time bateu a mensal: quem entrou recebe a parte do time",
+       _b["ana"]["col"] and _b["ana"]["pct_time"] == _expl.PCT_COLETIVO_MENSAL)
+    ok("quem ficou abaixo de 80% da própria meta não entra na do time",
+       not _b["bia"]["col"] and _b["bia"]["pct_time"] == 0.0)
+    ok("meta individual batida paga a parte individual",
+       _b["ana"]["ind"] and _b["ana"]["pct_seu"] == _expl.PCT_INDIVIDUAL_MENSAL)
+    ok("e não batida não paga", not _b["bia"]["ind"]
+       and _b["bia"]["pct_seu"] == 0.0)
+    ok("sem relógio de ponto, ociosidade e atrasos não reprovam",
+       ("ociosidade", None) in _b["ana"]["crit_n"])
+    # advertência acima do teto tira das duas metades
+    _b2 = apuracao_bonus([_mes({"ana": 1000, "bia": 1000}, 10000.0,
+                               advs={"ana": 3})], _m)
+    ok("advertência acima do teto tira da meta do time",
+       not _b2["ana"]["col"] and _b2["bia"]["col"])
+    ok("e da individual", not _b2["ana"]["ind"])
+    # MAXX toma o lugar da mensal, não se soma
+    _mx = mc.maxx_de(10000.0, _d[0]["cfg"])
+    _b3 = apuracao_bonus([_mes({"ana": 2000, "bia": 2000}, _mx + 1)], _m)
+    ok("time na MAXX paga a MAXX no lugar da mensal",
+       _b3["ana"]["maxx"] and _b3["ana"]["pct_time"] == _expl.PCT_COLETIVO_MAXX)
+    ok("time abaixo da meta: ninguém recebe a parte do time",
+       apuracao_bonus([_mes({"ana": 1000, "bia": 1000}, 100.0)], _m)
+       ["ana"]["pct_time"] == 0.0)
+    ok("sem dados, nada", apuracao_bonus([], _m) == {})
+    # A TELA LÊ A FUNÇÃO, NÃO UMA CÓPIA DELA
+    _src = _insp.getsource(_secao_meta_individual)
+    ok("o card do colaborador lê a apuração única",
+       "apuracao_bonus(" in _src and "def _criterios_ind" not in _src
+       and "_pc.situacao_metas(" not in _src)
+    ok("e as quatro decisões de dinheiro saem dela, não de conta local",
+       all(f'{v} = _b["{k}"]' in _src for v, k in (
+           ("meta_col_batida", "col"), ("meta_maxx_batida", "maxx"),
+           ("meta_ind_batida", "ind"), ("meta_ind_maxx_batida", "ind_maxx"))))
+    ok("e o ponto vem da mesma leitura",
+       "_pontualidade_do_periodo(dados, membros_ativos)" in _src
+       and "get_pontualidade_mes" not in _src)
+
+    print("\nfalhas:", falhas)
+    raise SystemExit(falhas)

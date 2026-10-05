@@ -381,53 +381,6 @@ def _painel_contabilidade(params):
         return novos
 
 
-def _custo_do_time(params, hoje):
-    """Quem o aporte paga e quanto, no mês escolhido.
-
-    Fica ANTES do balanço e aparece mesmo sem nenhum aporte lançado: é a conta
-    que decide se vale contratar, e ela existe independente de haver dinheiro
-    guardado. Antes ela só surgia depois do primeiro aporte, e quem abria a
-    tela vazia não via custo nenhum.
-    """
-    import colaboradores as _co
-    aj = _aj()
-    st.markdown("##### Custo do time coberto pelo aporte")
-    c1, c2 = st.columns(2)
-    ano = c1.number_input("Ano", min_value=2020, max_value=2100,
-                          value=hoje.year, step=1, key="hc_custo_ano")
-    mes = c2.number_input("Mês", min_value=1, max_value=12,
-                          value=hoje.month, step=1, key="hc_custo_mes")
-
-    linhas = linhas_do_aporte(ano, mes, taxas=_co.carregar_taxas(),
-                              ajustes_df=aj.carregar())
-    cont = contabilidade_no_mes(params, ano, mes)
-    if not linhas and cont <= 0:
-        st.info("Ninguém marcado **«No aporte»** na tabela de colaboradores, e "
-                "nenhum acréscimo de contabilidade vigente neste mês.")
-        return
-
-    if linhas:
-        st.dataframe(pd.DataFrame([{
-            "Funcionário": l["funcionario"],
-            "Cargo": l["cargo"],
-            "Salário base": _brl(l["base"]),
-            "Encargos": _brl(l["encargos"]),
-            "Provisões": _brl(l["provisoes"]),
-            "Refeição": _brl(l["refeicao"]),
-            "Custo total": _brl(l["total"]),
-        } for l in linhas]), use_container_width=True, hide_index=True)
-
-    time = round(sum(l["total"] for l in linhas), 2)
-    m = st.columns(3)
-    m[0].metric(f"Time ({len(linhas)} pessoa(s))", _brl(time))
-    m[1].metric("Contabilidade", _brl(cont))
-    m[2].metric(f"Custo do headcount em {int(mes):02d}/{int(ano)}",
-                _brl(time + cont))
-    st.caption("Só quem está marcado **«No aporte»** na tabela de "
-               "colaboradores. Quem está fora — a Monique, por exemplo — não "
-               "entra nesta conta nem consome o aporte.")
-
-
 def _registrar_saldo_de_hoje(params, hoje, usuario_logado=None):
     """O saldo do mês em dois campos e um botão, sem editar a grade.
 
@@ -474,21 +427,440 @@ def _registrar_saldo_de_hoje(params, hoje, usuario_logado=None):
                     st.error(f"Não consegui gravar: {msg}")
 
 
+# ── O mês do Balanço: salários e bônus ───────────────────────────────────────
+#
+# Pedido do dono em 05/10, com layout aprovado: o custo do time CLT no mês,
+# cada imposto que ele paga, cada obrigação que reserva, e o bônus das metas
+# em bloco SEPARADO — pago até o 5º dia útil do mês seguinte, com o que é
+# tributo dele e o que é tributo do colaborador.
+
+def quinto_dia_util(ano, mes):
+    """O 5º dia útil do mês SEGUINTE a (ano, mes) — quando o bônus é pago.
+
+    Sábado conta, como a CLT conta para o pagamento de salário; domingo e
+    feriado não. Ponto facultativo (Carnaval) não é feriado e conta.
+    """
+    import calendar
+    import placar_core as _pc
+    a, m = (int(ano) + 1, 1) if int(mes) == 12 else (int(ano), int(mes) + 1)
+    fer = {d for d, (_n, orig) in _pc.feriados_do_ano(a).items()
+           if orig != "ponto facultativo"}
+    n = 0
+    for dia in range(1, calendar.monthrange(a, m)[1] + 1):
+        d = date(a, m, dia)
+        if d.weekday() == 6 or d in fer:
+            continue
+        n += 1
+        if n == 5:
+            return d
+    return None
+
+
+def salarios_do_mes(linhas_clt, taxas=None):
+    """(linhas, totais) do bloco de salários, com cada imposto à parte.
+
+    `linhas_clt` é `colaboradores.folha_clt` do mês — quem ainda não tinha
+    entrado já não está nela, e o mês de admissão já vem proporcional. A multa
+    do FGTS entra como obrigação a reservar (4% do salário de quem é
+    registrado), que é como o layout aprovado mostra.
+    """
+    import colaboradores as _co
+    t = {**_co.taxas_padrao(), **(taxas or {})}
+    tx_multa = max(_num(t.get("multa_fgts")), 0.0)
+    linhas = []
+    for l in linhas_clt or []:
+        multa = round(l["base"] * tx_multa, 2) if l.get("registrado") else 0.0
+        linhas.append({
+            "funcionario": l["funcionario"], "cargo": l.get("cargo", ""),
+            "salario": l["base"], "fgts": l.get("p_fgts", 0.0),
+            "inss_das": l.get("p_inss", 0.0),
+            "ferias": l.get("p_ferias_1_12", 0.0),
+            "terco": l.get("p_terco_ferias", 0.0),
+            "decimo": l.get("p_decimo_1_12", 0.0), "multa": multa,
+            "vt": l.get("p_vt", 0.0), "refeicao": l.get("refeicao", 0.0),
+            # O custo de caixa do Studio (`total`) mais a multa reservada. O
+            # INSS/CPP fica fora: ele já é pago dentro do DAS.
+            "custo": round(l["total"] + multa, 2),
+            "no_aporte": l.get("no_aporte", True),
+        })
+    soma = lambda c: round(sum(x[c] for x in linhas), 2)
+    tot = {c: soma(c) for c in ("salario", "fgts", "inss_das", "ferias",
+                                "terco", "decimo", "multa", "vt", "refeicao",
+                                "custo")}
+    tot["obrigacoes"] = round(tot["ferias"] + tot["terco"] + tot["decimo"]
+                              + tot["multa"], 2)
+    tot["impostos_pagos"] = round(tot["fgts"] + tot["inss_das"], 2)
+    tot["da_reserva"] = round(sum(x["custo"] for x in linhas
+                                  if x["no_aporte"]), 2)
+    return linhas, tot
+
+
+def _chave_nome(t):
+    import unicodedata
+    t = unicodedata.normalize("NFD", str(t or "")).encode("ascii", "ignore")
+    partes = t.decode().strip().lower().split()
+    return partes[0] if partes else ""
+
+
+def bonus_por_pessoa(linhas_clt, apurado, nomes, taxas=None, faixas=None):
+    """(linhas, totais, sem_linha) do bônus das metas, com os tributos.
+
+    `apurado` é `analise_metas.apuracao_bonus` — a mesma conta que o card do
+    colaborador mostra. `nomes` é {username: nome} (`MEMBROS_ATIVOS`). A
+    pessoa da meta é achada na grade de colaboradores pelo primeiro nome.
+
+    O bônus incide sobre o SALÁRIO BASE de contrato (no mês de admissão, o
+    cheio, não o proporcional). Paga os tributos de lei como salário, que é a
+    regra dada pelo dono em 05/10:
+      do dono    FGTS, reflexo em férias + 1/3 e em 13º, multa do FGTS
+                 (o INSS/CPP vai dentro do DAS: aparece, não soma)
+      do colab.  INSS e IRRF, pela `tabela_tributos` — sem ela, None.
+    """
+    import colaboradores as _co
+    import tabela_tributos as _tt
+    t = {**_co.taxas_padrao(), **(taxas or {})}
+    fx = faixas or {"inss": [], "irrf": [], "isento_ate": 0.0}
+    por_nome = {_chave_nome(l["funcionario"]): l for l in linhas_clt or []}
+    linhas, sem_linha = [], []
+    for u, ap in (apurado or {}).items():
+        nome = (nomes or {}).get(u, u)
+        l = por_nome.get(_chave_nome(nome))
+        if l is None:
+            if ap.get("pct_time") or ap.get("pct_seu"):
+                sem_linha.append(nome)
+            continue
+        prop = l.get("proporcional") or 1.0
+        base = round(l["base"] / prop, 2) if prop > 0 else l["base"]
+        b_time = round(base * ap.get("pct_time", 0.0) / 100.0, 2)
+        b_ind = round(base * ap.get("pct_seu", 0.0) / 100.0, 2)
+        bruto = round(b_time + b_ind, 2)
+        reg = bool(l.get("registrado"))
+        tx = lambda k: max(_num(t.get(k)), 0.0) if reg else 0.0
+        fgts = round(bruto * tx("fgts"), 2)
+        ref_f = round(bruto * (tx("ferias_1_12") + tx("terco_ferias")), 2)
+        ref_d = round(bruto * tx("decimo_1_12"), 2)
+        multa = round(bruto * tx("multa_fgts"), 2)
+        das = round(bruto * tx("inss"), 2)
+        i_emp, ir = (_tt.do_bonus(base, bruto, fx) if (reg and bruto > 0)
+                     else ((0.0, 0.0) if bruto <= 0 or not reg else (None, None)))
+        liq = (round(bruto - i_emp - ir, 2)
+               if (i_emp is not None and ir is not None) else None)
+        linhas.append({
+            "funcionario": l["funcionario"], "user": u,
+            "pct_time": ap.get("pct_time", 0.0), "pct_seu": ap.get("pct_seu", 0.0),
+            "bonus_time": b_time, "bonus_ind": b_ind, "bruto": bruto,
+            "inss_emp": i_emp, "irrf": ir, "liquido": liq,
+            "fgts": fgts, "ref_ferias": ref_f, "ref_decimo": ref_d,
+            "multa": multa, "inss_das": das,
+            "custo": round(bruto + fgts + ref_f + ref_d + multa, 2),
+            "no_aporte": l.get("no_aporte", True),
+        })
+    soma = lambda c: round(sum(x[c] for x in linhas), 2)
+    tot = {c: soma(c) for c in ("bonus_time", "bonus_ind", "bruto", "fgts",
+                                "ref_ferias", "ref_decimo", "multa",
+                                "inss_das", "custo")}
+    _ok_tab = all(x["inss_emp"] is not None and x["irrf"] is not None
+                  for x in linhas)
+    tot["inss_emp"] = (round(sum(x["inss_emp"] for x in linhas), 2)
+                       if _ok_tab else None)
+    tot["irrf"] = round(sum(x["irrf"] for x in linhas), 2) if _ok_tab else None
+    tot["tributos_meus"] = round(tot["fgts"] + tot["ref_ferias"]
+                                 + tot["ref_decimo"] + tot["multa"], 2)
+    _ret = [x for x in linhas if x["bruto"] > 0]
+    tot["tributos_deles"] = (
+        round(sum(x["inss_emp"] + x["irrf"] for x in _ret), 2)
+        if all(x["inss_emp"] is not None and x["irrf"] is not None
+               for x in _ret) else None)
+    tot["liquido"] = (round(tot["bruto"] - tot["tributos_deles"], 2)
+                      if tot["tributos_deles"] is not None else None)
+    tot["da_reserva"] = round(sum(x["custo"] for x in linhas
+                                  if x["no_aporte"]), 2)
+    return linhas, tot, sem_linha
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _apurado_do_mes(ano, mes):
+    """(apurado, nomes, situacao, erro) das metas de (ano, mes).
+
+    Cacheado: é a leitura do Trello e do relógio de ponto, e esta tela roda a
+    cada clique. O board já tem cache próprio; aqui se guarda a apuração.
+    """
+    try:
+        import analise_metas as _am
+        import placar_core as _pc
+        board = _pc._buscar_board()
+        if not board or not board[0]:
+            return {}, {}, {}, "o Trello não respondeu"
+        dados = _am._analisar_meses(*board, [(int(ano), int(mes))],
+                                    _pc._processar)
+        nomes = dict(_pc.MEMBROS_ATIVOS)
+        ap = _am.apuracao_bonus(dados, list(nomes))
+        sit = next(iter(ap.values()), {}).get("sit_pen", {}) if ap else {}
+        enxuto = {u: {k: v for k, v in a.items()
+                      if k in ("col", "maxx", "ind", "ind_maxx",
+                               "pct_time", "pct_seu")}
+                  for u, a in ap.items()}
+        return (enxuto, nomes,
+                {"bateu_col": bool(sit.get("bateu_col")),
+                 "bateu_maxx": bool(sit.get("bateu_maxx"))}, "")
+    except Exception as e:
+        return {}, {}, {}, f"{type(e).__name__}: {str(e)[:120]}"
+
+
+def _meses_para_escolher(hoje):
+    """Os últimos 12 meses, do atual para trás. O atual é o padrão."""
+    a, m, fora = hoje.year, hoje.month, []
+    for _ in range(12):
+        fora.append((a, m))
+        a, m = (a - 1, 12) if m == 1 else (a, m - 1)
+    return fora
+
+
+_MESES_PT = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+             "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
+
+
+def _rot_mes(am):
+    return f"{_MESES_PT[am[1] - 1]}/{am[0]}"
+
+
+def _v(x, casas=2):
+    """Número da tabela: '—' quando a conta não existe (tabela não cadastrada)."""
+    if x is None:
+        return "—"
+    return f"{float(x):,.{casas}f}".replace(",", "§").replace(".", ",").replace("§", ".")
+
+
+def _tabela_html(cab, linhas, total=None, grupo=(), esquerda=1):
+    """Tabela sem quebra de linha (o markdown do Streamlit fecharia o HTML)."""
+    th = "".join(
+        f'<th style="text-align:{"left" if i < esquerda else "right"};padding:6px 8px;'
+        f'border-bottom:1px solid var(--ms-borda);color:'
+        f'{"#7FB8F0" if c in grupo else "var(--ms-texto-sec)"};font-weight:600;">'
+        f'{c}</th>' for i, c in enumerate(cab))
+    def tr(cel, forte=False):
+        return "<tr>" + "".join(
+            f'<td style="text-align:{"left" if i < esquerda else "right"};padding:6px 8px;'
+            f'{"font-weight:800;" if forte or i == len(cel) - 1 else ""}'
+            f'border-bottom:1px solid rgba(128,128,128,.25);">{c}</td>'
+            for i, c in enumerate(cel)) + "</tr>"
+    corpo = "".join(tr(c) for c in linhas) + (tr(total, True) if total else "")
+    return ('<div style="overflow-x:auto;"><table style="width:100%;'
+            'border-collapse:collapse;font-size:13px;color:var(--ms-texto);">'
+            f'<tr>{th}</tr>{corpo}</table></div>')
+
+
+def _cartao(rotulo, valor, sub, cor=None):
+    c = cor or "var(--ms-texto)"
+    borda = cor or "var(--ms-borda)"
+    return (f'<div style="background:var(--ms-metric-bg);border:1px solid {borda};'
+            f'border-radius:10px;padding:12px 14px;">'
+            f'<div style="font-size:12px;color:var(--ms-texto-sec);font-weight:600;">{rotulo}</div>'
+            f'<div style="font-size:22px;font-weight:800;color:{c};margin:3px 0;">{valor}</div>'
+            f'<div style="font-size:11px;color:var(--ms-texto-sec);">{sub}</div></div>')
+
+
+def _grade(cartoes, n):
+    return (f'<div style="display:grid;grid-template-columns:repeat({n},minmax(0,1fr));'
+            f'gap:10px;margin:6px 0 12px;">' + "".join(cartoes) + '</div>')
+
+
+def _cadastro_tabela(usuario_logado):
+    """A tabela do INSS e do IRRF do empregado — uma vez por ano."""
+    import tabela_tributos as _tt
+    df, erro = _tt.carregar()
+    with st.expander("🧾 Tabela do INSS e do IRRF do empregado"
+                     + ("" if not df.empty else " — não cadastrada"),
+                     expanded=False):
+        if erro:
+            st.warning(f"Não consegui ler a tabela ({erro}). Nada foi apagado; "
+                       "tente de novo antes de salvar.")
+            return
+        st.caption(
+            "Uma linha por faixa, da tabela oficial do ano. **INSS**: até "
+            "quanto vale a faixa e a alíquota (7,5 = 7,5%). **IRRF**: até "
+            "quanto, alíquota e dedução; a última faixa fica com o “até” "
+            "vazio. **IRRF_ISENTO_ATE**: quem ganha até este valor não paga "
+            "IR (preencha só o “até”).")
+        base = df if not df.empty else pd.DataFrame(
+            [{"tributo": "INSS", "ate": 0.0, "aliquota": 0.0, "deducao": 0.0}])
+        with st.form("form_tab_trib"):
+            ed = st.data_editor(
+                base[["tributo", "ate", "aliquota", "deducao"]],
+                num_rows="dynamic", use_container_width=True, hide_index=True,
+                key="ed_tab_trib",
+                column_config={
+                    "tributo": st.column_config.SelectboxColumn(
+                        "Tributo", options=_tt.TRIBUTOS, required=True),
+                    "ate": st.column_config.NumberColumn("Até (R$)", format="%.2f"),
+                    "aliquota": st.column_config.NumberColumn("Alíquota (%)",
+                                                              format="%.2f"),
+                    "deducao": st.column_config.NumberColumn("Dedução (R$)",
+                                                             format="%.2f"),
+                })
+            if st.form_submit_button("💾 Salvar tabela", type="primary"):
+                okk, msg = _tt.salvar(ed, usuario_logado)
+                (st.success if okk else st.error)(msg)
+                if okk:
+                    st.rerun()
+
+
 def pagina(usuario_logado=None):
-    st.markdown("### 🧮 Balanço headcount")
-    st.caption(
-        "O aporte feito para expandir e registrar o time, e por quantos meses "
-        "ele ainda cobre esse custo. **O rendimento não se digita** — ele é o "
-        "que o saldo tem além do que a conta previa."
-    )
-
-    params = _painel_contabilidade(carregar_params())
-
+    import auth
+    import colaboradores as _co
+    import tabela_tributos as _tt
+    aj = _aj()
     hoje = datetime.now(FUSO).date()
-    _custo_do_time(params, hoje)
-    _registrar_saldo_de_hoje(params, hoje, usuario_logado)
 
-    st.markdown("##### Aportes e saldos")
+    st.markdown("### 🧮 Balanço headcount")
+    st.caption("Salários do mês e bônus das metas em blocos separados. Tudo "
+               "sai da Reserva, que fica logo abaixo.")
+
+    # SEMPRE ABRE NO MÊS ATUAL. O seletor é para olhar trás; quem entrou
+    # depois não aparece nos meses anteriores (`folha_clt` corta antes da
+    # admissão), e o histórico não fica poluído.
+    _meses = _meses_para_escolher(hoje)
+    am = st.selectbox("Mês", _meses, index=0, format_func=_rot_mes,
+                      key="hc_mes_ref")
+    ano, mes = am
+
+    taxas = _co.carregar_taxas()
+    ajustes = aj.carregar()
+    _df_co = _co.carregar()
+    if _df_co.empty:
+        st.warning("A grade de **Colaboradores** está vazia — o quadro que "
+                   "aparece lá é sugestão e só conta depois de **Salvar "
+                   "colaboradores** (Custos fixos › Folha salarial).")
+    clt = _co.folha_clt(_df_co, ano, mes, taxas, ajustes)
+    sal, ts = salarios_do_mes(clt, taxas)
+
+    apurado, nomes, sit, erro_b = _apurado_do_mes(ano, mes)
+    _tab, _erro_tab = _tt.carregar()
+    fx = _tt.faixas(_tab)
+    bon, tb, sem_linha = bonus_por_pessoa(clt, apurado, nomes, taxas, fx)
+    pg = quinto_dia_util(ano, mes)
+    pg_txt = pg.strftime("%d/%m/%Y") if pg else "—"
+    _corrente = (ano, mes) == (hoje.year, hoje.month)
+
+    st.markdown(_grade([
+        _cartao("Salários do mês", _brl(ts["salario"]),
+                f"{len(sal)} colaborador(es) CLT"),
+        _cartao("Impostos e obrigações dos salários",
+                _brl(round(ts["custo"] - ts["salario"], 2)),
+                "FGTS, VT, férias, 1/3, 13º, multa"),
+        _cartao(f"Bônus a pagar · até {pg_txt[:5]}", _brl(tb["bruto"]),
+                "previsão pelo placar de hoje" if _corrente else
+                "bruto, metas do mês", "#7FB8F0"),
+        _cartao("Tributos sobre o bônus (meus)", _brl(tb["tributos_meus"]),
+                "FGTS + reflexos + multa", "#7FB8F0"),
+        _cartao("Sai da Reserva", _brl(ts["da_reserva"] + tb["da_reserva"]),
+                f"salários {_brl(ts['da_reserva'])} + bônus "
+                f"{_brl(tb['da_reserva'])}", "#E0A13A"),
+    ], 5), unsafe_allow_html=True)
+
+    # ── SALÁRIOS ─────────────────────────────────────────────────────────
+    st.markdown(f"#### 💼 Salários · {_rot_mes(am)}")
+    if not sal:
+        st.info("Nenhum colaborador com salário neste mês.")
+    else:
+        _ref = ts["refeicao"] > 0
+        cab = (["Colaborador", "Cargo", "Salário", "FGTS", "INSS/CPP", "Férias",
+                "1/3", "13º", "Multa FGTS", "VT"] + (["Refeição"] if _ref else [])
+               + ["Custo"])
+        lin = [[x["funcionario"], x["cargo"]] + [_v(x[c]) for c in
+               ("salario", "fgts", "inss_das", "ferias", "terco", "decimo",
+                "multa", "vt")] + ([_v(x["refeicao"])] if _ref else [])
+               + [_v(x["custo"])] for x in sal]
+        tot = (["Total", ""] + [_v(ts[c]) for c in
+               ("salario", "fgts", "inss_das", "ferias", "terco", "decimo",
+                "multa", "vt")] + ([_v(ts["refeicao"])] if _ref else [])
+               + [_v(ts["custo"])])
+        st.markdown(_tabela_html(cab, lin, tot, grupo=("FGTS", "INSS/CPP"),
+                                 esquerda=2),
+                    unsafe_allow_html=True)
+        st.caption(
+            f"**Impostos que eu pago:** FGTS {_brl(ts['fgts'])} · INSS/CPP "
+            f"{_brl(ts['inss_das'])} (já dentro do DAS, não soma no custo). "
+            f"**Obrigações a reservar:** {_brl(ts['obrigacoes'])} — férias "
+            f"{_brl(ts['ferias'])}, 1/3 {_brl(ts['terco'])}, 13º "
+            f"{_brl(ts['decimo'])}, multa do FGTS {_brl(ts['multa'])}.")
+        _fora = [x["funcionario"] for x in sal if not x["no_aporte"]]
+        if _fora:
+            st.caption("Fora do aporte (não sai da Reserva): **"
+                       + ", ".join(_fora) + "**.")
+
+    # ── BÔNUS ────────────────────────────────────────────────────────────
+    st.markdown(f"#### 🎯 Bônus das metas de {_rot_mes(am)} · pagar até "
+                f"{pg_txt}")
+    st.caption("5º dia útil do mês seguinte, sábado conta (CLT). "
+               + ("O mês ainda corre: é a previsão pelo placar de hoje."
+                  if _corrente else ""))
+    if erro_b:
+        st.warning(f"Não consegui apurar as metas: {erro_b}. O bônus fica "
+                   "fora até a leitura voltar.")
+    else:
+        st.caption(
+            "Coletiva mensal: **" + ("batida" if sit.get("bateu_col") else
+                                     "não batida") + "** · MAXX: **"
+            + ("batida" if sit.get("bateu_maxx") else "não batida")
+            + "** · a parte do time só paga a quem entrou na meta (mínimo da "
+            "própria meta e teto de advertências), a individual só a quem "
+            "passou em todos os critérios — a mesma regra do Painel de Metas.")
+    if bon:
+        cab = ["Colaborador", "Bônus time", "Bônus indiv.", "Bônus bruto",
+               "INSS deles", "IRRF deles", "Líquido a depositar", "FGTS 8%",
+               "Reflexo férias+1/3", "Reflexo 13º", "Multa FGTS",
+               "INSS/CPP (DAS)", "Custo p/ mim"]
+        lin = [[x["funcionario"]] + [_v(x[c]) for c in
+               ("bonus_time", "bonus_ind", "bruto", "inss_emp", "irrf",
+                "liquido", "fgts", "ref_ferias", "ref_decimo", "multa",
+                "inss_das", "custo")] for x in bon]
+        tot = ["Total"] + [_v(tb.get(c)) for c in
+               ("bonus_time", "bonus_ind", "bruto")] + [
+               _v(tb["inss_emp"]), _v(tb["irrf"]), _v(tb["liquido"])] + [_v(tb[c]) for c in
+               ("fgts", "ref_ferias", "ref_decimo", "multa", "inss_das",
+                "custo")]
+        st.markdown(_tabela_html(cab, lin, tot,
+                                 grupo=("FGTS 8%", "Reflexo férias+1/3",
+                                        "Reflexo 13º", "Multa FGTS",
+                                        "INSS/CPP (DAS)")),
+                    unsafe_allow_html=True)
+    st.markdown(_grade([
+        _cartao("Bônus bruto", _brl(tb["bruto"]), "o que cada um ganhou"),
+        _cartao("Tributos deles (retidos)",
+                _brl(tb["tributos_deles"]) if tb["tributos_deles"] is not None
+                else "—", "INSS do empregado + IRRF · você desconta e recolhe"),
+        _cartao("Tributos meus", _brl(tb["tributos_meus"]),
+                f"FGTS {_brl(tb['fgts'])} + reflexos "
+                f"{_brl(tb['ref_ferias'] + tb['ref_decimo'])} + multa "
+                f"{_brl(tb['multa'])}"),
+        _cartao("Custo total do bônus", _brl(tb["custo"]), "sai da Reserva",
+                "#E0A13A"),
+    ], 4), unsafe_allow_html=True)
+    if tb["bruto"] > 0 and tb["tributos_deles"] is None:
+        st.caption("INSS e IRRF do colaborador saem da **tabela do ano**, que "
+                   "ainda não está cadastrada — abra o quadro abaixo e "
+                   "preencha uma vez. Até lá, “—” em vez de um desconto "
+                   "inventado.")
+    if sem_linha:
+        st.warning("Bateu meta e não está na grade de colaboradores (o bônus "
+                   "dela não entrou na conta): **" + ", ".join(sem_linha)
+                   + "**.")
+    _cadastro_tabela(usuario_logado)
+
+    # ── RESERVA ──────────────────────────────────────────────────────────
+    # A Reserva mora aqui desde 05/10 (pedido do dono), e "Aportes e
+    # saldos" mora dentro dela.
+    st.markdown("---")
+    if not auth.eh_dono(usuario_logado):
+        st.info("A Reserva é exclusiva do dono.")
+        return
+    import reserva_tela as _rt
+    _rt.conteudo(usuario_logado)
+
+    st.markdown("#### Aportes e saldos")
+    params = _painel_contabilidade(carregar_params())
+    _registrar_saldo_de_hoje(params, hoje, usuario_logado)
     st.caption(
         "**Aporte** é dinheiro entrando. **Saldo** é quanto havia na conta "
         "naquele mês — o extrato, não uma estimativa. As retiradas não se "
@@ -708,4 +1080,87 @@ if __name__ == "__main__":
     ok("valor com vírgula chega certo", linhas[0]["valor"] == 120000.0)
     ok("tipo inventado cai em Saldo", linhas[1]["tipo"] == "Saldo")
 
+
+    # ── O BALANÇO DO MÊS (layout aprovado em 05/10) ──────────────────────
+    # A ENTRADA VEM DO SISTEMA: o quadro é o de `colaboradores.SUGESTOES`
+    # passado por `folha_clt` de verdade, e a apuração é a de
+    # `analise_metas.apuracao_bonus` — não números escritos aqui.
+    import colaboradores as _co_t
+    _pad = {"cargo": _co_t.CARGO_PADRAO, "registrado": "Sim",
+            "salario_base": _co_t.SALARIO_PADRAO, "admissao": "2026-01",
+            "dias_uteis": 22, "no_aporte": "Sim"}
+    _q = pd.DataFrame([{**_pad, **p} for p in _co_t.SUGESTOES])
+    _clt = _co_t.folha_clt(_q, 2026, 10)
+    _sal, _ts = salarios_do_mes(_clt)
+    _gab = [x for x in _sal if x["funcionario"] == "Gabriel"][0]
+    ok("FGTS do Gabriel = 8% de 3.000", _gab["fgts"] == 240.0)
+    ok("férias, 1/3 e 13º à parte", (_gab["ferias"], _gab["terco"],
+                                     _gab["decimo"]) == (249.0, 84.0, 249.0))
+    ok("multa do FGTS reservada = 4%", _gab["multa"] == 120.0)
+    ok("custo = caixa do Studio + multa (sem o INSS do DAS)",
+       _gab["custo"] == round(3000 + 240 + 233.33 + 249 + 84 + 249 + 120, 2))
+    ok("os salários do mês somam o quadro sem a Monique",
+       _ts["salario"] == round(3000 + 4 * 2006.58, 2)
+       and "Monique" not in {x["funcionario"] for x in _sal})
+    ok("obrigações = férias + 1/3 + 13º + multa",
+       _ts["obrigacoes"] == round(_ts["ferias"] + _ts["terco"] + _ts["decimo"]
+                                  + _ts["multa"], 2))
+    ok("quem entra depois não aparece no mês anterior",
+       not salarios_do_mes(_co_t.folha_clt(pd.DataFrame([{**_pad,
+           "funcionario": "Novo", "admissao": "2026-11-03"}]), 2026, 10))[0])
+
+    import analise_metas as _am_t
+    import placar_core as _pc_t
+    _cfg = {"meta_gab": 1000, "meta_bea": 1000, "meta_lui": 1000}
+    _dados = [{"cfg": _cfg, "pts_membro": {"gab": 1000, "bea": 900,
+                                           "lui": 500},
+               "saldo": 10000.0, "meta_eq": 10000.0,
+               "meta_maxx": 12000.0, "pen_qtd": 0}]
+    _nomes = {"gab": "Gabriel Borges", "bea": "Beatriz", "lui": "Luiz",
+              "xxx": "Fulano"}
+    _ap = _am_t.apuracao_bonus(_dados, ["gab", "bea", "lui"])
+    _bon, _tb, _sem = bonus_por_pessoa(_clt, _ap, _nomes)
+    _bg = [x for x in _bon if x["funcionario"] == "Gabriel"][0]
+    ok("o bônus sai da apuração única: 12% do time + 8% individual",
+       _bg["bonus_time"] == 360.0 and _bg["bonus_ind"] == 240.0)
+    ok("abaixo de 80% da própria meta: nada do time",
+       [x for x in _bon if x["funcionario"] == "Luiz"][0]["bruto"] == 0.0)
+    ok("o nome da meta acha a pessoa pelo primeiro nome",
+       _bg["user"] == "gab")
+    ok("tributos meus sobre o bônus: FGTS, reflexos e multa",
+       (_bg["fgts"], _bg["ref_ferias"], _bg["ref_decimo"], _bg["multa"])
+       == (48.0, 66.6, 49.8, 24.0))
+    ok("custo do bônus = bruto + tributos meus (o DAS não soma)",
+       _bg["custo"] == 788.4 and _bg["inss_das"] == 22.88)
+    ok("sem tabela, o desconto do colaborador fica em aberto",
+       _bg["inss_emp"] is None and _tb["tributos_deles"] is None
+       and _tb["liquido"] is None)
+    import tabela_tributos as _tt_t
+    _fx = _tt_t.faixas(pd.DataFrame([
+        {"tributo": "INSS", "ate": 10000, "aliquota": 10},
+        {"tributo": "IRRF", "ate": "", "aliquota": 0, "deducao": 0}]))
+    _bg2 = [x for x in bonus_por_pessoa(_clt, _ap, _nomes, None, _fx)[0]
+            if x["funcionario"] == "Gabriel"][0]
+    ok("com tabela, o líquido é o bruto menos o desconto deles",
+       _bg2["inss_emp"] == 60.0 and _bg2["liquido"] == 540.0)
+    ok("bônus de quem não está na grade é avisado, não some",
+       bonus_por_pessoa(_clt, {"xxx": {"pct_time": 12.0, "pct_seu": 0.0}},
+                        _nomes)[2] == ["Fulano"])
+    ok("o bônus de outubro é pago até 07/11 (sábado conta, Finados não)",
+       quinto_dia_util(2026, 10) == date(2026, 11, 7))
+    ok("e o de dezembro, em janeiro do ano seguinte",
+       quinto_dia_util(2026, 12).year == 2027)
+    ok("o mês do Balanço abre no atual",
+       _meses_para_escolher(date(2026, 10, 5))[0] == (2026, 10))
+    import inspect as _insp_t
+    _pg = _insp_t.getsource(pagina)
+    ok("a Reserva mora dentro do Balanço, e os aportes dentro dela",
+       _pg.index("_rt.conteudo(") < _pg.index("Aportes e saldos")
+       < _pg.index("form_headcount"))
+    ok("o bônus da tela vem da apuração única",
+       "_apurado_do_mes(" in _pg
+       and "apuracao_bonus(" in _insp_t.getsource(_apurado_do_mes))
+    ok("nenhum bloco da tela tem quebra de linha",
+       "\n" not in _tabela_html(["a", "b"], [["1", "2"]], ["t", "3"])
+       and "\n" not in _grade([_cartao("x", "1", "s")], 1))
     print("\nfalhas:", falhas)

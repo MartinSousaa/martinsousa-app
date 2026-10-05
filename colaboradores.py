@@ -132,10 +132,8 @@ SALARIO_PADRAO = 2006.58
 SUGESTOES = [
     {"funcionario": "Gabriel", "cargo": "Analista de Marketing",
      "salario_base": 3000.00, "registrado": "Sim"},
-    # Monique fica fora do aporte: ele existe para registrar e expandir o time,
-    # e ela não está nesse processo.
-    {"funcionario": "Monique", "registrado": "Não", "salario_base": 2400.00,
-     "no_aporte": "Não"},
+    # Monique saiu daqui em 05/10, a pedido do dono: ela é paga com os
+    # gestores (`folha_salarial.SUGESTOES`) e não conta na folha CLT.
     {"funcionario": "Beatriz"},
     {"funcionario": "Myrella"},
     {"funcionario": "Nicollas"},
@@ -345,7 +343,14 @@ def custo(salario_base, taxas=None, dias_uteis=DIAS_UTEIS, registrado=True,
     refeicao = (max(_num(t.get("refeicao_dia")), 0.0)
                 * max(int(_num(dias_uteis, 0)), 0)) if com_refeicao else 0.0
     caixa = base + encargos + provisoes + refeicao
+    # CADA IMPOSTO À PARTE, para o Balanço headcount dizer quanto é FGTS,
+    # quanto é férias, quanto é 13º — e não só "encargos". As mesmas taxas e
+    # a mesma base das somas acima: as partes fecham com elas por construção.
+    partes = {k: (round(base * max(_num(t.get(k)), 0.0), 2) if reg else 0.0)
+              for k in TAXAS}
+    partes["vt"] = round(vale_transporte(base, t, vale_transporte_pessoa), 2)
     return {
+        **{f"p_{k}": v for k, v in partes.items()},
         "base": round(base, 2),
         "encargos": round(encargos, 2),
         "provisoes": round(provisoes, 2),
@@ -1003,14 +1008,31 @@ if __name__ == "__main__":
     ok("quando vigorar, ela soma", folha_clt(_q, 2026, 10, _rt)[0]["refeicao"]
        == round(29.99 * 22, 2))
 
-    ok("o quadro sugerido tem seis pessoas", len(SUGESTOES) == 6)
+    ok("o quadro sugerido tem cinco pessoas", len(SUGESTOES) == 5)
     ok("só o Gabriel tem cargo próprio",
        [p for p in SUGESTOES if "cargo" in p][0]["funcionario"] == "Gabriel")
     ok("o padrão do quadro é auxiliar de expedição a 2.006,58",
        CARGO_PADRAO == "Auxiliar de Expedição" and SALARIO_PADRAO == 2006.58)
-    _mon = [p for p in SUGESTOES if p["funcionario"] == "Monique"][0]
-    ok("a Monique vem marcada como sem registro", _mon["registrado"] == "Não")
-    ok("a Monique recebe R$ 2.400", _mon["salario_base"] == 2400.00)
+    # AS PARTES FECHAM COM AS SOMAS: o Balanço headcount mostra cada imposto
+    # à parte, e se um dia elas discordarem do "encargos"/"provisões" que o
+    # resto do Studio lê, a tela mostra dois números para a mesma coisa.
+    _cp = custo(2006.58, None, 22, True, False)
+    ok("FGTS + VT = encargos", abs(_cp["p_fgts"] + _cp["p_vt"]
+                                   - _cp["encargos"]) < 0.02)
+    ok("férias + 1/3 + 13º = provisões",
+       abs(_cp["p_ferias_1_12"] + _cp["p_terco_ferias"] + _cp["p_decimo_1_12"]
+           - _cp["provisoes"]) < 0.02)
+    ok("INSS/CPP = rateio", abs(_cp["p_inss"] - _cp["rateio"]) < 0.01)
+    ok("sem registro, imposto zero e VT continua",
+       custo(2000, None, 22, False, False)["p_fgts"] == 0.0
+       and custo(2000, None, 22, False, False)["p_vt"] > 0)
+    _cpp = folha_clt(pd.DataFrame([{"funcionario": "Z", "salario_base": 3100,
+                                    "admissao": "2026-08-17",
+                                    "registrado": "Sim"}]), 2026, 8)[0]
+    ok("no mês de admissão as partes também são proporcionais",
+       abs(_cpp["p_fgts"] - round(3100 * 0.08 * 15 / 31, 2)) < 0.02)
+    ok("a Monique não está mais no quadro CLT (vai com os gestores)",
+       not [p for p in SUGESTOES if p["funcionario"] == "Monique"])
     # A linha montada na tela precisa ter TODAS as colunas preenchidas: campo
     # que falta no padrão aparece como celula vazia no editor, e vira "None" na
     # coluna de lista — que o usuario le como um valor, nao como um vazio.

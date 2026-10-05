@@ -333,6 +333,13 @@ def _tabela(linhas):
 
 
 def pagina(usuario_logado=None):
+    """A Reserva sozinha. Desde 05/10 ela é desenhada DENTRO do Balanço
+    headcount (`headcount.pagina` chama `conteudo`); esta porta fica para quem
+    ainda a chamar direto."""
+    conteudo(usuario_logado)
+
+
+def conteudo(usuario_logado=None):
     import auth
     if not auth.eh_dono(usuario_logado):
         st.error("Esta tela é exclusiva do dono.")

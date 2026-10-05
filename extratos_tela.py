@@ -70,7 +70,11 @@ def pagina(usuario_logado=None):
             import fatura_pdf as _fpdf
             _tipo_arq = _fpdf.identificar(arq.name, arq.getvalue())
             if _tipo_arq in ("fatura_pdf", "fatura_inter"):
-                _fatura(arq, _tipo_arq, usuario_logado)
+                # A FATURA TAMBÉM PERGUNTA. Até 05/10 ela pulava a fila: as
+                # compras do cartão entravam sem finalidade e nenhum nome
+                # novo virava pergunta — e saída sem finalidade fica FORA do
+                # LPV (`lpv_mensal.py:51`) e dos gastos do mês.
+                fila_total += _fatura(arq, _tipo_arq, usuario_logado) or []
                 continue
             fila_total += _processar(
                 arq, _itau, _inter, _fv, _lan, usuario_logado) or []
@@ -125,7 +129,13 @@ def _fatura(arq, tipo_arq, usuario_logado):
         if texto:
             with st.expander("O texto que saiu do PDF"):
                 st.code(texto[:20000], language=None)
-        return
+        return []
+
+    # CLASSIFICADA COMO O EXTRATO: o cadastro de favorecidos dá a finalidade,
+    # e o que não tem cadastro volta como fila — a mesma pergunta, uma vez.
+    _conta_fat = f"cartão · {nome}"
+    classificados, fila = classificar_fatura(lancs)
+    fila = _enriquecer(fila, classificados, _conta_fat)
 
     _compras = [l for l in lancs if not l.get("pagamento")]
     _total = sum(abs(float(l.get("valor") or 0)) for l in _compras)
@@ -173,8 +183,7 @@ def _fatura(arq, tipo_arq, usuario_logado):
         # clique. Foi o segundo verificador que pegou, que e para isso que
         # ele existe: nome lido antes de existir nao aparece no import.
         import lancamentos as _lan_fat
-        _conta_fat = f"cartão · {nome}"
-        _novos, _reps, _err = _lan_fat.gravar(lancs, _conta_fat,
+        _novos, _reps, _err = _lan_fat.gravar(classificados, _conta_fat,
                                               usuario_logado)
         if _err:
             st.error(f"Não consegui gravar: {_err}")
@@ -186,6 +195,43 @@ def _fatura(arq, tipo_arq, usuario_logado):
                 _msg += (f" {_reps} já estavam lá e foram ignorados — é o "
                          f"esperado se você já subiu esta fatura antes.")
             st.success(_msg)
+    return fila
+
+
+def sem_finalidade(linhas):
+    """{"n", "total", "maiores"} das SAÍDAS sem finalidade. Função pura."""
+    por_nome, n, total = {}, 0, 0.0
+    for l in (linhas or []):
+        try:
+            v = float(l.get("valor") or 0)
+        except (TypeError, ValueError):
+            continue
+        if v >= 0 or str(l.get("finalidade") or "").strip():
+            continue
+        n += 1
+        total += -v
+        nome = str(l.get("favorecido") or l.get("descricao") or "?")[:40]
+        por_nome[nome] = por_nome.get(nome, 0.0) + (-v)
+    maiores = sorted(por_nome.items(), key=lambda kv: -kv[1])[:5]
+    return {"n": n, "total": round(total, 2),
+            "maiores": [(k, round(v, 2)) for k, v in maiores]}
+
+
+def classificar_fatura(lancs, cadastro=None):
+    """(classificados, fila) das linhas de uma fatura de cartão.
+
+    O pagamento da fatura anterior (a linha que a própria fatura marca como
+    pagamento) não é compra: vai como FATURA DO CARTÃO, que fica fora do LPV
+    e dos gastos — o dinheiro dele já saiu pelo extrato.
+    """
+    import favorecidos as _fv
+    _base = []
+    for l in (lancs or []):
+        l = dict(l)
+        if l.get("pagamento") and not l.get("finalidade"):
+            l["finalidade"] = "FATURA DO CARTÃO"
+        _base.append(l)
+    return _fv.classificar(_base, cadastro)
 
 
 def _processar(arq, _itau, _inter, _fv, _lan, usuario_logado):
@@ -483,6 +529,16 @@ def _ver_mes(_fv, _lan, usuario_logado):
     _sai = sum(-float(l["valor"]) for l in linhas if float(l["valor"]) < 0)
     st.caption(_rot.tela(
         f"{len(linhas)} lançamento(s) · R$ {_fmt(_sai)} de saída"))
+    # SAÍDA SEM FINALIDADE NÃO ENTRA EM CONTA NENHUMA — nem no LPV
+    # (`lpv_mensal.py:51`) nem nos gastos. Isso ficava calado nesta tela.
+    _sf = sem_finalidade(linhas)
+    if _sf["n"]:
+        st.warning(_rot.tela(
+            f"**{_sf['n']} saída(s) sem finalidade, R$ {_fmt(_sf['total'])}** "
+            "— estão FORA do LPV e da meta de gastos deste mês até ganharem "
+            "uma finalidade (no lápis acima, ou de vez em Finalidades). "
+            "Maiores: " + " · ".join(f"{n} (R$ {_fmt(v)})"
+                                     for n, v in _sf["maiores"])))
 
     ca, cb = st.columns(2)
     if ca.button("💾 Salvar alterações", type="primary",
@@ -594,5 +650,35 @@ if __name__ == "__main__":
     ok("nenhuma chave de widget sai da posição na lista",
        ("ext_fin_{" + "i}") not in _pe and ("ext_sv_{" + "i}") not in _pe)
     ok("elas saem da identidade do item", "chave_do_item(item)" in _pe)
+
+    # ── A FATURA TAMBÉM CLASSIFICA E PERGUNTA (05/10) ────────────────────
+    # A ENTRADA VEM DO LEITOR: uma fatura no formato do CSV do Inter, lida
+    # por `fatura_inter.ler` de verdade.
+    import fatura_inter as _fi_t
+    _csv = ('",""10/09/2026"",""•••• 1924"",""XPTONOVOFORNECEDOR 1"",'
+            '""SERVICOS"",""Compra à vista"",""-R$ 150,00""";\n'
+            '",""01/09/2026"",""•••• 8095"",""PAGTO DEBITO AUTOMATICO"",'
+            '""OUTROS"",""Compra à vista"",""R$ 900,00""";\n')
+    _lf, _cab_f, _err_f = _fi_t.ler(_csv)
+    _cl, _fila_f = classificar_fatura(_lf, {})
+    _nomes_f = [x.get("favorecido") or x.get("descricao") for x in _fila_f]
+    ok("o leitor do Inter leu a fatura de teste", len(_lf) >= 1 and not _err_f)
+    ok("compra sem cadastro na fatura vira pergunta, como no extrato",
+       any("XPTONOVOFORNECEDOR" in str(n) for n in _nomes_f))
+    ok("o pagamento da fatura não vira pergunta: é FATURA DO CARTÃO",
+       all(l["finalidade"] == "FATURA DO CARTÃO" for l in _cl
+           if l.get("pagamento")))
+    _src_fat = _insp.getsource(_fatura)
+    ok("a fatura grava o que foi CLASSIFICADO, não as linhas cruas",
+       "_lan_fat.gravar(classificados," in _src_fat
+       and "classificar_fatura(lancs)" in _src_fat and "return fila" in _src_fat)
+    ok("e a fila dela entra na mesma pergunta dos extratos",
+       "fila_total += _fatura(" in _insp.getsource(pagina))
+    _sf_t = sem_finalidade([{"valor": -100.0, "finalidade": "", "favorecido": "A"},
+                            {"valor": -50.0, "finalidade": "ADS"},
+                            {"valor": 300.0, "finalidade": ""}])
+    ok("saída sem finalidade é contada e nomeada (entrada não)",
+       _sf_t["n"] == 1 and _sf_t["total"] == 100.0
+       and _sf_t["maiores"] == [("A", 100.0)])
 
     print("\nfalhas:", falhas)
