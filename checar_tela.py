@@ -2178,6 +2178,32 @@ def _excluir_usuario(conta):
         _au._TOKENS.clear()
 
 
+def _remocao_a_vista(conta):
+    """Remover da equipe e excluir usuário: visíveis e sem campo-armadilha.
+
+    05/10: a remoção da equipe só existia depois de escolher a pessoa no
+    seletor de edição — o dono não achou. E as duas confirmações pediam o
+    login digitado num campo que mostrava o próprio login como exemplo, em
+    cinza: parecia preenchido, estava vazio, e o botão ficava travado. Lê o
+    BLOCO de cada função, nunca o arquivo.
+    """
+    import inspect
+    import admin as _adm
+    _eq = inspect.getsource(_adm._secao_equipe)
+    _rm = inspect.getsource(_adm._remover_da_equipe)
+    conta("a remoção da equipe aparece antes do seletor de edição",
+          "_remover_da_equipe(" in _eq
+          and _eq.index("_remover_da_equipe(") < _eq.index("Editar quem já existe")
+          and "Remover colaborador da equipe" in _rm, "")
+    _pg = inspect.getsource(_adm.pagina_admin)
+    conta("nenhuma confirmação usa o login como exemplo de campo vazio",
+          "placeholder=usuario_sel" not in _pg
+          and 'placeholder=_f.get("username_trello"' not in _eq, "")
+    conta("as confirmações são caixas, com chave da pessoa",
+          'st.checkbox(f"Confirmo a exclusão' in _pg
+          and 'key=f"eq_rm_vista_conf_{_rm_user}"' in _rm, "")
+
+
 def main():
     instalar()
     falhas = []
@@ -2219,6 +2245,7 @@ def main():
     _txt_consolidado(conta)
     _contribuicao_coletiva(conta)
     _excluir_usuario(conta)
+    _remocao_a_vista(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0

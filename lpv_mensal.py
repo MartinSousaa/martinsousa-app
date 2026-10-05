@@ -39,6 +39,7 @@ def calcular(lancamentos_do_mes, somas_vendas):
     ou None quando a BASE DE VENDAS não tem o mês.
     """
     por_finalidade, flex_pago, sem_finalidade = {}, 0.0, 0.0
+    desconhecidas = {}
     for l in (lancamentos_do_mes or []):
         try:
             v = float(l.get("valor") or 0)
@@ -55,6 +56,8 @@ def calcular(lancamentos_do_mes, somas_vendas):
             continue
         if _comp.entra_no_lpv(fin):
             por_finalidade[fin] = por_finalidade.get(fin, 0.0) + (-v)
+            if _comp.lado(fin) == "desconhecida":
+                desconhecidas[fin] = round(desconhecidas.get(fin, 0.0) + (-v), 2)
 
     sv = somas_vendas or {}
     # O reembolso entra pelo tamanho: a coluna pode vir com sinal de entrada
@@ -70,6 +73,13 @@ def calcular(lancamentos_do_mes, somas_vendas):
         motivo = "nenhum extrato lançado neste mês"
     elif vendas <= 0:
         motivo = "a BASE DE VENDAS não tem vendas neste mês"
+    elif co <= 0:
+        # LPV ZERO OU NEGATIVO NÃO EXISTE: é mês com saídas faltando. Em
+        # setembro/2026 o reembolso do Flex (planilha) passou o Flex pago
+        # (extrato incompleto), o C.O ficou negativo e a Home mostrou LPV de
+        # R$ -0,20 e UC de -126 — e a Viabilidade decidiria com isso.
+        motivo = ("C.O zero ou negativo — faltam saídas do mês nos extratos "
+                  "(o Flex pago, provavelmente)")
     return {
         "por_finalidade": {k: round(v, 2) for k, v in
                            sorted(por_finalidade.items(),
@@ -82,6 +92,9 @@ def calcular(lancamentos_do_mes, somas_vendas):
         "vendas": vendas,
         "lpv": (round(co / vendas, 2) if not motivo else None),
         "sem_finalidade": round(sem_finalidade, 2),
+        # Entraram por não estarem em lista nenhuma: a tela as nomeia, para
+        # o dono dizer se alguma é mercadoria, custo fixo ou imposto.
+        "desconhecidas": desconhecidas,
         "motivo": motivo,
     }
 
@@ -177,10 +190,18 @@ if __name__ == "__main__":
                                         "reembolso_flex": -300.0})
     ok("reembolso maior que o pago deixa o Flex negativo, como em março",
        r3["flex_liquido"] == -200.0 and r3["co"] == -200.0)
+    _r_nova = calcular([L(-50.0, "MOTOBOY")], {"vendas": 10})
+    ok("finalidade nova entra no C.O e sai nomeada",
+       _r_nova["co"] == 50.0 and _r_nova["desconhecidas"] == {"MOTOBOY": 50.0})
     ok("mês sem venda não inventa LPV",
        calcular([L(-1.0, "ADS")], {"vendas": 0})["lpv"] is None)
     ok("mês sem extrato não inventa LPV",
        calcular([], _sv_jan)["lpv"] is None)
+    ok("C.O negativo (extrato incompleto) não vira LPV negativo",
+       calcular([L(-100.0, "FLEX")], {"vendas": 10, "reembolso_flex": 900.0})
+       ["lpv"] is None)
+    ok("e diz por quê", "negativo" in calcular(
+        [L(-100.0, "FLEX")], {"vendas": 10, "reembolso_flex": 900.0})["motivo"])
     ok("mês fora da BASE DE VENDAS não inventa LPV",
        calcular([L(-1.0, "ADS")], None)["lpv"] is None)
 

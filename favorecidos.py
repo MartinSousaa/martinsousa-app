@@ -285,7 +285,9 @@ def chave(nome):
 # nossa para outra não é despesa: contá-lo dobraria o gasto do mês e faria a
 # meta estourar sozinha.
 NAO_CONSOME_META = {"TRANSFERENCIA ENTRE CONTAS", "TRANSFERENCIA", "APLICACAO",
-                    "RESGATE"}
+                    "RESGATE",
+                    # as grafias com acento, que `composicao.FORA` já tinha
+                    "TRANSFERÊNCIA ENTRE CONTAS", "TRANSFERÊNCIA", "APLICAÇÃO"}
 
 # Entradas que NÃO são faturamento. Elas abatem um custo ou são dívida
 # entrando; somadas à receita, inventam venda que não houve.
