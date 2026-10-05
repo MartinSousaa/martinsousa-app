@@ -257,6 +257,47 @@ def _secao_cartoes_parados():
                    f"se tira a etiqueta EM ANDAMENTO no Trello.")
 
 
+def _remover_da_equipe(membros):
+    """A remoção da equipe À VISTA, logo abaixo da lista (dono, 05/10).
+
+    Fica numa função própria porque não é campo da ficha em edição: o seletor
+    daqui escolhe QUEM sai, e não pode ter a chave que depende da ficha
+    aberta (`checar_tela._form_da_equipe` cobra isso dos campos da ficha).
+    A regra é a de sempre, `equipe_config.remover`.
+    """
+    import equipe_config as _ec
+    import placar_core as _pc
+    with st.expander("🗑️ Remover colaborador da equipe", expanded=False):
+        st.caption(
+            "Some da lista, das metas e da ociosidade. Para quem saiu da "
+            "empresa, prefira editar e desmarcar **Ativo**: remover leva "
+            "junto a referência do histórico dela.")
+        _rm_ops = [f"{n}  ·  {u}" for u, n in
+                   sorted(membros.items(), key=lambda x: x[1])]
+        # A chave sai ANTES do widget nascer: depois de remover, a opção
+        # escolhida não existe mais, e mexer na chave de um widget já criado
+        # é erro do Streamlit.
+        if st.session_state.pop("eq_rm_vista_reset", False):
+            st.session_state.pop("eq_rm_vista_sel", None)
+        _rm_sel = st.selectbox("Quem sai da equipe", _rm_ops,
+                               key="eq_rm_vista_sel")
+        _rm_user = _rm_sel.split("·")[-1].strip()
+        _rm_ok = st.checkbox(f"Confirmo a remoção de **{_rm_sel.split('·')[0].strip()}**",
+                             key=f"eq_rm_vista_conf_{_rm_user}")
+        if st.button("Remover da equipe", key="eq_rm_vista_btn",
+                     type="primary", disabled=not _rm_ok,
+                     use_container_width=True):
+            _ok_v, _msg_v = _ec.remover(_rm_user)
+            if _ok_v:
+                _pc.recarregar_membros()
+                st.session_state["eq_resetar"] = True
+                st.session_state["eq_rm_vista_reset"] = True
+                st.success(_msg_v)
+                st.rerun()
+            else:
+                st.error(_msg_v)
+
+
 def _secao_equipe():
     """Cadastro da equipe medida — quem entra nas metas, no placar e na ociosidade.
 
@@ -294,6 +335,12 @@ def _secao_equipe():
             "de origem do código (Myrella, Beatriz, Gabriel). Cadastre todos aqui, "
             "inclusive esses três, para a lista passar a valer."
         )
+
+    # REMOVER À VISTA. A remoção só aparecia depois de escolher a pessoa no
+    # seletor de edição, lá embaixo, e o dono procurou e não achou (05/10).
+    # A regra é a mesma (`equipe_config.remover`); só o lugar ficou visível.
+    if membros:
+        _remover_da_equipe(membros)
 
     # EDITAR, e nao so criar.
     #
@@ -424,12 +471,14 @@ def _secao_equipe():
             # username de A digitado no campo de B — e o botão "Remover
             # definitivamente" compara o digitado com o selecionado. Confirmar
             # um e apagar outro é o pior desfecho possível desta tela.
-            _conf = st.text_input(
-                "Digite o username para confirmar",
+            # Caixa, e não texto digitado: o placeholder com o username
+            # parecia campo preenchido e travava o botão sem aviso.
+            _conf = st.checkbox(
+                f"Confirmo a remoção de **{_f.get('nome') or _f.get('username_trello', '')}**",
                 key=f"eq_rm_conf_{_k}",
-                placeholder=_f.get("username_trello", ""))
+            )
             if st.button("Remover definitivamente", key="eq_rm_btn",
-                         disabled=_conf.strip() != _f.get("username_trello", ""),
+                         disabled=not _conf, type="primary",
                          use_container_width=True):
                 _ok_rm, _msg_rm = _ec.remover(_f.get("username_trello", ""))
                 if _ok_rm:
@@ -569,11 +618,13 @@ def pagina_admin(usuario_logado):
                 "Use para **login criado por engano**. Para quem só não deve "
                 "mais entrar, **Desativar acesso** guarda o registro. A Equipe "
                 "medida (metas e ponto) é outra lista e não muda.")
-            _conf_usr = st.text_input("Digite o login para confirmar",
-                                      key=f"usr_rm_conf_{usuario_sel}",
-                                      placeholder=usuario_sel)
+            # CAIXA DE CONFIRMAÇÃO, e não "digite o login". O campo mostrava o
+            # login como exemplo, em cinza: parecia preenchido, estava vazio, e
+            # o botão ficava travado sem dizer por quê (dono, 05/10).
+            _conf_usr = st.checkbox(f"Confirmo a exclusão de **{usuario_sel}**",
+                                    key=f"usr_rm_conf_{usuario_sel}")
             if st.button("Excluir definitivamente", key="btn_excluir_usuario",
-                         disabled=_conf_usr.strip() != usuario_sel,
+                         disabled=not _conf_usr, type="primary",
                          use_container_width=True):
                 _ok_ex, _msg_ex = _remover_usuario(usuario_sel, usuario_logado)
                 if _ok_ex:

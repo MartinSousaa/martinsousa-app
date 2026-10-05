@@ -197,131 +197,116 @@ def _de_onde_vem_a_meta(f):
             f'{_brl(gastos, 0)} ÷ {taxa * 100:.1f}% que cai na conta</span>')
 
 
-def _bloco_faturamento(d):
-    """O faturamento contra o equilíbrio, a meta do mês e a meta do dia.
+def _html_faturamento(d):
+    """O balanço mensal do layout aprovado (05/10): número, curva e faltas.
 
-    Duas linhas de equilíbrio e não uma: os PRONAMPs saem do caixa mas não são
-    custo de operar, e incluir ou não muda a resposta em R$ 52 mil. Em vez de
-    escolher pelo gestor, a barra mostra as duas — Operacional e Não
-    operacional — e diz onde a projeção caiu.
-
-    Duas trilhas empilhadas na MESMA escala: em cima o realizado, embaixo o
-    ritmo — o pedaço da meta que os dias já consumiram. Comparar comprimento
-    de barra é mais barato para o olho que comparar dois números escritos.
+    A curva vai do dia 1º até hoje (realizado) e daí até o fim do mês no
+    ritmo médio (projeção, tracejada), cortada pela linha do ponto de
+    equilíbrio e pela da meta. Embaixo, as três perguntas do dono: quanto
+    falta para o equilíbrio, em que dia ele chega no ritmo de hoje, e quanto
+    falta para a meta. As contas são as de `ritmo` — um método só.
     """
     f = d["faturamento"]
-    # None = não dá para calcular (custo fixo não cadastrado). Zero seria
-    # uma afirmação: "a operação se paga com R$ 0". Ver `_marcas_da_regua`.
-    op, cx = f.get("operacional") or 0.0, f.get("nao_operacional") or 0.0
-    meta, real = f.get("meta", 0.0), f["realizado"]
-    alvo_hoje, por_dia, proj, dia, dias = ritmo(d)
+    alvo, por_dia, proj, dia, dias = ritmo(d)
+    real = float(f.get("realizado") or 0.0)
+    meta = float(f.get("meta") or 0.0)
+    eq = float(f.get("operacional") or 0.0)
+    eq2 = float(f.get("nao_operacional") or 0.0)
+    teto = max(proj, meta, eq, eq2, real, 1.0) * 1.08
+    W, H, base = 900.0, 120.0, 104.0
 
-    # A META ENTRA NO VEREDITO. Ele comparava a projecao so com as duas
-    # linhas de equilibrio do cadastro e dizia "fecha acima das duas linhas"
-    # em verde enquanto a projecao (R$ 235.972) nao alcancava a meta
-    # (R$ 260.576) — verde por cima de um mes que nao fecha.
-    if meta and proj < meta and proj >= cx:
-        cor_proj, veredito = AMARELO, "paga as contas, mas não bate a meta"
-    elif proj >= max(cx, meta or 0):
-        cor_proj, veredito = VERDE, "fecha acima da meta e das duas linhas"
-    elif proj >= cx:
-        cor_proj, veredito = VERDE, "fecha acima das duas linhas"
-    elif proj >= op:
-        cor_proj, veredito = AMARELO, "paga o operacional, não o resto"
+    def X(dd):
+        return dd / dias * W
+
+    def Y(v):
+        return base - v / teto * 92.0
+    hx, hy = X(dia), Y(real)
+    curva = (f'<path d="M0,{base:.1f} Q{hx * 0.6:.1f},{base - (base - hy) * 0.25:.1f} '
+             f'{hx:.1f},{hy:.1f} L{hx:.1f},{base:.1f} Z" fill="#1BAF7A" fill-opacity="0.18"/>'
+             f'<path d="M0,{base:.1f} Q{hx * 0.6:.1f},{base - (base - hy) * 0.25:.1f} '
+             f'{hx:.1f},{hy:.1f}" fill="none" stroke="#1BAF7A" stroke-width="3" stroke-linecap="round"/>'
+             f'<path d="M{hx:.1f},{hy:.1f} L{W:.1f},{Y(proj):.1f}" fill="none" stroke="#1BAF7A" '
+             f'stroke-width="2" stroke-dasharray="5 7" stroke-opacity="0.7"/>'
+             f'<circle cx="{hx:.1f}" cy="{hy:.1f}" r="5" fill="#1BAF7A"/>')
+    linhas = ""
+    if eq:
+        linhas += (f'<line x1="0" y1="{Y(eq):.1f}" x2="{W}" y2="{Y(eq):.1f}" stroke="#EDA100" '
+                   f'stroke-width="1.5" stroke-dasharray="2 5"/>'
+                   f'<text x="8" y="{Y(eq) - 6:.1f}" fill="#EDA100" font-size="12" font-weight="700">'
+                   f'ponto de equilíbrio · {_brl(eq, 0)}</text>')
+    if meta:
+        linhas += (f'<line x1="0" y1="{Y(meta):.1f}" x2="{W}" y2="{Y(meta):.1f}" stroke="#7FB8F0" '
+                   f'stroke-width="1.5" stroke-dasharray="2 5"/>'
+                   f'<text x="{W - 8}" y="{Y(meta) - 6:.1f}" fill="#7FB8F0" font-size="12" '
+                   f'font-weight="700" text-anchor="end">meta do mês · {_brl(meta, 0)}</text>')
+    svg = (f'<svg viewBox="0 0 {W:.0f} {H:.0f}" width="100%" height="120" '
+           f'preserveAspectRatio="none" aria-label="Faturamento do mês contra equilíbrio e meta" '
+           f'style="font-family:inherit;">'
+           f'<line x1="0" y1="{base}" x2="{W}" y2="{base}" stroke="var(--ms-divisor)"/>'
+           + curva + linhas +
+           f'<text x="{hx:.1f}" y="118" fill="var(--ms-texto-sec)" font-size="11" text-anchor="middle">hoje</text>'
+           f'<text x="{W}" y="118" fill="var(--ms-texto-sec)" font-size="11" text-anchor="end">dia {dias}</text>'
+           '</svg>')
+    # o selo: contra o ritmo da meta, quando há meta; sem meta, não há ritmo
+    if meta:
+        dif = real - alvo
+        selo = (f'<span style="font-size:12px;font-weight:700;color:#0F2A1E;background:#1BAF7A;'
+                f'padding:4px 10px;border-radius:999px;">▲ {_brl(dif, 0)} acima do ritmo</span>'
+                if dif >= 0 else
+                f'<span style="font-size:12px;font-weight:700;color:#fff;background:#E34948;'
+                f'padding:4px 10px;border-radius:999px;">▼ {_brl(-dif, 0)} abaixo do ritmo</span>')
     else:
-        cor_proj, veredito = VERMELHO, "fecha abaixo do operacional"
-
-    if real >= alvo_hoje:
-        cor, seta, frase = VERDE, "▲", "acima do ritmo"
-    elif real >= alvo_hoje * 0.92:
-        cor, seta, frase = AMARELO, "▲", "quase no ritmo"
+        selo = ('<span style="font-size:12px;color:var(--ms-texto-sec);">sem meta cadastrada '
+                '— Financeiro › Meta de gastos</span>')
+    if meta and proj >= meta:
+        status, cor_st = "fecha acima da meta", "#1BAF7A"
+    elif eq and proj >= eq:
+        status = ("fecha acima do equilíbrio, mas não bate a meta" if meta
+                  else "fecha acima do equilíbrio")
+        cor_st = "#EDA100" if meta else "#1BAF7A"
+    elif eq:
+        status, cor_st = "fecha abaixo do equilíbrio", "#E34948"
     else:
-        cor, seta, frase = VERMELHO, "▼", "abaixo do ritmo"
-    dif = abs(real - alvo_hoje)
+        status, cor_st = "", "var(--ms-texto-sec)"
 
-    # O selo e preenchido com a cor de estado e escreve em tinta escura: o
-    # vermelho do Studio tem 2,79:1 sobre o fundo escuro, e texto colorido
-    # nele ficaria abaixo do minimo. Preenchido, a leitura passa dos 5:1.
-    selo = (f'<span style="background:{cor};color:#161616;font-size:12.5px;'
-            f'font-weight:800;padding:4px 10px;border-radius:999px;'
-            f'white-space:nowrap;">{seta} {_brl(dif, 0)} {frase}</span>')
+    def tile(rot, val):
+        return (f'<div style="background:rgba(0,0,0,0.14);border-radius:10px;padding:9px 12px;">'
+                f'<div style="font-size:11px;color:var(--ms-texto-sec);">{rot}</div>'
+                f'<div style="font-size:16px;font-weight:700;">{val}</div></div>')
+    falta_eq = max(eq - real, 0.0)
+    if not eq:
+        dia_eq = "—"
+    elif falta_eq <= 0:
+        dia_eq = "atingido"
+    elif por_dia > 0:
+        _d = int(-(-eq // por_dia))
+        dia_eq = f"dia {_d}" if _d <= dias else "não chega no mês"
+    else:
+        dia_eq = "—"
+    return (
+        '<div style="background:var(--ms-metric-bg);border:1px solid var(--ms-divisor);'
+        'border-radius:14px;padding:18px 22px;display:flex;flex-direction:column;gap:10px;">'
+        '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">'
+        '<div><div style="font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;'
+        'color:var(--ms-texto-sec);">Balanço mensal · faturamento em tempo real</div>'
+        f'<div style="font-size:40px;font-weight:800;letter-spacing:-.02em;line-height:1.1;">{_brl(real, 0)}</div>'
+        f'<div style="display:flex;gap:10px;align-items:center;margin-top:6px;">{selo}'
+        f'<span style="font-size:12px;color:var(--ms-texto-sec);">ritmo médio {_brl(por_dia, 0)}/dia em {dia} dias</span></div></div>'
+        '<div style="text-align:right;"><div style="font-size:12px;color:var(--ms-texto-sec);">Se mantiver o ritmo, fecha em</div>'
+        f'<div style="font-size:24px;font-weight:800;">{_brl(proj, 0)}</div>'
+        f'<div style="font-size:12px;color:{cor_st};font-weight:600;">{status}</div></div></div>'
+        + svg +
+        '<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;">'
+        + tile("Falta para o equilíbrio", _brl(falta_eq, 0) if eq else "—")
+        + tile("Equilíbrio no ritmo atual", dia_eq)
+        + tile("Falta para a meta", _brl(max(meta - real, 0.0), 0) if meta else "sem meta")
+        + '</div>'
+        f'<div style="font-size:11px;color:var(--ms-texto-sec);">{_as_duas_linhas(eq, eq2, d)}</div>'
+        '</div>')
 
-    # A regua para na META, nao na projecao: esticar ate uma projecao que
-    # supera a meta em 32% abria um vazio de um terco da barra depois do
-    # marcador da meta, e vazio nao e informacao. A projecao fica escrita.
-    escala = max(meta, cx, real) * 1.06 or 1
-    x = lambda v: min(max(v / escala * 100, 0), 100)
-    rot = ('font-size:10px;color:var(--ms-texto-sec);text-align:right;'
-           'white-space:nowrap;')
 
-    st.markdown(
-        f'<div style="background:var(--ms-metric-bg);'
-        f'border:1px solid var(--ms-metric-bd);border-radius:12px;'
-        f'padding:16px 18px 12px;">'
-
-        f'<div style="font-size:11px;color:var(--ms-texto-sec);'
-        f'letter-spacing:.3px;">'
-        f'Balanço Mensal</div>'
-
-        f'<div style="display:flex;align-items:center;gap:12px;'
-        f'flex-wrap:wrap;margin-top:6px;">'
-        f'<span style="font-size:40px;font-weight:700;color:var(--ms-texto);'
-        f'line-height:1;">{_brl(real, 0)}</span>'
-        f'<span style="font-size:12px;color:var(--ms-texto-sec);">'
-        f'Faturamento em tempo real</span>'
-        + selo +
-        f'<span style="margin-left:auto;text-align:right;line-height:1.2;">'
-        f'<span style="display:block;font-size:11px;'
-        f'color:var(--ms-texto-sec);">Se mantiver o ritmo, fecha em</span>'
-        f'<span style="font-size:24px;font-weight:700;color:{cor_proj};">'
-        f'{_brl(proj, 0)}</span>'
-        + _projecao_contra_a_meta(proj, meta, cor_proj) +
-        f'</span>'
-        f'</div>'
-
-        # Duas trilhas na mesma escala, com rótulo à esquerda: o que a coluna
-        # da direita mede é sempre o mesmo eixo de R$ faturado no mês.
-        f'<div style="display:grid;grid-template-columns:96px 1fr;'
-        f'gap:6px 10px;align-items:center;margin-top:16px;">'
-
-        f'<div style="{rot}font-weight:700;color:var(--ms-texto);">Realizado</div>'
-        f'<div style="height:18px;border-radius:9px;'
-        f'background:var(--ms-metric-bd);position:relative;">'
-        f'<div style="position:absolute;left:0;top:0;height:100%;'
-        f'width:{x(real):.1f}%;background:{cor};border-radius:9px;"></div>'
-        + "".join(_marcador(pos) for pos, _ in _marcas_da_regua(x, op, cx, meta)) +
-        f'</div>'
-
-        f'<div style="{rot}">Ritmo do dia {dia}</div>'
-        f'<div style="height:10px;border-radius:5px;'
-        f'background:var(--ms-metric-bd);position:relative;">'
-        f'<div style="position:absolute;left:0;top:0;height:100%;'
-        f'width:{x(alvo_hoje):.1f}%;background:var(--ms-texto-sec);'
-        f'border-radius:5px;opacity:.85;"></div></div>'
-
-        f'<div></div>'
-        f'<div style="position:relative;height:15px;">'
-        + _rotulos(_marcas_da_regua(x, op, cx, meta)) +
-        f'</div></div>'
-
-        f'<div style="display:flex;justify-content:space-between;gap:12px;'
-        f'flex-wrap:wrap;font-size:11px;color:var(--ms-texto-sec);'
-        f'margin-top:8px;">'
-        f'<span>Meta do mês <b style="color:var(--ms-texto);">{_brl(meta, 0)}</b>'
-        f'{_de_onde_vem_a_meta(f)}'
-        f' · até agora deveria ter <b style="color:var(--ms-texto);">'
-        f'{_brl(alvo_hoje, 0)}</b></span>'
-        f'<span>Ritmo médio <b style="color:var(--ms-texto);">'
-        f'{_brl(por_dia, 0)}/dia</b> em {dia} dias</span></div>'
-
-        f'<div style="display:flex;justify-content:space-between;gap:12px;'
-        f'flex-wrap:wrap;font-size:11px;color:var(--ms-texto-sec);'
-        f'margin-top:4px;">'
-        f'<span>Projeção = ritmo médio × {dias} dias</span>'
-        f'<span>Projeção: <b style="color:{cor_proj};">{veredito}</b></span>'
-        f'<span>{_as_duas_linhas(op, cx, d)}</span>'
-        f'</div></div>',
-        unsafe_allow_html=True)
+# `_bloco_faturamento` (a régua antiga) saiu em 05/10: o balanço mensal é
+# `_html_faturamento`, o layout aprovado. Ninguém mais o chamava.
 
 
 def _marcas_da_regua(x, op, cx, meta):
@@ -1468,7 +1453,7 @@ def pagina(usuario_logado=None, dados=None):
     p = d.get("painel") or {}
     _l1 = st.columns([1.6, 1])
     with _l1[0]:
-        _bloco_faturamento(d)
+        st.markdown(_html_faturamento(d), unsafe_allow_html=True)
     with _l1[1]:
         st.markdown(_html_indicadores(p), unsafe_allow_html=True)
     try:
@@ -1816,26 +1801,28 @@ if __name__ == "__main__":
        'comp.get("equilibrio_hoje"),' in _dr_comp
        and 'comp.get("equilibrio_hoje") or 0.0' not in _dr_comp)
 
-    # ── O QUADRO TEM NOME ───────────────────────────────────────────────
-    _bloco_fat = inspect.getsource(_bloco_faturamento)
-    ok("o quadro do topo se chama Balanço Mensal",
-       "Balanço Mensal</div>" in _bloco_fat)
+    # ── O BALANÇO MENSAL (layout aprovado em 05/10) ─────────────────────
+    # Desenhado de verdade, com o EXEMPLO do módulo no formato que
+    # `dados_reais` monta — e não procurando texto no código da função.
+    _d_fat = {**EXEMPLO, "dia": 5, "mes": 10, "ano": 2026}
+    _h_fat = _html_faturamento(_d_fat)
+    ok("o quadro do topo se chama Balanço mensal e diz que é tempo real",
+       "Balanço mensal · faturamento em tempo real" in _h_fat)
     ok("e não mais pelo nome antigo",
-       ("Faturamento × ponto" + " de equilíbrio × meta") not in _bloco_fat)
-
-    # ── A TELA NAO SE APRESENTA, ELA MEDE ───────────────────────────────
+       ("Faturamento × ponto" + " de equilíbrio × meta") not in _h_fat)
+    ok("a curva corta a linha do equilíbrio e a da meta",
+       "ponto de equilíbrio · " in _h_fat and "meta do mês · " in _h_fat)
+    ok("as três faltas aparecem",
+       all(t in _h_fat for t in ("Falta para o equilíbrio",
+                                 "Equilíbrio no ritmo atual",
+                                 "Falta para a meta")))
+    ok("sem meta, a tela diz que não há meta em vez de inventar ritmo",
+       "sem meta cadastrada" in _html_faturamento(
+           {**_d_fat, "faturamento": {**_d_fat["faturamento"], "meta": 0.0}}))
+    ok("o balanço não tem quebra de linha (markdown fecharia o HTML)",
+       "\n" not in _h_fat)
     ok("a legenda não explica a filosofia do painel",
        "ponto de equilíbrio vem primeiro" not in _pg)
-    # A BUSCA E NO BLOCO, NAO NO ARQUIVO INTEIRO — senao a guarda encontra o
-    # proprio literal que ela procura e passa sozinha. Ja aconteceu tres
-    # vezes nesta base; o CLAUDE.md registra as tres.
-    _bf = inspect.getsource(_bloco_faturamento)
-    ok("o cabeçalho não diz mais o dia corrido ao lado do valor",
-       ("faturado at" + "é o dia") not in _bf)
-    ok("ele diz que o faturamento é de agora",
-       "Faturamento em tempo real" in _bf)
-    ok("e o veredito da projeção está acentuado",
-       ("nao bate" + " a meta") not in _bf and "não bate a meta" in _bf)
 
     # ── CADA CARTAO CARREGA A CONTA E A FONTE ───────────────────────────
     #

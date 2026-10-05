@@ -70,6 +70,13 @@ def calcular(lancamentos_do_mes, somas_vendas):
         motivo = "nenhum extrato lançado neste mês"
     elif vendas <= 0:
         motivo = "a BASE DE VENDAS não tem vendas neste mês"
+    elif co <= 0:
+        # LPV ZERO OU NEGATIVO NÃO EXISTE: é mês com saídas faltando. Em
+        # setembro/2026 o reembolso do Flex (planilha) passou o Flex pago
+        # (extrato incompleto), o C.O ficou negativo e a Home mostrou LPV de
+        # R$ -0,20 e UC de -126 — e a Viabilidade decidiria com isso.
+        motivo = ("C.O zero ou negativo — faltam saídas do mês nos extratos "
+                  "(o Flex pago, provavelmente)")
     return {
         "por_finalidade": {k: round(v, 2) for k, v in
                            sorted(por_finalidade.items(),
@@ -181,6 +188,11 @@ if __name__ == "__main__":
        calcular([L(-1.0, "ADS")], {"vendas": 0})["lpv"] is None)
     ok("mês sem extrato não inventa LPV",
        calcular([], _sv_jan)["lpv"] is None)
+    ok("C.O negativo (extrato incompleto) não vira LPV negativo",
+       calcular([L(-100.0, "FLEX")], {"vendas": 10, "reembolso_flex": 900.0})
+       ["lpv"] is None)
+    ok("e diz por quê", "negativo" in calcular(
+        [L(-100.0, "FLEX")], {"vendas": 10, "reembolso_flex": 900.0})["motivo"])
     ok("mês fora da BASE DE VENDAS não inventa LPV",
        calcular([L(-1.0, "ADS")], None)["lpv"] is None)
 
