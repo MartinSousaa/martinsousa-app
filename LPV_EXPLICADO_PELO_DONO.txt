@@ -1,0 +1,434 @@
+================================================================================
+LPV — TUDO QUE O DONO EXPLICOU, E O QUE O CÓDIGO FAZ HOJE
+MS Studio · extraído em 05/10/2026
+================================================================================
+
+PARA QUE SERVE ESTE ARQUIVO
+---------------------------
+A conversa que cuida do sistema precisa do LPV inteiro: a regra como o dono a
+ditou, e onde cada pedaço dela vive no código. Nada aqui é de memória.
+
+A PARTE 1 é VERBATIM: são as mensagens do próprio dono, copiadas da
+transcrição desta conversa, com data e hora, sem corte e sem reescrita. Onde
+ele repetiu ou mudou de ideia, as duas estão aqui, na ordem — porque a segunda
+só se entende lendo a primeira.
+
+A PARTE 2 é o código de hoje, com `arquivo:linha`. Se as duas partes
+discordarem em algo, a PARTE 1 é a regra e a PARTE 2 é o defeito.
+
+A PARTE 3 é o que está em aberto.
+
+
+================================================================================
+PARTE 0 — A CONTA, EM UMA TELA
+================================================================================
+
+    C.O do mês = saídas por PIX que NÃO são mercadoria
+               + compras no cartão que NÃO são mercadoria
+               + (o que se pagou de Flex − o reembolso do Flex nas vendas)
+
+    LPV = C.O do mês ÷ número de vendas do mês
+
+Conferida contra os números do próprio dono (jan/2026):
+    3.610,87 + 7.614,05 + 3.262,37 = 14.487,29
+
+NAS PALAVRAS DELE (22/09 18:42):
+    "eu somo o valor mensal desses custos e divido pela quantidade de vendas
+     de cada mês, tendo assim o LPV de cada um deles"
+
+E (25/09 13:41), quando eu errei a conta na tela:
+    "Eu não disse que o LPV era o meu custo fixo dividido pelo número de
+     vendas?"
+
+O QUE FICA DE FORA, nas palavras dele (22/09 18:42):
+    "Custos que eu repasso na compra, como, NF e mercadoria não devem entrar
+     nessa conta, pois, o cliente já paga por elas"
+
+PARA QUE O LPV SERVE (25/09 13:46):
+    "Outro indicador que não tem ali, Lucro Líquido, preciso que considere a
+     coluna de margem de contribuição e subtraia a o LPV, o que sobrar é
+     lucro líquido"
+    "Mas desde quando tenho meta de margem de contribuição? Ele é a base para
+     calcular a UC"
+
+    Ou seja:   Lucro líquido por venda = margem de contribuição por venda − LPV
+               UC                      = margem de contribuição por venda ÷ LPV
+
+UMA DECISÃO QUE ELE TOMOU E DEPOIS DESFEZ (25/09 13:46 → 14:21):
+    Ele perguntou se deveria ratear o LPV por participação no faturamento,
+    como faz com o custo operacional. Respondeu ele mesmo no dia seguinte:
+    "Esqueça esse ponto que falei sobre dividir o LPV por venda..."
+    ENTÃO: o LPV é um número ÚNICO do mês, não rateado por produto.
+
+
+================================================================================
+PARTE 1 — AS PALAVRAS DO DONO, VERBATIM, EM ORDEM
+================================================================================
+
+As 15 mensagens em que ele fala de LPV, da primeira à última. Nada foi
+cortado. Onde aparece texto meu dentro de uma mensagem (02/10 14:01), é
+porque ele colou a minha resposta junto para apontar o erro — fica como está.
+
+[2026-09-09 20:58]
+Bom, isso eu preciso ter acesso, mas, não na aba principal
+
+Assim como atualmente eu entro no Studio e visualizo o painel de metas resumindo o desempenho do pessoal, também preciso ter essa primeira aba nomeada como "Gestão" 
+
+Atualmente temos uma nomeada como gestão, ela precisaria mudar parar Desempenho
+
+Então quando eu logar com o meu usuário, a tela principal será a gestão contendo os indicadores principais abaixo:
+
+* Faturamento:  Aqui teremos um indicador contendo o ponto de equilíbrio e como esta o desempenho do mês. Como iremos provisionar os gastos mensais e usar as bases para tirarmos a média de lucro bruto, ou, o esperado para aquele mês, esse indicador mostrará se estamos abaixo, dentro ou acima do faturamento estimado para o período do mês que estivemos, deu para entender?
+
+
+Esse tópico acima não envolve dados específicos, será número estimado VS o faturamento que vier através do Bling em tempo real
+
+Outros indicadores que preciso que esteja visível e esses sim podem estar incompletos no momento por necessitarem de dados que preenchemos no decorrer das vendas, são eles:
+
+* LPV VS Faturado
+* UC VS Faturado
+* Lucro Bruto VS Faturado
+* Lucro líquido VS Faturado
+* Margem de Lucro VS Faturado
+
+
+Deu para entender?
+O histórico trouxe o que significa LPV e UC?
+
+========================================================================
+
+[2026-09-14 16:27]
+No faturamento, destaque esse valor faturado acima para o período, deve destacas caso ele venha estar abaixo em algum momento
+
+Todo indicador deve estar com a primeira letra maiúscula
+
+Essa barra pontilhada em "meta" é o que mesmo?
+
+Já falei para indicar na meta como "Operacional" "Não Operacional" ao invés de "caixa" 
+
+A unidade de contribuição precisa ser a média / a unidade de contribuição, por exemplo: 
+1,5/1 ou 2/1
+
+Faça o seguinte
+
+Deixe o faturamento como está deixe os valores e margem bruta em 69%, líquido em 28,3%
+LPV em  R$19,86
+UC em 1,8/1
+
+Apenas ilustrado no momento, e tudo verde, batendo a meta
+
+========================================================================
+
+[2026-09-21 16:05]
+Os cálculos dos indicadores de lucro e margem bruta, lucro e margem líquida, LPV e UC eu extraio da com base nos cálculos da aba "Base de Vendas" na minha planilha Controle MS, não temos os custos cadastrados no Bling para que o sistema obtenha esses números
+
+Ele precisa computar o faturamento em tempo real considerando as vendas que caem no Bling, agora, as demais informações precisa buscar na planilha conforme elas forem sendo atualizadas por nós
+
+========================================================================
+
+[2026-09-22 18:02]
+Ponto de equilíbrio é diferente de custo fixo
+
+Independente se eu repasso tal valor nos custos do produto esse dinheiro precisa estar na conta para pagar tal despesa
+
+Tem muita coisa que cobra nos cartões que fazem parte do custo fixo, dentro de custo fixo precisamos ter algumas sub categorias
+
+Despesas operacionais: Água, Luz, internet, alugueis, estacionamentos fixos, embalagem
+
+Serviços: Assinaturas, sites, programas e o que mais assinamos mensalmente, fiz uma lista analisando a fatura dos cartões, possa ser que haja algo em pix e boletos que por ora não contabilizei ainda e a IA pode me ajudar a identificar caso esteja faltando, vou mandar essa lista em seguida
+
+Folha Gerência: Eu, Renam e Monique atualmente, no meu caso e do Renan, preciso que mantenha os custos divididos como são hoje... Pro Labore, combustível, Vale alimentação e os outros contidos lá
+
+Folha Headcount: Por hora, aqui precisa entrar o salário de cada um, obrigações e tributos  e custos adicionais como a contabilidade e a parcela do aporte, aqui entra também o campo para eu informar o saldo do aporte atual e as condições do investimento para o Studio informar o valor que tenho que sacar no mês e calcular quanto terei ao longo dos dias. O cálculo dos valores de meta precisam ser diferentes do salários e eu pago no 5º dia útil do mês seguinte por precisar analisar a meta de cada um assim que o mês vira, porém, eles recebem dia 30 de cada mês
+
+Não operacionais: Os aportes
+
+Por ora, enquanto tivermos saldo no aporte para suprir o custo de Headcount, esses valores não devem contar no meu custo fixo e nem na contabilização dos valores para cálculo do ponto de equilíbrio, MAS, preciso que a fatia desse custo fique discretamente sinalizado mês a mês, assim, consigo visualizar o avanço do faturamento e se falta muito para conquistarmos o faturamento necessário para que quando o dinheiro do aporte terminar o aumento de faturamento supra esse custo que o aporte vinha suprindo, entendeu?
+
+Ainda preciso listar o restante dos custos que precisam ser contabilizados na soma do ponto de equilíbrio
+
+Alem disso, configurar o que precisa ser considerado para que o custo operacional, LPV e valor de UC sejam contabilizados corretamente para aplicação mensal
+
+========================================================================
+
+[2026-09-22 18:14]
+Ainda preciso informar quais outros custos contabilizo no ponto de equilíbrio, como calculo o LPV e o valor considerado como U.C mensal
+
+========================================================================
+
+[2026-09-22 18:34]
+Faltam o LPV e UC ou tem mais?
+
+========================================================================
+
+[2026-09-22 18:35]
+Ok, vamos para o LPV
+
+========================================================================
+
+[2026-09-22 18:42]
+Eu separo os custos com PIX e cartão que não possuem finalidade com retorno nas vendas, ou seja, mercadoria, embalagem e esses outros flegados nas imagens
+
+No Flex, temos o reembolso das plataformas, mas, pagamos mais caro nas entregas do que a plataforma nos repassa, gerando esses custos. A particularidade do Flex é que o Mercado Livre não nos cobra o frete e nem obriga a gente a emitir NF, ou seja, os custos que sobram quase sempre pagam o que pagamos para a transportadora entregar a mercadoria, essa entrega me gera um custo, mas, aumenta minha margem de lucro por não ter esses valores subtraídos da venda, entendeu?
+
+Na Shopee eu sempre tenho prejuizo, pois, alem de ter que emitir a NF eles repassam um valor fixo de R$8,00 somente, o menor valor que a transportadora que entrega cobra é R$11 eu acho, MAS, oferecer a modalidade Flex ranqueia meus anúncios e como temos o cenário positivo no ML acabamos deixando essa modalidade ativa
+
+Por fim, eu somo o valor mensal desses custos e divido pela quantidade de vendas de cada mês, tendo assim o LPV de cada um deles, entendeu?
+
+Custos que eu repasso na compra, como, NF e mercadoria não devem entrar nessa conta, pois, o cliente já paga por elas
+
+========================================================================
+
+[2026-09-25 13:29]
+Alguns pontos aqui, primeiro, não preciso dessas explicações "O resumo do mês: onde o faturamento está contra o que ele precisa ser. O ponto de equilíbrio vem primeiro — meta de faturamento é consequência dele." isso não é uma apresentação, mude isso, ao invés de explicação, somente o resumo do que o gráfico representa...
+
+Tem informação sobrepondo outra ali onde marca "Não operacional" 
+
+Ao invés de "faturado até o dia 25 de 30" deixe "Faturamento em tempo real" 
+
+Estamos abaixo, não tem informação sobre quanto fecharíamos o mês no faturamento com base no ritmo atual
+
+Nos quadrantes abaixo, lucro e tudo mais, esses sim precisam indicar de onde e de que período está se baseando
+
+De onde saiu esse LPV de R$82,24? 
+Que conta foi feita para estar nesse valor?
+
+Não entendi o grafico de % de margem de contribuição, de onde saiu e qual a conta e critério?
+
+========================================================================
+
+[2026-09-25 13:41]
+Eu não disse que o LPV era o meu custo fixo dividido pelo número de vendas?
+
+========================================================================
+
+[2026-09-25 13:46]
+Mas desde quando tenho meta de margem de contribuição? Ele é a base para calcular a UC
+
+Outro indicador que não tem ali, Lucro Líquido, preciso que considere a coluna de margem de contribuição e subtraia a o LPV, o que sobrar é lucro líquido
+
+So que eu pensei em uma coisa aqui, se eu divido o custo operacional com base na porcentagem de contribuição no faturamento total do mês, não deveria fazer a mesma coisa com o LPV? 
+Se eu fizer isso, iria mascarar a localização de produtos que não seriam ideal para venda, ou, na verdade teria um balanço mais preciso? RESUMA
+
+========================================================================
+
+[2026-09-25 14:21]
+Arrumou o que eu falei do painel? Esqueça esse ponto que falei sobre dividir o LPV por venda...
+
+========================================================================
+
+[2026-10-02 14:01]
+Acabei de pedir isso para o chat e ele não conseguiu me trazer, o chat precisa consultar e poder me informar essas coisas!!!
+
+Acabei de anexar os extratos da conta corrente referente a setembro de 2026, já havia anexado as faturas dos cartões.
+
+Com isso, preciso que me informe os custos abaixo para calcular meu LPV de setembro:
+
+PIX ou outros: Pagamentos da conta corrente que não foram para compra de mercadoria
+
+Cartões: Exceto compra de mercadoria
+
+Quanto gastei em ADS
+
+Quanto gastei com a TM Logística
+
+Não recebi nenhum anexo — nem os extratos de setembro, nem as faturas. Do meu lado o chat chegou só com texto, e eu também não tenho como abrir PDF, planilha ou OFX: só leio o que está salvo no Studio (produtos, triagem, metas, equipe, financeiro).
+
+Tentei puxar o financeiro agora para te dar o LPV vigente e a consulta falhou — pode ser instabilidade.
+
+Então, para seguir: me passe os valores já somados (PIX/outros, cartões sem mercadoria, ADS, TM Logística) e eu monto o LPV de setembro. O lançamento em si você faz na aba Financeiro, selecionando 2026 e preenchendo setembro.
+
+Consulte no sistema do Studio
+
+Consultei de novo e a leitura do financeiro falhou outra vez (erro interno, não é permissão).
+
+Mas vale dizer, mesmo que voltasse: o Financeiro do Studio guarda só o LPV já calculado e a alíquota, mês a mês. Ele não armazena extrato, fatura, lançamento de ADS nem pagamento de fornecedor — não tem de onde eu tirar esses quatro números.
+
+Me mande os totais e eu fecho o LPV de setembro com você.
+
+========================================================================
+
+[2026-10-02 16:29]
+Outra coisa, eu preciso ter acesso ao LPV, onde está essa informação?
+
+Como já anexei os gastos totais o sistema tem o que precisa para calcular
+
+Saídas sem que a modalidade seja compra de mercadoria mercadoria (pix, boleto e cartão)
+Quanto gastei com a TM VS quanto arrecadei, a planilha já foi atualizada e os valores estão lá
+Quanto gastei com ADS e Cross docking com as contas...
+
+Dividir isso pelo total de vendas do mês
+
+========================================================================
+
+[2026-10-05 23:13]
+Eu preciso que me envie em TXT tudo que te expliquei sobre o cálculo de LPV para passar para a conversa que cuida do sistema, absolutamente tudo, sem esquecer uma vírgula sequer!!!
+
+Me passe isso na sequencia que terminar ai
+
+================================================================================
+PARTE 2 — O QUE O CÓDIGO FAZ HOJE, COM arquivo:linha
+================================================================================
+
+ONDE A CONTA MORA
+-----------------
+`lpv_mensal.py`                  o módulo inteiro é o LPV mensal
+`lpv_mensal.calcular(...)`       FUNÇÃO PURA: recebe os lançamentos do mês e
+                                 as somas de venda, devolve o LPV. Não lê
+                                 planilha nenhuma.
+`lpv_mensal.do_ano(ano)`         ({mes: calcular(...)}, erro) — uma leitura de
+                                 cada fonte para o ano todo, cache de 120s.
+`lpv_mensal.mes_fechado(...)`    mês corrente tem LPV parcial e NÃO se grava.
+
+O QUE ENTRA NA SOMA, E QUEM DECIDE
+----------------------------------
+A decisão NÃO está em `lpv_mensal.py`. Está em `composicao.entra_no_lpv`
+(composicao.py:132) — um dono só para a pergunta "esta saída entra no LPV?".
+
+A regra, como está escrita lá (composicao.py:135-138):
+    "TUDO entra, menos mercadoria, custo fixo, assinatura, imposto e
+     transferência"
+
+E a consequência disso, que importa: finalidade que o Studio AINDA NÃO CONHECE
+**entra**, e `calcular` a devolve à parte (chave `desconhecidas`) para a tela
+nomear. Deixá-la de fora calada seria o contrário da regra.
+
+Os grupos (composicao.py:63-129):
+    NUMERADOR               CUSTO FIXO, SERVIÇO(S), FOLHA, PÁGINA DO ML
+    MEDIDO_NA_MARGEM        MERCADORIA, IMPOSTO, MERCADO LIVRE, SHOPEE,
+                            SHEIN, TIKTOK, AMAZON, SITE, SITE MS
+    OPERACIONAL             EMBALAGEM, FLEX, ADS, ESTACIONAMENTO, LIMPEZA,
+                            OUTROS, CONSUMO INTERNO, CROSS DOCKING,
+                            AFILIADOS, PARCELAMENTO, DEVOLUÇÃO ML
+    SEGUNDA_LINHA           NÃO OPERACIONAL, EMPRESTIMO/REEMBOLSO PRONAMP
+    FORA                    TRANSFERÊNCIA ENTRE CONTAS, APLICAÇÃO, RATEIO
+                            CUSTO FIXO, REEMBOLSO, FATURA DO CARTÃO, CHEQUES
+
+    LPV_ALEM_DO_OPERACIONAL PÁGINA DO ML, BOLETO, TARIFA BANCÁRIA
+        (composicao.py:124 — entram no LPV e NÃO mudam de lado no ponto de
+         equilíbrio. Decidido com o dono em 02/10.)
+    LPV_SEMPRE_FORA         COMPRA DE MERCADORIA, SEM CLASSIFICAÇÃO
+
+A FATURA DO CARTÃO INTEIRA NÃO ENTRA, e a razão é dele (composicao.py:107-109):
+    "ele não pode planilhar gastos fixos cobrados nos cartões e depois pegar o
+     total da fatura que contém alguns desses custos e somar, vai duplicar"
+As compras de dentro da fatura entram uma a uma, pela finalidade de cada uma.
+
+SÓ SAÍDAS ENTRAM
+----------------
+`lpv_mensal.py` ignora todo lançamento com valor >= 0 — "só SAÍDAS, como na
+DIN FINANÇAS".
+
+O FLEX É CASO À PARTE
+---------------------
+Ele NÃO entra pela soma das finalidades: entra pelo LÍQUIDO.
+    flex_liquido = flex_pago − reembolso_flex
+O reembolso vem da BASE DE VENDAS 2026 (`base_vendas.py`), coluna REEMBOLSO
+FLEX, e é lido pelo TAMANHO (`abs`) — a coluna pode vir com sinal de entrada
+ou de saída conforme quem preencheu, e o que importa é quanto voltou.
+
+Por que o Flex é assim, nas palavras dele (22/09 18:42):
+    "No Flex, temos o reembolso das plataformas, mas, pagamos mais caro nas
+     entregas do que a plataforma nos repassa, gerando esses custos."
+
+O NÚMERO DE VENDAS
+------------------
+Vem da BASE DE VENDAS 2026, coluna VENDAS. Não vem do Bling.
+Regra dele (21/09 16:05):
+    "Ele precisa computar o faturamento em tempo real considerando as vendas
+     que caem no Bling, agora, as demais informações precisa buscar na
+     planilha conforme elas forem sendo atualizadas por nós"
+
+QUANDO O LPV NÃO EXISTE — e o Studio DIZ, em vez de inventar
+------------------------------------------------------------
+`calcular` devolve `lpv: None` e um `motivo` escrito, em três casos:
+    - "nenhum extrato lançado neste mês"
+    - "a BASE DE VENDAS não tem vendas neste mês"
+    - "C.O zero ou negativo — faltam saídas do mês nos extratos (o Flex pago,
+       provavelmente)"
+
+O terceiro aconteceu de verdade: em setembro/2026 o reembolso do Flex
+(planilha) passou o Flex pago (extrato incompleto), o C.O ficou negativo, e a
+Home mostrou LPV de R$ -0,20 e UC de -126. A Viabilidade decidiria com isso.
+Por isso `financeiro.lpv_valido` (financeiro.py:175) só aceita LPV POSITIVO:
+zero ou negativo é extrato faltando, não custo.
+
+SAÍDA SEM FINALIDADE
+--------------------
+Não entra na conta E sai escrita ao lado do número (`sem_finalidade`).
+Somada calada inventaria custo; jogada fora calada esconderia custo.
+
+QUAL LPV A HOME E A VIABILIDADE USAM
+------------------------------------
+`financeiro.lpv_vigente(df)` (financeiro.py:183) devolve (valor, origem):
+    1º  o ÚLTIMO MÊS FECHADO que o Studio CALCULOU
+        (`financeiro.lpv_calculado_recente`, financeiro.py:154 — olha o ano
+         corrente e o anterior, de dezembro para trás)
+    2º  se não houver, o DIGITADO em Gestão → Financeiro → LPV Mensal
+        (`financeiro._lpv_digitado`, financeiro.py:212)
+
+Decisão do dono em 05/10: "o sistema calcula o LPV, ele deve considerar o mais
+recente calculado por ele". O digitado virou RESERVA, para quando não há
+cálculo (extrato não subido, BASE DE VENDAS fora do ar).
+
+O mês CORRENTE fica de fora do "calculado": o C.O dele ainda está crescendo.
+
+ONDE O LPV APARECE
+------------------
+`home_gestao._lpv_card`          o cartão do LPV na Home (home_gestao.py:918)
+`home_gestao.py:1407`            a origem sai escrita ao lado ("LPV de
+                                 Setembro/2026 · calculado")
+`home_gestao.py:1406`            UC = margem de contribuição por venda ÷ LPV
+`home_gestao.py:1404`            lucro líquido por venda = MC/venda − CF/venda
+`app.py:1533`                    a Viabilidade decide com `lpv_vigente`
+`financeiro.meses_de_atraso_lpv` (financeiro.py:198) a defasagem do LPV em uso
+
+OS DOIS LADOS DA UC VÊM DE RELÓGIOS DIFERENTES, e isso sai escrito na tela:
+a margem de contribuição é a MÉDIA dos meses lançados; o LPV é o do mês
+vigente do Financeiro.
+
+COMO A UC É MOSTRADA
+--------------------
+Como RAZÃO, não como número solto. Pedido dele (14/09 16:27):
+    "A unidade de contribuição precisa ser a média / a unidade de
+     contribuição, por exemplo: 1,5/1 ou 2/1"
+Está em `home_gestao.py:1662` (`_fmt(1.8, "razao") == "1,8/1"`).
+
+
+================================================================================
+PARTE 3 — O QUE ESTÁ EM ABERTO
+================================================================================
+
+1 · O LPV DE SETEMBRO/2026 PEDIDO EM 02/10 NUNCA FOI FECHADO
+    Ele pediu quatro números (PIX/outros sem mercadoria, cartões sem
+    mercadoria, ADS, TM Logística) para fechar o LPV de setembro. Naquele dia
+    o chat não conseguiu consultar o financeiro, e eu respondi pedindo que ele
+    somasse à mão. Depois disso o Studio passou a CALCULAR o LPV sozinho
+    (`lpv_mensal.py`), então a pergunta mudou de lugar — mas vale conferir se
+    setembro/2026 fecha com o número que ele tinha na planilha.
+
+2 · "TM LOGÍSTICA" E "CROSS DOCKING" SÃO A MESMA COISA?
+    Ele cita "TM Logística" em 02/10 (duas vezes) como um custo a somar. No
+    código existe CROSS DOCKING (composicao.py:96), que entra no LPV. NÃO
+    CONFIRMEI que são a mesma finalidade — é pergunta para ele, não palpite.
+
+3 · O RATEIO DO LPV POR PRODUTO
+    Levantado por ele em 25/09 13:46 e DESCARTADO por ele em 25/09 14:21.
+    Está aqui só para que ninguém reabra isso achando que é melhoria.
+
+4 · `_processar` DUPLICADO (placar.py / placar_core.py)
+    Não é do LPV, mas é da mesma família: a mesma pergunta com duas respostas.
+    Está travado por guarda e declarado em ACHADOS_ABERTOS.md.
+
+
+================================================================================
+COMO CONFERIR QUALQUER COISA DESTE ARQUIVO
+================================================================================
+
+    python3 lpv_mensal.py        o auto-teste do módulo
+    python3 composicao.py        o auto-teste das finalidades
+    python3 financeiro.py        o auto-teste do que a Home lê
+    python3 conferir.py          os oito verificadores, as mutações e o veredito
+
+Regra desta base: afirmação sobre número, regra ou comportamento vem com o
+`arquivo:linha` que a sustenta, ou vem com a dúvida declarada.
