@@ -1349,3 +1349,9 @@ if __name__ == "__main__":
        _set["Nícolas"]["base"] == 2000.0)
 
     print("\nfalhas:", falhas)
+
+    # O CODIGO DE SAIDA. Sem ele, quem le `returncode` ve este modulo como
+    # aprovado SEMPRE — e o `conferir.py` e o `checar_mutacao.py` leem
+    # exatamente isso. Era assim que as entradas apontadas para ca ficavam
+    # verdes por acidente, medindo nada.
+    raise SystemExit(1 if falhas else 0)

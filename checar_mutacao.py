@@ -2448,7 +2448,15 @@ def comandos_sem_codigo_de_saida():
         corpo = fonte.split('if __name__ == "__main__":')[-1]
         if "falhas:" not in corpo:
             continue        # nao e auto-teste com contagem; nada a exigir
-        if "sys.exit" in corpo or "exit(" in corpo:
+        # `SystemExit` CONTA, e isto era alarme falso.
+        #
+        # A condicao procurava "exit(" em minusculas. `raise SystemExit(1 if
+        # falhas else 0)` — que e o que o `financeiro.py` usa — tem "Exit("
+        # com E maiusculo, e passava batido: a varredura acusava um modulo
+        # que estava certo. Guarda que acusa o inocente ensina a ignora-la, e
+        # isso ja custou caro nesta base.
+        if ("sys.exit" in corpo or "exit(" in corpo
+                or "SystemExit" in corpo):
             continue
         fora.append((mod, n, "imprime 'falhas:' e sai com 0 sempre"))
     return fora
