@@ -106,7 +106,7 @@ FERRAMENTAS = [
     {
         "name": "ler_financeiro",
         "description": (
-            "LPV vigente (custo fixo por venda), alíquota, de que mês veio o LPV "
+            "LPV vigente (custo operacional por venda), alíquota, de que mês veio o LPV "
             "e há quantos meses ele não é atualizado. Use para qualquer pergunta "
             "sobre LPV, alíquota, imposto ou custo fixo."
         ),
@@ -244,7 +244,7 @@ def _ler_financeiro():
         return f"Não consegui ler o Financeiro agora: {e}"
     if lpv is None:
         return f"Não há LPV informado ({origem}). Precisa ser preenchido em Gestão → Financeiro."
-    linhas = [f"LPV vigente: R$ {lpv:.2f} (custo fixo médio por venda)",
+    linhas = [f"LPV vigente: R$ {lpv:.2f} (custo operacional médio por venda)",
               f"Mês de origem do LPV: {origem}",
               f"Alíquota tributária: {aliq:.1f}%"]
     if atraso >= 1:

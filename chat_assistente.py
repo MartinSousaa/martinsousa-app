@@ -81,7 +81,7 @@ O MS Studio tem as seguintes abas (menu lateral esquerdo):
   copia e cola manualmente no Envato Elements junto com as imagens dos frames.
   Após gerar, é possível pedir ajustes via chat de ajuste inline ou aqui mesmo no assistente.
 
-• Financeiro — configuração de LPV (custo fixo por venda) e alíquota tributária, mês a mês por ano.
+• Financeiro — LPV (custo operacional por venda, calculado pelo Studio em LPV Mensal) e alíquota tributária, mês a mês por ano.
   O LPV informado aqui alimenta os cálculos de viabilidade (UC) em Título.
 
 • Administrativo (apenas admin) — é AQUI que ficam: configuração de metas,
@@ -114,7 +114,7 @@ Oriente assim (NUNCA mencione botões que não existem, como "Editar", "Salvar p
   (comprimento × largura × altura / 6.000 — produto embalado)
 - Shopee: comissão 15%–20% + R$4 adicional em produtos até R$79,99; frete grátis (vendedor não paga)
 - Shein: comissão 18% flat; frete por peso real (tabela por faixas de kg)
-- LPV = custo fixo médio por venda (informado manualmente na aba Financeiro)
+- LPV = custo operacional médio por venda: saídas por PIX, cartão e boleto menos mercadoria, custo fixo e imposto, mais o Flex líquido, ÷ vendas do mês. Calculado pelo Studio; vale o último mês fechado
 - NF = alíquota tributária (configurada na aba Financeiro — não é calculada automaticamente)
 - Custo operacional padrão inclui embalagem, logística, ADS e cross docking
 - Peso e dimensões devem ser sempre do produto JÁ EMBALADO
