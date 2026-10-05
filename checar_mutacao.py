@@ -94,7 +94,7 @@ MUTACOES = [
     (
         'o refazer volta a mandar so as fotos, sem a referencia',
         'imagem.py',
-        [('                          args=(_prompt, _fotos_desta, _r), daemon=True).start()',
+        [('                          args=(_prompt, _fotos_desta, _r),',
           '                          args=(_prompt, _fotos_rf, _r), daemon=True).start()')],
         None,
         ['python3', 'imagem.py', '--autoteste'],
@@ -216,10 +216,14 @@ MUTACOES = [
         # PROFUNDA" — e inventou sete cotas na peca 5.
         #
         # Hoje, sem copy, a peca sai SEM TEXTO. A mutacao reintroduz o pedido.
-        [('    return ("- Esta peça NÃO recebeu copy: o plano voltou sem texto para ela. "',
+        # A FRASE VIROU `MARCA_SEM_COPY` (imagem.py:284), porque tres
+        # leitores a procuravam por texto cru e um deles ficou para tras.
+        # A ancora acompanha a constante: entrada presa em texto que nao
+        # existe mais nao muta nada, e "passa" sem medir.
+        [('    return (MARCA_SEM_COPY + " o plano voltou sem texto para ela. "',
           '    return (f"- Esta peça tem exatamente {maximo} bloco(s) de texto. "\n'
           '            f"Não acrescente nenhum outro, e não entregue menos.")\n'
-          '    return ("- Esta peça NÃO recebeu copy: o plano voltou sem texto para ela. "')],
+          '    return (MARCA_SEM_COPY + " o plano voltou sem texto para ela. "')],
         None,
         # O COMANDO E O AUTOTESTE DO `imagem.py`, E NAO O `checar_comunicacao`.
         #
@@ -318,10 +322,13 @@ MUTACOES = [
     (
         "a refacao volta a trocar o texto e deixar o numero de blocos para tras",
         "imagem.py",
-        [('    if _n:\n'
-          '        trocado = _re_quadro.sub(\n'
-          '            r"(- Esta peça tem exatamente )\\d+( bloco)",\n'
-          '            lambda _m: f"{_m.group(1)}{_n}{_m.group(2)}", trocado)\n', "")],
+        # A SINCRONIZACAO VIROU `_sincronizar_contagem` (imagem.py:5141),
+        # dono unico das DUAS redacoes da contagem. A mutacao desliga a
+        # funcao inteira, e nao mais o trecho inline que nao existe mais.
+        [('    saida = _re_quadro.sub(\n'
+          '        r"(- Esta peça tem exatamente )\\d+( bloco)",\n'
+          '        lambda _m: f"{_m.group(1)}{_n}{_m.group(2)}", prompt)\n',
+          '    saida = prompt\n')],
         None,
         ["python3", "imagem.py", "--autoteste"],
     ),
@@ -808,13 +815,24 @@ MUTACOES = [
         # primeiro nao basta — com a marca no lugar, o codigo antigo acha o
         # fim certo por tabela, e o verificador fica verde com razao.
         [
-            ('    base = str(prompt or "")\n    i = base.find(MARCA_TEXTO_EXATO)\n    novo = bloco_texto_exato(textos)\n    if i < 0:\n        return base + novo\n    f = base.find(MARCA_FIM_TEXTO_EXATO, i)\n    if f >= 0:\n        fim = f + len(MARCA_FIM_TEXTO_EXATO)\n    else:\n        # PROMPT ANTIGO, sem a marca de fim: o bloco termina na última linha\n        # que `bloco_texto_exato` escreve. Cortar até a próxima "━━━" é o que\n        # levava as regras junto, e não se faz mais.\n        _ultima = "para preencher espaço."\n        _u = base.find(_ultima, i)\n        fim = (_u + len(_ultima)) if _u >= 0 else i + len(MARCA_TEXTO_EXATO)\n    trocado = (base[:i].rstrip("\\n") + "\\n" + novo.lstrip("\\n")\n               + "\\n" + base[fim:].lstrip("\\n")).rstrip() + "\\n"',
-             '    base = str(prompt or "")\n'
-             "    i = base.find(MARCA_TEXTO_EXATO)\n"
-             "    if i >= 0:\n"
-             '        j = base.find("\u2501\u2501\u2501", i + len(MARCA_TEXTO_EXATO) + 1)\n'
-             '        base = (base[:i].rstrip("\\n") + ("\\n\\n" + base[j:] if j > 0 else "")).rstrip()\n'
-             "    return base + bloco_texto_exato(textos)"),
+            # A ANCORA E SO O CALCULO DO FIM, e isso e de proposito.
+            #
+            # Ela prendia a FUNCAO INTEIRA, comentarios inclusive — e na
+            # passada de 05/10 ficou presa em texto que nao existia mais
+            # (entrou um comentario novo dentro do `if i < 0`). Ancora que
+            # nao casa nao muta nada, e a entrada "passa" sem medir: a 16a
+            # entrada desta lista ja esteve verde exatamente por isso.
+            #
+            # Com a marca de fim fora (o segundo corte, logo abaixo), o
+            # `f >= 0` nao acha nada e quem roda e o `else`. Mutar o `else`
+            # para o corte antigo — ate a proxima "━━━" — e o defeito
+            # original inteiro: a SECTION 2 vem doze mil caracteres adiante,
+            # e tudo entre ela e a copy ia junto.
+            ('        _ultima = "para preencher espaço."\n'
+             "        _u = base.find(_ultima, i)\n"
+             "        fim = (_u + len(_ultima)) if _u >= 0 else i + len(MARCA_TEXTO_EXATO)\n",
+             '        _j = base.find("━━━", i + len(MARCA_TEXTO_EXATO) + 1)\n'
+             "        fim = _j if _j > 0 else len(base)\n"),
             ('        + MARCA_FIM_TEXTO_EXATO + "\\n"\n', ""),
         ],
         None,
@@ -828,7 +846,7 @@ MUTACOES = [
     (
         "a conferencia da peca sai do laco de geracao",
         "imagem.py",
-        '                        img_bytes, _rel_txt, _rel_peca = revisar_tudo(\n                            img_bytes, tipo,\n                            fotos_ref=cfg["fotos_bytes"],\n                            gerar=_gerar_de_novo,\n                            prompt_base=prompt_final,\n                            pedido=cfg.get("instrucoes_extras", ""),\n                            aviso=lambda t, _i=i: barra.progress(\n                                _i / len(tipos), text=t[:70]),\n                        )\n',
+        '                        img_bytes, _rel_txt, _rel_peca = revisar_tudo(\n                            img_bytes, tipo,\n                            fotos_ref=cfg["fotos_bytes"],\n                            gerar=_gerar_de_novo,\n                            prompt_base=prompt_final,\n                            pedido=cfg.get("instrucoes_extras", ""),\n                            dados_descricao=cfg.get("dados_descricao") or {},\n                            aviso=lambda t, _i=i: barra.progress(\n                                _i / len(tipos), text=t[:70]),\n                        )\n',
         "                        _rel_txt = _rel_peca = None\n",
         ["python3", "checar_tela.py"],
     ),
@@ -1347,7 +1365,7 @@ MUTACOES = [
     (
         "a cena do plano volta a mandar tamanho",
         "imagem.py",
-        "        _cena = sem_medida_de_quadro(plano_triagem_item_cena)",
+        "        _cena_limpa = sem_decisao_do_compilador(plano_triagem_item_cena)",
         '        _cena = str(plano_triagem_item_cena or "").strip()',
         ["python3", "checar_prompts.py"],
     ),
@@ -1376,9 +1394,13 @@ MUTACOES = [
     (
         "a base corrigida nao acompanha a segunda revisao",
         "imagem.py",
-        "        prompt_base = trocar_texto_exato(prompt_base, certo)\n"
-        "        nova_img, erro_g = gerar(prompt_base)",
-        "        nova_img, erro_g = gerar(trocar_texto_exato(prompt_base, certo))",
+        # UMA LINHA SO. A ancora pegava as DUAS, e entre elas entrou o
+        # bloco que grava a copy vigente (`guardar_copy_vigente`) — ela
+        # deixou de casar e a entrada parou de medir. Trocar o destino da
+        # atribuicao faz a correcao morrer na rodada: `gerar` recebe a
+        # base velha, que e o defeito original.
+        "        prompt_base = trocar_texto_exato(prompt_base, _certo_limpo)\n",
+        "        _base_corrigida = trocar_texto_exato(prompt_base, _certo_limpo)\n",
         ["python3", "imagem.py"],
     ),
     (
@@ -1391,7 +1413,7 @@ MUTACOES = [
     (
         "o refazer do chat volta a entregar sem conferir",
         "imagem.py",
-        '            _img_rf, _rel_t_rf, _rel_p_rf = revisar_tudo(\n                _r["img"], _tp, fotos_ref=_fotos_rf, gerar=_gerar_rf,\n                prompt_base=_prompt, pedido=_ins,\n                aviso=lambda t: _b.progress(1.0, text=t[:70]))\n',
+        '            _img_rf, _rel_t_rf, _rel_p_rf = revisar_tudo(\n                _r["img"], _tp, fotos_ref=_fotos_rf, gerar=_gerar_rf,\n                prompt_base=_prompt, pedido=_ins,\n                dados_descricao=_dados_rf,\n                aviso=lambda t: _b.progress(1.0, text=t[:70]))\n',
         '            _img_rf, _rel_t_rf, _rel_p_rf = _r["img"], None, None\n',
         ["python3", "checar_tela.py"],
     ),
