@@ -223,4 +223,4 @@ if __name__ == "__main__":
     ok("o real sai formatado", _brl(2350.35) == "R$ 2.350,35")
 
     print("\nfalhas:", falhas)
-    raise SystemExit(falhas)
+    __import__("sys").exit(1 if falhas else 0)

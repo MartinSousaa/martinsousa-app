@@ -687,4 +687,4 @@ if __name__ == "__main__":
     # aprovado SEMPRE — e o `conferir.py` e o `checar_mutacao.py` leem
     # exatamente isso. Era assim que as entradas apontadas para ca ficavam
     # verdes por acidente, medindo nada.
-    raise SystemExit(1 if falhas else 0)
+    __import__("sys").exit(1 if falhas else 0)

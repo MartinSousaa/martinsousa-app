@@ -7325,4 +7325,4 @@ if __name__ == "__main__":
        and "get_pontualidade_mes" not in _src)
 
     print("\nfalhas:", falhas)
-    raise SystemExit(falhas)
+    __import__("sys").exit(1 if falhas else 0)

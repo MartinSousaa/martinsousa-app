@@ -607,4 +607,4 @@ if __name__ == "__main__":
        "elif lpv is not None and not lpv_valido(lpv):" in _pg_f
        and '"em branco."))\n            lpv = None\n' in _pg_f)
     print("\nfalhas:", falhas)
-    raise SystemExit(1 if falhas else 0)
+    __import__("sys").exit(1 if falhas else 0)
