@@ -5915,12 +5915,53 @@ def cor_do_produto_atual():
 # UM DONO. A copy vigente de cada tipo mora aqui, e `plano_do_tipo` a
 # entrega no lugar da original. Quem corrige, grava; quem gera, le.
 #
-# POR QUE `session_state` E SEGURO AQUI, e nao foi em `_PECA_EM_AJUSTE`:
-# estas duas funcoes rodam no DESENHO da tela, antes da thread. O prompt e
-# montado fora dela (`imagem.py` ~7829: `_prompt = prompt_para_regerar(...)`
-# e so depois `Thread(...)`). Thread nao le `session_state`, e por isso o
-# numero da peca precisou de global — mas aqui nao ha thread no caminho.
-_CHAVE_COPY_VIGENTE = "img_copy_vigente"
+# ONDE ELA MORA, E POR QUE NAO E NO `session_state` ─────────────────────
+#
+# A PRIMEIRA VERSAO GRAVAVA NO `session_state`, com um comentario meu
+# afirmando "aqui nao ha thread no caminho". Era palpite, e estava errado:
+# a varredura por AST do passo 5 achou TRES alvos de `threading.Thread` que
+# chegam ao gravador — `_rodar_cmd` (imagem.py:8554), `_rodar_af`
+# (imagem.py:9212) e `_rodar_afg` (imagem.py:11252), que sao justamente o
+# ajuste fino e o comando do chat.
+#
+# `st.session_state` e ILEGIVEL e INGRAVAVEL dentro de uma Thread, e
+# `guardar_copy_vigente` engole a propria excecao de proposito (corrigir
+# texto nao pode derrubar geracao). Resultado: a correcao feita pelo chat
+# desaparecia em silencio, e a peca refeita voltava com a copy do primeiro
+# dia — o mesmo "metal voltou" que esta funcao existe para fechar.
+#
+# E a Forma 6 do CLAUDE.md inteira: eu ja sabia o fato, apliquei a um
+# leitor (`_PECA_EM_AJUSTE`), e escrevi o irmao novo com o defeito.
+#
+# A CHAVE LEVA O PRODUTO, e isso nao e enfeite. Global e do PROCESSO, nao
+# da sessao: dois colaboradores ajustando a peca 2 de produtos diferentes
+# no mesmo segundo trocariam a copy entre si. O produto vem do contexto por
+# thread do `log_imagem` — o mesmo mecanismo que ja carrega produto, usuario
+# e peca, e que a thread de trabalho HERDA de quem a criou.
+_COPY_VIGENTE = {}
+_TRAVA_COPY_VIGENTE = _threading_limiter.Lock()
+
+
+def _produto_da_copy():
+    """O produto a que a copy vigente pertence. "" quando nao da para saber.
+
+    DUAS FONTES, E A ORDEM IMPORTA: o contexto por thread primeiro, porque
+    e a unica que funciona DENTRO da thread; o `session_state` depois, para
+    o caminho do desenho da tela. As duas devolvem o mesmo nome — a tela
+    chama `marcar_contexto` no topo, antes da primeira Thread, e
+    `checar_tela` tem guarda para isso.
+    """
+    try:
+        import log_imagem as _li_cv
+        _p = str(_li_cv.contexto_atual().get("produto", "") or "").strip()
+        if _p:
+            return _p
+    except Exception:
+        pass
+    try:
+        return str(st.session_state.get("img_nome_produto", "") or "").strip()
+    except Exception:
+        return ""
 
 
 def guardar_copy_vigente(tipo, textos):
@@ -5928,34 +5969,37 @@ def guardar_copy_vigente(tipo, textos):
 
     Chamada por quem corrige: a revisao de texto e o refazer do chat. Sem
     isto, a correcao vive so no prompt daquela rodada e morre com ela.
+
+    FUNCIONA DENTRO DE THREAD — e tem de funcionar: tres dos quatro
+    chamadores sao thread.
     """
     _t = str(tipo or "").strip()
     _lista = [str(x).strip() for x in (textos or []) if str(x).strip()]
     if not _t or not _lista:
         return
-    try:
-        _mapa = dict(st.session_state.get(_CHAVE_COPY_VIGENTE) or {})
-        _mapa[_t] = _lista
-        st.session_state[_CHAVE_COPY_VIGENTE] = _mapa
-    except Exception:
-        pass
+    with _TRAVA_COPY_VIGENTE:
+        _COPY_VIGENTE[(_produto_da_copy(), _t)] = _lista
 
 
 def copy_vigente(tipo):
     """A copy corrigida deste tipo, ou None quando nunca houve correcao."""
-    try:
-        return (st.session_state.get(_CHAVE_COPY_VIGENTE) or {}).get(
-            str(tipo or "").strip())
-    except Exception:
+    _t = str(tipo or "").strip()
+    if not _t:
         return None
+    with _TRAVA_COPY_VIGENTE:
+        return _COPY_VIGENTE.get((_produto_da_copy(), _t))
 
 
 def esquecer_copy_vigente():
-    """Zera as correcoes. Geracao nova comeca do plano, e nao da anterior."""
-    try:
-        st.session_state.pop(_CHAVE_COPY_VIGENTE, None)
-    except Exception:
-        pass
+    """Zera as correcoes DESTE produto. Lote novo comeca do plano.
+
+    SO AS DESTE PRODUTO. Limpar o mapa inteiro apagaria a correcao de um
+    colaborador quando o outro comeca um lote — o global e do processo.
+    """
+    _p = _produto_da_copy()
+    with _TRAVA_COPY_VIGENTE:
+        for _k in [k for k in _COPY_VIGENTE if k[0] == _p]:
+            _COPY_VIGENTE.pop(_k, None)
 
 
 def plano_do_tipo(tipo):
@@ -6715,9 +6759,21 @@ def montar_prompt_ajuste_fino(instrucao, tipo=None, cor_produto=None):
     #
     # Quando o pedido fala de cor, a trava sai e entra no lugar a regra que
     # vale de verdade: muda a cor PEDIDA, preserva as outras.
+    # A COR VEM DE QUEM CHAMA, E NAO DA TELA.
+    #
+    # Aqui havia `cor_do_produto_atual()` como padrao, e ela le
+    # `st.session_state`. Esta funcao e alcancavel pelas tres Threads de
+    # ajuste do chat (`_rodar_cmd`, `_rodar_af`, `_rodar_afg`), onde a
+    # leitura volta "" — e `_trava_cor_produto("")` nao escreve nada. A
+    # trava de cor sumia em silencio no caminho mais usado, e so a
+    # varredura 5-penta do `checar_alcance` viu.
+    #
+    # O valor e o mesmo: `dados_descricao["cor"]`, que
+    # `ajustar_com_conferencia` ja carrega ate os dois lugares que montam
+    # este prompt. `cor_do_produto_atual` continua existindo como a porta
+    # do DESENHO da tela — fora de thread.
     _trava = ("" if _pedido_fala_de_cor(instrucao) else
-              _trava_cor_produto(cor_do_produto_atual()
-                                 if cor_produto is None else cor_produto))
+              _trava_cor_produto(cor_produto))
     if _pedido_fala_de_cor(instrucao):
         _trava = ("TRAVA DE COR — PARCIAL NESTE AJUSTE: a MODIFICAÇÃO "
                   "SOLICITADA fala de cor, então a cor que ela cita MUDA. "
@@ -7736,9 +7792,14 @@ def ajustar_com_conferencia(imagem, instrucao, tipo=None, tentativas=2,
     ajuste fino redesenha a peça inteira, texto incluído. Uma peça que chegou
     correta ao ajuste saía dele com palavra inventada, sem ninguém ler.
     """
+    # A COR DESCE JUNTO. Ela era buscada la embaixo com
+    # `cor_do_produto_atual()`, que le a tela — e tudo isto roda dentro da
+    # thread do ajuste. Ver o comentario em `montar_prompt_ajuste_fino`.
     img, relato = _ajustar_bruto(imagem, instrucao, tipo=tipo,
                                  tentativas=tentativas, aviso=aviso,
-                                 referencias=referencias)
+                                 referencias=referencias,
+                                 cor_produto=(dados_descricao or {}).get("cor")
+                                 or None)
     if not img or not pode_ter_texto(tipo):
         return img, relato
     if img is imagem or img == imagem:
@@ -7758,9 +7819,20 @@ def ajustar_com_conferencia(imagem, instrucao, tipo=None, tentativas=2,
         dados_descricao=dados_descricao,
         pedido=instrucao,
         gerar=_refazer,
+        # A COR VEM DO `dados_descricao`, E NAO DA TELA.
+        #
+        # `montar_prompt_ajuste_fino` sem `cor_produto` cai em
+        # `cor_do_produto_atual()`, que le `st.session_state` — e esta
+        # funcao roda DENTRO da thread dos tres ajustes do chat. La a
+        # leitura volta "" e `_trava_cor_produto("")` nao escreve nada: a
+        # trava de cor sumia em silencio no caminho mais usado.
+        #
+        # O valor e o MESMO (`session_state["img_dados_descricao"]["cor"]`,
+        # imagem.py:5888), so que entregue por quem ja o carrega ate aqui.
         prompt_base=montar_prompt_ajuste_fino(
             "Corrija APENAS a ortografia do texto escrito na peça. Mantenha "
-            "idêntico o produto, o enquadramento, as cores e o layout.", tipo),
+            "idêntico o produto, o enquadramento, as cores e o layout.", tipo,
+            cor_produto=(dados_descricao or {}).get("cor") or None),
         rodadas=2,
         aviso=aviso,
     )
@@ -7805,7 +7877,7 @@ def ajustar_com_conferencia(imagem, instrucao, tipo=None, tentativas=2,
 
 
 def _ajustar_bruto(imagem, instrucao, tipo=None, tentativas=2,
-                   aviso=None, referencias=None):
+                   aviso=None, referencias=None, cor_produto=None):
     """Ajusta, confere e — se não saiu — tenta de novo com a crítica na mão.
 
     Devolve (bytes_finais, relato). `relato` é o que se conta ao colaborador:
@@ -7842,8 +7914,13 @@ def _ajustar_bruto(imagem, instrucao, tipo=None, tentativas=2,
         # funciona. Foram quatro tentativas sem NENHUMA mudança na imagem antes
         # de alguém abrir este arquivo.
         _refs = [atual] + [r for r in (referencias or []) if r and r != atual]
-        nova, erro = gerar_imagem_ia(montar_prompt_ajuste_fino(pedido, tipo),
-                                     _refs, tipo=tipo or "")
+        # A COR VEM DO `dados_descricao` — ver o irmao acima. Corrigir um e
+        # esquecer o outro e a Forma 1, e os dois montam o prompt do mesmo
+        # ajuste.
+        nova, erro = gerar_imagem_ia(
+            montar_prompt_ajuste_fino(
+                pedido, tipo, cor_produto=cor_produto),
+            _refs, tipo=tipo or "")
         if erro or not nova:
             return atual, {"ok": False, "tentativas": n,
                            "erro": erro or "o gerador não devolveu imagem.",
@@ -8551,14 +8628,21 @@ def consumir_comandos_do_chat(usuario_logado=""):
             _ref_pedido = [b for b in (cmd.get("referencia") or []) if b]
             _refs_cmd = _ref_pedido + list(fotos_ref_aj or [])
 
+            # `_dd` E ARGUMENTO PADRAO DE PROPOSITO: ele e avaliado AQUI,
+            # na thread que cria. Lido no corpo, `st.session_state` volta
+            # vazio dentro da Thread — e `dados_descricao` e quem alimenta
+            # `copy_sem_medida_inventada` e `copy_sem_promessa`. As duas
+            # barreiras rodavam cegas neste caminho (achado em 05/10 pela
+            # varredura 5-penta do `checar_alcance`).
             def _rodar_cmd(_ref=img_ref_cmd[0] if img_ref_cmd else None,
                            _ins=instrucao, _tp=tipo_alvo,
-                           _rf=_refs_cmd, _r=_res_cmd):
+                           _rf=_refs_cmd, _r=_res_cmd,
+                           _dd=st.session_state.get(
+                               "img_dados_descricao") or {}):
                 try:
                     _r["img"], _r["relato"] = ajustar_com_conferencia(
                         _ref, _ins, tipo=_tp, referencias=_rf,
-                        dados_descricao=st.session_state.get(
-                            "img_dados_descricao") or {},
+                        dados_descricao=_dd,
                         aviso=lambda t: _r.__setitem__("fase", t))
                 except Exception as _e:
                     _r["img"], _r["relato"] = None, {
@@ -9209,16 +9293,18 @@ def pagina_imagem(usuario_logado):
             import threading as _threading_af
             _res_af = {"img": None, "relato": None, "done": False}
 
+            # `_dd` em argumento padrao — ver `_rodar_cmd`.
             def _rodar_af(_ref=fotos_bytes_ajuste[0], _ins=instrucao_ajuste.strip(),
-                          _rf=list(fotos_bytes_prod or []), _r=_res_af):
+                          _rf=list(fotos_bytes_prod or []), _r=_res_af,
+                          _dd=st.session_state.get(
+                              "img_dados_descricao") or {}):
                 try:
                     # `referencias` é o que faltava aqui e as outras duas
                     # modalidades já passavam. Vazio quando ninguém subiu foto
                     # — e aí é vazio de verdade, não vazio por esquecimento.
                     _r["img"], _r["relato"] = ajustar_com_conferencia(
                         _ref, _ins, referencias=_rf,
-                        dados_descricao=st.session_state.get(
-                            "img_dados_descricao") or {},
+                        dados_descricao=_dd,
                         aviso=lambda t: _r.__setitem__("fase", t))
                 except Exception as _e:
                     _r["img"], _r["relato"] = None, {
@@ -11254,12 +11340,14 @@ def pagina_imagem(usuario_logado):
                                    _tp=galeria[idx_ativo].get("tipo"),
                                    _rf=list(st.session_state.get(
                                        "img_fotos_originais") or []),
-                                   _r=_res_afg):
+                                   _r=_res_afg,
+                                   # Em argumento padrao — ver `_rodar_cmd`.
+                                   _dd=st.session_state.get(
+                                       "img_dados_descricao") or {}):
                         try:
                             _r["img"], _r["relato"] = ajustar_com_conferencia(
                                 _ref, _ins, tipo=_tp, referencias=_rf,
-                                dados_descricao=st.session_state.get(
-                                    "img_dados_descricao") or {},
+                                dados_descricao=_dd,
                                 aviso=lambda t: _r.__setitem__("fase", t))
                         except Exception as _e:
                             _r["img"], _r["relato"] = None, {
@@ -12918,6 +13006,48 @@ if __name__ == "__main__":
            plano_do_tipo(_t_vig)["textos"][0].endswith("metal e resina"))
     finally:
         globals()["plano_da_geracao"] = _plano_orig
+    # ── A GRAVACAO FUNCIONA DENTRO DE UMA THREAD DE VERDADE ─────────────
+    #
+    # A primeira versao desta copy vigente gravava em `st.session_state`, e
+    # TRES alvos de `threading.Thread` chegam ao gravador: `_rodar_cmd`,
+    # `_rodar_af` e `_rodar_afg` — o comando e o ajuste fino do chat. Dentro
+    # da thread a escrita nao acontece, `guardar_copy_vigente` engole a
+    # excecao de proposito, e a correcao sumia em silencio.
+    #
+    # A GUARDA ABRE UMA THREAD DE VERDADE e le do lado de fora, porque foi
+    # exatamente isso que faltou na guarda do numero da peca: ela chamava a
+    # funcao isolada e ficava verde com o defeito no lugar.
+    _li_cv = __import__("log_imagem")
+    _li_cv.marcar_contexto(produto="Caneca Térmica Medieval 400Ml")
+    esquecer_copy_vigente()
+    _t_thr = "6 — Dúvidas frequentes"
+
+    def _corrige_na_thread():
+        guardar_copy_vigente(_t_thr, ["MANTÉM QUENTE? Sim, parede dupla"])
+
+    _th_cv = _threading_limiter.Thread(
+        target=_li_cv.alvo_com_contexto(_corrige_na_thread))
+    _th_cv.start()
+    _th_cv.join(10)
+    ok("a correcao feita DENTRO da thread sobrevive a ela",
+       copy_vigente(_t_thr) == ["MANTÉM QUENTE? Sim, parede dupla"])
+
+    # E ELA PERTENCE AO PRODUTO, e nao ao processo. Global e do processo:
+    # dois colaboradores ajustando a peca 6 de produtos diferentes no mesmo
+    # segundo trocariam a copy entre si.
+    _li_cv.marcar_contexto(produto="Porta Joias de Madeira")
+    ok("e nao vaza para o produto do colega",
+       copy_vigente(_t_thr) is None)
+    guardar_copy_vigente(_t_thr, ["COMPARTIMENTOS: anéis e colares"])
+    esquecer_copy_vigente()
+    ok("zerar um lote nao apaga a correcao do outro produto",
+       copy_vigente(_t_thr) is None)
+    _li_cv.marcar_contexto(produto="Caneca Térmica Medieval 400Ml")
+    ok("e a do primeiro produto continua la",
+       copy_vigente(_t_thr) == ["MANTÉM QUENTE? Sim, parede dupla"])
+    esquecer_copy_vigente()
+    _li_cv.marcar_contexto(produto="")
+
     # QUEM CORRIGE, GRAVA: a revisao de texto chama o gravador.
     ok("a revisao de texto grava a copy corrigida",
        "guardar_copy_vigente(" in _inspect_g.getsource(revisar_texto))
@@ -13768,6 +13898,53 @@ if __name__ == "__main__":
        len(_ch_col) == 2 and "criado-mudo" in _prompts[-1].lower())
     globals()["conferir_ajuste"] = _antes_conf
     globals()["gerar_imagem_ia"] = _antes_ger
+
+    # ── A TRAVA DE COR CHEGA AO AJUSTE PELO `dados_descricao` ────────────
+    #
+    # ELA VINHA DA TELA, E O AJUSTE RODA EM THREAD. `montar_prompt_ajuste_fino`
+    # caia em `cor_do_produto_atual()`, que le `st.session_state`; dentro das
+    # tres Threads do chat (`_rodar_cmd`, `_rodar_af`, `_rodar_afg`) isso volta
+    # "" e `_trava_cor_produto("")` nao escreve NADA. A trava sumia em silencio
+    # no caminho mais usado — achado pela varredura 5-penta do `checar_alcance`
+    # em 05/10, e nao por teste nenhum.
+    #
+    # A ASERCAO PARTE DE `ajustar_com_conferencia`, e nao do montador. Testar
+    # `montar_prompt_ajuste_fino("...", None, "prata")` sozinha ja passava
+    # verde ANTES da correcao: o defeito nao estava nela, estava em quem a
+    # chamava sem a cor. E a Forma 7 — exercitar a funcao certa com uma
+    # entrada que o sistema nao produz.
+    _prompts_cor = []
+
+    def _ger_cor(prompt, refs=None, **kw):
+        _prompts_cor.append(prompt)
+        return b"nova", ""
+
+    _antes_ger_c = globals().get("gerar_imagem_ia")
+    _antes_conf_c = globals().get("conferir_ajuste")
+    globals()["gerar_imagem_ia"] = _ger_cor
+    # O DUPLO TEM A FORMA QUE O SISTEMA PRODUZ: `conferir_ajuste` devolve
+    # (veredito, erro), e o veredito tem as chaves que `_ajustar_bruto` le.
+    # A primeira versao deste duplo devolvia um dicionario solto e estourou
+    # com `too many values to unpack` — a Forma 7 dentro da guarda que mede
+    # a Forma 6. O molde veio de `_conf_falsa`, acima, que e o duplo que o
+    # proprio arquivo ja usa.
+    globals()["conferir_ajuste"] = lambda *a, **k: (
+        {"feito": True, "o_que_saiu": "ok", "o_que_falta": "",
+         "colateral": "", "houve_colateral": False,
+         "produto_colateral": "",
+         "produto_alterado_fora_do_pedido": False}, "")
+    try:
+        ajustar_com_conferencia(
+            b"orig", "aumente o produto na cena", tipo=None, tentativas=1,
+            dados_descricao={"cor": "verde musgo"})
+    finally:
+        globals()["gerar_imagem_ia"] = _antes_ger_c
+        globals()["conferir_ajuste"] = _antes_conf_c
+    ok("a cor do cadastro chega a trava do ajuste",
+       bool(_prompts_cor) and "verde musgo" in _prompts_cor[0])
+    ok("e e a trava, e nao uma mencao solta",
+       bool(_prompts_cor)
+       and _trava_cor_produto("verde musgo").strip()[:40] in _prompts_cor[0])
 
     # ── Os motores, ditos antes de gastar ────────────────────────────────
     # Sem tocar em `st.secrets`: sem arquivo de secrets ele LEVANTA, e foi essa
