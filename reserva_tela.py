@@ -196,6 +196,65 @@ def _form_posicao(pos, usuario_logado):
                     st.rerun()
 
 
+def _form_resgate(pos, usuario_logado):
+    """O comprovante de resgate (PDF) atualiza a posição sozinho.
+
+    A conta mora em `resgate_cdb.py`: o IR do comprovante diz quanto do
+    principal saiu, e o aplicado cai exatamente isso. Nada é gravado sem o
+    clique, e o mesmo comprovante não é descontado duas vezes.
+    """
+    import resgate_cdb as _rc
+    with st.expander("📎 Anexar comprovante de resgate (PDF)", expanded=False):
+        st.caption("O PDF do resgate antecipado do Itaú. O Studio tira dele "
+                   "quanto do principal saiu e atualiza o aplicado, o saldo e "
+                   "até quando a reserva cobre.")
+        arq = st.file_uploader("Comprovante de resgate", type=["pdf"],
+                               key="rsv_resgate_pdf")
+        if not arq:
+            return
+        resgate, motivo = _rc.ler_pdf(arq)
+        if not resgate:
+            st.error(f"Não li o comprovante: {motivo}.")
+            return
+        nova, det = _rc.posicao_apos(pos, resgate)
+        if not nova:
+            st.error(f"Não dá para aplicar este resgate: {det}.")
+            return
+        st.markdown(_rot_tela(
+            f"**Resgate de {_rv._data(resgate['data']).strftime('%d/%m/%Y')}:** "
+            f"bruto {_brl(resgate['bruto'])} · IR {_brl(resgate['ir'])} · "
+            f"caiu na conta {_brl(resgate['liquido'])}"))
+        st.dataframe([
+            {"": "Aplicado", "Antes": _brl(pos.get("aplicado")),
+             "Depois": _brl(nova["aplicado"])},
+            {"": "Saldo bruto", "Antes": _brl(pos.get("bruto")),
+             "Depois": _brl(nova["bruto"])},
+            {"": "Saldo líquido", "Antes": _brl(pos.get("liquido")),
+             "Depois": _brl(nova["liquido"])},
+        ], hide_index=True, use_container_width=True)
+        st.caption(_rot_tela(
+            f"Principal resgatado: {_brl(det['principal'])} (bruto menos o "
+            f"rendimento, que é o IR ÷ {det['aliquota'] * 100:.1f}%). O saldo "
+            "é projetado pela taxa da última posição — colar o extrato acima "
+            "corrige o centavo."))
+        if _rc.ja_aplicado(pos, nova):
+            st.info("Este resgate já está aplicado na posição gravada.")
+            return
+        if st.button("💾 Atualizar a reserva com este resgate", type="primary",
+                     key="rsv_resgate_gravar", use_container_width=True):
+            ok, msg = salvar(nova, usuario_logado or "")
+            (st.success if ok else st.error)(msg)
+            if ok:
+                st.session_state.pop("rsv_resgate_pdf", None)
+                st.rerun()
+
+
+def _rot_tela(texto):
+    """Cifrão sem virar LaTeX no markdown do Streamlit (`rotulos.tela`)."""
+    import rotulos as _rot
+    return _rot.tela(texto)
+
+
 def _cabecalho(pos, origem):
     bruto = _num(pos.get("bruto"))
     aplicado = _num(pos.get("aplicado"))
@@ -277,6 +336,7 @@ def pagina(usuario_logado=None):
     pos, origem = carregar()
     _cabecalho(pos, origem)
     _form_posicao(pos, usuario_logado)
+    _form_resgate(pos, usuario_logado)
     st.markdown("---")
 
     piso, teto, det = _custo_do_headcount(usuario_logado)
