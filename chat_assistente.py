@@ -274,11 +274,41 @@ def _contexto_atual() -> str:
     # Galeria de imagens geradas
     galeria = st.session_state.get("img_galeria")
     if galeria:
-        tipos = [f"  Imagem {i+1}: {g.get('tipo','?')}" for i, g in enumerate(galeria)]
+        # O VEREDITO DE CADA PECA VAI JUNTO COM O TIPO.
+        #
+        # ACHADO NA CONVERSA REAL DE 05/10. Esta lista tinha so o tipo, e o
+        # chat respondeu ao dono "nenhuma deixou de ser gerada — as 8 estao
+        # na galeria" enquanto DUAS delas estavam com "nao publique assim"
+        # na tela. Ele nao estava mentindo: era tudo o que ele enxergava.
+        #
+        # O placar sai de `imagem.placar_do_lote`, o mesmo que a tela usa.
+        # Duas contagens da mesma coisa passam a discordar.
+        def _veredito(g):
+            _p, _t = (g.get("peca") or {}), (g.get("texto") or {})
+            if _p.get("ok") is False or _t.get("ok") is False:
+                _probs = "; ".join((_p.get("problemas") or [])[:2])
+                return "REPROVADA — não publique" + (f" ({_probs})" if _probs else "")
+            if _p.get("ok") is None and _t.get("ok") is None:
+                return "NÃO CONFERIDA — ninguém olhou"
+            return "aprovada"
+
+        tipos = [f"  Imagem {i+1}: {g.get('tipo','?')} — {_veredito(g)}"
+                 for i, g in enumerate(galeria)]
+        try:
+            import imagem as _img_pl
+            _linha_placar = _img_pl.frase_do_placar(
+                _img_pl.placar_do_lote(galeria))
+        except Exception:
+            _linha_placar = ""
         partes.append(
             f"GALERIA DE IMAGENS ({len(galeria)} imagem(ns)):\n" + "\n".join(tipos)
+            + (f"\nPLACAR DO LOTE: {_linha_placar}" if _linha_placar else "")
             + "\n(É por este número que o colaborador se refere a cada imagem — "
               "é o mesmo que aparece na legenda da tela.)"
+            + "\nESTAR NA GALERIA NÃO É ESTAR PRONTA: peça REPROVADA já foi "
+              "gerada e paga, e não pode ser publicada. Quando o colaborador "
+              "perguntar o que deu errado, responda pelo veredito acima — "
+              "nunca conte slots."
         )
 
     return "\n\n".join(partes) if partes else "Nenhum produto em edição no momento."

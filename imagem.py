@@ -344,6 +344,104 @@ def blocos_em_portugues(tipo, pedidos=0):
 #
 # As duas sao a mesma pergunta — quem ocupa cada pedaco do quadro — e por isso
 # saem de um lugar so, variando por tipo.
+# ── A GEOMETRIA DEIXA DE SER ADIVINHADA PELO MODELO ───────────────────────
+#
+# ACHADO NO TESTE DE 05/10, comparando o prompt que gerou errado com o que
+# gerou certo. Os OITO prompts iniciais sao identicos aos finais — medido,
+# byte a byte. A unica coisa que mudou foi o que as CORRECOES acrescentaram
+# depois de o dono olhar a imagem e reclamar tres vezes.
+#
+# E o que elas acrescentaram nao foi uma regra NOVA: foi a MESMA regra em
+# outra unidade.
+#
+#   o primeiro prompt dizia: "nao sobreponha" · "pelo menos 6% em cada lado"
+#   a correcao que funcionou: "ZONA ESQUERDA (0% a 50%): a caneca"
+#                             "ZONA DIREITA (55% a 97%): quatro cartoes"
+#                             "corredor livre de 5% entre as duas"
+#
+# Modelo de imagem nao calcula 6% de nada — ele desenha. Ordem abstrata ele
+# interpreta; zona com numero ele obedece. O dono gastou tres rodadas pagas
+# virando, a mao, o validador geometrico que o Python podia ter rodado antes
+# da primeira chamada: o sistema JA SABIA, antes de gerar, quantos cartoes
+# existem, quanto o produto ocupa e qual a folga.
+#
+# O LADO EM PIXEL VEM DO QUE O MOTOR DEVOLVE, e nao de um numero escrito
+# aqui: 1024 e o `size` pedido a OpenAI (`imagem.py` ~3433) e o `imageSize`
+# "1K" pedido ao Gemini (~2543). Escrever 61px direto seria a Forma 5 — dois
+# donos para a mesma medida, discordando no dia em que o tamanho mudar.
+LADO_GERADO_PX = 1024
+FOLGA_BORDA_PCT = 6
+# O CORREDOR ENTRE O PRODUTO E OS CARTOES. Cinco por cento foi a medida que
+# funcionou na peca 6 do teste, e esta escrita no prompt que deu certo.
+CORREDOR_PCT = 5
+
+
+def em_px(pct):
+    """A porcentagem traduzida em pixel do quadro gerado. Um dono, duas vozes.
+
+    A porcentagem continua mandando; o pixel vai AO LADO dela. Trocar uma
+    pela outra seria perder a regra quando o tamanho do quadro mudar.
+    """
+    return int(round(float(pct) / 100.0 * LADO_GERADO_PX))
+
+
+def zonas_da_peca(tipo, blocos=0):
+    """O desenho do quadro em ZONAS, para a peca que tem cartao. "" se nao tem.
+
+    Calculado, nao adivinhado: a faixa do produto sai de `OCUPACAO[tipo]`, a
+    folga de `FOLGA_BORDA_PCT` e o corredor de `CORREDOR_PCT`. O modelo
+    recebe a conta pronta em vez de ter de fazer a conta.
+
+    `blocos` e quantos cartoes a peca tem de fato. Zero — peca sem copy —
+    devolve "": sem cartao nao ha zona de cartao, e inventar uma seria
+    oferecer cartao a quem o prompt acabou de proibir.
+    """
+    n = numero_do_tipo(tipo)
+    if not blocos or n in (1, 4, 8):
+        return ""
+    # AS PECAS DE CENA NAO TEM ZONA, E ISSO E DE PROPOSITO.
+    #
+    # `OCUPACAO[3]`, `[7]` e `[8]` sao None: nelas o tamanho do produto e a
+    # ESCALA REAL na mao de alguem, e nao uma porcentagem do quadro — foi
+    # exigir porcentagem delas que produziu "o produto esta GIGANTE nas maos
+    # da crianca", tres vezes, em 29 e 30/09. Desenhar zona a partir de uma
+    # ocupacao que nao existe seria ressuscitar aquele defeito com outro
+    # nome.
+    _faixa = OCUPACAO.get(n)
+    if not _faixa:
+        return ""
+    _ocup_min = _faixa[0]
+    folga = FOLGA_BORDA_PCT
+    # A ZONA DO PRODUTO E A LARGURA QUE A OCUPACAO JA EXIGE, encostada num
+    # lado; a dos cartoes e o que sobra do outro, menos o corredor. Quando a
+    # conta nao fecha, a peca NAO recebe zona nenhuma em vez de receber uma
+    # zona impossivel — regra que nao cabe e pior que regra nenhuma.
+    _lado_produto = min(_ocup_min, 100 - folga * 2 - CORREDOR_PCT - 20)
+    if _lado_produto < 30:
+        return ""
+    _ini_cart = folga + _lado_produto + CORREDOR_PCT
+    _fim_cart = 100 - folga
+    if _fim_cart - _ini_cart < 20:
+        return ""
+    return (
+        "GEOMETRIA DESTA PEÇA — já calculada, não a recalcule:\n"
+        f"- ZONA DO PRODUTO: de {folga}% a {folga + _lado_produto}% da largura\n"
+        f"  do quadro. O produto vive AQUI, inteiro, sem nada por cima.\n"
+        f"- CORREDOR VAZIO: de {folga + _lado_produto}% a {_ini_cart}% da\n"
+        f"  largura. Nada ocupa esta faixa — nem cartão, nem prop, nem texto.\n"
+        f"  São {em_px(CORREDOR_PCT)} pixels de respiro num quadro de\n"
+        f"  {LADO_GERADO_PX}px, e é o que impede o cartão de encostar no\n"
+        f"  produto.\n"
+        f"- ZONA DOS CARTÕES: de {_ini_cart}% a {_fim_cart}% da largura. Os\n"
+        f"  {blocos} cartões vivem AQUI, empilhados numa coluna, todos com a\n"
+        f"  mesma largura.\n"
+        f"- A folga de {folga}% da borda são {em_px(folga)} pixels num quadro\n"
+        f"  de {LADO_GERADO_PX}px. Nenhum cartão, seta ou legenda entra\n"
+        f"  nesses {em_px(folga)} pixels, em nenhum dos quatro lados.\n"
+        "- As duas zonas NÃO se tocam. Se um cartão não couber na zona dele,\n"
+        "  diminua a ALTURA do cartão — nunca invada o corredor.\n")
+
+
 def regra_de_espaco(tipo):
     """(texto em portugues, linha em ingles) sobre margem e sobreposicao."""
     n = numero_do_tipo(tipo)
@@ -706,6 +804,38 @@ def promessas_sem_lastro(textos, dados_descricao=None):
         if achados:
             fora.append((str(t), sorted(achados.values())))
     return fora
+
+
+def copy_sem_promessa(textos, dados_descricao=None):
+    """(textos_limpos, removidos) — a copy sem o que os dados não sustentam.
+
+    A BARREIRA ENTRE O PLANO E O MOTOR, e ela estava faltando.
+    ----------------------------------------------------------
+    `promessas_sem_lastro` já existia e já AVISAVA na tela. Mas aviso não é
+    barreira: a peça 6 do teste de 05/10 foi ao Gemini com "MANTÉM BEBIDA
+    QUENTE? Sim, térmica em metal e resina" — e o cadastro do produto não
+    tem ensaio térmico nenhum. A IA viu inox e concluiu.
+
+    Gastar uma geração para desenhar perfeitamente um texto que já nasceu
+    errado é o desperdício mais caro desta cadeia: a arte sai boa, o
+    conferidor aprova, e o claim falso vai para a página do produto.
+
+    O BLOCO SAI INTEIRO, E NÃO A PALAVRA. Apagar só "mantém quente" de "A
+    CANECA MANTÉM QUENTE? Sim, térmica" deixaria uma pergunta sem resposta
+    desenhada no cartão. Bloco com promessa sem lastro não vai — e a tela
+    diz qual e por quê, para quem conhece o produto decidir.
+
+    Ela NÃO bloqueia a geração: a peça sai com os blocos que sobraram, e a
+    contagem acompanha (`blocos_em_portugues` lê o número real). Bloquear o
+    lote inteiro por uma palavra seria a máquina de alarme falso que esta
+    base já decidiu não ter.
+    """
+    _fora = {t for t, _ in promessas_sem_lastro(textos, dados_descricao)}
+    if not _fora:
+        return list(textos or []), []
+    limpos = [t for t in (textos or []) if str(t) not in _fora]
+    removidos = [t for t in (textos or []) if str(t) in _fora]
+    return limpos, removidos
 
 
 def plano_misturado(plano, nome_produto):
@@ -1155,6 +1285,16 @@ REGRA DE LAYOUT DO CLOSE (esta peça NÃO é peça gráfica de marketing):
 {texto_real}
 """
 
+INSTRUCAO_LAYOUT_SEM_TEXTO = """
+REGRA DE LAYOUT DESTA PEÇA (ela NÃO tem bloco de texto):
+{nada_sobre_o_produto}
+- Esta peça é FOTOGRAFIA. Não é peça gráfica: PROIBIDO desenhar cartão,
+  painel, caixa de texto, faixa, selo, ícone line-art, tag, callout ou
+  qualquer bloco gráfico sobre a imagem.
+{blocos}
+{texto_real}
+"""
+
 INSTRUCAO_LAYOUT_MARKETING = """
 REGRA DE LAYOUT PARA IMAGENS DE MARKETING (obrigatória para tipos 2, 3, 5, 6 e 7):
 {nada_sobre_o_produto}
@@ -1224,6 +1364,31 @@ def instrucao_de_layout(tipo, blocos, palavras):
     if n == 4:
         return INSTRUCAO_LAYOUT_CLOSE.format(
             blocos=blocos, palavras_close=medida_do_callout(),
+            nada_sobre_o_produto=INSTRUCAO_NADA_SOBRE_O_PRODUTO,
+            texto_real=INSTRUCAO_TEXTO_REAL)
+    # ── A MEDIDA DO CARTAO SO VAI QUANDO HA CARTAO ───────────────────────
+    #
+    # ACHADO EM PRODUCAO, 05/10, e e a METADE QUE FALTOU da correcao de
+    # 02/10 — a Forma 1 cometida dentro do conserto da Forma 1.
+    #
+    # Em 02/10 eu travei a linha que PEDE os blocos: sem copy, ela passou a
+    # dizer "NAO escreva nenhuma palavra". E deixei `{palavras}` saindo
+    # incondicionalmente. Resultado medido no prompt real das pecas 5 e 7:
+    #
+    #   - Esta peca NAO recebeu copy (...) NAO escreva nenhuma palavra
+    #   - Cada bloco: titulo curto em CAIXA ALTA (2 a 4 palavras) + frase...
+    #
+    # Duas linhas seguidas, uma proibindo e a outra ensinando a escrever — e
+    # a segunda e LITERALMENTE o texto que o Gemini desenhou dentro do
+    # cartao no teste anterior ("TITULO CURTO EM CAIXA ALTA: TEXTURA UNICA E
+    # PROFUNDA").
+    #
+    # Sem bloco de texto, nada que fale de cartao entra: nem a medida, nem a
+    # forma, nem a posicao, nem a contagem. O que sobra e a zona limpa e o
+    # texto real — que valem de qualquer jeito.
+    if MARCA_SEM_COPY in blocos:
+        return INSTRUCAO_LAYOUT_SEM_TEXTO.format(
+            blocos=blocos,
             nada_sobre_o_produto=INSTRUCAO_NADA_SOBRE_O_PRODUTO,
             texto_real=INSTRUCAO_TEXTO_REAL)
     return INSTRUCAO_LAYOUT_MARKETING.format(
@@ -5189,6 +5354,17 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
         # escrever as 4 "letra por letra" e a regra de densidade dizia 2. Tres
         # ordens sobre a mesma coisa. Cortar aqui e a unica forma de as duas
         # que sobram concordarem.
+        # A BARREIRA DE CLAIM FICA ANTES DO TETO, e a ordem importa: cortar
+        # pelo teto primeiro poderia manter a promessa sem lastro e jogar
+        # fora um bloco bom que vinha depois dela.
+        #
+        # ACHADO EM PRODUCAO, 05/10. A peca 6 foi ao Gemini com "MANTEM
+        # BEBIDA QUENTE? Sim, termica em metal e resina" — e o cadastro do
+        # produto nao tem ensaio termico nenhum. A IA viu inox e concluiu.
+        # Gastar uma geracao desenhando perfeitamente um texto que ja nasceu
+        # errado e o desperdicio mais caro desta cadeia: a arte sai boa, o
+        # conferidor aprova, e o claim falso vai para a pagina do produto.
+        _textos, _sem_lastro = copy_sem_promessa(_textos, dados_descricao)
         _teto_do_tipo = faixa_de_blocos(tipo)[1]
         if _teto_do_tipo:
             _textos = _textos[:_teto_do_tipo]
@@ -5367,6 +5543,13 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
     _padrao_visual = padrao_visual(direcao_arte)
     # Margem e sobreposicao saem do MESMO lugar, e variam por tipo.
     _espaco_pt, _ = regra_de_espaco(tipo)
+    # A GEOMETRIA ENTRA JUNTO DA REGRA DE ESPACO, e nao solta: as duas falam
+    # da mesma coisa — onde cada parte da peca mora — e separa-las seria
+    # criar a quinta voz sobre a borda, que e o defeito que esta base ja
+    # pagou cinco vezes.
+    _zonas = zonas_da_peca(tipo, _blocos_da_copy)
+    if _zonas:
+        _espaco_pt = _espaco_pt.rstrip("\n") + "\n" + _zonas
 
     _modo = modo_fundo_do_tipo(tipo)
     eh_personalizado = _modo == "personalizado"
@@ -6883,6 +7066,80 @@ def conferir_peca(imagem, fotos_ref=None, tipo=""):
         return None, "A revisão não devolveu veredito."
     except Exception as e:
         return None, f"{type(e).__name__}: {str(e)[:160]}"
+
+
+# ── 8 NA GALERIA NAO E 8 ENTREGUES ────────────────────────────────────────
+#
+# ACHADO NA CONVERSA REAL DO CHAT, 05/10. O dono escreveu "quais nao foram
+# geradas" e o chat respondeu:
+#
+#     "Nenhuma deixou de ser gerada — as 8 estao na galeria."
+#
+# Era verdade e era inutil. Duas daquelas oito estavam com cartao vermelho
+# na tela — "A peca saiu com defeito e nao consegui consertar em 2
+# tentativa(s). Nao publique assim." — e uma terceira com "Texto com erro de
+# portugues (...) em 3 tentativa(s)".
+#
+# O motivo esta em `chat_assistente.py`: o contexto da galeria listava
+# `tipo` e mais nada. O chat nao enxergava veredito nenhum, entao contou
+# slots. E contar slot como entrega e o defeito que o oitavo verificador
+# existe para pegar: o sistema SABE e nao conta.
+#
+# UM DONO SO. A tela e o chat leem daqui. Duas contagens da mesma coisa
+# passam a discordar — a questao e so quando.
+def placar_do_lote(galeria, planejadas=0):
+    """{planejadas, geradas, aprovadas, reprovadas, nao_conferidas, pendentes}.
+
+    APROVADA e a peca cujas DUAS conferencias passaram: a do texto e a da
+    imagem. Uma peca com portugues perfeito e a alca errada nao esta pronta,
+    e uma com a arte certa e "PROFUNDITUDE" escrito tambem nao.
+
+    NAO_CONFERIDA e diferente de reprovada, e a distincao importa: `ok is
+    None` quer dizer que a conferencia nao rodou — a peca pode estar otima
+    ou pessima, e ninguem olhou. Somar as duas esconderia justamente o caso
+    em que o Studio nao sabe.
+    """
+    g = list(galeria or [])
+    planejadas = int(planejadas or 0) or len(g)
+    aprovadas = reprovadas = nao_conferidas = 0
+    for item in g:
+        _vereditos = [(item.get("peca") or {}).get("ok"),
+                      (item.get("texto") or {}).get("ok")]
+        _vistos = [v for v in _vereditos if v is not None]
+        if any(v is False for v in _vereditos):
+            reprovadas += 1
+        elif not _vistos:
+            nao_conferidas += 1
+        else:
+            aprovadas += 1
+    return {
+        "planejadas": planejadas,
+        "geradas": len(g),
+        "aprovadas": aprovadas,
+        "reprovadas": reprovadas,
+        "nao_conferidas": nao_conferidas,
+        "pendentes": max(0, planejadas - len(g)),
+    }
+
+
+def frase_do_placar(placar):
+    """A linha que a tela e o chat dizem sobre o lote. Uma redacao so.
+
+    Ela NUNCA diz "8 de 8" quando ha reprovada: era essa a frase que fazia o
+    dono e o chat discutirem sobre fatos diferentes.
+    """
+    p = placar or {}
+    _ap, _rp = p.get("aprovadas", 0), p.get("reprovadas", 0)
+    _nc, _pd = p.get("nao_conferidas", 0), p.get("pendentes", 0)
+    _pl = p.get("planejadas", 0)
+    partes = [f"{_ap} de {_pl} aprovada(s)"]
+    if _rp:
+        partes.append(f"{_rp} reprovada(s) — não publique")
+    if _nc:
+        partes.append(f"{_nc} não conferida(s)")
+    if _pd:
+        partes.append(f"{_pd} ainda não gerada(s)")
+    return " · ".join(partes)
 
 
 def peca_em_aviso(relato):
@@ -9379,12 +9636,20 @@ def pagina_imagem(usuario_logado):
                 _promessas = promessas_sem_lastro(
                     textos, cfg.get("dados_descricao"))
                 if _promessas:
+                    # DEIXOU DE SER AVISO E VIROU BARREIRA (05/10). Antes a
+                    # tela dizia "confira" e o bloco ia ao motor assim mesmo
+                    # — a peça 6 saiu com "MANTÉM BEBIDA QUENTE? Sim,
+                    # térmica" e o cadastro não tem ensaio térmico nenhum.
+                    # Agora `copy_sem_promessa` tira o bloco antes do prompt,
+                    # e a tela diz QUAL saiu e por quê.
                     st.warning(
-                        "📣 **Promessa que os dados do produto não "
-                        "sustentam** — confira antes de gerar, porque isto "
-                        "vai impresso na peça:\n\n"
+                        "📣 **Bloco(s) removidos: promessa que os dados do "
+                        "produto não sustentam.** A peça vai sair SEM eles — "
+                        "claim que o cadastro não comprova não chega ao "
+                        "gerador. Para que volte, cadastre o dado que o "
+                        "sustenta:\n\n"
                         + "\n".join(
-                            f'- “{_t}” — a palavra **{", ".join(_x)}** não '
+                            f'- ~~“{_t}”~~ — a palavra **{", ".join(_x)}** não '
                             f'aparece no material, nos diferenciais, nas '
                             f'características nem no uso cadastrados.'
                             for _t, _x in _promessas))
@@ -10181,6 +10446,19 @@ def pagina_imagem(usuario_logado):
         galeria = st.session_state["img_galeria"]
         nome_gal = st.session_state.get("img_nome_produto", "produto")
         codigo_gal = st.session_state.get("img_codigo", "")
+
+        # ── O PLACAR DO LOTE, ANTES DE QUALQUER OUTRA COISA ──────────────────
+        #
+        # "8 na galeria" nao e "8 entregues". No teste de 05/10 havia DUAS
+        # pecas com cartao vermelho de "nao publique assim" e o chat
+        # respondeu ao dono "nenhuma deixou de ser gerada — as 8 estao na
+        # galeria". Os dois estavam falando de coisas diferentes.
+        _placar = placar_do_lote(
+            galeria, st.session_state.get("img_planejadas") or len(galeria))
+        if _placar["reprovadas"] or _placar["nao_conferidas"] or _placar["pendentes"]:
+            st.warning(f"📋 **Lote:** {frase_do_placar(_placar)}")
+        else:
+            st.success(f"📋 **Lote:** {frase_do_placar(_placar)}")
 
         # ── DIAGNÓSTICO DA GERAÇÃO ────────────────────────────────────────────
         # Sem isto não há como saber se uma imagem ruim veio de prompt errado ou
@@ -11676,8 +11954,21 @@ if __name__ == "__main__":
     _COPY_REAL_P2 = ["PROTEÇÃO: contra poeira e impactos",
                      "ORGANIZAÇÃO: espaço organizado e seguro",
                      "MADEIRA NATURAL: durável e elegante"]
+    # O CADASTRO SUSTENTA A COPY, e isso passou a importar em 05/10: a
+    # barreira de claim (`copy_sem_promessa`) tira o bloco cuja promessa o
+    # cadastro nao comprova, e "MADEIRA NATURAL: DURAVEL e elegante" com
+    # cadastro de `medidas` so saia — a guarda media 3 blocos e recebia 2.
+    #
+    # A entrada passa a ser a de um produto REAL, com material e
+    # diferenciais preenchidos. Enfraquecer a barreira para a guarda passar
+    # seria consertar o termometro; completar o cadastro e o que um produto
+    # de verdade tem.
     _p1_tte = montar_prompt_imagem(
-        "2 — Benefícios do produto", "", {"medidas": "8x33x11"}, "caixa",
+        "2 — Benefícios do produto", "",
+        {"medidas": "8x33x11", "material": "madeira natural maciça",
+         "diferenciais": "madeira durável, proteção contra poeira e impactos, "
+                         "espaço organizado e seguro"},
+        "caixa",
         plano_triagem={"composicao": "x", "cena": "y",
                        "textos": _COPY_REAL_P2})
 
@@ -11834,6 +12125,224 @@ if __name__ == "__main__":
     _t7 = [t for t in TIPOS_PADRAO if numero_do_tipo(t) == 7]
     ok("o tipo de teto 1 (Presenteie) nao escapa pela porta do lado",
        _t7 and "NÃO escreva nenhuma palavra" in blocos_em_portugues(_t7[0], 0))
+
+    # ── SEM COPY, NADA QUE FALE DE CARTAO ENTRA NO PROMPT ────────────────
+    #
+    # A METADE QUE FALTOU da correcao de 02/10, achada no prompt real de
+    # 05/10 (pecas 5 e 7). Eu travei a linha que PEDE os blocos e deixei a
+    # medida do cartao saindo incondicionalmente. O prompt dizia, em duas
+    # linhas seguidas: "NAO escreva nenhuma palavra" e "Cada bloco: titulo
+    # curto em CAIXA ALTA (2 a 4 palavras) + frase de 8 a 9 palavras".
+    #
+    # A segunda e LITERALMENTE o texto que o Gemini desenhou dentro do
+    # cartao no teste anterior. Proibir a frase e deixar a receita dela ao
+    # lado e a Forma 1 cometida dentro do conserto da Forma 1.
+    _marcas_de_cartao = ("CAIXA ALTA", "FORMA DO CARTÃO", "UMA coluna vertical",
+                         "QUANTIDADE DE CARTÕES", "cartões empilhados")
+    for _t_sc in TIPOS_PADRAO:
+        _r_sc = instrucao_de_layout(
+            _t_sc, blocos_em_portugues(_t_sc, 0), medida_do_bloco())
+        _achou = [m for m in _marcas_de_cartao if m in _r_sc]
+        ok(f"sem copy, o tipo {numero_do_tipo(_t_sc)} nao recebe regra de cartao",
+           not _achou)
+        if _achou:
+            print("      ainda fala de:", ", ".join(_achou))
+    # E COM COPY nada mudou: quem TEM texto continua recebendo a regra.
+    ok("com copy, a peca de cartao continua recebendo a medida",
+       "CAIXA ALTA" in instrucao_de_layout(
+           "2 — Benefícios do produto",
+           blocos_em_portugues("2 — Benefícios do produto", 3),
+           medida_do_bloco()))
+    ok("e a de cartao continua recebendo a forma",
+       "FORMA DO CARTÃO" in instrucao_de_layout(
+           "6 — Quebra de objeção",
+           blocos_em_portugues("6 — Quebra de objeção", 3),
+           medida_do_bloco()))
+    # A peca sem texto NAO perde o que vale de qualquer jeito.
+    _r_sem = instrucao_de_layout(
+        "5 — Características técnicas (medidas/peso/material)",
+        blocos_em_portugues("5 — Características técnicas (medidas/peso/material)", 0),
+        medida_do_bloco())
+    ok("mas ela mantem a proibicao de sobrepor o produto",
+       "JAMAIS sobreponha texto" in _r_sem)
+    ok("e mantem a regra de texto real",
+       "REGRA DE TEXTO REAL" in _r_sem)
+
+    # ── A GEOMETRIA E CALCULADA, E NAO ADIVINHADA PELO MODELO ───────────
+    #
+    # ACHADO comparando o prompt que gerou errado com o que gerou certo no
+    # teste de 05/10: os oito prompts iniciais sao IDENTICOS aos finais. O
+    # que mudou foi so o que as correcoes acrescentaram depois de o dono
+    # reclamar tres vezes — e nao era regra nova, era a MESMA regra em outra
+    # unidade: "nao sobreponha" virou "ZONA ESQUERDA 0-50%, ZONA DIREITA
+    # 55-97%, corredor vazio entre as duas".
+    ok("a folga em pixel sai da porcentagem, e nao de um numero escrito",
+       em_px(FOLGA_BORDA_PCT) == round(FOLGA_BORDA_PCT / 100 * LADO_GERADO_PX))
+    _z6 = zonas_da_peca("6 — Quebra de objeção", 4)
+    ok("a peca de cartao recebe zona do produto, corredor e zona dos cartoes",
+       all(x in _z6 for x in ("ZONA DO PRODUTO", "CORREDOR VAZIO",
+                              "ZONA DOS CARTÕES")))
+    ok("e a quantidade de cartoes da zona e a que a copy trouxe",
+       "4 cartões vivem AQUI" in _z6)
+    ok("a folga aparece em PIXEL ao lado da porcentagem",
+       f"{em_px(FOLGA_BORDA_PCT)} pixels" in _z6)
+    # AS ZONAS NAO PODEM SE TOCAR — e esta e a conta, nao a frase.
+    import re as _re_z
+    _nums = [int(x) for x in _re_z.findall(r"de (\d+)% a (\d+)%", _z6)[0]]
+    _fim_prod = int(_re_z.findall(r"ZONA DO PRODUTO: de \d+% a (\d+)%", _z6)[0])
+    _ini_cart = int(_re_z.findall(r"ZONA DOS CARTÕES: de (\d+)%", _z6)[0])
+    # O CORREDOR SE MEDE CONTRA UM MINIMO REAL, E NAO CONTRA A CONSTANTE.
+    #
+    # A primeira versao desta linha dizia `>= CORREDOR_PCT`. Com a mutacao
+    # `CORREDOR_PCT = 0` ela virava `>= 0` — verdade sem medir nada, e a
+    # guarda ficou VERDE com as duas zonas encostadas. E a 16a entrada do
+    # `checar_mutacao` de novo: assercao que usa o valor mutado como
+    # referencia nao mede o valor, mede a si mesma.
+    ok("entre o fim do produto e o inicio dos cartoes ha corredor de verdade",
+       _ini_cart - _fim_prod >= 3)
+    ok("e o corredor em pixel nao e zero",
+       em_px(_ini_cart - _fim_prod) >= 30)
+    # PECA SEM COPY NAO GANHA ZONA DE CARTAO: seria oferecer cartao a quem o
+    # prompt acabou de proibir de escrever.
+    ok("peca sem copy nao recebe zona nenhuma",
+       zonas_da_peca("6 — Quebra de objeção", 0) == "")
+    # AS PECAS DE CENA TAMBEM NAO: nelas o tamanho e a escala real, e exigir
+    # porcentagem delas foi o que produziu o produto gigante na mao da
+    # crianca, tres vezes.
+    for _t_cena in TIPOS_PADRAO:
+        if OCUPACAO.get(numero_do_tipo(_t_cena)) is None:
+            ok(f"a peca de cena {numero_do_tipo(_t_cena)} nao recebe zona",
+               zonas_da_peca(_t_cena, 3) == "")
+    # E A GEOMETRIA CHEGA AO PROMPT, nao basta a funcao existir.
+    _p_z = montar_prompt_imagem(
+        "6 — Quebra de objeção", "", {}, "Caneca",
+        plano_triagem={"composicao": "x", "cena": "y",
+                       "textos": ["A: um", "B: dois", "C: tres", "D: quatro"]})
+    ok("a geometria calculada chega ao prompt da peca",
+       "GEOMETRIA DESTA PEÇA" in _p_z and "CORREDOR VAZIO" in _p_z)
+
+    # ── 8 NA GALERIA NAO E 8 ENTREGUES ──────────────────────────────────
+    #
+    # ACHADO NA CONVERSA REAL DE 05/10: o dono perguntou quais nao sairam e
+    # o chat respondeu "nenhuma deixou de ser gerada — as 8 estao na
+    # galeria", com DUAS delas marcadas "nao publique assim" na tela.
+    #
+    # A ENTRADA E A FORMA QUE A TELA MONTA: cada item tem `peca` e `texto`,
+    # os dois relatos que `revisar_tudo` devolve (imagem.py ~10136). Nao e
+    # um dicionario inventado aqui.
+    _gal = [
+        {"tipo": "1 — Capa", "peca": {"ok": True}, "texto": {"ok": True}},
+        {"tipo": "2 — Benefícios", "peca": {"ok": False,
+                                            "problemas": ["cartões sobre o produto"]},
+         "texto": {"ok": True}},
+        {"tipo": "5 — Técnicas", "peca": {"ok": True},
+         "texto": {"ok": False, "problemas": ["PROFUNDITUDE"]}},
+        {"tipo": "6 — Objeção", "peca": {"ok": None}, "texto": {"ok": None}},
+    ]
+    _pl = placar_do_lote(_gal, 8)
+    ok("a peca com defeito de IMAGEM conta como reprovada",
+       _pl["reprovadas"] == 2)
+    ok("a peca com defeito de TEXTO tambem — portugues errado nao publica",
+       any(g.get("texto", {}).get("ok") is False for g in _gal))
+    ok("so conta aprovada quem passou nas DUAS conferencias",
+       _pl["aprovadas"] == 1)
+    ok("nao conferida e diferente de reprovada", _pl["nao_conferidas"] == 1)
+    ok("e o que nao foi gerado aparece como pendente", _pl["pendentes"] == 4)
+    ok("a frase NUNCA diz '8 de 8' havendo reprovada",
+       "8 de 8" not in frase_do_placar(_pl)
+       and "reprovada" in frase_do_placar(_pl))
+    # LOTE PERFEITO: a frase nao inventa problema que nao existe.
+    _pl_ok = placar_do_lote([{"peca": {"ok": True}, "texto": {"ok": True}}] * 8, 8)
+    ok("lote inteiro aprovado diz 8 de 8 e mais nada",
+       frase_do_placar(_pl_ok) == "8 de 8 aprovada(s)")
+    ok("galeria vazia nao derruba o placar",
+       placar_do_lote([], 8)["pendentes"] == 8
+       and placar_do_lote(None)["geradas"] == 0)
+
+    # E O PLACAR CHEGA AOS DOIS LEITORES: a tela e o chat. Guarda que mede
+    # so a funcao deixa passar o dia em que ninguem a chama.
+    # `_fonte_tela` e a fonte de `pagina_imagem` SO — esta guarda vive no
+    # bloco `__main__`, entao ela nao pode se encontrar a si mesma, que e o
+    # defeito que as guardas desta base ja cometeram tres vezes.
+    ok("a tela mostra o placar do lote", "placar_do_lote(" in _fonte_tela)
+    ok("e usa a frase unica, nao uma redacao propria",
+       "frase_do_placar(" in _fonte_tela)
+    import chat_assistente as _chat_pl
+    _fonte_ctx = _inspect_g.getsource(_chat_pl)
+    ok("o contexto do chat carrega o veredito de cada peca",
+       "REPROVADA — não publique" in _fonte_ctx)
+    ok("e o chat e avisado de que estar na galeria nao e estar pronta",
+       "ESTAR NA GALERIA NÃO É ESTAR PRONTA" in _fonte_ctx)
+
+    # ── A PROMESSA SEM LASTRO NAO CHEGA AO MOTOR ────────────────────────
+    #
+    # `promessas_sem_lastro` ja AVISAVA desde 02/10. Aviso nao e barreira: a
+    # peca 6 do teste de 05/10 foi ao Gemini com "MANTEM BEBIDA QUENTE? Sim,
+    # termica em metal e resina" e o cadastro nao tem ensaio termico nenhum.
+    # A arte saiu boa, o conferidor aprovou, e o claim falso iria para a
+    # pagina do produto.
+    _dd_cl = {"material": "Metal e Resina",
+              "diferenciais": "interior em inox diferencia de canecas decorativas"}
+    _copy_cl = ["A ALÇA CABE NA MÃO?: Sim, medidas 5,2cm",
+                "MANTÉM BEBIDA QUENTE?: Sim, térmica em metal e resina",
+                "É SÓ DECORATIVA?: Não, interior inox"]
+    _limpos, _fora_cl = copy_sem_promessa(_copy_cl, _dd_cl)
+    ok("o bloco sem lastro sai da copy", len(_fora_cl) == 1
+       and "MANTÉM BEBIDA QUENTE" in _fora_cl[0])
+    ok("e os que o cadastro sustenta ficam", len(_limpos) == 2)
+    # O BLOCO SAI INTEIRO, e nao so a palavra: apagar "mantem quente" de uma
+    # PERGUNTA deixaria o cartao com pergunta e sem resposta.
+    ok("o bloco sai inteiro, nao a palavra",
+       all("MANTÉM" not in t for t in _limpos))
+    ok("sem dados cadastrados, nada passa com promessa",
+       copy_sem_promessa(["RESISTENTE: aguenta queda"], {})[0] == [])
+    ok("copy sem promessa nenhuma atravessa inteira",
+       copy_sem_promessa(["DESIGN ÚNICO: foge do padrão"], _dd_cl)[0]
+       == ["DESIGN ÚNICO: foge do padrão"])
+    # E A BARREIRA ESTA NO CAMINHO, nao so na funcao: a cadeia inteira.
+    _p_cl = montar_prompt_imagem(
+        "6 — Quebra de objeção", "", _dd_cl, "Caneca",
+        plano_triagem={"composicao": "x", "cena": "y", "textos": _copy_cl})
+    ok("o claim sem lastro NAO chega ao prompt",
+       "MANTÉM BEBIDA QUENTE" not in _p_cl)
+    ok("e os dois que tem lastro chegam",
+       "A ALÇA CABE NA MÃO" in _p_cl and "SÓ DECORATIVA" in _p_cl)
+    # A CONTAGEM ACOMPANHA: tirar bloco e nao corrigir o numero deixaria o
+    # prompt pedindo 3 cartoes com 2 textos — o defeito de 30/09.
+    ok("a contagem de blocos acompanha a remocao",
+       "exatamente 2 bloco" in _p_cl)
+    ok("a tela diz que o bloco foi REMOVIDO, e nao so que e suspeito",
+       "Bloco(s) removidos" in _fonte_tela)
+
+    # A ORDEM — BARREIRA ANTES DO TETO — E ISSO SE MEDE, nao se declara.
+    #
+    # A primeira versao deste bloco tinha um comentario dizendo que a ordem
+    # importa, e a mutacao que trocava a ordem passou VERDE: nenhuma guarda
+    # media. Comentario que afirma o que nenhuma assercao cobre e a Forma 3
+    # — dizer verde sobre o que o verificador nao le.
+    #
+    # Ela importa quando a copy vem com MAIS blocos que o teto e um dos
+    # primeiros nao tem lastro: cortar pelo teto primeiro guarda o ruim e
+    # joga fora um bom que vinha depois.
+    _dd_ord = {"material": "inox", "diferenciais": "cabe na mao, nao escorrega, "
+                                                   "lava na maquina, empilha, "
+                                                   "nao enferruja"}
+    _copy_ord = ["RESISTENTE: aguenta queda",          # <- SEM lastro
+                 "CABE NA MÃO: pega confortável",
+                 "NÃO ESCORREGA: base firme",
+                 "LAVA NA MÁQUINA: sem cuidado especial",
+                 "EMPILHA: ocupa pouco armário",
+                 "NÃO ENFERRUJA: inox de verdade"]      # <- bom, e e o 6o
+    _p_ord = montar_prompt_imagem(
+        "2 — Benefícios do produto", "", _dd_ord, "Caneca",
+        plano_triagem={"composicao": "x", "cena": "y", "textos": _copy_ord})
+    ok("com a barreira ANTES do teto, o bloco sem lastro sai",
+       "RESISTENTE: aguenta queda" not in _p_ord)
+    ok("e o bom que vinha depois do teto ENTRA no lugar dele",
+       "NÃO ENFERRUJA" in _p_ord)
+    ok("a peca fica com o teto cheio de blocos bons",
+       f"exatamente {faixa_de_blocos('2 — Benefícios do produto')[1]} bloco"
+       in _p_ord)
     # COM copy nada mudou: a peca que TEM texto continua pedindo o numero.
     ok("com copy, o numero continua fechado",
        all("exatamente 3 bloco" in x for x in _bp_com))
