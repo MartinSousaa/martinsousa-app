@@ -267,6 +267,23 @@ def faixa_de_blocos(tipo):
     return BLOCOS.get(numero_do_tipo(tipo), (3, 5))
 
 
+# A LINHA DO "SEM COPY" PRECISA DE MARCA, PORQUE ALGUEM A REESCREVE.
+#
+# ACHADO EM PRODUCAO, 05/10, na peca 5 da Caneca Termica Medieval.
+#
+# Ate 02/10 a peca sem copy recebia "- Esta peca tem exatamente N bloco(s)",
+# e `trocar_texto_exato` — o caminho do AJUSTE, que injeta a copy corrigida
+# — reescrevia aquele N com um regex de `exatamente \d+ bloco`. Troquei a
+# frase por uma SEM NUMERO, e o regex deixou de casar: o prompt foi ao
+# Gemini dizendo "NAO escreva nenhuma palavra" e, doze linhas abaixo,
+# "escreva EXATAMENTE estas palavras, letra por letra".
+#
+# O acoplamento era por TEXTO, e por isso `checar_impacto` nao viu: ele
+# procura nome com leitor fora, e aqui o leitor le uma FRASE. A marca
+# resolve: quem injeta copy tem onde apagar a ordem antiga.
+MARCA_SEM_COPY = "- Esta peça NÃO recebeu copy:"
+
+
 def blocos_em_portugues(tipo, pedidos=0):
     """A linha de densidade que entra no prompt em portugues.
 
@@ -303,7 +320,7 @@ def blocos_em_portugues(tipo, pedidos=0):
     #
     # Entao sem copy a peca sai SEM TEXTO. Peca limpa e aproveitavel; peca com
     # medida inventada e pior que peca nenhuma, porque mente com cara de dado.
-    return ("- Esta peça NÃO recebeu copy: o plano voltou sem texto para ela. "
+    return (MARCA_SEM_COPY + " o plano voltou sem texto para ela. "
             "Por isso ela não tem bloco de texto nenhum. NÃO escreva nenhuma "
             "palavra, nenhum título, nenhum cartão, nenhuma legenda, nenhum "
             "rótulo e nenhuma medida na imagem — nem para preencher espaço, "
@@ -4784,6 +4801,38 @@ MARCA_TEXTO_EXATO = "━━━ TEXTO EXATO A ESCREVER (copie letra por letra) �
 MARCA_FIM_TEXTO_EXATO = "━━━ FIM DO TEXTO EXATO ━━━"
 
 
+def _sincronizar_contagem(prompt, bloco_novo):
+    """O prompt com a CONTAGEM de blocos alinhada ao texto que entrou.
+
+    Trocar o texto sem trocar o numero e deixar duas vozes sobre a mesma
+    coisa — o defeito que mais custou nesta base.
+
+    DOIS FORMATOS, E O SEGUNDO QUASE PASSOU. A peca com copy diz "- Esta
+    peca tem exatamente N bloco(s)", e basta trocar o N. A peca SEM copy diz
+    "- Esta peca NAO recebeu copy (...) NAO escreva nenhuma palavra" — uma
+    frase sem numero nenhum. Injetar copy nela e dizer que agora HA copy: a
+    frase inteira sai e a contagem entra no lugar, com a mesma redacao do
+    caminho normal.
+
+    Medido no prompt real de 05/10: sem isto, a peca 5 recebeu as duas
+    ordens, e o gerador escolheu.
+    """
+    _n = len([l for l in bloco_novo.splitlines()
+              if _re_quadro.match(r"^\s+\d+\.\s", l)])
+    if not _n:
+        return prompt
+    saida = _re_quadro.sub(
+        r"(- Esta peça tem exatamente )\d+( bloco)",
+        lambda _m: f"{_m.group(1)}{_n}{_m.group(2)}", prompt)
+    if MARCA_SEM_COPY in saida:
+        saida = "\n".join(
+            (f"- Esta peça tem exatamente {_n} bloco(s) de texto, e são os "
+             f"do bloco de TEXTO EXATO. Não acrescente nenhum outro.")
+            if l.startswith(MARCA_SEM_COPY) else l
+            for l in saida.split("\n"))
+    return saida
+
+
 def trocar_texto_exato(prompt, textos):
     """O prompt com o bloco de texto SUBSTITUÍDO — nunca somado.
 
@@ -4824,7 +4873,12 @@ def trocar_texto_exato(prompt, textos):
     i = base.find(MARCA_TEXTO_EXATO)
     novo = bloco_texto_exato(textos)
     if i < 0:
-        return base + novo
+        # PROMPT SEM BLOCO DE TEXTO — e exatamente o caminho da peca que o
+        # plano devolveu sem copy. Ele saia por aqui ANTES de qualquer
+        # sincronia, e foi assim que a peca 5 da Caneca Termica Medieval foi
+        # ao Gemini com "NAO escreva nenhuma palavra" e "escreva EXATAMENTE
+        # estas palavras" na mesma mensagem (05/10, medido no prompt real).
+        return _sincronizar_contagem(base + novo, novo)
     f = base.find(MARCA_FIM_TEXTO_EXATO, i)
     if f >= 0:
         fim = f + len(MARCA_FIM_TEXTO_EXATO)
@@ -4860,13 +4914,7 @@ def trocar_texto_exato(prompt, textos):
     #
     # Trocar o texto sem trocar o número é deixar duas vozes sobre a mesma
     # coisa — o defeito que mais custou nesta base.
-    _n = len([l for l in novo.splitlines()
-              if _re_quadro.match(r"^\s+\d+\.\s", l)])
-    if _n:
-        trocado = _re_quadro.sub(
-            r"(- Esta peça tem exatamente )\d+( bloco)",
-            lambda _m: f"{_m.group(1)}{_n}{_m.group(2)}", trocado)
-    return trocado
+    return _sincronizar_contagem(trocado, novo)
 
 
 def _campo_ambientacao(sufixo):
@@ -11744,6 +11792,45 @@ if __name__ == "__main__":
             _ast_g.Module(body=_no.orelse, type_ignores=[]))
         for _no in _ast_g.walk(_ast_g.parse(_fonte_tela)))
     ok("peca sem copy avisa NA TELA, antes de gastar a geracao", _tem_aviso)
+
+    # ── INJETAR COPY NUMA PECA "SEM COPY" APAGA A ORDEM CONTRARIA ────────
+    #
+    # ACHADO EM PRODUCAO, 05/10, no prompt real da Caneca Termica Medieval:
+    # a peca 5 foi ao Gemini com "NAO escreva nenhuma palavra, nenhum titulo,
+    # nenhum cartao" E, doze linhas abaixo, "escreva EXATAMENTE estas
+    # palavras, letra por letra, acima de qualquer outra instrucao de texto".
+    #
+    # O defeito foi MEU e nasceu da correcao de 02/10: a linha do "sem copy"
+    # deixou de ter numero, e `trocar_texto_exato` — que sincroniza a
+    # contagem por um regex de `exatamente \d+ bloco` — nao tinha mais o que
+    # casar. Pior: num prompt SEM bloco de texto ela saia por um `return`
+    # antecipado e nem chegava na sincronia.
+    #
+    # A cadeia e exercitada INTEIRA: o prompt nasce de `montar_prompt_imagem`
+    # com `textos: []`, como a tela monta, e nao de uma string escrita aqui.
+    _p_sem = montar_prompt_imagem(
+        "5 — Características técnicas (medidas/peso/material)", "",
+        {"medidas": "altura 30mm", "peso": "326g"}, "Caneca",
+        plano_triagem={"composicao": "x", "cena": "y", "textos": []})
+    ok("a peca sem copy nasce proibindo escrever", MARCA_SEM_COPY in _p_sem)
+    ok("e sem bloco de TEXTO EXATO", MARCA_TEXTO_EXATO not in _p_sem)
+    _p_aj = trocar_texto_exato(_p_sem, ["ALTURA 30mm", "PESO 326g",
+                                        "MATERIAL metal e resina"])
+    ok("injetada a copy, a ordem de NAO escrever SAI",
+       MARCA_SEM_COPY not in _p_aj)
+    ok("e o bloco de TEXTO EXATO entra", MARCA_TEXTO_EXATO in _p_aj)
+    ok("com a contagem batendo com o que entrou",
+       "exatamente 3 bloco" in _p_aj)
+    # E O CAMINHO QUE JA FUNCIONAVA continua funcionando: peca COM copy.
+    _p_com = montar_prompt_imagem(
+        "2 — Benefícios do produto", "", {}, "Caneca",
+        plano_triagem={"composicao": "x", "cena": "y",
+                       "textos": ["UM: frase", "DOIS: frase", "TRES: frase"]})
+    _p_com2 = trocar_texto_exato(_p_com, ["UM: outra", "DOIS: outra"])
+    ok("peca COM copy: a contagem segue o texto novo",
+       "exatamente 2 bloco" in _p_com2)
+    ok("e ela nunca ganha a frase de 'sem copy'",
+       MARCA_SEM_COPY not in _p_com2)
 
     # ── PROMESSA SEM LASTRO ───────────────────────────────────────────────
     #
