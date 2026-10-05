@@ -52,6 +52,64 @@ MUTACOES = [
         ["python3", "checar_tela.py"],
     ),
     (
+        'a Reserva volta a ficar fora do Balanco headcount',
+        "headcount.py",
+        [('    _rt.conteudo(usuario_logado)\n', '    pass\n')],
+        None,
+        ["python3", "checar_tela.py"],
+    ),
+    (
+        'o card do colaborador volta a ter a conta do bonus propria',
+        "analise_metas.py",
+        [('            meta_col_batida = _b["col"]\n',
+          '            meta_col_batida = _sit_pen["bateu_col"] and _entra_col\n')],
+        None,
+        ["python3", "analise_metas.py"],
+    ),
+    (
+        'as devolucoes voltam a puxar os ultimos meses quando o mes nao tem',
+        "home_gestao.py",
+        [('    linhas_top, sub_top = (dev_mes or []), "no mês"\n',
+          '    linhas_top, sub_top = (dev_mes or dev_todas), "no mês"\n')],
+        None,
+        ["python3", "home_gestao.py"],
+    ),
+    (
+        'a fatura do cartao volta a gravar as linhas sem classificar',
+        "extratos_tela.py",
+        [('        _novos, _reps, _err = _lan_fat.gravar(classificados, _conta_fat,\n',
+          '        _novos, _reps, _err = _lan_fat.gravar(lancs, _conta_fat,\n')],
+        None,
+        ["python3", "extratos_tela.py"],
+    ),
+    (
+        'as assinaturas voltam a ser conferidas no mes que acabou de comecar',
+        "assinaturas_tela.py",
+        [('    atual = mes_conferido()\n', '    atual = _meses_recentes(1)[0]\n')],
+        None,
+        ["python3", "assinaturas_tela.py"],
+    ),
+    (
+        'o LPV negativo volta a ser regravado pelo Salvar',
+        "financeiro.py",
+        [('                "em branco."))\n            lpv = None\n',
+          '                "em branco."))\n')],
+        None,
+        ["python3", "financeiro.py"],
+    ),
+    (
+        'a Monique volta ao quadro CLT',
+        "colaboradores.py",
+        [('    {"funcionario": "Gabriel", "cargo": "Analista de Marketing",\n'
+          '     "salario_base": 3000.00, "registrado": "Sim"},\n',
+          '    {"funcionario": "Gabriel", "cargo": "Analista de Marketing",\n'
+          '     "salario_base": 3000.00, "registrado": "Sim"},\n'
+          '    {"funcionario": "Monique", "registrado": "Não",\n'
+          '     "salario_base": 2400.00, "no_aporte": "Não"},\n')],
+        None,
+        ["python3", "colaboradores.py"],
+    ),
+    (
         'o lucro liquido volta a descontar o LPV no lugar do custo fixo',
         "home_gestao.py",
         [('    _ll_venda = ((_mc_venda - _cf_venda)\n',

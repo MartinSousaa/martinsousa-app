@@ -2263,6 +2263,77 @@ def _lucro_liquido_custo_fixo(conta):
          hg._partes_fixas, hg._gastos_por_finalidade) = _guardado
 
 
+def _balanco_headcount(conta):
+    """O Balanço headcount novo (05/10) desenha inteiro, com a Reserva dentro.
+
+    Só a leitura é trocada: a grade de colaboradores é a SUGESTÃO do código
+    passada pelo `folha_clt` de verdade, e a apuração das metas sai de
+    `analise_metas.apuracao_bonus` de verdade, sobre um mês montado na forma
+    de `_analisar_meses` (conferida em `headcount.py`). O que se confere: a tela monta, o bônus chega ao
+    quadro, e a Reserva e os aportes aparecem dentro dela.
+    """
+    import pandas as pd
+    import ajustes as _aj
+    import auth as _au
+    import colaboradores as _co
+    import folha_salarial as _fs
+    import headcount as _hc
+    import reserva_tela as _rt
+    import tabela_tributos as _tt
+
+    _guard = (_co.carregar, _aj.carregar, _hc._apurado_do_mes, _tt.carregar,
+              _au.eh_dono, _rt.carregar, _fs.carregar, _hc.carregar,
+              _hc.carregar_params, _co.carregar_taxas)
+    try:
+        _pad = {"cargo": _co.CARGO_PADRAO, "registrado": "Sim",
+                "salario_base": _co.SALARIO_PADRAO, "admissao": "2026-01",
+                "dias_uteis": 22, "no_aporte": "Sim"}
+        _co.carregar = lambda *a, **k: pd.DataFrame(
+            [{**_pad, **p} for p in _co.SUGESTOES])
+        _co.carregar_taxas = lambda *a, **k: _co.taxas_padrao()
+        _aj.carregar = lambda *a, **k: pd.DataFrame(columns=_aj.COLUNAS)
+        # A apuração na FORMA que `analise_metas.apuracao_bonus` devolve —
+        # a cadeia real dela é conferida em `python3 headcount.py`. Aqui não
+        # se importa o Painel de Metas: o `@st.fragment` dele não roda no
+        # duplo, e a tela do Balanço só lê o resultado.
+        _ap = {"g": {"col": True, "maxx": False, "ind": True,
+                     "ind_maxx": False, "pct_time": 12.0, "pct_seu": 8.0}}
+        _hc._apurado_do_mes = lambda *a, **k: (
+            _ap, {"g": "Gabriel"}, {"bateu_col": True, "bateu_maxx": False}, "")
+        _tt.carregar = lambda *a, **k: (pd.DataFrame(columns=_tt.COLUNAS), "")
+        _au.eh_dono = lambda *a, **k: True
+        _rt.carregar = lambda *a, **k: (dict(_rt._rv.POSICAO_INICIAL), "inicial")
+        _fs.carregar = lambda *a, **k: pd.DataFrame(columns=_fs.COLUNAS)
+        _hc.carregar = lambda *a, **k: pd.DataFrame(columns=_hc.COLUNAS)
+        _hc.carregar_params = lambda *a, **k: _hc.parametros_padrao()
+        _falso = instalar()
+        for _m in (_hc, _rt, _co, _tt, _fs, _aj):
+            _m.st = _falso
+        _textos = []
+        _md = _falso.markdown
+        def _grava(t="", *a, **k):
+            _textos.append(str(t))
+            return _md(t, *a, **k)
+        _falso.markdown = _grava
+        _hc.pagina("martinsousa")
+        _tudo = " ".join(_textos)
+        conta("Balanço headcount monta, com a Reserva dentro", True, "")
+        conta("o bônus do Gabriel chega ao quadro (12% + 8% de 3.000)",
+              "600,00" in _tudo and "360,00" in _tudo, "")
+        conta("e a Reserva e os aportes vêm depois do bônus",
+              _tudo.find("Bônus das metas") < _tudo.find("Reserva do Headcount")
+              < _tudo.find("Aportes e saldos"), "")
+    except (_Rerun, _Parou):
+        conta("Balanço headcount monta, com a Reserva dentro", True, "")
+    except Exception as e:
+        conta("Balanço headcount monta, com a Reserva dentro", False,
+              f"{type(e).__name__}: {e}")
+    finally:
+        (_co.carregar, _aj.carregar, _hc._apurado_do_mes, _tt.carregar,
+         _au.eh_dono, _rt.carregar, _fs.carregar, _hc.carregar,
+         _hc.carregar_params, _co.carregar_taxas) = _guard
+
+
 def main():
     instalar()
     falhas = []
@@ -2306,6 +2377,7 @@ def main():
     _excluir_usuario(conta)
     _remocao_a_vista(conta)
     _lucro_liquido_custo_fixo(conta)
+    _balanco_headcount(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0

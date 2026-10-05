@@ -228,7 +228,8 @@ def _com_pontinhos(opcoes, chave, usuario_logado=None):
 _PONTINHOS_CUSTO_FIXO = dict(FACES_DO_CUSTO)
 _PONTINHOS_CUSTO_FIXO.update({
     "🧮 Balanço headcount":  _balanco_headcount,
-    "🏦 Reserva":            lambda u: _abrir_tela("reserva_tela", u),
+    # A Reserva saiu daqui em 05/10: ela é a parte de baixo do Balanço
+    # headcount, com "Aportes e saldos" dentro dela (pedido do dono).
     "🔁 Assinaturas":        lambda u: _abrir_tela("assinaturas_tela", u),
     "💰 LPV Mensal":         _lpv_mensal,
     "📈 Ajuste de valor":    _ajuste_de_valor,

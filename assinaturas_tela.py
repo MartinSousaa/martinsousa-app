@@ -47,6 +47,11 @@ def _meses_recentes(quantos):
     return fora
 
 
+def mes_conferido():
+    """O último mês FECHADO: é ele que a vigilância confere."""
+    return _meses_recentes(2)[1]
+
+
 def _lancamentos_por_mes(quantos):
     """{(ano, mês): [lançamentos]} — o que o Studio já tem dos extratos.
 
@@ -129,7 +134,17 @@ def _vigilancia(cadastro):
         st.info("Nenhum lançamento nos últimos meses para comparar.")
         return
 
-    atual = _meses_recentes(1)[0]
+    # O MÊS FECHADO, e não o corrente. 05/10: no dia 5, quinze assinaturas
+    # apareciam como "não apareceu neste mês — cancelada?" — o mês mal tinha
+    # começado e a fatura dele nem existia. Cobrança que ainda não venceu não
+    # sumiu. A conferência é do último mês inteiro.
+    atual = mes_conferido()
+    st.caption(f"Conferindo **{atual[1]:02d}/{atual[0]}**, o último mês "
+               "fechado — o mês corrente ainda não teve todas as cobranças.")
+    if not por_mes.get(atual):
+        st.info("Nenhum extrato nem fatura importado desse mês — sem eles não "
+                "há o que conferir.")
+        return
     frases = _as.alertas(cadastro, por_mes, atual[0], atual[1])
     if not frases:
         st.success("Tudo bate com o cadastro. Nenhuma cobrança fora do "
@@ -193,6 +208,9 @@ if __name__ == "__main__":
     ok("e eles retrocedem de verdade",
        all((m[i][0], m[i][1]) != (m[i + 1][0], m[i + 1][1])
            for i in range(3)))
+    ok("a vigilância confere o mês fechado, não o que acabou de começar",
+       mes_conferido() == m[1] and "mes_conferido()" in _codigo
+       and "_meses_recentes(1)[0]" not in _codigo)
     ok("a virada de ano anda para trás certo",
        _meses_recentes(3) == [m[0], m[1], m[2]])
 

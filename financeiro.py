@@ -172,6 +172,14 @@ def lpv_calculado_recente(hoje=None):
     return None
 
 
+def lpv_valido(v):
+    """LPV só vale positivo. Zero ou negativo é extrato faltando, não custo."""
+    try:
+        return float(v) > 0
+    except (TypeError, ValueError):
+        return False
+
+
 def lpv_vigente(df, hoje=None):
     """(lpv, origem) — o LPV que a Viabilidade, a Home e o assistente usam.
 
@@ -447,11 +455,26 @@ def pagina_financeiro(usuario_logado=None):
                                  value=(formatar_br(v_lpv) if pd.notna(v_lpv) else ""),
                                  key=f"lpv_{ano}_{i}", placeholder="ex: 22,00")
         _lpv_c = (_calc.get(i) or {}).get("lpv")
+        _mot_c = (_calc.get(i) or {}).get("motivo")
         if _lpv_c is not None:
             st.caption(_rot.tela(f"Calculado pelo Studio: R$ {formatar_br(_lpv_c)}"))
+        elif _mot_c:
+            st.caption(_rot.tela(f"Calculado pelo Studio: não dá — {_mot_c}"))
         lpv = parse_numero_br(txt_lpv)
         if lpv is None and txt_lpv:
             st.error(f"{nome_mes}: valor não reconhecido.")
+        elif lpv is not None and not lpv_valido(lpv):
+            # 05/10: setembro aparecia com -0,21. O botão "gravar o
+            # calculado" levou para a planilha um C.O negativo (extratos do
+            # mês incompletos) ANTES da trava de `lpv_mensal`. Nenhum leitor
+            # usa esse valor (`_lpv_digitado` só aceita > 0), mas o campo o
+            # mostrava como se valesse — e "Salvar" o regravava.
+            st.error(_rot.tela(
+                f"{nome_mes}: LPV de R$ {formatar_br(lpv)} não vale — custo "
+                "por venda zero ou negativo quer dizer extrato faltando no "
+                "mês. Nenhuma conta usa este número, e ao salvar o mês fica "
+                "em branco."))
+            lpv = None
         elif lpv is not None:
             st.caption(_rot.tela(f"Entendido como -> R$ {formatar_br(lpv)}"))
 
@@ -575,5 +598,13 @@ if __name__ == "__main__":
     finally:
         _lm_t.do_ano = _g_do_ano
 
+    # 05/10: setembro aparecia com -0,21 no campo e "Salvar" o regravava.
+    ok("LPV negativo ou zero não vale", not lpv_valido(-0.21)
+       and not lpv_valido(0) and lpv_valido(19.68) and not lpv_valido(None))
+    import inspect as _insp_f
+    _pg_f = open(__file__, encoding="utf-8").read().split("if __name__")[0]
+    ok("o campo do LPV mensal recusa negativo e salva em branco",
+       "elif lpv is not None and not lpv_valido(lpv):" in _pg_f
+       and '"em branco."))\n            lpv = None\n' in _pg_f)
     print("\nfalhas:", falhas)
     raise SystemExit(1 if falhas else 0)
