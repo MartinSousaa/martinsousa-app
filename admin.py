@@ -33,6 +33,38 @@ def _atualizar_campo(login, campo, valor):
             return
 
 
+def _desativar_usuario(login):
+    """Tira o acesso: `ativo` = Não, e o link salvo deixa de entrar."""
+    _atualizar_campo(login, "ativo", "Não")
+    auth.revogar_tokens(login)
+
+
+def _remover_usuario(login, usuario_logado=""):
+    """Apaga a linha do usuário na aba `usuarios`. (ok, mensagem).
+
+    Para login criado por engano — "Brumielly" e "Brunielly" no mesmo dia.
+    Revoga os tokens junto: sem isso, o link salvo continuava entrando.
+    Não apaga quem está logado: excluir a si mesmo trancaria o Administrativo
+    no meio do clique. A Equipe medida é outra lista e não é tocada aqui.
+    """
+    login = str(login or "").strip()
+    if not login:
+        return False, "Nenhum usuário selecionado."
+    if login.lower() == str(usuario_logado or "").strip().lower():
+        return False, "Você não pode excluir o próprio usuário."
+    aba = auth._aba_usuarios()
+    registros = aba.get_all_records(value_render_option="UNFORMATTED_VALUE")
+    linhas = [i for i, r in enumerate(registros, start=2)
+              if str(r.get("login", "")) == login]
+    if not linhas:
+        return False, f"'{login}' não está na aba de usuários."
+    for ln in sorted(linhas, reverse=True):       # de baixo para cima
+        aba.delete_rows(ln)
+    auth.revogar_tokens(login)
+    auth._carregar_usuarios_sheets.clear()
+    return True, f"Usuário '{login}' excluído."
+
+
 def _secao_controle_ms():
     """A leitura do Controle MS está de pé? Que abas ele tem?
 
@@ -482,7 +514,7 @@ def pagina_admin(usuario_logado):
         # Ativar / Desativar
         if ativo_atual:
             if col_a.button("🔴 Desativar acesso", use_container_width=True, key="btn_desativar"):
-                _atualizar_campo(usuario_sel, "ativo", "Não")
+                _desativar_usuario(usuario_sel)
                 auth._carregar_usuarios_sheets.clear()
                 st.success(f"Usuário '{usuario_sel}' desativado.")
                 st.rerun()
@@ -522,9 +554,34 @@ def pagina_admin(usuario_logado):
                     st.error("As senhas não conferem.")
                 else:
                     _atualizar_campo(usuario_sel, "senha_hash", _hash(nova_senha_reset))
+                    # Senha nova derruba os links salvos com a velha.
+                    auth.revogar_tokens(usuario_sel)
                     auth._carregar_usuarios_sheets.clear()
                     st.success(f"Senha de '{usuario_sel}' redefinida.")
                     st.rerun()
+
+        # Excluir fica num expander e pede o login digitado: apagar a linha
+        # não tem desfazer. A key é DESTE usuário — com key fixa, o login
+        # confirmado de um ficaria no campo do próximo selecionado.
+        with st.expander("🗑️ Excluir usuário", expanded=False):
+            st.caption(
+                "Apaga o login da aba de usuários e derruba os links salvos. "
+                "Use para **login criado por engano**. Para quem só não deve "
+                "mais entrar, **Desativar acesso** guarda o registro. A Equipe "
+                "medida (metas e ponto) é outra lista e não muda.")
+            _conf_usr = st.text_input("Digite o login para confirmar",
+                                      key=f"usr_rm_conf_{usuario_sel}",
+                                      placeholder=usuario_sel)
+            if st.button("Excluir definitivamente", key="btn_excluir_usuario",
+                         disabled=_conf_usr.strip() != usuario_sel,
+                         use_container_width=True):
+                _ok_ex, _msg_ex = _remover_usuario(usuario_sel, usuario_logado)
+                if _ok_ex:
+                    st.session_state.pop("admin_sel_usuario", None)
+                    st.success(_msg_ex)
+                    st.rerun()
+                else:
+                    st.error(_msg_ex)
     else:
         st.info("Nenhum usuário cadastrado pelo app ainda. Crie o primeiro abaixo.")
 
