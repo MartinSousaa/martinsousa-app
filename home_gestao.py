@@ -198,9 +198,11 @@ def _de_onde_vem_a_meta(f):
 
 
 # ── A PALETA DA HOME (layout aprovado em 05/10) ─────────────────────────────
-# Só a Home usa: o resto do Studio continua no tema cinza. Os nomes viram
-# cor tanto em f-string quanto em texto comum (`_pintado`, logo abaixo).
-FUNDO, CARTAO, BORDA, TILE = "#101317", "#191D23", "#262C34", "#14181D"
+# Só a Home usa. Os nomes viram cor tanto em f-string quanto em texto comum
+# (`_pintado`, logo abaixo). O FUNDO é o cinza do Studio (`--ms-fundo`,
+# app.py:70): o azul-escuro do layout foi trocado pelo dono em 05/10 — "o
+# fundo cinza ficará melhor". Os cartões são um tom abaixo dele.
+FUNDO, CARTAO, BORDA, TILE = "#3c3c3c", "#333333", "#4a4a4a", "#2c2c2c"
 TEXTO, SEC = "#E8EAED", "#9AA3AE"
 VERDE, AMBAR, AZUL, VERMELHO = "#4CC38A", "#E0A13A", "#7FB8F0", "#E5534B"
 _PALETA = {"FUNDO": FUNDO, "CARTAO": CARTAO, "BORDA": BORDA, "TILE": TILE,
@@ -1512,14 +1514,12 @@ def dados_reais(ano, mes, dia):
 
 
 def pagina(usuario_logado=None, dados=None):
-    # A HOME TEM O VISUAL DO LAYOUT APROVADO (05/10): fundo escuro, fonte e
-    # paleta próprias. O <style> só existe enquanto a Home está na tela —
-    # ao trocar de aba, o Streamlit tira o elemento e o resto do Studio
-    # volta ao cinza, que é o que o dono pediu.
+    # A HOME TEM A FONTE E A PALETA DO LAYOUT APROVADO (05/10), sobre o
+    # cinza do Studio. O fundo da página NÃO é mais trocado: o dono pediu de
+    # volta o cinza do sistema.
     st.markdown(
         "<style>@import url('https://fonts.googleapis.com/css2?family=Manrope:"
-        "wght@400;500;600;700;800&display=swap');"
-        f'[data-testid="stMain"]{{background:{FUNDO} !important;}}</style>',
+        "wght@400;500;600;700;800&display=swap');</style>",
         unsafe_allow_html=True)
     st.markdown("### 🏠 Home")
     # O QUE A TELA MOSTRA, E NAO POR QUE ELA EXISTE.
@@ -2183,8 +2183,12 @@ if __name__ == "__main__":
        FUNDO in _g_cor and CARTAO in _g_cor and VERDE in _g_cor
        and "var(--ms-" not in _g_cor
        and not any("{" + k + "}" in _g_cor for k in _PALETA))
-    ok("o fundo escuro vale só enquanto a Home está na tela",
-       '[data-testid="stMain"]' in _pg and "_grade_painel(" in _pg)
+    # 05/10: "o fundo cinza ficará melhor que o azul... volte para o fundo
+    # cinza do sistema".
+    ok("a Home não troca mais o fundo da página",
+       '[data-testid="stMain"]' not in _pg and "_grade_painel(" in _pg)
+    ok("o fundo do painel é o cinza do Studio, não o azul-escuro",
+       FUNDO.lower() == "#3c3c3c" and "#101317" not in _g_cor)
     _p_ser = dict(_p_t, serie_dev=[("2026-08", 100.0), ("2026-09", 300.0),
                                    ("2026-10", 120.0)])
     ok("devoluções têm a linha dos meses e o top 5 embaixo",
