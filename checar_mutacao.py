@@ -52,6 +52,22 @@ MUTACOES = [
         ["python3", "checar_tela.py"],
     ),
     (
+        'o lucro liquido volta a descontar o LPV no lugar do custo fixo',
+        "home_gestao.py",
+        [('    _ll_venda = ((_mc_venda - _cf_venda)\n',
+          '    _ll_venda = ((_mc_venda - _lpv)\n')],
+        None,
+        ["python3", "checar_tela.py"],
+    ),
+    (
+        'o custo fixo do lucro liquido deixa de ser o do ponto de equilibrio',
+        "home_gestao.py",
+        [('    _cf_mes = comp.get("numerador_hoje")\n',
+          '    _cf_mes = comp.get("numerador_com_headcount")\n')],
+        None,
+        ["python3", "checar_tela.py"],
+    ),
+    (
         'o log volta a gravar produto vazio na geracao pelo codigo',
         "imagem.py",
         # A ancora acompanhou a correcao de 05/10: o `produto` passou a sair
