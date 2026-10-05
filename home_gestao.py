@@ -933,6 +933,243 @@ def _lpv_card(ind, de_onde, lpv=None, origem="", atraso=0):
         "estimado": False, "rodape": rodape}
 
 
+def _painel(ind, realizado, lucro_bruto, mb, mc_venda, ll_venda, vendas,
+            lpv, lpv_origem, lpv_atraso, uc, dev_valor, dev_sub, dev_teto,
+            dev_mes, dev_todas, periodo):
+    """Os números do painel de uma tela. Só reúne: nenhuma conta nova.
+
+    Os dois % que não existiam saem das contas que já existem:
+      lucro líquido %  = lucro líquido ÷ faturado líquido (o mesmo período
+                         e a mesma base da margem bruta, `base_vendas:188`);
+      devoluções %     = `devolucoes.pct_do_faturado` — o dono dela.
+    """
+    import devolucoes as _dv
+    ll = (ll_venda * vendas) if ll_venda is not None else None
+    base = ind.get("faturamento_liquido") or 0.0
+    ll_pct = round(ll / base * 100, 1) if (ll is not None and base) else None
+    if dev_mes:
+        dev_pct = _dv.pct_do_faturado(dev_valor, realizado)
+        linhas_top, sub_top = dev_mes, "no mês"
+    else:
+        dev_pct = _dv.pct_do_faturado(ind.get("devolucao"),
+                                      ind.get("faturamento"))
+        _ult = _dv.meses(dev_todas)[:3]
+        linhas_top = [l for l in (dev_todas or [])
+                      if _dv.mes_de(l.get("data_solic")) in _ult]
+        sub_top = "últimos 3 meses com devolução"
+    return {
+        "lucro_bruto": lucro_bruto, "lucro_bruto_pct": mb,
+        "lucro_liquido": ll, "lucro_liquido_pct": ll_pct,
+        "ll_venda": ll_venda, "mc_venda": mc_venda,
+        "lpv": lpv, "lpv_origem": lpv_origem, "lpv_atraso": lpv_atraso,
+        "uc": uc, "uc_necessario": 1.0,
+        "devolucao": dev_valor, "devolucao_pct": dev_pct,
+        "devolucao_sub": dev_sub, "devolucao_teto": dev_teto,
+        "top_motivos": _dv.top_motivos(linhas_top, 5), "top_sub": sub_top,
+        "periodo": periodo,
+    }
+
+
+MERCADORIA = ("MERCADORIA", "COMPRA DE MERCADORIA")
+
+
+def montar_resumo_gastos(meta, res, prev, cheques_do_mes):
+    """O quadro da meta de gastos. Função pura.
+
+    `res` = `lancamentos.resumo_por_finalidade` do mês; `prev` =
+    `previsto.do_mes`; `cheques_do_mes` = `cheques.do_mes` já com a situação.
+    As contas são as do bloco de gastos (`previsto.combinar`) — um número só
+    para "comprometido", nesta tela e no detalhe.
+
+    MERCADORIA, que o dono pediu em destaque:
+      já gasta       = extrato com finalidade MERCADORIA (as duas grafias)
+                       + a parte ESTOQUE dos cheques do mês já compensados;
+      comprometida   = a parte ESTOQUE dos cheques do mês ainda em aberto.
+    A fatura do cartão (aba CARTÕES) chega como total, sem finalidade: a
+    mercadoria dentro dela não se separa daqui, e o quadro diz isso.
+    """
+    import cheques as _ch
+    import previsto as _pv
+    combinado, total = _pv.combinar(res, prev)
+    falta = {x["finalidade"]: x["falta_sair"] for x in combinado}
+    cheq_cart = round(falta.get("CHEQUES", 0.0)
+                      + falta.get("FATURA DO CARTÃO", 0.0), 2)
+    fixos = round(falta.get("CUSTO FIXO", 0.0) + falta.get("FOLHA", 0.0)
+                  + falta.get("NÃO OPERACIONAL", 0.0), 2)
+    ja_saiu = round(total - cheq_cart - fixos, 2)
+    est_aberto = round(sum(_ch._num(c.get("estoque"))
+                           for c in cheques_do_mes if _ch.esta_aberto(c)), 2)
+    est_pago = round(sum(_ch._num(c.get("estoque"))
+                         for c in cheques_do_mes if not _ch.esta_aberto(c)), 2)
+    merc_extrato = round(sum(float((res or {}).get(m, 0.0)) for m in MERCADORIA), 2)
+    return {
+        "meta": float(meta or 0.0),
+        "ja_saiu": ja_saiu, "cheques_cartoes": cheq_cart, "fixos": fixos,
+        "total": total,
+        "saldo": round(float(meta or 0.0) - total, 2) if meta else None,
+        "pct": round(total / float(meta) * 100, 1) if meta else None,
+        "merc_gasta": round(merc_extrato + est_pago, 2),
+        "merc_comprometida": est_aberto,
+        "merc_cartao": bool(falta.get("FATURA DO CARTÃO")),
+    }
+
+
+def _resumo_gastos(ano, mes):
+    """(quadro, erros) do mês corrente, lendo as mesmas fontes do detalhe."""
+    import cheques as _ch
+    import lancamentos as _lan
+    import meta_gastos as _mg
+    import previsto as _pv
+    linha = _mg.linha_do_mes(ano, mes)
+    lancs = _lan.do_mes(ano, mes)
+    res = _lan.resumo_por_finalidade(lancs) if lancs else {}
+    prev, erros = _pv.do_mes(ano, mes)
+    q = montar_resumo_gastos(linha.get("meta"), res, prev,
+                             _ch.do_mes(_ch.carregar(), ano, mes))
+    return q, erros
+
+
+def _bar(pct, cor, altura=6):
+    p = max(0.0, min(float(pct or 0), 100.0))
+    return (f'<div style="height:{altura}px;border-radius:999px;'
+            f'background:var(--ms-metric-bd);overflow:hidden;">'
+            f'<div style="width:{p:.0f}%;height:100%;background:{cor};"></div></div>')
+
+
+def _html_indicadores(p):
+    """Lucro bruto, lucro líquido, LPV e UC num quadro 2×2."""
+    def bloco(rot, valor, linha, sub, cor="var(--ms-texto)", borda=False):
+        b = "border-top:1px solid var(--ms-divisor);padding-top:12px;" if borda else "padding-bottom:12px;"
+        return (f'<div style="display:flex;flex-direction:column;gap:4px;{b}">'
+                f'<div style="font-size:12px;color:var(--ms-texto-sec);font-weight:600;">{rot}</div>'
+                f'<div style="font-size:26px;font-weight:800;color:{cor};">{valor}</div>'
+                f'{linha}<div style="font-size:11px;color:var(--ms-texto-sec);">{sub}</div></div>')
+    def pct_linha(pct):
+        if pct is None:
+            return '<div style="font-size:12px;color:var(--ms-texto-sec);">— do faturado</div>'
+        return (f'<div style="display:flex;align-items:center;gap:8px;">'
+                f'<div style="flex:1;">{_bar(pct, "#1BAF7A")}</div>'
+                f'<span style="font-size:13px;font-weight:700;">{_fmt(pct, "pct")}</span></div>')
+    ll = p.get("lucro_liquido")
+    uc = p.get("uc")
+    lpv_sub = (f'custo operacional por venda · {p.get("lpv_origem") or "—"}'
+               + (f' · {p["lpv_atraso"]} mês(es) atrasado' if p.get("lpv_atraso") else ""))
+    uc_cor = "#1BAF7A" if (uc is not None and uc >= p["uc_necessario"]) else "#E34948"
+    return (
+        '<div style="background:var(--ms-metric-bg);border:1px solid var(--ms-divisor);'
+        'border-radius:14px;padding:18px 20px;display:grid;'
+        'grid-template-columns:repeat(2,minmax(0,1fr));column-gap:20px;height:100%;box-sizing:border-box;">'
+        + bloco("Lucro bruto", _brl(p.get("lucro_bruto"), 0),
+                pct_linha(p.get("lucro_bruto_pct")),
+                f'estimado · margem de {p.get("periodo") or "—"}')
+        + bloco("Lucro líquido", _brl(ll, 0) if ll is not None else "—",
+                pct_linha(p.get("lucro_liquido_pct")),
+                (f'{_brl(p.get("ll_venda"))} por venda' if ll is not None
+                 else "falta o LPV — Gestão → Financeiro"))
+        + bloco("LPV", _brl(p.get("lpv")) if p.get("lpv") else "—", "", lpv_sub,
+                borda=True)
+        + bloco("UC", (_fmt(uc, "razao") if uc is not None else "—"), "",
+                (f'necessário {_fmt(p["uc_necessario"], "razao")}' if uc is not None
+                 else "falta o LPV"), cor=uc_cor, borda=True)
+        + '</div>')
+
+
+def _html_gastos(q, erros=None):
+    """A meta de gastos: saldo e mercadoria em cima, o descritivo embaixo."""
+    if q is None:
+        return ('<div style="background:var(--ms-metric-bg);border:1px solid var(--ms-divisor);'
+                'border-radius:14px;padding:18px 20px;font-size:13px;color:var(--ms-texto-sec);">'
+                'Não consegui ler os gastos do mês.</div>')
+    ambar, ambar_bg = "#EDA100", "rgba(237,161,0,0.12)"
+    def tile(rot, valor, destaque=False):
+        bg = f"background:{ambar_bg};border:1px solid rgba(237,161,0,0.45);" if destaque else "background:var(--ms-bg, rgba(0,0,0,0.12));"
+        cr = ambar if destaque else "var(--ms-texto-sec)"
+        return (f'<div style="{bg}border-radius:10px;padding:10px 14px;">'
+                f'<div style="font-size:11px;font-weight:700;color:{cr};">{rot}</div>'
+                f'<div style="font-size:22px;font-weight:800;color:{ambar if destaque else "var(--ms-texto)"};">{valor}</div></div>')
+    meta = q["meta"]
+    saldo = _brl(q["saldo"], 0) if q["saldo"] is not None else "sem meta"
+    def linha_t(rot, total, merc, cor, forte=False):
+        w = "800" if forte else "700"
+        bt = "var(--ms-texto-sec)" if forte else "var(--ms-divisor)"
+        return (f'<span style="display:flex;align-items:center;gap:8px;padding:7px 0;border-top:1px solid {bt};'
+                f'font-weight:{"700" if forte else "500"};">'
+                + (f'<span style="width:9px;height:9px;border-radius:3px;background:{cor};"></span>' if cor else "")
+                + f'{rot}</span>'
+                f'<span style="text-align:right;font-weight:{w};padding:7px 0;border-top:1px solid {bt};">{total}</span>'
+                f'<span style="text-align:right;font-weight:{w};color:{ambar};padding:7px 0;border-top:1px solid {bt};">{merc}</span>')
+    pct = q["pct"]
+    cart = (' · cartão sem separação de mercadoria' if q["merc_cartao"] else "")
+    aviso = (f'<div style="font-size:11px;color:#E34948;">Não li: {" · ".join(erros)}</div>'
+             if erros else "")
+    return (
+        '<div style="background:var(--ms-metric-bg);border:1px solid var(--ms-divisor);'
+        'border-radius:14px;padding:18px 22px;display:flex;flex-direction:column;gap:10px;">'
+        '<div style="display:flex;justify-content:space-between;align-items:baseline;">'
+        '<span style="font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ms-texto-sec);">Meta de gastos</span>'
+        f'<span style="font-size:13px;color:var(--ms-texto-sec);">meta do mês <b style="color:var(--ms-texto);">{_brl(meta, 0) if meta else "não cadastrada"}</b></span></div>'
+        '<div style="display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr);gap:10px;">'
+        + tile("Saldo do mês", saldo)
+        + tile("Mercadoria já gasta", _brl(q["merc_gasta"], 0), True)
+        + tile("Mercadoria comprometida", _brl(q["merc_comprometida"], 0), True)
+        + '</div>'
+        + (_bar(pct, "#EDA100" if pct < 100 else "#E34948", 10)
+           + f'<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--ms-texto-sec);">'
+             f'<span>{_fmt(pct, "pct")} da meta comprometida</span><span>{_fmt(max(100 - pct, 0), "pct")} livre</span></div>'
+           if pct is not None else "")
+        + '<div style="display:grid;grid-template-columns:minmax(0,1fr) 130px 130px;column-gap:18px;font-size:13px;">'
+        '<span style="font-size:11px;color:var(--ms-texto-sec);padding-bottom:4px;">Linha</span>'
+        '<span style="font-size:11px;color:var(--ms-texto-sec);text-align:right;">Total</span>'
+        f'<span style="font-size:11px;color:{ambar};text-align:right;font-weight:700;">Mercadoria</span>'
+        + linha_t("Já gasto", _brl(q["ja_saiu"], 0), _brl(q["merc_gasta"], 0), ambar)
+        + linha_t("Comprometido · cheques e cartões", _brl(q["cheques_cartoes"], 0),
+                  _brl(q["merc_comprometida"], 0), "#8A6A33")
+        + linha_t("Comprometido · fixos e folha", _brl(q["fixos"], 0), "—", "#5B6573")
+        + linha_t("Total do mês", _brl(q["total"], 0),
+                  _brl(q["merc_gasta"] + q["merc_comprometida"], 0), "", forte=True)
+        + '</div>'
+        + f'<div style="font-size:11px;color:var(--ms-texto-sec);">Mercadoria: extrato + estoque dos cheques{cart}.</div>'
+        + aviso + '</div>')
+
+
+def _esc(t):
+    """Texto digitado pela equipe vira texto, nunca HTML da tela."""
+    import html as _h
+    return _h.escape(str(t or ""))
+
+
+def _html_devolucoes(p):
+    """Devoluções com o % do faturamento e os 5 maiores motivos."""
+    pct = p.get("devolucao_pct")
+    teto = p.get("devolucao_teto")
+    acima = teto and p.get("devolucao", 0) > teto
+    top = p.get("top_motivos") or []
+    maior = max((t[1] for t in top), default=0) or 1
+    linhas = "".join(
+        f'<div style="display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr) 34px;gap:10px;align-items:center;font-size:12px;">'
+        f'<span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{_esc(m)}</span>'
+        f'{_bar(n / maior * 100, "#E34948", 8)}'
+        f'<b style="text-align:right;">{n}</b></div>'
+        for m, n, _v, _p in top) or (
+        '<div style="font-size:12px;color:var(--ms-texto-sec);">Nenhuma devolução cadastrada no período.</div>')
+    return (
+        '<div style="background:var(--ms-metric-bg);border:1px solid var(--ms-divisor);'
+        'border-radius:14px;padding:18px 20px;display:flex;flex-direction:column;gap:10px;">'
+        '<div style="font-size:12px;color:var(--ms-texto-sec);font-weight:600;">Devoluções</div>'
+        '<div style="display:flex;align-items:baseline;gap:10px;">'
+        f'<span style="font-size:26px;font-weight:800;">{_brl(p.get("devolucao"), 0)}</span>'
+        f'<span style="font-size:16px;font-weight:800;color:#E34948;">{_fmt(pct, "pct") if pct is not None else "—"}</span>'
+        '<span style="font-size:12px;color:var(--ms-texto-sec);">do faturamento</span></div>'
+        f'<div style="font-size:11px;color:var(--ms-texto-sec);">{p.get("devolucao_sub") or ""}'
+        + (f' · teto {_brl(teto, 0)}' if teto else "")
+        + (' · <b style="color:#E34948;">acima do teto</b>' if acima else "")
+        + '</div>'
+        '<div style="border-top:1px solid var(--ms-divisor);padding-top:8px;display:flex;flex-direction:column;gap:6px;">'
+        '<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--ms-texto-sec);font-weight:600;">'
+        f'<span>Top 5 motivos · {p.get("top_sub") or ""}</span><span>devoluções</span></div>'
+        + linhas + '</div></div>')
+
+
 def dados_reais(ano, mes, dia):
     """O dicionário que `pagina` desenha, montado das fontes de verdade.
 
@@ -1066,9 +1303,12 @@ def dados_reais(ano, mes, dia):
     # esta é a única do bloco que é MEDIDA e não estimada. Sem a aba (ou
     # antes de alguém cadastrar), cai na média dos meses fechados.
     _dev_valor, _sub_dev = ind["devolucao"], f"média de {_periodo_curto}"
+    _dev_linhas_mes, _dev_todas = [], []
     try:
         import devolucoes as _dv
-        _do_mes = _dv.do_mes(_dv.carregar(), f"{ano:04d}-{mes:02d}")
+        _dev_todas = _dv.carregar()
+        _do_mes = _dv.do_mes(_dev_todas, f"{ano:04d}-{mes:02d}")
+        _dev_linhas_mes = _do_mes
         if _do_mes:
             _dev_valor = _dv.resumo(_do_mes)["valor"]
             _sub_dev = f"medido no mês · {len(_do_mes)} devolução(ões)"
@@ -1160,14 +1400,15 @@ def dados_reais(ano, mes, dia):
             # que mais produto voltou.
             _card("Devoluções", _sub_dev, _dev_valor, _dev_teto, "brl0",
                   False, maior_melhor=False),
-            # ERA ESTE O CARTAO CHAMADO "UC" NA HOME: unidades ÷ vendas,
-            # que e quantas pecas saem por pedido. Nao e a UC do Studio — a
-            # UC decide produto na Viabilidade e vale lucro liquido ÷ LPV
-            # (`app.py:979`). Mesmo nome, mesma notacao "x/1", duas contas.
-            # E o mesmo defeito do LPV, uma tela depois.
-            _card("Peças por pedido", "unidades ÷ nº de vendas" + _de,
-                  ind["uc"] or 0.0, None, "razao", False),
+            # "Peças por pedido" (unidades ÷ vendas) SAIU em 05/10: o dono
+            # não usava. O nome "UC" continua sendo só o da Viabilidade.
         ],
+        # O PAINEL DE UMA TELA (layout aprovado em 05/10): os mesmos números
+        # dos cartões acima, com os % que o dono pediu ao lado dos R$.
+        "painel": _painel(ind, realizado, _lucro_estimado, _mb, _mc_venda,
+                          _ll_venda, _vendas, _lpv, _lpv_origem, _lpv_atraso,
+                          _uc_paga, _dev_valor, _sub_dev, _dev_teto,
+                          _dev_linhas_mes, _dev_todas, _periodo_curto),
     }, avisos
 
 
@@ -1220,15 +1461,25 @@ def pagina(usuario_logado=None, dados=None):
         return
 
     _, _, _, dia, dias = ritmo(d)
-    _bloco_faturamento(d)
-
-    st.markdown('<div style="height:10px;"></div>', unsafe_allow_html=True)
-    st.markdown(
-        '<div style="display:grid;grid-template-columns:repeat(3,1fr);'
-        'gap:10px;">'
-        + "".join(_card(c, dia, dias) for c in d["cards"])
-        + '</div>',
-        unsafe_allow_html=True)
+    # UMA TELA SÓ (layout aprovado pelo dono em 05/10): tudo o que decide o
+    # mês aparece sem rolar. Em cima, faturamento e os indicadores; embaixo,
+    # a meta de gastos (mercadoria em destaque) e as devoluções. O detalhe
+    # dos gastos continua inteiro, num expander logo abaixo.
+    p = d.get("painel") or {}
+    _l1 = st.columns([1.6, 1])
+    with _l1[0]:
+        _bloco_faturamento(d)
+    with _l1[1]:
+        st.markdown(_html_indicadores(p), unsafe_allow_html=True)
+    try:
+        _q, _err_g = _resumo_gastos(int(d["ano"]), int(d["mes"]))
+    except Exception as e:
+        _q, _err_g = None, [str(e)[:120]]
+    _l2 = st.columns([1.6, 1])
+    with _l2[0]:
+        st.markdown(_html_gastos(_q, _err_g), unsafe_allow_html=True)
+    with _l2[1]:
+        st.markdown(_html_devolucoes(p), unsafe_allow_html=True)
 
     # DE ONDE VEIO CADA NÚMERO. Sem isto, os dois faturamentos que não batem
     # viram uma discussão sem saída — a planilha é de tempos em tempos, o
@@ -1248,7 +1499,7 @@ def pagina(usuario_logado=None, dados=None):
             "calcula em Gestão → Financeiro → LPV Mensal, do último mês "
             "fechado; o "
             "digitado só vale quando não há cálculo.  \n"
-            f"**Gastos:** o mês corrente, dos extratos — o bloco abaixo.")
+            f"**Gastos:** o mês corrente, dos extratos — detalhe abaixo.")
     for _a in (_avisos or []):
         st.warning(_a)
 
@@ -1259,7 +1510,8 @@ def pagina(usuario_logado=None, dados=None):
         "dias do mês — um método só, porque duas projeções discordando na "
         "mesma tela não informam, escolhem por você.")
 
-    _bloco_gastos(usuario_logado, d)
+    with st.expander("💰 Detalhe dos gastos do mês", expanded=False):
+        _bloco_gastos(usuario_logado, d)
 
 
 # ── Conferência ──────────────────────────────────────────────────────────────
@@ -1594,12 +1846,14 @@ if __name__ == "__main__":
     ok("a margem de contribuição diz a conta dela",
        "margem de contribuição ÷ faturado líquido" in _corpo_cards)
     ok("e a margem bruta", "lucro bruto ÷ faturado líquido" in _corpo_cards)
-    ok("o UC idem", "unidades ÷ nº de vendas" in _corpo_cards)
+    # "Peças por pedido" (unidades ÷ vendas) saiu em 05/10, a pedido do dono.
+    ok("o cartão de peças por pedido saiu",
+       "unidades ÷ nº de vendas" not in _corpo_cards)
     # `\b` porque "+ _de" tambem casa dentro de "+ _de_lpv", e a guarda
     # contaria o mesmo cartao duas vezes.
     import re as _re_home
     ok("todo cartão da BASE DE VENDAS diz de que aba e período vem",
-       len(_re_home.findall(r"\+ _de\b", _corpo_cards)) == 5
+       len(_re_home.findall(r"\+ _de\b", _corpo_cards)) == 4
        and "BASE DE VENDAS · " in _corpo_cards)
 
     # ── O LPV E O CUSTO FIXO POR VENDA, E SO ELE ────────────────────────
@@ -1715,9 +1969,83 @@ if __name__ == "__main__":
         ok(f"UC≥1 e lucro líquido≥0 concordam (MC {_mc})",
            ((_mc / _l) >= 1.0) == ((_mc - _l) >= 0))
     # O QUE SE CHAMAVA UC NA HOME ERA OUTRA COISA — o mesmo defeito do LPV.
-    ok("unidades ÷ vendas não se chama mais UC",
-       '_card("Peças por pedido"' in _corpo_cards
+    ok("unidades ÷ vendas não se chama mais UC — e nem aparece",
+       '_card("Peças por pedido"' not in _corpo_cards
        and '_card("UC", "unidades' not in _corpo_cards)
+
+    # ── O PAINEL DE UMA TELA (05/10) ─────────────────────────────────────
+    # A ENTRADA VEM DO SISTEMA: `res` sai de `lancamentos.resumo_por_
+    # finalidade` sobre linhas no formato de `carregar`; `prev` tem as chaves
+    # de `previsto.do_mes`; os cheques passam por `cheques.normalizar`.
+    import lancamentos as _lan_t
+    import cheques as _ch_t
+    _lancs_t = [
+        {"valor": -10000.0, "finalidade": "MERCADORIA"},
+        {"valor": -500.0, "finalidade": "COMPRA DE MERCADORIA"},
+        {"valor": -2000.0, "finalidade": "ADS"},
+        {"valor": -1500.0, "finalidade": "CUSTO FIXO"},
+        {"valor": -3000.0, "finalidade": "CHEQUES"},
+    ]
+    _res_t = _lan_t.resumo_por_finalidade(_lancs_t)
+    _prev_t = {"CUSTO FIXO": 6000.0, "FOLHA": 20000.0,
+               "NÃO OPERACIONAL": 4000.0, "CHEQUES": 5000.0,
+               "FATURA DO CARTÃO": 8000.0}
+    _cheq_t = [_ch_t.normalizar({"vencimento": "2026-10-10", "valor": 5000.0,
+                                 "envio": 1000.0, "situacao": "EM ABERTO"}),
+               _ch_t.normalizar({"vencimento": "2026-10-02", "valor": 3000.0,
+                                 "envio": 500.0, "situacao": "COMPENSADO"})]
+    _q_t = montar_resumo_gastos(170000.0, _res_t, _prev_t, _cheq_t)
+    import previsto as _pv_t
+    _tot_t = _pv_t.combinar(_res_t, _prev_t)[1]
+    ok("o total da meta de gastos é o mesmo comprometido do detalhe",
+       _q_t["total"] == _tot_t)
+    ok("já gasto + cheques/cartões + fixos fecham o total",
+       round(_q_t["ja_saiu"] + _q_t["cheques_cartoes"] + _q_t["fixos"], 2)
+       == _q_t["total"])
+    ok("mercadoria já gasta = extrato (as duas grafias) + estoque compensado",
+       _q_t["merc_gasta"] == 10000.0 + 500.0 + 2500.0)
+    ok("mercadoria comprometida = estoque dos cheques em aberto",
+       _q_t["merc_comprometida"] == 4000.0)
+    ok("o saldo é a meta menos o comprometido",
+       _q_t["saldo"] == round(170000.0 - _tot_t, 2))
+    ok("sem meta, o saldo não vira número",
+       montar_resumo_gastos(0, _res_t, _prev_t, _cheq_t)["saldo"] is None)
+    ok("a tela avisa que o cartão não separa mercadoria",
+       _q_t["merc_cartao"] and "cartão sem separação" in _html_gastos(_q_t))
+
+    import base_vendas as _bv_t
+    _ind_t = _bv_t.indicadores({"faturamento": 100000.0, "fat_liquido": 90000.0,
+                                "lucro_bruto": 60000.0, "vendas": 1000.0,
+                                "margem_contribuicao": 25000.0,
+                                "devolucao": 3000.0, "unidades": 1300.0})
+    _dv_rows = [{"data_solic": "2026-10-01", "motivo": "<b>Quebrado</b>",
+                 "valor": 50.0},
+                {"data_solic": "2026-10-02", "motivo": "Quebrado", "valor": 40.0},
+                {"data_solic": "2026-10-03", "motivo": "Desistência",
+                 "valor": 30.0}]
+    _p_t = _painel(_ind_t, 30000.0, 22000.0, _ind_t["margem_bruta"], 25.0,
+                   5.0, 1000.0, 20.0, "Setembro/2026 · calculado", 0, 1.25,
+                   120.0, "medido no mês", 900.0, _dv_rows, _dv_rows, "jul–set")
+    ok("lucro líquido % = lucro líquido ÷ faturado líquido",
+       _p_t["lucro_liquido"] == 5000.0
+       and _p_t["lucro_liquido_pct"] == round(5000 / 90000 * 100, 1))
+    ok("devolução do mês % = devolvido ÷ faturado do mês (dono: pct_do_faturado)",
+       _p_t["devolucao_pct"] == round(120 / 30000 * 100, 2))
+    ok("top motivos conta as devoluções por motivo",
+       [t[1] for t in _p_t["top_motivos"]] == [1, 1, 1] or
+       sum(t[1] for t in _p_t["top_motivos"]) == 3)
+    _h_dv = _html_devolucoes(_p_t)
+    ok("motivo digitado com HTML aparece escapado, não interpretado",
+       "&lt;b&gt;Quebrado&lt;/b&gt;" in _h_dv and "<b>Quebrado</b>" not in _h_dv)
+    _h_ind = _html_indicadores(_p_t)
+    ok("o quadro de indicadores traz lucros em R$ e %, LPV e UC",
+       all(x in _h_ind for x in ("Lucro bruto", "Lucro líquido", "LPV", "UC",
+                                 _fmt(_p_t["lucro_liquido_pct"], "pct"))))
+    ok("nenhum bloco do painel tem quebra de linha (markdown fecharia o HTML)",
+       all("\n" not in h for h in (_h_ind, _h_dv, _html_gastos(_q_t))))
+    ok("a página desenha o painel e guarda o detalhe dos gastos",
+       "_html_gastos(" in _pg and "_html_devolucoes(" in _pg
+       and "_html_indicadores(" in _pg and "st.expander" in _pg)
     ok("sem LPV, o lucro líquido não finge ser a margem",
        "Falta o LPV" in _corpo_cards)
 
