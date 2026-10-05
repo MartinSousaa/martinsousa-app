@@ -293,6 +293,67 @@ def resumo_por_finalidade(lancamentos, so_saida=True):
     return dict(sorted(fora.items(), key=lambda x: -x[1]))
 
 
+def explicar_mes(ano, mes, todas=None):
+    """De onde vem o realizado do mês. Um dicionário que a tela só desenha.
+
+    Nasceu de "como setembro deu só R$ 46 mil, se subi todos os extratos?".
+    A tela mostrava o número e não dizia de onde ele vinha. Aqui sai:
+
+      por_conta     linhas, saídas, entradas, primeira e última data de cada
+                    conta no mês — conta faltando ou período cortado aparece;
+      consome       {finalidade: total} que entra na meta (soma = realizado);
+      fora          {finalidade: (total, n)} das saídas que NÃO entram, e o
+                    porquê está na regra de `favorecidos.consome_meta`;
+      por_dia       saídas que contam, dia a dia;
+      data_invalida linhas do arquivo INTEIRO com data fora do formato
+                    AAAA-MM-DD: elas nunca caem em mês nenhum, em silêncio.
+    """
+    import re as _re
+    import favorecidos as _fv
+    base = carregar() if todas is None else todas
+    alvo = f"{int(ano):04d}-{int(mes):02d}"
+    linhas = aplicar_cadastro([l for l in base
+                               if str(l.get("data", "")).startswith(alvo)])
+    por_conta, fora, por_dia = {}, {}, {}
+    for l in linhas:
+        v = float(l.get("valor") or 0)
+        d = str(l.get("data", ""))[:10]
+        c = por_conta.setdefault(str(l.get("conta") or "(sem conta)"),
+                                 {"linhas": 0, "saidas": 0.0, "entradas": 0.0,
+                                  "de": d, "ate": d})
+        c["linhas"] += 1
+        c["de"], c["ate"] = min(c["de"], d), max(c["ate"], d)
+        if v < 0:
+            c["saidas"] += -v
+            fin = (l.get("finalidade") or "").strip().upper() or "SEM CLASSIFICAÇÃO"
+            if _fv.consome_meta(fin):
+                por_dia[d] = por_dia.get(d, 0.0) + (-v)
+            else:
+                t, n = fora.get(fin, (0.0, 0))
+                fora[fin] = (t + (-v), n + 1)
+        else:
+            c["entradas"] += v
+    consome = resumo_por_finalidade(linhas)
+    iso = _re.compile(r"^\d{4}-\d{2}-\d{2}$")
+    invalidas = [l for l in base if not iso.match(str(l.get("data", ""))[:10])]
+    return {
+        "linhas": len(linhas),
+        "realizado": round(sum(consome.values()), 2),
+        "por_conta": {k: {**v, "saidas": round(v["saidas"], 2),
+                          "entradas": round(v["entradas"], 2)}
+                      for k, v in sorted(por_conta.items())},
+        "consome": {k: round(v, 2) for k, v in consome.items()},
+        "fora": {k: (round(t, 2), n) for k, (t, n) in
+                 sorted(fora.items(), key=lambda kv: -kv[1][0])},
+        "por_dia": {k: round(v, 2) for k, v in sorted(por_dia.items())},
+        "data_invalida": len(invalidas),
+        "exemplos_invalidos": [
+            {"conta": l.get("conta", ""), "data": l.get("data", ""),
+             "descricao": str(l.get("descricao", ""))[:60],
+             "valor": l.get("valor")} for l in invalidas[:10]],
+    }
+
+
 # ── Conferência ──────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     falhas = 0
@@ -431,5 +492,43 @@ if __name__ == "__main__":
     ok("entrada nao entra na meta de gastos", "SHOPEE" not in _res)
     ok("sem classificacao aparece, e nao desaparece",
        _res.get("SEM CLASSIFICAÇÃO") == 30.0)
+
+    # DE ONDE VEM O REALIZADO: o que a tela explica tem de FECHAR com o que a
+    # meta conta (`meta_gastos.realizado_dos_lancamentos`), e a linha com data
+    # em outro formato tem de aparecer — ela não cai em mês nenhum.
+    import favorecidos as _fv_x
+    _g_fv = _fv_x.carregar
+    _fv_x.carregar = lambda: {}
+    try:
+        _base_x = [
+            {"id": "a", "conta": "itau", "data": "2026-09-30", "valor": -20000.0,
+             "finalidade": "FOLHA", "fixada": "", "descricao": "SISPAG"},
+            {"id": "b", "conta": "inter", "data": "2026-09-10", "valor": -5000.0,
+             "finalidade": "MERCADORIA", "fixada": "", "descricao": "PIX"},
+            {"id": "c", "conta": "itau", "data": "2026-09-29", "valor": -30000.0,
+             "finalidade": "TRANSFERENCIA ENTRE CONTAS", "fixada": "",
+             "descricao": "TED MESMA TITULARIDADE"},
+            {"id": "d", "conta": "itau", "data": "2026-09-05", "valor": 900.0,
+             "finalidade": "MERCADO LIVRE", "fixada": "", "descricao": "REPASSE"},
+            {"id": "e", "conta": "cartao", "data": "30/09/2026", "valor": -700.0,
+             "finalidade": "ADS", "fixada": "", "descricao": "FATURA"},
+        ]
+        _x = explicar_mes(2026, 9, _base_x)
+        import meta_gastos as _mg_x
+        ok("o realizado explicado fecha com o da meta de gastos",
+           _x["realizado"] == _mg_x.realizado_dos_lancamentos(
+               2026, 9, do_mes(2026, 9, _base_x)) == 25000.0)
+        ok("a transferência entre contas aparece em 'fora', com o valor",
+           _x["fora"].get("TRANSFERENCIA ENTRE CONTAS") == (30000.0, 1))
+        ok("cada conta diz quantas linhas e de que dia a que dia",
+           _x["por_conta"]["itau"]["linhas"] == 3
+           and _x["por_conta"]["itau"]["de"] == "2026-09-05"
+           and _x["por_conta"]["itau"]["ate"] == "2026-09-30")
+        ok("o dia 30 mostra a folha", _x["por_dia"].get("2026-09-30") == 20000.0)
+        ok("a linha com data 30/09/2026 é denunciada, e não some calada",
+           _x["data_invalida"] == 1
+           and _x["exemplos_invalidos"][0]["data"] == "30/09/2026")
+    finally:
+        _fv_x.carregar = _g_fv
 
     print("\nfalhas:", falhas)
