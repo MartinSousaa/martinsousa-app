@@ -2046,6 +2046,67 @@ def _contribuicao_coletiva(conta):
           "contribuicao_coletiva" in _src_tv and "meta_ind" not in _src_tv, "")
 
 
+def _excluir_usuario(conta):
+    """Excluir e desativar usuario do app derrubam o link salvo.
+
+    A reconexao pelo link (`?_s=`) so olha os tokens, e nao a aba de
+    usuarios: sem revogar, quem foi desativado continuava entrando pelo
+    favorito. `_remover_usuario` e `_desativar_usuario` rodam inteiros; so as
+    duas abas da planilha sao trocadas.
+    """
+    import admin as _adm
+    import auth as _au
+
+    class _AbaUsr:
+        def __init__(self):
+            self.linhas = [["login", "senha_hash", "ativo", "admin", "criado_em"],
+                           ["Brumielly", "h", "Não", "Sim", "14/09/2026 15:25"],
+                           ["Brunielly", "h", "Não", "Sim", "15/09/2026 18:03"],
+                           ["Luiz", "h", "Sim", "Sim", "26/08/2026 14:57"]]
+
+        def row_values(self, i):
+            return self.linhas[i - 1]
+
+        def get_all_records(self, **kw):
+            return [dict(zip(self.linhas[0], l)) for l in self.linhas[1:]]
+
+        def update_cell(self, r, c, v):
+            self.linhas[r - 1][c - 1] = v
+
+        def delete_rows(self, i):
+            del self.linhas[i - 1]
+
+    class _AbaTok(_AbaUsr):
+        def __init__(self):
+            self.linhas = [["token", "usuario", "criado_em"],
+                           ["tb", "Brumielly", "01/10/2026 10:00"],
+                           ["tl", "Luiz", "01/10/2026 10:00"]]
+
+    _u, _t = _AbaUsr(), _AbaTok()
+    _g = (_au._aba_usuarios, _au._aba_tokens)
+    _au._aba_usuarios, _au._aba_tokens = (lambda: _u), (lambda: _t)
+    _au._TOKENS.update({"tb": "Brumielly", "tl": "Luiz"})
+    try:
+        _ok, _msg = _adm._remover_usuario("Brumielly", "MartinSousa")
+        conta("excluir apaga so a linha escolhida",
+              _ok and [l[0] for l in _u.linhas[1:]] == ["Brunielly", "Luiz"],
+              _msg)
+        conta("e o link salvo dela deixa de entrar",
+              "tb" not in _au._TOKENS
+              and [l[1] for l in _t.linhas[1:]] == ["Luiz"], "")
+        conta("ninguem exclui o proprio usuario",
+              _adm._remover_usuario("Luiz", "luiz")[0] is False
+              and any(l[0] == "Luiz" for l in _u.linhas), "")
+        _adm._desativar_usuario("Luiz")
+        _luiz = next((l for l in _u.linhas if l[0] == "Luiz"), None)
+        conta("desativar tambem derruba o link salvo",
+              "tl" not in _au._TOKENS and _luiz is not None
+              and _luiz[2] == "Não", "")
+    finally:
+        _au._aba_usuarios, _au._aba_tokens = _g
+        _au._TOKENS.clear()
+
+
 def main():
     instalar()
     falhas = []
@@ -2086,6 +2147,7 @@ def main():
     _contexto_do_log(conta)
     _txt_consolidado(conta)
     _contribuicao_coletiva(conta)
+    _excluir_usuario(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0
