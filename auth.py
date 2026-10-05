@@ -107,7 +107,9 @@ def revogar_tokens(login):
     Chamado ao DESATIVAR e ao EXCLUIR um usuário. A reconexão pelo link
     (`?_s=`) confia em `_TOKENS` sem reler a aba de usuários — sem isto, quem
     perdeu o acesso continuava entrando pelo favorito por até 30 dias.
-    Compara sem caixa: "Brumielly" e "brumielly" são o mesmo login aqui.
+    Compara sem caixa, de propósito, para o lado seguro: o login com senha
+    distingue "Brumielly" de "brumielly", mas revogar a mais nunca abre
+    acesso — no pior caso a pessoa digita a senha de novo.
     """
     alvo = str(login or "").strip().lower()
     if not alvo:
@@ -350,11 +352,44 @@ def _bg_b64():
     return ""
 
 
+def _login_ativo(login):
+    """O login ainda pode entrar? Secrets sempre; da planilha, só se existe e
+    está ativo.
+
+    Sem isto, desativar ou excluir só valia para o próximo login com senha:
+    a sessão aberta continuava, e o link salvo voltava a valer no deploy
+    seguinte se a planilha de tokens falhasse ao apagar (revisão de 05/10).
+    Planilha sem leitura NÃO tranca ninguém: o erro de rede não pode
+    expulsar a equipe no meio do trabalho.
+    """
+    try:
+        if str(login) in dict(st.secrets.get("usuarios", {})):
+            return True
+    except Exception:
+        pass
+    df = _carregar_usuarios_sheets()
+    if df is None or df.empty or "login" not in df.columns:
+        return True
+    linha = df[df["login"].astype(str) == str(login)]
+    if linha.empty:
+        return False
+    return (str(linha.iloc[0].get("ativo", "Sim")).strip().lower()
+            in {"sim", "true", "1", "yes", "ativo"})
+
+
 def verificar_login():
     """Tela de login. Verifica Secrets e Sheets. Bloqueia o app até autenticar.
     Retorna o nome do usuário logado."""
     if "usuario_logado" in st.session_state:
-        return st.session_state["usuario_logado"]
+        _u = st.session_state["usuario_logado"]
+        if _login_ativo(_u):
+            return _u
+        # Desativado ou excluído com a sessão aberta: sai agora.
+        st.session_state.pop("usuario_logado", None)
+        try:
+            del st.query_params["_s"]
+        except Exception:
+            pass
 
     # ── Reconexão automática via token de URL ─────────────────────────────────
     # Se o WebSocket caiu e o Streamlit criou uma nova sessão, o token ainda
@@ -364,7 +399,7 @@ def verificar_login():
     _tok = st.query_params.get("_s", "")
     if _tok:
         _garantir_tokens_carregados()
-        if _tok in _TOKENS:
+        if _tok in _TOKENS and _login_ativo(_TOKENS[_tok]):
             st.session_state["usuario_logado"] = _TOKENS[_tok]
             return _TOKENS[_tok]
 
@@ -735,5 +770,24 @@ if __name__ == "__main__":
     ok("o token de outra pessoa fica", _TOKENS.get("t2") == "luiz")
     ok("e devolve quantos revogou", _n_rev == 2)
     _TOKENS.clear()
+
+    # QUEM FOI DESATIVADO OU EXCLUÍDO NÃO CONTINUA DENTRO. O `df` tem a forma
+    # de `_carregar_usuarios_sheets` (colunas da aba `usuarios`).
+    import pandas as _pd_au
+    _real_us = _carregar_usuarios_sheets
+    _carregar_usuarios_sheets = lambda: _pd_au.DataFrame(   # noqa: E731
+        [{"login": "Luiz", "ativo": "Sim"}, {"login": "Brumielly", "ativo": "Não"}])
+    try:
+        ok("ativo entra", _login_ativo("Luiz") is True)
+        ok("desativado não entra (nem pela sessão aberta, nem pelo link)",
+           _login_ativo("Brumielly") is False)
+        ok("excluído não entra", _login_ativo("Fantasma") is False)
+        _carregar_usuarios_sheets = lambda: _pd_au.DataFrame()  # noqa: E731
+        ok("planilha sem leitura não tranca ninguém", _login_ativo("Luiz") is True)
+    finally:
+        _carregar_usuarios_sheets = _real_us
+    _src_vl = _insp_au.getsource(verificar_login)
+    ok("a sessão aberta e o link salvo passam pela mesma conferência",
+       _src_vl.count("_login_ativo(") >= 2)
 
     print("\nfalhas:", falhas)

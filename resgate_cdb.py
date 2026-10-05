@@ -87,7 +87,11 @@ def posicao_apos(pos, resgate):
     bruto = float(pos.get("bruto") or 0)
     dias = (dia - ini).days
     aliq = _rv.aliquota_ir(dias)
-    rend_resgatado = (resgate["ir"] / aliq) if aliq else 0.0
+    # O rendimento resgatado é o que pagou IR mais o que pagou IOF: o IOF
+    # (resgate com menos de 30 dias) sai do rendimento ANTES do IR, então
+    # IR = (rendimento − IOF) × alíquota.
+    rend_resgatado = ((resgate["ir"] / aliq) if aliq else 0.0) \
+        + float(resgate.get("iof") or 0.0)
     principal = resgate["bruto"] - rend_resgatado
     aplicado_novo = round(aplicado - principal, 2)
     if principal <= 0 or aplicado_novo <= 0:
@@ -107,17 +111,34 @@ def posicao_apos(pos, resgate):
             "bruto": bruto_novo,
             "liquido": _rv.liquido(aplicado_novo, bruto_novo,
                                    pos.get("inicio"), resgate["data"]),
-            "posicao_em": resgate["data"]}
+            "posicao_em": resgate["data"],
+            "ultimo_resgate": chave(resgate)}
     return nova, {"principal": round(principal, 2),
                   "rendimento": round(rend_resgatado, 2),
                   "aliquota": aliq}
 
 
-def ja_aplicado(pos, nova):
-    """A posição gravada já é a de depois deste resgate? Evita descontar 2x."""
-    return (str(pos.get("posicao_em", "")) == str(nova.get("posicao_em"))
-            and abs(float(pos.get("aplicado") or 0)
-                    - float(nova.get("aplicado") or 0)) < 0.01)
+def chave(resgate):
+    """A impressão digital do comprovante: data do crédito + bruto resgatado."""
+    return f"{resgate.get('data')}|{float(resgate.get('bruto') or 0):.2f}"
+
+
+def ja_aplicado(pos, resgate):
+    """(True, motivo) quando este comprovante NÃO pode ser descontado.
+
+    A primeira versão comparava a posição gravada com a posição recalculada a
+    partir dela — que nunca é igual, porque o principal sai de novo. Subir o
+    mesmo PDF duas vezes descontava 13.174 duas vezes (revisão de 05/10).
+    Agora a posição grava a chave do último comprovante, e posição gravada na
+    data do resgate ou depois dele (extrato colado à mão) já o contém.
+    """
+    if str(pos.get("ultimo_resgate", "")) == chave(resgate):
+        return True, "este comprovante já foi aplicado na posição gravada"
+    em, dia = _rv._data(pos.get("posicao_em")), _rv._data(resgate.get("data"))
+    if em and dia and em >= dia:
+        return True, (f"a posição gravada é de {em.strftime('%d/%m/%Y')}, "
+                      "do dia do resgate ou depois — ele já está nela")
+    return False, ""
 
 
 if __name__ == "__main__":
@@ -168,8 +189,20 @@ Valor líquido resgatado: 13.353,87
     ok("a taxa implícita continua positiva depois do resgate",
        (_rv.taxa_implicita(nova["aplicado"], nova["bruto"], nova["inicio"],
                            nova["posicao_em"]) or 0) > 0)
+    # A CADEIA DA TELA: depois de gravar, a posição em vigor é `nova`, e o
+    # mesmo PDF chega de novo. Era aqui que ele descontava duas vezes.
     ok("o mesmo comprovante não é descontado duas vezes",
-       ja_aplicado(nova, posicao_apos(pos, r)[0] or {}))
+       ja_aplicado(nova, r)[0] is True)
+    ok("a chave do comprovante sozinha barra o PDF repetido",
+       ja_aplicado({**pos, "ultimo_resgate": chave(r)}, r)[0] is True
+       and "já foi aplicado" in ja_aplicado({**pos, "ultimo_resgate": chave(r)}, r)[1])
+    ok("posição colada do extrato depois do resgate já o contém",
+       ja_aplicado({**pos, "posicao_em": "2026-10-05"}, r)[0] is True)
+    ok("e um resgate novo, posterior à posição, passa",
+       ja_aplicado(pos, r)[0] is False)
+    _r_iof = {**r, "iof": 10.0}
+    ok("o IOF entra no rendimento resgatado (principal menor)",
+       posicao_apos(pos, _r_iof)[1]["principal"] == round(det["principal"] - 10.0, 2))
     ok("resgate maior que o aplicado é recusado",
        posicao_apos({**pos, "aplicado": 1000.0, "bruto": 1010.0}, r)[0] is None)
 

@@ -207,7 +207,11 @@ def _html_faturamento(d):
     falta para a meta. As contas são as de `ritmo` — um método só.
     """
     f = d["faturamento"]
-    alvo, por_dia, proj, dia, dias = ritmo(d)
+    alvo, _por_dia_cru, proj, dia, dias = ritmo(d)
+    # UM RITMO SÓ NA TELA: o mesmo da projeção (com a hora de hoje), e não
+    # realizado ÷ dia cheio. Com dois, às 8h do dia 5 a tela dizia "fecha
+    # acima do equilíbrio" e, ao lado, "não chega no mês" (revisão de 05/10).
+    por_dia = proj / dias if dias else 0.0
     real = float(f.get("realizado") or 0.0)
     meta = float(f.get("meta") or 0.0)
     eq = float(f.get("operacional") or 0.0)
@@ -240,7 +244,7 @@ def _html_faturamento(d):
                    f'<text x="{W - 8}" y="{Y(meta) - 6:.1f}" fill="#7FB8F0" font-size="12" '
                    f'font-weight="700" text-anchor="end">meta do mês · {_brl(meta, 0)}</text>')
     svg = (f'<svg viewBox="0 0 {W:.0f} {H:.0f}" width="100%" height="120" '
-           f'preserveAspectRatio="none" aria-label="Faturamento do mês contra equilíbrio e meta" '
+           f'aria-label="Faturamento do mês contra equilíbrio e meta" '
            f'style="font-family:inherit;">'
            f'<line x1="0" y1="{base}" x2="{W}" y2="{base}" stroke="var(--ms-divisor)"/>'
            + curva + linhas +
@@ -929,9 +933,15 @@ def _painel(ind, realizado, lucro_bruto, mb, mc_venda, ll_venda, vendas,
       devoluções %     = `devolucoes.pct_do_faturado` — o dono dela.
     """
     import devolucoes as _dv
-    ll = (ll_venda * vendas) if ll_venda is not None else None
+    _ll_medio = (ll_venda * vendas) if ll_venda is not None else None
     base = ind.get("faturamento_liquido") or 0.0
-    ll_pct = round(ll / base * 100, 1) if (ll is not None and base) else None
+    ll_pct = (round(_ll_medio / base * 100, 1)
+              if (_ll_medio is not None and base) else None)
+    # O MESMO RELÓGIO DO LUCRO BRUTO: o mês de agora, estimado pela margem
+    # dos meses fechados. Antes o bruto era o mês corrente e o líquido a
+    # média de 3 meses, lado a lado — no dia 5 o líquido saía MAIOR que o
+    # bruto (R$ 53 mil contra R$ 23 mil, print de 05/10).
+    ll = round(realizado * ll_pct / 100.0, 2) if ll_pct is not None else None
     if dev_mes:
         dev_pct = _dv.pct_do_faturado(dev_valor, realizado)
         linhas_top, sub_top = dev_mes, "no mês"
@@ -942,6 +952,14 @@ def _painel(ind, realizado, lucro_bruto, mb, mc_venda, ll_venda, vendas,
         linhas_top = [l for l in (dev_todas or [])
                       if _dv.mes_de(l.get("data_solic")) in _ult]
         sub_top = "últimos 3 meses com devolução"
+        # O teto no MESMO período do valor: a média de um mês fechado contra
+        # 3% do faturado parcial dava "acima do teto" todo início de mês.
+        dev_teto = (round(ind.get("faturamento", 0.0) * TETO_DEVOLUCAO_PCT
+                          / 100.0, 2) or None)
+    # Top 5 pela QUANTIDADE, que é o que o dono pediu ("o número de
+    # devoluções desses motivos"); `top_motivos` ordena por valor.
+    _top = sorted(_dv.top_motivos(linhas_top, 50),
+                  key=lambda t: (-t[1], -t[2]))[:5]
     return {
         "lucro_bruto": lucro_bruto, "lucro_bruto_pct": mb,
         "lucro_liquido": ll, "lucro_liquido_pct": ll_pct,
@@ -950,7 +968,7 @@ def _painel(ind, realizado, lucro_bruto, mb, mc_venda, ll_venda, vendas,
         "uc": uc, "uc_necessario": 1.0,
         "devolucao": dev_valor, "devolucao_pct": dev_pct,
         "devolucao_sub": dev_sub, "devolucao_teto": dev_teto,
-        "top_motivos": _dv.top_motivos(linhas_top, 5), "top_sub": sub_top,
+        "top_motivos": _top, "top_sub": sub_top,
         "periodo": periodo,
     }
 
@@ -1085,7 +1103,8 @@ def _html_gastos(q, erros=None):
                 f'<span style="text-align:right;font-weight:{w};color:{ambar};padding:7px 0;border-top:1px solid {bt};">{merc}</span>')
     pct = q["pct"]
     cart = (' · cartão sem separação de mercadoria' if q["merc_cartao"] else "")
-    aviso = (f'<div style="font-size:11px;color:#E34948;">Não li: {" · ".join(erros)}</div>'
+    aviso = (f'<div style="font-size:11px;color:#E34948;">Não li: '
+             f'{" · ".join(_esc(e).replace(chr(10), " ") for e in erros)}</div>'
              if erros else "")
     return (
         '<div style="background:var(--ms-metric-bg);border:1px solid var(--ms-divisor);'
@@ -1109,7 +1128,7 @@ def _html_gastos(q, erros=None):
         + linha_t("Já gasto", _brl(q["ja_saiu"], 0), _brl(q["merc_gasta"], 0), ambar)
         + linha_t("Comprometido · cheques e cartões", _brl(q["cheques_cartoes"], 0),
                   _brl(q["merc_comprometida"], 0), "#8A6A33")
-        + linha_t("Comprometido · fixos e folha", _brl(q["fixos"], 0), "—", "#5B6573")
+        + linha_t("Comprometido · fixos, folha e não operacional", _brl(q["fixos"], 0), "—", "#5B6573")
         + linha_t("Total do mês", _brl(q["total"], 0),
                   _brl(q["merc_gasta"] + q["merc_comprometida"], 0), "", forte=True)
         + '</div>'
@@ -2013,14 +2032,28 @@ if __name__ == "__main__":
     _p_t = _painel(_ind_t, 30000.0, 22000.0, _ind_t["margem_bruta"], 25.0,
                    5.0, 1000.0, 20.0, "Setembro/2026 · calculado", 0, 1.25,
                    120.0, "medido no mês", 900.0, _dv_rows, _dv_rows, "jul–set")
-    ok("lucro líquido % = lucro líquido ÷ faturado líquido",
-       _p_t["lucro_liquido"] == 5000.0
-       and _p_t["lucro_liquido_pct"] == round(5000 / 90000 * 100, 1))
+    ok("lucro líquido % = lucro líquido médio ÷ faturado líquido",
+       _p_t["lucro_liquido_pct"] == round(5000 / 90000 * 100, 1))
+    ok("lucro líquido em R$ é do mesmo relógio do bruto: faturado de agora × %",
+       _p_t["lucro_liquido"] == round(30000.0 * _p_t["lucro_liquido_pct"] / 100, 2)
+       and _p_t["lucro_liquido"] < _p_t["lucro_bruto"])
     ok("devolução do mês % = devolvido ÷ faturado do mês (dono: pct_do_faturado)",
        _p_t["devolucao_pct"] == round(120 / 30000 * 100, 2))
-    ok("top motivos conta as devoluções por motivo",
-       [t[1] for t in _p_t["top_motivos"]] == [1, 1, 1] or
-       sum(t[1] for t in _p_t["top_motivos"]) == 3)
+    ok("top motivos é ordenado pela QUANTIDADE de devoluções",
+       [t[1] for t in _p_t["top_motivos"]][:1] == [1] and
+       _painel(_ind_t, 30000.0, 22000.0, _ind_t["margem_bruta"], 25.0, 5.0,
+               1000.0, 20.0, "x", 0, 1.25, 120.0, "m", 900.0,
+               _dv_rows + [{"data_solic": "2026-10-04", "motivo": "Desistência",
+                            "valor": 1.0}], _dv_rows, "p")["top_motivos"][0][0]
+       == "Desistência")
+    _p_sem = _painel(_ind_t, 30000.0, 22000.0, _ind_t["margem_bruta"], 25.0,
+                     5.0, 1000.0, 20.0, "x", 0, 1.25, 3000.0, "média", 900.0,
+                     [], _dv_rows, "jul–set")
+    ok("sem devolução no mês, o teto é do mesmo período da média",
+       _p_sem["devolucao_teto"] == round(100000.0 * TETO_DEVOLUCAO_PCT / 100, 2))
+    ok("erro de leitura com HTML ou quebra de linha não quebra o quadro",
+       "<x>" not in _html_gastos(_q_t, ["falhou <x>\nlinha 2"])
+       and "\n" not in _html_gastos(_q_t, ["falhou <x>\nlinha 2"]))
     _h_dv = _html_devolucoes(_p_t)
     ok("motivo digitado com HTML aparece escapado, não interpretado",
        "&lt;b&gt;Quebrado&lt;/b&gt;" in _h_dv and "<b>Quebrado</b>" not in _h_dv)

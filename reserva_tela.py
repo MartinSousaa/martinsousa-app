@@ -33,7 +33,10 @@ FUSO = timezone(timedelta(hours=-3))
 
 ABA = "reserva"
 COLUNAS = ["produto", "aplicado", "inicio", "bruto", "liquido", "posicao_em",
-           "remuneracao", "atualizado_em", "atualizado_por"]
+           "remuneracao", "atualizado_em", "atualizado_por",
+           # a chave do último comprovante de resgate aplicado
+           # (`resgate_cdb.chave`): é o que impede descontar o mesmo PDF 2x
+           "ultimo_resgate"]
 
 
 def _hoje():
@@ -64,7 +67,8 @@ def carregar():
         return dict(_rv.POSICAO_INICIAL), "inicial"
     ultima = linhas[-1]
     fora = dict(_rv.POSICAO_INICIAL)
-    for c in ("produto", "inicio", "posicao_em", "remuneracao"):
+    for c in ("produto", "inicio", "posicao_em", "remuneracao",
+              "ultimo_resgate"):
         if str(ultima.get(c, "")).strip():
             fora[c] = str(ultima[c]).strip()
     for c in ("aplicado", "bruto", "liquido"):
@@ -106,6 +110,14 @@ def salvar(pos, usuario=""):
                                          cols=len(COLUNAS))
             aba.append_row(COLUNAS, value_input_option="RAW")
         cabecalho = aba.row_values(1) or list(COLUNAS)
+        # Coluna que o código conhece e a aba ainda não tem entra NO FIM,
+        # sem deslocar o que já está gravado — senão `ultimo_resgate` nunca
+        # seria gravado e a trava contra o PDF repetido não funcionaria.
+        _falta = [c for c in COLUNAS
+                  if c not in [str(h).strip().lower() for h in cabecalho]]
+        if _falta:
+            cabecalho = list(cabecalho) + _falta
+            aba.update(values=[cabecalho], range_name="A1")
         agora = datetime.now(FUSO).strftime("%d/%m/%Y %H:%M:%S")
         linha = {**pos, "atualizado_em": agora, "atualizado_por": usuario}
         aba.append_row([str(linha.get(str(c).strip().lower(), ""))
@@ -237,8 +249,9 @@ def _form_resgate(pos, usuario_logado):
             f"rendimento, que é o IR ÷ {det['aliquota'] * 100:.1f}%). O saldo "
             "é projetado pela taxa da última posição — colar o extrato acima "
             "corrige o centavo."))
-        if _rc.ja_aplicado(pos, nova):
-            st.info("Este resgate já está aplicado na posição gravada.")
+        _ja, _por_que = _rc.ja_aplicado(pos, resgate)
+        if _ja:
+            st.info(f"Não aplico de novo: {_por_que}.")
             return
         if st.button("💾 Atualizar a reserva com este resgate", type="primary",
                      key="rsv_resgate_gravar", use_container_width=True):

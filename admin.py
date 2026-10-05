@@ -58,10 +58,16 @@ def _remover_usuario(login, usuario_logado=""):
               if str(r.get("login", "")) == login]
     if not linhas:
         return False, f"'{login}' não está na aba de usuários."
-    for ln in sorted(linhas, reverse=True):       # de baixo para cima
-        aba.delete_rows(ln)
+    # Revoga ANTES de apagar: se a planilha falhar no meio, o link salvo já
+    # não entra — e a pessoa continua barrada por `auth._login_ativo`.
     auth.revogar_tokens(login)
-    auth._carregar_usuarios_sheets.clear()
+    try:
+        for ln in sorted(linhas, reverse=True):   # de baixo para cima
+            aba.delete_rows(ln)
+    except Exception as e:
+        return False, f"Não consegui apagar a linha: {str(e)[:120]}"
+    finally:
+        auth._carregar_usuarios_sheets.clear()
     return True, f"Usuário '{login}' excluído."
 
 
@@ -484,6 +490,7 @@ def _secao_equipe():
                 if _ok_rm:
                     _pc.recarregar_membros()
                     st.session_state["eq_resetar"] = True
+                    st.session_state["eq_rm_vista_reset"] = True
                     st.success(_msg_rm)
                     st.rerun()
                 else:
@@ -609,7 +616,7 @@ def pagina_admin(usuario_logado):
                     st.success(f"Senha de '{usuario_sel}' redefinida.")
                     st.rerun()
 
-        # Excluir fica num expander e pede o login digitado: apagar a linha
+        # Excluir fica num expander e pede a caixa de confirmação: apagar a linha
         # não tem desfazer. A key é DESTE usuário — com key fixa, o login
         # confirmado de um ficaria no campo do próximo selecionado.
         with st.expander("🗑️ Excluir usuário", expanded=False):

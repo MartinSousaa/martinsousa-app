@@ -114,7 +114,7 @@ Oriente assim (NUNCA mencione botões que não existem, como "Editar", "Salvar p
   (comprimento × largura × altura / 6.000 — produto embalado)
 - Shopee: comissão 15%–20% + R$4 adicional em produtos até R$79,99; frete grátis (vendedor não paga)
 - Shein: comissão 18% flat; frete por peso real (tabela por faixas de kg)
-- LPV = custo operacional médio por venda: saídas por PIX, cartão e boleto menos mercadoria, custo fixo e imposto, mais o Flex líquido, ÷ vendas do mês. Calculado pelo Studio; vale o último mês fechado
+- LPV = custo operacional médio por venda: saídas por PIX, cartão e boleto menos mercadoria, custo fixo, folha, assinatura, imposto, transferência entre contas e empréstimo, mais o Flex líquido (pago − reembolso), ÷ vendas do mês. Calculado pelo Studio; vale o último mês fechado com cálculo positivo
 - NF = alíquota tributária (configurada na aba Financeiro — não é calculada automaticamente)
 - Custo operacional padrão inclui embalagem, logística, ADS e cross docking
 - Peso e dimensões devem ser sempre do produto JÁ EMBALADO
