@@ -2241,3 +2241,4 @@ if __name__ == "__main__":
        "Falta o custo fixo" in _corpo_cards)
 
     print("\nfalhas:", falhas)
+    __import__("sys").exit(1 if falhas else 0)

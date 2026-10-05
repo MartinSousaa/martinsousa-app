@@ -682,3 +682,4 @@ if __name__ == "__main__":
        and _sf_t["maiores"] == [("A", 100.0)])
 
     print("\nfalhas:", falhas)
+    __import__("sys").exit(1 if falhas else 0)
