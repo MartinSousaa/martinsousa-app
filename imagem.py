@@ -806,6 +806,97 @@ def promessas_sem_lastro(textos, dados_descricao=None):
     return fora
 
 
+# ── NUMERO QUE O CADASTRO NAO TEM NAO VIRA ORDEM ──────────────────────────
+#
+# ACHADO EM 05/10, no prompt real da peca 5, e e a pior classe de defeito
+# desta cadeia: o sistema LAVA a invencao do modelo em ordem do Studio.
+#
+# O MESMO prompt dizia as duas coisas:
+#
+#   dados do produto: "Medidas EXATAS (use esses números, não invente): 12x14"
+#                     "Peso EXATO (use esse número, não invente): 326"
+#   TEXTO EXATO:      "ALTURA 30mm ALTURA DA ALÇA 5,2cm PROFUNDIDADE 25mm
+#                      PESO 326g LARGURA INTERNA 17mm LARGURA DA ALÇA 2,4cm
+#                      LARGURA 35mm"
+#
+# 30mm, 25mm, 17mm e 35mm NAO EXISTEM no cadastro. E o bloco do TEXTO EXATO
+# diz de si mesmo "acima de qualquer outra instrucao de texto" — entao o
+# Gemini obedeceu a ordem mais forte, e estava certo em obedecer.
+#
+# DE ONDE VIERAM: a peca 5 veio SEM copy do plano. `revisar_texto` pede ao
+# juiz visual o "texto_correto" (`imagem.py` ~7375) — e sem copy nao ha
+# fonte de verdade para comparar, entao o juiz TRANSCREVE o que ve na
+# imagem, so arrumando a grafia. As medidas que o Gemini inventou na
+# primeira tentativa viraram o TEXTO EXATO da segunda.
+#
+# E a correcao automatica piorou: em vez de voltar a fonte, mandou
+# "padronize as medidas do corpo para a escala real da caneca em cm" —
+# pediu ao modelo que INFERISSE um numero que o Python ja tinha.
+#
+# A regra fecha a classe inteira: numero com unidade que o cadastro nao
+# sustenta nao entra no TEXTO EXATO. Nao e sobre medida de caneca — e sobre
+# o sistema nunca mandar escrever um dado que ele nao tem.
+_NUMERO_COM_UNIDADE = __import__("re").compile(
+    r"(\d+(?:[.,]\d+)?)\s*(mm|cm|m|kg|g|ml|l|litros?|un|pe[çc]as?|folhas?)\b",
+    __import__("re").I)
+
+
+def _numeros_do_cadastro(dados_descricao):
+    """Todo numero que aparece nos campos do produto, sem unidade.
+
+    "12x14" da {12, 14}; "altura: 5,2cm largura: 2,4" da {5.2, 2.4}. A
+    unidade nao entra na comparacao de proposito: o colaborador escreve
+    "5,2cm" num campo e "52" noutro, e as duas sao a mesma medida.
+    """
+    dd = dados_descricao or {}
+    bruto = " ".join(str(dd.get(c, "") or "") for c in
+                     ("medidas", "peso", "material", "caracteristicas",
+                      "diferenciais", "uso", "nome_comercial", "nome_produto"))
+    fora = set()
+    for n in __import__("re").findall(r"\d+(?:[.,]\d+)?", bruto):
+        try:
+            fora.add(float(n.replace(",", ".")))
+        except ValueError:
+            pass
+    return fora
+
+
+def medidas_sem_lastro(textos, dados_descricao=None):
+    """[(texto, [medidas])] — os blocos com numero que o cadastro nao tem.
+
+    So olha numero COM UNIDADE: "4 cartoes" e contagem, "400ml" e dado do
+    produto. Sem a unidade a guarda acusaria o inocente, e verificador que
+    da alarme falso ensina a ser ignorado.
+    """
+    conhecidos = _numeros_do_cadastro(dados_descricao)
+    fora = []
+    for t in (textos or []):
+        achados = []
+        for valor, unidade in _NUMERO_COM_UNIDADE.findall(str(t)):
+            try:
+                v = float(valor.replace(",", "."))
+            except ValueError:
+                continue
+            if v not in conhecidos:
+                achados.append(f"{valor}{unidade}")
+        if achados:
+            fora.append((str(t), achados))
+    return fora
+
+
+def copy_sem_medida_inventada(textos, dados_descricao=None):
+    """(textos_limpos, removidos) — a copy sem numero que o cadastro nao tem.
+
+    Mesma politica de `copy_sem_promessa`: o BLOCO sai inteiro, porque tirar
+    so o numero deixaria "ALTURA" sozinho num cartao de cota.
+    """
+    _fora = {t for t, _ in medidas_sem_lastro(textos, dados_descricao)}
+    if not _fora:
+        return list(textos or []), []
+    return ([t for t in (textos or []) if str(t) not in _fora],
+            [t for t in (textos or []) if str(t) in _fora])
+
+
 def copy_sem_promessa(textos, dados_descricao=None):
     """(textos_limpos, removidos) — a copy sem o que os dados não sustentam.
 
@@ -5365,6 +5456,7 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
         # errado e o desperdicio mais caro desta cadeia: a arte sai boa, o
         # conferidor aprova, e o claim falso vai para a pagina do produto.
         _textos, _sem_lastro = copy_sem_promessa(_textos, dados_descricao)
+        _textos, _sem_medida = copy_sem_medida_inventada(_textos, dados_descricao)
         _teto_do_tipo = faixa_de_blocos(tipo)[1]
         if _teto_do_tipo:
             _textos = _textos[:_teto_do_tipo]
@@ -7280,7 +7372,7 @@ def revisar_peca(img, tipo, fotos_ref=None, gerar=None, prompt_base="",
 
 
 def revisar_tudo(img, tipo, fotos_ref=None, gerar=None, prompt_base="",
-                 pedido="", aviso=None):
+                 pedido="", aviso=None, dados_descricao=None):
     """Lê o texto E olha a peça. Devolve (imagem, relato_texto, relato_peca).
 
     A PORTA ÚNICA, e ela existe por um motivo medido: quatro lugares desta
@@ -7297,9 +7389,12 @@ def revisar_tudo(img, tipo, fotos_ref=None, gerar=None, prompt_base="",
     preservar o quadro, e o conserto de `revisar_peca` é recompor — as duas
     brigariam, e quem perde é quem pediu para mexer só numa palavra.
     """
+    # O CADASTRO VIAJA ATE A REVISAO: e com ele que a correcao sabe que
+    # "ALTURA 30mm" nao e dado do produto, e sim invencao do modelo lida de
+    # volta na imagem.
     img, rel_txt, prompt_base = revisar_texto(
         img, tipo, pedido=pedido, gerar=gerar, prompt_base=prompt_base,
-        aviso=aviso)
+        aviso=aviso, dados_descricao=dados_descricao)
     # A BASE CORRIGIDA SEGUE PARA A SEGUNDA REVISAO.
     #
     # Sem isto, `revisar_peca` refazia a partir do prompt ORIGINAL — com a
@@ -7315,7 +7410,7 @@ def revisar_tudo(img, tipo, fotos_ref=None, gerar=None, prompt_base="",
 
 
 def revisar_texto(img, tipo, pedido="", gerar=None, prompt_base="",
-                  rodadas=3, aviso=None):
+                  rodadas=3, aviso=None, dados_descricao=None):
     """Lê o texto escrito na imagem e refaz até sair certo.
 
     Devolve (imagem, relato, prompt_final) — TRÊS coisas, e a terceira é de
@@ -7384,7 +7479,41 @@ def revisar_texto(img, tipo, pedido="", gerar=None, prompt_base="",
         # original, a peça voltaria com a palavra inventada que acabou de
         # custar uma geração para sair: a segunda correção desfazendo a
         # primeira.
-        prompt_base = trocar_texto_exato(prompt_base, certo)
+        # O TEXTO QUE O JUIZ LEU NA IMAGEM NAO PODE TRAZER NUMERO NOVO.
+        #
+        # ACHADO EM 05/10, peca 5. Sem copy do plano nao ha fonte de verdade
+        # para o juiz comparar: ele TRANSCREVE o que ve, so arrumando a
+        # grafia. As medidas que o Gemini inventou na primeira tentativa —
+        # ALTURA 30mm, PROFUNDIDADE 25mm, LARGURA INTERNA 17mm, LARGURA 35mm
+        # — viraram o "TEXTO EXATO (copie letra por letra)" da segunda, num
+        # bloco que diz de si mesmo "acima de qualquer outra instrucao de
+        # texto". O cadastro, no MESMO prompt, dizia "Medidas EXATAS (use
+        # esses numeros, nao invente): 12x14".
+        #
+        # O sistema estava lavando a invencao do modelo em ordem do Studio.
+        # Esta linha e a barreira: numero com unidade que o cadastro nao
+        # sustenta nao vira ordem, venha de onde vier.
+        # O JUIZ DEVOLVE UMA STRING COM VARIAS LINHAS, e nao uma lista.
+        #
+        # Filtrar a string inteira como um bloco so jogava fora a copy
+        # corrigida completa por causa de UMA medida inventada numa linha —
+        # a guarda pegou isso. Ela e partida pelo MESMO criterio que
+        # `bloco_texto_exato` usa (`_INICIO_DE_BLOCO`), senao sao dois jeitos
+        # de contar bloco e eles passam a discordar.
+        _blocos_certo = [l.strip() for l in str(certo).splitlines() if l.strip()]
+        _certo_limpo, _num_fora = copy_sem_medida_inventada(
+            _blocos_certo or [str(certo)], dados_descricao)
+        if _num_fora:
+            _diz("Removi {} bloco(s) com medida que o cadastro não tem."
+                 .format(len(_num_fora)))
+        if not _certo_limpo:
+            # Sem nada que o cadastro sustente, refazer so repetiria a
+            # invencao. A peca para aqui, reprovada e dita em voz alta.
+            return img, {"ok": False, "rodadas": n, "erro": "",
+                         "erros": (erros or erros_1a)
+                         + " · a correção trazia medida que o cadastro não "
+                           "tem, e foi descartada"}, prompt_base
+        prompt_base = trocar_texto_exato(prompt_base, _certo_limpo)
         nova_img, erro_g = gerar(prompt_base)
         if erro_g or not nova_img:
             return img, {"ok": False, "rodadas": n, "erro": "",
@@ -7413,7 +7542,8 @@ def texto_em_aviso(relato):
 
 
 def ajustar_com_conferencia(imagem, instrucao, tipo=None, tentativas=2,
-                            aviso=None, referencias=None):
+                            aviso=None, referencias=None,
+                            dados_descricao=None):
     """Ajusta, confere o pedido, e depois confere o PORTUGUÊS do que ficou.
 
     As duas conferências são perguntas diferentes: `conferir_ajuste` responde
@@ -7441,6 +7571,7 @@ def ajustar_com_conferencia(imagem, instrucao, tipo=None, tentativas=2,
 
     img_ok, rel_txt, _ = revisar_texto(
         img, tipo,
+        dados_descricao=dados_descricao,
         pedido=instrucao,
         gerar=_refazer,
         prompt_base=montar_prompt_ajuste_fino(
@@ -8133,6 +8264,7 @@ def consumir_comandos_do_chat(usuario_logado=""):
             _img_rf, _rel_t_rf, _rel_p_rf = revisar_tudo(
                 _r["img"], _tp, fotos_ref=_fotos_rf, gerar=_gerar_rf,
                 prompt_base=_prompt, pedido=_ins,
+                dados_descricao=_dados_rf,
                 aviso=lambda t: _b.progress(1.0, text=t[:70]))
             registrar_revisao(_rel_t_rf)
             galeria[_i]["bytes"] = _img_rf
@@ -8238,6 +8370,8 @@ def consumir_comandos_do_chat(usuario_logado=""):
                 try:
                     _r["img"], _r["relato"] = ajustar_com_conferencia(
                         _ref, _ins, tipo=_tp, referencias=_rf,
+                        dados_descricao=st.session_state.get(
+                            "img_dados_descricao") or {},
                         aviso=lambda t: _r.__setitem__("fase", t))
                 except Exception as _e:
                     _r["img"], _r["relato"] = None, {
@@ -8896,6 +9030,8 @@ def pagina_imagem(usuario_logado):
                     # — e aí é vazio de verdade, não vazio por esquecimento.
                     _r["img"], _r["relato"] = ajustar_com_conferencia(
                         _ref, _ins, referencias=_rf,
+                        dados_descricao=st.session_state.get(
+                            "img_dados_descricao") or {},
                         aviso=lambda t: _r.__setitem__("fase", t))
                 except Exception as _e:
                     _r["img"], _r["relato"] = None, {
@@ -10244,6 +10380,7 @@ def pagina_imagem(usuario_logado):
                             gerar=_gerar_de_novo,
                             prompt_base=prompt_final,
                             pedido=cfg.get("instrucoes_extras", ""),
+                            dados_descricao=cfg.get("dados_descricao") or {},
                             aviso=lambda t, _i=i: barra.progress(
                                 _i / len(tipos), text=t[:70]),
                         )
@@ -10866,6 +11003,7 @@ def pagina_imagem(usuario_logado):
                             nova_img_regen, tipo_ativo, fotos_ref=fotos_orig,
                             gerar=_gerar_rg, prompt_base=prompt_regen,
                             pedido=instrucoes_orig,
+                            dados_descricao=dados_desc,
                             aviso=lambda t: _barra_regen.progress(
                                 1.0, text=t[:70]))
                         registrar_revisao(_rel_t_rg)
@@ -10932,6 +11070,8 @@ def pagina_imagem(usuario_logado):
                         try:
                             _r["img"], _r["relato"] = ajustar_com_conferencia(
                                 _ref, _ins, tipo=_tp, referencias=_rf,
+                                dados_descricao=st.session_state.get(
+                                    "img_dados_descricao") or {},
                                 aviso=lambda t: _r.__setitem__("fase", t))
                         except Exception as _e:
                             _r["img"], _r["relato"] = None, {
@@ -12281,7 +12421,13 @@ if __name__ == "__main__":
     # termica em metal e resina" e o cadastro nao tem ensaio termico nenhum.
     # A arte saiu boa, o conferidor aprovou, e o claim falso iria para a
     # pagina do produto.
+    # O CADASTRO E O DO PRODUTO REAL, com a medida da alca que a copy cita.
+    # Sem ela a barreira de MEDIDA tirava "A ALCA CABE NA MAO?: Sim, medidas
+    # 5,2cm" — e estava certa: 5,2 nao existia em cadastro nenhum. Completar
+    # a entrada e o conserto; afrouxar a barreira seria consertar o
+    # termometro.
     _dd_cl = {"material": "Metal e Resina",
+              "caracteristicas": "altura: 5,2cm largura: 2,4",
               "diferenciais": "interior em inox diferencia de canecas decorativas"}
     _copy_cl = ["A ALÇA CABE NA MÃO?: Sim, medidas 5,2cm",
                 "MANTÉM BEBIDA QUENTE?: Sim, térmica em metal e resina",
@@ -12343,6 +12489,132 @@ if __name__ == "__main__":
     ok("a peca fica com o teto cheio de blocos bons",
        f"exatamente {faixa_de_blocos('2 — Benefícios do produto')[1]} bloco"
        in _p_ord)
+
+    # ── NUMERO QUE O CADASTRO NAO TEM NAO VIRA ORDEM ────────────────────
+    #
+    # A PIOR CLASSE DE DEFEITO DESTA CADEIA, achada em 05/10 na peca 5: o
+    # sistema LAVA a invencao do modelo em ordem do Studio.
+    #
+    # O MESMO prompt dizia "Medidas EXATAS (use esses numeros, nao invente):
+    # 12x14" e, mais abaixo, "TEXTO EXATO (copie letra por letra): ALTURA
+    # 30mm (...) PROFUNDIDADE 25mm (...) LARGURA INTERNA 17mm (...) LARGURA
+    # 35mm" — num bloco que se declara "acima de qualquer outra instrucao de
+    # texto". O Gemini obedeceu a ordem mais forte, e estava certo.
+    #
+    # A ENTRADA E O CADASTRO REAL da Caneca, como a tela monta.
+    _dd_med = {"nome_produto": "Caneca Térmica Medieval 400Ml",
+               "medidas": "12x14", "peso": "326",
+               "caracteristicas": "altura: 5,2cm largura: 2,4",
+               "material": "Metal e Resina",
+               "diferenciais": "400ml bom tamanho para todas as bebidas"}
+    _copy_med = ["ALTURA 30mm PROFUNDIDADE 25mm LARGURA INTERNA 17mm LARGURA 35mm",
+                 "CAPACIDADE VERSÁTIL: 400ml perfeito para todas as bebidas",
+                 "ALÇA ERGONÔMICA: medidas 5,2cm x 2,4cm",
+                 "PESO 326g",
+                 "ALTURA 12cm LARGURA 14cm"]
+    _limpos_m, _fora_m = copy_sem_medida_inventada(_copy_med, _dd_med)
+    ok("o bloco com medida inventada sai", len(_fora_m) == 1
+       and "30mm" in _fora_m[0])
+    ok("e os quatro que o cadastro sustenta ficam", len(_limpos_m) == 4)
+    # OS NUMEROS REAIS NAO PODEM SER ACUSADOS — alarme falso aqui apagaria a
+    # copy boa do produto.
+    ok("400ml nao e acusado: esta no nome e nos diferenciais",
+       not medidas_sem_lastro(["CAPACIDADE: 400ml"], _dd_med))
+    ok("5,2cm e 2,4cm nao sao acusados: estao nas caracteristicas",
+       not medidas_sem_lastro(["ALÇA: 5,2cm x 2,4cm"], _dd_med))
+    ok("326g nao e acusado: esta no peso",
+       not medidas_sem_lastro(["PESO 326g"], _dd_med))
+    # CONTAGEM SEM UNIDADE NAO E MEDIDA, e confundir as duas seria apagar
+    # "4 cartoes" de uma copy legitima.
+    ok("numero sem unidade nao e medida",
+       not medidas_sem_lastro(["4 cartões bem distribuídos"], _dd_med))
+    # E O BLOCO SAI INTEIRO: tirar so o numero deixaria "ALTURA" sozinho num
+    # cartao de cota.
+    ok("o bloco sai inteiro, nao o numero",
+       all("30mm" not in t for t in _limpos_m))
+    # SEM CADASTRO NENHUM, toda medida e inventada — e a peca sai sem cota,
+    # que e correto: peca sem cota e certa, peca com cota inventada e errada.
+    ok("sem cadastro, nenhuma medida passa",
+       copy_sem_medida_inventada(["ALTURA 12cm"], {})[0] == [])
+    # E A BARREIRA ESTA NOS DOIS CAMINHOS: o do plano e o da REVISAO.
+    #
+    # O da revisao e o que importa: foi por ele que a invencao do Gemini
+    # voltou como ordem. `revisar_texto` passa a limpar o "texto_correto"
+    # que o juiz leu na imagem antes de injeta-lo.
+    # A GUARDA EXERCITA O CAMINHO, e nao pergunta se o nome existe.
+    #
+    # A primeira versao dizia `"copy_sem_medida_inventada" in _fonte_rev` e
+    # ficou VERDE com a mutacao que voltava a injetar o texto cru: a funcao
+    # continuava escrita ali, so nao era usada. E a guarda que pergunta
+    # "existe em algum lugar" em vez de "passa por aqui" — o mesmo defeito
+    # que o `checar_tela` cometeu com a conferencia fora do laco.
+    #
+    # Agora ela ROTEIA a revisao de verdade: um juiz de mentira devolve a
+    # medida inventada, e a assercao olha o prompt que saiu.
+    _conf_orig = globals()["conferir_texto"]
+    _prompts_vistos = []
+
+    def _juiz_falso(_img, _pedido=""):
+        return {"tem_texto": True, "correto": False,
+                "erros": "PROFUNDITUDE",
+                # O TIPO VEM DO ESQUEMA REAL (`imagem.py` ~6915): string,
+                # nao lista. A primeira versao deste duplo devolveu lista e
+                # a guarda estourou com AttributeError — a Forma 7, cometida
+                # dentro da guarda que mede a Forma 7.
+                "texto_correto": "ALTURA 30mm PROFUNDIDADE 25mm"}, ""
+
+    def _gera_falso(_p):
+        _prompts_vistos.append(_p)
+        return b"nova", ""
+
+    globals()["conferir_texto"] = _juiz_falso
+    try:
+        _p_rev = montar_prompt_imagem(
+            "5 — Características técnicas (medidas/peso/material)", "",
+            _dd_med, "Caneca",
+            plano_triagem={"composicao": "x", "cena": "y",
+                           "textos": ["ALTURA 12cm", "PESO 326g"]})
+        _, _rel_rev, _ = revisar_texto(
+            b"img", "5 — Características técnicas (medidas/peso/material)",
+            gerar=_gera_falso, prompt_base=_p_rev, rodadas=2,
+            dados_descricao=_dd_med)
+    finally:
+        globals()["conferir_texto"] = _conf_orig
+    # CASO A — o juiz devolveu SO invencao. A revisao NAO gera: refazer com
+    # a mesma invencao so repetiria o erro, e cada rodada e uma geracao paga.
+    ok("texto todo inventado: a revisao nao gasta geracao",
+       not _prompts_vistos)
+    ok("e ela diz por que, em vez de reprovar calada",
+       "medida que o cadastro não tem" in (_rel_rev or {}).get("erros", ""))
+
+    # CASO B — o juiz devolveu invencao MAIS algo que o cadastro sustenta.
+    # Agora ela gera, e o que vai ao motor e so a parte com lastro.
+    _prompts_b = []
+
+    def _juiz_misto(_img, _pedido=""):
+        return {"tem_texto": True, "correto": False, "erros": "PROFUNDITUDE",
+                "texto_correto": "ALTURA 30mm\nPESO 326g"}, ""
+
+    def _gera_b(_p):
+        _prompts_b.append(_p)
+        return b"nova", ""
+
+    globals()["conferir_texto"] = _juiz_misto
+    try:
+        revisar_texto(b"img",
+                      "5 — Características técnicas (medidas/peso/material)",
+                      gerar=_gera_b, prompt_base=_p_rev, rodadas=2,
+                      dados_descricao=_dd_med)
+    finally:
+        globals()["conferir_texto"] = _conf_orig
+    ok("com algo que o cadastro sustenta, a revisao refaz", bool(_prompts_b))
+    ok("e a medida inventada NAO vai ao motor",
+       all("30mm" not in _p for _p in _prompts_b))
+    ok("mas a que o cadastro tem vai",
+       any("326g" in _p for _p in _prompts_b))
+    _fonte_mp = _inspect_g.getsource(montar_prompt_imagem)
+    ok("o caminho do plano tambem limpa",
+       "copy_sem_medida_inventada" in _fonte_mp)
     # COM copy nada mudou: a peca que TEM texto continua pedindo o numero.
     ok("com copy, o numero continua fechado",
        all("exatamente 3 bloco" in x for x in _bp_com))
