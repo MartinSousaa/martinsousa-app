@@ -380,6 +380,11 @@ def carregar_config(ano: int, mes: int) -> dict:
             cfg["herdado_de"] = (int(_r["ano"]), int(_r["mes"]))
         row = linha.iloc[-1]
         for k in DEFAULTS:
+            # ADVERTÊNCIA É LANÇAMENTO DO MÊS, não configuração: herdá-la
+            # punia a pessoa em outubro pela advertência de setembro, e num
+            # período de vários meses a mesma contava N vezes.
+            if cfg.get("herdado_de") and k.startswith("adv_"):
+                continue
             val = row.get(k)
             try:
                 v = float(val)
@@ -474,7 +479,7 @@ if __name__ == "__main__":
          "meta_myrelladesouza": 2200, "meta_luizhenriqueramos": 1400},
         {"ano": 2026, "mes": 9, "meta_equipe": 9000, "meta_maxx_acrescimo": 20,
          "meta_myrelladesouza": 2500, "meta_luizhenriqueramos": 1500,
-         "max_pen_normal": 5},
+         "max_pen_normal": 5, "adv_myrelladesouza": 2},
         {"ano": 2025, "mes": 12, "meta_equipe": 1, "meta_maxx_acrescimo": 1,
          "meta_myrelladesouza": 1, "meta_luizhenriqueramos": 1},
     ])
@@ -490,6 +495,10 @@ if __name__ == "__main__":
     ok("e o resto da linha, para não misturar dois meses",
        _out["max_pen_normal"] == 5)
     ok("e diz de onde veio", _out.get("herdado_de") == (2026, 9))
+    ok("advertência do mês anterior NÃO é herdada",
+       _out.get("adv_myrelladesouza", 0) == 0)
+    ok("mas o mês cadastrado lê a própria advertência",
+       carregar_config(2026, 9).get("adv_myrelladesouza") == 2)
     ok("dois meses sem cadastro herdam o último cadastrado",
        carregar_config(2026, 12)["meta_equipe"] == 9000)
     ok("virada de ano: janeiro herda dezembro, não o maior mês do ano",

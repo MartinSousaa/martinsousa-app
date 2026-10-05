@@ -238,7 +238,9 @@ def _ler_financeiro():
         import financeiro as _fin
         df = _fin.carregar_dados()
         lpv, origem = _fin.lpv_vigente(df)
-        aliq = _fin.aliquota_vigente(df)
+        # `aliquota_vigente` devolve (alíquota, regime): a tupla inteira no
+        # f-string abaixo estourava e a ferramenta nunca respondia.
+        aliq, _regime = _fin.aliquota_vigente(df)
         atraso = _fin.meses_de_atraso_lpv(df)
     except Exception as e:
         return f"Não consegui ler o Financeiro agora: {e}"
@@ -246,7 +248,8 @@ def _ler_financeiro():
         return f"Não há LPV informado ({origem}). Precisa ser preenchido em Gestão → Financeiro."
     linhas = [f"LPV vigente: R$ {lpv:.2f} (custo operacional médio por venda)",
               f"Mês de origem do LPV: {origem}",
-              f"Alíquota tributária: {aliq:.1f}%"]
+              (f"Alíquota tributária: {aliq:.1f}%" if aliq is not None
+               else "Alíquota tributária: não informada")]
     if atraso >= 1:
         linhas.append(f"ATENÇÃO: o LPV está {atraso} mês(es) atrasado. Toda análise "
                       "de viabilidade está saindo com custo defasado.")
@@ -534,6 +537,26 @@ if __name__ == "__main__":
     # corrente de propósito. Escrito aqui porque a primeira versão desta
     # guarda dizia que 0 era recusado, e não é.
     ok("mês 25 também", "não existe" in _ler_gastos_do_mes(2026, 25))
+
+    # ler_financeiro PELA CADEIA: `aliquota_vigente` e `lpv_vigente` reais,
+    # só a planilha trocada. A tupla (alíquota, regime) inteira no f-string
+    # estourava e a ferramenta nunca respondia (revisão de 05/10).
+    import financeiro as _fin_t
+    import pandas as _pd_t
+    _g = (_fin_t.carregar_dados, _fin_t.lpv_calculado_recente)
+    _fin_t.carregar_dados = lambda: _pd_t.DataFrame([
+        {"ano": 2026, "mes": 8, "lpv": 20.94, "regime_tributario": "Simples",
+         "aliquota": 9.0}])
+    _fin_t.lpv_calculado_recente = lambda hoje=None: None
+    try:
+        try:
+            _txt = _ler_financeiro()
+        except Exception as _e_lf:
+            _txt = f"ESTOUROU: {type(_e_lf).__name__}"
+    finally:
+        _fin_t.carregar_dados, _fin_t.lpv_calculado_recente = _g
+    ok("ler_financeiro responde com LPV e alíquota",
+       "20.94" in _txt and "Alíquota tributária: 9.0%" in _txt)
 
     print()
     if falhas:

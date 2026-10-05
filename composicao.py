@@ -124,11 +124,25 @@ FORA = ("TRANSFERENCIA ENTRE CONTAS", "TRANSFERÊNCIA ENTRE CONTAS",
 LPV_ALEM_DO_OPERACIONAL = ("PÁGINA DO ML", "BOLETO", "TARIFA BANCÁRIA")
 
 
+# Fora do LPV mesmo sem estar em lado nenhum: a grafia longa de mercadoria e
+# o rótulo de linha sem finalidade.
+LPV_SEMPRE_FORA = ("COMPRA DE MERCADORIA", "SEM CLASSIFICAÇÃO")
+
+
 def entra_no_lpv(finalidade):
-    """A saída com esta finalidade entra no custo operacional do LPV?"""
-    if lado(finalidade) == "operacional":
+    """A saída com esta finalidade entra no custo operacional do LPV?
+
+    A regra do dono é "TUDO entra, menos mercadoria, custo fixo, assinatura,
+    imposto e transferência". Por isso finalidade que o Studio ainda não
+    conhece ENTRA — e `lpv_mensal.calcular` a devolve à parte, para a tela
+    dizer qual foi. Deixá-la de fora calada era o contrário da regra.
+    """
+    k = _chave(finalidade)
+    if not k or k in {_chave(f) for f in LPV_SEMPRE_FORA}:
+        return False
+    if lado(finalidade) in ("operacional", "desconhecida"):
         return True
-    return _chave(finalidade) in {_chave(f) for f in LPV_ALEM_DO_OPERACIONAL}
+    return k in {_chave(f) for f in LPV_ALEM_DO_OPERACIONAL}
 
 
 def _chave(t):
@@ -569,6 +583,9 @@ if __name__ == "__main__":
                "FATURA DO CARTÃO", "CHEQUES", "EMPRESTIMO PRONAMP", "",
                "SHOPEE"):
         ok(f"{_f or '(vazia)'} NÃO entra no LPV", not entra_no_lpv(_f))
+    ok("finalidade que o Studio não conhece entra (regra: tudo, menos...)",
+       entra_no_lpv("MOTOBOY") and lado("MOTOBOY") == "desconhecida")
+    ok("e linha sem classificação não entra", not entra_no_lpv("SEM CLASSIFICAÇÃO"))
     ok("e PÁGINA DO ML continua fixa no equilíbrio",
        lado("PÁGINA DO ML") == "numerador")
 

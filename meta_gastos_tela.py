@@ -15,6 +15,64 @@ def _fmt(v):
     return f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
+def _de_onde_vem(ano, hoje):
+    """O realizado de um mês, aberto: por conta, por finalidade, o que ficou
+    fora da meta e as linhas com data que não cai em mês nenhum.
+
+    Existe por causa de setembro/2026: a tela dizia R$ 46 mil com todos os
+    extratos subidos, e não havia onde olhar o porquê. A conta mora em
+    `lancamentos.explicar_mes`; aqui só se desenha.
+    """
+    import pandas as pd
+    import lancamentos as _lan
+    MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho",
+             "agosto", "setembro", "outubro", "novembro", "dezembro"]
+    with st.expander("🔎 De onde vem o realizado", expanded=False):
+        mes = st.selectbox("Mês", list(range(1, 13)), index=hoje.month - 1,
+                           format_func=lambda m: MESES[m - 1], key="mg_explica_mes")
+        try:
+            x = _lan.explicar_mes(int(ano), int(mes))
+        except Exception as e:
+            st.error(f"Não consegui ler os lançamentos: {str(e)[:150]}")
+            return
+        st.markdown(_rot.tela(
+            f"**{x['linhas']} lançamento(s)** em {MESES[mes - 1]}/{ano} · "
+            f"realizado da meta **R$ {_fmt(x['realizado'])}**"))
+        if x["por_conta"]:
+            st.caption("Por conta — confira se todas as contas e todo o período "
+                       "do mês estão aqui:")
+            st.dataframe(pd.DataFrame([
+                {"conta": k, "linhas": v["linhas"], "saídas": v["saidas"],
+                 "entradas": v["entradas"], "primeiro dia": v["de"],
+                 "último dia": v["ate"]} for k, v in x["por_conta"].items()]),
+                use_container_width=True, hide_index=True)
+        if x["consome"]:
+            st.caption("Entra na meta, por finalidade:")
+            st.dataframe(pd.DataFrame([{"finalidade": k, "valor": v}
+                                       for k, v in x["consome"].items()]),
+                         use_container_width=True, hide_index=True)
+        if x["fora"]:
+            st.caption("Saídas que **não** entram na meta — transferência entre "
+                       "contas, aplicação e resgate não são gasto. Se um "
+                       "pagamento de verdade está aqui, a finalidade do "
+                       "favorecido está errada (Financeiro › Finalidades):")
+            st.dataframe(pd.DataFrame([{"finalidade": k, "valor": t, "linhas": n}
+                                       for k, (t, n) in x["fora"].items()]),
+                         use_container_width=True, hide_index=True)
+        if x["por_dia"]:
+            st.caption("Saídas que contam, dia a dia:")
+            st.bar_chart(pd.DataFrame({"saídas": list(x["por_dia"].values())},
+                                      index=[d[-2:] for d in x["por_dia"]]),
+                         use_container_width=True)
+        if x["data_invalida"]:
+            st.warning(_rot.tela(
+                f"**{x['data_invalida']} lançamento(s) com data fora do formato "
+                "AAAA-MM-DD** na aba inteira. Eles não caem em mês nenhum e "
+                "não somam em lugar nenhum. Exemplos:"))
+            st.dataframe(pd.DataFrame(x["exemplos_invalidos"]),
+                         use_container_width=True, hide_index=True)
+
+
 def pagina(usuario_logado=None):
     from datetime import datetime
     import pandas as pd
@@ -214,6 +272,8 @@ def pagina(usuario_logado=None):
                  for m, v in sorted(_grav.items()) if m.startswith(str(ano))
                  and (v["meta"] or v["informado"])]),
                 use_container_width=True, hide_index=True)
+
+    _de_onde_vem(ano, hoje)
 
     _com_dado = [l for l in linhas if l["origem"] != "sem dado"]
     if _com_dado:

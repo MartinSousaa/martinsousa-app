@@ -998,6 +998,47 @@ def _contexto_do_log(conta):
     conta("e marca ANTES de abrir a primeira thread",
           _l_ctx is not None and (_l_th is None or _l_ctx < _l_th),
           f"marcar_contexto na linha {_l_ctx}, primeira Thread na {_l_th}")
+
+    # ── E O NOME QUE ELA MARCA E O DA PORTA UNICA ───────────────────────
+    #
+    # UM NOME, UMA RESPOSTA — e aqui havia duas.
+    #
+    # A marcacao da geracao usava `cfg.get("nome_produto")`, enquanto a tela
+    # (e o chat, e a copy vigente) le `session_state["img_nome_produto"]`,
+    # cujo escritor unico e `definir_produto_da_sessao`. Os dois concordavam
+    # por tabela, porque a porta era chamada no FIM da geracao — mas so
+    # `if galeria` (imagem.py:10722). Geracao que falha inteira deixava o
+    # contexto com o nome do cfg e a sessao com o nome anterior.
+    #
+    # Divergindo, o log grava um nome e o historico filtra pelo outro, e a
+    # copy corrigida fica guardada numa chave que ninguem procura. Nao
+    # corrompe nada — simplesmente nao e achada, que e a pior forma de
+    # defeito desta base: silenciosa.
+    #
+    # A ASERCAO E SOBRE O ARGUMENTO, por AST. Procurar o texto
+    # "definir_produto_da_sessao" no corpo acha a chamada do FIM da geracao
+    # e fica verde sem medir nada — ela sempre esteve la.
+    _prod_de = []
+    for _n in _ast_c.walk(_arv):
+        if not isinstance(_n, _ast_c.Call):
+            continue
+        if (getattr(_n.func, "attr", "") or getattr(_n.func, "id", "")) \
+                != "marcar_contexto":
+            continue
+        for _kw in _n.keywords:
+            if _kw.arg != "produto":
+                continue
+            _prod_de.append(_ast_c.unparse(_kw.value))
+    conta("e o nome marcado sai da porta unica do produto",
+          bool(_prod_de) and all(
+              "definir_produto_da_sessao" in _v
+              or "img_nome_produto" in _v
+              or "peca" in _v
+              for _v in _prod_de),
+          f"marcar_contexto recebe {_prod_de} — nome que nao vem de "
+          "`definir_produto_da_sessao` e segunda resposta para a mesma "
+          "pergunta: o log grava um, o historico filtra o outro, e a copy "
+          "corrigida fica numa chave que ninguem procura")
     # ── A DATA DO PAINEL E A DE BRASILIA ────────────────────────────────
     #
     # `pagina_placar` monta `agora = datetime.now()` — UTC no container — e
@@ -2137,6 +2178,32 @@ def _excluir_usuario(conta):
         _au._TOKENS.clear()
 
 
+def _remocao_a_vista(conta):
+    """Remover da equipe e excluir usuário: visíveis e sem campo-armadilha.
+
+    05/10: a remoção da equipe só existia depois de escolher a pessoa no
+    seletor de edição — o dono não achou. E as duas confirmações pediam o
+    login digitado num campo que mostrava o próprio login como exemplo, em
+    cinza: parecia preenchido, estava vazio, e o botão ficava travado. Lê o
+    BLOCO de cada função, nunca o arquivo.
+    """
+    import inspect
+    import admin as _adm
+    _eq = inspect.getsource(_adm._secao_equipe)
+    _rm = inspect.getsource(_adm._remover_da_equipe)
+    conta("a remoção da equipe aparece antes do seletor de edição",
+          "_remover_da_equipe(" in _eq
+          and _eq.index("_remover_da_equipe(") < _eq.index("Editar quem já existe")
+          and "Remover colaborador da equipe" in _rm, "")
+    _pg = inspect.getsource(_adm.pagina_admin)
+    conta("nenhuma confirmação usa o login como exemplo de campo vazio",
+          "placeholder=usuario_sel" not in _pg
+          and 'placeholder=_f.get("username_trello"' not in _eq, "")
+    conta("as confirmações são caixas, com chave da pessoa",
+          'st.checkbox(f"Confirmo a exclusão' in _pg
+          and 'key=f"eq_rm_vista_conf_{_rm_user}"' in _rm, "")
+
+
 def main():
     instalar()
     falhas = []
@@ -2178,6 +2245,7 @@ def main():
     _txt_consolidado(conta)
     _contribuicao_coletiva(conta)
     _excluir_usuario(conta)
+    _remocao_a_vista(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0
