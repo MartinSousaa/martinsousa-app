@@ -1202,19 +1202,52 @@ def renderizar_chat(usuario_logado=""):
         # o histórico já desenhava as imagens e _chamar_ia já sabia enviá-las.
         # Faltava só por onde entrar.
         versao_anexo = st.session_state.get("chat_anexo_versao", 0)
-        anexos = st.file_uploader(
-            "📎 Anexar imagem",
-            # QUALQUER FORMATO. O Studio tem `normalizar_imagem`, que
-            # converte HEIC, AVIF, GIF, BMP e TIFF — e este campo era o
-            # único que recusava antes de o conversor existir. Quem
-            # fotografa o produto no iPhone manda HEIC, e o chat dizia
-            # apenas que o arquivo não servia.
-            type=None,
-            accept_multiple_files=True,
-            key=f"chat_anexos_{versao_anexo}",
-            label_visibility="collapsed",
-            help="Anexe uma imagem para o assistente analisar junto da sua mensagem.",
-        )
+
+        # ── A FILEIRA: o clipe à esquerda, "Limpar Chat" à direita ───────────
+        #
+        # `app.py:148-201` já tira a caixa de arrastar-e-soltar inteira: na
+        # barra lateral sobram o clipe e "Limite 200MB" numa linha só. O espaço
+        # à direita dela estava vazio, e é onde o botão entra — sem custar
+        # altura nenhuma, que é o que o dono aprovou.
+        #
+        # `st.columns` é quem põe os dois lado a lado. A proporção dá ~200px ao
+        # anexo e ~110px ao botão na largura real da barra (330px): cabem o
+        # clipe mais o limite de um lado e a escrita do outro, sem quebrar
+        # linha. O `vertical_alignment` alinha pelo meio — sem ele o botão sobe,
+        # porque o anexo é mais alto.
+        _col_anexo, _col_limpar = st.columns([2, 1], vertical_alignment="center")
+
+        with _col_limpar:
+            # O CONTAINER COM `key` É O QUE DÁ O SELETOR DE CSS.
+            #
+            # Streamlit 1.46 escreve a chave como classe, prefixada com
+            # `st-key-` (documentado em `streamlit/elements/layouts.py:92`).
+            # Sem ele, estilizar este botão exigiria um seletor pela ordem dos
+            # elementos — e o próximo botão da barra lateral herdaria a cara
+            # dele sem ninguém perceber.
+            with st.container(key="ms_limpar_chat"):
+                if st.button("Limpar Chat", key="btn_limpar_chat",
+                             help="Apaga esta conversa e começa do zero. A "
+                                  "galeria, o plano e as fotos não são "
+                                  "tocados; pedidos já aceitos continuam.",
+                             use_container_width=True):
+                    limpar_conversa()
+                    st.rerun()
+
+        with _col_anexo:
+            anexos = st.file_uploader(
+                "📎 Anexar imagem",
+                # QUALQUER FORMATO. O Studio tem `normalizar_imagem`, que
+                # converte HEIC, AVIF, GIF, BMP e TIFF — e este campo era o
+                # único que recusava antes de o conversor existir. Quem
+                # fotografa o produto no iPhone manda HEIC, e o chat dizia
+                # apenas que o arquivo não servia.
+                type=None,
+                accept_multiple_files=True,
+                key=f"chat_anexos_{versao_anexo}",
+                label_visibility="collapsed",
+                help="Anexe uma imagem para o assistente analisar junto da sua mensagem.",
+            )
 
         # ── Campo de texto — Enter envia, Shift+Enter nova linha ──────────────
         user_input = st.chat_input("Digite sua mensagem…")
@@ -1300,6 +1333,46 @@ def iniciar_conversa(mensagem: str):
     if "ms_chat_hist" not in st.session_state:
         st.session_state["ms_chat_hist"] = []
     st.session_state["ms_chat_hist"].append({"role": "assistant", "content": mensagem})
+
+
+def limpar_conversa():
+    """Apaga a CONVERSA, e só ela. Porta única do botão "Limpar Chat".
+
+    O QUE SAI E O QUE FICA, E POR QUE A LINHA É ESSA
+    ------------------------------------------------
+    O chat guarda seis campos, e eles não são a mesma coisa. Três são a
+    conversa; três são COMANDOS JÁ ACEITOS que a aba Imagem ainda vai
+    executar. Apagar os seis juntos seria jogar fora geração paga — em
+    silêncio, que é como esta base perde trabalho.
+
+    SAI:
+      `ms_chat_hist`      as mensagens
+      `chat_pendente`     a pergunta sendo respondida agora
+      `chat_anexo_versao` +1, e é ela que SOLTA a foto presa no campo de
+                          anexo: a chave do `file_uploader` carrega esse
+                          número (chat_assistente.py:1205). Sem trocá-lo, a
+                          foto continua pendurada num chat zerado.
+
+    FICA:
+      `chat_refazer_imagem`, `chat_img_pendente`, `chat_refazer_todas` — o
+      pedido já foi aceito, e o trabalho em curso não é a conversa.
+
+    E NADA FORA DO CHAT é tocado: galeria, plano, fotos, nome do produto e
+    histórico de prompts ficam onde estão.
+
+    NÃO PEDE CONFIRMAÇÃO, e isso foi decidido com o dono: o que se perde é a
+    conversa, não o trabalho — e uma caixa de confirmação no meio da linha do
+    anexo quebraria o layout aprovado.
+
+    DEPOIS DE LIMPAR, a tela volta a desenhar "Olá <nome>, como posso
+    ajudar?" sozinha (chat_assistente.py:1174, o ramo de histórico vazio).
+    Escrever a saudação aqui seria um SEGUNDO jeito de o chat estar vazio, e
+    os dois passariam a discordar — a questão seria só quando.
+    """
+    st.session_state["ms_chat_hist"] = []
+    st.session_state.pop("chat_pendente", None)
+    st.session_state["chat_anexo_versao"] = (
+        st.session_state.get("chat_anexo_versao", 0) + 1)
 
 
 # ── Conferência ──────────────────────────────────────────────────────────────
@@ -1669,6 +1742,98 @@ if __name__ == "__main__":
     preparar_geracao_dos_faltantes([])
     ok("sem faltante nenhum, a tela não é mexida",
        "img_modo" not in st.session_state)
+
+    # ══ LIMPAR CHAT ═════════════════════════════════════════════════════
+    #
+    # A GUARDA FOI ESCRITA ANTES DO BOTAO. Escrita depois, ela sai parecida
+    # com o que ja foi feito — tres guardas desta base nasceram erradas assim.
+    #
+    # O QUE LIMPAR NAO PODE LEVAR JUNTO e o centro disto. "Limpar a conversa"
+    # e "jogar fora o trabalho" sao coisas diferentes, e o estado do chat
+    # mistura as duas: tres das seis chaves dele sao COMANDOS JA ACEITOS que
+    # a aba Imagem ainda vai executar. Apagar a conversa e levar a fila junto
+    # seria perder geracao paga, em silencio.
+    st.session_state.clear()
+    st.session_state["ms_chat_hist"] = [
+        {"role": "assistant", "content": "Olá"},
+        {"role": "user", "content": "refaça a imagem 2"},
+    ]
+    st.session_state["chat_pendente"] = {"texto": "e a 3?", "imagens": []}
+    st.session_state["chat_anexo_versao"] = 4
+    # O TRABALHO, que nao e a conversa:
+    st.session_state["chat_refazer_imagem"] = [{"num": 2, "instrucao": "x"}]
+    st.session_state["chat_img_pendente"] = [{"num": 1}]
+    st.session_state["chat_refazer_todas"] = {"instrucao": "y"}
+    st.session_state["img_galeria"] = [{"tipo": "1", "bytes": b"peca"}]
+    st.session_state["img_nome_produto"] = "Caneca Térmica Medieval 400Ml"
+    st.session_state["img_triagem_plano"] = {"plano": [{"tipo": "1"}]}
+    st.session_state["img_fotos_originais"] = [b"foto"]
+
+    limpar_conversa()
+
+    ok("limpar apaga as mensagens da conversa",
+       st.session_state.get("ms_chat_hist") == [])
+    ok("e a pergunta que estava sendo respondida",
+       "chat_pendente" not in st.session_state)
+    # O ANEXO PRESO. A chave do `file_uploader` carrega esta versao
+    # (chat_assistente.py:1205): sem trocar o numero, a foto anexada continua
+    # pendurada num chat que acabou de ser zerado.
+    ok("e zera o campo de anexo, soltando a foto presa",
+       st.session_state.get("chat_anexo_versao") == 5)
+
+    ok("mas NAO cancela a peca que ja foi mandada refazer",
+       st.session_state.get("chat_refazer_imagem") == [{"num": 2, "instrucao": "x"}])
+    ok("nem a imagem na fila de ajuste",
+       st.session_state.get("chat_img_pendente") == [{"num": 1}])
+    ok("nem o lote inteiro na fila",
+       st.session_state.get("chat_refazer_todas") == {"instrucao": "y"})
+
+    ok("e nao encosta na galeria",
+       st.session_state.get("img_galeria") == [{"tipo": "1", "bytes": b"peca"}])
+    ok("nem no nome do produto",
+       st.session_state.get("img_nome_produto") == "Caneca Térmica Medieval 400Ml")
+    ok("nem no plano da triagem",
+       st.session_state.get("img_triagem_plano") == {"plano": [{"tipo": "1"}]})
+    ok("nem nas fotos do produto",
+       st.session_state.get("img_fotos_originais") == [b"foto"])
+
+    # DUAS VEZES NAO QUEBRA, e sem a chave de versao ela nasce.
+    st.session_state.clear()
+    limpar_conversa()
+    ok("limpar com a conversa ja vazia nao quebra",
+       st.session_state.get("ms_chat_hist") == []
+       and st.session_state.get("chat_anexo_versao") == 1)
+
+    # ── E O BOTAO EXISTE NA TELA, E CHAMA ESTA FUNCAO ───────────────────
+    #
+    # Nenhum teste de unidade pega uma chamada que NAO EXISTE. A funcao
+    # perfeita que ninguem chama foi o defeito de 29/09, duas vezes no mesmo
+    # dia — e e por isso que esta guarda le a ARVORE de `renderizar_chat`.
+    #
+    # Por AST, e nao por texto: o texto "limpar_conversa" aparece neste
+    # proprio comentario, e guarda que varre texto se encontra a si mesma.
+    import ast as _ast_lc
+    import inspect as _insp_lc
+    _arv_lc = _ast_lc.parse(_insp_lc.getsource(renderizar_chat).lstrip())
+    _chama_lc = any(
+        (getattr(_n.func, "attr", "") or getattr(_n.func, "id", ""))
+        == "limpar_conversa"
+        for _n in _ast_lc.walk(_arv_lc) if isinstance(_n, _ast_lc.Call))
+    ok("a tela do chat chama limpar_conversa", _chama_lc)
+
+    _tem_botao_lc = any(
+        (getattr(_n.func, "attr", "") or getattr(_n.func, "id", "")) == "button"
+        and any(isinstance(_a, _ast_lc.Constant) and _a.value == "Limpar Chat"
+                for _a in _n.args)
+        for _n in _ast_lc.walk(_arv_lc) if isinstance(_n, _ast_lc.Call))
+    ok("e o botao se chama 'Limpar Chat', escrito assim", _tem_botao_lc)
+
+    # NA MESMA FILEIRA DO ANEXO. O dono aprovou o botao na linha do clipe, e
+    # nao numa linha propria: `st.columns` e quem poe os dois lado a lado.
+    _tem_colunas_lc = any(
+        (getattr(_n.func, "attr", "") or getattr(_n.func, "id", "")) == "columns"
+        for _n in _ast_lc.walk(_arv_lc) if isinstance(_n, _ast_lc.Call))
+    ok("e ele divide a fileira com o anexo (st.columns)", _tem_colunas_lc)
 
     print("\nfalhas:", falhas)
     # O CODIGO DE SAIDA. Sem ele, quem le `returncode` ve este modulo como

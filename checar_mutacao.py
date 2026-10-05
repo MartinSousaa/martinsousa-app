@@ -1818,6 +1818,64 @@ MUTACOES = [
         '                        produto=cfg.get("nome_produto", ""),\n',
         ["python3", "checar_tela.py"],
     ),
+    # ── 05/10: O BOTAO "LIMPAR CHAT" ────────────────────────────────────
+    #
+    # "Limpar a conversa" e "jogar fora o trabalho" sao coisas diferentes, e
+    # o estado do chat mistura as duas: tres das seis chaves sao COMANDOS JA
+    # ACEITOS que a aba Imagem ainda vai executar. Levar a fila junto seria
+    # perder geracao paga em silencio.
+    (
+        "limpar a conversa volta a cancelar os pedidos ja aceitos",
+        "chat_assistente.py",
+        '    st.session_state.pop("chat_pendente", None)\n',
+        '    st.session_state.pop("chat_pendente", None)\n'
+        '    st.session_state.pop("chat_refazer_imagem", None)\n'
+        '    st.session_state.pop("chat_img_pendente", None)\n'
+        '    st.session_state.pop("chat_refazer_todas", None)\n',
+        ["python3", "chat_assistente.py"],
+    ),
+    (
+        "limpar a conversa volta a levar a galeria junto",
+        "chat_assistente.py",
+        '    st.session_state["ms_chat_hist"] = []\n'
+        '    st.session_state.pop("chat_pendente", None)\n',
+        "    st.session_state.clear()\n"
+        '    st.session_state["ms_chat_hist"] = []\n',
+        ["python3", "chat_assistente.py"],
+    ),
+    # A FOTO PRESA. A chave do `file_uploader` carrega esta versao: sem
+    # troca-la, o anexo continua pendurado num chat que acabou de ser zerado.
+    (
+        "limpar a conversa deixa a foto presa no campo de anexo",
+        "chat_assistente.py",
+        '    st.session_state["chat_anexo_versao"] = (\n'
+        '        st.session_state.get("chat_anexo_versao", 0) + 1)\n',
+        "    pass\n",
+        ["python3", "chat_assistente.py"],
+    ),
+    # O BOTAO SAI INTEIRO, e nao "desligado" por um `and`: a guarda e por AST,
+    # e um `if False and st.button(...)` deixa a chamada na arvore. Mutacao
+    # que nao reintroduz o defeito da alarme falso.
+    (
+        "o botao Limpar Chat some da tela",
+        "chat_assistente.py",
+        '                if st.button("Limpar Chat", key="btn_limpar_chat",\n'
+        '                             help="Apaga esta conversa e começa do zero. A "\n'
+        '                                  "galeria, o plano e as fotos não são "\n'
+        '                                  "tocados; pedidos já aceitos continuam.",\n'
+        "                             use_container_width=True):\n"
+        "                    limpar_conversa()\n"
+        "                    st.rerun()\n",
+        '                st.caption("")\n',
+        ["python3", "chat_assistente.py"],
+    ),
+    (
+        "o botao sai da fileira do anexo e vira uma linha propria",
+        "chat_assistente.py",
+        '        _col_anexo, _col_limpar = st.columns([2, 1], vertical_alignment="center")\n',
+        "        _col_anexo = _col_limpar = st.container()\n",
+        ["python3", "chat_assistente.py"],
+    ),
 ]
 
 

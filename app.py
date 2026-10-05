@@ -200,6 +200,55 @@ section[data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] button::
     line-height: 1.4;
 }
 
+/* ── "LIMPAR CHAT": a escrita É o botão ────────────────────────────────────
+   Pedido do dono, 05/10: "não quero margem, a própria escrita será o botão
+   assim como o clip de anexar é hoje".
+
+   Mesmo tratamento que a linha do anexo acima: sem borda, sem fundo, sem
+   altura mínima. Fica na mesma fileira do clipe, encostada à direita.
+
+   O SELETOR VEM DA `key` DO CONTAINER, e não da ordem dos elementos. O
+   Streamlit 1.46 escreve a chave como classe prefixada com `st-key-`
+   (streamlit/elements/layouts.py:92). Com seletor por ordem, o próximo botão
+   que alguém puser na barra lateral herdaria esta cara sem aviso — e é
+   exatamente assim que uma regra de estilo vira defeito silencioso. */
+section[data-testid="stSidebar"] .st-key-ms_limpar_chat [data-testid="stBaseButton-secondary"],
+section[data-testid="stSidebar"] .st-key-ms_limpar_chat button {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    min-height: 0 !important;
+    height: auto !important;
+    padding: 2px 0 !important;
+    font-size: 11px !important;
+    font-weight: 400 !important;
+    line-height: 1.4 !important;
+    color: var(--ms-texto-sec) !important;
+    text-align: right !important;
+    justify-content: flex-end !important;
+    border-bottom: 1px solid transparent !important;
+    border-radius: 0 !important;
+}
+section[data-testid="stSidebar"] .st-key-ms_limpar_chat button:hover,
+section[data-testid="stSidebar"] .st-key-ms_limpar_chat button:focus-visible {
+    color: var(--ms-texto) !important;
+    border-bottom-color: var(--ms-texto-sec) !important;
+}
+/* O FOCO DO TECLADO CONTINUA VISÍVEL. Tirar a borda de um botão e não dar
+   nada em troca deixa quem navega por Tab sem saber onde está. */
+section[data-testid="stSidebar"] .st-key-ms_limpar_chat button:focus-visible {
+    outline: 1px solid var(--ms-borda) !important;
+    outline-offset: 2px !important;
+}
+/* A COLUNA NÃO ACRESCENTA ALTURA: o botão divide a fileira do anexo, e o
+   espaçamento padrão da coluna empurraria o campo de escrita para baixo. */
+section[data-testid="stSidebar"] .st-key-ms_limpar_chat,
+section[data-testid="stSidebar"] .st-key-ms_limpar_chat > div {
+    margin: 0 !important;
+    padding: 0 !important;
+    gap: 0 !important;
+}
+
 /* ── CONEXÃO CAÍDA ──────────────────────────────────────────────────────────
    As regras acima escondem o indicador de status do Streamlit e anulam o
    escurecimento da tela. As duas coisas foram feitas de propósito: o "running
