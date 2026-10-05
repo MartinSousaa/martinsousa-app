@@ -2204,6 +2204,65 @@ def _remocao_a_vista(conta):
           and 'key=f"eq_rm_vista_conf_{_rm_user}"' in _rm, "")
 
 
+def _lucro_liquido_custo_fixo(conta):
+    """Lucro líquido = margem de contribuição − custo fixo por venda (05/10).
+
+    Ditado pelo dono: "o que sobra depois de descontar taxa da plataforma,
+    frete, NF, custo operacional e valor de UC". O "valor de UC" é o custo
+    fixo por venda (`financeiro_historico.py:80`); antes a Home tirava o LPV.
+
+    A CADEIA, NÃO O MEIO DELA: só as leituras são trocadas. O custo fixo do
+    teste sai de `composicao_do_mes` de verdade — o mesmo numerador do ponto
+    de equilíbrio —, e o lucro sai de `dados_reais` inteiro.
+    """
+    import home_gestao as hg
+    import base_vendas as _bv
+    import financeiro as _fin
+
+    _guardado = (_bv.media_recente, _fin.lpv_vigente, hg._faturamento_bling,
+                 hg._partes_fixas, hg._gastos_por_finalidade)
+    try:
+        _bv.media_recente = lambda *a, **k: (dict(_IND), "")
+        _fin.lpv_vigente = lambda *a, **k: (19.68, "Junho/2026")
+        hg._faturamento_bling = lambda *a, **k: (190_502.0, [])
+        hg._partes_fixas = lambda *a, **k: (22_842.0, 2_350.35, 22_000.0,
+                                            9_900.0, [])
+        hg._gastos_por_finalidade = lambda *a, **k: (dict(_RESUMO), "")
+        hg.st = instalar()
+        d, _ = hg.dados_reais(2026, 9, 25)
+        p = d["painel"]
+        cf = hg.composicao_do_mes(2026, 9, 190_502.0)[0]["numerador_hoje"]
+        mc = _IND["margem_contribuicao"] / _IND["vendas"]
+        cf_v = cf / _IND["vendas"]
+        conta("lucro líquido por venda = MC por venda − custo fixo por venda",
+              abs(p["ll_venda"] - (mc - cf_v)) < 0.01,
+              f'{p["ll_venda"]} != {mc - cf_v}')
+        conta("o % é sobre o faturado líquido, do mesmo período",
+              p["lucro_liquido_pct"] == round(
+                  (mc - cf_v) * _IND["vendas"] / _IND["faturamento_liquido"]
+                  * 100, 1), str(p["lucro_liquido_pct"]))
+        conta("o quadro diz quanto de custo fixo saiu de cada venda",
+              p["cf_venda"] is not None and abs(p["cf_venda"] - cf_v) < 0.01,
+              str(p["cf_venda"]))
+        # O LPV NÃO ENTRA MAIS NO LUCRO: ele é custo operacional por venda,
+        # e esse já saiu da MARGEM C. Trocar o LPV não pode mexer no lucro.
+        _fin.lpv_vigente = lambda *a, **k: (90.0, "Junho/2026")
+        p2 = hg.dados_reais(2026, 9, 25)[0]["painel"]
+        conta("trocar o LPV não mexe no lucro líquido",
+              p2["lucro_liquido"] == p["lucro_liquido"]
+              and p2["uc"] != p["uc"], f'{p2["lucro_liquido"]}')
+        hg._partes_fixas = lambda *a, **k: (0.0, 0.0, 0.0, 0.0, [])
+        p3 = hg.dados_reais(2026, 9, 25)[0]["painel"]
+        _h = hg._html_indicadores(p3)
+        conta("sem custo fixo cadastrado o lucro líquido não vira número",
+              p3["lucro_liquido"] is None and "falta o custo fixo" in _h, "")
+    except Exception as e:
+        conta("lucro líquido com custo fixo", False, f"{type(e).__name__}: {e}")
+    finally:
+        (_bv.media_recente, _fin.lpv_vigente, hg._faturamento_bling,
+         hg._partes_fixas, hg._gastos_por_finalidade) = _guardado
+
+
 def main():
     instalar()
     falhas = []
@@ -2246,6 +2305,7 @@ def main():
     _contribuicao_coletiva(conta)
     _excluir_usuario(conta)
     _remocao_a_vista(conta)
+    _lucro_liquido_custo_fixo(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0
