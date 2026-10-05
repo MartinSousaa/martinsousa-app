@@ -6195,7 +6195,26 @@ _MARCAS_DE_RECOMPOSICAO = (
      r"escrit[óo]rio|loja|mesa de|ambienta)\w*\b",
      "troca o ambiente da cena"),
     # aberto <-> fechado, ângulo, face
-    (r"\b(aberta?|fechada?|abrir|fechar|de costas|traseir|lateral|"
+    #
+    # AS PALAVRAS DE POSIÇÃO SÓ VALEM QUANDO FALAM DO PRODUTO.
+    #
+    # ACHADO EM PRODUÇÃO, 05/10. O dono pediu "apenas troque a palavra
+    # «Metal» para «inox»" — um retoque de uma palavra. O chat, para ser
+    # preciso, escreveu ONDE a palavra estava: "o cartão DE BAIXO à
+    # esquerda". A regex casou "de baixo", escalou para REFAZER com o motivo
+    # "pede uma geometria ou uma face que a arte atual não mostra", e a
+    # refação do zero devolveu uma caneca com DUAS alças.
+    #
+    # "de baixo" num cartão é POSIÇÃO DE UM BLOCO DE TEXTO; "de baixo" na
+    # foto é ÂNGULO DE CÂMERA. A regra travava a REDAÇÃO e não o assunto —
+    # a Forma 2 do CLAUDE.md, do lado que acusa o inocente. E alarme falso
+    # aqui não é barato: ele custa uma geração E a imagem que estava certa.
+    #
+    # O recorte: a palavra não escala quando vem ligada a um elemento
+    # GRÁFICO. O resto da lista continua intacto.
+    (r"(?<!cart[ãa]o )(?<!card )(?<!bloco )(?<!selo )(?<![íi]cone )"
+     r"(?<!texto )(?<!legenda )(?<!faixa )"
+     r"\b(aberta?|fechada?|abrir|fechar|de costas|traseir|lateral|"
      r"de cima|de baixo|outro [âa]ngulo|girar|virar)\b",
      "pede uma geometria ou uma face que a arte atual não mostra"),
     # recompor o quadro
@@ -12425,6 +12444,32 @@ if __name__ == "__main__":
     ok("pedido vazio nao derruba o roteador",
        classificar_edicao("")[0] == "ajustar"
        and classificar_edicao(None)[0] == "ajustar")
+
+    # ── POSICAO DE CARTAO NAO E ANGULO DE CAMERA ───────────────────────
+    #
+    # ACHADO EM PRODUCAO, 05/10, e custou uma geracao MAIS a imagem que ja
+    # estava certa. O dono pediu "apenas troque a palavra «Metal» para
+    # «inox»". O chat, para ser preciso, escreveu ONDE a palavra estava: "o
+    # cartao DE BAIXO a esquerda". A regex de angulo casou "de baixo",
+    # escalou para REFAZER, e a refacao do zero devolveu uma caneca com
+    # DUAS alcas.
+    #
+    # Errar para o lado de refazer "custa uma geracao" — e a nota de cima
+    # diz isso. Mas quando a imagem anterior ESTAVA CERTA, custa as duas.
+    for _ped_c, _esp_c in (
+            # o caso real, letra por letra
+            ('Na 5 é o cartão de baixo à esquerda: "MATERIAL / metal e '
+             'resina". Trocar metal por inox', "ajustar"),
+            ("troque a palavra metal por inox no cartão lateral", "ajustar"),
+            ("o bloco de cima diz PROFUNDITUDE, corrija", "ajustar"),
+            ("corrija o texto do selo de baixo", "ajustar"),
+            # e o que a regra existe para pegar continua pegando
+            ("fotografe o produto de baixo", "refazer"),
+            ("mostre a caneca de costas", "refazer"),
+            ("mostre a lateral do produto", "refazer"),
+            ("mudar a caixa fechada para aberta", "refazer")):
+        ok(f"posicao x angulo: «{_ped_c[:42]}» -> {_esp_c}",
+           classificar_edicao(_ped_c)[0] == _esp_c)
 
     # ── A TRAVA DE COR NAO PODE PROIBIR O QUE O PEDIDO MANDOU ───────────
     #
