@@ -874,7 +874,11 @@ def _do_financeiro():
 
 
 def _lpv_card(ind, de_onde, lpv=None, origem="", atraso=0):
-    """O LPV — e ele é o CUSTO FIXO médio por venda, digitado em Financeiro.
+    """O LPV — o custo OPERACIONAL médio por venda, calculado em LPV Mensal.
+
+    Até 05/10 este docstring dizia "custo fixo, digitado em Financeiro". O
+    dono definiu em 02/10 que custo fixo fica FORA, e em 05/10 que vale o
+    último calculado pelo Studio (`financeiro.lpv_vigente`).
 
     O DEFEITO QUE ELE CORRIGE
     -------------------------
@@ -914,13 +918,13 @@ def _lpv_card(ind, de_onde, lpv=None, origem="", atraso=0):
 
     if valor is None:
         return {
-            "rotulo": "LPV", "sub": "custo fixo médio por venda · Financeiro",
+            "rotulo": "LPV", "sub": "custo operacional médio por venda · Financeiro",
             "realizado": 0.0, "necessario": None, "fmt": "brl",
             "maior_melhor": False, "acumula": False, "estimado": False,
             "rodape": ("Nenhum LPV informado — preencha em "
                        f"Gestão → Financeiro. {rodape}")}
 
-    sub = f"custo fixo médio por venda · Financeiro · {origem}"
+    sub = f"custo operacional médio por venda · Financeiro · {origem}"
     if atraso:
         sub += f" · {atraso} mês(es) atrasado"
     return {
@@ -1240,8 +1244,10 @@ def pagina(usuario_logado=None, dados=None):
                if d.get("linhas_base_vendas") else "")
             + ". O mês corrente ainda não foi lançado lá; um mês pela metade "
               "não descreve o negócio.  \n"
-            "**LPV:** o custo fixo médio por venda que você digita em "
-            "Gestão → Financeiro — não sai da BASE DE VENDAS.  \n"
+            "**LPV:** o custo operacional médio por venda que o Studio "
+            "calcula em Gestão → Financeiro → LPV Mensal, do último mês "
+            "fechado; o "
+            "digitado só vale quando não há cálculo.  \n"
             f"**Gastos:** o mês corrente, dos extratos — o bloco abaixo.")
     for _a in (_avisos or []):
         st.warning(_a)
@@ -1611,8 +1617,15 @@ if __name__ == "__main__":
     ok("e NÃO do lucro por venda da BASE DE VENDAS",
        'ind["lucro_por_venda"]' not in _corpo_cards
        and ("ind[" + '"lpv"]') not in _corpo_cards)
-    ok("o cartão diz que é custo fixo por venda",
-       "custo fixo médio por venda" in _corpo_lpv)
+    # Custo fixo NÃO entra no LPV (dono, 02/10 e 05/10): o C.O é o que sai
+    # por PIX, cartão e boleto menos mercadoria, custo fixo e imposto.
+    # O RÓTULO QUE A TELA MOSTRA, e não o código-fonte: o docstring cita a
+    # definição antiga para contar a história, e a guarda se acharia nele.
+    _sub_lpv = (_lpv_card({}, "", 19.47, "Setembro/2026 · calculado", 0)["sub"]
+                + " " + _lpv_card({}, "", None, "", 0)["sub"])
+    ok("o cartão diz que é custo operacional por venda",
+       "custo operacional médio por venda" in _sub_lpv
+       and "custo fixo" not in _sub_lpv)
     ok("diz de que mês o LPV veio", "origem" in _corpo_lpv)
     ok("e avisa quando ele está atrasado",
        "meses_de_atraso_lpv(" in _corpo_fin and "atrasado" in _corpo_lpv)
