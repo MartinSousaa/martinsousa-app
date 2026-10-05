@@ -7804,8 +7804,35 @@ def consumir_comandos_do_chat(usuario_logado=""):
             _r = {"img": None, "erro": None, "done": False}
             _b = st.progress(0.0, text=f"Refazendo a Imagem {_i + 1}…")
             import threading as _th_rf, time as _tm_rf
+            # O TIPO E AS REFERENCIAS DE LAYOUT VAO JUNTO — e nao iam.
+            #
+            # ACHADO EM PRODUCAO, 05/10. Este Thread passava TRES argumentos:
+            # prompt, fotos e o dicionario de resultado. O `tipo` ficava ""
+            # e as referencias de layout ficavam None, enquanto o laco da
+            # geracao (`imagem.py` ~9867) passa os tres por kwargs.
+            #
+            # DOIS ESTRAGOS, e os dois apareceram no teste do dono:
+            #
+            # 1. `ref_layout_do_tipo` nao casava referencia nenhuma, entao a
+            #    peca refeita vinha SEM o padrao aprovado da empresa. Foi por
+            #    isso que a peca 6, refeita pelo chat, voltou com os cartoes
+            #    nos quatro cantos em vez da coluna unica da peca 3 — e o
+            #    dono teve de descobrir isso sozinho, em tres rodadas.
+            #
+            # 2. `numero_do_tipo("")` devolve "", e o registro saiu com
+            #    "peca ?" e `tipo:` vazio. O historico de prompts perdeu de
+            #    qual peca aquela geracao era.
+            #
+            # E a Forma 1 do CLAUDE.md na forma mais cara: a capacidade
+            # existia num caminho e faltava nos irmaos dele.
+            _refs_lay_rf = _cfg_rf.get("refs_layout_bytes") or None
             _th_rf.Thread(target=_li_thread.alvo_com_contexto(_gerar_imagem_thread),
-                          args=(_prompt, _fotos_desta, _r), daemon=True).start()
+                          args=(_prompt, _fotos_desta, _r),
+                          kwargs={"refs_layout": _refs_lay_rf,
+                                  "refs_layout_nomes": _cfg_rf.get(
+                                      "refs_layout_nomes", []),
+                                  "tipo": _tp},
+                          daemon=True).start()
             _t0 = _tm_rf.time()
             while not _r["done"]:
                 _sg = int(_tm_rf.time() - _t0)
@@ -7827,8 +7854,16 @@ def consumir_comandos_do_chat(usuario_logado=""):
             # enquanto o dono corrigia a mao.
             def _gerar_rf(_p, _fr=_fotos_desta, _t=_tp):
                 _rr = {"img": None, "erro": None, "done": False}
+                # A conferencia refaz a peca: ela precisa dos MESMOS
+                # argumentos da primeira tentativa, senao a correcao vem com
+                # outro layout que a peca que ela deveria consertar.
                 _tt = _th_rf.Thread(target=_li_thread.alvo_com_contexto(_gerar_imagem_thread),
-                                    args=(_p, _fr, _rr), daemon=True)
+                                    args=(_p, _fr, _rr),
+                                    kwargs={"refs_layout": _refs_lay_rf,
+                                            "refs_layout_nomes": _cfg_rf.get(
+                                                "refs_layout_nomes", []),
+                                            "tipo": _t},
+                                    daemon=True)
                 _tt.start()
                 _t0g = _tm_rf.time()
                 while not _rr["done"]:
@@ -10491,9 +10526,19 @@ def pagina_imagem(usuario_logado):
                     prompt_regen = prompt_para_regerar(
                         tipo_ativo, instrucoes_orig, dados_desc, nome_gal)
                     _res_regen = {"img": None, "erro": None, "done": False}
+                    # O MESMO BURACO DO REFAZER DO CHAT, no botao da galeria:
+                    # sem `tipo` a peca perde a referencia de layout dela e o
+                    # registro sai como "peca ?"; sem `refs_layout` ela e
+                    # regerada ignorando o padrao aprovado da empresa.
+                    _cfg_regen = config_da_geracao()
                     _threading_regen.Thread(
                         target=_li_thread.alvo_com_contexto(_gerar_imagem_thread),
                         args=(prompt_regen, fotos_orig, _res_regen),
+                        kwargs={
+                            "refs_layout": _cfg_regen.get("refs_layout_bytes") or None,
+                            "refs_layout_nomes": _cfg_regen.get("refs_layout_nomes", []),
+                            "tipo": tipo_ativo,
+                        },
                         daemon=True,
                     ).start()
                     _barra_regen = st.progress(0.0, text=f"Regenerando {tipo_ativo[:30]}...")
@@ -10516,9 +10561,20 @@ def pagina_imagem(usuario_logado):
                         # entregava sem ler o texto e sem olhar a imagem.
                         def _gerar_rg(_p, _fo=fotos_orig, _t=tipo_ativo):
                             _rr = {"img": None, "erro": None, "done": False}
+                            # A conferencia refaz a peca: mesmos argumentos
+                            # da primeira tentativa, senao a correcao volta
+                            # com outro layout.
                             _tt = _threading_regen.Thread(
                                 target=_li_thread.alvo_com_contexto(_gerar_imagem_thread),
-                                args=(_p, _fo, _rr), daemon=True)
+                                args=(_p, _fo, _rr),
+                                kwargs={
+                                    "refs_layout": _cfg_regen.get(
+                                        "refs_layout_bytes") or None,
+                                    "refs_layout_nomes": _cfg_regen.get(
+                                        "refs_layout_nomes", []),
+                                    "tipo": _t,
+                                },
+                                daemon=True)
                             _tt.start()
                             _t0g = _time_regen.time()
                             while not _rr["done"]:
