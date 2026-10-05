@@ -659,6 +659,87 @@ def sem_medida_de_quadro(texto):
     return (limpo + ".") if limpo else ""
 
 
+# ── O PLANO DEIXA DE MANDAR ONDE CADA COISA FICA ──────────────────────────
+#
+# ACHADO EM 05/10, no prompt real da peca 6, e sao QUATRO vozes sobre a
+# mesma coisa — duas delas do proprio plano, contradizendo a si mesmo:
+#
+#   Composicao (plano):  "Caneca destacada NO CENTRO com cartoes DISTRIBUIDOS"
+#   Cena (plano):        "caneca LATERAL DIREITA, cartoes de resposta em GRID"
+#   Regra de densidade:  "UMA COLUNA VERTICAL UNICA, encostada em UM dos lados"
+#   Regra de densidade:  "quando houver referencia, a POSICAO e a dela"
+#
+# O gerador escolheu, e escolheu errado: os cartoes sairam nos quatro cantos,
+# dois sobre o produto. O dono gastou TRES rodadas pagas ate perceber, a mao,
+# que o layout da peca 3 era o certo.
+#
+# E E O MESMO DEFEITO QUE `sem_medida_de_quadro` JA CONSERTOU PARA TAMANHO.
+# Ali a licao esta escrita: "o tamanho tem um dono so, e quem nao e dono nao
+# fala". Posicao nao tinha dono — agora tem (`zonas_da_peca`), calculado
+# antes da primeira chamada. Entao o plano para de falar dela.
+#
+# POR QUE LIMPAR E NAO PEDIR: pedir no prompt do plano seria mais uma regra
+# de texto, e regra de texto e justamente o que o modelo ignora. Esta e a
+# conclusao que `sem_medida_de_quadro` ja tinha tirado, aplicada ao irmao
+# que ficou para tras.
+_POSICAO_DE_QUADRO = _re_quadro.compile(
+    r"[^,;.]*?(?:"
+    r"no\s+centro|centraliz\w*|ao\s+centro|"
+    r"lateral\s+(?:direit|esquerd)\w*|"
+    r"(?:a|à|na|do|no)\s+(?:direita|esquerda)\b|"
+    r"canto\s+(?:superior|inferior|direit|esquerd)\w*|"
+    r"quatro\s+cantos|nos\s+cantos|"
+    r"distribu[ií]d\w*|espalhad\w*|"
+    r"em\s+grid|em\s+grade|"
+    r"parte\s+(?:de\s+)?(?:cima|baixo)|"
+    r"topo\s+d[oa]\s+(?:quadro|imagem)|rodap[eé]"
+    r")[^,;.]*", _re_quadro.I)
+
+
+def sem_posicao_de_layout(texto):
+    """A frase do plano, sem a posicao que ela nao pode mandar.
+
+    Gemea de `sem_medida_de_quadro`, e de proposito: o cortador de oracao e
+    o MESMO (`_CONECTIVO_DE_ORACAO`). Escrever um segundo seria dois jeitos
+    de partir a mesma frase, e eles passam a discordar.
+
+    Corta a ORACAO inteira: "caneca lateral direita" sem "lateral direita"
+    viraria "caneca", que nao diz nada e ocupa espaco no prompt.
+    """
+    t = str(texto or "").strip()
+    if not t or not _POSICAO_DE_QUADRO.search(t):
+        return t
+    saida = []
+    for parte in _re_quadro.split(r"([,;.])", t):
+        if parte in (",", ";", "."):
+            if saida:
+                saida.append(parte)
+            continue
+        if not parte.strip():
+            continue
+        pedacos = _CONECTIVO_DE_ORACAO.split(parte)
+        bons = [p for p in pedacos
+                if p.strip() and not _POSICAO_DE_QUADRO.fullmatch(p.strip())]
+        if len(bons) == len(pedacos):
+            saida.append(parte)
+        elif bons:
+            saida.append(bons[0].strip())
+    limpo = "".join(saida)
+    limpo = _re_quadro.sub(r"\s*([,;])\s*(?=[,;.]|$)", "", limpo)
+    limpo = _re_quadro.sub(r"\s{2,}", " ", limpo).strip(" ,;.")
+    return (limpo + ".") if limpo else ""
+
+
+def sem_decisao_do_compilador(texto):
+    """A frase do plano sem TAMANHO e sem POSICAO — as duas que tem dono.
+
+    Uma porta so. Os dois filtros vinham sendo aplicados em lugares
+    diferentes (`composicao` levava um, `cena` levava outro), e corrigir um
+    leitor e esquecer o irmao e a Forma 1 desta base.
+    """
+    return sem_posicao_de_layout(sem_medida_de_quadro(texto))
+
+
 def definir_produto_da_sessao(nome, codigo=None):
     """A porta ÚNICA para dizer qual produto a aba Imagem está tratando.
 
@@ -5428,7 +5509,10 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
     bloco_plano_triagem = ""
     _blocos_da_copy = 0
     if plano_triagem and not (tipo == "Personalizado (descrevo o que quero)"):
-        _composicao = sem_medida_de_quadro(plano_triagem.get("composicao", ""))
+        # UMA PORTA SO para as duas decisoes que tem dono: tamanho
+        # (`ocupacao_em_portugues`) e posicao (`zonas_da_peca`).
+        _composicao = sem_decisao_do_compilador(
+            plano_triagem.get("composicao", ""))
         plano_triagem_item_cena = plano_triagem.get("cena", "")
         _textos = [t for t in plano_triagem.get("textos", []) if t and str(t).strip()]
         # BLOCO REPETIDO SAI ANTES DO TETO, E A ORDEM IMPORTA.
@@ -5455,13 +5539,27 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
         # Gastar uma geracao desenhando perfeitamente um texto que ja nasceu
         # errado e o desperdicio mais caro desta cadeia: a arte sai boa, o
         # conferidor aprova, e o claim falso vai para a pagina do produto.
+        # A cena limpa e calculada ANTES da condicao que abre o bloco: e ela
+        # que decide se ha plano a mostrar quando a composicao foi esvaziada.
+        _cena_limpa = sem_decisao_do_compilador(plano_triagem_item_cena)
         _textos, _sem_lastro = copy_sem_promessa(_textos, dados_descricao)
         _textos, _sem_medida = copy_sem_medida_inventada(_textos, dados_descricao)
         _teto_do_tipo = faixa_de_blocos(tipo)[1]
         if _teto_do_tipo:
             _textos = _textos[:_teto_do_tipo]
         _blocos_da_copy = len(_textos)
-        if _composicao or _textos:
+        # A CENA TAMBEM ABRE O BLOCO, e isso virou necessario em 05/10.
+        #
+        # A condicao era `_composicao or _textos`. Quando o filtro de posicao
+        # passou a esvaziar uma composicao que so falava de posicao ("produto
+        # centralizado"), o bloco inteiro sumia — e levava a CENA junto, que
+        # e quem diz superficie, props e luz. A guarda pegou: "e a cena chega
+        # ao prompt JA limpa" ficou vermelha.
+        #
+        # Trocar uma voz contraditoria por voz nenhuma e pior, nao melhor —
+        # esta escrito em `sem_medida_de_quadro`, e eu acabei de repetir o
+        # defeito que ela documenta.
+        if _composicao or _textos or _cena_limpa:
             bloco_plano_triagem = "\nPLANO DE CRIAÇÃO (definido pela análise do produto — siga este planejamento):\n"
             if _composicao:
                 bloco_plano_triagem += f"Composição: {_composicao}\n"
@@ -5471,7 +5569,7 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
             # com caneta na 3, na 7 e na 8. A triagem planeja as oito de uma
             # vez e por isso consegue variar superficie, props e angulo sem
             # sair do universo.
-            _cena = sem_medida_de_quadro(plano_triagem_item_cena)
+            _cena = _cena_limpa
             if _cena:
                 bloco_plano_triagem += f"Cena desta peça: {_cena}\n"
             if _textos:
@@ -5793,6 +5891,73 @@ def cor_do_produto_atual():
         return ""
 
 
+# ── A COPY CORRIGIDA VOLTA PARA O PLANO ───────────────────────────────────
+#
+# A "REGRESSAO DE ESTADO" do teste de 05/10, e e exatamente o que o dono
+# viveu: ele pediu metal -> inox, recebeu inox, pediu para arrumar os
+# cartoes, e o cartao voltou a dizer "metal e resina".
+#
+# Esta no prompt final, as duas respostas para o MESMO cartao:
+#
+#   TEXTO EXATO:      "3. MANTEM BEBIDA QUENTE? Sim, termica em metal e resina"
+#   instrucao do chat: "...Sim, termica em INOX e resina..."
+#
+# A causa: `prompt_para_regerar` monta o prompt com `plano_do_tipo(tipo)`, e
+# `plano_do_tipo` le `plano_da_geracao()` — o plano ORIGINAL da triagem.
+# Nenhuma correcao volta para la. Entao toda refacao recomeca da copy do
+# primeiro dia, e a instrucao nova briga com ela dentro do mesmo prompt.
+#
+# O codigo ja sabia disso num caminho: `revisar_texto` devolve o
+# `prompt_base` CORRIGIDO justamente para a revisao seguinte nao desfazer a
+# primeira ("A BASE MUDA JUNTO COM A COPY"). O que faltava era o mesmo para
+# quem monta um prompt NOVO — o refazer do chat e o botao da galeria.
+#
+# UM DONO. A copy vigente de cada tipo mora aqui, e `plano_do_tipo` a
+# entrega no lugar da original. Quem corrige, grava; quem gera, le.
+#
+# POR QUE `session_state` E SEGURO AQUI, e nao foi em `_PECA_EM_AJUSTE`:
+# estas duas funcoes rodam no DESENHO da tela, antes da thread. O prompt e
+# montado fora dela (`imagem.py` ~7829: `_prompt = prompt_para_regerar(...)`
+# e so depois `Thread(...)`). Thread nao le `session_state`, e por isso o
+# numero da peca precisou de global — mas aqui nao ha thread no caminho.
+_CHAVE_COPY_VIGENTE = "img_copy_vigente"
+
+
+def guardar_copy_vigente(tipo, textos):
+    """Grava a copy que vale AGORA para este tipo. Silencioso em falha.
+
+    Chamada por quem corrige: a revisao de texto e o refazer do chat. Sem
+    isto, a correcao vive so no prompt daquela rodada e morre com ela.
+    """
+    _t = str(tipo or "").strip()
+    _lista = [str(x).strip() for x in (textos or []) if str(x).strip()]
+    if not _t or not _lista:
+        return
+    try:
+        _mapa = dict(st.session_state.get(_CHAVE_COPY_VIGENTE) or {})
+        _mapa[_t] = _lista
+        st.session_state[_CHAVE_COPY_VIGENTE] = _mapa
+    except Exception:
+        pass
+
+
+def copy_vigente(tipo):
+    """A copy corrigida deste tipo, ou None quando nunca houve correcao."""
+    try:
+        return (st.session_state.get(_CHAVE_COPY_VIGENTE) or {}).get(
+            str(tipo or "").strip())
+    except Exception:
+        return None
+
+
+def esquecer_copy_vigente():
+    """Zera as correcoes. Geracao nova comeca do plano, e nao da anterior."""
+    try:
+        st.session_state.pop(_CHAVE_COPY_VIGENTE, None)
+    except Exception:
+        pass
+
+
 def plano_do_tipo(tipo):
     """O plano que a triagem fez para este tipo de imagem. None quando não há.
 
@@ -5818,13 +5983,23 @@ def plano_do_tipo(tipo):
     # gerador voltava a redigir a frase sozinho, que e de onde vieram
     # "Portatile" e "apoliando".
     alvo = tipo_canonico({"tipo": tipo, "numero": numero_do_tipo(tipo)})
+    _achado = None
     for it in itens:
         if str(it.get("tipo", "")).strip() == str(tipo or "").strip():
-            return it
-    for it in itens:
-        if tipo_canonico(it) == alvo:
-            return it
-    return None
+            _achado = it
+            break
+    if _achado is None:
+        for it in itens:
+            if tipo_canonico(it) == alvo:
+                _achado = it
+                break
+    if _achado is None:
+        return None
+    # A COPY VIGENTE MANDA SOBRE A ORIGINAL. Sem isto, toda refacao recomeca
+    # da copy do primeiro dia e desfaz a correcao anterior — foi o "metal
+    # voltou" de 05/10.
+    _viva = copy_vigente(tipo)
+    return dict(_achado, textos=list(_viva)) if _viva else _achado
 
 
 def prompt_que_sera_enviado(prompt_texto, imagens_referencia, refs_layout=None,
@@ -7514,6 +7689,15 @@ def revisar_texto(img, tipo, pedido="", gerar=None, prompt_base="",
                          + " · a correção trazia medida que o cadastro não "
                            "tem, e foi descartada"}, prompt_base
         prompt_base = trocar_texto_exato(prompt_base, _certo_limpo)
+        # A CORRECAO VOLTA PARA O PLANO, e nao so para este prompt.
+        #
+        # `prompt_base` corrigido ja viajava para a revisao SEGUINTE desta
+        # mesma peca. O que faltava era durar alem dela: quem monta um
+        # prompt NOVO (o refazer do chat, o botao da galeria) chamava
+        # `plano_do_tipo`, que lia o plano ORIGINAL. A copy corrigida morria
+        # com a rodada, e a refacao seguinte ressuscitava o erro — foi o
+        # "metal voltou" de 05/10.
+        guardar_copy_vigente(tipo, _certo_limpo)
         nova_img, erro_g = gerar(prompt_base)
         if erro_g or not nova_img:
             return img, {"ok": False, "rodadas": n, "erro": "",
@@ -8128,6 +8312,9 @@ def consumir_comandos_do_chat(usuario_logado=""):
             )
             st.session_state["img_triagem_config"] = _cfg_rf
         st.session_state["img_galeria"] = []
+        # GERACAO NOVA COMECA DO PLANO, e nao da copy que a anterior
+        # corrigiu: senao a correcao de um produto contamina o seguinte.
+        esquecer_copy_vigente()
         st.session_state.pop("img_confirma_descarte", None)
         try:
             import log_imagem
@@ -10087,6 +10274,7 @@ def pagina_imagem(usuario_logado):
                     st.session_state["img_triagem_config"] = cfg
 
                 galeria = []
+                esquecer_copy_vigente()
                 st.session_state["img_fotos_originais"] = cfg["fotos_bytes"]
                 st.session_state["img_fotos_sao_arte"] = False
                 # O MOTIVO DA FALHA PRECISA SOBREVIVER AO RERUN.
@@ -12615,6 +12803,128 @@ if __name__ == "__main__":
     _fonte_mp = _inspect_g.getsource(montar_prompt_imagem)
     ok("o caminho do plano tambem limpa",
        "copy_sem_medida_inventada" in _fonte_mp)
+
+    # ── O PLANO NAO MANDA MAIS ONDE CADA COISA FICA ─────────────────────
+    #
+    # ACHADO EM 05/10, peca 6: QUATRO vozes sobre posicao no mesmo prompt, e
+    # duas delas do proprio plano, contradizendo a si mesmo —
+    # "Caneca destacada NO CENTRO com cartoes DISTRIBUIDOS" (composicao) e
+    # "caneca LATERAL DIREITA, cartoes em GRID limpo" (cena). O gerador
+    # escolheu, e o dono gastou TRES rodadas pagas descobrindo a mao.
+    #
+    # E a mesma licao que `sem_medida_de_quadro` ja tinha tirado para
+    # tamanho: quem nao e dono nao fala. Posicao passou a ter dono em
+    # `zonas_da_peca`.
+    ok("tira 'no centro' da composicao do plano",
+       "centro" not in sem_posicao_de_layout(
+           "Caneca destacada no centro com cartões distribuídos"))
+    ok("tira 'lateral direita' da cena",
+       "lateral direita" not in sem_posicao_de_layout(
+           "Superfície de concreto, caneca lateral direita, velas"))
+    ok("tira 'em grid'",
+       "grid" not in sem_posicao_de_layout("cartões de resposta em grid limpo"))
+    ok("tira 'nos quatro cantos'",
+       "cantos" not in sem_posicao_de_layout("cartões nos quatro cantos"))
+    # E O QUE E CENARIO FICA. Alarme falso aqui apagaria a unica coisa que o
+    # plano tem para dizer, e trocar ordem contraditoria por ordem nenhuma e
+    # pior, nao melhor — esta escrito no irmao dela.
+    ok("'luz morna lateral' nao e posicao: e iluminacao",
+       "lateral" in sem_posicao_de_layout(
+           "Mesa de madeira rústica com velas, luz morna lateral"))
+    ok("props e superficie atravessam inteiros",
+       sem_posicao_de_layout("Mesa de concreto com moedas e velas acesas")
+       == "Mesa de concreto com moedas e velas acesas")
+    ok("vazio e None nao derrubam",
+       sem_posicao_de_layout("") == "" and sem_posicao_de_layout(None) == "")
+    # A PORTA E UMA SO: tamanho e posicao saem juntos.
+    ok("a porta unica tira tamanho E posicao",
+       sem_decisao_do_compilador(
+           "produto no centro ocupando 60% do quadro, fundo branco")
+       == "fundo branco.")
+    # E ELA ESTA NO CAMINHO, nos DOIS campos do plano.
+    ok("a composicao do plano passa pela porta unica",
+       "sem_decisao_do_compilador(" in _fonte_mp)
+    ok("e a cena tambem — corrigir um e esquecer o irmao e a Forma 1",
+       _fonte_mp.count("sem_decisao_do_compilador(") >= 2)
+    # O TESTE DE CADEIA: o texto do plano chega ao prompt SEM a posicao.
+    _p_pos = montar_prompt_imagem(
+        "6 — Quebra de objeção", "", {}, "Caneca",
+        plano_triagem={"composicao": "Caneca no centro com cartões distribuídos",
+                       "cena": "Concreto, caneca lateral direita, velas acesas",
+                       "textos": ["A: um", "B: dois", "C: tres", "D: quatro"]})
+    _linhas_plano = [l for l in _p_pos.split("\n")
+                     if l.startswith(("Composição:", "Cena desta peça:"))]
+    ok("o plano chegou ao prompt", bool(_linhas_plano))
+    ok("e sem nenhuma ordem de posicao dentro dele",
+       not any(x in " ".join(_linhas_plano).lower()
+               for x in ("no centro", "lateral direita", "distribuíd", "grid")))
+    ok("mas com o cenario que ele tinha a dizer",
+       "velas" in " ".join(_linhas_plano))
+
+    # E A CENA SOZINHA ABRE O BLOCO DO PLANO.
+    #
+    # A guarda pegou uma regressao MINHA: ao esvaziar uma composicao que so
+    # falava de posicao ("produto centralizado"), o bloco inteiro sumia e
+    # levava a CENA junto — quem diz superficie, props e luz. Trocar voz
+    # contraditoria por voz nenhuma e pior, nao melhor.
+    _p_so_cena = montar_prompt_imagem(
+        "1 — Capa do anúncio (fundo branco)", "", {}, "Caneca",
+        plano_triagem={"composicao": "produto centralizado",
+                       "cena": "Fundo branco puro, sem sombra projetada",
+                       "textos": []})
+    ok("composicao esvaziada pelo filtro nao derruba a cena",
+       "Fundo branco puro" in _p_so_cena)
+    ok("e a composicao, que so falava de posicao, nao aparece",
+       "produto centralizado" not in _p_so_cena)
+
+    # ── A CORRECAO NAO SE PERDE NA REFACAO SEGUINTE ─────────────────────
+    #
+    # A "regressao de estado" do teste de 05/10, e e o que o dono viveu: ele
+    # pediu metal -> inox, recebeu inox, pediu para arrumar os cartoes, e o
+    # cartao voltou a dizer "metal e resina".
+    #
+    # Esta no prompt final dele, as duas respostas para o MESMO cartao:
+    #   TEXTO EXATO:       "3. MANTEM BEBIDA QUENTE? Sim, termica em metal..."
+    #   instrucao do chat: "...Sim, termica em INOX e resina..."
+    #
+    # A causa: `prompt_para_regerar` monta com `plano_do_tipo`, que lia o
+    # plano ORIGINAL da triagem. Nenhuma correcao voltava para la.
+    _t_vig = "6 — Quebra de objeção"
+    esquecer_copy_vigente()
+    ok("sem correcao, nao ha copy vigente", copy_vigente(_t_vig) is None)
+    guardar_copy_vigente(_t_vig, ["MANTÉM QUENTE?: Sim, em inox e resina",
+                                  "CABE NA MÃO?: Sim"])
+    ok("gravada, ela volta", copy_vigente(_t_vig)[0].endswith("inox e resina"))
+    ok("copy vazia nao apaga a que valia",
+       (guardar_copy_vigente(_t_vig, []) or True)
+       and copy_vigente(_t_vig) is not None)
+    ok("tipo vazio nao grava nada",
+       (guardar_copy_vigente("", ["x"]) or True)
+       and copy_vigente("") is None)
+    # E `plano_do_tipo` ENTREGA A VIGENTE no lugar da original. A guarda
+    # troca o plano da sessao por um de mentira para medir a substituicao.
+    _plano_orig = globals()["plano_da_geracao"]
+    globals()["plano_da_geracao"] = lambda: {"plano": [
+        {"tipo": _t_vig, "numero": 6, "composicao": "x", "cena": "y",
+         "textos": ["MANTÉM QUENTE?: Sim, em metal e resina"], "viavel": True}]}
+    try:
+        _p_do_tipo = plano_do_tipo(_t_vig)
+        ok("plano_do_tipo entrega a copy CORRIGIDA, nao a do primeiro dia",
+           _p_do_tipo["textos"][0].endswith("inox e resina"))
+        ok("e os demais campos do plano seguem intactos",
+           _p_do_tipo["composicao"] == "x" and _p_do_tipo["cena"] == "y")
+        esquecer_copy_vigente()
+        ok("sem correcao, ele volta a entregar a original",
+           plano_do_tipo(_t_vig)["textos"][0].endswith("metal e resina"))
+    finally:
+        globals()["plano_da_geracao"] = _plano_orig
+    # QUEM CORRIGE, GRAVA: a revisao de texto chama o gravador.
+    ok("a revisao de texto grava a copy corrigida",
+       "guardar_copy_vigente(" in _inspect_g.getsource(revisar_texto))
+    # E LOTE NOVO COMECA DO PLANO: senao a correcao de um produto contamina
+    # o seguinte.
+    ok("o laco da geracao zera a copy vigente",
+       "esquecer_copy_vigente()" in _fonte_tela)
     # COM copy nada mudou: a peca que TEM texto continua pedindo o numero.
     ok("com copy, o numero continua fechado",
        all("exatamente 3 bloco" in x for x in _bp_com))
@@ -12629,8 +12939,18 @@ if __name__ == "__main__":
         "1 — Capa do anúncio (fundo branco)", "", {}, "Caneca",
         plano_triagem={"composicao": "produto centralizado",
                        "cena": _CENA_REAL, "textos": []})
+    # A ASERCAO CITA O ROTULO, e nao so o texto da cena.
+    #
+    # Ela dizia `"Fundo branco puro" in _p_capa` — e essa frase tambem vive
+    # no PRESET do tipo 1. Esvaziando a condicao que abre o bloco do plano
+    # (`if _composicao or _textos or _cena_limpa:`), a cena sumia do prompt
+    # e a guarda seguia verde lendo o preset: Forma 3, medindo um texto que
+    # outra fonte produz. "Cena desta peça:" (imagem.py:5575) so nasce do
+    # bloco do plano.
     ok("e a cena chega ao prompt JA limpa",
-       "60%" not in _p_capa and "Fundo branco puro" in _p_capa)
+       "60%" not in _p_capa
+       and "Cena desta peça: Fundo branco puro sem sombra projetada."
+       in _p_capa)
 
     # ── E O AVISO DE PECA SEM COPY ESTA NA TELA, NAO SO NO PROMPT ─────────
     #
