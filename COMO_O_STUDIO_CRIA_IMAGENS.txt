@@ -14,6 +14,35 @@ O CÓDIGO COMPLETO está em `CODIGO_GERACAO_DE_IMAGEM.txt`, gerado por
 `python3 exportar_codigo_de_imagem.py`. Aquele arquivo é o código; ESTE é o
 mapa. Leia este primeiro.
 
+O QUE OS DOIS ARQUIVOS **NÃO** COBREM
+-------------------------------------
+Dito antes de qualquer análise, para ninguém concluir sobre o que não está
+aqui:
+
+  COBERTO       a aba Imagem do início ao fim — triagem, campos, prompt,
+                motores, conferência, galeria, chat, log de prompts, e o
+                enquadramento e a régua geométrica (os dois copiados
+                inteiros no .txt do código).
+
+  NÃO COBERTO   o RESTO do Studio: Gestão, Financeiro, LPV e custo
+                operacional, metas, placar, ponto, folha, reserva, Bling.
+                Esses têm dossiês próprios —
+                `LPV_EXPLICADO_PELO_DONO.txt` e
+                `CUSTO_OPERACIONAL_EXPLICADO_PELO_DONO.txt`.
+
+  NÃO COBERTO   as abas Descrição, Título, Palavras-chave e Vídeo. A
+                Descrição aparece aqui só no ponto em que ela ENTREGA o
+                código do produto para a aba Imagem.
+
+  NÃO COBERTO   o que está fora do repositório: a planilha Controle MS, o
+                Trello, a RHiD, e o que a conta da OpenAI tem ou não tem.
+                Onde isso importa, está dito que depende.
+
+O .txt DO CÓDIGO TRAZ CARIMBO DE DATA E COMMIT no cabeçalho. Se o commit dele
+não for o último do repositório, a cópia envelheceu — gere de novo antes de
+analisar. Já aconteceu de uma análise apontar quatro defeitos que estavam
+corrigidos havia três dias.
+
 
 ================================================================================
 EM UMA TELA: O CAMINHO INTEIRO
@@ -403,7 +432,116 @@ baixar em .txt e ver exatamente o que o modelo recebeu.
 
 
 ================================================================================
-11 · O QUE ESTE SISTEMA NÃO SABE — DITO EM VOZ ALTA
+11 · O ASSISTENTE DE CHAT — OS COMANDOS QUE ELE EXECUTA NA ABA IMAGEM
+================================================================================
+
+O chat da barra lateral não é só conversa: ele EXECUTA. A IA responde ao
+colaborador e, no fim da resposta, pode emitir comandos entre marcadores
+`<CMD>{...}</CMD>` — que a tela lê, executa e apaga do texto antes de mostrar
+(`chat_assistente.limpar_marcadores`).
+
+OS SETE COMANDOS (`chat_assistente._executar_comando`, chat_assistente.py:771+):
+
+    alterar_titulo             mexe noutra aba
+    alterar_descricao          mexe noutra aba
+    ajustar_imagem             ajuste fino de UMA peça da galeria
+    refazer_imagem             refaz UMA peça do zero
+    gerar_imagens_faltantes    marca os tipos que faltam para gerar
+    refazer_todas_imagens      o lote inteiro, com uma instrução
+    preencher_dados_triagem    completa o cadastro que faltava
+
+POR QUE OS COMANDOS SÃO LIDOS ASSIM, E NÃO POR TEXTO LIVRE
+Em 25/09 uma resposta cortou no meio do JSON do quarto comando, sem `</CMD>`.
+Nenhum comando foi executado e o texto cru apareceu na tela da colaboradora.
+Do lado dela: "ele diz que vai fazer e se recusa a fazer". Hoje os comandos
+INTEIROS são lidos e executados, o fragmento cortado NÃO vira comando, e a
+tela avisa que a resposta foi cortada.
+
+E O COMANDO NÃO MORRE NO CHAT: `consumir_comandos_do_chat` roda no TOPO da aba
+Imagem, antes de qualquer ramo de modo. Dentro do `else` do seletor, como
+estava, ele era mudo no Ajuste Fino — o chat prometia "Imagem 1 será refeita do
+zero" e a fila ficava parada.
+
+A IMAGEM ANEXADA NO CHAT VIAJA JUNTO (`referencia_do_pedido`): quando o
+colaborador anexa uma foto para MOSTRAR o que quer, ela vai ao motor com o
+pedido. Antes o anexo parava no chat e o motor recebia só a peça mais a frase.
+
+O BOTÃO "LIMPAR CHAT" apaga a conversa e NÃO cancela comando já aceito: o
+pedido já foi dado, e o trabalho em curso não é a conversa.
+
+
+================================================================================
+12 · O ERRO DE 06/10 — O MOTOR PRIMÁRIO, E O QUE O SISTEMA AFIRMAVA SEM SABER
+================================================================================
+
+ESTA SEÇÃO ESTÁ AQUI PARA SER ANALISADA. É o defeito mais recente e o que
+melhor mostra como esta base erra.
+
+O QUE APARECEU NA TELA
+
+    "A variavel OPENAI_MODELO_IMAGEM esta com «gpt-image-2», e esta conta da
+     OpenAI nao tem esse modelo. O Studio esta usando «gpt-image-2.5-sunburst»
+     no lugar e segue funcionando — mas corrija a variavel no Railway."
+
+TRÊS COISAS ERRADAS NUMA FRASE SÓ
+
+1 · «gpt-image-2.5-sunburst» É O NOME QUE JÁ TINHA FALHADO.
+    No teste de 05/10 ele deu "o modelo não existe nesta conta" em todas as
+    peças, e é por isso que as oito saíram pelo Gemini. Ele é o
+    `MODELO_IMAGEM_PADRAO` do código. O Studio trocou um nome provado errado
+    por outro nome provado errado.
+
+2 · "SEGUE FUNCIONANDO" ERA AFIRMAÇÃO SEM MEDIDA.
+    Nenhuma geração tinha sido feita com o substituto. O sistema não tinha
+    como saber, e disse assim mesmo.
+
+3 · A INSTRUÇÃO QUE LEVOU O DONO A PÔR «gpt-image-2» FOI MINHA, E VEIO DE UMA
+    CRENÇA. Em 02/10 eu li um print da conta dele, concluí que ela tinha
+    `gpt-image-2`, e escrevi isso num COMENTÁRIO do código
+    (`imagem.py`, bloco de `MODELOS_IMAGEM_CONHECIDOS`). Dias depois li o meu
+    próprio comentário como se fosse fato medido, mandei ele trocar a
+    variável — e a conta recusou. Pior: havia uma GUARDA chamada
+    "«gpt-image-2», que a conta do dono TEM, é reconhecido". Guarda escrita em
+    cima de uma crença não protege: ela DEFENDE o erro.
+
+A CAUSA DE PROJETO, E NÃO O SINTOMA
+
+`modelo_de_imagem()` aplicava a regra "para de mandar depois de provada
+errada" à variável do Railway — e a mais ninguém. O modelo descoberto e o
+PADRÃO voltavam a ser oferecidos mesmo já estando em `_MODELO_INVALIDO`. É a
+mesma forma de defeito que esta base repete: a correção chegou a UM leitor da
+regra, e não a todos.
+
+O QUE MUDOU (06/10)
+
+    - os três nomes (variável, descoberto, padrão) passam pelo MESMO filtro;
+    - quando nenhum serve, `modelo_de_imagem()` devolve "" e a chamada à
+      OpenAI nem é tentada: a peça sai pelo reserva com o motivo escrito;
+    - o aviso diz o que é verdade — "vai TENTAR «X»" ou "as peças vão sair
+      pelo motor RESERVA (Gemini), que não preserva o produto das fotos nem
+      garante o quadrado" — e manda rodar o Diagnóstico das APIs de Imagem;
+    - a guarda que afirmava que a conta "TEM" o modelo foi renomeada para o
+      que a lista de fato significa: que o NOME é conhecido.
+
+O QUE CONTINUA ABERTO, E DEPENDE DE FORA DO CÓDIGO
+
+    Ninguém sabe ainda QUAIS modelos esta conta da OpenAI tem. A única coisa
+    nesta base que pergunta à conta é `modelos_de_imagem_da_conta`, exposta na
+    tela "🔧 Diagnóstico das APIs de Imagem". Enquanto esse print não existir,
+    qualquer nome posto na variável é chute — e cada chute errado custa uma
+    geração inteira caindo no reserva.
+
+    Três saídas possíveis, e só uma é código:
+      lista com algum `gpt-image-*`  → esse nome vai na variável, e acabou
+      só `dall-e-3`                  → não aceita foto de referência; o
+                                       produto será redesenhado. Sem conserto
+                                       por código.
+      lista vazia                    → a chave não tem acesso a imagem, ou
+                                       falta billing. É no painel da OpenAI.
+
+
+================================================================================
+13 · O QUE ESTE SISTEMA NÃO SABE — DITO EM VOZ ALTA
 ================================================================================
 
 1 · Sem um modelo `gpt-image-*` na conta da OpenAI, não há `input_fidelity`:

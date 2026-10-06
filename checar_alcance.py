@@ -653,6 +653,65 @@ def main():
                 "varredura parou de achar o alvo delas — e varredura que "
                 "não acha nada aprova tudo.")
 
+    # ── 8. DOCUMENTO NA RAIZ SEM LEITOR ─────────────────────────────────
+    #
+    # Ordem do dono, 06/10: "nao e para anexar NADA la que nao seja
+    # extremamente funcional ao sistema".
+    #
+    # A raiz tinha 16 `.md`/`.txt` versionados e DOIS tinham funcao. Os outros
+    # eram fotografias de conversas que eu criei para resolver um momento e
+    # nunca retirei — criar e resposta a um pedido, apagar nunca e pedido de
+    # ninguem. Por isso a trava e mecanica.
+    #
+    # E NAO E SO ENFEITE: foi num deles (`CONTEXTO_PARA_ANALISE.txt`) que
+    # ficou um marcador de conflito `<<<<<<< HEAD` commitado por semanas.
+    # Arquivo que nao serve a ninguem tambem nao e conferido por ninguem.
+    _DOCS_COM_MOTIVO = {
+        # Lido por codigo, e por isso passa sem precisar de isencao:
+        #   ACHADOS_ABERTOS.md  -> checar_alcance.py:808 abre e usa
+        "CLAUDE.md": "as regras desta base; eu leio em toda sessao",
+        "README.md": "a porta do repositorio no GitHub",
+        "requirements.txt": "as dependencias do deploy",
+        # OS DOSSIES SAO O CANAL ENTRE AS DUAS CONVERSAS, e o dono pediu os
+        # tres por escrito. Saem no dia em que ele disser que nao precisa.
+        "LPV_EXPLICADO_PELO_DONO.txt":
+            "pedido do dono em 05/10 para a outra conversa entender o LPV",
+        "CUSTO_OPERACIONAL_EXPLICADO_PELO_DONO.txt":
+            "pedido do dono em 05/10, irmao do dossie do LPV",
+        "COMO_O_STUDIO_CRIA_IMAGENS.txt":
+            "pedido do dono em 06/10: o mapa da aba Imagem para qualquer "
+            "conversa entender",
+    }
+    # A raiz sai do PROPRIO arquivo: caminho absoluto escrito a mao quebra no
+    # container do Railway, que nao monta o repositorio no mesmo lugar.
+    _raiz_doc = os.path.dirname(os.path.abspath(__file__))
+    _docs_fora = []
+    for _n_doc in sorted(os.listdir(_raiz_doc)):
+        if not _n_doc.endswith((".md", ".txt")):
+            continue
+        if _n_doc in _DOCS_COM_MOTIVO:
+            continue
+        # Lido por algum .py? Entao e funcional, e nao precisa de isencao.
+        _tem_leitor = False
+        for _py in _arquivos():
+            try:
+                if _n_doc in open(os.path.join(_raiz_doc, _py),
+                                  encoding="utf-8").read():
+                    _tem_leitor = True
+                    break
+            except Exception:
+                continue
+        if not _tem_leitor:
+            _docs_fora.append(_n_doc)
+    for _n_doc in _docs_fora:
+        reprova(
+            f"{_n_doc} — documento na raiz que NENHUM codigo le e que nao "
+            f"esta na isencao com motivo. Ordem do dono (06/10): nada no "
+            f"repositorio que nao seja funcional ao sistema. Ou ele ganha "
+            f"leitor, ou entra em `_DOCS_COM_MOTIVO` com o porque, ou sai.")
+    print(f"ok    {len(os.listdir(_raiz_doc))} item(ns) na raiz varridos — "
+          f"{len(_docs_fora)} documento(s) sem leitor nem motivo")
+
     # ── 5-quater. ESTADO DE PESSOA GUARDADO NUMA CAIXA DO PROCESSO ───────
     #
     # 30/09. Esta e a familia de defeito mais cara do dia, e ela apareceu
