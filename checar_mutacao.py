@@ -2202,6 +2202,35 @@ MUTACOES = [
         '    st.info("As faturas ainda são lidas dentro de Conta corrente.")\n',
         ["python3", "checar_tela.py"],
     ),
+    # ── 06/10: A FILA PERGUNTAVA CADA PARCELA, E SALVAVA UMA POR UMA ────
+    (
+        "cada parcela volta a ser uma pergunta",
+        "favorecidos.py",
+        '    return re.sub(r"\\s*\\d{1,2}\\s*/\\s*\\d{1,2}\\s*$", "", t).strip(" ·-")\n',
+        "    return t\n",
+        ["python3", "extratos_tela.py"],
+    ),
+    (
+        "a celula vazia da fila volta a gravar 'nan' como finalidade",
+        "extratos_tela.py",
+        '        fin = fin.strip() if isinstance(fin, str) else ""\n',
+        '        fin = str(fin or "").strip()\n',
+        ["python3", "extratos_tela.py"],
+    ),
+    (
+        "a finalidade em massa deixa de valer para os marcados",
+        "extratos_tela.py",
+        "        if not fin and l.get(\"marcar\") is True and massa:\n",
+        "        if False:\n",
+        ["python3", "extratos_tela.py"],
+    ),
+    (
+        "nome curto do custo fixo volta a casar com qualquer descricao",
+        "extratos_tela.py",
+        '            if len(_fv_s.chave(item).replace(" ", "")) >= 4:\n',
+        "            if True:\n",
+        ["python3", "extratos_tela.py"],
+    ),
     (
         "o previsto do cartao volta a ignorar as compras ja lancadas",
         "previsto.py",
