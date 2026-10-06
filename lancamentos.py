@@ -281,9 +281,16 @@ def mes_de(l):
     return _txt_data(l.get("data"))[:7]
 
 
+# A conta com que a tela grava toda fatura desde 28/09 (`extratos_tela`). É o
+# que reconhece a fatura gravada ANTES do mês do caixa existir: sem isto, as
+# compras dela não abatiam o pagamento, e o mesmo dinheiro contava duas vezes.
+CONTA_CARTAO = "cartão · "
+
+
 def eh_do_cartao(l):
-    """Linha lançada de uma fatura de cartão (com o mês do caixa marcado)?"""
-    return str(l.get("tipo") or "").strip().startswith(TIPO_FATURA)
+    """Linha lançada de uma fatura de cartão?"""
+    return (str(l.get("tipo") or "").strip().startswith(TIPO_FATURA)
+            or str(l.get("conta") or "").startswith(CONTA_CARTAO))
 
 
 def do_mes(ano, mes, lista=None):
@@ -732,6 +739,16 @@ if __name__ == "__main__":
             "finalidade": "TRANSFERENCIA ENTRE CONTAS"},
            {"tipo": "fatura 2026-10", "valor": 50.0, "finalidade": "ADS"}])
        == 100.0)
+    ok("eh_do_cartao reconhece pelo mes marcado ou pela conta do cartao",
+       eh_do_cartao({"tipo": "fatura 2026-10"})
+       and eh_do_cartao({"conta": CONTA_CARTAO + "a.pdf"})
+       and not eh_do_cartao({"conta": "inter", "tipo": "pix"}))
+    ok("cartao_pago soma so o pagamento do extrato, nao a linha da fatura",
+       cartao_pago(_base_c + [{"conta": CONTA_CARTAO + "f.csv", "valor": -3.0,
+                               "finalidade": "FATURA DO CARTÃO"}]) == 500.0)
+    ok("fatura gravada antes do mes do caixa tambem abate o pagamento",
+       cartao_detalhado([{"conta": "cartão · set.csv", "tipo": "",
+                          "valor": -40.0, "finalidade": "ADS"}]) == 40.0)
     ok("fatura paga e nao anexada conta inteira",
        resumo_por_finalidade(_base_c[1:]) == {"FATURA DO CARTÃO": 500.0})
     ok("compras alem do pago contam todas, sem negativo",

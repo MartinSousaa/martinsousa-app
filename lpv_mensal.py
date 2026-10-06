@@ -44,6 +44,8 @@ O QUE ENTRA, E DE ONDE VEM
 - O reembolso do Flex e as vendas: a BASE DE VENDAS 2026 (`base_vendas.py`),
   colunas REEMBOLSO FLEX e VENDAS.
 - A FATURA DO CARTÃO inteira NÃO entra: as compras dela já entram uma a uma.
+  Entra só o que as compras lançadas NÃO explicam — fatura paga e ainda não
+  anexada (decisão do dono, 06/10: "C.O pelo valor pago sim").
 
 O QUE ELE NÃO SABE, E DIZ
 -------------------------
@@ -85,6 +87,16 @@ def calcular(lancamentos_do_mes, somas_vendas):
             por_finalidade[fin] = por_finalidade.get(fin, 0.0) + (-v)
             if _comp.lado(fin) == "desconhecida":
                 desconhecidas[fin] = round(desconhecidas.get(fin, 0.0) + (-v), 2)
+
+    # O CARTÃO PAGO QUE AS FATURAS LANÇADAS NÃO EXPLICAM. Fatura paga e não
+    # anexada não tem compra lançada, e o cartão sumia do C.O. em silêncio.
+    # Anexada, as compras entram pela finalidade de cada uma e o resto zera.
+    # A mesma conta da meta de gastos (`lancamentos.resumo_por_finalidade`).
+    import lancamentos as _lan
+    _resto = round(_lan.cartao_pago(lancamentos_do_mes)
+                   - _lan.cartao_detalhado(lancamentos_do_mes), 2)
+    if _resto > 0:
+        por_finalidade[_lan.FATURA] = por_finalidade.get(_lan.FATURA, 0.0) + _resto
 
     sv = somas_vendas or {}
     # O reembolso entra pelo tamanho: a coluna pode vir com sinal de entrada
@@ -290,7 +302,10 @@ if __name__ == "__main__":
 
     # JANEIRO DO DONO: PIX 3.610,87 + cartão 7.614,05 + Flex pago 6.705,14
     # menos reembolso 3.442,77 = C.O 14.487,29 (o print da DIN FINANÇAS).
-    JAN = [L(-3610.87, "OUTROS"), L(-7614.05, "ADS"), L(-6705.14, "FLEX"),
+    # O cartão de 7.614,05 são as compras da fatura ANEXADA (conta do cartão):
+    # elas explicam o pagamento inteiro, e a FATURA DO CARTÃO não soma.
+    _ads_cartao = {**L(-7614.05, "ADS"), "conta": "cartão · jan.pdf"}
+    JAN = [L(-3610.87, "OUTROS"), _ads_cartao, L(-6705.14, "FLEX"),
            L(-50000.00, "MERCADORIA"), L(-900.00, "COMPRA DE MERCADORIA"),
            L(-2500.00, "CUSTO FIXO"), L(-300.00, "SERVIÇO"),
            L(-1200.00, "IMPOSTO"), L(-90000.00, "TRANSFERENCIA ENTRE CONTAS"),
@@ -308,6 +323,10 @@ if __name__ == "__main__":
     ok("mercadoria (as duas grafias), custo fixo, assinatura, imposto, "
        "folha, transferência e fatura inteira ficam fora",
        set(r["por_finalidade"]) == {"OUTROS", "ADS"})
+    _sem_fat = calcular([x for x in JAN if x is not _ads_cartao], _sv_jan)
+    ok("fatura paga e não anexada entra no C.O pelo valor pago",
+       _sem_fat["co"] == 14487.29
+       and _sem_fat["por_finalidade"].get("FATURA DO CARTÃO") == 7614.05)
     ok("entrada (mesmo com finalidade do LPV) não reduz o custo",
        r["saidas"] == 11224.92)
     ok("saída sem finalidade não entra, e sai escrita",

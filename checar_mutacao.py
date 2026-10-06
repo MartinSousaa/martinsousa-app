@@ -2167,6 +2167,20 @@ MUTACOES = [
         ["python3", "lancamentos.py"],
     ),
     (
+        "o C.O volta a perder a fatura paga e nao anexada",
+        "lpv_mensal.py",
+        "    if _resto > 0:\n        por_finalidade[_lan.FATURA]",
+        "    if False:\n        por_finalidade[_lan.FATURA]",
+        ["python3", "lpv_mensal.py"],
+    ),
+    (
+        "a fatura gravada antes do mes do caixa volta a nao abater o pagamento",
+        "lancamentos.py",
+        "            or str(l.get(\"conta\") or \"\").startswith(CONTA_CARTAO))\n",
+        "            or False)\n",
+        ["python3", "lancamentos.py"],
+    ),
+    (
         "o previsto do cartao volta a ignorar as compras ja lancadas",
         "previsto.py",
         '    if prev.get("FATURA DO CARTÃO") and cartao_detalhado:\n',

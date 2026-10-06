@@ -135,7 +135,8 @@ def _fatura(arq, tipo_arq, usuario_logado):
 
     # CLASSIFICADA COMO O EXTRATO: o cadastro de favorecidos dá a finalidade,
     # e o que não tem cadastro volta como fila — a mesma pergunta, uma vez.
-    _conta_fat = f"cartão · {nome}"
+    import lancamentos as _lan_cc
+    _conta_fat = _lan_cc.CONTA_CARTAO + nome
     classificados, fila = classificar_fatura(lancs)
     fila = _enriquecer(fila, classificados, _conta_fat)
 
@@ -852,6 +853,10 @@ if __name__ == "__main__":
         _lan_c._aba = _g_aba_c
         _lan_c.carregar.clear()
     _src_fat2 = _insp.getsource(_fatura)
+    import lancamentos as _lan_cc_t
+    ok("a fatura grava na conta que o Studio reconhece como cartao",
+       "_lan_cc.CONTA_CARTAO + nome" in _src_fat2
+       and _lan_cc_t.eh_do_cartao({"conta": _lan_cc_t.CONTA_CARTAO + "x.csv"}))
     ok("o clique so lanca com o mes do vencimento escolhido",
        "disabled=not _comp" in _src_fat2
        and "competencia_da_fatura(lancs, _venc_txt)" in _src_fat2)
