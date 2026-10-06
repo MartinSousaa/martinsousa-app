@@ -2211,6 +2211,13 @@ MUTACOES = [
         ["python3", "extratos_tela.py"],
     ),
     (
+        "juntar as parcelas volta a esconder cada lancamento",
+        "extratos_tela.py",
+        '        d["itens"] = list(d.get("itens") or []) + list(item.get("itens") or [])\n',
+        "",
+        ["python3", "extratos_tela.py"],
+    ),
+    (
         "a celula vazia da fila volta a gravar 'nan' como finalidade",
         "extratos_tela.py",
         '        fin = fin.strip() if isinstance(fin, str) else ""\n',

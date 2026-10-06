@@ -628,7 +628,14 @@ def _enriquecer(fila, classificados, conta):
         sentido = "entrada" if float(l.get("valor") or 0) > 0 else "saida"
         d = porta.setdefault((nome, sentido), {
             "favorecido": nome, "sentido": sentido, "conta": conta,
-            "n": 0, "total": 0.0, "exemplo": "", "datas": []})
+            "n": 0, "total": 0.0, "exemplo": "", "datas": [], "itens": []})
+        # CADA LANÇAMENTO VAI JUNTO. Juntar as parcelas numa pergunta só não
+        # pode tirar do dono a conferência linha a linha (06/10: "como vou
+        # conferir com ele juntando?").
+        d["itens"].append({"data": str(l.get("data") or ""),
+                           "descricao": str(l.get("descricao") or "")[:80],
+                           "valor": abs(float(l.get("valor") or 0)),
+                           "conta": conta})
         d["n"] += 1
         d["total"] += abs(float(l.get("valor") or 0))
         d["exemplo"] = d["exemplo"] or str(l.get("descricao") or "")[:58]
@@ -664,11 +671,13 @@ def juntar_filas(filas):
         item = dict(item, favorecido=_fv_j.sem_parcela(item.get("favorecido")))
         d = junto.get(chave)
         if d is None:
-            junto[chave] = dict(item, datas=list(item.get("datas") or []))
+            junto[chave] = dict(item, datas=list(item.get("datas") or []),
+                                itens=list(item.get("itens") or []))
             continue
         d["n"] = (d.get("n") or 0) + (item.get("n") or 0)
         d["total"] = (d.get("total") or 0.0) + (item.get("total") or 0.0)
         d["datas"] = list(d.get("datas") or []) + list(item.get("datas") or [])
+        d["itens"] = list(d.get("itens") or []) + list(item.get("itens") or [])
         d["exemplo"] = d.get("exemplo") or item.get("exemplo") or ""
         _c1, _c2 = str(d.get("conta") or ""), str(item.get("conta") or "")
         if _c2 and _c2 not in _c1:
@@ -804,6 +813,17 @@ def _perguntar(fila, _fv, usuario_logado):
             })
         enviou = c2.form_submit_button("💾 Salvar", type="primary",
                                        use_container_width=True)
+    _linhas_fila = [{"nome": str(i.get("favorecido") or "")[:40],
+                     "data": it.get("data", ""), "descrição": it.get("descricao", ""),
+                     "valor": it.get("valor", 0.0), "onde": it.get("conta", "")}
+                    for i in fila for it in (i.get("itens") or [])]
+    if _linhas_fila:
+        with st.expander(f"🔎 Conferir cada lançamento da fila "
+                         f"({len(_linhas_fila)})", expanded=False):
+            st.dataframe(pd.DataFrame(_linhas_fila), use_container_width=True,
+                         hide_index=True,
+                         column_config={"valor": st.column_config.NumberColumn(
+                             format="R$ %.2f")})
     if not enviou:
         return
     respostas = respostas_da_fila(fila, editado.to_dict("records"),
@@ -1043,6 +1063,11 @@ if __name__ == "__main__":
     ok("as parcelas da mesma loja viram uma pergunta so",
        len(_fila_p) == 1 and _fila_p[0]["n"] == 2
        and round(_fila_p[0]["total"], 2) == 163.38)
+    ok("e cada lancamento juntado continua la, para conferir",
+       [x["descricao"] for x in _fila_p[0]["itens"]]
+       == ["HERING 04/06", "HERING 05/06"])
+    ok("a tela mostra cada lancamento da fila",
+       "Conferir cada lançamento da fila" in _insp.getsource(_perguntar))
     _fila_m = [{"favorecido": "A", "sentido": "saida"},
                {"favorecido": "B", "sentido": "saida"},
                {"favorecido": "C", "sentido": "saida"}]
