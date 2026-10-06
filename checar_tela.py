@@ -2075,6 +2075,8 @@ def _fatura_confirmada(conta):
     _i_grav = _corpo.find("_lan.gravar(")
     if _i_grav < 0:
         _i_grav = _corpo.find(".gravar(")
+    if _i_grav < 0:                       # 06/10: grava no mes do vencimento
+        _i_grav = _corpo.find(".gravar_fatura(")
     conta("a gravacao existe no caminho da fatura", _i_grav >= 0, "")
     if _i_grav >= 0:
         _antes = _corpo[:_i_grav]

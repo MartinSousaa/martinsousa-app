@@ -77,8 +77,8 @@ MUTACOES = [
     (
         'a fatura do cartao volta a gravar as linhas sem classificar',
         "extratos_tela.py",
-        [('        _novos, _reps, _err = _lan_fat.gravar(classificados, _conta_fat,\n',
-          '        _novos, _reps, _err = _lan_fat.gravar(lancs, _conta_fat,\n')],
+        [('            classificados, _conta_fat, _comp, usuario_logado)\n',
+          '            lancs, _conta_fat, _comp, usuario_logado)\n')],
         None,
         ["python3", "extratos_tela.py"],
     ),
