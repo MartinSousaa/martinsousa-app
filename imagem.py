@@ -3393,10 +3393,29 @@ def aviso_de_modelo_invalido():
     cfg = _ch_av.ler("OPENAI_MODELO_IMAGEM")
     if not cfg or cfg not in _MODELO_INVALIDO:
         return ""
-    return (f"A variavel `OPENAI_MODELO_IMAGEM` esta com «{cfg}», e esta conta "
-            f"da OpenAI nao tem esse modelo. O Studio esta usando "
-            f"«{modelo_de_imagem()}» no lugar e segue funcionando — mas "
-            f"corrija a variavel no Railway.")
+    # ── O AVISO NAO PODE PROMETER O QUE NAO SABE ────────────────────────
+    #
+    # Ele dizia: "O Studio esta usando «X» no lugar e segue funcionando".
+    # Em 06/10 o dono viu isso na tela com X = «gpt-image-2.5-sunburst» — o
+    # nome que falhou no teste do dia anterior. O aviso afirmava que estava
+    # funcionando sem ter como saber: nenhuma chamada tinha sido feita com o
+    # substituto.
+    #
+    # Agora ele diz o que E verdade em cada caso, e manda rodar o diagnostico
+    # — que e a unica coisa nesta base que PERGUNTA a conta o que ela tem.
+    _subs = modelo_de_imagem()
+    _base = (f"A variavel `OPENAI_MODELO_IMAGEM` esta com «{cfg}», e esta "
+             f"conta da OpenAI nao tem esse modelo.")
+    if not _subs:
+        return (_base + " E nenhum outro modelo conhecido serviu: as pecas "
+                "vao sair pelo motor RESERVA (Gemini), que nao preserva o "
+                "produto das fotos nem garante o quadrado. Rode "
+                "**🔧 Diagnostico das APIs de Imagem** para ver o que esta "
+                "conta tem de verdade e ponha esse nome na variavel.")
+    return (_base + f" O Studio vai TENTAR «{_subs}» no lugar — ainda nao "
+            f"houve geracao com ele, entao nao da para dizer que esta "
+            f"funcionando. Rode **🔧 Diagnostico das APIs de Imagem** para "
+            f"ver o que esta conta tem e corrija a variavel no Railway.")
 
 
 def modelo_de_imagem():
@@ -3423,7 +3442,26 @@ def modelo_de_imagem():
     cfg = _ch_mod.ler("OPENAI_MODELO_IMAGEM")
     if cfg and cfg not in _MODELO_INVALIDO:
         return cfg
-    return _MODELO_DESCOBERTO["nome"] or MODELO_IMAGEM_PADRAO
+    # ── O PADRAO TAMBEM PERDE A VEZ DEPOIS DE PROVADO ERRADO ────────────
+    #
+    # ACHADO NA TELA DO DONO, 06/10. A variavel estava com «gpt-image-2», a
+    # conta respondeu que nao tem, e o Studio caiu no padrao — que e
+    # «gpt-image-2.5-sunburst», EXATAMENTE o nome que falhou no teste do dia
+    # anterior e que esta no `_MODELO_INVALIDO` desde entao.
+    #
+    # Trocar um nome provado errado por outro nome provado errado nao e
+    # recuperacao: e gastar a geracao seguinte para receber o mesmo 404. A
+    # regra que esta funcao ja aplicava a variavel do Railway — "para de
+    # mandar depois de provada errada" — valia para UM leitor so. Forma 1.
+    _desc = _MODELO_DESCOBERTO["nome"]
+    if _desc and _desc not in _MODELO_INVALIDO:
+        return _desc
+    if MODELO_IMAGEM_PADRAO not in _MODELO_INVALIDO:
+        return MODELO_IMAGEM_PADRAO
+    # TODOS OS NOMES CONHECIDOS JA FALHARAM. Devolver um deles seria mentir
+    # para quem chama; devolver "" faz a chamada a OpenAI nem ser tentada, e
+    # a peca sai pelo reserva com o motivo escrito — que e a verdade.
+    return ""
 
 
 def capacidade_do_motor(modelos):
@@ -14212,8 +14250,55 @@ if __name__ == "__main__":
     # defende o erro.
     ok("o padrao continua sendo um nome da familia certa",
        MODELO_IMAGEM_PADRAO.startswith("gpt-image-"))
-    ok("e `gpt-image-2`, que a conta do dono TEM, e reconhecido",
+    # CORRIGIDO EM 06/10: o rotulo dizia "que a conta do dono TEM". Nao tem.
+    # A tela mostrou: «gpt-image-2» configurado, e a conta respondendo que nao
+    # possui esse modelo. A crenca veio de um print lido em 02/10 e virou
+    # comentario, dai instrucao ao dono, dai uma variavel trocada por nada.
+    # O QUE A LISTA SIGNIFICA e so "este nome e de um modelo de imagem
+    # conhecido", e nao "esta conta o tem" — quem responde isso e a conta,
+    # por `modelos_de_imagem_da_conta`.
+    ok("`gpt-image-2` e um nome conhecido da familia (nao diz que a conta tem)",
        "gpt-image-2" in MODELOS_IMAGEM_CONHECIDOS)
+
+    # ── NOME PROVADO ERRADO PERDE A VEZ, INCLUSIVE O PADRAO ─────────────
+    #
+    # 06/10, na tela do dono: a variavel com «gpt-image-2» (que a conta nao
+    # tem), e o Studio caindo no padrao «gpt-image-2.5-sunburst» — o nome que
+    # falhou no teste do dia anterior. Trocar um nome provado errado por outro
+    # provado errado e gastar a geracao seguinte para receber o mesmo 404.
+    _inv_06 = set(_MODELO_INVALIDO)
+    _desc_06 = _MODELO_DESCOBERTO["nome"]
+    try:
+        _MODELO_INVALIDO.clear()
+        _MODELO_DESCOBERTO["nome"] = None
+        _MODELO_INVALIDO.add(MODELO_IMAGEM_PADRAO)
+        ok("o padrao provado errado NAO e oferecido de novo",
+           modelo_de_imagem() != MODELO_IMAGEM_PADRAO)
+        ok("e sem nenhum nome utilizavel a funcao devolve vazio, e nao um "
+           "nome que ja falhou", modelo_de_imagem() == "")
+        # E O AVISO DIZ A VERDADE NOS DOIS CASOS.
+        import chaves as _ch_06
+        _ler_06 = _ch_06.ler
+        _ch_06.ler = lambda k, *a, **kw: ("gpt-image-que-nao-existe"
+                                          if k == "OPENAI_MODELO_IMAGEM"
+                                          else _ler_06(k, *a, **kw))
+        try:
+            _MODELO_INVALIDO.add("gpt-image-que-nao-existe")
+            _av = aviso_de_modelo_invalido()
+            ok("sem substituto, o aviso diz que vai pelo RESERVA",
+               "RESERVA" in _av and "Diagnostico" in _av)
+            ok("e nao promete que esta funcionando",
+               "segue funcionando" not in _av)
+            _MODELO_DESCOBERTO["nome"] = "gpt-image-1"
+            _av2 = aviso_de_modelo_invalido()
+            ok("com substituto, o aviso diz TENTAR, e nao que funciona",
+               "TENTAR" in _av2 and "segue funcionando" not in _av2)
+        finally:
+            _ch_06.ler = _ler_06
+    finally:
+        _MODELO_INVALIDO.clear()
+        _MODELO_INVALIDO.update(_inv_06)
+        _MODELO_DESCOBERTO["nome"] = _desc_06
 
     _env_mod = os.environ.get("OPENAI_MODELO_IMAGEM")
     _desc_antes = _MODELO_DESCOBERTO["nome"]
