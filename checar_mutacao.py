@@ -154,6 +154,30 @@ MUTACOES = [
         ["python3", "home_gestao.py"],
     ),
     (
+        'a baixa do cheque volta a ignorar a folha na descricao do Itau',
+        "cheques.py",
+        [('            if id(lan) in usados or _num_cheque(lan) != folha:\n',
+          '            if True:\n')],
+        None,
+        ["python3", "cheques.py"],
+    ),
+    (
+        'a tela de Cheques volta a so conferir no anexo do extrato',
+        "cheques_tela.py",
+        [('        _feitas, _duv_ch, _err_ch = _ch.conferir_com_extratos(\n'
+          '            usuario_logado, linhas)\n',
+          '        _feitas, _duv_ch, _err_ch = 0, [], []\n')],
+        None,
+        ["python3", "cheques.py"],
+    ),
+    (
+        'cheque compensado dias depois volta a nunca dar baixa sozinho',
+        "cheques.py",
+        [('        if len(cand) == 1 and not mesmos:\n', '        if False:\n')],
+        None,
+        ["python3", "cheques.py"],
+    ),
+    (
         'a UNI. CONT. (a UC) volta a ser somada como quantidade',
         "base_vendas.py",
         [('    "unidades": ("quantidade",),\n', '    "unidades": ("uni cont",),\n')],
