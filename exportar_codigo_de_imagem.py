@@ -49,6 +49,13 @@ SECOES = [
         # A copy corrigida que sobrevive a refacao (05/10).
         "_COPY_VIGENTE", "_produto_da_copy", "guardar_copy_vigente",
         "copy_vigente", "esquecer_copy_vigente",
+        # O cenario lido das referencias de ambientacao, que sobrevive a
+        # passada para que o refazer use a MESMA referencia (06/10). Quem le
+        # o export precisa dos tres: sem o escritor nao se ve QUANDO o
+        # cenario e escolhido, e foi "nao sei quando isto roda" que fez a
+        # analise de fora apontar defeito em caminho que nao existia mais.
+        "_CENARIO_VIGENTE", "guardar_cenarios_da_geracao",
+        "cenario_vigente", "ambientacao_do_tipo",
     ]),
     ("AS MEDIDAS DE CADA PECA (fonte unica de tamanho e densidade)", "imagem.py", [
         "OCUPACAO", "BLOCOS", "faixa_de_blocos", "blocos_em_portugues",
