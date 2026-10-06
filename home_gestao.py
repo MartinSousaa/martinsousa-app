@@ -786,7 +786,9 @@ def _partes_fixas(ano, mes):
                       "o equilíbrio está por baixo.")
     try:
         import assinaturas as _as
-        assin = _as.total_mensal(_as.carregar())
+        import custo_real as _cr
+        # O mês, com o real do extrato onde veio diferente (`custo_real`).
+        assin = _cr.total_assinaturas(_as.carregar(), ano, mes, _cr.carregar())
         if not assin:
             avisos.append("Nenhuma assinatura cadastrada — cadastre em "
                           "**Gestão › Assinaturas** para o equilíbrio ficar "

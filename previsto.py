@@ -65,11 +65,13 @@ PREVISIVEIS = PREVISIVEIS_TOTAL + PREVISIVEIS_SOMA
 
 
 def _custo_fixo(ano, mes):
+    """O custo fixo do mês: cadastro com ajustes, e o valor REAL onde o
+    extrato do mês trouxe diferente (`custo_real`, pedido do dono em 25/09)."""
     import ajustes as _aj
     import custo_fixo as _cf
+    import custo_real as _cr
     grade = _cf.carregar("custo_fixo")
-    return round(float(_aj.aplicar(grade, _aj.carregar(), "custo_fixo",
-                                   ano, mes)), 2)
+    return _cr.total_custo_fixo(grade, _aj.carregar(), ano, mes, _cr.carregar())
 
 
 def _folha(ano, mes):
@@ -251,4 +253,22 @@ if __name__ == "__main__":
     ok("caixa e acento nao criam finalidade nova",
        len(combinar({"custo fixo": 100.0}, {"CUSTO FIXO": 500.0})[0]) == 1)
 
+    # O CUSTO FIXO DO MÊS USA O VALOR REAL DO EXTRATO (06/10, `custo_real`).
+    import pandas as _pd_p
+    import custo_fixo as _cf_p
+    import ajustes as _aj_p
+    import custo_real as _cr_p
+    _gp = (_cf_p.carregar, _aj_p.carregar, _cr_p.carregar)
+    try:
+        _cf_p.carregar = lambda aba: _pd_p.DataFrame(
+            [{"item": "Luz", "valor_mensal": 450.0, "vigente_desde": ""}])
+        _aj_p.carregar = lambda: _pd_p.DataFrame(columns=_aj_p.COLUNAS)
+        _cr_p.carregar = lambda: {("custo_fixo", "Luz", "2026-09"): 512.37}
+        ok("o custo fixo de setembro é o real que o extrato trouxe",
+           _custo_fixo(2026, 9) == 512.37)
+        ok("e outubro volta ao cadastro", _custo_fixo(2026, 10) == 450.0)
+    finally:
+        _cf_p.carregar, _aj_p.carregar, _cr_p.carregar = _gp
+
     print("\nfalhas:", falhas)
+    __import__("sys").exit(1 if falhas else 0)

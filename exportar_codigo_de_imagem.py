@@ -46,6 +46,9 @@ SECOES = [
         "tipo_canonico", "numero_do_tipo", "plano_do_tipo",
         "blocos_sem_repeticao", "faces_repetidas", "cenas_repetidas",
         "pecas_bloqueadas_da_geracao", "plano_da_geracao",
+        # A copy corrigida que sobrevive a refacao (05/10).
+        "_COPY_VIGENTE", "_produto_da_copy", "guardar_copy_vigente",
+        "copy_vigente", "esquecer_copy_vigente",
     ]),
     ("AS MEDIDAS DE CADA PECA (fonte unica de tamanho e densidade)", "imagem.py", [
         "OCUPACAO", "BLOCOS", "faixa_de_blocos", "blocos_em_portugues",
@@ -68,6 +71,13 @@ SECOES = [
         "bloco_texto_exato", "MARCA_TEXTO_EXATO", "MARCA_FIM_TEXTO_EXATO",
         "trocar_texto_exato", "bloco_direcao_de_arte", "preset_do_tipo",
         "ANGULOS", "_ESQUEMA_CONFERENCIA", "_ESQUEMA_TEXTO",
+        # A peca sem copy, e a contagem de blocos num dono so (05/10).
+        "MARCA_SEM_COPY", "_sincronizar_contagem",
+        # A geometria calculada, em pixels (05/10).
+        "LADO_GERADO_PX", "FOLGA_BORDA_PCT", "CORREDOR_PCT", "em_px",
+        "zonas_da_peca",
+        # As duas decisoes que tem dono: tamanho e posicao.
+        "sem_posicao_de_layout", "sem_decisao_do_compilador",
     ]),
     ("A MONTAGEM DO PROMPT DA IMAGEM", "imagem.py", [
         "motivos_para_descartar_layout", "esquecer_descarte_de_layout",
@@ -84,15 +94,50 @@ SECOES = [
         "redescobrir_modelo_de_imagem", "_modelo_nao_existe",
         "parametro_recusado", "_erro_openai_terminal",
         "_chamar_openai_geracao", "gerar_imagem_ia",
+        # O ORCAMENTO DE TEMPO DA PECA (06/10). Subir o timeout do Gemini sem
+        # subir o teto por peca so troca a mensagem de erro.
+        "GEMINI_TIMEOUT_S", "TENTATIVAS_GEMINI", "FOLGA_ENTRE_TENTATIVAS_S",
+        "FOLGA_DO_PRIMARIO_S", "orcamento_da_peca", "TETO_POR_PECA_S",
     ]),
     ("A CONFERENCIA DA PECA PRONTA", "imagem.py", [
         "conferir_texto", "_PERGUNTAS_DA_PECA", "pergunta_do_tamanho",
         "perguntas_da_peca", "conferir_peca", "peca_em_aviso",
         "revisar_peca", "revisar_tudo", "revisar_texto", "relato_em_texto",
         "_relato_base",
+        # As barreiras de claim e de medida inventada (05/10).
+        "TERMOS_DE_PROMESSA", "promessas_sem_lastro", "copy_sem_promessa",
+        "_NUMERO_COM_UNIDADE", "medidas_sem_lastro",
+        "copy_sem_medida_inventada",
+        # O ajuste fino, que e por onde o chat passa.
+        "_ajustar_bruto", "ajustar_com_conferencia", "cor_do_produto_atual",
+        "classificar_edicao", "prompt_para_regerar",
     ]),
     ("A LEITURA DAS REFERENCIAS DE AMBIENTACAO", "ambientacao_ref.py", [
         "_ESQUEMA", "descrever", "resumo",
+        # O teto de tokens e o salvamento do JSON cortado (05/10).
+        "TOKENS_POR_REFERENCIA", "TOKENS_DE_ABERTURA", "teto_de_tokens",
+        "cenarios_inteiros",
+    ]),
+    ("AS PECAS DE APOIO QUE O MOTOR USA (06/10: estavam faltando no .txt)", "imagem.py", [
+        # Leitura do produto e da sessao
+        "_descrever_produto_via_claude", "_descricao_do_produto_cacheada",
+        "_direcao_de_arte_da_sessao", "config_da_geracao",
+        "limpar_trava_do_produto", "_numeros_do_cadastro",
+        "_chave_tipo", "_normalizar_nome", "_sem_acento", "_palavras_uteis",
+        "_acha_radicais",
+        # As fotos indo para o motor
+        "_detectar_mime", "_tem_transparencia", "extensao_de", "_data_url",
+        "_arquivo_para_openai", "_bloco_imagem", "comprimir_para_limite",
+        "_assinatura_das_fotos",
+        # As chaves (NENHUM valor de secret entra: o exportador so copia
+        # chamada, e a guarda de literal reprova se algum valor aparecer)
+        "_chave_anthropic", "_get_openai_api_key", "_get_gemini_api_key",
+        # Regras da peca que o prompt usa
+        "pode_ter_texto", "regra_de_espaco", "medida_do_callout",
+        "instrucao_de_layout", "ref_layout_do_tipo", "_pontuar_ref",
+        # O ajuste fino e a conferencia dele
+        "conferir_ajuste", "eh_rotulo_de_ajuste", "_pedido_fala_de_cor",
+        "peca_em_ajuste",
     ]),
 ]
 
@@ -140,6 +185,33 @@ def montar():
     w(barra + "\n\n")
     w("Gerado automaticamente a partir do codigo em producao.\n")
     w("Cada bloco traz arquivo:linha para conferencia.\n\n")
+    # ── O CARIMBO: DATA E COMMIT ────────────────────────────────────────
+    #
+    # Em 05/10 mandei ao dono um .txt gerado tres dias antes. O ChatGPT leu e
+    # reapontou QUATRO coisas que ja estavam corrigidas — e ninguem tinha como
+    # saber que o arquivo era velho olhando para ele. Com o carimbo, basta
+    # comparar com o `git log` para ver se a copia envelheceu.
+    import subprocess as _sp_h
+    try:
+        _sha = _sp_h.run(["git", "rev-parse", "--short", "HEAD"], cwd=RAIZ,
+                         capture_output=True, text=True, timeout=20
+                         ).stdout.strip() or "(sem git)"
+        _assunto = _sp_h.run(["git", "log", "-1", "--format=%s"], cwd=RAIZ,
+                             capture_output=True, text=True, timeout=20
+                             ).stdout.strip()
+    except Exception:
+        _sha, _assunto = "(sem git)", ""
+    # A HORA VEM COM FUSO. `datetime.now()` cru devolve UTC no container do
+    # Railway: o carimbo sairia 3h adiantado e, depois das 21h, com a DATA
+    # errada — num campo cuja unica funcao e dizer quando a copia foi feita.
+    # `checar_alcance` pegou isto no mesmo dia em que o carimbo foi escrito.
+    import placar_core as _pc_h
+    w(f"Gerado em: {_pc_h.agora_br().strftime('%d/%m/%Y %H:%M')} (horario de "
+      f"Brasilia)\n")
+    w(f"Commit:    {_sha}  {_assunto[:70]}\n")
+    w("Se o commit acima nao for o ultimo do repositorio, esta copia "
+      "ENVELHECEU — gere de novo com\n`python3 "
+      "exportar_codigo_de_imagem.py` antes de analisar qualquer coisa.\n\n")
 
     faltando = []
     cache = {}
@@ -176,6 +248,71 @@ def montar():
     return texto, faltando, suspeitas
 
 
+# ── O QUE O MOTOR ALCANCA, E QUE PRECISA ESTAR NA LISTA ──────────────────
+#
+# A LISTA ESCRITA A MAO SO REPROVAVA UM LADO. Nome pedido que sumiu do codigo
+# reprova a exportacao — esse era o combinado, e funciona. Mas nome NOVO,
+# criado depois de a lista ser escrita, sai faltando EM SILENCIO.
+#
+# Medido em 06/10: o .txt entregue ao dono nao tinha `TETO_POR_PECA_S`,
+# `_COPY_VIGENTE`, nem o `dados_descricao` dos tres ajustes do chat — tres
+# correcoes feitas no dia anterior. Ja tinha custado antes: em 05/10 mandei
+# um .txt velho e o ChatGPT reapontou QUATRO itens que ja estavam corrigidos.
+#
+# Entao a guarda pergunta ao CODIGO quem o motor alcanca, por AST, a partir
+# das portas de entrada — e exige que cada nome esteja na lista ou na isencao,
+# com motivo escrito.
+PORTAS_DO_MOTOR = ("gerar_imagem_ia", "montar_prompt_imagem",
+                   "montar_prompt_ajuste_fino", "revisar_tudo",
+                   "ajustar_com_conferencia", "prompt_para_regerar")
+
+# Alcancado pelo motor e FORA do .txt de proposito, com o motivo.
+FORA_DE_PROPOSITO = {
+    # Infraestrutura, nao e o motor: limitador de chamada, log, contexto.
+    "_GEMINI_LIMITER", "_LIMITE_GEMINI", "_hoje_br", "_sys", "_time",
+    # Tela: o .txt e sobre o prompt e o envio, nao sobre o desenho.
+    "pagina_imagem", "st",
+    # NAO SAO FUNCOES DESTE ARQUIVO: sao metodos de objeto e nomes de modulo
+    # que a varredura por nome de chamada apanha junto. `json.loads`,
+    # `BytesIO.getvalue`, `chaves.ler`, `_GEMINI_LIMITER.aguardar`, `list`.
+    "json", "list", "getvalue", "ler", "aguardar",
+    # FUNCOES ANINHADAS: ja saem DENTRO do bloco da funcao que as contem, e
+    # exporta-las a parte seria o mesmo codigo duas vezes no .txt. Conferido
+    # em 06/10, uma a uma (a mae de cada uma esta exportada):
+    #   _tenta   -> comprimir_para_limite      _cor     -> bloco_direcao_de_arte
+    #   _extrair -> _chamar_openai_geracao     _lista   -> bloco_direcao_de_arte
+    #   _falha   -> gerar_imagem_ia            _chave   -> blocos_sem_repeticao
+    #   _texto_do_campo -> montar_prompt_imagem
+    #   _diz     -> revisar_peca
+    "_tenta", "_extrair", "_falha", "_cor", "_lista", "_chave",
+    "_texto_do_campo", "_diz",
+}
+
+
+def nomes_alcancados_pelo_motor(arq="imagem.py"):
+    """Todo nome de funcao que as portas do motor alcancam, por AST."""
+    fonte = open(os.path.join(RAIZ, arq), encoding="utf-8").read()
+    arv = ast.parse(fonte)
+    defs = {}
+    for no in ast.walk(arv):
+        if isinstance(no, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            defs.setdefault(no.name, no)
+
+    def chamadas(fn):
+        return {getattr(x.func, "attr", "") or getattr(x.func, "id", "")
+                for x in ast.walk(fn) if isinstance(x, ast.Call)}
+
+    vistos, fila = set(), [p for p in PORTAS_DO_MOTOR if p in defs]
+    while fila:
+        c = fila.pop()
+        if c in vistos:
+            continue
+        vistos.add(c)
+        if c in defs:
+            fila += [n for n in chamadas(defs[c]) if n]
+    return {n for n in vistos if n in defs}
+
+
 def _autoteste():
     """Confere a exportacao SEM gravar. E a guarda de conteudo, nao de sintaxe."""
     falhas = 0
@@ -185,6 +322,17 @@ def _autoteste():
         print(("  ok   " if cond else "  FALHA ") + titulo)
         if not cond:
             falhas += 1
+
+    # ── NOME QUE O MOTOR ALCANCA E NAO ESTA NA LISTA ────────────────────
+    pedidos = set()
+    for _t, _a, _ns in SECOES:
+        pedidos.update(_ns)
+    alcancados = nomes_alcancados_pelo_motor()
+    de_fora = sorted(alcancados - pedidos - FORA_DE_PROPOSITO)
+    ok("nenhum nome do motor ficou de fora da lista (%d de fora)"
+       % len(de_fora), not de_fora)
+    for _n in de_fora[:20]:
+        print(f"         falta exportar (ou isentar com motivo): {_n}")
 
     texto, faltando, suspeitas = montar()
     ok("todo nome pedido existe no codigo (%d faltando)" % len(faltando),

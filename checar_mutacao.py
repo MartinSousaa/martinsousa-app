@@ -154,6 +154,77 @@ MUTACOES = [
         ["python3", "home_gestao.py"],
     ),
     (
+        'a baixa do cheque volta a ignorar a folha na descricao do Itau',
+        "cheques.py",
+        [('            if id(lan) in usados or _num_cheque(lan) != folha:\n',
+          '            if True:\n')],
+        None,
+        ["python3", "cheques.py"],
+    ),
+    (
+        'a tela de Cheques volta a so conferir no anexo do extrato',
+        "cheques_tela.py",
+        [('        _feitas, _duv_ch, _err_ch = _ch.conferir_com_extratos(\n'
+          '            usuario_logado, linhas)\n',
+          '        _feitas, _duv_ch, _err_ch = 0, [], []\n')],
+        None,
+        ["python3", "cheques.py"],
+    ),
+    (
+        'cheque compensado dias depois volta a nunca dar baixa sozinho',
+        "cheques.py",
+        [('        if len(cand) == 1 and not mesmos:\n', '        if False:\n')],
+        None,
+        ["python3", "cheques.py"],
+    ),
+    (
+        'o custo fixo do mes volta a ignorar o valor real do extrato',
+        "previsto.py",
+        [('    return _cr.total_custo_fixo(grade, _aj.carregar(), ano, mes, _cr.carregar())\n',
+          '    return round(float(_aj.aplicar(grade, _aj.carregar(), "custo_fixo", ano, mes)), 2)\n')],
+        None,
+        ["python3", "custo_real.py"],
+    ),
+    (
+        'PIX recebido volta a contar como cobranca do custo fixo',
+        "custo_real.py",
+        [('            if v < 0:\n                total += -v\n',
+          '            if v:\n                total += abs(v)\n')],
+        None,
+        ["python3", "custo_real.py"],
+    ),
+    (
+        'o anexo do extrato volta a nao conferir o custo fixo',
+        "extratos_tela.py",
+        [('        _, _feitas_cr, _erro_cr = _cr.conferir_meses(_meses_arq)\n',
+          '        _, _feitas_cr, _erro_cr = [], 0, ""\n')],
+        None,
+        ["python3", "custo_real.py"],
+    ),
+    (
+        'abono e atestado voltam a nao contar como horas trabalhadas',
+        "analise_metas.py",
+        [('                  + float(p.get("min_abono", 0.0) or 0.0))\n        fora.append((f"horas trabalhadas',
+          '                  + 0.0)\n        fora.append((f"horas trabalhadas')],
+        None,
+        ["python3", "analise_metas.py"],
+    ),
+    (
+        'tolerancia volta a reprovar a meta antes da regra nova',
+        "analise_metas.py",
+        [('    fora.append(("tolerâncias (não computadas até definição)", None))\n',
+          '    fora.append(("tolerâncias (não computadas até definição)", p["tol"] <= tol_lim))\n')],
+        None,
+        ["python3", "analise_metas.py"],
+    ),
+    (
+        'o abono do dia de atestado volta a ficar fora das horas',
+        "relogio_ponto.py",
+        [('            acc["abono_total_min"] += float(reg.get("minutos_abonados") or 0)\n', '')],
+        None,
+        ["python3", "relogio_ponto.py"],
+    ),
+    (
         'a UNI. CONT. (a UC) volta a ser somada como quantidade',
         "base_vendas.py",
         [('    "unidades": ("quantidade",),\n', '    "unidades": ("uni cont",),\n')],
@@ -1240,9 +1311,11 @@ MUTACOES = [
         # seguinte lia a variavel de novo e voltava ao 404.
         "a variavel do Railway volta a mandar mesmo provada errada",
         "imagem.py",
+        # A ancora acompanhou a correcao de 06/10: o descoberto e o PADRAO
+        # passaram pelo mesmo filtro, e quando nenhum serve a funcao devolve
+        # "". O defeito medido e o mesmo: a variavel voltar a mandar.
         "    cfg = _ch_mod.ler(\"OPENAI_MODELO_IMAGEM\")\n"
-        "    if cfg and cfg not in _MODELO_INVALIDO:\n        return cfg\n"
-        "    return _MODELO_DESCOBERTO[\"nome\"] or MODELO_IMAGEM_PADRAO",
+        "    if cfg and cfg not in _MODELO_INVALIDO:\n        return cfg\n",
         "    return (_ch_mod.ler(\"OPENAI_MODELO_IMAGEM\")\n"
         "            or _MODELO_DESCOBERTO[\"nome\"]\n"
         "            or MODELO_IMAGEM_PADRAO)",
@@ -2031,6 +2104,34 @@ MUTACOES = [
         '            elif c == "\\\\":\n                escapa = True\n',
         "            elif False:\n                escapa = True\n",
         ["python3", "ambientacao_ref.py"],
+    ),
+    # ── 06/10: O DIAGNOSTICO DO DONO DERRUBOU A PREMISSA ────────────────
+    #
+    # A tela dizia "esta conta nao tem «gpt-image-2»" e, logo abaixo, o
+    # diagnostico listava OITO modelos — `gpt-image-2` entre eles — e o
+    # `sunburst` gerando imagem em 10,3s. Tres defeitos saem daqui.
+    (
+        "a redescoberta volta a devolver o modelo que acabou de falhar",
+        "imagem.py",
+        "        if nome in _MODELO_INVALIDO:\n            continue\n",
+        "        if False:\n            continue\n",
+        ["python3", "imagem.py"],
+    ),
+    (
+        "volta a banir um modelo que a conta TEM",
+        "imagem.py",
+        '    if _da_conta and str(nome) in _da_conta:\n',
+        "    if False:\n",
+        ["python3", "imagem.py"],
+    ),
+    # O MAIS GRAVE: "nao consegui analisar" virando "esta tudo suficiente".
+    # Apontado pelo ChatGPT e confirmado no codigo em imagem.py:2098.
+    (
+        "a triagem que falha volta a liberar as oito pecas",
+        "imagem.py",
+        '                    "viavel": False,\n',
+        '                    "viavel": True,\n',
+        ["python3", "imagem.py"],
     ),
 ]
 

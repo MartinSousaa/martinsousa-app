@@ -279,6 +279,24 @@ def _processar(arq, _itau, _inter, _fv, _lan, usuario_logado):
         + (f" · {repetidos} já estavam lá (não duplicados)" if repetidos else "")
     )
 
+    # ── O CUSTO FIXO E AS ASSINATURAS DO MÊS, PELO EXTRATO (06/10) ────────
+    # O mesmo momento: o arquivo acabou de chegar. Onde o item veio com valor
+    # diferente do cadastro, o real passa a valer naquele mês (`custo_real`).
+    try:
+        import custo_real as _cr
+        _meses_arq = sorted({(int(str(l.get("data"))[:4]),
+                              int(str(l.get("data"))[5:7]))
+                             for l in classificados
+                             if str(l.get("data") or "")[:7].count("-") == 1})
+        _, _feitas_cr, _erro_cr = _cr.conferir_meses(_meses_arq)
+        if _feitas_cr:
+            st.info(f"📌 {_feitas_cr} valor(es) de custo fixo / assinatura "
+                    "atualizado(s) no mês pelo extrato — veja em Custos fixos.")
+        if _erro_cr:
+            st.warning(f"Não consegui gravar o valor real do custo fixo: {_erro_cr}")
+    except Exception as _e_cr:
+        st.warning(f"Não consegui conferir o custo fixo: {type(_e_cr).__name__}")
+
     # ── A BAIXA DOS CHEQUES, AQUI, JUNTO COM O RESTO ─────────────────────
     #
     # O débito do cheque já estava no extrato e ninguém ligava os dois. Pior: a

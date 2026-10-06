@@ -910,7 +910,12 @@ def _pontualidade_rhid(ano: int, mes: int):
                # Saldo do banco no fim do mes e quanto os atrasos pesaram nele.
                # O desconto quem faz e a RHiD; aqui so se le, para nao existirem
                # duas contas da mesma coisa dando numeros diferentes.
-               "banco_min": 0.0, "minutos_atraso": 0.0}
+               "banco_min": 0.0, "minutos_atraso": 0.0,
+               # O ABONO DE TODO DIA, inclusive o de atestado (dia sem
+               # batida): a meta de horas conta abono e atestado como
+               # trabalhados (dono, 06/10). `abono_min` acima só vê os dias
+               # com batida — é o que a ociosidade precisa.
+               "abono_total_min": 0.0}
         # Saldo do banco: o ULTIMO dia que trouxer o valor, porque o campo da
         # RHiD ja e acumulado — somar os dias contaria tudo de novo.
         for reg in reversed(regs):
@@ -919,6 +924,7 @@ def _pontualidade_rhid(ano: int, mes: int):
                 break
 
         for reg in regs:
+            acc["abono_total_min"] += float(reg.get("minutos_abonados") or 0)
             if reg["faltou"] or not reg["batidas"]:
                 continue
             diag["dias_com_batida"] += 1
@@ -1023,6 +1029,7 @@ def get_pontualidade_mes(ano: int, mes: int, com_diagnostico: bool = False):
             "tolerancias": 0, "atrasos": 0, "atrasos_entrada": 0,
             "atrasos_almoco": 0, "dias_trabalhados": 0, "ocorrencias": [],
             "minutos_trabalhados": 0.0, "banco_min": 0.0, "minutos_atraso": 0.0,
+            "abono_total_min": 0.0,
         }) for u in MEMBROS}
         return (completo, diag) if com_diagnostico else completo
 
@@ -2249,6 +2256,37 @@ if __name__ == "__main__":
                and getattr(n.func, "attr", "") == "today"]
     ok(f"nenhum .today() com o dia do container (linhas: {_todays})",
        not _todays)
+
+    # ── A META DE HORAS LÊ O ABONO DE TODO DIA (06/10) ───────────────────
+    # Abono e atestado contam como horas trabalhadas (dono). O dia de
+    # atestado não tem batida, e o abono dele ficava fora: só os dias com
+    # batida guardavam `abono_min`. A entrada no formato que `rhid_api`
+    # devolve (`get_registros_diarios`), só a rede é trocada.
+    from datetime import date as _date_rh
+    _u_rh = sorted(MEMBROS)[0]
+    _g_rh = (_rhid.get_persons, _rhid.get_registros_diarios,
+             globals()["_rhid_nome_para_trello"])
+    _regs_rh = [
+        {"data": _date_rh(2026, 9, 1), "batidas": ["09:00", "12:00", "13:00",
+                                                   "18:00"],
+         "entrada": "09:00", "saida_almoco": "12:00", "volta_almoco": "13:00",
+         "saida": "18:00", "minutos_atraso": 0.0, "minutos_trabalhados": 480.0,
+         "faltou": False, "saldo_banco": 0.0, "minutos_abonados": 0.0},
+        {"data": _date_rh(2026, 9, 2), "batidas": [], "entrada": None,
+         "saida_almoco": None, "volta_almoco": None, "saida": None,
+         "minutos_atraso": None, "minutos_trabalhados": 0.0, "faltou": True,
+         "saldo_banco": 0.0, "minutos_abonados": 480.0}]
+    try:
+        _rhid.get_persons = lambda: [{"id": 1, "name": "X"}]
+        _rhid.get_registros_diarios = lambda a, b, c: (_regs_rh, {})
+        globals()["_rhid_nome_para_trello"] = lambda n: _u_rh
+        _pm = get_pontualidade_mes(2026, 9)
+        ok("o abono do dia de atestado (sem batida) entra nas horas",
+           _pm[_u_rh]["abono_total_min"] == 480.0
+           and _pm[_u_rh]["minutos_trabalhados"] == 480.0)
+    finally:
+        (_rhid.get_persons, _rhid.get_registros_diarios,
+         globals()["_rhid_nome_para_trello"]) = _g_rh
 
     print("\nfalhas:", falhas)
     # O CODIGO DE SAIDA. Sem ele, quem le `returncode` ve este modulo como

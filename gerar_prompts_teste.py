@@ -29,8 +29,9 @@ COMO USAR
     python3 gerar_prompts_teste.py --listar        # só os nomes dos cenários
 
 Depois leia `_INDICE.md` na pasta de saída: ele diz o que cada arquivo é e o
-que se espera encontrar dentro dele. O contrato de cada seção está em
-`DOSSIE_PROMPT.md`.
+que se espera encontrar dentro dele. O contrato de cada seção se confere com
+`python3 checar_prompts.py`, que monta os nove tipos e diz o que cada um TEM de
+conter e o que NÃO PODE.
 """
 
 import argparse
@@ -421,8 +422,8 @@ def main():
               "Gerado por `gerar_prompts_teste.py`. **Nenhuma imagem foi "
               "gerada e nenhum motor foi chamado.**",
               "",
-              "O contrato de cada seção — o que TEM de estar e o que NÃO PODE "
-              "— está em `DOSSIE_PROMPT.md`.",
+              "O contrato de cada seção — o que TEM de estar e o que NÃO "
+              "PODE — se confere com `python3 checar_prompts.py`.",
               ""]
     total = 0
     anexo = []
@@ -473,8 +474,8 @@ def main():
                     "Estes são os textos EXATOS que o MS Studio enviaria ao "
                     "motor de imagem. Nenhuma imagem foi gerada.",
                     "",
-                    "Leia junto com `DOSSIE_PROMPT.md`, que diz o que cada "
-                    "seção TEM de conter e o que NÃO PODE.",
+                    "Confira com `python3 checar_prompts.py`, que diz o que "
+                    "cada seção TEM de conter e o que NÃO PODE.",
                 ]
                 io.open(os.path.join(args.saida,
                                      f"ANEXO_{produto}_{cenario}.md"),
