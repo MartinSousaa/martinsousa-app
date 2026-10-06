@@ -1,0 +1,434 @@
+================================================================================
+COMO O MS STUDIO CRIA UMA IMAGEM — DO PRODUTO À PEÇA PRONTA
+Escrito para quem nunca viu este sistema. MS Studio · 06/10/2026
+================================================================================
+
+PARA QUEM É ESTE ARQUIVO
+------------------------
+Para qualquer conversa que precise mexer na aba Imagem e não esteja aqui desde
+o começo. Ele explica o CAMINHO INTEIRO, na ordem em que acontece, com
+`arquivo:linha` em cada afirmação. Onde algo depende de fora do repositório (a
+planilha, a conta da OpenAI), está dito que depende.
+
+O CÓDIGO COMPLETO está em `CODIGO_GERACAO_DE_IMAGEM.txt`, gerado por
+`python3 exportar_codigo_de_imagem.py`. Aquele arquivo é o código; ESTE é o
+mapa. Leia este primeiro.
+
+
+================================================================================
+EM UMA TELA: O CAMINHO INTEIRO
+================================================================================
+
+    1. DESCRIÇÃO      alguém escreve a descrição do produto noutra aba e o
+       (outra aba)    Studio devolve um CÓDIGO (ex.: MS-CANE-10064K2)
+
+    2. ABA IMAGEM     cola-se o código OU digita-se o nome
+                      → o Studio puxa medidas, peso, material, cor
+
+    3. FOTOS          sobem as fotos reais do produto (obrigatório)
+                      opcional: referências de LAYOUT e de AMBIENTAÇÃO
+
+    4. TRIAGEM        uma IA (Claude) OLHA as fotos e ESCREVE o plano das 8
+                      peças: composição, cena e a COPY EXATA de cada uma
+
+    5. CONFIRMAÇÃO    a tela mostra o plano ANTES de gastar. O dono confere.
+
+    6. GERAÇÃO        para cada peça: monta o prompt → manda ao motor de
+                      imagem → recebe os bytes
+
+    7. CONFERÊNCIA    outra IA olha a peça pronta: o texto está escrito certo?
+                      o produto é o mesmo das fotos? Se não, refaz.
+
+    8. GALERIA        a peça entra na galeria com o veredito dela
+
+Cada etapa abaixo tem a sua seção.
+
+
+================================================================================
+1 · A DESCRIÇÃO E O CÓDIGO — DE ONDE VÊM OS DADOS DO PRODUTO
+================================================================================
+
+A aba Descrição gera um código legível que liga Descrição → Imagem
+(`descricao.gerar_codigo`):
+
+    MS-[4 letras do nome]-[MMDD][3 aleatórios]      ex.: MS-CANE-10064K2
+
+Na aba Imagem, colado o código, `atividades.buscar_por_codigo` (atividades.py:222)
+devolve o dicionário do produto: medidas, peso, material, cor, categoria.
+
+    Esse dicionário se chama `dados_descricao` no código inteiro, e é ele que
+    alimenta as BARREIRAS contra número inventado. Guarde este nome.
+
+QUANDO HÁ CÓDIGO, A TRIAGEM DE SPECS É PULADA (imagem.py:9138), e a tela DIZ
+isso em vez de ficar muda:
+
+    "Os dados deste produto estão vindo da descrição (código X), que é a fonte
+     mais completa — por isso a triagem não é consultada agora."
+
+Por que a tela diz: em 28/09 o dono relatou "anexei o código, o sistema
+identificou, mas quando preencho o nome e dou enter, não busca, não faz nada".
+Não fazia mesmo, e era a regra certa — o defeito era o SILÊNCIO.
+
+SEM CÓDIGO, digita-se o nome e o Studio busca na planilha de triagem
+(`triagem.py`). Havendo variantes com o mesmo nome, aparece um seletor.
+
+
+================================================================================
+2 · OS CAMPOS DA ABA, UM POR UM — O QUE CADA UM FAZ COM O QUE RECEBE
+================================================================================
+
+Todos aceitam QUALQUER formato de imagem (`type=None`). O Studio converte com
+`normalizar_imagem` — HEIC de iPhone, AVIF, GIF, BMP, TIFF. Campo que recusava
+HEIC já custou um dia de trabalho: quem fotografa o produto no celular manda
+HEIC, e o sistema só dizia "arquivo não serve".
+
+--------------------------------------------------------------------------------
+CAMPO                           imagem.py   O QUE O SISTEMA FAZ COM ELE
+--------------------------------------------------------------------------------
+Fotos do produto                9455        VÃO JUNTO ao motor, em base64, em
+  (obrigatório)                             toda peça. São elas que preservam
+                                            o produto real.
+
+Referências de ambientação      9584        NÃO vão ao motor. Uma IA de visão
+  (opcional)                                as OLHA e escreve o CENÁRIO de
+                                            cada uma (`ambientacao_ref.py`);
+                                            só o TEXTO entra no prompt.
+
+Imagens de referência de        9617        VÃO ao motor, por último, como
+layout (opcional)                           referência de arranjo. O Studio
+                                            também descreve o estilo delas em
+                                            texto.
+
+Imagem a ajustar                9282        só no modo Ajuste Fino: a peça
+  (Ajuste Fino)                             pronta que se quer corrigir.
+
+Fotos do produto (Ajuste Fino)  9306        opcional: com elas a IA pode
+                                            recompor sem perder o produto.
+--------------------------------------------------------------------------------
+
+POR QUE A AMBIENTAÇÃO É TEXTO E NÃO IMAGEM
+A referência de ambientação diz LUGAR, LUZ, MATERIAIS e CLIMA — não o produto.
+Mandá-la como imagem faria o modelo copiar o produto DELA. Então uma IA de
+visão a lê e devolve só o cenário, com a ordem explícita de IGNORAR o produto
+que aparece na foto.
+
+E ela é TEMA, NÃO ROTEIRO. Palavras do dono: "ele não deve manter o mesmo
+padrão de ambientação em todas as fotos, o ideal é ir mudando sem fugir do
+tema". Por isso o texto dela delimita o universo e cada peça escolhe uma cena
+diferente dentro dele.
+
+O LIMITE DE OITO REFERÊNCIAS (ambientacao_ref.py) é de propósito: acima disso
+a leitura fica cara e a escolha não melhora.
+
+
+================================================================================
+3 · OS QUATRO MODOS DE GERAÇÃO
+================================================================================
+
+O seletor "O que gerar?" (imagem.py:9267, chave `img_modo` em 9270):
+
+    1 imagem específica     uma peça, de um tipo escolhido
+    Selecionar              várias, marcadas num multiselect
+    As 8 imagens do padrão  o lote inteiro
+    ✏️ Ajuste Fino          NÃO gera: EDITA uma peça que já existe
+
+O rótulo "As 8 imagens" é CONTADO da lista (`len(TIPOS_PADRAO)`), nunca escrito
+à mão — já aconteceu de o botão dizer 7 com oito tipos na lista.
+
+OS OITO TIPOS (imagem.py:1611):
+
+    1 — Capa do anúncio (fundo branco)
+    2 — Benefícios do produto
+    3 — Benefícios no cenário de uso
+    4 — Close nos detalhes
+    5 — Características técnicas (medidas/peso/material)
+    6 — Quebra de objeção
+    7 — Presenteie
+    8 — Ambientação realista (sem texto)
+
+    + "Personalizado (descrevo o que quero)", fora do padrão: nele a instrução
+      do colaborador é a ÚNICA fonte de verdade, sem branding automático.
+
+CADA TIPO TEM MEDIDAS PRÓPRIAS, e elas são calculadas, não adivinhadas:
+
+    OCUPACAO[tipo]    quanto do quadro o produto ocupa
+    BLOCOS[tipo]      quantos cartões de texto a peça comporta
+    zonas_da_peca()   o desenho do quadro em PORCENTAGEM e em PIXELS
+
+Os tipos 3, 7 e 8 NÃO têm porcentagem de ocupação, de propósito: neles o
+tamanho do produto é a ESCALA REAL na mão de alguém. Exigir porcentagem deles
+produziu "o produto está GIGANTE nas mãos da criança", três vezes.
+
+
+================================================================================
+4 · A TRIAGEM — A IA QUE ESCREVE O PLANO ANTES DE GASTAR
+================================================================================
+
+`gerar_triagem_ia` manda as fotos + os dados do produto a uma IA de visão e
+recebe o PLANO das oito peças. Para cada peça:
+
+    tipo         qual das oito
+    composicao   o arranjo (sem decidir tamanho nem posição — ver abaixo)
+    cena         superfície, props e luz DESTA peça
+    textos       a COPY EXATA, palavra por palavra
+    viavel       dá para fazer com o que foi informado? se não, por quê
+
+A COPY VEM PRONTA, E ISSO É O CENTRO DA COISA. Antes, o prompt dizia "textos a
+incluir" e o gerador tratava como sugestão: reescrevia a frase com as próprias
+palavras e errava as letras no caminho. Daí saíram "Portátile" e "apoliando"
+em peças pagas. Hoje a copy entra como TEXTO LITERAL, com a marca
+`━━━ TEXTO EXATO A ESCREVER (copie letra por letra) ━━━`.
+
+DUAS DECISÕES O PLANO NÃO PODE TOMAR, e um filtro as remove
+(`sem_decisao_do_compilador`):
+
+    TAMANHO   quem decide é `ocupacao_em_portugues`
+    POSIÇÃO   quem decide é `zonas_da_peca`
+
+Se o plano disser "produto centralizado", essa parte é cortada — senão são
+duas vozes sobre o mesmo assunto, e quando discordam a peça sai torta. O que
+o plano diz de CENA é preservado.
+
+O PLANO É CONGELADO E MOSTRADO ANTES DE GERAR. A tela exibe peça por peça, com
+o prompt que será enviado — pedido do dono: "economiza dinheiro, fazendo testes
+gerando imagens com prompt ainda errado".
+
+E `divergencia_de_produto` (imagem.py:770) avisa quando o plano congelado é de
+OUTRO produto. Nasceu de um estrago real: a tela dizia "Tigre · Dourado com
+Strass" e as oito peças saíram com o brief de um pêndulo automotivo.
+
+
+================================================================================
+5 · A MONTAGEM DO PROMPT — O QUE VAI, EM QUE ORDEM, E POR QUÊ
+================================================================================
+
+`montar_prompt_imagem` (imagem.py:5529) monta o texto. Em ordem:
+
+    PRESET DO TIPO            as regras daquele tipo de peça
+    PLANO DE CRIAÇÃO          composição (já filtrada), cena, e a COPY EXATA
+    GEOMETRIA DESTA PEÇA      zona do produto, corredor vazio, zona dos cartões
+                              — em % E em PIXELS
+    AMBIENTAÇÃO               o tema escrito pelo colaborador
+    DIREÇÃO DE ARTE           paleta, materiais, clima — a mesma nas oito
+    FIDELIDADE AO PRODUTO     o produto é o das fotos; não redesenhe
+    TRAVA DE COR              proibido recolorir (sai quando o pedido é de cor)
+    REGRA DE ESPAÇO           margem mínima, sobreposição proibida
+    REFERÊNCIA DE LAYOUT      o que cada imagem anexada representa
+
+A GEOMETRIA EM PIXELS FOI A CORREÇÃO QUE MAIS MUDOU RESULTADO. O prompt dizia
+"pelo menos 6% de margem" e o modelo errava; passou a dizer "pelo menos 40px de
+margem num quadro de 1024px" e passou a acertar. Modelo obedece pixel, não
+porcentagem. Por isso `em_px()` converte tudo antes de escrever.
+
+AS BARREIRAS, QUE RODAM ANTES DE O TEXTO VIRAR PROMPT:
+
+    copy_sem_promessa            corta claim sem lastro no cadastro
+                                 (a peça 6 saiu com "MANTÉM BEBIDA QUENTE?
+                                 Sim, térmica em metal e resina" — e o
+                                 cadastro não tem ensaio térmico nenhum)
+    copy_sem_medida_inventada    corta número que não está no cadastro
+                                 (uma peça saiu mandando escrever
+                                 "ALTURA 30mm / PROFUNDIDADE 25mm" enquanto o
+                                 mesmo prompt dizia "medidas EXATAS: 12x14")
+    blocos_sem_repeticao         tira cartão repetido ANTES do teto, senão a
+                                 repetição gasta uma vaga
+    faixa_de_blocos              corta pela quantidade que o tipo comporta
+
+AS DUAS PRIMEIRAS SÓ FUNCIONAM COM `dados_descricao` NA MÃO. Em 05/10 ficou
+medido que os três caminhos de ajuste do chat liam esse dicionário DENTRO de
+uma thread, onde ele volta vazio — as barreiras rodavam cegas. Corrigido.
+
+
+================================================================================
+6 · COMO O STUDIO FALA COM O GEMINI — A MENSAGEM, CAMPO POR CAMPO
+================================================================================
+
+Endpoint:
+    POST https://generativelanguage.googleapis.com/v1beta/models/
+         gemini-3.1-flash-image:generateContent
+
+O CORPO (imagem.py:2790-2890):
+
+    {
+      "contents": [ { "role": "user", "parts": [
+          { "inline_data": { "mime_type": "image/jpeg",
+                             "data": "<foto do produto em base64>" } },
+          { "inline_data": { ... } },          ← uma por foto do produto
+          { "inline_data": { ... } },          ← referência de layout, por ÚLTIMO
+          { "text": "<o prompt inteiro>" }     ← o texto SEMPRE no fim
+      ] } ],
+      "generationConfig": { ... }              ← ver abaixo
+    }
+
+    AS FOTOS VÊM ANTES DO TEXTO, e a referência de layout por último — a mesma
+    ordem do caminho da OpenAI, para os dois motores receberem a mesma coisa.
+
+A PROPORÇÃO — O CAMPO QUE A DOCUMENTAÇÃO DO GOOGLE CONTRADIZ
+
+A documentação descreve DOIS nomes, os dois oficiais, para endpoints
+diferentes:
+
+    generateContent ... generationConfig.imageConfig.aspectRatio
+    Interactions API ... response_format.aspect_ratio
+
+Chutar qual vale custou semanas de peça com margem. Então o Studio NÃO CHUTA:
+tenta as três formas documentadas, na ordem, e GUARDA qual colou
+(`_FORMA_PROPORCAO`, uma vez por container):
+
+    1. {"responseModalities":["IMAGE"],
+        "imageConfig":{"aspectRatio":"1:1","imageSize":"1K"}}
+    2. {"responseModalities":["IMAGE"], "imageConfig":{"aspectRatio":"1:1"}}
+    3. {"responseModalities":["IMAGE"],
+        "responseFormat":{"image":{"aspectRatio":"1:1","imageSize":"1K"}}}
+
+RECUSADAS AS TRÊS, É ERRO — NÃO DEGRADAÇÃO. Havia uma quarta forma, "sem
+proporção", que passava sempre; o Gemini então devolvia retangular e o Studio
+preenchia as sobras com faixa lisa. Era a "margem nas fotos" que o dono
+relatava. Ela foi REMOVIDA em 01/10: peça nenhuma com o motivo escrito é
+melhor que peça paga com margem.
+
+UMA VARIÁVEL POR VEZ: a versão antiga mudava a proporção E os
+`responseModalities` na mesma tentativa — recusado, era impossível saber qual
+das duas tinha sido o problema.
+
+TEMPO: `GEMINI_TIMEOUT_S` = 180s, 2 tentativas, e o teto por peça SAI DA CONTA
+(`orcamento_da_peca()` + 60). Subir o timeout sem subir o teto só trocaria a
+mensagem de erro.
+
+
+================================================================================
+7 · O IDIOMA DO PROMPT — POR QUE METADE EM INGLÊS
+================================================================================
+
+O envelope final (imagem.py:4402) tem seções em inglês E uma seção em
+português, e a hierarquia está ESCRITA DENTRO DELE:
+
+    SECTION 1: THE COMPLETE BRIEF FOR THIS PIECE (Brazilian Portuguese)
+        "(This is the contract. Follow every line of it. The English sections
+          below restate it for the renderer and never replace it — if you ever
+          read a conflict, this section wins.)"
+
+    SECTION 2: PRODUCT REFERENCE
+    SECTION 3: USER / COLLABORATOR BRIEF
+    VISUAL STYLE / PRODUCT INTEGRITY RULES / THE TIE-BREAKER
+
+Ou seja: o BRIEF é em português porque é o que a equipe escreve e confere; o
+resto é em inglês porque é a língua em que o renderizador obedece melhor. E o
+prompt diz, por escrito, quem ganha num conflito — em vez de deixar o modelo
+decidir.
+
+NO AJUSTE FINO O ENVELOPE É OUTRO (imagem.py:4383):
+
+    "EDIT the provided image. This is not a new image — it is a surgical edit"
+    ━━━ THE ONLY CHANGE TO MAKE ━━━      ← só a instrução do colaborador
+    ━━━ EVERYTHING ELSE IS UNTOUCHABLE ━━━
+
+Antes, o ajuste caía no prompt de CRIAÇÃO e a instrução do colaborador se
+perdia: a foto voltava recomposta, com objetos que ninguém pediu, e sem a
+mudança pedida.
+
+
+================================================================================
+8 · OS DOIS MOTORES — PRIMÁRIO E RESERVA
+================================================================================
+
+    PRIMÁRIO   OpenAI (`gpt-image-*`). Aceita `size=1024x1024` e, nos modelos
+               que o suportam, `input_fidelity=high` — que é o que PRESERVA o
+               produto em vez de redesenhá-lo.
+    RESERVA    Gemini. Não aceita `input_fidelity`; a proporção se negocia
+               como descrito acima.
+
+QUAL MODELO: `modelo_de_imagem()`. A variável `OPENAI_MODELO_IMAGEM` do
+Railway manda — MAS PARA DE MANDAR depois de provada errada. Quando a conta
+responde "esse modelo não existe", o nome entra em `_MODELO_INVALIDO`, o
+Studio pergunta à própria conta quais modelos ela tem
+(`modelos_de_imagem_da_conta`) e usa o que achar.
+
+Antes disso, a descoberta valia para UMA chamada: a seguinte lia a variável de
+novo e voltava ao mesmo 404. Toda geração recomeçava errada, para sempre, até
+alguém lembrar de editar a variável.
+
+O QUE O STUDIO NÃO CONSEGUE RESOLVER POR CÓDIGO: se a conta não tiver nenhum
+modelo de imagem, não há chamada que invente um. Nesse caso tudo cai no
+reserva, e a tela DIZ qual motor fez cada peça.
+
+
+================================================================================
+9 · A CONFERÊNCIA DA PEÇA PRONTA — A PORTA ÚNICA
+================================================================================
+
+`revisar_tudo` é por onde TODA peça passa, venha da geração, do botão de
+refazer ou do chat. Ela faz duas coisas, nesta ordem:
+
+    1. REVISÃO DE TEXTO   uma IA lê o que está ESCRITO na peça. Achou erro de
+                          português, corrige a copy e manda redesenhar.
+    2. CONFERÊNCIA DA PEÇA  outra IA olha a peça ao lado das fotos do produto
+                          e responde: é o mesmo produto? quantas alças? o
+                          formato bate? a cor bate?
+
+A ORDEM É DINHEIRO: trocar a copy é barato, redesenhar é caro.
+
+Por que a porta é única: quatro lugares desta base escrevem bytes novos na
+galeria, e cada um fazia uma coisa diferente. Os dois que geram do zero — o
+refazer do chat e o botão da tela — não faziam NENHUMA das duas. Era o caminho
+mais usado no dia em que o dono passou dez rodadas corrigindo uma caneca à mão.
+
+E A CORREÇÃO SOBREVIVE À REFAÇÃO (`copy_vigente`, desde 05/10). Antes, toda
+refação relia o plano ORIGINAL: o dono pedia "metal → inox", recebia inox,
+pedia para arrumar os cartões, e o cartão voltava a dizer "metal e resina".
+
+ESTAR NA GALERIA NÃO É ESTAR PRONTA: cada peça carrega o veredito dela, e o
+lote tem placar ("6 de 8 aprovadas").
+
+
+================================================================================
+10 · O QUE ACONTECE QUANDO DÁ ERRADO
+================================================================================
+
+PEÇA QUE FALHA não some: a tela diz "a última geração entregou 6 de 8 imagens.
+As 2 que faltam falharam — o motivo de cada uma está abaixo", com o erro de
+cada uma.
+
+GERAR SÓ AS QUE FALTARAM: pelo chat ("gere as que faltaram"). O chat deixa um
+PEDIDO (`img_pedido_faltantes`) e a aba o aplica no topo, antes de desenhar os
+widgets — escrever direto na chave de um widget já desenhado é recusado pelo
+Streamlit, e foi esse o defeito de 05/10.
+
+TRÊS PEÇAS SEGUIDAS FALHANDO PELO MESMO MOTIVO param o lote: insistir nas
+outras só gastaria tempo.
+
+O HISTÓRICO DE PROMPTS (`log_imagem.py`) guarda o texto que foi ao motor em
+cada peça e em cada correção, com produto, usuário e número da peça. Dá para
+baixar em .txt e ver exatamente o que o modelo recebeu.
+
+
+================================================================================
+11 · O QUE ESTE SISTEMA NÃO SABE — DITO EM VOZ ALTA
+================================================================================
+
+1 · Sem um modelo `gpt-image-*` na conta da OpenAI, não há `input_fidelity`:
+    o produto é redesenhado a partir do texto em vez de preservado das fotos.
+    Não tem conserto por código.
+
+2 · A conferência de visão depende da ANTHROPIC_API_KEY e das fotos. Sem uma
+    das duas ela não roda e DIZ isso — e aí só a régua de cor sobra, que não
+    vê forma.
+
+3 · A régua geométrica compara COR, não forma. Medir forma geometricamente foi
+    testado e não serve: a variação entre ângulos do MESMO produto (26 a 53
+    pontos) é maior que entre produtos DIFERENTES (5 pontos no pior caso).
+
+
+================================================================================
+COMO CONFERIR QUALQUER COISA DESTE ARQUIVO
+================================================================================
+
+    python3 exportar_codigo_de_imagem.py   gera o código completo em .txt
+    python3 imagem.py --autoteste          as conferências do módulo
+    python3 checar_prompts.py              as regras em cada um dos 9 tipos
+    python3 checar_tela.py                 a tela monta inteira?
+    python3 checar_comunicacao.py          o sistema conta o que sabe?
+    python3 conferir.py                    os oito verificadores e o veredito
+
+Regra desta base: afirmação sobre número, regra ou comportamento vem com o
+`arquivo:linha` que a sustenta, ou vem com a dúvida declarada.
