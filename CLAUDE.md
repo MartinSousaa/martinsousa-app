@@ -544,6 +544,114 @@ vezes seguidas: sintaxe válida, nome conhecido, só explode em execução. Numa
 página Streamlit de duas mil linhas, mover um bloco cruza essa fronteira sem
 aviso — e `import x as y` liga nome local igual a uma atribuição.
 
+## Regras do negócio que você ditou, e que só viviam em arquivo solto
+
+Elas estavam em `FLUXO.md`, `META_GASTOS.md` e `OCIOSIDADE.md` — três arquivos
+na raiz que nenhum código lia. Em 06/10 o dono mandou apagar tudo que não fosse
+funcional ao sistema, e a decisão dele não pode ir junto com o arquivo. Vieram
+para cá, que é o único texto que eu leio em toda sessão.
+
+### Quem é dono de cada dado — Studio ou Excel (17/09)
+
+Uma aba tem UM dono: o lugar onde o dado é digitado. O outro lado é consulta.
+
+| Passa para o Studio | Continua no Excel |
+|---|---|
+| Custo fixo (o Excel vira consulta) | SAIDAS PIX-BOLETO 2026 |
+| Salários / folha | CARTÕES |
+| Não operacionais | ADS E CROSS |
+| Cheques (preenchimento e baixa) | SIMPLES - FLEX |
+| Devoluções | AJUSTE DE PLANILHA |
+| | PREÇO DE CUSTO — **o Studio NÃO deve considerar** |
+| | BASE DE VENDAS 2026 (o Studio lê para os indicadores) |
+
+Depende do que ainda não existe: **A RECEBER** precisa de integração com as
+plataformas; sem ela nenhum número fica atualizado.
+
+**Custo fixo: o Studio PROVISIONA, o extrato CONFERE.** O custo do mês existe
+no dia 1º, antes de ser pago; quando o débito aparece, o Studio o liga ao item
+provisionado. Pago diferente do provisionado, ajusta-se o valor **daquele mês**
+— os seguintes ficam como estão.
+
+**A regra que impede a conta dobrada:** linha de extrato ligada a um item de
+custo fixo NÃO entra de novo como gasto. Ela ATUALIZA o item.
+
+### Meta de gastos (17/09)
+
+**A régua é o CAIXA.** O cartão é olhado como gasto consolidado, não compra a
+compra: é dinheiro saindo, e é isso que consome a meta.
+
+**Estorno abate no mês em que cai, INTEIRO**, na finalidade da compra original.
+As parcelas seguem consumindo a cota dos meses seguintes. Exemplo dele: dois
+produtos de R$ 500 em 10×; devolve um, caem R$ 500 de uma vez, e as dez
+parcelas de R$ 100 continuam.
+
+**O indicador pode ficar negativo, e fica.** Estorno maior que o gasto da
+finalidade no mês mostra negativo — travar em zero esconderia dinheiro que
+voltou, e número que esconde é pior que número feio.
+
+**A meta acompanha o faturamento, só pela mercadoria:**
+
+    faturamento excedente = faturamento − ponto de equilíbrio
+    folga                 = excedente × CMV
+    meta do mês           = meta base + folga
+
+Exemplo dele: meta 150k, equilíbrio 240k, faturou 300k, CMV 35% → os 60k a
+mais liberam 21k, e a meta vira 171k.
+
+**Dois tetos, e não um** — nas palavras dele: *"o que não pode é aumentar o
+faturamento e nos gastos aumentar o 'outros'"*. O teto da MERCADORIA é
+flexível e cresce com o faturamento; o teto de TODO O RESTO é rígido e fixo.
+Se o rígido fosse "o que sobrou da mercadoria", comprar menos para vender
+liberaria gasto em "outros" — o contrário do que a meta existe para fazer.
+
+**Falta o CMV**: ou o gestor digita, ou sai da razão medida entre mercadoria e
+faturamento. Sem ele a meta NÃO cresce — liberar gasto por um número que
+ninguém configurou é erro que só aparece no fim do mês.
+
+### Ociosidade — o que o Studio chama assim (17/09)
+
+> Tempo dentro do expediente BATIDO NO RELÓGIO em que nenhum cartão seu estava
+> rodando — menos folgas, hora pessoal e o que foi abonado.
+> (`placar_core.ociosidade_do_dia`)
+
+| O denominador | |
+|---|---|
+| As janelas vêm do RELÓGIO DE PONTO, não do contrato | `batidas.janelas_do_dia` |
+| Quem não bate ponto cai no horário contratual | `batidas.py` |
+| Quem entrou e não saiu conta até agora | `batidas.py` |
+| O almoço real não existe para a conta — nem trabalho, nem ociosidade | `batidas.py:105` |
+| Acima de 7h/dia nada conta | `placar_core.TETO_DIA_MIN` |
+
+**O numerador:** cartão rodando é cartão com etiqueta de trabalho E nenhuma de
+interrupção (`placar_core.py:1276`). EM ANDAMENTO e FILMAGEM contam;
+INTERROMPIDO, INTERROMPIDO MS e FIM DE EXPEDIENTE param o relógio.
+
+**Conta para quem está NO cartão naquele trecho** (`placar_core.py:1637`), não
+para quem entrou depois. Exceção única: na coluna **Análise de Demandas** todo
+mundo que está no cartão agora recebe o trecho inteiro.
+
+---
+
+## Nada de peso morto no repositório
+
+Ordem do dono, 06/10: *"não é para anexar NADA lá que não seja extremamente
+funcional ao sistema"*.
+
+A raiz tinha 16 arquivos `.md`/`.txt` versionados e só DOIS tinham função:
+este e o `ACHADOS_ABERTOS.md`, que `checar_alcance.py:808` abre e usa para
+reprovar a conferência. Os outros eram fotografias de conversas que eu criei
+para resolver um momento e nunca retirei.
+
+Não era só enfeite: foi num deles — `CONTEXTO_PARA_ANALISE.txt` — que ficou um
+marcador de conflito `<<<<<<< HEAD` commitado por semanas. Arquivo que não
+serve a ninguém também não é conferido por ninguém.
+
+**A regra, e ela é travada por `checar_alcance`:** todo `.md`/`.txt` novo na
+raiz ou tem leitor no código, ou está na isenção com motivo escrito. Criar
+documentação é resposta a um pedido; apagar nunca é pedido de ninguém — então
+a trava é mecânica, e não depende de eu lembrar.
+
 ## Fatos do ambiente que já custaram caro
 
 - **O container do Railway roda em UTC.** `datetime.now()` devolve UTC;
