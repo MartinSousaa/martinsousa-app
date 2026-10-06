@@ -259,44 +259,51 @@ def _brl(v):
 
 # ── Tela ─────────────────────────────────────────────────────────────────────
 
-def _itens_cadastrados():
+def _itens_cadastrados(avisos=None):
     """Os itens que existem nas grades, para a lista não ser digitada à mão.
 
     Item digitado à mão erra um acento e o ajuste passa a valer para um item
     que não existe — silenciosamente, porque ninguém confere o que não
     apareceu.
+
+    GRADE VAZIA OU NÃO LIDA SAI ESCRITA em `avisos` (05/10): os colaboradores
+    não apareciam para o reajuste de salário porque a grade deles nunca tinha
+    sido salva, e a tela não dizia nada — cada leitura engolia o próprio erro.
     """
+    avisos = [] if avisos is None else avisos
     fora = []
-    try:
-        import custo_fixo as _cf
-        for grade, cfg in _cf.GRADES.items():
-            d = _cf.carregar(cfg["aba"])
-            for it in d.get("item", []):
-                if str(it).strip():
-                    fora.append(f"{GRADES_ALVO[grade]} › {str(it).strip()}")
-    except Exception:
-        pass
-    try:
-        import folha_salarial as _fs
-        for it in _fs.carregar().get("pessoa", []):
-            if str(it).strip():
-                fora.append(f"{GRADES_ALVO['folha_salarial']} › {str(it).strip()}")
-    except Exception:
-        pass
-    try:
-        import colaboradores as _co
-        for it in _co.carregar().get("funcionario", []):
-            if str(it).strip():
-                fora.append(f"{GRADES_ALVO['colaboradores']} › {str(it).strip()}")
-    except Exception:
-        pass
-    try:
-        import nao_operacional as _no
-        for it in _no.carregar().get("programa", []):
-            if str(it).strip():
-                fora.append(f"{GRADES_ALVO['nao_operacional']} › {str(it).strip()}")
-    except Exception:
-        pass
+
+    def _ler(rotulo, onde, fn, coluna, grades):
+        try:
+            nomes = [str(it).strip() for it in fn().get(coluna, [])
+                     if str(it).strip()]
+        except Exception as e:
+            avisos.append(f"**{rotulo}**: não consegui ler a grade "
+                          f"({type(e).__name__}) — tente de novo.")
+            return
+        if not nomes:
+            avisos.append(f"**{rotulo}**: a grade está vazia — salve-a em "
+                          f"{onde} para os itens aparecerem aqui.")
+        for g in grades:
+            fora.extend(f"{GRADES_ALVO[g]} › {n}" for n in nomes)
+
+    import custo_fixo as _cf
+    for grade, cfg in _cf.GRADES.items():
+        _ler("Custo fixo", "Custos fixos › Operacional",
+             lambda cfg=cfg: _cf.carregar(cfg["aba"]), "item", [grade])
+    import folha_salarial as _fs
+    _ler("Folha salarial (gestores)", "Custos fixos › Folha salarial",
+         _fs.carregar, "pessoa", ["folha_salarial"])
+    import colaboradores as _co
+    # O vale-transporte é POR PESSOA, e a grade dele existe em GRADES_ALVO
+    # desde sempre — mas não era oferecida aqui. O item é o nome do
+    # colaborador, igual ao salário.
+    _ler("Colaboradores", "Custos fixos › Folha salarial (Salvar "
+         "colaboradores)", _co.carregar, "funcionario",
+         ["colaboradores", "vale_transporte"])
+    import nao_operacional as _no
+    _ler("Não operacional", "Custos fixos › Não operacional",
+         _no.carregar, "programa", ["nao_operacional"])
     return sorted(set(fora))
 
 
@@ -314,7 +321,10 @@ def pagina(usuario_logado=None):
         st.info("Nenhum ajuste registrado. Enquanto não houver, cada item vale "
                 "o valor inicial da grade em todos os meses.")
 
-    opcoes = _itens_cadastrados()
+    _avisos_grades = []
+    opcoes = _itens_cadastrados(_avisos_grades)
+    for _a in _avisos_grades:
+        st.warning(_a)
     if not opcoes:
         st.warning("Nenhum item cadastrado ainda nas grades. Preencha o Custo "
                    "fixo, a Folha salarial ou o Não operacional primeiro — o "
@@ -497,4 +507,40 @@ if __name__ == "__main__":
        and d.iloc[0]["grade"] == "folha_salarial"
        and d.iloc[0]["item"] == "Salário Beatriz")
 
+    ok("o real sai no formato brasileiro", _brl(1234.5) == "R$ 1.234,50")
+
+    # ── A LISTA DO AJUSTE (05/10): colaboradores, vale-transporte e avisos ──
+    # A ENTRADA VEM DAS GRADES DE VERDADE: as funções `carregar` são trocadas
+    # por DataFrames na forma que elas devolvem (as colunas de cada módulo).
+    import colaboradores as _co_t
+    import folha_salarial as _fs_t
+    import nao_operacional as _no_t
+    import custo_fixo as _cf_t
+    _g = (_co_t.carregar, _fs_t.carregar, _no_t.carregar, _cf_t.carregar)
+    try:
+        _co_t.carregar = lambda: pd.DataFrame([{"funcionario": "Beatriz"}],
+                                              columns=_co_t.COLUNAS)
+        _fs_t.carregar = lambda: pd.DataFrame(columns=_fs_t.COLUNAS)
+        _no_t.carregar = lambda: pd.DataFrame([{"programa": "PRONAMP 1"}],
+                                              columns=_no_t.COLUNAS)
+        def _cf_quebra(aba):
+            raise RuntimeError("planilha fora")
+        _cf_t.carregar = _cf_quebra
+        _av = []
+        _it = _itens_cadastrados(_av)
+        ok("o colaborador aparece para o reajuste de salário",
+           "Colaboradores › Beatriz" in _it)
+        ok("e para o vale-transporte dele",
+           "Vale-transporte (por pessoa) › Beatriz" in _it)
+        ok("grade vazia sai escrita, com onde salvar",
+           any("Folha salarial" in a and "vazia" in a for a in _av))
+        ok("grade que não foi lida sai escrita, e não some calada",
+           any("Custo fixo" in a and "não consegui ler" in a for a in _av))
+        ok("o rótulo do vale-transporte volta para a grade certa",
+           {v: k for k, v in GRADES_ALVO.items()}[
+               "Vale-transporte (por pessoa)"] == "vale_transporte")
+    finally:
+        _co_t.carregar, _fs_t.carregar, _no_t.carregar, _cf_t.carregar = _g
+
     print("\nfalhas:", falhas)
+    __import__("sys").exit(1 if falhas else 0)

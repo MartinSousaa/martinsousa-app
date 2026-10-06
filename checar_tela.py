@@ -2352,15 +2352,16 @@ def _remocao_a_vista(conta):
 
 
 def _lucro_liquido_custo_fixo(conta):
-    """Lucro líquido = margem de contribuição − custo fixo por venda (05/10).
+    """Lucro líquido = margem de contribuição − LPV; UC = margem ÷ LPV.
 
-    Ditado pelo dono: "o que sobra depois de descontar taxa da plataforma,
-    frete, NF, custo operacional e valor de UC". O "valor de UC" é o custo
-    fixo por venda (`financeiro_historico.py:80`); antes a Home tirava o LPV.
+    As fórmulas da planilha do dono (Controle MS, conferida em 05/10):
+    MARGEM C. (col. Y) já tira o custo OPERACIONAL; LPV (col. AA) é
+    (custo fixo + não operacional) ÷ vendas; UNI. CONT. (col. AB) = Y ÷ AA.
+    E o dono, 25/09: "subtraia o LPV, o que sobrar é lucro líquido".
 
-    A CADEIA, NÃO O MEIO DELA: só as leituras são trocadas. O custo fixo do
-    teste sai de `composicao_do_mes` de verdade — o mesmo numerador do ponto
-    de equilíbrio —, e o lucro sai de `dados_reais` inteiro.
+    A CADEIA, NÃO O MEIO DELA: só as leituras são trocadas, e o lucro sai de
+    `dados_reais` inteiro. O LPV chega pelo `financeiro.lpv_vigente`, que é
+    quem a Home lê.
     """
     import home_gestao as hg
     import base_vendas as _bv
@@ -2370,41 +2371,39 @@ def _lucro_liquido_custo_fixo(conta):
                  hg._partes_fixas, hg._gastos_por_finalidade)
     try:
         _bv.media_recente = lambda *a, **k: (dict(_IND), "")
-        _fin.lpv_vigente = lambda *a, **k: (19.68, "Junho/2026")
+        _fin.lpv_vigente = lambda *a, **k: (19.68, "Setembro/2026 · calculado")
         hg._faturamento_bling = lambda *a, **k: (190_502.0, [])
         hg._partes_fixas = lambda *a, **k: (22_842.0, 2_350.35, 22_000.0,
                                             9_900.0, [])
         hg._gastos_por_finalidade = lambda *a, **k: (dict(_RESUMO), "")
         hg.st = instalar()
-        d, _ = hg.dados_reais(2026, 9, 25)
-        p = d["painel"]
-        cf = hg.composicao_do_mes(2026, 9, 190_502.0)[0]["numerador_hoje"]
+        p = hg.dados_reais(2026, 9, 25)[0]["painel"]
         mc = _IND["margem_contribuicao"] / _IND["vendas"]
-        cf_v = cf / _IND["vendas"]
-        conta("lucro líquido por venda = MC por venda − custo fixo por venda",
-              abs(p["ll_venda"] - (mc - cf_v)) < 0.01,
-              f'{p["ll_venda"]} != {mc - cf_v}')
+        conta("lucro líquido por venda = MC por venda − LPV",
+              abs(p["ll_venda"] - (mc - 19.68)) < 0.01,
+              f'{p["ll_venda"]} != {mc - 19.68}')
         conta("o % é sobre o faturado líquido, do mesmo período",
               p["lucro_liquido_pct"] == round(
-                  (mc - cf_v) * _IND["vendas"] / _IND["faturamento_liquido"]
+                  (mc - 19.68) * _IND["vendas"] / _IND["faturamento_liquido"]
                   * 100, 1), str(p["lucro_liquido_pct"]))
-        conta("o quadro diz quanto de custo fixo saiu de cada venda",
-              p["cf_venda"] is not None and abs(p["cf_venda"] - cf_v) < 0.01,
-              str(p["cf_venda"]))
-        # O LPV NÃO ENTRA MAIS NO LUCRO: ele é custo operacional por venda,
-        # e esse já saiu da MARGEM C. Trocar o LPV não pode mexer no lucro.
-        _fin.lpv_vigente = lambda *a, **k: (90.0, "Junho/2026")
+        conta("a UC é MC por venda ÷ LPV (UNI. CONT. da planilha)",
+              abs(p["uc"] - mc / 19.68) < 0.001, str(p["uc"]))
+        # O LPV MUDA O LUCRO E A UC JUNTOS — é o mesmo número nas duas contas.
+        _fin.lpv_vigente = lambda *a, **k: (30.0, "Setembro/2026 · calculado")
         p2 = hg.dados_reais(2026, 9, 25)[0]["painel"]
-        conta("trocar o LPV não mexe no lucro líquido",
-              p2["lucro_liquido"] == p["lucro_liquido"]
-              and p2["uc"] != p["uc"], f'{p2["lucro_liquido"]}')
+        conta("um LPV maior derruba o lucro líquido e a UC juntos",
+              p2["ll_venda"] < p["ll_venda"] and p2["uc"] < p["uc"], "")
         hg._partes_fixas = lambda *a, **k: (0.0, 0.0, 0.0, 0.0, [])
         p3 = hg.dados_reais(2026, 9, 25)[0]["painel"]
-        _h = hg._html_indicadores(p3)
-        conta("sem custo fixo cadastrado o lucro líquido não vira número",
-              p3["lucro_liquido"] is None and "falta o custo fixo" in _h, "")
+        conta("trocar o custo fixo do equilíbrio não mexe no lucro líquido",
+              p3["ll_venda"] == p2["ll_venda"], "")
+        _fin.lpv_vigente = lambda *a, **k: (None, "nenhum LPV informado ainda")
+        p4 = hg.dados_reais(2026, 9, 25)[0]["painel"]
+        _h = hg._html_indicadores(p4)
+        conta("sem LPV o lucro líquido não vira número",
+              p4["lucro_liquido"] is None and "falta o LPV" in _h, "")
     except Exception as e:
-        conta("lucro líquido com custo fixo", False, f"{type(e).__name__}: {e}")
+        conta("lucro líquido com LPV", False, f"{type(e).__name__}: {e}")
     finally:
         (_bv.media_recente, _fin.lpv_vigente, hg._faturamento_bling,
          hg._partes_fixas, hg._gastos_por_finalidade) = _guardado
