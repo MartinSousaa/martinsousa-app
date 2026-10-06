@@ -88,6 +88,135 @@ def pagina(usuario_logado=None):
     _ver_mes(_fv, _lan, usuario_logado)
 
 
+# ── A ABA FATURAS (06/10) ───────────────────────────────────────────────
+#
+# Pedido do dono: "quero que possa anexar aqui e visualizar as informações
+# dos cartões nessa aba". O anexo usa o MESMO caminho de Conta corrente
+# (`_fatura` + `_perguntar`): duas leituras da fatura discordariam — a
+# questão seria só quando.
+
+def resumo_cartoes(linhas_do_mes):
+    """O cartão de um mês, pronto para a tela. Função pura.
+
+    `linhas_do_mes`: `lancamentos.do_mes` (cartão no mês do vencimento e o
+    extrato pela data). Devolve pago, detalhado, sem_detalhe, por_fatura,
+    por_finalidade e as compras.
+    """
+    import lancamentos as _lan
+    compras = [l for l in (linhas_do_mes or []) if _lan.eh_do_cartao(l)
+               and float(l.get("valor") or 0) < 0]
+    por_fatura, por_fin = {}, {}
+    for l in compras:
+        v = -float(l.get("valor") or 0)
+        fat = str(l.get("conta") or "").replace(_lan.CONTA_CARTAO, "", 1) or "?"
+        t, n = por_fatura.get(fat, (0.0, 0))
+        por_fatura[fat] = (round(t + v, 2), n + 1)
+        fin = (str(l.get("finalidade") or "").strip().upper()
+               or "SEM CLASSIFICAÇÃO")
+        por_fin[fin] = round(por_fin.get(fin, 0.0) + v, 2)
+    pago = _lan.cartao_pago(linhas_do_mes)
+    detalhado = _lan.cartao_detalhado(linhas_do_mes)
+    return {
+        "pago": pago,
+        "compras_total": round(sum(-float(l.get("valor") or 0)
+                                   for l in compras), 2),
+        "detalhado": detalhado,
+        "sem_detalhe": round(max(pago - detalhado, 0.0), 2),
+        "por_fatura": dict(sorted(por_fatura.items(), key=lambda kv: -kv[1][0])),
+        "por_finalidade": dict(sorted(por_fin.items(), key=lambda kv: -kv[1])),
+        "compras": sorted(compras, key=lambda l: str(l.get("data", ""))),
+    }
+
+
+def pagina_faturas(usuario_logado=None):
+    """Anexar faturas de cartão e ver o cartão do mês."""
+    import favorecidos as _fv
+    import fatura_pdf as _fpdf
+    import lancamentos as _lan
+    from datetime import datetime
+    import placar_core as _pc
+
+    st.markdown("#### 🧾 Faturas dos cartões")
+    st.caption(
+        "Anexe a fatura (`.csv` do Inter ou `.pdf`). Confira os valores, "
+        "escolha o mês do vencimento e clique em CONFIRMO — as compras contam "
+        "na meta e no C.O no mês em que a fatura é paga.")
+    arquivos = st.file_uploader(
+        "Fatura do cartão", type=["csv", "pdf"], accept_multiple_files=True,
+        key="fat_up", label_visibility="collapsed")
+    if arquivos:
+        fila_total = []
+        for arq in arquivos:
+            _tipo = _fpdf.identificar(arq.name, arq.getvalue())
+            if _tipo not in ("fatura_pdf", "fatura_inter"):
+                st.warning(_rot.tela(
+                    f"**{arq.name}** não é fatura de cartão — é extrato de "
+                    "conta. Anexe em **Conta corrente**."))
+                continue
+            fila_total += _fatura(arq, _tipo, usuario_logado) or []
+        fila_total = juntar_filas(fila_total)
+        if fila_total:
+            st.warning("Estes nomes não têm histórico. Responda uma vez e "
+                       "eles nunca mais aparecem aqui.")
+            _perguntar(fila_total, _fv, usuario_logado)
+
+    st.markdown("---")
+    st.markdown("##### 💳 O cartão no mês do vencimento")
+    _hoje = datetime.now(_pc.FUSO).date()
+    c1, c2 = st.columns(2)
+    _ano = c1.number_input("Ano", 2020, 2100, _hoje.year, 1, key="fat_ano")
+    _mes = c2.number_input("Mês", 1, 12, _hoje.month, 1, key="fat_mes")
+    try:
+        r = resumo_cartoes(_lan.do_mes(_ano, _mes))
+    except Exception as e:
+        st.error(f"Não consegui ler os lançamentos: {str(e)[:150]}")
+        return
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Pago no extrato", f"R$ {_fmt(r['pago'])}",
+              help="débitos de fatura de cartão na conta corrente neste mês")
+    m2.metric("Compras das faturas lançadas", f"R$ {_fmt(r['compras_total'])}",
+              help="compras das faturas que vencem neste mês, já confirmadas")
+    m3.metric("Pago sem detalhe", f"R$ {_fmt(r['sem_detalhe'])}",
+              help="o que o extrato pagou e nenhuma fatura lançada explica — "
+                   "entra na meta e no C.O como FATURA DO CARTÃO")
+    if r["sem_detalhe"]:
+        st.warning(_rot.tela(
+            f"**R$ {_fmt(r['sem_detalhe'])} pagos sem a fatura lançada.** "
+            "Anexe a fatura deste vencimento para separar o valor por "
+            "finalidade."))
+    if not r["compras"]:
+        st.info("Nenhuma compra de fatura lançada para este vencimento.")
+        return
+    import pandas as pd
+    a, b = st.columns(2)
+    with a:
+        st.caption("Por fatura:")
+        st.dataframe(pd.DataFrame([{"fatura": k, "compras": n, "total": t}
+                                   for k, (t, n) in r["por_fatura"].items()]),
+                     use_container_width=True, hide_index=True,
+                     column_config={"total": st.column_config.NumberColumn(
+                         format="R$ %.2f")})
+    with b:
+        st.caption("Por finalidade:")
+        st.dataframe(pd.DataFrame([{"finalidade": k, "total": v}
+                                   for k, v in r["por_finalidade"].items()]),
+                     use_container_width=True, hide_index=True,
+                     column_config={"total": st.column_config.NumberColumn(
+                         format="R$ %.2f")})
+    with st.expander(f"As {len(r['compras'])} compras", expanded=False):
+        st.dataframe(pd.DataFrame([{
+            "data da compra": l.get("data", ""),
+            "descrição": str(l.get("descricao", ""))[:70],
+            "finalidade": l.get("finalidade", ""),
+            "valor": -float(l.get("valor") or 0),
+            "fatura": str(l.get("conta") or "").replace(_lan.CONTA_CARTAO, "", 1),
+        } for l in r["compras"]]), use_container_width=True, hide_index=True,
+            column_config={"valor": st.column_config.NumberColumn(
+                format="R$ %.2f")})
+    st.caption("Para corrigir a finalidade de uma compra, use o lápis em "
+               "Conta corrente › Lançamentos do mês, ou Finalidades.")
+
+
 def _fatura(arq, tipo_arq, usuario_logado):
     """A fatura do cartão: lê, MOSTRA e deixa a pessoa conferir. Não grava.
 
@@ -860,6 +989,21 @@ if __name__ == "__main__":
     ok("o clique so lanca com o mes do vencimento escolhido",
        "disabled=not _comp" in _src_fat2
        and "competencia_da_fatura(lancs, _venc_txt)" in _src_fat2)
+
+    # ── A ABA FATURAS: o resumo sai da cadeia real (do_mes da aba gravada).
+    _r_f = resumo_cartoes(_out)
+    ok("a aba Faturas resume o cartao do mes pela mesma regra da meta",
+       _r_f["pago"] == 80.94 and _r_f["compras_total"] == 80.94
+       and _r_f["sem_detalhe"] == 0.0
+       and _r_f["por_fatura"] == {"t.csv": (80.94, 2)}
+       and _r_f["por_finalidade"] == {"MERCADORIA": 80.94})
+    ok("sem fatura lancada, o pago aparece sem detalhe",
+       resumo_cartoes([{"data": "2026-10-01", "valor": -50.0, "conta": "inter",
+                        "finalidade": "FATURA DO CARTÃO"}])["sem_detalhe"] == 50.0)
+    _src_pf = _insp.getsource(pagina_faturas)
+    ok("a aba Faturas anexa pelo MESMO caminho de Conta corrente",
+       "_fatura(arq, _tipo, usuario_logado)" in _src_pf
+       and "_perguntar(fila_total" in _src_pf and 'key="fat_up"' in _src_pf)
 
     _sf_t = sem_finalidade([{"valor": -100.0, "finalidade": "", "favorecido": "A"},
                             {"valor": -50.0, "finalidade": "ADS"},

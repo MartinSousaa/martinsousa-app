@@ -167,20 +167,14 @@ def _lpv_mensal(usuario_logado=None):
 
 
 def _faturas(usuario_logado=None):
-    """As faturas — hoje elas moram DENTRO de Conta corrente.
+    """As faturas dos cartões: anexar e ver o cartão do mês.
 
-    Dito em voz alta: o PDF do dono pede «Faturas» como pontinho próprio, e
-    esta tela ainda não existe separada. `extratos_tela.pagina` lê o extrato
-    e as faturas na mesma passada. Separar é trabalho de verdade, não de
-    navegação — e inventar uma tela vazia aqui seria pior do que dizer que
-    ela não existe ainda.
+    Pedido do dono, 06/10: "quero que possa anexar aqui e visualizar as
+    informações dos cartões nessa aba". Era um aviso sem campo nenhum, e
+    quem procurava a fatura em Faturas não achava onde anexar. A tela mora
+    em `extratos_tela.pagina_faturas`, com a mesma leitura de Conta corrente.
     """
-    st.markdown("### 🧾 Faturas")
-    st.info(
-        "As faturas ainda são lidas **dentro de Conta corrente** — é lá que "
-        "o arquivo é enviado e classificado. Esta aba está reservada para "
-        "quando elas ganharem tela própria; nada foi perdido."
-    )
+    _abrir_tela("extratos_tela", usuario_logado, "pagina_faturas")
 
 
 def _com_pontinhos(opcoes, chave, usuario_logado=None):

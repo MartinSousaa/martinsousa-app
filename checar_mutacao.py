@@ -2180,6 +2180,28 @@ MUTACOES = [
         "            or False)\n",
         ["python3", "lancamentos.py"],
     ),
+    # ── 06/10: A ABA FATURAS ERA UM AVISO SEM CAMPO DE ANEXAR ───────────
+    (
+        "a aba Faturas volta a esconder o pago sem fatura lancada",
+        "extratos_tela.py",
+        '        "sem_detalhe": round(max(pago - detalhado, 0.0), 2),\n',
+        '        "sem_detalhe": 0.0,\n',
+        ["python3", "extratos_tela.py"],
+    ),
+    (
+        "a tela de Faturas quebra ao desenhar o mes",
+        "extratos_tela.py",
+        "f\"R$ {_fmt(r['compras_total'])}\",",
+        "f\"R$ {_fmt(r['compras'])}\",",
+        ["python3", "checar_tela.py"],
+    ),
+    (
+        "a aba Faturas do menu volta a ser so um aviso",
+        "gestao.py",
+        '    _abrir_tela("extratos_tela", usuario_logado, "pagina_faturas")\n',
+        '    st.info("As faturas ainda são lidas dentro de Conta corrente.")\n',
+        ["python3", "checar_tela.py"],
+    ),
     (
         "o previsto do cartao volta a ignorar as compras ja lancadas",
         "previsto.py",
