@@ -44,6 +44,8 @@ O QUE ENTRA, E DE ONDE VEM
 - O reembolso do Flex e as vendas: a BASE DE VENDAS 2026 (`base_vendas.py`),
   colunas REEMBOLSO FLEX e VENDAS.
 - A FATURA DO CARTÃO inteira NÃO entra: as compras dela já entram uma a uma.
+  Entra só o que as compras lançadas NÃO explicam — fatura paga e ainda não
+  anexada (decisão do dono, 06/10: "C.O pelo valor pago sim").
 
 O QUE ELE NÃO SABE, E DIZ
 -------------------------
@@ -85,6 +87,16 @@ def calcular(lancamentos_do_mes, somas_vendas):
             por_finalidade[fin] = por_finalidade.get(fin, 0.0) + (-v)
             if _comp.lado(fin) == "desconhecida":
                 desconhecidas[fin] = round(desconhecidas.get(fin, 0.0) + (-v), 2)
+
+    # O CARTÃO PAGO QUE AS FATURAS LANÇADAS NÃO EXPLICAM. Fatura paga e não
+    # anexada não tem compra lançada, e o cartão sumia do C.O. em silêncio.
+    # Anexada, as compras entram pela finalidade de cada uma e o resto zera.
+    # A mesma conta da meta de gastos (`lancamentos.resumo_por_finalidade`).
+    import lancamentos as _lan
+    _resto = round(_lan.cartao_pago(lancamentos_do_mes)
+                   - _lan.cartao_detalhado(lancamentos_do_mes), 2)
+    if _resto > 0:
+        por_finalidade[_lan.FATURA] = por_finalidade.get(_lan.FATURA, 0.0) + _resto
 
     sv = somas_vendas or {}
     # O reembolso entra pelo tamanho: a coluna pode vir com sinal de entrada
@@ -240,15 +252,15 @@ def custo_operacional_do_ano(ano):
     import lancamentos as _lan
     import base_vendas as _bv
     prefixo = f"{int(ano):04d}-"
+    # `mes_de`, e não a data: a compra do cartão pesa no mês em que a fatura
+    # é paga — o mesmo mês que a meta de gastos usa.
     do_ano_todo = _lan.aplicar_cadastro(
-        [l for l in _lan.carregar()
-         if str(l.get("data", "")).startswith(prefixo)])
+        [l for l in _lan.carregar() if _lan.mes_de(l).startswith(prefixo)])
     somas, erro = _bv.somas_por_mes()
     fora = {}
     for m in range(1, 13):
         alvo = f"{int(ano):04d}-{m:02d}"
-        do_mes = [l for l in do_ano_todo
-                  if str(l.get("data", "")).startswith(alvo)]
+        do_mes = [l for l in do_ano_todo if _lan.mes_de(l) == alvo]
         fora[m] = calcular(do_mes, (somas or {}).get((int(ano), m)))
     return fora, erro
 
@@ -290,7 +302,10 @@ if __name__ == "__main__":
 
     # JANEIRO DO DONO: PIX 3.610,87 + cartão 7.614,05 + Flex pago 6.705,14
     # menos reembolso 3.442,77 = C.O 14.487,29 (o print da DIN FINANÇAS).
-    JAN = [L(-3610.87, "OUTROS"), L(-7614.05, "ADS"), L(-6705.14, "FLEX"),
+    # O cartão de 7.614,05 são as compras da fatura ANEXADA (conta do cartão):
+    # elas explicam o pagamento inteiro, e a FATURA DO CARTÃO não soma.
+    _ads_cartao = {**L(-7614.05, "ADS"), "conta": "cartão · jan.pdf"}
+    JAN = [L(-3610.87, "OUTROS"), _ads_cartao, L(-6705.14, "FLEX"),
            L(-50000.00, "MERCADORIA"), L(-900.00, "COMPRA DE MERCADORIA"),
            L(-2500.00, "CUSTO FIXO"), L(-300.00, "SERVIÇO"),
            L(-1200.00, "IMPOSTO"), L(-90000.00, "TRANSFERENCIA ENTRE CONTAS"),
@@ -308,6 +323,10 @@ if __name__ == "__main__":
     ok("mercadoria (as duas grafias), custo fixo, assinatura, imposto, "
        "folha, transferência e fatura inteira ficam fora",
        set(r["por_finalidade"]) == {"OUTROS", "ADS"})
+    _sem_fat = calcular([x for x in JAN if x is not _ads_cartao], _sv_jan)
+    ok("fatura paga e não anexada entra no C.O pelo valor pago",
+       _sem_fat["co"] == 14487.29
+       and _sem_fat["por_finalidade"].get("FATURA DO CARTÃO") == 7614.05)
     ok("entrada (mesmo com finalidade do LPV) não reduz o custo",
        r["saidas"] == 11224.92)
     ok("saída sem finalidade não entra, e sai escrita",
@@ -345,8 +364,11 @@ if __name__ == "__main__":
     def _sem_planilha():
         raise RuntimeError("sem planilha no auto-teste")
 
+    # A parcela de cartão comprada em 2025 e paga na fatura de fevereiro/2026
+    # pesa em fevereiro: o mês do caixa, o mesmo da meta de gastos.
+    _parc = {**L(-3.0, "ADS", "2025-11-17"), "tipo": "fatura 2026-02"}
     _lan.carregar = lambda: JAN + [L(-1.0, "ADS", "2025-12-31"),
-                                   L(-7.0, "ADS", "2026-02-03")]
+                                   L(-7.0, "ADS", "2026-02-03"), _parc]
     _bv.somas_por_mes = lambda: ({(2026, 1): _sv_jan,
                                   (2026, 2): _bv.somar(BASE, COLS, 2026, 2)},
                                  "")
@@ -358,7 +380,8 @@ if __name__ == "__main__":
         ok("pela cadeia, janeiro dá o mesmo C.O", _ano[1]["co"] == 14487.29)
         ok("e o ano anterior não vaza para janeiro",
            _ano[1]["por_finalidade"].get("ADS") == 7614.05)
-        ok("fevereiro sai separado", _ano[2]["saidas"] == 7.0)
+        ok("fevereiro sai separado, com a parcela do cartão paga nele",
+           _ano[2]["saidas"] == 10.0)
         ok("mês sem nada diz por quê", _ano[5]["custo_por_venda"] is None
            and "extrato" in _ano[5]["motivo"])
     finally:

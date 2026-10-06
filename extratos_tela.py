@@ -118,10 +118,12 @@ def _fatura(arq, tipo_arq, usuario_logado):
     with st.spinner(f"Lendo {nome}…"):
         if tipo_arq == "fatura_pdf":
             lancs, texto, erro = _fpdf.ler(arq.getvalue())
+            _venc_txt = _vencimento_no_texto(texto)
         else:
             import fatura_inter as _fi
             lancs, cab, erro = _fi.ler(arq.getvalue())
             texto = ""
+            _venc_txt = (cab or {}).get("vencimento", "")
 
     st.markdown(f"##### 🧾 {nome} — fatura de cartão")
     if erro:
@@ -133,7 +135,8 @@ def _fatura(arq, tipo_arq, usuario_logado):
 
     # CLASSIFICADA COMO O EXTRATO: o cadastro de favorecidos dá a finalidade,
     # e o que não tem cadastro volta como fila — a mesma pergunta, uma vez.
-    _conta_fat = f"cartão · {nome}"
+    import lancamentos as _lan_cc
+    _conta_fat = _lan_cc.CONTA_CARTAO + nome
     classificados, fila = classificar_fatura(lancs)
     fila = _enriquecer(fila, classificados, _conta_fat)
 
@@ -172,30 +175,124 @@ def _fatura(arq, tipo_arq, usuario_logado):
     # botões, e não um que grava a errada. Foi chave repetida que derrubou
     # esta tela em 25/09 (`StreamlitDuplicateElementKey: ext_fin_0`).
     _k_fat = "fat_ok_" + "".join(c for c in nome if c.isalnum())[:40]
+
+    # O MÊS DO CAIXA. A compra do cartão pesa no mês em que a fatura é paga
+    # (regra do dono: "a régua é o CAIXA"), e não na data da compra — a
+    # parcela 7/10 vem com a data de março. O vencimento lido vem marcado;
+    # quem tem a fatura aberta confirma junto com os valores.
+    _comp_lida = competencia_da_fatura(lancs, _venc_txt)
+    _opcoes = _meses_para_fatura(lancs, _comp_lida)
+    _comp = st.selectbox(
+        "Mês em que esta fatura é paga (vencimento) — é nele que as compras "
+        "contam na meta e no LPV",
+        _opcoes, index=(_opcoes.index(_comp_lida) if _comp_lida in _opcoes
+                        else None),
+        format_func=_rotulo_mes, placeholder="escolha o mês do vencimento",
+        key=_k_fat + "_mes")
+    if not _comp_lida:
+        st.warning("Não achei o vencimento nesta fatura: escolha o mês acima.")
     st.caption(
         "Ao clicar você declara que conferiu estes valores contra a fatura. "
         "Nada foi gravado até aqui.")
     if st.button(f"✅ CONFIRMO que confere — lançar {len(lancs)} lançamento(s)",
-                 key=_k_fat, use_container_width=True):
+                 key=_k_fat, use_container_width=True, disabled=not _comp):
         # O IMPORT VEM AQUI, e nao de fora: `_fatura` recebe (arq, tipo_arq,
         # usuario_logado) e NAO o modulo. A primeira versao usava `_lan` como
         # se ele existisse neste escopo — `NameError` no clique, e so no
         # clique. Foi o segundo verificador que pegou, que e para isso que
         # ele existe: nome lido antes de existir nao aparece no import.
         import lancamentos as _lan_fat
-        _novos, _reps, _err = _lan_fat.gravar(classificados, _conta_fat,
-                                              usuario_logado)
+        _novos, _reps, _marc, _err = _lan_fat.gravar_fatura(
+            classificados, _conta_fat, _comp, usuario_logado)
         if _err:
             st.error(f"Não consegui gravar: {_err}")
         else:
             # OS REPETIDOS TÊM NOME. Sem este número, gravar 12 de 40 parece
             # perda de 28 — e o dono refaz o trabalho à toa.
-            _msg = f"✅ {_novos} lançamento(s) gravado(s)."
+            _msg = (f"✅ {_novos} lançamento(s) gravado(s) em "
+                    f"{_rotulo_mes(_comp)}.")
             if _reps:
                 _msg += (f" {_reps} já estavam lá e foram ignorados — é o "
                          f"esperado se você já subiu esta fatura antes.")
+            if _marc:
+                _msg += (f" {_marc} já gravado(s) passaram a contar em "
+                         f"{_rotulo_mes(_comp)}.")
             st.success(_msg)
     return fila
+
+
+_MESES_TXT = ("janeiro", "fevereiro", "março", "abril", "maio", "junho",
+              "julho", "agosto", "setembro", "outubro", "novembro", "dezembro")
+
+
+def _rotulo_mes(aaaa_mm):
+    try:
+        a, m = str(aaaa_mm).split("-")[:2]
+        return f"{_MESES_TXT[int(m) - 1]}/{int(a)}"
+    except (ValueError, IndexError):
+        return str(aaaa_mm or "")
+
+
+def _vencimento_no_texto(texto):
+    """O "Vencimento 10/10/2026" do PDF. "" quando não acha."""
+    import re as _re
+    m = _re.search(r"vencimento\D{0,20}(\d{1,2}/\d{1,2}(?:/\d{2,4})?)",
+                   str(texto or ""), _re.IGNORECASE)
+    return m.group(1) if m else ""
+
+
+def _datas_das_compras(lancs):
+    fora = []
+    for l in (lancs or []):
+        d = str(l.get("data") or "")[:10]
+        if len(d) == 10 and d[4] == "-" and not l.get("pagamento"):
+            fora.append(d)
+    return fora
+
+
+def competencia_da_fatura(lancs, vencimento_txt):
+    """AAAA-MM do vencimento. "" quando não dá para saber. Função pura.
+
+    O Inter escreve "01/10", sem ano: o ano é o da compra mais recente, mais
+    um quando o mês do vencimento vem antes dela (fatura de dezembro que
+    vence em janeiro).
+    """
+    partes = [p for p in str(vencimento_txt or "").strip().split("/") if p]
+    if len(partes) < 2 or not all(p.isdigit() for p in partes):
+        return ""
+    mes = int(partes[1])
+    if not 1 <= mes <= 12:
+        return ""
+    if len(partes) >= 3:
+        ano = int(partes[2])
+        ano = ano + 2000 if ano < 100 else ano
+        return f"{ano:04d}-{mes:02d}"
+    datas = _datas_das_compras(lancs)
+    if not datas:
+        return ""
+    ultima = max(datas)
+    ano, mes_ultima = int(ultima[:4]), int(ultima[5:7])
+    if mes < mes_ultima:
+        ano += 1
+    return f"{ano:04d}-{mes:02d}"
+
+
+def _meses_para_fatura(lancs, lida=""):
+    """Os meses que a pessoa pode escolher: da compra mais recente a dois
+    meses depois dela, e o lido, se vier de fora disso."""
+    datas = _datas_das_compras(lancs)
+    from datetime import date as _d
+    base = max(datas) if datas else _d.today().strftime("%Y-%m-%d")
+    a, m = int(base[:4]), int(base[5:7])
+    fora = []
+    for i in range(-1, 3):
+        mm = m + i
+        aa = a + (mm - 1) // 12
+        mm = (mm - 1) % 12 + 1
+        fora.append(f"{aa:04d}-{mm:02d}")
+    if lida and lida not in fora:
+        fora.append(lida)
+    return sorted(fora)
 
 
 def sem_finalidade(linhas):
@@ -688,10 +785,82 @@ if __name__ == "__main__":
            if l.get("pagamento")))
     _src_fat = _insp.getsource(_fatura)
     ok("a fatura grava o que foi CLASSIFICADO, não as linhas cruas",
-       "_lan_fat.gravar(classificados," in _src_fat
+       "_lan_fat.gravar_fatura(\n            classificados," in _src_fat
        and "classificar_fatura(lancs)" in _src_fat and "return fila" in _src_fat)
     ok("e a fila dela entra na mesma pergunta dos extratos",
        "fila_total += _fatura(" in _insp.getsource(pagina))
+    # ── O CARTÃO CONTA UMA VEZ, NO MÊS DO VENCIMENTO (06/10) ─────────────
+    # A CADEIA INTEIRA, com a entrada vinda do leitor: CSV do Inter -> ler ->
+    # classificar -> mês do vencimento -> gravar -> meta de gastos. A parcela
+    # 7/10 vem com a data da compra (março) e tem de pesar em outubro.
+    ok("vencimento sem ano pega o ano da compra mais recente",
+       competencia_da_fatura([{"data": "2026-09-16"}], "01/10") == "2026-10")
+    ok("fatura de dezembro que vence em janeiro vira o ano",
+       competencia_da_fatura([{"data": "2026-12-20"}], "05/01") == "2027-01")
+    ok("vencimento com ano manda",
+       competencia_da_fatura([], "10/10/2026") == "2026-10")
+    ok("sem vencimento, nao inventa", competencia_da_fatura([{"data": "2026-09-01"}], "") == "")
+    ok("o vencimento do PDF e achado no texto",
+       _vencimento_no_texto("Vencimento 10/10/2026   Total R$ 1,00") == "10/10/2026")
+    _csv_c = ('"Vencimento,""01/10"","""","""","""","""",""""";\n'
+              '",""16/09/2026"",""•••• 1924"",""ZUL 1 cartao 2DKM8I"",""TRANSPORTE"",'
+              '""Compra à vista"",""-R$ 6,95""";MERCADORIA\n'
+              '",""17/03/2026"",""•••• 1924"",""MERCADOLIVRE 4PRODUTOS"",""OUTROS"",'
+              '""Parcela 7/10"",""-R$ 73,99""";MERCADORIA\n'
+              '",""01/09/2026"",""•••• 8095"",""PAGTO DEBITO AUTOMATICO"",""OUTROS"",'
+              '""Compra à vista"",""R$ 900,00""";\n')
+    _lc_c, _cab_c, _ = _fi_t.ler(_csv_c)
+    _cl_c, _ = classificar_fatura(_lc_c, {})
+    _comp_c = competencia_da_fatura(_lc_c, _cab_c.get("vencimento"))
+    import lancamentos as _lan_c
+
+    class _AbaC:
+        def __init__(self):
+            self.linhas = [_lan_c.COLUNAS]
+
+        def get_all_records(self):
+            return [dict(zip(self.linhas[0], l)) for l in self.linhas[1:]]
+
+        def append_rows(self, linhas, **kw):
+            self.linhas += [[str(c) for c in l] for l in linhas]
+
+        def update(self, values, range_name=None, **kw):
+            self.linhas = [[str(c) for c in v] for v in values]
+
+    _aba_c = _AbaC()
+    _g_aba_c = _lan_c._aba
+    _lan_c._aba = lambda: _aba_c
+    try:
+        _lan_c.carregar.clear()
+        _lan_c.gravar([{"data": "2026-10-01", "descricao": "DEB AUT FATURA CARTAO",
+                        "valor": -80.94, "finalidade": "FATURA DO CARTÃO"}],
+                      "inter", "t")
+        _lan_c.carregar.clear()
+        _gc = _lan_c.gravar_fatura(_cl_c, "cartão · t.csv", _comp_c, "t")
+        _lan_c.carregar.clear()
+        _out = _lan_c.do_mes(2026, 10, _lan_c.carregar())
+        import meta_gastos as _mg_c
+        _real_c = _mg_c.realizado_dos_lancamentos(2026, 10, _out)
+        ok("a cadeia grava a fatura no mes do vencimento",
+           _comp_c == "2026-10" and _gc[0] == 3 and len(_out) == 4)
+        # Pagamento 80,94 = 6,95 + 73,99. O mês gastou 80,94, e não 161,88.
+        ok("a meta conta o cartao uma vez, pelas compras",
+           _real_c == 80.94
+           and _lan_c.resumo_por_finalidade(_out).get("MERCADORIA") == 80.94)
+        ok("e a parcela de marco nao cai em marco",
+           _lan_c.do_mes(2026, 3, _lan_c.carregar()) == [])
+    finally:
+        _lan_c._aba = _g_aba_c
+        _lan_c.carregar.clear()
+    _src_fat2 = _insp.getsource(_fatura)
+    import lancamentos as _lan_cc_t
+    ok("a fatura grava na conta que o Studio reconhece como cartao",
+       "_lan_cc.CONTA_CARTAO + nome" in _src_fat2
+       and _lan_cc_t.eh_do_cartao({"conta": _lan_cc_t.CONTA_CARTAO + "x.csv"}))
+    ok("o clique so lanca com o mes do vencimento escolhido",
+       "disabled=not _comp" in _src_fat2
+       and "competencia_da_fatura(lancs, _venc_txt)" in _src_fat2)
+
     _sf_t = sem_finalidade([{"valor": -100.0, "finalidade": "", "favorecido": "A"},
                             {"valor": -50.0, "finalidade": "ADS"},
                             {"valor": 300.0, "finalidade": ""}])

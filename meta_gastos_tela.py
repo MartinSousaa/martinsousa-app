@@ -51,6 +51,18 @@ def _de_onde_vem(ano, hoje):
             st.dataframe(pd.DataFrame([{"finalidade": k, "valor": v}
                                        for k, v in x["consome"].items()]),
                          use_container_width=True, hide_index=True)
+        _cart = x.get("cartao") or {}
+        if _cart.get("pago") or _cart.get("detalhado"):
+            # O cartão conta UMA vez: pelas compras da fatura lançada, cada
+            # uma na finalidade dela, no mês do vencimento; o pagamento só
+            # entra pelo que essas compras ainda não explicam.
+            st.caption(_rot.tela(
+                f"💳 Cartão no mês: extrato pagou **R$ {_fmt(_cart['pago'])}** · "
+                f"compras de fatura lançadas **R$ {_fmt(_cart['detalhado'])}** "
+                f"(cada uma na sua finalidade) · sem detalhe, como FATURA DO "
+                f"CARTÃO, **R$ {_fmt(_cart['sem_detalhe'])}**."
+                + (" Anexe a fatura e confirme para separar esse valor por "
+                   "finalidade." if _cart["sem_detalhe"] else "")))
         if x["fora"]:
             st.caption("Saídas que **não** entram na meta — transferência entre "
                        "contas, aplicação e resgate não são gasto. Se um "
@@ -158,9 +170,10 @@ def pagina(usuario_logado=None):
             import previsto as _pv
             import lancamentos as _lan_t
             _prev, _erros_prev = _pv.do_mes(ano, hoje.month)
-            _res_t = _lan_t.resumo_por_finalidade(
-                _lan_t.do_mes(ano, hoje.month))
-            _linhas_c, _comp = _pv.combinar(_res_t, _prev)
+            _lancs_t = _lan_t.do_mes(ano, hoje.month)
+            _res_t = _lan_t.resumo_por_finalidade(_lancs_t)
+            _linhas_c, _comp = _pv.combinar(_res_t, _prev,
+                                            _lan_t.cartao_detalhado(_lancs_t))
             _a_sair = round(sum(x["falta_sair"] for x in _linhas_c), 2)
         except Exception as _e_prev:
             _erros_prev = [str(_e_prev)[:120]]

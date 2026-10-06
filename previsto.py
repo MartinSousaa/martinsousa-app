@@ -159,16 +159,24 @@ def do_mes(ano, mes):
     return fora, erros
 
 
-def combinar(realizado_por_finalidade, previsto):
+def combinar(realizado_por_finalidade, previsto, cartao_detalhado=0.0):
     """O gasto do mês com o previsto dentro, sem contar nada duas vezes.
 
     Devolve (linhas, total). Cada linha diz de onde veio o número, porque
     "4.500 previstos" e "4.500 que saíram" não valem o mesmo na hora de decidir.
+
+    `cartao_detalhado`: as compras de fatura já lançadas no mês
+    (`lancamentos.cartao_detalhado`). Elas estão contadas na finalidade de
+    cada uma; o previsto do cartão (aba CARTÕES) só acrescenta o que elas
+    ainda não cobrem — senão a mesma compra conta duas vezes.
     """
     real = {str(k).strip().upper(): float(v)
             for k, v in (realizado_por_finalidade or {}).items()}
     prev = {str(k).strip().upper(): float(v)
             for k, v in (previsto or {}).items()}
+    if prev.get("FATURA DO CARTÃO") and cartao_detalhado:
+        prev["FATURA DO CARTÃO"] = max(
+            prev["FATURA DO CARTÃO"] - float(cartao_detalhado), 0.0)
     linhas, total = [], 0.0
     for fin in sorted(set(real) | set(prev)):
         r, p = real.get(fin, 0.0), prev.get(fin, 0.0)
@@ -240,6 +248,17 @@ if __name__ == "__main__":
        combinar({"FATURA DO CARTÃO": 1503.8},
                 {"FATURA DO CARTÃO": 16062.68})[1] == 16062.68)
 
+    # As compras de fatura ja lancadas estao contadas na finalidade de cada
+    # uma; o previsto do cartao so acrescenta o que elas ainda nao cobrem.
+    _ld, _td = combinar({"MERCADORIA": 1000.0}, {"FATURA DO CARTÃO": 1500.0},
+                        cartao_detalhado=1000.0)
+    ok("o previsto do cartao desconta as compras ja lancadas",
+       _td == 1500.0
+       and next(x for x in _ld if x["finalidade"] == "FATURA DO CARTÃO")
+       ["falta_sair"] == 500.0)
+    ok("compras alem do previsto nao deixam o cartao negativo",
+       combinar({"MERCADORIA": 2000.0}, {"FATURA DO CARTÃO": 1500.0},
+                cartao_detalhado=2000.0)[1] == 2000.0)
     ok("sem previsao nenhuma, o total e o extrato",
        combinar(REAL, {})[1] == round(20169.46 + 208.55 + 27.00, 2))
     ok("sem extrato nenhum, o total e a previsao",

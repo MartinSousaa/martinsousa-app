@@ -77,8 +77,8 @@ MUTACOES = [
     (
         'a fatura do cartao volta a gravar as linhas sem classificar',
         "extratos_tela.py",
-        [('        _novos, _reps, _err = _lan_fat.gravar(classificados, _conta_fat,\n',
-          '        _novos, _reps, _err = _lan_fat.gravar(lancs, _conta_fat,\n')],
+        [('            classificados, _conta_fat, _comp, usuario_logado)\n',
+          '            lancs, _conta_fat, _comp, usuario_logado)\n')],
         None,
         ["python3", "extratos_tela.py"],
     ),
@@ -2132,6 +2132,81 @@ MUTACOES = [
         '                    "viavel": False,\n',
         '                    "viavel": True,\n',
         ["python3", "imagem.py"],
+    ),
+    # ── 06/10: O CARTÃO CONTADO DUAS VEZES NA META DE GASTOS ────────────
+    #
+    # A meta somava o pagamento da fatura (extrato) E cada compra da fatura
+    # confirmada. E a compra pesava no mês da COMPRA: a parcela 7/10 de
+    # março caía em março. Regra do dono: "a régua é o CAIXA".
+    (
+        "o pagamento da fatura volta a somar por cima das compras",
+        "lancamentos.py",
+        "        if so_saida and _eh_pagamento_de_fatura(l, fin, valor):\n            continue\n",
+        "        if False:\n            continue\n",
+        ["python3", "lancamentos.py"],
+    ),
+    (
+        "a compra do cartao volta a pesar no mes da compra",
+        "lancamentos.py",
+        "    if t.startswith(TIPO_FATURA) and len(t) >= len(TIPO_FATURA) + 7:\n",
+        "    if False:\n",
+        ["python3", "lancamentos.py"],
+    ),
+    (
+        "a fatura gravada antes da regra volta a duplicar quando anexada",
+        "lancamentos.py",
+        '            if antigo is not None and str(antigo.get("tipo") or "").strip() in ("", tipo):\n',
+        "            if False:\n",
+        ["python3", "lancamentos.py"],
+    ),
+    (
+        "as compras do cartao deixam de ser descontadas do pago",
+        "lancamentos.py",
+        "        if eh_do_cartao(l) and v < 0 and _fv.consome_meta(fin):\n",
+        "        if False:\n",
+        ["python3", "lancamentos.py"],
+    ),
+    (
+        "o C.O volta a perder a fatura paga e nao anexada",
+        "lpv_mensal.py",
+        "    if _resto > 0:\n        por_finalidade[_lan.FATURA]",
+        "    if False:\n        por_finalidade[_lan.FATURA]",
+        ["python3", "lpv_mensal.py"],
+    ),
+    (
+        "a fatura gravada antes do mes do caixa volta a nao abater o pagamento",
+        "lancamentos.py",
+        "            or str(l.get(\"conta\") or \"\").startswith(CONTA_CARTAO))\n",
+        "            or False)\n",
+        ["python3", "lancamentos.py"],
+    ),
+    (
+        "o previsto do cartao volta a ignorar as compras ja lancadas",
+        "previsto.py",
+        '    if prev.get("FATURA DO CARTÃO") and cartao_detalhado:\n',
+        "    if False:\n",
+        ["python3", "previsto.py"],
+    ),
+    (
+        "o quadro da Home volta a combinar sem as compras do cartao",
+        "home_gestao.py",
+        "    combinado, total = _pv.combinar(res, prev, cartao_detalhado)\n",
+        "    combinado, total = _pv.combinar(res, prev)\n",
+        ["python3", "home_gestao.py"],
+    ),
+    (
+        "o C.O volta a pôr a compra do cartao no mes da compra",
+        "lpv_mensal.py",
+        "        do_mes = [l for l in do_ano_todo if _lan.mes_de(l) == alvo]\n",
+        '        do_mes = [l for l in do_ano_todo if str(l.get("data", "")).startswith(alvo)]\n',
+        ["python3", "lpv_mensal.py"],
+    ),
+    (
+        "a fatura volta a lancar sem o mes do vencimento",
+        "extratos_tela.py",
+        "        _novos, _reps, _marc, _err = _lan_fat.gravar_fatura(\n            classificados, _conta_fat, _comp, usuario_logado)\n",
+        "        _novos, _reps, _marc, _err = (*_lan_fat.gravar(\n            classificados, _conta_fat, usuario_logado)[:2], 0, '')\n",
+        ["python3", "extratos_tela.py"],
     ),
     # ── 06/10: AS TRES VOZES SOBRE O CENARIO, E A REFACAO QUE PERDIA A ──
     # ── REFERENCIA. Os dois achados do ChatGPT que seguiam abertos.

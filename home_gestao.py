@@ -606,7 +606,8 @@ def _bloco_gastos(usuario_logado=None, d=None):
 
     res = _lan.resumo_por_finalidade(lancs) if lancs else {}
     prev, _erros_prev = _pv.do_mes(ano, mes)
-    combinado, total_comp = _pv.combinar(res, prev)
+    combinado, total_comp = _pv.combinar(res, prev,
+                                         _lan.cartao_detalhado(lancs))
     a_sair = round(sum(x["falta_sair"] for x in combinado), 2)
 
     if not lancs and not linha["meta"] and not total_comp:
@@ -1026,7 +1027,7 @@ def _painel(ind, realizado, lucro_bruto, mb, mc_venda, ll_venda, vendas,
 MERCADORIA = ("MERCADORIA", "COMPRA DE MERCADORIA")
 
 
-def montar_resumo_gastos(meta, res, prev, cheques_do_mes):
+def montar_resumo_gastos(meta, res, prev, cheques_do_mes, cartao_detalhado=0.0):
     """O quadro da meta de gastos. Função pura.
 
     `res` = `lancamentos.resumo_por_finalidade` do mês; `prev` =
@@ -1043,7 +1044,7 @@ def montar_resumo_gastos(meta, res, prev, cheques_do_mes):
     """
     import cheques as _ch
     import previsto as _pv
-    combinado, total = _pv.combinar(res, prev)
+    combinado, total = _pv.combinar(res, prev, cartao_detalhado)
     falta = {x["finalidade"]: x["falta_sair"] for x in combinado}
     cheq_cart = round(falta.get("CHEQUES", 0.0)
                       + falta.get("FATURA DO CARTÃO", 0.0), 2)
@@ -1078,7 +1079,8 @@ def _resumo_gastos(ano, mes):
     res = _lan.resumo_por_finalidade(lancs) if lancs else {}
     prev, erros = _pv.do_mes(ano, mes)
     q = montar_resumo_gastos(linha.get("meta"), res, prev,
-                             _ch.do_mes(_ch.carregar(), ano, mes))
+                             _ch.do_mes(_ch.carregar(), ano, mes),
+                             _lan.cartao_detalhado(lancs))
     return q, erros
 
 
@@ -2140,6 +2142,16 @@ if __name__ == "__main__":
        _q_t["saldo"] == round(170000.0 - _tot_t, 2))
     ok("sem meta, o saldo não vira número",
        montar_resumo_gastos(0, _res_t, _prev_t, _cheq_t)["saldo"] is None)
+    # O CARTÃO UMA VEZ: compra de fatura já lançada (MERCADORIA 1.000) está
+    # dentro do previsto do cartão (1.500). O comprometido é 1.500, e não 2.500.
+    ok("o quadro da meta desconta do cartão as compras já lançadas",
+       montar_resumo_gastos(170000.0, {"MERCADORIA": 1000.0},
+                            {"FATURA DO CARTÃO": 1500.0}, [],
+                            1000.0)["total"] == 1500.0)
+    import inspect as _insp_c
+    ok("as duas leituras da Home passam as compras do cartão ao combinar",
+       "_lan.cartao_detalhado(lancs)" in _insp_c.getsource(_resumo_gastos)
+       and "_lan.cartao_detalhado(lancs)" in _insp_c.getsource(_bloco_gastos))
     ok("a tela avisa que o cartão não separa mercadoria",
        _q_t["merc_cartao"] and "cartão sem separação" in _html_gastos(_q_t))
 
