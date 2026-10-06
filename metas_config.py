@@ -26,6 +26,10 @@ COLUNAS = [
     # todo mes que nao tenha um valor proprio gravado — inclusive os ja
     # fechados, que nao tinham este campo quando foram configurados.
     "pts_por_penalidade",
+    # A META DE HORAS (dono, 06/10): as horas trabalhadas têm de ser as que a
+    # lei exige — segunda a sexta, sem sábado; abono e atestado contam como
+    # trabalhadas. Minutos por dia útil.
+    "jornada_diaria_min",
     "max_tol_normal",        # máx tolerâncias pontualidade normal (ex: 15)
     "max_tol_maxx",          # máx tolerâncias pontualidade maxx (ex: 7)
     "max_atr_normal",        # máx atrasos pontualidade normal (ex: 10)
@@ -48,6 +52,8 @@ DEFAULTS = {
     "max_pen_normal":      4,
     "max_pen_maxx":        1,
     "pts_por_penalidade":  1000,
+    # 8h por dia útil (CLT art. 58: até 8h diárias), segunda a sexta.
+    "jornada_diaria_min":  480,
     "max_tol_normal":      15,
     "max_tol_maxx":        7,
     "max_atr_normal":      10,

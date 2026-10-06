@@ -1050,7 +1050,10 @@ def _pontualidade_do_periodo(dados, membros):
     """
     _pont = {u: {"tol": 0, "tol_ent": 0, "tol_alm": 0,
                  "atr": 0, "atr_ent": 0, "atr_alm": 0, "dias": 0,
-                 "ocorr": [], "min_atr": 0.0, "banco": 0.0}
+                 "ocorr": [], "min_atr": 0.0, "banco": 0.0,
+                 # A meta de horas (06/10): trabalhado e abonado (atestado
+                 # incluso), somados no período, da RHiD.
+                 "min_trab": 0.0, "min_abono": 0.0}
              for u in membros}
     _ocio = {u: {"disp": 0.0, "cards": 0.0, "ocio": 0.0} for u in membros}
     _tem_ponto = False
@@ -1084,6 +1087,10 @@ def _pontualidade_do_periodo(dados, membros):
                     # acumulado da RHiD, e somar os meses contaria tudo de novo.
                     _pont[u]["min_atr"] += float(p.get("minutos_atraso", 0.0) or 0.0)
                     _pont[u]["banco"] = float(p.get("banco_min", 0.0) or 0.0)
+                    _pont[u]["min_trab"] += float(
+                        p.get("minutos_trabalhados", 0.0) or 0.0)
+                    _pont[u]["min_abono"] += float(
+                        p.get("abono_total_min", 0.0) or 0.0)
                 o = o_mes.get(u)
                 if o:
                     _ocio[u]["disp"]  += o["horas_disp_min"]
@@ -1104,9 +1111,35 @@ def _pontualidade_do_periodo(dados, membros):
         _erro_pont = str(e)[:200]
     return _pont, _ocio, _tem_ponto, _diags_pont, _erro_pont
 
+def horas_devidas_min(dados, cfg=None, hoje=None):
+    """Minutos que a lei exige no período: dias úteis × jornada diária.
+
+    Dono, 06/10: "as horas trabalhadas dos colaboradores devem ser iguais ao
+    que a lei exige", segunda a sexta, sem sábado. Dia útil é o do calendário
+    do Studio (`placar_core.eh_dia_util`: sem fim de semana e sem feriado).
+    Mês corrente conta ATÉ ONTEM: o dia de hoje ainda não acabou, e cobrar 8h
+    de quem está no meio do expediente acusaria todo mundo às 10h da manhã.
+    """
+    hoje = hoje or _pc.agora_br()
+    jornada = float((cfg or {}).get("jornada_diaria_min", 480) or 480)
+    dias = 0
+    for r in dados or []:
+        fm = r.get("filtro_mes")
+        if not fm:
+            continue
+        ano, mes = int(fm[0]), int(fm[1])
+        if (ano, mes) > (hoje.year, hoje.month):
+            continue
+        if (ano, mes) == (hoje.year, hoje.month):
+            dias += _pc.dias_uteis_do_mes(ano, mes, hoje.day - 1)[1]
+        else:
+            dias += _pc.dias_uteis_do_mes(ano, mes)[0]
+    return dias * jornada
+
+
 def _criterios_individuais(username, pts, o, p, _tem_ponto, _advs, _cfg_mes,
                            _medias_exec, ocio_lim, tol_lim, atr_lim, adv_lim,
-                           meta_pts):
+                           meta_pts, devidas_min=None):
     """[(rotulo, ok|None)] — None e "nao da para medir"."""
     fora = [(f"pontuação ({_n_br(pts)} de {_n_br(meta_pts)} pts)",
              meta_pts > 0 and pts >= meta_pts)]
@@ -1128,14 +1161,19 @@ def _criterios_individuais(username, pts, o, p, _tem_ponto, _advs, _cfg_mes,
     else:
         fora.append(("tempo médio", None))
 
-    if _tem_ponto:
-        fora.append((f"tolerâncias ({p['tol']} de {tol_lim})",
-                     p["tol"] <= tol_lim))
-        fora.append((f"atrasos ({p['atr']} de {atr_lim})",
-                     p["atr"] <= atr_lim))
+    # HORAS TRABALHADAS NO LUGAR DE TOLERÂNCIA E ATRASO (dono, 06/10): a
+    # meta é cumprir a jornada da lei. Abono e atestado contam como
+    # trabalhados. Tolerância e atraso continuam na tela, mas NÃO contam até
+    # o dono definir a regra nova — saem como "não dá para medir" (None).
+    if _tem_ponto and devidas_min:
+        _feito = (float(p.get("min_trab", 0.0) or 0.0)
+                  + float(p.get("min_abono", 0.0) or 0.0))
+        fora.append((f"horas trabalhadas ({_fmt_hm(_feito)} de "
+                     f"{_fmt_hm(devidas_min)})", _feito >= devidas_min))
     else:
-        fora.append(("tolerâncias", None))
-        fora.append(("atrasos", None))
+        fora.append(("horas trabalhadas", None))
+    fora.append(("tolerâncias (não computadas até definição)", None))
+    fora.append(("atrasos (não computados até definição)", None))
 
     fora.append((f"advertências ({_advs} de {adv_lim})",
                  _advs <= adv_lim))
@@ -1180,6 +1218,7 @@ def apuracao_bonus(dados, membros, pont=None, ocio=None, tem_ponto=None,
                                  r_atual.get("meta_maxx", 0.0),
                                  int(r_atual.get("pen_qtd", 0) or 0), cfg)
     eleg = _elegibilidade(dados, membros)
+    devidas = horas_devidas_min(dados, cfg)
     fora = {}
     for u in membros:
         pts = sum(r["pts_membro"].get(u, 0) for r in dados)
@@ -1197,11 +1236,12 @@ def apuracao_bonus(dados, membros, pont=None, ocio=None, tem_ponto=None,
         maxx = sit_pen["bateu_maxx"] and el.get("entra_maxx", False)
         crit_n = _criterios_individuais(u, pts, o, p, tem_ponto, advs, cfg,
                                         medias_exec, OCIO_META_NORMAL,
-                                        max_tol, max_atr, max_adv_n, meta_ind)
+                                        max_tol, max_atr, max_adv_n, meta_ind,
+                                        devidas)
         crit_x = _criterios_individuais(u, pts, o, p, tem_ponto, advs, cfg,
                                         medias_exec, OCIO_META_MAXX,
                                         max_tol_mx, max_atr_mx, max_adv_x,
-                                        meta_ind_maxx)
+                                        meta_ind_maxx, devidas)
         ind = meta_ind > 0 and not [r for r, ok in crit_n if ok is False]
         ind_maxx = (meta_ind_maxx > 0
                     and not [r for r, ok in crit_x if ok is False])
@@ -1503,6 +1543,9 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
     # do período, a mesma origem dos limites de pontualidade logo acima.
     _cfg_mes = cfg
     _medias_exec = _media_execucao_por_membro(dados)
+    # A meta de horas (06/10): a mesma conta que decide o bônus.
+    _jornada_dia = float(cfg.get("jornada_diaria_min", 480) or 480)
+    _devidas = horas_devidas_min(dados, cfg)
 
     # Agrega pontos do período completo (sem penalidades — penalidades são coletivas)
     pts_total  = {u: sum(r["pts_membro"].get(u, 0) for r in dados) for u in membros_ativos}
@@ -1771,24 +1814,37 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
                                      _uteis_ent, _dec_ent)),
                 unsafe_allow_html=True)
 
-        def _it_contagem(rotulo, usado, limite, detalhe=""):
-            """Card de tolerância ou atraso contra UM limite — o mensal ou o da MAXX."""
-            if not _tem_ponto:
+        def _it_horas():
+            """Horas trabalhadas contra a jornada da lei (dono, 06/10)."""
+            rotulo = (f"🕘 Horas trabalhadas ({_fmt_hm(_jornada_dia)}/dia útil, "
+                      "seg a sex)")
+            if not (_tem_ponto and _devidas):
                 st.markdown(_meta_ind_item(rotulo, 100, "", aguardando=True),
                             unsafe_allow_html=True)
                 return
-            pct = min(usado / limite * 100, 100) if limite else 0
-            if usado > limite:
-                cor, extra = "#E34948", f"limite estourado em {usado - limite}"
-            elif usado >= limite * 0.7:
-                cor, extra = "#EDA100", f"restam {limite - usado}"
-            else:
-                cor, extra = "#1BAF7A", f"restam {limite - usado}"
-            corpo = f"{usado} de {limite} · {extra}"
-            if detalhe:
-                corpo += f" · {detalhe}"
+            _trab = float(p.get("min_trab", 0.0) or 0.0)
+            _abo = float(p.get("min_abono", 0.0) or 0.0)
+            _feito = _trab + _abo
+            pct = min(_feito / _devidas * 100, 100)
+            cor = "#1BAF7A" if _feito >= _devidas else (
+                "#EDA100" if _feito >= _devidas * 0.95 else "#E34948")
+            falta = _devidas - _feito
+            corpo = (f"{_fmt_hm(_feito)} de {_fmt_hm(_devidas)}"
+                     + (f" · {_fmt_hm(_abo)} de abono/atestado" if _abo else "")
+                     + (" · ✅ cumprida" if falta <= 0
+                        else f" · faltam {_fmt_hm(falta)}"))
             st.markdown(_meta_ind_item(rotulo, pct, corpo, cor=cor),
                         unsafe_allow_html=True)
+
+        def _it_contagem(rotulo, usado, limite, detalhe=""):
+            """Card de tolerância ou atraso contra UM limite — o mensal ou o da MAXX.
+
+            NÃO COMPUTA desde 06/10 (dono): a meta passou a ser de horas
+            trabalhadas, e tolerância e atraso ficam na tela com ZERO
+            utilizado até a regra nova ser definida."""
+            st.markdown(_meta_ind_item(
+                rotulo, 0, f"0 de {limite} · não computado até a definição "
+                "da regra nova", aguardando=True), unsafe_allow_html=True)
 
         _det_atr = f"{p['atr_ent']} na entrada · {p['atr_alm']} na volta do almoço"
         # O atraso sai do banco de horas — quem desconta e a RHiD, o Studio le o
@@ -1811,6 +1867,7 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
         _it_pontuacao("📈 Pontuação", meta_total.get(username, len(dados) * 1500),
                       "#1BAF7A")
         _it_ociosidade(OCIO_META_NORMAL)
+        _it_horas()
         _it_tempo_medio()
         _it_contagem(f"🕐 Tolerâncias de pontualidade ({max_tol}/mês)",
                      p["tol"], max_tol, _det_tol)
@@ -1829,6 +1886,7 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
                     unsafe_allow_html=True)
         _it_pontuacao("⭐ Pontuação", maxx_total.get(username, 0), "#EDA100")
         _it_ociosidade(OCIO_META_MAXX)
+        _it_horas()
         _it_contagem(f"🕐 Tolerâncias de pontualidade ({max_tol_mx}/mês)",
                      p["tol"], max_tol_mx, _det_tol)
         _it_contagem(f"⏰ Atrasos de pontualidade ({max_atr_mx}/mês)",
@@ -5461,8 +5519,10 @@ def _comparativo_linhas(dados):
                            if _ocio is not None and ocio_max else None),
             "execucao": (min(_alvo_ex / _real_ex * 100, 100.0)
                          if (_real_ex and _alvo_ex) else None),
-            "tolerancias": _teto(_tol, lim_tol) if _tol is not None else None,
-            "atrasos": _teto(_atr, lim_atr) if _atr is not None else None,
+            # Não computam desde 06/10 (dono): a meta virou horas trabalhadas.
+            # None fica FORA da média — nem ajuda nem pune até a regra nova.
+            "tolerancias": None,
+            "atrasos": None,
             "advertencias": _teto(_advs, lim_adv),
         }
         _validos = [v for v in at.values() if v is not None]
@@ -7311,6 +7371,42 @@ if __name__ == "__main__":
        apuracao_bonus([_mes({"ana": 1000, "bia": 1000}, 100.0)], _m)
        ["ana"]["pct_time"] == 0.0)
     ok("sem dados, nada", apuracao_bonus([], _m) == {})
+
+    # ── A META DE HORAS (dono, 06/10) ────────────────────────────────────
+    # Setembro/2026 fechado: dias úteis do calendário do Studio × 8h.
+    from datetime import datetime as _dt_h
+    _hoje_h = _dt_h(2026, 10, 6, 10, 0)
+    _dset = [dict(_mes({"ana": 1000, "bia": 1000}, 10000.0),
+                  filtro_mes=(2026, 9))]
+    _dev = horas_devidas_min(_dset, _dset[0]["cfg"], _hoje_h)
+    ok("as horas devidas são dias úteis (seg a sex, sem feriado) × 8h",
+       _dev == _pc.dias_uteis_do_mes(2026, 9)[0] * 480)
+    ok("o mês corrente conta só até ontem",
+       horas_devidas_min([dict(_dset[0], filtro_mes=(2026, 10))],
+                         _dset[0]["cfg"], _hoje_h)
+       == _pc.dias_uteis_do_mes(2026, 10, 5)[1] * 480)
+    _P = lambda trab, abono, tol=0, atr=0: {
+        "tol": tol, "atr": atr, "min_trab": trab, "min_abono": abono,
+        "tol_ent": 0, "tol_alm": 0, "atr_ent": 0, "atr_alm": 0,
+        "ocorr": [], "min_atr": 0.0, "banco": 0.0, "dias": 20}
+    _O = {"ana": {"disp": 0.0, "cards": 0.0}, "bia": {"disp": 0.0, "cards": 0.0}}
+    # `horas_devidas_min` lê o relógio de hoje; o teste passa o mês fechado.
+    _g_dev = horas_devidas_min
+    globals()["horas_devidas_min"] = lambda d, c=None, h=None: _dev
+    try:
+        _bh = apuracao_bonus(_dset, _m,
+                             {"ana": _P(_dev - 60, 60, tol=99, atr=99),
+                              "bia": _P(_dev - 60, 0)}, _O, True, {})
+    finally:
+        globals()["horas_devidas_min"] = _g_dev
+    ok("abono e atestado contam como horas trabalhadas",
+       _bh["ana"]["ind"] is True)
+    ok("faltou hora: a meta individual não bate", _bh["bia"]["ind"] is False)
+    ok("tolerância e atraso continuam na lista, mas não computam",
+       ("tolerâncias (não computadas até definição)", None) in _bh["ana"]["crit_n"]
+       and ("atrasos (não computados até definição)", None) in _bh["ana"]["crit_x"])
+    ok("a jornada é configurável e o padrão é 8h",
+       mc.DEFAULTS.get("jornada_diaria_min") == 480)
     # A TELA LÊ A FUNÇÃO, NÃO UMA CÓPIA DELA
     _src = _insp.getsource(_secao_meta_individual)
     ok("o card do colaborador lê a apuração única",
