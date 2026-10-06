@@ -786,7 +786,9 @@ def _partes_fixas(ano, mes):
                       "o equilíbrio está por baixo.")
     try:
         import assinaturas as _as
-        assin = _as.total_mensal(_as.carregar())
+        import custo_real as _cr
+        # O mês, com o real do extrato onde veio diferente (`custo_real`).
+        assin = _cr.total_assinaturas(_as.carregar(), ano, mes, _cr.carregar())
         if not assin:
             avisos.append("Nenhuma assinatura cadastrada — cadastre em "
                           "**Gestão › Assinaturas** para o equilíbrio ficar "
@@ -1106,7 +1108,7 @@ def _grade_painel(faturamento, indicadores, gastos, devolucoes,
                f'<div style="font-size:22px;font-weight:800;letter-spacing:-.02em;">{titulo}</div>'
                f'<div style="font-size:12px;color:{{SEC}};text-align:right;">{fontes}</div></div>')
     return ('<div class="ms-painel-fundo" style="background:{FUNDO};color:{TEXTO};'
-            "font-family:Manrope,system-ui,sans-serif;border-radius:20px;padding:24px 28px;\">"
+            "font-family:Manrope,system-ui,sans-serif;border-radius:20px;padding:0;\">"
             + cab +
             '<div class="ms-painel" style="display:grid;'
             'grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);'
@@ -1544,13 +1546,9 @@ def pagina(usuario_logado=None, dados=None):
         "<style>@import url('https://fonts.googleapis.com/css2?family=Manrope:"
         "wght@400;500;600;700;800&display=swap');</style>",
         unsafe_allow_html=True)
-    st.markdown("### 🏠 Home")
-    # O QUE A TELA MOSTRA, E NAO POR QUE ELA EXISTE.
-    #
-    # Aqui havia tres linhas explicando a filosofia do painel — "o ponto de
-    # equilibrio vem primeiro, meta e consequencia dele". Isso e apresentacao,
-    # e quem abre a tela ja sabe. A legenda diz o que o grafico mede.
-    st.caption("Faturamento do mês contra o ponto de equilíbrio e a meta.")
+    # SEM TÍTULO "Home" NEM LEGENDA (dono, 06/10): "não precisa estar escrito
+    # Home ali, já estou na home" — e os gráficos sobem o máximo possível.
+    # O painel já abre com o mês e a fonte dos números, que é o que orienta.
 
     # OS NÚMEROS DE VERDADE, sem ninguém pedir.
     #
@@ -2223,6 +2221,12 @@ if __name__ == "__main__":
        and not any("{" + k + "}" in _g_cor for k in _PALETA))
     # 05/10: "o fundo cinza ficará melhor que o azul... volte para o fundo
     # cinza do sistema".
+    # 06/10: "Não precisa estar escrito Home ali ... Quero que os gráficos
+    # subam o máximo possível".
+    ok("a Home não tem título nem legenda acima do painel",
+       '"### 🏠 Home"' not in _pg and "Faturamento do mês contra" not in _pg)
+    ok("o painel não gasta espaço com moldura vazia em cima",
+       "padding:0;" in _grade and "padding:24px 28px" not in _grade)
     ok("a Home não troca mais o fundo da página",
        '[data-testid="stMain"]' not in _pg and "_grade_painel(" in _pg)
     ok("o fundo do painel é o cinza do Studio, não o azul-escuro",

@@ -38,6 +38,29 @@ def pagina(usuario_logado=None):
     hoje = datetime.now(_pc.FUSO).date()
     linhas = _ch.carregar()
 
+    # A BAIXA PELOS EXTRATOS JÁ GRAVADOS, toda vez que a tela abre (06/10).
+    # Antes ela só acontecia no instante do anexo: extrato anterior ao
+    # cadastro do cheque nunca era olhado de novo. Só escreve quando há baixa
+    # a dar — cheque baixado deixa de entrar, e a próxima passada não grava.
+    try:
+        _feitas, _duv_ch, _err_ch = _ch.conferir_com_extratos(
+            usuario_logado, linhas)
+        if _feitas:
+            st.success(f"🧾 **{_feitas} cheque(s) baixado(s)** pelos extratos "
+                       "já lançados no Studio (folha ou valor e data).")
+            linhas = _ch.carregar()
+        for _e in _err_ch:
+            st.warning(_e)
+        if _duv_ch:
+            st.info(f"🧾 {len(_duv_ch)} cheque(s) podem ter sido debitados, "
+                    "mas há mais de um do mesmo valor na mesma semana — "
+                    "confira e dê baixa na tabela: "
+                    + ", ".join(f"folha {b['cheque'].get('folha') or '—'}"
+                                for b in _duv_ch[:10]))
+    except Exception as _e_ch:
+        st.warning(f"Não consegui conferir os cheques com os extratos: "
+                   f"{type(_e_ch).__name__}")
+
     # ── importar ─────────────────────────────────────────────────────────
     # Fora e ACIMA de qualquer editor: botão embaixo de grade é o clique que
     # se perde quando a célula ainda está aberta.

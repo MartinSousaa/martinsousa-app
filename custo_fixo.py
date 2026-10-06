@@ -42,7 +42,14 @@ import rotulos as _rot
 
 # A ordem aqui é a ordem das colunas na planilha e na tela.
 COLUNAS = ["item", "valor_mensal", "vigente_desde", "dia_debito",
-           "forma_pagamento", "atualizado_em", "atualizado_por"]
+           "forma_pagamento", "favorecido", "atualizado_em", "atualizado_por"]
+
+# "Como aparece no extrato" (06/10): é por ele que `custo_real` acha o item no
+# extrato e grava o valor real do mês. Os que o dono já disse quem são
+# (17/09 e 22/09); o resto ele preenche uma vez. Vários nomes: separe com `;`.
+FAVORECIDO_SUGERIDO = {"Estacionamento": "ROBSON; VANDA",
+                       "Mensalidade Anvisa": "RICCI",
+                       "Sala Bolhas": "VALDILENE"}
 
 # A coluna `modalidade` saiu. Ela separava Operacional de Não operacional numa
 # lista só, e isso agora é a sub-aba: cada um tem tela e planilha próprias. Duas
@@ -227,6 +234,7 @@ def _normalizar(df, usuario=""):
             "vigente_desde": _aj().texto_mes(_aj().mes_de(r.get("vigente_desde"))),
             "dia_debito": min(max(dia, 0), 31),
             "forma_pagamento": forma if forma in FORMAS else "",
+            "favorecido": str(r.get("favorecido", "") or "").strip()[:120],
             "atualizado_em": agora,
             "atualizado_por": str(usuario or "")[:60],
         })
@@ -260,6 +268,7 @@ def pagina(usuario_logado=None, grade="custo_fixo"):
         df = pd.DataFrame(
             [{"item": nome, "valor_mensal": valor, "vigente_desde": "",
               "dia_debito": dia, "forma_pagamento": forma,
+              "favorecido": FAVORECIDO_SUGERIDO.get(nome, ""),
               "atualizado_em": "", "atualizado_por": ""}
              for nome, valor, dia, forma in cfg["sugestoes"]],
             columns=COLUNAS)
@@ -275,7 +284,7 @@ def pagina(usuario_logado=None, grade="custo_fixo"):
     with st.form(f"form_{aba_nome}"):
         editado = st.data_editor(
             df[["item", "valor_mensal", "vigente_desde", "dia_debito",
-                "forma_pagamento"]],
+                "forma_pagamento", "favorecido"]],
             num_rows="dynamic",
             use_container_width=True,
             hide_index=True,
@@ -304,6 +313,11 @@ def pagina(usuario_logado=None, grade="custo_fixo"):
                     "Forma de pagamento", options=FORMAS, width="medium",
                     help="Célula em cinza claro é campo ainda não preenchido, "
                          "não um valor gravado."),
+                "favorecido": st.column_config.TextColumn(
+                    "Como aparece no extrato", width="medium",
+                    help="O nome que vem no extrato ou na fatura (ex.: ENEL, "
+                         "ROBSON). Vários: separe com ;. É por ele que o "
+                         "Studio confere o valor real de cada mês."),
             },
         )
 
@@ -323,6 +337,12 @@ def pagina(usuario_logado=None, grade="custo_fixo"):
     _quando = [str(x) for x in df.get("atualizado_em", []) if str(x).strip()]
     if _quando:
         st.caption(f"Última gravação: {max(_quando)}")
+
+    # O VALOR REAL DO MÊS, PELO EXTRATO (dono, 25/09; não existia até 06/10).
+    if grade == "custo_fixo" and not carregar(aba_nome).empty:
+        import custo_real as _cr
+        _cr.mostrar(st, "custo_fixo", carregar(aba_nome).to_dict("records"),
+                    datetime.now(FUSO).date())
 
 
 def _custo_do_mes(editado, grade):

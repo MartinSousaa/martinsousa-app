@@ -529,47 +529,124 @@ def _saidas_do_extrato(lancamentos):
 def baixas_pelo_extrato(linhas, lancamentos, tolerancia=TOLERANCIA_BAIXA_DIAS):
     """Que cheques o extrato mostra como debitados. (certas, duvidosas).
 
-    DUAS LISTAS, E NÃO UMA — é a parte que importa.
+    `certas` dão baixa sozinhas; `duvidosas` vão para conferência.
 
-    `certas` são os casamentos EXATOS: mesma data e mesmo valor. Aí não há o
-    que interpretar, e a baixa pode ser dada sozinha.
+    A FOLHA PRIMEIRO (06/10). O Itaú escreve o número do cheque na descrição
+    ("CH COMPENSADO 001 000504" é a folha 504) — é o casamento mais seguro
+    que existe, e era ignorado: só valia mesma data do vencimento e mesmo
+    valor. Cheque compensado um dia depois do vencimento, que é o normal, ia
+    para "confira" e nunca dava baixa (o dono viu em 06/10).
 
-    `duvidosas` são os que bateram no valor mas com a data a alguns dias. Elas
-    NÃO são aplicadas: dois cheques de R$ 1.500 na mesma semana casariam com a
-    saída errada, e dar baixa no cheque errado tira do comprometido do mês um
-    valor que ainda vai sair — um erro que se disfarça de conferência feita, e
-    que ninguém descobre olhando o total.
+    Ordem, do mais seguro ao menos:
+      1. folha na descrição + mesmo valor                      → certa
+      2. mesmo valor e mesma data do vencimento                → certa
+      3. mesmo valor, até `tolerancia` dias, e ÚNICO dos dois lados (um só
+         cheque aberto com aquele valor na janela, uma só saída) → certa
+      4. o resto que bate no valor dentro da janela             → duvidosa
+    O 3 é o que impede o erro que esta função existe para evitar: dois
+    cheques de R$ 1.500 na mesma semana não casam sozinhos.
 
-    Só entram cheques ainda em aberto: o que já foi baixado não se baixa de
-    novo, e reimportar o mesmo extrato não pode mexer em nada.
+    Só entram cheques ainda em aberto, e cada saída casa uma vez: reimportar
+    o mesmo extrato, ou conferir de novo, não mexe em nada.
     """
     import comprovantes as _cp
+    from datetime import date as _date
 
     abertos = [l for l in (linhas or []) if esta_aberto(l)]
     if not abertos:
         return [], []
+    saidas = _saidas_do_extrato(lancamentos)
 
-    # O cheque no formato do comprovante: o que o casamento pede é valor e
-    # data de pagamento, e a data de pagamento de um cheque é o vencimento.
-    como_comprovante = []
+    def _dia(v):
+        t = texto_data(v)
+        try:
+            return _date.fromisoformat(t[:10]) if t else None
+        except ValueError:
+            return None
+
+    def _num_cheque(l):
+        import extrato_itau as _ei
+        return str(l.get("cheque") or "") or _ei.numero_do_cheque(
+            l.get("descricao"))
+
+    certas, duvidosas, usados, baixados = [], [], set(), set()
+
+    def _marca(c, lan, lista, dias):
+        usados.add(id(lan))
+        baixados.add(id(c))
+        lista.append({"cheque": c, "lancamento": lan, "dias": dias})
+
+    # 1. pela folha
     for c in abertos:
-        como_comprovante.append({
-            "_cheque": c,
-            "valor": _num(c.get("valor")),
-            "data_pagamento": texto_data(c.get("vencimento")),
-        })
+        folha = texto_folha(c.get("folha"))
+        if not folha:
+            continue
+        for lan in saidas:
+            if id(lan) in usados or _num_cheque(lan) != folha:
+                continue
+            if abs(abs(_num(lan.get("valor"))) - _num(c.get("valor"))) <= 0.01:
+                _dv, _dl = _dia(c.get("vencimento")), _dia(lan.get("data"))
+                _marca(c, lan, certas,
+                       abs((_dl - _dv).days) if (_dv and _dl) else 0)
+                break
 
-    pares, _ = _cp.casar(como_comprovante, _saidas_do_extrato(lancamentos),
-                         tolerancia_dias=tolerancia)
-    certas, duvidosas = [], []
-    for par in pares:
-        registro = {
-            "cheque": par["comprovante"]["_cheque"],
-            "lancamento": par["lancamento"],
-            "dias": par.get("dias", 0),
-        }
-        (certas if par.get("exato") else duvidosas).append(registro)
+    # 2 a 4. por valor e data
+    restantes = [c for c in abertos if id(c) not in baixados]
+    livres = [l for l in saidas if id(l) not in usados]
+
+    def _candidatos(c):
+        dv = _dia(c.get("vencimento"))
+        fora = []
+        for lan in livres:
+            if id(lan) in usados or dv is None:
+                continue
+            dl = _dia(lan.get("data"))
+            if dl is None:
+                continue
+            if abs(abs(_num(lan.get("valor"))) - _num(c.get("valor"))) > 0.01:
+                continue
+            d = abs((dl - dv).days)
+            if d <= tolerancia:
+                fora.append((d, lan))
+        return sorted(fora, key=lambda x: x[0])
+
+    for c in restantes:
+        cand = _candidatos(c)
+        if not cand:
+            continue
+        exato = [lan for d, lan in cand if d == 0]
+        if exato:
+            _marca(c, exato[0], certas, 0)
+            continue
+        # único dos dois lados?
+        mesmos = [o for o in restantes if o is not c and id(o) not in baixados
+                  and abs(_num(o.get("valor")) - _num(c.get("valor"))) <= 0.01
+                  and _candidatos(o)]
+        if len(cand) == 1 and not mesmos:
+            _marca(c, cand[0][1], certas, cand[0][0])
+        else:
+            _marca(c, cand[0][1], duvidosas, cand[0][0])
     return certas, duvidosas
+
+
+def conferir_com_extratos(usuario="", linhas=None, lancamentos=None):
+    """Confere os cheques em aberto contra TODOS os extratos já gravados.
+
+    (feitas, duvidosas, erros). Até 06/10 a conferência só rodava no instante
+    em que um extrato era anexado: extrato anexado antes do cheque ser
+    cadastrado, ou antes desta conta existir, nunca era olhado de novo — e o
+    cheque ficava em aberto para sempre, inflando o comprometido do mês.
+
+    Idempotente: só cheque EM ABERTO entra, e o baixado deixa de entrar.
+    """
+    if linhas is None:
+        linhas = carregar()
+    if lancamentos is None:
+        import lancamentos as _lan
+        lancamentos = _lan.carregar()
+    certas, duvidosas = baixas_pelo_extrato(linhas, lancamentos)
+    feitas, erros = aplicar_baixas(certas, usuario) if certas else (0, [])
+    return feitas, duvidosas, erros
 
 
 def aplicar_baixas(certas, usuario=""):
@@ -1145,10 +1222,30 @@ if __name__ == "__main__":
     ]
     _certas, _duv = baixas_pelo_extrato(_CHS, _EXT)
     ok("o casamento exato entra como certo",
-       [b["cheque"]["id"] for b in _certas] == ["c1"])
-    ok("e o de data proxima fica em duvida, sem ser aplicado",
-       [b["cheque"]["id"] for b in _duv] == ["c4"])
-    ok("com quantos dias de diferenca", _duv and _duv[0]["dias"] == 2)
+       "c1" in [b["cheque"]["id"] for b in _certas])
+    # 06/10: cheque compensado 2 dias depois do vencimento, ÚNICO com aquele
+    # valor na janela, dá baixa sozinho — antes ficava em "confira" e o
+    # cheque nunca saía do comprometido (o dono viu em 06/10).
+    ok("data próxima e único dos dois lados: baixa sozinho",
+       "c4" in [b["cheque"]["id"] for b in _certas] and not _duv)
+    ok("com quantos dias de diferenca",
+       [b["dias"] for b in _certas if b["cheque"]["id"] == "c4"] == [2])
+    # Dois cheques de R$ 1.500 perto de UMA saída de R$ 1.500 a 1 dia: não
+    # dá para saber qual — vai para conferência.
+    _amb, _amb_d = baixas_pelo_extrato(
+        [_CHS[0], _CHS[1]], [{"id": "x", "valor": -1500.0, "data": "2026-09-11"}])
+    ok("dois cheques do mesmo valor na janela não casam sozinhos",
+       not _amb and len(_amb_d) == 1)
+    # A FOLHA NA DESCRIÇÃO resolve o caso acima com certeza: o Itaú escreve
+    # o número do cheque — e a entrada vem do leitor de verdade.
+    import extrato_itau as _ei_t
+    _f, _fd = baixas_pelo_extrato(
+        [_CHS[0], _CHS[1]],
+        [{"id": "y", "valor": -1500.0, "data": "2026-09-13",
+          "descricao": "CH COMPENSADO 001 000701"}])
+    ok("a folha na descrição do Itaú dá baixa no cheque certo",
+       [b["cheque"]["id"] for b in _f] == ["c2"] and not _fd
+       and _ei_t.numero_do_cheque("CH COMPENSADO 001 000701") == "701")
 
     # O cheque ja baixado nao volta a ser tocado, por mais que a saida esteja
     # la — reimportar o mesmo extrato nao pode mexer em nada.
@@ -1177,4 +1274,27 @@ if __name__ == "__main__":
        baixas_pelo_extrato([{"id": "z", "valor": 1.0, "vencimento": "2026-09-10",
                              "situacao": "PAGO"}], _EXT) == ([], []))
 
+    # A conferência contra os extratos JÁ GRAVADOS (06/10): sem esperar um
+    # anexo novo. A gravação é trocada; a conta é a de verdade.
+    _gravadas = []
+    _g_at = atualizar
+    try:
+        globals()["atualizar"] = (lambda i, campos, u="": (_gravadas.append(
+            (i, campos["situacao"])) or (True, "ok")))
+        _f, _dv, _er = conferir_com_extratos(
+            "teste", [dict(c) for c in _CHS],
+            _EXT + [{"id": "z", "valor": -1500.0, "data": "2026-09-14",
+                     "descricao": "CH COMPENSADO 001 000701"}])
+        ok("os extratos já gravados dão baixa sem anexo novo",
+           sorted(i for i, _ in _gravadas) == ["c1", "c2", "c4"] and _f == 3)
+        ok("e a baixa grava DEBITADO", {s for _, s in _gravadas} == {"DEBITADO"})
+    finally:
+        globals()["atualizar"] = _g_at
+
+    import inspect as _insp_ch
+    import cheques_tela as _ct_t
+    ok("a tela de Cheques confere com os extratos já gravados ao abrir",
+       "_ch.conferir_com_extratos(" in _insp_ch.getsource(_ct_t.pagina))
+
     print("\nfalhas:", falhas)
+    __import__("sys").exit(1 if falhas else 0)
