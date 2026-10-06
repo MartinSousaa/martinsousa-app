@@ -154,15 +154,18 @@ def _hoje_br():
 def lpv_calculado_recente(hoje=None):
     """(lpv, ano, mes) do último mês FECHADO que o Studio calculou. Ou None.
 
-    O mês corrente fica de fora: o C.O dele ainda está crescendo. Procura no
-    ano corrente e no anterior (janeiro olha dezembro). Falha de leitura vira
-    None — quem chama cai no digitado, e a Viabilidade não fica sem LPV.
+    LPV = (custo fixo + folha da gerência + assinaturas + não operacional)
+    ÷ vendas do mês (`lpv_mensal.lpv`, DIN FINANÇAS!Y53 da planilha do dono).
+    O mês corrente fica de fora: as vendas dele ainda não estão na BASE DE
+    VENDAS. Procura no ano corrente e no anterior (janeiro olha dezembro).
+    Falha de leitura vira None — quem chama cai no digitado, e a Viabilidade
+    não fica sem LPV.
     """
     hoje = hoje or _hoje_br()
     try:
         import lpv_mensal as _lm
         for ano in (hoje.year, hoje.year - 1):
-            meses, _erro = _lm.do_ano(ano)
+            meses, _erro = _lm.lpv_do_ano(ano)
             for m in range(12, 0, -1):
                 r = (meses or {}).get(m) or {}
                 if r.get("lpv") is not None and _lm.mes_fechado(ano, m, hoje):
@@ -173,7 +176,7 @@ def lpv_calculado_recente(hoje=None):
 
 
 def lpv_valido(v):
-    """LPV só vale positivo. Zero ou negativo é extrato faltando, não custo."""
+    """LPV só vale positivo. Zero ou negativo é dado faltando, não custo."""
     try:
         return float(v) > 0
     except (TypeError, ValueError):
@@ -295,9 +298,8 @@ def _lpv_gravado(df, ano, mes):
 def _lpv_a_gravar(meses, ano, hoje):
     """{mes: lpv} que o botão grava: só mês FECHADO e com LPV calculado.
 
-    O mês corrente fica de fora — o C.O dele ainda está crescendo, e gravar o
-    parcial faria a Viabilidade decidir com um custo por venda que muda todo
-    dia. Mês sem cálculo (sem extrato, sem venda) também: o botão não apaga o
+    O mês corrente fica de fora — as vendas dele ainda não fecharam, e gravar
+    o parcial faria a Viabilidade decidir com um LPV que muda todo dia. Mês sem cálculo (sem extrato, sem venda) também: o botão não apaga o
     que alguém digitou à mão.
     """
     import lpv_mensal as _lm
@@ -319,13 +321,13 @@ def _secao_lpv_calculado(ano, regime, aliquota, bloqueado, df,
 
     st.subheader("LPV calculado pelo Studio")
     st.caption(_rot.tela(
-        "C.O do mês = saídas por PIX, cartão, boleto e tarifa que não são "
-        "mercadoria, custo fixo, folha, assinatura, imposto, transferência "
-        "entre contas, empréstimo, fatura do cartão (as compras dela entram "
-        "uma a uma) ou cheque + "
-        "(Flex pago − reembolso do Flex). LPV = C.O ÷ vendas do mês."))
+        "LPV = (Custo fixo + Folha da gerência + Assinaturas + Não "
+        "operacional) do mês ÷ vendas do mês — a mesma conta da sua planilha "
+        "(DIN FINANÇAS, \"LPV (FIXO E N OPER.)\"). Os colaboradores CLT ficam "
+        "fora: saem da Reserva."))
     try:
-        meses, erro = _lm.do_ano(ano)
+        meses, erro = _lm.lpv_do_ano(ano)
+        meses_co, _erro_co = _lm.custo_operacional_do_ano(ano)
     except Exception as e:
         st.error(f"Não consegui calcular o LPV: {str(e)[:200]}")
         return {}
@@ -340,20 +342,15 @@ def _secao_lpv_calculado(ano, regime, aliquota, bloqueado, df,
         fechado = _lm.mes_fechado(ano, m, hoje)
         gravado = _lpv_gravado(df, ano, m)
         obs = r.get("motivo") or ("" if fechado else "mês em andamento")
-        if r.get("desconhecidas"):
-            obs = (obs + " · " if obs else "") + "entrou sem lista: " + ", ".join(
-                f"{k} R$ {formatar_br(v)}" for k, v in r["desconhecidas"].items())
-        if r.get("sem_finalidade"):
-            obs = (obs + " · " if obs else "") + (
-                f"R$ {formatar_br(r['sem_finalidade'])} sem finalidade, fora da conta")
+        _p = r.get("partes") or {}
         linhas.append({
             "Mês": MESES[m - 1],
             "LPV calculado": (f"R$ {formatar_br(r['lpv'])}"
                               if r.get("lpv") is not None else "—"),
             "LPV gravado": (f"R$ {formatar_br(gravado)}"
                             if gravado is not None else "—"),
-            "C.O": (f"R$ {formatar_br(r['co'])}" if r.get("lpv") is not None
-                    else "—"),
+            "Custo fixo + N.O.": (f"R$ {formatar_br(r['custo_fixo_total'])}"
+                                  if r.get("lpv") is not None else "—"),
             "Vendas": int(r.get("vendas") or 0),
             "Observação": obs,
         })
@@ -365,14 +362,48 @@ def _secao_lpv_calculado(ano, regime, aliquota, bloqueado, df,
             r = meses.get(m) or {}
             if r.get("lpv") is None:
                 continue
-            partes = " · ".join(f"{k} R$ {formatar_br(v)}"
-                                for k, v in r["por_finalidade"].items())
+            partes = " + ".join(f"{k} R$ {formatar_br(v)}"
+                                for k, v in r["partes"].items())
             st.markdown(_rot.tela(
-                f"**{MESES[m - 1]}** — saídas R$ {formatar_br(r['saidas'])} "
-                f"({partes or 'nenhuma'}) + Flex pago R$ "
-                f"{formatar_br(r['flex_pago'])} − reembolso R$ "
-                f"{formatar_br(r['reembolso_flex'])} = C.O R$ "
-                f"{formatar_br(r['co'])} ÷ {int(r['vendas'])} vendas"))
+                f"**{MESES[m - 1]}** — {partes} = R$ "
+                f"{formatar_br(r['custo_fixo_total'])} ÷ {int(r['vendas'])} "
+                f"vendas = **LPV R$ {formatar_br(r['lpv'])}**"))
+
+    # O CUSTO OPERACIONAL É OUTRA CONTA (BASE DE VENDAS!AO "CUSTO POR VENDA").
+    # Ele já sai dentro da margem de contribuição (coluna CUSTO OP.); fica
+    # aqui para conferência, com o nome dele — até 05/10 ele se chamava LPV.
+    with st.expander("Custo operacional e custo por venda (já dentro da "
+                     "margem de contribuição)"):
+        st.caption(_rot.tela(
+            "C.O do mês = saídas por PIX, cartão, boleto e tarifa que não são "
+            "mercadoria, custo fixo, folha, assinatura, imposto, transferência, "
+            "empréstimo, fatura do cartão (as compras entram uma a uma) ou "
+            "cheque + (Flex pago − reembolso do Flex). Custo por venda = C.O "
+            "÷ vendas do mês."))
+        _lin_co = []
+        for m in range(1, 13):
+            r = (meses_co or {}).get(m) or {}
+            obs = r.get("motivo") or ""
+            if r.get("desconhecidas"):
+                obs = (obs + " · " if obs else "") + "entrou sem lista: " + ", ".join(
+                    f"{k} R$ {formatar_br(v)}" for k, v in r["desconhecidas"].items())
+            if r.get("sem_finalidade"):
+                obs = (obs + " · " if obs else "") + (
+                    f"R$ {formatar_br(r['sem_finalidade'])} sem finalidade, "
+                    "fora da conta")
+            _cpv = r.get("custo_por_venda")
+            _lin_co.append({
+                "Mês": MESES[m - 1],
+                "Saídas": f"R$ {formatar_br(r.get('saidas') or 0)}",
+                "Flex pago": f"R$ {formatar_br(r.get('flex_pago') or 0)}",
+                "Reembolso Flex": f"R$ {formatar_br(r.get('reembolso_flex') or 0)}",
+                "C.O": f"R$ {formatar_br(r.get('co') or 0)}",
+                "Custo por venda": (f"R$ {formatar_br(_cpv)}"
+                                    if _cpv is not None else "—"),
+                "Observação": obs,
+            })
+        st.dataframe(pd.DataFrame(_lin_co), hide_index=True,
+                     use_container_width=True)
 
     if st.button(f"Gravar o LPV calculado nos meses fechados de {ano} "
                  f"({len(gravaveis)})", type="primary",
@@ -470,9 +501,10 @@ def pagina_financeiro(usuario_logado=None):
             # usa esse valor (`_lpv_digitado` só aceita > 0), mas o campo o
             # mostrava como se valesse — e "Salvar" o regravava.
             st.error(_rot.tela(
-                f"{nome_mes}: LPV de R$ {formatar_br(lpv)} não vale — custo "
-                "por venda zero ou negativo quer dizer extrato faltando no "
-                "mês. Nenhuma conta usa este número, e ao salvar o mês fica "
+                f"{nome_mes}: LPV de R$ {formatar_br(lpv)} não vale — LPV "
+                "zero ou negativo não existe (este foi gravado quando o "
+                "Studio chamava de LPV o custo operacional, com extrato "
+                "incompleto). Nenhuma conta usa este número, e ao salvar o mês fica "
                 "em branco."))
             lpv = None
         elif lpv is not None:
@@ -520,14 +552,11 @@ if __name__ == "__main__":
 
     import lpv_mensal as _lm_t
     from datetime import date as _d_t
-    # O `meses` vem de `lpv_mensal.calcular`, como na tela — não à mão.
-    _meses = {m: _lm_t.calcular([], None) for m in range(1, 13)}
-    _meses[8] = _lm_t.calcular(
-        [{"data": "2026-08-05", "valor": -100.0, "finalidade": "ADS"}],
-        {"vendas": 10})
-    _meses[10] = _lm_t.calcular(
-        [{"data": "2026-10-01", "valor": -100.0, "finalidade": "ADS"}],
-        {"vendas": 10})
+    # O `meses` vem de `lpv_mensal.lpv`, como `lpv_do_ano` monta — não à mão.
+    _vazio = _lm_t.lpv(0.0, 0.0, 0.0, 0.0, 0)
+    _meses = {m: _vazio for m in range(1, 13)}
+    _meses[8] = _lm_t.lpv(500.0, 300.0, 100.0, 100.0, 100)
+    _meses[10] = _lm_t.lpv(500.0, 300.0, 100.0, 100.0, 100)
     _g = _lpv_a_gravar(_meses, 2026, _d_t(2026, 10, 2))
     ok("grava o mês fechado com LPV calculado", _g == {8: 10.0})
     ok("NÃO grava o mês em andamento", 10 not in _g)
@@ -554,17 +583,13 @@ if __name__ == "__main__":
 
     # O LPV EM USO É O ÚLTIMO CALCULADO PELO STUDIO (dono, 05/10). O digitado
     # fica de reserva para quando não há cálculo. `meses` vem de
-    # `lpv_mensal.calcular`, como `do_ano` monta — não à mão.
+    # `lpv_mensal.lpv`, como `lpv_do_ano` monta — não à mão.
     _df_dig = _pd_t.DataFrame([{"ano": 2026, "mes": 8, "lpv": 20.94}])
-    _calc = {m: _lm_t.calcular([], None) for m in range(1, 13)}
-    _calc[9] = _lm_t.calcular(
-        [{"data": "2026-09-05", "valor": -1947.0, "finalidade": "ADS"}],
-        {"vendas": 100})
-    _calc[10] = _lm_t.calcular(
-        [{"data": "2026-10-02", "valor": -500.0, "finalidade": "ADS"}],
-        {"vendas": 10})
-    _g_do_ano = _lm_t.do_ano
-    _lm_t.do_ano = lambda ano: (_calc if ano == 2026 else {}, "")
+    _calc = {m: _vazio for m in range(1, 13)}
+    _calc[9] = _lm_t.lpv(1000.0, 500.0, 200.0, 247.0, 100)
+    _calc[10] = _lm_t.lpv(5000.0, 0.0, 0.0, 0.0, 100)
+    _g_do_ano = _lm_t.lpv_do_ano
+    _lm_t.lpv_do_ano = lambda ano: (_calc if ano == 2026 else {}, "")
     try:
         _v, _o = lpv_vigente(_df_dig, _d_t(2026, 10, 5))
         ok("usa o LPV calculado do último mês fechado (setembro)",
@@ -574,29 +599,29 @@ if __name__ == "__main__":
            lpv_calculado_recente(_d_t(2026, 10, 5)) == (19.47, 2026, 9))
         ok("setembro calculado em outubro não é 'atrasado'",
            meses_de_atraso_lpv(_df_dig, _d_t(2026, 10, 5)) == 0)
-        _lm_t.do_ano = lambda ano: ({m: _lm_t.calcular([], None)
-                                     for m in range(1, 13)}, "")
+        _lm_t.lpv_do_ano = lambda ano: ({m: _vazio for m in range(1, 13)}, "")
         _v2, _o2 = lpv_vigente(_df_dig, _d_t(2026, 10, 5))
         ok("sem cálculo, cai no digitado", _v2 == 20.94
            and "Agosto/2026" in _o2)
         ok("e o atraso do digitado continua contando",
            meses_de_atraso_lpv(_df_dig, _d_t(2026, 10, 5)) == 2)
+        # Grade não lida em setembro: o LPV não sai, e o em uso cai no digitado.
+        _calc_falta = dict(_calc)
+        _calc_falta[9] = _lm_t.lpv(None, 500.0, 200.0, 247.0, 100)
+        _lm_t.lpv_do_ano = lambda ano: (_calc_falta if ano == 2026 else {}, "")
+        ok("setembro com grade não lida não vira o LPV em uso",
+           lpv_vigente(_df_dig, _d_t(2026, 10, 5))[0] == 20.94)
         def _quebra(ano):
             raise RuntimeError("planilha fora")
-        _lm_t.do_ano = _quebra
-        # Setembro com C.O negativo (extrato incompleto): o cálculo devolve
-        # lpv None, e o LPV em uso cai no mês anterior válido ou no digitado.
-        _calc_neg = dict(_calc)
-        _calc_neg[9] = _lm_t.calcular(
-            [{"data": "2026-09-05", "valor": -100.0, "finalidade": "FLEX"}],
-            {"vendas": 100, "reembolso_flex": 5000.0})
-        _lm_t.do_ano = lambda ano: (_calc_neg if ano == 2026 else {}, "")
-        ok("setembro com C.O negativo não vira o LPV em uso",
-           lpv_vigente(_df_dig, _d_t(2026, 10, 5))[0] == 20.94)
+        _lm_t.lpv_do_ano = _quebra
         ok("cálculo fora do ar não derruba: cai no digitado",
            lpv_vigente(_df_dig, _d_t(2026, 10, 5))[0] == 20.94)
+        ok("o LPV em uso é o de custo fixo, não o custo por venda",
+           "lpv_do_ano(" in __import__("inspect").getsource(lpv_calculado_recente)
+           and "custo_operacional_do_ano" not in
+           __import__("inspect").getsource(lpv_calculado_recente))
     finally:
-        _lm_t.do_ano = _g_do_ano
+        _lm_t.lpv_do_ano = _g_do_ano
 
     # 05/10: setembro aparecia com -0,21 no campo e "Salvar" o regravava.
     ok("LPV negativo ou zero não vale", not lpv_valido(-0.21)

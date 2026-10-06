@@ -81,7 +81,10 @@ COLUNAS = {
     "lucro_bruto": ("l b",),
     "margem_contribuicao": ("margem c",),
     "vendas": ("vendas",),
-    "unidades": ("uni cont",),
+    # A QUANTIDADE de peças (coluna "Quantidade"). NÃO a UNI. CONT.: na
+    # planilha do dono ela é `MARGEM C. ÷ LPV` por linha (col. AB) — a UC,
+    # uma razão. Somá-la, como este mapa fazia até 05/10, era número nenhum.
+    "unidades": ("quantidade",),
     # O reembolso que a plataforma paga pelo Flex em cada venda (coluna P em
     # 02/10). O LPV desconta dele o que se paga de Flex: `lpv_mensal.py`.
     "reembolso_flex": ("reembolso flex",),
@@ -207,7 +210,9 @@ def indicadores(somas):
         # LUCRO por venda. NÃO é o LPV: LPV no Studio é o CUSTO FIXO médio
         # por venda, digitado em Gestão → Financeiro. Ver o topo do arquivo.
         "lucro_por_venda": _div(lb, vendas),
-        "uc": _div(uni, vendas),
+        # Peças por venda. Até 05/10 a chave se chamava "uc" — e a UC é outra
+        # conta (margem de contribuição ÷ LPV, `home_gestao`).
+        "pecas_por_venda": _div(uni, vendas),
         "custo_total": somas.get("custo_total") or 0.0,
         "custo_op": somas.get("custo_op") or 0.0,
     }
@@ -380,7 +385,8 @@ if __name__ == "__main__":
 
     COLS = ["MÊS", "MÊS/ANO", "Data", "FAT TOTAL", "FAT - DEV", "CUSTO TOTAL",
             "CUSTO OP.", "DEVOLUÇÃO", "COMISSÃO", "FRETE", "NF", "L.B",
-            "MARGEM C.", "VENDAS", "UNI. CONT.", "MARGEM %", "LPV"]
+            "MARGEM C.", "VENDAS", "UNI. CONT.", "MARGEM %", "LPV",
+            "Quantidade"]
 
     # ── O nome da coluna sobrevive a quem edita a planilha ───────────────
     ok("acento nao separa a coluna", _chave("DEVOLUÇÃO") == "devolucao")
@@ -389,6 +395,8 @@ if __name__ == "__main__":
     ok("as colunas da Home sao achadas",
        set(_mapa_de_colunas(COLS)) >= {"faturamento", "fat_liquido",
                                        "lucro_bruto", "vendas", "unidades"})
+    ok("a UNI. CONT. (a UC da planilha) NÃO é lida como quantidade",
+       _mapa_de_colunas(COLS).get("unidades") == "Quantidade")
     ok("coluna que nao existe nao inventa chave",
        "custo_flex" not in _mapa_de_colunas(COLS))
     ok("a coluna REEMBOLSO FLEX e achada pelo nome, e nao pela letra P",
@@ -411,13 +419,13 @@ if __name__ == "__main__":
     from datetime import datetime as _dt
     L = [
         {"Data": _dt(2026, 9, 1), "MÊS/ANO": "set2026", "FAT TOTAL": 10.0,
-         "FAT - DEV": 10.0, "L.B": 9.0, "VENDAS": 1, "UNI. CONT.": 1,
+         "FAT - DEV": 10.0, "L.B": 9.0, "VENDAS": 1, "Quantidade": 1,
          "DEVOLUÇÃO": 0, "MARGEM C.": 9.0, "CUSTO TOTAL": 1.0, "CUSTO OP.": 0},
         {"Data": _dt(2026, 9, 2), "MÊS/ANO": "set2026", "FAT TOTAL": 1000.0,
-         "FAT - DEV": 1000.0, "L.B": 100.0, "VENDAS": 1, "UNI. CONT.": 3,
+         "FAT - DEV": 1000.0, "L.B": 100.0, "VENDAS": 1, "Quantidade": 3,
          "DEVOLUÇÃO": 0, "MARGEM C.": 100.0, "CUSTO TOTAL": 900.0, "CUSTO OP.": 0},
         {"Data": _dt(2026, 8, 30), "MÊS/ANO": "ago2026", "FAT TOTAL": 5000.0,
-         "FAT - DEV": 5000.0, "L.B": 2500.0, "VENDAS": 9, "UNI. CONT.": 9,
+         "FAT - DEV": 5000.0, "L.B": 2500.0, "VENDAS": 9, "Quantidade": 9,
          "DEVOLUÇÃO": 0, "MARGEM C.": 2500.0, "CUSTO TOTAL": 2500.0, "CUSTO OP.": 0},
     ]
     s = somar(L, COLS, 2026, 9)
@@ -435,7 +443,7 @@ if __name__ == "__main__":
     # puseram R$ 82,24 na Home no lugar do LPV de verdade.
     ok("nenhum indicador daqui se chama LPV",
        not any("lpv" in k for k in i))
-    ok("UC e unidade por venda", abs(i["uc"] - 2.0) < 0.001)
+    ok("UC e unidade por venda", abs(i["pecas_por_venda"] - 2.0) < 0.001)
 
     # ── A devolucao sai da base do percentual ────────────────────────────
     # Deixa-la dentro faz toda margem parecer menor do que e.
@@ -453,14 +461,14 @@ if __name__ == "__main__":
        abs(_sem["margem_bruta"] - 25.0) < 0.001)
     ok("sem venda nenhuma o lucro por venda e None, e nao zero",
        _sem["lucro_por_venda"] is None)
-    ok("e o UC tambem", _sem["uc"] is None)
+    ok("e o UC tambem", _sem["pecas_por_venda"] is None)
 
     # Mes sem venda nenhuma nao devolve zeros que parecem dado.
     ok("mes vazio soma zero linhas", somar(L, COLS, 2026, 1)["linhas"] == 0)
 
     # MÊS/ANO e a reserva de quem esta sem data.
     _sem_data = [{"Data": "", "MÊS/ANO": "set2026", "FAT TOTAL": 7.0,
-                  "FAT - DEV": 7.0, "L.B": 1.0, "VENDAS": 1, "UNI. CONT.": 1}]
+                  "FAT - DEV": 7.0, "L.B": 1.0, "VENDAS": 1, "Quantidade": 1}]
     ok("linha sem Data cai no MES/ANO",
        somar(_sem_data, COLS, 2026, 9)["faturamento"] == 7.0)
 
@@ -511,7 +519,7 @@ if __name__ == "__main__":
     ok("a margem sai das somas", abs(_m["margem_bruta"] - 10.0) < 0.01)
     ok("o LPV e lucro total / vendas totais, e nao media de LPVs",
        abs(_m["lucro_por_venda"] - (60.0 / 4)) < 0.01)
-    ok("e o UC idem", abs(_m["uc"] - (6.0 / 4)) < 0.01)
+    ok("e o UC idem", abs(_m["pecas_por_venda"] - (6.0 / 4)) < 0.01)
     ok("o periodo vem junto do numero", _m["meses"] == 3)
 
     # O CASO QUE SEPARA AS DUAS CONTAS: um mes pequeno com margem alta e um
@@ -540,3 +548,4 @@ if __name__ == "__main__":
        media_dos_meses(_MAPA, []) is None)
 
     print("\nfalhas:", falhas)
+    __import__("sys").exit(1 if falhas else 0)
