@@ -145,6 +145,15 @@ MUTACOES = [
         ["python3", "lpv_mensal.py"],
     ),
     (
+        'o titulo "Home" volta a empurrar os graficos para baixo',
+        "home_gestao.py",
+        [('    # O painel já abre com o mês e a fonte dos números, que é o que orienta.\n',
+          '    # O painel já abre com o mês e a fonte dos números, que é o que orienta.\n'
+          '    st.markdown("### 🏠 Home")\n')],
+        None,
+        ["python3", "home_gestao.py"],
+    ),
+    (
         'a UNI. CONT. (a UC) volta a ser somada como quantidade',
         "base_vendas.py",
         [('    "unidades": ("quantidade",),\n', '    "unidades": ("uni cont",),\n')],
