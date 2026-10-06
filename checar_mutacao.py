@@ -2133,6 +2133,41 @@ MUTACOES = [
         '                    "viavel": True,\n',
         ["python3", "imagem.py"],
     ),
+    # ── 06/10: AS TRES VOZES SOBRE O CENARIO, E A REFACAO QUE PERDIA A ──
+    # ── REFERENCIA. Os dois achados do ChatGPT que seguiam abertos.
+    (
+        "a luz e os materiais da referencia voltam a concorrer com a "
+        "direcao de arte",
+        "ambientacao_ref.py",
+        "    if tem_direcao_de_arte:\n        linhas.append(\n",
+        "    if False:\n        linhas.append(\n",
+        ["python3", "ambientacao_ref.py"],
+    ),
+    (
+        "o cenario da visao volta a morrer com a passada da geracao",
+        "imagem.py",
+        "        if _txt:\n            with _TRAVA_CENARIO_VIGENTE:\n",
+        "        if False:\n            with _TRAVA_CENARIO_VIGENTE:\n",
+        ["python3", "imagem.py"],
+    ),
+    (
+        "o refazer volta a montar a ambientacao crua, sem o cenario escolhido",
+        "imagem.py",
+        "        ambientacao=ambientacao_do_tipo(cfg, tipo),\n"
+        "        direcao_arte=_direcao_de_arte_da_sessao(),\n",
+        '        ambientacao=cfg.get("ambientacao", ""),\n'
+        "        direcao_arte=_direcao_de_arte_da_sessao(),\n",
+        ["python3", "imagem.py"],
+    ),
+    (
+        "o lote novo deixa de apagar o cenario do lote anterior",
+        "imagem.py",
+        "    with _TRAVA_CENARIO_VIGENTE:\n"
+        "        for _k in [k for k in _CENARIO_VIGENTE if k[0] == _p]:\n"
+        "            _CENARIO_VIGENTE.pop(_k, None)\n",
+        "    with _TRAVA_CENARIO_VIGENTE:\n        pass\n",
+        ["python3", "imagem.py"],
+    ),
 ]
 
 

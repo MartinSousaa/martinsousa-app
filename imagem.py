@@ -6144,6 +6144,88 @@ def esquecer_copy_vigente():
             _COPY_VIGENTE.pop(_k, None)
 
 
+# ── O CENÁRIO QUE A VISÃO ESCOLHEU: UM DONO, TRÊS LEITORES ────────────────
+#
+# ACHADO EM 06/10, varrendo a Forma 1 do CLAUDE.md sobre o achado anterior.
+#
+# `prompt_para_regerar` tem no próprio docstring: *"Quem regera não pode
+# receber menos do que quem gera"*. E recebia menos. O cenário lido das
+# referências de ambientação era calculado DENTRO do laço da geração
+# (`para_o_tipo(_amb_desc, tipo)`) e morria com a passada: os dois caminhos
+# que montam um prompt NOVO — o refazer do chat e o botão da galeria —
+# mandavam só o texto que o colaborador digitou.
+#
+# É O MESMO DEFEITO que o refazer tinha com `refs_layout`, corrigido em
+# 05/10, no mesmo arquivo, três horas antes. Corrigi o irmão que doeu e não
+# varri os outros leitores do mesmo recurso — a Forma 1, cometida na
+# correção da Forma 1, pela segunda vez nesta base.
+#
+# O estrago é o que o dono já viu com o layout: a peça refeita sai num
+# cenário diferente da peça que nasceu, e quem está olhando a tela não tem
+# como saber por quê — a tela mostra a referência escolhida, e a peça refeita
+# não a usou.
+#
+# POR QUE GLOBAL DE MÓDULO E NÃO `session_state`: a geração roda em thread
+# (`imagem.py:7162`) e `st.session_state` é ilegível lá dentro. É a mesma
+# razão, o mesmo formato e a mesma trava do `_COPY_VIGENTE` logo acima — e de
+# propósito: dois jeitos de guardar o estado da peça passariam a discordar.
+_CENARIO_VIGENTE = {}
+_TRAVA_CENARIO_VIGENTE = _threading_limiter.Lock()
+
+
+def guardar_cenarios_da_geracao(descricao, tipos, tem_direcao_de_arte):
+    """Grava o cenário que a visão escolheu para CADA tipo desta geração.
+
+    Chamada UMA vez, logo depois da leitura das referências e antes do laço:
+    a escolha já é uma só por geração, e recalculá-la por peça seria uma
+    segunda resposta para a mesma pergunta.
+
+    ZERA AS DESTE PRODUTO ANTES DE GRAVAR. Geração nova sem referência
+    nenhuma tem de apagar as de antes — senão a peça herda em silêncio o
+    cenário de um lote que já acabou, que é pior do que não ter cenário.
+    """
+    _p = _produto_da_copy()
+    with _TRAVA_CENARIO_VIGENTE:
+        for _k in [k for k in _CENARIO_VIGENTE if k[0] == _p]:
+            _CENARIO_VIGENTE.pop(_k, None)
+    try:
+        import ambientacao_ref as _ar_cv
+    except Exception:
+        return
+    for _t in (tipos or []):
+        try:
+            _txt = _ar_cv.para_o_tipo(descricao, _t, tem_direcao_de_arte)
+        except Exception:
+            continue
+        if _txt:
+            with _TRAVA_CENARIO_VIGENTE:
+                _CENARIO_VIGENTE[(_p, str(_t).strip())] = _txt
+
+
+def cenario_vigente(tipo):
+    """O cenário escolhido para este tipo, ou "" quando não houve referência."""
+    _t = str(tipo or "").strip()
+    if not _t:
+        return ""
+    with _TRAVA_CENARIO_VIGENTE:
+        return _CENARIO_VIGENTE.get((_produto_da_copy(), _t), "")
+
+
+def ambientacao_do_tipo(cfg, tipo):
+    """O que vai no argumento `ambientacao` do prompt desta peça.
+
+    PORTA ÚNICA, e é o motivo de ela existir: o laço da geração montava esta
+    concatenação inline e os dois caminhos de regerar não a montavam de jeito
+    nenhum. Um nome, uma resposta.
+
+    O TEXTO DIGITADO VEM PRIMEIRO. Quem digitou manda — é a mesma ordem que o
+    laço já usava, e `checar_alcance` tem guarda para ela.
+    """
+    _dig = str((cfg or {}).get("ambientacao", "") or "")
+    _cen = cenario_vigente(tipo)
+    return _dig + (("\n\n" + _cen) if _cen else "")
+
+
 def plano_do_tipo(tipo):
     """O plano que a triagem fez para este tipo de imagem. None quando não há.
 
@@ -6516,7 +6598,10 @@ def prompt_para_regerar(tipo, instrucoes, dados_descricao, nome_produto):
         refs_layout_nomes=cfg.get("refs_layout_nomes", []),
         instrucao_layout=cfg.get("instrucao_layout", ""),
         plano_triagem=plano_do_tipo(tipo),
-        ambientacao=cfg.get("ambientacao", ""),
+        # O CENARIO DA VISAO VIAJA COM A PECA. Sem isto a peca refeita saia
+        # num cenario diferente da peca que nasceu — e o docstring acima
+        # ja prometia que isso nao acontecia.
+        ambientacao=ambientacao_do_tipo(cfg, tipo),
         direcao_arte=_direcao_de_arte_da_sessao(),
     )
 
@@ -6574,6 +6659,14 @@ def prompt_de_cada_peca(itens, cfg, tipos_selecionados=None, direcao_arte=""):
 
     NÃO CHAMA MOTOR NENHUM: `prompt_que_sera_enviado` só monta o texto. Ver o
     prompt continua custando zero geração, que é o motivo de ele existir.
+
+    E É POR ISSO QUE O CENÁRIO DA VISÃO PODE FALTAR AQUI — dito em voz alta
+    em vez de escondido. `ambientacao_do_tipo` devolve o cenário que a visão
+    JÁ escolheu; antes da primeira geração ninguém escolheu nada, porque ler
+    as referências é uma chamada paga. Então o prompt mostrado ANTES de gerar
+    sai sem o bloco `CENÁRIO DE REFERÊNCIA`, e depois de gerar sai com ele.
+    Pagar a visão só para pré-visualizar o texto custaria uma chamada por
+    rerun da tela — o remédio seria mais caro que a doença.
     """
     fora = []
     for item in (itens or []):
@@ -6586,7 +6679,7 @@ def prompt_de_cada_peca(itens, cfg, tipos_selecionados=None, direcao_arte=""):
             refs_layout_nomes=cfg.get("refs_layout_nomes", []),
             instrucao_layout=cfg.get("instrucao_layout", ""),
             plano_triagem=item,
-            ambientacao=cfg.get("ambientacao", ""),
+            ambientacao=ambientacao_do_tipo(cfg, oficial),
             direcao_arte=direcao_arte,
         )
         fora.append((oficial, prompt_que_sera_enviado(
@@ -10688,6 +10781,11 @@ def pagina_imagem(usuario_logado):
                 # peça sai com a ambientação que o colaborador escreveu, que é
                 # exatamente o comportamento de antes deste bloco.
                 _amb_desc = {"cenarios": []}
+                # QUEM MANDA EM LUZ, MATERIAL E CLIMA? A pergunta e feita a
+                # `bloco_direcao_de_arte`, que e quem escreve esses campos no
+                # prompt. Perguntar de outro jeito seria uma segunda resposta
+                # para a mesma pergunta (Forma 5).
+                _tem_dir_arte = bool(bloco_direcao_de_arte(_direcao_arte))
                 _refs_amb = cfg.get("refs_ambientacao") or []
                 if _refs_amb:
                     barra.progress(0.0, text="Olhando as referências de "
@@ -10701,8 +10799,16 @@ def pagina_imagem(usuario_logado):
                             f"ambientação ({_amb_desc['erro']}). As imagens "
                             "saem com o tema escrito, sem elas.")
                     else:
-                        for _l in _ar.resumo(_amb_desc, list(tipos)):
+                        for _l in _ar.resumo(_amb_desc, list(tipos),
+                                             _tem_dir_arte):
                             st.caption("🏙️ " + _l)
+
+                # O CENARIO ESCOLHIDO PASSA A VIVER FORA DA PASSADA, para que
+                # refazer uma peca use a MESMA referencia que a geracao usou.
+                # Chamada mesmo sem referencia nenhuma: ai ela APAGA as do
+                # lote anterior, que e o ponto.
+                guardar_cenarios_da_geracao(_amb_desc, list(tipos),
+                                            _tem_dir_arte)
 
                 # TRES FALHAS IGUAIS SEGUIDAS NAO SAO AZAR — E O MOTOR FORA
                 # DO AR, E INSISTIR CUSTA O TEMPO DELE.
@@ -10741,13 +10847,9 @@ def pagina_imagem(usuario_logado):
                                            or plano_do_tipo(tipo)),
                             direcao_arte=_direcao_arte,
                             # O que o colaborador escreveu MAIS o cenário
-                            # que a visão escolheu para ESTE tipo. O texto
-                            # dele vem primeiro: quem digitou manda.
-                            ambientacao=(
-                                (cfg.get("ambientacao", "") or "")
-                                + ("\n\n" + _bloco_amb if (_bloco_amb := (
-                                    __import__("ambientacao_ref")
-                                    .para_o_tipo(_amb_desc, tipo))) else "")),
+                            # que a visão escolheu para ESTE tipo, pela porta
+                            # unica — a mesma que o refazer e o .txt usam.
+                            ambientacao=ambientacao_do_tipo(cfg, tipo),
                         )
                         # ── Geração em thread separada ──────────────────────────
                         # Mantém o WebSocket vivo durante a chamada Gemini (30-60s)
@@ -15389,11 +15491,83 @@ if __name__ == "__main__":
     ok("a leitura acontece UMA vez, antes do laco das pecas",
        _sem_comentario.index("_ar.descrever(")
        < _sem_comentario.index("for i, tipo in enumerate(tipos):"))
-    ok("e o cenario escolhido entra na ambientacao daquele tipo",
-       "para_o_tipo(_amb_desc, tipo)" in _sem_comentario)
+    # ── O CENARIO DA VISAO VIAJA COM A PECA ─────────────────────────────
+    #
+    # AS DUAS GUARDAS QUE ESTAVAM AQUI TRAVAVAM A REDACAO, E NAO O
+    # COMPORTAMENTO: exigiam a frase `para_o_tipo(_amb_desc, tipo)` escrita
+    # dentro do laco. Enquanto ela estivesse escrita ALI, as duas ficavam
+    # verdes — e foi exatamente ali que o defeito morava: o cenario era
+    # calculado dentro da passada e os dois caminhos de regerar nao o viam.
+    # Guarda que mede o texto da chamada nao ve o irmao que nao chama. E a
+    # Forma 2 do CLAUDE.md, e ela escondeu a Forma 1.
+    #
+    # A ENTRADA DO TESTE VEM DO SISTEMA: a descricao tem a forma que
+    # `ambientacao_ref._ESQUEMA` exige, e o texto do cenario e montado pela
+    # cadeia real (`guardar_cenarios_da_geracao` -> `ambientacao_do_tipo`),
+    # nao escrito a mao aqui. Valor de teste escrito a mao mede o meu
+    # entendimento do sistema — foi o que quebrou o botao dos oito prompts.
+    _T3_AMB = "3 — Produto em uso"
+    _DESC_AMB = {"cenarios": [{"indice": 0,
+                               "ambiente": "bar com mesa de sinuca",
+                               "luz": "quente, lateral, âmbar",
+                               "materiais": "madeira, couro",
+                               "clima": "noturno e acolhedor",
+                               "serve_para": [_T3_AMB]}]}
+    guardar_cenarios_da_geracao(_DESC_AMB, [_T3_AMB], False)
+    _amb_t3 = ambientacao_do_tipo({"ambientacao": "jantar entre amigos"},
+                                  _T3_AMB)
+    ok("o cenario escolhido entra na ambientacao daquele tipo",
+       "bar com mesa de sinuca" in _amb_t3)
     ok("o texto do colaborador vem antes do cenario da visao",
-       _sem_comentario.index('cfg.get("ambientacao", "") or ""')
-       < _sem_comentario.index("para_o_tipo(_amb_desc, tipo)"))
+       "sinuca" in _amb_t3 and "jantar entre amigos" in _amb_t3
+       and _amb_t3.index("jantar entre amigos") < _amb_t3.index("sinuca"))
+    ok("tipo sem cenario recebe so o que o colaborador digitou",
+       ambientacao_do_tipo({"ambientacao": "x"}, "7 — Presenteie") == "x")
+
+    # O CENARIO SOBREVIVE A PASSADA — e por isso que ele existe fora do laco.
+    ok("o cenario continua legivel depois do laco, para quem refaz",
+       "sinuca" in cenario_vigente(_T3_AMB))
+
+    # GERACAO NOVA SEM REFERENCIA APAGA A DE ANTES. Herdar em silencio o
+    # cenario de um lote que acabou e pior do que nao ter cenario.
+    guardar_cenarios_da_geracao({"cenarios": []}, [_T3_AMB], False)
+    ok("lote novo sem referencia zera o cenario do lote anterior",
+       cenario_vigente(_T3_AMB) == "")
+
+    # E A DIRECAO DE ARTE MANDA EM LUZ, MATERIAL E CLIMA — pela cadeia real.
+    guardar_cenarios_da_geracao(_DESC_AMB, [_T3_AMB], True)
+    _amb_dir = ambientacao_do_tipo({"ambientacao": ""}, _T3_AMB)
+    ok("com direcao de arte, o LUGAR da referencia chega",
+       "bar com mesa de sinuca" in _amb_dir)
+    ok("e os materiais DELA nao concorrem com os do produto",
+       "madeira, couro" not in _amb_dir)
+    guardar_cenarios_da_geracao({"cenarios": []}, [_T3_AMB], True)
+
+    # AST: OS TRES QUE MONTAM PROMPT PASSAM PELA MESMA PORTA.
+    #
+    # Procurar o nome na fonte ("existe em algum lugar") e a guarda fraca que
+    # o `checar_mutacao` desta base ja pegou uma vez. O que importa e que
+    # NENHUM leitor leia `cfg["ambientacao"]` cru para montar prompt.
+    import ast as _ast_amb
+    _arv_amb = _ast_amb.parse(_codigo_img)
+    _ESPERADOS = {"prompt_para_regerar", "prompt_de_cada_peca"}
+    _usam_porta = set()
+    for _no in _ast_amb.walk(_arv_amb):
+        if not isinstance(_no, _ast_amb.FunctionDef) or _no.name not in _ESPERADOS:
+            continue
+        for _sub in _ast_amb.walk(_no):
+            if (isinstance(_sub, _ast_amb.Call)
+                    and isinstance(_sub.func, _ast_amb.Name)
+                    and _sub.func.id == "ambientacao_do_tipo"):
+                _usam_porta.add(_no.name)
+    ok("os dois caminhos de regerar montam a ambientacao pela porta unica",
+       _usam_porta == _ESPERADOS)
+    # O laco da geracao e codigo de pagina, nao funcao: casa pela chamada com
+    # o `tipo` do laco, que e o unico lugar onde esse argumento existe.
+    ok("e o laco da geracao tambem",
+       "ambientacao=ambientacao_do_tipo(cfg, tipo)" in _sem_comentario)
+    ok("ninguem mais monta prompt com a ambientacao crua da config",
+       "ambientacao=cfg.get(\"ambientacao\"" not in _sem_comentario)
     ok("falha de visao NAO impede a geracao",
        '_amb_desc.get("erro")' in _sem_comentario
        and "saem com o tema escrito" in _sem_comentario)
