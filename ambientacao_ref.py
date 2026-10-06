@@ -284,7 +284,7 @@ def descrever(imagens_bytes, tipos_disponiveis, nome_produto="", api_key=None):
     return dados
 
 
-def para_o_tipo(descricao, tipo):
+def para_o_tipo(descricao, tipo, tem_direcao_de_arte=False):
     """O bloco de cenário para ESTE tipo de peça. "" quando não há.
 
     Quando mais de uma referência serve, vence a PRIMEIRA que o colaborador
@@ -294,7 +294,7 @@ def para_o_tipo(descricao, tipo):
     for c in (descricao or {}).get("cenarios", []):
         serve = [str(x).strip() for x in (c.get("serve_para") or [])]
         if any(_casa(tipo, s) for s in serve):
-            return _texto(c)
+            return _texto(c, tem_direcao_de_arte)
     return ""
 
 
@@ -316,20 +316,69 @@ def _casa(tipo, alvo):
     return a.lower()[:14] in t.lower() or t.lower()[:14] in a.lower()
 
 
-def _texto(c):
-    return (
+def _texto(c, tem_direcao_de_arte=False):
+    """O bloco de cenário desta referência, para entrar no prompt da peça.
+
+    LUZ, MATERIAIS E CLIMA SÓ SAEM DAQUI QUANDO NINGUÉM MAIS MANDA NELES.
+
+    ACHADO EM 05/10, no prompt real da Caneca Medieval, e o ChatGPT chegou
+    à mesma conclusão pelo lado de fora: o mesmo prompt recebia TRÊS vozes
+    sobre de que o cenário é feito —
+
+      DIREÇÃO DE ARTE ... "metal oxidado, pedra, madeira escura, ferro"
+      esta referência ... "madeira muito clara, parede creme, flores
+                           brancas, tricô bege, clima romântico"
+      plano da peça  ... "bar medieval, concreto bruto, adornos"
+
+    O resultado saiu aceitável porque o modelo privilegiou a direção
+    medieval. Não porque o contrato estivesse limpo — e o dono pagou as
+    gerações em que ele privilegiou a outra.
+
+    E O PROMPT JÁ DIZIA QUEM MANDA. `montar_prompt_imagem` escreve, no
+    bloco da ambientação: *"O tema orienta o cenário; a direção de arte
+    (paleta, luz, materiais) continua saindo do produto"*. O código
+    contradizia o texto que ele mesmo envia.
+
+    POR QUE CORTAR E NÃO PEDIR: é a lição que `sem_medida_de_quadro` já
+    tirou nesta base — *"o tamanho tem um dono só, e quem não é dono não
+    fala"*. Regra de texto mandando ignorar outra regra de texto é
+    justamente o que o modelo ignora: foi assim que o "ZERO TEXTO"
+    sobreviveu num preset e que a paleta azul voltou três vezes.
+
+    AQUI NÃO PRECISA DE REGEX. O esquema da visão (`_ESQUEMA`) já separa
+    por assunto: `ambiente` é lugar e props, e `luz`/`materiais`/`clima`
+    são exatamente os três campos que `bloco_direcao_de_arte` escreve. A
+    separação já existia no dado; o que faltava era respeitá-la.
+
+    SEM DIREÇÃO DE ARTE OS TRÊS VOLTAM, e têm de voltar: plano antigo,
+    triagem que falhou ou geração avulsa não têm dono para luz, material e
+    clima, e descartá-los ali seria perder informação em troca de nada.
+    """
+    linhas = [
         "CENÁRIO DE REFERÊNCIA (copie o AMBIENTE, nunca o produto que "
-        "aparecia nela):\n"
-        f"- ambiente: {c.get('ambiente', '')}\n"
-        f"- luz: {c.get('luz', '')}\n"
-        f"- materiais: {c.get('materiais', '')}\n"
-        f"- clima: {c.get('clima', '')}\n"
+        "aparecia nela):\n",
+        f"- ambiente: {c.get('ambiente', '')}\n",
+    ]
+    if tem_direcao_de_arte:
+        linhas.append(
+            "- luz, materiais, paleta e clima: NÃO saem desta referência. "
+            "Eles estão na DIREÇÃO DE ARTE DESTE PRODUTO, e é de lá que "
+            "vêm. Pegue daqui o LUGAR, os props e a ocasião — e vista-os "
+            "com os materiais e a luz da direção de arte.\n")
+    else:
+        linhas += [
+            f"- luz: {c.get('luz', '')}\n",
+            f"- materiais: {c.get('materiais', '')}\n",
+            f"- clima: {c.get('clima', '')}\n",
+        ]
+    linhas.append(
         "- Reproduza este ambiente com o NOSSO produto dentro dele, na "
         "escala real dele. O objeto da foto de referência não existe nesta "
         "peça.\n")
+    return "".join(linhas)
 
 
-def resumo(descricao, tipos):
+def resumo(descricao, tipos, tem_direcao_de_arte=False):
     """Uma linha por tipo, para a tela dizer qual cenário foi escolhido.
 
     Sem isto o colaborador sobe cinco fotos e não faz ideia de qual o Studio
@@ -338,7 +387,7 @@ def resumo(descricao, tipos):
     """
     fora = []
     for t in tipos:
-        c = para_o_tipo(descricao, t)
+        c = para_o_tipo(descricao, t, tem_direcao_de_arte)
         if c:
             amb = c.split("- ambiente: ", 1)[-1].split("\n")[0]
             fora.append(f"{t} → {amb}")
@@ -396,6 +445,37 @@ if __name__ == "__main__":
     ok("e diz explicitamente para ignorar o produto da foto",
        "nunca o produto" in txt and "não existe nesta peça" in txt)
     ok("e repete a escala real", "escala real" in txt)
+
+    # ── UM DONO PARA LUZ, MATERIAIS E CLIMA ──────────────────────────────
+    #
+    # A guarda foi escrita ANTES da correcao, e o defeito que ela mede e o
+    # que o dono pagou em 05/10: a referencia da Caneca Medieval mandava
+    # "madeira muito clara / flores brancas / tricô bege / romantico" no
+    # MESMO prompt em que a direcao de arte mandava pedra, ferro e madeira
+    # escura. Tres vozes sobre de que o cenario e feito.
+    _com_dir = para_o_tipo(D, T3, True)
+    ok("com direcao de arte, o LUGAR da referencia continua chegando",
+       "sinuca" in _com_dir)
+    ok("e a luz da referencia NAO chega",
+       "quente, lateral, âmbar" not in _com_dir)
+    ok("nem os materiais dela", "madeira, couro" not in _com_dir)
+    ok("nem o clima dela", "noturno e acolhedor" not in _com_dir)
+    ok("e o bloco DIZ de onde eles vem, em vez de deixar o buraco",
+       "DIREÇÃO DE ARTE DESTE PRODUTO" in _com_dir)
+    ok("o pedido de pegar o LUGAR e vestir com a direcao continua escrito",
+       "o LUGAR, os props e a ocasião" in _com_dir)
+
+    # SEM direcao de arte ninguem manda neles — e ai os tres voltam.
+    ok("sem direcao de arte, a luz da referencia volta",
+       "quente, lateral, âmbar" in para_o_tipo(D, T3, False))
+    ok("e os materiais tambem", "madeira, couro" in para_o_tipo(D, T3))
+    ok("e o padrao e o antigo: sem flag, nada muda",
+       para_o_tipo(D, T3) == para_o_tipo(D, T3, False))
+
+    # A TELA TEM DE MOSTRAR O QUE O PROMPT RECEBE, e nao outra coisa.
+    ok("o resumo nomeia o ambiente nos dois modos",
+       "sinuca" in resumo(D, [T3], True)[0]
+       and "sinuca" in resumo(D, [T3], False)[0])
 
     # ── o resumo para a tela ─────────────────────────────────────────────
     r = resumo(D, [T3, T7, "5 — Características técnicas"])

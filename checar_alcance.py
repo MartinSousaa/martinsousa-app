@@ -761,6 +761,19 @@ def main():
         # colaboradores em produtos diferentes nao se cruzam, e o
         # `esquecer_copy_vigente` apaga so as linhas do produto dele.
         "imagem.py:_COPY_VIGENTE": "copy corrigida, com chave de produto e tipo",
+        # O CENARIO DA VISAO: MESMA FAMILIA, MESMA RESPOSTA. A geracao roda em
+        # thread e `session_state` nao existe la dentro; a chave leva o
+        # PRODUTO (`_produto_da_copy`), entao dois colaboradores em produtos
+        # diferentes nao se cruzam.
+        #
+        # DOIS NO MESMO PRODUTO AO MESMO TEMPO COMPARTILHAM, e isto esta dito
+        # e nao escondido: quem comeca um lote apaga o cenario do lote
+        # anterior DAQUELE produto, inclusive o do colega. O estrago maximo e
+        # uma peca refeita no cenario da referencia do outro — a mesma
+        # exposicao que `_COPY_VIGENTE` ja tem, pelo mesmo motivo, e consertar
+        # de vez pede o estado da aba inteiro por sessao, que e a mudanca
+        # grande ja declarada em `definir_produto_da_sessao`.
+        "imagem.py:_CENARIO_VIGENTE": "cenario lido das referencias, com chave de produto e tipo",
         "placar_core.py:_acoes_cache": "acoes do Trello, com chave de janela",
         "placar_core.py:_board_cache": "board do Trello, um so",
         "placar_core.py:_tempos_cache": "tempos do board, com chave",
