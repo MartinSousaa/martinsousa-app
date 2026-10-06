@@ -1288,9 +1288,11 @@ MUTACOES = [
         # seguinte lia a variavel de novo e voltava ao 404.
         "a variavel do Railway volta a mandar mesmo provada errada",
         "imagem.py",
+        # A ancora acompanhou a correcao de 06/10: o descoberto e o PADRAO
+        # passaram pelo mesmo filtro, e quando nenhum serve a funcao devolve
+        # "". O defeito medido e o mesmo: a variavel voltar a mandar.
         "    cfg = _ch_mod.ler(\"OPENAI_MODELO_IMAGEM\")\n"
-        "    if cfg and cfg not in _MODELO_INVALIDO:\n        return cfg\n"
-        "    return _MODELO_DESCOBERTO[\"nome\"] or MODELO_IMAGEM_PADRAO",
+        "    if cfg and cfg not in _MODELO_INVALIDO:\n        return cfg\n",
         "    return (_ch_mod.ler(\"OPENAI_MODELO_IMAGEM\")\n"
         "            or _MODELO_DESCOBERTO[\"nome\"]\n"
         "            or MODELO_IMAGEM_PADRAO)",
@@ -2079,6 +2081,34 @@ MUTACOES = [
         '            elif c == "\\\\":\n                escapa = True\n',
         "            elif False:\n                escapa = True\n",
         ["python3", "ambientacao_ref.py"],
+    ),
+    # ── 06/10: O DIAGNOSTICO DO DONO DERRUBOU A PREMISSA ────────────────
+    #
+    # A tela dizia "esta conta nao tem «gpt-image-2»" e, logo abaixo, o
+    # diagnostico listava OITO modelos — `gpt-image-2` entre eles — e o
+    # `sunburst` gerando imagem em 10,3s. Tres defeitos saem daqui.
+    (
+        "a redescoberta volta a devolver o modelo que acabou de falhar",
+        "imagem.py",
+        "        if nome in _MODELO_INVALIDO:\n            continue\n",
+        "        if False:\n            continue\n",
+        ["python3", "imagem.py"],
+    ),
+    (
+        "volta a banir um modelo que a conta TEM",
+        "imagem.py",
+        '    if _da_conta and str(nome) in _da_conta:\n',
+        "    if False:\n",
+        ["python3", "imagem.py"],
+    ),
+    # O MAIS GRAVE: "nao consegui analisar" virando "esta tudo suficiente".
+    # Apontado pelo ChatGPT e confirmado no codigo em imagem.py:2098.
+    (
+        "a triagem que falha volta a liberar as oito pecas",
+        "imagem.py",
+        '                    "viavel": False,\n',
+        '                    "viavel": True,\n',
+        ["python3", "imagem.py"],
     ),
 ]
 

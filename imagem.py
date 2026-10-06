@@ -2095,6 +2095,23 @@ Responda SOMENTE com JSON válido, sem texto antes ou depois:
             "resposta da IA truncada (max_tokens atingido)" if truncado
             else "resposta da IA não estava em formato JSON válido"
         )
+        # ── O FALLBACK FECHA, E NÃO ABRE ────────────────────────────────
+        #
+        # Ele criava as oito peças com `viavel: True` e `pergunta_info: ""`.
+        # Ou seja: "não consegui analisar" virava "está tudo suficientemente
+        # informado" — e o colaborador recebia um plano com cara de aprovado,
+        # montado só com os presets, sem nenhuma copy e sem nenhuma cena.
+        #
+        # É o mesmo defeito de projeto dos sete de 29/09, de cabeça para
+        # baixo: ali o sistema sabia de um limite e não contava; aqui ele não
+        # sabe de nada e afirma que está tudo bem.
+        #
+        # Em segurança de informação, o padrão de uma falha de análise é
+        # FECHADO. A peça nasce inviável, com a pergunta escrita, e a tela já
+        # sabe mostrar isso — `pecas_bloqueadas_da_geracao` lê exatamente
+        # estes dois campos. Quem quiser gerar assim mesmo clica em "Analisar
+        # novamente" ou preenche o que falta; o que não acontece mais é o
+        # Studio gastar oito gerações num plano que ele não conseguiu fazer.
         plano_fallback = {
             "plano": [
                 {
@@ -2104,15 +2121,21 @@ Responda SOMENTE com JSON válido, sem texto antes ou depois:
                     "cena": "",
                     "textos": [],
                     "flags": [],
-                    "viavel": True,
-                    "pergunta_info": "",
+                    "viavel": False,
+                    "pergunta_info": (
+                        f"A análise do produto não pôde ser feita ({motivo}), "
+                        f"então não sei se há informação suficiente para esta "
+                        f"peça. Clique em **Analisar novamente**; se repetir, "
+                        f"suba menos fotos ou complete o cadastro."),
                 }
                 for i, t in enumerate(tipos_selecionados)
             ],
             "observacao_geral": (
-                f"⚠️ A triagem detalhada não pôde ser gerada ({motivo}). "
-                "O plano abaixo usa os presets padrão de cada tipo. "
-                "Revise as instruções antes de confirmar a geração."
+                f"⚠️ A triagem detalhada NÃO pôde ser gerada ({motivo}), e por "
+                "isso NENHUMA peça está liberada. Não é que falte só o "
+                "detalhe: o Studio não conseguiu olhar o produto, e gerar "
+                "assim seria pagar oito imagens em cima de um plano que não "
+                "existe. Clique em **Analisar novamente**."
             ),
         }
         return plano_fallback, None
@@ -3375,10 +3398,36 @@ _MODELO_INVALIDO = set()
 _FORMA_PROPORCAO = {"nome": None}
 
 
-def marcar_modelo_invalido(nome):
-    """A conta respondeu que este modelo nao existe. Ele perde a vez."""
-    if nome:
-        _MODELO_INVALIDO.add(str(nome))
+def marcar_modelo_invalido(nome, modelos_da_conta=None):
+    """A conta respondeu que este modelo nao existe. Ele perde a vez.
+
+    SÓ MARCA SE A CONTA REALMENTE NÃO O TIVER, e isto nasceu de uma tela do
+    dono em 06/10: a variável estava com «gpt-image-2», a tela dizia que a
+    conta não tem esse modelo — e o diagnóstico, na mesma tela, listava
+    `gpt-image-2` entre os oito modelos da conta.
+
+    A causa é o TEXTO do erro. `_DIZ_QUE_NAO_EXISTE` procura "does not exist"
+    e "do not have access", e a OpenAI devolve essas mesmas frases quando o
+    modelo EXISTE mas não atende naquele endpoint ou com aqueles parâmetros.
+    Banir o nome para sempre por causa disso é tratar "não serve aqui" como
+    "não é seu" — e foi assim que o Studio ficou sem primário tendo oito.
+
+    Então a pergunta certa é feita a quem sabe: a CONTA. Se ela lista o nome,
+    o problema não é o nome, e ele NÃO é banido. Listagem indisponível
+    (rede, chave sem permissão) mantém o comportamento antigo: marca, porque
+    aí não há como saber, e insistir num nome que deu 404 custa a próxima
+    geração.
+    """
+    if not nome:
+        return
+    _da_conta = (modelos_da_conta if modelos_da_conta is not None
+                 else modelos_de_imagem_da_conta())
+    if _da_conta and str(nome) in _da_conta:
+        import sys as _sys_mi
+        print(f"[imagem] «{nome}» FALHOU, mas a conta o tem — o problema não "
+              f"é o nome. Não vou bani-lo.", file=_sys_mi.stderr, flush=True)
+        return
+    _MODELO_INVALIDO.add(str(nome))
 
 
 def aviso_de_modelo_invalido():
@@ -3577,8 +3626,26 @@ def redescobrir_modelo_de_imagem(cliente=None):
     Chamado SÓ depois de um `model_not_found` — não no caminho normal. Listar
     modelos a cada geração seria pagar todo dia por um problema que acontece
     uma vez por rename.
+
+    ELA PULA OS QUE JÁ FALHARAM, E ISSO FALTAVA — foi o defeito que o
+    diagnóstico do dono expôs em 06/10.
+    -------------------------------------------------------------------
+    A lista vem em ORDEM DE PREFERÊNCIA, e o primeiro dela é
+    `gpt-image-2.5-sunburst`. Quando era ele que acabava de falhar, esta
+    função devolvia ELE DE NOVO; quem chamava comparava `_novo != _modelo`,
+    via que eram iguais, e escrevia na tela:
+
+        "não existe nesta conta da OpenAI, e não achei nenhum outro"
+
+    A conta do dono tem OITO modelos de imagem. O Studio desistiu com sete
+    disponíveis, e as peças do teste de 05/10 saíram todas pelo reserva.
+
+    Pular o que está em `_MODELO_INVALIDO` é o conserto: a lista inteira é
+    percorrida, e só devolve "" quando TODOS já falharam de verdade.
     """
     for nome in modelos_de_imagem_da_conta(cliente):
+        if nome in _MODELO_INVALIDO:
+            continue
         _MODELO_DESCOBERTO["nome"] = nome
         import sys as _sys_desc
         print(f"[imagem] modelo de imagem redescoberto na conta: {nome}",
@@ -14259,6 +14326,120 @@ if __name__ == "__main__":
     # por `modelos_de_imagem_da_conta`.
     ok("`gpt-image-2` e um nome conhecido da familia (nao diz que a conta tem)",
        "gpt-image-2" in MODELOS_IMAGEM_CONHECIDOS)
+
+    # ── A REDESCOBERTA PULA O QUE JA FALHOU ─────────────────────────────
+    #
+    # 06/10, diagnostico na tela do dono: a conta tem OITO modelos de imagem,
+    # e a tela dizia "nao achei nenhum outro". A lista vem em ordem de
+    # preferencia e o primeiro e o `sunburst`; quando era ele que falhava,
+    # `redescobrir` devolvia ELE DE NOVO, quem chamava via `_novo == _modelo`
+    # e desistia — com sete disponiveis.
+    #
+    # A ENTRADA VEM DO SISTEMA: esta e a lista que o diagnostico imprimiu na
+    # tela dele, na ordem em que `modelos_de_imagem_da_conta` devolve.
+    _CONTA_REAL = ["gpt-image-2.5-sunburst", "gpt-image-2.5-flare",
+                   "gpt-image-2", "gpt-image-1.5", "gpt-image-1",
+                   "chatgpt-image-latest", "gpt-image-1-mini",
+                   "gpt-image-2-2026-04-21"]
+    _inv_rd = set(_MODELO_INVALIDO)
+    _desc_rd = _MODELO_DESCOBERTO["nome"]
+    _lista_orig = globals()["modelos_de_imagem_da_conta"]
+    try:
+        globals()["modelos_de_imagem_da_conta"] = lambda *a, **k: list(_CONTA_REAL)
+        _MODELO_INVALIDO.clear()
+        _MODELO_DESCOBERTO["nome"] = None
+        ok("sem nada invalido, a redescoberta devolve o preferido",
+           redescobrir_modelo_de_imagem() == "gpt-image-2.5-sunburst")
+        _MODELO_INVALIDO.add("gpt-image-2.5-sunburst")
+        _MODELO_DESCOBERTO["nome"] = None
+        ok("com o preferido ja falhado, ela PULA para o seguinte",
+           redescobrir_modelo_de_imagem() == "gpt-image-2.5-flare")
+        for _m_rd in _CONTA_REAL:
+            _MODELO_INVALIDO.add(_m_rd)
+        _MODELO_DESCOBERTO["nome"] = None
+        ok("so devolve vazio quando TODOS os oito ja falharam",
+           redescobrir_modelo_de_imagem() == "")
+
+        # ── E NAO BANE UM MODELO QUE A CONTA TEM ────────────────────────
+        #
+        # A tela do dono dizia "esta conta nao tem «gpt-image-2»" com
+        # `gpt-image-2` na lista do diagnostico, logo abaixo. O texto do erro
+        # ("does not exist") tambem aparece quando o modelo existe e nao
+        # atende naquele endpoint.
+        _MODELO_INVALIDO.clear()
+        marcar_modelo_invalido("gpt-image-2")
+        ok("modelo que a conta TEM nao e banido quando a chamada falha",
+           "gpt-image-2" not in _MODELO_INVALIDO)
+        marcar_modelo_invalido("gpt-image-que-a-conta-nao-tem")
+        ok("e o que a conta NAO tem continua sendo banido",
+           "gpt-image-que-a-conta-nao-tem" in _MODELO_INVALIDO)
+        # LISTAGEM INDISPONIVEL mantem o comportamento antigo: sem como
+        # saber, marca — insistir num nome que deu 404 custa a geracao.
+        globals()["modelos_de_imagem_da_conta"] = lambda *a, **k: []
+        _MODELO_INVALIDO.clear()
+        marcar_modelo_invalido("gpt-image-2")
+        ok("sem conseguir listar a conta, ele marca (nao da para saber)",
+           "gpt-image-2" in _MODELO_INVALIDO)
+    finally:
+        globals()["modelos_de_imagem_da_conta"] = _lista_orig
+        _MODELO_INVALIDO.clear()
+        _MODELO_INVALIDO.update(_inv_rd)
+        _MODELO_DESCOBERTO["nome"] = _desc_rd
+
+    # ── A TRIAGEM QUE FALHA NAO LIBERA PECA NENHUMA ─────────────────────
+    #
+    # O fallback criava as oito com `viavel: True` e `pergunta_info: ""` —
+    # "nao consegui analisar" virando "esta tudo suficiente". O dono, 06/10:
+    # "o gerador preencheu as lacunas de forma catastrofica ao inves de
+    # solicitar as informacoes necessarias".
+    #
+    # A ASERCAO PARTE DA CADEIA: `gerar_triagem_ia` com um duplo que devolve
+    # texto que NAO e JSON — que e exatamente o caso do fallback.
+    # O DUPLO E O CLIENTE DA ANTHROPIC, que e o que `gerar_triagem_ia`
+    # instancia de verdade (imagem.py, `anthropic.Anthropic(...)`). A
+    # primeira versao desta guarda trocava `_chamar_claude_json`, que NAO
+    # EXISTE — e a asercao disse "duplo nao casou" em vez de ficar verde
+    # medindo nada. Foi o proprio `ok(..., False)` do ramo de falha que
+    # salvou, e e por isso que ele existe.
+    import types as _tp_fb
+    import anthropic as _anth_fb
+    _ant_cls = _anth_fb.Anthropic
+    _ant_chave = globals().get("_chave_anthropic")
+    _plano_fb = None
+
+    class _ClienteFalso:
+        def __init__(self, *a, **k):
+            self.messages = _tp_fb.SimpleNamespace(create=self._create)
+
+        def _create(self, *a, **k):
+            # Texto que NAO e JSON: e exatamente o caso que cai no fallback.
+            return _tp_fb.SimpleNamespace(
+                content=[_tp_fb.SimpleNamespace(
+                    text="desculpe, nao consegui analisar este produto")],
+                stop_reason="end_turn")
+
+    try:
+        _anth_fb.Anthropic = _ClienteFalso
+        globals()["_chave_anthropic"] = lambda: "chave-de-mentira"
+        _plano_fb, _erro_fb = gerar_triagem_ia(
+            "Guerreiro porta caneta", list(TIPOS_PADRAO), {}, "", [b"foto"])
+    except Exception as _e_fb:
+        _plano_fb = {"erro_da_guarda": str(_e_fb)[:120]}
+    finally:
+        _anth_fb.Anthropic = _ant_cls
+        if _ant_chave is not None:
+            globals()["_chave_anthropic"] = _ant_chave
+    if _plano_fb:
+        _itens_fb = _plano_fb.get("plano") or []
+        ok("triagem que falha NAO devolve peca viavel",
+           bool(_itens_fb) and not any(i.get("viavel") for i in _itens_fb))
+        ok("e cada peca sai com a pergunta escrita, nao vazia",
+           bool(_itens_fb) and all(i.get("pergunta_info") for i in _itens_fb))
+        ok("e todas ficam bloqueadas na tela",
+           len(pecas_bloqueadas_da_geracao(_plano_fb)) == len(_itens_fb))
+    else:
+        ok(f"triagem que falha NAO devolve peca viavel (duplo nao casou: "
+           f"{(_plano_fb or {}).get('erro_da_guarda', 'sem plano')})", False)
 
     # ── NOME PROVADO ERRADO PERDE A VEZ, INCLUSIVE O PADRAO ─────────────
     #
