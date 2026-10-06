@@ -186,10 +186,14 @@ def _partes_do_mes(ano, mes, cache):
         fora["folha_gerencia"] = None
     try:
         import assinaturas as _as
+        import custo_real as _cr
         if "as" not in cache:
-            _linhas = _as.carregar()
-            cache["as"] = _as.total_mensal(_linhas) if _linhas else None
-        fora["assinaturas"] = cache["as"]
+            cache["as"] = (_as.carregar(), _cr.carregar())
+        _linhas, _mapa_real = cache["as"]
+        # O mês, com o real do extrato onde veio diferente (`custo_real`).
+        fora["assinaturas"] = (_cr.total_assinaturas(_linhas, ano, mes,
+                                                     _mapa_real)
+                               if _linhas else None)
     except Exception:
         fora["assinaturas"] = None
     try:
@@ -418,6 +422,9 @@ if __name__ == "__main__":
            _a9["lpv"] == round((6942.0 + _ger
                                 + _as_t.total_mensal(_as_t.sugestoes_como_linhas())
                                 + 15512.93) / 1879, 2))
+        ok("as partes do mês saem das quatro grades",
+           set(_partes_do_mes(2026, 9, {})) == {"custo_fixo", "folha_gerencia",
+                                                 "assinaturas", "nao_operacional"})
         ok("mês sem vendas na BASE DE VENDAS diz por quê",
            lpv_do_ano(2026)[0][10]["lpv"] is None)
         # Folha salarial NÃO SALVA: o LPV não sai como se a gerência fosse 0.

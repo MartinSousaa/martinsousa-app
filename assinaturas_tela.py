@@ -176,6 +176,12 @@ def pagina(usuario_logado=None):
     cadastro = _grade(usuario_logado)
     st.markdown("---")
     _vigilancia(cadastro)
+    # O VALOR REAL DO MÊS, PELO EXTRATO (dono, 25/09; não existia até 06/10):
+    # a vigilância acima APONTA a diferença; isto a leva para a conta do mês.
+    if _as.carregar():
+        import custo_real as _cr
+        _cr.mostrar(st, "assinaturas", _as.carregar(),
+                    datetime.now(FUSO).date())
 
     st.caption(
         "Bling e Contabilidade **não** entram aqui de propósito: já são itens "
