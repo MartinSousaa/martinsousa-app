@@ -191,7 +191,7 @@ def montar():
     # reapontou QUATRO coisas que ja estavam corrigidas — e ninguem tinha como
     # saber que o arquivo era velho olhando para ele. Com o carimbo, basta
     # comparar com o `git log` para ver se a copia envelheceu.
-    import subprocess as _sp_h, datetime as _dt_h
+    import subprocess as _sp_h
     try:
         _sha = _sp_h.run(["git", "rev-parse", "--short", "HEAD"], cwd=RAIZ,
                          capture_output=True, text=True, timeout=20
@@ -201,7 +201,13 @@ def montar():
                              ).stdout.strip()
     except Exception:
         _sha, _assunto = "(sem git)", ""
-    w(f"Gerado em: {_dt_h.datetime.now().strftime('%d/%m/%Y %H:%M')}\n")
+    # A HORA VEM COM FUSO. `datetime.now()` cru devolve UTC no container do
+    # Railway: o carimbo sairia 3h adiantado e, depois das 21h, com a DATA
+    # errada — num campo cuja unica funcao e dizer quando a copia foi feita.
+    # `checar_alcance` pegou isto no mesmo dia em que o carimbo foi escrito.
+    import placar_core as _pc_h
+    w(f"Gerado em: {_pc_h.agora_br().strftime('%d/%m/%Y %H:%M')} (horario de "
+      f"Brasilia)\n")
     w(f"Commit:    {_sha}  {_assunto[:70]}\n")
     w("Se o commit acima nao for o ultimo do repositorio, esta copia "
       "ENVELHECEU — gere de novo com\n`python3 "

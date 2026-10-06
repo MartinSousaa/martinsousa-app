@@ -13993,6 +13993,26 @@ if __name__ == "__main__":
        TETO_POR_PECA_S > orcamento_da_peca())
     ok("e o orcamento conta as DUAS tentativas, nao uma",
        orcamento_da_peca() >= GEMINI_TIMEOUT_S * TENTATIVAS_GEMINI)
+    # AS DUAS FOLGAS ENTRAM NA CONTA, E A GUARDA CITA O NOME DELAS.
+    #
+    # `checar_impacto` reprovou as duas em 06/10: nome mudado, com leitor em
+    # outro arquivo (o exportador do motor) e nenhuma guarda citando. Nome sem
+    # guarda e nome que amanhece diferente sem ninguem perceber.
+    #
+    # A ASERCAO E A SOMA EXATA, e nao um ">=" por parcela.
+    #
+    # A primeira versao conferia cada folga com `>=`, e tirando a folga entre
+    # tentativas a guarda ficou VERDE: a folga do primario (30s) e maior que
+    # ela (5s) e cobria a diferenca sozinha. Asercao que nao ISOLA a parcela
+    # nao mede a parcela — mutacao que fica verde com o defeito de volta e
+    # guarda que nunca viu o defeito.
+    #
+    # Com a igualdade, tirar QUALQUER uma das quatro parcelas reprova.
+    ok("o orcamento e a soma exata das quatro parcelas",
+       orcamento_da_peca() == (GEMINI_TIMEOUT_S * TENTATIVAS_GEMINI
+                               + FOLGA_ENTRE_TENTATIVAS_S
+                               * (TENTATIVAS_GEMINI - 1)
+                               + FOLGA_DO_PRIMARIO_S))
     # E O TETO NAO E MAIS SEIS NUMEROS.
     #
     # POR AST, E NAO POR TEXTO. A primeira versao desta linha procurava
