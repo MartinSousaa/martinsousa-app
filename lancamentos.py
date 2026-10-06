@@ -726,6 +726,12 @@ if __name__ == "__main__":
        round(sum(_r_c.values()), 2) == 500.0
        and _r_c.get("MERCADORIA") == 100.0
        and _r_c.get("FATURA DO CARTÃO") == 400.0)
+    ok("cartao_detalhado soma so as compras de fatura que consomem a meta",
+       cartao_detalhado(_base_c + [
+           {"tipo": "fatura 2026-10", "valor": -9.0,
+            "finalidade": "TRANSFERENCIA ENTRE CONTAS"},
+           {"tipo": "fatura 2026-10", "valor": 50.0, "finalidade": "ADS"}])
+       == 100.0)
     ok("fatura paga e nao anexada conta inteira",
        resumo_por_finalidade(_base_c[1:]) == {"FATURA DO CARTÃO": 500.0})
     ok("compras alem do pago contam todas, sem negativo",

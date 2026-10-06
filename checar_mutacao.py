@@ -2160,6 +2160,13 @@ MUTACOES = [
         ["python3", "lancamentos.py"],
     ),
     (
+        "as compras do cartao deixam de ser descontadas do pago",
+        "lancamentos.py",
+        "        if eh_do_cartao(l) and v < 0 and _fv.consome_meta(fin):\n",
+        "        if False:\n",
+        ["python3", "lancamentos.py"],
+    ),
+    (
         "o previsto do cartao volta a ignorar as compras ja lancadas",
         "previsto.py",
         '    if prev.get("FATURA DO CARTÃO") and cartao_detalhado:\n',
