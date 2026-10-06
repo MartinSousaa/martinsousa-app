@@ -114,11 +114,13 @@ def ids_gravados():
     return {l["id"] for l in carregar()}
 
 
-def gravar(lancamentos, conta="", usuario=""):
+def gravar(lancamentos, conta="", usuario="", pular=None):
     """Acrescenta o que ainda não existe. (novos, repetidos, erro).
 
     Nunca reescreve linha existente: o dono pode ter corrigido a finalidade à
     mão, e subir o extrato de novo não pode desfazer a correção dele.
+    `pular`: ids que quem chama já sabe que estão gravados (sob outra
+    identidade) — eles não contam como repetidos aqui.
     """
     itens = com_identidade(lancamentos, conta)
     if not itens:
@@ -127,6 +129,10 @@ def gravar(lancamentos, conta="", usuario=""):
         ja = ids_gravados()
     except Exception as e:
         return 0, 0, f"Não consegui ler o que já está gravado: {str(e)[:120]}"
+    pular = set(pular or ())
+    itens = [l for l in itens if l["id"] not in pular]
+    if not itens:
+        return 0, 0, ""
     novos = [l for l in itens if l["id"] not in ja]
     repetidos = len(itens) - len(novos)
     if not novos:
@@ -254,11 +260,37 @@ def aplicar_cadastro(linhas):
     return fora
 
 
+# A COMPRA DO CARTÃO PESA NO MÊS EM QUE A FATURA É PAGA.
+#
+# Regra do dono, 17/09: "a régua é o CAIXA", e as parcelas "seguem consumindo
+# a cota dos meses seguintes". A fatura traz a data da COMPRA — a parcela 7/10
+# de uma compra de março vem com 17/03 na fatura de outubro. Pela data, ela
+# cairia em março, mês fechado, e outubro ficaria sem ela.
+#
+# O mês do caixa vai na coluna `tipo` ("fatura AAAA-MM"), e a data da compra
+# fica onde está. Mudar a data mudaria a identidade, e toda fatura já gravada
+# entraria de novo.
+TIPO_FATURA = "fatura "
+
+
+def mes_de(l):
+    """AAAA-MM em que o lançamento pesa no caixa. Um nome, uma resposta."""
+    t = str(l.get("tipo") or "").strip()
+    if t.startswith(TIPO_FATURA) and len(t) >= len(TIPO_FATURA) + 7:
+        return t[len(TIPO_FATURA):len(TIPO_FATURA) + 7]
+    return _txt_data(l.get("data"))[:7]
+
+
+def eh_do_cartao(l):
+    """Linha lançada de uma fatura de cartão (com o mês do caixa marcado)?"""
+    return str(l.get("tipo") or "").strip().startswith(TIPO_FATURA)
+
+
 def do_mes(ano, mes, lista=None):
     """Os lançamentos de um mês, com o cadastro já aplicado por cima."""
     alvo = f"{int(ano):04d}-{int(mes):02d}"
     fora = [l for l in (carregar() if lista is None else lista)
-            if str(l.get("data", "")).startswith(alvo)]
+            if mes_de(l) == alvo]
     if lista is None:
         fora = aplicar_cadastro(fora)
     return sorted(fora, key=lambda l: str(l.get("data", "")))
@@ -278,9 +310,20 @@ def resumo_por_finalidade(lancamentos, so_saida=True):
     """
     import favorecidos as _fv
     fora = {}
+    # O PAGAMENTO DA FATURA não soma por cima das compras dela: "pegar o total
+    # da fatura que contém alguns desses custos e somar, vai duplicar" (dono,
+    # 22/09). Ele vale só pelo que as compras lançadas NÃO explicam — fatura
+    # paga e ainda não anexada continua contando, inteira, como antes.
+    pago = cartao_pago(lancamentos) if so_saida else 0.0
+    if pago:
+        resto = round(pago - cartao_detalhado(lancamentos), 2)
+        if resto > 0:
+            fora[FATURA] = resto
     for l in (lancamentos or []):
         valor = float(l.get("valor") or 0)
         fin = (l.get("finalidade") or "").strip().upper() or "SEM CLASSIFICAÇÃO"
+        if so_saida and _eh_pagamento_de_fatura(l, fin, valor):
+            continue
         if valor >= 0:
             if not so_saida:                      # panorama: entrada soma
                 fora[fin] = fora.get(fin, 0.0) + abs(valor)
@@ -291,6 +334,131 @@ def resumo_por_finalidade(lancamentos, so_saida=True):
             continue
         fora[fin] = fora.get(fin, 0.0) + abs(valor)
     return dict(sorted(fora.items(), key=lambda x: -x[1]))
+
+
+FATURA = "FATURA DO CARTÃO"
+_FATURA_GRAFIAS = {"FATURA DO CARTÃO", "FATURA DO CARTAO", "FATURA CARTÃO",
+                   "FATURA CARTAO"}
+
+
+def _eh_pagamento_de_fatura(l, fin, valor):
+    """A saída do EXTRATO que paga a fatura. A linha da própria fatura que
+    marca o pagamento anterior é positiva e não passa por aqui."""
+    return valor < 0 and fin in _FATURA_GRAFIAS and not eh_do_cartao(l)
+
+
+def cartao_pago(lancamentos):
+    """Quanto o extrato pagou de fatura de cartão nestas linhas."""
+    total = 0.0
+    for l in (lancamentos or []):
+        v = float(l.get("valor") or 0)
+        fin = (l.get("finalidade") or "").strip().upper()
+        if _eh_pagamento_de_fatura(l, fin, v):
+            total += -v
+    return round(total, 2)
+
+
+def cartao_detalhado(lancamentos):
+    """Quanto das compras de fatura lançadas consome a meta, nestas linhas.
+
+    É o que o previsto do cartão (aba CARTÕES) e o pagamento da fatura têm de
+    descontar: essa parte já está contada, compra a compra, na finalidade dela.
+    """
+    import favorecidos as _fv
+    total = 0.0
+    for l in (lancamentos or []):
+        v = float(l.get("valor") or 0)
+        fin = (l.get("finalidade") or "").strip().upper() or "SEM CLASSIFICAÇÃO"
+        if eh_do_cartao(l) and v < 0 and _fv.consome_meta(fin):
+            total += -v
+    return round(total, 2)
+
+
+def preparar_fatura(lancs, competencia):
+    """As linhas da fatura com o mês do caixa e a parcela no nome. Pura.
+
+    A parcela entra na descrição porque é ela que separa a 7/10 da 8/10: as
+    duas têm a mesma data (a da compra), o mesmo valor e o mesmo nome — sem
+    ela, a 8/10 seria tomada pela 7/10 e descartada como repetida.
+    """
+    tipo = TIPO_FATURA + str(competencia)[:7]
+    fora = []
+    for l in (lancs or []):
+        n = dict(l)
+        n["tipo"] = tipo
+        d = " ".join(str(n.get("descricao") or "").split())
+        # O nome sem a parcela fica no favorecido: é por ele que o cadastro
+        # reconhece a loja (`aplicar_cadastro`), e "ML · Parcela 7/10" não
+        # casaria com o "ML" que o dono classificou.
+        if not str(n.get("favorecido") or "").strip():
+            n["favorecido"] = d
+        if n.get("parcela_n") and "PARCELA" not in d.upper():
+            d = f"{d} · Parcela {n['parcela_n']}/{n.get('parcela_de') or '?'}"
+        n["descricao"] = d
+        fora.append(n)
+    return fora
+
+
+def gravar_fatura(lancs, conta, competencia, usuario=""):
+    """Grava a fatura no mês do caixa. (novos, repetidos, marcados, erro).
+
+    A fatura gravada ANTES desta regra entrou sem o mês do caixa e sem a
+    parcela no nome. Anexá-la de novo não pode duplicar: a linha antiga é
+    reconhecida pela identidade antiga e só recebe o mês — finalidade e lápis
+    do dono ficam como estão.
+    """
+    itens = preparar_fatura(lancs, competencia)
+    if not itens:
+        return 0, 0, 0, ""
+    tipo = TIPO_FATURA + str(competencia)[:7]
+    try:
+        por_id = {l["id"]: l for l in carregar()}
+    except Exception as e:
+        return 0, 0, 0, f"Não consegui ler o que já está gravado: {str(e)[:120]}"
+    marcar, pular = {}, set()
+    for velho, novo in zip(com_identidade(lancs, conta),
+                           com_identidade(itens, conta)):
+        g = por_id.get(novo["id"])
+        if g is None and velho["id"] != novo["id"]:
+            antigo = por_id.get(velho["id"])
+            # Só é a mesma linha se ainda não tem mês, ou se já tem ESTE mês.
+            # Com outro mês é a parcela seguinte da mesma compra: mesma data,
+            # mesmo valor, mesmo nome — e outra fatura.
+            if antigo is not None and str(antigo.get("tipo") or "").strip() in ("", tipo):
+                g = antigo
+        if g is None:
+            continue
+        pular.add(novo["id"])
+        if str(g.get("tipo") or "").strip() != tipo:
+            marcar[g["id"]] = tipo
+    novos, repetidos, erro = gravar(itens, conta, usuario, pular=pular)
+    if erro:
+        return novos, repetidos, 0, erro
+    marcados, erro = marcar_tipo(marcar)
+    return novos, repetidos + len(pular), marcados, erro
+
+
+def marcar_tipo(por_id):
+    """Escreve `tipo` nestas linhas, numa ida só. (quantas, erro)."""
+    if not por_id:
+        return 0, ""
+    try:
+        aba = _aba()
+        registros = aba.get_all_records()
+        n = 0
+        for r in registros:
+            i = str(r.get("id", "")).strip()
+            if i in por_id:
+                r["tipo"] = por_id[i]
+                n += 1
+        if n:
+            aba.update([COLUNAS] + [[r.get(c, "") for c in COLUNAS]
+                                    for r in registros],
+                       value_input_option="RAW")
+    except Exception as e:
+        return 0, str(e)[:200]
+    carregar.clear()
+    return n, ""
 
 
 def explicar_mes(ano, mes, todas=None):
@@ -312,8 +480,7 @@ def explicar_mes(ano, mes, todas=None):
     import favorecidos as _fv
     base = carregar() if todas is None else todas
     alvo = f"{int(ano):04d}-{int(mes):02d}"
-    linhas = aplicar_cadastro([l for l in base
-                               if str(l.get("data", "")).startswith(alvo)])
+    linhas = aplicar_cadastro([l for l in base if mes_de(l) == alvo])
     por_conta, fora, por_dia = {}, {}, {}
     for l in linhas:
         v = float(l.get("valor") or 0)
@@ -326,6 +493,8 @@ def explicar_mes(ano, mes, todas=None):
         if v < 0:
             c["saidas"] += -v
             fin = (l.get("finalidade") or "").strip().upper() or "SEM CLASSIFICAÇÃO"
+            if _eh_pagamento_de_fatura(l, fin, v):
+                continue                       # vai em "cartao", abaixo
             if _fv.consome_meta(fin):
                 por_dia[d] = por_dia.get(d, 0.0) + (-v)
             else:
@@ -346,6 +515,12 @@ def explicar_mes(ano, mes, todas=None):
         "fora": {k: (round(t, 2), n) for k, (t, n) in
                  sorted(fora.items(), key=lambda kv: -kv[1][0])},
         "por_dia": {k: round(v, 2) for k, v in sorted(por_dia.items())},
+        # O cartão em três números: o que o extrato pagou, o que as faturas
+        # lançadas detalham, e o que entra na meta como FATURA DO CARTÃO
+        # (o pago que as compras não explicam).
+        "cartao": {"pago": cartao_pago(linhas),
+                   "detalhado": cartao_detalhado(linhas),
+                   "sem_detalhe": round(consome.get(FATURA, 0.0), 2)},
         "data_invalida": len(invalidas),
         "exemplos_invalidos": [
             {"conta": l.get("conta", ""), "data": l.get("data", ""),
@@ -531,4 +706,76 @@ if __name__ == "__main__":
     finally:
         _fv_x.carregar = _g_fv
 
+    # ── O CARTÃO CONTA UMA VEZ, NO MÊS DO CAIXA ─────────────────────────────
+    ok("a compra do cartao pesa no mes da fatura, nao no da compra",
+       mes_de({"data": "2026-03-17", "tipo": "fatura 2026-10"}) == "2026-10")
+    ok("linha do extrato continua pelo dia",
+       mes_de({"data": "2026-09-30", "tipo": "pix"}) == "2026-09")
+    _base_c = [
+        {"data": "2026-03-17", "tipo": "fatura 2026-10", "valor": -100.0,
+         "finalidade": "MERCADORIA", "descricao": "ML · Parcela 7/10"},
+        {"data": "2026-10-01", "tipo": "", "valor": -500.0,
+         "finalidade": "FATURA DO CARTÃO", "descricao": "DEB AUT FATURA"},
+    ]
+    ok("do_mes pega a parcela de marco em outubro",
+       len(do_mes(2026, 10, _base_c)) == 2 and do_mes(2026, 3, _base_c) == [])
+    _r_c = resumo_por_finalidade(_base_c)
+    # O defeito que esta regra existe para impedir: pagamento (500) + compra
+    # (100) davam 600. O mês gastou 500: 100 de mercadoria e 400 sem detalhe.
+    ok("pagamento da fatura nao soma por cima das compras lancadas",
+       round(sum(_r_c.values()), 2) == 500.0
+       and _r_c.get("MERCADORIA") == 100.0
+       and _r_c.get("FATURA DO CARTÃO") == 400.0)
+    ok("fatura paga e nao anexada conta inteira",
+       resumo_por_finalidade(_base_c[1:]) == {"FATURA DO CARTÃO": 500.0})
+    ok("compras alem do pago contam todas, sem negativo",
+       resumo_por_finalidade([{**_base_c[0], "valor": -700.0}, _base_c[1]])
+       == {"MERCADORIA": 700.0})
+    _x_c = explicar_mes(2026, 10, [dict(l, id=str(i), conta="c", fixada="")
+                                   for i, l in enumerate(_base_c)])
+    ok("a explicacao do mes fecha com a meta e diz o cartao",
+       _x_c["realizado"] == 500.0
+       and _x_c["cartao"] == {"pago": 500.0, "detalhado": 100.0,
+                              "sem_detalhe": 400.0})
+
+    _prep = preparar_fatura([{"data": "2026-03-17", "descricao": "ML",
+                              "valor": -73.99, "parcela_n": 7,
+                              "parcela_de": 10}], "2026-10")
+    _prep8 = preparar_fatura([{"data": "2026-03-17", "descricao": "ML",
+                               "valor": -73.99, "parcela_n": 8,
+                               "parcela_de": 10}], "2026-11")
+    ok("a parcela vai no nome e separa a 7/10 da 8/10",
+       _prep[0]["descricao"] == "ML · Parcela 7/10"
+       and _prep[0]["favorecido"] == "ML"
+       and identidade(_prep[0], "c") != identidade(_prep8[0], "c"))
+
+    # A fatura gravada ANTES desta regra: sem `tipo` e sem a parcela no nome.
+    # Anexar de novo marca o mês nela, e não duplica.
+    _aba_falsa.linhas = [COLUNAS]
+    carregar.clear()
+    _fat = [{"data": "2026-03-17", "descricao": "ML", "valor": -73.99,
+             "parcela_n": 7, "parcela_de": 10, "finalidade": "MERCADORIA"},
+            {"data": "2026-09-16", "descricao": "ZUL", "valor": -6.95,
+             "parcela_n": 0, "parcela_de": 0, "finalidade": "ESTACIONAMENTO"}]
+    gravar(_fat, "cartão · f.csv", "leo")          # o jeito antigo
+    carregar.clear()
+    _gn, _gr, _gm, _ge = gravar_fatura(_fat, "cartão · f.csv", "2026-10", "leo")
+    carregar.clear()
+    _todas = carregar()
+    ok("fatura antiga anexada de novo nao duplica, e ganha o mes",
+       (_gn, _gr, _gm, _ge) == (0, 2, 2, "") and len(_todas) == 2
+       and all(mes_de(l) == "2026-10" for l in _todas))
+    carregar.clear()
+    _gn2, _gr2, _gm2, _ = gravar_fatura(_fat, "cartão · f.csv", "2026-10", "leo")
+    ok("anexar outra vez nao escreve nada", (_gn2, _gm2) == (0, 0)
+       and len(carregar()) == 2)
+    carregar.clear()
+    _p8 = [dict(_fat[0], parcela_n=8)]
+    _gn3, _, _, _ = gravar_fatura(_p8, "cartão · f.csv", "2026-11", "leo")
+    carregar.clear()
+    ok("a parcela seguinte, com o mesmo arquivo, entra no mes dela",
+       _gn3 == 1 and len(carregar()) == 3
+       and len(do_mes(2026, 11, carregar())) == 1)
+
     print("\nfalhas:", falhas)
+    __import__("sys").exit(1 if falhas else 0)

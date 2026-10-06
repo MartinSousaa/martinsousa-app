@@ -240,15 +240,15 @@ def custo_operacional_do_ano(ano):
     import lancamentos as _lan
     import base_vendas as _bv
     prefixo = f"{int(ano):04d}-"
+    # `mes_de`, e não a data: a compra do cartão pesa no mês em que a fatura
+    # é paga — o mesmo mês que a meta de gastos usa.
     do_ano_todo = _lan.aplicar_cadastro(
-        [l for l in _lan.carregar()
-         if str(l.get("data", "")).startswith(prefixo)])
+        [l for l in _lan.carregar() if _lan.mes_de(l).startswith(prefixo)])
     somas, erro = _bv.somas_por_mes()
     fora = {}
     for m in range(1, 13):
         alvo = f"{int(ano):04d}-{m:02d}"
-        do_mes = [l for l in do_ano_todo
-                  if str(l.get("data", "")).startswith(alvo)]
+        do_mes = [l for l in do_ano_todo if _lan.mes_de(l) == alvo]
         fora[m] = calcular(do_mes, (somas or {}).get((int(ano), m)))
     return fora, erro
 
@@ -345,8 +345,11 @@ if __name__ == "__main__":
     def _sem_planilha():
         raise RuntimeError("sem planilha no auto-teste")
 
+    # A parcela de cartão comprada em 2025 e paga na fatura de fevereiro/2026
+    # pesa em fevereiro: o mês do caixa, o mesmo da meta de gastos.
+    _parc = {**L(-3.0, "ADS", "2025-11-17"), "tipo": "fatura 2026-02"}
     _lan.carregar = lambda: JAN + [L(-1.0, "ADS", "2025-12-31"),
-                                   L(-7.0, "ADS", "2026-02-03")]
+                                   L(-7.0, "ADS", "2026-02-03"), _parc]
     _bv.somas_por_mes = lambda: ({(2026, 1): _sv_jan,
                                   (2026, 2): _bv.somar(BASE, COLS, 2026, 2)},
                                  "")
@@ -358,7 +361,8 @@ if __name__ == "__main__":
         ok("pela cadeia, janeiro dá o mesmo C.O", _ano[1]["co"] == 14487.29)
         ok("e o ano anterior não vaza para janeiro",
            _ano[1]["por_finalidade"].get("ADS") == 7614.05)
-        ok("fevereiro sai separado", _ano[2]["saidas"] == 7.0)
+        ok("fevereiro sai separado, com a parcela do cartão paga nele",
+           _ano[2]["saidas"] == 10.0)
         ok("mês sem nada diz por quê", _ano[5]["custo_por_venda"] is None
            and "extrato" in _ano[5]["motivo"])
     finally:
