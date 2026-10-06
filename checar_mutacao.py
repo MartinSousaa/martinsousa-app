@@ -2459,6 +2459,42 @@ def comandos_sem_codigo_de_saida():
                 or "SystemExit" in corpo):
             continue
         fora.append((mod, n, "imprime 'falhas:' e sai com 0 sempre"))
+
+    # ── E A VARREDURA VALE PARA TODO MODULO, nao so para os que alguma
+    #    mutacao aponta ──────────────────────────────────────────────────
+    #
+    # A varredura acima olha `usados` — os modulos que alguma entrada desta
+    # lista manda rodar. Tres modulos do diff de 06/10 passaram por fora dela
+    # exatamente por isso: `favorecidos.py`, `folha_salarial.py` e
+    # `headcount.py` tem auto-teste e nenhuma mutacao aponta para eles. E a
+    # Forma 1 aplicada ao proprio verificador: a regra nao e "quem esta nesta
+    # lista", e sim "quem tem auto-teste".
+    #
+    # SAO DUAS REDES, E BASTA UMA. `conferir._reprovou` e o `_reprovou` daqui
+    # reprovam por CODIGO DE SAIDA **ou** pela palavra FALHA na saida. Medido
+    # em 06/10: dos 74 modulos com auto-teste, 34 nao tem codigo de saida (e
+    # todos imprimem FALHA) e 7 nao imprimem FALHA (e todos tem codigo). Zero
+    # ficam sem nenhuma das duas — e e isso que esta guarda trava.
+    import re as _re_rede
+    for _n_mod in sorted(os.listdir(RAIZ)):
+        if not _n_mod.endswith(".py") or _n_mod.startswith("checar_"):
+            continue
+        try:
+            _f_mod = open(os.path.join(RAIZ, _n_mod), encoding="utf-8").read()
+        except Exception:
+            continue
+        if 'if __name__ == "__main__":' not in _f_mod:
+            continue
+        _c_mod = _f_mod.split('if __name__ == "__main__":')[-1]
+        if "falhas:" not in _c_mod:
+            continue
+        _tem_saida = ("sys.exit" in _c_mod or "exit(" in _c_mod
+                      or "SystemExit" in _c_mod)
+        _tem_falha = bool(_re_rede.search(r'["\']FALHA', _c_mod))
+        if not _tem_saida and not _tem_falha:
+            fora.append((_n_mod, 0,
+                         "auto-teste SEM REDE: nao sai com codigo != 0 nem "
+                         "imprime FALHA — quem reprova nele passa batido"))
     return fora
 
 

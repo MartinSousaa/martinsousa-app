@@ -502,3 +502,8 @@ if __name__ == "__main__":
        "grupo" not in COLUNAS)
 
     print("\nfalhas:", falhas)
+
+    # O CODIGO DE SAIDA. Sem ele, quem le `returncode` ve este modulo como
+    # aprovado SEMPRE — e o `conferir.py` e o `checar_mutacao.py` leem
+    # exatamente isso. Auto-teste sem codigo de saida nao e rede: e decoracao.
+    __import__("sys").exit(1 if falhas else 0)
