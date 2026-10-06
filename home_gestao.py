@@ -960,13 +960,13 @@ def _lpv_card(ind, de_onde, lpv=None, origem="", atraso=0):
 
     if valor is None:
         return {
-            "rotulo": "LPV", "sub": "custo operacional médio por venda · Financeiro",
+            "rotulo": "LPV", "sub": "custo fixo + não operacional por venda · Financeiro",
             "realizado": 0.0, "necessario": None, "fmt": "brl",
             "maior_melhor": False, "acumula": False, "estimado": False,
             "rodape": ("Nenhum LPV informado — preencha em "
                        f"Gestão → Financeiro. {rodape}")}
 
-    sub = f"custo operacional médio por venda · Financeiro · {origem}"
+    sub = f"custo fixo + não operacional por venda · Financeiro · {origem}"
     if atraso:
         sub += f" · {atraso} mês(es) atrasado"
     return {
@@ -977,7 +977,7 @@ def _lpv_card(ind, de_onde, lpv=None, origem="", atraso=0):
 
 def _painel(ind, realizado, lucro_bruto, mb, mc_venda, ll_venda, vendas,
             lpv, lpv_origem, lpv_atraso, uc, dev_valor, dev_sub, dev_teto,
-            dev_mes, dev_todas, periodo, cf_venda=None):
+            dev_mes, dev_todas, periodo):
     """Os números do painel de uma tela. Só reúne: nenhuma conta nova.
 
     Os dois % que não existiam saem das contas que já existem:
@@ -1011,7 +1011,7 @@ def _painel(ind, realizado, lucro_bruto, mb, mc_venda, ll_venda, vendas,
     return {
         "lucro_bruto": lucro_bruto, "lucro_bruto_pct": mb,
         "lucro_liquido": ll, "lucro_liquido_pct": ll_pct,
-        "ll_venda": ll_venda, "mc_venda": mc_venda, "cf_venda": cf_venda,
+        "ll_venda": ll_venda, "mc_venda": mc_venda,
         "lpv": lpv, "lpv_origem": lpv_origem, "lpv_atraso": lpv_atraso,
         "uc": uc, "uc_necessario": 1.0,
         "devolucao": dev_valor, "devolucao_pct": dev_pct,
@@ -1132,7 +1132,7 @@ def _html_indicadores(p):
                 f'<span style="font-size:13px;font-weight:700;">{_fmt(pct, "pct")}</span></div>')
     ll = p.get("lucro_liquido")
     uc = p.get("uc")
-    lpv_sub = (f'custo operacional por venda · {p.get("lpv_origem") or "—"}'
+    lpv_sub = (f'custo fixo + não operacional por venda · {p.get("lpv_origem") or "—"}'
                + (f' · {p["lpv_atraso"]} mês(es) atrasado' if p.get("lpv_atraso") else ""))
     uc_cor = "{VERDE}" if (uc is not None and uc >= p["uc_necessario"]) else "{VERMELHO}"
     return (
@@ -1146,9 +1146,9 @@ def _html_indicadores(p):
         + bloco("Lucro líquido", _brl(ll, 0) if ll is not None else "—",
                 pct_linha(p.get("lucro_liquido_pct")),
                 (f'{_brl(p.get("ll_venda"))} por venda, já sem '
-                 f'{_brl(p.get("cf_venda"))} de custo fixo'
-                 if (ll is not None and p.get("cf_venda") is not None)
-                 else "falta o custo fixo — Gestão → Financeiro"))
+                 f'{_brl(p.get("lpv"))} de LPV'
+                 if (ll is not None and p.get("lpv"))
+                 else "falta o LPV — Gestão → Financeiro"))
         + bloco("LPV", _brl(p.get("lpv")) if p.get("lpv") else "—", "", lpv_sub,
                 borda=True)
         + bloco("UC", (_fmt(uc, "razao") if uc is not None else "—"), "",
@@ -1377,32 +1377,32 @@ def dados_reais(ano, mes, dia):
     # Numero sem conta escrita e numero que ninguem confere sozinho.
     _de = f" · BASE DE VENDAS · {_periodo_curto}"
 
-    # ── MARGEM DE CONTRIBUIÇÃO, CUSTO FIXO POR VENDA E LUCRO LÍQUIDO ─────
+    # ── MARGEM DE CONTRIBUIÇÃO, LPV, LUCRO LÍQUIDO E UC — A PLANILHA ───────
     #
-    # Ditado pelo dono em 05/10: "lucro líquido é o que sobra depois de
-    # descontar taxa da plataforma, frete, NF, custo operacional e valor de
-    # UC". Taxa, frete, NF e custo operacional já saíram da coluna MARGEM C.;
-    # o "valor de UC" é o custo fixo por venda — `custo fixo ÷ quantidade de
-    # vendas` (`financeiro_historico.py:80`). Antes daqui a conta tirava o
-    # LPV, que é custo OPERACIONAL por venda, e o custo fixo não saía.
+    # Conferido nas fórmulas do Controle MS do dono em 05/10:
+    #     MARGEM C. (col. Y) = faturamento − custo do produto − comissão
+    #                          − frete − NF − CUSTO OP. (o custo operacional
+    #                          do mês, rateado pela participação da venda)
+    #     LPV (col. AA)      = (custo fixo + não operacional) ÷ vendas do mês
+    #                          (DIN FINANÇAS!Y53) — `lpv_mensal.lpv`
+    #     UNI. CONT. (AB)    = MARGEM C. ÷ LPV  → é a UC
+    # E o dono, 25/09: "considere a coluna de margem de contribuição e
+    # subtraia o LPV, o que sobrar é lucro líquido".
     #
-    #     margem de contribuição por venda  =  coluna MARGEM C. ÷ nº de vendas
-    #     custo fixo por venda              =  custo fixo do mês ÷ vendas/mês
-    #     lucro líquido por venda           =  MC por venda − custo fixo/venda
-    #     UC (cartão)                       =  MC por venda ÷ LPV
+    #     lucro líquido por venda = MC por venda − LPV
+    #     UC                      = MC por venda ÷ LPV
     #
-    # O custo fixo é o MESMO numerador do ponto de equilíbrio deste painel
-    # (`comp`, montado acima): um custo fixo só, uma resposta só.
+    # Não conta nada duas vezes: o que já saiu na MARGEM C. é o custo
+    # OPERACIONAL; o LPV é o custo FIXO. Até 05/10 o Studio chamava de LPV o
+    # operacional (e o lucro líquido tirava outro custo fixo, com o teto de
+    # R$ 9.500 e sem os PRONAMPs) — duas respostas para o mesmo nome.
     #
     # OS DOIS LADOS VÊM DE RELÓGIOS DIFERENTES, e isso sai escrito: a MC é a
     # média dos meses lançados, o LPV é o do mês vigente do Financeiro.
     _lpv, _lpv_origem, _lpv_atraso = _do_financeiro()
     _vendas = ind.get("vendas") or 0.0
     _mc_venda = (ind.get("margem_contribuicao") or 0.0) / _vendas if _vendas else None
-    _cf_mes = comp.get("numerador_hoje")
-    _cf_venda = (_cf_mes / _vendas) if (_cf_mes and _vendas) else None
-    _ll_venda = ((_mc_venda - _cf_venda)
-                 if (_mc_venda is not None and _cf_venda is not None) else None)
+    _ll_venda = (_mc_venda - _lpv) if (_mc_venda is not None and _lpv) else None
     _uc_paga = (_mc_venda / _lpv) if (_mc_venda is not None and _lpv) else None
     _de_lpv = (f" · LPV de {_lpv_origem}" if _lpv_origem and _lpv else "")
     # ── O QUE DÁ PARA SABER DO MÊS CORRENTE ──────────────────────────────
@@ -1497,18 +1497,18 @@ def dados_reais(ano, mes, dia):
             _card("Margem de contribuição",
                   "margem de contribuição ÷ faturado líquido" + _de, _ml or 0.0,
                   None, "pct", False),
-            # LUCRO LIQUIDO = MC − custo fixo por venda. Ditado pelo dono em
-            # 05/10; e o que sobra da venda depois de o custo fixo dela ser pago.
+            # LUCRO LIQUIDO = MC − LPV (dono, 25/09; planilha, col. Y e AA):
+            # o que sobra da venda depois de o custo fixo dela ser pago.
             _card("Lucro líquido",
-                  "(margem de contribuição por venda − custo fixo por venda)"
-                  " × nº de vendas" + _de,
+                  "(margem de contribuição por venda − LPV) × nº de vendas"
+                  + _de + _de_lpv,
                   _ll_venda * _vendas if _ll_venda is not None else 0.0,
                   None, "brl0", False,
                   rodape=(f'Por venda: <b style="color:var(--ms-texto);">'
                           f'{_brl(_ll_venda)}</b> = {_brl(_mc_venda)} de margem '
-                          f'− {_brl(_cf_venda)} de custo fixo'
+                          f'− {_brl(_lpv)} de LPV'
                           if _ll_venda is not None else
-                          "Falta o custo fixo — cadastre em Gestão → Financeiro.")),
+                          "Falta o LPV — Gestão → Financeiro → LPV Mensal.")),
             # UC = quantas vezes a venda paga o custo fixo dela. E a mesma
             # conta da Viabilidade (`app.py:979`), e o UC_MINIMO de la e a
             # regua: abaixo de 1,0 a venda nao paga o proprio custo fixo.
@@ -1532,7 +1532,7 @@ def dados_reais(ano, mes, dia):
                           _ll_venda, _vendas, _lpv, _lpv_origem, _lpv_atraso,
                           _uc_paga, _dev_valor, _sub_dev, _dev_teto,
                           _dev_linhas_mes, _dev_todas, _periodo_curto,
-                          cf_venda=_cf_venda),
+                          ),
     }, avisos
 
 
@@ -1627,10 +1627,10 @@ def pagina(usuario_logado=None, dados=None):
                if d.get("linhas_base_vendas") else "")
             + ". O mês corrente ainda não foi lançado lá; um mês pela metade "
               "não descreve o negócio.  \n"
-            "**LPV:** o custo operacional médio por venda que o Studio "
-            "calcula em Gestão → Financeiro → LPV Mensal, do último mês "
-            "fechado; o "
-            "digitado só vale quando não há cálculo.  \n"
+            "**LPV:** (custo fixo + folha da gerência + assinaturas + não "
+            "operacional) ÷ vendas, do último mês fechado — "
+            "Gestão → Financeiro → LPV Mensal; o digitado só vale quando não "
+            "há cálculo.  \n"
             f"**Gastos:** o mês corrente, dos extratos — detalhe abaixo.")
     for _a in (_avisos or []):
         st.warning(_a)
@@ -2005,15 +2005,17 @@ if __name__ == "__main__":
     ok("e NÃO do lucro por venda da BASE DE VENDAS",
        'ind["lucro_por_venda"]' not in _corpo_cards
        and ("ind[" + '"lpv"]') not in _corpo_cards)
-    # Custo fixo NÃO entra no LPV (dono, 02/10 e 05/10): o C.O é o que sai
-    # por PIX, cartão e boleto menos mercadoria, custo fixo e imposto.
+    # O LPV É CUSTO FIXO + NÃO OPERACIONAL ÷ VENDAS (planilha do dono,
+    # DIN FINANÇAS!Y53, conferida em 05/10). O C.O é outra conta.
     # O RÓTULO QUE A TELA MOSTRA, e não o código-fonte: o docstring cita a
     # definição antiga para contar a história, e a guarda se acharia nele.
     _sub_lpv = (_lpv_card({}, "", 19.47, "Setembro/2026 · calculado", 0)["sub"]
                 + " " + _lpv_card({}, "", None, "", 0)["sub"])
-    ok("o cartão diz que é custo operacional por venda",
-       "custo operacional médio por venda" in _sub_lpv
-       and "custo fixo" not in _sub_lpv)
+    # 05/10, na planilha do dono: LPV = (custo fixo + não operacional) ÷
+    # vendas. O cartão dizia "custo operacional" — a outra conta.
+    ok("o cartão diz que o LPV é custo fixo + não operacional por venda",
+       "custo fixo + não operacional por venda" in _sub_lpv
+       and "custo operacional" not in _sub_lpv)
     ok("diz de que mês o LPV veio", "origem" in _corpo_lpv)
     ok("e avisa quando ele está atrasado",
        "meses_de_atraso_lpv(" in _corpo_fin and "atrasado" in _corpo_lpv)
@@ -2083,20 +2085,17 @@ if __name__ == "__main__":
        ("Lucro, margem, " + "LPV e UC") not in _pg)
     ok("e diz onde o LPV mora", "Gestão → Financeiro" in _pg)
 
-    # ── MC, CUSTO FIXO POR VENDA E LUCRO LIQUIDO ────────────────────────
+    # ── MC, LPV, LUCRO LIQUIDO E UC — AS COLUNAS Y, AA E AB DA PLANILHA ──
     #
-    # Ditado pelo dono em 05/10: lucro liquido e o que sobra depois de taxa,
-    # frete, NF, custo operacional (ja fora da MARGEM C.) e o "valor de UC",
-    # o custo fixo por venda. A cadeia inteira e conferida em
-    # `checar_tela._lucro_liquido_custo_fixo`.
+    # Conferido nas formulas do Controle MS em 05/10. A cadeia inteira e
+    # conferida em `checar_tela._lucro_liquido_custo_fixo`.
     ok("não existe mais régua de margem de contribuição",
        "margem de contribuição ÷ faturado líquido" in _corpo_cards
        and "_eq.margem_de_contribuicao()) * 100.0" not in _corpo_cards)
-    ok("o lucro líquido é margem de contribuição menos custo fixo por venda",
-       "(_mc_venda - _cf_venda)" in _corpo_cards
-       and "_mc_venda - _lpv" not in _corpo_cards)
-    ok("o custo fixo é o mesmo numerador do ponto de equilíbrio",
-       '_cf_mes = comp.get("numerador_hoje")' in _corpo_cards)
+    ok("o lucro líquido é margem de contribuição menos LPV (planilha, col. Y − AA)",
+       "_ll_venda = (_mc_venda - _lpv)" in _corpo_cards
+       and "_cf_venda" not in _corpo_cards
+       and "numerador_hoje" not in _corpo_cards)
     ok("a UC é margem de contribuição por venda dividida pelo LPV",
        "_uc_paga = (_mc_venda / _lpv)" in _corpo_cards)
     ok("e a régua da UC é 1,0 — abaixo disso a venda não se paga",
@@ -2237,8 +2236,8 @@ if __name__ == "__main__":
     ok("a página desenha o painel e guarda o detalhe dos gastos",
        "_html_gastos(" in _pg and "_html_devolucoes(" in _pg
        and "_html_indicadores(" in _pg and "st.expander" in _pg)
-    ok("sem custo fixo, o lucro líquido não finge ser a margem",
-       "Falta o custo fixo" in _corpo_cards)
+    ok("sem LPV, o lucro líquido não finge ser a margem",
+       "Falta o LPV — Gestão" in _corpo_cards)
 
     print("\nfalhas:", falhas)
 

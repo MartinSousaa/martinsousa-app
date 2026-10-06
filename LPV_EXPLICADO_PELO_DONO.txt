@@ -3,6 +3,58 @@ LPV — TUDO QUE O DONO EXPLICOU, E O QUE O CÓDIGO FAZ HOJE
 MS Studio · extraído em 05/10/2026
 ================================================================================
 
+================================================================================
+⚠️  CORREÇÃO DE 06/10 — LEIA ANTES DE TUDO
+================================================================================
+
+A PRIMEIRA VERSÃO DESTE ARQUIVO ENSINAVA A CONTA ERRADA.
+
+Eu escrevi, em 05/10, que LPV = custo operacional ÷ vendas. Montei isso lendo
+as mensagens do dono. Em 06/10 a outra conversa foi conferir nas FÓRMULAS da
+planilha Controle MS, e a planilha diz outra coisa:
+
+    DIN FINANÇAS!Y53  "LPV (FIXO E N OPER.)"
+        LPV = (CUSTOS FIXOS!D17 + CUSTOS FIXOS!D25) ÷ vendas do mês
+            D17 = contas, aluguéis, Léo, Renan, Monique — SEM colaboradores
+            D25 = PRONAMPs (não operacional)
+
+    BASE DE VENDAS!AO  "custo por venda"
+        custo por venda = custo OPERACIONAL do mês ÷ vendas do mês
+                          (o C.O é DIN FINANÇAS!Y69)
+
+ENTÃO SÃO DUAS CONTAS COM DOIS NOMES, e o que o Studio chamava de LPV era o
+CUSTO POR VENDA:
+
+    LPV             = (custo fixo + não operacional) ÷ vendas
+    CUSTO POR VENDA = custo operacional ÷ vendas
+
+POR QUE EU ERREI, dito em voz alta: o dono descreveu o custo operacional em
+22/09 ("eu somo o valor mensal desses custos e divido pela quantidade de
+vendas") e o LPV em 25/09 ("Eu não disse que o LPV era o meu custo fixo
+dividido pelo número de vendas?"). As duas frases estão nesta PARTE 1, na
+ordem — e eu tratei a primeira como a definição de LPV. A segunda é que era.
+FÓRMULA DA PLANILHA VENCE LEITURA DE CONVERSA: ela é a fonte, e eu li a
+fonte errada.
+
+A CONSEQUÊNCIA, e é ela que importa para quem decide:
+
+    lucro líquido por venda = margem de contribuição por venda − LPV
+    UC                      = margem de contribuição por venda ÷ LPV
+
+O custo operacional NÃO entra nessa subtração porque ele JÁ SAIU dentro da
+margem de contribuição (coluna CUSTO OP. da planilha, rateado pela
+participação no faturamento). O LPV não saiu — por isso é ele que se subtrai.
+
+Isto inverte o que a versão anterior deste arquivo dizia na PARTE 0-bis. O
+texto das partes abaixo foi mantido onde descreve o CUSTO OPERACIONAL, que
+continua certo — só o NOME estava trocado. Onde se lê "LPV" nas partes 0 e
+0-bis, leia "CUSTO POR VENDA".
+
+Onde o código está hoje: `lpv_mensal.py` calcula as DUAS e as nomeia.
+
+================================================================================
+
+
 PARA QUE SERVE ESTE ARQUIVO
 ---------------------------
 A conversa que cuida do sistema precisa do LPV inteiro: a regra como o dono a

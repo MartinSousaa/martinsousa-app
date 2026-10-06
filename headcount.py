@@ -1164,3 +1164,8 @@ if __name__ == "__main__":
        "\n" not in _tabela_html(["a", "b"], [["1", "2"]], ["t", "3"])
        and "\n" not in _grade([_cartao("x", "1", "s")], 1))
     print("\nfalhas:", falhas)
+
+    # O CODIGO DE SAIDA. Sem ele, quem le `returncode` ve este modulo como
+    # aprovado SEMPRE — e o `conferir.py` e o `checar_mutacao.py` leem
+    # exatamente isso. Auto-teste sem codigo de saida nao e rede: e decoracao.
+    __import__("sys").exit(1 if falhas else 0)

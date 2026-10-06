@@ -10,9 +10,17 @@ Foi o próprio dono quem identificou, em 05/10: "estou misturando Custo
 Operacional com LPV". Não era erro de conceito dele — são dois números com o
 mesmo nome, e quem não souber disso vai somar o mesmo custo duas vezes.
 
-    (A) O C.O DO LPV
-        Soma em REAIS do mês. Dividida pelas vendas, vira o LPV.
-        Mora em `lpv_mensal.py`.
+    (A) O CUSTO OPERACIONAL EM REAIS
+        Soma em REAIS do mês. Dividida pelas vendas, vira o CUSTO POR VENDA
+        (BASE DE VENDAS!AO) — e NÃO o LPV. Mora em `lpv_mensal.py`.
+
+        ⚠️  CORREÇÃO DE 06/10: até 05/10 este arquivo e o do LPV chamavam
+        isto de "o C.O do LPV". Errado. A planilha do dono separa:
+            LPV             = (custo fixo + não operacional) ÷ vendas
+                              (DIN FINANÇAS!Y53)
+            CUSTO POR VENDA = custo operacional ÷ vendas
+                              (BASE DE VENDAS!AO)
+        Fórmula da planilha vence leitura de conversa.
 
     (B) A TAXA OPERACIONAL DO PONTO DE EQUILÍBRIO
         O MESMO gasto, expresso como FRAÇÃO DO FATURAMENTO. Entra ao lado de
