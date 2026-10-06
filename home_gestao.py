@@ -56,6 +56,10 @@ import streamlit as st
 
 import rotulos as _rot
 
+_MESES_HOME = ("janeiro", "fevereiro", "março", "abril", "maio", "junho",
+               "julho", "agosto", "setembro", "outubro", "novembro",
+               "dezembro")
+
 # Estado, não identidade. As três nunca aparecem lado a lado disputando
 # significado: cada barra mostra uma só, e sempre com a frase ao lado.
 VERDE = "#1BAF7A"
@@ -198,9 +202,11 @@ def _de_onde_vem_a_meta(f):
 
 
 # ── A PALETA DA HOME (layout aprovado em 05/10) ─────────────────────────────
-# Só a Home usa: o resto do Studio continua no tema cinza. Os nomes viram
-# cor tanto em f-string quanto em texto comum (`_pintado`, logo abaixo).
-FUNDO, CARTAO, BORDA, TILE = "#101317", "#191D23", "#262C34", "#14181D"
+# Só a Home usa. Os nomes viram cor tanto em f-string quanto em texto comum
+# (`_pintado`, logo abaixo). O FUNDO é o cinza do Studio (`--ms-fundo`,
+# app.py:70): o azul-escuro do layout foi trocado pelo dono em 05/10 — "o
+# fundo cinza ficará melhor". Os cartões são um tom abaixo dele.
+FUNDO, CARTAO, BORDA, TILE = "#3c3c3c", "#333333", "#4a4a4a", "#2c2c2c"
 TEXTO, SEC = "#E8EAED", "#9AA3AE"
 VERDE, AMBAR, AZUL, VERMELHO = "#4CC38A", "#E0A13A", "#7FB8F0", "#E5534B"
 _PALETA = {"FUNDO": FUNDO, "CARTAO": CARTAO, "BORDA": BORDA, "TILE": TILE,
@@ -824,6 +830,27 @@ def _gastos_por_finalidade(ano, mes):
                     "o custo operacional ficou de fora da margem.")
 
 
+def grades_zeradas(custo_fixo, gerencia):
+    """Avisos de grade em ZERO — que é diferente de "tudo vazio".
+
+    05/10: o equilíbrio de produção fechava com ~R$ 13 mil de custo fixo, que
+    é o teto padrão de outros (R$ 9.500) mais as assinaturas — o Custo fixo e
+    a Folha nunca tinham sido salvos (a tela mostra a SUGESTÃO até alguém
+    clicar em Salvar). O aviso de "cadastro vazio" só disparava com TUDO em
+    zero, e as assinaturas o seguravam calado. Cada grade avisa por si.
+    """
+    fora = []
+    if not custo_fixo:
+        fora.append("**Custo fixo do mês em zero** — a grade Custos fixos › "
+                    "Operacional não está salva (ou não foi lida). O ponto de "
+                    "equilíbrio e o lucro líquido estão sem ele.")
+    if not gerencia:
+        fora.append("**Folha da gerência em zero** — a grade Custos fixos › "
+                    "Folha salarial (gestores) não está salva (ou não foi "
+                    "lida). O ponto de equilíbrio e o lucro líquido estão sem ela.")
+    return fora
+
+
 def composicao_do_mes(ano, mes, faturamento):
     """(composição, avisos) — o ponto de equilíbrio com os números do cadastro.
 
@@ -835,6 +862,7 @@ def composicao_do_mes(ano, mes, faturamento):
     import financeiro_equilibrio as _eq
 
     cf, assin, ger, head, avisos = _partes_fixas(ano, mes)
+    avisos = list(avisos) + grades_zeradas(cf, ger)
     resumo, aviso_lan = _gastos_por_finalidade(ano, mes)
     if aviso_lan:
         avisos.append(aviso_lan)
@@ -967,20 +995,11 @@ def _painel(ind, realizado, lucro_bruto, mb, mc_venda, ll_venda, vendas,
     # média de 3 meses, lado a lado — no dia 5 o líquido saía MAIOR que o
     # bruto (R$ 53 mil contra R$ 23 mil, print de 05/10).
     ll = round(realizado * ll_pct / 100.0, 2) if ll_pct is not None else None
-    if dev_mes:
-        dev_pct = _dv.pct_do_faturado(dev_valor, realizado)
-        linhas_top, sub_top = dev_mes, "no mês"
-    else:
-        dev_pct = _dv.pct_do_faturado(ind.get("devolucao"),
-                                      ind.get("faturamento"))
-        _ult = _dv.meses(dev_todas)[:3]
-        linhas_top = [l for l in (dev_todas or [])
-                      if _dv.mes_de(l.get("data_solic")) in _ult]
-        sub_top = "últimos 3 meses com devolução"
-        # O teto no MESMO período do valor: a média de um mês fechado contra
-        # 3% do faturado parcial dava "acima do teto" todo início de mês.
-        dev_teto = (round(ind.get("faturamento", 0.0) * TETO_DEVOLUCAO_PCT
-                          / 100.0, 2) or None)
+    # SÓ O MÊS (dono, 05/10): valor, % e top 5 do mês corrente. Mês sem
+    # devolução cadastrada fica em zero e diz isso — nada de média nem de
+    # "últimos 3 meses" fingindo ser o mês.
+    dev_pct = _dv.pct_do_faturado(dev_valor, realizado)
+    linhas_top, sub_top = (dev_mes or []), "no mês"
     # Top 5 pela QUANTIDADE, que é o que o dono pediu ("o número de
     # devoluções desses motivos"); `top_motivos` ordena por valor.
     _top = sorted(_dv.top_motivos(linhas_top, 50),
@@ -1238,7 +1257,7 @@ def _html_devolucoes(p):
         f'{_bar(n / maior * 100, "{VERMELHO}", 8)}'
         f'<b style="text-align:right;">{n}</b></div>'
         for m, n, _v, _p in top) or (
-        '<div style="font-size:12px;color:{SEC};">Nenhuma devolução cadastrada no período.</div>')
+        '<div style="font-size:12px;color:{SEC};">Nenhuma devolução cadastrada no mês.</div>')
     return (
         '<div style="background:{CARTAO};border:1px solid {BORDA};'
         'border-radius:18px;padding:20px 24px;display:flex;flex-direction:column;'
@@ -1398,9 +1417,14 @@ def dados_reais(ano, mes, dia):
                      if _mb else _sub_media)
 
     # As devoluções do mês vêm da aba `devolucoes`, preenchida no dia a dia —
-    # esta é a única do bloco que é MEDIDA e não estimada. Sem a aba (ou
-    # antes de alguém cadastrar), cai na média dos meses fechados.
-    _dev_valor, _sub_dev = ind["devolucao"], f"média de {_periodo_curto}"
+    # esta é a única do bloco que é MEDIDA e não estimada.
+    #
+    # SÓ O MÊS, pedido do dono em 05/10: "eu quero saber o resumo do mês e
+    # não dos últimos meses". Antes, mês sem devolução cadastrada caía na
+    # média da BASE DE VENDAS e no top dos últimos 3 meses — e a tela parecia
+    # falar do mês. Agora mês sem cadastro diz que não tem cadastro.
+    _nome_mes = f"{_MESES_HOME[mes - 1]}/{ano}"
+    _dev_valor, _sub_dev = 0.0, f"nenhuma cadastrada em {_nome_mes}"
     _dev_linhas_mes, _dev_todas = [], []
     try:
         import devolucoes as _dv
@@ -1409,7 +1433,8 @@ def dados_reais(ano, mes, dia):
         _dev_linhas_mes = _do_mes
         if _do_mes:
             _dev_valor = _dv.resumo(_do_mes)["valor"]
-            _sub_dev = f"medido no mês · {len(_do_mes)} devolução(ões)"
+            _sub_dev = (f"{_nome_mes} · {len(_do_mes)} devolução(ões) "
+                        "cadastrada(s)")
     except Exception as e:
         avisos.append(f"Devoluções: {str(e)[:100]}")
 
@@ -1512,14 +1537,12 @@ def dados_reais(ano, mes, dia):
 
 
 def pagina(usuario_logado=None, dados=None):
-    # A HOME TEM O VISUAL DO LAYOUT APROVADO (05/10): fundo escuro, fonte e
-    # paleta próprias. O <style> só existe enquanto a Home está na tela —
-    # ao trocar de aba, o Streamlit tira o elemento e o resto do Studio
-    # volta ao cinza, que é o que o dono pediu.
+    # A HOME TEM A FONTE E A PALETA DO LAYOUT APROVADO (05/10), sobre o
+    # cinza do Studio. O fundo da página NÃO é mais trocado: o dono pediu de
+    # volta o cinza do sistema.
     st.markdown(
         "<style>@import url('https://fonts.googleapis.com/css2?family=Manrope:"
-        "wght@400;500;600;700;800&display=swap');"
-        f'[data-testid="stMain"]{{background:{FUNDO} !important;}}</style>',
+        "wght@400;500;600;700;800&display=swap');</style>",
         unsafe_allow_html=True)
     st.markdown("### 🏠 Home")
     # O QUE A TELA MOSTRA, E NAO POR QUE ELA EXISTE.
@@ -2151,10 +2174,26 @@ if __name__ == "__main__":
                             "valor": 1.0}], _dv_rows, "p")["top_motivos"][0][0]
        == "Desistência")
     _p_sem = _painel(_ind_t, 30000.0, 22000.0, _ind_t["margem_bruta"], 25.0,
-                     5.0, 1000.0, 20.0, "x", 0, 1.25, 3000.0, "média", 900.0,
+                     5.0, 1000.0, 20.0, "x", 0, 1.25, 0.0, "nenhuma", 900.0,
                      [], _dv_rows, "jul–set")
-    ok("sem devolução no mês, o teto é do mesmo período da média",
-       _p_sem["devolucao_teto"] == round(100000.0 * TETO_DEVOLUCAO_PCT / 100, 2))
+    ok("custo fixo em zero avisa, mesmo com assinaturas segurando o total",
+       len(grades_zeradas(0.0, 5000.0)) == 1
+       and "Custo fixo" in grades_zeradas(0.0, 5000.0)[0])
+    ok("folha da gerência em zero avisa", len(grades_zeradas(100.0, 0.0)) == 1)
+    ok("com as duas, nenhum aviso", grades_zeradas(100.0, 5000.0) == [])
+    ok("e a composição do mês passa os avisos adiante",
+       "grades_zeradas(cf, ger)" in inspect.getsource(composicao_do_mes))
+    # 05/10: "eu quero saber o resumo do mês e não dos últimos meses".
+    ok("sem devolução no mês, o top 5 fica vazio — não puxa meses passados",
+       _p_sem["top_motivos"] == [] and _p_sem["top_sub"] == "no mês")
+    ok("e o % é do mês (zero), não a média da BASE DE VENDAS",
+       _p_sem["devolucao_pct"] == __import__('devolucoes').pct_do_faturado(0.0, 30000.0))
+    ok("o teto é 3% do faturado do mês",
+       _p_sem["devolucao_teto"] == 900.0)
+    _corpo_dr_dev = inspect.getsource(dados_reais)
+    ok("o valor do cartão não cai mais na média dos meses fechados",
+       '_dev_valor, _sub_dev = ind["devolucao"]' not in _corpo_dr_dev
+       and "_dev_valor, _sub_dev = 0.0" in _corpo_dr_dev)
     ok("erro de leitura com HTML ou quebra de linha não quebra o quadro",
        "<x>" not in _html_gastos(_q_t, ["falhou <x>\nlinha 2"])
        and "\n" not in _html_gastos(_q_t, ["falhou <x>\nlinha 2"]))
@@ -2183,8 +2222,12 @@ if __name__ == "__main__":
        FUNDO in _g_cor and CARTAO in _g_cor and VERDE in _g_cor
        and "var(--ms-" not in _g_cor
        and not any("{" + k + "}" in _g_cor for k in _PALETA))
-    ok("o fundo escuro vale só enquanto a Home está na tela",
-       '[data-testid="stMain"]' in _pg and "_grade_painel(" in _pg)
+    # 05/10: "o fundo cinza ficará melhor que o azul... volte para o fundo
+    # cinza do sistema".
+    ok("a Home não troca mais o fundo da página",
+       '[data-testid="stMain"]' not in _pg and "_grade_painel(" in _pg)
+    ok("o fundo do painel é o cinza do Studio, não o azul-escuro",
+       FUNDO.lower() == "#3c3c3c" and "#101317" not in _g_cor)
     _p_ser = dict(_p_t, serie_dev=[("2026-08", 100.0), ("2026-09", 300.0),
                                    ("2026-10", 120.0)])
     ok("devoluções têm a linha dos meses e o top 5 embaixo",
@@ -2198,3 +2241,9 @@ if __name__ == "__main__":
        "Falta o custo fixo" in _corpo_cards)
 
     print("\nfalhas:", falhas)
+
+    # O CODIGO DE SAIDA. Sem ele, quem le `returncode` ve este modulo como
+    # aprovado SEMPRE — e o `conferir.py` e o `checar_mutacao.py` leem
+    # exatamente isso. Era assim que as entradas apontadas para ca ficavam
+    # verdes por acidente, medindo nada.
+    __import__("sys").exit(1 if falhas else 0)

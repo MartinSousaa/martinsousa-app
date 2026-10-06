@@ -42,6 +42,29 @@ class ChaveRepetida(Exception):
     """O mesmo `key=` duas vezes — é o erro que o Streamlit dá em produção."""
 
 
+class EscritaDepoisDoWidget(Exception):
+    """Escrever `session_state[k]` depois de o widget `key=k` existir.
+
+    O Streamlit recusa isto em produção com
+    `StreamlitAPIException: st.session_state.<k> cannot be modified after the
+    widget with key <k> is instantiated`.
+
+    O DUPLO NÃO SABIA DISSO, E FOI O QUE DEIXOU O DEFEITO PASSAR.
+
+    05/10, no teste do dono: duas das oito peças falharam por timeout, ele
+    pediu no chat para gerar as faltantes, e o comando morreu aqui.
+    `preparar_geracao_dos_faltantes` escreve `img_modo`
+    (chat_assistente.py:670), que é a chave do rádio de `imagem.py:9211`; o
+    chat é desenhado em `app.py:2092`, DEPOIS da página. Quando o comando
+    roda, o widget já existe.
+
+    A guarda que deveria ter pego (chat_assistente.py, autoteste) mediu a
+    função com este `session_state` — um dicionário puro, onde a regra não
+    existe. Duplo mais pobre que a realidade **absolve o culpado**, que é
+    pior que acusar o inocente: a Forma 7 do CLAUDE.md.
+    """
+
+
 class _Falso:
     """Um Streamlit de mentira. Tudo devolve algo; nada vai para a rede."""
 
@@ -49,7 +72,7 @@ class _Falso:
         # As chaves são compartilhadas entre o módulo e as colunas/containers:
         # o Streamlit de verdade também as vê como um espaço só.
         self._chaves = {} if chaves is None else chaves
-        self.session_state = _Estado()
+        self.session_state = _Estado(self._chaves)
         # OS SEGREDOS EXISTEM, com valor de mentira.
         #
         # `sheets.py:74` lê `st.secrets["gcp_service_account"]` com COLCHETE:
@@ -168,7 +191,17 @@ class _Contexto:
 
 
 class _Estado(dict):
-    """`st.session_state`: dicionário que também responde por atributo."""
+    """`st.session_state`: dicionário que também responde por atributo.
+
+    E QUE RECUSA O QUE O STREAMLIT RECUSA: escrever numa chave cujo widget já
+    foi desenhado nesta passada. Ver `EscritaDepoisDoWidget`.
+    """
+
+    def __init__(self, chaves=None):
+        super().__init__()
+        # O MESMO registro de `_Falso._chaves`, por referência: é ele que diz
+        # quais widgets já nasceram nesta passada.
+        object.__setattr__(self, "_chaves_widget", chaves)
 
     def __getattr__(self, k):
         return self.get(k)
@@ -176,8 +209,23 @@ class _Estado(dict):
     def __setattr__(self, k, v):
         self[k] = v
 
+    def __setitem__(self, k, v):
+        _reg = object.__getattribute__(self, "__dict__").get("_chaves_widget")
+        if _reg and k in _reg and dict.get(self, k, _AUSENTE) != v:
+            raise EscritaDepoisDoWidget(
+                f"st.session_state[{k!r}] foi escrito DEPOIS de o widget com "
+                f"key={k!r} ser desenhado (em {_reg[k]}). O Streamlit levanta "
+                f"StreamlitAPIException aqui, e o comando morre antes de "
+                f"fazer o que prometeu.")
+        dict.__setitem__(self, k, v)
+
     def get(self, k, padrao=None):
         return dict.get(self, k, padrao)
+
+
+# Sentinela: `None` é valor legítimo no session_state, então "ausente" precisa
+# de um objeto próprio — senão reescrever None por None passaria por mudança.
+_AUSENTE = object()
 
 
 class _Qualquer:
@@ -847,6 +895,105 @@ def _chat(conta):
     # O CAMPO DE ANEXO NAO PODE VOLTAR A LISTAR EXTENSOES. Ler a chamada no
     # codigo-fonte da funcao, e nao o arquivo: guarda que varre o arquivo se
     # encontra a si mesma — ja aconteceu quatro vezes nesta base.
+    # ── O COMANDO DO CHAT RODA DEPOIS DA TELA, E ERA ISSO QUE FALTAVA ────
+    #
+    # 05/10, teste do dono: duas das oito peças falharam por timeout; ele
+    # pediu no chat para gerar as faltantes, e o comando morreu com
+    # `st.session_state.img_modo cannot be modified after the widget with key
+    # img_modo is instantiated`.
+    #
+    # A ORDEM É A CAUSA: `app.py:2092` desenha o chat DEPOIS da página, e
+    # `imagem.py:9211` já criou o rádio `img_modo` (e `imagem.py:9648` o
+    # multiselect `img_tipos_multi`). Quando o comando roda, os dois widgets
+    # existem — e o Streamlit recusa escrever na chave deles.
+    #
+    # A guarda antiga (chat_assistente.py, autoteste) chamava a função com o
+    # `session_state` limpo, onde nenhum widget nasceu: ela media a função
+    # num mundo em que a regra não existe, e ficava verde. Aqui o duplo é o
+    # MESMO da tela, com o registro de widgets já preenchido pelo desenho de
+    # `pagina_imagem` — o caminho inteiro, no ambiente real.
+    _falso_f = instalar()
+    import importlib as _imp_f
+    import sys as _sys_f
+    _img_f = _imp_f.import_module("imagem")
+    for _nm_f, _mod_f in list(_sys_f.modules.items()):
+        if getattr(_mod_f, "st", None) is not None and not _nm_f.startswith(
+                ("streamlit", "checar_")):
+            try:
+                _mod_f.st = _falso_f
+            except Exception:
+                pass
+    try:
+        _img_f.pagina_imagem("myrelladesouza")
+    except (_Rerun, _Parou):
+        pass
+    except Exception:
+        pass
+    _desenhou_f = "img_modo" in _falso_f._chaves
+    conta("a tela de Imagem desenha o rádio `img_modo`", _desenhou_f,
+          "sem ele a guarda abaixo não mede nada — o registro de widgets "
+          "ficou vazio e a escrita passaria por legítima")
+
+    _erro_f = ""
+    try:
+        _ca.preparar_geracao_dos_faltantes(["2 — Benefícios do produto",
+                                            "8 — Ambientação realista (sem texto)"])
+    except Exception as _e_f:
+        _erro_f = f"{type(_e_f).__name__}: {_e_f}"
+    conta("gerar as faltantes pelo chat NÃO escreve em chave de widget",
+          _erro_f == "",
+          f"{_erro_f} — é o erro que o dono recebeu em 05/10: o chat promete "
+          "gerar as duas que faltaram e morre antes de marcar nada")
+
+    _marcou_f = (_falso_f.session_state.get("img_tipos_multi")
+                 or _falso_f.session_state.get("img_pedido_faltantes"))
+    conta("e o pedido das faltantes fica registrado em algum lugar",
+          bool(_marcou_f),
+          "o comando não deixou rastro nenhum: a aba não tem como saber "
+          "quais peças refazer")
+
+    # E O PEDIDO TEM DE CHEGAR AO MULTISELECT. "Não explodiu" não é
+    # "funcionou": a primeira correção poderia guardar o pedido numa chave que
+    # ninguém lê, que é exatamente o defeito que `preparar_geracao_dos_faltantes`
+    # já teve uma vez (`chat_gerar_faltantes`, escrita e lida por ninguém, em
+    # 29/09 — a colaboradora pediu sete peças e nenhuma foi gerada).
+    #
+    # Então a guarda desenha a tela DE NOVO, que é a passada seguinte em
+    # produção, e confere o que o multiselect recebeu.
+    _falso_g = instalar()
+    for _nm_g, _mod_g in list(_sys_f.modules.items()):
+        if getattr(_mod_g, "st", None) is not None and not _nm_g.startswith(
+                ("streamlit", "checar_")):
+            try:
+                _mod_g.st = _falso_g
+            except Exception:
+                pass
+    _duas_g = ["2 — Benefícios do produto", "8 — Ambientação realista (sem texto)"]
+    _falso_g.session_state["img_pedido_faltantes"] = list(_duas_g)
+    try:
+        _img_f.pagina_imagem("myrelladesouza")
+    except (_Rerun, _Parou):
+        pass
+    except Exception:
+        pass
+    conta("e na passada seguinte as duas peças chegam ao multiselect",
+          _falso_g.session_state.get("img_tipos_multi") == _duas_g,
+          f"o multiselect recebeu {_falso_g.session_state.get('img_tipos_multi')!r} "
+          "— o pedido foi guardado numa chave que ninguém lê, que é o defeito "
+          "de 29/09 com outro nome")
+    conta("e a aba abre no modo Selecionar",
+          _falso_g.session_state.get("img_modo") == "Selecionar",
+          "a aba abriu noutro modo: as peças estão marcadas numa tela que o "
+          "colaborador não está vendo")
+    # E O PEDIDO NÃO VOLTA. Sem o `pop`, a tela prende no modo Selecionar e
+    # quem tenta sair dele é jogado de volta a cada passada.
+    conta("e o pedido é consumido — não prende a tela no Selecionar",
+          "img_pedido_faltantes" not in _falso_g.session_state,
+          "o pedido ficou guardado: a cada passada a tela volta para o modo "
+          "Selecionar, e o colaborador não consegue sair dele")
+
+    _falso = instalar()
+    _ca.st = _falso
     import inspect as _insp_ch
     _corpo = _insp_ch.getsource(_ca.renderizar_chat)
     _ini = _corpo.find("Anexar imagem")
@@ -2263,6 +2410,77 @@ def _lucro_liquido_custo_fixo(conta):
          hg._partes_fixas, hg._gastos_por_finalidade) = _guardado
 
 
+def _balanco_headcount(conta):
+    """O Balanço headcount novo (05/10) desenha inteiro, com a Reserva dentro.
+
+    Só a leitura é trocada: a grade de colaboradores é a SUGESTÃO do código
+    passada pelo `folha_clt` de verdade, e a apuração das metas sai de
+    `analise_metas.apuracao_bonus` de verdade, sobre um mês montado na forma
+    de `_analisar_meses` (conferida em `headcount.py`). O que se confere: a tela monta, o bônus chega ao
+    quadro, e a Reserva e os aportes aparecem dentro dela.
+    """
+    import pandas as pd
+    import ajustes as _aj
+    import auth as _au
+    import colaboradores as _co
+    import folha_salarial as _fs
+    import headcount as _hc
+    import reserva_tela as _rt
+    import tabela_tributos as _tt
+
+    _guard = (_co.carregar, _aj.carregar, _hc._apurado_do_mes, _tt.carregar,
+              _au.eh_dono, _rt.carregar, _fs.carregar, _hc.carregar,
+              _hc.carregar_params, _co.carregar_taxas)
+    try:
+        _pad = {"cargo": _co.CARGO_PADRAO, "registrado": "Sim",
+                "salario_base": _co.SALARIO_PADRAO, "admissao": "2026-01",
+                "dias_uteis": 22, "no_aporte": "Sim"}
+        _co.carregar = lambda *a, **k: pd.DataFrame(
+            [{**_pad, **p} for p in _co.SUGESTOES])
+        _co.carregar_taxas = lambda *a, **k: _co.taxas_padrao()
+        _aj.carregar = lambda *a, **k: pd.DataFrame(columns=_aj.COLUNAS)
+        # A apuração na FORMA que `analise_metas.apuracao_bonus` devolve —
+        # a cadeia real dela é conferida em `python3 headcount.py`. Aqui não
+        # se importa o Painel de Metas: o `@st.fragment` dele não roda no
+        # duplo, e a tela do Balanço só lê o resultado.
+        _ap = {"g": {"col": True, "maxx": False, "ind": True,
+                     "ind_maxx": False, "pct_time": 12.0, "pct_seu": 8.0}}
+        _hc._apurado_do_mes = lambda *a, **k: (
+            _ap, {"g": "Gabriel"}, {"bateu_col": True, "bateu_maxx": False}, "")
+        _tt.carregar = lambda *a, **k: (pd.DataFrame(columns=_tt.COLUNAS), "")
+        _au.eh_dono = lambda *a, **k: True
+        _rt.carregar = lambda *a, **k: (dict(_rt._rv.POSICAO_INICIAL), "inicial")
+        _fs.carregar = lambda *a, **k: pd.DataFrame(columns=_fs.COLUNAS)
+        _hc.carregar = lambda *a, **k: pd.DataFrame(columns=_hc.COLUNAS)
+        _hc.carregar_params = lambda *a, **k: _hc.parametros_padrao()
+        _falso = instalar()
+        for _m in (_hc, _rt, _co, _tt, _fs, _aj):
+            _m.st = _falso
+        _textos = []
+        _md = _falso.markdown
+        def _grava(t="", *a, **k):
+            _textos.append(str(t))
+            return _md(t, *a, **k)
+        _falso.markdown = _grava
+        _hc.pagina("martinsousa")
+        _tudo = " ".join(_textos)
+        conta("Balanço headcount monta, com a Reserva dentro", True, "")
+        conta("o bônus do Gabriel chega ao quadro (12% + 8% de 3.000)",
+              "600,00" in _tudo and "360,00" in _tudo, "")
+        conta("e a Reserva e os aportes vêm depois do bônus",
+              _tudo.find("Bônus das metas") < _tudo.find("Reserva do Headcount")
+              < _tudo.find("Aportes e saldos"), "")
+    except (_Rerun, _Parou):
+        conta("Balanço headcount monta, com a Reserva dentro", True, "")
+    except Exception as e:
+        conta("Balanço headcount monta, com a Reserva dentro", False,
+              f"{type(e).__name__}: {e}")
+    finally:
+        (_co.carregar, _aj.carregar, _hc._apurado_do_mes, _tt.carregar,
+         _au.eh_dono, _rt.carregar, _fs.carregar, _hc.carregar,
+         _hc.carregar_params, _co.carregar_taxas) = _guard
+
+
 def main():
     instalar()
     falhas = []
@@ -2306,6 +2524,7 @@ def main():
     _excluir_usuario(conta)
     _remocao_a_vista(conta)
     _lucro_liquido_custo_fixo(conta)
+    _balanco_headcount(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0

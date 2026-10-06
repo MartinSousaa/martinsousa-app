@@ -52,6 +52,64 @@ MUTACOES = [
         ["python3", "checar_tela.py"],
     ),
     (
+        'a Reserva volta a ficar fora do Balanco headcount',
+        "headcount.py",
+        [('    _rt.conteudo(usuario_logado)\n', '    pass\n')],
+        None,
+        ["python3", "checar_tela.py"],
+    ),
+    (
+        'o card do colaborador volta a ter a conta do bonus propria',
+        "analise_metas.py",
+        [('            meta_col_batida = _b["col"]\n',
+          '            meta_col_batida = _sit_pen["bateu_col"] and _entra_col\n')],
+        None,
+        ["python3", "analise_metas.py"],
+    ),
+    (
+        'as devolucoes voltam a puxar os ultimos meses quando o mes nao tem',
+        "home_gestao.py",
+        [('    linhas_top, sub_top = (dev_mes or []), "no mês"\n',
+          '    linhas_top, sub_top = (dev_mes or dev_todas), "no mês"\n')],
+        None,
+        ["python3", "home_gestao.py"],
+    ),
+    (
+        'a fatura do cartao volta a gravar as linhas sem classificar',
+        "extratos_tela.py",
+        [('        _novos, _reps, _err = _lan_fat.gravar(classificados, _conta_fat,\n',
+          '        _novos, _reps, _err = _lan_fat.gravar(lancs, _conta_fat,\n')],
+        None,
+        ["python3", "extratos_tela.py"],
+    ),
+    (
+        'as assinaturas voltam a ser conferidas no mes que acabou de comecar',
+        "assinaturas_tela.py",
+        [('    atual = mes_conferido()\n', '    atual = _meses_recentes(1)[0]\n')],
+        None,
+        ["python3", "assinaturas_tela.py"],
+    ),
+    (
+        'o LPV negativo volta a ser regravado pelo Salvar',
+        "financeiro.py",
+        [('                "em branco."))\n            lpv = None\n',
+          '                "em branco."))\n')],
+        None,
+        ["python3", "financeiro.py"],
+    ),
+    (
+        'a Monique volta ao quadro CLT',
+        "colaboradores.py",
+        [('    {"funcionario": "Gabriel", "cargo": "Analista de Marketing",\n'
+          '     "salario_base": 3000.00, "registrado": "Sim"},\n',
+          '    {"funcionario": "Gabriel", "cargo": "Analista de Marketing",\n'
+          '     "salario_base": 3000.00, "registrado": "Sim"},\n'
+          '    {"funcionario": "Monique", "registrado": "Não",\n'
+          '     "salario_base": 2400.00, "no_aporte": "Não"},\n')],
+        None,
+        ["python3", "colaboradores.py"],
+    ),
+    (
         'o lucro liquido volta a descontar o LPV no lugar do custo fixo',
         "home_gestao.py",
         [('    _ll_venda = ((_mc_venda - _cf_venda)\n',
@@ -1287,8 +1345,11 @@ MUTACOES = [
     (
         "preparar a aba para de marcar os tipos que faltam",
         "chat_assistente.py",
-        '    st.session_state["img_tipos_multi"] = list(faltam)\n'
-        '    st.session_state["img_modo"] = "Selecionar"\n    return True',
+        # A ancora acompanhou a correcao de 05/10: a funcao deixou de
+        # escrever nas chaves de widget e passa a deixar um PEDIDO, que a
+        # aba aplica antes de desenhar os widgets. O defeito medido e o
+        # mesmo — o chat promete marcar os tipos e nao marca nada.
+        '    st.session_state["img_pedido_faltantes"] = list(faltam)\n    return True',
         "    return True",
         ["python3", "chat_assistente.py"],
     ),
@@ -1818,6 +1879,116 @@ MUTACOES = [
         '                        produto=cfg.get("nome_produto", ""),\n',
         ["python3", "checar_tela.py"],
     ),
+    # ── 05/10: O BOTAO "LIMPAR CHAT" ────────────────────────────────────
+    #
+    # "Limpar a conversa" e "jogar fora o trabalho" sao coisas diferentes, e
+    # o estado do chat mistura as duas: tres das seis chaves sao COMANDOS JA
+    # ACEITOS que a aba Imagem ainda vai executar. Levar a fila junto seria
+    # perder geracao paga em silencio.
+    (
+        "limpar a conversa volta a cancelar os pedidos ja aceitos",
+        "chat_assistente.py",
+        '    st.session_state.pop("chat_pendente", None)\n',
+        '    st.session_state.pop("chat_pendente", None)\n'
+        '    st.session_state.pop("chat_refazer_imagem", None)\n'
+        '    st.session_state.pop("chat_img_pendente", None)\n'
+        '    st.session_state.pop("chat_refazer_todas", None)\n',
+        ["python3", "chat_assistente.py"],
+    ),
+    (
+        "limpar a conversa volta a levar a galeria junto",
+        "chat_assistente.py",
+        '    st.session_state["ms_chat_hist"] = []\n'
+        '    st.session_state.pop("chat_pendente", None)\n',
+        "    st.session_state.clear()\n"
+        '    st.session_state["ms_chat_hist"] = []\n',
+        ["python3", "chat_assistente.py"],
+    ),
+    # A FOTO PRESA. A chave do `file_uploader` carrega esta versao: sem
+    # troca-la, o anexo continua pendurado num chat que acabou de ser zerado.
+    (
+        "limpar a conversa deixa a foto presa no campo de anexo",
+        "chat_assistente.py",
+        '    st.session_state["chat_anexo_versao"] = (\n'
+        '        st.session_state.get("chat_anexo_versao", 0) + 1)\n',
+        "    pass\n",
+        ["python3", "chat_assistente.py"],
+    ),
+    # O BOTAO SAI INTEIRO, e nao "desligado" por um `and`: a guarda e por AST,
+    # e um `if False and st.button(...)` deixa a chamada na arvore. Mutacao
+    # que nao reintroduz o defeito da alarme falso.
+    (
+        "o botao Limpar Chat some da tela",
+        "chat_assistente.py",
+        '                if st.button("Limpar Chat", key="btn_limpar_chat",\n'
+        '                             help="Apaga esta conversa e começa do zero. A "\n'
+        '                                  "galeria, o plano e as fotos não são "\n'
+        '                                  "tocados; pedidos já aceitos continuam.",\n'
+        "                             use_container_width=True):\n"
+        "                    limpar_conversa()\n"
+        "                    st.rerun()\n",
+        '                st.caption("")\n',
+        ["python3", "chat_assistente.py"],
+    ),
+    (
+        "o botao sai da fileira do anexo e vira uma linha propria",
+        "chat_assistente.py",
+        '        _col_anexo, _col_limpar = st.columns([2, 1], vertical_alignment="center")\n',
+        "        _col_anexo = _col_limpar = st.container()\n",
+        ["python3", "chat_assistente.py"],
+    ),
+    # ── 05/10, TESTE 2 DO DONO: 6 de 8, e a recuperacao quebrada ────────
+    #
+    # Duas pecas morreram no timeout do Gemini; ele pediu no chat para gerar
+    # as faltantes e o comando morreu com "img_modo cannot be modified after
+    # the widget with key img_modo is instantiated". A guarda antiga media a
+    # funcao com o session_state limpo, onde a regra do Streamlit nao existe.
+    (
+        "o chat volta a escrever na chave do widget para gerar as faltantes",
+        "chat_assistente.py",
+        '    st.session_state["img_pedido_faltantes"] = list(faltam)\n',
+        '    st.session_state["img_tipos_multi"] = list(faltam)\n'
+        '    st.session_state["img_modo"] = "Selecionar"\n',
+        ["python3", "checar_tela.py"],
+    ),
+    (
+        "a aba para de aplicar o pedido de gerar as faltantes",
+        "imagem.py",
+        '    _faltantes_pedidas = st.session_state.pop("img_pedido_faltantes", None)\n',
+        "    _faltantes_pedidas = None\n",
+        ["python3", "checar_tela.py"],
+    ),
+    # O TETO DA PECA E O TIMEOUT DO MOTOR SAO UMA CONTA SO. Subir o timeout e
+    # deixar o teto para tras so troca a mensagem de erro.
+    (
+        "o teto da peca volta a ser menor que o orcamento do motor",
+        "imagem.py",
+        "TETO_POR_PECA_S = orcamento_da_peca() + 60\n",
+        "TETO_POR_PECA_S = 300\n",
+        ["python3", "imagem.py", "--autoteste"],
+    ),
+    # O LIMITE SILENCIOSO DA LEITURA DAS REFERENCIAS DE AMBIENTACAO.
+    (
+        "o teto de tokens das referencias volta a ser fixo",
+        "ambientacao_ref.py",
+        "    return max(2000, TOKENS_DE_ABERTURA + TOKENS_POR_REFERENCIA * int(quantas or 0))\n",
+        "    return 2000\n",
+        ["python3", "ambientacao_ref.py"],
+    ),
+    (
+        "o salvamento do JSON cortado aceita cenario sem conteudo",
+        "ambientacao_ref.py",
+        '                if isinstance(_o, dict) and _o.get("ambiente"):\n',
+        "                if True:\n",
+        ["python3", "ambientacao_ref.py"],
+    ),
+    (
+        "o varredor do JSON cortado ignora aspas escapadas",
+        "ambientacao_ref.py",
+        '            elif c == "\\\\":\n                escapa = True\n',
+        "            elif False:\n                escapa = True\n",
+        ["python3", "ambientacao_ref.py"],
+    ),
 ]
 
 
@@ -2277,7 +2448,15 @@ def comandos_sem_codigo_de_saida():
         corpo = fonte.split('if __name__ == "__main__":')[-1]
         if "falhas:" not in corpo:
             continue        # nao e auto-teste com contagem; nada a exigir
-        if "sys.exit" in corpo or "exit(" in corpo:
+        # `SystemExit` CONTA, e isto era alarme falso.
+        #
+        # A condicao procurava "exit(" em minusculas. `raise SystemExit(1 if
+        # falhas else 0)` — que e o que o `financeiro.py` usa — tem "Exit("
+        # com E maiusculo, e passava batido: a varredura acusava um modulo
+        # que estava certo. Guarda que acusa o inocente ensina a ignora-la, e
+        # isso ja custou caro nesta base.
+        if ("sys.exit" in corpo or "exit(" in corpo
+                or "SystemExit" in corpo):
             continue
         fora.append((mod, n, "imprime 'falhas:' e sai com 0 sempre"))
     return fora

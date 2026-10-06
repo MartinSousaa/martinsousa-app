@@ -61,10 +61,10 @@ ABA_NOME = "folha_salarial"
 # As verbas do gestor. `salario` e `bonus` saíram: gestor não tem salário, e o
 # que ele chamava de bônus é comissão — nome errado numa coluna vira conta
 # errada na hora em que alguém de fora ler o relatório.
-VERBAS = ["pro_labore", "comissao", "vale_alimentacao", "vale_refeicao",
+VERBAS = ["salario", "pro_labore", "comissao", "vale_alimentacao", "vale_refeicao",
           "vale_combustivel"]
 
-COLUNAS = (["pessoa"] + VERBAS +
+COLUNAS = (["pessoa", "cargo"] + VERBAS +
            ["vigente_desde", "dia_debito", "forma_pagamento",
             "atualizado_em", "atualizado_por"])
 
@@ -86,13 +86,19 @@ BASE_DECIMO = ["pro_labore", "comissao"]
 SUGESTOES = [
     {"pessoa": "Leonardo"},
     {"pessoa": "Renan", "vale_combustivel": 900.00},
+    # Monique veio do quadro CLT em 05/10, a pedido do dono: é paga com os
+    # gestores, mantém o cargo, e o valor dela é SALÁRIO — não pró-labore.
+    # Sem registro, não provisiona 13º (`BASE_DECIMO` não tem "salario").
+    {"pessoa": "Monique", "cargo": "Auxiliar de Expedição", "salario": 2400.00,
+     "pro_labore": 0.0, "comissao": 0.0, "vale_alimentacao": 0.0,
+     "vale_refeicao": 0.0, "vale_combustivel": 0.0},
 ]
 VERBAS_GESTOR = {"pro_labore": 1621.00, "comissao": 3979.00,
                  "vale_combustivel": 500.00, "vale_refeicao": 1100.00,
                  "vale_alimentacao": 500.00}
 
 ROTULOS = {
-    "pro_labore": "Pró-labore", "comissao": "Comissão",
+    "salario": "Salário", "pro_labore": "Pró-labore", "comissao": "Comissão",
     "vale_alimentacao": "Vale alimentação", "vale_refeicao": "Vale refeição",
     "vale_combustivel": "Vale combustível",
 }
@@ -226,6 +232,7 @@ def _normalizar(df, usuario=""):
             continue
         linha = {
             "pessoa": pessoa,
+            "cargo": str(r.get("cargo", "") or "").strip()[:60],
             "vigente_desde": aj.texto_mes(aj.mes_de(r.get("vigente_desde"))),
             "dia_debito": min(max(int(_num(r.get("dia_debito"), 0)), 0), 31),
             "forma_pagamento": (str(r.get("forma_pagamento", "") or "").strip()
@@ -298,7 +305,7 @@ def pagina(usuario_logado=None):
                 "sugestão — confira e clique em **Salvar gestores**. Nada foi "
                 "gravado até você salvar.")
 
-    visiveis = (["pessoa"] + VERBAS +
+    visiveis = (["pessoa", "cargo"] + VERBAS +
                 ["vigente_desde", "dia_debito", "forma_pagamento"])
     dinheiro = lambda rot: st.column_config.NumberColumn(
         rot, min_value=0.0, step=0.01, format="%.2f", width="medium")
@@ -317,6 +324,7 @@ def pagina(usuario_logado=None):
             column_config={**_rot.config(["pessoa", "bruto", "pro_labore", "inss", "beneficios"], st), 
                 "pessoa": st.column_config.TextColumn(
                     "Pessoa", required=True, width="small"),
+                "cargo": st.column_config.TextColumn("Cargo", width="medium"),
                 **{v: dinheiro(ROTULOS[v]) for v in VERBAS},
                 "vigente_desde": st.column_config.TextColumn(
                     "Está desde", width="small",
@@ -473,14 +481,21 @@ if __name__ == "__main__":
     ok("a taxa do 13º é a mesma das duas telas",
        TAXA_DECIMO == __import__("colaboradores").TAXAS["decimo_1_12"][2])
 
-    ok("a tabela de gestores sugere Leonardo e Renan",
-       {p["pessoa"] for p in SUGESTOES} == {"Leonardo", "Renan"})
+    ok("a tabela de gestores sugere Leonardo, Renan e Monique",
+       {p["pessoa"] for p in SUGESTOES} == {"Leonardo", "Renan", "Monique"})
+    _mon = [p for p in SUGESTOES if p["pessoa"] == "Monique"][0]
+    ok("a Monique entra como Auxiliar de Expedição, com SALÁRIO de R$ 2.400",
+       _mon["cargo"] == "Auxiliar de Expedição" and total_bruto(_mon) == 2400.0
+       and _mon["salario"] == 2400.0)
+    ok("e sem 13º provisionado (sem registro)", provisao_decimo(_mon) == 0.0)
+    ok("o cargo é gravado", _normalizar(pd.DataFrame([_mon]))[0]["cargo"]
+       == "Auxiliar de Expedição")
     ok("as verbas sugeridas somam R$ 7.700",
        sum(VERBAS_GESTOR.values()) == 7700.0)
     ok("toda verba sugerida existe na lista de verbas",
        set(VERBAS_GESTOR) <= set(VERBAS))
-    ok("só o Renan tem verba própria",
-       [p["pessoa"] for p in SUGESTOES if len(p) > 1] == ["Renan"])
+    ok("só o Renan e a Monique têm verba própria",
+       [p["pessoa"] for p in SUGESTOES if len(p) > 1] == ["Renan", "Monique"])
     ok("a folha de gestores não tem mais coluna de desconto",
        not any("desconto" in c for c in COLUNAS))
     ok("a folha de gestores não tem coluna de grupo",

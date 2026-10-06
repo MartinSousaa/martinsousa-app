@@ -2768,7 +2768,7 @@ def _chamar_gemini_geracao_texto(prompt_final, imagens_bytes=None,
     não pode depender de qual motor atendeu.
     """
     import time as _time
-    MAX_TENTATIVAS = 2
+    MAX_TENTATIVAS = TENTATIVAS_GEMINI
     MODELO = "gemini-3.1-flash-image"
 
     for tentativa in range(1, MAX_TENTATIVAS + 1):
@@ -2880,7 +2880,7 @@ def _chamar_gemini_geracao_texto(prompt_final, imagens_bytes=None,
                 _corpo = dict(_base_body)
                 _corpo["generationConfig"] = _cfg_forma
                 resp = requests.post(url, json=_corpo, headers=headers,
-                                     timeout=120,
+                                     timeout=GEMINI_TIMEOUT_S,
                                      proxies={"http": None, "https": None})
                 if resp.status_code != 400:
                     _FORMA_PROPORCAO["nome"] = _nome_forma
@@ -3555,6 +3555,43 @@ def _modelo_nao_existe(excecao):
     return ("model_not_found" in t
             or "does not exist" in t
             or "do not have access to it" in t)
+
+
+# ── O ORÇAMENTO DE TEMPO DE UMA PEÇA — uma conta, e não seis números ──────
+#
+# ACHADO NO TESTE DO DONO, 05/10: duas das oito peças falharam com
+# `Read timed out. (read timeout=120)`, as duas no Gemini. O primário estava
+# morto por configuração, então o reserva virou motor único — e quando ele
+# passa de 120s, acabou.
+#
+# SUBIR O TIMEOUT SOZINHO SÓ TROCARIA A MENSAGEM DE ERRO. Acima dele existe
+# um TETO POR PEÇA, que era `300` escrito à mão em SEIS lugares do arquivo.
+# Com 2 tentativas de 180s o orçamento passaria de 365s e a peça morreria no
+# teto — "Tempo limite de 5 min" no lugar de "Read timed out", e nenhuma
+# imagem a mais. É a Forma 5 desta base: um número com seis donos, e eles
+# passam a discordar.
+#
+# Agora o teto SAI DA CONTA, e `checar_tela` reprova se ele ficar menor que
+# o orçamento que o motor pode gastar.
+GEMINI_TIMEOUT_S = 180
+TENTATIVAS_GEMINI = 2
+# A folga entre uma tentativa e a seguinte (`_time.sleep`), mais o que a
+# chamada ao primário gasta antes de cair no reserva.
+FOLGA_ENTRE_TENTATIVAS_S = 5
+FOLGA_DO_PRIMARIO_S = 30
+
+
+def orcamento_da_peca():
+    """O pior caso, em segundos, que UMA peça pode gastar antes de desistir."""
+    return (GEMINI_TIMEOUT_S * TENTATIVAS_GEMINI
+            + FOLGA_ENTRE_TENTATIVAS_S * (TENTATIVAS_GEMINI - 1)
+            + FOLGA_DO_PRIMARIO_S)
+
+
+# O TETO É O ORÇAMENTO MAIS UMA MARGEM. Ele existe para a tela não ficar
+# presa para sempre quando a rede some — não para cortar uma geração que
+# ainda está em pé.
+TETO_POR_PECA_S = orcamento_da_peca() + 60
 
 
 # Falha da OpenAI que as OUTRAS tentativas não resolvem.
@@ -8488,8 +8525,8 @@ def consumir_comandos_do_chat(usuario_logado=""):
             _t0 = _tm_rf.time()
             while not _r["done"]:
                 _sg = int(_tm_rf.time() - _t0)
-                if _sg >= 300:
-                    _r["erro"], _r["done"] = "Tempo limite de 5 min.", True
+                if _sg >= TETO_POR_PECA_S:
+                    _r["erro"], _r["done"] = f"Tempo limite de {TETO_POR_PECA_S}s.", True
                     break
                 _b.progress(min(0.9, _sg / 60),
                             text=f"Refazendo a Imagem {_i + 1}… ({_sg}s)")
@@ -8519,7 +8556,7 @@ def consumir_comandos_do_chat(usuario_logado=""):
                 _tt.start()
                 _t0g = _tm_rf.time()
                 while not _rr["done"]:
-                    if int(_tm_rf.time() - _t0g) >= 300:
+                    if int(_tm_rf.time() - _t0g) >= TETO_POR_PECA_S:
                         _rr["erro"] = "tempo limite ao refazer."
                         break
                     _tm_rf.sleep(1)
@@ -8756,6 +8793,28 @@ def pagina_imagem(usuario_logado):
     # Dentro do `else` do seletor, como estava, ele era mudo no ✏️ Ajuste Fino:
     # o chat prometia "Imagem 1 será refeita do zero" e a fila ficava parada.
     consumir_comandos_do_chat(usuario_logado)
+
+    # ── O PEDIDO DE GERAR AS FALTANTES, APLICADO ANTES DOS WIDGETS ───────────
+    #
+    # AQUI, E NÃO NO CHAT. `img_modo` (o rádio, mais abaixo) e
+    # `img_tipos_multi` (o multiselect) são chaves de widget, e o Streamlit
+    # recusa escrever numa chave depois que o widget dela nasceu. O chat é
+    # desenhado DEPOIS da página (`app.py:2092`), então lá já é tarde — foi
+    # o erro que o dono recebeu em 05/10, com duas peças faltando por timeout:
+    #
+    #     st.session_state.img_modo cannot be modified after the widget
+    #     with key img_modo is instantiated
+    #
+    # Este é o único instante em que a escrita é legal: o pedido chega pela
+    # chave `img_pedido_faltantes`, que não é de widget nenhum, e é consumido
+    # aqui — antes de qualquer `st.radio` ou `st.multiselect` desta tela.
+    #
+    # O `pop` é o que impede o pedido de voltar a cada passada e prender a
+    # tela no modo Selecionar enquanto o colaborador tenta sair dele.
+    _faltantes_pedidas = st.session_state.pop("img_pedido_faltantes", None)
+    if _faltantes_pedidas:
+        st.session_state["img_tipos_multi"] = list(_faltantes_pedidas)
+        st.session_state["img_modo"] = "Selecionar"
 
     # ── A revisão de texto está de pé? ───────────────────────────────────────
     #
@@ -10607,8 +10666,8 @@ def pagina_imagem(usuario_logado):
                         _t0 = _time_gen.time()
                         while not _res["done"]:
                             _seg = int(_time_gen.time() - _t0)
-                            if _seg >= 300:
-                                _res["erro"] = "Tempo limite de 5 min atingido. Tente novamente."
+                            if _seg >= TETO_POR_PECA_S:
+                                _res["erro"] = (f"Tempo limite de {TETO_POR_PECA_S}s atingido. Tente novamente.")
                                 _res["done"] = True
                                 break
                             barra.progress(i / len(tipos), text=f"Gerando {i+1}/{len(tipos)}: {tipo[:40]}... ({_seg}s)")
@@ -10651,7 +10710,7 @@ def pagina_imagem(usuario_logado):
                             _th.start()
                             _t0r = _time_gen.time()
                             while not _r["done"]:
-                                if int(_time_gen.time() - _t0r) >= 300:
+                                if int(_time_gen.time() - _t0r) >= TETO_POR_PECA_S:
                                     _r["erro"] = "tempo limite ao refazer."
                                     break
                                 _time_gen.sleep(1)
@@ -11255,8 +11314,8 @@ def pagina_imagem(usuario_logado):
                     _t0_regen = _time_regen.time()
                     while not _res_regen["done"]:
                         _seg_regen = int(_time_regen.time() - _t0_regen)
-                        if _seg_regen >= 300:
-                            _res_regen["erro"] = "Tempo limite de 5 min atingido."
+                        if _seg_regen >= TETO_POR_PECA_S:
+                            _res_regen["erro"] = f"Tempo limite de {TETO_POR_PECA_S}s atingido."
                             _res_regen["done"] = True
                             break
                         _barra_regen.progress(min(0.9, _seg_regen / 60), text=f"Regenerando {tipo_ativo[:30]}... ({_seg_regen}s)")
@@ -11288,7 +11347,7 @@ def pagina_imagem(usuario_logado):
                             _tt.start()
                             _t0g = _time_regen.time()
                             while not _rr["done"]:
-                                if int(_time_regen.time() - _t0g) >= 300:
+                                if int(_time_regen.time() - _t0g) >= TETO_POR_PECA_S:
                                     _rr["erro"] = "tempo limite ao refazer."
                                     break
                                 _time_regen.sleep(1)
@@ -13919,6 +13978,38 @@ if __name__ == "__main__":
        len(_ch_col) == 2 and "criado-mudo" in _prompts[-1].lower())
     globals()["conferir_ajuste"] = _antes_conf
     globals()["gerar_imagem_ia"] = _antes_ger
+
+    # ── O TETO DA PECA TEM DE CABER O ORCAMENTO DO MOTOR ────────────────
+    #
+    # ACHADO EM 05/10, no teste do dono: duas pecas morreram com
+    # `Read timed out. (read timeout=120)`. Subir o timeout do Gemini sozinho
+    # nao entregaria imagem nenhuma — o teto por peca era `300`, escrito a mao
+    # em SEIS lugares, e a peca morreria nele. Trocaria a mensagem de erro,
+    # nada mais: e a Forma 4, otimizar em volta da raiz.
+    #
+    # A ASERCAO E SOBRE A CONTA, e nao sobre os numeros de hoje: quem subir o
+    # timeout amanha e esquecer o teto reprova aqui.
+    ok("o teto da peca cabe o orcamento do motor",
+       TETO_POR_PECA_S > orcamento_da_peca())
+    ok("e o orcamento conta as DUAS tentativas, nao uma",
+       orcamento_da_peca() >= GEMINI_TIMEOUT_S * TENTATIVAS_GEMINI)
+    # E O TETO NAO E MAIS SEIS NUMEROS.
+    #
+    # POR AST, E NAO POR TEXTO. A primeira versao desta linha procurava
+    # ">= 300" no fonte e SE ENCONTROU A SI MESMA — a quinta vez que isso
+    # acontece nesta base, e esta esta escrita no CLAUDE.md. O proprio padrao
+    # da guarda e texto no arquivo; a arvore so ve codigo, e um literal dentro
+    # de uma string nao e uma comparacao.
+    import ast as _ast_teto
+    with open(__file__, encoding="utf-8") as _fh_teto:
+        _arv_teto = _ast_teto.parse(_fh_teto.read())
+    _soltos = [
+        _n.lineno for _n in _ast_teto.walk(_arv_teto)
+        if isinstance(_n, _ast_teto.Compare)
+        and any(isinstance(_o, _ast_teto.GtE) for _o in _n.ops)
+        and any(isinstance(_c, _ast_teto.Constant) and _c.value == 300
+                for _c in _n.comparators)]
+    ok("o teto por peca nao voltou a ser numero solto", not _soltos)
 
     # ── A TRAVA DE COR CHEGA AO AJUSTE PELO `dados_descricao` ────────────
     #
