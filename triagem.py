@@ -1456,3 +1456,14 @@ if __name__ == "__main__":
         st.session_state = _sessao_real
 
     print("\nfalhas:", falhas)
+    # O CÓDIGO DE SAÍDA, QUE FALTAVA — e o `checar_mutacao` acusou.
+    #
+    # Este auto-teste imprimia "falhas: N" e saía com 0 SEMPRE. Quem lê o
+    # código de saída — e o `checar_mutacao` lê, para conferir que o comando
+    # PASSA antes de mutar — via sempre verde, e as três entradas novas que
+    # apontam para cá estavam verdes por acidente.
+    #
+    # É o mesmo defeito que o `varredura_formas.py` teve nesta base: ninguém
+    # tinha visto porque ninguém lia o código de saída.
+    import sys as _sys_saida
+    _sys_saida.exit(1 if falhas else 0)
