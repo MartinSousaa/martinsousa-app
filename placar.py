@@ -1355,6 +1355,10 @@ def _tv_full_html(
     _v_f_n = _v_f_n if _v_f_n is not None else f"{faltam:,.0f}"
     _v_f_x = _v_f_x if _v_f_x is not None else f"{faltam_maxx:,.0f}"
 
+    # A barra de penalidades ENCHE com as penalidades (dono, 07/10).
+    import placar_core as _pc_pen
+    _pen_n_pct, _pen_n_txt = _pc_pen.barra_penalidades(n_pen, max_pen_n)
+    _pen_x_pct, _pen_x_txt = _pc_pen.barra_penalidades(n_pen, max_pen_x)
     _tv_barra_tm_n = _tv_barra_tm("#1BAF7A")
     _tv_barra_tm_x = _tv_barra_tm("#FFD700", tm_mx or tm_eq)
     return f"""<!DOCTYPE html>
@@ -1570,7 +1574,7 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
       <div class="barra-item"><div class="barra-header"><span>Pontuação do mês</span><span style="color:{_cor_tv_eq};font-weight:700;">{fp(pct_eq)}</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_eq,100):.1f}%;background:{_cor_tv_eq};"></div></div><div class="barra-desc">{saldo_eq:,.0f} / {meta_eq:,} pts (inclui -{pen_total:.0f} penalidades)</div></div>
       <div class="barra-item"><div class="barra-header"><span>Sem atraso em prioritários P8-P10</span><span style="color:{_cor_tv_pri};font-weight:700;">{pct_pri_ok:.0f}%</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_pri_ok,100):.1f}%;background:{_cor_tv_pri};"></div></div><div class="barra-desc">{desc_pri}</div></div>
       <div class="barra-item"><div class="barra-header"><span>Retrabalho abaixo de {max_retrab_n}%</span><span style="color:{_cor_tv_retrab_n};font-weight:700;">{pct_retrab_n:.0f}%</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_retrab_n,100):.1f}%;background:{_cor_tv_retrab_n};"></div></div><div class="barra-desc">{desc_retrab}</div></div>
-      <div class="barra-item"><div class="barra-header"><span>Menos de {max_pen_n+1} penalidades</span><span style="color:#E34948;font-weight:700;">{pct_pen_n:.0f}%</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_pen_n,100):.1f}%;background:#E34948;"></div></div><div class="barra-desc">{n_pen} ocorrência(s) / máx {max_pen_n}</div></div>
+      <div class="barra-item"><div class="barra-header"><span>Até {max_pen_n} penalidades</span><span style="color:#E34948;font-weight:700;">{_pen_n_txt}</span></div><div class="barra-track"><div class="barra-fill" style="width:{_pen_n_pct:.1f}%;background:#E34948;"></div></div><div class="barra-desc">{n_pen} ocorrência(s) / máx {max_pen_n}</div></div>
       <div class="barra-item"><div class="barra-header"><span>Cartões com membro atribuído</span><span style="color:{_cor_tv_cmb};font-weight:700;">{pct_com_membro:.0f}%</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_com_membro,100):.1f}%;background:{_cor_tv_cmb};"></div></div><div class="barra-desc">{_tv_sem_mb_desc}</div></div>
       {_tv_barra_tm_n}
     </div>
@@ -1579,7 +1583,7 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#1a1a1a;color:#e0e0
       <div class="barra-item"><div class="barra-header"><span>Pontuação +{maxx_pct-100}% acima da meta</span><span style="color:{_cor_tv_maxx};font-weight:700;">{fp(pct_maxx)}</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_maxx,100):.1f}%;background:{_cor_tv_maxx};"></div></div><div class="barra-desc">{saldo_eq:,.0f} / {meta_maxx_pts:,.0f} pts (c/ penalidades -{pen_total:.0f})</div></div>
       <div class="barra-item"><div class="barra-header"><span>Zero prioritários em atraso</span><span style="color:{_cor_tv_prix};font-weight:700;">{pct_pri_ok:.0f}%</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_pri_ok,100):.1f}%;background:{_cor_tv_prix};"></div></div><div class="barra-desc">{desc_pri}</div></div>
       <div class="barra-item"><div class="barra-header"><span>Retrabalho abaixo de {max_retrab_x}%</span><span style="color:{_cor_tv_retrab_x};font-weight:700;">{pct_retrab_x:.0f}%</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_retrab_x,100):.1f}%;background:{_cor_tv_retrab_x};"></div></div><div class="barra-desc">{desc_retrab}</div></div>
-      <div class="barra-item"><div class="barra-header"><span>Menos de {max_pen_x+1} penalidades</span><span style="color:#E34948;font-weight:700;">{pct_pen_x:.0f}%</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_pen_x,100):.1f}%;background:#E34948;"></div></div><div class="barra-desc">{n_pen} ocorrência(s) / máx {max_pen_x}</div></div>
+      <div class="barra-item"><div class="barra-header"><span>Até {max_pen_x} penalidades</span><span style="color:#E34948;font-weight:700;">{_pen_x_txt}</span></div><div class="barra-track"><div class="barra-fill" style="width:{_pen_x_pct:.1f}%;background:#E34948;"></div></div><div class="barra-desc">{n_pen} ocorrência(s) / máx {max_pen_x}</div></div>
       <div class="barra-item"><div class="barra-header"><span>Cartões com membro atribuído</span><span style="color:{_cor_tv_cmbx};font-weight:700;">{pct_com_membro:.0f}%</span></div><div class="barra-track"><div class="barra-fill" style="width:{min(pct_com_membro,100):.1f}%;background:{_cor_tv_cmbx};"></div></div><div class="barra-desc">{_tv_sem_mb_desc}</div></div>
       {_tv_barra_tm_x}
     </div>
@@ -1623,6 +1627,18 @@ function _aplicarLayout() {{
   var hM  = Math.round(avail * 0.20);
   var hS  = Math.round(avail * 0.09);
   var hB  = Math.round(avail * 0.22);
+  // AS METAS NAO PODEM SER CORTADAS. O texto tem tamanho fixo e a janela da
+  // TV e mais baixa que a do computador: com 22% fixos, o bloco cortava a
+  // partir da 5a linha e "Cartoes com membro" e "Tempo medio" sumiam so na
+  // TV (dono, 07/10). Mede o que as caixas pedem e tira da parte de baixo.
+  var bb = document.getElementById('tv-bb');
+  if (bb) {{
+    var need = 0;
+    for (var i = 0; i < bb.children.length; i++) {{
+      need = Math.max(need, bb.children[i].scrollHeight || 0);
+    }}
+    if (need + 4 > hB) {{ hB = Math.min(need + 4, Math.round(avail * 0.40)); }}
+  }}
   var hBt = avail - hM - hS - hB;
   var y = PAD;
   function fix(id, top, h) {{
@@ -2927,13 +2943,14 @@ def pagina_placar(usuario_logado, headless=False):
 
 
 
-    def _barra_meta(nome, pct, desc, cor_barra):
+    def _barra_meta(nome, pct, desc, cor_barra, valor=None):
         pct_c = min(max(pct,0),100)
-        # % sempre na cor da barra
+        # % sempre na cor da barra; `valor` troca o % por outro texto ("0/5")
+        _v = valor if valor is not None else f"{pct_c:.0f}%"
         return f"""<div style="margin-bottom:8px;">
   <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px;">
     <span style="color:var(--ms-texto);">{nome}</span>
-    <span style="color:{cor_barra};font-weight:700;">{pct_c:.0f}%</span>
+    <span style="color:{cor_barra};font-weight:700;">{_v}</span>
   </div>
   <div style="background:var(--ms-metric-bd);border-radius:3px;height:5px;overflow:hidden;">
     <div style="background:{cor_barra};width:{pct_c:.1f}%;height:100%;border-radius:3px;"></div>
@@ -3096,8 +3113,10 @@ def pagina_placar(usuario_logado, headless=False):
         # A barra de penalidade e SEMPRE vermelha. Ela nao mede conquista, mede
         # acumulo de dano: a escala e quanto do teto ja foi gasto, e pintar de
         # verde "3 de 5 penalidades" premiaria estar perto de estourar.
-        b += _barra_meta(f"Menos de {max_pen_n+1} penalidades", pct_pen_normal,
-                         _pc_membro.texto_penalidades(_sit_pen), "#E34948")
+        _pp_n, _pt_n = _pc_membro.barra_penalidades(qtd_pen, max_pen_n)
+        b += _barra_meta(f"Até {max_pen_n} penalidades", _pp_n,
+                         _pc_membro.texto_penalidades(_sit_pen), "#E34948",
+                         valor=_pt_n)
         b += _barra_meta("Cartões com membro atribuído", pct_com_membro, _sem_mb_desc_n, _cor_cmb)
         # O tempo medio pesa na meta coletiva e nao aparecia AQUI — so na
         # Analise de Metas. Este painel mostrava cinco dos seis criterios, e
@@ -3117,9 +3136,10 @@ def pagina_placar(usuario_logado, headless=False):
         b += _barra_meta(f"Pontuação +{maxx_pct-100}% acima da meta", pct_maxx, f"{saldo_eq:,.0f} / {meta_maxx_alvo:,.0f} pts (c/ penalidades -{ d['pen_total']:.0f})", _cor_mx)
         b += _barra_meta("Zero prioritários em atraso", pct_prioritarios_ok, _desc_pri, _cor_prix)
         b += _barra_meta(f"Retrabalho abaixo de {max_retrab_x}%", pct_retrab_barra_x, _desc_retrab, _cor_rtnx)
-        b += _barra_meta(f"Menos de {max_pen_x+1} penalidades", pct_pen_maxx,
+        _pp_x, _pt_x = _pc_membro.barra_penalidades(qtd_pen, max_pen_x)
+        b += _barra_meta(f"Até {max_pen_x} penalidades", _pp_x,
                          _pc_membro.texto_penalidades(_sit_pen, maxx=True),
-                         "#E34948")
+                         "#E34948", valor=_pt_x)
         b += _barra_meta("Cartões com membro atribuído", pct_com_membro, _sem_mb_desc_x, _cor_cmbx)
         b += _barra_meta(_tm_mx["rotulo"], _tm_mx["pct"], _tm_mx["desc"],
                          _pc_membro.cor_tempo_medio(_tm_mx, "#FFD700"))
