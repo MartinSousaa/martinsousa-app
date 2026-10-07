@@ -525,6 +525,9 @@ def _processar(arq, _itau, _inter, _fv, _lan, usuario_logado):
         f"{novos} lançamento(s) novo(s) gravado(s)"
         + (f" · {repetidos} já estavam lá (não duplicados)" if repetidos else "")
     )
+    _inc = extrato_incompleto(_periodo, len(lancs))
+    if _inc:
+        st.warning(f"**{nome}: o extrato parece incompleto.** {_inc}")
 
     # ── O CUSTO FIXO E AS ASSINATURAS DO MÊS, PELO EXTRATO (06/10) ────────
     _conferir_custo_real(classificados)
@@ -702,6 +705,71 @@ def chave_do_item(item):
     return "".join(c if c.isalnum() else "_" for c in bruto.upper())[:60]
 
 
+def extrato_incompleto(periodo, n_lancamentos):
+    """O aviso quando o arquivo traz bem menos do que o período promete. Pura.
+
+    07/10: o Itaú exportou "01/08/2026 até 06/10/2026" no cabeçalho e UM
+    lançamento no corpo, nas duas contas. O Studio gravava calado o que
+    havia — e as saídas de setembro saíam com metade das contas. Mais de 20
+    dias de período e menos de 3 lançamentos é exportação cortada, quase
+    sempre. "" quando parece normal.
+    """
+    import re as _re_p
+    from datetime import date as _d_p
+    datas = _re_p.findall(r"(\d{1,2})/(\d{1,2})/(\d{4})", str(periodo or ""))
+    if len(datas) < 2:
+        return ""
+    try:
+        a, b = [_d_p(int(y), int(m), int(d)) for d, m, y in datas[:2]]
+    except ValueError:
+        return ""
+    dias = abs((b - a).days)
+    if dias > 20 and int(n_lancamentos or 0) < 3:
+        return (f"O período tem {dias} dias e o arquivo trouxe só "
+                f"{int(n_lancamentos or 0)} lançamento(s). Exporte de novo no "
+                "banco conferindo que a tela mostra todos os lançamentos do "
+                "período — o que já está gravado não duplica.")
+    return ""
+
+
+def fila_dos_gravados(lancamentos, cadastro=None):
+    """A fila de nomes SEM finalidade entre os lançamentos JÁ GRAVADOS. Pura.
+
+    Uma linha por loja (a parcela sai do nome) e sentido, com cada lançamento
+    em `itens` — data, descrição original, valor e de onde veio — para o
+    dono identificar o que é cada compra. Responder a loja uma vez classifica
+    todas as compras e parcelas dela (dono, 07/10: "o sistema classificar 1
+    só para eu colocar a finalidade, fazendo isso preenche as demais").
+    """
+    import favorecidos as _fv_g
+    classificados, _ = _fv_g.classificar(lancamentos or [], cadastro)
+    porta = {}
+    for l in classificados:
+        if l.get("classificado"):
+            continue
+        nome = _fv_g.sem_parcela(l.get("favorecido") or l.get("razao_social")
+                                 or l.get("descricao") or "")
+        if not nome:
+            continue
+        v = float(l.get("valor") or 0)
+        sentido = "entrada" if v > 0 else "saida"
+        k = (_fv_g.chave(nome) or nome.upper(), sentido)
+        d = porta.setdefault(k, {"favorecido": nome, "sentido": sentido,
+                                 "conta": "", "n": 0, "total": 0.0,
+                                 "exemplo": "", "datas": [], "itens": []})
+        d["n"] += 1
+        d["total"] += abs(v)
+        d["exemplo"] = d["exemplo"] or str(l.get("descricao") or "")[:58]
+        d["datas"].append(str(l.get("data") or ""))
+        _conta = str(l.get("conta") or "")
+        if _conta and _conta not in d["conta"]:
+            d["conta"] = (d["conta"] + " e " + _conta) if d["conta"] else _conta
+        d["itens"].append({"data": str(l.get("data") or ""),
+                           "descricao": str(l.get("descricao") or "")[:80],
+                           "valor": abs(v), "conta": _conta})
+    return sorted(porta.values(), key=lambda x: -x["total"])
+
+
 def sugerir_fixos(fila, linhas_cf, linhas_as):
     """{chave_do_item: (finalidade, motivo)} para nomes que JÁ são custo fixo
     ou assinatura. Função pura.
@@ -791,7 +859,7 @@ def _perguntar(fila, _fv, usuario_logado):
         "lançamentos": int(i.get("n") or 0),
         "total": float(i.get("total") or 0),
         "período": _periodo(i),
-        "finalidade": (_sug.get(chave_do_item(i)) or ("",))[0] or None,
+        "finalidade": (_sug.get(chave_do_item(i)) or ("",))[0] or ESCOLHA,
         "reconhecido": (_sug.get(chave_do_item(i)) or ("", ""))[1],
         "onde": str(i.get("conta") or "")[:60],
     } for i in fila])
@@ -811,7 +879,7 @@ def _perguntar(fila, _fv, usuario_logado):
                 "marcar": st.column_config.CheckboxColumn("✔", width="small"),
                 "total": st.column_config.NumberColumn(format="R$ %.2f"),
                 "finalidade": st.column_config.SelectboxColumn(
-                    "Finalidade", options=_opcoes),
+                    "Finalidade", options=[ESCOLHA] + _opcoes),
             })
         enviou = c2.form_submit_button("💾 Salvar", type="primary",
                                        use_container_width=True)
@@ -829,7 +897,8 @@ def _perguntar(fila, _fv, usuario_logado):
     if not enviou:
         return
     respostas = respostas_da_fila(fila, editado.to_dict("records"),
-                                  None if _massa == ESCOLHA else _massa)
+                                  None if _massa == ESCOLHA else _massa,
+                                  vazio=ESCOLHA)
     if not respostas:
         st.warning("Nada para salvar: escolha a finalidade na linha, ou "
                    "marque as linhas e escolha a finalidade para os marcados.")
@@ -842,16 +911,19 @@ def _perguntar(fila, _fv, usuario_logado):
                    "inteiro e para as próximas faturas.")
 
 
-def respostas_da_fila(fila, linhas, massa=None):
+def respostas_da_fila(fila, linhas, massa=None, vazio="— escolher —"):
     """[(favorecido, finalidade, sentido)] do que foi respondido. Pura.
 
     A finalidade da linha manda; sem ela, a linha MARCADA recebe a `massa`.
+    `vazio` é o "— escolher —" que a célula mostra quando ninguém escolheu.
     """
     fora = []
     for item, l in zip(fila or [], linhas or []):
         fin = l.get("finalidade")
         # a tabela devolve NaN na célula vazia, e str(NaN) é "nan"
         fin = fin.strip() if isinstance(fin, str) else ""
+        if fin == vazio:
+            fin = ""
         if not fin and l.get("marcar") is True and massa:
             fin = massa
         if fin:
@@ -1065,6 +1137,28 @@ if __name__ == "__main__":
     ok("as parcelas da mesma loja viram uma pergunta so",
        len(_fila_p) == 1 and _fila_p[0]["n"] == 2
        and round(_fila_p[0]["total"], 2) == 163.38)
+    # 07/10: a fila da tela Finalidades sai dos lançamentos gravados, uma
+    # linha por loja e com cada compra embaixo.
+    _grav = [{"data": "2026-09-10", "descricao": "HERING 04/06", "valor": -81.69,
+              "conta": "cartão · a.csv", "favorecido": "HERING 04/06"},
+             {"data": "2026-10-10", "descricao": "HERING 05/06", "valor": -81.69,
+              "conta": "cartão · b.csv", "favorecido": "HERING 05/06"},
+             {"data": "2026-10-11", "descricao": "PIX X", "valor": -10.0,
+              "conta": "inter", "favorecido": "CLASSIFICADO SA",
+              "finalidade": "ADS"}]
+    _fg = fila_dos_gravados(_grav, {})
+    ok("Finalidades: uma linha por loja, com cada compra para identificar",
+       len(_fg) == 1 and _fg[0]["favorecido"] == "HERING" and _fg[0]["n"] == 2
+       and [x["conta"] for x in _fg[0]["itens"]] == ["cartão · a.csv", "cartão · b.csv"])
+    ok("extrato de 2 meses com 1 lançamento é avisado como incompleto",
+       "incompleto" not in extrato_incompleto("01/08/2026 até 06/10/2026", 1)
+       and "66 dias" in extrato_incompleto("01/08/2026 até 06/10/2026", 1))
+    ok("extrato normal não é avisado",
+       extrato_incompleto("01/08/2026 a 06/10/2026", 233) == ""
+       and extrato_incompleto("06/10/2026 a 06/10/2026", 1) == ""
+       and extrato_incompleto("", 0) == "")
+    ok("e o aviso aparece depois de gravar o extrato",
+       "extrato_incompleto(_periodo, len(lancs))" in _insp.getsource(_processar))
     ok("e cada lancamento juntado continua la, para conferir",
        [x["descricao"] for x in _fila_p[0]["itens"]]
        == ["HERING 04/06", "HERING 05/06"])
@@ -1077,6 +1171,12 @@ if __name__ == "__main__":
         {"marcar": True, "finalidade": float("nan")},
         {"marcar": True, "finalidade": "ADS"},
         {"marcar": False, "finalidade": None}], "CONSUMO INTERNO")
+    ok("'— escolher —' na celula conta como nao respondido",
+       respostas_da_fila([{"favorecido": "A", "sentido": "saida"}],
+                         [{"marcar": False, "finalidade": "— escolher —"}]) == [])
+    _src_pq = _insp.getsource(_perguntar)
+    ok("a tabela abre em '— escolher —', e nao numa finalidade pronta",
+       "or ESCOLHA," in _src_pq and "options=[ESCOLHA] + _opcoes" in _src_pq)
     ok("a finalidade em massa vale para os marcados, a da linha manda, "
        "e celula vazia nao vira 'nan'",
        _r_m == [("A", "CONSUMO INTERNO", "saida"), ("B", "ADS", "saida")])

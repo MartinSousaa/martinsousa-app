@@ -2374,6 +2374,57 @@ MUTACOES = [
         '    for _mod, _fn in (("metas_config_x", "carregar_todas"),\n',
         ["python3", "placar_core.py"],
     ),
+    # ── 07/10: FINALIDADES EM MASSA, SEM ADS PRÉ-SELECIONADO ────────────
+    (
+        "a lista de Finalidades volta a ser uma linha por vez",
+        "finalidades_tela.py",
+        "        _et._perguntar(fila, _fv, usuario_logado)\n",
+        "        pass\n",
+        ["python3", "checar_tela.py"],
+    ),
+    (
+        "a fila volta a abrir sem '— escolher —'",
+        "extratos_tela.py",
+        "        \"finalidade\": (_sug.get(chave_do_item(i)) or (\"\",))[0] or ESCOLHA,\n",
+        "        \"finalidade\": (_sug.get(chave_do_item(i)) or (\"\",))[0] or None,\n",
+        ["python3", "extratos_tela.py"],
+    ),
+    (
+        "'— escolher —' volta a ser gravado como finalidade",
+        "extratos_tela.py",
+        "        if fin == vazio:\n            fin = \"\"\n",
+        "",
+        ["python3", "extratos_tela.py"],
+    ),
+    # ── 07/10: BÔNUS DIZ O QUE CADA UM ATINGIU ──────────────────────────
+    (
+        "o bonus volta a esconder o criterio que reprovou",
+        "headcount.py",
+        '        ind = "Individual não" + (f": {\', \'.join(falha)}" if falha else "")\n',
+        '        ind = "Individual não"\n',
+        ["python3", "headcount.py"],
+    ),
+    (
+        "a apuracao volta a jogar fora os criterios reprovados",
+        "headcount.py",
+        '            "atingiu": atingiu(ap),\n',
+        "",
+        ["python3", "headcount.py"],
+    ),
+    (
+        "o rotulo do equilibrio volta a encostar na linha da meta",
+        "home_gestao.py",
+        "f'<text x=\"8\" y=\"{Y(eq) + 14:.1f}\"",
+        "f'<text x=\"8\" y=\"{Y(eq) - 6:.1f}\"",
+        ["python3", "home_gestao.py"],
+    ),
+    (
+        "o extrato cortado pelo banco volta a ser gravado calado",
+        "extratos_tela.py",
+        "    if dias > 20 and int(n_lancamentos or 0) < 3:\n",
+        "    if False:\n",
+        ["python3", "extratos_tela.py"],
+    ),
     (
         "o previsto do cartao volta a ignorar as compras ja lancadas",
         "previsto.py",
