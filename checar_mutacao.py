@@ -2439,6 +2439,49 @@ MUTACOES = [
         '        + ""\n',
         ["python3", "home_gestao.py"],
     ),
+    # ── 07/10: RESUMO MENSAL ────────────────────────────────────────────
+    (
+        "a compra de custo fixo no cartao volta a contar em Cartoes",
+        "resumo_mensal.py",
+        "    if _lan.eh_do_cartao(lanc) and fin not in _CARTAO_FICA_NO_LUGAR:\n",
+        "    if _lan.eh_do_cartao(lanc):\n",
+        ["python3", "resumo_mensal.py"],
+    ),
+    (
+        "a assinatura volta a se misturar ao custo fixo",
+        "resumo_mensal.py",
+        "    if _assinatura_de(lanc, nomes_assin):\n        return \"Assinaturas\"\n",
+        "",
+        ["python3", "resumo_mensal.py"],
+    ),
+    (
+        "o pagamento da fatura volta a somar por cima das compras no resumo",
+        "resumo_mensal.py",
+        "        if _lan.cartao_pago([l]):\n            pagamentos.append(l)\n            continue\n",
+        "",
+        ["python3", "resumo_mensal.py"],
+    ),
+    (
+        "o mes fechado volta a mostrar provisionado",
+        "resumo_mensal.py",
+        '                "provisionado": (None if fechado or prov[q] is None\n',
+        '                "provisionado": (None if prov[q] is None\n',
+        ["python3", "resumo_mensal.py"],
+    ),
+    (
+        "o cheque provisionado volta a esquecer o que ja baixou",
+        "resumo_mensal.py",
+        '        "Cheques": pago["Cheques"] + prev.get("CHEQUES", 0.0),\n',
+        '        "Cheques": prev.get("CHEQUES", 0.0),\n',
+        ["python3", "resumo_mensal.py"],
+    ),
+    (
+        "o Resumo Mensal sai de antes de Custos fixos",
+        "gestao.py",
+        '    "📊 Resumo Mensal": lambda u: _abrir_tela("resumo_mensal", u),\n',
+        "",
+        ["python3", "checar_tela.py"],
+    ),
     # ── 07/10: DINHEIRO EM R$ 58.490,56 EM TODAS AS TABELAS ─────────────
     (
         "o app volta a nao instalar o formato do dinheiro",

@@ -716,6 +716,61 @@ def _finalidades_em_massa(conta):
           "_et._perguntar(fila" in _src and "fila[:20]" not in _src, "")
 
 
+def _resumo_mensal(conta):
+    """07/10: a aba Resumo Mensal desenha com e sem lançamentos.
+
+    Só a planilha é trocada: `itens_pagos`, `montar` e `itens_provisionados`
+    rodam de verdade sobre a forma que `lancamentos.do_mes` devolve."""
+    import resumo_mensal as _rm
+    import lancamentos as _lan_r
+    import assinaturas as _as_r
+    import previsto as _pv_r
+    import custo_real as _cr_r
+    import custo_fixo as _cf_r
+    import ajustes as _aj_r
+    import pandas as _pd_r
+    _lista = [
+        {"id": "1", "conta": "itau", "data": "2026-10-05", "valor": -3000.0,
+         "finalidade": "CUSTO FIXO", "descricao": "PIX ALUGUEL",
+         "favorecido": "IMOB", "tipo": "", "fixada": ""},
+        {"id": "2", "conta": _lan_r.CONTA_CARTAO + "inter", "data": "2026-10-06",
+         "valor": -550.0, "finalidade": "CUSTO FIXO",
+         "descricao": "CLAUDE.AI", "favorecido": "", "tipo": "fatura 2026-10",
+         "fixada": ""},
+    ]
+    _g = (_lan_r.do_mes, _as_r.carregar, _pv_r.do_mes, _cr_r.carregar,
+          _cf_r.carregar, _aj_r.carregar)
+    _as_r.carregar = lambda: [{"item": "Claude", "valor_mensal": 550.0,
+                               "periodicidade": "Mensal", "favorecido": ""}]
+    _pv_r.do_mes = lambda a, m: ({"CUSTO FIXO": 3500.0, "FOLHA": 9000.0}, [])
+    _cr_r.carregar = lambda: {}
+    _cf_r.carregar = lambda aba: _pd_r.DataFrame(
+        [{"item": "Aluguel", "valor_mensal": 3000.0, "vigente_desde": "2026-01",
+          "dia_debito": 5, "forma_pagamento": "PIX", "favorecido": "IMOB"}])
+    _aj_r.carregar = lambda: _pd_r.DataFrame()
+    try:
+        for nome, lista in (("Resumo Mensal: mês com lançamentos", _lista),
+                            ("Resumo Mensal: mês vazio", [])):
+            _lan_r.do_mes = lambda a, m, lista_=None, _l=lista: _g[0](a, m, _l)
+            _falso = instalar()
+            _rm.st = _falso
+            try:
+                _rm.pagina("leo")
+                conta(nome, True, "")
+            except (_Rerun, _Parou):
+                conta(nome, True, "")
+            except Exception as e:
+                conta(nome, False, f"{type(e).__name__}: {e}")
+    finally:
+        (_lan_r.do_mes, _as_r.carregar, _pv_r.do_mes, _cr_r.carregar,
+         _cf_r.carregar, _aj_r.carregar) = _g
+    import gestao as _ge_r
+    _abas = list(_ge_r.SUBTELAS)
+    conta("Resumo Mensal vem antes de Custos fixos no Financeiro",
+          _abas[:2] == ["📊 Resumo Mensal", "🧱 Custos fixos"],
+          f"ordem das abas: {_abas[:3]}")
+
+
 def _queda_de_pontos(conta):
     """O bloco que explica a queda de pontuação — ele lê o log do Trello."""
     import placar as _pl
@@ -2718,6 +2773,7 @@ def main():
     _monique_nos_gestores(conta)
     _alerta_de_coluna_na_tv(conta)
     _finalidades_em_massa(conta)
+    _resumo_mensal(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0

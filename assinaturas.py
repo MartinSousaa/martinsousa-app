@@ -40,6 +40,7 @@ Studio só garante que nada passe despercebido.
 """
 
 from rotulos import brl as _brl_ms
+import functools
 import re
 import unicodedata
 
@@ -232,7 +233,19 @@ def _chave(texto):
     O extrato escreve "MERCADO PAGO *CANVA", a fatura escreve "Canva.com" e o
     cadastro diz "Canva PRO". Comparar como vem não casa nenhum dos três.
     """
-    t = unicodedata.normalize("NFKD", str(texto or ""))
+    return _chave_txt(str(texto or ""))
+
+
+@functools.lru_cache(maxsize=16384)
+def _chave_txt(t):
+    """O miolo de `_chave`, guardado por texto.
+
+    O Resumo Mensal compara cada lançamento do mês com cada item cadastrado
+    (`custo_real.cobrado_no_mes`): 45 itens × 1.500 lançamentos normalizavam
+    o mesmo texto 67 mil vezes — 0,6 s por troca de mês, medido. A entrada
+    já é `str`, então nada que não se guarda chega aqui.
+    """
+    t = unicodedata.normalize("NFKD", t)
     t = "".join(c for c in t if not unicodedata.combining(c))
     return re.sub(r"[^A-Z0-9]+", " ", t.upper()).strip()
 
