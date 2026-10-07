@@ -2739,6 +2739,13 @@ MUTACOES = [
         '        if _u == "mm":\n            _fora.append(_n)\n',
         ["python3", "imagem.py"],
     ),
+    (
+        "a chave de um campo removido volta a viver na lista do formulario",
+        "triagem.py",
+        '    "triagem_nome_comercial", "triagem_material",\n',
+        '    "triagem_nome_comercial", "triagem_material", "triagem_variacao_cores",\n',
+        ["python3", "checar_alcance.py"],
+    ),
 ]
 
 

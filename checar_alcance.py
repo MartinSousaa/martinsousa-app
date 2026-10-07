@@ -1020,6 +1020,71 @@ def main():
             "ângulo usar — e foi ali que as peças 7 e 8 sumiram em 28/09, com "
             "os cinco verificadores verdes.")
 
+    # ── 9. A LISTA DE CHAVES DE WIDGET QUE SOBREVIVEU AO WIDGET ─────────
+    #
+    # ACHADO EM 07/10, DEPOIS DE SUBIR — e o dono perguntou, com razão,
+    # "achando erros mesmo depois de aplicar o @?".
+    #
+    # Tirei o campo "Variação de cores" do formulário da triagem e deixei a
+    # chave dele em `_CAMPOS_FORM_TRIAGEM`, a lista que `_limpar_form_triagem`
+    # percorre. Não quebra — `pop` de chave inexistente é mudo —, mas diz a
+    # quem ler depois que o formulário tem um campo que ele não tem. E o
+    # silêncio é o problema: o contrário (campo NOVO que ninguém limpa) é o
+    # mesmo defeito ao contrário, e esse SIM quebra — o produto seguinte
+    # herda o que foi digitado no anterior.
+    #
+    # O PASSO 3 DO PROTOCOLO deveria ter pegado: "qual verificador leu a
+    # linha que eu mudei?". Ele é leitura, e à mão eu não faço igual duas
+    # vezes — foi por isso que o `checar_mutacao` nasceu.
+    #
+    # POR QUE A LISTA SE PROVA SOZINHA, E NÃO É ESCOLHIDA PELO NOME: a
+    # primeira versão desta varredura casava listas por `CAMPOS|FORM|CHAVES`
+    # no nome, e acusou 13 listas que não são de widget — campos da API da
+    # RHiD, formas de pagamento, colunas da planilha de devoluções. Alarme
+    # falso ensina a ignorar o verificador, e esta base já pagou por isso.
+    #
+    # A lista só é tratada como "chaves de widget" quando a MAIORIA dos itens
+    # dela já casa com um `key=` do mesmo arquivo: é ela que prova o que é.
+    # Com o critério afinado, 1 lista é examinada e 0 acusadas sem motivo.
+    _vistas_w = 0
+    for _nome_w in _arquivos():
+        try:
+            _src_w = open(_nome_w, encoding="utf-8").read()
+            _arv_w = ast.parse(_src_w)
+        except (SyntaxError, OSError):
+            continue
+        _chaves_w = set(re.findall(r'key=["\']([^"\']+)["\']', _src_w))
+        if not _chaves_w:
+            continue
+        for _no_w in _arv_w.body:
+            if not isinstance(_no_w, ast.Assign) or not isinstance(
+                    _no_w.value, (ast.List, ast.Tuple, ast.Set)):
+                continue
+            _itens_w = [_e.value for _e in _no_w.value.elts
+                        if isinstance(_e, ast.Constant)
+                        and isinstance(_e.value, str)]
+            if len(_itens_w) < 3:
+                continue
+            _casam_w = [_i for _i in _itens_w if _i in _chaves_w]
+            if len(_casam_w) <= len(_itens_w) / 2:
+                continue
+            _vistas_w += 1
+            for _alvo_w in _no_w.targets:
+                if not isinstance(_alvo_w, ast.Name):
+                    continue
+                _orf_w = [_i for _i in _itens_w if _i not in _chaves_w]
+                if _orf_w:
+                    reprova(
+                        f"{_nome_w}:{_no_w.lineno} — `{_alvo_w.id}` e uma "
+                        f"lista de CHAVES DE WIDGET ({len(_casam_w)} dos "
+                        f"{len(_itens_w)} itens sao `key=` neste arquivo), e "
+                        f"{_orf_w} nao tem widget nenhum. Ou o campo foi "
+                        f"removido e a chave ficou — e ai a lista mente para "
+                        f"quem ler depois —, ou a chave esta escrita errada e "
+                        f"o campo nunca e limpo, e o proximo produto herda o "
+                        f"que foi digitado no anterior.")
+    print(f"ok    {_vistas_w} lista(s) de chave de widget varrida(s)")
+
     for _m in _conferir_isentos():
         reprova(_m)
     for _m in _gemeas_do_placar():
