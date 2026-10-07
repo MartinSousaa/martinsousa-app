@@ -774,6 +774,11 @@ def main():
         # de vez pede o estado da aba inteiro por sessao, que e a mudanca
         # grande ja declarada em `definir_produto_da_sessao`.
         "imagem.py:_CENARIO_VIGENTE": "cenario lido das referencias, com chave de produto e tipo",
+        # Bytes de arquivo do Drive, com chave de id de arquivo. A foto de uma
+        # variacao nao muda depois de cadastrada, e o id e global — dois
+        # colaboradores que pedirem a mesma foto recebem a mesma foto. E
+        # cache de leitura, como os do Trello e do Bling acima.
+        "imagem.py:_FOTOS_DRIVE_CACHE": "bytes de foto do Drive, com chave de id de arquivo",
         "placar_core.py:_acoes_cache": "acoes do Trello, com chave de janela",
         "placar_core.py:_board_cache": "board do Trello, um so",
         "placar_core.py:_tempos_cache": "tempos do board, com chave",

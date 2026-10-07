@@ -131,6 +131,18 @@ def upload_foto_triagem(imagem_bytes, nome_arquivo):
     return info["id"], None
 
 
+def baixar_foto_triagem(foto_drive_id):
+    """Os bytes de uma foto de triagem. (bytes, erro).
+
+    IRMÃ DE `upload_foto_triagem`, e por isso mora aqui: quem guarda a foto da
+    triagem é este módulo, e quem a lê de volta tem de ser ele também. A aba
+    Imagem precisa dos BYTES das fotos de variação para alimentar o gerador —
+    `url_thumbnail` devolve URL para o navegador desenhar, que é outra coisa.
+    """
+    import gdrive
+    return gdrive.baixar(foto_drive_id)
+
+
 def url_thumbnail(foto_drive_id, tamanho=200):
     """Retorna URL de thumbnail do Google Drive (imagem deve ser pública)."""
     import gdrive
@@ -1370,6 +1382,39 @@ if __name__ == "__main__":
        variacoes_da_triagem({"variacoes": json.dumps(
            [{"nome": "Preto", "fotos": ["a", "", "  "]}])})[0]["fotos"]
        == ["a"])
+
+    # ── A FOTO DA TRIAGEM VOLTA DO DRIVE ─────────────────────────────────
+    #
+    # Ela existe para a aba Imagem nao obrigar o colaborador a subir de novo a
+    # foto que acabou de cadastrar. O duplo substitui o DRIVE, e nao a funcao
+    # que eu escrevi: e o caminho inteiro — `baixar_foto_triagem` -> `gdrive`
+    # — que precisa estar certo, inclusive o repasse do erro.
+    import sys as _sys_dl, types as _types_dl
+    _gd_falso = _types_dl.ModuleType("gdrive")
+    _pedidos_dl = []
+
+    def _baixar_gd(fid):
+        _pedidos_dl.append(fid)
+        if fid == "quebrado":
+            return b"", "arquivo nao encontrado"
+        return b"conteudo-da-foto", None
+    _gd_falso.baixar = _baixar_gd
+    _antes_gd = _sys_dl.modules.get("gdrive")
+    try:
+        _sys_dl.modules["gdrive"] = _gd_falso
+        ok("a foto volta do Drive como bytes",
+           baixar_foto_triagem("abc") == (b"conteudo-da-foto", None))
+        ok("e o id pedido e o que foi passado", _pedidos_dl == ["abc"])
+        # ERRO DO DRIVE E REPASSADO, E NAO ENGOLIDO: quem chama precisa poder
+        # dizer na tela QUAL foto nao veio.
+        _b_q, _e_q = baixar_foto_triagem("quebrado")
+        ok("erro do Drive chega inteiro a quem chamou",
+           _b_q == b"" and _e_q == "arquivo nao encontrado")
+    finally:
+        if _antes_gd is not None:
+            _sys_dl.modules["gdrive"] = _antes_gd
+        else:
+            _sys_dl.modules.pop("gdrive", None)
 
     ok("sem variacao, a coluna de cores fica vazia",
        texto_das_variacoes([]) == "" and texto_das_variacoes(None) == "")
