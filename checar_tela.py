@@ -659,6 +659,21 @@ def _alerta_de_coluna_na_tv(conta):
               _cols == ["COLUNA NOVA XYZ"]
               and "colunas_sem_config(sorted(set(listas.values())))" in _src_al,
               str(_cols))
+        # 07/10: cada volta da TV esquece as metas guardadas (outro processo)
+        import metas_config as _mc_r
+        _lim = []
+        _g_r = _mc_r.carregar_todas
+
+        class _Limpa:
+            def clear(self):
+                _lim.append(1)
+        _mc_r.carregar_todas = _Limpa()
+        try:
+            _pl_c._tv_reler_config()
+        finally:
+            _mc_r.carregar_todas = _g_r
+        conta("a TV esquece as metas guardadas antes de cada volta", _lim == [1],
+              str(_lim))
         # e a medição de um cartão só continua de pé, pelas ações dadas
         _min, _quem = _pc_c.tempo_execucao_min("c1", {"c1": []})
         conta("tempo_execucao_min sem ações devolve zero", _min == 0.0, str(_min))

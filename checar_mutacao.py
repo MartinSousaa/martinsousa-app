@@ -2368,6 +2368,13 @@ MUTACOES = [
         ["python3", "placar_core.py"],
     ),
     (
+        "a TV volta a desenhar com as metas guardadas por 10 minutos",
+        "placar.py",
+        '    for _mod, _fn in (("metas_config", "carregar_todas"),\n',
+        '    for _mod, _fn in (("metas_config_x", "carregar_todas"),\n',
+        ["python3", "placar_core.py"],
+    ),
+    (
         "o previsto do cartao volta a ignorar as compras ja lancadas",
         "previsto.py",
         '    if prev.get("FATURA DO CARTÃO") and cartao_detalhado:\n',

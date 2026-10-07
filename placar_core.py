@@ -3949,6 +3949,27 @@ if __name__ == "__main__":
        "colunas_sem_config(" in _ast_pen.get_source_segment(_src_am, _fn_cols)
        and "colunas_sem_config(" in _insp_pc.getsource(_pl_tv._alertas_tv_list)
        and "COLUNAS_DESCONHECIDAS" not in _insp_pc.getsource(_pl_tv._alertas_tv_list))
+    # 07/10: a TV é outro processo e guardava as metas por 10 min. Cada volta
+    # esquece a memória das configurações antes de desenhar.
+    _src_loop = _insp_pc.getsource(_pl_tv._loop_regenerador_tv)
+    _src_rel = _insp_pc.getsource(_pl_tv._tv_reler_config)
+    ok("a TV relê as metas a cada volta, antes de desenhar",
+       "_tv_reler_config()" in _src_loop
+       and _src_loop.index("_tv_reler_config()")
+       < _src_loop.index('pagina_placar("martinsousa", headless=True)')
+       and '("metas_config", "carregar_todas")' in _src_rel)
+    import metas_config as _mc_tv
+    _lidas = []
+    _g_ct = _mc_tv.carregar_todas
+    class _Fn:
+        def clear(self):
+            _lidas.append("limpou")
+    _mc_tv.carregar_todas = _Fn()
+    try:
+        _pl_tv._tv_reler_config()
+    finally:
+        _mc_tv.carregar_todas = _g_ct
+    ok("e de fato limpa a memória das metas", _lidas == ["limpou"])
     ok("barra de penalidades: zero vazia, no teto cheia, acima cheia e diz quanto",
        barra_penalidades(0, 5) == (0.0, "0/5")
        and barra_penalidades(2, 5) == (40.0, "2/5")
