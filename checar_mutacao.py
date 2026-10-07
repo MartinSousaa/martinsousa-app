@@ -2426,6 +2426,27 @@ MUTACOES = [
         ["python3", "extratos_tela.py"],
     ),
     (
+        "cheques e cartoes voltam a sair numa linha so na meta de gastos",
+        "home_gestao.py",
+        '        + linha_t("Comprometido · cheques a compensar", _brl(q["cheques"], 0),\n',
+        '        + linha_t("Comprometido · cheques e cartões", _brl(q["cheques"], 0),\n',
+        ["python3", "home_gestao.py"],
+    ),
+    (
+        "o Ja gasto volta a nao dizer do que e feito",
+        "home_gestao.py",
+        '        + _composicao(q.get("ja_por"))\n',
+        '        + ""\n',
+        ["python3", "home_gestao.py"],
+    ),
+    (
+        "a lista item a item volta a contar o pagamento da fatura",
+        "home_gestao.py",
+        "        if _lan.cartao_pago([l]):\n            continue\n",
+        "        if False:\n            continue\n",
+        ["python3", "home_gestao.py"],
+    ),
+    (
         "o previsto do cartao volta a ignorar as compras ja lancadas",
         "previsto.py",
         '    if prev.get("FATURA DO CARTÃO") and cartao_detalhado:\n',
