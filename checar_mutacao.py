@@ -2352,6 +2352,21 @@ MUTACOES = [
         "    _faltando = []\n",
         ["python3", "checar_tela.py"],
     ),
+    # ── 07/10: COLUNA CONFIGURADA OU EXCLUÍDA CONTINUAVA NO AVISO E NA TV ──
+    (
+        "o aviso de coluna volta a comparar a grafia exata",
+        "analise_metas.py",
+        "    novas = _pc.colunas_sem_config(do_board, salvas)\n",
+        "    novas = [c for c in do_board if c not in _pc.COLUNAS_CONFIG and c not in salvas]\n",
+        ["python3", "placar_core.py"],
+    ),
+    (
+        "a configuracao de coluna volta a nao reconhecer outra grafia",
+        "placar_core.py",
+        "        if n in COLUNAS_CONFIG or n in (salvas or {}) or chave_coluna(n) in chaves:\n",
+        "        if n in COLUNAS_CONFIG or n in (salvas or {}):\n",
+        ["python3", "placar_core.py"],
+    ),
     (
         "o previsto do cartao volta a ignorar as compras ja lancadas",
         "previsto.py",

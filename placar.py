@@ -1131,7 +1131,9 @@ def _alertas_tv_list(listas, cards, membros_map):
     alertas.sort(key=lambda x: x["_s"])
     # Coluna que existe no Trello e nao esta configurada: o trabalho dela ficava
     # fora do painel inteiro, sem nenhum aviso.
-    _desconhecidas = sorted(_pc_al.COLUNAS_DESCONHECIDAS)
+    # Perguntado AGORA, sobre as listas de agora — o conjunto global antigo
+    # só crescia, e coluna configurada ou excluída ficava no alerta da TV.
+    _desconhecidas = _pc_al.colunas_sem_config(sorted(set(listas.values())))
     for _col in _desconhecidas[:3]:
         _qtd = sum(1 for c in cards
                    if listas.get(c["idList"], "") == _col and not c.get("dueComplete"))
