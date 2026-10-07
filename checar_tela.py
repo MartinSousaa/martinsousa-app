@@ -710,6 +710,36 @@ def _finalidades_em_massa(conta):
               f"{type(e).__name__}: {e}")
     finally:
         _fv_f.carregar, _lan_f.carregar, _et_f._fixos_cadastrados = _g
+    # E A TABELA QUE CHEGA AO EDITOR (07/10): uma compra por linha, com o
+    # valor dela, e nenhuma coluna de soma — "somadas em uma só eu não vou
+    # conseguir identificar".
+    _vistos_ed = []
+    _g2 = (_fv_f.carregar, _lan_f.carregar, _et_f._fixos_cadastrados)
+    _fv_f.carregar = lambda *a, **k: {}
+    _lan_f.carregar = lambda: [
+        {"id": "1", "data": "2026-09-10", "descricao": "HERING 04/06",
+         "valor": -81.69, "conta": "cartão · a.csv", "favorecido": "",
+         "finalidade": "", "fixada": "", "tipo": ""},
+        {"id": "2", "data": "2026-10-10", "descricao": "HERING 05/06",
+         "valor": -81.69, "conta": "cartão · b.csv", "favorecido": "",
+         "finalidade": "", "fixada": "", "tipo": ""}]
+    _et_f._fixos_cadastrados = lambda: ([], [])
+    _falso2 = instalar()
+    _falso2.data_editor = lambda *a, **k: _vistos_ed.append(a[0]) or a[0]
+    _ft.st = _falso2
+    _et_f.st = _falso2
+    try:
+        _ft.pagina("leo")
+    except Exception:
+        pass
+    finally:
+        _fv_f.carregar, _lan_f.carregar, _et_f._fixos_cadastrados = _g2
+    _df_ed = _vistos_ed[0] if _vistos_ed else None
+    _ok_ed = (_df_ed is not None and "total" not in _df_ed.columns
+              and list(_df_ed["valor"]) == [81.69]
+              and list(_df_ed["preenche junto"]) == [1])
+    conta("Finalidades: a linha mostra a parcela, e não a soma das compras",
+          _ok_ed, f"colunas: {list(_df_ed.columns) if _df_ed is not None else None}")
     import inspect as _insp_ft
     _src = _insp_ft.getsource(_ft.pagina)
     conta("e não tem mais o selectbox de ADS linha a linha",
