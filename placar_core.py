@@ -2185,11 +2185,11 @@ def tempo_execucao_min(card_id, acoes_board=None):
     return minutos, primeiro_membro
 
 
-# Colunas que existem no Trello mas nao estao em COLUNAS_CONFIG. O codigo pulava
-# esses cartoes por completo — sem fila, sem alerta, sem atraso — e em silencio.
-# Basta alguem criar ou renomear uma coluna no Trello para o trabalho dela sumir
-# do painel sem ninguem perceber.
-COLUNAS_DESCONHECIDAS = set()
+# Colunas que existem no Trello mas nao estao configuradas. ERA um conjunto
+# global que so crescia: coluna configurada ou excluida continuava no alerta da
+# TV ate o servico reiniciar (dono, 07/10: "ja configurei... e ja exclui...
+# por que continua aparecendo na area de atencao da TV??"). Agora a pergunta
+# e feita na hora, a cada desenho: `colunas_sem_config`.
 
 CFG_PADRAO_COLUNA = {"prioridade": 5, "tempo_min": 60}
 
@@ -2356,9 +2356,32 @@ def cfg_coluna(nome_lista):
         base.update(editado)
     if base:
         return base
-    if nome_lista and not coluna_em(nome_lista, COLUNAS_SKIP):
-        COLUNAS_DESCONHECIDAS.add(nome_lista)
     return dict(CFG_PADRAO_COLUNA)
+
+
+def colunas_sem_config(nomes_no_board, salvas=None):
+    """As colunas do Trello AGORA que não têm configuração. Uma resposta só.
+
+    O aviso do Studio comparava a grafia exata e a TV lia um conjunto que só
+    crescia; a configuração (`cfg_coluna`) reconhece a coluna por
+    `chave_coluna`. Os três passam a perguntar a mesma coisa, do mesmo jeito.
+    """
+    if salvas is None:
+        try:
+            import colunas_config as _cc
+            salvas = _cc.carregar()
+        except Exception:
+            salvas = {}
+    chaves = {chave_coluna(n) for n in list(COLUNAS_CONFIG) + list(salvas or {})}
+    fora = []
+    for n in (nomes_no_board or []):
+        if not n or coluna_em(n, COLUNAS_SKIP):
+            continue
+        if n in COLUNAS_CONFIG or n in (salvas or {}) or chave_coluna(n) in chaves:
+            continue
+        if n not in fora:
+            fora.append(n)
+    return sorted(fora)
 
 
 def colunas_do_board():
@@ -3908,6 +3931,24 @@ if __name__ == "__main__":
     # crescer a cada atualizacao (07/10, o espaco vazio na TV).
     ok("a TV nao mede a caixa esticada (o bloco crescia a cada minuto)",
        "bb.children[i].scrollHeight" not in _src_tvh)
+    # 07/10: coluna configurada (com outra grafia) ou excluída do Trello não
+    # pode continuar no aviso nem no alerta da TV.
+    _cfg_salvo = {"CORREÇÕES/RETRABALHOS: -30 PONTOS": {"prioridade": 5,
+                                                          "tempo_min": 60}}
+    ok("coluna configurada sai do aviso, mesmo com espaço a mais no Trello",
+       colunas_sem_config(["CORREÇÕES/RETRABALHOS:  -30 PONTOS "], _cfg_salvo) == [])
+    ok("coluna que não está mais no Trello não é cobrada",
+       colunas_sem_config([], _cfg_salvo) == [])
+    ok("coluna nova de verdade continua no aviso",
+       colunas_sem_config(["COLUNA NOVA XYZ"], _cfg_salvo) == ["COLUNA NOVA XYZ"])
+    _fn_cols = next(n for n in _ast_pen.walk(_ast_pen.parse(_src_am))
+                    if isinstance(n, _ast_pen.FunctionDef)
+                    and "Colunas novas no Trello" in
+                    (_ast_pen.get_source_segment(_src_am, n) or ""))
+    ok("o aviso do Studio e o alerta da TV perguntam a colunas_sem_config",
+       "colunas_sem_config(" in _ast_pen.get_source_segment(_src_am, _fn_cols)
+       and "colunas_sem_config(" in _insp_pc.getsource(_pl_tv._alertas_tv_list)
+       and "COLUNAS_DESCONHECIDAS" not in _insp_pc.getsource(_pl_tv._alertas_tv_list))
     ok("barra de penalidades: zero vazia, no teto cheia, acima cheia e diz quanto",
        barra_penalidades(0, 5) == (0.0, "0/5")
        and barra_penalidades(2, 5) == (40.0, "2/5")

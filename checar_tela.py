@@ -638,6 +638,36 @@ def _monique_nos_gestores(conta):
           and _src.index("com_gestores_pedidos(df)") < _src.index("st.data_editor"), "")
 
 
+def _alerta_de_coluna_na_tv(conta):
+    """07/10: o alerta "Coluna sem config" da TV é perguntado sobre as listas
+    de AGORA — coluna configurada ou excluída não fica mais nele."""
+    import placar as _pl_c
+    import placar_core as _pc_c
+    import colunas_config as _cc_c
+    _g = _cc_c.carregar
+    _cc_c.carregar = lambda: {"CORREÇÕES/RETRABALHOS: -30 PONTOS":
+                              {"prioridade": 5, "tempo_min": 60}}
+    try:
+        # `_alertas_tv_list` inteira vai ao Trello; o alerta de coluna é a
+        # pergunta a `colunas_sem_config` sobre as listas recebidas.
+        import inspect as _insp_c
+        _src_al = _insp_c.getsource(_pl_c._alertas_tv_list)
+        _listas = {"l1": "CORREÇÕES/RETRABALHOS:  -30 PONTOS",
+                   "l2": "COLUNA NOVA XYZ"}
+        _cols = _pc_c.colunas_sem_config(sorted(set(_listas.values())))
+        conta("TV: coluna configurada sai do alerta, coluna nova entra",
+              _cols == ["COLUNA NOVA XYZ"]
+              and "colunas_sem_config(sorted(set(listas.values())))" in _src_al,
+              str(_cols))
+        # e a medição de um cartão só continua de pé, pelas ações dadas
+        _min, _quem = _pc_c.tempo_execucao_min("c1", {"c1": []})
+        conta("tempo_execucao_min sem ações devolve zero", _min == 0.0, str(_min))
+    except Exception as e:
+        conta("TV: alerta de coluna", False, f"{type(e).__name__}: {e}")
+    finally:
+        _cc_c.carregar = _g
+
+
 def _queda_de_pontos(conta):
     """O bloco que explica a queda de pontuação — ele lê o log do Trello."""
     import placar as _pl
@@ -2638,6 +2668,7 @@ def main():
     _assinaturas_no_operacional(conta)
     _projecao_na_meta(conta)
     _monique_nos_gestores(conta)
+    _alerta_de_coluna_na_tv(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0
