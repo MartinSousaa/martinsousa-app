@@ -2681,6 +2681,49 @@ MUTACOES = [
         "        st.session_state.pop(_k, None)\n",
         ["python3", "triagem.py"],
     ),
+    # ── 07/10: OS TRES ACHADOS DO TESTE DA FITA DUPLA FACE ─────────────
+    (
+        "o juiz volta a cobrar preservacao na pergunta do pedido cumprido",
+        "imagem.py",
+        '            "O QUE O PEDIDO MANDA PRESERVAR N\u00c3O ENTRA NA PERGUNTA 1.\\n"\n',
+        "",
+        ["python3", "imagem.py"],
+    ),
+    (
+        "a cor ilegivel volta a ser oferecida para escrever texto",
+        "imagem.py",
+        '        if not _serve and "texto" in onde:\n',
+        "        if False:\n",
+        ["python3", "imagem.py"],
+    ),
+    (
+        "o piso de contraste cai e qualquer cor passa a escrever texto",
+        "imagem.py",
+        "_PISO_CONTRASTE_TEXTO = 4.5\n",
+        "_PISO_CONTRASTE_TEXTO = 1.0\n",
+        ["python3", "imagem.py"],
+    ),
+    (
+        "a regua da cena volta a eleger a MAIOR medida (o comprimento enrolado)",
+        "imagem.py",
+        "    for _m_rg in sorted(set(_cm)):\n",
+        "    for _m_rg in [max(_cm)]:\n",
+        ["python3", "imagem.py"],
+    ),
+    (
+        "a regua da cena vaza para as pecas que ja tem dono do tamanho",
+        "imagem.py",
+        '    if numero_do_tipo(tipo) not in TIPOS_DE_CENA:\n        return ""\n    _cm = _medidas_em_cm(dados_descricao)\n',
+        "    _cm = _medidas_em_cm(dados_descricao)\n",
+        ["python3", "imagem.py"],
+    ),
+    (
+        "milimetro volta a ser lido como centimetro, e a escala erra por dez",
+        "imagem.py",
+        '        if _u == "mm":\n            _fora.append(_n / 10)\n',
+        '        if _u == "mm":\n            _fora.append(_n)\n',
+        ["python3", "imagem.py"],
+    ),
 ]
 
 
