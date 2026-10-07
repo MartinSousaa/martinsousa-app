@@ -397,7 +397,24 @@ def zonas_da_peca(tipo, blocos=0):
     oferecer cartao a quem o prompt acabou de proibir.
     """
     n = numero_do_tipo(tipo)
-    if not blocos or n in (1, 4, 8):
+    # O TIPO 5 SAI DAQUI, E E UMA REGRESSAO MINHA DE 06/10.
+    #
+    # A zona manda "os cartoes vivem AQUI, empilhados numa coluna". O preset
+    # do proprio tipo 5 manda o contrario, com todas as letras
+    # (`imagem.py` ~1697): "os cartoes ficam distribuidos AO REDOR do
+    # produto — em cima, nas laterais e embaixo (...) NUNCA empilhados num
+    # canto". Duas vozes sobre a mesma coisa, no mesmo prompt — a Forma 5
+    # que esta funcao existia para ACABAR, cometida por ela.
+    #
+    # E O MODELO RESOLVEU DO PIOR JEITO POSSIVEL: desenhou a geometria como
+    # legenda. A peca 5 do teste de 06/10 saiu com "Produto Zone (6% a 56%
+    # wiltu)" e "Zona dos Cartoes (61% a 94% wiltu)" escritos na arte, com
+    # linha tracejada — porque o tipo 5 e justamente aquele cuja linguagem
+    # visual E a cota tracejada com rotulo. Dar a ele um texto de medidas e
+    # oferecer conteudo a quem desenha medidas.
+    #
+    # O tipo 5 ja tem dono para posicao, e e o preset dele.
+    if not blocos or n in (1, 4, 5, 8):
         return ""
     # AS PECAS DE CENA NAO TEM ZONA, E ISSO E DE PROPOSITO.
     #
@@ -425,6 +442,11 @@ def zonas_da_peca(tipo, blocos=0):
         return ""
     return (
         "GEOMETRIA DESTA PEÇA — já calculada, não a recalcule:\n"
+        "- ESTE BLOCO É INSTRUÇÃO DE ONDE PÔR AS COISAS, E NUNCA TEXTO A\n"
+        "  DESENHAR. Nenhuma palavra, número, porcentagem, seta ou linha\n"
+        "  tracejada deste bloco aparece na imagem. As zonas são invisíveis:\n"
+        "  quem olha a peça pronta não vê nem a divisão, nem o corredor, nem\n"
+        "  rótulo de zona nenhum.\n"
         f"- ZONA DO PRODUTO: de {folga}% a {folga + _lado_produto}% da largura\n"
         f"  do quadro. O produto vive AQUI, inteiro, sem nada por cima.\n"
         f"- CORREDOR VAZIO: de {folga + _lado_produto}% a {_ini_cart}% da\n"
@@ -12923,6 +12945,51 @@ if __name__ == "__main__":
                        "textos": ["A: um", "B: dois", "C: tres", "D: quatro"]})
     ok("a geometria calculada chega ao prompt da peca",
        "GEOMETRIA DESTA PEÇA" in _p_z and "CORREDOR VAZIO" in _p_z)
+
+    # ── A GEOMETRIA E INSTRUCAO, E NUNCA TINTA ──────────────────────────
+    #
+    # ACHADO NO TESTE DE 06/10, e a regressao e minha, do dia anterior: a
+    # peca 5 saiu com "Produto Zone (6% a 56% wiltu)" e "Zona dos Cartoes
+    # (61% a 94% wiltu)" ESCRITOS na arte, com linha tracejada.
+    ok("o bloco diz de si mesmo que nao vira texto na imagem",
+       "NUNCA TEXTO A" in _p_z and "DESENHAR" in _p_z)
+    ok("e diz que as zonas sao invisiveis na peca pronta",
+       "As zonas são invisíveis" in _p_z)
+
+    # O TIPO 5 NAO RECEBE ZONA: o preset dele manda o CONTRARIO.
+    ok("o tipo 5 nao recebe zona nenhuma",
+       zonas_da_peca("5 — Características técnicas (medidas/peso/material)",
+                     5) == "")
+    _p5_z = montar_prompt_imagem(
+        "5 — Características técnicas (medidas/peso/material)", "",
+        {"medidas": "12x14", "peso": "326", "material": "metal"}, "Caneca",
+        plano_triagem={"composicao": "x", "cena": "y",
+                       "textos": ["ALTURA: 12 cm", "LARGURA: 14 cm",
+                                  "PESO: 326 g"]})
+    ok("e a geometria nao chega ao prompt dele",
+       "GEOMETRIA DESTA PEÇA" not in _p5_z)
+    ok("mas o preset dele continua mandando os cartoes ao redor",
+       "ao redor do produto" in _p5_z)
+
+    # ── DUAS VOZES SOBRE ONDE OS CARTOES FICAM, NO MESMO PROMPT ─────────
+    #
+    # A guarda que faltava. "O tipo 5 nao recebe zona" mede o caso que
+    # doeu; esta mede a REGRA, e pega o proximo tipo que ganhar preset de
+    # cartao espalhado. Guarda do caso e guarda da regra nao sao a mesma
+    # coisa — foi exatamente essa diferenca que deixou isto passar.
+    _brigas = []
+    for _t_br in TIPOS_PADRAO:
+        _pr_br = montar_prompt_imagem(
+            _t_br, "", {"medidas": "12x14", "peso": "326", "material": "x"},
+            "Caneca",
+            plano_triagem={"composicao": "x", "cena": "y",
+                           "textos": ["A: um", "B: dois", "C: tres"]})
+        _manda_coluna = "empilhados numa coluna" in _pr_br
+        _proibe_coluna = "nunca empilhados num canto" in _pr_br.lower()
+        if _manda_coluna and _proibe_coluna:
+            _brigas.append(numero_do_tipo(_t_br))
+    ok("nenhum tipo recebe 'empilhados numa coluna' e 'nunca empilhados "
+       f"num canto' no mesmo prompt (brigas: {_brigas})", not _brigas)
 
     # ── 8 NA GALERIA NAO E 8 ENTREGUES ──────────────────────────────────
     #
