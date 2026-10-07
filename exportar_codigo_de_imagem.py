@@ -58,6 +58,13 @@ SECOES = [
         "cenario_vigente", "ambientacao_do_tipo",
     ]),
     ("AS MEDIDAS DE CADA PECA (fonte unica de tamanho e densidade)", "imagem.py", [
+        # A REGUA DA CENA (07/10): numero sozinho nao e escala, e as pecas
+        # de cena sairam com a fita de 1,2 cm do tamanho de fita crepe.
+        "LARGURA_CARTAO_CM", "_medidas_em_cm", "regua_da_cena",
+        # A TRAVA DE CONTRASTE (07/10): a paleta mandava escrever texto numa
+        # cor de 1,63:1, e o "sim" da peca 6 saiu invisivel.
+        "_PISO_CONTRASTE_TEXTO", "_luminancia", "contraste",
+        "cor_serve_para_texto",
         "OCUPACAO", "BLOCOS", "faixa_de_blocos", "blocos_em_portugues",
         "faixa_de_ocupacao", "ocupacao_em_portugues", "ocupacao_em_ingles",
         "TIPOS_DE_CENA", "protagonismo_do_tipo", "PALAVRAS_TITULO",
@@ -283,6 +290,11 @@ FORA_DE_PROPOSITO = {
     # que a varredura por nome de chamada apanha junto. `json.loads`,
     # `BytesIO.getvalue`, `chaves.ler`, `_GEMINI_LIMITER.aguardar`, `list`.
     "json", "list", "getvalue", "ler", "aguardar",
+    # `create` e `cliente.messages.create`, metodo do SDK da Anthropic. Ele
+    # so passou a ser apanhado em 07/10 porque o auto-teste ganhou um duplo
+    # com um metodo de mesmo nome — a varredura casa por NOME de chamada, e
+    # o duplo deu nome a uma chamada que nunca teve dono neste arquivo.
+    "create",
     # FUNCOES ANINHADAS: ja saem DENTRO do bloco da funcao que as contem, e
     # exporta-las a parte seria o mesmo codigo duas vezes no .txt. Conferido
     # em 06/10, uma a uma (a mae de cada uma esta exportada):
