@@ -70,9 +70,12 @@ GRADES = {
     "custo_fixo": {
         "aba": "custo_fixo",
         "titulo": "🧱 Custo fixo",
-        "legenda": ("O que sai todo mês independente de vender. É o numerador "
-                    "da linha de equilíbrio — **faturamento de equilíbrio = "
-                    "custo fixo ÷ margem de contribuição**."),
+        # 07/10: o equilíbrio deixou de ser custo fixo ÷ margem — é a meta
+        # de gastos ÷ lucro bruto médio (`equilibrio_caixa.ponto_de_
+        # equilibrio`). A legenda dizia a conta antiga a quem preenche aqui.
+        "legenda": ("O que sai todo mês independente de vender. Entra no "
+                    "**LPV** — custo fixo + salários da gerência + não "
+                    "operacional, ÷ vendas do mês."),
         "rotulo_item": "Item",
         "ajuda_item": "Água, Luz, Internet fixa, Aluguel, Anvisa…",
         # O custo fixo de hoje, como está na planilha do gestor. Salários NÃO

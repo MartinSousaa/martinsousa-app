@@ -620,6 +620,18 @@ def _projecao_na_meta(conta):
           "projecao=_proj" in _src and "lpv_projetado.clear()" in _src, "")
 
 
+def _monique_nos_gestores(conta):
+    """07/10: a tela de Folha salarial passa a aba gravada por
+    `com_gestores_pedidos` — sem isso a Monique, pedida em 05/10, nunca
+    aparecia, porque a aba já tinha Leonardo e Renan."""
+    import inspect as _insp_mo
+    import folha_salarial as _fs_mo
+    _src = _insp_mo.getsource(_fs_mo.pagina)
+    conta("a Folha salarial acrescenta os gestores pedidos à aba já gravada",
+          "com_gestores_pedidos(df)" in _src
+          and _src.index("com_gestores_pedidos(df)") < _src.index("st.data_editor"), "")
+
+
 def _queda_de_pontos(conta):
     """O bloco que explica a queda de pontuação — ele lê o log do Trello."""
     import placar as _pl
@@ -2619,6 +2631,7 @@ def main():
     _aba_faturas(conta)
     _assinaturas_no_operacional(conta)
     _projecao_na_meta(conta)
+    _monique_nos_gestores(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0

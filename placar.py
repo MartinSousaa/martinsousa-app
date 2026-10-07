@@ -1631,13 +1631,17 @@ function _aplicarLayout() {{
   // TV e mais baixa que a do computador: com 22% fixos, o bloco cortava a
   // partir da 5a linha e "Cartoes com membro" e "Tempo medio" sumiam so na
   // TV (dono, 07/10). Mede o que as caixas pedem e tira da parte de baixo.
+  // Mede ATE O FIM DA ULTIMA LINHA, e nao a caixa: a caixa estica ate a
+  // altura do bloco, e medir ela fazia o bloco crescer 4px a cada
+  // atualizacao ate o teto — o espaco vazio da TV no mesmo dia.
   var bb = document.getElementById('tv-bb');
   if (bb) {{
     var need = 0;
     for (var i = 0; i < bb.children.length; i++) {{
-      need = Math.max(need, bb.children[i].scrollHeight || 0);
+      var ult = bb.children[i].lastElementChild;
+      if (ult) {{ need = Math.max(need, ult.offsetTop + ult.offsetHeight + 8); }}
     }}
-    if (need + 4 > hB) {{ hB = Math.min(need + 4, Math.round(avail * 0.40)); }}
+    if (need > hB) {{ hB = Math.min(need, Math.round(avail * 0.40)); }}
   }}
   var hBt = avail - hM - hS - hB;
   var y = PAD;

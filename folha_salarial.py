@@ -268,6 +268,30 @@ def _brl(v):
 
 # ── Tela ─────────────────────────────────────────────────────────────────────
 
+def com_gestores_pedidos(df):
+    """(df, faltando) — os gestores pedidos pelo dono que a aba ainda não tem.
+
+    A Monique foi pedida em 05/10 e entrou só em `SUGESTOES`, que a tela usa
+    quando a aba está VAZIA. A aba já tinha Leonardo e Renan gravados, e ela
+    nunca apareceu (dono, 07/10: "cadê a Monique na parte de gestores que eu
+    já tinha pedido???"). Aqui ela entra na tabela com os valores sugeridos;
+    só fica gravada quando o dono clicar em Salvar.
+    """
+    if df is None or df.empty:
+        return df, []
+    tem = {str(p).strip().lower() for p in df["pessoa"].tolist()}
+    faltam = [p for p in SUGESTOES if len(p) > 2
+              and p["pessoa"].lower() not in tem]
+    if not faltam:
+        return df, []
+    novas = pd.DataFrame(
+        [{**{v: 0.0 for v in VERBAS}, "vigente_desde": "", "dia_debito": 30,
+          "forma_pagamento": "Transferência", "atualizado_em": "",
+          "atualizado_por": "", **p} for p in faltam], columns=COLUNAS)
+    return (pd.concat([df, novas], ignore_index=True),
+            [p["pessoa"] for p in faltam])
+
+
 def pagina(usuario_logado=None):
     """A folha inteira: as duas tabelas e um total só."""
     import colaboradores as _co
@@ -294,6 +318,12 @@ def pagina(usuario_logado=None):
     st.caption("Pró-labore, comissão e vales. O **1/12 de 13º** fica à parte: "
                "é dinheiro guardado, não sai do caixa no mês.")
     df = carregar()
+    df, _faltando = com_gestores_pedidos(df)
+    if _faltando and not df.empty and len(df) > len(_faltando):
+        st.warning(
+            "**" + ", ".join(_faltando) + "** entrou na tabela abaixo a seu "
+            "pedido (05/10), e **ainda não está gravada**: confira os valores "
+            "e clique em **Salvar gestores**.")
     if df.empty:
         df = pd.DataFrame(
             [{**{v: 0.0 for v in VERBAS}, **VERBAS_GESTOR,
@@ -494,6 +524,19 @@ if __name__ == "__main__":
        sum(VERBAS_GESTOR.values()) == 7700.0)
     ok("toda verba sugerida existe na lista de verbas",
        set(VERBAS_GESTOR) <= set(VERBAS))
+    # 07/10: a aba já gravada com Leonardo e Renan não mostrava a Monique.
+    _gravada = pd.DataFrame([{"pessoa": "Leonardo"}, {"pessoa": "Renan"}],
+                            columns=COLUNAS)
+    _com, _falt = com_gestores_pedidos(_gravada)
+    ok("aba já gravada sem a Monique: ela entra na tabela, como Auxiliar "
+       "de Expedição com salário de R$ 2.400",
+       _falt == ["Monique"] and len(_com) == 3
+       and float(_com.iloc[2]["salario"]) == 2400.0
+       and _com.iloc[2]["cargo"] == "Auxiliar de Expedição")
+    ok("_brl escreve em real, com ponto no milhar e vírgula no centavo",
+       _brl(1234.5) == "R$ 1.234,50")
+    ok("com a Monique já gravada, nada é acrescentado",
+       com_gestores_pedidos(_com)[1] == [] and len(com_gestores_pedidos(_com)[0]) == 3)
     ok("só o Renan e a Monique têm verba própria",
        [p["pessoa"] for p in SUGESTOES if len(p) > 1] == ["Renan", "Monique"])
     ok("a folha de gestores não tem mais coluna de desconto",
