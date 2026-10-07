@@ -987,6 +987,99 @@ def medidas_sem_lastro(textos, dados_descricao=None):
     return fora
 
 
+# ── A ESCALA REAL PRECISA DE UMA RÉGUA QUE O GERADOR CONHEÇA ──────────────
+#
+# ACHADO NO TESTE DA FITA DUPLA FACE, 07/10. O dono escreveu: "a fita sendo
+# utilizada tá maior do que o produto real" e, depois, mandou uma foto do
+# rolo na mão — "para você entender como é o tamanho real".
+#
+# O prompt JÁ tinha a medida: "LARGURA: 1,2 cm". E as peças de cena saíram
+# com a fita da largura de três dedos. Repetir "1,2 cm" mais alto não
+# resolve: o gerador desenha o que RECONHECE, e ele não tem régua. Dizer
+# "1,2 cm" a quem não mede é o mesmo que não dizer nada.
+#
+# O QUE ELE RECONHECE É COMPARAÇÃO. O cartão de crédito serve porque o
+# tamanho dele é NORMA — ISO/IEC 7810 ID-1, 8,56 cm × 5,4 cm —, não uma
+# estimativa minha, e porque ele aparece em praticamente todo conjunto de
+# treino. "Pouco mais de um sétimo da largura de um cartão" é uma instrução
+# que se desenha; "1,2 cm" não é.
+#
+# SÓ NAS PEÇAS DE CENA. Nas outras o tamanho tem dono — `OCUPACAO` diz a
+# fração do quadro —, e acrescentar uma segunda régua ali seria a Forma 5
+# de novo, que esta base já pagou três vezes com o tamanho do produto.
+LARGURA_CARTAO_CM = 8.56   # ISO/IEC 7810 ID-1
+
+
+def _medidas_em_cm(dados_descricao):
+    """As medidas do cadastro convertidas para cm. [] quando não há.
+
+    Reusa `_NUMERO_COM_UNIDADE`, que é quem já lê este campo nesta base.
+    Número SEM unidade não entra: "12x14" pode ser cm ou mm, e chutar a
+    unidade erraria a escala por dez — que é pior do que não falar dela.
+    """
+    _bruto = str((dados_descricao or {}).get("medidas", "") or "")
+    _fora = []
+    for _v, _u in _NUMERO_COM_UNIDADE.findall(_bruto):
+        try:
+            _n = float(_v.replace(",", "."))
+        except ValueError:
+            continue
+        _u = _u.lower()
+        if _u == "mm":
+            _fora.append(_n / 10)
+        elif _u == "cm":
+            _fora.append(_n)
+        elif _u == "m":
+            _fora.append(_n * 100)
+    return [_n for _n in _fora if _n > 0]
+
+
+def regua_da_cena(tipo, dados_descricao):
+    """A comparação de tamanho para esta peça de cena. "" quando não cabe.
+
+    Fora das peças de cena devolve "": lá o tamanho já tem dono.
+    """
+    if numero_do_tipo(tipo) not in TIPOS_DE_CENA:
+        return ""
+    _cm = _medidas_em_cm(dados_descricao)
+    if not _cm:
+        return ""
+    # NÃO EXISTE "A MEDIDA PRINCIPAL", E EU TENTEI QUE EXISTISSE.
+    #
+    # A primeira versão desta função comparava a MAIOR medida com o cartão.
+    # Com "1,2cm x 5m" — a fita dupla face do teste do dono — ela pegou os 5
+    # METROS, que é o comprimento ENROLADO, e anunciou ao gerador que o
+    # produto tem 58 vezes a largura de um cartão. O remédio teria inflado o
+    # produto mais do que a doença.
+    #
+    # Pegar a MENOR erra do outro lado, numa prateleira de 2 m por 5 cm. Não
+    # há como adivinhar qual eixo é "o tamanho do objeto" a partir de
+    # números soltos — então não se adivinha: cada medida sai com a régua
+    # dela, e quem decide o que fazer com isso é quem está olhando a foto do
+    # produto, que vai junto no mesmo pedido.
+    _linhas_rg = []
+    for _m_rg in sorted(set(_cm)):
+        _vezes = LARGURA_CARTAO_CM / _m_rg
+        if _vezes >= 1.5:
+            _comp = f"cerca de 1/{_vezes:.0f} da largura de um cartão"
+        elif _vezes >= 0.75:
+            _comp = "mais ou menos a largura de um cartão"
+        else:
+            _comp = f"cerca de {1 / _vezes:.1f} cartões de largura"
+        _linhas_rg.append(f"- {_m_rg:g} cm = {_comp}")
+    return (
+        "\nESCALA REAL — a régua, e não só o número:\n"
+        "O cartão de crédito tem 8,6 cm de largura e é a referência. As "
+        "medidas deste produto, cada uma comparada com ele:\n"
+        + "\n".join(_linhas_rg) + "\n"
+        "- Desenhe o produto NESSE tamanho em relação à mão, à mesa e aos "
+        "objetos da cena. Produto maior do que é na vida real é erro de "
+        "peça, mesmo que fique bonito.\n"
+        "- Quando uma das medidas for comprimento de algo enrolado ou "
+        "dobrado (fita, corda, fio), o OBJETO tem o tamanho do rolo, e não "
+        "o do comprimento esticado.\n")
+
+
 def copy_sem_medida_inventada(textos, dados_descricao=None):
     """(textos_limpos, removidos) — a copy sem numero que o cadastro nao tem.
 
@@ -5485,6 +5578,65 @@ def tipo_canonico(item, tipos_selecionados=None):
 # A decisao agora acontece UMA vez, na triagem — que ja e uma chamada com as
 # fotos, antes das oito, e por isso isto nao custa chamada nenhuma. As pecas
 # HERDAM.
+# ── A COR DO TEXTO PRECISA SER LEGÍVEL, E ISSO SE MEDE ────────────────────
+#
+# ACHADO NO TESTE DA FITA DUPLA FACE, 07/10. A peça 6 saiu com as respostas
+# "sim" e "não" praticamente invisíveis dentro do cartão branco. Não foi o
+# gerador desobedecendo: o prompt MANDOU. A direção de arte daquele produto
+# escolheu `APOIO: Verde Menta Suave (#A8D5BA)` e o bloco da paleta diz, com
+# todas as letras, que APOIO é "texto secundário, linhas e ícones".
+#
+# Medido: #A8D5BA sobre branco dá 1,63:1. O piso de legibilidade para texto
+# normal é 4,5:1. Sobre o painel cinza (#E0E0E0) cai para 1,23:1.
+#
+# A IA do plano escolhe a paleta pela estética e não tem como saber disso —
+# e pedir "escolha uma cor legível" seria mais uma regra de texto, que é
+# justamente o que o modelo ignora. Contraste é CONTA, e conta o Python faz.
+_PISO_CONTRASTE_TEXTO = 4.5
+
+
+def _luminancia(hexa):
+    """Luminância relativa de uma cor #RRGGBB. None quando não dá para ler."""
+    _h = str(hexa or "").strip().lstrip("#")
+    if len(_h) == 3:
+        _h = "".join(_c * 2 for _c in _h)
+    if len(_h) != 6:
+        return None
+    try:
+        _canais = [int(_h[_i:_i + 2], 16) / 255 for _i in (0, 2, 4)]
+    except ValueError:
+        return None
+    _lin = [(_c / 12.92 if _c <= 0.03928 else ((_c + 0.055) / 1.055) ** 2.4)
+            for _c in _canais]
+    return 0.2126 * _lin[0] + 0.7152 * _lin[1] + 0.0722 * _lin[2]
+
+
+def contraste(hex_a, hex_b):
+    """A razão de contraste entre duas cores, pela fórmula da WCAG.
+
+    None quando qualquer uma das duas não for um hex legível — sem cor não
+    há conta, e inventar um número aqui seria pior do que não ter.
+    """
+    _la, _lb = _luminancia(hex_a), _luminancia(hex_b)
+    if _la is None or _lb is None:
+        return None
+    _hi, _lo = max(_la, _lb), min(_la, _lb)
+    return (_hi + 0.05) / (_lo + 0.05)
+
+
+def cor_serve_para_texto(hex_cor, hex_fundo="#FFFFFF"):
+    """Esta cor pode escrever texto sobre este fundo? (serve, razão).
+
+    `serve` é True quando não dá para medir: barrar uma cor por não conseguir
+    lê-la seria tirar do prompt uma informação que talvez estivesse certa —
+    alarme falso ensina a ignorar o alarme.
+    """
+    _r = contraste(hex_cor, hex_fundo)
+    if _r is None:
+        return True, None
+    return _r >= _PISO_CONTRASTE_TEXTO, _r
+
+
 def bloco_direcao_de_arte(direcao):
     """O universo visual do produto, em texto, para entrar no brief.
 
@@ -5516,6 +5668,20 @@ def bloco_direcao_de_arte(direcao):
         if not nome and not hexa:
             return ""
         medida = f"{nome} ({hexa})" if nome and hexa else (nome or hexa)
+        # A COR QUE NÃO DÁ PARA LER PERDE O PAPEL DE TEXTO, e só esse.
+        #
+        # Ela continua na paleta — linha, ícone e detalhe não precisam de
+        # contraste de leitura, e tirá-la inteira empobreceria a peça. O que
+        # sai é a AUTORIZAÇÃO de escrever com ela, que foi o que produziu o
+        # "sim" invisível da peça 6.
+        _serve, _razao = cor_serve_para_texto(hexa)
+        if not _serve and "texto" in onde:
+            _sem_texto = onde.replace("texto secundário, ", "").replace(
+                "tipografia principal", "detalhe gráfico")
+            return (f"- {rotulo}: {medida} — {_sem_texto}. NÃO escreva texto "
+                    f"nesta cor: ela tem contraste {_razao:.1f}:1 sobre "
+                    f"branco, e texto precisa de {_PISO_CONTRASTE_TEXTO}:1 "
+                    f"para ser lido. Texto nesta peça usa a cor de TÍTULO.\n")
         return f"- {rotulo}: {medida} — {onde}\n"
 
     def _lista(chave):
@@ -5894,6 +6060,11 @@ def montar_prompt_imagem(tipo, instrucoes_extras, dados_descricao, nome_produto,
     # vazio e o padrao visual volta a mandar a peca deduzir, que e o
     # comportamento de antes e o menos ruim dos dois.
     _bloco_direcao = bloco_direcao_de_arte(direcao_arte)
+    # A RÉGUA DA CENA ENTRA COLADA NA DIREÇÃO DE ARTE, e só nas peças de
+    # cena: `regua_da_cena` devolve "" nas outras, onde o tamanho já tem dono
+    # (`OCUPACAO`). Duas réguas na mesma peça seria a Forma 5 do tamanho pela
+    # quarta vez nesta base.
+    _bloco_direcao += regua_da_cena(tipo, dados_descricao)
     _padrao_visual = padrao_visual(direcao_arte)
     # Margem e sobreposicao saem do MESMO lugar, e variam por tipo.
     _espaco_pt, _ = regra_de_espaco(tipo)
@@ -7415,6 +7586,14 @@ def conferir_ajuste(antes, depois, instrucao):
             "colaborador pediu explicitamente que ela mudasse, a mudança é "
             "intencional, e é o que se esperava.\n\n"
             "Compare ANTES e DEPOIS sempre em relação ao PEDIDO.\n\n"
+            "O QUE O PEDIDO MANDA PRESERVAR NÃO ENTRA NA PERGUNTA 1.\n"
+            "Pedido de alteração costuma vir com duas partes: o que tem de "
+            "MUDAR e o que tem de FICAR COMO ESTÁ (\"mantenha a mesma cena\", "
+            "\"preserve o produto\", \"não altere os textos\"). Só a primeira "
+            "parte é a alteração pedida. As frases de preservação são "
+            "medidas na pergunta 2, e não aqui — responder `feito: false` "
+            "porque algo que se pediu para manter mudou é responder duas "
+            "vezes a mesma pergunta, e as duas respostas discordam.\n\n"
             "1. O PEDIDO FOI CUMPRIDO? Responda em `feito`. Confira CADA "
             "alteração pedida, uma a uma; só responda true se todas estão "
             "claramente visíveis no DEPOIS. Mudança parcial, ou que só se "
@@ -7423,6 +7602,9 @@ def conferir_ajuste(antes, depois, instrucao):
             "com 5, 7 ou 12. Em `o_que_saiu`, diga o que foi realizado; em "
             "`o_que_falta`, o que ainda precisa acontecer.\n\n"
             "2. MUDOU ALGO ALÉM DO PEDIDO? Responda em `houve_colateral`. "
+            "É AQUI que entra o que o pedido mandou preservar: se ele disse "
+            "\"mantenha a mesma cena\" e a cena mudou, isso é colateral, e é "
+            "nesta pergunta que se diz. "
             "Olhe o que o pedido NÃO mandou mudar: cenário, fundo, "
             "enquadramento, luz, textos, objetos e as partes do produto que "
             "o pedido não citou. NÃO marque como colateral aquilo que foi "
@@ -13474,6 +13656,203 @@ if __name__ == "__main__":
     ok("a aba chama as variacoes em algum lugar", _achou_chamada)
     ok("e NAO de dentro do if que o codigo de descricao pula",
        not _dentro_do_if)
+
+    # ── A COR DO TEXTO MEDIDA, E NAO PEDIDA ─────────────────────────────
+    #
+    # O CASO REAL: a peca 6 da fita dupla face saiu com "sim" e "nao"
+    # invisiveis. A direcao de arte daquele produto escolheu
+    # `APOIO: #A8D5BA` e o bloco manda APOIO escrever "texto secundario".
+    #
+    # OS VALORES VEM DA FORMULA DA WCAG, e nao da minha cabeca: branco sobre
+    # preto e 21:1, e cor igual a si mesma e 1:1. Se a conta estiver errada,
+    # estas duas reprovam.
+    ok("preto sobre branco da o maximo da escala",
+       round(contraste("#000000", "#FFFFFF"), 1) == 21.0)
+    ok("cor igual a si mesma nao tem contraste nenhum",
+       round(contraste("#A8D5BA", "#A8D5BA"), 2) == 1.0)
+    ok("hex de 3 digitos e lido igual ao de 6",
+       contraste("#fff", "#000") == contraste("#FFFFFF", "#000000"))
+    # OS QUATRO NOMES QUE O `checar_impacto` COBROU, e com razao: eu os
+    # exportei no `.txt` do motor, entao eles passaram a ter leitor em outro
+    # arquivo — e nenhuma asserção os citava pelo nome. Guarda que nao nomeia
+    # o que mede nao protege quem muda aquilo depois.
+    ok("o piso de contraste e o da WCAG para texto normal",
+       _PISO_CONTRASTE_TEXTO == 4.5)
+    ok("a largura do cartao e a da norma ISO/IEC 7810 ID-1",
+       LARGURA_CARTAO_CM == 8.56)
+    # A LUMINANCIA, nos dois extremos da escala: se a formula mudar, estas
+    # duas caem antes de qualquer conta de contraste ficar errada em silencio.
+    ok("a luminancia do branco e 1 e a do preto e 0",
+       round(_luminancia("#FFFFFF"), 4) == 1.0
+       and round(_luminancia("#000000"), 4) == 0.0)
+    ok("e hex invalido devolve None em vez de zero",
+       _luminancia("#ZZZ") is None and _luminancia("") is None)
+    # AS MEDIDAS CONVERTIDAS, que e de onde a regua tira os numeros.
+    ok("milimetro, centimetro e metro viram todos cm",
+       _medidas_em_cm({"medidas": "12mm 3cm 2m"}) == [1.2, 3.0, 200.0])
+    ok("numero sem unidade nao entra na conversao",
+       _medidas_em_cm({"medidas": "33x33x6"}) == [])
+    ok("peso nao vira medida de comprimento",
+       _medidas_em_cm({"medidas": "326g"}) == [])
+
+    ok("hex ilegivel nao vira numero inventado",
+       contraste("verde menta", "#FFF") is None
+       and contraste("#GGG", "#FFF") is None)
+
+    # O CASO QUE DOEU, com o valor que estava no prompt real do dono.
+    _serve_apoio, _raz_apoio = cor_serve_para_texto("#A8D5BA")
+    ok(f"o verde menta da peca 6 reprova para texto ({_raz_apoio:.2f}:1)",
+       not _serve_apoio and _raz_apoio < 2)
+    ok("e o cinza escuro do titulo passa",
+       cor_serve_para_texto("#2D2D2D")[0])
+    # SEM MEDIDA, NAO SE BARRA: alarme falso ensina a ignorar o alarme.
+    ok("cor que nao da para medir continua valendo",
+       cor_serve_para_texto("tom terroso")[0] is True)
+
+    # PELA CADEIA REAL: o bloco da direcao de arte montado como o prompt monta.
+    _DIR_CT = {"nome": "Prático Minimalista", "paleta": {
+        "titulo": {"nome": "Cinza Escuro", "hex": "#2D2D2D"},
+        "apoio": {"nome": "Verde Menta Suave", "hex": "#A8D5BA"}}}
+    _bl_ct = bloco_direcao_de_arte(_DIR_CT)
+    ok("a cor de apoio continua na paleta — linha e icone nao precisam ler",
+       "#A8D5BA" in _bl_ct)
+    ok("mas o bloco PROIBE escrever texto com ela",
+       "NÃO escreva texto nesta cor" in _bl_ct)
+    ok("e diz o numero medido, em vez de so proibir",
+       "1.6:1" in _bl_ct)
+    ok("e manda o texto para a cor que passa",
+       "Texto nesta peça usa a cor de TÍTULO" in _bl_ct)
+    ok("o titulo, que passa, nao recebe proibicao nenhuma",
+       "#2D2D2D" in _bl_ct
+       and _bl_ct.count("NÃO escreva texto nesta cor") == 1)
+
+    # PALETA LEGIVEL NAO GANHA AVISO NENHUM — senao o prompt engorda a toa.
+    _DIR_OK = {"nome": "x", "paleta": {
+        "apoio": {"nome": "Grafite", "hex": "#3A3A3A"}}}
+    ok("paleta legivel sai sem aviso",
+       "NÃO escreva texto" not in bloco_direcao_de_arte(_DIR_OK))
+
+    # ── A ESCALA REAL GANHA UMA REGUA (07/10) ───────────────────────────
+    #
+    # O CASO: o dono escreveu "a fita sendo utilizada ta maior do que o
+    # produto real" e depois mandou a foto do rolo na mao. O prompt JA tinha
+    # "LARGURA: 1,2 cm" — numero sozinho nao e regua.
+    #
+    # A ENTRADA VEM DO CADASTRO REAL DAQUELE PRODUTO: "1,2CMx5M" e o que
+    # estava no campo medidas dele.
+    _DD_FITA = {"medidas": "1,2cm x 5m"}
+    _rg_cena = regua_da_cena("3 — Produto em uso", _DD_FITA)
+    ok("a peca de cena recebe a regua", "ESCALA REAL" in _rg_cena)
+    ok("e a largura real vira comparacao, nao so numero",
+       "1/7 da largura de um cartão" in _rg_cena)
+    ok("a referencia e a norma do cartao, 8,6 cm", "8,6 cm" in _rg_cena)
+
+    # O DEFEITO QUE EU MESMO INTRODUZI NA PRIMEIRA VERSAO, e que esta
+    # asserção existe para nunca mais deixar voltar: comparar a MAIOR medida
+    # pegaria os 5 METROS — o comprimento ENROLADO — e diria ao gerador que
+    # a fita tem 58 vezes a largura de um cartao. O remedio inflaria o
+    # produto mais do que a doenca.
+    ok("as duas medidas aparecem, e nenhuma e eleita 'a principal'",
+       "1.2 cm =" in _rg_cena and "500 cm =" in _rg_cena)
+    ok("e o prompt avisa que comprimento enrolado nao e o tamanho do objeto",
+       "o OBJETO tem o tamanho do rolo" in _rg_cena)
+
+    # FORA DAS PECAS DE CENA, NADA: la o tamanho ja tem dono (`OCUPACAO`).
+    for _t_rg in TIPOS_PADRAO:
+        if numero_do_tipo(_t_rg) not in TIPOS_DE_CENA:
+            ok(f"a peca {numero_do_tipo(_t_rg)} nao recebe segunda regua",
+               regua_da_cena(_t_rg, _DD_FITA) == "")
+
+    # NUMERO SEM UNIDADE NAO VIRA ESCALA: "33x33x6" pode ser cm ou mm, e
+    # chutar erraria por dez — pior do que nao falar.
+    ok("medida sem unidade nao vira regua",
+       regua_da_cena("3 — Produto em uso", {"medidas": "33x33x6"}) == "")
+    ok("cadastro sem medida tambem nao",
+       regua_da_cena("3 — Produto em uso", {}) == ""
+       and regua_da_cena("3 — Produto em uso", None) == "")
+    ok("milimetro e convertido, e nao lido como centimetro",
+       "1.2 cm =" in regua_da_cena("3 — Produto em uso",
+                                   {"medidas": "12mm de largura"}))
+
+    # PELA CADEIA REAL: o prompt da peca de cena carrega a regua.
+    _p_rg = montar_prompt_imagem("3 — Produto em uso", "", _DD_FITA, "Fita")
+    ok("a regua chega ao prompt da peca de cena", "ESCALA REAL" in _p_rg)
+    ok("e nao chega ao da peca de marketing",
+       "ESCALA REAL" not in montar_prompt_imagem(
+           "2 — Benefícios do produto", "", _DD_FITA, "Fita"))
+
+    # ── O JUIZ DO AJUSTE: MUDAR E PRESERVAR TEM DONOS DIFERENTES ───────
+    #
+    # ACHADO NO TESTE DA FITA DUPLA FACE, 07/10. O dono pediu sete vezes, e
+    # sete vezes o Studio respondeu "foi refeita, mas o pedido NAO saiu",
+    # listando em `o_que_falta` justamente a frase "Mantenha exatamente a
+    # cena original (mesma mesa de madeira clara, vasinho de suculenta...)".
+    #
+    # A instrucao do refazer traz duas partes — o que muda e o que fica. A
+    # pergunta 1 mandava conferir "CADA alteracao pedida", e a frase de
+    # preservacao estava dentro do pedido: numa refacao do zero ela nunca e
+    # verdade, entao o veredito negativo era garantido, para sempre. E
+    # preservacao JA tinha dono: a pergunta 2. Mesma pergunta, duas
+    # respostas — a Forma 5, custando uma geracao paga por rodada.
+    #
+    # A ENTRADA VEM DA CADEIA REAL: o prompt e o que `conferir_ajuste`
+    # monta de verdade, capturado do cliente. Nao e um texto que eu escrevi
+    # aqui para medir a mim mesmo.
+    # DUAS SUPOSICOES MINHAS ESTAVAM ERRADAS NA PRIMEIRA VERSAO DESTA
+    # GUARDA, e a propria guarda as denunciou: a chave NAO vem do ambiente
+    # (vem de `chaves.ler`), e `anthropic` e importado no TOPO do modulo —
+    # trocar `sys.modules` depois do import nao muda o que esta funcao ve.
+    # Duplo mais pobre que a realidade acusa o inocente.
+    _enviado_cj = {}
+
+    class _MsgsCj:
+        def create(self, **kw):
+            _enviado_cj.update(kw)
+            raise RuntimeError("parei depois de montar o prompt")
+
+    class _CliCj:
+        def __init__(self, **kw):
+            self.messages = _MsgsCj()
+
+    import chaves as _ch_cj
+    _ant_real, _ler_real = anthropic, _ch_cj.ler
+
+    class _AntCj:
+        Anthropic = _CliCj
+    try:
+        anthropic = _AntCj()
+        _ch_cj.ler = lambda nome, *a, **k: (
+            "sk-teste-de-guarda" if nome == "ANTHROPIC_API_KEY"
+            else _ler_real(nome, *a, **k))
+        _PNG_CJ = b"\x89PNG\r\n\x1a\n" + b"\x00" * 40
+        conferir_ajuste(_PNG_CJ, _PNG_CJ,
+                        "Troque a palavra Metal por inox. "
+                        "Mantenha exatamente a cena original.")
+    finally:
+        anthropic = _ant_real
+        _ch_cj.ler = _ler_real
+    _txt_cj = "\n".join(
+        _b.get("text", "")
+        for _m in (_enviado_cj.get("messages") or [])
+        for _b in (_m.get("content") or [])
+        if isinstance(_b, dict))
+
+    ok("o prompt do juiz foi montado e o pedido chegou nele",
+       "Troque a palavra Metal por inox" in _txt_cj)
+    ok("a frase de preservacao tambem chega — ela vale para o gerador",
+       "Mantenha exatamente a cena original" in _txt_cj)
+    ok("mas o juiz e instruido a NAO cobrar preservacao na pergunta 1",
+       "NÃO ENTRA NA PERGUNTA 1" in _txt_cj)
+    ok("e a pergunta 1 e nomeada como a das ALTERACOES",
+       "Só a primeira parte é a alteração pedida" in _txt_cj)
+    ok("preservacao ganha dono explicito, e nao fica orfa",
+       "É AQUI que entra o que o pedido mandou preservar" in _txt_cj)
+    # O DONO TEM DE SER O CAMPO CERTO: se os dois textos apontarem para
+    # lugares diferentes, a discordancia volta por outra porta.
+    ok("os dois textos apontam para a MESMA pergunta 2",
+       "medidas na pergunta 2" in _txt_cj
+       and _txt_cj.index("medidas na pergunta 2")
+       < _txt_cj.index("`houve_colateral`"))
 
     # ── AS FOTOS DE UMA VARIACAO ────────────────────────────────────────
     _MAPA_V = {
