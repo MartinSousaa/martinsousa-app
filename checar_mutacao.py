@@ -2439,6 +2439,35 @@ MUTACOES = [
         '        + ""\n',
         ["python3", "home_gestao.py"],
     ),
+    # ── 07/10: A META QUE NÃO SALVOU E A TELA DISSE QUE SALVOU ──────────
+    (
+        "a gravacao recusada da meta volta a passar por gravada",
+        "metas_config.py",
+        '        return False, f"{type(e).__name__}: {str(e)[:160]}"\n',
+        '        return True, ""\n',
+        ["python3", "metas_config.py"],
+    ),
+    (
+        "a tela volta a dizer salvo sem reler a planilha",
+        "analise_metas.py",
+        "                _dif_cfg = mc.conferir_gravado(ano_cfg, mes_cfg_num, nova_cfg)\n",
+        "                _dif_cfg = []\n",
+        ["python3", "checar_tela.py"],
+    ),
+    (
+        "o campo diferente do gravado volta a nao avisar",
+        "analise_metas.py",
+        "            if _dif_tela:\n",
+        "            if False:\n",
+        ["python3", "checar_tela.py"],
+    ),
+    (
+        "a conferencia volta a ler a meta do cache",
+        "metas_config.py",
+        "    carregar_todas.clear()\n    df = carregar_todas()\n",
+        "    df = carregar_todas()\n",
+        ["python3", "metas_config.py"],
+    ),
     # ── 07/10: RESUMO MENSAL ────────────────────────────────────────────
     (
         "a compra de custo fixo no cartao volta a contar em Cartoes",

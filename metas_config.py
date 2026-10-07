@@ -456,8 +456,53 @@ def salvar_config(ano: int, mes: int, dados: dict):
             aba.append_row(nova, value_input_option="RAW")
 
         carregar_todas.clear()
+        return True, ""
     except Exception as e:
-        st.error(f"Erro ao salvar configuração: {e}")
+        # A FALHA VOLTA PARA QUEM CHAMOU, e não um `st.error` daqui.
+        #
+        # A tela mostrava "salva com sucesso" logo depois e rodava st.rerun():
+        # o erro e o sucesso sumiam juntos no mesmo instante, e uma gravação
+        # recusada (cota 429 do Sheets) ficava idêntica a uma gravada. Foi a
+        # meta de 11.000 / +25% que a TV nunca viu (dono, 07/10).
+        return False, f"{type(e).__name__}: {str(e)[:160]}"
+
+
+def diferencas(enviado, gravado, chaves=None):
+    """[(chave, na tela, gravado)] do que não bate. Pura.
+
+    Compara como número quando os dois são número — 11000 e 11000.0 são o
+    mesmo valor, e a planilha devolve um ou outro.
+    """
+    fora = []
+    for k in (chaves if chaves is not None else list(enviado or {})):
+        a, b = (enviado or {}).get(k), (gravado or {}).get(k)
+        try:
+            igual = abs(float(a) - float(b)) < 1e-9
+        except (TypeError, ValueError):
+            igual = str(a if a is not None else "") == str(b if b is not None else "")
+        if not igual:
+            fora.append((k, a, b))
+    return fora
+
+
+def conferir_gravado(ano, mes, enviado):
+    """Relê a planilha (sem cache) e diz o que de `enviado` não ficou gravado.
+
+    None quando a leitura falhou: "não consegui conferir" não é "conferido".
+    """
+    carregar_todas.clear()
+    df = carregar_todas()
+    if df.empty or "ano" not in df.columns:
+        return None
+    linha = df[(df["ano"] == int(ano)) & (df["mes"] == int(mes))]
+    if linha.empty:
+        return [(k, v, None) for k, v in (enviado or {}).items()]
+    row = {str(k).strip().lower(): v for k, v in linha.iloc[-1].items()}
+    env = {str(k).strip().lower(): v for k, v in (enviado or {}).items()}
+    # Só as chaves que a planilha tem como coluna: o que não é coluna nunca
+    # foi gravado por `salvar_config`, antes ou depois desta conferência.
+    return diferencas(env, row, [k for k in env
+                                 if k not in ("ano", "mes") and k in row])
 
 
 def _letra_coluna(n: int) -> str:
@@ -514,6 +559,58 @@ if __name__ == "__main__":
        and "herdado_de" not in carregar_config(2026, 8))
     ok("antes do primeiro cadastro, fica o padrão do código",
        carregar_config(2025, 1)["meta_equipe"] == 5000)
+
+    # ── O SALVAR QUE FALHA TEM DE DIZER QUE FALHOU (07/10) ───────────────
+    # A meta de 11.000 / +25% nunca chegou à TV: a gravação recusada mostrava
+    # st.error, a tela mostrava "salva com sucesso" e o rerun apagava os dois.
+    def _aba_recusa():
+        raise RuntimeError("APIError: [429]: Quota exceeded")
+    _aba_g, _sinc_g = _aba, sincronizar_campos
+    _aba, sincronizar_campos = _aba_recusa, (lambda: None)
+    try:
+        _ok_s, _err_s = salvar_config(2026, 10, {"meta_equipe": 11000})
+    finally:
+        _aba, sincronizar_campos = _aba_g, _sinc_g
+    ok("gravação recusada devolve a falha a quem chamou",
+       _ok_s is False and "429" in _err_s)
+    import ast as _ast_mc
+    import inspect as _insp_mc
+    import textwrap as _tw_mc
+    _chamadas_mc = {_ast_mc.unparse(n.func) for n in _ast_mc.walk(
+        _ast_mc.parse(_tw_mc.dedent(_insp_mc.getsource(salvar_config))))
+        if isinstance(n, _ast_mc.Call)}
+    ok("e não mostra o erro por conta própria (o rerun da tela o apagava)",
+       "st.error" not in _chamadas_mc and "aba.update" in _chamadas_mc)
+
+    ok("11000 e 11000.0 são o mesmo valor",
+       diferencas({"meta_equipe": 11000}, {"meta_equipe": 11000.0}) == [])
+    ok("a diferença diz a chave, a tela e o gravado",
+       diferencas({"meta_equipe": 11000, "meta_maxx_acrescimo": 25},
+                  {"meta_equipe": 9000, "meta_maxx_acrescimo": 25})
+       == [("meta_equipe", 11000, 9000)])
+
+    class _Leitura:
+        """`carregar_todas` com o `.clear()` que o cache do Streamlit tem."""
+        def __init__(self, df):
+            self.df, self.limpou = df, 0
+        def __call__(self):
+            return self.df
+        def clear(self):
+            self.limpou += 1
+    carregar_todas = _Leitura(_df)
+    ok("conferir relê sem cache e vê o que não ficou gravado",
+       conferir_gravado(2026, 9, {"meta_equipe": 11000,
+                                  "meta_maxx_acrescimo": 20})
+       == [("meta_equipe", 11000, 9000)] and carregar_todas.limpou == 1)
+    ok("o que ficou gravado confere vazio",
+       conferir_gravado(2026, 9, {"meta_equipe": 9000,
+                                  "META_MAXX_ACRESCIMO": 20}) == [])
+    ok("chave que não é coluna da planilha não acusa diferença",
+       conferir_gravado(2026, 9, {"meta_equipe": 9000,
+                                  "coluna_que_nao_existe": 3}) == [])
+    carregar_todas = _Leitura(pd.DataFrame())
+    ok("leitura que falhou é «não conferi», e não «conferido»",
+       conferir_gravado(2026, 9, {"meta_equipe": 9000}) is None)
 
     print("\nfalhas:", falhas)
     raise SystemExit(1 if falhas else 0)

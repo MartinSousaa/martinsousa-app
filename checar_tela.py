@@ -771,6 +771,89 @@ def _resumo_mensal(conta):
           f"ordem das abas: {_abas[:3]}")
 
 
+def _salvar_metas(conta):
+    """07/10: a meta de 11.000 / +25% nunca chegou à TV. A gravação recusada
+    mostrava erro, a tela mostrava "salva com sucesso" e o st.rerun() apagava
+    os dois. Aqui o formulário roda de verdade com o Salvar clicado; só a
+    planilha (salvar e reler) é trocada."""
+    global _retorno_de
+    # O `@st.fragment` do Painel de Metas roda no IMPORT e o duplo não é
+    # chamável: o import se faz com o Streamlit de verdade (nada desenha nem
+    # vai à rede no import), e o duplo volta logo depois.
+    if "analise_metas" not in sys.modules:
+        import importlib as _il_s
+        _dbl_s = sys.modules.pop("streamlit", None)
+        try:
+            _il_s.import_module("streamlit")
+            import analise_metas  # noqa: F401
+        finally:
+            if _dbl_s is not None:
+                sys.modules["streamlit"] = _dbl_s
+    import analise_metas as _am_s
+    import metas_config as _mc_s
+    _g = (_mc_s.salvar_config, _mc_s.conferir_gravado, _mc_s.carregar_config,
+          _retorno_de)
+    _cfg9 = {**_mc_s.DEFAULTS, "meta_equipe": 9000, "ano": 2026, "mes": 10}
+    _mc_s.carregar_config = lambda a, m: dict(_cfg9)
+
+    def rodar(salvar, conferir, clicou=True, digitado=None):
+        visto = []
+        _falso = instalar()
+        _am_s.st = _falso
+        _falso.form_submit_button = lambda *a, **k: clicou
+        _falso.error = lambda *a, **k: visto.append("error")
+        _falso.success = lambda *a, **k: visto.append("success")
+        _falso.warning = lambda *a, **k: visto.append(
+            "nao_salvo" if "Não salvo" in str(a[0] if a else "") else "warning")
+
+        def _rr(*a, **k):
+            visto.append("rerun")
+            raise _Rerun()
+        _falso.rerun = _rr
+        _mc_s.salvar_config = salvar
+        _mc_s.conferir_gravado = conferir
+        if digitado is not None:
+            # O que a pessoa digitou e o formulário guardou depois de um
+            # Salvar que falhou: o campo devolve isso, e não o gravado.
+            def _ret(nome, a, kw, _orig=_g[3]):
+                if nome == "number_input" and "cfg_meta_equipe" in str(kw.get("key")):
+                    return digitado
+                return _orig(nome, a, kw)
+            globals()["_retorno_de"] = _ret
+        try:
+            _am_s._secao_configuracao([], None)
+        except (_Rerun, _Parou):
+            pass
+        finally:
+            globals()["_retorno_de"] = _g[3]
+        return visto, _falso
+
+    try:
+        v, _ = rodar(lambda a, m, d: (False, "APIError: [429]"), lambda *a: [])
+        conta("Metas: gravação recusada mostra NÃO SALVOU e não apaga",
+              "error" in v and "success" not in v and "rerun" not in v,
+              f"visto: {v}")
+        v, _ = rodar(lambda a, m, d: (True, ""),
+                     lambda a, m, d: [("meta_equipe", 11000, 9000)])
+        conta("Metas: gravou diferente do que está na tela, e a tela diz",
+              "error" in v and "rerun" not in v, f"visto: {v}")
+        v, f = rodar(lambda a, m, d: (True, ""), lambda a, m, d: [])
+        conta("Metas: só diz salvo depois de reler, e o aviso sobrevive ao rerun",
+              v == ["rerun"] and any(str(k).startswith("_cfg_salva_")
+                                     for k in f.session_state), f"visto: {v}")
+        v, _ = rodar(lambda a, m, d: (True, ""), lambda a, m, d: [],
+                     clicou=False, digitado=11000)
+        conta("Metas: campo diferente do gravado avisa «Não salvo»",
+              "nao_salvo" in v, f"visto: {v}")
+        v, _ = rodar(lambda a, m, d: (True, ""), lambda a, m, d: [],
+                     clicou=False)
+        conta("Metas: campo igual ao gravado não avisa nada",
+              "nao_salvo" not in v, f"visto: {v}")
+    finally:
+        (_mc_s.salvar_config, _mc_s.conferir_gravado, _mc_s.carregar_config,
+         _retorno_de) = _g
+
+
 def _queda_de_pontos(conta):
     """O bloco que explica a queda de pontuação — ele lê o log do Trello."""
     import placar as _pl
@@ -2774,6 +2857,7 @@ def main():
     _alerta_de_coluna_na_tv(conta)
     _finalidades_em_massa(conta)
     _resumo_mensal(conta)
+    _salvar_metas(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0
