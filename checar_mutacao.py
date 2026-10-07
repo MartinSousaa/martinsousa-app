@@ -196,7 +196,7 @@ MUTACOES = [
     (
         'o anexo do extrato volta a nao conferir o custo fixo',
         "extratos_tela.py",
-        [('        _, _feitas_cr, _erro_cr = _cr.conferir_meses(_meses_arq)\n',
+        [('        _, _feitas_cr, _erro_cr = _cr.conferir_meses(_meses)\n',
           '        _, _feitas_cr, _erro_cr = [], 0, ""\n')],
         None,
         ["python3", "custo_real.py"],
@@ -2233,9 +2233,23 @@ MUTACOES = [
     ),
     (
         "nome curto do custo fixo volta a casar com qualquer descricao",
+        "custo_real.py",
+        '    if (len(_fv.chave(item).replace(" ", "")) >= NOME_MINIMO\n',
+        "    if (True\n",
+        ["python3", "custo_real.py"],
+    ),
+    (
+        "o custo fixo volta a exigir a coluna preenchida para casar pelo nome",
+        "custo_real.py",
+        "    nomes = nomes_do_item(linha)\n",
+        "    nomes = apelidos(linha)\n",
+        ["python3", "custo_real.py"],
+    ),
+    (
+        "a fatura confirmada volta a nao atualizar o custo fixo do mes",
         "extratos_tela.py",
-        '            if len(_fv_s.chave(item).replace(" ", "")) >= 4:\n',
-        "            if True:\n",
+        "            st.success(_msg)\n            _conferir_custo_real(classificados)\n",
+        "            st.success(_msg)\n",
         ["python3", "extratos_tela.py"],
     ),
     (

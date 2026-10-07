@@ -95,6 +95,26 @@ def pagina(usuario_logado=None):
 # (`_fatura` + `_perguntar`): duas leituras da fatura discordariam — a
 # questão seria só quando.
 
+def _conferir_custo_real(linhas):
+    """O arquivo acabou de chegar: onde um item do Custo fixo ou das
+    Assinaturas veio com valor diferente do cadastro, o real passa a valer
+    naquele mês (`custo_real`). Extrato E fatura passam por aqui — a fatura
+    não passava, e a assinatura cobrada no cartão nunca atualizava."""
+    try:
+        import custo_real as _cr
+        _meses = sorted({(int(str(l.get("data"))[:4]), int(str(l.get("data"))[5:7]))
+                         for l in (linhas or [])
+                         if str(l.get("data") or "")[:7].count("-") == 1})
+        _, _feitas_cr, _erro_cr = _cr.conferir_meses(_meses)
+        if _feitas_cr:
+            st.info(f"📌 {_feitas_cr} valor(es) de custo fixo / assinatura "
+                    "atualizado(s) no mês — veja em Custos fixos.")
+        if _erro_cr:
+            st.warning(f"Não consegui gravar o valor real do custo fixo: {_erro_cr}")
+    except Exception as _e_cr:
+        st.warning(f"Não consegui conferir o custo fixo: {type(_e_cr).__name__}")
+
+
 def resumo_cartoes(linhas_do_mes):
     """O cartão de um mês, pronto para a tela. Função pura.
 
@@ -347,6 +367,7 @@ def _fatura(arq, tipo_arq, usuario_logado):
                 _msg += (f" {_marc} já gravado(s) passaram a contar em "
                          f"{_rotulo_mes(_comp)}.")
             st.success(_msg)
+            _conferir_custo_real(classificados)
     return fila
 
 
@@ -506,22 +527,7 @@ def _processar(arq, _itau, _inter, _fv, _lan, usuario_logado):
     )
 
     # ── O CUSTO FIXO E AS ASSINATURAS DO MÊS, PELO EXTRATO (06/10) ────────
-    # O mesmo momento: o arquivo acabou de chegar. Onde o item veio com valor
-    # diferente do cadastro, o real passa a valer naquele mês (`custo_real`).
-    try:
-        import custo_real as _cr
-        _meses_arq = sorted({(int(str(l.get("data"))[:4]),
-                              int(str(l.get("data"))[5:7]))
-                             for l in classificados
-                             if str(l.get("data") or "")[:7].count("-") == 1})
-        _, _feitas_cr, _erro_cr = _cr.conferir_meses(_meses_arq)
-        if _feitas_cr:
-            st.info(f"📌 {_feitas_cr} valor(es) de custo fixo / assinatura "
-                    "atualizado(s) no mês pelo extrato — veja em Custos fixos.")
-        if _erro_cr:
-            st.warning(f"Não consegui gravar o valor real do custo fixo: {_erro_cr}")
-    except Exception as _e_cr:
-        st.warning(f"Não consegui conferir o custo fixo: {type(_e_cr).__name__}")
+    _conferir_custo_real(classificados)
 
     # ── A BAIXA DOS CHEQUES, AQUI, JUNTO COM O RESTO ─────────────────────
     #
@@ -703,23 +709,19 @@ def sugerir_fixos(fila, linhas_cf, linhas_as):
     Dono, 06/10: "o nome já diz o que é e meu custo fixo está exatamente com
     esse nome". HOSTGATOR estava no Custo fixo e CLAUDE nas Assinaturas, e a
     fila perguntava os dois. Casa por "Como aparece no extrato" ou pelo nome
-    do item, palavra inteira (`assinaturas._casa`); nome com menos de 4
-    letras ("Luz") só pelo "Como aparece no extrato". Assinatura também é
+    do item, palavra inteira — a regra é `custo_real.nomes_do_item`, a mesma
+    que atualiza o valor do mês. Assinatura também é
     CUSTO FIXO — palavra do dono (`composicao.py:122`).
 
     É SUGESTÃO: vem marcada na tabela e só grava no "Salvar".
     """
     import assinaturas as _as
-    import favorecidos as _fv_s
+    import custo_real as _cr_s
     alvos = []
     for origem, linhas in (("Custo fixo", linhas_cf), ("Assinatura", linhas_as)):
         for l in (linhas or []):
             item = str(l.get("item") or "").strip()
-            nomes = [a.strip() for a in str(l.get("favorecido") or "").split(";")
-                     if a.strip()]
-            if len(_fv_s.chave(item).replace(" ", "")) >= 4:
-                nomes.append(item)
-            for n in nomes:
+            for n in _cr_s.nomes_do_item(l):
                 alvos.append((n, f"{origem} › {item or n}"))
     fora = {}
     for it in (fila or []):
@@ -1181,6 +1183,9 @@ if __name__ == "__main__":
     ok("a fatura grava na conta que o Studio reconhece como cartao",
        "_lan_cc.CONTA_CARTAO + nome" in _src_fat2
        and _lan_cc_t.eh_do_cartao({"conta": _lan_cc_t.CONTA_CARTAO + "x.csv"}))
+    ok("a fatura confirmada tambem atualiza o custo fixo do mes",
+       "_conferir_custo_real(classificados)" in _src_fat2
+       and "_conferir_custo_real(classificados)" in _insp.getsource(_processar))
     ok("o clique so lanca com o mes do vencimento escolhido",
        "disabled=not _comp" in _src_fat2
        and "competencia_da_fatura(lancs, _venc_txt)" in _src_fat2)

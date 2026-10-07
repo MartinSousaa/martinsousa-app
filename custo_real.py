@@ -53,14 +53,33 @@ def apelidos(linha):
             if a.strip()]
 
 
+# O nome do item vale como "Como aparece no extrato" a partir de 5 letras.
+# Dono, 06/10: "o nome já diz o que é e meu custo fixo está exatamente com
+# esse nome" (HOSTGATOR, CLAUDE). Nome curto continua de fora: "Luz" e "Água"
+# casariam com qualquer descrição que tivesse a palavra.
+NOME_MINIMO = 5
+
+
+def nomes_do_item(linha):
+    """Como este item aparece no extrato. UMA regra: a fila de finalidades
+    (`extratos_tela.sugerir_fixos`) e o valor real do mês leem daqui."""
+    import favorecidos as _fv
+    nomes = apelidos(linha)
+    item = str(linha.get("item") or "").strip()
+    if (len(_fv.chave(item).replace(" ", "")) >= NOME_MINIMO
+            and item not in nomes):
+        nomes.append(item)
+    return nomes
+
+
 def cobrado_no_mes(linha, lancamentos_do_mes):
     """Quanto saiu para este item no mês. None quando não apareceu.
 
-    Sem "Como aparece no extrato" preenchido também é None: casar pelo nome
-    do item ("Luz", "Água") pegaria qualquer descrição com a palavra.
+    Casa por "Como aparece no extrato" e pelo nome do item com 5+ letras
+    (`nomes_do_item`). Sem nenhum dos dois também é None.
     """
     import assinaturas as _as
-    nomes = apelidos(linha)
+    nomes = nomes_do_item(linha)
     if not nomes:
         return None
     total, achou = 0.0, False
@@ -252,7 +271,7 @@ def mostrar(st_, grade, linhas, hoje):
     if erro:
         st_.warning(f"Conferi, mas não consegui gravar o valor real: {erro}")
     sem = [str(l.get("item")) for l in (linhas or [])
-           if str(l.get("item") or "").strip() and not apelidos(l)]
+           if str(l.get("item") or "").strip() and not nomes_do_item(l)]
     q = quadro(grade, linhas, meses, carregar())
     st_.markdown("##### 🔍 Conferido nos extratos")
     st_.caption("Quando o extrato ou a fatura do mês traz o item com valor "
@@ -306,8 +325,20 @@ if __name__ == "__main__":
        cobrado_no_mes(est, lanc) == 550.0)
     ok("entrada não é cobrança", cobrado_no_mes(
         luz, [L("PIX RECEBIDO ENEL", 30.0)]) is None)
-    ok("sem 'Como aparece no extrato' não casa pelo nome do item",
+    ok("nome curto ('Água') sem 'Como aparece no extrato' não casa",
        cobrado_no_mes(sem, lanc) is None)
+    # 06/10: "o nome já diz o que é". Hostgator e Claude, sem a coluna
+    # preenchida, casam pelo nome — na fatura do cartão, com a parcela no fim.
+    _host = {"item": "Hostgator", "valor_mensal": 47.72, "favorecido": ""}
+    _cla = {"item": "Claude", "valor_mensal": 550.0, "favorecido": ""}
+    ok("nome do item com 5+ letras casa sem preencher a coluna",
+       cobrado_no_mes(_host, [L("HOSTGATOR 02/06", -47.72)]) == 47.72
+       and cobrado_no_mes(_cla, [L("ANTHROPIC* CLAUDE SUB BRL550,00 "
+                                   "US$108,45 R$5,47", -593.22)]) == 593.22)
+    ok("nomes_do_item: apelidos e o nome do item, sem repetir",
+       nomes_do_item({"item": "Hostgator", "favorecido": "HOSTGATOR; HG"})
+       == ["HOSTGATOR", "HG", "Hostgator"]
+       and nomes_do_item({"item": "Luz", "favorecido": ""}) == [])
     ok("palavra inteira: ENEL não casa com ENELTON",
        cobrado_no_mes(luz, [L("PIX ENELTON LTDA", -10.0)]) is None)
     dv = divergencias("custo_fixo", [luz, est, sem], 2026, 9, lanc,
@@ -379,8 +410,9 @@ if __name__ == "__main__":
     ok("as assinaturas do mês na Home e no LPV usam o real do extrato",
        "_cr.total_assinaturas(" in _insp.getsource(_hg_t._partes_fixas)
        and "_cr.total_assinaturas(" in _insp.getsource(_lm_t._partes_do_mes))
-    ok("o anexo do extrato confere o custo fixo do mês",
-       "_cr.conferir_meses(" in _insp.getsource(_et_t._processar))
+    ok("o anexo do extrato (e o da fatura) confere o custo fixo do mês",
+       "_conferir_custo_real(classificados)" in _insp.getsource(_et_t._processar)
+       and "_cr.conferir_meses(" in _insp.getsource(_et_t._conferir_custo_real))
     ok("as telas de Custo fixo e Assinaturas conferem ao abrir",
        '_cr.mostrar(st, "custo_fixo"' in _insp.getsource(_cf_t.pagina)
        and '_cr.mostrar(st, "assinaturas"' in _insp.getsource(_at_t.pagina))
