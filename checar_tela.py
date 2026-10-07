@@ -604,6 +604,12 @@ def _assinaturas_no_operacional(conta):
           _abertas == ["custo_fixo", "assinaturas_tela"], str(_abertas))
     conta("e Assinaturas não é mais pontinho à parte",
           not any("Assinaturas" in k for k in _ge._PONTINHOS_CUSTO_FIXO), "")
+    # 07/10: a legenda do Custo fixo dizia que ele entra no equilíbrio; o
+    # equilíbrio passou a ser meta de gastos ÷ lucro bruto. Ele entra no LPV.
+    import inspect as _insp_cf
+    _src_cf = _insp_cf.getsource(_ge._custo_fixo)
+    conta("a legenda do Custo fixo diz que ele entra no LPV, e não no equilíbrio",
+          "entra no LPV" in _src_cf and "linha de" not in _src_cf, "")
 
 
 def _projecao_na_meta(conta):
@@ -618,6 +624,18 @@ def _projecao_na_meta(conta):
           and "PROJEÇÃO DE VENDAS — digite aqui" in _src, "")
     conta("e o Salvar grava a projeção junto com a meta",
           "projecao=_proj" in _src and "lpv_projetado.clear()" in _src, "")
+
+
+def _monique_nos_gestores(conta):
+    """07/10: a tela de Folha salarial passa a aba gravada por
+    `com_gestores_pedidos` — sem isso a Monique, pedida em 05/10, nunca
+    aparecia, porque a aba já tinha Leonardo e Renan."""
+    import inspect as _insp_mo
+    import folha_salarial as _fs_mo
+    _src = _insp_mo.getsource(_fs_mo.pagina)
+    conta("a Folha salarial acrescenta os gestores pedidos à aba já gravada",
+          "com_gestores_pedidos(df)" in _src
+          and _src.index("com_gestores_pedidos(df)") < _src.index("st.data_editor"), "")
 
 
 def _queda_de_pontos(conta):
@@ -2619,6 +2637,7 @@ def main():
     _aba_faturas(conta)
     _assinaturas_no_operacional(conta)
     _projecao_na_meta(conta)
+    _monique_nos_gestores(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0

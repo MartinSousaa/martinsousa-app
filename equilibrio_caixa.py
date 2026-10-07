@@ -195,6 +195,27 @@ def montar(meta_de_gastos, somas, realizado, agora=None, dias_mes=None):
     return quadro, avisos
 
 
+
+def ponto_de_equilibrio(meta_gastos, margem_bruta_pct):
+    """O faturamento que paga a meta de gastos do mês. None sem meta. Pura.
+
+    Regra do dono, 07/10: "eu tenho que cadastrar a meta de gastos e esse
+    valor precisa ser dividido pela nossa média de lucro bruto dos últimos 3
+    meses, aí sim teremos o ponto de equilíbrio". A meta de gastos é TUDO o
+    que sai no mês; o lucro bruto é o que sobra de cada real vendido.
+    Sem meta cadastrada não há equilíbrio — a tela pede a meta, em vez de
+    inventar um número com outra conta.
+    """
+    try:
+        meta = float(meta_gastos or 0.0)
+        mb = float(margem_bruta_pct or 0.0) / 100.0
+    except (TypeError, ValueError):
+        return None
+    if meta <= 0 or mb <= 0:
+        return None
+    return round(meta / mb, 2)
+
+
 # ── Conferência ──────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -272,6 +293,15 @@ if __name__ == "__main__":
     ok("sem meta de gastos, o aviso diz onde cadastrar",
        montar(0, JUN_AGO, 1.0, AGORA, 30)[0] is None
        and "Meta de gastos" in montar(0, JUN_AGO, 1.0, AGORA, 30)[1][0])
+
+    # ── 07/10: equilíbrio = meta de gastos ÷ lucro bruto médio de 3 meses
+    ok("equilíbrio é a meta de gastos dividida pelo lucro bruto médio",
+       ponto_de_equilibrio(150000, 30.0) == 500000.0
+       and ponto_de_equilibrio(150000, 74.3) == round(150000 / 0.743, 2))
+    ok("sem meta de gastos não há equilíbrio — e nem com margem zero",
+       ponto_de_equilibrio(0, 30.0) is None
+       and ponto_de_equilibrio(150000, 0) is None
+       and ponto_de_equilibrio(None, None) is None)
 
     print()
     if falhas:

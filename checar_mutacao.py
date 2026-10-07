@@ -2277,8 +2277,8 @@ MUTACOES = [
     (
         "a TV volta a cortar as ultimas linhas das metas",
         "placar.py",
-        "      need = Math.max(need, bb.children[i].scrollHeight || 0);\n",
-        "      need = 0;\n",
+        "      if (ult) {{ need = Math.max(need, ult.offsetTop + ult.offsetHeight + 8); }}\n",
+        "      if (ult) {{ need = 0; }}\n",
         ["python3", "placar_core.py"],
     ),
     (
@@ -2322,6 +2322,34 @@ MUTACOES = [
         "meta_gastos_tela.py",
         "usuario=usuario_logado, projecao=_proj)",
         "usuario=usuario_logado)",
+        ["python3", "checar_tela.py"],
+    ),
+    (
+        "a TV volta a medir a caixa esticada e o bloco cresce a cada minuto",
+        "placar.py",
+        "      if (ult) {{ need = Math.max(need, ult.offsetTop + ult.offsetHeight + 8); }}\n",
+        "      need = Math.max(need, bb.children[i].scrollHeight || 0);\n",
+        ["python3", "placar_core.py"],
+    ),
+    (
+        "o equilibrio volta a ser custo fixo dividido pela margem do mes",
+        "home_gestao.py",
+        "            \"operacional\": _eq_meta,\n",
+        "            \"operacional\": comp.get(\"equilibrio_hoje\"),\n",
+        ["python3", "home_gestao.py"],
+    ),
+    (
+        "o equilibrio volta a ignorar a meta de gastos",
+        "equilibrio_caixa.py",
+        "    return round(meta / mb, 2)\n",
+        "    return round(meta, 2)\n",
+        ["python3", "equilibrio_caixa.py"],
+    ),
+    (
+        "a Monique volta a sumir dos gestores ja gravados",
+        "folha_salarial.py",
+        "    df, _faltando = com_gestores_pedidos(df)\n",
+        "    _faltando = []\n",
         ["python3", "checar_tela.py"],
     ),
     (

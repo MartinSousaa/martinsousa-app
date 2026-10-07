@@ -94,8 +94,7 @@ def _custo_fixo(usuario_logado=None):
     """
     st.markdown("### 🧱 Custo fixo")
     st.caption("O que sai todo mês independente de vender — nas três formas em "
-               "que ele aparece. É a soma das três que entra na linha de "
-               "equilíbrio.")
+               "que ele aparece. É a soma das três que entra no LPV.")
 
     rotulos = list(FACES_DO_CUSTO)
     chave = "cf_face"

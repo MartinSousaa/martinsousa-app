@@ -3901,9 +3901,13 @@ if __name__ == "__main__":
     # 5a e a 6a linha. O layout mede o que as caixas pedem antes de repartir.
     _src_tvh = _insp_pc.getsource(_pl_tv._tv_full_html)
     ok("a TV mede a altura que as metas pedem, e nao corta as ultimas linhas",
-       "bb.children[i].scrollHeight" in _src_tvh
-       and _src_tvh.index("bb.children[i].scrollHeight")
+       "ult.offsetTop + ult.offsetHeight" in _src_tvh
+       and _src_tvh.index("ult.offsetTop + ult.offsetHeight")
        < _src_tvh.index("var hBt = avail - hM - hS - hB;"))
+    # e mede o CONTEUDO, nao a caixa: medir a caixa esticada fazia o bloco
+    # crescer a cada atualizacao (07/10, o espaco vazio na TV).
+    ok("a TV nao mede a caixa esticada (o bloco crescia a cada minuto)",
+       "bb.children[i].scrollHeight" not in _src_tvh)
     ok("barra de penalidades: zero vazia, no teto cheia, acima cheia e diz quanto",
        barra_penalidades(0, 5) == (0.0, "0/5")
        and barra_penalidades(2, 5) == (40.0, "2/5")
