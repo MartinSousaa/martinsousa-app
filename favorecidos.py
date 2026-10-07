@@ -512,9 +512,9 @@ def salvar_varios(respostas, usuario=""):
     for fav, fin, tp in (respostas or []):
         nome = sem_parcela(fav)
         if nome and str(fin or "").strip():
-            novas[chave(nome)] = [nome, str(fin).strip().upper(),
-                                  (tp if tp in TIPOS else "saida"), "", agora,
-                                  str(usuario or "")[:60]]
+            tp = tp if tp in TIPOS else "saida"
+            novas[(chave(nome), tp)] = [nome, str(fin).strip().upper(), tp, "",
+                                        agora, str(usuario or "")[:60]]
     if not novas:
         return 0, ""
     try:
@@ -522,7 +522,8 @@ def salvar_varios(respostas, usuario=""):
         atuais = aba.get_all_records()
         linhas = []
         for l in atuais:
-            k = chave(l.get("favorecido"))
+            k = (chave(l.get("favorecido")),
+                 str(l.get("tipo") or "saida").strip().lower() or "saida")
             if k in novas:
                 linhas.append(novas.pop(k))
                 continue
@@ -547,9 +548,14 @@ def salvar(favorecido, finalidade, tipo="saida", observacao="", usuario=""):
     try:
         aba = _aba()
         alvo = chave(nome)
+        tp = linha[2]
         atuais = aba.get_all_records()
+        # NOME E SENTIDO: "LITTLE GLASS" recebido é repasse, enviado é
+        # transferência. Casar só pelo nome sobrescrevia a outra resposta.
         pos = next((i for i, l in enumerate(atuais)
-                    if chave(l.get("favorecido")) == alvo), None)
+                    if chave(l.get("favorecido")) == alvo
+                    and (str(l.get("tipo") or "saida").strip().lower() or "saida")
+                    == tp), None)
         if pos is None:
             aba.append_row(linha, value_input_option="RAW")
         else:
@@ -750,6 +756,15 @@ if __name__ == "__main__":
         _nv, _ev = salvar_varios([("HERING 05/06", "CONSUMO INTERNO", "saida"),
                                   ("SHOPEE *X01/03", "MERCADORIA", "saida")], "leo")
         _rows = _af.get_all_records()
+        _af.linhas.append(["LITTLE GLASS", "MERCADO LIVRE", "entrada", "", "", ""])
+        _af.linhas.append(["LITTLE GLASS", "TRANSFERENCIA ENTRE CONTAS", "saida",
+                           "", "", ""])
+        salvar_varios([("LITTLE GLASS", "TRANSFERENCIA", "saida")], "leo")
+        _lg = {r["tipo"]: r["finalidade"] for r in _af.get_all_records()
+               if r["favorecido"] == "LITTLE GLASS"}
+        ok("responder um sentido nao apaga a resposta do outro",
+           _lg == {"entrada": "MERCADO LIVRE", "saida": "TRANSFERENCIA"})
+        _af.linhas = _af.linhas[:3]
         ok("salvar_varios grava tudo numa ida, sem duplicar a loja da parcela",
            _ev == "" and _nv == 2 and len(_rows) == 2
            and _rows[0]["finalidade"] == "CONSUMO INTERNO"

@@ -2218,6 +2218,13 @@ MUTACOES = [
         ["python3", "extratos_tela.py"],
     ),
     (
+        "salvar em massa volta a apagar a resposta do outro sentido",
+        "favorecidos.py",
+        '            k = (chave(l.get("favorecido")),\n                 str(l.get("tipo") or "saida").strip().lower() or "saida")\n',
+        '            k = (chave(l.get("favorecido")), "saida")\n',
+        ["python3", "favorecidos.py"],
+    ),
+    (
         "a celula vazia da fila volta a gravar 'nan' como finalidade",
         "extratos_tela.py",
         '        fin = fin.strip() if isinstance(fin, str) else ""\n',
