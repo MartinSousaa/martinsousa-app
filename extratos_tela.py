@@ -852,17 +852,25 @@ def _perguntar(fila, _fv, usuario_logado):
         return (f"{a[8:10]}/{a[5:7]}" if a == b
                 else f"{a[8:10]}/{a[5:7]} a {b[8:10]}/{b[5:7]}")
 
+    # UMA COMPRA DE VERDADE NA LINHA, e não a soma (dono, 07/10: "se as
+    # compras vierem somadas em uma só eu não vou conseguir identificar (...)
+    # o sistema classificar 1 só para eu colocar a finalidade, e preencher as
+    # demais sozinho"). A linha mostra a compra mais recente daquele nome; as
+    # outras parcelas e compras do mesmo nome são preenchidas junto.
+    _rep = [representante(i) for i in fila]
     df = pd.DataFrame([{
         "marcar": chave_do_item(i) in _sug,
         "nome": str(i.get("favorecido") or "")[:60],
+        "compra": r["descricao"],
+        "data": r["data"],
+        "valor": r["valor"],
+        "preenche junto": max(int(i.get("n") or 0) - 1, 0),
         "sentido": SETA.get(i.get("sentido"), i.get("sentido") or ""),
-        "lançamentos": int(i.get("n") or 0),
-        "total": float(i.get("total") or 0),
         "período": _periodo(i),
         "finalidade": (_sug.get(chave_do_item(i)) or ("",))[0] or ESCOLHA,
         "reconhecido": (_sug.get(chave_do_item(i)) or ("", ""))[1],
         "onde": str(i.get("conta") or "")[:60],
-    } for i in fila])
+    } for i, r in zip(fila, _rep)])
 
     with st.form("ext_fila_form"):
         c1, c2 = st.columns([3, 1])
@@ -873,11 +881,18 @@ def _perguntar(fila, _fv, usuario_logado):
                  "finalidade escolhida na própria linha vale mais.")
         editado = st.data_editor(
             df, use_container_width=True, hide_index=True, key="ext_fila_ed",
-            disabled=["nome", "sentido", "lançamentos", "total", "período",
-                      "reconhecido", "onde"],
+            disabled=["nome", "compra", "data", "valor", "preenche junto",
+                      "sentido", "período", "reconhecido", "onde"],
             column_config={
                 "marcar": st.column_config.CheckboxColumn("✔", width="small"),
-                "total": st.column_config.NumberColumn(format="R$ %.2f"),
+                "compra": st.column_config.TextColumn("Compra", width="large"),
+                "data": st.column_config.TextColumn("Data", width="small"),
+                "valor": st.column_config.NumberColumn("Valor", format="R$ %.2f"),
+                "preenche junto": st.column_config.NumberColumn(
+                    "Preenche junto", format="%d",
+                    help="Outras parcelas e compras com este mesmo nome. A "
+                         "finalidade escolhida na linha vale para todas — "
+                         "estão em «Conferir cada lançamento», abaixo."),
                 "finalidade": st.column_config.SelectboxColumn(
                     "Finalidade", options=[ESCOLHA] + _opcoes),
             })
@@ -909,6 +924,25 @@ def _perguntar(fila, _fv, usuario_logado):
     else:
         st.success(f"✅ {n} nome(s) classificados. Valem para o histórico "
                    "inteiro e para as próximas faturas.")
+
+
+def representante(item):
+    """A compra que a linha da fila mostra: a mais recente do nome. Pura.
+
+    {"descricao", "data", "valor"}. Sem `itens` (fila antiga), cai no
+    exemplo e no total — que, com um lançamento só, é o valor dele.
+    """
+    itens = [it for it in (item.get("itens") or []) if isinstance(it, dict)]
+    if itens:
+        it = max(itens, key=lambda x: str(x.get("data") or ""))
+        d = str(it.get("data") or "")
+        return {"descricao": str(it.get("descricao") or "")[:80],
+                "data": (f"{d[8:10]}/{d[5:7]}/{d[:4]}"
+                         if len(d) >= 10 and d[4] == "-" else d),
+                "valor": round(abs(float(it.get("valor") or 0.0)), 2)}
+    return {"descricao": str(item.get("exemplo") or "")[:80], "data": "",
+            "valor": (round(float(item.get("total") or 0.0), 2)
+                      if int(item.get("n") or 0) <= 1 else None)}
 
 
 def respostas_da_fila(fila, linhas, massa=None, vazio="— escolher —"):
@@ -1150,6 +1184,15 @@ if __name__ == "__main__":
     ok("Finalidades: uma linha por loja, com cada compra para identificar",
        len(_fg) == 1 and _fg[0]["favorecido"] == "HERING" and _fg[0]["n"] == 2
        and [x["conta"] for x in _fg[0]["itens"]] == ["cartão · a.csv", "cartão · b.csv"])
+    # 07/10: a linha mostra UMA compra de verdade, e não a soma — pela
+    # cadeia: a fila que `fila_dos_gravados` monta dos lançamentos gravados.
+    _r_t = representante(_fg[0])
+    ok("a linha da fila mostra uma parcela, com o valor dela e não a soma",
+       _r_t == {"descricao": "HERING 05/06", "data": "10/10/2026",
+                "valor": 81.69})
+    ok("fila antiga sem itens: um lançamento mostra o valor, vários não somam",
+       representante({"exemplo": "PIX", "total": 50.0, "n": 1})["valor"] == 50.0
+       and representante({"exemplo": "PIX", "total": 90.0, "n": 3})["valor"] is None)
     ok("extrato de 2 meses com 1 lançamento é avisado como incompleto",
        "incompleto" not in extrato_incompleto("01/08/2026 até 06/10/2026", 1)
        and "66 dias" in extrato_incompleto("01/08/2026 até 06/10/2026", 1))

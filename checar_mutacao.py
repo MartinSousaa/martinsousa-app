@@ -2439,6 +2439,21 @@ MUTACOES = [
         '        + ""\n',
         ["python3", "home_gestao.py"],
     ),
+    # ── 07/10: A FILA MOSTRA A PARCELA, E NAO A SOMA ────────────────────
+    (
+        "a linha da fila volta a mostrar a soma das compras",
+        "extratos_tela.py",
+        '        "valor": r["valor"],\n',
+        '        "valor": float(i.get("total") or 0),\n',
+        ["python3", "checar_tela.py"],
+    ),
+    (
+        "a parcela mostrada volta a ser a mais antiga",
+        "extratos_tela.py",
+        '        it = max(itens, key=lambda x: str(x.get("data") or ""))\n',
+        '        it = min(itens, key=lambda x: str(x.get("data") or ""))\n',
+        ["python3", "extratos_tela.py"],
+    ),
     # ── 07/10: A META QUE NÃO SALVOU E A TELA DISSE QUE SALVOU ──────────
     (
         "a gravacao recusada da meta volta a passar por gravada",
