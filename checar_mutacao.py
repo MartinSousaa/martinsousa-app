@@ -2488,6 +2488,70 @@ MUTACOES = [
         "    with _TRAVA_CENARIO_VIGENTE:\n        pass\n",
         ["python3", "imagem.py"],
     ),
+    # ── 07/10: AS VARIACOES DO MESMO PRODUTO ───────────────────────────
+    (
+        "a geometria volta para a peca cuja regra manda o contrario",
+        "imagem.py",
+        "    if not blocos or n in (1, 4, 5, 8):\n",
+        "    if not blocos or n in (1, 4, 8):\n",
+        ["python3", "imagem.py"],
+    ),
+    (
+        "o bloco de geometria para de dizer que nao vira texto na imagem",
+        "imagem.py",
+        '        "- ESTE BLOCO É INSTRUÇÃO DE ONDE PÔR AS COISAS, E NUNCA TEXTO A\\n"\n',
+        '        "- Posicione os elementos conforme abaixo.\\n"\n',
+        ["python3", "imagem.py"],
+    ),
+    (
+        "duas triagens com variacao voltam a escolher a primeira",
+        "imagem.py",
+        "    if len(_com_var) > 1:\n",
+        "    if False:\n",
+        ["python3", "imagem.py"],
+    ),
+    (
+        "a foto anexada na aba deixa de vencer a da triagem",
+        "imagem.py",
+        '    _anexadas = list(_dados.get("fotos_bytes") or [])\n',
+        "    _anexadas = []\n",
+        ["python3", "imagem.py"],
+    ),
+    (
+        "o cache das fotos do Drive some, e cada peca volta a baixar de novo",
+        "imagem.py",
+        "        if _em_cache:\n            _fora.append(_em_cache)\n",
+        "        if False:\n            _fora.append(_em_cache)\n",
+        ["python3", "imagem.py"],
+    ),
+    (
+        "o auto-confirmar da proxima variacao volta a disparar a cada rerun",
+        "imagem.py",
+        'if st.session_state.pop("img_var_autoconfirmar", False):\n',
+        'if st.session_state.get("img_var_autoconfirmar", False):\n',
+        ["python3", "imagem.py"],
+    ),
+    (
+        "a leitura das variacoes da triagem volta a estourar com JSON ruim",
+        "triagem.py",
+        "        try:\n            itens = json.loads(texto)\n        except Exception:\n            return []\n",
+        "        itens = json.loads(texto)\n",
+        ["python3", "triagem.py"],
+    ),
+    (
+        "o bloco de variacao volta a ser removido por indice, e embaralha",
+        "triagem.py",
+        '    st.session_state[_VAR_IDS] = [i for i in _ids_das_variacoes() if i != vid]\n',
+        "    st.session_state[_VAR_IDS] = _ids_das_variacoes()[:-1]\n",
+        ["python3", "triagem.py"],
+    ),
+    (
+        "o produto seguinte volta a herdar as variacoes do anterior",
+        "triagem.py",
+        "        st.session_state.pop(_k, None)\n    _zerar_variacoes()\n",
+        "        st.session_state.pop(_k, None)\n",
+        ["python3", "triagem.py"],
+    ),
 ]
 
 

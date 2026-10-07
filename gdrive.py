@@ -193,6 +193,29 @@ def upload(imagem_bytes, nome_arquivo, pasta_id, mimetype="image/png", publico=T
         return None, erro_amigavel(e)
 
 
+def baixar(file_id):
+    """Os bytes de um arquivo do Drive. (bytes, erro).
+
+    POR QUE ELE EXISTE (07/10): as fotos das variações de um produto já estão
+    no Drive desde a triagem. Sem baixar, gerar as imagens de uma variação
+    obrigaria o colaborador a anexar de novo a mesma foto que ele acabou de
+    cadastrar — e o tempo dele é o recurso mais caro do projeto.
+
+    O IRMÃO DO `upload`, e por isso mora aqui: quem sobe e quem baixa têm de
+    usar a mesma credencial e o mesmo tratamento de erro. `url_thumbnail`
+    devolve URL para o NAVEGADOR mostrar — ela não serve para o Python ler os
+    bytes, e é miniatura, não o arquivo.
+    """
+    try:
+        svc = service()
+        dados = svc.files().get_media(fileId=file_id, **_SHARED).execute()
+        if not dados:
+            return b"", "o arquivo veio vazio do Drive"
+        return bytes(dados), None
+    except Exception as e:
+        return b"", erro_amigavel(e)
+
+
 def criar_pasta(nome_pasta, pasta_pai_id):
     """Cria pasta no Drive. Retorna (id, erro)."""
     try:
