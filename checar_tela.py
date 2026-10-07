@@ -530,6 +530,54 @@ def _faturas(conta):
             conta(nome, False, f"{type(e).__name__}: {e}")
 
 
+def _aba_faturas(conta):
+    """A aba Faturas (06/10): anexar e ver o cartão do mês, com e sem compras.
+
+    Só a leitura da planilha é trocada: `do_mes` recebe a lista e roda de
+    verdade (mês do vencimento, cadastro de fora)."""
+    import extratos_tela as et
+    import lancamentos as _lan
+    _base = [
+        {"id": "p", "conta": "inter", "data": "2026-10-01", "valor": -80.94,
+         "finalidade": "FATURA DO CARTÃO", "descricao": "DEB AUT FATURA",
+         "tipo": "", "favorecido": "", "fixada": ""},
+        {"id": "a", "conta": _lan.CONTA_CARTAO + "out.csv",
+         "data": "2026-03-17", "valor": -73.99, "finalidade": "MERCADORIA",
+         "descricao": "ML · Parcela 7/10", "tipo": "fatura 2026-10",
+         "favorecido": "ML", "fixada": ""},
+    ]
+    _g = _lan.do_mes
+    for nome, lista in (("Faturas: mês com compras lançadas", _base),
+                        ("Faturas: mês só com o pagamento", _base[:1]),
+                        ("Faturas: mês vazio", [])):
+        _lan.do_mes = lambda a, m, lista_=None, _l=lista: _g(a, m, _l)
+        _falso = instalar()
+        et.st = _falso
+        try:
+            et.pagina_faturas("leo")
+            conta(nome, True, "")
+        except (_Rerun, _Parou):
+            conta(nome, True, "")
+        except Exception as e:
+            conta(nome, False, f"{type(e).__name__}: {e}")
+        finally:
+            _lan.do_mes = _g
+
+    # E A ABA DO MENU ABRE ESTA TELA, e não o aviso antigo sem campo.
+    import gestao as _ge
+    _abertas = []
+    _gp = et.pagina_faturas
+    et.pagina_faturas = lambda u=None: _abertas.append(u)
+    try:
+        _ge._faturas("leo")
+    except Exception:
+        pass
+    finally:
+        et.pagina_faturas = _gp
+    conta("a aba Faturas do menu abre a tela de anexar", _abertas == ["leo"],
+          "o menu continua mostrando o aviso sem campo de anexar")
+
+
 def _queda_de_pontos(conta):
     """O bloco que explica a queda de pontuação — ele lê o log do Trello."""
     import placar as _pl
@@ -2526,6 +2574,7 @@ def main():
     _remocao_a_vista(conta)
     _lucro_liquido_custo_fixo(conta)
     _balanco_headcount(conta)
+    _aba_faturas(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0

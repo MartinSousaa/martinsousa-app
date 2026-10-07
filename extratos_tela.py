@@ -88,6 +88,155 @@ def pagina(usuario_logado=None):
     _ver_mes(_fv, _lan, usuario_logado)
 
 
+# ── A ABA FATURAS (06/10) ───────────────────────────────────────────────
+#
+# Pedido do dono: "quero que possa anexar aqui e visualizar as informações
+# dos cartões nessa aba". O anexo usa o MESMO caminho de Conta corrente
+# (`_fatura` + `_perguntar`): duas leituras da fatura discordariam — a
+# questão seria só quando.
+
+def _conferir_custo_real(linhas):
+    """O arquivo acabou de chegar: onde um item do Custo fixo ou das
+    Assinaturas veio com valor diferente do cadastro, o real passa a valer
+    naquele mês (`custo_real`). Extrato E fatura passam por aqui — a fatura
+    não passava, e a assinatura cobrada no cartão nunca atualizava."""
+    try:
+        import custo_real as _cr
+        _meses = sorted({(int(str(l.get("data"))[:4]), int(str(l.get("data"))[5:7]))
+                         for l in (linhas or [])
+                         if str(l.get("data") or "")[:7].count("-") == 1})
+        _, _feitas_cr, _erro_cr = _cr.conferir_meses(_meses)
+        if _feitas_cr:
+            st.info(f"📌 {_feitas_cr} valor(es) de custo fixo / assinatura "
+                    "atualizado(s) no mês — veja em Custos fixos.")
+        if _erro_cr:
+            st.warning(f"Não consegui gravar o valor real do custo fixo: {_erro_cr}")
+    except Exception as _e_cr:
+        st.warning(f"Não consegui conferir o custo fixo: {type(_e_cr).__name__}")
+
+
+def resumo_cartoes(linhas_do_mes):
+    """O cartão de um mês, pronto para a tela. Função pura.
+
+    `linhas_do_mes`: `lancamentos.do_mes` (cartão no mês do vencimento e o
+    extrato pela data). Devolve pago, detalhado, sem_detalhe, por_fatura,
+    por_finalidade e as compras.
+    """
+    import lancamentos as _lan
+    compras = [l for l in (linhas_do_mes or []) if _lan.eh_do_cartao(l)
+               and float(l.get("valor") or 0) < 0]
+    por_fatura, por_fin = {}, {}
+    for l in compras:
+        v = -float(l.get("valor") or 0)
+        fat = str(l.get("conta") or "").replace(_lan.CONTA_CARTAO, "", 1) or "?"
+        t, n = por_fatura.get(fat, (0.0, 0))
+        por_fatura[fat] = (round(t + v, 2), n + 1)
+        fin = (str(l.get("finalidade") or "").strip().upper()
+               or "SEM CLASSIFICAÇÃO")
+        por_fin[fin] = round(por_fin.get(fin, 0.0) + v, 2)
+    pago = _lan.cartao_pago(linhas_do_mes)
+    detalhado = _lan.cartao_detalhado(linhas_do_mes)
+    return {
+        "pago": pago,
+        "compras_total": round(sum(-float(l.get("valor") or 0)
+                                   for l in compras), 2),
+        "detalhado": detalhado,
+        "sem_detalhe": round(max(pago - detalhado, 0.0), 2),
+        "por_fatura": dict(sorted(por_fatura.items(), key=lambda kv: -kv[1][0])),
+        "por_finalidade": dict(sorted(por_fin.items(), key=lambda kv: -kv[1])),
+        "compras": sorted(compras, key=lambda l: str(l.get("data", ""))),
+    }
+
+
+def pagina_faturas(usuario_logado=None):
+    """Anexar faturas de cartão e ver o cartão do mês."""
+    import favorecidos as _fv
+    import fatura_pdf as _fpdf
+    import lancamentos as _lan
+    from datetime import datetime
+    import placar_core as _pc
+
+    st.markdown("#### 🧾 Faturas dos cartões")
+    st.caption(
+        "Anexe a fatura (`.csv` do Inter ou `.pdf`). Confira os valores, "
+        "escolha o mês do vencimento e clique em CONFIRMO — as compras contam "
+        "na meta e no C.O no mês em que a fatura é paga.")
+    arquivos = st.file_uploader(
+        "Fatura do cartão", type=["csv", "pdf"], accept_multiple_files=True,
+        key="fat_up", label_visibility="collapsed")
+    if arquivos:
+        fila_total = []
+        for arq in arquivos:
+            _tipo = _fpdf.identificar(arq.name, arq.getvalue())
+            if _tipo not in ("fatura_pdf", "fatura_inter"):
+                st.warning(_rot.tela(
+                    f"**{arq.name}** não é fatura de cartão — é extrato de "
+                    "conta. Anexe em **Conta corrente**."))
+                continue
+            fila_total += _fatura(arq, _tipo, usuario_logado) or []
+        fila_total = juntar_filas(fila_total)
+        if fila_total:
+            st.warning("Estes nomes não têm histórico. Responda uma vez e "
+                       "eles nunca mais aparecem aqui.")
+            _perguntar(fila_total, _fv, usuario_logado)
+
+    st.markdown("---")
+    st.markdown("##### 💳 O cartão no mês do vencimento")
+    _hoje = datetime.now(_pc.FUSO).date()
+    c1, c2 = st.columns(2)
+    _ano = c1.number_input("Ano", 2020, 2100, _hoje.year, 1, key="fat_ano")
+    _mes = c2.number_input("Mês", 1, 12, _hoje.month, 1, key="fat_mes")
+    try:
+        r = resumo_cartoes(_lan.do_mes(_ano, _mes))
+    except Exception as e:
+        st.error(f"Não consegui ler os lançamentos: {str(e)[:150]}")
+        return
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Pago no extrato", f"R$ {_fmt(r['pago'])}",
+              help="débitos de fatura de cartão na conta corrente neste mês")
+    m2.metric("Compras das faturas lançadas", f"R$ {_fmt(r['compras_total'])}",
+              help="compras das faturas que vencem neste mês, já confirmadas")
+    m3.metric("Pago sem detalhe", f"R$ {_fmt(r['sem_detalhe'])}",
+              help="o que o extrato pagou e nenhuma fatura lançada explica — "
+                   "entra na meta e no C.O como FATURA DO CARTÃO")
+    if r["sem_detalhe"]:
+        st.warning(_rot.tela(
+            f"**R$ {_fmt(r['sem_detalhe'])} pagos sem a fatura lançada.** "
+            "Anexe a fatura deste vencimento para separar o valor por "
+            "finalidade."))
+    if not r["compras"]:
+        st.info("Nenhuma compra de fatura lançada para este vencimento.")
+        return
+    import pandas as pd
+    a, b = st.columns(2)
+    with a:
+        st.caption("Por fatura:")
+        st.dataframe(pd.DataFrame([{"fatura": k, "compras": n, "total": t}
+                                   for k, (t, n) in r["por_fatura"].items()]),
+                     use_container_width=True, hide_index=True,
+                     column_config={"total": st.column_config.NumberColumn(
+                         format="R$ %.2f")})
+    with b:
+        st.caption("Por finalidade:")
+        st.dataframe(pd.DataFrame([{"finalidade": k, "total": v}
+                                   for k, v in r["por_finalidade"].items()]),
+                     use_container_width=True, hide_index=True,
+                     column_config={"total": st.column_config.NumberColumn(
+                         format="R$ %.2f")})
+    with st.expander(f"As {len(r['compras'])} compras", expanded=False):
+        st.dataframe(pd.DataFrame([{
+            "data da compra": l.get("data", ""),
+            "descrição": str(l.get("descricao", ""))[:70],
+            "finalidade": l.get("finalidade", ""),
+            "valor": -float(l.get("valor") or 0),
+            "fatura": str(l.get("conta") or "").replace(_lan.CONTA_CARTAO, "", 1),
+        } for l in r["compras"]]), use_container_width=True, hide_index=True,
+            column_config={"valor": st.column_config.NumberColumn(
+                format="R$ %.2f")})
+    st.caption("Para corrigir a finalidade de uma compra, use o lápis em "
+               "Conta corrente › Lançamentos do mês, ou Finalidades.")
+
+
 def _fatura(arq, tipo_arq, usuario_logado):
     """A fatura do cartão: lê, MOSTRA e deixa a pessoa conferir. Não grava.
 
@@ -218,6 +367,7 @@ def _fatura(arq, tipo_arq, usuario_logado):
                 _msg += (f" {_marc} já gravado(s) passaram a contar em "
                          f"{_rotulo_mes(_comp)}.")
             st.success(_msg)
+            _conferir_custo_real(classificados)
     return fila
 
 
@@ -377,22 +527,7 @@ def _processar(arq, _itau, _inter, _fv, _lan, usuario_logado):
     )
 
     # ── O CUSTO FIXO E AS ASSINATURAS DO MÊS, PELO EXTRATO (06/10) ────────
-    # O mesmo momento: o arquivo acabou de chegar. Onde o item veio com valor
-    # diferente do cadastro, o real passa a valer naquele mês (`custo_real`).
-    try:
-        import custo_real as _cr
-        _meses_arq = sorted({(int(str(l.get("data"))[:4]),
-                              int(str(l.get("data"))[5:7]))
-                             for l in classificados
-                             if str(l.get("data") or "")[:7].count("-") == 1})
-        _, _feitas_cr, _erro_cr = _cr.conferir_meses(_meses_arq)
-        if _feitas_cr:
-            st.info(f"📌 {_feitas_cr} valor(es) de custo fixo / assinatura "
-                    "atualizado(s) no mês pelo extrato — veja em Custos fixos.")
-        if _erro_cr:
-            st.warning(f"Não consegui gravar o valor real do custo fixo: {_erro_cr}")
-    except Exception as _e_cr:
-        st.warning(f"Não consegui conferir o custo fixo: {type(_e_cr).__name__}")
+    _conferir_custo_real(classificados)
 
     # ── A BAIXA DOS CHEQUES, AQUI, JUNTO COM O RESTO ─────────────────────
     #
@@ -499,7 +634,14 @@ def _enriquecer(fila, classificados, conta):
         sentido = "entrada" if float(l.get("valor") or 0) > 0 else "saida"
         d = porta.setdefault((nome, sentido), {
             "favorecido": nome, "sentido": sentido, "conta": conta,
-            "n": 0, "total": 0.0, "exemplo": "", "datas": []})
+            "n": 0, "total": 0.0, "exemplo": "", "datas": [], "itens": []})
+        # CADA LANÇAMENTO VAI JUNTO. Juntar as parcelas numa pergunta só não
+        # pode tirar do dono a conferência linha a linha (06/10: "como vou
+        # conferir com ele juntando?").
+        d["itens"].append({"data": str(l.get("data") or ""),
+                           "descricao": str(l.get("descricao") or "")[:80],
+                           "valor": abs(float(l.get("valor") or 0)),
+                           "conta": conta})
         d["n"] += 1
         d["total"] += abs(float(l.get("valor") or 0))
         d["exemplo"] = d["exemplo"] or str(l.get("descricao") or "")[:58]
@@ -524,17 +666,24 @@ def juntar_filas(filas):
     apareceu — a pergunta fica com o quadro completo, não com o do primeiro
     arquivo que chegou.
     """
+    import favorecidos as _fv_j
     junto = {}
     for item in (filas or []):
-        chave = ((item.get("favorecido") or "").strip().upper(),
+        # Pela CHAVE do cadastro, e não pelo texto: "HERING 04/06" e
+        # "HERING 05/06" são a mesma loja, e a resposta grava pela chave.
+        chave = (_fv_j.chave(item.get("favorecido")) or
+                 (item.get("favorecido") or "").strip().upper(),
                  item.get("sentido") or "saida")
+        item = dict(item, favorecido=_fv_j.sem_parcela(item.get("favorecido")))
         d = junto.get(chave)
         if d is None:
-            junto[chave] = dict(item, datas=list(item.get("datas") or []))
+            junto[chave] = dict(item, datas=list(item.get("datas") or []),
+                                itens=list(item.get("itens") or []))
             continue
         d["n"] = (d.get("n") or 0) + (item.get("n") or 0)
         d["total"] = (d.get("total") or 0.0) + (item.get("total") or 0.0)
         d["datas"] = list(d.get("datas") or []) + list(item.get("datas") or [])
+        d["itens"] = list(d.get("itens") or []) + list(item.get("itens") or [])
         d["exemplo"] = d.get("exemplo") or item.get("exemplo") or ""
         _c1, _c2 = str(d.get("conta") or ""), str(item.get("conta") or "")
         if _c2 and _c2 not in _c1:
@@ -553,38 +702,162 @@ def chave_do_item(item):
     return "".join(c if c.isalnum() else "_" for c in bruto.upper())[:60]
 
 
-def _perguntar(fila, _fv, usuario_logado):
-    """A fila de nomes novos, do maior valor para o menor."""
-    ESCOLHA = "— escolher —"
-    _opcoes = [ESCOLHA] + _finalidades_conhecidas(_fv)
-    SETA = {"entrada": "🟢 ENTROU", "saida": "🔴 SAIU"}
-    vistas = set()
-    for item in fila[:15]:
-        _k = chave_do_item(item)
-        if _k in vistas:        # cinto e suspensório: chave nunca repete
+def sugerir_fixos(fila, linhas_cf, linhas_as):
+    """{chave_do_item: (finalidade, motivo)} para nomes que JÁ são custo fixo
+    ou assinatura. Função pura.
+
+    Dono, 06/10: "o nome já diz o que é e meu custo fixo está exatamente com
+    esse nome". HOSTGATOR estava no Custo fixo e CLAUDE nas Assinaturas, e a
+    fila perguntava os dois. Casa por "Como aparece no extrato" ou pelo nome
+    do item, palavra inteira — a regra é `custo_real.nomes_do_item`, a mesma
+    que atualiza o valor do mês. Assinatura também é
+    CUSTO FIXO — palavra do dono (`composicao.py:122`).
+
+    É SUGESTÃO: vem marcada na tabela e só grava no "Salvar".
+    """
+    import assinaturas as _as
+    import custo_real as _cr_s
+    alvos = []
+    for origem, linhas in (("Custo fixo", linhas_cf), ("Assinatura", linhas_as)):
+        for l in (linhas or []):
+            item = str(l.get("item") or "").strip()
+            for n in _cr_s.nomes_do_item(l):
+                alvos.append((n, f"{origem} › {item or n}"))
+    fora = {}
+    for it in (fila or []):
+        if (it.get("sentido") or "saida") != "saida":
             continue
-        vistas.add(_k)
-        c1, c2, c3 = st.columns([3, 2, 1])
-        _quando = ""
-        _datas = sorted(d for d in (item.get("datas") or []) if d)
-        if _datas:
-            _quando = (f" · {_datas[0][8:10]}/{_datas[0][5:7]}" if len(_datas) == 1
-                       else f" · {_datas[0][8:10]}/{_datas[0][5:7]} a "
-                            f"{_datas[-1][8:10]}/{_datas[-1][5:7]}")
-        c1.markdown(_rot.tela(
-            f"{SETA.get(item['sentido'], '')} **R$ {_fmt(item['total'])}**"
-            f" · {item['n']}x{_quando}  \n"
-            f"**{item['favorecido'][:46]}**  \n"
-            f"<span style='font-size:11px;opacity:.65'>na conta "
-            f"{item.get('conta', '')} · {item.get('exemplo', '')}</span>"),
-            unsafe_allow_html=True)
-        _fin = c2.selectbox("Finalidade", _opcoes, key=f"ext_fin_{_k}",
-                            label_visibility="collapsed")
-        if c3.button("Salvar", key=f"ext_sv_{_k}", use_container_width=True,
-                     disabled=_fin == ESCOLHA):
-            _ok, _msg = _fv.salvar(item["favorecido"], _fin, item["sentido"],
-                                   "", usuario_logado)
-            (st.success if _ok else st.error)(_msg)
+        lanc = {"descricao": it.get("favorecido", ""),
+                "favorecido": it.get("exemplo", "")}
+        for n, motivo in alvos:
+            if _as._casa(lanc, {"favorecido": n}):
+                fora[chave_do_item(it)] = ("CUSTO FIXO", motivo)
+                break
+    return fora
+
+
+def _fixos_cadastrados():
+    """(custo fixo, assinaturas) como listas de dicionários. [] na falha."""
+    try:
+        import custo_fixo as _cf
+        g = _cf.carregar("custo_fixo")
+        cf = g.to_dict("records") if not g.empty else []
+    except Exception:
+        cf = []
+    try:
+        import assinaturas as _as
+        as_ = _as.carregar() or []
+    except Exception:
+        as_ = []
+    return cf, as_
+
+
+def _perguntar(fila, _fv, usuario_logado):
+    """A fila de nomes novos numa TABELA: marcar, escolher, salvar tudo.
+
+    Dono, 06/10: "não dá para eu preencher um por um (...) eu preciso
+    visualizar quantas compras existem". Era um selectbox e um botão por
+    nome, e só os 15 primeiros apareciam — o resto esperava calado.
+    Agora: a fila inteira, quantas compras e quanto cada nome soma, a
+    finalidade em massa para os marcados, e UM botão que grava tudo
+    (`favorecidos.salvar_varios`, uma ida ao Google).
+    """
+    import pandas as pd
+    ESCOLHA = "— escolher —"
+    _opcoes = _finalidades_conhecidas(_fv)
+    SETA = {"entrada": "🟢 entrou", "saida": "🔴 saiu"}
+    _sug = sugerir_fixos(fila, *_fixos_cadastrados())
+    _n_compras = sum(int(i.get("n") or 0) for i in fila)
+    _total = sum(float(i.get("total") or 0) for i in fila)
+    st.markdown(_rot.tela(
+        f"**{len(fila)} nome(s) sem finalidade · {_n_compras} lançamento(s) · "
+        f"R$ {_fmt(_total)}**"
+        + (f" · {len(_sug)} reconhecido(s) no Custo fixo/Assinaturas, já "
+           "marcados" if _sug else "")))
+
+    def _periodo(item):
+        ds = sorted(d for d in (item.get("datas") or [])
+                    if len(str(d)) >= 10 and str(d)[4] == "-")
+        if not ds:
+            return ""
+        a, b = ds[0], ds[-1]
+        return (f"{a[8:10]}/{a[5:7]}" if a == b
+                else f"{a[8:10]}/{a[5:7]} a {b[8:10]}/{b[5:7]}")
+
+    df = pd.DataFrame([{
+        "marcar": chave_do_item(i) in _sug,
+        "nome": str(i.get("favorecido") or "")[:60],
+        "sentido": SETA.get(i.get("sentido"), i.get("sentido") or ""),
+        "lançamentos": int(i.get("n") or 0),
+        "total": float(i.get("total") or 0),
+        "período": _periodo(i),
+        "finalidade": (_sug.get(chave_do_item(i)) or ("",))[0] or None,
+        "reconhecido": (_sug.get(chave_do_item(i)) or ("", ""))[1],
+        "onde": str(i.get("conta") or "")[:60],
+    } for i in fila])
+
+    with st.form("ext_fila_form"):
+        c1, c2 = st.columns([3, 1])
+        _massa = c1.selectbox(
+            "Finalidade para TODOS os marcados", [ESCOLHA] + _opcoes,
+            key="ext_fila_massa",
+            help="Marque as linhas na tabela, escolha aqui e salve. A "
+                 "finalidade escolhida na própria linha vale mais.")
+        editado = st.data_editor(
+            df, use_container_width=True, hide_index=True, key="ext_fila_ed",
+            disabled=["nome", "sentido", "lançamentos", "total", "período",
+                      "reconhecido", "onde"],
+            column_config={
+                "marcar": st.column_config.CheckboxColumn("✔", width="small"),
+                "total": st.column_config.NumberColumn(format="R$ %.2f"),
+                "finalidade": st.column_config.SelectboxColumn(
+                    "Finalidade", options=_opcoes),
+            })
+        enviou = c2.form_submit_button("💾 Salvar", type="primary",
+                                       use_container_width=True)
+    _linhas_fila = [{"nome": str(i.get("favorecido") or "")[:40],
+                     "data": it.get("data", ""), "descrição": it.get("descricao", ""),
+                     "valor": it.get("valor", 0.0), "onde": it.get("conta", "")}
+                    for i in fila for it in (i.get("itens") or [])]
+    if _linhas_fila:
+        with st.expander(f"🔎 Conferir cada lançamento da fila "
+                         f"({len(_linhas_fila)})", expanded=False):
+            st.dataframe(pd.DataFrame(_linhas_fila), use_container_width=True,
+                         hide_index=True,
+                         column_config={"valor": st.column_config.NumberColumn(
+                             format="R$ %.2f")})
+    if not enviou:
+        return
+    respostas = respostas_da_fila(fila, editado.to_dict("records"),
+                                  None if _massa == ESCOLHA else _massa)
+    if not respostas:
+        st.warning("Nada para salvar: escolha a finalidade na linha, ou "
+                   "marque as linhas e escolha a finalidade para os marcados.")
+        return
+    n, erro = _fv.salvar_varios(respostas, usuario_logado)
+    if erro:
+        st.error(f"Não consegui salvar: {erro}")
+    else:
+        st.success(f"✅ {n} nome(s) classificados. Valem para o histórico "
+                   "inteiro e para as próximas faturas.")
+
+
+def respostas_da_fila(fila, linhas, massa=None):
+    """[(favorecido, finalidade, sentido)] do que foi respondido. Pura.
+
+    A finalidade da linha manda; sem ela, a linha MARCADA recebe a `massa`.
+    """
+    fora = []
+    for item, l in zip(fila or [], linhas or []):
+        fin = l.get("finalidade")
+        # a tabela devolve NaN na célula vazia, e str(NaN) é "nan"
+        fin = fin.strip() if isinstance(fin, str) else ""
+        if not fin and l.get("marcar") is True and massa:
+            fin = massa
+        if fin:
+            fora.append((item.get("favorecido"), fin,
+                         item.get("sentido") or "saida"))
+    return fora
 
 
 def _finalidades_conhecidas(_fv):
@@ -764,7 +1037,60 @@ if __name__ == "__main__":
     _pe = _insp.getsource(_perguntar)
     ok("nenhuma chave de widget sai da posição na lista",
        ("ext_fin_{" + "i}") not in _pe and ("ext_sv_{" + "i}") not in _pe)
-    ok("elas saem da identidade do item", "chave_do_item(item)" in _pe)
+    # 06/10: a fila virou UMA tabela num formulário — as chaves são fixas e
+    # únicas na tela (`_perguntar` é chamada uma vez por página, guarda acima).
+    ok("a fila é uma tabela com chaves fixas, e não um widget por nome",
+       'key="ext_fila_ed"' in _pe and 'st.form("ext_fila_form")' in _pe
+       and "fila[:15]" not in _pe)
+
+    # ── A FILA EM MASSA E AS PARCELAS (06/10) ────────────────────────────
+    import favorecidos as _fv_p
+    ok("a parcela sai do nome",
+       _fv_p.sem_parcela("SHOPEE *KenZLojaOf02/04") == "SHOPEE *KenZLojaOf"
+       and _fv_p.sem_parcela("HERING 05/06") == "HERING"
+       and _fv_p.sem_parcela("ML · Parcela 7/10") == "ML")
+    ok("e duas parcelas da mesma compra tem a mesma chave do cadastro",
+       _fv_p.chave("SHOPEE *KenZLojaOf01/04") == _fv_p.chave("SHOPEE *KenZLojaOf02/04"))
+    # A ENTRADA VEM DO LEITOR: duas parcelas lidas por `fatura_inter.ler`,
+    # classificadas de verdade, viram UMA pergunta com 2 lançamentos.
+    _csv_p = ('",""10/09/2026"",""•••• 1924"",""HERING 04/06"",""COMPRAS"",'
+              '""Compra à vista"",""-R$ 81,69""";\n'
+              '",""10/10/2026"",""•••• 1924"",""HERING 05/06"",""COMPRAS"",'
+              '""Compra à vista"",""-R$ 81,69""";\n')
+    import fatura_inter as _fi_p
+    _lp, _, _ = _fi_p.ler(_csv_p)
+    _, _fila_p = classificar_fatura(_lp, {})
+    _fila_p = juntar_filas(_enriquecer(_fila_p, _lp, "cartão · p.csv")
+                           if _fila_p else [])
+    ok("as parcelas da mesma loja viram uma pergunta so",
+       len(_fila_p) == 1 and _fila_p[0]["n"] == 2
+       and round(_fila_p[0]["total"], 2) == 163.38)
+    ok("e cada lancamento juntado continua la, para conferir",
+       [x["descricao"] for x in _fila_p[0]["itens"]]
+       == ["HERING 04/06", "HERING 05/06"])
+    ok("a tela mostra cada lancamento da fila",
+       "Conferir cada lançamento da fila" in _insp.getsource(_perguntar))
+    _fila_m = [{"favorecido": "A", "sentido": "saida"},
+               {"favorecido": "B", "sentido": "saida"},
+               {"favorecido": "C", "sentido": "saida"}]
+    _r_m = respostas_da_fila(_fila_m, [
+        {"marcar": True, "finalidade": float("nan")},
+        {"marcar": True, "finalidade": "ADS"},
+        {"marcar": False, "finalidade": None}], "CONSUMO INTERNO")
+    ok("a finalidade em massa vale para os marcados, a da linha manda, "
+       "e celula vazia nao vira 'nan'",
+       _r_m == [("A", "CONSUMO INTERNO", "saida"), ("B", "ADS", "saida")])
+    _sg = sugerir_fixos(
+        [{"favorecido": "HOSTGATOR", "sentido": "saida", "exemplo": ""},
+         {"favorecido": "ANTHROPIC* CLAUDE SUB BRL550,00", "sentido": "saida",
+          "exemplo": ""},
+         {"favorecido": "LUZ E CIA MODAS", "sentido": "saida", "exemplo": ""}],
+        [{"item": "Hostgator", "favorecido": ""}, {"item": "Luz", "favorecido": ""}],
+        [{"item": "Claude", "favorecido": ""}])
+    ok("nome que ja e custo fixo ou assinatura vem sugerido como CUSTO FIXO",
+       len(_sg) == 2 and all(v[0] == "CUSTO FIXO" for v in _sg.values()))
+    ok("e nome curto ('Luz') nao casa com 'LUZ E CIA MODAS'",
+       not any("Luz" in v[1] for v in _sg.values()))
 
     # ── A FATURA TAMBÉM CLASSIFICA E PERGUNTA (05/10) ────────────────────
     # A ENTRADA VEM DO LEITOR: uma fatura no formato do CSV do Inter, lida
@@ -857,9 +1183,27 @@ if __name__ == "__main__":
     ok("a fatura grava na conta que o Studio reconhece como cartao",
        "_lan_cc.CONTA_CARTAO + nome" in _src_fat2
        and _lan_cc_t.eh_do_cartao({"conta": _lan_cc_t.CONTA_CARTAO + "x.csv"}))
+    ok("a fatura confirmada tambem atualiza o custo fixo do mes",
+       "_conferir_custo_real(classificados)" in _src_fat2
+       and "_conferir_custo_real(classificados)" in _insp.getsource(_processar))
     ok("o clique so lanca com o mes do vencimento escolhido",
        "disabled=not _comp" in _src_fat2
        and "competencia_da_fatura(lancs, _venc_txt)" in _src_fat2)
+
+    # ── A ABA FATURAS: o resumo sai da cadeia real (do_mes da aba gravada).
+    _r_f = resumo_cartoes(_out)
+    ok("a aba Faturas resume o cartao do mes pela mesma regra da meta",
+       _r_f["pago"] == 80.94 and _r_f["compras_total"] == 80.94
+       and _r_f["sem_detalhe"] == 0.0
+       and _r_f["por_fatura"] == {"t.csv": (80.94, 2)}
+       and _r_f["por_finalidade"] == {"MERCADORIA": 80.94})
+    ok("sem fatura lancada, o pago aparece sem detalhe",
+       resumo_cartoes([{"data": "2026-10-01", "valor": -50.0, "conta": "inter",
+                        "finalidade": "FATURA DO CARTÃO"}])["sem_detalhe"] == 50.0)
+    _src_pf = _insp.getsource(pagina_faturas)
+    ok("a aba Faturas anexa pelo MESMO caminho de Conta corrente",
+       "_fatura(arq, _tipo, usuario_logado)" in _src_pf
+       and "_perguntar(fila_total" in _src_pf and 'key="fat_up"' in _src_pf)
 
     _sf_t = sem_finalidade([{"valor": -100.0, "finalidade": "", "favorecido": "A"},
                             {"valor": -50.0, "finalidade": "ADS"},

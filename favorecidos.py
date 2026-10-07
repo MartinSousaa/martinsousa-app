@@ -286,16 +286,30 @@ SEED = [
 ]
 
 
+def sem_parcela(nome):
+    """O nome sem o "01/04" da parcela no fim. Função pura.
+
+    A fatura escreve cada parcela com o número colado: "SHOPEE *KenZLojaOf01/04"
+    e "SHOPEE *KenZLojaOf02/04" são a MESMA compra. Com o número no nome, cada
+    parcela virava uma pergunta — e a resposta de uma não valia para a outra
+    (dono, 06/10: "ele vai questionar todas as parcelas da compra?").
+    """
+    import re
+    t = " ".join(str(nome or "").split())
+    t = re.sub(r"\s*PARCELA\s*\d{1,2}\s*/\s*\d{1,2}\s*$", "", t, flags=re.I)
+    return re.sub(r"\s*\d{1,2}\s*/\s*\d{1,2}\s*$", "", t).strip(" ·-")
+
+
 def chave(nome):
     """A forma comparável de um favorecido.
 
     O mesmo fornecedor aparece como "APEXIMP" e "Apeximp Comercio de Presentes
     Importacao E Exportacao LTDA"; sem normalizar, viram dois cadastros e o
-    total do mês sai partido em dois.
+    total do mês sai partido em dois. A parcela também sai (`sem_parcela`).
     """
     import re
     import unicodedata
-    t = str(nome or "").strip().upper()
+    t = sem_parcela(nome).upper()
     if not t:
         return ""
     t = unicodedata.normalize("NFKD", t)
@@ -458,8 +472,8 @@ def classificar(lancamentos, cadastro=None):
         # O Itaú não traz favorecido em tudo: "PAGAMENTOS A FORNECEDORES" e
         # "EMPREST CAPITAL DE GIRO" só existem como descrição. Sem esta
         # reserva, as duas linhas mais pesadas do mês ficavam sem classificação.
-        nome = (l.get("favorecido") or l.get("razao_social")
-                or l.get("descricao") or "")
+        nome = sem_parcela(l.get("favorecido") or l.get("razao_social")
+                           or l.get("descricao") or "")
         sentido = l.get("sentido") or ("saida" if float(l.get("valor") or 0) < 0
                                        else "entrada")
         reg = casar(nome, cad, sentido)
@@ -486,6 +500,42 @@ def classificar(lancamentos, cadastro=None):
     return fora, fila
 
 
+def salvar_varios(respostas, usuario=""):
+    """Grava várias classificações numa ida só. (quantas, erro).
+
+    `respostas`: [(favorecido, finalidade, sentido)]. Uma por uma eram duas
+    chamadas ao Google por nome — 60 nomes, 120 idas, e o dono salvando linha
+    a linha (pedido de 06/10: "salvar em massa").
+    """
+    agora = datetime.now(FUSO).strftime("%Y-%m-%d %H:%M")
+    novas = {}
+    for fav, fin, tp in (respostas or []):
+        nome = sem_parcela(fav)
+        if nome and str(fin or "").strip():
+            tp = tp if tp in TIPOS else "saida"
+            novas[(chave(nome), tp)] = [nome, str(fin).strip().upper(), tp, "",
+                                        agora, str(usuario or "")[:60]]
+    if not novas:
+        return 0, ""
+    try:
+        aba = _aba()
+        atuais = aba.get_all_records()
+        linhas = []
+        for l in atuais:
+            k = (chave(l.get("favorecido")),
+                 str(l.get("tipo") or "saida").strip().lower() or "saida")
+            if k in novas:
+                linhas.append(novas.pop(k))
+                continue
+            linhas.append([l.get(c, "") for c in COLUNAS])
+        linhas += list(novas.values())
+        aba.update([COLUNAS] + linhas, value_input_option="RAW")
+    except Exception as e:
+        return 0, str(e)[:200]
+    carregar.clear()
+    return len(respostas or []), ""
+
+
 def salvar(favorecido, finalidade, tipo="saida", observacao="", usuario=""):
     """Grava ou atualiza a classificação de um nome. (ok, mensagem)."""
     nome = str(favorecido or "").strip()
@@ -498,9 +548,14 @@ def salvar(favorecido, finalidade, tipo="saida", observacao="", usuario=""):
     try:
         aba = _aba()
         alvo = chave(nome)
+        tp = linha[2]
         atuais = aba.get_all_records()
+        # NOME E SENTIDO: "LITTLE GLASS" recebido é repasse, enviado é
+        # transferência. Casar só pelo nome sobrescrevia a outra resposta.
         pos = next((i for i, l in enumerate(atuais)
-                    if chave(l.get("favorecido")) == alvo), None)
+                    if chave(l.get("favorecido")) == alvo
+                    and (str(l.get("tipo") or "saida").strip().lower() or "saida")
+                    == tp), None)
         if pos is None:
             aba.append_row(linha, value_input_option="RAW")
         else:
@@ -676,6 +731,46 @@ if __name__ == "__main__":
     ok("a tela de Extratos le a MESMA base",
        set(_et_g._finalidades_conhecidas(
            __import__("favorecidos"))) >= set(FINALIDADES_BASE))
+
+    # ── A PARCELA SAI DO NOME, E A FILA SALVA EM MASSA (06/10) ──────────
+    ok("sem_parcela tira o 01/04 colado e o 'Parcela 7/10'",
+       sem_parcela("SHOPEE *KenZLojaOf01/04") == "SHOPEE *KenZLojaOf"
+       and sem_parcela("MAGAZINE LUIZA Parcela 7/10") == "MAGAZINE LUIZA"
+       and sem_parcela("APEXIMP") == "APEXIMP")
+
+    class _AbaFav:
+        def __init__(self):
+            self.linhas = [COLUNAS, ["HERING 04/06", "OUTROS", "saida", "",
+                                     "", ""]]
+
+        def get_all_records(self):
+            return [dict(zip(self.linhas[0], l)) for l in self.linhas[1:]]
+
+        def update(self, values, range_name=None, **kw):
+            self.linhas = [[str(c) for c in v] for v in values]
+
+    _af = _AbaFav()
+    _g_aba = globals()["_aba"]
+    globals()["_aba"] = lambda: _af
+    try:
+        _nv, _ev = salvar_varios([("HERING 05/06", "CONSUMO INTERNO", "saida"),
+                                  ("SHOPEE *X01/03", "MERCADORIA", "saida")], "leo")
+        _rows = _af.get_all_records()
+        _af.linhas.append(["LITTLE GLASS", "MERCADO LIVRE", "entrada", "", "", ""])
+        _af.linhas.append(["LITTLE GLASS", "TRANSFERENCIA ENTRE CONTAS", "saida",
+                           "", "", ""])
+        salvar_varios([("LITTLE GLASS", "TRANSFERENCIA", "saida")], "leo")
+        _lg = {r["tipo"]: r["finalidade"] for r in _af.get_all_records()
+               if r["favorecido"] == "LITTLE GLASS"}
+        ok("responder um sentido nao apaga a resposta do outro",
+           _lg == {"entrada": "MERCADO LIVRE", "saida": "TRANSFERENCIA"})
+        _af.linhas = _af.linhas[:3]
+        ok("salvar_varios grava tudo numa ida, sem duplicar a loja da parcela",
+           _ev == "" and _nv == 2 and len(_rows) == 2
+           and _rows[0]["finalidade"] == "CONSUMO INTERNO"
+           and _rows[1]["favorecido"] == "SHOPEE *X")
+    finally:
+        globals()["_aba"] = _g_aba
 
     print("\nfalhas:", falhas)
 
