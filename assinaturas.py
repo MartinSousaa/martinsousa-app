@@ -39,6 +39,7 @@ chegou e devolve as diferenças para o dono olhar. A conferência é dele — o
 Studio só garante que nada passe despercebido.
 """
 
+from rotulos import brl as _brl_ms
 import re
 import unicodedata
 
@@ -408,15 +409,15 @@ def alertas(cadastro, por_mes, ano, mes):
     fora = []
     for d in do_mes["divergentes"]:
         sinal = "subiu" if d["diferenca"] > 0 else "caiu"
-        fora.append(f"💸 {d['item']} {sinal} R$ {abs(d['diferenca']):.2f} — "
-                    f"cadastrado R$ {d['esperado']:.2f}, cobrado "
-                    f"R$ {d['cobrado']:.2f}.")
+        fora.append(f"💸 {d['item']} {sinal} {_brl_ms(abs(d['diferenca']))} — "
+                    f"cadastrado {_brl_ms(d['esperado'])}, cobrado "
+                    f"{_brl_ms(d['cobrado'])}.")
     for d in do_mes["sumidas"]:
         fora.append(f"❓ {d['item']} não apareceu neste mês — cancelada, ou o "
-                    f"cartão recusou? Esperado R$ {d['esperado']:.2f}.")
+                    f"cartão recusou? Esperado {_brl_ms(d['esperado'])}.")
     for d in recorrentes_nao_cadastradas(cadastro, por_mes):
         fora.append(f"🆕 {d['favorecido']} cobra há {d['meses']} meses "
-                    f"(média R$ {d['media']:.2f}) e não está no cadastro.")
+                    f"(média {_brl_ms(d['media'])}) e não está no cadastro.")
     return fora
 
 

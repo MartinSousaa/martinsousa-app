@@ -1,3 +1,4 @@
+from rotulos import brl as _brl_ms
 import streamlit as st
 import base64
 import os
@@ -29,6 +30,10 @@ import chat_assistente
 import placar
 import analise_metas
 import placar_core as _pc_login
+
+# Dinheiro em R$ 58.490,56 em TODAS as tabelas (dono, 07/10). Um lugar só: as
+# telas declaram a coluna com `format="R$ %.2f"` e quem desenha é `rotulos`.
+rotulos.instalar_moeda(st)
 
 # A TV é regenerada por um PROCESSO PRÓPRIO (tv_worker.py), subido pelo
 # Procfile. Aqui ficava a única partida dela — e este arquivo é o script do
@@ -1091,13 +1096,13 @@ def montar_tabela_vertical(r):
     linhas = [
         "| Item | Valor |",
         "|---|---|",
-        f"| Valor do anúncio | R${r['preco']:.2f} |",
-        f"| Taxa da plataforma (comissão) | R${r['comissao']:.2f} |",
-        f"| Frete | R${r['frete']:.2f} |",
-        f"| NF | R${r['nf']:.2f} |",
-        f"| Custos operacionais | R${r['custo_operacional']:.2f} |",
-        f"| Custo do produto | R${r['custo']:.2f} |",
-        f"| **Lucro** | **R${r['lucro_liquido']:.2f}** |",
+        f"| Valor do anúncio | {_brl_ms(r['preco'])} |",
+        f"| Taxa da plataforma (comissão) | {_brl_ms(r['comissao'])} |",
+        f"| Frete | {_brl_ms(r['frete'])} |",
+        f"| NF | {_brl_ms(r['nf'])} |",
+        f"| Custos operacionais | {_brl_ms(r['custo_operacional'])} |",
+        f"| Custo do produto | {_brl_ms(r['custo'])} |",
+        f"| **Lucro** | **{_brl_ms(r['lucro_liquido'])}** |",
         f"| Margem | {r['margem']:.1f}% |",
         f"| **UC** | **{uc_str}** |",
     ]
@@ -1115,13 +1120,13 @@ def classificar_uc(uc):
 def montar_tabela_horizontal_completa(cenarios):
     """cenarios: lista de (nome, resultado_dict)"""
     campos = [
-        ("Valor do anúncio", lambda r: f"R${r['preco']:.2f}"),
-        ("Taxa da plataforma", lambda r: f"R${r['comissao']:.2f}"),
-        ("Frete", lambda r: f"R${r['frete']:.2f}"),
-        ("NF", lambda r: f"R${r['nf']:.2f}"),
-        ("Custos operacionais", lambda r: f"R${r['custo_operacional']:.2f}"),
-        ("Custo do produto", lambda r: f"R${r['custo']:.2f}"),
-        ("**Lucro**", lambda r: f"**R${r['lucro_liquido']:.2f}**"),
+        ("Valor do anúncio", lambda r: f"{_brl_ms(r['preco'])}"),
+        ("Taxa da plataforma", lambda r: f"{_brl_ms(r['comissao'])}"),
+        ("Frete", lambda r: f"{_brl_ms(r['frete'])}"),
+        ("NF", lambda r: f"{_brl_ms(r['nf'])}"),
+        ("Custos operacionais", lambda r: f"{_brl_ms(r['custo_operacional'])}"),
+        ("Custo do produto", lambda r: f"{_brl_ms(r['custo'])}"),
+        ("**Lucro**", lambda r: f"**{_brl_ms(r['lucro_liquido'])}**"),
         ("Margem", lambda r: f"{r['margem']:.1f}%"),
         ("**UC**", lambda r: f"**{r['uc']}/1**" if r['uc'] is not None else "**sem lucro**"),
     ]
@@ -1197,9 +1202,9 @@ def gerar_analise_fn(preco_mercado, custo, nome, nf_pct, custo_op, lpv, calc_fn,
     preco_max = preco_max_busca or max(custo * 20, 2000)
 
     RESUMOS = {
-        "VIAVEL":    f"Esse anúncio sobra R${r_base['lucro_liquido']:.2f} de lucro por venda (margem de {r_base['margem']:.1f}%), cobrindo a meta de lucro com folga.",
-        "RESSALVAS": f"Esse anúncio sobra R${r_base['lucro_liquido']:.2f} de lucro por venda (margem de {r_base['margem']:.1f}%) — ajuda a pagar as contas, mas não cobre a meta sozinho.",
-        "INVIAVEL":  f"Esse anúncio {'dá prejuízo' if r_base['lucro_liquido'] < 0 else 'sobra pouco lucro'} (R${r_base['lucro_liquido']:.2f} por venda) — fica abaixo do mínimo aceitável pra empresa.",
+        "VIAVEL":    f"Esse anúncio sobra {_brl_ms(r_base['lucro_liquido'])} de lucro por venda (margem de {r_base['margem']:.1f}%), cobrindo a meta de lucro com folga.",
+        "RESSALVAS": f"Esse anúncio sobra {_brl_ms(r_base['lucro_liquido'])} de lucro por venda (margem de {r_base['margem']:.1f}%) — ajuda a pagar as contas, mas não cobre a meta sozinho.",
+        "INVIAVEL":  f"Esse anúncio {'dá prejuízo' if r_base['lucro_liquido'] < 0 else 'sobra pouco lucro'} ({_brl_ms(r_base['lucro_liquido'])} por venda) — fica abaixo do mínimo aceitável pra empresa.",
     }
 
     preco_uc07 = resolver_preco_para_uc_fn(0.7, calc_fn, lpv, preco_max)
@@ -1297,9 +1302,9 @@ def gerar_analise(preco_mercado, custo, peso_taxado, categoria, modalidade,
     tag = classificar_uc(r_base['uc'])
 
     RESUMOS = {
-        "VIAVEL": f"Esse anúncio sobra R${r_base['lucro_liquido']:.2f} de lucro por venda (margem de {r_base['margem']:.1f}%), cobrindo a meta de lucro com folga.",
-        "RESSALVAS": f"Esse anúncio sobra R${r_base['lucro_liquido']:.2f} de lucro por venda (margem de {r_base['margem']:.1f}%) — ajuda a pagar as contas, mas não cobre a meta sozinho.",
-        "INVIAVEL": f"Esse anúncio {'dá prejuízo' if r_base['lucro_liquido'] < 0 else 'sobra pouco lucro'} (R${r_base['lucro_liquido']:.2f} por venda) — fica abaixo do mínimo aceitável pra empresa.",
+        "VIAVEL": f"Esse anúncio sobra {_brl_ms(r_base['lucro_liquido'])} de lucro por venda (margem de {r_base['margem']:.1f}%), cobrindo a meta de lucro com folga.",
+        "RESSALVAS": f"Esse anúncio sobra {_brl_ms(r_base['lucro_liquido'])} de lucro por venda (margem de {r_base['margem']:.1f}%) — ajuda a pagar as contas, mas não cobre a meta sozinho.",
+        "INVIAVEL": f"Esse anúncio {'dá prejuízo' if r_base['lucro_liquido'] < 0 else 'sobra pouco lucro'} ({_brl_ms(r_base['lucro_liquido'])} por venda) — fica abaixo do mínimo aceitável pra empresa.",
     }
     resumo = RESUMOS[tag]
 
@@ -1355,7 +1360,7 @@ def _mostrar_resultado(resultado, nome_produto):
     st.markdown(f"""
     <div class="ms-selo {classe}">
         <span class="ms-selo-titulo">{emoji} {texto_selo}</span>
-        <span class="ms-selo-sub">{nome_produto} · R${resultado['preco_sugerido']:.2f}</span>
+        <span class="ms-selo-sub">{nome_produto} · {_brl_ms(resultado['preco_sugerido'])}</span>
     </div>
     """, unsafe_allow_html=True)
     st.markdown(
@@ -1544,12 +1549,12 @@ def _render_analise_venda_tab():
 
             st.markdown("### Preços mínimos para anunciar")
             st.caption(rotulos.tela(
-                f"LPV: R$ {_lpv_av:.2f} · NF: {_nf_av*100:.1f}% · "
-                f"Op: R$ {custo_op_av:.2f}"))
+                f"LPV: {_brl_ms(_lpv_av)} · NF: {_nf_av*100:.1f}% · "
+                f"Op: {_brl_ms(custo_op_av)}"))
             st.markdown("")
 
             for uc_label, uc_desc, classe_card, p_ml, p_sp, p_sh in linhas_av:
-                fmt = lambda v: f"R${v:.2f}" if v else "—"
+                fmt = lambda v: f"{_brl_ms(v)}" if v else "—"
                 st.markdown(f"""
                 <div class="ms-card-uc {classe_card}">
                   <div class="ms-card-uc-label">UC {uc_label} — {uc_desc}</div>
@@ -1593,7 +1598,7 @@ def _render_viabilidade_tab():
     # aliquota nao muda de produto para produto -- ela e a mesma do mes inteiro,
     # e se mudar o lugar de mexer nisso e Gestao -> Financeiro.
     col_info1, col_info3 = st.columns(2)
-    col_info1.metric("LPV vigente", f"R${lpv_usado:.2f}")
+    col_info1.metric("LPV vigente", f"{_brl_ms(lpv_usado)}")
     col_info3.metric("UC mínimo p/ aprovar", f"{UC_MINIMO}/1")
     st.caption(f"LPV calculado com base em: {lpv_origem_usada}")
     # O veredito de viabilidade sai daqui. Se o LPV é de dois meses atrás, quem
@@ -1706,7 +1711,7 @@ def _render_viabilidade_tab():
                                           custo_operacional, lpv_usado, calc_sh)
 
         plataformas_log = " / ".join(
-            f"{p}: {r['tag']} R${pr:.2f}"
+            f"{p}: {r['tag']} {_brl_ms(pr)}"
             for p, r, pr in [("ML", res_ml, preco_ml or 0), ("Shopee", res_sp, preco_sp or 0), ("Shein", res_sh, preco_sh or 0)]
             if r is not None
         )
@@ -1715,7 +1720,7 @@ def _render_viabilidade_tab():
         if analisar:
             atividades.registrar_atividade(
                 usuario_logado, "Análise de Viabilidade", nome_produto,
-                f"custo R${custo:.2f} · {plataformas_log}"
+                f"custo {_brl_ms(custo)} · {plataformas_log}"
             )
 
         st.markdown("---")

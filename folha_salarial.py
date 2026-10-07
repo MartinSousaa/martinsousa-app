@@ -338,7 +338,7 @@ def pagina(usuario_logado=None):
     visiveis = (["pessoa", "cargo"] + VERBAS +
                 ["vigente_desde", "dia_debito", "forma_pagamento"])
     dinheiro = lambda rot: st.column_config.NumberColumn(
-        rot, min_value=0.0, step=0.01, format="%.2f", width="medium")
+        rot, min_value=0.0, step=0.01, format="R$ %.2f", width="medium")
 
     # Editor e botao no MESMO formulario. Com o botao solto, o clique que sai
     # da celula ainda em edicao fecha a celula E dispara o rerun: o rerun come

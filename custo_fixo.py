@@ -300,7 +300,7 @@ def pagina(usuario_logado=None, grade="custo_fixo"):
                     cfg["rotulo_item"], required=True, width="medium",
                     help=cfg["ajuda_item"]),
                 "valor_mensal": st.column_config.NumberColumn(
-                    "Valor inicial (R$)", min_value=0.0, step=0.01, format="%.2f",
+                    "Valor inicial (R$)", min_value=0.0, step=0.01, format="R$ %.2f",
                     width="medium",
                     help="O valor de quando o item entrou. Reajuste depois disso "
                          "não se digita aqui — entra em «Ajuste de valor», com o "

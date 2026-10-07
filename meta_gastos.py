@@ -23,6 +23,7 @@ memória. E a tela diz qual dos dois está mostrando, em vez de deixar o gestor
 adivinhar de onde saiu o número.
 """
 
+from rotulos import brl as _brl_ms
 from datetime import date, datetime, timezone, timedelta
 
 import streamlit as st
@@ -254,7 +255,7 @@ def salvar(mes_txt, meta=None, informado=None, observacao=None, usuario="",
     linhas_cruas.clear()
     extra = (f" ({repetidas} linha(s) repetida(s) deste mês foram unificadas)"
              if repetidas else "")
-    return True, f"{rotulo(alvo)} salvo: meta R$ {linha[1]:.2f}.{extra}"
+    return True, f"{rotulo(alvo)} salvo: meta {_brl_ms(linha[1])}.{extra}"
 
 
 # ── A meta que acompanha o faturamento ───────────────────────────────────────

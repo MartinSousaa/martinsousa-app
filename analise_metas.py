@@ -5,6 +5,7 @@ Permite visualizar desempenho histórico e configurar metas por mês.
 NOTA: importa placar_core (sem UI) em vez de placar (com UI) para evitar
 circular import e conflito de chaves de widgets do Streamlit.
 """
+from rotulos import brl as _brl_ms
 import streamlit as st
 import pandas as pd
 import math
@@ -2020,7 +2021,7 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
 
             def _bonus_val(valor, batida, cor):
                 if batida:
-                    return f'<div style="font-size:13px;font-weight:700;color:{cor};">+R$ {valor:,.2f}</div>'
+                    return f'<div style="font-size:13px;font-weight:700;color:{cor};">+{_brl_ms(valor)}</div>'
                 return '<div style="font-size:13px;font-weight:700;color:var(--ms-texto-sec);">—</div>'
 
             def _bonus_sub(batida, label):

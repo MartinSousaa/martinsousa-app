@@ -451,19 +451,19 @@ def pagina(usuario_logado=None):
                     "Prazo", min_value=0, max_value=240, step=1,
                     format="%d", width="small"),
                 "aporte": st.column_config.NumberColumn(
-                    "Aporte (R$)", min_value=0.0, step=0.01, format="%.2f"),
+                    "Aporte (R$)", min_value=0.0, step=0.01, format="R$ %.2f"),
                 "dia_debito": st.column_config.NumberColumn(
                     "Dia", min_value=0, max_value=31, step=1,
                     format="%d", width="small"),
                 "parcela": st.column_config.NumberColumn(
-                    "Parcela (R$)", min_value=0.0, step=0.01, format="%.2f",
+                    "Parcela (R$)", min_value=0.0, step=0.01, format="R$ %.2f",
                     help="A do contrato. É ela que entra na conta — a calculada "
                          "fica ao lado, só para comparar."),
                 "parcelas_pagas": st.column_config.NumberColumn(
                     "Pagas", min_value=0, max_value=240, step=1, format="%d",
                     width="small"),
                 "saldo_devedor": st.column_config.NumberColumn(
-                    "Saldo devedor", min_value=0.0, step=0.01, format="%.2f"),
+                    "Saldo devedor", min_value=0.0, step=0.01, format="R$ %.2f"),
                 "condicao": st.column_config.SelectboxColumn(
                     "Condição", options=CONDICOES, width="medium"),
                 "taxa_am": st.column_config.NumberColumn(

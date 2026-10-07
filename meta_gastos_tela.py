@@ -232,19 +232,19 @@ def pagina(usuario_logado=None):
                 "mês": st.column_config.TextColumn(disabled=True,
                                                    width="small"),
                 "meta": st.column_config.NumberColumn(
-                    "🎯 META — digite aqui", format="%.2f", min_value=0.0,
+                    "🎯 META — digite aqui", format="R$ %.2f", min_value=0.0,
                     step=100.0,
                     help="Quanto se pode gastar no mês. É esta a coluna que a "
                          "Home lê em «Meta do mês», e é a única que se "
                          "digita."),
                 "realizado": st.column_config.NumberColumn(
-                    "Realizado", format="%.2f", disabled=True),
+                    "Realizado", format="R$ %.2f", disabled=True),
                 "de onde": st.column_config.TextColumn(disabled=True,
                                                        width="small"),
-                "saldo": st.column_config.NumberColumn("Saldo", format="%.2f",
+                "saldo": st.column_config.NumberColumn("Saldo", format="R$ %.2f",
                                                        disabled=True),
                 "informado": st.column_config.NumberColumn(
-                    "Gasto informado (histórico)", format="%.2f",
+                    "Gasto informado (histórico)", format="R$ %.2f",
                     disabled=True,
                     help="O gasto dos meses anteriores ao extrato, vindo da "
                          "sua planilha. Não se digita aqui: quando o extrato "

@@ -976,7 +976,7 @@ def _ver_mes(_fv, _lan, usuario_logado):
                                                 width="small"),
             "descrição": st.column_config.TextColumn(disabled=True),
             "favorecido": st.column_config.TextColumn(disabled=True),
-            "valor": st.column_config.NumberColumn(format="%.2f",
+            "valor": st.column_config.NumberColumn(format="R$ %.2f",
                                                    disabled=True),
             "finalidade": st.column_config.SelectboxColumn(
                 "Finalidade", options=_finalidades_conhecidas(_fv),

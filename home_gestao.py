@@ -901,7 +901,7 @@ def composicao_do_mes(ano, mes, faturamento):
                       teto_outros=_eq.TETO_OUTROS_PADRAO)
     for nome, valor in comp.get("desconhecidas", [])[:3]:
         avisos.append(
-            f"A finalidade **{nome}** (R$ {valor:,.2f}) não está classificada "
+            f"A finalidade **{nome}** ({_rot.brl(valor)}) não está classificada "
             "e ficou FORA da conta. Diga se ela é custo fixo ou variável.")
     # O CADASTRO MANDA, O EXTRATO CONFERE — e é o cadastro que se corrige.
     #
@@ -919,9 +919,9 @@ def composicao_do_mes(ano, mes, faturamento):
     elif comp.get("extrato_passou_o_cadastro"):
         avisos.append(
             f"**O cadastro do custo fixo está desatualizado.** Já saíram da "
-            f"conta R$ {comp.get('saiu_no_extrato', 0):,.2f} em custo fixo, "
+            f"conta {_rot.brl(comp.get('saiu_no_extrato', 0))} em custo fixo, "
             f"serviços e folha, e o cadastro soma "
-            f"R$ {comp.get('cadastro_do_mes', 0):,.2f}. O equilíbrio "
+            f"{_rot.brl(comp.get('cadastro_do_mes', 0))}. O equilíbrio "
             "continua sendo calculado pelo cadastro — corrija nele os itens "
             "que vieram diferentes no extrato ou na fatura.")
     return comp, avisos

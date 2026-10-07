@@ -2439,6 +2439,42 @@ MUTACOES = [
         '        + ""\n',
         ["python3", "home_gestao.py"],
     ),
+    # ── 07/10: DINHEIRO EM R$ 58.490,56 EM TODAS AS TABELAS ─────────────
+    (
+        "o app volta a nao instalar o formato do dinheiro",
+        "app.py",
+        "rotulos.instalar_moeda(st)\n",
+        "pass\n",
+        ["python3", "rotulos.py"],
+    ),
+    (
+        "a tabela volta a mostrar R$ 58490.56",
+        "rotulos.py",
+        "        data[c] = data[c].map(lambda v, _k=casas: brl(v, _k))\n",
+        "        pass\n",
+        ["python3", "rotulos.py"],
+    ),
+    (
+        "o editor volta a receber texto no lugar do numero",
+        "rotulos.py",
+        "    if editavel:\n        for c in moeda:\n",
+        "    if False:\n        for c in moeda:\n",
+        ["python3", "rotulos.py"],
+    ),
+    (
+        "uma coluna rotulada R$ volta a ficar de fora do formato",
+        "headcount.py",
+        '"Valor (R$)", min_value=0.0, step=0.01, format="R$ %.2f"),',
+        '"Valor (R$)", min_value=0.0, step=0.01, format="%.2f"),',
+        ["python3", "rotulos.py"],
+    ),
+    (
+        "o embrulho volta a se empilhar a cada passada",
+        "rotulos.py",
+        '        if original is None or getattr(original, "_ms_moeda", False):\n',
+        "        if original is None:\n",
+        ["python3", "rotulos.py"],
+    ),
     (
         "a lista item a item volta a contar o pagamento da fatura",
         "home_gestao.py",
