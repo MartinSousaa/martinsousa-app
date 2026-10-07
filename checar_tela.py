@@ -604,6 +604,12 @@ def _assinaturas_no_operacional(conta):
           _abertas == ["custo_fixo", "assinaturas_tela"], str(_abertas))
     conta("e Assinaturas não é mais pontinho à parte",
           not any("Assinaturas" in k for k in _ge._PONTINHOS_CUSTO_FIXO), "")
+    # 07/10: a legenda do Custo fixo dizia que ele entra no equilíbrio; o
+    # equilíbrio passou a ser meta de gastos ÷ lucro bruto. Ele entra no LPV.
+    import inspect as _insp_cf
+    _src_cf = _insp_cf.getsource(_ge._custo_fixo)
+    conta("a legenda do Custo fixo diz que ele entra no LPV, e não no equilíbrio",
+          "entra no LPV" in _src_cf and "linha de" not in _src_cf, "")
 
 
 def _projecao_na_meta(conta):
