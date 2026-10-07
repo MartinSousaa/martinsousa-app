@@ -2234,8 +2234,8 @@ MUTACOES = [
     (
         "nome curto do custo fixo volta a casar com qualquer descricao",
         "custo_real.py",
-        '    if (len(_fv.chave(item).replace(" ", "")) >= NOME_MINIMO\n',
-        "    if (True\n",
+        '    if len(_fv.chave(item).replace(" ", "")) >= NOME_MINIMO:\n',
+        "    if True:\n",
         ["python3", "custo_real.py"],
     ),
     (
@@ -2243,6 +2243,13 @@ MUTACOES = [
         "custo_real.py",
         "    nomes = nomes_do_item(linha)\n",
         "    nomes = apelidos(linha)\n",
+        ["python3", "custo_real.py"],
+    ),
+    (
+        "o nome do item volta a alargar a coluna que o dono preencheu",
+        "custo_real.py",
+        "    if nomes:\n        return nomes\n",
+        "",
         ["python3", "custo_real.py"],
     ),
     (

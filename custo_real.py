@@ -65,11 +65,16 @@ def nomes_do_item(linha):
     (`extratos_tela.sugerir_fixos`) e o valor real do mês leem daqui."""
     import favorecidos as _fv
     nomes = apelidos(linha)
+    # Coluna preenchida MANDA: o dono escreveu ali exatamente como o item
+    # aparece. Somar o nome do item por cima alargaria o que ele restringiu —
+    # "Estacionamento" (ROBSON; VANDA) passaria a pegar qualquer linha com a
+    # palavra ESTACIONAMENTO, e o custo do mês subiria sozinho.
+    if nomes:
+        return nomes
     item = str(linha.get("item") or "").strip()
-    if (len(_fv.chave(item).replace(" ", "")) >= NOME_MINIMO
-            and item not in nomes):
-        nomes.append(item)
-    return nomes
+    if len(_fv.chave(item).replace(" ", "")) >= NOME_MINIMO:
+        return [item]
+    return []
 
 
 def cobrado_no_mes(linha, lancamentos_do_mes):
@@ -335,10 +340,15 @@ if __name__ == "__main__":
        cobrado_no_mes(_host, [L("HOSTGATOR 02/06", -47.72)]) == 47.72
        and cobrado_no_mes(_cla, [L("ANTHROPIC* CLAUDE SUB BRL550,00 "
                                    "US$108,45 R$5,47", -593.22)]) == 593.22)
-    ok("nomes_do_item: apelidos e o nome do item, sem repetir",
+    ok("nomes_do_item: a coluna preenchida manda; vazia, vale o nome do item",
        nomes_do_item({"item": "Hostgator", "favorecido": "HOSTGATOR; HG"})
-       == ["HOSTGATOR", "HG", "Hostgator"]
+       == ["HOSTGATOR", "HG"]
+       and nomes_do_item({"item": "Hostgator", "favorecido": ""}) == ["Hostgator"]
        and nomes_do_item({"item": "Luz", "favorecido": ""}) == [])
+    _est = {"item": "Estacionamento", "valor_mensal": 550.0,
+            "favorecido": "ROBSON; VANDA"}
+    ok("item com a coluna preenchida NAO casa pela palavra do nome",
+       cobrado_no_mes(_est, [L("PAGTO ESTACIONAMENTO SHOPPING", -30.0)]) is None)
     ok("palavra inteira: ENEL não casa com ENELTON",
        cobrado_no_mes(luz, [L("PIX ENELTON LTDA", -10.0)]) is None)
     dv = divergencias("custo_fixo", [luz, est, sem], 2026, 9, lanc,
