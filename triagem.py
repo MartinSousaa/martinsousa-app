@@ -1,3 +1,4 @@
+import json
 import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
@@ -26,6 +27,17 @@ COLUNAS = [
     "data_hora", "usuario", "nome_comercial", "categoria", "material", "variacao_cores",
     "medidas", "peso", "caracteristicas", "diferenciais", "uso",
     "termos_busca", "termos_evitar", "foto_drive_id",
+    # AS VARIACOES DO MESMO PRODUTO — pedido do dono, 07/10.
+    #
+    # Mesma medida, mesmo material, mesmo peso; muda a cor ou a estampa. Elas
+    # moram DENTRO da linha do produto, e nao em linhas separadas, porque
+    # separar duplicaria material, medidas e peso — e campo duplicado passa a
+    # discordar, que e a forma de retrabalho mais cara desta base.
+    #
+    # JSON numa celula: [{"nome": "Camuflado", "fotos": ["id1", "id2"]}, ...].
+    # Vinte variacoes com dez fotos cada dao ~7 mil caracteres; o limite de
+    # uma celula do Sheets e 50 mil.
+    "variacoes",
 ]
 
 
@@ -117,6 +129,18 @@ def upload_foto_triagem(imagem_bytes, nome_arquivo):
     if err:
         return None, err
     return info["id"], None
+
+
+def baixar_foto_triagem(foto_drive_id):
+    """Os bytes de uma foto de triagem. (bytes, erro).
+
+    IRMÃ DE `upload_foto_triagem`, e por isso mora aqui: quem guarda a foto da
+    triagem é este módulo, e quem a lê de volta tem de ser ele também. A aba
+    Imagem precisa dos BYTES das fotos de variação para alimentar o gerador —
+    `url_thumbnail` devolve URL para o navegador desenhar, que é outra coisa.
+    """
+    import gdrive
+    return gdrive.baixar(foto_drive_id)
 
 
 def url_thumbnail(foto_drive_id, tamanho=200):
@@ -378,6 +402,62 @@ def _normalizar(texto):
     return unicodedata.normalize("NFD", str(texto)).encode("ascii", "ignore").decode("ascii").lower()
 
 
+def variacoes_da_triagem(row):
+    """As variacoes desta triagem: [{"nome": str, "fotos": [drive_id]}].
+
+    PORTA UNICA DE LEITURA, e e por isso que ela existe: a celula guarda
+    JSON, e cada leitor que fizesse o proprio `json.loads` teria o proprio
+    jeito de errar. Hoje leem daqui a tela da triagem e a aba Imagem.
+
+    TOLERANTE DE PROPOSITO. Linha antiga nao tem a coluna; celula vazia,
+    JSON cortado ou formato inesperado devolvem lista vazia em vez de
+    derrubar a tela — triagem sem variacao e o caso normal, nao um erro.
+    """
+    bruto = (row or {}).get("variacoes", "")
+    if isinstance(bruto, list):
+        itens = bruto
+    else:
+        texto = str(bruto or "").strip()
+        if not texto:
+            return []
+        try:
+            itens = json.loads(texto)
+        except Exception:
+            return []
+    if not isinstance(itens, list):
+        return []
+    fora = []
+    for it in itens:
+        if not isinstance(it, dict):
+            continue
+        nome = str(it.get("nome", "") or "").strip()
+        fotos = [str(f).strip() for f in (it.get("fotos") or [])
+                 if str(f).strip()]
+        # Variacao sem nome nao e variacao: ninguem consegue escolher nem
+        # dizer na tela qual peca saiu de qual. Entra so o que da para usar.
+        if nome:
+            fora.append({"nome": nome, "fotos": fotos})
+    return fora
+
+
+def texto_das_variacoes(variacoes):
+    """Os nomes das variacoes em uma linha: "Camuflado, Preto, Areia".
+
+    E o que passa a alimentar a coluna `variacao_cores`, que antes era
+    digitada a mao. O dono mandou tirar o campo em 07/10: "esse novo processo
+    substituira ele".
+
+    GRAVAR O DERIVADO E DE PROPOSITO, e nao duplicacao: seis telas ja leem
+    `variacao_cores` (`imagem.py`, `descricao.py`, `tit_ml.py`,
+    `palavras_chave.py`, `video.py`, `ferramentas_chat.py`), e a cor do
+    produto alimenta a trava de cor do gerador. Parar de escrever a coluna
+    tiraria a cor de todas elas de uma vez, em silencio. A fonte passa a ser
+    uma so — os nomes das variacoes —, e a coluna continua sendo a mesma
+    resposta de sempre para quem pergunta "que cores este produto tem?".
+    """
+    return ", ".join(v["nome"] for v in (variacoes or []) if v.get("nome"))
+
+
 def _chave_variante(row):
     """Chave composta que identifica variantes distintas do mesmo produto.
     Produtos com mesmo nome mas medidas/peso/cores diferentes retornam chaves diferentes."""
@@ -580,9 +660,56 @@ _CAMPOS_FORM_TRIAGEM = [
 ]
 
 
+# ── OS CAMPOS DE VARIACAO, QUE NASCEM E MORREM NA TELA ───────────────────
+#
+# O estado e uma LISTA DE IDS, e nao um contador. Com contador, remover a
+# variacao 2 de quatro faria as de baixo subirem de indice — e as chaves dos
+# widgets (`triagem_var_nome_3`) continuariam coladas no valor antigo: o nome
+# da variacao 3 apareceria na linha da 2. E a mesma classe de defeito de
+# "escolher o item pelo texto da tela", que esta base ja pagou.
+#
+# Com id proprio e estavel, remover uma nao mexe em nenhuma outra.
+_VAR_IDS = "triagem_var_ids"
+_VAR_SEQ = "triagem_var_seq"
+
+
+def _ids_das_variacoes():
+    return list(st.session_state.get(_VAR_IDS) or [])
+
+
+def _abrir_variacao():
+    """Mais um bloco de variacao na tela. Chamado pelo botao do dono."""
+    _n = int(st.session_state.get(_VAR_SEQ, 0)) + 1
+    st.session_state[_VAR_SEQ] = _n
+    st.session_state[_VAR_IDS] = _ids_das_variacoes() + [f"v{_n}"]
+
+
+def _fechar_variacao(vid):
+    """Tira UM bloco e o que foi digitado nele. Os outros nao se mexem."""
+    st.session_state[_VAR_IDS] = [i for i in _ids_das_variacoes() if i != vid]
+    st.session_state.pop(f"triagem_var_nome_{vid}", None)
+    st.session_state.pop(f"triagem_var_fotos_{vid}", None)
+
+
+def _zerar_variacoes():
+    """Produto novo comeca sem variacao nenhuma.
+
+    SEM ISTO O PRODUTO SEGUINTE HERDA AS VARIACOES DO ANTERIOR — e herdaria
+    em silencio, que e o pior jeito: o colaborador salvaria a segunda triagem
+    com as fotos da primeira sem ver. `_limpar_form_triagem` nao alcancava
+    estas chaves porque elas nao existem ate alguem clicar no botao.
+    """
+    for _vid in _ids_das_variacoes():
+        st.session_state.pop(f"triagem_var_nome_{_vid}", None)
+        st.session_state.pop(f"triagem_var_fotos_{_vid}", None)
+    st.session_state.pop(_VAR_IDS, None)
+    st.session_state.pop(_VAR_SEQ, None)
+
+
 def _limpar_form_triagem():
     for _k in _CAMPOS_FORM_TRIAGEM:
         st.session_state.pop(_k, None)
+    _zerar_variacoes()
 
 
 _ROTULOS_TRIAGEM = [
@@ -623,6 +750,29 @@ def _cartao_triagem(dados):
                    and not str(dados.get(ch, "") or "").strip()]
         if _vazios:
             st.caption("Em branco: " + ", ".join(_vazios))
+
+    # ── AS VARIACOES CADASTRADAS, COM A FOTO DE CADA UMA ─────────────────
+    #
+    # Sem isto o colaborador cadastra vinte variacoes e nao tem como conferir
+    # o que ficou gravado — e a aba Imagem passaria a listar nomes que
+    # ninguem nunca viu na tela onde foram criados. O sistema conta o que
+    # sabe, na tela onde a pergunta nasce.
+    _vars_cartao = variacoes_da_triagem(dados)
+    if _vars_cartao:
+        st.markdown(f"**Variações cadastradas ({len(_vars_cartao)}):**")
+        _cols_vc = st.columns(min(len(_vars_cartao), 5))
+        for _i_vc, _v_vc in enumerate(_vars_cartao):
+            with _cols_vc[_i_vc % len(_cols_vc)]:
+                if _v_vc["fotos"]:
+                    try:
+                        st.image(url_thumbnail(_v_vc["fotos"][0], 160),
+                                 use_container_width=True)
+                    except Exception:
+                        st.markdown("📦")
+                else:
+                    st.markdown("📦")
+                st.caption(f"**{_v_vc['nome']}** · "
+                           f"{len(_v_vc['fotos'])} foto(s)")
 
 
 def pagina_triagem(usuario_logado):
@@ -687,7 +837,12 @@ def pagina_triagem(usuario_logado):
 
         col1, col2 = st.columns(2)
         material = col1.text_input("Material", placeholder="ex: Plástico e Metal (o predominante primeiro)", key="triagem_material")
-        variacao_cores = col2.text_input("Variação de cores", placeholder="ex: Preto, Vermelho, Azul (só uma se não tiver variação)", key="triagem_variacao_cores")
+        # O CAMPO "Variacao de cores" SAIU DAQUI em 07/10, por ordem do dono:
+        # "esse novo processo substituira ele". A coluna continua existindo e
+        # continua sendo lida por seis telas — ela passa a ser PREENCHIDA
+        # pelos nomes das variacoes cadastradas abaixo (`texto_das_variacoes`),
+        # em vez de digitada. Um dono, e a mesma resposta de sempre para quem
+        # pergunta "que cores este produto tem?".
 
         col1, col2 = st.columns(2)
         medidas = col1.text_input("Medidas (AxLxP, cm)", placeholder="ex: 33x33x6", key="triagem_medidas")
@@ -713,7 +868,79 @@ def pagina_triagem(usuario_logado):
             key="triagem_foto_upload",
         )
 
+        # ── VARIACOES DO MESMO PRODUTO ───────────────────────────────
+        #
+        # Pedido do dono, 07/10: "um campo Variacoes e um botao Cadastrar
+        # Variacao para o sistema ir abrindo uma nova opcao a cada vez que o
+        # colaborador clicar". Quatro variacoes, quatro cliques; vinte,
+        # vinte.
+        #
+        # POR QUE `form_submit_button` E NAO `st.button`: `st.button` dentro
+        # de um `st.form` levanta excecao — e esta tela inteira vive dentro
+        # de `form_triagem`. O submit guarda o que ja foi digitado (todo
+        # campo tem `key`), entao abrir mais um bloco nao perde nada.
+        #
+        # E CADA BOTAO LEVA UM ROTULO PROPRIO: `form_submit_button` nao
+        # aceita `key` (medido, Streamlit 1.46.1), e o Streamlit identifica o
+        # widget pelo rotulo. Vinte botoes "Remover" iguais derrubariam a
+        # tela com DuplicateElementId — que e exatamente como a aba Extratos
+        # caiu em 25/09.
+        st.markdown("#### Variações")
+        st.caption(
+            "Mesmo produto, mesma medida, mesmo material — muda a cor ou a "
+            "estampa. Cadastre uma por vez; todas herdam os dados "
+            "preenchidos acima.")
+        st.caption(
+            "⚠️ **Produto de cor única também se cadastra aqui**, como uma "
+            "variação só: é daqui que sai a cor do produto, e sem ela o "
+            "gerador de imagem perde a trava que impede ele de pintar o "
+            "produto de outra cor.")
+        _ids_var = _ids_das_variacoes()
+        _tirar_var = None
+        _blocos_var = []
+        for _n_var, _vid_var in enumerate(_ids_var, 1):
+            with st.container(border=True):
+                _c_nome_v, _c_del_v = st.columns([5, 2])
+                _c_nome_v.text_input(
+                    f"Nome da variação {_n_var}",
+                    key=f"triagem_var_nome_{_vid_var}",
+                    placeholder="ex: Camuflado, Preto, Rosa Bebê")
+                # O rotulo leva o numero para ser unico. Ver o comentario
+                # acima: sem `key`, o rotulo E a identidade do widget.
+                if _c_del_v.form_submit_button(
+                        f"🗑️ Remover variação {_n_var}",
+                        use_container_width=True):
+                    _tirar_var = _vid_var
+                _fotos_v = st.file_uploader(
+                    f"Fotos da variação {_n_var} — quantas quiser",
+                    type=None, accept_multiple_files=True,
+                    key=f"triagem_var_fotos_{_vid_var}")
+                if _fotos_v:
+                    st.caption(f"📷 {len(_fotos_v)} foto(s) anexada(s).")
+                # O que a tela leu vai inteiro para quem grava. Reler o
+                # `session_state` la embaixo seria uma segunda fonte para o
+                # mesmo dado, e elas passam a discordar.
+                _blocos_var.append({
+                    "n": _n_var,
+                    "nome": str(st.session_state.get(
+                        f"triagem_var_nome_{_vid_var}", "") or "").strip(),
+                    "fotos": list(_fotos_v or []),
+                })
+        _add_var = st.form_submit_button(
+            "➕ Cadastrar variação", use_container_width=True)
+
         enviar = st.form_submit_button("Salvar Triagem", type="primary", use_container_width=True)
+
+    # OS DOIS BOTOES DE VARIACAO SAO TRATADOS ANTES DO SALVAR, e cada um
+    # devolve a tela na hora: eles nao sao "salvar", so mudam quantos blocos
+    # existem. Sem o `st.rerun()` o bloco novo so apareceria no clique
+    # seguinte, e o colaborador clicaria duas vezes achando que nao pegou.
+    if _tirar_var:
+        _fechar_variacao(_tirar_var)
+        st.rerun()
+    if _add_var:
+        _abrir_variacao()
+        st.rerun()
 
     if enviar:
         if not nome_comercial:
@@ -737,6 +964,46 @@ def pagina_triagem(usuario_logado):
                 f"salvar de novo aqui criaria uma segunda.")
             st.rerun()
 
+        # ── AS VARIACOES: CONFERIR ANTES DE GASTAR UPLOAD ────────────
+        #
+        # Bloco vazio (sem nome e sem foto) e so um clique a mais no botao:
+        # ignora em silencio. Bloco PELA METADE e erro operacional, e trava —
+        # variacao sem nome ninguem consegue escolher na aba Imagem, e
+        # variacao sem foto nao tem o que gerar. Reprovar aqui custa um
+        # aviso; deixar passar custa uma geracao inteira do produto errado.
+        _vars_boas, _vars_erro = [], []
+        _nomes_vistos = {}
+        for _b_var in _blocos_var:
+            _nm_v, _ft_v, _n_v = _b_var["nome"], _b_var["fotos"], _b_var["n"]
+            if not _nm_v and not _ft_v:
+                continue
+            if not _nm_v:
+                _vars_erro.append(
+                    f"a variação {_n_v} tem foto mas **não tem nome** — "
+                    f"escreva a cor ou a estampa dela")
+                continue
+            if not _ft_v:
+                _vars_erro.append(
+                    f"a variação **{_nm_v}** não tem foto nenhuma — "
+                    f"anexe pelo menos uma")
+                continue
+            # Nome repetido e ambiguidade pura: a aba Imagem lista as
+            # variacoes pelo nome, e duas "Preto" seriam indistinguiveis na
+            # hora de escolher qual gerar.
+            _chave_nm = _normalizar(_nm_v).strip()
+            if _chave_nm in _nomes_vistos:
+                _vars_erro.append(
+                    f"a variação **{_nm_v}** está cadastrada duas vezes "
+                    f"(blocos {_nomes_vistos[_chave_nm]} e {_n_v})")
+                continue
+            _nomes_vistos[_chave_nm] = _n_v
+            _vars_boas.append({"nome": _nm_v, "arquivos": _ft_v})
+        if _vars_erro:
+            st.session_state["triagem_msg_erro"] = (
+                "Corrija as variações antes de salvar: "
+                + "; ".join(_vars_erro) + ".")
+            st.rerun()
+
         # Salva a categoria escolhida para a próxima triagem
         st.session_state["triagem_ultima_categoria"] = categoria
 
@@ -756,9 +1023,64 @@ def pagina_triagem(usuario_logado):
                 else:
                     foto_drive_id = file_id
 
+        # ── AS FOTOS DAS VARIACOES VAO PARA O DRIVE ──────────────────
+        #
+        # So no clique de salvar, e nunca no desenho da tela: a tela redesenha
+        # a cada tecla digitada, e subir dez fotos por tecla tornaria o
+        # formulario inutilizavel. E o mesmo defeito que fez a gravacao das
+        # fotos da aba Imagem escrever 30 MB por tecla.
+        _variacoes_salvas = []
+        _falhas_var = []
+        if _vars_boas:
+            _total_ft = sum(len(v["arquivos"]) for v in _vars_boas)
+            _barra_var = st.progress(
+                0.0, text=f"Enviando {_total_ft} foto(s) das variações…")
+            _feitas = 0
+            for _v_ok in _vars_boas:
+                _ids_fotos = []
+                for _arq_v in _v_ok["arquivos"]:
+                    _feitas += 1
+                    _barra_var.progress(
+                        _feitas / max(_total_ft, 1),
+                        text=f"{_v_ok['nome']}: foto {_feitas} de {_total_ft}…")
+                    try:
+                        _bytes_v = _arq_v.read()
+                        _ext_v = (_arq_v.name.rsplit(".", 1)[-1].lower()
+                                  if "." in _arq_v.name else "jpg")
+                        _nm_arq_v = (
+                            f"{nome_comercial.replace(' ', '_')}"
+                            f"_{_v_ok['nome'].replace(' ', '_')}"
+                            f"_{_pc_br.agora_br().strftime('%Y%m%d%H%M%S')}"
+                            f"_{_feitas}.{_ext_v}")
+                        _id_v, _err_v = upload_foto_triagem(_bytes_v, _nm_arq_v)
+                    except Exception as _e_v:
+                        _id_v, _err_v = "", f"{type(_e_v).__name__}: {_e_v}"
+                    if _err_v or not _id_v:
+                        _falhas_var.append(f"{_v_ok['nome']}: {_err_v}")
+                    else:
+                        _ids_fotos.append(_id_v)
+                # VARIACAO QUE PERDEU TODAS AS FOTOS NAO ENTRA.
+                #
+                # Gravar o nome sem foto nenhuma criaria uma variacao que a
+                # aba Imagem lista e nao consegue gerar — e o colaborador so
+                # descobriria isso la, depois de escolher.
+                if _ids_fotos:
+                    _variacoes_salvas.append(
+                        {"nome": _v_ok["nome"], "fotos": _ids_fotos})
+            _barra_var.empty()
+        if _falhas_var:
+            st.warning(
+                "⚠️ Algumas fotos de variação não subiram para o Drive. O que "
+                "subiu foi salvo; o que falhou está listado aqui para você "
+                "anexar de novo:\n\n- " + "\n- ".join(_falhas_var))
+
         dados = {
             "nome_comercial": nome_comercial, "categoria": categoria,
-            "material": material, "variacao_cores": variacao_cores, "medidas": medidas, "peso": peso,
+            "material": material,
+            # DERIVADA, E NAO DIGITADA (07/10). Ver `texto_das_variacoes`.
+            "variacao_cores": texto_das_variacoes(_variacoes_salvas),
+            "variacoes": json.dumps(_variacoes_salvas, ensure_ascii=False),
+            "medidas": medidas, "peso": peso,
             "caracteristicas": caracteristicas, "diferenciais": diferenciais, "uso": uso,
             "termos_busca": termos_busca, "termos_evitar": termos_evitar,
             "foto_drive_id": foto_drive_id,
@@ -1015,4 +1337,133 @@ if __name__ == "__main__":
     ok("aba sem coluna de id avisa e nao escreve",
        _n2 == 0 and "id" in _e2 and _sem.escritas == [])
 
+    # ── AS VARIACOES DO MESMO PRODUTO (07/10) ────────────────────────────
+    #
+    # A ENTRADA VEM DA FORMA QUE A GRAVACAO PRODUZ, e nao da minha cabeca:
+    # `json.dumps([{"nome":..., "fotos": [...]}])` e literalmente a linha que
+    # `pagina_triagem` escreve na celula. Valor de teste escrito a mao mede o
+    # meu entendimento do sistema — foi o que quebrou o botao dos oito
+    # prompts nesta base.
+    _VARS = [{"nome": "Camuflado", "fotos": ["id1", "id2"]},
+             {"nome": "Preto", "fotos": ["id3"]}]
+    _CELULA = json.dumps(_VARS, ensure_ascii=False)
+
+    ok("a coluna existe no cabecalho", "variacoes" in COLUNAS)
+    ok("a celula gravada volta inteira",
+       variacoes_da_triagem({"variacoes": _CELULA}) == _VARS)
+    ok("e o resumo vira o texto da coluna de cores",
+       texto_das_variacoes(variacoes_da_triagem({"variacoes": _CELULA}))
+       == "Camuflado, Preto")
+
+    # LINHA ANTIGA NAO TEM A COLUNA, e isso e o caso NORMAL — nao um erro.
+    ok("linha sem a coluna devolve lista vazia",
+       variacoes_da_triagem({"nome_comercial": "x"}) == [])
+    ok("celula vazia tambem", variacoes_da_triagem({"variacoes": ""}) == [])
+    ok("e None nao quebra", variacoes_da_triagem(None) == [])
+
+    # CELULA CORROMPIDA NAO PODE DERRUBAR A TELA DA TRIAGEM.
+    ok("JSON cortado devolve lista vazia em vez de estourar",
+       variacoes_da_triagem({"variacoes": '[{"nome": "Pret'}) == [])
+    ok("JSON que nao e lista tambem",
+       variacoes_da_triagem({"variacoes": '{"nome": "Preto"}'}) == [])
+    ok("item que nao e dicionario e descartado, e os bons ficam",
+       variacoes_da_triagem({"variacoes": json.dumps(
+           ["lixo", {"nome": "Preto", "fotos": ["a"]}])})
+       == [{"nome": "Preto", "fotos": ["a"]}])
+
+    # VARIACAO SEM NOME NAO ENTRA: ninguem consegue escolher na aba Imagem.
+    ok("variacao sem nome e descartada na leitura",
+       variacoes_da_triagem({"variacoes": json.dumps(
+           [{"nome": "", "fotos": ["a"]}])}) == [])
+    ok("e o nome vem sem espaco sobrando",
+       variacoes_da_triagem({"variacoes": json.dumps(
+           [{"nome": "  Preto  ", "fotos": ["a"]}])})[0]["nome"] == "Preto")
+    ok("foto vazia na lista nao vira id",
+       variacoes_da_triagem({"variacoes": json.dumps(
+           [{"nome": "Preto", "fotos": ["a", "", "  "]}])})[0]["fotos"]
+       == ["a"])
+
+    # ── A FOTO DA TRIAGEM VOLTA DO DRIVE ─────────────────────────────────
+    #
+    # Ela existe para a aba Imagem nao obrigar o colaborador a subir de novo a
+    # foto que acabou de cadastrar. O duplo substitui o DRIVE, e nao a funcao
+    # que eu escrevi: e o caminho inteiro — `baixar_foto_triagem` -> `gdrive`
+    # — que precisa estar certo, inclusive o repasse do erro.
+    import sys as _sys_dl, types as _types_dl
+    _gd_falso = _types_dl.ModuleType("gdrive")
+    _pedidos_dl = []
+
+    def _baixar_gd(fid):
+        _pedidos_dl.append(fid)
+        if fid == "quebrado":
+            return b"", "arquivo nao encontrado"
+        return b"conteudo-da-foto", None
+    _gd_falso.baixar = _baixar_gd
+    _antes_gd = _sys_dl.modules.get("gdrive")
+    try:
+        _sys_dl.modules["gdrive"] = _gd_falso
+        ok("a foto volta do Drive como bytes",
+           baixar_foto_triagem("abc") == (b"conteudo-da-foto", None))
+        ok("e o id pedido e o que foi passado", _pedidos_dl == ["abc"])
+        # ERRO DO DRIVE E REPASSADO, E NAO ENGOLIDO: quem chama precisa poder
+        # dizer na tela QUAL foto nao veio.
+        _b_q, _e_q = baixar_foto_triagem("quebrado")
+        ok("erro do Drive chega inteiro a quem chamou",
+           _b_q == b"" and _e_q == "arquivo nao encontrado")
+    finally:
+        if _antes_gd is not None:
+            _sys_dl.modules["gdrive"] = _antes_gd
+        else:
+            _sys_dl.modules.pop("gdrive", None)
+
+    ok("sem variacao, a coluna de cores fica vazia",
+       texto_das_variacoes([]) == "" and texto_das_variacoes(None) == "")
+
+    # ── OS BLOCOS DA TELA: ID ESTAVEL, E NAO INDICE ──────────────────────
+    #
+    # O defeito que isto mede: com contador, remover a variacao 2 de quatro
+    # faria as de baixo subirem de indice e as chaves dos widgets ficarem
+    # coladas no valor antigo — o nome da 3 apareceria na linha da 2.
+    _sessao_real = st.session_state
+    try:
+        st.session_state = {}
+        _abrir_variacao(); _abrir_variacao(); _abrir_variacao()
+        ok("tres cliques abrem tres blocos", len(_ids_das_variacoes()) == 3)
+        _ids_antes = _ids_das_variacoes()
+        ok("e cada bloco tem id proprio", len(set(_ids_antes)) == 3)
+        st.session_state[f"triagem_var_nome_{_ids_antes[2]}"] = "Areia"
+        _fechar_variacao(_ids_antes[1])
+        ok("remover o do meio deixa dois", len(_ids_das_variacoes()) == 2)
+        ok("e NAO mexe no que o terceiro tinha digitado",
+           st.session_state.get(f"triagem_var_nome_{_ids_antes[2]}") == "Areia")
+        ok("o id removido some da lista",
+           _ids_antes[1] not in _ids_das_variacoes())
+        ok("e o que foi digitado NELE e apagado junto",
+           f"triagem_var_nome_{_ids_antes[1]}" not in st.session_state)
+        # O id nao volta a ser usado: senao o bloco novo nasceria com a foto
+        # do que acabou de ser removido.
+        _abrir_variacao()
+        ok("o bloco novo nao reusa o id do que saiu",
+           _ids_antes[1] not in _ids_das_variacoes())
+
+        # PRODUTO NOVO NAO HERDA AS VARIACOES DO ANTERIOR.
+        st.session_state[f"triagem_var_nome_{_ids_das_variacoes()[0]}"] = "x"
+        _limpar_form_triagem()
+        ok("salvar zera os blocos", _ids_das_variacoes() == [])
+        ok("e nao sobra chave de widget de variacao nenhuma",
+           not [k for k in st.session_state if k.startswith("triagem_var_")])
+    finally:
+        st.session_state = _sessao_real
+
     print("\nfalhas:", falhas)
+    # O CÓDIGO DE SAÍDA, QUE FALTAVA — e o `checar_mutacao` acusou.
+    #
+    # Este auto-teste imprimia "falhas: N" e saía com 0 SEMPRE. Quem lê o
+    # código de saída — e o `checar_mutacao` lê, para conferir que o comando
+    # PASSA antes de mutar — via sempre verde, e as três entradas novas que
+    # apontam para cá estavam verdes por acidente.
+    #
+    # É o mesmo defeito que o `varredura_formas.py` teve nesta base: ninguém
+    # tinha visto porque ninguém lia o código de saída.
+    import sys as _sys_saida
+    _sys_saida.exit(1 if falhas else 0)

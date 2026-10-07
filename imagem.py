@@ -397,7 +397,24 @@ def zonas_da_peca(tipo, blocos=0):
     oferecer cartao a quem o prompt acabou de proibir.
     """
     n = numero_do_tipo(tipo)
-    if not blocos or n in (1, 4, 8):
+    # O TIPO 5 SAI DAQUI, E E UMA REGRESSAO MINHA DE 06/10.
+    #
+    # A zona manda "os cartoes vivem AQUI, empilhados numa coluna". O preset
+    # do proprio tipo 5 manda o contrario, com todas as letras
+    # (`imagem.py` ~1697): "os cartoes ficam distribuidos AO REDOR do
+    # produto — em cima, nas laterais e embaixo (...) NUNCA empilhados num
+    # canto". Duas vozes sobre a mesma coisa, no mesmo prompt — a Forma 5
+    # que esta funcao existia para ACABAR, cometida por ela.
+    #
+    # E O MODELO RESOLVEU DO PIOR JEITO POSSIVEL: desenhou a geometria como
+    # legenda. A peca 5 do teste de 06/10 saiu com "Produto Zone (6% a 56%
+    # wiltu)" e "Zona dos Cartoes (61% a 94% wiltu)" escritos na arte, com
+    # linha tracejada — porque o tipo 5 e justamente aquele cuja linguagem
+    # visual E a cota tracejada com rotulo. Dar a ele um texto de medidas e
+    # oferecer conteudo a quem desenha medidas.
+    #
+    # O tipo 5 ja tem dono para posicao, e e o preset dele.
+    if not blocos or n in (1, 4, 5, 8):
         return ""
     # AS PECAS DE CENA NAO TEM ZONA, E ISSO E DE PROPOSITO.
     #
@@ -425,6 +442,11 @@ def zonas_da_peca(tipo, blocos=0):
         return ""
     return (
         "GEOMETRIA DESTA PEÇA — já calculada, não a recalcule:\n"
+        "- ESTE BLOCO É INSTRUÇÃO DE ONDE PÔR AS COISAS, E NUNCA TEXTO A\n"
+        "  DESENHAR. Nenhuma palavra, número, porcentagem, seta ou linha\n"
+        "  tracejada deste bloco aparece na imagem. As zonas são invisíveis:\n"
+        "  quem olha a peça pronta não vê nem a divisão, nem o corredor, nem\n"
+        "  rótulo de zona nenhum.\n"
         f"- ZONA DO PRODUTO: de {folga}% a {folga + _lado_produto}% da largura\n"
         f"  do quadro. O produto vive AQUI, inteiro, sem nada por cima.\n"
         f"- CORREDOR VAZIO: de {folga + _lado_produto}% a {_ini_cart}% da\n"
@@ -6211,6 +6233,105 @@ def cenario_vigente(tipo):
         return _CENARIO_VIGENTE.get((_produto_da_copy(), _t), "")
 
 
+# ── AS FOTOS DE UMA VARIAÇÃO, PRONTAS PARA O GERADOR ──────────────────────
+#
+# Cache de BYTES do Drive, por id de arquivo. A foto de uma variação não muda
+# depois de cadastrada, e baixar a mesma foto a cada peça seria oito idas à
+# rede para o mesmo arquivo — num lote de 20 variações, 160.
+_FOTOS_DRIVE_CACHE = {}
+_TRAVA_FOTOS_DRIVE = _threading_limiter.Lock()
+
+
+def fotos_da_variacao(nome, mapa=None):
+    """(fotos_bytes, avisos) — tudo o que o gerador tem desta variação.
+
+    DUAS FONTES, E A ORDEM IMPORTA: primeiro o que o colaborador anexou AGORA
+    na aba Imagem (são os ângulos que ele foi buscar para esta geração),
+    depois a foto que já estava na triagem. Quem anexou agora manda.
+
+    A FOTO DA TRIAGEM SÓ É BAIXADA QUANDO PRECISA. Com anexo na aba, ela não
+    acrescenta nada e a rede não é tocada; sem anexo nenhum, ela é a única
+    referência que existe — e obrigar o colaborador a subir de novo a foto
+    que ele acabou de cadastrar seria cobrar dele o trabalho duas vezes.
+
+    NUNCA DERRUBA A GERAÇÃO. Falha de download vira aviso na lista; a peça
+    sai com as fotos que deram certo, e a tela diz quais não vieram.
+    """
+    _m = mapa if mapa is not None else (
+        st.session_state.get("img_variacoes_mapa") or {})
+    _dados = _m.get(str(nome or "").strip())
+    if not _dados:
+        return [], []
+    _anexadas = list(_dados.get("fotos_bytes") or [])
+    if _anexadas:
+        return _anexadas, []
+    _fora, _avisos = [], []
+    for _fid in (_dados.get("fotos_triagem") or []):
+        with _TRAVA_FOTOS_DRIVE:
+            _em_cache = _FOTOS_DRIVE_CACHE.get(_fid)
+        if _em_cache:
+            _fora.append(_em_cache)
+            continue
+        try:
+            import triagem as _tri_dl
+            _b_dl, _e_dl = _tri_dl.baixar_foto_triagem(_fid)
+        except Exception as _e_exc:
+            _b_dl, _e_dl = b"", f"{type(_e_exc).__name__}: {_e_exc}"
+        if _e_dl or not _b_dl:
+            _avisos.append(f"a foto {_fid[:8]}… de «{nome}» não veio do "
+                           f"Drive ({_e_dl or 'vazia'})")
+            continue
+        with _TRAVA_FOTOS_DRIVE:
+            _FOTOS_DRIVE_CACHE[_fid] = _b_dl
+        _fora.append(_b_dl)
+    return _fora, _avisos
+
+
+def variacoes_do_produto(nome_produto):
+    """(variacoes, aviso) — as variações cadastradas na triagem deste produto.
+
+    `variacoes` é [{"nome": str, "fotos": [drive_id]}], vazia quando não há.
+    `aviso` é texto para a tela quando dá para ler, mas não dá para decidir.
+
+    POR QUE ELA EXISTE FORA DO BLOCO DA TRIAGEM, e isso é o ponto:
+    `pagina_imagem` só consulta a triagem quando NÃO há código de descrição
+    com medidas (`imagem.py` ~9366) — de propósito, porque a descrição é a
+    fonte mais específica de material e medidas. Mas as VARIAÇÕES não existem
+    na descrição: elas só existem na triagem. Pendurá-las naquele bloco faria
+    quem trabalha com o código nunca ver variação nenhuma, e a Forma 1 desta
+    base é exatamente essa — a capacidade existir num caminho e faltar no
+    irmão dele.
+
+    DUAS TRIAGENS COM O MESMO NOME NÃO VIRAM PALPITE. Quando o trecho casa
+    com mais de uma, devolve vazio e o motivo escrito: escolher a primeira
+    abriria os campos da variação de OUTRO produto, e o colaborador só
+    descobriria isso na imagem pronta, depois de gastar a geração. É o mesmo
+    defeito que fez o porta-joias sair "de veludo e resina" em 25/09.
+    """
+    _n = str(nome_produto or "").strip()
+    if not _n:
+        return [], ""
+    try:
+        import triagem as _tri_var
+        _achadas = _tri_var.buscar_triagens_por_trecho(_n)
+    except Exception as _e_var:
+        return [], f"Não consegui ler a triagem para buscar variações: {_e_var}"
+    if not _achadas:
+        return [], ""
+    _com_var = [(t, _tri_var.variacoes_da_triagem(t)) for t in _achadas]
+    _com_var = [(t, v) for t, v in _com_var if v]
+    if not _com_var:
+        return [], ""
+    if len(_com_var) > 1:
+        _nomes = ", ".join(
+            str(t.get("nome_comercial", "?")) for t, _ in _com_var)
+        return [], (
+            f"{len(_com_var)} triagens com esse trecho de nome têm variações "
+            f"cadastradas ({_nomes}). Escreva o nome mais completo para eu "
+            f"saber de qual produto abrir os campos.")
+    return _com_var[0][1], ""
+
+
 def ambientacao_do_tipo(cfg, tipo):
     """O que vai no argumento `ambientacao` do prompt desta peça.
 
@@ -9459,6 +9580,129 @@ def pagina_imagem(usuario_logado):
                             st.session_state[_sel_triagem_key] = _i_t
                             st.rerun()
 
+    # ══════════════════════════════════════════════════════════════════════
+    # AS VARIAÇÕES DESTE PRODUTO — pedido do dono, 07/10
+    # ══════════════════════════════════════════════════════════════════════
+    #
+    # "O colaborador precisa poder anexar quantas imagens precisar de CADA
+    # variação, para que o sistema seja alimentado com o máximo de informações
+    # possíveis."
+    #
+    # A triagem guarda o NOME de cada variação e pelo menos uma foto dela. Ali
+    # a foto serve para reconhecer qual é qual; aqui ela não basta — gerar oito
+    # peças fiéis pede ângulos, e é isso que estes campos recebem.
+    #
+    # FORA DO BLOCO DA TRIAGEM DE PROPÓSITO: ver `variacoes_do_produto`.
+    _vars_prod, _aviso_var = variacoes_do_produto(nome_produto)
+    if _aviso_var:
+        st.warning("🎨 " + _aviso_var)
+    if _vars_prod:
+        st.markdown("---")
+        st.markdown(f"### 🎨 Variações de **{nome_produto}**")
+        st.caption(
+            f"{len(_vars_prod)} variação(ões) cadastrada(s) na triagem. A foto "
+            "da triagem já vale como referência; anexe aqui quantas mais você "
+            "tiver de cada uma — quanto mais ângulos, mais fiel a peça sai.")
+        # O MAPA É MONTADO A CADA PASSADA, E NÃO GRAVADO EM DISCO.
+        #
+        # Os bytes já estão na memória do processo (é onde o `file_uploader`
+        # os põe); o que viaja aqui são referências. Gravar no disco a cada
+        # rerun seria o defeito de 30 MB por tecla que já derrubou a usabilidade
+        # desta aba uma vez.
+        _mapa_var = {}
+        _nomes_var = [_v["nome"] for _v in _vars_prod]
+        for _v_pr in _vars_prod:
+            # A CHAVE DO WIDGET SAI DO NOME DA VARIAÇÃO, NORMALIZADO.
+            #
+            # Pelo índice, acrescentar uma variação na triagem faria as fotos
+            # anexadas migrarem de variação sem ninguém ver. O nome é o que o
+            # colaborador escreveu e é único dentro do produto — a triagem
+            # recusa nome repetido no cadastro.
+            _slug_v = "".join(
+                _c if _c.isalnum() else "_" for _c in _v_pr["nome"].lower())
+            with st.container(border=True):
+                _c_ft_v, _c_up_v = st.columns([1, 4])
+                with _c_ft_v:
+                    if _v_pr["fotos"]:
+                        try:
+                            import triagem as _tri_th
+                            st.image(_tri_th.url_thumbnail(
+                                _v_pr["fotos"][0], 140),
+                                use_container_width=True)
+                        except Exception:
+                            st.markdown("📦")
+                    else:
+                        st.markdown("📦")
+                    st.caption(f"**{_v_pr['nome']}**")
+                with _c_up_v:
+                    _up_v = st.file_uploader(
+                        f"Mais fotos de «{_v_pr['nome']}» — qualquer formato",
+                        type=None, accept_multiple_files=True,
+                        key=f"img_var_fotos_{_slug_v}")
+                    # `revisar_anexos` é a MESMA porta das fotos do produto:
+                    # ela normaliza formato (HEIC de iPhone inclusive) e diz o
+                    # que recusou. Escrever uma segunda leitura aqui faria os
+                    # dois campos aceitarem coisas diferentes — que é a Forma 1
+                    # com a qual o `checar_alcance` reprova.
+                    _b_v, _nm_v, _av_v, _er_v = revisar_anexos(_up_v)
+                    mostrar_anexos(_av_v, _er_v)
+                    if _b_v:
+                        st.caption(f"📷 {len(_b_v)} foto(s) anexada(s) nesta "
+                                   f"geração.")
+            _mapa_var[_v_pr["nome"]] = {
+                "fotos_triagem": list(_v_pr["fotos"]),
+                "fotos_bytes": _b_v,
+            }
+        # Chave SEM widget: escrever numa chave de widget depois de ele existir
+        # levanta StreamlitAPIException, e `checar_tela` reprova isso.
+        st.session_state["img_variacoes_mapa"] = _mapa_var
+
+        # ── QUAIS VARIAÇÕES ENTRAM NESTE TRABALHO ────────────────────────
+        #
+        # "Um campo do colaborador selecionar quais das variações que ele
+        # cadastrou será gerada as imagens, incluindo a do produto principal."
+        #
+        # A SELEÇÃO É UMA FILA, E NÃO UM LOTE. O dono foi explícito: "o
+        # sistema irá gerar SOMENTE DE UMA DAS VARIAÇÕES" — porque a próxima
+        # só faz sentido depois que ele aprovou a anterior, e é a aprovada
+        # que vira molde. Gerar as vinte de uma vez seria 160 imagens antes
+        # da primeira conferência.
+        _sel_var = st.multiselect(
+            "Quais variações gerar (uma de cada vez, nesta ordem)",
+            _nomes_var, default=_nomes_var, key="img_var_selecionadas")
+        st.session_state["img_var_fila"] = list(_sel_var)
+        _pos_var = int(st.session_state.get("img_var_posicao", 0) or 0)
+        # A POSIÇÃO É CONFERIDA CONTRA A FILA DE AGORA, e não guardada como
+        # verdade. Tirar uma variação do multiselect depois de já ter gerado
+        # duas deixaria a posição apontando para fora da lista — e o `[_pos]`
+        # explodiria com IndexError no meio da geração.
+        if _pos_var >= len(_sel_var):
+            _pos_var = 0
+            st.session_state["img_var_posicao"] = 0
+        if _sel_var:
+            _atual_var = _sel_var[_pos_var]
+            st.session_state["img_var_atual"] = _atual_var
+            _n_fotos_at = len(
+                _mapa_var.get(_atual_var, {}).get("fotos_bytes") or [])
+            _n_tri_at = len(
+                _mapa_var.get(_atual_var, {}).get("fotos_triagem") or [])
+            st.success(
+                f"🎨 Gerando agora: **{_atual_var}** "
+                f"({_pos_var + 1} de {len(_sel_var)}) · "
+                f"{_n_fotos_at or _n_tri_at} foto(s) de referência"
+                + ("" if _n_fotos_at else " (da triagem)"))
+            if len(_sel_var) > 1:
+                st.caption(
+                    "Depois de aprovar e salvar estas, o botão **Próxima "
+                    "variação** repete o mesmo conjunto com o próximo produto: "
+                    + " → ".join(_sel_var))
+        else:
+            st.session_state.pop("img_var_atual", None)
+            st.warning(
+                "Nenhuma variação marcada — a geração vai usar as fotos do "
+                "campo **Fotos de referência do produto**, como num produto "
+                "sem variação.")
+
     # ── O QUE GERAR — escolha antes de ver opções específicas ─────────────────
     st.markdown("---")
     modo = st.radio(
@@ -9941,7 +10185,34 @@ def pagina_imagem(usuario_logado):
             if not nome_produto:
                 st.warning("Informe o nome do produto.")
                 st.stop()
-            if not fotos_bytes:
+            # ── A VARIAÇÃO ATIVA MANDA NAS FOTOS DESTE LOTE ─────────
+            #
+            # As fotos do campo "Fotos de referência do produto" são de UMA
+            # variação qualquer — é o que o dono descreveu. Mandar as duas
+            # ao gerador seria mostrar a ele duas cores do mesmo produto e
+            # pedir fidelidade: é a situação que faz a peça sair com a cor
+            # errada, e a trava de cor existe justamente por causa dela.
+            #
+            # AQUI DENTRO, E NÃO NO DESENHO DA TELA: `fotos_da_variacao` pode
+            # ir ao Drive, e a tela redesenha a cada tecla digitada. No clique
+            # roda uma vez.
+            _var_ativa = str(st.session_state.get("img_var_atual", "") or "")
+            _fotos_geracao = list(fotos_bytes or [])
+            _avisos_var_g = []
+            if _var_ativa:
+                _f_var_g, _avisos_var_g = fotos_da_variacao(_var_ativa)
+                if _f_var_g:
+                    _fotos_geracao = _f_var_g
+            for _a_vg in _avisos_var_g:
+                st.warning("🎨 " + _a_vg)
+            if _var_ativa and not _fotos_geracao:
+                st.warning(
+                    f"A variação **{_var_ativa}** não tem foto nenhuma: nem "
+                    f"anexada aqui, nem baixável da triagem. Anexe pelo menos "
+                    f"uma no campo dela, acima — sem foto o gerador inventa o "
+                    f"produto, que é o defeito mais caro que esta aba tem.")
+                st.stop()
+            if not _fotos_geracao:
                 st.warning(
                     "Suba pelo menos uma foto do produto — é ela que garante "
                     "fidelidade.\n\n"
@@ -9951,6 +10222,19 @@ def pagina_imagem(usuario_logado):
                     "o conteúdo dos arquivos fica no servidor. **Recarregue a "
                     "página (F5) e anexe de novo.**")
                 st.stop()
+
+            # A COR DESTE LOTE É O NOME DA VARIAÇÃO, e não a lista de
+            # todas. `variacao_cores` na triagem guarda "Camuflado, Preto,
+            # Areia" — mandar isso ao gerador seria pedir as três de uma vez.
+            # A trava de cor (`_trava_cor_produto`) lê `dados_descricao["cor"]`
+            # em oito pontos deste arquivo; ela tem de receber UMA cor.
+            #
+            # CÓPIA, E NÃO ESCRITA NO ORIGINAL: `dados_descricao` veio da
+            # descrição ou da triagem e é lido por outras partes da tela nesta
+            # mesma passada.
+            if _var_ativa:
+                dados_descricao = dict(dados_descricao or {})
+                dados_descricao["cor"] = _var_ativa
 
             try:
                 # A ESPERA TEM DE DIZER QUANTO E O QUE, SENAO E "TRAVOU".
@@ -10045,7 +10329,12 @@ def pagina_imagem(usuario_logado):
                         # isso que a referencia de layout ja viaja assim.
                         "refs_ambientacao": st.session_state.get(
                             "img_refs_ambientacao") or [],
-                        "fotos_bytes": fotos_bytes,
+                        # As fotos da VARIAÇÃO ativa quando há uma; as do
+                        # campo do produto quando não há. Uma linha só, e é
+                        # aqui: cfg é a porta por onde a geração, o refazer e
+                        # o .txt dos prompts leem as fotos.
+                        "fotos_bytes": _fotos_geracao,
+                        "variacao": _var_ativa,
                         "dados_descricao": dados_descricao,
                         # Referências de layout (opcional)
                         "refs_layout_bytes": refs_layout_bytes,
@@ -10605,6 +10894,13 @@ def pagina_imagem(usuario_logado):
             del st.session_state["img_triagem_plano"]
             del st.session_state["img_triagem_config"]
             st.rerun()
+
+        # O "Próxima variação" dispara a geração pelo MESMO caminho do botão,
+        # e não por um segundo: duas portas para "gerar" passariam a discordar.
+        # O `pop` garante que ela dispara UMA vez — sem ele, cada rerun da tela
+        # recomeçaria a geração, e isso é dinheiro.
+        if st.session_state.pop("img_var_autoconfirmar", False):
+            confirmar_clicado = True
 
         if confirmar_clicado:
             # Primeira coisa: some com o painel. Daqui pra frente a tela mostra
@@ -11758,6 +12054,99 @@ def pagina_imagem(usuario_logado):
         if not _sel_idx:
             st.caption("Nenhuma marcada — os botões abaixo valem para as "
                        f"{len(galeria)} imagens.")
+
+        # ══════════════════════════════════════════════════════════════
+        # PRÓXIMA VARIAÇÃO — pedido do dono, 07/10
+        # ══════════════════════════════════════════════════════════════
+        #
+        # "O sistema deve entender que as imagens precisam ser recriadas
+        # EXATAMENTE como foram aprovadas na variação anterior, mudando
+        # somente o produto."
+        #
+        # O QUE É REPRODUZIDO EXATAMENTE, E O QUE NÃO PODE SER — dito aqui
+        # porque quem ler este código depois vai perguntar:
+        #
+        #   exato ........ o plano, a copy de cada peça, o cenário escolhido,
+        #                  a geometria, os tipos e a ordem. Tudo isso é TEXTO,
+        #                  e texto a gente guarda e repete.
+        #   não exato .... o pixel. O gerador é probabilístico; a mesma frase
+        #                  duas vezes não devolve a mesma imagem. Prometer
+        #                  isso seria mentir.
+        #
+        # O QUE APROXIMA OS DOIS: a arte aprovada de cada peça entra como
+        # REFERÊNCIA DE LAYOUT da peça correspondente. É o mecanismo que já
+        # existe e que manda copiar "posição dos blocos, hierarquia dos
+        # elementos, estilo dos textos, uso do espaço" e proíbe copiar o
+        # produto, as cores do produto de referência e os props.
+        #
+        # E É EXATAMENTE POR ISSO QUE A COR NÃO VAZA: a referência traz a
+        # composição da variação anterior; o produto e a cor vêm das fotos da
+        # variação NOVA e da trava de cor, que recebe o nome dela.
+        _fila_var_g = list(st.session_state.get("img_var_fila") or [])
+        _pos_var_g = int(st.session_state.get("img_var_posicao", 0) or 0)
+        if _fila_var_g and _pos_var_g + 1 < len(_fila_var_g):
+            _prox_var_g = _fila_var_g[_pos_var_g + 1]
+            st.markdown("---")
+            st.caption(
+                f"Terminou **{_fila_var_g[_pos_var_g]}**? Salve as imagens "
+                f"acima antes de seguir — o botão abaixo limpa a galeria para "
+                f"a próxima variação.")
+            if st.button(
+                    f"➡️ Próxima variação: {_prox_var_g} "
+                    f"({_pos_var_g + 2} de {len(_fila_var_g)})",
+                    type="primary", use_container_width=True,
+                    key="btn_proxima_variacao"):
+                # 1. A ARTE APROVADA VIRA MOLDE. O nome do arquivo é o RÓTULO
+                #    DO TIPO porque `ref_layout_do_tipo` casa pelo nome — assim
+                #    cada peça nova recebe a arte da MESMA peça anterior, e não
+                #    a de outra.
+                _molde_b, _molde_n = [], []
+                for _g_mv in (st.session_state.get("img_galeria") or []):
+                    if _g_mv.get("bytes") and _g_mv.get("tipo"):
+                        _molde_b.append(_g_mv["bytes"])
+                        _molde_n.append(f"{_g_mv['tipo']}.png")
+                # 2. O PLANO VOLTA DA CÓPIA QUE SOBREVIVE À GERAÇÃO. Refazer a
+                #    triagem para a próxima variação pagaria a análise de novo
+                #    e — pior — poderia devolver copy diferente, que é
+                #    justamente o que o dono NÃO quer.
+                _pl_mv = st.session_state.get(CHAVE_PLANO_GERADO)
+                _cf_mv = dict(st.session_state.get(CHAVE_CONFIG_GERADA) or {})
+                if not _pl_mv or not _cf_mv:
+                    st.error(
+                        "Não encontrei o plano desta geração para repetir na "
+                        "próxima variação. Gere a primeira variação por esta "
+                        "aba antes de usar este botão.")
+                else:
+                    _f_mv, _av_mv = fotos_da_variacao(_prox_var_g)
+                    if not _f_mv:
+                        st.error(
+                            f"A variação **{_prox_var_g}** não tem foto "
+                            f"nenhuma — anexe no campo dela, lá em cima, "
+                            f"antes de seguir.")
+                    else:
+                        for _a_mv in _av_mv:
+                            st.warning("🎨 " + _a_mv)
+                        _cf_mv["fotos_bytes"] = _f_mv
+                        _cf_mv["variacao"] = _prox_var_g
+                        _dd_mv = dict(_cf_mv.get("dados_descricao") or {})
+                        _dd_mv["cor"] = _prox_var_g
+                        _cf_mv["dados_descricao"] = _dd_mv
+                        if _molde_b:
+                            _cf_mv["refs_layout_bytes"] = _molde_b
+                            _cf_mv["refs_layout_nomes"] = _molde_n
+                        st.session_state["img_var_posicao"] = _pos_var_g + 1
+                        st.session_state["img_triagem_plano"] = _pl_mv
+                        st.session_state["img_triagem_config"] = _cf_mv
+                        # A GALERIA SAI DO CAMINHO. Deixá-la faria as peças da
+                        # variação nova entrarem no fim da lista da anterior, e
+                        # o colaborador salvaria as duas cores na mesma pasta.
+                        st.session_state["img_galeria"] = []
+                        # A copy corrigida da variação anterior continua
+                        # valendo: é o mesmo produto, e foi ela que o dono
+                        # aprovou. `copy_vigente` tem chave de produto, não de
+                        # variação, então ela sobrevive sozinha.
+                        st.session_state["img_var_autoconfirmar"] = True
+                        st.rerun()
 
         col_aprovar, col_zip = st.columns(2)
 
@@ -12923,6 +13312,250 @@ if __name__ == "__main__":
                        "textos": ["A: um", "B: dois", "C: tres", "D: quatro"]})
     ok("a geometria calculada chega ao prompt da peca",
        "GEOMETRIA DESTA PEÇA" in _p_z and "CORREDOR VAZIO" in _p_z)
+
+    # ── A GEOMETRIA E INSTRUCAO, E NUNCA TINTA ──────────────────────────
+    #
+    # ACHADO NO TESTE DE 06/10, e a regressao e minha, do dia anterior: a
+    # peca 5 saiu com "Produto Zone (6% a 56% wiltu)" e "Zona dos Cartoes
+    # (61% a 94% wiltu)" ESCRITOS na arte, com linha tracejada.
+    ok("o bloco diz de si mesmo que nao vira texto na imagem",
+       "NUNCA TEXTO A" in _p_z and "DESENHAR" in _p_z)
+    ok("e diz que as zonas sao invisiveis na peca pronta",
+       "As zonas são invisíveis" in _p_z)
+
+    # O TIPO 5 NAO RECEBE ZONA: o preset dele manda o CONTRARIO.
+    ok("o tipo 5 nao recebe zona nenhuma",
+       zonas_da_peca("5 — Características técnicas (medidas/peso/material)",
+                     5) == "")
+    _p5_z = montar_prompt_imagem(
+        "5 — Características técnicas (medidas/peso/material)", "",
+        {"medidas": "12x14", "peso": "326", "material": "metal"}, "Caneca",
+        plano_triagem={"composicao": "x", "cena": "y",
+                       "textos": ["ALTURA: 12 cm", "LARGURA: 14 cm",
+                                  "PESO: 326 g"]})
+    ok("e a geometria nao chega ao prompt dele",
+       "GEOMETRIA DESTA PEÇA" not in _p5_z)
+    ok("mas o preset dele continua mandando os cartoes ao redor",
+       "ao redor do produto" in _p5_z)
+
+    # ── DUAS VOZES SOBRE ONDE OS CARTOES FICAM, NO MESMO PROMPT ─────────
+    #
+    # A guarda que faltava. "O tipo 5 nao recebe zona" mede o caso que
+    # doeu; esta mede a REGRA, e pega o proximo tipo que ganhar preset de
+    # cartao espalhado. Guarda do caso e guarda da regra nao sao a mesma
+    # coisa — foi exatamente essa diferenca que deixou isto passar.
+    _brigas = []
+    for _t_br in TIPOS_PADRAO:
+        _pr_br = montar_prompt_imagem(
+            _t_br, "", {"medidas": "12x14", "peso": "326", "material": "x"},
+            "Caneca",
+            plano_triagem={"composicao": "x", "cena": "y",
+                           "textos": ["A: um", "B: dois", "C: tres"]})
+        _manda_coluna = "empilhados numa coluna" in _pr_br
+        _proibe_coluna = "nunca empilhados num canto" in _pr_br.lower()
+        if _manda_coluna and _proibe_coluna:
+            _brigas.append(numero_do_tipo(_t_br))
+    ok("nenhum tipo recebe 'empilhados numa coluna' e 'nunca empilhados "
+       f"num canto' no mesmo prompt (brigas: {_brigas})", not _brigas)
+
+    # ── AS VARIACOES DO PRODUTO (07/10) ─────────────────────────────────
+    #
+    # A ENTRADA VEM DO SISTEMA: as linhas sao a forma que
+    # `triagem.buscar_triagens_por_trecho` devolve (dict da planilha), e a
+    # leitura das variacoes e feita pela funcao DE VERDADE do modulo triagem,
+    # nao por uma copia escrita aqui. Duplo mais pobre que a realidade acusa o
+    # inocente; duplo com o tipo errado absolve o culpado.
+    import sys as _sys_var, types as _types_var
+    import triagem as _tri_real
+    _mod_falso = _types_var.ModuleType("triagem")
+    _mod_falso.variacoes_da_triagem = _tri_real.variacoes_da_triagem
+    _mod_falso.url_thumbnail = lambda *_a, **_k: ""
+    _LINHAS = {"sem": [], "erro": None}
+
+    def _busca_falsa(trecho):
+        if _LINHAS["erro"]:
+            raise RuntimeError(_LINHAS["erro"])
+        return _LINHAS["sem"]
+    _mod_falso.buscar_triagens_por_trecho = _busca_falsa
+    _antes_tri = _sys_var.modules.get("triagem")
+    try:
+        _sys_var.modules["triagem"] = _mod_falso
+        _CEL = __import__("json").dumps(
+            [{"nome": "Camuflado", "fotos": ["id1"]},
+             {"nome": "Preto", "fotos": ["id2", "id3"]}], ensure_ascii=False)
+
+        ok("nome vazio nao busca nada",
+           variacoes_do_produto("") == ([], ""))
+        ok("e nome so com espaco tambem",
+           variacoes_do_produto("   ") == ([], ""))
+
+        _LINHAS["sem"] = []
+        ok("produto sem triagem nao avisa nada — e o caso normal",
+           variacoes_do_produto("Bone") == ([], ""))
+
+        _LINHAS["sem"] = [{"nome_comercial": "Bone", "variacoes": ""}]
+        ok("triagem sem variacao devolve vazio, e sem aviso",
+           variacoes_do_produto("Bone") == ([], ""))
+
+        _LINHAS["sem"] = [{"nome_comercial": "Bone", "variacoes": _CEL}]
+        _v_ok, _a_ok = variacoes_do_produto("Bone")
+        ok("uma triagem com variacao devolve as duas",
+           [v["nome"] for v in _v_ok] == ["Camuflado", "Preto"] and not _a_ok)
+        ok("e as fotos da triagem vem junto",
+           _v_ok[1]["fotos"] == ["id2", "id3"])
+
+        # DUAS TRIAGENS COM VARIACAO NAO VIRAM PALPITE: escolher a primeira
+        # abriria os campos da variacao de OUTRO produto.
+        _LINHAS["sem"] = [{"nome_comercial": "Bone Preto", "variacoes": _CEL},
+                          {"nome_comercial": "Bone Areia", "variacoes": _CEL}]
+        _v_am, _a_am = variacoes_do_produto("Bone")
+        ok("duas triagens com variacao NAO escolhem sozinhas", _v_am == [])
+        ok("e o aviso diz os nomes das duas, para o colaborador decidir",
+           "Bone Preto" in _a_am and "Bone Areia" in _a_am)
+
+        # So uma delas tem variacao: nao ha ambiguidade nenhuma.
+        _LINHAS["sem"] = [{"nome_comercial": "Bone Preto", "variacoes": _CEL},
+                          {"nome_comercial": "Bone Areia", "variacoes": ""}]
+        _v_u, _a_u = variacoes_do_produto("Bone")
+        ok("com uma so tendo variacao, ela e usada sem perguntar",
+           len(_v_u) == 2 and not _a_u)
+
+        # FALHA DA PLANILHA NAO DERRUBA A ABA — ela avisa e segue.
+        _LINHAS["erro"] = "planilha fora do ar"
+        try:
+            _v_e, _a_e = variacoes_do_produto("Bone")
+        except Exception as _e_esp:
+            _v_e, _a_e = ["estourou"], f"{type(_e_esp).__name__}"
+        ok("planilha fora do ar vira aviso, e nao traceback",
+           _v_e == [] and "planilha fora do ar" in _a_e)
+        _LINHAS["erro"] = None
+    finally:
+        if _antes_tri is not None:
+            _sys_var.modules["triagem"] = _antes_tri
+        else:
+            _sys_var.modules.pop("triagem", None)
+
+    # ── E ELA RODA NOS DOIS CAMINHOS, NAO SO NO DA TRIAGEM ──────────────
+    #
+    # A GUARDA QUE MEDE A FORMA 1. O bloco da triagem e PULADO quando ha
+    # codigo de descricao com medidas (de proposito). Se a chamada das
+    # variacoes estivesse dentro dele, quem usa o codigo nunca veria variacao
+    # nenhuma — e eu so descobriria isso pelo dono, depois de pronto.
+    import ast as _ast_var
+    _fonte_var = open(__file__, encoding="utf-8").read()
+    _cod_var = _fonte_var.split('if __name__ == "__main__":')[0]
+    _arv_var = _ast_var.parse(_cod_var)
+
+    def _chama_variacoes(no):
+        return any(isinstance(c, _ast_var.Call)
+                   and isinstance(c.func, _ast_var.Name)
+                   and c.func.id == "variacoes_do_produto"
+                   for c in _ast_var.walk(no))
+
+    _dentro_do_if = False
+    _achou_chamada = False
+    for _no_var in _ast_var.walk(_arv_var):
+        if isinstance(_no_var, _ast_var.Call) and isinstance(
+                _no_var.func, _ast_var.Name) \
+                and _no_var.func.id == "variacoes_do_produto":
+            _achou_chamada = True
+        if not isinstance(_no_var, _ast_var.If):
+            continue
+        # SEM DEPENDER DO ESTILO DE ASPAS. `ast.unparse` escreve
+        # `.get('medidas')` com aspas simples, e a primeira versao desta
+        # linha procurava com DUPLAS: ela nunca podia ficar vermelha, e a
+        # mutacao provou isso. E o mesmo alarme falso que o oitavo
+        # verificador deu enquanto era construido.
+        _teste = _ast_var.unparse(_no_var.test)
+        _e_o_if_do_codigo = ("dados_descricao" in _teste
+                             and "medidas" in _teste)
+        if _e_o_if_do_codigo and _chama_variacoes(_no_var):
+            _dentro_do_if = True
+    ok("a aba chama as variacoes em algum lugar", _achou_chamada)
+    ok("e NAO de dentro do if que o codigo de descricao pula",
+       not _dentro_do_if)
+
+    # ── AS FOTOS DE UMA VARIACAO ────────────────────────────────────────
+    _MAPA_V = {
+        "Camuflado": {"fotos_triagem": ["drv1"], "fotos_bytes": [b"anexada"]},
+        "Preto": {"fotos_triagem": ["drv2", "drv3"], "fotos_bytes": []},
+        "Areia": {"fotos_triagem": [], "fotos_bytes": []},
+    }
+    ok("o que foi anexado AGORA vence a foto da triagem",
+       fotos_da_variacao("Camuflado", _MAPA_V) == ([b"anexada"], []))
+    ok("variacao que nao existe no mapa devolve vazio",
+       fotos_da_variacao("Rosa", _MAPA_V) == ([], []))
+    ok("e nome vazio tambem", fotos_da_variacao("", _MAPA_V) == ([], []))
+
+    # SEM ANEXO, A FOTO DA TRIAGEM E BAIXADA — e esse e o ponto: obrigar a
+    # subir de novo a foto que acabou de ser cadastrada cobraria o trabalho
+    # duas vezes. O duplo substitui o DOWNLOAD, nao a funcao que eu escrevi.
+    _tri_dl_falso = _types_var.ModuleType("triagem")
+    _BAIXADAS = {"erro": None}
+
+    def _baixar_falso(fid):
+        if _BAIXADAS["erro"]:
+            return b"", _BAIXADAS["erro"]
+        return f"bytes-de-{fid}".encode(), None
+    _tri_dl_falso.baixar_foto_triagem = _baixar_falso
+    _antes_dl = _sys_var.modules.get("triagem")
+    try:
+        _sys_var.modules["triagem"] = _tri_dl_falso
+        _FOTOS_DRIVE_CACHE.clear()
+        ok("sem anexo, as fotos da triagem sao baixadas na ordem",
+           fotos_da_variacao("Preto", _MAPA_V)
+           == ([b"bytes-de-drv2", b"bytes-de-drv3"], []))
+        # A SEGUNDA VEZ NAO VAI A REDE. Oito pecas baixando a mesma foto sao
+        # oito idas ao Drive pelo mesmo arquivo; num lote de 20 variacoes, 160.
+        _BAIXADAS["erro"] = "a rede caiu"
+        ok("a segunda leitura sai do cache, e nao da rede",
+           fotos_da_variacao("Preto", _MAPA_V)
+           == ([b"bytes-de-drv2", b"bytes-de-drv3"], []))
+        # FALHA DE DOWNLOAD VIRA AVISO, E NAO TRACEBACK: a peca sai com o que
+        # deu certo e a tela diz o que faltou.
+        _FOTOS_DRIVE_CACHE.clear()
+        _b_f, _av_f = fotos_da_variacao("Preto", _MAPA_V)
+        ok("download que falha nao derruba a geracao",
+           _b_f == [] and len(_av_f) == 2)
+        ok("e o aviso diz de qual variacao e", "Preto" in _av_f[0])
+        _BAIXADAS["erro"] = None
+        ok("variacao sem foto em lugar nenhum devolve vazio",
+           fotos_da_variacao("Areia", _MAPA_V) == ([], []))
+    finally:
+        _FOTOS_DRIVE_CACHE.clear()
+        if _antes_dl is not None:
+            _sys_var.modules["triagem"] = _antes_dl
+        else:
+            _sys_var.modules.pop("triagem", None)
+
+    # ── O MOLDE VOLTA PARA A PECA CERTA ─────────────────────────────────
+    #
+    # A GUARDA MAIS IMPORTANTE DA PROXIMA VARIACAO. O botao batiza cada arte
+    # aprovada com o ROTULO DO TIPO, porque `ref_layout_do_tipo` casa pelo
+    # NOME do arquivo. Se o nome nao casar, cada peca recebe a referencia de
+    # OUTRA peca — e em silencio, que e o pior jeito: a variacao nova sairia
+    # com o layout trocado e ninguem saberia por que.
+    _molde_nomes = [f"{_t_md}.png" for _t_md in TIPOS_PADRAO]
+    _molde_bytes = [f"arte-{numero_do_tipo(_t_md)}".encode()
+                    for _t_md in TIPOS_PADRAO]
+    _trocadas = []
+    for _t_md in TIPOS_PADRAO:
+        _b_md, _n_md = ref_layout_do_tipo(_t_md, _molde_bytes, _molde_nomes)
+        _esperado = f"arte-{numero_do_tipo(_t_md)}".encode()
+        if _b_md != _esperado:
+            _trocadas.append(
+                f"{numero_do_tipo(_t_md)}→{_n_md or 'nenhuma'}")
+    ok(f"cada peca recebe de volta a arte da PROPRIA peca (trocadas: "
+       f"{_trocadas})", not _trocadas)
+
+    # ── O AUTO-CONFIRMAR DISPARA UMA VEZ SO ─────────────────────────────
+    #
+    # Sem o `pop`, cada rerun da tela recomecaria a geracao das oito pecas.
+    # Isso e dinheiro, e seria dinheiro repetido sem ninguem clicar em nada.
+    ok("o auto-confirmar e lido com pop, e nao com get",
+       'st.session_state.pop("img_var_autoconfirmar"' in _cod_var)
+    ok("e nao sobrou nenhuma leitura dele por get",
+       'st.session_state.get("img_var_autoconfirmar"' not in _cod_var)
 
     # ── 8 NA GALERIA NAO E 8 ENTREGUES ──────────────────────────────────
     #

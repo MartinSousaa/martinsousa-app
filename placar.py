@@ -3575,6 +3575,19 @@ def tv_status_lido():
         return {}
 
 
+def _tv_reler_config():
+    """Esquece as configurações guardadas em memória: a próxima volta da TV
+    lê a planilha de novo. Falha aqui não pode parar a TV."""
+    for _mod, _fn in (("metas_config", "carregar_todas"),
+                      ("colunas_config", "carregar"),
+                      ("colunas_config", "ocultas")):
+        try:
+            import importlib as _il_tv
+            getattr(_il_tv.import_module(_mod), _fn).clear()
+        except Exception:
+            pass
+
+
 def _loop_regenerador_tv():
     import time as _t_tv
     import logging as _log_tv
@@ -3615,6 +3628,12 @@ def _loop_regenerador_tv():
 
         TV_STATUS["voltas"] += 1
         _t_volta = _t_tv.time()
+        # AS METAS RELIDAS A CADA VOLTA. A TV é outro processo: o Salvar da
+        # Análise de Metas limpa a memória do Studio, não a dela, e a TV
+        # seguia até 10 minutos com a meta antiga (dono, 07/10: "já alterei a
+        # meta deles no sistema e na TV continua o antigo"). Uma leitura por
+        # volta é barata; meta velha na parede, não.
+        _tv_reler_config()
         try:
             TV_STATUS["motivo"] = "a volta terminou sem chegar na gravação"
             pagina_placar("martinsousa", headless=True)

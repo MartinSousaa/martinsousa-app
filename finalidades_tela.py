@@ -31,23 +31,18 @@ def pagina(usuario_logado=None):
     _opcoes = _finalidades(cad)
 
     # ── A fila: nomes que já apareceram e ninguém classificou ────────────
-    todos = _lan.carregar()
-    _, fila = _fv.classificar(todos, cad)
+    #
+    # A MESMA TABELA da fila do anexo (`extratos_tela._perguntar`): todos os
+    # nomes, nenhuma finalidade pré-escolhida, marcar várias e salvar de uma
+    # vez, e cada compra listada embaixo. Era uma linha por vez, só 20, e com
+    # ADS já selecionado — um Salvar distraído gravava ADS (dono, 07/10).
+    import extratos_tela as _et
     st.markdown("##### ⏳ Sem classificação")
+    fila = _et.fila_dos_gravados(_lan.carregar(), cad)
     if not fila:
         st.success("Nada na fila — todo nome que já apareceu tem resposta.")
     else:
-        st.caption(f"{len(fila)} nome(s), do que mais pesou para o menor.")
-        for i, item in enumerate(fila[:20]):
-            c1, c2, c3 = st.columns([3, 2, 1])
-            c1.markdown(_rot.tela(f"**{item['favorecido'][:40]}**  \n"
-                                  f"{item['n']}x · R$ {item['total']:,.2f}"))
-            _f = c2.selectbox("Finalidade", _opcoes, key=f"fin_q_{i}",
-                              label_visibility="collapsed")
-            if c3.button("Salvar", key=f"fin_s_{i}", use_container_width=True):
-                _ok, _m = _fv.salvar(item["favorecido"], _f, "saida", "",
-                                     usuario_logado)
-                (st.success if _ok else st.error)(_m)
+        _et._perguntar(fila, _fv, usuario_logado)
 
     # ── O cadastro, editável ─────────────────────────────────────────────
     st.markdown("---")

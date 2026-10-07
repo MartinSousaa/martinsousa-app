@@ -267,13 +267,17 @@ def _html_faturamento(d):
     if eq:
         linhas += (f'<line x1="0" y1="{Y(eq):.1f}" x2="{W}" y2="{Y(eq):.1f}" stroke="{AMBAR}" '
                    f'stroke-width="1.5" stroke-dasharray="2 5"/>'
-                   f'<text x="8" y="{Y(eq) - 6:.1f}" fill="{AMBAR}" font-size="12" font-weight="700">'
+                   # ABAIXO da linha (dono, 07/10): em cima ele encostava
+                   # na linha da meta, que fica logo acima.
+                   f'<text x="8" y="{Y(eq) + 14:.1f}" fill="{AMBAR}" font-size="12" font-weight="700">'
                    f'ponto de equilíbrio · {_brl(eq, 0)}</text>')
     if meta:
         linhas += (f'<line x1="0" y1="{Y(meta):.1f}" x2="{W}" y2="{Y(meta):.1f}" stroke="{AZUL}" '
                    f'stroke-width="1.5" stroke-dasharray="2 5"/>'
-                   f'<text x="{W - 8}" y="{Y(meta) - 6:.1f}" fill="{AZUL}" font-size="12" '
-                   f'font-weight="700" text-anchor="end">meta do mês · {_brl(meta, 0)}</text>')
+                   # À ESQUERDA (dono, 07/10): à direita a projeção verde,
+                   # que sobe até o fim do mês, passava por cima dele.
+                   f'<text x="8" y="{Y(meta) - 6:.1f}" fill="{AZUL}" font-size="12" '
+                   f'font-weight="700">meta do mês · {_brl(meta, 0)}</text>')
     svg = (f'<svg viewBox="0 0 {W:.0f} {H:.0f}" width="100%" height="120" '
            f'aria-label="Faturamento do mês contra equilíbrio e meta" '
            f'style="font-family:inherit;">'
@@ -1958,6 +1962,13 @@ if __name__ == "__main__":
        _marcas_da_regua(_x, 0.0, 0.0, 265_542.0) == [(_x(265_542.0), "Meta")])
     ok("com equilíbrio, os três aparecem",
        len(_marcas_da_regua(_x, 40_834.0, 60_000.0, 265_542.0)) == 3)
+    # 07/10: os rótulos não podem encostar nas linhas vizinhas — o do
+    # equilíbrio vai para baixo da linha, o da meta para a esquerda.
+    _src_fat = inspect.getsource(_html_faturamento)
+    ok("rótulo do equilíbrio abaixo da linha e o da meta à esquerda",
+       'y="{Y(eq) + 14:.1f}"' in _src_fat
+       and 'text-anchor="end">meta do mês' not in _src_fat
+       and '<text x="8" y="{Y(meta) - 6:.1f}"' in _src_fat)
     ok("e sem meta o rodapé diz onde cadastrar a meta de gastos",
        "cadastre a meta de gastos" in _linha_do_equilibrio({}))
     _dr_comp = inspect.getsource(dados_reais)

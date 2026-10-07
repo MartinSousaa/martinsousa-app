@@ -659,6 +659,21 @@ def _alerta_de_coluna_na_tv(conta):
               _cols == ["COLUNA NOVA XYZ"]
               and "colunas_sem_config(sorted(set(listas.values())))" in _src_al,
               str(_cols))
+        # 07/10: cada volta da TV esquece as metas guardadas (outro processo)
+        import metas_config as _mc_r
+        _lim = []
+        _g_r = _mc_r.carregar_todas
+
+        class _Limpa:
+            def clear(self):
+                _lim.append(1)
+        _mc_r.carregar_todas = _Limpa()
+        try:
+            _pl_c._tv_reler_config()
+        finally:
+            _mc_r.carregar_todas = _g_r
+        conta("a TV esquece as metas guardadas antes de cada volta", _lim == [1],
+              str(_lim))
         # e a medição de um cartão só continua de pé, pelas ações dadas
         _min, _quem = _pc_c.tempo_execucao_min("c1", {"c1": []})
         conta("tempo_execucao_min sem ações devolve zero", _min == 0.0, str(_min))
@@ -666,6 +681,39 @@ def _alerta_de_coluna_na_tv(conta):
         conta("TV: alerta de coluna", False, f"{type(e).__name__}: {e}")
     finally:
         _cc_c.carregar = _g
+
+
+def _finalidades_em_massa(conta):
+    """07/10: a lista de Finalidades usa a tabela em massa — sem ADS
+    pré-selecionado, todos os nomes, cada compra embaixo."""
+    import finalidades_tela as _ft
+    import extratos_tela as _et_f
+    import favorecidos as _fv_f
+    import lancamentos as _lan_f
+    _g = (_fv_f.carregar, _lan_f.carregar, _et_f._fixos_cadastrados)
+    _fv_f.carregar = lambda *a, **k: {}
+    _lan_f.carregar = lambda: [
+        {"id": "1", "data": "2026-09-10", "descricao": "HERING 04/06",
+         "valor": -81.69, "conta": "cartão · a.csv", "favorecido": "",
+         "finalidade": "", "fixada": "", "tipo": ""}]
+    _et_f._fixos_cadastrados = lambda: ([], [])
+    _falso = instalar()
+    _ft.st = _falso
+    _et_f.st = _falso
+    try:
+        _ft.pagina("leo")
+        conta("Finalidades: a fila desenha como tabela em massa", True, "")
+    except (_Rerun, _Parou):
+        conta("Finalidades: a fila desenha como tabela em massa", True, "")
+    except Exception as e:
+        conta("Finalidades: a fila desenha como tabela em massa", False,
+              f"{type(e).__name__}: {e}")
+    finally:
+        _fv_f.carregar, _lan_f.carregar, _et_f._fixos_cadastrados = _g
+    import inspect as _insp_ft
+    _src = _insp_ft.getsource(_ft.pagina)
+    conta("e não tem mais o selectbox de ADS linha a linha",
+          "_et._perguntar(fila" in _src and "fila[:20]" not in _src, "")
 
 
 def _queda_de_pontos(conta):
@@ -2669,6 +2717,7 @@ def main():
     _projecao_na_meta(conta)
     _monique_nos_gestores(conta)
     _alerta_de_coluna_na_tv(conta)
+    _finalidades_em_massa(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0

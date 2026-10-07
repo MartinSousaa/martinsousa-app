@@ -502,6 +502,26 @@ def _chave_nome(t):
     return partes[0] if partes else ""
 
 
+def atingiu(ap):
+    """O que a pessoa atingiu, em uma linha — e o critério que reprovou. Pura.
+
+    Dono, 07/10: "precisa informar o que cada colaborador atingiu". O Gabriel
+    aparecia com 18% (só o time) sem dizer por que a parte individual zerou.
+    """
+    ap = ap or {}
+    time = ("Coletiva MAXX" if ap.get("maxx") else
+            "Coletiva" if ap.get("col") else "Coletiva não")
+    if ap.get("ind_maxx"):
+        ind = "Individual MAXX"
+    elif ap.get("ind"):
+        falha = ap.get("reprovou_x") or []
+        ind = "Individual" + (f" (MAXX não: {falha[0]})" if falha else "")
+    else:
+        falha = ap.get("reprovou_n") or []
+        ind = "Individual não" + (f": {', '.join(falha)}" if falha else "")
+    return f"{time} · {ind}"
+
+
 def bonus_por_pessoa(linhas_clt, apurado, nomes, taxas=None, faixas=None):
     """(linhas, totais, sem_linha) do bônus das metas, com os tributos.
 
@@ -554,6 +574,7 @@ def bonus_por_pessoa(linhas_clt, apurado, nomes, taxas=None, faixas=None):
             "multa": multa, "inss_das": das,
             "custo": round(bruto + fgts + ref_f + ref_d + multa, 2),
             "no_aporte": l.get("no_aporte", True),
+            "atingiu": atingiu(ap),
         })
     soma = lambda c: round(sum(x[c] for x in linhas), 2)
     tot = {c: soma(c) for c in ("bonus_time", "bonus_ind", "bruto", "fgts",
@@ -596,9 +617,15 @@ def _apurado_do_mes(ano, mes):
         nomes = dict(_pc.MEMBROS_ATIVOS)
         ap = _am.apuracao_bonus(dados, list(nomes))
         sit = next(iter(ap.values()), {}).get("sit_pen", {}) if ap else {}
-        enxuto = {u: {k: v for k, v in a.items()
-                      if k in ("col", "maxx", "ind", "ind_maxx",
-                               "pct_time", "pct_seu")}
+        enxuto = {u: {**{k: v for k, v in a.items()
+                         if k in ("col", "maxx", "ind", "ind_maxx",
+                                  "pct_time", "pct_seu")},
+                      # o critério que reprovou, para a tela dizer POR QUE
+                      # a parte individual não pagou (dono, 07/10: Gabriel)
+                      "reprovou_n": [r for r, ok in (a.get("crit_n") or [])
+                                     if ok is False],
+                      "reprovou_x": [r for r, ok in (a.get("crit_x") or [])
+                                     if ok is False]}
                   for u, a in ap.items()}
         return (enxuto, nomes,
                 {"bateu_col": bool(sit.get("bateu_col")),
@@ -634,13 +661,13 @@ def _v(x, casas=2):
 def _tabela_html(cab, linhas, total=None, grupo=(), esquerda=1):
     """Tabela sem quebra de linha (o markdown do Streamlit fecharia o HTML)."""
     th = "".join(
-        f'<th style="text-align:{"left" if i < esquerda else "right"};padding:6px 8px;'
+        f'<th style="text-align:{"left" if i < esquerda else "center"};padding:6px 8px;'
         f'border-bottom:1px solid var(--ms-borda);color:'
         f'{"#7FB8F0" if c in grupo else "var(--ms-texto-sec)"};font-weight:600;">'
         f'{c}</th>' for i, c in enumerate(cab))
     def tr(cel, forte=False):
         return "<tr>" + "".join(
-            f'<td style="text-align:{"left" if i < esquerda else "right"};padding:6px 8px;'
+            f'<td style="text-align:{"left" if i < esquerda else "center"};padding:6px 8px;'
             f'{"font-weight:800;" if forte or i == len(cel) - 1 else ""}'
             f'border-bottom:1px solid rgba(128,128,128,.25);">{c}</td>'
             for i, c in enumerate(cel)) + "</tr>"
@@ -778,44 +805,28 @@ def pagina(usuario_logado=None):
         st.markdown(_tabela_html(cab, lin, tot, grupo=("FGTS", "INSS/CPP"),
                                  esquerda=2),
                     unsafe_allow_html=True)
-        st.caption(
-            f"**Impostos que eu pago:** FGTS {_brl(ts['fgts'])} · INSS/CPP "
-            f"{_brl(ts['inss_das'])} (já dentro do DAS, não soma no custo). "
-            f"**Obrigações a reservar:** {_brl(ts['obrigacoes'])} — férias "
-            f"{_brl(ts['ferias'])}, 1/3 {_brl(ts['terco'])}, 13º "
-            f"{_brl(ts['decimo'])}, multa do FGTS {_brl(ts['multa'])}.")
         _fora = [x["funcionario"] for x in sal if not x["no_aporte"]]
         if _fora:
             st.caption("Fora do aporte (não sai da Reserva): **"
                        + ", ".join(_fora) + "**.")
 
     # ── BÔNUS ────────────────────────────────────────────────────────────
-    st.markdown(f"#### 🎯 Bônus das metas de {_rot_mes(am)} · pagar até "
-                f"{pg_txt}")
-    st.caption("5º dia útil do mês seguinte, sábado conta (CLT). "
-               + ("O mês ainda corre: é a previsão pelo placar de hoje."
-                  if _corrente else ""))
+    # Dono, 07/10: "deixe somente Bonus Setembro/2026" — sem o "pagar até"
+    # e sem as explicações no meio da tela.
+    st.markdown(f"#### 🎯 Bônus {_rot_mes(am)}")
     if erro_b:
         st.warning(f"Não consegui apurar as metas: {erro_b}. O bônus fica "
                    "fora até a leitura voltar.")
-    else:
-        st.caption(
-            "Coletiva mensal: **" + ("batida" if sit.get("bateu_col") else
-                                     "não batida") + "** · MAXX: **"
-            + ("batida" if sit.get("bateu_maxx") else "não batida")
-            + "** · a parte do time só paga a quem entrou na meta (mínimo da "
-            "própria meta e teto de advertências), a individual só a quem "
-            "passou em todos os critérios — a mesma regra do Painel de Metas.")
     if bon:
-        cab = ["Colaborador", "Bônus time", "Bônus indiv.", "Bônus bruto",
+        cab = ["Colaborador", "Atingiu", "Bônus time", "Bônus indiv.", "Bônus bruto",
                "INSS deles", "IRRF deles", "Líquido a depositar", "FGTS 8%",
                "Reflexo férias+1/3", "Reflexo 13º", "Multa FGTS",
                "INSS/CPP (DAS)", "Custo p/ mim"]
-        lin = [[x["funcionario"]] + [_v(x[c]) for c in
+        lin = [[x["funcionario"], x.get("atingiu", "")] + [_v(x[c]) for c in
                ("bonus_time", "bonus_ind", "bruto", "inss_emp", "irrf",
                 "liquido", "fgts", "ref_ferias", "ref_decimo", "multa",
                 "inss_das", "custo")] for x in bon]
-        tot = ["Total"] + [_v(tb.get(c)) for c in
+        tot = ["Total", ""] + [_v(tb.get(c)) for c in
                ("bonus_time", "bonus_ind", "bruto")] + [
                _v(tb["inss_emp"]), _v(tb["irrf"]), _v(tb["liquido"])] + [_v(tb[c]) for c in
                ("fgts", "ref_ferias", "ref_decimo", "multa", "inss_das",
@@ -823,7 +834,7 @@ def pagina(usuario_logado=None):
         st.markdown(_tabela_html(cab, lin, tot,
                                  grupo=("FGTS 8%", "Reflexo férias+1/3",
                                         "Reflexo 13º", "Multa FGTS",
-                                        "INSS/CPP (DAS)")),
+                                        "INSS/CPP (DAS)"), esquerda=2),
                     unsafe_allow_html=True)
     st.markdown(_grade([
         _cartao("Bônus bruto", _brl(tb["bruto"]), "o que cada um ganhou"),
@@ -837,11 +848,6 @@ def pagina(usuario_logado=None):
         _cartao("Custo total do bônus", _brl(tb["custo"]), "sai da Reserva",
                 "#E0A13A"),
     ], 4), unsafe_allow_html=True)
-    if tb["bruto"] > 0 and tb["tributos_deles"] is None:
-        st.caption("INSS e IRRF do colaborador saem da **tabela do ano**, que "
-                   "ainda não está cadastrada — abra o quadro abaixo e "
-                   "preencha uma vez. Até lá, “—” em vez de um desconto "
-                   "inventado.")
     if sem_linha:
         st.warning("Bateu meta e não está na grade de colaboradores (o bônus "
                    "dela não entrou na conta): **" + ", ".join(sem_linha)
@@ -1163,6 +1169,32 @@ if __name__ == "__main__":
     ok("nenhum bloco da tela tem quebra de linha",
        "\n" not in _tabela_html(["a", "b"], [["1", "2"]], ["t", "3"])
        and "\n" not in _grade([_cartao("x", "1", "s")], 1))
+    # ── 07/10: o que cada um atingiu, e a tela sem explicações no meio ──
+    ok("atingiu diz o time e o critério individual que reprovou (Gabriel)",
+       atingiu({"maxx": True, "ind": False, "reprovou_n": ["horas trabalhadas"]})
+       == "Coletiva MAXX · Individual não: horas trabalhadas")
+    ok("atingiu com as duas MAXX",
+       atingiu({"maxx": True, "ind": True, "ind_maxx": True})
+       == "Coletiva MAXX · Individual MAXX")
+    ok("atingiu sem nada", atingiu({}) == "Coletiva não · Individual não")
+    _l_g = [{"funcionario": "Gabriel", "base": 3000.0, "registrado": True}]
+    _b_g = bonus_por_pessoa(_l_g, {"gabriel": {"maxx": True, "pct_time": 18,
+                                              "pct_seu": 0, "reprovou_n":
+                                              ["tempo médio"]}},
+                            {"gabriel": "Gabriel"})[0]
+    ok("a linha do bônus leva o que a pessoa atingiu",
+       _b_g[0]["atingiu"] == "Coletiva MAXX · Individual não: tempo médio"
+       and _b_g[0]["bonus_time"] == 540.0)
+    import inspect as _insp_h
+    _src_pg = _insp_h.getsource(pagina)
+    ok("a tela não tem mais os textos explicativos nem o 'pagar até' no título",
+       "Impostos que eu pago" not in _src_pg and "Coletiva mensal: **" not in _src_pg
+       and "tabela do ano**, que" not in _src_pg
+       and 'f"#### 🎯 Bônus {_rot_mes(am)}"' in _src_pg
+       and '"Atingiu"' in _src_pg)
+    ok("os números das tabelas ficam centralizados",
+       '"left" if i < esquerda else "center"' in _insp_h.getsource(_tabela_html))
+
     print("\nfalhas:", falhas)
 
     # O CODIGO DE SAIDA. Sem ele, quem le `returncode` ve este modulo como
