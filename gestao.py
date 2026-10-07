@@ -52,9 +52,18 @@ def pagina_home(usuario_logado=None):
 # isso na importação faria o Studio inteiro esperar pelo Google para desenhar
 # qualquer tela.
 def _operacional(usuario_logado=None):
-    """Água, luz, aluguel, contabilidade — o custo fixo que não é gente."""
+    """Água, luz, aluguel, contabilidade — o custo fixo que não é gente.
+
+    E as ASSINATURAS logo abaixo, na mesma tela (dono, 07/10: "colocar abaixo
+    de custo fixo dentro da sub aba Operacional"). Eram um pontinho à parte;
+    são custo fixo também, e o dono confere os dois juntos.
+    """
     import custo_fixo as _cf
     _cf.pagina(usuario_logado, grade="custo_fixo")
+    import auth as _auth_op
+    if _auth_op.eh_dono(usuario_logado):
+        st.markdown("---")
+        _abrir_tela("assinaturas_tela", usuario_logado)
 
 
 def _folha_salarial(usuario_logado=None):
@@ -224,7 +233,8 @@ _PONTINHOS_CUSTO_FIXO.update({
     "🧮 Balanço headcount":  _balanco_headcount,
     # A Reserva saiu daqui em 05/10: ela é a parte de baixo do Balanço
     # headcount, com "Aportes e saldos" dentro dela (pedido do dono).
-    "🔁 Assinaturas":        lambda u: _abrir_tela("assinaturas_tela", u),
+    # Assinaturas saiu daqui em 07/10: mora embaixo do Custo fixo, no
+    # pontinho Operacional (`_operacional`).
     "💰 LPV Mensal":         _lpv_mensal,
     "📈 Ajuste de valor":    _ajuste_de_valor,
 })

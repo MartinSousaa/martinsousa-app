@@ -220,6 +220,25 @@ def _partes_do_mes(ano, mes, cache):
 
 
 @st.cache_data(ttl=120, show_spinner=False)
+def lpv_projetado(ano, mes):
+    """O LPV do MÊS CORRENTE, pela projeção de vendas. None sem projeção.
+
+    Dono, 07/10: "só temos o total de vendas quando o mês acaba, nesse caso,
+    preciso ter um campo «Projeção de vendas mensal»". As partes são as do
+    mês (as mesmas de `lpv_do_ano`); só as vendas vêm da projeção, digitada
+    em Financeiro › Meta de gastos.
+    """
+    import meta_gastos as _mg
+    vendas = _mg.projecao_vendas(ano, mes)
+    if vendas <= 0:
+        return None
+    p = _partes_do_mes(int(ano), int(mes), {})
+    r = lpv(p["custo_fixo"], p["folha_gerencia"], p["assinaturas"],
+            p["nao_operacional"], vendas)
+    return dict(r, origem_vendas="projeção")
+
+
+@st.cache_data(ttl=120, show_spinner=False)
 def lpv_do_ano(ano):
     """({mes: lpv(...)}, erro). O LPV de verdade, mês a mês.
 
@@ -466,6 +485,27 @@ if __name__ == "__main__":
        mes_fechado(2026, 9, _date(2026, 10, 2)))
     ok("o mês corrente não está fechado",
        not mes_fechado(2026, 10, _date(2026, 10, 2)))
+
+    # ── O LPV DO MÊS CORRENTE, PELA PROJEÇÃO DE VENDAS (07/10) ──────────
+    import meta_gastos as _mg_p
+    _g_proj, _g_partes = _mg_p.projecao_vendas, globals()["_partes_do_mes"]
+    globals()["_partes_do_mes"] = lambda a, m, c: {
+        "custo_fixo": 22842.0 - 15900.0, "folha_gerencia": 15900.0,
+        "assinaturas": 0.0, "nao_operacional": 15512.93}
+    try:
+        _mg_p.projecao_vendas = lambda a, m, cadastro=None: 1879.0
+        lpv_projetado.clear()
+        _lp = lpv_projetado(2026, 10)
+        ok("com projeção, o LPV do mês corrente sai pela projeção",
+           _lp["lpv"] == round((22842.0 + 15512.93) / 1879, 2)
+           and _lp["origem_vendas"] == "projeção" and _lp["vendas"] == 1879.0)
+        _mg_p.projecao_vendas = lambda a, m, cadastro=None: 0.0
+        lpv_projetado.clear()
+        ok("sem projeção, não inventa LPV do mês", lpv_projetado(2026, 10) is None)
+    finally:
+        _mg_p.projecao_vendas = _g_proj
+        globals()["_partes_do_mes"] = _g_partes
+        lpv_projetado.clear()
 
     print("\nfalhas:", falhas)
     raise SystemExit(1 if falhas else 0)

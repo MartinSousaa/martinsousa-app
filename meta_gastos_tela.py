@@ -208,11 +208,14 @@ def pagina(usuario_logado=None):
         "de onde": ORIGEM.get(l["origem"], l["origem"]),
         "saldo": l["saldo"],
         "informado": l["informado"],
+        "projeção de vendas": int(l.get("projecao_vendas") or 0),
         "observação": l["observacao"],
     } for l in linhas])
 
-    st.caption("**Só a coluna META se digita.** As outras são calculadas ou "
-               "vieram do extrato.")
+    st.caption("**Digita-se a META e a PROJEÇÃO DE VENDAS.** As outras são "
+               "calculadas ou vieram do extrato. A projeção é quantas vendas "
+               "você espera no mês: com ela o LPV do mês corrente é calculado "
+               "(custo fixo + salários da gerência + não operacional ÷ vendas).")
 
     # Editor e botão dentro do MESMO formulário, e não por capricho.
     #
@@ -246,6 +249,12 @@ def pagina(usuario_logado=None):
                     help="O gasto dos meses anteriores ao extrato, vindo da "
                          "sua planilha. Não se digita aqui: quando o extrato "
                          "entra, é ele que manda."),
+                "projeção de vendas": st.column_config.NumberColumn(
+                    "📦 PROJEÇÃO DE VENDAS — digite aqui", format="%d",
+                    min_value=0, step=100,
+                    help="Quantas vendas você espera no mês. O LPV do mês "
+                         "corrente divide o custo fixo por este número; "
+                         "quando o mês fecha, vale o número real."),
                 "observação": st.column_config.TextColumn(width="medium"),
             },
         )
@@ -256,14 +265,18 @@ def pagina(usuario_logado=None):
         _n = 0
         for i, r in editado.iterrows():
             antes = linhas[i]
+            _proj = float(r.get("projeção de vendas") or 0)
+            if _proj != _proj:            # NaN da célula apagada
+                _proj = 0.0
             if (float(r["meta"]) == antes["meta"]
                     and float(r["informado"]) == antes["informado"]
-                    and str(r["observação"] or "") == antes["observacao"]):
+                    and str(r["observação"] or "") == antes["observacao"]
+                    and _proj == float(antes.get("projecao_vendas") or 0)):
                 continue
             _ok, _msg = _mg.salvar(antes["mes"], meta=float(r["meta"]),
                                    informado=float(r["informado"]),
                                    observacao=str(r["observação"] or ""),
-                                   usuario=usuario_logado)
+                                   usuario=usuario_logado, projecao=_proj)
             if not _ok:
                 st.error(_msg)
                 return
@@ -277,6 +290,11 @@ def pagina(usuario_logado=None):
             # A prova, relida da planilha. Sem ela, "salvo" é promessa: já
             # aconteceu de o botão não rodar e a tela não dizer nada.
             _mg.carregar.clear()
+            try:
+                import lpv_mensal as _lm_c
+                _lm_c.lpv_projetado.clear()
+            except Exception:
+                pass
             _grav = _mg.carregar()
             st.success(f"{_n} mês(es) salvo(s).")
             st.dataframe(pd.DataFrame(

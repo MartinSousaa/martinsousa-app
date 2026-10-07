@@ -191,11 +191,35 @@ def lpv_vigente(df, hoje=None):
     digitado em LPV Mensal fica de RESERVA, para quando não há cálculo
     (extrato não subido, BASE DE VENDAS fora do ar).
     """
+    # O MÊS CORRENTE PRIMEIRO, pela projeção de vendas (dono, 07/10). Sem
+    # projeção digitada, vale o último mês fechado, como antes.
+    proj = lpv_do_mes_projetado(hoje)
+    if proj:
+        valor, ano, mes, vendas = proj
+        return valor, (f"{MESES[mes - 1]}/{ano} · projeção de "
+                       f"{vendas:,.0f} vendas".replace(",", "."))
     calc = lpv_calculado_recente(hoje)
     if calc:
         valor, ano, mes = calc
         return valor, f"{MESES[mes - 1]}/{ano} · calculado"
     return _lpv_digitado(df, hoje)
+
+
+def lpv_do_mes_projetado(hoje=None):
+    """(lpv, ano, mes, vendas) do mês corrente pela projeção. Ou None.
+
+    None quando não há projeção digitada ou alguma grade não foi lida —
+    aí quem chama segue para o último mês fechado.
+    """
+    hoje = hoje or _hoje_br()
+    try:
+        import lpv_mensal as _lm
+        r = _lm.lpv_projetado(hoje.year, hoje.month)
+        if r and r.get("lpv") is not None:
+            return float(r["lpv"]), hoje.year, hoje.month, float(r["vendas"])
+    except Exception:
+        pass
+    return None
 
 
 def meses_de_atraso_lpv(df, hoje=None):
@@ -205,6 +229,8 @@ def meses_de_atraso_lpv(df, hoje=None):
     em dia. O digitado mantém a conta de antes.
     """
     hoje_ = hoje or _hoje_br()
+    if lpv_do_mes_projetado(hoje_):
+        return 0                       # o mês corrente, pela projeção
     calc = lpv_calculado_recente(hoje_)
     if calc:
         _v, ano, mes = calc
@@ -631,5 +657,22 @@ if __name__ == "__main__":
     ok("o campo do LPV mensal recusa negativo e salva em branco",
        "elif lpv is not None and not lpv_valido(lpv):" in _pg_f
        and '"em branco."))\n            lpv = None\n' in _pg_f)
+    # ── 07/10: o mês corrente pela projeção vem antes do último fechado ──
+    import lpv_mensal as _lm_v
+    _g_lp = _lm_v.lpv_projetado
+    try:
+        _lm_v.lpv_projetado = lambda a, m: {"lpv": 20.41, "vendas": 1879.0,
+                                            "origem_vendas": "projeção"}
+        _v, _o = lpv_vigente(pd.DataFrame(), date(2026, 10, 7))
+        ok("com projeção, o LPV vigente é o do mês corrente",
+           _v == 20.41 and "outubro/2026" in _o.lower() and "projeção" in _o)
+        ok("e não está atrasado", meses_de_atraso_lpv(pd.DataFrame(),
+                                                      date(2026, 10, 7)) == 0)
+        _lm_v.lpv_projetado = lambda a, m: None
+        ok("sem projeção, o mês corrente não é usado",
+           lpv_do_mes_projetado(date(2026, 10, 7)) is None)
+    finally:
+        _lm_v.lpv_projetado = _g_lp
+
     print("\nfalhas:", falhas)
     __import__("sys").exit(1 if falhas else 0)

@@ -2289,6 +2289,42 @@ MUTACOES = [
         ["python3", "placar_core.py"],
     ),
     (
+        "Assinaturas volta a ficar fora do Operacional",
+        "gestao.py",
+        '        _abrir_tela("assinaturas_tela", usuario_logado)\n',
+        "        pass\n",
+        ["python3", "checar_tela.py"],
+    ),
+    # ── 07/10: O LPV DO MÊS CORRENTE PELA PROJEÇÃO DE VENDAS ────────────
+    (
+        "o LPV vigente volta a ignorar a projecao do mes",
+        "financeiro.py",
+        "    proj = lpv_do_mes_projetado(hoje)\n",
+        "    proj = None\n",
+        ["python3", "financeiro.py"],
+    ),
+    (
+        "o LPV projetado volta a nao ler a projecao digitada",
+        "lpv_mensal.py",
+        "    vendas = _mg.projecao_vendas(ano, mes)\n",
+        "    vendas = 0.0\n",
+        ["python3", "lpv_mensal.py"],
+    ),
+    (
+        "a aba antiga da meta volta a esconder a coluna da projecao",
+        "meta_gastos.py",
+        "    if [c for c in COLUNAS if c not in cab]:\n",
+        "    if False:\n",
+        ["python3", "meta_gastos.py"],
+    ),
+    (
+        "o Salvar da meta volta a perder a projecao",
+        "meta_gastos_tela.py",
+        "usuario=usuario_logado, projecao=_proj)",
+        "usuario=usuario_logado)",
+        ["python3", "checar_tela.py"],
+    ),
+    (
         "o previsto do cartao volta a ignorar as compras ja lancadas",
         "previsto.py",
         '    if prev.get("FATURA DO CARTÃO") and cartao_detalhado:\n',
