@@ -5,6 +5,7 @@ Permite visualizar desempenho histórico e configurar metas por mês.
 NOTA: importa placar_core (sem UI) em vez de placar (com UI) para evitar
 circular import e conflito de chaves de widgets do Streamlit.
 """
+from rotulos import brl as _brl_ms
 import streamlit as st
 import pandas as pd
 import math
@@ -2020,7 +2021,7 @@ def _secao_meta_individual(dados, membros_ativos, usuario_logado=None, eh_master
 
             def _bonus_val(valor, batida, cor):
                 if batida:
-                    return f'<div style="font-size:13px;font-weight:700;color:{cor};">+R$ {valor:,.2f}</div>'
+                    return f'<div style="font-size:13px;font-weight:700;color:{cor};">+{_brl_ms(valor)}</div>'
                 return '<div style="font-size:13px;font-weight:700;color:var(--ms-texto-sec);">—</div>'
 
             def _bonus_sub(batida, label):
@@ -6942,10 +6943,56 @@ def _secao_configuracao(dados=None, carregar_periodo=None):
         , key=f"cfg_min_membro_pct_{ano_cfg}_{mes_cfg_num}")
 
         submitted = st.form_submit_button("💾 Salvar configuração", use_container_width=True)
+        _flash_cfg = f"_cfg_salva_{ano_cfg}_{mes_cfg_num}"
+        _rot_cfg = {**mc.LABELS, **{k: f"Meta de {n}" for k, _x, n in _pessoas}}
         if submitted:
-            mc.salvar_config(ano_cfg, mes_cfg_num, nova_cfg)
-            st.success(f"✅ Configuração de {mes_cfg} {ano_cfg} salva com sucesso!")
-            st.rerun()
+            # SÓ SE DIZ "SALVO" DEPOIS DE RELER A PLANILHA (dono, 07/10).
+            # Antes: o sucesso aparecia sempre, e o st.rerun() apagava na hora
+            # tanto ele quanto o erro de uma gravação recusada.
+            _ok_cfg, _err_cfg = mc.salvar_config(ano_cfg, mes_cfg_num, nova_cfg)
+            if not _ok_cfg:
+                st.error(f"❌ **NÃO SALVOU.** {_err_cfg}  \n"
+                         "Os valores na tela não estão gravados — a TV e o "
+                         "Painel continuam com os antigos. Clique em Salvar "
+                         "de novo em alguns segundos.")
+            else:
+                _dif_cfg = mc.conferir_gravado(ano_cfg, mes_cfg_num, nova_cfg)
+                if _dif_cfg:
+                    st.error("❌ **A planilha não ficou com o que está na "
+                             "tela:** " + " · ".join(
+                                 f"{_rot_cfg.get(k, k)}: tela {a}, gravado {b}"
+                                 for k, a, b in _dif_cfg[:8])
+                             + ". Clique em Salvar de novo.")
+                else:
+                    st.session_state[_flash_cfg] = (
+                        f"✅ Configuração de {mes_cfg} {ano_cfg} salva"
+                        + (" e conferida na planilha." if _dif_cfg == []
+                           else " (não consegui reler a planilha para "
+                                "conferir — confira em alguns minutos)."))
+                    st.rerun()
+        else:
+            _msg_cfg = st.session_state.pop(_flash_cfg, None)
+            if _msg_cfg:
+                st.success(_msg_cfg)
+            # A TELA DIFERENTE DO GRAVADO: depois de um Salvar que falhou, os
+            # campos continuam mostrando o que se digitou, e o gravado é outro.
+            _chaves_cfg = (["meta_equipe", mc.CHAVE_MAXX_ACRESCIMO]
+                           + [k for k, _x, _n in _pessoas])
+            # O gravado pela MESMA regra do valor inicial de cada campo: com
+            # outra, um campo vazio na planilha acusaria diferença sem
+            # ninguém ter digitado nada.
+            _gravado_cfg = {
+                "meta_equipe": int(cfg_atual["meta_equipe"]),
+                mc.CHAVE_MAXX_ACRESCIMO: min(200, max(0, _acre_atual)),
+                **{k: int(cfg_atual.get(k, mc.META_INDIVIDUAL_PADRAO) or 0)
+                   for k, _x, _n in _pessoas}}
+            _dif_tela = mc.diferencas(nova_cfg, _gravado_cfg, _chaves_cfg)
+            if _dif_tela:
+                st.warning("⚠️ **Não salvo:** a tela mostra valores diferentes "
+                           "do gravado — " + " · ".join(
+                               f"{_rot_cfg.get(k, k)}: tela {a}, gravado {b}"
+                               for k, a, b in _dif_tela[:8])
+                           + ". Clique em Salvar configuração.")
 
 
 # ── Página principal ───────────────────────────────────────────────────────────

@@ -357,7 +357,7 @@ def pagina(usuario_logado=None):
                     "O que muda", options=opcoes, required=True, width="large",
                     help="A lista vem do que já está cadastrado nas grades."),
                 "valor_novo": st.column_config.NumberColumn(
-                    "Novo valor (R$)", min_value=0.0, step=0.01, format="%.2f"),
+                    "Novo valor (R$)", min_value=0.0, step=0.01, format="R$ %.2f"),
                 "vigente_desde": st.column_config.TextColumn(
                     "Vigente desde", width="small",
                     help="AAAA-MM. O mês em que o novo valor passou a valer."),

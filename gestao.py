@@ -245,6 +245,9 @@ _PONTINHOS_EXTRATOS = {
 }
 
 SUBTELAS = {
+    # Dono, 07/10: "na aba Financeiro, antes de Custo fixo, um campo chamado
+    # Resumo Mensal".
+    "📊 Resumo Mensal": lambda u: _abrir_tela("resumo_mensal", u),
     "🧱 Custos fixos": lambda u: _com_pontinhos(
         _PONTINHOS_CUSTO_FIXO, "fin_cf", u),
     "💳 Extratos": lambda u: _com_pontinhos(

@@ -677,6 +677,22 @@ def _bloco_gastos(usuario_logado=None, d=None):
                    "provisionado.")
         return
 
+    # ── o "Já gasto" lançamento a lançamento ─────────────────────────────
+    # Dono, 07/10: "o que é esse Já gasto? Onde eu consigo visualizar?".
+    _itens = itens_ja_saidos(lancs)
+    if _itens:
+        st.markdown(f"**Já saiu, lançamento a lançamento** · "
+                    f"{_brl(sum(i['valor'] for i in _itens))}")
+        st.dataframe(
+            pd.DataFrame(_itens), use_container_width=True, hide_index=True,
+            column_config={"valor": st.column_config.NumberColumn(
+                format="R$ %.2f")})
+        st.caption("Saídas do extrato e compras das faturas anexadas, com a "
+                   "finalidade de cada uma; reembolso entra negativo. O "
+                   "pagamento da fatura não aparece aqui: ele conta só pelo "
+                   "que as compras anexadas não explicam, na linha FATURA DO "
+                   "CARTÃO acima.")
+
     # ── 2. onde o dinheiro foi ───────────────────────────────────────────
     FORMAS = {"CHEQUES", "FATURA DO CARTÃO", "BOLETO"}
     por_fin = {k: v for k, v in res.items()
@@ -885,7 +901,7 @@ def composicao_do_mes(ano, mes, faturamento):
                       teto_outros=_eq.TETO_OUTROS_PADRAO)
     for nome, valor in comp.get("desconhecidas", [])[:3]:
         avisos.append(
-            f"A finalidade **{nome}** (R$ {valor:,.2f}) não está classificada "
+            f"A finalidade **{nome}** ({_rot.brl(valor)}) não está classificada "
             "e ficou FORA da conta. Diga se ela é custo fixo ou variável.")
     # O CADASTRO MANDA, O EXTRATO CONFERE — e é o cadastro que se corrige.
     #
@@ -903,9 +919,9 @@ def composicao_do_mes(ano, mes, faturamento):
     elif comp.get("extrato_passou_o_cadastro"):
         avisos.append(
             f"**O cadastro do custo fixo está desatualizado.** Já saíram da "
-            f"conta R$ {comp.get('saiu_no_extrato', 0):,.2f} em custo fixo, "
+            f"conta {_rot.brl(comp.get('saiu_no_extrato', 0))} em custo fixo, "
             f"serviços e folha, e o cadastro soma "
-            f"R$ {comp.get('cadastro_do_mes', 0):,.2f}. O equilíbrio "
+            f"{_rot.brl(comp.get('cadastro_do_mes', 0))}. O equilíbrio "
             "continua sendo calculado pelo cadastro — corrija nele os itens "
             "que vieram diferentes no extrato ou na fatura.")
     return comp, avisos
@@ -1060,6 +1076,12 @@ def montar_resumo_gastos(meta, res, prev, cheques_do_mes, cartao_detalhado=0.0):
     fixos = round(falta.get("CUSTO FIXO", 0.0) + falta.get("FOLHA", 0.0)
                   + falta.get("NÃO OPERACIONAL", 0.0), 2)
     ja_saiu = round(total - cheq_cart - fixos, 2)
+    # Do que é feito o "Já gasto" (dono, 07/10: "o que é esse Já gasto?"):
+    # por finalidade, o que já saiu de cada uma — a conta menos o que falta.
+    ja_por = sorted(((x["finalidade"], round(x["conta"] - x["falta_sair"], 2))
+                     for x in combinado
+                     if round(x["conta"] - x["falta_sair"], 2) != 0),
+                    key=lambda t: -t[1])
     est_aberto = round(sum(_ch._num(c.get("estoque"))
                            for c in cheques_do_mes if _ch.esta_aberto(c)), 2)
     est_pago = round(sum(_ch._num(c.get("estoque"))
@@ -1068,6 +1090,9 @@ def montar_resumo_gastos(meta, res, prev, cheques_do_mes, cartao_detalhado=0.0):
     return {
         "meta": float(meta or 0.0),
         "ja_saiu": ja_saiu, "cheques_cartoes": cheq_cart, "fixos": fixos,
+        "cheques": round(falta.get("CHEQUES", 0.0), 2),
+        "cartoes": round(falta.get("FATURA DO CARTÃO", 0.0), 2),
+        "ja_por": ja_por,
         "total": total,
         "saldo": round(float(meta or 0.0) - total, 2) if meta else None,
         "pct": round(total / float(meta) * 100, 1) if meta else None,
@@ -1220,14 +1245,62 @@ def _html_gastos(q, erros=None):
         '<span style="font-size:11px;color:{SEC};text-align:right;">Total</span>'
         f'<span style="font-size:11px;color:{ambar};text-align:right;font-weight:700;">Mercadoria</span>'
         + linha_t("Já gasto", _brl(q["ja_saiu"], 0), _brl(q["merc_gasta"], 0), ambar)
-        + linha_t("Comprometido · cheques e cartões", _brl(q["cheques_cartoes"], 0),
+        + _composicao(q.get("ja_por"))
+        + linha_t("Comprometido · cheques a compensar", _brl(q["cheques"], 0),
                   _brl(q["merc_comprometida"], 0), "#8A6A33")
+        + linha_t("Comprometido · cartões (fatura a pagar)", _brl(q["cartoes"], 0),
+                  "—", "#6E5A8A")
         + linha_t("Comprometido · fixos, folha e não operacional", _brl(q["fixos"], 0), "—", "#5B6573")
         + linha_t("Total do mês", _brl(q["total"], 0),
                   _brl(q["merc_gasta"] + q["merc_comprometida"], 0), "", forte=True)
         + '</div>'
-        + f'<div style="font-size:11px;color:{SEC};">Mercadoria: extrato + estoque dos cheques{cart}.</div>'
+        + f'<div style="font-size:11px;color:{SEC};">Mercadoria: extrato + estoque dos cheques{cart}. '
+          'Item a item: «💰 Detalhe dos gastos do mês», logo abaixo.</div>'
         + aviso + '</div>')
+
+
+def itens_ja_saidos(lancs):
+    """Os lançamentos que formam o "Já gasto", um por linha. Pura.
+
+    A mesma regra de `lancamentos.resumo_por_finalidade` — e lida DELA, não
+    reescrita: cada lançamento passa sozinho pelo resumo e entra com o que o
+    resumo contar dele. Assim esta lista não discorda do total de cima. Fica
+    fora só o pagamento da fatura, que o resumo conta pelo RESTO do mês
+    inteiro, e não lançamento a lançamento.
+    """
+    import lancamentos as _lan
+    saida = []
+    for l in (lancs or []):
+        if _lan.cartao_pago([l]):
+            continue
+        r = _lan.resumo_por_finalidade([l])
+        v = round(sum(r.values()), 2)
+        if not v:
+            continue
+        saida.append({"data": str(l.get("data") or "")[:10],
+                      "favorecido": str(l.get("favorecido")
+                                        or l.get("descricao") or "")[:60],
+                      "finalidade": next(iter(r)),
+                      "valor": v,
+                      "conta": str(l.get("conta") or "")})
+    return sorted(saida, key=lambda i: (i["data"], -i["valor"]))
+
+
+def _composicao(ja_por, n=5):
+    """A linha miúda sob "Já gasto": as finalidades que o compõem.
+
+    Ocupa as três colunas da grade. As cinco maiores pelo nome; o resto vira
+    "outras", para a soma da linha bater com o "Já gasto" de cima.
+    """
+    ja_por = list(ja_por or [])
+    if not ja_por:
+        return ""
+    partes = [f"{_esc(f.title())} {_brl(v, 0)}" for f, v in ja_por[:n]]
+    resto = round(sum(v for _f, v in ja_por[n:]), 2)
+    if resto:
+        partes.append(f"outras {_brl(resto, 0)}")
+    return ('<span style="grid-column:1 / -1;font-size:11px;color:{SEC};'
+            'padding:0 0 6px 17px;">' + " · ".join(partes) + "</span>")
 
 
 def _esc(t):
@@ -2183,6 +2256,41 @@ if __name__ == "__main__":
        and "_lan.cartao_detalhado(lancs)" in _insp_c.getsource(_bloco_gastos))
     ok("a tela avisa que o cartão não separa mercadoria",
        _q_t["merc_cartao"] and "cartão sem separação" in _html_gastos(_q_t))
+    # Dono, 07/10: "eu preciso ver separadamente os valores comprometidos de
+    # cheque e de cartões" — e "o que é esse Já gasto?".
+    ok("cheques e cartões comprometidos saem separados, e somam a linha antiga",
+       _q_t["cheques"] == 5000.0 and _q_t["cartoes"] == 8000.0
+       and round(_q_t["cheques"] + _q_t["cartoes"], 2) == _q_t["cheques_cartoes"])
+    _h_t = _html_gastos(_q_t)
+    ok("o quadro mostra cheques e cartões em linhas próprias",
+       "cheques a compensar" in _h_t and "cartões (fatura a pagar)" in _h_t
+       and "cheques e cartões" not in _h_t)
+    ok("o Já gasto diz do que é feito, e as partes fecham o total dele",
+       round(sum(v for _f, v in _q_t["ja_por"]), 2) == _q_t["ja_saiu"]
+       and _q_t["ja_por"][0] == ("MERCADORIA", 10000.0)
+       and "Mercadoria R$" in _h_t)
+    ok("a composição junta o que passa de cinco em «outras»",
+       "outras R$" in _composicao([("A", 6.0), ("B", 5.0), ("C", 4.0),
+                                   ("D", 3.0), ("E", 2.0), ("F", 1.0)])
+       and _composicao([]) == "")
+    # A lista item a item parte de lançamentos de verdade (a forma que
+    # `lancamentos.do_mes` devolve) e fecha com o "Já gasto" do resumo.
+    _li_t = _lancs_t + [
+        {"valor": 440.0, "finalidade": "REEMBOLSO", "data": "2026-10-03"},
+        {"valor": 900.0, "finalidade": "TRANSFERENCIA ENTRE CONTAS"},
+    ]
+    _it_t = itens_ja_saidos(_li_t)
+    ok("a lista item a item soma o mesmo que o resumo por finalidade",
+       round(sum(i["valor"] for i in _it_t), 2)
+       == round(sum(_lan_t.resumo_por_finalidade(_li_t).values()), 2))
+    ok("reembolso entra negativo e transferência fica fora da lista",
+       any(i["valor"] == -440.0 for i in _it_t)
+       and not any(i["finalidade"].startswith("TRANSF") for i in _it_t))
+    _fat_t = [{"valor": -1000.0, "finalidade": "FATURA DO CARTÃO"},
+              {"valor": -300.0, "finalidade": "ADS", "conta": "cartão · Inter"}]
+    ok("o pagamento da fatura não entra item a item",
+       all(i["finalidade"] != "FATURA DO CARTÃO"
+           for i in itens_ja_saidos(_fat_t)))
 
     import base_vendas as _bv_t
     _ind_t = _bv_t.indicadores({"faturamento": 100000.0, "fat_liquido": 90000.0,

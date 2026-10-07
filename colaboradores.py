@@ -781,7 +781,7 @@ def bloco(usuario_logado=None, taxas=None):
                     help="AAAA-MM. Antes desse mês, sem tributo. Em branco com "
                          "«Sim», vale para todos os meses."),
                 "salario_base": st.column_config.NumberColumn(
-                    "Salário base (R$)", min_value=0.0, step=0.01, format="%.2f",
+                    "Salário base (R$)", min_value=0.0, step=0.01, format="R$ %.2f",
                     width="medium",
                     help="O de quando entrou. Reajuste vai em «Ajuste de valor»."),
                 "admissao": st.column_config.TextColumn(
@@ -796,8 +796,8 @@ def bloco(usuario_logado=None, taxas=None):
                     width="small", help="Para a refeição no local."),
                 "vale_transporte": st.column_config.NumberColumn(
                     "Vale-transporte (R$)", min_value=0.0, step=0.01,
-                    format="%.2f", width="medium",
-                    help=f"Em branco usa o padrão da casa, R$ {VALE_TRANSPORTE_MES:.2f}. "
+                    format="R$ %.2f", width="medium",
+                    help=f"Em branco usa o padrão da casa, {_rot.brl(VALE_TRANSPORTE_MES)}. "
                          "Preencha só para quem tem valor diferente. Mudança de "
                          "valor vai em «Ajuste de valor», grade Vale-transporte — "
                          "assim o mês passado continua com o valor que era."),

@@ -33,6 +33,7 @@ Regras que valem para toda ferramenta daqui:
   do que uma estrutura que ele teria que interpretar.
 * Respeita perfil: o que é de admin só responde para admin.
 """
+from rotulos import brl as _brl_ms
 import streamlit as st
 import placar_core as _pc_br   # a porta unica da hora de Brasilia
 
@@ -246,7 +247,7 @@ def _ler_financeiro():
         return f"Não consegui ler o Financeiro agora: {e}"
     if lpv is None:
         return f"Não há LPV informado ({origem}). Precisa ser preenchido em Gestão → Financeiro."
-    linhas = [f"LPV vigente: R$ {lpv:.2f} ((custo fixo + não operacional) ÷ vendas do mês)",
+    linhas = [f"LPV vigente: {_brl_ms(lpv)} ((custo fixo + não operacional) ÷ vendas do mês)",
               f"Mês de origem do LPV: {origem}",
               (f"Alíquota tributária: {aliq:.1f}%" if aliq is not None
                else "Alíquota tributária: não informada")]
@@ -302,12 +303,12 @@ def _ler_gastos_do_mes(ano=None, mes=None):
                    key=lambda kv: -abs(kv[1]))
     linhas = [f"Gastos gravados em {mes:02d}/{ano} "
               f"(tela Gestão › Gastos do mês):",
-              f"Total lançado: R$ {sum(resumo.values()):,.2f}", ""]
-    linhas += [f"  {k}: R$ {v:,.2f}" for k, v in itens]
+              f"Total lançado: {_brl_ms(sum(resumo.values()))}", ""]
+    linhas += [f"  {k}: {_brl_ms(v)}" for k, v in itens]
     if sem:
         linhas.append("")
         linhas.append(
-            f"R$ {sem:,.2f} estão SEM CLASSIFICAÇÃO — são nomes do extrato "
+            f"{_brl_ms(sem)} estão SEM CLASSIFICAÇÃO — são nomes do extrato "
             "que ninguém respondeu ainda. Resolve-se em Financeiro › 🏷️ "
             "Finalidades, e a resposta vale para o passado inteiro.")
     linhas.append("")
@@ -556,7 +557,7 @@ if __name__ == "__main__":
     finally:
         _fin_t.carregar_dados, _fin_t.lpv_calculado_recente = _g
     ok("ler_financeiro responde com LPV e alíquota",
-       "20.94" in _txt and "Alíquota tributária: 9.0%" in _txt)
+       "R$ 20,94" in _txt and "Alíquota tributária: 9.0%" in _txt)
 
     print()
     if falhas:

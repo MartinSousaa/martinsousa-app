@@ -719,11 +719,11 @@ def _cadastro_tabela(usuario_logado):
                 column_config={
                     "tributo": st.column_config.SelectboxColumn(
                         "Tributo", options=_tt.TRIBUTOS, required=True),
-                    "ate": st.column_config.NumberColumn("Até (R$)", format="%.2f"),
+                    "ate": st.column_config.NumberColumn("Até (R$)", format="R$ %.2f"),
                     "aliquota": st.column_config.NumberColumn("Alíquota (%)",
                                                               format="%.2f"),
                     "deducao": st.column_config.NumberColumn("Dedução (R$)",
-                                                             format="%.2f"),
+                                                             format="R$ %.2f"),
                 })
             if st.form_submit_button("💾 Salvar tabela", type="primary"):
                 okk, msg = _tt.salvar(ed, usuario_logado)
@@ -896,7 +896,7 @@ def pagina(usuario_logado=None):
                 "data": st.column_config.TextColumn(
                     "Mês", width="small", help="AAAA-MM."),
                 "valor": st.column_config.NumberColumn(
-                    "Valor (R$)", min_value=0.0, step=0.01, format="%.2f"),
+                    "Valor (R$)", min_value=0.0, step=0.01, format="R$ %.2f"),
                 "observacao": st.column_config.TextColumn("Observação", width="large"),
             },
         )
