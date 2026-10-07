@@ -13672,6 +13672,29 @@ if __name__ == "__main__":
        round(contraste("#A8D5BA", "#A8D5BA"), 2) == 1.0)
     ok("hex de 3 digitos e lido igual ao de 6",
        contraste("#fff", "#000") == contraste("#FFFFFF", "#000000"))
+    # OS QUATRO NOMES QUE O `checar_impacto` COBROU, e com razao: eu os
+    # exportei no `.txt` do motor, entao eles passaram a ter leitor em outro
+    # arquivo — e nenhuma asserção os citava pelo nome. Guarda que nao nomeia
+    # o que mede nao protege quem muda aquilo depois.
+    ok("o piso de contraste e o da WCAG para texto normal",
+       _PISO_CONTRASTE_TEXTO == 4.5)
+    ok("a largura do cartao e a da norma ISO/IEC 7810 ID-1",
+       LARGURA_CARTAO_CM == 8.56)
+    # A LUMINANCIA, nos dois extremos da escala: se a formula mudar, estas
+    # duas caem antes de qualquer conta de contraste ficar errada em silencio.
+    ok("a luminancia do branco e 1 e a do preto e 0",
+       round(_luminancia("#FFFFFF"), 4) == 1.0
+       and round(_luminancia("#000000"), 4) == 0.0)
+    ok("e hex invalido devolve None em vez de zero",
+       _luminancia("#ZZZ") is None and _luminancia("") is None)
+    # AS MEDIDAS CONVERTIDAS, que e de onde a regua tira os numeros.
+    ok("milimetro, centimetro e metro viram todos cm",
+       _medidas_em_cm({"medidas": "12mm 3cm 2m"}) == [1.2, 3.0, 200.0])
+    ok("numero sem unidade nao entra na conversao",
+       _medidas_em_cm({"medidas": "33x33x6"}) == [])
+    ok("peso nao vira medida de comprimento",
+       _medidas_em_cm({"medidas": "326g"}) == [])
+
     ok("hex ilegivel nao vira numero inventado",
        contraste("verde menta", "#FFF") is None
        and contraste("#GGG", "#FFF") is None)
