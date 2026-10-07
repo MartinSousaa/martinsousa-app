@@ -6285,7 +6285,9 @@ def _secao_colunas(dados):
         st.info("Não consegui listar as colunas do Trello agora.")
         return
 
-    novas = [c for c in do_board if c not in _pc.COLUNAS_CONFIG and c not in salvas]
+    # A MESMA pergunta da TV e da configuração (`colunas_sem_config`): por
+    # grafia exata, coluna configurada com um espaço de diferença seguia aqui.
+    novas = _pc.colunas_sem_config(do_board, salvas)
     if novas:
         st.warning(
             "**Colunas novas no Trello, ainda sem configuração:** "

@@ -29,7 +29,10 @@ import streamlit as st
 
 ABA_NOME = "meta_gastos"
 COLUNAS = ["mes", "meta", "informado", "observacao", "atualizado_em",
-           "atualizado_por"]
+           "atualizado_por",
+           # Dono, 07/10: as vendas do mês só se sabem quando ele acaba, e o
+           # LPV do mês corrente precisa de um número antes disso.
+           "projecao_vendas"]
 
 FUSO = timezone(timedelta(hours=-3))
 
@@ -148,6 +151,7 @@ def carregar():
             "meta": _num(r.get("meta")),
             "informado": _num(r.get("informado")),
             "observacao": str(r.get("observacao", "") or "").strip(),
+            "projecao_vendas": _num(r.get("projecao_vendas")),
         }
     return fora
 
@@ -166,7 +170,27 @@ def linhas_cruas():
         return []
 
 
-def salvar(mes_txt, meta=None, informado=None, observacao=None, usuario=""):
+def projecao_vendas(ano, mes, cadastro=None):
+    """As vendas que o dono espera no mês. 0.0 quando não informou."""
+    cad = carregar() if cadastro is None else cadastro
+    return float((cad.get(texto_mes(ano, mes)) or {}).get("projecao_vendas")
+                 or 0.0)
+
+
+def _garantir_cabecalho(aba):
+    """A aba criada antes de 07/10 não tem a coluna `projecao_vendas`: sem o
+    título, o Google devolve o valor sem nome e a leitura não o enxerga."""
+    try:
+        cab = aba.row_values(1) if hasattr(aba, "row_values") else list(COLUNAS)
+    except Exception:
+        return
+    if [c for c in COLUNAS if c not in cab]:
+        fim = chr(ord("A") + len(COLUNAS) - 1)
+        aba.update([COLUNAS], f"A1:{fim}1", value_input_option="RAW")
+
+
+def salvar(mes_txt, meta=None, informado=None, observacao=None, usuario="",
+           projecao=None):
     """Grava ou atualiza a linha de um mês. (ok, mensagem)."""
     alvo = str(mes_txt or "").strip()
     if len(alvo) != 7 or "-" not in alvo:
@@ -181,9 +205,11 @@ def salvar(mes_txt, meta=None, informado=None, observacao=None, usuario=""):
          else str(observacao)[:200]),
         datetime.now(FUSO).strftime("%Y-%m-%d %H:%M"),
         str(usuario or "")[:60],
+        int(round(_num(projecao, atual.get("projecao_vendas", 0.0)))),
     ]
     try:
         aba = _aba()
+        _garantir_cabecalho(aba)
         registros = aba.get_all_records()
         achados = [i for i, r in enumerate(registros)
                    if mes_chave(r.get("mes")) == alvo]
@@ -357,6 +383,7 @@ def linha_do_mes(ano, mes, cadastro=None, lista=None):
         "saldo": (meta - realizado) if meta else 0.0,
         "pct": (realizado / meta * 100) if meta else 0.0,
         "observacao": cad.get("observacao", ""),
+        "projecao_vendas": cad.get("projecao_vendas", 0.0),
     }
 
 
@@ -446,6 +473,34 @@ if __name__ == "__main__":
     ok("gravar o informado preserva a meta",
        _dez["meta"] == 95000.0 and _dez["informado"] == 88000.0)
     ok("mes fora do formato e recusado", salvar("out/26", meta=1)[0] is False)
+    # 07/10: a projeção de vendas do mês, para o LPV do mês corrente.
+    salvar("2026-10", projecao=6500, usuario="leo")
+    carregar.clear()
+    ok("grava a projecao de vendas sem apagar a meta",
+       carregar()["2026-10"]["projecao_vendas"] == 6500.0
+       and carregar()["2026-10"]["meta"] == 95000.0
+       and projecao_vendas(2026, 10) == 6500.0)
+
+    class _AbaAntiga(_AbaFalsa):
+        def __init__(self):
+            self.linhas = [COLUNAS[:6], ["2026-09", "1", "0", "", "", ""]]
+
+        def row_values(self, n):
+            return list(self.linhas[n - 1])
+
+    _antiga = _AbaAntiga()
+    globals()["_aba"] = lambda: _antiga
+    carregar.clear()
+    salvar("2026-09", projecao=7000, usuario="leo")
+    carregar.clear()
+    ok("aba criada antes da coluna ganha o titulo, e a projecao e lida",
+       _antiga.linhas[0] == COLUNAS
+       and carregar()["2026-09"]["projecao_vendas"] == 7000.0)
+    globals()["_aba"] = lambda: _falsa
+    carregar.clear()
+    linhas_cruas.clear()
+    ok("linhas_cruas devolve a aba como o Google, com a projecao",
+       any(str(r.get("projecao_vendas")) == "6500" for r in linhas_cruas()))
 
     # O caso do "salvou e sumiu": duas linhas do mesmo mes na aba. O
     # `carregar()` le a de BAIXO (a ultima sobrescreve), e a gravacao ia na de
@@ -553,3 +608,4 @@ if __name__ == "__main__":
     ok("meta zerada nao vira meta", _l["meta"] == 0.0 and _l["saldo"] == 0.0)
 
     print("\nfalhas:", falhas)
+    __import__("sys").exit(1 if falhas else 0)

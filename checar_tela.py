@@ -578,6 +578,96 @@ def _aba_faturas(conta):
           "o menu continua mostrando o aviso sem campo de anexar")
 
 
+def _assinaturas_no_operacional(conta):
+    """07/10: Assinaturas mora embaixo do Custo fixo, no pontinho Operacional,
+    e deixou de ser pontinho próprio — uma tela, não duas."""
+    import gestao as _ge
+    _abertas = []
+    _g_abrir, _g_pag = _ge._abrir_tela, None
+    import custo_fixo as _cf_t
+    import auth as _au_t
+    _g_pag, _g_dono = _cf_t.pagina, _au_t.eh_dono
+    _ge._abrir_tela = lambda m, u=None, f="pagina": _abertas.append(m)
+    _cf_t.pagina = lambda u=None, grade=None: _abertas.append("custo_fixo")
+    _au_t.eh_dono = lambda u: True
+    _g_st = _ge.st
+    _ge.st = instalar()
+    try:
+        _ge._operacional("leo")
+    except Exception as e:
+        conta("Operacional abre Custo fixo e Assinaturas", False,
+              f"{type(e).__name__}: {e}")
+    finally:
+        _ge._abrir_tela, _cf_t.pagina, _au_t.eh_dono = _g_abrir, _g_pag, _g_dono
+        _ge.st = _g_st
+    conta("Operacional abre o Custo fixo e, embaixo, as Assinaturas",
+          _abertas == ["custo_fixo", "assinaturas_tela"], str(_abertas))
+    conta("e Assinaturas não é mais pontinho à parte",
+          not any("Assinaturas" in k for k in _ge._PONTINHOS_CUSTO_FIXO), "")
+    # 07/10: a legenda do Custo fixo dizia que ele entra no equilíbrio; o
+    # equilíbrio passou a ser meta de gastos ÷ lucro bruto. Ele entra no LPV.
+    import inspect as _insp_cf
+    _src_cf = _insp_cf.getsource(_ge._custo_fixo)
+    conta("a legenda do Custo fixo diz que ele entra no LPV, e não no equilíbrio",
+          "entra no LPV" in _src_cf and "linha de" not in _src_cf, "")
+
+
+def _projecao_na_meta(conta):
+    """07/10: a projeção de vendas se digita na MESMA tabela da meta de
+    gastos, e o Salvar a grava junto (dono: "na mesma tabela o valor da meta
+    de gastos e a projeção de vendas para aquele mês")."""
+    import inspect as _insp_pj
+    import meta_gastos_tela as _mgt
+    _src = _insp_pj.getsource(_mgt.pagina)
+    conta("a tabela da meta tem a coluna de projeção de vendas",
+          '"projeção de vendas": int(' in _src
+          and "PROJEÇÃO DE VENDAS — digite aqui" in _src, "")
+    conta("e o Salvar grava a projeção junto com a meta",
+          "projecao=_proj" in _src and "lpv_projetado.clear()" in _src, "")
+
+
+def _monique_nos_gestores(conta):
+    """07/10: a tela de Folha salarial passa a aba gravada por
+    `com_gestores_pedidos` — sem isso a Monique, pedida em 05/10, nunca
+    aparecia, porque a aba já tinha Leonardo e Renan."""
+    import inspect as _insp_mo
+    import folha_salarial as _fs_mo
+    _src = _insp_mo.getsource(_fs_mo.pagina)
+    conta("a Folha salarial acrescenta os gestores pedidos à aba já gravada",
+          "com_gestores_pedidos(df)" in _src
+          and _src.index("com_gestores_pedidos(df)") < _src.index("st.data_editor"), "")
+
+
+def _alerta_de_coluna_na_tv(conta):
+    """07/10: o alerta "Coluna sem config" da TV é perguntado sobre as listas
+    de AGORA — coluna configurada ou excluída não fica mais nele."""
+    import placar as _pl_c
+    import placar_core as _pc_c
+    import colunas_config as _cc_c
+    _g = _cc_c.carregar
+    _cc_c.carregar = lambda: {"CORREÇÕES/RETRABALHOS: -30 PONTOS":
+                              {"prioridade": 5, "tempo_min": 60}}
+    try:
+        # `_alertas_tv_list` inteira vai ao Trello; o alerta de coluna é a
+        # pergunta a `colunas_sem_config` sobre as listas recebidas.
+        import inspect as _insp_c
+        _src_al = _insp_c.getsource(_pl_c._alertas_tv_list)
+        _listas = {"l1": "CORREÇÕES/RETRABALHOS:  -30 PONTOS",
+                   "l2": "COLUNA NOVA XYZ"}
+        _cols = _pc_c.colunas_sem_config(sorted(set(_listas.values())))
+        conta("TV: coluna configurada sai do alerta, coluna nova entra",
+              _cols == ["COLUNA NOVA XYZ"]
+              and "colunas_sem_config(sorted(set(listas.values())))" in _src_al,
+              str(_cols))
+        # e a medição de um cartão só continua de pé, pelas ações dadas
+        _min, _quem = _pc_c.tempo_execucao_min("c1", {"c1": []})
+        conta("tempo_execucao_min sem ações devolve zero", _min == 0.0, str(_min))
+    except Exception as e:
+        conta("TV: alerta de coluna", False, f"{type(e).__name__}: {e}")
+    finally:
+        _cc_c.carregar = _g
+
+
 def _queda_de_pontos(conta):
     """O bloco que explica a queda de pontuação — ele lê o log do Trello."""
     import placar as _pl
@@ -2575,6 +2665,10 @@ def main():
     _lucro_liquido_custo_fixo(conta)
     _balanco_headcount(conta)
     _aba_faturas(conta)
+    _assinaturas_no_operacional(conta)
+    _projecao_na_meta(conta)
+    _monique_nos_gestores(conta)
+    _alerta_de_coluna_na_tv(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0

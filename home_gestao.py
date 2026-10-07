@@ -336,7 +336,7 @@ def _html_faturamento(d):
         + tile("Equilíbrio no ritmo atual", dia_eq)
         + tile("Falta para a meta", _brl(max(meta - real, 0.0), 0) if meta else "sem meta")
         + '</div>'
-        f'<div style="font-size:11px;color:{SEC};">{_as_duas_linhas(eq, eq2, d)}</div>'
+        f'<div style="font-size:11px;color:{SEC};">{_linha_do_equilibrio(d)}</div>'
         '</div>')
 
 
@@ -410,23 +410,28 @@ def _projecao_contra_a_meta(proj, meta, cor):
             f'{"acima" if d >= 0 else "abaixo"} da meta</span>')
 
 
-def _as_duas_linhas(op, cx, d=None):
-    """As duas linhas de equilíbrio — e, quando são a mesma, por quê.
+def _linha_do_equilibrio(d=None):
+    """A conta do ponto de equilíbrio, com os números — ou o que falta.
 
-    "Operacional R$ 40.834 · Não operacional R$ 40.834" lado a lado parece
-    erro de leitura. Não é: sem parcela de PRONAMP classificada no mês, a
-    segunda linha não tem o que somar. Dizer isso custa uma frase; não dizer
-    custa a confiança no número.
+    Dono, 07/10: "onde eu confiro exatamente o que está sendo considerado
+    para esse valor?". Aqui, embaixo da barra: a meta, a margem e o período.
     """
-    segunda = float(((d or {}).get("equilibrio") or {}).get("segunda_linha") or 0.0)
-    if not op and not cx:
-        return ("Ponto de equilíbrio: falta cadastrar o custo fixo do mês")
-    if abs(float(cx) - float(op)) < 1.0:
-        motivo = ("nenhuma parcela de PRONAMP classificada neste mês"
-                  if not segunda else "a segunda linha não mudou o resultado")
-        return (f'Operacional e Não operacional coincidem em {_brl(op, 0)} — '
-                f'{motivo}')
-    return f'Operacional {_brl(op, 0)} · Não operacional {_brl(cx, 0)}'
+    f = (d or {}).get("faturamento") or {}
+    c = f.get("eq_conta") or {}
+    meta = float(c.get("meta_gastos") or 0.0)
+    mb = c.get("margem_bruta")
+    if not meta:
+        return ("Ponto de equilíbrio: cadastre a meta de gastos do mês em "
+                "Financeiro › Meta de gastos — ele é a meta ÷ o lucro bruto "
+                "médio dos 3 últimos meses")
+    if not mb:
+        return ("Ponto de equilíbrio: falta o lucro bruto dos meses fechados "
+                "(BASE DE VENDAS)")
+    eq = f.get("operacional")
+    per = f" ({c.get('periodo')})" if c.get("periodo") else ""
+    _mb_txt = f"{float(mb):.1f}".replace(".", ",")
+    return (f"Ponto de equilíbrio {_brl(eq, 0)} = meta de gastos "
+            f"{_brl(meta, 0)} ÷ lucro bruto médio {_mb_txt}%{per}")
 
 
 def _marcador(pos):
@@ -1370,6 +1375,11 @@ def dados_reais(ano, mes, dia):
 
     _mb = ind["margem_bruta"]
     _ml = ind["margem_contribuicao_pct"]
+    # O PONTO DE EQUILÍBRIO (dono, 07/10): meta de gastos ÷ lucro bruto médio
+    # dos 3 últimos meses fechados. Era custo fixo ÷ margem com a taxa
+    # operacional dos dias já passados do mês — no dia 7 ela inflava e o
+    # equilíbrio de outubro saiu R$ 602.149.
+    _eq_meta = _ec.ponto_de_equilibrio(_meta_gastos, _mb)
 
     _periodo_curto = ind.get("periodo", "") or "período lançado"
     _sub_media = f"média de {_periodo_curto}"
@@ -1476,8 +1486,12 @@ def dados_reais(ano, mes, dia):
             # O equilíbrio do cadastro continua vindo junto, agora como
             # SEGUNDA leitura e com nome próprio. Ele responde outra
             # pergunta — quanto custa operar — e some se for apagado daqui.
-            "operacional": comp.get("equilibrio_hoje"),
-            "nao_operacional": comp.get("equilibrio_de_caixa"),
+            "operacional": _eq_meta,
+            "nao_operacional": _eq_meta,
+            # A conta, para a tela mostrar com os números dela.
+            "eq_conta": {"meta_gastos": float(_meta_gastos or 0.0),
+                         "margem_bruta": _mb,
+                         "periodo": ind.get("periodo", "") or ""},
         },
         "equilibrio": comp,
         "cards": [
@@ -1900,11 +1914,14 @@ if __name__ == "__main__":
 
     # E O RODAPE EXPLICA A COINCIDENCIA, em vez de repetir o numero duas
     # vezes como se fosse erro de leitura.
-    _txt = _as_duas_linhas(40_834.0, 40_834.0, {"equilibrio": {"segunda_linha": 0.0}})
-    ok("coincidindo, o rodapé diz que coincidem e por quê",
-       "coincidem" in _txt and "PRONAMP" in _txt)
-    ok("diferentes, ele mostra os dois números",
-       _as_duas_linhas(131_918.0, 183_940.0).count("R$") == 2)
+    # 07/10: o rodapé mostra a conta do equilíbrio com os números dela.
+    _txt = _linha_do_equilibrio({"faturamento": {
+        "operacional": 201884.25,
+        "eq_conta": {"meta_gastos": 150000.0, "margem_bruta": 74.3,
+                     "periodo": "jul-set/2026"}}})
+    ok("o rodapé mostra meta ÷ lucro bruto médio, com os números",
+       "150.000" in _txt and "74,3%" in _txt and "201.884" in _txt
+       and "jul-set/2026" in _txt)
 
     # ── ONDE O MES FECHA CONTRA A META ──────────────────────────────────
     #
@@ -1941,12 +1958,13 @@ if __name__ == "__main__":
        _marcas_da_regua(_x, 0.0, 0.0, 265_542.0) == [(_x(265_542.0), "Meta")])
     ok("com equilíbrio, os três aparecem",
        len(_marcas_da_regua(_x, 40_834.0, 60_000.0, 265_542.0)) == 3)
-    ok("e o rodapé diz que falta cadastrar",
-       "falta cadastrar" in _as_duas_linhas(0.0, 0.0, {}))
+    ok("e sem meta o rodapé diz onde cadastrar a meta de gastos",
+       "cadastre a meta de gastos" in _linha_do_equilibrio({}))
     _dr_comp = inspect.getsource(dados_reais)
-    ok("o equilíbrio ausente chega como None, e não como zero",
-       'comp.get("equilibrio_hoje"),' in _dr_comp
-       and 'comp.get("equilibrio_hoje") or 0.0' not in _dr_comp)
+    ok("o equilíbrio é meta de gastos ÷ lucro bruto, e ausente chega como None",
+       '"operacional": _eq_meta,' in _dr_comp
+       and "_ec.ponto_de_equilibrio(_meta_gastos, _mb)" in _dr_comp
+       and "_eq_meta or 0.0" not in _dr_comp)
 
     # ── O BALANÇO MENSAL (layout aprovado em 05/10) ─────────────────────
     # Desenhado de verdade, com o EXEMPLO do módulo no formato que
