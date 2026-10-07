@@ -2654,6 +2654,24 @@ def pct_criterio_penalidade(qtd, teto, pts_destrava, saldo):
     return min(pct_da_meta(saldo, 0, pts_destrava), 99.9)
 
 
+def barra_penalidades(qtd, teto):
+    """(pct_consumido, "0/5") — a barra de penalidades das telas. Pura.
+
+    Dono, 07/10: "era para ela estar sem cor alguma e ir preenchendo a cor
+    vermelha conforme as penalidades forem sendo registradas". Zero
+    penalidades, barra vazia; no teto, cheia; acima, cheia e o texto diz
+    quanto passou ("7/5"). O número ao lado é a CONTAGEM, não um %: a
+    versão em % fazia "100%" querer dizer o oposto em cada tela
+    (`pct_criterio_penalidade`). TV, Painel e Análise de Metas leem daqui.
+    """
+    q, t = max(int(qtd or 0), 0), max(int(teto or 0), 0)
+    if t <= 0:
+        pct = 100.0 if q > 0 else 0.0
+    else:
+        pct = min(q / t * 100.0, 100.0)
+    return round(pct, 1), f"{q}/{t}"
+
+
 def aviso_de_corte(total, mostrados, nome="item"):
     """"Mostrando N de M" quando uma lista é cortada. "" quando não corta.
 
@@ -3863,8 +3881,35 @@ if __name__ == "__main__":
     _src_pl = _insp_pc.getsource(_pl_diag)
     ok("o Painel calcula a porcentagem MAXX pela função",
        "pct_da_meta" in _src_pl)
-    ok("e a barra de penalidade também",
-       "pct_criterio_penalidade" in _src_pl)
+    # 07/10: a barra de penalidade ENCHE com as penalidades (pedido do dono),
+    # e as três telas leem a mesma função.
+    # analise_metas não importa com o Streamlit trocado deste auto-teste:
+    # o bloco é lido por AST, no próprio arquivo.
+    import ast as _ast_pen
+    _src_am = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "analise_metas.py"), encoding="utf-8").read()
+    _fn_am = next(n for n in _ast_pen.walk(_ast_pen.parse(_src_am))
+                  if isinstance(n, _ast_pen.FunctionDef)
+                  and n.name == "_secao_metas_card")
+    import placar as _pl_tv
+    ok("e a barra de penalidade também — nas três telas",
+       "barra_penalidades(" in _src_pl
+       # duas: a coletiva e a MAXX
+       and _ast_pen.get_source_segment(_src_am, _fn_am).count("barra_penalidades(") >= 2
+       and "barra_penalidades(" in _insp_pc.getsource(_pl_tv._tv_full_html))
+    # 07/10: na TV o bloco das metas tinha 22% fixos da altura e cortava a
+    # 5a e a 6a linha. O layout mede o que as caixas pedem antes de repartir.
+    _src_tvh = _insp_pc.getsource(_pl_tv._tv_full_html)
+    ok("a TV mede a altura que as metas pedem, e nao corta as ultimas linhas",
+       "bb.children[i].scrollHeight" in _src_tvh
+       and _src_tvh.index("bb.children[i].scrollHeight")
+       < _src_tvh.index("var hBt = avail - hM - hS - hB;"))
+    ok("barra de penalidades: zero vazia, no teto cheia, acima cheia e diz quanto",
+       barra_penalidades(0, 5) == (0.0, "0/5")
+       and barra_penalidades(2, 5) == (40.0, "2/5")
+       and barra_penalidades(5, 5) == (100.0, "5/5")
+       and barra_penalidades(7, 5) == (100.0, "7/5")
+       and barra_penalidades(0, 0) == (0.0, "0/0"))
 
     # E A TELA MOSTRA A META EFETIVA, não a configurada — por AST, porque o
     # nome antigo continua no arquivo de propósito: é ele que o velocímetro

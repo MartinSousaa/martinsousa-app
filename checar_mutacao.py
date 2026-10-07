@@ -2266,6 +2266,28 @@ MUTACOES = [
         "            st.success(_msg)\n",
         ["python3", "extratos_tela.py"],
     ),
+    # ── 07/10: A BARRA DE PENALIDADE CHEIA COM ZERO, E A TV CORTANDO METAS ──
+    (
+        "a barra de penalidade volta a encher sem penalidade nenhuma",
+        "placar_core.py",
+        "        pct = min(q / t * 100.0, 100.0)\n",
+        "        pct = 100.0\n",
+        ["python3", "placar_core.py"],
+    ),
+    (
+        "a TV volta a cortar as ultimas linhas das metas",
+        "placar.py",
+        "      need = Math.max(need, bb.children[i].scrollHeight || 0);\n",
+        "      need = 0;\n",
+        ["python3", "placar_core.py"],
+    ),
+    (
+        "a Analise de Metas volta a ter a propria conta da barra de penalidade",
+        "analise_metas.py",
+        "    pct_pen_n, txt_pen_n = _pc.barra_penalidades(pen_qtd, max_pen_n)\n",
+        "    pct_pen_n, txt_pen_n = min(pen_qtd / (max_pen_n + 1) * 100, 100), \"\"\n",
+        ["python3", "placar_core.py"],
+    ),
     (
         "o previsto do cartao volta a ignorar as compras ja lancadas",
         "previsto.py",
