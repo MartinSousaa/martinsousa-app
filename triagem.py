@@ -653,7 +653,7 @@ def widget_seletor_produto(key_prefix, label="Nome do produto"):
 # A categoria fica de fora de propósito: o colaborador costuma cadastrar
 # vários produtos da mesma categoria em sequência.
 _CAMPOS_FORM_TRIAGEM = [
-    "triagem_nome_comercial", "triagem_material", "triagem_variacao_cores",
+    "triagem_nome_comercial", "triagem_material",
     "triagem_medidas", "triagem_peso", "triagem_uso", "triagem_caracteristicas",
     "triagem_diferenciais", "triagem_termos_busca", "triagem_termos_evitar",
     "triagem_foto_upload",
