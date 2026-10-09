@@ -2454,6 +2454,42 @@ MUTACOES = [
         '        + ""\n',
         ["python3", "home_gestao.py"],
     ),
+    # ── 09/10: O ERRO 429 — COTA DO GOOGLE POR MINUTO ───────────────────
+    (
+        "excluir usuario volta a apagar os tokens um por um",
+        "auth.py",
+        "        _sh_rev.apagar_linhas(aba, linhas)\n",
+        "        for ln in sorted(linhas, reverse=True):\n            aba.delete_rows(ln)\n",
+        ["python3", "sheets.py"],
+    ),
+    (
+        "aprovar abono volta a gravar celula por celula",
+        "abonos.py",
+        '        if dados:\n            aba.batch_update(dados, value_input_option="USER_ENTERED")\n',
+        "        for d in dados:\n            aba.update_cell(1, 1, d)\n",
+        ["python3", "abonos.py"],
+    ),
+    (
+        "o 429 volta a derrubar a tela sem esperar",
+        "sheets.py",
+        "    gc = gspread.authorize(creds, http_client=_cliente_http())\n",
+        "    gc = gspread.authorize(creds)\n",
+        ["python3", "sheets.py"],
+    ),
+    (
+        "a espera do 429 volta a ficar presa para sempre",
+        "sheets.py",
+        "            if codigo != 429 or espera is None:\n",
+        "            if codigo != 429:\n",
+        ["python3", "sheets.py"],
+    ),
+    (
+        "o abono no meio volta a apagar o resto da janela",
+        "abonos.py",
+        "                if a_fim < e:\n                    novos.append((a_fim, e))\n",
+        "                if False:\n                    novos.append((a_fim, e))\n",
+        ["python3", "abonos.py"],
+    ),
     # ── 09/10: O EXTRATO DO INTER PELA API ──────────────────────────────
     (
         "a API do Inter volta a gravar de novo o que o CSV ja trouxe",

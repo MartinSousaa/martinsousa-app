@@ -794,8 +794,8 @@ def apagar(ids):
         registros = aba.get_all_records()
         fora = [i for i, r in enumerate(registros)
                 if str(r.get("id", "")).strip() in alvos]
-        for i in reversed(fora):
-            aba.delete_rows(i + 2)
+        import sheets as _sh_ch
+        _sh_ch.apagar_linhas(aba, [i + 2 for i in fora])   # uma requisição só
     except Exception as e:
         return 0, str(e)[:200]
     _limpar_caches()

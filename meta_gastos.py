@@ -229,8 +229,8 @@ def salvar(mes_txt, meta=None, informado=None, observacao=None, usuario="",
             # deixaria a próxima gravação com o mesmo risco; aqui ela deixa
             # de existir. O dado não se perde: a linha que fica é a que a
             # leitura já enxergava, e acabou de receber o valor novo.
-            for i in reversed(achados[:-1]):
-                aba.delete_rows(i + 2)
+            import sheets as _sh_mg
+            _sh_mg.apagar_linhas(aba, [i + 2 for i in achados[:-1]])
             repetidas = len(achados) - 1
 
         # A conferência: reler e comparar com o que se mandou gravar.

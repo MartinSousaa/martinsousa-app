@@ -312,10 +312,15 @@ def _escrever(linha, valores):
     try:
         aba = _aba()
         ordem = _cabecalho(aba)
-        for nome, valor in valores.items():
-            if nome not in ordem:
-                continue
-            aba.update_cell(int(linha), ordem.index(nome) + 1, valor)
+        # UMA gravação para todos os campos: célula a célula eram 4 a 6 por
+        # aprovação, e a cota do Google é por minuto (o 429 de 07/10). Mesmo
+        # modo de entrada da `update_cell` de antes (USER_ENTERED).
+        from gspread.utils import rowcol_to_a1
+        dados = [{"range": rowcol_to_a1(int(linha), ordem.index(nome) + 1),
+                  "values": [[valor]]}
+                 for nome, valor in valores.items() if nome in ordem]
+        if dados:
+            aba.batch_update(dados, value_input_option="USER_ENTERED")
         carregar.clear()
         return True, ""
     except Exception as e:
@@ -455,3 +460,64 @@ def descontar(janelas, abonos):
             pedacos = novos
         fora.extend(pedacos)
     return fora
+
+
+# ── Conferência ──────────────────────────────────────────────────────────────
+if __name__ == "__main__":
+    import sys
+    falhas = 0
+
+    def ok(nome, cond):
+        global falhas
+        falhas += not cond
+        print(("ok    " if cond else "FALHA ") + nome)
+
+    # 07/10, o 429: aprovar gravava célula a célula. Agora é UMA requisição.
+    class _AbaT:
+        def __init__(self):
+            self.lotes, self.celulas = [], []
+
+        def batch_update(self, dados, **k):
+            self.lotes.append((list(dados), k))
+
+        def update_cell(self, *a, **k):
+            self.celulas.append(a)
+    _a = _AbaT()
+    _g = (_aba, _cabecalho, carregar)
+    globals()["_aba"] = lambda: _a
+    globals()["_cabecalho"] = lambda aba: ["user", "status", "decidido_por",
+                                           "decidido_em", "obs"]
+    globals()["carregar"] = type("C", (), {"clear": staticmethod(lambda: None)})()
+    try:
+        _ok, _msg = _escrever(5, {"status": "APROVADO", "decidido_por": "leo",
+                                  "obs": "ok", "coluna_que_nao_existe": 1})
+    finally:
+        globals()["_aba"], globals()["_cabecalho"], globals()["carregar"] = _g
+    ok("aprovar grava todos os campos numa requisição só",
+       _ok and len(_a.lotes) == 1 and not _a.celulas)
+    ok("cada campo na coluna certa da linha certa, e o que não existe fica fora",
+       [d["range"] for d in _a.lotes[0][0]] == ["B5", "C5", "E5"]
+       and [d["values"] for d in _a.lotes[0][0]] == [[["APROVADO"]], [["leo"]],
+                                                     [["ok"]]])
+    ok("com o mesmo modo de entrada de antes",
+       _a.lotes[0][1].get("value_input_option") == "USER_ENTERED")
+
+    # `descontar` com janelas na forma que o placar e o ponto montam: pares de
+    # datetime com fuso (`placar_core.py:1606`, `relogio_ponto.py:1138`), e
+    # abonos na forma que a função irmã acima devolve.
+    from datetime import datetime as _dt_t, timedelta as _td_t, timezone as _tz_t
+    _fz = _tz_t(_td_t(hours=-3))
+
+    def _h(hh, mm=0):
+        return _dt_t(2026, 10, 8, hh, mm, tzinfo=_fz)
+    _jan = [(_h(8), _h(12)), (_h(13), _h(18))]
+    ok("abono no meio parte a janela em duas",
+       descontar(_jan, [(_h(9), _h(10))])
+       == [(_h(8), _h(9)), (_h(10), _h(12)), (_h(13), _h(18))])
+    ok("janela inteira dentro do abono some",
+       descontar(_jan, [(_h(12, 30), _h(19))]) == [(_h(8), _h(12))])
+    ok("abono que não toca a janela não muda nada, e sem abono volta igual",
+       descontar(_jan, [(_h(12), _h(13))]) == _jan and descontar(_jan, []) == _jan)
+
+    print("\nfalhas:", falhas)
+    sys.exit(1 if falhas else 0)

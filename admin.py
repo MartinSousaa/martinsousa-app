@@ -62,8 +62,8 @@ def _remover_usuario(login, usuario_logado=""):
     # não entra — e a pessoa continua barrada por `auth._login_ativo`.
     auth.revogar_tokens(login)
     try:
-        for ln in sorted(linhas, reverse=True):   # de baixo para cima
-            aba.delete_rows(ln)
+        import sheets as _sh_adm
+        _sh_adm.apagar_linhas(aba, linhas)    # uma requisição só
     except Exception as e:
         return False, f"Não consegui apagar a linha: {str(e)[:120]}"
     finally:
