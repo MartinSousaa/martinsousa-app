@@ -3007,6 +3007,56 @@ MUTACOES = [
         "    _base = _PERGUNTAS_DA_PECA\n",
         ["python3", "imagem.py"],
     ),
+    # ── 09/10: TABELAS EDITAVEIS VIRAM CAMPOS (campos.py) ───────────────
+    (
+        "o app volta a desenhar a grade com a caixinha flutuante",
+        "app.py",
+        "import campos\ncampos.instalar(st)\n",
+        "import campos\n",
+        ["python3", "checar_campos.py"],
+    ),
+    (
+        "uma tela volta a chamar a grade por fora do st trocado",
+        "custo_fixo.py",
+        "        editado = st.data_editor(\n",
+        "        editado = st.container().data_editor(\n",
+        ["python3", "checar_campos.py"],
+    ),
+    (
+        "uma tabela editavel sai da lista e nunca e desenhada",
+        "checar_campos.py",
+        '    ("cheques_tela", "pagina", ("leo",)),\n',
+        "",
+        ["python3", "checar_campos.py"],
+    ),
+    (
+        "o realizado que muda no meio volta a apagar a meta digitada",
+        "campos.py",
+        '    return (tipo == "number"\n            and (coluna in travadas or bool(c.get("disabled"))))\n',
+        "    return False\n",
+        ["python3", "campos.py"],
+    ),
+    (
+        "o digitado do dado anterior volta a aparecer no dado novo",
+        "campos.py",
+        '    if not est or est.get("assinatura") != assinatura:\n',
+        "    if not est:\n",
+        ["python3", "campos.py"],
+    ),
+    (
+        "no formulario, a troca de pagina volta a perder o digitado",
+        "campos.py",
+        "                mudou_pagina = pagina + 1\n",
+        '                est["pagina"] = pagina + 1\n                st.rerun()\n',
+        ["python3", "campos.py"],
+    ),
+    (
+        "dinheiro que nao e numero volta a ser gravado",
+        "campos.py",
+        "        except ValueError:\n            col.caption(f\"\u26a0\ufe0f \u00ab{txt}\u00bb n\u00e3o \u00e9 um valor \u2014 ficou {mostrado or 'vazio'}\")\n            return inicial\n",
+        "        except ValueError:\n            return txt\n",
+        ["python3", "campos.py"],
+    ),
 ]
 
 
