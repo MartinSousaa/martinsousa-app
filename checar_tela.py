@@ -967,6 +967,54 @@ def _equilibrio_real_na_meta(conta):
         _bv_e.somas_por_mes = _g
 
 
+def _acompanhamento_do_mes(conta):
+    """09/10: o mês em andamento ganha o projetado × real, embaixo da meta.
+
+    Só a margem (BASE DE VENDAS) e o faturado (Bling) são trocados."""
+    import meta_gastos_tela as _mgt_a
+    import base_vendas as _bv_a
+    import home_gestao as _hg_a
+    from datetime import date as _d_a
+    _g = (_bv_a.media_recente, _hg_a._faturamento_bling)
+    _bv_a.media_recente = lambda a, m, quantos=3: ({"margem_bruta": 30.0}, "")
+    _hg_a._faturamento_bling = lambda a, m: (90000.0, [])
+    _vistos = {"grafico": None, "frase": ""}
+    _falso = instalar()
+    _falso.bar_chart = lambda d, *a, **k: _vistos.update(grafico=d)
+    _falso.success = lambda t, *a, **k: _vistos.update(frase=str(t))
+    _falso.warning = lambda t, *a, **k: _vistos.update(frase=str(t))
+    _mgt_a.st = _falso
+    _hoje = _d_a.today()
+    try:
+        _mgt_a._acompanhar_mes(_hoje.year, _hoje, 60000.0, 75000.0)
+        _df = _vistos["grafico"]
+        conta("Meta de gastos: o mês em andamento desenha projetado × real",
+              _df is not None and list(_df.index) == ["Gastos do mês",
+                                                      "Equilíbrio do mês",
+                                                      "Faturamento até hoje"]
+              and list(_df.columns) == ["Projetado", "Real"]
+              and list(_df.loc["Equilíbrio do mês"]) == [200000.0, 250000.0],
+              str(_df))
+        conta("e diz onde o mês fecha no ritmo de hoje",
+              "No ritmo de hoje o mês fecha em" in _vistos["frase"]
+              and "250.000,00" in _vistos["frase"], _vistos["frase"][:120])
+        _vistos["grafico"] = None
+        _mgt_a._acompanhar_mes(_hoje.year - 1, _hoje, 60000.0, 75000.0)
+        conta("e ano que não é o corrente não ganha acompanhamento",
+              _vistos["grafico"] is None, "")
+        # A página passa o COMPROMETIDO (já saiu + provisionado), e não só o
+        # que já saiu: "tem que considerar tudo que já está provisionado".
+        import inspect as _insp_a
+        conta("e a página entrega o comprometido, com o provisionado dentro",
+              '_acompanhar_mes(ano, hoje, atual["meta"], _comp)'
+              in _insp_a.getsource(_mgt_a.pagina), "")
+    except Exception as e:
+        conta("Meta de gastos: o mês em andamento desenha projetado × real",
+              False, f"{type(e).__name__}: {e}")
+    finally:
+        _bv_a.media_recente, _hg_a._faturamento_bling = _g
+
+
 def _queda_de_pontos(conta):
     """O bloco que explica a queda de pontuação — ele lê o log do Trello."""
     import placar as _pl
@@ -2973,6 +3021,7 @@ def main():
     _salvar_metas(conta)
     _devolucoes_da_planilha(conta)
     _equilibrio_real_na_meta(conta)
+    _acompanhamento_do_mes(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0

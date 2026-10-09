@@ -193,6 +193,7 @@ def pagina(usuario_logado=None):
         if _prev:
             st.caption("Provisionado neste mês — " + " · ".join(
                 f"{k} R$ {_fmt(v)}" for k, v in _prev.items() if v))
+        _acompanhar_mes(ano, hoje, atual["meta"], _comp)
 
     ORIGEM = {"extrato": "📄 extrato", "informado": "✍️ informado",
               "sem dado": "— sem dado"}
@@ -362,4 +363,46 @@ def _equilibrio_real(ano, hoje, linhas):
                  hide_index=True,
                  column_config=_rot.config(list(tabela[0]), st,
                                            tipos={c: "brl" for c in _dinheiro}))
+
+
+def _acompanhar_mes(ano, hoje, meta, comprometido):
+    """O mês em andamento, projetado × real (dono, 09/10).
+
+    A meta de gastos continua sendo o número de cima; isto é o
+    acompanhamento embaixo dela. As contas são
+    `equilibrio_caixa.acompanhamento`; a margem é a média dos 3 meses
+    lançados (`base_vendas.media_recente`, a mesma da Home) e o faturado é o
+    do Bling (`home_gestao._faturamento_bling`, com cache).
+    """
+    from datetime import datetime
+    import pandas as pd
+    import base_vendas as _bv
+    import equilibrio_caixa as _ec
+    import home_gestao as _hg
+    import placar_core as _pc
+    if int(ano) != hoje.year:
+        return
+    ind, erro_bv = _bv.media_recente(hoje.year, hoje.month, quantos=3)
+    fat, avisos_fat = _hg._faturamento_bling(hoje.year, hoje.month)
+    a = _ec.acompanhamento(meta, comprometido, (ind or {}).get("margem_bruta"),
+                           fat, agora=datetime.now(_pc.FUSO))
+    st.markdown("##### 📈 Acompanhamento do mês — projetado × real")
+    if erro_bv:
+        st.warning(f"Sem a margem da BASE DE VENDAS: {erro_bv}")
+    for _a in (avisos_fat or []):
+        st.caption(f"⚠️ {_a}")
+    linhas = [(r, p, v) for r, p, v in a["grafico"]
+              if p is not None or v is not None]
+    if linhas:
+        st.bar_chart(
+            pd.DataFrame([{"linha": r, "Projetado": p or 0.0, "Real": v or 0.0}
+                          for r, p, v in linhas]).set_index("linha"),
+            horizontal=True, stack=False, color=["#8A93A3", "#E0A13A"])
+    if a["fecha_em"] is not None and a["eq_real"]:
+        _txt = (f"No ritmo de hoje o mês fecha em {_rot.brl(a['fecha_em'])} — "
+                + (f"sobram {_rot.brl(a['sobra_no_fim'])}"
+                   if a["sobra_no_fim"] >= 0 else
+                   f"faltam {_rot.brl(-a['sobra_no_fim'])}")
+                + f" para o equilíbrio real de {_rot.brl(a['eq_real'])}.")
+        (st.success if a["sobra_no_fim"] >= 0 else st.warning)(_rot.tela(_txt))
 

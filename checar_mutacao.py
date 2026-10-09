@@ -2454,6 +2454,28 @@ MUTACOES = [
         '        + ""\n',
         ["python3", "home_gestao.py"],
     ),
+    # ── 09/10: O MES EM ANDAMENTO, PROJETADO X REAL ─────────────────────
+    (
+        "o equilibrio do mes em andamento volta a ignorar o provisionado",
+        "equilibrio_caixa.py",
+        "    eq_real = ponto_de_equilibrio(comprometido, mb_media)\n",
+        "    eq_real = ponto_de_equilibrio(meta, mb_media)\n",
+        ["python3", "equilibrio_caixa.py"],
+    ),
+    (
+        "o necessario ate hoje volta a ser o mes inteiro",
+        "equilibrio_caixa.py",
+        "    necessario = round(eq_real * f, 2) if eq_real else None\n",
+        "    necessario = eq_real\n",
+        ["python3", "equilibrio_caixa.py"],
+    ),
+    (
+        "a pagina volta a mandar so o que ja saiu para o acompanhamento",
+        "meta_gastos_tela.py",
+        '        _acompanhar_mes(ano, hoje, atual["meta"], _comp)\n',
+        '        _acompanhar_mes(ano, hoje, atual["meta"], atual["realizado"])\n',
+        ["python3", "checar_tela.py"],
+    ),
     # ── 09/10: O EQUILIBRIO REAL DOS MESES FECHADOS ─────────────────────
     (
         "o mes corrente volta a entrar no equilibrio real",

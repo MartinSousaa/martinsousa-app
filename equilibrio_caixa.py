@@ -271,6 +271,42 @@ def equilibrio_real(meta, gasto_real, origem_gasto, mapa_vendas, ano, mes):
     }
 
 
+def acompanhamento(meta, comprometido, mb_media, faturado, agora=None,
+                   dias_mes=None):
+    """O mês EM ANDAMENTO, projetado contra o real e proporcional ao dia. Pura.
+
+    Dono, 09/10: a meta de gastos é o indicador principal; embaixo, o
+    acompanhamento em tempo real, "considerando tudo que já está
+    provisionado". `comprometido` é o total de `previsto.combinar` — o que
+    já saiu mais custo fixo, folha, cheques e cartões que ainda vão sair.
+    A margem é a média dos 3 meses lançados (o mês corrente não está na
+    BASE DE VENDAS), a mesma do equilíbrio planejado.
+
+      equilíbrio real  = comprometido ÷ margem
+      necessário hoje  = equilíbrio real × fração do mês que passou
+      fecha em         = faturado ÷ fração do mês (o ritmo de hoje)
+    """
+    eq_plan = ponto_de_equilibrio(meta, mb_media)
+    eq_real = ponto_de_equilibrio(comprometido, mb_media)
+    f = fracao_do_mes(agora, dias_mes)
+    necessario = round(eq_real * f, 2) if eq_real else None
+    fat = _num(faturado) if faturado is not None else None
+    fecha = projecao(fat, agora, dias_mes) if fat is not None else None
+    sobra = (round(fecha - eq_real, 2)
+             if fecha is not None and eq_real else None)
+    return {
+        "meta": _num(meta), "comprometido": _num(comprometido),
+        "eq_planejado": eq_plan, "eq_real": eq_real, "fracao": f,
+        "necessario_hoje": necessario, "faturado": fat, "fecha_em": fecha,
+        "sobra_no_fim": sobra,
+        "grafico": [
+            ("Gastos do mês", _num(meta) or None, _num(comprometido) or None),
+            ("Equilíbrio do mês", eq_plan, eq_real),
+            ("Faturamento até hoje", necessario, fat),
+        ],
+    }
+
+
 def meses_fechados(ano, hoje):
     """Os meses de `ano` que já fecharam em `hoje`. O corrente fica de fora."""
     a = int(ano)
@@ -392,6 +428,23 @@ if __name__ == "__main__":
        _r["faturado"] == 220000.0 and _r["resultado"] == -44000.0)
     ok("e diz quanto o gasto passou da meta",
        _r["gasto_vs_meta"] == 6000.0)
+    # O MÊS EM ANDAMENTO: dia 16 às 0h de um mês de 30 = metade do mês.
+    from datetime import datetime as _dt_t
+    _ag = _dt_t(2026, 10, 16, 0, 0, tzinfo=FUSO)
+    _a = acompanhamento(60000, 75000, 30.0, 110000, agora=_ag, dias_mes=30)
+    ok("andamento: planejado pela meta, real pelo comprometido",
+       _a["eq_planejado"] == 200000.0 and _a["eq_real"] == 250000.0)
+    ok("andamento: o necessário até hoje é proporcional ao dia",
+       _a["fracao"] == 0.5 and _a["necessario_hoje"] == 125000.0)
+    ok("andamento: no ritmo de hoje fecha em 220 mil — faltam 30 mil",
+       _a["fecha_em"] == 220000.0 and _a["sobra_no_fim"] == -30000.0)
+    ok("andamento: o gráfico compara projetado e real nas três linhas",
+       [g[0] for g in _a["grafico"]] == ["Gastos do mês", "Equilíbrio do mês",
+                                          "Faturamento até hoje"]
+       and _a["grafico"][2] == ("Faturamento até hoje", 125000.0, 110000.0))
+    ok("andamento: sem margem não inventa equilíbrio",
+       acompanhamento(60000, 75000, 0, 110000, agora=_ag,
+                      dias_mes=30)["eq_real"] is None)
     ok("gasto real abaixo da metade da meta é marcado como suspeito",
        equilibrio_real(60000, 20000, "extrato", _mapa_t, 2026, 9)["suspeito"]
        and not _r["suspeito"])
