@@ -2454,6 +2454,35 @@ MUTACOES = [
         '        + ""\n',
         ["python3", "home_gestao.py"],
     ),
+    # ── 09/10: AS DEVOLUCOES VEM DA PLANILHA ────────────────────────────
+    (
+        "a devolucao que so existe no Studio volta a entrar na conta",
+        "devolucoes.py",
+        "    return linhas, so\n",
+        "    return linhas + so, so\n",
+        ["python3", "devolucoes.py"],
+    ),
+    (
+        "o Status do Studio deixa de aparecer na devolucao da planilha",
+        "devolucoes.py",
+        "                    r[c] = s.get(c)\n",
+        "                    pass\n",
+        ["python3", "devolucoes.py"],
+    ),
+    (
+        "o acompanhamento volta a poder mudar o valor da planilha",
+        "devolucoes.py",
+        "    campos = {k: v for k, v in (campos or {}).items() if k in ACOMPANHAMENTO}\n",
+        "    campos = dict(campos or {})\n",
+        ["python3", "devolucoes.py"],
+    ),
+    (
+        "a Home volta a ler as devolucoes gravadas no Studio",
+        "devolucoes.py",
+        "    return carregar_tudo()[0]\n",
+        "    return _do_studio()\n",
+        ["python3", "devolucoes.py"],
+    ),
     # ── 09/10: O LPV DE SETEMBRO (-0,21) VOLTA AO CAMPO ─────────────────
     (
         "o campo do LPV volta a mostrar o -0,21 gravado",

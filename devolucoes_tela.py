@@ -48,28 +48,30 @@ def pagina(usuario_logado=None):
     import devolucoes as _dv
 
     st.markdown("#### 🔄 Devoluções")
-    st.caption(
-        "O preenchimento passa a ser aqui. A planilha vira histórico — o "
-        "Studio a lê uma vez para montar os meses anteriores.")
-
-    linhas = _dv.carregar()
+    # A planilha é a dona (dono, 09/10): o Studio lê a aba DEVOLUÇÕES 2026 do
+    # Controle MS e guarda só o acompanhamento — Status e ✅ Resolvido.
+    linhas, so_no_studio, avisos = _dv.carregar_tudo()
+    for a in avisos:
+        st.warning(a) if (a.startswith("⚠️") or "Não consegui" in a
+                          or "Mostrando" in a) else st.caption(f"· {a}")
 
     _em_aberto(_dv, linhas, usuario_logado)
     st.markdown("---")
-
     if not linhas:
-        _importar(_dv, usuario_logado)
-        st.markdown("---")
-        _nova(_dv, usuario_logado)
+        st.info("Nenhuma devolução na aba DEVOLUÇÕES 2026 do Controle MS.")
         return
-
     mes = _o_mes(_dv, linhas)
     st.markdown("---")
-    _nova(_dv, usuario_logado)
-    st.markdown("---")
-    _tabela(_dv, linhas, mes, usuario_logado)
-    with st.expander("⤵️ Importar o histórico do Controle MS"):
-        _importar(_dv, usuario_logado)
+    _tabela(_dv, linhas, mes)
+    if so_no_studio:
+        with st.expander(f"🔎 {len(so_no_studio)} devolução(ões) só no Studio "
+                         "— não estão na planilha e ficam fora da conta"):
+            st.dataframe(
+                [{TITULOS[c]: (_dv.data_br(l.get(c)) if c in ("data_solic",
+                                                              "conferencia")
+                               else l.get(c, ""))
+                  for c in CAMPOS_TABELA} for l in so_no_studio],
+                hide_index=True, use_container_width=True)
 
 
 # ── 1. Em aberto ────────────────────────────────────────────────────────────
@@ -81,9 +83,6 @@ def _em_aberto(_dv, linhas, usuario_logado):
         st.caption("Nada em aberto." if linhas else
                    "Nenhuma devolução cadastrada ainda.")
         return
-    st.caption(
-        "Fica aqui até alguém marcar ✅ **Resolvido**. Não some quando o mês "
-        "vira — foi por sumir que um caso ficou dois meses sem cobrança.")
     total = round(sum(_dv.num(a.get("valor")) for a in abertos), 2)
     st.metric("Em aberto", _brl(total), help=f"{len(abertos)} devolução(ões).")
 
@@ -99,15 +98,15 @@ def _em_aberto(_dv, linhas, usuario_logado):
                 label_visibility="collapsed",
                 placeholder="ex.: Recorrer — aguardando resposta da plataforma")
             if novo != a.get("status", ""):
-                ok, msg = _dv.atualizar(a["id"], {"status": novo},
-                                        usuario_logado or "")
+                ok, msg = _dv.acompanhar(a, {"status": novo},
+                                         usuario_logado or "")
                 if not ok:
                     st.error(msg)
         with c2:
             if st.button("✅ Resolvido", key=f"dv_ok_{a['id']}",
                          use_container_width=True):
-                ok, msg = _dv.atualizar(a["id"], {"resolvido": "TRUE"},
-                                        usuario_logado or "")
+                ok, msg = _dv.acompanhar(a, {"resolvido": "TRUE"},
+                                         usuario_logado or "")
                 (st.success if ok else st.error)(msg)
                 if ok:
                     st.rerun()
@@ -213,164 +212,7 @@ def _motivos(_dv, doMes, linhas, mes):
         "embalagem e separação, não para o cliente.")
 
 
-# ── 3. Nova devolução ───────────────────────────────────────────────────────
-
-def _itens_do_pedido(pedido):
-    """Os itens do pedido na BASE DE VENDAS. ([], "") quando não acha."""
-    if not str(pedido or "").strip():
-        return [], ""
-    try:
-        import controle_ms as _cms
-        import devolucoes as _dv
-        df, erro = _cms.ler(_dv.ABA_VENDAS)
-        if erro:
-            return [], erro
-        cp = _dv._coluna(df, "Pedido")
-        if not cp:
-            return [], "A BASE DE VENDAS não tem coluna «Pedido»."
-        cols = {k: _dv._coluna(df, v) for k, v in
-                (("produto", "Produto"), ("sku", "SKU"),
-                 ("quantidade", "Quantidade"),
-                 ("valor", "Total dos Produtos"), ("data", "Data"),
-                 ("plataforma", "Plataforma"))}
-        alvo = str(pedido).strip()
-        fora = []
-        for _, l in df.iterrows():
-            if str(l.get(cp, "") or "").strip() == alvo:
-                fora.append({k: (l.get(c) if c else "") for k, c in cols.items()})
-        return fora, ""
-    except Exception as e:
-        return [], str(e)[:140]
-
-
-def _nova(_dv, usuario_logado):
-    st.markdown("##### Nova devolução")
-    p1, p2 = st.columns([2, 5])
-    pedido = p1.text_input("Nº do pedido", key="dv_ped")
-    itens, erro_it = ([], "")
-    if pedido:
-        with st.spinner("Procurando na BASE DE VENDAS…"):
-            itens, erro_it = _itens_do_pedido(pedido)
-
-    marcados = None
-    if itens and len(itens) > 1:
-        p2.markdown("&nbsp;", unsafe_allow_html=True)
-        p2.success(f"✅ Achei — este pedido tem **{len(itens)} produtos**. "
-                   "Marque o que voltou; uma devolução só, com os valores "
-                   "somados.")
-        editado = st.data_editor(
-            [{"↩️ Voltou": True, "SKU": str(i.get("sku", "")),
-              "Produto": str(i.get("produto", "")),
-              "Qtd": int(_dv.num(i.get("quantidade"), 1)),
-              "Valor": _brl(i.get("valor"))} for i in itens],
-            hide_index=True, use_container_width=True, key="dv_itens",
-            disabled=["SKU", "Produto", "Qtd", "Valor"],
-            column_config={
-                "↩️ Voltou": st.column_config.CheckboxColumn(width="small"),
-                "SKU": st.column_config.TextColumn(width="small"),
-                "Qtd": st.column_config.NumberColumn(width="small")})
-        marcados = [i for i, l in enumerate(editado) if l.get("↩️ Voltou")]
-    elif itens:
-        p2.markdown("&nbsp;", unsafe_allow_html=True)
-        p2.success("✅ Achei na **BASE DE VENDAS** — preenchi os campos cinzas.")
-    elif pedido:
-        p2.markdown("&nbsp;", unsafe_allow_html=True)
-        p2.warning(
-            "Não achei este pedido na BASE DE VENDAS. Tudo abre para "
-            "digitação." + (f" ({erro_it})" if erro_it else ""))
-
-    auto = _dv.juntar(itens, marcados) if itens else {}
-    achou = bool(itens)
-
-    a = st.columns(4)
-    a[0].text_input("Data da venda", _dv.data_br(auto.get("data_venda")),
-                    disabled=achou, key="dv_dvenda")
-    a[1].text_input("Produto *", auto.get("produto", ""), disabled=achou,
-                    key="dv_prod")
-    # Quando o valor vem da planilha ele e so para CONFERIR, e conferir se le
-    # em real: `number_input` escreve 145.33, com ponto, ao lado de um
-    # "R$ 145,33" tres linhas acima. Dois formatos do mesmo numero na mesma
-    # tela e como se comeca a desconfiar do numero.
-    if achou:
-        a[2].text_input("Quantidade", str(auto.get("quantidade", 0)),
-                        disabled=True, key="dv_qtd_txt")
-        a[3].text_input("Valor", _brl(auto.get("valor")), disabled=True,
-                        key="dv_valor_txt")
-    else:
-        a[2].number_input("Quantidade", value=1, step=1, key="dv_qtd")
-        a[3].number_input("Valor", value=0.0, step=0.01, key="dv_valor")
-    b = st.columns([1, 3])
-    b[0].text_input("Conta", auto.get("conta", ""), disabled=achou,
-                    key="dv_conta")
-    b[1].text_input("SKU", auto.get("sku", ""), key="dv_sku",
-                    help="Vem dos itens marcados e continua aberto para você "
-                         "corrigir ou digitar.")
-    if achou:
-        st.caption("Cinza = veio da planilha de vendas, somando **só os itens "
-                   "marcados**. O **SKU fica editável**.")
-
-    c = st.columns(4)
-    c[0].date_input("Data solicitação *", value=date.today(),
-                    format="DD/MM/YYYY", key="dv_solic")
-    c[1].selectbox("Envios *", _dv.ENVIOS, key="dv_envios")
-    c[2].text_input("Usuário", key="dv_usuario")
-    c[3].text_input("Nome", key="dv_nome")
-
-    d = st.columns(4)
-    d[0].selectbox("Motivo *", _dv.MOTIVOS, key="dv_motivo")
-    d[1].number_input("Frete", value=0.0, step=0.01, key="dv_frete",
-                      help="Só preencha quando a devolução foi culpa nossa. "
-                           "É o frete que diz isso na hora de medir.")
-    d[2].date_input("Conferência *", value=date.today(), format="DD/MM/YYYY",
-                    key="dv_conf")
-    d[3].selectbox("Situação *", _dv.SITUACOES, key="dv_situacao")
-
-    e = st.columns([1, 3])
-    e[0].text_input("NF devolução", key="dv_nf",
-                    help="Número da NF de devolução ou do cancelamento — é o "
-                         "que evita pagar imposto de produto que voltou.")
-    e[1].text_input("Status (texto livre)", key="dv_status",
-                    placeholder="ex.: Recorrer, aguardando a plataforma…")
-    st.caption(
-        "`*` = obrigatório. Todo o resto pode ficar em branco e não trava o "
-        "cadastro. **RECORRIDO não zera valor nenhum sozinho** — o reembolso "
-        "às vezes é parcial, e quem apaga o valor é você.")
-
-    if st.button("Gravar devolução", type="primary", key="dv_gravar"):
-        reg = {
-            "data_venda": auto.get("data_venda", ""),
-            "data_solic": st.session_state["dv_solic"],
-            "pedido": pedido, "sku": st.session_state["dv_sku"],
-            "produto": auto.get("produto") or st.session_state.get("dv_prod", ""),
-            "quantidade": (auto.get("quantidade")
-                           or st.session_state.get("dv_qtd", 1)),
-            "valor": auto.get("valor") or st.session_state.get("dv_valor", 0.0),
-            "conta": auto.get("conta") or st.session_state.get("dv_conta", ""),
-            "envios": st.session_state["dv_envios"],
-            "usuario": st.session_state["dv_usuario"],
-            "nome": st.session_state["dv_nome"],
-            "motivo": st.session_state["dv_motivo"],
-            "frete": st.session_state["dv_frete"],
-            "conferencia": st.session_state["dv_conf"],
-            "situacao": st.session_state["dv_situacao"],
-            "nf_devolucao": st.session_state["dv_nf"],
-            "status": st.session_state["dv_status"],
-        }
-        falta = _dv.faltando(_dv.normalizar(reg))
-        if falta:
-            st.error("Falta preencher: **" + "**, **".join(falta) + "**.")
-        else:
-            n, rep, erro = _dv.gravar([reg], usuario_logado or "")
-            if erro:
-                st.error(f"Não consegui gravar: {erro}")
-            elif rep:
-                st.warning("Esta devolução já estava cadastrada.")
-            else:
-                st.success("Gravada.")
-                st.rerun()
-
-
-# ── 4. O mês, editável ──────────────────────────────────────────────────────
+# ── 3. O mês, como está na planilha ──────────────────────────────────────────────────────
 
 CAMPOS_TABELA = ("data_solic", "pedido", "envios", "usuario", "nome", "sku",
                  "produto", "quantidade", "valor", "frete", "motivo", "conta",
@@ -384,89 +226,17 @@ TITULOS = {"data_solic": "Data solic.", "pedido": "Pedido", "envios": "Envios",
            "nf_devolucao": "NF dev.", "status": "Status"}
 
 
-def _tabela(_dv, linhas, mes, usuario_logado):
+def _tabela(_dv, linhas, mes):
+    """As devoluções do mês, só para ler: quem edita é a planilha."""
     doMes = _dv.do_mes(linhas, mes)
-    st.markdown(f"##### As devoluções de {_rotulo_mes(mes)} — tudo editável")
-    # As datas sao GRAVADAS em AAAA-MM-DD (ordena sozinho) e LIDAS em
-    # dd/mm/aaaa. `texto_data` reconhece as duas na volta, entao editar no
-    # formato daqui nao quebra nada.
+    st.markdown(f"##### As devoluções de {_rotulo_mes(mes)}")
     DATAS = ("data_solic", "conferencia")
-    antes = [{TITULOS[c]: (_dv.data_br(l.get(c)) if c in DATAS
-                           else l.get(c, ""))
-              for c in CAMPOS_TABELA} for l in doMes]
-    for i, l in enumerate(antes):
-        l["Apagar"] = False
-    editado = st.data_editor(
-        antes, hide_index=True, use_container_width=True, key=f"dv_tb_{mes}",
+    st.dataframe(
+        [{TITULOS[c]: (_dv.data_br(l.get(c)) if c in DATAS else l.get(c, ""))
+          for c in CAMPOS_TABELA} for l in doMes],
+        hide_index=True, use_container_width=True,
         column_config={
-            "Apagar": st.column_config.CheckboxColumn(width="small"),
             "Valor": st.column_config.NumberColumn(format="R$ %.2f"),
-            "Frete": st.column_config.NumberColumn(format="R$ %.2f"),
-            "Situação": st.column_config.SelectboxColumn(
-                options=list(_dv.SITUACOES)),
-            "Motivo": st.column_config.SelectboxColumn(
-                options=list(_dv.MOTIVOS)),
-            "Envios": st.column_config.SelectboxColumn(
-                options=list(_dv.ENVIOS))})
-
-    if not st.button("Salvar as alterações", key=f"dv_salvar_{mes}"):
-        st.caption("Alterou alguma célula? Clique em **Salvar as alterações**. "
-                   "Marcar *Apagar* remove a linha ao salvar.")
-        return
-
-    apagar, mudados = [], 0
-    for orig, novo in zip(doMes, editado):
-        if novo.get("Apagar"):
-            apagar.append(orig["id"])
-            continue
-        campos = {}
-        for c in CAMPOS_TABELA:
-            atual = novo.get(TITULOS[c])
-            antigo = (_dv.data_br(orig.get(c)) if c in DATAS
-                      else orig.get(c, ""))
-            if str(atual if atual is not None else "") != str(antigo or ""):
-                campos[c] = (_dv.texto_data(atual) if c in DATAS else atual)
-        if campos:
-            ok, msg = _dv.atualizar(orig["id"], campos, usuario_logado or "")
-            if ok:
-                mudados += 1
-            else:
-                st.error(msg)
-    if apagar:
-        q, erro = _dv.apagar(apagar)
-        if erro:
-            st.error(erro)
-        else:
-            st.success(f"{q} apagada(s).")
-    if mudados:
-        st.success(f"{mudados} alterada(s).")
-    if mudados or apagar:
-        st.rerun()
-    else:
-        st.info("Nada mudou.")
+            "Frete": st.column_config.NumberColumn(format="R$ %.2f")})
 
 
-# ── Importação do histórico ─────────────────────────────────────────────────
-
-def _importar(_dv, usuario_logado):
-    st.markdown("##### Importar o histórico do Controle MS")
-    st.caption(
-        "Roda uma vez. Reimportar não duplica — a identidade sai de data + "
-        "pedido + produto + valor. Os pedidos de mais de um item são "
-        "reconstruídos **pelo valor**; os ambíguos entram marcados, em aberto.")
-    if not st.button("Importar", key="dv_importar"):
-        return
-    with st.spinner("Lendo o Controle MS…"):
-        novas, avisos = _dv.do_controle_ms()
-    for a in avisos:
-        st.warning(a) if a.startswith("⚠️") else st.caption(f"· {a}")
-    if not novas:
-        st.error("Não achei devolução nenhuma para importar.")
-        return
-    with st.spinner(f"Gravando {len(novas)}…"):
-        n, rep, erro = _dv.gravar(novas, usuario_logado or "")
-    if erro:
-        st.error(f"Não consegui gravar: {erro}")
-    else:
-        st.success(f"{n} importada(s); {rep} já existia(m).")
-        st.rerun()

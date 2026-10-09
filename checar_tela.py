@@ -888,6 +888,44 @@ def _salvar_metas(conta):
          _retorno_de) = _g
 
 
+def _devolucoes_da_planilha(conta):
+    """09/10: as devoluções vêm da planilha; o Studio só acompanha.
+
+    Só a leitura é trocada: `do_controle_ms` devolve linhas na forma dele
+    (`normalizar`), e `juntar_fontes` roda de verdade."""
+    import devolucoes as _dv_d
+    import devolucoes_tela as _dvt_d
+    _p = _dv_d.normalizar({"data_solic": "2026-09-10", "pedido": "111",
+                           "produto": "Caneca", "valor": 50.0,
+                           "situacao": "RECORRENDO"})
+    _so = _dv_d.normalizar({"data_solic": "2026-08-01", "pedido": "9",
+                            "produto": "Só no Studio", "valor": 10.0})
+    _g = (_dv_d.do_controle_ms, _dv_d._do_studio, _dv_d.carregar_tudo)
+    _dv_d.do_controle_ms = lambda limite=None: ([_p], [])
+    _dv_d._do_studio = lambda: [_so]
+    _dv_d.carregar_tudo = lambda: (lambda l, s: (l, s, []))(
+        *_dv_d.juntar_fontes(*([_p], [_so])))
+    _vistos = []
+    _falso = instalar()
+    _falso.data_editor = lambda *a, **k: _vistos.append("editor") or (a[0] if a else None)
+    _falso.form = lambda *a, **k: _vistos.append("form") or _falso
+    _dvt_d.st = _falso
+    try:
+        _dvt_d.pagina("leo")
+        conta("Devoluções: a tela monta com a planilha como fonte", True, "")
+    except (_Rerun, _Parou):
+        conta("Devoluções: a tela monta com a planilha como fonte", True, "")
+    except Exception as e:
+        conta("Devoluções: a tela monta com a planilha como fonte", False,
+              f"{type(e).__name__}: {e}")
+    finally:
+        _dv_d.do_controle_ms, _dv_d._do_studio, _dv_d.carregar_tudo = _g
+    conta("Devoluções: sem cadastro nem edição no Studio — a planilha edita",
+          "editor" not in _vistos and "form" not in _vistos
+          and not hasattr(_dvt_d, "_nova") and not hasattr(_dvt_d, "_importar"),
+          f"visto: {_vistos}")
+
+
 def _queda_de_pontos(conta):
     """O bloco que explica a queda de pontuação — ele lê o log do Trello."""
     import placar as _pl
@@ -2892,6 +2930,7 @@ def main():
     _finalidades_em_massa(conta)
     _resumo_mensal(conta)
     _salvar_metas(conta)
+    _devolucoes_da_planilha(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0
