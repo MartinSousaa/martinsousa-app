@@ -108,10 +108,10 @@ def com_apelido(linha, palavra):
     restringiria o item a ele só (`nomes_do_item`), e o que casava pelo nome
     deixaria de casar.
     """
-    nomes = nomes_do_item(linha)
-    if str(palavra or "").strip().upper() in {n.strip().upper() for n in nomes}:
+    atuais = nomes_do_item(linha)
+    if str(palavra or "").strip().upper() in {n.strip().upper() for n in atuais}:
         return str(linha.get("favorecido") or "")
-    return "; ".join([n.strip() for n in nomes if n.strip()]
+    return "; ".join([n.strip() for n in atuais if n.strip()]
                      + [str(palavra).strip().upper()])
 
 
