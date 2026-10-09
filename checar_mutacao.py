@@ -2242,15 +2242,15 @@ MUTACOES = [
     (
         "a celula vazia da fila volta a gravar 'nan' como finalidade",
         "extratos_tela.py",
-        '        fin = fin.strip() if isinstance(fin, str) else ""\n',
-        '        fin = str(fin or "").strip()\n',
+        '    fin = fin.strip() if isinstance(fin, str) else ""\n',
+        '    fin = str(fin or "").strip()\n',
         ["python3", "extratos_tela.py"],
     ),
     (
         "a finalidade em massa deixa de valer para os marcados",
         "extratos_tela.py",
-        "        if not fin and l.get(\"marcar\") is True and massa:\n",
-        "        if False:\n",
+        "    if not fin and l.get(\"marcar\") is True and massa:\n",
+        "    if False:\n",
         ["python3", "extratos_tela.py"],
     ),
     (
@@ -2407,7 +2407,7 @@ MUTACOES = [
     (
         "'— escolher —' volta a ser gravado como finalidade",
         "extratos_tela.py",
-        "        if fin == vazio:\n            fin = \"\"\n",
+        "    if fin == vazio:\n        fin = \"\"\n",
         "",
         ["python3", "extratos_tela.py"],
     ),
@@ -2465,8 +2465,8 @@ MUTACOES = [
     (
         "o cadastro volta a aprender de linha que nao foi custo fixo",
         "extratos_tela.py",
-        '        if fin.upper() == "CUSTO FIXO":\n            fora.append((c[2], c[3], c[4]))\n',
-        "        if True:\n            fora.append((c[2], c[3], c[4]))\n",
+        '        if finalidade_da_linha(l, massa, vazio).upper() == "CUSTO FIXO":\n',
+        "        if True:\n",
         ["python3", "extratos_tela.py"],
     ),
     (
@@ -2479,8 +2479,8 @@ MUTACOES = [
     (
         "o apelido aprendido volta a tirar o nome do item da busca",
         "custo_real.py",
-        "    nomes = nomes_do_item(linha)\n    if str(palavra",
-        "    nomes = apelidos(linha)\n    if str(palavra",
+        "    atuais = nomes_do_item(linha)\n",
+        "    atuais = apelidos(linha)\n",
         ["python3", "custo_real.py"],
     ),
     (
