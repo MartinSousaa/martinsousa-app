@@ -527,8 +527,8 @@ def apagar(ids):
         registros = aba.get_all_records()
         linhas = [i + 2 for i, r in enumerate(registros)
                   if str(r.get("id", "")).strip() in alvos]
-        for n in sorted(linhas, reverse=True):
-            aba.delete_rows(n)
+        import sheets as _sh_dv
+        _sh_dv.apagar_linhas(aba, linhas)    # uma requisição só
     except Exception as e:
         return 0, str(e)[:200]
     carregar_tudo.clear()

@@ -79,8 +79,10 @@ def _garantir_tokens_carregados():
         # Limpa tokens expirados do Sheets (em lote, de baixo pra cima)
         if linhas_expiradas:
             try:
-                for ln in sorted(linhas_expiradas, reverse=True):
-                    aba.delete_rows(ln)
+                # UMA requisição para todos (`sheets.apagar_linhas`): uma por
+                # linha gastava a cota do Google a cada reinício do Studio.
+                import sheets as _sh_tok
+                _sh_tok.apagar_linhas(aba, linhas_expiradas)
             except Exception:
                 pass
         _tokens_sheets_carregados = True  # só marca sucesso aqui
@@ -123,8 +125,10 @@ def revogar_tokens(login):
         regs = aba.get_all_records(value_render_option="UNFORMATTED_VALUE")
         linhas = [i for i, r in enumerate(regs, start=2)
                   if str(r.get("usuario", "")).strip().lower() == alvo]
-        for ln in sorted(linhas, reverse=True):   # de baixo para cima
-            aba.delete_rows(ln)
+        # UMA requisição (`sheets.apagar_linhas`): excluir quem logou muitas
+        # vezes eram dezenas de gravações seguidas — o 429 de 07/10.
+        import sheets as _sh_rev
+        _sh_rev.apagar_linhas(aba, linhas)
         n = max(n, len(linhas))
     except Exception:
         pass   # a memória já foi limpa; a planilha some no TTL de 30 dias
