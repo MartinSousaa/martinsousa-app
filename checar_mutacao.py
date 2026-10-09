@@ -1052,10 +1052,25 @@ MUTACOES = [
     (
         "a porta unica vira oca",
         "imagem.py",
-        "    img, rel_peca = revisar_peca(img, tipo, fotos_ref=fotos_ref, gerar=gerar,\n"
-        "                                 prompt_base=prompt_base, aviso=aviso)",
-        "    rel_peca = None",
+        "    img, rel_txt, prompt_base = revisar_texto(\n"
+        "        img, tipo, pedido=pedido, gerar=gerar, prompt_base=prompt_base,\n"
+        "        aviso=aviso, dados_descricao=dados_descricao)",
+        "    rel_txt = None",
         ["python3", "checar_tela.py"],
+    ),
+    (
+        "a conferencia da peca volta a ser ligada sem ninguem pedir",
+        "imagem.py",
+        "CONFERIR_PECA = False\n",
+        "CONFERIR_PECA = True\n",
+        ["python3", "imagem.py"],
+    ),
+    (
+        "o desligado passa a inventar que conferiu",
+        "imagem.py",
+        "        rel_peca = {}\n    return img, rel_txt, rel_peca",
+        '        rel_peca = {"ok": True, "problemas": []}\n    return img, rel_txt, rel_peca',
+        ["python3", "imagem.py"],
     ),
     (
         "o sinal do codigo de saida da varredura volta a ser invertido",

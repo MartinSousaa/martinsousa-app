@@ -8220,6 +8220,29 @@ def revisar_peca(img, tipo, fotos_ref=None, gerar=None, prompt_base="",
                         "problemas": melhores_problemas}
 
 
+# ── A CONFERÊNCIA DA PEÇA ESTÁ DESLIGADA — decisão do dono, 09/10 ────────
+#
+# *"Tire esses erros, quem está gerando as imagens tem capacidade de analisar
+# se a imagem está boa ou não!!"* — dito depois de eu já ter corrigido dois
+# alarmes falsos dela no mesmo dia, e com a caixa vermelha aparecendo em toda
+# geração.
+#
+# O QUE SAI JUNTO, E ISSO É O PONTO: `revisar_peca` não só escrevia a caixa —
+# ela REFAZIA a peça até duas vezes antes de desistir. Desligar o aviso e
+# deixar as tentativas seria o pior dos dois mundos: ele pagaria as gerações
+# e não saberia por quê. Sai a conferência inteira.
+#
+# O QUE FICA: `revisar_texto`. Ela não julga, CONSERTA — é quem tirou
+# "Portátile" e "apoliando" da arte, e o dono nunca reclamou dela. São
+# perguntas diferentes, e só uma foi desligada.
+#
+# POR QUE UM INTERRUPTOR E NÃO APAGAR O CÓDIGO: a função tem 120 linhas, 4
+# perguntas calibradas por tipo e duas correções de alarme falso feitas hoje.
+# Apagar seria jogar fora o que custou medição; e se o dono quiser de volta,
+# é esta linha. O estado está escrito, e não escondido.
+CONFERIR_PECA = False
+
+
 def revisar_tudo(img, tipo, fotos_ref=None, gerar=None, prompt_base="",
                  pedido="", aviso=None, dados_descricao=None):
     """Lê o texto E olha a peça. Devolve (imagem, relato_texto, relato_peca).
@@ -8253,8 +8276,16 @@ def revisar_tudo(img, tipo, fotos_ref=None, gerar=None, prompt_base="",
     #
     # O prompt SAI do relato aqui: senao ele viajaria com a peca ate a galeria
     # e o disco, 24 mil caracteres por imagem, sem ninguem ler.
-    img, rel_peca = revisar_peca(img, tipo, fotos_ref=fotos_ref, gerar=gerar,
-                                 prompt_base=prompt_base, aviso=aviso)
+    if CONFERIR_PECA:
+        img, rel_peca = revisar_peca(img, tipo, fotos_ref=fotos_ref,
+                                     gerar=gerar, prompt_base=prompt_base,
+                                     aviso=aviso)
+    else:
+        # Dicionário VAZIO, e não um veredito inventado de "ok": `ok is None`
+        # é o que esta base chama de "ninguém olhou", e é a verdade. Escrever
+        # `ok: True` seria o Studio afirmando que conferiu — a mentira que o
+        # `placar_do_lote` existe para não deixar acontecer.
+        rel_peca = {}
     return img, rel_txt, rel_peca
 
 
@@ -13737,6 +13768,65 @@ if __name__ == "__main__":
     ok("e NAO de dentro do if que o codigo de descricao pula",
        not _dentro_do_if)
 
+    # ── A CONFERENCIA DA PECA DESLIGADA (09/10, decisao do dono) ────────
+    #
+    # "Tire esses erros, quem esta gerando as imagens tem capacidade de
+    # analisar se a imagem esta boa ou nao!!"
+    #
+    # A ENTRADA VEM DA CADEIA REAL: `revisar_tudo` e a porta unica por onde
+    # os quatro caminhos que escrevem bytes na galeria passam. O duplo
+    # substitui so a REVISAO DE TEXTO, que e chamada de rede — o resto da
+    # funcao roda de verdade.
+    _chamou_peca = {"sim": False}
+    _rt_real, _rp_real = revisar_texto, revisar_peca
+
+    def _texto_falso(img, tipo, **kw):
+        return img, {"ok": True, "problemas": []}, "prompt"
+
+    def _peca_falsa(img, tipo, **kw):
+        _chamou_peca["sim"] = True
+        return img, {"ok": False, "problemas": ["defeito inventado"]}
+    try:
+        revisar_texto, revisar_peca = _texto_falso, _peca_falsa
+        _img_rv, _rt_rv, _rp_rv = revisar_tudo(b"bytes", "2 — Benefícios do produto")
+    finally:
+        revisar_texto, revisar_peca = _rt_real, _rp_real
+
+    ok("o interruptor existe e esta desligado", CONFERIR_PECA is False)
+    ok("a conferencia da peca NAO e chamada", not _chamou_peca["sim"])
+    ok("o veredito da peca volta VAZIO, e nao um 'ok' inventado",
+       _rp_rv == {})
+    ok("e a revisao de TEXTO continua rodando — ela conserta, nao julga",
+       _rt_rv.get("ok") is True)
+
+    # A TELA NAO DESENHA CAIXA NENHUMA com o veredito vazio.
+    ok("veredito vazio nao vira aviso na tela", peca_em_aviso({}) == "")
+    # E O PLACAR CONTA COMO APROVADA, e nao como "ninguem olhou": quem olha
+    # agora e o colaborador, e dizer "nao conferida" em toda peca seria
+    # trocar uma caixa vermelha por um rotulo amarelo.
+    _pl_rv = placar_do_lote([{"tipo": "x", "peca": {}, "texto": {"ok": True}}])
+    ok("o placar conta a peca como aprovada",
+       _pl_rv["aprovadas"] == 1 and _pl_rv["reprovadas"] == 0
+       and _pl_rv["nao_conferidas"] == 0)
+
+    # UM INTERRUPTOR SO: `revisar_peca` nao pode ser chamada por fora da
+    # porta unica, senao a caixa volta por um caminho e nao pelo outro — que
+    # e a Forma 1 desta base.
+    import ast as _ast_rv
+    _fonte_rv = open(__file__, encoding="utf-8").read()
+    _cod_rv = _fonte_rv.split('if __name__ == "__main__":')[0]
+    _donos_rv = set()
+    for _no_rv in _ast_rv.walk(_ast_rv.parse(_cod_rv)):
+        if not isinstance(_no_rv, _ast_rv.FunctionDef):
+            continue
+        for _sub in _ast_rv.walk(_no_rv):
+            if (isinstance(_sub, _ast_rv.Call)
+                    and isinstance(_sub.func, _ast_rv.Name)
+                    and _sub.func.id == "revisar_peca"):
+                _donos_rv.add(_no_rv.name)
+    ok(f"so `revisar_tudo` chama a conferencia da peca (chamam: "
+       f"{sorted(_donos_rv)})", _donos_rv <= {"revisar_tudo"})
+
     # ── A OCUPACAO TEM UMA VOZ SO (09/10) ───────────────────────────────
     #
     # O CASO, DA TELA DO DONO: a capa do prendedor de roupa saiu CERTA e a
@@ -14762,13 +14852,28 @@ if __name__ == "__main__":
     _img_t, _rt, _rp = revisar_tudo(
         b"x", "2 — Benefícios do produto", fotos_ref=[b"foto"],
         gerar=_gera_vendo, prompt_base=_base_ini)
-    ok("a revisao de texto e a da peca rodaram as duas",
-       _rt and _rp and len(_base_vista) == 2)
-    ok("e a refacao DA PECA ja parte da copy CORRIGIDA",
-       len(_base_vista) == 2 and "apoliando" not in _base_vista[1])
-    ok("nao havendo, ela levaria de volta o erro que a primeira tirou",
-       len(_base_vista) == 2
-       and "PERFEITO PARA ESCRITÓRIO" in _base_vista[1])
+    # ESTAS TRES MEDEM O COMPORTAMENTO COM A CONFERENCIA DA PECA LIGADA, e
+    # ela foi DESLIGADA por decisao do dono em 09/10. Elas nao sao apagadas:
+    # guardam uma licao que custou uma geracao paga — a segunda revisao tem
+    # de partir da copy JA corrigida, senao ela traz de volta o erro que a
+    # primeira acabou de tirar. No dia em que `CONFERIR_PECA` voltar a ser
+    # True, a licao volta a ser medida sozinha.
+    #
+    # Apagar seria a terceira forma de peso morto desta base: jogar fora a
+    # medicao e descobrir o defeito de novo daqui a tres semanas.
+    if CONFERIR_PECA:
+        ok("a revisao de texto e a da peca rodaram as duas",
+           _rt and _rp and len(_base_vista) == 2)
+        ok("e a refacao DA PECA ja parte da copy CORRIGIDA",
+           len(_base_vista) == 2 and "apoliando" not in _base_vista[1])
+        ok("nao havendo, ela levaria de volta o erro que a primeira tirou",
+           len(_base_vista) == 2
+           and "PERFEITO PARA ESCRITÓRIO" in _base_vista[1])
+    else:
+        ok("com a conferencia da peca desligada, so a de TEXTO roda",
+           _rt and _rp == {} and len(_base_vista) == 1)
+        ok("e a copy errada foi corrigida mesmo assim",
+           "apoliando" not in (_base_vista[0] if _base_vista else "apoliando"))
     # E O PROMPT NAO VIAJA COM A PECA.
     #
     # O relato de texto e guardado em `galeria[i]["texto"]` e vai para a tela
