@@ -1015,6 +1015,45 @@ def _acompanhamento_do_mes(conta):
         _bv_a.media_recente, _hg_a._faturamento_bling = _g
 
 
+def _inter_pela_api(conta):
+    """09/10: o extrato do Inter pela API — mostra antes de gravar.
+
+    Só a rede é trocada: `buscar` devolve linhas na forma de `ler`, e o que
+    já está gravado vem na forma de `lancamentos.carregar`."""
+    import extratos_tela as _et_i
+    import extrato_inter_api as _api_i
+    import lancamentos as _lan_i
+    from datetime import date as _d_i
+    _da_api = [{"data": _d_i(2026, 10, 8), "descricao": "Pix enviado: X",
+                "favorecido": "X", "valor": -100.0, "sentido": "saida"},
+               {"data": _d_i(2026, 10, 9), "descricao": "Pix enviado: Y",
+                "favorecido": "Y", "valor": -40.0, "sentido": "saida"}]
+    _g = (_api_i.configuradas, _api_i.buscar, _lan_i.carregar, _lan_i.gravar)
+    _gravou, _tabelas = [], []
+    _api_i.configuradas = lambda ambiente=None: [("LG", "INTER", "inter-1")]
+    _api_i.buscar = lambda pref, a, b: (list(_da_api), "")
+    _lan_i.carregar = lambda: [{"conta": "inter-1", "data": "2026-10-08",
+                                "valor": -100.0, "descricao": "do CSV"}]
+    _lan_i.gravar = lambda *a, **k: _gravou.append(a) or (1, 0, "")
+    _falso = instalar()
+    _falso.button = lambda rot, *a, **k: k.get("key") == "api_inter_buscar"
+    _falso.dataframe = lambda d, *a, **k: _tabelas.append(d)
+    _et_i.st = _falso
+    try:
+        _et_i._buscar_inter("leo")
+        conta("Inter pela API: mostra só o que ainda não está gravado",
+              len(_tabelas) == 1 and [r["valor"] for r in _tabelas[0]] == [-40.0],
+              str(_tabelas))
+        conta("e não grava nada sem o clique em Gravar", _gravou == [],
+              str(_gravou))
+    except Exception as e:
+        conta("Inter pela API: mostra só o que ainda não está gravado", False,
+              f"{type(e).__name__}: {e}")
+    finally:
+        (_api_i.configuradas, _api_i.buscar, _lan_i.carregar,
+         _lan_i.gravar) = _g
+
+
 def _queda_de_pontos(conta):
     """O bloco que explica a queda de pontuação — ele lê o log do Trello."""
     import placar as _pl
@@ -3022,6 +3061,7 @@ def main():
     _devolucoes_da_planilha(conta)
     _equilibrio_real_na_meta(conta)
     _acompanhamento_do_mes(conta)
+    _inter_pela_api(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0

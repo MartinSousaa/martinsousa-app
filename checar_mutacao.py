@@ -2454,6 +2454,42 @@ MUTACOES = [
         '        + ""\n',
         ["python3", "home_gestao.py"],
     ),
+    # ── 09/10: O EXTRATO DO INTER PELA API ──────────────────────────────
+    (
+        "a API do Inter volta a gravar de novo o que o CSV ja trouxe",
+        "extrato_inter_api.py",
+        "        if sobra.get(k):\n",
+        "        if False:\n",
+        ["python3", "extrato_inter_api.py"],
+    ),
+    (
+        "o debito do Inter volta a entrar como entrada",
+        "extrato_inter_api.py",
+        '        v = -abs(v) if op == "D" else (abs(v) if op == "C" else v)\n',
+        '        v = abs(v) if op == "D" else (abs(v) if op == "C" else v)\n',
+        ["python3", "extrato_inter_api.py"],
+    ),
+    (
+        "o CSV volta a duplicar o que a API do Inter ja gravou",
+        "extrato_inter_api.py",
+        "    return {it[\"id\"] for it in itens\n            if id(it) not in fica and it[\"id\"] not in ja}\n",
+        "    return set()\n",
+        ["python3", "extrato_inter_api.py"],
+    ),
+    (
+        "o upload do CSV deixa de usar a trava da API",
+        "extratos_tela.py",
+        "    novos, repetidos, erro_g = _lan.gravar(classificados, conta, usuario_logado,\n                                           pular=_pular)\n",
+        "    novos, repetidos, erro_g = _lan.gravar(classificados, conta, usuario_logado)\n",
+        ["python3", "extratos_tela.py"],
+    ),
+    (
+        "a busca do Inter volta a gravar sem mostrar antes",
+        "extratos_tela.py",
+        "        if total and st.button(f\"💾 Gravar {total} lançamento(s)\",\n",
+        "        if total and True or st.button(f\"💾 Gravar {total} lançamento(s)\",\n",
+        ["python3", "checar_tela.py"],
+    ),
     # ── 09/10: O MES EM ANDAMENTO, PROJETADO X REAL ─────────────────────
     (
         "o equilibrio do mes em andamento volta a ignorar o provisionado",

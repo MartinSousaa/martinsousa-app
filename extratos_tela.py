@@ -36,6 +36,7 @@ def pagina(usuario_logado=None):
     # Título sem explicação embaixo (dono, 09/10: "não quero que os títulos
     # tenham explicações"). As faturas têm a aba delas; aqui é a conta.
     st.markdown("#### 💳 Extrato C.C")
+    _buscar_inter(usuario_logado)
 
     # ── TUDO NO MESMO LUGAR ──────────────────────────────────────────────
     #
@@ -505,7 +506,18 @@ def _processar(arq, _itau, _inter, _fv, _lan, usuario_logado):
     # em que sentido, e com que descrição. "MARTINSOUSA · 5x · 36.272,40" não
     # dá para responder — entrada e saída do mesmo nome são coisas opostas.
     fila = _enriquecer(fila, classificados, conta)
-    novos, repetidos, erro_g = _lan.gravar(classificados, conta, usuario_logado)
+    # O que a API do Inter já gravou com outro texto não entra de novo
+    # (`extrato_inter_api.ja_trazidos`).
+    _pular = set()
+    if conta.startswith("inter-"):
+        try:
+            import extrato_inter_api as _api_csv
+            _pular = _api_csv.ja_trazidos(classificados, _lan.carregar(), conta)
+        except Exception:
+            _pular = set()
+    novos, repetidos, erro_g = _lan.gravar(classificados, conta, usuario_logado,
+                                           pular=_pular)
+    repetidos += len(_pular)
     if erro_g:
         st.error(f"**{nome}:** li o arquivo, mas não consegui gravar — {erro_g}")
         return []
@@ -694,6 +706,72 @@ def chave_do_item(item):
     """
     bruto = (f"{(item.get('favorecido') or '')}|{item.get('sentido') or ''}")
     return "".join(c if c.isalnum() else "_" for c in bruto.upper())[:60]
+
+
+def _buscar_inter(usuario_logado=None):
+    """O extrato do Inter pela API, sem exportar CSV (dono, 09/10).
+
+    Mostra ANTES de gravar: o formato da resposta veio de fonte de terceiros
+    e só a primeira chamada real o confirma (`extrato_inter_api`). Só busca no
+    clique — a API aceita 10 consultas por minuto.
+    """
+    from datetime import datetime
+    import placar_core as _pc
+    import extrato_inter_api as _api
+    import lancamentos as _lan
+    contas = _api.configuradas()
+    if not contas:
+        return
+    with st.expander("🔄 Buscar do Inter, direto do banco", expanded=False):
+        hoje = datetime.now(_pc.FUSO).date()
+        c1, c2 = st.columns(2)
+        ini = c1.date_input("De", hoje.replace(day=1), key="api_inter_ini",
+                            format="DD/MM/YYYY")
+        fim = c2.date_input("Até", hoje, key="api_inter_fim",
+                            format="DD/MM/YYYY")
+        if st.button("Buscar", key="api_inter_buscar"):
+            gravados = _lan.carregar()
+            res = {}
+            for rot, pref, conta in contas:
+                lancs, erro = _api.buscar(pref, ini, fim)
+                res[rot] = {"conta": conta, "lancs": lancs, "erro": erro,
+                            "novos": _api.novos(lancs, gravados, conta)}
+            st.session_state["api_inter_res"] = res
+        res = st.session_state.get("api_inter_res")
+        if not res:
+            return
+        total = 0
+        for rot, r in res.items():
+            st.markdown(f"**{rot}** · `{r['conta']}`")
+            if r["erro"]:
+                st.error(f"{rot}: não consegui buscar — {r['erro']}")
+                continue
+            st.caption(f"{len(r['lancs'])} lançamento(s) no período · "
+                       f"{len(r['novos'])} ainda não gravado(s)")
+            if r["novos"]:
+                total += len(r["novos"])
+                st.dataframe(
+                    [{"data": l["data"].strftime("%d/%m/%Y"),
+                      "descrição": l["descricao"],
+                      "favorecido": l["favorecido"], "valor": l["valor"]}
+                     for l in r["novos"]],
+                    use_container_width=True, hide_index=True,
+                    column_config=_rot.config(
+                        ["data", "descrição", "favorecido", "valor"], st,
+                        tipos={"valor": "brl"}))
+        if total and st.button(f"💾 Gravar {total} lançamento(s)",
+                               type="primary", key="api_inter_gravar"):
+            for rot, r in res.items():
+                if r["erro"] or not r["novos"]:
+                    continue
+                n, _rep, erro = _lan.gravar(r["novos"], r["conta"],
+                                            usuario_logado)
+                if erro:
+                    st.error(f"{rot}: não consegui gravar — {erro}")
+                else:
+                    st.success(f"{rot}: {n} gravado(s). Os sem finalidade "
+                               "estão em 🏷️ Finalidades.")
+            st.session_state.pop("api_inter_res", None)
 
 
 def extrato_incompleto(periodo, n_lancamentos):
@@ -1374,6 +1452,10 @@ if __name__ == "__main__":
        extrato_incompleto("01/08/2026 a 06/10/2026", 233) == ""
        and extrato_incompleto("06/10/2026 a 06/10/2026", 1) == ""
        and extrato_incompleto("", 0) == "")
+    ok("o CSV do Inter não grava de novo o que a API já trouxe",
+       "_api_csv.ja_trazidos(classificados, _lan.carregar(), conta)"
+       in _insp.getsource(_processar)
+       and "pular=_pular)" in _insp.getsource(_processar))
     ok("e o aviso aparece depois de gravar o extrato",
        "extrato_incompleto(_periodo, len(lancs))" in _insp.getsource(_processar))
     ok("e cada lancamento juntado continua la, para conferir",
