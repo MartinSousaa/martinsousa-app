@@ -926,6 +926,47 @@ def _devolucoes_da_planilha(conta):
           f"visto: {_vistos}")
 
 
+def _equilibrio_real_na_meta(conta):
+    """09/10: o equilíbrio real aparece só para os meses fechados.
+
+    `linhas` na forma de `meta_gastos.ano_inteiro`; o mapa na forma de
+    `base_vendas.somas_por_mes`. Só a leitura da planilha é trocada."""
+    import meta_gastos_tela as _mgt_e
+    import base_vendas as _bv_e
+    from datetime import date as _d_e
+
+    def _mes(fat, lb):
+        d = {k: 0.0 for k in _bv_e.COLUNAS}
+        d.update({"faturamento": fat, "fat_liquido": fat, "lucro_bruto": lb,
+                  "linhas": 5})
+        return d
+    _mapa = {(2026, m): _mes(200000, 60000) for m in range(6, 11)}
+    _linhas = [{"mes": f"2026-{m:02d}", "rotulo": f"mes{m} 2026",
+                "meta": 60000.0 if m in (9, 10) else 0.0,
+                "realizado": 66000.0, "origem": "extrato"}
+               for m in range(1, 13)]
+    _g = _bv_e.somas_por_mes
+    _bv_e.somas_por_mes = lambda: (_mapa, "")
+    _tabelas = []
+    _falso = instalar()
+    _falso.dataframe = lambda d, *a, **k: _tabelas.append(d)
+    _mgt_e.st = _falso
+    try:
+        _mgt_e._equilibrio_real(2026, _d_e(2026, 10, 9), _linhas)
+        _df = _tabelas[-1] if _tabelas else None
+        _meses = list(_df["mês"]) if _df is not None else []
+        conta("Meta de gastos: equilíbrio real só nos meses fechados",
+              _meses == ["Mes9"], f"meses: {_meses}")
+        conta("e o resultado é faturado líquido − gasto ÷ lucro bruto do mês",
+              _df is not None and list(_df["resultado"]) == [200000 - 220000.0],
+              str(list(_df["resultado"]) if _df is not None else None))
+    except Exception as e:
+        conta("Meta de gastos: equilíbrio real só nos meses fechados", False,
+              f"{type(e).__name__}: {e}")
+    finally:
+        _bv_e.somas_por_mes = _g
+
+
 def _queda_de_pontos(conta):
     """O bloco que explica a queda de pontuação — ele lê o log do Trello."""
     import placar as _pl
@@ -2931,6 +2972,7 @@ def main():
     _resumo_mensal(conta)
     _salvar_metas(conta)
     _devolucoes_da_planilha(conta)
+    _equilibrio_real_na_meta(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0

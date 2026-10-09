@@ -308,8 +308,58 @@ def pagina(usuario_logado=None):
             pd.DataFrame({"realizado": [l["realizado"] for l in _com_dado]},
                          index=[l["rotulo"].split()[0] for l in _com_dado]),
             use_container_width=True)
+    _equilibrio_real(ano, hoje, linhas)
+
     _sem = [l["rotulo"].split()[0] for l in linhas if l["origem"] == "sem dado"]
     if _sem:
         st.caption("Sem dado ainda: " + ", ".join(_sem)
                    + ". Mês sem número não é mês sem gasto — preencha em "
                      "«Informado por você» ou suba o extrato.")
+
+
+def _equilibrio_real(ano, hoje, linhas):
+    """Os meses FECHADOS: a meta do dia 1º contra o que saiu e o que entrou.
+
+    O mês corrente não aparece (dono, 09/10): ele só se compara depois de
+    fechar. As contas são `equilibrio_caixa.equilibrio_real`.
+    """
+    import pandas as pd
+    import base_vendas as _bv
+    import equilibrio_caixa as _ec
+    fechados = set(_ec.meses_fechados(ano, hoje))
+    meses = [(i, l) for i, l in enumerate(linhas, start=1)
+             if i in fechados and l.get("meta")]
+    if not meses:
+        return
+    mapa, erro = _bv.somas_por_mes()
+    st.markdown("##### ⚖️ Equilíbrio real — meses fechados")
+    if erro:
+        st.warning(f"Não consegui ler a BASE DE VENDAS: {erro}")
+        return
+    tabela = []
+    for i, l in meses:
+        r = _ec.equilibrio_real(l["meta"], l["realizado"], l["origem"],
+                                mapa, ano, i)
+        tabela.append({
+            "mês": l["rotulo"].split()[0].capitalize(),
+            "meta de gastos": r["meta"],
+            "equilíbrio planejado": r["planejado"],
+            "gasto real": r["gasto_real"] or None,
+            "equilíbrio real": r["real"],
+            "faturado (líquido)": r["faturado"],
+            "resultado": r["resultado"],
+            "situação": (r["motivo"] or
+                         (("⚠️ gasto real menos da metade da meta — "
+                           "extratos completos?") if r["suspeito"] else
+                          ("✅ cobriu" if (r["resultado"] or 0) >= 0
+                           else "❌ faltou"))
+                         + (" · gasto informado à mão"
+                            if r["origem_gasto"] == "informado" else "")),
+        })
+    _dinheiro = ["meta de gastos", "equilíbrio planejado", "gasto real",
+                 "equilíbrio real", "faturado (líquido)", "resultado"]
+    st.dataframe(pd.DataFrame(tabela), use_container_width=True,
+                 hide_index=True,
+                 column_config=_rot.config(list(tabela[0]), st,
+                                           tipos={c: "brl" for c in _dinheiro}))
+

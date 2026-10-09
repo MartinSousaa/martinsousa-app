@@ -216,6 +216,71 @@ def ponto_de_equilibrio(meta_gastos, margem_bruta_pct):
     return round(meta / mb, 2)
 
 
+def equilibrio_real(meta, gasto_real, origem_gasto, mapa_vendas, ano, mes):
+    """O mês FECHADO, confrontado com a meta que se pôs no começo dele. Pura.
+
+    Dono, 09/10: "se eu não bato a meta de faturamento com base na meta de
+    gasto, eu preciso ter uma nova análise em cima daquilo que foi gasto e
+    faturado, comparado com o ponto de equilíbrio real" — e o mês corrente
+    não se mexe até fechar.
+
+      planejado = meta ÷ % lucro bruto médio dos 3 meses ANTERIORES ao mês
+                  (a régua de `ponto_de_equilibrio`, como estava no dia 1º)
+      real      = o que saiu nos extratos ÷ % lucro bruto do PRÓPRIO mês
+      resultado = faturamento líquido do mês − real
+
+    Faturamento LÍQUIDO porque a margem é sobre ele (`base_vendas.indicadores`):
+    comparar com o bruto mediria duas coisas diferentes. `mapa_vendas` é
+    `base_vendas.somas_por_mes()`. `motivo` diz o que falta quando não fecha.
+    """
+    import base_vendas as _bv
+    a, m = int(ano), int(mes)
+    ant = (a, m - 1) if m > 1 else (a - 1, 12)
+    chaves = _bv.meses_com_venda(mapa_vendas, ant[0], ant[1], 3)
+    media = _bv.media_dos_meses(mapa_vendas, chaves) if chaves else None
+    mb_media = (media or {}).get("margem_bruta")
+    somas = (mapa_vendas or {}).get((a, m)) or {}
+    ind = _bv.indicadores(somas) if somas.get("linhas") else {}
+    mb_mes = ind.get("margem_bruta")
+    faturado = ind.get("faturamento_liquido")
+    planejado = ponto_de_equilibrio(meta, mb_media)
+    gasto = float(gasto_real or 0.0)
+    motivo = ""
+    if origem_gasto == "sem dado" or gasto <= 0:
+        motivo = "sem extrato do mês"
+    elif not somas.get("linhas"):
+        motivo = "a BASE DE VENDAS ainda não tem o mês"
+    elif not mb_mes or mb_mes <= 0:
+        motivo = "lucro bruto do mês em zero"
+    real = None if motivo else round(gasto / (mb_mes / 100.0), 2)
+    return {
+        "meta": float(meta or 0.0), "planejado": planejado,
+        "gasto_real": gasto, "origem_gasto": origem_gasto,
+        "gasto_vs_meta": (round(gasto - float(meta), 2)
+                          if meta and gasto else None),
+        "mb_media": mb_media, "mb_mes": mb_mes,
+        "periodo_media": _bv._texto_periodo(chaves) if chaves else "",
+        "real": real, "faturado": faturado,
+        "resultado": (round(faturado - real, 2)
+                      if real is not None and faturado is not None else None),
+        "motivo": motivo,
+        # Gasto real abaixo da metade da meta é, quase sempre, extrato que
+        # faltou ou veio cortado (setembro/2026: o Itaú exportou 1 linha).
+        # O equilíbrio real sairia baixo e "cobriu" seria mentira.
+        "suspeito": bool(meta and gasto and gasto < float(meta) * 0.5),
+    }
+
+
+def meses_fechados(ano, hoje):
+    """Os meses de `ano` que já fecharam em `hoje`. O corrente fica de fora."""
+    a = int(ano)
+    if a < hoje.year:
+        return list(range(1, 13))
+    if a > hoje.year:
+        return []
+    return list(range(1, hoje.month))
+
+
 # ── Conferência ──────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -302,6 +367,45 @@ if __name__ == "__main__":
        ponto_de_equilibrio(0, 30.0) is None
        and ponto_de_equilibrio(150000, 0) is None
        and ponto_de_equilibrio(None, None) is None)
+
+    # ── 09/10: O EQUILÍBRIO REAL DO MÊS FECHADO ──────────────────────────
+    # O mapa na forma que `base_vendas.somas_por_mes` monta: cada mês com as
+    # chaves de COLUNAS e a contagem de linhas.
+    import base_vendas as _bv_t
+    from datetime import date as _d_t
+
+    def _mes_t(fat_liq, lb):
+        d = {k: 0.0 for k in _bv_t.COLUNAS}
+        # Bruto ≠ líquido de propósito: trocar um pelo outro tem de aparecer.
+        d.update({"faturamento": fat_liq * 1.1, "fat_liquido": fat_liq,
+                  "lucro_bruto": lb, "linhas": 10})
+        return d
+    _mapa_t = {(2026, 6): _mes_t(200000, 60000), (2026, 7): _mes_t(200000, 60000),
+               (2026, 8): _mes_t(200000, 60000),     # média: 30%
+               (2026, 9): _mes_t(220000, 55000)}     # setembro: 25%
+    _r = equilibrio_real(60000, 66000, "extrato", _mapa_t, 2026, 9)
+    ok("planejado = meta ÷ lucro bruto médio dos 3 meses anteriores",
+       _r["planejado"] == 200000.0 and _r["mb_media"] == 30.0)
+    ok("real = o que saiu ÷ lucro bruto do próprio mês",
+       _r["mb_mes"] == 25.0 and _r["real"] == 264000.0)
+    ok("resultado = faturamento líquido − real (faltou)",
+       _r["faturado"] == 220000.0 and _r["resultado"] == -44000.0)
+    ok("e diz quanto o gasto passou da meta",
+       _r["gasto_vs_meta"] == 6000.0)
+    ok("gasto real abaixo da metade da meta é marcado como suspeito",
+       equilibrio_real(60000, 20000, "extrato", _mapa_t, 2026, 9)["suspeito"]
+       and not _r["suspeito"])
+    ok("mês sem extrato não inventa equilíbrio real",
+       equilibrio_real(60000, 0, "sem dado", _mapa_t, 2026, 9)["real"] is None
+       and "extrato" in equilibrio_real(60000, 0, "sem dado", _mapa_t,
+                                        2026, 9)["motivo"])
+    ok("mês fora da BASE DE VENDAS diz por quê",
+       "BASE DE VENDAS" in equilibrio_real(60000, 66000, "extrato", _mapa_t,
+                                           2026, 10)["motivo"])
+    ok("o mês corrente fica de fora até fechar",
+       meses_fechados(2026, _d_t(2026, 10, 9)) == list(range(1, 10))
+       and meses_fechados(2025, _d_t(2026, 10, 9)) == list(range(1, 13))
+       and meses_fechados(2027, _d_t(2026, 10, 9)) == [])
 
     print()
     if falhas:

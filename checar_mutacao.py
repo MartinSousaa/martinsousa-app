@@ -2454,6 +2454,42 @@ MUTACOES = [
         '        + ""\n',
         ["python3", "home_gestao.py"],
     ),
+    # ── 09/10: O EQUILIBRIO REAL DOS MESES FECHADOS ─────────────────────
+    (
+        "o mes corrente volta a entrar no equilibrio real",
+        "equilibrio_caixa.py",
+        "    return list(range(1, hoje.month))\n",
+        "    return list(range(1, hoje.month + 1))\n",
+        ["python3", "equilibrio_caixa.py"],
+    ),
+    (
+        "o equilibrio real volta a usar a margem media, e nao a do mes",
+        "equilibrio_caixa.py",
+        "    real = None if motivo else round(gasto / (mb_mes / 100.0), 2)\n",
+        "    real = None if motivo else round(gasto / (mb_media / 100.0), 2)\n",
+        ["python3", "equilibrio_caixa.py"],
+    ),
+    (
+        "o resultado volta a comparar com o faturamento bruto",
+        "equilibrio_caixa.py",
+        '    faturado = ind.get("faturamento_liquido")\n',
+        '    faturado = ind.get("faturamento")\n',
+        ["python3", "equilibrio_caixa.py"],
+    ),
+    (
+        "o mes de extrato cortado volta a aparecer como cobriu",
+        "equilibrio_caixa.py",
+        '        "suspeito": bool(meta and gasto and gasto < float(meta) * 0.5),\n',
+        '        "suspeito": False,\n',
+        ["python3", "equilibrio_caixa.py"],
+    ),
+    (
+        "o planejado volta a contar o proprio mes na media",
+        "equilibrio_caixa.py",
+        "    chaves = _bv.meses_com_venda(mapa_vendas, ant[0], ant[1], 3)\n",
+        "    chaves = _bv.meses_com_venda(mapa_vendas, a, m, 3)\n",
+        ["python3", "equilibrio_caixa.py"],
+    ),
     # ── 09/10: AS DEVOLUCOES VEM DA PLANILHA ────────────────────────────
     (
         "a devolucao que so existe no Studio volta a entrar na conta",
