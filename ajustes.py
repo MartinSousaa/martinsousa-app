@@ -309,11 +309,6 @@ def _itens_cadastrados(avisos=None):
 
 def pagina(usuario_logado=None):
     st.markdown("#### 📈 Ajuste de valor")
-    st.caption(
-        "Quando um valor mudou. Um salário reajustado em maio **não** reescreve "
-        "janeiro: o ajuste vale do mês informado em diante, e os meses "
-        "anteriores continuam com o valor que tinham."
-    )
 
     df = carregar()
     if df.empty:

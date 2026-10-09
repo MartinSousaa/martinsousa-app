@@ -183,6 +183,20 @@ def lpv_valido(v):
         return False
 
 
+def valor_do_campo_lpv(v):
+    """O que o campo do LPV do mês mostra. Gravado que não vale sai vazio.
+
+    09/10: setembro continuava mostrando os R$ -0,21 gravados na época em
+    que o Studio chamava de LPV o custo operacional — com um aviso vermelho
+    embaixo, e só sumia se alguém clicasse em Salvar. Nenhuma conta usa esse
+    número (`_lpv_digitado` só aceita > 0); o campo também não o mostra.
+    """
+    try:
+        return formatar_br(v) if lpv_valido(float(v)) else ""
+    except (TypeError, ValueError):
+        return ""
+
+
 def lpv_vigente(df, hoje=None):
     """(lpv, origem) — o LPV que a Viabilidade, a Home e o assistente usam.
 
@@ -509,7 +523,7 @@ def pagina_financeiro(usuario_logado=None):
             v_lpv = linha_mes.iloc[0].get("lpv")
 
         txt_lpv = st.text_input(f"LPV de {nome_mes} (R$)",
-                                 value=(formatar_br(v_lpv) if pd.notna(v_lpv) else ""),
+                                 value=valor_do_campo_lpv(v_lpv),
                                  key=f"lpv_{ano}_{i}", placeholder="ex: 22,00")
         _lpv_c = (_calc.get(i) or {}).get("lpv")
         _mot_c = (_calc.get(i) or {}).get("motivo")
@@ -527,10 +541,7 @@ def pagina_financeiro(usuario_logado=None):
             # usa esse valor (`_lpv_digitado` só aceita > 0), mas o campo o
             # mostrava como se valesse — e "Salvar" o regravava.
             st.error(_rot.tela(
-                f"{nome_mes}: LPV de R$ {formatar_br(lpv)} não vale — LPV "
-                "zero ou negativo não existe (este foi gravado quando o "
-                "Studio chamava de LPV o custo operacional, com extrato "
-                "incompleto). Nenhuma conta usa este número, e ao salvar o mês fica "
+                f"{nome_mes}: LPV zero ou negativo não vale — fica "
                 "em branco."))
             lpv = None
         elif lpv is not None:
@@ -657,6 +668,13 @@ if __name__ == "__main__":
     ok("o campo do LPV mensal recusa negativo e salva em branco",
        "elif lpv is not None and not lpv_valido(lpv):" in _pg_f
        and '"em branco."))\n            lpv = None\n' in _pg_f)
+    # 09/10: o -0,21 gravado de setembro não aparece mais no campo.
+    ok("o campo não mostra LPV gravado que não vale",
+       valor_do_campo_lpv(-0.21) == "" and valor_do_campo_lpv(0) == ""
+       and valor_do_campo_lpv(float("nan")) == "" and valor_do_campo_lpv(None) == ""
+       and valor_do_campo_lpv(20.94) == formatar_br(20.94))
+    ok("e é esta função que preenche o campo",
+       "value=valor_do_campo_lpv(v_lpv)" in _pg_f)
     # ── 07/10: o mês corrente pela projeção vem antes do último fechado ──
     import lpv_mensal as _lm_v
     _g_lp = _lm_v.lpv_projetado

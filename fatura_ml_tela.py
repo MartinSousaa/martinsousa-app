@@ -49,11 +49,6 @@ def pagina(usuario_logado=None):
     import fatura_ml as _fm
 
     st.markdown("#### 🛒 ADS-Cross — a fatura do Mercado Livre")
-    st.caption(
-        "Suba o **Relatório de faturamento** e o **Relatório de pagamento de "
-        "faturas** do mês. O primeiro diz o que cada tarifa é; o segundo diz "
-        "o que saiu do cartão. Os dois juntos fecham a conta sozinhos."
-    )
 
     arquivos = st.file_uploader(
         "Relatórios do ML", type=["xlsx"], accept_multiple_files=True,

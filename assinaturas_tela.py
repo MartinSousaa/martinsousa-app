@@ -120,12 +120,6 @@ def _grade(usuario_logado):
 
 def _vigilancia(cadastro):
     st.markdown("### 🔍 O que não bateu")
-    st.caption(
-        "O Studio compara o cadastro acima com o que chegou nos extratos e "
-        "nas faturas dos últimos "
-        f"{MESES_DE_VARREDURA} meses. Ele não corrige nada — aponta para "
-        "você olhar."
-    )
     por_mes, erro = _lancamentos_por_mes(MESES_DE_VARREDURA)
     if erro:
         st.warning(f"Não consegui ler os lançamentos: {erro}")
@@ -166,12 +160,6 @@ def pagina(usuario_logado=None):
         return
 
     st.markdown("### 🔁 Assinaturas")
-    st.caption(
-        "O que cobra sozinho todo mês. Elas são **custo fixo** — paga-se o "
-        "mesmo Trello vendendo 100 ou 3.000 —, então entram no numerador do "
-        "ponto de equilíbrio, e o Studio as subtrai do custo operacional por "
-        "venda para o mesmo gasto não contar duas vezes."
-    )
 
     cadastro = _grade(usuario_logado)
     st.markdown("---")

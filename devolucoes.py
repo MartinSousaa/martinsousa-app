@@ -376,15 +376,88 @@ def _aba():
         return nova
 
 
-@st.cache_data(ttl=120)
-def carregar():
-    """[{...}] da aba. Lista vazia em qualquer falha."""
+# A PLANILHA É A DONA DAS DEVOLUÇÕES (dono, 09/10: "preencher isso no sistema
+# está ficando inviável (...) elas continuarão sendo preenchidas por lá").
+# O Studio lê a aba DEVOLUÇÕES 2026 do Controle MS sozinho (`do_controle_ms`)
+# e guarda na aba dele só o que é DELE: o acompanhamento — Status e ✅
+# Resolvido —, ligado a cada devolução pela identidade.
+ACOMPANHAMENTO = ("status", "resolvido")
+
+
+def _do_studio():
+    """[{...}] da aba do Studio. Lista vazia em qualquer falha."""
     try:
         registros = _aba().get_all_records()
     except Exception:
         return []
     return [{c: r.get(c, "") for c in COLUNAS} for r in registros
             if str(r.get("id", "") or "").strip()]
+
+
+def juntar_fontes(da_planilha, do_studio):
+    """(linhas, so_no_studio). Pura.
+
+    As linhas são as da PLANILHA, com o acompanhamento do Studio por cima.
+    `so_no_studio` são as gravadas no Studio que a planilha não tem — as
+    cadastradas aqui, ou as que mudaram lá depois de importadas (a identidade
+    sai de data + pedido + produto + valor). Elas NÃO entram na conta: somar
+    as duas fontes contaria a mesma devolução duas vezes.
+    """
+    studio = {str(r.get("id", "")).strip(): r for r in (do_studio or [])}
+    linhas, vistos = [], set()
+    for p in (da_planilha or []):
+        r = dict(p)
+        k = str(r.get("id", "")).strip()
+        vistos.add(k)
+        s = studio.get(k)
+        if s:
+            for c in ACOMPANHAMENTO:
+                if str(s.get(c, "") or "").strip():
+                    r[c] = s.get(c)
+        linhas.append(r)
+    so = [r for k, r in studio.items() if k and k not in vistos]
+    return linhas, so
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def carregar_tudo():
+    """(linhas, so_no_studio, avisos). Cache de 5 minutos.
+
+    A planilha fora do ar não apaga a tela: mostra o que está gravado no
+    Studio, e o aviso diz que é isso.
+    """
+    da_planilha, avisos = do_controle_ms()
+    do_studio = _do_studio()
+    if not da_planilha and any("Não consegui ler" in a for a in avisos):
+        return do_studio, [], avisos + [
+            "Mostrando o que está gravado no Studio até a planilha responder."]
+    linhas, so = juntar_fontes(da_planilha, do_studio)
+    return linhas, so, avisos
+
+
+def carregar():
+    """As devoluções que valem: as da planilha, com o acompanhamento."""
+    return carregar_tudo()[0]
+
+
+def acompanhar(reg, campos, usuario=""):
+    """Grava Status / Resolvido de uma devolução da planilha. (ok, mensagem).
+
+    Só os campos de acompanhamento — o resto é da planilha. A devolução que
+    ainda não tem linha no Studio ganha uma (com os dados dela, para o
+    histórico); a que tem, é atualizada.
+    """
+    campos = {k: v for k, v in (campos or {}).items() if k in ACOMPANHAMENTO}
+    if not campos:
+        return False, "Nada para gravar."
+    alvo = str((reg or {}).get("id", "")).strip()
+    ja = {str(r.get("id", "")).strip() for r in _do_studio()}
+    if alvo in ja:
+        return atualizar(alvo, campos, usuario)
+    n, _rep, erro = gravar([{**(reg or {}), **campos}], usuario)
+    if erro:
+        return False, erro
+    return True, "Gravado."
 
 
 def gravar(novas, usuario=""):
@@ -407,7 +480,7 @@ def gravar(novas, usuario=""):
             aba.append_rows(linhas, value_input_option="RAW")
     except Exception as e:
         return 0, 0, str(e)[:200]
-    carregar.clear()
+    carregar_tudo.clear()
     return len(linhas), repetidas, ""
 
 
@@ -440,7 +513,7 @@ def atualizar(id_dev, campos, usuario=""):
                    value_input_option="RAW")
     except Exception as e:
         return False, str(e)[:200]
-    carregar.clear()
+    carregar_tudo.clear()
     return True, "Alterado."
 
 
@@ -458,7 +531,7 @@ def apagar(ids):
             aba.delete_rows(n)
     except Exception as e:
         return 0, str(e)[:200]
-    carregar.clear()
+    carregar_tudo.clear()
     return len(linhas), ""
 
 
@@ -617,7 +690,7 @@ if __name__ == "__main__":
 
     _falsa = _Falsa()
     globals()["_aba"] = lambda: _falsa
-    globals()["carregar"] = type("C", (), {
+    globals()["carregar_tudo"] = type("C", (), {
         "clear": staticmethod(lambda: None)})()
 
     falhas = []
@@ -845,6 +918,51 @@ if __name__ == "__main__":
     q, erro = apagar([alvo])
     ok("apagou uma", (q, erro) == (1, ""))
     ok("e sobraram três", len(_falsa.linhas) == 3)
+
+    # ── 09/10: A PLANILHA É A DONA; O STUDIO GUARDA O ACOMPANHAMENTO ─────
+    # As linhas da planilha na forma que `do_controle_ms` devolve: passam por
+    # `normalizar` e ganham a identidade.
+    _p1 = normalizar({"data_solic": "2026-09-10", "pedido": "111",
+                      "produto": "Caneca", "valor": 50.0,
+                      "situacao": "RECORRENDO"})
+    _p2 = normalizar({"data_solic": "2026-09-12", "pedido": "222",
+                      "produto": "Pingente", "valor": 30.0, "situacao": "OK"})
+    _s1 = {**_p1, "status": "aguardando ML"}
+    _velha = normalizar({"data_solic": "2026-08-01", "pedido": "999",
+                         "produto": "Só no Studio", "valor": 10.0})
+    _linhas, _so = juntar_fontes([_p1, _p2], [_s1, _velha])
+    ok("as linhas são as da planilha", [l["id"] for l in _linhas]
+       == [_p1["id"], _p2["id"]])
+    ok("com o Status gravado no Studio por cima",
+       _linhas[0]["status"] == "aguardando ML")
+    ok("a que só existe no Studio fica à parte, fora da conta",
+       [x["id"] for x in _so] == [_velha["id"]]
+       and resumo(_linhas)["valor"] == 80.0)
+    # acompanhar: devolução da planilha SEM linha no Studio ganha uma; com
+    # linha, é atualizada; e só Status/Resolvido são aceitos.
+    _falsa.linhas = []
+    globals()["carregar_tudo"] = type("C", (), {
+        "clear": staticmethod(lambda: None)})()
+    _ok_a, _ = acompanhar(_p2, {"resolvido": "TRUE", "valor": 1.0}, "leo")
+    _grav = _do_studio()
+    ok("acompanhar grava a devolução da planilha que o Studio não tinha",
+       _ok_a and len(_grav) == 1 and _grav[0]["id"] == _p2["id"]
+       and _grav[0]["resolvido"] == "TRUE")
+    ok("e não aceita mexer no valor — ele é da planilha",
+       float(_grav[0]["valor"]) == 30.0)
+    _ok_b, _ = acompanhar(_p2, {"status": "conferido"}, "leo")
+    ok("a segunda vez atualiza a mesma linha, sem duplicar",
+       _ok_b and len(_do_studio()) == 1
+       and _do_studio()[0]["status"] == "conferido")
+    # A Home (`home_gestao`) lê `carregar()`: ela tem de receber as da
+    # planilha, e não as gravadas no Studio.
+    _gct = globals()["carregar_tudo"]
+    globals()["carregar_tudo"] = lambda: ([_p1], [_velha], [])
+    ok("carregar() — o que a Home lê — devolve as da planilha",
+       [l["id"] for l in carregar()] == [_p1["id"]])
+    globals()["carregar_tudo"] = _gct
+    ok("resolvida no Studio sai do em aberto",
+       not esta_aberta(juntar_fontes([_p2], _do_studio())[0][0]))
 
     print()
     if falhas:

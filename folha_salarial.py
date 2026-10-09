@@ -297,10 +297,6 @@ def pagina(usuario_logado=None):
     import colaboradores as _co
 
     st.markdown("#### 👥 Folha salarial")
-    st.caption(
-        "Duas tabelas porque são duas condições. Reajuste **não** se digita "
-        "aqui — entra em «Ajuste de valor», com o mês em que passou a valer."
-    )
 
     taxas = _co.painel_taxas(_co.carregar_taxas())
 
@@ -315,8 +311,6 @@ def pagina(usuario_logado=None):
                           value=hoje.month, step=1, key="folha_mes")
 
     st.markdown("##### 🧑‍💼 Gestores")
-    st.caption("Pró-labore, comissão e vales. O **1/12 de 13º** fica à parte: "
-               "é dinheiro guardado, não sai do caixa no mês.")
     df = carregar()
     df, _faltando = com_gestores_pedidos(df)
     if _faltando and not df.empty and len(df) > len(_faltando):
@@ -380,11 +374,6 @@ def pagina(usuario_logado=None):
 
     st.markdown("---")
     st.markdown("##### 👔 Colaboradores (CLT)")
-    st.caption(
-        "Salário, encargos e provisões. Quem **não** é registrado não soma "
-        "FGTS, INSS, férias, 13º nem multa — só o salário, a refeição e o "
-        "vale-transporte."
-    )
     _ed_colab = _co.bloco(usuario_logado, taxas)
     _tot_colab = _co.conferencia(_ed_colab, taxas, ano, mes)
 

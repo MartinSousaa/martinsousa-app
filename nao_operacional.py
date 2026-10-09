@@ -389,11 +389,6 @@ def _mes_texto(am):
 
 def pagina(usuario_logado=None):
     st.markdown("#### 🏦 Não operacional")
-    st.caption(
-        "Empréstimos e financiamentos: sai do caixa, mas não é custo de "
-        "operar. Cada contrato entrou numa data — é por isso que o custo de "
-        "hoje não vale para os meses de trás."
-    )
 
     selic = st.number_input(
         "Selic vigente (% ao ano)", min_value=0.0, max_value=100.0,
@@ -505,12 +500,6 @@ def _tabela_conferencia(editado, selic):
 
     t = totais(d)
     st.markdown("##### A dívida somada")
-    st.caption(
-        "**Saldo devedor** é o que se deve hoje, se quitasse tudo agora. "
-        "**Total a pagar** é o que ainda vai sair do caixa até a última "
-        "parcela, já com os juros que ainda vão correr. A diferença entre os "
-        "dois é juro que ainda não foi pago."
-    )
     g = st.columns(4)
     g[0].metric("Saldo devedor", _brl(t["saldo_devedor"]),
                 help=f"{t['contratos']} contrato(s). É o número que você "
@@ -526,11 +515,6 @@ def _tabela_conferencia(editado, selic):
     st.caption(f"Tomado emprestado ao todo: **{_brl(t['aporte'])}**.")
 
     st.markdown("##### Conferência da taxa e da vigência")
-    st.caption(
-        "A parcela que entra na conta é sempre a **do contrato**. A calculada "
-        "está aqui para mostrar quando a fórmula e o contrato discordam — "
-        "enquanto discordarem, a fórmula é que está errada."
-    )
 
     linhas = []
     for _, r in d.iterrows():

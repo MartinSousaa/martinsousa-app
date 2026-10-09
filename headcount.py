@@ -740,8 +740,6 @@ def pagina(usuario_logado=None):
     hoje = datetime.now(FUSO).date()
 
     st.markdown("### 🧮 Balanço headcount")
-    st.caption("Salários do mês e bônus das metas em blocos separados. Tudo "
-               "sai da Reserva, que fica logo abaixo.")
 
     # SEMPRE ABRE NO MÊS ATUAL. O seletor é para olhar trás; quem entrou
     # depois não aparece nos meses anteriores (`folha_clt` corta antes da

@@ -317,10 +317,6 @@ def mostrar(st_, grade, linhas, hoje):
            if str(l.get("item") or "").strip() and not nomes_do_item(l)]
     q = quadro(grade, linhas, meses, carregar())
     st_.markdown("##### 🔍 Conferido nos extratos")
-    st_.caption("Quando o extrato ou a fatura do mês traz o item com valor "
-                "diferente do cadastro, o valor real vale NAQUELE mês — o "
-                "cadastro não muda, e o mês seguinte volta a ele. Reajuste "
-                "que fica é em «Ajuste de valor».")
     if feitas:
         st_.success(f"{feitas} valor(es) real(is) atualizado(s) agora pelos "
                     "extratos.")

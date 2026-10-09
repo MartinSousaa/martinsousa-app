@@ -264,7 +264,6 @@ def pagina(usuario_logado=None, grade="custo_fixo"):
     aba_nome = cfg["aba"]
 
     st.markdown(f"#### {cfg['titulo']}")
-    st.caption(cfg["legenda"] + " Digite tudo e salve uma vez.")
 
     df = carregar(aba_nome)
     if df.empty:
@@ -359,8 +358,6 @@ def _custo_do_mes(editado, grade):
     aj = _aj()
     hoje = datetime.now(FUSO).date()
     st.markdown("##### Custo de um mês")
-    st.caption("Com os reajustes de «Ajuste de valor» aplicados e sem os itens "
-               "que ainda não existiam naquele mês.")
     c1, c2, c3 = st.columns([1, 1, 2])
     ano = c1.number_input("Ano", min_value=2020, max_value=2100,
                           value=hoje.year, step=1, key=f"ano_{grade}")

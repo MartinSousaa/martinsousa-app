@@ -608,8 +608,12 @@ def _assinaturas_no_operacional(conta):
     # equilíbrio passou a ser meta de gastos ÷ lucro bruto. Ele entra no LPV.
     import inspect as _insp_cf
     _src_cf = _insp_cf.getsource(_ge._custo_fixo)
-    conta("a legenda do Custo fixo diz que ele entra no LPV, e não no equilíbrio",
-          "entra no LPV" in _src_cf and "linha de" not in _src_cf, "")
+    # 09/10: o título ficou sem legenda ("não quero que os títulos tenham
+    # explicações"). A guarda do texto errado continua: nada de "linha de".
+    conta("o Custo fixo não volta a dizer que entra no equilíbrio",
+          "linha de" not in _src_cf, "")
+    conta("e o título do Custo fixo não tem explicação embaixo",
+          "st.caption(" not in _src_cf, "")
 
 
 def _projecao_na_meta(conta):
@@ -882,6 +886,172 @@ def _salvar_metas(conta):
     finally:
         (_mc_s.salvar_config, _mc_s.conferir_gravado, _mc_s.carregar_config,
          _retorno_de) = _g
+
+
+def _devolucoes_da_planilha(conta):
+    """09/10: as devoluções vêm da planilha; o Studio só acompanha.
+
+    Só a leitura é trocada: `do_controle_ms` devolve linhas na forma dele
+    (`normalizar`), e `juntar_fontes` roda de verdade."""
+    import devolucoes as _dv_d
+    import devolucoes_tela as _dvt_d
+    _p = _dv_d.normalizar({"data_solic": "2026-09-10", "pedido": "111",
+                           "produto": "Caneca", "valor": 50.0,
+                           "situacao": "RECORRENDO"})
+    _so = _dv_d.normalizar({"data_solic": "2026-08-01", "pedido": "9",
+                            "produto": "Só no Studio", "valor": 10.0})
+    _g = (_dv_d.do_controle_ms, _dv_d._do_studio, _dv_d.carregar_tudo)
+    _dv_d.do_controle_ms = lambda limite=None: ([_p], [])
+    _dv_d._do_studio = lambda: [_so]
+    _dv_d.carregar_tudo = lambda: (lambda l, s: (l, s, []))(
+        *_dv_d.juntar_fontes(*([_p], [_so])))
+    _vistos = []
+    _falso = instalar()
+    _falso.data_editor = lambda *a, **k: _vistos.append("editor") or (a[0] if a else None)
+    _falso.form = lambda *a, **k: _vistos.append("form") or _falso
+    _dvt_d.st = _falso
+    try:
+        _dvt_d.pagina("leo")
+        conta("Devoluções: a tela monta com a planilha como fonte", True, "")
+    except (_Rerun, _Parou):
+        conta("Devoluções: a tela monta com a planilha como fonte", True, "")
+    except Exception as e:
+        conta("Devoluções: a tela monta com a planilha como fonte", False,
+              f"{type(e).__name__}: {e}")
+    finally:
+        _dv_d.do_controle_ms, _dv_d._do_studio, _dv_d.carregar_tudo = _g
+    conta("Devoluções: sem cadastro nem edição no Studio — a planilha edita",
+          "editor" not in _vistos and "form" not in _vistos
+          and not hasattr(_dvt_d, "_nova") and not hasattr(_dvt_d, "_importar"),
+          f"visto: {_vistos}")
+
+
+def _equilibrio_real_na_meta(conta):
+    """09/10: o equilíbrio real aparece só para os meses fechados.
+
+    `linhas` na forma de `meta_gastos.ano_inteiro`; o mapa na forma de
+    `base_vendas.somas_por_mes`. Só a leitura da planilha é trocada."""
+    import meta_gastos_tela as _mgt_e
+    import base_vendas as _bv_e
+    from datetime import date as _d_e
+
+    def _mes(fat, lb):
+        d = {k: 0.0 for k in _bv_e.COLUNAS}
+        d.update({"faturamento": fat, "fat_liquido": fat, "lucro_bruto": lb,
+                  "linhas": 5})
+        return d
+    _mapa = {(2026, m): _mes(200000, 60000) for m in range(6, 11)}
+    _linhas = [{"mes": f"2026-{m:02d}", "rotulo": f"mes{m} 2026",
+                "meta": 60000.0 if m in (9, 10) else 0.0,
+                "realizado": 66000.0, "origem": "extrato"}
+               for m in range(1, 13)]
+    _g = _bv_e.somas_por_mes
+    _bv_e.somas_por_mes = lambda: (_mapa, "")
+    _tabelas = []
+    _falso = instalar()
+    _falso.dataframe = lambda d, *a, **k: _tabelas.append(d)
+    _mgt_e.st = _falso
+    try:
+        _mgt_e._equilibrio_real(2026, _d_e(2026, 10, 9), _linhas)
+        _df = _tabelas[-1] if _tabelas else None
+        _meses = list(_df["mês"]) if _df is not None else []
+        conta("Meta de gastos: equilíbrio real só nos meses fechados",
+              _meses == ["Mes9"], f"meses: {_meses}")
+        conta("e o resultado é faturado líquido − gasto ÷ lucro bruto do mês",
+              _df is not None and list(_df["resultado"]) == [200000 - 220000.0],
+              str(list(_df["resultado"]) if _df is not None else None))
+    except Exception as e:
+        conta("Meta de gastos: equilíbrio real só nos meses fechados", False,
+              f"{type(e).__name__}: {e}")
+    finally:
+        _bv_e.somas_por_mes = _g
+
+
+def _acompanhamento_do_mes(conta):
+    """09/10: o mês em andamento ganha o projetado × real, embaixo da meta.
+
+    Só a margem (BASE DE VENDAS) e o faturado (Bling) são trocados."""
+    import meta_gastos_tela as _mgt_a
+    import base_vendas as _bv_a
+    import home_gestao as _hg_a
+    from datetime import date as _d_a
+    _g = (_bv_a.media_recente, _hg_a._faturamento_bling)
+    _bv_a.media_recente = lambda a, m, quantos=3: ({"margem_bruta": 30.0}, "")
+    _hg_a._faturamento_bling = lambda a, m: (90000.0, [])
+    _vistos = {"grafico": None, "frase": ""}
+    _falso = instalar()
+    _falso.bar_chart = lambda d, *a, **k: _vistos.update(grafico=d)
+    _falso.success = lambda t, *a, **k: _vistos.update(frase=str(t))
+    _falso.warning = lambda t, *a, **k: _vistos.update(frase=str(t))
+    _mgt_a.st = _falso
+    _hoje = _d_a.today()
+    try:
+        _mgt_a._acompanhar_mes(_hoje.year, _hoje, 60000.0, 75000.0)
+        _df = _vistos["grafico"]
+        conta("Meta de gastos: o mês em andamento desenha projetado × real",
+              _df is not None and list(_df.index) == ["Gastos do mês",
+                                                      "Equilíbrio do mês",
+                                                      "Faturamento até hoje"]
+              and list(_df.columns) == ["Projetado", "Real"]
+              and list(_df.loc["Equilíbrio do mês"]) == [200000.0, 250000.0],
+              str(_df))
+        conta("e diz onde o mês fecha no ritmo de hoje",
+              "No ritmo de hoje o mês fecha em" in _vistos["frase"]
+              and "250.000,00" in _vistos["frase"], _vistos["frase"][:120])
+        _vistos["grafico"] = None
+        _mgt_a._acompanhar_mes(_hoje.year - 1, _hoje, 60000.0, 75000.0)
+        conta("e ano que não é o corrente não ganha acompanhamento",
+              _vistos["grafico"] is None, "")
+        # A página passa o COMPROMETIDO (já saiu + provisionado), e não só o
+        # que já saiu: "tem que considerar tudo que já está provisionado".
+        import inspect as _insp_a
+        conta("e a página entrega o comprometido, com o provisionado dentro",
+              '_acompanhar_mes(ano, hoje, atual["meta"], _comp)'
+              in _insp_a.getsource(_mgt_a.pagina), "")
+    except Exception as e:
+        conta("Meta de gastos: o mês em andamento desenha projetado × real",
+              False, f"{type(e).__name__}: {e}")
+    finally:
+        _bv_a.media_recente, _hg_a._faturamento_bling = _g
+
+
+def _inter_pela_api(conta):
+    """09/10: o extrato do Inter pela API — mostra antes de gravar.
+
+    Só a rede é trocada: `buscar` devolve linhas na forma de `ler`, e o que
+    já está gravado vem na forma de `lancamentos.carregar`."""
+    import extratos_tela as _et_i
+    import extrato_inter_api as _api_i
+    import lancamentos as _lan_i
+    from datetime import date as _d_i
+    _da_api = [{"data": _d_i(2026, 10, 8), "descricao": "Pix enviado: X",
+                "favorecido": "X", "valor": -100.0, "sentido": "saida"},
+               {"data": _d_i(2026, 10, 9), "descricao": "Pix enviado: Y",
+                "favorecido": "Y", "valor": -40.0, "sentido": "saida"}]
+    _g = (_api_i.configuradas, _api_i.buscar, _lan_i.carregar, _lan_i.gravar)
+    _gravou, _tabelas = [], []
+    _api_i.configuradas = lambda ambiente=None: [("LG", "INTER", "inter-1")]
+    _api_i.buscar = lambda pref, a, b: (list(_da_api), "")
+    _lan_i.carregar = lambda: [{"conta": "inter-1", "data": "2026-10-08",
+                                "valor": -100.0, "descricao": "do CSV"}]
+    _lan_i.gravar = lambda *a, **k: _gravou.append(a) or (1, 0, "")
+    _falso = instalar()
+    _falso.button = lambda rot, *a, **k: k.get("key") == "api_inter_buscar"
+    _falso.dataframe = lambda d, *a, **k: _tabelas.append(d)
+    _et_i.st = _falso
+    try:
+        _et_i._buscar_inter("leo")
+        conta("Inter pela API: mostra só o que ainda não está gravado",
+              len(_tabelas) == 1 and [r["valor"] for r in _tabelas[0]] == [-40.0],
+              str(_tabelas))
+        conta("e não grava nada sem o clique em Gravar", _gravou == [],
+              str(_gravou))
+    except Exception as e:
+        conta("Inter pela API: mostra só o que ainda não está gravado", False,
+              f"{type(e).__name__}: {e}")
+    finally:
+        (_api_i.configuradas, _api_i.buscar, _lan_i.carregar,
+         _lan_i.gravar) = _g
 
 
 def _queda_de_pontos(conta):
@@ -2888,6 +3058,10 @@ def main():
     _finalidades_em_massa(conta)
     _resumo_mensal(conta)
     _salvar_metas(conta)
+    _devolucoes_da_planilha(conta)
+    _equilibrio_real_na_meta(conta)
+    _acompanhamento_do_mes(conta)
+    _inter_pela_api(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0
