@@ -835,13 +835,7 @@ def aprendizados(fila, linhas, massa, casamentos, vazio="— escolher —"):
         c = (casamentos or {}).get(chave_do_item(item))
         if not c or not c[4]:
             continue
-        fin = l.get("finalidade")
-        fin = fin.strip() if isinstance(fin, str) else ""
-        if fin == vazio:
-            fin = ""
-        if not fin and l.get("marcar") is True and massa:
-            fin = massa
-        if fin.upper() == "CUSTO FIXO":
+        if finalidade_da_linha(l, massa, vazio).upper() == "CUSTO FIXO":
             fora.append((c[2], c[3], c[4]))
     return fora
 
@@ -1066,6 +1060,23 @@ def representante(item):
                       if int(item.get("n") or 0) <= 1 else None)}
 
 
+def finalidade_da_linha(l, massa=None, vazio="— escolher —"):
+    """A finalidade que vale para uma linha da fila. "" quando nenhuma. Pura.
+
+    A da linha manda; sem ela, a linha MARCADA recebe a `massa`. UMA regra:
+    `respostas_da_fila` (o que se grava) e `aprendizados` (o que o cadastro
+    aprende) leem daqui — duas cópias passariam a discordar.
+    """
+    fin = l.get("finalidade")
+    # a tabela devolve NaN na célula vazia, e str(NaN) é "nan"
+    fin = fin.strip() if isinstance(fin, str) else ""
+    if fin == vazio:
+        fin = ""
+    if not fin and l.get("marcar") is True and massa:
+        fin = massa
+    return fin
+
+
 def respostas_da_fila(fila, linhas, massa=None, vazio="— escolher —"):
     """[(favorecido, finalidade, sentido)] do que foi respondido. Pura.
 
@@ -1074,13 +1085,7 @@ def respostas_da_fila(fila, linhas, massa=None, vazio="— escolher —"):
     """
     fora = []
     for item, l in zip(fila or [], linhas or []):
-        fin = l.get("finalidade")
-        # a tabela devolve NaN na célula vazia, e str(NaN) é "nan"
-        fin = fin.strip() if isinstance(fin, str) else ""
-        if fin == vazio:
-            fin = ""
-        if not fin and l.get("marcar") is True and massa:
-            fin = massa
+        fin = finalidade_da_linha(l, massa, vazio)
         if fin:
             fora.append((item.get("favorecido"), fin,
                          item.get("sentido") or "saida"))
