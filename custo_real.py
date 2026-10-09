@@ -77,6 +77,44 @@ def nomes_do_item(linha):
     return []
 
 
+# A PALAVRA PARECIDA (dono, 09/10: "o sistema precisa analisar os extratos e
+# cruzar com os nomes dos custos fixos"). O cadastro dizia KLING e a fatura
+# escreve KLINGAI.COM: palavra inteira não casa, e o item nunca era achado.
+# Começo de palavra casa — mas só como SUGESTÃO na fila, nunca direto na
+# conta: "CANVA" também é o começo de "CANVAS ARTESANAL", o fornecedor de
+# tecido. Confirmada no Salvar, a grafia do extrato vira apelido do item
+# (`com_apelido`) e daí em diante o casamento é exato.
+PARECIDO_MINIMO = 4
+
+
+def parecido(lanc, nome):
+    """A palavra do lançamento que COMEÇA com `nome` e é maior. "" se não há."""
+    import assinaturas as _as
+    alvo = _as._chave(nome).replace(" ", "")
+    if len(alvo) < PARECIDO_MINIMO:
+        return ""
+    texto = (_as._chave(lanc.get("descricao")) + " "
+             + _as._chave(lanc.get("favorecido")))
+    for w in texto.split():
+        if w != alvo and w.startswith(alvo) and w.isalpha():
+            return w
+    return ""
+
+
+def com_apelido(linha, palavra):
+    """O "Como aparece no extrato" do item com `palavra` acrescentada.
+
+    Sem a coluna preenchida, o nome do item entra junto: senão o apelido novo
+    restringiria o item a ele só (`nomes_do_item`), e o que casava pelo nome
+    deixaria de casar.
+    """
+    nomes = nomes_do_item(linha)
+    if str(palavra or "").strip().upper() in {n.strip().upper() for n in nomes}:
+        return str(linha.get("favorecido") or "")
+    return "; ".join([n.strip() for n in nomes if n.strip()]
+                     + [str(palavra).strip().upper()])
+
+
 def cobrado_no_mes(linha, lancamentos_do_mes):
     """Quanto saiu para este item no mês. None quando não apareceu.
 
@@ -426,6 +464,29 @@ if __name__ == "__main__":
     ok("as telas de Custo fixo e Assinaturas conferem ao abrir",
        '_cr.mostrar(st, "custo_fixo"' in _insp.getsource(_cf_t.pagina)
        and '_cr.mostrar(st, "assinaturas"' in _insp.getsource(_at_t.pagina))
+
+    # ── A PALAVRA PARECIDA (09/10): KLING no cadastro, KLINGAI.COM na fatura ─
+    # O lançamento com o texto que a fatura grava de verdade (print do dono).
+    _kl = {"descricao": "KLINGAI.COM BRL53,28 US$10,50 R$5,42",
+           "favorecido": "KLINGAI.COM BRL53,28 US$10,50 R$5,42", "valor": -56.91}
+    _item_kl = {"item": "KlingAI", "valor_mensal": 51.13, "favorecido": "KLING"}
+    ok("palavra inteira não casa KLING com KLINGAI — e por isso existe parecido",
+       cobrado_no_mes(_item_kl, [_kl]) is None)
+    ok("parecido acha a grafia do extrato", parecido(_kl, "KLING") == "KLINGAI")
+    ok("parecido não repete a palavra exata nem aceita nome curto",
+       parecido(_kl, "KLINGAI") == "" and parecido(_kl, "KLI") == "")
+    ok("depois de aprender, o casamento é exato e o valor do mês é lido",
+       com_apelido(_item_kl, "KLINGAI") == "KLING; KLINGAI"
+       and cobrado_no_mes({**_item_kl, "favorecido": "KLING; KLINGAI"},
+                          [_kl]) == 56.91)
+    ok("aprender de novo não duplica",
+       com_apelido({**_item_kl, "favorecido": "KLING; KLINGAI"}, "klingai")
+       == "KLING; KLINGAI")
+    # Sem a coluna preenchida, o nome do item entra junto: senão o apelido
+    # novo restringiria o item a ele só, e "HOSTGATOR" deixaria de casar.
+    ok("sem apelido, o nome do item entra junto com o aprendido",
+       com_apelido({"item": "Hostgator", "favorecido": ""}, "HOSTGATORBR")
+       == "Hostgator; HOSTGATORBR")
 
     print("\nfalhas:", falhas)
     __import__("sys").exit(1 if falhas else 0)
