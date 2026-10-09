@@ -2454,6 +2454,21 @@ MUTACOES = [
         '        + ""\n',
         ["python3", "home_gestao.py"],
     ),
+    # ── 09/10: O LPV DE SETEMBRO (-0,21) VOLTA AO CAMPO ─────────────────
+    (
+        "o campo do LPV volta a mostrar o -0,21 gravado",
+        "financeiro.py",
+        "                                 value=valor_do_campo_lpv(v_lpv),\n",
+        "                                 value=(formatar_br(v_lpv) if pd.notna(v_lpv) else \"\"),\n",
+        ["python3", "financeiro.py"],
+    ),
+    (
+        "o campo do LPV volta a aceitar gravado negativo",
+        "financeiro.py",
+        '        return formatar_br(v) if lpv_valido(float(v)) else ""\n',
+        '        return formatar_br(v)\n',
+        ["python3", "financeiro.py"],
+    ),
     # ── 09/10: A PALAVRA PARECIDA E O CADASTRO QUE APRENDE ─────────────
     (
         "a fila volta a nao reconhecer KLINGAI pelo KLING do cadastro",

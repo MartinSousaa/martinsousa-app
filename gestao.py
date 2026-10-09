@@ -93,8 +93,6 @@ def _custo_fixo(usuario_logado=None):
     A escolha vai para a URL para sobreviver ao deploy, igual às abas.
     """
     st.markdown("### 🧱 Custo fixo")
-    st.caption("O que sai todo mês independente de vender — nas três formas em "
-               "que ele aparece. É a soma das três que entra no LPV.")
 
     rotulos = list(FACES_DO_CUSTO)
     chave = "cf_face"
@@ -301,8 +299,6 @@ SUBTELAS_OPERACIONAL = {
 def pagina_operacional(usuario_logado=None, navegar=None):
     """O que acontece com a mercadoria: devolução, quebra e estoque."""
     st.markdown("## 📦 Operacional")
-    st.caption("O que acontece com a mercadoria depois que ela existe — "
-               "devolvida, quebrada ou parada no estoque.")
     if navegar is None:
         next(iter(SUBTELAS_OPERACIONAL.values()))(usuario_logado)
         return

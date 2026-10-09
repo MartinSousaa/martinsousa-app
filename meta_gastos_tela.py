@@ -92,11 +92,6 @@ def pagina(usuario_logado=None):
     import meta_gastos as _mg
 
     st.markdown("#### 🎯 Meta de gastos")
-    st.caption(
-        "Quanto se pode gastar no mês, e quanto já saiu. O realizado vem dos "
-        "extratos; nos meses anteriores à entrada deles, do que você informar "
-        "aqui."
-    )
 
     hoje = datetime.now(_pc.FUSO).date()
     _ca, _cb = st.columns([2, 1])

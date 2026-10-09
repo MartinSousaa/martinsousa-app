@@ -21,11 +21,6 @@ def pagina(usuario_logado=None):
     import pandas as pd
 
     st.markdown("#### 🏷️ Finalidades")
-    st.caption(
-        "Cada nome que aparece no extrato, e o que ele significa. Alterar aqui "
-        "vale para o histórico todo — a finalidade é lida do cadastro, não "
-        "copiada para dentro do lançamento."
-    )
 
     cad = _fv.carregar() or {}
     _opcoes = _finalidades(cad)

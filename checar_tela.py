@@ -608,8 +608,12 @@ def _assinaturas_no_operacional(conta):
     # equilíbrio passou a ser meta de gastos ÷ lucro bruto. Ele entra no LPV.
     import inspect as _insp_cf
     _src_cf = _insp_cf.getsource(_ge._custo_fixo)
-    conta("a legenda do Custo fixo diz que ele entra no LPV, e não no equilíbrio",
-          "entra no LPV" in _src_cf and "linha de" not in _src_cf, "")
+    # 09/10: o título ficou sem legenda ("não quero que os títulos tenham
+    # explicações"). A guarda do texto errado continua: nada de "linha de".
+    conta("o Custo fixo não volta a dizer que entra no equilíbrio",
+          "linha de" not in _src_cf, "")
+    conta("e o título do Custo fixo não tem explicação embaixo",
+          "st.caption(" not in _src_cf, "")
 
 
 def _projecao_na_meta(conta):

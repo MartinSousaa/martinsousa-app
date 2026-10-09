@@ -33,14 +33,9 @@ def pagina(usuario_logado=None):
     import favorecidos as _fv
     import lancamentos as _lan
 
-    st.markdown("#### 💳 Extratos e faturas — subir e conferir")
-    st.caption(
-        "Suba tudo aqui: extrato do Itaú (`.xlsx`), do Inter (`.csv`) e "
-        "fatura do cartão (`.csv` ou `.pdf`). O Studio identifica o que é "
-        "cada um pelo conteúdo, não pelo nome do arquivo. O que já tem "
-        "histórico entra classificado; o que é novo cai na fila para você "
-        "responder uma vez. Subir o mesmo arquivo duas vezes não duplica nada."
-    )
+    # Título sem explicação embaixo (dono, 09/10: "não quero que os títulos
+    # tenham explicações"). As faturas têm a aba delas; aqui é a conta.
+    st.markdown("#### 💳 Extrato C.C")
 
     # ── TUDO NO MESMO LUGAR ──────────────────────────────────────────────
     #
@@ -157,10 +152,6 @@ def pagina_faturas(usuario_logado=None):
     import placar_core as _pc
 
     st.markdown("#### 🧾 Faturas dos cartões")
-    st.caption(
-        "Anexe a fatura (`.csv` do Inter ou `.pdf`). Confira os valores, "
-        "escolha o mês do vencimento e clique em CONFIRMO — as compras contam "
-        "na meta e no C.O no mês em que a fatura é paga.")
     arquivos = st.file_uploader(
         "Fatura do cartão", type=["csv", "pdf"], accept_multiple_files=True,
         key="fat_up", label_visibility="collapsed")

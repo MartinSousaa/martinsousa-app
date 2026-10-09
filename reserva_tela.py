@@ -346,12 +346,6 @@ def conteudo(usuario_logado=None):
         return
 
     st.markdown("### 🏦 Reserva do Headcount")
-    st.caption(
-        "A verba aplicada que paga o time enquanto o faturamento não dá conta. "
-        "Ela **não** sai do ponto de equilíbrio: aporte é dinheiro entrando, "
-        "não custo sumindo — se a folha saísse da conta, o painel diria que a "
-        "operação se paga quando quem paga é a reserva."
-    )
 
     pos, origem = carregar()
     _cabecalho(pos, origem)
@@ -384,12 +378,6 @@ def conteudo(usuario_logado=None):
 
     st.markdown("---")
     st.markdown("#### Até quando a reserva cobre")
-    st.caption(
-        "Duas linhas, porque o bônus de meta ainda não fechou. O piso é "
-        "ninguém bater meta; o teto é todo mundo bater tudo (30% do salário "
-        "base, que é o máximo da regra). A diferença entre os dois é o risco "
-        "que existe hoje sem ninguém ver."
-    )
     linhas_piso = _projecao(pos, piso, None, "🟢 Piso — ninguém bate meta")
     if teto > piso:
         _projecao(pos, teto, None, "🔴 Teto — todo mundo bate tudo")

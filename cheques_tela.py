@@ -29,11 +29,6 @@ def pagina(usuario_logado=None):
     import rotulos as _rot
 
     st.markdown("#### 🧾 Cheques")
-    st.caption(
-        "O cheque emitido, que o extrato só conhece no dia em que compensa. "
-        "Aqui ele existe desde que foi dado — e é assim que entra no "
-        "comprometido do mês, na Home."
-    )
 
     hoje = datetime.now(_pc.FUSO).date()
     linhas = _ch.carregar()
