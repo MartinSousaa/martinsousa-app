@@ -2745,6 +2745,20 @@ MUTACOES = [
         ["python3", "resumo_mensal.py"],
     ),
     (
+        "o ADS volta a cair em Outros no Resumo Mensal",
+        "resumo_mensal.py",
+        '    "ADS": "ADS",\n',
+        "",
+        ["python3", "resumo_mensal.py"],
+    ),
+    (
+        "o ADS volta a ganhar provisao inventada",
+        "resumo_mensal.py",
+        '        "ADS": None,\n',
+        '        "ADS": 0.0,\n',
+        ["python3", "resumo_mensal.py"],
+    ),
+    (
         "o Resumo Mensal sai de antes de Custos fixos",
         "gestao.py",
         '    "📊 Resumo Mensal": lambda u: _abrir_tela("resumo_mensal", u),\n',
