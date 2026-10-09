@@ -227,7 +227,17 @@ REGRAS = [
     # que fazia a peca chegar ao modelo com tres medidas contrarias. A
     # conferencia de numero esta em `_uma_so_ocupacao`, que compara o prompt
     # com o dicionario — nao com uma copia escrita a mao.
-    ("a ocupação medida do quadro", "dimensao util do quadro",
+    # ESTA LINHA TRAVAVA A REDACAO, E EU TROQUEI A REDACAO EM 09/10.
+    #
+    # Ela exigia a frase "dimensao util do quadro". A frase mudou para
+    # "MAIOR dimensao do quadro" — porque o juiz lia "quadro" como AREA e
+    # reprovava a capa de um produto estreito, que estava certa. A guarda
+    # reprovou a correcao, e reprovou pela redacao, nao pelo comportamento:
+    # e a Forma 2, e esta MESMA guarda ja caiu nela uma vez (o "6% acima da
+    # base"). O que importa e que a peca com faixa receba uma medida que
+    # fale de DIMENSAO e nao de area — e isso e o que ela passa a exigir.
+    ("a ocupação medida por DIMENSÃO, e não por área",
+     "dimensão do quadro",
      TIPOS_COM_TEXTO_MEDIDO + (TIPO_CAPA,), TIPOS_DE_CENA),
     # ESTA LINHA E A QUE INFLOU O PRODUTO, DUAS VEZES.
     #
