@@ -2439,6 +2439,42 @@ MUTACOES = [
         '        + ""\n',
         ["python3", "home_gestao.py"],
     ),
+    # ── 09/10: A PALAVRA PARECIDA E O CADASTRO QUE APRENDE ─────────────
+    (
+        "a fila volta a nao reconhecer KLINGAI pelo KLING do cadastro",
+        "extratos_tela.py",
+        "                w = _cr_s.parecido(lanc, n)\n",
+        '                w = ""\n',
+        ["python3", "extratos_tela.py"],
+    ),
+    (
+        "o cadastro volta a aprender de linha que nao foi custo fixo",
+        "extratos_tela.py",
+        '        if fin.upper() == "CUSTO FIXO":\n            fora.append((c[2], c[3], c[4]))\n',
+        "        if True:\n            fora.append((c[2], c[3], c[4]))\n",
+        ["python3", "extratos_tela.py"],
+    ),
+    (
+        "o aprendizado volta a regravar o cadastro a partir do cache",
+        "extratos_tela.py",
+        "             lambda: (_as.carregar.clear(), _as.carregar())[1],\n",
+        "             lambda: _as.carregar(),\n",
+        ["python3", "extratos_tela.py"],
+    ),
+    (
+        "o apelido aprendido volta a tirar o nome do item da busca",
+        "custo_real.py",
+        "    nomes = nomes_do_item(linha)\n    if str(palavra",
+        "    nomes = apelidos(linha)\n    if str(palavra",
+        ["python3", "custo_real.py"],
+    ),
+    (
+        "parecido volta a aceitar a palavra exata",
+        "custo_real.py",
+        "        if w != alvo and w.startswith(alvo) and w.isalpha():\n",
+        "        if w.startswith(alvo) and w.isalpha():\n",
+        ["python3", "custo_real.py"],
+    ),
     # ── 07/10: A FILA MOSTRA A PARCELA, E NAO A SOMA ────────────────────
     (
         "a linha da fila volta a mostrar a soma das compras",
@@ -2745,6 +2781,28 @@ MUTACOES = [
         '    "triagem_nome_comercial", "triagem_material",\n',
         '    "triagem_nome_comercial", "triagem_material", "triagem_variacao_cores",\n',
         ["python3", "checar_alcance.py"],
+    ),
+    # ── 09/10: A CONFERENCIA REPROVANDO PECA CERTA ─────────────────────
+    (
+        "o juiz volta a ter redacao propria sobre a ocupacao",
+        "imagem.py",
+        '    return (base + f" E a medida desta pe\u00e7a \u00e9: o produto ocupa {_medida} "\n',
+        '    return (base + f" E ele ocupa MENOS de {faixa_de_ocupacao(tipo)[0]}% do quadro? "\n',
+        ["python3", "imagem.py"],
+    ),
+    (
+        "a ocupacao volta a ser lida como area, e a capa estreita reprova",
+        "imagem.py",
+        '    return (f"{alvo} da MAIOR dimens\u00e3o do quadro \u2014 a altura, para um produto "\n',
+        '    return (f"{alvo} do quadro \u2014 a altura, para um produto "\n',
+        ["python3", "imagem.py"],
+    ),
+    (
+        "a peca de cena volta a ser conferida pela regra de marketing",
+        "imagem.py",
+        "    _base = (_PERGUNTAS_DA_CENA if numero_do_tipo(tipo) in TIPOS_DE_CENA\n             else _PERGUNTAS_DA_PECA)\n",
+        "    _base = _PERGUNTAS_DA_PECA\n",
+        ["python3", "imagem.py"],
     ),
 ]
 

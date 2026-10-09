@@ -770,18 +770,13 @@ def fila_dos_gravados(lancamentos, cadastro=None):
     return sorted(porta.values(), key=lambda x: -x["total"])
 
 
-def sugerir_fixos(fila, linhas_cf, linhas_as):
-    """{chave_do_item: (finalidade, motivo)} para nomes que JÁ são custo fixo
-    ou assinatura. Função pura.
+def casamentos_fixos(fila, linhas_cf, linhas_as):
+    """{chave_do_item: (finalidade, motivo, origem, item, palavra)}. Pura.
 
-    Dono, 06/10: "o nome já diz o que é e meu custo fixo está exatamente com
-    esse nome". HOSTGATOR estava no Custo fixo e CLAUDE nas Assinaturas, e a
-    fila perguntava os dois. Casa por "Como aparece no extrato" ou pelo nome
-    do item, palavra inteira — a regra é `custo_real.nomes_do_item`, a mesma
-    que atualiza o valor do mês. Assinatura também é
-    CUSTO FIXO — palavra do dono (`composicao.py:122`).
-
-    É SUGESTÃO: vem marcada na tabela e só grava no "Salvar".
+    Primeiro a palavra inteira, a regra de `custo_real.nomes_do_item` — a que
+    atualiza o valor do mês. Sem ela, a palavra PARECIDA
+    (`custo_real.parecido`): KLING no cadastro, KLINGAI.COM na fatura. Aí
+    `palavra` é a grafia do extrato, que o Salvar ensina ao cadastro.
     """
     import assinaturas as _as
     import custo_real as _cr_s
@@ -790,18 +785,119 @@ def sugerir_fixos(fila, linhas_cf, linhas_as):
         for l in (linhas or []):
             item = str(l.get("item") or "").strip()
             for n in _cr_s.nomes_do_item(l):
-                alvos.append((n, f"{origem} › {item or n}"))
+                alvos.append((n, origem, item or n))
     fora = {}
     for it in (fila or []):
         if (it.get("sentido") or "saida") != "saida":
             continue
         lanc = {"descricao": it.get("favorecido", ""),
                 "favorecido": it.get("exemplo", "")}
-        for n, motivo in alvos:
+        for n, origem, item in alvos:
             if _as._casa(lanc, {"favorecido": n}):
-                fora[chave_do_item(it)] = ("CUSTO FIXO", motivo)
+                fora[chave_do_item(it)] = ("CUSTO FIXO", f"{origem} › {item}",
+                                           origem, item, "")
                 break
+        else:
+            for n, origem, item in alvos:
+                w = _cr_s.parecido(lanc, n)
+                if w:
+                    fora[chave_do_item(it)] = (
+                        "CUSTO FIXO", f"{origem} › {item} (no extrato: {w})",
+                        origem, item, w)
+                    break
     return fora
+
+
+def sugerir_fixos(fila, linhas_cf, linhas_as):
+    """{chave_do_item: (finalidade, motivo)} para nomes que JÁ são custo fixo
+    ou assinatura. Função pura.
+
+    Dono, 06/10: "o nome já diz o que é e meu custo fixo está exatamente com
+    esse nome". HOSTGATOR estava no Custo fixo e CLAUDE nas Assinaturas, e a
+    fila perguntava os dois. Assinatura também é CUSTO FIXO — palavra do dono
+    (`composicao.py:122`). O casamento é `casamentos_fixos`.
+
+    É SUGESTÃO: vem marcada na tabela e só grava no "Salvar".
+    """
+    return {k: v[:2] for k, v in
+            casamentos_fixos(fila, linhas_cf, linhas_as).items()}
+
+
+def aprendizados(fila, linhas, massa, casamentos, vazio="— escolher —"):
+    """[(origem, item, palavra)] a ensinar ao cadastro neste Salvar. Pura.
+
+    Só o casamento PARECIDO, e só quando a linha foi gravada como CUSTO FIXO
+    — a mesma regra de `respostas_da_fila` para dizer qual finalidade valeu.
+    Quem desmarcou ou escolheu outra finalidade disse que não é aquele item.
+    """
+    fora = []
+    for item, l in zip(fila or [], linhas or []):
+        c = (casamentos or {}).get(chave_do_item(item))
+        if not c or not c[4]:
+            continue
+        fin = l.get("finalidade")
+        fin = fin.strip() if isinstance(fin, str) else ""
+        if fin == vazio:
+            fin = ""
+        if not fin and l.get("marcar") is True and massa:
+            fin = massa
+        if fin.upper() == "CUSTO FIXO":
+            fora.append((c[2], c[3], c[4]))
+    return fora
+
+
+def gravar_apelidos(aprendidos, usuario=""):
+    """Acrescenta a grafia do extrato ao «Como aparece no extrato». (n, erros).
+
+    Relê o cadastro SEM CACHE antes de regravar: as duas abas são regravadas
+    inteiras, e uma cópia de minutos atrás apagaria o que alguém acabou de
+    editar. Leitura vazia não grava nada — vazio aqui é falha de leitura.
+    """
+    import pandas as pd
+    import assinaturas as _as
+    import custo_fixo as _cf
+    import custo_real as _cr
+    por = {}
+    for origem, item, palavra in (aprendidos or []):
+        por.setdefault(origem, []).append((item, palavra))
+    n, erros = 0, []
+    for origem, ler, gravar in (
+            ("Custo fixo",
+             lambda: (_cf.carregar.clear(), _cf.carregar("custo_fixo"))[1],
+             lambda ls: _cf.salvar("custo_fixo", pd.DataFrame(ls), usuario)),
+            ("Assinatura",
+             lambda: (_as.carregar.clear(), _as.carregar())[1],
+             lambda ls: _as.salvar(ls, usuario))):
+        if origem not in por:
+            continue
+        try:
+            dados = ler()
+            # Célula vazia da grade vem NaN, e str(NaN) gravaria "nan".
+            linhas = (dados.fillna("").to_dict("records")
+                      if hasattr(dados, "fillna") else list(dados or []))
+        except Exception as e:
+            erros.append(f"{origem}: {type(e).__name__}")
+            continue
+        if not linhas:
+            erros.append(f"{origem}: não consegui ler o cadastro")
+            continue
+        mudou = 0
+        for item, palavra in por[origem]:
+            for l in linhas:
+                if str(l.get("item") or "").strip() != item:
+                    continue
+                novo = _cr.com_apelido(l, palavra)
+                if novo != str(l.get("favorecido") or ""):
+                    l["favorecido"] = novo
+                    mudou += 1
+        if not mudou:
+            continue
+        ok, msg = gravar(linhas)
+        if ok:
+            n += mudou
+        else:
+            erros.append(f"{origem}: {msg}")
+    return n, erros
 
 
 def _fixos_cadastrados():
@@ -834,7 +930,8 @@ def _perguntar(fila, _fv, usuario_logado):
     ESCOLHA = "— escolher —"
     _opcoes = _finalidades_conhecidas(_fv)
     SETA = {"entrada": "🟢 entrou", "saida": "🔴 saiu"}
-    _sug = sugerir_fixos(fila, *_fixos_cadastrados())
+    _casa_fx = casamentos_fixos(fila, *_fixos_cadastrados())
+    _sug = {k: v[:2] for k, v in _casa_fx.items()}
     _n_compras = sum(int(i.get("n") or 0) for i in fila)
     _total = sum(float(i.get("total") or 0) for i in fila)
     st.markdown(_rot.tela(
@@ -921,9 +1018,33 @@ def _perguntar(fila, _fv, usuario_logado):
     n, erro = _fv.salvar_varios(respostas, usuario_logado)
     if erro:
         st.error(f"Não consegui salvar: {erro}")
-    else:
-        st.success(f"✅ {n} nome(s) classificados. Valem para o histórico "
-                   "inteiro e para as próximas faturas.")
+        return
+    st.success(f"✅ {n} nome(s) classificados. Valem para o histórico "
+               "inteiro e para as próximas faturas.")
+    # O CADASTRO APRENDE A GRAFIA DO EXTRATO (dono, 09/10). KLING no
+    # cadastro, KLINGAI.COM na fatura: confirmado aqui, KLINGAI entra no
+    # «Como aparece no extrato» e o valor do mês passa a ser lido sozinho.
+    _apr = aprendizados(fila, editado.to_dict("records"),
+                        None if _massa == ESCOLHA else _massa, _casa_fx,
+                        vazio=ESCOLHA)
+    if _apr:
+        _n_apr, _err_apr = gravar_apelidos(_apr, usuario_logado)
+        if _n_apr:
+            st.success(_rot.tela(
+                "🔗 O cadastro aprendeu como o extrato escreve: "
+                + " · ".join(f"{it} → {w}" for _o, it, w in _apr)
+                + ". O valor de cada mês passa a vir do extrato."))
+            try:
+                import custo_real as _cr_a
+                from datetime import datetime as _dt_a
+                import placar_core as _pc_a
+                _cr_a.conferir_meses(
+                    _cr_a.ultimos_meses(_dt_a.now(_pc_a.FUSO).date()))
+            except Exception:
+                pass
+        for _e in _err_apr:
+            st.warning(f"Não ensinei ao cadastro — {_e}. Escreva a grafia "
+                       "do extrato em «Como aparece no extrato».")
 
 
 def representante(item):
@@ -1193,6 +1314,63 @@ if __name__ == "__main__":
     ok("fila antiga sem itens: um lançamento mostra o valor, vários não somam",
        representante({"exemplo": "PIX", "total": 50.0, "n": 1})["valor"] == 50.0
        and representante({"exemplo": "PIX", "total": 90.0, "n": 3})["valor"] is None)
+    # 09/10: a fila reconhece o nome PARECIDO e o Salvar ensina o cadastro.
+    # A fila sai da cadeia real (`fila_dos_gravados`) com o texto da fatura.
+    _fk = fila_dos_gravados([
+        {"data": "2026-07-28", "descricao": "KLINGAI.COM BRL53,28 US$10,50 R$5,42",
+         "valor": -56.91, "conta": "cartão · f.pdf",
+         "favorecido": "KLINGAI.COM BRL53,28 US$10,50 R$5,42"}], {})
+    _as_k = [{"item": "KlingAI", "valor_mensal": 51.13, "periodicidade": "Mensal",
+              "favorecido": "KLING"}]
+    _ck = casamentos_fixos(_fk, [], _as_k)
+    _c1 = next(iter(_ck.values()), None)
+    ok("a fila reconhece KLINGAI.COM como a assinatura KlingAI",
+       _c1 is not None and _c1[0] == "CUSTO FIXO" and _c1[3] == "KlingAI"
+       and _c1[4] == "KLINGAI" and "no extrato: KLINGAI" in _c1[1])
+    ok("e a sugestão continua no formato de antes",
+       sugerir_fixos(_fk, [], _as_k) == {k: v[:2] for k, v in _ck.items()})
+    _lin_k = [{"marcar": True, "finalidade": "— escolher —"}]
+    ok("salvo como CUSTO FIXO, a grafia vai ao cadastro",
+       aprendizados(_fk, _lin_k, "CUSTO FIXO", _ck)
+       == [("Assinatura", "KlingAI", "KLINGAI")])
+    ok("desmarcado ou com outra finalidade, nada é aprendido",
+       aprendizados(_fk, [{"marcar": False, "finalidade": "— escolher —"}],
+                    "CUSTO FIXO", _ck) == []
+       and aprendizados(_fk, [{"marcar": True, "finalidade": "ADS"}],
+                        "CUSTO FIXO", _ck) == [])
+    ok("casamento exato não ensina nada",
+       aprendizados(_fk, _lin_k, "CUSTO FIXO",
+                    casamentos_fixos(_fk, [], [{**_as_k[0],
+                                                "favorecido": "KLINGAI"}])) == [])
+    # gravar_apelidos pela cadeia: relê SEM cache, grava o apelido, e não
+    # grava nada quando a leitura volta vazia.
+    import assinaturas as _as_g
+    _gg_as = (_as_g.carregar, _as_g.salvar)
+    _gravou = []
+
+    class _Ler:
+        def __init__(self, v):
+            self.v, self.limpou = v, 0
+        def __call__(self):
+            return [dict(x) for x in self.v]
+        def clear(self):
+            self.limpou += 1
+    try:
+        _as_g.carregar = _Ler(_as_k)
+        _as_g.salvar = lambda ls, u="": (_gravou.append(ls) or (True, "ok"))
+        _n_g, _e_g = gravar_apelidos([("Assinatura", "KlingAI", "KLINGAI")], "leo")
+        ok("gravar_apelidos relê sem cache e grava KLING; KLINGAI",
+           _n_g == 1 and not _e_g and _as_g.carregar.limpou == 1
+           and _gravou[-1][0]["favorecido"] == "KLING; KLINGAI")
+        _as_g.carregar = _Ler([])
+        _gravou.clear()
+        _n_v, _e_v = gravar_apelidos([("Assinatura", "KlingAI", "KLINGAI")], "leo")
+        ok("leitura vazia não regrava o cadastro (apagaria tudo)",
+           _n_v == 0 and _e_v and not _gravou)
+    finally:
+        _as_g.carregar, _as_g.salvar = _gg_as
+    ok("o Salvar da fila ensina o cadastro",
+       "gravar_apelidos(_apr" in _insp.getsource(_perguntar))
     ok("extrato de 2 meses com 1 lançamento é avisado como incompleto",
        "incompleto" not in extrato_incompleto("01/08/2026 até 06/10/2026", 1)
        and "66 dias" in extrato_incompleto("01/08/2026 até 06/10/2026", 1))
