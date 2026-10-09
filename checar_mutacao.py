@@ -2746,6 +2746,28 @@ MUTACOES = [
         '    "triagem_nome_comercial", "triagem_material", "triagem_variacao_cores",\n',
         ["python3", "checar_alcance.py"],
     ),
+    # ── 09/10: A CONFERENCIA REPROVANDO PECA CERTA ─────────────────────
+    (
+        "o juiz volta a ter redacao propria sobre a ocupacao",
+        "imagem.py",
+        '    return (base + f" E a medida desta pe\u00e7a \u00e9: o produto ocupa {_medida} "\n',
+        '    return (base + f" E ele ocupa MENOS de {faixa_de_ocupacao(tipo)[0]}% do quadro? "\n',
+        ["python3", "imagem.py"],
+    ),
+    (
+        "a ocupacao volta a ser lida como area, e a capa estreita reprova",
+        "imagem.py",
+        '    return (f"{alvo} da MAIOR dimens\u00e3o do quadro \u2014 a altura, para um produto "\n',
+        '    return (f"{alvo} do quadro \u2014 a altura, para um produto "\n',
+        ["python3", "imagem.py"],
+    ),
+    (
+        "a peca de cena volta a ser conferida pela regra de marketing",
+        "imagem.py",
+        "    _base = (_PERGUNTAS_DA_CENA if numero_do_tipo(tipo) in TIPOS_DE_CENA\n             else _PERGUNTAS_DA_PECA)\n",
+        "    _base = _PERGUNTAS_DA_PECA\n",
+        ["python3", "imagem.py"],
+    ),
 ]
 
 

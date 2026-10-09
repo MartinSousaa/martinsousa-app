@@ -1194,16 +1194,49 @@ def faixa_de_ocupacao(tipo):
     return OCUPACAO.get(numero_do_tipo(tipo))
 
 
+def medida_da_ocupacao(tipo):
+    """A frase ÚNICA sobre quanto o produto ocupa. "" quando a peça não tem faixa.
+
+    POR QUE ELA EXISTE — ACHADO EM 09/10, NA TELA DO DONO.
+
+    A capa do prendedor de roupa saiu CERTA e a conferência a reprovou:
+    "o prendedor ocupa pouco do quadro: há grande área vazia de fundo branco
+    em cima, embaixo e nas laterais, bem abaixo dos 85% exigidos". Duas
+    tentativas pagas depois, ela desistiu — de consertar uma peça que não
+    tinha defeito.
+
+    ERAM DUAS VOZES SOBRE O MESMO NÚMERO:
+      o prompt .... "85% a 92% da DIMENSÃO ÚTIL do quadro"  (um eixo)
+      o juiz ...... "ele ocupa MENOS de 85% DO QUADRO"      (lido como área)
+
+    Um prendedor de 3,5 cm × 1 cm não ocupa 85% da ÁREA de um quadro
+    quadrado sem ser esticado — a proporção dele proíbe. Ele preenche 90% da
+    ALTURA, que é exatamente o que a medida pede, e sobra branco nos lados
+    porque TEM de sobrar.
+
+    Alarme falso é o pior tipo de alarme nesta base: ele custa a geração da
+    correção E ensina a ignorar o aviso verdadeiro. Agora a frase é uma só, e
+    os dois leitores recebem ela inteira.
+    """
+    faixa = faixa_de_ocupacao(tipo)
+    if not faixa or faixa[0] is None:
+        return ""
+    minimo, maximo, _ = faixa
+    alvo = (f"de {minimo}% a {maximo}%" if maximo is not None
+            else f"no mínimo {minimo}%")
+    return (f"{alvo} da MAIOR dimensão do quadro — a altura, para um produto "
+            f"em pé; a largura, para um deitado. É UMA dimensão, e não a "
+            f"área: produto comprido e estreito preenche o eixo dele e deixa "
+            f"sobra nos dois lados, e isso é o certo, não é defeito.")
+
+
 def ocupacao_em_portugues(tipo):
     """A linha de ocupacao que entra no prompt em portugues."""
-    faixa = faixa_de_ocupacao(tipo)
-    if not faixa:
+    _medida = medida_da_ocupacao(tipo)
+    if not _medida:
         return ("- O tamanho do produto no quadro e a ESCALA REAL dele no ambiente, "
                 "nunca uma porcentagem imposta.")
-    minimo, maximo, _ = faixa
-    if maximo is None:
-        return (f"- O produto ocupa NO MINIMO {minimo}% da dimensao util do quadro.")
-    return (f"- O produto ocupa de {minimo}% a {maximo}% da dimensao util do quadro. "
+    return (f"- O produto ocupa {_medida} "
             f"Nao e sugestao: e a medida desta peca.")
 
 
@@ -7837,16 +7870,63 @@ def pergunta_do_tamanho(tipo):
                 "ou foi inflado — maior que a mão, o móvel ou a pessoa que "
                 "está com ele? Produto ocupando uma fração modesta do quadro "
                 "NÃO é defeito nesta peça: é o que se espera dela.")
-    faixa = faixa_de_ocupacao(tipo)
-    if not faixa or faixa[0] is None:
+    # A MESMA FRASE QUE O PROMPT RECEBEU, e não uma segunda redação dela.
+    # Era aqui que estava "MENOS de 85% do quadro" — e "do quadro" o juiz lia
+    # como ÁREA, enquanto o prompt pedia uma DIMENSÃO.
+    _medida = medida_da_ocupacao(tipo)
+    if not _medida:
         return base
-    return (base + f" E ele ocupa MENOS de {faixa[0]}% do quadro, que é a "
-            f"medida desta peça?")
+    return (base + f" E a medida desta peça é: o produto ocupa {_medida} "
+            f"Ele está ABAIXO disso? Meça o eixo maior do produto contra o "
+            f"lado correspondente do quadro — não compare áreas, e não conte "
+            f"como defeito o fundo que sobra ao lado de um produto estreito.")
+
+
+# ── AS DUAS PRIMEIRAS PERGUNTAS TAMBÉM MUDAM NA PEÇA DE CENA ─────────────
+#
+# ACHADO EM 09/10, NA TELA DO DONO. O mural de fotos foi reprovado por:
+#   "Prendedor da extremidade esquerda está cortado pela borda esquerda"
+#   "A etiqueta 'Feito à mão' pendurada no barbante fica por cima e tampa
+#    parte do prendedor central"
+#
+# Nenhum dos dois é defeito NAQUELA peça. Num varal com seis prendedores, os
+# das pontas continuam para fora do quadro — é assim que um varal é
+# fotografado. E uma etiqueta pendurada NA FRENTE de um prendedor é a cena
+# acontecendo, não um elemento gráfico por cima do produto.
+#
+# As duas perguntas foram escritas para peça de MARKETING, onde o que corta e
+# o que tampa é coisa que o Studio desenhou: cartão, selo, faixa, seta. Levá-
+# las para a cena faz a conferência fabricar defeito — duas tentativas pagas
+# cada uma, e no fim "não consegui consertar", sobre uma peça correta.
+#
+# É a mesma correção que a pergunta 4 já tinha recebido, no mesmo arquivo,
+# pelo mesmo motivo. Eu a fiz para uma pergunta e deixei as irmãs — Forma 1.
+_PERGUNTAS_DA_CENA = (
+    "1. Algum elemento GRÁFICO acrescentado — palavra, número, seta, cartão "
+    "ou selo — está CORTADO pela borda do quadro? Objeto da CENA saindo do "
+    "quadro não é defeito: é enquadramento de fotografia. Unidade repetida "
+    "do produto (um de vários num varal, numa pilha ou numa fileira) "
+    "continuando para fora da borda TAMBÉM não é — só conte como defeito se "
+    "o produto em foco, o que a peça está mostrando, estiver cortado.",
+    "2. Algum elemento GRÁFICO acrescentado — texto, ícone, cartão, faixa ou "
+    "selo — está POR CIMA do produto, tampando parte dele? Objeto da própria "
+    "cena na frente do produto NÃO é defeito: é profundidade de campo, e a "
+    "cena é feita de coisas que se sobrepõem. Só conte se o produto em foco "
+    "ficar irreconhecível por causa disso.",
+    "3. O produto da peça é o MESMO das fotos de referência? Compare peça a "
+    "peça: número de alças, formato, acabamento, componentes, cor.",
+)
 
 
 def perguntas_da_peca(tipo=""):
-    """As quatro perguntas da conferência, para ESTE tipo."""
-    return tuple(_PERGUNTAS_DA_PECA) + (pergunta_do_tamanho(tipo),)
+    """As quatro perguntas da conferência, para ESTE tipo.
+
+    A peça de cena recebe as três primeiras na versão dela: lá o que corta e
+    o que tampa é a própria cena, e não elemento gráfico do Studio.
+    """
+    _base = (_PERGUNTAS_DA_CENA if numero_do_tipo(tipo) in TIPOS_DE_CENA
+             else _PERGUNTAS_DA_PECA)
+    return tuple(_base) + (pergunta_do_tamanho(tipo),)
 
 
 def conferir_peca(imagem, fotos_ref=None, tipo=""):
@@ -13656,6 +13736,86 @@ if __name__ == "__main__":
     ok("a aba chama as variacoes em algum lugar", _achou_chamada)
     ok("e NAO de dentro do if que o codigo de descricao pula",
        not _dentro_do_if)
+
+    # ── A OCUPACAO TEM UMA VOZ SO (09/10) ───────────────────────────────
+    #
+    # O CASO, DA TELA DO DONO: a capa do prendedor de roupa saiu CERTA e a
+    # conferencia reprovou — "ocupa pouco do quadro (...) bem abaixo dos 85%
+    # exigidos" —, gastou duas tentativas pagas e desistiu.
+    #
+    # O prompt pedia "85% a 92% da DIMENSAO UTIL"; o juiz perguntava "MENOS
+    # de 85% DO QUADRO". Um prendedor de 3,5 x 1 cm nao ocupa 85% da AREA de
+    # um quadro quadrado sem ser esticado — a proporcao dele proibe.
+    _MED_CAPA = medida_da_ocupacao("1 — Capa do anúncio (fundo branco)")
+    ok("a medida fala da MAIOR DIMENSAO, e nao da area",
+       "MAIOR dimensão" in _MED_CAPA and "não a área" in _MED_CAPA)
+    ok("e diz, com todas as letras, que sobra ao lado nao e defeito",
+       "não é defeito" in _MED_CAPA)
+    ok("a faixa continua sendo a da tabela, e nao um numero novo",
+       "85%" in _MED_CAPA and "92%" in _MED_CAPA)
+
+    # UMA VOZ SO: o prompt e o juiz recebem a MESMA frase. Enquanto forem a
+    # mesma string, eles nao tem como discordar — que e o ponto.
+    _pt_capa = ocupacao_em_portugues("1 — Capa do anúncio (fundo branco)")
+    _jz_capa = pergunta_do_tamanho("1 — Capa do anúncio (fundo branco)")
+    ok("o prompt carrega a frase inteira", _MED_CAPA in _pt_capa)
+    ok("e o juiz carrega a MESMA frase, nao uma segunda redacao",
+       _MED_CAPA in _jz_capa)
+    ok("o juiz nao pergunta mais por 'do quadro' solto",
+       "% do quadro" not in _jz_capa)
+    ok("e manda medir eixo contra eixo", "eixo maior do produto" in _jz_capa)
+
+    # AS PECAS DE CENA CONTINUAM SEM FAIXA: la o tamanho e a escala real, e
+    # cobrar porcentagem delas foi o defeito do "produto GIGANTE".
+    for _t_oc in TIPOS_PADRAO:
+        if OCUPACAO.get(numero_do_tipo(_t_oc)) is None:
+            ok(f"a peca de cena {numero_do_tipo(_t_oc)} nao ganha faixa",
+               medida_da_ocupacao(_t_oc) == "")
+            ok(f"e o juiz nao cobra porcentagem dela",
+               "%" not in pergunta_do_tamanho(_t_oc))
+
+    # PELA CADEIA REAL: o prompt montado da capa leva a medida certa.
+    ok("o prompt real da capa leva a medida pela maior dimensao",
+       "MAIOR dimensão" in montar_prompt_imagem(
+           "1 — Capa do anúncio (fundo branco)", "", {}, "Prendedor"))
+
+    # ── A CONFERENCIA DA PECA DE CENA NAO COBRA REGRA DE MARKETING ─────
+    #
+    # O CASO, DA TELA DO DONO EM 09/10: o mural de fotos reprovado por
+    # "prendedor da extremidade cortado pela borda" e "a etiqueta pendurada
+    # fica por cima e tampa parte do prendedor". Num varal, os das pontas
+    # saem do quadro e as coisas se sobrepoem — e a cena. Duas tentativas
+    # pagas cada, e no fim "nao consegui consertar" sobre peca correta.
+    _q_cena = perguntas_da_peca("3 — Benefícios no cenário de uso")
+    _q_mkt = perguntas_da_peca("2 — Benefícios do produto")
+    ok("a peca de cena e a de marketing nao recebem as mesmas perguntas",
+       _q_cena != _q_mkt)
+    ok("na cena, o que corta tem de ser GRAFICO",
+       "elemento GRÁFICO acrescentado" in _q_cena[0])
+    ok("e objeto da cena saindo do quadro e dito como NAO defeito",
+       "não é defeito: é enquadramento" in _q_cena[0])
+    ok("unidade repetida do produto saindo do quadro tambem",
+       "varal" in _q_cena[0] and "TAMBÉM não é" in _q_cena[0])
+    ok("na cena, o que tampa tem de ser GRAFICO",
+       "elemento GRÁFICO acrescentado" in _q_cena[1])
+    ok("e objeto da cena na frente do produto e dito como NAO defeito",
+       "NÃO é defeito: é profundidade de campo" in _q_cena[1])
+
+    # NA PECA DE MARKETING A REGRA CONTINUA DURA: la o que tampa o produto e
+    # um cartao que o Studio desenhou, e isso e defeito de verdade.
+    ok("na peca de marketing, qualquer objeto por cima continua sendo defeito",
+       "ou objeto de cenário está POR CIMA" in _q_mkt[1])
+    ok("e a pergunta do produto fiel e a mesma nas duas",
+       _q_cena[2] == _q_mkt[2])
+    ok("as duas continuam com quatro perguntas",
+       len(_q_cena) == 4 and len(_q_mkt) == 4)
+
+    # AS TRES PECAS DE CENA RECEBEM A VERSAO DE CENA, e nao so a que doeu.
+    for _t_pc in TIPOS_PADRAO:
+        _esperado = (numero_do_tipo(_t_pc) in TIPOS_DE_CENA)
+        _tem = "elemento GRÁFICO acrescentado" in perguntas_da_peca(_t_pc)[0]
+        ok(f"a peca {numero_do_tipo(_t_pc)} recebe a versao certa",
+           _tem == _esperado)
 
     # ── A COR DO TEXTO MEDIDA, E NAO PEDIDA ─────────────────────────────
     #
