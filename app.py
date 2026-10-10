@@ -20,6 +20,7 @@ from params_oficiais import (
     SHEIN_COMISSAO, SHEIN_FRETE_TABELA,
 )
 import financeiro
+import lpv_mensal
 import gestao
 import atividades
 import auth
@@ -1030,7 +1031,10 @@ def calcular_comissao_ml(preco, categoria, modalidade="Premium"):
     taxas = ML_COMISSAO_POR_CATEGORIA.get(categoria, ML_COMISSAO_POR_CATEGORIA['Outros'])
     return preco * taxas[1 if modalidade == "Premium" else 0]
 
-def calcular_resultado(preco, custo, peso_kg, categoria, modalidade, nf_pct, custo_operacional, lpv):
+def calcular_resultado(preco, custo, peso_kg, categoria, modalidade, nf_pct, co_taxa, lpv):
+    # C.O proporcional ao preço (dono, 07/10): a taxa entra, e o valor sai
+    # para CADA preço — inclusive os que a bisseção do UC alvo experimenta.
+    custo_operacional = lpv_mensal.co_por_venda(preco, co_taxa)
     comissao     = calcular_comissao_ml(preco, categoria, modalidade)
     frete        = calcular_frete_ml(preco, peso_kg)
     nf           = preco * nf_pct
@@ -1055,7 +1059,8 @@ def calcular_comissao_shopee(preco):
     _, _, pct, adicional, _ = SHOPEE_FAIXAS[-1]
     return preco * pct, adicional
 
-def calcular_resultado_shopee(preco, custo, nf_pct, custo_operacional, lpv):
+def calcular_resultado_shopee(preco, custo, nf_pct, co_taxa, lpv):
+    custo_operacional = lpv_mensal.co_por_venda(preco, co_taxa)
     comissao_pct, adicional = calcular_comissao_shopee(preco)
     comissao_total = comissao_pct + adicional
     frete     = SHOPEE_FRETE_LIQUIDO  # R$0,00 — Frete Gratis obrigatorio, vendedor nao paga
@@ -1080,7 +1085,8 @@ def calcular_frete_shein(peso_kg):
             return valor
     return SHEIN_FRETE_TABELA[-1][1]
 
-def calcular_resultado_shein(preco, custo, peso_kg, nf_pct, custo_operacional, lpv):
+def calcular_resultado_shein(preco, custo, peso_kg, nf_pct, co_taxa, lpv):
+    custo_operacional = lpv_mensal.co_por_venda(preco, co_taxa)
     comissao  = preco * SHEIN_COMISSAO  # 18% flat
     frete     = calcular_frete_shein(peso_kg)
     nf        = preco * nf_pct
@@ -1145,6 +1151,24 @@ def montar_tabela_horizontal_completa(cenarios):
 
 # ── RESOLVER E PROMOÇÃO GENÉRICOS (funciona pra ML, Shopee e Shein) ───────────
 
+def _ate_o_alvo(hi, uc_alvo, calc_fn, passos=200):
+    """O preço da bisseção, ao centavo, conferido: o primeiro centavo cujo UC
+    alcança o alvo.
+
+    Só arredondar errava em dois casos. Para baixo, devolvia um centavo antes
+    do alvo (UC 0,99 no "Equilíbrio (UC 1,0/1)"). E na troca de faixa da
+    Shopee (R$ 79,99 → R$ 80,00) o UC SALTA de 0,90 para 1,18: a bisseção para
+    no salto, e o preço sugerido para UC 1,0 tinha UC 0,90.
+    """
+    p = round(hi, 2)
+    for _ in range(passos):
+        uc = calc_fn(p)['uc']
+        if uc is not None and uc >= uc_alvo:
+            return p
+        p = round(p + 0.01, 2)
+    return p
+
+
 def resolver_preco_para_uc_fn(uc_alvo, calc_fn, lpv, preco_max=2000.0):
     """Bissecao generica: acha preco que resulta exatamente em uc_alvo
     dado um calc_fn(preco) -> resultado_dict."""
@@ -1159,7 +1183,7 @@ def resolver_preco_para_uc_fn(uc_alvo, calc_fn, lpv, preco_max=2000.0):
             lo = mid
         else:
             hi = mid
-    return round(hi, 2)
+    return _ate_o_alvo(hi, uc_alvo, calc_fn)
 
 def analisar_promocao_fn(preco_mercado, uc_mercado, calc_fn, lpv):
     """Analise de promocao generica usando calc_fn(preco) -> resultado_dict."""
@@ -1199,7 +1223,7 @@ def analisar_promocao_fn(preco_mercado, uc_mercado, calc_fn, lpv):
 
     return {"texto": texto, "nota_extra": nota_extra, "tabela": tabela}
 
-def gerar_analise_fn(preco_mercado, custo, nome, nf_pct, custo_op, lpv, calc_fn,
+def gerar_analise_fn(preco_mercado, custo, nome, nf_pct, co_taxa, lpv, calc_fn,
                      preco_max_busca=None, alerta_cubagem=""):
     """Motor de analise generico. Recebe calc_fn(preco)->resultado e produz
     o mesmo dicionario de saida que gerar_analise() (ML-especifico)."""
@@ -1248,7 +1272,7 @@ def gerar_analise_fn(preco_mercado, custo, nome, nf_pct, custo_op, lpv, calc_fn,
 
 # ── FUNÇÕES ML LEGADAS (mantidas intactas) ────────────────────────────────────
 
-def resolver_preco_para_uc(uc_alvo, custo, peso_kg, categoria, modalidade, nf_pct, custo_op, lpv, preco_max=None):
+def resolver_preco_para_uc(uc_alvo, custo, peso_kg, categoria, modalidade, nf_pct, co_taxa, lpv, preco_max=None):
     """Acha por bissecao o preco de anuncio que resulta exatamente no UC alvo."""
     if not lpv:
         return None
@@ -1256,16 +1280,17 @@ def resolver_preco_para_uc(uc_alvo, custo, peso_kg, categoria, modalidade, nf_pc
     lo, hi = 0.01, preco_max
     for _ in range(80):
         mid = (lo + hi) / 2
-        r = calcular_resultado(mid, custo, peso_kg, categoria, modalidade, nf_pct, custo_op, lpv)
+        r = calcular_resultado(mid, custo, peso_kg, categoria, modalidade, nf_pct, co_taxa, lpv)
         uc = r['uc'] if r['uc'] is not None else -999
         if uc < uc_alvo:
             lo = mid
         else:
             hi = mid
-    return round(hi, 2)
+    return _ate_o_alvo(hi, uc_alvo, lambda p: calcular_resultado(
+        p, custo, peso_kg, categoria, modalidade, nf_pct, co_taxa, lpv))
 
 
-def analisar_promocao(preco_mercado, uc_mercado, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv):
+def analisar_promocao(preco_mercado, uc_mercado, custo, peso_taxado, categoria, modalidade, nf_pct, co_taxa, lpv):
     """Regra definida pelo usuario (14/07/2026):
     - Teto de promocao recomendado: 10% de desconto.
     - Mas nunca deixar o UC final cair abaixo de 1/1."""
@@ -1273,9 +1298,9 @@ def analisar_promocao(preco_mercado, uc_mercado, custo, peso_taxado, categoria, 
         return None
 
     preco_10pct = round(preco_mercado * 0.9, 2)
-    r_10pct = calcular_resultado(preco_10pct, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv)
+    r_10pct = calcular_resultado(preco_10pct, custo, peso_taxado, categoria, modalidade, nf_pct, co_taxa, lpv)
 
-    preco_uc1 = resolver_preco_para_uc(1.0, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv)
+    preco_uc1 = resolver_preco_para_uc(1.0, custo, peso_taxado, categoria, modalidade, nf_pct, co_taxa, lpv)
     desconto_teorico_uc1 = round(100 * (preco_mercado - preco_uc1) / preco_mercado, 1) if preco_uc1 else 0
 
     if r_10pct['uc'] is not None and r_10pct['uc'] >= 1.0:
@@ -1289,13 +1314,13 @@ def analisar_promocao(preco_mercado, uc_mercado, custo, peso_taxado, categoria, 
     else:
         desconto_recomendado = desconto_teorico_uc1
         preco_recomendado = preco_uc1
-        r_recomendado = calcular_resultado(preco_uc1, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv)
+        r_recomendado = calcular_resultado(preco_uc1, custo, peso_taxado, categoria, modalidade, nf_pct, co_taxa, lpv)
         nota_extra = ""
         texto = (f"⚠️ 10% de desconto derrubaria a UC abaixo de 1/1. O desconto máximo recomendado pra manter "
                  f"UC ≥ 1/1 é **{desconto_recomendado}%**.")
 
     tabela = montar_tabela_horizontal_completa([
-        ("Preço de mercado", calcular_resultado(preco_mercado, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv)),
+        ("Preço de mercado", calcular_resultado(preco_mercado, custo, peso_taxado, categoria, modalidade, nf_pct, co_taxa, lpv)),
         (f"Promoção ({desconto_recomendado}% off)", r_recomendado),
     ])
 
@@ -1303,8 +1328,8 @@ def analisar_promocao(preco_mercado, uc_mercado, custo, peso_taxado, categoria, 
 
 
 def gerar_analise(preco_mercado, custo, peso_taxado, categoria, modalidade,
-                   nome, dims_ref, qtd_ref, nf_pct, custo_operacional, lpv):
-    r_base = calcular_resultado(preco_mercado, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv)
+                   nome, dims_ref, qtd_ref, nf_pct, co_taxa, lpv):
+    r_base = calcular_resultado(preco_mercado, custo, peso_taxado, categoria, modalidade, nf_pct, co_taxa, lpv)
     tag = classificar_uc(r_base['uc'])
 
     RESUMOS = {
@@ -1314,16 +1339,16 @@ def gerar_analise(preco_mercado, custo, peso_taxado, categoria, modalidade,
     }
     resumo = RESUMOS[tag]
 
-    preco_uc07 = resolver_preco_para_uc(0.7, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv)
-    preco_uc10 = resolver_preco_para_uc(1.0, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv)
-    r_uc07 = calcular_resultado(preco_uc07, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv) if preco_uc07 else None
-    r_uc10 = calcular_resultado(preco_uc10, custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv) if preco_uc10 else None
+    preco_uc07 = resolver_preco_para_uc(0.7, custo, peso_taxado, categoria, modalidade, nf_pct, co_taxa, lpv)
+    preco_uc10 = resolver_preco_para_uc(1.0, custo, peso_taxado, categoria, modalidade, nf_pct, co_taxa, lpv)
+    r_uc07 = calcular_resultado(preco_uc07, custo, peso_taxado, categoria, modalidade, nf_pct, co_taxa, lpv) if preco_uc07 else None
+    r_uc10 = calcular_resultado(preco_uc10, custo, peso_taxado, categoria, modalidade, nf_pct, co_taxa, lpv) if preco_uc10 else None
 
     cenarios = [("Risco (UC 0,7/1)", r_uc07), ("Preço de mercado", r_base), ("Equilíbrio (UC 1,0/1)", r_uc10)]
     cenarios = [(n, r) for n, r in cenarios if r is not None]
     tabela_cenarios = montar_tabela_horizontal_completa(cenarios)
 
-    promo = analisar_promocao(preco_mercado, r_base['uc'], custo, peso_taxado, categoria, modalidade, nf_pct, custo_operacional, lpv)
+    promo = analisar_promocao(preco_mercado, r_base['uc'], custo, peso_taxado, categoria, modalidade, nf_pct, co_taxa, lpv)
     if promo is None:
         if tag == "INVIAVEL":
             texto_promo = "⚠️ Não tem margem pra promoção nesse preço — o produto já está abaixo do UC mínimo. Considere revisar custo ou anunciar mais caro (veja o cenário de Equilíbrio acima)."
@@ -1482,6 +1507,32 @@ _eh_painel   = _trello_user in {m.lower() for m in placar.MASTERS} or _trello_us
 
 # ── FUNÇÕES DE RENDERIZAÇÃO — ABAS DE OPERAÇÃO ───────────────────────────────
 
+_MESES_CURTOS = ("jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago",
+                 "set", "out", "nov", "dez")
+
+
+def _co_pct_medido():
+    """(% do preço ou None, de onde veio) — o C.O medido nos meses fechados.
+
+    O valor abre o campo e pode ser trocado na tela. Sem mês medido, o campo
+    abre vazio e a análise pede o número: chutar uma taxa decidiria produto
+    com dado que ninguém mediu.
+    """
+    from datetime import datetime as _dt_co
+    try:
+        taxa, meses, erro = lpv_mensal.taxa_co_recente(
+            _dt_co.now(_pc_login.FUSO).date())
+    except Exception as e:
+        return None, f"Não consegui medir o C.O ({type(e).__name__}). Digite o %."
+    if taxa is None:
+        return None, ("Nenhum mês fechado com C.O medido (extratos e BASE DE "
+                      "VENDAS). Digite o %." + (f" {erro}" if erro else ""))
+    nomes = ", ".join(f"{_MESES_CURTOS[m - 1]}/{a}" for a, m in sorted(meses))
+    return (round(taxa * 100, 2),
+            f"Medido: C.O ÷ faturamento de {nomes} (Custos fixos › LPV "
+            "Mensal). O C.O de cada venda é este % do preço dela.")
+
+
 def _render_analise_venda_tab():
     """Aba Análise de Venda — calculadora de preço mínimo."""
     _lpv_av, _nf_av = LPV_OFICIAL, NF_OFICIAL
@@ -1505,8 +1556,12 @@ def _render_analise_venda_tab():
                                            step=0.50, format="%.2f", placeholder="0,00", key="av_custo")
         categoria_av    = st.selectbox("Categoria no ML", sorted(ML_COMISSAO_POR_CATEGORIA.keys()), key="av_categoria")
         modalidade_av   = st.selectbox("Modalidade ML", ["Premium", "Classico"], key="av_modalidade")
-        custo_op_av     = st.number_input("Custo operacional (embalagem/logística/ADS/cross docking)",
-                                           min_value=0.0, value=8.13, step=0.50, format="%.2f", key="av_custo_op")
+        _co_pct_av, _co_ajuda_av = _co_pct_medido()
+        co_pct_av       = st.number_input("Custo operacional (% do preço)",
+                                           min_value=0.0, max_value=100.0, value=_co_pct_av,
+                                           step=0.10, format="%.2f", placeholder="ex: 7,00",
+                                           key="av_co_pct", help=_co_ajuda_av)
+        co_taxa_av     = (co_pct_av or 0.0) / 100
 
     with col_av2:
         st.markdown("**Dimensões e Peso (produto embalado)**")
@@ -1527,6 +1582,7 @@ def _render_analise_venda_tab():
         erros_av = []
         if custo_av is None: erros_av.append("Custo do produto")
         if peso_kg_av == 0:  erros_av.append("Peso do produto")
+        if co_pct_av is None: erros_av.append("Custo operacional (%)")
         if erros_av:
             st.warning(f"Preencha: {', '.join(erros_av)}")
         else:
@@ -1543,12 +1599,12 @@ def _render_analise_venda_tab():
                 for uc_val, uc_label, uc_desc, classe_card in UC_ALVOS_AV:
                     p_ml_av = resolver_preco_para_uc(
                         uc_val, custo_av, peso_taxado_av, categoria_av, modalidade_av,
-                        _nf_av, custo_op_av, _lpv_av
+                        _nf_av, co_taxa_av, _lpv_av
                     )
-                    def _sp(p, _c=custo_av, _n=_nf_av, _o=custo_op_av, _l=_lpv_av):
+                    def _sp(p, _c=custo_av, _n=_nf_av, _o=co_taxa_av, _l=_lpv_av):
                         return calcular_resultado_shopee(p, _c, _n, _o, _l)
                     p_sp_av = resolver_preco_para_uc_fn(uc_val, _sp, _lpv_av)
-                    def _sh(p, _c=custo_av, _pk=peso_kg_av, _n=_nf_av, _o=custo_op_av, _l=_lpv_av):
+                    def _sh(p, _c=custo_av, _pk=peso_kg_av, _n=_nf_av, _o=co_taxa_av, _l=_lpv_av):
                         return calcular_resultado_shein(p, _c, _pk, _n, _o, _l)
                     p_sh_av = resolver_preco_para_uc_fn(uc_val, _sh, _lpv_av)
                     linhas_av.append((uc_label, uc_desc, classe_card, p_ml_av, p_sp_av, p_sh_av))
@@ -1556,7 +1612,7 @@ def _render_analise_venda_tab():
             st.markdown("### Preços mínimos para anunciar")
             st.caption(rotulos.tela(
                 f"LPV: {_brl_ms(_lpv_av)} · NF: {_nf_av*100:.1f}% · "
-                f"Op: {_brl_ms(custo_op_av)}"))
+                f"C.O.: {co_pct_av:.2f}% do preço".replace(".", ",")))
             st.markdown("")
 
             for uc_label, uc_desc, classe_card, p_ml, p_sp, p_sh in linhas_av:
@@ -1628,8 +1684,12 @@ def _render_viabilidade_tab():
         custo             = st.number_input("Preço de custo (R$)", min_value=0.0, value=None, step=0.50, format="%.2f", placeholder="0,00")
         qtd_ref           = st.number_input("Quantidade por unidade/kit", min_value=1, step=1, value=1)
         categoria         = st.selectbox("Categoria no ML", sorted(ML_COMISSAO_POR_CATEGORIA.keys()), key="viab_categoria")
-        custo_operacional = st.number_input("Custo operacional (embalagem/logística/ADS/cross docking)",
-                                             min_value=0.0, value=8.13, step=0.50, format="%.2f")
+        _co_pct_vb, _co_ajuda_vb = _co_pct_medido()
+        co_pct_vb         = st.number_input("Custo operacional (% do preço)",
+                                             min_value=0.0, max_value=100.0, value=_co_pct_vb,
+                                             step=0.10, format="%.2f", placeholder="ex: 7,00",
+                                             key="viab_co_pct", help=_co_ajuda_vb)
+        co_taxa           = (co_pct_vb or 0.0) / 100
 
     with col2:
         st.subheader("Dimensões e Peso (produto EMBALADO)")
@@ -1676,6 +1736,7 @@ def _render_viabilidade_tab():
         erros = []
         if not nome_produto: erros.append("Nome do produto")
         if custo is None:    erros.append("Preço de custo")
+        if co_pct_vb is None: erros.append("Custo operacional (%)")
         if all(p is None for p in [preco_ml, preco_sp, preco_sh]):
             erros.append("Pelo menos um preço de mercado (ML, Shopee ou Shein)")
         if preco_sh and peso_kg == 0:
@@ -1705,16 +1766,16 @@ def _render_viabilidade_tab():
             if preco_ml:
                 res_ml = gerar_analise(
                     preco_ml, custo, peso_taxado_ml, categoria, modalidade,
-                    nome_produto, dims_ref, qtd_ref, nf_pct_usado, custo_operacional, lpv_usado,
+                    nome_produto, dims_ref, qtd_ref, nf_pct_usado, co_taxa, lpv_usado,
                 )
             if preco_sp:
-                calc_sp = lambda p: calcular_resultado_shopee(p, custo, nf_pct_usado, custo_operacional, lpv_usado)
+                calc_sp = lambda p: calcular_resultado_shopee(p, custo, nf_pct_usado, co_taxa, lpv_usado)
                 res_sp = gerar_analise_fn(preco_sp, custo, nome_produto, nf_pct_usado,
-                                          custo_operacional, lpv_usado, calc_sp)
+                                          co_taxa, lpv_usado, calc_sp)
             if preco_sh:
-                calc_sh = lambda p: calcular_resultado_shein(p, custo, peso_kg, nf_pct_usado, custo_operacional, lpv_usado)
+                calc_sh = lambda p: calcular_resultado_shein(p, custo, peso_kg, nf_pct_usado, co_taxa, lpv_usado)
                 res_sh = gerar_analise_fn(preco_sh, custo, nome_produto, nf_pct_usado,
-                                          custo_operacional, lpv_usado, calc_sh)
+                                          co_taxa, lpv_usado, calc_sh)
 
         plataformas_log = " / ".join(
             f"{p}: {r['tag']} {_brl_ms(pr)}"

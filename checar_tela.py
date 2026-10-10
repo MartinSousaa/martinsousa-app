@@ -3006,6 +3006,100 @@ def _balanco_headcount(conta):
          _hc.carregar_params, _co.carregar_taxas) = _guard
 
 
+def _co_proporcional_na_viabilidade(conta):
+    """10/10: o C.O da Viabilidade e do Preço Mínimo é % do preço.
+
+    O dono, 07/10: "C.O. por venda proporcional ao ticket". Eram R$ 8,13
+    fixos por venda nas duas abas. O `app.py` é o script do Streamlit e não
+    se importa: as funções saem dele pela AST e rodam DE VERDADE, com as
+    tabelas de `params_oficiais` e o `lpv_mensal` reais.
+    """
+    import ast as _ast_co
+    import types as _ty_co
+    import params_oficiais as _po_co
+    import lpv_mensal as _lm_co
+    import placar_core as _pc_co
+    _src = open("app.py", encoding="utf-8").read()
+    _arv = _ast_co.parse(_src)
+    _quero = {"calcular_comissao_ml", "calcular_frete_ml", "calcular_resultado",
+              "calcular_comissao_shopee", "calcular_resultado_shopee",
+              "calcular_frete_shein", "calcular_resultado_shein",
+              "resolver_preco_para_uc", "resolver_preco_para_uc_fn",
+              "_ate_o_alvo",
+              "_co_pct_medido"}
+    _nos = [n for n in _arv.body if (isinstance(n, _ast_co.FunctionDef)
+                                     and n.name in _quero)
+            or (isinstance(n, _ast_co.Assign) and any(
+                getattr(t, "id", "") == "_MESES_CURTOS" for t in n.targets))]
+    _ns = {k: getattr(_po_co, k) for k in dir(_po_co) if k.isupper()}
+    _ns.update(lpv_mensal=_lm_co, _pc_login=_pc_co)
+    exec(compile(_ast_co.Module(body=_nos, type_ignores=[]), "app.py", "exec"),
+         _ns)
+    _cat = sorted(_po_co.ML_COMISSAO_POR_CATEGORIA)[0]
+    _r100 = _ns["calcular_resultado"](100.0, 30.0, 0.5, _cat, "Premium", 0.08,
+                                      0.07, 20.0)
+    _r400 = _ns["calcular_resultado"](400.0, 30.0, 0.5, _cat, "Premium", 0.08,
+                                      0.07, 20.0)
+    conta("Viabilidade: o C.O é % do preço, e não valor fixo",
+          abs(_r100["custo_operacional"] - 7.0) < 1e-9
+          and abs(_r400["custo_operacional"] - 28.0) < 1e-9, "")
+    _sp = _ns["calcular_resultado_shopee"](200.0, 30.0, 0.08, 0.05, 20.0)
+    _sh = _ns["calcular_resultado_shein"](200.0, 30.0, 0.5, 0.08, 0.05, 20.0)
+    conta("Shopee e Shein também cobram o C.O pelo preço",
+          abs(_sp["custo_operacional"] - 10.0) < 1e-9
+          and abs(_sh["custo_operacional"] - 10.0) < 1e-9, "")
+    # A bisseção experimenta preços: o C.O tem de acompanhar cada um. No preço
+    # achado, o UC é o alvo E o C.O é a taxa sobre ESSE preço.
+    _p = _ns["resolver_preco_para_uc"](1.0, 30.0, 0.5, _cat, "Premium", 0.08,
+                                       0.07, 20.0)
+    _rp = _ns["calcular_resultado"](_p, 30.0, 0.5, _cat, "Premium", 0.08,
+                                    0.07, 20.0)
+    conta("o preço para UC 1,0 já paga o C.O desse preço",
+          _rp["uc"] >= 1.0
+          and _ns["calcular_resultado"](round(_p - 0.01, 2), 30.0, 0.5, _cat,
+                                        "Premium", 0.08, 0.07, 20.0)["uc"] < 1.0
+          and abs(_rp["custo_operacional"] - _p * 0.07) < 1e-6,
+          f"preço {_p}, UC {_rp['uc']}")
+    _calc_sp = lambda pr: _ns["calcular_resultado_shopee"](pr, 30.0, 0.08,
+                                                           0.07, 20.0)
+    _p_sp = _ns["resolver_preco_para_uc_fn"](1.0, _calc_sp, 20.0)
+    _r_sp = _calc_sp(_p_sp)
+    # Na troca de faixa da Shopee (R$ 79,99 → R$ 80,00) o UC salta de 0,90
+    # para 1,18: o preço certo é o primeiro centavo que alcança o alvo.
+    conta("Shopee e Shein: o preço para UC 1,0 é o primeiro centavo no alvo",
+          _r_sp["uc"] >= 1.0 and _calc_sp(round(_p_sp - 0.01, 2))["uc"] < 1.0
+          and abs(_r_sp["custo_operacional"] - _p_sp * 0.07) < 1e-6,
+          f"preço {_p_sp}, UC {_r_sp['uc']}")
+    _g = _lm_co.taxa_co_recente
+    try:
+        _lm_co.taxa_co_recente = lambda hoje: (
+            0.0712, [(2026, 9), (2026, 8), (2026, 7)], "")
+        _pct, _ajuda = _ns["_co_pct_medido"]()
+        _lm_co.taxa_co_recente = lambda hoje: (None, [], "")
+        _pct0, _ajuda0 = _ns["_co_pct_medido"]()
+    finally:
+        _lm_co.taxa_co_recente = _g
+    conta("o campo abre com o C.O medido, e diz de que meses",
+          _pct == 7.12 and "jul/2026, ago/2026, set/2026" in _ajuda, "")
+    conta("sem mês medido, o campo abre vazio e pede o número",
+          _pct0 is None and "Digite" in _ajuda0, "")
+    _fixo = [n.lineno for n in _ast_co.walk(_arv)
+             if isinstance(n, _ast_co.Constant) and n.value == 8.13]
+    conta("nenhuma aba guarda os R$ 8,13 fixos", not _fixo,
+          f"app.py:{_fixo}")
+    _campos_co = [n for n in _ast_co.walk(_arv)
+                  if isinstance(n, _ast_co.Call)
+                  and getattr(n.func, "attr", "") == "number_input"
+                  and n.args and isinstance(n.args[0], _ast_co.Constant)
+                  and str(n.args[0].value).startswith("Custo operacional")]
+    conta("as duas abas pedem o C.O em % e abrem com o medido",
+          len(_campos_co) == 2 and all(
+              "% do preço" in n.args[0].value
+              and any(k.arg == "value" and getattr(k.value, "id", "")
+                      .startswith("_co_pct") for k in n.keywords)
+              for n in _campos_co), f"{len(_campos_co)} campo(s)")
+
+
 def main():
     instalar()
     falhas = []
@@ -3062,6 +3156,7 @@ def main():
     _equilibrio_real_na_meta(conta)
     _acompanhamento_do_mes(conta)
     _inter_pela_api(conta)
+    _co_proporcional_na_viabilidade(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0

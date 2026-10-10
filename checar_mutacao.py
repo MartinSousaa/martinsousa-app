@@ -3056,6 +3056,34 @@ MUTACOES = [
         "        except ValueError:\n            col.caption(f\"\u26a0\ufe0f \u00ab{txt}\u00bb n\u00e3o \u00e9 um valor \u2014 ficou {mostrado or 'vazio'}\")\n            return inicial\n",
         "        except ValueError:\n            return txt\n",
         ["python3", "campos.py"],
+    ),    # ── 10/10: C.O DA VIABILIDADE PROPORCIONAL AO PRECO ─────────────────
+    (
+        "a Viabilidade volta a cobrar o C.O fixo por venda",
+        "app.py",
+        "    custo_operacional = lpv_mensal.co_por_venda(preco, co_taxa)\n    comissao     = calcular_comissao_ml",
+        "    custo_operacional = co_taxa\n    comissao     = calcular_comissao_ml",
+        ["python3", "checar_tela.py"],
+    ),
+    (
+        "o Preco Minimo volta a abrir com os R$ 8,13",
+        "app.py",
+        "                                           min_value=0.0, max_value=100.0, value=_co_pct_av,",
+        "                                           min_value=0.0, max_value=100.0, value=8.13,",
+        ["python3", "checar_tela.py"],
+    ),
+    (
+        "o preco para UC alvo volta a parar antes do alvo na troca de faixa",
+        "app.py",
+        "    return _ate_o_alvo(hi, uc_alvo, calc_fn)\n",
+        "    return round(hi, 2)\n",
+        ["python3", "checar_tela.py"],
+    ),
+    (
+        "a taxa do C.O volta a contar mes sem extrato",
+        "lpv_mensal.py",
+        '        if c.get("motivo") or float(c.get("co") or 0.0) <= 0 or f <= 0:\n',
+        "        if f <= 0:\n",
+        ["python3", "lpv_mensal.py"],
     ),
 ]
 

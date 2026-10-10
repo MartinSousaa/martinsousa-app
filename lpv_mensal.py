@@ -284,6 +284,77 @@ def custo_operacional_do_ano(ano):
     return fora, erro
 
 
+# ── C.O. POR VENDA PROPORCIONAL AO PREÇO (dono, 07/10) ──────────────────────
+#
+# "C.O. por venda proporcional ao ticket". A planilha já faz assim: a coluna
+# CUSTO OP. da BASE DE VENDAS rateia o C.O do mês pela participação de cada
+# venda no faturamento — o que é o mesmo que uma taxa sobre o preço. A
+# Viabilidade usava R$ 8,13 fixos por venda: o mesmo custo para um produto
+# de R$ 20 e um de R$ 400.
+#
+# A taxa é a dos últimos meses FECHADOS em que o C.O pôde ser calculado:
+# soma do C.O ÷ soma do faturamento, e não a média das taxas — mês de
+# faturamento pequeno não pesa igual a mês grande. Mês com `motivo` (extrato
+# faltando, C.O negativo) fica de fora, e a tela diz quais meses entraram.
+MESES_DA_TAXA = 3
+
+
+def taxa_do_co(calculos, somas, chaves):
+    """(taxa, meses usados). Função pura.
+
+    `calculos`: {(ano, mes): calcular(...)}; `somas`: {(ano, mes):
+    base_vendas.somar(...)}; `chaves`: os meses candidatos, do mais recente ao
+    mais antigo. Usa os primeiros `MESES_DA_TAXA` que têm C.O e faturamento.
+    Sem nenhum, (None, []).
+    """
+    usados, co, fat = [], 0.0, 0.0
+    for k in chaves:
+        c = calculos.get(k) or {}
+        f = float((somas.get(k) or {}).get("faturamento") or 0.0)
+        if c.get("motivo") or float(c.get("co") or 0.0) <= 0 or f <= 0:
+            continue
+        usados.append(k)
+        co += float(c["co"])
+        fat += f
+        if len(usados) == MESES_DA_TAXA:
+            break
+    if not usados:
+        return None, []
+    return co / fat, usados
+
+
+def meses_antes(hoje, quantos=12):
+    """[(ano, mes)] dos meses fechados antes de `hoje`, do mais recente."""
+    a, m = hoje.year, hoje.month
+    fora = []
+    for _ in range(int(quantos)):
+        m -= 1
+        if m == 0:
+            a, m = a - 1, 12
+        fora.append((a, m))
+    return fora
+
+
+def taxa_co_recente(hoje):
+    """(taxa ou None, meses usados, erro) — a taxa que a Viabilidade usa."""
+    import base_vendas as _bv
+    chaves = meses_antes(hoje)
+    calculos, erro = {}, ""
+    for ano in sorted({a for a, _m in chaves}):
+        do_ano, e = custo_operacional_do_ano(ano)
+        erro = erro or e
+        for m, c in (do_ano or {}).items():
+            calculos[(ano, m)] = c
+    somas, e2 = _bv.somas_por_mes()
+    taxa, usados = taxa_do_co(calculos, somas or {}, chaves)
+    return taxa, usados, (erro or e2)
+
+
+def co_por_venda(preco, taxa):
+    """O C.O de UMA venda: a taxa sobre o preço dela."""
+    return float(preco or 0.0) * float(taxa or 0.0)
+
+
 def mes_fechado(ano, mes, hoje):
     """O mês já terminou? Mês corrente tem LPV parcial e não se grava."""
     return (int(ano), int(mes)) < (hoje.year, hoje.month)
@@ -506,6 +577,46 @@ if __name__ == "__main__":
         _mg_p.projecao_vendas = _g_proj
         globals()["_partes_do_mes"] = _g_partes
         lpv_projetado.clear()
+
+    # ── C.O. PROPORCIONAL AO PREÇO (dono, 07/10) ───────────────────────
+    # PELA CADEIA: o C.O de `calcular` sobre os lançamentos de janeiro, e o
+    # faturamento de `base_vendas.somar` — as duas formas que a tela recebe.
+    _fat_jan = _sv_jan["faturamento"]
+    ok("o faturamento da BASE DE VENDAS chega à taxa", _fat_jan > 0)
+    _tx, _us = taxa_do_co({(2026, 1): r}, {(2026, 1): _sv_jan}, [(2026, 1)])
+    ok("taxa = C.O do mês ÷ faturamento do mês",
+       _us == [(2026, 1)] and abs(_tx - r["co"] / _fat_jan) < 1e-9)
+    ok("o C.O da venda cresce com o preço",
+       abs(co_por_venda(400.0, 0.07) - 28.0) < 1e-9
+       and abs(co_por_venda(20.0, 0.07) - 1.4) < 1e-9
+       and co_por_venda(None, 0.07) == 0.0)
+    # Mês sem extrato (motivo) não entra, e não para a busca: o anterior
+    # entra no lugar dele.
+    _vazio = calcular([], _sv_jan)
+    _tx2, _us2 = taxa_do_co(
+        {(2026, 2): _vazio, (2026, 1): r},
+        {(2026, 2): _sv_jan, (2026, 1): _sv_jan}, [(2026, 2), (2026, 1)])
+    ok("mês com C.O incalculável fica de fora, e o anterior entra",
+       bool(_vazio["motivo"]) and _us2 == [(2026, 1)] and _tx2 == _tx)
+    # Soma ÷ soma, e não média das taxas: 100 em 1.000 e 900 em 9.000 dão
+    # 10% — a média das taxas também daria; 100 em 1.000 e 100 em 9.000 dão
+    # 2%, e a média das taxas daria 5,6%.
+    _c = lambda co: {"co": co, "motivo": ""}
+    _f = lambda fat: {"faturamento": fat}
+    _tx3, _ = taxa_do_co({(1, 1): _c(100), (1, 2): _c(100)},
+                         {(1, 1): _f(1000), (1, 2): _f(9000)},
+                         [(1, 1), (1, 2)])
+    ok("a taxa pesa o mês pelo faturamento", abs(_tx3 - 0.02) < 1e-12)
+    _tx4, _us4 = taxa_do_co({(1, m): _c(10) for m in range(1, 6)},
+                            {(1, m): _f(100) for m in range(1, 6)},
+                            [(1, m) for m in range(5, 0, -1)])
+    ok(f"usa só os {MESES_DA_TAXA} meses mais recentes",
+       _us4 == [(1, 5), (1, 4), (1, 3)][:MESES_DA_TAXA])
+    ok("sem mês válido, não inventa taxa",
+       taxa_do_co({}, {}, [(2026, 1)]) == (None, []))
+    ok("os meses fechados atravessam o ano",
+       meses_antes(_date(2026, 2, 10), 3) == [(2026, 1), (2025, 12),
+                                              (2025, 11)])
 
     print("\nfalhas:", falhas)
     raise SystemExit(1 if falhas else 0)
