@@ -3042,6 +3042,20 @@ MUTACOES = [
         '             if i in fechados\n             and (l.get("meta") or l.get("origem") != "sem dado")]\n',
         '             if i in fechados and l.get("meta")]\n',
         ["python3", "checar_tela.py"],
+    ),    # ── 10/10: EQUILIBRIO REAL NO BALANCO DA HOME ───────────────────────
+    (
+        "a Home volta a nao mostrar o equilibrio pelos gastos reais",
+        "home_gestao.py",
+        "        + _linha_do_real(d, proj) +\n",
+        "        +\n",
+        ["python3", "home_gestao.py"],
+    ),
+    (
+        "o comprometido do quadro de gastos deixa de chegar ao balanco",
+        "home_gestao.py",
+        '    d["faturamento"]["comprometido"] = (_q or {}).get("total")\n',
+        "",
+        ["python3", "home_gestao.py"],
     ),
 ]
 

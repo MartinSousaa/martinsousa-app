@@ -341,6 +341,7 @@ def _html_faturamento(d):
         + tile("Falta para a meta", _brl(max(meta - real, 0.0), 0) if meta else "sem meta")
         + '</div>'
         f'<div style="font-size:11px;color:{SEC};">{_linha_do_equilibrio(d)}</div>'
+        + _linha_do_real(d, proj) +
         '</div>')
 
 
@@ -436,6 +437,43 @@ def _linha_do_equilibrio(d=None):
     _mb_txt = f"{float(mb):.1f}".replace(".", ",")
     return (f"Ponto de equilíbrio {_brl(eq, 0)} = meta de gastos "
             f"{_brl(meta, 0)} ÷ lucro bruto médio {_mb_txt}%{per}")
+
+
+def _linha_do_real(d, proj):
+    """O equilíbrio pelos gastos REAIS do mês contra o faturamento real.
+
+    Dono, 10/10: embaixo do ponto de equilíbrio da meta, "a projeção com
+    base nos gastos atuais, reais, e considerando o faturamento real". A
+    conta é a do acompanhamento da Meta de gastos
+    (`equilibrio_caixa.acompanhamento`): comprometido ÷ lucro bruto médio.
+    O comprometido é o `total` do quadro de gastos desta mesma tela — o que
+    já saiu mais o que está provisionado (`previsto.combinar`) —, e o "fecha
+    em" é a projeção do balanço (`ritmo`), para a tela não ter duas.
+    """
+    import equilibrio_caixa as _ec
+    f = (d or {}).get("faturamento") or {}
+    comp = f.get("comprometido")
+    mb = (f.get("eq_conta") or {}).get("margem_bruta")
+    estilo = 'style="font-size:11px;font-weight:600;color:{}"'
+    if comp is None:
+        return (f'<div {estilo.format(SEC)}>Equilíbrio real: não consegui '
+                'ler os gastos do mês</div>')
+    eq_real = _ec.ponto_de_equilibrio(comp, mb)
+    if not eq_real:
+        return (f'<div {estilo.format(SEC)}>Equilíbrio real: '
+                + ("nenhum gasto do mês lido ainda" if not comp else
+                   "falta o lucro bruto dos meses fechados (BASE DE VENDAS)")
+                + '</div>')
+    _mb_txt = f"{float(mb):.1f}".replace(".", ",")
+    sobra = float(proj or 0.0) - eq_real
+    cor = VERDE if sobra >= 0 else VERMELHO
+    return (f'<div {estilo.format(cor)}>Equilíbrio real {_brl(eq_real, 0)} = '
+            f'gastos do mês {_brl(comp, 0)} (já saiu + provisionado) ÷ lucro '
+            f'bruto médio {_mb_txt}% · no ritmo de hoje fecha em '
+            f'{_brl(proj, 0)} — '
+            + (f'sobram {_brl(sobra, 0)}' if sobra >= 0 else
+               f'faltam {_brl(-sobra, 0)}')
+            + '</div>')
 
 
 def _marcador(pos):
@@ -1692,6 +1730,9 @@ def pagina(usuario_logado=None, dados=None):
         _q, _err_g = _resumo_gastos(int(d["ano"]), int(d["mes"]))
     except Exception as e:
         _q, _err_g = None, [str(e)[:120]]
+    # O comprometido do quadro de gastos vai também ao balanço: é ele que
+    # dá o equilíbrio REAL embaixo do da meta (`_linha_do_real`).
+    d["faturamento"]["comprometido"] = (_q or {}).get("total")
     _MESES_H = ("Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
                 "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro")
     _titulo = (f'{_MESES_H[int(d["mes"]) - 1]} {d["ano"]} '
@@ -2398,4 +2439,37 @@ if __name__ == "__main__":
     # aprovado SEMPRE — e o `conferir.py` e o `checar_mutacao.py` leem
     # exatamente isso. Era assim que as entradas apontadas para ca ficavam
     # verdes por acidente, medindo nada.
+    # ── O EQUILÍBRIO REAL NO BALANÇO DA HOME (dono, 10/10) ──────────────
+    # PELA CADEIA: o comprometido é o `total` de `montar_resumo_gastos` — o
+    # mesmo quadro de gastos da tela —, e não um número escrito aqui.
+    _comp_t = _q_t["total"]
+    _d_real = {"faturamento": {"comprometido": _comp_t, "eq_conta": {
+        "meta_gastos": 170000.0, "margem_bruta": 32.0}}}
+    _eq_t = round(_comp_t / 0.32, 2)
+    _l_sobra = _linha_do_real(_d_real, _eq_t + 10000.0)
+    _l_falta = _linha_do_real(_d_real, _eq_t - 5000.0)
+    ok("o equilíbrio real é o comprometido da tela ÷ o lucro bruto médio",
+       _brl(_eq_t, 0) in _l_sobra and _brl(_comp_t, 0) in _l_sobra
+       and "32,0%" in _l_sobra)
+    ok("e diz quanto sobra ou falta no ritmo de hoje",
+       "sobram R$ 10.000" in _l_sobra and "faltam R$ 5.000" in _l_falta
+       and VERDE in _l_sobra and VERMELHO in _l_falta)
+    ok("sem os gastos lidos, diz que não leu — não some calado",
+       "não consegui ler os gastos" in _linha_do_real(
+           {"faturamento": {"eq_conta": {"margem_bruta": 32.0}}}, 1.0))
+    ok("sem lucro bruto, diz o que falta",
+       "falta o lucro bruto" in _linha_do_real(
+           {"faturamento": {"comprometido": 5000.0, "eq_conta": {}}}, 1.0))
+    # O "fecha em" é a MESMA projeção do balanço: uma só na tela.
+    _src_hf = inspect.getsource(_html_faturamento.__wrapped__
+                                if hasattr(_html_faturamento, "__wrapped__")
+                                else _html_faturamento)
+    ok("o balanço desenha a linha do real com a projeção dele",
+       "_linha_do_real(d, proj)" in _src_hf)
+    _src_pg = inspect.getsource(pagina)
+    ok("a Home passa o comprometido do quadro de gastos ao balanço",
+       'd["faturamento"]["comprometido"] = (_q or {}).get("total")' in _src_pg
+       and _src_pg.index('d["faturamento"]["comprometido"]')
+       < _src_pg.index("_html_faturamento(d)"))
+
     __import__("sys").exit(1 if falhas else 0)
