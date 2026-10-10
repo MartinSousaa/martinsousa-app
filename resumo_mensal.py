@@ -2,7 +2,7 @@
 
 Pedido do dono, 07/10: uma aba "Resumo Mensal" no Financeiro, antes de Custos
 fixos, com um quadro para Custo fixo, Assinaturas, Folha, Cartões, Cheques,
-Não operacionais e Outros. Cada quadro mostra o PAGO e o PROVISIONADO; mês
+Não operacionais e Outros. ADS ganhou quadro próprio em 09/10, sem provisão. Cada quadro mostra o PAGO e o PROVISIONADO; mês
 fechado mostra só o pago. Embaixo, o detalhe item a item pela data do débito,
 atualizado pelos extratos.
 
@@ -24,7 +24,7 @@ pagamento de fatura ainda não anexada.
 """
 import streamlit as st
 
-QUADROS = ("Custo fixo", "Assinaturas", "Folha", "Cartões", "Cheques",
+QUADROS = ("Custo fixo", "Assinaturas", "Folha", "ADS", "Cartões", "Cheques",
            "Não operacionais", "Outros")
 
 # Finalidade → quadro. O que não está aqui (e não é compra de cartão) vai
@@ -32,13 +32,14 @@ QUADROS = ("Custo fixo", "Assinaturas", "Folha", "Cartões", "Cheques",
 _POR_FINALIDADE = {
     "CUSTO FIXO": "Custo fixo",
     "FOLHA": "Folha",
+    "ADS": "ADS",
     "NÃO OPERACIONAL": "Não operacionais",
     "NAO OPERACIONAL": "Não operacionais",
     "CHEQUES": "Cheques",
 }
 
 # Compra de fatura com estas finalidades NÃO vai para Cartões (dono, 07/10).
-# ADS não tem quadro próprio: cai em Outros, com o nome no detalhe.
+# ADS tem quadro próprio (dono, 09/10): pix, boleto e cartão.
 _CARTAO_FICA_NO_LUGAR = {"CUSTO FIXO", "ADS", "FOLHA", "NÃO OPERACIONAL",
                          "NAO OPERACIONAL", "CHEQUES"}
 
@@ -117,7 +118,8 @@ def montar(itens, prev, assinaturas_prov, fechado):
     `prev` = `previsto.do_mes`; `assinaturas_prov` = o cadastro das
     assinaturas no mês. Cheque soma o que já baixou com o que vence: são
     cheques diferentes (`previsto.PREVISIVEIS_SOMA`). Outros não tem
-    provisão — o Studio não sabe quanta mercadoria será comprada. Mês
+    provisão — o Studio não sabe quanta mercadoria será comprada —, nem ADS,
+    que muda com a campanha. Mês
     fechado: provisionado None, só o pago vale.
     """
     pago = {q: 0.0 for q in QUADROS}
@@ -131,6 +133,7 @@ def montar(itens, prev, assinaturas_prov, fechado):
         "Cartões": prev.get("FATURA DO CARTÃO", 0.0),
         "Cheques": pago["Cheques"] + prev.get("CHEQUES", 0.0),
         "Não operacionais": prev.get("NÃO OPERACIONAL", 0.0),
+        "ADS": None,
         "Outros": None,
     }
     return {q: {"pago": round(pago[q], 2),
@@ -185,7 +188,7 @@ def itens_provisionados(grade_cf, ajustes_df, assinaturas, ano, mes, mapa,
 
 
 def _html_quadros(q):
-    """Os sete quadros numa grade. Mês fechado: só o pago."""
+    """Os quadros numa grade. Mês fechado: só o pago."""
     import rotulos as _rot
     cel = []
     for nome in QUADROS:
@@ -339,9 +342,11 @@ if __name__ == "__main__":
     ok("a assinatura no cartão conta em Assinaturas, não em Cartões nem em "
        "Custo fixo", _por.get("Assinaturas") == 550.0
        and _por.get("Custo fixo") == 3000.0)
-    ok("ADS no cartão fica fora de Cartões",
-       not any(i["quadro"] == "Cartões" and i["finalidade"] == "ADS" for i in _it)
-       and any(i["quadro"] == "Outros" and i["finalidade"] == "ADS" for i in _it))
+    ok("ADS no cartão conta no quadro ADS, fora de Cartões e de Outros",
+       _por.get("ADS") == 800.0
+       and all(i["quadro"] == "ADS" for i in _it if i["finalidade"] == "ADS"))
+    ok("ADS no pix também vai ao quadro ADS",
+       quadro_de({"conta": "Itaú", "valor": -90.0}, "ADS", []) == "ADS")
     # Fatura de 2.000 paga; compras anexadas que consomem a meta: 550 + 800 +
     # 200 = 1.550. O resto, 450, é Cartões — com a compra de 200: 650.
     ok("Cartões = compras das outras finalidades + o resto da fatura",
@@ -358,13 +363,14 @@ if __name__ == "__main__":
     ok("cheque provisionado = o que já baixou + o que vence",
        _q["Cheques"] == {"pago": 1500.0, "provisionado": 4000.0})
     ok("Outros não tem provisão", _q["Outros"]["provisionado"] is None
-       and _q["Outros"]["pago"] == 4800.0)
+       and _q["Outros"]["pago"] == 4000.0)
+    ok("ADS não tem provisão", _q["ADS"] == {"pago": 800.0, "provisionado": None})
     _qf = montar(_it, {"CUSTO FIXO": 3500.0}, 550.0, fechado=True)
     ok("mês fechado mostra só o pago",
        all(v["provisionado"] is None for v in _qf.values())
        and _qf["Custo fixo"]["pago"] == 3000.0)
     _h = _html_quadros(_q)
-    ok("os sete quadros aparecem, com o dinheiro no formato do dono",
+    ok("os oito quadros aparecem, com o dinheiro no formato do dono",
        all(n in _h for n in QUADROS) and "R$ 3.000,00" in _h
        and "Provisionado" in _h)
     ok("mês fechado não desenha a linha do provisionado",

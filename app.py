@@ -31,6 +31,12 @@ import placar
 import analise_metas
 import placar_core as _pc_login
 
+# Tabela editável vira campos, sem a caixinha flutuante, em TODAS as bases
+# (dono, 09/10). ANTES do dinheiro: o embrulho de `rotulos` fica por fora e
+# entrega a coluna de dinheiro ao editor de campos já como "localized".
+import campos
+campos.instalar(st)
+
 # Dinheiro em R$ 58.490,56 em TODAS as tabelas (dono, 07/10). Um lugar só: as
 # telas declaram a coluna com `format="R$ %.2f"` e quem desenha é `rotulos`.
 rotulos.instalar_moeda(st)
