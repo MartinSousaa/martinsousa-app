@@ -3084,6 +3084,13 @@ MUTACOES = [
         '        if c.get("motivo") or float(c.get("co") or 0.0) <= 0 or f <= 0:\n',
         "        if f <= 0:\n",
         ["python3", "lpv_mensal.py"],
+    ),    # ── 10/10: EQUILIBRIO REAL TAMBEM NO MES SEM META ───────────────────
+    (
+        "o equilibrio real volta a sumir no mes fechado sem meta",
+        "meta_gastos_tela.py",
+        '             if i in fechados\n             and (l.get("meta") or l.get("origem") != "sem dado")]\n',
+        '             if i in fechados and l.get("meta")]\n',
+        ["python3", "checar_tela.py"],
     ),
 ]
 

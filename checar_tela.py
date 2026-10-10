@@ -955,11 +955,23 @@ def _equilibrio_real_na_meta(conta):
         _mgt_e._equilibrio_real(2026, _d_e(2026, 10, 9), _linhas)
         _df = _tabelas[-1] if _tabelas else None
         _meses = list(_df["mês"]) if _df is not None else []
-        conta("Meta de gastos: equilíbrio real só nos meses fechados",
-              _meses == ["Mes9"], f"meses: {_meses}")
+        # 10/10: mês SEM META também entra — o equilíbrio real não depende
+        # dela. Esta guarda exigia o contrário (só Mes9, o único com meta) e
+        # travou o defeito: o bloco sumia para quem não digitou meta.
+        conta("Meta de gastos: equilíbrio real em TODO mês fechado com gasto",
+              _meses == [f"Mes{m}" for m in range(1, 10)], f"meses: {_meses}")
+        _r = dict(zip(_meses, list(_df["resultado"]))) if _df is not None else {}
         conta("e o resultado é faturado líquido − gasto ÷ lucro bruto do mês",
-              _df is not None and list(_df["resultado"]) == [200000 - 220000.0],
-              str(list(_df["resultado"]) if _df is not None else None))
+              _r.get("Mes9") == 200000 - 220000.0
+              and _r.get("Mes8") == 200000 - 220000.0, str(_r))
+        _sit = dict(zip(_meses, list(_df["situação"]))) if _df is not None else {}
+        _plan = (dict(zip(_meses, list(_df["equilíbrio planejado"])))
+                 if _df is not None else {})
+        conta("mês sem meta diz que não tem meta, e fica sem planejado",
+              "sem meta" in str(_sit.get("Mes8"))
+              and "sem meta" not in str(_sit.get("Mes9"))
+              and _plan.get("Mes8") != _plan.get("Mes8")      # NaN: vazio
+              and _plan.get("Mes9") > 0, str(_sit))
     except Exception as e:
         conta("Meta de gastos: equilíbrio real só nos meses fechados", False,
               f"{type(e).__name__}: {e}")
