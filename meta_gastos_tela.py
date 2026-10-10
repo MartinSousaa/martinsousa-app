@@ -323,13 +323,19 @@ def _equilibrio_real(ano, hoje, linhas):
 
     O mês corrente não aparece (dono, 09/10): ele só se compara depois de
     fechar. As contas são `equilibrio_caixa.equilibrio_real`.
+
+    MÊS SEM META TAMBÉM ENTRA (10/10). O equilíbrio real é gasto real ÷
+    lucro bruto do mês — não depende da meta; só o PLANEJADO depende. Com o
+    filtro "só mês com meta", o bloco inteiro sumia calado para quem não
+    digitou meta nos meses passados, e o dono não achava onde estava.
     """
     import pandas as pd
     import base_vendas as _bv
     import equilibrio_caixa as _ec
     fechados = set(_ec.meses_fechados(ano, hoje))
     meses = [(i, l) for i, l in enumerate(linhas, start=1)
-             if i in fechados and l.get("meta")]
+             if i in fechados
+             and (l.get("meta") or l.get("origem") != "sem dado")]
     if not meses:
         return
     mapa, erro = _bv.somas_por_mes()
@@ -355,7 +361,8 @@ def _equilibrio_real(ano, hoje, linhas):
                           ("✅ cobriu" if (r["resultado"] or 0) >= 0
                            else "❌ faltou"))
                          + (" · gasto informado à mão"
-                            if r["origem_gasto"] == "informado" else "")),
+                            if r["origem_gasto"] == "informado" else "")
+                         + ("" if l.get("meta") else " · sem meta no mês")),
         })
     _dinheiro = ["meta de gastos", "equilíbrio planejado", "gasto real",
                  "equilíbrio real", "faturado (líquido)", "resultado"]
