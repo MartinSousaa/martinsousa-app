@@ -251,6 +251,8 @@ SUBTELAS = {
     "💳 Extratos": lambda u: _com_pontinhos(
         _PONTINHOS_EXTRATOS, "fin_ext", u),
     "🧾 Cheques": _cheques,
+    # Dono, 13/10: uma aba para anexar os boletos de cobrança (mercadoria).
+    "🧾 Boletos": lambda u: _abrir_tela("boletos_tela", u),
     "🛒 ADS-Cross": _fatura_ml,
     "🎯 Meta de gastos": _meta_gastos,
     "🔎 Análise de Gargalos": lambda u: _abrir_tela("gargalos_tela", u),

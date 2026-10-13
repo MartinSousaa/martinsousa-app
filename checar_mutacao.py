@@ -3091,6 +3091,34 @@ MUTACOES = [
         '                        p.get("min_trab_fechado",\n                              p.get("minutos_trabalhados", 0.0)) or 0.0)\n',
         '                        p.get("minutos_trabalhados", 0.0) or 0.0)\n',
         ["python3", "analise_metas.py"],
+    ),    # ── 13/10: ABA BOLETOS ──────────────────────────────────────────────
+    (
+        "o provisionado volta a nao ter os boletos",
+        "previsto.py",
+        '                     ("CHEQUES", _cheques), ("BOLETOS", _boletos),\n',
+        '                     ("CHEQUES", _cheques),\n',
+        ["python3", "previsto.py"],
+    ),
+    (
+        "o boleto pago adiantado volta a ficar em aberto",
+        "cheques.py",
+        '            if d <= tolerancia or (eh_tipo(c, "BOLETO")\n                                   and 0 < antes <= ANTECIPACAO_BOLETO_DIAS):\n',
+        "            if d <= tolerancia:\n",
+        ["python3", "cheques.py"],
+    ),
+    (
+        "o mesmo boleto anexado duas vezes volta a ser gravado duas vezes",
+        "cheques.py",
+        "    ld = linha_digitavel(linha)\n    if ld:\n",
+        "    ld = ''\n    if ld:\n",
+        ["python3", "cheques.py"],
+    ),
+    (
+        "o boleto a pagar volta a contar como ja gasto na Home",
+        "home_gestao.py",
+        "    ja_saiu = round(total - cheq_cart - boletos - fixos, 2)\n",
+        "    ja_saiu = round(total - cheq_cart - fixos, 2)\n",
+        ["python3", "home_gestao.py"],
     ),
 ]
 

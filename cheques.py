@@ -234,6 +234,13 @@ def esta_aberto(linha):
     return situacao_de(linha.get("situacao")) in ABERTAS
 
 
+def linha_digitavel(linha):
+    """A linha digitável guardada na observação do boleto ("LD:<dígitos>")."""
+    import re as _re_ld
+    m = _re_ld.search(r"LD:(\d{47,48})", str(linha.get("observacao") or ""))
+    return m.group(1) if m else ""
+
+
 def identidade(linha):
     """A impressão digital do cheque.
 
@@ -245,6 +252,11 @@ def identidade(linha):
     folha = texto_folha(linha.get("folha"))
     if folha:
         return hashlib.sha1(("folha|" + folha).encode("utf-8")).hexdigest()[:16]
+    # O BOLETO ANEXADO tem a linha digitável (13/10): é única por cobrança, e
+    # anexar o mesmo PDF duas vezes não pode provisionar duas vezes.
+    ld = linha_digitavel(linha)
+    if ld:
+        return hashlib.sha1(("boleto|" + ld).encode("utf-8")).hexdigest()[:16]
     bruto = "|".join([
         texto_data(linha.get("compra")),
         texto_data(linha.get("vencimento")),
@@ -375,15 +387,22 @@ def do_mes(linhas, ano, mes):
     return sorted(fora, key=lambda l: texto_data(l.get("vencimento")))
 
 
-def a_vencer(linhas, ano, mes):
+def eh_tipo(linha, tipo):
+    return str(linha.get("tipo") or "CHEQUE").strip().upper() == tipo
+
+
+def a_vencer(linhas, ano, mes, tipo=None):
     """Quanto ainda vai sair em cheque naquele mês. Só o que está em aberto.
 
     O que já foi debitado fica de fora porque o extrato o traz — somar os dois
     contaria o mesmo cheque duas vezes, que é o erro que o `previsto` existe
-    para não cometer.
+    para não cometer. `tipo` ("CHEQUE"/"BOLETO") separa os dois: desde 13/10
+    o boleto tem linha própria no provisionado.
     """
     return round(sum(_num(l.get("valor"))
-                     for l in do_mes(linhas, ano, mes) if esta_aberto(l)), 2)
+                     for l in do_mes(linhas, ano, mes)
+                     if esta_aberto(l) and (tipo is None or eh_tipo(l, tipo))),
+                 2)
 
 
 def vencidos_sem_baixa(linhas, hoje=None):
@@ -513,6 +532,7 @@ def ordem_da_folha(linha):
 # no dia, mas cai no extrato do dia seguinte com frequência, e fim de semana
 # empurra mais dois.
 TOLERANCIA_BAIXA_DIAS = 4
+ANTECIPACAO_BOLETO_DIAS = 30
 
 
 def _saidas_do_extrato(lancamentos):
@@ -606,7 +626,13 @@ def baixas_pelo_extrato(linhas, lancamentos, tolerancia=TOLERANCIA_BAIXA_DIAS):
             if abs(abs(_num(lan.get("valor"))) - _num(c.get("valor"))) > 0.01:
                 continue
             d = abs((dl - dv).days)
-            if d <= tolerancia:
+            # BOLETO SE PAGA ANTES DO VENCIMENTO (13/10), cheque não: até
+            # `ANTECIPACAO_BOLETO_DIAS` antes ele ainda é o mesmo boleto.
+            # Sem isto, o boleto pago adiantado ficava em aberto e era contado
+            # duas vezes — no extrato e no provisionado.
+            antes = (dv - dl).days
+            if d <= tolerancia or (eh_tipo(c, "BOLETO")
+                                   and 0 < antes <= ANTECIPACAO_BOLETO_DIAS):
                 fora.append((d, lan))
         return sorted(fora, key=lambda x: x[0])
 
@@ -1295,6 +1321,40 @@ if __name__ == "__main__":
     import cheques_tela as _ct_t
     ok("a tela de Cheques confere com os extratos já gravados ao abrir",
        "_ch.conferir_com_extratos(" in _insp_ch.getsource(_ct_t.pagina))
+
+    # ── BOLETOS ANEXADOS (13/10) ────────────────────────────────────────
+    # A linha na forma de `normalizar` (o que a aba Boletos grava) e o
+    # extrato na forma de `lancamentos.carregar` (valor negativo, data texto).
+    _ld = "34191123456789012345678901234567190100000150000"
+    _bol = normalizar({"tipo": "BOLETO", "favorecido": "FORNECEDOR X",
+                       "compra": "2026-10-13", "vencimento": "2026-11-05",
+                       "valor": 1500.0, "situacao": "EM ABERTO",
+                       "observacao": f"LD:{_ld}"})
+    _bol2 = normalizar({**_bol, "compra": "2026-10-20",
+                        "observacao": f"LD:{_ld}"})
+    ok("o mesmo boleto anexado duas vezes tem a mesma identidade",
+       _bol["id"] == _bol2["id"] and linha_digitavel(_bol) == _ld)
+    _chq = normalizar({"tipo": "CHEQUE", "folha": "900", "valor": 700.0,
+                       "vencimento": "2026-11-10", "situacao": "EM ABERTO"})
+    ok("tipo vazio é cheque; BOLETO só o que diz BOLETO",
+       eh_tipo({"tipo": ""}, "CHEQUE") and eh_tipo({"tipo": "boleto"}, "BOLETO")
+       and not eh_tipo({"tipo": "CHEQUE"}, "BOLETO"))
+    ok("cheque e boleto saem separados no a vencer",
+       a_vencer([_bol, _chq], 2026, 11, "BOLETO") == 1500.0
+       and a_vencer([_bol, _chq], 2026, 11, "CHEQUE") == 700.0
+       and a_vencer([_bol, _chq], 2026, 11) == 2200.0)
+    # Pago 20 dias ANTES do vencimento: boleto baixa, cheque não.
+    _ext = [{"id": "e1", "data": "2026-10-16", "valor": -1500.0,
+             "descricao": "BOLETO PAGO FORNECEDOR X", "conta": "itau-1"},
+            {"id": "e2", "data": "2026-10-21", "valor": -700.0,
+             "descricao": "PIX", "conta": "itau-1"}]
+    _cb, _db = baixas_pelo_extrato([_bol, _chq], _ext)
+    ok("boleto pago antes do vencimento dá baixa; cheque não",
+       [x["cheque"]["id"] for x in _cb] == [_bol["id"]] and not _db)
+    _cb2, _ = baixas_pelo_extrato(
+        [_bol], [{**_ext[0], "data": "2026-09-20"}])
+    ok(f"pago mais de {ANTECIPACAO_BOLETO_DIAS} dias antes não é o mesmo boleto",
+       _cb2 == [])
 
     print("\nfalhas:", falhas)
     __import__("sys").exit(1 if falhas else 0)

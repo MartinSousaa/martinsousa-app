@@ -1113,7 +1113,9 @@ def montar_resumo_gastos(meta, res, prev, cheques_do_mes, cartao_detalhado=0.0):
                       + falta.get("FATURA DO CARTÃO", 0.0), 2)
     fixos = round(falta.get("CUSTO FIXO", 0.0) + falta.get("FOLHA", 0.0)
                   + falta.get("NÃO OPERACIONAL", 0.0), 2)
-    ja_saiu = round(total - cheq_cart - fixos, 2)
+    # BOLETO A PAGAR (13/10) também ainda vai sair: fora do "já gasto".
+    boletos = round(falta.get("BOLETOS", 0.0), 2)
+    ja_saiu = round(total - cheq_cart - boletos - fixos, 2)
     # Do que é feito o "Já gasto" (dono, 07/10: "o que é esse Já gasto?"):
     # por finalidade, o que já saiu de cada uma — a conta menos o que falta.
     ja_por = sorted(((x["finalidade"], round(x["conta"] - x["falta_sair"], 2))
@@ -1122,6 +1124,9 @@ def montar_resumo_gastos(meta, res, prev, cheques_do_mes, cartao_detalhado=0.0):
                     key=lambda t: -t[1])
     est_aberto = round(sum(_ch._num(c.get("estoque"))
                            for c in cheques_do_mes if _ch.esta_aberto(c)), 2)
+    est_boletos = round(sum(_ch._num(c.get("estoque")) for c in cheques_do_mes
+                            if _ch.esta_aberto(c) and _ch.eh_tipo(c, "BOLETO")),
+                        2)
     est_pago = round(sum(_ch._num(c.get("estoque"))
                          for c in cheques_do_mes if not _ch.esta_aberto(c)), 2)
     merc_extrato = round(sum(float((res or {}).get(m, 0.0)) for m in MERCADORIA), 2)
@@ -1129,6 +1134,10 @@ def montar_resumo_gastos(meta, res, prev, cheques_do_mes, cartao_detalhado=0.0):
         "meta": float(meta or 0.0),
         "ja_saiu": ja_saiu, "cheques_cartoes": cheq_cart, "fixos": fixos,
         "cheques": round(falta.get("CHEQUES", 0.0), 2),
+        "boletos": boletos,
+        # A mercadoria comprometida, por onde ela vai sair.
+        "merc_cheques": round(est_aberto - est_boletos, 2),
+        "merc_boletos": est_boletos,
         "cartoes": round(falta.get("FATURA DO CARTÃO", 0.0), 2),
         "ja_por": ja_por,
         "total": total,
@@ -1285,7 +1294,11 @@ def _html_gastos(q, erros=None):
         + linha_t("Já gasto", _brl(q["ja_saiu"], 0), _brl(q["merc_gasta"], 0), ambar)
         + _composicao(q.get("ja_por"))
         + linha_t("Comprometido · cheques a compensar", _brl(q["cheques"], 0),
-                  _brl(q["merc_comprometida"], 0), "#8A6A33")
+                  _brl(q.get("merc_cheques", q["merc_comprometida"]), 0),
+                  "#8A6A33")
+        + (linha_t("Comprometido · boletos a pagar", _brl(q["boletos"], 0),
+                   _brl(q.get("merc_boletos", 0.0), 0), "#3F7F6A")
+           if q.get("boletos") else "")
         + linha_t("Comprometido · cartões (fatura a pagar)", _brl(q["cartoes"], 0),
                   "—", "#6E5A8A")
         + linha_t("Comprometido · fixos, folha e não operacional", _brl(q["fixos"], 0), "—", "#5B6573")
@@ -1295,6 +1308,35 @@ def _html_gastos(q, erros=None):
         + f'<div style="font-size:11px;color:{SEC};">Mercadoria: extrato + estoque dos cheques{cart}. '
           'Item a item: «💰 Detalhe dos gastos do mês», logo abaixo.</div>'
         + aviso + '</div>')
+
+
+def boletos_em_aberto(linhas, hoje):
+    """Os boletos ainda não pagos, do vencimento mais perto ao mais longe.
+    Pura. [{"vencimento", "beneficiário", "valor", "situação"}] — o tópico
+    "Boletos" da Home (dono, 13/10), que só aparece quando houver."""
+    import cheques as _ch
+    from datetime import date as _d_b
+    fora = []
+    for c in (linhas or []):
+        if not (_ch.eh_tipo(c, "BOLETO") and _ch.esta_aberto(c)):
+            continue
+        t = _ch.texto_data(c.get("vencimento"))
+        try:
+            v = _d_b.fromisoformat(t[:10])
+        except ValueError:
+            continue
+        dias = (v - hoje).days
+        fora.append({"vencimento": v.strftime("%d/%m/%Y"),
+                     "beneficiário": str(c.get("favorecido") or "—"),
+                     "valor": round(_ch._num(c.get("valor")), 2),
+                     "situação": ("vence hoje" if dias == 0 else
+                                  f"vence em {dias} dia(s)" if dias > 0 else
+                                  f"⚠️ vencido há {-dias} dia(s)"),
+                     "_ord": v})
+    fora.sort(key=lambda x: x["_ord"])
+    for x in fora:
+        x.pop("_ord")
+    return fora
 
 
 def itens_ja_saidos(lancs):
@@ -1773,6 +1815,23 @@ def pagina(usuario_logado=None, dados=None):
         "dias corridos do mês, e a **projeção** é o ritmo médio vezes os "
         "dias do mês — um método só, porque duas projeções discordando na "
         "mesma tela não informam, escolhem por você.")
+
+    # BOLETOS, QUANDO HOUVER (dono, 13/10). Mesma leitura dos cheques que o
+    # quadro de gastos acabou de fazer — `cheques.carregar` tem cache.
+    try:
+        import cheques as _ch_h
+        import placar_core as _pc_h
+        _bols = boletos_em_aberto(_ch_h.carregar(),
+                                  datetime.now(_pc_h.FUSO).date())
+    except Exception:
+        _bols = []
+    if _bols:
+        st.markdown(f"#### 🧾 Boletos · {_brl(sum(b['valor'] for b in _bols), 0)}"
+                    f" em aberto")
+        st.dataframe(_bols, use_container_width=True, hide_index=True,
+                     column_config=_rot.config(
+                         ["vencimento", "beneficiário", "valor", "situação"],
+                         st, tipos={"valor": "brl"}))
 
     with st.expander("💰 Detalhe dos gastos do mês", expanded=False):
         _bloco_gastos(usuario_logado, d)
@@ -2275,7 +2334,8 @@ if __name__ == "__main__":
     ok("o total da meta de gastos é o mesmo comprometido do detalhe",
        _q_t["total"] == _tot_t)
     ok("já gasto + cheques/cartões + fixos fecham o total",
-       round(_q_t["ja_saiu"] + _q_t["cheques_cartoes"] + _q_t["fixos"], 2)
+       round(_q_t["ja_saiu"] + _q_t["cheques_cartoes"] + _q_t["boletos"]
+             + _q_t["fixos"], 2)
        == _q_t["total"])
     ok("mercadoria já gasta = extrato (as duas grafias) + estoque compensado",
        _q_t["merc_gasta"] == 10000.0 + 500.0 + 2500.0)
@@ -2471,5 +2531,43 @@ if __name__ == "__main__":
        'd["faturamento"]["comprometido"] = (_q or {}).get("total")' in _src_pg
        and _src_pg.index('d["faturamento"]["comprometido"]')
        < _src_pg.index("_html_faturamento(d)"))
+
+    # ── BOLETOS NO QUADRO E NO TÓPICO DA HOME (13/10) ───────────────────
+    # PELA CADEIA: o boleto na forma de `cheques.normalizar` (tipo BOLETO,
+    # estoque = valor), o previsto de `cheques.a_vencer` por tipo.
+    import cheques as _ch_b
+    from datetime import date as _date_b
+    _bol_b = _ch_b.normalizar({"tipo": "BOLETO", "favorecido": "VIDROS SA",
+                               "vencimento": "2026-10-20", "valor": 2000.0,
+                               "situacao": "EM ABERTO",
+                               "observacao": "LD:" + "3" * 47})
+    _chq_b = _ch_b.normalizar({"tipo": "CHEQUE", "folha": "77", "valor": 500.0,
+                               "envio": 100.0, "vencimento": "2026-10-25",
+                               "situacao": "EM ABERTO"})
+    _lin_b = [_bol_b, _chq_b]
+    _prev_b = {"CHEQUES": _ch_b.a_vencer(_lin_b, 2026, 10, "CHEQUE"),
+               "BOLETOS": _ch_b.a_vencer(_lin_b, 2026, 10, "BOLETO")}
+    _q_b = montar_resumo_gastos(150000.0, {"MERCADORIA": 1000.0}, _prev_b,
+                                _lin_b)
+    ok("o boleto a pagar entra no comprometido, e não no já gasto",
+       _q_b["boletos"] == 2000.0 and _q_b["ja_saiu"] == 1000.0
+       and _q_b["total"] == 3500.0)
+    ok("a mercadoria do boleto sai na linha do boleto",
+       _q_b["merc_boletos"] == 2000.0 and _q_b["merc_cheques"] == 400.0
+       and _q_b["merc_comprometida"] == 2400.0)
+    _h_b = _html_gastos(_q_b, [])
+    ok("o quadro desenha a linha dos boletos quando há",
+       "boletos a pagar" in _h_b
+       and "boletos a pagar" not in _html_gastos(
+           montar_resumo_gastos(150000.0, {}, {"CHEQUES": 400.0}, [_chq_b]),
+           []))
+    _top = boletos_em_aberto(_lin_b, _date_b(2026, 10, 13))
+    ok("o tópico lista só os boletos em aberto, com o prazo",
+       _top == [{"vencimento": "20/10/2026", "beneficiário": "VIDROS SA",
+                 "valor": 2000.0, "situação": "vence em 7 dia(s)"}])
+    ok("boleto pago some do tópico", boletos_em_aberto(
+        [dict(_bol_b, situacao="PAGO")], _date_b(2026, 10, 13)) == [])
+    ok("a Home desenha o tópico só quando há boleto",
+       "if _bols:" in inspect.getsource(pagina))
 
     __import__("sys").exit(1 if falhas else 0)
