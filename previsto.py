@@ -59,7 +59,9 @@ PREVISIVEIS_TOTAL = ("CUSTO FIXO", "FOLHA", "NÃO OPERACIONAL",
 # Usar o maior aqui subtraía o mês pela metade: três cheques compensados
 # (3.000 no extrato) e dois em aberto (2.000 previstos) dariam 3.000, quando o
 # mês tem 5.000 de cheque.
-PREVISIVEIS_SOMA = ("CHEQUES",)
+# BOLETOS (13/10) é igual: o boleto em aberto ainda vai sair, o pago já está
+# no extrato (como MERCADORIA, quase sempre) e deixou de estar em aberto.
+PREVISIVEIS_SOMA = ("CHEQUES", "BOLETOS")
 
 PREVISIVEIS = PREVISIVEIS_TOTAL + PREVISIVEIS_SOMA
 
@@ -99,7 +101,18 @@ def _cheques(ano, mes):
     contaria o mesmo cheque duas vezes.
     """
     import cheques as _ch
-    return _ch.a_vencer(_ch.carregar(), ano, mes)
+    return _ch.a_vencer(_ch.carregar(), ano, mes, "CHEQUE")
+
+
+def _boletos(ano, mes):
+    """Os boletos que vencem no mês e ainda não foram pagos (aba Boletos).
+
+    Moram no mesmo cadastro dos cheques, com tipo BOLETO: a baixa pelo
+    extrato é a mesma (`cheques.baixas_pelo_extrato`). Linha própria no
+    provisionado, a pedido do dono (13/10).
+    """
+    import cheques as _ch
+    return _ch.a_vencer(_ch.carregar(), ano, mes, "BOLETO")
 
 
 def _cartoes(ano, mes):
@@ -150,7 +163,8 @@ def do_mes(ano, mes):
     fora, erros = {}, []
     for nome, fn in (("CUSTO FIXO", _custo_fixo), ("FOLHA", _folha),
                      ("NÃO OPERACIONAL", _nao_operacional),
-                     ("CHEQUES", _cheques), ("FATURA DO CARTÃO", _cartoes)):
+                     ("CHEQUES", _cheques), ("BOLETOS", _boletos),
+                     ("FATURA DO CARTÃO", _cartoes)):
         try:
             fora[nome] = fn(ano, mes)
         except Exception as e:
@@ -288,6 +302,32 @@ if __name__ == "__main__":
         ok("e outubro volta ao cadastro", _custo_fixo(2026, 10) == 450.0)
     finally:
         _cf_p.carregar, _aj_p.carregar, _cr_p.carregar = _gp
+
+    # ── BOLETOS EM LINHA PRÓPRIA (13/10) ────────────────────────────────
+    # O cadastro na forma de `cheques.normalizar`; só a leitura da aba é
+    # trocada. O cheque fica em CHEQUES, o boleto em BOLETOS, e os dois somam
+    # com o extrato (são pagamentos diferentes).
+    import cheques as _ch_p
+    _cad = [_ch_p.normalizar({"tipo": "CHEQUE", "folha": "1", "valor": 300.0,
+                              "vencimento": "2026-10-20",
+                              "situacao": "EM ABERTO"}),
+            _ch_p.normalizar({"tipo": "BOLETO", "valor": 900.0,
+                              "vencimento": "2026-10-22",
+                              "situacao": "EM ABERTO",
+                              "observacao": "LD:" + "5" * 47})]
+    _g_ch = _ch_p.carregar
+    try:
+        _ch_p.carregar = lambda: _cad
+        ok("cheque em CHEQUES, boleto em BOLETOS",
+           _cheques(2026, 10) == 300.0 and _boletos(2026, 10) == 900.0)
+    finally:
+        _ch_p.carregar = _g_ch
+    ok("BOLETOS soma com o extrato, como os cheques",
+       "BOLETOS" in PREVISIVEIS_SOMA
+       and combinar({"MERCADORIA": 100.0}, {"BOLETOS": 900.0})[1] == 1000.0)
+    import inspect as _insp_p
+    ok("o previsto do mês busca os boletos",
+       '("BOLETOS", _boletos)' in _insp_p.getsource(do_mes))
 
     print("\nfalhas:", falhas)
     __import__("sys").exit(1 if falhas else 0)

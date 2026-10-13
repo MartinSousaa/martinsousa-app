@@ -3112,6 +3112,57 @@ def _co_proporcional_na_viabilidade(conta):
               for n in _campos_co), f"{len(_campos_co)} campo(s)")
 
 
+def _boletos_na_tela(conta):
+    """13/10: a aba Boletos lê a linha colada, mostra para conferir e lista
+    os em aberto. Só a planilha é trocada: a leitura (`boleto_pdf`) e o
+    cadastro (`cheques.normalizar`) rodam de verdade."""
+    import boletos_tela as _bt
+    import boleto_pdf as _bp
+    import cheques as _ch
+    from datetime import date as _d_bt
+
+    def _campo(n):
+        return n + str(_bp._mod10(n))
+    _ld = (_campo("341911234") + _campo("5678901234") + _campo("5678901234")
+           + "7" + "1019" + "0000150000")
+    _aberto = _ch.normalizar({"tipo": "BOLETO", "favorecido": "VIDROS SA",
+                              "vencimento": _d_bt.today().isoformat(),
+                              "valor": 800.0, "situacao": "EM ABERTO",
+                              "observacao": "LD:" + "4" * 47})
+    _g = (_ch.carregar, _ch.conferir_com_extratos)
+    _ch.carregar = lambda: [_aberto]
+    _ch.conferir_com_extratos = lambda *a, **k: (0, [], [])
+    _vistos = {}
+    _falso = instalar()
+    _falso.text_input = (lambda rotulo, *a, **k:
+                         _ld if str(k.get("key", "")).startswith("bol_ld") else "")
+    def _editor(d, *a, **k):
+        _vistos["ed"] = d
+        return d
+
+    def _tabela(d, *a, **k):
+        _vistos["lista"] = d
+    _falso.data_editor = _editor
+    _falso.dataframe = _tabela
+    _bt.st = _falso
+    _bt._ler_pdf = lambda dados, hoje: (None, "sem PDF no teste")
+    try:
+        _bt.pagina("leo")
+        _ed = _vistos.get("ed")
+        conta("Boletos: a linha colada vira valor e vencimento para conferir",
+              _ed is not None and list(_ed["valor"]) == [1500.0]
+              and bool(_ed["linha"].iloc[0]), "")
+        conta("Boletos: os em aberto aparecem na lista",
+              bool(_vistos.get("lista"))
+              and _vistos["lista"][0]["beneficiário"] == "VIDROS SA", "")
+    except (_Rerun, _Parou):
+        conta("Boletos: a tela monta", True, "")
+    except Exception as e:
+        conta("Boletos: a tela monta", False, f"{type(e).__name__}: {e}")
+    finally:
+        _ch.carregar, _ch.conferir_com_extratos = _g
+
+
 def main():
     instalar()
     falhas = []
@@ -3169,6 +3220,7 @@ def main():
     _acompanhamento_do_mes(conta)
     _inter_pela_api(conta)
     _co_proporcional_na_viabilidade(conta)
+    _boletos_na_tela(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0
