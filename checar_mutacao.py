@@ -3077,6 +3077,20 @@ MUTACOES = [
         "                motivo = conferir_resposta(j, lidos)\n",
         "                motivo = ''\n",
         ["python3", "extrato_inter_api.py"],
+    ),    # ── 13/10: META DE HORAS SO COM DIAS FECHADOS ───────────────────────
+    (
+        "as horas de hoje voltam a entrar no feito da meta de horas",
+        "relogio_ponto.py",
+        "            _fechado = bool(_d_reg) and _d_reg < _hoje_iso\n",
+        "            _fechado = True\n",
+        ["python3", "relogio_ponto.py"],
+    ),
+    (
+        "a meta de horas volta a ler o total que inclui hoje",
+        "analise_metas.py",
+        '                        p.get("min_trab_fechado",\n                              p.get("minutos_trabalhados", 0.0)) or 0.0)\n',
+        '                        p.get("minutos_trabalhados", 0.0) or 0.0)\n',
+        ["python3", "analise_metas.py"],
     ),
 ]
 

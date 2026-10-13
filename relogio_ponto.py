@@ -915,7 +915,14 @@ def _pontualidade_rhid(ano: int, mes: int):
                # batida): a meta de horas conta abono e atestado como
                # trabalhados (dono, 06/10). `abono_min` acima só vê os dias
                # com batida — é o que a ociosidade precisa.
-               "abono_total_min": 0.0}
+               "abono_total_min": 0.0,
+               # SÓ OS DIAS JÁ FECHADOS (dono, 13/10: "não pode considerar um
+               # dia fechado antes dele mesmo fechar"). A meta de horas cobra
+               # até ontem (`analise_metas.horas_devidas_min`); com as horas
+               # de hoje no feito e não no devido, o percentual subia durante
+               # o dia. `minutos_trabalhados` segue com hoje: a ociosidade
+               # mede o dia em andamento.
+               "min_trab_fechado": 0.0, "abono_fechado_min": 0.0}
         # Saldo do banco: o ULTIMO dia que trouxer o valor, porque o campo da
         # RHiD ja e acumulado — somar os dias contaria tudo de novo.
         for reg in reversed(regs):
@@ -923,13 +930,22 @@ def _pontualidade_rhid(ano: int, mes: int):
                 acc["banco_min"] = float(reg["saldo_banco"])
                 break
 
+        _hoje_iso = hoje_local().isoformat()
         for reg in regs:
+            _d_reg = reg.get("data")
+            _d_reg = (_d_reg.isoformat() if hasattr(_d_reg, "isoformat")
+                      else str(_d_reg or ""))[:10]
+            _fechado = bool(_d_reg) and _d_reg < _hoje_iso
             acc["abono_total_min"] += float(reg.get("minutos_abonados") or 0)
+            if _fechado:
+                acc["abono_fechado_min"] += float(reg.get("minutos_abonados") or 0)
             if reg["faltou"] or not reg["batidas"]:
                 continue
             diag["dias_com_batida"] += 1
             acc["dias_trabalhados"] += 1
             acc["minutos_trabalhados"] += reg["minutos_trabalhados"]
+            if _fechado:
+                acc["min_trab_fechado"] += reg["minutos_trabalhados"]
             entrada = _parse_horario(reg.get("entrada"))
             saida_a = _parse_horario(reg.get("saida_almoco"))
             volta   = _parse_horario(reg.get("volta_almoco"))
@@ -1030,6 +1046,7 @@ def get_pontualidade_mes(ano: int, mes: int, com_diagnostico: bool = False):
             "atrasos_almoco": 0, "dias_trabalhados": 0, "ocorrencias": [],
             "minutos_trabalhados": 0.0, "banco_min": 0.0, "minutos_atraso": 0.0,
             "abono_total_min": 0.0,
+            "min_trab_fechado": 0.0, "abono_fechado_min": 0.0,
         }) for u in MEMBROS}
         return (completo, diag) if com_diagnostico else completo
 
@@ -2284,6 +2301,21 @@ if __name__ == "__main__":
         ok("o abono do dia de atestado (sem batida) entra nas horas",
            _pm[_u_rh]["abono_total_min"] == 480.0
            and _pm[_u_rh]["minutos_trabalhados"] == 480.0)
+        # HOJE NÃO FECHOU (13/10): o dia de hoje fica fora das horas
+        # fechadas — trabalhado e abono —, e continua no total do dia.
+        _hj = hoje_local()
+        _regs_rh.append({"data": _hj, "batidas": ["08:58", "13:00"],
+                         "entrada": "08:58", "saida_almoco": "13:00",
+                         "volta_almoco": None, "saida": None,
+                         "minutos_atraso": 0.0, "minutos_trabalhados": 242.0,
+                         "faltou": False, "saldo_banco": 0.0,
+                         "minutos_abonados": 30.0})
+        _pm2 = get_pontualidade_mes(_hj.year, _hj.month)[_u_rh]
+        ok("as horas de hoje não entram nas horas fechadas",
+           _pm2["min_trab_fechado"] == 480.0
+           and _pm2["abono_fechado_min"] == 480.0
+           and _pm2["minutos_trabalhados"] == 722.0
+           and _pm2["abono_total_min"] == 510.0)
     finally:
         (_rhid.get_persons, _rhid.get_registros_diarios,
          globals()["_rhid_nome_para_trello"]) = _g_rh

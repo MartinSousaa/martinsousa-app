@@ -1091,10 +1091,16 @@ def _pontualidade_do_periodo(dados, membros):
                     # acumulado da RHiD, e somar os meses contaria tudo de novo.
                     _pont[u]["min_atr"] += float(p.get("minutos_atraso", 0.0) or 0.0)
                     _pont[u]["banco"] = float(p.get("banco_min", 0.0) or 0.0)
+                    # Só os DIAS FECHADOS (13/10): o devido conta até ontem
+                    # (`horas_devidas_min`), e o feito tem de parar no mesmo
+                    # dia. Sem RHiD (reserva da planilha) os campos não
+                    # existem e vale o total.
                     _pont[u]["min_trab"] += float(
-                        p.get("minutos_trabalhados", 0.0) or 0.0)
+                        p.get("min_trab_fechado",
+                              p.get("minutos_trabalhados", 0.0)) or 0.0)
                     _pont[u]["min_abono"] += float(
-                        p.get("abono_total_min", 0.0) or 0.0)
+                        p.get("abono_fechado_min",
+                              p.get("abono_total_min", 0.0)) or 0.0)
                 o = o_mes.get(u)
                 if o:
                     _ocio[u]["disp"]  += o["horas_disp_min"]
@@ -7437,6 +7443,31 @@ if __name__ == "__main__":
        horas_devidas_min([dict(_dset[0], filtro_mes=(2026, 10))],
                          _dset[0]["cfg"], _hoje_h)
        == _pc.dias_uteis_do_mes(2026, 10, 5)[1] * 480)
+    # E O FEITO PARA NO MESMO DIA (13/10): o ponto lido é o dos dias
+    # fechados. A entrada tem a forma de `relogio_ponto.get_pontualidade_mes`
+    # (o total com hoje e o só-fechados lado a lado); só a RHiD é trocada.
+    _p_rh = {"tolerancias": 0, "atrasos": 0, "atrasos_entrada": 0,
+             "atrasos_almoco": 0, "dias_trabalhados": 3, "ocorrencias": [],
+             "minutos_trabalhados": 722.0, "abono_total_min": 510.0,
+             "min_trab_fechado": 480.0, "abono_fechado_min": 480.0,
+             "banco_min": 0.0, "minutos_atraso": 0.0}
+    _g_rp = (_rp.get_pontualidade_mes, _rp.get_ociosidade_mes)
+    try:
+        _rp.get_pontualidade_mes = (
+            lambda a, m, com_diagnostico=False: ({"ana": dict(_p_rh)}, {}))
+        _rp.get_ociosidade_mes = lambda *a, **k: {}
+        _pp = _pontualidade_do_periodo([{"filtro_mes": (2026, 10)}], ["ana"])[0]
+        ok("o feito da meta de horas não conta o dia de hoje",
+           _pp["ana"]["min_trab"] == 480.0 and _pp["ana"]["min_abono"] == 480.0)
+        _sem = {k: v for k, v in _p_rh.items()
+                if k not in ("min_trab_fechado", "abono_fechado_min")}
+        _rp.get_pontualidade_mes = (
+            lambda a, m, com_diagnostico=False: ({"ana": dict(_sem)}, {}))
+        _pp2 = _pontualidade_do_periodo([{"filtro_mes": (2026, 10)}], ["ana"])[0]
+        ok("sem os dias fechados (reserva da planilha), vale o total",
+           _pp2["ana"]["min_trab"] == 722.0)
+    finally:
+        _rp.get_pontualidade_mes, _rp.get_ociosidade_mes = _g_rp
     _P = lambda trab, abono, tol=0, atr=0: {
         "tol": tol, "atr": atr, "min_trab": trab, "min_abono": abono,
         "tol_ent": 0, "tol_alm": 0, "atr_ent": 0, "atr_alm": 0,
