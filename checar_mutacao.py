@@ -2436,7 +2436,7 @@ MUTACOES = [
     (
         "o extrato cortado pelo banco volta a ser gravado calado",
         "extratos_tela.py",
-        "    if dias > 20 and int(n_lancamentos or 0) < 3:\n",
+        "    if dias > 20 and n < 3:\n",
         "    if False:\n",
         ["python3", "extratos_tela.py"],
     ),
