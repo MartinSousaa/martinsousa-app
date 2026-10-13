@@ -3140,6 +3140,27 @@ MUTACOES = [
         "        if i not in fechados:\n            continue\n",
         "",
         ["python3", "historico.py"],
+    ),    # ── 13/10: LEITOR DE XLSX ATE A ULTIMA LINHA (FORMA 10) ─────────────
+    (
+        "o xlsx volta a parar no tamanho que o arquivo declara",
+        "planilha_xlsx.py",
+        "            ws.reset_dimensions()\n",
+        "            pass\n",
+        ["python3", "planilha_xlsx.py"],
+    ),
+    (
+        "o aviso de extrato incompleto volta a culpar o banco",
+        "extratos_tela.py",
+        "    if linhas_no_arquivo is not None and int(linhas_no_arquivo) > n:\n",
+        "    if False:\n",
+        ["python3", "extratos_tela.py"],
+    ),
+    (
+        "o leitor do Itau deixa de contar o que nao leu do arquivo",
+        "extrato_itau.py",
+        "            max((no_arquivo or lidas) - lidas, 0)\n",
+        "            0\n",
+        ["python3", "planilha_xlsx.py"],
     ),
 ]
 

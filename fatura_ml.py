@@ -607,11 +607,9 @@ def linhas_da_planilha(dados, obrigatorias=OBRIGATORIAS):
     colunas obrigatórias. Não achou: devolve erro dizendo o que faltou, em vez
     de somar números de uma planilha que não é esta.
     """
-    import io
-    import openpyxl
+    import planilha_xlsx as _px
     try:
-        wb = openpyxl.load_workbook(io.BytesIO(dados), read_only=True,
-                                    data_only=True)
+        wb = _px.abrir(dados)
     except Exception as e:
         return [], "", f"Não consegui abrir o arquivo: {str(e)[:120]}"
     alvo = {_chave(c) for c in obrigatorias}

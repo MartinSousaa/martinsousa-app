@@ -66,6 +66,15 @@ QUE EU GERO", mais abaixo, e são sete passos:
     abaixo, dezenas de vezes no mesmo dia. Agora ele imprime `PASSOS 1, 2 E 7:
     VERDES` e lista o que falta.
 
+11. **Dado faltando: o que o sistema LEU contra o que a FONTE TEM.** Antes
+    de dizer que o banco, a planilha ou a plataforma mandou dado errado ou
+    incompleto, abrir o arquivo de verdade e contar. Se o arquivo tem mais do
+    que o sistema leu, o defeito é do leitor, não de quem exportou. Pedir ao
+    dono para exportar de novo é o último recurso, nunca o primeiro. *(13/10:
+    o extrato do Itaú tinha 60 lançamentos e o Studio lia 2 — o leitor
+    confiava no tamanho que o arquivo declara. Eu disse duas vezes que o Itaú
+    tinha exportado cortado, e o dono exportou de novo à toa.)*
+
 `@` sozinho pede o protocolo. `@arquivo.py` continua sendo referência a
 arquivo, e não tem nada a ver com isto.
 
@@ -356,6 +365,33 @@ Studio, quem decide a hora é o dono"*. Eu subi mesmo assim.
    guardada; as fotos anexadas não eram. Toda vez que o reinício custar
    trabalho, a pergunta não é "como evitar o reinício" — é *"o que falta gravar
    para que ele não custe nada?"*.
+
+### Forma 10 — culpar a fonte sem abrir a fonte
+
+13/10. O extrato do Itaú chegou com "01/08 até 13/10" no cabeçalho e o Studio
+gravou 2 lançamentos. Eu concluí — sem abrir o arquivo — que o banco tinha
+exportado cortado, e escrevi essa conclusão no AVISO DA TELA, que passou a
+mandar "exporte de novo" para sempre. O dono exportou duas vezes. O arquivo
+tinha 60 lançamentos: o `openpyxl` em modo rápido (`read_only=True`) confia no
+tamanho que o arquivo declara (`A1:F13`) e parava na linha 13, sem erro.
+
+Três erros empilhados: a Regra 2 (afirmar sem abrir), a Forma 2 (o aviso
+travou o meu palpite, e não o comportamento) e a Forma 6 (o mesmo modo rápido
+estava em QUATRO leitores de xlsx, não em um).
+
+**Duas regras:**
+
+1. **Aviso de tela que acusa o arquivo só existe se medir o arquivo.** Ele
+   compara as linhas que o Studio leu com as linhas que o arquivo TEM —
+   contadas por fora do leitor (`planilha_xlsx.linhas_no_arquivo`, no XML).
+   Leu menos: a tela diz que a falta é do Studio.
+2. **Todo .xlsx abre por `planilha_xlsx.abrir`**, que lê até a última linha
+   de verdade.
+
+**Guarda:** `planilha_xlsx.py` reprova `load_workbook(..., read_only=True)`
+fora dele, e o teste usa um arquivo com o mesmo defeito do Itaú (tamanho
+declarado menor que o real) — inclusive simulando o leitor parando no meio
+para exigir que a tela culpe o Studio.
 
 ### O que eu mapeei e o que NÃO mapeei
 

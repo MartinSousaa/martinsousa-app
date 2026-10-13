@@ -528,7 +528,10 @@ def _processar(arq, _itau, _inter, _fv, _lan, usuario_logado):
         f"{novos} lançamento(s) novo(s) gravado(s)"
         + (f" · {repetidos} já estavam lá (não duplicados)" if repetidos else "")
     )
-    _inc = extrato_incompleto(_periodo, len(lancs))
+    _nao_lidas = cab.get("_linhas_nao_lidas")
+    _inc = extrato_incompleto(
+        _periodo, len(lancs),
+        (len(lancs) + _nao_lidas) if _nao_lidas is not None else None)
     if _inc:
         st.warning(f"**{nome}: o extrato parece incompleto.** {_inc}")
 
@@ -784,15 +787,25 @@ def _buscar_inter(usuario_logado=None):
             st.session_state.pop("api_inter_res", None)
 
 
-def extrato_incompleto(periodo, n_lancamentos):
-    """O aviso quando o arquivo traz bem menos do que o período promete. Pura.
+def extrato_incompleto(periodo, n_lancamentos, linhas_no_arquivo=None):
+    """O aviso quando falta lançamento — dizendo DE QUEM é a falta. Pura.
 
-    07/10: o Itaú exportou "01/08/2026 até 06/10/2026" no cabeçalho e UM
-    lançamento no corpo, nas duas contas. O Studio gravava calado o que
-    havia — e as saídas de setembro saíam com metade das contas. Mais de 20
-    dias de período e menos de 3 lançamentos é exportação cortada, quase
-    sempre. "" quando parece normal.
+    FORMA 10 (13/10): este aviso culpava o banco sem abrir o arquivo. O
+    extrato do Itaú tinha 60 lançamentos, o leitor lia 2 (parava no tamanho
+    que o arquivo declara, `planilha_xlsx`), e a tela mandava "exporte de
+    novo" — o dono exportou duas vezes à toa.
+
+    Agora o aviso MEDE: `linhas_no_arquivo` são as linhas com data que o
+    arquivo tem (o leitor conta). Se o Studio leu menos do que isso, a falta
+    é do Studio, e a tela diz. Só sem essa contagem, ou com o arquivo inteiro
+    curto, ele fala do período — contado no arquivo inteiro, e sem mandar
+    exportar de novo como primeira saída. "" quando parece normal.
     """
+    n = int(n_lancamentos or 0)
+    if linhas_no_arquivo is not None and int(linhas_no_arquivo) > n:
+        return (f"O arquivo tem {int(linhas_no_arquivo)} linha(s) de lançamento "
+                f"e o Studio leu {n}. A falta é do Studio, não do banco — não "
+                "precisa exportar de novo; avise para corrigir a leitura.")
     import re as _re_p
     from datetime import date as _d_p
     datas = _re_p.findall(r"(\d{1,2})/(\d{1,2})/(\d{4})", str(periodo or ""))
@@ -803,11 +816,10 @@ def extrato_incompleto(periodo, n_lancamentos):
     except ValueError:
         return ""
     dias = abs((b - a).days)
-    if dias > 20 and int(n_lancamentos or 0) < 3:
-        return (f"O período tem {dias} dias e o arquivo trouxe só "
-                f"{int(n_lancamentos or 0)} lançamento(s). Exporte de novo no "
-                "banco conferindo que a tela mostra todos os lançamentos do "
-                "período — o que já está gravado não duplica.")
+    if dias > 20 and n < 3:
+        return (f"O período tem {dias} dias e o arquivo inteiro traz só {n} "
+                "lançamento(s) — o Studio leu todas as linhas dele. Se no "
+                "banco aparecem mais, a exportação veio cortada.")
     return ""
 
 
@@ -1467,7 +1479,14 @@ if __name__ == "__main__":
        in _insp.getsource(_processar)
        and "pular=_pular)" in _insp.getsource(_processar))
     ok("e o aviso aparece depois de gravar o extrato",
-       "extrato_incompleto(_periodo, len(lancs))" in _insp.getsource(_processar))
+       "_nao_lidas = cab.get(\"_linhas_nao_lidas\")" in _insp.getsource(_processar)
+       and "extrato_incompleto(" in _insp.getsource(_processar))
+    ok("leu menos do que o arquivo tem: a falta é do Studio, não do banco",
+       "falta é do Studio" in extrato_incompleto("01/08/2026 até 13/10/2026",
+                                                 2, 57)
+       and "exportar de novo" in extrato_incompleto("01/08/2026 até 13/10/2026",
+                                                    2, 57)
+       and extrato_incompleto("01/08/2026 até 13/10/2026", 57, 57) == "")
     ok("e cada lancamento juntado continua la, para conferir",
        [x["descricao"] for x in _fila_p[0]["itens"]]
        == ["HERING 04/06", "HERING 05/06"])

@@ -58,9 +58,9 @@ from collections import defaultdict
 
 def _ler_ano(caminho):
     """[(data, faturamento_do_dia)] de um arquivo anual. [] se não der."""
-    import openpyxl
+    import planilha_xlsx as _px
     try:
-        wb = openpyxl.load_workbook(caminho, read_only=True, data_only=True)
+        wb = _px.abrir(caminho)
     except Exception as e:
         print(f"# nao consegui abrir {caminho}: {type(e).__name__}", file=sys.stderr)
         return []
