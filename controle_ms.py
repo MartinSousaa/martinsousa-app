@@ -232,9 +232,8 @@ def _bytes_do_arquivo():
 
 def _workbook(dados):
     """O workbook em modo somente leitura. Quem chama fecha."""
-    import openpyxl
-    return openpyxl.load_workbook(io.BytesIO(dados), read_only=True,
-                                  data_only=True)
+    import planilha_xlsx as _px
+    return _px.abrir(dados)
 
 
 def abas():

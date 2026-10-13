@@ -173,15 +173,21 @@ def ler(dados):
     "tipo", "cheque"}. `valor` negativo é saída.
     """
     try:
-        import openpyxl
-        wb = openpyxl.load_workbook(io.BytesIO(dados), read_only=True,
-                                    data_only=True)
+        # ATÉ A ÚLTIMA LINHA (13/10): o Itaú declara o tamanho da tabela
+        # errado, e o modo rápido parava na linha 13 (`planilha_xlsx`).
+        import planilha_xlsx as _px
+        wb = _px.abrir(dados)
     except Exception as e:
         return [], {}, f"Não consegui abrir o arquivo: {str(e)[:140]}"
     try:
         ws = wb[wb.sheetnames[0]]
         cabecalho, linhas, achou_titulo = {}, [], False
+        # As linhas COM DATA que o arquivo tem (fora os saldos): é contra
+        # elas que a tela confere o que foi lido (Forma 10, 13/10).
+        com_data = 0
+        lidas = 0
         for linha in ws.iter_rows(values_only=True):
+            lidas += 1
             celulas = [("" if c is None else str(c).strip()) for c in linha]
             if not any(celulas):
                 continue
@@ -199,6 +205,8 @@ def ler(dados):
                 continue
             valor = _num(celulas[4] if len(celulas) > 4 else None)
             data = _data(primeira)
+            if data is not None:
+                com_data += 1
             if valor is None or data is None:
                 continue
             desc = celulas[1] if len(celulas) > 1 else ""
@@ -212,6 +220,14 @@ def ler(dados):
                 "cheque": numero_do_cheque(desc),
                 "cartao": qual_cartao(desc),
             })
+        cabecalho["_linhas_com_data"] = com_data
+        # O que a FONTE tem contra o que foi LIDO (Forma 10): linhas do
+        # arquivo que o leitor nem percorreu, mais as que tinham data e não
+        # viraram lançamento. Maior que zero, a falta é do Studio.
+        no_arquivo = _px.linhas_no_arquivo(dados)
+        cabecalho["_linhas_nao_lidas"] = (
+            max((no_arquivo or lidas) - lidas, 0)
+            + max(com_data - len(linhas), 0))
         return linhas, cabecalho, ""
     except Exception as e:
         return [], {}, f"Falhou lendo o extrato: {str(e)[:140]}"
