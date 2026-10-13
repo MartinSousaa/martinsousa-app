@@ -331,39 +331,27 @@ def _equilibrio_real(ano, hoje, linhas):
     """
     import pandas as pd
     import base_vendas as _bv
-    import equilibrio_caixa as _ec
-    fechados = set(_ec.meses_fechados(ano, hoje))
-    meses = [(i, l) for i, l in enumerate(linhas, start=1)
-             if i in fechados
-             and (l.get("meta") or l.get("origem") != "sem dado")]
-    if not meses:
-        return
+    import historico as _hist
     mapa, erro = _bv.somas_por_mes()
+    # A MESMA CONTA da sub-aba Histórico da Home (`historico.meses`, 13/10):
+    # duas telas montando o mesmo mês por conta própria passariam a discordar.
+    lista = _hist.meses(linhas, mapa or {}, ano, hoje)
+    if not lista:
+        return
     st.markdown("##### ⚖️ Equilíbrio real — meses fechados")
     if erro:
         st.warning(f"Não consegui ler a BASE DE VENDAS: {erro}")
         return
-    tabela = []
-    for i, l in meses:
-        r = _ec.equilibrio_real(l["meta"], l["realizado"], l["origem"],
-                                mapa, ano, i)
-        tabela.append({
-            "mês": l["rotulo"].split()[0].capitalize(),
-            "meta de gastos": r["meta"],
-            "equilíbrio planejado": r["planejado"],
-            "gasto real": r["gasto_real"] or None,
-            "equilíbrio real": r["real"],
-            "faturado (líquido)": r["faturado"],
-            "resultado": r["resultado"],
-            "situação": (r["motivo"] or
-                         (("⚠️ gasto real menos da metade da meta — "
-                           "extratos completos?") if r["suspeito"] else
-                          ("✅ cobriu" if (r["resultado"] or 0) >= 0
-                           else "❌ faltou"))
-                         + (" · gasto informado à mão"
-                            if r["origem_gasto"] == "informado" else "")
-                         + ("" if l.get("meta") else " · sem meta no mês")),
-        })
+    tabela = [{
+        "mês": m["rotulo"],
+        "meta de gastos": m["meta"],
+        "equilíbrio planejado": m["planejado"],
+        "gasto real": m["gasto_real"] or None,
+        "equilíbrio real": m["real"],
+        "faturado (líquido)": m["faturado"],
+        "resultado": m["resultado"],
+        "situação": m["situacao"],
+    } for m in lista]
     _dinheiro = ["meta de gastos", "equilíbrio planejado", "gasto real",
                  "equilíbrio real", "faturado (líquido)", "resultado"]
     st.dataframe(pd.DataFrame(tabela), use_container_width=True,

@@ -959,19 +959,22 @@ def _equilibrio_real_na_meta(conta):
         # dela. Esta guarda exigia o contrário (só Mes9, o único com meta) e
         # travou o defeito: o bloco sumia para quem não digitou meta.
         conta("Meta de gastos: equilíbrio real em TODO mês fechado com gasto",
-              _meses == [f"Mes{m}" for m in range(1, 10)], f"meses: {_meses}")
+              _meses == [f"{_n}/2026" for _n in ("Janeiro", "Fevereiro", "Março",
+                                                "Abril", "Maio", "Junho",
+                                                "Julho", "Agosto",
+                                                "Setembro")], f"meses: {_meses}")
         _r = dict(zip(_meses, list(_df["resultado"]))) if _df is not None else {}
         conta("e o resultado é faturado líquido − gasto ÷ lucro bruto do mês",
-              _r.get("Mes9") == 200000 - 220000.0
-              and _r.get("Mes8") == 200000 - 220000.0, str(_r))
+              _r.get("Setembro/2026") == 200000 - 220000.0
+              and _r.get("Agosto/2026") == 200000 - 220000.0, str(_r))
         _sit = dict(zip(_meses, list(_df["situação"]))) if _df is not None else {}
         _plan = (dict(zip(_meses, list(_df["equilíbrio planejado"])))
                  if _df is not None else {})
         conta("mês sem meta diz que não tem meta, e fica sem planejado",
-              "sem meta" in str(_sit.get("Mes8"))
-              and "sem meta" not in str(_sit.get("Mes9"))
-              and _plan.get("Mes8") != _plan.get("Mes8")      # NaN: vazio
-              and _plan.get("Mes9") > 0, str(_sit))
+              "sem meta" in str(_sit.get("Agosto/2026"))
+              and "sem meta" not in str(_sit.get("Setembro/2026"))
+              and _plan.get("Agosto/2026") != _plan.get("Agosto/2026")  # NaN
+              and _plan.get("Setembro/2026") > 0, str(_sit))
     except Exception as e:
         conta("Meta de gastos: equilíbrio real só nos meses fechados", False,
               f"{type(e).__name__}: {e}")
@@ -3163,6 +3166,70 @@ def _boletos_na_tela(conta):
         _ch.carregar, _ch.conferir_com_extratos = _g
 
 
+def _historico_na_home(conta):
+    """13/10: a sub-aba Histórico abre pela Home e mostra os meses fechados.
+
+    Só a planilha é trocada: a meta na forma de `meta_gastos.ano_inteiro`,
+    as vendas pela própria `base_vendas.somar`. O mês corrente não entra."""
+    import gestao as _ge_h
+    import historico as _hi
+    import meta_gastos as _mg_h
+    import base_vendas as _bv_h
+    import lpv_mensal as _lm_h
+    from datetime import date as _d_h, datetime as _dt_h
+    _hoje = _d_h.today()
+    _ant = (_hoje.year, _hoje.month - 1) if _hoje.month > 1 else None
+    COLS = ["Data", "MÊS/ANO", "FAT TOTAL", "FAT - DEV", "L.B", "VENDAS"]
+    _base = ([{"Data": _dt_h(_ant[0], _ant[1], 5), "MÊS/ANO": "x",
+               "FAT TOTAL": 240000, "FAT - DEV": 228000, "L.B": 170000,
+               "VENDAS": 100}] if _ant else [])
+    _mapa = ({(_ant[0], _ant[1]): _bv_h.somar(_base, COLS, *_ant)}
+             if _ant else {})
+    _linhas = [{"meta": 0.0, "realizado": 0.0, "origem": "sem dado"}
+               for _ in range(12)]
+    if _ant:
+        _linhas[_ant[1] - 1] = {"meta": 150000.0, "realizado": 140000.0,
+                                "origem": "extrato"}
+    _linhas[_hoje.month - 1] = {"meta": 150000.0, "realizado": 9000.0,
+                                "origem": "extrato"}
+    _g = (_mg_h.ano_inteiro, _bv_h.somas_por_mes, _lm_h.lpv_do_ano)
+    _mg_h.ano_inteiro = lambda ano: _linhas
+    _bv_h.somas_por_mes = lambda: (_mapa, "")
+    _lm_h.lpv_do_ano = lambda ano: ({}, "")
+    _vistos = {"tabela": None, "html": ""}
+    _falso = instalar()
+    _falso.segmented_control = lambda *a, **k: _ge_h.HOME_ABAS[1]
+    _falso.selectbox = lambda rot, opcoes, *a, **k: list(opcoes)[0]
+
+    def _tab(d, *a, **k):
+        _vistos["tabela"] = d
+
+    def _md(t, *a, **k):
+        if "Resumo ·" in str(t):
+            _vistos["html"] = str(t)
+    _falso.dataframe = _tab
+    _falso.markdown = _md
+    _ge_h.st = _falso
+    _hi.st = _falso
+    try:
+        _ge_h.pagina_home("leo")
+        _t = _vistos["tabela"]
+        _esperado = ([f"{_hi.MESES[_ant[1] - 1]}/{_ant[0]}"] if _ant else [])
+        conta("Home › Histórico: os meses fechados, sem o mês corrente",
+              _t is not None and [r["mês"] for r in _t] == _esperado,
+              str([r["mês"] for r in (_t or [])]))
+        conta("Home › Histórico: o resumo do mês abre embaixo",
+              "Resumo · " in _vistos["html"]
+              and "Faturado × equilíbrio real" in _vistos["html"], "")
+    except (_Rerun, _Parou):
+        conta("Home › Histórico: a tela monta", True, "")
+    except Exception as e:
+        conta("Home › Histórico: a tela monta", False,
+              f"{type(e).__name__}: {e}")
+    finally:
+        _mg_h.ano_inteiro, _bv_h.somas_por_mes, _lm_h.lpv_do_ano = _g
+
+
 def main():
     instalar()
     falhas = []
@@ -3221,6 +3288,7 @@ def main():
     _inter_pela_api(conta)
     _co_proporcional_na_viabilidade(conta)
     _boletos_na_tela(conta)
+    _historico_na_home(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0
