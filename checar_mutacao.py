@@ -3056,6 +3056,27 @@ MUTACOES = [
         '    d["faturamento"]["comprometido"] = (_q or {}).get("total")\n',
         "",
         ["python3", "home_gestao.py"],
+    ),    # ── 13/10: EXTRATO DO INTER AUTOMATICO ──────────────────────────────
+    (
+        "a busca automatica do Inter deixa de subir com o Studio",
+        "Procfile",
+        "{ python inter_auto.py & } && ",
+        "",
+        ["python3", "inter_auto.py", "--autoteste"],
+    ),
+    (
+        "a busca automatica volta a gravar o que ja estava gravado",
+        "inter_auto.py",
+        "        nv = _api.novos(lancs, gravados, conta)\n",
+        "        nv = lancs\n",
+        ["python3", "inter_auto.py", "--autoteste"],
+    ),
+    (
+        "a resposta do Inter fora do formato volta a passar calada",
+        "extrato_inter_api.py",
+        "                motivo = conferir_resposta(j, lidos)\n",
+        "                motivo = ''\n",
+        ["python3", "extrato_inter_api.py"],
     ),
 ]
 
