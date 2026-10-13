@@ -722,6 +722,16 @@ def _buscar_inter(usuario_logado=None):
     contas = _api.configuradas()
     if not contas:
         return
+    # A BUSCA AUTOMÁTICA (13/10, `inter_auto.py`) grava sozinha a cada 30
+    # min; aqui só se mostra a última volta. O botão abaixo continua para
+    # buscar um período mais antigo.
+    import inter_auto as _ia
+    _txt_auto, _erro_auto = _ia.resumo_status()
+    if _txt_auto:
+        (st.warning if _erro_auto else st.caption)(_txt_auto)
+    else:
+        st.caption("Busca automática do Inter: ainda não rodou desde o "
+                   "último reinício do Studio.")
     with st.expander("🔄 Buscar do Inter, direto do banco", expanded=False):
         hoje = datetime.now(_pc.FUSO).date()
         c1, c2 = st.columns(2)

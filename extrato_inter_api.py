@@ -100,6 +100,25 @@ def ler(resposta):
     return fora
 
 
+def conferir_resposta(resposta, lidos):
+    """"" se a resposta tem a forma esperada; senão, o motivo. Pura.
+
+    O formato veio de fonte de terceiros. Com a busca AUTOMÁTICA, ninguém
+    olha antes de gravar: resposta sem "transacoes", ou com transações que
+    `ler` não reconheceu nenhuma, NÃO grava nada e vira erro na tela — em vez
+    de passar por "nenhum lançamento novo", calada.
+    """
+    if not isinstance(resposta, dict) or not isinstance(
+            resposta.get("transacoes"), list):
+        chaves = (", ".join(sorted(resposta)[:6])
+                  if isinstance(resposta, dict) else type(resposta).__name__)
+        return f"o Inter respondeu num formato inesperado (sem 'transacoes': {chaves})"
+    if resposta["transacoes"] and not lidos:
+        return (f"o Inter trouxe {len(resposta['transacoes'])} transação(ões) "
+                "e nenhuma foi reconhecida (data ou valor em formato novo)")
+    return ""
+
+
 def novos(da_api, gravados, conta):
     """Os da API que ainda não estão gravados nesta conta. Pura.
 
@@ -216,7 +235,12 @@ def buscar(pref, inicio, fim):
                                          "dataFim": b.isoformat()})
                 if r.status_code != 200:
                     return [], f"o Inter respondeu {r.status_code} ao extrato"
-                fora += ler(r.json())
+                j = r.json()
+                lidos = ler(j)
+                motivo = conferir_resposta(j, lidos)
+                if motivo:
+                    return [], motivo
+                fora += lidos
         finally:
             for p in (crt, key):
                 try:
@@ -271,6 +295,59 @@ if __name__ == "__main__":
        _l[0]["descricao"] == 'Pix enviado: "Cp :60701190-APEXIMP"'
        and _l[1]["descricao"] == "Pix recebido: MERCADO LIVRE")
     ok("linha sem data válida é ignorada", len(_l) == 2)
+    ok("resposta na forma esperada passa", conferir_resposta(_resp, _l) == "")
+    ok("resposta sem 'transacoes' não passa calada",
+       "formato inesperado" in conferir_resposta({"itens": []}, []))
+    ok("transações que nenhuma linha reconheceu não passam caladas",
+       "nenhuma foi reconhecida" in conferir_resposta(
+           {"transacoes": [{"data": "x"}]}, ler({"transacoes": [{"data": "x"}]})))
+    ok("período sem movimento é normal, não é erro",
+       conferir_resposta({"transacoes": []}, []) == "")
+
+    # A BUSCA DE PONTA A PONTA, só com a REDE trocada: o token, o mTLS em
+    # arquivo temporário, a fatia de 90 dias, `ler` e a conferência do formato
+    # rodam de verdade. Sem ninguém olhando antes de gravar (busca automática,
+    # `inter_auto.py`), resposta fora do formato tem de virar erro.
+    import types as _ty_r
+    _env_r = {"TESTE_CLIENT_ID": "id", "TESTE_CLIENT_SECRET": "seg",
+              "TESTE_CERT": "-----BEGIN-----\\nc\\n-----END-----",
+              "TESTE_KEY": "-----BEGIN-----\\nk\\n-----END-----"}
+    _guard_env = {k: os.environ.get(k) for k in _env_r}
+    os.environ.update(_env_r)
+
+    class _Resp:
+        def __init__(self, cod, corpo):
+            self.status_code, self._c = cod, corpo
+
+        def json(self):
+            return self._c
+
+    def _falso_requests(corpo_extrato):
+        return _ty_r.SimpleNamespace(
+            post=lambda *a, **k: _Resp(200, {"access_token": "t",
+                                             "scope": ESCOPO}),
+            get=lambda *a, **k: _Resp(200, corpo_extrato))
+    _guard_req = sys.modules.get("requests")
+    try:
+        sys.modules["requests"] = _falso_requests(_resp)
+        _l_ok, _e_ok = buscar("TESTE", date(2026, 10, 1), date(2026, 10, 13))
+        sys.modules["requests"] = _falso_requests({"dados": []})
+        _l_ruim, _e_ruim = buscar("TESTE", date(2026, 10, 1),
+                                  date(2026, 10, 13))
+    finally:
+        if _guard_req is None:
+            sys.modules.pop("requests", None)
+        else:
+            sys.modules["requests"] = _guard_req
+        for k, v in _guard_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+    ok("a busca devolve os lançamentos da resposta do Inter",
+       _e_ok == "" and [x["valor"] for x in _l_ok] == [-1303.0, 250.5])
+    ok("resposta fora do formato não devolve nada e vira erro",
+       _l_ruim == [] and "formato inesperado" in _e_ruim)
 
     # Os gravados na forma de `lancamentos.carregar` (o CSV já subido).
     _grav = [{"conta": "inter-116183837", "data": "2026-10-08",
