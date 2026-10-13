@@ -3038,9 +3038,9 @@ MUTACOES = [
     ),    # ── 10/10: EQUILIBRIO REAL TAMBEM NO MES SEM META ───────────────────
     (
         "o equilibrio real volta a sumir no mes fechado sem meta",
-        "meta_gastos_tela.py",
-        '             if i in fechados\n             and (l.get("meta") or l.get("origem") != "sem dado")]\n',
-        '             if i in fechados and l.get("meta")]\n',
+        "historico.py",
+        '        if not (l.get("meta") or l.get("origem") != "sem dado"):\n',
+        '        if not l.get("meta"):\n',
         ["python3", "checar_tela.py"],
     ),    # ── 10/10: EQUILIBRIO REAL NO BALANCO DA HOME ───────────────────────
     (
@@ -3119,6 +3119,27 @@ MUTACOES = [
         "    ja_saiu = round(total - cheq_cart - boletos - fixos, 2)\n",
         "    ja_saiu = round(total - cheq_cart - fixos, 2)\n",
         ["python3", "home_gestao.py"],
+    ),    # ── 13/10: LAYOUT APROVADO — GASTOS REAIS E HISTORICO ───────────────
+    (
+        "o grafico da Home volta a nao ter a linha do equilibrio real",
+        "home_gestao.py",
+        "    if eq_real:\n        linhas += (",
+        "    if False:\n        linhas += (",
+        ["python3", "home_gestao.py"],
+    ),
+    (
+        "a sub-aba Historico some da Home",
+        "gestao.py",
+        "    if aba == HOME_ABAS[1]:\n",
+        "    if False:\n",
+        ["python3", "checar_tela.py"],
+    ),
+    (
+        "o Historico volta a mostrar o mes que ainda nao fechou",
+        "historico.py",
+        "        if i not in fechados:\n            continue\n",
+        "",
+        ["python3", "historico.py"],
     ),
 ]
 

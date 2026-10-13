@@ -38,8 +38,22 @@ def _em_branco(titulo, descricao, itens):
         st.markdown("\n".join(f"- {i}" for i in itens))
 
 
+HOME_ABAS = ("📊 Painel", "🗓️ Histórico")
+
+
 def pagina_home(usuario_logado=None):
-    """A primeira tela de Gestão: os indicadores que resumem o mês."""
+    """A primeira tela de Gestão: os indicadores que resumem o mês.
+
+    E a sub-aba Histórico, mês a mês (dono, 13/10). Só a aba aberta é
+    desenhada: o Painel lê o Bling e a BASE DE VENDAS, e o Histórico não pode
+    dobrar esse custo a cada clique de quem só quer o mês corrente.
+    """
+    aba = st.segmented_control("Home", HOME_ABAS, default=HOME_ABAS[0],
+                               key="home_aba", label_visibility="collapsed")
+    if aba == HOME_ABAS[1]:
+        import historico as _hist
+        _hist.pagina(usuario_logado)
+        return
     import home_gestao as _hg
     _hg.pagina(usuario_logado)
 

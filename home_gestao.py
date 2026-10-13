@@ -247,7 +247,13 @@ def _html_faturamento(d):
     meta = float(f.get("meta") or 0.0)
     eq = float(f.get("operacional") or 0.0)
     eq2 = float(f.get("nao_operacional") or 0.0)
-    teto = max(proj, meta, eq, eq2, real, 1.0) * 1.08
+    # O EQUILÍBRIO REAL NO GRÁFICO (layout de 13/10): a mesma conta do bloco
+    # "Gastos reais" (`_linha_do_real`), ao lado da linha da meta.
+    import equilibrio_caixa as _ec_g
+    eq_real = float(_ec_g.ponto_de_equilibrio(
+        f.get("comprometido"), (f.get("eq_conta") or {}).get("margem_bruta"))
+        or 0.0) if f.get("comprometido") is not None else 0.0
+    teto = max(proj, meta, eq, eq2, real, eq_real, 1.0) * 1.08
     W, H, base = 900.0, 120.0, 104.0
 
     def X(dd):
@@ -271,6 +277,12 @@ def _html_faturamento(d):
                    # na linha da meta, que fica logo acima.
                    f'<text x="8" y="{Y(eq) + 14:.1f}" fill="{AMBAR}" font-size="12" font-weight="700">'
                    f'ponto de equilíbrio · {_brl(eq, 0)}</text>')
+    if eq_real:
+        linhas += (f'<line x1="0" y1="{Y(eq_real):.1f}" x2="{W}" y2="{Y(eq_real):.1f}" '
+                   f'stroke="{VERDE}" stroke-width="2" stroke-dasharray="8 5"/>'
+                   f'<text x="{W - 8:.0f}" y="{Y(eq_real) + 14:.1f}" fill="{VERDE}" '
+                   f'font-size="12" font-weight="800" text-anchor="end">'
+                   f'equilíbrio real · {_brl(eq_real, 0)}</text>')
     if meta:
         linhas += (f'<line x1="0" y1="{Y(meta):.1f}" x2="{W}" y2="{Y(meta):.1f}" stroke="{AZUL}" '
                    f'stroke-width="1.5" stroke-dasharray="2 5"/>'
@@ -432,19 +444,21 @@ def _linha_do_equilibrio(d=None):
     if not mb:
         return ("Ponto de equilíbrio: falta o lucro bruto dos meses fechados "
                 "(BASE DE VENDAS)")
-    eq = f.get("operacional")
-    per = f" ({c.get('periodo')})" if c.get("periodo") else ""
     _mb_txt = f"{float(mb):.1f}".replace(".", ",")
-    return (f"Ponto de equilíbrio {_brl(eq, 0)} = meta de gastos "
-            f"{_brl(meta, 0)} ÷ lucro bruto médio {_mb_txt}%{per}")
+    # Texto curto (layout aprovado em 13/10); o valor do equilíbrio está no
+    # gráfico, e o período no rodapé das fontes, no topo da Home.
+    return f"Equilíbrio da meta: {_brl(meta, 0)} ÷ lucro bruto {_mb_txt}%"
 
 
 def _linha_do_real(d, proj):
-    """O equilíbrio pelos gastos REAIS do mês contra o faturamento real.
+    """O bloco "Gastos reais" do balanço: o equilíbrio pelos gastos REAIS do
+    mês contra o faturamento real.
 
     Dono, 10/10: embaixo do ponto de equilíbrio da meta, "a projeção com
-    base nos gastos atuais, reais, e considerando o faturamento real". A
-    conta é a do acompanhamento da Meta de gastos
+    base nos gastos atuais, reais, e considerando o faturamento real". Era
+    uma linha de 11px, e em 13/10 ele não a achava: virou bloco, com os
+    tiles do mesmo tamanho dos de cima (layout aprovado em 13/10, textos
+    curtos). A conta é a do acompanhamento da Meta de gastos
     (`equilibrio_caixa.acompanhamento`): comprometido ÷ lucro bruto médio.
     O comprometido é o `total` do quadro de gastos desta mesma tela — o que
     já saiu mais o que está provisionado (`previsto.combinar`) —, e o "fecha
@@ -454,26 +468,38 @@ def _linha_do_real(d, proj):
     f = (d or {}).get("faturamento") or {}
     comp = f.get("comprometido")
     mb = (f.get("eq_conta") or {}).get("margem_bruta")
-    estilo = 'style="font-size:11px;font-weight:600;color:{}"'
+    caixa = ('<div style="border:1.5px solid {VERDE};border-radius:12px;'
+             'padding:12px;display:flex;flex-direction:column;gap:8px;">'
+             '<div style="font-size:11px;font-weight:700;letter-spacing:.08em;'
+             'text-transform:uppercase;color:{VERDE};">Gastos reais</div>')
     if comp is None:
-        return (f'<div {estilo.format(SEC)}>Equilíbrio real: não consegui '
-                'ler os gastos do mês</div>')
+        return (caixa + f'<div style="font-size:12px;color:{SEC};">não '
+                'consegui ler os gastos do mês</div></div>')
     eq_real = _ec.ponto_de_equilibrio(comp, mb)
     if not eq_real:
-        return (f'<div {estilo.format(SEC)}>Equilíbrio real: '
+        return (caixa + f'<div style="font-size:12px;color:{SEC};">'
                 + ("nenhum gasto do mês lido ainda" if not comp else
                    "falta o lucro bruto dos meses fechados (BASE DE VENDAS)")
-                + '</div>')
+                + '</div></div>')
     _mb_txt = f"{float(mb):.1f}".replace(".", ",")
     sobra = float(proj or 0.0) - eq_real
     cor = VERDE if sobra >= 0 else VERMELHO
-    return (f'<div {estilo.format(cor)}>Equilíbrio real {_brl(eq_real, 0)} = '
-            f'gastos do mês {_brl(comp, 0)} (já saiu + provisionado) ÷ lucro '
-            f'bruto médio {_mb_txt}% · no ritmo de hoje fecha em '
-            f'{_brl(proj, 0)} — '
-            + (f'sobram {_brl(sobra, 0)}' if sobra >= 0 else
-               f'faltam {_brl(-sobra, 0)}')
-            + '</div>')
+
+    def tile(rot, val, c=None):
+        return (f'<div style="background:{TILE};border-radius:10px;padding:9px 12px;">'
+                f'<div style="font-size:11px;color:{SEC};">{rot}</div>'
+                f'<div style="font-size:16px;font-weight:700;'
+                f'{"color:" + c + ";" if c else ""}">{val}</div></div>')
+    return (caixa
+            + '<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;">'
+            + tile("Gastos do mês", _brl(comp, 0))
+            + tile("Equilíbrio real", _brl(eq_real, 0))
+            + tile("No ritmo de hoje",
+                   (f"sobram {_brl(sobra, 0)}" if sobra >= 0 else
+                    f"faltam {_brl(-sobra, 0)}"), cor)
+            + '</div>'
+            + f'<div style="font-size:11px;color:{SEC};">{_brl(comp, 0)} ÷ '
+              f'lucro bruto {_mb_txt}%</div></div>')
 
 
 def _marcador(pos):
@@ -2096,9 +2122,9 @@ if __name__ == "__main__":
         "operacional": 201884.25,
         "eq_conta": {"meta_gastos": 150000.0, "margem_bruta": 74.3,
                      "periodo": "jul-set/2026"}}})
-    ok("o rodapé mostra meta ÷ lucro bruto médio, com os números",
-       "150.000" in _txt and "74,3%" in _txt and "201.884" in _txt
-       and "jul-set/2026" in _txt)
+    # Texto curto (layout aprovado em 13/10): a meta e o lucro bruto.
+    ok("o rodapé mostra meta ÷ lucro bruto, curto",
+       _txt == "Equilíbrio da meta: R$ 150.000 ÷ lucro bruto 74,3%")
 
     # ── ONDE O MES FECHA CONTRA A META ──────────────────────────────────
     #
@@ -2514,6 +2540,24 @@ if __name__ == "__main__":
     ok("e diz quanto sobra ou falta no ritmo de hoje",
        "sobram R$ 10.000" in _l_sobra and "faltam R$ 5.000" in _l_falta
        and VERDE in _l_sobra and VERMELHO in _l_falta)
+    ok("o bloco se chama Gastos reais e tem os três tiles do layout",
+       "Gastos reais" in _l_sobra and "Gastos do mês" in _l_sobra
+       and "Equilíbrio real" in _l_sobra and "No ritmo de hoje" in _l_sobra)
+    # O gráfico desenha a linha do equilíbrio real, com a mesma conta.
+    _d_g = {"dia": 13, "mes": 10, "ano": 2026, "dias_mes": 31,
+            "faturamento": {"realizado": 94145.0, "meta": 235553.0,
+                            "operacional": 201493.0, "nao_operacional": 0.0,
+                            "comprometido": 124557.0,
+                            "eq_conta": {"meta_gastos": 150000.0,
+                                         "margem_bruta": 74.4}}}
+    _h_g = _html_faturamento(_d_g)
+    ok("o gráfico traz a linha do equilíbrio real",
+       "equilíbrio real · " + _brl(round(124557.0 / 0.744, 2), 0) in _h_g
+       and "Gastos reais" in _h_g)
+    _d_g2 = {**_d_g, "faturamento": {**_d_g["faturamento"],
+                                      "comprometido": None}}
+    ok("sem gastos lidos, o gráfico não inventa a linha",
+       "equilíbrio real · " not in _html_faturamento(_d_g2))
     ok("sem os gastos lidos, diz que não leu — não some calado",
        "não consegui ler os gastos" in _linha_do_real(
            {"faturamento": {"eq_conta": {"margem_bruta": 32.0}}}, 1.0))
