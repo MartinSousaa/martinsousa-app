@@ -3166,6 +3166,76 @@ def _boletos_na_tela(conta):
         _ch.carregar, _ch.conferir_com_extratos = _g
 
 
+def _lembretes_na_home(conta):
+    """15/10: os lembretes de pagamento no topo da Home, com ✓ Feito.
+
+    Duas partes: a Home chama os lembretes ANTES de ler o Bling (indicador
+    fora do ar não esconde o que vence), e o quadro desenha um botão por
+    cartão, sem chave repetida. Só a planilha é trocada: o boleto passa por
+    `cheques.normalizar` e o contrato por `nao_operacional._normalizar`."""
+    import home_gestao as _hg_l
+    import lembretes as _lem
+    import cheques as _ch_l
+    import nao_operacional as _no_l
+    import pandas as _pd_l
+    from datetime import date as _d_l
+    _chamou = []
+    _g_m, _g_dr = _lem.mostrar, _hg_l.dados_reais
+    _falso = instalar()
+    _hg_l.st = _falso
+    try:
+        _lem.mostrar = lambda st_, u, h: _chamou.append((u, h))
+        _hg_l.dados_reais = lambda *a, **k: (None, ["Bling fora do ar"])
+        _hg_l.pagina("leo")
+        conta("Home: os lembretes aparecem mesmo com o Bling fora do ar",
+              len(_chamou) == 1 and _chamou[0][0] == "leo", str(_chamou))
+    except (_Rerun, _Parou):
+        conta("Home: os lembretes aparecem mesmo com o Bling fora do ar",
+              len(_chamou) == 1, "")
+    except Exception as e:
+        conta("Home: os lembretes aparecem mesmo com o Bling fora do ar",
+              False, f"{type(e).__name__}: {e}")
+    finally:
+        _lem.mostrar, _hg_l.dados_reais = _g_m, _g_dr
+
+    _bol = _ch_l.normalizar({"tipo": "BOLETO", "favorecido": "VIDROS SA",
+                             "vencimento": "2026-10-17", "valor": 800.0,
+                             "situacao": "EM ABERTO"})
+    _contr = _no_l._normalizar([{
+        "programa": "PRONAMP 1", "conta_aporte": "Itaú 99275-0",
+        "data_contratacao": "2025-01-10", "carencia_meses": 6,
+        "prazo_meses": 36, "aporte": 100000, "dia_debito": 18}])
+    _g = (_lem.carregar_feitos, _ch_l.carregar, _no_l.carregar)
+    _botoes, _textos = [], []
+    _falso = instalar()
+
+    def _botao(rot, *a, **k):
+        _falso._registra("button", k)
+        _botoes.append(k.get("key"))
+        return False
+    _falso.button = _botao
+    _falso.markdown = lambda t, *a, **k: _textos.append(str(t))
+    try:
+        _lem.carregar_feitos = lambda: (frozenset(), "")
+        _ch_l.carregar = lambda: [_bol]
+        _no_l.carregar = lambda: _pd_l.DataFrame(_contr)
+        _lem.mostrar(_falso, "leo", _d_l(2026, 10, 15))
+        _junto = " ".join(_textos)
+        conta("Lembretes: um ✓ Feito por cartão dos próximos 7 dias",
+              len(_botoes) >= 4 and len(set(_botoes)) == len(_botoes)
+              and all(str(b).startswith("lem_") for b in _botoes),
+              str(_botoes))
+        conta("Lembretes: boleto, não operacional e TM nos cartões, sem valor",
+              "Boleto · VIDROS SA" in _junto and "PRONAMP 1" in _junto
+              and "TM Logística" in _junto and "R$" not in _junto, "")
+    except (_Rerun, _Parou):
+        conta("Lembretes: a tela monta", True, "")
+    except Exception as e:
+        conta("Lembretes: a tela monta", False, f"{type(e).__name__}: {e}")
+    finally:
+        _lem.carregar_feitos, _ch_l.carregar, _no_l.carregar = _g
+
+
 def _historico_na_home(conta):
     """13/10: a sub-aba Histórico abre pela Home e mostra os meses fechados.
 
@@ -3198,7 +3268,7 @@ def _historico_na_home(conta):
     _lm_h.lpv_do_ano = lambda ano: ({}, "")
     _vistos = {"tabela": None, "html": ""}
     _falso = instalar()
-    _falso.segmented_control = lambda *a, **k: _ge_h.HOME_ABAS[1]
+    _falso.radio = lambda *a, **k: _ge_h.HOME_ABAS[1]
     _falso.selectbox = lambda rot, opcoes, *a, **k: list(opcoes)[0]
 
     def _tab(d, *a, **k):
@@ -3289,6 +3359,7 @@ def main():
     _co_proporcional_na_viabilidade(conta)
     _boletos_na_tela(conta)
     _historico_na_home(conta)
+    _lembretes_na_home(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0

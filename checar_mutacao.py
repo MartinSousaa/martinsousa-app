@@ -2429,8 +2429,8 @@ MUTACOES = [
     (
         "o rotulo do equilibrio volta a encostar na linha da meta",
         "home_gestao.py",
-        "f'<text x=\"8\" y=\"{Y(eq) + 14:.1f}\"",
-        "f'<text x=\"8\" y=\"{Y(eq) - 6:.1f}\"",
+        "        if fora[ordem[k]] - fora[ordem[k - 1]] < folga:\n",
+        "        if False:\n",
         ["python3", "home_gestao.py"],
     ),
     (
@@ -3183,6 +3183,63 @@ MUTACOES = [
         '        return "Nenhuma cobrança de custo fixo ou assinatura identificada neste arquivo."\n',
         '        return ""\n',
         ["python3", "extratos_tela.py"],
+    ),
+    # ── 15/10: DEVOLUCOES ZERADAS, BOLINHA DA HOME, LINHAS C, LEMBRETES ───
+    (
+        "a linha vazia acima do cabecalho volta a virar cabecalho",
+        "controle_ms.py",
+        '                if all(c is None or str(c).strip() == "" for c in linha):\n                    continue\n',
+        "",
+        ["python3", "controle_ms.py"],
+    ),
+    (
+        "a Home volta a dizer nenhuma devolucao quando nao leu",
+        "home_gestao.py",
+        "    if linhas or not avisos_do_leitor:\n        return \"\"\n",
+        "    return \"\"\n",
+        ["python3", "home_gestao.py"],
+    ),
+    (
+        "Painel e Historico voltam ao botao segmentado",
+        "gestao.py",
+        '    aba = st.radio("Home", HOME_ABAS, horizontal=True, key="home_aba",\n',
+        '    aba = st.segmented_control("Home", HOME_ABAS, key="home_aba",\n',
+        ["python3", "checar_tela.py"],
+    ),
+    (
+        "os nomes das linhas da meta voltam a se encostar",
+        "home_gestao.py",
+        "    _ys = _espalhar([m[0] for m in marcas])\n",
+        "    _ys = [m[0] for m in marcas]\n",
+        ["python3", "home_gestao.py"],
+    ),
+    (
+        "o quadro de cima perde o titulo Projecao de gastos",
+        "home_gestao.py",
+        "        'text-transform:uppercase;color:{AMBAR};\">Projeção de gastos</div>'\n",
+        "        'text-transform:uppercase;color:{AMBAR};\"></div>'\n",
+        ["python3", "home_gestao.py"],
+    ),
+    (
+        "o lembrete marcado como feito continua na tela",
+        "lembretes.py",
+        '        if x["chave"] in feitos:\n            continue\n',
+        "",
+        ["python3", "lembretes.py"],
+    ),
+    (
+        "a Home deixa de mostrar os lembretes",
+        "home_gestao.py",
+        "        _lem.mostrar(st, usuario_logado, datetime.now(_pc_lem.FUSO).date())\n",
+        "        pass\n",
+        ["python3", "checar_tela.py"],
+    ),
+    (
+        "o 5o dia util volta a contar o feriado",
+        "lembretes.py",
+        "        if d.weekday() < 5 and d not in fer:\n",
+        "        if d.weekday() < 5:\n",
+        ["python3", "lembretes.py"],
     ),
 ]
 

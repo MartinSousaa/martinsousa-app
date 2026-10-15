@@ -209,6 +209,8 @@ def _de_onde_vem_a_meta(f):
 FUNDO, CARTAO, BORDA, TILE = "#3c3c3c", "#333333", "#4a4a4a", "#2c2c2c"
 TEXTO, SEC = "#E8EAED", "#9AA3AE"
 VERDE, AMBAR, AZUL, VERMELHO = "#4CC38A", "#E0A13A", "#7FB8F0", "#E5534B"
+# O equilíbrio real no gráfico (15/10): uma cor que não é a da projeção.
+LILAS = "#B9A2FF"
 _PALETA = {"FUNDO": FUNDO, "CARTAO": CARTAO, "BORDA": BORDA, "TILE": TILE,
            "TEXTO": TEXTO, "SEC": SEC, "VERDE": VERDE, "AMBAR": AMBAR,
            "AZUL": AZUL, "VERMELHO": VERMELHO}
@@ -225,6 +227,20 @@ def _pintado(fn):
             h = h.replace("{" + nome + "}", cor)
         return h
     return _f
+
+
+def _espalhar(ys, folga=17.0):
+    """As alturas dos nomes, afastadas `folga` px sem trocar a ordem. Pura.
+
+    Equilíbrio, equilíbrio real e meta costumam estar a poucos reais um do
+    outro — no gráfico, a 4 px. Sem afastar, os três nomes viram um borrão.
+    """
+    ordem = sorted(range(len(ys)), key=lambda i: ys[i])
+    fora = list(ys)
+    for k in range(1, len(ordem)):
+        if fora[ordem[k]] - fora[ordem[k - 1]] < folga:
+            fora[ordem[k]] = fora[ordem[k - 1]] + folga
+    return fora
 
 
 @_pintado
@@ -254,50 +270,57 @@ def _html_faturamento(d):
         f.get("comprometido"), (f.get("eq_conta") or {}).get("margem_bruta"))
         or 0.0) if f.get("comprometido") is not None else 0.0
     teto = max(proj, meta, eq, eq2, real, eq_real, 1.0) * 1.08
-    W, H, base = 900.0, 120.0, 104.0
+    # A OPÇÃO C (dono, 15/10): as três linhas ficavam a poucos pixels uma da
+    # outra, com os nomes por cima da projeção. Agora a faixa entre o
+    # equilíbrio e a meta é sombreada, cada linha tem uma cor, e os nomes
+    # moram numa coluna à esquerda (`LW`), afastados por `_espalhar`.
+    W, H, base, LW = 900.0, 190.0, 172.0, 215.0
+    PW = W - LW
 
     def X(dd):
-        return dd / dias * W
+        return dd / dias * PW
 
     def Y(v):
-        return base - v / teto * 92.0
+        return base - v / teto * 150.0
     hx, hy = X(dia), Y(real)
     curva = (f'<path d="M0,{base:.1f} Q{hx * 0.6:.1f},{base - (base - hy) * 0.25:.1f} '
              f'{hx:.1f},{hy:.1f} L{hx:.1f},{base:.1f} Z" fill="{VERDE}" fill-opacity="0.18"/>'
              f'<path d="M0,{base:.1f} Q{hx * 0.6:.1f},{base - (base - hy) * 0.25:.1f} '
              f'{hx:.1f},{hy:.1f}" fill="none" stroke="{VERDE}" stroke-width="3" stroke-linecap="round"/>'
-             f'<path d="M{hx:.1f},{hy:.1f} L{W:.1f},{Y(proj):.1f}" fill="none" stroke="{VERDE}" '
+             f'<path d="M{hx:.1f},{hy:.1f} L{PW:.1f},{Y(proj):.1f}" fill="none" stroke="{VERDE}" '
              f'stroke-width="2" stroke-dasharray="5 7" stroke-opacity="0.7"/>'
              f'<circle cx="{hx:.1f}" cy="{hy:.1f}" r="5" fill="{VERDE}"/>')
-    linhas = ""
+    linhas, marcas = "", []
+    if eq and meta > eq:
+        linhas += (f'<rect x="0" y="{Y(meta):.1f}" width="{PW:.0f}" '
+                   f'height="{Y(eq) - Y(meta):.1f}" fill="{AMBAR}" fill-opacity="0.10"/>')
     if eq:
-        linhas += (f'<line x1="0" y1="{Y(eq):.1f}" x2="{W}" y2="{Y(eq):.1f}" stroke="{AMBAR}" '
-                   f'stroke-width="1.5" stroke-dasharray="2 5"/>'
-                   # ABAIXO da linha (dono, 07/10): em cima ele encostava
-                   # na linha da meta, que fica logo acima.
-                   f'<text x="8" y="{Y(eq) + 14:.1f}" fill="{AMBAR}" font-size="12" font-weight="700">'
-                   f'ponto de equilíbrio · {_brl(eq, 0)}</text>')
+        linhas += (f'<line x1="0" y1="{Y(eq):.1f}" x2="{PW:.0f}" y2="{Y(eq):.1f}" '
+                   f'stroke="{AMBAR}" stroke-width="1.5"/>')
+        marcas.append((Y(eq), f"ponto de equilíbrio · {_brl(eq, 0)}", AMBAR))
     if eq_real:
-        linhas += (f'<line x1="0" y1="{Y(eq_real):.1f}" x2="{W}" y2="{Y(eq_real):.1f}" '
-                   f'stroke="{VERDE}" stroke-width="2" stroke-dasharray="8 5"/>'
-                   f'<text x="{W - 8:.0f}" y="{Y(eq_real) + 14:.1f}" fill="{VERDE}" '
-                   f'font-size="12" font-weight="800" text-anchor="end">'
-                   f'equilíbrio real · {_brl(eq_real, 0)}</text>')
+        linhas += (f'<line x1="0" y1="{Y(eq_real):.1f}" x2="{PW:.0f}" y2="{Y(eq_real):.1f}" '
+                   f'stroke="{LILAS}" stroke-width="1.5" stroke-dasharray="1 4" '
+                   f'stroke-linecap="round"/>')
+        marcas.append((Y(eq_real), f"equilíbrio real · {_brl(eq_real, 0)}", LILAS))
     if meta:
-        linhas += (f'<line x1="0" y1="{Y(meta):.1f}" x2="{W}" y2="{Y(meta):.1f}" stroke="{AZUL}" '
-                   f'stroke-width="1.5" stroke-dasharray="2 5"/>'
-                   # À ESQUERDA (dono, 07/10): à direita a projeção verde,
-                   # que sobe até o fim do mês, passava por cima dele.
-                   f'<text x="8" y="{Y(meta) - 6:.1f}" fill="{AZUL}" font-size="12" '
-                   f'font-weight="700">meta do mês · {_brl(meta, 0)}</text>')
-    svg = (f'<svg viewBox="0 0 {W:.0f} {H:.0f}" width="100%" height="120" '
+        linhas += (f'<line x1="0" y1="{Y(meta):.1f}" x2="{PW:.0f}" y2="{Y(meta):.1f}" '
+                   f'stroke="{AZUL}" stroke-width="1.5"/>')
+        marcas.append((Y(meta), f"meta do mês · {_brl(meta, 0)}", AZUL))
+    _ys = _espalhar([m[0] for m in marcas])
+    rotulos = "".join(
+        f'<text x="{LW - 10:.0f}" y="{y + 4:.1f}" fill="{c}" font-size="12" '
+        f'font-weight="700" text-anchor="end">{t}</text>'
+        for (_, t, c), y in zip(marcas, _ys))
+    svg = (f'<svg viewBox="0 0 {W:.0f} {H:.0f}" width="100%" height="{H:.0f}" '
            f'aria-label="Faturamento do mês contra equilíbrio e meta" '
-           f'style="font-family:inherit;">'
-           f'<line x1="0" y1="{base}" x2="{W}" y2="{base}" stroke="{BORDA}"/>'
-           + curva + linhas +
-           f'<text x="{hx:.1f}" y="118" fill="{SEC}" font-size="11" text-anchor="middle">hoje</text>'
-           f'<text x="{W}" y="118" fill="{SEC}" font-size="11" text-anchor="end">dia {dias}</text>'
-           '</svg>')
+           f'style="font-family:inherit;">' + rotulos
+           + f'<g transform="translate({LW:.0f},0)">'
+           f'<line x1="0" y1="{base}" x2="{PW:.0f}" y2="{base}" stroke="{BORDA}"/>'
+           + linhas + curva +
+           f'<text x="{hx:.1f}" y="{H - 2:.0f}" fill="{SEC}" font-size="11" text-anchor="middle">hoje</text>'
+           f'<text x="{PW:.0f}" y="{H - 2:.0f}" fill="{SEC}" font-size="11" text-anchor="end">dia {dias}</text>'
+           '</g></svg>')
     # o selo: contra o ritmo da meta, quando há meta; sem meta, não há ritmo
     if meta:
         dif = real - alvo
@@ -347,12 +370,18 @@ def _html_faturamento(d):
         f'<div style="font-size:24px;font-weight:800;">{_brl(proj, 0)}</div>'
         f'<div style="font-size:12px;color:{cor_st};font-weight:600;">{status}</div></div></div>'
         + svg +
+        # "PROJEÇÃO DE GASTOS" em cima (dono, 15/10), como "Gastos reais"
+        # embaixo: os dois quadros com título e borda, na mesma forma.
+        '<div style="border:1.5px solid {AMBAR};border-radius:12px;'
+        'padding:12px;display:flex;flex-direction:column;gap:8px;">'
+        '<div style="font-size:11px;font-weight:700;letter-spacing:.08em;'
+        'text-transform:uppercase;color:{AMBAR};">Projeção de gastos</div>'
         '<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;">'
         + tile("Falta para o equilíbrio", _brl(falta_eq, 0) if eq else "—")
         + tile("Equilíbrio no ritmo atual", dia_eq)
         + tile("Falta para a meta", _brl(max(meta - real, 0.0), 0) if meta else "sem meta")
         + '</div>'
-        f'<div style="font-size:11px;color:{SEC};">{_linha_do_equilibrio(d)}</div>'
+        f'<div style="font-size:11px;color:{SEC};">{_linha_do_equilibrio(d)}</div></div>'
         + _linha_do_real(d, proj) +
         '</div>')
 
@@ -1336,6 +1365,19 @@ def _html_gastos(q, erros=None):
         + aviso + '</div>')
 
 
+def devolucoes_nao_lidas(linhas, avisos_do_leitor):
+    """O aviso para a tela quando o leitor não trouxe NENHUMA devolução e
+    reclamou de algo. "" quando leu. Pura.
+
+    Ler nada não é "nenhuma cadastrada" (15/10): com o cabeçalho da planilha
+    fora do lugar, a DEVOLUÇÕES 2026 cheia virava zero e a Home afirmava que
+    não havia devolução no mês.
+    """
+    if linhas or not avisos_do_leitor:
+        return ""
+    return ("Devoluções: " + " · ".join(str(a) for a in avisos_do_leitor))[:220]
+
+
 def boletos_em_aberto(linhas, hoje):
     """Os boletos ainda não pagos, do vencimento mais perto ao mais longe.
     Pura. [{"vencimento", "beneficiário", "valor", "situação"}] — o tópico
@@ -1625,7 +1667,15 @@ def dados_reais(ano, mes, dia):
     _dev_linhas_mes, _dev_todas = [], []
     try:
         import devolucoes as _dv
-        _dev_todas = _dv.carregar()
+        _dev_todas, _, _av_dev = _dv.carregar_tudo()
+        # LER NADA NÃO É "NENHUMA CADASTRADA" (15/10): com o cabeçalho fora
+        # do lugar, a planilha cheia virava zero e a tela afirmava que não
+        # havia devolução. Sem nenhuma linha e com aviso do leitor, a tela
+        # diz que não leu.
+        _nao_leu = devolucoes_nao_lidas(_dev_todas, _av_dev)
+        if _nao_leu:
+            _sub_dev = "não consegui ler as devoluções do Controle MS"
+            avisos.append(_nao_leu)
         _do_mes = _dv.do_mes(_dev_todas, f"{ano:04d}-{mes:02d}")
         _dev_linhas_mes = _do_mes
         if _do_mes:
@@ -1755,6 +1805,17 @@ def pagina(usuario_logado=None, dados=None):
     # aprovado há tempo. Manter o exemplo depois disso é pior do que não ter
     # tela: o número inventado é plausível, fica bonito ao lado dos outros, e
     # alguém decide em cima dele.
+    # OS LEMBRETES DE PAGAMENTO, NO TOPO (dono, 15/10): antes de tudo, e
+    # fora da leitura do Bling — indicador fora do ar não esconde o que
+    # vence hoje.
+    try:
+        import lembretes as _lem
+        import placar_core as _pc_lem
+        _lem.mostrar(st, usuario_logado, datetime.now(_pc_lem.FUSO).date())
+    except Exception as _e_lem:
+        st.warning(f"Não consegui montar os lembretes de pagamento: "
+                   f"{type(_e_lem).__name__}")
+
     _avisos = []
     if dados is None:
         import placar_core as _pc
@@ -2164,10 +2225,13 @@ if __name__ == "__main__":
     # 07/10: os rótulos não podem encostar nas linhas vizinhas — o do
     # equilíbrio vai para baixo da linha, o da meta para a esquerda.
     _src_fat = inspect.getsource(_html_faturamento)
-    ok("rótulo do equilíbrio abaixo da linha e o da meta à esquerda",
-       'y="{Y(eq) + 14:.1f}"' in _src_fat
-       and 'text-anchor="end">meta do mês' not in _src_fat
-       and '<text x="8" y="{Y(meta) - 6:.1f}"' in _src_fat)
+    # 15/10 (opção C): os nomes numa coluna à esquerda, afastados.
+    ok("nomes perto um do outro ficam afastados, na mesma ordem",
+       _espalhar([30.0, 34.0, 31.0]) == [30.0, 64.0, 47.0]
+       and _espalhar([10.0, 60.0]) == [10.0, 60.0])
+    ok("o gráfico usa o afastamento e a coluna dos nomes",
+       "_espalhar([m[0] for m in marcas])" in _src_fat
+       and 'translate({LW:.0f},0)' in _src_fat)
     ok("e sem meta o rodapé diz onde cadastrar a meta de gastos",
        "cadastre a meta de gastos" in _linha_do_equilibrio({}))
     _dr_comp = inspect.getsource(dados_reais)
@@ -2187,6 +2251,9 @@ if __name__ == "__main__":
        ("Faturamento × ponto" + " de equilíbrio × meta") not in _h_fat)
     ok("a curva corta a linha do equilíbrio e a da meta",
        "ponto de equilíbrio · " in _h_fat and "meta do mês · " in _h_fat)
+    ok("o quadro de cima se chama Projeção de gastos (dono, 15/10)",
+       "Projeção de gastos" in _h_fat and "Gastos reais" not in _h_fat.split(
+           "Projeção de gastos")[0])
     ok("as três faltas aparecem",
        all(t in _h_fat for t in ("Falta para o equilíbrio",
                                  "Equilíbrio no ritmo atual",
@@ -2605,6 +2672,32 @@ if __name__ == "__main__":
        and "boletos a pagar" not in _html_gastos(
            montar_resumo_gastos(150000.0, {}, {"CHEQUES": 400.0}, [_chq_b]),
            []))
+    # DEVOLUÇÕES NÃO LIDAS (15/10), pela cadeia: uma planilha cujo cabeçalho
+    # o leitor não acha passa por `devolucoes.do_controle_ms` de verdade, e
+    # o aviso dele tem de virar "não consegui ler", e não "nenhuma".
+    import io as _io_dv
+    import openpyxl as _ox_dv
+    import controle_ms as _cms_dv
+    import devolucoes as _dv_dv
+    _wb_dv = _ox_dv.Workbook()
+    _wb_dv.active.title = "DEVOLUÇÕES 2026"
+    _wb_dv.active.append(["DATA", "QUALQUER"])
+    _wb_dv.active.append(["06/10/2026", "x"])
+    _b_dv = _io_dv.BytesIO()
+    _wb_dv.save(_b_dv)
+    _g_dv = _cms_dv._bytes_do_arquivo
+    try:
+        _cms_dv._bytes_do_arquivo = lambda: (_b_dv.getvalue(), "")
+        _l_dv, _av_dv = _dv_dv.do_controle_ms()
+    finally:
+        _cms_dv._bytes_do_arquivo = _g_dv
+    ok("devolução não lida: a Home diz que não leu, e por quê",
+       _l_dv == [] and "não achei" in devolucoes_nao_lidas(_l_dv, _av_dv))
+    ok("devolução lida: nenhum aviso",
+       devolucoes_nao_lidas([{"valor": 1.0}], ["5 reconstruídas"]) == "")
+    ok("a Home usa o aviso do leitor",
+       "devolucoes_nao_lidas(_dev_todas, _av_dev)"
+       in inspect.getsource(dados_reais))
     _top = boletos_em_aberto(_lin_b, _date_b(2026, 10, 13))
     ok("o tópico lista só os boletos em aberto, com o prazo",
        _top == [{"vencimento": "20/10/2026", "beneficiário": "VIDROS SA",
