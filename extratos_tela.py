@@ -91,20 +91,57 @@ def pagina(usuario_logado=None):
 # (`_fatura` + `_perguntar`): duas leituras da fatura discordariam — a
 # questão seria só quando.
 
-def _conferir_custo_real(linhas):
+def meses_para_conferir(linhas, competencia=""):
+    """[(ano, mes)] que o arquivo pesa. Função pura.
+
+    A fatura diz o mês dela (`competencia`, o "AAAA-MM" escolhido na tela): a
+    do PDF grava a data "MM-DD", sem ano, e o mês vinha do pedaço errado da
+    data — `ValueError` em toda fatura em PDF. O extrato tem a data inteira, e
+    só ela vale: data que não é "AAAA-MM-DD" fica de fora, nunca quebra.
+    """
+    import re
+    import lancamentos as _lan
+    comp = str(competencia or "").strip()[:7]
+    if re.fullmatch(r"\d{4}-\d{2}", comp):
+        return [(int(comp[:4]), int(comp[5:7]))]
+    fora = set()
+    for l in (linhas or []):
+        d = _lan._txt_data(l.get("data"))
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", d):
+            fora.add((int(d[:4]), int(d[5:7])))
+    return sorted(fora)
+
+
+def aviso_custo_real(feitas, identificados):
+    """O que a tela diz depois de conferir o arquivo. Função pura.
+
+    Nenhuma cobrança de custo fixo no arquivo é INFORMAÇÃO, não erro — o dono,
+    15/10: "se não existe, não deve haver erro e sim uma informação".
+    """
+    n = len(set(identificados or []))
+    if not n and not feitas:
+        return "Nenhuma cobrança de custo fixo ou assinatura identificada neste arquivo."
+    partes = []
+    if feitas:
+        partes.append(f"📌 {feitas} valor(es) de custo fixo / assinatura "
+                      "atualizado(s) no mês — veja em Custos fixos.")
+    if n > feitas:
+        partes.append(f"{n - feitas} cobrança(s) de custo fixo / "
+                      "assinatura identificada(s) neste arquivo, com o valor "
+                      "do cadastro.")
+    return " ".join(partes)
+
+
+def _conferir_custo_real(linhas, competencia=""):
     """O arquivo acabou de chegar: onde um item do Custo fixo ou das
     Assinaturas veio com valor diferente do cadastro, o real passa a valer
     naquele mês (`custo_real`). Extrato E fatura passam por aqui — a fatura
     não passava, e a assinatura cobrada no cartão nunca atualizava."""
     try:
         import custo_real as _cr
-        _meses = sorted({(int(str(l.get("data"))[:4]), int(str(l.get("data"))[5:7]))
-                         for l in (linhas or [])
-                         if str(l.get("data") or "")[:7].count("-") == 1})
+        _meses = meses_para_conferir(linhas, competencia)
         _, _feitas_cr, _erro_cr = _cr.conferir_meses(_meses)
-        if _feitas_cr:
-            st.info(f"📌 {_feitas_cr} valor(es) de custo fixo / assinatura "
-                    "atualizado(s) no mês — veja em Custos fixos.")
+        st.info(aviso_custo_real(_feitas_cr, _cr.identificados_em(linhas)))
         if _erro_cr:
             st.warning(f"Não consegui gravar o valor real do custo fixo: {_erro_cr}")
     except Exception as _e_cr:
@@ -359,7 +396,7 @@ def _fatura(arq, tipo_arq, usuario_logado):
                 _msg += (f" {_marc} já gravado(s) passaram a contar em "
                          f"{_rotulo_mes(_comp)}.")
             st.success(_msg)
-            _conferir_custo_real(classificados)
+            _conferir_custo_real(classificados, _comp)
     return fila
 
 
@@ -1612,7 +1649,7 @@ if __name__ == "__main__":
        "_lan_cc.CONTA_CARTAO + nome" in _src_fat2
        and _lan_cc_t.eh_do_cartao({"conta": _lan_cc_t.CONTA_CARTAO + "x.csv"}))
     ok("a fatura confirmada tambem atualiza o custo fixo do mes",
-       "_conferir_custo_real(classificados)" in _src_fat2
+       "_conferir_custo_real(classificados, _comp)" in _src_fat2
        and "_conferir_custo_real(classificados)" in _insp.getsource(_processar))
     ok("o clique so lanca com o mes do vencimento escolhido",
        "disabled=not _comp" in _src_fat2
@@ -1639,6 +1676,37 @@ if __name__ == "__main__":
     ok("saída sem finalidade é contada e nomeada (entrada não)",
        _sf_t["n"] == 1 and _sf_t["total"] == 100.0
        and _sf_t["maiores"] == [("A", 100.0)])
+
+    # ── 15/10: A FATURA EM PDF SEM ANO ("Não consegui conferir: ValueError").
+    # A ENTRADA VEM DO LEITOR DE VERDADE: sem o ano na linha, `fatura_pdf`
+    # grava a data "MM-DD" — foi assim na FaturacartaoBusiness do dono.
+    import fatura_pdf as _fp_t
+    _sem_ano, _ = _fp_t.lancamentos_do_texto(
+        "30/01   POSTO IPIRANGA      R$ 149,90\n"
+        "02/02   HOSTGATOR 02/06     R$ 47,72\n", ano_padrao=None)
+    ok("o leitor do PDF sem ano grava a data MM-DD (o caso do dono)",
+       [l["data"] for l in _sem_ano] == ["01-30", "02-02"])
+    ok("a fatura confere o mês dela, e a data sem ano não quebra",
+       meses_para_conferir(_sem_ano, "2026-11") == [(2026, 11)]
+       and meses_para_conferir(_sem_ano) == [])
+    ok("o extrato confere os meses das datas inteiras",
+       meses_para_conferir([{"data": "2026-09-30"}, {"data": "2026-10-01"},
+                            {"data": "01-30"}, {"data": ""}])
+       == [(2026, 9), (2026, 10)])
+    ok("nenhuma cobrança no arquivo é informação, não erro",
+       aviso_custo_real(0, []) == "Nenhuma cobrança de custo fixo ou "
+       "assinatura identificada neste arquivo.")
+    ok("achou e bateu com o cadastro: diz quantas",
+       "2 cobrança(s)" in aviso_custo_real(
+           0, [("custo_fixo", "Luz"), ("assinaturas", "Claude")])
+       and "📌" not in aviso_custo_real(0, [("custo_fixo", "Luz")]))
+    ok("achou e atualizou: diz quantas atualizou, sem contar duas vezes",
+       aviso_custo_real(1, [("custo_fixo", "Luz")]).startswith("📌 1 valor")
+       and "identificada" not in aviso_custo_real(1, [("custo_fixo", "Luz")]))
+    _src_ccr = _insp.getsource(_conferir_custo_real)
+    ok("a tela mostra o aviso como informação, e só erro de verdade avisa",
+       "st.info(aviso_custo_real(" in _src_ccr
+       and "meses_para_conferir(linhas, competencia)" in _src_ccr)
 
     print("\nfalhas:", falhas)
 

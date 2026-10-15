@@ -271,7 +271,10 @@ def conferir_meses(meses, lancamentos=None, gravar_agora=True):
     achadas = []
     for ano, mes in meses:
         alvo = f"{int(ano):04d}-{int(mes):02d}"
-        do_mes = [l for l in todos if str(l.get("data", "")).startswith(alvo)]
+        # O MÊS DO CAIXA, e não o começo da data: a fatura em PDF grava a data
+        # "MM-DD", sem ano, e o mês dela vem do `tipo` ("fatura AAAA-MM").
+        # Pelo começo da data, nenhuma assinatura cobrada no cartão era achada.
+        do_mes = [l for l in todos if _lan.mes_de(l) == alvo]
         if not do_mes:
             continue
         achadas += divergencias(
@@ -287,6 +290,31 @@ def conferir_meses(meses, lancamentos=None, gravar_agora=True):
         return achadas, 0, ""
     feitas, erro = gravar(achadas)
     return achadas, feitas, erro
+
+
+def itens_cobrados(lancamentos, linhas_cf, linhas_as):
+    """[(grade, item)] que aparecem cobrados em `lancamentos`. Função pura.
+
+    É o "foi identificado?" do arquivo que acabou de chegar — com valor igual
+    ao cadastro ou não. Sem isto, a tela não distingue "nenhuma cobrança de
+    custo fixo neste arquivo" de "achei, e bateu com o cadastro".
+    """
+    fora = []
+    for grade, linhas in (("custo_fixo", linhas_cf), ("assinaturas", linhas_as)):
+        for l in (linhas or []):
+            item = str(l.get("item") or "").strip()
+            if item and cobrado_no_mes(l, lancamentos) is not None:
+                fora.append((grade, item))
+    return fora
+
+
+def identificados_em(lancamentos):
+    """`itens_cobrados` com o Custo fixo e as Assinaturas do cadastro."""
+    import assinaturas as _as
+    import custo_fixo as _cf
+    grade = _cf.carregar("custo_fixo")
+    linhas_cf = grade.to_dict("records") if not grade.empty else []
+    return itens_cobrados(lancamentos, linhas_cf, _as.carregar() or [])
 
 
 def quadro(grade, linhas, meses, mapa):
@@ -456,10 +484,41 @@ if __name__ == "__main__":
        and "_cr.total_assinaturas(" in _insp.getsource(_lm_t._partes_do_mes))
     ok("o anexo do extrato (e o da fatura) confere o custo fixo do mês",
        "_conferir_custo_real(classificados)" in _insp.getsource(_et_t._processar)
+       and "_conferir_custo_real(classificados, _comp)"
+       in _insp.getsource(_et_t._fatura)
        and "_cr.conferir_meses(" in _insp.getsource(_et_t._conferir_custo_real))
     ok("as telas de Custo fixo e Assinaturas conferem ao abrir",
        '_cr.mostrar(st, "custo_fixo"' in _insp.getsource(_cf_t.pagina)
        and '_cr.mostrar(st, "assinaturas"' in _insp.getsource(_at_t.pagina))
+
+    # ── 15/10: A ASSINATURA NA FATURA EM PDF, PELA CADEIA ────────────────
+    # O leitor de verdade (data "MM-DD", sem ano) → `preparar_fatura` (o que
+    # `gravar_fatura` grava) → `conferir_meses` com o mês da fatura. Pelo
+    # começo da data, a assinatura do cartão nunca era achada.
+    import fatura_pdf as _fp_t
+    import lancamentos as _lan_t
+    _fat, _ = _fp_t.lancamentos_do_texto(
+        "02/10   HOSTGATOR 02/06     R$ 52,10\n"
+        "03/10   POSTO IPIRANGA      R$ 149,90\n", ano_padrao=None)
+    _grav = _lan_t.preparar_fatura(_fat, "2026-11")
+    _host_cf = pd.DataFrame([{"item": "Hostgator", "valor_mensal": 47.72,
+                              "vigente_desde": "", "favorecido": ""}])
+    _gg2 = (_cf_t.carregar, _aj_t.carregar, _as_t.carregar)
+    try:
+        _cf_t.carregar = lambda aba: _host_cf
+        _aj_t.carregar = lambda: _aj_vazio
+        _as_t.carregar = lambda: []
+        _dv_f, _, _ = conferir_meses([(2026, 11)], _grav, gravar_agora=False)
+        ok("a assinatura da fatura em PDF é achada no mês da fatura",
+           [(d["item"], d["mes"], d["valor"]) for d in _dv_f]
+           == [("Hostgator", "2026-11", 52.10)])
+        ok("e não no mês da data",
+           conferir_meses([(2026, 10)], _grav, gravar_agora=False)[0] == [])
+        ok("o arquivo diz o que identificou, mesmo igual ao cadastro",
+           identificados_em(_grav) == [("custo_fixo", "Hostgator")]
+           and identificados_em(_grav[1:]) == [])
+    finally:
+        _cf_t.carregar, _aj_t.carregar, _as_t.carregar = _gg2
 
     # ── A PALAVRA PARECIDA (09/10): KLING no cadastro, KLINGAI.COM na fatura ─
     # O lançamento com o texto que a fatura grava de verdade (print do dono).

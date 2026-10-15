@@ -2277,7 +2277,7 @@ MUTACOES = [
     (
         "a fatura confirmada volta a nao atualizar o custo fixo do mes",
         "extratos_tela.py",
-        "            st.success(_msg)\n            _conferir_custo_real(classificados)\n",
+        "            st.success(_msg)\n            _conferir_custo_real(classificados, _comp)\n",
         "            st.success(_msg)\n",
         ["python3", "extratos_tela.py"],
     ),
@@ -3161,6 +3161,28 @@ MUTACOES = [
         "            max((no_arquivo or lidas) - lidas, 0)\n",
         "            0\n",
         ["python3", "planilha_xlsx.py"],
+    ),
+    # ── 15/10: FATURA EM PDF SEM ANO E O CUSTO FIXO DO MES ───────────────
+    (
+        "o custo fixo volta a procurar o mes pelo comeco da data",
+        "custo_real.py",
+        "        do_mes = [l for l in todos if _lan.mes_de(l) == alvo]\n",
+        '        do_mes = [l for l in todos if str(l.get("data", "")).startswith(alvo)]\n',
+        ["python3", "custo_real.py"],
+    ),
+    (
+        "a fatura volta a tirar o mes da data sem ano",
+        "extratos_tela.py",
+        '    if re.fullmatch(r"\\d{4}-\\d{2}", comp):\n',
+        "    if False:\n",
+        ["python3", "extratos_tela.py"],
+    ),
+    (
+        "o arquivo sem custo fixo volta a nao dizer nada",
+        "extratos_tela.py",
+        '        return "Nenhuma cobrança de custo fixo ou assinatura identificada neste arquivo."\n',
+        '        return ""\n',
+        ["python3", "extratos_tela.py"],
     ),
 ]
 
