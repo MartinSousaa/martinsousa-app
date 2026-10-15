@@ -48,8 +48,10 @@ def pagina_home(usuario_logado=None):
     desenhada: o Painel lê o Bling e a BASE DE VENDAS, e o Histórico não pode
     dobrar esse custo a cada clique de quem só quer o mês corrente.
     """
-    aba = st.segmented_control("Home", HOME_ABAS, default=HOME_ABAS[0],
-                               key="home_aba", label_visibility="collapsed")
+    # A BOLINHA, como as faces do Custo fixo (dono, 15/10): `st.radio`
+    # horizontal, e não o botão segmentado.
+    aba = st.radio("Home", HOME_ABAS, horizontal=True, key="home_aba",
+                   label_visibility="collapsed")
     if aba == HOME_ABAS[1]:
         import historico as _hist
         _hist.pagina(usuario_logado)

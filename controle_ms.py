@@ -274,6 +274,12 @@ def ler(aba, limite=None):
         cabecalho = None
         for linha in ws.iter_rows(values_only=True):
             if cabecalho is None:
+                # A LINHA VAZIA ACIMA DO CABEÇALHO (15/10): a DEVOLUÇÕES 2026
+                # tem a linha 1 em branco e os nomes na 2. Tomada como
+                # cabeçalho, nenhuma coluna era achada e o Studio lia ZERO
+                # devoluções em todos os meses — com a planilha cheia.
+                if all(c is None or str(c).strip() == "" for c in linha):
+                    continue
                 cabecalho = _cabecalho(linha)
                 continue
             if all(c is None or str(c).strip() == "" for c in linha):
@@ -373,4 +379,47 @@ if __name__ == "__main__":
        url_de_download("manda depois") == "" and url_de_download("") == ""
        and url_de_download(None) == "")
 
+    # ── A LINHA 1 EM BRANCO, como na DEVOLUÇÕES 2026 do dono (15/10) ──────
+    # O arquivo de verdade tinha a linha 1 vazia e o cabeçalho na 2. Pela
+    # cadeia: `ler` e depois o leitor das devoluções, que é quem zerava.
+    import openpyxl as _ox_t
+    _wb_t = _ox_t.Workbook()
+    _ws_t = _wb_t.active
+    _ws_t.title = "DEVOLUÇÕES 2026"
+    _ws_t.append([None])
+    _ws_t.append(["MÊS", "DATA SOLIC", "PEDIDO", "ENVIOS", "USUÁRIO", "NOME",
+                  "PRODUTO", "QTT", "R$", "FRETE", "MOTIVO", "CONTA",
+                  "CONFERÊNCIA", "SITUAÇÃO", "NF DEVOLUÇÃO"])
+    import datetime as _dt_t
+    _ws_t.append(["out2026", _dt_t.datetime(2026, 10, 6), "2610071573P3B5",
+                  "EXPRESS", "gabriellyluiza167", "Gabrielly Luiza",
+                  "MINI MÁQUINA", 1, 349.99, None, "PRODUTO DANIFICADO",
+                  "SHOP01", _dt_t.datetime(2026, 10, 14), "", ""])
+    _buf_t = io.BytesIO()
+    _wb_t.save(_buf_t)
+    _g_bytes = _bytes_do_arquivo
+    try:
+        globals()["_bytes_do_arquivo"] = lambda: (_buf_t.getvalue(), "")
+        _df_t, _err_t = ler("DEVOLUÇÕES 2026")
+        ok("linha vazia acima do cabeçalho não vira cabeçalho",
+           not _err_t and "DATA SOLIC" in list(_df_t.columns)
+           and len(_df_t) == 1)
+        import controle_ms as _cms_mod
+        import devolucoes as _dv_t
+        _g_mod = _cms_mod._bytes_do_arquivo
+        _cms_mod._bytes_do_arquivo = lambda: (_buf_t.getvalue(), "")
+        try:
+            _dev_t, _ = _dv_t.do_controle_ms()
+        finally:
+            _cms_mod._bytes_do_arquivo = _g_mod
+        ok("e as devoluções de outubro chegam (o caso do dono)",
+           [(d["data_solic"], d["valor"])
+            for d in _dv_t.do_mes(_dev_t, "2026-10")]
+           == [("2026-10-06", 349.99)])
+    finally:
+        globals()["_bytes_do_arquivo"] = _g_bytes
+
     print("\nfalhas:", falhas)
+    # O CÓDIGO DE SAÍDA: sem ele, o `conferir.py` e o `checar_mutacao.py`
+    # veem este módulo aprovado SEMPRE.
+    __import__("sys").exit(1 if falhas else 0)
