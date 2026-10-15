@@ -2096,6 +2096,11 @@ if _eh_admin:
         if auth.eh_dono(usuario_logado):
             _abas_gestao["🗂️ Registros"] = \
                 lambda: _abrir('admin', 'pagina_admin', usuario_logado)
+            # A VISÃO GERAL (dono, 15/10): "ao lado de Registros". O ano
+            # inteiro de saídas por finalidade e modalidade — dinheiro da
+            # empresa, a mesma trava de Registros.
+            _abas_gestao["🧭 Visão Geral"] = \
+                lambda: _abrir('visao_geral', 'pagina', usuario_logado)
         _navegar(_abas_gestao, "aba_gf")
     elif _secao == "indicadores":
         if _eh_martinsousa:

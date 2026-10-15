@@ -75,12 +75,16 @@ def quadro_de(lanc, finalidade, nomes_assin):
     return _POR_FINALIDADE.get(fin, "Outros")
 
 
-def itens_pagos(lancs, nomes_assin):
+def itens_pagos(lancs, nomes_assin, com_origem=False):
     """Os lançamentos do mês que consomem a meta, um por linha, com o quadro.
 
     Soma o mesmo que `lancamentos.resumo_por_finalidade(lancs)`: cada
     lançamento entra com o que o resumo conta dele, e o pagamento da fatura
     entra numa linha só, pelo resto que as compras anexadas não explicam.
+
+    `com_origem` acrescenta `descricao` e `cartao` — é por eles que a Visão
+    Geral diz a MODALIDADE (PIX, boleto, cartão…). A tela daqui não os pede:
+    o dataframe dela mostraria duas colunas a mais.
     """
     import lancamentos as _lan
     fora = []
@@ -94,21 +98,29 @@ def itens_pagos(lancs, nomes_assin):
         if not v:
             continue
         fin = next(iter(r))
-        fora.append({"data": str(l.get("data") or "")[:10],
-                     "quadro": quadro_de(l, fin, nomes_assin),
-                     "favorecido": str(l.get("favorecido")
-                                       or l.get("descricao") or "")[:60],
-                     "finalidade": fin, "valor": v,
-                     "conta": str(l.get("conta") or "")})
+        item = {"data": str(l.get("data") or "")[:10],
+                "quadro": quadro_de(l, fin, nomes_assin),
+                "favorecido": str(l.get("favorecido")
+                                  or l.get("descricao") or "")[:60],
+                "finalidade": fin, "valor": v,
+                "conta": str(l.get("conta") or "")}
+        if com_origem:
+            item["descricao"] = str(l.get("descricao") or "")
+            item["cartao"] = bool(_lan.eh_do_cartao(l))
+        fora.append(item)
     resto = round(_lan.cartao_pago(lancs) - _lan.cartao_detalhado(lancs), 2)
     if pagamentos and resto > 0:
-        fora.append({"data": max(str(p.get("data") or "")[:10]
-                                 for p in pagamentos),
-                     "quadro": "Cartões",
-                     "favorecido": "Fatura paga, compras não anexadas",
-                     "finalidade": _lan.FATURA, "valor": resto,
-                     "conta": " e ".join(sorted({str(p.get("conta") or "")
-                                                 for p in pagamentos}))})
+        item = {"data": max(str(p.get("data") or "")[:10]
+                            for p in pagamentos),
+                "quadro": "Cartões",
+                "favorecido": "Fatura paga, compras não anexadas",
+                "finalidade": _lan.FATURA, "valor": resto,
+                "conta": " e ".join(sorted({str(p.get("conta") or "")
+                                            for p in pagamentos}))}
+        if com_origem:
+            item["descricao"] = "Fatura paga, compras não anexadas"
+            item["cartao"] = True
+        fora.append(item)
     return sorted(fora, key=lambda i: (i["data"], -i["valor"]))
 
 
