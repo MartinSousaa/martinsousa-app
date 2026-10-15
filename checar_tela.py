@@ -3236,6 +3236,86 @@ def _lembretes_na_home(conta):
         _lem.carregar_feitos, _ch_l.carregar, _no_l.carregar = _g
 
 
+def _visao_geral(conta):
+    """15/10: a aba Visão Geral desenha inteira — resumo por finalidade, o
+    detalhe por modalidade e o mês corrente. Só a planilha e a rede são
+    trocadas: os lançamentos passam por `resumo_mensal.itens_pagos` e a
+    planilha por `controle_ms.ler`, de verdade."""
+    import io as _io_v
+    import openpyxl as _ox_v
+    import pandas as _pd_v
+    import auth as _au_v
+    import controle_ms as _cms_v
+    import lancamentos as _lan_v
+    import assinaturas as _as_v
+    import custo_fixo as _cf_v
+    import ajustes as _aj_v
+    import custo_real as _cr_v
+    import nao_operacional as _no_v
+    import folha_salarial as _fs_v
+    import lpv_mensal as _lm_v
+    import previsto as _pv_v
+    import visao_geral as _vg
+    _wb = _ox_v.Workbook()
+    _ws = _wb.active
+    _ws.title = "SAIDAS PIX-BOLETO 2026"
+    _ws.append([None, "Data", "Operação", "DESTINATÁRIO", "FINALIDADE", "Valor", "Banco"])
+    _ws.append([None, "2026-07-06", "PIX ENVIADO", "Z", "EMBALAGEM", -50.0, "INTER LG"])
+    for _n, _c in (("CARTÕES", ["MÊS/ANO", "FINALIDADE", "Valor"]),
+                   ("SIMPLES - FLEX", ["MÊS/ANO", "VALOR", "FINALIDADE"]),
+                   ("ADS E CROSS", ["MÊS/ANO", "DESCRIÇÃO", "COBRANÇA"])):
+        _wb.create_sheet(_n).append(_c)
+    _wb["ADS E CROSS"].append(["jul2026", "PUBLICIDADE", 3119.76])
+    _b = _io_v.BytesIO()
+    _wb.save(_b)
+    _lancs = [{"data": "2026-07-10", "valor": -300.0, "conta": "itau-0099275-0",
+               "descricao": "BOLETO PAGO", "favorecido": "ENEL",
+               "finalidade": "CUSTO FIXO", "tipo": ""}]
+    _g = (_cms_v._bytes_do_arquivo, _lan_v.carregar, _as_v.carregar,
+          _cf_v.carregar, _aj_v.carregar, _cr_v.carregar, _no_v.carregar,
+          _fs_v.carregar, _lm_v.lpv_do_ano, _lm_v.custo_operacional_do_ano,
+          _pv_v.do_mes, _au_v.eh_dono)
+    _textos = []
+    _falso = instalar()
+    _falso.markdown = lambda t, *a, **k: _textos.append(str(t))
+    _falso.selectbox = lambda rot, opcoes, *a, **k: list(opcoes)[0]
+    _falso.radio = lambda rot, opcoes, *a, **k: list(opcoes)[k.get("index", 0) or 0]
+    _vg.st = _falso
+    try:
+        _cms_v._bytes_do_arquivo = lambda: (_b.getvalue(), "")
+        _vg.da_planilha.clear()
+        _vg.dados_do_ano.clear()
+        _lan_v.carregar = lambda: list(_lancs)
+        _as_v.carregar = lambda: []
+        _cf_v.carregar = lambda aba: _pd_v.DataFrame(columns=_cf_v.COLUNAS)
+        _aj_v.carregar = lambda: _pd_v.DataFrame(columns=_aj_v.COLUNAS)
+        _cr_v.carregar = lambda: {}
+        _no_v.carregar = lambda: _pd_v.DataFrame(columns=_no_v.COLUNAS)
+        _fs_v.carregar = lambda: _pd_v.DataFrame()
+        _lm_v.lpv_do_ano = lambda ano: ({7: {"lpv": 16.90}}, "")
+        _lm_v.custo_operacional_do_ano = lambda ano: ({7: {"co": 14623.49, "motivo": ""}}, "")
+        _pv_v.do_mes = lambda a, m: ({}, [])
+        _au_v.eh_dono = lambda u: True
+        _vg.pagina("leo")
+        _j = " ".join(_textos)
+        conta("Visão Geral: resumo, detalhe e mês corrente desenham",
+              "RESUMO POR FINALIDADE" in _j and "DETALHE POR MODALIDADE" in _j
+              and "ESTE MÊS" in _j, "")
+        conta("Visão Geral: planilha (P) e Studio (S) no mesmo resumo",
+              "EMBALAGEM" in _j and "CUSTO FIXO" in _j and "R$ 16,90" in _j, "")
+    except (_Rerun, _Parou):
+        conta("Visão Geral: a tela monta", True, "")
+    except Exception as e:
+        conta("Visão Geral: a tela monta", False, f"{type(e).__name__}: {e}")
+    finally:
+        (_cms_v._bytes_do_arquivo, _lan_v.carregar, _as_v.carregar,
+         _cf_v.carregar, _aj_v.carregar, _cr_v.carregar, _no_v.carregar,
+         _fs_v.carregar, _lm_v.lpv_do_ano, _lm_v.custo_operacional_do_ano,
+         _pv_v.do_mes, _au_v.eh_dono) = _g
+        _vg.da_planilha.clear()
+        _vg.dados_do_ano.clear()
+
+
 def _historico_na_home(conta):
     """13/10: a sub-aba Histórico abre pela Home e mostra os meses fechados.
 
@@ -3360,6 +3440,7 @@ def main():
     _boletos_na_tela(conta)
     _historico_na_home(conta)
     _lembretes_na_home(conta)
+    _visao_geral(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0

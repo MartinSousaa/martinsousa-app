@@ -3241,6 +3241,49 @@ MUTACOES = [
         "        if d.weekday() < 5:\n",
         ["python3", "lembretes.py"],
     ),
+    # ── 15/10: VISAO GERAL ───────────────────────────────────────────────
+    (
+        "a planilha volta a somar por cima do extrato do mesmo banco e mes",
+        "visao_geral.py",
+        "                or (mes, banco) in tem_banco):\n",
+        "                or False):\n",
+        ["python3", "visao_geral.py"],
+    ),
+    (
+        "o cartao da planilha volta a somar por cima da fatura do Studio",
+        "visao_geral.py",
+        "        if not mes.startswith(pref) or mes in tem_cartao:\n",
+        "        if not mes.startswith(pref):\n",
+        ["python3", "visao_geral.py"],
+    ),
+    (
+        "a assinatura paga no cartao volta a sumir dentro do cartao no resumo",
+        "visao_geral.py",
+        '            fin = ("ASSINATURAS" if i.get("quadro") == "Assinaturas"\n',
+        '            fin = ("ASSINATURAS" if False\n',
+        ["python3", "visao_geral.py"],
+    ),
+    (
+        "o mes corrente passa a receber o cadastro como se estivesse pago",
+        "visao_geral.py",
+        "        if (int(ano), m) >= (hoje.year, hoje.month):\n            break\n",
+        "",
+        ["python3", "visao_geral.py"],
+    ),
+    (
+        "a aba Visao Geral some da barra",
+        "app.py",
+        "                lambda: _abrir('visao_geral', 'pagina', usuario_logado)\n",
+        "                lambda: None\n",
+        ["python3", "visao_geral.py"],
+    ),
+    (
+        "o cheque volta a somar por cima do extrato do Itau LG",
+        "visao_geral.py",
+        "        if not mes.startswith(pref) or (mes, BANCO_DOS_CHEQUES) in tem_banco:\n",
+        "        if not mes.startswith(pref):\n",
+        ["python3", "visao_geral.py"],
+    ),
 ]
 
 
