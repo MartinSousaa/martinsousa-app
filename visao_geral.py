@@ -257,10 +257,10 @@ def juntar(ano, studio, saidas, cartoes, impostos, cheques=None):
             continue
         v = _num(r.get("VALOR"))
         if v:
+            # DASS e DARF são pagos como guia, isto é, boleto (dono, 15/10).
             fora.append({"mes": mes, "fonte": "P", "valor": v,
-                         "finalidade": "IMPOSTOS",
-                         "modalidade": "NÃO IDENTIFICADO", "banco": "",
-                         "cartao": False})
+                         "finalidade": "IMPOSTOS", "modalidade": "BOLETO",
+                         "banco": "", "cartao": False})
     return fora
 
 
@@ -742,8 +742,9 @@ if __name__ == "__main__":
        not any(i["fonte"] == "P" and i["cartao"] for i in _set))
     ok("agosto sem fatura no Studio: o cartão vem da planilha",
        any(i["fonte"] == "P" and i["cartao"] and i["valor"] == 70.0 for i in _ago))
-    ok("imposto da SIMPLES - FLEX: só DASS/DARF, e no mês sem imposto no Studio",
-       [round(i["valor"], 2) for i in _ago if i["finalidade"] == "IMPOSTOS"] == [945.73])
+    ok("imposto da SIMPLES - FLEX: só DASS/DARF, no mês sem imposto no Studio, como boleto",
+       [(round(i["valor"], 2), i["modalidade"]) for i in _ago
+        if i["finalidade"] == "IMPOSTOS"] == [(945.73, "BOLETO")])
 
     import cheques as _ch_t
     _chq = [_ch_t.normalizar({"tipo": "CHEQUE", "vencimento": "2026-08-15",
