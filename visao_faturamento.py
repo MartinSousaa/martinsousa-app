@@ -37,10 +37,12 @@ from datetime import date, datetime, timedelta
 
 import streamlit as st
 
+# Formato de dinheiro e nome do mês: os mesmos da aba Financeira, e não cópia
+# (Forma 5 — duas respostas para a mesma pergunta passam a discordar).
+from visao_geral import _MES_TXT, _brl  # noqa: E402
+
 MESES = ("JAN", "FEV", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "OUT",
          "NOV", "DEZ")
-_MES_TXT = ("jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set",
-            "out", "nov", "dez")
 ABA_BASE = "BASE DE VENDAS 2026"
 ABA_CONSOLIDADO = "FAT. CONSOLIDADO"
 ABA_DINAMICA = "DINAMICA"
@@ -392,7 +394,24 @@ def bling_do_mes_corrente(hoje):
     return _hg._faturamento_bling(hoje.year, hoje.month)
 
 
+class _FalhaBling(Exception):
+    def __init__(self, lista, erro):
+        super().__init__(erro)
+        self.lista, self.erro = lista, erro
+
+
 @st.cache_data(ttl=1800, show_spinner=False)
+def _pedidos_da_conta(conta, ini, fim):
+    """Só o que veio SEM erro fica guardado: o `st.cache_data` não guarda
+    exceção, então uma falha do Bling é tentada de novo no próximo clique,
+    em vez de ficar meia hora na tela."""
+    import bling_api as _bl
+    lista, erro = _bl.pedidos_resumidos(conta, ini, fim)
+    if erro:
+        raise _FalhaBling(lista, erro)
+    return lista
+
+
 def pedidos_do_bling(ano, mes):
     """(pedidos das duas contas de 3 dias antes a 3 dias depois do mês, erros)."""
     import calendar
@@ -401,10 +420,11 @@ def pedidos_do_bling(ano, mes):
     fim = date(int(ano), int(mes), calendar.monthrange(int(ano), int(mes))[1]) + timedelta(days=3)
     todos, erros = [], []
     for conta in _bl.CONTAS:
-        lista, erro = _bl.pedidos_resumidos(conta, ini.isoformat(), fim.isoformat())
-        if erro:
-            erros.append(f"{conta.upper()}: {erro}")
-        todos += lista
+        try:
+            todos += _pedidos_da_conta(conta, ini.isoformat(), fim.isoformat())
+        except _FalhaBling as f:
+            erros.append(f"{conta.upper()}: {f.erro}")
+            todos += f.lista
     return todos, erros
 
 
@@ -428,16 +448,9 @@ TEXTO, SEC, MUTED = "#E8EAED", "#9AA3AE", "#6b737c"
 REAL, ML, SHP, SHE = "#2E9E6A", "#4F93D6", "#C2801C", "#9579E0"
 BOM, RUIM = "#4CC38A", "#E5534B"
 VERDE_A, AZUL_A = "#5be0a0", "#7db4ec"
-GLASS = (f"background:linear-gradient(160deg,#3a3a3a 0%,#2e2e2e 100%);"
+VIDRO = (f"background:linear-gradient(160deg,#3a3a3a 0%,#2e2e2e 100%);"
          f"border:1px solid {BORDA};border-radius:16px;"
          f"box-shadow:0 8px 24px rgba(0,0,0,.25)")
-
-
-def _brl(v, casas=0):
-    if v is None:
-        return "—"
-    s = f"{float(v):,.{casas}f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    return f"R$ {s}"
 
 
 def _n(v):
@@ -458,8 +471,8 @@ def _uc(v):
     return "—" if v is None else f"{v:.2f}".replace(".", ",")
 
 
-def _caixa(t, miolo):
-    return (f'<div style="{GLASS};padding:18px;margin-top:14px">'
+def _vidro(t, miolo):
+    return (f'<div style="{VIDRO};padding:18px;margin-top:14px">'
             f'<div style="text-align:center;font-size:12px;font-weight:800;'
             f'letter-spacing:.14em;color:{SEC};margin-bottom:14px">{t}</div>{miolo}</div>')
 
@@ -720,14 +733,14 @@ def _trilha(rot, real, meta, fmt, cor):
 def html_resumo_time(d, tri, fat_ano, vendas_ano, uc_ano, saldo_ano, meta_anual, ate):
     """O resumo para o time (opção 2 aprovada): o círculo da meta e as trilhas."""
     pct = fat_ano / meta_anual * 100 if meta_anual else 0
-    kp = lambda a, b, c: (f'<div style="{GLASS};padding:14px"><div style="font-size:11px;color:{SEC};letter-spacing:.12em">{a}</div>'
+    kp = lambda a, b, c: (f'<div style="{VIDRO};padding:14px"><div style="font-size:11px;color:{SEC};letter-spacing:.12em">{a}</div>'
                           f'<div style="font-size:26px;font-weight:800">{b}</div><div style="font-size:11px">{c}</div></div>')
     mf = sum(t[1] for t in tri if t[2] is not None and t[1])
     rf = sum(t[2] for t in tri if t[2] is not None)
     mv = sum(t[3] for t in tri if t[4] is not None and t[3])
     rv = sum(t[4] for t in tri if t[4] is not None)
     blocos = lambda tit, im, ir, fmt, cor: (
-        f'<div style="{GLASS};padding:16px"><div style="font-size:11px;font-weight:800;letter-spacing:.14em;color:{SEC}">{tit}</div>'
+        f'<div style="{VIDRO};padding:16px"><div style="font-size:11px;font-weight:800;letter-spacing:.14em;color:{SEC}">{tit}</div>'
         + "".join(_trilha(f"{t[0]}º tri", t[ir], t[im], fmt, cor) for t in tri)
         + f'<div style="font-size:10px;color:{MUTED};margin-top:4px">traço branco = 100% da meta</div></div>')
     ucs = [(f"{t[0]}º tri", t[5]) for t in tri if t[5]] + ([(f"{DIAS_UC} dias", d["uc30"][0])] if d["uc30"][0] else [])
@@ -743,7 +756,7 @@ def html_resumo_time(d, tri, fat_ano, vendas_ano, uc_ano, saldo_ano, meta_anual,
             f'<div style="font-size:12px;color:{SEC};letter-spacing:.14em;margin-top:2px">RESULTADO · ATÉ {ate}</div></div>'
             f'<div style="text-align:right;font-size:12px;color:{SEC}">Meta do ano<div style="font-size:20px;font-weight:800;color:{TEXTO}">{_brl(meta_anual)}</div></div></div>'
             f'<div style="display:grid;grid-template-columns:250px 1fr;gap:12px">'
-            f'<div style="{GLASS};padding:10px;display:flex;flex-direction:column;align-items:center;justify-content:center">{_svg_donut(pct)}'
+            f'<div style="{VIDRO};padding:10px;display:flex;flex-direction:column;align-items:center;justify-content:center">{_svg_donut(pct)}'
             f'<div style="font-size:12px;color:{SEC}">faltam <b style="color:{TEXTO}">{_brl(max((meta_anual or 0) - fat_ano, 0))}</b></div></div>'
             f'<div><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:12px">'
             + kp("FATURADO", _brl(fat_ano), _chip((rf / mf - 1) * 100) if mf else "")
@@ -752,7 +765,7 @@ def html_resumo_time(d, tri, fat_ano, vendas_ano, uc_ano, saldo_ano, meta_anual,
             + kp("SALDO UC", _n(saldo_ano), f'<span style="color:{SEC}">UC total − vendas</span>')
             + '</div><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">'
             + blocos("FATURAMENTO · TRIMESTRES", 1, 2, _k, VERDE_A) + blocos("VENDAS · TRIMESTRES", 3, 4, _n, AZUL_A)
-            + f'<div style="{GLASS};padding:16px"><div style="font-size:11px;font-weight:800;letter-spacing:.14em;color:{SEC}">UC · TRIMESTRES</div>{uc_lins}</div>'
+            + f'<div style="{VIDRO};padding:16px"><div style="font-size:11px;font-weight:800;letter-spacing:.14em;color:{SEC}">UC · TRIMESTRES</div>{uc_lins}</div>'
             + '</div></div></div></div>')
 
 
@@ -779,9 +792,9 @@ def pagina(usuario_logado, ano, hoje):
     rf = sum(t[2] for t in tri if t[2] is not None)
     mv = sum(t[3] for t in tri if t[4] is not None and t[3])
     rv = sum(t[4] for t in tri if t[4] is not None)
-    card = lambda a, b, c: (f'<div style="{GLASS};padding:14px;text-align:center"><div style="font-size:12px;color:{SEC}">{a}</div>'
+    card = lambda a, b, c: (f'<div style="{VIDRO};padding:14px;text-align:center"><div style="font-size:12px;color:{SEC}">{a}</div>'
                             f'<div style="font-size:26px;font-weight:800;margin:2px 0">{b}</div><div style="font-size:11px;color:{MUTED}">{c}</div></div>')
-    acum = lambda tit, txt, bom: (f'<div style="{GLASS};padding:12px;text-align:center"><span style="color:{SEC};font-size:12px">{tit}</span>'
+    acum = lambda tit, txt, bom: (f'<div style="{VIDRO};padding:12px;text-align:center"><span style="color:{SEC};font-size:12px">{tit}</span>'
                                   f'<div style="font-size:22px;font-weight:800;color:{BOM if bom else RUIM}">{txt}</div></div>')
     topo = (f'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">'
             + card("Faturado no ano", _brl(fat_ano, 2), "faturamento − devolução"
@@ -806,26 +819,26 @@ def pagina(usuario_logado, ano, hoje):
                     f'<div style="font-size:11px;color:{MUTED};margin-top:4px">meta: {metas.get("fonte")}</div></div>')
     else:
         meta_box = f'<div style="color:{SEC};text-align:center">Sem meta do ano na DINAMICA nem ano anterior completo.</div>'
-    st.markdown(_caixa(f"META {ano} E O ANO ACUMULADO",
+    st.markdown(_vidro(f"META {ano} E O ANO ACUMULADO",
                        f'<div style="display:grid;grid-template-columns:320px 1fr;gap:24px;align-items:center">'
                        f'{meta_box}<div>{_svg_acumulado(fat_mes, metas.get("fat"))}</div></div>'), unsafe_allow_html=True)
     cartoes = "".join(
-        f'<div style="{GLASS};padding:14px"><div style="text-align:center;font-weight:800;letter-spacing:.1em">{q}º TRIMESTRE</div>'
+        f'<div style="{VIDRO};padding:14px"><div style="text-align:center;font-weight:800;letter-spacing:.1em">{q}º TRIMESTRE</div>'
         + _barra_meta("Faturamento", mf_, rf_, _k) + _barra_meta("Vendas", mv_, rv_, _n)
         + (f'<div style="margin-top:12px;display:flex;justify-content:space-between;border-top:1px solid {BORDA};padding-top:10px">'
            f'<span style="color:{SEC};font-size:12px;font-weight:700">UC</span><span style="font-size:18px;font-weight:800">{_uc(uc_)}</span></div>'
            f'<div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:{SEC}">saldo UC</span><b>{_n(sal_)}</b></div>'
            if uc_ else f'<div style="margin-top:12px;border-top:1px solid {BORDA};padding-top:10px;color:{MUTED};font-size:12px">UC: em andamento</div>')
         + '</div>' for q, mf_, rf_, mv_, rv_, uc_, sal_ in tri)
-    st.markdown(_caixa("RESULTADOS TRIMESTRAIS", f'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">{cartoes}</div>'),
+    st.markdown(_vidro("RESULTADOS TRIMESTRAIS", f'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">{cartoes}</div>'),
                 unsafe_allow_html=True)
-    st.markdown(_caixa("UC · RESULTADOS MENSAIS E TRIMESTRAIS", _svg_uc(d, hoje, ano)), unsafe_allow_html=True)
-    st.markdown(_caixa(f"MÊS A MÊS · {int(ano) - 1} × {ano}", _tabela(d, fat_mes, hoje, ano, bling_mes is not None)), unsafe_allow_html=True)
+    st.markdown(_vidro("UC · RESULTADOS MENSAIS E TRIMESTRAIS", _svg_uc(d, hoje, ano)), unsafe_allow_html=True)
+    st.markdown(_vidro(f"MÊS A MÊS · {int(ano) - 1} × {ano}", _tabela(d, fat_mes, hoje, ano, bling_mes is not None)), unsafe_allow_html=True)
     if d["plataformas"]:
-        st.markdown(_caixa(f"FATURAMENTO POR MARKETPLACE · {ano}", _plataformas(d["plataformas"])), unsafe_allow_html=True)
+        st.markdown(_vidro(f"FATURAMENTO POR MARKETPLACE · {ano}", _plataformas(d["plataformas"])), unsafe_allow_html=True)
 
     # ── CONFERÊNCIA BLING × PLANILHA ──
-    st.markdown(_caixa("CONFERÊNCIA · BLING × PLANILHAS DAS PLATAFORMAS",
+    st.markdown(_vidro("CONFERÊNCIA · BLING × PLANILHAS DAS PLATAFORMAS",
                        f'<div style="font-size:12px;color:{SEC};text-align:center">Só mês pronto: toda venda com SKU e preço de custo. '
                        f'Compara pedido a pedido pelo número da plataforma.</div>'), unsafe_allow_html=True)
     estado = []
@@ -885,7 +898,7 @@ def pagina(usuario_logado, ano, hoje):
     # ── RESUMO PARA O TIME ──
     ult = max(d["meses"]) if d["meses"] else hoje.month
     resumo = html_resumo_time(d, tri, fat_ano, vendas_ano, uc_ano, saldo_ano, meta_anual, f"{MESES[ult - 1]}/{ano}")
-    st.markdown(_caixa("RESUMO PARA O TIME · PRONTO PARA RECORTAR", resumo), unsafe_allow_html=True)
+    st.markdown(_vidro("RESUMO PARA O TIME · PRONTO PARA RECORTAR", resumo), unsafe_allow_html=True)
     pagina_html = (f'<!doctype html><html><head><meta charset="utf-8"><title>Resumo {ano}</title></head>'
                    f'<body style="background:{FUNDO};color:{TEXTO};font-family:-apple-system,Segoe UI,Roboto,sans-serif;'
                    f'margin:auto;padding:16px;max-width:1260px">{resumo}</body></html>')
@@ -1022,6 +1035,36 @@ if __name__ == "__main__":
     import inspect
     ok("o Bling do mês é a mesma conta da Home",
        "_hg._faturamento_bling(hoje.year, hoje.month)" in inspect.getsource(bling_do_mes_corrente))
+    # pedidos do Bling pela CADEIA: `pedidos_do_bling` → `bling_api.pedidos_resumidos`
+    # → `pedido_resumido`, com só a rede trocada (formatos de `_paginar_pedidos`,
+    # `id_de_cancelado` e `canais_de_venda`, conferidos em bling_api.py).
+    import bling_api as _bl
+    _orig = (_bl._paginar_pedidos, _bl.id_de_cancelado, _bl.canais_de_venda)
+    _chamadas = []
+
+    def _pag(conta, ini, fim, max_paginas=60):
+        _chamadas.append(conta)
+        if conta == "lg" and _chamadas.count("lg") == 1:
+            return ([], "429 Too Many Requests")
+        return ([{"numero": 7, "numeroLoja": f"PED-{conta}", "data": "2026-09-20 10:00:00",
+                  "total": "49.90", "loja": {"id": 11}, "situacao": {"id": 9}}], "")
+    try:
+        _bl._paginar_pedidos = _pag
+        _bl.id_de_cancelado = lambda c: ({9}, "")
+        _bl.canais_de_venda = lambda c: ({11: "Shopee MS"}, "")
+        _pedidos_da_conta.clear()
+        p1, e1 = pedidos_do_bling(2026, 9)
+        p2, e2 = pedidos_do_bling(2026, 9)
+        pedidos_do_bling(2026, 9)
+    finally:
+        _bl._paginar_pedidos, _bl.id_de_cancelado, _bl.canais_de_venda = _orig
+        _pedidos_da_conta.clear()
+    ok("Bling pela cadeia: numeroLoja vira o pedido, canal com nome, cancelado marcado",
+       p2 and p2[0]["pedido"] in ("PED-lg", "PED-ms") and p2[0]["canal"] == "Shopee MS"
+       and p2[0]["cancelado"] and p2[0]["total"] == 49.9 and p2[0]["data"] == "2026-09-20")
+    ok("falha do Bling NÃO fica guardada: o próximo clique tenta de novo; o que deu certo, sim",
+       e1 == ["LG: 429 Too Many Requests"] and not e2 and len(p2) == 2
+       and _chamadas.count("lg") == 2 and _chamadas.count("ms") == 1)
     _linha = lambda html, mes: next(t for t in html.split("<tr") if f">{mes}" in t)
     _tb = _tabela(d, fm, date(2026, 10, 15), 2026, False)
     ok("mês corrente sem CRESC. (mês parcial contra mês cheio dá −72% falso); o fechado tem",

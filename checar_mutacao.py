@@ -3335,6 +3335,20 @@ MUTACOES = [
         ["python3", "visao_faturamento.py"],
     ),
     (
+        "a falha do Bling volta a ficar guardada meia hora na conferencia",
+        "visao_faturamento.py",
+        "        raise _FalhaBling(lista, erro)\n    return lista\n",
+        "        pass\n    return lista\n",
+        ["python3", "visao_faturamento.py"],
+    ),
+    (
+        "os pedidos do Bling voltam a sumir quando uma pagina falha",
+        "bling_api.py",
+        "    return ([pedido_resumido(p, ids, canais) for p in lista], erro)\n",
+        "    return (([] if erro else [pedido_resumido(p, ids, canais) for p in lista]), erro)\n",
+        ["python3", "bling_api.py"],
+    ),
+    (
         "a linha curta volta a derrubar a aba do Controle MS",
         "controle_ms.py",
         "            linhas.append(linha + (None,) * (len(cabecalho) - len(linha)))\n",
