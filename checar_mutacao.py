@@ -3284,6 +3284,56 @@ MUTACOES = [
         "        if not mes.startswith(pref):\n",
         ["python3", "visao_geral.py"],
     ),
+    # ── 15/10: VISAO GERAL > FATURAMENTO E CONFERENCIA BLING ─────────────
+    (
+        "a conferencia volta a acusar pedido do Bling fora do mes",
+        "visao_faturamento.py",
+        "                if k not in planilha and str(b.get(\"data\", \"\")).startswith(alvo)]\n",
+        "                if k not in planilha]\n",
+        ["python3", "visao_faturamento.py"],
+    ),
+    (
+        "o bloco de % do FAT. CONSOLIDADO volta a sobrescrever 2025",
+        "visao_faturamento.py",
+        "        if m in vistos:\n            continue\n",
+        "",
+        ["python3", "visao_faturamento.py"],
+    ),
+    (
+        "a venda nova sem formula volta a entrar na UC e nao nas vendas",
+        "visao_faturamento.py",
+        "    return 1.0 if _num(l.get(\"FAT TOTAL\")) and not _num(l.get(\"DEVOLUÇÃO\")) > 0 else 0.0\n",
+        "    return 0.0\n",
+        ["python3", "visao_faturamento.py"],
+    ),
+    (
+        "o mes sem LPV volta a ficar sem UC",
+        "visao_faturamento.py",
+        "    lpv = _num(l.get(\"LPV\")) or float(lpv_reserva or 0)\n",
+        "    lpv = _num(l.get(\"LPV\"))\n",
+        ["python3", "visao_faturamento.py"],
+    ),
+    (
+        "a conferencia volta a rodar com a planilha pela metade",
+        "visao_faturamento.py",
+        "    return bool(r) and r[\"linhas\"] > 0 and not r[\"sem_sku\"] and not r[\"sem_custo\"]\n",
+        "    return bool(r) and r[\"linhas\"] > 0\n",
+        ["python3", "visao_faturamento.py"],
+    ),
+    (
+        "a linha curta volta a derrubar a aba do Controle MS",
+        "controle_ms.py",
+        "            linhas.append(linha + (None,) * (len(cabecalho) - len(linha)))\n",
+        "            linhas.append(linha)\n",
+        ["python3", "controle_ms.py"],
+    ),
+    (
+        "a aba Faturamento some da Visao Geral",
+        "visao_geral.py",
+        "    if aba == ABAS[1]:\n",
+        "    if False:\n",
+        ["python3", "checar_tela.py"],
+    ),
 ]
 
 

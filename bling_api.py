@@ -718,6 +718,61 @@ _MES_CACHE = {}
 _MES_CACHE_SEG = 300
 
 
+# ── Pedidos um a um, para a conferência com a planilha (15/10) ──────────────
+# "Se o sistema computa a venda, ele também tem acesso ao número dessa venda"
+# (dono). Tem: `_paginar_pedidos` já traz cada pedido inteiro; o resumo do mês
+# só somava e jogava o resto fora. Aqui fica o que a conferência precisa —
+# o número do pedido NA PLATAFORMA (`numeroLoja`, o mesmo da coluna Pedido da
+# planilha), a data, o total, o canal e se foi cancelado.
+_PED_CACHE = {}
+_PED_CACHE_SEG = 1800
+
+
+def pedido_resumido(p, ids_cancelados=(), canais=None):
+    """O pedido do Bling no formato da conferência. Função pura."""
+    loja = p.get("loja") or {}
+    lid = loja.get("id") if isinstance(loja, dict) else loja
+    try:
+        lid = int(lid)
+    except (TypeError, ValueError):
+        lid = None
+    sit = p.get("situacao") or {}
+    sid = sit.get("id") if isinstance(sit, dict) else sit
+    try:
+        sid = int(sid)
+    except (TypeError, ValueError):
+        sid = None
+    try:
+        total = float(p.get("total") or 0)
+    except (TypeError, ValueError):
+        total = 0.0
+    return {"pedido": str(p.get("numeroLoja") or "").strip(),
+            "numero_bling": str(p.get("numero") or "").strip(),
+            "data": str(p.get("data") or "")[:10],
+            "total": round(total, 2),
+            "canal": nome_do_canal(canais or {}, lid),
+            "cancelado": sid in set(ids_cancelados or ())}
+
+
+def pedidos_resumidos(conta, inicio, fim, forcar=False):
+    """[pedido_resumido] do período (AAAA-MM-DD). (lista, erro). Cache 30 min."""
+    conta = str(conta).strip().lower()
+    chave = (conta, str(inicio), str(fim))
+    agora = _t.time()
+    g = _PED_CACHE.get(chave)
+    if g and not forcar and (agora - g["ts"]) < _PED_CACHE_SEG:
+        return (g["dados"], "")
+    ids, _e = id_de_cancelado(conta)
+    canais, _e2 = canais_de_venda(conta)
+    lista, erro = _paginar_pedidos(conta, inicio, fim)
+    if erro and not lista:
+        return ([], erro)
+    dados = [pedido_resumido(p, ids, canais) for p in lista]
+    if not erro:
+        _PED_CACHE[chave] = {"ts": agora, "dados": dados}
+    return (dados, erro)
+
+
 def faturamento_do_mes(conta, ano, mes, forcar=False):
     """Faturamento do mês nessa conta. (resumo, erro).
 

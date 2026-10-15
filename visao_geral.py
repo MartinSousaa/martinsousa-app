@@ -573,6 +573,9 @@ def html_mes(restantes):
             + "</div>")
 
 
+ABAS = ("Financeira", "Faturamento")
+
+
 def pagina(usuario_logado=None):
     from datetime import datetime
     import auth as _auth
@@ -586,6 +589,13 @@ def pagina(usuario_logado=None):
     c1.markdown("### 🧭 Visão Geral")
     ano = c2.selectbox("Ano", list(range(hoje.year, 2023, -1)), index=0,
                        key="vg_ano")
+    # AS DUAS ABAS (dono, 15/10): "fará 2 abas, financeira e faturamento".
+    aba = st.radio("Visão", ABAS, horizontal=True, key="vg_aba",
+                   label_visibility="collapsed")
+    if aba == ABAS[1]:
+        import visao_faturamento as _vf
+        _vf.pagina(usuario_logado, int(ano), hoje)
+        return
     with st.spinner("Lendo extratos, cadastro e planilha…"):
         itens, ml, lpv, co, avisos = dados_do_ano(int(ano), hoje)
     if int(ano) == hoje.year:
