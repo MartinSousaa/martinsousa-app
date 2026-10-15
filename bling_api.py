@@ -973,3 +973,6 @@ if __name__ == "__main__":
        _n == ["ms", "ms"])
 
     print("\nfalhas:", falhas)
+    # `checar_mutacao` decide pelo codigo de saida: sem ele, a mutacao que
+    # aponta para ca ficaria verde por acidente.
+    raise SystemExit(1 if falhas else 0)
