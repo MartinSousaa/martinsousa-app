@@ -3321,6 +3321,20 @@ MUTACOES = [
         ["python3", "visao_faturamento.py"],
     ),
     (
+        "o mes corrente volta a mostrar CRESC. contra o mes cheio do ano anterior",
+        "visao_faturamento.py",
+        "            cf = ((f1 / f0 - 1) * 100) if f0 and f1 and not corrente else None\n",
+        "            cf = ((f1 / f0 - 1) * 100) if f0 and f1 else None\n",
+        ["python3", "visao_faturamento.py"],
+    ),
+    (
+        "o selo BLING volta a aparecer sem o valor ter vindo do Bling",
+        "visao_faturamento.py",
+        "BLING</span>\" if corrente and bling else \"\"}",
+        "BLING</span>\" if corrente else \"\"}",
+        ["python3", "visao_faturamento.py"],
+    ),
+    (
         "a linha curta volta a derrubar a aba do Controle MS",
         "controle_ms.py",
         "            linhas.append(linha + (None,) * (len(cabecalho) - len(linha)))\n",

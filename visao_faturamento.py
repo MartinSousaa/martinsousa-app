@@ -631,7 +631,7 @@ def _svg_uc(d, hoje, ano):
     return cab + f'<svg viewBox="0 0 {W} {H}" width="100%">{s}</svg>' + leg
 
 
-def _tabela(d, fat_mes, hoje, ano):
+def _tabela(d, fat_mes, hoje, ano, bling=False):
     th = lambda c: (f'<th style="text-align:right;padding:7px 8px;color:{SEC};font-size:11px;font-weight:700;'
                     f'border-bottom:1px solid {BORDA};white-space:nowrap">{c}</th>')
     td = lambda v, c=TEXTO, b=False: (f'<td style="text-align:right;padding:6px 8px;font-size:12px;white-space:nowrap;'
@@ -647,12 +647,14 @@ def _tabela(d, fat_mes, hoje, ano):
         corrente = int(ano) == hoje.year and m == hoje.month
         if r:
             f1 = fat_mes.get(m)
-            cf = ((f1 / f0 - 1) * 100) if f0 and f1 else None
-            cv = ((r["vendas"] / v0 - 1) * 100) if v0 and r["vendas"] else None
+            # mês corrente é parcial: contra o mês cheio do ano anterior o
+            # crescimento sairia sempre negativo — fica "—" até fechar.
+            cf = ((f1 / f0 - 1) * 100) if f0 and f1 and not corrente else None
+            cv = ((r["vendas"] / v0 - 1) * 100) if v0 and r["vendas"] and not corrente else None
             seta = lambda x: "" if x is None else ("▲ " if x >= 0 else "▼ ")
             cor = lambda x: SEC if x is None else (BOM if x >= 0 else RUIM)
             corpo += (f'<tr style="{zebra}"><td style="padding:6px 8px;font-weight:700">{MESES[m - 1]}'
-                      f'{" <span style=font-size:9px;color:#7db4ec>BLING</span>" if corrente else ""}</td>'
+                      f'{" <span style=font-size:9px;color:#7db4ec>BLING</span>" if corrente and bling else ""}</td>'
                       + td(_brl(f0), SEC) + td(_brl(f1)) + td(seta(cf) + _p(cf), cor(cf), True)
                       + td(_n(v0), SEC) + td(_n(r["vendas"])) + td(seta(cv) + _p(cv), cor(cv), True)
                       + td(_brl(r["fat_total"] / r["vendas"], 2) if r["vendas"] else "—")
@@ -818,7 +820,7 @@ def pagina(usuario_logado, ano, hoje):
     st.markdown(_caixa("RESULTADOS TRIMESTRAIS", f'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">{cartoes}</div>'),
                 unsafe_allow_html=True)
     st.markdown(_caixa("UC · RESULTADOS MENSAIS E TRIMESTRAIS", _svg_uc(d, hoje, ano)), unsafe_allow_html=True)
-    st.markdown(_caixa(f"MÊS A MÊS · {int(ano) - 1} × {ano}", _tabela(d, fat_mes, hoje, ano)), unsafe_allow_html=True)
+    st.markdown(_caixa(f"MÊS A MÊS · {int(ano) - 1} × {ano}", _tabela(d, fat_mes, hoje, ano, bling_mes is not None)), unsafe_allow_html=True)
     if d["plataformas"]:
         st.markdown(_caixa(f"FATURAMENTO POR MARKETPLACE · {ano}", _plataformas(d["plataformas"])), unsafe_allow_html=True)
 
@@ -1020,6 +1022,14 @@ if __name__ == "__main__":
     import inspect
     ok("o Bling do mês é a mesma conta da Home",
        "_hg._faturamento_bling(hoje.year, hoje.month)" in inspect.getsource(bling_do_mes_corrente))
+    _linha = lambda html, mes: next(t for t in html.split("<tr") if f">{mes}" in t)
+    _tb = _tabela(d, fm, date(2026, 10, 15), 2026, False)
+    ok("mês corrente sem CRESC. (mês parcial contra mês cheio dá −72% falso); o fechado tem",
+       "▼" not in _linha(_tb, "OUT") and "▲" not in _linha(_tb, "OUT")
+       and ("▼" in _linha(_tb, "SET") or "▲" in _linha(_tb, "SET")))
+    ok("selo BLING só quando o valor do mês veio do Bling",
+       "BLING" not in _linha(_tb, "OUT")
+       and "BLING" in _linha(_tabela(d, fm, date(2026, 10, 15), 2026, True), "OUT"))
     tri = trimestres(d, fm)
     ok("trimestre só fecha com os três meses", tri[2][2] is None and tri[3][2] is None)
     h = html_resumo_time(d, tri, 5200.0, 4, 1.25, 1, 2700000, "OUT/2026")
