@@ -3235,6 +3235,20 @@ MUTACOES = [
         ["python3", "checar_tela.py"],
     ),
     (
+        "os lembretes voltam a mostrar a semana inteira, e nao so o que vence amanha",
+        "lembretes.py",
+        '    return [x for x in itens if x["dias"] == 1]\n',
+        '    return [x for x in itens if x["dias"] <= 7]\n',
+        ["python3", "lembretes.py"],
+    ),
+    (
+        "o quadro de lembretes volta a aparecer vazio",
+        "lembretes.py",
+        "    if not perto:\n        return",
+        "    if False:\n        return",
+        ["python3", "checar_tela.py"],
+    ),
+    (
         "o 5o dia util volta a contar o feriado",
         "lembretes.py",
         "        if d.weekday() < 5 and d not in fer:\n",

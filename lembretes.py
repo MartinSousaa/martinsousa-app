@@ -42,7 +42,6 @@ ABA = "lembretes_feitos"
 COLUNAS = ["chave", "vencimento", "feito_em", "feito_por"]
 DIAS_PARA_FRENTE = 31
 DIAS_PARA_TRAS = 5
-DESTAQUE_DIAS = 7
 
 # (id, nome, regra, detalhe). A regra: ("dia", n) | ("dia_util", n).
 REGRAS = [
@@ -173,6 +172,12 @@ def pendentes(hoje, feitos, boletos=(), nao_op=()):
     return sorted(fora, key=lambda x: (x["data"], x["nome"]))
 
 
+def para_mostrar(itens):
+    """O que vai para a Home: só o que vence AMANHÃ (dono, 16/10 — "somente é
+    para aparecer quando o vencimento for no dia seguinte"). Pura."""
+    return [x for x in itens if x["dias"] == 1]
+
+
 def quando(dias):
     if dias < 0:
         return f"atrasado {-dias} dia(s)"
@@ -236,8 +241,8 @@ def _cartao(x):
 
 
 def mostrar(st_, usuario, hoje):
-    """O quadro do topo da Home: os próximos 7 dias em cartões, cada um com
-    ✓ Feito; o resto do mês numa linha. Nada de valor — só lembrete."""
+    """O quadro do topo da Home: o que vence amanhã, em cartões com ✓ Feito.
+    Nada vencendo amanhã, nada aparece. Nada de valor — só lembrete."""
     import cheques as _ch
     import nao_operacional as _no
     feitos, erro = carregar_feitos()
@@ -250,18 +255,16 @@ def mostrar(st_, usuario, hoje):
         nao_op = _df.to_dict("records") if not _df.empty else []
     except Exception:
         nao_op = []
-    itens = pendentes(hoje, feitos, bol, nao_op)
-    perto = [x for x in itens if x["dias"] <= DESTAQUE_DIAS]
-    depois = [x for x in itens if x["dias"] > DESTAQUE_DIAS]
+    perto = para_mostrar(pendentes(hoje, feitos, bol, nao_op))
+    if not perto:
+        return          # nada vence amanhã: a Home não mostra o quadro
     with st_.container(border=True):
         st_.markdown(f'<div style="font-size:12px;font-weight:800;letter-spacing:.08em;'
-                     f'color:{AMBAR};">🔔 PAGAMENTOS A FAZER · PRÓXIMOS '
-                     f'{DESTAQUE_DIAS} DIAS</div>', unsafe_allow_html=True)
+                     f'color:{AMBAR};">🔔 PAGAMENTOS A FAZER · VENCEM AMANHÃ</div>',
+                     unsafe_allow_html=True)
         if erro:
             st_.caption(f"Não consegui ler o que já foi marcado como feito "
                         f"({erro}) — mostrando todos.")
-        if not perto:
-            st_.caption(f"Nenhum pagamento nos próximos {DESTAQUE_DIAS} dias.")
         for i in range(0, len(perto), 4):
             cols = st_.columns(4)
             for col, x in zip(cols, perto[i:i + 4]):
@@ -272,9 +275,6 @@ def mostrar(st_, usuario, hoje):
                     st_.button("✓ Feito", key=f"lem_{x['chave']}",
                                on_click=marcar_feito, args=(x, usuario),
                                use_container_width=True)
-        if depois:
-            st_.caption("Depois: " + " · ".join(
-                f"{x['data']:%d/%m} {x['nome']}" for x in depois))
 
 
 # ── Conferência ──────────────────────────────────────────────────────────────
@@ -362,6 +362,13 @@ if __name__ == "__main__":
         carregar_feitos.clear()
     ok("o lembrete não mostra valor nenhum",
        "R$" not in _cartao(dict(_p2[0], dias=0)))
+    # 16/10, o dono: "somente é para aparecer quando o vencimento for no dia
+    # seguinte". Hoje, atrasado, depois de amanhã e a semana: nada na Home.
+    _vista = para_mostrar([{"dias": d, "nome": str(d)} for d in (-3, 0, 1, 2, 7)])
+    ok("a Home só mostra o que vence AMANHÃ", [x["dias"] for x in _vista] == [1])
+    ok("pela cadeia: em 09/10 só o Bling de 10/10 (a TM de 20/10 e o salário de 30/10 não)",
+       [(x["data"], x["nome"]) for x in para_mostrar(pendentes(date(2026, 10, 9), frozenset()))]
+       == [(date(2026, 10, 10), "Bling")])
 
     print(f"\nfalhas: {falhas}")
     sys.exit(1 if falhas else 0)

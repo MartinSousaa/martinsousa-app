@@ -3219,15 +3219,20 @@ def _lembretes_na_home(conta):
         _lem.carregar_feitos = lambda: (frozenset(), "")
         _ch_l.carregar = lambda: [_bol]
         _no_l.carregar = lambda: _pd_l.DataFrame(_contr)
-        _lem.mostrar(_falso, "leo", _d_l(2026, 10, 15))
+        # 16/10, o dono: só aparece o que vence NO DIA SEGUINTE.
+        _lem.mostrar(_falso, "leo", _d_l(2026, 10, 16))
         _junto = " ".join(_textos)
-        conta("Lembretes: um ✓ Feito por cartão dos próximos 7 dias",
-              len(_botoes) >= 4 and len(set(_botoes)) == len(_botoes)
-              and all(str(b).startswith("lem_") for b in _botoes),
-              str(_botoes))
-        conta("Lembretes: boleto, não operacional e TM nos cartões, sem valor",
-              "Boleto · VIDROS SA" in _junto and "PRONAMP 1" in _junto
-              and "TM Logística" in _junto and "R$" not in _junto, "")
+        conta("Lembretes: em 16/10 só o boleto de 17/10, com um ✓ Feito",
+              len(_botoes) == 1 and str(_botoes[0]).startswith("lem_")
+              and "Boleto · VIDROS SA" in _junto, str(_botoes))
+        conta("Lembretes: o PRONAMP de 18/10 e a TM de 20/10 ainda não aparecem, e sem valor",
+              "PRONAMP 1" not in _junto and "TM Logística" not in _junto
+              and "Depois" not in _junto and "R$" not in _junto, "")
+        _botoes.clear()
+        _textos.clear()
+        _lem.mostrar(_falso, "leo", _d_l(2026, 10, 13))
+        conta("Lembretes: dia sem vencimento amanhã não desenha o quadro",
+              not _botoes and not _textos, str(_textos)[:120])
     except (_Rerun, _Parou):
         conta("Lembretes: a tela monta", True, "")
     except Exception as e:
