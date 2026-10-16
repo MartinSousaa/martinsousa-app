@@ -3235,10 +3235,24 @@ MUTACOES = [
         ["python3", "checar_tela.py"],
     ),
     (
-        "os lembretes voltam a mostrar a semana inteira, e nao so o que vence amanha",
+        "os lembretes voltam a mostrar a semana inteira, e nao so ate o proximo dia util",
         "lembretes.py",
-        '    return [x for x in itens if x["dias"] == 1]\n',
+        '    return [x for x in itens if x["data"] <= limite]\n',
         '    return [x for x in itens if x["dias"] <= 7]\n',
+        ["python3", "lembretes.py"],
+    ),
+    (
+        "o lembrete de segunda volta a aparecer so no domingo",
+        "lembretes.py",
+        "    while d.weekday() >= 5 or d in feriados_nacionais(d.year):\n",
+        "    while d in feriados_nacionais(d.year):\n",
+        ["python3", "lembretes.py"],
+    ),
+    (
+        "o atrasado sem Feito volta a sumir da Home",
+        "lembretes.py",
+        '    return [x for x in itens if x["data"] <= limite]\n',
+        '    return [x for x in itens if hoje < x["data"] <= limite]\n',
         ["python3", "lembretes.py"],
     ),
     (

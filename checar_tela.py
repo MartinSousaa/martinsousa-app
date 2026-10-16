@@ -3219,20 +3219,25 @@ def _lembretes_na_home(conta):
         _lem.carregar_feitos = lambda: (frozenset(), "")
         _ch_l.carregar = lambda: [_bol]
         _no_l.carregar = lambda: _pd_l.DataFrame(_contr)
-        # 16/10, o dono: só aparece o que vence NO DIA SEGUINTE.
+        # O que venceu até 15/10 já foi marcado Feito: o atrasado sem Feito
+        # "continua" na tela (dono, 16/10), e aqui o assunto é o futuro.
+        _passados = frozenset(x["chave"] for x in _lem.das_regras(_d_l(2026, 10, 1), _d_l(2026, 10, 15)))
+        _lem.carregar_feitos = lambda: (_passados, "")
+        # 16/10, o dono: aparece no dia útil anterior ao vencimento. Na
+        # quinta 15/10 o próximo dia útil é 16/10: o boleto de 17/10 (sáb)
+        # e o PRONAMP de 18/10 (dom) ainda não; na sexta, os dois entram.
+        _lem.mostrar(_falso, "leo", _d_l(2026, 10, 15))
+        conta("Lembretes: quinta sem vencimento até sexta não desenha o quadro",
+              not _botoes and not _textos, str(_textos)[:120])
         _lem.mostrar(_falso, "leo", _d_l(2026, 10, 16))
         _junto = " ".join(_textos)
-        conta("Lembretes: em 16/10 só o boleto de 17/10, com um ✓ Feito",
-              len(_botoes) == 1 and str(_botoes[0]).startswith("lem_")
-              and "Boleto · VIDROS SA" in _junto, str(_botoes))
-        conta("Lembretes: o PRONAMP de 18/10 e a TM de 20/10 ainda não aparecem, e sem valor",
-              "PRONAMP 1" not in _junto and "TM Logística" not in _junto
-              and "Depois" not in _junto and "R$" not in _junto, "")
-        _botoes.clear()
-        _textos.clear()
-        _lem.mostrar(_falso, "leo", _d_l(2026, 10, 13))
-        conta("Lembretes: dia sem vencimento amanhã não desenha o quadro",
-              not _botoes and not _textos, str(_textos)[:120])
+        conta("Lembretes: sexta 16/10 traz o boleto de sábado e o PRONAMP de domingo, um ✓ Feito cada",
+              len(_botoes) == 2 and len(set(_botoes)) == 2
+              and all(str(b).startswith("lem_") for b in _botoes)
+              and "Boleto · VIDROS SA" in _junto and "PRONAMP 1" in _junto, str(_botoes))
+        conta("Lembretes: a TM de 20/10 ainda não aparece, e nada de valor",
+              "TM Logística" not in _junto and "Depois" not in _junto
+              and "R$" not in _junto, "")
     except (_Rerun, _Parou):
         conta("Lembretes: a tela monta", True, "")
     except Exception as e:

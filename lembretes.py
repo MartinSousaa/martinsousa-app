@@ -172,10 +172,24 @@ def pendentes(hoje, feitos, boletos=(), nao_op=()):
     return sorted(fora, key=lambda x: (x["data"], x["nome"]))
 
 
-def para_mostrar(itens):
-    """O que vai para a Home: só o que vence AMANHÃ (dono, 16/10 — "somente é
-    para aparecer quando o vencimento for no dia seguinte"). Pura."""
-    return [x for x in itens if x["dias"] == 1]
+def proximo_dia_util(d):
+    """O primeiro dia útil DEPOIS de `d`: seg a sex, sem feriado nacional."""
+    d += timedelta(days=1)
+    while d.weekday() >= 5 or d in feriados_nacionais(d.year):
+        d += timedelta(days=1)
+    return d
+
+
+def para_mostrar(itens, hoje):
+    """O que vai para a Home (dono, 16/10). Pura.
+
+    "Somente é para aparecer quando o vencimento for no dia seguinte" —
+    "sempre considerando dia útil": aparece no dia útil anterior. Na sexta,
+    entra o que vence no sábado, no domingo e na segunda.
+    O que vence hoje, ou venceu e ninguém marcou Feito, "continua".
+    """
+    limite = proximo_dia_util(hoje)
+    return [x for x in itens if x["data"] <= limite]
 
 
 def quando(dias):
@@ -255,12 +269,12 @@ def mostrar(st_, usuario, hoje):
         nao_op = _df.to_dict("records") if not _df.empty else []
     except Exception:
         nao_op = []
-    perto = para_mostrar(pendentes(hoje, feitos, bol, nao_op))
+    perto = para_mostrar(pendentes(hoje, feitos, bol, nao_op), hoje)
     if not perto:
         return          # nada vence amanhã: a Home não mostra o quadro
     with st_.container(border=True):
         st_.markdown(f'<div style="font-size:12px;font-weight:800;letter-spacing:.08em;'
-                     f'color:{AMBAR};">🔔 PAGAMENTOS A FAZER · VENCEM AMANHÃ</div>',
+                     f'color:{AMBAR};">🔔 PAGAMENTOS A FAZER · ATÉ O PRÓXIMO DIA ÚTIL</div>',
                      unsafe_allow_html=True)
         if erro:
             st_.caption(f"Não consegui ler o que já foi marcado como feito "
@@ -362,13 +376,23 @@ if __name__ == "__main__":
         carregar_feitos.clear()
     ok("o lembrete não mostra valor nenhum",
        "R$" not in _cartao(dict(_p2[0], dias=0)))
-    # 16/10, o dono: "somente é para aparecer quando o vencimento for no dia
-    # seguinte". Hoje, atrasado, depois de amanhã e a semana: nada na Home.
-    _vista = para_mostrar([{"dias": d, "nome": str(d)} for d in (-3, 0, 1, 2, 7)])
-    ok("a Home só mostra o que vence AMANHÃ", [x["dias"] for x in _vista] == [1])
-    ok("pela cadeia: em 09/10 só o Bling de 10/10 (a TM de 20/10 e o salário de 30/10 não)",
-       [(x["data"], x["nome"]) for x in para_mostrar(pendentes(date(2026, 10, 9), frozenset()))]
-       == [(date(2026, 10, 10), "Bling")])
-
+    # 16/10, o dono: só o que vence no próximo dia útil; o de hoje e o
+    # atrasado sem Feito continuam.
+    _qui, _sex = date(2026, 10, 15), date(2026, 10, 16)
+    _it = [{"data": _qui + timedelta(days=k), "dias": k, "nome": str(k)} for k in (-3, 0, 1, 2, 3, 4, 5)]
+    ok("quinta: aparece o atrasado, o de hoje e o de sexta — o de sábado não",
+       [x["dias"] for x in para_mostrar(_it, _qui)] == [-3, 0, 1])
+    ok("sexta: entram sábado, domingo e segunda (o próximo dia útil)",
+       [x["data"] for x in para_mostrar(_it, _sex)][-1] == date(2026, 10, 19)
+       and date(2026, 10, 20) not in [x["data"] for x in para_mostrar(_it, _sex)])
+    ok("dia comum: ter 10/11 → qua 11/11",
+       proximo_dia_util(date(2026, 11, 10)) == date(2026, 11, 11))
+    ok("feriado no meio: sex 13/11 → seg 16/11 (15/11 é domingo)",
+       proximo_dia_util(date(2026, 11, 13)) == date(2026, 11, 16))
+    ok("feriado no dia útil seguinte: qui 19/11 → seg 23/11 (20/11 é feriado)",
+       proximo_dia_util(date(2026, 11, 19)) == date(2026, 11, 23))
+    ok("pela cadeia: em 09/10 (sex) aparece o Bling de 10/10 (sáb) e nada da TM de 20/10",
+       [(x["data"], x["nome"]) for x in para_mostrar(pendentes(date(2026, 10, 9), frozenset()), date(2026, 10, 9))]
+       == [(date(2026, 10, 5), "TM Logística"), (date(2026, 10, 7), "Bônus headcount"), (date(2026, 10, 10), "Bling")])
     print(f"\nfalhas: {falhas}")
     sys.exit(1 if falhas else 0)
