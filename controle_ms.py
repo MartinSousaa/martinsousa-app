@@ -284,7 +284,12 @@ def ler(aba, limite=None):
                 continue
             if all(c is None or str(c).strip() == "" for c in linha):
                 continue
-            linhas.append(linha[:len(cabecalho)])
+            # LINHA MAIS CURTA QUE O CABEÇALHO: lida sem a declaração de
+            # tamanho (`planilha_xlsx.abrir`), a linha acaba na última célula
+            # preenchida, e uma só delas derrubava a aba inteira no pandas
+            # ("10 columns passed, passed data had 9 columns").
+            linha = tuple(linha[:len(cabecalho)])
+            linhas.append(linha + (None,) * (len(cabecalho) - len(linha)))
             if limite and len(linhas) >= limite:
                 break
         return pd.DataFrame(linhas, columns=cabecalho or []), ""
@@ -418,6 +423,26 @@ if __name__ == "__main__":
            == [("2026-10-06", 349.99)])
     finally:
         globals()["_bytes_do_arquivo"] = _g_bytes
+
+    # A LINHA CURTA não derruba a aba (15/10).
+    _wb_c = _ox_t.Workbook()
+    _ws_c = _wb_c.active
+    _ws_c.title = "CURTA"
+    # TODA linha mais curta que o cabeçalho (o caso da FAT. CONSOLIDADO: a
+    # última coluna vazia em todas as linhas de dados) é o que o pandas recusa.
+    _ws_c.append(["A", "B", "C", "D"])
+    _ws_c.append([1, 2, 3])
+    _ws_c.append([5])
+    _b_c = io.BytesIO()
+    _wb_c.save(_b_c)
+    _g_c = _bytes_do_arquivo
+    try:
+        globals()["_bytes_do_arquivo"] = lambda: (_b_c.getvalue(), "")
+        _df_c, _err_c = ler("CURTA")
+        ok("linha mais curta que o cabeçalho não derruba a aba",
+           not _err_c and len(_df_c) == 2 and __import__("pandas").isna(_df_c["D"].iloc[1]))
+    finally:
+        globals()["_bytes_do_arquivo"] = _g_c
 
     print("\nfalhas:", falhas)
     # O CÓDIGO DE SAÍDA: sem ele, o `conferir.py` e o `checar_mutacao.py`

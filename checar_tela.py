@@ -3316,6 +3316,69 @@ def _visao_geral(conta):
         _vg.dados_do_ano.clear()
 
 
+def _visao_faturamento(conta):
+    """15/10: Visão Geral › Faturamento desenha inteira, com a conferência
+    Bling × planilha aberta. Só a planilha e o Bling são trocados: as linhas
+    têm as colunas da BASE DE VENDAS do dono e os pedidos passam por
+    `bling_api.pedido_resumido`."""
+    import datetime as _dt_f
+    import auth as _au_f
+    import bling_api as _bl_f
+    import visao_geral as _vg_f
+    import visao_faturamento as _vf
+    base = [{"MÊS/ANO": "set2026", "Data": _dt_f.datetime(2026, 9, 10), "Plataforma": "MercadoLivre1",
+             "Pedido": "2000015134692443", "SKU": "MS-1", "Produto": "Argola", "Custo Unitário": 10.0,
+             "FAT TOTAL": 100.0, "DEVOLUÇÃO": 0, "MARGEM C.": 41.26, "VENDAS": 1, "LPV": 20.63,
+             "UNI. CONT.": 2.0, "FAT - DEV": 100.0, "L.B": 70.0},
+            {"MÊS/ANO": "out2026", "Data": _dt_f.datetime(2026, 10, 5), "Plataforma": "Shopee1",
+             "Pedido": "2610050AAA", "SKU": None, "Produto": "Mini", "Custo Unitário": None,
+             "FAT TOTAL": 50.0, "DEVOLUÇÃO": 0, "MARGEM C.": 10.0, "VENDAS": None, "LPV": None,
+             "UNI. CONT.": None, "FAT - DEV": 50.0, "L.B": 20.0}]
+    plan = {"base": base, "consolidado": [{"FAT": m, "2025": 1000.0, "2025_2": 10} for m in _vf.MESES],
+            "dinamica": [(2, 11, "META 2026"), (2, 12, 2700000)]
+                        + [(8 + q, 16, f"{q}º Trimestre") for q in (1, 2, 3, 4)]
+                        + [(8 + q, 18, 600000.0) for q in (1, 2, 3, 4)]
+                        + [(16 + q, 16, f"{q}º Trimestre") for q in (1, 2, 3, 4)]
+                        + [(16 + q, 18, 7000.0) for q in (1, 2, 3, 4)]}
+    bling = [_bl_f.pedido_resumido({"numero": 1, "numeroLoja": "2000015134692443", "data": "2026-09-10",
+                                    "total": 100.0, "loja": {"id": 1}, "situacao": {"id": 6}}),
+             _bl_f.pedido_resumido({"numero": 2, "numeroLoja": "2609200SOBLING", "data": "2026-09-20",
+                                    "total": 49.99, "loja": {"id": 1}, "situacao": {"id": 6}})]
+    _g = (_vf.ler_planilha, _vf.bling_do_mes_corrente, _vf.pedidos_do_bling, _au_f.eh_dono)
+    _textos, _tabelas, _baixar = [], [], []
+    _falso = instalar()
+    _falso.markdown = lambda t, *a, **k: _textos.append(str(t))
+    _falso.selectbox = lambda rot, opcoes, *a, **k: list(opcoes)[0]
+    _falso.radio = (lambda rot, opcoes, *a, **k:
+                    "Faturamento" if k.get("key") == "vg_aba" else list(opcoes)[k.get("index", 0) or 0])
+    _falso.dataframe = lambda d, *a, **k: _tabelas.append(d)
+    _falso.download_button = lambda rot, dados, *a, **k: (_falso._registra("download_button", k), _baixar.append(k.get("file_name")))
+    _falso.session_state["vf_conf_feito"] = (2026, 9)
+    _vg_f.st = _falso
+    _vf.st = _falso
+    try:
+        _vf.ler_planilha = lambda: (plan, [])
+        _vf.bling_do_mes_corrente = lambda hoje: (5000.0, [])
+        _vf.pedidos_do_bling = lambda a, m: (bling, [])
+        _au_f.eh_dono = lambda u: True
+        _vg_f.pagina("leo")
+        _j = " ".join(_textos)
+        conta("Faturamento: meta, trimestres, UC, mês a mês e resumo para o time desenham",
+              all(t in _j for t in ("META 2026 E O ANO ACUMULADO", "RESULTADOS TRIMESTRAIS",
+                                    "UC · RESULTADOS MENSAIS", "MÊS A MÊS", "RESUMO PARA O TIME")), "")
+        conta("Faturamento: o mês corrente aparece marcado como Bling", "BLING" in _j, "")
+        conta("Faturamento: a conferência lista o pedido que está só no Bling",
+              any("2609200SOBLING" in str(getattr(t, "to_string", lambda: t)()) for t in _tabelas), "")
+        conta("Faturamento: Excel das listas e resumo para baixar",
+              "conferencia_bling_2026_09.xlsx" in _baixar and "resumo_time_2026.html" in _baixar, str(_baixar))
+    except (_Rerun, _Parou):
+        conta("Faturamento: a tela monta", True, "")
+    except Exception as e:
+        conta("Faturamento: a tela monta", False, f"{type(e).__name__}: {e}")
+    finally:
+        _vf.ler_planilha, _vf.bling_do_mes_corrente, _vf.pedidos_do_bling, _au_f.eh_dono = _g
+
+
 def _historico_na_home(conta):
     """13/10: a sub-aba Histórico abre pela Home e mostra os meses fechados.
 
@@ -3441,6 +3504,7 @@ def main():
     _historico_na_home(conta)
     _lembretes_na_home(conta)
     _visao_geral(conta)
+    _visao_faturamento(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0

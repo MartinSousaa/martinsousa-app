@@ -718,6 +718,55 @@ _MES_CACHE = {}
 _MES_CACHE_SEG = 300
 
 
+# ── Pedidos um a um, para a conferência com a planilha (15/10) ──────────────
+# "Se o sistema computa a venda, ele também tem acesso ao número dessa venda"
+# (dono). Tem: `_paginar_pedidos` já traz cada pedido inteiro; o resumo do mês
+# só somava e jogava o resto fora. Aqui fica o que a conferência precisa —
+# o número do pedido NA PLATAFORMA (`numeroLoja`, o mesmo da coluna Pedido da
+# planilha), a data, o total, o canal e se foi cancelado.
+
+
+def pedido_resumido(p, ids_cancelados=(), canais=None):
+    """O pedido do Bling no formato da conferência. Função pura."""
+    loja = p.get("loja") or {}
+    lid = loja.get("id") if isinstance(loja, dict) else loja
+    try:
+        lid = int(lid)
+    except (TypeError, ValueError):
+        lid = None
+    sit = p.get("situacao") or {}
+    sid = sit.get("id") if isinstance(sit, dict) else sit
+    try:
+        sid = int(sid)
+    except (TypeError, ValueError):
+        sid = None
+    try:
+        total = float(p.get("total") or 0)
+    except (TypeError, ValueError):
+        total = 0.0
+    return {"pedido": str(p.get("numeroLoja") or "").strip(),
+            "numero_bling": str(p.get("numero") or "").strip(),
+            "data": str(p.get("data") or "")[:10],
+            "total": round(total, 2),
+            "canal": nome_do_canal(canais or {}, lid),
+            "cancelado": sid in set(ids_cancelados or ())}
+
+
+def pedidos_resumidos(conta, inicio, fim):
+    """[pedido_resumido] do período (AAAA-MM-DD). (lista, erro).
+
+    Sem cache aqui: quem chama (`visao_faturamento.pedidos_do_bling`) guarda
+    por sessão do Streamlit, e só o que veio sem erro.
+    """
+    conta = str(conta).strip().lower()
+    ids, _e = id_de_cancelado(conta)
+    canais, _e2 = canais_de_venda(conta)
+    lista, erro = _paginar_pedidos(conta, inicio, fim)
+    if erro and not lista:
+        return ([], erro)
+    return ([pedido_resumido(p, ids, canais) for p in lista], erro)
+
+
 def faturamento_do_mes(conta, ano, mes, forcar=False):
     """Faturamento do mês nessa conta. (resumo, erro).
 
@@ -903,4 +952,27 @@ if __name__ == "__main__":
     ok("pedido sem loja tem nome próprio",
        nome_do_canal({}, None) == "sem loja no pedido")
 
+    # pedidos_resumidos com só a rede trocada: devolve TUDO o que leu mesmo
+    # com erro no meio (a conferência mostra o parcial e avisa), e não guarda.
+    _o = (_paginar_pedidos, id_de_cancelado, canais_de_venda)
+    _n = []
+    try:
+        _paginar_pedidos = lambda c, i, f, max_paginas=60: (
+            _n.append(c) or ([{"numero": 1, "numeroLoja": "X1", "data": "2026-09-02",
+                              "total": 10, "loja": {"id": 3}, "situacao": {"id": 6}}], "pág. 2: 500"))
+        id_de_cancelado = lambda c: ({6}, "")
+        canais_de_venda = lambda c: ({3: "ML1"}, "")
+        _l1, _e1 = pedidos_resumidos("MS ", "2026-09-01", "2026-09-30")
+        pedidos_resumidos("ms", "2026-09-01", "2026-09-30")
+    finally:
+        _paginar_pedidos, id_de_cancelado, canais_de_venda = _o
+    ok("pedidos_resumidos: o parcial vem junto do erro, resumido e com o canal",
+       _e1 == "pág. 2: 500" and _l1 == [{"pedido": "X1", "numero_bling": "1", "data": "2026-09-02",
+                                         "total": 10.0, "canal": "ML1", "cancelado": True}])
+    ok("pedidos_resumidos não guarda nada: quem guarda é a tela, e só o que deu certo",
+       _n == ["ms", "ms"])
+
     print("\nfalhas:", falhas)
+    # `checar_mutacao` decide pelo codigo de saida: sem ele, a mutacao que
+    # aponta para ca ficaria verde por acidente.
+    raise SystemExit(1 if falhas else 0)
