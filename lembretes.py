@@ -42,7 +42,6 @@ ABA = "lembretes_feitos"
 COLUNAS = ["chave", "vencimento", "feito_em", "feito_por"]
 DIAS_PARA_FRENTE = 31
 DIAS_PARA_TRAS = 5
-DESTAQUE_DIAS = 7
 
 # (id, nome, regra, detalhe). A regra: ("dia", n) | ("dia_util", n).
 REGRAS = [
@@ -173,6 +172,26 @@ def pendentes(hoje, feitos, boletos=(), nao_op=()):
     return sorted(fora, key=lambda x: (x["data"], x["nome"]))
 
 
+def proximo_dia_util(d):
+    """O primeiro dia útil DEPOIS de `d`: seg a sex, sem feriado nacional."""
+    d += timedelta(days=1)
+    while d.weekday() >= 5 or d in feriados_nacionais(d.year):
+        d += timedelta(days=1)
+    return d
+
+
+def para_mostrar(itens, hoje):
+    """O que vai para a Home (dono, 16/10). Pura.
+
+    "Somente é para aparecer quando o vencimento for no dia seguinte" —
+    "sempre considerando dia útil": aparece no dia útil anterior. Na sexta,
+    entra o que vence no sábado, no domingo e na segunda.
+    O que vence hoje, ou venceu e ninguém marcou Feito, "continua".
+    """
+    limite = proximo_dia_util(hoje)
+    return [x for x in itens if x["data"] <= limite]
+
+
 def quando(dias):
     if dias < 0:
         return f"atrasado {-dias} dia(s)"
@@ -236,8 +255,8 @@ def _cartao(x):
 
 
 def mostrar(st_, usuario, hoje):
-    """O quadro do topo da Home: os próximos 7 dias em cartões, cada um com
-    ✓ Feito; o resto do mês numa linha. Nada de valor — só lembrete."""
+    """O quadro do topo da Home: o que vence amanhã, em cartões com ✓ Feito.
+    Nada vencendo amanhã, nada aparece. Nada de valor — só lembrete."""
     import cheques as _ch
     import nao_operacional as _no
     feitos, erro = carregar_feitos()
@@ -250,18 +269,16 @@ def mostrar(st_, usuario, hoje):
         nao_op = _df.to_dict("records") if not _df.empty else []
     except Exception:
         nao_op = []
-    itens = pendentes(hoje, feitos, bol, nao_op)
-    perto = [x for x in itens if x["dias"] <= DESTAQUE_DIAS]
-    depois = [x for x in itens if x["dias"] > DESTAQUE_DIAS]
+    perto = para_mostrar(pendentes(hoje, feitos, bol, nao_op), hoje)
+    if not perto:
+        return          # nada vence amanhã: a Home não mostra o quadro
     with st_.container(border=True):
         st_.markdown(f'<div style="font-size:12px;font-weight:800;letter-spacing:.08em;'
-                     f'color:{AMBAR};">🔔 PAGAMENTOS A FAZER · PRÓXIMOS '
-                     f'{DESTAQUE_DIAS} DIAS</div>', unsafe_allow_html=True)
+                     f'color:{AMBAR};">🔔 PAGAMENTOS A FAZER · ATÉ O PRÓXIMO DIA ÚTIL</div>',
+                     unsafe_allow_html=True)
         if erro:
             st_.caption(f"Não consegui ler o que já foi marcado como feito "
                         f"({erro}) — mostrando todos.")
-        if not perto:
-            st_.caption(f"Nenhum pagamento nos próximos {DESTAQUE_DIAS} dias.")
         for i in range(0, len(perto), 4):
             cols = st_.columns(4)
             for col, x in zip(cols, perto[i:i + 4]):
@@ -272,9 +289,6 @@ def mostrar(st_, usuario, hoje):
                     st_.button("✓ Feito", key=f"lem_{x['chave']}",
                                on_click=marcar_feito, args=(x, usuario),
                                use_container_width=True)
-        if depois:
-            st_.caption("Depois: " + " · ".join(
-                f"{x['data']:%d/%m} {x['nome']}" for x in depois))
 
 
 # ── Conferência ──────────────────────────────────────────────────────────────
@@ -362,6 +376,23 @@ if __name__ == "__main__":
         carregar_feitos.clear()
     ok("o lembrete não mostra valor nenhum",
        "R$" not in _cartao(dict(_p2[0], dias=0)))
-
+    # 16/10, o dono: só o que vence no próximo dia útil; o de hoje e o
+    # atrasado sem Feito continuam.
+    _qui, _sex = date(2026, 10, 15), date(2026, 10, 16)
+    _it = [{"data": _qui + timedelta(days=k), "dias": k, "nome": str(k)} for k in (-3, 0, 1, 2, 3, 4, 5)]
+    ok("quinta: aparece o atrasado, o de hoje e o de sexta — o de sábado não",
+       [x["dias"] for x in para_mostrar(_it, _qui)] == [-3, 0, 1])
+    ok("sexta: entram sábado, domingo e segunda (o próximo dia útil)",
+       [x["data"] for x in para_mostrar(_it, _sex)][-1] == date(2026, 10, 19)
+       and date(2026, 10, 20) not in [x["data"] for x in para_mostrar(_it, _sex)])
+    ok("dia comum: ter 10/11 → qua 11/11",
+       proximo_dia_util(date(2026, 11, 10)) == date(2026, 11, 11))
+    ok("feriado no meio: sex 13/11 → seg 16/11 (15/11 é domingo)",
+       proximo_dia_util(date(2026, 11, 13)) == date(2026, 11, 16))
+    ok("feriado no dia útil seguinte: qui 19/11 → seg 23/11 (20/11 é feriado)",
+       proximo_dia_util(date(2026, 11, 19)) == date(2026, 11, 23))
+    ok("pela cadeia: em 09/10 (sex) aparece o Bling de 10/10 (sáb) e nada da TM de 20/10",
+       [(x["data"], x["nome"]) for x in para_mostrar(pendentes(date(2026, 10, 9), frozenset()), date(2026, 10, 9))]
+       == [(date(2026, 10, 5), "TM Logística"), (date(2026, 10, 7), "Bônus headcount"), (date(2026, 10, 10), "Bling")])
     print(f"\nfalhas: {falhas}")
     sys.exit(1 if falhas else 0)
