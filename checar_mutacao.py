@@ -3312,6 +3312,27 @@ MUTACOES = [
         ['python3', 'bling_api.py'],
     ),
     (
+        'o SFP da TikTok volta a nao ter teto de R$ 50',
+        'app.py',
+        '    return preco * pct, taxa, min(preco * TIKTOK_SFP_PCT, TIKTOK_SFP_TETO)\n',
+        '    return preco * pct, taxa, preco * TIKTOK_SFP_PCT\n',
+        ['python3', 'checar_tela.py'],
+    ),
+    (
+        'a comissao do afiliado da TikTok some da viabilidade',
+        'app.py',
+        '    afiliado = preco * float(afiliado_pct or 0.0)\n',
+        '    afiliado = 0.0\n',
+        ['python3', 'checar_tela.py'],
+    ),
+    (
+        'a faixa abaixo de R$ 50 da TikTok volta a cobrar como a de cima',
+        'params_oficiais.py',
+        '    (0.00,   49.99, 0.10, 4.00),\n',
+        '    (0.00,   49.99, 0.06, 6.00),\n',
+        ['python3', 'checar_tela.py'],
+    ),
+    (
         "o 5o dia util volta a contar o feriado",
         "lembretes.py",
         "        if d.weekday() < 5 and d not in fer:\n",

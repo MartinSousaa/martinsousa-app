@@ -3494,6 +3494,53 @@ def _visao_geral_na_home(conta):
         _vg_v.pagina = _g
 
 
+def _tiktok_na_viabilidade(conta):
+    """19/10: a TikTok Shop na Viabilidade e na Calculadora de Preço Mínimo.
+
+    O dado vem do DEMONSTRATIVO FINANCEIRO REAL da loja (income_20261019),
+    pedido a pedido — e não de taxa escrita de cabeça: globo R$ 109,99 com
+    afiliado 9,5% → repasse 80,34; almofada R$ 34,99 → 25,39; suporte
+    R$ 309,99 com afiliado 13,17 → 253,62. As funções saem do `app.py` pela
+    AST e rodam com as tabelas reais de `params_oficiais`."""
+    import ast as _ast_t
+    import params_oficiais as _po_t
+    import lpv_mensal as _lm_t
+    _arv = _ast_t.parse(open("app.py", encoding="utf-8").read())
+    _quero = {"calcular_comissao_tiktok", "calcular_resultado_tiktok",
+              "resolver_preco_para_uc_fn", "_ate_o_alvo"}
+    _nos = [n for n in _arv.body if isinstance(n, _ast_t.FunctionDef) and n.name in _quero]
+    conta("TikTok: as funções de cálculo existem no app.py",
+          {n.name for n in _nos} == _quero, str({n.name for n in _nos}))
+    if {n.name for n in _nos} != _quero:
+        return
+    _ns = {k: getattr(_po_t, k) for k in dir(_po_t) if k.isupper()}
+    _ns.update(lpv_mensal=_lm_t)
+    exec(compile(_ast_t.Module(body=_nos, type_ignores=[]), "app.py", "exec"), _ns)
+    _calc = _ns["calcular_resultado_tiktok"]
+    # repasse = preço − (comissão + taxa por item + SFP + afiliado); com NF, C.O
+    # e custo em zero, o "lucro bruto" é o que a TikTok liquida.
+    _rep = lambda p, af: round(_calc(p, 0.0, 0.0, 0.0, 20.0, af)["lucro_bruto"], 2)
+    conta("TikTok bate com o demonstrativo real: globo, almofada e suporte",
+          _rep(109.99, 0.095) == 80.34 and _rep(34.99, 0.0) == 25.39
+          and _rep(309.99, 13.17 / 309.99) == 253.62 and _rep(109.99, 0.0) == 90.79,
+          f"{_rep(109.99, 0.095)} {_rep(34.99, 0.0)} {_rep(309.99, 13.17 / 309.99)}")
+    conta("TikTok: o SFP para em R$ 50 por item e o frete é zero",
+          round(_calc(1000.0, 0, 0, 0, 20.0)["comissao"], 2) == round(60 + 6 + 50, 2)
+          and _calc(1000.0, 0, 0, 0, 20.0)["frete"] == 0.0, "")
+    _c = lambda pr: _calc(pr, 30.0, 0.08, 0.07, 20.0, 0.0)
+    _p = _ns["resolver_preco_para_uc_fn"](1.0, _c, 20.0)
+    conta("TikTok: o preço para UC 1,0 é o primeiro centavo no alvo (troca de faixa em R$ 50)",
+          _c(_p)["uc"] >= 1.0 and _c(round(_p - 0.01, 2))["uc"] < 1.0, f"preço {_p}")
+    _src = open("app.py", encoding="utf-8").read()
+    _viab = _src[_src.index("def _render_viabilidade_tab"):_src.index("def _navegar")]
+    _calc_min = _src[_src.index("def _render_analise_venda_tab"):_src.index("def _render_viabilidade_tab")]
+    conta("TikTok na tela: preço, % de afiliado, coluna do resultado e registro",
+          'key="preco_tk"' in _viab and 'key="viab_tk_afiliado"' in _viab
+          and '"tk": ("ms-plat-tk", "TikTok Shop")' in _viab
+          and '("TikTok", res_tk, preco_tk or 0)' in _viab
+          and "calcular_resultado_tiktok(" in _calc_min and "TikTok Shop" in _calc_min, "")
+
+
 def main():
     instalar()
     falhas = []
@@ -3557,6 +3604,7 @@ def main():
     _visao_geral(conta)
     _visao_faturamento(conta)
     _visao_geral_na_home(conta)
+    _tiktok_na_viabilidade(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0

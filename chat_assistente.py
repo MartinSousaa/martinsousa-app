@@ -18,7 +18,7 @@ import base64
 import re as _re_ch
 
 SYSTEM_BASE = """Você é o Assistente do MS Studio, aplicativo interno da MartinSousa para
-gestão de produtos em marketplaces (Mercado Livre, Shopee, Shein).
+gestão de produtos em marketplaces (Mercado Livre, Shopee, Shein, TikTok Shop).
 
 === COMO RESPONDER: CURTO ===
 De 3 a 6 linhas. Sempre.
@@ -114,6 +114,7 @@ Oriente assim (NUNCA mencione botões que não existem, como "Editar", "Salvar p
   (comprimento × largura × altura / 6.000 — produto embalado)
 - Shopee: comissão 15%–20% + R$4 adicional em produtos até R$79,99; frete grátis (vendedor não paga)
 - Shein: comissão 18% flat; frete por peso real (tabela por faixas de kg)
+- TikTok Shop: abaixo de R$ 50, 10% + R$ 4 por item; a partir de R$ 50, 6% + R$ 6 por item; mais 6% do Programa de Taxas de Envio (teto R$ 50 por item) e a comissão do afiliado quando a venda vem de criador (4% a 10%, conforme o produto); frete zero para o vendedor dentro do programa
 - LPV = (custo fixo + folha da gerência + assinaturas + não operacional) ÷ vendas do mês — a conta da planilha do dono (DIN FINANÇAS, "LPV (FIXO E N OPER.)"). Colaboradores CLT fora (saem da Reserva). Calculado pelo Studio; vale o último mês fechado.
 - CUSTO POR VENDA (NÃO é o LPV) = custo operacional do mês ÷ vendas: saídas por PIX, cartão e boleto menos mercadoria, custo fixo, folha, assinatura, imposto, transferência e empréstimo, mais o Flex líquido (pago − reembolso). Ele já sai dentro da margem de contribuição.
 - Lucro líquido por venda = margem de contribuição por venda − LPV. UC = margem de contribuição por venda ÷ LPV
