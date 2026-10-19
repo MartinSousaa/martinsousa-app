@@ -2942,7 +2942,8 @@ def _lucro_liquido_custo_fixo(conta):
         p4 = hg.dados_reais(2026, 9, 25)[0]["painel"]
         _h = hg._html_indicadores(p4)
         conta("sem LPV o lucro líquido não vira número",
-              p4["lucro_liquido"] is None and "falta o LPV" in _h, "")
+              # 19/10: os textos da Home começam com maiúscula ("Falta o LPV")
+              p4["lucro_liquido"] is None and "falta o lpv" in _h.lower(), "")
     except Exception as e:
         conta("lucro líquido com LPV", False, f"{type(e).__name__}: {e}")
     finally:
@@ -3421,7 +3422,7 @@ def _historico_na_home(conta):
     _lm_h.lpv_do_ano = lambda ano: ({}, "")
     _vistos = {"tabela": None, "html": ""}
     _falso = instalar()
-    _falso.radio = lambda *a, **k: _ge_h.HOME_ABAS[1]
+    _falso.radio = lambda *a, **k: _ge_h.ABA_HISTORICO
     _falso.selectbox = lambda rot, opcoes, *a, **k: list(opcoes)[0]
 
     def _tab(d, *a, **k):
@@ -3451,6 +3452,43 @@ def _historico_na_home(conta):
               f"{type(e).__name__}: {e}")
     finally:
         _mg_h.ano_inteiro, _bv_h.somas_por_mes, _lm_h.lpv_do_ano = _g
+
+
+def _visao_geral_na_home(conta):
+    """19/10: a Visão Geral saiu da barra de Gestão e virou a aba do meio da
+    Home — Painel | Visão Geral | Histórico —, só para o dono."""
+    import gestao as _ge_v
+    import visao_geral as _vg_v
+    import auth as _au_v
+    _dono = sorted(_au_v.ADMINS_PADRAO)[0]
+    _chamou, _opcoes = [], []
+    _g = _vg_v.pagina
+    _falso = instalar()
+
+    def _radio(rot, opcoes, *a, **k):
+        _opcoes.append(tuple(opcoes))
+        return _ge_v.ABA_VISAO if _ge_v.ABA_VISAO in opcoes else opcoes[0]
+    _falso.radio = _radio
+    _ge_v.st = _falso
+    try:
+        _vg_v.pagina = lambda u=None: _chamou.append(u)
+        _ge_v.pagina_home(_dono)
+        conta("Home: a ordem é Painel | Visão Geral | Histórico, e a do meio abre a Visão Geral",
+              _opcoes[0] == ("📊 Painel", "🧭 Visão Geral", "🗓️ Histórico")
+              and _chamou == [_dono], str(_opcoes))
+        _opcoes.clear()
+        try:
+            _ge_v.pagina_home("colaborador_qualquer")
+        except Exception:
+            pass
+        conta("Home: quem não é dono não vê a Visão Geral",
+              bool(_opcoes) and "🧭 Visão Geral" not in _opcoes[0], str(_opcoes))
+    except (_Rerun, _Parou):
+        conta("Home › Visão Geral: a tela monta", True, "")
+    except Exception as e:
+        conta("Home › Visão Geral: a tela monta", False, f"{type(e).__name__}: {e}")
+    finally:
+        _vg_v.pagina = _g
 
 
 def main():
@@ -3515,6 +3553,7 @@ def main():
     _lembretes_na_home(conta)
     _visao_geral(conta)
     _visao_faturamento(conta)
+    _visao_geral_na_home(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0

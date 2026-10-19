@@ -38,7 +38,19 @@ def _em_branco(titulo, descricao, itens):
         st.markdown("\n".join(f"- {i}" for i in itens))
 
 
-HOME_ABAS = ("📊 Painel", "🗓️ Histórico")
+# A ORDEM DO DONO (19/10): Painel | Visão Geral | Histórico. A Visão Geral
+# veio do fim da barra de Gestão para cá, e continua só do dono.
+HOME_ABAS = ("📊 Painel", "🧭 Visão Geral", "🗓️ Histórico")
+ABA_VISAO, ABA_HISTORICO = HOME_ABAS[1], HOME_ABAS[2]
+
+
+def abas_da_home(usuario_logado=None):
+    """As abas que ESTE usuário vê: a Visão Geral é dinheiro da empresa, a
+    mesma trava que ela tinha na barra de Gestão (`auth.eh_dono`)."""
+    import auth as _auth_h
+    if _auth_h.eh_dono(usuario_logado):
+        return HOME_ABAS
+    return tuple(a for a in HOME_ABAS if a != ABA_VISAO)
 
 
 def pagina_home(usuario_logado=None):
@@ -50,11 +62,15 @@ def pagina_home(usuario_logado=None):
     """
     # A BOLINHA, como as faces do Custo fixo (dono, 15/10): `st.radio`
     # horizontal, e não o botão segmentado.
-    aba = st.radio("Home", HOME_ABAS, horizontal=True, key="home_aba",
-                   label_visibility="collapsed")
-    if aba == HOME_ABAS[1]:
+    aba = st.radio("Home", abas_da_home(usuario_logado), horizontal=True,
+                   key="home_aba", label_visibility="collapsed")
+    if aba == ABA_HISTORICO:
         import historico as _hist
         _hist.pagina(usuario_logado)
+        return
+    if aba == ABA_VISAO:
+        import visao_geral as _vg
+        _vg.pagina(usuario_logado)
         return
     import home_gestao as _hg
     _hg.pagina(usuario_logado)

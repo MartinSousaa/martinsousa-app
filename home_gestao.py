@@ -176,6 +176,117 @@ def ritmo(d):
     return alvo, por_dia, f["realizado"] / fracao, dia, dias
 
 
+# ── Home de 19/10 (layout aprovado): chance, dia do alvo e plataformas ─────
+DIAS_MINIMOS_PARA_CHANCE = 5
+
+
+def dia_do_alvo(alvo, real, por_dia, dias):
+    """Em que dia o faturamento chega em `alvo` no ritmo de hoje. Pura.
+
+    "Atingido" quando já chegou; "Não chega no mês" quando o ritmo não
+    alcança; "—" sem alvo ou sem ritmo. É a mesma conta para o equilíbrio da
+    meta e para o equilíbrio real — uma regra, as duas caixas.
+    """
+    alvo, real = float(alvo or 0.0), float(real or 0.0)
+    if not alvo:
+        return "—"
+    if real >= alvo:
+        return "Atingido"
+    if not por_dia or por_dia <= 0:
+        return "—"
+    d = int(-(-alvo // por_dia))
+    return f"Dia {d}" if d <= dias else "Não chega no mês"
+
+
+def chance_de_chegar(real, alvo, por_dia, serie, dia, dias, fracao):
+    """(texto, pct ou None, supera) — a chance de o mês chegar em `alvo`. Pura.
+
+    Dono, 19/10: "% de chance de alcançar ou se irá superar", pela variação
+    do faturamento dia a dia. A média é o ritmo da projeção (`ritmo`), para a
+    tela não ter dois; a oscilação é o desvio dos DIAS FECHADOS (`serie`, o
+    líquido de cada dia do Bling). Faturamento do resto do mês ~ normal com
+    média `por_dia × n` e desvio `σ × √n`, n = dias que faltam.
+
+    Projeção já acima do alvo: "Vai superar em R$ X", sem porcentagem.
+    Menos de `DIAS_MINIMOS_PARA_CHANCE` dias fechados: a chance não sai —
+    três dias não medem oscilação nenhuma.
+    """
+    import math
+    alvo, real = float(alvo or 0.0), float(real or 0.0)
+    if not alvo:
+        return "", None, False
+    proj = real / fracao if fracao else real
+    if proj >= alvo:
+        return f"Vai superar em {_brl(proj - alvo, 0)}", None, True
+    valores = [float(v) for v in (serie or [])][:max(int(dia) - 1, 0)]
+    if len(valores) < DIAS_MINIMOS_PARA_CHANCE:
+        return "Poucos dias fechados para medir a chance", None, False
+    media = sum(valores) / len(valores)
+    sigma = math.sqrt(sum((v - media) ** 2 for v in valores) / len(valores))
+    n = max(dias - fracao * dias, 0.0)
+    if n <= 0 or sigma <= 0:
+        return "", (100.0 if proj >= alvo else 0.0), False
+    z = (alvo - real - por_dia * n) / (sigma * math.sqrt(n))
+    pct = round((1 - 0.5 * (1 + math.erf(z / math.sqrt(2)))) * 100)
+    return f"{pct}% de chance de chegar", float(pct), False
+
+
+def serie_do_mes(por_dia, ano, mes, dias):
+    """[líquido do dia 1, do dia 2, …] a partir do `por_dia` do Bling. Pura.
+
+    Dia sem venda entra como ZERO — ele aconteceu, e não vender também é
+    oscilação. As duas contas do Bling chegam somadas.
+    """
+    return [float((por_dia or {}).get(f"{int(ano):04d}-{int(mes):02d}-{d:02d}", 0.0))
+            for d in range(1, int(dias) + 1)]
+
+
+PLATAFORMA_POR_NOME = (("MERCADO", "Mercado Livre"), ("ML", "Mercado Livre"),
+               ("SHOPEE", "Shopee"), ("SHEIN", "Shein"),
+               ("TIKTOK", "TikTok Shop"), ("TIK TOK", "TikTok Shop"))
+
+
+def plataforma_do_canal(nome):
+    """"ML1", "Mercado Livre 2", "SHOPEE 1" → a plataforma. Pura.
+
+    "ML" só vale como começo de palavra seguido de número ou fim ("ML1",
+    "ML 2"), para não pegar um canal que apenas contenha as duas letras.
+    """
+    import re
+    k = str(nome or "").upper().strip()
+    for chave, plat in PLATAFORMA_POR_NOME:
+        if chave == "ML":
+            if re.match(r"^ML(\s*\d+|$|\b)", k):
+                return plat
+        elif chave in k:
+            return plat
+    return str(nome or "Sem loja").strip() or "Sem loja"
+
+
+def faturamento_por_plataforma(total):
+    """[(plataforma, valor, [(canal, valor), …])], do maior para o menor. Pura.
+
+    `total` é o que `bling_api.faturamento_do_mes_total` devolve: cada conta
+    com `por_loja` e `nomes_loja`. O valor é LÍQUIDO de cancelado — o mesmo
+    do número grande da Home, para as porcentagens fecharem em 100%.
+    """
+    import bling_api as _bl
+    plats = {}
+    for _conta, res in ((total or {}).get("por_conta") or {}).items():
+        nomes = res.get("nomes_loja") or {}
+        for lid, d in (res.get("por_loja") or {}).items():
+            canal = _bl.nome_do_canal(nomes, lid)
+            v = float(d.get("total") or 0.0) - float(d.get("cancelado") or 0.0)
+            if not v:
+                continue
+            p = plats.setdefault(plataforma_do_canal(canal), {})
+            p[canal] = p.get(canal, 0.0) + v
+    fora = [(plat, round(sum(c.values()), 2),
+             sorted(((k, round(v, 2)) for k, v in c.items()), key=lambda t: -t[1]))
+            for plat, c in plats.items()]
+    return sorted(fora, key=lambda t: -t[1])
+
+
 def projetar(valor, dia, dias, acumula):
     """Onde este indicador fecha o mês se o ritmo de hoje se mantiver.
 
@@ -297,16 +408,16 @@ def _html_faturamento(d):
     if eq:
         linhas += (f'<line x1="0" y1="{Y(eq):.1f}" x2="{PW:.0f}" y2="{Y(eq):.1f}" '
                    f'stroke="{AMBAR}" stroke-width="1.5"/>')
-        marcas.append((Y(eq), f"ponto de equilíbrio · {_brl(eq, 0)}", AMBAR))
+        marcas.append((Y(eq), "Ponto de equilíbrio", AMBAR))
     if eq_real:
         linhas += (f'<line x1="0" y1="{Y(eq_real):.1f}" x2="{PW:.0f}" y2="{Y(eq_real):.1f}" '
                    f'stroke="{LILAS}" stroke-width="1.5" stroke-dasharray="1 4" '
                    f'stroke-linecap="round"/>')
-        marcas.append((Y(eq_real), f"equilíbrio real · {_brl(eq_real, 0)}", LILAS))
+        marcas.append((Y(eq_real), "Equilíbrio real", LILAS))
     if meta:
         linhas += (f'<line x1="0" y1="{Y(meta):.1f}" x2="{PW:.0f}" y2="{Y(meta):.1f}" '
                    f'stroke="{AZUL}" stroke-width="1.5"/>')
-        marcas.append((Y(meta), f"meta do mês · {_brl(meta, 0)}", AZUL))
+        marcas.append((Y(meta), "Meta do mês", AZUL))
     _ys = _espalhar([m[0] for m in marcas])
     rotulos = "".join(
         f'<text x="{LW - 10:.0f}" y="{y + 4:.1f}" fill="{c}" font-size="12" '
@@ -318,8 +429,8 @@ def _html_faturamento(d):
            + f'<g transform="translate({LW:.0f},0)">'
            f'<line x1="0" y1="{base}" x2="{PW:.0f}" y2="{base}" stroke="{BORDA}"/>'
            + linhas + curva +
-           f'<text x="{hx:.1f}" y="{H - 2:.0f}" fill="{SEC}" font-size="11" text-anchor="middle">hoje</text>'
-           f'<text x="{PW:.0f}" y="{H - 2:.0f}" fill="{SEC}" font-size="11" text-anchor="end">dia {dias}</text>'
+           f'<text x="{hx:.1f}" y="{H - 2:.0f}" fill="{SEC}" font-size="11" text-anchor="middle">Hoje</text>'
+           f'<text x="{PW:.0f}" y="{H - 2:.0f}" fill="{SEC}" font-size="11" text-anchor="end">Dia {dias}</text>'
            '</g></svg>')
     # o selo: contra o ritmo da meta, quando há meta; sem meta, não há ritmo
     if meta:
@@ -332,58 +443,74 @@ def _html_faturamento(d):
     else:
         selo = ('<span style="font-size:12px;color:{SEC};">sem meta cadastrada '
                 '— Financeiro › Meta de gastos</span>')
-    if meta and proj >= meta:
-        status, cor_st = "fecha acima da meta", "{VERDE}"
-    elif eq and proj >= eq:
-        status = ("fecha acima do equilíbrio, mas não bate a meta" if meta
-                  else "fecha acima do equilíbrio")
-        cor_st = "{AMBAR}" if meta else "{VERDE}"
-    elif eq:
-        status, cor_st = "fecha abaixo do equilíbrio", "{VERMELHO}"
-    else:
-        status, cor_st = "", "{SEC}"
-
-    def tile(rot, val):
-        return (f'<div style="background:{TILE};border-radius:10px;padding:9px 12px;">'
-                f'<div style="font-size:11px;color:{SEC};">{rot}</div>'
-                f'<div style="font-size:16px;font-weight:700;">{val}</div></div>')
-    falta_eq = max(eq - real, 0.0)
-    if not eq:
-        dia_eq = "—"
-    elif falta_eq <= 0:
-        dia_eq = "atingido"
-    elif por_dia > 0:
-        _d = int(-(-eq // por_dia))
-        dia_eq = f"dia {_d}" if _d <= dias else "não chega no mês"
-    else:
-        dia_eq = "—"
+    # OS TEXTOS DE CIMA SAÍRAM (dono, 19/10: "se já tiver em baixo tire de
+    # cima"): o ritmo médio, o "fecha em" e os valores das linhas moram nos
+    # cartões das duas caixas. Em cima ficam o número, o selo e o gráfico.
     return (
         '<div style="background:{CARTAO};border:1px solid {BORDA};'
         'border-radius:14px;padding:18px 22px;display:flex;flex-direction:column;gap:10px;flex:1;box-sizing:border-box;">'
-        '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">'
         '<div><div style="font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;'
         'color:{SEC};">Balanço mensal · faturamento em tempo real</div>'
-        f'<div style="font-size:40px;font-weight:800;letter-spacing:-.02em;line-height:1.1;">{_brl(real, 0)}</div>'
-        f'<div style="display:flex;gap:10px;align-items:center;margin-top:6px;">{selo}'
-        f'<span style="font-size:12px;color:{SEC};">ritmo médio {_brl(por_dia, 0)}/dia em {dia} dias</span></div></div>'
-        '<div style="text-align:right;"><div style="font-size:12px;color:{SEC};">Se mantiver o ritmo, fecha em</div>'
-        f'<div style="font-size:24px;font-weight:800;">{_brl(proj, 0)}</div>'
-        f'<div style="font-size:12px;color:{cor_st};font-weight:600;">{status}</div></div></div>'
-        + svg +
-        # "PROJEÇÃO DE GASTOS" em cima (dono, 15/10), como "Gastos reais"
-        # embaixo: os dois quadros com título e borda, na mesma forma.
-        '<div style="border:1.5px solid {AMBAR};border-radius:12px;'
-        'padding:12px;display:flex;flex-direction:column;gap:8px;">'
-        '<div style="font-size:11px;font-weight:700;letter-spacing:.08em;'
-        'text-transform:uppercase;color:{AMBAR};">Projeção de gastos</div>'
-        '<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;">'
-        + tile("Falta para o equilíbrio", _brl(falta_eq, 0) if eq else "—")
-        + tile("Equilíbrio no ritmo atual", dia_eq)
-        + tile("Falta para a meta", _brl(max(meta - real, 0.0), 0) if meta else "sem meta")
-        + '</div>'
-        f'<div style="font-size:11px;color:{SEC};">{_linha_do_equilibrio(d)}</div></div>'
+        '<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">'
+        f'<span style="font-size:40px;font-weight:800;letter-spacing:-.02em;line-height:1.1;">{_brl(real, 0)}</span>'
+        f'{selo}</div></div>'
+        + svg + _caixa_projecao(d, real, proj, por_dia, dia, dias, eq, meta)
         + _linha_do_real(d, proj) +
         '</div>')
+
+
+def _tile_caixa(rot, val, sub="", cor=None, chance=None):
+    """O cartão das duas caixas: rótulo, valor, a conta embaixo e — no da
+    falta — a barra da chance ou o "Vai superar"."""
+    extra = ""
+    if chance is not None:
+        txt, pct, supera = chance
+        c = VERDE if (supera or cor == VERDE) else (cor or AMBAR)
+        if pct is not None:
+            extra = (f'<div style="margin-top:6px;">{_bar(pct, c, 6)}</div>'
+                     f'<div style="font-size:11px;font-weight:700;color:{c};margin-top:3px;">{txt}</div>')
+        elif txt:
+            extra = (f'<div style="font-size:11px;font-weight:700;margin-top:6px;'
+                     f'color:{VERDE if supera else SEC};">{txt}</div>')
+    return (f'<div style="background:{TILE};border-radius:10px;padding:9px 12px;">'
+            f'<div style="font-size:11px;color:{SEC};">{rot}</div>'
+            f'<div style="font-size:16px;font-weight:700;{"color:" + cor + ";" if cor else ""}">{val}</div>'
+            + (f'<div style="font-size:10.5px;color:{SEC};margin-top:2px;">{sub}</div>' if sub else "")
+            + extra + '</div>')
+
+
+def _caixa(titulo, cor):
+    return (f'<div style="border:1.5px solid {cor};border-radius:12px;'
+            'padding:12px;display:flex;flex-direction:column;gap:8px;">'
+            '<div style="font-size:11px;font-weight:700;letter-spacing:.08em;'
+            f'text-transform:uppercase;color:{cor};">{titulo}</div>')
+
+
+def _caixa_projecao(d, real, proj, por_dia, dia, dias, eq, meta):
+    """PROJEÇÃO · pela meta de gastos (dono, 19/10): a meta de gastos, o dia
+    em que o ponto de equilíbrio chega no ritmo de hoje e quanto falta para a
+    meta do mês, com a chance de chegar."""
+    import equilibrio_caixa as _ec
+    f = d["faturamento"]
+    c = f.get("eq_conta") or {}
+    mg = float(c.get("meta_gastos") or f.get("meta_de_gastos") or 0.0)
+    mb = c.get("margem_bruta")
+    _mb = f"{float(mb):.1f}".replace(".", ",") if mb else ""
+    sub_meta = (f"Ponto de equilíbrio: {_brl(eq, 0)} (meta ÷ lucro bruto {_mb}%)"
+                if (eq and _mb) else _linha_do_equilibrio(d))
+    fracao = _ec.fracao_do_mes(d.get("agora"), dias) or (dia / dias)
+    ch = chance_de_chegar(real, meta, por_dia, f.get("serie"), dia, dias, fracao)
+    return (_caixa("Projeção · pela meta de gastos", AMBAR)
+            + '<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;">'
+            + _tile_caixa("Meta de gastos", _brl(mg, 0) if mg else "Não cadastrada", sub_meta)
+            + _tile_caixa("Equilíbrio no ritmo atual", dia_do_alvo(eq, real, por_dia, dias),
+                          f"Ritmo médio {_brl(por_dia, 0)}/dia em {dia} dias")
+            + _tile_caixa("Falta para a meta",
+                          _brl(max(meta - real, 0.0), 0) if meta else "Sem meta",
+                          (f"Meta do mês {_brl(meta, 0)} · no ritmo fecha em {_brl(proj, 0)}"
+                           if meta else f"No ritmo fecha em {_brl(proj, 0)}"),
+                          AMBAR if meta else None, ch if meta else None)
+            + '</div></div>')
 
 
 # `_bloco_faturamento` (a régua antiga) saiu em 05/10: o balanço mensal é
@@ -497,38 +624,34 @@ def _linha_do_real(d, proj):
     f = (d or {}).get("faturamento") or {}
     comp = f.get("comprometido")
     mb = (f.get("eq_conta") or {}).get("margem_bruta")
-    caixa = ('<div style="border:1.5px solid {VERDE};border-radius:12px;'
-             'padding:12px;display:flex;flex-direction:column;gap:8px;">'
-             '<div style="font-size:11px;font-weight:700;letter-spacing:.08em;'
-             'text-transform:uppercase;color:{VERDE};">Gastos reais</div>')
+    caixa = _caixa("Real · pelos gastos do mês", VERDE)
     if comp is None:
-        return (caixa + f'<div style="font-size:12px;color:{SEC};">não '
+        return (caixa + f'<div style="font-size:12px;color:{SEC};">Não '
                 'consegui ler os gastos do mês</div></div>')
     eq_real = _ec.ponto_de_equilibrio(comp, mb)
     if not eq_real:
         return (caixa + f'<div style="font-size:12px;color:{SEC};">'
-                + ("nenhum gasto do mês lido ainda" if not comp else
-                   "falta o lucro bruto dos meses fechados (BASE DE VENDAS)")
+                + ("Nenhum gasto do mês lido ainda" if not comp else
+                   "Falta o lucro bruto dos meses fechados (BASE DE VENDAS)")
                 + '</div></div>')
     _mb_txt = f"{float(mb):.1f}".replace(".", ",")
-    sobra = float(proj or 0.0) - eq_real
-    cor = VERDE if sobra >= 0 else VERMELHO
-
-    def tile(rot, val, c=None):
-        return (f'<div style="background:{TILE};border-radius:10px;padding:9px 12px;">'
-                f'<div style="font-size:11px;color:{SEC};">{rot}</div>'
-                f'<div style="font-size:16px;font-weight:700;'
-                f'{"color:" + c + ";" if c else ""}">{val}</div></div>')
+    real = float(f.get("realizado") or 0.0)
+    if (d or {}).get("ano") and f.get("realizado") is not None:
+        _, _, _, dia, dias = ritmo(d)
+        por_dia = float(proj or 0.0) / dias if dias else 0.0
+        fracao = _ec.fracao_do_mes(d.get("agora"), dias) or (dia / dias)
+        ch = chance_de_chegar(real, eq_real, por_dia, f.get("serie"), dia, dias, fracao)
+    else:                     # sem o mês não há ritmo: os cartões sem o dia
+        dia, dias, por_dia, ch = 1, 1, 0.0, None
     return (caixa
             + '<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;">'
-            + tile("Gastos do mês", _brl(comp, 0))
-            + tile("Equilíbrio real", _brl(eq_real, 0))
-            + tile("No ritmo de hoje",
-                   (f"sobram {_brl(sobra, 0)}" if sobra >= 0 else
-                    f"faltam {_brl(-sobra, 0)}"), cor)
-            + '</div>'
-            + f'<div style="font-size:11px;color:{SEC};">{_brl(comp, 0)} ÷ '
-              f'lucro bruto {_mb_txt}%</div></div>')
+            + _tile_caixa("Gastos do mês", _brl(comp, 0),
+                          "Já gasto + provisionado (cheques, boletos, fixos)")
+            + _tile_caixa("Equilíbrio no ritmo atual", dia_do_alvo(eq_real, real, por_dia, dias),
+                          f"Equilíbrio real: {_brl(eq_real, 0)} (gastos ÷ lucro bruto {_mb_txt}%)")
+            + _tile_caixa("Falta para o equilíbrio real", _brl(max(eq_real - real, 0.0), 0),
+                          f"Faturado até hoje {_brl(real, 0)}", VERDE, ch)
+            + '</div></div>')
 
 
 def _marcador(pos):
@@ -1248,16 +1371,56 @@ def _grade_painel(faturamento, indicadores, gastos, devolucoes,
     return ('<div class="ms-painel-fundo" style="background:{FUNDO};color:{TEXTO};'
             "font-family:Manrope,system-ui,sans-serif;border-radius:20px;padding:0;\">"
             + cab +
+            # O QUADRADO (dono, 19/10): à esquerda o balanço inteiro; à
+            # direita os indicadores e, exatamente embaixo, a meta de gastos —
+            # as duas colunas fecham na mesma altura. As devoluções descem
+            # para a faixa de baixo, na largura toda.
             '<div class="ms-painel" style="display:grid;'
             'grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);'
-            'grid-auto-rows:1fr;gap:16px;align-items:stretch;">'
-            + "".join(celula(h) for h in (faturamento, indicadores, gastos, devolucoes))
+            'grid-template-areas:\'fat ind\' \'fat gas\' \'dev dev\';'
+            'gap:16px;align-items:stretch;">'
+            + "".join(f'<div style="grid-area:{a};display:flex;flex-direction:column;min-width:0;">{h}</div>'
+                      for a, h in (("fat", faturamento), ("ind", indicadores),
+                                   ("gas", gastos), ("dev", devolucoes)))
             + '</div></div>')
 
 
+COR_PLATAFORMA = {"Mercado Livre": "#4F93D6", "Shopee": "#C2801C",
+                  "Shein": "#9579E0", "TikTok Shop": "#E8EAED"}
+
+
+def _html_plataformas(plats):
+    """O faturamento por plataforma, embaixo dos indicadores (dono, 19/10):
+    valor, % do total e as contas de venda de cada uma. "" sem dado."""
+    total = sum(v for _, v, _ in (plats or []))
+    if not total:
+        return ""
+    pct = lambda v: _fmt(v / total * 100, "pct")
+    linhas = ""
+    for nome, valor, canais in plats:
+        cor = COR_PLATAFORMA.get(nome, "#6b737c")
+        linhas += (
+            '<div style="margin-top:9px;">'
+            '<div style="display:flex;justify-content:space-between;font-size:13px;">'
+            f'<span><span style="display:inline-block;width:9px;height:9px;border-radius:50%;'
+            f'background:{cor};margin-right:7px;"></span><b>{_esc(nome)}</b></span>'
+            f'<span><b>{_brl(valor, 0)}</b><span style="color:{SEC};margin-left:8px;">{pct(valor)}</span></span></div>'
+            f'<div style="margin-top:4px;">{_bar(valor / total * 100, cor, 6)}</div>'
+            f'<div style="font-size:11px;color:{SEC};margin-top:3px;">'
+            + " · ".join(f"{_esc(c)} {_brl(v, 0)} ({pct(v)})" for c, v in canais)
+            + '</div></div>')
+    return ('<div style="border-top:1px solid {BORDA};margin-top:12px;padding-top:12px;">'
+            '<div style="display:flex;justify-content:space-between;align-items:baseline;">'
+            '<span style="font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;'
+            'color:{SEC};">Faturamento por plataforma</span>'
+            f'<span style="font-size:12px;color:{SEC};">Total {_brl(total, 0)}</span></div>'
+            + linhas + '</div>')
+
+
 @_pintado
-def _html_indicadores(p):
-    """Lucro bruto, lucro líquido, LPV e UC num quadro 2×2."""
+def _html_indicadores(p, plats=None):
+    """Lucro bruto, lucro líquido, LPV e UC num quadro 2×2 — e, embaixo, o
+    faturamento por plataforma (19/10)."""
     def bloco(rot, valor, linha, sub, cor="{TEXTO}", borda=False):
         b = "border-top:1px solid {BORDA};padding-top:12px;" if borda else "padding-bottom:12px;"
         return (f'<div style="display:flex;flex-direction:column;justify-content:center;gap:4px;{b}">'
@@ -1272,47 +1435,69 @@ def _html_indicadores(p):
                 f'<span style="font-size:13px;font-weight:700;">{_fmt(pct, "pct")}</span></div>')
     ll = p.get("lucro_liquido")
     uc = p.get("uc")
-    lpv_sub = (f'custo fixo + não operacional por venda · {p.get("lpv_origem") or "—"}'
+    lpv_sub = (f'Custo fixo + não operacional por venda · {p.get("lpv_origem") or "—"}'
                + (f' · {p["lpv_atraso"]} mês(es) atrasado' if p.get("lpv_atraso") else ""))
     uc_cor = "{VERDE}" if (uc is not None and uc >= p["uc_necessario"]) else "{VERMELHO}"
     return (
         '<div style="background:{CARTAO};border:1px solid {BORDA};'
-        'border-radius:14px;padding:18px 20px;display:grid;'
+        'border-radius:14px;padding:18px 20px;flex:1;box-sizing:border-box;">'
+        '<div style="display:grid;'
         'grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr));'
-        'column-gap:20px;flex:1;box-sizing:border-box;">'
+        'column-gap:20px;">'
         + bloco("Lucro bruto", _brl(p.get("lucro_bruto"), 0),
                 pct_linha(p.get("lucro_bruto_pct")),
-                f'estimado · margem de {p.get("periodo") or "—"}')
+                f'Estimado · margem de {p.get("periodo") or "—"}')
         + bloco("Lucro líquido", _brl(ll, 0) if ll is not None else "—",
                 pct_linha(p.get("lucro_liquido_pct")),
                 (f'{_brl(p.get("ll_venda"))} por venda, já sem '
                  f'{_brl(p.get("lpv"))} de LPV'
                  if (ll is not None and p.get("lpv"))
-                 else "falta o LPV — Gestão → Financeiro"))
+                 else "Falta o LPV — Gestão → Financeiro"))
         + bloco("LPV", _brl(p.get("lpv")) if p.get("lpv") else "—", "", lpv_sub,
                 borda=True)
         + bloco("UC", (_fmt(uc, "razao") if uc is not None else "—"), "",
-                (f'necessário {_fmt(p["uc_necessario"], "razao")}' if uc is not None
-                 else "falta o LPV"), cor=uc_cor, borda=True)
-        + '</div>')
+                (f'Necessário {_fmt(p["uc_necessario"], "razao")}' if uc is not None
+                 else "Falta o LPV"), cor=uc_cor, borda=True)
+        + '</div>' + _html_plataformas(plats) + '</div>')
+
+
+def saldo_do_mes(q, real, eq_real):
+    """(valor, cor) do cartão "Saldo do mês" (dono, 19/10). Pura.
+
+    Dentro da meta: meta − (gastos + provisionado). Gastos passaram da meta:
+    no lugar do negativo da meta, o faturamento real contra o equilíbrio real
+    — negativo quando falta, e "eu já vou saber". Sem o equilíbrio real, o
+    saldo da meta como era.
+    """
+    saldo = (q or {}).get("saldo")
+    if saldo is None:
+        return None, None
+    if saldo >= 0 or not eq_real:
+        return float(saldo), (VERDE if saldo >= 0 else VERMELHO)
+    v = round(float(real or 0.0) - float(eq_real), 2)
+    return v, (VERDE if v >= 0 else VERMELHO)
 
 
 @_pintado
-def _html_gastos(q, erros=None):
-    """A meta de gastos: saldo e mercadoria em cima, o descritivo embaixo."""
+def _html_gastos(q, erros=None, saldo=None):
+    """A meta de gastos: saldo e mercadoria em cima, o descritivo embaixo.
+
+    `saldo` = (valor, cor) de `saldo_do_mes`; sem ele, o saldo da meta."""
     if q is None:
         return ('<div style="background:{CARTAO};border:1px solid {BORDA};'
                 'border-radius:14px;padding:18px 20px;font-size:13px;color:{SEC};">'
                 'Não consegui ler os gastos do mês.</div>')
     ambar, ambar_bg = "{AMBAR}", "rgba(224,161,58,0.12)"
-    def tile(rot, valor, destaque=False):
+    def tile(rot, valor, destaque=False, cor=None):
         bg = f"background:{ambar_bg};border:1px solid rgba(224,161,58,0.45);" if destaque else "background:{TILE};"
         cr = ambar if destaque else "{SEC}"
+        cv = cor or (ambar if destaque else "{TEXTO}")
         return (f'<div style="{bg}border-radius:10px;padding:10px 14px;">'
                 f'<div style="font-size:11px;font-weight:700;color:{cr};">{rot}</div>'
-                f'<div style="font-size:22px;font-weight:800;color:{ambar if destaque else "{TEXTO}"};">{valor}</div></div>')
+                f'<div style="font-size:22px;font-weight:800;color:{cv};">{valor}</div></div>')
     meta = q["meta"]
-    saldo = _brl(q["saldo"], 0) if q["saldo"] is not None else "sem meta"
+    _sv, _sc = saldo if saldo else (q["saldo"], None)
+    saldo_txt = _brl(_sv, 0) if _sv is not None else "Sem meta"
     def linha_t(rot, total, merc, cor, forte=False):
         w = "800" if forte else "700"
         bt = "{SEC}" if forte else "{BORDA}"
@@ -1332,9 +1517,9 @@ def _html_gastos(q, erros=None):
         'border-radius:14px;padding:18px 22px;display:flex;flex-direction:column;gap:10px;flex:1;box-sizing:border-box;">'
         '<div style="display:flex;justify-content:space-between;align-items:baseline;">'
         '<span style="font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:{SEC};">Meta de gastos</span>'
-        f'<span style="font-size:13px;color:{SEC};">meta do mês <b style="color:{TEXTO};">{_brl(meta, 0) if meta else "não cadastrada"}</b></span></div>'
+        f'<span style="font-size:13px;color:{SEC};">Meta do mês <b style="color:{TEXTO};">{_brl(meta, 0) if meta else "não cadastrada"}</b></span></div>'
         '<div style="display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr);gap:10px;">'
-        + tile("Saldo do mês", saldo)
+        + tile("Saldo do mês", saldo_txt, cor=_sc)
         + tile("Mercadoria já gasta", _brl(q["merc_gasta"], 0), True)
         + tile("Mercadoria comprometida", _brl(q["merc_comprometida"], 0), True)
         + '</div>'
@@ -1866,11 +2051,32 @@ def pagina(usuario_logado=None, dados=None):
                 "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro")
     _titulo = (f'{_MESES_H[int(d["mes"]) - 1]} {d["ano"]} '
                f'<span style="font-size:13px;font-weight:500;color:{SEC};">'
-               f'· dia {dia} de {dias} · atualizado agora</span>')
-    _fontes = (f'Faturamento: {d.get("fonte_faturamento") or "Bling"} · margens: '
+               f'· Dia {dia} de {dias} · Atualizado agora</span>')
+    _fontes = (f'Faturamento: {d.get("fonte_faturamento") or "Bling"} · Margens: '
                f'média {d.get("periodo_indicadores") or "—"} da BASE DE VENDAS')
-    st.markdown(_grade_painel(_html_faturamento(d), _html_indicadores(p),
-                              _html_gastos(_q, _err_g), _html_devolucoes(p),
+    # AS PLATAFORMAS E O DIA A DIA (19/10), da MESMA leitura do Bling que deu
+    # o faturamento acima: `faturamento_do_mes_total` guarda 5 min por conta,
+    # então esta chamada não vai à rede de novo na mesma passada.
+    _plats = []
+    try:
+        import bling_api as _bl_h
+        _tot_b, _ = _bl_h.faturamento_do_mes_total(int(d["ano"]), int(d["mes"]))
+        _plats = faturamento_por_plataforma(_tot_b)
+        _pd = {}
+        for _r in ((_tot_b or {}).get("por_conta") or {}).values():
+            for _k, _v in (_r.get("por_dia") or {}).items():
+                _pd[_k] = _pd.get(_k, 0.0) + float(_v or 0.0)
+        d["faturamento"]["serie"] = serie_do_mes(_pd, d["ano"], d["mes"], dias)
+    except Exception:
+        pass
+    import equilibrio_caixa as _ec_s
+    _eq_r = (_ec_s.ponto_de_equilibrio(
+        d["faturamento"].get("comprometido"),
+        (d["faturamento"].get("eq_conta") or {}).get("margem_bruta"))
+        if d["faturamento"].get("comprometido") is not None else None)
+    _saldo = saldo_do_mes(_q, d["faturamento"].get("realizado"), _eq_r)
+    st.markdown(_grade_painel(_html_faturamento(d), _html_indicadores(p, _plats),
+                              _html_gastos(_q, _err_g, _saldo), _html_devolucoes(p),
                               titulo=_titulo, fontes=_esc(_fontes)),
                 unsafe_allow_html=True)
 
@@ -2249,15 +2455,20 @@ if __name__ == "__main__":
        "Balanço mensal · faturamento em tempo real" in _h_fat)
     ok("e não mais pelo nome antigo",
        ("Faturamento × ponto" + " de equilíbrio × meta") not in _h_fat)
-    ok("a curva corta a linha do equilíbrio e a da meta",
-       "ponto de equilíbrio · " in _h_fat and "meta do mês · " in _h_fat)
-    ok("o quadro de cima se chama Projeção de gastos (dono, 15/10)",
-       "Projeção de gastos" in _h_fat and "Gastos reais" not in _h_fat.split(
-           "Projeção de gastos")[0])
-    ok("as três faltas aparecem",
-       all(t in _h_fat for t in ("Falta para o equilíbrio",
-                                 "Equilíbrio no ritmo atual",
+    # 19/10 (layout aprovado): as linhas do gráfico só com o NOME — o valor
+    # está no cartão embaixo — e nada de cima repetido nas caixas.
+    ok("a curva corta as linhas, com o nome (maiúsculo) e sem o valor",
+       ">Ponto de equilíbrio<" in _h_fat and ">Meta do mês<" in _h_fat
+       and "meta do mês · " not in _h_fat)
+    ok("o quadro de cima é Projeção · pela meta de gastos (dono, 19/10)",
+       "Projeção · pela meta de gastos" in _h_fat
+       and "Real · pelos gastos" not in _h_fat.split("Projeção · pela meta")[0])
+    ok("os três cartões da Projeção, do layout de 19/10",
+       all(t in _h_fat for t in ("Meta de gastos", "Equilíbrio no ritmo atual",
                                  "Falta para a meta")))
+    ok("o que está embaixo saiu de cima: sem 'Se mantiver o ritmo' nem o ritmo médio no topo",
+       "Se mantiver o ritmo" not in _h_fat
+       and _h_fat.count("Ritmo médio") == 1 and _h_fat.count("fecha em") == 1)
     ok("sem meta, a tela diz que não há meta em vez de inventar ritmo",
        "sem meta cadastrada" in _html_faturamento(
            {**_d_fat, "faturamento": {**_d_fat["faturamento"], "meta": 0.0}}))
@@ -2547,8 +2758,12 @@ if __name__ == "__main__":
     ok("nenhum bloco do painel tem quebra de linha (markdown fecharia o HTML)",
        all("\n" not in h for h in (_h_ind, _h_dv, _html_gastos(_q_t))))
     _grade = _grade_painel("<i>F</i>", "<i>I</i>", "<i>G</i>", "<i>D</i>")
-    ok("os quatro quadros saem numa grade só, com fileiras de mesma altura",
-       _grade.count("display:grid") == 1 and "grid-auto-rows:1fr" in _grade
+    # 19/10: o quadrado — balanço à esquerda, indicadores e meta de gastos
+    # empilhados à direita, devoluções na faixa de baixo.
+    ok("os quatro quadros numa grade só: o quadrado, com a meta de gastos embaixo dos indicadores",
+       _grade.count("display:grid") == 1
+       and "'fat ind' 'fat gas' 'dev dev'" in _grade
+       and "grid-area:gas" in _grade and "grid-area:ind" in _grade
        and "align-items:stretch" in _grade
        and [_grade.index(x) for x in ("<i>F</i>", "<i>I</i>", "<i>G</i>", "<i>D</i>")]
        == sorted(_grade.index(x) for x in ("<i>F</i>", "<i>I</i>", "<i>G</i>", "<i>D</i>")))
@@ -2604,12 +2819,10 @@ if __name__ == "__main__":
     ok("o equilíbrio real é o comprometido da tela ÷ o lucro bruto médio",
        _brl(_eq_t, 0) in _l_sobra and _brl(_comp_t, 0) in _l_sobra
        and "32,0%" in _l_sobra)
-    ok("e diz quanto sobra ou falta no ritmo de hoje",
-       "sobram R$ 10.000" in _l_sobra and "faltam R$ 5.000" in _l_falta
-       and VERDE in _l_sobra and VERMELHO in _l_falta)
-    ok("o bloco se chama Gastos reais e tem os três tiles do layout",
-       "Gastos reais" in _l_sobra and "Gastos do mês" in _l_sobra
-       and "Equilíbrio real" in _l_sobra and "No ritmo de hoje" in _l_sobra)
+    ok("o bloco se chama Real · pelos gastos do mês e tem os três cartões de 19/10",
+       "Real · pelos gastos do mês" in _l_sobra and "Gastos do mês" in _l_sobra
+       and "Equilíbrio no ritmo atual" in _l_sobra
+       and "Falta para o equilíbrio real" in _l_sobra)
     # O gráfico desenha a linha do equilíbrio real, com a mesma conta.
     _d_g = {"dia": 13, "mes": 10, "ano": 2026, "dias_mes": 31,
             "faturamento": {"realizado": 94145.0, "meta": 235553.0,
@@ -2618,18 +2831,19 @@ if __name__ == "__main__":
                             "eq_conta": {"meta_gastos": 150000.0,
                                          "margem_bruta": 74.4}}}
     _h_g = _html_faturamento(_d_g)
-    ok("o gráfico traz a linha do equilíbrio real",
-       "equilíbrio real · " + _brl(round(124557.0 / 0.744, 2), 0) in _h_g
-       and "Gastos reais" in _h_g)
+    ok("o gráfico traz a linha do equilíbrio real, e o valor vai no cartão",
+       ">Equilíbrio real<" in _h_g
+       and _brl(round(124557.0 / 0.744, 2), 0) in _h_g
+       and "Real · pelos gastos do mês" in _h_g)
     _d_g2 = {**_d_g, "faturamento": {**_d_g["faturamento"],
                                       "comprometido": None}}
     ok("sem gastos lidos, o gráfico não inventa a linha",
-       "equilíbrio real · " not in _html_faturamento(_d_g2))
+       ">Equilíbrio real<" not in _html_faturamento(_d_g2))
     ok("sem os gastos lidos, diz que não leu — não some calado",
-       "não consegui ler os gastos" in _linha_do_real(
+       "Não consegui ler os gastos" in _linha_do_real(
            {"faturamento": {"eq_conta": {"margem_bruta": 32.0}}}, 1.0))
     ok("sem lucro bruto, diz o que falta",
-       "falta o lucro bruto" in _linha_do_real(
+       "Falta o lucro bruto" in _linha_do_real(
            {"faturamento": {"comprometido": 5000.0, "eq_conta": {}}}, 1.0))
     # O "fecha em" é a MESMA projeção do balanço: uma só na tela.
     _src_hf = inspect.getsource(_html_faturamento.__wrapped__
@@ -2706,5 +2920,62 @@ if __name__ == "__main__":
         [dict(_bol_b, situacao="PAGO")], _date_b(2026, 10, 13)) == [])
     ok("a Home desenha o tópico só quando há boleto",
        "if _bols:" in inspect.getsource(pagina))
+
+    # ── A HOME DE 19/10 (layout aprovado) ───────────────────────────────
+    # PELA CADEIA: o Bling chega no formato de `bling_api.somar_pedidos`
+    # (por_loja com total/cancelado, por_dia) e com os nomes de
+    # `canais_de_venda` — o mesmo dicionário que `faturamento_do_mes_total`
+    # monta para a tela.
+    import bling_api as _bl_t
+    _ped = [{"total": 100.0, "loja": {"id": 1}, "data": "2026-10-01", "situacao": {"id": 6}},
+            {"total": 300.0, "loja": {"id": 2}, "data": "2026-10-02", "situacao": {"id": 6}},
+            {"total": 50.0, "loja": {"id": 2}, "data": "2026-10-02", "situacao": {"id": 12}},
+            {"total": 100.0, "loja": {"id": 3}, "data": "2026-10-03", "situacao": {"id": 6}}]
+    _res_lg = dict(_bl_t.somar_pedidos(_ped, {12}), nomes_loja={1: "ML1", 2: "Mercado Livre 3", 3: "SHOPEE 2"})
+    _res_ms = dict(_bl_t.somar_pedidos([{"total": 500.0, "loja": {"id": 9}, "data": "2026-10-03",
+                                         "situacao": {"id": 6}}], set()), nomes_loja={9: "TikTok 2"})
+    _tot_t = {"por_conta": {"lg": _res_lg, "ms": _res_ms}}
+    _pl = faturamento_por_plataforma(_tot_t)
+    ok("plataformas pela cadeia do Bling: agrupa as contas, líquido de cancelado, maior primeiro",
+       [(n, v) for n, v, _ in _pl] == [("TikTok Shop", 500.0), ("Mercado Livre", 400.0), ("Shopee", 100.0)]
+       and dict(_pl[1][2]) == {"Mercado Livre 3": 300.0, "ML1": 100.0})
+    _h_pl = _html_indicadores(_p_t, _pl)
+    ok("o quadro dos indicadores traz as plataformas, com % do total, sem quebra de linha",
+       "Faturamento por plataforma" in _h_pl and "TikTok Shop" in _h_pl
+       and "50,0%" in _h_pl and "\n" not in _h_pl)
+    ok("sem plataforma lida, o quadro não ganha um título vazio",
+       "Faturamento por plataforma" not in _html_indicadores(_p_t, []))
+    ok("'ML' só vale como canal do Mercado Livre, não como pedaço de nome",
+       plataforma_do_canal("ML 4") == "Mercado Livre"
+       and plataforma_do_canal("HTML Site") == "HTML Site")
+    _ser = serie_do_mes(_res_lg["por_dia"], 2026, 10, 31)
+    ok("a série tem um valor por dia do mês, e o dia sem venda é zero",
+       len(_ser) == 31 and _ser[:4] == [100.0, 300.0, 100.0, 0.0])
+    ok("dia do alvo: atingido, o dia, ou não chega",
+       dia_do_alvo(100, 150, 10, 31) == "Atingido"
+       and dia_do_alvo(201950, 134032, 7262, 31) == "Dia 28"
+       and dia_do_alvo(300000, 134032, 7262, 31) == "Não chega no mês")
+    _sv = [7262.0 + (900 if i % 2 else -900) for i in range(18)]
+    _pdia = 134032 / 18.5        # o ritmo da projeção: realizado ÷ dias decorridos
+    _t1, _p1, _s1 = chance_de_chegar(134032, 235331, _pdia, _sv, 19, 31, 18.5 / 31)
+    _t2, _p2, _s2 = chance_de_chegar(134032, 226000, _pdia, _sv, 19, 31, 18.5 / 31)
+    ok("projeção acima do alvo: 'Vai superar em', sem porcentagem",
+       chance_de_chegar(134032, 200000, 7262, _sv, 19, 31, 18.5 / 31)[0].startswith("Vai superar em")
+       and chance_de_chegar(134032, 200000, 7262, _sv, 19, 31, 18.5 / 31)[1] is None)
+    ok("abaixo do alvo: a chance cai quanto mais longe o alvo está",
+       _p1 is not None and _p2 is not None and 0 <= _p1 < _p2 < 50 and "de chance de chegar" in _t2)
+    ok("com menos de 5 dias fechados a chance não sai",
+       chance_de_chegar(30000, 235331, 7262, [7000] * 3, 4, 31, 3.5 / 31)[1] is None)
+    ok("saldo do mês: dentro da meta é o saldo; passou da meta, faturamento − equilíbrio real",
+       saldo_do_mes({"saldo": 12542.0}, 134032, 211991) == (12542.0, VERDE)
+       and saldo_do_mes({"saldo": -7458.0}, 134032, 211991) == (-77959.0, VERMELHO)
+       and saldo_do_mes({"saldo": -7458.0}, 230000, 211991) == (18009.0, VERDE)
+       and saldo_do_mes({"saldo": None}, 1, 1) == (None, None))
+    _hg_neg = _html_gastos(_q_t, None, (-77959.0, VERMELHO))
+    ok("o cartão Saldo do mês mostra o negativo em vermelho, sem frase",
+       "R$ -77.959" in _hg_neg and VERMELHO in _hg_neg and "Faltam" not in _hg_neg)
+    ok("a página passa as plataformas e o saldo novo aos quadros",
+       "_html_indicadores(p, _plats)" in inspect.getsource(pagina)
+       and "_html_gastos(_q, _err_g, _saldo)" in inspect.getsource(pagina))
 
     __import__("sys").exit(1 if falhas else 0)
