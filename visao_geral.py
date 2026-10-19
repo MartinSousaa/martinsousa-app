@@ -818,13 +818,14 @@ if __name__ == "__main__":
     ok("Mercado Livre entra no detalhe como módulo próprio",
        "MERCADO LIVRE · SALDO MP" in html_modulos(_mods, _ml[8]))
 
-    import os
-    _app = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                             "app.py"), encoding="utf-8").read()
-    ok("a aba Visão Geral está ao lado de Registros, só para o dono",
-       "_abrir('visao_geral', 'pagina', usuario_logado)" in _app
-       and _app.index('"🗂️ Registros"') < _app.index('"🧭 Visão Geral"')
-       < _app.index('_navegar(_abas_gestao, "aba_gf")'))
+    # 19/10 (dono): a Visão Geral saiu da barra de Gestão e virou a aba do
+    # meio da Home — Painel | Visão Geral | Histórico —, só para o dono.
+    import gestao as _ge_t
+    import inspect as _insp_t
+    ok("a Visão Geral é a aba do meio da Home, e só o dono a vê",
+       _ge_t.HOME_ABAS[1] == "🧭 Visão Geral"
+       and "_vg.pagina(usuario_logado)" in _insp_t.getsource(_ge_t.pagina_home)
+       and "eh_dono" in _insp_t.getsource(_ge_t.abas_da_home))
     import inspect as _insp
     ok("a página tranca por conta própria",
        "_auth.eh_dono(usuario_logado)" in _insp.getsource(pagina))

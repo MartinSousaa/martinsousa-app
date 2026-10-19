@@ -3482,7 +3482,10 @@ def _visao_geral_na_home(conta):
         except Exception:
             pass
         conta("Home: quem não é dono não vê a Visão Geral",
-              bool(_opcoes) and "🧭 Visão Geral" not in _opcoes[0], str(_opcoes))
+              bool(_opcoes) and "🧭 Visão Geral" not in _opcoes[0]
+              and _ge_v.abas_da_home("colaborador_qualquer")
+              == tuple(a for a in _ge_v.HOME_ABAS if a != _ge_v.ABA_VISAO),
+              str(_opcoes))
     except (_Rerun, _Parou):
         conta("Home › Visão Geral: a tela monta", True, "")
     except Exception as e:
