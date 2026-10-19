@@ -534,9 +534,22 @@ def _processar(arq, _itau, _inter, _fv, _lan, usuario_logado):
     # "BUSINESS 6202-5907" é fatura do cartão — está na descrição, e o leitor
     # já devolve isso em `tipo`. Sem esta linha, 49 lançamentos que o sistema
     # entende sozinho caíam na fila do dono para ele responder um a um.
+    # BOLETO PAGO sem cadastro na aba Boletos é mercadoria (dono, 19/10).
+    try:
+        import cheques as _chq_bol
+        _boletos_sem = finalidade_dos_boletos(lancs, _chq_bol.carregar())
+    except Exception:
+        _boletos_sem = []
     for _l in lancs:
         if not _l.get("finalidade") and _l.get("tipo") in POR_TIPO:
             _l["finalidade"] = POR_TIPO[_l["tipo"]]
+    if _boletos_sem:
+        st.info(f"🧾 **{len(_boletos_sem)} boleto(s) pago(s) sem cadastro na aba "
+                "Boletos entraram como MERCADORIA:** "
+                + " · ".join(f"{_l.get('data')} {_rot.tela('R$ ' + _fmt(-float(_l.get('valor') or 0)))}"
+                             f" {str(_l.get('descricao') or '')[:40]}" for _l in _boletos_sem[:8])
+                + ". Cadastre os próximos na aba Boletos para entrarem no "
+                  "provisionado pelo vencimento.")
 
     classificados, fila = _fv.classificar(lancs)
     # A fila ganha o que falta para a pergunta fazer sentido: de que conta,
@@ -641,6 +654,38 @@ def _processar(arq, _itau, _inter, _fv, _lan, usuario_logado):
     # A pergunta não é feita aqui: ela é feita UMA vez, com a fila de todos
     # os arquivos juntos. Ver `pagina`.
     return fila
+
+
+def finalidade_dos_boletos(lancs, boletos_cadastrados):
+    """Põe a finalidade nas linhas "BOLETO PAGO" do extrato. [sem cadastro].
+
+    Dono, 19/10: "boleto bancário, quase sempre será compra de mercadoria".
+    O boleto que paga um registro da aba Boletos (mesma conta da baixa,
+    `cheques.baixas_pelo_extrato`, certas ou duvidosas) fica BOLETO: o
+    estoque dele já entra como mercadoria quando ele é baixado. O resto vira
+    MERCADORIA — antes ficava "BOLETO" calado, sem pergunta, e caía em "não
+    classificada" na Home (R$ 1.385 em outubro). Devolve as linhas que
+    entraram como mercadoria, para a tela mostrar e o dono corrigir a exceção.
+    """
+    import cheques as _chq_b
+    alvo = [l for l in (lancs or [])
+            if l.get("tipo") == "boleto" and not str(l.get("finalidade") or "").strip()]
+    if not alvo:
+        return []
+    abertos = [c for c in (boletos_cadastrados or [])
+               if _chq_b.eh_tipo(c, "BOLETO") and _chq_b.esta_aberto(c)]
+    certas, duvidosas = _chq_b.baixas_pelo_extrato(abertos, alvo) if abertos else ([], [])
+    chave = lambda l: (str(l.get("data")), round(float(l.get("valor") or 0), 2),
+                       str(l.get("descricao") or ""))
+    pagos = {chave(b["lancamento"]) for b in list(certas) + list(duvidosas)}
+    sem = []
+    for l in alvo:
+        if chave(l) in pagos:
+            l["finalidade"] = "BOLETO"
+        else:
+            l["finalidade"] = "MERCADORIA"
+            sem.append(l)
+    return sem
 
 
 # O tipo que o leitor do extrato já identifica, e a finalidade dele.
@@ -1709,6 +1754,33 @@ if __name__ == "__main__":
        and "meses_para_conferir(linhas, competencia)" in _src_ccr)
 
     print("\nfalhas:", falhas)
+
+    # ── BOLETO PAGO SEM CADASTRO = MERCADORIA (dono, 19/10) ──────────────
+    # "Boleto bancário, quase sempre será compra de mercadoria." O que paga
+    # um boleto CADASTRADO na aba Boletos continua BOLETO — o estoque dele
+    # já entra como mercadoria pela baixa, e marcar de novo contaria duas
+    # vezes. PELA CADEIA: o boleto na forma de `cheques.normalizar`, e a
+    # linha do extrato com as chaves que `extrato_itau.ler` monta.
+    import cheques as _ch_bt
+    _cad = [_ch_bt.normalizar({"tipo": "BOLETO", "favorecido": "APEXIMP",
+                               "vencimento": "2026-10-20", "valor": 2430.0,
+                               "situacao": "EM ABERTO"})]
+    _lx = lambda d, v, desc: {"data": d, "descricao": desc, "razao_social": "",
+                              "cnpj": "", "valor": v, "tipo": "boleto",
+                              "cheque": None, "cartao": None}
+    _bl = [_lx("2026-10-20", -2430.0, "BOLETO PAGO APEXIMP"),
+           _lx("2026-10-08", -1385.0, "BOLETO PAGO LEXTACK")]
+    _sem = finalidade_dos_boletos(_bl, _cad)
+    ok("boleto que paga um cadastrado continua BOLETO (o estoque já conta pela baixa)",
+       _bl[0]["finalidade"] == "BOLETO")
+    ok("boleto pago sem cadastro entra como MERCADORIA, e a tela sabe quais foram",
+       _bl[1]["finalidade"] == "MERCADORIA" and _sem == [_bl[1]])
+    ok("linha que já veio com finalidade não é tocada",
+       finalidade_dos_boletos([dict(_lx("2026-10-08", -10.0, "x"), finalidade="IMPOSTO")], [])
+       == [])
+    ok("o extrato chama isto ANTES do carimbo por tipo",
+       _insp.getsource(_processar).index("finalidade_dos_boletos(")
+       < _insp.getsource(_processar).index("POR_TIPO[_l[\"tipo\"]]"))
 
     # O CODIGO DE SAIDA. Sem ele, quem le `returncode` ve este modulo como
     # aprovado SEMPRE — e o `conferir.py` e o `checar_mutacao.py` leem

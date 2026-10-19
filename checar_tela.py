@@ -2942,7 +2942,8 @@ def _lucro_liquido_custo_fixo(conta):
         p4 = hg.dados_reais(2026, 9, 25)[0]["painel"]
         _h = hg._html_indicadores(p4)
         conta("sem LPV o lucro líquido não vira número",
-              p4["lucro_liquido"] is None and "falta o LPV" in _h, "")
+              # 19/10: os textos da Home começam com maiúscula ("Falta o LPV")
+              p4["lucro_liquido"] is None and "falta o lpv" in _h.lower(), "")
     except Exception as e:
         conta("lucro líquido com LPV", False, f"{type(e).__name__}: {e}")
     finally:
@@ -3421,7 +3422,7 @@ def _historico_na_home(conta):
     _lm_h.lpv_do_ano = lambda ano: ({}, "")
     _vistos = {"tabela": None, "html": ""}
     _falso = instalar()
-    _falso.radio = lambda *a, **k: _ge_h.HOME_ABAS[1]
+    _falso.radio = lambda *a, **k: _ge_h.ABA_HISTORICO
     _falso.selectbox = lambda rot, opcoes, *a, **k: list(opcoes)[0]
 
     def _tab(d, *a, **k):
@@ -3451,6 +3452,165 @@ def _historico_na_home(conta):
               f"{type(e).__name__}: {e}")
     finally:
         _mg_h.ano_inteiro, _bv_h.somas_por_mes, _lm_h.lpv_do_ano = _g
+
+
+def _visao_geral_na_home(conta):
+    """19/10: a Visão Geral saiu da barra de Gestão e virou a aba do meio da
+    Home — Painel | Visão Geral | Histórico —, só para o dono."""
+    import gestao as _ge_v
+    import visao_geral as _vg_v
+    import auth as _au_v
+    _dono = sorted(_au_v.ADMINS_PADRAO)[0]
+    _chamou, _opcoes = [], []
+    _g = _vg_v.pagina
+    _falso = instalar()
+
+    def _radio(rot, opcoes, *a, **k):
+        _opcoes.append(tuple(opcoes))
+        return _ge_v.ABA_VISAO if _ge_v.ABA_VISAO in opcoes else opcoes[0]
+    _falso.radio = _radio
+    _ge_v.st = _falso
+    try:
+        _vg_v.pagina = lambda u=None: _chamou.append(u)
+        _ge_v.pagina_home(_dono)
+        conta("Home: a ordem é Painel | Visão Geral | Histórico, e a do meio abre a Visão Geral",
+              _opcoes[0] == ("📊 Painel", "🧭 Visão Geral", "🗓️ Histórico")
+              and _chamou == [_dono], str(_opcoes))
+        _opcoes.clear()
+        try:
+            _ge_v.pagina_home("colaborador_qualquer")
+        except Exception:
+            pass
+        conta("Home: quem não é dono não vê a Visão Geral",
+              bool(_opcoes) and "🧭 Visão Geral" not in _opcoes[0]
+              and _ge_v.abas_da_home("colaborador_qualquer")
+              == tuple(a for a in _ge_v.HOME_ABAS if a != _ge_v.ABA_VISAO),
+              str(_opcoes))
+    except (_Rerun, _Parou):
+        conta("Home › Visão Geral: a tela monta", True, "")
+    except Exception as e:
+        conta("Home › Visão Geral: a tela monta", False, f"{type(e).__name__}: {e}")
+    finally:
+        _vg_v.pagina = _g
+
+
+def _tiktok_na_viabilidade(conta):
+    """19/10: a TikTok Shop na Viabilidade e na Calculadora de Preço Mínimo.
+
+    O dado vem do DEMONSTRATIVO FINANCEIRO REAL da loja (income_20261019),
+    pedido a pedido — e não de taxa escrita de cabeça: globo R$ 109,99 com
+    afiliado 9,5% → repasse 80,34; almofada R$ 34,99 → 25,39; suporte
+    R$ 309,99 com afiliado 13,17 → 253,62. As funções saem do `app.py` pela
+    AST e rodam com as tabelas reais de `params_oficiais`."""
+    import ast as _ast_t
+    import params_oficiais as _po_t
+    import lpv_mensal as _lm_t
+    _arv = _ast_t.parse(open("app.py", encoding="utf-8").read())
+    _quero = {"calcular_comissao_tiktok", "calcular_resultado_tiktok",
+              "resolver_preco_para_uc_fn", "_ate_o_alvo"}
+    _nos = [n for n in _arv.body if isinstance(n, _ast_t.FunctionDef) and n.name in _quero]
+    conta("TikTok: as funções de cálculo existem no app.py",
+          {n.name for n in _nos} == _quero, str({n.name for n in _nos}))
+    if {n.name for n in _nos} != _quero:
+        return
+    _ns = {k: getattr(_po_t, k) for k in dir(_po_t) if k.isupper()}
+    _ns.update(lpv_mensal=_lm_t)
+    exec(compile(_ast_t.Module(body=_nos, type_ignores=[]), "app.py", "exec"), _ns)
+    _calc = _ns["calcular_resultado_tiktok"]
+    # repasse = preço − (comissão + taxa por item + SFP + afiliado); com NF, C.O
+    # e custo em zero, o "lucro bruto" é o que a TikTok liquida.
+    _rep = lambda p, af: round(_calc(p, 0.0, 0.0, 0.0, 20.0, af)["lucro_bruto"], 2)
+    conta("TikTok bate com o demonstrativo real: globo, almofada e suporte",
+          _rep(109.99, 0.095) == 80.34 and _rep(34.99, 0.0) == 25.39
+          and _rep(309.99, 13.17 / 309.99) == 253.62 and _rep(109.99, 0.0) == 90.79,
+          f"{_rep(109.99, 0.095)} {_rep(34.99, 0.0)} {_rep(309.99, 13.17 / 309.99)}")
+    conta("TikTok: o SFP para em R$ 50 por item e o frete é zero",
+          round(_calc(1000.0, 0, 0, 0, 20.0)["comissao"], 2) == round(60 + 6 + 50, 2)
+          and _calc(1000.0, 0, 0, 0, 20.0)["frete"] == 0.0, "")
+    _c = lambda pr: _calc(pr, 30.0, 0.08, 0.07, 20.0, 0.0)
+    _p = _ns["resolver_preco_para_uc_fn"](1.0, _c, 20.0)
+    conta("TikTok: o preço para UC 1,0 é o primeiro centavo no alvo (troca de faixa em R$ 50)",
+          _c(_p)["uc"] >= 1.0 and _c(round(_p - 0.01, 2))["uc"] < 1.0, f"preço {_p}")
+    _src = open("app.py", encoding="utf-8").read()
+    _viab = _src[_src.index("def _render_viabilidade_tab"):_src.index("def _navegar")]
+    _calc_min = _src[_src.index("def _render_analise_venda_tab"):_src.index("def _render_viabilidade_tab")]
+    conta("TikTok na tela: preço, % de afiliado, coluna do resultado e registro",
+          'key="preco_tk"' in _viab and 'key="viab_tk_afiliado"' in _viab
+          and '"tk": ("ms-plat-tk", "TikTok Shop")' in _viab
+          and '("TikTok", res_tk, preco_tk or 0)' in _viab
+          and "calcular_resultado_tiktok(" in _calc_min and "TikTok Shop" in _calc_min, "")
+
+
+def _din_financas_previa(conta):
+    """19/10: a prévia do que o Studio gravaria na DIN FINANÇAS (só leitura).
+
+    O desenho da aba é o do .xlsx real (cópia de 15/10, lida no XML): título
+    "LPV MENSAL" em X52 e "CUSTOS OP. MENSAL" em X68, meses "jan".."dez" na
+    coluna X, valor em Y. Os meses do Studio saem de `lpv_mensal.lpv` e
+    `lpv_mensal.calcular` — as funções que `lpv_do_ano` e
+    `custo_operacional_do_ano` chamam. Só a REDE é trocada."""
+    import financeiro as _fi_d
+    import excel_ms as _xm_d
+    import controle_ms as _cms_d
+    import lpv_mensal as _lm_d
+    from datetime import date as _d_d
+    _grade = [["" for _ in range(32)] for _ in range(140)]
+    _form = [["" for _ in range(32)] for _ in range(140)]
+    _grade[49][23] = "LPV (FIXO E N OPER.)"
+    _grade[51][23], _grade[67][23] = "LPV MENSAL", "CUSTOS OP. MENSAL"
+    for _i, _n in enumerate(("jan", "fev", "mar", "abr", "mai", "jun", "jul",
+                             "ago", "set", "out", "nov", "dez")):
+        _grade[52 + _i][23] = _grade[68 + _i][23] = _n
+        _grade[52 + _i][24] = _grade[68 + _i][24] = "0,00"
+        _form[52 + _i][24] = f"=IFERROR($C$8/VLOOKUP(X{53 + _i},DINAMICA!$B$60:$C$72,2,0),0)"
+    _meses = {9: _lm_d.lpv(5000.0, 1000.0, 300.0, 200.0, 300),
+              10: _lm_d.lpv(5000.0, 1000.0, 300.0, 200.0, 100)}
+    _co = {9: _lm_d.calcular([{"valor": -9000.0, "finalidade": "PAGINA DO ML"}],
+                             {"vendas": 300})}
+    _hoje = _d_d(2026, 10, 19)
+    _rede, _tabelas, _avisos = [], [], []
+    _g = (_xm_d.configurado, _xm_d.item_do_link, _xm_d.ler_grade,
+          _cms_d.link_configurado, _fi_d.st)
+
+    def _rodar(clicar, link):
+        _falso = instalar()
+        _falso.button = lambda rot, *a, **k: clicar and k.get("key") == "din_testar_2026"
+        _falso.dataframe = lambda d, *a, **k: _tabelas.append(d)
+        _falso.warning = lambda t, *a, **k: _avisos.append(str(t))
+        _fi_d.st = _falso
+        _cms_d.link_configurado = lambda: link
+        _fi_d._secao_din_financas(2026, _meses, _co, _hoje)
+    try:
+        _xm_d.configurado = lambda: ""
+        _xm_d.item_do_link = lambda l: (_rede.append("item") or
+                                        ({"nome": "Controle MS.xlsx", "alterado": "2026-10-19T19:00:00Z",
+                                          "drive": "d", "item": "i"}, ""))
+        _xm_d.ler_grade = lambda l, *a, **k: (_rede.append("grade") or
+                                              ({"texto": _grade, "formulas": _form, "endereco": "A1:AF140"}, ""))
+        _emp = "https://martinsousacombr-my.sharepoint.com/:x:/g/personal/x/y?e=1"
+        _rodar(False, _emp)
+        conta("DIN FINANÇAS: sem clique, nenhuma chamada à Microsoft (a tela roda a cada tecla)",
+              _rede == [] and _tabelas == [], str(_rede))
+        _rodar(True, _emp)
+        _df = _tabelas[-1] if _tabelas else None
+        _cel = list(_df["Célula"]) if _df is not None else []
+        conta("DIN FINANÇAS: a prévia mostra set em Y61 (LPV) e Y77 (C.O.), e não out (em andamento)",
+              _cel == ["Y61", "Y77"], str(_cel))
+        conta("DIN FINANÇAS: avisa que Y61 hoje é fórmula",
+              _df is not None and str(_df["Hoje é fórmula"].iloc[0]).startswith("sim")
+              and not str(_df["Hoje é fórmula"].iloc[1]), "")
+        _rede.clear()
+        _tabelas.clear()
+        _rodar(True, "https://onedrive.live.com/?id=x")
+        conta("DIN FINANÇAS: link do OneDrive pessoal avisa e não chama a rede",
+              _rede == [] and any("EMPRESA" in a for a in _avisos), str(_avisos[-1:]))
+    except (_Rerun, _Parou):
+        conta("DIN FINANÇAS: a prévia monta", True, "")
+    except Exception as e:
+        conta("DIN FINANÇAS: a prévia monta", False, f"{type(e).__name__}: {e}")
+    finally:
+        (_xm_d.configurado, _xm_d.item_do_link, _xm_d.ler_grade,
+         _cms_d.link_configurado, _fi_d.st) = _g
 
 
 def main():
@@ -3515,6 +3675,9 @@ def main():
     _lembretes_na_home(conta)
     _visao_geral(conta)
     _visao_faturamento(conta)
+    _visao_geral_na_home(conta)
+    _tiktok_na_viabilidade(conta)
+    _din_financas_previa(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0

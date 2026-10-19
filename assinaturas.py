@@ -339,7 +339,14 @@ def conferir(cadastro, lancamentos_do_mes):
 
     divergentes, sumidas, usados = [], [], set()
     for linha in cad:
-        achados = [(i, l) for i, l in enumerate(lancs) if _casa(l, linha)]
+        # OS NOMES DO ITEM, pela mesma regra de "Conferido nos extratos"
+        # (`custo_real.nomes_do_item`): a coluna tem vários nomes separados
+        # por `;`. Casada inteira como um nome só, a assinatura paga aparecia
+        # como "não apareceu" ao lado da tabela que a achava (dono, 19/10).
+        import custo_real as _cr
+        nomes = _cr.nomes_do_item(linha)
+        achados = [(i, l) for i, l in enumerate(lancs)
+                   if any(_casa(l, {"favorecido": n}) for n in nomes)]
         if not achados:
             if not str(linha.get("periodicidade", "")).lower().startswith("anu"):
                 sumidas.append({"item": linha.get("item", ""),
@@ -544,6 +551,24 @@ if __name__ == "__main__":
     ok("a sumida tambem", any("não apareceu" in f for f in frases))
     ok("cadastro vazio nao quebra", conferir([], [lanc("X", -1.0)]) is not None)
     ok("mes vazio nao quebra", conferir(CAD, []) is not None)
+
+    # 19/10, o print do dono: "Claude/ChatGPT/Trello não apareceu neste mês"
+    # com a tabela "Conferido nos extratos", logo abaixo, achando os três no
+    # mesmo mês. O apelido confirmado na fila vira "NOME; GRAFIA" (pela
+    # própria `custo_real.com_apelido`), e a vigilância casava a coluna
+    # INTEIRA como um nome só. Um nome, uma resposta: as duas pela mesma regra.
+    import custo_real as _cr_t
+    _kl = {"item": "KlingAI", "valor_mensal": 51.13, "periodicidade": MENSAL, "favorecido": ""}
+    _kl["favorecido"] = _cr_t.com_apelido(_kl, "KLINGAI.COM")
+    _lk = [lanc("KLINGAI.COM SINGAPORE", -125.15)]
+    ok("apelido com ';' casa: o KlingAI pago não vira 'não apareceu'",
+       not conferir([_kl], _lk)["sumidas"] and ";" in _kl["favorecido"])
+    ok("e a vigilância concorda com a tabela 'Conferido nos extratos'",
+       _cr_t.cobrado_no_mes(_kl, _lk) == 125.15
+       and [d["cobrado"] for d in conferir([_kl], _lk)["divergentes"]] == [125.15])
+    _so_nome = {"item": "Claude", "valor_mensal": 500.0, "periodicidade": MENSAL, "favorecido": ""}
+    ok("sem coluna, nome de 5+ letras casa nas duas (a mesma `nomes_do_item`)",
+       not conferir([_so_nome], [lanc("CLAUDE.AI SUBSCRIPTION", -588.79)])["sumidas"])
 
     print("\nfalhas:", falhas)
     raise SystemExit(falhas)

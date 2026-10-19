@@ -34,6 +34,22 @@ SHEIN_FRETE_TABELA = [
     (999.0, 106.00),
 ]
 
+# ── TIKTOK SHOP ────────────────────────────────────────────────────────────────
+# Regra de 15/07/2026, conferida no demonstrativo financeiro real da loja
+# (dono, 19/10): globo de R$ 109,99 → comissão 6,60 + R$ 6,00 por item + SFP
+# 6,60; almofada de R$ 34,99 → 3,50 + R$ 4,00 + 2,10. Sem "taxa de transação"
+# e sem frete para o vendedor dentro do Programa de Taxas de Envio (o
+# comprador paga o que passa do subsídio).
+# (preco_min, preco_max, comissao_pct, taxa_por_item) — sobre o preço depois do
+# desconto do VENDEDOR (o desconto bancado pelo TikTok não muda a base).
+TIKTOK_FAIXAS = [
+    (0.00,   49.99, 0.10, 4.00),
+    (50.00, 999999, 0.06, 6.00),
+]
+TIKTOK_SFP_PCT = 0.06     # Programa de Taxas de Envio: 6% do preço do item
+TIKTOK_SFP_TETO = 50.00   # … limitado a R$ 50 por item
+TIKTOK_FRETE_LIQUIDO = 0.00
+
 # ── MERCADO LIVRE ──────────────────────────────────────────────────────────────
 # Frete: tabela oficial de custos de Envios (MercadoLider / reputacao verde / sem
 # reputacao), valida a partir da reforma de marco/2026. Divisor de peso cubado: 6000.
@@ -205,6 +221,17 @@ if __name__ == "__main__":
        isinstance(SHEIN_COMISSAO, (int, float)) and 0 < SHEIN_COMISSAO < 1)
     _lim_sh = [p for p, _ in SHEIN_FRETE_TABELA]
     ok("a tabela de frete da SHEIN está ordenada", _lim_sh == sorted(_lim_sh))
+
+    # ── TIKTOK ───────────────────────────────────────────────────────────
+    ok("as faixas da TikTok estão ordenadas e sem buraco de mais de um centavo",
+       [f[0] for f in TIKTOK_FAIXAS] == sorted(f[0] for f in TIKTOK_FAIXAS)
+       and all(round(TIKTOK_FAIXAS[i + 1][0] - TIKTOK_FAIXAS[i][1], 2) <= 0.01
+               for i in range(len(TIKTOK_FAIXAS) - 1)))
+    ok("toda comissão da TikTok e o SFP são frações, e o teto do SFP é positivo",
+       all(0 < f[2] < 1 for f in TIKTOK_FAIXAS) and 0 < TIKTOK_SFP_PCT < 1
+       and TIKTOK_SFP_TETO > 0)
+    ok("dentro do Programa de Taxas de Envio o frete da TikTok para o vendedor é zero",
+       TIKTOK_FRETE_LIQUIDO == 0)
 
     # ── Os oficiais do negócio ───────────────────────────────────────────
     ok("LPV e NF oficiais são números positivos",

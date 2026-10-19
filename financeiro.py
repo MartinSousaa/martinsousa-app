@@ -347,6 +347,73 @@ def _lpv_a_gravar(meses, ano, hoje):
             if r.get("lpv") is not None and _lm.mes_fechado(ano, m, hoje)}
 
 
+def _secao_din_financas(ano, meses, meses_co, hoje):
+    """Prévia do que o Studio gravaria na DIN FINANÇAS do Controle MS.
+
+    Dono, 19/10: o Studio preenche LPV e C.O. na planilha. Esta subida é SÓ
+    LEITURA — testa a entrada no OneDrive da empresa e mostra, célula a
+    célula, o que está lá e o que o Studio poria. Nada é gravado aqui.
+    A rede só é chamada no clique: o desenho da tela roda a cada tecla.
+    """
+    import controle_ms as _cms
+    import excel_ms as _xm
+    import lpv_mensal as _lm
+    with st.expander("Planilha Controle MS · DIN FINANÇAS — prévia (só "
+                     "leitura)"):
+        falta = _xm.configurado()
+        link = _cms.link_configurado()
+        if falta:
+            st.warning(falta)
+            return
+        if not _xm.eh_da_empresa(link):
+            st.warning("O `CONTROLE_MS_URL` do Railway não é o link do OneDrive "
+                       "da EMPRESA (sharepoint.com). No OneDrive pessoal a "
+                       "Microsoft não deixa gravar célula por célula — troque "
+                       "pelo link da empresa.")
+            return
+        vl, vc = _xm.valores_a_gravar(meses, meses_co, ano, hoje)
+        chave = f"din_previa_{ano}"
+        if st.button("Testar conexão e montar a prévia (só leitura)",
+                     key=f"din_testar_{ano}", use_container_width=True):
+            with st.spinner("Lendo a DIN FINANÇAS no OneDrive da empresa..."):
+                it, erro = _xm.item_do_link(link)
+                grade = None
+                if not erro:
+                    grade, erro = _xm.ler_grade(link)
+            st.session_state[chave] = (it, grade, erro)
+        if chave not in st.session_state:
+            st.caption("Clique para conferir a conexão. Nada é gravado.")
+            return
+        it, grade, erro = st.session_state[chave]
+        if erro:
+            st.error(f"Não consegui ler a planilha: {erro}")
+            return
+        st.success(f"Conectado: **{it['nome']}** · alterado em "
+                   f"{str(it.get('alterado', ''))[:16].replace('T', ' ')} (UTC)")
+        itens = _xm.plano(grade["texto"], grade["formulas"], 1, 1, vl, vc)
+        achou = {i["bloco"] for i in itens}
+        for bloco, titulo, vals in (("LPV", _xm.TITULO_LPV, vl),
+                                    ("C.O.", _xm.TITULO_CO, vc)):
+            if vals and bloco not in achou:
+                st.warning(f"Não achei o bloco «{titulo}» na aba "
+                           f"{_xm.ABA_DIN} (procurei em {_xm.VARREDURA}).")
+        if not itens:
+            st.info("Nenhum mês fechado com cálculo completo para gravar.")
+            return
+        st.dataframe(pd.DataFrame([{
+            "Bloco": i["bloco"], "Mês": MESES[i["mes"] - 1],
+            "Célula": i["celula"], "Na planilha": i["atual"],
+            "O Studio gravaria": f"R$ {formatar_br(i['novo'])}",
+            "Hoje é fórmula": "sim — seria trocada pelo valor" if i["formula"]
+                              else "",
+        } for i in itens]), hide_index=True, use_container_width=True)
+        fora = [MESES[m - 1] for m in range(1, 13)
+                if _lm.mes_fechado(ano, m, hoje) and m not in vl]
+        if fora:
+            st.caption("Sem LPV calculado (a célula ficaria como está): "
+                       + ", ".join(fora) + ".")
+
+
 def _secao_lpv_calculado(ano, regime, aliquota, bloqueado, df,
                          usuario_logado=None):
     """O LPV que o Studio calcula (`lpv_mensal.py`), ao lado do gravado.
@@ -444,6 +511,8 @@ def _secao_lpv_calculado(ano, regime, aliquota, bloqueado, df,
             })
         st.dataframe(pd.DataFrame(_lin_co), hide_index=True,
                      use_container_width=True)
+
+    _secao_din_financas(ano, meses, meses_co, hoje)
 
     if st.button(f"Gravar o LPV calculado nos meses fechados de {ano} "
                  f"({len(gravaveis)})", type="primary",

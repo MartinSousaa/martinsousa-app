@@ -18,6 +18,7 @@ from params_oficiais import (
     ML_FAIXAS_PRECO, ML_FRETE_TABELA, ML_COMISSAO_POR_CATEGORIA,
     SHOPEE_FAIXAS, SHOPEE_FRETE_LIQUIDO,
     SHEIN_COMISSAO, SHEIN_FRETE_TABELA,
+    TIKTOK_FAIXAS, TIKTOK_SFP_PCT, TIKTOK_SFP_TETO, TIKTOK_FRETE_LIQUIDO,
 )
 import financeiro
 import lpv_mensal
@@ -774,6 +775,7 @@ body.tema-claro .ms-card-plat-price { color: #111 !important; }
 .ms-plat-ml { color: var(--ms-texto) !important; border-bottom-color: #ffe600 !important; }
 .ms-plat-sp { color: #ee4d2d !important;          border-bottom-color: #ee4d2d !important; }
 .ms-plat-sh { color: #fe4a7b !important;          border-bottom-color: #fe4a7b !important; }
+.ms-plat-tk { color: #25f4ee !important;          border-bottom-color: #25f4ee !important; }
 
 /* ── CONTADOR DE CARACTERES DO TÍTULO ───────────────────────────────────── */
 .ms-char-ok   { color: #16a34a !important; font-size: 13px; }
@@ -1091,6 +1093,40 @@ def calcular_resultado_shein(preco, custo, peso_kg, nf_pct, co_taxa, lpv):
         'preco': preco, 'custo': custo, 'comissao': comissao, 'frete': frete,
         'nf': nf, 'custo_operacional': custo_operacional, 'lpv': lpv,
         'lucro_bruto': preco - (comissao + frete),
+        'lucro_liquido': lucro_liq, 'margem': margem, 'uc': uc,
+    }
+
+# ── CÁLCULO TIKTOK SHOP ────────────────────────────────────────────────────────
+# Regra conferida no demonstrativo financeiro real da loja (dono, 19/10):
+# comissão por faixa + taxa por item + 6% do Programa de Taxas de Envio (teto
+# R$ 50 por item) + a comissão do afiliado quando a venda vem de criador.
+# Frete zero: dentro do programa, o comprador paga o que passa do subsídio.
+
+def calcular_comissao_tiktok(preco):
+    """(comissao_pct_valor, taxa_por_item, sfp) conforme TIKTOK_FAIXAS."""
+    for pmin, pmax, pct, taxa in TIKTOK_FAIXAS:
+        if pmin <= preco <= pmax:
+            break
+    else:
+        _, _, pct, taxa = TIKTOK_FAIXAS[-1]
+    return preco * pct, taxa, min(preco * TIKTOK_SFP_PCT, TIKTOK_SFP_TETO)
+
+def calcular_resultado_tiktok(preco, custo, nf_pct, co_taxa, lpv, afiliado_pct=0.0):
+    custo_operacional = lpv_mensal.co_por_venda(preco, co_taxa)
+    comissao_pct, taxa_item, sfp = calcular_comissao_tiktok(preco)
+    afiliado = preco * float(afiliado_pct or 0.0)
+    # "Taxa da plataforma" na tabela = comissão + taxa por item + SFP + afiliado:
+    # tudo o que a TikTok desconta do repasse.
+    comissao_total = comissao_pct + taxa_item + sfp + afiliado
+    frete     = TIKTOK_FRETE_LIQUIDO
+    nf        = preco * nf_pct
+    lucro_liq = preco - (custo + comissao_total + frete + nf + custo_operacional)
+    margem    = (lucro_liq / preco * 100) if preco > 0 else 0
+    uc        = round(lucro_liq / lpv, 2) if lpv else None
+    return {
+        'preco': preco, 'custo': custo, 'comissao': comissao_total, 'frete': frete,
+        'nf': nf, 'custo_operacional': custo_operacional, 'lpv': lpv,
+        'lucro_bruto': preco - (comissao_total + frete),
         'lucro_liquido': lucro_liq, 'margem': margem, 'uc': uc,
     }
 
@@ -1601,7 +1637,11 @@ def _render_analise_venda_tab():
                     def _sh(p, _c=custo_av, _pk=peso_kg_av, _n=_nf_av, _o=co_taxa_av, _l=_lpv_av):
                         return calcular_resultado_shein(p, _c, _pk, _n, _o, _l)
                     p_sh_av = resolver_preco_para_uc_fn(uc_val, _sh, _lpv_av)
-                    linhas_av.append((uc_label, uc_desc, classe_card, p_ml_av, p_sp_av, p_sh_av))
+                    # TikTok sem afiliado: o preço mínimo é o da venda direta.
+                    def _tk(p, _c=custo_av, _n=_nf_av, _o=co_taxa_av, _l=_lpv_av):
+                        return calcular_resultado_tiktok(p, _c, _n, _o, _l)
+                    p_tk_av = resolver_preco_para_uc_fn(uc_val, _tk, _lpv_av)
+                    linhas_av.append((uc_label, uc_desc, classe_card, p_ml_av, p_sp_av, p_sh_av, p_tk_av))
 
             st.markdown("### Preços mínimos para anunciar")
             st.caption(rotulos.tela(
@@ -1609,7 +1649,7 @@ def _render_analise_venda_tab():
                 f"C.O.: {co_pct_av:.2f}% do preço".replace(".", ",")))
             st.markdown("")
 
-            for uc_label, uc_desc, classe_card, p_ml, p_sp, p_sh in linhas_av:
+            for uc_label, uc_desc, classe_card, p_ml, p_sp, p_sh, p_tk in linhas_av:
                 fmt = lambda v: f"{_brl_ms(v)}" if v else "—"
                 st.markdown(f"""
                 <div class="ms-card-uc {classe_card}">
@@ -1626,6 +1666,10 @@ def _render_analise_venda_tab():
                     <div>
                       <div class="ms-card-plat-name">👗 Shein</div>
                       <div class="ms-card-plat-price">{fmt(p_sh)}</div>
+                    </div>
+                    <div>
+                      <div class="ms-card-plat-name">🎵 TikTok Shop</div>
+                      <div class="ms-card-plat-price">{fmt(p_tk)}</div>
                     </div>
                   </div>
                 </div>
@@ -1703,7 +1747,7 @@ def _render_viabilidade_tab():
     modalidade = st.selectbox("Modalidade ML", ["Premium", "Classico"], key="viab_modalidade")
     st.caption("Preencha o preço pesquisado em cada plataforma. Deixe em branco as que não forem analisar.")
 
-    col_p1, col_p2, col_p3 = st.columns(3)
+    col_p1, col_p2, col_p3, col_p4 = st.columns(4)
     with col_p1:
         preco_ml = st.number_input("🛒 Mercado Livre", min_value=0.0, value=None, step=0.50,
                                     format="%.2f", placeholder="0,00", key="preco_ml")
@@ -1713,6 +1757,16 @@ def _render_viabilidade_tab():
     with col_p3:
         preco_sh = st.number_input("👗 Shein", min_value=0.0, value=None, step=0.50,
                                     format="%.2f", placeholder="0,00", key="preco_sh")
+    with col_p4:
+        preco_tk = st.number_input("🎵 TikTok Shop", min_value=0.0, value=None, step=0.50,
+                                    format="%.2f", placeholder="0,00", key="preco_tk")
+        # A venda por criador desconta a comissão do afiliado (demonstrativo de
+        # 19/10: 4,2% a 10% conforme o produto). Venda direta: 0.
+        afiliado_tk = st.number_input("Comissão de afiliado TikTok (%)", min_value=0.0,
+                                      max_value=100.0, value=0.0, step=0.5, format="%.1f",
+                                      key="viab_tk_afiliado",
+                                      help="0 para venda direta. Quando a venda vem de "
+                                           "vídeo de criador, o % do plano de afiliado.")
 
     st.markdown("---")
     analisar = st.button("Analisar Viabilidade", type="primary", use_container_width=True)
@@ -1731,8 +1785,8 @@ def _render_viabilidade_tab():
         if not nome_produto: erros.append("Nome do produto")
         if custo is None:    erros.append("Preço de custo")
         if co_pct_vb is None: erros.append("Custo operacional (%)")
-        if all(p is None for p in [preco_ml, preco_sp, preco_sh]):
-            erros.append("Pelo menos um preço de mercado (ML, Shopee ou Shein)")
+        if all(p is None for p in [preco_ml, preco_sp, preco_sh, preco_tk]):
+            erros.append("Pelo menos um preço de mercado (ML, Shopee, Shein ou TikTok)")
         if preco_sh and peso_kg == 0:
             erros.append("Peso do produto (necessário para calcular o frete da Shein)")
         if erros:
@@ -1755,7 +1809,7 @@ def _render_viabilidade_tab():
         peso_taxado_ml = calcular_peso_taxado(peso_kg, dim1 or 0, dim2 or 0, dim3 or 0)
 
         with st.spinner("Calculando viabilidade nas plataformas..."):
-            res_ml, res_sp, res_sh = None, None, None
+            res_ml, res_sp, res_sh, res_tk = None, None, None, None
 
             if preco_ml:
                 res_ml = gerar_analise(
@@ -1770,10 +1824,16 @@ def _render_viabilidade_tab():
                 calc_sh = lambda p: calcular_resultado_shein(p, custo, peso_kg, nf_pct_usado, co_taxa, lpv_usado)
                 res_sh = gerar_analise_fn(preco_sh, custo, nome_produto, nf_pct_usado,
                                           co_taxa, lpv_usado, calc_sh)
+            if preco_tk:
+                _af_tk = (afiliado_tk or 0.0) / 100
+                calc_tk = lambda p: calcular_resultado_tiktok(p, custo, nf_pct_usado, co_taxa,
+                                                              lpv_usado, _af_tk)
+                res_tk = gerar_analise_fn(preco_tk, custo, nome_produto, nf_pct_usado,
+                                          co_taxa, lpv_usado, calc_tk)
 
         plataformas_log = " / ".join(
             f"{p}: {r['tag']} {_brl_ms(pr)}"
-            for p, r, pr in [("ML", res_ml, preco_ml or 0), ("Shopee", res_sp, preco_sp or 0), ("Shein", res_sh, preco_sh or 0)]
+            for p, r, pr in [("ML", res_ml, preco_ml or 0), ("Shopee", res_sp, preco_sp or 0), ("Shein", res_sh, preco_sh or 0), ("TikTok", res_tk, preco_tk or 0)]
             if r is not None
         )
         # Com o resultado sobrevivendo aos reruns, registrar aqui sem guarda
@@ -1790,14 +1850,16 @@ def _render_viabilidade_tab():
             "ml": ("ms-plat-ml", "Mercado Livre"),
             "sp": ("ms-plat-sp", "Shopee"),
             "sh": ("ms-plat-sh", "Shein"),
+            "tk": ("ms-plat-tk", "TikTok Shop"),
         }
 
-        col_r1, col_r2, col_r3 = st.columns(3)
+        col_r1, col_r2, col_r3, col_r4 = st.columns(4)
 
         for col, chave, resultado, preco in [
             (col_r1, "ml", res_ml, preco_ml),
             (col_r2, "sp", res_sp, preco_sp),
             (col_r3, "sh", res_sh, preco_sh),
+            (col_r4, "tk", res_tk, preco_tk),
         ]:
             classe_plat, nome_plataforma = PLATAFORMAS[chave]
             with col:
@@ -2096,11 +2158,8 @@ if _eh_admin:
         if auth.eh_dono(usuario_logado):
             _abas_gestao["🗂️ Registros"] = \
                 lambda: _abrir('admin', 'pagina_admin', usuario_logado)
-            # A VISÃO GERAL (dono, 15/10): "ao lado de Registros". O ano
-            # inteiro de saídas por finalidade e modalidade — dinheiro da
-            # empresa, a mesma trava de Registros.
-            _abas_gestao["🧭 Visão Geral"] = \
-                lambda: _abrir('visao_geral', 'pagina', usuario_logado)
+            # A VISÃO GERAL mudou para dentro da Home (dono, 19/10: "mova ela
+            # para Home") — Painel | Visão Geral | Histórico, em `gestao`.
         _navegar(_abas_gestao, "aba_gf")
     elif _secao == "indicadores":
         if _eh_martinsousa:

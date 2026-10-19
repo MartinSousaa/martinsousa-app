@@ -222,10 +222,26 @@ def _baixar_do_link(url):
     return dados, ""
 
 
+@st.cache_data(ttl=TTL_SEG, show_spinner=False)
+def _baixar_pela_graph(url):
+    """Os bytes do arquivo da EMPRESA pela Microsoft Graph. (bytes, erro).
+
+    Link do OneDrive da empresa pode exigir login da organização, e aí o
+    `download=1` devolve a página de entrada. Com o aplicativo MS Studio
+    configurado (`excel_ms`), o Studio entra como ele mesmo. Mesmo TTL do
+    link: são os mesmos 12 MB.
+    """
+    import excel_ms as _xm
+    return _xm.baixar(url)
+
+
 def _bytes_do_arquivo():
     """(bytes, erro) da fonte ativa."""
     link = link_configurado()
     if link:
+        import excel_ms as _xm
+        if _xm.eh_da_empresa(link) and not _xm.configurado():
+            return _baixar_pela_graph(link)
         return _baixar_do_link(link)
     return _baixar(arquivo_id())
 
@@ -320,7 +336,7 @@ def _cabecalho(linha):
 
 def limpar():
     """Esquece o arquivo baixado. Para a tela que acabou de pedir releitura."""
-    for f in (_baixar, _baixar_do_link):
+    for f in (_baixar, _baixar_do_link, _baixar_pela_graph):
         try:
             f.clear()
         except Exception:
@@ -443,6 +459,32 @@ if __name__ == "__main__":
            not _err_c and len(_df_c) == 2 and __import__("pandas").isna(_df_c["D"].iloc[1]))
     finally:
         globals()["_bytes_do_arquivo"] = _g_c
+
+    # O LINK DA EMPRESA vai pela Graph quando o aplicativo está configurado
+    # (19/10); sem as chaves, cai no `download=1` de sempre. O pessoal nunca
+    # vai pela Graph — o aplicativo é da empresa e não enxerga o pessoal.
+    import os as _os_t
+    import excel_ms as _xm_t
+    _g_cfg, _g_gr, _g_ln = _xm_t.configurado, _baixar_pela_graph, _baixar_do_link
+    _g_env = _os_t.environ.get(SECRET_URL)
+    try:
+        globals()["_baixar_pela_graph"] = lambda u: (b"graph", "")
+        globals()["_baixar_do_link"] = lambda u: (b"link", "")
+        _xm_t.configurado = lambda: ""
+        _os_t.environ[SECRET_URL] = "https://martinsousacombr-my.sharepoint.com/:x:/g/p/x?e=1"
+        ok("link da empresa com o aplicativo → Graph", _bytes_do_arquivo()[0] == b"graph")
+        _xm_t.configurado = lambda: "Falta no Railway"
+        ok("link da empresa sem as chaves → download=1", _bytes_do_arquivo()[0] == b"link")
+        _xm_t.configurado = lambda: ""
+        _os_t.environ[SECRET_URL] = "https://onedrive.live.com/?id=x"
+        ok("link pessoal nunca vai pela Graph", _bytes_do_arquivo()[0] == b"link")
+    finally:
+        _xm_t.configurado = _g_cfg
+        globals()["_baixar_pela_graph"], globals()["_baixar_do_link"] = _g_gr, _g_ln
+        if _g_env is None:
+            _os_t.environ.pop(SECRET_URL, None)
+        else:
+            _os_t.environ[SECRET_URL] = _g_env
 
     print("\nfalhas:", falhas)
     # O CÓDIGO DE SAÍDA: sem ele, o `conferir.py` e o `checar_mutacao.py`

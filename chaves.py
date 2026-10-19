@@ -35,6 +35,9 @@ PARA_QUE = {
     "SERPAPI_KEY": "pesquisar concorrentes na hora de escrever a descrição",
     "TRELLO_KEY": "ler os cartões do Trello",
     "TRELLO_TOKEN": "ler os cartões do Trello",
+    "MS_TENANT_ID": "entrar no OneDrive da empresa (Controle MS)",
+    "MS_CLIENT_ID": "entrar no OneDrive da empresa (Controle MS)",
+    "MS_CLIENT_SECRET": "entrar no OneDrive da empresa (Controle MS)",
 }
 
 

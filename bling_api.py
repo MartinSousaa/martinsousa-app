@@ -642,6 +642,7 @@ def somar_pedidos(lista, ids_cancelados):
     n = n_cancel = 0
     por_situacao = {}
     por_loja = {}
+    por_dia = {}
     for p in (lista or []):
         try:
             valor = float(p.get("total") or 0)
@@ -672,6 +673,9 @@ def somar_pedidos(lista, ids_cancelados):
 
         bruto += valor
         n += 1
+        dia = str(p.get("data") or "")[:10]
+        if dia:
+            por_dia[dia] = por_dia.get(dia, 0.0) + (0.0 if sid in ids else valor)
         if sid in ids:
             cancelado += valor
             n_cancel += 1
@@ -684,6 +688,9 @@ def somar_pedidos(lista, ids_cancelados):
         "pedidos_cancelados": n_cancel,
         "por_situacao": por_situacao,
         "por_loja": por_loja,
+        # O líquido de cada dia ("AAAA-MM-DD"): a variação dia a dia que a
+        # Home usa para a chance de bater a meta.
+        "por_dia": {k: round(v, 2) for k, v in sorted(por_dia.items())},
     }
 
 
@@ -951,6 +958,17 @@ if __name__ == "__main__":
        nome_do_canal({7: "   "}, 7) == "loja 7")
     ok("pedido sem loja tem nome próprio",
        nome_do_canal({}, None) == "sem loja no pedido")
+
+    # O FATURAMENTO DIA A DIA (dono, 19/10: a "% de chance de bater a meta"
+    # sai da variação do faturamento dia a dia). Líquido de cancelado, como o
+    # total do mês; pedido sem data não some do total, só da série.
+    _sp = somar_pedidos([{"total": 100, "data": "2026-10-01", "situacao": {"id": 6}},
+                         {"total": 50, "data": "2026-10-01 18:00:00", "situacao": {"id": 6}},
+                         {"total": 70, "data": "2026-10-02", "situacao": {"id": 12}},
+                         {"total": 30, "data": "", "situacao": {"id": 6}}], {12})
+    ok("por_dia soma o líquido de cada dia, e o cancelado sai do dia dele",
+       _sp["por_dia"] == {"2026-10-01": 150.0, "2026-10-02": 0.0}
+       and _sp["liquido"] == 180.0)
 
     # pedidos_resumidos com só a rede trocada: devolve TUDO o que leu mesmo
     # com erro no meio (a conferência mostra o parcial e avisa), e não guarda.

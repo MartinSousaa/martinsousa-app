@@ -424,7 +424,10 @@ if __name__ == "__main__":
 
     r2 = calcular([L(-99.0, "PÁGINA DO ML"), L(-10.0, "BOLETO"),
                    L(-2.5, "TARIFA BANCÁRIA")], {"vendas": 10})
-    ok("página do ML, boleto e tarifa bancária entram", r2["co"] == 111.5)
+    # 19/10, o dono: "boleto bancário, quase sempre será compra de
+    # mercadoria" — e mercadoria não entra no C.O.
+    ok("página do ML e tarifa bancária entram; o boleto (mercadoria) não",
+       r2["co"] == 101.5)
     r3 = calcular([L(-100.0, "FLEX")], {"vendas": 10,
                                         "reembolso_flex": -300.0})
     ok("reembolso maior que o pago deixa o Flex negativo, como em março",
