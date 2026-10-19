@@ -1371,13 +1371,13 @@ def _grade_painel(faturamento, indicadores, gastos, devolucoes,
     return ('<div class="ms-painel-fundo" style="background:{FUNDO};color:{TEXTO};'
             "font-family:Manrope,system-ui,sans-serif;border-radius:20px;padding:0;\">"
             + cab +
-            # O QUADRADO (dono, 19/10): à esquerda o balanço inteiro; à
-            # direita os indicadores e, exatamente embaixo, a meta de gastos —
-            # as duas colunas fecham na mesma altura. As devoluções descem
-            # para a faixa de baixo, na largura toda.
+            # O QUADRADO (dono, 19/10): à direita os indicadores e,
+            # exatamente embaixo, a meta de gastos; à esquerda o balanço e,
+            # embaixo dele, as devoluções — as duas fileiras fecham na mesma
+            # altura, sem buraco embaixo do balanço.
             '<div class="ms-painel" style="display:grid;'
             'grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);'
-            'grid-template-areas:\'fat ind\' \'fat gas\' \'dev dev\';'
+            'grid-template-areas:\'fat ind\' \'dev gas\';'
             'gap:16px;align-items:stretch;">'
             + "".join(f'<div style="grid-area:{a};display:flex;flex-direction:column;min-width:0;">{h}</div>'
                       for a, h in (("fat", faturamento), ("ind", indicadores),
@@ -1494,7 +1494,7 @@ def _html_gastos(q, erros=None, saldo=None):
         cv = cor or (ambar if destaque else "{TEXTO}")
         return (f'<div style="{bg}border-radius:10px;padding:10px 14px;">'
                 f'<div style="font-size:11px;font-weight:700;color:{cr};">{rot}</div>'
-                f'<div style="font-size:22px;font-weight:800;color:{cv};">{valor}</div></div>')
+                f'<div style="font-size:19px;font-weight:800;color:{cv};white-space:nowrap;">{valor}</div></div>')
     meta = q["meta"]
     _sv, _sc = saldo if saldo else (q["saldo"], None)
     saldo_txt = _brl(_sv, 0) if _sv is not None else "Sem meta"
@@ -2762,7 +2762,7 @@ if __name__ == "__main__":
     # empilhados à direita, devoluções na faixa de baixo.
     ok("os quatro quadros numa grade só: o quadrado, com a meta de gastos embaixo dos indicadores",
        _grade.count("display:grid") == 1
-       and "'fat ind' 'fat gas' 'dev dev'" in _grade
+       and "'fat ind' 'dev gas'" in _grade
        and "grid-area:gas" in _grade and "grid-area:ind" in _grade
        and "align-items:stretch" in _grade
        and [_grade.index(x) for x in ("<i>F</i>", "<i>I</i>", "<i>G</i>", "<i>D</i>")]

@@ -3293,7 +3293,7 @@ MUTACOES = [
     (
         'a meta de gastos sai de baixo dos indicadores (o quadrado de 19/10)',
         'home_gestao.py',
-        "            'grid-template-areas:\\'fat ind\\' \\'fat gas\\' \\'dev dev\\';'\n",
+        "            'grid-template-areas:\\'fat ind\\' \\'dev gas\\';'\n",
         "            'grid-template-areas:\\'fat ind\\' \\'gas dev\\';'\n",
         ['python3', 'home_gestao.py'],
     ),
