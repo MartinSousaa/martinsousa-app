@@ -3263,6 +3263,13 @@ MUTACOES = [
         ["python3", "checar_tela.py"],
     ),
     (
+        "a assinatura paga volta a aparecer como 'nao apareceu' (apelido com ';')",
+        "assinaturas.py",
+        '                   if any(_casa(l, {"favorecido": n}) for n in nomes)]\n',
+        "                   if _casa(l, linha)]\n",
+        ["python3", "assinaturas.py"],
+    ),
+    (
         "o 5o dia util volta a contar o feriado",
         "lembretes.py",
         "        if d.weekday() < 5 and d not in fer:\n",
