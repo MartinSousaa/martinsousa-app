@@ -3481,6 +3481,41 @@ MUTACOES = [
         "    if False:\n",
         ["python3", "checar_tela.py"],
     ),
+    (
+        "a DIN FINANCAS volta a receber o LPV do mes em andamento",
+        "excel_ms.py",
+        '           if r.get("lpv") is not None and _lm.mes_fechado(ano, m, hoje)}\n',
+        '           if r.get("lpv") is not None}\n',
+        ["python3", "excel_ms.py"],
+    ),
+    (
+        "a DIN FINANCAS (sem coluna de ano) volta a receber outro ano",
+        "excel_ms.py",
+        "    if int(ano) != hoje.year:\n        return {}, {}\n",
+        "",
+        ["python3", "excel_ms.py"],
+    ),
+    (
+        "o bloco LPV da DIN FINANCAS volta a engolir os meses do bloco C.O.",
+        "excel_ms.py",
+        "                if m in achados:\n                    return achados\n",
+        "",
+        ["python3", "excel_ms.py"],
+    ),
+    (
+        "a previa da DIN FINANCAS volta a chamar a rede com o link pessoal",
+        "financeiro.py",
+        "        if not _xm.eh_da_empresa(link):\n",
+        "        if False:\n",
+        ["python3", "checar_tela.py"],
+    ),
+    (
+        "o link pessoal do Controle MS volta a ir pela Graph da empresa",
+        "controle_ms.py",
+        "        if _xm.eh_da_empresa(link) and not _xm.configurado():\n",
+        "        if not _xm.configurado():\n",
+        ["python3", "controle_ms.py"],
+    ),
 ]
 
 

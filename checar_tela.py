@@ -3541,6 +3541,78 @@ def _tiktok_na_viabilidade(conta):
           and "calcular_resultado_tiktok(" in _calc_min and "TikTok Shop" in _calc_min, "")
 
 
+def _din_financas_previa(conta):
+    """19/10: a prévia do que o Studio gravaria na DIN FINANÇAS (só leitura).
+
+    O desenho da aba é o do .xlsx real (cópia de 15/10, lida no XML): título
+    "LPV MENSAL" em X52 e "CUSTOS OP. MENSAL" em X68, meses "jan".."dez" na
+    coluna X, valor em Y. Os meses do Studio saem de `lpv_mensal.lpv` e
+    `lpv_mensal.calcular` — as funções que `lpv_do_ano` e
+    `custo_operacional_do_ano` chamam. Só a REDE é trocada."""
+    import financeiro as _fi_d
+    import excel_ms as _xm_d
+    import controle_ms as _cms_d
+    import lpv_mensal as _lm_d
+    from datetime import date as _d_d
+    _grade = [["" for _ in range(32)] for _ in range(140)]
+    _form = [["" for _ in range(32)] for _ in range(140)]
+    _grade[49][23] = "LPV (FIXO E N OPER.)"
+    _grade[51][23], _grade[67][23] = "LPV MENSAL", "CUSTOS OP. MENSAL"
+    for _i, _n in enumerate(("jan", "fev", "mar", "abr", "mai", "jun", "jul",
+                             "ago", "set", "out", "nov", "dez")):
+        _grade[52 + _i][23] = _grade[68 + _i][23] = _n
+        _grade[52 + _i][24] = _grade[68 + _i][24] = "0,00"
+        _form[52 + _i][24] = f"=IFERROR($C$8/VLOOKUP(X{53 + _i},DINAMICA!$B$60:$C$72,2,0),0)"
+    _meses = {9: _lm_d.lpv(5000.0, 1000.0, 300.0, 200.0, 300),
+              10: _lm_d.lpv(5000.0, 1000.0, 300.0, 200.0, 100)}
+    _co = {9: _lm_d.calcular([{"valor": -9000.0, "finalidade": "PAGINA DO ML"}],
+                             {"vendas": 300})}
+    _hoje = _d_d(2026, 10, 19)
+    _rede, _tabelas, _avisos = [], [], []
+    _g = (_xm_d.configurado, _xm_d.item_do_link, _xm_d.ler_grade,
+          _cms_d.link_configurado, _fi_d.st)
+
+    def _rodar(clicar, link):
+        _falso = instalar()
+        _falso.button = lambda rot, *a, **k: clicar and k.get("key") == "din_testar_2026"
+        _falso.dataframe = lambda d, *a, **k: _tabelas.append(d)
+        _falso.warning = lambda t, *a, **k: _avisos.append(str(t))
+        _fi_d.st = _falso
+        _cms_d.link_configurado = lambda: link
+        _fi_d._secao_din_financas(2026, _meses, _co, _hoje)
+    try:
+        _xm_d.configurado = lambda: ""
+        _xm_d.item_do_link = lambda l: (_rede.append("item") or
+                                        ({"nome": "Controle MS.xlsx", "alterado": "2026-10-19T19:00:00Z",
+                                          "drive": "d", "item": "i"}, ""))
+        _xm_d.ler_grade = lambda l, *a, **k: (_rede.append("grade") or
+                                              ({"texto": _grade, "formulas": _form, "endereco": "A1:AF140"}, ""))
+        _emp = "https://martinsousacombr-my.sharepoint.com/:x:/g/personal/x/y?e=1"
+        _rodar(False, _emp)
+        conta("DIN FINANÇAS: sem clique, nenhuma chamada à Microsoft (a tela roda a cada tecla)",
+              _rede == [] and _tabelas == [], str(_rede))
+        _rodar(True, _emp)
+        _df = _tabelas[-1] if _tabelas else None
+        _cel = list(_df["Célula"]) if _df is not None else []
+        conta("DIN FINANÇAS: a prévia mostra set em Y61 (LPV) e Y77 (C.O.), e não out (em andamento)",
+              _cel == ["Y61", "Y77"], str(_cel))
+        conta("DIN FINANÇAS: avisa que Y61 hoje é fórmula",
+              _df is not None and str(_df["Hoje é fórmula"].iloc[0]).startswith("sim")
+              and not str(_df["Hoje é fórmula"].iloc[1]), "")
+        _rede.clear()
+        _tabelas.clear()
+        _rodar(True, "https://onedrive.live.com/?id=x")
+        conta("DIN FINANÇAS: link do OneDrive pessoal avisa e não chama a rede",
+              _rede == [] and any("EMPRESA" in a for a in _avisos), str(_avisos[-1:]))
+    except (_Rerun, _Parou):
+        conta("DIN FINANÇAS: a prévia monta", True, "")
+    except Exception as e:
+        conta("DIN FINANÇAS: a prévia monta", False, f"{type(e).__name__}: {e}")
+    finally:
+        (_xm_d.configurado, _xm_d.item_do_link, _xm_d.ler_grade,
+         _cms_d.link_configurado, _fi_d.st) = _g
+
+
 def main():
     instalar()
     falhas = []
@@ -3605,6 +3677,7 @@ def main():
     _visao_faturamento(conta)
     _visao_geral_na_home(conta)
     _tiktok_na_viabilidade(conta)
+    _din_financas_previa(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0
