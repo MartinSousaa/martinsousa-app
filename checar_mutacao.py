@@ -3333,6 +3333,20 @@ MUTACOES = [
         ['python3', 'checar_tela.py'],
     ),
     (
+        'o boleto pago sem cadastro volta a ficar BOLETO calado',
+        'extratos_tela.py',
+        '            l["finalidade"] = "MERCADORIA"\n',
+        '            l["finalidade"] = "BOLETO"\n',
+        ['python3', 'extratos_tela.py'],
+    ),
+    (
+        'o boleto cadastrado volta a virar mercadoria (conta duas vezes)',
+        'extratos_tela.py',
+        '        if chave(l) in pagos:\n',
+        '        if False:\n',
+        ['python3', 'extratos_tela.py'],
+    ),
+    (
         "o 5o dia util volta a contar o feriado",
         "lembretes.py",
         "        if d.weekday() < 5 and d not in fer:\n",
