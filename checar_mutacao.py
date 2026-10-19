@@ -3347,6 +3347,13 @@ MUTACOES = [
         ['python3', 'extratos_tela.py'],
     ),
     (
+        'o boleto (mercadoria) volta a entrar no C.O.',
+        'composicao.py',
+        'LPV_ALEM_DO_OPERACIONAL = ("PÁGINA DO ML", "TARIFA BANCÁRIA")\n',
+        'LPV_ALEM_DO_OPERACIONAL = ("PÁGINA DO ML", "BOLETO", "TARIFA BANCÁRIA")\n',
+        ['python3', 'lpv_mensal.py'],
+    ),
+    (
         "o 5o dia util volta a contar o feriado",
         "lembretes.py",
         "        if d.weekday() < 5 and d not in fer:\n",

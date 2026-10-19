@@ -73,7 +73,10 @@ NUMERADOR = ("CUSTO FIXO", "SERVIÇO", "SERVIÇOS", "FOLHA", "PÁGINA DO ML")
 # pegaram aqui dentro: a margem despencou de 29,82% para 8,43% e o equilíbrio
 # saltou para R$ 560 mil. O erro que este arquivo existe para impedir,
 # cometido dentro dele.
-MEDIDO_NA_MARGEM = ("MERCADORIA", "IMPOSTO",
+# BOLETO é forma de pagamento de MERCADORIA (dono, 19/10: "boleto bancário,
+# quase sempre será compra de mercadoria"): fica com ela — medido na margem e
+# fora do C.O. O boleto cadastrado na aba Boletos entra pelo estoque na baixa.
+MEDIDO_NA_MARGEM = ("MERCADORIA", "IMPOSTO", "BOLETO",
                     "MERCADO LIVRE", "SHOPEE", "SHEIN", "TIKTOK", "AMAZON",
                     "SITE", "SITE MS")
 
@@ -121,7 +124,7 @@ FORA = ("TRANSFERENCIA ENTRE CONTAS", "TRANSFERÊNCIA ENTRE CONTAS",
 # Ficam FORA do LPV, nas palavras dele: mercadoria (com qualquer das duas
 # grafias), custo fixo, assinaturas ("é custo fixo"), imposto e transferência
 # entre contas. Todas já caem fora por não serem "operacional".
-LPV_ALEM_DO_OPERACIONAL = ("PÁGINA DO ML", "BOLETO", "TARIFA BANCÁRIA")
+LPV_ALEM_DO_OPERACIONAL = ("PÁGINA DO ML", "TARIFA BANCÁRIA")
 
 
 # Fora do LPV mesmo sem estar em lado nenhum: a grafia longa de mercadoria e
@@ -575,12 +578,12 @@ if __name__ == "__main__":
     # O LPV MENSAL: o que o dono disse que entra e o que não entra (02/10).
     # `entra_no_lpv` é lido por `lpv_mensal.calcular`.
     for _f in ("EMBALAGEM", "ADS", "CROSS DOCKING", "FLEX", "OUTROS",
-               "CONSUMO INTERNO", "PÁGINA DO ML", "BOLETO",
+               "CONSUMO INTERNO", "PÁGINA DO ML",
                "TARIFA BANCÁRIA", "Tarifa Bancaria"):
         ok(f"{_f} entra no LPV", entra_no_lpv(_f))
     for _f in ("MERCADORIA", "COMPRA DE MERCADORIA", "CUSTO FIXO", "SERVIÇO",
                "FOLHA", "IMPOSTO", "TRANSFERENCIA ENTRE CONTAS",
-               "FATURA DO CARTÃO", "CHEQUES", "EMPRESTIMO PRONAMP", "",
+               "FATURA DO CARTÃO", "CHEQUES", "EMPRESTIMO PRONAMP", "", "BOLETO",
                "SHOPEE"):
         ok(f"{_f or '(vazia)'} NÃO entra no LPV", not entra_no_lpv(_f))
     ok("finalidade que o Studio não conhece entra (regra: tudo, menos...)",
