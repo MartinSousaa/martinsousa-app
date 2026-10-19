@@ -393,6 +393,9 @@ if __name__ == "__main__":
     ok("C.O. só do mês sem motivo", sorted(vc) == [9] and vc[9] == _mc[9]["co"])
     ok("outro ano não grava na DIN (ela não tem coluna de ano)",
        valores_a_gravar(_ml, _mc, 2025, _d(2026, 10, 19)) == ({}, {}))
+    ok("a aba é a DIN FINANÇAS do Controle MS", ABA_DIN == "DIN FINANÇAS")
+    ok("toda chamada tem prazo (conexão e leitura) — a tela não trava",
+       isinstance(TIMEOUT, tuple) and len(TIMEOUT) == 2 and all(TIMEOUT))
     ok("nome da aba quotado (espaço e Ç)",
        _aba_url("DIN FINANÇAS") == "/worksheets('DIN%20FINAN%C3%87AS')")
 
