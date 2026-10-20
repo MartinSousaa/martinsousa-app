@@ -2158,10 +2158,8 @@ if _eh_admin:
         if auth.eh_dono(usuario_logado):
             _abas_gestao["🗂️ Registros"] = \
                 lambda: _abrir('admin', 'pagina_admin', usuario_logado)
-            # PRODUTOS (dono, 20/10): o analista de produtos — UC, lucro e
-            # recorrência. Fala de lucro por produto: só o dono, como Registros.
-            _abas_gestao["📈 Produtos"] = \
-                lambda: _abrir('produtos_analise', 'pagina', usuario_logado)
+            # PRODUTOS mudou para dentro da Home (dono, 20/10) — Painel |
+            # Visão Geral | Produtos | Histórico, em `gestao`.
             # A VISÃO GERAL mudou para dentro da Home (dono, 19/10: "mova ela
             # para Home") — Painel | Visão Geral | Histórico, em `gestao`.
         _navegar(_abas_gestao, "aba_gf")

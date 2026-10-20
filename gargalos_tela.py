@@ -72,7 +72,28 @@ def _dentro_do_periodo(linha, dias):
     return q >= datetime.now() - timedelta(days=int(dias))
 
 
+def _volume(r):
+    """O quanto foi FEITO — sem isto, zero retrabalho parecia verde mesmo
+    com zero processo (dono, 20/10)."""
+    v = r.get("volume") or {}
+    c = st.columns(4)
+    c[0].metric("Processos gerados", v.get("processos", 0),
+                help="Cada geração completa de um produto (o «gerar tudo»).")
+    c[1].metric("Imagens pedidas", v.get("imagens", 0),
+                help="Quantas imagens esses processos mandaram gerar.")
+    c[2].metric("Produtos trabalhados", v.get("produtos", 0))
+    c[3].metric("Falhas na geração", v.get("falhas", 0),
+                help="Imagens que o gerador não entregou.")
+    if not v.get("processos"):
+        st.warning("**Nenhum processo gerado no período.** Zero retrabalho aqui não "
+                   "quer dizer que está bom — quer dizer que não houve trabalho para medir.")
+    else:
+        st.caption(f"{r['pedidos']} pedido(s) de ajuste em {v['processos']} processo(s): "
+                   f"**{r['pedidos'] / v['processos']:.1f} ajuste(s) por processo**.")
+
+
 def _cabecalho(r):
+    _volume(r)
     c = st.columns(4)
     c[0].metric("Pedidos de ajuste", r["pedidos"])
     c[1].metric("Gerações gastas", r["tentativas"],

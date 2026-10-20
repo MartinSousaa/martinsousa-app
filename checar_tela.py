@@ -795,6 +795,29 @@ def _resumo_mensal(conta):
                 conta(nome, True, "")
             except Exception as e:
                 conta(nome, False, f"{type(e).__name__}: {e}")
+        # 20/10: CADA QUADRO ABRE O SEU — saídas e provisionado daquele
+        # quadro. O clique em «Custo fixo» abre a janela com o Aluguel.
+        _lan_r.do_mes = lambda a, m, lista_=None, _l=_lista: _g[0](a, m, _l)
+        _falso = instalar()
+        _tabs_q, _botoes_q = [], []
+        _falso.selectbox = lambda rot, opcoes, index=0, **k: list(opcoes)[index]
+        _falso.dialog = lambda *a, **k: (lambda fn: fn)
+        _falso.dataframe = lambda d, *a, **k: _tabs_q.append(d)
+        _falso.columns = lambda spec, **k: [_falso] * (spec if isinstance(spec, int) else len(spec))
+        _falso.button = lambda rot, *a, **k: (_botoes_q.append(k.get("key")),
+                                              k.get("key") == "rm_q_Custo fixo")[1]
+        _rm.st = _falso
+        try:
+            _rm.pagina("leo")
+            _itens = [list(d["item"]) for d in _tabs_q if hasattr(d, "columns") and "item" in d.columns
+                      and "situação" in d.columns and "valor" in d.columns]
+            conta("Resumo Mensal: cada quadro tem o seu botão, e Custo fixo abre saídas e provisionado dele",
+                  len([b for b in _botoes_q if str(b).startswith("rm_q_")]) == len(_rm.QUADROS)
+                  and ["Aluguel"] in _itens, f"botões {len(_botoes_q)} · provisionado {_itens}")
+        except (_Rerun, _Parou):
+            conta("Resumo Mensal: quadro aberto", True, "")
+        except Exception as e:
+            conta("Resumo Mensal: quadro aberto", False, f"{type(e).__name__}: {e}")
     finally:
         (_lan_r.do_mes, _as_r.carregar, _pv_r.do_mes, _cr_r.carregar,
          _cf_r.carregar, _aj_r.carregar) = _g
@@ -3473,18 +3496,29 @@ def _visao_geral_na_home(conta):
     try:
         _vg_v.pagina = lambda u=None: _chamou.append(u)
         _ge_v.pagina_home(_dono)
-        conta("Home: a ordem é Painel | Visão Geral | Histórico, e a do meio abre a Visão Geral",
-              _opcoes[0] == ("📊 Painel", "🧭 Visão Geral", "🗓️ Histórico")
+        conta("Home: a ordem é Painel | Visão Geral | Produtos | Histórico, e a Visão Geral abre a dela",
+              _opcoes[0] == ("📊 Painel", "🧭 Visão Geral", "📈 Produtos", "🗓️ Histórico")
               and _chamou == [_dono], str(_opcoes))
+        import produtos_analise as _pa_v
+        _g_pa, _abriu = _pa_v.pagina, []
+        _falso.radio = lambda rot, opcoes, *a, **k: _ge_v.ABA_PRODUTOS
+        try:
+            _pa_v.pagina = lambda u=None: _abriu.append(u)
+            _ge_v.pagina_home(_dono)
+        finally:
+            _pa_v.pagina = _g_pa
+            _falso.radio = _radio
+        conta("Home: a aba Produtos abre a análise de produtos (dono, 20/10)", _abriu == [_dono], str(_abriu))
         _opcoes.clear()
         try:
             _ge_v.pagina_home("colaborador_qualquer")
         except Exception:
             pass
-        conta("Home: quem não é dono não vê a Visão Geral",
+        conta("Home: quem não é dono não vê a Visão Geral nem Produtos",
               bool(_opcoes) and "🧭 Visão Geral" not in _opcoes[0]
               and _ge_v.abas_da_home("colaborador_qualquer")
-              == tuple(a for a in _ge_v.HOME_ABAS if a != _ge_v.ABA_VISAO),
+              == tuple(a for a in _ge_v.HOME_ABAS if a not in (_ge_v.ABA_VISAO, _ge_v.ABA_PRODUTOS))
+              and "📈 Produtos" not in _opcoes[-1],
               str(_opcoes))
     except (_Rerun, _Parou):
         conta("Home › Visão Geral: a tela monta", True, "")
@@ -3657,7 +3691,7 @@ def _produtos_analise(conta):
     linhas = _pa.linhas_da_base(regs, cab, {m: 18.0 for m in range(1, 10)}, 2026)
     import produtos_grupos as _pg_t
     _g = (_pa.dados, _pa.st, _pg_t.carregar, _pg_t.classificar, _pg_t.salvar)
-    _botoes, _salvos = [], []
+    _botoes, _salvos, _md = [], [], []
     _mapa = {}
     _pg_t.carregar = lambda: (_mapa, "")
     _pg_t.salvar = lambda m: _salvos.append(m)
@@ -3669,6 +3703,10 @@ def _produtos_analise(conta):
         f = instalar()
         f.segmented_control = lambda rot, opcoes, default=None, **k: (f._registra("segmented_control", k), default)[1]
         f.dialog = lambda *a, **k: (lambda fn: fn)
+        f.markdown = lambda t, *a, **k: _md.append(str(t))
+        # As colunas devolvem o próprio duplo: o `col.markdown` das quatro
+        # colunas do ranking cai no mesmo lugar que o resto da página.
+        f.columns = lambda spec, **k: [f] * (spec if isinstance(spec, int) else len(spec))
         f.button = lambda rot, *a, **k: (f._registra("button", k), _botoes.append(k.get("key")),
                                          k.get("key") in clicar)[2]
         f.selectbox = lambda rot, opcoes, *a, **k: (f._registra("selectbox", k),
@@ -3681,16 +3719,27 @@ def _produtos_analise(conta):
         _rodar(_dono, linhas)
         conta("Produtos: a página monta inteira (alertas, balanço, ranking nos 4 períodos)",
               "pa_faixa_0" in _botoes and "pa_v_errado" in _botoes, str(_botoes[:8]))
+        import re as _re_p
+        _cols = [t for t in _md if "ATÉ 20 ↓" in t]
+        _alt = {_re_p.search(r"max-height:(\d+)px", t).group(1) for t in _cols}
+        conta("Produtos: as 4 colunas do ranking abrem simétricas — top 10 e a mesma altura em todas (dono, 20/10)",
+              len(_cols) == 4 and all("TOP 10 · ATÉ 20" in t for t in _cols) and len(_alt) == 1,
+              f"{len(_cols)} colunas, alturas {_alt}")
         _rodar(_dono, linhas, clicar={"pa_faixa_0"}, panorama="CINZEIRO TELESCÓPICO")
         conta("Produtos: abrir uma faixa de UC e o panorama de um produto não quebra", True, "")
+        conta("Produtos: título novo é juntado SOZINHO pela IA ao abrir a página (sem IA de verdade)",
+              _salvos and _salvos[0]["KIT COM 3 ESTÁTUAS"]["nicho"] == "Decoração"
+              and _salvos[0]["CINZEIRO TELESCÓPICO"]["origem"] == "ia", str(_salvos[:1])[:200])
+        _ok_auto = list(_salvos)
+        _salvos.clear()
+        _g_cl = _pg_t.classificar
+        _pg_t.classificar = lambda lote, chamar=None: ({}, "ANTHROPIC_API_KEY não configurada")
         _botoes.clear()
-        try:
-            _rodar(_dono, linhas, clicar={"pa_ia_juntar"})
-        except (_Rerun, _Parou):
-            pass
-        conta("Produtos: o botão da IA junta os títulos pendentes e salva na aba (sem IA de verdade)",
-              _salvos and _salvos[-1]["KIT COM 3 ESTÁTUAS"]["nicho"] == "Decoração"
-              and _salvos[-1]["CINZEIRO TELESCÓPICO"]["origem"] == "ia", str(_salvos[-1:])[:200])
+        _rodar(_dono, linhas)
+        _pg_t.classificar = _g_cl
+        conta("Produtos: com a IA fora, nada é salvo e o botão manual continua lá",
+              _salvos == [] and "pa_ia_juntar" in _botoes, str(_botoes[-3:]))
+        _salvos.extend(_ok_auto)
         _mapa.update(_salvos[-1])
         _botoes.clear()
         _rodar(_dono, linhas)
@@ -3708,6 +3757,92 @@ def _produtos_analise(conta):
         conta("Produtos: a tela monta", False, f"{type(e).__name__}: {e} {traceback.format_exc()[-400:]}")
     finally:
         _pa.dados, _pa.st, _pg_t.carregar, _pg_t.classificar, _pg_t.salvar = _g
+
+
+def _gargalos_volume(conta):
+    """20/10: a Análise de Gargalos foi para o Operacional e passou a dizer
+    QUANTOS processos houve — zero retrabalho com zero processo não é verde.
+    As linhas têm a forma que `log_imagem.registrar` grava ("gerar_tudo" com
+    "N imagem(ns) a gerar"). Só a leitura do log é trocada."""
+    import gestao as _ge_g
+    import gargalos_tela as _gt_g
+    import log_imagem as _li_g
+    import auth as _au_g
+    conta("Gargalos: saiu do Financeiro e está no Operacional",
+          "🔎 Análise de Gargalos" not in _ge_g.SUBTELAS
+          and "🔎 Análise de Gargalos" in _ge_g.SUBTELAS_OPERACIONAL, "")
+    _dono = sorted(_au_g.ADMINS_PADRAO)[0]
+    _g = (_li_g.ler, _gt_g.st)
+    _metricas, _avisos = {}, []
+    try:
+        for caso, linhas in (("com processo", [{"quando": "", "usuario": "leo", "produto": "Caneca",
+                                                "acao": "gerar_tudo", "imagem": "", "tipo": "",
+                                                "instrucao": "", "resultado": "8 imagem(ns) a gerar"}]),
+                             ("sem processo", [{"quando": "", "usuario": "leo", "produto": "Caneca",
+                                                "acao": "layout_descartado", "imagem": "", "tipo": "",
+                                                "instrucao": "", "resultado": "x"}])):
+            f = instalar()
+            f.columns = lambda spec, **k: [f] * (spec if isinstance(spec, int) else len(spec))
+            f.selectbox = lambda rot, opcoes, *a, **k: list(opcoes)[k.get("index", 0) or 0]
+            f.metric = lambda rot, valor, *a, **k: _metricas.__setitem__((caso, rot), valor)
+            f.warning = lambda t, *a, **k: _avisos.append((caso, str(t)))
+            _gt_g.st = f
+            _li_g.ler = lambda n=200, _l=linhas: _l
+            _gt_g.pagina(_dono)
+        conta("Gargalos: mostra os processos gerados e as imagens pedidas",
+              _metricas.get(("com processo", "Processos gerados")) == 1
+              and _metricas.get(("com processo", "Imagens pedidas")) == 8, str(_metricas)[:200])
+        conta("Gargalos: sem processo no período, avisa que zero retrabalho não quer dizer nada",
+              any(c == "sem processo" and "Nenhum processo" in t for c, t in _avisos)
+              and not any(c == "com processo" and "Nenhum processo" in t for c, t in _avisos),
+              str(_avisos)[:200])
+    except (_Rerun, _Parou):
+        conta("Gargalos: a tela monta", True, "")
+    except Exception as e:
+        conta("Gargalos: a tela monta", False, f"{type(e).__name__}: {e}")
+    finally:
+        _li_g.ler, _gt_g.st = _g
+
+
+def _faturamento_top5(conta):
+    """20/10: Faturamento — o MÊS A MÊS centralizado e o quadro do
+    marketplace partido: plataformas à esquerda, os 5 mais vendidos à
+    direita. O top 5 sai da CADEIA real (`linhas_da_base` → `aplicar` →
+    `top_vendidos`), com as linhas na forma da BASE DE VENDAS; só a leitura
+    da planilha é trocada."""
+    import inspect
+    from datetime import datetime
+    import visao_faturamento as _vf
+    import produtos_analise as _pa
+    import produtos_grupos as _pg
+    cols = ["MÊS/ANO", "Data", "Plataforma", "Pedido", "SKU", "Produto", "Custo Unitário",
+            "FAT TOTAL", "DEVOLUÇÃO", "MARGEM C.", "VENDAS", "LPV", "UNI. CONT."]
+    regs = [dict(zip(cols, ("set2026", datetime(2026, 9, 10), "MercadoLivre1", f"P{i}", "MS-1",
+                            nome, 10.0, 100.0, 0, 41.26, 1, 20.63, 2.0)))
+            for i, nome in enumerate(["Argola Dourada"] * 3 + ["Mini Caneca"] * 2 + ["Chaveiro"])]
+    brutas = _pa.linhas_da_base(regs, cols, {9: 20.63}, 2026)
+    _g = (_pa.dados, _pg.carregar)
+    try:
+        _pa.dados = lambda ano, hoje: (brutas, "")
+        _pg.carregar = lambda: ({}, "")
+        top = _vf.top_do_ano(2026, datetime(2026, 10, 20).date())
+        html = _vf._top_produtos(top)
+        conta("Faturamento: o top 5 sai da BASE pela cadeia real, do mais vendido ao menos",
+              [t[0] for t in top][:2] == ["ARGOLA DOURADA", "MINI CANECA"] and "TOP 5 MAIS VENDIDOS" in html
+              and "UC " in html, str(top))
+        _pa.dados = lambda ano, hoje: ([], "Não consegui ler a BASE DE VENDAS")
+        conta("Faturamento: sem a BASE o top 5 avisa, não quebra",
+              "indisponível" in _vf._top_produtos(_vf.top_do_ano(2026, datetime(2026, 10, 20).date())), "")
+        fonte = inspect.getsource(_vf.pagina)
+        conta("Faturamento: o quadro do marketplace desenha o top 5 ao lado das plataformas",
+              "_top_produtos(top_do_ano(" in fonte and "_plataformas(" in fonte, "")
+        tab = inspect.getsource(_vf._tabela)
+        conta("Faturamento: os números do MÊS A MÊS centralizados",
+              tab.count("text-align:center") >= 2 and "text-align:right;padding:6px" not in tab, "")
+    except Exception as e:
+        conta("Faturamento: top 5", False, f"{type(e).__name__}: {e}")
+    finally:
+        _pa.dados, _pg.carregar = _g
 
 
 def main():
@@ -3776,6 +3911,8 @@ def main():
     _tiktok_na_viabilidade(conta)
     _din_financas_previa(conta)
     _produtos_analise(conta)
+    _gargalos_volume(conta)
+    _faturamento_top5(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0

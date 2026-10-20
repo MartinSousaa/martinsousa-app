@@ -50,6 +50,10 @@ PEDIDOS_ERRADO = 20       # no período, para entrar em "dando errado"
 PONTUAL_X = 4             # pedido com 4× a quantidade normal = venda pontual
 DIAS_NOVO = 60            # primeira venda há até 60 dias = produto novo
 BAIXA_SAIDA = 3           # vendeu 3 vezes ou menos no período
+# As quatro colunas do ranking abrem com o MESMO número de linhas (dono,
+# 20/10: "eu já falei sobre indicadores simétricos") — 10 em cada, até o 20º.
+TOP_VISIVEL = 10
+ALTURA_LINHA = 56         # px por linha (50 da linha + 6 de margem), fixa
 MIN_VENDAS_CONTA = 3      # produto com menos vendas não entra nas contagens
 RECORRENTE_FRACAO = 0.85  # "dando certo": vendeu em 85% dos meses desde o início
 RECORRENTE_PEDIDOS = 5    # … e 5+ pedidos por mês
@@ -372,6 +376,15 @@ def por_nicho(linhas, P):
     return sorted(N.items(), key=lambda kv: -kv[1]["lucro"])
 
 
+def top_vendidos(linhas, n=5):
+    """[(produto, vendas, uc_por_venda, % do faturamento)] dos que mais
+    venderam no ano. O % é sobre o faturamento de TODAS as vendas lidas."""
+    P = agregar(linhas, set(range(1, 13)))
+    total = sum(x["fat"] for x in linhas) or 1.0
+    rk = sorted(P.items(), key=lambda kv: (-kv[1]["v"], kv[0]))[:n]
+    return [(k, p["v"], p["ucv"], p["fat"] / total * 100) for k, p in rk]
+
+
 def concentracao(P, n=5):
     pos = sorted((p["lucro"] for p in P.values() if p["lucro"] > 0), reverse=True)
     return sum(pos[:n]) / sum(pos) if pos else 0.0
@@ -676,7 +689,8 @@ def _coluna_html(nome, sub, rk, n_vis, alvo):
         corte = "border-bottom:1px dashed #BF9A45aa;" if i == n_vis else ""
         med = {1: "#D4B26A", 2: "#C0C6CE", 3: "#B98A5E"}.get(i, "#5a5a5a")
         linhas.append(
-            f'<div style="display:flex;gap:8px;align-items:center;padding:6px 6px;margin:3px 0;'
+            f'<div style="display:flex;gap:8px;align-items:center;padding:0 6px;margin:3px 0;'
+            f'height:{ALTURA_LINHA - 6}px;box-sizing:border-box;overflow:hidden;'
             f'border-radius:9px;background:{"#3a3324" if hl else TILE};'
             f'{"outline:1.5px solid #BF9A45;" if hl else ""}{corte}">'
             f'<span style="width:22px;height:22px;border-radius:50%;border:1.5px solid {med};'
@@ -698,7 +712,7 @@ def _coluna_html(nome, sub, rk, n_vis, alvo):
             fixo = (f'<div style="padding:6px;border-radius:9px;border:1.5px dashed #BF9A45;'
                     f'background:#3a3324;font-size:12px;margin-top:4px"><b style="color:#BF9A45">'
                     f'{nomes.index(alvo) + 1}º</b> · {alvo.title()[:34]}… · UC {_num(p["ucv"], 2)}</div>')
-    altura = 50 * n_vis + 8
+    altura = ALTURA_LINHA * n_vis + 2
     return (f'<div class="pa-card" style="padding:12px"><div style="display:flex;justify-content:space-between">'
             f'<div><div class="pa-t">{nome}</div><div class="pa-s">{sub}</div></div>'
             f'<div style="font-size:10px;font-weight:700;color:#BF9A45;letter-spacing:.1em">TOP {n_vis} · ATÉ 20 ↓</div></div>'
@@ -728,6 +742,16 @@ def pagina(usuario_logado=None):
     brutas = linhas
     linhas = _pg.aplicar(brutas, mapa)
     pendentes = _pg.lotes_pendentes(brutas, mapa)
+    # TÍTULO NOVO É JUNTADO SOZINHO, uma tentativa por sessão: com erro (sem
+    # chave, IA fora), a tela avisa e não chama a IA a cada tecla.
+    if pendentes and not st.session_state.get("pa_ia_auto_tentou"):
+        st.session_state["pa_ia_auto_tentou"] = True
+        with st.spinner(f"Juntando {sum(len(l) for l in pendentes[:_pg.AUTO_LOTES])} títulos novos com a IA…"):
+            mapa, juntados, erro_auto = _pg.juntar_pendentes(mapa, pendentes)
+        if erro_auto:
+            st.warning(f"A IA não juntou os títulos novos: {erro_auto}")
+        linhas = _pg.aplicar(brutas, mapa)
+        pendentes = _pg.lotes_pendentes(brutas, mapa)
     ate_mes = max(x["mes"] for x in linhas)
     med = medianas_de_quantidade(linhas)
     prim = primeiras_vendas(linhas)
@@ -897,12 +921,12 @@ def pagina(usuario_logado=None):
         if not alvo:
             st.caption("Nenhum produto com esse código ou nome.")
     sem = 1 if mes_ref <= 6 else 2
-    quatro = (("Ano", f"{ano}", meses_do_recorte("Ano", 0), 10),
-              ("Semestre", f"{sem}º semestre", meses_do_recorte("Semestre", sem), 5),
-              ("Trimestre", f"{tri_ref}º trimestre", meses_do_recorte("Trimestre", tri_ref), 5),
-              ("Mês", MES_CURTO[mes_ref - 1], {mes_ref}, 5))
-    for col, (nome, sub, ms, nv) in zip(st.columns(4), quatro):
-        col.markdown(_coluna_html(nome, sub, ranking(agregar(linhas, ms, plat, med)), nv, alvo),
+    quatro = (("Ano", f"{ano}", meses_do_recorte("Ano", 0)),
+              ("Semestre", f"{sem}º semestre", meses_do_recorte("Semestre", sem)),
+              ("Trimestre", f"{tri_ref}º trimestre", meses_do_recorte("Trimestre", tri_ref)),
+              ("Mês", MES_CURTO[mes_ref - 1], {mes_ref}))
+    for col, (nome, sub, ms) in zip(st.columns(4), quatro):
+        col.markdown(_coluna_html(nome, sub, ranking(agregar(linhas, ms, plat, med)), TOP_VISIVEL, alvo),
                      unsafe_allow_html=True)
     escolha = st.selectbox("Abrir o panorama de um produto", [""] + [n for n, _ in ranking(P)[:300]],
                            format_func=lambda n: "" if not n else f"{codigo(n)} · {n.title()}", key="pa_pan")
@@ -1069,6 +1093,13 @@ if __name__ == "__main__":
        pan["periodos"][3][3] == 1 and pan["plataformas"]["Mercado Livre"]["v"] == 63
        and pan["plataformas"]["Shopee"] is None)
     ok("concentração entre 0 e 1", 0 < concentracao(A) <= 1)
+    ok("dinheiro no formato R$ 1.234,57, com o sinal do negativo na frente",
+       _brl(1234.567, 2) == "R$ 1.234,57" and _brl(-1234) == "−R$ 1.234")
+    _tv = top_vendidos(L, 2)
+    ok("top vendidos: pela quantidade de vendas, com a UC e o % do faturamento",
+       _tv[0][0] == "KIT COM 3 ESTÁTUAS" and _tv[0][1] == 108
+       and abs(_tv[0][3] - sum(x["fat"] for x in L if x["produto"] == "KIT COM 3 ESTÁTUAS"
+                               and not eh_pontual(x, med)) / sum(x["fat"] for x in L) * 100) < 1e-6)
     _h = panorama_html(L, "CINZEIRO TELESCÓPICO", 9, med, prim)
     ok("o panorama desenha os blocos aprovados, sem linha em branco (o markdown fecharia o HTML)",
        all(x in _h for x in ("PANORAMA DO PRODUTO", "POR PERÍODO", "POR PLATAFORMA", "PEDIDOS POR MÊS",

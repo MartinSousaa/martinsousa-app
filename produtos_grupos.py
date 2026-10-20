@@ -131,6 +131,33 @@ def lotes_pendentes(linhas, ja):
     return fora
 
 
+# Automático (dono, 20/10: "faça que seja automático!"): quando a página abre
+# com título novo, a IA junta sozinha. No máximo AUTO_LOTES chamadas por
+# abertura, para a tela não esperar a IA por minutos; o resto entra na
+# próxima. Uma vez por título: o que já está na aba nunca volta para a IA.
+AUTO_LOTES = 5
+
+
+def juntar_pendentes(mapa, pendentes, classificar_=None, salvar_=None, limite=AUTO_LOTES):
+    """(mapa_novo, juntados, erro). Classifica até `limite` lotes e salva.
+
+    Erro da IA para no lote em que aconteceu, salva o que já foi feito e
+    devolve o erro — a tela avisa e não tenta de novo na mesma sessão.
+    """
+    classificar_ = classificar_ or classificar
+    salvar_ = salvar_ or salvar
+    novo, feitos, erro = dict(mapa), 0, ""
+    for lote in pendentes[:limite]:
+        m, erro = classificar_(lote)
+        if erro:
+            break
+        novo = mesclar(novo, m, "ia")
+        feitos += len(lote)
+    if feitos:
+        salvar_(novo)
+    return novo, feitos, erro
+
+
 def aplicar(linhas, mapa):
     """As vendas com `produto` = o produto juntado e `nicho`. Pura.
 
@@ -250,6 +277,21 @@ if __name__ == "__main__":
        ap[0]["produto"] == "KIT 3 ESTÁTUAS YOGA" and ap[0]["titulo"] == "KIT COM 3 ESTÁTUAS ENFEITE"
        and ap[0]["nicho"] == "Decoração" and ap[2]["produto"] == "BENGALA DE METAL 3 APOIOS" and ap[2]["nicho"] == "")
 
+    _salvo = []
+    _n, _f, _e = juntar_pendentes({}, [["A"], ["B"], ["C"]], classificar_=lambda l: ({l[0]: (l[0], "Outros")}, ""),
+                                  salvar_=_salvo.append, limite=2)
+    ok("automático: junta até o limite de lotes por abertura e salva uma vez",
+       _f == 2 and set(_n) == {"A", "B"} and len(_salvo) == 1 and not _e)
+    _salvo.clear()
+    _n, _f, _e = juntar_pendentes({}, [["A"], ["B"]], classificar_=lambda l: ({}, "sem chave"),
+                                  salvar_=_salvo.append)
+    ok("automático: erro da IA para, não salva nada vazio e devolve o erro",
+       _f == 0 and _salvo == [] and _e == "sem chave")
+    _cham = []
+    juntar_pendentes({}, [[str(i)] for i in range(9)], classificar_=lambda l: (_cham.append(l), ({}, ""))[1],
+                     salvar_=lambda m: None)
+    ok("por padrão, no máximo AUTO_LOTES chamadas por abertura (a tela não espera minutos)",
+       AUTO_LOTES == 5 and len(_cham) == AUTO_LOTES)
     ok("a lista de nichos é a do dono, com Outros para o que não cabe",
        "Decoração" in NICHOS and "Tabacaria" in NICHOS and NICHOS[-1] == "Outros")
     ok("lotes de até POR_CHAMADA títulos (a resposta da IA cabe no limite)",

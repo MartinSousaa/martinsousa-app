@@ -199,24 +199,127 @@ def itens_provisionados(grade_cf, ajustes_df, assinaturas, ano, mes, mapa,
                                          x["dia do débito"] or 0, x["item"]))
 
 
-def _html_quadros(q):
-    """Os quadros numa grade. Mês fechado: só o pago."""
+def _html_quadro(nome, v):
+    """Um quadro. Mês fechado: só o pago."""
     import rotulos as _rot
-    cel = []
-    for nome in QUADROS:
-        v = q[nome]
-        prov = v["provisionado"]
-        linha_prov = (f'<div style="font-size:12px;opacity:.75;">Provisionado '
-                      f'<b>{_rot.brl(prov)}</b></div>' if prov is not None else "")
-        cel.append(
-            '<div style="border:1px solid rgba(128,128,128,.35);border-radius:12px;'
-            'padding:12px 14px;">'
+    prov = v["provisionado"]
+    linha_prov = (f'<div style="font-size:12px;opacity:.75;">Provisionado '
+                  f'<b>{_rot.brl(prov)}</b></div>' if prov is not None else
+                  '<div style="font-size:12px;opacity:.75;">&nbsp;</div>')
+    return ('<div style="border:1px solid rgba(128,128,128,.35);border-radius:12px;'
+            'padding:12px 14px;min-height:108px;">'
             f'<div style="font-size:12px;font-weight:700;opacity:.8;">{nome}</div>'
             f'<div style="font-size:20px;font-weight:800;">{_rot.brl(v["pago"])}</div>'
             f'<div style="font-size:12px;opacity:.75;">pago</div>{linha_prov}</div>')
+
+
+def _html_quadros(q):
+    """Os quadros numa grade. Mês fechado: só o pago."""
     return ('<div style="display:grid;grid-template-columns:repeat(auto-fill,'
             'minmax(170px,1fr));gap:10px;margin:6px 0 14px;">'
-            + "".join(cel) + "</div>")
+            + "".join(_html_quadro(nome, q[nome]) for nome in QUADROS) + "</div>")
+
+
+def detalhe_provisionado(quadro, ano, mes, prov_itens):
+    """([{item, valor, situação}], erro) do que o quadro tem PROVISIONADO.
+
+    Cada quadro vem da mesma fonte que soma o provisionado dele (`previsto`):
+    custo fixo e assinaturas pela grade, folha pelas duas folhas, não
+    operacional pelos contratos, cheques pelos em aberto que vencem no mês e
+    cartões pela aba CARTÕES. ADS e Outros não têm provisão.
+    """
+    try:
+        if quadro in ("Custo fixo", "Assinaturas"):
+            return [{"item": i["item"], "valor": i["do mês"],
+                     "situação": i["situação"]} for i in (prov_itens or [])
+                    if i["quadro"] == quadro], ""
+        if quadro == "Folha":
+            import ajustes as _aj
+            import folha_salarial as _fs
+            import colaboradores as _co
+            aj = _aj.carregar()
+            fora = [{"item": "Gestores", "valor": round(float(
+                _fs.total_da_folha(_fs.carregar(), ano, mes, aj)), 2), "situação": ""}]
+            fora += [{"item": p.get("funcionario", ""), "valor": round(float(p.get("total") or 0), 2),
+                      "situação": ""}
+                     for p in _co.folha_clt(_co.carregar(), ano, mes, _co.carregar_taxas(), aj)]
+            return fora, ""
+        if quadro == "Não operacionais":
+            import nao_operacional as _no
+            import pandas as pd
+            d = pd.DataFrame(_no.carregar())
+            fora = []
+            for _, r in (d.iterrows() if not d.empty else []):
+                v = float(_no.total_no_mes(pd.DataFrame([r]), ano, mes) or 0)
+                if v:
+                    fora.append({"item": str(r.get("programa") or "contrato"), "valor": round(v, 2),
+                                 "situação": f"dia {r.get('dia_debito') or '—'}"})
+            return fora, ""
+        if quadro == "Cheques":
+            import cheques as _ch
+            return [{"item": f"folha {c.get('folha') or '—'} · {c.get('favorecido') or ''}".strip(" ·"),
+                     "valor": round(_ch._num(c.get("valor")), 2),
+                     "situação": f"vence {_ch.texto_data(c.get('vencimento'))[8:10]}/"
+                                 f"{_ch.texto_data(c.get('vencimento'))[5:7]} · "
+                                 + ("em aberto" if _ch.esta_aberto(c) else "compensado")}
+                    for c in _ch.do_mes(_ch.carregar(), ano, mes) if _ch.eh_tipo(c, "CHEQUE")], ""
+        if quadro == "Cartões":
+            import controle_ms as _cms
+            df, erro = _cms.ler("CARTÕES")
+            if erro:
+                return [], erro
+            col = {str(c).strip().upper(): c for c in df.columns}
+            c_mes, c_val = col.get("MÊS/ANO"), col.get("VALOR")
+            c_desc = next((col[k] for k in ("DESCRIÇÃO", "DESCRICAO", "FAVORECIDO", "ESTABELECIMENTO")
+                           if k in col), None)
+            MES3 = ("jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez")
+            alvo = f"{MES3[int(mes) - 1]}{int(ano)}"
+            fora = []
+            for _, r in df.iterrows():
+                if str(r.get(c_mes) or "").strip().lower().replace(" ", "") != alvo:
+                    continue
+                try:
+                    v = float(str(r.get(c_val) or 0).replace(",", "."))
+                except (TypeError, ValueError):
+                    continue
+                fora.append({"item": str(r.get(c_desc) or "") if c_desc else "",
+                             "valor": round(v, 2), "situação": "fatura do mês"})
+            return fora, ""
+        return [], ""
+    except Exception as e:
+        return [], f"{type(e).__name__}: {str(e)[:120]}"
+
+
+def _abrir_quadro(nome, v, itens, ano, mes, prov_itens, fechado):
+    """O quadro aberto: o que já saiu e o que está provisionado (dono, 20/10)."""
+    import pandas as pd
+    import rotulos as _rot
+
+    @st.dialog(f"{nome} · {_rot.brl(v['pago'])} pago", width="large")
+    def _d():
+        pagos = [i for i in itens if i["quadro"] == nome]
+        st.markdown(f"**Saídas** · {len(pagos)} · {_rot.brl(sum(i['valor'] for i in pagos))}")
+        if pagos:
+            st.dataframe(pd.DataFrame(pagos), use_container_width=True, hide_index=True,
+                         column_config=_rot.config(["data", "quadro", "favorecido", "finalidade",
+                                                    "valor", "conta"], st, tipos={"valor": "brl"}))
+        else:
+            st.caption("Nenhuma saída deste quadro no mês.")
+        if fechado:
+            st.caption("Mês fechado: só o pago.")
+            return
+        if v["provisionado"] is None:
+            st.caption("Este quadro não tem provisão: o Studio não sabe de antemão quanto vai sair.")
+            return
+        prov, erro = detalhe_provisionado(nome, ano, mes, prov_itens)
+        st.markdown(f"**Provisionado** · {_rot.brl(v['provisionado'])}")
+        if erro:
+            st.caption(f"Não consegui ler o detalhe: {erro}")
+        if prov:
+            st.dataframe(pd.DataFrame(prov), use_container_width=True, hide_index=True,
+                         column_config=_rot.config(["item", "valor", "situação"], st,
+                                                   tipos={"valor": "brl"}))
+    _d()
 
 
 def pagina(usuario_logado=None):
@@ -259,7 +362,15 @@ def pagina(usuario_logado=None):
 
     itens = itens_pagos(lancs, nomes_das_assinaturas(assin))
     q = montar(itens, prev, assin_prov, fechado)
-    st.markdown(_html_quadros(q), unsafe_allow_html=True)
+    # CADA QUADRO ABRE O SEU (dono, 20/10): o que saiu e o que está
+    # provisionado. A rede do detalhe só é chamada no clique.
+    _aberto = None
+    for linha in (QUADROS[:4], QUADROS[4:]):
+        for col, nome in zip(st.columns(len(linha)), linha):
+            col.markdown(_html_quadro(nome, q[nome]), unsafe_allow_html=True)
+            if col.button("Ver saídas e provisionado ›", key=f"rm_q_{nome}",
+                          use_container_width=True):
+                _aberto = nome
     total = round(sum(v["pago"] for v in q.values()), 2)
     st.caption(_rot.tela(
         f"Pago no mês: {_rot.brl(total)}"
@@ -289,7 +400,9 @@ def pagina(usuario_logado=None):
                                          _cr.carregar(), lancs)
     except Exception as e:
         st.caption(f"Não consegui ler as grades: {str(e)[:140]}")
-        return
+        prov_itens = []
+    if _aberto:
+        _abrir_quadro(_aberto, q[_aberto], itens, ano, mes, prov_itens, fechado)
     if prov_itens:
         st.dataframe(
             pd.DataFrame(prov_itens), use_container_width=True,
@@ -381,6 +494,14 @@ if __name__ == "__main__":
     ok("mês fechado mostra só o pago",
        all(v["provisionado"] is None for v in _qf.values())
        and _qf["Custo fixo"]["pago"] == 3000.0)
+    _pi = [{"dia do débito": 5, "quadro": "Custo fixo", "item": "Aluguel", "do mês": 3000.0,
+            "saiu no extrato": None, "situação": "a pagar"},
+           {"dia do débito": None, "quadro": "Assinaturas", "item": "Claude", "do mês": 550.0,
+            "saiu no extrato": 550.0, "situação": "pago"}]
+    ok("o quadro aberto traz o provisionado só dele (custo fixo não mostra assinatura)",
+       detalhe_provisionado("Custo fixo", 2026, 10, _pi)
+       == ([{"item": "Aluguel", "valor": 3000.0, "situação": "a pagar"}], "")
+       and detalhe_provisionado("ADS", 2026, 10, _pi) == ([], ""))
     _h = _html_quadros(_q)
     ok("os oito quadros aparecem, com o dinheiro no formato do dono",
        all(n in _h for n in QUADROS) and "R$ 3.000,00" in _h

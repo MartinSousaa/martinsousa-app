@@ -787,9 +787,11 @@ def chave_do_item(item):
 
     `ext_fin_{i}` era única dentro de UM arquivo e repetia entre arquivos —
     foi o que derrubou a tela. Identidade não repete, e ainda sobrevive a
-    reordenar a fila sem trocar a resposta de lugar.
+    reordenar a fila sem trocar a resposta de lugar. Linha sem destinatário
+    leva o id do lançamento: quatro "PIX ENVIADO" são quatro linhas.
     """
-    bruto = (f"{(item.get('favorecido') or '')}|{item.get('sentido') or ''}")
+    bruto = (f"{(item.get('favorecido') or '')}|{item.get('sentido') or ''}"
+             + ("|" + "|".join(item.get("ids") or []) if item.get("sem_destinatario") else ""))
     return "".join(c if c.isalnum() else "_" for c in bruto.upper())[:60]
 
 
@@ -926,10 +928,20 @@ def fila_dos_gravados(lancamentos, cadastro=None):
             continue
         v = float(l.get("valor") or 0)
         sentido = "entrada" if v > 0 else "saida"
-        k = (_fv_g.chave(nome) or nome.upper(), sentido)
+        # SEM DESTINATÁRIO (20/10): "PIX ENVIADO" sem razão social não é um
+        # nome — é o tipo da operação. Somados, quatro PIX viravam "R$ 3.000"
+        # sem dizer de quem; cadastrados, todo PIX futuro herdaria a resposta.
+        # Cada um vira a sua linha, com a data e o valor, e a resposta vale
+        # só para ela (`lancamentos.atualizar`).
+        sem_dest = _fv_g.sem_destinatario(nome)
+        k = ((_fv_g.chave(nome) or nome.upper(), sentido, str(l.get("id") or id(l)))
+             if sem_dest else (_fv_g.chave(nome) or nome.upper(), sentido))
         d = porta.setdefault(k, {"favorecido": nome, "sentido": sentido,
                                  "conta": "", "n": 0, "total": 0.0,
-                                 "exemplo": "", "datas": [], "itens": []})
+                                 "exemplo": "", "datas": [], "itens": [],
+                                 "sem_destinatario": sem_dest, "ids": []})
+        if l.get("id"):
+            d["ids"].append(str(l.get("id")))
         d["n"] += 1
         d["total"] += abs(v)
         d["exemplo"] = d["exemplo"] or str(l.get("descricao") or "")[:58]
@@ -1124,7 +1136,8 @@ def _perguntar(fila, _fv, usuario_logado):
     _rep = [representante(i) for i in fila]
     df = pd.DataFrame([{
         "marcar": chave_do_item(i) in _sug,
-        "nome": str(i.get("favorecido") or "")[:60],
+        "nome": (str(i.get("favorecido") or "")[:40] + " · sem destinatário no extrato"
+                 if i.get("sem_destinatario") else str(i.get("favorecido") or "")[:60]),
         "compra": r["descricao"],
         "data": r["data"],
         "valor": r["valor"],
@@ -1178,6 +1191,22 @@ def _perguntar(fila, _fv, usuario_logado):
     respostas = respostas_da_fila(fila, editado.to_dict("records"),
                                   None if _massa == ESCOLHA else _massa,
                                   vazio=ESCOLHA)
+    por_linha = respostas_por_linha(fila, editado.to_dict("records"),
+                                    None if _massa == ESCOLHA else _massa,
+                                    vazio=ESCOLHA)
+    if por_linha:
+        import lancamentos as _lan_pl
+        feitas = [i for i, fin in por_linha if _lan_pl.atualizar(i, {"finalidade": fin}, usuario_logado)[0]]
+        st.success(f"✅ {len(feitas)} lançamento(s) sem destinatário classificado(s), "
+                   "cada um na própria linha.")
+        if not respostas:
+            return
+    sem_id = [i for i in fila if i.get("sem_destinatario") and not i.get("ids")]
+    if sem_id and not respostas and not por_linha:
+        st.warning("Linha sem destinatário ainda não gravada: classifique na aba "
+                   "Finalidades depois de gravar o extrato — lá cada uma vale só "
+                   "para ela.")
+        return
     if not respostas:
         st.warning("Nada para salvar: escolha a finalidade na linha, ou "
                    "marque as linhas e escolha a finalidade para os marcados.")
@@ -1259,10 +1288,36 @@ def respostas_da_fila(fila, linhas, massa=None, vazio="— escolher —"):
     fora = []
     for item, l in zip(fila or [], linhas or []):
         fin = finalidade_da_linha(l, massa, vazio)
-        if fin:
+        # Sem destinatário não vira cadastro: ver `respostas_por_linha`.
+        if fin and not item.get("sem_destinatario"):
             fora.append((item.get("favorecido"), fin,
                          item.get("sentido") or "saida"))
     return fora
+
+
+def respostas_por_linha(fila, linhas, massa=None, vazio="— escolher —"):
+    """[(id, finalidade)] das linhas SEM DESTINATÁRIO respondidas. Pura.
+
+    Valem só para o lançamento delas — gravadas na própria linha, e não no
+    cadastro de nomes.
+    """
+    fora = []
+    for item, l in zip(fila or [], linhas or []):
+        fin = finalidade_da_linha(l, massa, vazio)
+        if fin and item.get("sem_destinatario"):
+            fora.extend((i, fin) for i in (item.get("ids") or []))
+    return fora
+
+
+def opcoes_do_mes(conhecidas, linhas):
+    """As opções da coluna Finalidade: as conhecidas + toda finalidade que já
+    está gravada no mês. Pura.
+
+    Valor gravado que não está nas opções aparece EM BRANCO na coluna de
+    seleção — parece "sem finalidade" com a finalidade lá (cheques, 20/10).
+    """
+    return sorted(set(conhecidas) | {str(l.get("finalidade") or "").strip()
+                                     for l in (linhas or []) if str(l.get("finalidade") or "").strip()})
 
 
 def _finalidades_conhecidas(_fv):
@@ -1312,7 +1367,7 @@ def _ver_mes(_fv, _lan, usuario_logado):
             "valor": st.column_config.NumberColumn(format="R$ %.2f",
                                                    disabled=True),
             "finalidade": st.column_config.SelectboxColumn(
-                "Finalidade", options=_finalidades_conhecidas(_fv),
+                "Finalidade", options=opcoes_do_mes(_finalidades_conhecidas(_fv), linhas),
                 help="Muda só esta linha. Para valer sempre, altere o "
                      "favorecido na aba Finalidades."),
             "id": None,
@@ -1718,6 +1773,29 @@ if __name__ == "__main__":
     _sf_t = sem_finalidade([{"valor": -100.0, "finalidade": "", "favorecido": "A"},
                             {"valor": -50.0, "finalidade": "ADS"},
                             {"valor": 300.0, "finalidade": ""}])
+    _gr = [{"id": "a1", "data": "2026-09-08", "descricao": "PIX ENVIADO", "valor": -1000.0, "finalidade": ""},
+           {"id": "a2", "data": "2026-09-21", "descricao": "PIX ENVIADO", "valor": -3000.0, "finalidade": ""},
+           {"id": "b1", "data": "2026-09-25", "descricao": "DA", "valor": -333.7, "finalidade": ""},
+           {"id": "b2", "data": "2026-08-25", "descricao": "DA", "valor": -300.0, "finalidade": ""}]
+    _fq = fila_dos_gravados(_gr, {})
+    _pix = [i for i in _fq if i["sem_destinatario"]]
+    ok("PIX ENVIADO sem destinatário: uma linha por lançamento, com o id; DA continua agrupado",
+       len(_pix) == 2 and sorted(i["ids"][0] for i in _pix) == ["a1", "a2"]
+       and [i["n"] for i in _fq if not i["sem_destinatario"]] == [2])
+    _ls = [{"finalidade": "MERCADORIA"} if i["sem_destinatario"] else {"finalidade": "IMPOSTO"} for i in _fq]
+    ok("a resposta do PIX vai para a linha, não para o cadastro; a do DA vai para o cadastro",
+       sorted(respostas_por_linha(_fq, _ls)) == [("a1", "MERCADORIA"), ("a2", "MERCADORIA")]
+       and respostas_da_fila(_fq, _ls) == [("DA", "IMPOSTO", "saida")])
+    ok("as chaves de widget das linhas sem destinatário não se repetem",
+       len({chave_do_item(i) for i in _pix}) == 2)
+    import favorecidos as _fv_t
+    ok("toda finalidade que o extrato dá sozinho existe nas opções (senão a célula aparece em branco)",
+       set(POR_TIPO.values()) - {"TARIFA BANCÁRIA"} <= set(_fv_t.finalidades_conhecidas({}))
+       and "TARIFA BANCÁRIA" in opcoes_do_mes(_fv_t.finalidades_conhecidas({}),
+                                              [{"finalidade": "TARIFA BANCÁRIA"}]))
+    ok("as opções do mês incluem o que já está gravado, mesmo fora da lista",
+       "XPTO" in opcoes_do_mes(["MERCADORIA"], [{"finalidade": "XPTO"}, {"finalidade": ""}])
+       and "" not in opcoes_do_mes(["MERCADORIA"], [{"finalidade": ""}]))
     ok("saída sem finalidade é contada e nomeada (entrada não)",
        _sf_t["n"] == 1 and _sf_t["total"] == 100.0
        and _sf_t["maiores"] == [("A", 100.0)])

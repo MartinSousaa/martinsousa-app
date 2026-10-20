@@ -337,6 +337,32 @@ def _vago(frase):
     return intencao(frase) == "OUTRO"
 
 
+def volume(linhas):
+    """Quanto trabalho foi FEITO no período — o denominador do retrabalho.
+
+    Dono, 20/10: "o indicador mostra verde, mas se nenhum processo foi
+    realizado, é uma informação falsa". Zero ajuste com zero geração não é
+    qualidade, é ausência. Lido das linhas que o Studio já grava:
+      gerar_tudo   → um processo de criação (o produto inteiro), e o
+                     resultado diz quantas imagens ele pediu;
+      gerar_falhou → uma imagem que o gerador não entregou.
+    """
+    processos, imagens, falhas, produtos = 0, 0, 0, set()
+    for l in (linhas or []):
+        acao = _sem_acento(l.get("acao"))
+        if acao.startswith("gerar_tudo"):
+            processos += 1
+            m = re.search(r"(\d+)\s*imagem", _sem_acento(l.get("resultado")))
+            imagens += int(m.group(1)) if m else 0
+            p = str(l.get("produto") or "").strip()
+            if p:
+                produtos.add(p.upper())
+        elif acao.startswith("gerar_falhou"):
+            falhas += 1
+    return {"processos": processos, "imagens": imagens, "falhas": falhas,
+            "produtos": len(produtos)}
+
+
 def resumo(linhas):
     """Os números do topo da tela, para o mês inteiro de uma vez."""
     grupos = agrupar(linhas)
@@ -351,6 +377,7 @@ def resumo(linhas):
     gargalos = [g for g in grupos
                 if g["pedidos"] >= REPETICOES_PARA_GARGALO]
     return {
+        "volume": volume(linhas),
         "pedidos": len(ajustes),
         "tentativas": total_tent,
         "refeitas_do_zero": refeitas,
@@ -592,6 +619,16 @@ if __name__ == "__main__":
        agrupar([{"quando": "?", "usuario": "x", "produto": "p", "imagem": 1,
                  "acao": "ajuste_aplicado", "instrucao": "muda a cor",
                  "resultado": ""}])[0]["minutos"] == 0.0)
+
+    # O DENOMINADOR (20/10): zero retrabalho só significa algo com volume.
+    _vol = volume([{"acao": "gerar_tudo", "produto": "Caneca", "resultado": "8 imagem(ns) a gerar"},
+                   {"acao": "gerar_tudo", "produto": "caneca", "resultado": "2 imagem(ns) a gerar · descartou 6"},
+                   {"acao": "gerar_falhou", "produto": "Caneca", "resultado": "timeout"},
+                   {"acao": "ajuste_aplicado", "produto": "Caneca", "instrucao": "cor"}])
+    ok("volume: 2 processos, 10 imagens pedidas, 1 falha, 1 produto",
+       _vol == {"processos": 2, "imagens": 10, "falhas": 1, "produtos": 1})
+    ok("o resumo traz o volume junto (zero sem volume não vira verde)",
+       resumo([])["volume"]["processos"] == 0 and "volume" in resumo(LOG))
 
     print("\nfalhas:", falhas_teste)
     raise SystemExit(falhas_teste)

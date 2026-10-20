@@ -645,9 +645,10 @@ def _svg_uc(d, hoje, ano):
 
 
 def _tabela(d, fat_mes, hoje, ano, bling=False):
-    th = lambda c: (f'<th style="text-align:right;padding:7px 8px;color:{SEC};font-size:11px;font-weight:700;'
+    # CENTRALIZADO (dono, 20/10: "esses números devem estar centralizados").
+    th = lambda c: (f'<th style="text-align:center;padding:7px 8px;color:{SEC};font-size:11px;font-weight:700;'
                     f'border-bottom:1px solid {BORDA};white-space:nowrap">{c}</th>')
-    td = lambda v, c=TEXTO, b=False: (f'<td style="text-align:right;padding:6px 8px;font-size:12px;white-space:nowrap;'
+    td = lambda v, c=TEXTO, b=False: (f'<td style="text-align:center;padding:6px 8px;font-size:12px;white-space:nowrap;'
                                       f'color:{c};{"font-weight:800;" if b else ""}">{v}</td>')
     ant = d["anterior"]
     cols = (f"FAT {int(ano) - 1}", f"FAT {ano}", "CRESC.", f"VENDAS {int(ano) - 1}", f"VENDAS {ano}", "CRESC.",
@@ -706,15 +707,53 @@ def _plataformas(plats):
         arcs += (f'<path d="M{x1:.1f},{y1:.1f} A80,80 0 {1 if a2 - ang > 180 else 0},1 {x2:.1f},{y2:.1f}" '
                  f'fill="none" stroke="{c}" stroke-opacity="{op}" stroke-width="26"/>')
         ang = a2
-    rosca = (f'<svg viewBox="0 0 200 200" width="230" height="230">{arcs}'
+    rosca = (f'<svg viewBox="0 0 200 200" width="180" height="180">{arcs}'
              f'<text x="100" y="96" text-anchor="middle" fill="{TEXTO}" font-size="17" font-weight="800">{_brl(T)}</text>'
              f'<text x="100" y="116" text-anchor="middle" fill="{SEC}" font-size="10">{len(itens)} contas</text></svg>')
     lista = "".join(f'<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid {BORDA};font-size:13px">'
                     f'<span><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:{c};opacity:{op};margin-right:8px"></span>{nome}</span>'
                     f'<span><b>{_brl(v)}</b> <span style="color:{MUTED}">· {_p(v / T * 100, False)}</span></span></div>'
                     for nome, v, c, op in itens)
-    return (f'<div style="display:grid;grid-template-columns:260px 1fr;gap:24px;align-items:center">'
-            f'<div style="text-align:center">{rosca}</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:0 28px">{lista}</div></div>')
+    return (f'<div style="display:grid;grid-template-columns:190px 1fr;gap:16px;align-items:center">'
+            f'<div style="text-align:center">{rosca}</div>'
+            f'<div>{lista}</div></div>')
+
+
+def _top_produtos(top, n_total=5):
+    """Os 5 produtos que mais venderam no ano, com a UC e o peso no
+    faturamento (dono, 20/10: "do lado direito, um top 5 produtos mais
+    vendidos, a UC dele e o quanto representa do faturamento anual")."""
+    if not top:
+        return (f'<div style="color:{MUTED};font-size:12px;text-align:center;padding:30px 0">'
+                f'Top 5 indisponível: nenhuma venda do ano foi lida agora.</div>')
+    cor_uc = lambda u: BOM if u >= 1 else ("#E0A13A" if u >= 0.8 else RUIM)
+    linhas = "".join(
+        f'<div style="display:grid;grid-template-columns:22px 1fr auto auto;gap:10px;align-items:center;'
+        f'padding:7px 0;border-bottom:1px solid {BORDA};font-size:13px">'
+        f'<span style="color:{SEC};font-weight:800">{i}</span>'
+        f'<span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{nome.title()}'
+        f'<span style="color:{MUTED};font-size:11px"> · {_n(v)} vendas</span></span>'
+        f'<span style="font-weight:800;color:{cor_uc(uc)}">UC {_uc(uc)}</span>'
+        f'<span style="color:{SEC};min-width:56px;text-align:right">{_p(pct, False)}</span></div>'
+        for i, (nome, v, uc, pct) in enumerate(top[:n_total], 1))
+    return (f'<div style="font-size:11px;font-weight:800;letter-spacing:.1em;color:{SEC};margin-bottom:4px">'
+            f'TOP 5 MAIS VENDIDOS · UC · % DO FATURAMENTO DO ANO</div>{linhas}')
+
+
+def top_do_ano(ano, hoje):
+    """[(produto, vendas, uc, % do faturamento)] — os títulos juntados por
+    `produtos_grupos`, a conta de `produtos_analise`. [] se não der para ler."""
+    try:
+        import produtos_analise as _pa
+        import produtos_grupos as _pg
+        brutas, erro = _pa.dados(int(ano), hoje)
+        if erro or not brutas:
+            return []
+        mapa, _ = _pg.carregar()
+        linhas = _pg.aplicar(brutas, mapa)
+        return _pa.top_vendidos(linhas)
+    except Exception:
+        return []
 
 
 def _trilha(rot, real, meta, fmt, cor):
@@ -835,7 +874,12 @@ def pagina(usuario_logado, ano, hoje):
     st.markdown(_vidro("UC · RESULTADOS MENSAIS E TRIMESTRAIS", _svg_uc(d, hoje, ano)), unsafe_allow_html=True)
     st.markdown(_vidro(f"MÊS A MÊS · {int(ano) - 1} × {ano}", _tabela(d, fat_mes, hoje, ano, bling_mes is not None)), unsafe_allow_html=True)
     if d["plataformas"]:
-        st.markdown(_vidro(f"FATURAMENTO POR MARKETPLACE · {ano}", _plataformas(d["plataformas"])), unsafe_allow_html=True)
+        # METADE E METADE (dono, 20/10): plataformas à esquerda, os 5 mais
+        # vendidos à direita — o quadro tinha muito espaço para pouca coisa.
+        st.markdown(_vidro(f"FATURAMENTO POR MARKETPLACE · {ano}",
+                           f'<div style="display:grid;grid-template-columns:1fr 1fr;gap:28px;align-items:start">'
+                           f'<div>{_plataformas(d["plataformas"])}</div>'
+                           f'<div>{_top_produtos(top_do_ano(ano, hoje))}</div></div>'), unsafe_allow_html=True)
 
     # ── CONFERÊNCIA BLING × PLANILHA ──
     st.markdown(_vidro("CONFERÊNCIA · BLING × PLANILHAS DAS PLATAFORMAS",
