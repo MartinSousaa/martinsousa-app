@@ -60,7 +60,11 @@ import unicodedata
 # PÁGINA DO ML entra aqui pelo mesmo motivo das assinaturas, explicado no
 # cabeçalho: são R$ 99,00 por mês vendendo 100 ou vendendo 3.000. Custo que
 # não varia com o faturamento é fixo, e fixo vai ao numerador.
-NUMERADOR = ("CUSTO FIXO", "SERVIÇO", "SERVIÇOS", "FOLHA", "PÁGINA DO ML")
+# TARIFA BANCÁRIA, pelo mesmo motivo (dono, 20/10): "é custo fixo sim, pago
+# por ter a conta aberta no banco". No LPV ela continua como estava
+# (`LPV_ALEM_DO_OPERACIONAL`), igual à PÁGINA DO ML.
+NUMERADOR = ("CUSTO FIXO", "SERVIÇO", "SERVIÇOS", "FOLHA", "PÁGINA DO ML",
+             "TARIFA BANCÁRIA")
 
 # JÁ MEDIDO DENTRO DA MARGEM — e por isso NÃO pode ser somado de novo.
 #
@@ -591,6 +595,8 @@ if __name__ == "__main__":
     ok("e linha sem classificação não entra", not entra_no_lpv("SEM CLASSIFICAÇÃO"))
     ok("e PÁGINA DO ML continua fixa no equilíbrio",
        lado("PÁGINA DO ML") == "numerador")
+    ok("TARIFA BANCÁRIA é custo fixo no equilíbrio, com ou sem acento (dono, 20/10)",
+       lado("TARIFA BANCÁRIA") == lado("Tarifa Bancaria") == "numerador")
 
     print("\nfalhas:", falhas)
     raise SystemExit(falhas)

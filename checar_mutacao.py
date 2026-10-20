@@ -3601,6 +3601,20 @@ MUTACOES = [
         ["python3", "lembretes.py"],
     ),
     (
+        "a tarifa bancaria volta a ficar sem lado (fora da conta do equilibrio)",
+        "composicao.py",
+        '             "TARIFA BANCÁRIA")',
+        '             )',
+        ["python3", "composicao.py"],
+    ),
+    (
+        "a tarifa bancaria some da lista de finalidades e a celula aparece em branco",
+        "favorecidos.py",
+        '"BOLETO", "TARIFA BANCÁRIA",',
+        '"BOLETO",',
+        ["python3", "extratos_tela.py"],
+    ),
+    (
         "o DAS volta a cair no fim de semana em vez de antecipar",
         "lembretes.py",
         '("das_20", "DAS", ("dia_antecipa", 20)',
