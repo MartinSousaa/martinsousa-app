@@ -3804,6 +3804,47 @@ def _gargalos_volume(conta):
         _li_g.ler, _gt_g.st = _g
 
 
+def _faturamento_top5(conta):
+    """20/10: Faturamento — o MÊS A MÊS centralizado e o quadro do
+    marketplace partido: plataformas à esquerda, os 5 mais vendidos à
+    direita. O top 5 sai da CADEIA real (`linhas_da_base` → `aplicar` →
+    `top_vendidos`), com as linhas na forma da BASE DE VENDAS; só a leitura
+    da planilha é trocada."""
+    import inspect
+    from datetime import datetime
+    import visao_faturamento as _vf
+    import produtos_analise as _pa
+    import produtos_grupos as _pg
+    cols = ["MÊS/ANO", "Data", "Plataforma", "Pedido", "SKU", "Produto", "Custo Unitário",
+            "FAT TOTAL", "DEVOLUÇÃO", "MARGEM C.", "VENDAS", "LPV", "UNI. CONT."]
+    regs = [dict(zip(cols, ("set2026", datetime(2026, 9, 10), "MercadoLivre1", f"P{i}", "MS-1",
+                            nome, 10.0, 100.0, 0, 41.26, 1, 20.63, 2.0)))
+            for i, nome in enumerate(["Argola Dourada"] * 3 + ["Mini Caneca"] * 2 + ["Chaveiro"])]
+    brutas = _pa.linhas_da_base(regs, cols, {9: 20.63}, 2026)
+    _g = (_pa.dados, _pg.carregar)
+    try:
+        _pa.dados = lambda ano, hoje: (brutas, "")
+        _pg.carregar = lambda: ({}, "")
+        top = _vf.top_do_ano(2026, datetime(2026, 10, 20).date())
+        html = _vf._top_produtos(top)
+        conta("Faturamento: o top 5 sai da BASE pela cadeia real, do mais vendido ao menos",
+              [t[0] for t in top][:2] == ["ARGOLA DOURADA", "MINI CANECA"] and "TOP 5 MAIS VENDIDOS" in html
+              and "UC " in html, str(top))
+        _pa.dados = lambda ano, hoje: ([], "Não consegui ler a BASE DE VENDAS")
+        conta("Faturamento: sem a BASE o top 5 avisa, não quebra",
+              "indisponível" in _vf._top_produtos(_vf.top_do_ano(2026, datetime(2026, 10, 20).date())), "")
+        fonte = inspect.getsource(_vf.pagina)
+        conta("Faturamento: o quadro do marketplace desenha o top 5 ao lado das plataformas",
+              "_top_produtos(top_do_ano(" in fonte and "_plataformas(" in fonte, "")
+        tab = inspect.getsource(_vf._tabela)
+        conta("Faturamento: os números do MÊS A MÊS centralizados",
+              tab.count("text-align:center") >= 2 and "text-align:right;padding:6px" not in tab, "")
+    except Exception as e:
+        conta("Faturamento: top 5", False, f"{type(e).__name__}: {e}")
+    finally:
+        _pa.dados, _pg.carregar = _g
+
+
 def main():
     instalar()
     falhas = []
@@ -3871,6 +3912,7 @@ def main():
     _din_financas_previa(conta)
     _produtos_analise(conta)
     _gargalos_volume(conta)
+    _faturamento_top5(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0

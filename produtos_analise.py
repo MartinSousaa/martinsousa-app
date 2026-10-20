@@ -376,6 +376,15 @@ def por_nicho(linhas, P):
     return sorted(N.items(), key=lambda kv: -kv[1]["lucro"])
 
 
+def top_vendidos(linhas, n=5):
+    """[(produto, vendas, uc_por_venda, % do faturamento)] dos que mais
+    venderam no ano. O % é sobre o faturamento de TODAS as vendas lidas."""
+    P = agregar(linhas, set(range(1, 13)))
+    total = sum(x["fat"] for x in linhas) or 1.0
+    rk = sorted(P.items(), key=lambda kv: (-kv[1]["v"], kv[0]))[:n]
+    return [(k, p["v"], p["ucv"], p["fat"] / total * 100) for k, p in rk]
+
+
 def concentracao(P, n=5):
     pos = sorted((p["lucro"] for p in P.values() if p["lucro"] > 0), reverse=True)
     return sum(pos[:n]) / sum(pos) if pos else 0.0
@@ -1084,6 +1093,13 @@ if __name__ == "__main__":
        pan["periodos"][3][3] == 1 and pan["plataformas"]["Mercado Livre"]["v"] == 63
        and pan["plataformas"]["Shopee"] is None)
     ok("concentração entre 0 e 1", 0 < concentracao(A) <= 1)
+    ok("dinheiro no formato R$ 1.234,57, com o sinal do negativo na frente",
+       _brl(1234.567, 2) == "R$ 1.234,57" and _brl(-1234) == "−R$ 1.234")
+    _tv = top_vendidos(L, 2)
+    ok("top vendidos: pela quantidade de vendas, com a UC e o % do faturamento",
+       _tv[0][0] == "KIT COM 3 ESTÁTUAS" and _tv[0][1] == 108
+       and abs(_tv[0][3] - sum(x["fat"] for x in L if x["produto"] == "KIT COM 3 ESTÁTUAS"
+                               and not eh_pontual(x, med)) / sum(x["fat"] for x in L) * 100) < 1e-6)
     _h = panorama_html(L, "CINZEIRO TELESCÓPICO", 9, med, prim)
     ok("o panorama desenha os blocos aprovados, sem linha em branco (o markdown fecharia o HTML)",
        all(x in _h for x in ("PANORAMA DO PRODUTO", "POR PERÍODO", "POR PLATAFORMA", "PEDIDOS POR MÊS",

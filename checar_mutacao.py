@@ -3642,6 +3642,27 @@ MUTACOES = [
         "",
         ["python3", "checar_tela.py"],
     ),
+    (
+        "o quadro do marketplace volta a ser so plataformas, sem o top 5 do lado",
+        "visao_faturamento.py",
+        "f'<div>{_top_produtos(top_do_ano(ano, hoje))}</div></div>'",
+        "f'</div>'",
+        ["python3", "checar_tela.py"],
+    ),
+    (
+        "o top 5 ordena pelo faturamento e nao pela quantidade vendida",
+        "produtos_analise.py",
+        'key=lambda kv: (-kv[1]["v"], kv[0]))[:n]',
+        'key=lambda kv: (-kv[1]["fat"], kv[0]))[:n]',
+        ["python3", "produtos_analise.py"],
+    ),
+    (
+        "o MES A MES volta a alinhar os numeros a direita",
+        "visao_faturamento.py",
+        "td = lambda v, c=TEXTO, b=False: (f'<td style=\"text-align:center;",
+        "td = lambda v, c=TEXTO, b=False: (f'<td style=\"text-align:right;",
+        ["python3", "checar_tela.py"],
+    ),
 ]
 
 
