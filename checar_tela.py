@@ -3572,9 +3572,18 @@ def _din_financas_previa(conta):
     _g = (_xm_d.configurado, _xm_d.item_do_link, _xm_d.ler_grade,
           _cms_d.link_configurado, _fi_d.st)
 
-    def _rodar(clicar, link):
+    _gravados, _desab = [], []
+    _g_prev, _g_grav = _lm_d.co_previsto_agora, _xm_d.gravar
+    _lm_d.co_previsto_agora = lambda h: (_lm_d.co_do_mes_corrente(0.065, 100000.0, 19, 31, 3000.0), "")
+    _xm_d.gravar = lambda l, itens: (_gravados.append([i["celula"] for i in itens]), (len(itens), ""))[1]
+
+    def _rodar(clicar, link, confirma=False):
         _falso = instalar()
-        _falso.button = lambda rot, *a, **k: clicar and k.get("key") == "din_testar_2026"
+        if clicar is True:
+            clicar = {"din_testar_2026"}
+        _falso.button = lambda rot, *a, **k: (k.get("key") == "din_gravar_2026" and _desab.append(k.get("disabled")),
+                                              bool(clicar) and k.get("key") in clicar)[1]
+        _falso.checkbox = lambda rot, *a, **k: confirma
         _falso.dataframe = lambda d, *a, **k: _tabelas.append(d)
         _falso.warning = lambda t, *a, **k: _avisos.append(str(t))
         _fi_d.st = _falso
@@ -3594,8 +3603,13 @@ def _din_financas_previa(conta):
         _rodar(True, _emp)
         _df = _tabelas[-1] if _tabelas else None
         _cel = list(_df["Célula"]) if _df is not None else []
-        conta("DIN FINANÇAS: a prévia mostra set em Y61 (LPV) e Y77 (C.O.), e não out (em andamento)",
-              _cel == ["Y61", "Y77"], str(_cel))
+        conta("DIN FINANÇAS: a prévia mostra set em Y61 (LPV) e Y77 (C.O.), e outubro só no C.O. previsto (Y78)",
+              _cel == ["Y61", "Y77", "Y78"] and "previsto" in str(_df["Mês"].iloc[2]), str(_cel))
+        conta("DIN FINANÇAS: sem a confirmação marcada, o botão de gravar fica desligado e nada é gravado",
+              _desab and _desab[-1] is True and _gravados == [], str(_desab))
+        _rodar({"din_testar_2026", "din_gravar_2026"}, _emp, confirma=True)
+        conta("DIN FINANÇAS: com a confirmação, grava exatamente as células da prévia",
+              _gravados == [["Y61", "Y77", "Y78"]], str(_gravados))
         conta("DIN FINANÇAS: avisa que Y61 hoje é fórmula",
               _df is not None and str(_df["Hoje é fórmula"].iloc[0]).startswith("sim")
               and not str(_df["Hoje é fórmula"].iloc[1]), "")
@@ -3611,6 +3625,89 @@ def _din_financas_previa(conta):
     finally:
         (_xm_d.configurado, _xm_d.item_do_link, _xm_d.ler_grade,
          _cms_d.link_configurado, _fi_d.st) = _g
+        _lm_d.co_previsto_agora, _xm_d.gravar = _g_prev, _g_grav
+
+
+def _produtos_analise(conta):
+    """20/10: Gestão › Produtos, o analista de produtos (layout aprovado).
+
+    As linhas passam por `produtos_analise.linhas_da_base` com o CABEÇALHO REAL
+    da BASE DE VENDAS 2026 — a porta da tela, e não um dicionário no formato
+    que eu acho que ele tem. Só a leitura da planilha é trocada. A tela monta
+    inteira, com uma faixa de UC aberta e o panorama de um produto."""
+    import datetime as _dt_p
+    import produtos_analise as _pa
+    import auth as _au_p
+    _dono = sorted(_au_p.ADMINS_PADRAO)[0]
+    cab = ['MÊS', 'MÊS/ANO', 'Data', 'Plataforma', 'Pedido', 'SKU', 'Produto', 'Quantidade',
+           'Custo Unitário', 'Custo Flex', 'FAT TOTAL', 'CUSTO TOTAL', 'COMISSÃO', 'FRETE',
+           'NF', 'CUSTO OP.', 'DEVOLUÇÃO', 'MARGEM C.', 'VENDAS', 'LPV', 'UNI. CONT.']
+    regs = []
+    for m in range(1, 10):
+        for d in range(1, 13):
+            regs.append({"Data": _dt_p.datetime(2026, m, d), "Plataforma": "Shopee1", "SKU": "MS-2260",
+                         "Produto": "KIT COM 3 ESTÁTUAS", "Quantidade": 1, "FAT TOTAL": 60.0,
+                         "CUSTO TOTAL": 22.6, "COMISSÃO": 17.5, "FRETE": 0, "NF": 5.4, "CUSTO OP.": 4.3,
+                         "DEVOLUÇÃO": 0, "MARGEM C.": 10.0, "LPV": 18.0, "Custo Unitário": 22.6})
+        for d in range(1, 8):
+            regs.append({"Data": _dt_p.datetime(2026, m, d), "Plataforma": "MercadoLivre1", "SKU": "MS-8936",
+                         "Produto": "CINZEIRO TELESCÓPICO", "Quantidade": 1, "FAT TOTAL": 200.0,
+                         "CUSTO TOTAL": 89.4, "COMISSÃO": 30.0, "FRETE": 20, "NF": 18, "CUSTO OP.": 9,
+                         "DEVOLUÇÃO": 0, "MARGEM C.": 45.0, "LPV": 18.0, "Custo Unitário": 89.36})
+    linhas = _pa.linhas_da_base(regs, cab, {m: 18.0 for m in range(1, 10)}, 2026)
+    import produtos_grupos as _pg_t
+    _g = (_pa.dados, _pa.st, _pg_t.carregar, _pg_t.classificar, _pg_t.salvar)
+    _botoes, _salvos = [], []
+    _mapa = {}
+    _pg_t.carregar = lambda: (_mapa, "")
+    _pg_t.salvar = lambda m: _salvos.append(m)
+    _pg_t.classificar = lambda lote, chamar=None: (
+        {t: ("KIT 3 ESTÁTUAS" if "ESTÁTUAS" in t else t, "Decoração" if "ESTÁTUAS" in t else "Tabacaria")
+         for t in lote}, "")
+
+    def _rodar(usuario, dados, clicar=(), panorama=""):
+        f = instalar()
+        f.segmented_control = lambda rot, opcoes, default=None, **k: (f._registra("segmented_control", k), default)[1]
+        f.dialog = lambda *a, **k: (lambda fn: fn)
+        f.button = lambda rot, *a, **k: (f._registra("button", k), _botoes.append(k.get("key")),
+                                         k.get("key") in clicar)[2]
+        f.selectbox = lambda rot, opcoes, *a, **k: (f._registra("selectbox", k),
+                                                    panorama if k.get("key") == "pa_pan" else
+                                                    list(opcoes)[k.get("index", 0) or 0])[1]
+        _pa.st = f
+        _pa.dados = lambda ano, hoje: (dados, "")
+        _pa.pagina(usuario)
+    try:
+        _rodar(_dono, linhas)
+        conta("Produtos: a página monta inteira (alertas, balanço, ranking nos 4 períodos)",
+              "pa_faixa_0" in _botoes and "pa_v_errado" in _botoes, str(_botoes[:8]))
+        _rodar(_dono, linhas, clicar={"pa_faixa_0"}, panorama="CINZEIRO TELESCÓPICO")
+        conta("Produtos: abrir uma faixa de UC e o panorama de um produto não quebra", True, "")
+        _botoes.clear()
+        try:
+            _rodar(_dono, linhas, clicar={"pa_ia_juntar"})
+        except (_Rerun, _Parou):
+            pass
+        conta("Produtos: o botão da IA junta os títulos pendentes e salva na aba (sem IA de verdade)",
+              _salvos and _salvos[-1]["KIT COM 3 ESTÁTUAS"]["nicho"] == "Decoração"
+              and _salvos[-1]["CINZEIRO TELESCÓPICO"]["origem"] == "ia", str(_salvos[-1:])[:200])
+        _mapa.update(_salvos[-1])
+        _botoes.clear()
+        _rodar(_dono, linhas)
+        conta("Produtos: com os títulos juntados, a fatia por nicho aparece e o botão da IA some",
+              "pa_ia_juntar" not in _botoes, str(_botoes))
+        _botoes.clear()
+        _rodar(_dono, [])
+        _rodar("colaborador_qualquer", linhas)
+        conta("Produtos: sem vendas, e para quem não é dono, avisa e não monta nada",
+              _botoes == [], str(_botoes))
+    except (_Rerun, _Parou):
+        conta("Produtos: a tela monta", True, "")
+    except Exception as e:
+        import traceback
+        conta("Produtos: a tela monta", False, f"{type(e).__name__}: {e} {traceback.format_exc()[-400:]}")
+    finally:
+        _pa.dados, _pa.st, _pg_t.carregar, _pg_t.classificar, _pg_t.salvar = _g
 
 
 def main():
@@ -3678,6 +3775,7 @@ def main():
     _visao_geral_na_home(conta)
     _tiktok_na_viabilidade(conta)
     _din_financas_previa(conta)
+    _produtos_analise(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0
