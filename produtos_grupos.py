@@ -194,7 +194,8 @@ def mesclar(atual, novos, origem):
 
 def salvar(mapa):
     """Regrava a aba inteira numa chamada só (são até alguns milhares de linhas)."""
-    agora = datetime.now().strftime("%Y-%m-%d %H:%M")
+    import placar_core as _pc
+    agora = datetime.now(_pc.FUSO).strftime("%Y-%m-%d %H:%M")
     linhas = [COLUNAS] + [[t, g["produto"], g["nicho"], g["origem"], agora]
                           for t, g in sorted(mapa.items())]
     aba = _aba()
