@@ -3652,8 +3652,8 @@ MUTACOES = [
     (
         "os cheques compensados voltam a aparecer em branco na coluna Finalidade",
         "favorecidos.py",
-        '    "CHEQUES", "FATURA DO CARTÃO", "BOLETO",\n',
-        "",
+        '    "CHEQUES", "FATURA DO CARTÃO", "BOLETO", "TARIFA BANCÁRIA",\n',
+        '    "TARIFA BANCÁRIA",\n',
         ["python3", "extratos_tela.py"],
     ),
     (
