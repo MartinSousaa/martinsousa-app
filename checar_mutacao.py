@@ -3291,10 +3291,10 @@ MUTACOES = [
         ['python3', 'home_gestao.py'],
     ),
     (
-        'a meta de gastos sai de baixo dos indicadores (o quadrado de 19/10)',
+        'as devolucoes voltam a subir para baixo do balanco (o dono nao pediu, 20/10)',
         'home_gestao.py',
+        "            'grid-template-areas:\\'fat ind\\' \\'fat gas\\' \\'dev dev\\';'\n",
         "            'grid-template-areas:\\'fat ind\\' \\'dev gas\\';'\n",
-        "            'grid-template-areas:\\'fat ind\\' \\'gas dev\\';'\n",
         ['python3', 'home_gestao.py'],
     ),
     (
@@ -3669,6 +3669,13 @@ MUTACOES = [
         '        return str(dados[nome]) if nome in dados else str((atual or {}).get(nome, ""))\n',
         '        return str(dados.get(nome, ""))\n',
         ["python3", "ml_api.py"],
+    ),
+    (
+        "as linhas do grafico da Home voltam a mostrar so o nome, sem o valor do alvo",
+        "home_gestao.py",
+        "font-weight=\"700\" text-anchor=\"end\">{rotulo_da_linha(t, v, real)}</text>'",
+        "font-weight=\"700\" text-anchor=\"end\">{t}</text>'",
+        ["python3", "home_gestao.py"],
     ),
     (
         "o DAS volta a cair no fim de semana em vez de antecipar",
