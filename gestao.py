@@ -294,7 +294,6 @@ SUBTELAS = {
     "🧾 Boletos": lambda u: _abrir_tela("boletos_tela", u),
     "🛒 ADS-Cross": _fatura_ml,
     "🎯 Meta de gastos": _meta_gastos,
-    "🔎 Análise de Gargalos": lambda u: _abrir_tela("gargalos_tela", u),
 }
 
 
@@ -334,6 +333,10 @@ SUBTELAS_OPERACIONAL = {
     "🔄 Devoluções": _devolucoes,
     "💔 Quebras":    _quebras,
     "📦 Estoque":    _estoque,
+    # Dono, 20/10: "análise de gargalos não deveria estar no financeiro, ele
+    # deveria estar no operacional" — é trabalho da equipe, não dinheiro.
+    # A trava de dono continua na própria página (`gargalos_tela.pagina`).
+    "🔎 Análise de Gargalos": lambda u: _abrir_tela("gargalos_tela", u),
 }
 
 

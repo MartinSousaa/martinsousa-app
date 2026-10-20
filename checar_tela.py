@@ -3759,6 +3759,51 @@ def _produtos_analise(conta):
         _pa.dados, _pa.st, _pg_t.carregar, _pg_t.classificar, _pg_t.salvar = _g
 
 
+def _gargalos_volume(conta):
+    """20/10: a Análise de Gargalos foi para o Operacional e passou a dizer
+    QUANTOS processos houve — zero retrabalho com zero processo não é verde.
+    As linhas têm a forma que `log_imagem.registrar` grava ("gerar_tudo" com
+    "N imagem(ns) a gerar"). Só a leitura do log é trocada."""
+    import gestao as _ge_g
+    import gargalos_tela as _gt_g
+    import log_imagem as _li_g
+    import auth as _au_g
+    conta("Gargalos: saiu do Financeiro e está no Operacional",
+          "🔎 Análise de Gargalos" not in _ge_g.SUBTELAS
+          and "🔎 Análise de Gargalos" in _ge_g.SUBTELAS_OPERACIONAL, "")
+    _dono = sorted(_au_g.ADMINS_PADRAO)[0]
+    _g = (_li_g.ler, _gt_g.st)
+    _metricas, _avisos = {}, []
+    try:
+        for caso, linhas in (("com processo", [{"quando": "", "usuario": "leo", "produto": "Caneca",
+                                                "acao": "gerar_tudo", "imagem": "", "tipo": "",
+                                                "instrucao": "", "resultado": "8 imagem(ns) a gerar"}]),
+                             ("sem processo", [{"quando": "", "usuario": "leo", "produto": "Caneca",
+                                                "acao": "layout_descartado", "imagem": "", "tipo": "",
+                                                "instrucao": "", "resultado": "x"}])):
+            f = instalar()
+            f.columns = lambda spec, **k: [f] * (spec if isinstance(spec, int) else len(spec))
+            f.selectbox = lambda rot, opcoes, *a, **k: list(opcoes)[k.get("index", 0) or 0]
+            f.metric = lambda rot, valor, *a, **k: _metricas.__setitem__((caso, rot), valor)
+            f.warning = lambda t, *a, **k: _avisos.append((caso, str(t)))
+            _gt_g.st = f
+            _li_g.ler = lambda n=200, _l=linhas: _l
+            _gt_g.pagina(_dono)
+        conta("Gargalos: mostra os processos gerados e as imagens pedidas",
+              _metricas.get(("com processo", "Processos gerados")) == 1
+              and _metricas.get(("com processo", "Imagens pedidas")) == 8, str(_metricas)[:200])
+        conta("Gargalos: sem processo no período, avisa que zero retrabalho não quer dizer nada",
+              any(c == "sem processo" and "Nenhum processo" in t for c, t in _avisos)
+              and not any(c == "com processo" and "Nenhum processo" in t for c, t in _avisos),
+              str(_avisos)[:200])
+    except (_Rerun, _Parou):
+        conta("Gargalos: a tela monta", True, "")
+    except Exception as e:
+        conta("Gargalos: a tela monta", False, f"{type(e).__name__}: {e}")
+    finally:
+        _li_g.ler, _gt_g.st = _g
+
+
 def main():
     instalar()
     falhas = []
@@ -3825,6 +3870,7 @@ def main():
     _tiktok_na_viabilidade(conta)
     _din_financas_previa(conta)
     _produtos_analise(conta)
+    _gargalos_volume(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0

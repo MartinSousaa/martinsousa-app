@@ -3635,6 +3635,13 @@ MUTACOES = [
         '                    ], ""\n',
         ["python3", "resumo_mensal.py"],
     ),
+    (
+        "a Analise de Gargalos volta a mostrar zero retrabalho sem dizer quantos processos houve",
+        "gargalos_tela.py",
+        "    _volume(r)\n",
+        "",
+        ["python3", "checar_tela.py"],
+    ),
 ]
 
 
