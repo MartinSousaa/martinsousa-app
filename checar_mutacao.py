@@ -3603,7 +3603,7 @@ MUTACOES = [
     (
         "os cheques compensados voltam a aparecer em branco na coluna Finalidade",
         "favorecidos.py",
-        '    "CHEQUES", "FATURA DO CARTÃO", "BOLETO", "TARIFA BANCÁRIA",\n',
+        '    "CHEQUES", "FATURA DO CARTÃO", "BOLETO",\n',
         "",
         ["python3", "extratos_tela.py"],
     ),
@@ -3613,6 +3613,27 @@ MUTACOES = [
         '    if pendentes and not st.session_state.get("pa_ia_auto_tentou"):\n',
         "    if False:\n",
         ["python3", "checar_tela.py"],
+    ),
+    (
+        "o DAS ('DA') volta a ficar sem chave e a voltar para a fila",
+        "favorecidos.py",
+        "    if limpo:\n        return limpo\n",
+        "    return limpo\n",
+        ["python3", "favorecidos.py"],
+    ),
+    (
+        "PIX ENVIADO sem destinatario volta a virar cadastro de nome",
+        "extratos_tela.py",
+        '        if fin and not item.get("sem_destinatario"):\n',
+        "        if fin:\n",
+        ["python3", "extratos_tela.py"],
+    ),
+    (
+        "o quadro aberto do Resumo Mensal volta a misturar os provisionados",
+        "resumo_mensal.py",
+        '                    if i["quadro"] == quadro], ""\n',
+        '                    ], ""\n',
+        ["python3", "resumo_mensal.py"],
     ),
 ]
 

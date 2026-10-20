@@ -795,6 +795,29 @@ def _resumo_mensal(conta):
                 conta(nome, True, "")
             except Exception as e:
                 conta(nome, False, f"{type(e).__name__}: {e}")
+        # 20/10: CADA QUADRO ABRE O SEU — saídas e provisionado daquele
+        # quadro. O clique em «Custo fixo» abre a janela com o Aluguel.
+        _lan_r.do_mes = lambda a, m, lista_=None, _l=_lista: _g[0](a, m, _l)
+        _falso = instalar()
+        _tabs_q, _botoes_q = [], []
+        _falso.selectbox = lambda rot, opcoes, index=0, **k: list(opcoes)[index]
+        _falso.dialog = lambda *a, **k: (lambda fn: fn)
+        _falso.dataframe = lambda d, *a, **k: _tabs_q.append(d)
+        _falso.columns = lambda spec, **k: [_falso] * (spec if isinstance(spec, int) else len(spec))
+        _falso.button = lambda rot, *a, **k: (_botoes_q.append(k.get("key")),
+                                              k.get("key") == "rm_q_Custo fixo")[1]
+        _rm.st = _falso
+        try:
+            _rm.pagina("leo")
+            _itens = [list(d["item"]) for d in _tabs_q if hasattr(d, "columns") and "item" in d.columns
+                      and "situação" in d.columns and "valor" in d.columns]
+            conta("Resumo Mensal: cada quadro tem o seu botão, e Custo fixo abre saídas e provisionado dele",
+                  len([b for b in _botoes_q if str(b).startswith("rm_q_")]) == len(_rm.QUADROS)
+                  and ["Aluguel"] in _itens, f"botões {len(_botoes_q)} · provisionado {_itens}")
+        except (_Rerun, _Parou):
+            conta("Resumo Mensal: quadro aberto", True, "")
+        except Exception as e:
+            conta("Resumo Mensal: quadro aberto", False, f"{type(e).__name__}: {e}")
     finally:
         (_lan_r.do_mes, _as_r.carregar, _pv_r.do_mes, _cr_r.carregar,
          _cf_r.carregar, _aj_r.carregar) = _g
@@ -3473,18 +3496,29 @@ def _visao_geral_na_home(conta):
     try:
         _vg_v.pagina = lambda u=None: _chamou.append(u)
         _ge_v.pagina_home(_dono)
-        conta("Home: a ordem é Painel | Visão Geral | Histórico, e a do meio abre a Visão Geral",
-              _opcoes[0] == ("📊 Painel", "🧭 Visão Geral", "🗓️ Histórico")
+        conta("Home: a ordem é Painel | Visão Geral | Produtos | Histórico, e a Visão Geral abre a dela",
+              _opcoes[0] == ("📊 Painel", "🧭 Visão Geral", "📈 Produtos", "🗓️ Histórico")
               and _chamou == [_dono], str(_opcoes))
+        import produtos_analise as _pa_v
+        _g_pa, _abriu = _pa_v.pagina, []
+        _falso.radio = lambda rot, opcoes, *a, **k: _ge_v.ABA_PRODUTOS
+        try:
+            _pa_v.pagina = lambda u=None: _abriu.append(u)
+            _ge_v.pagina_home(_dono)
+        finally:
+            _pa_v.pagina = _g_pa
+            _falso.radio = _radio
+        conta("Home: a aba Produtos abre a análise de produtos (dono, 20/10)", _abriu == [_dono], str(_abriu))
         _opcoes.clear()
         try:
             _ge_v.pagina_home("colaborador_qualquer")
         except Exception:
             pass
-        conta("Home: quem não é dono não vê a Visão Geral",
+        conta("Home: quem não é dono não vê a Visão Geral nem Produtos",
               bool(_opcoes) and "🧭 Visão Geral" not in _opcoes[0]
               and _ge_v.abas_da_home("colaborador_qualquer")
-              == tuple(a for a in _ge_v.HOME_ABAS if a != _ge_v.ABA_VISAO),
+              == tuple(a for a in _ge_v.HOME_ABAS if a not in (_ge_v.ABA_VISAO, _ge_v.ABA_PRODUTOS))
+              and "📈 Produtos" not in _opcoes[-1],
               str(_opcoes))
     except (_Rerun, _Parou):
         conta("Home › Visão Geral: a tela monta", True, "")

@@ -287,6 +287,11 @@ if __name__ == "__main__":
                                   salvar_=_salvo.append)
     ok("automático: erro da IA para, não salva nada vazio e devolve o erro",
        _f == 0 and _salvo == [] and _e == "sem chave")
+    _cham = []
+    juntar_pendentes({}, [[str(i)] for i in range(9)], classificar_=lambda l: (_cham.append(l), ({}, ""))[1],
+                     salvar_=lambda m: None)
+    ok("por padrão, no máximo AUTO_LOTES chamadas por abertura (a tela não espera minutos)",
+       AUTO_LOTES == 5 and len(_cham) == AUTO_LOTES)
     ok("a lista de nichos é a do dono, com Outros para o que não cabe",
        "Decoração" in NICHOS and "Tabacaria" in NICHOS and NICHOS[-1] == "Outros")
     ok("lotes de até POR_CHAMADA títulos (a resposta da IA cabe no limite)",

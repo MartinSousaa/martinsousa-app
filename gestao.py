@@ -39,9 +39,12 @@ def _em_branco(titulo, descricao, itens):
 
 
 # A ORDEM DO DONO (19/10): Painel | Visão Geral | Histórico. A Visão Geral
-# veio do fim da barra de Gestão para cá, e continua só do dono.
-HOME_ABAS = ("📊 Painel", "🧭 Visão Geral", "🗓️ Histórico")
-ABA_VISAO, ABA_HISTORICO = HOME_ABAS[1], HOME_ABAS[2]
+# veio do fim da barra de Gestão para cá, e continua só do dono. 20/10: a
+# análise de produtos entra entre a Visão Geral e o Histórico ("eu pedi para
+# que esses dados de produtos estivessem na HOME") — também só do dono.
+HOME_ABAS = ("📊 Painel", "🧭 Visão Geral", "📈 Produtos", "🗓️ Histórico")
+ABA_VISAO, ABA_PRODUTOS, ABA_HISTORICO = HOME_ABAS[1], HOME_ABAS[2], HOME_ABAS[3]
+SO_DO_DONO = (ABA_VISAO, ABA_PRODUTOS)
 
 
 def abas_da_home(usuario_logado=None):
@@ -50,7 +53,7 @@ def abas_da_home(usuario_logado=None):
     import auth as _auth_h
     if _auth_h.eh_dono(usuario_logado):
         return HOME_ABAS
-    return tuple(a for a in HOME_ABAS if a != ABA_VISAO)
+    return tuple(a for a in HOME_ABAS if a not in SO_DO_DONO)
 
 
 def pagina_home(usuario_logado=None):
@@ -71,6 +74,10 @@ def pagina_home(usuario_logado=None):
     if aba == ABA_VISAO:
         import visao_geral as _vg
         _vg.pagina(usuario_logado)
+        return
+    if aba == ABA_PRODUTOS:
+        import produtos_analise as _pa
+        _pa.pagina(usuario_logado)
         return
     import home_gestao as _hg
     _hg.pagina(usuario_logado)

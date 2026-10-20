@@ -64,7 +64,10 @@ FINALIDADES_BASE = (
     # desta lista, a coluna de seleção do Streamlit mostra a célula EM BRANCO
     # mesmo com o valor gravado — o dono viu os cheques compensados "sem
     # finalidade" em 20/10, e eles estavam como CHEQUES.
-    "CHEQUES", "FATURA DO CARTÃO", "BOLETO", "TARIFA BANCÁRIA",
+    # TARIFA BANCÁRIA fica de fora até o dono dizer se é fixo ou variável:
+    # na base, ela precisaria de um lado na conta do LPV (`composicao.lado`).
+    # A coluna do mês a mostra assim mesmo (`extratos_tela.opcoes_do_mes`).
+    "CHEQUES", "FATURA DO CARTÃO", "BOLETO",
 )
 
 
@@ -319,9 +322,28 @@ def chave(nome):
         return ""
     t = unicodedata.normalize("NFKD", t)
     t = "".join(c for c in t if not unicodedata.combining(c))
-    t = re.sub(r"\b(LTDA|ME|EPP|SA|S/A|EIRELI|COMERCIO|DE|DA|DO|E)\b", " ", t)
-    t = re.sub(r"[^A-Z0-9 ]", " ", t)
-    return re.sub(r"\s+", " ", t).strip()
+    sem_sufixo = re.sub(r"\b(LTDA|ME|EPP|SA|S/A|EIRELI|COMERCIO|DE|DA|DO|E)\b", " ", t)
+    limpo = re.sub(r"\s+", " ", re.sub(r"[^A-Z0-9 ]", " ", sem_sufixo)).strip()
+    if limpo:
+        return limpo
+    # O NOME INTEIRO ERA SÓ PALAVRA DE LIGAÇÃO: "DA" (o DAS no extrato do Itaú,
+    # dono, 20/10). Tirar "DA" deixava a chave vazia — o cadastro gravava e
+    # nunca casava, e o dono respondeu quatro vezes a mesma pergunta.
+    return re.sub(r"\s+", " ", re.sub(r"[^A-Z0-9 ]", " ", t)).strip()
+
+
+# Lançamentos que dizem O QUE aconteceu, mas não COM QUEM: "PIX ENVIADO" sem
+# razão social. Cadastrar o NOME daria a mesma finalidade a todo PIX enviado
+# dali para frente — por isso cada um é classificado na própria linha, e a
+# tela diz "sem destinatário no extrato" (dono, 20/10).
+SEM_DESTINATARIO = {"PIX ENVIADO", "PIX RECEBIDO", "PIX TRANSF", "PIX ENVIADO AGENDADO",
+                    "TED ENVIADA", "TED RECEBIDA", "TRANSFERENCIA", "TRANSF ENVIADA",
+                    "TRANSF RECEBIDA", "PAGAMENTO", "PAGTO"}
+
+
+def sem_destinatario(nome):
+    """O nome é só o tipo da operação, sem quem recebeu? Pura."""
+    return chave(nome) in SEM_DESTINATARIO
 
 
 # Finalidades que NÃO consomem a meta de gastos. Dinheiro indo de uma conta
@@ -585,6 +607,12 @@ if __name__ == "__main__":
     # O mesmo fornecedor com duas redacoes tem que virar um cadastro so.
     # A chave NAO junta "APEXIMP" com a razao social inteira — um e comeco do
     # outro, nao o mesmo texto. Quem junta e `casar`, e so quando nao ha duvida.
+    ok("o DAS ('DA') ganha chave e casa com o cadastro (dono respondeu 4 vezes)",
+       chave("DA") == "DA" and casar("DA", {("DA", "saida"): {"finalidade": "IMPOSTO"}}, "saida")
+       == {"finalidade": "IMPOSTO"} and chave("APEXIMP LTDA") == "APEXIMP")
+    ok("PIX ENVIADO sem destinatário é reconhecido; PIX com nome não",
+       sem_destinatario("PIX ENVIADO") and sem_destinatario("pix  enviado")
+       and not sem_destinatario("APEXIMP"))
     ok("a chave tira ltda, comercio e conectivos",
        chave("ER EMBALAGENS LTDA") == "ER EMBALAGENS")
     ok("caixa e acento nao criam cadastro novo",
