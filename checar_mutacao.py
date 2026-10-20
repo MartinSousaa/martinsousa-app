@@ -3692,6 +3692,13 @@ MUTACOES = [
         ["python3", "checar_tela.py"],
     ),
     (
+        "o Dando certo/errado volta a mostrar barras, lucro e UC sem o nome das colunas",
+        "produtos_analise.py",
+        "    return cab + corpo\n",
+        "    return corpo\n",
+        ["python3", "produtos_analise.py"],
+    ),
+    (
         "o DAS volta a cair no fim de semana em vez de antecipar",
         "lembretes.py",
         '("das_20", "DAS", ("dia_antecipa", 20)',

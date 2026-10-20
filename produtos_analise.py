@@ -474,6 +474,26 @@ def _barrinhas(p, ate_mes):
     return f'<svg width="{8 * ate_mes}" height="24" style="background:{TILE}00">{r}</svg>'
 
 
+def _linhas_recorrentes(itens, ate_mes):
+    """As linhas do Dando certo / Dando errado, com o NOME de cada coluna
+    (dono, 20/10: "o que é esse gráfico amarelo? O em verde é lucro ou
+    faturamento? O número da ponta é a UC?"). Grade fixa: o cabeçalho fica
+    em cima da coluna que ele nomeia."""
+    from home_gestao import SEC, VERDE, VERMELHO
+    grade = f"display:grid;grid-template-columns:minmax(0,1fr) {8 * ate_mes}px 92px 52px;gap:12px;align-items:center"
+    # Títulos curtos (dono, 20/10: "resuma esses títulos: Pedidos / Lucro / UC").
+    cab = (f'<div style="{grade};font-size:11px;color:{SEC};letter-spacing:.04em;padding:6px 0 2px">'
+           f'<span>Produto</span><span style="text-align:center">Pedidos</span>'
+           f'<span style="text-align:right">Lucro</span><span style="text-align:center">UC</span></div>')
+    corpo = "".join(
+        f'<div class="pa-l" style="{grade}"><span class="pa-n">{n.title()}'
+        f'<br><span style="color:{SEC};font-size:11px">{p["v"]} pedidos · {volatilidade(p, ate_mes).lower()}</span></span>'
+        f'{_barrinhas(p, ate_mes)}<b style="color:{VERDE if p["lucro"] >= 0 else VERMELHO};text-align:right">{_brl(p["lucro"])}</b>'
+        f'<span style="text-align:center">{_chip_uc(p["ucv"])}</span></div>'
+        for n, p in itens)
+    return cab + corpo
+
+
 def _css():
     from home_gestao import CARTAO, BORDA, TILE, TEXTO, SEC
     return (f'<style>.pa-card{{background:{CARTAO};border:1px solid {BORDA};border-radius:16px;'
@@ -904,11 +924,7 @@ def pagina(usuario_logado=None):
             (d2, "✕ Dando errado", f"UC abaixo de {_num(UC_RUIM, 1)} e {PEDIDOS_ERRADO}+ pedidos · do que mais perde", errado, _hg.VERMELHO, "errado")):
         with col:
             st.markdown(f'<div class="pa-card"><div class="pa-t" style="color:{cor}">{nome}</div><div class="pa-s">{sub}</div>'
-                        + "".join(f'<div class="pa-l" style="align-items:center"><span class="pa-n">{n.title()}'
-                                  f'<br><span style="color:{_hg.SEC};font-size:11px">{p["v"]} pedidos · {volatilidade(p, ate_mes).lower()}</span></span>'
-                                  f'{_barrinhas(p, ate_mes)}<b style="color:{_hg.VERDE if p["lucro"] >= 0 else _hg.VERMELHO}">{_brl(p["lucro"])}</b>{_chip_uc(p["ucv"])}</div>'
-                                  for n, p in lst[:5])
-                        + '</div>', unsafe_allow_html=True)
+                        + _linhas_recorrentes(lst[:5], ate_mes) + '</div>', unsafe_allow_html=True)
             if lst and st.button(f"Ver todos ({len(lst)}) ›", key=f"pa_v_{ch}"):
                 _lista(nome, lst[:200], linhas, ate_mes, prim, med, ch)
 
@@ -1134,6 +1150,9 @@ if __name__ == "__main__":
     ok("dinheiro no formato R$ 1.234,57, com o sinal do negativo na frente",
        _brl(1234.567, 2) == "R$ 1.234,57" and _brl(-1234) == "−R$ 1.234")
     _tv = top_vendidos(L, 2)
+    _lr = _linhas_recorrentes(list(A.items())[:1], 9)
+    ok("Dando certo/errado: cada coluna tem nome curto — Pedidos, Lucro e UC (dono, 20/10)",
+       all(f">{x}</span>" in _lr for x in ("Produto", "Pedidos", "Lucro", "UC")))
     _lk = link_do_produto({"_s": "tok", "secao": "gestao", "pa_abrir": "VELHO"}, "CINZEIRO TELESCÓPICO")
     ok("o link da linha leva login e seção, e troca o pa_abrir pelo código do produto",
        _lk.startswith("?") and "_s=tok" in _lk and "secao=gestao" in _lk
