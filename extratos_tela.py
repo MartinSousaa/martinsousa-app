@@ -1265,6 +1265,17 @@ def respostas_da_fila(fila, linhas, massa=None, vazio="— escolher —"):
     return fora
 
 
+def opcoes_do_mes(conhecidas, linhas):
+    """As opções da coluna Finalidade: as conhecidas + toda finalidade que já
+    está gravada no mês. Pura.
+
+    Valor gravado que não está nas opções aparece EM BRANCO na coluna de
+    seleção — parece "sem finalidade" com a finalidade lá (cheques, 20/10).
+    """
+    return sorted(set(conhecidas) | {str(l.get("finalidade") or "").strip()
+                                     for l in (linhas or []) if str(l.get("finalidade") or "").strip()})
+
+
 def _finalidades_conhecidas(_fv):
     """As finalidades já usadas, mais as que a casa sempre teve.
 
@@ -1312,7 +1323,7 @@ def _ver_mes(_fv, _lan, usuario_logado):
             "valor": st.column_config.NumberColumn(format="R$ %.2f",
                                                    disabled=True),
             "finalidade": st.column_config.SelectboxColumn(
-                "Finalidade", options=_finalidades_conhecidas(_fv),
+                "Finalidade", options=opcoes_do_mes(_finalidades_conhecidas(_fv), linhas),
                 help="Muda só esta linha. Para valer sempre, altere o "
                      "favorecido na aba Finalidades."),
             "id": None,
@@ -1718,6 +1729,12 @@ if __name__ == "__main__":
     _sf_t = sem_finalidade([{"valor": -100.0, "finalidade": "", "favorecido": "A"},
                             {"valor": -50.0, "finalidade": "ADS"},
                             {"valor": 300.0, "finalidade": ""}])
+    import favorecidos as _fv_t
+    ok("toda finalidade que o extrato dá sozinho existe nas opções (senão a célula aparece em branco)",
+       set(POR_TIPO.values()) <= set(_fv_t.finalidades_conhecidas({})))
+    ok("as opções do mês incluem o que já está gravado, mesmo fora da lista",
+       "XPTO" in opcoes_do_mes(["MERCADORIA"], [{"finalidade": "XPTO"}, {"finalidade": ""}])
+       and "" not in opcoes_do_mes(["MERCADORIA"], [{"finalidade": ""}]))
     ok("saída sem finalidade é contada e nomeada (entrada não)",
        _sf_t["n"] == 1 and _sf_t["total"] == 100.0
        and _sf_t["maiores"] == [("A", 100.0)])

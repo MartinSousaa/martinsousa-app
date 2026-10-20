@@ -3693,14 +3693,19 @@ def _produtos_analise(conta):
               f"{len(_cols)} colunas, alturas {_alt}")
         _rodar(_dono, linhas, clicar={"pa_faixa_0"}, panorama="CINZEIRO TELESCÓPICO")
         conta("Produtos: abrir uma faixa de UC e o panorama de um produto não quebra", True, "")
+        conta("Produtos: título novo é juntado SOZINHO pela IA ao abrir a página (sem IA de verdade)",
+              _salvos and _salvos[0]["KIT COM 3 ESTÁTUAS"]["nicho"] == "Decoração"
+              and _salvos[0]["CINZEIRO TELESCÓPICO"]["origem"] == "ia", str(_salvos[:1])[:200])
+        _ok_auto = list(_salvos)
+        _salvos.clear()
+        _g_cl = _pg_t.classificar
+        _pg_t.classificar = lambda lote, chamar=None: ({}, "ANTHROPIC_API_KEY não configurada")
         _botoes.clear()
-        try:
-            _rodar(_dono, linhas, clicar={"pa_ia_juntar"})
-        except (_Rerun, _Parou):
-            pass
-        conta("Produtos: o botão da IA junta os títulos pendentes e salva na aba (sem IA de verdade)",
-              _salvos and _salvos[-1]["KIT COM 3 ESTÁTUAS"]["nicho"] == "Decoração"
-              and _salvos[-1]["CINZEIRO TELESCÓPICO"]["origem"] == "ia", str(_salvos[-1:])[:200])
+        _rodar(_dono, linhas)
+        _pg_t.classificar = _g_cl
+        conta("Produtos: com a IA fora, nada é salvo e o botão manual continua lá",
+              _salvos == [] and "pa_ia_juntar" in _botoes, str(_botoes[-3:]))
+        _salvos.extend(_ok_auto)
         _mapa.update(_salvos[-1])
         _botoes.clear()
         _rodar(_dono, linhas)

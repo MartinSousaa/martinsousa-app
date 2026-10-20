@@ -733,6 +733,16 @@ def pagina(usuario_logado=None):
     brutas = linhas
     linhas = _pg.aplicar(brutas, mapa)
     pendentes = _pg.lotes_pendentes(brutas, mapa)
+    # TÍTULO NOVO É JUNTADO SOZINHO, uma tentativa por sessão: com erro (sem
+    # chave, IA fora), a tela avisa e não chama a IA a cada tecla.
+    if pendentes and not st.session_state.get("pa_ia_auto_tentou"):
+        st.session_state["pa_ia_auto_tentou"] = True
+        with st.spinner(f"Juntando {sum(len(l) for l in pendentes[:_pg.AUTO_LOTES])} títulos novos com a IA…"):
+            mapa, juntados, erro_auto = _pg.juntar_pendentes(mapa, pendentes)
+        if erro_auto:
+            st.warning(f"A IA não juntou os títulos novos: {erro_auto}")
+        linhas = _pg.aplicar(brutas, mapa)
+        pendentes = _pg.lotes_pendentes(brutas, mapa)
     ate_mes = max(x["mes"] for x in linhas)
     med = medianas_de_quantidade(linhas)
     prim = primeiras_vendas(linhas)

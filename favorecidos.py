@@ -60,6 +60,11 @@ FINALIDADES_BASE = (
     "AMAZON", "SITE", "APLICACAO", "OUTROS", "FOLHA", "REEMBOLSO",
     "ADS", "CROSS DOCKING", "PÁGINA DO ML", "AFILIADOS", "PARCELAMENTO",
     "DEVOLUÇÃO ML",
+    # As que o PRÓPRIO extrato dá sozinho (`extratos_tela.POR_TIPO`). Fora
+    # desta lista, a coluna de seleção do Streamlit mostra a célula EM BRANCO
+    # mesmo com o valor gravado — o dono viu os cheques compensados "sem
+    # finalidade" em 20/10, e eles estavam como CHEQUES.
+    "CHEQUES", "FATURA DO CARTÃO", "BOLETO", "TARIFA BANCÁRIA",
 )
 
 

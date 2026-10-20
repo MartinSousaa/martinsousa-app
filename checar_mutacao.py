@@ -3600,6 +3600,20 @@ MUTACOES = [
         "",
         ["python3", "lembretes.py"],
     ),
+    (
+        "os cheques compensados voltam a aparecer em branco na coluna Finalidade",
+        "favorecidos.py",
+        '    "CHEQUES", "FATURA DO CARTÃO", "BOLETO", "TARIFA BANCÁRIA",\n',
+        "",
+        ["python3", "extratos_tela.py"],
+    ),
+    (
+        "titulo novo deixa de ser juntado sozinho pela IA",
+        "produtos_analise.py",
+        '    if pendentes and not st.session_state.get("pa_ia_auto_tentou"):\n',
+        "    if False:\n",
+        ["python3", "checar_tela.py"],
+    ),
 ]
 
 
