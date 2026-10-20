@@ -566,6 +566,12 @@ def _svg_acumulado(fat_mes, metas_tri):
     return f'<b>Faturamento acumulado</b><svg viewBox="0 0 {W} {H}" width="100%">{s_}</svg>{leg}'
 
 
+# O % DOS SELOS É CONTRA A META (dono, 20/10: gráfico com mais de uma
+# informação precisa dizer o que mede).
+VS_META = f' <span style="font-size:11px;color:{MUTED}">vs meta</span>'
+VS_META_TRI = f' <span style="font-size:11px;color:{MUTED}">vs meta · tri fechados</span>'
+
+
 def _barra_meta(rot, meta, real, fmt, unid=""):
     if meta is None:
         return ""
@@ -578,7 +584,7 @@ def _barra_meta(rot, meta, real, fmt, unid=""):
             f'<div style="height:9px;background:{TILE};border-radius:5px;margin-top:5px;position:relative">'
             f'<div style="width:{real / mx * 100:.1f}%;height:9px;background:{REAL};border-radius:5px"></div>'
             f'<div style="position:absolute;left:{meta / mx * 100:.1f}%;top:-3px;width:2px;height:15px;background:{TEXTO}"></div></div>'
-            f'<div style="margin-top:5px">{_chip((real / meta - 1) * 100)}</div></div>')
+            f'<div style="margin-top:5px">{_chip((real / meta - 1) * 100)}{VS_META}</div></div>')
 
 
 def _svg_uc(d, hoje, ano):
@@ -763,7 +769,7 @@ def _trilha(rot, real, meta, fmt, cor):
     pc = real / meta * 100
     return (f'<div style="margin:10px 0"><div style="display:flex;justify-content:space-between;align-items:baseline">'
             f'<span style="font-size:13px;font-weight:700">{rot}</span><span style="font-size:13px"><b>{fmt(real)}</b> '
-            f'<span style="color:{MUTED}">de {fmt(meta)}</span> &nbsp;{_chip(pc - 100)}</span></div>'
+            f'<span style="color:{MUTED}">de {fmt(meta)}</span> &nbsp;{_chip(pc - 100)}{VS_META}</span></div>'
             f'<div style="position:relative;height:12px;background:#2a2a2a;border-radius:6px;margin-top:6px">'
             f'<div style="height:12px;width:{min(pc, 115) / 1.15:.1f}%;background:linear-gradient(90deg,{cor}88,{cor});border-radius:6px"></div>'
             f'<div style="position:absolute;left:{100 / 1.15:.1f}%;top:-4px;width:2px;height:20px;background:{TEXTO}"></div></div></div>')
@@ -798,8 +804,8 @@ def html_resumo_time(d, tri, fat_ano, vendas_ano, uc_ano, saldo_ano, meta_anual,
             f'<div style="{VIDRO};padding:10px;display:flex;flex-direction:column;align-items:center;justify-content:center">{_svg_donut(pct)}'
             f'<div style="font-size:12px;color:{SEC}">faltam <b style="color:{TEXTO}">{_brl(max((meta_anual or 0) - fat_ano, 0))}</b></div></div>'
             f'<div><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:12px">'
-            + kp("FATURADO", _brl(fat_ano), _chip((rf / mf - 1) * 100) if mf else "")
-            + kp("VENDAS", _n(vendas_ano), _chip((rv / mv - 1) * 100) if mv else "")
+            + kp("FATURADO", _brl(fat_ano), _chip((rf / mf - 1) * 100) + VS_META_TRI if mf else "")
+            + kp("VENDAS", _n(vendas_ano), _chip((rv / mv - 1) * 100) + VS_META_TRI if mv else "")
             + kp("UC", _uc(uc_ano), f'<span style="color:{SEC}">margem ÷ LPV</span>')
             + kp("SALDO UC", _n(saldo_ano), f'<span style="color:{SEC}">UC total − vendas</span>')
             + '</div><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">'
@@ -869,7 +875,8 @@ def pagina(usuario_logado, ano, hoje):
            f'<div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:{SEC}">saldo UC</span><b>{_n(sal_)}</b></div>'
            if uc_ else f'<div style="margin-top:12px;border-top:1px solid {BORDA};padding-top:10px;color:{MUTED};font-size:12px">UC: em andamento</div>')
         + '</div>' for q, mf_, rf_, mv_, rv_, uc_, sal_ in tri)
-    st.markdown(_vidro("RESULTADOS TRIMESTRAIS", f'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">{cartoes}</div>'),
+    st.markdown(_vidro("RESULTADOS TRIMESTRAIS", f'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">{cartoes}</div>'
+                       f'<div style="font-size:10px;color:{MUTED};margin-top:6px">traço branco = meta</div>'),
                 unsafe_allow_html=True)
     st.markdown(_vidro("UC · RESULTADOS MENSAIS E TRIMESTRAIS", _svg_uc(d, hoje, ano)), unsafe_allow_html=True)
     st.markdown(_vidro(f"MÊS A MÊS · {int(ano) - 1} × {ano}", _tabela(d, fat_mes, hoje, ano, bling_mes is not None)), unsafe_allow_html=True)
@@ -1121,5 +1128,11 @@ if __name__ == "__main__":
     ok("trimestre só fecha com os três meses", tri[2][2] is None and tri[3][2] is None)
     h = html_resumo_time(d, tri, 5200.0, 4, 1.25, 1, 2700000, "OUT/2026")
     ok("o resumo para o time sai em uma linha (o markdown fecharia o HTML)", "\n" not in h)
+    ok("os selos de % dizem que são contra a meta (dono, 20/10)",
+       "vs meta" in _trilha("1º tri", 90.0, 100.0, _k, VERDE_A)
+       and "vs meta" in _barra_meta("Faturamento", 100.0, 90.0, _k)
+       and "vs meta · tri fechados" in html_resumo_time(
+           d, [(1, 100.0, 90.0, 10, 9, 1.2, 2)] + [(q, 100.0, None, 10, None, None, None) for q in (2, 3, 4)],
+           90.0, 9, 1.2, 2, 400.0, "MAR/2026"))
     print(f"\nfalhas: {falhas}")
     sys.exit(1 if falhas else 0)

@@ -439,6 +439,9 @@ def _html_faturamento(d):
            + f'<g transform="translate({LW:.0f},0)">'
            f'<line x1="0" y1="{base}" x2="{PW:.0f}" y2="{base}" stroke="{BORDA}"/>'
            + linhas + curva +
+           # O QUE É CADA TRAÇO (dono, 20/10).
+           f'<text x="0" y="10" fill="{SEC}" font-size="10.5"><tspan fill="{VERDE}">━</tspan> faturado'
+           f' &#160; <tspan fill="{VERDE}">┅</tspan> projeção no ritmo atual</text>' +
            f'<text x="{hx:.1f}" y="{H - 2:.0f}" fill="{SEC}" font-size="11" text-anchor="middle">Hoje</text>'
            f'<text x="{PW:.0f}" y="{H - 2:.0f}" fill="{SEC}" font-size="11" text-anchor="end">Dia {dias}</text>'
            '</g></svg>')
@@ -1443,7 +1446,8 @@ def _html_indicadores(p, plats=None):
             return '<div style="font-size:12px;color:{SEC};">— do faturado</div>'
         return (f'<div style="display:flex;align-items:center;gap:8px;">'
                 f'<div style="flex:1;">{_bar(pct, "{VERDE}")}</div>'
-                f'<span style="font-size:13px;font-weight:700;">{_fmt(pct, "pct")}</span></div>')
+                f'<span style="font-size:13px;font-weight:700;">{_fmt(pct, "pct")}'
+                f'<span style="font-size:11px;font-weight:400;color:{SEC};"> do faturado</span></span></div>')
     ll = p.get("lucro_liquido")
     uc = p.get("uc")
     lpv_sub = (f'Custo fixo + não operacional por venda · {p.get("lpv_origem") or "—"}'
@@ -1669,6 +1673,7 @@ def _html_devolucoes(p):
         y_teto = 62 - (teto or 0) / alto * 56
         linha = (f'<svg viewBox="0 0 300 70" width="100%" height="64" '
                  f'aria-label="Devoluções por mês">'
+                 f'<text x="0" y="9" fill="{{SEC}}" font-size="10">por mês · últimos {len(serie)}</text>'
                  f'<polyline points="{pts}" fill="none" stroke="{{VERMELHO}}" '
                  f'stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>'
                  + (f'<line x1="0" y1="{y_teto:.1f}" x2="300" y2="{y_teto:.1f}" '
@@ -2807,6 +2812,13 @@ if __name__ == "__main__":
                                    ("2026-10", 120.0)])
     ok("devoluções têm a linha dos meses e o top 5 embaixo",
        "<polyline" in _html_devolucoes(_p_ser) and "Top 5 motivos" in _html_devolucoes(_p_ser))
+    # O QUE CADA TRAÇO MEDE (dono, 20/10).
+    ok("o gráfico do balanço diz o que é a curva e o tracejado",
+       "faturado" in _h_fat and "projeção no ritmo atual" in _h_fat)
+    ok("a linha das devoluções diz que é por mês e de quantos meses",
+       "por mês · últimos 3" in _html_devolucoes(_p_ser))
+    ok("o % do lucro bruto e do líquido diz que é do faturado",
+       _h_ind.count(" do faturado</span>") >= 2)
     ok("a página não volta a montar os quadros em colunas soltas",
        "st.columns([1.6, 1])" not in _pg and "_grade_painel(" in _pg)
     ok("a página desenha o painel e guarda o detalhe dos gastos",

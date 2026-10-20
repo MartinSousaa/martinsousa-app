@@ -3699,6 +3699,27 @@ MUTACOES = [
         ["python3", "produtos_analise.py"],
     ),
     (
+        "o grafico do balanco volta a nao dizer o que e a curva e o tracejado",
+        "home_gestao.py",
+        "           f' &#160; <tspan fill=\"{VERDE}\">┅</tspan> projeção no ritmo atual</text>' +\n",
+        "           f'</text>' +\n",
+        ["python3", "home_gestao.py"],
+    ),
+    (
+        "os selos de % da Visao Faturamento voltam a nao dizer que sao contra a meta",
+        "visao_faturamento.py",
+        "            f'<span style=\"color:{MUTED}\">de {fmt(meta)}</span> &nbsp;{_chip(pc - 100)}{VS_META}</span></div>'\n",
+        "            f'<span style=\"color:{MUTED}\">de {fmt(meta)}</span> &nbsp;{_chip(pc - 100)}</span></div>'\n",
+        ["python3", "visao_faturamento.py"],
+    ),
+    (
+        "o Por nicho volta a mostrar barra, faturamento, lucro e UC sem o nome das colunas",
+        "produtos_analise.py",
+        "                      f'<span>Nicho</span><span>Fatia do lucro</span><span style=\"text-align:right\">Faturamento</span>'\n",
+        "                      f'<span>Nicho</span><span></span><span style=\"text-align:right\"></span>'\n",
+        ["python3", "checar_tela.py"],
+    ),
+    (
         "o DAS volta a cair no fim de semana em vez de antecipar",
         "lembretes.py",
         '("das_20", "DAS", ("dia_antecipa", 20)',

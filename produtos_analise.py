@@ -474,6 +474,9 @@ def _barrinhas(p, ate_mes):
     return f'<svg width="{8 * ate_mes}" height="24" style="background:{TILE}00">{r}</svg>'
 
 
+GRADE_NICHO = "display:grid;grid-template-columns:210px minmax(0,1fr) 100px 90px 52px;gap:12px;align-items:center"
+
+
 def _linhas_recorrentes(itens, ate_mes):
     """As linhas do Dando certo / Dando errado, com o NOME de cada coluna
     (dono, 20/10: "o que é esse gráfico amarelo? O em verde é lucro ou
@@ -838,19 +841,19 @@ def pagina(usuario_logado=None):
     with a1:
         st.markdown(_caixa(_hg.VERMELHO, f"● ATENÇÃO IMEDIATA · {nm_mes.upper()}",
                            f"<b>{len(crit)} produtos</b> com UC abaixo de {_num(UC_CRITICA, 1)} e "
-                           f"{PEDIDOS_RELEVANTES}+ pedidos — <b style='color:{_hg.VERMELHO}'>"
+                           f"{PEDIDOS_RELEVANTES}+ pedidos — lucro <b style='color:{_hg.VERMELHO}'>"
                            f"{_brl(sum(p['lucro'] for _, p in crit))}</b>",
                            f"UC média do mês {_num(ucm_mes, 2)} · {pct07 * 100:.0f}% das vendas abaixo de {_num(UC_CRITICA, 1)}",
-                           [(k.title(), f"{p['v']} ped. · UC {_num(p['ucv'], 2)} · {_brl(p['lucro'])}") for k, p in crit[:3]]),
+                           [(k.title(), f"{p['v']} ped. · UC {_num(p['ucv'], 2)} · lucro {_brl(p['lucro'])}") for k, p in crit[:3]]),
                     unsafe_allow_html=True)
         if crit and st.button(f"Ver os {len(crit)} ›", key="pa_v_crit"):
             _lista(f"Atenção imediata · {nm_mes}", crit, linhas, ate_mes, prim, med, "crit")
     with a2:
         st.markdown(_caixa(_hg.VERDE, f"● LUCRANDO FORTE · {nm_mes.upper()}",
                            f"<b>{len(dest)} produtos</b> com UC {_num(UC_DESTAQUE, 1)}+ e {PEDIDOS_RELEVANTES}+ pedidos — "
-                           f"<b style='color:{_hg.VERDE}'>{_brl(sum(p['lucro'] for _, p in dest))}</b>",
+                           f"lucro <b style='color:{_hg.VERDE}'>{_brl(sum(p['lucro'] for _, p in dest))}</b>",
                            "É o que vale reforçar: estoque, anúncio e exposição",
-                           [(k.title(), f"{p['v']} ped. · UC {_num(p['ucv'], 2)} · {_brl(p['lucro'])}") for k, p in dest[:3]]),
+                           [(k.title(), f"{p['v']} ped. · UC {_num(p['ucv'], 2)} · lucro {_brl(p['lucro'])}") for k, p in dest[:3]]),
                     unsafe_allow_html=True)
         if dest and st.button(f"Ver os {len(dest)} ›", key="pa_v_dest"):
             _lista(f"Lucrando forte · {nm_mes}", dest, linhas, ate_mes, prim, med, "dest")
@@ -912,7 +915,7 @@ def pagina(usuario_logado=None):
                                        (m2, "▼ Puxam a média para baixo", baixo, _hg.VERMELHO, "tira")):
         col.markdown(f'<div class="pa-card"><div style="font-size:12px;font-weight:800;letter-spacing:.08em;color:{cor}">{nome}</div>'
                      f'<div class="pa-s">UC média hoje: <b>{_num(ucm, 2)}</b> · "{sinal} 0,016" = quanto a média muda por causa dele</div>'
-                     + "".join(f'<div class="pa-l"><span class="pa-n">{n.title()} <span style="color:{_hg.SEC}">· {p["v"]} ped. · UC {_num(p["ucv"], 2)} · {_brl(p["lucro"])}</span></span>'
+                     + "".join(f'<div class="pa-l"><span class="pa-n">{n.title()} <span style="color:{_hg.SEC}">· {p["v"]} ped. · UC {_num(p["ucv"], 2)} · lucro {_brl(p["lucro"])}</span></span>'
                                f'<b style="color:{cor}">{sinal} {_num(abs(imp.get(n, 0)), 3)}</b></div>' for n, p in lst)
                      + '</div>', unsafe_allow_html=True)
 
@@ -935,11 +938,16 @@ def pagina(usuario_logado=None):
         st.markdown('<div class="pa-card"><div class="pa-t">Por nicho</div>'
                     '<div class="pa-s">Os produtos somados pelo nicho que a IA deu ao título (você corrige em '
                     '«Títulos e nichos», no fim da página) · do que mais lucra ao que menos</div>'
-                    + "".join(f'<div class="pa-l" style="align-items:center"><span class="pa-n" style="width:210px;flex:none">{nm}'
+                    # Títulos das colunas (dono, 20/10): a barra é a fatia do lucro.
+                    + f'<div class="pa-l" style="{GRADE_NICHO};font-size:11px;color:{_hg.SEC};border-top:none">'
+                      f'<span>Nicho</span><span>Fatia do lucro</span><span style="text-align:right">Faturamento</span>'
+                      f'<span style="text-align:right">Lucro</span><span style="text-align:center">UC</span></div>'
+                    + "".join(f'<div class="pa-l" style="{GRADE_NICHO}"><span class="pa-n">{nm}'
                               f'<br><span style="color:{_hg.SEC};font-size:11px">{len(n["produtos"])} produtos · {_num(n["v"])} vendas</span></span>'
-                              f'<span style="flex:1;height:8px;background:{_hg.TILE};border-radius:4px;overflow:hidden">'
+                              f'<span style="height:8px;background:{_hg.TILE};border-radius:4px;overflow:hidden">'
                               f'<span style="display:block;height:8px;width:{max(n["lucro"], 0) / tl * 100:.0f}%;background:#BF9A45"></span></span>'
-                              f'<b>{_brl(n["fat"])}</b><b style="color:{_hg.VERDE if n["lucro"] >= 0 else _hg.VERMELHO}">{_brl(n["lucro"])}</b>{_chip_uc(n["ucv"])}</div>'
+                              f'<b style="text-align:right">{_brl(n["fat"])}</b><b style="text-align:right;color:{_hg.VERDE if n["lucro"] >= 0 else _hg.VERMELHO}">{_brl(n["lucro"])}</b>'
+                              f'<span style="text-align:center">{_chip_uc(n["ucv"])}</span></div>'
                               for nm, n in nichos) + '</div>', unsafe_allow_html=True)
         esc_n = st.selectbox("Ver os produtos de um nicho", [""] + [nm for nm, _ in nichos], key="pa_nicho")
         if esc_n:

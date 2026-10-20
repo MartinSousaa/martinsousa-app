@@ -3996,6 +3996,8 @@ def _ranking_abre_panorama(conta):
         _j = " ".join(_md)
         conta("Produtos: cada linha do ranking é um link que mantém login e seção (dono, 20/10)",
               f'href="?_s=tok&amp;secao=gestao&amp;pa_abrir={_cod}"' in _j and 'target="_self"' in _j, "")
+        conta("Produtos: Por nicho com o nome das colunas e o R$ dos alertas dito lucro (dono, 20/10)",
+              all(x in _j for x in (">Fatia do lucro<", ">Faturamento<", ">Lucro<")) and "— lucro <b" in _j, "")
         conta("Produtos: o clique (pa_abrir) abre o panorama do produto e sai do endereço",
               "Panorama do produto" in _dlg and "PANORAMA DO PRODUTO" in _j
               and "pa_abrir" not in f.query_params, str(_dlg))
