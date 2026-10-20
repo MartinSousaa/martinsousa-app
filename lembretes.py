@@ -14,6 +14,7 @@ DE ONDE VEM CADA LEMBRETE
     Salários             todo dia 30 (fevereiro: o último)    REGRAS
     Bônus headcount      5º dia útil — seg a sex, sem feriado REGRAS
     TM Logística         dias 05 e 20                         REGRAS
+    Impostos mensais     todo dia 20 (dono, 20/10)            REGRAS
     Boletos              os em aberto da aba Boletos          `cheques`
     Não operacional      o dia do débito de cada contrato     `nao_operacional`
                          ativo no mês, com a conta de onde ele sai
@@ -50,6 +51,9 @@ REGRAS = [
     ("bonus_headcount", "Bônus headcount", ("dia_util", 5), "5º dia útil"),
     ("tm_05", "TM Logística", ("dia", 5), "dias 05 e 20"),
     ("tm_20", "TM Logística", ("dia", 20), "dias 05 e 20"),
+    # Dono, 20/10: "não me alertou sobre o pagamento dos impostos mensais que
+    # vencem todo dia 20". Faltava na lista desde o dia em que ela nasceu.
+    ("impostos_20", "Impostos mensais", ("dia", 20), "todo dia 20"),
 ]
 
 
@@ -394,5 +398,12 @@ if __name__ == "__main__":
     ok("pela cadeia: em 09/10 (sex) aparece o Bling de 10/10 (sáb) e nada da TM de 20/10",
        [(x["data"], x["nome"]) for x in para_mostrar(pendentes(date(2026, 10, 9), frozenset()), date(2026, 10, 9))]
        == [(date(2026, 10, 5), "TM Logística"), (date(2026, 10, 7), "Bônus headcount"), (date(2026, 10, 10), "Bling")])
+    # IMPOSTOS DO DIA 20 (20/10): na segunda 19/10 o próximo dia útil é a
+    # terça 20/10, e o lembrete dos impostos tem de estar na Home.
+    _imp = [x for x in para_mostrar(pendentes(date(2026, 10, 19), frozenset()), date(2026, 10, 19))
+            if x["nome"] == "Impostos mensais"]
+    ok("os impostos mensais do dia 20 aparecem no dia útil anterior",
+       len(_imp) == 1 and _imp[0]["data"] == date(2026, 10, 20))
+
     print(f"\nfalhas: {falhas}")
     sys.exit(1 if falhas else 0)

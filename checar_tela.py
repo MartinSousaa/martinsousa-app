@@ -3657,7 +3657,7 @@ def _produtos_analise(conta):
     linhas = _pa.linhas_da_base(regs, cab, {m: 18.0 for m in range(1, 10)}, 2026)
     import produtos_grupos as _pg_t
     _g = (_pa.dados, _pa.st, _pg_t.carregar, _pg_t.classificar, _pg_t.salvar)
-    _botoes, _salvos = [], []
+    _botoes, _salvos, _md = [], [], []
     _mapa = {}
     _pg_t.carregar = lambda: (_mapa, "")
     _pg_t.salvar = lambda m: _salvos.append(m)
@@ -3669,6 +3669,10 @@ def _produtos_analise(conta):
         f = instalar()
         f.segmented_control = lambda rot, opcoes, default=None, **k: (f._registra("segmented_control", k), default)[1]
         f.dialog = lambda *a, **k: (lambda fn: fn)
+        f.markdown = lambda t, *a, **k: _md.append(str(t))
+        # As colunas devolvem o próprio duplo: o `col.markdown` das quatro
+        # colunas do ranking cai no mesmo lugar que o resto da página.
+        f.columns = lambda spec, **k: [f] * (spec if isinstance(spec, int) else len(spec))
         f.button = lambda rot, *a, **k: (f._registra("button", k), _botoes.append(k.get("key")),
                                          k.get("key") in clicar)[2]
         f.selectbox = lambda rot, opcoes, *a, **k: (f._registra("selectbox", k),
@@ -3681,6 +3685,12 @@ def _produtos_analise(conta):
         _rodar(_dono, linhas)
         conta("Produtos: a página monta inteira (alertas, balanço, ranking nos 4 períodos)",
               "pa_faixa_0" in _botoes and "pa_v_errado" in _botoes, str(_botoes[:8]))
+        import re as _re_p
+        _cols = [t for t in _md if "ATÉ 20 ↓" in t]
+        _alt = {_re_p.search(r"max-height:(\d+)px", t).group(1) for t in _cols}
+        conta("Produtos: as 4 colunas do ranking abrem simétricas — top 10 e a mesma altura em todas (dono, 20/10)",
+              len(_cols) == 4 and all("TOP 10 · ATÉ 20" in t for t in _cols) and len(_alt) == 1,
+              f"{len(_cols)} colunas, alturas {_alt}")
         _rodar(_dono, linhas, clicar={"pa_faixa_0"}, panorama="CINZEIRO TELESCÓPICO")
         conta("Produtos: abrir uma faixa de UC e o panorama de um produto não quebra", True, "")
         _botoes.clear()

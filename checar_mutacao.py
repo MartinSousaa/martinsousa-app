@@ -3586,6 +3586,20 @@ MUTACOES = [
         '        nicho = g.get("nicho") or "Outros"\n',
         ["python3", "produtos_grupos.py"],
     ),
+    (
+        "uma coluna do ranking de produtos volta a abrir com top 5 (assimetrico)",
+        "produtos_analise.py",
+        '        col.markdown(_coluna_html(nome, sub, ranking(agregar(linhas, ms, plat, med)), TOP_VISIVEL, alvo),\n',
+        '        col.markdown(_coluna_html(nome, sub, ranking(agregar(linhas, ms, plat, med)), 5 if nome != "Ano" else 10, alvo),\n',
+        ["python3", "checar_tela.py"],
+    ),
+    (
+        "os impostos mensais do dia 20 somem dos lembretes da Home",
+        "lembretes.py",
+        '    ("impostos_20", "Impostos mensais", ("dia", 20), "todo dia 20"),\n',
+        "",
+        ["python3", "lembretes.py"],
+    ),
 ]
 
 

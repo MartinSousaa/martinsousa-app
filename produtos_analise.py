@@ -50,6 +50,10 @@ PEDIDOS_ERRADO = 20       # no período, para entrar em "dando errado"
 PONTUAL_X = 4             # pedido com 4× a quantidade normal = venda pontual
 DIAS_NOVO = 60            # primeira venda há até 60 dias = produto novo
 BAIXA_SAIDA = 3           # vendeu 3 vezes ou menos no período
+# As quatro colunas do ranking abrem com o MESMO número de linhas (dono,
+# 20/10: "eu já falei sobre indicadores simétricos") — 10 em cada, até o 20º.
+TOP_VISIVEL = 10
+ALTURA_LINHA = 56         # px por linha (50 da linha + 6 de margem), fixa
 MIN_VENDAS_CONTA = 3      # produto com menos vendas não entra nas contagens
 RECORRENTE_FRACAO = 0.85  # "dando certo": vendeu em 85% dos meses desde o início
 RECORRENTE_PEDIDOS = 5    # … e 5+ pedidos por mês
@@ -676,7 +680,8 @@ def _coluna_html(nome, sub, rk, n_vis, alvo):
         corte = "border-bottom:1px dashed #BF9A45aa;" if i == n_vis else ""
         med = {1: "#D4B26A", 2: "#C0C6CE", 3: "#B98A5E"}.get(i, "#5a5a5a")
         linhas.append(
-            f'<div style="display:flex;gap:8px;align-items:center;padding:6px 6px;margin:3px 0;'
+            f'<div style="display:flex;gap:8px;align-items:center;padding:0 6px;margin:3px 0;'
+            f'height:{ALTURA_LINHA - 6}px;box-sizing:border-box;overflow:hidden;'
             f'border-radius:9px;background:{"#3a3324" if hl else TILE};'
             f'{"outline:1.5px solid #BF9A45;" if hl else ""}{corte}">'
             f'<span style="width:22px;height:22px;border-radius:50%;border:1.5px solid {med};'
@@ -698,7 +703,7 @@ def _coluna_html(nome, sub, rk, n_vis, alvo):
             fixo = (f'<div style="padding:6px;border-radius:9px;border:1.5px dashed #BF9A45;'
                     f'background:#3a3324;font-size:12px;margin-top:4px"><b style="color:#BF9A45">'
                     f'{nomes.index(alvo) + 1}º</b> · {alvo.title()[:34]}… · UC {_num(p["ucv"], 2)}</div>')
-    altura = 50 * n_vis + 8
+    altura = ALTURA_LINHA * n_vis + 2
     return (f'<div class="pa-card" style="padding:12px"><div style="display:flex;justify-content:space-between">'
             f'<div><div class="pa-t">{nome}</div><div class="pa-s">{sub}</div></div>'
             f'<div style="font-size:10px;font-weight:700;color:#BF9A45;letter-spacing:.1em">TOP {n_vis} · ATÉ 20 ↓</div></div>'
@@ -897,12 +902,12 @@ def pagina(usuario_logado=None):
         if not alvo:
             st.caption("Nenhum produto com esse código ou nome.")
     sem = 1 if mes_ref <= 6 else 2
-    quatro = (("Ano", f"{ano}", meses_do_recorte("Ano", 0), 10),
-              ("Semestre", f"{sem}º semestre", meses_do_recorte("Semestre", sem), 5),
-              ("Trimestre", f"{tri_ref}º trimestre", meses_do_recorte("Trimestre", tri_ref), 5),
-              ("Mês", MES_CURTO[mes_ref - 1], {mes_ref}, 5))
-    for col, (nome, sub, ms, nv) in zip(st.columns(4), quatro):
-        col.markdown(_coluna_html(nome, sub, ranking(agregar(linhas, ms, plat, med)), nv, alvo),
+    quatro = (("Ano", f"{ano}", meses_do_recorte("Ano", 0)),
+              ("Semestre", f"{sem}º semestre", meses_do_recorte("Semestre", sem)),
+              ("Trimestre", f"{tri_ref}º trimestre", meses_do_recorte("Trimestre", tri_ref)),
+              ("Mês", MES_CURTO[mes_ref - 1], {mes_ref}))
+    for col, (nome, sub, ms) in zip(st.columns(4), quatro):
+        col.markdown(_coluna_html(nome, sub, ranking(agregar(linhas, ms, plat, med)), TOP_VISIVEL, alvo),
                      unsafe_allow_html=True)
     escolha = st.selectbox("Abrir o panorama de um produto", [""] + [n for n, _ in ranking(P)[:300]],
                            format_func=lambda n: "" if not n else f"{codigo(n)} · {n.title()}", key="pa_pan")
