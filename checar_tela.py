@@ -3962,6 +3962,51 @@ def _mercado_livre_no_admin(conta):
         _adm_ml.st, _ml_t.credenciais, _ml_t._todas, _ml_t.convites, _ml_t._gravar_na_planilha = _g
 
 
+def _ranking_abre_panorama(conta):
+    """20/10: clicar numa linha do ranking abre o panorama aprovado. O
+    clique chega como `?pa_abrir=<código>` (conferido num Streamlit de
+    verdade: mesma aba, login e seção mantidos). As vendas pela
+    `linhas_da_base`; só a planilha é trocada."""
+    import datetime as _dt_r
+    import produtos_analise as _pa
+    import produtos_grupos as _pg_r
+    import auth as _au_r
+    _dono = sorted(_au_r.ADMINS_PADRAO)[0]
+    cab = ['Data', 'Plataforma', 'SKU', 'Produto', 'Quantidade', 'Custo Unitário', 'FAT TOTAL',
+           'DEVOLUÇÃO', 'MARGEM C.', 'LPV']
+    regs = [{"Data": _dt_r.datetime(2026, m, d), "Plataforma": "MercadoLivre1", "SKU": "MS-8936",
+             "Produto": "CINZEIRO TELESCÓPICO", "Quantidade": 1, "Custo Unitário": 89.36, "FAT TOTAL": 200.0,
+             "DEVOLUÇÃO": 0, "MARGEM C.": 45.0, "LPV": 18.0} for m in range(1, 10) for d in range(1, 6)]
+    linhas = _pa.linhas_da_base(regs, cab, {m: 18.0 for m in range(1, 10)}, 2026)
+    _g = (_pa.dados, _pa.st, _pg_r.carregar)
+    _md, _dlg = [], []
+    try:
+        f = instalar()
+        f.segmented_control = lambda rot, opcoes, default=None, **k: (f._registra("segmented_control", k), default)[1]
+        f.dialog = lambda titulo, *a, **k: (_dlg.append(titulo), (lambda fn: fn))[1]
+        f.columns = lambda spec, **k: [f] * (spec if isinstance(spec, int) else len(spec))
+        f.markdown = lambda t, *a, **k: _md.append(str(t))
+        _cod = _pa.codigo("CINZEIRO TELESCÓPICO")
+        f.query_params = {"_s": "tok", "secao": "gestao", "pa_abrir": _cod}
+        _pa.st = f
+        _pa.dados = lambda ano, hoje: (linhas, "")
+        _pg_r.carregar = lambda: ({"CINZEIRO TELESCÓPICO": {"produto": "CINZEIRO TELESCÓPICO", "nicho": "Tabacaria",
+                                                              "origem": "manual"}}, "")
+        _pa.pagina(_dono)
+        _j = " ".join(_md)
+        conta("Produtos: cada linha do ranking é um link que mantém login e seção (dono, 20/10)",
+              f'href="?_s=tok&amp;secao=gestao&amp;pa_abrir={_cod}"' in _j and 'target="_self"' in _j, "")
+        conta("Produtos: o clique (pa_abrir) abre o panorama do produto e sai do endereço",
+              "Panorama do produto" in _dlg and "PANORAMA DO PRODUTO" in _j
+              and "pa_abrir" not in f.query_params, str(_dlg))
+    except (_Rerun, _Parou):
+        conta("Produtos: ranking clicável — a tela monta", True, "")
+    except Exception as e:
+        conta("Produtos: ranking clicável — a tela monta", False, f"{type(e).__name__}: {e}")
+    finally:
+        _pa.dados, _pa.st, _pg_r.carregar = _g
+
+
 def main():
     instalar()
     falhas = []
@@ -4032,6 +4077,7 @@ def main():
     _faturamento_top5(conta)
     _produtos_nichos_padronizados(conta)
     _mercado_livre_no_admin(conta)
+    _ranking_abre_panorama(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0

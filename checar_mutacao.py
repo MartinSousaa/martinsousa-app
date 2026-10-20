@@ -3589,8 +3589,8 @@ MUTACOES = [
     (
         "uma coluna do ranking de produtos volta a abrir com top 5 (assimetrico)",
         "produtos_analise.py",
-        '        col.markdown(_coluna_html(nome, sub, ranking(agregar(linhas, ms, plat, med)), TOP_VISIVEL, alvo),\n',
-        '        col.markdown(_coluna_html(nome, sub, ranking(agregar(linhas, ms, plat, med)), 5 if nome != "Ano" else 10, alvo),\n',
+        '        col.markdown(_coluna_html(nome, sub, ranking(agregar(linhas, ms, plat, med)), TOP_VISIVEL, alvo, _params),\n',
+        '        col.markdown(_coluna_html(nome, sub, ranking(agregar(linhas, ms, plat, med)), 5 if nome != "Ano" else 10, alvo, _params),\n',
         ["python3", "checar_tela.py"],
     ),
     (
@@ -3676,6 +3676,20 @@ MUTACOES = [
         "font-weight=\"700\" text-anchor=\"end\">{rotulo_da_linha(t, v, real)}</text>'",
         "font-weight=\"700\" text-anchor=\"end\">{t}</text>'",
         ["python3", "home_gestao.py"],
+    ),
+    (
+        "clicar na linha do ranking volta a nao abrir o panorama",
+        "produtos_analise.py",
+        "    escolha = escolha or _abrir\n",
+        "",
+        ["python3", "checar_tela.py"],
+    ),
+    (
+        "as linhas do ranking voltam a ser so desenho, sem link",
+        "produtos_analise.py",
+        "            f'<a href=\"{href}\" target=\"_self\" style=\"text-decoration:none;color:inherit;display:block\">'\n",
+        "            f'<a>'\n",
+        ["python3", "checar_tela.py"],
     ),
     (
         "o DAS volta a cair no fim de semana em vez de antecipar",

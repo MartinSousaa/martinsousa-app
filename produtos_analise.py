@@ -33,6 +33,7 @@ primeira venda são do produto juntado — assim o anúncio novo de um produto
 velho não vira "novo com potencial".
 """
 
+import html
 import collections
 import hashlib
 import statistics
@@ -679,8 +680,21 @@ def panorama_html(linhas, produto, ate_mes, med=None, prim=None):
     return f'<div class="pa-card">{cab}{kps}{tab_per}{tab_pl}{graficos}{baixo}</div>'
 
 
-def _coluna_html(nome, sub, rk, n_vis, alvo):
-    """Uma das quatro colunas do ranking; `alvo` acende o produto buscado."""
+def link_do_produto(params, produto):
+    """O endereço que abre o panorama do produto: a página de agora (login,
+    seção e abas ficam nos parâmetros) mais `pa_abrir=<código>`. Pura."""
+    from urllib.parse import urlencode
+    p = {k: v for k, v in (params or {}).items() if k != "pa_abrir"}
+    p["pa_abrir"] = codigo(produto)
+    return "?" + urlencode(p)
+
+
+def _coluna_html(nome, sub, rk, n_vis, alvo, params=None):
+    """Uma das quatro colunas do ranking; `alvo` acende o produto buscado.
+
+    CADA LINHA É UM LINK (dono, 20/10: "quando clico em algum produto do
+    ranking não está abrindo a tela das informações dele"): clicar abre o
+    panorama aprovado, pelo `pa_abrir` que `pagina` lê."""
     from home_gestao import TILE, TEXTO, SEC, CARTAO, BORDA, VERDE, VERMELHO
     linhas = []
     top = rk[:20]
@@ -688,7 +702,9 @@ def _coluna_html(nome, sub, rk, n_vis, alvo):
         hl = alvo and k == alvo
         corte = "border-bottom:1px dashed #BF9A45aa;" if i == n_vis else ""
         med = {1: "#D4B26A", 2: "#C0C6CE", 3: "#B98A5E"}.get(i, "#5a5a5a")
+        href = html.escape(link_do_produto(params, k), quote=True)
         linhas.append(
+            f'<a href="{href}" target="_self" style="text-decoration:none;color:inherit;display:block">'
             f'<div style="display:flex;gap:8px;align-items:center;padding:0 6px;margin:3px 0;'
             f'height:{ALTURA_LINHA - 6}px;box-sizing:border-box;overflow:hidden;'
             f'border-radius:9px;background:{"#3a3324" if hl else TILE};'
@@ -701,7 +717,7 @@ def _coluna_html(nome, sub, rk, n_vis, alvo):
             f'<b style="color:{_cor_uc(p["ucv"])}">{_num(p["ucv"], 2)}</b> · lucro '
             f'<b style="color:{VERDE if p["lucro"] >= 0 else VERMELHO}">{_brl(p["lucro"])}</b></span></span>'
             f'<span style="font-family:monospace;font-size:10px;color:{"#BF9A45" if hl else "#7b7f86"}">'
-            f'{codigo(k)}</span></div>')
+            f'{codigo(k)}</span></div></a>')
     fixo = ""
     if alvo:
         nomes = [k for k, _ in rk]
@@ -934,13 +950,26 @@ def pagina(usuario_logado=None):
               ("Semestre", f"{sem}º semestre", meses_do_recorte("Semestre", sem)),
               ("Trimestre", f"{tri_ref}º trimestre", meses_do_recorte("Trimestre", tri_ref)),
               ("Mês", MES_CURTO[mes_ref - 1], {mes_ref}))
+    try:
+        _params = {k: st.query_params[k] for k in st.query_params}
+    except Exception:
+        _params = {}
+    # O CLIQUE NA LINHA DO RANKING chega como `?pa_abrir=<código>`: lido uma
+    # vez e tirado do endereço, para fechar o panorama não reabri-lo.
+    _abrir = por_codigo.get(str(_params.get("pa_abrir", "")).strip().upper())
+    if "pa_abrir" in _params:
+        try:
+            del st.query_params["pa_abrir"]
+        except Exception:
+            pass
     for col, (nome, sub, ms) in zip(st.columns(4), quatro):
-        col.markdown(_coluna_html(nome, sub, ranking(agregar(linhas, ms, plat, med)), TOP_VISIVEL, alvo),
+        col.markdown(_coluna_html(nome, sub, ranking(agregar(linhas, ms, plat, med)), TOP_VISIVEL, alvo, _params),
                      unsafe_allow_html=True)
     escolha = st.selectbox("Abrir o panorama de um produto", [""] + [n for n, _ in ranking(P)[:300]],
                            format_func=lambda n: "" if not n else f"{codigo(n)} · {n.title()}", key="pa_pan")
     if alvo and st.button(f"Abrir o panorama de {codigo(alvo)}", key="pa_pan_busca"):
         escolha = alvo
+    escolha = escolha or _abrir
     if escolha:
         @st.dialog("Panorama do produto", width="large")
         def _pan():
@@ -1105,6 +1134,10 @@ if __name__ == "__main__":
     ok("dinheiro no formato R$ 1.234,57, com o sinal do negativo na frente",
        _brl(1234.567, 2) == "R$ 1.234,57" and _brl(-1234) == "−R$ 1.234")
     _tv = top_vendidos(L, 2)
+    _lk = link_do_produto({"_s": "tok", "secao": "gestao", "pa_abrir": "VELHO"}, "CINZEIRO TELESCÓPICO")
+    ok("o link da linha leva login e seção, e troca o pa_abrir pelo código do produto",
+       _lk.startswith("?") and "_s=tok" in _lk and "secao=gestao" in _lk
+       and f"pa_abrir={codigo('CINZEIRO TELESCÓPICO')}" in _lk and "VELHO" not in _lk)
     ok("top vendidos: pela quantidade de vendas, com a UC e o % do faturamento",
        _tv[0][0] == "KIT COM 3 ESTÁTUAS" and _tv[0][1] == 108
        and abs(_tv[0][3] - sum(x["fat"] for x in L if x["produto"] == "KIT COM 3 ESTÁTUAS"
