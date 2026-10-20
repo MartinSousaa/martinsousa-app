@@ -752,6 +752,15 @@ def pagina(usuario_logado=None):
             st.warning(f"A IA não juntou os títulos novos: {erro_auto}")
         linhas = _pg.aplicar(brutas, mapa)
         pendentes = _pg.lotes_pendentes(brutas, mapa)
+    # UM NICHO POR PRODUTO (dono, 20/10: "pode passar novamente para
+    # padronizar"): a segunda passada, também uma tentativa por sessão.
+    if _pg.nichos_pendentes(mapa) and not st.session_state.get("pa_nicho_auto_tentou"):
+        st.session_state["pa_nicho_auto_tentou"] = True
+        with st.spinner("Padronizando o nicho de cada produto com a IA…"):
+            mapa, _padr, erro_nicho = _pg.padronizar_pendentes(mapa)
+        if erro_nicho:
+            st.warning(f"A IA não padronizou os nichos: {erro_nicho}")
+        linhas = _pg.aplicar(brutas, mapa)
     ate_mes = max(x["mes"] for x in linhas)
     med = medianas_de_quantidade(linhas)
     prim = primeiras_vendas(linhas)

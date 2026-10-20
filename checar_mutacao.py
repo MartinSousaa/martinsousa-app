@@ -3615,6 +3615,27 @@ MUTACOES = [
         ["python3", "extratos_tela.py"],
     ),
     (
+        "a pagina de produtos deixa de padronizar os nichos ao abrir",
+        "produtos_analise.py",
+        "            mapa, _padr, erro_nicho = _pg.padronizar_pendentes(mapa)\n",
+        "            _padr, erro_nicho = 0, \"\"\n",
+        ["python3", "checar_tela.py"],
+    ),
+    (
+        "a padronizacao de nichos passa por cima da correcao manual do dono",
+        "produtos_grupos.py",
+        '        if g.get("origem") == "ia" and g["produto"] in nicho_de:\n',
+        '        if g["produto"] in nicho_de:\n',
+        ["python3", "produtos_grupos.py"],
+    ),
+    (
+        "produto com titulo corrigido a mao volta a ir para a IA em vez de herdar o nicho do dono",
+        "produtos_grupos.py",
+        "    novo = padronizar(mapa, do_dono)\n",
+        "    novo = dict(mapa)\n",
+        ["python3", "produtos_grupos.py"],
+    ),
+    (
         "o DAS volta a cair no fim de semana em vez de antecipar",
         "lembretes.py",
         '("das_20", "DAS", ("dia_antecipa", 20)',

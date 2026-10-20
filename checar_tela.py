@@ -3845,6 +3845,62 @@ def _faturamento_top5(conta):
         _pa.dados, _pg.carregar = _g
 
 
+def _produtos_nichos_padronizados(conta):
+    """20/10: a segunda passada da IA dá UM nicho a cada produto ao abrir a
+    página. O mapa vem na forma de `produtos_grupos.carregar` depois da
+    primeira passada (origem "ia", nichos divergentes); as vendas pela
+    `linhas_da_base`. Só a planilha e a chamada à IA são trocadas."""
+    import datetime as _dt_n
+    import produtos_analise as _pa
+    import produtos_grupos as _pg_n
+    import auth as _au_n
+    _dono = sorted(_au_n.ADMINS_PADRAO)[0]
+    cab = ['Data', 'Plataforma', 'SKU', 'Produto', 'Quantidade', 'Custo Unitário', 'FAT TOTAL',
+           'DEVOLUÇÃO', 'MARGEM C.', 'LPV']
+    regs = [{"Data": _dt_n.datetime(2026, m, 3), "Plataforma": "Shopee1", "SKU": "MS-900",
+             "Produto": t, "Quantidade": 1, "Custo Unitário": c, "FAT TOTAL": 40.0, "DEVOLUÇÃO": 0,
+             "MARGEM C.": 12.0, "LPV": 6.0}
+            for m in range(1, 10) for t, c in (("ALICATE FURADOR COURO", 9.0), ("ALICATE VAZADOR CINTO", 12.0))]
+    linhas = _pa.linhas_da_base(regs, cab, {m: 6.0 for m in range(1, 10)}, 2026)
+    mapa = {"ALICATE FURADOR COURO": {"produto": "ALICATE FURADOR", "nicho": "Artesanato e Scrapbook", "origem": "ia"},
+            "ALICATE VAZADOR CINTO": {"produto": "ALICATE FURADOR", "nicho": "Outros", "origem": "ia"}}
+    _g = (_pa.dados, _pa.st, _pg_n.carregar, _pg_n.salvar, _pg_n._chamar_ia)
+    _salvos, _avisos, _prompts = [], [], []
+    try:
+        f = instalar()
+        f.segmented_control = lambda rot, opcoes, default=None, **k: (f._registra("segmented_control", k), default)[1]
+        f.dialog = lambda *a, **k: (lambda fn: fn)
+        f.columns = lambda spec, **k: [f] * (spec if isinstance(spec, int) else len(spec))
+        f.warning = lambda t, *a, **k: _avisos.append(str(t))
+        _pa.st = f
+        _pa.dados = lambda ano, hoje: (linhas, "")
+        _pg_n.carregar = lambda: (dict(mapa), "")
+        _pg_n.salvar = _salvos.append
+        _pg_n._chamar_ia = lambda p: (_prompts.append(p), ('{"0": "Artesanato e Scrapbook"}', ""))[1]
+        _pa.pagina(_dono)
+        _n = {g["nicho"] for g in (_salvos[-1] if _salvos else {}).values()}
+        conta("Produtos: a 2ª passada dá um nicho só ao alicate dos dois custos e grava (dono, 20/10)",
+              _n == {"Artesanato e Scrapbook"} and len(_prompts) == 1 and "ALICATE FURADOR" in _prompts[0],
+              str(_salvos[-1:])[:200])
+        _salvos.clear()
+        f2 = instalar()
+        f2.segmented_control = lambda rot, opcoes, default=None, **k: (f2._registra("segmented_control", k), default)[1]
+        f2.dialog = f.dialog
+        f2.columns = lambda spec, **k: [f2] * (spec if isinstance(spec, int) else len(spec))
+        f2.warning = lambda t, *a, **k: _avisos.append(str(t))
+        _pa.st = f2
+        _pg_n._chamar_ia = lambda p: ("", "ANTHROPIC_API_KEY não configurada")
+        _pa.pagina(_dono)
+        conta("Produtos: com a IA fora, a 2ª passada avisa, não grava e a página monta",
+              _salvos == [] and any("não padronizou" in a for a in _avisos), str(_avisos[-2:]))
+    except (_Rerun, _Parou):
+        conta("Produtos: nichos padronizados — a tela monta", True, "")
+    except Exception as e:
+        conta("Produtos: nichos padronizados — a tela monta", False, f"{type(e).__name__}: {e}")
+    finally:
+        _pa.dados, _pa.st, _pg_n.carregar, _pg_n.salvar, _pg_n._chamar_ia = _g
+
+
 def main():
     instalar()
     falhas = []
@@ -3913,6 +3969,7 @@ def main():
     _produtos_analise(conta)
     _gargalos_volume(conta)
     _faturamento_top5(conta)
+    _produtos_nichos_padronizados(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0
