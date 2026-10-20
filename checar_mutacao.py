@@ -3516,6 +3516,34 @@ MUTACOES = [
         "        if not _xm.configurado():\n",
         ["python3", "controle_ms.py"],
     ),
+    (
+        "o kit de 30 volta a decidir o ranking de produtos (venda pontual)",
+        "produtos_analise.py",
+        '    return x["q"] >= max(PONTUAL_X * med.get(x["produto"], 1.0), PONTUAL_X)\n',
+        "    return False\n",
+        ["python3", "produtos_analise.py"],
+    ),
+    (
+        "produto de 1 mes volta a entrar em dando certo",
+        "produtos_analise.py",
+        '        if (p["ucv"] >= 1.0 and disp >= 3\n',
+        '        if (p["ucv"] >= 1.0 and disp >= 1\n',
+        ["python3", "produtos_analise.py"],
+    ),
+    (
+        "mes sem LPV do Studio volta a ficar sem UC (sem a coluna LPV da planilha)",
+        "produtos_analise.py",
+        '            lpv, fonte = _bv._num(g("lpv_planilha")), "planilha"\n',
+        '            lpv, fonte = None, "planilha"\n',
+        ["python3", "produtos_analise.py"],
+    ),
+    (
+        "a pagina de Produtos volta a abrir para quem nao e dono",
+        "produtos_analise.py",
+        "    if not auth.eh_dono(usuario_logado):\n",
+        "    if False:\n",
+        ["python3", "checar_tela.py"],
+    ),
 ]
 
 

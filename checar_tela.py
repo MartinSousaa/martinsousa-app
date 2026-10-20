@@ -3613,6 +3613,68 @@ def _din_financas_previa(conta):
          _cms_d.link_configurado, _fi_d.st) = _g
 
 
+def _produtos_analise(conta):
+    """20/10: Gestão › Produtos, o analista de produtos (layout aprovado).
+
+    As linhas passam por `produtos_analise.linhas_da_base` com o CABEÇALHO REAL
+    da BASE DE VENDAS 2026 — a porta da tela, e não um dicionário no formato
+    que eu acho que ele tem. Só a leitura da planilha é trocada. A tela monta
+    inteira, com uma faixa de UC aberta e o panorama de um produto."""
+    import datetime as _dt_p
+    import produtos_analise as _pa
+    import auth as _au_p
+    _dono = sorted(_au_p.ADMINS_PADRAO)[0]
+    cab = ['MÊS', 'MÊS/ANO', 'Data', 'Plataforma', 'Pedido', 'SKU', 'Produto', 'Quantidade',
+           'Custo Unitário', 'Custo Flex', 'FAT TOTAL', 'CUSTO TOTAL', 'COMISSÃO', 'FRETE',
+           'NF', 'CUSTO OP.', 'DEVOLUÇÃO', 'MARGEM C.', 'VENDAS', 'LPV', 'UNI. CONT.']
+    regs = []
+    for m in range(1, 10):
+        for d in range(1, 13):
+            regs.append({"Data": _dt_p.datetime(2026, m, d), "Plataforma": "Shopee1", "SKU": "MS-2260",
+                         "Produto": "KIT COM 3 ESTÁTUAS", "Quantidade": 1, "FAT TOTAL": 60.0,
+                         "CUSTO TOTAL": 22.6, "COMISSÃO": 17.5, "FRETE": 0, "NF": 5.4, "CUSTO OP.": 4.3,
+                         "DEVOLUÇÃO": 0, "MARGEM C.": 10.0, "LPV": 18.0, "Custo Unitário": 22.6})
+        for d in range(1, 8):
+            regs.append({"Data": _dt_p.datetime(2026, m, d), "Plataforma": "MercadoLivre1", "SKU": "MS-8936",
+                         "Produto": "CINZEIRO TELESCÓPICO", "Quantidade": 1, "FAT TOTAL": 200.0,
+                         "CUSTO TOTAL": 89.4, "COMISSÃO": 30.0, "FRETE": 20, "NF": 18, "CUSTO OP.": 9,
+                         "DEVOLUÇÃO": 0, "MARGEM C.": 45.0, "LPV": 18.0, "Custo Unitário": 89.36})
+    linhas = _pa.linhas_da_base(regs, cab, {m: 18.0 for m in range(1, 10)}, 2026)
+    _g = (_pa.dados, _pa.st)
+    _botoes = []
+
+    def _rodar(usuario, dados, clicar=(), panorama=""):
+        f = instalar()
+        f.segmented_control = lambda rot, opcoes, default=None, **k: (f._registra("segmented_control", k), default)[1]
+        f.dialog = lambda *a, **k: (lambda fn: fn)
+        f.button = lambda rot, *a, **k: (f._registra("button", k), _botoes.append(k.get("key")),
+                                         k.get("key") in clicar)[2]
+        f.selectbox = lambda rot, opcoes, *a, **k: (f._registra("selectbox", k),
+                                                    panorama if k.get("key") == "pa_pan" else
+                                                    list(opcoes)[k.get("index", 0) or 0])[1]
+        _pa.st = f
+        _pa.dados = lambda ano, hoje: (dados, "")
+        _pa.pagina(usuario)
+    try:
+        _rodar(_dono, linhas)
+        conta("Produtos: a página monta inteira (alertas, balanço, ranking nos 4 períodos)",
+              "pa_faixa_0" in _botoes and "pa_v_errado" in _botoes, str(_botoes[:8]))
+        _rodar(_dono, linhas, clicar={"pa_faixa_0"}, panorama="CINZEIRO TELESCÓPICO")
+        conta("Produtos: abrir uma faixa de UC e o panorama de um produto não quebra", True, "")
+        _botoes.clear()
+        _rodar(_dono, [])
+        _rodar("colaborador_qualquer", linhas)
+        conta("Produtos: sem vendas, e para quem não é dono, avisa e não monta nada",
+              _botoes == [], str(_botoes))
+    except (_Rerun, _Parou):
+        conta("Produtos: a tela monta", True, "")
+    except Exception as e:
+        import traceback
+        conta("Produtos: a tela monta", False, f"{type(e).__name__}: {e} {traceback.format_exc()[-400:]}")
+    finally:
+        _pa.dados, _pa.st = _g
+
+
 def main():
     instalar()
     falhas = []
@@ -3678,6 +3740,7 @@ def main():
     _visao_geral_na_home(conta)
     _tiktok_na_viabilidade(conta)
     _din_financas_previa(conta)
+    _produtos_analise(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0
