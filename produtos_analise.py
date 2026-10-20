@@ -24,14 +24,13 @@ e a tela diz quais meses vieram de onde.
     UC total     = soma da UC de cada venda — quanto custo fixo o produto pagou
     Lucro        = margem − LPV de cada venda
 
-O QUE ELE AINDA NÃO FAZ (dito em voz alta)
-------------------------------------------
-* O produto é o TÍTULO normalizado. O mesmo produto anunciado com títulos
-  diferentes ainda aparece separado — o SKU não serve para juntar, porque o
-  SKU é o custo e produtos diferentes dividem o mesmo (MS-3800: bengala,
-  xadrez, furador). Juntar por IA + confirmação do dono é a próxima etapa, e o
-  código do produto (P…) passa a ser do produto juntado.
-* Nicho, C.O. previsto do mês e gravação na DIN FINANÇAS: etapas seguintes.
+O PRODUTO É O PRODUTO, NÃO O ANÚNCIO
+------------------------------------
+Os títulos do mesmo produto são juntados por `produtos_grupos` (IA dentro de
+cada custo + correção do dono), e o nicho vem junto. Título ainda não juntado
+conta como produto próprio, e a tela diz quantos faltam. O código (P…) e a
+primeira venda são do produto juntado — assim o anúncio novo de um produto
+velho não vira "novo com potencial".
 """
 
 import collections
@@ -355,6 +354,24 @@ def novos_com_potencial(linhas, mes, hoje, plataforma=None, med=None, prim=None)
     return fora
 
 
+def por_nicho(linhas, P):
+    """[(nicho, {produtos, v, fat, mc, lpv, lucro, ucv})] do maior lucro ao menor."""
+    nicho_de = {}
+    for x in linhas:
+        nicho_de.setdefault(x["produto"], x.get("nicho") or "Sem nicho")
+    N = {}
+    for k, p in P.items():
+        n = N.setdefault(nicho_de.get(k, "Sem nicho"),
+                         {"produtos": [], "v": 0, "fat": 0.0, "mc": 0.0, "lpv": 0.0})
+        n["produtos"].append(k)
+        for c in ("v", "fat", "mc", "lpv"):
+            n[c] += p[c]
+    for n in N.values():
+        n["lucro"] = n["mc"] - n["lpv"]
+        n["ucv"] = n["mc"] / n["lpv"] if n["lpv"] else 0.0
+    return sorted(N.items(), key=lambda kv: -kv[1]["lucro"])
+
+
 def concentracao(P, n=5):
     pos = sorted((p["lucro"] for p in P.values() if p["lucro"] > 0), reverse=True)
     return sum(pos[:n]) / sum(pos) if pos else 0.0
@@ -509,72 +526,144 @@ def _lista(titulo, itens, linhas, ate_mes, prim, med, chave):
 
 
 def _mostrar_panorama(linhas, produto, ate_mes, med, prim):
+    """O panorama no desenho aprovado (20/10): cabeçalho, 6 números, por
+    período com a posição, por plataforma, pedidos por mês empilhados, UC mês
+    a mês, para onde vai o preço e a leitura do Studio."""
+    st.markdown(_css() + panorama_html(linhas, produto, ate_mes, med, prim), unsafe_allow_html=True)
+
+
+def panorama_html(linhas, produto, ate_mes, med=None, prim=None):
     import home_gestao as _hg
+    med = med if med is not None else medianas_de_quantidade(linhas)
     pan = panorama(linhas, produto, ate_mes, med)
     if not pan:
-        st.info("Sem vendas medíveis deste produto no ano.")
-        return
+        return '<div class="pa-card">Sem vendas medíveis deste produto no ano.</div>'
     t = pan["total"]
     d = (prim or {}).get(produto)
     custo = statistics.median(t["custo_un"]) if t["custo_un"] else 0.0
-    st.markdown(f"#### {produto.title()}")
-    st.caption(f"Código {codigo(produto)} · SKU {t['sku'].most_common(1)[0][0]} · "
-               f"custo unitário {_brl(custo, 2)} · vende desde "
-               f"{d.strftime('%d/%m/%Y') if d else '—'} · {volatilidade(t, ate_mes).lower()}")
-    c = st.columns(6)
-    for col, (nm, val, sub) in zip(c, (
-            ("Pedidos", _num(t["v"]), f"{_num(t['v'] / max(len(t['mes']), 1), 1)} por mês com venda"),
-            ("Faturamento", _brl(t["fat"]), f"preço médio {_brl(t['fat'] / t['v'], 2)}"),
-            ("Margem", _brl(t["mc"]), f"{t['mc'] / t['fat'] * 100:.0f}% do faturamento"),
-            ("C.O. absorvido", _brl(t["co"]), "custo operacional"),
-            ("Lucro", _brl(t["lucro"]), f"pagou {_brl(t['lpv'])} de custo fixo"),
-            ("UC por venda", _num(t["ucv"], 2), f"UC total {_num(t['uct'])}"))):
-        col.metric(nm, val, help=sub)
-    import pandas as pd
-    st.markdown("**Por período · e a posição no ranking de UC**")
-    st.dataframe(pd.DataFrame([{
-        "Período": f"{nm} ({sub})", "Posição": f"{pos}º" if pos else "—",
-        "Pedidos": p["v"] if p else 0, "Faturamento": round(p["fat"], 2) if p else 0,
-        "Margem": round(p["mc"], 2) if p else 0, "C.O.": round(p["co"], 2) if p else 0,
-        "Custo fixo (LPV)": round(p["lpv"], 2) if p else 0,
-        "Lucro": round(p["lucro"], 2) if p else 0,
-        "UC/venda": round(p["ucv"], 2) if p else None}
-        for nm, sub, p, pos in pan["periodos"]]), hide_index=True, use_container_width=True)
-    st.markdown("**Por plataforma · ano**")
-    st.dataframe(pd.DataFrame([{
-        "Plataforma": pl, "Pedidos": p["v"] if p else 0,
-        "% das vendas": f"{p['v'] / t['v'] * 100:.0f}%" if p else "—",
-        "Preço médio": round(p["fat"] / p["v"], 2) if p else None,
-        "Faturamento": round(p["fat"], 2) if p else 0,
-        "Comissão %": f"{p['com'] / p['fat'] * 100:.0f}%" if p else "—",
-        "Margem": round(p["mc"], 2) if p else 0, "Lucro": round(p["lucro"], 2) if p else 0,
-        "UC/venda": round(p["ucv"], 2) if p else None}
-        for pl, p in pan["plataformas"].items()]), hide_index=True, use_container_width=True)
+    tits = collections.Counter(x.get("titulo", x["produto"]) for x in linhas if x["produto"] == produto)
+    nicho = next((x.get("nicho") for x in linhas if x["produto"] == produto and x.get("nicho")), "")
+    SEC, TILE, VERDE, VERM = _hg.SEC, _hg.TILE, _hg.VERDE, _hg.VERMELHO
+    chip = lambda txt: (f'<span style="background:{TILE};border:1px solid {_hg.BORDA};border-radius:999px;'
+                        f'padding:2px 10px;font-size:11.5px;color:{SEC};margin-right:6px">{txt}</span>')
+    lucro_cor = lambda v: VERDE if v >= 0 else VERM
     n = t["v"]
     preco = t["fat"] / n
-    partes = [("Custo do produto", t["ct"] / n), ("Comissão", t["com"] / n),
-              ("Frete", t["fr"] / n), ("NF", t["nf"] / n), ("Devolução", t["dev"] / n),
-              ("Custo operacional", t["co"] / n), ("Margem de contribuição", t["mc"] / n)]
+    cab = (f'<div style="font-size:11px;letter-spacing:.18em;color:#BF9A45;font-weight:700">PANORAMA DO PRODUTO</div>'
+           f'<div style="font-size:20px;font-weight:700;margin:4px 0 8px">{produto.title()}</div>'
+           + chip(f"código <b>{codigo(produto)}</b>") + chip(f"SKU <b>{t['sku'].most_common(1)[0][0]}</b>")
+           + chip(f"custo unitário <b>{_brl(custo, 2)}</b>")
+           + chip(f"vende desde <b>{d.strftime('%d/%m/%Y') if d else '—'}</b>")
+           + (chip(f"nicho <b>{nicho}</b>") if nicho else "")
+           + chip(f"<b>{len(tits)}</b> título(s) de anúncio"))
+    kp = [("Pedidos", _num(n), f"{_num(n / max(len(t['mes']), 1), 1)} por mês com venda"),
+          ("Faturamento", _brl(t["fat"]), f"preço médio {_brl(preco, 2)}"),
+          ("Margem de contribuição", _brl(t["mc"]), f"{t['mc'] / t['fat'] * 100:.0f}% do faturamento"),
+          ("C.O. absorvido", _brl(t["co"]), "custo operacional"),
+          ("Lucro depois do custo fixo", f'<span style="color:{lucro_cor(t["lucro"])}">{_brl(t["lucro"])}</span>',
+           f"pagou {_brl(t['lpv'])} de custo fixo"),
+          ("UC por venda", f'<span style="color:{_cor_uc(t["ucv"])}">{_num(t["ucv"], 2)}</span>', f"UC total {_num(t['uct'])}")]
+    kps = ('<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin:14px 0">'
+           + "".join(f'<div class="pa-k"><div class="pa-kt">{a}</div><div class="pa-kv" style="font-size:19px">{b}</div>'
+                     f'<div class="pa-kd">{c}</div></div>' for a, b, c in kp) + '</div>')
+    th = lambda cols: "<tr>" + "".join(f'<th style="text-align:{"left" if i == 0 else "right"};font-size:10.5px;color:{SEC};'
+                                       f'letter-spacing:.08em;text-transform:uppercase;padding:5px 6px;border-bottom:1px solid {_hg.BORDA}">{c}</th>'
+                                       for i, c in enumerate(cols)) + "</tr>"
+    td = lambda v, esq=False: f'<td style="padding:6px;border-bottom:1px solid #3a3a3a;text-align:{"left" if esq else "right"}">{v}</td>'
+    per = "".join("<tr>" + td(f"<b>{nm}</b> <span style='color:{SEC}'>{sub}</span>", True) + td(f"<b>{pos}º</b>" if pos else "—")
+                  + (td(p["v"]) + td(_brl(p["fat"])) + td(_brl(p["mc"])) + td(_brl(p["co"])) + td(_brl(p["lpv"]))
+                     + td(f'<b style="color:{lucro_cor(p["lucro"])}">{_brl(p["lucro"])}</b>') + td(_chip_uc(p["ucv"]))
+                     if p else td("não vendeu") + "".join(td("") for _ in range(6))) + "</tr>"
+                  for nm, sub, p, pos in pan["periodos"])
+    tab_per = (f'<div style="font-size:12px;font-weight:800;letter-spacing:.1em;margin-top:6px">POR PERÍODO · E A POSIÇÃO NO RANKING DE UC</div>'
+               f'<table style="width:100%;border-collapse:collapse;font-size:13px">'
+               + th(["Período", "Posição", "Pedidos", "Faturamento", "Margem", "C.O.", "Custo fixo (LPV)", "Lucro", "UC/venda"]) + per + "</table>")
+    pl = ""
+    for nome, p in pan["plataformas"].items():
+        cor = _hg.COR_PLATAFORMA.get(nome, SEC)
+        bola = f'<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:{cor};margin-right:7px"></span>'
+        if not p:
+            pl += f'<tr style="color:#777">{td(bola + nome, True)}<td colspan="7" style="text-align:right;padding:6px">não vende nesta plataforma</td></tr>'
+            continue
+        pl += ("<tr>" + td(bola + nome, True) + td(f"{p['v']} <span style='color:{SEC}'>· {p['v'] / n * 100:.0f}%</span>")
+               + td(_brl(p["fat"] / p["v"], 2)) + td(_brl(p["fat"])) + td(f"{p['com'] / p['fat'] * 100:.0f}%")
+               + td(f"{_brl(p['mc'])} <span style='color:{SEC}'>· {p['mc'] / p['fat'] * 100:.0f}%</span>")
+               + td(f'<b style="color:{lucro_cor(p["lucro"])}">{_brl(p["lucro"])}</b>') + td(_chip_uc(p["ucv"])) + "</tr>")
+    tab_pl = (f'<div style="font-size:12px;font-weight:800;letter-spacing:.1em;margin-top:14px">POR PLATAFORMA · ANO</div>'
+              f'<table style="width:100%;border-collapse:collapse;font-size:13px">'
+              + th(["Plataforma", "Pedidos", "Preço médio", "Faturamento", "Comissão", "Margem", "Lucro", "UC/venda"]) + pl + "</table>")
+    # pedidos por mês, empilhados por plataforma; e a UC mês a mês
+    so = [x for x in linhas if x["produto"] == produto and x["lpv"] and not eh_pontual(x, med)]
+    pm = collections.defaultdict(collections.Counter)
+    for x in so:
+        pm[x["mes"]][x["plataforma"]] += 1
+    mx = max((sum(c.values()) for c in pm.values()), default=1) or 1
+    bw, gx, bh = 40, 14, 110
+    barras = ""
+    for i, m in enumerate(range(1, ate_mes + 1)):
+        y, x0 = bh, i * (bw + gx)
+        for nome in _hg.COR_PLATAFORMA:
+            v = pm[m].get(nome, 0)
+            if v:
+                h = v / mx * bh
+                y -= h
+                barras += f'<rect x="{x0}" y="{y:.1f}" width="{bw}" height="{max(h - 2, 1):.1f}" rx="3" fill="{_hg.COR_PLATAFORMA[nome]}"/>'
+        tot = sum(pm[m].values())
+        barras += (f'<text x="{x0 + bw / 2}" y="{y - 4:.1f}" fill="{SEC}" font-size="10.5" text-anchor="middle">{tot or ""}</text>'
+                   f'<text x="{x0 + bw / 2}" y="{bh + 14}" fill="{SEC}" font-size="10.5" text-anchor="middle">{MES_CURTO[m - 1]}</text>')
+    largura = ate_mes * (bw + gx)
+    pts = []
+    for i, m in enumerate(range(1, ate_mes + 1)):
+        p = pan["por_mes"].get(m)
+        if p:
+            pts.append((i * (bw + gx) + bw / 2, 8 + (1 - min(p["ucv"], 3) / 3) * 100, p["ucv"]))
+    y1 = 8 + (1 - 1 / 3) * 100
+    linha_uc = (f'<line x1="0" x2="{largura}" y1="{y1:.1f}" y2="{y1:.1f}" stroke="#BF9A45" stroke-dasharray="4 4"/>'
+                f'<text x="{largura - 2}" y="{y1 - 4:.1f}" fill="#BF9A45" font-size="10" text-anchor="end">UC 1,0</text>'
+                + (f'<polyline fill="none" stroke="#E8EAED" stroke-width="2" points="{" ".join(f"{a:.1f},{b:.1f}" for a, b, _ in pts)}"/>' if len(pts) > 1 else "")
+                + "".join(f'<circle cx="{a:.1f}" cy="{b:.1f}" r="4.5" fill="{_cor_uc(u)}" stroke="{_hg.CARTAO}" stroke-width="2"/>'
+                          f'<text x="{a:.1f}" y="{b - 8:.1f}" fill="{SEC}" font-size="10" text-anchor="middle">{_num(u, 2)}</text>' for a, b, u in pts)
+                + "".join(f'<text x="{i * (bw + gx) + bw / 2}" y="124" fill="{SEC}" font-size="10.5" text-anchor="middle">{MES_CURTO[m - 1]}</text>'
+                          for i, m in enumerate(range(1, ate_mes + 1))))
+    leg_pl = "".join(f'<span style="margin-right:12px;font-size:11.5px;color:{SEC}"><span style="display:inline-block;width:9px;height:9px;'
+                     f'border-radius:2px;background:{c};margin-right:5px"></span>{nm}</span>'
+                     for nm, c in _hg.COR_PLATAFORMA.items() if pan["plataformas"].get(nm))
+    graficos = (f'<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:14px">'
+                f'<div><div style="font-size:12px;font-weight:800;letter-spacing:.1em">PEDIDOS POR MÊS, POR PLATAFORMA</div>'
+                f'<svg width="100%" viewBox="-4 -14 {largura + 8} {bh + 32}">{barras}</svg><div>{leg_pl}</div></div>'
+                f'<div><div style="font-size:12px;font-weight:800;letter-spacing:.1em">UC POR VENDA, MÊS A MÊS</div>'
+                f'<svg width="100%" viewBox="-4 -4 {largura + 8} 134">{linha_uc}</svg></div></div>')
+    partes = [("Custo do produto", t["ct"] / n, "#6b7280"), ("Comissão", t["com"] / n, "#4F93D6"),
+              ("Frete", t["fr"] / n, "#9579E0"), ("NF", t["nf"] / n, "#C2801C"),
+              ("Devolução", t["dev"] / n, "#E5534B"), ("Custo operacional", t["co"] / n, "#8A6A33")]
     mcv, lpvv = t["mc"] / n, t["lpv"] / n
-    st.markdown(f"**Para onde vai o preço médio de {_brl(preco, 2)}**")
-    st.dataframe(pd.DataFrame([{"Parte": a, "Por venda": round(b, 2),
-                                "% do preço": f"{b / preco * 100:.0f}%"} for a, b in partes if abs(b) > 0.005]
-                              + [{"Parte": "Custo fixo que cada venda paga (LPV)", "Por venda": round(lpvv, 2), "% do preço": ""},
-                                 {"Parte": "Sobra por venda" if mcv >= lpvv else "Falta por venda",
-                                  "Por venda": round(abs(mcv - lpvv), 2), "% do preço": ""}]),
-                 hide_index=True, use_container_width=True)
-    if mcv < lpvv:
-        var = (t["com"] + t["nf"] + t["co"]) / t["fat"]
-        if var < 1:
-            st.caption(f"Preço estimado para UC 1,0: **{_brl(preco + (lpvv - mcv) / (1 - var), 2)}** "
-                       f"(comissão, NF e C.O. sobem junto com o preço).")
-    meses = [m for m in range(1, ate_mes + 1)]
-    st.markdown("**Pedidos por mês, por plataforma**")
-    st.bar_chart(pd.DataFrame(
-        {pl: [agregar([x for x in linhas if x["produto"] == produto], {m}, pl, med).get(produto, {}).get("v", 0)
-              for m in meses] for pl, p in pan["plataformas"].items() if p},
-        index=[MES_CURTO[m - 1] for m in meses]),
-        color=[_hg.COR_PLATAFORMA[pl] for pl, p in pan["plataformas"].items() if p])
+    barra = ("".join(f'<span style="display:block;width:{v / preco * 100:.1f}%;background:{c}"></span>' for _, v, c in partes if v > 0.005)
+             + f'<span style="display:block;width:{max(mcv, 0) / preco * 100:.1f}%;background:{VERDE}"></span>')
+    linha_l = lambda a, b, cor="": (f'<div class="pa-l"><span>{a}</span><b style="{f"color:{cor}" if cor else ""}">{b}</b></div>')
+    leg = ("".join(linha_l(f'<span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:{c};margin-right:6px"></span>{a}',
+                           f"{_brl(v, 2)} · {v / preco * 100:.0f}%") for a, v, c in partes if v > 0.005)
+           + linha_l(f'<span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:{VERDE};margin-right:6px"></span>Margem de contribuição',
+                     f"{_brl(mcv, 2)} · {mcv / preco * 100:.0f}%")
+           + linha_l("Custo fixo que cada venda paga (LPV)", _brl(lpvv, 2))
+           + linha_l("Sobra por venda" if mcv >= lpvv else "Falta por venda", _brl(abs(mcv - lpvv), 2), lucro_cor(mcv - lpvv)))
+    melhor = max(((nm, p) for nm, p in pan["plataformas"].items() if p), key=lambda kv: kv[1]["lucro"])
+    tnd = tendencia(t, ate_mes)
+    var = (t["com"] + t["nf"] + t["co"]) / t["fat"]
+    preco_uc1 = ("já passa de 1,0" if mcv >= lpvv else
+                 (_brl(preco + (lpvv - mcv) / (1 - var), 2) if var < 1 else "—"))
+    leitura = (linha_l("Plataforma que mais rende", melhor[0])
+               + linha_l("Constância", f"vendeu em {len(t['mes'])} meses · {volatilidade(t, ate_mes).lower()}")
+               + linha_l("Tendência (3 últimos × 3 anteriores)",
+                         "novo" if tnd is None else ("▲ " if tnd > 0 else "▼ ") + f"{abs(tnd) * 100:.0f}%")
+               + linha_l("Preço para UC 1,0", preco_uc1)
+               + (linha_l("Venda pontual fora da conta", f"{_num(t['uc_pontual'], 1)} UC") if t["uc_pontual"] else ""))
+    titulos = "; ".join(f"<b>{a.title()[:48]}</b> ({b})" for a, b in tits.most_common(4)) + ("…" if len(tits) > 4 else "")
+    baixo = (f'<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:14px">'
+             f'<div><div style="font-size:12px;font-weight:800;letter-spacing:.1em">PARA ONDE VAI O PREÇO MÉDIO DE {_brl(preco, 2)}</div>'
+             f'<div style="display:flex;height:18px;border-radius:6px;overflow:hidden;gap:2px;margin:8px 0">{barra}</div>{leg}</div>'
+             f'<div><div style="font-size:12px;font-weight:800;letter-spacing:.1em">LEITURA DO STUDIO</div>{leitura}'
+             f'<div class="pa-s" style="margin-top:8px">Títulos neste produto: {titulos}</div></div></div>')
+    return f'<div class="pa-card">{cab}{kps}{tab_per}{tab_pl}{graficos}{baixo}</div>'
 
 
 def _coluna_html(nome, sub, rk, n_vis, alvo):
@@ -634,6 +723,11 @@ def pagina(usuario_logado=None):
     if not linhas:
         st.info("Nenhuma venda medível na BASE DE VENDAS deste ano.")
         return
+    import produtos_grupos as _pg
+    mapa, erro_g = _pg.carregar()
+    brutas = linhas
+    linhas = _pg.aplicar(brutas, mapa)
+    pendentes = _pg.lotes_pendentes(brutas, mapa)
     ate_mes = max(x["mes"] for x in linhas)
     med = medianas_de_quantidade(linhas)
     prim = primeiras_vendas(linhas)
@@ -769,6 +863,25 @@ def pagina(usuario_logado=None):
             if lst and st.button(f"Ver todos ({len(lst)}) ›", key=f"pa_v_{ch}"):
                 _lista(nome, lst[:200], linhas, ate_mes, prim, med, ch)
 
+    # POR NICHO
+    nichos = por_nicho(linhas, P)
+    if mapa:
+        tl = sum(max(n["lucro"], 0) for _, n in nichos) or 1
+        st.markdown('<div class="pa-card"><div class="pa-t">Por nicho</div>'
+                    '<div class="pa-s">Os produtos somados pelo nicho que a IA deu ao título (você corrige em '
+                    '«Títulos e nichos», no fim da página) · do que mais lucra ao que menos</div>'
+                    + "".join(f'<div class="pa-l" style="align-items:center"><span class="pa-n" style="width:210px;flex:none">{nm}'
+                              f'<br><span style="color:{_hg.SEC};font-size:11px">{len(n["produtos"])} produtos · {_num(n["v"])} vendas</span></span>'
+                              f'<span style="flex:1;height:8px;background:{_hg.TILE};border-radius:4px;overflow:hidden">'
+                              f'<span style="display:block;height:8px;width:{max(n["lucro"], 0) / tl * 100:.0f}%;background:#BF9A45"></span></span>'
+                              f'<b>{_brl(n["fat"])}</b><b style="color:{_hg.VERDE if n["lucro"] >= 0 else _hg.VERMELHO}">{_brl(n["lucro"])}</b>{_chip_uc(n["ucv"])}</div>'
+                              for nm, n in nichos) + '</div>', unsafe_allow_html=True)
+        esc_n = st.selectbox("Ver os produtos de um nicho", [""] + [nm for nm, _ in nichos], key="pa_nicho")
+        if esc_n:
+            n = dict(nichos)[esc_n]
+            _lista(f"Nicho · {esc_n}", ranking({k: P[k] for k in n["produtos"]}), linhas, ate_mes, prim, med,
+                   "nicho")
+
     # RANKING NOS QUATRO PERÍODOS
     st.markdown('<div class="pa-card"><div class="pa-t">Ranking nos quatro períodos</div>'
                 '<div class="pa-s">Por UC total · cada produto tem um código · busque para achá-lo nas quatro colunas</div></div>',
@@ -809,6 +922,61 @@ def pagina(usuario_logado=None):
                 unsafe_allow_html=True)
     if baixa and st.button("Ver lista ›", key="pa_v_baixa"):
         _lista("Baixíssima saída", baixa, linhas, ate_mes, prim, med, "baixa")
+
+    # TÍTULOS E NICHOS — a IA roda aqui, no clique, e o dono corrige
+    _titulos_e_nichos(brutas, mapa, pendentes, erro_g, usuario_logado)
+
+
+def _titulos_e_nichos(brutas, mapa, pendentes, erro_g, usuario_logado):
+    import produtos_grupos as _pg
+    import pandas as pd
+    n_tit = len({x["produto"] for x in brutas})
+    n_prod = len({g["produto"] for g in mapa.values()})
+    with st.expander(f"Títulos e nichos · {len(mapa)} de {n_tit} títulos juntados em {n_prod} produtos"
+                     + (f" · {sum(len(l) for l in pendentes)} títulos a juntar" if pendentes else "")):
+        if erro_g:
+            st.warning(erro_g)
+        st.caption("A IA lê os títulos de mesmo custo e junta os que são o mesmo produto, com o nicho. "
+                   "O SKU não serve para isso: ele é o custo, e produtos diferentes dividem o mesmo. "
+                   f"Uma chamada por lote de até {_pg.POR_CHAMADA} títulos; o que você corrigir à mão a IA não muda.")
+        if pendentes and st.button(f"Juntar {sum(len(l) for l in pendentes)} títulos com a IA "
+                                   f"({len(pendentes)} chamadas)", key="pa_ia_juntar", type="primary"):
+            barra = st.progress(0.0)
+            novo, erros = dict(mapa), []
+            for i, lote in enumerate(pendentes, 1):
+                m, e = _pg.classificar(lote)
+                if e:
+                    erros.append(e)
+                    break
+                novo = _pg.mesclar(novo, m, "ia")
+                barra.progress(i / len(pendentes))
+            _pg.salvar(novo)
+            if erros:
+                st.error(f"Parei no lote {i}: {erros[0]} — o que já foi juntado está salvo.")
+            else:
+                st.success("Títulos juntados e nichos definidos.")
+            st.rerun()
+        if mapa:
+            df = pd.DataFrame([{"Título do anúncio": t, "Produto": g["produto"], "Nicho": g["nicho"],
+                                "Origem": g["origem"]} for t, g in sorted(mapa.items(), key=lambda kv: kv[1]["produto"])])
+            ed = st.data_editor(df, hide_index=True, use_container_width=True, key="pa_ed_grupos",
+                                disabled=["Título do anúncio", "Origem"],
+                                column_config={"Nicho": st.column_config.SelectboxColumn("Nicho", options=list(_pg.NICHOS))})
+            if st.button("Salvar correções", key="pa_salvar_grupos"):
+                mud = {}
+                for (_, a), (_, b) in zip(df.iterrows(), ed.iterrows()):
+                    if a["Produto"] != b["Produto"] or a["Nicho"] != b["Nicho"]:
+                        mud[a["Título do anúncio"]] = (_pg.norm(b["Produto"]) or a["Título do anúncio"], b["Nicho"])
+                if mud:
+                    _pg.salvar(_pg.mesclar(mapa, mud, "manual"))
+                    if usuario_logado:
+                        import atividades as historico
+                        historico.registrar_atividade(usuario_logado, "Produtos juntados à mão",
+                                                      f"{len(mud)} títulos", ", ".join(list(mud)[:5]))
+                    st.success(f"{len(mud)} correções salvas.")
+                    st.rerun()
+                else:
+                    st.caption("Nada mudou.")
 
 
 if __name__ == "__main__":
@@ -901,5 +1069,15 @@ if __name__ == "__main__":
        pan["periodos"][3][3] == 1 and pan["plataformas"]["Mercado Livre"]["v"] == 63
        and pan["plataformas"]["Shopee"] is None)
     ok("concentração entre 0 e 1", 0 < concentracao(A) <= 1)
+    _h = panorama_html(L, "CINZEIRO TELESCÓPICO", 9, med, prim)
+    ok("o panorama desenha os blocos aprovados, sem linha em branco (o markdown fecharia o HTML)",
+       all(x in _h for x in ("PANORAMA DO PRODUTO", "POR PERÍODO", "POR PLATAFORMA", "PEDIDOS POR MÊS",
+                             "UC POR VENDA", "PARA ONDE VAI", "LEITURA DO STUDIO", codigo("CINZEIRO TELESCÓPICO")))
+       and "\n\n" not in _h and "não vende nesta plataforma" in _h)
+    _N = por_nicho([dict(x, nicho="Decoração" if "KIT" in x["produto"] else "Tabacaria") for x in L], A)
+    ok("por nicho soma os produtos do nicho, do maior lucro ao menor",
+       _N[0][0] == "Tabacaria" and "CINZEIRO TELESCÓPICO" in _N[0][1]["produtos"]
+       and _N[0][1]["v"] == sum(A[k]["v"] for k in _N[0][1]["produtos"])
+       and dict(_N)["Decoração"]["produtos"] == ["KIT COM 3 ESTÁTUAS"])
 
     raise SystemExit(1 if falhas else 0)

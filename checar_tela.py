@@ -3572,9 +3572,18 @@ def _din_financas_previa(conta):
     _g = (_xm_d.configurado, _xm_d.item_do_link, _xm_d.ler_grade,
           _cms_d.link_configurado, _fi_d.st)
 
-    def _rodar(clicar, link):
+    _gravados, _desab = [], []
+    _g_prev, _g_grav = _lm_d.co_previsto_agora, _xm_d.gravar
+    _lm_d.co_previsto_agora = lambda h: (_lm_d.co_do_mes_corrente(0.065, 100000.0, 19, 31, 3000.0), "")
+    _xm_d.gravar = lambda l, itens: (_gravados.append([i["celula"] for i in itens]), (len(itens), ""))[1]
+
+    def _rodar(clicar, link, confirma=False):
         _falso = instalar()
-        _falso.button = lambda rot, *a, **k: clicar and k.get("key") == "din_testar_2026"
+        if clicar is True:
+            clicar = {"din_testar_2026"}
+        _falso.button = lambda rot, *a, **k: (k.get("key") == "din_gravar_2026" and _desab.append(k.get("disabled")),
+                                              bool(clicar) and k.get("key") in clicar)[1]
+        _falso.checkbox = lambda rot, *a, **k: confirma
         _falso.dataframe = lambda d, *a, **k: _tabelas.append(d)
         _falso.warning = lambda t, *a, **k: _avisos.append(str(t))
         _fi_d.st = _falso
@@ -3594,8 +3603,13 @@ def _din_financas_previa(conta):
         _rodar(True, _emp)
         _df = _tabelas[-1] if _tabelas else None
         _cel = list(_df["Célula"]) if _df is not None else []
-        conta("DIN FINANÇAS: a prévia mostra set em Y61 (LPV) e Y77 (C.O.), e não out (em andamento)",
-              _cel == ["Y61", "Y77"], str(_cel))
+        conta("DIN FINANÇAS: a prévia mostra set em Y61 (LPV) e Y77 (C.O.), e outubro só no C.O. previsto (Y78)",
+              _cel == ["Y61", "Y77", "Y78"] and "previsto" in str(_df["Mês"].iloc[2]), str(_cel))
+        conta("DIN FINANÇAS: sem a confirmação marcada, o botão de gravar fica desligado e nada é gravado",
+              _desab and _desab[-1] is True and _gravados == [], str(_desab))
+        _rodar({"din_testar_2026", "din_gravar_2026"}, _emp, confirma=True)
+        conta("DIN FINANÇAS: com a confirmação, grava exatamente as células da prévia",
+              _gravados == [["Y61", "Y77", "Y78"]], str(_gravados))
         conta("DIN FINANÇAS: avisa que Y61 hoje é fórmula",
               _df is not None and str(_df["Hoje é fórmula"].iloc[0]).startswith("sim")
               and not str(_df["Hoje é fórmula"].iloc[1]), "")
@@ -3611,6 +3625,7 @@ def _din_financas_previa(conta):
     finally:
         (_xm_d.configurado, _xm_d.item_do_link, _xm_d.ler_grade,
          _cms_d.link_configurado, _fi_d.st) = _g
+        _lm_d.co_previsto_agora, _xm_d.gravar = _g_prev, _g_grav
 
 
 def _produtos_analise(conta):
@@ -3640,8 +3655,15 @@ def _produtos_analise(conta):
                          "CUSTO TOTAL": 89.4, "COMISSÃO": 30.0, "FRETE": 20, "NF": 18, "CUSTO OP.": 9,
                          "DEVOLUÇÃO": 0, "MARGEM C.": 45.0, "LPV": 18.0, "Custo Unitário": 89.36})
     linhas = _pa.linhas_da_base(regs, cab, {m: 18.0 for m in range(1, 10)}, 2026)
-    _g = (_pa.dados, _pa.st)
-    _botoes = []
+    import produtos_grupos as _pg_t
+    _g = (_pa.dados, _pa.st, _pg_t.carregar, _pg_t.classificar, _pg_t.salvar)
+    _botoes, _salvos = [], []
+    _mapa = {}
+    _pg_t.carregar = lambda: (_mapa, "")
+    _pg_t.salvar = lambda m: _salvos.append(m)
+    _pg_t.classificar = lambda lote, chamar=None: (
+        {t: ("KIT 3 ESTÁTUAS" if "ESTÁTUAS" in t else t, "Decoração" if "ESTÁTUAS" in t else "Tabacaria")
+         for t in lote}, "")
 
     def _rodar(usuario, dados, clicar=(), panorama=""):
         f = instalar()
@@ -3662,6 +3684,19 @@ def _produtos_analise(conta):
         _rodar(_dono, linhas, clicar={"pa_faixa_0"}, panorama="CINZEIRO TELESCÓPICO")
         conta("Produtos: abrir uma faixa de UC e o panorama de um produto não quebra", True, "")
         _botoes.clear()
+        try:
+            _rodar(_dono, linhas, clicar={"pa_ia_juntar"})
+        except (_Rerun, _Parou):
+            pass
+        conta("Produtos: o botão da IA junta os títulos pendentes e salva na aba (sem IA de verdade)",
+              _salvos and _salvos[-1]["KIT COM 3 ESTÁTUAS"]["nicho"] == "Decoração"
+              and _salvos[-1]["CINZEIRO TELESCÓPICO"]["origem"] == "ia", str(_salvos[-1:])[:200])
+        _mapa.update(_salvos[-1])
+        _botoes.clear()
+        _rodar(_dono, linhas)
+        conta("Produtos: com os títulos juntados, a fatia por nicho aparece e o botão da IA some",
+              "pa_ia_juntar" not in _botoes, str(_botoes))
+        _botoes.clear()
         _rodar(_dono, [])
         _rodar("colaborador_qualquer", linhas)
         conta("Produtos: sem vendas, e para quem não é dono, avisa e não monta nada",
@@ -3672,7 +3707,7 @@ def _produtos_analise(conta):
         import traceback
         conta("Produtos: a tela monta", False, f"{type(e).__name__}: {e} {traceback.format_exc()[-400:]}")
     finally:
-        _pa.dados, _pa.st = _g
+        _pa.dados, _pa.st, _pg_t.carregar, _pg_t.classificar, _pg_t.salvar = _g
 
 
 def main():

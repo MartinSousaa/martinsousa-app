@@ -23,10 +23,11 @@ chaves moram só no Railway (MS_TENANT_ID, MS_CLIENT_ID, MS_CLIENT_SECRET).
 
 O QUE ELE NÃO FAZ
 -----------------
-Ainda não grava. Dono, 19/10: primeiro sobe o teste de conexão e a PRÉVIA
-do que seria gravado, só leitura; o botão de gravar vem depois de a prévia
-bater com a planilha. Quando vier, grava só o que está no `plano`: mês
-fechado e calculado — célula que o Studio não sabe preencher fica como está.
+Grava SÓ POR BOTÃO (dono, 20/10: "grava por botão e não diário"), depois da
+prévia, e só o que está no `plano`: o LPV dos meses fechados e calculados, e
+o C.O. dos meses fechados mais o do mês CORRENTE (previsto → parcial, que a
+CUSTO OP. da BASE reparte pelas vendas — a coluna lê a DIN). Célula que o
+Studio não sabe preencher fica como está.
 """
 
 import base64
@@ -187,6 +188,25 @@ def ler_grade(link, aba=ABA_DIN, endereco=VARREDURA):
             "endereco": j.get("address", "")}, ""
 
 
+def gravar(link, itens, aba=ABA_DIN):
+    """(gravados, erro). Uma chamada por célula — no máximo 24 — e cada uma é
+    um PATCH de UM valor: célula fora do plano nem é tocada, e o arquivo
+    aberto na mão de alguém continua aberto (a API do Excel da empresa
+    grava junto, sem substituir o arquivo)."""
+    it, erro = item_do_link(link)
+    if erro:
+        return 0, erro
+    feitos = 0
+    for i in itens:
+        _, erro = _pedir("PATCH", _livro(it) + _aba_url(aba)
+                         + f"/range(address='{i['celula']}')",
+                         json={"values": [[i["novo"]]]})
+        if erro:
+            return feitos, f"{i['celula']}: {erro}"
+        feitos += 1
+    return feitos, ""
+
+
 # ── ONDE GRAVAR — função pura, para ser testada sem rede ────────────────────
 
 def _norm(s):
@@ -253,7 +273,7 @@ def localizar(texto, titulo):
     return {}
 
 
-def valores_a_gravar(meses_lpv, meses_co, ano, hoje):
+def valores_a_gravar(meses_lpv, meses_co, ano, hoje, co_corrente=None):
     """({mes: lpv}, {mes: co}) — só mês FECHADO, do ANO corrente, calculado.
 
     `meses_lpv` como `lpv_mensal.lpv_do_ano` devolve; `meses_co` como
@@ -267,6 +287,11 @@ def valores_a_gravar(meses_lpv, meses_co, ano, hoje):
            if r.get("lpv") is not None and _lm.mes_fechado(ano, m, hoje)}
     co = {m: r["co"] for m, r in (meses_co or {}).items()
           if not r.get("motivo") and r.get("co") and _lm.mes_fechado(ano, m, hoje)}
+    # O mês corrente entra com o C.O. previsto/parcial (`lpv_mensal.
+    # co_do_mes_corrente`): é o que faz a CUSTO OP. da BASE deixar de ser
+    # zero desde o dia 1º. Sem taxa (sem meses fechados com C.O.), não entra.
+    if co_corrente and not co_corrente.get("sem_taxa") and co_corrente.get("valor"):
+        co[hoje.month] = co_corrente["valor"]
     return lpv, co
 
 
@@ -391,6 +416,27 @@ if __name__ == "__main__":
     ok("só mês fechado e calculado (out em andamento, ago sem custo fixo)",
        sorted(vl) == [9] and vl[9] == _ml[9]["lpv"])
     ok("C.O. só do mês sem motivo", sorted(vc) == [9] and vc[9] == _mc[9]["co"])
+    _vl2, _vc2 = valores_a_gravar(_ml, _mc, 2026, _d(2026, 10, 19),
+                                  {"valor": 4321.0, "sem_taxa": False})
+    ok("o C.O. do mês corrente entra pelo previsto; sem taxa, não entra",
+       _vc2.get(10) == 4321.0 and 10 not in _vl2
+       and 10 not in valores_a_gravar(_ml, _mc, 2026, _d(2026, 10, 19),
+                                      {"valor": 99.0, "sem_taxa": True})[1])
+    # gravar(): um PATCH por célula do plano, e só delas.
+    _pedidos = []
+    _g_item, _g_pedir = item_do_link, _pedir
+    try:
+        globals()["item_do_link"] = lambda l: ({"drive": "d", "item": "i"}, "")
+        globals()["_pedir"] = lambda m, c, **k: (_pedidos.append((m, c, k.get("json"))), ({}, ""))[1]
+        _n, _e = gravar("x", [{"celula": "Y61", "novo": 21.96}, {"celula": "Y78", "novo": 4321.0}])
+        ok("gravar faz um PATCH por célula do plano, com o valor, e nada mais",
+           _n == 2 and not _e and [p[0] for p in _pedidos] == ["PATCH", "PATCH"]
+           and "Y61" in _pedidos[0][1] and _pedidos[1][2] == {"values": [[4321.0]]})
+        globals()["_pedir"] = lambda m, c, **k: (None, "HTTP 423: arquivo bloqueado")
+        ok("erro no meio para e diz em que célula parou",
+           gravar("x", [{"celula": "Y61", "novo": 1}]) == (0, "Y61: HTTP 423: arquivo bloqueado"))
+    finally:
+        globals()["item_do_link"], globals()["_pedir"] = _g_item, _g_pedir
     ok("outro ano não grava na DIN (ela não tem coluna de ano)",
        valores_a_gravar(_ml, _mc, 2025, _d(2026, 10, 19)) == ({}, {}))
     ok("a aba é a DIN FINANÇAS do Controle MS", ABA_DIN == "DIN FINANÇAS")

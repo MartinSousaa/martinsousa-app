@@ -350,6 +350,47 @@ def taxa_co_recente(hoje):
     return taxa, usados, (erro or e2)
 
 
+def co_do_mes_corrente(taxa, fat_ate_hoje, dia, dias_mes, co_real):
+    """O C.O. do mês que ainda está correndo: o real + o previsto do que falta.
+
+    Dono, 20/10: "conforme o mês for acontecendo e os gastos reais forem
+    ocorrendo, ele vai reajustando". No dia 1º é só previsão; a cada extrato
+    lançado o real cresce e a previsão encolhe na proporção dos dias que
+    faltam. Nunca fica abaixo do real. Função pura.
+
+    `taxa`: C.O ÷ faturamento dos últimos meses fechados (`taxa_co_recente`).
+    `fat_ate_hoje`: faturamento do mês até hoje (Bling). Projetado pelo ritmo.
+    """
+    dia = max(1, min(int(dia), int(dias_mes)))
+    real = max(0.0, float(co_real or 0.0))
+    fat_mes = float(fat_ate_hoje or 0.0) / dia * dias_mes
+    previsto = float(taxa or 0.0) * fat_mes
+    falta = previsto * (dias_mes - dia) / dias_mes
+    valor = max(real, real + falta)
+    return {"fat_estimado": round(fat_mes, 2), "previsto_mes": round(previsto, 2),
+            "real": round(real, 2), "previsto_restante": round(falta, 2),
+            "valor": round(valor, 2),
+            "status": "previsto" if real <= 0 else "parcial",
+            "sem_taxa": not taxa}
+
+
+def co_previsto_agora(hoje):
+    """(co_do_mes_corrente(...), erro) com os dados de agora: taxa recente,
+    faturamento do Bling até hoje e o C.O real já lançado nos extratos."""
+    import calendar
+    try:
+        taxa, _usados, erro = taxa_co_recente(hoje)
+        import bling_api as _bl
+        total, _avisos = _bl.faturamento_do_mes_total(hoje.year, hoje.month)
+        fat = float((total or {}).get("liquido") or 0.0)
+        do_ano, e = custo_operacional_do_ano(hoje.year)
+        real = float(((do_ano or {}).get(hoje.month) or {}).get("co") or 0.0)
+        dias = calendar.monthrange(hoje.year, hoje.month)[1]
+        return co_do_mes_corrente(taxa, fat, hoje.day, dias, real), (erro or e)
+    except Exception as ex:
+        return None, f"Não consegui prever o C.O do mês: {type(ex).__name__}: {str(ex)[:160]}"
+
+
 def co_por_venda(preco, taxa):
     """O C.O de UMA venda: a taxa sobre o preço dela."""
     return float(preco or 0.0) * float(taxa or 0.0)
@@ -620,6 +661,21 @@ if __name__ == "__main__":
     ok("os meses fechados atravessam o ano",
        meses_antes(_date(2026, 2, 10), 3) == [(2026, 1), (2025, 12),
                                               (2025, 11)])
+
+    # C.O DO MÊS CORRENTE (20/10): previsto no dia 1º, real + previsto do
+    # que falta no meio do mês, e nunca abaixo do real.
+    _c1 = co_do_mes_corrente(0.065, 10000.0, 1, 31, 0.0)
+    ok("dia 1º: só previsão, pelo ritmo do faturamento",
+       _c1["status"] == "previsto" and abs(_c1["valor"] - 0.065 * 310000 * 30 / 31) < 0.02)
+    _c2 = co_do_mes_corrente(0.065, 200000.0, 20, 31, 9000.0)
+    ok("dia 20: real lançado + previsão só dos 11 dias que faltam",
+       _c2["status"] == "parcial"
+       and abs(_c2["valor"] - (9000 + 0.065 * 200000 / 20 * 31 * 11 / 31)) < 0.02)
+    _c3 = co_do_mes_corrente(0.065, 200000.0, 31, 31, 15000.0)
+    ok("último dia: só o real, nunca abaixo dele", _c3["valor"] == 15000.0)
+    ok("sem taxa (sem meses fechados com C.O): avisa e fica no real",
+       co_do_mes_corrente(None, 1000.0, 5, 30, 300.0)["sem_taxa"]
+       and co_do_mes_corrente(None, 1000.0, 5, 30, 300.0)["valor"] == 300.0)
 
     print("\nfalhas:", falhas)
     raise SystemExit(1 if falhas else 0)

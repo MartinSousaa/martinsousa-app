@@ -347,19 +347,21 @@ def _lpv_a_gravar(meses, ano, hoje):
             if r.get("lpv") is not None and _lm.mes_fechado(ano, m, hoje)}
 
 
-def _secao_din_financas(ano, meses, meses_co, hoje):
-    """Prévia do que o Studio gravaria na DIN FINANÇAS do Controle MS.
+def _secao_din_financas(ano, meses, meses_co, hoje, usuario_logado=None):
+    """Prévia e gravação do LPV e do C.O. na DIN FINANÇAS do Controle MS.
 
-    Dono, 19/10: o Studio preenche LPV e C.O. na planilha. Esta subida é SÓ
-    LEITURA — testa a entrada no OneDrive da empresa e mostra, célula a
-    célula, o que está lá e o que o Studio poria. Nada é gravado aqui.
-    A rede só é chamada no clique: o desenho da tela roda a cada tecla.
+    Dono, 19/10: o Studio preenche LPV e C.O. na planilha; 20/10: "grava por
+    botão e não diário". Primeiro a prévia (só leitura), célula a célula;
+    depois, com a confirmação marcada, o botão grava exatamente aquelas
+    células e relê a planilha para mostrar o que ficou lá.
+    O C.O. do mês corrente é o previsto → parcial (`lpv_mensal.
+    co_do_mes_corrente`): é ele que faz a CUSTO OP. da BASE sair do zero.
+    A rede (Microsoft e Bling) só é chamada no clique: a tela roda a cada tecla.
     """
     import controle_ms as _cms
     import excel_ms as _xm
     import lpv_mensal as _lm
-    with st.expander("Planilha Controle MS · DIN FINANÇAS — prévia (só "
-                     "leitura)"):
+    with st.expander("Planilha Controle MS · DIN FINANÇAS — prévia e gravação"):
         falta = _xm.configurado()
         link = _cms.link_configurado()
         if falta:
@@ -371,7 +373,6 @@ def _secao_din_financas(ano, meses, meses_co, hoje):
                        "Microsoft não deixa gravar célula por célula — troque "
                        "pelo link da empresa.")
             return
-        vl, vc = _xm.valores_a_gravar(meses, meses_co, ano, hoje)
         chave = f"din_previa_{ano}"
         if st.button("Testar conexão e montar a prévia (só leitura)",
                      key=f"din_testar_{ano}", use_container_width=True):
@@ -380,16 +381,33 @@ def _secao_din_financas(ano, meses, meses_co, hoje):
                 grade = None
                 if not erro:
                     grade, erro = _xm.ler_grade(link)
-            st.session_state[chave] = (it, grade, erro)
+                co_cor, erro_co = (None, "")
+                if ano == hoje.year:
+                    co_cor, erro_co = _lm.co_previsto_agora(hoje)
+            st.session_state[chave] = (it, grade, erro, co_cor, erro_co)
         if chave not in st.session_state:
-            st.caption("Clique para conferir a conexão. Nada é gravado.")
+            st.caption("Clique para conferir a conexão e ver o que seria "
+                       "gravado. Nada é gravado sem a sua confirmação.")
             return
-        it, grade, erro = st.session_state[chave]
+        it, grade, erro, co_cor, erro_co = st.session_state[chave]
         if erro:
             st.error(f"Não consegui ler a planilha: {erro}")
             return
         st.success(f"Conectado: **{it['nome']}** · alterado em "
                    f"{str(it.get('alterado', ''))[:16].replace('T', ' ')} (UTC)")
+        if co_cor:
+            st.caption(_rot.tela(
+                f"C.O. de {MESES[hoje.month - 1]} ({co_cor['status']}): "
+                f"R$ {formatar_br(co_cor['real'])} já lançado nos extratos + "
+                f"R$ {formatar_br(co_cor['previsto_restante'])} previsto para os "
+                f"dias que faltam = R$ {formatar_br(co_cor['valor'])} · previsão "
+                f"pelo faturamento do mês (R$ {formatar_br(co_cor['fat_estimado'])}"
+                f" no ritmo atual) × a taxa de C.O. dos últimos meses."
+                + (" Sem meses fechados com C.O., o mês corrente não entra."
+                   if co_cor.get("sem_taxa") else "")))
+        elif erro_co:
+            st.caption(erro_co)
+        vl, vc = _xm.valores_a_gravar(meses, meses_co, ano, hoje, co_cor)
         itens = _xm.plano(grade["texto"], grade["formulas"], 1, 1, vl, vc)
         achou = {i["bloco"] for i in itens}
         for bloco, titulo, vals in (("LPV", _xm.TITULO_LPV, vl),
@@ -398,20 +416,53 @@ def _secao_din_financas(ano, meses, meses_co, hoje):
                 st.warning(f"Não achei o bloco «{titulo}» na aba "
                            f"{_xm.ABA_DIN} (procurei em {_xm.VARREDURA}).")
         if not itens:
-            st.info("Nenhum mês fechado com cálculo completo para gravar.")
+            st.info("Nenhum mês com cálculo completo para gravar.")
             return
         st.dataframe(pd.DataFrame([{
-            "Bloco": i["bloco"], "Mês": MESES[i["mes"] - 1],
+            "Bloco": i["bloco"], "Mês": MESES[i["mes"] - 1]
+            + (" (previsto)" if i["bloco"] == "C.O." and i["mes"] == hoje.month
+               and ano == hoje.year else ""),
             "Célula": i["celula"], "Na planilha": i["atual"],
-            "O Studio gravaria": f"R$ {formatar_br(i['novo'])}",
-            "Hoje é fórmula": "sim — seria trocada pelo valor" if i["formula"]
-                              else "",
+            "O Studio grava": f"R$ {formatar_br(i['novo'])}",
+            "Hoje é fórmula": "sim — vira o valor" if i["formula"] else "",
         } for i in itens]), hide_index=True, use_container_width=True)
         fora = [MESES[m - 1] for m in range(1, 13)
                 if _lm.mes_fechado(ano, m, hoje) and m not in vl]
         if fora:
-            st.caption("Sem LPV calculado (a célula ficaria como está): "
+            st.caption("Sem LPV calculado (a célula fica como está): "
                        + ", ".join(fora) + ".")
+        n_form = sum(1 for i in itens if i["formula"])
+        conf = st.checkbox(
+            f"Confirmo: gravar estas {len(itens)} células na DIN FINANÇAS"
+            + (f" ({n_form} com fórmula viram valor)" if n_form else ""),
+            key=f"din_conf_{ano}")
+        if st.button(f"Gravar {len(itens)} células na DIN FINANÇAS",
+                     key=f"din_gravar_{ano}", type="primary",
+                     use_container_width=True, disabled=not conf):
+            with st.spinner("Gravando na DIN FINANÇAS..."):
+                feitos, erro_g = _xm.gravar(link, itens)
+                novo, erro_l = _xm.ler_grade(link)
+            if erro_g:
+                st.error(f"Gravei {feitos} de {len(itens)} células e parei: {erro_g}")
+            else:
+                st.success(f"{feitos} células gravadas na DIN FINANÇAS.")
+            if usuario_logado and feitos:
+                import atividades as historico
+                historico.registrar_atividade(
+                    usuario_logado, "DIN FINANÇAS gravada", f"Ano {ano}",
+                    ", ".join(f"{i['celula']}={i['novo']}" for i in itens[:feitos]))
+            if not erro_l and novo:
+                # A RELEITURA é a prova: mostra o que ficou na planilha, e não
+                # o que o Studio acha que gravou.
+                st.session_state[chave] = (it, novo, "", co_cor, erro_co)
+                lido = {}
+                for i in itens:
+                    li, ci = _xm.localizar(novo["texto"], _xm.TITULO_LPV if i["bloco"] == "LPV"
+                                           else _xm.TITULO_CO).get(i["mes"], (None, None))
+                    if li is not None:
+                        lido[i["celula"]] = novo["texto"][li][ci]
+                st.caption("Releitura da planilha: " + ", ".join(
+                    f"{c} = {v}" for c, v in list(lido.items())[:24]))
 
 
 def _secao_lpv_calculado(ano, regime, aliquota, bloqueado, df,
@@ -512,7 +563,7 @@ def _secao_lpv_calculado(ano, regime, aliquota, bloqueado, df,
         st.dataframe(pd.DataFrame(_lin_co), hide_index=True,
                      use_container_width=True)
 
-    _secao_din_financas(ano, meses, meses_co, hoje)
+    _secao_din_financas(ano, meses, meses_co, hoje, usuario_logado)
 
     if st.button(f"Gravar o LPV calculado nos meses fechados de {ano} "
                  f"({len(gravaveis)})", type="primary",

@@ -3544,6 +3544,48 @@ MUTACOES = [
         "    if False:\n",
         ["python3", "checar_tela.py"],
     ),
+    (
+        "a gravacao na DIN volta a mandar outro valor que nao o da previa",
+        "excel_ms.py",
+        '                         json={"values": [[i["novo"]]]})\n',
+        '                         json={"values": [[0]]})\n',
+        ["python3", "excel_ms.py"],
+    ),
+    (
+        "o botao de gravar na DIN volta a funcionar sem a confirmacao",
+        "financeiro.py",
+        "                     use_container_width=True, disabled=not conf):\n",
+        "                     use_container_width=True, disabled=False):\n",
+        ["python3", "checar_tela.py"],
+    ),
+    (
+        "o C.O. do mes corrente volta a ignorar o real ja lancado",
+        "lpv_mensal.py",
+        "    valor = max(real, real + falta)\n",
+        "    valor = previsto\n",
+        ["python3", "lpv_mensal.py"],
+    ),
+    (
+        "o C.O. do mes corrente volta a entrar na DIN sem taxa (numero inventado)",
+        "excel_ms.py",
+        '    if co_corrente and not co_corrente.get("sem_taxa") and co_corrente.get("valor"):\n',
+        '    if co_corrente and co_corrente.get("valor"):\n',
+        ["python3", "excel_ms.py"],
+    ),
+    (
+        "a IA volta a passar por cima da correcao manual do dono",
+        "produtos_grupos.py",
+        '        if fora.get(t, {}).get("origem") == "manual" and origem != "manual":\n            continue\n',
+        "",
+        ["python3", "produtos_grupos.py"],
+    ),
+    (
+        "nicho fora da lista volta a entrar (a fatia por nicho nao soma)",
+        "produtos_grupos.py",
+        '        nicho = g.get("nicho") if g.get("nicho") in NICHOS else "Outros"\n',
+        '        nicho = g.get("nicho") or "Outros"\n',
+        ["python3", "produtos_grupos.py"],
+    ),
 ]
 
 
