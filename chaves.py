@@ -38,6 +38,8 @@ PARA_QUE = {
     "MS_TENANT_ID": "entrar no OneDrive da empresa (Controle MS)",
     "MS_CLIENT_ID": "entrar no OneDrive da empresa (Controle MS)",
     "MS_CLIENT_SECRET": "entrar no OneDrive da empresa (Controle MS)",
+    "ML_CLIENT_ID": "ligar as contas do Mercado Livre (promoções)",
+    "ML_CLIENT_SECRET": "ligar as contas do Mercado Livre (promoções)",
 }
 
 

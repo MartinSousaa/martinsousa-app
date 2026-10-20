@@ -340,6 +340,13 @@ def _pintado(fn):
     return _f
 
 
+def rotulo_da_linha(nome, alvo, real):
+    """"Ponto de equilíbrio R$ 201.990 · falta R$ 57.908" — ou "· atingido". Pura."""
+    falta = float(alvo or 0) - float(real or 0)
+    resto = f"falta {_brl(falta, 0)}" if falta > 0 else "atingido"
+    return f"{nome} {_brl(alvo, 0)} · {resto}"
+
+
 def _espalhar(ys, folga=17.0):
     """As alturas dos nomes, afastadas `folga` px sem trocar a ordem. Pura.
 
@@ -385,7 +392,8 @@ def _html_faturamento(d):
     # outra, com os nomes por cima da projeção. Agora a faixa entre o
     # equilíbrio e a meta é sombreada, cada linha tem uma cor, e os nomes
     # moram numa coluna à esquerda (`LW`), afastados por `_espalhar`.
-    W, H, base, LW = 900.0, 190.0, 172.0, 215.0
+    # LW maior (20/10): o nome agora leva o valor e quanto falta.
+    W, H, base, LW = 900.0, 190.0, 172.0, 335.0
     PW = W - LW
 
     def X(dd):
@@ -408,27 +416,32 @@ def _html_faturamento(d):
     if eq:
         linhas += (f'<line x1="0" y1="{Y(eq):.1f}" x2="{PW:.0f}" y2="{Y(eq):.1f}" '
                    f'stroke="{AMBAR}" stroke-width="1.5"/>')
-        marcas.append((Y(eq), "Ponto de equilíbrio", AMBAR))
+        marcas.append((Y(eq), "Ponto de equilíbrio", AMBAR, eq))
     if eq_real:
         linhas += (f'<line x1="0" y1="{Y(eq_real):.1f}" x2="{PW:.0f}" y2="{Y(eq_real):.1f}" '
                    f'stroke="{LILAS}" stroke-width="1.5" stroke-dasharray="1 4" '
                    f'stroke-linecap="round"/>')
-        marcas.append((Y(eq_real), "Equilíbrio real", LILAS))
+        marcas.append((Y(eq_real), "Equilíbrio real", LILAS, eq_real))
     if meta:
         linhas += (f'<line x1="0" y1="{Y(meta):.1f}" x2="{PW:.0f}" y2="{Y(meta):.1f}" '
                    f'stroke="{AZUL}" stroke-width="1.5"/>')
-        marcas.append((Y(meta), "Meta do mês", AZUL))
+        marcas.append((Y(meta), "Meta do mês", AZUL, meta))
     _ys = _espalhar([m[0] for m in marcas])
+    # O VALOR DE CADA ALVO E QUANTO FALTA (dono, 20/10: "preciso ver os
+    # valores para atingir cada meta"). Desfaz o "só o nome" de 19/10.
     rotulos = "".join(
-        f'<text x="{LW - 10:.0f}" y="{y + 4:.1f}" fill="{c}" font-size="12" '
-        f'font-weight="700" text-anchor="end">{t}</text>'
-        for (_, t, c), y in zip(marcas, _ys))
+        f'<text x="{LW - 10:.0f}" y="{y + 4:.1f}" fill="{c}" font-size="11.5" '
+        f'font-weight="700" text-anchor="end">{rotulo_da_linha(t, v, real)}</text>'
+        for (_, t, c, v), y in zip(marcas, _ys))
     svg = (f'<svg viewBox="0 0 {W:.0f} {H:.0f}" width="100%" height="{H:.0f}" '
            f'aria-label="Faturamento do mês contra equilíbrio e meta" '
            f'style="font-family:inherit;">' + rotulos
            + f'<g transform="translate({LW:.0f},0)">'
            f'<line x1="0" y1="{base}" x2="{PW:.0f}" y2="{base}" stroke="{BORDA}"/>'
            + linhas + curva +
+           # O QUE É CADA TRAÇO (dono, 20/10).
+           f'<text x="0" y="10" fill="{SEC}" font-size="10.5"><tspan fill="{VERDE}">━</tspan> faturado'
+           f' &#160; <tspan fill="{VERDE}">┅</tspan> projeção no ritmo atual</text>' +
            f'<text x="{hx:.1f}" y="{H - 2:.0f}" fill="{SEC}" font-size="11" text-anchor="middle">Hoje</text>'
            f'<text x="{PW:.0f}" y="{H - 2:.0f}" fill="{SEC}" font-size="11" text-anchor="end">Dia {dias}</text>'
            '</g></svg>')
@@ -1371,13 +1384,14 @@ def _grade_painel(faturamento, indicadores, gastos, devolucoes,
     return ('<div class="ms-painel-fundo" style="background:{FUNDO};color:{TEXTO};'
             "font-family:Manrope,system-ui,sans-serif;border-radius:20px;padding:0;\">"
             + cab +
-            # O QUADRADO (dono, 19/10): à direita os indicadores e,
-            # exatamente embaixo, a meta de gastos; à esquerda o balanço e,
-            # embaixo dele, as devoluções — as duas fileiras fecham na mesma
-            # altura, sem buraco embaixo do balanço.
+            # O QUADRADO (dono, 19/10): à esquerda o balanço inteiro; à
+            # direita os indicadores e, exatamente embaixo, a meta de gastos.
+            # As devoluções ficam na faixa de baixo, na largura toda — subir
+            # elas para baixo do balanço foi decisão minha, que o dono não
+            # pediu e mandou desfazer (20/10).
             '<div class="ms-painel" style="display:grid;'
             'grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);'
-            'grid-template-areas:\'fat ind\' \'dev gas\';'
+            'grid-template-areas:\'fat ind\' \'fat gas\' \'dev dev\';'
             'gap:16px;align-items:stretch;">'
             + "".join(f'<div style="grid-area:{a};display:flex;flex-direction:column;min-width:0;">{h}</div>'
                       for a, h in (("fat", faturamento), ("ind", indicadores),
@@ -1432,7 +1446,8 @@ def _html_indicadores(p, plats=None):
             return '<div style="font-size:12px;color:{SEC};">— do faturado</div>'
         return (f'<div style="display:flex;align-items:center;gap:8px;">'
                 f'<div style="flex:1;">{_bar(pct, "{VERDE}")}</div>'
-                f'<span style="font-size:13px;font-weight:700;">{_fmt(pct, "pct")}</span></div>')
+                f'<span style="font-size:13px;font-weight:700;">{_fmt(pct, "pct")}'
+                f'<span style="font-size:11px;font-weight:400;color:{SEC};"> do faturado</span></span></div>')
     ll = p.get("lucro_liquido")
     uc = p.get("uc")
     lpv_sub = (f'Custo fixo + não operacional por venda · {p.get("lpv_origem") or "—"}'
@@ -1658,6 +1673,7 @@ def _html_devolucoes(p):
         y_teto = 62 - (teto or 0) / alto * 56
         linha = (f'<svg viewBox="0 0 300 70" width="100%" height="64" '
                  f'aria-label="Devoluções por mês">'
+                 f'<text x="0" y="9" fill="{{SEC}}" font-size="10">por mês · últimos {len(serie)}</text>'
                  f'<polyline points="{pts}" fill="none" stroke="{{VERMELHO}}" '
                  f'stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>'
                  + (f'<line x1="0" y1="{y_teto:.1f}" x2="300" y2="{y_teto:.1f}" '
@@ -2455,11 +2471,14 @@ if __name__ == "__main__":
        "Balanço mensal · faturamento em tempo real" in _h_fat)
     ok("e não mais pelo nome antigo",
        ("Faturamento × ponto" + " de equilíbrio × meta") not in _h_fat)
-    # 19/10 (layout aprovado): as linhas do gráfico só com o NOME — o valor
-    # está no cartão embaixo — e nada de cima repetido nas caixas.
-    ok("a curva corta as linhas, com o nome (maiúsculo) e sem o valor",
-       ">Ponto de equilíbrio<" in _h_fat and ">Meta do mês<" in _h_fat
-       and "meta do mês · " not in _h_fat)
+    # 20/10: cada linha com o VALOR do alvo e quanto falta (desfaz o "só o
+    # nome" de 19/10, a pedido do dono).
+    ok("cada linha do gráfico traz o valor do alvo e quanto falta (dono, 20/10)",
+       ">Ponto de equilíbrio R$ " in _h_fat and ">Meta do mês R$ " in _h_fat
+       and _h_fat.count(" · falta R$ ") + _h_fat.count(" · atingido") >= 2)
+    ok("rotulo_da_linha: falta quando abaixo, atingido quando passou",
+       rotulo_da_linha("Meta do mês", 235331, 144082) == f"Meta do mês {_brl(235331, 0)} · falta {_brl(91249, 0)}"
+       and rotulo_da_linha("Ponto de equilíbrio", 100000, 144082).endswith("· atingido"))
     ok("o quadro de cima é Projeção · pela meta de gastos (dono, 19/10)",
        "Projeção · pela meta de gastos" in _h_fat
        and "Real · pelos gastos" not in _h_fat.split("Projeção · pela meta")[0])
@@ -2762,7 +2781,7 @@ if __name__ == "__main__":
     # empilhados à direita, devoluções na faixa de baixo.
     ok("os quatro quadros numa grade só: o quadrado, com a meta de gastos embaixo dos indicadores",
        _grade.count("display:grid") == 1
-       and "'fat ind' 'dev gas'" in _grade
+       and "'fat ind' 'fat gas' 'dev dev'" in _grade
        and "grid-area:gas" in _grade and "grid-area:ind" in _grade
        and "align-items:stretch" in _grade
        and [_grade.index(x) for x in ("<i>F</i>", "<i>I</i>", "<i>G</i>", "<i>D</i>")]
@@ -2793,6 +2812,13 @@ if __name__ == "__main__":
                                    ("2026-10", 120.0)])
     ok("devoluções têm a linha dos meses e o top 5 embaixo",
        "<polyline" in _html_devolucoes(_p_ser) and "Top 5 motivos" in _html_devolucoes(_p_ser))
+    # O QUE CADA TRAÇO MEDE (dono, 20/10).
+    ok("o gráfico do balanço diz o que é a curva e o tracejado",
+       "faturado" in _h_fat and "projeção no ritmo atual" in _h_fat)
+    ok("a linha das devoluções diz que é por mês e de quantos meses",
+       "por mês · últimos 3" in _html_devolucoes(_p_ser))
+    ok("o % do lucro bruto e do líquido diz que é do faturado",
+       _h_ind.count(" do faturado</span>") >= 2)
     ok("a página não volta a montar os quadros em colunas soltas",
        "st.columns([1.6, 1])" not in _pg and "_grade_painel(" in _pg)
     ok("a página desenha o painel e guarda o detalhe dos gastos",
@@ -2832,13 +2858,13 @@ if __name__ == "__main__":
                                          "margem_bruta": 74.4}}}
     _h_g = _html_faturamento(_d_g)
     ok("o gráfico traz a linha do equilíbrio real, e o valor vai no cartão",
-       ">Equilíbrio real<" in _h_g
+       ">Equilíbrio real R$ " in _h_g
        and _brl(round(124557.0 / 0.744, 2), 0) in _h_g
        and "Real · pelos gastos do mês" in _h_g)
     _d_g2 = {**_d_g, "faturamento": {**_d_g["faturamento"],
                                       "comprometido": None}}
     ok("sem gastos lidos, o gráfico não inventa a linha",
-       ">Equilíbrio real<" not in _html_faturamento(_d_g2))
+       ">Equilíbrio real " not in _html_faturamento(_d_g2))
     ok("sem os gastos lidos, diz que não leu — não some calado",
        "Não consegui ler os gastos" in _linha_do_real(
            {"faturamento": {"eq_conta": {"margem_bruta": 32.0}}}, 1.0))

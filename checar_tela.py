@@ -3901,6 +3901,114 @@ def _produtos_nichos_padronizados(conta):
         _pa.dados, _pa.st, _pg_n.carregar, _pg_n.salvar, _pg_n._chamar_ia = _g
 
 
+def _mercado_livre_no_admin(conta):
+    """20/10: Administrativo › Mercado Livre — as quatro contas, cada uma com
+    o seu botão, e a autorizada mostrando a conta do ML a que está ligada.
+    Só a planilha e as credenciais são trocadas (`ml_api._todas`,
+    `ml_api.credenciais`); o registro tem as colunas de `ml_api.COLUNAS`."""
+    import admin as _adm_ml
+    import ml_api as _ml_t
+    _g = (_adm_ml.st, _ml_t.credenciais, _ml_t._todas, _ml_t.convites, _ml_t._gravar_na_planilha)
+    _md, _bot, _leituras, _av, _grav = [], [], [], [], []
+    try:
+        f = instalar()
+        f.markdown = lambda t, *a, **k: _md.append(str(t))
+        f.success = lambda t, *a, **k: _md.append(str(t))
+        f.warning = lambda t, *a, **k: _av.append(str(t))
+        f.button = lambda rot, *a, **k: (f._registra("button", k), _bot.append(k.get("key")),
+                                         k.get("key") in ("ml_teste_ler", "ml_autorizar_ml2"))[2]
+        f.radio = lambda rot, opcoes, *a, **k: (f._registra("radio", k), list(opcoes)[0])[1]
+        _adm_ml.st = f
+        _ml_t.credenciais = lambda: ("1", "2")
+        _ml_t._gravar_na_planilha = lambda c, d: (_grav.append((c, d)), True)[1]
+        _reg = {c: "" for c in _ml_t.COLUNAS}
+        _reg.update({"conta": "ml1", "refresh_token": "R", "access_token": "A",
+                     "expira_em": 9e12, "user_id": "999", "apelido": "LOJA1"})
+        _ml_t._todas = lambda: (_leituras.append(1), {"ml1": _reg})[1]
+        _ml_t.convites = lambda c: ([{"type": "DEAL"}, {"type": "DEAL"}, {"type": "PRICE_DISCOUNT"}], "")
+        _adm_ml._secao_mercado_livre()
+        _j = " ".join(_md)
+        conta("Mercado Livre: as quatro contas com botão, e a ML1 mostra a conta a que está ligada",
+              all(f"ml_autorizar_{c}" in _bot for c in _ml_t.CONTAS) and "LOJA1" in _j
+              and "não autorizada" in _j, str(_bot))
+        _link = [t for t in _md if "Abrir a autorização do Mercado Livre — ML2" in t]
+        conta("Mercado Livre: o botão da ML2 grava o state dela ANTES e devolve o link com ele",
+              _grav and _grav[0][0] == "ml2" and _grav[0][1]["state_pendente"].startswith("ml2.")
+              and _link and _grav[0][1]["state_pendente"] in _link[0]
+              and _ml_t.url_de_autorizacao.__name__ == "url_de_autorizacao", str(_grav)[:200])
+        conta("Mercado Livre: `estados` resume as quatro com uma leitura e sem o token",
+              (lambda e: sorted(e) == list(_ml_t.CONTAS) and "access_token" not in e["ml1"])(_ml_t.estados()), "")
+        _leituras.pop()
+        conta("Mercado Livre: a tela lê a planilha UMA vez por passada (não uma por conta)",
+              len(_leituras) == 1, f"{len(_leituras)} leituras")
+        conta("Mercado Livre: conferir a leitura conta as promoções da conta autorizada",
+              "3 promoção(ões)" in _j, _j[-200:])
+        f2 = instalar()
+        f2.warning = lambda t, *a, **k: _av.append(str(t))
+        _adm_ml.st = f2
+        _ml_t.credenciais = lambda: ("", "")
+        _adm_ml._secao_mercado_livre()
+        conta("Mercado Livre: sem as variáveis no Railway, a tela diz quais faltam",
+              any("ML_CLIENT_ID" in a for a in _av), str(_av))
+        _app = open("app.py", encoding="utf-8").read()
+        _i_cb, _i_login = _app.find("_ml_cb.processar_callback(st.query_params)"), _app.find("usuario_logado = auth.verificar_login()")
+        conta("Mercado Livre: a volta da autorização é tratada ANTES do login (o code vence em minutos)",
+              0 < _i_cb < _i_login, f"callback em {_i_cb}, login em {_i_login}")
+    except (_Rerun, _Parou):
+        conta("Mercado Livre: a seção monta", True, "")
+    except Exception as e:
+        conta("Mercado Livre: a seção monta", False, f"{type(e).__name__}: {e}")
+    finally:
+        _adm_ml.st, _ml_t.credenciais, _ml_t._todas, _ml_t.convites, _ml_t._gravar_na_planilha = _g
+
+
+def _ranking_abre_panorama(conta):
+    """20/10: clicar numa linha do ranking abre o panorama aprovado. O
+    clique chega como `?pa_abrir=<código>` (conferido num Streamlit de
+    verdade: mesma aba, login e seção mantidos). As vendas pela
+    `linhas_da_base`; só a planilha é trocada."""
+    import datetime as _dt_r
+    import produtos_analise as _pa
+    import produtos_grupos as _pg_r
+    import auth as _au_r
+    _dono = sorted(_au_r.ADMINS_PADRAO)[0]
+    cab = ['Data', 'Plataforma', 'SKU', 'Produto', 'Quantidade', 'Custo Unitário', 'FAT TOTAL',
+           'DEVOLUÇÃO', 'MARGEM C.', 'LPV']
+    regs = [{"Data": _dt_r.datetime(2026, m, d), "Plataforma": "MercadoLivre1", "SKU": "MS-8936",
+             "Produto": "CINZEIRO TELESCÓPICO", "Quantidade": 1, "Custo Unitário": 89.36, "FAT TOTAL": 200.0,
+             "DEVOLUÇÃO": 0, "MARGEM C.": 45.0, "LPV": 18.0} for m in range(1, 10) for d in range(1, 6)]
+    linhas = _pa.linhas_da_base(regs, cab, {m: 18.0 for m in range(1, 10)}, 2026)
+    _g = (_pa.dados, _pa.st, _pg_r.carregar)
+    _md, _dlg = [], []
+    try:
+        f = instalar()
+        f.segmented_control = lambda rot, opcoes, default=None, **k: (f._registra("segmented_control", k), default)[1]
+        f.dialog = lambda titulo, *a, **k: (_dlg.append(titulo), (lambda fn: fn))[1]
+        f.columns = lambda spec, **k: [f] * (spec if isinstance(spec, int) else len(spec))
+        f.markdown = lambda t, *a, **k: _md.append(str(t))
+        _cod = _pa.codigo("CINZEIRO TELESCÓPICO")
+        f.query_params = {"_s": "tok", "secao": "gestao", "pa_abrir": _cod}
+        _pa.st = f
+        _pa.dados = lambda ano, hoje: (linhas, "")
+        _pg_r.carregar = lambda: ({"CINZEIRO TELESCÓPICO": {"produto": "CINZEIRO TELESCÓPICO", "nicho": "Tabacaria",
+                                                              "origem": "manual"}}, "")
+        _pa.pagina(_dono)
+        _j = " ".join(_md)
+        conta("Produtos: cada linha do ranking é um link que mantém login e seção (dono, 20/10)",
+              f'href="?_s=tok&amp;secao=gestao&amp;pa_abrir={_cod}"' in _j and 'target="_self"' in _j, "")
+        conta("Produtos: Por nicho com o nome das colunas e o R$ dos alertas dito lucro (dono, 20/10)",
+              all(x in _j for x in (">Fatia do lucro<", ">Faturamento<", ">Lucro<")) and "— lucro <b" in _j, "")
+        conta("Produtos: o clique (pa_abrir) abre o panorama do produto e sai do endereço",
+              "Panorama do produto" in _dlg and "PANORAMA DO PRODUTO" in _j
+              and "pa_abrir" not in f.query_params, str(_dlg))
+    except (_Rerun, _Parou):
+        conta("Produtos: ranking clicável — a tela monta", True, "")
+    except Exception as e:
+        conta("Produtos: ranking clicável — a tela monta", False, f"{type(e).__name__}: {e}")
+    finally:
+        _pa.dados, _pa.st, _pg_r.carregar = _g
+
+
 def main():
     instalar()
     falhas = []
@@ -3970,6 +4078,8 @@ def main():
     _gargalos_volume(conta)
     _faturamento_top5(conta)
     _produtos_nichos_padronizados(conta)
+    _mercado_livre_no_admin(conta)
+    _ranking_abre_panorama(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0

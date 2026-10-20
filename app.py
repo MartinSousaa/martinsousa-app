@@ -974,6 +974,24 @@ try:
 except Exception:
     pass  # o Bling nunca pode impedir o Studio de abrir
 
+# ── Volta da autorizacao do Mercado Livre ────────────────────────────────────
+# Mesma razao do Bling: antes do login, porque o `code` vence em minutos, e o
+# `state` gravado na planilha e quem protege a porta. A URI cadastrada no ML e
+# a raiz do Studio; `ml_api.eh_callback` reconhece o retorno pelo `state`.
+try:
+    import ml_api as _ml_cb
+    _conta_ml, _apelido_ml, _erro_ml = _ml_cb.processar_callback(st.query_params)
+    if _conta_ml:
+        st.success(f"Mercado Livre: **{_conta_ml.upper()}** ligada à conta "
+                   f"**{_apelido_ml or 'sem apelido'}**. Confira se é a conta certa. "
+                   "O token passa a se renovar sozinho.")
+        st.query_params.clear()
+    elif _erro_ml:
+        st.error(f"Mercado Livre: {_erro_ml}")
+        st.query_params.clear()
+except Exception:
+    pass  # o Mercado Livre nunca pode impedir o Studio de abrir
+
 usuario_logado = auth.verificar_login()
 
 # Comeca a contar esta passada. Toda ida a rede — Trello, planilha, RHiD — se

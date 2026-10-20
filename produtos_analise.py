@@ -33,6 +33,7 @@ primeira venda são do produto juntado — assim o anúncio novo de um produto
 velho não vira "novo com potencial".
 """
 
+import html
 import collections
 import hashlib
 import statistics
@@ -473,6 +474,29 @@ def _barrinhas(p, ate_mes):
     return f'<svg width="{8 * ate_mes}" height="24" style="background:{TILE}00">{r}</svg>'
 
 
+GRADE_NICHO = "display:grid;grid-template-columns:210px minmax(0,1fr) 100px 90px 52px;gap:12px;align-items:center"
+
+
+def _linhas_recorrentes(itens, ate_mes):
+    """As linhas do Dando certo / Dando errado, com o NOME de cada coluna
+    (dono, 20/10: "o que é esse gráfico amarelo? O em verde é lucro ou
+    faturamento? O número da ponta é a UC?"). Grade fixa: o cabeçalho fica
+    em cima da coluna que ele nomeia."""
+    from home_gestao import SEC, VERDE, VERMELHO
+    grade = f"display:grid;grid-template-columns:minmax(0,1fr) {8 * ate_mes}px 92px 52px;gap:12px;align-items:center"
+    # Títulos curtos (dono, 20/10: "resuma esses títulos: Pedidos / Lucro / UC").
+    cab = (f'<div style="{grade};font-size:11px;color:{SEC};letter-spacing:.04em;padding:6px 0 2px">'
+           f'<span>Produto</span><span style="text-align:center">Pedidos</span>'
+           f'<span style="text-align:right">Lucro</span><span style="text-align:center">UC</span></div>')
+    corpo = "".join(
+        f'<div class="pa-l" style="{grade}"><span class="pa-n">{n.title()}'
+        f'<br><span style="color:{SEC};font-size:11px">{p["v"]} pedidos · {volatilidade(p, ate_mes).lower()}</span></span>'
+        f'{_barrinhas(p, ate_mes)}<b style="color:{VERDE if p["lucro"] >= 0 else VERMELHO};text-align:right">{_brl(p["lucro"])}</b>'
+        f'<span style="text-align:center">{_chip_uc(p["ucv"])}</span></div>'
+        for n, p in itens)
+    return cab + corpo
+
+
 def _css():
     from home_gestao import CARTAO, BORDA, TILE, TEXTO, SEC
     return (f'<style>.pa-card{{background:{CARTAO};border:1px solid {BORDA};border-radius:16px;'
@@ -679,8 +703,21 @@ def panorama_html(linhas, produto, ate_mes, med=None, prim=None):
     return f'<div class="pa-card">{cab}{kps}{tab_per}{tab_pl}{graficos}{baixo}</div>'
 
 
-def _coluna_html(nome, sub, rk, n_vis, alvo):
-    """Uma das quatro colunas do ranking; `alvo` acende o produto buscado."""
+def link_do_produto(params, produto):
+    """O endereço que abre o panorama do produto: a página de agora (login,
+    seção e abas ficam nos parâmetros) mais `pa_abrir=<código>`. Pura."""
+    from urllib.parse import urlencode
+    p = {k: v for k, v in (params or {}).items() if k != "pa_abrir"}
+    p["pa_abrir"] = codigo(produto)
+    return "?" + urlencode(p)
+
+
+def _coluna_html(nome, sub, rk, n_vis, alvo, params=None):
+    """Uma das quatro colunas do ranking; `alvo` acende o produto buscado.
+
+    CADA LINHA É UM LINK (dono, 20/10: "quando clico em algum produto do
+    ranking não está abrindo a tela das informações dele"): clicar abre o
+    panorama aprovado, pelo `pa_abrir` que `pagina` lê."""
     from home_gestao import TILE, TEXTO, SEC, CARTAO, BORDA, VERDE, VERMELHO
     linhas = []
     top = rk[:20]
@@ -688,7 +725,9 @@ def _coluna_html(nome, sub, rk, n_vis, alvo):
         hl = alvo and k == alvo
         corte = "border-bottom:1px dashed #BF9A45aa;" if i == n_vis else ""
         med = {1: "#D4B26A", 2: "#C0C6CE", 3: "#B98A5E"}.get(i, "#5a5a5a")
+        href = html.escape(link_do_produto(params, k), quote=True)
         linhas.append(
+            f'<a href="{href}" target="_self" style="text-decoration:none;color:inherit;display:block">'
             f'<div style="display:flex;gap:8px;align-items:center;padding:0 6px;margin:3px 0;'
             f'height:{ALTURA_LINHA - 6}px;box-sizing:border-box;overflow:hidden;'
             f'border-radius:9px;background:{"#3a3324" if hl else TILE};'
@@ -701,7 +740,7 @@ def _coluna_html(nome, sub, rk, n_vis, alvo):
             f'<b style="color:{_cor_uc(p["ucv"])}">{_num(p["ucv"], 2)}</b> · lucro '
             f'<b style="color:{VERDE if p["lucro"] >= 0 else VERMELHO}">{_brl(p["lucro"])}</b></span></span>'
             f'<span style="font-family:monospace;font-size:10px;color:{"#BF9A45" if hl else "#7b7f86"}">'
-            f'{codigo(k)}</span></div>')
+            f'{codigo(k)}</span></div></a>')
     fixo = ""
     if alvo:
         nomes = [k for k, _ in rk]
@@ -802,19 +841,19 @@ def pagina(usuario_logado=None):
     with a1:
         st.markdown(_caixa(_hg.VERMELHO, f"● ATENÇÃO IMEDIATA · {nm_mes.upper()}",
                            f"<b>{len(crit)} produtos</b> com UC abaixo de {_num(UC_CRITICA, 1)} e "
-                           f"{PEDIDOS_RELEVANTES}+ pedidos — <b style='color:{_hg.VERMELHO}'>"
+                           f"{PEDIDOS_RELEVANTES}+ pedidos — lucro <b style='color:{_hg.VERMELHO}'>"
                            f"{_brl(sum(p['lucro'] for _, p in crit))}</b>",
                            f"UC média do mês {_num(ucm_mes, 2)} · {pct07 * 100:.0f}% das vendas abaixo de {_num(UC_CRITICA, 1)}",
-                           [(k.title(), f"{p['v']} ped. · UC {_num(p['ucv'], 2)} · {_brl(p['lucro'])}") for k, p in crit[:3]]),
+                           [(k.title(), f"{p['v']} ped. · UC {_num(p['ucv'], 2)} · lucro {_brl(p['lucro'])}") for k, p in crit[:3]]),
                     unsafe_allow_html=True)
         if crit and st.button(f"Ver os {len(crit)} ›", key="pa_v_crit"):
             _lista(f"Atenção imediata · {nm_mes}", crit, linhas, ate_mes, prim, med, "crit")
     with a2:
         st.markdown(_caixa(_hg.VERDE, f"● LUCRANDO FORTE · {nm_mes.upper()}",
                            f"<b>{len(dest)} produtos</b> com UC {_num(UC_DESTAQUE, 1)}+ e {PEDIDOS_RELEVANTES}+ pedidos — "
-                           f"<b style='color:{_hg.VERDE}'>{_brl(sum(p['lucro'] for _, p in dest))}</b>",
+                           f"lucro <b style='color:{_hg.VERDE}'>{_brl(sum(p['lucro'] for _, p in dest))}</b>",
                            "É o que vale reforçar: estoque, anúncio e exposição",
-                           [(k.title(), f"{p['v']} ped. · UC {_num(p['ucv'], 2)} · {_brl(p['lucro'])}") for k, p in dest[:3]]),
+                           [(k.title(), f"{p['v']} ped. · UC {_num(p['ucv'], 2)} · lucro {_brl(p['lucro'])}") for k, p in dest[:3]]),
                     unsafe_allow_html=True)
         if dest and st.button(f"Ver os {len(dest)} ›", key="pa_v_dest"):
             _lista(f"Lucrando forte · {nm_mes}", dest, linhas, ate_mes, prim, med, "dest")
@@ -876,7 +915,7 @@ def pagina(usuario_logado=None):
                                        (m2, "▼ Puxam a média para baixo", baixo, _hg.VERMELHO, "tira")):
         col.markdown(f'<div class="pa-card"><div style="font-size:12px;font-weight:800;letter-spacing:.08em;color:{cor}">{nome}</div>'
                      f'<div class="pa-s">UC média hoje: <b>{_num(ucm, 2)}</b> · "{sinal} 0,016" = quanto a média muda por causa dele</div>'
-                     + "".join(f'<div class="pa-l"><span class="pa-n">{n.title()} <span style="color:{_hg.SEC}">· {p["v"]} ped. · UC {_num(p["ucv"], 2)} · {_brl(p["lucro"])}</span></span>'
+                     + "".join(f'<div class="pa-l"><span class="pa-n">{n.title()} <span style="color:{_hg.SEC}">· {p["v"]} ped. · UC {_num(p["ucv"], 2)} · lucro {_brl(p["lucro"])}</span></span>'
                                f'<b style="color:{cor}">{sinal} {_num(abs(imp.get(n, 0)), 3)}</b></div>' for n, p in lst)
                      + '</div>', unsafe_allow_html=True)
 
@@ -888,11 +927,7 @@ def pagina(usuario_logado=None):
             (d2, "✕ Dando errado", f"UC abaixo de {_num(UC_RUIM, 1)} e {PEDIDOS_ERRADO}+ pedidos · do que mais perde", errado, _hg.VERMELHO, "errado")):
         with col:
             st.markdown(f'<div class="pa-card"><div class="pa-t" style="color:{cor}">{nome}</div><div class="pa-s">{sub}</div>'
-                        + "".join(f'<div class="pa-l" style="align-items:center"><span class="pa-n">{n.title()}'
-                                  f'<br><span style="color:{_hg.SEC};font-size:11px">{p["v"]} pedidos · {volatilidade(p, ate_mes).lower()}</span></span>'
-                                  f'{_barrinhas(p, ate_mes)}<b style="color:{_hg.VERDE if p["lucro"] >= 0 else _hg.VERMELHO}">{_brl(p["lucro"])}</b>{_chip_uc(p["ucv"])}</div>'
-                                  for n, p in lst[:5])
-                        + '</div>', unsafe_allow_html=True)
+                        + _linhas_recorrentes(lst[:5], ate_mes) + '</div>', unsafe_allow_html=True)
             if lst and st.button(f"Ver todos ({len(lst)}) ›", key=f"pa_v_{ch}"):
                 _lista(nome, lst[:200], linhas, ate_mes, prim, med, ch)
 
@@ -903,11 +938,16 @@ def pagina(usuario_logado=None):
         st.markdown('<div class="pa-card"><div class="pa-t">Por nicho</div>'
                     '<div class="pa-s">Os produtos somados pelo nicho que a IA deu ao título (você corrige em '
                     '«Títulos e nichos», no fim da página) · do que mais lucra ao que menos</div>'
-                    + "".join(f'<div class="pa-l" style="align-items:center"><span class="pa-n" style="width:210px;flex:none">{nm}'
+                    # Títulos das colunas (dono, 20/10): a barra é a fatia do lucro.
+                    + f'<div class="pa-l" style="{GRADE_NICHO};font-size:11px;color:{_hg.SEC};border-top:none">'
+                      f'<span>Nicho</span><span>Fatia do lucro</span><span style="text-align:right">Faturamento</span>'
+                      f'<span style="text-align:right">Lucro</span><span style="text-align:center">UC</span></div>'
+                    + "".join(f'<div class="pa-l" style="{GRADE_NICHO}"><span class="pa-n">{nm}'
                               f'<br><span style="color:{_hg.SEC};font-size:11px">{len(n["produtos"])} produtos · {_num(n["v"])} vendas</span></span>'
-                              f'<span style="flex:1;height:8px;background:{_hg.TILE};border-radius:4px;overflow:hidden">'
+                              f'<span style="height:8px;background:{_hg.TILE};border-radius:4px;overflow:hidden">'
                               f'<span style="display:block;height:8px;width:{max(n["lucro"], 0) / tl * 100:.0f}%;background:#BF9A45"></span></span>'
-                              f'<b>{_brl(n["fat"])}</b><b style="color:{_hg.VERDE if n["lucro"] >= 0 else _hg.VERMELHO}">{_brl(n["lucro"])}</b>{_chip_uc(n["ucv"])}</div>'
+                              f'<b style="text-align:right">{_brl(n["fat"])}</b><b style="text-align:right;color:{_hg.VERDE if n["lucro"] >= 0 else _hg.VERMELHO}">{_brl(n["lucro"])}</b>'
+                              f'<span style="text-align:center">{_chip_uc(n["ucv"])}</span></div>'
                               for nm, n in nichos) + '</div>', unsafe_allow_html=True)
         esc_n = st.selectbox("Ver os produtos de um nicho", [""] + [nm for nm, _ in nichos], key="pa_nicho")
         if esc_n:
@@ -934,13 +974,26 @@ def pagina(usuario_logado=None):
               ("Semestre", f"{sem}º semestre", meses_do_recorte("Semestre", sem)),
               ("Trimestre", f"{tri_ref}º trimestre", meses_do_recorte("Trimestre", tri_ref)),
               ("Mês", MES_CURTO[mes_ref - 1], {mes_ref}))
+    try:
+        _params = {k: st.query_params[k] for k in st.query_params}
+    except Exception:
+        _params = {}
+    # O CLIQUE NA LINHA DO RANKING chega como `?pa_abrir=<código>`: lido uma
+    # vez e tirado do endereço, para fechar o panorama não reabri-lo.
+    _abrir = por_codigo.get(str(_params.get("pa_abrir", "")).strip().upper())
+    if "pa_abrir" in _params:
+        try:
+            del st.query_params["pa_abrir"]
+        except Exception:
+            pass
     for col, (nome, sub, ms) in zip(st.columns(4), quatro):
-        col.markdown(_coluna_html(nome, sub, ranking(agregar(linhas, ms, plat, med)), TOP_VISIVEL, alvo),
+        col.markdown(_coluna_html(nome, sub, ranking(agregar(linhas, ms, plat, med)), TOP_VISIVEL, alvo, _params),
                      unsafe_allow_html=True)
     escolha = st.selectbox("Abrir o panorama de um produto", [""] + [n for n, _ in ranking(P)[:300]],
                            format_func=lambda n: "" if not n else f"{codigo(n)} · {n.title()}", key="pa_pan")
     if alvo and st.button(f"Abrir o panorama de {codigo(alvo)}", key="pa_pan_busca"):
         escolha = alvo
+    escolha = escolha or _abrir
     if escolha:
         @st.dialog("Panorama do produto", width="large")
         def _pan():
@@ -1105,6 +1158,13 @@ if __name__ == "__main__":
     ok("dinheiro no formato R$ 1.234,57, com o sinal do negativo na frente",
        _brl(1234.567, 2) == "R$ 1.234,57" and _brl(-1234) == "−R$ 1.234")
     _tv = top_vendidos(L, 2)
+    _lr = _linhas_recorrentes(list(A.items())[:1], 9)
+    ok("Dando certo/errado: cada coluna tem nome curto — Pedidos, Lucro e UC (dono, 20/10)",
+       all(f">{x}</span>" in _lr for x in ("Produto", "Pedidos", "Lucro", "UC")))
+    _lk = link_do_produto({"_s": "tok", "secao": "gestao", "pa_abrir": "VELHO"}, "CINZEIRO TELESCÓPICO")
+    ok("o link da linha leva login e seção, e troca o pa_abrir pelo código do produto",
+       _lk.startswith("?") and "_s=tok" in _lk and "secao=gestao" in _lk
+       and f"pa_abrir={codigo('CINZEIRO TELESCÓPICO')}" in _lk and "VELHO" not in _lk)
     ok("top vendidos: pela quantidade de vendas, com a UC e o % do faturamento",
        _tv[0][0] == "KIT COM 3 ESTÁTUAS" and _tv[0][1] == 108
        and abs(_tv[0][3] - sum(x["fat"] for x in L if x["produto"] == "KIT COM 3 ESTÁTUAS"

@@ -498,6 +498,64 @@ def _secao_equipe():
 
 
 
+def _secao_mercado_livre():
+    """Mercado Livre: autorizar ML1 a ML4 e conferir a leitura dos convites
+    de promoção (dono, 20/10). Só leitura nesta versão."""
+    import ml_api as _ml
+    st.markdown("#### 🛒 Mercado Livre — autorização das quatro contas")
+    st.caption("Um aplicativo (Sistema MS), autorizado uma vez em cada conta. "
+               "Nesta versão o Studio só LÊ — as promoções vêm depois de a "
+               "leitura ser conferida com dado real.")
+    with st.expander("Abrir autorização", expanded=False):
+        if not _ml.configurado():
+            st.warning("Faltam `ML_CLIENT_ID` e `ML_CLIENT_SECRET` nas Variáveis do Railway.")
+            return
+        st.info("O Mercado Livre autoriza a conta que está **logada no navegador**. "
+                "Antes de cada link, entre na conta certa no mercadolivre.com.br "
+                "(saia da anterior). Depois, confira o apelido que aparece aqui.")
+        _ests = _ml.estados()
+        for _conta in _ml.CONTAS:
+            _est = _ests[_conta]
+            _rot = f"**{_conta.upper()}** · {_ml.CNPJ_DA_CONTA.get(_conta, '')}"
+            if _est.get("situacao") == "autorizada":
+                st.success(f"{_rot} · ligada a **{_est.get('apelido') or '?'}** "
+                           f"(id {_est.get('user_id') or '?'}) · token vence em "
+                           f"{_est.get('minutos_para_vencer', 0):.0f} min e renova sozinho")
+            else:
+                st.markdown(f"{_rot} · não autorizada")
+            if st.button(f"Gerar link de autorização — {_conta.upper()}", key=f"ml_autorizar_{_conta}"):
+                _url, _erro = _ml.url_de_autorizacao(_conta)
+                if _erro:
+                    st.error(_erro)
+                else:
+                    st.markdown(f"[Abrir a autorização do Mercado Livre — {_conta.upper()}]({_url})")
+
+        st.markdown("---")
+        st.markdown("**Conferir a leitura das promoções**")
+        st.caption("Chama `GET /seller-promotions/users/{id}` e mostra quantas "
+                   "promoções a conta tem disponíveis, por tipo.")
+        _autorizadas = [c for c in _ml.CONTAS if _ests[c].get("situacao") == "autorizada"]
+        if not _autorizadas:
+            st.caption("Autorize ao menos uma conta para conferir.")
+            return
+        _c = st.radio("Conta", _autorizadas, horizontal=True, format_func=str.upper, key="ml_teste_conta")
+        if st.button("Ler promoções agora", key="ml_teste_ler"):
+            _lista, _err = _ml.convites(_c)
+            if _err:
+                st.error(_err)
+            else:
+                st.success(f"{len(_lista)} promoção(ões) disponível(is) na {_c.upper()}.")
+                if _lista:
+                    _tipos = {}
+                    for _p in _lista:
+                        _t = str((_p or {}).get("type", "?")) if isinstance(_p, dict) else "?"
+                        _tipos[_t] = _tipos.get(_t, 0) + 1
+                    st.write(_tipos)
+                    if isinstance(_lista[0], dict):
+                        st.caption("Campos de uma promoção:")
+                        st.code(", ".join(sorted(_lista[0].keys())), language=None)
+
+
 def pagina_admin(usuario_logado):
     # eh_dono, nao eh_gestor: esta tela cria, desativa e reseta a senha de
     # qualquer pessoa. `eh_gestor` responde pelo secret ADMINS, e esse secret
@@ -1106,6 +1164,8 @@ def pagina_admin(usuario_logado):
     # A equipe medida fica no FIM, e nao no topo: quem abre o Administrativo
     # quase sempre vem criar ou resetar um login. O cadastro de equipe e mais
     # raro — contratacao — e nao pode empurrar o comum para baixo da dobra.
+    st.markdown("---")
+    _secao_mercado_livre()
     st.markdown("---")
     _secao_controle_ms()
     st.markdown("---")
