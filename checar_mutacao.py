@@ -3596,8 +3596,22 @@ MUTACOES = [
     (
         "os impostos mensais do dia 20 somem dos lembretes da Home",
         "lembretes.py",
-        '    ("impostos_20", "Impostos mensais", ("dia", 20), "todo dia 20"),\n',
+        '    ("impostos_20", "Demais impostos", ("dia_adia", 20), "dia 20 · sem dia útil, adia"),\n',
         "",
+        ["python3", "lembretes.py"],
+    ),
+    (
+        "o DAS volta a cair no fim de semana em vez de antecipar",
+        "lembretes.py",
+        '("das_20", "DAS", ("dia_antecipa", 20)',
+        '("das_20", "DAS", ("dia", 20)',
+        ["python3", "lembretes.py"],
+    ),
+    (
+        "os demais impostos antecipam como o DAS em vez de adiar",
+        "lembretes.py",
+        '                    d = dia_util_seguinte(d)\n',
+        '                    d = dia_util_anterior(d)\n',
         ["python3", "lembretes.py"],
     ),
     (
