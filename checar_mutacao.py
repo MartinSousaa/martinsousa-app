@@ -3291,10 +3291,10 @@ MUTACOES = [
         ['python3', 'home_gestao.py'],
     ),
     (
-        'as devolucoes voltam a subir para baixo do balanco (o dono nao pediu, 20/10)',
+        'a meta de gastos sai de baixo do balanco e as devolucoes de baixo dos indicadores (print do dono, 20/10)',
         'home_gestao.py',
+        "            'grid-template-areas:\\'fat ind\\' \\'gas dev\\';'\n",
         "            'grid-template-areas:\\'fat ind\\' \\'fat gas\\' \\'dev dev\\';'\n",
-        "            'grid-template-areas:\\'fat ind\\' \\'dev gas\\';'\n",
         ['python3', 'home_gestao.py'],
     ),
     (
@@ -3718,6 +3718,27 @@ MUTACOES = [
         "                      f'<span>Nicho</span><span>Fatia do lucro</span><span style=\"text-align:right\">Faturamento</span>'\n",
         "                      f'<span>Nicho</span><span></span><span style=\"text-align:right\"></span>'\n",
         ["python3", "checar_tela.py"],
+    ),
+    (
+        "clicar numa linha dos gastos da Home volta a nao abrir o consolidado",
+        "home_gestao.py",
+        "        _abrir_linha_gastos(_abrir, d[\"ano\"], d[\"mes\"])\n",
+        "        pass\n",
+        ["python3", "home_gestao.py"],
+    ),
+    (
+        "as linhas da meta de gastos voltam a ser so desenho, sem link",
+        "home_gestao.py",
+        "        return (f'<a href=\"{link_da_linha(params, chave)}\" target=\"_self\" '\n",
+        "        return (f'<a data-x=\"{chave}\" '\n",
+        ["python3", "home_gestao.py"],
+    ),
+    (
+        "o consolidado de fixos volta a misturar todas as finalidades",
+        "home_gestao.py",
+        '        return (LINHAS_DO_QUADRO[chave], comb({"CUSTO FIXO", "FOLHA", "NÃO OPERACIONAL"}),\n',
+        '        return (LINHAS_DO_QUADRO[chave], comb(),\n',
+        ["python3", "home_gestao.py"],
     ),
     (
         "o DAS volta a cair no fim de semana em vez de antecipar",
