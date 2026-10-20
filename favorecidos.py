@@ -64,10 +64,9 @@ FINALIDADES_BASE = (
     # desta lista, a coluna de seleção do Streamlit mostra a célula EM BRANCO
     # mesmo com o valor gravado — o dono viu os cheques compensados "sem
     # finalidade" em 20/10, e eles estavam como CHEQUES.
-    # TARIFA BANCÁRIA fica de fora até o dono dizer se é fixo ou variável:
-    # na base, ela precisaria de um lado na conta do LPV (`composicao.lado`).
-    # A coluna do mês a mostra assim mesmo (`extratos_tela.opcoes_do_mes`).
-    "CHEQUES", "FATURA DO CARTÃO", "BOLETO",
+    # TARIFA BANCÁRIA entrou em 20/10, quando o dono disse que é custo fixo
+    # (`composicao.NUMERADOR`).
+    "CHEQUES", "FATURA DO CARTÃO", "BOLETO", "TARIFA BANCÁRIA",
 )
 
 

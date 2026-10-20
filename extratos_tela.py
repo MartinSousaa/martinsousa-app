@@ -1790,9 +1790,7 @@ if __name__ == "__main__":
        len({chave_do_item(i) for i in _pix}) == 2)
     import favorecidos as _fv_t
     ok("toda finalidade que o extrato dá sozinho existe nas opções (senão a célula aparece em branco)",
-       set(POR_TIPO.values()) - {"TARIFA BANCÁRIA"} <= set(_fv_t.finalidades_conhecidas({}))
-       and "TARIFA BANCÁRIA" in opcoes_do_mes(_fv_t.finalidades_conhecidas({}),
-                                              [{"finalidade": "TARIFA BANCÁRIA"}]))
+       set(POR_TIPO.values()) <= set(_fv_t.finalidades_conhecidas({})))
     ok("as opções do mês incluem o que já está gravado, mesmo fora da lista",
        "XPTO" in opcoes_do_mes(["MERCADORIA"], [{"finalidade": "XPTO"}, {"finalidade": ""}])
        and "" not in opcoes_do_mes(["MERCADORIA"], [{"finalidade": ""}]))

@@ -14,7 +14,8 @@ DE ONDE VEM CADA LEMBRETE
     Salários             todo dia 30 (fevereiro: o último)    REGRAS
     Bônus headcount      5º dia útil — seg a sex, sem feriado REGRAS
     TM Logística         dias 05 e 20                         REGRAS
-    Impostos mensais     todo dia 20 (dono, 20/10)            REGRAS
+    DAS                  dia 20; sem dia útil, o ANTERIOR     REGRAS
+    Demais impostos      dia 20; sem dia útil, o SEGUINTE     REGRAS
     Boletos              os em aberto da aba Boletos          `cheques`
     Não operacional      o dia do débito de cada contrato     `nao_operacional`
                          ativo no mês, com a conta de onde ele sai
@@ -44,7 +45,9 @@ COLUNAS = ["chave", "vencimento", "feito_em", "feito_por"]
 DIAS_PARA_FRENTE = 31
 DIAS_PARA_TRAS = 5
 
-# (id, nome, regra, detalhe). A regra: ("dia", n) | ("dia_util", n).
+# (id, nome, regra, detalhe). A regra: ("dia", n) | ("dia_util", n)
+# | ("dia_antecipa", n) | ("dia_adia", n) — o dia n, ou, quando ele não é dia
+# útil, o dia útil anterior / seguinte.
 REGRAS = [
     ("bling", "Bling", ("dia", 10), "todo dia 10"),
     ("salarios", "Salários", ("dia", 30), "todo dia 30"),
@@ -53,7 +56,10 @@ REGRAS = [
     ("tm_20", "TM Logística", ("dia", 20), "dias 05 e 20"),
     # Dono, 20/10: "não me alertou sobre o pagamento dos impostos mensais que
     # vencem todo dia 20". Faltava na lista desde o dia em que ela nasceu.
-    ("impostos_20", "Impostos mensais", ("dia", 20), "todo dia 20"),
+    # Dono, 20/10, de novo: "o DAS antecipa para o dia anterior, porém o
+    # restante dos impostos caem para o dia seguinte".
+    ("das_20", "DAS", ("dia_antecipa", 20), "dia 20 · sem dia útil, antecipa"),
+    ("impostos_20", "Demais impostos", ("dia_adia", 20), "dia 20 · sem dia útil, adia"),
 ]
 
 
@@ -110,7 +116,14 @@ def das_regras(inicio, fim):
     fora = []
     for a, m in _meses(inicio, fim):
         for id_, nome, (tipo, n), det in REGRAS:
-            d = dia_util(a, m, n) if tipo == "dia_util" else _dia_no_mes(a, m, n)
+            if tipo == "dia_util":
+                d = dia_util(a, m, n)
+            else:
+                d = _dia_no_mes(a, m, n)
+                if tipo == "dia_antecipa":
+                    d = dia_util_anterior(d)
+                elif tipo == "dia_adia":
+                    d = dia_util_seguinte(d)
             if d and inicio <= d <= fim:
                 fora.append({"chave": f"{id_}|{d.isoformat()}", "data": d,
                              "nome": nome, "detalhe": det})
@@ -174,6 +187,24 @@ def pendentes(hoje, feitos, boletos=(), nao_op=()):
         x["dias"] = (x["data"] - hoje).days
         fora.append(x)
     return sorted(fora, key=lambda x: (x["data"], x["nome"]))
+
+
+def _eh_util(d):
+    return d.weekday() < 5 and d not in feriados_nacionais(d.year)
+
+
+def dia_util_anterior(d):
+    """`d` se for dia útil; senão o último dia útil ANTES dele."""
+    while not _eh_util(d):
+        d -= timedelta(days=1)
+    return d
+
+
+def dia_util_seguinte(d):
+    """`d` se for dia útil; senão o primeiro dia útil DEPOIS dele."""
+    while not _eh_util(d):
+        d += timedelta(days=1)
+    return d
 
 
 def proximo_dia_util(d):
@@ -401,9 +432,21 @@ if __name__ == "__main__":
     # IMPOSTOS DO DIA 20 (20/10): na segunda 19/10 o próximo dia útil é a
     # terça 20/10, e o lembrete dos impostos tem de estar na Home.
     _imp = [x for x in para_mostrar(pendentes(date(2026, 10, 19), frozenset()), date(2026, 10, 19))
-            if x["nome"] == "Impostos mensais"]
-    ok("os impostos mensais do dia 20 aparecem no dia útil anterior",
-       len(_imp) == 1 and _imp[0]["data"] == date(2026, 10, 20))
+            if x["nome"] in ("DAS", "Demais impostos")]
+    ok("os impostos do dia 20 aparecem no dia útil anterior (DAS e demais)",
+       sorted(x["nome"] for x in _imp) == ["DAS", "Demais impostos"]
+       and all(x["data"] == date(2026, 10, 20) for x in _imp))
+    # FIM DE SEMANA (20/10): 20/12/2026 é domingo. O DAS antecipa para a
+    # sexta 18/12; os demais adiam para a segunda 21/12. Pela cadeia das REGRAS.
+    _dez = {x["nome"]: x["data"] for x in das_regras(date(2026, 12, 1), date(2026, 12, 31))
+            if x["nome"] in ("DAS", "Demais impostos")}
+    ok("dia 20 no domingo: DAS antecipa para sex 18/12, demais adiam para seg 21/12",
+       _dez == {"DAS": date(2026, 12, 18), "Demais impostos": date(2026, 12, 21)})
+    ok("dia 20 em dia útil não mexe: ter 20/10 fica 20/10 nos dois sentidos",
+       dia_util_anterior(date(2026, 10, 20)) == dia_util_seguinte(date(2026, 10, 20)) == date(2026, 10, 20))
+    ok("feriado também desloca: sex 20/11 (Consciência Negra) → DAS qui 19/11, demais seg 23/11",
+       (dia_util_anterior(date(2026, 11, 20)), dia_util_seguinte(date(2026, 11, 20)))
+       == (date(2026, 11, 19), date(2026, 11, 23)))
 
     print(f"\nfalhas: {falhas}")
     sys.exit(1 if falhas else 0)

@@ -158,6 +158,88 @@ def juntar_pendentes(mapa, pendentes, classificar_=None, salvar_=None, limite=AU
     return novo, feitos, erro
 
 
+# ── SEGUNDA PASSADA: UM NICHO POR PRODUTO (dono, 20/10) ─────────────────────
+# A primeira passada escolhe o nicho DENTRO de cada custo, e o mesmo tipo de
+# produto em custos diferentes caía em nichos diferentes ("Alicate furador"
+# em Artesanato num custo e em Outros noutro). Esta passada olha os NOMES DE
+# PRODUTO todos juntos, sem o custo, e dá um nicho só a cada um. O título que
+# passou por ela vira origem PADRONIZADO; título novo entra como "ia" e é
+# padronizado na abertura seguinte. Correção manual nunca é tocada.
+PADRONIZADO = "ia-nicho"
+NICHO_POR_CHAMADA = 150
+
+
+def nichos_pendentes(mapa):
+    """Nomes de produto com algum título ainda não padronizado. Pura."""
+    return sorted({g["produto"] for g in mapa.values() if g.get("origem") == "ia"})
+
+
+def prompt_nichos(nomes):
+    lista = "\n".join(f"{i}. {n}" for i, n in enumerate(nomes))
+    return (
+        "Estes são produtos de uma loja de marketplace. Dê a cada um o nicho, "
+        "escolhido EXATAMENTE desta lista: " + ", ".join(NICHOS) + ". "
+        "Produtos do mesmo tipo ficam SEMPRE no mesmo nicho, qualquer que seja o "
+        "nome. Use Outros só quando nenhum nicho da lista servir.\n\n"
+        "Responda só com JSON, sem texto em volta, no formato:\n"
+        '{"0": "Decoração", "1": "Jogos"}\n'
+        "Todo índice tem de aparecer.\n\n" + lista)
+
+
+def ler_nichos(texto, nomes):
+    """{nome: nicho} da resposta. Pura. Nicho fora da lista vira Outros;
+    nome que a IA esqueceu fica de fora (segue como estava, e volta depois)."""
+    m = re.search(r"\{.*\}", texto or "", re.S)
+    try:
+        d = json.loads(m.group(0)) if m else {}
+    except (ValueError, TypeError):
+        d = {}
+    fora = {}
+    for k, v in (d.items() if isinstance(d, dict) else []):
+        try:
+            i = int(k)
+        except (TypeError, ValueError):
+            continue
+        if 0 <= i < len(nomes):
+            fora[nomes[i]] = v if v in NICHOS else "Outros"
+    return fora
+
+
+def padronizar(mapa, nicho_de):
+    """O mapa com o nicho de cada produto aplicado a todos os títulos "ia"
+    dele, que passam a PADRONIZADO. Manual não muda. Pura."""
+    fora = {}
+    for t, g in mapa.items():
+        if g.get("origem") == "ia" and g["produto"] in nicho_de:
+            g = dict(g, nicho=nicho_de[g["produto"]], origem=PADRONIZADO)
+        fora[t] = g
+    return fora
+
+
+def padronizar_pendentes(mapa, chamar=None, salvar_=None, limite=AUTO_LOTES):
+    """(mapa_novo, produtos_padronizados, erro). Até `limite` chamadas."""
+    chamar = chamar or _chamar_ia
+    salvar_ = salvar_ or salvar
+    # Produto com algum título corrigido à mão: o nicho do dono vale para os
+    # outros títulos dele, sem perguntar à IA.
+    do_dono = {g["produto"]: g["nicho"] for g in mapa.values() if g.get("origem") == "manual"}
+    novo = padronizar(mapa, do_dono)
+    antes = set(nichos_pendentes(mapa))
+    feitos, erro = sum(1 for p in do_dono if p in antes), ""
+    nomes = nichos_pendentes(novo)
+    for i in range(0, min(len(nomes), limite * NICHO_POR_CHAMADA), NICHO_POR_CHAMADA):
+        lote = nomes[i:i + NICHO_POR_CHAMADA]
+        texto, erro = chamar(prompt_nichos(lote))
+        if erro:
+            break
+        nicho_de = ler_nichos(texto, lote)
+        novo = padronizar(novo, nicho_de)
+        feitos += len(nicho_de)
+    if feitos:
+        salvar_(novo)
+    return novo, feitos, erro
+
+
 def aplicar(linhas, mapa):
     """As vendas com `produto` = o produto juntado e `nicho`. Pura.
 
@@ -298,5 +380,48 @@ if __name__ == "__main__":
        POR_CHAMADA == 60 and all(len(l) <= POR_CHAMADA for l in
                                  lotes_pendentes([{"produto": f"T{i}", "custo_un": 1} for i in range(130)], {})))
     ok("norm colapsa espaços e põe em caixa alta", norm("  kit  com 3 ") == "KIT COM 3")
+
+    # SEGUNDA PASSADA (20/10). O mapa na forma que `carregar` devolve:
+    # {título: {produto, nicho, origem}}. O alicate furador em dois custos,
+    # com dois nichos, que é o caso que o dono viu.
+    _mp = {"ALICATE FURADOR COURO 6 FUROS": {"produto": "ALICATE FURADOR", "nicho": "Artesanato e Scrapbook", "origem": "ia"},
+           "ALICATE VAZADOR PARA CINTO": {"produto": "ALICATE FURADOR", "nicho": "Outros", "origem": "ia"},
+           "XADREZ MAGNÉTICO": {"produto": "XADREZ", "nicho": "Outros", "origem": "manual"},
+           "BENGALA 3 APOIOS": {"produto": "BENGALA", "nicho": "Saúde e Mobilidade", "origem": PADRONIZADO}}
+    ok("pendentes: só produto com título 'ia' — manual e já padronizado ficam fora",
+       nichos_pendentes(_mp) == ["ALICATE FURADOR"])
+    ok("o prompt da passada lista os nomes e os nichos, sem o custo",
+       "0. ALICATE FURADOR" in prompt_nichos(["ALICATE FURADOR"]) and "Tabacaria" in prompt_nichos(["X"]))
+    ok("ler_nichos: fora da lista vira Outros; índice inválido e resposta quebrada não derrubam",
+       ler_nichos('ok {"0": "Inventado", "7": "Jogos", "x": "Jogos"}', ["A"]) == {"A": "Outros"}
+       and ler_nichos("não sei", ["A"]) == {})
+    _salvo = []
+    _np, _nf, _ne = padronizar_pendentes(
+        _mp, chamar=lambda p: ('{"0": "Artesanato e Scrapbook"}', ""), salvar_=_salvo.append)
+    ok("padronizar: os dois títulos do alicate ficam no MESMO nicho e viram padronizado",
+       {_np[t]["nicho"] for t in ("ALICATE FURADOR COURO 6 FUROS", "ALICATE VAZADOR PARA CINTO")}
+       == {"Artesanato e Scrapbook"}
+       and {_np[t]["origem"] for t in ("ALICATE FURADOR COURO 6 FUROS", "ALICATE VAZADOR PARA CINTO")}
+       == {PADRONIZADO} and _nf == 1 and len(_salvo) == 1 and not _ne)
+    ok("padronizar: a correção manual do dono não muda",
+       _np["XADREZ MAGNÉTICO"] == _mp["XADREZ MAGNÉTICO"])
+    ok("depois de padronizar, nada fica pendente (não chama a IA de novo)", nichos_pendentes(_np) == [])
+    _salvo.clear()
+    _np2, _nf2, _ne2 = padronizar_pendentes(_mp, chamar=lambda p: ("", "sem chave"), salvar_=_salvo.append)
+    ok("padronizar: erro da IA não salva nada e devolve o erro", _salvo == [] and _ne2 == "sem chave" and _np2 == _mp)
+    _ch = []
+    padronizar_pendentes({f"T{i}": {"produto": f"P{i}", "nicho": "Outros", "origem": "ia"} for i in range(1000)},
+                         chamar=lambda p: (_ch.append(p), ("{}", ""))[1], salvar_=lambda m: None, limite=2)
+    ok("padronizar: no máximo `limite` chamadas por abertura", len(_ch) == 2)
+    _mp3 = {"XADREZ DE MADEIRA": {"produto": "XADREZ", "nicho": "Decoração", "origem": "ia"},
+            "XADREZ MAGNÉTICO": {"produto": "XADREZ", "nicho": "Jogos", "origem": "manual"}}
+    _ch.clear()
+    _np3, _nf3, _ = padronizar_pendentes(_mp3, chamar=lambda p: (_ch.append(p), ("{}", ""))[1], salvar_=lambda m: None)
+    ok("padronizar: produto com título corrigido à mão herda o nicho do dono, sem chamar a IA",
+       _np3["XADREZ DE MADEIRA"]["nicho"] == "Jogos" and _ch == [] and _nf3 == 1)
+    # PELA CADEIA: a mesma aba de `mesclar`, depois `aplicar` nas vendas.
+    _ap = aplicar([{"produto": "ALICATE VAZADOR PARA CINTO", "custo_un": 9.0}], _np)
+    ok("pela cadeia: a venda do título do outro custo sai no nicho padronizado",
+       _ap[0]["nicho"] == "Artesanato e Scrapbook" and _ap[0]["produto"] == "ALICATE FURADOR")
 
     raise SystemExit(1 if falhas else 0)
