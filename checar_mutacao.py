@@ -2450,7 +2450,7 @@ MUTACOES = [
     (
         "o Ja gasto volta a nao dizer do que e feito",
         "home_gestao.py",
-        '        + _composicao(q.get("ja_por"))\n',
+        '        + _composicao(q.get("ja_por"), params=params)\n',
         '        + ""\n',
         ["python3", "home_gestao.py"],
     ),
