@@ -3741,6 +3741,20 @@ MUTACOES = [
         ["python3", "home_gestao.py"],
     ),
     (
+        "no celular a barra lateral volta a deixar uma faixa por cima do conteudo",
+        "app.py",
+        '  section[data-testid="stSidebar"][aria-expanded="false"] {\n    transform: translateX(-110%) !important;\n',
+        '  section[data-testid="stSidebar"][aria-expanded="false"] {\n',
+        ["python3", "checar_tela.py"],
+    ),
+    (
+        "no celular o botao de abrir a barra lateral volta a ficar escondido",
+        "app.py",
+        '  header[data-testid="stHeader"] {\n    display: block !important;\n',
+        '  header[data-testid="stHeader"] {\n',
+        ["python3", "checar_tela.py"],
+    ),
+    (
         "o DAS volta a cair no fim de semana em vez de antecipar",
         "lembretes.py",
         '("das_20", "DAS", ("dia_antecipa", 20)',
