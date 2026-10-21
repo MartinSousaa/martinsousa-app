@@ -498,6 +498,42 @@ def _secao_equipe():
 
 
 
+def _secao_rastreio_etiquetas():
+    """Quem colocou e quem tirou cada etiqueta de um cartão (dono, 21/10: um
+    colaborador pôs INTERROMPIDO e, na volta, o cartão estava EM ANDAMENTO;
+    a tela do Trello não mostra troca de etiqueta neste board). Só lê; só
+    consulta o Trello no clique."""
+    import pandas as pd
+    import placar_core as _pc
+    st.markdown("#### 🔎 Rastrear etiquetas de um cartão")
+    st.caption("Quem colocou e quem tirou cada etiqueta, e quando — dos últimos 120 dias.")
+    busca = st.text_input("Nome do cartão (ou parte dele)", key="rast_busca")
+    if not st.button("Rastrear", key="rast_ok") or not busca.strip():
+        return
+    try:
+        _listas, cards, membros_map, *_ = _pc._buscar_board()
+        alvo = " ".join(busca.upper().split())
+        achados = [c for c in (cards or []) if alvo in " ".join(str(c.get("name") or "").upper().split())]
+        if not achados:
+            st.info("Nenhum cartão aberto com esse nome.")
+            return
+        acoes = _pc._buscar_acoes_board(_pc._desde_padrao())
+        _pc._detectar_alinhamento(cards, acoes)
+        nomes = _pc.mapa_labels()
+    except Exception as e:
+        st.error(f"Não consegui ler o Trello: {str(e)[:140]}")
+        return
+    for c in achados[:5]:
+        hist = _pc.historico_de_etiquetas(acoes.get(c["id"], []), _pc.labels_do_card(c), nomes, membros_map)
+        st.markdown(f"**{c.get('name', '')}**")
+        if hist:
+            st.dataframe(pd.DataFrame(hist), use_container_width=True, hide_index=True)
+        else:
+            st.caption("Nenhuma troca de etiqueta registrada nos últimos 120 dias.")
+    if len(achados) > 5:
+        st.caption(f"Mais {len(achados) - 5} cartões com esse nome — escreva mais do nome para afunilar.")
+
+
 def _secao_mercado_livre():
     """Mercado Livre: autorizar ML1 a ML4 e conferir a leitura dos convites
     de promoção (dono, 20/10). Só leitura nesta versão."""
@@ -1164,6 +1200,8 @@ def pagina_admin(usuario_logado):
     # A equipe medida fica no FIM, e nao no topo: quem abre o Administrativo
     # quase sempre vem criar ou resetar um login. O cadastro de equipe e mais
     # raro — contratacao — e nao pode empurrar o comum para baixo da dobra.
+    st.markdown("---")
+    _secao_rastreio_etiquetas()
     st.markdown("---")
     _secao_mercado_livre()
     st.markdown("---")

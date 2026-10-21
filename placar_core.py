@@ -851,11 +851,13 @@ def _paginas_para(desde_iso):
 # Campos que realmente usamos de cada acao. Sem isto o Trello manda junto o autor
 # inteiro de cada uma das mil acoes da pagina — payload varias vezes maior para
 # baixar e desserializar, em cada uma das paginas.
-CAMPOS_ACAO = {"fields": "type,date,data", "memberCreator": "false",
+# O AUTOR (idMemberCreator) ENTROU EM 21/10: o dono precisou saber QUEM tirou
+# o INTERROMPIDO de um cartão, e a tela do Trello não mostra troca de etiqueta
+# neste board. É um id curto por ação — o autor inteiro continua de fora
+# (memberCreator=false), que era o peso de verdade.
+CAMPOS_ACAO = {"fields": "type,date,data,idMemberCreator", "memberCreator": "false",
                "reactions": "false"}
-# A consulta de criacao pede um campo a mais: o autor. Ele nao entra em
-# CAMPOS_ACAO porque as outras consultas nao o usam, e cada campo a mais e peso
-# em paginas de mil acoes.
+# A consulta de criacao ja pedia o autor antes de CAMPOS_ACAO pedir.
 CAMPOS_ACAO_CRIACAO = {"fields": "type,date,data,idMemberCreator",
                        "memberCreator": "false", "reactions": "false"}
 
@@ -1269,8 +1271,9 @@ def labels_do_card(card):
     return [l.get("id") for l in ((card or {}).get("labels") or []) if l.get("id")]
 
 
-def _olds_do_cartao(acoes):
-    """[(data, conjunto_de_ids)] de cada updateCard que mexeu em idLabels."""
+def _olds_com_autor(acoes):
+    """[(data, conjunto_de_ids, id_do_autor)] de cada updateCard que mexeu em
+    idLabels, em ordem no tempo. O autor é "" quando a ação não o traz."""
     saida = []
     for ac in acoes:
         old = ((ac.get("data") or {}).get("old") or {})
@@ -1280,9 +1283,14 @@ def _olds_do_cartao(acoes):
             dt = datetime.fromisoformat(ac["date"].replace("Z", "+00:00"))
         except Exception:
             continue
-        saida.append((dt, set(old.get("idLabels") or [])))
+        saida.append((dt, set(old.get("idLabels") or []), str(ac.get("idMemberCreator") or "")))
     saida.sort(key=lambda m: m[0])
     return saida
+
+
+def _olds_do_cartao(acoes):
+    """[(data, conjunto_de_ids)] de cada updateCard que mexeu em idLabels."""
+    return [(dt, est) for dt, est, _a in _olds_com_autor(acoes)]
 
 
 # Como interpretar data.old.idLabels: "antes" (o estado anterior a mudanca, que
@@ -1332,34 +1340,65 @@ def _eventos_de_etiqueta(acoes, labels_agora=None, modo=None):
     estados em ordem no tempo, cada mudanca e a diferenca entre um estado e o
     seguinte; a ponta que falta e o estado atual do cartao, que ja temos.
     """
-    olds = _olds_do_cartao(acoes)
+    return [(dt, lid, entrou) for dt, lid, entrou, _a in
+            _eventos_com_autor(acoes, labels_agora, modo)]
+
+
+def _eventos_com_autor(acoes, labels_agora=None, modo=None):
+    """[(data, id_etiqueta, entrou, id_do_autor)] — a MESMA conta de
+    `_eventos_de_etiqueta`, que lê daqui; o autor é o da ação que levou ao
+    estado novo, e "" quando a última troca aconteceu depois da janela lida.
+    Uma conta só: duas cópias desta sequência passariam a discordar."""
+    olds = _olds_com_autor(acoes)
     if not olds:
         return []
     modo = modo or ALINHAMENTO_OLD["modo"]
     atual = set(labels_agora or [])
 
-    # Sequencia (data_da_mudanca, estado_resultante).
+    # Sequencia (data_da_mudanca, estado_resultante, autor).
     if modo == "depois":
         # old ja e o estado apos aquela acao.
         passos = list(olds)
         if atual != passos[-1][1]:
             # Houve mudanca depois da ultima acao lida (ou a janela cortou).
-            passos.append((passos[-1][0], atual))
+            passos.append((passos[-1][0], atual, ""))
         estado_inicial = set()
     else:
         # old e o estado anterior: o resultado de cada acao e o old da seguinte.
-        passos = [(olds[i][0], olds[i + 1][1] if i + 1 < len(olds) else atual)
+        passos = [(olds[i][0], olds[i + 1][1] if i + 1 < len(olds) else atual, olds[i][2])
                   for i in range(len(olds))]
         estado_inicial = olds[0][1]
 
     eventos, anterior = [], estado_inicial
-    for dt, estado in passos:
+    for dt, estado, autor in passos:
         for lid in estado - anterior:
-            eventos.append((dt, lid, True))
+            eventos.append((dt, lid, True, autor))
         for lid in anterior - estado:
-            eventos.append((dt, lid, False))
+            eventos.append((dt, lid, False, autor))
         anterior = estado
     return eventos
+
+
+def historico_de_etiquetas(acoes, labels_agora, nomes, membros_map, modo=None):
+    """[{"quando", "etiqueta", "o que", "quem"}] do cartão, do mais novo ao
+    mais velho, em hora de Brasília (dono, 21/10: "dá para rastrear que essa
+    etiqueta foi retirada?"). `nomes` = {id_etiqueta: NOME}; `membros_map` =
+    {id_membro: username}. Pura."""
+    fora = []
+    for dt, lid, entrou, autor in _eventos_com_autor(acoes, labels_agora, modo):
+        fora.append({"quando": dt.astimezone(FUSO).strftime("%d/%m %H:%M"),
+                     "etiqueta": (nomes or {}).get(lid) or f"(id {lid[:6]})",
+                     "o que": "colocou" if entrou else "tirou",
+                     # Autor fora do quadro é, quase sempre, uma automação
+                     # (Butler, Make) — o id fica na tela para conferir.
+                     "quem": ((membros_map or {}).get(autor)
+                              or (f"fora do quadro · automação? (id {autor[:8]})" if autor
+                                  else "não registrado")),
+                     "_dt": dt})
+    fora.sort(key=lambda x: x["_dt"], reverse=True)
+    for x in fora:
+        x.pop("_dt")
+    return fora
 
 
 def intervalos_do_cartao(acoes, agora=None, membros_agora=None,
@@ -4313,6 +4352,44 @@ if __name__ == "__main__":
     finally:
         _pc_vis.MEMBROS_ATIVOS.clear()
         _pc_vis.MEMBROS_ATIVOS.update(_guarda_mb)
+
+    # ══ QUEM TIROU A ETIQUETA (dono, 21/10) ══════════════════════════════
+    # As ações na forma que o board devolve: updateCard com data.old.idLabels
+    # e o autor em idMemberCreator (agora pedido em CAMPOS_ACAO). Modo
+    # "depois": o old já é o estado após a ação.
+    def _up(quando, ids, autor):
+        return {"type": "updateCard", "date": quando, "idMemberCreator": autor,
+                "data": {"card": {"id": "kx", "idLabels": list(ids)}, "old": {"idLabels": list(ids)}}}
+    _acs = [_up("2026-10-21T12:00:00.000Z", ["EA"], "m1"),
+            _up("2026-10-21T13:00:00.000Z", ["EA", "INT"], "m2"),
+            _up("2026-10-21T14:00:00.000Z", ["EA"], "m3")]
+    _h = historico_de_etiquetas(_acs, ["EA"], {"EA": "EM ANDAMENTO", "INT": "INTERROMPIDO"},
+                                {"m1": "luiz", "m2": "luiz", "m3": "beatriz"}, modo="depois")
+    ok("rastreio: diz quem TIROU o INTERROMPIDO e quando (hora de Brasília), do mais novo ao mais velho",
+       [(x["quando"], x["etiqueta"], x["o que"], x["quem"]) for x in _h]
+       == [("21/10 11:00", "INTERROMPIDO", "tirou", "beatriz"),
+           ("21/10 10:00", "INTERROMPIDO", "colocou", "luiz"),
+           ("21/10 09:00", "EM ANDAMENTO", "colocou", "luiz")])
+    ok("rastreio: a conta do tempo continua a mesma — os eventos são os mesmos, só sem o autor",
+       _eventos_de_etiqueta(_acs, ["EA"], modo="depois")
+       == [(d, l, e) for d, l, e, _a in _eventos_com_autor(_acs, ["EA"], modo="depois")]
+       and len(_eventos_de_etiqueta(_acs, ["EA"], modo="depois")) == 3)
+    # Modo "antes": o old é o estado ANTES da ação; quem fez a troca é o autor
+    # da ação cujo old é o estado de partida.
+    _acs_a = [_up("2026-10-21T12:00:00.000Z", [], "m1"),
+              _up("2026-10-21T13:00:00.000Z", ["EA"], "m2"),
+              _up("2026-10-21T14:00:00.000Z", ["EA", "INT"], "m3")]
+    _ha = historico_de_etiquetas(_acs_a, ["EA"], {"EA": "EM ANDAMENTO", "INT": "INTERROMPIDO"},
+                                 {"m1": "luiz", "m2": "nicollas", "m3": "beatriz"}, modo="antes")
+    ok("rastreio no modo 'antes': cada troca fica com o autor da ação que a fez",
+       [(x["etiqueta"], x["o que"], x["quem"]) for x in _ha]
+       == [("INTERROMPIDO", "tirou", "beatriz"), ("INTERROMPIDO", "colocou", "nicollas"),
+           ("EM ANDAMENTO", "colocou", "luiz")])
+    ok("rastreio: autor que não é membro do quadro aparece como possível automação, com o id",
+       historico_de_etiquetas(_acs, ["EA"], {"EA": "EM ANDAMENTO", "INT": "INTERROMPIDO"},
+                              {"m1": "luiz"}, modo="depois")[0]["quem"].startswith("fora do quadro · automação?"))
+    ok("rastreio: o autor é pedido ao Trello em toda leitura de ações",
+       "idMemberCreator" in CAMPOS_ACAO["fields"])
 
     print("\nfalhas:", falhas)
     # O CODIGO DE SAIDA. Sem ele, quem le `returncode` ve este modulo como

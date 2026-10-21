@@ -4031,6 +4031,50 @@ def _celular(conta):
           "grid-template-areas: 'fat' 'ind' 'gas' 'dev'" in _cel, "")
 
 
+def _rastreio_etiquetas(conta):
+    """21/10: Registros › Rastrear etiquetas — quem tirou o INTERROMPIDO.
+    O Trello é trocado por dados na forma da API: cartão com idLabels, ações
+    updateCard com data.old.idLabels e idMemberCreator."""
+    import admin as _adm_r
+    import placar_core as _pc_r
+    _g = (_adm_r.st, _pc_r._buscar_board, _pc_r._buscar_acoes_board, _pc_r.mapa_labels, dict(_pc_r.ALINHAMENTO_OLD))
+    _tab, _info = [], []
+    try:
+        f = instalar()
+        f.text_input = lambda rot, *a, **k: (f._registra("text_input", k), "matriokas")[1]
+        f.button = lambda rot, *a, **k: (f._registra("button", k), k.get("key") == "rast_ok")[1]
+        f.dataframe = lambda d, *a, **k: _tab.append(d)
+        f.info = lambda t, *a, **k: _info.append(str(t))
+        _adm_r.st = f
+        card = {"id": "c1", "name": "BONECAS MATRIOKAS", "idLabels": ["EA"], "idMembers": ["m1"]}
+        up = lambda q, ids, a: {"type": "updateCard", "date": q, "idMemberCreator": a,
+                                "data": {"card": {"id": "c1", "idLabels": ids}, "old": {"idLabels": ids}}}
+        _pc_r._buscar_board = lambda: ({}, [card], {"m1": "luizhenriqueramos", "m2": "beatriz51"}, None, None, None)
+        _pc_r._buscar_acoes_board = lambda *a, **k: {"c1": [up("2026-10-21T15:00:00.000Z", ["EA", "INT"], "m1"),
+                                                         up("2026-10-21T16:00:00.000Z", ["EA"], "m2")]}
+        _pc_r.mapa_labels = lambda forcar=False: {"EA": "EM ANDAMENTO", "INT": "INTERROMPIDO"}
+        _adm_r._secao_rastreio_etiquetas()
+        _linhas = _tab[0].to_dict("records") if _tab else []
+        conta("Rastreio: o cartão buscado mostra quem tirou o INTERROMPIDO e quando (dono, 21/10)",
+              any(x["etiqueta"] == "INTERROMPIDO" and x["o que"] == "tirou" and x["quem"] == "beatriz51"
+                  for x in _linhas), str(_linhas)[:200])
+        _pc_r._buscar_board = lambda: ({}, [], {}, None, None, None)
+        f2 = instalar()
+        f2.text_input = lambda rot, *a, **k: (f2._registra("text_input", k), "matriokas")[1]
+        f2.button = lambda rot, *a, **k: (f2._registra("button", k), k.get("key") == "rast_ok")[1]
+        f2.info = lambda t, *a, **k: _info.append(str(t))
+        _adm_r.st = f2
+        _adm_r._secao_rastreio_etiquetas()
+        conta("Rastreio: nome que não existe avisa, não quebra", any("Nenhum cartão" in t for t in _info), "")
+    except (_Rerun, _Parou):
+        conta("Rastreio: a seção monta", True, "")
+    except Exception as e:
+        conta("Rastreio: a seção monta", False, f"{type(e).__name__}: {e}")
+    finally:
+        _adm_r.st, _pc_r._buscar_board, _pc_r._buscar_acoes_board, _pc_r.mapa_labels = _g[:4]
+        _pc_r.ALINHAMENTO_OLD.clear(); _pc_r.ALINHAMENTO_OLD.update(_g[4])
+
+
 def main():
     instalar()
     falhas = []
@@ -4103,6 +4147,7 @@ def main():
     _mercado_livre_no_admin(conta)
     _ranking_abre_panorama(conta)
     _celular(conta)
+    _rastreio_etiquetas(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0

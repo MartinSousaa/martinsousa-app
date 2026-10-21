@@ -3755,6 +3755,27 @@ MUTACOES = [
         ["python3", "checar_tela.py"],
     ),
     (
+        "o rastreio de etiquetas volta a nao saber quem tirou (autor fora da consulta)",
+        "placar_core.py",
+        'CAMPOS_ACAO = {"fields": "type,date,data,idMemberCreator", "memberCreator": "false",',
+        'CAMPOS_ACAO = {"fields": "type,date,data", "memberCreator": "false",',
+        ["python3", "placar_core.py"],
+    ),
+    (
+        "o rastreio volta a culpar o autor errado (o da acao seguinte)",
+        "placar_core.py",
+        "        passos = [(olds[i][0], olds[i + 1][1] if i + 1 < len(olds) else atual, olds[i][2])\n",
+        "        passos = [(olds[i][0], olds[i + 1][1] if i + 1 < len(olds) else atual, olds[min(i + 1, len(olds) - 1)][2])\n",
+        ["python3", "placar_core.py"],
+    ),
+    (
+        "a tela de Registros deixa de mostrar quem tirou a etiqueta",
+        "admin.py",
+        "            st.dataframe(pd.DataFrame(hist), use_container_width=True, hide_index=True)\n",
+        "            st.caption(f'{len(hist)} trocas')\n",
+        ["python3", "checar_tela.py"],
+    ),
+    (
         "o DAS volta a cair no fim de semana em vez de antecipar",
         "lembretes.py",
         '("das_20", "DAS", ("dia_antecipa", 20)',
