@@ -4009,6 +4009,28 @@ def _ranking_abre_panorama(conta):
         _pa.dados, _pa.st, _pg_r.carregar = _g
 
 
+def _celular(conta):
+    """21/10: no celular a barra lateral deixava uma faixa por cima do
+    conteúdo e não havia botão para abrir nem fechar (print do dono).
+    Conferido num Streamlit de verdade com tela de iPhone: recolhida some
+    inteira, » abre, « fecha. Aqui a guarda lê o CSS do `app.py`."""
+    import re as _re_c
+    _css = open("app.py", encoding="utf-8").read()
+    _css = _css[_css.index("<style>"):_css.index("</style>")]
+    _i = _css.index("@media screen and (max-width: 768px)")
+    _cel = _css[_i:]
+    _fora = _css[:_css.index("@media screen and (min-width: 769px)")]
+    conta("Celular: a largura fixa de 360px da barra lateral vale só no computador",
+          not _re_c.search(r'section\[data-testid="stSidebar"\]\s*\{[^}]*width:\s*360px', _fora), "")
+    conta("Celular: recolhida, a barra some inteira, e os botões de abrir e fechar aparecem",
+          'section[data-testid="stSidebar"][aria-expanded="false"]' in _cel
+          and "translateX(-110%)" in _cel
+          and _re_c.search(r'header\[data-testid="stHeader"\]\s*\{\s*display:\s*block', _cel)
+          and '[data-testid="stSidebarCollapseButton"] { display: flex !important; }' in _cel, "")
+    conta("Celular: os painéis da Home empilham em uma coluna",
+          "grid-template-areas: 'fat' 'ind' 'gas' 'dev'" in _cel, "")
+
+
 def main():
     instalar()
     falhas = []
@@ -4080,6 +4102,7 @@ def main():
     _produtos_nichos_padronizados(conta)
     _mercado_livre_no_admin(conta)
     _ranking_abre_panorama(conta)
+    _celular(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0

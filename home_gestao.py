@@ -1384,14 +1384,12 @@ def _grade_painel(faturamento, indicadores, gastos, devolucoes,
     return ('<div class="ms-painel-fundo" style="background:{FUNDO};color:{TEXTO};'
             "font-family:Manrope,system-ui,sans-serif;border-radius:20px;padding:0;\">"
             + cab +
-            # O QUADRADO (dono, 19/10): à esquerda o balanço inteiro; à
-            # direita os indicadores e, exatamente embaixo, a meta de gastos.
-            # As devoluções ficam na faixa de baixo, na largura toda — subir
-            # elas para baixo do balanço foi decisão minha, que o dono não
-            # pediu e mandou desfazer (20/10).
+            # O QUADRADO (dono, 20/10, com print): à esquerda o balanço e,
+            # embaixo dele, a META DE GASTOS; à direita os indicadores e,
+            # embaixo deles, as DEVOLUÇÕES. As duas fileiras fecham juntas.
             '<div class="ms-painel" style="display:grid;'
             'grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);'
-            'grid-template-areas:\'fat ind\' \'fat gas\' \'dev dev\';'
+            'grid-template-areas:\'fat ind\' \'gas dev\';'
             'gap:16px;align-items:stretch;">'
             + "".join(f'<div style="grid-area:{a};display:flex;flex-direction:column;min-width:0;">{h}</div>'
                       for a, h in (("fat", faturamento), ("ind", indicadores),
@@ -1493,35 +1491,64 @@ def saldo_do_mes(q, real, eq_real):
     return v, (VERDE if v >= 0 else VERMELHO)
 
 
+LINHAS_DO_QUADRO = {
+    "saldo": "Saldo do mês", "merc_gasta": "Mercadoria já gasta",
+    "merc_comp": "Mercadoria comprometida", "ja": "Já gasto",
+    "cheques": "Comprometido · cheques a compensar",
+    "boletos": "Comprometido · boletos a pagar",
+    "cartoes": "Comprometido · cartões (fatura a pagar)",
+    "fixos": "Comprometido · fixos, folha e não operacional",
+}
+
+
+def link_da_linha(params, chave):
+    """O endereço que abre o consolidado de uma linha do quadro de gastos:
+    a página de agora mais `hg_abrir=<chave>`. Pura."""
+    from urllib.parse import urlencode
+    p = {k: v for k, v in (params or {}).items() if k != "hg_abrir"}
+    p["hg_abrir"] = chave
+    return _esc("?" + urlencode(p))
+
+
 @_pintado
-def _html_gastos(q, erros=None, saldo=None):
+def _html_gastos(q, erros=None, saldo=None, params=None):
     """A meta de gastos: saldo e mercadoria em cima, o descritivo embaixo.
 
-    `saldo` = (valor, cor) de `saldo_do_mes`; sem ele, o saldo da meta."""
+    `saldo` = (valor, cor) de `saldo_do_mes`; sem ele, o saldo da meta.
+    CADA QUADRADO E CADA LINHA ABREM O CONSOLIDADO DELA (dono, 20/10:
+    "quando eu clicar nos quadrados dos gastos é para abrir o resumo do
+    consolidado"), pelo `hg_abrir` que `pagina` lê."""
+    def a(chave):
+        return (f'<a href="{link_da_linha(params, chave)}" target="_self" '
+                'style="display:contents;color:inherit;text-decoration:none;cursor:pointer;">')
     if q is None:
         return ('<div style="background:{CARTAO};border:1px solid {BORDA};'
                 'border-radius:14px;padding:18px 20px;font-size:13px;color:{SEC};">'
                 'Não consegui ler os gastos do mês.</div>')
     ambar, ambar_bg = "{AMBAR}", "rgba(224,161,58,0.12)"
-    def tile(rot, valor, destaque=False, cor=None):
+    def tile(rot, valor, destaque=False, cor=None, chave=None):
         bg = f"background:{ambar_bg};border:1px solid rgba(224,161,58,0.45);" if destaque else "background:{TILE};"
         cr = ambar if destaque else "{SEC}"
         cv = cor or (ambar if destaque else "{TEXTO}")
-        return (f'<div style="{bg}border-radius:10px;padding:10px 14px;">'
+        return ((a(chave) if chave else "")
+                + f'<div style="{bg}border-radius:10px;padding:10px 14px;cursor:pointer;">'
                 f'<div style="font-size:11px;font-weight:700;color:{cr};">{rot}</div>'
-                f'<div style="font-size:19px;font-weight:800;color:{cv};white-space:nowrap;">{valor}</div></div>')
+                f'<div style="font-size:19px;font-weight:800;color:{cv};white-space:nowrap;">{valor}</div></div>'
+                + ("</a>" if chave else ""))
     meta = q["meta"]
     _sv, _sc = saldo if saldo else (q["saldo"], None)
     saldo_txt = _brl(_sv, 0) if _sv is not None else "Sem meta"
-    def linha_t(rot, total, merc, cor, forte=False):
+    def linha_t(rot, total, merc, cor, forte=False, chave=None):
         w = "800" if forte else "700"
         bt = "{SEC}" if forte else "{BORDA}"
-        return (f'<span style="display:flex;align-items:center;gap:8px;padding:7px 0;border-top:1px solid {bt};'
+        return ((a(chave) if chave else "")
+                + f'<span style="display:flex;align-items:center;gap:8px;padding:7px 0;border-top:1px solid {bt};'
                 f'font-weight:{"700" if forte else "500"};">'
                 + (f'<span style="width:9px;height:9px;border-radius:3px;background:{cor};"></span>' if cor else "")
                 + f'{rot}</span>'
                 f'<span style="text-align:right;font-weight:{w};padding:7px 0;border-top:1px solid {bt};">{total}</span>'
-                f'<span style="text-align:right;font-weight:{w};color:{ambar};padding:7px 0;border-top:1px solid {bt};">{merc}</span>')
+                f'<span style="text-align:right;font-weight:{w};color:{ambar};padding:7px 0;border-top:1px solid {bt};">{merc}</span>'
+                + ("</a>" if chave else ""))
     pct = q["pct"]
     cart = (' · cartão sem separação de mercadoria' if q["merc_cartao"] else "")
     aviso = (f'<div style="font-size:11px;color:{VERMELHO};">Não li: '
@@ -1534,9 +1561,9 @@ def _html_gastos(q, erros=None, saldo=None):
         '<span style="font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:{SEC};">Meta de gastos</span>'
         f'<span style="font-size:13px;color:{SEC};">Meta do mês <b style="color:{TEXTO};">{_brl(meta, 0) if meta else "não cadastrada"}</b></span></div>'
         '<div style="display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr);gap:10px;">'
-        + tile("Saldo do mês", saldo_txt, cor=_sc)
-        + tile("Mercadoria já gasta", _brl(q["merc_gasta"], 0), True)
-        + tile("Mercadoria comprometida", _brl(q["merc_comprometida"], 0), True)
+        + tile("Saldo do mês", saldo_txt, cor=_sc, chave="saldo")
+        + tile("Mercadoria já gasta", _brl(q["merc_gasta"], 0), True, chave="merc_gasta")
+        + tile("Mercadoria comprometida", _brl(q["merc_comprometida"], 0), True, chave="merc_comp")
         + '</div>'
         + (_bar(pct, "{AMBAR}" if pct < 100 else "{VERMELHO}", 10)
            + f'<div style="display:flex;justify-content:space-between;font-size:11px;color:{SEC};">'
@@ -1546,22 +1573,23 @@ def _html_gastos(q, erros=None, saldo=None):
         '<span style="font-size:11px;color:{SEC};padding-bottom:4px;">Linha</span>'
         '<span style="font-size:11px;color:{SEC};text-align:right;">Total</span>'
         f'<span style="font-size:11px;color:{ambar};text-align:right;font-weight:700;">Mercadoria</span>'
-        + linha_t("Já gasto", _brl(q["ja_saiu"], 0), _brl(q["merc_gasta"], 0), ambar)
-        + _composicao(q.get("ja_por"))
+        + linha_t("Já gasto", _brl(q["ja_saiu"], 0), _brl(q["merc_gasta"], 0), ambar, chave="ja")
+        + _composicao(q.get("ja_por"), params=params)
         + linha_t("Comprometido · cheques a compensar", _brl(q["cheques"], 0),
                   _brl(q.get("merc_cheques", q["merc_comprometida"]), 0),
-                  "#8A6A33")
+                  "#8A6A33", chave="cheques")
         + (linha_t("Comprometido · boletos a pagar", _brl(q["boletos"], 0),
-                   _brl(q.get("merc_boletos", 0.0), 0), "#3F7F6A")
+                   _brl(q.get("merc_boletos", 0.0), 0), "#3F7F6A", chave="boletos")
            if q.get("boletos") else "")
         + linha_t("Comprometido · cartões (fatura a pagar)", _brl(q["cartoes"], 0),
-                  "—", "#6E5A8A")
-        + linha_t("Comprometido · fixos, folha e não operacional", _brl(q["fixos"], 0), "—", "#5B6573")
+                  "—", "#6E5A8A", chave="cartoes")
+        + linha_t("Comprometido · fixos, folha e não operacional", _brl(q["fixos"], 0), "—", "#5B6573",
+                  chave="fixos")
         + linha_t("Total do mês", _brl(q["total"], 0),
                   _brl(q["merc_gasta"] + q["merc_comprometida"], 0), "", forte=True)
         + '</div>'
         + f'<div style="font-size:11px;color:{SEC};">Mercadoria: extrato + estoque dos cheques{cart}. '
-          'Item a item: «💰 Detalhe dos gastos do mês», logo abaixo.</div>'
+          'Clique num quadrado ou numa linha para ver o consolidado dela.</div>'
         + aviso + '</div>')
 
 
@@ -1634,7 +1662,91 @@ def itens_ja_saidos(lancs):
     return sorted(saida, key=lambda i: (i["data"], -i["valor"]))
 
 
-def _composicao(ja_por, n=5):
+def consolidado_da_linha(chave, lancs, combinado, cheques_do_mes):
+    """(título, [linhas], nota) do que forma uma linha do quadro de gastos.
+    Pura. As MESMAS fontes do quadro: `itens_ja_saidos` (o "Já gasto",
+    lido do resumo e não reescrito), `previsto.combinar` e os cheques do mês.
+    Chave desconhecida devolve título vazio."""
+    import cheques as _ch
+    itens = itens_ja_saidos(lancs)
+
+    def cheq(filtro, campo="valor"):
+        return [{"tipo": str(c.get("tipo") or ""), "folha": str(c.get("folha") or ""),
+                 "favorecido": str(c.get("favorecido") or ""),
+                 "vencimento": _ch.texto_data(c.get("vencimento"))[:10],
+                 "valor": round(_ch._num(c.get(campo)), 2)}
+                for c in (cheques_do_mes or []) if filtro(c) and round(_ch._num(c.get(campo)), 2)]
+
+    def comb(nomes=None):
+        return [{"finalidade": x["finalidade"], "já saiu": x["realizado"],
+                 "ainda vai sair": x["falta_sair"], "conta no mês": x["conta"]}
+                for x in (combinado or []) if nomes is None or x["finalidade"] in nomes]
+
+    if chave == "ja":
+        return LINHAS_DO_QUADRO[chave], itens, "Saídas do extrato e compras das faturas anexadas."
+    if chave.startswith("fin:"):
+        f = chave[4:]
+        return f"Já gasto · {f.title()}", [i for i in itens if i["finalidade"] == f], ""
+    if chave == "merc_gasta":
+        return (LINHAS_DO_QUADRO[chave],
+                [i for i in itens if i["finalidade"] in MERCADORIA]
+                + cheq(lambda c: not _ch.esta_aberto(c), "estoque"),
+                "Extrato com finalidade mercadoria + a parte de estoque dos cheques já compensados.")
+    if chave == "merc_comp":
+        return (LINHAS_DO_QUADRO[chave], cheq(_ch.esta_aberto, "estoque"),
+                "A parte de estoque dos cheques e boletos do mês ainda em aberto.")
+    if chave == "cheques":
+        return (LINHAS_DO_QUADRO[chave],
+                cheq(lambda c: _ch.esta_aberto(c) and not _ch.eh_tipo(c, "BOLETO")), "")
+    if chave == "boletos":
+        return (LINHAS_DO_QUADRO[chave],
+                cheq(lambda c: _ch.esta_aberto(c) and _ch.eh_tipo(c, "BOLETO")), "")
+    if chave == "cartoes":
+        return LINHAS_DO_QUADRO[chave], comb({"FATURA DO CARTÃO"}), "O que a fatura do mês ainda vai cobrar."
+    if chave == "fixos":
+        return (LINHAS_DO_QUADRO[chave], comb({"CUSTO FIXO", "FOLHA", "NÃO OPERACIONAL"}),
+                "Provisionados desde o dia 1º pelas grades do Studio; item a item em Financeiro › Resumo Mensal.")
+    if chave == "saldo":
+        return "O mês inteiro", comb(), "Já saiu + ainda vai sair, por finalidade."
+    return "", [], ""
+
+
+def _abrir_linha_gastos(chave, ano, mes):
+    """O consolidado de uma linha do quadro, num diálogo (dono, 20/10)."""
+    import pandas as pd
+    import cheques as _ch
+    import lancamentos as _lan
+    import previsto as _pv
+    try:
+        lancs = _lan.do_mes(ano, mes)
+        res = _lan.resumo_por_finalidade(lancs) if lancs else {}
+        prev, _e = _pv.do_mes(ano, mes)
+        combinado, _t = _pv.combinar(res, prev, _lan.cartao_detalhado(lancs))
+        tit, linhas, nota = consolidado_da_linha(chave, lancs, combinado,
+                                                 _ch.do_mes(_ch.carregar(), ano, mes))
+    except Exception as e:
+        st.error(f"Não consegui montar o consolidado: {str(e)[:140]}")
+        return
+    if not tit:
+        return
+
+    @st.dialog(tit, width="large")
+    def _d():
+        if not linhas:
+            st.info("Nada nesta linha no mês.")
+        else:
+            col_v = next((c for c in ("valor", "conta no mês") if c in linhas[0]), None)
+            if col_v:
+                st.markdown(f"**Total** · {_brl(sum(float(x.get(col_v) or 0) for x in linhas), 2)}")
+            st.dataframe(pd.DataFrame(linhas), use_container_width=True, hide_index=True,
+                         column_config={c: st.column_config.NumberColumn(format="R$ %.2f")
+                                        for c in ("valor", "já saiu", "ainda vai sair", "conta no mês")})
+        if nota:
+            st.caption(nota)
+    _d()
+
+
+def _composicao(ja_por, n=5, params=None):
     """A linha miúda sob "Já gasto": as finalidades que o compõem.
 
     Ocupa as três colunas da grade. As cinco maiores pelo nome; o resto vira
@@ -1643,7 +1755,10 @@ def _composicao(ja_por, n=5):
     ja_por = list(ja_por or [])
     if not ja_por:
         return ""
-    partes = [f"{_esc(f.title())} {_brl(v, 0)}" for f, v in ja_por[:n]]
+    # Cada finalidade abre o consolidado dela (dono, 20/10).
+    partes = [f'<a href="{link_da_linha(params, "fin:" + f)}" target="_self" '
+              f'style="color:inherit;text-decoration:underline dotted;">{_esc(f.title())}</a> {_brl(v, 0)}'
+              for f, v in ja_por[:n]]
     resto = round(sum(v for _f, v in ja_por[n:]), 2)
     if resto:
         partes.append(f"outras {_brl(resto, 0)}")
@@ -2091,10 +2206,23 @@ def pagina(usuario_logado=None, dados=None):
         (d["faturamento"].get("eq_conta") or {}).get("margem_bruta"))
         if d["faturamento"].get("comprometido") is not None else None)
     _saldo = saldo_do_mes(_q, d["faturamento"].get("realizado"), _eq_r)
+    try:
+        _params = {k: st.query_params[k] for k in st.query_params}
+    except Exception:
+        _params = {}
     st.markdown(_grade_painel(_html_faturamento(d), _html_indicadores(p, _plats),
-                              _html_gastos(_q, _err_g, _saldo), _html_devolucoes(p),
+                              _html_gastos(_q, _err_g, _saldo, _params), _html_devolucoes(p),
                               titulo=_titulo, fontes=_esc(_fontes)),
                 unsafe_allow_html=True)
+    # O CLIQUE NUM QUADRADO OU NUMA LINHA DOS GASTOS chega como
+    # `?hg_abrir=<chave>`: lido uma vez e tirado do endereço.
+    _abrir = str(_params.get("hg_abrir", "")).strip()
+    if _abrir:
+        try:
+            del st.query_params["hg_abrir"]
+        except Exception:
+            pass
+        _abrir_linha_gastos(_abrir, d["ano"], d["mes"])
 
     # DE ONDE VEIO CADA NÚMERO. Sem isto, os dois faturamentos que não batem
     # viram uma discussão sem saída — a planilha é de tempos em tempos, o
@@ -2142,8 +2270,6 @@ def pagina(usuario_logado=None, dados=None):
                          ["vencimento", "beneficiário", "valor", "situação"],
                          st, tipos={"valor": "brl"}))
 
-    with st.expander("💰 Detalhe dos gastos do mês", expanded=False):
-        _bloco_gastos(usuario_logado, d)
 
 
 # ── Conferência ──────────────────────────────────────────────────────────────
@@ -2692,7 +2818,7 @@ if __name__ == "__main__":
     ok("o Já gasto diz do que é feito, e as partes fecham o total dele",
        round(sum(v for _f, v in _q_t["ja_por"]), 2) == _q_t["ja_saiu"]
        and _q_t["ja_por"][0] == ("MERCADORIA", 10000.0)
-       and "Mercadoria R$" in _h_t)
+       and ">Mercadoria</a> R$" in _h_t)
     ok("a composição junta o que passa de cinco em «outras»",
        "outras R$" in _composicao([("A", 6.0), ("B", 5.0), ("C", 4.0),
                                    ("D", 3.0), ("E", 2.0), ("F", 1.0)])
@@ -2779,9 +2905,9 @@ if __name__ == "__main__":
     _grade = _grade_painel("<i>F</i>", "<i>I</i>", "<i>G</i>", "<i>D</i>")
     # 19/10: o quadrado — balanço à esquerda, indicadores e meta de gastos
     # empilhados à direita, devoluções na faixa de baixo.
-    ok("os quatro quadros numa grade só: o quadrado, com a meta de gastos embaixo dos indicadores",
+    ok("os quatro quadros numa grade só: meta de gastos embaixo do balanço, devoluções embaixo dos indicadores",
        _grade.count("display:grid") == 1
-       and "'fat ind' 'fat gas' 'dev dev'" in _grade
+       and "'fat ind' 'gas dev'" in _grade
        and "grid-area:gas" in _grade and "grid-area:ind" in _grade
        and "align-items:stretch" in _grade
        and [_grade.index(x) for x in ("<i>F</i>", "<i>I</i>", "<i>G</i>", "<i>D</i>")]
@@ -2821,9 +2947,12 @@ if __name__ == "__main__":
        _h_ind.count(" do faturado</span>") >= 2)
     ok("a página não volta a montar os quadros em colunas soltas",
        "st.columns([1.6, 1])" not in _pg and "_grade_painel(" in _pg)
-    ok("a página desenha o painel e guarda o detalhe dos gastos",
+    # 20/10: a lista de baixo saiu ("pode remover a lista de baixo"); o
+    # detalhe abre pelo clique no quadro.
+    ok("a página desenha o painel, sem a lista de gastos embaixo, e abre o consolidado pelo clique",
        "_html_gastos(" in _pg and "_html_devolucoes(" in _pg
-       and "_html_indicadores(" in _pg and "st.expander" in _pg)
+       and "_html_indicadores(" in _pg and "Detalhe dos gastos do mês" not in _pg
+       and "_abrir_linha_gastos(_abrir" in _pg)
     ok("sem LPV, o lucro líquido não finge ser a margem",
        "Falta o LPV — Gestão" in _corpo_cards)
 
@@ -3002,6 +3131,27 @@ if __name__ == "__main__":
        "R$ -77.959" in _hg_neg and VERMELHO in _hg_neg and "Faltam" not in _hg_neg)
     ok("a página passa as plataformas e o saldo novo aos quadros",
        "_html_indicadores(p, _plats)" in inspect.getsource(pagina)
-       and "_html_gastos(_q, _err_g, _saldo)" in inspect.getsource(pagina))
+       and "_html_gastos(_q, _err_g, _saldo, _params)" in inspect.getsource(pagina))
+    # CLICAR ABRE O CONSOLIDADO (dono, 20/10). As linhas na forma de
+    # `previsto.combinar` e os lançamentos na de `lancamentos.do_mes`.
+    _hl = _html_gastos(_q_t, None, None, {"_s": "tok", "secao": "gestao"})
+    ok("cada quadrado e cada linha dos gastos é um link para o consolidado dela",
+       all(f'hg_abrir={k}"' in _hl for k in ("saldo", "merc_gasta", "merc_comp", "ja", "cheques",
+                                            "cartoes", "fixos"))
+       and "_s=tok&amp;secao=gestao" in _hl and "hg_abrir=fin%3AMERCADORIA" in _hl)
+    _comb_t = [{"finalidade": "CUSTO FIXO", "realizado": 100.0, "falta_sair": 900.0, "conta": 1000.0},
+               {"finalidade": "FATURA DO CARTÃO", "realizado": 0.0, "falta_sair": 800.0, "conta": 800.0},
+               {"finalidade": "MERCADORIA", "realizado": 500.0, "falta_sair": 0.0, "conta": 500.0}]
+    _ch_t = [{"tipo": "CHEQUE", "folha": "12", "favorecido": "FORN", "vencimento": "2026-10-25",
+              "valor": 300.0, "estoque": 300.0, "status": ""},
+             {"tipo": "BOLETO", "folha": "", "favorecido": "BOL", "vencimento": "2026-10-28",
+              "valor": 200.0, "estoque": 0.0, "status": ""}]
+    _t_f, _l_f, _ = consolidado_da_linha("fixos", [], _comb_t, _ch_t)
+    _t_c, _l_c, _ = consolidado_da_linha("cheques", [], _comb_t, _ch_t)
+    _t_s, _l_s, _ = consolidado_da_linha("saldo", [], _comb_t, _ch_t)
+    ok("consolidado: fixos só com custo fixo/folha/não op; cheques só os cheques; saldo o mês inteiro",
+       [x["finalidade"] for x in _l_f] == ["CUSTO FIXO"]
+       and [x["favorecido"] for x in _l_c] == ["FORN"] and len(_l_s) == 3
+       and consolidado_da_linha("xpto", [], _comb_t, _ch_t)[0] == "")
 
     __import__("sys").exit(1 if falhas else 0)

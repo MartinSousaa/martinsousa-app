@@ -391,12 +391,10 @@ section[data-testid="stSidebar"] > div:first-child {
     min-height: 0 !important;
 }
 
-/* ── Sidebar: largura fixa 360px (sem JS) ───────────────────────────────── */
-section[data-testid="stSidebar"] {
-    width: 360px !important;
-    min-width: 360px !important;
-    max-width: 360px !important;
-}
+/* ── Sidebar: largura fixa 360px (sem JS) — SÓ NO COMPUTADOR ───────────────
+   No celular esta regra deixava uma faixa da barra por cima do conteúdo: o
+   Streamlit recolhe a barra pela largura DELE, e 360px fixos sobravam (dono,
+   21/10, com print). A largura do computador mora no @media (min-width:769px). */
 [data-testid="stSidebarResizeHandle"] { display: none !important; }
 
 /* ── Anti-dim: impede Streamlit de escurecer a tela durante re-runs ─────── */
@@ -801,6 +799,38 @@ body.tema-claro .ms-card-plat-price { color: #111 !important; }
 
 /* ══ RESPONSIVO — MOBILE (max 768px) ═══════════════════════════════════════ */
 @media screen and (max-width: 768px) {
+
+  /* ── BARRA LATERAL NO CELULAR (dono, 21/10): recolhida some INTEIRA, aberta
+     ocupa quase a tela, e os botões de abrir e fechar aparecem — o cabeçalho
+     do Streamlit, escondido no computador, é onde mora o de abrir. ── */
+  section[data-testid="stSidebar"][aria-expanded="false"] {
+    transform: translateX(-110%) !important;
+    visibility: hidden !important;
+  }
+  section[data-testid="stSidebar"][aria-expanded="true"],
+  section[data-testid="stSidebar"][aria-expanded="true"] > div {
+    width: 86vw !important; min-width: 86vw !important; max-width: 86vw !important;
+  }
+  header[data-testid="stHeader"] {
+    display: block !important;
+    background: transparent !important;
+    height: 2.6rem !important;
+  }
+  [data-testid="stSidebarCollapseButton"] { display: flex !important; }
+  [data-testid="stToolbar"] { display: none !important; }
+  [data-testid="stSidebarHeader"] {
+    height: auto !important; min-height: 2.6rem !important; overflow: visible !important;
+  }
+
+  /* ── GRADES DOS PAINÉIS EMPILHAM: duas colunas lado a lado não cabem ── */
+  .ms-painel {
+    grid-template-columns: 1fr !important;
+    grid-template-areas: 'fat' 'ind' 'gas' 'dev' !important;
+  }
+  [style*="grid-template-columns:repeat(4,1fr)"],
+  [style*="grid-template-columns:repeat(3,1fr)"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
 
   /* ── COLUNAS: empilham verticalmente — selector correto (stColumn) ── */
   [data-testid="stHorizontalBlock"] {
