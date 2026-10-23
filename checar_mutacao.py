@@ -4026,6 +4026,20 @@ MUTACOES = [
         ["python3", "fechar_expediente_conferencia.py"],
     ),
     (
+        "o cartao esquecido em andamento volta a contar nos dias seguintes",
+        "placar_core.py",
+        "    return cortar_no_fim_do_expediente(segs)\n",
+        "    return segs\n",
+        ["python3", "placar_core.py"],
+    ),
+    (
+        "o trecho de sabado, domingo e feriado volta a contar",
+        "placar_core.py",
+        "    if not eh_dia_util(loc.date()):\n        return ini\n",
+        "    if False:\n        return ini\n",
+        ["python3", "placar_core.py"],
+    ),
+    (
         "o DAS volta a cair no fim de semana em vez de antecipar",
         "lembretes.py",
         '("das_20", "DAS", ("dia_antecipa", 20)',

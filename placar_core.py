@@ -1484,7 +1484,50 @@ def intervalos_do_cartao(acoes, agora=None, membros_agora=None,
     if _trabalhando() and ini is not None and agora > ini:
         segs.append({"ini": ini, "fim": agora, "tipo": tipo_seg,
                      "membros": set(membros), "fim_tipo": "aberto"})
-    return segs
+    return cortar_no_fim_do_expediente(segs)
+
+
+def corte_do_trecho(ini):
+    """O instante em que um trecho que começou em `ini` deixa de contar.
+
+    É o FIM DE EXPEDIENTE aplicado à história (dono, 23/10): 18h30 de Brasília
+    do dia em que o trecho começou. Começou depois das 18h30, ou em sábado,
+    domingo ou feriado: não conta nada. A hora vem de `fim_expediente`, que é
+    quem a rotina usa para pôr a etiqueta — uma regra, uma hora.
+    """
+    import fim_expediente as _fe
+    loc = ini.astimezone(FUSO)
+    if not eh_dia_util(loc.date()):
+        return ini
+    corte = loc.replace(hour=_fe.CORTE_HORA, minute=_fe.CORTE_MIN,
+                        second=0, microsecond=0)
+    return max(corte, loc).astimezone(ini.tzinfo or timezone.utc)
+
+
+def cortar_no_fim_do_expediente(segs):
+    """Trecho esquecido EM ANDAMENTO para às 18h30 do dia em que começou.
+
+    Sem isto, o cartão que ninguém fechou contava como trabalho no expediente
+    dos dias seguintes, até alguém tirar a etiqueta: o tempo de execução dele
+    ia às alturas e acabava com a meta de tempo — individual de quem esqueceu
+    e coletiva (print do dono, 23/10: cartões correndo o fim de semana
+    inteiro). Daqui para frente a etiqueta entra às 18h30
+    (`fechar_expediente.py`); este corte vale também para o que já passou, e
+    para o dia em que a rotina não rodar.
+
+    O trecho cortado termina como "interrompido", como se a etiqueta tivesse
+    entrado. Quem continuar o cartão no dia seguinte precisa mexer na etiqueta
+    — a mesma coisa que a rotina passa a exigir.
+    """
+    fora = []
+    for s in segs:
+        corte = corte_do_trecho(s["ini"])
+        if corte <= s["ini"]:
+            continue
+        if s["fim"] > corte:
+            s = dict(s, fim=corte, fim_tipo="interrompido")
+        fora.append(s)
+    return fora
 
 
 def _lista_abonos():
@@ -4390,6 +4433,43 @@ if __name__ == "__main__":
                               {"m1": "luiz"}, modo="depois")[0]["quem"].startswith("fora do quadro · automação?"))
     ok("rastreio: o autor é pedido ao Trello em toda leitura de ações",
        "idMemberCreator" in CAMPOS_ACAO["fields"])
+
+    # ── O CORTE DAS 18h30 NA HISTÓRIA (dono, 23/10) ─────────────────────────
+    # Pela cadeia real: acoes do Trello -> intervalos_do_cartao. Sexta 09/10,
+    # EM ANDAMENTO as 15h, esquecido; a etiqueta so sai na terca 13/10 as 11h.
+    def _lab(quando, entrou, nome="EM ANDAMENTO"):
+        return {"date": quando,
+                "type": "addLabelToCard" if entrou else "removeLabelFromCard",
+                "data": {"label": {"name": nome}}}
+    _esq = intervalos_do_cartao(
+        [_lab("2026-10-09T18:00:00.000Z", True),     # 15h de Brasilia
+         _lab("2026-10-13T14:00:00.000Z", False)],   # terca, 11h
+        agora=datetime(2026, 10, 20, tzinfo=timezone.utc), labels_agora=[])
+    ok("cartão esquecido na sexta para às 18h30 da sexta, e não na terça",
+       len(_esq) == 1
+       and _esq[0]["fim"].astimezone(FUSO).strftime("%d/%m %H:%M") == "09/10 18:30"
+       and _esq[0]["fim_tipo"] == "interrompido")
+    ok("o fim de semana e a segunda do cartão esquecido somem do tempo",
+       sum((x["fim"] - x["ini"]).total_seconds() for x in _esq) / 60 == 210)
+    ok("trecho aberto no sábado não conta nada",
+       intervalos_do_cartao([_lab("2026-10-10T12:00:00.000Z", True)],
+                            agora=datetime(2026, 10, 10, 20, tzinfo=timezone.utc),
+                            labels_agora=["EM ANDAMENTO"]) == [])
+    ok("trecho que começa depois das 18h30 não conta nada",
+       intervalos_do_cartao([_lab("2026-10-08T22:00:00.000Z", True),
+                             _lab("2026-10-08T23:00:00.000Z", False)],
+                            agora=datetime(2026, 10, 9, tzinfo=timezone.utc),
+                            labels_agora=[]) == [])
+    _norm = intervalos_do_cartao([_lab("2026-10-08T13:00:00.000Z", True),
+                                  _lab("2026-10-08T17:00:00.000Z", False)],
+                                 agora=datetime(2026, 10, 9, tzinfo=timezone.utc),
+                                 labels_agora=[])
+    ok("trecho normal do dia (10h às 14h) fica inteiro e encerrado",
+       len(_norm) == 1 and _norm[0]["fim_tipo"] == "encerrado"
+       and (_norm[0]["fim"] - _norm[0]["ini"]).total_seconds() == 4 * 3600)
+    ok("o corte usa a hora da rotina do fim de expediente",
+       corte_do_trecho(datetime(2026, 10, 8, 13, tzinfo=timezone.utc))
+       .astimezone(FUSO).strftime("%H:%M") == "18:30")
 
     print("\nfalhas:", falhas)
     # O CODIGO DE SAIDA. Sem ele, quem le `returncode` ve este modulo como
