@@ -25,7 +25,8 @@ import os
 os.environ.setdefault("STREAMLIT_SECRETS", '[trello]\nkey = "conferencia"\n')
 
 def montar(ambiente="producao", saida_my="17:45", tem_label=True,
-           labels_do_cartao=None, post_ok=True, pessoas_rhid=True):
+           labels_do_cartao=None, post_ok=True, pessoas_rhid=True,
+           dia_util=True):
     POSTS.clear()
 
     plan = types.ModuleType("planilha")
@@ -50,6 +51,7 @@ def montar(ambiente="producao", saida_my="17:45", tem_label=True,
     pc.TRELLO_KEY, pc.TRELLO_TOKEN = "k", "t"
     pc.recarregar_membros = lambda: None
     pc.horario_de = lambda u: {"entrada": dt.time(8, 45), "fim": dt.time(17, 45)}
+    pc.eh_dia_util = lambda d: dia_util
     pc.mapa_labels = lambda forcar=False: ({"lb1": "FIM DE EXPEDIENTE"} if tem_label else {"lb9": "OUTRA"})
     _lbs = labels_do_cartao if labels_do_cartao is not None else ["EM ANDAMENTO"]
     pc._buscar_board = lambda: (
@@ -87,8 +89,17 @@ def rodar(titulo, esperado_posts, **kw):
         if l.strip(): print("        " + l.split("] ", 1)[-1])
     return ok
 
+def _as(h, m=0):
+    return dt.datetime.combine(HOJE, dt.time(h, m))
+
 f = 0
-f += not rodar("caso da Myrella: saiu 17h45, cartao aberto", 1)
+# A regra do dono (23/10): 18h30, todo cartao EM ANDAMENTO; fim de semana e
+# feriado, a qualquer hora. A RHiD nao entra: os dois ultimos casos provam que
+# ela pode estar muda sem que nenhum cartao deixe de fechar.
+f += not rodar("18h30 em ponto: o cartao aberto fecha", 1, agora=_as(18, 30))
+f += not rodar("18h29: ainda nao", 0, agora=_as(18, 29))
+f += not rodar("11h de dia util: nao fecha", 0, agora=_as(11, 0))
+f += not rodar("sabado de manha: fecha", 1, agora=_as(9, 0), dia_util=False)
 f += not rodar("simulacao nao escreve nada", 0, simular=True)
 f += not rodar("AMBIENTE DE TESTE nao escreve no board real", 0, ambiente="homologacao")
 f += not rodar("cartao que ja tem a etiqueta e pulado", 0,
@@ -96,13 +107,10 @@ f += not rodar("cartao que ja tem a etiqueta e pulado", 0,
 f += not rodar("cartao sem etiqueta de trabalho nao e tocado", 0,
                labels_do_cartao=["PENDENTE"])
 f += not rodar("board sem a etiqueta: aborta", 0, tem_label=False)
-f += not rodar("RHiD sem ninguem: aborta em vez de chutar", 0, pessoas_rhid=False)
-f += not rodar("ainda no expediente (11h), sem batida", 0, saida_my=None,
-               agora=dt.datetime.combine(HOJE, dt.time(11, 0)))
-f += not rodar("sem batida, 18h30 — meia hora depois, ainda espera", 0, saida_my=None)
-f += not rodar("sem batida, 18h46 — uma hora depois, fecha", 1, saida_my=None,
-               agora=dt.datetime.combine(HOJE, dt.time(18, 46)))
+f += not rodar("RHiD sem ninguem: fecha do mesmo jeito", 1, pessoas_rhid=False)
+f += not rodar("sem batida de saida: fecha do mesmo jeito", 1, saida_my=None)
 f += not rodar("POST recusado pelo Trello e reportado", 1, post_ok=False)
 print("\nfalhas:", f)
 if POSTS:
     print("ultimo POST:", POSTS[-1][0])
+raise SystemExit(1 if f else 0)
