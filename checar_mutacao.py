@@ -4040,6 +4040,13 @@ MUTACOES = [
         ["python3", "placar_core.py"],
     ),
     (
+        "a promocao em andamento volta a se misturar com o convite",
+        "ml_api.py",
+        'SITUACAO = {"started": "em andamento", ',
+        'SITUACAO = {"started": "disponível (convite)", ',
+        ["python3", "ml_api.py"],
+    ),
+    (
         "o DAS volta a cair no fim de semana em vez de antecipar",
         "lembretes.py",
         '("das_20", "DAS", ("dia_antecipa", 20)',
