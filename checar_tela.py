@@ -4075,6 +4075,46 @@ def _rastreio_etiquetas(conta):
         _pc_r.ALINHAMENTO_OLD.clear(); _pc_r.ALINHAMENTO_OLD.update(_g[4])
 
 
+def _lembrete_pago_no_extrato(conta):
+    """23/10: o lembrete que o extrato já mostra pago sai do quadro, e o
+    quadro diz numa linha o que tirou. Segunda 19/10: vencem o DAS, os demais
+    impostos e a TM do dia 20. Só a planilha é trocada: os lançamentos têm a
+    forma de `lancamentos.do_mes`."""
+    import lembretes as _lem2
+    import lancamentos as _lan2
+    import cheques as _ch2
+    import nao_operacional as _no2
+    import pandas as _pd2
+    from datetime import date as _d2
+    _g = (_lem2.carregar_feitos, _ch2.carregar, _no2.carregar, _lan2.do_mes)
+    _txt, _bot = [], []
+    try:
+        f = instalar()
+        f.markdown = lambda t, *a, **k: _txt.append(str(t))
+        f.caption = lambda t, *a, **k: _txt.append(str(t))
+        f.button = lambda rot, *a, **k: (f._registra("button", k), _bot.append(k.get("key")), False)[2]
+        _lem2.carregar_feitos = lambda: (frozenset(), "")
+        _ch2.carregar = lambda: []
+        _no2.carregar = lambda: _pd2.DataFrame()
+        _lan2.do_mes = lambda a, m, lista=None: ([{"data": "2026-10-19", "valor": -1520.33,
+                                                  "favorecido": "RECEITA FEDERAL", "descricao": "",
+                                                  "finalidade": "IMPOSTO"}] if (a, m) == (2026, 10) else [])
+        _lem2.mostrar(f, "leo", _d2(2026, 10, 19))
+        _j = " ".join(_txt)
+        conta("Lembretes: o DAS já pago no extrato sai do quadro; demais impostos e TM ficam (dono, 23/10)",
+              not any(str(b).startswith("lem_das_20|") for b in _bot)
+              and any(str(b).startswith("lem_impostos_20|") for b in _bot)
+              and any(str(b).startswith("lem_tm_20|") for b in _bot), str(_bot))
+        conta("Lembretes: o quadro diz o que tirou e por quê",
+              "Já pagos, retirados pelo extrato" in _j and "DAS" in _j and "visto no extrato 19/10" in _j, _j[-200:])
+    except (_Rerun, _Parou):
+        conta("Lembretes: pago no extrato — a tela monta", True, "")
+    except Exception as e:
+        conta("Lembretes: pago no extrato — a tela monta", False, f"{type(e).__name__}: {e}")
+    finally:
+        _lem2.carregar_feitos, _ch2.carregar, _no2.carregar, _lan2.do_mes = _g
+
+
 def main():
     instalar()
     falhas = []
@@ -4148,6 +4188,7 @@ def main():
     _ranking_abre_panorama(conta)
     _celular(conta)
     _rastreio_etiquetas(conta)
+    _lembrete_pago_no_extrato(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0

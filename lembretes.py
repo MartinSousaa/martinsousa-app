@@ -164,9 +164,15 @@ def do_nao_operacional(linhas, inicio, fim):
                 continue
             prog = str(r.get("programa") or "").strip() or "contrato"
             conta = str(r.get("conta_aporte") or "").strip()
+            try:
+                import pandas as _pd_no
+                parcela = float(_no.total_no_mes(_pd_no.DataFrame([r]), a, m) or 0)
+            except Exception:
+                parcela = 0.0
             fora.append({"chave": f"naoop:{prog}|{d.isoformat()}", "data": d,
                          "nome": f"Não operacional · {prog}",
-                         "detalhe": f"conta {conta}" if conta else "conta do débito"})
+                         "detalhe": f"conta {conta}" if conta else "conta do débito",
+                         "valor": round(parcela, 2)})
     return fora
 
 
@@ -205,6 +211,98 @@ def dia_util_seguinte(d):
     while not _eh_util(d):
         d += timedelta(days=1)
     return d
+
+
+# ── JÁ PAGO? O EXTRATO RESPONDE (dono, 23/10) ─────────────────────────────────
+# "O sistema precisa identificar no extrato se já foi pago ou debitado; se
+# constar lá, deve automaticamente marcar como pago e retirar do lembrete."
+#
+# Como cada lembrete aparece no extrato. Os nomes vêm do cadastro de
+# favorecidos (`favorecidos.py:98,199,245`) — o DAS sai como RECEITA FEDERAL
+# no Inter e SIMPLES NACIONAL no Itaú. O BLING não tem exemplo no cadastro:
+# é o nome do serviço, e se não casar o lembrete só continua manual.
+# O bônus headcount fica de fora: no extrato ele é igual a um salário.
+NOMES_DAS = ("RECEITA FEDERAL", "SIMPLES NACIONAL")
+COMO_ACHAR = {
+    "bling": ("nome", ("BLING",)),
+    "tm_05": ("nome", ("TM LOGISTICA",)),
+    "tm_20": ("nome", ("TM LOGISTICA",)),
+    "das_20": ("nome", NOMES_DAS),
+    "impostos_20": ("finalidade", "IMPOSTO"),
+    "salarios": ("folha", None),
+}
+# Pago até 10 dias antes conta (paga-se adiantado); até 5 depois também
+# (o extrato do banco às vezes registra no dia útil seguinte). Mais largo que
+# isso, o TM do dia 05 casaria com o pagamento do dia 20.
+JANELA_ANTES, JANELA_DEPOIS = 10, 5
+
+
+def _data_do_lanc(l):
+    """A data do lançamento pela MESMA leitura de `lancamentos.mes_de`."""
+    import lancamentos as _lan
+    try:
+        return date.fromisoformat(_lan._txt_data(l.get("data"))[:10])
+    except (ValueError, TypeError):
+        return None
+
+
+def _saida(l):
+    try:
+        v = float(str(l.get("valor") or 0).replace(",", "."))
+    except ValueError:
+        return 0.0
+    return -v if v < 0 else 0.0
+
+
+def pago_no_extrato(item, lancs, folha_falta=None):
+    """(pago, como_soube). Pura.
+
+    `lancs`: lançamentos na forma de `lancamentos.do_mes` (data, valor
+    negativo na saída, favorecido, descricao, finalidade). `folha_falta`:
+    {(ano, mes): quanto de FOLHA ainda vai sair} de `previsto.combinar`.
+    """
+    import assinaturas as _as
+    d = item.get("data")
+    if not isinstance(d, date):
+        return False, ""
+    ini, fim = d - timedelta(days=JANELA_ANTES), d + timedelta(days=JANELA_DEPOIS)
+    na_janela = [l for l in (lancs or []) if _saida(l) > 0
+                 and (_data_do_lanc(l) or date.min) >= ini and (_data_do_lanc(l) or date.max) <= fim]
+    id_ = str(item.get("chave", "")).split("|", 1)[0]
+
+    def achou(l):
+        return True, f"visto no extrato {_data_do_lanc(l):%d/%m} · R$ {_saida(l):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+    if id_.startswith("naoop:"):
+        alvo = float(item.get("valor") or 0)
+        for l in na_janela:
+            if alvo > 0 and abs(_saida(l) - alvo) <= max(1.0, alvo * 0.01):
+                return achou(l)
+        return False, ""
+    tipo, arg = COMO_ACHAR.get(id_, (None, None))
+    if tipo == "nome":
+        for l in na_janela:
+            if any(_as._casa(l, {"favorecido": n}) for n in arg):
+                return achou(l)
+    elif tipo == "finalidade":
+        for l in na_janela:
+            if (str(l.get("finalidade") or "").strip().upper() == arg
+                    and not any(_as._casa(l, {"favorecido": n}) for n in NOMES_DAS)):
+                return achou(l)
+    elif tipo == "folha":
+        falta = (folha_falta or {}).get((d.year, d.month))
+        if falta is not None and falta <= 0.005:
+            return True, "folha do mês toda paga no extrato"
+    return False, ""
+
+
+def separar_pagos(itens, lancs, folha_falta=None):
+    """(a_mostrar, retirados) — retirados = [(item, como_soube)]. Pura."""
+    fica, sai = [], []
+    for x in itens:
+        pago, como = pago_no_extrato(x, lancs, folha_falta)
+        (sai.append((x, como)) if pago else fica.append(x))
+    return fica, sai
 
 
 def proximo_dia_util(d):
@@ -305,6 +403,29 @@ def mostrar(st_, usuario, hoje):
     except Exception:
         nao_op = []
     perto = para_mostrar(pendentes(hoje, feitos, bol, nao_op), hoje)
+    # O QUE O EXTRATO JÁ MOSTRA PAGO SAI DAQUI (dono, 23/10). Só lê — cache
+    # de `lancamentos.carregar` (2 min) e de `previsto.do_mes` (5 min).
+    retirados = []
+    if perto:
+        try:
+            import lancamentos as _lan
+            import previsto as _pv
+            meses = sorted({(x["data"].year, x["data"].month) for x in perto}
+                           | {((x["data"] - timedelta(days=JANELA_ANTES)).year,
+                               (x["data"] - timedelta(days=JANELA_ANTES)).month) for x in perto})
+            lancs = [l for a, m in meses for l in _lan.do_mes(a, m)]
+            folha = {}
+            if any(str(x["chave"]).startswith("salarios|") for x in perto):
+                for a, m in {(x["data"].year, x["data"].month) for x in perto
+                             if str(x["chave"]).startswith("salarios|")}:
+                    _lm = _lan.do_mes(a, m)
+                    _prev, _e = _pv.do_mes(a, m)
+                    _comb, _t = _pv.combinar(_lan.resumo_por_finalidade(_lm) if _lm else {},
+                                             _prev, _lan.cartao_detalhado(_lm))
+                    folha[(a, m)] = sum(c["falta_sair"] for c in _comb if c["finalidade"] == "FOLHA")
+            perto, retirados = separar_pagos(perto, lancs, folha)
+        except Exception:
+            pass        # o extrato fora do ar não esconde lembrete: mostra todos
     if not perto:
         return          # nada vence amanhã: a Home não mostra o quadro
     with st_.container(border=True):
@@ -314,6 +435,9 @@ def mostrar(st_, usuario, hoje):
         if erro:
             st_.caption(f"Não consegui ler o que já foi marcado como feito "
                         f"({erro}) — mostrando todos.")
+        if retirados:
+            st_.caption("✓ Já pagos, retirados pelo extrato: "
+                        + " · ".join(f"{x['nome']} ({como})" for x, como in retirados))
         for i in range(0, len(perto), 4):
             cols = st_.columns(4)
             for col, x in zip(cols, perto[i:i + 4]):
@@ -447,6 +571,43 @@ if __name__ == "__main__":
     ok("feriado também desloca: sex 20/11 (Consciência Negra) → DAS qui 19/11, demais seg 23/11",
        (dia_util_anterior(date(2026, 11, 20)), dia_util_seguinte(date(2026, 11, 20)))
        == (date(2026, 11, 19), date(2026, 11, 23)))
+
+    # ══ JÁ PAGO NO EXTRATO (dono, 23/10) ═════════════════════════════════
+    # Os lembretes saem da cadeia (`das_regras`); os lançamentos na forma de
+    # `lancamentos.do_mes`: saída negativa, favorecido, descrição, finalidade.
+    _out = {x["chave"].split("|")[0]: x for x in das_regras(date(2026, 10, 1), date(2026, 10, 31))}
+    _L = lambda d, v, fav, fin="", desc="": {"data": d, "valor": v, "favorecido": fav,
+                                           "descricao": desc, "finalidade": fin}
+    _lancs = [_L("2026-10-19", -1520.33, "RECEITA FEDERAL", "IMPOSTO"),
+              _L("2026-10-20", -880.0, "TM LOGISTICA", "FLEX"),
+              _L("2026-10-09", -89.9, "", "SERVIÇO", "PIX BLING SISTEMAS"),
+              _L("2026-10-21", -300.0, "PREFEITURA MUNICIPAL", "IMPOSTO"),
+              _L("2026-10-04", 900.0, "TM LOGISTICA", "FLEX")]   # ENTRADA não conta
+    ok("DAS: a RECEITA FEDERAL de 19/10 tira o lembrete do dia 20",
+       pago_no_extrato(_out["das_20"], _lancs)[0])
+    ok("TM do dia 05 NÃO casa com o pagamento do dia 20, nem com a entrada do dia 04",
+       not pago_no_extrato(_out["tm_05"], _lancs)[0] and pago_no_extrato(_out["tm_20"], _lancs)[0])
+    ok("Bling pelo nome na descrição; 'BLINGO' não seria Bling",
+       pago_no_extrato(_out["bling"], _lancs)[0]
+       and not pago_no_extrato(_out["bling"], [_L("2026-10-09", -50.0, "BLINGO LTDA")])[0])
+    ok("demais impostos: IMPOSTO que não é DAS conta; só o DAS não basta",
+       pago_no_extrato(_out["impostos_20"], _lancs)[0]
+       and not pago_no_extrato(_out["impostos_20"], _lancs[:1])[0])
+    ok("salários: só sai quando a folha do mês está toda paga",
+       pago_no_extrato(_out["salarios"], [], {(2026, 10): 0.0})[0]
+       and not pago_no_extrato(_out["salarios"], [], {(2026, 10): 150.0})[0]
+       and not pago_no_extrato(_out["salarios"], [], {})[0])
+    ok("bônus headcount nunca é retirado pelo extrato (é igual a um salário lá)",
+       not pago_no_extrato(_out["bonus_headcount"], _lancs, {(2026, 10): 0.0})[0])
+    _no_item = {"chave": "naoop:PRONAMPE|2026-10-15", "data": date(2026, 10, 15), "valor": 2350.0}
+    ok("não operacional: casa pelo valor da parcela, dentro da janela",
+       pago_no_extrato(_no_item, [_L("2026-10-15", -2350.0, "DEB AUTOMATICO")])[0]
+       and not pago_no_extrato(_no_item, [_L("2026-10-15", -2100.0, "DEB AUTOMATICO")])[0])
+    _fica, _sai = separar_pagos(list(_out.values()), _lancs)
+    ok("separar_pagos: tira os pagos, diz como soube, mantém os outros",
+       {x["chave"].split("|")[0] for x, _c in _sai} == {"das_20", "tm_20", "bling", "impostos_20"}
+       and all("visto no extrato" in c for _x, c in _sai)
+       and "bonus_headcount" in {x["chave"].split("|")[0] for x in _fica})
 
     print(f"\nfalhas: {falhas}")
     sys.exit(1 if falhas else 0)
