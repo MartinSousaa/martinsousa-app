@@ -383,6 +383,29 @@ def convites(conta):
     return (lista if isinstance(lista, list) else [], "")
 
 
+
+# O que o ML chama cada `status`, no nome que a equipe usa. Situação que não
+# está aqui aparece crua — melhor que sumir com ela.
+SITUACAO = {"started": "em andamento", "candidate": "disponível (convite)",
+            "pending": "programada", "finished": "encerrada"}
+
+
+def por_situacao(lista):
+    """[{"situação", "tipo", "promoções"}] contando a lista de `convites`.
+
+    Em andamento primeiro: é o que já está mexendo no preço agora."""
+    cont = {}
+    for p in lista or []:
+        if not isinstance(p, dict):
+            continue
+        st_ = str(p.get("status", "?"))
+        chave = (SITUACAO.get(st_, st_), str(p.get("type", "?")))
+        cont[chave] = cont.get(chave, 0) + 1
+    ordem = {v: i for i, v in enumerate(SITUACAO.values())}
+    return [{"situação": s, "tipo": t, "promoções": n}
+            for (s, t), n in sorted(cont.items(),
+                                    key=lambda x: (ordem.get(x[0][0], 9), x[0][1]))]
+
 if __name__ == "__main__":
     falhas = 0
 
@@ -391,6 +414,14 @@ if __name__ == "__main__":
         falhas += not cond
         print(("ok    " if cond else "FALHA ") + nome)
 
+    _ps = por_situacao([{"id": "1", "status": "candidate", "type": "SMART"},
+                        {"id": "2", "status": "started", "type": "DEAL"},
+                        {"id": "3", "status": "candidate", "type": "SMART"},
+                        {"id": "4", "status": "xyz", "type": "LIGHTNING"}, "lixo"])
+    ok("por_situacao: em andamento primeiro, convites somados por tipo, status novo aparece cru",
+       _ps == [{"situação": "em andamento", "tipo": "DEAL", "promoções": 1},
+               {"situação": "disponível (convite)", "tipo": "SMART", "promoções": 2},
+               {"situação": "xyz", "tipo": "LIGHTNING", "promoções": 1}])
     ok("as quatro contas, com o CNPJ de cada uma (bling_api.py:19-20)",
        CONTAS == ("ml1", "ml2", "ml3", "ml4")
        and CNPJ_DA_CONTA == {"ml1": "LG", "ml3": "LG", "ml2": "MS", "ml4": "MS"})

@@ -555,11 +555,13 @@ def _secao_mercado_livre():
             else:
                 st.success(f"{len(_lista)} promoção(ões) disponível(is) na {_c.upper()}.")
                 if _lista:
-                    _tipos = {}
-                    for _p in _lista:
-                        _t = str((_p or {}).get("type", "?")) if isinstance(_p, dict) else "?"
-                        _tipos[_t] = _tipos.get(_t, 0) + 1
-                    st.write(_tipos)
+                    # Por SITUACAO e tipo (dono, 23/10: "e as promoções em
+                    # andamento?"). A lista traz `status` em cada promoção;
+                    # contar só por tipo misturava a que já está rodando com a
+                    # que é só convite.
+                    import pandas as _pd_ml
+                    st.dataframe(_pd_ml.DataFrame(_ml.por_situacao(_lista)),
+                                 use_container_width=True, hide_index=True)
                     if isinstance(_lista[0], dict):
                         st.caption("Campos de uma promoção:")
                         st.code(", ".join(sorted(_lista[0].keys())), language=None)
