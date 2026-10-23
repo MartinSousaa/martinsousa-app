@@ -405,8 +405,21 @@ def _montar_system(usuario="", eh_admin=None) -> str:
     tem_titulos = bool(st.session_state.get("tt_titulos_gerados"))
     tem_desc    = bool(st.session_state.get("desc_texto_atual"))
     tem_imgs    = bool(st.session_state.get("img_galeria"))
+    # PRODUTO ABERTO JA E CONTEXTO SUFICIENTE PARA GERAR, e nao era.
+    #
+    # Sem galeria, sem titulo e sem descricao, esta funcao saia por cima com o
+    # prompt de "so perguntas" — NENHUM comando. Entao "gera a capa deste
+    # produto", com o nome preenchido na aba e nada gerado ainda, recebia um
+    # passo a passo de como fazer na mao. E esse e exatamente o momento em que
+    # o colaborador comeca: *"O pessoal ainda esta com muita dificuldade no
+    # Studio, principalmente na criacao das imagens"* (dono, 23/10).
+    #
+    # Com o nome do produto na tela, `gerar_imagem` ja tem o que precisa.
+    tem_produto = bool(
+        str(st.session_state.get("img_nome_produto_input", "") or "").strip()
+        or str(st.session_state.get("img_codigo_input", "") or "").strip())
 
-    if not (tem_titulos or tem_desc or tem_imgs):
+    if not (tem_titulos or tem_desc or tem_imgs or tem_produto):
         # Só Q&A — sem conteúdo gerado disponível para editar
         nota_orientacao = (
             "\n\n--- CONTEXTO DO APP ---\n"
@@ -434,6 +447,15 @@ def _montar_system(usuario="", eh_admin=None) -> str:
         cmds_exemplo.append('{"acao":"refazer_imagem","imagem":1,"instrucao":"como a imagem deve ficar, do zero"}')
         cmds_exemplo.append('{"acao":"refazer_todas_imagens","instrucao":"o que mudar em todas"}')
         cmds_exemplo.append('{"acao":"gerar_imagens_faltantes"}')
+        cmds_exemplo.append('{"acao":"variacao_da_imagem","imagem":1,'
+                            '"instrucao":"o que muda da peca aprovada para esta"}')
+    if tem_produto or tem_imgs:
+        cmds_exemplo.append('{"acao":"gerar_imagem","tipos":["1 — Capa do '
+                            'anúncio (fundo branco)"],"descricao":"o que esta '
+                            'peca tem de ter"}')
+        cmds_exemplo.append('{"acao":"qual_imagem"}')
+        cmds_exemplo.append('{"acao":"falta_informacao","perguntas":["o que '
+                            'você precisa saber, uma por linha"]}')
 
     # Sempre disponível quando há triagem com bloqueios — independe de imgs geradas
     tem_triagem_bloqueada = bool(
@@ -524,6 +546,46 @@ REGRAS DOS COMANDOS:
   colaborador pedir para completar ("faltam 2 imagens", "gera as que faltam").
   NÃO mande ele fazer o processo na aba Imagem — o comando faz isso. As imagens
   já geradas não são tocadas; as novas entram no fim da galeria.
+
+- "gerar_imagem": UMA peça, a que ele pediu. É o comando mais usado, e é ele
+  que torna a conversa suficiente: "começa pela capa", "agora uma com o
+  produto em uso", "faz a de medidas". UMA POR VEZ — ele só gera as oito
+  quando pedir as oito com todas as letras, e aí você emite um "gerar_imagem"
+  com os oito rótulos em "tipos".
+  "tipos" leva o RÓTULO EXATO do padrão (a lista está no comando
+  "qual_imagem"). "descricao" leva o que aquela peça tem de ter, escrita para
+  o GERADOR e não para o colaborador.
+  PEÇA FORA DO PADRÃO: quando o que ele quer não é nenhuma das oito, use
+  "tipos":["Personalizado (descrevo o que quero)"] e descreva em "descricao"
+  tudo que o gerador precisa saber. Peça fora do padrão é legítima — o que não
+  é legítimo é empurrá-la para o rótulo mais parecido e gerar outra coisa.
+  NUNCA INVENTE DADO DO PRODUTO. Cor, medida, material, quantidade no kit: se
+  não estiver na triagem, na descrição ou nesta conversa, emita
+  "falta_informacao" em vez de "gerar_imagem". Decisão de ARTE (o cenário, a
+  luz, o arranjo) é sua para propor — mas diga qual você propôs antes de gerar.
+
+- "qual_imagem": quando ele pedir uma imagem e você NÃO tiver certeza de qual
+  das peças é. O sistema desenha a lista numerada com os nomes que ele
+  reconhece, e ele responde o número. Não escreva a lista você mesmo: o
+  sistema a monta da lista oficial, e duas listas passariam a discordar.
+  Na dúvida entre adivinhar e perguntar, pergunte: uma geração errada custa
+  mais que uma pergunta.
+
+- "falta_informacao": quando falta um DADO DO PRODUTO para gerar ou corrigir.
+  Uma pergunta por item em "perguntas", curtas, só o que falta de verdade.
+  Não use para pedir confirmação de coisa que você já sabe, e não use para
+  decisão de arte — essa você propõe.
+
+- "variacao_da_imagem": quando uma peça JÁ APROVADA tem de ser refeita
+  mudando SÓ o produto — outra cor, outra estampa, outro modelo da mesma
+  variação. É o caso que o dono descreveu em 23/10: *"após uma imagem
+  validada essa solicitação seria feita com o colaborador anexando uma foto da
+  cor ou do outro modelo da variação"*.
+  "imagem" é o número da peça aprovada que serve de molde. A FOTO ANEXADA é
+  quem diz qual é o produto novo — se não houver anexo nesta conversa, emita
+  "falta_informacao" pedindo a foto, nunca adivinhe a cor pelo nome.
+  Em "instrucao" escreva só o que muda. Cenário, luz, enquadramento, textos e
+  layout são para ficar IDÊNTICOS: é esse o pedido.
 - "refazer_todas_imagens": SOMENTE quando o colaborador pedir explicitamente que
   TODAS sejam refeitas ("refaz tudo", "gera tudo de novo"). Descarta a galeria e
   gera de novo do zero. Confirme com ele antes de emitir, dizendo quantas imagens
@@ -566,6 +628,58 @@ def _norm_texto(v):
     import unicodedata as _ud
     s = _ud.normalize("NFKD", str(v)).encode("ascii", "ignore").decode("ascii").lower()
     return _re.sub(r"[^a-z0-9]+", " ", s).strip()
+
+
+def _casar_tipo(bruto, padrao, livre=""):
+    """O rótulo oficial da peça que este texto quer. "" quando não é nenhuma.
+
+    POR QUE ELA EXISTE
+    ------------------
+    O rótulo chega do modelo, e modelo generativo erra rótulo: escreve
+    `"1 - Capa"` com hífen simples, `"capa do anúncio"` sem o número, ou só
+    `"3"`. Um rótulo que não existe chegaria à tela como tipo sem preset — e
+    `PRESETS[tipo]` levantaria `KeyError` na tela de quem pediu, ou pior,
+    geraria uma peça sem nenhuma das regras daquele tipo.
+
+    A ORDEM É A DA CERTEZA: rótulo igual, depois o número da peça, e só então
+    o texto. Casar por texto antes do número faria `"5"` casar com o primeiro
+    rótulo que tivesse um 5 em qualquer lugar.
+
+    O que NÃO casa não vira palpite: devolve "". Peça livre tem rótulo próprio
+    (`imagem.PERSONALIZADO`), e é ele que o chamador usa quando a peça está
+    fora do padrão — nunca o tipo mais parecido.
+    """
+    texto = str(bruto or "").strip()
+    if not texto:
+        return ""
+    lista = list(padrao or [])
+    if texto in lista:
+        return texto
+    if livre and texto == livre:
+        return livre
+
+    baixo = texto.lower()
+    if livre and any(p in baixo for p in ("personalizado", "livre",
+                                          "outra coisa", "outro modelo",
+                                          "fora do padr")):
+        return livre
+
+    achou_num = re.match(r"^\D{0,12}?(\d{1,2})\b", texto)
+    if achou_num:
+        n = int(achou_num.group(1))
+        if 1 <= n <= len(lista):
+            return lista[n - 1]
+
+    # E só então o texto, exigindo TODAS as palavras que identificam. Uma só
+    # ("capa") casaria com qualquer rótulo que a contivesse — é a mesma lição
+    # de `buscar_pasta_produto`, onde "Preto" achou a pasta da lixeira.
+    palavras = re.findall(r"[a-zà-ú]{4,}", baixo)
+    if palavras:
+        for rotulo in lista:
+            alvo = rotulo.lower()
+            if all(p in alvo for p in palavras):
+                return rotulo
+    return ""
 
 
 def _resolver_imagem(alvo, galeria):
@@ -691,7 +805,39 @@ def preparar_geracao_dos_faltantes(faltam):
     """
     if not faltam:
         return False
-    st.session_state["img_pedido_faltantes"] = list(faltam)
+    return pedir_pecas(faltam)
+
+
+# A PEÇA QUE O COLABORADOR PEDIU, UMA POR VEZ
+#
+# Dono, 23/10: *"Ele não irá gerar as 8 imagens de uma vez, somente conforme
+# eles forem pedindo"*. E, sobre peça fora do padrão: *"o sistema precisa
+# conseguir gerar uma imagem que eles solicitem, mesmo que não se enquadre em
+# algum dos tópicos acima desde que ele entenda o que precisa ser feito"*.
+#
+# UMA FUNÇÃO, E NÃO TRÊS. "Gerar as faltantes", "gerar a capa" e "gerar uma
+# peça que não é do padrão" são o mesmo pedido com listas de tamanhos
+# diferentes — e o modo da tela sai da contagem, não de um parâmetro. Três
+# funções com três chaves seriam a Forma 5 desta base esperando acontecer.
+def pedir_pecas(tipos, descricao=""):
+    """Deixa o PEDIDO de gerar estas peças para a aba Imagem. True se pediu.
+
+    `tipos` são rótulos — de `imagem.TIPOS_PADRAO` ou `imagem.PERSONALIZADO`,
+    que é a peça livre. `descricao` é o que o colaborador quer naquela peça, e
+    só faz sentido com UM tipo: com vários ela viraria contexto do lote, que é
+    outra coisa.
+
+    NÃO ESCREVE CHAVE DE WIDGET, e é por isso que ela existe. O chat é
+    desenhado DEPOIS da página (`app.py:2092`), e o Streamlit recusa escrever
+    em `img_modo` ou `img_tipo_unico` depois de o widget nascer — foi o erro
+    que o dono recebeu em 05/10, com o comando morrendo antes de marcar nada.
+    Quem aplica é `pagina_imagem`, no topo, antes de qualquer widget.
+    """
+    limpos = [str(t).strip() for t in (tipos or []) if str(t or "").strip()]
+    if not limpos:
+        return False
+    st.session_state["img_pedido_de_pecas"] = {
+        "tipos": limpos, "descricao": str(descricao or "").strip()}
     return True
 
 
@@ -911,6 +1057,162 @@ def _executar_comando(cmd: dict) -> str | None:
             "_Não gero sozinho de propósito: cada peça é uma geração paga, e "
             "quem confirma o gasto é você._"
         )
+
+    # ── A PEÇA QUE ELE PEDIU, UMA POR VEZ ──────────────────────────────
+    #
+    # Dono, 23/10: *"Ele não irá gerar as 8 imagens de uma vez, somente
+    # conforme eles forem pedindo"*.
+    #
+    # Reaproveita o mesmo caminho das faltantes — `pedir_pecas` deixa o pedido
+    # e `pagina_imagem` o aplica antes dos widgets. Um segundo caminho de
+    # geração seria a Forma 5 desta base.
+    if acao == "gerar_imagem":
+        try:
+            import imagem as _img_g
+            padrao = list(_img_g.TIPOS_PADRAO)
+            livre = _img_g.PERSONALIZADO
+        except Exception:
+            return "⚠️ Não consegui ler a lista de tipos padrão."
+
+        pedidos = cmd.get("tipos")
+        if isinstance(pedidos, str):
+            pedidos = [pedidos]
+        # O RÓTULO TEM DE EXISTIR. Modelo generativo erra o rótulo de vez em
+        # quando ("1 - Capa", "capa do anúncio"), e um rótulo que não existe
+        # chegaria à tela como peça sem preset — gerando outra coisa em
+        # silêncio. Casar pelo número e pelo texto cobre as duas formas de
+        # errar sem aceitar o que não existe.
+        tipos, nao_achados = [], []
+        for bruto in (pedidos or []):
+            achou = _casar_tipo(str(bruto or ""), padrao, livre)
+            if achou:
+                if achou not in tipos:
+                    tipos.append(achou)
+            else:
+                nao_achados.append(str(bruto))
+        if not tipos:
+            return ("⚠️ Não entendi qual peça gerar"
+                    + (f" (não reconheci: {', '.join(nao_achados[:3])})"
+                       if nao_achados else "")
+                    + ". Me diga o número da imagem — de 1 a "
+                    + f"{len(padrao)} — ou descreva o que você quer.")
+
+        descricao = str(cmd.get("descricao", "")).strip()
+        pedir_pecas(tipos, descricao)
+        _log("gerar_imagem", descricao or ", ".join(tipos),
+             tipo=tipos[0] if len(tipos) == 1 else f"{len(tipos)} tipos",
+             resultado=f"{len(tipos)} peça(s) marcada(s)")
+
+        if len(tipos) == 1:
+            _rot = tipos[0]
+            return (
+                f"🖼️ Deixei **{_rot}** pronta para gerar na aba **Imagem** — "
+                "o tipo já está escolhido"
+                + (" e a descrição já está no campo" if descricao else "")
+                + ".\n\nConfira e clique em gerar.\n\n"
+                "_Não gero sozinho de propósito: cada peça é uma geração paga, "
+                "e quem confirma o gasto é você._")
+        _lista = "\n".join(f"- {t}" for t in tipos)
+        return (
+            f"🖼️ Deixei **{len(tipos)} imagens** marcadas para gerar:\n{_lista}"
+            "\n\nAbra a aba **Imagem** — elas já estão selecionadas em "
+            "**Selecionar**. Confira e clique em gerar.\n\n"
+            "_Não gero sozinho de propósito: cada peça é uma geração paga, e "
+            "quem confirma o gasto é você._")
+
+    # ── O MENU NUMERADO, QUANDO O SISTEMA NÃO SABE QUAL PEÇA É ─────────
+    #
+    # Dono, 23/10: *"Se o sistema não entender qual é a imagem solicitada ele
+    # deve perguntar com base nos nomes que ele entende quais são"*.
+    #
+    # A LISTA SAI DE `TIPOS_PADRAO`, e não do texto do modelo. Se ele
+    # escrevesse a lista, haveria duas listas de peças no sistema — e a dele
+    # envelheceria no dia em que uma peça entrasse ou saísse do padrão.
+    if acao == "qual_imagem":
+        try:
+            import imagem as _img_q
+            padrao = list(_img_q.TIPOS_PADRAO)
+        except Exception:
+            return "⚠️ Não consegui ler a lista de tipos padrão."
+        linhas = "\n".join(f"{i + 1}. {t.split('—', 1)[-1].strip()}"
+                            for i, t in enumerate(padrao))
+        return (
+            "Você está pedindo qual destas imagens?\n\n" + linhas
+            + f"\n{len(padrao) + 1}. **Outra coisa** — não é nenhuma dessas; "
+            "me descreve o que você quer e eu gero.\n\n"
+            "_Responda só o número._")
+
+    # ── O DADO QUE FALTA, PERGUNTADO EM VEZ DE INVENTADO ───────────────
+    #
+    # Dono, 23/10: *"O sistema não pode inventar NADA, se não tem a
+    # referência ele tem que pedir!!!"*.
+    #
+    # Por que isto é um COMANDO e não texto livre do modelo: comando deixa
+    # rastro no log e dá ao resumo da tela um lugar de onde ler "o que ainda
+    # falta". Pergunta solta no meio de um parágrafo some na rolagem.
+    if acao == "falta_informacao":
+        perguntas = cmd.get("perguntas")
+        if isinstance(perguntas, str):
+            perguntas = [perguntas]
+        perguntas = [str(q).strip() for q in (perguntas or []) if str(q or "").strip()]
+        if not perguntas:
+            return None
+        st.session_state["img_perguntas_abertas"] = perguntas
+        _log("falta_informacao", " | ".join(perguntas)[:400],
+             resultado=f"{len(perguntas)} pergunta(s)")
+        return ("❓ Para gerar sem inventar nada, eu preciso de:\n"
+                + "\n".join(f"- {q}" for q in perguntas))
+
+    # ── A MESMA PEÇA, OUTRO MODELO DA VARIAÇÃO ─────────────────────────
+    #
+    # Dono, 23/10: *"para os produtos com variação de cor o colaborador
+    # informará que para determinada foto precisará apenas mudar a cor ou
+    # algum detalhe (...) após uma imagem validada essa solicitação seria
+    # feita com o colaborador anexando uma foto da cor ou do outro modelo"*.
+    #
+    # POR QUE ELE É UM "REFAZER", E NÃO UM AJUSTE: trocar o produto é trocar
+    # o que está no quadro. O ajuste edita regiões e preserva o resto — ele
+    # devolveria a mesma peça com a mesma cor, e ninguém entenderia por quê.
+    # Isso está escrito na regra do "refazer_imagem", e é a mesma razão.
+    #
+    # A FOTO É OBRIGATÓRIA, e não opcional com um palpite por trás: sem o
+    # anexo, "azul" é uma palavra, e o gerador escolheria um azul qualquer.
+    if acao == "variacao_da_imagem":
+        galeria = st.session_state.get("img_galeria") or []
+        if not galeria:
+            return ("⚠️ Não há imagem aprovada para servir de molde. Gere a "
+                    "peça primeiro; depois eu repito ela com o outro modelo.")
+        num_v = _resolver_imagem(cmd.get("imagem", cmd.get("foto")), galeria)
+        if num_v is None:
+            nomes_v = "\n".join(f"- **Imagem {i+1}** — {g.get('tipo','?')}"
+                                for i, g in enumerate(galeria))
+            return ("⚠️ Não ficou claro **qual imagem** repetir com o outro "
+                    "modelo. Me diga o número:\n" + nomes_v)
+        ref_v = referencia_do_pedido(st.session_state.get("ms_chat_hist"))
+        if not ref_v:
+            st.session_state["img_perguntas_abertas"] = [
+                "a foto da cor (ou do outro modelo) que você quer nesta peça"]
+            return ("📎 Me **anexe aqui a foto** da cor ou do modelo novo. Sem "
+                    "ela eu só teria o nome da cor, e o gerador escolheria um "
+                    "tom qualquer — a peça sairia parecida com nada.")
+        instrucao_v = str(cmd.get("instrucao", "")).strip()
+        # O TEXTO VAI PARA O GERADOR, e ele diz o que tem de ficar IGUAL. Sem
+        # esta parte, "refazer" refaz tudo: outro cenário, outra luz, outro
+        # layout — e o pedido era justamente o contrário.
+        pedido_v = (
+            "MESMA PEÇA, OUTRO MODELO DO PRODUTO. O produto novo é o da foto "
+            "anexada. Cenário, iluminação, enquadramento, posição do produto, "
+            "textos e layout têm de ficar IDÊNTICOS aos da peça atual — a "
+            "única diferença é o produto."
+            + (f" Observação do colaborador: {instrucao_v}" if instrucao_v else ""))
+        st.session_state.setdefault("chat_refazer_imagem", []).append(
+            {"num": num_v, "instrucao": pedido_v, "referencia": ref_v})
+        _log("variacao_da_imagem", instrucao_v, imagem=num_v,
+             resultado=f"{len(ref_v)} foto(s) de referência")
+        return (
+            f"🎨 Preparei a **Imagem {num_v}** para sair igual, com o produto "
+            "da foto que você anexou. Abra a aba **Imagem** para confirmar — "
+            "cenário, textos e layout ficam como estão.")
 
     if acao == "refazer_todas_imagens":
         galeria = st.session_state.get("img_galeria")
@@ -1172,7 +1474,14 @@ def limpar_marcadores(texto):
 def renderizar_chat(usuario_logado=""):
     """
     Renderiza o chat IA no sidebar.
-    Chamar dentro de `with st.sidebar:` (já no contexto certo).
+    ONDE ELA É CHAMADA, 23/10: no centro da aba Imagem quando ela está
+    aberta, e na barra lateral em todas as outras abas — quem decide é o
+    `app.py`, lendo o lugar que `imagem.reservar_slot_do_chat` reservou.
+    Esta função não sabe nem precisa saber onde está: ela desenha com
+    `st.container`, que funciona nos dois lugares. O que ela NÃO pode é ser
+    chamada duas vezes na mesma passada — as chaves dos widgets dela são
+    fixas, e a segunda chamada derrubaria a tela com
+    `StreamlitDuplicateElementKey`.
     """
     if "ms_chat_hist" not in st.session_state:
         st.session_state["ms_chat_hist"] = []
@@ -1774,7 +2083,7 @@ if __name__ == "__main__":
     # duplo aprendeu a recusar o que o Streamlit recusa.
     preparar_geracao_dos_faltantes(_falta)
     ok("os tipos faltantes viram um PEDIDO para a aba",
-       st.session_state.get("img_pedido_faltantes") == _falta)
+       (st.session_state.get("img_pedido_de_pecas") or {}).get("tipos") == _falta)
     ok("e nenhuma chave de widget e escrita aqui",
        "img_modo" not in st.session_state
        and "img_tipos_multi" not in st.session_state)
@@ -1784,7 +2093,7 @@ if __name__ == "__main__":
     st.session_state.clear()
     preparar_geracao_dos_faltantes([])
     ok("sem faltante nenhum, a tela não é mexida",
-       "img_pedido_faltantes" not in st.session_state)
+       "img_pedido_de_pecas" not in st.session_state)
 
     # ══ LIMPAR CHAT ═════════════════════════════════════════════════════
     #
@@ -1877,6 +2186,163 @@ if __name__ == "__main__":
         (getattr(_n.func, "attr", "") or getattr(_n.func, "id", "")) == "columns"
         for _n in _ast_lc.walk(_arv_lc) if isinstance(_n, _ast_lc.Call))
     ok("e ele divide a fileira com o anexo (st.columns)", _tem_colunas_lc)
+
+    # ══ PEDIR UMA PECA PELA CONVERSA (23/10) ════════════════════════════
+    #
+    # AS GUARDAS FORAM ESCRITAS ANTES DOS RAMOS. E a ENTRADA DELAS SAI DO
+    # SISTEMA, nao da minha cabeca: `TIPOS_PADRAO` e lido do modulo `imagem`,
+    # que e quem monta os rotulos de verdade. Foi exatamente isto que faltou
+    # no botao dos oito prompts — a guarda verde com `direcao_arte` como
+    # texto, quando no sistema ela e dicionario.
+    import imagem as _img_t
+    _PADRAO_T = list(_img_t.TIPOS_PADRAO)
+    _LIVRE_T = _img_t.PERSONALIZADO
+
+    ok("o rotulo exato casa consigo mesmo",
+       _casar_tipo(_PADRAO_T[2], _PADRAO_T, _LIVRE_T) == _PADRAO_T[2])
+    ok("o numero da peca casa com o rotulo daquela posicao",
+       _casar_tipo("3", _PADRAO_T, _LIVRE_T) == _PADRAO_T[2]
+       and _casar_tipo("peca 5", _PADRAO_T, _LIVRE_T) == _PADRAO_T[4])
+    ok("o rotulo com hifen simples, que o modelo escreve, tambem casa",
+       _casar_tipo("1 - Capa do anuncio", _PADRAO_T, _LIVRE_T) == _PADRAO_T[0])
+    ok("a peca fora do padrao vai para o rotulo livre",
+       _casar_tipo("outro modelo", _PADRAO_T, _LIVRE_T) == _LIVRE_T
+       and _casar_tipo("personalizado", _PADRAO_T, _LIVRE_T) == _LIVRE_T)
+    # O QUE NAO CASA NAO VIRA PALPITE. Devolver o rotulo mais parecido
+    # geraria uma peca com as regras de outra, e ninguem veria por que.
+    ok("o que nao e peca nenhuma devolve vazio, e nao o mais parecido",
+       _casar_tipo("uma foto bonita do produto", _PADRAO_T, _LIVRE_T) == ""
+       and _casar_tipo("99", _PADRAO_T, _LIVRE_T) == ""
+       and _casar_tipo("", _PADRAO_T, _LIVRE_T) == "")
+
+    # ── SO O PRODUTO ABERTO JA HABILITA O COMANDO DE GERAR ──────────────
+    #
+    # ESTE ERA O BURACO. Sem galeria, sem titulo e sem descricao,
+    # `_montar_system` saia por cima com o prompt de "so perguntas" e NENHUM
+    # comando — entao "gera a capa", com o nome do produto preenchido e nada
+    # gerado ainda, recebia um passo a passo de como fazer na mao. E esse e
+    # exatamente o instante em que o colaborador comeca a trabalhar.
+    st.session_state.clear()
+    _sem_nada = _montar_system("myrelladesouza", eh_admin=False)
+    ok("sem produto e sem nada gerado, nao ha comando nenhum",
+       "gerar_imagem" not in _sem_nada)
+    st.session_state.clear()
+    st.session_state["img_nome_produto_input"] = "Prendedor de Roupa"
+    _so_produto = _montar_system("myrelladesouza", eh_admin=False)
+    ok("com o PRODUTO aberto, o comando de gerar uma peca aparece",
+       "gerar_imagem" in _so_produto)
+    ok("e o menu numerado tambem", "qual_imagem" in _so_produto)
+    ok("e a regra de nao inventar dado vem escrita junto",
+       "NUNCA INVENTE DADO DO PRODUTO" in _so_produto)
+
+    # ── O PEDIDO, PELA CADEIA DE VERDADE ────────────────────────────────
+    #
+    # A assercao parte de `_executar_comando`, que e quem a tela chama, e nao
+    # de `pedir_pecas` sozinha. Testar a funcao isolada mede as bordas;
+    # testar a cadeia mede o que acontece.
+    st.session_state.clear()
+    st.session_state["img_nome_produto_input"] = "Prendedor de Roupa"
+    _r_t = _executar_comando({"acao": "gerar_imagem", "tipos": ["3"],
+                              "descricao": "varal com 6 prendedores"})
+    _ped_t = st.session_state.get("img_pedido_de_pecas") or {}
+    ok("pedir a peca 3 pela conversa deixa o pedido com o rotulo oficial",
+       _ped_t.get("tipos") == [_PADRAO_T[2]])
+    ok("e a descricao do colaborador vai junto",
+       _ped_t.get("descricao") == "varal com 6 prendedores")
+    # A REGRA DO STREAMLIT: o chat e desenhado DEPOIS da pagina, e escrever
+    # em chave de widget ali derruba o comando. Foi o erro de 05/10.
+    ok("e NENHUMA chave de widget e escrita aqui",
+       not any(k in st.session_state for k in
+               ("img_modo", "img_tipo_unico", "img_tipos_multi")))
+    ok("e o sistema responde dizendo que NAO gerou sozinho",
+       isinstance(_r_t, str) and "quem confirma o gasto" in _r_t)
+
+    st.session_state.clear()
+    st.session_state["img_nome_produto_input"] = "Prendedor de Roupa"
+    _executar_comando({"acao": "gerar_imagem", "tipos": ["nao existe isso"]})
+    ok("rotulo que nao existe NAO vira pedido",
+       "img_pedido_de_pecas" not in st.session_state)
+
+    st.session_state.clear()
+    st.session_state["img_nome_produto_input"] = "Prendedor de Roupa"
+    _executar_comando({"acao": "gerar_imagem", "tipos": ["outra coisa"],
+                       "descricao": "o prendedor virando cabide de chaveiro"})
+    ok("a peca FORA DO PADRAO vira pedido, e no rotulo livre",
+       (st.session_state.get("img_pedido_de_pecas") or {}).get("tipos")
+       == [_LIVRE_T])
+
+    # ── O MENU NUMERADO ─────────────────────────────────────────────────
+    #
+    # A LISTA SAI DE `TIPOS_PADRAO`. Se o texto do modelo a escrevesse,
+    # haveria duas listas de pecas e elas passariam a discordar.
+    st.session_state.clear()
+    st.session_state["img_nome_produto_input"] = "Prendedor de Roupa"
+    _menu_t = _executar_comando({"acao": "qual_imagem"}) or ""
+    ok("o menu numerado tem uma linha por peca do padrao",
+       all(f"{i + 1}." in _menu_t for i in range(len(_PADRAO_T))))
+    ok("e uma linha a mais para a peca fora do padrao",
+       f"{len(_PADRAO_T) + 1}." in _menu_t and "Outra coisa" in _menu_t)
+    # O NOME CURTO, como o dono pediu em 23/10: *"Somente o nome curto de
+    # cada descricao que eu mandei das 8 pecas"*.
+    ok("e cada linha traz o nome curto, sem o numero do rotulo repetido",
+       "Capa do anúncio (fundo branco)" in _menu_t
+       and "1 — Capa" not in _menu_t)
+
+    # ── O DADO QUE FALTA ────────────────────────────────────────────────
+    st.session_state.clear()
+    st.session_state["img_nome_produto_input"] = "Prendedor de Roupa"
+    _falta_t = _executar_comando(
+        {"acao": "falta_informacao",
+         "perguntas": ["quantos prendedores vêm no kit", "  ", ""]}) or ""
+    ok("a pergunta aberta fica registrada para o resumo da tela",
+       st.session_state.get("img_perguntas_abertas")
+       == ["quantos prendedores vêm no kit"])
+    ok("e ela aparece na resposta", "no kit" in _falta_t)
+
+    # ══ A MESMA PECA, OUTRO MODELO DA VARIACAO (23/10) ══════════════════
+    #
+    # Dono: *"apos uma imagem validada essa solicitacao seria feita com o
+    # colaborador anexando uma foto da cor ou do outro modelo da variacao"*.
+    #
+    # SEM A FOTO, NAO ENFILEIRA. "Azul" e uma palavra: o gerador escolheria
+    # um azul qualquer, e a peca sairia parecida com nada. Esta e a assercao
+    # que cumpre *"O sistema nao pode inventar NADA"*.
+    st.session_state.clear()
+    st.session_state["img_galeria"] = [
+        {"tipo": _PADRAO_T[0], "bytes": b"x"},
+        {"tipo": _PADRAO_T[2], "bytes": b"y"}]
+    st.session_state["ms_chat_hist"] = [
+        {"role": "user", "content": "repete a 1 na cor azul"}]
+    _sem_foto_t = _executar_comando(
+        {"acao": "variacao_da_imagem", "imagem": 1,
+         "instrucao": "na cor azul"}) or ""
+    ok("sem a foto anexada, a variacao NAO entra na fila",
+       "chat_refazer_imagem" not in st.session_state)
+    ok("e o sistema PEDE a foto em vez de adivinhar a cor",
+       "anexe" in _sem_foto_t.lower())
+
+    # COM a foto: entra na fila, com a referencia, e dizendo o que fica igual.
+    _FOTO_T = b"\x89PNG\r\n\x1a\n" + b"v" * 500
+    st.session_state["ms_chat_hist"] = [
+        {"role": "user", "content": "repete a 1 com esta",
+         "img_bytes": [_FOTO_T]}]
+    _com_foto_t = _executar_comando(
+        {"acao": "variacao_da_imagem", "imagem": 1,
+         "instrucao": "é a estampa xadrez"}) or ""
+    _fila_t = st.session_state.get("chat_refazer_imagem") or []
+    ok("com a foto, a variacao entra na fila da imagem pedida",
+       len(_fila_t) == 1 and _fila_t[0]["num"] == 1)
+    ok("e a FOTO vai junto como referencia",
+       _fila_t[0].get("referencia") == [_FOTO_T])
+    # O CONTEUDO DA INSTRUCAO, e nao "nao explodiu". Sem esta parte o
+    # refazer refaz TUDO — outro cenario, outra luz, outro layout — e o
+    # pedido era exatamente o contrario.
+    _instr_t = _fila_t[0].get("instrucao", "")
+    ok("e a instrucao MANDA manter cenario, textos e layout identicos",
+       all(p in _instr_t.lower() for p in
+           ("cenário", "textos", "layout", "idênticos")))
+    ok("e a observacao do colaborador continua na instrucao",
+       "xadrez" in _instr_t)
 
     print("\nfalhas:", falhas)
     # O CODIGO DE SAIDA. Sem ele, quem le `returncode` ve este modulo como

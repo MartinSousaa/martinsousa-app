@@ -3943,6 +3943,115 @@ def guardar_rascunho(usuario, motivo=""):
         return False, erro
 
 
+# ── NOVO PRODUTO: ZERAR A ABA INTEIRA ────────────────────────────────────────
+#
+# Pedido do dono, 23/10: *"Então coloque um botão como 'Novo Produto'"* — e,
+# perguntado o que ele apaga, *"Zera tudo sim"*.
+#
+# O "Limpar Chat" que já existia (`chat_assistente.py:1253`) NÃO serve para
+# isto, e está escrito no próprio código dele: *"NADA FORA DO CHAT é tocado:
+# galeria, plano, fotos, nome do produto"*. A conversa zerava e o produto
+# antigo continuava dentro da tela — que é o jeito mais barato de gerar oito
+# imagens do produto errado.
+#
+# TRÊS COISAS QUE ESTE BOTÃO TEM DE FAZER, E NENHUMA É ÓBVIA
+# ---------------------------------------------------------
+# 1. O DISCO, e não só a tela. `app.py:1532` chama `rascunho.restaurar` em toda
+#    sessão, e ele repõe toda chave vazia. Zerar só o `session_state` traria o
+#    produto velho de volta no primeiro F5.
+#
+# 2. A CHAVE DO UPLOAD, e não o valor. `st.file_uploader` não esvazia por
+#    `session_state`: a lista de arquivos mora no NAVEGADOR. O único jeito de
+#    soltar o que está pendurado é mudar a CHAVE do widget — campo novo nasce
+#    vazio. É o mesmo mecanismo do anexo do chat
+#    (`chat_assistente.py:1205`), e está escrito uma vez só.
+#
+# 3. OS COMANDOS JÁ ACEITOS. `limpar_conversa` preserva `chat_refazer_imagem`,
+#    `chat_img_pendente` e `chat_refazer_todas` de propósito — pedido aceito
+#    não é conversa, e jogá-lo fora seria perder geração paga. Mas num PRODUTO
+#    NOVO eles são pior que inúteis: um "refazer a imagem 3" do produto
+#    anterior executaria contra o produto que acabou de entrar.
+#
+# O QUE ELE NÃO TOCA, de propósito: as chaves `triagem_*`. Elas são da tela de
+# Triagem, e alguém pode estar com um bloco de variação pela metade lá. A aba
+# Imagem LÊ a triagem (`img_triagem_config`, que sai); ela não é dona dela.
+_VERSAO_UPLOAD = "img_upload_versao"
+
+# Por que uma lista, e não um `if` no meio do laço: a próxima chave de
+# controle que não é do produto entra aqui, e o laço não muda.
+NAO_ZERA_NO_NOVO_PRODUTO = (_VERSAO_UPLOAD,)
+
+# Os comandos que `limpar_conversa` preserva e o produto novo não pode herdar.
+COMANDOS_ACEITOS_DO_CHAT = ("chat_refazer_imagem", "chat_img_pendente",
+                            "chat_refazer_todas", "chat_gerar_faltantes",
+                            "chat_pendente")
+
+
+def versao_dos_uploads():
+    """O número que entra na chave de todo campo de upload da aba Imagem.
+
+    Lido por todos os campos e escrito num lugar só: dois jeitos de esvaziar
+    um upload passariam a discordar, e a questão seria só quando.
+    """
+    try:
+        return int(st.session_state.get(_VERSAO_UPLOAD, 0) or 0)
+    except Exception:
+        return 0
+
+
+def limpar_tudo_do_produto(usuario=""):
+    """Zera a aba Imagem — tela E disco. Devolve as chaves que saíram.
+
+    `usuario` vazio limpa só a tela: é o que acontece na conferência, onde não
+    há disco de ninguém. Com usuário, o rascunho vai junto — e é ele que faz o
+    botão continuar valendo depois de um F5.
+    """
+    saiu = []
+    for chave in list(st.session_state.keys()):
+        texto = str(chave)
+        if not texto.startswith("img_"):
+            continue
+        if texto in NAO_ZERA_NO_NOVO_PRODUTO:
+            continue
+        st.session_state.pop(chave, None)
+        saiu.append(texto)
+
+    # O produto compartilhado entre as abas, apagado pelo módulo que é dono
+    # dele. Sem isto, `semear` repõe o nome no campo na passada seguinte.
+    try:
+        import contexto_produto as _ctx_np
+        saiu += _ctx_np.esquecer()
+    except Exception:
+        pass
+
+    # A conversa, pelo dono dela — e ela já cuida de soltar o anexo do chat.
+    try:
+        import chat_assistente as _ch_np
+        _ch_np.limpar_conversa()
+        saiu.append("ms_chat_hist")
+    except Exception:
+        pass
+
+    for chave in COMANDOS_ACEITOS_DO_CHAT:
+        if chave in st.session_state:
+            st.session_state.pop(chave, None)
+            saiu.append(chave)
+
+    # A CHAVE dos campos de upload, que é o que de fato os esvazia.
+    st.session_state[_VERSAO_UPLOAD] = versao_dos_uploads() + 1
+
+    if usuario:
+        try:
+            import rascunho as _rasc_np
+            _rasc_np.limpar(usuario)
+            _rasc_np.limpar_todas_as_fotos(usuario)
+            _rasc_np.limpar_trabalho(usuario)
+            saiu.append("rascunho")
+        except Exception:
+            pass
+    return saiu
+
+
 def aviso_de_rascunho():
     """Mostra, uma vez, que a copia de seguranca falhou.
 
@@ -8922,6 +9031,319 @@ def salvar_prompts_na_pasta(pasta_id, nome_produto, quando=None):
     return nome_arq, ""
 
 
+# ── ABRIR O ÁLBUM DE UM PRODUTO JÁ FEITO ─────────────────────────────────────
+#
+# Pergunta do dono, 23/10: *"qual a forma do colaborador acessar as imagens e o
+# processo daquele produto? Somente no Google Drive? O sistema não consegue
+# trazer as imagens contidas no álbum daquele produto pelo nome ou código?"*
+#
+# Consegue, e as três peças já existiam — nenhuma era usada para isto:
+#
+#   `buscar_pasta_produto` (acima)  acha o álbum pelo CÓDIGO, e só depois pelo
+#                                   nome. Era chamada só para GRAVAR.
+#   `gdrive.listar`                 lista o que está dentro de uma pasta.
+#   `gdrive.baixar`                 traz os bytes de um arquivo.
+#
+# E o álbum já é a memória certa para esta pergunta: `salvar_prompts_na_pasta`
+# sobe o histórico de prompts na MESMA pasta das imagens, de propósito — *"quem
+# achar a imagem acha o prompt dela"*. O rascunho NÃO é essa memória: ele tem
+# uma vaga por pessoa e vence em 12 horas (`rascunho.py:87`). Guardar o álbum
+# também no rascunho seria uma segunda resposta para a mesma pergunta, e as
+# duas passariam a discordar.
+#
+# CUSTO POR PASSADA: esta função fala com a API do Google. Ela NUNCA pode ser
+# chamada no desenho da tela — só atrás de um clique, e o resultado fica no
+# `session_state`. A tela é redesenhada a cada tecla digitada.
+def album_do_produto(nome_produto, codigo, pasta_pai_id="", diagnostico=None):
+    """O álbum deste produto no Drive. Devolve (pasta, imagens, prompts).
+
+    `pasta` é `(id, nome)` ou `("", "")` quando não existe álbum. `imagens` e
+    `prompts` são listas de `{"id", "nome", "tipo"}`, mais novos primeiro nos
+    prompts (o nome deles carrega a data, e é essa a ordem útil).
+
+    Falha da API vai para `diagnostico["erro"]` e NÃO vira lista vazia: "não
+    consegui olhar" e "não existe" são respostas diferentes, e tratá-las como
+    iguais é o defeito que esta base já pagou duas vezes — uma criando pasta
+    duplicada, outra mandando o dono exportar o extrato de novo à toa.
+    """
+    import gdrive
+    pai = str(pasta_pai_id or "").strip()
+    if not pai:
+        try:
+            pai = str(st.secrets.get("DRIVE_PASTA_IMAGENS_ID", "") or "").strip()
+        except Exception:
+            pai = ""
+    if not pai or not (str(nome_produto or "").strip()
+                       or str(codigo or "").strip()):
+        return ("", ""), [], []
+
+    _diag = {} if diagnostico is None else diagnostico
+    pastas = buscar_pasta_produto(nome_produto, codigo, pai, diagnostico=_diag)
+    if _diag.get("erro") or not pastas:
+        return ("", ""), [], []
+
+    pasta_id, pasta_nome = pastas[0]
+    achados = gdrive.listar(
+        f"'{pasta_id}' in parents and trashed=false",
+        fields="files(id,name,mimeType)", diagnostico=_diag)
+    if _diag.get("erro"):
+        return (pasta_id, pasta_nome), [], []
+
+    imagens, prompts = [], []
+    for arq in achados or []:
+        nome = str(arq.get("name") or "")
+        item = {"id": arq.get("id") or "", "nome": nome,
+                "tipo": tipo_pelo_nome_do_arquivo(nome)}
+        if str(arq.get("mimeType") or "").startswith("image/"):
+            imagens.append(item)
+        elif nome.lower().endswith(".txt"):
+            prompts.append(item)
+    imagens.sort(key=lambda it: it["nome"])
+    prompts.sort(key=lambda it: it["nome"], reverse=True)
+    return (pasta_id, pasta_nome), imagens, prompts
+
+
+def tipo_pelo_nome_do_arquivo(nome_arquivo):
+    """O rótulo da peça de volta, a partir do nome com que ela subiu.
+
+    O arquivo sobe como `"01 - 1 — Capa....png"` (o laço do salvamento, logo
+    acima do `upload_para_pasta`): o número da ordem, o rótulo, a extensão.
+    Desfazer isso é o que permite a galeria recuperada mostrar o nome da peça
+    em vez de um nome de arquivo.
+
+    Nome que não segue o padrão devolve o nome sem a extensão, e não "": é
+    melhor mostrar `foto_do_cliente` do que uma peça sem nome.
+    """
+    nome = str(nome_arquivo or "").strip()
+    if not nome:
+        return ""
+    if "." in nome:
+        nome = nome.rsplit(".", 1)[0]
+    partes = nome.split(" - ", 1)
+    if len(partes) == 2 and partes[0].strip().isdigit():
+        return partes[1].strip() or nome
+    return nome
+
+
+def recuperar_album(imagens, pasta_id=""):
+    """Baixa as imagens do álbum e devolve (galeria, erros).
+
+    A galeria sai no MESMO formato que a geração produz — `tipo`, `bytes`,
+    `aprovado`, `link`, `diag` — porque é ela que o ajuste fino, o refazer e o
+    salvamento leem. Um formato próprio para o que veio do Drive seria um
+    segundo jeito de uma galeria existir.
+
+    `aprovado` entra como True: a imagem está no Drive, então alguém já a
+    aprovou. E `diag` sai vazio de propósito: o diagnóstico daquela geração
+    não existe mais, e inventar um seria pior do que não ter.
+    """
+    import gdrive
+    galeria, erros = [], []
+    for it in imagens or []:
+        try:
+            dados, err = gdrive.baixar(it.get("id"))
+        except Exception as e:
+            dados, err = None, f"{type(e).__name__}: {str(e)[:120]}"
+        if err or not dados:
+            erros.append((it.get("nome") or "?", err or "veio vazia"))
+            continue
+        galeria.append({
+            "tipo": it.get("tipo") or it.get("nome") or "",
+            "bytes": dados,
+            "aprovado": True,
+            "link": (f"https://drive.google.com/file/d/{it['id']}/view"
+                     if it.get("id") else ""),
+            "diag": {},
+        })
+    return galeria, erros
+
+
+# ── O RESUMO DA ESQUERDA, E O CHAT NO CENTRO ─────────────────────────────────
+#
+# Dono, 23/10: *"quero que o chat seja central (...) e que na esquerda vá
+# resumindo as informações, o que foi pedido, o que ainda falta de
+# informações"*. E antes disso o diagnóstico: *"O pessoal ainda está com muita
+# dificuldade no Studio, principalmente na criação das imagens"*.
+#
+# POR QUE A LARGURA ERA O PROBLEMA, MEDIDA
+# ----------------------------------------
+# `renderizar_chat` era chamado dentro de `with st.sidebar` (`app.py:2272`):
+# uma coluna de 284px, dividida com todo o resto da barra lateral. A mesma
+# conversa no centro desta aba tem 1.228px — 4,3 vezes. Não era o chat que
+# estava ruim; era o lugar dele.
+#
+# O CHAT CONTINUA SENDO UM SÓ. Ele é desenhado no centro QUANDO a aba Imagem
+# está aberta, e na barra lateral em todas as outras. Dois chats com um
+# histórico só seriam duas chaves de widget iguais na mesma passada — o
+# `StreamlitDuplicateElementKey` que já derrubou a tela de Extratos — e, pior,
+# dois lugares para manter a mesma conversa.
+#
+# O MECANISMO É UM CONTÊINER VAZIO. O chat tem de RODAR depois da página (ele
+# lê o que a página acabou de escrever) e APARECER no meio dela. `st.container`
+# reserva o lugar na hora e aceita conteúdo depois: a aba reserva, o `app.py`
+# escreve. Sem isso seria preciso inverter a ordem de execução, e o chat
+# passaria a ler o estado da passada anterior.
+_SLOT_DO_CHAT = None
+
+
+def esquecer_slot_do_chat():
+    """Esquece o lugar reservado. Chamado no começo de cada passada.
+
+    Sem isto, o contêiner reservado numa passada em que a aba Imagem estava
+    aberta continuaria valendo na passada seguinte, com o colaborador em outra
+    aba — e o chat seria desenhado num lugar que não está mais na tela.
+    """
+    global _SLOT_DO_CHAT
+    _SLOT_DO_CHAT = None
+
+
+def reservar_slot_do_chat(slot):
+    """Guarda o lugar onde o chat vai ser desenhado nesta passada."""
+    global _SLOT_DO_CHAT
+    _SLOT_DO_CHAT = slot
+    return slot
+
+
+def slot_do_chat():
+    """O lugar reservado nesta passada, ou None — e então vale a lateral."""
+    return _SLOT_DO_CHAT
+
+
+def resumo_do_trabalho(estado=None, padrao=None, fotos=None):
+    """O que a coluna da esquerda mostra. Devolve um dicionário, não desenha.
+
+    Separada do desenho de propósito: é esta função que a conferência mede, e
+    medir texto de tela é medir a redação em vez do comportamento — a Forma 2
+    desta base, que já deixou passar caneca torta com a guarda verde.
+
+    As quatro seções são as que o dono pediu, nesta ordem:
+      `sei`     o que o Studio já tem (da triagem e da descrição)
+      `pedido`  o que foi pedido nesta conversa
+      `falta`   o que ainda falta de informação
+      `feitas`  quantas peças existem, de quantas no padrão
+    """
+    est = st.session_state if estado is None else estado
+    tipos = list(TIPOS_PADRAO if padrao is None else padrao)
+
+    def _ler(chave, alvo=None):
+        try:
+            valor = est.get(chave)
+        except Exception:
+            return {} if alvo is dict else ""
+        if alvo is dict:
+            return valor if isinstance(valor, dict) else {}
+        if alvo is list:
+            return valor if isinstance(valor, list) else []
+        return "" if valor is None else valor
+
+    dados = _ler("img_dados_descricao", dict)
+    cfg = _ler("img_triagem_config", dict)
+    # A TRIAGEM VENCE A DESCRIÇÃO, e não o contrário: ela é o dado conferido
+    # desta geração. Juntar as duas com a descrição por cima mostraria o dado
+    # velho ao lado do novo, sem dizer qual é qual.
+    fonte = {}
+    for origem in (dados, cfg.get("dados_descricao") or {}):
+        for chave, valor in (origem or {}).items():
+            if str(valor or "").strip():
+                fonte[chave] = valor
+
+    sei = []
+    for rotulo, chave in (("Material", "material"), ("Medidas", "medidas"),
+                          ("Peso", "peso"), ("Cor", "cor"),
+                          ("Capacidade", "capacidade")):
+        valor = str(fonte.get(chave) or "").strip()
+        if valor:
+            sei.append((rotulo, valor))
+
+    # QUEM ESCREVE ESTE CAMPO, E RODA ANTES? `img_fotos_originais` só é
+    # escrita no fim da geração (`imagem.py`, o laço das peças), então lida
+    # aqui ela mostra as fotos da geração ANTERIOR — ou nada, na primeira.
+    # Quem sabe quantas fotos estão anexadas AGORA é a tela, e por isso a
+    # contagem entra por parâmetro. Era este o defeito que deixou as sete
+    # peças da Caneca Medieval registradas com produto vazio: ler um campo
+    # cujo escritor roda depois.
+    quantas = fotos if fotos is not None else len(_ler("img_fotos_originais", list))
+    if quantas:
+        sei.append(("Fotos", f"{quantas} do produto"))
+
+    # O QUE FOI PEDIDO. A fonte é a seleção da tela — que é o que vai gerar.
+    # Ler o pedido do chat aqui seria uma segunda resposta: o pedido do chat é
+    # consumido no topo da página e VIRA essa seleção.
+    pedido = []
+    unico = str(_ler("img_tipo_unico") or "").strip()
+    multi = [str(t) for t in _ler("img_tipos_multi", list) if str(t or "").strip()]
+    modo = str(_ler("img_modo") or "").strip()
+    if modo == "1 imagem específica" and unico:
+        pedido = [unico]
+    elif modo == "Selecionar" and multi:
+        pedido = multi
+    elif modo and modo not in ("1 imagem específica", "Selecionar",
+                               "✏️ Ajuste Fino"):
+        pedido = list(tipos)
+
+    instrucao = ""
+    if len(pedido) == 1:
+        instrucao = str(_ler(f"img_instr_{pedido[0]}") or "").strip()
+    elif pedido:
+        instrucao = str(_ler("img_instr_multi") or "").strip()
+    # O PRESET NÃO É PEDIDO DO COLABORADOR. O campo nasce preenchido com o
+    # texto do preset daquele tipo; mostrá-lo como "o que você pediu" seria o
+    # sistema atribuindo a ele uma frase que ele não escreveu.
+    if instrucao and instrucao == str(PRESETS.get(pedido[0] if pedido else "", "")):
+        instrucao = ""
+
+    falta = [str(q).strip() for q in _ler("img_perguntas_abertas", list)
+             if str(q or "").strip()]
+
+    galeria = _ler("img_galeria", list)
+    return {"sei": sei, "pedido": pedido, "instrucao": instrucao,
+            "falta": falta, "feitas": len(galeria), "no_padrao": len(tipos)}
+
+
+def desenhar_resumo(resumo):
+    """A coluna da esquerda. Só desenha — quem decide o conteúdo é o resumo.
+
+    A `key` do container não é enfeite: é por ela que a conferência de tela
+    sabe que esta coluna foi desenhada, e é por ela que o CSS a acha. Procurar
+    o TEXTO da seção travaria a redação em vez do comportamento.
+    """
+    with st.container(key="img_resumo_esquerda"):
+        _desenhar_resumo_dentro(resumo)
+
+
+def _desenhar_resumo_dentro(resumo):
+    st.markdown("###### O QUE EU JÁ SEI")
+    if resumo["sei"]:
+        for rotulo, valor in resumo["sei"]:
+            st.markdown(f"✅ **{rotulo}:** {valor}")
+        st.caption("da triagem e da descrição")
+    else:
+        st.caption(
+            "Nada ainda. Preencha o nome e o código acima — o Studio puxa "
+            "material, medidas e peso do que já existe no sistema.")
+
+    st.markdown("###### O QUE VOCÊ PEDIU")
+    if resumo["pedido"]:
+        for rotulo in resumo["pedido"]:
+            st.markdown(f"- {rotulo}")
+        if resumo["instrucao"]:
+            st.caption(resumo["instrucao"][:300])
+    else:
+        st.caption("Nada ainda — peça a primeira imagem na conversa ao lado.")
+
+    if resumo["falta"]:
+        st.markdown(f"###### ⚠️ FALTA RESPONDER — {len(resumo['falta'])}")
+        for pergunta in resumo["falta"]:
+            st.warning(pergunta)
+    else:
+        st.markdown("###### FALTA RESPONDER — 0")
+        st.caption("Nenhuma pergunta aberta.")
+
+    st.markdown("###### NESTE TRABALHO")
+    st.caption(f"{resumo['feitas']} imagem(ns) nesta sessão · "
+               f"{resumo['no_padrao']} no padrão")
+
+
 def criar_zip_galeria(galeria, nome_produto):
     """Cria ZIP em memória com todas as imagens da galeria. Retorna bytes."""
     buf = io.BytesIO()
@@ -9418,15 +9840,43 @@ def pagina_imagem(usuario_logado):
     #     with key img_modo is instantiated
     #
     # Este é o único instante em que a escrita é legal: o pedido chega pela
-    # chave `img_pedido_faltantes`, que não é de widget nenhum, e é consumido
+    # chave `img_pedido_de_pecas`, que não é de widget nenhum, e é consumido
     # aqui — antes de qualquer `st.radio` ou `st.multiselect` desta tela.
     #
     # O `pop` é o que impede o pedido de voltar a cada passada e prender a
     # tela no modo Selecionar enquanto o colaborador tenta sair dele.
-    _faltantes_pedidas = st.session_state.pop("img_pedido_faltantes", None)
-    if _faltantes_pedidas:
-        st.session_state["img_tipos_multi"] = list(_faltantes_pedidas)
-        st.session_state["img_modo"] = "Selecionar"
+    #
+    # O PEDIDO VIRA UM SÓ, 23/10. Antes a chave se chamava
+    # `img_pedido_faltantes` e só sabia dizer "marque estes tipos no
+    # multiselect". O dono pediu que o chat gere *uma por vez, conforme eles
+    # forem pedindo*, e também peça fora do padrão — e cada um desses seria uma
+    # chave nova, com um consumidor novo, que é a Forma 5 desta base: a mesma
+    # pergunta com três respostas, e elas discordando com o tempo.
+    #
+    # Então o pedido passou a ser um dicionário com `tipos` e `descricao`, e o
+    # MODO sai da contagem: uma peça abre "1 imagem específica", duas ou mais
+    # abrem "Selecionar". Quem confirma o gasto continua sendo o colaborador.
+    _pedido_pecas = st.session_state.pop("img_pedido_de_pecas", None)
+    if _pedido_pecas:
+        _tipos_ped = [t for t in (_pedido_pecas.get("tipos") or []) if t]
+        if len(_tipos_ped) == 1:
+            st.session_state["img_tipo_unico"] = _tipos_ped[0]
+            st.session_state["img_modo"] = "1 imagem específica"
+            # A DESCRIÇÃO VAI NA CHAVE DAQUELE TIPO, que é como a tela a lê
+            # (`img_instr_<tipo>`, no modo "1 imagem específica"). Numa chave
+            # própria ela seria um segundo lugar de onde a instrução pode vir,
+            # e o campo da tela mostraria o preset enquanto o motor recebia
+            # outra coisa — exatamente o tipo de desencontro que o oitavo
+            # verificador existe para achar.
+            if _pedido_pecas.get("descricao"):
+                st.session_state[f"img_instr_{_tipos_ped[0]}"] = str(
+                    _pedido_pecas["descricao"])
+        elif _tipos_ped:
+            st.session_state["img_tipos_multi"] = _tipos_ped
+            st.session_state["img_modo"] = "Selecionar"
+            if _pedido_pecas.get("descricao"):
+                st.session_state["img_instr_multi"] = str(
+                    _pedido_pecas["descricao"])
 
     # ── A revisão de texto está de pé? ───────────────────────────────────────
     #
@@ -9645,6 +10095,53 @@ def pagina_imagem(usuario_logado):
                     pass  # silencioso — triagem antiga continua visível
             st.rerun()
 
+    # ── NOVO PRODUTO ────────────────────────────────────────────────────────
+    #
+    # A confirmação só aparece QUANDO HÁ O QUE PERDER, e ela diz quantas
+    # imagens são. Confirmação fixa em toda troca de produto seria um clique
+    # que ninguém lê depois da terceira vez — e aviso que se aprende a ignorar
+    # é pior que nenhum, que é a lição que esta base pagou com o verificador
+    # de alarme falso.
+    #
+    # "Há o que perder" é uma pergunta só: a galeria inteira está no Drive?
+    # `img_galeria_salva` guarda o TAMANHO salvo, e não um booleano, justamente
+    # porque salvar 2 de 3 não é ter salvo (imagem.py, o aviso da aprovação).
+    _gal_np = st.session_state.get("img_galeria") or []
+    _tudo_no_drive = (not _gal_np) or (
+        st.session_state.get("img_galeria_salva") == len(_gal_np))
+    _col_np, _ = st.columns([1, 3])
+    with _col_np:
+        if st.button("🆕 Novo produto", key="btn_novo_produto",
+                     use_container_width=True,
+                     help="Zera nome, código, fotos, referências, triagem, "
+                          "galeria e conversa — para começar outro produto."):
+            if _tudo_no_drive:
+                limpar_tudo_do_produto(usuario_logado)
+                st.rerun()
+            else:
+                st.session_state["img_novo_produto_confirmar"] = len(_gal_np)
+
+    # A chave começa com `img_`, então ela sai junto no próprio `limpar`: a
+    # confirmação não sobrevive ao que ela confirmou.
+    _pend_np = st.session_state.get("img_novo_produto_confirmar")
+    if _pend_np:
+        st.warning(
+            f"⚠️ **{_pend_np} imagem(ns) desta sessão ainda não estão no "
+            "Drive.** Começar outro produto agora descarta elas, e a geração "
+            "teria de ser refeita — e paga — do zero. Salve no Drive primeiro, "
+            "ou confirme abaixo.")
+        _c1_np, _c2_np = st.columns(2)
+        with _c1_np:
+            if st.button("Descartar e começar outro produto",
+                         key="btn_novo_produto_ok", use_container_width=True):
+                limpar_tudo_do_produto(usuario_logado)
+                st.rerun()
+        with _c2_np:
+            if st.button("Cancelar", key="btn_novo_produto_nao",
+                         use_container_width=True):
+                st.session_state.pop("img_novo_produto_confirmar", None)
+                st.rerun()
+
     # ── LINHA 1: Nome + Código ─────────────────────────────────────────────────
     # Pré-preenche via session_state (evita bug RemoveChild do React ao usar
     # value= com pop() durante re-renders causados por paste/autocomplete)
@@ -9674,6 +10171,114 @@ def pagina_imagem(usuario_logado):
             placeholder="ex: MS-BENG-07174K2  (gerado na aba Descrição)",
             help="Gere uma descrição na aba Descrição — o código aparece num bloco azul no final. Copie e cole aqui. O nome do produto não é o código.",
         )
+
+    # ── O ÁLBUM DESTE PRODUTO, JÁ FEITO ────────────────────────────────────
+    #
+    # Pergunta do dono, 23/10. O álbum do Drive é a memória permanente — nele
+    # moram as imagens E o .txt dos prompts, na mesma pasta, de propósito.
+    #
+    # A BUSCA SÓ ACONTECE NO CLIQUE. Ela fala com a API do Google, e a tela é
+    # redesenhada a cada tecla digitada: chamada de rede no desenho da tela
+    # custa uma ida ao Google por letra. O resultado fica no `session_state`.
+    _nome_al = str(st.session_state.get("img_nome_produto_input", "") or "").strip()
+    _cod_al = str(st.session_state.get("img_codigo_input", "") or "").strip()
+    if _nome_al or _cod_al:
+        with st.expander("📂 Imagens já feitas deste produto", expanded=False):
+            st.caption(
+                "O Studio procura o álbum deste produto no Drive — pelo "
+                "**código**, que é único, e só sem ele pelo nome. O álbum tem "
+                "as imagens e o `.txt` com os prompts de cada rodada."
+            )
+            _chave_al = f"img_album__{_nome_al}__{_cod_al}"
+            if st.button("🔍 Procurar no Drive", key="btn_procurar_album"):
+                _diag_al = {}
+                with st.spinner("Procurando o álbum deste produto…"):
+                    st.session_state[_chave_al] = album_do_produto(
+                        _nome_al, _cod_al, diagnostico=_diag_al)
+                if _diag_al.get("erro"):
+                    # Falha NÃO fica em cache: a próxima tentativa tem de
+                    # consultar de novo em vez de tratar "não consegui olhar"
+                    # como "não existe" para sempre.
+                    st.session_state.pop(_chave_al, None)
+                    st.session_state["img_album_erro"] = _diag_al["erro"]
+                else:
+                    st.session_state.pop("img_album_erro", None)
+
+            _err_al = st.session_state.get("img_album_erro")
+            if _err_al:
+                st.warning(
+                    "Não consegui olhar o Drive agora — e isso **não** quer "
+                    "dizer que o produto não tem álbum. Tente de novo em "
+                    f"instantes.\n\n{_err_al}")
+
+            _achado_al = st.session_state.get(_chave_al)
+            if _achado_al:
+                (_pid_al, _pnome_al), _imgs_al, _prompts_al = _achado_al
+                if not _pid_al:
+                    st.info(
+                        "Nenhum álbum deste produto no Drive. Se as imagens "
+                        "existem, elas foram salvas com outro nome ou outro "
+                        "código — procure pelo código, que é único.")
+                else:
+                    st.markdown(
+                        f"📁 **{_pnome_al}** — {len(_imgs_al)} imagem(ns) e "
+                        f"{len(_prompts_al)} arquivo(s) de prompt · "
+                        f"[Abrir no Drive]"
+                        f"(https://drive.google.com/drive/folders/{_pid_al})")
+
+                    if _imgs_al:
+                        _cols_al = st.columns(4)
+                        for _i_al, _it_al in enumerate(_imgs_al[:12]):
+                            with _cols_al[_i_al % 4]:
+                                import gdrive as _gd_al
+                                st.image(_gd_al.url_thumbnail(_it_al["id"], 220),
+                                         caption=_it_al["tipo"][:40])
+                        if len(_imgs_al) > 12:
+                            st.caption(
+                                f"…e mais {len(_imgs_al) - 12}. Abra a pasta "
+                                "no Drive para ver todas.")
+                        st.caption(
+                            "As miniaturas vêm do Drive. Se alguma aparecer "
+                            "quebrada, o arquivo não está público — e o botão "
+                            "abaixo traz os bytes de qualquer jeito."
+                        )
+
+                        if st.button(
+                                f"⬇️ Trazer as {len(_imgs_al)} imagens para a "
+                                "tela", key="btn_trazer_album",
+                                help="Carrega as imagens do álbum na galeria "
+                                     "desta sessão — para ajuste fino, refazer "
+                                     "ou usar como referência."):
+                            with st.spinner("Baixando as imagens do álbum…"):
+                                _gal_al, _erros_al = recuperar_album(_imgs_al)
+                            if _gal_al:
+                                st.session_state["img_galeria"] = _gal_al
+                                # Elas VIERAM do Drive: estão salvas. Sem esta
+                                # linha a tela avisaria que a geração pode se
+                                # perder — um aviso falso ensina a ignorar os
+                                # verdadeiros.
+                                st.session_state["img_galeria_salva"] = len(_gal_al)
+                                guardar_rascunho(usuario_logado, "álbum aberto")
+                            if _erros_al:
+                                st.warning(
+                                    f"⚠️ {len(_erros_al)} não vieram: "
+                                    + ", ".join(n for n, _ in _erros_al[:4])
+                                    + f"\n\n{_erros_al[0][1]}")
+                            if _gal_al:
+                                st.rerun()
+
+                    if _prompts_al:
+                        st.markdown("**O processo — os prompts de cada rodada:**")
+                        for _it_p in _prompts_al[:6]:
+                            st.markdown(
+                                f"- [{_it_p['nome']}]"
+                                f"(https://drive.google.com/file/d/"
+                                f"{_it_p['id']}/view)")
+                    elif _pid_al:
+                        st.caption(
+                            "Este álbum não tem `.txt` de prompts: ele passou "
+                            "a subir junto com as imagens em 07/10, então "
+                            "rodadas anteriores a isso não têm o rastro.")
 
     # Busca dados da descrição pelo código
     dados_descricao = None
@@ -9731,6 +10336,43 @@ def pagina_imagem(usuario_logado):
     # acabou de gerar na mesma sessão e ainda não copiou o código
     if not dados_descricao and st.session_state.get("desc_codigo_atual") == codigo_input and codigo_input:
         dados_descricao = st.session_state.get("desc_dados_atual")
+
+    # ── O RESUMO À ESQUERDA E A CONVERSA NO CENTRO ─────────────────────────
+    #
+    # Dono, 23/10: *"quero que o chat seja central (...) e que na esquerda vá
+    # resumindo as informações, o que foi pedido, o que ainda falta"*.
+    #
+    # AQUI, E NÃO ANTES DO CÓDIGO: o resumo mostra material, medidas e peso, e
+    # quem os produz é o `buscar_por_codigo` logo acima. Desenhado antes dele,
+    # o resumo mostraria o dado da passada ANTERIOR — um passo atrás do que a
+    # pessoa acabou de digitar, que é o defeito da Caneca Medieval com outro
+    # nome.
+    #
+    # E O CHAT É UM CONTÊINER VAZIO, não a chamada: ele tem de RODAR depois da
+    # página inteira (lê o que ela escreveu) e APARECER aqui. `app.py` escreve
+    # dentro do lugar que esta linha reserva.
+    _col_res, _col_chat = st.columns([1, 2.4], gap="medium")
+    reservar_slot_do_chat(_col_chat.container())
+
+    # A CONTAGEM DAS FOTOS VEM DO DISCO, não de `img_fotos_originais`: essa
+    # chave só é escrita no fim da geração, e o resumo é desenhado antes dela.
+    # `resumo_fotos` não lê um único byte de imagem (`rascunho.py`), que é o
+    # que permite chamá-la no desenho da tela.
+    _fotos_res = len(st.session_state.get("img_fotos_originais") or [])
+    if not _fotos_res:
+        try:
+            import rascunho as _rasc_res
+            _fotos_res = len(_rasc_res.resumo_fotos(usuario_logado) or [])
+        except Exception:
+            _fotos_res = 0
+
+    _estado_res = dict(st.session_state)
+    if dados_descricao:
+        _estado_res["img_dados_descricao"] = dados_descricao
+    with _col_res:
+        desenhar_resumo(resumo_do_trabalho(_estado_res, fotos=_fotos_res))
+
+    st.markdown("---")
 
     # ── TRIAGEM: specs do produto (quando não veio de código de descrição) ─────
     # Preenche medidas/peso/material/etc. automaticamente a partir da triagem.
@@ -9931,7 +10573,7 @@ def pagina_imagem(usuario_logado):
                     _up_v = st.file_uploader(
                         f"Mais fotos de «{_v_pr['nome']}» — qualquer formato",
                         type=None, accept_multiple_files=True,
-                        key=f"img_var_fotos_{_slug_v}")
+                        key=f"img_var_fotos_{_slug_v}_{versao_dos_uploads()}")
                     # `revisar_anexos` é a MESMA porta das fotos do produto:
                     # ela normaliza formato (HEIC de iPhone inclusive) e diz o
                     # que recusou. Escrever uma segunda leitura aqui faria os
@@ -10018,7 +10660,7 @@ def pagina_imagem(usuario_logado):
             "Imagem a ajustar — qualquer formato, inclusive foto de iPhone",
             type=None,  # qualquer formato — normalizar_imagem converte o que precisar
             accept_multiple_files=True,
-            key="img_ajuste_upload",
+            key=f"img_ajuste_upload_{versao_dos_uploads()}",
             help="Suba a(s) imagem(ns) que deseja editar. Pode enviar mais de uma variante ao mesmo tempo.",
         )
         # Revisa ANTES de qualquer coisa: converte o que der, e tira da lista
@@ -10040,7 +10682,8 @@ def pagina_imagem(usuario_logado):
         # ir atrás das fotos. Quem quer recompor, precisa — e agora pode.
         fotos_prod_upload = st.file_uploader(
             "Fotos do produto (opcional — só se quiser recompor a imagem)",
-            type=None, accept_multiple_files=True, key="img_ajuste_prod",
+            type=None, accept_multiple_files=True,
+            key=f"img_ajuste_prod_{versao_dos_uploads()}",
             help="As fotos originais do produto. Com elas a IA pode mudar o "
                  "enquadramento e mostrar o produto de outro jeito. Sem elas, "
                  "o ajuste fica limitado a editar a peça que já existe.",
@@ -10191,7 +10834,7 @@ def pagina_imagem(usuario_logado):
             "Fotos do produto — qualquer formato, inclusive foto de iPhone",
             type=None,  # qualquer formato — normalizar_imagem converte o que precisar
             accept_multiple_files=True,
-            key="img_fotos_upload",
+            key=f"img_fotos_upload_{versao_dos_uploads()}",
         )
         fotos_bytes, _nomes_ft, _av_ft, _er_ft = revisar_anexos(fotos_upload)
         mostrar_anexos(_av_ft, _er_ft)
@@ -10319,7 +10962,7 @@ def pagina_imagem(usuario_logado):
             refs_amb_upload = st.file_uploader(
                 "Referências de ambientação — qualquer formato",
                 type=None, accept_multiple_files=True,
-                key="img_refs_amb_upload",
+                key=f"img_refs_amb_upload_{versao_dos_uploads()}",
                 help="Ex.: a foto de um bar à noite para o clima das peças "
                      "deste cinzeiro.",
             )
@@ -10353,7 +10996,7 @@ def pagina_imagem(usuario_logado):
                 "Imagens de referência de layout — qualquer formato",
                 type=None,  # qualquer formato — normalizar_imagem converte o que precisar
                 accept_multiple_files=True,
-                key="img_refs_layout_upload",
+                key=f"img_refs_layout_upload_{versao_dos_uploads()}",
                 help="Ex: uma imagem de bengala mostrando como você quer que fique o layout — a IA reproduz o estilo no seu produto.",
             )
             refs_layout_bytes = []
@@ -16999,6 +17642,194 @@ if __name__ == "__main__":
     ok("o arquivo perdido vira um erro so", len(_e_mix) == 1)
 
     conferir_texto = _real
+
+    # ══ O RESUMO DA ESQUERDA (23/10) ════════════════════════════════════
+    #
+    # Dono: *"na esquerda va resumindo as informacoes, o que foi pedido, o que
+    # ainda falta de informacoes"*.
+    #
+    # A GUARDA MEDE O DICIONARIO, e nao o texto desenhado. Medir o texto seria
+    # travar a redacao em vez do comportamento — a Forma 2 desta base, que
+    # deixou passar caneca torta com dois auto-testes verdes.
+    #
+    # E A ENTRADA SAI DO SISTEMA: os rotulos vem de `TIPOS_PADRAO` e o texto
+    # do preset vem de `PRESETS`, que sao quem a tela usa. Valor escrito a mao
+    # mediria o meu entendimento — e foi o meu entendimento que errou o tipo
+    # da direcao de arte no botao dos oito prompts.
+    _vazio_r = resumo_do_trabalho({})
+    ok("sem nada, o resumo nao inventa informacao",
+       _vazio_r["sei"] == [] and _vazio_r["pedido"] == []
+       and _vazio_r["falta"] == [] and _vazio_r["feitas"] == 0)
+    ok("e ele diz quantas pecas o padrao tem, contando a lista",
+       _vazio_r["no_padrao"] == len(TIPOS_PADRAO))
+
+    _est_r = {
+        "img_dados_descricao": {"material": "madeira e metal",
+                                "medidas": "3,5 x 1 cm", "peso": ""},
+        "img_modo": "1 imagem específica",
+        "img_tipo_unico": TIPOS_PADRAO[2],
+        f"img_instr_{TIPOS_PADRAO[2]}": "varal com 6 prendedores",
+        "img_perguntas_abertas": ["quantos vêm no kit"],
+        "img_galeria": [{"tipo": TIPOS_PADRAO[0]}],
+    }
+    _r = resumo_do_trabalho(_est_r, fotos=4)
+    ok("o resumo traz material e medidas da descricao",
+       ("Material", "madeira e metal") in _r["sei"]
+       and ("Medidas", "3,5 x 1 cm") in _r["sei"])
+    # CAMPO VAZIO NAO E INFORMACAO. Mostrar "Peso: " em branco e o sistema
+    # dizendo que sabe uma coisa que ele nao sabe.
+    ok("e NAO lista o campo que veio vazio",
+       all(rot != "Peso" for rot, _ in _r["sei"]))
+    ok("a contagem das fotos vem de quem sabe AGORA, por parametro",
+       ("Fotos", "4 do produto") in _r["sei"])
+    ok("o que foi pedido e a peca selecionada, com a instrucao dela",
+       _r["pedido"] == [TIPOS_PADRAO[2]]
+       and _r["instrucao"] == "varal com 6 prendedores")
+    ok("o que falta aparece contado", _r["falta"] == ["quantos vêm no kit"])
+    ok("e o trabalho da sessao e contado na galeria", _r["feitas"] == 1)
+
+    # O PRESET NAO E PEDIDO DO COLABORADOR. O campo nasce preenchido com ele;
+    # mostra-lo como "o que voce pediu" seria atribuir a ele uma frase que ele
+    # nao escreveu.
+    _est_preset = {
+        "img_modo": "1 imagem específica",
+        "img_tipo_unico": TIPOS_PADRAO[0],
+        f"img_instr_{TIPOS_PADRAO[0]}": PRESETS[TIPOS_PADRAO[0]],
+    }
+    ok("o texto do preset NAO e mostrado como pedido do colaborador",
+       resumo_do_trabalho(_est_preset)["instrucao"] == "")
+
+    # AS OITO, quando o modo e o do lote: o resumo tem de dizer oito, e nao
+    # a lista vazia do multiselect.
+    ok("no modo do padrao, o pedido sao as oito",
+       resumo_do_trabalho({"img_modo": _OPCAO_PADRAO})["pedido"]
+       == list(TIPOS_PADRAO))
+
+    # ══ O ALBUM DO PRODUTO, LIDO DE VOLTA (23/10) ═══════════════════════
+    #
+    # Pergunta do dono: *"O sistema nao consegue trazer as imagens contidas no
+    # album daquele produto pelo nome ou codigo?"*.
+    #
+    # NENHUM VERIFICADOR LIA ESTAS TRES FUNCOES — elas falam com o Drive, e
+    # `checar_impacto` as aprovou so porque ninguem fora de `imagem.py` as
+    # chama. Dizer "verde" sobre linha que verificador nenhum leu e a Forma 3
+    # desta base, e foi assim que as pecas 7 e 8 sumiram com cinco
+    # verificadores verdes.
+    #
+    # O DUPLO DO DRIVE E MAIS RICO QUE O PRECISO, de proposito: ele devolve
+    # `mimeType` e nomes como os de verdade — `"01 - 1 — Capa....png"`, que e
+    # o formato que o laco do salvamento escreve. Duplo mais pobre que a
+    # realidade absolve o culpado, e foi exatamente isso que deixou o botao
+    # dos oito prompts quebrar com a guarda verde.
+    import gdrive as _gd_al_t
+    _listar_real = _gd_al_t.listar
+    _baixar_real = _gd_al_t.baixar
+    _buscar_real = globals()["buscar_pasta_produto"]
+
+    ok("o rotulo da peca volta do nome com que ela subiu",
+       tipo_pelo_nome_do_arquivo(f"01 - {TIPOS_PADRAO[0][:30]}.png")
+       == TIPOS_PADRAO[0][:30])
+    # NOME FORA DO PADRAO NAO VIRA VAZIO: melhor mostrar `foto_do_cliente` do
+    # que uma peca sem nome nenhum na galeria.
+    ok("nome fora do padrao devolve o nome, sem a extensao",
+       tipo_pelo_nome_do_arquivo("foto_do_cliente.jpeg") == "foto_do_cliente")
+    ok("e nome vazio devolve vazio", tipo_pelo_nome_do_arquivo("") == ""
+       and tipo_pelo_nome_do_arquivo(None) == "")
+
+    _ARQ_T = [
+        {"id": "i2", "name": "02 - 2 — Beneficios.png", "mimeType": "image/png"},
+        {"id": "i1", "name": "01 - 1 — Capa.png", "mimeType": "image/png"},
+        {"id": "p1", "name": "prompts - Urso - 2026-10-01 0900.txt",
+         "mimeType": "text/plain"},
+        {"id": "p2", "name": "prompts - Urso - 2026-10-20 1400.txt",
+         "mimeType": "text/plain"},
+    ]
+    try:
+        globals()["buscar_pasta_produto"] = (
+            lambda nome, cod, pai, diagnostico=None: [("PASTA1", "Urso - MS-1")])
+        _gd_al_t.listar = lambda q, fields="", diagnostico=None: list(_ARQ_T)
+        _pasta_t, _imgs_t, _prompts_t = album_do_produto(
+            "Urso Prata", "MS-1", pasta_pai_id="PAI")
+        ok("o album acha a pasta do produto", _pasta_t == ("PASTA1", "Urso - MS-1"))
+        ok("e separa imagem de .txt pelo tipo do arquivo",
+           [i["id"] for i in _imgs_t] == ["i1", "i2"]
+           and [p["id"] for p in _prompts_t] == ["p2", "p1"])
+        ok("as imagens saem na ORDEM em que foram salvas",
+           [i["tipo"] for i in _imgs_t] == ["1 — Capa", "2 — Beneficios"])
+        # OS PROMPTS SAEM DO MAIS NOVO PARA O MAIS VELHO: o nome carrega a
+        # data, e a rodada de hoje e a que interessa primeiro.
+        ok("e os prompts do mais novo para o mais velho",
+           _prompts_t[0]["nome"].endswith("2026-10-20 1400.txt"))
+
+        # FALHA DA API NAO E "NAO EXISTE". Tratar as duas como iguais e o
+        # defeito do extrato do Itau e o da pasta duplicada no Drive.
+        #
+        # A PRIMEIRA VERSAO DESTA GUARDA MEDIA O DUPLO, e nao a funcao: ela
+        # conferia que `diagnostico["erro"]` estava preenchido — e quem o
+        # preenche e o proprio duplo. Passaria com a funcao fazendo qualquer
+        # coisa. O `checar_mutacao` cobrou isso em 23/10, e com razao.
+        #
+        # O QUE E OBSERVAVEL, e portanto o que se mede:
+        #   1. o erro chega ao DICIONARIO DE QUEM CHAMOU — ou seja, a funcao
+        #      nao usou um dicionario proprio e jogou a falha fora;
+        #   2. a PASTA continua sendo devolvida quando so a listagem falhou,
+        #      porque e com ela que a tela oferece o link do Drive. Devolver
+        #      `("", "")` aqui faria a tela dizer "este produto nao tem
+        #      album" por causa de uma falha de rede.
+        def _listar_que_falha(q, fields="", diagnostico=None):
+            if diagnostico is not None:
+                diagnostico["erro"] = "quota"
+            return []
+
+        _gd_al_t.listar = _listar_que_falha
+        _diag_t = {}
+        _p_err, _i_err, _pr_err = album_do_produto(
+            "Urso Prata", "MS-1", pasta_pai_id="PAI", diagnostico=_diag_t)
+        ok("a falha da API chega ao dicionario de QUEM CHAMOU",
+           _diag_t.get("erro") == "quota")
+        ok("e a pasta continua sendo devolvida — a tela ainda oferece o Drive",
+           _p_err == ("PASTA1", "Urso - MS-1") and _i_err == []
+           and _pr_err == [])
+
+        # ── TRAZER PARA A TELA: o formato tem de ser o da geracao ───────
+        #
+        # `bytes`, `tipo`, `aprovado`, `link`, `diag` — e o que o ajuste
+        # fino, o refazer e o salvamento leem. Um formato proprio para o que
+        # veio do Drive seria um segundo jeito de uma galeria existir.
+        _PNG_T = b"\x89PNG\r\n\x1a\n" + b"u" * 100
+        _gd_al_t.baixar = lambda fid: (
+            (b"", "arquivo sumiu") if fid == "i2" else (_PNG_T, None))
+        _gal_t, _err_t = recuperar_album(_imgs_t)
+        ok("o album vira galeria no MESMO formato da geracao",
+           len(_gal_t) == 1
+           and _gal_t[0]["bytes"] == _PNG_T
+           and _gal_t[0]["tipo"] == "1 — Capa"
+           and _gal_t[0]["aprovado"] is True
+           and _gal_t[0]["diag"] == {})
+        # O QUE NAO VEIO E CONTADO, e nao engolido: imagem que falta na tela
+        # sem ninguem dizer e o jeito mais barato de alguem refazer a mao.
+        ok("e o que nao veio e contado, com o motivo",
+           len(_err_t) == 1 and _err_t[0][1] == "arquivo sumiu")
+    finally:
+        globals()["buscar_pasta_produto"] = _buscar_real
+        _gd_al_t.listar = _listar_real
+        _gd_al_t.baixar = _baixar_real
+
+    # ══ O LUGAR DO CHAT ═════════════════════════════════════════════════
+    #
+    # Global de MODULO, e modulo sobrevive entre passadas: sem o `esquecer`
+    # no comeco de cada passada, o chat seria escrito num conteiner que nao
+    # esta mais na tela — e desapareceria sem explicacao.
+    esquecer_slot_do_chat()
+    ok("o lugar do chat comeca vazio", slot_do_chat() is None)
+    _falso_slot = object()
+    ok("reservar devolve o proprio lugar",
+       reservar_slot_do_chat(_falso_slot) is _falso_slot)
+    ok("e o lugar reservado e lido de volta", slot_do_chat() is _falso_slot)
+    esquecer_slot_do_chat()
+    ok("e esquecer zera de novo, para a passada seguinte",
+       slot_do_chat() is None)
+
     print("\nfalhas:", falhas)
     # O CODIGO DE SAIDA, QUE NUNCA EXISTIU AQUI — e 33 mutacoes dependiam dele.
     #
