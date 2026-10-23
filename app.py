@@ -2,6 +2,7 @@ from rotulos import brl as _brl_ms
 import streamlit as st
 import base64
 import os
+import sys as _sys_app
 from datetime import date
 
 st.set_page_config(page_title="MS Studio", layout="wide")
@@ -219,8 +220,14 @@ section[data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] button::
    (streamlit/elements/layouts.py:92). Com seletor por ordem, o próximo botão
    que alguém puser na barra lateral herdaria esta cara sem aviso — e é
    exatamente assim que uma regra de estilo vira defeito silencioso. */
-section[data-testid="stSidebar"] .st-key-ms_limpar_chat [data-testid="stBaseButton-secondary"],
-section[data-testid="stSidebar"] .st-key-ms_limpar_chat button {
+/* O SELETOR DEIXOU DE EXIGIR A BARRA LATERAL em 23/10, e isto é a Forma 1
+   desta base sendo evitada: desde que o chat também é desenhado no centro da
+   aba Imagem, um seletor preso a `section[data-testid="stSidebar"]` estilizaria
+   o botão num lugar e no outro não — o mesmo "Limpar Chat" com duas caras. A
+   `key` do container (`ms_limpar_chat`) já identifica só este botão, em
+   qualquer lugar da tela, que era o ponto da nota acima. */
+.st-key-ms_limpar_chat [data-testid="stBaseButton-secondary"],
+.st-key-ms_limpar_chat button {
     background: transparent !important;
     border: none !important;
     box-shadow: none !important;
@@ -236,21 +243,21 @@ section[data-testid="stSidebar"] .st-key-ms_limpar_chat button {
     border-bottom: 1px solid transparent !important;
     border-radius: 0 !important;
 }
-section[data-testid="stSidebar"] .st-key-ms_limpar_chat button:hover,
-section[data-testid="stSidebar"] .st-key-ms_limpar_chat button:focus-visible {
+.st-key-ms_limpar_chat button:hover,
+.st-key-ms_limpar_chat button:focus-visible {
     color: var(--ms-texto) !important;
     border-bottom-color: var(--ms-texto-sec) !important;
 }
 /* O FOCO DO TECLADO CONTINUA VISÍVEL. Tirar a borda de um botão e não dar
    nada em troca deixa quem navega por Tab sem saber onde está. */
-section[data-testid="stSidebar"] .st-key-ms_limpar_chat button:focus-visible {
+.st-key-ms_limpar_chat button:focus-visible {
     outline: 1px solid var(--ms-borda) !important;
     outline-offset: 2px !important;
 }
 /* A COLUNA NÃO ACRESCENTA ALTURA: o botão divide a fileira do anexo, e o
    espaçamento padrão da coluna empurraria o campo de escrita para baixo. */
-section[data-testid="stSidebar"] .st-key-ms_limpar_chat,
-section[data-testid="stSidebar"] .st-key-ms_limpar_chat > div {
+.st-key-ms_limpar_chat,
+.st-key-ms_limpar_chat > div {
     margin: 0 !important;
     padding: 0 !important;
     gap: 0 !important;
@@ -2083,6 +2090,25 @@ def _abrir(modulo, funcao, *args, **kwargs):
     return getattr(mod, funcao)(*args, **kwargs)
 
 
+# ── O LUGAR DO CHAT COMECA VAZIO EM TODA PASSADA ──────────────────────────────
+#
+# `_SLOT_DO_CHAT` e global de MODULO, e modulo sobrevive entre passadas. Sem
+# esta linha, o conteiner reservado numa passada com a aba Imagem aberta
+# continuaria valendo na passada seguinte — com o colaborador em outra aba, o
+# chat seria escrito dentro de um lugar que nao esta mais na tela, e ele
+# simplesmente nao apareceria.
+#
+# Global de modulo e nao `session_state` porque conteiner do Streamlit nao e
+# serializavel, e porque ele vale para UMA passada: guardar no estado da
+# sessao daria a ele uma vida que ele nao tem.
+_mod_imagem_zerar = _sys_app.modules.get("imagem")
+if _mod_imagem_zerar is not None:
+    try:
+        _mod_imagem_zerar.esquecer_slot_do_chat()
+    except Exception:
+        pass
+
+
 # ── NAVEGAÇÃO PRINCIPAL ───────────────────────────────────────────────────────
 
 if _eh_admin:
@@ -2267,10 +2293,48 @@ if auth.eh_gestor(usuario_logado):
 
 
 # ── O chat, por ultimo ───────────────────────────────────────────────────────
-# Aparece na barra lateral do mesmo jeito; o que muda e a ordem de execucao.
-# Ver a nota no bloco da barra lateral.
-with st.sidebar:
-    chat_assistente.renderizar_chat(usuario_logado)
+#
+# Continua rodando POR ULTIMO — ele le o que a pagina acabou de escrever, e
+# essa ordem e o que faz o resumo bater com a tela.
+#
+# O QUE MUDOU EM 23/10: ele deixa de ser sempre da barra lateral.
+#
+# Dono: *"quero que o chat seja central"*, depois de *"O pessoal ainda esta com
+# muita dificuldade no Studio, principalmente na criacao das imagens"*. A
+# largura explica a dificuldade, medida: a barra lateral tem 284px, e o centro
+# da aba Imagem tem 1.228px — 4,3 vezes a mesma conversa.
+#
+# UM CHAT SO, EM UM LUGAR SO POR PASSADA. A aba Imagem reserva um conteiner
+# vazio no meio dela (`imagem.reservar_slot_do_chat`); se ele existe, o chat e
+# desenhado ali. Nas outras abas nao existe, e ele volta para a lateral.
+# Desenhar nos dois lugares seria o mesmo widget duas vezes na mesma passada —
+# o `StreamlitDuplicateElementKey` que ja derrubou a tela de Extratos.
+#
+# E A FALHA CAI PARA A LATERAL, nunca em chat nenhum: se a aba Imagem quebrou
+# antes de reservar o lugar, a conversa continua existindo em algum lugar da
+# tela. Chat que desaparece sem explicacao e pior que chat estreito.
+# O MODULO SO EXISTE DEPOIS DE A ABA TER SIDO ABERTA — `_abrir` importa na
+# hora de desenhar. `sys.modules` e a pergunta certa: um `import imagem` aqui
+# carregaria 15 mil linhas em toda passada de toda aba, inclusive das abas de
+# gestao que nao tem nada a ver com imagem.
+#
+# E O `except` NAO PODE SER A REGRA. Se ele engolisse a ausencia do modulo, o
+# chat cairia para a lateral SEMPRE e ninguem veria por que — a correcao
+# pareceria nao ter subido. Por isso a ausencia e testada, e nao capturada.
+_lugar_do_chat = None
+_mod_imagem = _sys_app.modules.get("imagem")
+if _mod_imagem is not None:
+    try:
+        _lugar_do_chat = _mod_imagem.slot_do_chat()
+    except Exception:
+        _lugar_do_chat = None
+
+if _lugar_do_chat is not None:
+    with _lugar_do_chat:
+        chat_assistente.renderizar_chat(usuario_logado)
+else:
+    with st.sidebar:
+        chat_assistente.renderizar_chat(usuario_logado)
 
 
 # ── Grava o trabalho no fim de cada passada ──────────────────────────────────

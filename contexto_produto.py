@@ -83,6 +83,29 @@ def palavras():
     return list(st.session_state.get(CHAVE_PALAVRAS) or [])
 
 
+def esquecer():
+    """Apaga o produto do contexto. Devolve as chaves que saíram.
+
+    POR QUE ELA PRECISA EXISTIR, E POR QUE AQUI
+    ------------------------------------------
+    `definir` recusa nome vazio de propósito — um campo em branco numa aba não
+    pode apagar o produto das outras. Então não havia como DESFAZER o contexto,
+    e o botão "Novo Produto" da aba Imagem precisa disso: `semear` repõe o nome
+    antigo em todo campo vazio, e sem esta função o campo voltaria preenchido na
+    passada seguinte ao clique — o botão pareceria não funcionar.
+
+    O dono das quatro chaves é este módulo, e é ele que as apaga: a aba Imagem
+    apagando `ctx_produto_*` por conta própria seria um segundo dono do mesmo
+    dado.
+    """
+    saiu = []
+    for chave in (CHAVE_NOME, CHAVE_CODIGO, CHAVE_PALAVRAS, CHAVE_DADOS):
+        if chave in st.session_state:
+            st.session_state.pop(chave, None)
+            saiu.append(chave)
+    return saiu
+
+
 def semear(chave_widget):
     """Põe o nome do contexto num campo de busca que ainda está vazio.
 
