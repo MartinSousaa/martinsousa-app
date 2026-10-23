@@ -152,11 +152,10 @@ def _secao_cartoes_parados():
       · cartões que já deviam ter fechado e continuam abertos  -> a rotina
         `fechar_expediente.py` não está rodando (ou está falhando). Nenhum
         ajuste de cadastro conserta isso.
-      · cartões que a regra não fecha  -> `fim_expediente.diagnosticar` diz a
-        porta de cada um: sem membro, sem ponto na RHiD, sem horário, ou a
-        pessoa ainda está no expediente.
+      · cartões que ainda não fecharam  -> antes das 18h30 de dia útil é a
+        regra (`fim_expediente.diagnosticar`); depois disso, todos fecham.
 
-    Só roda quando se clica: varre o board e o mapa de batidas, e o
+    Só roda quando se clica: varre o board, e o
     Administrativo é aberto quase sempre para outra coisa.
     """
     from datetime import datetime as _dt
@@ -200,27 +199,12 @@ def _secao_cartoes_parados():
                         if _membros_map.get(m)],
         })
 
-    # Saida batida hoje, do mesmo mapa que o resto do Studio ja leu (TTL de 5
-    # min). Ausente do dicionario significa "a RHiD nao conhece esta pessoa" —
-    # e nao "nao bateu": e a diferenca entre as portas sem_ponto e aguardando.
-    saidas = {}
-    try:
-        import batidas as _bat
-        for _u, _por_dia in (_bat.mapa() or {}).items():
-            saidas[_u] = (_por_dia.get(agora.date()) or {}).get("saida")
-    except Exception:
-        st.warning("A RHiD não respondeu: sem as batidas de hoje, o motivo de "
-                   "cada cartão sai como “sem ponto”.")
-
-    pessoas = {}
-    for _u in saidas:
-        _h = _pc.horario_de(_u)
-        pessoas[_u] = {"fim": f"{_h['fim']:%H:%M}", "saida": saidas[_u]}
+    _dia_util = _pc.eh_dia_util(agora.date())
 
     st.caption(f"{agora:%d/%m %H:%M} · {len(abertos)} em execução · "
                f"{pausados} já com etiqueta de interrupção (relógio parado)")
 
-    devem_fechar = _fe.decidir(agora, pessoas, abertos)
+    devem_fechar = _fe.decidir(agora, abertos, _dia_util)
     if devem_fechar:
         st.error(
             f"**{len(devem_fechar)} cartão(ões) já deveriam estar fechados e "
@@ -236,31 +220,20 @@ def _secao_cartoes_parados():
                                     for d in devem_fechar]),
                      use_container_width=True, hide_index=True)
 
-    presos = _fe.diagnosticar(agora, pessoas, abertos)
+    presos = _fe.diagnosticar(agora, abertos, _dia_util)
     presos = [p for p in presos
               if p["id"] not in {d["id"] for d in devem_fechar}]
     if not presos:
         st.success("Nenhum outro cartão preso: o resto está dentro da regra.")
         return
 
-    ROTULO = {
-        "sem_membro": "Sem ninguém anexado",
-        "sem_ponto": "A RHiD não reconhece a pessoa",
-        "sem_horario": "Sem fim de expediente",
-        "aguardando": "Ainda no expediente",
-        "antes_das_19h": "Ainda não deu a hora",
-    }
+    ROTULO = {"antes_do_corte": f"Fecha às {_fe.corte_txt()}"}
     import pandas as _pd
     st.dataframe(
         _pd.DataFrame([{"cartão": p["nome"][:70], "quem": p["quem"],
                         "por que não fecha": ROTULO.get(p["porque"], p["porque"]),
                         "detalhe": p["detalhe"]} for p in presos]),
         use_container_width=True, hide_index=True)
-    _n_sem = sum(1 for p in presos if p["porque"] == "sem_membro")
-    if _n_sem:
-        st.warning(f"{_n_sem} cartão(ões) sem ninguém anexado: estes nunca "
-                   f"fecham sozinhos, em nenhum dia. Ou se anexa a pessoa, ou "
-                   f"se tira a etiqueta EM ANDAMENTO no Trello.")
 
 
 def _remover_da_equipe(membros):
@@ -496,6 +469,42 @@ def _secao_equipe():
                 else:
                     st.error(_msg_rm)
 
+
+
+def _secao_rastreio_etiquetas():
+    """Quem colocou e quem tirou cada etiqueta de um cartão (dono, 21/10: um
+    colaborador pôs INTERROMPIDO e, na volta, o cartão estava EM ANDAMENTO;
+    a tela do Trello não mostra troca de etiqueta neste board). Só lê; só
+    consulta o Trello no clique."""
+    import pandas as pd
+    import placar_core as _pc
+    st.markdown("#### 🔎 Rastrear etiquetas de um cartão")
+    st.caption("Quem colocou e quem tirou cada etiqueta, e quando — dos últimos 120 dias.")
+    busca = st.text_input("Nome do cartão (ou parte dele)", key="rast_busca")
+    if not st.button("Rastrear", key="rast_ok") or not busca.strip():
+        return
+    try:
+        _listas, cards, membros_map, *_ = _pc._buscar_board()
+        alvo = " ".join(busca.upper().split())
+        achados = [c for c in (cards or []) if alvo in " ".join(str(c.get("name") or "").upper().split())]
+        if not achados:
+            st.info("Nenhum cartão aberto com esse nome.")
+            return
+        acoes = _pc._buscar_acoes_board(_pc._desde_padrao())
+        _pc._detectar_alinhamento(cards, acoes)
+        nomes = _pc.mapa_labels()
+    except Exception as e:
+        st.error(f"Não consegui ler o Trello: {str(e)[:140]}")
+        return
+    for c in achados[:5]:
+        hist = _pc.historico_de_etiquetas(acoes.get(c["id"], []), _pc.labels_do_card(c), nomes, membros_map)
+        st.markdown(f"**{c.get('name', '')}**")
+        if hist:
+            st.dataframe(pd.DataFrame(hist), use_container_width=True, hide_index=True)
+        else:
+            st.caption("Nenhuma troca de etiqueta registrada nos últimos 120 dias.")
+    if len(achados) > 5:
+        st.caption(f"Mais {len(achados) - 5} cartões com esse nome — escreva mais do nome para afunilar.")
 
 
 def _secao_mercado_livre():
@@ -1164,6 +1173,8 @@ def pagina_admin(usuario_logado):
     # A equipe medida fica no FIM, e nao no topo: quem abre o Administrativo
     # quase sempre vem criar ou resetar um login. O cadastro de equipe e mais
     # raro — contratacao — e nao pode empurrar o comum para baixo da dobra.
+    st.markdown("---")
+    _secao_rastreio_etiquetas()
     st.markdown("---")
     _secao_mercado_livre()
     st.markdown("---")

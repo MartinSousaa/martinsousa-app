@@ -137,6 +137,13 @@ class _Falso:
         return [_Falso(self._chaves) for _ in rotulos]
 
     def container(self, *a, **kw):
+        # A CHAVE DO CONTAINER TAMBEM ENTRA NO REGISTRO. O Streamlit de
+        # verdade recusa duas chaves iguais em qualquer elemento, container
+        # incluido (`streamlit/elements/layouts.py`), e e por essa chave que
+        # o CSS do Studio acha o botao de limpar o chat. Sem registrar,
+        # container repetido passava — e a guarda que procura um bloco
+        # desenhado pela chave dele nao tinha onde olhar.
+        self._registra("container", kw)
         return _Contexto(_Falso(self._chaves))
 
     def expander(self, *a, **kw):
@@ -1508,7 +1515,7 @@ def _chat(conta):
           "gerar as duas que faltaram e morre antes de marcar nada")
 
     _marcou_f = (_falso_f.session_state.get("img_tipos_multi")
-                 or _falso_f.session_state.get("img_pedido_faltantes"))
+                 or _falso_f.session_state.get("img_pedido_de_pecas"))
     conta("e o pedido das faltantes fica registrado em algum lugar",
           bool(_marcou_f),
           "o comando não deixou rastro nenhum: a aba não tem como saber "
@@ -1531,7 +1538,8 @@ def _chat(conta):
             except Exception:
                 pass
     _duas_g = ["2 — Benefícios do produto", "8 — Ambientação realista (sem texto)"]
-    _falso_g.session_state["img_pedido_faltantes"] = list(_duas_g)
+    _falso_g.session_state["img_pedido_de_pecas"] = {"tipos": list(_duas_g),
+                                                     "descricao": ""}
     try:
         _img_f.pagina_imagem("myrelladesouza")
     except (_Rerun, _Parou):
@@ -1550,9 +1558,54 @@ def _chat(conta):
     # E O PEDIDO NÃO VOLTA. Sem o `pop`, a tela prende no modo Selecionar e
     # quem tenta sair dele é jogado de volta a cada passada.
     conta("e o pedido é consumido — não prende a tela no Selecionar",
-          "img_pedido_faltantes" not in _falso_g.session_state,
+          "img_pedido_de_pecas" not in _falso_g.session_state,
           "o pedido ficou guardado: a cada passada a tela volta para o modo "
           "Selecionar, e o colaborador não consegue sair dele")
+
+    # ── UMA PECA SO, QUE E O PEDIDO DO DIA A DIA (23/10) ────────────────
+    #
+    # Dono: *"Ele nao ira gerar as 8 imagens de uma vez, somente conforme eles
+    # forem pedindo"*. Com um tipo, a aba abre em "1 imagem especifica" — e a
+    # descricao tem de cair na chave DAQUELE tipo (`img_instr_<tipo>`), que e
+    # de onde a tela a le. Numa chave propria o campo mostraria o preset
+    # enquanto o motor recebia outra coisa.
+    #
+    # E TUDO ISSO E ESCRITA EM CHAVE DE WIDGET: so e legal aqui, no topo da
+    # pagina, antes de o widget nascer. E por isso que a guarda desenha a
+    # tela em vez de chamar a funcao.
+    _falso_u = instalar()
+    for _nm_u, _mod_u in list(_sys_f.modules.items()):
+        if getattr(_mod_u, "st", None) is not None and not _nm_u.startswith(
+                ("streamlit", "checar_")):
+            try:
+                _mod_u.st = _falso_u
+            except Exception:
+                pass
+    _um_u = _img_f.TIPOS_PADRAO[2]
+    _falso_u.session_state["img_pedido_de_pecas"] = {
+        "tipos": [_um_u], "descricao": "varal com 6 prendedores, bem clara"}
+    _erro_u = ""
+    try:
+        _img_f.pagina_imagem("myrelladesouza")
+    except (_Rerun, _Parou):
+        pass
+    except Exception as e:
+        _erro_u = f"{type(e).__name__}: {str(e)[:160]}"
+    conta("pedir UMA peca pelo chat nao derruba a aba",
+          _erro_u == "", _erro_u)
+    conta("e a aba abre no modo de UMA imagem, no tipo pedido",
+          _falso_u.session_state.get("img_modo") == "1 imagem específica"
+          and _falso_u.session_state.get("img_tipo_unico") == _um_u,
+          f"abriu em {_falso_u.session_state.get('img_modo')!r} com "
+          f"{_falso_u.session_state.get('img_tipo_unico')!r}")
+    conta("e a descricao cai na chave daquele tipo, que e a que a tela le",
+          _falso_u.session_state.get(f"img_instr_{_um_u}")
+          == "varal com 6 prendedores, bem clara",
+          "a descricao foi para outro lugar: o campo da tela mostraria o "
+          "preset enquanto o motor recebia outra coisa")
+    conta("e o pedido de uma peca tambem e consumido",
+          "img_pedido_de_pecas" not in _falso_u.session_state,
+          "o pedido ficou: a cada passada a tela volta para o tipo pedido")
 
     _falso = instalar()
     _ca.st = _falso
@@ -2601,6 +2654,307 @@ def _fotos_perdidas(conta):
         _rasc_fp._pasta = _pasta_real
         _sh.planilha, _sh.cliente = _guardado
         _sh_fp.rmtree(_base, ignore_errors=True)
+
+
+def _novo_produto(conta):
+    """O botao "Novo produto" zera a aba — e NAO descarta geracao paga calado.
+
+    Pedido do dono, 23/10: *"Então coloque um botão como 'Novo Produto'"*, e
+    *"Zera tudo sim"*. O "Limpar Chat" que ja existia nao servia: ele preserva
+    galeria, fotos e nome do produto de proposito (`chat_assistente.py:1362`).
+
+    POR QUE ESTA GUARDA DESENHA A TELA E NAO SO CHAMA A FUNCAO
+    ---------------------------------------------------------
+    Tres dos defeitos possiveis aqui nao aparecem chamando a funcao sozinha:
+
+    1. O campo de upload NAO esvazia por `session_state` — a lista de arquivos
+       mora no navegador. So mudar a CHAVE do widget solta o que esta
+       pendurado, e isso so se mede desenhando a tela duas vezes e comparando
+       as chaves registradas.
+    2. `contexto_produto.semear` repoe o nome do produto em todo campo vazio.
+       Sem `esquecer()`, o campo volta preenchido na passada seguinte ao
+       clique e o botao parece nao funcionar.
+    3. O disco. `app.py:1532` chama `rascunho.restaurar` em toda sessao.
+
+    E a quarta assercao e a que protege o trabalho: com a galeria fora do
+    Drive, o clique PERGUNTA em vez de zerar.
+    """
+    import importlib
+    import shutil as _sh_np
+    import sys as _sys_np
+    import tempfile as _tmp_np
+
+    import rascunho as _rasc_np
+
+    _base = _tmp_np.mkdtemp()
+    _pasta_real = _rasc_np._pasta
+    _rasc_np._pasta = lambda u, _b=_base: os.path.join(_b, str(u))
+    _sh, _guardado = _sem_planilha()
+    _button_real = getattr(_Falso, "button", None)
+
+    def _troca_st(falso):
+        for _nm, _mod in list(_sys_np.modules.items()):
+            if getattr(_mod, "st", None) is not None and not _nm.startswith(
+                    ("streamlit", "checar_")):
+                try:
+                    _mod.st = falso
+                except Exception:
+                    pass
+
+    try:
+        _falso = instalar()
+        _m = importlib.import_module("imagem")
+        _troca_st(_falso)
+        try:
+            _m.pagina_imagem("martinsousa")
+        except (_Rerun, _Parou):
+            pass
+        except Exception as e:
+            conta("a aba Imagem monta com o botao Novo produto", False,
+                  f"{type(e).__name__}: {str(e)[:160]}")
+            return
+        conta("a aba Imagem desenha o botao Novo produto",
+              "btn_novo_produto" in _falso._chaves,
+              "o botao nao foi desenhado — nao ha como comecar outro produto")
+
+        # ── O ESTADO DE QUEM ESTAVA NO MEIO DE UM PRODUTO ───────────────
+        _PNG = b"\x89PNG\r\n\x1a\n" + b"w" * 2000
+        _rasc_np.salvar_fotos("martinsousa", [_PNG], ["frente.png"])
+        _rasc_np.salvar("martinsousa", "Urso Prata",
+                        [{"tipo": "1 — capa", "bytes": _PNG}], "MS-URSO-1")
+        _rasc_np.salvar_trabalho("martinsousa",
+                                 {"img_nome_produto": "Urso Prata",
+                                  "img_codigo": "MS-URSO-1"})
+        _f2 = instalar()
+        _troca_st(_f2)
+        _f2.session_state.update({
+            "img_nome_produto_input": "Urso Prata",
+            "img_codigo_input": "MS-URSO-1",
+            "img_galeria": [{"tipo": "1 — capa", "bytes": _PNG}],
+            "img_triagem_config": {"nome_produto": "Urso Prata"},
+            "ctx_produto_nome": "Urso Prata",
+            "ctx_produto_codigo": "MS-URSO-1",
+            "ms_chat_hist": [{"role": "user", "content": "gera a capa"}],
+            "chat_refazer_imagem": {"num": 3},
+            "img_upload_versao": 2,
+        })
+        _saiu = _m.limpar_tudo_do_produto("martinsousa")
+
+        _sobrou = [k for k in dict(_f2.session_state)
+                   if str(k).startswith("img_") and k != "img_upload_versao"]
+        conta("zerar o produto nao deixa nenhuma chave `img_` para tras",
+              _sobrou == [], f"sobrou: {_sobrou[:6]}")
+        conta("e leva o produto COMPARTILHADO entre as abas",
+              not dict(_f2.session_state).get("ctx_produto_nome")
+              and not dict(_f2.session_state).get("ctx_produto_codigo"),
+              "`ctx_produto_nome` ficou — `semear` repoe o nome no campo na "
+              "passada seguinte, e o botao parece nao funcionar")
+        conta("e a conversa", not dict(_f2.session_state).get("ms_chat_hist"),
+              "a conversa do produto anterior ficou na tela")
+        conta("e o comando de refazer JA ACEITO do produto anterior",
+              "chat_refazer_imagem" not in dict(_f2.session_state),
+              "um 'refazer a imagem 3' do produto velho executaria contra o "
+              "produto que acabou de entrar")
+        conta("e a chave do upload muda, que e o que esvazia o campo",
+              _m.versao_dos_uploads() == 3,
+              f"a versao ficou em {_m.versao_dos_uploads()} — o campo continua "
+              "com as fotos do produto anterior penduradas")
+        conta("e o DISCO vai junto: galeria, fotos e trabalho",
+              _rasc_np.resumo("martinsousa") is None
+              and _rasc_np.carregar_fotos("martinsousa") == []
+              and _rasc_np.carregar_trabalho("martinsousa") == {},
+              "o produto velho volta no primeiro F5, porque `app.py` chama "
+              "`restaurar` em toda sessao")
+        conta("e a funcao DIZ o que apagou, em vez de zerar calada",
+              "img_galeria" in _saiu and "rascunho" in _saiu,
+              f"devolveu {_saiu[:6]}")
+
+        # ── O CLIQUE COM GERACAO FORA DO DRIVE: PERGUNTA, NAO APAGA ─────
+        #
+        # Esta e a assercao que protege dinheiro. `img_galeria_salva` guarda o
+        # TAMANHO salvo, e nao um booleano: salvar 2 de 3 nao e ter salvo.
+        def _clica_no_novo_produto(self, *a, **kw):
+            self._registra("button", kw)
+            return kw.get("key") == "btn_novo_produto"
+
+        _Falso.button = _clica_no_novo_produto
+        _f3 = instalar()
+        _troca_st(_f3)
+        _f3.session_state.update({
+            "img_galeria": [{"tipo": "1 — capa", "bytes": _PNG},
+                            {"tipo": "2 — detalhe", "bytes": _PNG}],
+            "img_galeria_salva": 1,          # uma das duas no Drive
+            "img_nome_produto_input": "Urso Prata",
+        })
+        try:
+            _m.pagina_imagem("martinsousa")
+        except (_Rerun, _Parou):
+            pass
+        except Exception:
+            pass
+        _est3 = dict(_f3.session_state)
+        conta("com imagem fora do Drive, o clique PERGUNTA antes de descartar",
+              _est3.get("img_novo_produto_confirmar") == 2
+              and len(_est3.get("img_galeria") or []) == 2,
+              "o botao descartou geracao paga sem perguntar")
+
+        # E com tudo salvo ele zera de uma vez: confirmacao que aparece sempre
+        # e confirmacao que ninguem le.
+        _f4 = instalar()
+        _troca_st(_f4)
+        _f4.session_state.update({
+            "img_galeria": [{"tipo": "1 — capa", "bytes": _PNG}],
+            "img_galeria_salva": 1,
+            "img_nome_produto_input": "Urso Prata",
+        })
+        try:
+            _m.pagina_imagem("martinsousa")
+        except (_Rerun, _Parou):
+            pass
+        except Exception:
+            pass
+        _est4 = dict(_f4.session_state)
+        conta("com tudo no Drive, o clique zera sem perguntar",
+              not _est4.get("img_galeria")
+              and not _est4.get("img_novo_produto_confirmar"),
+              "pediu confirmacao sem ter o que perder")
+    finally:
+        if _button_real is None:
+            try:
+                del _Falso.button
+            except AttributeError:
+                pass
+        else:
+            _Falso.button = _button_real
+        _rasc_np._pasta = _pasta_real
+        _sh.planilha, _sh.cliente = _guardado
+        _sh_np.rmtree(_base, ignore_errors=True)
+
+
+def _chat_no_centro(conta):
+    """O chat e desenhado no CENTRO da aba Imagem, e so num lugar por passada.
+
+    Dono, 23/10: *"quero que o chat seja central"*, depois de *"O pessoal ainda
+    esta com muita dificuldade no Studio, principalmente na criacao das
+    imagens"*. A largura explica a dificuldade: a barra lateral tem 284px e o
+    centro desta aba tem 1.228px.
+
+    POR QUE A GUARDA DESENHA AS DUAS COISAS
+    ---------------------------------------
+    O risco nao e o chat nao aparecer — e ele aparecer DUAS vezes. As chaves
+    dos widgets dele sao fixas, e a segunda chamada na mesma passada derruba a
+    tela com `StreamlitDuplicateElementKey`, que e o erro que ja tirou a tela
+    de Extratos do ar. O duplo desta conferencia guarda toda chave e explode
+    na repetida, entao desenhar a pagina E o chat na sequencia mede exatamente
+    isso.
+
+    E mede tambem o que ninguem lembraria: `_SLOT_DO_CHAT` e global de MODULO,
+    e modulo sobrevive entre passadas. Sem o `esquecer` no comeco de cada
+    passada, o lugar reservado com a aba Imagem aberta continuaria valendo com
+    o colaborador em outra aba.
+    """
+    import importlib
+    import sys as _sys_cc
+
+    _sh, _guardado = _sem_planilha()
+    try:
+        _falso = instalar()
+        _m = importlib.import_module("imagem")
+        _ca = importlib.import_module("chat_assistente")
+        for _nm, _mod in list(_sys_cc.modules.items()):
+            if getattr(_mod, "st", None) is not None and not _nm.startswith(
+                    ("streamlit", "checar_")):
+                try:
+                    _mod.st = _falso
+                except Exception:
+                    pass
+
+        _m.esquecer_slot_do_chat()
+        conta("o lugar do chat comeca vazio em toda passada",
+              _m.slot_do_chat() is None,
+              "o conteiner da passada anterior continuou valendo")
+
+        _erro = ""
+        try:
+            _m.pagina_imagem("myrelladesouza")
+        except (_Rerun, _Parou):
+            pass
+        except Exception as e:
+            _erro = f"{type(e).__name__}: {str(e)[:160]}"
+        conta("a aba Imagem monta com o resumo e o lugar do chat",
+              _erro == "", _erro)
+        conta("e ela RESERVA o lugar do chat no centro",
+              _m.slot_do_chat() is not None,
+              "o lugar nao foi reservado: o chat cairia para a barra lateral "
+              "de 284px, que e o defeito que isto corrige")
+
+        # O RESUMO DA ESQUERDA FOI DESENHADO, e nao so calculado. A guarda
+        # procura o rotulo da secao que o dono pediu.
+        conta("e o resumo da esquerda e desenhado",
+              "img_resumo_esquerda" in _falso._chaves,
+              "a coluna da esquerda saiu vazia")
+
+        # E AGORA O CHAT, dentro do lugar reservado, na MESMA passada. Se
+        # alguma chave dele repetir com uma da pagina, o duplo explode aqui.
+        _erro_ch = ""
+        try:
+            with _m.slot_do_chat():
+                _ca.renderizar_chat("myrelladesouza")
+        except (_Rerun, _Parou):
+            pass
+        except Exception as e:
+            _erro_ch = f"{type(e).__name__}: {str(e)[:200]}"
+        conta("o chat desenha dentro do lugar reservado, sem chave repetida",
+              _erro_ch == "",
+              f"{_erro_ch} — e o erro que tira a tela do ar quando o mesmo "
+              "widget e desenhado duas vezes na mesma passada")
+
+        # ── E O `app.py`, QUE VERIFICADOR NENHUM EXECUTA ────────────────
+        #
+        # Esta conferencia desenha PAGINAS (`pagina_imagem`, `pagina_home`);
+        # o `app.py` e o script de entrada do Streamlit e nao tem funcao para
+        # chamar. Entao a decisao de ONDE o chat aparece — a linha que o dono
+        # pediu em 23/10 — nao era lida por ninguem.
+        #
+        # Por AST, e nao por texto: `getsource` do modulo inteiro casaria com
+        # a mencao destes nomes nos comentarios, e tirar a chamada de verdade
+        # nao reprovaria nada. E a licao do `.normalizar_imagem(` logo acima.
+        import ast as _ast_ap
+        # A RAIZ SAI DO PROPRIO ARQUIVO. Caminho absoluto escrito a mao
+        # quebra no container do Railway, que nao monta o repositorio no
+        # mesmo lugar — e e a mesma nota que o `exportar_codigo_de_imagem`
+        # carrega.
+        _raiz_ap = os.path.dirname(os.path.abspath(__file__))
+        _fonte_ap = open(os.path.join(_raiz_ap, "app.py"), encoding="utf-8").read()
+        _arv_ap = _ast_ap.parse(_fonte_ap)
+        _chamadas_ap = {
+            (getattr(_n.func, "attr", "") or getattr(_n.func, "id", ""))
+            for _n in _ast_ap.walk(_arv_ap) if isinstance(_n, _ast_ap.Call)}
+        conta("o app.py LE o lugar reservado para o chat",
+              "slot_do_chat" in _chamadas_ap,
+              "o chat voltou a ser desenhado so na barra lateral de 284px, "
+              "que e o defeito que o dono pediu para corrigir")
+        conta("e ele ZERA esse lugar no comeco de cada passada",
+              "esquecer_slot_do_chat" in _chamadas_ap,
+              "sem zerar, o conteiner da passada anterior continua valendo e "
+              "o chat e escrito num lugar que nao esta mais na tela")
+        # A QUEDA PARA A LATERAL CONTINUA EXISTINDO. Chat que desaparece sem
+        # explicacao e pior que chat estreito.
+        conta("e a barra lateral continua sendo a queda, nao o unico lugar",
+              _fonte_ap.count("chat_assistente.renderizar_chat") == 2,
+              "o chat tem de ser desenhado no centro OU na lateral — se so "
+              "um dos dois existe, ou ele some nas outras abas ou nunca vai "
+              "para o centro")
+        # O ESTILO DO BOTAO VALE NOS DOIS LUGARES. Seletor preso a
+        # `stSidebar` estilizaria o mesmo "Limpar Chat" num lugar e no outro
+        # nao — a Forma 1 desta base, em CSS.
+        conta("e o estilo do Limpar Chat nao esta preso a barra lateral",
+              'stSidebar"] .st-key-ms_limpar_chat' not in _fonte_ap
+              and ".st-key-ms_limpar_chat" in _fonte_ap,
+              "o mesmo botao ficaria com duas caras, dependendo de onde o "
+              "chat foi desenhado")
+    finally:
+        _sh.planilha, _sh.cliente = _guardado
 
 
 def _fatura_confirmada(conta):
@@ -4031,6 +4385,90 @@ def _celular(conta):
           "grid-template-areas: 'fat' 'ind' 'gas' 'dev'" in _cel, "")
 
 
+def _rastreio_etiquetas(conta):
+    """21/10: Registros › Rastrear etiquetas — quem tirou o INTERROMPIDO.
+    O Trello é trocado por dados na forma da API: cartão com idLabels, ações
+    updateCard com data.old.idLabels e idMemberCreator."""
+    import admin as _adm_r
+    import placar_core as _pc_r
+    _g = (_adm_r.st, _pc_r._buscar_board, _pc_r._buscar_acoes_board, _pc_r.mapa_labels, dict(_pc_r.ALINHAMENTO_OLD))
+    _tab, _info = [], []
+    try:
+        f = instalar()
+        f.text_input = lambda rot, *a, **k: (f._registra("text_input", k), "matriokas")[1]
+        f.button = lambda rot, *a, **k: (f._registra("button", k), k.get("key") == "rast_ok")[1]
+        f.dataframe = lambda d, *a, **k: _tab.append(d)
+        f.info = lambda t, *a, **k: _info.append(str(t))
+        _adm_r.st = f
+        card = {"id": "c1", "name": "BONECAS MATRIOKAS", "idLabels": ["EA"], "idMembers": ["m1"]}
+        up = lambda q, ids, a: {"type": "updateCard", "date": q, "idMemberCreator": a,
+                                "data": {"card": {"id": "c1", "idLabels": ids}, "old": {"idLabels": ids}}}
+        _pc_r._buscar_board = lambda: ({}, [card], {"m1": "luizhenriqueramos", "m2": "beatriz51"}, None, None, None)
+        _pc_r._buscar_acoes_board = lambda *a, **k: {"c1": [up("2026-10-21T15:00:00.000Z", ["EA", "INT"], "m1"),
+                                                         up("2026-10-21T16:00:00.000Z", ["EA"], "m2")]}
+        _pc_r.mapa_labels = lambda forcar=False: {"EA": "EM ANDAMENTO", "INT": "INTERROMPIDO"}
+        _adm_r._secao_rastreio_etiquetas()
+        _linhas = _tab[0].to_dict("records") if _tab else []
+        conta("Rastreio: o cartão buscado mostra quem tirou o INTERROMPIDO e quando (dono, 21/10)",
+              any(x["etiqueta"] == "INTERROMPIDO" and x["o que"] == "tirou" and x["quem"] == "beatriz51"
+                  for x in _linhas), str(_linhas)[:200])
+        _pc_r._buscar_board = lambda: ({}, [], {}, None, None, None)
+        f2 = instalar()
+        f2.text_input = lambda rot, *a, **k: (f2._registra("text_input", k), "matriokas")[1]
+        f2.button = lambda rot, *a, **k: (f2._registra("button", k), k.get("key") == "rast_ok")[1]
+        f2.info = lambda t, *a, **k: _info.append(str(t))
+        _adm_r.st = f2
+        _adm_r._secao_rastreio_etiquetas()
+        conta("Rastreio: nome que não existe avisa, não quebra", any("Nenhum cartão" in t for t in _info), "")
+    except (_Rerun, _Parou):
+        conta("Rastreio: a seção monta", True, "")
+    except Exception as e:
+        conta("Rastreio: a seção monta", False, f"{type(e).__name__}: {e}")
+    finally:
+        _adm_r.st, _pc_r._buscar_board, _pc_r._buscar_acoes_board, _pc_r.mapa_labels = _g[:4]
+        _pc_r.ALINHAMENTO_OLD.clear(); _pc_r.ALINHAMENTO_OLD.update(_g[4])
+
+
+def _lembrete_pago_no_extrato(conta):
+    """23/10: o lembrete que o extrato já mostra pago sai do quadro, e o
+    quadro diz numa linha o que tirou. Segunda 19/10: vencem o DAS, os demais
+    impostos e a TM do dia 20. Só a planilha é trocada: os lançamentos têm a
+    forma de `lancamentos.do_mes`."""
+    import lembretes as _lem2
+    import lancamentos as _lan2
+    import cheques as _ch2
+    import nao_operacional as _no2
+    import pandas as _pd2
+    from datetime import date as _d2
+    _g = (_lem2.carregar_feitos, _ch2.carregar, _no2.carregar, _lan2.do_mes)
+    _txt, _bot = [], []
+    try:
+        f = instalar()
+        f.markdown = lambda t, *a, **k: _txt.append(str(t))
+        f.caption = lambda t, *a, **k: _txt.append(str(t))
+        f.button = lambda rot, *a, **k: (f._registra("button", k), _bot.append(k.get("key")), False)[2]
+        _lem2.carregar_feitos = lambda: (frozenset(), "")
+        _ch2.carregar = lambda: []
+        _no2.carregar = lambda: _pd2.DataFrame()
+        _lan2.do_mes = lambda a, m, lista=None: ([{"data": "2026-10-19", "valor": -1520.33,
+                                                  "favorecido": "RECEITA FEDERAL", "descricao": "",
+                                                  "finalidade": "IMPOSTO"}] if (a, m) == (2026, 10) else [])
+        _lem2.mostrar(f, "leo", _d2(2026, 10, 19))
+        _j = " ".join(_txt)
+        conta("Lembretes: o DAS já pago no extrato sai do quadro; demais impostos e TM ficam (dono, 23/10)",
+              not any(str(b).startswith("lem_das_20|") for b in _bot)
+              and any(str(b).startswith("lem_impostos_20|") for b in _bot)
+              and any(str(b).startswith("lem_tm_20|") for b in _bot), str(_bot))
+        conta("Lembretes: o quadro diz o que tirou e por quê",
+              "Já pagos, retirados pelo extrato" in _j and "DAS" in _j and "visto no extrato 19/10" in _j, _j[-200:])
+    except (_Rerun, _Parou):
+        conta("Lembretes: pago no extrato — a tela monta", True, "")
+    except Exception as e:
+        conta("Lembretes: pago no extrato — a tela monta", False, f"{type(e).__name__}: {e}")
+    finally:
+        _lem2.carregar_feitos, _ch2.carregar, _no2.carregar, _lan2.do_mes = _g
+
+
 def main():
     instalar()
     falhas = []
@@ -4054,6 +4492,8 @@ def main():
     _telas_restantes(conta)
     _fatura_confirmada(conta)
     _fotos_perdidas(conta)
+    _novo_produto(conta)
+    _chat_no_centro(conta)
     _refazer_cego(conta)
     _peca_olhada(conta)
     _home(falhas, conta)
@@ -4103,6 +4543,8 @@ def main():
     _mercado_livre_no_admin(conta)
     _ranking_abre_panorama(conta)
     _celular(conta)
+    _rastreio_etiquetas(conta)
+    _lembrete_pago_no_extrato(conta)
     print(f"\n{'ok    a tela monta' if not falhas else 'FALHA'} "
           f"· {len(falhas)} tela(s) quebrada(s)")
     return 1 if falhas else 0

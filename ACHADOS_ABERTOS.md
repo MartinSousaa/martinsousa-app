@@ -33,6 +33,10 @@ motivo — mas é uma resposta honesta, e escrita ela para de ser esquecimento.
 
 ## ABERTOS
 
+### Trocar TODAS as chaves vazadas no ataque ao Railway (21/10)
+ONDE: Railway › Produção MS Studio › Variables (e `STREAMLIT_SECRETS`) · lista de nomes em `chaves.py:30-43`, `extrato_inter_api.py:8-10`, `auth.py:220`
+POR QUE AINDA NÃO: o Railway avisou por e-mail (22/10) que terceiros podem ter lido as variáveis de ambiente, e as chaves só podem ser geradas pelo dono, no painel de cada serviço. Ordem combinada: (1) IAs — Anthropic, OpenAI, Gemini; (2) conta de serviço do Google (`gcp_service_account`) e Microsoft (`MS_CLIENT_SECRET`); (3) Inter LG e MS (`INTER_*`, `INTER2_*`), Trello, Bling LG e MS, RHiD, `ML_CLIENT_SECRET`, `SERPAPI_KEY`, `gdrive_oauth`; (4) senhas do bloco `[usuarios]`. Gere a nova, ponha no Railway, espere o reinício e só então apague a antiga — apagar antes derruba o Studio. Junto: corrigir `ML_CLIENT_ID` para `4741972389289391`. Sai daqui quando o dono confirmar a troca de todas.
+
 ### Por que as oito peças do «Compasso Cortador Colorido» saíram erradas
 ONDE: toda a cadeia · evidência em `log_imagem.py` (contexto do log)
 POR QUE AINDA NÃO: a análise do dia 30/09 foi feita em cima do `.txt` do

@@ -11,8 +11,10 @@ A pessoa vai embora e o cartão fica com EM ANDAMENTO. O relógio não para: ele
 volta a andar às 9h do dia seguinte e ela aparece trabalhando sem ter tocado no
 cartão. Aconteceu: saída batida às 17h45, cartão ainda contando às 20h30.
 
-Quem decide é fim_expediente.decidir(); aqui só se busca o que ela precisa e se
-aplica o que ela mandou.
+Quem decide é fim_expediente.decidir(): às 18h30 de Brasília, todo cartão EM
+ANDAMENTO; em fim de semana e feriado, a qualquer hora (dono, 23/10). Aqui só
+se busca o board e se aplica o que ela mandou. A RHiD não entra mais: com ela,
+membro desconhecido ou RHiD fora do ar deixavam o cartão correndo a noite.
 
 As quatro travas
 ----------------
@@ -105,41 +107,6 @@ def _abortar_se_nao_for_producao():
              f"produção — o board do Trello é o mesmo nos dois ambientes.")
         return True
     return False
-
-
-def _saidas_de_hoje(hoje):
-    """{username: 'HH:MM'|None} — a saída batida hoje por cada pessoa.
-
-    Ausente do dicionário significa "não sei", e não "não bateu": pessoa que a
-    RHiD não reconheceu não pode ter cartão fechado por suposição.
-    """
-    import rhid_api as _rhid
-    import relogio_ponto as _rp
-
-    dia = hoje.strftime("%d/%m/%Y")
-    saidas = {}
-    try:
-        pessoas = [p for p in (_rhid.get_persons() or [])
-                   if str(p.get("status", "1")) != "0"]
-    except Exception as e:
-        _log(f"RHiD não respondeu a lista de pessoas ({str(e)[:120]}).")
-        return saidas
-
-    for p in pessoas:
-        nome = (p.get("name") or p.get("nome") or p.get("nomeCompleto")
-                or p.get("fullName") or p.get("personName") or "")
-        user = _rp._rhid_nome_para_trello(nome)
-        if not user:
-            continue
-        pid = p.get("id") or p.get("idPerson") or p.get("personId") or 0
-        try:
-            regs, _diag = _rhid.get_registros_diarios(dia, dia, int(pid))
-        except Exception as e:
-            _log(f"RHiD falhou para {nome} ({str(e)[:80]}); pulando.")
-            continue
-        hoje_reg = next((r for r in regs if r.get("data") == hoje), None)
-        saidas[user] = (hoje_reg or {}).get("saida")
-    return saidas
 
 
 def _cartoes_em_andamento():
@@ -238,20 +205,12 @@ def main(simular=False, agora=None):
     agora = agora or datetime.now(_pc.FUSO)
     hoje = agora.date()
 
-    # Dia sem expediente: nada a fechar, e nada a consultar.
-    #
-    # Num feriado ou fim de semana ninguem bate ponto, entao a RHiD devolve
-    # lista vazia e a rotina abortava com codigo 1 — a cada quinze minutos, o
-    # dia inteiro, pintando o servico de vermelho no Railway por estar
-    # funcionando exatamente como devia. Sair antes evita a consulta e, mais
-    # importante, evita chamar de falha o que e o dia normal.
-    #
-    # O cartao esquecido aberto num feriado tambem nao corre: as janelas de
-    # expediente ja nao contam esse dia. Nao ha relogio para parar.
-    if not _pc.eh_dia_util(hoje):
-        _nome_fer = _pc.nome_do_feriado(hoje)
-        _por_que = _nome_fer or ("sábado" if hoje.weekday() == 5 else "domingo")
-        _log(f"Nada a fazer: {hoje:%d/%m} é {_por_que}, sem expediente.")
+    # Fim de semana e feriado NAO saem mais cedo (dono, 23/10): cartao que
+    # escapou na sexta corria o sabado e o domingo inteiros, e a rotina dizia
+    # "nada a fazer". Em dia sem expediente, todo cartao aberto fecha.
+    dia_util = _pc.eh_dia_util(hoje)
+    if not _fe.passou_do_corte(agora, dia_util):
+        _log(f"Nada a fazer: são {agora:%H:%M}; o corte é às {_fe.corte_txt()}.")
         return 0
 
     label_id, _erro_lb = _id_da_etiqueta()
@@ -259,28 +218,15 @@ def main(simular=False, agora=None):
         _log(f"ABORTADO: {_erro_lb}")
         return 1
 
-    saidas = _saidas_de_hoje(hoje)
-    if not saidas:
-        _log("ABORTADO: nenhuma pessoa reconhecida na RHiD. Sem saber quem "
-             "encerrou, fechar cartão seria chute.")
-        return 1
-
-    pessoas = {}
-    for user in saidas:
-        h = _pc.horario_de(user)
-        pessoas[user] = {"fim": f"{h['fim'].hour:02d}:{h['fim'].minute:02d}",
-                         "saida": saidas[user]}
-
     cartoes = _cartoes_em_andamento()
-    alvos = _fe.decidir(agora, pessoas, cartoes)
+    alvos = _fe.decidir(agora, cartoes, dia_util)
 
     # Etiqueta ja posta: rodar de novo nao reescreve.
     ja = {c["id"] for c in cartoes
           if c["labels"] & {_pc.LABEL_FIM_EXPEDIENTE, "FIM DO EXPEDIENTE"}}
     alvos = [a for a in alvos if a["id"] not in ja]
 
-    _log(f"{len(cartoes)} cartão(ões) em execução · "
-         f"{len(pessoas)} pessoa(s) com ponto · {len(alvos)} a fechar"
+    _log(f"{len(cartoes)} cartão(ões) em execução · {len(alvos)} a fechar"
          + (" (SIMULAÇÃO)" if simular else ""))
     if not alvos:
         return 0

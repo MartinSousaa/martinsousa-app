@@ -36,6 +36,200 @@ RAIZ = os.path.dirname(os.path.abspath(__file__))
 # que não se aplica dá a impressão de cobertura que não existe.
 MUTACOES = [
     (
+        'o app.py volta a desenhar o chat so na barra lateral',
+        "app.py",
+        [('        _lugar_do_chat = _mod_imagem.slot_do_chat()',
+          '        _lugar_do_chat = None')],
+        None,
+        ["python3", "checar_tela.py"],
+    ),
+    (
+        'o app.py para de zerar o lugar do chat em cada passada',
+        "app.py",
+        [('        _mod_imagem_zerar.esquecer_slot_do_chat()',
+          '        pass')],
+        None,
+        ["python3", "checar_tela.py"],
+    ),
+    (
+        'o estilo do Limpar Chat volta a valer so na barra lateral',
+        "app.py",
+        [('.st-key-ms_limpar_chat [data-testid="stBaseButton-secondary"],',
+          'section[data-testid="stSidebar"] .st-key-ms_limpar_chat '
+          '[data-testid="stBaseButton-secondary"],')],
+        None,
+        ["python3", "checar_tela.py"],
+    ),
+    (
+        'o rotulo da peca do album volta a vir com o numero do arquivo',
+        "imagem.py",
+        [('    partes = nome.split(" - ", 1)\n'
+          '    if len(partes) == 2 and partes[0].strip().isdigit():\n'
+          '        return partes[1].strip() or nome\n'
+          '    return nome',
+          '    return nome')],
+        None,
+        ["python3", "imagem.py", "--autoteste"],
+    ),
+    (
+        # A MUTACAO ANTERIOR NAO REINTRODUZIA DEFEITO NENHUM: desligar o `if`
+        # dava o mesmo retorno, porque a listagem que falha devolve lista
+        # vazia de qualquer jeito. Alarme falso ensina a ignorar o
+        # verificador. Agora ela mexe na linha que DECIDE se a falha chega a
+        # quem chamou.
+        'a falha do Drive volta a morrer dentro da funcao do album',
+        "imagem.py",
+        [('    _diag = {} if diagnostico is None else diagnostico',
+          '    _diag = {}')],
+        None,
+        ["python3", "imagem.py", "--autoteste"],
+    ),
+    (
+        'o album da pasta achada volta a sair vazio quando a listagem falha',
+        "imagem.py",
+        [('    if _diag.get("erro"):\n'
+          '        return (pasta_id, pasta_nome), [], []',
+          '    if _diag.get("erro"):\n'
+          '        return ("", ""), [], []')],
+        None,
+        ["python3", "imagem.py", "--autoteste"],
+    ),
+    (
+        'o chat volta para a barra lateral de 284px',
+        "imagem.py",
+        [('    global _SLOT_DO_CHAT\n    _SLOT_DO_CHAT = slot\n    return slot',
+          '    global _SLOT_DO_CHAT\n    return slot')],
+        None,
+        ["python3", "checar_tela.py"],
+    ),
+    (
+        'o resumo da esquerda deixa de ser desenhado',
+        "imagem.py",
+        [('    with st.container(key="img_resumo_esquerda"):\n'
+          '        _desenhar_resumo_dentro(resumo)',
+          '    if False:\n        _desenhar_resumo_dentro(resumo)')],
+        None,
+        ["python3", "checar_tela.py"],
+    ),
+    (
+        'o resumo volta a listar o campo que veio vazio',
+        "imagem.py",
+        [('        valor = str(fonte.get(chave) or "").strip()\n'
+          '        if valor:\n'
+          '            sei.append((rotulo, valor))',
+          '        valor = str(fonte.get(chave) or "").strip()\n'
+          '        sei.append((rotulo, valor))')],
+        None,
+        ["python3", "imagem.py", "--autoteste"],
+    ),
+    (
+        'o texto do preset volta a ser mostrado como pedido do colaborador',
+        "imagem.py",
+        [('    if instrucao and instrucao == str(PRESETS.get(pedido[0] if pedido else "", "")):\n'
+          '        instrucao = ""\n',
+          '')],
+        None,
+        ["python3", "imagem.py", "--autoteste"],
+    ),
+    (
+        'a contagem das fotos volta a sair da chave escrita DEPOIS',
+        "imagem.py",
+        [('    quantas = fotos if fotos is not None else len(_ler("img_fotos_originais", list))',
+          '    quantas = len(_ler("img_fotos_originais", list))')],
+        None,
+        ["python3", "imagem.py", "--autoteste"],
+    ),
+    (
+        'o chat volta a ficar sem comando nenhum com so o produto aberto',
+        "chat_assistente.py",
+        [('    if not (tem_titulos or tem_desc or tem_imgs or tem_produto):',
+          '    if not (tem_titulos or tem_desc or tem_imgs):')],
+        None,
+        ["python3", "chat_assistente.py"],
+    ),
+    (
+        'o rotulo da peca que nao existe volta a virar o mais parecido',
+        "chat_assistente.py",
+        [('    palavras = re.findall(r"[a-zà-ú]{4,}", baixo)\n'
+          '    if palavras:\n'
+          '        for rotulo in lista:\n'
+          '            alvo = rotulo.lower()\n'
+          '            if all(p in alvo for p in palavras):\n'
+          '                return rotulo\n'
+          '    return ""',
+          '    palavras = re.findall(r"[a-zà-ú]{4,}", baixo)\n'
+          '    if palavras:\n'
+          '        for rotulo in lista:\n'
+          '            alvo = rotulo.lower()\n'
+          '            if any(p in alvo for p in palavras):\n'
+          '                return rotulo\n'
+          '    return ""')],
+        None,
+        ["python3", "chat_assistente.py"],
+    ),
+    (
+        'a variacao volta a entrar na fila sem a foto do modelo novo',
+        "chat_assistente.py",
+        [('        ref_v = referencia_do_pedido(st.session_state.get("ms_chat_hist"))\n'
+          '        if not ref_v:',
+          '        ref_v = referencia_do_pedido(st.session_state.get("ms_chat_hist"))\n'
+          '        if False:')],
+        None,
+        ["python3", "chat_assistente.py"],
+    ),
+    (
+        'a variacao volta a refazer a peca inteira em vez de so o produto',
+        "chat_assistente.py",
+        [('            "MESMA PEÇA, OUTRO MODELO DO PRODUTO. O produto novo é o da foto "\n'
+          '            "anexada. Cenário, iluminação, enquadramento, posição do produto, "\n'
+          '            "textos e layout têm de ficar IDÊNTICOS aos da peça atual — a "\n'
+          '            "única diferença é o produto."',
+          '            "Troque o produto pelo da foto anexada."')],
+        None,
+        ["python3", "chat_assistente.py"],
+    ),
+    (
+        'a descricao da peca pedida no chat para de chegar ao campo da tela',
+        "imagem.py",
+        [('            if _pedido_pecas.get("descricao"):\n'
+          '                st.session_state[f"img_instr_{_tipos_ped[0]}"] = str(\n'
+          '                    _pedido_pecas["descricao"])\n',
+          '')],
+        None,
+        ["python3", "checar_tela.py"],
+    ),
+    (
+        'a aba volta a abrir no Selecionar mesmo com UMA peca pedida',
+        "imagem.py",
+        [('        if len(_tipos_ped) == 1:', '        if False:')],
+        None,
+        ["python3", "checar_tela.py"],
+    ),
+    (
+        'o Novo Produto volta a limpar so as fotos do campo "produto"',
+        "rascunho.py",
+        [('    shutil.rmtree(os.path.join(_pasta(usuario), FOTOS), ignore_errors=True)\n'
+          '    return None',
+          '    shutil.rmtree(_pasta_fotos(usuario, "produto"), ignore_errors=True)\n'
+          '    return None')],
+        None,
+        ["python3", "rascunho.py"],
+    ),
+    (
+        'o Novo Produto volta a deixar o produto velho no trabalho.json',
+        "rascunho.py",
+        [('    try:\n'
+          '        caminho = _caminho_trabalho(usuario)\n'
+          '        if os.path.exists(caminho):\n'
+          '            os.remove(caminho)\n'
+          '    except Exception:\n'
+          '        pass\n'
+          '    return None',
+          '    return None')],
+        None,
+        ["python3", "rascunho.py"],
+    ),
+    (
         'o campo do formulario da equipe volta a nao ter chave por pessoa',
         "admin.py",
         [('                              key=f"eq_user_{_k}",\n',
@@ -1480,7 +1674,7 @@ MUTACOES = [
         # escrever nas chaves de widget e passa a deixar um PEDIDO, que a
         # aba aplica antes de desenhar os widgets. O defeito medido e o
         # mesmo — o chat promete marcar os tipos e nao marca nada.
-        '    st.session_state["img_pedido_faltantes"] = list(faltam)\n    return True',
+        '    return pedir_pecas(faltam)',
         "    return True",
         ["python3", "chat_assistente.py"],
     ),
@@ -2077,7 +2271,7 @@ MUTACOES = [
     (
         "o chat volta a escrever na chave do widget para gerar as faltantes",
         "chat_assistente.py",
-        '    st.session_state["img_pedido_faltantes"] = list(faltam)\n',
+        '    return pedir_pecas(faltam)\n',
         '    st.session_state["img_tipos_multi"] = list(faltam)\n'
         '    st.session_state["img_modo"] = "Selecionar"\n',
         ["python3", "checar_tela.py"],
@@ -2085,8 +2279,8 @@ MUTACOES = [
     (
         "a aba para de aplicar o pedido de gerar as faltantes",
         "imagem.py",
-        '    _faltantes_pedidas = st.session_state.pop("img_pedido_faltantes", None)\n',
-        "    _faltantes_pedidas = None\n",
+        '    _pedido_pecas = st.session_state.pop("img_pedido_de_pecas", None)\n',
+        "    _pedido_pecas = None\n",
         ["python3", "checar_tela.py"],
     ),
     # O TETO DA PECA E O TIMEOUT DO MOTOR SAO UMA CONTA SO. Subir o timeout e
@@ -3753,6 +3947,83 @@ MUTACOES = [
         '  header[data-testid="stHeader"] {\n    display: block !important;\n',
         '  header[data-testid="stHeader"] {\n',
         ["python3", "checar_tela.py"],
+    ),
+    (
+        "o rastreio de etiquetas volta a nao saber quem tirou (autor fora da consulta)",
+        "placar_core.py",
+        'CAMPOS_ACAO = {"fields": "type,date,data,idMemberCreator", "memberCreator": "false",',
+        'CAMPOS_ACAO = {"fields": "type,date,data", "memberCreator": "false",',
+        ["python3", "placar_core.py"],
+    ),
+    (
+        "o rastreio volta a culpar o autor errado (o da acao seguinte)",
+        "placar_core.py",
+        "        passos = [(olds[i][0], olds[i + 1][1] if i + 1 < len(olds) else atual, olds[i][2])\n",
+        "        passos = [(olds[i][0], olds[i + 1][1] if i + 1 < len(olds) else atual, olds[min(i + 1, len(olds) - 1)][2])\n",
+        ["python3", "placar_core.py"],
+    ),
+    (
+        "a tela de Registros deixa de mostrar quem tirou a etiqueta",
+        "admin.py",
+        "            st.dataframe(pd.DataFrame(hist), use_container_width=True, hide_index=True)\n",
+        "            st.caption(f'{len(hist)} trocas')\n",
+        ["python3", "checar_tela.py"],
+    ),
+    (
+        "a Home volta a mostrar lembrete que o extrato ja mostra pago",
+        "lembretes.py",
+        "            perto, retirados = separar_pagos(perto, lancs, folha)\n",
+        "            retirados = []\n",
+        ["python3", "checar_tela.py"],
+    ),
+    (
+        "os demais impostos voltam a sumir quando so o DAS foi pago",
+        "lembretes.py",
+        "                    and not any(_as._casa(l, {\"favorecido\": n}) for n in NOMES_DAS)):\n",
+        "                    ):\n",
+        ["python3", "lembretes.py"],
+    ),
+    (
+        "o lembrete volta a contar ENTRADA como pagamento",
+        "lembretes.py",
+        "    na_janela = [l for l in (lancs or []) if _saida(l) > 0\n",
+        "    na_janela = [l for l in (lancs or []) if True\n",
+        ["python3", "lembretes.py"],
+    ),
+    (
+        "a janela do lembrete volta a pegar o pagamento do outro vencimento (TM 05 x 20)",
+        "lembretes.py",
+        "JANELA_ANTES, JANELA_DEPOIS = 10, 5\n",
+        "JANELA_ANTES, JANELA_DEPOIS = 10, 20\n",
+        ["python3", "lembretes.py"],
+    ),
+    (
+        "o fim de expediente volta a esperar as 19h em vez das 18h30",
+        "fim_expediente.py",
+        "CORTE_HORA, CORTE_MIN = 18, 30\n",
+        "CORTE_HORA, CORTE_MIN = 19, 0\n",
+        ["python3", "fim_expediente.py"],
+    ),
+    (
+        "o fim de semana volta a ser pulado pela rotina do fim de expediente",
+        "fim_expediente.py",
+        "    if not dia_util:\n        return True\n",
+        "    if not dia_util:\n        return False\n",
+        ["python3", "fim_expediente.py"],
+    ),
+    (
+        "o fim de expediente volta a deixar de fora o cartao sem membro",
+        "fim_expediente.py",
+        "            for c in (cartoes or [])]\n\n\ndef diagnosticar",
+        "            for c in (cartoes or []) if c.get(\"membros\")]\n\n\ndef diagnosticar",
+        ["python3", "fim_expediente.py"],
+    ),
+    (
+        "a rotina volta a sair cedo no fim de semana sem fechar nada",
+        "fechar_expediente.py",
+        "    dia_util = _pc.eh_dia_util(hoje)\n",
+        "    dia_util = _pc.eh_dia_util(hoje)\n    if not dia_util:\n        return 0\n",
+        ["python3", "fechar_expediente_conferencia.py"],
     ),
     (
         "o DAS volta a cair no fim de semana em vez de antecipar",

@@ -5,323 +5,145 @@ O problema
 ----------
 A pessoa vai embora e o cartão fica com EM ANDAMENTO. O relógio do Studio não
 para: ele volta a andar sozinho às 9h do dia seguinte, e ela aparece
-trabalhando sem ter tocado no cartão. Foi o que aconteceu com a Myrella — saída
-registrada às 17h45 e o cartão ainda "em andamento" às 20h27.
+trabalhando sem ter tocado no cartão.
 
 A etiqueta que resolve já existe e já é entendida como interrupção
-(placar_core.LABEL_FIM_EXPEDIENTE). Falta alguém pô-la.
+(placar_core.LABEL_FIM_EXPEDIENTE). Este módulo decide em quais cartões pô-la.
 
-A regra, decidida pelo gestor
------------------------------
-0. Nunca antes das 19h (horário de Brasília). Piso absoluto, vale para as duas
-   regras abaixo.
-1. Bateu a saída  -> os cartões dela em EM ANDAMENTO recebem FIM DE EXPEDIENTE.
-2. Não bateu      -> uma hora depois do fim do expediente dela, mesma coisa.
-                     Cobre quem foi embora e esqueceu de bater a saída.
+A regra (dono, 23/10)
+---------------------
+**Às 18h30 de Brasília, TODO cartão EM ANDAMENTO recebe FIM DE EXPEDIENTE.**
+Em sábado, domingo e feriado, a qualquer hora. Não olha o ponto, não olha quem
+está no cartão.
 
-POR QUE O PISO DAS 19h EXISTE
------------------------------
-A regra 1 valia "a qualquer hora", para cobrir quem foi embora mais cedo. Em
-09/09 isso fechou o cartão de alguém que estava trabalhando:
+POR QUE A REGRA ANTERIOR FOI EMBORA
+-----------------------------------
+Antes, cada cartão esperava TODOS os membros "encerrarem" o dia: saída batida
+na RHiD, ou uma hora depois do fim do expediente de cada um, nunca antes das
+19h. Em outubro a Linha do tempo mostrou cartões correndo até meia-noite em
+dia útil e o fim de semana inteiro (print do dono, 23/10). A regra tinha portas
+por onde o cartão escapava para sempre, todas silenciosas:
 
-    [09/09 15:00:42] fechado: PORTA 12 RELÓGIOS MARROM COM INTERIOR PRETO
-                     · myrelladesouza · bateu a saída às 14:33
+  · membro que a RHiD não reconhece  -> nunca "encerrava", o cartão não fechava;
+  · cartão sem ninguém anexado        -> não fechava em dia nenhum;
+  · RHiD fora do ar                   -> a rotina abortava e não fechava nada;
+  · sexta à noite que escapou          -> o fim de semana era pulado inteiro.
 
-Ela não tinha ido embora — 14:33 é a volta do almoço dela, e o expediente
-termina 17:45. Quem chamou aquilo de "saída" foi `rhid_api._extrair_marcacoes`
-(rhid_api.py:493-494): com DUAS batidas no dia, ele assume "entrada e saída,
-sem almoço". A suposição está certa para quem lê o dia depois de fechado — que
-e para quem ela foi escrita, o cálculo de ociosidade — e está errada no meio da
-tarde, quando duas batidas quase sempre significam "as outras ainda não
-chegaram".
+Uma regra que depende de três sistemas responderem certo falha quando
+qualquer um deles falha. A hora fixa só depende do relógio.
 
-A mesma função responde a duas perguntas diferentes: "como foi o dia dela?" e
-"ela já foi embora?". Aqui só a segunda importa, e ela não tem resposta
-confiável antes do fim do expediente. O piso é o que torna a leitura segura:
-às 19h, duas batidas realmente querem dizer que a pessoa saiu.
+O custo, dito em voz alta: quem estiver trabalhando depois das 18h30 tem o
+cartão interrompido e precisa tirar a etiqueta para seguir. O expediente do
+time termina às 18h; o dono escolheu o corte sabendo disso.
 
-O custo, dito em voz alta: quem for embora de verdade às 15h fica com o cartão
-correndo até as 19h. É o que o gestor pediu, sabendo disso — melhor do que
-fechar o cartão de quem está trabalhando.
-
-Este módulo só DECIDE. Ele não fala com o Trello, e é de propósito: escrever no
-board é uma capacidade que o Studio nunca teve, e o ambiente de teste aponta
-para o board real. Quem aplica é escolha de infraestrutura — um cenário do Make
-ou uma tarefa agendada — e recebe daqui a lista pronta, com o motivo de cada
-cartão.
+Este módulo só DECIDE. Quem escreve no Trello é `fechar_expediente.py`.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime
 
-# Quanto se espera depois do fim do expediente antes de assumir que a pessoa
-# foi embora sem bater. Uma hora: menos que isso pega quem ficou terminando
-# algo, mais que isso deixa o relógio correndo a noite toda.
-ESPERA_SEM_BATIDA_MIN = 60
-
-# Piso absoluto: nenhum cartão é fechado antes desta hora, local. Ver o cabeçalho
-# — antes disso não dá para distinguir "foi embora" de "as batidas do dia ainda
-# não chegaram todas", e o erro fecha o cartão de quem está trabalhando.
-HORA_MINIMA = 19
+# O corte, em horário de Brasília. `agora` chega sempre local: quem chama
+# converte com placar_core.FUSO (o container roda em UTC).
+CORTE_HORA, CORTE_MIN = 18, 30
 
 
-def _hhmm(texto):
-    """'17:45' -> minutos desde a meia-noite. None quando não dá para ler."""
-    try:
-        h, m = str(texto).strip().split(":")[:2]
-        return int(h) * 60 + int(m)
-    except (ValueError, AttributeError):
-        return None
+def corte_txt():
+    return f"{CORTE_HORA}h{CORTE_MIN:02d}"
 
 
-def decidir(agora, pessoas, cartoes, espera_min=ESPERA_SEM_BATIDA_MIN,
-            hora_minima=HORA_MINIMA):
+def passou_do_corte(agora, dia_util=True):
+    """True quando todo cartão aberto já deve parar."""
+    if not dia_util:
+        return True
+    return (agora.hour, agora.minute) >= (CORTE_HORA, CORTE_MIN)
+
+
+def _motivo(agora, dia_util):
+    if not dia_util:
+        return "dia sem expediente (fim de semana ou feriado)"
+    return f"{corte_txt()}, fim do expediente"
+
+
+def decidir(agora, cartoes, dia_util=True):
     """Quais cartões devem receber FIM DE EXPEDIENTE agora.
 
-    agora    datetime local.
-    pessoas  {username: {"fim": "HH:MM", "saida": "HH:MM"|None}} — o fim do
-             expediente contratado e a saída batida hoje, se houve.
-    cartoes  [{"id", "nome", "membros": [username]}] com EM ANDAMENTO agora.
+    agora     datetime local (Brasília).
+    cartoes   [{"id", "nome", "membros": [username]}] com EM ANDAMENTO agora.
+    dia_util  False em sábado, domingo e feriado.
 
-    Devolve [{"id", "nome", "quem", "motivo"}], um por cartão. Cartão de duas
-    pessoas só entra quando TODAS já encerraram: enquanto uma continua, o
-    trabalho continua.
+    Devolve [{"id", "nome", "quem", "motivo"}]: antes do corte, nenhum; depois,
+    todos — com membro ou sem.
     """
-    agora_min = agora.hour * 60 + agora.minute
-    # O piso vem antes de tudo: sem ele nao ha leitura confiavel de "ja foi
-    # embora", e devolver lista vazia e a resposta certa, nao uma desistencia.
-    if agora.hour < hora_minima:
+    if not passou_do_corte(agora, dia_util):
         return []
-    encerrado = {}
-    for user, info in (pessoas or {}).items():
-        saida = _hhmm((info or {}).get("saida"))
-        if saida is not None:
-            if agora_min >= saida:
-                encerrado[user] = f"bateu a saída às {info['saida']}"
-            continue
-        fim = _hhmm((info or {}).get("fim"))
-        if fim is None:
-            continue
-        limite = fim + espera_min
-        if agora_min >= limite:
-            encerrado[user] = (
-                f"sem batida de saída, {espera_min} min depois do fim do "
-                f"expediente ({info['fim']})")
-
-    fora = []
-    for c in cartoes or []:
-        membros = [m for m in (c.get("membros") or [])]
-        if not membros:
-            continue
-        if not all(m in encerrado for m in membros):
-            continue
-        fora.append({
-            "id": c.get("id"),
-            "nome": c.get("nome", ""),
-            "quem": ", ".join(membros),
-            "motivo": " · ".join(dict.fromkeys(encerrado[m] for m in membros)),
-        })
-    return fora
+    motivo = _motivo(agora, dia_util)
+    return [{"id": c.get("id"), "nome": c.get("nome", ""),
+             "quem": ", ".join(c.get("membros") or []) or "—",
+             "motivo": motivo}
+            for c in (cartoes or [])]
 
 
-def diagnosticar(agora, pessoas, cartoes, espera_min=ESPERA_SEM_BATIDA_MIN,
-                hora_minima=HORA_MINIMA):
+def diagnosticar(agora, cartoes, dia_util=True):
     """Por que cada cartão aberto NÃO foi fechado. Função pura.
 
-    `decidir` responde "quais fecho agora"; esta responde "e os outros, por
-    quê". São perguntas diferentes e faltava a segunda: cartão que atravessa o
-    dia inteiro EM ANDAMENTO não deixa rastro nenhum — a rotina roda, diz
-    "sucesso", e some com ele da lista sem dizer que existiu.
-
-    As portas por onde um cartão escapa, todas silenciosas até aqui:
-      sem_membro   ninguém anexado. Nunca fecha, e o relógio corre para sempre.
-      sem_ponto    a pessoa não existe para a RHiD — username do Trello escrito
-                   diferente, ou nome que o mapa da RHiD não reconhece. É o caso
-                   que atravessa o dia: sem saber se ela foi embora, o cartão
-                   nunca pode ser fechado, e ninguém é avisado disso.
-      sem_horario  a pessoa é reconhecida, mas não tem `fim` de expediente.
-      aguardando   um dos membros ainda não encerrou o dia dele.
-
-    Devolve [{"id","nome","quem","porque","detalhe"}] ordenado por porta.
+    Com a hora fixa só existe uma porta: ainda não deu a hora. Depois do corte
+    nenhum cartão fica de fora — quem estiver aberto é para `decidir`, e se ele
+    continua aberto é porque a rotina não rodou.
     """
-    agora_min = agora.hour * 60 + agora.minute
-    encerrado, sem_horario = {}, set()
-    for user, info in (pessoas or {}).items():
-        saida = _hhmm((info or {}).get("saida"))
-        if saida is not None:
-            if agora_min >= saida:
-                encerrado[user] = f"bateu a saída às {info['saida']}"
-            continue
-        fim = _hhmm((info or {}).get("fim"))
-        if fim is None:
-            sem_horario.add(user)
-            continue
-        if agora_min >= fim + espera_min:
-            encerrado[user] = (f"sem batida, {espera_min} min depois do fim "
-                               f"({info['fim']})")
-
-    fora = []
-    cedo = agora.hour < hora_minima
-    for c in cartoes or []:
-        membros = list(c.get("membros") or [])
-        base = {"id": c.get("id"), "nome": c.get("nome", ""),
-                "quem": ", ".join(membros) or "—"}
-        if not membros:
-            fora.append({**base, "porque": "sem_membro",
-                         "detalhe": "Nenhuma pessoa anexada ao cartão. Este "
-                                    "nunca fecha sozinho."})
-            continue
-        if cedo:
-            fora.append({**base, "porque": "antes_das_19h",
-                         "detalhe": f"São {agora:%H:%M}; a rotina só fecha a "
-                                    f"partir das {hora_minima}h."})
-            continue
-        faltam = [m for m in membros if m not in encerrado]
-        if not faltam:
-            continue                      # este fecha; quem lista é `decidir`
-        # Membro que nao esta em `pessoas` nao e "ainda trabalhando": e alguem
-        # sobre quem nao ha informacao nenhuma. Chamar isso de aguardando
-        # escondia a causa real dos cartoes que varam o dia.
-        sem_p = [m for m in faltam if m not in (pessoas or {})]
-        if sem_p:
-            fora.append({**base, "porque": "sem_ponto",
-                         "detalhe": "A RHiD não reconhece: " + ", ".join(sem_p)
-                                    + ". Confira o username do Trello e o nome "
-                                      "na RHiD em Equipe medida."})
-            continue
-        sem_h = [m for m in faltam if m in sem_horario]
-        if sem_h:
-            fora.append({**base, "porque": "sem_horario",
-                         "detalhe": "Sem fim de expediente na RHiD: "
-                                    + ", ".join(sem_h)})
-        else:
-            fora.append({**base, "porque": "aguardando",
-                         "detalhe": "Ainda no expediente: " + ", ".join(faltam)})
-    ordem = {"sem_membro": 0, "sem_ponto": 1, "sem_horario": 2,
-             "aguardando": 3, "antes_das_19h": 4}
-    fora.sort(key=lambda x: (ordem.get(x["porque"], 9), x["nome"]))
-    return fora
+    if passou_do_corte(agora, dia_util):
+        return []
+    return [{"id": c.get("id"), "nome": c.get("nome", ""),
+             "quem": ", ".join(c.get("membros") or []) or "—",
+             "porque": "antes_do_corte",
+             "detalhe": f"São {agora:%H:%M}; a rotina fecha todos às {corte_txt()}."}
+            for c in (cartoes or [])]
 
 
 # ── Conferência ───────────────────────────────────────────────────────────────
-# `python3 fim_expediente.py` roda os casos abaixo. Eles moram aqui, e não num
-# arquivo de teste à parte, porque este repositório não tem suíte: teste que
-# não viaja junto do código é teste que ninguém roda.
+# `python3 fim_expediente.py` roda os casos abaixo.
+
 if __name__ == "__main__":
-    def _em(h, m=0):
-        return datetime(2026, 9, 1, h, m)
-
-    MY, BIA = "myrelladesouza", "beatriz51"
-    UM = [{"id": "c1", "nome": "excluindo notas bling", "membros": [MY]}]
-    DOIS = [{"id": "c2", "nome": "Criativo em dupla", "membros": [MY, BIA]}]
-
-    CASOS = [
-        # ── O piso das 19h ────────────────────────────────────────────────────
-        # O primeiro e o caso real de 09/09: a volta do almoco lida como saida
-        # fechou o cartao de quem estava trabalhando. E o motivo de o piso
-        # existir, entao e o primeiro teste do arquivo.
-        ("15h, 'saída' às 14:33 que é a volta do almoço — NÃO fecha",
-         _em(15, 0), {MY: {"fim": "17:45", "saida": "14:33"}}, UM, 0),
-        ("saiu no horário e deixou o cartão aberto — 18h ainda não fecha",
-         _em(18, 0), {MY: {"fim": "17:45", "saida": "17:45"}}, UM, 0),
-        ("o mesmo cartão, às 19h",
-         _em(19, 0), {MY: {"fim": "17:45", "saida": "17:45"}}, UM, 1),
-        ("18:59 é antes do piso",
-         _em(18, 59), {MY: {"fim": "17:45", "saida": "17:45"}}, UM, 0),
-        ("foi embora às 15:20 de verdade — só fecha às 19h",
-         _em(15, 30), {MY: {"fim": "17:45", "saida": "15:20"}}, UM, 0),
-        ("a mesma pessoa, depois do piso",
-         _em(19, 30), {MY: {"fim": "17:45", "saida": "15:20"}}, UM, 1),
-        # ── O resto da regra, já com o piso valendo ───────────────────────────
-        ("um minuto antes da saída registrada",
-         _em(19, 44), {MY: {"fim": "19:45", "saida": "19:45"}}, UM, 0),
-        ("sem batida, meia hora depois do fim — ainda espera",
-         _em(19, 30), {MY: {"fim": "19:15", "saida": None}}, UM, 0),
-        ("sem batida, uma hora depois do fim",
-         _em(19, 16), {MY: {"fim": "18:15", "saida": None}}, UM, 1),
-        ("meio do expediente, sem batida",
-         _em(11, 0), {MY: {"fim": "17:45", "saida": None}}, UM, 0),
-        ("cartão de dupla, só uma encerrou",
-         _em(19, 0), {MY: {"fim": "17:45", "saida": "17:45"},
-                      BIA: {"fim": "23:00", "saida": None}}, DOIS, 0),
-        ("cartão de dupla, as duas encerraram",
-         _em(19, 5), {MY: {"fim": "17:45", "saida": "17:45"},
-                      BIA: {"fim": "18:00", "saida": None}}, DOIS, 1),
-        ("cartão sem membro fica de fora",
-         _em(20, 0), {MY: {"fim": "17:45", "saida": "17:45"}},
-         [{"id": "c3", "nome": "órfão", "membros": []}], 0),
-        ("horário ilegível na configuração não derruba nada",
-         _em(20, 0), {MY: {"fim": "", "saida": None}}, UM, 0),
-    ]
-
     falhas = 0
-    for nome, agora, pessoas, cartoes, esperado in CASOS:
-        saida = decidir(agora, pessoas, cartoes)
-        ok = len(saida) == esperado
-        falhas += not ok
-        print(("ok    " if ok else "FALHA ") + nome)
-        for item in saida:
-            print(f"         {item['nome']} ({item['quem']}) · {item['motivo']}")
 
-    # ── diagnosticar: por que cada cartao aberto NAO fechou ────────────────
-    #
-    # `ok` acima e um bool do laco de CASOS, nao uma funcao: daqui para baixo
-    # a conferencia tem a sua propria.
     def _ok(nome, cond):
         global falhas
         falhas += not cond
         print(("ok    " if cond else "FALHA ") + nome)
 
-    _ag = _em(20, 0)
-    # bia sai 20:30 e ainda nao bateu: as 20h ela esta MESMO trabalhando. Com
-    # fim 18:00 a espera de 60 min ja teria vencido e o cartao dela fecharia —
-    # o caso "aguardando" nao existiria para ser conferido.
-    _p = {"ana": {"fim": "18:00", "saida": "18:05"},
-          "bia": {"fim": "20:30", "saida": None},
-          "caio": {"fim": None, "saida": None}}
+    def _em(h, m=0, dia=1):
+        return datetime(2026, 10, dia, h, m)
 
-    def _porques(cartoes, agora=_ag, pessoas=_p):
-        return {c["nome"]: c["porque"]
-                for c in diagnosticar(agora, pessoas, cartoes)}
+    UM = [{"id": "c1", "nome": "excluindo notas bling", "membros": ["myrelladesouza"]}]
+    DOIS = [{"id": "c2", "nome": "dupla", "membros": ["myrelladesouza", "beatriz51"]}]
+    ORFAO = [{"id": "c3", "nome": "órfão", "membros": []}]
+    # Quem a RHiD nao conhecia prendia o cartao para sempre: o caso que fez a
+    # regra mudar. Agora o nome da pessoa nao entra na decisao.
+    DESCONHECIDO = [{"id": "c4", "nome": "x", "membros": ["brumielly"]}]
 
-    _r = _porques([
-        {"id": "1", "nome": "sem ninguem", "membros": []},
-        {"id": "2", "nome": "so ana", "membros": ["ana"]},
-        {"id": "3", "nome": "so bia", "membros": ["bia"]},
-        {"id": "4", "nome": "so caio", "membros": ["caio"]},
-        {"id": "5", "nome": "ana e bia", "membros": ["ana", "bia"]},
-    ])
-    _ok("cartao sem membro e reportado, e nao ignorado",
-       _r.get("sem ninguem") == "sem_membro")
-    _ok("cartao que FECHA nao aparece no diagnostico", "so ana" not in _r)
-    _ok("quem ainda esta no expediente sai como aguardando",
-       _r.get("so bia") == "aguardando")
-    _ok("pessoa sem horario na RHiD tem porta propria",
-       _r.get("so caio") == "sem_horario")
-    _ok("cartao de dois so fecha quando os DOIS encerram",
-       _r.get("ana e bia") == "aguardando")
-
-    # Antes das 19h nada fecha, e o diagnostico diz isso em vez de mentir que
-    # o cartao esta preso por outro motivo.
-    _cedo = _porques([{"id": "9", "nome": "x", "membros": ["ana"]}],
-                     agora=_em(15, 0))
-    _ok("antes das 19h o motivo e a hora, nao a pessoa",
-       _cedo.get("x") == "antes_das_19h")
-
-    _ok("lista vazia nao derruba", diagnosticar(_ag, _p, []) == [])
-    _ok("cartoes None nao derruba", diagnosticar(_ag, _p, None) == [])
-    _ok("pessoas None nao derruba",
-       diagnosticar(_ag, None, [{"id": "1", "nome": "y",
-                                 "membros": ["ana"]}])[0]["porque"] == "sem_ponto")
-    _ok("quem a RHiD nao conhece tem porta propria, e nao vira aguardando",
-       _porques([{"id": "7", "nome": "z", "membros": ["brumielly"]}])
-       .get("z") == "sem_ponto")
-    _ok("um membro desconhecido ja segura o cartao inteiro",
-       _porques([{"id": "8", "nome": "w",
-                  "membros": ["ana", "brumielly"]}]).get("w") == "sem_ponto")
-    _ok("sem_membro vem antes de aguardando na lista",
-       [c["porque"] for c in diagnosticar(_ag, _p, [
-           {"id": "3", "nome": "b", "membros": ["bia"]},
-           {"id": "1", "nome": "a", "membros": []}])] ==
-       ["sem_membro", "aguardando"])
+    _ok("o corte é 18h30, escrito assim na tela", corte_txt() == "18h30")
+    _ok("passou_do_corte: 18:30 sim, 18:29 não, sábado sempre",
+        passou_do_corte(_em(18, 30)) and not passou_do_corte(_em(18, 29))
+        and passou_do_corte(_em(6, 0), dia_util=False))
+    _ok("18:29 ainda não fecha", decidir(_em(18, 29), UM) == [])
+    _ok("18:30 em ponto fecha", len(decidir(_em(18, 30), UM)) == 1)
+    _ok("23:00 fecha", len(decidir(_em(23, 0), UM)) == 1)
+    _ok("cartão de dupla fecha às 18:30, sem esperar ninguém",
+        len(decidir(_em(18, 30), DOIS)) == 1)
+    _ok("cartão sem membro também fecha", len(decidir(_em(18, 30), ORFAO)) == 1)
+    _ok("membro que a RHiD não conhece não segura o cartão",
+        len(decidir(_em(18, 30), DESCONHECIDO)) == 1)
+    _ok("fim de semana fecha a qualquer hora, inclusive de manhã",
+        len(decidir(_em(9, 0, dia=3), UM, dia_util=False)) == 1)
+    _ok("manhã de dia útil não fecha", decidir(_em(9, 0), UM) == [])
+    _ok("o motivo diz a hora do corte",
+        "18h30" in decidir(_em(18, 30), UM)[0]["motivo"])
+    _ok("o motivo do fim de semana diz que não há expediente",
+        "sem expediente" in decidir(_em(9, 0), UM, dia_util=False)[0]["motivo"])
+    _ok("lista vazia e None não derrubam",
+        decidir(_em(19, 0), []) == [] and decidir(_em(19, 0), None) == [])
+    _ok("antes do corte o diagnóstico diz a hora",
+        [d["porque"] for d in diagnosticar(_em(15, 0), UM)] == ["antes_do_corte"])
+    _ok("depois do corte ninguém fica preso no diagnóstico",
+        diagnosticar(_em(18, 30), UM + ORFAO + DESCONHECIDO) == [])
 
     print("\nfalhas:", falhas)
+    raise SystemExit(1 if falhas else 0)

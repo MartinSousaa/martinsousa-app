@@ -417,6 +417,24 @@ def limpar_fotos(usuario, campo="produto"):
     return None
 
 
+def limpar_todas_as_fotos(usuario):
+    """Descarta as fotos de TODOS os campos. Devolve None sempre.
+
+    `limpar_fotos` apaga UM campo por chamada, e é o certo para quem troca
+    uma referência. Quem troca de PRODUTO tem de apagar todas — e uma lista
+    de campos escrita aqui envelheceria no dia em que alguém criasse o quinto
+    campo de upload da aba Imagem. Seria a Forma 1 desta base: a correção
+    chegando a um irmão e não aos outros.
+
+    A subpasta `fotos/` é a fonte, e não a lista: apagá-la cobre também o
+    campo que ainda não existe.
+    """
+    if not usuario:
+        return None
+    shutil.rmtree(os.path.join(_pasta(usuario), FOTOS), ignore_errors=True)
+    return None
+
+
 # ── Trabalho da sessão ───────────────────────────────────────────────────────
 #
 # Um F5 apagava título, descrição, palavras-chave e o histórico do chat. O login
@@ -495,6 +513,31 @@ def carregar_trabalho(usuario):
         return guardado.get("dados") or {}
     except Exception:
         return {}
+
+
+def limpar_trabalho(usuario):
+    """Apaga o `trabalho.json`: texto, chat e o produto da sessão. Devolve None.
+
+    POR QUE ELA É SEPARADA DE `limpar`, E POR QUE ELA PRECISA EXISTIR
+    ----------------------------------------------------------------
+    `limpar` apaga a galeria e PRESERVA o trabalho de texto, de propósito:
+    pedir a geração de novo não é motivo para perder a descrição.
+
+    Trocar de PRODUTO é outra coisa. `app.py:1532` chama `restaurar` em toda
+    sessão, e ele repõe toda chave que estiver vazia — então um botão que
+    zerasse só o `session_state` traria o produto velho de volta no primeiro
+    F5, sem ninguém entender por quê. O disco tem de ser zerado junto com a
+    tela, ou os dois passam a discordar.
+    """
+    if not usuario:
+        return None
+    try:
+        caminho = _caminho_trabalho(usuario)
+        if os.path.exists(caminho):
+            os.remove(caminho)
+    except Exception:
+        pass
+    return None
 
 
 def restaurar(usuario, estado):
@@ -620,5 +663,57 @@ if __name__ == "__main__":
     ok("e da para descartar so as fotos", limpar_fotos("bia") is None
        and carregar_fotos("bia") == [] and resumo_fotos("bia") == [])
 
+    # ── NOVO PRODUTO: O DISCO TEM DE ZERAR JUNTO COM A TELA ─────────────
+    #
+    # As duas funções abaixo existem para um botão só — "Novo Produto" — e as
+    # duas cobrem o mesmo defeito por caminhos diferentes: o produto velho
+    # voltando sozinho depois de a pessoa ter pedido para começar de novo.
+    salvar_fotos("bia", [_F1, _F1], ["frente.png", "lado.jpg"])
+    salvar_fotos("bia", [_F1], ["ref.png"], campo="layout")
+    ok("as fotos dos dois campos estao no disco antes de zerar",
+       len(carregar_fotos("bia")) == 2
+       and len(carregar_fotos("bia", campo="layout")) == 1)
+    # O CAMPO QUE AINDA NAO EXISTE entra aqui de proposito: a guarda mede a
+    # VARREDURA, e nao os dois nomes que o codigo de hoje usa. Com uma lista
+    # escrita, esta linha e a unica que reprovaria no dia do campo novo.
+    salvar_fotos("bia", [_F1], ["amanha.png"], campo="campo_de_amanha")
+    ok("limpar_todas_as_fotos leva TODOS os campos, inclusive o novo",
+       limpar_todas_as_fotos("bia") is None
+       and carregar_fotos("bia") == []
+       and carregar_fotos("bia", campo="layout") == []
+       and carregar_fotos("bia", campo="campo_de_amanha") == [])
+
+    # E o `trabalho.json`: o nome do produto velho mora nele, e `app.py`
+    # chama `restaurar` em toda sessao.
+    salvar_trabalho("bia", {"img_nome_produto": "Urso Prata",
+                            "img_codigo": "MS-URSO-1",
+                            "ms_chat_hist": [{"role": "user", "content": "oi"}]})
+    ok("o trabalho estava guardado",
+       carregar_trabalho("bia").get("img_nome_produto") == "Urso Prata")
+    limpar_trabalho("bia")
+    ok("limpar_trabalho zera o produto, o codigo e a conversa",
+       carregar_trabalho("bia") == {})
+    # A GUARDA MEDE O CAMINHO INTEIRO, e nao a funcao sozinha: o que doeu nao
+    # foi o arquivo ficar no disco, foi `restaurar` repor o produto velho na
+    # tela. Entao a assercao parte de `restaurar`, que e quem o `app.py` chama.
+    _tela = {}
+    ok("e `restaurar` nao traz mais o produto velho de volta",
+       restaurar("bia", _tela) == [] and _tela == {})
+
     _sh_t.rmtree(_base, ignore_errors=True)
     print("\nfalhas:", falhas)
+    # O CODIGO DE SAIDA, QUE FALTAVA — e as duas mutacoes apontadas para ca
+    # estavam VERDES POR ACIDENTE por causa dele.
+    #
+    # Sao dois leitores com respostas diferentes para a mesma pergunta "este
+    # modulo reprovou?". O `conferir.py` le o TEXTO (`_reprovou` procura
+    # "FALHA" na saida) e enxergava a falha; o `checar_mutacao` le o CODIGO DE
+    # SAIDA, e para ele este arquivo nunca reprovava. Entao a mutacao
+    # reintroduzia o defeito, o teste imprimia FALHA, e o veredito dizia
+    # verde.
+    #
+    # E a mesma doenca que o CLAUDE.md registra duas vezes: 33 mutacoes do
+    # `imagem.py` e 64 no total escondidas por esta linha ausente, e o
+    # `varredura_formas.py` pelo lado espelhado, saindo 1 sempre.
+    import sys as _sys_saida
+    _sys_saida.exit(1 if falhas else 0)
