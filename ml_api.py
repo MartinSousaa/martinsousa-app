@@ -418,6 +418,8 @@ if __name__ == "__main__":
                         {"id": "2", "status": "started", "type": "DEAL"},
                         {"id": "3", "status": "candidate", "type": "SMART"},
                         {"id": "4", "status": "xyz", "type": "LIGHTNING"}, "lixo"])
+    ok("SITUACAO: o status do ML vira o nome que a equipe usa",
+       SITUACAO["started"] == "em andamento" and SITUACAO["candidate"].startswith("disponível"))
     ok("por_situacao: em andamento primeiro, convites somados por tipo, status novo aparece cru",
        _ps == [{"situação": "em andamento", "tipo": "DEAL", "promoções": 1},
                {"situação": "disponível (convite)", "tipo": "SMART", "promoções": 2},
