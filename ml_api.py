@@ -494,5 +494,35 @@ if __name__ == "__main__":
     finally:
         credenciais, _todas, _gravar_na_planilha, _post_token, _quem_sou = _g
 
+    # ── SITUACAO: O NOME QUE O admin.py LE ──────────────────────────────
+    #
+    # `checar_impacto` reprovou o nome: ele tem leitor em outro arquivo
+    # (`admin.py`) e nenhuma guarda citava ele. A guarda mede o que a tela
+    # depende: cada codigo que o Mercado Livre manda vira UM rotulo em
+    # portugues, e a ORDEM e a do dicionario — "em andamento" primeiro,
+    # porque e o que ja esta mexendo no preco agora.
+    #
+    # E ela mede pela CADEIA (`por_situacao`), e nao so o dicionario: e a
+    # funcao que a tela chama, e e nela que a traducao e a ordem acontecem.
+    ok("todo codigo do ML tem rotulo em portugues",
+       set(SITUACAO) == {"started", "candidate", "pending", "finished"}
+       and all(isinstance(v, str) and v for v in SITUACAO.values()))
+    _promos = [{"status": "finished", "type": "DEAL"},
+               {"status": "started", "type": "DEAL"},
+               {"status": "started", "type": "DEAL"},
+               {"status": "candidate", "type": "PRICE_MATCH"}]
+    _por = por_situacao(_promos)
+    ok("a contagem agrupa por situacao E tipo",
+       {(d["situação"], d["tipo"], d["promoções"]) for d in _por}
+       == {("em andamento", "DEAL", 2), ("disponível (convite)", "PRICE_MATCH", 1),
+           ("encerrada", "DEAL", 1)})
+    ok("e 'em andamento' vem primeiro, que e o que mexe no preco agora",
+       _por[0]["situação"] == "em andamento")
+    # CODIGO QUE O ML INVENTAR AMANHA NAO SOME DA TELA: ele aparece com o
+    # nome cru, no fim. Sumir seria promocao ativa que ninguem ve.
+    _novo = por_situacao([{"status": "xpto_novo", "type": "DEAL"}])
+    ok("codigo desconhecido aparece cru em vez de sumir",
+       _novo and _novo[0]["situação"] == "xpto_novo")
+
     print(f"\nfalhas: {falhas}")
     raise SystemExit(1 if falhas else 0)
