@@ -38,6 +38,7 @@ NESTA PRIMEIRA VERSÃO SÓ SE LÊ
 isso, e só depois de a leitura ter sido conferida com dado real.
 """
 
+import json
 import time as _t
 
 import requests
@@ -359,7 +360,9 @@ def get(conta, caminho, params=None):
     if r.status_code == 429:
         return (None, "Mercado Livre: limite de requisições, mesmo após esperar")
     if not r.ok:
-        return (None, f"Mercado Livre respondeu {r.status_code}")
+        # O corpo diz o porquê (parâmetro faltando, recurso inexistente);
+        # sem ele o erro só dizia o número — como `placar_core` já faz.
+        return (None, f"Mercado Livre respondeu {r.status_code}: {(r.text or '')[:200]}")
     try:
         return (r.json(), "")
     except Exception:
@@ -406,6 +409,103 @@ def por_situacao(lista):
             for (s, t), n in sorted(cont.items(),
                                     key=lambda x: (ordem.get(x[0][0], 9), x[0][1]))]
 
+
+# ── Amostra crua ──────────────────────────────────────────────────────────────
+# O dono, 24/10: o layout das promoções saiu genérico porque a única resposta
+# real vista foi "id, status, type". Quem desenha a tela não chama a API (as
+# chaves só existem no Railway), então a tela precisa ENTREGAR a resposta
+# inteira: um arquivo que o dono baixa e anexa na conversa.
+#
+# As leituras são as que as telas de promoção vão usar. O caminho de cada uma
+# vem da documentação do ML e NÃO foi conferido nas contas: uma que falhar
+# entra no arquivo com o erro e o corpo da resposta — isso também é dado.
+
+LISTA_NA_AMOSTRA = 5      # itens por lista: o bastante para ver a forma
+
+
+_CHAVE_SECRETA = ("token", "secret", "password", "senha")
+
+
+def limpar(dado):
+    """Tira do dado toda chave que pareça credencial. Pura."""
+    if isinstance(dado, dict):
+        return {k: ("<retirado>" if any(c in str(k).lower() for c in _CHAVE_SECRETA)
+                    else limpar(v)) for k, v in dado.items()}
+    if isinstance(dado, list):
+        return [limpar(v) for v in dado]
+    return dado
+
+
+def encurtar(dado, n=LISTA_NA_AMOSTRA):
+    """Corta toda lista em `n` itens e diz quantos havia. Pura."""
+    if isinstance(dado, dict):
+        return {k: encurtar(v, n) for k, v in dado.items()}
+    if isinstance(dado, list):
+        fora = [encurtar(v, n) for v in dado[:n]]
+        if len(dado) > n:
+            fora.append(f"... mais {len(dado) - n} de {len(dado)}")
+        return fora
+    return dado
+
+
+def _primeiro(lista, chave):
+    for x in lista or []:
+        if isinstance(x, dict) and x.get(chave):
+            return x
+    return {}
+
+
+def id_do_anuncio(texto):
+    """'#2894660789', 'MLB2894660789', ' 2894660789 ' -> 'MLB2894660789'. '' sem número."""
+    num = "".join(ch for ch in str(texto or "") if ch.isdigit())
+    return f"MLB{num}" if num else ""
+
+
+def amostra(conta, item_id="", ler=None):
+    """{conta, leituras: {nome: {caminho, params, resposta|erro}}}.
+
+    `item_id` vazio: usa o primeiro anúncio da primeira promoção. `ler` existe
+    para a conferência trocar a rede; na tela é `get`.
+    """
+    ler = ler or get
+    uid = str((_ler_da_planilha(conta) or {}).get("user_id", "")).strip()
+    fora = {"conta": conta, "user_id": uid, "leituras": {}}
+
+    def _ler(nome, caminho, params=None):
+        resp, erro = ler(conta, caminho, params)
+        fora["leituras"][nome] = {"caminho": caminho, "params": params or {},
+                                  **({"erro": erro} if erro else
+                                     {"resposta": encurtar(limpar(resp))})}
+        return resp if not erro else None
+
+    if not uid:
+        fora["erro"] = f"{conta.upper()} ainda não foi autorizada"
+        return fora
+    v2 = {"app_version": "v2"}
+    lst = _ler("promocoes_da_conta", f"/seller-promotions/users/{uid}", v2)
+    promos = (lst or {}).get("results") if isinstance(lst, dict) else lst
+    # Uma promoção de cada tipo: os campos mudam de um tipo para o outro.
+    vistos = {}
+    for p in promos or []:
+        if isinstance(p, dict) and p.get("id") and p.get("type") not in vistos:
+            vistos[p.get("type")] = p
+    for tipo, p in list(vistos.items())[:6]:
+        par = {"promotion_type": tipo, **v2}
+        _ler(f"promocao_{tipo}", f"/seller-promotions/promotions/{p['id']}", par)
+        itens = _ler(f"anuncios_da_promocao_{tipo}",
+                     f"/seller-promotions/promotions/{p['id']}/items", par)
+        if not item_id:
+            res = (itens or {}).get("results") if isinstance(itens, dict) else itens
+            item_id = str(_primeiro(res, "id").get("id", "") or "")
+    if item_id:
+        _ler("promocoes_do_anuncio", f"/seller-promotions/items/{item_id}", v2)
+        it = _ler("anuncio", f"/items/{item_id}")
+        if isinstance(it, dict) and it.get("price"):
+            _ler("tarifa_do_anuncio", "/sites/MLB/listing_prices",
+                 {"price": it.get("price"), "listing_type_id": it.get("listing_type_id"),
+                  "category_id": it.get("category_id")})
+    return fora
+
 if __name__ == "__main__":
     falhas = 0
 
@@ -424,6 +524,49 @@ if __name__ == "__main__":
        _ps == [{"situação": "em andamento", "tipo": "DEAL", "promoções": 1},
                {"situação": "disponível (convite)", "tipo": "SMART", "promoções": 2},
                {"situação": "xyz", "tipo": "LIGHTNING", "promoções": 1}])
+    ok("limpar: credencial some em qualquer profundidade, o resto fica",
+       limpar({"access_token": "A", "x": [{"client_secret": "S", "preco": 9}]})
+       == {"access_token": "<retirado>", "x": [{"client_secret": "<retirado>", "preco": 9}]})
+    ok("id_do_anuncio: o # da tela do ML vira o id da API; vazio fica vazio",
+       id_do_anuncio("#2894660789") == "MLB2894660789"
+       and id_do_anuncio("MLB2894660789") == "MLB2894660789" and id_do_anuncio("  ") == "")
+    ok("encurtar: lista longa fica com 5 e diz quantas havia",
+       encurtar({"r": list(range(8))}) == {"r": [0, 1, 2, 3, 4, "... mais 3 de 8"]})
+    # A amostra pela cadeia: a resposta da lista de promocoes tem a forma que o
+    # ML devolveu de verdade na ML1 (print do dono, 23/10: id, status, type).
+    _chamadas = []
+
+    def _rede(conta, caminho, params=None):
+        _chamadas.append(caminho)
+        if caminho.endswith("/users/7"):
+            return ({"results": [{"id": "P1", "status": "candidate", "type": "SMART"},
+                                 {"id": "P2", "status": "started", "type": "SMART"},
+                                 {"id": "P3", "status": "candidate", "type": "DEAL"}]}, "")
+        if caminho.endswith("/items") and "P1" in caminho:
+            return ({"results": [{"id": "MLB123", "price": 42.29}]}, "")
+        if caminho == "/items/MLB123":
+            return ({"id": "MLB123", "price": 42.29, "listing_type_id": "gold_pro",
+                     "category_id": "MLB1"}, "")
+        if "listing_prices" in caminho:
+            return (None, "Mercado Livre respondeu 400: faltou parametro")
+        return ({"ok": 1, "access_token": "VAZOU"}, "")
+    _orig_ler = globals()["_ler_da_planilha"]
+    globals()["_ler_da_planilha"] = lambda c: {"user_id": "7"}
+    try:
+        _a = amostra("ml1", ler=_rede)
+    finally:
+        globals()["_ler_da_planilha"] = _orig_ler
+    _l = _a["leituras"]
+    ok("amostra: uma promoção de cada TIPO, não uma de cada promoção",
+       "promocao_SMART" in _l and "promocao_DEAL" in _l
+       and sum(1 for c in _chamadas if c.endswith("/P2")) == 0)
+    ok("amostra: o anúncio sai da primeira promoção e leva à tarifa dele",
+       _l["anuncio"]["resposta"]["id"] == "MLB123"
+       and _l["tarifa_do_anuncio"]["params"]["listing_type_id"] == "gold_pro")
+    ok("amostra: leitura que falha entra com o erro e o corpo, não some",
+       "400" in _l["tarifa_do_anuncio"]["erro"])
+    ok("amostra: nenhum token chega ao arquivo",
+       "VAZOU" not in json.dumps(_a))
     ok("as quatro contas, com o CNPJ de cada uma (bling_api.py:19-20)",
        CONTAS == ("ml1", "ml2", "ml3", "ml4")
        and CNPJ_DA_CONTA == {"ml1": "LG", "ml3": "LG", "ml2": "MS", "ml4": "MS"})

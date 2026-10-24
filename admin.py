@@ -566,6 +566,37 @@ def _secao_mercado_livre():
                         st.caption("Campos de uma promoção:")
                         st.code(", ".join(sorted(_lista[0].keys())), language=None)
 
+        # A AMOSTRA CRUA (dono, 24/10): quem desenha a tela não chama a API —
+        # as chaves só existem no Railway. O arquivo leva a resposta inteira,
+        # sem credencial, para ser anexado na conversa.
+        #
+        # A leitura roda SÓ no clique e fica guardada na sessão: são até ~15
+        # chamadas ao ML, e no desenho da tela elas rodariam a cada tecla.
+        st.markdown("---")
+        st.markdown("**Baixar amostra para desenhar as telas**")
+        st.caption("Lê as promoções, um anúncio e a tarifa dele e baixa a resposta "
+                   "inteira do Mercado Livre num arquivo — sem nenhuma chave. "
+                   "Anexe o arquivo na conversa.")
+        _item = st.text_input("Anúncio (# opcional — vazio usa o primeiro de uma promoção)",
+                              key="ml_amostra_item")
+        if st.button("Gerar amostra", key="ml_amostra_gerar"):
+            import json as _json_ml
+            from datetime import datetime as _dt_ml
+            import placar_core as _pc_ml
+            with st.spinner("Lendo o Mercado Livre…"):
+                _am = _ml.amostra(_c, _ml.id_do_anuncio(_item))
+            _am["lido_em"] = _dt_ml.now(_pc_ml.FUSO).strftime("%d/%m/%Y %H:%M")
+            st.session_state["ml_amostra"] = (
+                f"amostra_{_c}_{_dt_ml.now(_pc_ml.FUSO):%Y%m%d_%H%M}.json",
+                _json_ml.dumps(_am, ensure_ascii=False, indent=2))
+        if st.session_state.get("ml_amostra"):
+            _nome_am, _txt_am = st.session_state["ml_amostra"]
+            _n_err = _txt_am.count('"erro":')
+            st.caption(f"{_nome_am} · {len(_txt_am) // 1024 + 1} KB"
+                       + (f" · {_n_err} leitura(s) com erro (vão no arquivo)" if _n_err else ""))
+            st.download_button("⬇️ Baixar amostra", _txt_am, file_name=_nome_am,
+                               mime="application/json", key="ml_amostra_baixar")
+
 
 def pagina_admin(usuario_logado):
     # eh_dono, nao eh_gestor: esta tela cria, desativa e reseta a senha de

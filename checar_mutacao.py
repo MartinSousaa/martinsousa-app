@@ -4047,6 +4047,27 @@ MUTACOES = [
         ["python3", "ml_api.py"],
     ),
     (
+        "a amostra do ML volta a levar o token para o arquivo",
+        "ml_api.py",
+        '        return {k: ("<retirado>" if any(c in str(k).lower() for c in _CHAVE_SECRETA)\n',
+        '        return {k: ("<retirado>" if False\n',
+        ["python3", "ml_api.py"],
+    ),
+    (
+        "a amostra do ML volta a esconder a leitura que falhou",
+        "ml_api.py",
+        '                                  **({"erro": erro} if erro else\n',
+        '                                  **({} if erro else\n',
+        ["python3", "ml_api.py"],
+    ),
+    (
+        "a amostra do ML volta a rodar a cada tecla, sem clique",
+        "admin.py",
+        '        if st.button("Gerar amostra", key="ml_amostra_gerar"):\n',
+        '        if st.button("Gerar amostra", key="ml_amostra_gerar") or True:\n',
+        ["python3", "checar_tela.py"],
+    ),
+    (
         "o DAS volta a cair no fim de semana em vez de antecipar",
         "lembretes.py",
         '("das_20", "DAS", ("dia_antecipa", 20)',
