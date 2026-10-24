@@ -1471,7 +1471,7 @@ def limpar_marcadores(texto):
     return re.sub(r"\s*<CMD>.*$", "", t, flags=re.DOTALL).strip(), tinha
 
 
-def renderizar_chat(usuario_logado=""):
+def renderizar_chat(usuario_logado="", no_centro=False):
     """
     Renderiza o chat IA no sidebar.
     ONDE ELA É CHAMADA, 23/10: no centro da aba Imagem quando ela está
@@ -1502,7 +1502,12 @@ def renderizar_chat(usuario_logado=""):
         )
 
         # ── Área de mensagens com scroll ──────────────────────────────────────
-        with st.container(height=800, border=False):
+        # A ALTURA ACOMPANHA O LUGAR. Na barra lateral de 284px o quadro
+        # precisa ser alto para caber conversa; no centro da aba Imagem, 800px
+        # viram um buraco cinza com o campo de escrever lá embaixo — foi o que
+        # o dono viu no print de 23/10. Um número só para os dois lugares
+        # estaria errado em um deles.
+        with st.container(height=420 if no_centro else 800, border=False):
             if not hist:
                 with st.chat_message("assistant"):
                     st.markdown(f"Olá **{nome_exib}**, como posso ajudar?")
@@ -1548,7 +1553,11 @@ def renderizar_chat(usuario_logado=""):
         # clipe mais o limite de um lado e a escrita do outro, sem quebrar
         # linha. O `vertical_alignment` alinha pelo meio — sem ele o botão sobe,
         # porque o anexo é mais alto.
-        _col_anexo, _col_limpar = st.columns([2, 1], vertical_alignment="center")
+        # A PROPORÇÃO TAMBÉM ACOMPANHA O LUGAR: `[2, 1]` foi medida para os
+        # 284px da lateral; em 1.560px ela joga o "Limpar Chat" para o canto
+        # direito da tela, longe do campo de escrever.
+        _col_anexo, _col_limpar = st.columns(
+            [8, 1] if no_centro else [2, 1], vertical_alignment="center")
 
         with _col_limpar:
             # O CONTAINER COM `key` É O QUE DÁ O SELETOR DE CSS.

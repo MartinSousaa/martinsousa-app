@@ -125,6 +125,23 @@ class _Falso:
     def __getattr__(self, nome):
         def _qualquer(*a, **kw):
             self._registra(nome, kw)
+            # O WIDGET COM `key` DEVOLVE O QUE ESTA NO ESTADO, como no
+            # Streamlit de verdade: la, `st.text_input(key="x")` devolve
+            # `session_state["x"]` quando ele ja existe, e o `value=` so vale
+            # na primeira vez.
+            #
+            # O duplo devolvia "" sempre. Resultado: nenhuma guarda conseguia
+            # montar a tela COM produto preenchido — e e justamente esse o
+            # estado em que o botao de gerar aparece. A guarda do botao
+            # reprovava uma tela que funciona, que e o alarme falso que esta
+            # base ja pagou tres vezes.
+            _k = kw.get("key")
+            if _k is not None and nome in _LEEM_O_ESTADO:
+                try:
+                    if _k in self.session_state:
+                        return self.session_state[_k]
+                except Exception:
+                    pass
             return _retorno_de(nome, a, kw)
         return _qualquer
 
@@ -187,14 +204,54 @@ class _Parou(Exception):
 
 
 class _Contexto:
+    """`st.container()` e `st.expander()`: servem de `with` E de objeto.
+
+    O CONTAINER DO STREAMLIT TEM OS MESMOS METODOS DA TELA. `c = st.container()`
+    devolve um DeltaGenerator, e `c.file_uploader(...)` desenha o campo DENTRO
+    dele — e que e exatamente como a aba Imagem poe os tres campos de upload no
+    cabecalho sem mover o codigo deles de lugar.
+
+    O duplo so sabia ser `with`, e acusou o inocente:
+
+        AttributeError: '_Contexto' object has no attribute 'file_uploader'
+
+    numa tela que funciona. E a terceira vez que isto acontece aqui — o
+    `linha_do_mes` mais pobre que a realidade, o `with c1:` que faltava, as
+    datas que voltavam `_Falso` — e a licao e sempre a mesma: duplo mais pobre
+    que a realidade ensina a ignorar o verificador.
+
+    Delegar para o `_Falso` de dentro tambem mantem o REGISTRO DE CHAVES: um
+    widget desenhado por `c.file_uploader(key=...)` entra na mesma conta, e
+    chave repetida continua explodindo.
+    """
+
     def __init__(self, valor):
         self.valor = valor
+        # As chaves desenhadas ATRAVES deste container (`c.file_uploader(...)`).
+        self.dentro = set()
 
     def __enter__(self):
         return self.valor
 
     def __exit__(self, *a):
         return False
+
+    def __getattr__(self, nome):
+        _dentro = object.__getattribute__(self, "valor")
+        _meus = object.__getattribute__(self, "dentro")
+
+        def _anotando(*a, **kw):
+            # QUEM DESENHOU ONDE. Sem isto o duplo so sabe dizer que a chave
+            # existe — e "o campo existe" nao e a mesma pergunta que "o campo
+            # esta no cabecalho". Foi assim que uma guarda minha ficou verde
+            # com o defeito de volta: tirar o campo do cabecalho e desenha-lo
+            # no fim da pagina registra a MESMA chave.
+            if kw.get("key") is not None:
+                _meus.add(kw["key"])
+            return getattr(_dentro, nome)(*a, **kw)
+
+        return _anotando if callable(getattr(_dentro, nome, None)) else getattr(
+            _dentro, nome)
 
 
 class _Estado(dict):
@@ -238,6 +295,14 @@ _AUSENTE = object()
 class _Qualquer:
     def __getattr__(self, _):
         return lambda *a, **kw: None
+
+
+# Os widgets cujo valor o Streamlit de verdade le do `session_state` quando a
+# chave ja existe. Botao e upload ficam de fora: clique nao se guarda no
+# estado, e arquivo nao e serializavel.
+_LEEM_O_ESTADO = ("text_input", "text_area", "selectbox", "radio",
+                  "multiselect", "number_input", "slider", "checkbox",
+                  "toggle", "date_input", "time_input", "segmented_control")
 
 
 def _retorno_de(nome, a, kw):
@@ -2874,6 +2939,12 @@ def _chat_no_centro(conta):
               _m.slot_do_chat() is None,
               "o conteiner da passada anterior continuou valendo")
 
+        # COM PRODUTO PREENCHIDO, que e o estado em que o colaborador
+        # trabalha. Com a tela em branco o botao de gerar nao aparece — e
+        # nao deve: botao que promete o que nao pode fazer e pior que
+        # botao nenhum.
+        _falso.session_state["img_nome_produto_input"] = "Prendedor de Roupa"
+
         _erro = ""
         try:
             _m.pagina_imagem("myrelladesouza")
@@ -2908,6 +2979,49 @@ def _chat_no_centro(conta):
               _erro_ch == "",
               f"{_erro_ch} — e o erro que tira a tela do ar quando o mesmo "
               "widget e desenhado duas vezes na mesma passada")
+
+        # ── O QUE O DONO COBROU DEPOIS DE VER A TELA (23/10) ────────────
+        #
+        # O print dele mostrava: os tres uploads la embaixo, o formulario
+        # inteiro na frente, o diagnostico abrindo a pagina e um buraco cinza
+        # de 800px no lugar da conversa. Cada linha abaixo mede UMA dessas.
+        #
+        # Elas procuram a CHAVE do widget, nunca o texto do rotulo: travar a
+        # frase e a Forma 2, e tres guardas desta base ja nasceram assim.
+        # ONDE, e nao SE. A primeira versao desta guarda conferia que as tres
+        # chaves existiam — e elas existem nos dois casos, porque o campo
+        # desenhado no fim da pagina registra a mesma chave. Ela ficou verde
+        # com o defeito de volta, e o `checar_mutacao` cobrou.
+        _no_cabecalho = set()
+        for _slot in (_m.slot_das_fotos(), _m.slot_da_ambientacao(),
+                      _m.slot_do_layout()):
+            _no_cabecalho |= getattr(_slot, "dentro", set())
+        _v = _m.versao_dos_uploads()
+        conta("os tres campos de imagem sao desenhados NO CABECALHO",
+              all(k in _no_cabecalho for k in
+                  (f"img_fotos_upload_{_v}", f"img_refs_amb_upload_{_v}",
+                   f"img_refs_layout_upload_{_v}")),
+              f"no cabecalho foram desenhados {sorted(_no_cabecalho)} — algum "
+              "campo voltou para o fim da pagina, dentro do Modo manual")
+        conta("o botao de gerar aparece ao lado da conversa",
+              "btn_gerar_na_conversa" in _falso._chaves,
+              "o botao que gasta a geracao ficou so no fim da pagina, dentro "
+              "do Modo manual recolhido — o colaborador pede no chat e nao "
+              "tem onde clicar")
+        conta("e o ☰ devolve a barra lateral",
+              "btn_lateral_imagem" in _falso._chaves,
+              "a lateral some e nao ha como traze-la de volta: o Sair mora "
+              "la dentro")
+
+        # O FORMULARIO CONTINUA EXISTINDO, so que recolhido. Esta e a
+        # assercao que impede a "limpeza" de virar remocao: e ele que gera.
+        import inspect as _insp_mm
+        _fonte_mm = _insp_mm.getsource(_m.pagina_imagem)
+        conta("e o formulario continua na pagina, dentro do Modo manual",
+              "⚙️ Modo manual" in _fonte_mm
+              and "img_fotos_upload_{versao_dos_uploads()}" in _fonte_mm,
+              "o formulario que GERA foi removido junto com a arrumacao: "
+              "sem ele a conversa pede e nada acontece")
 
         # ── E O `app.py`, QUE VERIFICADOR NENHUM EXECUTA ────────────────
         #

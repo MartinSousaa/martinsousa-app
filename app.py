@@ -2331,7 +2331,7 @@ if _mod_imagem is not None:
 
 if _lugar_do_chat is not None:
     with _lugar_do_chat:
-        chat_assistente.renderizar_chat(usuario_logado)
+        chat_assistente.renderizar_chat(usuario_logado, no_centro=True)
 else:
     with st.sidebar:
         chat_assistente.renderizar_chat(usuario_logado)

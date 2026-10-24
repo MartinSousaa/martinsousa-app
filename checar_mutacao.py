@@ -36,6 +36,47 @@ RAIZ = os.path.dirname(os.path.abspath(__file__))
 # que não se aplica dá a impressão de cobertura que não existe.
 MUTACOES = [
     (
+        'os tres campos de imagem voltam para o fim da pagina',
+        "imagem.py",
+        [('            fotos_upload = _slot_fotos.file_uploader(',
+          '            fotos_upload = st.file_uploader(')],
+        None,
+        ["python3", "checar_tela.py"],
+    ),
+    (
+        'o botao que gasta a geracao some de perto da conversa',
+        "imagem.py",
+        [('                    if st.button("🔍 Analisar e gerar esta imagem",\n'
+          '                                 type="primary", use_container_width=True,\n'
+          '                                 key="btn_gerar_na_conversa"):',
+          '                    if False:')],
+        None,
+        ["python3", "checar_tela.py"],
+    ),
+    (
+        'a lateral some sem ter como voltar — e o Sair mora la dentro',
+        "imagem.py",
+        [('        if st.button("☰ Menu" if _lateral_escondida else "☰ Esconder menu",\n'
+          '                     key="btn_lateral_imagem", use_container_width=True,',
+          '        if False and st.button("☰ Menu",\n'
+          '                     key="btn_lateral_imagem", use_container_width=True,')],
+        None,
+        ["python3", "checar_tela.py"],
+    ),
+    (
+        'o duplo da conferencia volta a nao saber que container tem metodos',
+        "checar_tela.py",
+        # A ANCORA MUDOU na mesma tarde: o `__getattr__` passou a ANOTAR
+        # quais chaves foram desenhadas atraves do container, porque "o campo
+        # existe" nao e a mesma pergunta que "o campo esta no cabecalho".
+        [('    def __getattr__(self, nome):\n'
+          '        _dentro = object.__getattribute__(self, "valor")',
+          '    def _sem_delegar(self, nome):\n'
+          '        _dentro = object.__getattribute__(self, "valor")')],
+        None,
+        ["python3", "checar_tela.py"],
+    ),
+    (
         'o app.py volta a desenhar o chat so na barra lateral',
         "app.py",
         [('        _lugar_do_chat = _mod_imagem.slot_do_chat()',
@@ -97,8 +138,14 @@ MUTACOES = [
     (
         'o chat volta para a barra lateral de 284px',
         "imagem.py",
-        [('    global _SLOT_DO_CHAT\n    _SLOT_DO_CHAT = slot\n    return slot',
-          '    global _SLOT_DO_CHAT\n    return slot')],
+        # A ANCORA MUDOU na mesma tarde: os lugares reservados passaram a ser
+        # guardados POR THREAD, e nao num dicionario de modulo compartilhado
+        # por toda a equipe — foi o `checar_alcance` que cobrou, e o defeito
+        # era real (o chat de um podia cair no conteiner do outro). O defeito
+        # medido aqui continua o mesmo: o lugar nao e guardado, e o chat volta
+        # para a barra lateral de 284px.
+        [('    _meus_slots()["chat"] = slot\n    return slot',
+          '    return slot')],
         None,
         ["python3", "checar_tela.py"],
     ),
@@ -2135,12 +2182,16 @@ MUTACOES = [
     (
         "o ajuste fino volta a ler dados_descricao dentro da thread",
         "imagem.py",
-        '                          _dd=st.session_state.get(\n'
-        '                              "img_dados_descricao") or {}):\n'
-        "                try:\n",
-        "                          ):\n"
-        '                _dd = st.session_state.get("img_dados_descricao") or {}\n'
-        "                try:\n",
+        # A ANCORA GANHOU 4 ESPACOS em 23/10: o formulario inteiro entrou num
+        # `with st.expander("⚙️ Modo manual")`. O defeito medido e o mesmo — o
+        # ajuste fino lendo `session_state` de dentro da thread, onde ele e
+        # ilegivel.
+        '                              _dd=st.session_state.get(\n'
+        '                                  "img_dados_descricao") or {}):\n'
+        "                    try:\n",
+        "                              ):\n"
+        '                    _dd = st.session_state.get("img_dados_descricao") or {}\n'
+        "                    try:\n",
         ["python3", "checar_alcance.py"],
     ),
     (
@@ -2258,7 +2309,12 @@ MUTACOES = [
     (
         "o botao sai da fileira do anexo e vira uma linha propria",
         "chat_assistente.py",
-        '        _col_anexo, _col_limpar = st.columns([2, 1], vertical_alignment="center")\n',
+        # A LINHA MUDOU em 23/10: a proporcao passou a depender de ONDE o chat
+        # e desenhado — `[2, 1]` na lateral de 284px, `[8, 1]` no centro da aba
+        # Imagem, onde `[2, 1]` jogava o botao para o canto da tela. O defeito
+        # medido continua o mesmo: o botao saindo da fileira do anexo.
+        '        _col_anexo, _col_limpar = st.columns(\n'
+        '            [8, 1] if no_centro else [2, 1], vertical_alignment="center")\n',
         "        _col_anexo = _col_limpar = st.container()\n",
         ["python3", "chat_assistente.py"],
     ),
