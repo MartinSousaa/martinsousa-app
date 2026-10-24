@@ -3979,7 +3979,10 @@ _VERSAO_UPLOAD = "img_upload_versao"
 
 # Por que uma lista, e não um `if` no meio do laço: a próxima chave de
 # controle que não é do produto entra aqui, e o laço não muda.
-NAO_ZERA_NO_NOVO_PRODUTO = (_VERSAO_UPLOAD,)
+# `img_mostrar_lateral` é preferência de TELA, e não dado do produto: trocar
+# de produto não é motivo para a barra lateral voltar sozinha no meio do
+# trabalho de quem acabou de escondê-la.
+NAO_ZERA_NO_NOVO_PRODUTO = (_VERSAO_UPLOAD, "img_mostrar_lateral")
 
 # Os comandos que `limpar_conversa` preserva e o produto novo não pode herdar.
 COMANDOS_ACEITOS_DO_CHAT = ("chat_refazer_imagem", "chat_img_pendente",
@@ -9183,30 +9186,81 @@ def recuperar_album(imagens, pasta_id=""):
 # reserva o lugar na hora e aceita conteúdo depois: a aba reserva, o `app.py`
 # escreve. Sem isso seria preciso inverter a ordem de execução, e o chat
 # passaria a ler o estado da passada anterior.
-_SLOT_DO_CHAT = None
+# OS LUGARES RESERVADOS SÃO DE QUEM ESTÁ DESENHANDO, E NÃO DE TODOS
+# ----------------------------------------------------------------
+# `checar_alcance` cobrou, e com razão: dicionário de MÓDULO, no Streamlit, é
+# compartilhado por toda a equipe no mesmo processo. Dois colaboradores com a
+# aba Imagem aberta ao mesmo tempo escreveriam no mesmo lugar — e o chat de um
+# poderia ser desenhado dentro do contêiner do outro.
+#
+# A exposição é estreita (as duas passadas teriam de se cruzar no milissegundo
+# certo), mas ela é REAL e o conserto é barato, então ela não fica declarada:
+# fica corrigida. Cada sessão do Streamlit roda no seu próprio thread, e é
+# essa a fronteira certa — a mesma que o `log_imagem` usa para o contexto do
+# registro, pelo mesmo motivo.
+_SLOTS = {}             # ident do thread -> {"chat": ..., "produto": ...}
+_TETO_SLOTS = 256       # threads de script são reusadas; isto é só sanidade
+
+
+def _meus_slots():
+    """Os lugares reservados NESTE thread. Cria vazio na primeira vez."""
+    ident = _threading_limiter.get_ident()
+    meus = _SLOTS.get(ident)
+    if meus is None:
+        if len(_SLOTS) >= _TETO_SLOTS:
+            # Poda só o que não tem mais dono: thread morto não volta.
+            vivos = {t.ident for t in _threading_limiter.enumerate()}
+            for k in [k for k in _SLOTS if k not in vivos]:
+                _SLOTS.pop(k, None)
+        meus = {}
+        _SLOTS[ident] = meus
+    return meus
 
 
 def esquecer_slot_do_chat():
-    """Esquece o lugar reservado. Chamado no começo de cada passada.
+    """Esquece os lugares reservados. Chamado no começo de cada passada.
 
     Sem isto, o contêiner reservado numa passada em que a aba Imagem estava
     aberta continuaria valendo na passada seguinte, com o colaborador em outra
     aba — e o chat seria desenhado num lugar que não está mais na tela.
     """
-    global _SLOT_DO_CHAT
-    _SLOT_DO_CHAT = None
+    _meus_slots().clear()
 
 
 def reservar_slot_do_chat(slot):
     """Guarda o lugar onde o chat vai ser desenhado nesta passada."""
-    global _SLOT_DO_CHAT
-    _SLOT_DO_CHAT = slot
+    _meus_slots()["chat"] = slot
     return slot
 
 
 def slot_do_chat():
     """O lugar reservado nesta passada, ou None — e então vale a lateral."""
-    return _SLOT_DO_CHAT
+    return _meus_slots().get("chat")
+
+
+def reservar_slot_das_fotos(qual, slot):
+    """Guarda o lugar de um dos três campos de imagem do cabeçalho.
+
+    Eles existem pelo mesmo motivo do lugar do chat, mais um: a conferência
+    precisa poder perguntar ONDE cada campo foi desenhado, e não só SE ele
+    existe — foi essa a diferença que deixou uma guarda minha verde com o
+    defeito de volta.
+    """
+    _meus_slots()[str(qual)] = slot
+    return slot
+
+
+def slot_das_fotos():
+    """O lugar das fotos do produto nesta passada, ou None."""
+    return _meus_slots().get("produto")
+
+
+def slot_da_ambientacao():
+    return _meus_slots().get("ambientacao")
+
+
+def slot_do_layout():
+    return _meus_slots().get("layout")
 
 
 def resumo_do_trabalho(estado=None, padrao=None, fotos=None):
@@ -9958,124 +10012,6 @@ def pagina_imagem(usuario_logado):
                 st.rerun()
 
     MODELO_DIAG = "gemini-3.1-flash-image"
-    # ── Saúde do processo ────────────────────────────────────────────────
-    #
-    # A faixa "Reconectando ao servidor" tem três causas possíveis, e só uma
-    # delas apaga o histórico do chat: o processo REINICIAR. As outras duas —
-    # deploy e script preso — não apagam nada.
-    #
-    # Sem este número, a diferença entre elas é opinião. Com ele, é uma linha:
-    # se o "de pé há" volta para segundos toda vez que a tela reconecta, o
-    # processo está morrendo e voltando, e a causa é memória.
-    try:
-        import saude as _sd
-        _sd.contar_passada()
-        _s = _sd.resumo(st.session_state)
-        _linha = (f"⚙️ Processo de pé há **{_s['de_pe_ha']}** · "
-                  f"{_s['passadas']} passada(s) · memória "
-                  f"**{_s['memoria_mb']} MB**"
-                  + (f" de {_s['limite_mb']} MB ({_s['pct_memoria']}%)"
-                     if _s['limite_mb'] else "")
-                  + (f" · imagens nesta sessão: {_s['imagens_na_sessao_mb']} MB"
-                     if _s['imagens_na_sessao_mb'] else ""))
-        if _s["pct_memoria"] >= 80:
-            st.warning(_linha + "  \n⚠️ Memória perto do limite do container — "
-                       "é aqui que ele reinicia e o histórico do chat some.")
-        else:
-            st.caption(_linha)
-    except Exception:
-        pass
-
-    with st.expander("🔧 Diagnóstico das APIs de Imagem", expanded=False):
-        st.caption("Testa o motor primário da OpenAI e Gemini Flash (fallback) para confirmar que estão funcionando.")
-        if st.button("Testar APIs agora", key="btn_diag_gemini"):
-            # Testa OpenAI
-            _oai_key = _get_openai_api_key()
-            if _oai_key:
-                _modelo = modelo_de_imagem()
-                # O QUE A CONTA TEM, DITO ANTES DO TESTE.
-                #
-                # Era esta a pergunta que faltava: o Studio insistia num nome
-                # inventado e a tela mostrava "404", um número que não diz a
-                # ninguém o que fazer. Agora a lista vem junto, e escolher o
-                # certo deixa de depender de alguém adivinhar.
-                _disp = modelos_de_imagem_da_conta()
-                if _disp:
-                    st.caption("Modelos de imagem desta conta: "
-                               + ", ".join(_disp[:8])
-                               + f"  ·  em uso: **{_modelo}**")
-                    if _modelo not in _disp:
-                        st.error(
-                            f"O modelo em uso (**{_modelo}**) NÃO está na "
-                            f"conta. Configure `OPENAI_MODELO_IMAGEM` no "
-                            f"Railway com um da lista acima — ou deixe como "
-                            f"está: o Studio troca sozinho na primeira falha.")
-                else:
-                    st.caption("Não consegui listar os modelos desta conta.")
-                # ── E O QUE ISSO SIGNIFICA PARA AS PEÇAS ─────────────────
-                #
-                # A lista de modelos não diz a ninguém que as peças vão sair
-                # com margem. O Studio SABIA e parava no nome do modelo — a
-                # mesma falha que o oitavo verificador existe para pegar:
-                # tem a informação e não a transforma em recado.
-                _cap_ok, _cap_recado = capacidade_do_motor(_disp)
-                (st.success if _cap_ok else st.error)(_cap_recado)
-                with st.spinner(f"Testando {_modelo}…"):
-                    import time as _td
-                    _t0_oai = _td.time()
-                    try:
-                        from openai import OpenAI as _OAITest
-                        _oai_client = _OAITest(api_key=_oai_key)
-                        # O TESTE SE ADAPTA IGUAL À GERAÇÃO.
-                        #
-                        # Ele mandava `quality="low"` — o mesmo parâmetro que
-                        # o `dall-e-3` recusa e que acabou de ser corrigido no
-                        # caminho de geração. Corrigir num irmão e deixar o
-                        # outro é a Forma 1 desta base, e aqui ela doía duas
-                        # vezes: a tela de diagnóstico diria que o motor não
-                        # funciona quando o problema é o parâmetro do teste.
-                        _args_t = {"model": _modelo,
-                                   "prompt": "A small red circle on white "
-                                             "background, minimal.",
-                                   "n": 1, "size": "1024x1024",
-                                   "quality": "low"}
-                        while True:
-                            try:
-                                _oai_resp = _oai_client.images.generate(**_args_t)
-                                break
-                            except Exception as _e_t:
-                                _q_t = parametro_recusado(_e_t, _args_t)
-                                if not _q_t:
-                                    raise
-                                _args_t.pop(_q_t, None)
-                        _oai_ms = int((_td.time() - _t0_oai) * 1000)
-                        _oai_img = getattr(_oai_resp.data[0], "b64_json", None) or getattr(_oai_resp.data[0], "url", None)
-                        if _oai_img:
-                            st.success(f"✅ **{_modelo}** — gerou imagem ({_oai_ms}ms)")
-                        else:
-                            st.warning(f"⚠️ **{_modelo}** — sem imagem na resposta ({_oai_ms}ms)")
-                    except Exception as _e_oai:
-                        _oai_ms = int((_td.time() - _t0_oai) * 1000)
-                        st.error(f"❌ **{_modelo}** — {str(_e_oai)[:300]} ({_oai_ms}ms)")
-            else:
-                st.warning("⚠️ **Motor primário** — OPENAI_API_KEY não configurada nas "
-                           "variáveis do Railway.")
-
-            # Testa Gemini
-            with st.spinner(f"Testando {MODELO_DIAG} via Gemini API (pode levar ~30s)..."):
-                d = _testar_gemini_api()
-            if "erro_geral" in d:
-                st.error(d["erro_geral"])
-            else:
-                st.caption(f"Gemini API Key: `{d.get('api_key','?')}`")
-                info = d.get(MODELO_DIAG, {})
-                if info.get("ok"):
-                    icone = "✅" if info.get("tem_imagem") else "⚠️"
-                    label = "gerou imagem" if info.get("tem_imagem") else "respondeu mas sem imagem (créditos podem estar esgotados)"
-                    st.success(f"{icone} **{MODELO_DIAG}** — {label} ({info['ms']}ms)")
-                else:
-                    st.error(f"❌ **{MODELO_DIAG}** — {info.get('erro','erro desconhecido')} ({info.get('ms',0)}ms)")
-
     # ── RE-RUN AUTOMÁTICO DA TRIAGEM (disparado pelo chat ao preencher dados) ──
     if st.session_state.pop("img_rerun_triagem", False):
         cfg = st.session_state.get("img_triagem_config")
@@ -10095,6 +10031,31 @@ def pagina_imagem(usuario_logado):
                     pass  # silencioso — triagem antiga continua visível
             st.rerun()
 
+    # ── A TELA INTEIRA PARA ESTA ABA ────────────────────────────────────────
+    #
+    # Dono, 23/10: *"Tem como somente nessa aba esse layout ser a tela inteira
+    # ocultando toda a lateral esquerda que temos atualmente?"*.
+    #
+    # SÓ NESTA ABA, e por isso o CSS é escrito AQUI e não no `app.py`: esta
+    # função só roda quando a aba Imagem está aberta. Nas outras nenhuma regra
+    # é injetada, e a barra lateral aparece como sempre.
+    #
+    # NINGUÉM FICA PRESO. A navegação (Gestão/Indicadores/Operação e as abas)
+    # mora na área principal, não na lateral — o que some é a logo, o "Logado
+    # como / Sair" (`app.py`) e o "NO STUDIO AGORA". O ☰ abaixo traz os três
+    # de volta sem sair da aba, e a escolha dura o resto da sessão.
+    #
+    # O CELULAR FICA DE FORA, de propósito: lá a lateral já some sozinha
+    # desde 21/10, com botões próprios de abrir e fechar. Uma segunda regra
+    # para a mesma coisa é a Forma 5 desta base — a pergunta "a lateral está
+    # escondida?" passaria a ter duas respostas.
+    _lateral_escondida = not st.session_state.get("img_mostrar_lateral")
+    if _lateral_escondida:
+        st.markdown(
+            "<style>@media screen and (min-width: 769px){"
+            'section[data-testid="stSidebar"]{display:none !important;}'
+            "}</style>", unsafe_allow_html=True)
+
     # ── NOVO PRODUTO ────────────────────────────────────────────────────────
     #
     # A confirmação só aparece QUANDO HÁ O QUE PERDER, e ela diz quantas
@@ -10109,7 +10070,17 @@ def pagina_imagem(usuario_logado):
     _gal_np = st.session_state.get("img_galeria") or []
     _tudo_no_drive = (not _gal_np) or (
         st.session_state.get("img_galeria_salva") == len(_gal_np))
-    _col_np, _ = st.columns([1, 3])
+    _col_menu, _col_np, _ = st.columns([1, 1.4, 4])
+    with _col_menu:
+        # O CAMINHO DE VOLTA PARA A LATERAL. Botão que esconde sem ter como
+        # mostrar é armadilha: o "Sair" mora lá dentro.
+        if st.button("☰ Menu" if _lateral_escondida else "☰ Esconder menu",
+                     key="btn_lateral_imagem", use_container_width=True,
+                     help=("Mostra a barra lateral da MS — logo, Sair e quem "
+                           "está no Studio agora." if _lateral_escondida else
+                           "Esconde a barra lateral e usa a tela inteira.")):
+            st.session_state["img_mostrar_lateral"] = _lateral_escondida
+            st.rerun()
     with _col_np:
         if st.button("🆕 Novo produto", key="btn_novo_produto",
                      use_container_width=True,
@@ -10171,6 +10142,39 @@ def pagina_imagem(usuario_logado):
             placeholder="ex: MS-BENG-07174K2  (gerado na aba Descrição)",
             help="Gere uma descrição na aba Descrição — o código aparece num bloco azul no final. Copie e cole aqui. O nome do produto não é o código.",
         )
+
+    # ── OS TRÊS CAMPOS DE IMAGEM, NA MESMA FILEIRA DO NOME ──────────────────
+    #
+    # Dono, 23/10: *"precisa haver um cabeçalho inicial para eles incluírem o
+    # nome do produto, código da descrição, imagens do produto, fotos de
+    # referência de ambientação e fotos de referência para a geração"*. Subiu
+    # só o nome e o código; os três uploads continuaram lá embaixo, depois do
+    # formulário inteiro. É o que ele cobrou ao ver a tela.
+    #
+    # O CÓDIGO DELES NÃO MUDA DE LUGAR, e isso é de propósito. Os três campos
+    # nascem no meio do formulário, cercados de avisos, conversões e da
+    # gravação no rascunho — mover tudo isso para cá seria reescrever o
+    # caminho das fotos para ganhar posição na tela, e o caminho das fotos é
+    # onde esta base já perdeu trabalho duas vezes.
+    #
+    # O que muda é ONDE ELES APARECEM: aqui ficam três lugares reservados, e
+    # lá embaixo cada campo é desenhado DENTRO do seu. É o mesmo mecanismo do
+    # chat (`reservar_slot_do_chat`): o contêiner guarda a posição agora e
+    # aceita conteúdo depois, sem inverter a ordem de execução.
+    _c_ft, _c_amb, _c_lay = st.columns(3, gap="small")
+    with _c_ft:
+        st.caption("📷 **Fotos do produto** — obrigatórias")
+        _slot_fotos = reservar_slot_das_fotos("produto", st.container())
+    with _c_amb:
+        st.caption("🏞️ **Ref. de ambientação** (opcional)")
+        _slot_amb = reservar_slot_das_fotos("ambientacao", st.container())
+    with _c_lay:
+        st.caption("🖼️ **Ref. de layout** (opcional)")
+        _slot_layout = reservar_slot_das_fotos("layout", st.container())
+    st.caption(
+        "As duas referências são **exemplos de outros produtos**: delas sai o "
+        "*critério* — como se ambienta, como se arruma — e o Studio cria o que "
+        "combina com **este** produto. Ele não copia o produto que estiver nelas.")
 
     # ── O ÁLBUM DESTE PRODUTO, JÁ FEITO ────────────────────────────────────
     #
@@ -10353,6 +10357,19 @@ def pagina_imagem(usuario_logado):
     # dentro do lugar que esta linha reserva.
     _col_res, _col_chat = st.columns([1, 2.4], gap="medium")
     reservar_slot_do_chat(_col_chat.container())
+    # O BOTÃO QUE GASTA A GERAÇÃO, LOGO ABAIXO DA CONVERSA.
+    #
+    # Dono, 23/10: o botão vivia no FIM da página. O colaborador pedia a peça
+    # no chat e ainda tinha de rolar o formulário inteiro para apertá-lo — e
+    # depois do Modo manual recolhido ele ficaria dentro de um bloco fechado,
+    # que é pior ainda.
+    #
+    # O BOTÃO CONTINUA SENDO UM SÓ: este aqui não gera nada, ele deixa o
+    # pedido em `img_pedir_plano`, e quem dispara continua sendo o botão de
+    # dentro do formulário — que é quem tem `tipos_selecionados`, as fotos e
+    # as validações. Dois botões gerando seria a Forma 5 desta base, com
+    # dinheiro em cima.
+    _slot_gerar = _col_chat.container()
 
     # A CONTAGEM DAS FOTOS VEM DO DISCO, não de `img_fotos_originais`: essa
     # chave só é escrita no fim da geração, e o resumo é desenhado antes dela.
@@ -10638,653 +10655,705 @@ def pagina_imagem(usuario_logado):
                 "campo **Fotos de referência do produto**, como num produto "
                 "sem variação.")
 
-    # ── O QUE GERAR — escolha antes de ver opções específicas ─────────────────
-    st.markdown("---")
-    modo = st.radio(
-        "O que gerar?",
-        ["1 imagem específica", "Selecionar", _OPCAO_PADRAO, "✏️ Ajuste Fino"],
-        horizontal=True,
-        key="img_modo",
-    )
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # MODO AJUSTE FINO — edição cirúrgica de imagem existente
-    # ══════════════════════════════════════════════════════════════════════════
-    if modo == "✏️ Ajuste Fino":
-        st.info(
-            "**✏️ Ajuste Fino** — envie a imagem que deseja modificar e descreva "
-            "**somente** o que deve mudar. A IA preservará tudo o mais exatamente igual."
-        )
-
-        fotos_ajuste_upload = st.file_uploader(
-            "Imagem a ajustar — qualquer formato, inclusive foto de iPhone",
-            type=None,  # qualquer formato — normalizar_imagem converte o que precisar
-            accept_multiple_files=True,
-            key=f"img_ajuste_upload_{versao_dos_uploads()}",
-            help="Suba a(s) imagem(ns) que deseja editar. Pode enviar mais de uma variante ao mesmo tempo.",
-        )
-        # Revisa ANTES de qualquer coisa: converte o que der, e tira da lista
-        # o que nao der, dizendo por que. Antes os bytes crus iam direto para o
-        # st.image logo abaixo, e um arquivo que o Pillow nao abre derrubava a
-        # pagina inteira com um traceback.
-        fotos_bytes_ajuste, _nm_aj, _av_aj, _er_aj = revisar_anexos(fotos_ajuste_upload)
-        mostrar_anexos(_av_aj, _er_aj)
-
-        # AS FOTOS DO PRODUTO, e não só a arte.
-        #
-        # Sem elas este modo trabalhava pela metade: a única referência que a
-        # IA recebia era a própria peça já montada. Dá para mexer num detalhe
-        # assim, mas não dá para recompor o quadro nem mostrar o produto de
-        # outro ângulo — e o Studio ainda assim oferecia "refazer do zero",
-        # que devolvia a mesma imagem.
-        #
-        # Opcional de propósito: quem só quer corrigir uma palavra não precisa
-        # ir atrás das fotos. Quem quer recompor, precisa — e agora pode.
-        fotos_prod_upload = st.file_uploader(
-            "Fotos do produto (opcional — só se quiser recompor a imagem)",
-            type=None, accept_multiple_files=True,
-            key=f"img_ajuste_prod_{versao_dos_uploads()}",
-            help="As fotos originais do produto. Com elas a IA pode mudar o "
-                 "enquadramento e mostrar o produto de outro jeito. Sem elas, "
-                 "o ajuste fica limitado a editar a peça que já existe.",
-        )
-        fotos_bytes_prod, _nm_pr, _av_pr, _er_pr = revisar_anexos(fotos_prod_upload)
-        mostrar_anexos(_av_pr, _er_pr)
-        if fotos_bytes_prod:
-            st.caption(f"📷 {len(fotos_bytes_prod)} foto(s) do produto — "
-                       "recompor o quadro está liberado.")
-
-        if fotos_bytes_ajuste:
-            _cols_aj = st.columns(4)
-            for _i, _fb in enumerate(fotos_bytes_ajuste[:4]):
-                _cols_aj[_i].image(_fb, use_container_width=True)
-            if len(fotos_bytes_ajuste) > 4:
-                st.caption(f"+ {len(fotos_bytes_ajuste) - 4} imagem(ns) adicional(is) carregada(s).")
-
-        instrucao_ajuste = st.text_area(
-            "O que você quer modificar? (descreva SOMENTE o que deve mudar — não explique o que deve ficar igual)",
-            height=120,
-            placeholder=(
-                "ex: Diminua o tamanho do produto para que fique em proporção realista ao cenário. "
-                "O produto mede aproximadamente 18cm.\n\n"
-                "NÃO descreva o que já está certo — a IA vai preservar tudo que você não mencionar."
-            ),
-            key="img_instrucao_ajuste",
-        )
-
+    # ── ⚙️ MODO MANUAL — o formulário, fora da frente ───────────────────────
+    #
+    # Dono, 23/10, depois de ver o que subiu: *"O que precisa sair"*.
+    #
+    # Ele NÃO é apagado, e não pode ser: é este formulário que gera. O chat só
+    # marca o tipo e o modo nele — `img_pedido_de_pecas` é consumido no topo
+    # da página e vira a seleção que está aqui dentro. Apagar seria tirar o
+    # motor para deixar o volante.
+    #
+    # O que muda é a FRENTE: quem abre a aba vê a conversa, e não quatro
+    # modos, três campos de upload e dois textos livres. Quem quiser escolher
+    # na mão abre aqui.
+    #
+    # O PLANO E A GERAÇÃO FICAM DE FORA, logo abaixo: pedir a peça no chat e
+    # ver o plano aparecer dentro de um bloco fechado seria esconder
+    # justamente o que a pessoa está esperando.
+    with st.expander("⚙️ Modo manual — escolher o tipo na mão, várias peças, "
+                     "as 8 do padrão, Ajuste Fino", expanded=False):
+        # ── O QUE GERAR — escolha antes de ver opções específicas ─────────────────
         st.markdown("---")
-        if st.button(
-            "✏️ Aplicar Ajuste Fino",
-            type="primary",
-            use_container_width=True,
-            disabled=(not fotos_bytes_ajuste or not instrucao_ajuste.strip()),
-        ):
-            if not fotos_bytes_ajuste:
-                st.warning("Suba a imagem que deseja ajustar.")
-                st.stop()
-            if not instrucao_ajuste.strip():
-                st.warning("Descreva o que você quer modificar.")
-                st.stop()
-
-            import time as _time_af
-            import threading as _threading_af
-            _res_af = {"img": None, "relato": None, "done": False}
-
-            # `_dd` em argumento padrao — ver `_rodar_cmd`.
-            def _rodar_af(_ref=fotos_bytes_ajuste[0], _ins=instrucao_ajuste.strip(),
-                          _rf=list(fotos_bytes_prod or []), _r=_res_af,
-                          _dd=st.session_state.get(
-                              "img_dados_descricao") or {}):
-                try:
-                    # `referencias` é o que faltava aqui e as outras duas
-                    # modalidades já passavam. Vazio quando ninguém subiu foto
-                    # — e aí é vazio de verdade, não vazio por esquecimento.
-                    _r["img"], _r["relato"] = ajustar_com_conferencia(
-                        _ref, _ins, referencias=_rf,
-                        dados_descricao=_dd,
-                        aviso=lambda t: _r.__setitem__("fase", t))
-                except Exception as _e:
-                    _r["img"], _r["relato"] = None, {
-                        "ok": False, "tentativas": 0, "erro": str(_e)[:160],
-                        "falta": "", "colateral": ""}
-                finally:
-                    _r["done"] = True
-
-            _threading_af.Thread(target=_li_thread.alvo_com_contexto(_rodar_af),
-                                 daemon=True).start()
-            _barra_af = st.progress(0.0, text="Aplicando ajuste fino...")
-            _t0_af = _time_af.time()
-            while not _res_af["done"]:
-                _seg_af = int(_time_af.time() - _t0_af)
-                if _seg_af >= 600:
-                    _res_af["relato"] = {
-                        "ok": False, "tentativas": 0, "falta": "",
-                        "colateral": "",
-                        "erro": "tempo limite de 10 min atingido."}
-                    _res_af["done"] = True
-                    break
-                _barra_af.progress(
-                    min(0.9, _seg_af / 120),
-                    text=(f"{_res_af.get('fase') or 'Aplicando ajuste fino'}… "
-                          f"({_seg_af}s)"))
-                _time_af.sleep(1)
-            _barra_af.progress(1.0, text="Concluído!")
-            img_bytes_af = _res_af["img"]
-            _rel_af = _res_af["relato"] or {"ok": None, "tentativas": 0,
-                                            "erro": "sem relato", "falta": "",
-                                            "colateral": ""}
-
-            if not img_bytes_af:
-                st.error(f"❌ {relato_em_texto(1, _rel_af)}")
-            else:
-                galeria_atual = st.session_state.get("img_galeria", [])
-                galeria_atual.append({
-                    "tipo": f"Ajuste Fino — {instrucao_ajuste[:40]}...",
-                    # De que tipo ela nasceu, para o dia em que alguém pedir
-                    # para refazê-la. Sem isto, o rótulo acima ia como tipo e
-                    # o prompt saía sem preset nenhum.
-                    "tipo_base": PERSONALIZADO,
-                    "bytes": img_bytes_af,
-                    "aprovado": False,
-                })
-                st.session_state["img_galeria"] = galeria_atual
-                guardar_rascunho(usuario_logado, "ajuste fino (imagem nova)")
-                # O veredito viaja com o indice da imagem nova, para aparecer
-                # ao lado dela na galeria depois do rerun.
-                st.session_state["img_af_relato"] = (len(galeria_atual) - 1,
-                                                     _rel_af)
-                # `or "produto-ajustado"` SAIU: nome em branco trocava o
-                # produto da sessão por um rótulo genérico, e a geração
-                # seguinte saía sem nome. A porta ignora o vazio.
-                definir_produto_da_sessao(nome_produto, codigo=codigo_input)
-                # A imagem que ela subiu é a ARTE PRONTA, e não foto do
-                # produto. Gravá-la como "fotos originais" fazia o refazer
-                # gerar do zero usando a própria arte errada como referência —
-                # e devolver exatamente a mesma imagem, depois de anunciar
-                # "refeita do zero". Era a resposta para "ele confirma o que eu
-                # pedi, diz que corrigiu, e não corrigiu".
-                st.session_state["img_fotos_ajuste"] = fotos_bytes_ajuste
-                # Com fotos do produto, o refazer do zero passa a ser possível
-                # — e elas, e não a arte, é que são "as fotos originais".
-                if fotos_bytes_prod:
-                    st.session_state["img_fotos_originais"] = fotos_bytes_prod
-                    st.session_state["img_fotos_sao_arte"] = False
-                else:
-                    st.session_state["img_fotos_sao_arte"] = True
-                st.session_state["img_dados_descricao"] = dados_descricao or {}
-                st.session_state["img_instrucoes_originais"] = instrucao_ajuste
-                import atividades
-                atividades.registrar_atividade(
-                    usuario_logado,
-                    "Imagem (ajuste fino)",
-                    nome_produto or "produto",
-                    instrucao_ajuste[:80],
-                    codigo=codigo_input,
-                )
-                st.rerun()
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # MODOS PADRÃO — fotos de referência + triagem + geração
-    # ══════════════════════════════════════════════════════════════════════════
-    else:
-        # ── FOTOS DE REFERÊNCIA DO PRODUTO ────────────────────────────────────
-        st.markdown("**Fotos de referência do produto**")
-        st.caption("Suba quantas fotos quiser — ângulos diferentes ajudam a IA a ser mais fiel.")
-        fotos_upload = st.file_uploader(
-            "Fotos do produto — qualquer formato, inclusive foto de iPhone",
-            type=None,  # qualquer formato — normalizar_imagem converte o que precisar
-            accept_multiple_files=True,
-            key=f"img_fotos_upload_{versao_dos_uploads()}",
+        modo = st.radio(
+            "O que gerar?",
+            ["1 imagem específica", "Selecionar", _OPCAO_PADRAO, "✏️ Ajuste Fino"],
+            horizontal=True,
+            key="img_modo",
         )
-        fotos_bytes, _nomes_ft, _av_ft, _er_ft = revisar_anexos(fotos_upload)
-        mostrar_anexos(_av_ft, _er_ft)
 
-        # ── AS FOTOS ANEXADAS TEM DE SOBREVIVER AO REINICIO ──────────────────
-        #
-        # O que se perdia: os bytes do upload moram na memoria do processo do
-        # Streamlit, e a lista de nomes fica no navegador. Quando o Studio
-        # reinicia com a pagina aberta — deploy, queda, troca de container — a
-        # tela continua mostrando "3 fotos anexadas" e o Python recebe zero.
-        # O botao entao respondia "Suba pelo menos uma foto do produto" com as
-        # fotos ali na tela, e nao havia nada a fazer alem de refazer tudo.
-        #
-        # O disco do `rascunho` ja guardava o RESULTADO. Agora guarda tambem a
-        # ENTRADA, que e a parte cara de refazer (achar de novo as fotos certas
-        # do produto).
-        #
-        # A recuperacao e um BOTAO, e nunca automatica: repor foto sozinho
-        # ressuscitaria justamente a que a pessoa acabou de tirar com o X, e
-        # ela geraria oito pecas do produto errado sem saber por que.
-        import rascunho as _rasc_ft
-        if fotos_bytes:
-            # GRAVAR SO QUANDO MUDOU.
-            #
-            # A primeira versao desta linha chamava `salvar_fotos` a cada
-            # passada. O Streamlit redesenha a pagina A CADA TECLA digitada no
-            # campo de contexto — seis fotos de 5 MB seriam 30 MB escritos no
-            # disco por tecla, e a tela ficaria inutilizavel. E o mesmo defeito
-            # que fez a Home levar 15 segundos para abrir.
-            #
-            # A assinatura e nome + tamanho: nao le byte nenhum, e muda quando
-            # a pessoa troca, tira ou acrescenta foto — que e exatamente
-            # quando gravar de novo faz sentido.
-            _assin_ft = tuple(zip(_nomes_ft, (len(b) for b in fotos_bytes)))
-            if st.session_state.get("img_fotos_no_disco") != _assin_ft:
-                if _rasc_ft.salvar_fotos(usuario_logado, fotos_bytes, _nomes_ft):
-                    st.session_state["img_fotos_no_disco"] = _assin_ft
-            st.session_state.pop("img_fotos_recuperadas", None)
-        else:
-            _usar = st.session_state.get("img_fotos_recuperadas") or []
-            if _usar:
-                fotos_bytes = [f["bytes"] for f in _usar]
-                _nomes_ft = [f["nome"] for f in _usar]
-                st.success(
-                    f"✅ Usando **{len(fotos_bytes)} foto(s)** recuperadas do "
-                    "disco: " + ", ".join(n or "sem nome" for n in _nomes_ft[:5])
-                    + ". Para trocar, anexe outras no campo acima.")
-                if st.button("Descartar essas e anexar outras",
-                             key="img_descartar_fotos"):
-                    st.session_state.pop("img_fotos_recuperadas", None)
-                    _rasc_ft.limpar_fotos(usuario_logado)
-                    st.rerun()
-            else:
-                # `resumo_fotos` e nao `carregar_fotos`: esta linha roda a cada
-                # tecla digitada na pagina, e ler 3 MB de foto do disco a cada
-                # passada trava a tela. Os bytes so sobem no clique do botao.
-                _guardadas = _rasc_ft.resumo_fotos(usuario_logado)
-                if _guardadas:
-                    st.info(
-                        f"📎 Tenho **{len(_guardadas)} foto(s)** que você "
-                        "anexou antes guardadas em disco: "
-                        + ", ".join(f["nome"] or "sem nome"
-                                    for f in _guardadas[:5])
-                        + (f" (+{len(_guardadas) - 5})"
-                           if len(_guardadas) > 5 else "")
-                        + ". Se a lista de arquivos acima parece cheia mas o "
-                          "Studio diz que não há foto, é isto: o Studio "
-                          "reiniciou e perdeu os arquivos que o navegador "
-                          "ainda mostra.")
-                    if st.button("📎 Usar essas fotos de novo",
-                                 key="img_recuperar_fotos",
-                                 use_container_width=True):
-                        st.session_state["img_fotos_recuperadas"] = \
-                            _rasc_ft.carregar_fotos(usuario_logado)
-                        st.rerun()
-
-        if fotos_bytes:
-            LIMITE_MB = 10
-            # Pelos nomes que a revisao devolveu, e nao pelo upload original:
-            # com um arquivo recusado no meio, o indice do upload aponta para
-            # outra foto e o aviso acusa a errada.
-            fotos_grandes = [
-                (_nomes_ft[i], len(b) / 1_048_576)
-                for i, b in enumerate(fotos_bytes)
-                if len(b) > LIMITE_MB * 1_048_576
-            ]
-            if fotos_grandes:
-                nomes = ", ".join(f"{n} ({s:.1f}MB)" for n, s in fotos_grandes)
-                st.warning(
-                    f"⚠️ {len(fotos_grandes)} foto(s) com mais de {LIMITE_MB}MB: {nomes}. "
-                    f"Fotos muito grandes podem causar timeout — considere reduzir a resolução antes de enviar."
-                )
-
-            # Sempre 5 colunas fixas — evita RemoveChild do React ao mudar nº de colunas
-            _cols_prev = st.columns(5)
-            for _i, _fb in enumerate(fotos_bytes[:5]):
-                _cols_prev[_i].image(_fb, use_container_width=True)
-            if len(fotos_bytes) > 5:
-                st.caption(f"+ {len(fotos_bytes) - 5} foto(s) adicionais carregadas.")
-
-        # ── IMAGENS DE REFERÊNCIA DE LAYOUT (opcional) ────────────────────────
-        # ── REFERÊNCIAS DE AMBIENTAÇÃO ───────────────────────────────────
-        #
-        # Separadas das de LAYOUT porque a escolha é feita de outro jeito, e
-        # essa é a diferença inteira. Layout casa pelo NOME do arquivo — o
-        # colaborador batiza "presentear.jpg" e a peça 7 pega. Para cenário
-        # isso não funciona: ninguém nomeia uma foto de bar por tipo de peça,
-        # e a mesma sala cabe em três peças diferentes.
-        #
-        # Pedido do dono: "não tem que ir pelo nome da imagem, tem que olhar
-        # todas e entender qual ambientação se enquadra melhor em cada tipo".
-        with st.expander("🏙️ Imagens de referência de AMBIENTAÇÃO (opcional)",
-                         expanded=False):
-            st.caption(
-                "Suba fotos de **cenários** que você quer como clima das "
-                "peças — o cômodo, a luz, os materiais. O Studio **olha "
-                "todas** e decide sozinho qual cabe em cada tipo de imagem: "
-                "não vai pelo nome do arquivo."
-            )
+        # ══════════════════════════════════════════════════════════════════════════
+        # MODO AJUSTE FINO — edição cirúrgica de imagem existente
+        # ══════════════════════════════════════════════════════════════════════════
+        if modo == "✏️ Ajuste Fino":
             st.info(
-                "🎯 O produto que aparece nessas fotos é **ignorado de "
-                "propósito**. O Studio copia o ambiente, a luz e o clima — "
-                "e coloca o SEU produto dentro dele, no tamanho real dele."
+                "**✏️ Ajuste Fino** — envie a imagem que deseja modificar e descreva "
+                "**somente** o que deve mudar. A IA preservará tudo o mais exatamente igual."
             )
-            refs_amb_upload = st.file_uploader(
-                "Referências de ambientação — qualquer formato",
-                type=None, accept_multiple_files=True,
-                key=f"img_refs_amb_upload_{versao_dos_uploads()}",
-                help="Ex.: a foto de um bar à noite para o clima das peças "
-                     "deste cinzeiro.",
-            )
-            refs_amb_bytes = []
-            if refs_amb_upload:
-                (refs_amb_bytes, _nomes_amb,
-                 _av_ra, _er_ra) = revisar_anexos(refs_amb_upload)
-                mostrar_anexos(_av_ra, _er_ra)
-                _cols_ra = st.columns(4)
-                for _i, _rb in enumerate(refs_amb_bytes[:4]):
-                    _cols_ra[_i].image(_rb, use_container_width=True)
-                if len(refs_amb_bytes) > 8:
-                    st.caption(f"Subiu {len(refs_amb_bytes)} — o Studio lê as "
-                               "8 primeiras. Acima disso a leitura fica cara "
-                               "e a escolha não melhora.")
-            st.session_state["img_refs_ambientacao"] = refs_amb_bytes
 
-        with st.expander("🖼️ Imagens de referência de layout (opcional)", expanded=False):
-            st.caption(
-                "Suba imagens de outros produtos que mostram o **layout, posições, estilo ou texto** "
-                "que você quer replicar. A IA vai entender a composição e aplicar ao SEU produto, "
-                "mantendo o padrão visual MartinSousa."
-            )
-            st.info(
-                f"💡 **Como nomear os arquivos para as {len(TIPOS_PADRAO)} imagens padrão:** "
-                "`fundo_branco.jpg`, `beneficios.jpg`, `cenario.jpg`, `detalhes.jpg`, "
-                "`medidas_peso.jpg`, `quebra_objecao.jpg`, `presentear.jpg` — "
-                "o nome do arquivo indica para qual tipo de imagem a referência se aplica."
-            )
-            refs_layout_upload = st.file_uploader(
-                "Imagens de referência de layout — qualquer formato",
+            fotos_ajuste_upload = st.file_uploader(
+                "Imagem a ajustar — qualquer formato, inclusive foto de iPhone",
                 type=None,  # qualquer formato — normalizar_imagem converte o que precisar
                 accept_multiple_files=True,
-                key=f"img_refs_layout_upload_{versao_dos_uploads()}",
-                help="Ex: uma imagem de bengala mostrando como você quer que fique o layout — a IA reproduz o estilo no seu produto.",
+                key=f"img_ajuste_upload_{versao_dos_uploads()}",
+                help="Suba a(s) imagem(ns) que deseja editar. Pode enviar mais de uma variante ao mesmo tempo.",
             )
-            refs_layout_bytes = []
-            refs_layout_nomes = []
-            if refs_layout_upload:
-                (refs_layout_bytes, refs_layout_nomes,
-                 _av_rl, _er_rl) = revisar_anexos(refs_layout_upload)
-                mostrar_anexos(_av_rl, _er_rl)
-                # Sempre 4 colunas fixas — evita RemoveChild do React
-                _cols_rl = st.columns(4)
-                for _i, _rb in enumerate(refs_layout_bytes[:4]):
-                    _cols_rl[_i].image(_rb, caption=refs_layout_nomes[_i][:20], use_container_width=True)
+            # Revisa ANTES de qualquer coisa: converte o que der, e tira da lista
+            # o que nao der, dizendo por que. Antes os bytes crus iam direto para o
+            # st.image logo abaixo, e um arquivo que o Pillow nao abre derrubava a
+            # pagina inteira com um traceback.
+            fotos_bytes_ajuste, _nm_aj, _av_aj, _er_aj = revisar_anexos(fotos_ajuste_upload)
+            mostrar_anexos(_av_aj, _er_aj)
 
-                # ── A QUAL PEÇA CADA REFERÊNCIA VAI ───────────────────────────
-                # A referência é escolhida pelo nome do arquivo. Sem mostrar o
-                # resultado desse casamento ANTES de gerar, o colaborador só
-                # descobria que o nome não bateu depois de pagar a geração
-                # inteira — e sem saber que o problema era o nome.
-                _pares = []
-                _usadas = set()
-                for _t in TIPOS_PADRAO:
-                    _b, _n = ref_layout_do_tipo(_t, refs_layout_bytes, refs_layout_nomes)
-                    _pares.append((_t, _n))
-                    if _n:
-                        _usadas.add(_n)
+            # AS FOTOS DO PRODUTO, e não só a arte.
+            #
+            # Sem elas este modo trabalhava pela metade: a única referência que a
+            # IA recebia era a própria peça já montada. Dá para mexer num detalhe
+            # assim, mas não dá para recompor o quadro nem mostrar o produto de
+            # outro ângulo — e o Studio ainda assim oferecia "refazer do zero",
+            # que devolvia a mesma imagem.
+            #
+            # Opcional de propósito: quem só quer corrigir uma palavra não precisa
+            # ir atrás das fotos. Quem quer recompor, precisa — e agora pode.
+            fotos_prod_upload = _slot_fotos.file_uploader(
+                "Fotos do produto (opcional — só se quiser recompor a imagem)",
+                type=None, accept_multiple_files=True,
+                label_visibility="collapsed",
+                key=f"img_ajuste_prod_{versao_dos_uploads()}",
+                help="As fotos originais do produto. Com elas a IA pode mudar o "
+                     "enquadramento e mostrar o produto de outro jeito. Sem elas, "
+                     "o ajuste fica limitado a editar a peça que já existe.",
+            )
+            fotos_bytes_prod, _nm_pr, _av_pr, _er_pr = revisar_anexos(fotos_prod_upload)
+            mostrar_anexos(_av_pr, _er_pr)
+            if fotos_bytes_prod:
+                st.caption(f"📷 {len(fotos_bytes_prod)} foto(s) do produto — "
+                           "recompor o quadro está liberado.")
 
-                _orfas = [n for n in refs_layout_nomes if n not in _usadas]
+            if fotos_bytes_ajuste:
+                _cols_aj = st.columns(4)
+                for _i, _fb in enumerate(fotos_bytes_ajuste[:4]):
+                    _cols_aj[_i].image(_fb, use_container_width=True)
+                if len(fotos_bytes_ajuste) > 4:
+                    st.caption(f"+ {len(fotos_bytes_ajuste) - 4} imagem(ns) adicional(is) carregada(s).")
 
-                with st.expander(
-                    f"🔗 Qual referência vai para cada peça "
-                    f"({len(_usadas)} de {len(refs_layout_nomes)} em uso)",
-                    expanded=bool(_orfas),
-                ):
-                    for _t, _n in _pares:
-                        if _n:
-                            st.markdown(f"**{_t}**  →  `{_n}`")
-                        else:
-                            st.markdown(
-                                f"<span style='opacity:.55'>{_t}  →  sem referência "
-                                f"(será gerada só pelo padrão)</span>",
-                                unsafe_allow_html=True,
-                            )
-                    if _orfas:
-                        st.warning(
-                            "Estes arquivos **não serão usados** porque o nome não "
-                            "corresponde a nenhuma peça: "
-                            + ", ".join(f"`{n}`" for n in _orfas)
-                            + ".\n\nRenomeie usando uma palavra da peça — por exemplo "
-                            "`beneficios`, `medidas`, `presente`, `cenario`, `close`, "
-                            "`objecao`, `ambiente` ou `capa`."
-                        )
-
-            instrucao_layout = ""
-            if refs_layout_bytes:
-                instrucao_layout = st.text_area(
-                    "Descreva o que cada imagem de referência representa (opcional)",
-                    height=80,
-                    placeholder=(
-                        "ex: 'fundo_branco.jpg' — quero esse estilo de sombra suave e centralização. "
-                        "'beneficios.jpg' — replicar os ícones à direita com texto ao lado."
-                    ),
-                    key="img_instrucao_layout",
-                )
-
-        # ── TIPOS ─────────────────────────────────────────────────────────────
-        tipos_selecionados = []
-        instrucoes_extras = ""
-
-        if modo == "1 imagem específica":
-            tipo_unico = st.selectbox("Tipo de imagem", list(PRESETS.keys()), key="img_tipo_unico")
-            instrucoes_extras = st.text_area(
-                "Descreva o que você quer nessa imagem (textos, cenas, destaque)",
-                value=PRESETS[tipo_unico],
+            instrucao_ajuste = st.text_area(
+                "O que você quer modificar? (descreva SOMENTE o que deve mudar — não explique o que deve ficar igual)",
                 height=120,
-                key=f"img_instr_{tipo_unico}",
-                placeholder="ex: título 'Guarda suas memórias com estilo', 3 benefícios: durabilidade, capa dura, folhas pretas...",
+                placeholder=(
+                    "ex: Diminua o tamanho do produto para que fique em proporção realista ao cenário. "
+                    "O produto mede aproximadamente 18cm.\n\n"
+                    "NÃO descreva o que já está certo — a IA vai preservar tudo que você não mencionar."
+                ),
+                key="img_instrucao_ajuste",
             )
-            tipos_selecionados = [tipo_unico]
-            ambientacao = _campo_ambientacao("unico")
 
-        elif modo == "Selecionar":
-            tipos_selecionados = st.multiselect(
-                "Quais imagens gerar?",
-                TIPOS_PADRAO,
-                default=TIPOS_PADRAO[:3],
-                key="img_tipos_multi",
-            )
-            instrucoes_extras = st.text_area(
-                "Contexto do produto (dados internos para a IA — não aparecem nas imagens)",
-                height=80,
-                placeholder="ex: produto tem versão preta e branca, foca nos dois no fundo branco",
-                key="img_instr_multi",
-            )
-            ambientacao = _campo_ambientacao("multi")
+            st.markdown("---")
+            if st.button(
+                "✏️ Aplicar Ajuste Fino",
+                type="primary",
+                use_container_width=True,
+                disabled=(not fotos_bytes_ajuste or not instrucao_ajuste.strip()),
+            ):
+                if not fotos_bytes_ajuste:
+                    st.warning("Suba a imagem que deseja ajustar.")
+                    st.stop()
+                if not instrucao_ajuste.strip():
+                    st.warning("Descreva o que você quer modificar.")
+                    st.stop()
 
-        else:  # todas as do padrão
-            tipos_selecionados = TIPOS_PADRAO
-            st.info(
-                "💡 **Contexto do produto** — escreva aqui dados que a IA precisa saber para gerar bem as imagens. "
-                "Esses dados são **internos para a IA** e não aparecem escritos nas imagens."
-            )
-            instrucoes_extras = st.text_area(
-                "Contexto do produto (dados internos para a IA — não aparecem nas imagens)",
-                height=80,
-                placeholder="ex: produto vem em 3 cores (preto, branco e azul) — destaque o preto. "
-                            "Rotação de 360°. Base estável. Ideal para presente.",
-                key="img_instr_lote",
-            )
-            ambientacao = _campo_ambientacao("lote")
+                import time as _time_af
+                import threading as _threading_af
+                _res_af = {"img": None, "relato": None, "done": False}
 
-        # ── BOTÃO DE TRIAGEM ──────────────────────────────────────────────────
-        st.markdown("---")
-        iniciar_triagem = st.button(
-            "🔍 Analisar e mostrar plano antes de gerar",
-            type="primary",
-            use_container_width=True,
-            disabled=not tipos_selecionados,
-        )
+                # `_dd` em argumento padrao — ver `_rodar_cmd`.
+                def _rodar_af(_ref=fotos_bytes_ajuste[0], _ins=instrucao_ajuste.strip(),
+                              _rf=list(fotos_bytes_prod or []), _r=_res_af,
+                              _dd=st.session_state.get(
+                                  "img_dados_descricao") or {}):
+                    try:
+                        # `referencias` é o que faltava aqui e as outras duas
+                        # modalidades já passavam. Vazio quando ninguém subiu foto
+                        # — e aí é vazio de verdade, não vazio por esquecimento.
+                        _r["img"], _r["relato"] = ajustar_com_conferencia(
+                            _ref, _ins, referencias=_rf,
+                            dados_descricao=_dd,
+                            aviso=lambda t: _r.__setitem__("fase", t))
+                    except Exception as _e:
+                        _r["img"], _r["relato"] = None, {
+                            "ok": False, "tentativas": 0, "erro": str(_e)[:160],
+                            "falta": "", "colateral": ""}
+                    finally:
+                        _r["done"] = True
 
-        if iniciar_triagem:
-            # Validações FORA do try/except para evitar que st.stop() seja capturado como erro
-            if not nome_produto:
-                st.warning("Informe o nome do produto.")
-                st.stop()
-            # ── A VARIAÇÃO ATIVA MANDA NAS FOTOS DESTE LOTE ─────────
+                _threading_af.Thread(target=_li_thread.alvo_com_contexto(_rodar_af),
+                                     daemon=True).start()
+                _barra_af = st.progress(0.0, text="Aplicando ajuste fino...")
+                _t0_af = _time_af.time()
+                while not _res_af["done"]:
+                    _seg_af = int(_time_af.time() - _t0_af)
+                    if _seg_af >= 600:
+                        _res_af["relato"] = {
+                            "ok": False, "tentativas": 0, "falta": "",
+                            "colateral": "",
+                            "erro": "tempo limite de 10 min atingido."}
+                        _res_af["done"] = True
+                        break
+                    _barra_af.progress(
+                        min(0.9, _seg_af / 120),
+                        text=(f"{_res_af.get('fase') or 'Aplicando ajuste fino'}… "
+                              f"({_seg_af}s)"))
+                    _time_af.sleep(1)
+                _barra_af.progress(1.0, text="Concluído!")
+                img_bytes_af = _res_af["img"]
+                _rel_af = _res_af["relato"] or {"ok": None, "tentativas": 0,
+                                                "erro": "sem relato", "falta": "",
+                                                "colateral": ""}
+
+                if not img_bytes_af:
+                    st.error(f"❌ {relato_em_texto(1, _rel_af)}")
+                else:
+                    galeria_atual = st.session_state.get("img_galeria", [])
+                    galeria_atual.append({
+                        "tipo": f"Ajuste Fino — {instrucao_ajuste[:40]}...",
+                        # De que tipo ela nasceu, para o dia em que alguém pedir
+                        # para refazê-la. Sem isto, o rótulo acima ia como tipo e
+                        # o prompt saía sem preset nenhum.
+                        "tipo_base": PERSONALIZADO,
+                        "bytes": img_bytes_af,
+                        "aprovado": False,
+                    })
+                    st.session_state["img_galeria"] = galeria_atual
+                    guardar_rascunho(usuario_logado, "ajuste fino (imagem nova)")
+                    # O veredito viaja com o indice da imagem nova, para aparecer
+                    # ao lado dela na galeria depois do rerun.
+                    st.session_state["img_af_relato"] = (len(galeria_atual) - 1,
+                                                         _rel_af)
+                    # `or "produto-ajustado"` SAIU: nome em branco trocava o
+                    # produto da sessão por um rótulo genérico, e a geração
+                    # seguinte saía sem nome. A porta ignora o vazio.
+                    definir_produto_da_sessao(nome_produto, codigo=codigo_input)
+                    # A imagem que ela subiu é a ARTE PRONTA, e não foto do
+                    # produto. Gravá-la como "fotos originais" fazia o refazer
+                    # gerar do zero usando a própria arte errada como referência —
+                    # e devolver exatamente a mesma imagem, depois de anunciar
+                    # "refeita do zero". Era a resposta para "ele confirma o que eu
+                    # pedi, diz que corrigiu, e não corrigiu".
+                    st.session_state["img_fotos_ajuste"] = fotos_bytes_ajuste
+                    # Com fotos do produto, o refazer do zero passa a ser possível
+                    # — e elas, e não a arte, é que são "as fotos originais".
+                    if fotos_bytes_prod:
+                        st.session_state["img_fotos_originais"] = fotos_bytes_prod
+                        st.session_state["img_fotos_sao_arte"] = False
+                    else:
+                        st.session_state["img_fotos_sao_arte"] = True
+                    st.session_state["img_dados_descricao"] = dados_descricao or {}
+                    st.session_state["img_instrucoes_originais"] = instrucao_ajuste
+                    import atividades
+                    atividades.registrar_atividade(
+                        usuario_logado,
+                        "Imagem (ajuste fino)",
+                        nome_produto or "produto",
+                        instrucao_ajuste[:80],
+                        codigo=codigo_input,
+                    )
+                    st.rerun()
+
+        # ══════════════════════════════════════════════════════════════════════════
+        # MODOS PADRÃO — fotos de referência + triagem + geração
+        # ══════════════════════════════════════════════════════════════════════════
+        else:
+            # ── FOTOS DE REFERÊNCIA DO PRODUTO ────────────────────────────────────
+            st.markdown("**Fotos de referência do produto**")
+            st.caption("Suba quantas fotos quiser — ângulos diferentes ajudam a IA a ser mais fiel.")
+            # DESENHADO NO CABEÇALHO, no lugar que `_slot_fotos` reservou.
+            fotos_upload = _slot_fotos.file_uploader(
+                "Fotos do produto — qualquer formato, inclusive foto de iPhone",
+                label_visibility="collapsed",
+                type=None,  # qualquer formato — normalizar_imagem converte o que precisar
+                accept_multiple_files=True,
+                key=f"img_fotos_upload_{versao_dos_uploads()}",
+            )
+            fotos_bytes, _nomes_ft, _av_ft, _er_ft = revisar_anexos(fotos_upload)
+            mostrar_anexos(_av_ft, _er_ft)
+
+            # ── AS FOTOS ANEXADAS TEM DE SOBREVIVER AO REINICIO ──────────────────
             #
-            # As fotos do campo "Fotos de referência do produto" são de UMA
-            # variação qualquer — é o que o dono descreveu. Mandar as duas
-            # ao gerador seria mostrar a ele duas cores do mesmo produto e
-            # pedir fidelidade: é a situação que faz a peça sair com a cor
-            # errada, e a trava de cor existe justamente por causa dela.
+            # O que se perdia: os bytes do upload moram na memoria do processo do
+            # Streamlit, e a lista de nomes fica no navegador. Quando o Studio
+            # reinicia com a pagina aberta — deploy, queda, troca de container — a
+            # tela continua mostrando "3 fotos anexadas" e o Python recebe zero.
+            # O botao entao respondia "Suba pelo menos uma foto do produto" com as
+            # fotos ali na tela, e nao havia nada a fazer alem de refazer tudo.
             #
-            # AQUI DENTRO, E NÃO NO DESENHO DA TELA: `fotos_da_variacao` pode
-            # ir ao Drive, e a tela redesenha a cada tecla digitada. No clique
-            # roda uma vez.
-            _var_ativa = str(st.session_state.get("img_var_atual", "") or "")
-            _fotos_geracao = list(fotos_bytes or [])
-            _avisos_var_g = []
-            if _var_ativa:
-                _f_var_g, _avisos_var_g = fotos_da_variacao(_var_ativa)
-                if _f_var_g:
-                    _fotos_geracao = _f_var_g
-            for _a_vg in _avisos_var_g:
-                st.warning("🎨 " + _a_vg)
-            if _var_ativa and not _fotos_geracao:
-                st.warning(
-                    f"A variação **{_var_ativa}** não tem foto nenhuma: nem "
-                    f"anexada aqui, nem baixável da triagem. Anexe pelo menos "
-                    f"uma no campo dela, acima — sem foto o gerador inventa o "
-                    f"produto, que é o defeito mais caro que esta aba tem.")
-                st.stop()
-            if not _fotos_geracao:
-                st.warning(
-                    "Suba pelo menos uma foto do produto — é ela que garante "
-                    "fidelidade.\n\n"
-                    "Se o campo acima **está mostrando arquivos** e mesmo "
-                    "assim eu digo que não há foto, o Studio reiniciou com "
-                    "esta página aberta: a lista de nomes fica no navegador, "
-                    "o conteúdo dos arquivos fica no servidor. **Recarregue a "
-                    "página (F5) e anexe de novo.**")
-                st.stop()
-
-            # A COR DESTE LOTE É O NOME DA VARIAÇÃO, e não a lista de
-            # todas. `variacao_cores` na triagem guarda "Camuflado, Preto,
-            # Areia" — mandar isso ao gerador seria pedir as três de uma vez.
-            # A trava de cor (`_trava_cor_produto`) lê `dados_descricao["cor"]`
-            # em oito pontos deste arquivo; ela tem de receber UMA cor.
+            # O disco do `rascunho` ja guardava o RESULTADO. Agora guarda tambem a
+            # ENTRADA, que e a parte cara de refazer (achar de novo as fotos certas
+            # do produto).
             #
-            # CÓPIA, E NÃO ESCRITA NO ORIGINAL: `dados_descricao` veio da
-            # descrição ou da triagem e é lido por outras partes da tela nesta
-            # mesma passada.
-            if _var_ativa:
-                dados_descricao = dict(dados_descricao or {})
-                dados_descricao["cor"] = _var_ativa
-
-            try:
-                # A ESPERA TEM DE DIZER QUANTO E O QUE, SENAO E "TRAVOU".
+            # A recuperacao e um BOTAO, e nunca automatica: repor foto sozinho
+            # ressuscitaria justamente a que a pessoa acabou de tirar com o X, e
+            # ela geraria oito pecas do produto errado sem saber por que.
+            import rascunho as _rasc_ft
+            if fotos_bytes:
+                # GRAVAR SO QUANDO MUDOU.
                 #
-                # O spinner dizia so "Analisando produto...". Numa analise que
-                # passou de sete minutos, quem olhava nao tinha como saber se
-                # estava andando, quanto faltava, ou se ja tinha morrido.
-                _n_fotos = len(fotos_bytes or [])
-                with st.spinner(
-                    f"Analisando {_n_fotos} foto(s) e montando o plano das "
-                    f"{len(tipos_selecionados)} peças… costuma levar de 20 a 60 "
-                    "segundos, e o limite é 3 minutos. Não feche a aba."
-                ):
-                    plano, erro_triagem = gerar_triagem_ia(
-                        nome_produto, tipos_selecionados, dados_descricao,
-                        instrucoes_extras, fotos_bytes,
+                # A primeira versao desta linha chamava `salvar_fotos` a cada
+                # passada. O Streamlit redesenha a pagina A CADA TECLA digitada no
+                # campo de contexto — seis fotos de 5 MB seriam 30 MB escritos no
+                # disco por tecla, e a tela ficaria inutilizavel. E o mesmo defeito
+                # que fez a Home levar 15 segundos para abrir.
+                #
+                # A assinatura e nome + tamanho: nao le byte nenhum, e muda quando
+                # a pessoa troca, tira ou acrescenta foto — que e exatamente
+                # quando gravar de novo faz sentido.
+                _assin_ft = tuple(zip(_nomes_ft, (len(b) for b in fotos_bytes)))
+                if st.session_state.get("img_fotos_no_disco") != _assin_ft:
+                    if _rasc_ft.salvar_fotos(usuario_logado, fotos_bytes, _nomes_ft):
+                        st.session_state["img_fotos_no_disco"] = _assin_ft
+                st.session_state.pop("img_fotos_recuperadas", None)
+            else:
+                _usar = st.session_state.get("img_fotos_recuperadas") or []
+                if _usar:
+                    fotos_bytes = [f["bytes"] for f in _usar]
+                    _nomes_ft = [f["nome"] for f in _usar]
+                    st.success(
+                        f"✅ Usando **{len(fotos_bytes)} foto(s)** recuperadas do "
+                        "disco: " + ", ".join(n or "sem nome" for n in _nomes_ft[:5])
+                        + ". Para trocar, anexe outras no campo acima.")
+                    if st.button("Descartar essas e anexar outras",
+                                 key="img_descartar_fotos"):
+                        st.session_state.pop("img_fotos_recuperadas", None)
+                        _rasc_ft.limpar_fotos(usuario_logado)
+                        st.rerun()
+                else:
+                    # `resumo_fotos` e nao `carregar_fotos`: esta linha roda a cada
+                    # tecla digitada na pagina, e ler 3 MB de foto do disco a cada
+                    # passada trava a tela. Os bytes so sobem no clique do botao.
+                    _guardadas = _rasc_ft.resumo_fotos(usuario_logado)
+                    if _guardadas:
+                        st.info(
+                            f"📎 Tenho **{len(_guardadas)} foto(s)** que você "
+                            "anexou antes guardadas em disco: "
+                            + ", ".join(f["nome"] or "sem nome"
+                                        for f in _guardadas[:5])
+                            + (f" (+{len(_guardadas) - 5})"
+                               if len(_guardadas) > 5 else "")
+                            + ". Se a lista de arquivos acima parece cheia mas o "
+                              "Studio diz que não há foto, é isto: o Studio "
+                              "reiniciou e perdeu os arquivos que o navegador "
+                              "ainda mostra.")
+                        if st.button("📎 Usar essas fotos de novo",
+                                     key="img_recuperar_fotos",
+                                     use_container_width=True):
+                            st.session_state["img_fotos_recuperadas"] = \
+                                _rasc_ft.carregar_fotos(usuario_logado)
+                            st.rerun()
+
+            if fotos_bytes:
+                LIMITE_MB = 10
+                # Pelos nomes que a revisao devolveu, e nao pelo upload original:
+                # com um arquivo recusado no meio, o indice do upload aponta para
+                # outra foto e o aviso acusa a errada.
+                fotos_grandes = [
+                    (_nomes_ft[i], len(b) / 1_048_576)
+                    for i, b in enumerate(fotos_bytes)
+                    if len(b) > LIMITE_MB * 1_048_576
+                ]
+                if fotos_grandes:
+                    nomes = ", ".join(f"{n} ({s:.1f}MB)" for n, s in fotos_grandes)
+                    st.warning(
+                        f"⚠️ {len(fotos_grandes)} foto(s) com mais de {LIMITE_MB}MB: {nomes}. "
+                        f"Fotos muito grandes podem causar timeout — considere reduzir a resolução antes de enviar."
                     )
 
-                # A triagem e um PLANEJAMENTO, nao um pre-requisito tecnico: ela
-                # roda no Claude, enquanto as imagens saem no motor primário ou no
-                # Gemini. Fazer a falha dela travar tudo significa que uma conta
-                # sem saldo em UM fornecedor derruba o Studio inteiro — foi o que
-                # aconteceu em producao com "credit balance is too low".
-                #
-                # Agora, quando a triagem falha, seguimos com um plano neutro:
-                # todos os tipos escolhidos marcados como viaveis, sem composicao
-                # sugerida. O colaborador perde a previa e a checagem de dados
-                # faltantes, mas continua conseguindo gerar.
-                if erro_triagem:
-                    _e_txt = str(erro_triagem)
-                    if "credit balance" in _e_txt or "billing" in _e_txt.lower():
-                        st.warning(
-                            "⚠️ A análise prévia não rodou: a conta da Anthropic está sem "
-                            "crédito. **Isso é ajuste de administrador** — avise o Léo "
-                            "(console.anthropic.com → Plans & Billing).\n\n"
-                            "A geração das imagens continua funcionando normalmente; você "
-                            "só não vai ver o plano de criação antes."
-                        )
-                    elif "timeout" in _e_txt.lower() or "timed out" in _e_txt.lower():
-                        # O TEMPO ESGOTADO TEM CONSELHO PROPRIO.
-                        #
-                        # Antes a espera era infinita: uma analise ficou sete
-                        # minutos no spinner sem plano e sem erro, e quem
-                        # estava na tela recarregou achando que tinha travado.
-                        # Agora ela morre em tres minutos — e morrer sem dizer
-                        # o que fazer seria trocar um silencio por outro.
-                        st.warning(
-                            "⏱️ A análise passou de 3 minutos e foi encerrada. "
-                            "Costuma ser volume de imagem: cada foto e cada "
-                            "referência de ambientação entra na leitura.\n\n"
-                            "**Você pode gerar assim mesmo** — o plano abaixo "
-                            "traz os tipos escolhidos, só sem a prévia.\n\n"
-                            "Para ter a prévia: clique em **Analisar "
-                            "novamente** com menos referências de ambientação, "
-                            "ou com fotos menores."
-                        )
-                    else:
-                        st.warning(
-                            f"⚠️ Não consegui montar a prévia do plano, mas você pode gerar "
-                            f"assim mesmo.\n\nDetalhe técnico: {_e_txt[:200]}"
-                        )
-                    plano = {
-                        "plano": [
-                            {"tipo": _t, "numero": _i + 1, "composicao": "",
-                             # `cena` existe aqui tambem, para o plano neutro
-                             # ter a mesma forma do plano cheio: campo que
-                             # existe num e falta no outro e o comeco de um
-                             # `KeyError` tres telas adiante.
-                             "cena": "", "textos": [], "flags": [], "viavel": True,
-                             "pergunta_info": ""}
-                            for _i, _t in enumerate(tipos_selecionados)
-                        ],
-                        "observacao_geral": "",
-                    }
+                # Sempre 5 colunas fixas — evita RemoveChild do React ao mudar nº de colunas
+                _cols_prev = st.columns(5)
+                for _i, _fb in enumerate(fotos_bytes[:5]):
+                    _cols_prev[_i].image(_fb, use_container_width=True)
+                if len(fotos_bytes) > 5:
+                    st.caption(f"+ {len(fotos_bytes) - 5} foto(s) adicionais carregadas.")
 
-                if plano:
-                    st.session_state["img_triagem_plano"] = plano
-                    st.session_state["img_triagem_config"] = {
-                        "nome_produto": nome_produto,
-                        "codigo": codigo_input,
-                        "tipos": tipos_selecionados,
-                        "instrucoes_extras": instrucoes_extras,
-                        # Viaja no cfg como o resto: sem isto, o botão de
-                        # regerar e o chat montariam o prompt SEM a ambientação
-                        # e a peça refeita sairia diferente da que nasceu —
-                        # que é exatamente o defeito que `prompt_para_regerar`
-                        # existe para não deixar acontecer.
-                        "ambientacao": ambientacao,
-                        # As fotos de cenario viajam na config, e nao numa
-                        # variavel solta: a geracao roda em thread e o
-                        # `st.session_state` nao existe la dentro. Foi por
-                        # isso que a referencia de layout ja viaja assim.
-                        "refs_ambientacao": st.session_state.get(
-                            "img_refs_ambientacao") or [],
-                        # As fotos da VARIAÇÃO ativa quando há uma; as do
-                        # campo do produto quando não há. Uma linha só, e é
-                        # aqui: cfg é a porta por onde a geração, o refazer e
-                        # o .txt dos prompts leem as fotos.
-                        "fotos_bytes": _fotos_geracao,
-                        "variacao": _var_ativa,
-                        "dados_descricao": dados_descricao,
-                        # Referências de layout (opcional)
-                        "refs_layout_bytes": refs_layout_bytes,
-                        "refs_layout_nomes": refs_layout_nomes,
-                        "instrucao_layout": instrucao_layout,
-                    }
-                    # Sem st.rerun() — o plano é exibido diretamente abaixo
-                    # sem resetar a página nem perder os campos preenchidos
-            except Exception as _e_triagem:
-                st.error(
-                    f"❌ Ocorreu um erro ao montar a prévia: {_e_triagem}\n\n"
-                    "Verifique se o nome do produto está preenchido e tente novamente. "
-                    "Se o erro persistir, reduza o tamanho das fotos ou escolha menos tipos de imagem."
+            # ── IMAGENS DE REFERÊNCIA DE LAYOUT (opcional) ────────────────────────
+            # ── REFERÊNCIAS DE AMBIENTAÇÃO ───────────────────────────────────
+            #
+            # Separadas das de LAYOUT porque a escolha é feita de outro jeito, e
+            # essa é a diferença inteira. Layout casa pelo NOME do arquivo — o
+            # colaborador batiza "presentear.jpg" e a peça 7 pega. Para cenário
+            # isso não funciona: ninguém nomeia uma foto de bar por tipo de peça,
+            # e a mesma sala cabe em três peças diferentes.
+            #
+            # Pedido do dono: "não tem que ir pelo nome da imagem, tem que olhar
+            # todas e entender qual ambientação se enquadra melhor em cada tipo".
+            with st.expander("🏙️ Imagens de referência de AMBIENTAÇÃO (opcional)",
+                             expanded=False):
+                st.caption(
+                    "Suba fotos de **cenários** que você quer como clima das "
+                    "peças — o cômodo, a luz, os materiais. O Studio **olha "
+                    "todas** e decide sozinho qual cabe em cada tipo de imagem: "
+                    "não vai pelo nome do arquivo."
                 )
+                st.info(
+                    "🎯 O produto que aparece nessas fotos é **ignorado de "
+                    "propósito**. O Studio copia o ambiente, a luz e o clima — "
+                    "e coloca o SEU produto dentro dele, no tamanho real dele."
+                )
+                refs_amb_upload = _slot_amb.file_uploader(
+                    "Referências de ambientação — qualquer formato",
+                    label_visibility="collapsed",
+                    type=None, accept_multiple_files=True,
+                    key=f"img_refs_amb_upload_{versao_dos_uploads()}",
+                    help="Ex.: a foto de um bar à noite para o clima das peças "
+                         "deste cinzeiro.",
+                )
+                refs_amb_bytes = []
+                if refs_amb_upload:
+                    (refs_amb_bytes, _nomes_amb,
+                     _av_ra, _er_ra) = revisar_anexos(refs_amb_upload)
+                    mostrar_anexos(_av_ra, _er_ra)
+                    _cols_ra = st.columns(4)
+                    for _i, _rb in enumerate(refs_amb_bytes[:4]):
+                        _cols_ra[_i].image(_rb, use_container_width=True)
+                    if len(refs_amb_bytes) > 8:
+                        st.caption(f"Subiu {len(refs_amb_bytes)} — o Studio lê as "
+                                   "8 primeiras. Acima disso a leitura fica cara "
+                                   "e a escolha não melhora.")
+                st.session_state["img_refs_ambientacao"] = refs_amb_bytes
+
+            with st.expander("🖼️ Imagens de referência de layout (opcional)", expanded=False):
+                st.caption(
+                    "Suba imagens de outros produtos que mostram o **layout, posições, estilo ou texto** "
+                    "que você quer replicar. A IA vai entender a composição e aplicar ao SEU produto, "
+                    "mantendo o padrão visual MartinSousa."
+                )
+                st.info(
+                    f"💡 **Como nomear os arquivos para as {len(TIPOS_PADRAO)} imagens padrão:** "
+                    "`fundo_branco.jpg`, `beneficios.jpg`, `cenario.jpg`, `detalhes.jpg`, "
+                    "`medidas_peso.jpg`, `quebra_objecao.jpg`, `presentear.jpg` — "
+                    "o nome do arquivo indica para qual tipo de imagem a referência se aplica."
+                )
+                refs_layout_upload = _slot_layout.file_uploader(
+                    "Imagens de referência de layout — qualquer formato",
+                    label_visibility="collapsed",
+                    type=None,  # qualquer formato — normalizar_imagem converte o que precisar
+                    accept_multiple_files=True,
+                    key=f"img_refs_layout_upload_{versao_dos_uploads()}",
+                    help="Ex: uma imagem de bengala mostrando como você quer que fique o layout — a IA reproduz o estilo no seu produto.",
+                )
+                refs_layout_bytes = []
+                refs_layout_nomes = []
+                if refs_layout_upload:
+                    (refs_layout_bytes, refs_layout_nomes,
+                     _av_rl, _er_rl) = revisar_anexos(refs_layout_upload)
+                    mostrar_anexos(_av_rl, _er_rl)
+                    # Sempre 4 colunas fixas — evita RemoveChild do React
+                    _cols_rl = st.columns(4)
+                    for _i, _rb in enumerate(refs_layout_bytes[:4]):
+                        _cols_rl[_i].image(_rb, caption=refs_layout_nomes[_i][:20], use_container_width=True)
+
+                    # ── A QUAL PEÇA CADA REFERÊNCIA VAI ───────────────────────────
+                    # A referência é escolhida pelo nome do arquivo. Sem mostrar o
+                    # resultado desse casamento ANTES de gerar, o colaborador só
+                    # descobria que o nome não bateu depois de pagar a geração
+                    # inteira — e sem saber que o problema era o nome.
+                    _pares = []
+                    _usadas = set()
+                    for _t in TIPOS_PADRAO:
+                        _b, _n = ref_layout_do_tipo(_t, refs_layout_bytes, refs_layout_nomes)
+                        _pares.append((_t, _n))
+                        if _n:
+                            _usadas.add(_n)
+
+                    _orfas = [n for n in refs_layout_nomes if n not in _usadas]
+
+                    with st.expander(
+                        f"🔗 Qual referência vai para cada peça "
+                        f"({len(_usadas)} de {len(refs_layout_nomes)} em uso)",
+                        expanded=bool(_orfas),
+                    ):
+                        for _t, _n in _pares:
+                            if _n:
+                                st.markdown(f"**{_t}**  →  `{_n}`")
+                            else:
+                                st.markdown(
+                                    f"<span style='opacity:.55'>{_t}  →  sem referência "
+                                    f"(será gerada só pelo padrão)</span>",
+                                    unsafe_allow_html=True,
+                                )
+                        if _orfas:
+                            st.warning(
+                                "Estes arquivos **não serão usados** porque o nome não "
+                                "corresponde a nenhuma peça: "
+                                + ", ".join(f"`{n}`" for n in _orfas)
+                                + ".\n\nRenomeie usando uma palavra da peça — por exemplo "
+                                "`beneficios`, `medidas`, `presente`, `cenario`, `close`, "
+                                "`objecao`, `ambiente` ou `capa`."
+                            )
+
+                instrucao_layout = ""
+                if refs_layout_bytes:
+                    instrucao_layout = st.text_area(
+                        "Descreva o que cada imagem de referência representa (opcional)",
+                        height=80,
+                        placeholder=(
+                            "ex: 'fundo_branco.jpg' — quero esse estilo de sombra suave e centralização. "
+                            "'beneficios.jpg' — replicar os ícones à direita com texto ao lado."
+                        ),
+                        key="img_instrucao_layout",
+                    )
+
+            # ── TIPOS ─────────────────────────────────────────────────────────────
+            tipos_selecionados = []
+            instrucoes_extras = ""
+
+            if modo == "1 imagem específica":
+                tipo_unico = st.selectbox("Tipo de imagem", list(PRESETS.keys()), key="img_tipo_unico")
+                instrucoes_extras = st.text_area(
+                    "Descreva o que você quer nessa imagem (textos, cenas, destaque)",
+                    value=PRESETS[tipo_unico],
+                    height=120,
+                    key=f"img_instr_{tipo_unico}",
+                    placeholder="ex: título 'Guarda suas memórias com estilo', 3 benefícios: durabilidade, capa dura, folhas pretas...",
+                )
+                tipos_selecionados = [tipo_unico]
+                ambientacao = _campo_ambientacao("unico")
+
+            elif modo == "Selecionar":
+                tipos_selecionados = st.multiselect(
+                    "Quais imagens gerar?",
+                    TIPOS_PADRAO,
+                    default=TIPOS_PADRAO[:3],
+                    key="img_tipos_multi",
+                )
+                instrucoes_extras = st.text_area(
+                    "Contexto do produto (dados internos para a IA — não aparecem nas imagens)",
+                    height=80,
+                    placeholder="ex: produto tem versão preta e branca, foca nos dois no fundo branco",
+                    key="img_instr_multi",
+                )
+                ambientacao = _campo_ambientacao("multi")
+
+            else:  # todas as do padrão
+                tipos_selecionados = TIPOS_PADRAO
+                st.info(
+                    "💡 **Contexto do produto** — escreva aqui dados que a IA precisa saber para gerar bem as imagens. "
+                    "Esses dados são **internos para a IA** e não aparecem escritos nas imagens."
+                )
+                instrucoes_extras = st.text_area(
+                    "Contexto do produto (dados internos para a IA — não aparecem nas imagens)",
+                    height=80,
+                    placeholder="ex: produto vem em 3 cores (preto, branco e azul) — destaque o preto. "
+                                "Rotação de 360°. Base estável. Ideal para presente.",
+                    key="img_instr_lote",
+                )
+                ambientacao = _campo_ambientacao("lote")
+
+            # ── BOTÃO DE TRIAGEM ──────────────────────────────────────────────────
+            st.markdown("---")
+            iniciar_triagem = st.button(
+                "🔍 Analisar e mostrar plano antes de gerar",
+                type="primary",
+                use_container_width=True,
+                disabled=not tipos_selecionados,
+            )
+
+            # ── O MESMO BOTÃO, DESENHADO AO LADO DA CONVERSA ────────────
+            #
+            # Ele é escrito DENTRO do lugar reservado lá em cima, e some
+            # quando não há o que gerar: botão que promete o que não pode
+            # fazer é pior que botão nenhum.
+            with _slot_gerar:
+                if tipos_selecionados and nome_produto:
+                    _rot_g = (tipos_selecionados[0]
+                              if len(tipos_selecionados) == 1
+                              else f"{len(tipos_selecionados)} imagens")
+                    st.markdown(f"**Pronto para gerar:** {_rot_g}")
+                    if st.button("🔍 Analisar e gerar esta imagem",
+                                 type="primary", use_container_width=True,
+                                 key="btn_gerar_na_conversa"):
+                        st.session_state["img_pedir_plano"] = True
+                        st.rerun()
+                    st.caption(
+                        "É aqui que a geração é paga — nada é gerado sem este "
+                        "clique. O plano aparece antes, para você conferir.")
+                elif nome_produto:
+                    st.caption(
+                        "Peça a imagem na conversa acima, ou escolha o tipo "
+                        "no ⚙️ Modo manual — o botão de gerar aparece aqui.")
+
+            # O pedido feito ao lado da conversa vale como o clique daqui.
+            # `pop` e não `get`: sem ele a tela geraria de novo a cada passada.
+            if st.session_state.pop("img_pedir_plano", False):
+                iniciar_triagem = True
+
+            if iniciar_triagem:
+                # Validações FORA do try/except para evitar que st.stop() seja capturado como erro
+                if not nome_produto:
+                    st.warning("Informe o nome do produto.")
+                    st.stop()
+                # ── A VARIAÇÃO ATIVA MANDA NAS FOTOS DESTE LOTE ─────────
+                #
+                # As fotos do campo "Fotos de referência do produto" são de UMA
+                # variação qualquer — é o que o dono descreveu. Mandar as duas
+                # ao gerador seria mostrar a ele duas cores do mesmo produto e
+                # pedir fidelidade: é a situação que faz a peça sair com a cor
+                # errada, e a trava de cor existe justamente por causa dela.
+                #
+                # AQUI DENTRO, E NÃO NO DESENHO DA TELA: `fotos_da_variacao` pode
+                # ir ao Drive, e a tela redesenha a cada tecla digitada. No clique
+                # roda uma vez.
+                _var_ativa = str(st.session_state.get("img_var_atual", "") or "")
+                _fotos_geracao = list(fotos_bytes or [])
+                _avisos_var_g = []
+                if _var_ativa:
+                    _f_var_g, _avisos_var_g = fotos_da_variacao(_var_ativa)
+                    if _f_var_g:
+                        _fotos_geracao = _f_var_g
+                for _a_vg in _avisos_var_g:
+                    st.warning("🎨 " + _a_vg)
+                if _var_ativa and not _fotos_geracao:
+                    st.warning(
+                        f"A variação **{_var_ativa}** não tem foto nenhuma: nem "
+                        f"anexada aqui, nem baixável da triagem. Anexe pelo menos "
+                        f"uma no campo dela, acima — sem foto o gerador inventa o "
+                        f"produto, que é o defeito mais caro que esta aba tem.")
+                    st.stop()
+                if not _fotos_geracao:
+                    st.warning(
+                        "Suba pelo menos uma foto do produto — é ela que garante "
+                        "fidelidade.\n\n"
+                        "Se o campo acima **está mostrando arquivos** e mesmo "
+                        "assim eu digo que não há foto, o Studio reiniciou com "
+                        "esta página aberta: a lista de nomes fica no navegador, "
+                        "o conteúdo dos arquivos fica no servidor. **Recarregue a "
+                        "página (F5) e anexe de novo.**")
+                    st.stop()
+
+                # A COR DESTE LOTE É O NOME DA VARIAÇÃO, e não a lista de
+                # todas. `variacao_cores` na triagem guarda "Camuflado, Preto,
+                # Areia" — mandar isso ao gerador seria pedir as três de uma vez.
+                # A trava de cor (`_trava_cor_produto`) lê `dados_descricao["cor"]`
+                # em oito pontos deste arquivo; ela tem de receber UMA cor.
+                #
+                # CÓPIA, E NÃO ESCRITA NO ORIGINAL: `dados_descricao` veio da
+                # descrição ou da triagem e é lido por outras partes da tela nesta
+                # mesma passada.
+                if _var_ativa:
+                    dados_descricao = dict(dados_descricao or {})
+                    dados_descricao["cor"] = _var_ativa
+
+                try:
+                    # A ESPERA TEM DE DIZER QUANTO E O QUE, SENAO E "TRAVOU".
+                    #
+                    # O spinner dizia so "Analisando produto...". Numa analise que
+                    # passou de sete minutos, quem olhava nao tinha como saber se
+                    # estava andando, quanto faltava, ou se ja tinha morrido.
+                    _n_fotos = len(fotos_bytes or [])
+                    with st.spinner(
+                        f"Analisando {_n_fotos} foto(s) e montando o plano das "
+                        f"{len(tipos_selecionados)} peças… costuma levar de 20 a 60 "
+                        "segundos, e o limite é 3 minutos. Não feche a aba."
+                    ):
+                        plano, erro_triagem = gerar_triagem_ia(
+                            nome_produto, tipos_selecionados, dados_descricao,
+                            instrucoes_extras, fotos_bytes,
+                        )
+
+                    # A triagem e um PLANEJAMENTO, nao um pre-requisito tecnico: ela
+                    # roda no Claude, enquanto as imagens saem no motor primário ou no
+                    # Gemini. Fazer a falha dela travar tudo significa que uma conta
+                    # sem saldo em UM fornecedor derruba o Studio inteiro — foi o que
+                    # aconteceu em producao com "credit balance is too low".
+                    #
+                    # Agora, quando a triagem falha, seguimos com um plano neutro:
+                    # todos os tipos escolhidos marcados como viaveis, sem composicao
+                    # sugerida. O colaborador perde a previa e a checagem de dados
+                    # faltantes, mas continua conseguindo gerar.
+                    if erro_triagem:
+                        _e_txt = str(erro_triagem)
+                        if "credit balance" in _e_txt or "billing" in _e_txt.lower():
+                            st.warning(
+                                "⚠️ A análise prévia não rodou: a conta da Anthropic está sem "
+                                "crédito. **Isso é ajuste de administrador** — avise o Léo "
+                                "(console.anthropic.com → Plans & Billing).\n\n"
+                                "A geração das imagens continua funcionando normalmente; você "
+                                "só não vai ver o plano de criação antes."
+                            )
+                        elif "timeout" in _e_txt.lower() or "timed out" in _e_txt.lower():
+                            # O TEMPO ESGOTADO TEM CONSELHO PROPRIO.
+                            #
+                            # Antes a espera era infinita: uma analise ficou sete
+                            # minutos no spinner sem plano e sem erro, e quem
+                            # estava na tela recarregou achando que tinha travado.
+                            # Agora ela morre em tres minutos — e morrer sem dizer
+                            # o que fazer seria trocar um silencio por outro.
+                            st.warning(
+                                "⏱️ A análise passou de 3 minutos e foi encerrada. "
+                                "Costuma ser volume de imagem: cada foto e cada "
+                                "referência de ambientação entra na leitura.\n\n"
+                                "**Você pode gerar assim mesmo** — o plano abaixo "
+                                "traz os tipos escolhidos, só sem a prévia.\n\n"
+                                "Para ter a prévia: clique em **Analisar "
+                                "novamente** com menos referências de ambientação, "
+                                "ou com fotos menores."
+                            )
+                        else:
+                            st.warning(
+                                f"⚠️ Não consegui montar a prévia do plano, mas você pode gerar "
+                                f"assim mesmo.\n\nDetalhe técnico: {_e_txt[:200]}"
+                            )
+                        plano = {
+                            "plano": [
+                                {"tipo": _t, "numero": _i + 1, "composicao": "",
+                                 # `cena` existe aqui tambem, para o plano neutro
+                                 # ter a mesma forma do plano cheio: campo que
+                                 # existe num e falta no outro e o comeco de um
+                                 # `KeyError` tres telas adiante.
+                                 "cena": "", "textos": [], "flags": [], "viavel": True,
+                                 "pergunta_info": ""}
+                                for _i, _t in enumerate(tipos_selecionados)
+                            ],
+                            "observacao_geral": "",
+                        }
+
+                    if plano:
+                        st.session_state["img_triagem_plano"] = plano
+                        st.session_state["img_triagem_config"] = {
+                            "nome_produto": nome_produto,
+                            "codigo": codigo_input,
+                            "tipos": tipos_selecionados,
+                            "instrucoes_extras": instrucoes_extras,
+                            # Viaja no cfg como o resto: sem isto, o botão de
+                            # regerar e o chat montariam o prompt SEM a ambientação
+                            # e a peça refeita sairia diferente da que nasceu —
+                            # que é exatamente o defeito que `prompt_para_regerar`
+                            # existe para não deixar acontecer.
+                            "ambientacao": ambientacao,
+                            # As fotos de cenario viajam na config, e nao numa
+                            # variavel solta: a geracao roda em thread e o
+                            # `st.session_state` nao existe la dentro. Foi por
+                            # isso que a referencia de layout ja viaja assim.
+                            "refs_ambientacao": st.session_state.get(
+                                "img_refs_ambientacao") or [],
+                            # As fotos da VARIAÇÃO ativa quando há uma; as do
+                            # campo do produto quando não há. Uma linha só, e é
+                            # aqui: cfg é a porta por onde a geração, o refazer e
+                            # o .txt dos prompts leem as fotos.
+                            "fotos_bytes": _fotos_geracao,
+                            "variacao": _var_ativa,
+                            "dados_descricao": dados_descricao,
+                            # Referências de layout (opcional)
+                            "refs_layout_bytes": refs_layout_bytes,
+                            "refs_layout_nomes": refs_layout_nomes,
+                            "instrucao_layout": instrucao_layout,
+                        }
+                        # Sem st.rerun() — o plano é exibido diretamente abaixo
+                        # sem resetar a página nem perder os campos preenchidos
+                except Exception as _e_triagem:
+                    st.error(
+                        f"❌ Ocorreu um erro ao montar a prévia: {_e_triagem}\n\n"
+                        "Verifique se o nome do produto está preenchido e tente novamente. "
+                        "Se o erro persistir, reduza o tamanho das fotos ou escolha menos tipos de imagem."
+                    )
 
     # ── EXIBIÇÃO DA TRIAGEM ───────────────────────────────────────────────────
     if "img_triagem_plano" in st.session_state and "img_triagem_config" in st.session_state:
@@ -13217,6 +13286,136 @@ def pagina_imagem(usuario_logado):
             "Geração e TODAS as correções de cada peça deste produto, da "
             "primeira à última, em um .txt.")
         _baixar_historico_de_prompts(sufixo="_galeria")
+
+    # ── O RODAPÉ: DIAGNÓSTICO, QUE NÃO É TRABALHO ───────────────────────────
+    #
+    # Dono, 23/10: *"O que precisa sair"*. Estes dois blocos abriam a aba —
+    # a primeira coisa que o colaborador via ao entrar para gerar imagem era
+    # quanta memória o container está usando.
+    #
+    # Eles NÃO somem: a linha da memória é o que distingue "deploy" de "o
+    # processo reiniciou e levou o histórico do chat junto", e sem ela essa
+    # diferença volta a ser opinião. Aqui embaixo é onde ela vale — quem
+    # procura diagnóstico desce; quem veio trabalhar não tropeça nele.
+    st.markdown("---")
+    # ── Saúde do processo ────────────────────────────────────────────────
+    #
+    # A faixa "Reconectando ao servidor" tem três causas possíveis, e só uma
+    # delas apaga o histórico do chat: o processo REINICIAR. As outras duas —
+    # deploy e script preso — não apagam nada.
+    #
+    # Sem este número, a diferença entre elas é opinião. Com ele, é uma linha:
+    # se o "de pé há" volta para segundos toda vez que a tela reconecta, o
+    # processo está morrendo e voltando, e a causa é memória.
+    try:
+        import saude as _sd
+        _sd.contar_passada()
+        _s = _sd.resumo(st.session_state)
+        _linha = (f"⚙️ Processo de pé há **{_s['de_pe_ha']}** · "
+                  f"{_s['passadas']} passada(s) · memória "
+                  f"**{_s['memoria_mb']} MB**"
+                  + (f" de {_s['limite_mb']} MB ({_s['pct_memoria']}%)"
+                     if _s['limite_mb'] else "")
+                  + (f" · imagens nesta sessão: {_s['imagens_na_sessao_mb']} MB"
+                     if _s['imagens_na_sessao_mb'] else ""))
+        if _s["pct_memoria"] >= 80:
+            st.warning(_linha + "  \n⚠️ Memória perto do limite do container — "
+                       "é aqui que ele reinicia e o histórico do chat some.")
+        else:
+            st.caption(_linha)
+    except Exception:
+        pass
+
+    with st.expander("🔧 Diagnóstico das APIs de Imagem", expanded=False):
+        st.caption("Testa o motor primário da OpenAI e Gemini Flash (fallback) para confirmar que estão funcionando.")
+        if st.button("Testar APIs agora", key="btn_diag_gemini"):
+            # Testa OpenAI
+            _oai_key = _get_openai_api_key()
+            if _oai_key:
+                _modelo = modelo_de_imagem()
+                # O QUE A CONTA TEM, DITO ANTES DO TESTE.
+                #
+                # Era esta a pergunta que faltava: o Studio insistia num nome
+                # inventado e a tela mostrava "404", um número que não diz a
+                # ninguém o que fazer. Agora a lista vem junto, e escolher o
+                # certo deixa de depender de alguém adivinhar.
+                _disp = modelos_de_imagem_da_conta()
+                if _disp:
+                    st.caption("Modelos de imagem desta conta: "
+                               + ", ".join(_disp[:8])
+                               + f"  ·  em uso: **{_modelo}**")
+                    if _modelo not in _disp:
+                        st.error(
+                            f"O modelo em uso (**{_modelo}**) NÃO está na "
+                            f"conta. Configure `OPENAI_MODELO_IMAGEM` no "
+                            f"Railway com um da lista acima — ou deixe como "
+                            f"está: o Studio troca sozinho na primeira falha.")
+                else:
+                    st.caption("Não consegui listar os modelos desta conta.")
+                # ── E O QUE ISSO SIGNIFICA PARA AS PEÇAS ─────────────────
+                #
+                # A lista de modelos não diz a ninguém que as peças vão sair
+                # com margem. O Studio SABIA e parava no nome do modelo — a
+                # mesma falha que o oitavo verificador existe para pegar:
+                # tem a informação e não a transforma em recado.
+                _cap_ok, _cap_recado = capacidade_do_motor(_disp)
+                (st.success if _cap_ok else st.error)(_cap_recado)
+                with st.spinner(f"Testando {_modelo}…"):
+                    import time as _td
+                    _t0_oai = _td.time()
+                    try:
+                        from openai import OpenAI as _OAITest
+                        _oai_client = _OAITest(api_key=_oai_key)
+                        # O TESTE SE ADAPTA IGUAL À GERAÇÃO.
+                        #
+                        # Ele mandava `quality="low"` — o mesmo parâmetro que
+                        # o `dall-e-3` recusa e que acabou de ser corrigido no
+                        # caminho de geração. Corrigir num irmão e deixar o
+                        # outro é a Forma 1 desta base, e aqui ela doía duas
+                        # vezes: a tela de diagnóstico diria que o motor não
+                        # funciona quando o problema é o parâmetro do teste.
+                        _args_t = {"model": _modelo,
+                                   "prompt": "A small red circle on white "
+                                             "background, minimal.",
+                                   "n": 1, "size": "1024x1024",
+                                   "quality": "low"}
+                        while True:
+                            try:
+                                _oai_resp = _oai_client.images.generate(**_args_t)
+                                break
+                            except Exception as _e_t:
+                                _q_t = parametro_recusado(_e_t, _args_t)
+                                if not _q_t:
+                                    raise
+                                _args_t.pop(_q_t, None)
+                        _oai_ms = int((_td.time() - _t0_oai) * 1000)
+                        _oai_img = getattr(_oai_resp.data[0], "b64_json", None) or getattr(_oai_resp.data[0], "url", None)
+                        if _oai_img:
+                            st.success(f"✅ **{_modelo}** — gerou imagem ({_oai_ms}ms)")
+                        else:
+                            st.warning(f"⚠️ **{_modelo}** — sem imagem na resposta ({_oai_ms}ms)")
+                    except Exception as _e_oai:
+                        _oai_ms = int((_td.time() - _t0_oai) * 1000)
+                        st.error(f"❌ **{_modelo}** — {str(_e_oai)[:300]} ({_oai_ms}ms)")
+            else:
+                st.warning("⚠️ **Motor primário** — OPENAI_API_KEY não configurada nas "
+                           "variáveis do Railway.")
+
+            # Testa Gemini
+            with st.spinner(f"Testando {MODELO_DIAG} via Gemini API (pode levar ~30s)..."):
+                d = _testar_gemini_api()
+            if "erro_geral" in d:
+                st.error(d["erro_geral"])
+            else:
+                st.caption(f"Gemini API Key: `{d.get('api_key','?')}`")
+                info = d.get(MODELO_DIAG, {})
+                if info.get("ok"):
+                    icone = "✅" if info.get("tem_imagem") else "⚠️"
+                    label = "gerou imagem" if info.get("tem_imagem") else "respondeu mas sem imagem (créditos podem estar esgotados)"
+                    st.success(f"{icone} **{MODELO_DIAG}** — {label} ({info['ms']}ms)")
+                else:
+                    st.error(f"❌ **{MODELO_DIAG}** — {info.get('erro','erro desconhecido')} ({info.get('ms',0)}ms)")
+
 
 
 # ── Conferência da revisão de texto ──────────────────────────────────────────

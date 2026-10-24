@@ -805,6 +805,11 @@ def main():
         "placar_snapshot.py:_ULTIMO_DIA": "dia do ultimo retrato gravado",
         # POR THREAD, que e o conserto desta familia.
         "log_imagem.py:_CONTEXTO": "guardado POR THREAD (ident), nao por processo",
+        # Os lugares que a aba Imagem reserva na tela — o do chat e os tres
+        # campos de imagem do cabecalho. Mesma fronteira do `_CONTEXTO`, e
+        # pelo mesmo motivo: cada sessao do Streamlit desenha no seu thread,
+        # e o conteiner de um nao pode receber o chat do outro.
+        "imagem.py:_SLOTS": "guardado POR THREAD (ident), nao por processo",
         # DECLARADO COM O CUSTO, e nao escondido.
         "imagem.py:_ULTIMO_DESCARTE_LAYOUT":
             "escrito DENTRO da thread e lido pela tela depois — por thread "
