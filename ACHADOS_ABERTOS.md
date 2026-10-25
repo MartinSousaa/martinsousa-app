@@ -33,6 +33,10 @@ motivo — mas é uma resposta honesta, e escrita ela para de ser esquecimento.
 
 ## ABERTOS
 
+### [STAND-BY] Custo da API do Gemini no cartão pessoal do dono (25/10)
+ONDE: Google Cloud › conta de faturamento "My Billing Account" (projetos Default Gemini Project, martinsousa-app, ms-studio-504813) · no código, todo leitor de `GEMINI_API_KEY`
+POR QUE AINDA NÃO: o dono pediu só o registro. Cerca de R$ 980 em setembro e R$ 511 em outubro até agora, em lotes de R$ 120, 100% "Gemini API". Quando for tratar: (1) localizar onde o Gemini é chamado — qual app, qual chave, qual modelo; (2) estimar o custo por operação e apontar desperdício; (3) avaliar migrar para a API do Claude com os US$ 100/mês de créditos do plano Max. Sai daqui quando os três tiverem resposta.
+
 ### Trocar TODAS as chaves vazadas no ataque ao Railway (21/10)
 ONDE: Railway › Produção MS Studio › Variables (e `STREAMLIT_SECRETS`) · lista de nomes em `chaves.py:30-43`, `extrato_inter_api.py:8-10`, `auth.py:220`
 POR QUE AINDA NÃO: o Railway avisou por e-mail (22/10) que terceiros podem ter lido as variáveis de ambiente, e as chaves só podem ser geradas pelo dono, no painel de cada serviço. Ordem combinada: (1) IAs — Anthropic, OpenAI, Gemini; (2) conta de serviço do Google (`gcp_service_account`) e Microsoft (`MS_CLIENT_SECRET`); (3) Inter LG e MS (`INTER_*`, `INTER2_*`), Trello, Bling LG e MS, RHiD, `ML_CLIENT_SECRET`, `SERPAPI_KEY`, `gdrive_oauth`; (4) senhas do bloco `[usuarios]`. Gere a nova, ponha no Railway, espere o reinício e só então apague a antiga — apagar antes derruba o Studio. Junto: corrigir `ML_CLIENT_ID` para `4741972389289391`. Sai daqui quando o dono confirmar a troca de todas.
