@@ -4583,6 +4583,61 @@ def _lembrete_pago_no_extrato(conta):
         _lem2.carregar_feitos, _ch2.carregar, _no2.carregar, _lan2.do_mes = _g
 
 
+
+def _amostra_ml_no_admin(conta):
+    """24/10: Registros › Mercado Livre › "Baixar amostra" — a resposta inteira
+    do ML vai num arquivo, sem token, e a leitura só roda no clique. Só a rede
+    (`ml_api.get`), a planilha e as credenciais são trocadas."""
+    import admin as _adm_am
+    import ml_api as _ml_am
+    _g = (_adm_am.st, _ml_am.credenciais, _ml_am._todas, _ml_am.get,
+          _ml_am._ler_da_planilha)
+    _bot, _baixou, _rede = [], [], []
+    try:
+        f = instalar()
+        f.button = lambda rot, *a, **k: (f._registra("button", k), _bot.append(k.get("key")),
+                                         k.get("key") == "ml_amostra_gerar")[2]
+        f.radio = lambda rot, opcoes, *a, **k: (f._registra("radio", k), list(opcoes)[0])[1]
+        f.text_input = lambda rot, *a, **k: (f._registra("text_input", k), "#2894660789")[1]
+        f.download_button = lambda rot, data, *a, **k: (f._registra("download_button", k),
+                                                        _baixou.append((k.get("file_name"), data)))
+        _adm_am.st = f
+        _ml_am.credenciais = lambda: ("1", "2")
+        _reg = {c: "" for c in _ml_am.COLUNAS}
+        _reg.update({"conta": "ml1", "refresh_token": "R", "access_token": "A",
+                     "expira_em": 9e12, "user_id": "233026091", "apelido": "MARTINSOUSA_1"})
+        _ml_am._todas = lambda: {"ml1": _reg}
+        _ml_am._ler_da_planilha = lambda c: _reg
+
+        def _get(c, caminho, params=None):
+            _rede.append(caminho)
+            if caminho.startswith("/seller-promotions/users/"):
+                return ({"results": [{"id": "P1", "status": "started", "type": "SMART"}]}, "")
+            return ({"id": "x", "access_token": "NAO-PODE-SAIR"}, "")
+        _ml_am.get = _get
+        _adm_am._secao_mercado_livre()
+        _nome, _txt = (_baixou or [("", "")])[0]
+        conta("Amostra ML: o clique baixa a resposta inteira num .json da conta, sem token",
+              _nome.startswith("amostra_ml1_") and _nome.endswith(".json")
+              and '"promocoes_da_conta"' in _txt and "NAO-PODE-SAIR" not in _txt, _nome)
+        conta("Amostra ML: o # digitado vira o anúncio lido (MLB…)",
+              "/items/MLB2894660789" in _rede, str(_rede))
+        _n_antes = len(_rede)
+        f2 = instalar()
+        f2.radio = lambda rot, opcoes, *a, **k: (f2._registra("radio", k), list(opcoes)[0])[1]
+        f2.button = lambda rot, *a, **k: (f2._registra("button", k), False)[1]
+        f2.text_input = lambda rot, *a, **k: (f2._registra("text_input", k), "")[1]
+        f2.download_button = lambda *a, **k: f2._registra("download_button", k)
+        _adm_am.st = f2
+        _adm_am._secao_mercado_livre()
+        conta("Amostra ML: sem clique, nenhuma chamada ao ML no desenho da tela",
+              len(_rede) == _n_antes, f"{len(_rede) - _n_antes} chamadas")
+    except Exception as e:
+        conta("Amostra ML: a tela monta", False, f"{type(e).__name__}: {e}")
+    finally:
+        (_adm_am.st, _ml_am.credenciais, _ml_am._todas, _ml_am.get,
+         _ml_am._ler_da_planilha) = _g
+
 def main():
     instalar()
     falhas = []
@@ -4655,6 +4710,7 @@ def main():
     _faturamento_top5(conta)
     _produtos_nichos_padronizados(conta)
     _mercado_livre_no_admin(conta)
+    _amostra_ml_no_admin(conta)
     _ranking_abre_panorama(conta)
     _celular(conta)
     _rastreio_etiquetas(conta)
