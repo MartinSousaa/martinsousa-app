@@ -4638,6 +4638,77 @@ def _amostra_ml_no_admin(conta):
         (_adm_am.st, _ml_am.credenciais, _ml_am._todas, _ml_am.get,
          _ml_am._ler_da_planilha) = _g
 
+
+def _meu_desempenho(conta):
+    """24/10: a primeira tela do colaborador. Só a rede é trocada: o board
+    (Trello), o mapa de batidas (RHiD) e a apuração do mês, que aqui sai da
+    MESMA `apuracao_bonus` da Análise de Metas, com dado do formato real."""
+    import meu_desempenho as _md
+    import analise_metas as _am_md
+    import batidas as _bat_md
+    import placar_core as _pc_md
+    from datetime import datetime as _dt_md
+    _g = (_md.st, _md.resumo_do_mes, _pc_md._buscar_board, _bat_md.mapa,
+          _pc_md.username_do_login, dict(_pc_md.MEMBROS_ATIVOS))
+    _txt = []
+    try:
+        f = instalar()
+        for _k in ("markdown", "error", "warning", "success", "caption", "info"):
+            setattr(f, _k, (lambda k: lambda t, *a, **kw: _txt.append(f"{k}:{t}"))(_k))
+        _md.st = f
+        _pc_md.MEMBROS_ATIVOS.clear()
+        _pc_md.MEMBROS_ATIVOS.update({"beatriz51": "Beatriz Souza", "luiz": "Luiz"})
+        _pc_md.username_do_login = lambda u: "beatriz51"
+        _dados = [{"filtro_mes": (2026, 10), "pts_membro": {"beatriz51": 600.0, "luiz": 900.0},
+                   "cfg": {"meta_beatriz51": 1000, "meta_luiz": 1000}, "saldo": 1500.0,
+                   "meta_eq": 5000.0, "meta_maxx": 6000.0, "pen_qtd": 0}]
+        _bon = _am_md.apuracao_bonus(_dados, ["beatriz51", "luiz"], pont={}, ocio={},
+                                     tem_ponto=False, medias_exec={})
+        _pont = {"beatriz51": {"pend": [{"data": "2026-10-09", "tipo": "sem_batida",
+                                         "batidas": []}]}}
+        _res = {"beatriz51": _md.resumo_da_pessoa(
+            "beatriz51", _dados, _bon, _pont, _dt_md(2026, 10, 26, 10, tzinfo=_pc_md.FUSO))}
+        _md.resumo_do_mes = lambda a, m: _res
+        _li = {"L1": "PRODUÇÃO", "L2": "DESATIVAR ANÚNCIOS"}
+        _cards = [{"name": "Caneca", "idList": "L1", "idMembers": ["m1"],
+                   "labels": [{"name": "EM ANDAMENTO"}]},
+                  {"name": "Porta-relógios", "idList": "L1", "idMembers": ["m1"],
+                   "labels": [{"name": "EM ANDAMENTO"}]}]
+        _pc_md._buscar_board = lambda: (_li, _cards, {"m1": "beatriz51"}, None, None, None)
+        _md.pagina("Beatriz")
+        _j = " ".join(_txt)
+        conta("Meu desempenho: a tela monta com saudação, meta e meta coletiva",
+              "Olá, Beatriz" in _j and "600" in _j and "1.500" in _j, _j[:200])
+        conta("Meu desempenho: a pontuação reprovada aparece no que puxa a meta",
+              "Pontuação (600 de 1.000 pts)" in _j and "Fora da meta coletiva" in _j, _j[-300:])
+        conta("Meu desempenho: o dia sem batida pede abono",
+              "09/10" in _j and "abono" in _j, "")
+        conta("Meu desempenho: duas demandas fora do Desativar geram o aviso",
+              "2 demandas ao mesmo tempo" in _j, "")
+        # Sem cartão rodando e dentro do expediente batido: ociosidade agora.
+        _txt.clear()
+        _cards[:] = []
+        _agora = _pc_md.agora_br()
+        _bat_md.mapa = lambda *a, **k: {"beatriz51": {_agora.date(): {
+            "entrada": (_agora.replace(second=0, microsecond=0)
+                        - __import__("datetime").timedelta(minutes=30)).strftime("%H:%M")}}}
+        f2 = instalar()
+        for _k in ("markdown", "error", "warning", "success", "caption", "info"):
+            setattr(f2, _k, (lambda k: lambda t, *a, **kw: _txt.append(f"{k}:{t}"))(_k))
+        _md.st = f2
+        _md.pagina("Beatriz")
+        _j2 = " ".join(_txt)
+        conta("Meu desempenho: no expediente e sem cartão rodando, a ociosidade avisa",
+              "Ociosidade detectada e sendo contabilizada" in _j2
+              or _agora.hour < 1, _j2[:200])
+    except Exception as e:
+        conta("Meu desempenho: a tela monta", False, f"{type(e).__name__}: {e}")
+    finally:
+        (_md.st, _md.resumo_do_mes, _pc_md._buscar_board, _bat_md.mapa,
+         _pc_md.username_do_login, _m) = _g
+        _pc_md.MEMBROS_ATIVOS.clear()
+        _pc_md.MEMBROS_ATIVOS.update(_m)
+
 def main():
     instalar()
     falhas = []
@@ -4711,6 +4782,7 @@ def main():
     _produtos_nichos_padronizados(conta)
     _mercado_livre_no_admin(conta)
     _amostra_ml_no_admin(conta)
+    _meu_desempenho(conta)
     _ranking_abre_panorama(conta)
     _celular(conta)
     _rastreio_etiquetas(conta)

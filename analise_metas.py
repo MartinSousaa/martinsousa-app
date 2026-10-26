@@ -1057,7 +1057,7 @@ def _pontualidade_do_periodo(dados, membros):
                  "ocorr": [], "min_atr": 0.0, "banco": 0.0,
                  # A meta de horas (06/10): trabalhado e abonado (atestado
                  # incluso), somados no período, da RHiD.
-                 "min_trab": 0.0, "min_abono": 0.0}
+                 "min_trab": 0.0, "min_abono": 0.0, "pend": []}
              for u in membros}
     _ocio = {u: {"disp": 0.0, "cards": 0.0, "ocio": 0.0} for u in membros}
     _tem_ponto = False
@@ -1087,6 +1087,7 @@ def _pontualidade_do_periodo(dados, membros):
                     _pont[u]["atr_alm"] += p["atrasos_almoco"]
                     _pont[u]["dias"]    += p["dias_trabalhados"]
                     _pont[u]["ocorr"].extend(p.get("ocorrencias") or [])
+                    _pont[u]["pend"].extend(p.get("pendencias") or [])
                     # Minutos de atraso somam; o banco NAO — ele ja vem
                     # acumulado da RHiD, e somar os meses contaria tudo de novo.
                     _pont[u]["min_atr"] += float(p.get("minutos_atraso", 0.0) or 0.0)
