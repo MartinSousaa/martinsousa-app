@@ -2384,6 +2384,79 @@ if __name__ == "__main__":
         (_rhid.get_persons, _rhid.get_registros_diarios,
          globals()["_rhid_nome_para_trello"]) = _g_rh
 
+    # ══ get_ociosidade_mes: O ABONO SAI DOS DOIS LADOS ══════════════════
+    #
+    # `checar_impacto` reprovou o nome: ele e lido por `analise_metas.py`
+    # NOVE vezes e nao tinha guarda nenhuma. Esta e a guarda MINIMA — ela
+    # cobre as invariantes que o proprio codigo diz serem o ponto, e nao a
+    # conta inteira da ociosidade, que e da tela que a escreveu.
+    #
+    # A INVARIANTE CENTRAL, nas palavras do codigo: a hora abonada "sai dos
+    # dois lados, como a pausa pessoal: do tempo ocioso e do denominador.
+    # Tirar so do numerador faria o percentual cair duas vezes pela mesma
+    # hora". E um percentual que cai duas vezes e numero errado no cartao de
+    # alguem.
+    #
+    # OS DUPLOS SUBSTITUEM SO O QUE VAI A REDE — a RHiD e a planilha. A conta
+    # continua sendo a de verdade.
+    # `MEMBROS` e um DICIONARIO {username: Nome}, e nao uma lista — a guarda
+    # errou isso na primeira escrita, que e o lembrete de sempre: abrir a
+    # linha que PRODUZ o valor em vez de supor o tipo dele.
+    _g_oc = (globals()["calcular_resumo_mes"],
+             globals()["_pontualidade_rhid"], dict(MEMBROS))
+    try:
+        _u_oc = "bia"
+        MEMBROS.clear()
+        MEMBROS[_u_oc] = "Bia da Conferencia"
+        # O DUPLO COM A FORMA DE VERDADE. A primeira versao tinha so duas
+        # chaves e a funcao estourou em `dias_ausentes` — duplo mais pobre
+        # que a realidade acusa o inocente, e esta base ja pagou isso quatro
+        # vezes. As chaves saem de `calcular_resumo_mes`, que e quem as monta.
+        def _resumo_de_mentira(a, m, _u=_u_oc):
+            return {_u: {"total_horas_disp": 0.0, "dias_trabalhados": 0,
+                         "dias_ausentes": 0, "qtd_atrasos": 0,
+                         "qtd_tolerancias": 0, "total_tolerancia_min": 0.0,
+                         "total_saiu_cedo_min": 0.0, "atrasos_entrada": [],
+                         "atrasos_almoco": [], "detalhes": []}}
+
+        globals()["calcular_resumo_mes"] = _resumo_de_mentira
+
+        # ── O CAMINHO DE RESERVA: sem linha do tempo, subtracao de totais ──
+        #
+        # 600 min no relogio, 1 dia, 120 min de abono, 200 min em cartao.
+        # A pausa pessoal sai do dia; o abono sai do mesmo lado.
+        globals()["_pontualidade_rhid"] = lambda a, m: ({
+            _u_oc: {"minutos_trabalhados": 600.0, "dias_trabalhados": 1,
+                    "janelas": [], "abono_min": {"2026-10-01": 120.0}}}, {})
+        _r = get_ociosidade_mes(2026, 10, {_u_oc: 200})[_u_oc]
+        _esperado_hd = 600.0 - _pc.PAUSA_PESSOAL_MIN - 120.0
+        ok("sem linha do tempo, o abono sai do DENOMINADOR",
+           abs(_r["horas_disp_min"] - _esperado_hd) < 0.01)
+        ok("e a ociosidade e o que sobra depois dos cartoes",
+           abs(_r["ociosidade_min"] - max(_esperado_hd - 200, 0)) < 0.01)
+        # SE O ABONO SO SAISSE DO NUMERADOR, o percentual cairia duas vezes
+        # pela mesma hora. Esta linha e a que prova que ele sai dos dois.
+        ok("e o percentual bate com os dois lados ja descontados",
+           abs(_r["pct_ocioso"]
+               - (_r["ociosidade_min"] / _esperado_hd * 100)) < 0.01)
+
+        # ── O ABONO MAIOR QUE O DIA NAO VIRA CREDITO ──────────────────────
+        globals()["_pontualidade_rhid"] = lambda a, m: ({
+            _u_oc: {"minutos_trabalhados": 100.0, "dias_trabalhados": 1,
+                    "janelas": [], "abono_min": {"2026-10-01": 9999.0}}}, {})
+        _r2 = get_ociosidade_mes(2026, 10, {_u_oc: 0})[_u_oc]
+        ok("abono maior que o expediente zera, e nao fica negativo",
+           _r2["horas_disp_min"] == 0 and _r2["ociosidade_min"] == 0)
+        # E SEM DENOMINADOR NAO SE DIVIDE POR ZERO: o cartao mostraria um
+        # erro no lugar do numero de alguem.
+        ok("e sem expediente o percentual e zero, e nao explode",
+           _r2["pct_ocioso"] == 0)
+    finally:
+        (globals()["calcular_resumo_mes"],
+         globals()["_pontualidade_rhid"]) = _g_oc[0], _g_oc[1]
+        MEMBROS.clear()
+        MEMBROS.update(_g_oc[2])
+
     print("\nfalhas:", falhas)
     # O CODIGO DE SAIDA. Sem ele, quem le `returncode` ve este modulo como
     # aprovado SEMPRE — e o `checar_mutacao` le exatamente isso. Era assim

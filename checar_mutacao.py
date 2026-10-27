@@ -36,6 +36,21 @@ RAIZ = os.path.dirname(os.path.abspath(__file__))
 # que não se aplica dá a impressão de cobertura que não existe.
 MUTACOES = [
     (
+        # `checar_impacto` reprovou `get_ociosidade_mes` por nao ter guarda
+        # nenhuma, com NOVE leituras em `analise_metas.py`. A guarda minima
+        # mede a invariante que o proprio codigo diz ser o ponto: a hora
+        # abonada sai dos DOIS lados. Saindo so do numerador, o percentual
+        # cai duas vezes pela mesma hora — numero errado no cartao de alguem.
+        'a hora abonada volta a sair so do numerador da ociosidade',
+        "relogio_ponto.py",
+        [('            hd = max(hd - sum(float(v or 0) for v in _abono_mes.values()), 0)\n'
+          '            ocio = max(hd - tc, 0)',
+          '            ocio = max(hd - tc, 0)\n'
+          '            ocio = max(ocio - sum(float(v or 0) for v in _abono_mes.values()), 0)')],
+        None,
+        ["python3", "relogio_ponto.py"],
+    ),
+    (
         'o campo de escrever volta a rolar a tela a cada resposta',
         "chat_assistente.py",
         [('        with st.form(key="ms_chat_form", clear_on_submit=True, border=False):',
@@ -1779,10 +1794,13 @@ MUTACOES = [
     (
         "a medicao da peca volta a ser guardada so para o sistema",
         "imagem.py",
-        '                if _d.get("medida"):\n'
-        '                    st.warning(\n'
-        '                        "📐 **O que a medição encontrou nesta peça:** "\n'
-        '                        + str(_d["medida"]))\n',
+        # AS ANCORAS GANHARAM 4 ESPACOS em 27/10: a galeria inteira
+        # entrou num `with _slot_galeria:` para ser desenhada logo
+        # abaixo da conversa. O defeito medido e o mesmo.
+        '                    if _d.get("medida"):\n'
+        '                        st.warning(\n'
+        '                            "📐 **O que a medição encontrou nesta peça:** "\n'
+        '                            + str(_d["medida"]))\n',
         "",
         ["python3", "checar_comunicacao.py"],
     ),
@@ -2291,9 +2309,12 @@ MUTACOES = [
     (
         "o ajuste da galeria volta a ler dados_descricao dentro da thread",
         "imagem.py",
-        '                                   _dd=st.session_state.get(\n'
-        '                                       "img_dados_descricao") or {}):\n'
-        "                        try:\n",
+        # AS ANCORAS GANHARAM 4 ESPACOS em 27/10: a galeria inteira
+        # entrou num `with _slot_galeria:` para ser desenhada logo
+        # abaixo da conversa. O defeito medido e o mesmo.
+        '                                       _dd=st.session_state.get(\n'
+        '                                           "img_dados_descricao") or {}):\n'
+        "                            try:\n",
         "                                   ):\n"
         '                        _dd = st.session_state.get("img_dados_descricao") or {}\n'
         "                        try:\n",

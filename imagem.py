@@ -13087,10 +13087,21 @@ def pagina_imagem(usuario_logado):
                         # isto a correção entraria na cadeia de outra imagem.
                         marcar_peca_em_ajuste(idx_ativo + 1)
 
+                        # AS FOTOS SAO LIDAS AQUI, FORA DA THREAD.
+                        #
+                        # `fotos_do_produto` le `st.session_state`, e dentro de
+                        # uma `threading.Thread` ele e ILEGIVEL. Em argumento
+                        # padrao ela seria avaliada antes da thread nascer e
+                        # funcionaria — mas depender dessa sutileza e deixar a
+                        # armadilha armada para quem mover a linha depois, e
+                        # `checar_alcance` cobra isso com razao. Com a leitura
+                        # aqui, nao ha o que mover.
+                        _fotos_afg = list(fotos_do_produto(usuario_logado))
+
                         def _rodar_afg(_ref=imagem_ativa,
                                        _ins=instrucao_af_gal.strip(),
                                        _tp=galeria[idx_ativo].get("tipo"),
-                                       _rf=list(fotos_do_produto(usuario_logado)),
+                                       _rf=_fotos_afg,
                                        _r=_res_afg,
                                        # Em argumento padrao — ver `_rodar_cmd`.
                                        _dd=st.session_state.get(

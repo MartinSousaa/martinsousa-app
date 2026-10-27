@@ -2251,10 +2251,26 @@ if __name__ == "__main__":
 
     # NA MESMA FILEIRA DO ANEXO. O dono aprovou o botao na linha do clipe, e
     # nao numa linha propria: `st.columns` e quem poe os dois lado a lado.
-    _tem_colunas_lc = any(
-        (getattr(_n.func, "attr", "") or getattr(_n.func, "id", "")) == "columns"
-        for _n in _ast_lc.walk(_arv_lc) if isinstance(_n, _ast_lc.Call))
-    ok("e ele divide a fileira com o anexo (st.columns)", _tem_colunas_lc)
+    #
+    # ESTA GUARDA FOI ENFRAQUECIDA POR MIM EM 27/10, e o `checar_mutacao`
+    # cobrou. Ela procurava QUALQUER `st.columns` no bloco — e quando o campo
+    # de escrever virou um formulario com duas colunas proprias, ela passou a
+    # achar ESSAS e dar verde com o botao fora da fileira do anexo.
+    #
+    # Agora ela procura a atribuicao que de fato poe os dois lado a lado:
+    # `_col_anexo, _col_limpar = st.columns(...)`. Duas colunas numa linha
+    # qualquer do bloco nao respondem a pergunta "o botao esta na fileira do
+    # clipe?".
+    _fileira_lc = any(
+        isinstance(_n, _ast_lc.Assign)
+        and isinstance(_n.targets[0], _ast_lc.Tuple)
+        and [getattr(_e, "id", "") for _e in _n.targets[0].elts]
+        == ["_col_anexo", "_col_limpar"]
+        and isinstance(_n.value, _ast_lc.Call)
+        and (getattr(_n.value.func, "attr", "")
+             or getattr(_n.value.func, "id", "")) == "columns"
+        for _n in _ast_lc.walk(_arv_lc))
+    ok("e ele divide a fileira com o anexo (st.columns)", _fileira_lc)
 
     # ══ A PECA GERADA APARECE NA CONVERSA (27/10) ═══════════════════════
     #
