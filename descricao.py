@@ -213,6 +213,9 @@ def pesquisar_usos_produto(nome_produto):
             "engine": "google", "q": f"{nome_produto} para que serve usado",
             "hl": "pt-br", "gl": "br", "num": 5, "api_key": api_key,
         }, timeout=30)
+        # A pesquisa custa por busca feita, deu certo ou não.
+        import uso_ia as _uso
+        _uso.registrar("Pesquisa de concorrentes", "SerpAPI", "google", unidades=1)
         if resp.status_code != 200:
             return None, f"Busca indisponível agora (HTTP {resp.status_code})."
         dados = resp.json()
@@ -340,6 +343,8 @@ Responda SOMENTE com o texto da descrição, pronta pra colar no anúncio, sem c
             model="claude-sonnet-4-6", max_tokens=3000,
             messages=[{"role": "user", "content": _idioma.com_regra(prompt)}]
         )
+        import uso_ia as _uso
+        _uso.registrar("Descrição", "Anthropic", "claude-sonnet-4-6", msg)
         texto = msg.content[0].text.strip()
         if not texto:
             raise ValueError("A IA retornou uma resposta vazia.")
@@ -386,6 +391,8 @@ Responda SOMENTE com o texto completo da descrição já ajustada, sem comentár
             model="claude-sonnet-4-6", max_tokens=3000,
             messages=[{"role": "user", "content": _idioma.com_regra(prompt)}]
         )
+        import uso_ia as _uso
+        _uso.registrar("Descrição", "Anthropic", "claude-sonnet-4-6", msg)
         novo_texto = msg.content[0].text.strip()
         if not novo_texto:
             return descricao_atual, "A IA retornou uma resposta vazia — o ajuste não foi aplicado."

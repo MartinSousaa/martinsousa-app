@@ -1521,6 +1521,13 @@ with st.sidebar:
         for k in [k for k in st.session_state if k == chave_admin]:
             del st.session_state[k]
         presenca.esquecer(usuario_logado)
+        # SAIR SAI (27/10): o token desta aba cai e sai do endereço — senão
+        # `verificar_login` relia o `_s` e logava de volta na hora.
+        auth.encerrar_sessao(st.query_params.get("_s", ""))
+        try:
+            del st.query_params["_s"]
+        except Exception:
+            pass
         del st.session_state["usuario_logado"]
         st.rerun()
 

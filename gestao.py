@@ -65,8 +65,20 @@ def pagina_home(usuario_logado=None):
     """
     # A BOLINHA, como as faces do Custo fixo (dono, 15/10): `st.radio`
     # horizontal, e não o botão segmentado.
-    aba = st.radio("Home", abas_da_home(usuario_logado), horizontal=True,
+    # A SUB-ABA VIAJA NO ENDEREÇO, como `secao` e `aba_gf` (27/10): sessão
+    # nova (deploy, recarga) sem ela caía sempre no Painel.
+    _ops_home = abas_da_home(usuario_logado)
+    if "home_aba" not in st.session_state:
+        _da_url = str(st.query_params.get("home", "")).strip()
+        if _da_url in _ops_home:
+            st.session_state["home_aba"] = _da_url
+    aba = st.radio("Home", _ops_home, horizontal=True,
                    key="home_aba", label_visibility="collapsed")
+    try:
+        if st.query_params.get("home") != aba:
+            st.query_params["home"] = aba
+    except Exception:
+        pass
     if aba == ABA_HISTORICO:
         import historico as _hist
         _hist.pagina(usuario_logado)
@@ -294,6 +306,8 @@ SUBTELAS = {
     "🧾 Boletos": lambda u: _abrir_tela("boletos_tela", u),
     "🛒 ADS-Cross": _fatura_ml,
     "🎯 Meta de gastos": _meta_gastos,
+    # Dono, 27/10: quanto o Studio custa, por serviço, ferramenta e pessoa.
+    "💸 Custos do Studio": lambda u: _abrir_tela("custos_studio", u),
 }
 
 

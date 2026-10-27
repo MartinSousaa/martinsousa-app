@@ -4455,26 +4455,37 @@ def _ranking_abre_panorama(conta):
         f.columns = lambda spec, **k: [f] * (spec if isinstance(spec, int) else len(spec))
         f.markdown = lambda t, *a, **k: _md.append(str(t))
         _cod = _pa.codigo("CINZEIRO TELESCÓPICO")
-        f.query_params = {"_s": "tok", "secao": "gestao", "pa_abrir": _cod}
+        # 27/10: a linha deixou de ser link (link recarrega a página). O
+        # clique é o botão escondido daquela linha — o fake o aperta.
+        import clique as _clq_r
+        _bt_alvo = "bt_" + _clq_r.ident("pa", "CINZEIRO TELESCÓPICO")
+        f.button = lambda rot, *a, **k: (f._registra("button", k), k.get("key") == _bt_alvo)[1]
+        f.query_params = {"_s": "tok", "secao": "gestao"}
         _pa.st = f
+        _g_clq = _clq_r._ponte
+        _clq_r._ponte = lambda: None
         _pa.dados = lambda ano, hoje: (linhas, "")
         _pg_r.carregar = lambda: ({"CINZEIRO TELESCÓPICO": {"produto": "CINZEIRO TELESCÓPICO", "nicho": "Tabacaria",
                                                               "origem": "manual"}}, "")
         _pa.pagina(_dono)
         _j = " ".join(_md)
-        conta("Produtos: cada linha do ranking é um link que mantém login e seção (dono, 20/10)",
-              f'href="?_s=tok&amp;secao=gestao&amp;pa_abrir={_cod}"' in _j and 'target="_self"' in _j, "")
+        conta("Produtos: cada linha do ranking é alvo de clique, sem link e sem token no HTML (27/10)",
+              _clq_r.alvo("pa", "CINZEIRO TELESCÓPICO") in _j and "href=" not in _j
+              and "_s=tok" not in _j, "")
         conta("Produtos: Por nicho com o nome das colunas e o R$ dos alertas dito lucro (dono, 20/10)",
               all(x in _j for x in (">Fatia do lucro<", ">Faturamento<", ">Lucro<")) and "— lucro <b" in _j, "")
-        conta("Produtos: o clique (pa_abrir) abre o panorama do produto e sai do endereço",
-              "Panorama do produto" in _dlg and "PANORAMA DO PRODUTO" in _j
-              and "pa_abrir" not in f.query_params, str(_dlg))
+        conta("Produtos: o clique na linha abre o panorama do produto, sem recarregar a página",
+              "Panorama do produto" in _dlg and "PANORAMA DO PRODUTO" in _j, str(_dlg))
     except (_Rerun, _Parou):
         conta("Produtos: ranking clicável — a tela monta", True, "")
     except Exception as e:
         conta("Produtos: ranking clicável — a tela monta", False, f"{type(e).__name__}: {e}")
     finally:
         _pa.dados, _pa.st, _pg_r.carregar = _g
+        try:
+            _clq_r._ponte = _g_clq
+        except NameError:
+            pass
 
 
 def _celular(conta):
@@ -4709,6 +4720,49 @@ def _meu_desempenho(conta):
         _pc_md.MEMBROS_ATIVOS.clear()
         _pc_md.MEMBROS_ATIVOS.update(_m)
 
+
+def _custos_do_studio(conta):
+    """27/10: Financeiro › Custos do Studio. Só a planilha é trocada: os
+    lançamentos (na forma de `lancamentos.carregar`) e o registro de uso."""
+    import custos_studio as _cs
+    import lancamentos as _lan_cs
+    import uso_ia as _uso_cs
+    import auth as _auth_cs
+    import placar_core as _pc_cs
+    _g = (_cs.st, _lan_cs.carregar, _uso_cs.carregar, _auth_cs.eh_dono)
+    _txt = []
+    try:
+        f = instalar()
+        for _k in ("markdown", "error", "warning", "caption", "info"):
+            setattr(f, _k, (lambda k: lambda t, *a, **kw: _txt.append(f"{k}:{t}"))(_k))
+        _cs.st = f
+        _auth_cs.eh_dono = lambda u: True
+        _hj = _pc_cs.agora_br()
+        _fat = f"fatura {_hj.year:04d}-{_hj.month:02d}"
+        _dia = f"{_hj.year:04d}-{_hj.month:02d}-01"
+        _lan_cs.carregar = lambda: [
+            {"id": "1", "data": _dia, "descricao": "GOOGLE CLOUD", "valor": 480.0, "tipo": _fat},
+            {"id": "2", "data": _dia, "descricao": "OPENAI", "valor": 120.0, "tipo": _fat},
+            {"id": "3", "data": _dia, "descricao": "ANTHROPIC", "valor": 200.0, "tipo": _fat}]
+        _uso_cs.carregar = lambda: [
+            {"quando": f"{_dia} 10:00:00", "usuario": "beatriz", "ferramenta": "Descrição",
+             "servico": "Anthropic", "entrada": 1000, "saida": 0, "unidades": 0}]
+        _cs._lancamentos_por_mes.clear()
+        _cs.pagina("MartinSousa")
+        _j = " ".join(_txt)
+        conta("Custos do Studio: a tela monta com o gráfico e a composição do mês",
+              "<svg" in _j and "Gemini</b> R$ 480" in _j, _j[:200])
+        conta("Custos do Studio: Gemini acima da OpenAI acende o alerta da reserva",
+              "só a reserva das imagens" in _j, "")
+    except Exception as e:
+        conta("Custos do Studio: a tela monta", False, f"{type(e).__name__}: {e}")
+    finally:
+        _cs.st, _lan_cs.carregar, _uso_cs.carregar, _auth_cs.eh_dono = _g
+        try:
+            _cs._lancamentos_por_mes.clear()
+        except Exception:
+            pass
+
 def main():
     instalar()
     falhas = []
@@ -4783,6 +4837,7 @@ def main():
     _mercado_livre_no_admin(conta)
     _amostra_ml_no_admin(conta)
     _meu_desempenho(conta)
+    _custos_do_studio(conta)
     _ranking_abre_panorama(conta)
     _celular(conta)
     _rastreio_etiquetas(conta)

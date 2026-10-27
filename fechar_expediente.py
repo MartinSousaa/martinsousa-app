@@ -205,6 +205,16 @@ def main(simular=False, agora=None):
     agora = agora or datetime.now(_pc.FUSO)
     hoje = agora.date()
 
+    # OS AVISOS DO INSTANTE (dono, 23/10): duas demandas e ociosidade, no
+    # Trello. Rodam aqui porque esta é a rotina que já roda o dia inteiro, com
+    # as travas de produção acima — e antes do corte das 18h30, que sai cedo.
+    # Falha dos avisos nunca impede o fim de expediente.
+    try:
+        import alertas_trello as _al
+        _al.main(simular=simular, agora=agora, log=_log)
+    except Exception as e:
+        _log(f"Alertas: não rodaram ({type(e).__name__}: {str(e)[:120]}).")
+
     # Fim de semana e feriado NAO saem mais cedo (dono, 23/10): cartao que
     # escapou na sexta corria o sabado e o domingo inteiros, e a rotina dizia
     # "nada a fazer". Em dia sem expediente, todo cartao aberto fecha.

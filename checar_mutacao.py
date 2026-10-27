@@ -2700,7 +2700,7 @@ MUTACOES = [
     (
         "o Ja gasto volta a nao dizer do que e feito",
         "home_gestao.py",
-        '        + _composicao(q.get("ja_por"), params=params)\n',
+        '        + _composicao(q.get("ja_por"))\n',
         '        + ""\n',
         ["python3", "home_gestao.py"],
     ),
@@ -3452,8 +3452,8 @@ MUTACOES = [
     (
         "Painel e Historico voltam ao botao segmentado",
         "gestao.py",
-        '    aba = st.radio("Home", abas_da_home(usuario_logado), horizontal=True,\n',
-        '    aba = st.segmented_control("Home", abas_da_home(usuario_logado),\n',
+        '    aba = st.radio("Home", _ops_home, horizontal=True,\n',
+        '    aba = st.segmented_control("Home", _ops_home,\n',
         ["python3", "checar_tela.py"],
     ),
     (
@@ -3839,8 +3839,8 @@ MUTACOES = [
     (
         "uma coluna do ranking de produtos volta a abrir com top 5 (assimetrico)",
         "produtos_analise.py",
-        '        col.markdown(_coluna_html(nome, sub, ranking(agregar(linhas, ms, plat, med)), TOP_VISIVEL, alvo, _params),\n',
-        '        col.markdown(_coluna_html(nome, sub, ranking(agregar(linhas, ms, plat, med)), 5 if nome != "Ano" else 10, alvo, _params),\n',
+        '        col.markdown(_coluna_html(nome, sub, _rk, TOP_VISIVEL, alvo),\n',
+        '        col.markdown(_coluna_html(nome, sub, _rk, 5 if nome != "Ano" else 10, alvo),\n',
         ["python3", "checar_tela.py"],
     ),
     (
@@ -3935,10 +3935,10 @@ MUTACOES = [
         ["python3", "checar_tela.py"],
     ),
     (
-        "as linhas do ranking voltam a ser so desenho, sem link",
+        "as linhas do ranking voltam a ser so desenho, sem alvo de clique",
         "produtos_analise.py",
-        "            f'<a href=\"{href}\" target=\"_self\" style=\"text-decoration:none;color:inherit;display:block\">'\n",
-        "            f'<a>'\n",
+        "            f'<div {_clq.alvo(\"pa\", k)} style=\"display:flex;gap:8px;align-items:center;padding:0 6px;margin:3px 0;cursor:pointer;'\n",
+        "            f'<div style=\"display:flex;gap:8px;align-items:center;padding:0 6px;margin:3px 0;cursor:pointer;'\n",
         ["python3", "checar_tela.py"],
     ),
     (
@@ -3977,10 +3977,10 @@ MUTACOES = [
         ["python3", "home_gestao.py"],
     ),
     (
-        "as linhas da meta de gastos voltam a ser so desenho, sem link",
+        "as linhas da meta de gastos voltam a ser so desenho, sem alvo de clique",
         "home_gestao.py",
-        "        return (f'<a href=\"{link_da_linha(params, chave)}\" target=\"_self\" '\n",
-        "        return (f'<a data-x=\"{chave}\" '\n",
+        "        return f'<span {_clq.alvo(\"hg\", chave)} style=\"display:contents;cursor:pointer;\">'\n",
+        "        return f'<span style=\"display:contents;cursor:pointer;\">'\n",
         ["python3", "home_gestao.py"],
     ),
     (
@@ -4126,7 +4126,7 @@ MUTACOES = [
     (
         "a coluna Desativar volta a contar como segunda demanda",
         "meu_desempenho.py",
-        "            if COLUNA_LIVRE not in (col or \"\").upper()]\n",
+        "            if COLUNA_LIVRE not in (x[1] or \"\").upper()]\n",
         "            if True]\n",
         ["python3", "meu_desempenho.py"],
     ),
@@ -4157,6 +4157,76 @@ MUTACOES = [
         "        agora = _dt.now(_pc.FUSO)\n",
         "        agora = _pc.agora_br()\n",
         ["python3", "checar_tela.py"],
+    ),
+    (
+        "a assinatura do ChatGPT volta a contar como custo do Studio",
+        "custos_studio.py",
+        '    "OpenAI": (("OPENAI",), ("CHATGPT",)),\n',
+        '    "OpenAI": (("OPENAI",), ()),\n',
+        ["python3", "custos_studio.py"],
+    ),
+    (
+        "o rateio do custo volta a misturar o uso de outro mes",
+        "custos_studio.py",
+        '        if str(r.get("servico")) != "Anthropic" or not str(r.get("quando", "")).startswith(alvo):\n',
+        '        if str(r.get("servico")) != "Anthropic":\n',
+        ["python3", "custos_studio.py"],
+    ),
+    (
+        "uma ferramenta volta a chamar a IA sem registrar o uso",
+        "produtos_grupos.py",
+        '        _uso.registrar("Produtos (agrupar títulos)", "Anthropic", MODELO, r)\n',
+        '',
+        ["python3", "uso_ia.py"],
+    ),
+    (
+        "o registro de uso volta a derrubar a ferramenta quando a planilha cai",
+        "uso_ia.py",
+        "                                _usuario()), value_input_option=\"RAW\")\n    except Exception:\n        pass\n",
+        "                                _usuario()), value_input_option=\"RAW\")\n    except ZeroDivisionError:\n        pass\n",
+        ["python3", "uso_ia.py"],
+    ),
+    (
+        "o aviso de ociosidade volta a tocar o celular a cada rodada",
+        "alertas_trello.py",
+        "            elif (not e.get(\"avisou_ocio\")\n",
+        "            elif (True\n",
+        ["python3", "alertas_trello.py"],
+    ),
+    (
+        "o aviso de ociosidade volta a sair antes da folga entre cartoes",
+        "alertas_trello.py",
+        "                  and agora - datetime.fromisoformat(desde) >= timedelta(minutes=espera)):\n",
+        "                  and True):\n",
+        ["python3", "alertas_trello.py"],
+    ),
+    (
+        "a rotina agendada volta a nao avisar as duas demandas",
+        "fechar_expediente.py",
+        "        _al.main(simular=simular, agora=agora, log=_log)\n",
+        "        pass\n",
+        ["python3", "fechar_expediente_conferencia.py"],
+    ),
+    (
+        "o clique no ranking volta a recarregar a pagina (link no lugar do botao)",
+        "clique.py",
+        "    if (b) { e.preventDefault(); b.click(); }\n",
+        "    if (b) { P.location.search = '?x=1'; }\n",
+        ["python3", "checar_navegador.py"],
+    ),
+    (
+        "o Studio volta a ter link target=_self para ele mesmo",
+        "produtos_analise.py",
+        "            f'<div {_clq.alvo(\"pa\", k)} style=",
+        "            f'<a href=\"?x\" target=\"_self\"></a><div {_clq.alvo(\"pa\", k)} style=",
+        ["python3", "clique.py"],
+    ),
+    (
+        "o Sair volta a deixar o token valendo no endereco",
+        "app.py",
+        "        auth.encerrar_sessao(st.query_params.get(\"_s\", \"\"))\n",
+        "",
+        ["python3", "auth.py"],
     ),
     (
         "o DAS volta a cair no fim de semana em vez de antecipar",
@@ -4234,6 +4304,28 @@ MUTACOES = [
         "td = lambda v, c=TEXTO, b=False: (f'<td style=\"text-align:center;",
         "td = lambda v, c=TEXTO, b=False: (f'<td style=\"text-align:right;",
         ["python3", "checar_tela.py"],
+    ),
+    (
+        'a linha do tempo individual volta a nao desenhar a ociosidade (27/10)',
+        "analise_metas.py",
+        [('        for b in ocio_dia.get(chave, []):\n', '        for b in []:\n')],
+        None,
+        ["python3", "analise_metas.py"],
+    ),
+    (
+        'os trechos ociosos voltam a nao chegar ao grafico (27/10)',
+        "analise_metas.py",
+        [('                _bur_mb[u].extend(_res[u].get("buracos") or [])\n', '')],
+        None,
+        ["python3", "analise_metas.py"],
+    ),
+    (
+        'o teto de 60 trechos volta a esconder ociosidade (27/10)',
+        "relogio_ponto.py",
+        [('"buracos": sorted(buracos, key=lambda b: -b["minutos"]),',
+          '"buracos": sorted(buracos, key=lambda b: -b["minutos"])[:60],')],
+        None,
+        ["python3", "analise_metas.py"],
     ),
 ]
 

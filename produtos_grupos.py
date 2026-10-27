@@ -116,6 +116,8 @@ def _chamar_ia(texto):
         r = anthropic.Anthropic(api_key=chave).messages.create(
             model=MODELO, max_tokens=8000,
             messages=[{"role": "user", "content": texto}])
+        import uso_ia as _uso
+        _uso.registrar("Produtos (agrupar títulos)", "Anthropic", MODELO, r)
         return "".join(getattr(b, "text", "") for b in r.content), ""
     except Exception as e:
         return "", f"A IA não respondeu: {type(e).__name__}: {str(e)[:160]}"
