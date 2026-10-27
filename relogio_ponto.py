@@ -2384,6 +2384,12 @@ if __name__ == "__main__":
         (_rhid.get_persons, _rhid.get_registros_diarios,
          globals()["_rhid_nome_para_trello"]) = _g_rh
 
+    # DUAS GUARDAS PARA `get_ociosidade_mes`, E ELAS MEDEM COISAS
+    # DIFERENTES: a de baixo confere que TODOS os trechos ociosos saem,
+    # sem teto; esta confere que a hora abonada sai dos DOIS lados. Um
+    # merge de 27/10 trouxe as duas no mesmo lugar — duas guardas sobre
+    # uma implementacao nao sao a Forma 5, que e duas IMPLEMENTACOES
+    # para a mesma pergunta.
     # ══ get_ociosidade_mes: O ABONO SAI DOS DOIS LADOS ══════════════════
     #
     # `checar_impacto` reprovou o nome: ele e lido por `analise_metas.py`
@@ -2402,60 +2408,92 @@ if __name__ == "__main__":
     # `MEMBROS` e um DICIONARIO {username: Nome}, e nao uma lista — a guarda
     # errou isso na primeira escrita, que e o lembrete de sempre: abrir a
     # linha que PRODUZ o valor em vez de supor o tipo dele.
-    _g_oc = (globals()["calcular_resumo_mes"],
+    _g_ab = (globals()["calcular_resumo_mes"],
              globals()["_pontualidade_rhid"], dict(MEMBROS))
     try:
-        _u_oc = "bia"
+        _u_ab = "bia"
         MEMBROS.clear()
-        MEMBROS[_u_oc] = "Bia da Conferencia"
+        MEMBROS[_u_ab] = "Bia da Conferencia"
         # O DUPLO COM A FORMA DE VERDADE. A primeira versao tinha so duas
         # chaves e a funcao estourou em `dias_ausentes` — duplo mais pobre
         # que a realidade acusa o inocente, e esta base ja pagou isso quatro
         # vezes. As chaves saem de `calcular_resumo_mes`, que e quem as monta.
-        def _resumo_de_mentira(a, m, _u=_u_oc):
+        def _resumo_ab(a, m, _u=_u_ab):
             return {_u: {"total_horas_disp": 0.0, "dias_trabalhados": 0,
                          "dias_ausentes": 0, "qtd_atrasos": 0,
                          "qtd_tolerancias": 0, "total_tolerancia_min": 0.0,
                          "total_saiu_cedo_min": 0.0, "atrasos_entrada": [],
                          "atrasos_almoco": [], "detalhes": []}}
 
-        globals()["calcular_resumo_mes"] = _resumo_de_mentira
+        globals()["calcular_resumo_mes"] = _resumo_ab
 
         # ── O CAMINHO DE RESERVA: sem linha do tempo, subtracao de totais ──
         #
         # 600 min no relogio, 1 dia, 120 min de abono, 200 min em cartao.
         # A pausa pessoal sai do dia; o abono sai do mesmo lado.
         globals()["_pontualidade_rhid"] = lambda a, m: ({
-            _u_oc: {"minutos_trabalhados": 600.0, "dias_trabalhados": 1,
+            _u_ab: {"minutos_trabalhados": 600.0, "dias_trabalhados": 1,
                     "janelas": [], "abono_min": {"2026-10-01": 120.0}}}, {})
-        _r = get_ociosidade_mes(2026, 10, {_u_oc: 200})[_u_oc]
-        _esperado_hd = 600.0 - _pc.PAUSA_PESSOAL_MIN - 120.0
+        _r_ab = get_ociosidade_mes(2026, 10, {_u_ab: 200})[_u_ab]
+        _esperado_ab = 600.0 - _pc.PAUSA_PESSOAL_MIN - 120.0
         ok("sem linha do tempo, o abono sai do DENOMINADOR",
-           abs(_r["horas_disp_min"] - _esperado_hd) < 0.01)
+           abs(_r_ab["horas_disp_min"] - _esperado_ab) < 0.01)
         ok("e a ociosidade e o que sobra depois dos cartoes",
-           abs(_r["ociosidade_min"] - max(_esperado_hd - 200, 0)) < 0.01)
+           abs(_r_ab["ociosidade_min"] - max(_esperado_ab - 200, 0)) < 0.01)
         # SE O ABONO SO SAISSE DO NUMERADOR, o percentual cairia duas vezes
         # pela mesma hora. Esta linha e a que prova que ele sai dos dois.
         ok("e o percentual bate com os dois lados ja descontados",
-           abs(_r["pct_ocioso"]
-               - (_r["ociosidade_min"] / _esperado_hd * 100)) < 0.01)
+           abs(_r_ab["pct_ocioso"]
+               - (_r_ab["ociosidade_min"] / _esperado_ab * 100)) < 0.01)
 
         # ── O ABONO MAIOR QUE O DIA NAO VIRA CREDITO ──────────────────────
         globals()["_pontualidade_rhid"] = lambda a, m: ({
-            _u_oc: {"minutos_trabalhados": 100.0, "dias_trabalhados": 1,
+            _u_ab: {"minutos_trabalhados": 100.0, "dias_trabalhados": 1,
                     "janelas": [], "abono_min": {"2026-10-01": 9999.0}}}, {})
-        _r2 = get_ociosidade_mes(2026, 10, {_u_oc: 0})[_u_oc]
+        _r2_ab = get_ociosidade_mes(2026, 10, {_u_ab: 0})[_u_ab]
         ok("abono maior que o expediente zera, e nao fica negativo",
-           _r2["horas_disp_min"] == 0 and _r2["ociosidade_min"] == 0)
+           _r2_ab["horas_disp_min"] == 0 and _r2_ab["ociosidade_min"] == 0)
         # E SEM DENOMINADOR NAO SE DIVIDE POR ZERO: o cartao mostraria um
         # erro no lugar do numero de alguem.
         ok("e sem expediente o percentual e zero, e nao explode",
-           _r2["pct_ocioso"] == 0)
+           _r2_ab["pct_ocioso"] == 0)
     finally:
         (globals()["calcular_resumo_mes"],
-         globals()["_pontualidade_rhid"]) = _g_oc[0], _g_oc[1]
+         globals()["_pontualidade_rhid"]) = _g_ab[0], _g_ab[1]
         MEMBROS.clear()
-        MEMBROS.update(_g_oc[2])
+        MEMBROS.update(_g_ab[2])
+
+    # TODOS OS TRECHOS OCIOSOS SAEM (27/10). Havia um teto de 60, e o expander
+    # dizia "60 trechos" quando havia mais; a linha do tempo individual
+    # desenha cada um. Pela função de verdade: o relógio é dublado (é a rede)
+    # e os trechos que ela deve devolver são contados por `ociosidade_do_dia`,
+    # não escritos à mão.
+    _u_oc = sorted(MEMBROS)[0]
+    _d_oc = date(2026, 10, 6)
+    _F_oc = _pc.FUSO
+    _jan_oc = [(datetime(2026, 10, 6, 8, 0, tzinfo=_F_oc),
+                datetime(2026, 10, 6, 20, 0, tzinfo=_F_oc))]
+    # Um cartão de 3 min a cada 10: buracos de 7 min, 2 além da folga.
+    _at_oc = [(_jan_oc[0][0] + timedelta(minutes=10 * i),
+               _jan_oc[0][0] + timedelta(minutes=10 * i + 3)) for i in range(72)]
+    _esperado_oc = len(_pc.ociosidade_do_dia(_jan_oc, _at_oc)[1])
+    _g_oc = (globals()["_pontualidade_rhid"], globals()["calcular_resumo_mes"],
+             _pc.abonos_do_dia)
+    globals()["_pontualidade_rhid"] = lambda a, m: (
+        {_u_oc: {"janelas": [(_d_oc, _jan_oc)], "minutos_trabalhados": 720,
+                 "dias_trabalhados": 1}}, {})
+    globals()["calcular_resumo_mes"] = lambda a, m: {x: {
+        "total_horas_disp": 0, "dias_trabalhados": 0, "dias_ausentes": 0,
+        "total_tolerancia_min": 0, "qtd_tolerancias": 0, "qtd_atrasos": 0}
+        for x in MEMBROS}
+    _pc.abonos_do_dia = lambda *a, **k: []
+    try:
+        _bur_oc = get_ociosidade_mes(2026, 10, {}, {_u_oc: _at_oc})[_u_oc]["buracos"]
+    finally:
+        (globals()["_pontualidade_rhid"], globals()["calcular_resumo_mes"],
+         _pc.abonos_do_dia) = _g_oc
+    ok(f"ociosidade: todos os trechos saem, sem teto ({len(_bur_oc)} de {_esperado_oc})",
+       _esperado_oc > 60 and len(_bur_oc) == _esperado_oc)
 
     print("\nfalhas:", falhas)
     # O CODIGO DE SAIDA. Sem ele, quem le `returncode` ve este modulo como
