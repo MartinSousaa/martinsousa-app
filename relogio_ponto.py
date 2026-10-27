@@ -2384,6 +2384,38 @@ if __name__ == "__main__":
         (_rhid.get_persons, _rhid.get_registros_diarios,
          globals()["_rhid_nome_para_trello"]) = _g_rh
 
+    # TODOS OS TRECHOS OCIOSOS SAEM (27/10). Havia um teto de 60, e o expander
+    # dizia "60 trechos" quando havia mais; a linha do tempo individual
+    # desenha cada um. Pela função de verdade: o relógio é dublado (é a rede)
+    # e os trechos que ela deve devolver são contados por `ociosidade_do_dia`,
+    # não escritos à mão.
+    _u_oc = sorted(MEMBROS)[0]
+    _d_oc = date(2026, 10, 6)
+    _F_oc = _pc.FUSO
+    _jan_oc = [(datetime(2026, 10, 6, 8, 0, tzinfo=_F_oc),
+                datetime(2026, 10, 6, 20, 0, tzinfo=_F_oc))]
+    # Um cartão de 3 min a cada 10: buracos de 7 min, 2 além da folga.
+    _at_oc = [(_jan_oc[0][0] + timedelta(minutes=10 * i),
+               _jan_oc[0][0] + timedelta(minutes=10 * i + 3)) for i in range(72)]
+    _esperado_oc = len(_pc.ociosidade_do_dia(_jan_oc, _at_oc)[1])
+    _g_oc = (globals()["_pontualidade_rhid"], globals()["calcular_resumo_mes"],
+             _pc.abonos_do_dia)
+    globals()["_pontualidade_rhid"] = lambda a, m: (
+        {_u_oc: {"janelas": [(_d_oc, _jan_oc)], "minutos_trabalhados": 720,
+                 "dias_trabalhados": 1}}, {})
+    globals()["calcular_resumo_mes"] = lambda a, m: {x: {
+        "total_horas_disp": 0, "dias_trabalhados": 0, "dias_ausentes": 0,
+        "total_tolerancia_min": 0, "qtd_tolerancias": 0, "qtd_atrasos": 0}
+        for x in MEMBROS}
+    _pc.abonos_do_dia = lambda *a, **k: []
+    try:
+        _bur_oc = get_ociosidade_mes(2026, 10, {}, {_u_oc: _at_oc})[_u_oc]["buracos"]
+    finally:
+        (globals()["_pontualidade_rhid"], globals()["calcular_resumo_mes"],
+         _pc.abonos_do_dia) = _g_oc
+    ok(f"ociosidade: todos os trechos saem, sem teto ({len(_bur_oc)} de {_esperado_oc})",
+       _esperado_oc > 60 and len(_bur_oc) == _esperado_oc)
+
     print("\nfalhas:", falhas)
     # O CODIGO DE SAIDA. Sem ele, quem le `returncode` ve este modulo como
     # aprovado SEMPRE — e o `checar_mutacao` le exatamente isso. Era assim
