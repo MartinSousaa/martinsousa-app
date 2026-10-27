@@ -838,6 +838,36 @@ def _classificar_batidas(username, entrada, saida_almoco=None, volta_almoco=None
     return tol, atr_ent, atr_alm, minutos_almoco, detalhe
 
 
+def pendencia_do_dia(reg, hoje_iso, dia_util):
+    """O que falta resolver num dia JÁ FECHADO. None quando nada. Pura.
+
+    Dono, 24/10: o painel do colaborador avisa marcação dos dias anteriores
+    sem registro, e dia sem registro que pede abono (atestado ou outro
+    motivo). Duas portas, e só elas:
+
+      "sem_batida"  dia útil sem batida nenhuma e sem minuto abonado.
+      "incompleta"  número ÍMPAR de batidas: uma entrada sem saída.
+
+    Duas batidas NÃO é pendência: é o "dia direto", que o resto do Studio
+    já lê como entrada e saída (`batidas.janelas_do_dia`). Chamar isso de
+    falta seria alarme falso todo dia de quem não sai para almoçar — e
+    alarme falso ensina a ignorar o aviso.
+    """
+    _d = reg.get("data")
+    _iso = (_d.isoformat() if hasattr(_d, "isoformat") else str(_d or ""))[:10]
+    if not _iso or _iso >= hoje_iso or not dia_util:
+        return None
+    _n = len(reg.get("batidas") or [])
+    if _n == 0:
+        if float(reg.get("minutos_abonados") or 0) > 0:
+            return None
+        return {"data": _iso, "tipo": "sem_batida", "batidas": []}
+    if _n % 2 == 1:
+        return {"data": _iso, "tipo": "incompleta",
+                "batidas": [str(b) for b in reg.get("batidas") or []]}
+    return None
+
+
 @st.cache_data(ttl=300)   # 5 min — o painel precisa acompanhar o dia
 def _pontualidade_rhid(ano: int, mes: int):
     """Pontualidade a partir do relógio de ponto físico (RHiD).
@@ -922,7 +952,10 @@ def _pontualidade_rhid(ano: int, mes: int):
                # de hoje no feito e não no devido, o percentual subia durante
                # o dia. `minutos_trabalhados` segue com hoje: a ociosidade
                # mede o dia em andamento.
-               "min_trab_fechado": 0.0, "abono_fechado_min": 0.0}
+               "min_trab_fechado": 0.0, "abono_fechado_min": 0.0,
+               # O PONTO PENDENTE (dono, 24/10): dias fechados com batida
+               # faltando, ou sem batida e sem abono (`pendencia_do_dia`).
+               "pendencias": []}
         # Saldo do banco: o ULTIMO dia que trouxer o valor, porque o campo da
         # RHiD ja e acumulado — somar os dias contaria tudo de novo.
         for reg in reversed(regs):
@@ -939,6 +972,11 @@ def _pontualidade_rhid(ano: int, mes: int):
             acc["abono_total_min"] += float(reg.get("minutos_abonados") or 0)
             if _fechado:
                 acc["abono_fechado_min"] += float(reg.get("minutos_abonados") or 0)
+            _pend = pendencia_do_dia(
+                reg, _hoje_iso,
+                bool(_d_reg) and _pc.eh_dia_util(date.fromisoformat(_d_reg)))
+            if _pend:
+                acc["pendencias"].append(_pend)
             if reg["faltou"] or not reg["batidas"]:
                 continue
             diag["dias_com_batida"] += 1
@@ -2316,6 +2354,29 @@ if __name__ == "__main__":
            and _pm2["abono_fechado_min"] == 480.0
            and _pm2["minutos_trabalhados"] == 722.0
            and _pm2["abono_total_min"] == 510.0)
+        # ── O PONTO PENDENTE (dono, 24/10), pela cadeia ───────────────────
+        # Agosto/2026, no formato de `rhid_api.get_registros_diarios`. Mês
+        # próprio porque a leitura tem cache por (ano, mês).
+        def _rg(d, bat, abono=0.0):
+            return {"data": _date_rh(2026, 8, d), "batidas": bat,
+                    "entrada": bat[0] if bat else None, "saida_almoco": None,
+                    "volta_almoco": None, "saida": None, "minutos_atraso": 0.0,
+                    "minutos_trabalhados": 0.0, "faltou": not bat,
+                    "saldo_banco": 0.0, "minutos_abonados": abono}
+        _regs_ago = [_rg(3, ["09:00", "12:00", "13:00", "18:00"]),   # seg ok
+                     _rg(4, []),                                    # ter: falta
+                     _rg(5, [], abono=480.0),                       # qua: atestado
+                     _rg(6, ["08:50", "12:01", "13:02"]),           # qui: faltou 1
+                     _rg(7, ["09:00", "17:00"]),                    # sex: dia direto
+                     _rg(8, [])]                                    # sáb
+        _rhid.get_registros_diarios = lambda a, b, c: (_regs_ago, {})
+        _pend = get_pontualidade_mes(2026, 8)[_u_rh]["pendencias"]
+        ok("ponto pendente: falta sem abono e batida ímpar, nada mais",
+           [(x["data"], x["tipo"]) for x in _pend]
+           == [("2026-08-04", "sem_batida"), ("2026-08-06", "incompleta")])
+        ok("ponto pendente: o dia de hoje ainda não fechou e não é cobrado",
+           pendencia_do_dia({"data": hoje_local(), "batidas": ["09:00"]},
+                            hoje_local().isoformat(), True) is None)
     finally:
         (_rhid.get_persons, _rhid.get_registros_diarios,
          globals()["_rhid_nome_para_trello"]) = _g_rh
