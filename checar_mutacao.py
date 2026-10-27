@@ -2700,7 +2700,7 @@ MUTACOES = [
     (
         "o Ja gasto volta a nao dizer do que e feito",
         "home_gestao.py",
-        '        + _composicao(q.get("ja_por"), params=params)\n',
+        '        + _composicao(q.get("ja_por"))\n',
         '        + ""\n',
         ["python3", "home_gestao.py"],
     ),
@@ -3452,8 +3452,8 @@ MUTACOES = [
     (
         "Painel e Historico voltam ao botao segmentado",
         "gestao.py",
-        '    aba = st.radio("Home", abas_da_home(usuario_logado), horizontal=True,\n',
-        '    aba = st.segmented_control("Home", abas_da_home(usuario_logado),\n',
+        '    aba = st.radio("Home", _ops_home, horizontal=True,\n',
+        '    aba = st.segmented_control("Home", _ops_home,\n',
         ["python3", "checar_tela.py"],
     ),
     (
@@ -3839,8 +3839,8 @@ MUTACOES = [
     (
         "uma coluna do ranking de produtos volta a abrir com top 5 (assimetrico)",
         "produtos_analise.py",
-        '        col.markdown(_coluna_html(nome, sub, ranking(agregar(linhas, ms, plat, med)), TOP_VISIVEL, alvo, _params),\n',
-        '        col.markdown(_coluna_html(nome, sub, ranking(agregar(linhas, ms, plat, med)), 5 if nome != "Ano" else 10, alvo, _params),\n',
+        '        col.markdown(_coluna_html(nome, sub, _rk, TOP_VISIVEL, alvo),\n',
+        '        col.markdown(_coluna_html(nome, sub, _rk, 5 if nome != "Ano" else 10, alvo),\n',
         ["python3", "checar_tela.py"],
     ),
     (
@@ -4174,8 +4174,8 @@ MUTACOES = [
     ),
     (
         "uma ferramenta volta a chamar a IA sem registrar o uso",
-        "tit_ml.py",
-        '        _uso.registrar("Título", "Anthropic", "claude-sonnet-4-6", msg)\n',
+        "produtos_grupos.py",
+        '        _uso.registrar("Produtos (agrupar títulos)", "Anthropic", MODELO, r)\n',
         '',
         ["python3", "uso_ia.py"],
     ),
