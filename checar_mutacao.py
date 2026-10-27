@@ -3935,10 +3935,10 @@ MUTACOES = [
         ["python3", "checar_tela.py"],
     ),
     (
-        "as linhas do ranking voltam a ser so desenho, sem link",
+        "as linhas do ranking voltam a ser so desenho, sem alvo de clique",
         "produtos_analise.py",
-        "            f'<a href=\"{href}\" target=\"_self\" style=\"text-decoration:none;color:inherit;display:block\">'\n",
-        "            f'<a>'\n",
+        "            f'<div {_clq.alvo(\"pa\", k)} style=\"display:flex;gap:8px;align-items:center;padding:0 6px;margin:3px 0;cursor:pointer;'\n",
+        "            f'<div style=\"display:flex;gap:8px;align-items:center;padding:0 6px;margin:3px 0;cursor:pointer;'\n",
         ["python3", "checar_tela.py"],
     ),
     (
@@ -3977,10 +3977,10 @@ MUTACOES = [
         ["python3", "home_gestao.py"],
     ),
     (
-        "as linhas da meta de gastos voltam a ser so desenho, sem link",
+        "as linhas da meta de gastos voltam a ser so desenho, sem alvo de clique",
         "home_gestao.py",
-        "        return (f'<a href=\"{link_da_linha(params, chave)}\" target=\"_self\" '\n",
-        "        return (f'<a data-x=\"{chave}\" '\n",
+        "        return f'<span {_clq.alvo(\"hg\", chave)} style=\"display:contents;cursor:pointer;\">'\n",
+        "        return f'<span style=\"display:contents;cursor:pointer;\">'\n",
         ["python3", "home_gestao.py"],
     ),
     (
@@ -4206,6 +4206,27 @@ MUTACOES = [
         "        _al.main(simular=simular, agora=agora, log=_log)\n",
         "        pass\n",
         ["python3", "fechar_expediente_conferencia.py"],
+    ),
+    (
+        "o clique no ranking volta a recarregar a pagina (link no lugar do botao)",
+        "clique.py",
+        "    if (b) { e.preventDefault(); b.click(); }\n",
+        "    if (b) { P.location.search = '?x=1'; }\n",
+        ["python3", "checar_navegador.py"],
+    ),
+    (
+        "o Studio volta a ter link target=_self para ele mesmo",
+        "produtos_analise.py",
+        "            f'<div {_clq.alvo(\"pa\", k)} style=",
+        "            f'<a href=\"?x\" target=\"_self\"></a><div {_clq.alvo(\"pa\", k)} style=",
+        ["python3", "clique.py"],
+    ),
+    (
+        "o Sair volta a deixar o token valendo no endereco",
+        "app.py",
+        "        auth.encerrar_sessao(st.query_params.get(\"_s\", \"\"))\n",
+        "",
+        ["python3", "auth.py"],
     ),
     (
         "o DAS volta a cair no fim de semana em vez de antecipar",

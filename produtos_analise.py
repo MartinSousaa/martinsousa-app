@@ -703,21 +703,15 @@ def panorama_html(linhas, produto, ate_mes, med=None, prim=None):
     return f'<div class="pa-card">{cab}{kps}{tab_per}{tab_pl}{graficos}{baixo}</div>'
 
 
-def link_do_produto(params, produto):
-    """O endereço que abre o panorama do produto: a página de agora (login,
-    seção e abas ficam nos parâmetros) mais `pa_abrir=<código>`. Pura."""
-    from urllib.parse import urlencode
-    p = {k: v for k, v in (params or {}).items() if k != "pa_abrir"}
-    p["pa_abrir"] = codigo(produto)
-    return "?" + urlencode(p)
-
-
-def _coluna_html(nome, sub, rk, n_vis, alvo, params=None):
+def _coluna_html(nome, sub, rk, n_vis, alvo):
     """Uma das quatro colunas do ranking; `alvo` acende o produto buscado.
 
-    CADA LINHA É UM LINK (dono, 20/10: "quando clico em algum produto do
-    ranking não está abrindo a tela das informações dele"): clicar abre o
-    panorama aprovado, pelo `pa_abrir` que `pagina` lê."""
+    CADA LINHA ABRE O PANORAMA (dono, 20/10: "quando clico em algum produto
+    do ranking não está abrindo a tela das informações dele"). Era um link
+    `<a target="_self">`, e link RECARREGA a página: sessão nova, ~9 s, a
+    sub-aba voltava ao Painel e às vezes pedia login (diagnóstico de 27/10).
+    Agora a linha é um alvo de `clique` — um rerun, sem navegar."""
+    import clique as _clq
     from home_gestao import TILE, TEXTO, SEC, CARTAO, BORDA, VERDE, VERMELHO
     linhas = []
     top = rk[:20]
@@ -725,10 +719,8 @@ def _coluna_html(nome, sub, rk, n_vis, alvo, params=None):
         hl = alvo and k == alvo
         corte = "border-bottom:1px dashed #BF9A45aa;" if i == n_vis else ""
         med = {1: "#D4B26A", 2: "#C0C6CE", 3: "#B98A5E"}.get(i, "#5a5a5a")
-        href = html.escape(link_do_produto(params, k), quote=True)
         linhas.append(
-            f'<a href="{href}" target="_self" style="text-decoration:none;color:inherit;display:block">'
-            f'<div style="display:flex;gap:8px;align-items:center;padding:0 6px;margin:3px 0;'
+            f'<div {_clq.alvo("pa", k)} style="display:flex;gap:8px;align-items:center;padding:0 6px;margin:3px 0;cursor:pointer;'
             f'height:{ALTURA_LINHA - 6}px;box-sizing:border-box;overflow:hidden;'
             f'border-radius:9px;background:{"#3a3324" if hl else TILE};'
             f'{"outline:1.5px solid #BF9A45;" if hl else ""}{corte}">'
@@ -740,7 +732,7 @@ def _coluna_html(nome, sub, rk, n_vis, alvo, params=None):
             f'<b style="color:{_cor_uc(p["ucv"])}">{_num(p["ucv"], 2)}</b> · lucro '
             f'<b style="color:{VERDE if p["lucro"] >= 0 else VERMELHO}">{_brl(p["lucro"])}</b></span></span>'
             f'<span style="font-family:monospace;font-size:10px;color:{"#BF9A45" if hl else "#7b7f86"}">'
-            f'{codigo(k)}</span></div></a>')
+            f'{codigo(k)}</span></div>')
     fixo = ""
     if alvo:
         nomes = [k for k, _ in rk]
@@ -974,21 +966,22 @@ def pagina(usuario_logado=None):
               ("Semestre", f"{sem}º semestre", meses_do_recorte("Semestre", sem)),
               ("Trimestre", f"{tri_ref}º trimestre", meses_do_recorte("Trimestre", tri_ref)),
               ("Mês", MES_CURTO[mes_ref - 1], {mes_ref}))
+    # Endereço antigo (favorito de quando a linha era link) não reabre nada.
     try:
-        _params = {k: st.query_params[k] for k in st.query_params}
-    except Exception:
-        _params = {}
-    # O CLIQUE NA LINHA DO RANKING chega como `?pa_abrir=<código>`: lido uma
-    # vez e tirado do endereço, para fechar o panorama não reabri-lo.
-    _abrir = por_codigo.get(str(_params.get("pa_abrir", "")).strip().upper())
-    if "pa_abrir" in _params:
-        try:
+        if "pa_abrir" in st.query_params:
             del st.query_params["pa_abrir"]
-        except Exception:
-            pass
+    except Exception:
+        pass
+    _nas_colunas = []
     for col, (nome, sub, ms) in zip(st.columns(4), quatro):
-        col.markdown(_coluna_html(nome, sub, ranking(agregar(linhas, ms, plat, med)), TOP_VISIVEL, alvo, _params),
+        _rk = ranking(agregar(linhas, ms, plat, med))
+        _nas_colunas += [k for k, _ in _rk[:20]]
+        col.markdown(_coluna_html(nome, sub, _rk, TOP_VISIVEL, alvo),
                      unsafe_allow_html=True)
+    # O CLIQUE NA LINHA: um botão escondido por produto, apertado pela ponte
+    # de `clique` — rerun, sem recarregar a página.
+    import clique as _clq_p
+    _abrir = _clq_p.botoes("pa", _nas_colunas)
     escolha = st.selectbox("Abrir o panorama de um produto", [""] + [n for n, _ in ranking(P)[:300]],
                            format_func=lambda n: "" if not n else f"{codigo(n)} · {n.title()}", key="pa_pan")
     if alvo and st.button(f"Abrir o panorama de {codigo(alvo)}", key="pa_pan_busca"):
@@ -1161,10 +1154,12 @@ if __name__ == "__main__":
     _lr = _linhas_recorrentes(list(A.items())[:1], 9)
     ok("Dando certo/errado: cada coluna tem nome curto — Pedidos, Lucro e UC (dono, 20/10)",
        all(f">{x}</span>" in _lr for x in ("Produto", "Pedidos", "Lucro", "UC")))
-    _lk = link_do_produto({"_s": "tok", "secao": "gestao", "pa_abrir": "VELHO"}, "CINZEIRO TELESCÓPICO")
-    ok("o link da linha leva login e seção, e troca o pa_abrir pelo código do produto",
-       _lk.startswith("?") and "_s=tok" in _lk and "secao=gestao" in _lk
-       and f"pa_abrir={codigo('CINZEIRO TELESCÓPICO')}" in _lk and "VELHO" not in _lk)
+    import clique as _clq_t
+    _col = _coluna_html("Ano", "2026", [("CINZEIRO TELESCÓPICO", {"ucv": 1.0, "lucro": 10.0})], 5, None)
+    ok("a linha do ranking é alvo de clique, e não link: link recarrega a página e "
+       "levava o token de login no endereço (27/10)",
+       _clq_t.alvo("pa", "CINZEIRO TELESCÓPICO") in _col and "<a " not in _col
+       and "href" not in _col and "_s=" not in _col)
     ok("top vendidos: pela quantidade de vendas, com a UC e o % do faturamento",
        _tv[0][0] == "KIT COM 3 ESTÁTUAS" and _tv[0][1] == 108
        and abs(_tv[0][3] - sum(x["fat"] for x in L if x["produto"] == "KIT COM 3 ESTÁTUAS"
