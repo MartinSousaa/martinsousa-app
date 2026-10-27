@@ -4126,7 +4126,7 @@ MUTACOES = [
     (
         "a coluna Desativar volta a contar como segunda demanda",
         "meu_desempenho.py",
-        "            if COLUNA_LIVRE not in (col or \"\").upper()]\n",
+        "            if COLUNA_LIVRE not in (x[1] or \"\").upper()]\n",
         "            if True]\n",
         ["python3", "meu_desempenho.py"],
     ),
@@ -4185,6 +4185,27 @@ MUTACOES = [
         "                                _usuario()), value_input_option=\"RAW\")\n    except Exception:\n        pass\n",
         "                                _usuario()), value_input_option=\"RAW\")\n    except ZeroDivisionError:\n        pass\n",
         ["python3", "uso_ia.py"],
+    ),
+    (
+        "o aviso de ociosidade volta a tocar o celular a cada rodada",
+        "alertas_trello.py",
+        "            elif (not e.get(\"avisou_ocio\")\n",
+        "            elif (True\n",
+        ["python3", "alertas_trello.py"],
+    ),
+    (
+        "o aviso de ociosidade volta a sair antes da folga entre cartoes",
+        "alertas_trello.py",
+        "                  and agora - datetime.fromisoformat(desde) >= timedelta(minutes=espera)):\n",
+        "                  and True):\n",
+        ["python3", "alertas_trello.py"],
+    ),
+    (
+        "a rotina agendada volta a nao avisar as duas demandas",
+        "fechar_expediente.py",
+        "        _al.main(simular=simular, agora=agora, log=_log)\n",
+        "        pass\n",
+        ["python3", "fechar_expediente_conferencia.py"],
     ),
     (
         "o DAS volta a cair no fim de semana em vez de antecipar",

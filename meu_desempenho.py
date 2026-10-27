@@ -89,8 +89,11 @@ def resumo_do_mes(ano, mes):
 
 
 # ── O instante (puro, testável) ──────────────────────────────────────────────
-def cartoes_rodando(u, listas, cards, membros_map):
+def cartoes_rodando(u, listas, cards, membros_map, com_id=False):
     """[(nome, coluna)] dos cartões EM ANDAMENTO desta pessoa agora. Puro.
+
+    `com_id`: (nome, coluna, id) — o aviso no Trello precisa saber em que
+    cartão comentar (`alertas_trello`).
 
     Rodando é o que o relógio conta: etiqueta de trabalho e nenhuma de
     interrupção (`placar_core._trabalhando`).
@@ -102,7 +105,8 @@ def cartoes_rodando(u, listas, cards, membros_map):
         nomes = {(lb.get("name") or "").upper().strip()
                  for lb in (c.get("labels") or [])}
         if nomes & _pc.LABELS_TRABALHO and not (nomes & _pc.LABELS_INTERRUPCAO):
-            fora.append((c.get("name", ""), listas.get(c.get("idList"), "")))
+            fora.append((c.get("name", ""), listas.get(c.get("idList"), ""))
+                        + ((c.get("id", ""),) if com_id else ()))
     return fora
 
 
@@ -112,8 +116,8 @@ def demandas_simultaneas(rodando):
     A coluna Desativar fica de fora: ali a pessoa confere o que o colega
     desativou, e a demanda já não é dela (dono, 23/10).
     """
-    return [(n, col) for n, col in rodando
-            if COLUNA_LIVRE not in (col or "").upper()]
+    return [x for x in rodando
+            if COLUNA_LIVRE not in (x[1] or "").upper()]
 
 
 def no_expediente(janelas, agora):
@@ -266,6 +270,9 @@ if __name__ == "__main__":
        [n for n, _ in _rod] == ["A", "C"])
     ok("duas demandas: a coluna Desativar não conta",
        [n for n, _ in demandas_simultaneas(_rod)] == ["A"])
+    ok("com id: o cartão leva o id, para o aviso saber onde comentar",
+       [x[2] for x in cartoes_rodando("beatriz51", _li,
+                                       [dict(_cards[0], id="c1")], _mm, com_id=True)] == ["c1"])
     ok("duas demandas: dois cartões fora do Desativar contam",
        len(demandas_simultaneas(_rod + [("E", "PRODUÇÃO")])) == 2)
     _a = datetime(2026, 10, 26, 10, 0, tzinfo=_pc.FUSO)

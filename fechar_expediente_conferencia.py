@@ -26,7 +26,7 @@ os.environ.setdefault("STREAMLIT_SECRETS", '[trello]\nkey = "conferencia"\n')
 
 def montar(ambiente="producao", saida_my="17:45", tem_label=True,
            labels_do_cartao=None, post_ok=True, pessoas_rhid=True,
-           dia_util=True):
+           dia_util=True, dois_cartoes=False):
     POSTS.clear()
 
     plan = types.ModuleType("planilha")
@@ -54,11 +54,31 @@ def montar(ambiente="producao", saida_my="17:45", tem_label=True,
     pc.eh_dia_util = lambda d: dia_util
     pc.mapa_labels = lambda forcar=False: ({"lb1": "FIM DE EXPEDIENTE"} if tem_label else {"lb9": "OUTRA"})
     _lbs = labels_do_cartao if labels_do_cartao is not None else ["EM ANDAMENTO"]
+    # O que os avisos do instante (`alertas_trello`) leem do mesmo módulo.
+    pc.LABELS_INTERRUPCAO = {"INTERROMPIDO", "INTERROMPIDO MS", "FIM DE EXPEDIENTE"}
+    pc.MEMBROS_ATIVOS = {"myrelladesouza": "Myrella"}
+    pc.FUSO = dt.timezone(dt.timedelta(hours=-3))
+    pc.GRACA_ENTRE_MIN = 5
+    _cards = [{"id": "card1", "name": "excluindo notas bling", "idList": "L1",
+               "idMembers": ["m1"], "labels": [{"name": l} for l in _lbs]}]
+    if dois_cartoes:
+        _cards.append({"id": "card2", "name": "descrição caneca", "idList": "L1",
+                       "idMembers": ["m1"], "labels": [{"name": "EM ANDAMENTO"}]})
     pc._buscar_board = lambda: (
-        {}, [{"id": "card1", "name": "excluindo notas bling",
-              "idMembers": ["m1"], "labels": [{"name": l} for l in _lbs]}],
-        {"m1": "myrelladesouza"}, None, None, None)
+        {"L1": "PRODUÇÃO"}, _cards, {"m1": "myrelladesouza"}, None, None, None)
     sys.modules["placar_core"] = pc
+
+    # Batidas e planilha dos avisos: sem expediente aberto e sem estado
+    # guardado — o que se mede aqui são as duas demandas.
+    bat = types.ModuleType("batidas")
+    bat.mapa = lambda *a, **k: {}
+    bat.janelas_do_dia = lambda *a, **k: []
+    sys.modules["batidas"] = bat
+    sh = types.ModuleType("sheets")
+    def _sem_planilha():
+        raise RuntimeError("sem planilha na conferência")
+    sh.planilha = _sem_planilha
+    sys.modules["sheets"] = sh
 
     req = types.ModuleType("requests")
     class R:
@@ -69,7 +89,7 @@ def montar(ambiente="producao", saida_my="17:45", tem_label=True,
     req.post = post
     sys.modules["requests"] = req
 
-    for m in ("fim_expediente", "fechar_expediente"):
+    for m in ("fim_expediente", "fechar_expediente", "meu_desempenho", "alertas_trello"):
         sys.modules.pop(m, None)
     import fechar_expediente as fx
     return fx
@@ -110,6 +130,12 @@ f += not rodar("board sem a etiqueta: aborta", 0, tem_label=False)
 f += not rodar("RHiD sem ninguem: fecha do mesmo jeito", 1, pessoas_rhid=False)
 f += not rodar("sem batida de saida: fecha do mesmo jeito", 1, saida_my=None)
 f += not rodar("POST recusado pelo Trello e reportado", 1, post_ok=False)
+# Os avisos do instante viajam na mesma rotina: às 11h, duas demandas abertas
+# da mesma pessoa viram UM comentário no cartão — e nenhuma etiqueta.
+f += not rodar("11h, duas demandas: um aviso no cartão, nenhuma etiqueta", 1,
+               dois_cartoes=True, agora=_as(11, 0))
+f += not (POSTS and POSTS[-1][0].endswith("/actions/comments")
+          and "@myrelladesouza" in POSTS[-1][1]["text"])
 print("\nfalhas:", f)
 if POSTS:
     print("ultimo POST:", POSTS[-1][0])
