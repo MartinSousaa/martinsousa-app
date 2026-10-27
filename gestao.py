@@ -294,6 +294,8 @@ SUBTELAS = {
     "🧾 Boletos": lambda u: _abrir_tela("boletos_tela", u),
     "🛒 ADS-Cross": _fatura_ml,
     "🎯 Meta de gastos": _meta_gastos,
+    # Dono, 27/10: quanto o Studio custa, por serviço, ferramenta e pessoa.
+    "💸 Custos do Studio": lambda u: _abrir_tela("custos_studio", u),
 }
 
 

@@ -57,6 +57,8 @@ Responda SOMENTE com os 2 títulos, um por linha, sem numeração, sem aspas, se
             model="claude-sonnet-4-6", max_tokens=300,
             messages=[{"role": "user", "content": _idioma.com_regra(prompt)}]
         )
+        import uso_ia as _uso
+        _uso.registrar("Título", "Anthropic", "claude-sonnet-4-6", msg)
         texto = msg.content[0].text.strip()
         linhas = [l.strip("-•* \t\"") for l in texto.split("\n") if l.strip()]
         return linhas[:2], None
@@ -89,6 +91,8 @@ Retorne SOMENTE os 2 títulos ajustados, um por linha, sem numeração, sem aspa
             model="claude-sonnet-4-6", max_tokens=300,
             messages=[{"role": "user", "content": _idioma.com_regra(prompt)}]
         )
+        import uso_ia as _uso
+        _uso.registrar("Título", "Anthropic", "claude-sonnet-4-6", msg)
         texto = msg.content[0].text.strip()
         linhas = [l.strip("-•* \t\"") for l in texto.split("\n") if l.strip()]
         return linhas[:2], None

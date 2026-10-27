@@ -1332,6 +1332,8 @@ def _chamar_ia(historico: list, mensagem_usuario: str, imagens_bytes: list = Non
                 messages=msgs,
                 **({"tools": ferramentas} if ferramentas else {}),
             )
+            import uso_ia as _uso
+            _uso.registrar("Assistente IA (chat)", "Anthropic", MODELO_CHAT, resp)
             usos = [b for b in resp.content if getattr(b, "type", "") == "tool_use"]
             if resp.stop_reason != "tool_use" or not usos or not _fer:
                 break
@@ -1387,6 +1389,8 @@ def _chamar_ia(historico: list, mensagem_usuario: str, imagens_bytes: list = Non
                     messages=msgs_cont,
                     **({"tools": ferramentas} if ferramentas else {}),
                 )
+                import uso_ia as _uso
+                _uso.registrar("Assistente IA (chat)", "Anthropic", MODELO_CHAT, resp)
             except Exception:
                 break
             _pedaco = _texto_de(resp)
