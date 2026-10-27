@@ -36,6 +36,42 @@ RAIZ = os.path.dirname(os.path.abspath(__file__))
 # que não se aplica dá a impressão de cobertura que não existe.
 MUTACOES = [
     (
+        'o campo de escrever volta a rolar a tela a cada resposta',
+        "chat_assistente.py",
+        [('        with st.form(key="ms_chat_form", clear_on_submit=True, border=False):',
+          '        if True:\n            st.chat_input("Digite sua mensagem…")')],
+        None,
+        ["python3", "chat_assistente.py"],
+    ),
+    # ── 27/10: "quero que as imagens aparecam no chat" ───────────────────
+    (
+        'a peca gerada volta a nao aparecer na conversa',
+        "imagem.py",
+        [('                        mostrar_no_chat(f"🖼️ **{tipo}** — pronta.",\n'
+          '                                        peca=len(galeria))\n',
+          '')],
+        None,
+        ["python3", "imagem.py", "--autoteste"],
+    ),
+    (
+        'a conversa volta a nao desenhar a peca de cada fala',
+        "chat_assistente.py",
+        [('                        _n_peca = msg.get("peca")',
+          '                        _n_peca = None')],
+        None,
+        ["python3", "chat_assistente.py"],
+    ),
+    (
+        'um anexo no chat volta a apagar a conversa inteira do disco',
+        "rascunho.py",
+        [('            valor = _so_o_que_cabe_em_json(valor)\n'
+          '            if valor in (None, "", [], {}):\n'
+          '                continue',
+          '            continue')],
+        None,
+        ["python3", "rascunho.py"],
+    ),
+    (
         'a galeria volta para o fim da pagina, longe da conversa',
         "imagem.py",
         [('    _slot_galeria = reservar_slot_das_fotos("galeria", st.container())',

@@ -465,6 +465,30 @@ def _caminho_trabalho(usuario):
     return os.path.join(_pasta(usuario), "trabalho.json")
 
 
+def _so_o_que_cabe_em_json(valor):
+    """O mesmo valor sem as partes que o JSON recusa. None se não sobrar nada.
+
+    Feita para `ms_chat_hist`, que é uma lista de falas e ganha BYTES quando
+    alguém anexa uma foto no chat. Tira a parte crua e devolve a fala; o texto
+    da conversa, que é o que custa refazer, continua gravado.
+    """
+    if isinstance(valor, list):
+        limpa = []
+        for item in valor:
+            if isinstance(item, dict):
+                item = {k: v for k, v in item.items()
+                        if not isinstance(v, (bytes, bytearray))
+                        and not (isinstance(v, list) and any(
+                            isinstance(x, (bytes, bytearray)) for x in v))}
+            try:
+                json.dumps(item)
+            except (TypeError, ValueError):
+                continue
+            limpa.append(item)
+        return limpa or None
+    return None
+
+
 def salvar_trabalho(usuario, estado):
     """Grava as chaves de trabalho. Devolve True se escreveu algo.
 
@@ -481,7 +505,20 @@ def salvar_trabalho(usuario, estado):
         try:
             json.dumps(valor)
         except (TypeError, ValueError):
-            continue
+            # O QUE NÃO CABE EM JSON SAI SOZINHO, e o resto FICA.
+            #
+            # Antes o `continue` descartava a CHAVE INTEIRA, e isso apagava a
+            # conversa em silêncio: basta o colaborador anexar uma foto no
+            # chat para `ms_chat_hist` ganhar bytes, e a partir daí o
+            # histórico parava de ser gravado. Um F5 depois disso devolvia a
+            # conversa vazia, sem nada na tela dizendo por quê — e o motivo
+            # era um anexo de vinte mensagens atrás.
+            #
+            # Perder o ANEXO num F5 é aceitável: ele já foi usado, e os bytes
+            # morrem com o processo de qualquer jeito. Perder a CONVERSA não.
+            valor = _so_o_que_cabe_em_json(valor)
+            if valor in (None, "", [], {}):
+                continue
         dados[chave] = valor
     try:
         pasta = _pasta(usuario)
@@ -699,6 +736,30 @@ if __name__ == "__main__":
     _tela = {}
     ok("e `restaurar` nao traz mais o produto velho de volta",
        restaurar("bia", _tela) == [] and _tela == {})
+
+    # ── UM ANEXO NO CHAT NAO PODE APAGAR A CONVERSA (27/10) ─────────────
+    #
+    # `ms_chat_hist` ganha BYTES quando alguem anexa uma foto no chat, e
+    # bytes nao cabem em JSON. O `continue` descartava a CHAVE INTEIRA: a
+    # partir do primeiro anexo o historico parava de ser gravado, e um F5
+    # devolvia a conversa vazia sem nada na tela dizendo por que.
+    salvar_trabalho("bia", {"ms_chat_hist": [
+        {"role": "user", "content": "gera a capa"},
+        {"role": "user", "content": "olha essa", "img_bytes": [b"\x89PNG"]},
+        {"role": "assistant", "content": "capa pronta", "peca": 1},
+    ]})
+    _volta = carregar_trabalho("bia").get("ms_chat_hist") or []
+    ok("com um anexo no meio, a CONVERSA continua sendo gravada",
+       [f["content"] for f in _volta]
+       == ["gera a capa", "olha essa", "capa pronta"])
+    # O ANEXO EM SI SE PERDE, e tudo bem: os bytes morrem com o processo de
+    # qualquer jeito. O que nao pode se perder e o texto.
+    ok("e so os bytes do anexo ficam de fora",
+       all("img_bytes" not in f for f in _volta))
+    # E O NUMERO DA PECA SOBREVIVE: e por ele que a imagem gerada volta a
+    # aparecer na conversa depois do F5.
+    ok("e o numero da peca gerada sobrevive ao F5",
+       _volta[2].get("peca") == 1)
 
     _sh_t.rmtree(_base, ignore_errors=True)
     print("\nfalhas:", falhas)

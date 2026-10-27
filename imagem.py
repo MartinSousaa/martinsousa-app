@@ -9273,6 +9273,50 @@ def slot_da_galeria():
     return _meus_slots().get("galeria")
 
 
+def mostrar_no_chat(texto, peca=None):
+    """Põe uma fala do Studio na conversa, com a peça aparecendo nela.
+
+    POR QUE ELA EXISTE (dono, 27/10)
+    --------------------------------
+    *"Eu quero que as imagens apareçam no chat, conforme eles peçam. Se for
+    para ficar aparecendo abaixo, é mais fácil voltar o chat para a lateral
+    (...) ele responde, o colaborador tem que baixar a tela para ver o
+    resultado, subir a tela de novo para falar com o chat, isso está
+    extremamente infuncional."*
+
+    Ele está certo, e o argumento decide o desenho: um chat central cuja
+    resposta aparece fora dele é pior que o chat estreito da lateral.
+
+    A MENSAGEM GUARDA O NÚMERO DA PEÇA, E NÃO OS BYTES
+    --------------------------------------------------
+    Três motivos, e o primeiro é um defeito que isto evita:
+
+    1. `rascunho.salvar_trabalho` grava `ms_chat_hist` em JSON, e bytes não
+       são serializáveis. A chave inteira seria descartada em silêncio, e a
+       conversa pararia de sobreviver ao F5 — perda calada, que é como esta
+       base perde trabalho.
+    2. A peça MUDA. Depois de um ajuste fino, o número continua apontando
+       para a versão nova; os bytes mostrariam para sempre a versão velha, ao
+       lado de um texto falando da nova.
+    3. Os mesmos megabytes não viajam duas vezes na memória da sessão.
+
+    Quem resolve o número em imagem é `chat_assistente.renderizar_chat`, na
+    hora de desenhar — ele já desenha `img_bytes` do anexo pelo mesmo
+    caminho.
+    """
+    fala = {"role": "assistant", "content": str(texto or "")}
+    try:
+        if peca is not None and int(peca) > 0:
+            fala["peca"] = int(peca)
+    except (TypeError, ValueError):
+        pass
+    try:
+        st.session_state.setdefault("ms_chat_hist", []).append(fala)
+    except Exception:
+        pass
+    return fala
+
+
 def fotos_do_produto(usuario=""):
     """As fotos do produto desta sessão. Uma pergunta, uma resposta.
 
@@ -9610,6 +9654,7 @@ def consumir_comandos_do_chat(usuario_logado=""):
         _dados_rf = st.session_state.get("img_dados_descricao") or {}
         _nome_rf = _cfg_rf.get("nome_produto", "")
         _msgs_rf, _mudou_rf = [], False
+        _pecas_rf = []          # os números das peças que de fato mudaram
         for _c in refazer_pend:
             _i = int(_c.get("num", 1)) - 1
             if _i < 0 or _i >= len(galeria):
@@ -9768,6 +9813,7 @@ def consumir_comandos_do_chat(usuario_logado=""):
                         + "\n   Me peça de novo e eu tento por outro caminho.")
             else:
                 _msgs_rf.append(f"🔁 Imagem {_i + 1} refeita do zero.")
+            _pecas_rf.append(_i + 1)
         if _mudou_rf:
             # Pelo helper, e nao direto: e ele que faz a falha aparecer na
             # tela em vez de sumir num `except: pass`.
@@ -9778,14 +9824,19 @@ def consumir_comandos_do_chat(usuario_logado=""):
             # se uma falhasse, ninguem saberia qual.
             guardar_rascunho(usuario_logado, "refazer do zero")
         if _msgs_rf:
-            st.session_state.setdefault("ms_chat_hist", []).append(
-                {"role": "assistant", "content": "\n".join(_msgs_rf)})
+            # A PEÇA REFEITA APARECE NA CONVERSA, e não só na galeria.
+            # `_pecas_rf` guarda o número de cada uma que mudou; com uma só,
+            # a imagem vem junto da fala. Com várias, o texto fala de todas e
+            # a imagem seria a de qual? — aí ela fica na galeria, logo abaixo.
+            mostrar_no_chat("\n".join(_msgs_rf),
+                            peca=_pecas_rf[0] if len(_pecas_rf) == 1 else None)
         st.rerun()
 
     cmds_pendentes = st.session_state.pop("chat_img_pendente", [])
     if cmds_pendentes:
         fotos_ref_aj = fotos_do_produto(usuario_logado)
         msgs_result, _mudou = [], False
+        _pecas_aj = []          # os números das peças que de fato mudaram
         for cmd in cmds_pendentes:
             num_foto  = cmd.get("num", 1)
             instrucao = cmd.get("instrucao", "")
@@ -9882,6 +9933,7 @@ def consumir_comandos_do_chat(usuario_logado=""):
             if nova_img and _relato.get("ok") is not False:
                 st.session_state["img_galeria"][idx_alvo]["bytes"] = nova_img
                 _mudou = True
+                _pecas_aj.append(num_foto)
                 _resultado_log = "imagem atualizada"
                 # A copia de seguranca acompanha o ajuste. Sem esta linha o
                 # disco continuava com a imagem de antes da correcao.
@@ -9906,15 +9958,12 @@ def consumir_comandos_do_chat(usuario_logado=""):
         # e a instrucao dele diz para nao chamar de pronto o que o veredito
         # nao confirmou.
         if msgs_result:
-            try:
-                _hist_chat = st.session_state.get("ms_chat_hist")
-                if _hist_chat is not None:
-                    _hist_chat.append({
-                        "role": "assistant",
-                        "content": "**Resultado do ajuste, conferido na "
-                                   "imagem:**\n\n" + "\n\n".join(msgs_result)})
-            except Exception:
-                pass
+            # A PEÇA AJUSTADA APARECE NA CONVERSA, pelo mesmo caminho do
+            # refazer — um jeito só de uma peça chegar ao chat.
+            mostrar_no_chat(
+                "**Resultado do ajuste, conferido na imagem:**\n\n"
+                + "\n\n".join(msgs_result),
+                peca=_pecas_aj[0] if len(_pecas_aj) == 1 else None)
         if _mudou:
             st.session_state["chat_img_msgs"] = msgs_result
             st.rerun()
@@ -12353,6 +12402,19 @@ def pagina_imagem(usuario_logado):
                             # prompt errado ou de ter caído no fallback texto-puro.
                             "diag": _res.get("diag") or {},
                         })
+                        # E ELA APARECE NA CONVERSA, na hora.
+                        #
+                        # Dono, 27/10: *"quero que as imagens apareçam no
+                        # chat, conforme eles peçam (...) ele responde, o
+                        # colaborador tem que baixar a tela para ver o
+                        # resultado, subir a tela de novo para falar com o
+                        # chat, isso está extremamente infuncional"*.
+                        #
+                        # Uma fala por peça, com o número dela: a imagem é
+                        # buscada na galeria na hora de desenhar, então um
+                        # ajuste depois mostra a versão nova no mesmo lugar.
+                        mostrar_no_chat(f"🖼️ **{tipo}** — pronta.",
+                                        peca=len(galeria))
                         # Grava a cada imagem, nao so no fim do laco.
                         #
                         # A galeria so era publicada depois da ultima imagem. Uma
@@ -18004,6 +18066,60 @@ if __name__ == "__main__":
     ok("no modo do padrao, o pedido sao as oito",
        resumo_do_trabalho({"img_modo": _OPCAO_PADRAO})["pedido"]
        == list(TIPOS_PADRAO))
+
+    # ══ A PECA APARECE NA CONVERSA, E NAO SO NA GALERIA (27/10) ═════════
+    #
+    # Dono: *"Se for para ficar aparecendo abaixo, e mais facil voltar o chat
+    # para a lateral (...) o colaborador tem que baixar a tela para ver o
+    # resultado, subir a tela de novo para falar com o chat"*.
+    st.session_state.clear()
+    _f1 = mostrar_no_chat("🖼️ **1 — Capa** — pronta.", peca=1)
+    ok("a peca pronta vira uma fala do Studio na conversa",
+       (st.session_state.get("ms_chat_hist") or [])[-1] is _f1
+       and _f1["role"] == "assistant")
+    ok("e a fala carrega o NUMERO da peca", _f1.get("peca") == 1)
+    # O NUMERO, E NAO OS BYTES. Bytes na fala fariam o rascunho descartar a
+    # conversa inteira (nao serializavel), e mostrariam para sempre a versao
+    # velha depois de um ajuste.
+    ok("e NAO carrega bytes de imagem",
+       not any(isinstance(v, (bytes, bytearray)) for v in _f1.values()))
+    import json as _json_pc
+    ok("entao a fala cabe em JSON, que e como o rascunho a grava",
+       _json_pc.dumps(_f1) and True)
+    # SEM PECA, so a fala: e o caso de varias refeitas de uma vez, em que a
+    # imagem seria "a de qual?".
+    ok("sem numero, a fala entra sem peca nenhuma",
+       "peca" not in mostrar_no_chat("duas refeitas"))
+    ok("e numero invalido nao vira peca",
+       "peca" not in mostrar_no_chat("x", peca=0)
+       and "peca" not in mostrar_no_chat("y", peca="nao e numero"))
+    st.session_state.clear()
+
+    # ── E OS TRES MOMENTOS EM QUE UMA PECA FICA PRONTA AVISAM A CONVERSA ─
+    #
+    # A correcao se aplica ao ALCANCE da regra, e nao ao lugar onde o sintoma
+    # apareceu: a peca chega ao chat quando ela e GERADA, quando e REFEITA e
+    # quando e AJUSTADA. Cobrir so a geracao deixaria o colaborador pedindo
+    # uma correcao e descendo a tela para ver se ela saiu — que e exatamente
+    # a queixa de 27/10.
+    #
+    # Por AST, e nao por texto: procurar a palavra acharia este comentario, e
+    # tirar a chamada de verdade nao reprovaria nada.
+    import ast as _ast_mc
+    import inspect as _insp_mc
+    # OS DOIS DONOS: a GERACAO mora em `pagina_imagem`; o REFAZER e o AJUSTE
+    # pedidos no chat moram em `consumir_comandos_do_chat`. Contar so uma
+    # delas daria verde com dois dos tres momentos mudos.
+    def _avisa(fn):
+        _arv = _ast_mc.parse(_insp_mc.getsource(fn).lstrip())
+        return len([_n for _n in _ast_mc.walk(_arv)
+                    if isinstance(_n, _ast_mc.Call)
+                    and (getattr(_n.func, "id", "")
+                         or getattr(_n.func, "attr", "")) == "mostrar_no_chat"])
+
+    ok("a peca GERADA avisa a conversa", _avisa(pagina_imagem) >= 1)
+    ok("e a REFEITA e a AJUSTADA pelo chat tambem",
+       _avisa(consumir_comandos_do_chat) >= 2)
 
     # ══ AS FOTOS DO PRODUTO: UMA PERGUNTA, UMA RESPOSTA (27/10) ═════════
     #
