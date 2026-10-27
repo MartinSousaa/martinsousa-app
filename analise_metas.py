@@ -3282,6 +3282,9 @@ def _ponto_por_membro(dados, users):
         _atr_mb    = {u: 0   for u in users}
         _banco_mb  = {u: 0.0 for u in users}
         _minatr_mb = {u: 0.0 for u in users}
+        # Os trechos ociosos, um a um: a linha do tempo individual os desenha
+        # (27/10). Já vêm na mesma conta, então não custam outra leitura.
+        _bur_mb    = {u: [] for u in users}
 
         for ym in _meses_ponto:
             if not ym:
@@ -3312,6 +3315,7 @@ def _ponto_por_membro(dados, users):
                 # O banco ja vem acumulado da RHiD: o ultimo mes do periodo e o
                 # saldo atual, e somar os meses contaria tudo de novo.
                 _banco_mb[u] = _res[u].get("banco_min", 0.0)
+                _bur_mb[u].extend(_res[u].get("buracos") or [])
             # Verifica se há dados reais de ponto
             if any(_res[u]["dias_trabalhados"] > 0 for u in users):
                 _tem_ponto = True
@@ -3330,10 +3334,12 @@ def _ponto_por_membro(dados, users):
         _atr_mb    = {u: 0   for u in users}
         _banco_mb  = {u: 0.0 for u in users}
         _minatr_mb = {u: 0.0 for u in users}
+        _bur_mb    = {u: [] for u in users}
     return {"tem_ponto": _tem_ponto, "ocio_mb": _ocio_mb, "tol_mb": _tol_mb,
             "pct_ocio": _pct_ocio, "dias_trab": _dias_trab, "dias_aus": _dias_aus,
             "disp_mb": _disp_mb, "atr_mb": _atr_mb,
-            "banco_mb": _banco_mb, "minatr_mb": _minatr_mb}
+            "banco_mb": _banco_mb, "minatr_mb": _minatr_mb,
+            "buracos_mb": _bur_mb}
 
 
 LIMITE_OCIOSIDADE_PCT = 10.0   # teto de ocio do expediente, em %
@@ -3846,6 +3852,15 @@ ESTADO_NOME = {"encerrado": "CONCLUÍDO", "interrompido": "INTERROMPIDO",
 # HTML tambem resolve a ordem de pintura de graca: as fichas vem depois do
 # <svg> no documento, entao ficam por cima dele sem precisar de z-index.
 FICHA_L = 246
+# Vermelho do "dia parado" e do atraso: ociosidade é o mesmo achado, e a
+# hachura a separa de qualquer estado de cartão (27/10).
+COR_OCIO = "#E34948"
+_PADRAO_OCIO = (
+    '<defs><pattern id="ltd-ocio" width="5" height="5" '
+    'patternUnits="userSpaceOnUse" patternTransform="rotate(45)">'
+    f'<rect width="5" height="5" fill="{COR_OCIO}" fill-opacity="0.16"/>'
+    f'<line x1="0" y1="0" x2="0" y2="5" stroke="{COR_OCIO}" '
+    'stroke-width="1.6" stroke-opacity="0.55"/></pattern></defs>')
 
 
 def _ficha_exec(e, tot, cx_pct, cy_pct, cor, esq, estado=None):
@@ -3890,7 +3905,51 @@ def _ficha_exec(e, tot, cx_pct, cy_pct, cor, esq, estado=None):
         + "".join(linhas) + '</div>')
 
 
-def _chart_linha_do_tempo(dados, username):
+def _ficha_ocio(b, cx_pct, cy_pct, esq):
+    """A ficha de um trecho ocioso, no mesmo molde da ficha do cartão."""
+    _bruto = b["_m_fim"] - b["_m_ini"]
+    linhas = [
+        f'<div style="font-size:11px;font-weight:700;color:#e8e6e1;'
+        f'margin-bottom:2px;">💤 Ociosidade</div>',
+        f'<div style="font-size:9px;color:#9aa09c;">nenhum cartão EM ANDAMENTO '
+        f'dentro do expediente batido</div>',
+        f'<div style="font-size:10px;color:{COR_OCIO};margin-top:3px;">'
+        f'{b["ini"]} → {b["fim"]} · {_fmt_hm(_bruto)} sem cartão</div>',
+        f'<div style="font-size:9px;font-weight:700;color:{COR_OCIO};margin-top:2px;">'
+        f'contou {_fmt_hm(b["minutos"])} · folga de {b["folga"]} min já descontada'
+        f'</div>']
+    lado = (f'right:{100 - cx_pct:.2f}%;margin-right:8px;' if esq
+            else f'left:{cx_pct:.2f}%;margin-left:8px;')
+    return (
+        f'<div class="ltd-f" style="display:none;position:absolute;'
+        f'top:{cy_pct:.2f}%;{lado}transform:translateY(-50%);'
+        f'width:{FICHA_L}px;max-width:60%;background:#12140f;'
+        f'border:1px solid {COR_OCIO};border-radius:6px;padding:8px 10px;'
+        f'pointer-events:none;z-index:5;line-height:1.35;">'
+        + "".join(linhas) + '</div>')
+
+
+def _ocio_por_dia(ponto, username):
+    """{"AAAA-MM-DD": [trecho]} dos trechos ociosos da pessoa, com os minutos
+    do relógio já calculados. Vem de `_ponto_por_membro` — a MESMA conta do
+    velocímetro e do expander, e não uma segunda. Pura."""
+    out = {}
+    for b in ((ponto or {}).get("buracos_mb") or {}).get(username) or []:
+        try:
+            d = b["data"]
+            dia = d.strftime("%Y-%m-%d") if hasattr(d, "strftime") else str(d)[:10]
+            hi, mi = (int(x) for x in b["ini"].split(":"))
+            hf, mf = (int(x) for x in b["fim"].split(":"))
+        except Exception:
+            continue
+        m_ini, m_fim = hi * 60 + mi, hf * 60 + mf
+        if m_fim <= m_ini:
+            continue
+        out.setdefault(dia, []).append(dict(b, _m_ini=m_ini, _m_fim=m_fim))
+    return out
+
+
+def _chart_linha_do_tempo(dados, username, ponto=None):
     """Quando cada cartão foi executado, dia a dia, no relógio do expediente.
 
     Um gráfico só, que responde as três perguntas do dia: a que horas o trabalho
@@ -3939,6 +3998,19 @@ def _chart_linha_do_tempo(dados, username):
                 continue
             total_min += e["min"]
             n_exec += 1
+    # A ociosidade entra no mesmo relógio (27/10): o trecho em que a pessoa
+    # estava no expediente batido e nenhum cartão dela rodava. Só a tela
+    # individual passa `ponto`; a da equipe não tem de quem ser o buraco.
+    ocio_dia = _ocio_por_dia(ponto, username)
+    ocio_min, n_ocio = 0.0, 0
+    for dia, lista in ocio_dia.items():
+        if not dia.startswith(pref):
+            continue
+        for b in lista:
+            eixo_ini = min(eixo_ini, b["_m_ini"])
+            eixo_fim = max(eixo_fim, b["_m_fim"])
+            ocio_min += b["minutos"]
+            n_ocio += 1
     eixo_ini = (eixo_ini // 30) * 30
     eixo_fim = -(-eixo_fim // 30) * 30
     span = max(eixo_fim - eixo_ini, 60)
@@ -4022,6 +4094,29 @@ def _chart_linha_do_tempo(dados, username):
             parados.append(str(d))
             partes.append(f'<rect x="{x:.1f}" y="{mt}" width="{bw:.1f}" '
                           f'height="{ALT_REL}" fill="#E3494822"/>')
+
+        # Os trechos ociosos vão ANTES dos cartões: são o fundo do dia, e um
+        # cartão que encosta nele fica por cima, sem disputa de mouse.
+        for b in ocio_dia.get(chave, []):
+            y_topo, y_base = y(b["_m_fim"]), y(b["_m_ini"])
+            alt = max(y_base - y_topo, 2.2)
+            y_topo = y_base - alt
+            bx, blarg = x + 2.5, max(bw - 5, 2)
+            partes.append(
+                f'<rect x="{bx:.1f}" y="{y_topo:.1f}" width="{blarg:.1f}" '
+                f'height="{alt:.1f}" rx="2" fill="url(#ltd-ocio)" '
+                f'stroke="{COR_OCIO}" stroke-width="1" stroke-dasharray="3,2">'
+                f'<title>Ociosidade · {b["ini"]} → {b["fim"]} · contou '
+                f'{_fmt_hm(b["minutos"])} (folga de {b["folga"]} min descontada)'
+                f'</title></rect>')
+            cx_pct = (bx + blarg / 2) / W * 100
+            cy_pct = (y_topo + alt / 2) / H * 100
+            sobre.append(
+                f'<div class="ltd-hit" style="position:absolute;'
+                f'left:{bx / W * 100:.3f}%;top:{(y_topo - 3) / H * 100:.3f}%;'
+                f'width:{blarg / W * 100:.3f}%;'
+                f'height:{(alt + 6) / H * 100:.3f}%;"></div>'
+                + _ficha_ocio(b, cx_pct, cy_pct, cx_pct > 55))
 
         por_card = {}
         for e in lista:
@@ -4149,6 +4244,9 @@ def _chart_linha_do_tempo(dados, username):
         f'<span>média por cartão <b style="color:#4A90D9;">'
         f'{_fmt_hm(media_geral)}</b></span>'
         f'<span>média diária <b style="color:#4A90D9;">{_fmt_hm(media_dia)}</b></span>'
+        + (f'<span style="color:{COR_OCIO};">💤 ociosidade '
+           f'<b>{_fmt_hm(ocio_min)}</b> em {n_ocio} trecho(s)</span>'
+           if n_ocio else "")
         + (f'<span style="color:#7A8B99;">busca de demanda '
            f'<b>{_fmt_hm(min_analise)}</b> em {n_analise} trecho(s) · '
            f'fora da média</span>' if n_analise else "")
@@ -4164,7 +4262,13 @@ def _chart_linha_do_tempo(dados, username):
            f'<br>contorno branco tracejado = filmagem · contorno cinza = busca '
            f'de demanda · fundo escuro = fora do expediente ou fim de semana · '
            f'passe o mouse num bloco para ver o cartão'
-           f'<br>as três linhas embaixo contam CARTÕES, nas mesmas cores, e '
+           + (f'<br><span style="color:{COR_OCIO};font-weight:700;">▨</span> '
+              f'ociosidade: expediente batido sem cartão EM ANDAMENTO, já sem a '
+              f'folga de {_pc.GRACA_INICIO_MIN} min no início e {_pc.GRACA_ENTRE_MIN} '
+              f'min entre cartões · a pausa pessoal de {_pc.PAUSA_PESSOAL_MIN} min '
+              f'do dia e o abono da RHiD saem do total, e não de um trecho'
+              if n_ocio else "")
+           + f'<br>as três linhas embaixo contam CARTÕES, nas mesmas cores, e '
            f'cada cartão entra em uma só: a do estado em que ele fechou o dia'
            f'</div>')
     if parados:
@@ -4180,7 +4284,8 @@ def _chart_linha_do_tempo(dados, username):
     return (f'<div style="width:100%;padding:4px 0;">{cab}'
             f'<div style="position:relative;width:100%;">'
             f'<svg viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" '
-            f'style="width:100%;display:block;">' + "".join(partes) + '</svg>'
+            f'style="width:100%;display:block;">' + _PADRAO_OCIO
+            + "".join(partes) + '</svg>'
             + "".join(sobre) + f'</div>{leg}</div>')
 
 
@@ -5020,10 +5125,12 @@ def _desempenho_individual(dados, username, nome, carregar_periodo=None,
             "Embaixo, quantos cartões ficaram **EM ANDAMENTO**, **CONCLUÍDO** e "
             "**INTERROMPIDO** no dia — interrompido conta tanto a etiqueta "
             "INTERROMPIDO quanto FIM DE EXPEDIENTE. Dia útil já passado sem "
-            "nenhum registro sai em vermelho. Passe o mouse num bloco para ver "
-            "o cartão."
+            "nenhum registro sai em vermelho. O **bloco vermelho hachurado é "
+            "ociosidade**: expediente batido sem nenhum cartão EM ANDAMENTO, já "
+            "sem as folgas. Passe o mouse num bloco para ver o cartão ou o "
+            "trecho ocioso."
         )
-        st.markdown(_chart_linha_do_tempo(dados, username),
+        st.markdown(_chart_linha_do_tempo(dados, username, ponto=_ponto_ind),
                     unsafe_allow_html=True)
 
     st.markdown("---")
@@ -7503,6 +7610,44 @@ if __name__ == "__main__":
     ok("e o ponto vem da mesma leitura",
        "_pontualidade_do_periodo(dados, membros_ativos)" in _src
        and "get_pontualidade_mes" not in _src)
+
+    # A OCIOSIDADE NA LINHA DO TEMPO (27/10), pela CADEIA: o relógio (dublado,
+    # é a rede) -> `get_ociosidade_mes` de verdade -> `_ponto_por_membro` ->
+    # o gráfico. Nenhum trecho escrito à mão: o 10:00 → 11:00 sai da conta.
+    _uo = sorted(_pc.MEMBROS_ATIVOS)[0]
+    _Fo = _pc.FUSO
+    _do = datetime(2026, 10, 6).date()
+    _jo = [(datetime(2026, 10, 6, 9, 0, tzinfo=_Fo), datetime(2026, 10, 6, 12, 0, tzinfo=_Fo))]
+    _ao = [(datetime(2026, 10, 6, 9, 5, tzinfo=_Fo), datetime(2026, 10, 6, 10, 0, tzinfo=_Fo)),
+           (datetime(2026, 10, 6, 11, 0, tzinfo=_Fo), datetime(2026, 10, 6, 12, 0, tzinfo=_Fo))]
+    _g_o = (_rp._pontualidade_rhid, _rp.calcular_resumo_mes, _pc.abonos_do_dia)
+    _rp._pontualidade_rhid = lambda a, m: ({_uo: {"janelas": [(_do, _jo)],
+                                                   "minutos_trabalhados": 180,
+                                                   "dias_trabalhados": 1}}, {})
+    _rp.calcular_resumo_mes = lambda a, m: {x: {
+        "total_horas_disp": 0, "dias_trabalhados": 0, "dias_ausentes": 0,
+        "total_tolerancia_min": 0, "qtd_tolerancias": 0, "qtd_atrasos": 0}
+        for x in _rp.MEMBROS}
+    _pc.abonos_do_dia = lambda *a, **k: []
+    try:
+        _dso = [{"filtro_mes": (2026, 10), "intervalos_membro": {_uo: _ao}}]
+        _po = _ponto_por_membro(_dso, [_uo])
+        _ho = _chart_linha_do_tempo(_dso, _uo, ponto=_po)
+        _he = _chart_linha_do_tempo(_dso, _uo)
+    finally:
+        _rp._pontualidade_rhid, _rp.calcular_resumo_mes, _pc.abonos_do_dia = _g_o
+    ok("linha do tempo: o trecho ocioso medido aparece, com a ficha do cartão",
+       "url(#ltd-ocio)" in _ho and "10:00 → 11:00" in _ho
+       and "💤 Ociosidade" in _ho and f"contou {_fmt_hm(55.0)}" in _ho)
+    ok("linha do tempo: a folga do começo do dia (5 min < 10) não vira trecho",
+       "09:00 → 09:05" not in _ho)
+    ok("linha do tempo: sem o ponto (tela da equipe), nenhum trecho ocioso",
+       "url(#ltd-ocio)" not in _he)
+    ok("a tela individual entrega o ponto ao gráfico",
+       "_chart_linha_do_tempo(dados, username, ponto=_ponto_ind)"
+       in _insp.getsource(_desempenho_individual))
+    ok("o expander conta TODOS os trechos, sem teto",
+       "[:60]" not in _insp.getsource(_rp.get_ociosidade_mes))
 
     print("\nfalhas:", falhas)
     __import__("sys").exit(1 if falhas else 0)

@@ -1244,8 +1244,11 @@ def get_ociosidade_mes(ano: int, mes: int, tempo_cards_por_user: dict,
             "tempo_cards_min": tc,
             "ociosidade_min": ocio,
             # Do maior para o menor: quem abre quer ver primeiro o dia que
-            # pesou, não o de três minutos.
-            "buracos": sorted(buracos, key=lambda b: -b["minutos"])[:60],
+            # pesou, não o de três minutos. TODOS, sem teto: a linha do tempo
+            # individual desenha cada um (27/10), e o expander dizia "60
+            # trechos" quando havia mais — rótulo que prometia menos do que
+            # existia.
+            "buracos": sorted(buracos, key=lambda b: -b["minutos"]),
             "pct_ocioso": pct,
             "dias_trabalhados": (via_rhid.get(u, {}).get("dias_trabalhados")
                                  or resumo[u]["dias_trabalhados"]),

@@ -4305,6 +4305,28 @@ MUTACOES = [
         "td = lambda v, c=TEXTO, b=False: (f'<td style=\"text-align:right;",
         ["python3", "checar_tela.py"],
     ),
+    (
+        'a linha do tempo individual volta a nao desenhar a ociosidade (27/10)',
+        "analise_metas.py",
+        [('        for b in ocio_dia.get(chave, []):\n', '        for b in []:\n')],
+        None,
+        ["python3", "analise_metas.py"],
+    ),
+    (
+        'os trechos ociosos voltam a nao chegar ao grafico (27/10)',
+        "analise_metas.py",
+        [('                _bur_mb[u].extend(_res[u].get("buracos") or [])\n', '')],
+        None,
+        ["python3", "analise_metas.py"],
+    ),
+    (
+        'o teto de 60 trechos volta a esconder ociosidade (27/10)',
+        "relogio_ponto.py",
+        [('"buracos": sorted(buracos, key=lambda b: -b["minutos"]),',
+          '"buracos": sorted(buracos, key=lambda b: -b["minutos"])[:60],')],
+        None,
+        ["python3", "analise_metas.py"],
+    ),
 ]
 
 
