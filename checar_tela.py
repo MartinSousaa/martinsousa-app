@@ -121,6 +121,14 @@ class _Falso:
                 f"key={k!r} usada duas vezes (em {self._chaves[k]} e agora "
                 f"em {nome}) — é o erro que derruba a tela em produção")
         self._chaves[k] = nome
+        # E QUEM ESTAVA ABERTO NA HORA. Sem isto, "o campo existe" e "o campo
+        # esta no cabecalho" sao a mesma resposta — e foi assim que uma guarda
+        # minha ficou verde com o defeito de volta.
+        for _c in _PILHA_DE_CONTAINERS:
+            try:
+                _c.dentro.add(k)
+            except Exception:
+                pass
 
     def __getattr__(self, nome):
         def _qualquer(*a, **kw):
@@ -203,6 +211,11 @@ class _Parou(Exception):
     """`st.stop()` — idem."""
 
 
+# Os conteineres abertos por `with`, do mais antigo ao mais recente. O topo e
+# o container ativo — e e nele que a chave desenhada agora e anotada.
+_PILHA_DE_CONTAINERS = []
+
+
 class _Contexto:
     """`st.container()` e `st.expander()`: servem de `with` E de objeto.
 
@@ -231,9 +244,19 @@ class _Contexto:
         self.dentro = set()
 
     def __enter__(self):
+        # O `with` TAMBEM DIZ ONDE. No Streamlit de verdade, `with c:` troca o
+        # container ativo e tudo que for desenhado ali dentro vai para ele —
+        # e e assim que a galeria e desenhada no lugar reservado.
+        #
+        # O duplo so anotava `c.metodo(...)`. Com isso, uma guarda de POSICAO
+        # funcionava para os campos de upload (que usam a chamada) e falhava
+        # para a galeria (que usa o `with`) — medindo a tecnica, e nao o lugar.
+        _PILHA_DE_CONTAINERS.append(self)
         return self.valor
 
     def __exit__(self, *a):
+        if _PILHA_DE_CONTAINERS and _PILHA_DE_CONTAINERS[-1] is self:
+            _PILHA_DE_CONTAINERS.pop()
         return False
 
     def __getattr__(self, nome):
@@ -2896,6 +2919,119 @@ def _novo_produto(conta):
         _sh_np.rmtree(_base, ignore_errors=True)
 
 
+def _fotos_que_o_chat_nao_via(conta):
+    """O refazer pelo chat acha as fotos anexadas — sem geracao nenhuma antes.
+
+    O DEFEITO, EM PRODUCAO, 27/10. O dono anexou tres fotos do produto, pediu
+    no chat para refazer a peca 5, e recebeu:
+
+        "Preciso das fotos do produto para refazer do zero. O Studio nao tem
+         nenhuma nesta sessao"
+
+    com as tres fotos na tela. A causa: o campo de upload NUNCA escrevia
+    `img_fotos_originais` — ela so era preenchida DEPOIS de uma geracao rodar
+    neste processo. A aba sabia das fotos; o chat nao. Uma pergunta, duas
+    respostas.
+
+    POR QUE ESTA GUARDA DESENHA A TELA
+    ----------------------------------
+    `fotos_do_produto` tem guarda propria em `imagem.py`, e ela mede as tres
+    fontes. Mas o defeito nao estava na porta: estava em NINGUEM GRAVAR o que
+    o campo entregou. Isso so aparece desenhando a pagina com fotos no campo
+    e perguntando, depois, se o refazer as acha.
+
+    E ela mede A RECUSA, que e o que o dono leu — nao "a funcao devolveu
+    alguma coisa". Guarda que confere so que nao explodiu nao ve texto errado.
+    """
+    import importlib
+    import shutil as _sh_fq
+    import sys as _sys_fq
+    import tempfile as _tmp_fq
+
+    import rascunho as _rasc_fq
+
+    _base = _tmp_fq.mkdtemp()
+    _pasta_real = _rasc_fq._pasta
+    _rasc_fq._pasta = lambda u, _b=_base: os.path.join(_b, str(u))
+    _sh, _guardado = _sem_planilha()
+    _revisar_real = None
+    _m = None
+    try:
+        _falso = instalar()
+        _m = importlib.import_module("imagem")
+        _revisar_real = _m.revisar_anexos
+        for _nm, _mod in list(_sys_fq.modules.items()):
+            if getattr(_mod, "st", None) is not None and not _nm.startswith(
+                    ("streamlit", "checar_")):
+                try:
+                    _mod.st = _falso
+                except Exception:
+                    pass
+
+        _PNG = b"\x89PNG\r\n\x1a\n" + b"p" * 2000
+        # O CAMPO DE UPLOAD COM TRES FOTOS, como na tela do dono. O duplo nao
+        # carrega arquivo; quem devolve os bytes e `revisar_anexos`, que e a
+        # porta por onde todo anexo desta aba passa.
+        _m.revisar_anexos = lambda up: ([_PNG, _PNG, _PNG],
+                                        ["a.png", "b.png", "c.png"], [], [])
+        _falso.session_state["img_nome_produto_input"] = "Garrafa Térmica"
+        try:
+            _m.pagina_imagem("myrelladesouza")
+        except (_Rerun, _Parou):
+            pass
+        except Exception as e:
+            conta("a aba monta com as fotos anexadas", False,
+                  f"{type(e).__name__}: {str(e)[:160]}")
+            return
+
+        # NENHUMA GERACAO RODOU. Era exatamente este o estado que recusava.
+        conta("as fotos anexadas viram as fotos da sessao, sem gerar nada",
+              len(_m.fotos_do_produto("myrelladesouza")) == 3,
+              "o campo entregou tres fotos e o Studio continua sem nenhuma — "
+              "e o refazer pelo chat recusa com as fotos na tela")
+
+        # ── E AGORA O CAMINHO INTEIRO: o pedido do chat, desenhado ──────
+        #
+        # A assercao mede A RECUSA, que e o texto que o dono leu.
+        _falso2 = instalar()
+        for _nm, _mod in list(_sys_fq.modules.items()):
+            if getattr(_mod, "st", None) is not None and not _nm.startswith(
+                    ("streamlit", "checar_")):
+                try:
+                    _mod.st = _falso2
+                except Exception:
+                    pass
+        _m.revisar_anexos = lambda up: ([_PNG, _PNG, _PNG],
+                                        ["a.png", "b.png", "c.png"], [], [])
+        _rasc_fq.salvar_fotos("myrelladesouza", [_PNG, _PNG, _PNG],
+                              ["a.png", "b.png", "c.png"])
+        _falso2.session_state.update({
+            "img_nome_produto_input": "Garrafa Térmica",
+            "img_galeria": [{"tipo": t, "bytes": _PNG}
+                            for t in _m.TIPOS_PADRAO[:5]],
+            "chat_refazer_imagem": [{"num": 5, "instrucao": "troca a tampa",
+                                     "referencia": []}],
+        })
+        try:
+            _m.pagina_imagem("myrelladesouza")
+        except (_Rerun, _Parou):
+            pass
+        except Exception:
+            pass
+        _falas = [str(f.get("content", "")) for f in
+                  (_falso2.session_state.get("ms_chat_hist") or [])]
+        conta("e o refazer pelo chat NAO recusa por falta de foto",
+              not any("não tem nenhuma nesta sessão" in f for f in _falas),
+              "a recusa de 27/10 voltou: o dono anexa as fotos, pede no chat, "
+              "e o Studio diz que nao tem foto nenhuma")
+    finally:
+        if _m is not None and _revisar_real is not None:
+            _m.revisar_anexos = _revisar_real
+        _rasc_fq._pasta = _pasta_real
+        _sh.planilha, _sh.cliente = _guardado
+        _sh_fq.rmtree(_base, ignore_errors=True)
+
+
 def _chat_no_centro(conta):
     """O chat e desenhado no CENTRO da aba Imagem, e so num lugar por passada.
 
@@ -3008,6 +3144,33 @@ def _chat_no_centro(conta):
               "o botao que gasta a geracao ficou so no fim da pagina, dentro "
               "do Modo manual recolhido — o colaborador pede no chat e nao "
               "tem onde clicar")
+        # A GALERIA LOGO ABAIXO DA CONVERSA (dono, 27/10). ONDE, e nao SE:
+        # a galeria desenhada no fim da pagina registra as mesmas chaves.
+        _falso.session_state["img_galeria"] = [
+            {"tipo": _m.TIPOS_PADRAO[0], "bytes": b"\x89PNG\r\n\x1a\nz"}]
+        _f_gal = instalar()
+        for _nm_g, _mod_g in list(_sys_cc.modules.items()):
+            if getattr(_mod_g, "st", None) is not None and not _nm_g.startswith(
+                    ("streamlit", "checar_")):
+                try:
+                    _mod_g.st = _f_gal
+                except Exception:
+                    pass
+        _f_gal.session_state.update({
+            "img_nome_produto_input": "Prendedor de Roupa",
+            "img_galeria": [{"tipo": _m.TIPOS_PADRAO[0],
+                             "bytes": b"\x89PNG\r\n\x1a\nz"}]})
+        try:
+            _m.pagina_imagem("myrelladesouza")
+        except (_Rerun, _Parou):
+            pass
+        except Exception:
+            pass
+        conta("a galeria e desenhada logo abaixo da conversa",
+              "img_diag_sel" in getattr(_m.slot_da_galeria(), "dentro", set()),
+              "a galeria voltou para o fim da pagina: quem pede a peca no "
+              "chat tem de rolar a tela inteira para ver o que saiu")
+
         conta("e o ☰ devolve a barra lateral",
               "btn_lateral_imagem" in _falso._chaves,
               "a lateral some e nao ha como traze-la de volta: o Sair mora "
@@ -4788,6 +4951,7 @@ def main():
     _fotos_perdidas(conta)
     _novo_produto(conta)
     _chat_no_centro(conta)
+    _fotos_que_o_chat_nao_via(conta)
     _refazer_cego(conta)
     _peca_olhada(conta)
     _home(falhas, conta)
