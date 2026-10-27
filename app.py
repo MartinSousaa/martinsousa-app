@@ -1521,6 +1521,13 @@ with st.sidebar:
         for k in [k for k in st.session_state if k == chave_admin]:
             del st.session_state[k]
         presenca.esquecer(usuario_logado)
+        # SAIR SAI (27/10): o token desta aba cai e sai do endereço — senão
+        # `verificar_login` relia o `_s` e logava de volta na hora.
+        auth.encerrar_sessao(st.query_params.get("_s", ""))
+        try:
+            del st.query_params["_s"]
+        except Exception:
+            pass
         del st.session_state["usuario_logado"]
         st.rerun()
 
@@ -2265,6 +2272,10 @@ if _eh_admin:
 else:
     # ── COLABORADORES: barra única com 11 abas ────────────────────────────────
     _navegar({
+        # A PRIMEIRA TELA DE QUEM ENTRA (dono, 24/10): o mês da pessoa, o que
+        # puxa a meta dela para baixo e o ponto pendente. Primeira da barra,
+        # e por isso a que abre.
+        "🏠 Meu desempenho":       lambda: _abrir('meu_desempenho', 'pagina', usuario_logado),
         "Análise de Viabilidade": _render_viabilidade_tab,
         "Triagem":                lambda: _abrir('triagem', 'pagina_triagem', usuario_logado),
         "Palavras-chave":         lambda: _abrir('palavras_chave', 'pagina_palavras_chave', usuario_logado),

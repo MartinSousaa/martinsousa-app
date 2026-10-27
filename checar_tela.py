@@ -4618,26 +4618,37 @@ def _ranking_abre_panorama(conta):
         f.columns = lambda spec, **k: [f] * (spec if isinstance(spec, int) else len(spec))
         f.markdown = lambda t, *a, **k: _md.append(str(t))
         _cod = _pa.codigo("CINZEIRO TELESCÓPICO")
-        f.query_params = {"_s": "tok", "secao": "gestao", "pa_abrir": _cod}
+        # 27/10: a linha deixou de ser link (link recarrega a página). O
+        # clique é o botão escondido daquela linha — o fake o aperta.
+        import clique as _clq_r
+        _bt_alvo = "bt_" + _clq_r.ident("pa", "CINZEIRO TELESCÓPICO")
+        f.button = lambda rot, *a, **k: (f._registra("button", k), k.get("key") == _bt_alvo)[1]
+        f.query_params = {"_s": "tok", "secao": "gestao"}
         _pa.st = f
+        _g_clq = _clq_r._ponte
+        _clq_r._ponte = lambda: None
         _pa.dados = lambda ano, hoje: (linhas, "")
         _pg_r.carregar = lambda: ({"CINZEIRO TELESCÓPICO": {"produto": "CINZEIRO TELESCÓPICO", "nicho": "Tabacaria",
                                                               "origem": "manual"}}, "")
         _pa.pagina(_dono)
         _j = " ".join(_md)
-        conta("Produtos: cada linha do ranking é um link que mantém login e seção (dono, 20/10)",
-              f'href="?_s=tok&amp;secao=gestao&amp;pa_abrir={_cod}"' in _j and 'target="_self"' in _j, "")
+        conta("Produtos: cada linha do ranking é alvo de clique, sem link e sem token no HTML (27/10)",
+              _clq_r.alvo("pa", "CINZEIRO TELESCÓPICO") in _j and "href=" not in _j
+              and "_s=tok" not in _j, "")
         conta("Produtos: Por nicho com o nome das colunas e o R$ dos alertas dito lucro (dono, 20/10)",
               all(x in _j for x in (">Fatia do lucro<", ">Faturamento<", ">Lucro<")) and "— lucro <b" in _j, "")
-        conta("Produtos: o clique (pa_abrir) abre o panorama do produto e sai do endereço",
-              "Panorama do produto" in _dlg and "PANORAMA DO PRODUTO" in _j
-              and "pa_abrir" not in f.query_params, str(_dlg))
+        conta("Produtos: o clique na linha abre o panorama do produto, sem recarregar a página",
+              "Panorama do produto" in _dlg and "PANORAMA DO PRODUTO" in _j, str(_dlg))
     except (_Rerun, _Parou):
         conta("Produtos: ranking clicável — a tela monta", True, "")
     except Exception as e:
         conta("Produtos: ranking clicável — a tela monta", False, f"{type(e).__name__}: {e}")
     finally:
         _pa.dados, _pa.st, _pg_r.carregar = _g
+        try:
+            _clq_r._ponte = _g_clq
+        except NameError:
+            pass
 
 
 def _celular(conta):
@@ -4746,6 +4757,175 @@ def _lembrete_pago_no_extrato(conta):
         _lem2.carregar_feitos, _ch2.carregar, _no2.carregar, _lan2.do_mes = _g
 
 
+
+def _amostra_ml_no_admin(conta):
+    """24/10: Registros › Mercado Livre › "Baixar amostra" — a resposta inteira
+    do ML vai num arquivo, sem token, e a leitura só roda no clique. Só a rede
+    (`ml_api.get`), a planilha e as credenciais são trocadas."""
+    import admin as _adm_am
+    import ml_api as _ml_am
+    _g = (_adm_am.st, _ml_am.credenciais, _ml_am._todas, _ml_am.get,
+          _ml_am._ler_da_planilha)
+    _bot, _baixou, _rede = [], [], []
+    try:
+        f = instalar()
+        f.button = lambda rot, *a, **k: (f._registra("button", k), _bot.append(k.get("key")),
+                                         k.get("key") == "ml_amostra_gerar")[2]
+        f.radio = lambda rot, opcoes, *a, **k: (f._registra("radio", k), list(opcoes)[0])[1]
+        f.text_input = lambda rot, *a, **k: (f._registra("text_input", k), "#2894660789")[1]
+        f.download_button = lambda rot, data, *a, **k: (f._registra("download_button", k),
+                                                        _baixou.append((k.get("file_name"), data)))
+        _adm_am.st = f
+        _ml_am.credenciais = lambda: ("1", "2")
+        _reg = {c: "" for c in _ml_am.COLUNAS}
+        _reg.update({"conta": "ml1", "refresh_token": "R", "access_token": "A",
+                     "expira_em": 9e12, "user_id": "233026091", "apelido": "MARTINSOUSA_1"})
+        _ml_am._todas = lambda: {"ml1": _reg}
+        _ml_am._ler_da_planilha = lambda c: _reg
+
+        def _get(c, caminho, params=None):
+            _rede.append(caminho)
+            if caminho.startswith("/seller-promotions/users/"):
+                return ({"results": [{"id": "P1", "status": "started", "type": "SMART"}]}, "")
+            return ({"id": "x", "access_token": "NAO-PODE-SAIR"}, "")
+        _ml_am.get = _get
+        _adm_am._secao_mercado_livre()
+        _nome, _txt = (_baixou or [("", "")])[0]
+        conta("Amostra ML: o clique baixa a resposta inteira num .json da conta, sem token",
+              _nome.startswith("amostra_ml1_") and _nome.endswith(".json")
+              and '"promocoes_da_conta"' in _txt and "NAO-PODE-SAIR" not in _txt, _nome)
+        conta("Amostra ML: o # digitado vira o anúncio lido (MLB…)",
+              "/items/MLB2894660789" in _rede, str(_rede))
+        _n_antes = len(_rede)
+        f2 = instalar()
+        f2.radio = lambda rot, opcoes, *a, **k: (f2._registra("radio", k), list(opcoes)[0])[1]
+        f2.button = lambda rot, *a, **k: (f2._registra("button", k), False)[1]
+        f2.text_input = lambda rot, *a, **k: (f2._registra("text_input", k), "")[1]
+        f2.download_button = lambda *a, **k: f2._registra("download_button", k)
+        _adm_am.st = f2
+        _adm_am._secao_mercado_livre()
+        conta("Amostra ML: sem clique, nenhuma chamada ao ML no desenho da tela",
+              len(_rede) == _n_antes, f"{len(_rede) - _n_antes} chamadas")
+    except Exception as e:
+        conta("Amostra ML: a tela monta", False, f"{type(e).__name__}: {e}")
+    finally:
+        (_adm_am.st, _ml_am.credenciais, _ml_am._todas, _ml_am.get,
+         _ml_am._ler_da_planilha) = _g
+
+
+def _meu_desempenho(conta):
+    """24/10: a primeira tela do colaborador. Só a rede é trocada: o board
+    (Trello), o mapa de batidas (RHiD) e a apuração do mês, que aqui sai da
+    MESMA `apuracao_bonus` da Análise de Metas, com dado do formato real."""
+    import meu_desempenho as _md
+    import analise_metas as _am_md
+    import batidas as _bat_md
+    import placar_core as _pc_md
+    from datetime import datetime as _dt_md
+    _g = (_md.st, _md.resumo_do_mes, _pc_md._buscar_board, _bat_md.mapa,
+          _pc_md.username_do_login, dict(_pc_md.MEMBROS_ATIVOS))
+    _txt = []
+    try:
+        f = instalar()
+        for _k in ("markdown", "error", "warning", "success", "caption", "info"):
+            setattr(f, _k, (lambda k: lambda t, *a, **kw: _txt.append(f"{k}:{t}"))(_k))
+        _md.st = f
+        _pc_md.MEMBROS_ATIVOS.clear()
+        _pc_md.MEMBROS_ATIVOS.update({"beatriz51": "Beatriz Souza", "luiz": "Luiz"})
+        _pc_md.username_do_login = lambda u: "beatriz51"
+        _dados = [{"filtro_mes": (2026, 10), "pts_membro": {"beatriz51": 600.0, "luiz": 900.0},
+                   "cfg": {"meta_beatriz51": 1000, "meta_luiz": 1000}, "saldo": 1500.0,
+                   "meta_eq": 5000.0, "meta_maxx": 6000.0, "pen_qtd": 0}]
+        _bon = _am_md.apuracao_bonus(_dados, ["beatriz51", "luiz"], pont={}, ocio={},
+                                     tem_ponto=False, medias_exec={})
+        _pont = {"beatriz51": {"pend": [{"data": "2026-10-09", "tipo": "sem_batida",
+                                         "batidas": []}]}}
+        _res = {"beatriz51": _md.resumo_da_pessoa(
+            "beatriz51", _dados, _bon, _pont, _dt_md(2026, 10, 26, 10, tzinfo=_pc_md.FUSO))}
+        _md.resumo_do_mes = lambda a, m: _res
+        _li = {"L1": "PRODUÇÃO", "L2": "DESATIVAR ANÚNCIOS"}
+        _cards = [{"name": "Caneca", "idList": "L1", "idMembers": ["m1"],
+                   "labels": [{"name": "EM ANDAMENTO"}]},
+                  {"name": "Porta-relógios", "idList": "L1", "idMembers": ["m1"],
+                   "labels": [{"name": "EM ANDAMENTO"}]}]
+        _pc_md._buscar_board = lambda: (_li, _cards, {"m1": "beatriz51"}, None, None, None)
+        _md.pagina("Beatriz")
+        _j = " ".join(_txt)
+        conta("Meu desempenho: a tela monta com saudação, meta e meta coletiva",
+              "Olá, Beatriz" in _j and "600" in _j and "1.500" in _j, _j[:200])
+        conta("Meu desempenho: a pontuação reprovada aparece no que puxa a meta",
+              "Pontuação (600 de 1.000 pts)" in _j and "Fora da meta coletiva" in _j, _j[-300:])
+        conta("Meu desempenho: o dia sem batida pede abono",
+              "09/10" in _j and "abono" in _j, "")
+        conta("Meu desempenho: duas demandas fora do Desativar geram o aviso",
+              "2 demandas ao mesmo tempo" in _j, "")
+        # Sem cartão rodando e dentro do expediente batido: ociosidade agora.
+        _txt.clear()
+        _cards[:] = []
+        _agora = _pc_md.agora_br()
+        _bat_md.mapa = lambda *a, **k: {"beatriz51": {_agora.date(): {
+            "entrada": (_agora.replace(second=0, microsecond=0)
+                        - __import__("datetime").timedelta(minutes=30)).strftime("%H:%M")}}}
+        f2 = instalar()
+        for _k in ("markdown", "error", "warning", "success", "caption", "info"):
+            setattr(f2, _k, (lambda k: lambda t, *a, **kw: _txt.append(f"{k}:{t}"))(_k))
+        _md.st = f2
+        _md.pagina("Beatriz")
+        _j2 = " ".join(_txt)
+        conta("Meu desempenho: no expediente e sem cartão rodando, a ociosidade avisa",
+              "Ociosidade detectada e sendo contabilizada" in _j2
+              or _agora.hour < 1, _j2[:200])
+    except Exception as e:
+        conta("Meu desempenho: a tela monta", False, f"{type(e).__name__}: {e}")
+    finally:
+        (_md.st, _md.resumo_do_mes, _pc_md._buscar_board, _bat_md.mapa,
+         _pc_md.username_do_login, _m) = _g
+        _pc_md.MEMBROS_ATIVOS.clear()
+        _pc_md.MEMBROS_ATIVOS.update(_m)
+
+
+def _custos_do_studio(conta):
+    """27/10: Financeiro › Custos do Studio. Só a planilha é trocada: os
+    lançamentos (na forma de `lancamentos.carregar`) e o registro de uso."""
+    import custos_studio as _cs
+    import lancamentos as _lan_cs
+    import uso_ia as _uso_cs
+    import auth as _auth_cs
+    import placar_core as _pc_cs
+    _g = (_cs.st, _lan_cs.carregar, _uso_cs.carregar, _auth_cs.eh_dono)
+    _txt = []
+    try:
+        f = instalar()
+        for _k in ("markdown", "error", "warning", "caption", "info"):
+            setattr(f, _k, (lambda k: lambda t, *a, **kw: _txt.append(f"{k}:{t}"))(_k))
+        _cs.st = f
+        _auth_cs.eh_dono = lambda u: True
+        _hj = _pc_cs.agora_br()
+        _fat = f"fatura {_hj.year:04d}-{_hj.month:02d}"
+        _dia = f"{_hj.year:04d}-{_hj.month:02d}-01"
+        _lan_cs.carregar = lambda: [
+            {"id": "1", "data": _dia, "descricao": "GOOGLE CLOUD", "valor": 480.0, "tipo": _fat},
+            {"id": "2", "data": _dia, "descricao": "OPENAI", "valor": 120.0, "tipo": _fat},
+            {"id": "3", "data": _dia, "descricao": "ANTHROPIC", "valor": 200.0, "tipo": _fat}]
+        _uso_cs.carregar = lambda: [
+            {"quando": f"{_dia} 10:00:00", "usuario": "beatriz", "ferramenta": "Descrição",
+             "servico": "Anthropic", "entrada": 1000, "saida": 0, "unidades": 0}]
+        _cs._lancamentos_por_mes.clear()
+        _cs.pagina("MartinSousa")
+        _j = " ".join(_txt)
+        conta("Custos do Studio: a tela monta com o gráfico e a composição do mês",
+              "<svg" in _j and "Gemini</b> R$ 480" in _j, _j[:200])
+        conta("Custos do Studio: Gemini acima da OpenAI acende o alerta da reserva",
+              "só a reserva das imagens" in _j, "")
+    except Exception as e:
+        conta("Custos do Studio: a tela monta", False, f"{type(e).__name__}: {e}")
+    finally:
+        _cs.st, _lan_cs.carregar, _uso_cs.carregar, _auth_cs.eh_dono = _g
+        try:
+            _cs._lancamentos_por_mes.clear()
+        except Exception:
+            pass
+
 def main():
     instalar()
     falhas = []
@@ -4819,6 +4999,9 @@ def main():
     _faturamento_top5(conta)
     _produtos_nichos_padronizados(conta)
     _mercado_livre_no_admin(conta)
+    _amostra_ml_no_admin(conta)
+    _meu_desempenho(conta)
+    _custos_do_studio(conta)
     _ranking_abre_panorama(conta)
     _celular(conta)
     _rastreio_etiquetas(conta)

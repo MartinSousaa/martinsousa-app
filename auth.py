@@ -135,6 +135,30 @@ def revogar_tokens(login):
     return n
 
 
+def encerrar_sessao(token):
+    """O botão Sair: derruba ESTE token, na memória e na planilha.
+
+    Sem isto o Sair não saía (diagnóstico de 27/10): ele apagava o login da
+    sessão, mas o `_s` continuava no endereço e valendo, e a passada seguinte
+    (`verificar_login`) logava de volta. Só o token desta aba cai — o de
+    outra aba ou outro aparelho continua, para não derrubar quem trabalha.
+    """
+    tok = str(token or "").strip()
+    if not tok:
+        return False
+    _TOKENS.pop(tok, None)
+    try:
+        aba = _aba_tokens()
+        regs = aba.get_all_records(value_render_option="UNFORMATTED_VALUE")
+        linhas = [i for i, r in enumerate(regs, start=2)
+                  if str(r.get("token", "")).strip() == tok]
+        import sheets as _sh_enc
+        _sh_enc.apagar_linhas(aba, linhas)
+    except Exception:
+        pass   # a memória já foi limpa; a planilha some no TTL
+    return True
+
+
 # ── HASH ──────────────────────────────────────────────────────────────────────
 
 def _hash(senha):
@@ -725,6 +749,30 @@ if __name__ == "__main__":
     ok("o formato da escrita é o de sempre", _fmt in _c_grava)
     ok("e o da leitura é o mesmo", _fmt in _c_le)
 
+    # O SAIR SAI (27/10): o token desta aba cai na memória e na planilha;
+    # o de outra aba do mesmo usuário continua valendo.
+    _apagadas = []
+
+    class _AbaTokLista:
+        def get_all_records(self, **kw):
+            return [{"token": "tok-a", "usuario": "leo"}, {"token": "tok-b", "usuario": "leo"}]
+    import sheets as _sh_au
+    _real_ap, _real_aba = _sh_au.apagar_linhas, _aba_tokens
+    _sh_au.apagar_linhas = lambda aba, linhas: _apagadas.extend(linhas)
+    _aba_tokens = lambda: _AbaTokLista()      # noqa: E731 — duplo do I/O
+    _TOKENS.update({"tok-a": "leo", "tok-b": "leo"})
+    try:
+        encerrar_sessao("tok-a")
+    finally:
+        _sh_au.apagar_linhas, _aba_tokens = _real_ap, _real_aba
+    ok("sair: o token desta aba cai na memória e na planilha (linha 2)",
+       "tok-a" not in _TOKENS and _apagadas == [2])
+    ok("sair: o token de outra aba do mesmo usuário continua", _TOKENS.get("tok-b") == "leo")
+    _TOKENS.pop("tok-b", None)
+    ok("sair: o botão do app chama o encerramento e tira o _s do endereço",
+       "auth.encerrar_sessao(" in open("app.py", encoding="utf-8").read()
+       and 'del st.query_params["_s"]' in open("app.py", encoding="utf-8").read())
+
     # PLANILHA FORA DO AR não pode derrubar o login — o `except` é
     # deliberado, e esta guarda existe para vigiar o conteúdo, não para
     # transformar a falha em erro de tela.
@@ -795,3 +843,8 @@ if __name__ == "__main__":
        _src_vl.count("_login_ativo(") >= 2)
 
     print("\nfalhas:", falhas)
+    # O CÓDIGO DE SAÍDA (27/10). Sem ele este auto-teste imprimia FALHA e
+    # saía 0: a conferência e o `checar_mutacao` leem o código, e viam verde.
+    # Foi a guarda do Sair que mostrou — ficou verde com o defeito de volta.
+    import sys as _sys_saida
+    _sys_saida.exit(1 if falhas else 0)

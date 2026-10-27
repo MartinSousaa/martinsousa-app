@@ -1501,26 +1501,18 @@ LINHAS_DO_QUADRO = {
 }
 
 
-def link_da_linha(params, chave):
-    """O endereço que abre o consolidado de uma linha do quadro de gastos:
-    a página de agora mais `hg_abrir=<chave>`. Pura."""
-    from urllib.parse import urlencode
-    p = {k: v for k, v in (params or {}).items() if k != "hg_abrir"}
-    p["hg_abrir"] = chave
-    return _esc("?" + urlencode(p))
-
-
 @_pintado
-def _html_gastos(q, erros=None, saldo=None, params=None):
+def _html_gastos(q, erros=None, saldo=None):
     """A meta de gastos: saldo e mercadoria em cima, o descritivo embaixo.
 
     `saldo` = (valor, cor) de `saldo_do_mes`; sem ele, o saldo da meta.
     CADA QUADRADO E CADA LINHA ABREM O CONSOLIDADO DELA (dono, 20/10:
     "quando eu clicar nos quadrados dos gastos é para abrir o resumo do
-    consolidado"), pelo `hg_abrir` que `pagina` lê."""
+    consolidado"). Era link `<a target="_self">`, e link RECARREGA a página
+    (27/10); agora é alvo de `clique`, que vira um rerun."""
+    import clique as _clq
     def a(chave):
-        return (f'<a href="{link_da_linha(params, chave)}" target="_self" '
-                'style="display:contents;color:inherit;text-decoration:none;cursor:pointer;">')
+        return f'<span {_clq.alvo("hg", chave)} style="display:contents;cursor:pointer;">'
     if q is None:
         return ('<div style="background:{CARTAO};border:1px solid {BORDA};'
                 'border-radius:14px;padding:18px 20px;font-size:13px;color:{SEC};">'
@@ -1534,7 +1526,7 @@ def _html_gastos(q, erros=None, saldo=None, params=None):
                 + f'<div style="{bg}border-radius:10px;padding:10px 14px;cursor:pointer;">'
                 f'<div style="font-size:11px;font-weight:700;color:{cr};">{rot}</div>'
                 f'<div style="font-size:19px;font-weight:800;color:{cv};white-space:nowrap;">{valor}</div></div>'
-                + ("</a>" if chave else ""))
+                + ("</span>" if chave else ""))
     meta = q["meta"]
     _sv, _sc = saldo if saldo else (q["saldo"], None)
     saldo_txt = _brl(_sv, 0) if _sv is not None else "Sem meta"
@@ -1548,7 +1540,7 @@ def _html_gastos(q, erros=None, saldo=None, params=None):
                 + f'{rot}</span>'
                 f'<span style="text-align:right;font-weight:{w};padding:7px 0;border-top:1px solid {bt};">{total}</span>'
                 f'<span style="text-align:right;font-weight:{w};color:{ambar};padding:7px 0;border-top:1px solid {bt};">{merc}</span>'
-                + ("</a>" if chave else ""))
+                + ("</span>" if chave else ""))
     pct = q["pct"]
     cart = (' · cartão sem separação de mercadoria' if q["merc_cartao"] else "")
     aviso = (f'<div style="font-size:11px;color:{VERMELHO};">Não li: '
@@ -1574,7 +1566,7 @@ def _html_gastos(q, erros=None, saldo=None, params=None):
         '<span style="font-size:11px;color:{SEC};text-align:right;">Total</span>'
         f'<span style="font-size:11px;color:{ambar};text-align:right;font-weight:700;">Mercadoria</span>'
         + linha_t("Já gasto", _brl(q["ja_saiu"], 0), _brl(q["merc_gasta"], 0), ambar, chave="ja")
-        + _composicao(q.get("ja_por"), params=params)
+        + _composicao(q.get("ja_por"))
         + linha_t("Comprometido · cheques a compensar", _brl(q["cheques"], 0),
                   _brl(q.get("merc_cheques", q["merc_comprometida"]), 0),
                   "#8A6A33", chave="cheques")
@@ -1746,7 +1738,7 @@ def _abrir_linha_gastos(chave, ano, mes):
     _d()
 
 
-def _composicao(ja_por, n=5, params=None):
+def _composicao(ja_por, n=5):
     """A linha miúda sob "Já gasto": as finalidades que o compõem.
 
     Ocupa as três colunas da grade. As cinco maiores pelo nome; o resto vira
@@ -1756,8 +1748,9 @@ def _composicao(ja_por, n=5, params=None):
     if not ja_por:
         return ""
     # Cada finalidade abre o consolidado dela (dono, 20/10).
-    partes = [f'<a href="{link_da_linha(params, "fin:" + f)}" target="_self" '
-              f'style="color:inherit;text-decoration:underline dotted;">{_esc(f.title())}</a> {_brl(v, 0)}'
+    import clique as _clq
+    partes = [f'<span {_clq.alvo("hg", "fin:" + f)} '
+              f'style="cursor:pointer;text-decoration:underline dotted;">{_esc(f.title())}</span> {_brl(v, 0)}'
               for f, v in ja_por[:n]]
     resto = round(sum(v for _f, v in ja_por[n:]), 2)
     if resto:
@@ -2206,22 +2199,22 @@ def pagina(usuario_logado=None, dados=None):
         (d["faturamento"].get("eq_conta") or {}).get("margem_bruta"))
         if d["faturamento"].get("comprometido") is not None else None)
     _saldo = saldo_do_mes(_q, d["faturamento"].get("realizado"), _eq_r)
-    try:
-        _params = {k: st.query_params[k] for k in st.query_params}
-    except Exception:
-        _params = {}
     st.markdown(_grade_painel(_html_faturamento(d), _html_indicadores(p, _plats),
-                              _html_gastos(_q, _err_g, _saldo, _params), _html_devolucoes(p),
+                              _html_gastos(_q, _err_g, _saldo), _html_devolucoes(p),
                               titulo=_titulo, fontes=_esc(_fontes)),
                 unsafe_allow_html=True)
-    # O CLIQUE NUM QUADRADO OU NUMA LINHA DOS GASTOS chega como
-    # `?hg_abrir=<chave>`: lido uma vez e tirado do endereço.
-    _abrir = str(_params.get("hg_abrir", "")).strip()
-    if _abrir:
-        try:
+    # O CLIQUE NUM QUADRADO OU NUMA LINHA DOS GASTOS: um botão escondido por
+    # alvo, apertado pela ponte de `clique` — rerun, sem recarregar a página.
+    # Endereço antigo (`?hg_abrir=`, de quando eram links) só é limpo.
+    try:
+        if "hg_abrir" in st.query_params:
             del st.query_params["hg_abrir"]
-        except Exception:
-            pass
+    except Exception:
+        pass
+    import clique as _clq_h
+    _abrir = _clq_h.botoes("hg", list(LINHAS_DO_QUADRO) + [
+        "fin:" + f for f, _v in ((_q or {}).get("ja_por") or [])[:5]])
+    if _abrir:
         _abrir_linha_gastos(_abrir, d["ano"], d["mes"])
 
     # DE ONDE VEIO CADA NÚMERO. Sem isto, os dois faturamentos que não batem
@@ -2818,7 +2811,7 @@ if __name__ == "__main__":
     ok("o Já gasto diz do que é feito, e as partes fecham o total dele",
        round(sum(v for _f, v in _q_t["ja_por"]), 2) == _q_t["ja_saiu"]
        and _q_t["ja_por"][0] == ("MERCADORIA", 10000.0)
-       and ">Mercadoria</a> R$" in _h_t)
+       and ">Mercadoria</span> R$" in _h_t)
     ok("a composição junta o que passa de cinco em «outras»",
        "outras R$" in _composicao([("A", 6.0), ("B", 5.0), ("C", 4.0),
                                    ("D", 3.0), ("E", 2.0), ("F", 1.0)])
@@ -3131,14 +3124,16 @@ if __name__ == "__main__":
        "R$ -77.959" in _hg_neg and VERMELHO in _hg_neg and "Faltam" not in _hg_neg)
     ok("a página passa as plataformas e o saldo novo aos quadros",
        "_html_indicadores(p, _plats)" in inspect.getsource(pagina)
-       and "_html_gastos(_q, _err_g, _saldo, _params)" in inspect.getsource(pagina))
+       and "_html_gastos(_q, _err_g, _saldo)" in inspect.getsource(pagina))
     # CLICAR ABRE O CONSOLIDADO (dono, 20/10). As linhas na forma de
     # `previsto.combinar` e os lançamentos na de `lancamentos.do_mes`.
-    _hl = _html_gastos(_q_t, None, None, {"_s": "tok", "secao": "gestao"})
-    ok("cada quadrado e cada linha dos gastos é um link para o consolidado dela",
-       all(f'hg_abrir={k}"' in _hl for k in ("saldo", "merc_gasta", "merc_comp", "ja", "cheques",
-                                            "cartoes", "fixos"))
-       and "_s=tok&amp;secao=gestao" in _hl and "hg_abrir=fin%3AMERCADORIA" in _hl)
+    import clique as _clq_t
+    _hl = _html_gastos(_q_t, None, None)
+    ok("cada quadrado e cada linha dos gastos é alvo de clique, e não link "
+       "(link recarrega a página e levava o token de login, 27/10)",
+       all(_clq_t.alvo("hg", k) in _hl for k in ("saldo", "merc_gasta", "merc_comp", "ja",
+                                                "cheques", "cartoes", "fixos"))
+       and _clq_t.alvo("hg", "fin:MERCADORIA") in _hl and "<a " not in _hl and "href" not in _hl)
     _comb_t = [{"finalidade": "CUSTO FIXO", "realizado": 100.0, "falta_sair": 900.0, "conta": 1000.0},
                {"finalidade": "FATURA DO CARTÃO", "realizado": 0.0, "falta_sair": 800.0, "conta": 800.0},
                {"finalidade": "MERCADORIA", "realizado": 500.0, "falta_sair": 0.0, "conta": 500.0}]

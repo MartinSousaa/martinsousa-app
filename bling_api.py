@@ -488,7 +488,9 @@ def get(conta, caminho, params=None):
         if r.status_code == 429:
             return (None, "Bling: limite de requisições por segundo, mesmo após esperar")
     if not r.ok:
-        return (None, f"Bling respondeu {r.status_code}")
+        # O corpo diz o porquê (parâmetro faltando, recurso inexistente);
+        # sem ele o erro só dizia o número — como `placar_core` já faz.
+        return (None, f"Bling respondeu {r.status_code}: {(r.text or '')[:200]}")
     try:
         return (r.json(), "")
     except Exception:

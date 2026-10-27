@@ -91,6 +91,8 @@ Responda SOMENTE com a lista de palavras-chave, uma por linha, sem numeração, 
             model="claude-sonnet-4-6", max_tokens=600,
             messages=[{"role": "user", "content": _idioma.com_regra(prompt)}]
         )
+        import uso_ia as _uso
+        _uso.registrar("Palavras-chave", "Anthropic", "claude-sonnet-4-6", msg)
         texto = msg.content[0].text.strip()
         linhas = [l.strip("-•* \t") for l in texto.split("\n") if l.strip()]
         return linhas, None
@@ -119,6 +121,8 @@ Responda SOMENTE com a lista, uma palavra-chave por linha, sem numeração, sem 
             model="claude-sonnet-4-6", max_tokens=600,
             messages=[{"role": "user", "content": _idioma.com_regra(prompt)}]
         )
+        import uso_ia as _uso
+        _uso.registrar("Palavras-chave", "Anthropic", "claude-sonnet-4-6", msg)
         texto = msg.content[0].text.strip()
         linhas = [l.strip("-•* \t") for l in texto.split("\n") if l.strip()]
         return linhas, None
