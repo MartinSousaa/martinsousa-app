@@ -75,6 +75,18 @@ QUE EU GERO", mais abaixo, e são sete passos:
     confiava no tamanho que o arquivo declara. Eu disse duas vezes que o Itaú
     tinha exportado cortado, e o dono exportou de novo à toa.)*
 
+12. **Clique que eu criei: ele ABRE ou NAVEGA?** Todo elemento clicável
+    novo — link, linha de tabela, quadrado de painel — se confere num
+    NAVEGADOR DE VERDADE, nunca só no duplo do `checar_tela`: o duplo vê o
+    HTML, e não vê a página recarregando. Link `<a href target="_self">` para
+    o próprio Studio é proibido: ele joga a sessão fora. O clique se faz por
+    `clique.py` (botão escondido + ponte), e `checar_navegador.py` mede.
+    *(27/10: o ranking de Produtos e a meta de gastos eram links. Cada
+    clique recarregava o Studio — ~9 s, a sub-aba voltava ao Painel, às
+    vezes pedia login, e o token de login ia dentro de cada link. Passou uma
+    semana em produção com o protocolo verde, porque nenhum verificador
+    abria navegador. Quem achou foi o dono, pela extensão do Chrome.)*
+
 `@` sozinho pede o protocolo. `@arquivo.py` continua sendo referência a
 arquivo, e não tem nada a ver com isto.
 
@@ -393,6 +405,34 @@ fora dele, e o teste usa um arquivo com o mesmo defeito do Itaú (tamanho
 declarado menor que o real) — inclusive simulando o leitor parando no meio
 para exigir que a tela culpe o Studio.
 
+### Forma 11 — verificar no duplo o que só acontece no navegador
+
+27/10. As linhas do ranking de Produtos e os quadrados da meta de gastos
+viraram links `<a target="_self">`. O `checar_tela` conferia que o link
+estava no HTML — e estava. O meu teste no Streamlit real conferiu que o link
+levava login e seção, e eu escrevi "mantém a sessão". Não mantinha: link é
+NAVEGAÇÃO, a página inteira recarregava, a sessão nova caía no Painel e às
+vezes pedia senha. E o `_s` (o token de login) ia em cada link, copiável.
+
+É a Forma 3 por outro caminho: o verde era de um verificador que não
+enxergava o que eu mudei. O duplo do Streamlit mede o que o servidor
+desenha; o que o NAVEGADOR faz com o clique ele não tem como ver.
+
+**Duas regras:**
+
+1. **Comportamento de navegador se mede em navegador.** Clique, recarga,
+   rolagem, foco: `checar_navegador.py` sobe um Streamlit de verdade, abre
+   o Chromium e exige zero recargas e a sub-aba mantida. Sem Chromium ele
+   diz PULADO em voz alta, e não verde.
+2. **Medir o efeito, não a presença.** "O link existe" não era a pergunta;
+   "o clique abre sem jogar a sessão fora" era. Guarda que confere que o
+   elemento existe é Forma 2.
+
+**Guarda:** `clique.py` reprova, por AST, qualquer texto montado com
+`target="_self"` em todo o Studio (docstring e comentário ficam de fora);
+`checar_navegador.py` mede o clique de ponta a ponta; e as duas têm entrada
+no `checar_mutacao` (reintroduzir o link deixa as duas vermelhas).
+
 ### O que eu mapeei e o que NÃO mapeei
 
 **Mapeado e corrigido:** os cinco defeitos acima, as peças 7 e 8, o produto
@@ -449,6 +489,7 @@ python3 checar_tela.py            # a tela monta sem quebrar?
 python3 checar_alcance.py         # a correção chegou em TODOS os irmãos?
 python3 checar_mutacao.py         # as guardas VEEM o defeito? reintroduz e exige vermelho
 python3 checar_comunicacao.py     # o sistema CONTA o que sabe? um assunto, um dono
+python3 checar_navegador.py       # o clique ABRE ou NAVEGA? (navegador de verdade, 27/10)
 ```
 
 O OITAVO nasceu de uma proposta do dono, em 29/09: *"precisaria pegar a
