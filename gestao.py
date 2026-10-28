@@ -351,6 +351,8 @@ SUBTELAS_OPERACIONAL = {
     # deveria estar no operacional" — é trabalho da equipe, não dinheiro.
     # A trava de dono continua na própria página (`gargalos_tela.pagina`).
     "🔎 Análise de Gargalos": lambda u: _abrir_tela("gargalos_tela", u),
+    # Dono, 28/10: as promoções do ML nas quatro contas, por produto.
+    "🏷️ Promoções ML": lambda u: _abrir_tela("promocoes_ml", u),
 }
 
 

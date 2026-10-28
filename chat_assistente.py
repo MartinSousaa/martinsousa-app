@@ -332,14 +332,27 @@ def _bloco_quem_fala(usuario="", eh_admin=None):
             eh_admin = _auth.is_admin(usuario)
         except Exception:
             eh_admin = False
-    if eh_admin:
-        acesso = ("É ADMIN: enxerga Gestão inteira (Painel de Metas, Análise de "
-                  "Metas, Ponto, Financeiro, Administrativo) e toda a Operação. "
-                  "NUNCA responda 'se você for admin' — ele é. Diga direto onde fica.")
+    # O que cada perfil abre de verdade (app.py, 28/10): Gestão só o dono;
+    # admin (secret ADMINS) tem Indicadores e Operação; o colaborador tem a
+    # barra única. O texto antigo dizia ao admin que ele via Ponto e
+    # Financeiro — e ele não via.
+    try:
+        import auth as _auth_d
+        _dono = _auth_d.eh_dono(usuario)
+    except Exception:
+        _dono = False
+    if _dono:
+        acesso = ("É O DONO: vê Gestão (Home, Financeiro, Operacional, Ponto, "
+                  "Registros), Indicadores e toda a Operação. Diga direto onde fica.")
+    elif eh_admin:
+        acesso = ("É ADMIN (gestor): vê Indicadores (Painel de Metas e Análise de "
+                  "Metas, com a meta individual de cada um) e toda a Operação. NÃO "
+                  "vê Gestão: Financeiro, Ponto e Registros são só do dono.")
     else:
-        acesso = ("NÃO é admin: em Gestão vê apenas Painel de Metas e Análise de "
-                  "Metas, e vê toda a Operação. Não tem acesso a Ponto, "
-                  "Financeiro nem Administrativo — não mande ele para lá.")
+        acesso = ("É COLABORADOR: abre em Meu desempenho, vê Painel de Metas, "
+                  "Análise de Metas (só a própria meta individual), Abono e toda a "
+                  "Operação. Não tem Ponto, Financeiro nem Registros — não mande "
+                  "ele para lá.")
     return (f"\n\n=== QUEM ESTÁ FALANDO COM VOCÊ ===\n"
             f"Usuário logado: {usuario}\n{acesso}\n"
             + REGRA_FERRAMENTAS)

@@ -171,9 +171,17 @@ def _alertas_do_instante(u):
                  "Nenhum cartão seu está EM ANDAMENTO agora.")
 
 
+def aparece_para(usuario_logado):
+    """Quem ganha a aba: quem é da equipe medida, com qualquer perfil.
+
+    Uma pergunta só para as duas barras do `app.py` (colaborador e admin): o
+    Luiz tem perfil admin e ficou sem a tela porque ela morava só na outra."""
+    return _pc.username_do_login(usuario_logado) in _pc.MEMBROS_ATIVOS
+
+
 def pagina(usuario_logado):
     u = _pc.username_do_login(usuario_logado)
-    if u not in _pc.MEMBROS_ATIVOS:
+    if not aparece_para(usuario_logado):
         st.info("Esta tela mostra o desempenho de quem está na equipe "
                 "medida. Seu usuário não está nela.")
         return
@@ -323,6 +331,22 @@ if __name__ == "__main__":
        "que não dá para medir não acusa ninguém",
        _rc["contra"] == ["pontuação (600 de 1.000 pts)"]
        and not _rc["entra_col"] and _rc["motivos_col"])
+
+    # QUEM É DA EQUIPE TEM A ABA, EM QUALQUER BARRA (28/10): o Luiz tem
+    # perfil admin e ficou sem a tela, porque ela só existia na barra dos
+    # colaboradores. Os logins vêm da equipe de verdade (`MEMBROS_ATIVOS`).
+    _u_eq = next(iter(_pc.MEMBROS_ATIVOS))
+    ok("aparece_para: quem é da equipe ganha a aba, pelo login ou pelo nome",
+       aparece_para(_u_eq) and aparece_para(_pc.MEMBROS_ATIVOS[_u_eq])
+       and not aparece_para("martinsousa") and not aparece_para(""))
+    import ast as _ast_nav
+    _arv_app = _ast_nav.parse(open("app.py", encoding="utf-8").read())
+    _f_op = next(n for n in _arv_app.body if isinstance(n, _ast_nav.FunctionDef)
+                 and n.name == "_render_abas_operacao")
+    ok("a barra de Operação do admin pergunta aparece_para, e põe a aba primeiro",
+       any(isinstance(n, _ast_nav.Call) and getattr(n.func, "attr", "") == "aparece_para"
+           for n in _ast_nav.walk(_f_op))
+       and "_meu" in _ast_nav.unparse(_f_op).split("Análise de Viabilidade")[0])
 
     print("\nfalhas:", falhas)
     raise SystemExit(1 if falhas else 0)

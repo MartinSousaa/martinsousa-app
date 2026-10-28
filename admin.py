@@ -654,7 +654,7 @@ def pagina_admin(usuario_logado):
     tem_usuarios_sheets = not df.empty and "login" in df.columns and len(df) > 0
 
     if tem_usuarios_sheets:
-        colunas_ver = [c for c in ["login", "ativo", "admin", "criado_em"] if c in df.columns]
+        colunas_ver = [c for c in ["login", "ativo", "criado_em"] if c in df.columns]
         st.dataframe(df[colunas_ver], use_container_width=True, hide_index=True)
 
         st.markdown("##### Gerenciar usuário existente")
@@ -663,7 +663,6 @@ def pagina_admin(usuario_logado):
 
         row_sel = df[df["login"].astype(str) == usuario_sel].iloc[0] if tem_usuarios_sheets else None
         ativo_atual = str(row_sel.get("ativo", "Sim")).lower() in ("sim", "true", "1", "yes", "ativo") if row_sel is not None else True
-        admin_atual = str(row_sel.get("admin", "Não")).lower() in ("sim", "true", "1", "yes") if row_sel is not None else False
 
         col_a, col_b, col_c = st.columns(3)
 
@@ -681,23 +680,13 @@ def pagina_admin(usuario_logado):
                 st.success(f"Usuário '{usuario_sel}' reativado.")
                 st.rerun()
 
-        # Promover / Rebaixar admin
-        if admin_atual:
-            if col_b.button("👤 Remover Admin", use_container_width=True, key="btn_rm_admin"):
-                _atualizar_campo(usuario_sel, "admin", "Não")
-                auth._carregar_usuarios_sheets.clear()
-                # is_admin fica fixado por sessão — invalida para refletir a mudança
-                st.session_state.pop(f"_perfil_admin__{usuario_sel}", None)
-                st.success(f"'{usuario_sel}' não é mais admin.")
-                st.rerun()
-        else:
-            if col_b.button("⭐ Tornar Admin", use_container_width=True, key="btn_mk_admin"):
-                _atualizar_campo(usuario_sel, "admin", "Sim")
-                auth._carregar_usuarios_sheets.clear()
-                # is_admin fica fixado por sessão — invalida para refletir a mudança
-                st.session_state.pop(f"_perfil_admin__{usuario_sel}", None)
-                st.success(f"'{usuario_sel}' agora é admin.")
-                st.rerun()
+        # Administrador NÃO se liga aqui (dono, 28/10): só quem está na
+        # variável ADMINS do Railway. O botão que gravava a coluna `admin`
+        # saiu — ele mudava um campo que ninguém mais lê, e botão que não
+        # faz o que diz é rótulo que mente.
+        _adms = auth._admins_configurados() or auth.ADMINS_PADRAO
+        col_b.caption("Administradores: " + ", ".join(sorted(_adms))
+                      + " — definidos na variável ADMINS do Railway.")
 
         # Reset de senha
         with col_c.popover("🔑 Resetar senha", use_container_width=True):

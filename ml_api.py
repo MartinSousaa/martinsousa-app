@@ -32,10 +32,11 @@ volta; o `code` é trocado no instante em que o navegador volta. As decisões
 puras (vencimento, renovação, state) são as do `bling_api` — importadas, e
 não copiadas: duas cópias passam a discordar, a questão é só quando.
 
-NESTA PRIMEIRA VERSÃO SÓ SE LÊ
-------------------------------
-`get` e mais nada. Escrever promoção será função própria, com nome que diga
-isso, e só depois de a leitura ter sido conferida com dado real.
+LER E ESCREVER
+--------------
+`get` lê. `escrever` grava (entrar e sair de promoção, 28/10), e tem esse
+nome para quem lê a chamada saber. As duas passam por `requisitar`, a única
+ida à API.
 """
 
 import json
@@ -342,11 +343,23 @@ def get(conta, caminho, params=None):
     tok, erro = token(conta)
     if erro:
         return (None, erro)
+    return requisitar("GET", conta, tok, caminho, params)
+
+
+def requisitar(metodo, conta, tok, caminho, params=None, corpo=None):
+    """A ÚNICA ida à API, com o token já em mãos. (json, erro), nunca levanta.
+
+    Separada de `get` para a leitura das quatro contas em paralelo
+    (`promocoes_ml`): o token é buscado ANTES, na thread da tela, e a thread
+    só faz rede. E a escrita (`escrever`) passa pela mesma porta — dois
+    caminhos para a API passariam a tratar erro de jeitos diferentes.
+    """
     url = BASE + ("" if caminho.startswith("/") else "/") + caminho
     for tentativa in range(2):
         try:
-            r = requests.get(url, params=params or {}, timeout=TIMEOUT,
-                             headers={"Authorization": f"Bearer {tok}"})
+            r = requests.request(metodo, url, params=params or {}, json=corpo,
+                                 timeout=TIMEOUT,
+                                 headers={"Authorization": f"Bearer {tok}"})
         except Exception as e:
             return (None, f"Mercado Livre não respondeu: {type(e).__name__}")
         if r.status_code == 429 and tentativa == 0:
@@ -363,10 +376,26 @@ def get(conta, caminho, params=None):
         # O corpo diz o porquê (parâmetro faltando, recurso inexistente);
         # sem ele o erro só dizia o número — como `placar_core` já faz.
         return (None, f"Mercado Livre respondeu {r.status_code}: {(r.text or '')[:200]}")
+    if not (r.text or "").strip():
+        return ({}, "")      # DELETE responde 200 sem corpo
     try:
         return (r.json(), "")
     except Exception:
         return (None, "Mercado Livre devolveu resposta que não é JSON")
+
+
+def escrever(conta, metodo, caminho, params=None, corpo=None):
+    """POST/PUT/DELETE que MUDA a conta no ML (entrar ou sair de promoção).
+
+    Nome próprio de propósito: quem lê a chamada sabe que ela grava. Quem
+    chama é a tela de promoções, sempre depois de uma confirmação.
+    """
+    if metodo not in ("POST", "PUT", "DELETE"):
+        return (None, f"método de escrita desconhecido: {metodo}")
+    tok, erro = token(conta)
+    if erro:
+        return (None, erro)
+    return requisitar(metodo, conta, tok, caminho, params, corpo)
 
 
 def convites(conta):
@@ -666,6 +695,34 @@ if __name__ == "__main__":
     _novo = por_situacao([{"status": "xpto_novo", "type": "DEAL"}])
     ok("codigo desconhecido aparece cru em vez de sumir",
        _novo and _novo[0]["situação"] == "xpto_novo")
+
+    # A ÚNICA PORTA (28/10): ler e gravar passam por `requisitar`. A rede é
+    # trocada em `requests.request`, que é onde ela começa de verdade.
+    _rq = requests.request
+    _vistos = []
+
+    class _Resp:
+        def __init__(self, cod, txt):
+            self.status_code, self.text, self.ok = cod, txt, cod < 400
+
+        def json(self):
+            return json.loads(self.text)
+    try:
+        requests.request = lambda m, url, **kw: (_vistos.append((m, url, kw.get("json"))),
+                                                 _Resp(200, ""))[1]
+        ok("requisitar: o DELETE do ML responde 200 sem corpo, e isso é sucesso",
+           requisitar("DELETE", "ml1", "T", "/seller-promotions/items/MLB1",
+                      {"promotion_type": "DEAL"}) == ({}, ""))
+        requests.request = lambda m, url, **kw: (_vistos.append((m, url, kw.get("json"))),
+                                                 _Resp(400, '{"message":"deal_price invalid"}'))[1]
+        _r, _e = requisitar("POST", "ml1", "T", "/seller-promotions/items/MLB1",
+                            corpo={"deal_price": 1})
+        ok("requisitar: a recusa do ML volta com o motivo dele",
+           _r is None and "deal_price invalid" in _e and _vistos[-1][2] == {"deal_price": 1})
+        ok("escrever: só grava com método de escrita",
+           escrever("ml1", "GET", "/x")[1].startswith("método de escrita"))
+    finally:
+        requests.request = _rq
 
     print(f"\nfalhas: {falhas}")
     raise SystemExit(1 if falhas else 0)
