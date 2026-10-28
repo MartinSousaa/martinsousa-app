@@ -1231,9 +1231,15 @@ def _executar_comando(cmd: dict) -> str | None:
         novos_dados = cmd.get("dados", {})
         if not novos_dados or not isinstance(novos_dados, dict):
             return None
-        cfg = st.session_state.get("img_triagem_config")
-        if cfg is None:
-            return "⚠️ Não há triagem em andamento no momento. Vá até a aba **Imagem** e clique em **Analisar** primeiro."
+        # PELA PORTA (`_da_geracao`), e nao pela chave crua: ela e apagada
+        # quando o laco da geracao termina, e lendo direto o chat respondia
+        # "nao ha triagem em andamento" com o plano na tela e as pecas
+        # bloqueadas esperando justamente o dado que o colaborador acabou de
+        # dar. Mesma familia do "nao ha produto aberto na aba Imagem".
+        cfg = _da_geracao("config")
+        if not cfg:
+            return ("⚠️ Não há triagem em andamento no momento. Vá até a aba "
+                    "**Imagem** e clique em **Analisar** primeiro.")
         # Mescla os novos dados no dados_descricao do config
         dados_atuais = cfg.get("dados_descricao") or {}
         dados_atuais.update({k: v for k, v in novos_dados.items() if v})
@@ -1696,23 +1702,37 @@ def renderizar_chat(usuario_logado="", no_centro=False):
 
     if user_input:
         msg_user = user_input.strip()
-        imagens_bytes = []
-        for arq in (anexos or []):
+        # O ANEXO PASSA PELA PORTA DO STUDIO, como todo anexo da aba Imagem.
+        #
+        # O DEFEITO QUE ISTO CORRIGE (dono, 27/10): *"mesmo anexando a foto no
+        # chat, o sistema diz para enviar porque ele não tem acesso"*.
+        #
+        # Este laço era próprio, e engolia tudo num `except: pass`. Quando o
+        # Studio reinicia, o Streamlit devolve `DeletedFile` no lugar do
+        # arquivo — ele não tem `.getvalue()`, a exceção era engolida, e o
+        # anexo sumia SEM UMA PALAVRA: o colaborador via a foto na tela, o
+        # modelo recebia nada, e a resposta era "não chegou nenhum anexo".
+        #
+        # `revisar_anexos` já sabe disso tudo — reconhece o `DeletedFile`,
+        # converte HEIC e devolve o que não deu com o motivo. Ter dois
+        # leitores de anexo no Studio era a Forma 5, e o mais pobre dos dois
+        # era justamente o do chat.
+        imagens_bytes, _av_an, _er_an = [], [], []
+        if anexos:
             try:
-                _cru = arq.getvalue()
-                # O CONVERSOR NO CAMINHO, como em todo o resto do Studio.
-                # Sem ele o HEIC ia cru para o modelo e voltava erro
-                # genérico, sem dizer ao colaborador qual era o problema.
-                try:
-                    import imagem as _img_norm
-                    _cru, _, _ = _img_norm.normalizar_imagem(_cru)
-                except Exception:
-                    # Converter é melhor-esforço: se falhar, manda o
-                    # original — que é exatamente o que acontecia antes.
-                    pass
-                imagens_bytes.append(_cru)
-            except Exception:
-                pass
+                import imagem as _img_an
+                imagens_bytes, _, _av_an, _er_an = _img_an.revisar_anexos(anexos)
+            except Exception as _e_an:
+                _er_an = [f"não consegui ler o anexo: {str(_e_an)[:90]}"]
+
+        # E O QUE NÃO CHEGOU É DITO, na conversa, junto com a pergunta.
+        # Anexo que some calado faz o colaborador repetir o pedido achando que
+        # o sistema não entendeu — foi o que aconteceu em 27/10.
+        _perdidos_an = [str(x) for x in (_er_an or []) if str(x).strip()]
+        if _perdidos_an:
+            msg_user = (msg_user + "\n\n_(⚠️ "
+                        + f"{len(_perdidos_an)} anexo(s) não chegaram: "
+                        + "; ".join(_perdidos_an[:3]) + ")_")
 
         entry = {"role": "user", "content": msg_user}
         if imagens_bytes:
@@ -2251,10 +2271,88 @@ if __name__ == "__main__":
 
     # NA MESMA FILEIRA DO ANEXO. O dono aprovou o botao na linha do clipe, e
     # nao numa linha propria: `st.columns` e quem poe os dois lado a lado.
-    _tem_colunas_lc = any(
-        (getattr(_n.func, "attr", "") or getattr(_n.func, "id", "")) == "columns"
-        for _n in _ast_lc.walk(_arv_lc) if isinstance(_n, _ast_lc.Call))
-    ok("e ele divide a fileira com o anexo (st.columns)", _tem_colunas_lc)
+    #
+    # ESTA GUARDA FOI ENFRAQUECIDA POR MIM EM 27/10, e o `checar_mutacao`
+    # cobrou. Ela procurava QUALQUER `st.columns` no bloco — e quando o campo
+    # de escrever virou um formulario com duas colunas proprias, ela passou a
+    # achar ESSAS e dar verde com o botao fora da fileira do anexo.
+    #
+    # Agora ela procura a atribuicao que de fato poe os dois lado a lado:
+    # `_col_anexo, _col_limpar = st.columns(...)`. Duas colunas numa linha
+    # qualquer do bloco nao respondem a pergunta "o botao esta na fileira do
+    # clipe?".
+    _fileira_lc = any(
+        isinstance(_n, _ast_lc.Assign)
+        and isinstance(_n.targets[0], _ast_lc.Tuple)
+        and [getattr(_e, "id", "") for _e in _n.targets[0].elts]
+        == ["_col_anexo", "_col_limpar"]
+        and isinstance(_n.value, _ast_lc.Call)
+        and (getattr(_n.value.func, "attr", "")
+             or getattr(_n.value.func, "id", "")) == "columns"
+        for _n in _ast_lc.walk(_arv_lc))
+    ok("e ele divide a fileira com o anexo (st.columns)", _fileira_lc)
+
+    # ══ "NAO HA TRIAGEM" COM O PLANO NA TELA (varredura de 28/10) ═══════
+    #
+    # `img_triagem_config` e APAGADA quando o laco da geracao termina — ela
+    # tambem serve de sinal de "plano ja consumido" — e a copia vai para
+    # `img_config_gerada`. Lendo a chave crua, este comando respondia "nao ha
+    # triagem em andamento" DEPOIS de gerar, que e exatamente quando o
+    # colaborador da o dado que faltava para destravar a peca bloqueada.
+    #
+    # O ESTADO VEM DO SISTEMA: a chave da copia e `imagem.CHAVE_CONFIG_GERADA`,
+    # lida de la e nao escrita a mao — foi um nome inventado no teste que
+    # deixou o botao dos oito prompts quebrar com a guarda verde.
+    import imagem as _img_tr
+    st.session_state.clear()
+    st.session_state[_img_tr.CHAVE_CONFIG_GERADA] = {
+        "nome_produto": "Garrafa Térmica",
+        "tipos": [_img_tr.TIPOS_PADRAO[4]],
+        "dados_descricao": {}, "fotos_bytes": []}
+    _resp_tr = _executar_comando({"acao": "preencher_dados_triagem",
+                                  "dados": {"peso": "350g"}}) or ""
+    ok("depois de gerar, o chat NAO diz que nao ha triagem",
+       "não há triagem em andamento" not in _resp_tr.lower()
+       and "nao ha triagem" not in _resp_tr.lower())
+    ok("e ele pede o re-run para a aba",
+       st.session_state.get("img_rerun_triagem") is True)
+    # E O DADO ENTROU NA CONFIG, que e o que destrava a peca.
+    ok("e o peso que faltava entrou na config da geracao",
+       (_da_geracao("config").get("dados_descricao") or {}).get("peso")
+       == "350g")
+    # SEM TRIAGEM NENHUMA ele continua recusando, e e correto.
+    st.session_state.clear()
+    ok("sem triagem nenhuma, ele continua recusando",
+       "triagem em andamento" in (_executar_comando(
+           {"acao": "preencher_dados_triagem", "dados": {"peso": "1kg"}}) or ""))
+    st.session_state.clear()
+
+    # ══ O ANEXO QUE SUMIA EM SILENCIO (dono, 27/10) ═════════════════════
+    #
+    # *"mesmo anexando a foto no chat, o sistema diz para enviar porque ele
+    # nao tem acesso"*.
+    #
+    # O chat tinha laco PROPRIO de leitura de anexo, com `except: pass`.
+    # Quando o Studio reinicia, o Streamlit devolve `DeletedFile` no lugar do
+    # arquivo — sem `.getvalue()` —, a excecao era engolida, e o anexo sumia
+    # sem uma palavra: a foto na tela, o modelo recebendo nada.
+    #
+    # Por AST, e nao pela palavra: o comentario acima cita os dois nomes.
+    import ast as _ast_an
+    import inspect as _insp_an
+    _arv_an = _ast_an.parse(_insp_an.getsource(renderizar_chat).lstrip())
+    _usa_porta = any(
+        isinstance(_n, _ast_an.Call)
+        and (getattr(_n.func, "attr", "")
+             or getattr(_n.func, "id", "")) == "revisar_anexos"
+        for _n in _ast_an.walk(_arv_an))
+    ok("o anexo do chat passa pela porta do Studio", _usa_porta)
+    # E NENHUM LACO PROPRIO SOBROU: `getvalue()` direto no bloco do chat e o
+    # caminho que engolia o `DeletedFile`.
+    ok("e o chat nao le o arquivo por conta propria",
+       not any(isinstance(_n, _ast_an.Call)
+               and getattr(_n.func, "attr", "") == "getvalue"
+               for _n in _ast_an.walk(_arv_an)))
 
     # ══ A PECA GERADA APARECE NA CONVERSA (27/10) ═══════════════════════
     #

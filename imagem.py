@@ -10134,7 +10134,17 @@ def pagina_imagem(usuario_logado):
     MODELO_DIAG = "gemini-3.1-flash-image"
     # ── RE-RUN AUTOMÁTICO DA TRIAGEM (disparado pelo chat ao preencher dados) ──
     if st.session_state.pop("img_rerun_triagem", False):
-        cfg = st.session_state.get("img_triagem_config")
+        # PELA PORTA, e nao pela chave crua.
+        #
+        # `img_triagem_config` é APAGADA quando o laço da geração termina
+        # (ela também serve de sinal de "plano já consumido"). Lendo a chave
+        # direto, este bloco via vazio DEPOIS de gerar — e o re-run que o chat
+        # acabou de prometer não acontecia, em silêncio, com o plano na tela.
+        #
+        # É o mesmo defeito que `config_da_geracao` existe para fechar, e que
+        # fez o `gerar_imagens_faltantes` responder "não há produto aberto na
+        # aba Imagem" com o produto aberto.
+        cfg = config_da_geracao()
         if cfg and cfg.get("tipos"):
             with st.spinner("♻️ O Assistente IA atualizou os dados — refazendo a análise..."):
                 try:
@@ -13087,10 +13097,21 @@ def pagina_imagem(usuario_logado):
                         # isto a correção entraria na cadeia de outra imagem.
                         marcar_peca_em_ajuste(idx_ativo + 1)
 
+                        # AS FOTOS SAO LIDAS AQUI, FORA DA THREAD.
+                        #
+                        # `fotos_do_produto` le `st.session_state`, e dentro de
+                        # uma `threading.Thread` ele e ILEGIVEL. Em argumento
+                        # padrao ela seria avaliada antes da thread nascer e
+                        # funcionaria — mas depender dessa sutileza e deixar a
+                        # armadilha armada para quem mover a linha depois, e
+                        # `checar_alcance` cobra isso com razao. Com a leitura
+                        # aqui, nao ha o que mover.
+                        _fotos_afg = list(fotos_do_produto(usuario_logado))
+
                         def _rodar_afg(_ref=imagem_ativa,
                                        _ins=instrucao_af_gal.strip(),
                                        _tp=galeria[idx_ativo].get("tipo"),
-                                       _rf=list(fotos_do_produto(usuario_logado)),
+                                       _rf=_fotos_afg,
                                        _r=_res_afg,
                                        # Em argumento padrao — ver `_rodar_cmd`.
                                        _dd=st.session_state.get(
@@ -13163,9 +13184,23 @@ def pagina_imagem(usuario_logado):
             pasta_pai = st.secrets.get("DRIVE_PASTA_IMAGENS_ID", "")
 
             # Busca pasta existente (cacheada em session_state para não bater na API a cada rerender)
-            _cache_key = f"_pasta_{nome_gal}__{codigo_gal}"
+            _cache_key = f"img_pasta_{nome_gal}__{codigo_gal}"
             _busca_falhou = False
-            if _cache_key not in st.session_state:
+            # A FALHA ANTERIOR SEGURA A PROXIMA IDA AO DRIVE ate um clique.
+            _err_drive = st.session_state.get("img_drive_falhou")
+            if _err_drive:
+                _busca_falhou = True
+                # A FALHA CONTINUA DITA, e nao so na passada em que ela
+                # aconteceu: sem isto o colaborador veria um botao de tentar
+                # de novo sem nenhuma explicacao do que deu errado.
+                st.warning(
+                    "Não consegui verificar se já existe pasta desse produto "
+                    "no Drive. Salvar agora criaria uma pasta duplicada.\n\n"
+                    f"{_err_drive}")
+                if st.button("🔄 Tentar o Drive de novo", key="btn_drive_retry"):
+                    st.session_state.pop("img_drive_falhou", None)
+                    st.rerun()
+            if _cache_key not in st.session_state and not _err_drive:
                 if pasta_pai and nome_gal:
                     _diag_busca = {}
                     with st.spinner("Verificando pasta no Drive..."):
@@ -13177,6 +13212,12 @@ def pagina_imagem(usuario_logado):
                         # em vez de tratar a falha como "pasta nao existe" para sempre.
                         del st.session_state[_cache_key]
                         _busca_falhou = True
+                        # MAS NAO A CADA TECLA. Sem esta trava, o Drive fora do
+                        # ar vira uma chamada de rede por letra digitada — cada
+                        # uma podendo esperar o timeout — e a aba inteira
+                        # trava. A falha e DITA e a tentativa seguinte fica
+                        # atras de um clique, que e quem sabe se ja adiantou.
+                        st.session_state["img_drive_falhou"] = _diag_busca["erro"]
                         st.warning(
                             "Não consegui verificar se já existe pasta desse produto no "
                             "Drive. Salvar agora criaria uma pasta duplicada — tente de "
