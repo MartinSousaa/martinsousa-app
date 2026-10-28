@@ -35,6 +35,12 @@ sys.path.insert(0, {raiz!r})
 import streamlit as st
 import clique
 aba = st.radio("Home", ["Painel", "Produtos"], horizontal=True, key="home_aba")
+if aba == "Painel":
+    # O PAINEL TEM CLIQUE PRÓPRIO, como a Home de verdade (28/10). Sem isto o
+    # verificador não via o defeito: a escuta nascia na caixinha do Painel,
+    # morria quando ele saía da tela, e em Produtos nenhum clique abria.
+    st.markdown("<div " + clique.alvo("hg", "X") + ">Quadro X</div>", unsafe_allow_html=True)
+    clique.botoes("hg", ["X"])
 if aba == "Produtos":
     st.markdown("<div>" + "".join(
         f'<div ' + clique.alvo("pa", f"PRODUTO {{i}}") + f' style="padding:10px">Linha {{i}}</div>'

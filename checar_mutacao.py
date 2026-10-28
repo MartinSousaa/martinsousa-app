@@ -4532,6 +4532,13 @@ MUTACOES = [
         None,
         ["python3", "promocoes_ml.py"],
     ),
+    (
+        'a escuta do clique volta a morrer quando a tela troca (28/10)',
+        "clique.py",
+        [('try { P.eval(CODIGO); } catch (err) {', 'try { P.__semEscuta = 1; } catch (err) {')],
+        None,
+        ["python3", "checar_navegador.py"],
+    ),
 ]
 
 
