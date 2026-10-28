@@ -5064,7 +5064,9 @@ def _promocoes_ml(conta):
                                           "ativo": "Sim"}]
         _pa_t.carregar_log = lambda n=200: []
         _pa_t.estado = lambda: {}
-        _tabs_vistas = []
+        _tabs_vistas, _tabelas = [], []
+        # As tabelas da caixa (data_editor, 28/10): o que cada uma recebeu.
+        _Falso.data_editor = lambda self, df, *a, **kw: (_tabelas.append(df), df)[1]
         f.tabs = lambda rot, **kw: (_tabs_vistas.extend(rot), [_Falso(f._chaves) for _ in rot])[1]
         try:
             _pm.pagina("MartinSousa")
@@ -5075,20 +5077,23 @@ def _promocoes_ml(conta):
               "🔁 Finalizadas sem recriar (1)" in _tabs_vistas, str(_tabs_vistas))
         conta("Promoções ML: o automático nasce em simulação e diz isso",
               "Modo: 🟡 SIMULAÇÃO" in _j, "")
-        conta("Promoções ML: a mesma campanha das duas contas numa caixa só",
-              "**11.11 da Black** · `DEAL` · em ML1, ML2" in _j, _j[:300])
+        _tab_11 = [t for t in _tabelas if "MLB2" in list(t.get("Anúncio", []))]
+        conta("Promoções ML: a mesma campanha das duas contas numa tabela só, uma linha por conta",
+              "11.11 da Black</b>" in _j and "em ML1, ML2" in _j and _tab_11
+              and list(_tab_11[0]["Conta"]) == ["ML1", "ML2"], _j[:300])
         conta("Promoções ML: a promoção que o ML define vem marcada como só aceitar",
-              "O ML define o desconto" in _j and "Sem esta promoção em: ML2" in _j, "")
+              "🔒 **o ML define**" in _j and "Sem esta promoção em: ML2" in _j, "")
         conta("Promoções ML: o desconto do vendedor mostra a faixa do ML por conta",
               "R\\$ 54,00 – R\\$ 128,24" in _j, "")   # o $ escapado: sem ele vira LaTeX
     except Exception as e:
         conta("Promoções ML: a tela monta", False, f"{type(e).__name__}: {e}")
     finally:
         _pm.st, _pm.faixa_do_desconto, _auth_pm.eh_dono = _g
-        try:
-            del _Falso.markdown
-        except AttributeError:
-            pass
+        for _attr in ("markdown", "data_editor"):
+            try:
+                delattr(_Falso, _attr)
+            except AttributeError:
+                pass
 
 def main():
     instalar()
