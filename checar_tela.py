@@ -4926,6 +4926,62 @@ def _custos_do_studio(conta):
         except Exception:
             pass
 
+def _promocoes_ml(conta):
+    """28/10: Operacional › Promoções ML. A leitura das quatro contas já está
+    na sessão (o botão é que vai à rede) e a faixa do desconto do vendedor é
+    trocada — os dois são rede. O dado tem a forma da amostra real da ML1."""
+    import promocoes_ml as _pm
+    import auth as _auth_pm
+    _g = (_pm.st, _pm.faixa_do_desconto, _auth_pm.eh_dono)
+    _txt = []
+    try:
+        f = instalar()
+        for _k in ("markdown", "error", "warning", "caption", "info"):
+            setattr(f, _k, (lambda k: lambda t, *a, **kw: _txt.append(f"{k}:{t}"))(_k))
+        _pm.st = f
+        # O texto das COLUNAS também é lido: a faixa do ML e o aviso de cada
+        # conta moram nelas, e o duplo de coluna é outro objeto.
+        _Falso.markdown = lambda self, t, *a, **kw: _txt.append(f"col:{t}")
+        _auth_pm.eh_dono = lambda u: True
+        _t = "Escultura Cavaleiro Medieval"
+        _of = lambda item, tipo, nome, **k: dict(
+            {"item": item, "tipo": tipo, "nome": nome, "promo_id": "P1",
+             "status": "candidate", "original_price": 134.99, "offer_id": "O1"}, **k)
+        _lidas = {
+            "ml1": {"ofertas": [_of("MLB1", "DEAL", "11.11 da Black", min_discounted_price=27,
+                                    max_discounted_price=130.94, suggested_discounted_price=117.44),
+                                _of("MLB1", "SMART", "Impulsione suas vendas", price=130.94,
+                                    seller_percentage=2.5, meli_percentage=0.5),
+                                _of("MLB9", "DEAL", "11.11 da Black", status="started", price=120.0)],
+                    "titulos": {"MLB1": {"title": _t}, "MLB9": {"title": "Outro"}}},
+            "ml2": {"ofertas": [_of("MLB2", "DEAL", "11.11 da Black", min_discounted_price=27,
+                                    max_discounted_price=130.94, suggested_discounted_price=117.44)],
+                    "titulos": {"MLB2": {"title": _t.upper()}}}}
+        f.session_state["pml_dados"] = {
+            "lidas": {c: {"promocoes": 2, "ofertas": len(v["ofertas"]), "avisos": []}
+                      for c, v in _lidas.items()},
+            **_pm.agrupar(_lidas), "quando": "28/10 12:26"}
+        _pm.faixa_do_desconto = lambda c, i: ({"item": i, "tipo": "PRICE_DISCOUNT", "conta": c,
+                                               "promo_id": "", "original_price": 134.99,
+                                               "min_discounted_price": 54,
+                                               "max_discounted_price": 128.24}, "")
+        _pm.pagina("MartinSousa")
+        _j = " ".join(_txt)
+        conta("Promoções ML: a mesma campanha das duas contas numa caixa só",
+              "**11.11 da Black** · `DEAL` · em ML1, ML2" in _j, _j[:300])
+        conta("Promoções ML: a promoção que o ML define vem marcada como só aceitar",
+              "O ML define o desconto" in _j and "Sem esta promoção em: ML2" in _j, "")
+        conta("Promoções ML: o desconto do vendedor mostra a faixa do ML por conta",
+              "R$ 54,00 – R$ 128,24" in _j, "")
+    except Exception as e:
+        conta("Promoções ML: a tela monta", False, f"{type(e).__name__}: {e}")
+    finally:
+        _pm.st, _pm.faixa_do_desconto, _auth_pm.eh_dono = _g
+        try:
+            del _Falso.markdown
+        except AttributeError:
+            pass
+
 def main():
     instalar()
     falhas = []
@@ -5002,6 +5058,7 @@ def main():
     _amostra_ml_no_admin(conta)
     _meu_desempenho(conta)
     _custos_do_studio(conta)
+    _promocoes_ml(conta)
     _ranking_abre_panorama(conta)
     _celular(conta)
     _rastreio_etiquetas(conta)

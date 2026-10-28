@@ -4421,6 +4421,35 @@ MUTACOES = [
         None,
         ["python3", "analise_metas.py"],
     ),
+    (
+        'as promocoes voltam a ler so a primeira pagina de anuncios (28/10)',
+        "promocoes_ml.py",
+        [('        depois = pag.get("searchAfter") or pag.get("search_after")\n', '        depois = None\n')],
+        None,
+        ["python3", "promocoes_ml.py"],
+    ),
+    (
+        'o mesmo produto volta a se separar por caixa e espaco no titulo (28/10)',
+        "promocoes_ml.py",
+        [('            chave = normalizar(titulo)\n', '            chave = titulo\n')],
+        None,
+        ["python3", "promocoes_ml.py"],
+    ),
+    (
+        'o desconto fora da faixa do ML volta a ser enviado (28/10)',
+        "promocoes_ml.py",
+        [('        if mn and preco < mn:\n', '        if False:\n')],
+        None,
+        ["python3", "promocoes_ml.py"],
+    ),
+    (
+        'a escrita no ML volta a sair sem confirmacao (28/10)',
+        "promocoes_ml.py",
+        [('    if c1.button("✅ Confirmar", key=f"pml_s_{chave}", type="primary"):\n',
+          '    if True:\n        _executar(pedidos)\n    if c1.button("✅ Confirmar", key=f"pml_s_{chave}", type="primary"):\n')],
+        None,
+        ["python3", "promocoes_ml.py"],
+    ),
 ]
 
 
