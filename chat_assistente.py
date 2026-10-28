@@ -1521,6 +1521,29 @@ def renderizar_chat(usuario_logado="", no_centro=False):
                         if msg.get("img_bytes"):
                             for ib in msg["img_bytes"]:
                                 st.image(ib, use_container_width=True)
+                        # A PEÇA GERADA APARECE AQUI, na conversa.
+                        #
+                        # Dono, 27/10: *"quero que as imagens apareçam no
+                        # chat, conforme eles peçam"*. Antes a resposta era só
+                        # texto e o resultado ficava na galeria, fora da
+                        # conversa — ele descia a tela para ver e subia para
+                        # falar.
+                        #
+                        # A fala guarda o NÚMERO da peça, e os bytes são
+                        # buscados na galeria AGORA: depois de um ajuste fino
+                        # o número aponta para a versão nova, e os bytes
+                        # mostrariam para sempre a velha ao lado de um texto
+                        # falando da nova. (E bytes no histórico fariam o
+                        # rascunho descartar a conversa inteira, que não é
+                        # serializável em JSON.)
+                        _n_peca = msg.get("peca")
+                        if _n_peca:
+                            _gal_msg = st.session_state.get("img_galeria") or []
+                            _i_msg = int(_n_peca) - 1
+                            if 0 <= _i_msg < len(_gal_msg):
+                                _b_msg = (_gal_msg[_i_msg] or {}).get("bytes")
+                                if _b_msg:
+                                    st.image(_b_msg, use_container_width=True)
                         st.markdown(msg["content"])
 
             # Balão de espera DENTRO da área de mensagens.
@@ -1595,8 +1618,41 @@ def renderizar_chat(usuario_logado="", no_centro=False):
                 help="Anexe uma imagem para o assistente analisar junto da sua mensagem.",
             )
 
-        # ── Campo de texto — Enter envia, Shift+Enter nova linha ──────────────
-        user_input = st.chat_input("Digite sua mensagem…")
+        # ── Campo de texto — Enter envia ──────────────────────────────────
+        #
+        # POR QUE NAO E MAIS `st.chat_input` (dono, 27/10)
+        # ------------------------------------------------
+        # *"toda vez que o chat responde, a tela rola sozinha para baixo (...)
+        # o chat respondendo, a tela não tem que se mexer e o colaborador tem
+        # que ficar subindo a tela novamente"*.
+        #
+        # `st.chat_input` no CORPO da página é preso ao fim dela pelo próprio
+        # Streamlit, e a cada envio a página é rolada até ele. Na barra
+        # lateral isso nunca apareceu: ela rola por conta e é curta. No centro
+        # de uma página que tem a conversa, a galeria, o Modo manual e o
+        # rodapé, cada resposta joga a tela lá para baixo.
+        #
+        # O formulário não tem esse comportamento, e dá o mesmo que ele dava:
+        # Enter envia (é o que um form faz) e `clear_on_submit` esvazia o
+        # campo. O que se perde é o Shift+Enter para nova linha — e o pedido
+        # de uma peça é uma linha.
+        #
+        # O BOTÃO DE LIMPAR E O ANEXO FICAM DE FORA DO FORMULÁRIO de
+        # propósito: `st.button` levanta dentro de um `st.form`, e um anexo
+        # que só chegasse ao enviar quebraria "anexa e mostra o que quer".
+        with st.form(key="ms_chat_form", clear_on_submit=True, border=False):
+            _c_txt, _c_env = st.columns([9, 1], vertical_alignment="center")
+            with _c_txt:
+                _texto_chat = st.text_input(
+                    "Digite sua mensagem…", key="ms_chat_texto",
+                    label_visibility="collapsed",
+                    placeholder="Digite sua mensagem…")
+            with _c_env:
+                _enviou_chat = st.form_submit_button(
+                    "Enviar", use_container_width=True, type="primary")
+        user_input = (str(_texto_chat).strip()
+                      if _enviou_chat and str(_texto_chat or "").strip()
+                      else None)
 
     # ── Resposta da IA ────────────────────────────────────────────────────────
     # Fora do container e numa passada só dela: a tela já está desenhada quando
@@ -2195,10 +2251,90 @@ if __name__ == "__main__":
 
     # NA MESMA FILEIRA DO ANEXO. O dono aprovou o botao na linha do clipe, e
     # nao numa linha propria: `st.columns` e quem poe os dois lado a lado.
-    _tem_colunas_lc = any(
-        (getattr(_n.func, "attr", "") or getattr(_n.func, "id", "")) == "columns"
-        for _n in _ast_lc.walk(_arv_lc) if isinstance(_n, _ast_lc.Call))
-    ok("e ele divide a fileira com o anexo (st.columns)", _tem_colunas_lc)
+    #
+    # ESTA GUARDA FOI ENFRAQUECIDA POR MIM EM 27/10, e o `checar_mutacao`
+    # cobrou. Ela procurava QUALQUER `st.columns` no bloco — e quando o campo
+    # de escrever virou um formulario com duas colunas proprias, ela passou a
+    # achar ESSAS e dar verde com o botao fora da fileira do anexo.
+    #
+    # Agora ela procura a atribuicao que de fato poe os dois lado a lado:
+    # `_col_anexo, _col_limpar = st.columns(...)`. Duas colunas numa linha
+    # qualquer do bloco nao respondem a pergunta "o botao esta na fileira do
+    # clipe?".
+    _fileira_lc = any(
+        isinstance(_n, _ast_lc.Assign)
+        and isinstance(_n.targets[0], _ast_lc.Tuple)
+        and [getattr(_e, "id", "") for _e in _n.targets[0].elts]
+        == ["_col_anexo", "_col_limpar"]
+        and isinstance(_n.value, _ast_lc.Call)
+        and (getattr(_n.value.func, "attr", "")
+             or getattr(_n.value.func, "id", "")) == "columns"
+        for _n in _ast_lc.walk(_arv_lc))
+    ok("e ele divide a fileira com o anexo (st.columns)", _fileira_lc)
+
+    # ══ A PECA GERADA APARECE NA CONVERSA (27/10) ═══════════════════════
+    #
+    # Dono: *"quero que as imagens aparecam no chat, conforme eles pecam. Se
+    # for para ficar aparecendo abaixo, e mais facil voltar o chat para a
+    # lateral (...) ele responde, o colaborador tem que baixar a tela para ver
+    # o resultado, subir a tela de novo para falar com o chat, isso esta
+    # extremamente infuncional"*.
+    #
+    # A GUARDA LE O BLOCO, e nao o arquivo: guarda que varre o arquivo se
+    # encontra a si mesma. E ela procura a CHAMADA por AST, nao a palavra —
+    # procurar o texto acharia este proprio comentario, e tirar a chamada de
+    # verdade nao reprovaria nada. E a licao do `.normalizar_imagem(`.
+    import ast as _ast_pc
+    import inspect as _insp_pc
+    _corpo_pc = _insp_pc.getsource(renderizar_chat)
+    _arv_pc = _ast_pc.parse(_corpo_pc.lstrip())
+    _le_a_peca = any(
+        isinstance(_n, _ast_pc.Call)
+        and (getattr(_n.func, "attr", "") == "get")
+        and any(isinstance(_a, _ast_pc.Constant) and _a.value == "peca"
+                for _a in _n.args)
+        for _n in _ast_pc.walk(_arv_pc))
+    ok("a conversa le o numero da peca de cada fala", _le_a_peca)
+
+    # ── A TELA NAO PODE ROLAR SOZINHA (dono, 27/10) ─────────────────────
+    #
+    # `st.chat_input` no corpo da pagina e preso ao fim dela pelo Streamlit, e
+    # a cada envio a pagina e rolada ate ele. Na lateral isso nunca apareceu;
+    # no centro, cada resposta jogava a tela para baixo e o colaborador subia
+    # de novo para escrever.
+    #
+    # A guarda le o BLOCO (`getsource`), nunca o arquivo: guarda que varre o
+    # arquivo se encontra a si mesma — e este comentario cita o nome.
+    ok("o campo de escrever NAO e o `chat_input` preso ao fim da pagina",
+       not any(isinstance(_n, _ast_pc.Call)
+               and (getattr(_n.func, "attr", "")
+                    or getattr(_n.func, "id", "")) == "chat_input"
+               for _n in _ast_pc.walk(_arv_pc)))
+    # E O QUE ELE DAVA CONTINUA: Enter envia (e o que um form faz) e o campo
+    # esvazia sozinho. Sem o `clear_on_submit`, a mesma mensagem seria
+    # reenviada a cada passada.
+    _forms = [_n for _n in _ast_pc.walk(_arv_pc)
+              if isinstance(_n, _ast_pc.Call)
+              and (getattr(_n.func, "attr", "") or getattr(_n.func, "id", ""))
+              == "form"]
+    ok("o campo vive num formulario, que e o que faz o Enter enviar",
+       bool(_forms))
+    ok("e o formulario esvazia o campo ao enviar",
+       any(_k.arg == "clear_on_submit"
+           and getattr(_k.value, "value", False) is True
+           for _f in _forms for _k in _f.keywords))
+    # E DESENHA IMAGEM a partir dele. Ler o numero e nao desenhar nada seria
+    # a fala dizendo "pronta" sem a peca ao lado — que e o defeito de volta.
+    _desenha = any(
+        isinstance(_n, _ast_pc.Call)
+        and (getattr(_n.func, "attr", "") or getattr(_n.func, "id", "")) == "image"
+        for _n in _ast_pc.walk(_arv_pc))
+    ok("e desenha a imagem dentro dela", _desenha)
+    # OS BYTES SAO BUSCADOS NA GALERIA, e nao guardados na fala: depois de um
+    # ajuste o numero aponta para a versao nova, e os bytes mostrariam para
+    # sempre a velha ao lado de um texto falando da nova.
+    ok("e os bytes vem da galeria, na hora de desenhar",
+       'st.session_state.get("img_galeria")' in _corpo_pc)
 
     # ══ PEDIR UMA PECA PELA CONVERSA (23/10) ════════════════════════════
     #

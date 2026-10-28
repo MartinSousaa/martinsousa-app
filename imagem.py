@@ -9263,6 +9263,118 @@ def slot_do_layout():
     return _meus_slots().get("layout")
 
 
+def slot_da_galeria():
+    """O lugar da galeria nesta passada, ou None.
+
+    Ela mora no fim do arquivo e e desenhada aqui, logo abaixo da conversa —
+    e e so por este lugar que a conferencia consegue perguntar ONDE ela foi
+    desenhada, e nao apenas SE ela existe.
+    """
+    return _meus_slots().get("galeria")
+
+
+def mostrar_no_chat(texto, peca=None):
+    """Põe uma fala do Studio na conversa, com a peça aparecendo nela.
+
+    POR QUE ELA EXISTE (dono, 27/10)
+    --------------------------------
+    *"Eu quero que as imagens apareçam no chat, conforme eles peçam. Se for
+    para ficar aparecendo abaixo, é mais fácil voltar o chat para a lateral
+    (...) ele responde, o colaborador tem que baixar a tela para ver o
+    resultado, subir a tela de novo para falar com o chat, isso está
+    extremamente infuncional."*
+
+    Ele está certo, e o argumento decide o desenho: um chat central cuja
+    resposta aparece fora dele é pior que o chat estreito da lateral.
+
+    A MENSAGEM GUARDA O NÚMERO DA PEÇA, E NÃO OS BYTES
+    --------------------------------------------------
+    Três motivos, e o primeiro é um defeito que isto evita:
+
+    1. `rascunho.salvar_trabalho` grava `ms_chat_hist` em JSON, e bytes não
+       são serializáveis. A chave inteira seria descartada em silêncio, e a
+       conversa pararia de sobreviver ao F5 — perda calada, que é como esta
+       base perde trabalho.
+    2. A peça MUDA. Depois de um ajuste fino, o número continua apontando
+       para a versão nova; os bytes mostrariam para sempre a versão velha, ao
+       lado de um texto falando da nova.
+    3. Os mesmos megabytes não viajam duas vezes na memória da sessão.
+
+    Quem resolve o número em imagem é `chat_assistente.renderizar_chat`, na
+    hora de desenhar — ele já desenha `img_bytes` do anexo pelo mesmo
+    caminho.
+    """
+    fala = {"role": "assistant", "content": str(texto or "")}
+    try:
+        if peca is not None and int(peca) > 0:
+            fala["peca"] = int(peca)
+    except (TypeError, ValueError):
+        pass
+    try:
+        st.session_state.setdefault("ms_chat_hist", []).append(fala)
+    except Exception:
+        pass
+    return fala
+
+
+def fotos_do_produto(usuario=""):
+    """As fotos do produto desta sessão. Uma pergunta, uma resposta.
+
+    O DEFEITO QUE ISTO CORRIGE (produção, 27/10)
+    --------------------------------------------
+    O dono anexou três fotos, pediu no chat para refazer a peça 5, e recebeu
+    *"Preciso das fotos do produto para refazer do zero. O Studio não tem
+    nenhuma nesta sessão"* — com as três fotos na tela.
+
+    A causa não era o anexo: era que o campo de upload NUNCA escreveu
+    `img_fotos_originais`. Essa chave só era preenchida depois de uma geração
+    rodar neste processo, e quem lia ela — o refazer do chat, o ajuste, a
+    conferência da peça — concluía "não tem foto" com as fotos ali.
+
+    Duas respostas para a mesma pergunta, que é a Forma 5 desta base: a aba
+    sabia das fotos, o chat não.
+
+    AS TRÊS FONTES, NA ORDEM DA CERTEZA
+    -----------------------------------
+    1. `img_fotos_originais` — o que esta sessão já tem na mão;
+    2. a config da geração em vigor — as fotos COM QUE as peças foram feitas,
+       que é o que o refazer precisa para manter o mesmo produto;
+    3. o disco do rascunho — as fotos anexadas, que sobrevivem ao reinício.
+
+    A TERCEIRA É O QUE FALTAVA NO REINÍCIO. Os bytes do upload moram na
+    memória do processo, e um deploy os leva junto; a lista de nomes fica no
+    navegador e continua lá. É a Forma 9 do CLAUDE.md chegando no chat: o
+    trabalho estava guardado em disco e ninguém o procurava.
+
+    E O QUE VEM DO DISCO FICA NA SESSÃO. Sem isso, a leitura voltaria a bater
+    no disco a cada passada — e esta função é lida no desenho da tela, que
+    roda a cada tecla digitada.
+    """
+    fotos = st.session_state.get("img_fotos_originais") or []
+    if fotos:
+        return list(fotos)
+
+    try:
+        fotos = list((config_da_geracao() or {}).get("fotos_bytes") or [])
+    except Exception:
+        fotos = []
+    if fotos:
+        st.session_state["img_fotos_originais"] = fotos
+        return fotos
+
+    if usuario:
+        try:
+            import rascunho as _rasc_fp
+            fotos = [f["bytes"] for f in (_rasc_fp.carregar_fotos(usuario) or [])
+                     if f.get("bytes")]
+        except Exception:
+            fotos = []
+        if fotos:
+            st.session_state["img_fotos_originais"] = fotos
+            return fotos
+    return []
+
+
 def resumo_do_trabalho(estado=None, padrao=None, fotos=None):
     """O que a coluna da esquerda mostra. Devolve um dicionário, não desenha.
 
@@ -9534,11 +9646,15 @@ def consumir_comandos_do_chat(usuario_logado=""):
     # o que custou quatro rodadas até alguém abrir este arquivo.
     refazer_pend = st.session_state.pop("chat_refazer_imagem", [])
     if refazer_pend:
-        _fotos_rf = st.session_state.get("img_fotos_originais") or []
+        # PELA PORTA ÚNICA: sessão, config da geração, e o disco do
+        # rascunho. Lendo só a chave, o refazer recusava com as fotos
+        # anexadas na tela (produção, 27/10).
+        _fotos_rf = fotos_do_produto(usuario_logado)
         _cfg_rf = config_da_geracao()
         _dados_rf = st.session_state.get("img_dados_descricao") or {}
         _nome_rf = _cfg_rf.get("nome_produto", "")
         _msgs_rf, _mudou_rf = [], False
+        _pecas_rf = []          # os números das peças que de fato mudaram
         for _c in refazer_pend:
             _i = int(_c.get("num", 1)) - 1
             if _i < 0 or _i >= len(galeria):
@@ -9697,6 +9813,7 @@ def consumir_comandos_do_chat(usuario_logado=""):
                         + "\n   Me peça de novo e eu tento por outro caminho.")
             else:
                 _msgs_rf.append(f"🔁 Imagem {_i + 1} refeita do zero.")
+            _pecas_rf.append(_i + 1)
         if _mudou_rf:
             # Pelo helper, e nao direto: e ele que faz a falha aparecer na
             # tela em vez de sumir num `except: pass`.
@@ -9707,14 +9824,19 @@ def consumir_comandos_do_chat(usuario_logado=""):
             # se uma falhasse, ninguem saberia qual.
             guardar_rascunho(usuario_logado, "refazer do zero")
         if _msgs_rf:
-            st.session_state.setdefault("ms_chat_hist", []).append(
-                {"role": "assistant", "content": "\n".join(_msgs_rf)})
+            # A PEÇA REFEITA APARECE NA CONVERSA, e não só na galeria.
+            # `_pecas_rf` guarda o número de cada uma que mudou; com uma só,
+            # a imagem vem junto da fala. Com várias, o texto fala de todas e
+            # a imagem seria a de qual? — aí ela fica na galeria, logo abaixo.
+            mostrar_no_chat("\n".join(_msgs_rf),
+                            peca=_pecas_rf[0] if len(_pecas_rf) == 1 else None)
         st.rerun()
 
     cmds_pendentes = st.session_state.pop("chat_img_pendente", [])
     if cmds_pendentes:
-        fotos_ref_aj = st.session_state.get("img_fotos_originais") or []
+        fotos_ref_aj = fotos_do_produto(usuario_logado)
         msgs_result, _mudou = [], False
+        _pecas_aj = []          # os números das peças que de fato mudaram
         for cmd in cmds_pendentes:
             num_foto  = cmd.get("num", 1)
             instrucao = cmd.get("instrucao", "")
@@ -9811,6 +9933,7 @@ def consumir_comandos_do_chat(usuario_logado=""):
             if nova_img and _relato.get("ok") is not False:
                 st.session_state["img_galeria"][idx_alvo]["bytes"] = nova_img
                 _mudou = True
+                _pecas_aj.append(num_foto)
                 _resultado_log = "imagem atualizada"
                 # A copia de seguranca acompanha o ajuste. Sem esta linha o
                 # disco continuava com a imagem de antes da correcao.
@@ -9835,15 +9958,12 @@ def consumir_comandos_do_chat(usuario_logado=""):
         # e a instrucao dele diz para nao chamar de pronto o que o veredito
         # nao confirmou.
         if msgs_result:
-            try:
-                _hist_chat = st.session_state.get("ms_chat_hist")
-                if _hist_chat is not None:
-                    _hist_chat.append({
-                        "role": "assistant",
-                        "content": "**Resultado do ajuste, conferido na "
-                                   "imagem:**\n\n" + "\n\n".join(msgs_result)})
-            except Exception:
-                pass
+            # A PEÇA AJUSTADA APARECE NA CONVERSA, pelo mesmo caminho do
+            # refazer — um jeito só de uma peça chegar ao chat.
+            mostrar_no_chat(
+                "**Resultado do ajuste, conferido na imagem:**\n\n"
+                + "\n\n".join(msgs_result),
+                peca=_pecas_aj[0] if len(_pecas_aj) == 1 else None)
         if _mudou:
             st.session_state["chat_img_msgs"] = msgs_result
             st.rerun()
@@ -10375,7 +10495,7 @@ def pagina_imagem(usuario_logado):
     # chave só é escrita no fim da geração, e o resumo é desenhado antes dela.
     # `resumo_fotos` não lê um único byte de imagem (`rascunho.py`), que é o
     # que permite chamá-la no desenho da tela.
-    _fotos_res = len(st.session_state.get("img_fotos_originais") or [])
+    _fotos_res = len(fotos_do_produto(usuario_logado))
     if not _fotos_res:
         try:
             import rascunho as _rasc_res
@@ -10388,6 +10508,12 @@ def pagina_imagem(usuario_logado):
         _estado_res["img_dados_descricao"] = dados_descricao
     with _col_res:
         desenhar_resumo(resumo_do_trabalho(_estado_res, fotos=_fotos_res))
+
+    # O LUGAR DA GALERIA, reservado logo abaixo da conversa e preenchido lá
+    # embaixo, onde o código dela mora. Mesmo mecanismo do chat e dos campos
+    # de imagem: o contêiner guarda a posição agora e aceita conteúdo depois,
+    # sem inverter a ordem de execução.
+    _slot_galeria = reservar_slot_das_fotos("galeria", st.container())
 
     st.markdown("---")
 
@@ -10876,6 +11002,15 @@ def pagina_imagem(usuario_logado):
             )
             fotos_bytes, _nomes_ft, _av_ft, _er_ft = revisar_anexos(fotos_upload)
             mostrar_anexos(_av_ft, _er_ft)
+
+            # O QUE O CAMPO ENTREGOU VIRA A FOTO DA SESSÃO, AGORA.
+            #
+            # Esta linha é o defeito de 27/10 fechado na origem: antes dela, as
+            # fotos anexadas só chegavam a `img_fotos_originais` DEPOIS de uma
+            # geração — e quem anexava e pedia no chat para refazer ouvia que o
+            # Studio não tinha foto nenhuma, com as fotos na tela.
+            if fotos_bytes:
+                st.session_state["img_fotos_originais"] = list(fotos_bytes)
 
             # ── AS FOTOS ANEXADAS TEM DE SOBREVIVER AO REINICIO ──────────────────
             #
@@ -12267,6 +12402,19 @@ def pagina_imagem(usuario_logado):
                             # prompt errado ou de ter caído no fallback texto-puro.
                             "diag": _res.get("diag") or {},
                         })
+                        # E ELA APARECE NA CONVERSA, na hora.
+                        #
+                        # Dono, 27/10: *"quero que as imagens apareçam no
+                        # chat, conforme eles peçam (...) ele responde, o
+                        # colaborador tem que baixar a tela para ver o
+                        # resultado, subir a tela de novo para falar com o
+                        # chat, isso está extremamente infuncional"*.
+                        #
+                        # Uma fala por peça, com o número dela: a imagem é
+                        # buscada na galeria na hora de desenhar, então um
+                        # ajuste depois mostra a versão nova no mesmo lugar.
+                        mostrar_no_chat(f"🖼️ **{tipo}** — pronta.",
+                                        peca=len(galeria))
                         # Grava a cada imagem, nao so no fim do laco.
                         #
                         # A galeria so era publicada depois da ultima imagem. Uma
@@ -12436,856 +12584,882 @@ def pagina_imagem(usuario_logado):
             st.session_state.pop("img_abortou_geracao", None)
             st.rerun()
 
-    # ── GALERIA ───────────────────────────────────────────────────────────────
-    if "img_galeria" in st.session_state and st.session_state["img_galeria"]:
-        st.markdown("---")
-        _msgs_chat = st.session_state.pop("chat_img_msgs", None)
-        if _msgs_chat:
-            st.info("\n\n".join(_msgs_chat))
-        galeria = st.session_state["img_galeria"]
-        nome_gal = st.session_state.get("img_nome_produto", "produto")
-        codigo_gal = st.session_state.get("img_codigo", "")
-
-        # ── O PLACAR DO LOTE, ANTES DE QUALQUER OUTRA COISA ──────────────────
-        #
-        # "8 na galeria" nao e "8 entregues". No teste de 05/10 havia DUAS
-        # pecas com cartao vermelho de "nao publique assim" e o chat
-        # respondeu ao dono "nenhuma deixou de ser gerada — as 8 estao na
-        # galeria". Os dois estavam falando de coisas diferentes.
-        _placar = placar_do_lote(
-            galeria, st.session_state.get("img_planejadas") or len(galeria))
-        if _placar["reprovadas"] or _placar["nao_conferidas"] or _placar["pendentes"]:
-            st.warning(f"📋 **Lote:** {frase_do_placar(_placar)}")
-        else:
-            st.success(f"📋 **Lote:** {frase_do_placar(_placar)}")
-
-        # ── DIAGNÓSTICO DA GERAÇÃO ────────────────────────────────────────────
-        # Sem isto não há como saber se uma imagem ruim veio de prompt errado ou
-        # de ter caído no fallback do Gemini, que gera SEM ver as fotos.
-        _sem_foto = [g for g in galeria if (g.get("diag") or {}).get("refs_enviadas", 1) == 0]
-        if _sem_foto:
-            st.error(
-                f"⚠️ **{len(_sem_foto)} de {len(galeria)} imagens foram geradas SEM as suas fotos.** "
-                "O gerador principal falhou e o sistema caiu no motor reserva, que só recebe texto — "
-                "ele nunca viu o produto real, então inventou um. É por isso que a cor e o formato saem "
-                "errados. Abra o painel abaixo e me mande o erro."
-            )
-
-        with st.expander("🔍 Prompt e motor usados em cada imagem", expanded=bool(_sem_foto)):
-            # Pelo índice, pelo mesmo motivo do seletor de cima: com rótulos
-            # repetidos, o diagnóstico mostrado era o da primeira imagem.
-            _i_diag = st.selectbox(
-                "Imagem", list(range(len(galeria))), key="img_diag_sel",
-                label_visibility="collapsed",
-                format_func=lambda i: f"Imagem {i + 1} · {galeria[i].get('tipo', '?')}")
-            _g_diag = galeria[_i_diag] if 0 <= _i_diag < len(galeria) else None
-            _d = (_g_diag or {}).get("diag") or {}
-
-            if not _d:
-                st.caption("Sem diagnóstico — imagem gerada antes desta atualização.")
-            else:
-                _c1, _c2, _c3 = st.columns(3)
-                _c1.markdown(f"**Motor**  \n{_d.get('motor', '—')}")
-                _c2.markdown(
-                    f"**Fotos enviadas**  \n{_d.get('refs_enviadas', '—')} "
-                    f"de {_d.get('fotos_disponiveis', '—')} disponíveis"
-                )
-                _c3.markdown(
-                    f"**Tamanho pedido / recebido**  \n"
-                    f"{_d.get('size_pedido', '—')} → {_d.get('tamanho_bruto', '—')}"
-                )
-                # O QUE O SISTEMA MEDIU E NÃO CONTAVA A NINGUÉM.
-                #
-                # `checar_comunicacao.py` achou cinco campos gravados no
-                # diagnóstico e nunca mostrados. Três deles respondem
-                # exatamente as perguntas que custaram o dia 29/09:
-                #
-                #   input_fidelity  a peça foi gerada PRESERVANDO o produto?
-                #                   O Gemini não aceita esse parâmetro; sem
-                #                   ele, o produto é redesenhado — e era isso
-                #                   que fazia o Ajuste Fino reprovar sem que
-                #                   ninguém soubesse por quê.
-                #   medida          os defeitos MEDIDOS na peça, por
-                #                   `medir_imagem.problemas`. O sistema já
-                #                   media e guardava para si.
-                #   ref_layout      a referência de layout enviada
-                #                   correspondeu ao tipo, ou foi ignorada?
-                #
-                # `size_pedido` já estava na tela e `input_fidelity` não, a
-                # duas linhas de distância no código que os grava: a Forma 1
-                # desta base, de novo.
-                _fid = _d.get("input_fidelity")
-                st.markdown(
-                    "**Produto preservado**  \n"
-                    + ("✅ sim — `input_fidelity=" + str(_fid) + "`" if _fid
-                       else "⚠️ NÃO — este motor não preserva o produto, "
-                            "então ele foi redesenhado")
-                )
-                if _d.get("ref_layout"):
-                    st.markdown(f"**Referência de layout**  \n{_d['ref_layout']}")
-                if _d.get("medida"):
-                    st.warning(
-                        "📐 **O que a medição encontrou nesta peça:** "
-                        + str(_d["medida"]))
-                _pf, _ff = _d.get("peso_final"), _d.get("formato_final")
-                if _pf or _ff:
-                    st.caption(f"Arquivo final: {_ff or '—'} · {_pf or '—'}")
-                if _d.get("enquadramento"):
-                    # A EXPLICACAO DA MARGEM, QUE O SISTEMA SABIA E NAO DIZIA.
-                    #
-                    # Dono, 30/09: "imagens com margem". O Studio MEDIA isso —
-                    # gravava "o motor devolveu 1536x1024 em vez de quadrada,
-                    # as faixas laterais foram preenchidas pelo Studio" — e o
-                    # campo nao chegava a tela. O oitavo verificador dava verde
-                    # porque a unica leitura dele era a linha que concatena a
-                    # mensagem NELA MESMA, do mesmo lado do balcao.
-                    st.warning(
-                        "🖼️ **Por que esta peça tem margem:** "
-                        + str(_d["enquadramento"]))
-                if _d.get("proporcao_recusada"):
-                    # A MESMA FAMILIA: o pedido de imagem quadrada foi RECUSADO
-                    # pela API, o Studio repetiu sem ele, e a unica pista disso
-                    # morava no stderr do Railway.
-                    st.warning(
-                        "📏 **O motor recusou o pedido de imagem quadrada** — "
-                        "por isso ela voltou retangular e precisou de "
-                        "preenchimento. Detalhe: "
-                        + str(_d["proporcao_recusada"]))
-                if _d.get("proporcao_pedida"):
-                    # QUAL FORMA DE PEDIR O QUADRADO COLOU — e ela precisa
-                    # aparecer, nao so ser guardada.
-                    #
-                    # O oitavo verificador reprovou esta linha antes de ela
-                    # existir: eu tinha acabado de gravar `proporcao_pedida` e
-                    # nao mostrava a ninguem — o defeito que ele foi escrito
-                    # para pegar, cometido por mim na mesma hora.
-                    #
-                    # E ela responde a pergunta mais cara do dia: "esta peca
-                    # saiu quadrada porque o motor aceitou o pedido, ou por
-                    # acaso?". Com "sem proporcao" aqui, a margem da proxima
-                    # peca ja tem explicacao antes de alguem perguntar.
-                    _forma = str(_d["proporcao_pedida"])
-                    if _forma == "sem proporcao":
-                        st.warning(
-                            "📏 **O motor não aceitou nenhuma forma de pedir "
-                            "imagem quadrada** — a peça vem no formato que ele "
-                            "escolher, e o Studio preenche as sobras. É daí "
-                            "que vem a margem.")
-                    else:
-                        st.caption(f"📏 Imagem quadrada pedida ao motor por "
-                                   f"`{_forma}` — e aceita.")
-                if _d.get("sem_fotos"):
-                    st.error("📷 **Esta peça foi feita SEM as fotos do "
-                             "produto.** " + str(_d["sem_fotos"]))
-                if _d.get("motor_reserva"):
-                    # O AVISO QUE MORAVA NUMA THREAD E NUNCA APARECIA.
-                    st.error(
-                        "⚙️ **Esta peça NÃO foi feita pelo motor principal.** "
-                        + str(_d["motor_reserva"]))
-                if _d.get("erro_openai"):
-                    st.warning(f"**Erro do gerador principal:**\n\n{_d['erro_openai']}")
-                st.markdown("**Prompt exato enviado ao modelo:**")
-                st.code(_d.get("prompt_final", "—"), language="text")
-
-        # Miniaturas clicáveis
-        _cols_gal = st.columns(4)
-        for i, g in enumerate(galeria):
-            with _cols_gal[i % 4]:
-                # 20 caracteres cortavam o nome no meio ("Capa do", "Imagem
-                # emocional — P") e o colaborador não sabia qual peça era qual.
-                # O numero vem na legenda porque e assim que o colaborador e o
-                # Assistente IA se referem a cada imagem ("Imagem 1", "Imagem 2"). Sem ele na tela, o
-                # colaborador conta de cabeca — e a conta erra quando algum tipo
-                # foi bloqueado na triagem e nao entrou na galeria.
-                _rotulo = g["tipo"]
-                _legenda = f"Imagem {i+1} · {_rotulo}"
-                st.image(
-                    g["bytes"],
-                    caption=(_legenda[:52] + "…") if len(_legenda) > 52 else _legenda,
-                    use_container_width=True,
-                )
-                # O aviso fica NA PECA, nao num alerta geral no topo: com oito
-                # imagens na tela, "uma delas tem erro de texto" obriga a
-                # procurar qual, e procurar e o que ninguem faz.
-                _t = g.get("texto") or {}
-                _aviso_txt = texto_em_aviso(_t)
-                if _aviso_txt:
-                    # "Nao conferido" era uma legenda cinza de 60 caracteres, do
-                    # tamanho de um rodape — e por isso ninguem viu que a revisao
-                    # estava falhando em TODAS as imagens. Falha de revisao agora
-                    # grita: ela nao e aprovacao.
-                    (st.error if _t.get("ok") is False else st.warning)(_aviso_txt)
-                # E O QUE FOI VISTO NA IMAGEM, no mesmo lugar.
-                #
-                # Texto e peca sao duas perguntas diferentes e os dois
-                # vereditos aparecem: portugues perfeito com a caneca de duas
-                # alcas passava verde no primeiro e ninguem fazia o segundo.
-                _pc_rel = g.get("peca") or {}
-                _aviso_pc = peca_em_aviso(_pc_rel)
-                if _aviso_pc:
-                    (st.error if _pc_rel.get("ok") is False
-                     else st.warning)(_aviso_pc)
-
-        # Seleção da imagem ativa — pelo ÍNDICE, e não pelo rótulo.
-        #
-        # A lista era `[g["tipo"] for g in galeria]` e o índice saía de
-        # `nomes_galeria.index(escolha)`. Duas imagens com o mesmo rótulo
-        # faziam `.index()` devolver SEMPRE a primeira: a colaboradora
-        # selecionava a Imagem 3, aparecia a 1, e os botões de salvar e
-        # ajustar agiam na 1. Ela mexia numa e via outra.
-        #
-        # Rótulo igual não é acidente: três ajustes finos seguidos com a mesma
-        # instrução geram três "Ajuste Fino — chat melhora a cor dourada…".
-        # Índice é único por construção, e não depende de ninguém escrever
-        # nomes diferentes.
-        idx_ativo = st.selectbox(
-            "Imagem ativa (para ajustar ou baixar individualmente)",
-            list(range(len(galeria))), key="img_escolha",
-            format_func=lambda i: f"Imagem {i + 1} · {galeria[i].get('tipo', '?')}")
-        imagem_ativa = galeria[idx_ativo]["bytes"]
-        tipo_ativo = galeria[idx_ativo]["tipo"]
-
-        # Exibe imagem ativa grande
-        # use_container_width esticava a imagem para a largura inteira da tela:
-        # 1200px de altura, ~3 telas de rolagem antes de chegar nos botoes.
-        st.image(imagem_ativa, width=520)
-
-        # Ações individuais
-        # Ler o texto DESTA imagem, sob demanda.
-        #
-        # Serve a duas perguntas que antes so tinham resposta no meu chute: a
-        # revisao esta funcionando? e o que exatamente esta escrito errado
-        # nesta peca? Quando a revisao automatica falha (sem chave, API fora),
-        # o erro aparece aqui em letra grande, e nao numa legenda cinza.
-        # A revisao automatica ja leu esta imagem quando ela foi gerada; este
-        # botao e para reler quando se quer ver A LISTA das palavras erradas,
-        # ou depois de um ajuste feito fora do fluxo.
-        # ── CONFERIR A PECA, SEM GERAR NADA ──────────────────────────────
-        #
-        # A conferencia automatica decide sozinha se REFAZ, e refazer custa
-        # uma geracao. Antes de confiar nela para gastar, o dono tem de poder
-        # ver o veredito dela numa peca que ele JA tem — inclusive numa que
-        # ele sabe que esta errada. Uma leitura custa centavos.
-        #
-        # Sem este botao, a unica forma de descobrir se o leitor enxerga o
-        # defeito seria gerar um produto inteiro de teste, que e o retrabalho
-        # que esta correcao existe para acabar.
-        _fotos_conf = st.session_state.get("img_fotos_originais") or []
-        if st.button("🔎 Conferir esta peça (não gera nada)",
-                     use_container_width=True,
-                     key=f"conf_peca_{idx_ativo}",
-                     disabled=not _fotos_conf,
-                     help=("Olha a peça ao lado das fotos do produto e diz o "
-                           "que achou de errado. Só lê — não refaz, não gasta "
-                           "geração.")
-                     if _fotos_conf else
-                     "Precisa das fotos do produto desta sessão."):
-            with st.spinner("Olhando a peça ao lado das fotos…"):
-                _vd, _er_vd = conferir_peca(imagem_ativa, _fotos_conf,
-                                            tipo_ativo)
-            if _er_vd:
-                st.error(f"**Não consegui conferir:** {_er_vd}\n\n"
-                         "Enquanto isto aparecer, NENHUMA peça está sendo "
-                         "olhada na geração — elas saem sem ninguém ver.")
-            elif _vd.get("aprovada"):
-                st.success("✅ Sem defeito de imagem: nada cortado, nada por "
-                           "cima do produto, e o produto bate com as fotos.")
-            else:
-                st.error("❌ **A peça tem defeito:**\n\n"
-                         + "\n".join(f"- {p}" for p in
-                                      (_vd.get("problemas") or []))
-                         + (f"\n\n**Como refazer:** {_vd['instrucao']}"
-                            if _vd.get("instrucao") else ""))
-
-        if st.button("🔤 Ler o texto desta imagem", use_container_width=True,
-                     key=f"ler_txt_{idx_ativo}"):
-            with st.spinner("Lendo o que está escrito na imagem…"):
-                # Sem "pedido": aqui a pergunta e so se o que esta escrito
-                # existe em portugues, e nao se bate com o que foi pedido.
-                _v, _e = conferir_texto(imagem_ativa, "")
-            # A leitura manual tambem conta como sinal de saude: se ela deu
-            # certo, o aviso do topo sai sozinho no proximo rerun.
-            registrar_revisao({"ok": None if _e else True, "erro": _e})
-            if _e:
-                st.error(f"**A revisão de texto não está funcionando:** {_e}\n\n"
-                         "Enquanto isto aparecer, NENHUMA imagem está sendo "
-                         "conferida — as peças saem sem ninguém ler.")
-            elif not _v.get("tem_texto"):
-                st.info("Nenhuma palavra escrita nesta imagem.")
-            elif _v.get("correto"):
-                st.success("✅ Texto conferido: português correto.")
-            else:
-                st.error(f"❌ Erros: {_v.get('erros', '')}")
-                st.caption("Como deveria estar escrito:")
-                st.code(_v.get("texto_correto", ""), language=None)
-
-        col_dl, col_drive_ind = st.columns(2)
-        col_dl.download_button(
-            "⬇️ Baixar esta imagem",
-            data=imagem_ativa,
-            file_name=(f"{nome_gal}_{tipo_ativo[:20]}"
-                       f".{extensao_de(imagem_ativa)}"),
-            mime=_detectar_mime(imagem_ativa),
-            use_container_width=True,
-            key=f"dl_{idx_ativo}",
-        )
-        if col_drive_ind.button("☁️ Salvar esta no Drive", use_container_width=True, key=f"drive_ind_{idx_ativo}"):
-            pasta_pai = st.secrets.get("DRIVE_PASTA_IMAGENS_ID", "")
-            if not pasta_pai:
-                st.error("DRIVE_PASTA_IMAGENS_ID não configurada.")
-            else:
-                with st.spinner("Enviando..."):
-                    nome_pasta = f"{nome_gal} - {codigo_gal}".strip(" -")
-                    # `diagnostico` aqui pelo mesmo motivo do botão de salvar
-                    # tudo (que já o passava): sem ele, "a API falhou" e "a
-                    # pasta não existe" viram a mesma lista vazia, e o Studio
-                    # cria uma pasta duplicada do produto que já tem a dele.
-                    _diag_ind = {}
-                    pastas = buscar_pasta_produto(nome_gal, codigo_gal,
-                                                  pasta_pai,
-                                                  diagnostico=_diag_ind)
-                    pasta_id = None
-                    if _diag_ind.get("erro"):
-                        st.error(
-                            "Não consegui verificar se já existe pasta deste "
-                            "produto no Drive, então não salvei — salvar agora "
-                            "criaria uma pasta duplicada. Tente de novo em "
-                            f"instantes.\n\n{_diag_ind['erro']}")
-                    elif pastas:
-                        pasta_id = pastas[0][0]
-                    else:
-                        pasta_id, err_pasta = criar_pasta_produto(nome_pasta, pasta_pai)
-                        if err_pasta:
-                            st.error(f"Erro ao criar pasta: {err_pasta}")
-                            pasta_id = None
-                    if pasta_id:
-                        link, err_up = upload_para_pasta(
-                            imagem_ativa,
-                            f"{tipo_ativo[:20]}.{extensao_de(imagem_ativa)}",
-                            pasta_id
-                        )
-                        if err_up:
-                            st.error(f"Erro no upload: {err_up}")
-                        else:
-                            # Atualiza galeria com o link e registra no histórico
-                            st.session_state["img_galeria"][idx_ativo]["link_drive"] = link
-                            import atividades as _atv_ind
-                            _atv_ind.registrar_atividade(
-                                usuario_logado,
-                                "Imagem (individual salva)",
-                                nome_gal,
-                                f"Tipo: {tipo_ativo[:40]}",
-                                codigo=codigo_gal,
-                                link_capa=link,
-                            )
-                            st.success(f"Salvo! [Abrir no Drive]({link})")
-
-        # ── REGENERAR DO ZERO NA GALERIA ─────────────────────────────────────
-        with st.expander("🔄 Regenerar esta imagem do zero", expanded=False):
-            st.caption(
-                "Use esta opção se a imagem gerou o produto **errado** ou está completamente incorreta. "
-                "Vai gerar uma imagem completamente nova usando as fotos originais do produto."
-            )
-            if st.button(
-                "🔄 Regenerar esta imagem agora",
-                key=f"regen_btn_{idx_ativo}",
-                type="primary",
-                use_container_width=True,
-            ):
-                fotos_orig = st.session_state.get("img_fotos_originais") or []
-                instrucoes_orig = st.session_state.get("img_instrucoes_originais", "")
-                dados_desc = st.session_state.get("img_dados_descricao") or {}
-                if not fotos_orig:
-                    st.error("❌ Fotos originais não encontradas. Tente gerar novamente do início.")
-                else:
-                    import time as _time_regen
-                    import threading as _threading_regen
-                    prompt_regen = prompt_para_regerar(
-                        tipo_ativo, instrucoes_orig, dados_desc, nome_gal)
-                    _res_regen = {"img": None, "erro": None, "done": False}
-                    # O MESMO BURACO DO REFAZER DO CHAT, no botao da galeria:
-                    # sem `tipo` a peca perde a referencia de layout dela e o
-                    # registro sai como "peca ?"; sem `refs_layout` ela e
-                    # regerada ignorando o padrao aprovado da empresa.
-                    _cfg_regen = config_da_geracao()
-                    _threading_regen.Thread(
-                        target=_li_thread.alvo_com_contexto(_gerar_imagem_thread),
-                        args=(prompt_regen, fotos_orig, _res_regen),
-                        kwargs={
-                            "refs_layout": _cfg_regen.get("refs_layout_bytes") or None,
-                            "refs_layout_nomes": _cfg_regen.get("refs_layout_nomes", []),
-                            "tipo": tipo_ativo,
-                        },
-                        daemon=True,
-                    ).start()
-                    _barra_regen = st.progress(0.0, text=f"Regenerando {tipo_ativo[:30]}...")
-                    _t0_regen = _time_regen.time()
-                    while not _res_regen["done"]:
-                        _seg_regen = int(_time_regen.time() - _t0_regen)
-                        if _seg_regen >= TETO_POR_PECA_S:
-                            _res_regen["erro"] = f"Tempo limite de {TETO_POR_PECA_S}s atingido."
-                            _res_regen["done"] = True
-                            break
-                        _barra_regen.progress(min(0.9, _seg_regen / 60), text=f"Regenerando {tipo_ativo[:30]}... ({_seg_regen}s)")
-                        _time_regen.sleep(1)
-                    _barra_regen.progress(1.0, text="Concluído!")
-                    nova_img_regen, err_regen = _res_regen["img"], _res_regen["erro"]
-                    if err_regen:
-                        st.error(f"❌ Erro: {err_regen}")
-                    else:
-                        # AS DUAS CONFERENCIAS, pela mesma porta do laco.
-                        # Este botao tambem gera uma peca inteira do zero, e
-                        # entregava sem ler o texto e sem olhar a imagem.
-                        def _gerar_rg(_p, _fo=fotos_orig, _t=tipo_ativo):
-                            _rr = {"img": None, "erro": None, "done": False}
-                            # A conferencia refaz a peca: mesmos argumentos
-                            # da primeira tentativa, senao a correcao volta
-                            # com outro layout.
-                            _tt = _threading_regen.Thread(
-                                target=_li_thread.alvo_com_contexto(_gerar_imagem_thread),
-                                args=(_p, _fo, _rr),
-                                kwargs={
-                                    "refs_layout": _cfg_regen.get(
-                                        "refs_layout_bytes") or None,
-                                    "refs_layout_nomes": _cfg_regen.get(
-                                        "refs_layout_nomes", []),
-                                    "tipo": _t,
-                                },
-                                daemon=True)
-                            _tt.start()
-                            _t0g = _time_regen.time()
-                            while not _rr["done"]:
-                                if int(_time_regen.time() - _t0g) >= TETO_POR_PECA_S:
-                                    _rr["erro"] = "tempo limite ao refazer."
-                                    break
-                                _time_regen.sleep(1)
-                            return _rr["img"], _rr["erro"]
-
-                        nova_img_regen, _rel_t_rg, _rel_p_rg = revisar_tudo(
-                            nova_img_regen, tipo_ativo, fotos_ref=fotos_orig,
-                            gerar=_gerar_rg, prompt_base=prompt_regen,
-                            pedido=instrucoes_orig,
-                            dados_descricao=dados_desc,
-                            aviso=lambda t: _barra_regen.progress(
-                                1.0, text=t[:70]))
-                        registrar_revisao(_rel_t_rg)
-                        st.session_state["img_galeria"][idx_ativo]["bytes"] = nova_img_regen
-                        st.session_state["img_galeria"][idx_ativo]["texto"] = _rel_t_rg
-                        st.session_state["img_galeria"][idx_ativo]["peca"] = _rel_p_rg
-                        guardar_rascunho(usuario_logado, "regerar imagem")
-                        st.rerun()
-
-        # ── AJUSTE FINO NA GALERIA ────────────────────────────────────────────
-        with st.expander("✏️ Ajuste Fino — modificar somente algo específico nesta imagem", expanded=False):
-            st.caption(
-                "Descreva **somente o que deve mudar** — a IA vai preservar tudo o mais "
-                "exatamente igual (fundo, cores, cena, textos existentes, detalhes do produto)."
-            )
-            instrucao_af_gal = st.text_area(
-                "O que você quer modificar?",
-                placeholder=(
-                    "ex: Diminua o tamanho do produto para que fique em proporção realista ao cenário. "
-                    "O produto mede aproximadamente 18cm.\n\n"
-                    "ex: Remova a sombra embaixo do produto.\n\n"
-                    "ex: Mude o fundo para branco puro, mantendo o produto igual."
-                ),
-                height=120,
-                key=f"img_af_gal_{idx_ativo}",
-            )
-            # O que a conferencia achou da ultima tentativa nesta imagem.
-            # Fica aqui, colado no botao, e nao numa mensagem que passa.
-            _rel_ant = st.session_state.get("img_af_relato")
-            if _rel_ant and _rel_ant[0] == idx_ativo:
-                _txt_ant = relato_em_texto(idx_ativo + 1, _rel_ant[1])
-                if _rel_ant[1].get("ok"):
-                    st.success(_txt_ant)
-                elif _rel_ant[1].get("ok") is None:
-                    st.warning(_txt_ant)
-                else:
-                    st.error(_txt_ant)
-
-            if st.button(
-                "✏️ Aplicar Ajuste Fino nesta imagem",
-                key=f"img_af_btn_{idx_ativo}",
-                type="primary",
-                use_container_width=True,
-                disabled=not instrucao_af_gal.strip(),
-            ):
-                if not instrucao_af_gal.strip():
-                    st.warning("Descreva o que deseja modificar.")
-                else:
-                    # Usa a imagem ATUAL da galeria como referência para o
-                    # ajuste — e confere o resultado antes de devolver.
-                    import time as _time_afg
-                    import threading as _threading_afg
-                    _res_afg = {"img": None, "relato": None, "done": False}
-                    # A peça que está na tela é a que vai ser ajustada — sem
-                    # isto a correção entraria na cadeia de outra imagem.
-                    marcar_peca_em_ajuste(idx_ativo + 1)
-
-                    def _rodar_afg(_ref=imagem_ativa,
-                                   _ins=instrucao_af_gal.strip(),
-                                   _tp=galeria[idx_ativo].get("tipo"),
-                                   _rf=list(st.session_state.get(
-                                       "img_fotos_originais") or []),
-                                   _r=_res_afg,
-                                   # Em argumento padrao — ver `_rodar_cmd`.
-                                   _dd=st.session_state.get(
-                                       "img_dados_descricao") or {}):
-                        try:
-                            _r["img"], _r["relato"] = ajustar_com_conferencia(
-                                _ref, _ins, tipo=_tp, referencias=_rf,
-                                dados_descricao=_dd,
-                                aviso=lambda t: _r.__setitem__("fase", t))
-                        except Exception as _e:
-                            _r["img"], _r["relato"] = None, {
-                                "ok": False, "tentativas": 0,
-                                "erro": str(_e)[:160], "falta": "",
-                                "colateral": ""}
-                        finally:
-                            _r["done"] = True
-
-                    _threading_afg.Thread(target=_li_thread.alvo_com_contexto(_rodar_afg),
-                                          daemon=True).start()
-                    _barra_afg = st.progress(0.0, text="Aplicando ajuste fino...")
-                    _t0_afg = _time_afg.time()
-                    while not _res_afg["done"]:
-                        _seg_afg = int(_time_afg.time() - _t0_afg)
-                        if _seg_afg >= 600:
-                            _res_afg["relato"] = {
-                                "ok": False, "tentativas": 0, "falta": "",
-                                "colateral": "",
-                                "erro": "tempo limite de 10 min atingido."}
-                            _res_afg["done"] = True
-                            break
-                        _barra_afg.progress(
-                            min(0.9, _seg_afg / 120),
-                            text=(f"{_res_afg.get('fase') or 'Aplicando ajuste fino'}… "
-                                  f"({_seg_afg}s)"))
-                        _time_afg.sleep(1)
-                    _barra_afg.progress(1.0, text="Concluído!")
-                    nova_img_af = _res_afg["img"]
-                    _rel_afg = _res_afg["relato"] or {
-                        "ok": None, "tentativas": 0, "erro": "sem relato",
-                        "falta": "", "colateral": ""}
-                    # O veredito fica guardado para aparecer DEPOIS do rerun,
-                    # ao lado da imagem: dito antes, some junto com a tela.
-                    st.session_state["img_af_relato"] = (idx_ativo, _rel_afg)
-                    if nova_img_af:
-                        st.session_state["img_galeria"][idx_ativo]["bytes"] = nova_img_af
-                        guardar_rascunho(usuario_logado, "ajuste fino")
-                        st.rerun()
-                    else:
-                        st.error(f"❌ {relato_em_texto(idx_ativo + 1, _rel_afg)}")
-        # Os comandos do Assistente IA saíram daqui: viviam dentro
-        # do `else` do modo e não rodavam no ✏️ Ajuste Fino. Agora
-        # são `consumir_comandos_do_chat()`, chamada no começo da
-        # página, antes de qualquer ramo.
-
-        st.caption("💬 Para ajustar imagens, use o **Assistente IA** no menu lateral ou o painel **✏️ Ajuste Fino** acima.")
-        st.markdown("---")
-
-        # ── APROVAÇÃO E SALVAMENTO ─────────────────────────────────────────────
-        # As imagens existem so na memoria da sessao ate serem salvas. Quem
-        # encerra o expediente sem clicar perde a geracao inteira — ja aconteceu.
-        if st.session_state.get("img_galeria_salva") != len(galeria):
-            st.warning(
-                f"⚠️ **As {len(galeria)} imagens ainda não estão no Drive.** "
-                "Elas existem apenas nesta sessão: se você fechar o navegador, "
-                "sair do Studio ou o site reiniciar, elas se perdem e a geração "
-                "precisa ser refeita do zero. Salve antes de encerrar."
-            )
-
-        st.markdown("### ✅ Aprovar e salvar todas as imagens")
-        pasta_pai = st.secrets.get("DRIVE_PASTA_IMAGENS_ID", "")
-
-        # Busca pasta existente (cacheada em session_state para não bater na API a cada rerender)
-        _cache_key = f"_pasta_{nome_gal}__{codigo_gal}"
-        _busca_falhou = False
-        if _cache_key not in st.session_state:
-            if pasta_pai and nome_gal:
-                _diag_busca = {}
-                with st.spinner("Verificando pasta no Drive..."):
-                    st.session_state[_cache_key] = buscar_pasta_produto(
-                        nome_gal, codigo_gal, pasta_pai, diagnostico=_diag_busca
-                    )
-                if _diag_busca.get("erro"):
-                    # Nao guarda em cache: a proxima tentativa deve consultar de novo
-                    # em vez de tratar a falha como "pasta nao existe" para sempre.
-                    del st.session_state[_cache_key]
-                    _busca_falhou = True
-                    st.warning(
-                        "Não consegui verificar se já existe pasta desse produto no "
-                        "Drive. Salvar agora criaria uma pasta duplicada — tente de "
-                        f"novo em instantes.\n\n{_diag_busca['erro']}"
-                    )
-            else:
-                st.session_state[_cache_key] = []
-        pastas_encontradas = st.session_state.get(_cache_key, [])
-
-        nome_pasta_novo = f"{nome_gal} - {codigo_gal}".strip(" -") if codigo_gal else nome_gal
-
-        if pastas_encontradas:
-            st.info(
-                f"📁 Pasta encontrada no Drive: **{pastas_encontradas[0][1]}**\n\n"
-                f"As imagens serão adicionadas a essa pasta (sem apagar o que já está lá)."
-            )
-            pasta_destino_id = pastas_encontradas[0][0]
-            if len(pastas_encontradas) > 1:
-                escolha_pasta = st.selectbox(
-                    "Mais de uma pasta encontrada — qual usar?",
-                    [p[1] for p in pastas_encontradas],
-                    key="img_escolha_pasta",
-                )
-                pasta_destino_id = next(p[0] for p in pastas_encontradas if p[1] == escolha_pasta)
-        else:
-            st.info(f"📁 Será criada uma nova pasta no Drive: **{nome_pasta_novo}**")
-            pasta_destino_id = None  # será criada no momento do clique
-
-        # QUAIS imagens, e não "todas ou uma".
-        #
-        # Os dois botões abaixo eram tudo-ou-nada, e o seletor de imagem ativa
-        # servia só para ver e baixar de uma em uma. Quem quer 2 das 3 tinha
-        # que baixar as três e apagar uma, ou clicar três vezes no botão
-        # individual. Aqui ela marca as que quer, e os dois botões passam a
-        # agir sobre a marcação.
-        _sel_idx = st.multiselect(
-            "Quais imagens salvar / baixar",
-            list(range(len(galeria))),
-            default=list(range(len(galeria))),
-            key="img_sel_salvar",
-            format_func=lambda i: f"Imagem {i + 1} · {galeria[i].get('tipo', '?')}")
-        _escolhidas = [galeria[i] for i in _sel_idx] or list(galeria)
-        if not _sel_idx:
-            st.caption("Nenhuma marcada — os botões abaixo valem para as "
-                       f"{len(galeria)} imagens.")
-
-        # ══════════════════════════════════════════════════════════════
-        # PRÓXIMA VARIAÇÃO — pedido do dono, 07/10
-        # ══════════════════════════════════════════════════════════════
-        #
-        # "O sistema deve entender que as imagens precisam ser recriadas
-        # EXATAMENTE como foram aprovadas na variação anterior, mudando
-        # somente o produto."
-        #
-        # O QUE É REPRODUZIDO EXATAMENTE, E O QUE NÃO PODE SER — dito aqui
-        # porque quem ler este código depois vai perguntar:
-        #
-        #   exato ........ o plano, a copy de cada peça, o cenário escolhido,
-        #                  a geometria, os tipos e a ordem. Tudo isso é TEXTO,
-        #                  e texto a gente guarda e repete.
-        #   não exato .... o pixel. O gerador é probabilístico; a mesma frase
-        #                  duas vezes não devolve a mesma imagem. Prometer
-        #                  isso seria mentir.
-        #
-        # O QUE APROXIMA OS DOIS: a arte aprovada de cada peça entra como
-        # REFERÊNCIA DE LAYOUT da peça correspondente. É o mecanismo que já
-        # existe e que manda copiar "posição dos blocos, hierarquia dos
-        # elementos, estilo dos textos, uso do espaço" e proíbe copiar o
-        # produto, as cores do produto de referência e os props.
-        #
-        # E É EXATAMENTE POR ISSO QUE A COR NÃO VAZA: a referência traz a
-        # composição da variação anterior; o produto e a cor vêm das fotos da
-        # variação NOVA e da trava de cor, que recebe o nome dela.
-        _fila_var_g = list(st.session_state.get("img_var_fila") or [])
-        _pos_var_g = int(st.session_state.get("img_var_posicao", 0) or 0)
-        if _fila_var_g and _pos_var_g + 1 < len(_fila_var_g):
-            _prox_var_g = _fila_var_g[_pos_var_g + 1]
+    # ── A GALERIA LOGO ABAIXO DA CONVERSA ───────────────────────────────────
+    #
+    # Dono, 27/10: *"por que as imagens geradas não aparecem no chat? Fica
+    # aparecendo na parte de baixo"*.
+    #
+    # Ela estava no fim da página, depois do Modo manual e de todo o bloco do
+    # plano — quem pedia a peça no chat tinha de rolar a tela inteira para ver
+    # o que saiu. Agora ela é desenhada dentro do lugar que o bloco da
+    # conversa reservou, logo abaixo dele.
+    #
+    # LARGURA INTEIRA, e não dentro da coluna do chat: a galeria abre
+    # `st.columns` para as miniaturas, e o Streamlit só aceita UM nível de
+    # coluna dentro de coluna. Dentro da coluna da conversa, a primeira grade
+    # de miniaturas já estouraria — e o duplo da conferência não conhece essa
+    # regra, então o erro só apareceria na tela de quem está trabalhando.
+    with _slot_galeria:
+        # ── GALERIA ───────────────────────────────────────────────────────────────
+        if "img_galeria" in st.session_state and st.session_state["img_galeria"]:
             st.markdown("---")
-            st.caption(
-                f"Terminou **{_fila_var_g[_pos_var_g]}**? Salve as imagens "
-                f"acima antes de seguir — o botão abaixo limpa a galeria para "
-                f"a próxima variação.")
-            if st.button(
-                    f"➡️ Próxima variação: {_prox_var_g} "
-                    f"({_pos_var_g + 2} de {len(_fila_var_g)})",
-                    type="primary", use_container_width=True,
-                    key="btn_proxima_variacao"):
-                # 1. A ARTE APROVADA VIRA MOLDE. O nome do arquivo é o RÓTULO
-                #    DO TIPO porque `ref_layout_do_tipo` casa pelo nome — assim
-                #    cada peça nova recebe a arte da MESMA peça anterior, e não
-                #    a de outra.
-                _molde_b, _molde_n = [], []
-                for _g_mv in (st.session_state.get("img_galeria") or []):
-                    if _g_mv.get("bytes") and _g_mv.get("tipo"):
-                        _molde_b.append(_g_mv["bytes"])
-                        _molde_n.append(f"{_g_mv['tipo']}.png")
-                # 2. O PLANO VOLTA DA CÓPIA QUE SOBREVIVE À GERAÇÃO. Refazer a
-                #    triagem para a próxima variação pagaria a análise de novo
-                #    e — pior — poderia devolver copy diferente, que é
-                #    justamente o que o dono NÃO quer.
-                _pl_mv = st.session_state.get(CHAVE_PLANO_GERADO)
-                _cf_mv = dict(st.session_state.get(CHAVE_CONFIG_GERADA) or {})
-                if not _pl_mv or not _cf_mv:
-                    st.error(
-                        "Não encontrei o plano desta geração para repetir na "
-                        "próxima variação. Gere a primeira variação por esta "
-                        "aba antes de usar este botão.")
-                else:
-                    _f_mv, _av_mv = fotos_da_variacao(_prox_var_g)
-                    if not _f_mv:
-                        st.error(
-                            f"A variação **{_prox_var_g}** não tem foto "
-                            f"nenhuma — anexe no campo dela, lá em cima, "
-                            f"antes de seguir.")
-                    else:
-                        for _a_mv in _av_mv:
-                            st.warning("🎨 " + _a_mv)
-                        _cf_mv["fotos_bytes"] = _f_mv
-                        _cf_mv["variacao"] = _prox_var_g
-                        _dd_mv = dict(_cf_mv.get("dados_descricao") or {})
-                        _dd_mv["cor"] = _prox_var_g
-                        _cf_mv["dados_descricao"] = _dd_mv
-                        if _molde_b:
-                            _cf_mv["refs_layout_bytes"] = _molde_b
-                            _cf_mv["refs_layout_nomes"] = _molde_n
-                        st.session_state["img_var_posicao"] = _pos_var_g + 1
-                        st.session_state["img_triagem_plano"] = _pl_mv
-                        st.session_state["img_triagem_config"] = _cf_mv
-                        # A GALERIA SAI DO CAMINHO. Deixá-la faria as peças da
-                        # variação nova entrarem no fim da lista da anterior, e
-                        # o colaborador salvaria as duas cores na mesma pasta.
-                        st.session_state["img_galeria"] = []
-                        # A copy corrigida da variação anterior continua
-                        # valendo: é o mesmo produto, e foi ela que o dono
-                        # aprovou. `copy_vigente` tem chave de produto, não de
-                        # variação, então ela sobrevive sozinha.
-                        st.session_state["img_var_autoconfirmar"] = True
-                        st.rerun()
+            _msgs_chat = st.session_state.pop("chat_img_msgs", None)
+            if _msgs_chat:
+                st.info("\n\n".join(_msgs_chat))
+            galeria = st.session_state["img_galeria"]
+            nome_gal = st.session_state.get("img_nome_produto", "produto")
+            codigo_gal = st.session_state.get("img_codigo", "")
 
-        col_aprovar, col_zip = st.columns(2)
-
-        if col_aprovar.button(
-            f"☁️ APROVAR E SALVAR no Drive ({len(_escolhidas)} imagens)",
-            type="primary",
-            use_container_width=True,
-            disabled=_busca_falhou,
-        ):
-            err_pasta = None
-            if not pasta_pai:
-                err_pasta = "DRIVE_PASTA_IMAGENS_ID não configurada nas Secrets."
-                st.error(err_pasta)
-            elif pasta_destino_id is None:
-                with st.spinner("Criando pasta..."):
-                    pasta_destino_id, err_pasta = criar_pasta_produto(nome_pasta_novo, pasta_pai)
-                if err_pasta:
-                    st.error(f"Não foi possível criar a pasta no Drive.\n\n{err_pasta}")
-                else:
-                    # Registra a pasta recem-criada no cache da sessao. Sem isto, o
-                    # cache continuava dizendo "nao existe" e um segundo clique —
-                    # comum quando o upload falha — criava OUTRA pasta com o mesmo
-                    # nome. Foi assim que apareceram duas pastas vazias do mesmo
-                    # album no Drive.
-                    st.session_state[_cache_key] = [(pasta_destino_id, nome_pasta_novo)]
-
-            # NÃO usar st.stop() aqui: isso impediria o botão de ZIP abaixo de
-            # renderizar, e as imagens só existem em memória — o colaborador
-            # perderia todo o trabalho. Em caso de falha, o ZIP é a saída.
-            if err_pasta or not pasta_destino_id:
-                st.info(
-                    "⬇️ Suas imagens **não foram perdidas** — use o botão "
-                    "\"Baixar todas em ZIP\" ao lado para salvá-las no seu computador."
-                )
+            # ── O PLACAR DO LOTE, ANTES DE QUALQUER OUTRA COISA ──────────────────
+            #
+            # "8 na galeria" nao e "8 entregues". No teste de 05/10 havia DUAS
+            # pecas com cartao vermelho de "nao publique assim" e o chat
+            # respondeu ao dono "nenhuma deixou de ser gerada — as 8 estao na
+            # galeria". Os dois estavam falando de coisas diferentes.
+            _placar = placar_do_lote(
+                galeria, st.session_state.get("img_planejadas") or len(galeria))
+            if _placar["reprovadas"] or _placar["nao_conferidas"] or _placar["pendentes"]:
+                st.warning(f"📋 **Lote:** {frase_do_placar(_placar)}")
             else:
-                links_salvos = []
-                falhas = []
-                barra_salvar = st.progress(0.0, text="Salvando imagens...")
-                for i, g in enumerate(_escolhidas):
-                    barra_salvar.progress(
-                        i / len(_escolhidas),
-                        text=f"Salvando: {g['tipo'][:30]}...")
-                    # O número entra no nome do arquivo: três ajustes finos
-                    # com a mesma instrução geram três rótulos idênticos, e no
-                    # Drive um sobrescreveria o outro sem ninguém ver.
-                    nome_arq = (f"{i + 1:02d} - {g['tipo'][:30]}"
-                                f".{extensao_de(g['bytes'])}")
-                    link, err_up = upload_para_pasta(g["bytes"], nome_arq, pasta_destino_id)
-                    if err_up:
-                        falhas.append((g["tipo"], err_up))
+                st.success(f"📋 **Lote:** {frase_do_placar(_placar)}")
+
+            # ── DIAGNÓSTICO DA GERAÇÃO ────────────────────────────────────────────
+            # Sem isto não há como saber se uma imagem ruim veio de prompt errado ou
+            # de ter caído no fallback do Gemini, que gera SEM ver as fotos.
+            _sem_foto = [g for g in galeria if (g.get("diag") or {}).get("refs_enviadas", 1) == 0]
+            if _sem_foto:
+                st.error(
+                    f"⚠️ **{len(_sem_foto)} de {len(galeria)} imagens foram geradas SEM as suas fotos.** "
+                    "O gerador principal falhou e o sistema caiu no motor reserva, que só recebe texto — "
+                    "ele nunca viu o produto real, então inventou um. É por isso que a cor e o formato saem "
+                    "errados. Abra o painel abaixo e me mande o erro."
+                )
+
+            with st.expander("🔍 Prompt e motor usados em cada imagem", expanded=bool(_sem_foto)):
+                # Pelo índice, pelo mesmo motivo do seletor de cima: com rótulos
+                # repetidos, o diagnóstico mostrado era o da primeira imagem.
+                _i_diag = st.selectbox(
+                    "Imagem", list(range(len(galeria))), key="img_diag_sel",
+                    label_visibility="collapsed",
+                    format_func=lambda i: f"Imagem {i + 1} · {galeria[i].get('tipo', '?')}")
+                _g_diag = galeria[_i_diag] if 0 <= _i_diag < len(galeria) else None
+                _d = (_g_diag or {}).get("diag") or {}
+
+                if not _d:
+                    st.caption("Sem diagnóstico — imagem gerada antes desta atualização.")
+                else:
+                    _c1, _c2, _c3 = st.columns(3)
+                    _c1.markdown(f"**Motor**  \n{_d.get('motor', '—')}")
+                    _c2.markdown(
+                        f"**Fotos enviadas**  \n{_d.get('refs_enviadas', '—')} "
+                        f"de {_d.get('fotos_disponiveis', '—')} disponíveis"
+                    )
+                    _c3.markdown(
+                        f"**Tamanho pedido / recebido**  \n"
+                        f"{_d.get('size_pedido', '—')} → {_d.get('tamanho_bruto', '—')}"
+                    )
+                    # O QUE O SISTEMA MEDIU E NÃO CONTAVA A NINGUÉM.
+                    #
+                    # `checar_comunicacao.py` achou cinco campos gravados no
+                    # diagnóstico e nunca mostrados. Três deles respondem
+                    # exatamente as perguntas que custaram o dia 29/09:
+                    #
+                    #   input_fidelity  a peça foi gerada PRESERVANDO o produto?
+                    #                   O Gemini não aceita esse parâmetro; sem
+                    #                   ele, o produto é redesenhado — e era isso
+                    #                   que fazia o Ajuste Fino reprovar sem que
+                    #                   ninguém soubesse por quê.
+                    #   medida          os defeitos MEDIDOS na peça, por
+                    #                   `medir_imagem.problemas`. O sistema já
+                    #                   media e guardava para si.
+                    #   ref_layout      a referência de layout enviada
+                    #                   correspondeu ao tipo, ou foi ignorada?
+                    #
+                    # `size_pedido` já estava na tela e `input_fidelity` não, a
+                    # duas linhas de distância no código que os grava: a Forma 1
+                    # desta base, de novo.
+                    _fid = _d.get("input_fidelity")
+                    st.markdown(
+                        "**Produto preservado**  \n"
+                        + ("✅ sim — `input_fidelity=" + str(_fid) + "`" if _fid
+                           else "⚠️ NÃO — este motor não preserva o produto, "
+                                "então ele foi redesenhado")
+                    )
+                    if _d.get("ref_layout"):
+                        st.markdown(f"**Referência de layout**  \n{_d['ref_layout']}")
+                    if _d.get("medida"):
+                        st.warning(
+                            "📐 **O que a medição encontrou nesta peça:** "
+                            + str(_d["medida"]))
+                    _pf, _ff = _d.get("peso_final"), _d.get("formato_final")
+                    if _pf or _ff:
+                        st.caption(f"Arquivo final: {_ff or '—'} · {_pf or '—'}")
+                    if _d.get("enquadramento"):
+                        # A EXPLICACAO DA MARGEM, QUE O SISTEMA SABIA E NAO DIZIA.
+                        #
+                        # Dono, 30/09: "imagens com margem". O Studio MEDIA isso —
+                        # gravava "o motor devolveu 1536x1024 em vez de quadrada,
+                        # as faixas laterais foram preenchidas pelo Studio" — e o
+                        # campo nao chegava a tela. O oitavo verificador dava verde
+                        # porque a unica leitura dele era a linha que concatena a
+                        # mensagem NELA MESMA, do mesmo lado do balcao.
+                        st.warning(
+                            "🖼️ **Por que esta peça tem margem:** "
+                            + str(_d["enquadramento"]))
+                    if _d.get("proporcao_recusada"):
+                        # A MESMA FAMILIA: o pedido de imagem quadrada foi RECUSADO
+                        # pela API, o Studio repetiu sem ele, e a unica pista disso
+                        # morava no stderr do Railway.
+                        st.warning(
+                            "📏 **O motor recusou o pedido de imagem quadrada** — "
+                            "por isso ela voltou retangular e precisou de "
+                            "preenchimento. Detalhe: "
+                            + str(_d["proporcao_recusada"]))
+                    if _d.get("proporcao_pedida"):
+                        # QUAL FORMA DE PEDIR O QUADRADO COLOU — e ela precisa
+                        # aparecer, nao so ser guardada.
+                        #
+                        # O oitavo verificador reprovou esta linha antes de ela
+                        # existir: eu tinha acabado de gravar `proporcao_pedida` e
+                        # nao mostrava a ninguem — o defeito que ele foi escrito
+                        # para pegar, cometido por mim na mesma hora.
+                        #
+                        # E ela responde a pergunta mais cara do dia: "esta peca
+                        # saiu quadrada porque o motor aceitou o pedido, ou por
+                        # acaso?". Com "sem proporcao" aqui, a margem da proxima
+                        # peca ja tem explicacao antes de alguem perguntar.
+                        _forma = str(_d["proporcao_pedida"])
+                        if _forma == "sem proporcao":
+                            st.warning(
+                                "📏 **O motor não aceitou nenhuma forma de pedir "
+                                "imagem quadrada** — a peça vem no formato que ele "
+                                "escolher, e o Studio preenche as sobras. É daí "
+                                "que vem a margem.")
+                        else:
+                            st.caption(f"📏 Imagem quadrada pedida ao motor por "
+                                       f"`{_forma}` — e aceita.")
+                    if _d.get("sem_fotos"):
+                        st.error("📷 **Esta peça foi feita SEM as fotos do "
+                                 "produto.** " + str(_d["sem_fotos"]))
+                    if _d.get("motor_reserva"):
+                        # O AVISO QUE MORAVA NUMA THREAD E NUNCA APARECIA.
+                        st.error(
+                            "⚙️ **Esta peça NÃO foi feita pelo motor principal.** "
+                            + str(_d["motor_reserva"]))
+                    if _d.get("erro_openai"):
+                        st.warning(f"**Erro do gerador principal:**\n\n{_d['erro_openai']}")
+                    st.markdown("**Prompt exato enviado ao modelo:**")
+                    st.code(_d.get("prompt_final", "—"), language="text")
+
+            # Miniaturas clicáveis
+            _cols_gal = st.columns(4)
+            for i, g in enumerate(galeria):
+                with _cols_gal[i % 4]:
+                    # 20 caracteres cortavam o nome no meio ("Capa do", "Imagem
+                    # emocional — P") e o colaborador não sabia qual peça era qual.
+                    # O numero vem na legenda porque e assim que o colaborador e o
+                    # Assistente IA se referem a cada imagem ("Imagem 1", "Imagem 2"). Sem ele na tela, o
+                    # colaborador conta de cabeca — e a conta erra quando algum tipo
+                    # foi bloqueado na triagem e nao entrou na galeria.
+                    _rotulo = g["tipo"]
+                    _legenda = f"Imagem {i+1} · {_rotulo}"
+                    st.image(
+                        g["bytes"],
+                        caption=(_legenda[:52] + "…") if len(_legenda) > 52 else _legenda,
+                        use_container_width=True,
+                    )
+                    # O aviso fica NA PECA, nao num alerta geral no topo: com oito
+                    # imagens na tela, "uma delas tem erro de texto" obriga a
+                    # procurar qual, e procurar e o que ninguem faz.
+                    _t = g.get("texto") or {}
+                    _aviso_txt = texto_em_aviso(_t)
+                    if _aviso_txt:
+                        # "Nao conferido" era uma legenda cinza de 60 caracteres, do
+                        # tamanho de um rodape — e por isso ninguem viu que a revisao
+                        # estava falhando em TODAS as imagens. Falha de revisao agora
+                        # grita: ela nao e aprovacao.
+                        (st.error if _t.get("ok") is False else st.warning)(_aviso_txt)
+                    # E O QUE FOI VISTO NA IMAGEM, no mesmo lugar.
+                    #
+                    # Texto e peca sao duas perguntas diferentes e os dois
+                    # vereditos aparecem: portugues perfeito com a caneca de duas
+                    # alcas passava verde no primeiro e ninguem fazia o segundo.
+                    _pc_rel = g.get("peca") or {}
+                    _aviso_pc = peca_em_aviso(_pc_rel)
+                    if _aviso_pc:
+                        (st.error if _pc_rel.get("ok") is False
+                         else st.warning)(_aviso_pc)
+
+            # Seleção da imagem ativa — pelo ÍNDICE, e não pelo rótulo.
+            #
+            # A lista era `[g["tipo"] for g in galeria]` e o índice saía de
+            # `nomes_galeria.index(escolha)`. Duas imagens com o mesmo rótulo
+            # faziam `.index()` devolver SEMPRE a primeira: a colaboradora
+            # selecionava a Imagem 3, aparecia a 1, e os botões de salvar e
+            # ajustar agiam na 1. Ela mexia numa e via outra.
+            #
+            # Rótulo igual não é acidente: três ajustes finos seguidos com a mesma
+            # instrução geram três "Ajuste Fino — chat melhora a cor dourada…".
+            # Índice é único por construção, e não depende de ninguém escrever
+            # nomes diferentes.
+            idx_ativo = st.selectbox(
+                "Imagem ativa (para ajustar ou baixar individualmente)",
+                list(range(len(galeria))), key="img_escolha",
+                format_func=lambda i: f"Imagem {i + 1} · {galeria[i].get('tipo', '?')}")
+            imagem_ativa = galeria[idx_ativo]["bytes"]
+            tipo_ativo = galeria[idx_ativo]["tipo"]
+
+            # Exibe imagem ativa grande
+            # use_container_width esticava a imagem para a largura inteira da tela:
+            # 1200px de altura, ~3 telas de rolagem antes de chegar nos botoes.
+            st.image(imagem_ativa, width=520)
+
+            # Ações individuais
+            # Ler o texto DESTA imagem, sob demanda.
+            #
+            # Serve a duas perguntas que antes so tinham resposta no meu chute: a
+            # revisao esta funcionando? e o que exatamente esta escrito errado
+            # nesta peca? Quando a revisao automatica falha (sem chave, API fora),
+            # o erro aparece aqui em letra grande, e nao numa legenda cinza.
+            # A revisao automatica ja leu esta imagem quando ela foi gerada; este
+            # botao e para reler quando se quer ver A LISTA das palavras erradas,
+            # ou depois de um ajuste feito fora do fluxo.
+            # ── CONFERIR A PECA, SEM GERAR NADA ──────────────────────────────
+            #
+            # A conferencia automatica decide sozinha se REFAZ, e refazer custa
+            # uma geracao. Antes de confiar nela para gastar, o dono tem de poder
+            # ver o veredito dela numa peca que ele JA tem — inclusive numa que
+            # ele sabe que esta errada. Uma leitura custa centavos.
+            #
+            # Sem este botao, a unica forma de descobrir se o leitor enxerga o
+            # defeito seria gerar um produto inteiro de teste, que e o retrabalho
+            # que esta correcao existe para acabar.
+            _fotos_conf = fotos_do_produto(usuario_logado)
+            if st.button("🔎 Conferir esta peça (não gera nada)",
+                         use_container_width=True,
+                         key=f"conf_peca_{idx_ativo}",
+                         disabled=not _fotos_conf,
+                         help=("Olha a peça ao lado das fotos do produto e diz o "
+                               "que achou de errado. Só lê — não refaz, não gasta "
+                               "geração.")
+                         if _fotos_conf else
+                         "Precisa das fotos do produto desta sessão."):
+                with st.spinner("Olhando a peça ao lado das fotos…"):
+                    _vd, _er_vd = conferir_peca(imagem_ativa, _fotos_conf,
+                                                tipo_ativo)
+                if _er_vd:
+                    st.error(f"**Não consegui conferir:** {_er_vd}\n\n"
+                             "Enquanto isto aparecer, NENHUMA peça está sendo "
+                             "olhada na geração — elas saem sem ninguém ver.")
+                elif _vd.get("aprovada"):
+                    st.success("✅ Sem defeito de imagem: nada cortado, nada por "
+                               "cima do produto, e o produto bate com as fotos.")
+                else:
+                    st.error("❌ **A peça tem defeito:**\n\n"
+                             + "\n".join(f"- {p}" for p in
+                                          (_vd.get("problemas") or []))
+                             + (f"\n\n**Como refazer:** {_vd['instrucao']}"
+                                if _vd.get("instrucao") else ""))
+
+            if st.button("🔤 Ler o texto desta imagem", use_container_width=True,
+                         key=f"ler_txt_{idx_ativo}"):
+                with st.spinner("Lendo o que está escrito na imagem…"):
+                    # Sem "pedido": aqui a pergunta e so se o que esta escrito
+                    # existe em portugues, e nao se bate com o que foi pedido.
+                    _v, _e = conferir_texto(imagem_ativa, "")
+                # A leitura manual tambem conta como sinal de saude: se ela deu
+                # certo, o aviso do topo sai sozinho no proximo rerun.
+                registrar_revisao({"ok": None if _e else True, "erro": _e})
+                if _e:
+                    st.error(f"**A revisão de texto não está funcionando:** {_e}\n\n"
+                             "Enquanto isto aparecer, NENHUMA imagem está sendo "
+                             "conferida — as peças saem sem ninguém ler.")
+                elif not _v.get("tem_texto"):
+                    st.info("Nenhuma palavra escrita nesta imagem.")
+                elif _v.get("correto"):
+                    st.success("✅ Texto conferido: português correto.")
+                else:
+                    st.error(f"❌ Erros: {_v.get('erros', '')}")
+                    st.caption("Como deveria estar escrito:")
+                    st.code(_v.get("texto_correto", ""), language=None)
+
+            col_dl, col_drive_ind = st.columns(2)
+            col_dl.download_button(
+                "⬇️ Baixar esta imagem",
+                data=imagem_ativa,
+                file_name=(f"{nome_gal}_{tipo_ativo[:20]}"
+                           f".{extensao_de(imagem_ativa)}"),
+                mime=_detectar_mime(imagem_ativa),
+                use_container_width=True,
+                key=f"dl_{idx_ativo}",
+            )
+            if col_drive_ind.button("☁️ Salvar esta no Drive", use_container_width=True, key=f"drive_ind_{idx_ativo}"):
+                pasta_pai = st.secrets.get("DRIVE_PASTA_IMAGENS_ID", "")
+                if not pasta_pai:
+                    st.error("DRIVE_PASTA_IMAGENS_ID não configurada.")
+                else:
+                    with st.spinner("Enviando..."):
+                        nome_pasta = f"{nome_gal} - {codigo_gal}".strip(" -")
+                        # `diagnostico` aqui pelo mesmo motivo do botão de salvar
+                        # tudo (que já o passava): sem ele, "a API falhou" e "a
+                        # pasta não existe" viram a mesma lista vazia, e o Studio
+                        # cria uma pasta duplicada do produto que já tem a dele.
+                        _diag_ind = {}
+                        pastas = buscar_pasta_produto(nome_gal, codigo_gal,
+                                                      pasta_pai,
+                                                      diagnostico=_diag_ind)
+                        pasta_id = None
+                        if _diag_ind.get("erro"):
+                            st.error(
+                                "Não consegui verificar se já existe pasta deste "
+                                "produto no Drive, então não salvei — salvar agora "
+                                "criaria uma pasta duplicada. Tente de novo em "
+                                f"instantes.\n\n{_diag_ind['erro']}")
+                        elif pastas:
+                            pasta_id = pastas[0][0]
+                        else:
+                            pasta_id, err_pasta = criar_pasta_produto(nome_pasta, pasta_pai)
+                            if err_pasta:
+                                st.error(f"Erro ao criar pasta: {err_pasta}")
+                                pasta_id = None
+                        if pasta_id:
+                            link, err_up = upload_para_pasta(
+                                imagem_ativa,
+                                f"{tipo_ativo[:20]}.{extensao_de(imagem_ativa)}",
+                                pasta_id
+                            )
+                            if err_up:
+                                st.error(f"Erro no upload: {err_up}")
+                            else:
+                                # Atualiza galeria com o link e registra no histórico
+                                st.session_state["img_galeria"][idx_ativo]["link_drive"] = link
+                                import atividades as _atv_ind
+                                _atv_ind.registrar_atividade(
+                                    usuario_logado,
+                                    "Imagem (individual salva)",
+                                    nome_gal,
+                                    f"Tipo: {tipo_ativo[:40]}",
+                                    codigo=codigo_gal,
+                                    link_capa=link,
+                                )
+                                st.success(f"Salvo! [Abrir no Drive]({link})")
+
+            # ── REGENERAR DO ZERO NA GALERIA ─────────────────────────────────────
+            with st.expander("🔄 Regenerar esta imagem do zero", expanded=False):
+                st.caption(
+                    "Use esta opção se a imagem gerou o produto **errado** ou está completamente incorreta. "
+                    "Vai gerar uma imagem completamente nova usando as fotos originais do produto."
+                )
+                if st.button(
+                    "🔄 Regenerar esta imagem agora",
+                    key=f"regen_btn_{idx_ativo}",
+                    type="primary",
+                    use_container_width=True,
+                ):
+                    fotos_orig = fotos_do_produto(usuario_logado)
+                    instrucoes_orig = st.session_state.get("img_instrucoes_originais", "")
+                    dados_desc = st.session_state.get("img_dados_descricao") or {}
+                    if not fotos_orig:
+                        st.error("❌ Fotos originais não encontradas. Tente gerar novamente do início.")
                     else:
-                        links_salvos.append(link)
+                        import time as _time_regen
+                        import threading as _threading_regen
+                        prompt_regen = prompt_para_regerar(
+                            tipo_ativo, instrucoes_orig, dados_desc, nome_gal)
+                        _res_regen = {"img": None, "erro": None, "done": False}
+                        # O MESMO BURACO DO REFAZER DO CHAT, no botao da galeria:
+                        # sem `tipo` a peca perde a referencia de layout dela e o
+                        # registro sai como "peca ?"; sem `refs_layout` ela e
+                        # regerada ignorando o padrao aprovado da empresa.
+                        _cfg_regen = config_da_geracao()
+                        _threading_regen.Thread(
+                            target=_li_thread.alvo_com_contexto(_gerar_imagem_thread),
+                            args=(prompt_regen, fotos_orig, _res_regen),
+                            kwargs={
+                                "refs_layout": _cfg_regen.get("refs_layout_bytes") or None,
+                                "refs_layout_nomes": _cfg_regen.get("refs_layout_nomes", []),
+                                "tipo": tipo_ativo,
+                            },
+                            daemon=True,
+                        ).start()
+                        _barra_regen = st.progress(0.0, text=f"Regenerando {tipo_ativo[:30]}...")
+                        _t0_regen = _time_regen.time()
+                        while not _res_regen["done"]:
+                            _seg_regen = int(_time_regen.time() - _t0_regen)
+                            if _seg_regen >= TETO_POR_PECA_S:
+                                _res_regen["erro"] = f"Tempo limite de {TETO_POR_PECA_S}s atingido."
+                                _res_regen["done"] = True
+                                break
+                            _barra_regen.progress(min(0.9, _seg_regen / 60), text=f"Regenerando {tipo_ativo[:30]}... ({_seg_regen}s)")
+                            _time_regen.sleep(1)
+                        _barra_regen.progress(1.0, text="Concluído!")
+                        nova_img_regen, err_regen = _res_regen["img"], _res_regen["erro"]
+                        if err_regen:
+                            st.error(f"❌ Erro: {err_regen}")
+                        else:
+                            # AS DUAS CONFERENCIAS, pela mesma porta do laco.
+                            # Este botao tambem gera uma peca inteira do zero, e
+                            # entregava sem ler o texto e sem olhar a imagem.
+                            def _gerar_rg(_p, _fo=fotos_orig, _t=tipo_ativo):
+                                _rr = {"img": None, "erro": None, "done": False}
+                                # A conferencia refaz a peca: mesmos argumentos
+                                # da primeira tentativa, senao a correcao volta
+                                # com outro layout.
+                                _tt = _threading_regen.Thread(
+                                    target=_li_thread.alvo_com_contexto(_gerar_imagem_thread),
+                                    args=(_p, _fo, _rr),
+                                    kwargs={
+                                        "refs_layout": _cfg_regen.get(
+                                            "refs_layout_bytes") or None,
+                                        "refs_layout_nomes": _cfg_regen.get(
+                                            "refs_layout_nomes", []),
+                                        "tipo": _t,
+                                    },
+                                    daemon=True)
+                                _tt.start()
+                                _t0g = _time_regen.time()
+                                while not _rr["done"]:
+                                    if int(_time_regen.time() - _t0g) >= TETO_POR_PECA_S:
+                                        _rr["erro"] = "tempo limite ao refazer."
+                                        break
+                                    _time_regen.sleep(1)
+                                return _rr["img"], _rr["erro"]
 
-                # ── O HISTÓRICO DE PROMPTS VAI JUNTO, SOZINHO ─────────
-                #
-                # Pedido do dono: "ele precisa salvar automaticamente quando
-                # o colaborador clicar em salvar as imagens — isso evita do
-                # colaborador esquecer de salvar esse prompt também".
-                #
-                # Na MESMA pasta das imagens: quem achar a imagem acha o
-                # prompt dela. E o erro aqui é recado, não falha — as imagens
-                # são o trabalho, o prompt é o rastro.
-                barra_salvar.progress(0.98, text="Salvando o histórico de prompts...")
-                _arq_prompts, _err_prompts = salvar_prompts_na_pasta(
-                    pasta_destino_id, nome_gal)
+                            nova_img_regen, _rel_t_rg, _rel_p_rg = revisar_tudo(
+                                nova_img_regen, tipo_ativo, fotos_ref=fotos_orig,
+                                gerar=_gerar_rg, prompt_base=prompt_regen,
+                                pedido=instrucoes_orig,
+                                dados_descricao=dados_desc,
+                                aviso=lambda t: _barra_regen.progress(
+                                    1.0, text=t[:70]))
+                            registrar_revisao(_rel_t_rg)
+                            st.session_state["img_galeria"][idx_ativo]["bytes"] = nova_img_regen
+                            st.session_state["img_galeria"][idx_ativo]["texto"] = _rel_t_rg
+                            st.session_state["img_galeria"][idx_ativo]["peca"] = _rel_p_rg
+                            guardar_rascunho(usuario_logado, "regerar imagem")
+                            st.rerun()
 
-                barra_salvar.progress(1.0, text="Concluído!")
-                link_pasta = f"https://drive.google.com/drive/folders/{pasta_destino_id}"
+            # ── AJUSTE FINO NA GALERIA ────────────────────────────────────────────
+            with st.expander("✏️ Ajuste Fino — modificar somente algo específico nesta imagem", expanded=False):
+                st.caption(
+                    "Descreva **somente o que deve mudar** — a IA vai preservar tudo o mais "
+                    "exatamente igual (fundo, cores, cena, textos existentes, detalhes do produto)."
+                )
+                instrucao_af_gal = st.text_area(
+                    "O que você quer modificar?",
+                    placeholder=(
+                        "ex: Diminua o tamanho do produto para que fique em proporção realista ao cenário. "
+                        "O produto mede aproximadamente 18cm.\n\n"
+                        "ex: Remova a sombra embaixo do produto.\n\n"
+                        "ex: Mude o fundo para branco puro, mantendo o produto igual."
+                    ),
+                    height=120,
+                    key=f"img_af_gal_{idx_ativo}",
+                )
+                # O que a conferencia achou da ultima tentativa nesta imagem.
+                # Fica aqui, colado no botao, e nao numa mensagem que passa.
+                _rel_ant = st.session_state.get("img_af_relato")
+                if _rel_ant and _rel_ant[0] == idx_ativo:
+                    _txt_ant = relato_em_texto(idx_ativo + 1, _rel_ant[1])
+                    if _rel_ant[1].get("ok"):
+                        st.success(_txt_ant)
+                    elif _rel_ant[1].get("ok") is None:
+                        st.warning(_txt_ant)
+                    else:
+                        st.error(_txt_ant)
 
-                if _arq_prompts:
-                    st.caption(f"📄 Histórico de prompts salvo na mesma pasta: "
-                               f"**{_arq_prompts}**")
-                elif _err_prompts:
-                    st.caption(f"📄 As imagens foram salvas. O histórico de "
-                               f"prompts, não — {_err_prompts}. Use o botão "
-                               f"\"Preparar histórico de prompts\" para "
-                               f"baixá-lo e guardá-lo à mão.")
+                if st.button(
+                    "✏️ Aplicar Ajuste Fino nesta imagem",
+                    key=f"img_af_btn_{idx_ativo}",
+                    type="primary",
+                    use_container_width=True,
+                    disabled=not instrucao_af_gal.strip(),
+                ):
+                    if not instrucao_af_gal.strip():
+                        st.warning("Descreva o que deseja modificar.")
+                    else:
+                        # Usa a imagem ATUAL da galeria como referência para o
+                        # ajuste — e confere o resultado antes de devolver.
+                        import time as _time_afg
+                        import threading as _threading_afg
+                        _res_afg = {"img": None, "relato": None, "done": False}
+                        # A peça que está na tela é a que vai ser ajustada — sem
+                        # isto a correção entraria na cadeia de outra imagem.
+                        marcar_peca_em_ajuste(idx_ativo + 1)
 
-                if links_salvos:
-                    import atividades
-                    atividades.registrar_atividade(
-                        usuario_logado, "Imagem (aprovada e salva)",
-                        nome_gal,
-                        f"{len(links_salvos)} imagens salvas na pasta {nome_pasta_novo}",
-                        codigo=codigo_gal,
-                        link_pasta=link_pasta,
+                        # AS FOTOS SAO LIDAS AQUI, FORA DA THREAD.
+                        #
+                        # `fotos_do_produto` le `st.session_state`, e dentro de
+                        # uma `threading.Thread` ele e ILEGIVEL. Em argumento
+                        # padrao ela seria avaliada antes da thread nascer e
+                        # funcionaria — mas depender dessa sutileza e deixar a
+                        # armadilha armada para quem mover a linha depois, e
+                        # `checar_alcance` cobra isso com razao. Com a leitura
+                        # aqui, nao ha o que mover.
+                        _fotos_afg = list(fotos_do_produto(usuario_logado))
+
+                        def _rodar_afg(_ref=imagem_ativa,
+                                       _ins=instrucao_af_gal.strip(),
+                                       _tp=galeria[idx_ativo].get("tipo"),
+                                       _rf=_fotos_afg,
+                                       _r=_res_afg,
+                                       # Em argumento padrao — ver `_rodar_cmd`.
+                                       _dd=st.session_state.get(
+                                           "img_dados_descricao") or {}):
+                            try:
+                                _r["img"], _r["relato"] = ajustar_com_conferencia(
+                                    _ref, _ins, tipo=_tp, referencias=_rf,
+                                    dados_descricao=_dd,
+                                    aviso=lambda t: _r.__setitem__("fase", t))
+                            except Exception as _e:
+                                _r["img"], _r["relato"] = None, {
+                                    "ok": False, "tentativas": 0,
+                                    "erro": str(_e)[:160], "falta": "",
+                                    "colateral": ""}
+                            finally:
+                                _r["done"] = True
+
+                        _threading_afg.Thread(target=_li_thread.alvo_com_contexto(_rodar_afg),
+                                              daemon=True).start()
+                        _barra_afg = st.progress(0.0, text="Aplicando ajuste fino...")
+                        _t0_afg = _time_afg.time()
+                        while not _res_afg["done"]:
+                            _seg_afg = int(_time_afg.time() - _t0_afg)
+                            if _seg_afg >= 600:
+                                _res_afg["relato"] = {
+                                    "ok": False, "tentativas": 0, "falta": "",
+                                    "colateral": "",
+                                    "erro": "tempo limite de 10 min atingido."}
+                                _res_afg["done"] = True
+                                break
+                            _barra_afg.progress(
+                                min(0.9, _seg_afg / 120),
+                                text=(f"{_res_afg.get('fase') or 'Aplicando ajuste fino'}… "
+                                      f"({_seg_afg}s)"))
+                            _time_afg.sleep(1)
+                        _barra_afg.progress(1.0, text="Concluído!")
+                        nova_img_af = _res_afg["img"]
+                        _rel_afg = _res_afg["relato"] or {
+                            "ok": None, "tentativas": 0, "erro": "sem relato",
+                            "falta": "", "colateral": ""}
+                        # O veredito fica guardado para aparecer DEPOIS do rerun,
+                        # ao lado da imagem: dito antes, some junto com a tela.
+                        st.session_state["img_af_relato"] = (idx_ativo, _rel_afg)
+                        if nova_img_af:
+                            st.session_state["img_galeria"][idx_ativo]["bytes"] = nova_img_af
+                            guardar_rascunho(usuario_logado, "ajuste fino")
+                            st.rerun()
+                        else:
+                            st.error(f"❌ {relato_em_texto(idx_ativo + 1, _rel_afg)}")
+            # Os comandos do Assistente IA saíram daqui: viviam dentro
+            # do `else` do modo e não rodavam no ✏️ Ajuste Fino. Agora
+            # são `consumir_comandos_do_chat()`, chamada no começo da
+            # página, antes de qualquer ramo.
+
+            st.caption("💬 Para ajustar imagens, use o **Assistente IA** no menu lateral ou o painel **✏️ Ajuste Fino** acima.")
+            st.markdown("---")
+
+            # ── APROVAÇÃO E SALVAMENTO ─────────────────────────────────────────────
+            # As imagens existem so na memoria da sessao ate serem salvas. Quem
+            # encerra o expediente sem clicar perde a geracao inteira — ja aconteceu.
+            if st.session_state.get("img_galeria_salva") != len(galeria):
+                st.warning(
+                    f"⚠️ **As {len(galeria)} imagens ainda não estão no Drive.** "
+                    "Elas existem apenas nesta sessão: se você fechar o navegador, "
+                    "sair do Studio ou o site reiniciar, elas se perdem e a geração "
+                    "precisa ser refeita do zero. Salve antes de encerrar."
+                )
+
+            st.markdown("### ✅ Aprovar e salvar todas as imagens")
+            pasta_pai = st.secrets.get("DRIVE_PASTA_IMAGENS_ID", "")
+
+            # Busca pasta existente (cacheada em session_state para não bater na API a cada rerender)
+            _cache_key = f"_pasta_{nome_gal}__{codigo_gal}"
+            _busca_falhou = False
+            if _cache_key not in st.session_state:
+                if pasta_pai and nome_gal:
+                    _diag_busca = {}
+                    with st.spinner("Verificando pasta no Drive..."):
+                        st.session_state[_cache_key] = buscar_pasta_produto(
+                            nome_gal, codigo_gal, pasta_pai, diagnostico=_diag_busca
+                        )
+                    if _diag_busca.get("erro"):
+                        # Nao guarda em cache: a proxima tentativa deve consultar de novo
+                        # em vez de tratar a falha como "pasta nao existe" para sempre.
+                        del st.session_state[_cache_key]
+                        _busca_falhou = True
+                        st.warning(
+                            "Não consegui verificar se já existe pasta desse produto no "
+                            "Drive. Salvar agora criaria uma pasta duplicada — tente de "
+                            f"novo em instantes.\n\n{_diag_busca['erro']}"
+                        )
+                else:
+                    st.session_state[_cache_key] = []
+            pastas_encontradas = st.session_state.get(_cache_key, [])
+
+            nome_pasta_novo = f"{nome_gal} - {codigo_gal}".strip(" -") if codigo_gal else nome_gal
+
+            if pastas_encontradas:
+                st.info(
+                    f"📁 Pasta encontrada no Drive: **{pastas_encontradas[0][1]}**\n\n"
+                    f"As imagens serão adicionadas a essa pasta (sem apagar o que já está lá)."
+                )
+                pasta_destino_id = pastas_encontradas[0][0]
+                if len(pastas_encontradas) > 1:
+                    escolha_pasta = st.selectbox(
+                        "Mais de uma pasta encontrada — qual usar?",
+                        [p[1] for p in pastas_encontradas],
+                        key="img_escolha_pasta",
                     )
-                    # Só conta como "tudo salvo" quando o que se salvou foi a
-                    # galeria inteira. Salvar 2 de 3 e o aviso sumir esconderia
-                    # que a terceira ainda só existe nesta sessão.
-                    st.session_state["img_galeria_salva"] = (
-                        len(galeria) if len(links_salvos) >= len(galeria) else 0)
-                    st.success(
-                        f"✅ {len(links_salvos)} imagem(ns) salvas no Drive! "
-                        f"[Abrir pasta]({link_pasta})"
-                    )
+                    pasta_destino_id = next(p[0] for p in pastas_encontradas if p[1] == escolha_pasta)
+            else:
+                st.info(f"📁 Será criada uma nova pasta no Drive: **{nome_pasta_novo}**")
+                pasta_destino_id = None  # será criada no momento do clique
 
-                if falhas:
-                    st.warning(
-                        f"⚠️ {len(falhas)} imagem(ns) não foram salvas: "
-                        + ", ".join(t for t, _ in falhas)
-                        + f"\n\n{falhas[0][1]}"
-                    )
+            # QUAIS imagens, e não "todas ou uma".
+            #
+            # Os dois botões abaixo eram tudo-ou-nada, e o seletor de imagem ativa
+            # servia só para ver e baixar de uma em uma. Quem quer 2 das 3 tinha
+            # que baixar as três e apagar uma, ou clicar três vezes no botão
+            # individual. Aqui ela marca as que quer, e os dois botões passam a
+            # agir sobre a marcação.
+            _sel_idx = st.multiselect(
+                "Quais imagens salvar / baixar",
+                list(range(len(galeria))),
+                default=list(range(len(galeria))),
+                key="img_sel_salvar",
+                format_func=lambda i: f"Imagem {i + 1} · {galeria[i].get('tipo', '?')}")
+            _escolhidas = [galeria[i] for i in _sel_idx] or list(galeria)
+            if not _sel_idx:
+                st.caption("Nenhuma marcada — os botões abaixo valem para as "
+                           f"{len(galeria)} imagens.")
+
+            # ══════════════════════════════════════════════════════════════
+            # PRÓXIMA VARIAÇÃO — pedido do dono, 07/10
+            # ══════════════════════════════════════════════════════════════
+            #
+            # "O sistema deve entender que as imagens precisam ser recriadas
+            # EXATAMENTE como foram aprovadas na variação anterior, mudando
+            # somente o produto."
+            #
+            # O QUE É REPRODUZIDO EXATAMENTE, E O QUE NÃO PODE SER — dito aqui
+            # porque quem ler este código depois vai perguntar:
+            #
+            #   exato ........ o plano, a copy de cada peça, o cenário escolhido,
+            #                  a geometria, os tipos e a ordem. Tudo isso é TEXTO,
+            #                  e texto a gente guarda e repete.
+            #   não exato .... o pixel. O gerador é probabilístico; a mesma frase
+            #                  duas vezes não devolve a mesma imagem. Prometer
+            #                  isso seria mentir.
+            #
+            # O QUE APROXIMA OS DOIS: a arte aprovada de cada peça entra como
+            # REFERÊNCIA DE LAYOUT da peça correspondente. É o mecanismo que já
+            # existe e que manda copiar "posição dos blocos, hierarquia dos
+            # elementos, estilo dos textos, uso do espaço" e proíbe copiar o
+            # produto, as cores do produto de referência e os props.
+            #
+            # E É EXATAMENTE POR ISSO QUE A COR NÃO VAZA: a referência traz a
+            # composição da variação anterior; o produto e a cor vêm das fotos da
+            # variação NOVA e da trava de cor, que recebe o nome dela.
+            _fila_var_g = list(st.session_state.get("img_var_fila") or [])
+            _pos_var_g = int(st.session_state.get("img_var_posicao", 0) or 0)
+            if _fila_var_g and _pos_var_g + 1 < len(_fila_var_g):
+                _prox_var_g = _fila_var_g[_pos_var_g + 1]
+                st.markdown("---")
+                st.caption(
+                    f"Terminou **{_fila_var_g[_pos_var_g]}**? Salve as imagens "
+                    f"acima antes de seguir — o botão abaixo limpa a galeria para "
+                    f"a próxima variação.")
+                if st.button(
+                        f"➡️ Próxima variação: {_prox_var_g} "
+                        f"({_pos_var_g + 2} de {len(_fila_var_g)})",
+                        type="primary", use_container_width=True,
+                        key="btn_proxima_variacao"):
+                    # 1. A ARTE APROVADA VIRA MOLDE. O nome do arquivo é o RÓTULO
+                    #    DO TIPO porque `ref_layout_do_tipo` casa pelo nome — assim
+                    #    cada peça nova recebe a arte da MESMA peça anterior, e não
+                    #    a de outra.
+                    _molde_b, _molde_n = [], []
+                    for _g_mv in (st.session_state.get("img_galeria") or []):
+                        if _g_mv.get("bytes") and _g_mv.get("tipo"):
+                            _molde_b.append(_g_mv["bytes"])
+                            _molde_n.append(f"{_g_mv['tipo']}.png")
+                    # 2. O PLANO VOLTA DA CÓPIA QUE SOBREVIVE À GERAÇÃO. Refazer a
+                    #    triagem para a próxima variação pagaria a análise de novo
+                    #    e — pior — poderia devolver copy diferente, que é
+                    #    justamente o que o dono NÃO quer.
+                    _pl_mv = st.session_state.get(CHAVE_PLANO_GERADO)
+                    _cf_mv = dict(st.session_state.get(CHAVE_CONFIG_GERADA) or {})
+                    if not _pl_mv or not _cf_mv:
+                        st.error(
+                            "Não encontrei o plano desta geração para repetir na "
+                            "próxima variação. Gere a primeira variação por esta "
+                            "aba antes de usar este botão.")
+                    else:
+                        _f_mv, _av_mv = fotos_da_variacao(_prox_var_g)
+                        if not _f_mv:
+                            st.error(
+                                f"A variação **{_prox_var_g}** não tem foto "
+                                f"nenhuma — anexe no campo dela, lá em cima, "
+                                f"antes de seguir.")
+                        else:
+                            for _a_mv in _av_mv:
+                                st.warning("🎨 " + _a_mv)
+                            _cf_mv["fotos_bytes"] = _f_mv
+                            _cf_mv["variacao"] = _prox_var_g
+                            _dd_mv = dict(_cf_mv.get("dados_descricao") or {})
+                            _dd_mv["cor"] = _prox_var_g
+                            _cf_mv["dados_descricao"] = _dd_mv
+                            if _molde_b:
+                                _cf_mv["refs_layout_bytes"] = _molde_b
+                                _cf_mv["refs_layout_nomes"] = _molde_n
+                            st.session_state["img_var_posicao"] = _pos_var_g + 1
+                            st.session_state["img_triagem_plano"] = _pl_mv
+                            st.session_state["img_triagem_config"] = _cf_mv
+                            # A GALERIA SAI DO CAMINHO. Deixá-la faria as peças da
+                            # variação nova entrarem no fim da lista da anterior, e
+                            # o colaborador salvaria as duas cores na mesma pasta.
+                            st.session_state["img_galeria"] = []
+                            # A copy corrigida da variação anterior continua
+                            # valendo: é o mesmo produto, e foi ela que o dono
+                            # aprovou. `copy_vigente` tem chave de produto, não de
+                            # variação, então ela sobrevive sozinha.
+                            st.session_state["img_var_autoconfirmar"] = True
+                            st.rerun()
+
+            col_aprovar, col_zip = st.columns(2)
+
+            if col_aprovar.button(
+                f"☁️ APROVAR E SALVAR no Drive ({len(_escolhidas)} imagens)",
+                type="primary",
+                use_container_width=True,
+                disabled=_busca_falhou,
+            ):
+                err_pasta = None
+                if not pasta_pai:
+                    err_pasta = "DRIVE_PASTA_IMAGENS_ID não configurada nas Secrets."
+                    st.error(err_pasta)
+                elif pasta_destino_id is None:
+                    with st.spinner("Criando pasta..."):
+                        pasta_destino_id, err_pasta = criar_pasta_produto(nome_pasta_novo, pasta_pai)
+                    if err_pasta:
+                        st.error(f"Não foi possível criar a pasta no Drive.\n\n{err_pasta}")
+                    else:
+                        # Registra a pasta recem-criada no cache da sessao. Sem isto, o
+                        # cache continuava dizendo "nao existe" e um segundo clique —
+                        # comum quando o upload falha — criava OUTRA pasta com o mesmo
+                        # nome. Foi assim que apareceram duas pastas vazias do mesmo
+                        # album no Drive.
+                        st.session_state[_cache_key] = [(pasta_destino_id, nome_pasta_novo)]
+
+                # NÃO usar st.stop() aqui: isso impediria o botão de ZIP abaixo de
+                # renderizar, e as imagens só existem em memória — o colaborador
+                # perderia todo o trabalho. Em caso de falha, o ZIP é a saída.
+                if err_pasta or not pasta_destino_id:
                     st.info(
-                        "⬇️ Use o botão \"Baixar todas em ZIP\" ao lado para "
-                        "garantir que nada se perca."
+                        "⬇️ Suas imagens **não foram perdidas** — use o botão "
+                        "\"Baixar todas em ZIP\" ao lado para salvá-las no seu computador."
                     )
+                else:
+                    links_salvos = []
+                    falhas = []
+                    barra_salvar = st.progress(0.0, text="Salvando imagens...")
+                    for i, g in enumerate(_escolhidas):
+                        barra_salvar.progress(
+                            i / len(_escolhidas),
+                            text=f"Salvando: {g['tipo'][:30]}...")
+                        # O número entra no nome do arquivo: três ajustes finos
+                        # com a mesma instrução geram três rótulos idênticos, e no
+                        # Drive um sobrescreveria o outro sem ninguém ver.
+                        nome_arq = (f"{i + 1:02d} - {g['tipo'][:30]}"
+                                    f".{extensao_de(g['bytes'])}")
+                        link, err_up = upload_para_pasta(g["bytes"], nome_arq, pasta_destino_id)
+                        if err_up:
+                            falhas.append((g["tipo"], err_up))
+                        else:
+                            links_salvos.append(link)
 
-        # ZIP sempre disponível, com o que estiver marcado
-        zip_bytes = criar_zip_galeria(_escolhidas, nome_gal)
-        col_zip.download_button(
-            f"⬇️ Baixar em ZIP ({len(_escolhidas)} imagens)",
-            data=zip_bytes,
-            file_name=f"{nome_gal}_imagens.zip",
-            mime="application/zip",
-            use_container_width=True,
-        )
+                    # ── O HISTÓRICO DE PROMPTS VAI JUNTO, SOZINHO ─────────
+                    #
+                    # Pedido do dono: "ele precisa salvar automaticamente quando
+                    # o colaborador clicar em salvar as imagens — isso evita do
+                    # colaborador esquecer de salvar esse prompt também".
+                    #
+                    # Na MESMA pasta das imagens: quem achar a imagem acha o
+                    # prompt dela. E o erro aqui é recado, não falha — as imagens
+                    # são o trabalho, o prompt é o rastro.
+                    barra_salvar.progress(0.98, text="Salvando o histórico de prompts...")
+                    _arq_prompts, _err_prompts = salvar_prompts_na_pasta(
+                        pasta_destino_id, nome_gal)
 
-        # ── O HISTÓRICO DE PROMPTS, AQUI ──────────────────────────────────
-        #
-        # Dono, 28/09: "precisa ter um botão Baixar histórico de prompt, onde
-        # terá desde o primeiro até o último de todas as imagens geradas".
-        #
-        # Ele já existia — escondido atrás do botão "Ver o prompt que será
-        # enviado", lá no PLANO, antes de gerar. Ou seja: no único momento em
-        # que não há prompt nenhum para baixar. Quem acabou de ver o
-        # resultado ruim e quer o prompt que o produziu estava aqui embaixo,
-        # e daqui não havia caminho.
-        st.markdown("---")
-        st.markdown("**📄 Histórico de prompts**")
-        st.caption(
-            "Geração e TODAS as correções de cada peça deste produto, da "
-            "primeira à última, em um .txt.")
-        _baixar_historico_de_prompts(sufixo="_galeria")
+                    barra_salvar.progress(1.0, text="Concluído!")
+                    link_pasta = f"https://drive.google.com/drive/folders/{pasta_destino_id}"
+
+                    if _arq_prompts:
+                        st.caption(f"📄 Histórico de prompts salvo na mesma pasta: "
+                                   f"**{_arq_prompts}**")
+                    elif _err_prompts:
+                        st.caption(f"📄 As imagens foram salvas. O histórico de "
+                                   f"prompts, não — {_err_prompts}. Use o botão "
+                                   f"\"Preparar histórico de prompts\" para "
+                                   f"baixá-lo e guardá-lo à mão.")
+
+                    if links_salvos:
+                        import atividades
+                        atividades.registrar_atividade(
+                            usuario_logado, "Imagem (aprovada e salva)",
+                            nome_gal,
+                            f"{len(links_salvos)} imagens salvas na pasta {nome_pasta_novo}",
+                            codigo=codigo_gal,
+                            link_pasta=link_pasta,
+                        )
+                        # Só conta como "tudo salvo" quando o que se salvou foi a
+                        # galeria inteira. Salvar 2 de 3 e o aviso sumir esconderia
+                        # que a terceira ainda só existe nesta sessão.
+                        st.session_state["img_galeria_salva"] = (
+                            len(galeria) if len(links_salvos) >= len(galeria) else 0)
+                        st.success(
+                            f"✅ {len(links_salvos)} imagem(ns) salvas no Drive! "
+                            f"[Abrir pasta]({link_pasta})"
+                        )
+
+                    if falhas:
+                        st.warning(
+                            f"⚠️ {len(falhas)} imagem(ns) não foram salvas: "
+                            + ", ".join(t for t, _ in falhas)
+                            + f"\n\n{falhas[0][1]}"
+                        )
+                        st.info(
+                            "⬇️ Use o botão \"Baixar todas em ZIP\" ao lado para "
+                            "garantir que nada se perca."
+                        )
+
+            # ZIP sempre disponível, com o que estiver marcado
+            zip_bytes = criar_zip_galeria(_escolhidas, nome_gal)
+            col_zip.download_button(
+                f"⬇️ Baixar em ZIP ({len(_escolhidas)} imagens)",
+                data=zip_bytes,
+                file_name=f"{nome_gal}_imagens.zip",
+                mime="application/zip",
+                use_container_width=True,
+            )
+
+            # ── O HISTÓRICO DE PROMPTS, AQUI ──────────────────────────────────
+            #
+            # Dono, 28/09: "precisa ter um botão Baixar histórico de prompt, onde
+            # terá desde o primeiro até o último de todas as imagens geradas".
+            #
+            # Ele já existia — escondido atrás do botão "Ver o prompt que será
+            # enviado", lá no PLANO, antes de gerar. Ou seja: no único momento em
+            # que não há prompt nenhum para baixar. Quem acabou de ver o
+            # resultado ruim e quer o prompt que o produziu estava aqui embaixo,
+            # e daqui não havia caminho.
+            st.markdown("---")
+            st.markdown("**📄 Histórico de prompts**")
+            st.caption(
+                "Geração e TODAS as correções de cada peça deste produto, da "
+                "primeira à última, em um .txt.")
+            _baixar_historico_de_prompts(sufixo="_galeria")
 
     # ── O RODAPÉ: DIAGNÓSTICO, QUE NÃO É TRABALHO ───────────────────────────
     #
@@ -17903,6 +18077,125 @@ if __name__ == "__main__":
     ok("no modo do padrao, o pedido sao as oito",
        resumo_do_trabalho({"img_modo": _OPCAO_PADRAO})["pedido"]
        == list(TIPOS_PADRAO))
+
+    # ══ A PECA APARECE NA CONVERSA, E NAO SO NA GALERIA (27/10) ═════════
+    #
+    # Dono: *"Se for para ficar aparecendo abaixo, e mais facil voltar o chat
+    # para a lateral (...) o colaborador tem que baixar a tela para ver o
+    # resultado, subir a tela de novo para falar com o chat"*.
+    st.session_state.clear()
+    _f1 = mostrar_no_chat("🖼️ **1 — Capa** — pronta.", peca=1)
+    ok("a peca pronta vira uma fala do Studio na conversa",
+       (st.session_state.get("ms_chat_hist") or [])[-1] is _f1
+       and _f1["role"] == "assistant")
+    ok("e a fala carrega o NUMERO da peca", _f1.get("peca") == 1)
+    # O NUMERO, E NAO OS BYTES. Bytes na fala fariam o rascunho descartar a
+    # conversa inteira (nao serializavel), e mostrariam para sempre a versao
+    # velha depois de um ajuste.
+    ok("e NAO carrega bytes de imagem",
+       not any(isinstance(v, (bytes, bytearray)) for v in _f1.values()))
+    import json as _json_pc
+    ok("entao a fala cabe em JSON, que e como o rascunho a grava",
+       _json_pc.dumps(_f1) and True)
+    # SEM PECA, so a fala: e o caso de varias refeitas de uma vez, em que a
+    # imagem seria "a de qual?".
+    ok("sem numero, a fala entra sem peca nenhuma",
+       "peca" not in mostrar_no_chat("duas refeitas"))
+    ok("e numero invalido nao vira peca",
+       "peca" not in mostrar_no_chat("x", peca=0)
+       and "peca" not in mostrar_no_chat("y", peca="nao e numero"))
+    st.session_state.clear()
+
+    # ── E OS TRES MOMENTOS EM QUE UMA PECA FICA PRONTA AVISAM A CONVERSA ─
+    #
+    # A correcao se aplica ao ALCANCE da regra, e nao ao lugar onde o sintoma
+    # apareceu: a peca chega ao chat quando ela e GERADA, quando e REFEITA e
+    # quando e AJUSTADA. Cobrir so a geracao deixaria o colaborador pedindo
+    # uma correcao e descendo a tela para ver se ela saiu — que e exatamente
+    # a queixa de 27/10.
+    #
+    # Por AST, e nao por texto: procurar a palavra acharia este comentario, e
+    # tirar a chamada de verdade nao reprovaria nada.
+    import ast as _ast_mc
+    import inspect as _insp_mc
+    # OS DOIS DONOS: a GERACAO mora em `pagina_imagem`; o REFAZER e o AJUSTE
+    # pedidos no chat moram em `consumir_comandos_do_chat`. Contar so uma
+    # delas daria verde com dois dos tres momentos mudos.
+    def _avisa(fn):
+        _arv = _ast_mc.parse(_insp_mc.getsource(fn).lstrip())
+        return len([_n for _n in _ast_mc.walk(_arv)
+                    if isinstance(_n, _ast_mc.Call)
+                    and (getattr(_n.func, "id", "")
+                         or getattr(_n.func, "attr", "")) == "mostrar_no_chat"])
+
+    ok("a peca GERADA avisa a conversa", _avisa(pagina_imagem) >= 1)
+    ok("e a REFEITA e a AJUSTADA pelo chat tambem",
+       _avisa(consumir_comandos_do_chat) >= 2)
+
+    # ══ AS FOTOS DO PRODUTO: UMA PERGUNTA, UMA RESPOSTA (27/10) ═════════
+    #
+    # O DEFEITO, EM PRODUCAO: o dono anexou tres fotos, pediu no chat para
+    # refazer a peca 5, e ouviu "O Studio nao tem nenhuma nesta sessao" — com
+    # as tres fotos na tela. O campo de upload NUNCA escrevia
+    # `img_fotos_originais`; ela so era preenchida depois de uma geracao.
+    #
+    # A GUARDA MEDE AS TRES FONTES, uma a uma, e na ordem da certeza. Medir
+    # so "devolveu alguma coisa" deixaria passar a fonte errada — e a fonte
+    # errada aqui significa refazer a peca com a foto de outro produto.
+    import rascunho as _rasc_fd
+    import tempfile as _tmp_fd
+    import shutil as _sh_fd
+    import os as _os_fd
+
+    _base_fd = _tmp_fd.mkdtemp()
+    _pasta_real_fd = _rasc_fd._pasta
+    _rasc_fd._pasta = lambda u, _b=_base_fd: _os_fd.path.join(_b, str(u))
+    _cfg_real_fd = globals()["config_da_geracao"]
+    try:
+        _A, _B, _C = b"foto-da-sessao", b"foto-da-geracao", b"foto-do-disco"
+        st.session_state.clear()
+        globals()["config_da_geracao"] = lambda: {}
+        ok("sem nada em lugar nenhum, a porta devolve vazio",
+           fotos_do_produto("leo") == [])
+
+        # 3. O DISCO, que e o que faltava: ele sobrevive ao reinicio.
+        _rasc_fd.salvar_fotos("leo", [_C], ["produto.png"])
+        ok("so com as fotos no DISCO, a porta as encontra",
+           fotos_do_produto("leo") == [_C])
+        # E O QUE VEIO DO DISCO FICA NA SESSAO: esta funcao e lida no desenho
+        # da tela, que roda a cada tecla. Sem isto, uma ida ao disco por letra.
+        ok("e o que veio do disco fica guardado na sessao",
+           st.session_state.get("img_fotos_originais") == [_C])
+
+        # 2. A CONFIG DA GERACAO vence o disco: sao as fotos COM QUE as pecas
+        # foram feitas, e refazer com outras trocaria o produto da peca.
+        st.session_state.clear()
+        globals()["config_da_geracao"] = lambda: {"fotos_bytes": [_B]}
+        ok("a config da geracao vence o disco", fotos_do_produto("leo") == [_B])
+
+        # 1. A SESSAO vence todas: e o que a pessoa acabou de anexar.
+        st.session_state["img_fotos_originais"] = [_A]
+        ok("e a sessao vence a config", fotos_do_produto("leo") == [_A])
+
+        # ── A CADEIA DE VERDADE, QUE E ONDE O DEFEITO MOROU ─────────────
+        #
+        # Anexar e pedir no chat, sem nenhuma geracao ter rodado. Era este o
+        # caminho que recusava. A assercao parte do estado que o campo de
+        # upload deixa, e nao de um valor que eu escrevi a mao.
+        st.session_state.clear()
+        globals()["config_da_geracao"] = lambda: {}
+        _rasc_fd.limpar_fotos("leo")
+        ok("sem nada, o refazer recusaria — e e correto",
+           fotos_do_produto("leo") == [])
+        # O QUE O CAMPO DE UPLOAD FAZ, na linha que ele faz:
+        st.session_state["img_fotos_originais"] = [_A, _A]
+        ok("anexou e pediu no chat: a porta devolve as fotos anexadas",
+           len(fotos_do_produto("leo")) == 2)
+    finally:
+        globals()["config_da_geracao"] = _cfg_real_fd
+        _rasc_fd._pasta = _pasta_real_fd
+        _sh_fd.rmtree(_base_fd, ignore_errors=True)
+        st.session_state.clear()
 
     # ══ O ALBUM DO PRODUTO, LIDO DE VOLTA (23/10) ═══════════════════════
     #
