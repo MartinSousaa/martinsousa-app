@@ -424,78 +424,109 @@ def _resultado():
         st.markdown(f"{'✅' if ok else '❌'} **{conta.upper()}** · {item} · {msg}")
 
 
+def linhas_da_caixa(cx, pct_todas=None, editados=None, estoques=None, desmarcados=()):
+    """As linhas da tabela de uma promoção e os pedidos das marcadas. Pura.
+
+    pct_todas  o "% para todas" da caixa (None = o sugerido de cada conta)
+    editados   {índice da linha: %} digitado na própria tabela — vence o geral
+    estoques   {índice: estoque} do relâmpago
+    Devolve (linhas, pedidos): cada linha já com o preço, o bolso e o aviso."""
+    import promocoes_auto as _pa
+    edit = cx["editavel"]
+    linhas, pedidos = [], []
+    for i, l in enumerate(cx["linhas"]):
+        base = preco_hoje(l)
+        if edit:
+            pct = (editados or {}).get(i)
+            if pct is None:
+                pct = pct_todas if pct_todas is not None else pct_sugerido(l)
+        else:
+            pct = pct_sugerido(l)
+        est = None
+        if cx["tipo"] in COM_ESTOQUE:
+            fx = l.get("stock") or {}
+            est = (estoques or {}).get(i) or int(fx.get("min") or 1)
+        preco, erro = validar(l, float(pct) if edit else None, est)
+        ef = _pa.efetivo(l, preco if edit else None) if preco else None
+        mn, mx = l.get("min_discounted_price"), l.get("max_discounted_price")
+        marcado = i not in desmarcados
+        linhas.append({"Entrar": marcado, "Conta": l["conta"].upper(), "Anúncio": l["item"],
+                       "Preço hoje": _brl(base), "Desconto %": float(pct),
+                       "Na promoção": _brl(preco) if preco else "—",
+                       "No bolso": f"{ef:.1f}%".replace(".", ",") if ef is not None else "—",
+                       "Estoque": est,
+                       "Faixa do ML / aviso": ("⚠️ " + erro) if erro else
+                       (f"{_brl(mn)} – {_brl(mx)}" if mn and mx else "")})
+        if marcado and not erro:
+            cam, par, corpo = pedido_de_entrada(l, preco, est)
+            pedidos.append((l["conta"], l["item"], "POST", cam, par, corpo))
+    return linhas, pedidos
+
+
 def _caixa(pr, cx):
-    """Uma promoção de um produto, uma linha por conta."""
+    """Uma promoção de um produto: uma tabela, uma linha por conta.
+
+    Era uma fileira de widgets por conta (28/10): alta, com colunas vazias e o
+    "aplicar em todas" solto no meio. O dono pediu melhor. Agora é UMA tabela
+    editável — o % e o estoque se digitam nela —, e o "% para todas" e o
+    botão ficam no cabeçalho da caixa."""
+    import pandas as pd
     edit, com_est = cx["editavel"], cx["tipo"] in COM_ESTOQUE
     ck = ident(pr["chave"], cx["tipo"], cx["nome"])
     with st.container(border=True):
+        h1, h2, h3 = st.columns([3.2, 1.1, 1.4], vertical_alignment="bottom")
         contas = ", ".join(c.upper() for c in cx["contas"])
-        st.markdown(f"**{cx['nome']}** · `{cx['tipo']}` · em {contas}"
+        h1.markdown(f"<b style='font-size:15px'>{cx['nome']}</b> "
+                    f"<span style='font-size:10px;padding:1px 6px;border-radius:8px;"
+                    f"background:#EDA10033;color:#EDA100'>{cx['tipo']}</span><br>"
+                    f"<span style='font-size:12px;opacity:.75'>em {contas}"
                     + (f" · termina {_data(cx['fim'])}" if cx.get("fim") else "")
-                    + (f" · entrar até {_data(cx['prazo'])}" if cx.get("prazo") else ""))
-        if not edit:
-            st.info("🔒 **O ML define o desconto desta promoção** — dá só para "
-                    "aceitar ou não. Os valores abaixo são os dele.")
+                    + (f" · entrar até {_data(cx['prazo'])}" if cx.get("prazo") else "")
+                    + "</span>", unsafe_allow_html=True)
+        pct_todas = None
+        if edit:
+            pct_todas = h2.number_input("% para todas", 0.0, 99.0, value=None, step=1.0,
+                                        format="%.1f", key=f"pml_all_{ck}",
+                                        placeholder="sugerido")
+        else:
+            h2.markdown("🔒 **o ML define**")
+        # As edições da tabela ficam no estado dela; a tabela é remontada com
+        # elas aplicadas, para o preço e o bolso acompanharem o % digitado. O
+        # "% para todas" entra na chave: mudou o geral, a tabela recomeça dele.
+        kt = f"pml_t_{ck}_{pct_todas}"
+        ed = (st.session_state.get(kt) or {}).get("edited_rows", {}) if hasattr(
+            st.session_state, "get") else {}
+        editados = {int(i): v["Desconto %"] for i, v in ed.items()
+                    if isinstance(v, dict) and v.get("Desconto %") is not None}
+        estoques = {int(i): int(v["Estoque"]) for i, v in ed.items()
+                    if isinstance(v, dict) and v.get("Estoque") is not None}
+        desm = {int(i) for i, v in ed.items()
+                if isinstance(v, dict) and v.get("Entrar") is False}
+        linhas, pedidos = linhas_da_caixa(cx, pct_todas, editados, estoques, desm)
+        df = pd.DataFrame(linhas)
+        if not com_est:
+            df = df.drop(columns=["Estoque"])
+        cc = st.column_config
+        st.data_editor(
+            df, key=kt, hide_index=True, use_container_width=True,
+            disabled=[c for c in df.columns if c not in ("Entrar", "Desconto %", "Estoque")]
+            + ([] if edit else ["Desconto %"]),
+            column_config={
+                "Entrar": cc.CheckboxColumn("", width="small"),
+                "Conta": cc.TextColumn(width="small"),
+                "Desconto %": cc.NumberColumn(format="%.1f%%", min_value=0.0,
+                                              max_value=99.0, step=0.5),
+                "Estoque": cc.NumberColumn(min_value=1, step=1, width="small"),
+                "No bolso": cc.TextColumn(width="small",
+                                          help="O que sai do seu bolso: o desconto menos o "
+                                               "que o ML banca e devolve na tarifa."),
+                "Faixa do ML / aviso": cc.TextColumn(width="large")})
         faltam = [c.upper() for c in _ml.CONTAS
                   if c in pr["anuncios"] and c not in cx["contas"]]
         if faltam:
             st.caption(f"Sem esta promoção em: {', '.join(faltam)}")
-        cab = st.columns([0.4, 0.75, 1.75, 1.1, 1.0, 1.2, 1.3, 2.2])
-        for col, t in zip(cab, ["", "Conta", "Anúncio", "Preço hoje", "Desconto %",
-                                "Na promoção", "Estoque" if com_est else "Quem banca",
-                                "Faixa do ML / aviso"]):
-            col.caption(t)
-        if edit and len(cx["linhas"]) > 1:
-            pc0 = pct_sugerido(cx["linhas"][0])
-            if st.button(f"Aplicar {pc0:.0f}% em todas", key=f"pml_all_{ck}"):
-                for l in cx["linhas"]:
-                    st.session_state[f"pml_p_{ident(ck, l['conta'], l['item'])}"] = float(pc0)
-        pedidos = []
-        for l in cx["linhas"]:
-            k = ident(ck, l["conta"], l["item"])
-            base = preco_hoje(l)
-            c = st.columns([0.4, 0.75, 1.75, 1.1, 1.0, 1.2, 1.3, 2.2])
-            marcado = c[0].checkbox("marcar", value=True, key=f"pml_c_{k}",
-                                    label_visibility="collapsed")
-            c[1].markdown(f"**{l['conta'].upper()}**")
-            c[2].markdown(l["item"])
-            c[3].markdown(_md(base))
-            if edit:
-                # O valor inicial entra pelo session_state, e não por `value=`:
-                # o "Aplicar em todas" escreve nele, e os dois juntos fazem o
-                # Streamlit reclamar e ignorar um deles.
-                st.session_state.setdefault(f"pml_p_{k}", pct_sugerido(l))
-                pct = c[4].number_input("%", 0.0, 99.0, step=1.0, format="%.1f",
-                                        key=f"pml_p_{k}", label_visibility="collapsed")
-            else:
-                pct = pct_sugerido(l)
-                c[4].markdown(f"{pct:.1f}% 🔒")
-            est = None
-            if com_est:
-                fx = l.get("stock") or {}
-                est = c[6].number_input("estoque", int(fx.get("min") or 1),
-                                        int(fx.get("max") or 9999),
-                                        value=int(fx.get("min") or 1), key=f"pml_e_{k}",
-                                        label_visibility="collapsed")
-            else:
-                c[6].markdown(f"você {float(l.get('seller_percentage') or 0):g}% · "
-                              f"ML {float(l.get('meli_percentage') or 0):g}%"
-                              if l.get("seller_percentage") is not None
-                              or l.get("meli_percentage") is not None else "—")
-            preco, erro = validar(l, pct if edit else None, est)
-            # O BOLSO (28/10): o % que sai do vendedor, já sem o que o ML banca
-            # e devolve na tarifa — é ele que o % máximo do anúncio compara.
-            import promocoes_auto as _pa
-            ef = _pa.efetivo(l, preco if edit else None)
-            c[5].markdown((f"**{_md(preco)}**  \nno bolso {ef:.1f}%") if preco else "—")
-            mn, mx = l.get("min_discounted_price"), l.get("max_discounted_price")
-            erro_md = erro.replace("$", "\\$")
-            c[7].markdown(f":red[{erro_md}]" if erro else
-                          (f"{_md(mn)} – {_md(mx)}" if mn and mx else ""))
-            if marcado and not erro:
-                cam, par, corpo = pedido_de_entrada(l, preco, est)
-                pedidos.append((l["conta"], l["item"], "POST", cam, par, corpo))
-        _confirmar(f"in_{ck}", pedidos, f"Participar nas {len(pedidos)} marcadas")
+        with h3:
+            _confirmar(f"in_{ck}", pedidos, f"Participar nas {len(pedidos)} marcadas")
 
 
 def _aba_andamento(dados):
@@ -908,6 +939,19 @@ if __name__ == "__main__":
        sum(1 for n in _ast_p.walk(_ast_p.parse(open(__file__, encoding="utf-8").read()))
            if isinstance(n, _ast_p.Call) and getattr(n.func, "id", "") == "_executar") == 1
        and "_executar(" in _insp_p.getsource(_confirmar))
+    # A TABELA DA CAIXA (28/10): o % digitado numa linha vence o "% para
+    # todas", que vence o sugerido; linha desmarcada não vira pedido.
+    _cx_t = _cx["DEAL"]
+    _lin, _ped = linhas_da_caixa(_cx_t)
+    ok("tabela: sem nada digitado, cada conta com o sugerido dela",
+       [r["Desconto %"] for r in _lin] == [13.0, 13.0] and len(_ped) == 2)
+    _lin, _ped = linhas_da_caixa(_cx_t, pct_todas=10.0, editados={1: 15.0}, desmarcados={0})
+    ok("tabela: o % da linha vence o geral, e a desmarcada fica de fora dos pedidos",
+       [r["Desconto %"] for r in _lin] == [10.0, 15.0]
+       and [p[0] for p in _ped] == ["ml2"] and _ped[0][5]["deal_price"] == 118.99)
+    _lin, _ped = linhas_da_caixa(_cx_t, pct_todas=95.0)
+    ok("tabela: % fora da faixa do ML vira aviso na linha e não vira pedido",
+       all(r["Faixa do ML / aviso"].startswith("⚠️") for r in _lin) and not _ped)
     ok("preco_hoje: a DEAL candidata vem com price 0, e vale o original_price",
        preco_hoje({"price": 0, "original_price": 98.65}) == 98.65
        and preco_hoje({"price": 34.44}) == 34.44 and preco_hoje({}) == 0.0)
