@@ -5059,7 +5059,7 @@ def _promocoes_ml(conta):
         conta("Promoções ML: a promoção que o ML define vem marcada como só aceitar",
               "O ML define o desconto" in _j and "Sem esta promoção em: ML2" in _j, "")
         conta("Promoções ML: o desconto do vendedor mostra a faixa do ML por conta",
-              "R$ 54,00 – R$ 128,24" in _j, "")
+              "R\\$ 54,00 – R\\$ 128,24" in _j, "")   # o $ escapado: sem ele vira LaTeX
     except Exception as e:
         conta("Promoções ML: a tela monta", False, f"{type(e).__name__}: {e}")
     finally:

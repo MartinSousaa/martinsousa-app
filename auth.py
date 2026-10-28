@@ -267,8 +267,8 @@ def _verificar_credencial(login, senha):
 # ── VERIFICAÇÃO DE ADMIN ───────────────────────────────────────────────────────
 
 # Quem é admin quando o secret ADMINS não está configurado.
-# Só o dono — qualquer outro perfil precisa ser dito em voz alta, no secret ou
-# na coluna `admin` da aba de usuários.
+# Só o dono — qualquer outro perfil precisa ser dito em voz alta, no secret
+# ADMINS das Variáveis do Railway (a coluna `admin` da planilha não vale mais).
 ADMINS_PADRAO = {"martinsousa"}
 
 
@@ -292,8 +292,8 @@ def eh_gestor(usuario_logado):
     entrasse lá uma vez poderia se promover, e passaria a ver a meta individual
     de cada colega.
 
-    `is_admin` continua valendo para o que é acesso comum de gestão. Este aqui é
-    para o que não pode ser delegado por engano.
+    Desde 28/10 `is_admin` responde a mesma coisa: a coluna `admin` da
+    planilha deixou de dar perfil a alguém.
     """
     u = str(usuario_logado or "").strip().lower()
     return bool(u) and u in (_admins_configurados() or ADMINS_PADRAO)
@@ -314,29 +314,18 @@ def _admins_configurados():
 
 
 def _calcular_is_admin(usuario_logado):
-    """Perfil admin: lista explícita do secret ADMINS, ou coluna admin no Sheets.
+    """Perfil admin: SÓ quem está no secret ADMINS (sem ele, só o dono).
 
-    Antes, TODO usuário do bloco `usuarios` das Secrets era admin — só por estar
-    lá. Como as colaboradoras estão nesse bloco, as quatro tinham Administrativo
-    aberto: lista de usuários, criar e desativar gente, e o Financeiro. A senha
-    pedida na entrada do Administrativo é a da própria pessoa, então não segurava
-    nada.
+    Dono, 28/10: "somente eu e o Renan como administradores". A coluna
+    `admin` da aba de usuários deixou de valer: ela era editável de dentro do
+    próprio Studio, ninguém lembrava por que cada um estava lá (o Luiz foi
+    marcado para ver o painel, que hoje todo colaborador vê), e ser admin tira
+    a pessoa da barra dela — o Luiz entrou sem "Meu desempenho".
 
-    Estar cadastrado é uma coisa; ser administrador é outra, e agora precisa ser
-    dito: no secret ADMINS ou na coluna `admin` da aba de usuários.
+    É a mesma resposta de `eh_gestor`: uma pergunta, um dono. Duas listas de
+    administrador passariam a discordar, a questão é só quando.
     """
-    u = str(usuario_logado or "").strip().lower()
-    if not u:
-        return False
-    if u in (_admins_configurados() or ADMINS_PADRAO):
-        return True
-    df = _carregar_usuarios_sheets()
-    if df.empty or "login" not in df.columns:
-        return False
-    row = df[df["login"].astype(str) == usuario_logado]
-    if row.empty:
-        return False
-    return str(row.iloc[0].get("admin", "")).lower() in ("sim", "true", "1", "yes")
+    return eh_gestor(usuario_logado)
 
 
 def is_admin(usuario_logado):
@@ -841,6 +830,25 @@ if __name__ == "__main__":
     _src_vl = _insp_au.getsource(verificar_login)
     ok("a sessão aberta e o link salvo passam pela mesma conferência",
        _src_vl.count("_login_ativo(") >= 2)
+
+    # SÓ O SECRET ADMINS DÁ PERFIL (dono, 28/10: "somente eu e o Renan").
+    # A planilha diz que o Luiz é admin — a coluna antiga, marcada para ele
+    # ver o painel —, e isso não pode mais tirá-lo da barra dele.
+    import pandas as _pd_adm
+    _g_adm = (globals()["_admins_configurados"], globals()["_carregar_usuarios_sheets"])
+    globals()["_admins_configurados"] = lambda: {"martinsousa", "renan"}
+    globals()["_carregar_usuarios_sheets"] = lambda: _pd_adm.DataFrame(
+        [{"login": "Luiz", "ativo": "Sim", "admin": "Sim"},
+         {"login": "Renan", "ativo": "Sim", "admin": "Não"}])
+    try:
+        ok("admin: a coluna 'admin' da planilha não promove ninguém",
+           _calcular_is_admin("Luiz") is False)
+        ok("admin: quem está no ADMINS é admin, diga a planilha o que disser",
+           _calcular_is_admin("Renan") is True and _calcular_is_admin("MartinSousa") is True)
+        ok("admin e gestor são a mesma resposta (eh_gestor), uma lista só",
+           all(_calcular_is_admin(x) == eh_gestor(x) for x in ("Luiz", "Renan", "MartinSousa", "")))
+    finally:
+        globals()["_admins_configurados"], globals()["_carregar_usuarios_sheets"] = _g_adm
 
     print("\nfalhas:", falhas)
     # O CÓDIGO DE SAÍDA (27/10). Sem ele este auto-teste imprimia FALHA e
