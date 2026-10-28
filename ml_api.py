@@ -696,5 +696,33 @@ if __name__ == "__main__":
     ok("codigo desconhecido aparece cru em vez de sumir",
        _novo and _novo[0]["situação"] == "xpto_novo")
 
+    # A ÚNICA PORTA (28/10): ler e gravar passam por `requisitar`. A rede é
+    # trocada em `requests.request`, que é onde ela começa de verdade.
+    _rq = requests.request
+    _vistos = []
+
+    class _Resp:
+        def __init__(self, cod, txt):
+            self.status_code, self.text, self.ok = cod, txt, cod < 400
+
+        def json(self):
+            return json.loads(self.text)
+    try:
+        requests.request = lambda m, url, **kw: (_vistos.append((m, url, kw.get("json"))),
+                                                 _Resp(200, ""))[1]
+        ok("requisitar: o DELETE do ML responde 200 sem corpo, e isso é sucesso",
+           requisitar("DELETE", "ml1", "T", "/seller-promotions/items/MLB1",
+                      {"promotion_type": "DEAL"}) == ({}, ""))
+        requests.request = lambda m, url, **kw: (_vistos.append((m, url, kw.get("json"))),
+                                                 _Resp(400, '{"message":"deal_price invalid"}'))[1]
+        _r, _e = requisitar("POST", "ml1", "T", "/seller-promotions/items/MLB1",
+                            corpo={"deal_price": 1})
+        ok("requisitar: a recusa do ML volta com o motivo dele",
+           _r is None and "deal_price invalid" in _e and _vistos[-1][2] == {"deal_price": 1})
+        ok("escrever: só grava com método de escrita",
+           escrever("ml1", "GET", "/x")[1].startswith("método de escrita"))
+    finally:
+        requests.request = _rq
+
     print(f"\nfalhas: {falhas}")
     raise SystemExit(1 if falhas else 0)
