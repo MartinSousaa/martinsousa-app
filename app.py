@@ -2046,8 +2046,18 @@ def _navegar(paginas, param_url, padrao=None):
 
 
 def _render_abas_operacao(usuario_logado):
-    """Renderiza as 9 abas de Operação (usada tanto no admin quanto nos colaboradores)."""
+    """As abas de Operação de quem tem perfil admin.
+
+    MEU DESEMPENHO PRIMEIRO, PARA QUEM É DA EQUIPE (28/10). Ela só existia na
+    barra dos colaboradores; quem é da equipe e tem perfil admin (o Luiz)
+    caía aqui e entrava no Studio sem a tela dele. A pergunta é a mesma nas
+    duas barras: `meu_desempenho.aparece_para`.
+    """
+    import meu_desempenho as _md_nav
+    _meu = ({"🏠 Meu desempenho": lambda: _abrir('meu_desempenho', 'pagina', usuario_logado)}
+            if _md_nav.aparece_para(usuario_logado) else {})
     _navegar({
+        **_meu,
         "Análise de Viabilidade": _render_viabilidade_tab,
         "Triagem":                lambda: _abrir('triagem', 'pagina_triagem', usuario_logado),
         "Palavras-chave":         lambda: _abrir('palavras_chave', 'pagina_palavras_chave', usuario_logado),
