@@ -5052,8 +5052,29 @@ def _promocoes_ml(conta):
                                                "promo_id": "", "original_price": 134.99,
                                                "min_discounted_price": 54,
                                                "max_discounted_price": 128.24}, "")
-        _pm.pagina("MartinSousa")
+        # As abas do automático (28/10) leem a planilha: só ela é trocada.
+        import promocoes_auto as _pa_t
+        _g_pa = (_pa_t.carregar_vistos, _pa_t.carregar_regras, _pa_t.carregar_log, _pa_t.estado)
+        _pa_t.carregar_vistos = lambda: {"ml1|MLB1": {
+            "chave": "ml1|MLB1", "conta": "ml1", "item": "MLB1", "titulo": _t,
+            "promocao": "Black", "tipo": "DEAL", "fim": "2026-10-20", "situacao": "saiu",
+            "visto_em": "2026-10-20", "saiu_em": "2026-10-21"}}
+        _pa_t.carregar_regras = lambda: [{"titulo": _t, "pct_maximo": 10, "recriar_pct": 8,
+                                          "recriar_dias": 14, "estoque_relampago": "",
+                                          "ativo": "Sim"}]
+        _pa_t.carregar_log = lambda n=200: []
+        _pa_t.estado = lambda: {}
+        _tabs_vistas = []
+        f.tabs = lambda rot, **kw: (_tabs_vistas.extend(rot), [_Falso(f._chaves) for _ in rot])[1]
+        try:
+            _pm.pagina("MartinSousa")
+        finally:
+            _pa_t.carregar_vistos, _pa_t.carregar_regras, _pa_t.carregar_log, _pa_t.estado = _g_pa
         _j = " ".join(_txt)
+        conta("Promoções ML: a aba de finalizadas conta quem saiu e não voltou",
+              "🔁 Finalizadas sem recriar (1)" in _tabs_vistas, str(_tabs_vistas))
+        conta("Promoções ML: o automático nasce em simulação e diz isso",
+              "Modo: 🟡 SIMULAÇÃO" in _j, "")
         conta("Promoções ML: a mesma campanha das duas contas numa caixa só",
               "**11.11 da Black** · `DEAL` · em ML1, ML2" in _j, _j[:300])
         conta("Promoções ML: a promoção que o ML define vem marcada como só aceitar",

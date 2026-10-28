@@ -268,7 +268,12 @@ def ofertas_da_promocao(conta, tok, promo, req):
                 **{k: it.get(k) for k in ("status", "price", "original_price",
                                           "min_discounted_price", "max_discounted_price",
                                           "suggested_discounted_price", "seller_percentage",
-                                          "meli_percentage", "stock")},
+                                          "meli_percentage", "stock",
+                                          # o reembolso da tarifa (boost): o bolso
+                                          # do vendedor depende dele (28/10)
+                                          "boosted_offer", "discount_meli_boost_amount",
+                                          "discount_meli_boosted_percentage",
+                                          "total_price_for_boosted_offer")},
                 "item": it.get("id"), "tipo": tipo, "promo_id": promo.get("id", ""),
                 "nome": nome_da_promocao(promo),
                 "offer_id": it.get("offer_id") or it.get("ref_id") or "",
@@ -478,7 +483,11 @@ def _caixa(pr, cx):
                               if l.get("seller_percentage") is not None
                               or l.get("meli_percentage") is not None else "—")
             preco, erro = validar(l, pct if edit else None, est)
-            c[5].markdown(f"**{_md(preco)}**" if preco else "—")
+            # O BOLSO (28/10): o % que sai do vendedor, já sem o que o ML banca
+            # e devolve na tarifa — é ele que o % máximo do anúncio compara.
+            import promocoes_auto as _pa
+            ef = _pa.efetivo(l, preco if edit else None)
+            c[5].markdown((f"**{_md(preco)}**  \nno bolso {ef:.1f}%") if preco else "—")
             mn, mx = l.get("min_discounted_price"), l.get("max_discounted_price")
             erro_md = erro.replace("$", "\\$")
             c[7].markdown(f":red[{erro_md}]" if erro else
@@ -623,15 +632,113 @@ def pagina(usuario_logado=None):
     for c, v in sorted(dados["lidas"].items()):
         for a in v["avisos"]:
             st.warning(f"{c.upper()}: {a}")
-    t1, t2, t3 = st.tabs([f"🟢 Em andamento ({len(dados['andamento'])})",
-                          f"📨 Disponíveis para participar ({len(dados['produtos'])} produtos)",
-                          "➕ Criar desconto %"])
+    import promocoes_auto as _pa
+    vistos = _vistos_guardados()
+    fins = _pa.finalizadas(vistos)
+    t1, t2, t3, t4, t5 = st.tabs([f"🟢 Em andamento ({len(dados['andamento'])})",
+                                  f"📨 Disponíveis para participar ({len(dados['produtos'])} produtos)",
+                                  "➕ Criar desconto %",
+                                  f"🔁 Finalizadas sem recriar ({len(fins)})",
+                                  "⚙️ Automático"])
     with t1:
         _aba_andamento(dados)
     with t2:
         _aba_disponiveis(dados)
     with t3:
         _aba_criar(dados, _pc.agora_br().date())
+    with t4:
+        _aba_finalizadas(fins)
+    with t5:
+        _aba_automatico(_pc.agora_br())
+
+
+# ── As abas do automático (28/10) ─────────────────────────────────────────────
+# A planilha é lida uma vez a cada 5 minutos, e não a cada tecla: as abas do
+# `st.tabs` se desenham todas em toda passada.
+@st.cache_data(ttl=300, show_spinner=False)
+def _vistos_guardados():
+    import promocoes_auto as _pa
+    return _pa.carregar_vistos()
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _regras_guardadas():
+    import promocoes_auto as _pa
+    return _pa.carregar_regras()
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _log_guardado():
+    import promocoes_auto as _pa
+    return _pa.carregar_log()
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _estado_guardado():
+    import promocoes_auto as _pa
+    return _pa.estado()
+
+
+def _aba_finalizadas(fins):
+    st.caption("Anúncios que estavam em promoção e saíram de todas. A lista começa no dia "
+               "em que a rotina diária passou a rodar — o ML só mostra o que está ativo.")
+    if not fins:
+        st.info("Nenhum anúncio saiu de promoção sem voltar.")
+        return
+    import pandas as pd
+    st.dataframe(pd.DataFrame([{
+        "Produto": v.get("titulo", ""), "Conta": str(v.get("conta", "")).upper(),
+        "Anúncio": v.get("item", ""), "Última promoção": v.get("promocao", ""),
+        "Terminava": _data(v.get("fim")), "Saiu em": _data(v.get("saiu_em"))}
+        for v in fins]), use_container_width=True, hide_index=True)
+    st.caption("Desconto do vendedor se recria na aba ➕ ou sozinho, pela lista do ⚙️ "
+               "Automático. Campanha do ML não se recria: ela volta quando o ML convidar.")
+
+
+def _aba_automatico(agora):
+    import promocoes_auto as _pa
+    est = _estado_guardado()
+    real = est.get("modo") == "ligado"
+    st.markdown(f"**Modo: {'🟢 LIGADO — grava no Mercado Livre' if real else '🟡 SIMULAÇÃO — só registra o que faria'}**"
+                f" · última rodada: {est.get('ultimo_dia') or 'nenhuma ainda'} "
+                f"(uma por dia, depois das {_pa.HORA_DA_RODADA}h)")
+    if st.session_state.get("pml_modo_armado"):
+        st.warning("Confirma? " + ("Volta a só simular." if real else
+                   "A partir da próxima rodada o Studio ENTRA e RECRIA promoções sozinho."))
+        c1, c2 = st.columns(2)
+        if c1.button("✅ Confirmar", key="pml_modo_sim", type="primary"):
+            _pa.gravar_estado(dict(est, modo="simulacao" if real else "ligado"))
+            _estado_guardado.clear()
+            st.session_state.pop("pml_modo_armado", None)
+            st.rerun()
+        if c2.button("Cancelar", key="pml_modo_nao"):
+            st.session_state.pop("pml_modo_armado", None)
+            st.rerun()
+    elif st.button("Voltar para simulação" if real else "Ligar o modo real", key="pml_modo"):
+        st.session_state["pml_modo_armado"] = True
+        st.rerun()
+
+    st.markdown("##### A lista")
+    st.caption("Uma linha por produto, pelo título (junta as 4 contas). % máximo: entra nos "
+               "convites com até esse % no bolso. Recriar %: o desconto do vendedor que volta "
+               "quando expira (até 14 dias). Estoque relâmpago: sem ele, o relâmpago fica de fora.")
+    import pandas as pd
+    linhas = _regras_guardadas() or []
+    df = pd.DataFrame(linhas or [{c: "" for c in _pa.COLUNAS_REGRAS}],
+                      columns=_pa.COLUNAS_REGRAS)
+    ed = st.data_editor(df, num_rows="dynamic", use_container_width=True, hide_index=True,
+                        key="pml_regras_ed")
+    if st.button("💾 Salvar a lista", key="pml_regras_salvar"):
+        _pa.gravar_regras(ed.fillna("").to_dict("records"))
+        _regras_guardadas.clear()
+        st.success("Lista salva. Vale a partir da próxima rodada.")
+
+    st.markdown("##### O que a rotina fez")
+    lg = _log_guardado()
+    if lg:
+        st.dataframe(pd.DataFrame(lg), use_container_width=True, hide_index=True)
+    else:
+        st.caption("Nenhuma rodada registrada ainda.")
 
 
 if __name__ == "__main__":
@@ -673,7 +780,9 @@ if __name__ == "__main__":
         ("ml1", "P-MLB17937078", None): {"results": [
             {"id": "MLB7699295012", "status": "candidate", "price": 130.94,
              "original_price": 134.99, "offer_id": "CANDIDATE-MLB7699295012-77636538721",
-             "meli_percentage": 0.5, "seller_percentage": 2.5}], "paging": {"total": 1}},
+             "meli_percentage": 0.5, "seller_percentage": 2.5, "boosted_offer": True,
+             "discount_meli_boost_amount": 1.35, "total_price_for_boosted_offer": 129.59}],
+            "paging": {"total": 1}},
         ("ml1", "LGH-MLB1000", None): {"results": [
             {"id": "MLB7699295012", "ref_id": "CANDIDATE-MLB7699295012-77636143971",
              "status": "candidate", "price": 130.94, "original_price": 134.99,
@@ -720,6 +829,9 @@ if __name__ == "__main__":
        _cx["SMART"]["contas"] == ["ml1"] and _cx["LIGHTNING"]["contas"] == ["ml1"])
     ok("o que já está no ar vai para Em andamento, não para Disponíveis",
        [o["item"] for o in _g["andamento"]] == ["MLB3888083486"])
+    ok("o reembolso da tarifa (boost) atravessa a leitura até a linha da caixa",
+       _cx["SMART"]["linhas"][0].get("discount_meli_boost_amount") == 1.35
+       and _cx["SMART"]["linhas"][0].get("total_price_for_boosted_offer") == 129.59)
     ok("a promoção que o ML define não é editável; a campanha e o relâmpago são",
        not _cx["SMART"]["editavel"] and _cx["DEAL"]["editavel"] and _cx["LIGHTNING"]["editavel"])
     _d1, _d2 = _cx["DEAL"]["linhas"]
@@ -796,5 +908,25 @@ if __name__ == "__main__":
        sum(1 for n in _ast_p.walk(_ast_p.parse(open(__file__, encoding="utf-8").read()))
            if isinstance(n, _ast_p.Call) and getattr(n.func, "id", "") == "_executar") == 1
        and "_executar(" in _insp_p.getsource(_confirmar))
+    ok("preco_hoje: a DEAL candidata vem com price 0, e vale o original_price",
+       preco_hoje({"price": 0, "original_price": 98.65}) == 98.65
+       and preco_hoje({"price": 34.44}) == 34.44 and preco_hoje({}) == 0.0)
+    # ler_todas: o token é buscado FORA da thread, e conta sem autorização vira
+    # aviso em vez de derrubar as outras.
+    _g_lt = (_ml.token, _ml._ler_da_planilha, globals()["ler_conta"])
+    _quem_pediu_token = []
+    try:
+        _ml._ler_da_planilha = lambda c: {"user_id": "" if c == "ml4" else "9"}
+        _ml.token = lambda c: (_quem_pediu_token.append(_th.current_thread().name), ("T", ""))[1]
+        globals()["ler_conta"] = lambda c, t, u, req=None: {"ofertas": [1], "titulos": {},
+                                                            "avisos": [], "promocoes": 1}
+        _lt = ler_todas()
+    finally:
+        _ml.token, _ml._ler_da_planilha, globals()["ler_conta"] = _g_lt
+    ok("ler_todas: lê as autorizadas, a sem autorização vira aviso, token na thread da tela",
+       sorted(_lt) == list(_ml.CONTAS) and _lt["ml4"]["avisos"]
+       and _lt["ml1"]["ofertas"] == [1]
+       and set(_quem_pediu_token) == {_th.main_thread().name})
+
     print("\nfalhas:", falhas)
     raise SystemExit(1 if falhas else 0)

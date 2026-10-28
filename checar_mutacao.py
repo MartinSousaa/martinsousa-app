@@ -4501,6 +4501,37 @@ MUTACOES = [
         None,
         ["python3", "promocoes_ml.py"],
     ),
+    (
+        'o bolso do vendedor volta a ignorar o reembolso da tarifa (28/10)',
+        "promocoes_auto.py",
+        [('              if com_boost and oferta.get("boosted_offer") else 0.0)\n',
+          '              if False else 0.0)\n')],
+        None,
+        ["python3", "promocoes_auto.py"],
+    ),
+    (
+        'a rodada simulada volta a gravar no ML (28/10)',
+        "promocoes_auto.py",
+        [('    real = (est.get("modo") == "ligado") and not simular\n',
+          '    real = (est.get("modo") == "ligado")\n')],
+        None,
+        ["python3", "promocoes_auto.py"],
+    ),
+    (
+        'quem saiu de promocao volta a sumir sem ser sinalizado (28/10)',
+        "promocoes_auto.py",
+        [('            v["situacao"], v["saiu_em"] = "saiu", hoje_txt\n', '            pass\n')],
+        None,
+        ["python3", "promocoes_auto.py"],
+    ),
+    (
+        'o reembolso da tarifa volta a se perder na leitura (28/10)',
+        "promocoes_ml.py",
+        [('                                          "boosted_offer", "discount_meli_boost_amount",\n',
+          '                                          "discount_meli_boost_amount_x",\n')],
+        None,
+        ["python3", "promocoes_ml.py"],
+    ),
 ]
 
 

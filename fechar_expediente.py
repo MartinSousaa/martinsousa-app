@@ -215,6 +215,15 @@ def main(simular=False, agora=None):
     except Exception as e:
         _log(f"Alertas: não rodaram ({type(e).__name__}: {str(e)[:120]}).")
 
+    # AS PROMOÇÕES DO ML (dono, 28/10): uma rodada por dia, depois das 8h —
+    # sinaliza quem saiu de promoção, recria o desconto da lista e entra nos
+    # convites dentro do % máximo. Nasce em simulação; só o dono liga.
+    try:
+        import promocoes_auto as _pa
+        _pa.main(simular=simular, agora=agora, log=_log)
+    except Exception as e:
+        _log(f"Promoções: não rodaram ({type(e).__name__}: {str(e)[:120]}).")
+
     # Fim de semana e feriado NAO saem mais cedo (dono, 23/10): cartao que
     # escapou na sexta corria o sabado e o domingo inteiros, e a rotina dizia
     # "nada a fazer". Em dia sem expediente, todo cartao aberto fecha.
