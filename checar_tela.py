@@ -1704,13 +1704,22 @@ def _chat(conta):
     conta("o anexo do chat aceita qualquer formato",
           bool(_trecho) and "type=None" in _trecho,
           "o campo voltou a listar extensoes — HEIC de iPhone seria recusado")
-    # E O CONVERSOR TEM DE ESTAR NO CAMINHO: sem ele o arquivo cru vai ao
-    # modelo e volta erro generico, sem dizer qual e o problema.
-    # PROCURAR A CHAMADA, NAO A PALAVRA. A primeira versao procurava
-    # "normalizar_imagem" no corpo — e achava a propria mencao no comentario
-    # acima da chamada. Tirar a chamada de verdade nao reprovava nada.
-    conta("e converte antes de mandar ao modelo",
-          ".normalizar_imagem(" in _corpo, "")
+    # E O ANEXO PASSA PELA PORTA DO STUDIO, que e quem converte.
+    #
+    # A versao anterior procurava a chamada a `normalizar_imagem` DENTRO do
+    # bloco do chat. Em 27/10 o laco proprio do chat saiu: ele engolia o
+    # `DeletedFile` num `except: pass` e o anexo sumia sem uma palavra. Quem
+    # le anexo no Studio agora e `revisar_anexos`, uma porta so — e e ela que
+    # converte e que DIZ o que nao chegou.
+    #
+    # Medir a chamada a `normalizar_imagem` aqui virou medir a TECNICA: o
+    # comportamento continua certo e a guarda ficaria vermelha. Entao ela
+    # passou a medir a porta, e a conversao continua medida onde ela mora,
+    # no auto-teste de `imagem.py`.
+    conta("e o anexo passa pela porta que converte e conta o que caiu",
+          ".revisar_anexos(" in _corpo,
+          "o chat voltou a ler o anexo por conta propria — foi assim que o "
+          "`DeletedFile` do reinicio sumia em silencio")
 
 
 def _retrato_no_painel(conta):
@@ -3030,6 +3039,84 @@ def _fotos_que_o_chat_nao_via(conta):
         _rasc_fq._pasta = _pasta_real
         _sh.planilha, _sh.cliente = _guardado
         _sh_fq.rmtree(_base, ignore_errors=True)
+
+
+def _triagem_refeita_depois_de_gerar(conta):
+    """O chat preenche o dado que faltava e a triagem e REFEITA — mesmo depois
+    de a geracao ja ter rodado.
+
+    O DEFEITO, achado na varredura de 28/10. `img_triagem_config` e APAGADA
+    quando o laco da geracao termina (ela tambem serve de sinal de "plano ja
+    consumido"), e a copia vai para `img_config_gerada`. Os dois lados do
+    re-run liam a CHAVE CRUA:
+
+      - o chat respondia "nao ha triagem em andamento" com o plano na tela;
+      - a aba, se chegasse la, nao refazia nada e nao dizia por que.
+
+    E o pedido e justamente o que destrava peca bloqueada: o colaborador da o
+    peso que faltava e espera as pecas serem reavaliadas.
+
+    E a mesma familia do "nao ha produto aberto na aba Imagem" com o produto
+    aberto, que foi por que `config_da_geracao` existe.
+
+    A GUARDA MONTA O ESTADO DE DEPOIS DA GERACAO — viva apagada, copia
+    guardada — e exige que a triagem seja refeita. Medir com a chave viva
+    presente nao mediria nada: ali os dois caminhos funcionam.
+    """
+    import importlib
+    import sys as _sys_tr
+
+    _sh, _guardado = _sem_planilha()
+    _gerar_real = None
+    _m = None
+    try:
+        _falso = instalar()
+        _m = importlib.import_module("imagem")
+        for _nm, _mod in list(_sys_tr.modules.items()):
+            if getattr(_mod, "st", None) is not None and not _nm.startswith(
+                    ("streamlit", "checar_")):
+                try:
+                    _mod.st = _falso
+                except Exception:
+                    pass
+
+        _refez = []
+        _gerar_real = _m.gerar_triagem_ia
+        _m.gerar_triagem_ia = lambda *a, **k: (
+            _refez.append(1), ({"plano": [{"tipo": "1", "viavel": True}]}, ""))[1]
+
+        # O ESTADO DE DEPOIS DA GERACAO: a chave viva nao existe mais, a copia
+        # existe. Sao essas as duas linhas que o laco da geracao deixa.
+        _cfg = {"nome_produto": "Garrafa Térmica",
+                "tipos": [_m.TIPOS_PADRAO[0]],
+                "dados_descricao": {"peso": "350g"},
+                "instrucoes_extras": "", "fotos_bytes": []}
+        _falso.session_state.update({
+            "img_nome_produto_input": "Garrafa Térmica",
+            _m.CHAVE_CONFIG_GERADA: _cfg,
+            _m.CHAVE_PLANO_GERADO: {"plano": []},
+            "img_rerun_triagem": True,
+        })
+        conta("o estado e mesmo o de DEPOIS de gerar (chave viva apagada)",
+              "img_triagem_config" not in _falso.session_state,
+              "a guarda montou o estado errado e nao mede nada")
+        try:
+            _m.pagina_imagem("myrelladesouza")
+        except (_Rerun, _Parou):
+            pass
+        except Exception as e:
+            conta("a aba monta com o pedido de refazer a triagem", False,
+                  f"{type(e).__name__}: {str(e)[:160]}")
+            return
+        conta("o chat destrava a peca: a triagem e refeita mesmo depois de "
+              "gerar",
+              bool(_refez),
+              "o re-run nao aconteceu e ninguem disse por que — o colaborador "
+              "deu o dado que faltava e a peca continua bloqueada")
+    finally:
+        if _m is not None and _gerar_real is not None:
+            _m.gerar_triagem_ia = _gerar_real
+        _sh.planilha, _sh.cliente = _guardado
 
 
 def _chat_no_centro(conta):
@@ -4951,6 +5038,7 @@ def main():
     _fotos_perdidas(conta)
     _novo_produto(conta)
     _chat_no_centro(conta)
+    _triagem_refeita_depois_de_gerar(conta)
     _fotos_que_o_chat_nao_via(conta)
     _refazer_cego(conta)
     _peca_olhada(conta)

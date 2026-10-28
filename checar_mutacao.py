@@ -35,6 +35,36 @@ RAIZ = os.path.dirname(os.path.abspath(__file__))
 # esta entrada virou letra morta — e isso também é reprovado, porque mutação
 # que não se aplica dá a impressão de cobertura que não existe.
 MUTACOES = [
+    # ── A VARREDURA DE 28/10, sobre a codificacao de imagem inteira ──────
+    (
+        'o chat volta a ler o anexo por conta propria (o DeletedFile sumia calado)',
+        "chat_assistente.py",
+        [('                imagens_bytes, _, _av_an, _er_an = _img_an.revisar_anexos(anexos)',
+          '                imagens_bytes = [a.getvalue() for a in anexos]')],
+        None,
+        ["python3", "chat_assistente.py"],
+    ),
+    (
+        'o re-run da triagem volta a ler a chave crua, e nao destrava nada',
+        "imagem.py",
+        [('        cfg = config_da_geracao()\n        if cfg and cfg.get("tipos"):',
+          '        cfg = st.session_state.get("img_triagem_config")\n'
+          '        if cfg and cfg.get("tipos"):')],
+        None,
+        ["python3", "checar_tela.py"],
+    ),
+    (
+        # O COMANDO MEDE O LADO DO CHAT, entao quem o pega e o auto-teste do
+        # chat — nao o `checar_tela`, que desenha a aba. Apontar para o
+        # verificador errado deixa a entrada verde por acidente.
+        'o chat volta a dizer "nao ha triagem" com o plano na tela',
+        "chat_assistente.py",
+        [('        cfg = _da_geracao("config")\n        if not cfg:',
+          '        cfg = st.session_state.get("img_triagem_config")\n'
+          '        if cfg is None:')],
+        None,
+        ["python3", "chat_assistente.py"],
+    ),
     (
         # `checar_impacto` reprovou `get_ociosidade_mes` por nao ter guarda
         # nenhuma, com NOVE leituras em `analise_metas.py`. A guarda minima
