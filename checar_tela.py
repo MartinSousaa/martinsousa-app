@@ -5083,8 +5083,9 @@ def _promocoes_ml(conta):
               and list(_tab_11[0]["Conta"]) == ["ML1", "ML2"], _j[:300])
         conta("Promoções ML: a promoção que o ML define vem marcada como só aceitar",
               "🔒 **o ML define**" in _j and "Sem esta promoção em: ML2" in _j, "")
-        conta("Promoções ML: o desconto do vendedor mostra a faixa do ML por conta",
-              "R\\$ 54,00 – R\\$ 128,24" in _j, "")   # o $ escapado: sem ele vira LaTeX
+        _tab_cr = [t for t in _tabelas if "R$ 54,00 – R$ 128,24" in list(t.get("Faixa do ML / aviso", []))]
+        conta("Promoções ML: o desconto do vendedor usa a MESMA tabela, com a faixa do ML por conta",
+              len(_tab_cr) == 1 and list(_tab_cr[0]["Conta"]) == ["ML1", "ML2"], str(len(_tabelas)))
     except Exception as e:
         conta("Promoções ML: a tela monta", False, f"{type(e).__name__}: {e}")
     finally:
