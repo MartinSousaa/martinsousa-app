@@ -22,15 +22,27 @@ de verdade, com navegador: nenhuma navegação de página em quatro cliques.
 import hashlib
 
 _SCRIPT = """<script>
+// A ESCUTA MORA NA PÁGINA, NÃO NESTA CAIXINHA (28/10). Ela nascia aqui, na
+// caixinha do componente — e a caixinha some quando a tela troca (do Painel
+// para Produtos). Junto ia a escuta, enquanto a marca "já registrei" ficava
+// na página: a tela nova não registrava de novo, e nenhum clique abria nada.
+// Agora o código é avaliado NA PÁGINA (eval do pai) e vive tanto quanto ela.
 const P = window.parent;
-if (!P.__msPonteClique) {
-  P.__msPonteClique = true;
-  P.document.addEventListener('click', function (e) {
-    const t = e.target.closest('[data-clique]');
-    if (!t) return;
+const CODIGO = "if (!window.__msPonteClique2) { window.__msPonteClique2 = true;" +
+  " document.addEventListener('click', function (e) {" +
+  "   var t = e.target.closest('[data-clique]'); if (!t) return;" +
+  "   var b = document.querySelector('.st-key-clk_' + t.dataset.clique + ' button');" +
+  "   if (b) { e.preventDefault(); b.click(); }" +
+  " }, true); }";
+try { P.eval(CODIGO); } catch (err) {
+  // Sem eval na página: registra daqui, e troca a cada caixinha nova.
+  if (P.__msPonteCliqueFn) P.document.removeEventListener('click', P.__msPonteCliqueFn, true);
+  P.__msPonteCliqueFn = function (e) {
+    const t = e.target.closest('[data-clique]'); if (!t) return;
     const b = P.document.querySelector('.st-key-clk_' + t.dataset.clique + ' button');
     if (b) { e.preventDefault(); b.click(); }
-  }, true);
+  };
+  P.document.addEventListener('click', P.__msPonteCliqueFn, true);
 }
 </script>"""
 

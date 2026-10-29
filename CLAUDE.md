@@ -428,6 +428,14 @@ desenha; o que o NAVEGADOR faz com o clique ele não tem como ver.
    "o clique abre sem jogar a sessão fora" era. Guarda que confere que o
    elemento existe é Forma 2.
 
+**28/10, a segunda volta do mesmo clique:** subiu com o verificador verde e
+não abria nada. A escuta nascia dentro da caixinha do componente do PAINEL;
+trocando para Produtos a caixinha sumia, a escuta junto, e a marca "já
+registrei" ficava na página. O `checar_navegador` não viu porque o Painel
+dele não tinha clique — o cenário de teste era mais pobre que a tela real
+(Forma 7). Agora a escuta é avaliada na própria página, e o verificador
+começa num Painel com clique próprio, como a Home.
+
 **Guarda:** `clique.py` reprova, por AST, qualquer texto montado com
 `target="_self"` em todo o Studio (docstring e comentário ficam de fora);
 `checar_navegador.py` mede o clique de ponta a ponta; e as duas têm entrada

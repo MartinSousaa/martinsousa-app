@@ -4355,8 +4355,10 @@ MUTACOES = [
     (
         "o clique no ranking volta a recarregar a pagina (link no lugar do botao)",
         "clique.py",
-        "    if (b) { e.preventDefault(); b.click(); }\n",
-        "    if (b) { P.location.search = '?x=1'; }\n",
+        # A escuta que vale é a avaliada na PÁGINA (o texto de CODIGO, 28/10);
+        # a de reserva só roda sem eval, e mutá-la não reintroduz nada.
+        "  \"   if (b) { e.preventDefault(); b.click(); }\" +\n",
+        "  \"   if (b) { location.search = '?x=1'; }\" +\n",
         ["python3", "checar_navegador.py"],
     ),
     (
@@ -4531,6 +4533,13 @@ MUTACOES = [
           '                                          "discount_meli_boost_amount_x",\n')],
         None,
         ["python3", "promocoes_ml.py"],
+    ),
+    (
+        'a escuta do clique volta a morrer quando a tela troca (28/10)',
+        "clique.py",
+        [('try { P.eval(CODIGO); } catch (err) {', 'try { P.__semEscuta = 1; } catch (err) {')],
+        None,
+        ["python3", "checar_navegador.py"],
     ),
 ]
 
