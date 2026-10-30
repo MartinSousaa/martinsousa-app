@@ -480,3 +480,19 @@ def render(expandido=True, chave_salario="expl_salario",
 
         st.caption("Mais abaixo, no seu card, a mesma conta aparece com as "
                    "metas que já estão valendo neste mês.")
+
+
+if __name__ == "__main__":
+    # O cabeçalho da tabela do `render` alinhado de verdade (30/10): o app.py
+    # tem `th { text-align: left !important }`, e o `<th>` fora da esquerda
+    # sem `!important` perde para ela — título à esquerda, valor no centro.
+    import inspect
+    import re
+    _fonte = inspect.getsource(render)
+    _alins = re.findall(r"<th style=\"[^\"]*?'?\s*'?text-align:([^;\"]+)",
+                        _fonte.replace("'\n", "").replace("            '", ""))
+    _fora = [a for a in _alins if not a.startswith("left") and "!important" not in a]
+    _ok = bool(_alins) and not _fora
+    print(("ok    " if _ok else "FALHA ")
+          + f"render: {len(_alins)} cabeçalho(s), fora da esquerda só com !important {_fora}")
+    raise SystemExit(0 if _ok else 1)
