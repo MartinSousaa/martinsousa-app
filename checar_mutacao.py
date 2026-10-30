@@ -4572,6 +4572,20 @@ MUTACOES = [
         ["python3", "checar_tela.py"],
     ),
     (
+        'o aviso do ajuste de ponto some do topo do painel (30/10)',
+        "meu_desempenho.py",
+        [('    _alerta_de_ponto(res["pendencias"], agora)\n', '')],
+        None,
+        ["python3", "checar_tela.py"],
+    ),
+    (
+        'o aviso do ponto deixa de ficar critico na vespera do prazo (30/10)',
+        "meu_desempenho.py",
+        [('    if faltam == 1:\n', '    if faltam == -99:\n')],
+        None,
+        ["python3", "meu_desempenho.py"],
+    ),
+    (
         'o colaborador volta a ficar sem o mes em dinheiro (30/10)',
         "meu_desempenho.py",
         [('    _meu_mes_em_dinheiro(res)\n', '')],

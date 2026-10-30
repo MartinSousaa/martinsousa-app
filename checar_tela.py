@@ -4954,6 +4954,9 @@ def _meu_desempenho(conta):
               "Olá, Beatriz" in _j and "600" in _j and "1.500" in _j, _j[:200])
         conta("Meu desempenho: a pontuação reprovada aparece no que puxa a meta",
               "Pontuação (600 de 1.000 pts)" in _j and "Fora da meta coletiva" in _j, _j[-300:])
+        conta("Meu desempenho: o ajuste de ponto pendente vira aviso no topo, com o prazo e a regra",
+              "de ponto pendente" in _j and "falta não remunerada" in _j
+              and _j.index("de ponto pendente") < _j.index("Minha meta individual"), _j[:300])
         conta("Meu desempenho: o dia sem batida pede abono",
               "09/10" in _j and "abono" in _j, "")
         conta("Meu desempenho: duas demandas fora do Desativar geram o aviso",

@@ -190,6 +190,64 @@ def aparece_para(usuario_logado):
     return _pc.username_do_login(usuario_logado) in _pc.MEMBROS_ATIVOS
 
 
+def dia_do_pagamento(ano, mes):
+    """O dia em que o salário cai (dono, 30/10): dia 30; em fevereiro, dia 28;
+    em sábado ou domingo, na sexta antes. Feriado não entra — o Studio não
+    tem o calendário de feriados para isto. Pura."""
+    from datetime import date, timedelta
+    d = date(ano, mes, 28 if mes == 2 else 30)
+    return d - timedelta(days=max(d.weekday() - 4, 0))
+
+
+def prazo_do_ajuste(hoje):
+    """Último dia para ajustar o ponto: a véspera do pagamento deste mês — o
+    dia 29 quando o salário cai no 30. Depois dela o período já virou, e o
+    prazo é a véspera do pagamento do mês seguinte. Pura."""
+    from datetime import timedelta
+    d = hoje.date() if hasattr(hoje, "date") else hoje
+    prazo = dia_do_pagamento(d.year, d.month) - timedelta(days=1)
+    if d > prazo:
+        a, m = (d.year + 1, 1) if d.month == 12 else (d.year, d.month + 1)
+        prazo = dia_do_pagamento(a, m) - timedelta(days=1)
+    return prazo
+
+
+def alerta_de_ponto(pendencias, hoje):
+    """O aviso do topo do painel: None, ou {"critico", "titulo", "texto"}. Pura.
+
+    Dono, 30/10: alertar o ajuste de ponto que falta, "mais crítico no dia 28
+    e 29 por ser o último dia possível", e dizer que o que não for ajustado
+    "constará como falta não remunerada ou uso do banco de horas
+    automaticamente" — que é o que `folha_mes.apurar` faz com a hora que falta.
+    """
+    if not pendencias:
+        return None
+    prazo = prazo_do_ajuste(hoje)
+    faltam = (prazo - hoje.date() if hasattr(hoje, "date") else prazo - hoje).days
+    n = len(pendencias)
+    qtd = f"{n} ajuste{'s' if n > 1 else ''} de ponto pendente{'s' if n > 1 else ''}"
+    regra = (f"O que não for ajustado até {prazo:%d/%m} entra AUTOMATICAMENTE como uso do "
+             "seu banco de horas e, sem banco, como falta não remunerada, descontada do "
+             "salário.")
+    if faltam <= 0:
+        return {"critico": True, "titulo": f"🚨 HOJE É O ÚLTIMO DIA — {qtd}",
+                "texto": regra}
+    if faltam == 1:
+        return {"critico": True, "titulo": f"🚨 AMANHÃ ({prazo:%d/%m}) É O ÚLTIMO DIA — {qtd}",
+                "texto": regra}
+    return {"critico": False, "titulo": f"⚠️ Você tem {qtd} · prazo {prazo:%d/%m}",
+            "texto": regra}
+
+
+def _alerta_de_ponto(pendencias, agora):
+    a = alerta_de_ponto(pendencias, agora)
+    if not a:
+        return
+    dias = ", ".join(f"{p['data'][8:10]}/{p['data'][5:7]}" for p in pendencias)
+    corpo = f"### {a['titulo']}\n\nDias: **{dias}** — veja abaixo, em Ponto pendente.\n\n{a['texto']}"
+    (st.error if a["critico"] else st.warning)(corpo)
+
+
 def pagina(usuario_logado):
     u = _pc.username_do_login(usuario_logado)
     if not aparece_para(usuario_logado):
@@ -213,6 +271,7 @@ def pagina(usuario_logado):
     st.markdown(f"## Olá, {nome} 👋")
     st.caption(f"Seu mês até agora · {res['decorridos']} de {res['uteis']} "
                "dias úteis · atualiza a cada 5 minutos")
+    _alerta_de_ponto(res["pendencias"], agora)
 
     c1, c2 = st.columns([1.3, 1])
     with c1:
@@ -419,5 +478,33 @@ if __name__ == "__main__":
            for n in _ast_nav.walk(_f_op))
        and "_meu" in _ast_nav.unparse(_f_op).split("Análise de Viabilidade")[0])
 
+    # O AVISO DO PONTO (dono, 30/10): prazo no 29, crítico no 28 e no 29.
+    # As pendências na forma de `relogio_ponto.pendencia_do_dia`, de verdade.
+    import relogio_ponto as _rp_t
+    _pd = [_rp_t.pendencia_do_dia({"data": "2026-10-09", "batidas": []}, "2026-10-20", True),
+           _rp_t.pendencia_do_dia({"data": "2026-10-14", "batidas": ["09:00"]}, "2026-10-20", True)]
+    _dia = lambda d, m=10: datetime(2026, m, d, 10, tzinfo=_pc.FUSO)
+    ok("sem pendência, sem aviso", alerta_de_ponto([], _dia(28)) is None)
+    _a20 = alerta_de_ponto(_pd, _dia(20))
+    ok("dia 20: aviso amarelo, 2 ajustes, prazo 29/10, e diz o que acontece depois",
+       not _a20["critico"] and "2 ajustes" in _a20["titulo"] and "29/10" in _a20["titulo"]
+       and "banco de horas" in _a20["texto"] and "falta não remunerada" in _a20["texto"])
+    ok("dia 27 ainda é amarelo", not alerta_de_ponto(_pd, _dia(27))["critico"])
+    ok("dia 28: crítico, AMANHÃ é o último dia",
+       alerta_de_ponto(_pd, _dia(28))["critico"] and "AMANHÃ" in alerta_de_ponto(_pd, _dia(28))["titulo"])
+    ok("dia 29: crítico, HOJE é o último dia",
+       alerta_de_ponto(_pd, _dia(29))["critico"] and "HOJE" in alerta_de_ponto(_pd, _dia(29))["titulo"])
+    ok("dia 30: o período virou, o prazo passa a ser 29/11",
+       prazo_do_ajuste(_dia(30)).isoformat() == "2026-11-29"
+       and prazo_do_ajuste(_dia(31, 12)).isoformat() == "2027-01-28")
+    ok("pagamento: 30; fevereiro 28; sábado ou domingo, a sexta antes",
+       dia_do_pagamento(2026, 10).isoformat() == "2026-10-30"
+       and dia_do_pagamento(2027, 2).isoformat() == "2027-02-26"
+       and dia_do_pagamento(2026, 8).isoformat() == "2026-08-28"
+       and dia_do_pagamento(2027, 1).isoformat() == "2027-01-29")
+    ok("pagamento na sexta 28/08: prazo 27/08, e o 26 já é crítico",
+       prazo_do_ajuste(_dia(10, 8)).isoformat() == "2026-08-27"
+       and alerta_de_ponto(_pd, _dia(26, 8))["critico"]
+       and not alerta_de_ponto(_pd, _dia(25, 8))["critico"])
     print("\nfalhas:", falhas)
     raise SystemExit(1 if falhas else 0)
