@@ -547,15 +547,16 @@ if __name__ == "__main__":
     # com a grade sugerida; só a planilha trocada.
     import colaboradores as _co_t
     import pandas as _pd_t
-    _g_co = (_co_t.carregar, _co_t._aj, _co_t.carregar_taxas)
+    _aj_mod = _co_t._aj()
+    _g_co = (_co_t.carregar, _aj_mod.carregar, _co_t.carregar_taxas)
     _pad = {"cargo": _co_t.CARGO_PADRAO, "registrado": "Sim",
             "salario_base": _co_t.SALARIO_PADRAO, "admissao": "2026-01",
             "dias_uteis": 22, "no_aporte": "Sim"}
     try:
         _co_t.carregar = lambda *a, **k: _pd_t.DataFrame([{**_pad, **p} for p in _co_t.SUGESTOES])
-        _aj_mod = _co_t._aj()
-        _co_t._aj = lambda: type("A", (), {"carregar": staticmethod(
-            lambda *a, **k: _pd_t.DataFrame(columns=_aj_mod.COLUNAS))})
+        # Só a LEITURA da planilha de ajustes é trocada; o resto do módulo
+        # (`por_item`, que a folha usa) é o de verdade.
+        _aj_mod.carregar = lambda *a, **k: _pd_t.DataFrame(columns=_aj_mod.COLUNAS)
         _co_t.carregar_taxas = lambda *a, **k: _co_t.taxas_padrao()
         _sal_t = salarios_do_mes(2026, 10)
         _ok_sal = _sal_t.get(_pc_t.username_do_login("Gabriel"), 0) > 0
@@ -566,7 +567,7 @@ if __name__ == "__main__":
         except RuntimeError:
             _sobe = True
     finally:
-        _co_t.carregar, _co_t._aj, _co_t.carregar_taxas = _g_co
+        _co_t.carregar, _aj_mod.carregar, _co_t.carregar_taxas = _g_co
     ok("salarios_do_mes: o salário da folha chega por username; planilha fora sobe erro",
        _ok_sal and _sobe)
     ok("reais: meio centavo para cima, em conta exata (5h27 × R$ 12,50 = R$ 68,13)",
