@@ -4541,6 +4541,21 @@ MUTACOES = [
         None,
         ["python3", "checar_navegador.py"],
     ),
+    (
+        'a busca da triagem volta a ler o nome como padrao: "+" nao acha (30/10)',
+        "triagem.py",
+        [('        trecho_l, na=False, regex=False)]', '        trecho_l, na=False)]')],
+        None,
+        ["python3", "triagem.py"],
+    ),
+    (
+        'busca do pandas sem regex=False volta a passar no alcance (30/10)',
+        "atividades.py",
+        [('.str.lower().str.contains(termo, na=False, regex=False) |',
+          '.str.lower().str.contains(termo, na=False) |')],
+        None,
+        ["python3", "checar_alcance.py"],
+    ),
 ]
 
 
