@@ -398,11 +398,11 @@ def render(expandido=True, chave_salario="expl_salario",
             '<th style="padding:10px 12px;font-size:11px;text-transform:uppercase;'
             'text-align:left;color:var(--ms-texto-sec);">🙋 Meta individual</th>'
             '<th style="padding:10px 12px;font-size:11px;text-transform:uppercase;'
-            'text-align:center;color:var(--ms-texto-sec);">Aumento</th>'
+            'text-align:center !important;color:var(--ms-texto-sec);">Aumento</th>'
             '<th style="padding:10px 12px;font-size:11px;text-transform:uppercase;'
-            'text-align:right;color:var(--ms-texto-sec);">A mais</th>'
+            'text-align:right !important;color:var(--ms-texto-sec);">A mais</th>'
             '<th style="padding:10px 12px;font-size:11px;text-transform:uppercase;'
-            'text-align:right;color:var(--ms-texto-sec);">Você recebe</th>'
+            'text-align:right !important;color:var(--ms-texto-sec);">Você recebe</th>'
             '</tr></thead><tbody>' + linhas + '</tbody></table></div>',
             unsafe_allow_html=True)
 

@@ -83,7 +83,7 @@ def _celula(valor, cor="var(--ms-texto)", bold=False):
 def _thead(colunas):
     ths = "".join(
         f'<th style="padding:5px 10px;font-size:9px;color:var(--ms-texto-sec);'
-        f'text-transform:uppercase;letter-spacing:.5px;text-align:{"left" if i==0 else "right"};'
+        f'text-transform:uppercase;letter-spacing:.5px;text-align:{"left" if i==0 else "right"} !important;'
         f'white-space:nowrap;">{c}</th>'
         for i, c in enumerate(colunas)
     )
@@ -977,7 +977,7 @@ def _detalhe_pontualidade(ocorrencias, username):
             'text-transform:uppercase;color:var(--ms-texto-sec);">Bateu</th>'
             '<th style="padding:7px 10px;font-size:10px;text-align:left;'
             'text-transform:uppercase;color:var(--ms-texto-sec);">O quê</th>'
-            '<th style="padding:7px 10px;font-size:10px;text-align:right;'
+            '<th style="padding:7px 10px;font-size:10px;text-align:right !important;'
             'text-transform:uppercase;color:var(--ms-texto-sec);">Passou</th>'
             '</tr></thead><tbody>' + linhas + '</tbody></table></div>',
             unsafe_allow_html=True)
@@ -4783,9 +4783,9 @@ def _chart_colaboracao(dados, username):
             f'<thead><tr style="color:var(--ms-texto-sec);font-size:9.5px;'
             f'text-transform:uppercase;letter-spacing:.4px;">'
             f'<th style="text-align:left;padding:3px 6px;">Mês</th>'
-            f'<th style="text-align:right;padding:3px 6px;">Pontos</th>'
-            f'<th style="text-align:right;padding:3px 6px;">Equipe</th>'
-            f'<th style="text-align:right;padding:3px 6px;">Contrib.</th>'
+            f'<th style="text-align:right !important;padding:3px 6px;">Pontos</th>'
+            f'<th style="text-align:right !important;padding:3px 6px;">Equipe</th>'
+            f'<th style="text-align:right !important;padding:3px 6px;">Contrib.</th>'
             f'</tr></thead><tbody>{corpo}</tbody></table>')
     return html
 
@@ -5821,7 +5821,7 @@ def _tabela_comparativo(linhas, ctx, ordem="Índice geral"):
            f'text-transform:uppercase;letter-spacing:.4px;'
            f'color:var(--ms-texto-sec);white-space:nowrap;">Colaborador</th>')
     for titulo, limite, _fn in COLUNAS:
-        cab += (f'<th style="{_pad}text-align:center;vertical-align:bottom;">'
+        cab += (f'<th style="{_pad}text-align:center !important;vertical-align:bottom;">'
                 f'<div style="font-size:10px;font-weight:700;'
                 f'color:var(--ms-texto);white-space:nowrap;">{titulo}</div>'
                 f'<div style="font-size:8.5px;font-weight:400;'

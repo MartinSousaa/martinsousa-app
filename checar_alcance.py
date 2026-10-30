@@ -1132,6 +1132,44 @@ def main():
                     f"(30/10).")
     print(f"ok    {_vistas_rx} busca(s) de texto do pandas varrida(s)")
 
+    # ── CABEÇALHO DE TABELA FORA DA ESQUERDA PRECISA DE !important (30/10) ──
+    #
+    # `app.py` tem `th { text-align: left !important; }`. Um `<th
+    # style="text-align:center">` sem `!important` PERDE para ela no
+    # navegador: o valor fica no centro e o título à esquerda, desalinhados.
+    # Foi o Balanço headcount ("centralize os valores e as colunas"), e mais
+    # oito cabeçalhos em quatro telas. Medido em Chromium: sem `!important`,
+    # 'left'; com, 'center'. A varredura é por TEXTO de string do código (AST),
+    # para comentário e docstring não contarem.
+    _rx_th = re.compile(r'<th style="[^"]*?text-align:\s*([^;"]+)')
+    _vistos_th = 0
+    for _nome_th in _arquivos():
+        if os.path.basename(_nome_th).startswith("checar_"):
+            continue
+        try:
+            _arv_th = ast.parse(open(_nome_th, encoding="utf-8").read())
+        except (SyntaxError, OSError):
+            continue
+        for _no_th in ast.walk(_arv_th):
+            if isinstance(_no_th, ast.JoinedStr):
+                _txt_th = "".join(
+                    _v.value if isinstance(_v, ast.Constant) else "{" + ast.unparse(_v.value) + "}"
+                    for _v in _no_th.values)
+            elif isinstance(_no_th, ast.Constant) and isinstance(_no_th.value, str):
+                _txt_th = _no_th.value
+            else:
+                continue
+            for _m_th in _rx_th.finditer(_txt_th):
+                _alin = _m_th.group(1).strip()
+                if _alin.startswith("left") or "!important" in _alin:
+                    continue
+                _vistos_th += 1
+                reprova(f"{_nome_th}:{_no_th.lineno} — `<th>` com text-align "
+                        f"`{_alin}` sem `!important`: a regra `th {{ text-align: "
+                        f"left !important }}` do app.py vence no navegador, e o "
+                        f"título fica à esquerda do valor (Balanço headcount, 30/10).")
+    print("ok    cabeçalhos de tabela alinhados de verdade")
+
     for _m in _conferir_isentos():
         reprova(_m)
     for _m in _gemeas_do_placar():

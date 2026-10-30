@@ -488,7 +488,7 @@ def _selo(fontes):
 
 def html_resumo(valores, fontes, cols, lpv, co, ano, em_pct=False):
     """A tabela do resumo, em R$ ou em %. Uma linha só (markdown)."""
-    th = (lambda c: f'<th style="text-align:right;padding:6px 7px;color:{SEC};'
+    th = (lambda c: f'<th style="text-align:right !important;padding:6px 7px;color:{SEC};'
           f'font-size:11px;font-weight:700;border-bottom:1px solid {BORDA};'
           f'white-space:nowrap;">{c}</th>')
     td = (lambda v, c=TEXTO, b=False: f'<td style="text-align:right;padding:5px 7px;'

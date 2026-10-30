@@ -4572,6 +4572,13 @@ MUTACOES = [
         ["python3", "checar_tela.py"],
     ),
     (
+        'o titulo da tabela do headcount volta a ficar a esquerda do valor (30/10)',
+        "headcount.py",
+        [('else "center"} !important;padding:6px 8px;', 'else "center"};padding:6px 8px;')],
+        None,
+        ["python3", "checar_alcance.py"],
+    ),
+    (
         'o valor da hora volta ao 200 fixo, e nao as horas do mes (30/10)',
         "folha_mes.py",
         [('    horas_mes = _pc.dias_uteis_do_mes(ano, mes)[0] * jornada\n',
