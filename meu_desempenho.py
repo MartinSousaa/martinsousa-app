@@ -295,10 +295,13 @@ def _meu_mes_em_dinheiro(res):
         st.markdown(f"### {_brl_md(f['salario_se_fechasse_hoje'])}")
         st.markdown(f"Base **{_brl_md(f['salario'])}**")
         if f["desconto"]:
+            # Com a marca do domingo, o desconto pode existir sem banco
+            # negativo: "0h00 no banco" seria mentira na tela dele.
+            _partes = ([f"{_fm.h(-f['negativo_min'])} no banco"] if f["negativo_min"] else []) \
+                + ([f"{f['semanas_falta']} domingo(s) de falta de dia inteiro"]
+                   if f["semanas_falta"] else [])
             st.markdown(f":red[Se o mês fechasse hoje: − {_brl_md(f['desconto'])} "
-                        f"({_fm.h(-f['negativo_min'])} no banco"
-                        + (f" e {f['semanas_falta']} domingo(s)" if f["semanas_falta"] else "")
-                        + ")]")
+                        f"({' e '.join(_partes)})]")
     with b.container(border=True):
         st.caption("BANCO DE HORAS")
         st.markdown(f"### {_fm.h(f['banco_final_min'])}")

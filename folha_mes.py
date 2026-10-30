@@ -21,11 +21,13 @@ NEGATIVO, e o colaborador vê o alerta. Se o mês FECHAR negativo:
 
     desconto = horas negativas × (salário ÷ DIVISOR_HORAS)
 
-O DOMINGO FICA DESLIGADO (dono, 30/10: "por enquanto não vamos considerar o
-domingo como desconto também, somente o dia de falta completa e as horas").
-A conta dele existe — o domingo (salário ÷ 30) de cada semana com falta de
-dia inteiro, Lei 605/49, art. 6º — e liga em `DESCONTA_DOMINGO`. A falta de
-dia inteiro continua descontada: são as 8h dela que deixam o banco negativo.
+O DOMINGO SÓ ONDE O DONO MARCAR (30/10): "deixe um botão de flegar quando
+houver falta do dia inteiro, caso for aplicar a regra do domingo eu flego".
+Sem marca, a falta desconta só as 8h dela (que deixam o banco negativo).
+Marcada, soma o domingo (salário ÷ 30) daquela semana — Lei 605/49, art. 6º —
+uma vez por semana, mesmo com duas faltas marcadas nela. A marca é decisão
+dele: vale mesmo com banco cobrindo as horas. Fica na aba `folha_domingo` da
+planilha (uma linha por falta marcada), e não na memória: deploy não apaga.
 
 Banco positivo só é mostrado (dono: "só mostra o saldo").
 
@@ -47,7 +49,8 @@ DE ONDE VEM CADA NÚMERO (nada é contado de novo aqui)
 from datetime import date
 
 DIVISOR_HORAS = 200
-DESCONTA_DOMINGO = False   # dono, 30/10: "por enquanto" — ver o topo
+ABA_DOMINGO = "folha_domingo"
+COLUNAS_DOMINGO = ["mes", "username", "data", "marcado_por", "marcado_em"]
 NIVEIS = (("col", "Coletiva"), ("maxx", "Coletiva MAXX"),
           ("ind", "Individual"), ("ind_maxx", "Individual MAXX"))
 
@@ -64,7 +67,7 @@ def semanas_com_falta(datas_iso):
 
 
 def apurar(salario, trab_min, abono_min, devido_min, banco_anterior_min=0.0,
-           faltas_dia_inteiro=(), fechado=False, com_domingo=None):
+           faltas_dia_inteiro=(), fechado=False, domingo_nas=()):
     """O salário de uma pessoa no mês. Pura.
 
     Devolve {"salario","saldo_mes_min","banco_final_min","usado_do_banco_min",
@@ -72,6 +75,9 @@ def apurar(salario, trab_min, abono_min, devido_min, banco_anterior_min=0.0,
              "desconto_domingo","desconto","salario_pagar","fechado"}.
     Mês aberto: o desconto é o que SERIA se fechasse hoje; o salário a pagar
     ainda é o base — quem decide é o fechamento.
+    `domingo_nas`: as faltas que o dono marcou para descontar o domingo. Só
+    conta a marca que é falta de dia inteiro deste mês — marca que sobrou de
+    uma falta abonada depois não desconta nada.
     """
     salario = float(salario or 0)
     saldo = float(trab_min or 0) + float(abono_min or 0) - float(devido_min or 0)
@@ -81,10 +87,8 @@ def apurar(salario, trab_min, abono_min, devido_min, banco_anterior_min=0.0,
     negativo = max(-final, 0.0)
     valor_hora = salario / DIVISOR_HORAS if salario else 0.0
     desc_h = round(negativo / 60 * valor_hora, 2)
-    if com_domingo is None:
-        com_domingo = DESCONTA_DOMINGO
-    semanas = (semanas_com_falta(faltas_dia_inteiro)
-               if com_domingo and negativo > 0 else 0)
+    _faltas = {str(x)[:10] for x in faltas_dia_inteiro or ()}
+    semanas = semanas_com_falta([x for x in domingo_nas or () if str(x)[:10] in _faltas])
     desc_dom = round(semanas * salario / 30, 2)
     desconto = round(desc_h + desc_dom, 2)
     return {"salario": salario, "saldo_mes_min": round(saldo, 1),
@@ -128,7 +132,8 @@ def metas(salario, b):
     return linhas, total_pct, round(salario * total_pct / 100, 2)
 
 
-def do_mes(ano, mes, dados, pont, bonus, hoje, salarios=None, bancos_anteriores=None):
+def do_mes(ano, mes, dados, pont, bonus, hoje, salarios=None, bancos_anteriores=None,
+           domingos=None):
     """{username: {"folha", "metas", "pct_metas", "metas_valor", "total"}} do mês.
 
     Recebe a apuração JÁ FEITA (a do `meu_desempenho.resumo_do_mes`): nada de
@@ -141,6 +146,8 @@ def do_mes(ano, mes, dados, pont, bonus, hoje, salarios=None, bancos_anteriores=
         salarios = salarios_do_mes(ano, mes)
     if bancos_anteriores is None:
         bancos_anteriores = bancos_do_mes_anterior(ano, mes)
+    if domingos is None:
+        domingos = domingos_marcados(ano, mes)
     devidas = _am.horas_devidas_min(dados, (dados[-1] or {}).get("cfg") if dados else None, hoje)
     fechado = (ano, mes) < (hoje.year, hoje.month)
     fora = {}
@@ -151,13 +158,69 @@ def do_mes(ano, mes, dados, pont, bonus, hoje, salarios=None, bancos_anteriores=
             continue
         p = (pont or {}).get(u) or {}
         faltas = [x.get("data") for x in p.get("pend") or [] if x.get("tipo") == "sem_batida"]
+        marcados = [d for d in domingos.get(u, []) if d in faltas]
         f = apurar(sal, p.get("min_trab", 0.0), p.get("min_abono", 0.0), devidas,
-                   bancos_anteriores.get(u, 0.0), faltas, fechado)
+                   bancos_anteriores.get(u, 0.0), faltas, fechado, marcados)
         linhas, pct, valor = metas(sal, (bonus or {}).get(u))
         fora[u] = {"folha": f, "metas": linhas, "pct_metas": pct, "metas_valor": valor,
-                   "faltas": faltas, "devidas_min": devidas,
+                   "faltas": faltas, "domingo_nas": marcados, "devidas_min": devidas,
                    "total": round(f["salario_pagar"] + valor, 2)}
     return fora
+
+
+def _aba_domingo():
+    import sheets as _sh
+    pl = _sh.planilha()
+    try:
+        return pl.worksheet(ABA_DOMINGO)
+    except Exception:
+        a = pl.add_worksheet(title=ABA_DOMINGO, rows=200, cols=len(COLUNAS_DOMINGO))
+        a.append_row(COLUNAS_DOMINGO, value_input_option="RAW")
+        return a
+
+
+def domingos_de(linhas, ano, mes):
+    """{username: [datas ISO]} marcadas no mês, das linhas da aba. Pura."""
+    chave = f"{ano:04d}-{mes:02d}"
+    fora = {}
+    for l in linhas or []:
+        if str(l.get("mes", "")).strip() == chave and l.get("username") and l.get("data"):
+            fora.setdefault(str(l["username"]).strip(), []).append(str(l["data"]).strip()[:10])
+    return fora
+
+
+def domingos_marcados(ano, mes):
+    """As faltas marcadas pelo dono para descontar o domingo. NÃO engole erro:
+    planilha fora do ar vira `dinheiro_erro` na tela, e não domingo esquecido."""
+    return domingos_de(_aba_domingo().get_all_records(), ano, mes)
+
+
+def linhas_com_marcas(linhas, ano, mes, marcas, por, quando):
+    """As linhas da aba depois de trocar as marcas do mês. Pura.
+
+    `marcas`: {username: [datas]} — a escolha INTEIRA do mês, como a tela
+    mostra. Os outros meses ficam como estão; quem marcou e quando, também,
+    para a marca que não mudou."""
+    chave = f"{ano:04d}-{mes:02d}"
+    antes = {(str(l.get("username")), str(l.get("data"))[:10]): l for l in linhas or []
+             if str(l.get("mes", "")).strip() == chave}
+    fora = [l for l in linhas or [] if str(l.get("mes", "")).strip() != chave]
+    for u, datas in sorted((marcas or {}).items()):
+        for d in sorted(set(datas)):
+            fora.append(antes.get((u, d)) or {"mes": chave, "username": u, "data": d,
+                                               "marcado_por": por, "marcado_em": quando})
+    return fora
+
+
+def gravar_domingos(ano, mes, marcas, por):
+    """Grava a escolha do mês (`linhas_com_marcas`). Levanta erro: a tela diz."""
+    import placar_core as _pc
+    a = _aba_domingo()
+    novas = linhas_com_marcas(a.get_all_records(), ano, mes, marcas, por,
+                              _pc.agora_br().strftime("%d/%m/%Y %H:%M"))
+    a.clear()
+    a.update([COLUNAS_DOMINGO] + [[str(l.get(c, "")) for c in COLUNAS_DOMINGO] for l in novas],
+             value_input_option="RAW")
 
 
 def salarios_do_mes(ano, mes):
@@ -212,18 +275,38 @@ if __name__ == "__main__":
     ok("devendo 2h com 5h de banco: o banco cobre, fica +3h, sem desconto",
        b["banco_final_min"] == 180 and b["usado_do_banco_min"] == 120 and b["desconto"] == 0)
     _sem = apurar(2200, _d - 480, 0, _d, 0, ["2026-10-14"], True)
-    ok("dono, 30/10: a falta de dia inteiro desconta as 8h, e o domingo NÃO",
-       not DESCONTA_DOMINGO and _sem["desconto_horas"] == 88.0
-       and _sem["desconto_domingo"] == 0 and _sem["semanas_falta"] == 0
-       and _sem["salario_pagar"] == 2112.0)
-    # A conta do domingo continua existindo para quando ele ligar.
-    c = apurar(2200, _d - 480, 0, _d, 0, ["2026-10-14"], True, com_domingo=True)
-    ok("com o domingo ligado: 8h + o domingo da semana",
+    ok("falta SEM marca do dono: desconta as 8h, e o domingo NÃO",
+       _sem["desconto_horas"] == 88.0 and _sem["desconto_domingo"] == 0
+       and _sem["semanas_falta"] == 0 and _sem["salario_pagar"] == 2112.0)
+    c = apurar(2200, _d - 480, 0, _d, 0, ["2026-10-14"], True, ["2026-10-14"])
+    ok("falta MARCADA pelo dono: 8h + o domingo da semana",
        c["desconto_horas"] == 88.0 and c["desconto_domingo"] == round(2200 / 30, 2)
        and c["semanas_falta"] == 1)
-    c2 = apurar(2200, _d - 480, 0, _d, 600, ["2026-10-14"], True, com_domingo=True)
-    ok("falta de dia inteiro coberta pelo banco: não perde o domingo",
-       c2["desconto"] == 0 and c2["banco_final_min"] == 120)
+    c2 = apurar(2200, _d - 480, 0, _d, 600, ["2026-10-14"], True, ["2026-10-14"])
+    ok("marcada com banco cobrindo as horas: o banco cobre as 8h, o domingo é a marca dele",
+       c2["desconto_horas"] == 0 and c2["desconto"] == round(2200 / 30, 2)
+       and c2["banco_final_min"] == 120)
+    ok("marca que não é falta (abonada depois) não desconta nada",
+       apurar(2200, _d, 0, _d, 0, [], True, ["2026-10-14"])["desconto"] == 0)
+    ok("duas marcadas na mesma semana: um domingo só",
+       apurar(2200, _d - 960, 0, _d, 0, ["2026-10-13", "2026-10-14"], True,
+              ["2026-10-13", "2026-10-14"])["semanas_falta"] == 1)
+    # A aba da planilha: trocar as marcas do mês não mexe nos outros meses,
+    # e a marca que ficou guarda quem marcou primeiro.
+    _ant = [{"mes": "2026-09", "username": "luiz", "data": "2026-09-15",
+             "marcado_por": "MartinSousa", "marcado_em": "30/09/2026 10:00"},
+            {"mes": "2026-10", "username": "luiz", "data": "2026-10-14",
+             "marcado_por": "MartinSousa", "marcado_em": "29/10/2026 09:00"},
+            {"mes": "2026-10", "username": "bia", "data": "2026-10-07",
+             "marcado_por": "MartinSousa", "marcado_em": "29/10/2026 09:00"}]
+    _nov = linhas_com_marcas(_ant, 2026, 10, {"luiz": ["2026-10-14", "2026-10-21"]},
+                             "MartinSousa", "30/10/2026 12:00")
+    ok("gravar: setembro intacto, a desmarcada sai, a nova entra, a antiga guarda a data",
+       _nov[0] == _ant[0] and len(_nov) == 3
+       and _nov[1]["marcado_em"] == "29/10/2026 09:00" and _nov[2]["data"] == "2026-10-21"
+       and not any(l["username"] == "bia" for l in _nov))
+    ok("ler: só o mês pedido", domingos_de(_nov, 2026, 10) == {"luiz": ["2026-10-14", "2026-10-21"]}
+       and domingos_de(_nov, 2026, 9) == {"luiz": ["2026-09-15"]})
     ok("duas faltas na mesma semana tiram um domingo; em semanas diferentes, dois",
        semanas_com_falta(["2026-10-13", "2026-10-14"]) == 1
        and semanas_com_falta(["2026-10-13", "2026-10-21"]) == 2)
@@ -258,12 +341,22 @@ if __name__ == "__main__":
                   "pend": [{"data": "2026-09-15", "tipo": "sem_batida"},
                            {"data": "2026-09-16", "tipo": "incompleta"}]}}
     _r = do_mes(2026, 9, _dados, _pont, {_u: {"col": True}}, _hoje,
-                salarios={_u: 3000.0}, bancos_anteriores={_u: 120.0})
+                salarios={_u: 3000.0}, bancos_anteriores={_u: 120.0}, domingos={})
     _f = _r[_u]["folha"]
     ok("cadeia: setembro fechado, devendo 8h com 2h de banco → −6h, só as 6h descontadas",
        _f["fechado"] and _f["banco_final_min"] == -360 and _f["desconto_horas"] == 90.0
        and _f["desconto_domingo"] == 0 and _f["salario_pagar"] == 2910.0
        and _r[_u]["faltas"] == ["2026-09-15"] and _r[_u]["metas_valor"] == 360.0)
+    # A marca do dono pela cadeia, no formato que `domingos_de` devolve da
+    # aba — e a da data que é só "incompleta" não conta.
+    _r2 = do_mes(2026, 9, _dados, _pont, {_u: {"col": True}}, _hoje,
+                 salarios={_u: 3000.0}, bancos_anteriores={_u: 120.0},
+                 domingos=domingos_de([{"mes": "2026-09", "username": _u, "data": "2026-09-15"},
+                                       {"mes": "2026-09", "username": _u, "data": "2026-09-16"}],
+                                      2026, 9))
+    ok("cadeia: com a falta de 15/09 marcada, soma o domingo (R$ 100) e só ele",
+       _r2[_u]["domingo_nas"] == ["2026-09-15"] and _r2[_u]["folha"]["desconto_domingo"] == 100.0
+       and _r2[_u]["folha"]["salario_pagar"] == 2810.0)
     ok("cadeia: quem não tem salário na folha fica de fora, e não recebendo zero",
        all(v is None for k, v in _r.items() if k != _u))
     ok("valor-hora = salário ÷ DIVISOR_HORAS (200: 40h semanais)",

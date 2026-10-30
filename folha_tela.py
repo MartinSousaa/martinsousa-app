@@ -55,6 +55,70 @@ def linhas_metas(por_pessoa, nomes):
     return linhas, total
 
 
+_DIAS = ("seg", "ter", "qua", "qui", "sex", "sáb", "dom")
+
+
+def faltas_para_marcar(por_pessoa, nomes):
+    """[(username, data ISO, marcada)] de toda falta de dia inteiro do mês. Pura."""
+    fora = []
+    for u, d in sorted(por_pessoa.items(), key=lambda kv: nomes.get(kv[0], kv[0])):
+        if not d:
+            continue
+        for dt in sorted(d.get("faltas") or []):
+            fora.append((u, dt, dt in (d.get("domingo_nas") or [])))
+    return fora
+
+
+def marcas_escolhidas(base, marcadas):
+    """{username: [datas]} com as caixas marcadas. `marcadas[i]` é a caixa da
+    linha `base[i]`. Quem ficou sem nenhuma marca entra vazio — é assim que a
+    desmarcada sai da planilha. Pura."""
+    fora = {}
+    for (u, dt, _), m in zip(base, marcadas):
+        fora.setdefault(u, [])
+        if m:
+            fora[u].append(dt)
+    return fora
+
+
+def _marcar_domingos(por, nomes, ano, mes, usuario_logado):
+    """A caixa do dono em cada falta de dia inteiro: desconta o domingo?"""
+    import pandas as pd
+    from datetime import date
+    import folha_mes as _fm
+    import meu_desempenho as _md
+    base = faltas_para_marcar(por, nomes)
+    with st.container(border=True):
+        st.markdown("**FALTAS DE DIA INTEIRO — DESCONTAR O DOMINGO?**")
+        if not base:
+            st.caption("Nenhuma falta de dia inteiro no mês.")
+            return
+        st.caption("Sem marca, a falta desconta só as 8h dela. Marcada, desconta também o "
+                   "domingo daquela semana (salário ÷ 30) — uma vez por semana. "
+                   "O colaborador vê o mesmo no painel dele.")
+        df = pd.DataFrame([{"Colaborador": nomes.get(u, u),
+                            "Dia": f"{date.fromisoformat(dt):%d/%m} "
+                                   f"({_DIAS[date.fromisoformat(dt).weekday()]})",
+                            "Descontar domingo": m} for u, dt, m in base])
+        ed = st.data_editor(df, hide_index=True, use_container_width=True,
+                            disabled=["Colaborador", "Dia"],
+                            key=f"folha_dom_{ano}_{mes}")
+        novas = [bool(x) for x in ed["Descontar domingo"]]
+        if novas == [m for _, _, m in base]:
+            return
+        if st.button("💾 Salvar marcações do domingo", type="primary",
+                     key=f"folha_dom_salvar_{ano}_{mes}"):
+            try:
+                _fm.gravar_domingos(ano, mes, marcas_escolhidas(base, novas), usuario_logado)
+            except Exception as e:
+                st.error(f"Não consegui gravar as marcações: {e}")
+                return
+            # A apuração do mês fica 5 min em cache — a do colaborador também.
+            # Sem limpar, a marca nova só apareceria daqui a 5 minutos.
+            _md.resumo_do_mes.clear()
+            st.rerun()
+
+
 def pagina(usuario_logado=None):
     import auth
     import pandas as pd
@@ -100,6 +164,7 @@ def pagina(usuario_logado=None):
     with st.container(border=True):
         st.markdown("**SALÁRIO — PELO PONTO**")
         st.dataframe(pd.DataFrame(sal), use_container_width=True, hide_index=True)
+    _marcar_domingos(por, nomes, ano, mes, usuario_logado)
     with st.container(border=True):
         st.markdown("**METAS — % DO SALÁRIO BASE**")
         st.dataframe(pd.DataFrame(met), use_container_width=True, hide_index=True)
@@ -125,7 +190,8 @@ if __name__ == "__main__":
     _f = _fm_t.apurar(2200, _d - 480, 0, _d, 0, ["2026-10-14"], True)
     _l, _p, _v = _fm_t.metas(2200, {"col": True})
     _por = {"luiz": {"folha": _f, "metas": _l, "pct_metas": _p, "metas_valor": _v,
-                     "faltas": ["2026-10-14"], "devidas_min": _d, "total": 0},
+                     "faltas": ["2026-10-14"], "domingo_nas": [], "devidas_min": _d,
+                     "total": 0},
             "fulano": None}
     _s, _t = linhas_salario(_por, {"luiz": "Luiz"})
     ok("salário: a falta sem banco desconta as 8h, sem domingo (dono, 30/10), e o total soma",
@@ -134,5 +200,20 @@ if __name__ == "__main__":
     _m, _tm = linhas_metas(_por, {"luiz": "Luiz"})
     ok("metas: coletiva paga R$ 264, as outras marcadas ✗", _tm == 264.0
        and _m[0]["Coletiva 12%"] == "✓ R$ 264,00" and _m[0]["Individual 8%"] == "✗")
+    # A caixa: as faltas viram linhas, e a escolha volta no formato que
+    # `folha_mes.linhas_com_marcas` grava.
+    _por["bia"] = dict(_por["luiz"], faltas=["2026-10-07", "2026-10-21"],
+                       domingo_nas=["2026-10-21"])
+    _b = faltas_para_marcar(_por, {"luiz": "Luiz", "bia": "Beatriz"})
+    ok("cada falta vira uma linha, já com a marca que está gravada",
+       _b == [("bia", "2026-10-07", False), ("bia", "2026-10-21", True),
+              ("luiz", "2026-10-14", False)])
+    _e = marcas_escolhidas(_b, [True, False, False])
+    ok("a escolha volta por pessoa, e quem desmarcou tudo entra vazio",
+       _e == {"bia": ["2026-10-07"], "luiz": []})
+    _rows = _fm_t.linhas_com_marcas(
+        [{"mes": "2026-10", "username": "bia", "data": "2026-10-21"}], 2026, 10, _e, "dono", "x")
+    ok("e gravada, a desmarcada sai e a marcada entra",
+       _fm_t.domingos_de(_rows, 2026, 10) == {"bia": ["2026-10-07"]})
     print("\nfalhas:", falhas)
     raise SystemExit(1 if falhas else 0)

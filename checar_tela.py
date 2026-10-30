@@ -4936,7 +4936,10 @@ def _meu_desempenho(conta):
         _pont["beatriz51"].update({"min_trab": 0.0, "min_abono": 0.0})
         _din = _fm_md.do_mes(2026, 10, _dados, _pont, _bon,
                              _dt_md(2026, 10, 26, 10, tzinfo=_pc_md.FUSO),
-                             salarios={"beatriz51": 2400.0}, bancos_anteriores={})
+                             salarios={"beatriz51": 2400.0}, bancos_anteriores={},
+                             domingos=_fm_md.domingos_de(
+                                 [{"mes": "2026-10", "username": "beatriz51",
+                                   "data": "2026-10-09"}], 2026, 10))
         _res["beatriz51"]["dinheiro"] = _din["beatriz51"]
         _md.resumo_do_mes = lambda a, m: _res
         _li = {"L1": "PRODUÇÃO", "L2": "DESATIVAR ANÚNCIOS"}
@@ -4962,17 +4965,24 @@ def _meu_desempenho(conta):
         import folha_tela as _ft_md
         import auth as _auth_md
         _g_ft = (_ft_md.st, _auth_md.eh_dono)
-        _tabs_ft = []
+        _tabs_ft, _eds_ft = [], []
         try:
             _ft_md.st = f
             _auth_md.eh_dono = lambda u: True
             f.dataframe = lambda df, *a, **k: _tabs_ft.append(df)
+            f.data_editor = lambda df, *a, **k: (_eds_ft.append(df), df)[1]
             _ft_md.pagina("MartinSousa")
         finally:
             _ft_md.st, _auth_md.eh_dono = _g_ft
         conta("Apuração do mês: a aba do dono mostra a mesma pessoa nas duas tabelas",
               len(_tabs_ft) == 2 and list(_tabs_ft[0]["Colaborador"]) == ["Beatriz"]
               and "Metas a pagar" in _tabs_ft[1].columns, str(len(_tabs_ft)))
+        conta("Apuração do mês: a falta de 09/10 tem a caixa do domingo, já marcada",
+              any("Descontar domingo" in getattr(_t, "columns", [])
+                  and list(_t["Descontar domingo"]) == [True] for _t in _eds_ft)
+              and "1 domingo" in str(_tabs_ft[0]["Desconto"].iloc[0]), str(_eds_ft)[:200])
+        conta("Meu desempenho: o colaborador vê o domingo descontado",
+              "1 domingo(s) de falta de dia inteiro" in _j, _j[-400:])
         # Sem cartão rodando e dentro do expediente batido: ociosidade agora.
         _txt.clear()
         _cards[:] = []
