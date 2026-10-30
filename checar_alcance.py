@@ -1090,6 +1090,48 @@ def main():
                         f"que foi digitado no anterior.")
     print(f"ok    {_vistas_w} lista(s) de chave de widget varrida(s)")
 
+    # ── TEXTO DIGITADO E TEXTO, NUNCA PADRAO (30/10) ──────────────────────
+    #
+    # A triagem "Porta 2 Relógio + Jóias" estava gravada, e a busca dizia
+    # "nenhuma triagem encontrada". O pandas le `str.contains(x)` como
+    # expressao regular por padrao: o `+` virava "repita o espaco", e o nome
+    # nunca achava a si mesmo. O mesmo valia para `(`, `?`, `*` e `.`.
+    #
+    # Corrigir a linha que doeu e a Forma 1. Por isso a varredura e de TODO o
+    # Studio: toda `.str.contains/match/fullmatch` com argumento que nao e
+    # texto fixo escrito no codigo tem de dizer `regex=False`. Texto fixo fica
+    # de fora — ali quem escreveu o padrao foi o programador, de proposito.
+    _vistas_rx = 0
+    for _nome_rx in _arquivos():
+        try:
+            _arv_rx = ast.parse(open(_nome_rx, encoding="utf-8").read())
+        except (SyntaxError, OSError):
+            continue
+        for _no_rx in ast.walk(_arv_rx):
+            if not (isinstance(_no_rx, ast.Call)
+                    and isinstance(_no_rx.func, ast.Attribute)
+                    and _no_rx.func.attr in ("contains", "match", "fullmatch")
+                    and isinstance(_no_rx.func.value, ast.Attribute)
+                    and _no_rx.func.value.attr == "str"
+                    and _no_rx.args):
+                continue
+            _vistas_rx += 1
+            _pad_rx = _no_rx.args[0]
+            if isinstance(_pad_rx, ast.Constant) and isinstance(_pad_rx.value, str):
+                continue
+            _literal_rx = any(
+                _k.arg == "regex" and isinstance(_k.value, ast.Constant)
+                and _k.value.value is False for _k in _no_rx.keywords)
+            if not _literal_rx:
+                reprova(
+                    f"{_nome_rx}:{_no_rx.lineno} — `.str.{_no_rx.func.attr}` "
+                    f"com texto que vem de variavel e sem `regex=False`. O "
+                    f"pandas le o texto como PADRAO: um nome com `+`, `(` ou "
+                    f"`?` nao acha a si mesmo, e a tela diz que o dado nao "
+                    f"existe. Foi a triagem \"Porta 2 Relógio + Jóias\" "
+                    f"(30/10).")
+    print(f"ok    {_vistas_rx} busca(s) de texto do pandas varrida(s)")
+
     for _m in _conferir_isentos():
         reprova(_m)
     for _m in _gemeas_do_placar():
