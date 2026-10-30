@@ -305,6 +305,33 @@ if __name__ == "__main__":
        _nov[0] == _ant[0] and len(_nov) == 3
        and _nov[1]["marcado_em"] == "29/10/2026 09:00" and _nov[2]["data"] == "2026-10-21"
        and not any(l["username"] == "bia" for l in _nov))
+    # GRAVAR DE VERDADE contra uma aba de mentira: escreve o cabeçalho e as
+    # linhas na ordem de COLUNAS_DOMINGO, e lê de volta o que a tela escolheu.
+    class _AbaFalsa:
+        def __init__(self, linhas):
+            self.linhas, self.escrito = linhas, None
+
+        def get_all_records(self):
+            return self.linhas
+
+        def clear(self):
+            self.escrito = []
+
+        def update(self, valores, **k):
+            self.escrito = valores
+    _af = _AbaFalsa(list(_ant))
+    _g_aba = globals()["_aba_domingo"]
+    globals()["_aba_domingo"] = lambda: _af
+    try:
+        gravar_domingos(2026, 10, {"luiz": ["2026-10-21"]}, "MartinSousa")
+    finally:
+        globals()["_aba_domingo"] = _g_aba
+    _volta = [dict(zip(_af.escrito[0], l)) for l in _af.escrito[1:]]
+    ok("gravar_domingos: cabeçalho certo, setembro intacto, outubro só com a escolha nova",
+       _af.escrito[0] == COLUNAS_DOMINGO
+       and domingos_de(_volta, 2026, 10) == {"luiz": ["2026-10-21"]}
+       and domingos_de(_volta, 2026, 9) == {"luiz": ["2026-09-15"]}
+       and _volta[-1]["marcado_por"] == "MartinSousa")
     ok("ler: só o mês pedido", domingos_de(_nov, 2026, 10) == {"luiz": ["2026-10-14", "2026-10-21"]}
        and domingos_de(_nov, 2026, 9) == {"luiz": ["2026-09-15"]})
     ok("duas faltas na mesma semana tiram um domingo; em semanas diferentes, dois",
