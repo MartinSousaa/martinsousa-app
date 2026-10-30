@@ -382,6 +382,7 @@ def main():
     print("  5 · o mapa de risco do diff")
     print("  6 · de onde veio o dado do teste")
     print("  8 · o custo por passada")
+    print("  13 · o pior nome REAL da planilha passa? (+ ( ) ? * acento)")
     print("É neles que os últimos defeitos apareceram.")
     print()
     if _n_passada < PASSADAS_PARA_SUBIR:

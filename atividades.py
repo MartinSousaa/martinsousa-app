@@ -348,8 +348,8 @@ def pagina_historico():
     if busca:
         termo = busca.strip().lower()
         mask = (
-            df_exibir["produto"].astype(str).str.lower().str.contains(termo, na=False) |
-            df_exibir.get("codigo", pd.Series([""] * len(df_exibir))).astype(str).str.lower().str.contains(termo, na=False)
+            df_exibir["produto"].astype(str).str.lower().str.contains(termo, na=False, regex=False) |
+            df_exibir.get("codigo", pd.Series([""] * len(df_exibir))).astype(str).str.lower().str.contains(termo, na=False, regex=False)
         )
         df_exibir = df_exibir[mask]
 

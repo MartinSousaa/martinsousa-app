@@ -483,7 +483,12 @@ def buscar_triagens_por_trecho(trecho):
     trecho_l = _normalizar(trecho).strip()
     if not trecho_l:
         return []
-    filtradas = df[df["nome_comercial"].astype(str).apply(_normalizar).str.contains(trecho_l, na=False)]
+    # TEXTO LITERAL, E NAO PADRAO (30/10). Sem `regex=False` o pandas le o
+    # nome como expressao regular, e "Porta 2 Relógio + Jóias" nao achava a
+    # propria triagem: o `+` vira "repita o espaco". A busca dizia "nenhuma
+    # triagem" com a linha gravada na planilha.
+    filtradas = df[df["nome_comercial"].astype(str).apply(_normalizar).str.contains(
+        trecho_l, na=False, regex=False)]
     if filtradas.empty:
         return []
     # DATA ORDENADA COMO DATA, E NÃO COMO TEXTO.
@@ -1266,6 +1271,27 @@ if __name__ == "__main__":
     # ── A data ordenada como DATA, e nao como texto ──────────────────────
     # "31/12/2025" vem DEPOIS de "01/01/2026" em ordem alfabetica: a "mais
     # recente" de cada variante era a mais antiga, e virava o mes.
+    # ── Nome com simbolo acha a si mesmo (30/10) ─────────────────────────
+    import inspect
+    # O nome e o da triagem real da Myrella, como esta gravado na planilha:
+    # o `+` fazia a busca ler padrao, e nao texto.
+    globals()["carregar_triagens"] = lambda: pd.concat([_BASE, pd.DataFrame([
+        {"id": "ddd", "nome_comercial": "Porta 2 Relógio + Jóias",
+         "data_hora": "30/10/2026 10:34", "usuario": "myrella"},
+        {"id": "eee", "nome_comercial": "Kit (2) Caixa? *Luxo*",
+         "data_hora": "30/10/2026 10:35", "usuario": "myrella"}])],
+        ignore_index=True)
+    ok("'Porta 2 Relógio + Jóias' acha a propria triagem",
+       [r["id"] for r in buscar_triagens_por_trecho(
+           "Porta 2 Relógio + Jóias")] == ["ddd"])
+    ok("parenteses, interrogacao e asterisco tambem sao texto",
+       [r["id"] for r in buscar_triagens_por_trecho(
+           "kit (2) caixa? *luxo*")] == ["eee"])
+    ok("e o seletor da tela, que chama esta busca, acha pelo nome inteiro",
+       "buscar_triagens_por_trecho(busca)"
+       in inspect.getsource(widget_seletor_produto))
+    globals()["carregar_triagens"] = lambda: _BASE
+
     _achadas = buscar_triagens_por_trecho("caixa de relogio")
     ok("uma entrada por variante", len(_achadas) == 1)
     ok("e a mais recente e a de 2026, nao a de 31/12/2025",

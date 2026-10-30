@@ -14,7 +14,7 @@ acabei de escrever, em poucas linhas.
 **0-bis. O sinal `@` sozinho é ordem de conferência.**
 Mensagem com `@` e mais nada significa: aplique o PROTOCOLO DE CONFERÊNCIA
 inteiro, sem pedir para repetir o que ele é. Ele está escrito em "O RETRABALHO
-QUE EU GERO", mais abaixo, e são sete passos:
+QUE EU GERO", mais abaixo, e são estes passos:
 
 1. Rodar os **sete verificadores**, e colar a saída — não "devem passar".
 2. Rodar o auto-teste de **todo arquivo tocado**, e os 60+ do repositório.
@@ -86,6 +86,16 @@ QUE EU GERO", mais abaixo, e são sete passos:
     vezes pedia login, e o token de login ia dentro de cada link. Passou uma
     semana em produção com o protocolo verde, porque nenhum verificador
     abria navegador. Quem achou foi o dono, pela extensão do Chrome.)*
+
+13. **O dado REAL passa? Testar com o nome que a equipe digita.** Todo campo
+    que recebe texto da equipe — nome de produto, busca, SKU, descrição —
+    se testa com o pior nome que já existe na planilha, não com "Caneca".
+    Símbolo (`+ ( ) ? * . /`), acento, espaço duplo, maiúscula. Busca do
+    pandas com texto vindo de variável exige `regex=False`. *(30/10: a
+    triagem "Porta 2 Relógio + Jóias" estava gravada e a busca dizia
+    "nenhuma triagem encontrada". O `+` virava padrão. Os testes só tinham
+    "Caixa de relógio" e "Álbum" — nomes escritos por mim, sem símbolo, e o
+    @ passou verde desde 29/09.)*
 
 `@` sozinho pede o protocolo. `@arquivo.py` continua sendo referência a
 arquivo, e não tem nada a ver com isto.
@@ -440,6 +450,28 @@ começa num Painel com clique próprio, como a Home.
 `target="_self"` em todo o Studio (docstring e comentário ficam de fora);
 `checar_navegador.py` mede o clique de ponta a ponta; e as duas têm entrada
 no `checar_mutacao` (reintroduzir o link deixa as duas vermelhas).
+
+### Forma 12 — testar com o nome que eu inventei, e não com o que a equipe digita
+
+30/10. A Myrella gravou a triagem "Porta 2 Relógio + Jóias"; o histórico
+mostrava, e a busca dizia "nenhuma triagem encontrada". `triagem.py` buscava
+com `str.contains(texto)`, que o pandas lê como EXPRESSÃO REGULAR: o `+`
+virava "repita o espaço", e o nome não achava a si mesmo. A irmã,
+`buscar_triagem_por_nome`, já tinha `regex=False` — Forma 1 de novo. E o
+histórico de atividades tinha o mesmo defeito.
+
+Passou em todos os @ porque nenhum verificador alimentava a busca com um
+nome de verdade: os testes tinham "Caixa de relógio 5 posições" e "Álbum de
+fotos 200", escritos por mim. É a Forma 7 com outro rosto — o dado do teste
+era mais limpo que a planilha.
+
+**Regra:** texto que a equipe digita é TEXTO, nunca padrão. E todo teste de
+campo de texto inclui o pior nome real (passo 13 do @).
+
+**Guarda:** `checar_alcance.py` reprova, por AST, toda
+`.str.contains/match/fullmatch` em todo o Studio com argumento vindo de
+variável e sem `regex=False`; o auto-teste da triagem busca o nome real da
+Myrella e um com `( ) ? *`; as duas têm entrada no `checar_mutacao`.
 
 ### O que eu mapeei e o que NÃO mapeei
 
