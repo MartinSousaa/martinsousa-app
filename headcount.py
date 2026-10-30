@@ -495,6 +495,28 @@ def salarios_do_mes(linhas_clt, taxas=None):
     return linhas, tot
 
 
+def a_pagar_por_funcionario(sal, ano, mes, resumo=None):
+    """({funcionario: {"desconto", "pagar"}}, erro) — o salário pelo ponto de
+    cada linha da folha, da Apuração do mês. `resumo` é a de
+    `meu_desempenho.resumo_do_mes`; None lê de lá."""
+    import placar_core as _pc
+    try:
+        if resumo is None:
+            import meu_desempenho as _md
+            resumo = _md.resumo_do_mes(ano, mes) or {}
+    except Exception as e:
+        return {}, str(e)[:160]
+    erro = next((r.get("dinheiro_erro") for r in resumo.values() if r.get("dinheiro_erro")), "")
+    fora = {}
+    for x in sal or []:
+        d = (resumo.get(_pc.username_do_login(x["funcionario"])) or {}).get("dinheiro")
+        if d:
+            f = d["folha"]
+            fora[x["funcionario"]] = {"desconto": f["desconto"],
+                                      "pagar": f["salario_se_fechasse_hoje"]}
+    return fora, erro
+
+
 def _chave_nome(t):
     import unicodedata
     t = unicodedata.normalize("NFD", str(t or "")).encode("ascii", "ignore")
@@ -767,9 +789,17 @@ def pagina(usuario_logado=None):
     pg_txt = pg.strftime("%d/%m/%Y") if pg else "—"
     _corrente = (ano, mes) == (hoje.year, hoje.month)
 
+    # O DESCONTO DO PONTO (dono, 30/10: "como ficará esse meu layout com essa
+    # alteração das horas deles, para eu ver quanto tenho que pagar para cada
+    # um"). A conta é a da Apuração do mês (`folha_mes`, pela apuração do
+    # `meu_desempenho`) — aqui só se lê. Os encargos continuam sobre o salário
+    # base: o registro em carteira começa em janeiro (dono, 30/10).
+    pagar, erro_p = a_pagar_por_funcionario(sal, ano, mes)
+    _desc_tot = round(sum(v["desconto"] for v in pagar.values()), 2)
     st.markdown(_grade([
         _cartao("Salários do mês", _brl(ts["salario"]),
-                f"{len(sal)} colaborador(es) CLT"),
+                f"{len(sal)} colaborador(es) CLT"
+                + (f" · a pagar dia 30: {_brl(ts['salario'] - _desc_tot)}" if pagar else "")),
         _cartao("Impostos e obrigações dos salários",
                 _brl(round(ts["custo"] - ts["salario"], 2)),
                 "FGTS, VT, férias, 1/3, 13º, multa"),
@@ -789,20 +819,41 @@ def pagina(usuario_logado=None):
         st.info("Nenhum colaborador com salário neste mês.")
     else:
         _ref = ts["refeicao"] > 0
-        cab = (["Colaborador", "Cargo", "Salário", "FGTS", "INSS/CPP", "Férias",
+        _pg = bool(pagar)
+        cab = (["Colaborador", "Cargo", "Salário"]
+               + (["Desconto ponto", "A pagar dia 30"] if _pg else [])
+               + ["FGTS", "INSS/CPP", "Férias",
                 "1/3", "13º", "Multa FGTS", "VT"] + (["Refeição"] if _ref else [])
                + ["Custo"])
-        lin = [[x["funcionario"], x["cargo"]] + [_v(x[c]) for c in
-               ("salario", "fgts", "inss_das", "ferias", "terco", "decimo",
+
+        def _cols_pg(x):
+            if not _pg:
+                return []
+            v = pagar.get(x["funcionario"])
+            if not v:
+                return ["—", _v(x["salario"])]
+            return [("− " + _v(v["desconto"])) if v["desconto"] else "—", _v(v["pagar"])]
+        lin = [[x["funcionario"], x["cargo"], _v(x["salario"])] + _cols_pg(x)
+               + [_v(x[c]) for c in
+               ("fgts", "inss_das", "ferias", "terco", "decimo",
                 "multa", "vt")] + ([_v(x["refeicao"])] if _ref else [])
                + [_v(x["custo"])] for x in sal]
-        tot = (["Total", ""] + [_v(ts[c]) for c in
-               ("salario", "fgts", "inss_das", "ferias", "terco", "decimo",
+        tot = (["Total", "", _v(ts["salario"])]
+               + ([("− " + _v(_desc_tot)) if _desc_tot else "—",
+                   _v(round(ts["salario"] - _desc_tot, 2))] if _pg else [])
+               + [_v(ts[c]) for c in
+               ("fgts", "inss_das", "ferias", "terco", "decimo",
                 "multa", "vt")] + ([_v(ts["refeicao"])] if _ref else [])
                + [_v(ts["custo"])])
         st.markdown(_tabela_html(cab, lin, tot, grupo=("FGTS", "INSS/CPP"),
                                  esquerda=2),
                     unsafe_allow_html=True)
+        if erro_p:
+            st.caption(f"Desconto do ponto indisponível: {erro_p}")
+        elif _pg:
+            st.caption("Desconto ponto e A pagar dia 30: pelo ponto da RHiD, do dia 30 ao "
+                       "29 — detalhe e holerite em Financeiro › 🧮 Apuração do mês. "
+                       "Encargos sobre o salário base.")
         _fora = [x["funcionario"] for x in sal if not x["no_aporte"]]
         if _fora:
             st.caption("Fora do aporte (não sai da Reserva): **"
@@ -1194,6 +1245,27 @@ if __name__ == "__main__":
        '"left" if i < esquerda else "center"' in _insp_h.getsource(_tabela_html))
 
     print("\nfalhas:", falhas)
+
+    # O DESCONTO DO PONTO NO BALANÇO (30/10): a linha da folha (nome) acha a
+    # pessoa da apuração pelo mesmo `username_do_login` da folha_mes, e o
+    # valor é o de `folha_mes.apurar`, sem conta nova.
+    import folha_mes as _fm_hc
+    import placar_core as _pc_hc
+    _u_hc = next(iter(_pc_hc.MEMBROS_ATIVOS))
+    _nome_hc = _pc_hc.MEMBROS_ATIVOS[_u_hc]
+    _f_hc = _fm_hc.apurar(2100, 0, 0, 480, 0, ["2026-10-07"], False,
+                          horas_do_mes_min=168 * 60)
+    _pg_hc, _e_hc = a_pagar_por_funcionario(
+        [{"funcionario": _nome_hc}, {"funcionario": "Ninguém"}], 2026, 10,
+        resumo={_u_hc: {"dinheiro": {"folha": _f_hc}}})
+    _ok = (_pg_hc == {_nome_hc: {"desconto": 100.0, "pagar": 2000.0}} and not _e_hc)
+    falhas += not _ok
+    print(("ok    " if _ok else "FALHA ")
+          + "balanço: desconto do ponto por funcionário, da apuração (R$ 100 de 8h)")
+    _pg_e, _e_e = a_pagar_por_funcionario([], 2026, 10, resumo={"x": {"dinheiro_erro": "RHiD fora"}})
+    _ok = _e_e == "RHiD fora"
+    falhas += not _ok
+    print(("ok    " if _ok else "FALHA ") + "balanço: erro da apuração chega à tela")
 
     # O CODIGO DE SAIDA. Sem ele, quem le `returncode` ve este modulo como
     # aprovado SEMPRE — e o `conferir.py` e o `checar_mutacao.py` leem

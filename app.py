@@ -507,7 +507,7 @@ table { color: var(--ms-texto) !important; border-collapse: collapse !important;
 th    { background-color: transparent !important; color: var(--ms-texto-sec) !important;
         font-size: 10px !important; font-weight: 600 !important; letter-spacing: 0.07em !important;
         text-transform: uppercase !important; border: none !important;
-        border-bottom: 1px solid var(--ms-divisor) !important; padding: 4px 6px !important; text-align: left !important; }
+        border-bottom: 1px solid var(--ms-divisor) !important; padding: 4px 6px !important; text-align: left; }
 td    { background-color: transparent !important; border: none !important;
         border-bottom: 1px solid var(--ms-divisor) !important; padding: 4px 6px !important;
         color: var(--ms-texto) !important; font-size: 12px !important; }

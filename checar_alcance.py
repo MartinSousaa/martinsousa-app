@@ -1132,6 +1132,50 @@ def main():
                     f"(30/10).")
     print(f"ok    {_vistas_rx} busca(s) de texto do pandas varrida(s)")
 
+    # ── CABEÇALHO DE TABELA ALINHADO COM O VALOR (30/10) ──────────────────
+    #
+    # "Centralize os valores e as colunas" (Balanço headcount): o valor ficava
+    # no centro e o título à esquerda. Causa, MEDIDA no Chromium com o
+    # Streamlit de verdade: `app.py` tinha `th { text-align: left !important }`,
+    # que vence o `<th style="text-align:center">`. A primeira correção pôs
+    # `!important` no inline — e o Streamlit APAGA a declaração inline que tem
+    # `!important`: o título continuava à esquerda (eu tinha medido numa
+    # página solta, fora do Streamlit — a Forma 11).
+    #
+    # As duas metades da regra: a regra geral do <th> não força alinhamento
+    # com !important, e nenhum `<th style=...>` escrito no código usa
+    # !important (ele simplesmente some). A medida no navegador é do
+    # `checar_navegador.py`.
+    _css_app = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.py"),
+                    encoding="utf-8").read()
+    for _m_css in re.finditer(r"(?m)^th\s*\{([^}]*)\}", _css_app):
+        if re.search(r"text-align\s*:[^;]*!important", _m_css.group(1)):
+            reprova("app.py — a regra geral `th { ... }` força text-align com "
+                    "!important: ela vence o alinhamento de toda tabela do Studio, "
+                    "e o título fica fora do valor (Balanço headcount, 30/10).")
+    _rx_th = re.compile(r'<th style="[^"]*?!important')
+    for _nome_th in _arquivos():
+        if os.path.basename(_nome_th).startswith("checar_"):
+            continue
+        try:
+            _arv_th = ast.parse(open(_nome_th, encoding="utf-8").read())
+        except (SyntaxError, OSError):
+            continue
+        for _no_th in ast.walk(_arv_th):
+            if isinstance(_no_th, ast.JoinedStr):
+                _txt_th = "".join(
+                    _v.value if isinstance(_v, ast.Constant) else "{" + ast.unparse(_v.value) + "}"
+                    for _v in _no_th.values)
+            elif isinstance(_no_th, ast.Constant) and isinstance(_no_th.value, str):
+                _txt_th = _no_th.value
+            else:
+                continue
+            if _rx_th.search(_txt_th):
+                reprova(f"{_nome_th}:{_no_th.lineno} — `<th style=...!important`: o "
+                        f"Streamlit APAGA a declaração inline com !important, e o "
+                        f"alinhamento some (medido no Chromium, 30/10).")
+    print("ok    cabeçalhos de tabela alinhados de verdade")
+
     for _m in _conferir_isentos():
         reprova(_m)
     for _m in _gemeas_do_placar():

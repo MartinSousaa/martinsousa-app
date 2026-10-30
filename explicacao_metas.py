@@ -480,3 +480,18 @@ def render(expandido=True, chave_salario="expl_salario",
 
         st.caption("Mais abaixo, no seu card, a mesma conta aparece com as "
                    "metas que já estão valendo neste mês.")
+
+
+if __name__ == "__main__":
+    # O cabeçalho da tabela do `render` alinhado de verdade (30/10). O
+    # Streamlit APAGA a declaração inline que tem `!important` (medido no
+    # Chromium): o alinhamento do <th> tem de ser simples, e é a regra geral
+    # do app.py que deixou de ser !important para ele valer.
+    import inspect
+    import re
+    _fonte = inspect.getsource(render)
+    _alins = re.findall(r"text-align:([^;\"']+);color:var\(--ms-texto-sec\);\">", _fonte)
+    _ok = len(_alins) >= 3 and "center" in _alins and not any("!important" in a for a in _alins)
+    print(("ok    " if _ok else "FALHA ")
+          + f"render: cabeçalhos {_alins}, sem !important (o Streamlit apagaria)")
+    raise SystemExit(0 if _ok else 1)
